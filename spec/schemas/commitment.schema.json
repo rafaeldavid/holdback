@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.3/commitment.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.4/commitment.schema.json",
   "title": "Commitment (terms + EIP-712 signatures)",
   "type": "object",
   "required": [
@@ -25,11 +25,11 @@
   "additionalProperties": false,
   "properties": {
     "schemaVersion": {
-      "const": "0.3"
+      "const": "0.4"
     },
     "id": {
       "$ref": "common.schema.json#/$defs/Hex32",
-      "description": "EIP-712 struct hash of the terms (everything except id and signatures)"
+      "description": "EIP-712 struct hash of the terms: everything except id, signatures and adjudicatorAcceptance (ADR-0016)"
     },
     "clubId": {
       "type": "string"
@@ -169,7 +169,6 @@
         "appealAdjudicator",
         "policyId",
         "fee",
-        "panelCommitment",
         "registryHash",
         "policyHash"
       ],
@@ -189,10 +188,6 @@
         },
         "fee": {
           "$ref": "common.schema.json#/$defs/TokenAmount"
-        },
-        "panelCommitment": {
-          "$ref": "common.schema.json#/$defs/Hex32",
-          "description": "keccak256(seed || commitmentId), posted by the adjudicator at agreement"
         },
         "registryHash": {
           "$ref": "common.schema.json#/$defs/Hex32",
@@ -299,6 +294,10 @@
           "$ref": "common.schema.json#/$defs/Signature"
         }
       }
+    },
+    "adjudicatorAcceptance": {
+      "$ref": "messages.schema.json#/$defs/AdjudicatorAcceptance",
+      "description": "The primary adjudicator's signed acceptance, outside the ID. Required before funding (ADR-0016)"
     }
   },
   "$defs": {

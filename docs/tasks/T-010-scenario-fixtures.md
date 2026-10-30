@@ -3,7 +3,7 @@
 - **Lane:** test
 - **Phase:** 1
 - **Depends on:** T-005, T-007, T-009, T-012
-- **Paths this task may touch:** `fixtures/scenarios/`, `fixtures/recordings/`, `fixtures/clubs/`, `fixtures/terms/`
+- **Paths this task may touch:** `fixtures/scenarios/`, `fixtures/recordings/` (`fixtures/clubs/` and `fixtures/terms/` belong to T-012)
 - **Human gate:** no
 - **Status:** todo
 - **Agent/session:** —
@@ -20,7 +20,7 @@ Restate this in your own words in this section before writing code.
 
 ## Acceptance criteria
 
-- [ ] Every Phase 1 row in the scenario index exists and passes, including the rows added by the Phase 0 review (`neutrality.appeal-adjudicator-offline-after-escalation`, `neutrality.maintainers-change-registry`, `attack.adjudicator-self-dealing`, `appeal-bad-key-release`, `todo.adjudicator-leaks-plaintext`).
+- [ ] Every Phase 1 row in the scenario index exists and passes, including the rows added by the Phase 0 review (`neutrality.appeal-adjudicator-offline-after-escalation`, `neutrality.maintainers-change-registry`, `attack.adjudicator-self-dealing`, `appeal-bad-key-release`, `todo.adjudicator-leaks-plaintext`) and by ADR-0016 (`neutrality.adjudicator-never-accepts`, `neutrality.adjudicator-silent-before-judging`, `error.acceptance-mismatch`, `error.seed-mismatch`, `error.member-not-admitted`, `early-accept-releases-key`).
 - [ ] Recordings captured with `--record` from at least two model families; model IDs visible in snapshots.
 - [ ] Each `neutrality.` fixture asserts the terminal state and balances named in `docs/neutrality.md`.
 - [ ] Snapshots reviewed for readability by a human (Rafa or reviewer agent) — record reviewer.

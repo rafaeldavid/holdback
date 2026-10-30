@@ -57,18 +57,18 @@ Parallel lanes own disjoint paths, which reduces merge conflicts.
 | --- | --- | --- |
 | infra | root config, `.github/`, `.claude/` | T-001, T-011 |
 | research | `docs/research/` | T-002, T-003 |
-| core | `packages/core/`, `spec/` (read-only without ADR) | T-004 |
-| test | `packages/testkit/`, `fixtures/` | T-005, T-010 |
+| core | `packages/core/`, `spec/` (read-only without ADR) | T-004, T-014 |
+| test | `packages/testkit/`, `fixtures/` (except `fixtures/clubs/`, `fixtures/terms/`, `fixtures/data/`) | T-005, T-010 |
 | settlement | `packages/settlement/` | T-006 |
 | api | `apps/operator/`, `packages/sdk/` | T-007 |
 | judgment | `packages/judgment/`, `apps/adjudicator/` | T-008, T-009 |
-| demo | `apps/demo/` | T-012, T-013 |
+| demo | `apps/demo/`, `fixtures/clubs/`, `fixtures/terms/`, `fixtures/data/` | T-012, T-013 |
 
 **Parallelization map for Phase 1:**
 1. T-001, T-002 and T-003 start together.
 2. T-004 and T-005 follow T-001.
-3. T-006, T-008 and T-012 follow T-004.
-4. T-007 and T-009 follow T-006.
+3. T-014 and T-008 follow T-004; T-006 follows T-004 and T-014.
+4. T-007 and T-009 follow T-006; T-012 follows T-007 and T-009.
 5. T-010 needs T-005, T-007, T-009 and T-012.
 6. T-013 needs everything.
 

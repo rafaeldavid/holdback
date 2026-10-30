@@ -28,7 +28,11 @@
     "aggregationVersion": "agg-1",
     "screenVersion": "screen-1"
   },
-  "registryVersion": 1,
+  "registry": {
+    "hash": "0x54bdcd5545af7f0a1d42fa9adad89dc6f5d20ea8c0e16b270d2160b78b16007a",
+    "uri": "https://bench-a.example/registry/v3.json"
+  },
+  "policyHash": "0x04221c401f162ef3a3c07c9d97024f3a13eb30f262b0c088ee6f63fa2c893dbb",
   "fee": {
     "min": {
       "token": "tUSD",

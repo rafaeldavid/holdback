@@ -20,7 +20,7 @@ Restate this in your own words in this section before writing code.
 
 ## Acceptance criteria
 
-- [ ] Endpoints listed for Phase 1 (registry, faucet, commitments incl. one-shot `/v1/holds`, deliveries, accept, appeals, triggers, reads, key, events SSE).
+- [ ] Endpoints listed for Phase 1 (registry, club membership, adjudicator discovery, faucet, commitments incl. adjudicator acceptance and one-shot `/v1/holds`, deliveries, early accept, decisions, appeals, triggers, reads, key, events SSE).
 - [ ] Idempotency middleware with 409 on body mismatch; property test.
 - [ ] RFC 9457 problem responses with the listed types.
 - [ ] Startup guards: refuse non-`sk_test_` Stripe keys and mainnet chain IDs (unit test).

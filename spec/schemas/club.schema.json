@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.3/club.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.4/club.schema.json",
   "title": "Club and rulebook",
   "type": "object",
   "required": [
@@ -30,14 +30,15 @@
         "version",
         "open",
         "minWindowsSec",
-        "coverageRatio",
+        "windowCoverageRatio",
         "appealBondRate",
         "sealedChecksMaxWeight",
         "maxSubmissions",
         "defaultOutcome",
         "allowedSettlementModes",
         "allowedTokens",
-        "panelPolicyMin"
+        "panelPolicyMin",
+        "appealFee"
       ],
       "properties": {
         "version": {
@@ -80,8 +81,9 @@
             }
           }
         },
-        "coverageRatio": {
-          "$ref": "common.schema.json#/$defs/Rate"
+        "windowCoverageRatio": {
+          "$ref": "common.schema.json#/$defs/Rate",
+          "description": "Minimum bond share of open exposure for settle_after_window commitments; guaranteed commitments always need 100% (ADR-0007)"
         },
         "appealBondRate": {
           "$ref": "common.schema.json#/$defs/Rate"
@@ -148,6 +150,10 @@
               "minimum": 2
             }
           }
+        },
+        "appealFee": {
+          "$ref": "common.schema.json#/$defs/TokenAmount",
+          "description": "Paid by an appellant to the appeal adjudicator"
         }
       }
     },

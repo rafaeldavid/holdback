@@ -50,7 +50,8 @@ flowchart LR
 | --- | --- | --- |
 | Club / rulebook | id, rulebook parameters, rulebookHash | `club.schema.json` |
 | Agent | address, member, scope (caps, roles, expiry), mandate | `agent.schema.json`, `mandate.schema.json` |
-| Commitment | terms (deliverable, acceptance, price, timing, adjudication, settlement), rulebookHash, nonce, EIP-712 signatures | `commitment.schema.json` |
+| Commitment | terms (deliverable, acceptance, price, timing, adjudication with registryHash and policyHash, settlement), rulebookHash, nonce, EIP-712 signatures; the adjudicator acceptance sits outside the ID | `commitment.schema.json` |
+| Signed messages | Offer, Agree, AdjudicatorAcceptance, FundingAuthorization, EarlyAccept, Decision, AgentRevocation, MemberAdmission, MemberRevocation | `messages.schema.json` |
 | Hold | commitmentId, token, amount, state, railRef | inside `commitment-state.schema.json` |
 | Delivery | ciphertext URI, plaintext SHA-256, ciphertext SHA-256, content key encrypted to the adjudicator, attempt | `delivery.schema.json` |
 | Verdict | one judge's structured output | `judge-verdict.schema.json` |
@@ -61,51 +62,67 @@ flowchart LR
 
 ## Commitment state machine
 
+The state has two parts (ADR-0016): the **escrow state** says where the money is, and the **appeal state** says whether a first-instance decision is under appeal.
+
+**Escrow state**
+
 ```mermaid
 stateDiagram-v2
   [*] --> Offered: seller signs
-  Offered --> Agreed: buyer signs
+  Offered --> AcceptedByAdjudicator: primary adjudicator accepts (seed commitment, bond reserved)
   Offered --> Expired: offer expiry (anyone)
-  Agreed --> Held: fund (buyer or relayer with buyer authorization)
+  AcceptedByAdjudicator --> Agreed: buyer signs
+  AcceptedByAdjudicator --> Expired: offer expiry (anyone)
+  Agreed --> Held: fund (acceptance and reserved bond required)
   Agreed --> Expired: fund deadline (anyone)
   Held --> Delivered: seller delivers (attempt ≤ max)
   Held --> Refunded: deliverBy passed (anyone: reclaim)
-  Delivered --> Accepted: buyer accepts early
-  Delivered --> Judging: adjudicator opens
-  Judging --> Accepted: decision accept
-  Judging --> Rejected: decision reject
-  Judging --> Escalated: decision escalate
-  Judging --> FallbackJudging: judgeBy passed (anyone)
-  FallbackJudging --> Accepted
-  FallbackJudging --> Rejected
-  FallbackJudging --> Escalated
+  Delivered --> Released: buyer accepts early
+  Delivered --> Released: primary decides accept
+  Delivered --> Refunded: primary decides reject
+  Delivered --> Escalated: primary decides escalate
+  Delivered --> FallbackJudging: judgeBy passed (anyone)
+  FallbackJudging --> Released: fallback decides accept
+  FallbackJudging --> Refunded: fallback decides reject
+  FallbackJudging --> Escalated: fallback decides escalate
   FallbackJudging --> Defaulted: fallbackBy passed (anyone)
-  Escalated --> Appealed: automatic escalation to the appeal adjudicator (no appellant bond)
-  Accepted --> Appealed: buyer appeals in window
-  Rejected --> Appealed: seller appeals in window
-  Appealed --> Released: appeal accept
-  Appealed --> Refunded: appeal reject
-  Appealed --> Final: appeal deadline passed after a party appeal (first decision stands)
-  Appealed --> Defaulted: appeal deadline passed after escalation (anyone)
-  Accepted --> Released: settle (mode rules)
-  Rejected --> Refunded: settle (mode rules)
+  Escalated --> Released: appeal adjudicator accepts
+  Escalated --> Refunded: appeal adjudicator rejects
+  Escalated --> Defaulted: appealDecideBy passed (anyone)
   Defaulted --> Refunded: default outcome (seller compensated from bonds)
 ```
+
+In `guaranteed_on_decision` a decision moves the money in the same step, so there is no separate settle step. `settle_after_window` (Phase 4) adds a `Decided` escrow state that settles when the appeal state closes.
+
+**Appeal state** (only after a first-instance decision by the primary or fallback; a decision reached through escalation is not appealable)
+
+```mermaid
+stateDiagram-v2
+  [*] --> none: first-instance decision
+  none --> open: party appeals before appealBy (bond and appeal fee)
+  none --> expired: appealBy passed
+  open --> upheld: appeal adjudicator upholds (appellant bond to the adjudicator's bond)
+  open --> overturned: appeal adjudicator overturns (adjudicator bond pays the wronged party)
+  open --> expired: appealDecideBy passed (first decision stands, appellant bond returned)
+```
+
+An overturn moves bond money, not escrow money: the escrow is already `Released` or `Refunded`.
 
 Rules the types must enforce. Illegal states are unrepresentable (ADR-0009): a discriminated union per state, carrying only the fields valid in that state.
 
 | Transition | Who may trigger | Guard |
 | --- | --- | --- |
 | Offer | Seller agent signature | Scope allows seller role and price; rulebook hash known; nonce unused |
-| Agree | Buyer agent signature over the identical terms hash | Scope allows buyer role, price and daily cap; mandate valid |
-| Fund | Anyone holding the buyer's funding authorization | Balance ≥ price + fee + gas buffer; before fundBy |
+| Accept (adjudicator) | Primary adjudicator signature | Its policy and registry hashes equal the commitment's; unencumbered bond ≥ price in guaranteed mode; before offer expiry |
+| Agree | Buyer agent signature over the identical terms hash | Scope allows buyer role, price and daily cap; mandate valid; member admitted under a club rulebook |
+| Fund | Anyone holding the buyer's funding authorization | A valid adjudicator acceptance; balance ≥ price + fee + gas buffer; before fundBy |
 | Deliver | Seller signature | Before deliverBy; attempt ≤ maxSubmissions; ciphertext and hashes present |
 | Reclaim | Anyone | After deliverBy with no delivery |
 | Accept early | Buyer signature | State Delivered |
-| Decide | Assigned adjudicator signature | Before its deadline; judgment record hash included |
+| Decide | The adjudicator whose turn it is | Before its deadline; seed hashes to the acceptance's `seedCommitment`; policy and registry hashes equal the commitment's; judgment record hash included |
 | Fallback / default | Anyone | After judgeBy / fallbackBy; for an escalated case, after appealDecideBy |
-| Appeal | Party signature + bond + appeal fee | Within appealWindow; decision exists. Grounds include a missing or wrong content key |
-| Settle | Anyone | Mode rules satisfied |
+| Appeal | Party signature + bond + appeal fee | Within appealWindow after a first-instance decision. Grounds: wrong outcome, missing or wrong key, policy or panel violation, mislabeled model |
+| Settle | Anyone | `settle_after_window` only (Phase 4): appeal state closed |
 
 Settlement modes (D6, ADR-0003, ADR-0007):
 - **`guaranteed_on_decision`:** release or refund executes at the decision (capture or void in the same step). If an appeal later overturns it, the adjudicator's bond pays the wronged party the price, so each such commitment encumbers bond equal to its price until `appealDecideBy`. This is the only mode in Phase 1.

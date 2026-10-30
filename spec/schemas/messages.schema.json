@@ -1,0 +1,460 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://holdback.dev/schemas/v0.4/messages.schema.json",
+  "title": "Signed protocol messages (EIP-712)",
+  "description": "Every state-changing message other than Delivery and Appeal. Each carries its EIP-712 domain implicitly: name Holdback, version 0.4, chainId, verifyingContract (ADR-0016).",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/Offer"
+    },
+    {
+      "$ref": "#/$defs/Agree"
+    },
+    {
+      "$ref": "#/$defs/AdjudicatorAcceptance"
+    },
+    {
+      "$ref": "#/$defs/FundingAuthorization"
+    },
+    {
+      "$ref": "#/$defs/EarlyAccept"
+    },
+    {
+      "$ref": "#/$defs/Decision"
+    },
+    {
+      "$ref": "#/$defs/AgentRevocation"
+    },
+    {
+      "$ref": "#/$defs/MemberAdmission"
+    },
+    {
+      "$ref": "#/$defs/MemberRevocation"
+    }
+  ],
+  "$defs": {
+    "Offer": {
+      "type": "object",
+      "description": "Seller's signature over the commitment terms",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "commitmentId",
+        "seller",
+        "nonce",
+        "expiresAt",
+        "signature"
+      ],
+      "properties": {
+        "type": {
+          "const": "Offer"
+        },
+        "commitmentId": {
+          "$ref": "common.schema.json#/$defs/Hex32"
+        },
+        "seller": {
+          "$ref": "common.schema.json#/$defs/Address"
+        },
+        "nonce": {
+          "$ref": "common.schema.json#/$defs/Hex32"
+        },
+        "expiresAt": {
+          "$ref": "common.schema.json#/$defs/Timestamp"
+        },
+        "signature": {
+          "$ref": "common.schema.json#/$defs/Signature"
+        }
+      }
+    },
+    "Agree": {
+      "type": "object",
+      "description": "Buyer's signature over the identical terms",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "commitmentId",
+        "buyer",
+        "nonce",
+        "expiresAt",
+        "signature"
+      ],
+      "properties": {
+        "type": {
+          "const": "Agree"
+        },
+        "commitmentId": {
+          "$ref": "common.schema.json#/$defs/Hex32"
+        },
+        "buyer": {
+          "$ref": "common.schema.json#/$defs/Address"
+        },
+        "nonce": {
+          "$ref": "common.schema.json#/$defs/Hex32"
+        },
+        "expiresAt": {
+          "$ref": "common.schema.json#/$defs/Timestamp"
+        },
+        "signature": {
+          "$ref": "common.schema.json#/$defs/Signature"
+        }
+      }
+    },
+    "AdjudicatorAcceptance": {
+      "type": "object",
+      "description": "Primary adjudicator consents and reserves bond before funding (ADR-0016)",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "commitmentId",
+        "adjudicator",
+        "seedCommitment",
+        "policyHash",
+        "registryHash",
+        "fee",
+        "bondReserved",
+        "nonce",
+        "expiresAt",
+        "signature"
+      ],
+      "properties": {
+        "type": {
+          "const": "AdjudicatorAcceptance"
+        },
+        "commitmentId": {
+          "$ref": "common.schema.json#/$defs/Hex32"
+        },
+        "adjudicator": {
+          "$ref": "common.schema.json#/$defs/Address"
+        },
+        "seedCommitment": {
+          "$ref": "common.schema.json#/$defs/Hex32",
+          "description": "keccak256(seed); the seed is revealed in the Decision"
+        },
+        "policyHash": {
+          "$ref": "common.schema.json#/$defs/Hex32"
+        },
+        "registryHash": {
+          "$ref": "common.schema.json#/$defs/Hex32"
+        },
+        "fee": {
+          "$ref": "common.schema.json#/$defs/TokenAmount"
+        },
+        "bondReserved": {
+          "$ref": "common.schema.json#/$defs/TokenAmount"
+        },
+        "nonce": {
+          "$ref": "common.schema.json#/$defs/Hex32"
+        },
+        "expiresAt": {
+          "$ref": "common.schema.json#/$defs/Timestamp"
+        },
+        "signature": {
+          "$ref": "common.schema.json#/$defs/Signature"
+        }
+      }
+    },
+    "FundingAuthorization": {
+      "type": "object",
+      "description": "Buyer's transfer authorization; any relayer may submit it",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "scheme",
+        "commitmentId",
+        "from",
+        "value",
+        "token",
+        "validAfter",
+        "validBefore",
+        "nonce",
+        "expiresAt",
+        "signature"
+      ],
+      "properties": {
+        "type": {
+          "const": "FundingAuthorization"
+        },
+        "scheme": {
+          "enum": [
+            "erc3009",
+            "permit2"
+          ]
+        },
+        "commitmentId": {
+          "$ref": "common.schema.json#/$defs/Hex32"
+        },
+        "from": {
+          "$ref": "common.schema.json#/$defs/Address"
+        },
+        "value": {
+          "type": "string",
+          "pattern": "^[0-9]+$",
+          "description": "Base units, decimal string"
+        },
+        "token": {
+          "type": "string"
+        },
+        "validAfter": {
+          "$ref": "common.schema.json#/$defs/Timestamp"
+        },
+        "validBefore": {
+          "$ref": "common.schema.json#/$defs/Timestamp"
+        },
+        "nonce": {
+          "$ref": "common.schema.json#/$defs/Hex32"
+        },
+        "expiresAt": {
+          "$ref": "common.schema.json#/$defs/Timestamp"
+        },
+        "signature": {
+          "$ref": "common.schema.json#/$defs/Signature"
+        }
+      }
+    },
+    "EarlyAccept": {
+      "type": "object",
+      "description": "Buyer accepts a delivery before any decision; releases payment and the seller-supplied key for the buyer",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "commitmentId",
+        "buyer",
+        "attempt",
+        "nonce",
+        "expiresAt",
+        "signature"
+      ],
+      "properties": {
+        "type": {
+          "const": "EarlyAccept"
+        },
+        "commitmentId": {
+          "$ref": "common.schema.json#/$defs/Hex32"
+        },
+        "buyer": {
+          "$ref": "common.schema.json#/$defs/Address"
+        },
+        "attempt": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "nonce": {
+          "$ref": "common.schema.json#/$defs/Hex32"
+        },
+        "expiresAt": {
+          "$ref": "common.schema.json#/$defs/Timestamp"
+        },
+        "signature": {
+          "$ref": "common.schema.json#/$defs/Signature"
+        }
+      }
+    },
+    "Decision": {
+      "type": "object",
+      "description": "An adjudicator's signed decision; the settlement layer checks seed, policy and registry before applying it",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "commitmentId",
+        "attempt",
+        "adjudicator",
+        "role",
+        "outcome",
+        "seed",
+        "policyHash",
+        "registryHash",
+        "judgmentRecordHash",
+        "nonce",
+        "expiresAt",
+        "signature"
+      ],
+      "properties": {
+        "type": {
+          "const": "Decision"
+        },
+        "commitmentId": {
+          "$ref": "common.schema.json#/$defs/Hex32"
+        },
+        "attempt": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "adjudicator": {
+          "$ref": "common.schema.json#/$defs/Address"
+        },
+        "role": {
+          "enum": [
+            "primary",
+            "fallback",
+            "appeal"
+          ]
+        },
+        "outcome": {
+          "enum": [
+            "accept",
+            "reject",
+            "escalate"
+          ]
+        },
+        "seed": {
+          "$ref": "common.schema.json#/$defs/Hex32",
+          "description": "Must hash to the acceptance's seedCommitment"
+        },
+        "policyHash": {
+          "$ref": "common.schema.json#/$defs/Hex32"
+        },
+        "registryHash": {
+          "$ref": "common.schema.json#/$defs/Hex32"
+        },
+        "judgmentRecordHash": {
+          "$ref": "common.schema.json#/$defs/Hex32"
+        },
+        "keyForBuyer": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "scheme",
+            "ciphertext"
+          ],
+          "properties": {
+            "scheme": {
+              "const": "x25519-xsalsa20poly1305"
+            },
+            "ciphertext": {
+              "$ref": "common.schema.json#/$defs/Base64Url"
+            }
+          }
+        },
+        "appealGround": {
+          "enum": [
+            "wrong-outcome",
+            "missing-or-wrong-key",
+            "policy-or-panel-violation",
+            "mislabeled-model"
+          ],
+          "description": "Appeal decisions only"
+        },
+        "nonce": {
+          "$ref": "common.schema.json#/$defs/Hex32"
+        },
+        "expiresAt": {
+          "$ref": "common.schema.json#/$defs/Timestamp"
+        },
+        "signature": {
+          "$ref": "common.schema.json#/$defs/Signature"
+        }
+      }
+    },
+    "AgentRevocation": {
+      "type": "object",
+      "description": "Principal revokes an agent; blocks new commitments only",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "agent",
+        "principal",
+        "nonce",
+        "expiresAt",
+        "signature"
+      ],
+      "properties": {
+        "type": {
+          "const": "AgentRevocation"
+        },
+        "agent": {
+          "$ref": "common.schema.json#/$defs/Address"
+        },
+        "principal": {
+          "$ref": "common.schema.json#/$defs/Address"
+        },
+        "nonce": {
+          "$ref": "common.schema.json#/$defs/Hex32"
+        },
+        "expiresAt": {
+          "$ref": "common.schema.json#/$defs/Timestamp"
+        },
+        "signature": {
+          "$ref": "common.schema.json#/$defs/Signature"
+        }
+      }
+    },
+    "MemberAdmission": {
+      "type": "object",
+      "description": "Club operator admits a member principal",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "clubId",
+        "member",
+        "operator",
+        "validUntil",
+        "nonce",
+        "expiresAt",
+        "signature"
+      ],
+      "properties": {
+        "type": {
+          "const": "MemberAdmission"
+        },
+        "clubId": {
+          "type": "string"
+        },
+        "member": {
+          "$ref": "common.schema.json#/$defs/Address"
+        },
+        "operator": {
+          "$ref": "common.schema.json#/$defs/Address"
+        },
+        "validUntil": {
+          "$ref": "common.schema.json#/$defs/Timestamp"
+        },
+        "nonce": {
+          "$ref": "common.schema.json#/$defs/Hex32"
+        },
+        "expiresAt": {
+          "$ref": "common.schema.json#/$defs/Timestamp"
+        },
+        "signature": {
+          "$ref": "common.schema.json#/$defs/Signature"
+        }
+      }
+    },
+    "MemberRevocation": {
+      "type": "object",
+      "description": "Club operator removes a member; blocks new commitments only",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "clubId",
+        "member",
+        "operator",
+        "nonce",
+        "expiresAt",
+        "signature"
+      ],
+      "properties": {
+        "type": {
+          "const": "MemberRevocation"
+        },
+        "clubId": {
+          "type": "string"
+        },
+        "member": {
+          "$ref": "common.schema.json#/$defs/Address"
+        },
+        "operator": {
+          "$ref": "common.schema.json#/$defs/Address"
+        },
+        "nonce": {
+          "$ref": "common.schema.json#/$defs/Hex32"
+        },
+        "expiresAt": {
+          "$ref": "common.schema.json#/$defs/Timestamp"
+        },
+        "signature": {
+          "$ref": "common.schema.json#/$defs/Signature"
+        }
+      }
+    }
+  }
+}

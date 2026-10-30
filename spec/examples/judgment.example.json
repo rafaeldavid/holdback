@@ -46,8 +46,8 @@
     "ran": true,
     "policyId": "bench-a/p1",
     "policyHash": "0x04221c401f162ef3a3c07c9d97024f3a13eb30f262b0c088ee6f63fa2c893dbb",
-    "panelCommitment": "0xa6f3ab5bae31edfb1c21449787c7a560c8bb2bec2ed96b406d6cda99c925ad9f",
-    "seed": "0xe00961cc04e55c4533144d93fda113d960b6ad37e54a86a41bbba4f031e29d92",
+    "seedCommitment": "0x9b7729175e6efa947ff5980e87390813228dc2eef1c4b2f1d72a9c3d2eb02d3e",
+    "seed": "0x40a7da5565ae8c475972696a25d415b73a73e9451aa19d897e227ec6e7ff827a",
     "members": [
       {
         "judgeId": "claude-a",

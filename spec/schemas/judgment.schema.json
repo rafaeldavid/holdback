@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.3/judgment.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.4/judgment.schema.json",
   "title": "Judgment record",
   "type": "object",
   "required": [
@@ -135,7 +135,7 @@
         "ran",
         "policyId",
         "policyHash",
-        "panelCommitment",
+        "seedCommitment",
         "members"
       ],
       "properties": {
@@ -149,8 +149,9 @@
           "$ref": "common.schema.json#/$defs/Hex32",
           "description": "Must equal the commitment's adjudication.policyHash"
         },
-        "panelCommitment": {
-          "$ref": "common.schema.json#/$defs/Hex32"
+        "seedCommitment": {
+          "$ref": "common.schema.json#/$defs/Hex32",
+          "description": "keccak256(seed) from the adjudicator's acceptance"
         },
         "seed": {
           "$ref": "common.schema.json#/$defs/Hex32"

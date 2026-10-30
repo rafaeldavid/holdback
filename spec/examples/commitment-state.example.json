@@ -1,6 +1,7 @@
 {
   "commitmentId": "0x9340180fb352b68aabcf457de90752525d862a9a6dac875100905fac2fc54ed8",
-  "state": "Released",
+  "escrowState": "Released",
+  "appealState": "none",
   "attempt": 1,
   "hold": {
     "amount": {

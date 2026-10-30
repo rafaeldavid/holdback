@@ -1,0 +1,10 @@
+{
+  "type": "MemberAdmission",
+  "clubId": "data-services-v1",
+  "member": "0x04d6c65223896ba94e731bc9eb765c19bd289b0d",
+  "operator": "0xc189bbabd7b55343a731ed82c5f80b5e5e354e88",
+  "validUntil": "2027-10-30T00:00:00Z",
+  "nonce": "0xa2321757ed3b2736f367314cb395170a7b7407e0fc8be55d0aa4c7aff0f0c54c",
+  "expiresAt": "2026-10-31T00:00:00Z",
+  "signature": "0xefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef"
+}

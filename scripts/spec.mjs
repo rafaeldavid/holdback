@@ -1,4 +1,5 @@
-// Loads spec/schemas into one Ajv instance and pairs each example with the schema of the same name.
+// Loads spec/schemas into one Ajv instance and pairs each example with the schema named by its first dot-segment
+// (`messages.decision.example.json` validates against `messages.schema.json`).
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import Ajv2020 from 'ajv/dist/2020.js';
@@ -28,8 +29,8 @@ export function loadSpec() {
 export function validateExamples() {
   const { ajv, schemas, examples } = loadSpec();
   return examples.map(({ file, name, data }) => {
-    const id = schemas.get(name);
-    if (!id) return { file, ok: false, errors: [`no schema named ${name}.schema.json`] };
+    const id = schemas.get(name.split('.')[0]);
+    if (!id) return { file, ok: false, errors: [`no schema named ${name.split('.')[0]}.schema.json`] };
     const validate = ajv.getSchema(id);
     const ok = validate(data);
     return { file, ok, errors: ok ? [] : ajv.errorsText(validate.errors).split(', ') };
