@@ -40,7 +40,7 @@ Constraints. ADR-0001 forbids any single party from controlling settlement, so i
 ### 2. Reward capital through bond backers with first loss on the adjudicator
 
 - **New role: backer.** A backer deposits into an adjudicator's bond pool and earns that pool's capital charge pro rata. A backer is any address. Backers have no say in decisions.
-- **First loss.** The adjudicator's own stake absorbs overturn and default payouts before backers' stakes. It must be at least a rulebook share of the pool (default 10%). An adjudicator cannot judge on other people's capital alone.
+- **First loss.** The adjudicator's own stake absorbs overturn and default payouts before backers' stakes. It must be at least a rulebook share of the pool (`firstLossShareMinBps`, default 1000, that is 10%). An adjudicator cannot judge on other people's capital alone.
 - **Encumbrance.** Stake backing a commitment stays locked until that commitment passes `appealDecideBy`. Unencumbered stake can be withdrawn after a notice period (rulebook parameter). Withdrawing stake reduces the volume an adjudicator can take on next. It cannot affect any commitment already open.
 - **Pricing.** Each adjudicator publishes its capital charge rate and backer terms in a `pool` object, bound by its own `poolTermsHash`. A backer's deposit binds the `poolTermsHash` it was made under. Today `fee.capitalChargeRate` sits in the adjudicator's `fee`, outside `policy`, so `policyHash` does not bind it (measured, `adjudicator.schema.json`). Schema v0.5 moves it. Backers choose where to deposit, so cheaper capital flows to adjudicators with better public records. This is how principle 2 reinforces principle 1.
 
@@ -54,7 +54,7 @@ Constraints. ADR-0001 forbids any single party from controlling settlement, so i
 - **Loss waterfall:** an overturn payout or a default compensation is paid from junior first, then senior pro rata.
 - **Quality reward:** an appeal bond forfeited by a failed appeal (`appealbond:{id} -> bond:{a}`) is credited to junior.
 - **Phase 1:** senior stays empty, and there is no deposit API. T-006's property tests add a synthetic senior deposit so the waterfall is exercised. Fees go whole to the adjudicator. From Phase 4, the quoted capital charge posts to the pool pro rata.
-- **Rulebook defaults** (guessed): `firstLossShareMin` 10%, and a withdrawal notice period of one appeal cycle. The regulatory analogue for retained first loss is 5%.
+- **Rulebook defaults** (guessed): `firstLossShareMinBps` 1000 (10%), and a withdrawal notice period of one appeal cycle. The regulatory analogue for retained first loss is 5%.
 
 ### 3. Price commitments by how checkable they are; penalize bad faith, not use
 
@@ -65,6 +65,7 @@ Constraints. ADR-0001 forbids any single party from controlling settlement, so i
 - **Bad faith pays, use does not.** A party is never charged more for calling the adjudicator a commitment names. The penalties are:
   - an appeal that fails forfeits the appeal bond (already in ADR-0007);
   - a delivery that fails a required deterministic check forfeits a per-attempt fee to the adjudicator. The rulebook sets it, and it is quoted at agreement.
+- **Deposits, not fee shifting (D19).** The refundable bond is the defense against low-merit calls; there is no loser-pays rule. Fee shifting raises spend per case and does not deter weak claims under asymmetric information, while a refundable deposit does (Katz 1990; Polinsky and Rubinfeld 1998; summary at https://reference.findlaw.com/?p=27257). The requester pays the fee for a call it chooses to make, as in ADR-0015.
 - **Optimistic release (ADR-0015).** In `optimistic` mode adjudication is paid only when the buyer disputes, which applies this principle at the level of the settlement mode.
 - **No shared party reputation.** Each adjudicator may price a party's history from its own records and must say so in its policy. No shared score exists.
 
@@ -87,7 +88,7 @@ Constraints. ADR-0001 forbids any single party from controlling settlement, so i
 
 - **New custody.** Backer stakes are held funds. They live in the rules contract's bond escrow, under the same no-admin rules and invariants: conservation, no negative balances, encumbered stake never counted twice, and first loss applied before backer loss. That adds to the audit surface ADR-0003 already assigns to Holdback.
 - **Schema v0.5** (shape now, built across phases):
-  - `adjudicator.schema.json` gains `pool: { junior, senior, reserved, firstLossShare, capitalChargeToPoolRate, noticePeriodSec }` and `poolTermsHash`. `capitalChargeRate` moves from `fee` into `pool`.
+  - `adjudicator.schema.json` gains `pool: { junior, senior, reserved, terms: { firstLossShareBps, capitalChargeRateBps, capitalChargeToPoolRateBps, noticePeriodSec } }` (rates as integer basis points per ADR-0022) and `poolTermsHash`. `capitalChargeRate` moves from `fee` into `pool`.
   - The club rulebook gains `firstLossShareMin` and `bondNoticePeriodMinSec`.
   - Messages gain `BackerDeposit`, `BackerWithdrawalNotice` and `BackerWithdraw` (Phase 4).
   - Events gain `bond.deposited`, `bond.withdrawn` and `bond.slashed`, with per-tranche amounts.
@@ -110,3 +111,7 @@ Constraints. ADR-0001 forbids any single party from controlling settlement, so i
 - **Neutrality.** Every quality signal is recomputed from public events, so no keeper exists. Backers can only add or withdraw unencumbered stake, never alter a decision or an open commitment. Audit selection uses commit-reveal, so neither the audited adjudicator nor the parties choose which cases are audited. Holdback earns from tooling or as one adjudicator, never from scoring.
 - **The hold.** Backer stake is a new class of held funds, under the same rules: no admin keys, permissionless timeouts, settle-once and encumbrance until `appealDecideBy`. The buyer's funds are unaffected.
 - **Defended judgment.** Audits add an error measurement on real traffic that the adjudicator does not control. Measurement still rests on disclosed, not proven, model identity until attestation exists. Pricing by checkability pushes parties toward deterministic checks, the strongest tier of acceptance.
+
+## Amended by ADR-0020 (D16)
+
+Backer reporting is aggregate. Backers see tranches, reserved bond, pool terms and the rates of overturns, escalations, missed deadlines and defaults, all recomputed from public skeleton events. They do not see per-case contents or counterparties. Audit sampling, if a rulebook opts in, gets a wrapped record key under that rulebook.

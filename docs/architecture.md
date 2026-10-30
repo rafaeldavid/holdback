@@ -90,7 +90,13 @@ stateDiagram-v2
   Escalated --> Refunded: appeal adjudicator rejects
   Escalated --> Defaulted: appealDecideBy passed (anyone)
   Defaulted --> Refunded: default outcome (seller compensated from bonds)
+  Held --> Settled: buyer and seller co-sign a settlement
+  Delivered --> Settled: buyer and seller co-sign a settlement
+  FallbackJudging --> Settled: buyer and seller co-sign a settlement
+  Escalated --> Settled: buyer and seller co-sign a settlement
 ```
+
+`Settled` is terminal and not appealable. A co-signed `MutualSettlement` pays any split of the price and chooses whether the buyer receives the content key; the fee returns to the buyer in Phase 1 (ADR-0019, D15). Settle-once holds: if a settlement and a decision race, the first one applied wins.
 
 In `guaranteed_on_decision` a decision moves the money in the same step, so there is no separate settle step. `settle_after_window` (Phase 4) adds a `Decided` escrow state that settles when the appeal state closes.
 
@@ -159,6 +165,29 @@ The primary's panel seed comes from its own commit-reveal. The fallback and appe
 
 SimChain runs a deterministic beacon, `keccak256(simSeed ‖ round)`, one round per simulated second. Phase 2 uses drand quicknet, verified on chain. If a round cannot be proven by the deadline, the decision is refused, and the fallback or default applies.
 
+## Privacy and disclosure (ADR-0020)
+
+Every commitment has a public skeleton and a private body.
+
+| Part | Contents | Who sees it |
+| --- | --- | --- |
+| Skeleton | Commitment ID, terms hash, payout addresses, token, price and fee, deadlines, the three adjudicators, mode, `policyHash`, `registryHash`, `rulebookHash`, outcomes, money and bond movements | Everyone, at every level. Timeouts, the coverage gate and settle-once need only this |
+| Body | Description, criteria, rubric, sealed checks, judgment reasons | Public at `public`; criteria and judgment record public at `judgment`; otherwise the parties and involved adjudicators, through a record key wrapped to each |
+| Work | The deliverable | Never published by the protocol. Readable by whoever holds the content key |
+
+Keys go only to those who need them. Whoever wants judgment carries the key; the seller is never the gate.
+
+| Path | Content key and record key |
+| --- | --- |
+| Mutual settlement | The parties only |
+| Early acceptance | The buyer, with the payment |
+| Optimistic mode | The buyer at delivery. A `Dispute` carries keys for all three adjudicators |
+| Guaranteed mode, primary | At delivery |
+| Fallback | Released on takeover: SimChain holds the envelope in Phase 1; time-locked to the beacon round at `judgeBy` in Phase 2 |
+| Appeal | Carried by the `escalate` decision or the appeal; time-locked to `appealBy` as a backstop in Phase 2 |
+
+Disclosure levels are a signed term: `private`, `judgment` or `public`. A rulebook sets `disclosureMin`, an adjudicator policy may require a minimum, and a co-signed `Publish` can raise the level, never lower it. Phase 1 admits `public` only. Bond backers see aggregate signals recomputed from skeleton events, not cases.
+
 ## Hold and settlement postings (SimChain)
 
 The prototype uses accounts per address and per escrow, in base units of the test token. Each adjudicator's bond is a pool with two tranches, `bond:{a}:junior` (its own stake, first loss) and `bond:{a}:senior` (backers, pro rata), plus one `reserved` counter (ADR-0014 §2a, D10). Below, `bond:{a}` means the pool: debits take junior first, then senior; the appeal-upheld credit goes to junior. Senior is empty in Phase 1.
@@ -171,6 +200,7 @@ The prototype uses accounts per address and per escrow, in base units of the tes
 | Refund | `escrow:{id} → buyer` (price); `escrow:{id} → adjudicator:{a}` (fee earned for judging) |
 | Early acceptance | `escrow:{id} → seller` (price); `escrow:{id} → buyer` (fee; no adjudicator judged) |
 | Reclaim (no delivery) | `escrow:{id} → buyer` (price + fee) |
+| Mutual settlement | `escrow:{id} → seller` (`sellerAmount`); `escrow:{id} → buyer` (price − `sellerAmount` + fee); every reservation on the commitment released; buyer key emitted only if `releaseKey` |
 | Appeal bond and fee | `appellant → appealbond:{id}` (bond); `appellant → adjudicator:{appeal}` (appeal fee, rulebook parameter) |
 | Overturn, guaranteed mode, wrongful accept | `bond:{a} → buyer` (price); `appealbond:{id} → appellant` |
 | Overturn, guaranteed mode, wrongful reject | `bond:{a} → seller` (price); `appealbond:{id} → appellant` |
@@ -184,9 +214,10 @@ Invariants, property-tested:
 - conservation (the token total is constant except faucet mints);
 - no negative balances;
 - each escrow is settled at most once;
-- `junior + senior - reserved` ≥ coverage ratio × price before a new assignment, with a 100% ratio for `guaranteed_on_decision` commitments still open to appeal;
+- `junior + senior - reserved` ≥ `ceil(price × windowCoverageRatioBps / 10000)` before a new assignment, with a 100% ratio for `guaranteed_on_decision` commitments still open to appeal;
 - losses are taken from junior before senior;
-- encumbered bond is never counted twice (one commitment's overturn and another's default cannot draw on the same units).
+- encumbered bond is never counted twice (one commitment's overturn and another's default cannot draw on the same units);
+- every rate is applied with `mulBps` or `splitBps` (ADR-0022): requirements round up; a split rounds the rate side down and pays the remainder to a named party (fee share: remainder to the buyer; capital charge: remainder to the adjudicator; backers: dust to junior); payouts from a bond round down and the bond keeps the dust. No posting creates or destroys a unit.
 
 ## Settlement interface
 
@@ -272,5 +303,10 @@ docs/              specs, ADRs, tasks, research
 - **SimChain:** the in-process simulation of the settlement rules.
 - **Rail:** where custody happens. **On-ramp / off-ramp:** fiat conversion before the hold / after release.
 - **Receipt:** an operator-signed record of an accepted message or a settlement event.
+- **Mutual settlement:** a message buyer and seller both sign that ends a funded, undecided commitment at any split of the price, with or without releasing the content key to the buyer (ADR-0019).
+- **Skeleton:** the public part of a commitment: IDs and hashes, payout addresses, token and amounts, deadlines, adjudicators, mode, outcomes and money movements. Anyone can act on it (ADR-0020).
+- **Disclosure level:** a signed term, `private`, `judgment` or `public`, that sets which parts of the body are public. A rulebook sets the minimum; a co-signed `Publish` can raise it.
+- **View key:** a key a party hands to an auditor or examiner so it can read a commitment's body without publishing it.
+- **Pseudonymous identity:** a one-time signing key per commitment, linked to the agent's long-term identity only for the counterparty and involved adjudicators (ADR-0020, Phase 2).
 - **Beacon:** a public source of randomness rounds that no adjudicator or party controls. It seeds fallback and appeal panels (ADR-0018). SimChain in Phase 1, drand quicknet in Phase 2.
 - **Backer:** any address that deposits into an adjudicator's bond pool and earns its capital charge pro rata, behind the adjudicator's first-loss stake (ADR-0014).

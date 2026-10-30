@@ -42,7 +42,7 @@ Each rule is paired with the check that enforces it in `docs/team.md` (Rules and
 - **No real money.** Run only on the in-process SimChain, a local chain or a testnet. Refuse to start with a Stripe key that is not `sk_test_…` or with a mainnet chain ID.
 - **No admin keys.** Settlement contracts have no owner, pause, freeze, blacklist or upgrade proxy.
 - **Secrets** come from environment variables only. Never read or print `.env*`.
-- **Money** is a token amount in base units, as a decimal string, plus a token identifier. No floats.
+- **Money** is a token amount in base units, as a decimal string, plus a token identifier. No floats. Rates are integers: basis points or a numerator/denominator pair. No float in any hashed body (ADR-0022).
 - **Signed messages.** Every state-changing message from an agent is an EIP-712 signature checked against the agent's address and scope. Operators relay messages; they never author them.
 - **Idempotency.** Every mutating API call takes an `Idempotency-Key`. The same key with the same body replays the response; with a different body it returns 409.
 - **Deliverables are untrusted.**
@@ -85,7 +85,7 @@ forge test                      # contracts (from Phase 2)
 
 ## Map
 
-`docs/decisions-today.md` records decisions D1–D9 and D12 (decided October 30, 2026; D4 deferred to Phase 2) and the open ones (D10, D11), and `docs/reviews/` the adversarial review behind them. Read both first.
+`docs/decisions-today.md` records decisions D1 to D18 (decided October 30, 2026; D4 deferred to Phase 2), and `docs/reviews/` the reviews behind them. Read both first.
 
 The other docs: `PRD.md`, `neutrality.md`, `architecture.md`, `judgment-and-defenses.md`, `api.md`, `demo.md`, `testing.md`, `team.md`, `plan.md`, `decisions/`, `tasks/`. Research is in `docs/research/`; open it only when a decision needs it.
 

@@ -158,6 +158,21 @@ details[open] summary{margin-bottom:8px}
 .zones.focus .comp.hl{opacity:1;border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
 .note{padding:12px 14px;border-left:3px solid var(--accent);background:var(--surface);border-radius:0 6px 6px 0;min-height:4.4em}
 
+/* visibility */
+.vis{border-collapse:separate;border-spacing:0;width:100%;font-size:13px}
+.vis th,.vis td{padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top;text-align:left}
+.vis thead th{background:var(--sunken);font-family:var(--mono);font-weight:500;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.vis tbody th{font-family:var(--body);text-transform:none;letter-spacing:0;color:var(--ink);font-weight:600;font-size:13.5px;min-width:160px;background:var(--surface)}
+.vis tbody th span{display:block;font-weight:400;font-size:12px;line-height:1.35;color:var(--muted);margin-top:2px}
+.vis td{min-width:104px}
+.v{display:inline-block;font-size:12px;line-height:1.35;padding:3px 7px;border-radius:4px}
+.v.yes{color:var(--done);background:var(--done-soft)}
+.v.part{color:var(--held);background:var(--held-soft)}
+.v.no{color:var(--muted);background:var(--sunken)}
+.vis-legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:12.5px;color:var(--muted);align-items:center}
+.readers{display:flex;gap:10px;align-items:baseline;font-size:13px}
+.readers b{font-weight:500;min-width:92px}
+
 /* lifecycle */
 .track{display:grid;grid-template-columns:repeat(auto-fit,minmax(88px,1fr));gap:4px}
 .track button{text-align:left;border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:6px;padding:6px 9px;cursor:pointer;display:grid;gap:1px;font-size:13px}
@@ -218,7 +233,7 @@ footer{font-size:12.5px;color:var(--muted);border-top:1px solid var(--line);padd
 <div class="bar">
   <div class="bar-inner">
     <span class="brand">Holdback</span>
-    <nav aria-label="Sections"><a href="#now">Now</a><a href="#waiting">Waiting</a><a href="#decisions">Decisions</a><a href="#protocol">Protocol</a><a href="#lifecycle">Lifecycle</a><a href="#api">API</a><a href="#feed">History</a></nav>
+    <nav aria-label="Sections"><a href="#now">Now</a><a href="#waiting">Waiting</a><a href="#decisions">Decisions</a><a href="#protocol">Protocol</a><a href="#privacy">Who sees what</a><a href="#lifecycle">Lifecycle</a><a href="#api">API</a><a href="#feed">History</a></nav>
   </div>
 </div>
 
@@ -286,6 +301,20 @@ footer{font-size:12.5px;color:var(--muted);border-top:1px solid var(--line);padd
     <p class="note" id="propnote" aria-live="polite"></p>
   </section>
 
+  <section id="privacy" aria-labelledby="h-priv">
+    <div class="head"><span class="label">Who sees what</span><h2 id="h-priv">What stays private between buyer, seller and adjudicators</h2>
+      <p>Every commitment has a public skeleton (addresses, amounts, deadlines, adjudicators, hashes, outcomes) and a private body. The parties choose how much of the body to publish, and keys go to an adjudicator only when it has to judge (ADR-0020). Phase 1 runs at <code>public</code>; the other levels arrive in Phase 2.</p></div>
+    <div class="seg" role="group" aria-label="Disclosure level">
+      <button type="button" data-level="private" aria-pressed="false">Private</button>
+      <button type="button" data-level="judgment" aria-pressed="false">Judgment published</button>
+      <button type="button" data-level="public" aria-pressed="true">Public (Phase 1)</button>
+    </div>
+    <p class="excap" id="level-note"></p>
+    <div class="vis-legend"><span><span class="v yes">sees it</span></span><span><span class="v part">in part, or only when involved</span></span><span><span class="v no">does not see it</span></span></div>
+    <div class="tablewrap"><table class="vis"><thead id="vis-head"></thead><tbody id="vis-body"></tbody></table></div>
+    <p class="note">Known limits. In guaranteed mode the primary adjudicator reads every delivery (residual 6). The skeleton, including amounts, stays public at every level (residual 9). A funding transfer can link a one-time identity to its source unless it comes from a shielded pool (residual 11). Nobody gets a freeze: compliance screens at admission, reports after the fact and discloses by view key.</p>
+  </section>
+
   <section id="lifecycle" aria-labelledby="h-life">
     <div class="head"><span class="label">Lifecycle</span><h2 id="h-life">One 2,000 tUSD job, step by step</h2><p>The demo's job: Atlas Research's buyer agent pays Tidewater Data's seller agent to clean a customer dataset. tUSD is the test token.</p></div>
     <div class="seg" role="group" aria-label="Settlement mode">
@@ -306,6 +335,7 @@ footer{font-size:12.5px;color:var(--muted);border-top:1px solid var(--line);padd
         <h3>Balances <span class="unit">tUSD</span></h3>
         <div class="ledger" id="ledger"></div>
         <div class="keyrow"><span>Content key</span><span class="lock none" id="keystate">not created</span></div>
+        <div class="readers"><b>Can read the work</b><span id="readers">nobody yet</span></div>
       </div>
     </div>
   </section>
@@ -446,6 +476,41 @@ footer{font-size:12.5px;color:var(--muted);border-top:1px solid var(--line);padd
   pbtn.forEach(function(b){b.addEventListener('click',function(){prop(b.getAttribute('data-prop'))})});
   prop('all');
 
+  /* who sees what */
+  (function(){
+    var COLS=['Buyer','Seller','Primary adjudicator','Fallback and appeal','Model providers','Operator nodes','Bond backers','Club operator','Auditor (view key)','Anyone'];
+    function Y(t){return ['yes',t||'yes']} function P(t){return ['part',t]} function N(){return ['no','no']}
+    var base={
+      identity:{label:'Long-term identity',sub:'who the agent is; one-time keys come in Phase 2',cells:[Y(),Y(),P('on involvement'),P('on takeover'),N(),P('one-time key'),N(),P('at admission'),P('on disclosure'),P('one-time key')]},
+      skeleton:{label:'Skeleton',sub:'addresses, price, deadlines, adjudicators, mode, hashes',cells:[Y(),Y(),Y(),Y(),N(),Y(),Y(),Y(),Y(),Y()]},
+      body:{label:'Terms body',sub:'description, criteria, rubric, sealed checks',cells:[Y(),Y(),P('guaranteed: at delivery; optimistic: on dispute'),P('on takeover'),P('criteria they judge'),P('hash'),N(),N(),P('on disclosure'),P('hash')]},
+      work:{label:'The work',sub:'deliverable plaintext',cells:[P('after release; at delivery in optimistic mode'),Y('yes, made it'),P('as the body'),P('on takeover'),P('samples and typed features'),P('ciphertext'),N(),N(),P('on disclosure'),P('ciphertext')]},
+      key:{label:'Content key',sub:'opens the work',cells:[P('released with payment'),Y(),P('as the body'),P('released on takeover'),N(),P('sealed envelopes'),N(),N(),N(),P('sealed envelopes')]},
+      judgment:{label:'Judgment record',sub:'check results, verdict scores and reasons',cells:[Y(),Y(),Y(),P('if involved'),P('their own verdict'),P('hash'),P('outcome and hash'),P('hash'),P('on disclosure'),P('outcome and hash')]},
+      money:{label:'Money and bonds',sub:'holds, payouts, fees, bond movements',cells:[Y(),Y(),Y(),Y(),N(),Y(),Y(),Y(),Y(),Y()]}
+    };
+    function clone(o){return JSON.parse(JSON.stringify(o))}
+    var L={private:base, judgment:clone(base), public:clone(base)};
+    [5,6,7,9].forEach(function(c){L.judgment.body.cells[c]=P('criteria only');L.judgment.judgment.cells[c]=Y('published record')});
+    L.judgment.judgment.cells[8]=Y('published record');
+    [5,6,7,8,9].forEach(function(c){L.public.body.cells[c]=Y();L.public.judgment.cells[c]=Y('published record')});
+    [2,3,5,7,8,9].forEach(function(c){L.public.identity.cells[c]=Y('long-term address')});
+    var NOTES={
+      private:'Private: the public sees only the skeleton. The body, the judgment record and the work go to the parties and to each adjudicator only when it is involved. Phase 2.',
+      judgment:'Judgment published: as private, but the criteria and the judgment record with its reasons are public, which gives adjudicators precedent. The work stays private. Phase 2.',
+      public:'Public: everything except the work is public, as in the demo. Keys still reach the fallback and appeal adjudicators only on takeover.'
+    };
+    var ORDER=['identity','skeleton','body','work','key','judgment','money'];
+    $('vis-head').innerHTML='<tr><th scope="col">Information</th>'+COLS.map(function(c){return '<th scope="col">'+c+'</th>'}).join('')+'</tr>';
+    function show(level){
+      document.querySelectorAll('[data-level]').forEach(function(b){b.setAttribute('aria-pressed',b.getAttribute('data-level')===level?'true':'false')});
+      $('level-note').textContent=NOTES[level];
+      $('vis-body').innerHTML=ORDER.map(function(k){var r=L[level][k];return '<tr><th scope="row">'+r.label+'<span>'+r.sub+'</span></th>'+r.cells.map(function(c){return '<td><span class="v '+c[0]+'">'+esc(c[1])+'</span></td>'}).join('')+'</tr>'}).join('');
+    }
+    document.querySelectorAll('[data-level]').forEach(function(b){b.addEventListener('click',function(){show(b.getAttribute('data-level'))})});
+    show('public');
+  })();
+
   /* lifecycle */
   var ACC=[['buyer','Buyer','var(--accent)'],['escrow','Escrow','var(--held)'],['seller','Seller','var(--done)'],['adj','Bench A fee','var(--proposed)'],['bond','Bond locked','var(--alert)']];
   var MAX=2050;
@@ -488,6 +553,7 @@ footer{font-size:12.5px;color:var(--muted);border-top:1px solid var(--line);padd
     $('s-who').textContent=s.who; $('s-title').textContent=s.t; $('s-body').textContent=s.b; $('s-risk').textContent=s.r;
     ACC.forEach(function(a,j){$('f-'+a[0]).style.width=(s.bal[j]/MAX*100)+'%';$('a-'+a[0]).textContent=fmt(s.bal[j])});
     var ks=$('keystate'); ks.className='lock '+s.key[0]; ks.textContent=s.key[1];
+    $('readers').textContent=({none:'nobody yet, nothing delivered',held:'the seller and the three adjudicators',buyer:'the seller, the three adjudicators and the buyer'})[s.key[0]];
     $('b-back').disabled=i===0; $('b-next').disabled=i===steps.length-1;
   }
   function stop(){if(timer){clearInterval(timer);timer=null}$('b-play').textContent='Play'}
