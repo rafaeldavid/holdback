@@ -48,10 +48,13 @@ Each rule is paired with the check that enforces it in `docs/team.md` (Rules and
 Make results observable before claiming them. Label each claim in reports and PRs as measured, inferred or guessed.
 
 ```
+pnpm install                    # Node 22, pnpm 12 (via corepack)
 pnpm typecheck && pnpm test     # types, unit + property tests (no network)
-pnpm snap                       # scenario fixtures vs .expect.md snapshots
+pnpm lint                       # ESLint, including the no-eval and money rules
+pnpm validate:spec              # spec/examples against spec/schemas (Ajv 2020-12, strict)
+pnpm snap                       # scenario fixtures vs .expect.md snapshots (placeholder until T-005)
 pnpm snap --update <name>       # regenerate a snapshot; review the diff before committing
-pnpm demo                       # recorded mode: no keys needed
+pnpm demo                       # recorded mode: no keys needed (placeholder until T-013)
 pnpm demo --live                # live judges (needs two model-family keys)
 forge test                      # contracts (from Phase 2)
 ```

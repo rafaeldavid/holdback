@@ -1,0 +1,4 @@
+# Human gates (docs/team.md): the API contract and ADRs need Rafa's review.
+/spec/           @rafaeldavid
+/docs/decisions/ @rafaeldavid
+/contracts/      @rafaeldavid
