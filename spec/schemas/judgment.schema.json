@@ -119,8 +119,13 @@
                   "unicode_tags",
                   "zero_width",
                   "canary_echo",
-                  "classifier"
-                ]
+                  "classifier",
+                  "nfkc_changed",
+                  "variation_selector_run",
+                  "mixed_script",
+                  "hidden_characters"
+                ],
+                "description": "Closed set (ADR-0021): instruction_phrase, encoded_run, unicode_tags, zero_width, canary_echo, classifier, nfkc_changed, variation_selector_run, mixed_script, hidden_characters"
               },
               "detail": {
                 "type": "string",

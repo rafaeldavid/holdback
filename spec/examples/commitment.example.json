@@ -58,6 +58,16 @@
         "column": "email",
         "pattern": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$",
         "min": 0.97
+      },
+      {
+        "id": "hidden",
+        "type": "hidden_characters_max",
+        "required": true,
+        "max": {
+          "tag": 0,
+          "bidi": 0,
+          "total": 0
+        }
       }
     ],
     "rubric": {

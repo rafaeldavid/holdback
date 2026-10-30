@@ -598,6 +598,57 @@
               "$ref": "common.schema.json#/$defs/Rate"
             }
           }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "type",
+            "required",
+            "max"
+          ],
+          "description": "Counts invisible characters in the raw delivered bytes, before any normalization, and fails when a count exceeds its maximum (ADR-0021)",
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^[a-z0-9_-]{1,40}$"
+            },
+            "required": {
+              "type": "boolean"
+            },
+            "type": {
+              "const": "hidden_characters_max"
+            },
+            "max": {
+              "type": "object",
+              "additionalProperties": false,
+              "minProperties": 1,
+              "description": "At least one maximum. Classes: Unicode tag characters (U+E0000 to U+E007F), bidirectional controls, variation selectors, and other default-ignorable or zero-width code points. total bounds their sum.",
+              "properties": {
+                "tag": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "bidi": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "variationSelector": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "otherIgnorable": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "total": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          }
         }
       ]
     },
