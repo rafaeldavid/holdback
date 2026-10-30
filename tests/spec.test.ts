@@ -206,4 +206,53 @@ describe('spec/', () => {
     const node = pointer.split('/').slice(1).reduce((n: any, k: string) => n?.[k.replace('~1', '/')], schema);
     expect(node?.['x-holdback-untrusted']).toBe(true);
   });
+
+  describe('mutual settlement (ADR-0019)', () => {
+    const messages = () => loadSpec().ajv.getSchema(`${V}/messages.schema.json`);
+    it('has a valid co-signed example', () => {
+      const r = validateExamples().find((x: { file: string }) => x.file === 'messages.mutual-settlement.example.json');
+      expect(r?.ok).toBe(true);
+    });
+    it.each(['sellerAmount', 'buyerSignature', 'sellerSignature', 'releaseKey', 'deliveryHash'])('requires %s', (field) => {
+      const m = example('messages.mutual-settlement');
+      expect(messages()(m)).toBe(true);
+      delete m[field];
+      expect(messages()(m)).toBe(false);
+    });
+    it('takes a null deliveryHash before delivery and refuses a non-boolean releaseKey', () => {
+      const m = example('messages.mutual-settlement');
+      m.deliveryHash = null;
+      expect(messages()(m)).toBe(true);
+      m.releaseKey = 'yes';
+      expect(messages()(m)).toBe(false);
+    });
+    it('records the split and key release on a Settled commitment', () => {
+      const validate = loadSpec().ajv.getSchema(`${V}/commitment-state.schema.json`);
+      const s = example('commitment-state');
+      s.escrowState = 'Settled';
+      expect(validate(s)).toBe(false);
+      s.settled = { sellerAmount: { token: 'tUSD', amount: '1200000000' }, buyerAmount: { token: 'tUSD', amount: '850000000' }, keyReleased: true };
+      expect(validate(s)).toBe(true);
+    });
+    it('lets a club allow or refuse mutual settlement, with an integer basis-point fee share', () => {
+      const validate = loadSpec().ajv.getSchema(`${V}/club.schema.json`);
+      const c = example('club');
+      expect(Number.isInteger(c.rulebook.mutualSettlement.adjudicatorFeeShareAfterDeliveryBps)).toBe(true);
+      c.rulebook.mutualSettlement.adjudicatorFeeShareAfterDeliveryBps = 0.5;
+      expect(validate(c)).toBe(false);
+      c.rulebook.mutualSettlement.adjudicatorFeeShareAfterDeliveryBps = 10001;
+      expect(validate(c)).toBe(false);
+      delete c.rulebook.mutualSettlement;
+      expect(validate(c)).toBe(false);
+    });
+    it('emits commitment.settled with the split', () => {
+      const validate = loadSpec().ajv.getSchema(`${V}/event.schema.json`);
+      const e = example('event');
+      e.type = 'commitment.settled';
+      e.payload = { sellerAmount: { token: 'tUSD', amount: '1200000000' }, buyerAmount: { token: 'tUSD', amount: '850000000' }, keyReleased: true };
+      expect(validate(e)).toBe(true);
+      e.payload = { note: 'split' };
+      expect(validate(e)).toBe(false);
+    });
+  });
 });
