@@ -597,7 +597,7 @@
         },
         "releaseKey": {
           "type": "boolean",
-          "description": "Whether the seller-supplied key is released to the buyer with the payment"
+          "description": "Whether the seller-supplied key is released to the buyer with the payment; must be false when deliveryHash is null (ADR-0019)"
         },
         "nonce": {
           "$ref": "common.schema.json#/$defs/Hex32"
@@ -611,6 +611,28 @@
         "sellerSignature": {
           "$ref": "common.schema.json#/$defs/Signature"
         }
+      },
+      "if": {
+        "type": "object",
+        "properties": {
+          "deliveryHash": {
+            "type": "null"
+          }
+        },
+        "required": [
+          "deliveryHash"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "releaseKey": {
+            "const": false
+          }
+        },
+        "required": [
+          "releaseKey"
+        ]
       }
     }
   }

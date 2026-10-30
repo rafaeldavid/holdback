@@ -222,8 +222,15 @@ describe('spec/', () => {
     it('takes a null deliveryHash before delivery and refuses a non-boolean releaseKey', () => {
       const m = example('messages.mutual-settlement');
       m.deliveryHash = null;
+      m.releaseKey = false;
       expect(messages()(m)).toBe(true);
       m.releaseKey = 'yes';
+      expect(messages()(m)).toBe(false);
+    });
+    it('refuses releasing a key when nothing was delivered (ADR-0019)', () => {
+      const m = example('messages.mutual-settlement');
+      m.deliveryHash = null;
+      m.releaseKey = true;
       expect(messages()(m)).toBe(false);
     });
     it('records the split and key release on a Settled commitment', () => {
