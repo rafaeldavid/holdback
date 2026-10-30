@@ -2,7 +2,7 @@
 // A recording is bound to the pinned model ID, the prompt template hash, the rubric hash and the hash
 // of the exact judge input. If any of them changes, the verdict no longer answers the question being
 // asked, so the provider throws instead of replaying it (docs/testing.md, Recorded judges).
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { parseJudgeVerdict, type Hex32, type JudgeVerdict } from '@holdback/core';
 
@@ -44,15 +44,21 @@ export interface JudgeProvider {
 const HASH = /^0x[0-9a-f]{64}$/;
 const ID = /^[a-z0-9_][a-z0-9._-]*$/;
 const FLOATING = /latest/i;
-const BOUND = ['model', 'promptTemplateHash', 'inputHash', 'rubricHash'] as const;
-const KEYS = ['format', 'scenario', 'judgeId', 'provider', 'family', ...BOUND, 'capturedFrom', 'verdict'];
+/** Everything a verdict answered. A recording replays only when all of these match the request. */
+const BOUND = ['provider', 'family', 'model', 'promptTemplateHash', 'inputHash', 'rubricHash'] as const;
+const KEYS = ['format', 'scenario', 'judgeId', ...BOUND, 'capturedFrom', 'verdict'];
+
+/** The re-record command this build can run. Live capture refuses until T-008/T-009. */
+function rerecordHint(scenario: string): string {
+  return `Re-record stub verdicts with: pnpm snap --judges fake --record --update ${scenario}, then pnpm snap --update ${scenario}. Live capture (--judges live --record) refuses until T-008/T-009 land.`;
+}
 
 export class RecordingMissingError extends Error {
   override name = 'RecordingMissingError';
   constructor(readonly path: string, request: JudgeRequest) {
     super(
       `no recorded verdict for judge ${request.judgeId} in scenario ${request.scenario}: ${path} does not exist. ` +
-        `Capture one with: pnpm snap --judges live --record ${request.scenario} (or --judges fake for stub recordings).`,
+        rerecordHint(request.scenario),
     );
   }
 }
@@ -61,6 +67,13 @@ export class RecordingInvalidError extends Error {
   override name = 'RecordingInvalidError';
   constructor(readonly path: string, reason: string) {
     super(`recording ${path} is invalid: ${reason}`);
+  }
+}
+
+export class RecordingOverwriteError extends Error {
+  override name = 'RecordingOverwriteError';
+  constructor(readonly path: string) {
+    super(`refusing to overwrite ${path}: it holds a live-captured verdict, and a fake verdict must never replace it. Delete it deliberately if you mean to.`);
   }
 }
 
@@ -77,8 +90,8 @@ export class RecordingMismatchError extends Error {
       [
         `recorded verdict is stale for judge ${request.judgeId} in scenario ${request.scenario} (${path}):`,
         ...mismatches.map((m) => `  ${m.field}: recorded ${m.recorded}, requested ${m.requested}`),
-        'The model, prompt template, rubric or judge input changed since this verdict was recorded; replaying it would judge a different question.',
-        `Re-record with: pnpm snap --judges live --record ${request.scenario} (or --judges fake for stub recordings). The runner never substitutes another verdict.`,
+        'The provider, family, model, prompt template, rubric or judge input changed since this verdict was recorded; replaying it would judge a different question. The runner never substitutes another verdict.',
+        rerecordHint(request.scenario),
       ].join('\n'),
     );
   }
@@ -106,6 +119,16 @@ export function toRecording(request: JudgeRequest, verdict: JudgeVerdict, captur
 export function writeRecording(dir: string, recording: Recording): string {
   assertPinned(recording.model);
   const path = recordingPath(dir, recording.scenario, recording.judgeId);
+  if (recording.capturedFrom === 'fake' && existsSync(path)) {
+    let existing: unknown;
+    try {
+      existing = JSON.parse(readFileSync(path, 'utf8'));
+    } catch {
+      existing = null;
+    }
+    // Anything not provably fake is treated as live and kept.
+    if (typeof existing !== 'object' || existing === null || (existing as { capturedFrom?: unknown }).capturedFrom !== 'fake') throw new RecordingOverwriteError(path);
+  }
   const ordered = Object.fromEntries(KEYS.map((k) => [k, recording[k as keyof Recording]]));
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, `${JSON.stringify(ordered, null, 2)}\n`);
