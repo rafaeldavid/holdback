@@ -1,6 +1,6 @@
 # Decisions to make today
 
-Status: D1–D9 decided October 30, 2026, after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`); the options are kept as the record. D10 to D17 decided October 30, 2026, each after an independent research pass; none are open. Owner: Rafa. Each decision has options, a recommendation and the ADR it settles. Phase 1 (the demo) can start once D1, D2 and D6 are settled. Phase 2 needs D3 and D4.
+Status: D1–D9 decided October 30, 2026, after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`); the options are kept as the record. D10 to D18 decided October 30, 2026, each after an independent research pass; none are open. Owner: Rafa. Each decision has options, a recommendation and the ADR it settles. Phase 1 (the demo) can start once D1, D2 and D6 are settled. Phase 2 needs D3 and D4.
 
 ## D1. Adopt the neutrality litmus test as the top constraint (ADR-0001)
 
@@ -246,3 +246,18 @@ Rafa's framing: end to end by default, the adjudicator and bond capital involved
 | C. Escalate on high-risk signals | Better precision, same degenerate path until Phase 3 |
 | D. Reject | A rule neither party wrote moves money; false positives are wrong refunds |
 | E. Annotate and surface, plus an opt-in check (chosen) | No unchosen rule moves money; the buyer's agent sees a cleaned view |
+
+## D18. Integer rates and fraction thresholds (ADR-0022)
+
+**Decided 2026-10-30:** money and statistical rates become integer basis points with a `Bps` suffix, and the accept and reject supermajorities become exact fractions such as `{ numerator: 2, denominator: 3 }`. Thresholds compare by cross-multiplication, inclusively; a policy must sit strictly above one half; ties escalate. Weights, the pass threshold and the weighted score become integers, and the judgment record carries counts. Requirements round up, splits round the rate side down with a named remainder claimant, and bond payouts round down with the dust kept, so no posting creates or destroys a unit. Lands in schema v0.5, core money helpers (`mulBps`, `splitBps`), T-006 and T-008.
+
+The schema v0.5 review and the T-008 red team found that 18 rates are JSON floats inside signed hashes. A Python operator would hash `1.0` differently from `1`, and 0.667 × 3 = 2.0010000000000003 makes 2 of 3 judges escalate instead of accept.
+
+| Option | Effect |
+| --- | --- |
+| A. Basis points everywhere | Exact and Solidity-native; cannot express 2/3 |
+| B. ppm or 1e18 WAD | No gain at 2% to 100% rates; WAD breaks the 2^53 integer rule |
+| C. Basis points for rates, fractions for thresholds | Exact, hash-stable, reads as the docs write it ("≥ 2/3") |
+| D. Floats with defined rounding | Floats stay in signed hashes; blocked by the money lint |
+
+**Recommendation:** C (two research passes, Fable at max effort).

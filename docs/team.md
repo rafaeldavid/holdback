@@ -79,6 +79,7 @@ Every hard rule in `CLAUDE.md` is enforced by a check, not just by instruction. 
 | Rule | Check that enforces it | Status |
 | --- | --- | --- |
 | No floats in money | Branded `TokenAmount` type (string-backed); lint rule banning `number` in `packages/core/money` | T-004 |
+| Rates are integers (bps or fraction); no float in a hashed body | No-fraction lint widened to `packages/core/src` and `packages/judgment/src/aggregate.ts`; spec tests refuse fractional `Bps` values and thresholds at or below 1/2; `mulBps`/`splitBps` conservation property test (ADR-0022) | schema v0.5, T-006, T-008 |
 | No real money | Startup guard rejecting non-`sk_test_` Stripe keys and mainnet chain IDs; unit test | T-007 |
 | No admin keys | Reviewer applies the contract review checklist in `docs/neutrality.md`; Foundry test asserting no owner or pause selectors | Phase 2 |
 | Signed messages only | Operator rejects unsigned mutations; `error.invalid-signature` fixture | T-007, T-010 |

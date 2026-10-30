@@ -33,8 +33,8 @@ A cleaned dataset has no delivery-versus-payment check of that kind, because whe
 | Panel size | 3 | 5 |
 | Minimum distinct model families | 2 | 3 where available, else 2 |
 | Minimum valid (non-abstain) verdicts | 2 | 4 |
-| Accept supermajority | ≥ 2/3 pass, with pass verdicts from ≥ 2 families | ≥ 4/5, with passes from ≥ 2 families |
-| Reject supermajority | ≥ 2/3 fail | ≥ 4/5 fail |
+| Accept supermajority (`acceptSupermajority`, a fraction) | ≥ 2/3 pass, with pass verdicts from ≥ 2 families | ≥ 4/5, with passes from ≥ 2 families |
+| Reject supermajority (`rejectSupermajority`, a fraction) | ≥ 2/3 fail | ≥ 4/5 fail |
 | Otherwise | escalate | after a party appeal, the first decision stands and the appellant's bond is returned; after an escalation, the default outcome applies |
 | Judge timeout | 60 s, then abstain | 90 s |
 | Retries | 1, on transport error only, same inputs | same |
@@ -65,12 +65,15 @@ verdicts = run panel
 if screen.flagged or any verdict.injectionSuspected   -> ESCALATE
 valid = verdicts where overall != "abstain"
 if len(valid) < policy.minValid                       -> ESCALATE
-score = weighted mean of criterion scores across valid verdicts (0–4), sealed checks capped at rulebook weight
+score = weighted mean of criterion scores across valid verdicts, in integer hundredths (0–400), sealed checks capped at rulebook weight
 passFamilies = distinct families among valid verdicts with overall == "pass"
-if share(pass) >= acceptSupermajority and len(passFamilies) >= 2 and score >= rubric.passThreshold -> ACCEPT
-if share(fail) >= rejectSupermajority                 -> REJECT
-otherwise                                             -> ESCALATE
+if pass * accept.den >= accept.num * len(valid) and pass > fail
+   and len(passFamilies) >= 2 and score >= rubric.passThreshold -> ACCEPT
+if fail * reject.den >= reject.num * len(valid) and fail > pass -> REJECT
+otherwise                                             -> ESCALATE   (ties escalate)
 ```
+
+Thresholds are exact fractions compared by cross-multiplication, never by division or floats (ADR-0022). A policy must satisfy `2 × numerator > denominator`, so accept and reject can never both hold. The record carries `passCount`, `failCount` and `validCount`, not shares.
 
 Unit-test this function exhaustively with table-driven cases.
 
