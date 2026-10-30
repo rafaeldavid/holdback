@@ -235,6 +235,18 @@ Rafa's framing: end to end by default, the adjudicator and bond capital involved
 
 **Recommendation:** B with D, and E as the compliance lens (research pass, Fable at max effort).
 
+## D17. Screen report and hidden-character check (ADR-0021)
+
+**Decided 2026-10-30:** with an empty rubric, a delivery the screen flags is still accepted and delivered unchanged, but the screen report is part of the signed record and the SDK must surface it, handing the buyer's agent a normalized view by default with the raw bytes on request. Parties who want hidden characters to block payment can require a new declarative check, `hidden_characters_max`, which rejects without a panel; clubs may turn it on by default. Escalation on high-risk signals waits for a Phase 3 `screenPolicy` option, because without a classifier an escalation only drifts to the default outcome. The panel-threshold question from the same research is still open.
+
+| Option | Effect |
+| --- | --- |
+| A. Keep today's behavior | Buyer agent unprotected; report easy to miss |
+| B. Escalate on any flag | Stalls legitimate Persian and emoji data on an uncalibrated screen; ends in the default outcome |
+| C. Escalate on high-risk signals | Better precision, same degenerate path until Phase 3 |
+| D. Reject | A rule neither party wrote moves money; false positives are wrong refunds |
+| E. Annotate and surface, plus an opt-in check (chosen) | No unchosen rule moves money; the buyer's agent sees a cleaned view |
+
 ## D18. Integer rates and fraction thresholds (ADR-0022)
 
 **Decided 2026-10-30:** money and statistical rates become integer basis points with a `Bps` suffix, and the accept and reject supermajorities become exact fractions such as `{ numerator: 2, denominator: 3 }`. Thresholds compare by cross-multiplication, inclusively; a policy must sit strictly above one half; ties escalate. Weights, the pass threshold and the weighted score become integers, and the judgment record carries counts. Requirements round up, splits round the rate side down with a named remainder claimant, and bond payouts round down with the dust kept, so no posting creates or destroys a unit. Lands in schema v0.5, core money helpers (`mulBps`, `splitBps`), T-006 and T-008.
