@@ -69,7 +69,7 @@ One new schema file, `messages.schema.json`, defines each EIP-712 message as a v
 ### 4. Settlement-layer checks on every decision
 
 The settlement layer refuses a decision unless:
-- its seed hashes to `seedCommitment`;
+- its seed is the valid panel seed for the decider's role: the primary reveals the preimage of `seedCommitment`; the fallback and appeal adjudicators use the beacon seed (amended by ADR-0018, D14);
 - its `policyHash` and `registryHash` equal the commitment's;
 - it is signed by the adjudicator whose turn it is, before that adjudicator's deadline.
 

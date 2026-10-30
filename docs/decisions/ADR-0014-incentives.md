@@ -1,6 +1,7 @@
 # ADR-0014: Incentives for adjudicators, capital and commitment design
 
-- **Status:** Proposed
+- **Status:** Accepted, 2026-10-30 (D10), for the bond pool shape (section 2), public quality signals (section 1, except audit sampling) and the bad-faith rules (section 3). Deferred: audit sampling, checkability pricing (T-306) and attestation (section 4).
+- **Decided after:** an independent research pass (Fable, max effort) that compared adjudicator-only bonds, a flat pro rata pool, per-commitment underwriting and deferral. Its amendments are in section 2.
 - **Date:** 2026-10-30
 - **Raised by:** Rafa, in chat on October 30, 2026, after the Phase 0 adversarial review. No task file yet. It shapes T-306 (fee quotes, Phase 3) and Phase 4 (adjudicator economics) in `docs/plan.md`. Rafa later set open bonding participation as one of the protocol's three core properties (`CLAUDE.md`, Objective), which makes the backer role in section 2 part of the objective rather than an option.
 
@@ -41,7 +42,19 @@ Constraints. ADR-0001 forbids any single party from controlling settlement, so i
 - **New role: backer.** A backer deposits into an adjudicator's bond pool and earns that pool's capital charge pro rata. A backer is any address. Backers have no say in decisions.
 - **First loss.** The adjudicator's own stake absorbs overturn and default payouts before backers' stakes. It must be at least a rulebook share of the pool (default 10%). An adjudicator cannot judge on other people's capital alone.
 - **Encumbrance.** Stake backing a commitment stays locked until that commitment passes `appealDecideBy`. Unencumbered stake can be withdrawn after a notice period (rulebook parameter). Withdrawing stake reduces the volume an adjudicator can take on next. It cannot affect any commitment already open.
-- **Pricing.** Each adjudicator publishes its capital charge rate in its policy, so it is bound by `policyHash`. Backers choose where to deposit, so cheaper capital flows to adjudicators with better public records. This is how principle 2 reinforces principle 1.
+- **Pricing.** Each adjudicator publishes its capital charge rate and backer terms in a `pool` object, bound by its own `poolTermsHash`. A backer's deposit binds the `poolTermsHash` it was made under. Today `fee.capitalChargeRate` sits in the adjudicator's `fee`, outside `policy`, so `policyHash` does not bind it (measured, `adjudicator.schema.json`). Schema v0.5 moves it. Backers choose where to deposit, so cheaper capital flows to adjudicators with better public records. This is how principle 2 reinforces principle 1.
+
+### 2a. Pool accounts and the loss order (built in T-006)
+
+- Each adjudicator's bond is one pool with two tranches:
+  - **junior:** the adjudicator's own stake, which takes losses first;
+  - **senior:** backers' stakes, pro rata, which take losses only after junior is exhausted.
+- One `reserved` counter per pool tracks bond encumbered by open commitments.
+- **Coverage gate:** a new guaranteed commitment needs `junior + senior - reserved >= price`.
+- **Loss waterfall:** an overturn payout or a default compensation is paid from junior first, then senior pro rata.
+- **Quality reward:** an appeal bond forfeited by a failed appeal (`appealbond:{id} -> bond:{a}`) is credited to junior.
+- **Phase 1:** senior stays empty, and there is no deposit API. T-006's property tests add a synthetic senior deposit so the waterfall is exercised. Fees go whole to the adjudicator. From Phase 4, the quoted capital charge posts to the pool pro rata.
+- **Rulebook defaults** (guessed): `firstLossShareMin` 10%, and a withdrawal notice period of one appeal cycle. The regulatory analogue for retained first loss is 5%.
 
 ### 3. Price commitments by how checkable they are; penalize bad faith, not use
 
@@ -64,29 +77,33 @@ Constraints. ADR-0001 forbids any single party from controlling settlement, so i
 - **Keep cost-plus pricing only.** Simplest. There is no reward for quality beyond volume, and error rates stay self-reported. This fails principle 1.
 - **A protocol reputation registry or score kept by Holdback or a committee.** Easy for parties to read. The keeper could raise or sink any adjudicator, which is a control point ADR-0001 forbids.
 - **Lower coverage ratios for high-quality adjudicators.** This rewards quality with capital efficiency, but it reopens the self-dealing finding: a record built on small cases funds one large self-dealt case.
-- **Backers with no first loss on the adjudicator.** This attracts more capital, but the adjudicator bears none of its own errors.
+- **Backers with no first loss on the adjudicator** (a flat pro rata pool, as in EigenLayer and Nexus Mutual). This attracts more capital, but the adjudicator bears none of its own errors.
+- **Per-commitment underwriting** (UMA-style paid parties who absorb a window). It gives the most choice, but a capital auction per commitment is too heavy before Phase 4.
+- **Defer everything to Phase 4.** T-006 would build a single bond account, and Phase 4 would rework it.
 - **Penalize parties who invoke adjudication, or keep a shared user reputation.** That charges for the product's core service, and a shared score needs a keeper.
 - **A protocol token to reward adjudicators.** Out of scope: no real money in the prototype (CLAUDE.md), with regulatory weight beyond it.
 
 ## Consequences
 
 - **New custody.** Backer stakes are held funds. They live in the rules contract's bond escrow, under the same no-admin rules and invariants: conservation, no negative balances, encumbered stake never counted twice, and first loss applied before backer loss. That adds to the audit surface ADR-0003 already assigns to Holdback.
-- **Schema changes,** each through this ADR and a version bump when built:
-  - backer deposits and withdrawals, plus per-adjudicator pool composition;
-  - audit events;
-  - capital charge rate and party-history pricing in `adjudicator.policy`;
-  - the per-attempt fee in the rulebook.
+- **Schema v0.5** (shape now, built across phases):
+  - `adjudicator.schema.json` gains `pool: { junior, senior, reserved, firstLossShare, capitalChargeToPoolRate, noticePeriodSec }` and `poolTermsHash`. `capitalChargeRate` moves from `fee` into `pool`.
+  - The club rulebook gains `firstLossShareMin` and `bondNoticePeriodMinSec`.
+  - Messages gain `BackerDeposit`, `BackerWithdrawalNotice` and `BackerWithdraw` (Phase 4).
+  - Events gain `bond.deposited`, `bond.withdrawn` and `bond.slashed`, with per-tranche amounts.
+- **Later schema changes,** each through this ADR and a version bump when built: audit events, party-history pricing in `adjudicator.policy`, and the per-attempt fee in the rulebook (moot while `maxSubmissions = 1`).
 - **Audits widen plaintext access** (residual 6): an auditor sees the deliverable. That is why audits are opt-in per rulebook.
 - **Concentration.** Parties may converge on a few adjudicators with the best records, and backers on the same pools. This does not affect panel family diversity, which is per commitment, but it concentrates liveness risk. Fallback adjudicators and defaults still bound it.
 - **Phase impact.** Nothing in the Phase 1 demo changes:
+  - T-006 builds the two tranches, the reserved counter and the loss waterfall (section 2a);
   - T-306 implements checkability pricing and the quote breakdown;
   - Phase 4 implements backers, first loss, encumbrance and audit sampling;
   - the SDK terms lint lands with T-007 or later.
 - **Open questions:**
   - default audit share and auditor pay;
-  - the first-loss share;
-  - the notice period;
-  - whether auditors are themselves audited.
+  - whether auditors are themselves audited;
+  - the first-loss share and notice period defaults, which are set but guessed.
+- **What would reopen the shape:** T-006 property tests showing the waterfall and encumbrance invariants interact badly. Then ship adjudicator-only bonds with a written migration.
 
 ## Litmus tests
 

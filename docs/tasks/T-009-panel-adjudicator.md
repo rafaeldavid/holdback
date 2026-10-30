@@ -24,6 +24,7 @@ Restate this in your own words in this section before writing code.
 - [ ] Registry loader rejects aliases and non-active entries; `error.unpinned-model-refused` path.
 - [ ] Commit-reveal: commitment posted at agreement; seeded shuffle with family constraints over the registry named by `registryHash`; anyone can recompute (test); a registry that does not hash to `registryHash` is refused.
 - [ ] Panel seed fixed per (commitment, attempt); no re-roll (test).
+- [ ] The shuffle takes the seed for the decider's role (ADR-0018): the primary's revealed seed, or `keccak256(commitmentId ‖ role ‖ attempt ‖ beaconValue(round))` for the fallback and appeal adjudicators. The adjudicator service reads rounds through a `RandomnessSource` interface (`sim` now, `drand` later).
 - [ ] Adjudicator service: watches assignments, runs pipeline, signs Decision with judgment record hash, publishes record; acts as fallback or appeal adjudicator when assigned; appeal panel policy.
 - [ ] Policy binding: `policyHash` computed as keccak256 of the RFC 8785 canonical JSON of the adjudicator's policy; a judgment whose template hash or `policyHash` does not match the commitment is refused (`error.policy-hash-mismatch`).
 - [ ] The adjudicator service signs `AdjudicatorAcceptance` (seed commitment, policy and registry hashes, fee, reserved bond) and publishes its registry hash and URI and its policy hash in its registration.
