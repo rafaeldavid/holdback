@@ -6,7 +6,8 @@
 //   bind them as keccak256 of their RFC 8785 canonical JSON (deliverableHash, acceptanceHash).
 // - Optional message fields are encoded as empty values when absent (empty string, empty array).
 //   Every schema value for those fields is non-empty, so absent and present never collide.
-import { hashStruct, isAddressEqual, recoverTypedDataAddress, type Hex } from 'viem';
+//   Scope.categories may legitimately be empty, so it carries an explicit hasCategories flag.
+import { hashStruct, hashTypedData, isAddressEqual, recoverTypedDataAddress, type Hex } from 'viem';
 import { signTypedData } from 'viem/accounts';
 import { canonicalKeccak } from './canonical.js';
 import { instant } from './timing.js';
@@ -73,6 +74,7 @@ const structs = {
     field('roles', 'string[]'),
     field('maxPerCommitment', 'TokenAmount'),
     field('maxDaily', 'TokenAmount'),
+    field('hasCategories', 'bool'),
     field('categories', 'string[]'),
     stamp('expiresAt'),
   ],
@@ -179,6 +181,7 @@ const scope = (s: Scope): Encoded => ({
   roles: s.roles,
   maxPerCommitment: amount(s.maxPerCommitment),
   maxDaily: amount(s.maxDaily),
+  hasCategories: s.categories !== undefined,
   categories: s.categories ?? [],
   expiresAt: seconds(s.expiresAt),
 });
@@ -204,7 +207,8 @@ export function termsOf(c: Commitment): CommitmentTerms {
   };
 }
 
-function encodeTerms(t: CommitmentTerms): Encoded {
+/** The terms as EIP-712 typed values (primary type CommitmentTerms). */
+export function typedTermsOf(t: CommitmentTerms): Encoded {
   return {
     schemaVersion: t.schemaVersion,
     clubId: t.clubId,
@@ -234,6 +238,11 @@ function encodeTerms(t: CommitmentTerms): Encoded {
 }
 
 const expiry = (m: { nonce: Hex32; expiresAt: Timestamp }): Encoded => ({ nonce: m.nonce, expiresAt: seconds(m.expiresAt) });
+
+/** A message as EIP-712 typed values; the primary type is its `type`. Throws RangeError on unencodable values. */
+export function typedDataOf(m: UnsignedMessage): { primaryType: UnsignedMessage['type']; message: Encoded } {
+  return { primaryType: m.type, message: encodeMessage(m) };
+}
 
 function encodeMessage(m: UnsignedMessage): Encoded {
   switch (m.type) {
@@ -315,12 +324,20 @@ function encodeMessage(m: UnsignedMessage): Encoded {
  * is the same on every chain; signatures over the terms add the domain.
  */
 export function commitmentId(terms: CommitmentTerms): Hex32 {
-  return hashStruct({ primaryType: 'CommitmentTerms', types: eip712Types, data: encodeTerms(terms) });
+  return hashStruct({ primaryType: 'CommitmentTerms', types: eip712Types, data: typedTermsOf(terms) });
 }
 
 // viem's typed-data generics need literal types; these values are built dynamically and checked by the encoders above.
 type Typed = { domain: HoldbackDomain; types: typeof eip712Types; primaryType: string; message: Encoded };
 const typed = (domain: HoldbackDomain, primaryType: string, message: Encoded): Typed => ({ domain, types: eip712Types, primaryType, message });
+
+/** The EIP-712 digest an agent signs for a message, e.g. for a contract or relayer to compare. */
+export const messageDigest = (domain: HoldbackDomain, message: UnsignedMessage): Hex32 =>
+  hashTypedData(typed(domain, message.type, encodeMessage(message)) as Parameters<typeof hashTypedData>[0]);
+
+/** The EIP-712 digest a party signs for the terms. */
+export const termsDigest = (domain: HoldbackDomain, terms: CommitmentTerms): Hex32 =>
+  hashTypedData(typed(domain, 'CommitmentTerms', typedTermsOf(terms)) as Parameters<typeof hashTypedData>[0]);
 
 async function sign(privateKey: Hex, t: Typed): Promise<Signature> {
   return signTypedData({ privateKey, ...t } as Parameters<typeof signTypedData>[0]);
@@ -337,10 +354,10 @@ async function recoversTo(t: Typed, signature: Signature, expected: Address): Pr
 
 /** A party's signature over the full terms, as held in commitment.signatures. */
 export const signTerms = (privateKey: Hex, domain: HoldbackDomain, terms: CommitmentTerms): Promise<Signature> =>
-  sign(privateKey, typed(domain, 'CommitmentTerms', encodeTerms(terms)));
+  sign(privateKey, typed(domain, 'CommitmentTerms', typedTermsOf(terms)));
 
 export function verifyTerms(domain: HoldbackDomain, terms: CommitmentTerms, signature: Signature, expected: Address): Promise<boolean> {
-  return recoversTo(typed(domain, 'CommitmentTerms', encodeTerms(terms)), signature, expected);
+  return recoversTo(typed(domain, 'CommitmentTerms', typedTermsOf(terms)), signature, expected);
 }
 
 export const signMessage = (privateKey: Hex, domain: HoldbackDomain, message: UnsignedMessage): Promise<Signature> =>
