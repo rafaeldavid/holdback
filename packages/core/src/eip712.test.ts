@@ -36,10 +36,10 @@ const commitment = parsed.value;
 const terms = termsOf(commitment);
 
 // Pinned vectors. A change here changes every commitment ID and signature in the system: it needs an ADR.
-const EXAMPLE_TERMS_ID = '0x42f634f5d9707da80850c4572e83e34d8e6d5359b916af152c41f147157928b7';
+const EXAMPLE_TERMS_ID = '0x46d5a182cc784a5c1d72d1c26081bd6c663894cfb197feddbc384cc1e51536a1';
 const SELLER_ADDRESS = '0xDdC55D01F41A079E14F7Cbb3902ec14e1e8d3ce6';
 const EXAMPLE_TERMS_SELLER_SIGNATURE =
-  '0x803d79b0aa9c37b77c684d999fc398f3caa4cba54a2b72d5f1719a4eb170c88f2699662aec25b2d3d8b9bb0a94e91de198e56b6e79ace8d4fef33ed09aa2d2091b';
+  '0xe8d2025456ab65ebf2533742248ec18b09e5f6092e26d501a7c9adf4ddafd66372d5ea039dd9a3a3b2973198da267b1e82caeff51fd34fd21f05b6b4c8d327e11b';
 
 // Distributes over unions, so removing `signature` from a SignedMessage keeps each variant.
 function without<T extends object, K extends keyof T>(obj: T, key: K): T extends unknown ? Omit<T, K> : never {

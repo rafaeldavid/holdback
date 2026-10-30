@@ -69,7 +69,17 @@ export type DeterministicCheck =
   | (CheckBase & { type: 'regex_match_rate_min'; column: string; pattern: string; min: Rate })
   | (CheckBase & { type: 'iso8601_date_column'; column: string })
   | (CheckBase & { type: 'json_schema'; schema: Record<string, unknown> })
-  | (CheckBase & { type: 'reference_row_match_min'; reference: ContentRef; keyColumn: string; min: Rate });
+  | (CheckBase & { type: 'reference_row_match_min'; reference: ContentRef; keyColumn: string; min: Rate })
+  | (CheckBase & { type: 'hidden_characters_max'; max: HiddenCharacterMax });
+
+/** ADR-0021: maximum counts of invisible characters in the raw bytes, per class or in total. At least one is set. */
+export interface HiddenCharacterMax {
+  tag?: number;
+  bidi?: number;
+  variationSelector?: number;
+  otherIgnorable?: number;
+  total?: number;
+}
 
 export interface Criterion {
   id: string;
@@ -524,7 +534,18 @@ export interface JudgeVerdict {
 }
 
 // judgment.schema.json
-export type ScreenSignalKind = 'instruction_phrase' | 'encoded_run' | 'unicode_tags' | 'zero_width' | 'canary_echo' | 'classifier';
+export type ScreenSignalKind =
+  | 'instruction_phrase'
+  | 'encoded_run'
+  | 'unicode_tags'
+  | 'zero_width'
+  | 'canary_echo'
+  | 'classifier'
+  // ADR-0021
+  | 'nfkc_changed'
+  | 'variation_selector_run'
+  | 'mixed_script'
+  | 'hidden_characters';
 
 export interface PanelMember {
   judgeId: string;
