@@ -1,6 +1,6 @@
 # ADR-0016: Phase 1 contract fixes
 
-- **Status:** Proposed
+- **Status:** Accepted, 2026-10-30 (D12). Applied in the follow-up PR that moves the schemas to v0.4.
 - **Date:** 2026-10-30
 - **Raised by:** the Phase 0 readiness review (`docs/reviews/2026-10-30-phase0-readiness.md`), next steps 1 to 3 and the ownership part of step 4. It blocks T-004, T-006, T-007, T-009, T-010 and T-012.
 

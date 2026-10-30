@@ -85,7 +85,7 @@ forge test                      # contracts (from Phase 2)
 
 ## Map
 
-`docs/decisions-today.md` records decisions D1–D9 (decided October 30, 2026; D4 deferred to Phase 2) and the open ones (D10–D12), and `docs/reviews/` the adversarial review behind them. Read both first.
+`docs/decisions-today.md` records decisions D1–D9 and D12 (decided October 30, 2026; D4 deferred to Phase 2) and the open ones (D10, D11), and `docs/reviews/` the adversarial review behind them. Read both first.
 
 The other docs: `PRD.md`, `neutrality.md`, `architecture.md`, `judgment-and-defenses.md`, `api.md`, `demo.md`, `testing.md`, `team.md`, `plan.md`, `decisions/`, `tasks/`. Research is in `docs/research/`; open it only when a decision needs it.
 

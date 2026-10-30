@@ -1,6 +1,6 @@
 # Decisions to make today
 
-Status: D1–D9 decided October 30, 2026, after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`); the options are kept as the record. D10, D11 and D12 are open. Owner: Rafa. Each decision has options, a recommendation and the ADR it settles. Phase 1 (the demo) can start once D1, D2 and D6 are settled. Phase 2 needs D3 and D4.
+Status: D1–D9 decided October 30, 2026, after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`); the options are kept as the record. D12 decided; D10 and D11 are open. Owner: Rafa. Each decision has options, a recommendation and the ADR it settles. Phase 1 (the demo) can start once D1, D2 and D6 are settled. Phase 2 needs D3 and D4.
 
 ## D1. Adopt the neutrality litmus test as the top constraint (ADR-0001)
 
@@ -151,7 +151,7 @@ Rafa's principle: user choice. Parties may select `optimistic` mode. The work is
 
 ## D12. Phase 1 contract fixes (ADR-0016)
 
-**Open.** Blocks Phase 1: T-004 cannot fix its types and state machine until this is decided.
+**Decided 2026-10-30:** accepted as proposed (ADR-0016), applied with schema v0.4.
 
 The Phase 0 readiness review found gaps that would stop Phase 1 tasks partway. ADR-0016 settles them together.
 
