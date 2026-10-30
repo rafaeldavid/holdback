@@ -16,7 +16,7 @@ Restate this in your own words in this section before writing code.
 
 ## Context
 
-- `docs/api.md`; ADR-0005; `docs/neutrality.md` §Escape hatch requirements.
+- `docs/api.md`; ADR-0005; ADR-0017 (agent-ready API, Phase 1 subset); `docs/neutrality.md` §Escape hatch requirements.
 
 ## Acceptance criteria
 
@@ -27,10 +27,21 @@ Restate this in your own words in this section before writing code.
 - [ ] Operator-signed receipts.
 - [ ] SDK: operator list failover, direct submit to SimChain, `waitFor`; tests where op-1 refuses and op-2 is offline.
 - [ ] Two operator instances can run against one SimChain in tests.
+- [ ] ADR-0017 Phase 1 subset:
+  - every collection returns the `page.schema.json` envelope, ordered by event sequence;
+  - `GET /v1/commitments?party&role&escrowState`, `GET /v1/commitments/{id}/events`, paginated `/v1/adjudicators`;
+  - `GET /v1/clubs/{id}`, `GET /v1/agents/{address}`, `GET /v1/clubs/{id}/members/{principal}`;
+  - `Request-Id` on every response and in problem `instance`; `traceparent` accepted and logged, never signed; `Holdback-Schema-Version` on every response;
+  - 429 `rate_limited` with `Retry-After`; the SDK waits at most once, for at most 2 seconds, then fails over (fixture `neutrality.operator-rate-limits`);
+  - `GET /v1/status` per `operator-status.schema.json`, including the EIP-712 domain and the receipt-signing address;
+  - `?validateOnly=true` through `Settlement.validate`, unsigned for party messages, with the live response shape minus `receipt` and `Holdback-Dry-Run: true`; SDK `preview()`;
+  - receipts conform to `receipt.schema.json`;
+  - problem types `not_found` and `invalid_cursor`.
 
 ## Out of scope
 
 - MCP wrapper (Phase 6).
+- OpenAPI document and HTTP contract test (T-015). RateLimit headers, Deprecation and Sunset headers, SDK ranking of operators (deferred by ADR-0017).
 
 ## Evidence
 

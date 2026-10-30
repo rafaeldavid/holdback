@@ -35,6 +35,20 @@ export function workFeed() {
     });
 }
 
+const capitalize = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+
+// Turns "A, and the only mode in Phase 1." into the text of option A plus the rest, so the map never shows a bare letter.
+function outcome(body, decided) {
+  const note = decided.replace(/\s*\(ADR-\d{4}[^)]*\)/g, '').trim();
+  const recommendation = body.match(/^\*\*Recommendation:\*\*\s*(.+)$/m)?.[1] ?? '';
+  if (/^as recommended\.?$/i.test(note)) return { choice: capitalize(recommendation), detail: '' };
+  const letter = note.match(/^([A-D])(?:[.,]\s*|$)(.*)$/);
+  if (!letter) return { choice: capitalize(note), detail: '' };
+  const option = body.match(new RegExp(`^\\| ${letter[1]}\\. ([^|]+)\\|`, 'm'))?.[1].trim();
+  const rest = letter[2].replace(/^and\s+/, '').trim();
+  return { choice: option ?? `Option ${letter[1]}`, detail: rest ? capitalize(rest) : '' };
+}
+
 export function decisions() {
   const text = read('docs/decisions-today.md');
   const parts = text.split(/^## (D\d+)\. (.+)$/m);
@@ -46,7 +60,8 @@ export function decisions() {
     const adr = heading.match(/ADR-\d{4}/g) ?? [];
     let status = 'open';
     if (decided) status = /deferred/i.test(decided[1]) ? 'deferred' : 'decided';
-    result.push({ id, title: heading.replace(/\s*\(ADR[^)]*\)\s*$/, ''), adr, status, note: (decided ?? open)?.[1] ?? '' });
+    const { choice, detail } = decided ? outcome(body, decided[1]) : { choice: '', detail: open?.[1] ?? '' };
+    result.push({ id, title: heading.replace(/\s*\(ADR[^)]*\)\s*$/, ''), adr, status, choice, detail });
   }
   return result;
 }

@@ -1,6 +1,7 @@
 # ADR-0015: Optional optimistic release
 
-- **Status:** Proposed
+- **Status:** Accepted, 2026-10-30 (D11), with the amendments below. Built in Phase 4; the schema shape lands in v0.5.
+- **Amended after:** an independent research pass (Fable, max effort). It found that the first draft failed the neutrality test: "default works as in guaranteed_on_decision" would refund a buyer who already holds the work, with no bond reserved to compensate the seller.
 - **Date:** 2026-10-30
 - **Raised by:** Rafa, in chat on October 30, 2026: let parties choose optimistic release, under the principle of user choice. No task file yet. Related to ADR-0014 (D10).
 
@@ -28,14 +29,17 @@ Add a third settlement mode, `optimistic`, which parties select per commitment a
 4. **Disputes use the existing pipeline.** A dispute runs deterministic checks, then the panel, under the commitment's bound `registryHash` and `policyHash`. Outcomes:
    - **Accept:** release to the seller. The buyer's dispute bond goes to the seller.
    - **Reject:** refund to the buyer, and the dispute bond is returned. The seller cannot recover the work, because the buyer already has it. That is the risk the seller accepted by choosing this mode.
-   - Escalation, appeal, fallback and default work as in `guaranteed_on_decision` (ADR-0007), with the dispute decision as the first decision.
+   - Escalation, appeal and fallback work as in `guaranteed_on_decision` (ADR-0007), with the dispute decision as the first decision.
+   - **Default differs.** If no adjudicator decides a dispute in time, the default outcome is release to the seller, because tacit acceptance is the baseline the parties chose. The buyer's dispute bond is returned, and the held adjudication fee goes back to the buyer, because no one judged. A defaulting adjudicator's reserved bond compensates the buyer at the rulebook's `buyerCompensationRate`, mirroring D5.
+   - **Reservation at dispute open.** The primary adjudicator signs an `AdjudicatorAcceptance` at agreement with `bondReserved = 0`. When a dispute opens it must reserve 100% of price. If it cannot, the dispute passes to the fallback at once, and then to the default.
+   - **Dispute windows** count from dispute open (`disputeJudgeSec`, `disputeFallbackSec`), as appeal windows already do in core.
 5. **Deterministic checks at delivery are optional.** If the terms include required deterministic checks, they run at delivery, and a failure refunds as in the other modes, at `minFee`. With no required checks, nothing runs unless the buyer disputes.
 6. **Fees and bonds.** The named adjudicators commit no capital and earn nothing unless a dispute opens.
    - The disputing buyer pays the adjudication fee.
    - An adjudicator's bond is encumbered only from the moment a dispute opens.
-   - The dispute bond is a rulebook parameter, with a default equal to the adjudication fee.
+   - The dispute bond is a rulebook parameter, with a default equal to the adjudication fee. It goes to the seller when the dispute fails. No self-dispute profit path exists, so no protocol share is taken (unlike UMA's half-to-store split).
 7. **Timing.** `deliverBy` plus a rulebook minimum inspection window ≤ `disputeBy`, so every on-time delivery leaves the buyer at least that window. Late delivery is not allowed: after `deliverBy`, anyone can trigger reclaim, as in the other modes. On the Commerce Payments Protocol, the rules contract captures at release, and `authorizationExpiry` ≥ `disputeBy` plus the dispute and appeal windows plus a margin (ADR-0003).
-8. **Choosing.** The SDK shows each mode's tradeoff and fee quote side by side. Clubs may restrict which modes their rulebook allows. No mode is a protocol-wide default except in a rulebook.
+8. **Choosing.** The SDK shows each mode's tradeoff and fee quote side by side. Clubs may restrict which modes their rulebook allows, including excluding `optimistic`. No mode is a protocol-wide default except in a rulebook.
 
 | Mode | Buyer sees work | Judged | Adjudicator capital | Cost when no one disputes |
 | --- | --- | --- | --- | --- |
@@ -53,12 +57,13 @@ Add a third settlement mode, `optimistic`, which parties select per commitment a
 ## Consequences
 
 - **The protocol gains a design principle:** user choice among modes with stated tradeoffs. Future features should be options parties select, unless an option would let one party break the neutrality test against the other.
-- **Schema changes, when accepted:**
+- **Schema v0.5** (shape only; built in Phase 4):
   - `SettlementMode` gains `optimistic`;
-  - `timing` gains `disputeBy`;
-  - a dispute message and dispute bond join the EIP-712 types and the API (`POST /v1/commitments/{id}/disputes`);
-  - the delivery may carry the key for the buyer;
-  - the rulebook gains the minimum inspection window and the dispute bond.
+  - `timing` gains `disputeBy`, `disputeJudgeSec` and `disputeFallbackSec`, required only in this mode;
+  - messages gain `Dispute`, buyer-signed, with bond and fee authorization; the API gains `POST /v1/commitments/{id}/disputes`;
+  - the delivery already carries the key for the buyer (T-004 requires it), so no delivery change is needed;
+  - the club rulebook's `defaultOutcome` becomes per mode: `judged: { refundBuyer, sellerCompensationRate }` and `optimistic: { release, buyerCompensationRate }`. Today `refundBuyer` is `const true` (measured);
+  - the rulebook gains `minInspectionWindowSec` and `disputeBond`.
 - **State machine:**
   - `Delivered → Disputed` (buyer, before `disputeBy`);
   - `Delivered → Released` (anyone, after `disputeBy`, or the buyer's early acceptance);
@@ -70,11 +75,12 @@ Add a third settlement mode, `optimistic`, which parties select per commitment a
   - `optimistic-dispute-rejected`;
   - `error.dispute-after-deadline`;
   - `neutrality.optimistic-buyer-silent`: silence releases the payment;
-  - `neutrality.optimistic-adjudicator-offline-during-dispute`.
+  - `neutrality.optimistic-adjudicator-offline-during-dispute`;
+  - `neutrality.optimistic-dispute-adjudicators-silent-releases`: primary and fallback both silent during a dispute, the default releases to the seller and the buyer gets its bond and fee back.
 - **Phase.** Not in the Phase 1 demo. It is simpler than `settle_after_window`: no key-release design and no capital until a dispute. It could come before that mode in Phase 4.
 
 ## Litmus tests
 
-- **Neutrality.** Once both parties have signed and the buyer has funded the hold, no single party can stop settlement. The buyer can delay payment only until `disputeBy`, and only by paying for a dispute. After that, anyone can trigger release. The seller cannot take funds before `disputeBy` or a decision. During a dispute, the existing fallback and default rules apply.
+- **Neutrality.** Once both parties have signed and the buyer has funded the hold, no single party can stop settlement. The buyer can delay payment only until `disputeBy`, and only by paying for a dispute. After that, anyone can trigger release. The seller cannot take funds before `disputeBy` or a decision. During a dispute, the fallback applies, and silence by every adjudicator resolves to the pre-dispute terms: release to the seller. No silent party can turn the outcome against the one who acted.
 - **The hold.** The money is held, with an expiry, idempotent operations and anyone-can-trigger timeouts, as in every mode. The work is not held: the parties chose that, and the neutrality test's "held work" applies only to modes that hold it.
 - **Defended judgment.** Unchanged when it runs. Fewer commitments are judged, so less traffic feeds the quality signals in ADR-0014.
