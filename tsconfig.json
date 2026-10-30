@@ -1,0 +1,13 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/core" },
+    { "path": "packages/settlement" },
+    { "path": "packages/judgment" },
+    { "path": "packages/sdk" },
+    { "path": "packages/testkit" },
+    { "path": "apps/operator" },
+    { "path": "apps/adjudicator" },
+    { "path": "apps/demo" }
+  ]
+}
