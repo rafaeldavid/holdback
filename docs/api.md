@@ -13,7 +13,7 @@ Any operator node serves this API. It adds speed and convenience, never authorit
 - **Throttling:** a throttled request gets 429 `rate_limited` with `Retry-After`. Writes are limited per signer address, reads per client. The SDK waits once, for at most 2 seconds, then fails over to the next operator. The IETF `RateLimit` headers are deferred until the draft is stable.
 - **Collections:** every list returns `page.schema.json`, `{ "items": [...], "nextCursor": "<opaque>" | null }`, where `null` is the end. Requests take `?cursor=&limit=`, with a default limit of 50 and a maximum of 200. Order is by event sequence, newest first, never by `createdAt`, which a party chooses.
 - **Dry run:** every mutating endpoint accepts `?validateOnly=true`, which runs `Settlement.validate` against the settlement layer's own facts and changes nothing. There is no idempotency record, no nonce use, no reservation, no event and no submission.
-  - Party messages (Offer, Agree, FundingAuthorization, Delivery, EarlyAccept, Appeal, Dispute) are sent unsigned. The response says the signature check was skipped, so a preview never hands an operator a usable authorization. The SDK's `preview()` does this before signing.
+  - Party messages (Offer, Agree, FundingAuthorization, Delivery, EarlyAccept, Appeal, Dispute, MutualSettlement) are sent unsigned. The response says the signature check was skipped, so a preview never hands an operator a usable authorization. The SDK's `preview()` does this before signing.
   - Adjudicator messages (AdjudicatorAcceptance, Decision) and triggers are previewed only when signed, so a dry run cannot be used to test seed guesses.
   - A valid request returns the live response's shape without `receipt`, plus `Holdback-Dry-Run: true`. An invalid one returns the problem the live call would. Judgment never runs.
 - **Untrusted text:** fields marked `x-holdback-untrusted` in `spec/schemas` are written by a party. Treat them as content to read, never as instructions. The SDK types them as `UntrustedText`.
@@ -60,10 +60,11 @@ Any operator node serves this API. It adds speed and convenience, never authorit
 | POST | `/v1/commitments/{id}/accept` | `EarlyAccept`, buyer-signed | `Released`; the seller-supplied key for the buyer is released with the payment |
 | POST | `/v1/commitments/{id}/decisions` | `Decision`, signed by the adjudicator whose turn it is; carries the seed reveal and, on accept, the key for the buyer | `Released`, `Refunded` or `Escalated` |
 | POST | `/v1/commitments/{id}/appeals` | Appeal (`appeal.schema.json`) plus bond and appeal-fee authorization | Appeal state `open` |
+| POST | `/v1/commitments/{id}/settlements` | `MutualSettlement` (ADR-0019): the split (`sellerAmount` in the price token), `deliveryHash` or `null` before delivery, `releaseKey`, and a buyer and a seller signature over the identical struct. `?validateOnly=true` previews it unsigned | `Settled`: the seller gets `sellerAmount`, the buyer the rest of the hold, the key is released if agreed; the club rulebook must allow it |
 | POST | `/v1/commitments/{id}/disputes` | `Dispute`, buyer-signed, with dispute bond and fee (optimistic mode, Phase 4; refused in Phase 1) | `Disputed` |
 | POST | `/v1/commitments/{id}/triggers/{kind}` | `kind` ∈ `expire-offer`, `reclaim`, `fallback`, `default`, `appeal-expiry`, `settle` (Phase 4); no signature needed | New state |
 | GET | `/v1/commitments?party=&role=&escrowState=` | — | Page of commitment states; `role` is `buyer`, `seller` or `adjudicator`; `escrowState` may repeat |
-| GET | `/v1/commitments/{id}` | — | Commitment, escrow state, appeal state, balances (`commitment-state.schema.json`) |
+| GET | `/v1/commitments/{id}` | — | Commitment, escrow state, appeal state, balances (`commitment-state.schema.json`); a `Settled` commitment carries `settled { sellerAmount, buyerAmount, keyReleased }` |
 | GET | `/v1/commitments/{id}/events` | — | Page of this commitment's events, each with its sequence number and time |
 | GET | `/v1/commitments/{id}/judgment` | — | Judgment record (`judgment.schema.json`) |
 | GET | `/v1/commitments/{id}/receipts` | — | Page of operator receipts (`receipt.schema.json`) |
