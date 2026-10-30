@@ -1,0 +1,43 @@
+{
+  "address": "0x5d10fecab9242e66cb134b77309a3566ed75e3dd",
+  "name": "Bench A",
+  "encryptionPublicKey": "A6d8Adb682dd4Aed883d592c521ccc795599fdf4a1c",
+  "affiliations": [],
+  "bond": {
+    "token": "tUSD",
+    "amount": "25000000000"
+  },
+  "openExposure": {
+    "token": "tUSD",
+    "amount": "2000000000"
+  },
+  "policy": {
+    "id": "bench-a/p1",
+    "panelSize": 3,
+    "appealPanelSize": 5,
+    "minFamilies": 2,
+    "minFamiliesAppeal": 3,
+    "minValid": 2,
+    "minValidAppeal": 4,
+    "acceptSupermajority": 0.667,
+    "rejectSupermajority": 0.667,
+    "judgeTimeoutSec": 60,
+    "rationaleMaxChars": 600
+  },
+  "registryVersion": 1,
+  "fee": {
+    "min": {
+      "token": "tUSD",
+      "amount": "25000000"
+    },
+    "capitalChargeRate": 0.02
+  },
+  "metrics": {
+    "falseAcceptRate": 0.0,
+    "falseRejectRate": 0.05,
+    "escalationRate": 0.1,
+    "sampleSize": 40,
+    "measuredAt": "2026-10-30T08:00:00Z"
+  },
+  "status": "active"
+}

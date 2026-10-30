@@ -1,0 +1,25 @@
+{
+  "principal": "0x23f0af4dc12c97f0714cd2b12f30dd95da5dd5e4",
+  "agent": "0x9ff412388f11e58327e71f841705dbc739c8cc46",
+  "clubId": "data-services-v1",
+  "scope": {
+    "roles": [
+      "seller"
+    ],
+    "maxPerCommitment": {
+      "token": "tUSD",
+      "amount": "5000000000"
+    },
+    "maxDaily": {
+      "token": "tUSD",
+      "amount": "20000000000"
+    },
+    "categories": [
+      "data-cleaning"
+    ],
+    "expiresAt": "2027-01-31T00:00:00Z"
+  },
+  "nonce": "0x676b8bb84ce7267dd520deca4811c8f10a53e636352f06987f42fe425acedd80",
+  "issuedAt": "2026-10-30T09:00:00Z",
+  "signature": "0xa87c45ffdf60b0664078c1e17d6730c776b8a1fa3e89536b234b6f2b4b7223b7e415ffb188de4a3991e039ca77f7acacc75b064f5efc3b33c2b4573c04e52283d9"
+}

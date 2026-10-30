@@ -1,0 +1,32 @@
+# @settlement sim @judges recorded @mode guaranteed_on_decision @seed 7
+name: _example
+description: Happy path for the $2,000 dataset-cleaning job (demo beats 1–4).
+club: fixtures/clubs/data-services-v1.yaml
+parties:
+  buyer: atlas-buyer
+  seller: tidewater-seller
+adjudicators:
+  primary: bench-a
+  fallback: bench-b
+  appeal: bench-c
+operators: [op-1, op-2]
+faucet:
+  atlas-buyer: "10000000000"        # 10,000 tUSD (6 decimals)
+  bench-a: "25000000000"            # bond
+  bench-b: "25000000000"
+  bench-c: "25000000000"
+terms: fixtures/terms/clean-customers-2000.yaml
+steps:
+  - offer:            { by: seller, via: op-1 }
+  - agree_and_fund:   { by: buyer, via: op-1 }
+  - deliver:          { by: seller, via: op-1, file: data/customers.cleaned.good.csv }
+  - advance_clock:    { seconds: 5 }
+  - judge:            { adjudicator: bench-a }
+  - settle:           { trigger: anyone }
+  - verify_key_release: { by: buyer }
+expect:
+  terminal: Released
+  balances:
+    atlas-buyer: "7950000000"
+    tidewater-seller: "2000000000"
+    bench-a: "25050000000"

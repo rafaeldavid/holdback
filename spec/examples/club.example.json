@@ -1,0 +1,36 @@
+{
+  "id": "data-services-v1",
+  "name": "Data Services Club",
+  "operator": "0xc189bbabd7b55343a731ed82c5f80b5e5e354e88",
+  "rulebook": {
+    "version": "1.0",
+    "open": true,
+    "minWindowsSec": {
+      "judge": 120,
+      "fallback": 120,
+      "appealWindow": 300,
+      "appealDecide": 300
+    },
+    "coverageRatio": 0.2,
+    "appealBondRate": 0.05,
+    "sealedChecksMaxWeight": 0.3,
+    "maxSubmissions": 2,
+    "defaultOutcome": {
+      "refundBuyer": true,
+      "sellerCompensationRate": 1.0
+    },
+    "allowedSettlementModes": [
+      "guaranteed_on_decision",
+      "settle_after_window"
+    ],
+    "allowedTokens": [
+      "tUSD"
+    ],
+    "panelPolicyMin": {
+      "panelSize": 3,
+      "appealPanelSize": 5,
+      "minFamilies": 2
+    }
+  },
+  "rulebookHash": "0xb70959b8b5a5a9d365df7471120396553ed1bc0bff83059e4862e6d11b36a556"
+}

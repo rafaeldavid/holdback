@@ -1,0 +1,31 @@
+{
+  "commitmentId": "0x9340180fb352b68aabcf457de90752525d862a9a6dac875100905fac2fc54ed8",
+  "attempt": 1,
+  "ciphertext": {
+    "uri": "file:///store/f8dcb34308e5c69f46a33cafa62bd922476b18c78a114eb144e34a5e374f7d60",
+    "sha256": "sha256:f8dcb34308e5c69f46a33cafa62bd922476b18c78a114eb144e34a5e374f7d60",
+    "bytes": 612480,
+    "cipher": "aes-256-gcm"
+  },
+  "plaintextSha256": "sha256:af32f5a5218ce19a7d7f0896e3615ac675feb492740163337aaf26bacef3af8d",
+  "plaintextMime": "text/csv",
+  "encryptedKeys": [
+    {
+      "recipient": "0x5d10fecab9242e66cb134b77309a3566ed75e3dd",
+      "scheme": "x25519-xsalsa20poly1305",
+      "ciphertext": "13Acae29634ec37a28a379a7876a56f9f1Af4d814d6"
+    },
+    {
+      "recipient": "0xf9e6283d068ff7016653ab6d36a7fab0294f4b8a",
+      "scheme": "x25519-xsalsa20poly1305",
+      "ciphertext": "eb14aaA72f1a3daA2a6e2b4247775812a6a3a3e4f4d"
+    },
+    {
+      "recipient": "0xc372bd536a0f63fe9fde6bca1db179ce93612520",
+      "scheme": "x25519-xsalsa20poly1305",
+      "ciphertext": "bc459e6d4ae2d11d632A9a3A14884e37A4ade688397"
+    }
+  ],
+  "submittedAt": "2026-10-31T16:20:00Z",
+  "signature": "0x20bd9e9844c7ceaf1abc8867ded970523c9e2fb6fc72e100cb080078af669050e26372bd08ccb5d7a96740ad3eff7ccb1d7812a827571d26c126663bc58448dcb4"
+}

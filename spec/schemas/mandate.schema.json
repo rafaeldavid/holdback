@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://holdback.dev/schemas/v0.1/mandate.schema.json",
+  "title": "Mandate (principal-signed agent scope)",
+  "type": "object",
+  "required": [
+    "principal",
+    "agent",
+    "clubId",
+    "scope",
+    "nonce",
+    "issuedAt",
+    "signature"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "principal": {
+      "$ref": "common.schema.json#/$defs/Address"
+    },
+    "agent": {
+      "$ref": "common.schema.json#/$defs/Address"
+    },
+    "clubId": {
+      "type": "string"
+    },
+    "scope": {
+      "$ref": "common.schema.json#/$defs/Scope"
+    },
+    "nonce": {
+      "$ref": "common.schema.json#/$defs/Hex32"
+    },
+    "issuedAt": {
+      "$ref": "common.schema.json#/$defs/Timestamp"
+    },
+    "signature": {
+      "$ref": "common.schema.json#/$defs/Signature"
+    }
+  }
+}

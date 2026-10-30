@@ -1,0 +1,160 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://holdback.dev/schemas/v0.1/adjudicator.schema.json",
+  "title": "Adjudicator registration",
+  "type": "object",
+  "required": [
+    "address",
+    "name",
+    "encryptionPublicKey",
+    "affiliations",
+    "bond",
+    "openExposure",
+    "policy",
+    "registryVersion",
+    "fee",
+    "status"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "address": {
+      "$ref": "common.schema.json#/$defs/Address"
+    },
+    "name": {
+      "type": "string",
+      "maxLength": 120
+    },
+    "encryptionPublicKey": {
+      "$ref": "common.schema.json#/$defs/Base64Url"
+    },
+    "affiliations": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Member IDs the adjudicator is affiliated with; it may not judge their commitments"
+    },
+    "bond": {
+      "$ref": "common.schema.json#/$defs/TokenAmount"
+    },
+    "openExposure": {
+      "$ref": "common.schema.json#/$defs/TokenAmount"
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "panelSize",
+        "appealPanelSize",
+        "minFamilies",
+        "minFamiliesAppeal",
+        "minValid",
+        "minValidAppeal",
+        "acceptSupermajority",
+        "rejectSupermajority",
+        "judgeTimeoutSec",
+        "rationaleMaxChars"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "panelSize": {
+          "type": "integer",
+          "minimum": 3
+        },
+        "appealPanelSize": {
+          "type": "integer",
+          "minimum": 5
+        },
+        "minFamilies": {
+          "type": "integer",
+          "minimum": 2
+        },
+        "minFamiliesAppeal": {
+          "type": "integer",
+          "minimum": 2
+        },
+        "minValid": {
+          "type": "integer",
+          "minimum": 2
+        },
+        "minValidAppeal": {
+          "type": "integer",
+          "minimum": 3
+        },
+        "acceptSupermajority": {
+          "$ref": "common.schema.json#/$defs/Rate"
+        },
+        "rejectSupermajority": {
+          "$ref": "common.schema.json#/$defs/Rate"
+        },
+        "judgeTimeoutSec": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "rationaleMaxChars": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2000
+        }
+      }
+    },
+    "registryVersion": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "fee": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "min",
+        "capitalChargeRate"
+      ],
+      "properties": {
+        "min": {
+          "$ref": "common.schema.json#/$defs/TokenAmount"
+        },
+        "capitalChargeRate": {
+          "$ref": "common.schema.json#/$defs/Rate"
+        }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "falseAcceptRate",
+        "falseRejectRate",
+        "escalationRate",
+        "sampleSize",
+        "measuredAt"
+      ],
+      "properties": {
+        "falseAcceptRate": {
+          "$ref": "common.schema.json#/$defs/Rate"
+        },
+        "falseRejectRate": {
+          "$ref": "common.schema.json#/$defs/Rate"
+        },
+        "escalationRate": {
+          "$ref": "common.schema.json#/$defs/Rate"
+        },
+        "sampleSize": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "measuredAt": {
+          "$ref": "common.schema.json#/$defs/Timestamp"
+        }
+      }
+    },
+    "status": {
+      "enum": [
+        "active",
+        "suspended"
+      ]
+    }
+  }
+}

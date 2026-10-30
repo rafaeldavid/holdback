@@ -1,0 +1,54 @@
+# Neutrality
+
+## The test
+
+No single party can stop a valid commitment from settling according to its terms, or move held funds or held work outside those terms. (ADR-0001)
+
+"Valid" means:
+- both agents signed the commitment within their registered scope;
+- the hold was funded;
+- each later step either happens by its deadline or is replaced by the timeout rule the commitment names.
+
+"Settling according to its terms" means one of four outcomes:
+- release on acceptance;
+- refund on rejection;
+- a reclaim after the seller misses its delivery deadline;
+- the default outcome when no adjudicator decides in time.
+
+## Control-point analysis
+
+| Actor | Can | Cannot | How the transaction still completes if this actor refuses or disappears | Fixture |
+| --- | --- | --- | --- | --- |
+| Operator node (runs the REST API, relays signed messages, sponsors gas) | Relay, index, refuse service, rate-limit | Author or alter agent messages; move funds; change deadlines | The SDK fails over to another operator, or submits the signed message directly to the settlement layer (escape hatch) | `neutrality.operator-refuses`, `neutrality.operator-offline` |
+| Adjudicator (runs the panel, signs decisions, posts a bond) | Decide acceptance within its deadline; escalate | Decide outside its assigned commitments; move funds except through decision rules; avoid paying when an appeal overturns its decision; block the fallback or default after its deadline | The fallback adjudicator decides. If both miss their deadlines, anyone triggers the default outcome, and the defaulting adjudicators' bonds compensate the seller | `neutrality.adjudicator-offline`, `neutrality.adjudicator-and-fallback-offline` |
+| Appeal adjudicator | Decide an appeal within its deadline | Reopen a settled appeal | If the appeal is not decided by its deadline, the first decision stands and the appellant's bond is returned | `neutrality.appeal-adjudicator-offline` |
+| Club operator (publishes the rulebook, admits members) | Admit or refuse members; publish a new rulebook version | Freeze held funds; change the rulebook of an existing commitment, whose hash is bound into it; block commitments under an open rulebook | Commitments carry the rulebook hash they were signed under. Revoking a member stops new commitments, not those in flight | `neutrality.club-revokes-mid-flight` |
+| On-ramp or off-ramp (Stripe test, cards, other fiat sources) | Refuse to convert money | Touch funds once they are held | Fund with another ramp or directly in stablecoin | `neutrality.onramp-refuses` |
+| Model provider | Refuse or degrade judge calls | Decide alone: the panel needs at least two families, and a missing judge abstains | Abstentions below the panel's minimum valid count lead to escalation or the fallback adjudicator | `neutrality.provider-outage` |
+| Holdback maintainers | Ship new code | Pause, upgrade or drain deployed contracts. There are no admin keys and no proxy; a new version is a new deployment that parties opt into | Existing commitments run on the code they were signed under | Contract review checklist; no fixture |
+| Buyer agent | Refuse to accept early; appeal with a bond | Block judgment, release or a timeout | Judgment runs without the buyer. Timeouts can be triggered by anyone | `neutrality.buyer-silent` |
+| Seller agent | Withhold delivery | Take held funds | Anyone can reclaim once the delivery deadline passes | `S8 reclaim` |
+
+## Residual control points
+
+Accepted for the prototype and tracked here:
+
+1. **Stablecoin issuer freezes.** Fiat-backed stablecoin issuers can blacklist addresses. Mitigation: the escrow accepts any ERC-20, and the prototype uses a test token. A production rulebook can require a token with no freeze function.
+2. **L2 sequencer censorship.** A sequencer can delay transactions. Mitigation: use forced inclusion through L1 where the chain supports it, and size deadlines to leave time for it.
+3. **Collusion.** An adjudicator colluding with one party is bounded by commit-reveal panel selection, cross-family panels, appeals to a different adjudicator, and the bond. It is not eliminated.
+4. **Liveness of everyone at once.** If every operator, every adjudicator and both agents vanish, funds stay held until someone triggers the expiry rule. Anyone can trigger it, so this needs one live party anywhere.
+5. **Legal process.** Courts and regulators can compel real-world parties. The design limits what any one party can do technically. It does not place anyone beyond the law.
+
+## Escape hatch requirements
+
+- Every state-changing message an agent signs must be valid when submitted by anyone, including the agent itself, straight to the settlement layer.
+- The SDK ships a direct-submit path and tests it in fixtures.
+- Operator APIs are conveniences, not gatekeepers: they add indexing, gas sponsorship and machine-speed responses, and nothing else.
+
+## How neutrality is tested
+
+- `neutrality.*` scenario fixtures (see `docs/testing.md`): each one takes one actor offline or makes it refuse, and asserts that the commitment still reaches a terms-compliant end state with the expected balances.
+- A formal model of the state machine (Phase 2) checks two properties:
+  - **Liveness:** every funded commitment reaches Released, Refunded or Defaulted under fairness of "anyone may trigger timeouts", even when any single named actor halts.
+  - **Safety:** no transition moves funds without a valid signature, decision or timeout.
+- A contract review checklist: no owner, pause, blacklist, `selfdestruct` or upgrade proxy; every timeout function is callable by anyone.

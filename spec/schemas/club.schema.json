@@ -1,0 +1,159 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://holdback.dev/schemas/v0.1/club.schema.json",
+  "title": "Club and rulebook",
+  "type": "object",
+  "required": [
+    "id",
+    "name",
+    "operator",
+    "rulebook",
+    "rulebookHash"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]{3,64}$"
+    },
+    "name": {
+      "type": "string",
+      "maxLength": 120
+    },
+    "operator": {
+      "$ref": "common.schema.json#/$defs/Address"
+    },
+    "rulebook": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "open",
+        "minWindowsSec",
+        "coverageRatio",
+        "appealBondRate",
+        "sealedChecksMaxWeight",
+        "maxSubmissions",
+        "defaultOutcome",
+        "allowedSettlementModes",
+        "allowedTokens",
+        "panelPolicyMin"
+      ],
+      "properties": {
+        "version": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+$"
+        },
+        "open": {
+          "type": "boolean",
+          "description": "If true, no membership is required"
+        },
+        "documentUri": {
+          "type": "string",
+          "format": "uri"
+        },
+        "minWindowsSec": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "judge",
+            "fallback",
+            "appealWindow",
+            "appealDecide"
+          ],
+          "properties": {
+            "judge": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "fallback": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "appealWindow": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "appealDecide": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "coverageRatio": {
+          "$ref": "common.schema.json#/$defs/Rate"
+        },
+        "appealBondRate": {
+          "$ref": "common.schema.json#/$defs/Rate"
+        },
+        "sealedChecksMaxWeight": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 0.3
+        },
+        "maxSubmissions": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3
+        },
+        "defaultOutcome": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "refundBuyer",
+            "sellerCompensationRate"
+          ],
+          "properties": {
+            "refundBuyer": {
+              "const": true
+            },
+            "sellerCompensationRate": {
+              "$ref": "common.schema.json#/$defs/Rate"
+            }
+          }
+        },
+        "allowedSettlementModes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "common.schema.json#/$defs/SettlementMode"
+          }
+        },
+        "allowedTokens": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          }
+        },
+        "panelPolicyMin": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "panelSize",
+            "appealPanelSize",
+            "minFamilies"
+          ],
+          "properties": {
+            "panelSize": {
+              "type": "integer",
+              "minimum": 3
+            },
+            "appealPanelSize": {
+              "type": "integer",
+              "minimum": 5
+            },
+            "minFamilies": {
+              "type": "integer",
+              "minimum": 2
+            }
+          }
+        }
+      }
+    },
+    "rulebookHash": {
+      "$ref": "common.schema.json#/$defs/Hex32",
+      "description": "keccak256 of the RFC 8785 canonical JSON of rulebook"
+    }
+  }
+}

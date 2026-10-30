@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://holdback.dev/schemas/v0.1/judge-verdict.schema.json",
+  "title": "Judge verdict (enforced on model output)",
+  "type": "object",
+  "required": [
+    "criteria",
+    "overall",
+    "injectionSuspected",
+    "rationale"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "criteria": {
+      "type": "array",
+      "maxItems": 12,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "score",
+          "evidence"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9_-]{1,40}$"
+          },
+          "score": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4
+          },
+          "evidence": {
+            "type": "string",
+            "maxLength": 300
+          }
+        }
+      }
+    },
+    "overall": {
+      "enum": [
+        "pass",
+        "fail",
+        "abstain"
+      ]
+    },
+    "injectionSuspected": {
+      "type": "boolean"
+    },
+    "injectionEvidence": {
+      "type": "string",
+      "maxLength": 300
+    },
+    "rationale": {
+      "type": "string",
+      "maxLength": 600
+    }
+  }
+}

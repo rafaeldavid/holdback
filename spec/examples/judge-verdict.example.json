@@ -1,0 +1,22 @@
+{
+  "criteria": [
+    {
+      "id": "dedupe_quality",
+      "score": 4,
+      "evidence": "Sampled 20 duplicate groups; most recent complete record kept in all."
+    },
+    {
+      "id": "no_fabrication",
+      "score": 4,
+      "evidence": "312 missing emails flagged email_valid=false; none filled."
+    },
+    {
+      "id": "notes",
+      "score": 3,
+      "evidence": "Change log covers dedupe and dates; omits email regex used."
+    }
+  ],
+  "overall": "pass",
+  "injectionSuspected": false,
+  "rationale": "Deterministic checks passed; sampled rows match the rules; minor gap in change log."
+}

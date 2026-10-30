@@ -1,0 +1,168 @@
+{
+  "commitmentId": "0x9340180fb352b68aabcf457de90752525d862a9a6dac875100905fac2fc54ed8",
+  "attempt": 1,
+  "adjudicator": "0x5d10fecab9242e66cb134b77309a3566ed75e3dd",
+  "role": "primary",
+  "intake": {
+    "plaintextHashVerified": true,
+    "mime": "text/csv",
+    "bytes": 598112,
+    "normalized": true
+  },
+  "deterministic": [
+    {
+      "checkId": "cols",
+      "required": true,
+      "passed": true
+    },
+    {
+      "checkId": "rows",
+      "required": true,
+      "passed": true,
+      "detail": "9,512 rows"
+    },
+    {
+      "checkId": "uniq",
+      "required": true,
+      "passed": true
+    },
+    {
+      "checkId": "dates",
+      "required": true,
+      "passed": true
+    },
+    {
+      "checkId": "emails",
+      "required": false,
+      "passed": true,
+      "detail": "match rate 0.968 of non-null; 312 flagged"
+    }
+  ],
+  "screen": {
+    "flagged": false,
+    "signals": []
+  },
+  "panel": {
+    "ran": true,
+    "policyId": "bench-a/p1",
+    "panelCommitment": "0xa6f3ab5bae31edfb1c21449787c7a560c8bb2bec2ed96b406d6cda99c925ad9f",
+    "seed": "0xe00961cc04e55c4533144d93fda113d960b6ad37e54a86a41bbba4f031e29d92",
+    "members": [
+      {
+        "judgeId": "claude-a",
+        "provider": "anthropic",
+        "family": "claude",
+        "model": "<pinned-model-id-1>",
+        "promptHash": "0xfc9eb607c91880dc0f55b213fda2a4ce801e8fda2c2239bc2d4020d6e697a87c",
+        "rubricHash": "0x427a9abb2f667a6750d71780be14ebc0caf1961ad1de0f1f018f48a126630f56",
+        "status": "recorded",
+        "latencyMs": 0,
+        "verdict": {
+          "criteria": [
+            {
+              "id": "dedupe_quality",
+              "score": 4,
+              "evidence": "Sampled 20 duplicate groups; most recent complete record kept in all."
+            },
+            {
+              "id": "no_fabrication",
+              "score": 4,
+              "evidence": "312 missing emails flagged email_valid=false; none filled."
+            },
+            {
+              "id": "notes",
+              "score": 3,
+              "evidence": "Change log covers dedupe and dates; omits email regex used."
+            }
+          ],
+          "overall": "pass",
+          "injectionSuspected": false,
+          "rationale": "Deterministic checks passed; sampled rows match the rules; minor gap in change log."
+        }
+      },
+      {
+        "judgeId": "claude-b",
+        "provider": "anthropic",
+        "family": "claude",
+        "model": "<pinned-model-id-2>",
+        "promptHash": "0xfc9eb607c91880dc0f55b213fda2a4ce801e8fda2c2239bc2d4020d6e697a87c",
+        "rubricHash": "0x427a9abb2f667a6750d71780be14ebc0caf1961ad1de0f1f018f48a126630f56",
+        "status": "recorded",
+        "latencyMs": 0,
+        "verdict": {
+          "criteria": [
+            {
+              "id": "dedupe_quality",
+              "score": 4,
+              "evidence": "Sampled 20 duplicate groups; most recent complete record kept in all."
+            },
+            {
+              "id": "no_fabrication",
+              "score": 4,
+              "evidence": "312 missing emails flagged email_valid=false; none filled."
+            },
+            {
+              "id": "notes",
+              "score": 3,
+              "evidence": "Change log covers dedupe and dates; omits email regex used."
+            }
+          ],
+          "overall": "pass",
+          "injectionSuspected": false,
+          "rationale": "Deterministic checks passed; sampled rows match the rules; minor gap in change log."
+        }
+      },
+      {
+        "judgeId": "fam2-a",
+        "provider": "openai-compatible",
+        "family": "family-2",
+        "model": "<pinned-model-id-3>",
+        "promptHash": "0xfc9eb607c91880dc0f55b213fda2a4ce801e8fda2c2239bc2d4020d6e697a87c",
+        "rubricHash": "0x427a9abb2f667a6750d71780be14ebc0caf1961ad1de0f1f018f48a126630f56",
+        "status": "recorded",
+        "latencyMs": 0,
+        "verdict": {
+          "criteria": [
+            {
+              "id": "dedupe_quality",
+              "score": 4,
+              "evidence": "Sampled 20 duplicate groups; most recent complete record kept in all."
+            },
+            {
+              "id": "no_fabrication",
+              "score": 4,
+              "evidence": "312 missing emails flagged email_valid=false; none filled."
+            },
+            {
+              "id": "notes",
+              "score": 3,
+              "evidence": "Change log covers dedupe and dates; omits email regex used."
+            }
+          ],
+          "overall": "pass",
+          "injectionSuspected": false,
+          "rationale": "Deterministic checks passed; sampled rows match the rules; minor gap in change log."
+        }
+      }
+    ]
+  },
+  "aggregate": {
+    "decision": "accept",
+    "weightedScore": 3.8,
+    "passShare": 1.0,
+    "failShare": 0.0,
+    "passFamilies": [
+      "claude",
+      "family-2"
+    ],
+    "reasons": [
+      "all required checks passed",
+      "3/3 pass across 2 families",
+      "weighted score 3.8 >= 3.0"
+    ]
+  },
+  "recordUri": "file:///records/9340180fb352b68a",
+  "recordHash": "0xb7462d6ced2c15add3dbe47755277fa9618aceb17c68f507128896d622d4c5ee",
+  "decidedAt": "2026-10-31T16:21:04Z",
+  "signature": "0x8c4a2bc7ea5a9bc0fca6a46b860c9ac9d32043fd44ccc5e5c55dc0de5f9fdadd6579c3904fc4fb46a4233455b4f4cb3ee4b63c88a40aa0d834e3d5a2f77bf32186"
+}

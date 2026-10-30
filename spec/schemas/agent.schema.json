@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://holdback.dev/schemas/v0.1/agent.schema.json",
+  "title": "Agent registration",
+  "type": "object",
+  "required": [
+    "address",
+    "clubId",
+    "memberId",
+    "principal",
+    "scope",
+    "mandateHash",
+    "status",
+    "registeredAt"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "address": {
+      "$ref": "common.schema.json#/$defs/Address"
+    },
+    "clubId": {
+      "type": "string"
+    },
+    "memberId": {
+      "type": "string",
+      "maxLength": 120
+    },
+    "principal": {
+      "$ref": "common.schema.json#/$defs/Address"
+    },
+    "scope": {
+      "$ref": "common.schema.json#/$defs/Scope"
+    },
+    "encryptionPublicKey": {
+      "$ref": "common.schema.json#/$defs/Base64Url",
+      "description": "X25519 public key for receiving content keys"
+    },
+    "mandateHash": {
+      "$ref": "common.schema.json#/$defs/Hex32"
+    },
+    "status": {
+      "enum": [
+        "active",
+        "revoked"
+      ]
+    },
+    "registeredAt": {
+      "$ref": "common.schema.json#/$defs/Timestamp"
+    }
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "seq": 12,
+  "type": "settlement.released",
+  "commitmentId": "0x9340180fb352b68aabcf457de90752525d862a9a6dac875100905fac2fc54ed8",
+  "at": "2026-10-31T16:21:04Z",
+  "actor": "anyone",
+  "submittedVia": "op-1",
+  "payload": {
+    "to": "0x9ff412388f11e58327e71f841705dbc739c8cc46",
+    "amount": {
+      "token": "tUSD",
+      "amount": "2000000000"
+    },
+    "keyReleasedTo": "0x04d6c65223896ba94e731bc9eb765c19bd289b0d"
+  },
+  "prevHash": "0xe43c28e69db6705871162259bd96d4bc3ec12f2956cdbf81c4b84b882fbdb522",
+  "hash": "0x5cccdc8e8790b6f0bcaba76075878c70f54a65919f2950337b9bce100d38876c"
+}

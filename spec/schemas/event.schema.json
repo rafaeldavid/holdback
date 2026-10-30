@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://holdback.dev/schemas/v0.1/event.schema.json",
+  "title": "Settlement event (hash-chained)",
+  "type": "object",
+  "required": [
+    "seq",
+    "type",
+    "at",
+    "payload",
+    "prevHash",
+    "hash"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "seq": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "type": {
+      "enum": [
+        "club.registered",
+        "agent.registered",
+        "agent.revoked",
+        "adjudicator.registered",
+        "commitment.offered",
+        "commitment.agreed",
+        "offer.expired",
+        "hold.funded",
+        "delivery.submitted",
+        "judgment.opened",
+        "judgment.decided",
+        "fallback.triggered",
+        "default.triggered",
+        "appeal.filed",
+        "appeal.decided",
+        "appeal.expired",
+        "settlement.released",
+        "settlement.refunded",
+        "settlement.reclaimed",
+        "key.released",
+        "bond.paid"
+      ]
+    },
+    "commitmentId": {
+      "$ref": "common.schema.json#/$defs/Hex32"
+    },
+    "at": {
+      "$ref": "common.schema.json#/$defs/Timestamp"
+    },
+    "actor": {
+      "oneOf": [
+        {
+          "$ref": "common.schema.json#/$defs/Address"
+        },
+        {
+          "const": "anyone"
+        }
+      ]
+    },
+    "submittedVia": {
+      "type": "string",
+      "description": "Operator id or 'direct'"
+    },
+    "payload": {
+      "type": "object"
+    },
+    "prevHash": {
+      "$ref": "common.schema.json#/$defs/Hex32"
+    },
+    "hash": {
+      "$ref": "common.schema.json#/$defs/Hex32"
+    }
+  }
+}

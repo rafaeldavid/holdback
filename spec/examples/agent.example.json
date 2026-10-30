@@ -1,0 +1,27 @@
+{
+  "address": "0x9ff412388f11e58327e71f841705dbc739c8cc46",
+  "clubId": "data-services-v1",
+  "memberId": "tidewater-data",
+  "principal": "0x23f0af4dc12c97f0714cd2b12f30dd95da5dd5e4",
+  "scope": {
+    "roles": [
+      "seller"
+    ],
+    "maxPerCommitment": {
+      "token": "tUSD",
+      "amount": "5000000000"
+    },
+    "maxDaily": {
+      "token": "tUSD",
+      "amount": "20000000000"
+    },
+    "categories": [
+      "data-cleaning"
+    ],
+    "expiresAt": "2027-01-31T00:00:00Z"
+  },
+  "encryptionPublicKey": "3cf2311fec59bc54de784baAee7c8a514ee98c8bdf2",
+  "mandateHash": "0xb555cd26ec45baa2d7356d37c7772aba36a1243e3f347ca9b71a006d56cf61c7",
+  "status": "active",
+  "registeredAt": "2026-10-30T09:00:00Z"
+}

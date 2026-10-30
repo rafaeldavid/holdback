@@ -1,0 +1,33 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pnpm install)",
+      "Bash(pnpm typecheck)",
+      "Bash(pnpm test:*)",
+      "Bash(pnpm snap:*)",
+      "Bash(pnpm demo:*)",
+      "Bash(pnpm verify:*)",
+      "Bash(pnpm load:*)",
+      "Bash(pnpm lint:*)",
+      "Bash(forge test:*)",
+      "Bash(forge build:*)",
+      "Bash(git status)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git worktree:*)",
+      "Bash(git checkout -b:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(forge script:*)",
+      "Bash(cast send:*)"
+    ]
+  }
+}

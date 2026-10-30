@@ -1,0 +1,143 @@
+{
+  "schemaVersion": "0.1",
+  "id": "0x9340180fb352b68aabcf457de90752525d862a9a6dac875100905fac2fc54ed8",
+  "clubId": "data-services-v1",
+  "rulebookHash": "0xb70959b8b5a5a9d365df7471120396553ed1bc0bff83059e4862e6d11b36a556",
+  "buyer": "0x04d6c65223896ba94e731bc9eb765c19bd289b0d",
+  "seller": "0x9ff412388f11e58327e71f841705dbc739c8cc46",
+  "deliverable": {
+    "kind": "dataset",
+    "description": "Clean customers.csv: deduplicate on customer_id, normalize signup_date to ISO 8601, validate email format, flag (do not drop) rows with missing email.",
+    "format": "text/csv",
+    "inputs": [
+      {
+        "uri": "file:///fixtures/data/customers.dirty.csv",
+        "sha256": "sha256:3b3c172241503f63b8fd1f4f175657c8e654df15d2d50fd44803552cf882dd64"
+      }
+    ]
+  },
+  "acceptance": {
+    "deterministicChecks": [
+      {
+        "id": "cols",
+        "type": "csv_columns_exact",
+        "required": true,
+        "columns": [
+          "customer_id",
+          "name",
+          "email",
+          "signup_date",
+          "email_valid"
+        ]
+      },
+      {
+        "id": "rows",
+        "type": "row_count_range",
+        "required": true,
+        "min": 9400,
+        "max": 9600
+      },
+      {
+        "id": "uniq",
+        "type": "unique_key",
+        "required": true,
+        "columns": [
+          "customer_id"
+        ]
+      },
+      {
+        "id": "dates",
+        "type": "iso8601_date_column",
+        "required": true,
+        "column": "signup_date"
+      },
+      {
+        "id": "emails",
+        "type": "regex_match_rate_min",
+        "required": false,
+        "column": "email",
+        "pattern": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$",
+        "min": 0.97
+      }
+    ],
+    "rubric": {
+      "criteria": [
+        {
+          "id": "dedupe_quality",
+          "description": "Duplicates resolved by keeping the most recent complete record per customer_id.",
+          "weight": 0.4,
+          "anchors": {
+            "0": "No consistent rule",
+            "2": "Rule applied with some errors",
+            "4": "Rule applied consistently; sampled rows correct"
+          }
+        },
+        {
+          "id": "no_fabrication",
+          "description": "No values invented; missing emails flagged, not filled.",
+          "weight": 0.4,
+          "anchors": {
+            "0": "Fabricated values present",
+            "2": "Minor fills without flags",
+            "4": "No fabrication"
+          }
+        },
+        {
+          "id": "notes",
+          "description": "Change log explains rules applied.",
+          "weight": 0.2,
+          "anchors": {
+            "0": "Missing",
+            "2": "Partial",
+            "4": "Complete and accurate"
+          }
+        }
+      ],
+      "passThreshold": 3.0
+    },
+    "sealedChecks": {
+      "count": 1,
+      "commitment": "0xa7be699f00441111f022ecfce59a4f774245971f2c5b1a4c68c53dca67572b2f",
+      "weight": 0.2
+    }
+  },
+  "price": {
+    "token": "tUSD",
+    "amount": "2000000000"
+  },
+  "adjudication": {
+    "adjudicator": "0x5d10fecab9242e66cb134b77309a3566ed75e3dd",
+    "fallbackAdjudicator": "0xf9e6283d068ff7016653ab6d36a7fab0294f4b8a",
+    "appealAdjudicator": "0xc372bd536a0f63fe9fde6bca1db179ce93612520",
+    "policyId": "bench-a/p1",
+    "fee": {
+      "token": "tUSD",
+      "amount": "50000000"
+    },
+    "panelCommitment": "0xa6f3ab5bae31edfb1c21449787c7a560c8bb2bec2ed96b406d6cda99c925ad9f"
+  },
+  "timing": {
+    "offerExpiresAt": "2026-10-30T10:15:00Z",
+    "fundBy": "2026-10-30T10:30:00Z",
+    "deliverBy": "2026-11-01T10:00:00Z",
+    "judgeBy": "2026-11-01T10:02:00Z",
+    "fallbackBy": "2026-11-01T10:04:00Z",
+    "appealWindowSec": 300,
+    "appealDecideSec": 300,
+    "maxSubmissions": 2
+  },
+  "settlement": {
+    "mode": "guaranteed_on_decision",
+    "token": "tUSD"
+  },
+  "remedy": {
+    "onReject": "full_refund"
+  },
+  "buyerEncryptionPublicKey": "cb3adb3c24fb1b27f6b5c34b69AeeacA8db395159A8",
+  "nonce": "0x9e3f156324d42f0ea4b6f4fce81d56fbd64a2143a3fdd60a130d9c90e5b4d688",
+  "createdAt": "2026-10-30T10:00:00Z",
+  "signatures": {
+    "seller": "0x0cb0f52b4f2d3ef4feeb0b6ddcee49c3294c43b35e9802fef4003b31ae2e20841f794cb8649f6dd7f62a67581674671a9abc8576bdcc967c92528136df095e03a4",
+    "buyer": "0x6113a0ed240e335c96d6369b1eb02c12575be414424bde804f450b279fca6ff1a884b79c24462bcc77d85733e908628062d73b61b8fe102badc17a550360e8eb6d"
+  }
+}

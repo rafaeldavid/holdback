@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://holdback.dev/schemas/v0.1/delivery.schema.json",
+  "title": "Delivery (encrypted work + escrowed key)",
+  "type": "object",
+  "required": [
+    "commitmentId",
+    "attempt",
+    "ciphertext",
+    "plaintextSha256",
+    "plaintextMime",
+    "encryptedKeys",
+    "submittedAt",
+    "signature"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "commitmentId": {
+      "$ref": "common.schema.json#/$defs/Hex32"
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 3
+    },
+    "ciphertext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "uri",
+        "sha256",
+        "bytes",
+        "cipher"
+      ],
+      "properties": {
+        "uri": {
+          "type": "string",
+          "format": "uri"
+        },
+        "sha256": {
+          "$ref": "common.schema.json#/$defs/Sha256"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10485760
+        },
+        "cipher": {
+          "const": "aes-256-gcm"
+        }
+      }
+    },
+    "plaintextSha256": {
+      "$ref": "common.schema.json#/$defs/Sha256"
+    },
+    "plaintextMime": {
+      "enum": [
+        "text/csv",
+        "application/json",
+        "text/plain",
+        "text/markdown"
+      ]
+    },
+    "encryptedKeys": {
+      "type": "array",
+      "minItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "recipient",
+          "scheme",
+          "ciphertext"
+        ],
+        "properties": {
+          "recipient": {
+            "$ref": "common.schema.json#/$defs/Address"
+          },
+          "scheme": {
+            "const": "x25519-xsalsa20poly1305"
+          },
+          "ciphertext": {
+            "$ref": "common.schema.json#/$defs/Base64Url"
+          }
+        }
+      },
+      "description": "Content key encrypted to the primary, fallback and appeal adjudicators"
+    },
+    "submittedAt": {
+      "$ref": "common.schema.json#/$defs/Timestamp"
+    },
+    "signature": {
+      "$ref": "common.schema.json#/$defs/Signature"
+    }
+  }
+}

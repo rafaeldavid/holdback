@@ -1,0 +1,603 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://holdback.dev/schemas/v0.1/commitment.schema.json",
+  "title": "Commitment (terms + EIP-712 signatures)",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "id",
+    "clubId",
+    "rulebookHash",
+    "buyer",
+    "seller",
+    "deliverable",
+    "acceptance",
+    "price",
+    "adjudication",
+    "timing",
+    "settlement",
+    "remedy",
+    "buyerEncryptionPublicKey",
+    "nonce",
+    "createdAt",
+    "signatures"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "const": "0.1"
+    },
+    "id": {
+      "$ref": "common.schema.json#/$defs/Hex32",
+      "description": "EIP-712 struct hash of the terms (everything except id and signatures)"
+    },
+    "clubId": {
+      "type": "string"
+    },
+    "rulebookHash": {
+      "$ref": "common.schema.json#/$defs/Hex32"
+    },
+    "buyer": {
+      "$ref": "common.schema.json#/$defs/Address"
+    },
+    "seller": {
+      "$ref": "common.schema.json#/$defs/Address"
+    },
+    "deliverable": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "description",
+        "format"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "dataset",
+            "document",
+            "other"
+          ]
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 4000
+        },
+        "format": {
+          "enum": [
+            "text/csv",
+            "application/json",
+            "text/plain",
+            "text/markdown"
+          ]
+        },
+        "inputs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "uri",
+              "sha256"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "uri": {
+                "type": "string",
+                "format": "uri"
+              },
+              "sha256": {
+                "$ref": "common.schema.json#/$defs/Sha256"
+              }
+            }
+          }
+        }
+      }
+    },
+    "acceptance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "deterministicChecks",
+        "rubric"
+      ],
+      "properties": {
+        "deterministicChecks": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "$ref": "#/$defs/DeterministicCheck"
+          }
+        },
+        "rubric": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "criteria",
+            "passThreshold"
+          ],
+          "properties": {
+            "criteria": {
+              "type": "array",
+              "maxItems": 12,
+              "items": {
+                "$ref": "#/$defs/Criterion"
+              }
+            },
+            "passThreshold": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 4
+            }
+          }
+        },
+        "sealedChecks": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "count",
+            "commitment",
+            "weight"
+          ],
+          "properties": {
+            "count": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10
+            },
+            "commitment": {
+              "$ref": "common.schema.json#/$defs/Hex32",
+              "description": "keccak256(canonical checks JSON || salt)"
+            },
+            "weight": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 0.3
+            }
+          }
+        }
+      }
+    },
+    "price": {
+      "$ref": "common.schema.json#/$defs/TokenAmount"
+    },
+    "adjudication": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "adjudicator",
+        "fallbackAdjudicator",
+        "appealAdjudicator",
+        "policyId",
+        "fee",
+        "panelCommitment"
+      ],
+      "properties": {
+        "adjudicator": {
+          "$ref": "common.schema.json#/$defs/Address"
+        },
+        "fallbackAdjudicator": {
+          "$ref": "common.schema.json#/$defs/Address"
+        },
+        "appealAdjudicator": {
+          "$ref": "common.schema.json#/$defs/Address"
+        },
+        "policyId": {
+          "type": "string"
+        },
+        "fee": {
+          "$ref": "common.schema.json#/$defs/TokenAmount"
+        },
+        "panelCommitment": {
+          "$ref": "common.schema.json#/$defs/Hex32",
+          "description": "keccak256(seed || commitmentId), posted by the adjudicator at agreement"
+        }
+      }
+    },
+    "timing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "offerExpiresAt",
+        "fundBy",
+        "deliverBy",
+        "judgeBy",
+        "fallbackBy",
+        "appealWindowSec",
+        "appealDecideSec",
+        "maxSubmissions"
+      ],
+      "properties": {
+        "offerExpiresAt": {
+          "$ref": "common.schema.json#/$defs/Timestamp"
+        },
+        "fundBy": {
+          "$ref": "common.schema.json#/$defs/Timestamp"
+        },
+        "deliverBy": {
+          "$ref": "common.schema.json#/$defs/Timestamp"
+        },
+        "judgeBy": {
+          "$ref": "common.schema.json#/$defs/Timestamp"
+        },
+        "fallbackBy": {
+          "$ref": "common.schema.json#/$defs/Timestamp"
+        },
+        "appealWindowSec": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "appealDecideSec": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "maxSubmissions": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3
+        }
+      }
+    },
+    "settlement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "token"
+      ],
+      "properties": {
+        "mode": {
+          "$ref": "common.schema.json#/$defs/SettlementMode"
+        },
+        "token": {
+          "type": "string"
+        }
+      }
+    },
+    "remedy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "onReject"
+      ],
+      "properties": {
+        "onReject": {
+          "const": "full_refund"
+        }
+      }
+    },
+    "buyerEncryptionPublicKey": {
+      "$ref": "common.schema.json#/$defs/Base64Url"
+    },
+    "nonce": {
+      "$ref": "common.schema.json#/$defs/Hex32"
+    },
+    "createdAt": {
+      "$ref": "common.schema.json#/$defs/Timestamp"
+    },
+    "signatures": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "seller"
+      ],
+      "properties": {
+        "seller": {
+          "$ref": "common.schema.json#/$defs/Signature"
+        },
+        "buyer": {
+          "$ref": "common.schema.json#/$defs/Signature"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "DeterministicCheck": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "type",
+            "required",
+            "columns"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^[a-z0-9_-]{1,40}$"
+            },
+            "required": {
+              "type": "boolean"
+            },
+            "type": {
+              "const": "csv_columns_exact"
+            },
+            "columns": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "type",
+            "required",
+            "min",
+            "max"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^[a-z0-9_-]{1,40}$"
+            },
+            "required": {
+              "type": "boolean"
+            },
+            "type": {
+              "const": "row_count_range"
+            },
+            "min": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "max": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "type",
+            "required",
+            "columns"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^[a-z0-9_-]{1,40}$"
+            },
+            "required": {
+              "type": "boolean"
+            },
+            "type": {
+              "const": "unique_key"
+            },
+            "columns": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "type",
+            "required",
+            "column",
+            "max"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^[a-z0-9_-]{1,40}$"
+            },
+            "required": {
+              "type": "boolean"
+            },
+            "type": {
+              "const": "null_rate_max"
+            },
+            "column": {
+              "type": "string"
+            },
+            "max": {
+              "$ref": "common.schema.json#/$defs/Rate"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "type",
+            "required",
+            "column",
+            "pattern",
+            "min"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^[a-z0-9_-]{1,40}$"
+            },
+            "required": {
+              "type": "boolean"
+            },
+            "type": {
+              "const": "regex_match_rate_min"
+            },
+            "column": {
+              "type": "string"
+            },
+            "pattern": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "min": {
+              "$ref": "common.schema.json#/$defs/Rate"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "type",
+            "required",
+            "column"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^[a-z0-9_-]{1,40}$"
+            },
+            "required": {
+              "type": "boolean"
+            },
+            "type": {
+              "const": "iso8601_date_column"
+            },
+            "column": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "type",
+            "required",
+            "schema"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^[a-z0-9_-]{1,40}$"
+            },
+            "required": {
+              "type": "boolean"
+            },
+            "type": {
+              "const": "json_schema"
+            },
+            "schema": {
+              "type": "object"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "type",
+            "required",
+            "reference",
+            "keyColumn",
+            "min"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^[a-z0-9_-]{1,40}$"
+            },
+            "required": {
+              "type": "boolean"
+            },
+            "type": {
+              "const": "reference_row_match_min"
+            },
+            "reference": {
+              "type": "object",
+              "required": [
+                "uri",
+                "sha256"
+              ],
+              "properties": {
+                "uri": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "sha256": {
+                  "$ref": "common.schema.json#/$defs/Sha256"
+                }
+              }
+            },
+            "keyColumn": {
+              "type": "string"
+            },
+            "min": {
+              "$ref": "common.schema.json#/$defs/Rate"
+            }
+          }
+        }
+      ]
+    },
+    "Criterion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "description",
+        "weight",
+        "anchors"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9_-]{1,40}$"
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "weight": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1
+        },
+        "anchors": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "0",
+            "2",
+            "4"
+          ],
+          "properties": {
+            "0": {
+              "type": "string",
+              "maxLength": 300
+            },
+            "1": {
+              "type": "string",
+              "maxLength": 300
+            },
+            "2": {
+              "type": "string",
+              "maxLength": 300
+            },
+            "3": {
+              "type": "string",
+              "maxLength": 300
+            },
+            "4": {
+              "type": "string",
+              "maxLength": 300
+            }
+          }
+        }
+      }
+    }
+  }
+}

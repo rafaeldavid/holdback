@@ -1,0 +1,12 @@
+{
+  "commitmentId": "0x9340180fb352b68aabcf457de90752525d862a9a6dac875100905fac2fc54ed8",
+  "appellant": "seller",
+  "appellantAddress": "0x9ff412388f11e58327e71f841705dbc739c8cc46",
+  "grounds": "Rejection cites row count, but 9,512 rows is within the agreed 9,400\u20139,600 range.",
+  "bond": {
+    "token": "tUSD",
+    "amount": "100000000"
+  },
+  "filedAt": "2026-10-31T16:23:00Z",
+  "signature": "0x0c08125eb41f4e4ca0c79f57fe083f3e184466e5c22a5d265241611b256214b9eb1ec3c288754aa28b9b8312d9f945164742544d4baf3dddf5f4dcbe5b86ce80da"
+}

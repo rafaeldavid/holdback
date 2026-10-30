@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://holdback.dev/schemas/v0.1/appeal.schema.json",
+  "title": "Appeal",
+  "type": "object",
+  "required": [
+    "commitmentId",
+    "appellant",
+    "appellantAddress",
+    "grounds",
+    "bond",
+    "filedAt",
+    "signature"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "commitmentId": {
+      "$ref": "common.schema.json#/$defs/Hex32"
+    },
+    "appellant": {
+      "enum": [
+        "buyer",
+        "seller"
+      ]
+    },
+    "appellantAddress": {
+      "$ref": "common.schema.json#/$defs/Address"
+    },
+    "grounds": {
+      "type": "string",
+      "maxLength": 2000
+    },
+    "bond": {
+      "$ref": "common.schema.json#/$defs/TokenAmount"
+    },
+    "filedAt": {
+      "$ref": "common.schema.json#/$defs/Timestamp"
+    },
+    "signature": {
+      "$ref": "common.schema.json#/$defs/Signature"
+    }
+  }
+}

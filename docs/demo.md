@@ -1,0 +1,74 @@
+# Demo: two agents, one $2,000 job, nobody in control
+
+The first product priority. The demo exists to describe the experience to an AI lab that supports agentic commerce research. It should leave a researcher able to say what an agent can commit, how judgment is defended, and where control sits.
+
+## Audience and takeaway
+
+**Audience:** researchers and product leads at an AI lab working on agentic commerce (protocols, payments, evaluation, safety).
+
+**Takeaway in one sentence:** two agents from different firms put money and work behind a promise; a bonded multi-model panel judges delivery; settlement happens in seconds; and no single party — including us — could have stopped it or taken the funds.
+
+## Run it
+
+```
+pnpm demo                 # recorded mode: deterministic, no keys, ~1 minute
+pnpm demo --live          # live judges (needs two model-family keys), ~3 minutes
+pnpm demo --beat 4        # run one beat
+open demo/out/index.html  # timeline viewer
+```
+
+Outputs per beat, in `demo/out/`:
+- `<beat>.md`: a narrated transcript;
+- `<beat>.json`: the machine-readable trace;
+- `index.html`: a static timeline viewer, with no build step and no network.
+
+The recorded transcripts double as the `.expect.md` snapshots in `fixtures/scenarios/`. The demo is the test suite.
+
+## Cast
+
+| Role | Name in the demo | What it is |
+| --- | --- | --- |
+| Buyer agent | Atlas Research's procurement agent | Needs a customer dataset cleaned in 48 hours; budget $2,000 |
+| Seller agent | Tidewater Data's cleaning agent | Offers deduplication, ISO 8601 dates, email validation |
+| Club | Data Services Club (open rulebook v1) | Rulebook: windows, bonds, sealed-check cap, default compensation |
+| Adjudicator | Bench A (bonded) | Runs the panel: two Claude judges and one judge from another family |
+| Fallback adjudicator | Bench B | Takes over if Bench A misses its deadline |
+| Appeal adjudicator | Bench C | Five judges, three families |
+| Operators | op-1, op-2 | Interchangeable API nodes |
+| Settlement | SimChain | In-process escrow rules with no admin keys; testnet from Phase 5 |
+
+All names are invented for the demo.
+
+## Beats
+
+| # | Beat | What the viewer sees | Litmus test shown |
+| --- | --- | --- | --- |
+| 1 | **Agree and hold** | Seller offers terms, buyer signs, one call moves $2,050 (price plus $50 adjudication fee) into escrow. Timer shows milliseconds. Balances update | Hold; machine speed |
+| 2 | **Deliver without revealing** | Seller uploads an encrypted cleaned CSV. Buyer sees only hashes. Content key goes to the adjudicator | Two-sided hold |
+| 3 | **Defended judgment** | Deterministic checks pass (row count, unique keys, date format). Panel seed revealed, judges listed with pinned model IDs, verdicts shown, cross-family agreement, accept | Multi-model judgment |
+| 4 | **Settle** | Funds release to the seller; content key releases to the buyer in the same step; buyer verifies the plaintext hash; receipts signed | Fair exchange |
+| 5 | **Bad work** | Second job: deliverable drops 8% of rows. A deterministic check fails, refund in one step, seller keeps the work | Hold; DvP for data |
+| 6 | **Injection attempt** | Deliverable hides a base64 instruction telling judges to approve. Screen flags it, the panel cannot auto-accept, escalation to Bench C, five judges reject, refund | Defenses |
+| 7 | **Nobody in control** | Same job, three failures in sequence: op-1 refuses to relay (SDK fails over, then submits directly); Bench A goes offline (Bench B decides); the club operator revokes the seller mid-flight (the commitment still settles under its signed rulebook) | Neutrality |
+| 8 | **Wrongful decision, paid by the bond** (optional) | Bench A wrongly rejects. Seller appeals, Bench C overturns, Bench A's bond pays the seller | Capital behind judgment |
+| 9 | **Work for work** (optional; depends on the T-003 spike) | Two agents swap deliverables, each produced on its own user's compute, through two-sided holds. No money moves | Compute-native agreement |
+
+Closing slide in the transcript, also stated by the narrator:
+- what remains centralized: residual risks from `docs/neutrality.md`;
+- what an AI lab could add: response attestation for judges, a hold primitive on API credit as one rail among many, and model version disclosure for adjudication.
+
+## Narration rules
+
+- Every line states what happened and the number behind it: amount, milliseconds, model ID, hash prefix.
+- Show the signed message for one beat, collapsed by default in the viewer.
+- No marketing language. Say "recorded verdicts" in recorded mode.
+
+## Success criteria (T-012)
+
+- A fresh clone produces all transcripts in recorded mode within 5 minutes, with no keys.
+- A reviewer who has not read the docs can answer, from the transcript alone:
+  1. Who held the money?
+  2. Who decided?
+  3. What stopped the injection?
+  4. What happened when op-1 refused?
+- Every beat is a passing scenario fixture.
