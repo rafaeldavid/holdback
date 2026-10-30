@@ -1,6 +1,8 @@
 // Red-team tests for PR #21 (T-008). Each `it` asserts the SECURE behavior; a failure is a finding.
 // Fake providers only: no network, no keys.
-import type { AcceptanceSpec, DeterministicCheck, MimeType } from '@holdback/core';
+// Migrated to the v0.5 judgment shapes (D18: basis points and fractions); assertions unchanged.
+import type { MimeType } from '@holdback/core';
+import type { JudgmentCheck as DeterministicCheck } from './terms.js';
 import { describe, expect, it } from 'vitest';
 import { ADJUDICATOR, delivery, fakeUnwrap, GOOD_CSV, NONCES, POLICY, RUBRIC, seal, utf8 } from './_helpers.js';
 import { evaluateChecks } from './checks/index.js';
@@ -67,7 +69,7 @@ async function run(over: Partial<PipelineInput> & { text?: string; mime?: MimeTy
 describe('A. checks run on NFKC text, not the delivered bytes', () => {
   const checks: DeterministicCheck[] = [
     { id: 'cols', type: 'csv_columns_exact', required: true, columns: ['id', 'signup_date'] },
-    { id: 'id_digits', type: 'regex_match_rate_min', required: true, column: 'id', pattern: '^[0-9]+$', min: 1 },
+    { id: 'id_digits', type: 'regex_match_rate_min', required: true, column: 'id', pattern: '^[0-9]+$', minBps: 10000 },
     { id: 'date', type: 'iso8601_date_column', required: true, column: 'signup_date' },
   ];
   // Fullwidth header, fullwidth digits and fullwidth hyphen-minus: no ASCII digit in the data rows.
@@ -92,7 +94,7 @@ describe('A. checks run on NFKC text, not the delivered bytes', () => {
 
 // ---------------------------------------------------------------- B. null_rate_max evasion
 describe('B. blank-looking cells count as non-null', () => {
-  const nullCheck: DeterministicCheck = { id: 'email_nulls', type: 'null_rate_max', required: true, column: 'email', max: 0.05 };
+  const nullCheck: DeterministicCheck = { id: 'email_nulls', type: 'null_rate_max', required: true, column: 'email', maxBps: 500 };
   const blanks: Array<[string, string]> = [
     ['space', ' '],
     ['nbsp', '\u00a0'],
@@ -215,7 +217,7 @@ describe('E. URL-like exfiltration that passes the filter', () => {
 // ---------------------------------------------------------------- F. seller-induced abstention
 describe('F. abstentions shrink the denominator; the seller can induce them', () => {
   it('F1 an honest fail verdict quoting a URL-like cell abstains, flipping escalate to accept at 0.667', async () => {
-    const policy = { ...POLICY, acceptSupermajority: 0.667, rejectSupermajority: 0.667 };
+    const policy = { ...POLICY, acceptSupermajority: { numerator: 667, denominator: 1000 }, rejectSupermajority: { numerator: 667, denominator: 1000 } };
     const csv = 'id,website\n1,acme.io/about\n2,fake-co.biz/home\n';
     const honest = v('fail', 0, {}, 'row 2 website fake-co.biz/home does not exist');
     const control = await run({ text: csv, policy, provider: provider({ 'claude-a': v('pass'), 'gpt-a': v('pass'), 'gemini-a': v('fail', 0, {}, 'row 2 website is fabricated') }) });
@@ -374,7 +376,7 @@ describe('L. verdict format edge cases', () => {
   });
   it('L-tie: acceptSupermajority 0.5 with 2 pass / 2 fail accepts before reject is considered', async () => {
     const seats = [...SEATS, { judgeId: 'x', provider: 'p', family: 'mistral', model: 'mistral-large-2411' }];
-    const d = await run({ seats, policy: { ...POLICY, acceptSupermajority: 0.5, rejectSupermajority: 0.5 }, provider: provider({ 'claude-a': v('pass'), 'gpt-a': v('pass'), 'gemini-a': v('fail', 4), x: v('fail', 4) }) });
+    const d = await run({ seats, policy: { ...POLICY, acceptSupermajority: { numerator: 51, denominator: 100 }, rejectSupermajority: { numerator: 51, denominator: 100 } }, provider: provider({ 'claude-a': v('pass'), 'gpt-a': v('pass'), 'gemini-a': v('fail', 4), x: v('fail', 4) }) });
     console.log('L-tie', d.aggregate.decision, d.aggregate.reasons);
   });
 });

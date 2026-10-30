@@ -28,6 +28,14 @@ const BANNED: Array<[RegExp, string]> = [
 describe('judgment source', () => {
   const sources = files(srcDir);
   it('finds the source files', () => expect(sources.length).toBeGreaterThan(5));
+  it('is ASCII only (no literal invisible or lookalike characters in patterns; write \\u escapes)', () => {
+    const hits = sources.filter((f) => /[^\x00-\x7f]/.test(readFileSync(f, 'utf8')));
+    expect(hits).toEqual([]);
+  });
+  it('has no open-ended counted loops ({n,}) in regex literals, which overflow V8 on long runs', () => {
+    const hits = sources.filter((f) => /\{\d+,\}/.test(readFileSync(f, 'utf8').replace(/^\s*(\/\/|\*).*$/gm, '')));
+    expect(hits).toEqual([]);
+  });
   for (const [pattern, name] of BANNED) {
     it(`never uses ${name}`, () => {
       const hits = sources.filter((f) => pattern.test(readFileSync(f, 'utf8')));
