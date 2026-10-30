@@ -139,7 +139,7 @@ describe('spec/', () => {
       delete c.rulebook.defaultOutcome.optimistic;
       expect(validate()(c)).toBe(false);
     });
-    it.each(['firstLossShareMin', 'bondNoticePeriodMinSec', 'randomness', 'minInspectionWindowSec', 'disputeBond'])('requires %s', (field) => {
+    it.each(['firstLossShareMinBps', 'bondNoticePeriodMinSec', 'randomness', 'minInspectionWindowSec', 'disputeBond'])('requires %s', (field) => {
       const c = example('club');
       expect(validate()(c)).toBe(true);
       delete c.rulebook[field];
@@ -152,12 +152,12 @@ describe('spec/', () => {
     it('binds pool terms by poolTermsHash and keeps the capital charge out of fee', () => {
       const a = example('adjudicator');
       expect(validate()(a)).toBe(true);
-      expect(a.pool.terms.capitalChargeRate).toBeDefined();
+      expect(a.pool.terms.capitalChargeRateBps).toBeDefined();
       const noHash = structuredClone(a);
       delete noHash.poolTermsHash;
       expect(validate()(noHash)).toBe(false);
       const oldFee = structuredClone(a);
-      oldFee.fee.capitalChargeRate = 0.04;
+      oldFee.fee.capitalChargeRateBps = 400;
       expect(validate()(oldFee)).toBe(false);
     });
   });
@@ -436,7 +436,7 @@ describe('spec/', () => {
       ['an unknown event type', 'event', 'event', (e) => (e.type = 'bond.borrowed')],
       ['an unknown escrow state', 'commitment-state', 'commitment-state', (s) => (s.escrowState = 'Paused')],
       ['a judgment panel without seedSource', 'judgment', 'judgment', (j) => delete j.panel.seedSource],
-      ['an optimistic default that does not release', 'club', 'club', (c) => (c.rulebook.defaultOutcome.optimistic = { release: false, buyerCompensationRate: 1 })],
+      ['an optimistic default that does not release', 'club', 'club', (c) => (c.rulebook.defaultOutcome.optimistic = { release: false, buyerCompensationRateBps: 10000 })],
       ['an optimistic default without buyerCompensationRate', 'club', 'club', (c) => (c.rulebook.defaultOutcome.optimistic = { release: true })],
       ['a chain settlement without chainId', 'operator-status', 'operator-status', (s) => (s.settlement = { kind: 'chain' })],
       ['operator head without lagSec', 'operator-status', 'operator-status', (s) => delete s.head.lagSec],
@@ -517,6 +517,72 @@ describe('spec/', () => {
       const j = example('judgment');
       j.screen.signals = [{ kind: 'homoglyph' }];
       expect(schema('judgment')(j)).toBe(false);
+    });
+  });
+
+  describe('integer rates (ADR-0022, D18)', () => {
+    const schema = (name: string) => loadSpec().ajv.getSchema(`${V}/${name}.schema.json`);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    type At = (x: any) => any;
+    const bps: Array<[string, string, At, string]> = [
+      ['club', 'club', (c) => c.rulebook, 'appealBondRateBps'],
+      ['club', 'club', (c) => c.rulebook, 'windowCoverageRatioBps'],
+      ['club', 'club', (c) => c.rulebook, 'firstLossShareMinBps'],
+      ['club', 'club', (c) => c.rulebook, 'sealedChecksMaxWeightBps'],
+      ['club', 'club', (c) => c.rulebook.defaultOutcome.judged, 'sellerCompensationRateBps'],
+      ['adjudicator', 'adjudicator', (a) => a.pool.terms, 'capitalChargeRateBps'],
+      ['adjudicator', 'adjudicator', (a) => a.pool.terms, 'capitalChargeToPoolRateBps'],
+      ['adjudicator', 'adjudicator', (a) => a.pool.terms, 'firstLossShareBps'],
+      ['adjudicator', 'adjudicator', (a) => a.metrics, 'falseAcceptRateBps'],
+      ['adjudicator', 'adjudicator', (a) => a.metrics, 'falseRejectRateBps'],
+      ['adjudicator', 'adjudicator', (a) => a.metrics, 'escalationRateBps'],
+    ];
+    it.each(bps)('%s %s rejects fractional, negative and over-10000 values', (file, name, at, field) => {
+      for (const bad of [0.5, -1, 10001]) {
+        const x = example(name);
+        at(x)[field] = 500;
+        expect(schema(file)(x)).toBe(true);
+        at(x)[field] = bad;
+        expect(schema(file)(x)).toBe(false);
+      }
+    });
+    it('defines Bps and Fraction and no floating Rate', () => {
+      const defs = schema('common').schema.$defs;
+      expect(defs.Rate).toBeUndefined();
+      expect(defs.Bps).toEqual(expect.objectContaining({ type: 'integer', minimum: 0, maximum: 10000 }));
+      expect(defs.Fraction.additionalProperties).toBe(false);
+    });
+    it.each([
+      ['a zero denominator', { numerator: 0, denominator: 0 }],
+      ['a denominator above 100', { numerator: 2, denominator: 101 }],
+      ['a fractional numerator', { numerator: 1.5, denominator: 3 }],
+      ['an extra field', { numerator: 2, denominator: 3, value: 0.667 }],
+    ])('rejects a supermajority with %s', (_label, f) => {
+      const a = example('adjudicator');
+      expect(a.policy.acceptSupermajority).toEqual({ numerator: 2, denominator: 3 });
+      a.policy.acceptSupermajority = f;
+      expect(schema('adjudicator')(a)).toBe(false);
+    });
+    it.each([
+      ['a criterion weight of 0', (c: { acceptance: { rubric: { criteria: Array<{ weight: number }> } } }) => (c.acceptance.rubric.criteria[0]!.weight = 0)],
+      ['a fractional criterion weight', (c: { acceptance: { rubric: { criteria: Array<{ weight: number }> } } }) => (c.acceptance.rubric.criteria[0]!.weight = 0.4)],
+      ['a pass threshold above 400 hundredths', (c: { acceptance: { rubric: { passThreshold: number } } }) => (c.acceptance.rubric.passThreshold = 401)],
+      ['a fractional pass threshold', (c: { acceptance: { rubric: { passThreshold: number } } }) => (c.acceptance.rubric.passThreshold = 3.5)],
+      ['a fractional null-rate maximum', (c: { acceptance: { deterministicChecks: Array<Record<string, unknown>> } }) => (c.acceptance.deterministicChecks.find((k) => 'maxBps' in k)!['maxBps'] = 0.02)],
+    ] as const)('rejects %s', (_label, edit) => {
+      const c = example('commitment');
+      expect(schema('commitment')(c)).toBe(true);
+      edit(c as never);
+      expect(schema('commitment')(c)).toBe(false);
+    });
+    it('records aggregate counts and an integer weighted score in hundredths', () => {
+      const j = example('judgment');
+      expect(Number.isInteger(j.aggregate.passCount)).toBe(true);
+      expect(j.aggregate.passShare).toBeUndefined();
+      j.aggregate.weightedScore = 3.4;
+      expect(schema('judgment')(j)).toBe(false);
+      j.aggregate.weightedScore = 340;
+      expect(schema('judgment')(j)).toBe(true);
     });
   });
 });
