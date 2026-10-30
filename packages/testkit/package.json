@@ -4,7 +4,13 @@
   "private": true,
   "type": "module",
   "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
+  "bin": { "holdback-snap": "./dist/cli.js" },
   "scripts": {
     "build": "tsc -b"
+  },
+  "dependencies": {
+    "@holdback/core": "workspace:*",
+    "viem": "^2.57.13",
+    "yaml": "^2.9.1"
   }
 }
