@@ -19,6 +19,8 @@ No single party can stop a valid commitment from settling according to its terms
 - Holdback's maintainers;
 - either agent.
 
+Settling according to its terms includes a settlement both parties co-signed (ADR-0019, D15): any split of the price that buyer and seller both sign ends the commitment without an adjudicator.
+
 Every actor gets a `neutrality.*` fixture. Residual control points are listed in `docs/neutrality.md`.
 
 "Held work" means the release of the content key to the buyer. Adjudicators see the plaintext in order to judge it, so one adjudicator can copy or leak a deliverable without any decision. That is accepted as residual control point 6 in `docs/neutrality.md`, not as a pass.

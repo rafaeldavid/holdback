@@ -52,6 +52,7 @@ All names are invented for the demo.
 | 7 | **Nobody in control** | Same job, three failures in sequence: op-1 refuses to relay (SDK fails over, then submits directly); Bench A goes offline (Bench B decides); the club operator revokes the seller mid-flight (the commitment still settles under its signed rulebook) | Neutrality |
 | 8 | **Wrongful decision, paid by the bond** (optional) | Bench A wrongly rejects. Seller appeals, Bench C overturns, Bench A's bond pays the seller | Capital behind judgment |
 | 9 | **Work for work** (optional; depends on the T-003 spike) | Two agents swap deliverables, each produced on its own user's compute, through two-sided holds. No money moves | Compute-native agreement |
+| 10 | **Agree without a judge** (optional; outside the success criteria) | A third job. The buyer finds a gap and both agents co-sign a 70/30 split in milliseconds; the buyer gets the key, Bench A stands by and its bond is released, the fee returns to the buyer | 2-of-3: consent first, adjudicator only on disagreement |
 
 Closing slide in the transcript, also stated by the narrator:
 - what remains centralized: residual risks from `docs/neutrality.md`;

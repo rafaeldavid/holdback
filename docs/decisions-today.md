@@ -1,6 +1,6 @@
 # Decisions to make today
 
-Status: D1–D9 decided October 30, 2026, after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`); the options are kept as the record. D10 to D14 decided October 30, 2026, each after an independent research pass; none are open. Owner: Rafa. Each decision has options, a recommendation and the ADR it settles. Phase 1 (the demo) can start once D1, D2 and D6 are settled. Phase 2 needs D3 and D4.
+Status: D1–D9 decided October 30, 2026, after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`); the options are kept as the record. D10 to D15 decided October 30, 2026, each after an independent research pass; none are open. Owner: Rafa. Each decision has options, a recommendation and the ADR it settles. Phase 1 (the demo) can start once D1, D2 and D6 are settled. Phase 2 needs D3 and D4.
 
 ## D1. Adopt the neutrality litmus test as the top constraint (ADR-0001)
 
@@ -203,3 +203,19 @@ Today only the primary commits to a seed, so a fallback or appeal adjudicator ca
 | C. All three commit before funding | Strong, but funding waits on two more signatures |
 | D. Beacon-derived seed (chosen) | No adjudicator or party knows the panel before its round; liveness kept |
 | E. VRF per adjudicator | Stops grinding, but a colluding seller can vary the commitment; expensive to verify |
+
+## D15. Mutual settlement (ADR-0019)
+
+**Decided 2026-10-30:** buyer and seller can end a funded, undecided commitment by co-signing a `MutualSettlement` at any split of the price, in every settlement mode. It is allowed in Held, Delivered, FallbackJudging and Escalated, and refused after a decision, in Defaulted, or when the rulebook disables it. One signature moves nothing. Both parties choose whether the buyer receives the content key: with it, the settlement is a discounted acceptance; without it, a paid cancellation in which the seller keeps the work. The fee returns to the buyer in Phase 1, and a later rulebook share can pay an adjudicator that already worked. The adjudicator's reserved bond is released. Adjudicator decisions stay binary: parties split, judges decide. `EarlyAccept` stays as the one-signature special case.
+
+Rafa's framing: escrow as a 2-of-3. The parties agree, or the adjudicator decides when they do not. The third key can only sign the outcomes the terms allow.
+
+| Option | Effect |
+| --- | --- |
+| A. Co-signed settlement, any split, in every funded undecided state and every mode | Symmetric consent path for both parties; the seller can concede; cheaper than judging |
+| B. The same, only before `judgeBy` | Protects late adjudicator revenue, but parties who agree must wait out fallback or escalation windows |
+| C. The adjudicator decides splits from the rubric score | Makes the third key discretionary; harder to calibrate and defend |
+| D. Defer to Phase 4 | Phase 1 unchanged; the seller concession gap stays |
+
+**Recommendation:** A (research pass, Fable at max effort).
+

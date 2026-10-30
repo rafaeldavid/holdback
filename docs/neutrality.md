@@ -9,11 +9,12 @@ No single party can stop a valid commitment from settling according to its terms
 - the hold was funded;
 - each later step either happens by its deadline or is replaced by the timeout rule the commitment names.
 
-"Settling according to its terms" means one of four outcomes:
+"Settling according to its terms" means one of five outcomes:
 - release on acceptance;
 - refund on rejection;
 - a reclaim after the seller misses its delivery deadline;
-- the default outcome when no adjudicator decides in time.
+- the default outcome when no adjudicator decides in time;
+- a settlement both parties co-signed, at any split of the price (ADR-0019).
 
 ## Control-point analysis
 

@@ -16,7 +16,7 @@ Restate this in your own words in this section before writing code.
 
 ## Context
 
-- `docs/api.md`; ADR-0005; ADR-0017 (agent-ready API, Phase 1 subset); `docs/neutrality.md` §Escape hatch requirements.
+- `docs/api.md`; ADR-0005; ADR-0017 (agent-ready API, Phase 1 subset); ADR-0019 (mutual settlement); `docs/neutrality.md` §Escape hatch requirements.
 
 ## Acceptance criteria
 
@@ -37,6 +37,7 @@ Restate this in your own words in this section before writing code.
   - `?validateOnly=true` through `Settlement.validate`, unsigned for party messages, with the live response shape minus `receipt` and `Holdback-Dry-Run: true`; SDK `preview()`;
   - receipts conform to `receipt.schema.json`;
   - problem types `not_found` and `invalid_cursor`.
+- [ ] `POST /v1/commitments/{id}/settlements` accepts a co-signed `MutualSettlement`, with `?validateOnly=true` (ADR-0019); the SDK exposes `settle()` and `preview()` for it.
 
 ## Out of scope
 
