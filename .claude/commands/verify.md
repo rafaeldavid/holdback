@@ -8,4 +8,4 @@ Then:
 - read the report; do not mark anything as passing unless the report shows it passing;
 - explain every snapshot diff in one line;
 - treat `placeholder` as not done (the command's task has not landed);
-- copy the step table into the active task file's Evidence section, labeled measured, and into the PR's Evidence section.
+- copy the step table into the active task file's Evidence section, labeled measured, and summarize it in 1 to 3 bullets in the PR's Verification section.

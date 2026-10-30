@@ -1,30 +1,25 @@
-## Summary
-<!-- Task ID and one paragraph: what changed and why. Task file: docs/tasks/T-xxx-*.md -->
+<!--
+Title: Conventional Commits, `type(scope): subject`, imperative, no trailing period. Example: `feat(settlement): add permissionless reclaim`.
+Body: a one-minute briefing for a reviewer who has the diff. Short sentences. Drop a section with nothing to say, except Scope.
+-->
 
-## Acceptance criteria
-<!-- Copy the task's checklist and tick what is met. -->
-- [ ]
+## Why
+<!-- The problem and the approach in 1 to 3 sentences. Name the task ID (T-xxx). -->
 
-## Evidence
-<!-- Paste the table from reports/verify-<branch>.md (`pnpm verify`). Label every claim. -->
-- **Measured:**
-- **Inferred:**
-- **Guessed:**
+## What changed
+<!-- 1 to 3 bullets. Name a symbol or path only when it carries the change. -->
+-
 
-Snapshot diffs: <!-- each .expect.md change with a one-line reason, or "none" -->
+## Scope
+<!-- Always. What this covers and what it leaves out (follow-ups, known gaps, placeholder steps). -->
+-
 
-## Litmus tests
-- [ ] Neutrality: no actor gains a way to stop settlement or move held funds; new actors or timeouts have a `neutrality.*` fixture
-- [ ] Hold: no double spend; operations idempotent; custody stays on the settlement layer
-- [ ] Judgment: deliverables stay untrusted data; pinned models; new defenses have an `attack.*` fixture
+## Tradeoffs
+<!-- Only alternatives a reviewer would ask about. -->
 
-## Contract checklist (contracts/ only; otherwise delete)
-- [ ] No owner, pause, freeze, blacklist, `selfdestruct` or upgrade proxy
-- [ ] Every timeout function is callable by anyone
-- [ ] Cross-family review done
+## Blast Radius
+<!-- 1 or 2 sentences on who or what this touches and why that is safe or risky. Say if it touches a human gate (ADR, schema, contract, defense, keys, deploy) or one of the three litmus tests. -->
 
-## Human gate
-- [ ] Not needed / [ ] Needs Rafa (ADR, schema, contract, defense, keys, deploy)
-
-## Risks and follow-ups
+## Verification
+<!-- 1 to 3 bullets, each a real run and its outcome, labeled measured, inferred or guessed. Start from `pnpm verify` (reports/verify-<branch>.md). Explain each snapshot diff in one line. -->
 -

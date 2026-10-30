@@ -45,7 +45,7 @@ flowchart LR
 - **Task file:** `docs/tasks/T-xxx-<slug>.md`, from `_template.md`. It has a lane, dependencies, the paths the task may touch, acceptance criteria, an evidence block and a handoff block.
 - **Branch and worktree:** `git worktree add .worktrees/holdback-T-xxx -b t-xxx-<slug>`. `.worktrees/` sits inside the repo and is gitignored.
 - **Commits:** imperative subject, with the task ID in the body.
-- **PR template:** `.github/pull_request_template.md`: summary; acceptance criteria checklist; evidence from `pnpm verify` (labeled measured, inferred or guessed); litmus tests; contract checklist; human gate; risks; follow-ups.
+- **PR template:** `.github/pull_request_template.md`, in pstack's opening-a-pr format: a Conventional Commits title, then Why, What changed, Scope, Tradeoffs, Blast Radius and Verification. Verification bullets come from `pnpm verify` and are labeled measured, inferred or guessed. Blast Radius names any human gate or litmus test the change touches. The task's acceptance checklist stays in the task file.
 - **Handoff:** before stopping, write what is done, what is not, how to resume, and which open questions remain into the task file.
 - **Decision log:** every non-trivial choice made inside a task goes into the task file's Decisions section. If the choice changes architecture, a contract or a defense, it becomes an ADR.
 
@@ -80,7 +80,7 @@ Every hard rule in `CLAUDE.md` is enforced by a check, not just by instruction. 
 | --- | --- | --- |
 | No floats in money | Branded `TokenAmount` type (string-backed); lint rule banning `number` in `packages/core/money` | T-004 |
 | No real money | Startup guard rejecting non-`sk_test_` Stripe keys and mainnet chain IDs; unit test | T-007 |
-| No admin keys | Contract checklist in PR template; Foundry test asserting no owner or pause selectors; reviewer item | Phase 2 |
+| No admin keys | Reviewer applies the contract review checklist in `docs/neutrality.md`; Foundry test asserting no owner or pause selectors | Phase 2 |
 | Signed messages only | Operator rejects unsigned mutations; `error.invalid-signature` fixture | T-007, T-010 |
 | Idempotency | Middleware plus `error.idempotency-conflict` fixture plus property test | T-007 |
 | Ledger invariants | fast-check properties in `packages/settlement` | T-006 |

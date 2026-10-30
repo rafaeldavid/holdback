@@ -22,7 +22,7 @@ Restatement: give every agent one command, `pnpm verify`, that runs all checks a
 
 - [x] `pnpm verify` runs typecheck, tests, snap, demo (recorded) and writes `reports/verify-<branch>.md` with pass/fail per step and snapshot diffs. (snap and demo report `placeholder` until T-005 and T-013.)
 - [x] `docs/feature-map.md`: each demo beat → fixtures → packages.
-- [x] PR template with acceptance checklist, evidence (measured/inferred/guessed), contract checklist, risks.
+- [x] PR template with acceptance checklist, evidence (measured/inferred/guessed), contract checklist, risks. (Superseded by Rafa's choice of pstack's format: the acceptance checklist stays in the task file, evidence goes under Verification, and risks and human gates go under Blast Radius.)
 
 ## Out of scope
 
@@ -43,6 +43,7 @@ Fill this in before review. Label each item measured, inferred or guessed.
 - **`scripts/verify.ts` runs with Node 22's built-in type stripping** (no tsx dependency). It is linted but outside the `tsc -b` project.
 - **Lint and spec validation added as steps** beyond the task's list (typecheck, test, snap, demo), since CI runs them too.
 - **Snapshot diffs** are `git diff HEAD -- fixtures/**/*.expect.md`, which covers uncommitted `pnpm snap --update` output.
+- **PR template format:** Rafa chose pstack's opening-a-pr format (Why, What changed, Scope, Tradeoffs, Blast Radius, Verification) over the kit's checklist template. Claim labels stay, inside Verification, because `CLAUDE.md` requires them.
 - **Out-of-path edits:** `docs/team.md` (worktree path now `.worktrees/`, PR template reference), `CLAUDE.md` (`pnpm verify` line), `.gitignore` (`.worktrees/`), `package.json` (`verify` script).
 
 ## Handoff
