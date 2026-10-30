@@ -163,6 +163,8 @@ describe('pnpm snap', () => {
     expect((await snap(root, '--judges', 'fake', '--record', '--update', '_example')).code).toBe(0);
     const saved = JSON.parse(readFileSync(join(root, 'fixtures/recordings/_example/fam2-a.json'), 'utf8'));
     expect(saved).toMatchObject({ judgeId: 'fam2-a', capturedFrom: 'fake' });
+    // Recorded mode replays the new recordings without a mismatch, then the snapshot matches.
+    expect((await snap(root, '--update', '_example')).code).toBe(0);
     expect((await snap(root, '_example')).code).toBe(0);
   });
 
@@ -208,6 +210,19 @@ describe('pnpm snap', () => {
     const r = await snap(root);
     expect(r.code).toBe(1);
     expect(r.out[0]).toMatch(/fail {2}_example: .*fixtures\/clubs\/data-services-v1\.yaml exists/);
+  });
+
+  it('refuses a message signed by the wrong key with invalid_signature', async () => {
+    const root = sandbox();
+    const name = 'error.impersonated-buyer';
+    const src = deliverBeforeFund(name)
+      .replace('  - deliver: { by: seller, via: op-1, file: data/x.csv }', '  - agree_and_fund: { by: buyer, via: op-1, signer: tidewater-seller }')
+      .replace('type: invalid_state', 'type: invalid_signature');
+    writeFileSync(join(root, `fixtures/scenarios/${name}.scenario.yaml`), src);
+    const r = await snap(root, '--update', name);
+    expect(r.out[0]).toBe(`pass  ${name} (snapshot updated)`);
+    const written = readFileSync(join(root, `fixtures/scenarios/${name}.expect.md`), 'utf8');
+    expect(written).toMatch(/\| atlas-buyer \| agree \| op-1 \| invalid_signature \| AcceptedByAdjudicator \|/);
   });
 
   it('never writes a snapshot when not asked to', async () => {
