@@ -57,6 +57,28 @@ Fill this in before review. Label each item measured, inferred or guessed.
   - duplicate pragmas are accepted: 1 fails;
   - (a first, confounded variant of the `inputHash` mutation also changed the recording key set: 18 fail.)
 - **`pnpm verify` (measured, commit e7afe4d plus the README edit):** typecheck pass, lint pass, test pass (16 files, 624 tests), spec pass, snap pass (`pass  _example`, `snap: 1 passed, 0 failed`), demo placeholder (T-013). Snap is no longer reported as placeholder.
+
+### Review round 1 (ISSUES, items 1-14)
+
+- **Tests failed first (measured).** Commit 9f02a8f added the new and changed tests before any fix: 50 of 108 testkit tests failed (`Test Files 6 failed | 2 passed (8)`). After the fixes and the `_example` opt-in, 108 of 108 pass.
+- **Mutation sweep (measured).** 46 single-point mutations over prefix.ts (19), the invariant checks (10), the buyer-signed offer (1), the recorded-judge checks (12) and the stub aggregation (4). Each was applied alone, the testkit suite run, then reverted. 44 were caught on the first sweep. Two survived:
+  - **`error.`'s "no step refused" check removed.** This one is equivalent: `error.` now requires `expect.problem`, and that check already fails when nothing was refused. The dead line was removed (3508200).
+  - **The `capturedFrom` value check removed.** I added a test (e35b70b). It fails with the check removed (1 failed of 17 in recorded.test.ts) and passes with it.
+  - After both fixes there are no known survivors in these areas.
+- **Every review item now has a test that fails without its fix (measured, via the sweep).** Examples:
+  - forcing `ok: true` on conservation, non-negative balances, settle-once, escrow-empty, key atomicity, the hash chain (links and genesis) or replay fails a test in invariants.test.ts;
+  - skipping `verifyTerms` fails the buyer-signed-offer test;
+  - dropping the injection, two-family or threshold rule fails the aggregation table;
+  - not checking `provider` or `family` fails recorded.test.ts.
+- **Neutrality fixtures (measured, in runner tests).** Each of these passes as a `neutrality.` fixture:
+  - primary offline, so the fallback decides and earns the fee;
+  - both first-instance adjudicators silent, so the default outcome refunds the buyer 10,000 tUSD;
+  - op-1 refuses to relay, so the buyer submits directly;
+  - the seller never delivers, so the buyer reclaims after deliverBy;
+  - the buyer never agrees, so the offer expires.
+  A happy path that names `fails:` fails, and so does one without `fails:`.
+- **`pnpm verify` (measured, after the review fixes, before this docs commit):** typecheck pass, lint pass, test pass (18 files, 668 tests), spec pass, snap pass (`pass  _example`), demo placeholder (T-013).
+- **Snapshot diff (measured):** `_example.expect.md` changes in two lines. The intake source now reads "stub bytes by stub_bytes: true". The chain head hash changed because the judgment record hash, which feeds the event log, covers that text. The recordings did not change: the input hash is the same.
 - **Testkit suite (measured):** 6 files, 64 tests pass.
 - **`_example` (measured):** states `Offered → AcceptedByAdjudicator → Agreed → Held → Delivered → Released` from core; final balances atlas-buyer 7,950, tidewater-seller 2,000, bench-a 25,050, escrow 0 tUSD, matching the fixture's `expect` block; all seven invariants hold; replay of 5 core events matches.
 - **No wall clock or randomness in snapshots (measured):** the leak test runs `_example` with the system clock faked to 2031 and then 2099 and `Math.random` spied; snapshots are byte-identical, contain neither year, and `Math.random` is never called.
@@ -81,6 +103,30 @@ Fill this in before review. Label each item measured, inferred or guessed.
 13. **CLI behavior.** Exit 0 all pass, 1 any fixture fails, 2 usage error. `--update` requires a name so every rewrite is deliberate. `--flag=value` and `--flag value` both work. An `## Outcome` section was added to the snapshot so the prefix verdict is reviewable alongside the transcript.
 14. **Root `snap` script** is `tsc -b packages/testkit && node packages/testkit/dist/cli.js`, so it works without a prior build.
 
+Review round 1:
+
+15. **`error.`** fixtures must state `expect.problem` with `step` and `type`. This is enforced at parse time and again in `evaluate`.
+16. **`attack.`** passes only with no auto-accept and either an escalated or rejected end state, or a non-empty `expect` block the run meets.
+    - Escalated or rejected means a final state of Escalated, FallbackJudging or Refunded, or any escalate or reject judgment.
+    - The `expect` route covers attacks refused before judgment, such as an impersonated signature with `expect.problem`.
+17. **`neutrality.`** fixtures name the failing actor with a top-level `fails:`, which only neutrality fixtures may use. The run must show an outage for that actor (offline, an operator refusing to relay, or a timeout that acted in its place), or a refused call by it, and must still reach a terminal state.
+18. **Outages are a separate list from problems.** An offline actor or a refusing operator blocks the step before any message is signed. The timeline shows "offline (no call)" or "refused by op-1".
+    - Outages are not API problem types, so they never satisfy `expect.problem`.
+    - A plain fixture fails on any outage.
+19. **Timeouts run through core's `step`.** Each records an outage for the actor it replaces:
+    - `trigger_fallback` replaces the primary;
+    - `trigger_default` replaces the fallback, or the appeal adjudicator from Escalated;
+    - `expire` replaces the primary from Offered, otherwise the buyer;
+    - `reclaim` replaces the seller.
+    `apply_default_outcome` refunds the buyer everything in escrow (price and fee). Seller compensation from bonds is left to T-006.
+20. **The fallback's seed.** Only the primary commits to a seed. The fallback draws its own from the RNG, and the snapshot says "seed commitment none (T-004 gap)" instead of a false mismatch.
+21. **Invariants** are a pure exported `checkInvariants(LedgerView)`. The hash chain check also requires `seq === index`.
+22. **A verdict that does not match the rubric abstains.** If its criterion IDs are missing, extra or duplicated against the rubric, the judge abstains (`abstainReason` in the snapshot) and is excluded from the aggregate.
+23. **`todo.` fixtures** render fixture and run errors into a snapshot with an `## Error` section, and pass as todo. Usage errors and all four recording errors still fail loudly.
+24. **Recordings.** `provider` and `family` are bound like the hashes. A fake write never replaces a recording unless it is provably `capturedFrom: fake`; an unreadable file counts as live. `--record` needs a fixture name. The re-record hint names `--judges fake --record --update`.
+25. **Missing deliverable.** The run fails unless the step sets `stub_bytes: true`. Setting it while the file exists also fails, so a real file is never silently ignored.
+26. **Reserved names:** `escrow`, `anyone`, `direct` and `faucet`. Faucet accounts must be declared actors, checked at parse time.
+
 ## Handoff
 
 **Done:** everything in the acceptance list; `_example` snapshot and recordings generated; fixtures/README.md documents pragmas, commands, step kinds, recordings and the stub's limits.
@@ -90,6 +136,7 @@ Fill this in before review. Label each item measured, inferred or guessed.
 - `pnpm-lock.yaml`: testkit dependencies (`@holdback/core` workspace link, `viem`, `yaml`).
 - `fixtures/scenarios/_example.expect.md`: generated output (acceptance criterion 6; allowed by the task brief).
 - `fixtures/recordings/_example/{claude-a,claude-b,fam2-a}.json`: `_example` uses `@judges recorded`, so it cannot pass without recordings. Test lane owns `fixtures/` per docs/team.md, but the directory was not in this task's path list.
+- `fixtures/scenarios/_example.scenario.yaml` (review round 1): its `deliver` step now sets `stub_bytes: true`, because the deliverable file does not exist yet and review item 11 makes that an explicit opt-in. Remove the flag when the demo lane adds `fixtures/data/customers.cleaned.good.csv`.
 
 **Not done / open:**
 - `SimContext` is defined in `packages/testkit/src/context.ts`. For settlement and judgment to accept it without depending on testkit, the interface (not the implementation) should move to `@holdback/core` (core lane). Until then they can accept the structural type.
@@ -99,5 +146,12 @@ Fill this in before review. Label each item measured, inferred or guessed.
 - Testkit tests import `@holdback/core` through its built `dist/`, so `pnpm test` on a fresh checkout needs `pnpm typecheck` first (CI and `pnpm verify` already run it first). A vitest alias in the root config (infra lane) would remove that ordering dependency.
 - Stale docs: CLAUDE.md still says `pnpm snap` is a placeholder until T-005, and docs/testing.md describes capturing with `--judges=live --record`, which refuses in this build.
 - Proposed row for docs/team.md Rules and checks (not added; that file is outside this task): "Deterministic snapshots | `runner.test.ts` leak test fakes the system clock and spies `Math.random`; snapshot must be identical and year-free | T-005".
+
+**Review round 1, open items:**
+- **Seller compensation.** `apply_default_outcome` refunds the buyer but does not post seller compensation from the adjudicators' bonds (rulebook `defaultOutcome.sellerCompensationRate`). That needs T-006 bond accounting.
+- **Appeals and escalation.** The stub cannot drive appeals (`file_appeal`, appeal decisions, `expire_appeal`) or an escalation decision by the appeal adjudicator. An escalated first instance reaches Escalated and stops there. Appeal bonds and fees need T-006 semantics.
+- **Recording paths.** Recordings are keyed by scenario and judge ID only. If a fixture runs two judgments with the same input, for example a refused primary and then the fallback, they share one recording. Add the adjudicator role to the path if a fixture ever needs different verdicts.
+- **Operator refusal.** An operator that refuses before `offer` blocks the whole step. A real operator could relay the seller's message to another node; the fixture expresses that by retrying with another `via`.
+- **Proposed check row (not added; docs/team.md is outside this task):** "Prefix semantics are enforced | parse-time `fails:` and `expect.problem` requirements plus prefix.test.ts | T-005".
 
 **How to resume:** `pnpm snap` from the repo root. Add a fixture under `fixtures/scenarios/`, run `pnpm snap --update <name>`, review the generated `.expect.md`, commit both. To capture stub recordings for a new fixture: `pnpm snap --judges fake --record --update <name>`, then `pnpm snap --update <name>` to snapshot in recorded mode.
