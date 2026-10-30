@@ -1,6 +1,6 @@
 # Decisions to make today
 
-Status: D1–D9 decided October 30, 2026, after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`); the options are kept as the record. D12 decided; D10 and D11 are open. Owner: Rafa. Each decision has options, a recommendation and the ADR it settles. Phase 1 (the demo) can start once D1, D2 and D6 are settled. Phase 2 needs D3 and D4.
+Status: D1–D9 decided October 30, 2026, after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`); the options are kept as the record. D12 decided; D10, D11 and D13 are open. Owner: Rafa. Each decision has options, a recommendation and the ADR it settles. Phase 1 (the demo) can start once D1, D2 and D6 are settled. Phase 2 needs D3 and D4.
 
 ## D1. Adopt the neutrality litmus test as the top constraint (ADR-0001)
 
@@ -164,3 +164,22 @@ The Phase 0 readiness review found gaps that would stop Phase 1 tasks partway. A
 | Unowned encryption and store | `tweetnacl` plus Web Crypto; a local content-addressed store; new task T-014 |
 
 **Recommendation:** accept ADR-0016, then apply it in one PR (schemas v0.4, state machine, API doc, task files) before T-004 starts.
+
+## D13. Agent-ready API (ADR-0017)
+
+**Open.** Needed before T-007 starts (after T-006), because it sets the API's response shapes and adds schema v0.5.
+
+Scoring `docs/api.md` against Rafa's 16-question agent readiness test found eight gaps. Errors, money and time formats, current state, the event log, signed webhooks, idempotency, per-agent identity and the audit chain already pass.
+
+| Gap | Proposal |
+| --- | --- |
+| No list or filter | `GET /v1/commitments` with party, role, state, club and date filters; per-commitment events; cursor pagination everywhere |
+| No published limits | `RateLimit` headers, 429 `rate_limited` with `Retry-After`; the SDK waits once, then fails over |
+| No API description | `spec/openapi.json` generated from `spec/schemas`, checked for staleness, contract-tested over HTTP (new T-015) |
+| No dry run | `?validateOnly=true` on every write; runs guards only, with no effects |
+| No version policy | Additive within `/v1`, `Holdback-Schema-Version` header, open enums, `Deprecation` and `Sunset` headers |
+| No tracing | `Request-Id` on every response, `traceparent` propagated, never in signed data |
+| No self-description | `GET /v1/status`: settlement target, versions, lag, the caller's limits |
+| Untrusted text unmarked | `x-holdback-untrusted` on party-authored fields |
+
+**Recommendation:** adopt all of it in T-007 plus T-015 (alternative 1 in ADR-0017). Human approval per payment stays out of the API: the mandate is the standing approval and dry run is the preview.
