@@ -33,7 +33,7 @@
       "description": "EIP-712 struct hash of the terms: everything except id, signatures and adjudicatorAcceptance (ADR-0016)"
     },
     "clubId": {
-      "type": "string"
+      "$ref": "common.schema.json#/$defs/ClubId"
     },
     "rulebookHash": {
       "$ref": "common.schema.json#/$defs/Hex32"
@@ -186,7 +186,9 @@
         },
         "policyId": {
           "type": "string",
-          "description": "Human-readable label for the policy; policyHash is what binds"
+          "description": "Human-readable label for the policy; policyHash is what binds",
+          "x-holdback-untrusted": true,
+          "maxLength": 120
         },
         "fee": {
           "$ref": "common.schema.json#/$defs/TokenAmount"
@@ -271,7 +273,7 @@
           "$ref": "common.schema.json#/$defs/SettlementMode"
         },
         "token": {
-          "type": "string"
+          "$ref": "common.schema.json#/$defs/TokenId"
         }
       }
     },
@@ -360,7 +362,9 @@
               "type": "array",
               "minItems": 1,
               "items": {
-                "type": "string"
+                "type": "string",
+                "x-holdback-untrusted": true,
+                "maxLength": 128
               }
             }
           }
@@ -420,7 +424,9 @@
               "type": "array",
               "minItems": 1,
               "items": {
-                "type": "string"
+                "type": "string",
+                "x-holdback-untrusted": true,
+                "maxLength": 128
               }
             }
           }
@@ -447,7 +453,9 @@
               "const": "null_rate_max"
             },
             "column": {
-              "type": "string"
+              "type": "string",
+              "x-holdback-untrusted": true,
+              "maxLength": 128
             },
             "max": {
               "$ref": "common.schema.json#/$defs/Rate"
@@ -477,7 +485,9 @@
               "const": "regex_match_rate_min"
             },
             "column": {
-              "type": "string"
+              "type": "string",
+              "x-holdback-untrusted": true,
+              "maxLength": 128
             },
             "pattern": {
               "type": "string",
@@ -510,7 +520,9 @@
               "const": "iso8601_date_column"
             },
             "column": {
-              "type": "string"
+              "type": "string",
+              "x-holdback-untrusted": true,
+              "maxLength": 128
             }
           }
         },
@@ -578,7 +590,9 @@
               }
             },
             "keyColumn": {
-              "type": "string"
+              "type": "string",
+              "x-holdback-untrusted": true,
+              "maxLength": 128
             },
             "min": {
               "$ref": "common.schema.json#/$defs/Rate"

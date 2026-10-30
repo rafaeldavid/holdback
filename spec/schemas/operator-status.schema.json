@@ -18,7 +18,8 @@
     "operatorId": {
       "type": "string",
       "minLength": 1,
-      "maxLength": 64
+      "maxLength": 64,
+      "x-holdback-untrusted": true
     },
     "receiptSigner": {
       "$ref": "common.schema.json#/$defs/Address"
@@ -74,7 +75,8 @@
           "const": "Holdback"
         },
         "version": {
-          "type": "string"
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+$"
         },
         "chainId": {
           "type": "string",

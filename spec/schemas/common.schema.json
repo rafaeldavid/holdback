@@ -39,10 +39,7 @@
       "additionalProperties": false,
       "properties": {
         "token": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 64,
-          "description": "Token identifier, e.g. tUSD on SimChain or an ERC-20 address on a chain"
+          "$ref": "#/$defs/TokenId"
         },
         "amount": {
           "type": "string",
@@ -94,7 +91,8 @@
           "type": "array",
           "items": {
             "type": "string",
-            "maxLength": 64
+            "maxLength": 64,
+            "x-holdback-untrusted": true
           }
         },
         "expiresAt": {
@@ -213,6 +211,20 @@
           }
         }
       }
+    },
+    "ClubId": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]{3,64}$"
+    },
+    "TokenId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._:-]{1,64}$",
+      "description": "Token identifier, e.g. tUSD on SimChain or an ERC-20 address on a chain"
+    },
+    "Ident": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._:/@-]{1,128}$",
+      "description": "An identifier chosen by a protocol actor: a judge, provider, family, model or version label. Constrained, so it cannot carry prose."
     }
   }
 }

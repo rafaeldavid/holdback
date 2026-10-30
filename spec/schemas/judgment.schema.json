@@ -51,7 +51,8 @@
           "type": "boolean"
         },
         "mime": {
-          "type": "string"
+          "type": "string",
+          "pattern": "^[a-z]+/[a-z0-9.+-]{1,100}$"
         },
         "bytes": {
           "type": "integer",
@@ -74,7 +75,8 @@
         ],
         "properties": {
           "checkId": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^[a-z0-9_-]{1,40}$"
           },
           "required": {
             "type": "boolean"
@@ -84,7 +86,8 @@
           },
           "detail": {
             "type": "string",
-            "maxLength": 300
+            "maxLength": 300,
+            "x-holdback-untrusted": true
           }
         }
       }
@@ -121,7 +124,8 @@
               },
               "detail": {
                 "type": "string",
-                "maxLength": 300
+                "maxLength": 300,
+                "x-holdback-untrusted": true
               }
             }
           }
@@ -143,7 +147,9 @@
           "type": "boolean"
         },
         "policyId": {
-          "type": "string"
+          "type": "string",
+          "x-holdback-untrusted": true,
+          "maxLength": 120
         },
         "policyHash": {
           "$ref": "common.schema.json#/$defs/Hex32",
@@ -173,17 +179,19 @@
             ],
             "properties": {
               "judgeId": {
-                "type": "string"
+                "$ref": "common.schema.json#/$defs/Ident"
               },
               "provider": {
-                "type": "string"
+                "$ref": "common.schema.json#/$defs/Ident"
               },
               "family": {
-                "type": "string"
+                "$ref": "common.schema.json#/$defs/Ident"
               },
               "model": {
                 "type": "string",
+                "pattern": "^[A-Za-z0-9._:/@-]{1,128}$",
                 "not": {
+                  "type": "string",
                   "pattern": "[Ll][Aa][Tt][Ee][Ss][Tt]"
                 },
                 "description": "Pinned model ID; floating aliases such as 'latest' are rejected"
@@ -309,7 +317,7 @@
         "passFamilies": {
           "type": "array",
           "items": {
-            "type": "string"
+            "$ref": "common.schema.json#/$defs/Ident"
           }
         },
         "reasons": {
@@ -317,7 +325,8 @@
           "minItems": 1,
           "items": {
             "type": "string",
-            "maxLength": 200
+            "maxLength": 200,
+            "x-holdback-untrusted": true
           }
         }
       }

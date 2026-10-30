@@ -34,7 +34,8 @@
           },
           "evidence": {
             "type": "string",
-            "maxLength": 300
+            "maxLength": 300,
+            "x-holdback-untrusted": true
           }
         }
       }
@@ -51,11 +52,13 @@
     },
     "injectionEvidence": {
       "type": "string",
-      "maxLength": 300
+      "maxLength": 300,
+      "x-holdback-untrusted": true
     },
     "rationale": {
       "type": "string",
-      "maxLength": 600
+      "maxLength": 600,
+      "x-holdback-untrusted": true
     }
   }
 }

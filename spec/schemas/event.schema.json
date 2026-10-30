@@ -67,7 +67,9 @@
     },
     "submittedVia": {
       "type": "string",
-      "description": "Operator id or 'direct'"
+      "description": "Operator id or 'direct'",
+      "x-holdback-untrusted": true,
+      "maxLength": 64
     },
     "payload": {
       "type": "object",

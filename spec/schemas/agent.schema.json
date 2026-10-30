@@ -19,7 +19,7 @@
       "$ref": "common.schema.json#/$defs/Address"
     },
     "clubId": {
-      "type": "string"
+      "$ref": "common.schema.json#/$defs/ClubId"
     },
     "memberId": {
       "type": "string",

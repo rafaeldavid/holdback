@@ -201,7 +201,7 @@
           "description": "Base units, decimal string"
         },
         "token": {
-          "type": "string"
+          "$ref": "common.schema.json#/$defs/TokenId"
         },
         "validAfter": {
           "$ref": "common.schema.json#/$defs/Timestamp"
@@ -509,7 +509,7 @@
           "const": "MemberAdmission"
         },
         "clubId": {
-          "type": "string"
+          "$ref": "common.schema.json#/$defs/ClubId"
         },
         "member": {
           "$ref": "common.schema.json#/$defs/Address"
@@ -549,7 +549,7 @@
           "const": "MemberRevocation"
         },
         "clubId": {
-          "type": "string"
+          "$ref": "common.schema.json#/$defs/ClubId"
         },
         "member": {
           "$ref": "common.schema.json#/$defs/Address"

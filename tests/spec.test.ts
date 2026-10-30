@@ -187,23 +187,36 @@ describe('spec/', () => {
     });
   });
 
-  // ADR-0017 §9: party-authored text is marked so every consumer treats it as content, never instructions.
+  // ADR-0017 §9, review of PR 23 item 3: every free-text string is either marked untrusted or constrained.
+  // A string with no format, pattern, enum or const can carry anything, so a consumer must treat it as
+  // content, never instructions. Identifiers get a pattern instead. The allowlist is empty; adding to
+  // it needs a reason here and a note in the PR.
+  const ALLOWED_UNMARKED: string[] = [];
+  it('marks or constrains every free-text string field', () => {
+    const { ajv, schemas } = loadSpec();
+    const unmarked: string[] = [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const walk = (node: any, path: string, file: string): void => {
+      if (Array.isArray(node)) return node.forEach((v, i) => walk(v, `${path}/${i}`, file));
+      if (node === null || typeof node !== 'object') return;
+      const free = node.type === 'string' && !['format', 'pattern', 'enum', 'const'].some((k) => k in node);
+      if (free && node['x-holdback-untrusted'] !== true && !ALLOWED_UNMARKED.includes(`${file}${path}`)) unmarked.push(`${file}${path}`);
+      for (const [k, v] of Object.entries(node)) walk(v, `${path}/${k}`, file);
+    };
+    for (const [file, id] of schemas) walk(ajv.getSchema(id).schema, '', file);
+    expect(unmarked).toEqual([]);
+  });
+
   it.each([
     ['commitment', '/properties/deliverable/properties/description'],
-    ['commitment', '/$defs/Criterion/properties/description'],
     ['commitment', '/$defs/Criterion/properties/anchors/properties/0'],
-    ['commitment', '/$defs/Criterion/properties/anchors/properties/4'],
-    ['commitment', '/$defs/DeterministicCheck/oneOf/4/properties/pattern'],
-    ['appeal', '/properties/grounds'],
+    ['judge-verdict', '/properties/rationale'],
+    ['judgment', '/properties/aggregate/properties/reasons/items'],
     ['messages', '/$defs/Dispute/properties/grounds'],
-    ['adjudicator', '/properties/name'],
-    ['club', '/properties/name'],
-    ['agent', '/properties/memberId'],
-  ])('marks %s %s as untrusted', (file, pointer) => {
+  ])('marks %s %s as untrusted, not merely constrained', (file, pointer) => {
     const { ajv, schemas } = loadSpec();
-    const schema = ajv.getSchema(schemas.get(file)).schema;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const node = pointer.split('/').slice(1).reduce((n: any, k: string) => n?.[k.replace('~1', '/')], schema);
+    const node = pointer.split('/').slice(1).reduce((n: any, k: string) => n?.[k], ajv.getSchema(schemas.get(file)).schema);
     expect(node?.['x-holdback-untrusted']).toBe(true);
   });
 

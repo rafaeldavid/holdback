@@ -32,7 +32,8 @@
     "affiliations": {
       "type": "array",
       "items": {
-        "type": "string"
+        "type": "string",
+        "x-holdback-untrusted": true
       },
       "description": "Member IDs the adjudicator is affiliated with; it may not judge their commitments"
     },
@@ -60,7 +61,9 @@
       ],
       "properties": {
         "id": {
-          "type": "string"
+          "type": "string",
+          "x-holdback-untrusted": true,
+          "maxLength": 120
         },
         "panelSize": {
           "type": "integer",
@@ -110,11 +113,11 @@
           "description": "SHA-256 of the fixed appeal judge prompt template"
         },
         "aggregationVersion": {
-          "type": "string",
+          "$ref": "common.schema.json#/$defs/Ident",
           "description": "Version of the deterministic aggregation rule (docs/judgment-and-defenses.md)"
         },
         "screenVersion": {
-          "type": "string",
+          "$ref": "common.schema.json#/$defs/Ident",
           "description": "Version of the normalization and screen step"
         },
         "providerPrivacy": {

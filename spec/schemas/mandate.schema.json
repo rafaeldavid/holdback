@@ -21,7 +21,7 @@
       "$ref": "common.schema.json#/$defs/Address"
     },
     "clubId": {
-      "type": "string"
+      "$ref": "common.schema.json#/$defs/ClubId"
     },
     "scope": {
       "$ref": "common.schema.json#/$defs/Scope"

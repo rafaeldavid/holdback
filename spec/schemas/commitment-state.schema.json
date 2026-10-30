@@ -62,7 +62,9 @@
           "$ref": "common.schema.json#/$defs/TokenAmount"
         },
         "railRef": {
-          "type": "string"
+          "type": "string",
+          "x-holdback-untrusted": true,
+          "maxLength": 200
         }
       }
     },
