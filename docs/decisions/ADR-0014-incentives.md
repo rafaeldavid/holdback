@@ -88,7 +88,7 @@ Constraints. ADR-0001 forbids any single party from controlling settlement, so i
 
 - **New custody.** Backer stakes are held funds. They live in the rules contract's bond escrow, under the same no-admin rules and invariants: conservation, no negative balances, encumbered stake never counted twice, and first loss applied before backer loss. That adds to the audit surface ADR-0003 already assigns to Holdback.
 - **Schema v0.5** (shape now, built across phases):
-  - `adjudicator.schema.json` gains `pool: { junior, senior, reserved, terms: { firstLossShareBps, capitalChargeRateBps, capitalChargeToPoolRateBps, noticePeriodSec } }` (rates as integer basis points per ADR-0022) and `poolTermsHash`. `capitalChargeRate` moves from `fee` into `pool`.
+  - `adjudicator.schema.json` gains `pool: { junior, senior, reserved, terms: { firstLossShareBps, capitalChargeRateBps, capitalChargeToPoolRateBps, noticePeriodSec } }` (rates as integer basis points per ADR-0022) and `poolTermsHash`, the keccak256 of the canonical JSON of `pool.terms` only, so it binds the terms and never the balances. `capitalChargeRate` moves from `fee` into `pool.terms` as `capitalChargeRateBps`. The adjudicator's `bond` and `openExposure` fields are dropped, because they are derivable (`junior + senior` and `reserved`) and a read could otherwise disagree with itself.
   - The club rulebook gains `firstLossShareMin` and `bondNoticePeriodMinSec`.
   - Messages gain `BackerDeposit`, `BackerWithdrawalNotice` and `BackerWithdraw` (Phase 4).
   - Events gain `bond.deposited`, `bond.withdrawn` and `bond.slashed`, with per-tranche amounts.
