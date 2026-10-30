@@ -20,6 +20,8 @@ describe('money lint rule', () => {
     ['Number()', "export const x = Number('1');\n"],
     ['parseFloat()', "export const x = parseFloat('1');\n"],
     ['Math', 'export const x = Math.floor;\n'],
+    ['unary plus', "export const x = +'1';\n"],
+    ['new Number()', "export const x = new Number('1');\n"],
     ['toFixed()', 'export const f = (x: bigint) => x.toLocaleString().toFixed;\n'],
   ])('rejects %s in money code', async (_name, code) => {
     expect(await messages(code, inMoney)).not.toEqual([]);
