@@ -18,19 +18,19 @@ describe('normalizeText', () => {
   });
 
   it('strips zero-width and bidi control characters', () => {
-    const n = normalizeText('pa​ss‌‍⁠﻿‮ok');
+    const n = normalizeText('pa\u200Bss\u200C\u200D\u2060\uFEFF\u202Eok');
     expect(n.text).toBe('passok');
     expect(n.zeroWidth).toBe(6);
   });
 
   it('applies NFKC after stripping', () => {
     // Fullwidth letters and the "fi" ligature fold to ASCII under NFKC.
-    expect(normalizeText('Ｉgnore ﬁle').text).toBe('Ignore file');
+    expect(normalizeText('\uFF29gnore \uFB01le').text).toBe('Ignore file');
   });
 
   it('leaves clean text unchanged', () => {
     const n = normalizeText(GOOD_CSV);
-    expect(n).toEqual({ text: GOOD_CSV, tagChars: 0, zeroWidth: 0, hiddenTagText: '' });
+    expect(n).toEqual({ text: GOOD_CSV, tagChars: 0, zeroWidth: 0, explained: 0, nfkcChanged: 0, hiddenTagText: '' });
   });
 });
 
@@ -45,8 +45,8 @@ describe('intake', () => {
   });
 
   it('reports what normalization removed', async () => {
-    const r = await run(utf8('a​,b\u{E0041}'));
-    expect(r.ok && r.value.removed).toEqual({ tagChars: 1, zeroWidth: 1 });
+    const r = await run(utf8('a\u200B,b\u{E0041}'));
+    expect(r.ok && r.value.removed).toEqual({ tagChars: 1, zeroWidth: 1, nfkcChanged: 0 });
     expect(r.ok && r.value.hiddenTagText.reveal()).toBe('A');
   });
 

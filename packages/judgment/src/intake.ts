@@ -20,6 +20,7 @@ export type ContentOpener = (ciphertext: Uint8Array, key: Uint8Array) => Promise
 
 export type IntakeErrorCode =
   | 'mime_not_allowed'
+  | 'mime_mismatch'
   | 'payload_too_large'
   | 'ciphertext_hash_mismatch'
   | 'no_key_for_recipient'
@@ -40,14 +41,21 @@ export interface IntakeInput {
   recipient: Address;
   unwrapKey: KeyUnwrapper;
   open?: ContentOpener;
+  /**
+   * The commitment's agreed `deliverable.format`. When given, a delivery in another format is
+   * refused. Optional only for callers that check it themselves; the adjudicator service should pass it.
+   */
+  format?: MimeType;
 }
 
 export interface Intaken {
-  /** Normalized plaintext. */
+  /** The decoded plaintext exactly as delivered (a leading BOM dropped). Deterministic checks run on this. */
+  raw: UntrustedData;
+  /** Normalized plaintext. The screen and the prompts use this. */
   data: UntrustedData;
   /** The ASCII that Unicode tag characters spelled before normalization removed them. */
   hiddenTagText: UntrustedData;
-  removed: { tagChars: number; zeroWidth: number };
+  removed: { tagChars: number; zeroWidth: number; nfkcChanged: number };
   mime: MimeType;
   /** judgment.schema.json `intake`. */
   record: Judgment['intake'];
@@ -73,6 +81,7 @@ export async function intake(input: IntakeInput): Promise<Result<Intaken, Intake
   const { delivery, ciphertext, recipient } = input;
   const mime = delivery.plaintextMime;
   if (!ALLOWED_MIME.includes(mime)) return fail('mime_not_allowed', `${String(mime).slice(0, 80)} is not in the allowlist`);
+  if (input.format !== undefined && mime !== input.format) return fail('mime_mismatch', `delivered ${mime}; the commitment agreed ${input.format}`);
   if (ciphertext.length > MAX_CIPHERTEXT_BYTES) return fail('payload_too_large', `ciphertext is ${ciphertext.length} bytes`);
   if (sha256(ciphertext) !== delivery.ciphertext.sha256) return fail('ciphertext_hash_mismatch', 'ciphertext does not match delivery.ciphertext.sha256');
 
@@ -103,9 +112,10 @@ export async function intake(input: IntakeInput): Promise<Result<Intaken, Intake
   }
   const n = normalizeText(raw);
   return ok({
+    raw: UntrustedData.wrap(raw),
     data: UntrustedData.wrap(n.text),
     hiddenTagText: UntrustedData.wrap(n.hiddenTagText),
-    removed: { tagChars: n.tagChars, zeroWidth: n.zeroWidth },
+    removed: { tagChars: n.tagChars, zeroWidth: n.zeroWidth, nfkcChanged: n.nfkcChanged },
     mime,
     record: { plaintextHashVerified: true, mime, bytes: plaintext.length, normalized: true },
   });
