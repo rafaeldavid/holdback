@@ -9,3 +9,4 @@ data/
 reports/
 demo/out/
 .DS_Store
+.worktrees/

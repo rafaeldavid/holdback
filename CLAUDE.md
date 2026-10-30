@@ -50,6 +50,7 @@ Make results observable before claiming them. Label each claim in reports and PR
 ```
 pnpm install                    # Node 22, pnpm 12 (via corepack)
 pnpm typecheck && pnpm test     # types, unit + property tests (no network)
+pnpm verify                     # all checks + snap + demo; writes reports/verify-<branch>.md
 pnpm lint                       # ESLint, including the no-eval and money rules
 pnpm validate:spec              # spec/examples against spec/schemas (Ajv 2020-12, strict)
 pnpm snap                       # scenario fixtures vs .expect.md snapshots (placeholder until T-005)

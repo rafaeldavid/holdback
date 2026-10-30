@@ -2,18 +2,10 @@
 description: Run the product and collect evidence for the current branch
 ---
 
-Run `pnpm verify`. If the script does not exist yet (before T-011), run these in order:
+Run `pnpm verify`. It runs typecheck, lint, test, spec validation, snap and demo, and writes `reports/verify-<branch>.md` with pass, fail or placeholder per step, timings, snapshot diffs against HEAD, and the tail of each step's output. It exits 1 if any step fails.
 
-```
-pnpm typecheck
-pnpm test
-pnpm snap
-pnpm demo
-```
-
-Then summarize:
-- pass or fail per step;
-- every snapshot diff, with a one-line explanation of each;
-- any metric produced (latency, counts), labeled as measured.
-
-Write the summary into the active task file's Evidence section. Do not mark anything as passing unless you saw it pass.
+Then:
+- read the report; do not mark anything as passing unless the report shows it passing;
+- explain every snapshot diff in one line;
+- treat `placeholder` as not done (the command's task has not landed);
+- copy the step table into the active task file's Evidence section, labeled measured, and summarize it in 1 to 3 bullets in the PR's Verification section.
