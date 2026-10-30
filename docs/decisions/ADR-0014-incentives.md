@@ -52,6 +52,7 @@ Constraints. ADR-0001 forbids any single party from controlling settlement, so i
 - **Bad faith pays, use does not.** A party is never charged more for calling the adjudicator a commitment names. The penalties are:
   - an appeal that fails forfeits the appeal bond (already in ADR-0007);
   - a delivery that fails a required deterministic check forfeits a per-attempt fee to the adjudicator. The rulebook sets it, and it is quoted at agreement.
+- **Optimistic release (ADR-0015).** In `optimistic` mode adjudication is paid only when the buyer disputes, which applies this principle at the level of the settlement mode.
 - **No shared party reputation.** Each adjudicator may price a party's history from its own records and must say so in its policy. No shared score exists.
 
 ### 4. Attestation as a priced option

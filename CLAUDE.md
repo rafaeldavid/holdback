@@ -25,6 +25,10 @@ Every design and code change must pass all three.
    - The panel is defended against injection, gaming, drift and correlated error.
    - Appeals are backed by the adjudicator's bond.
 
+## Design principle: user choice
+
+The parties choose; the protocol enforces what they chose. Offer options with stated tradeoffs (settlement mode, adjudicators, registry, checks) instead of one behavior for everyone, unless an option would let one party break the neutrality test against the other. Clubs may narrow the options in their rulebook. See ADR-0015.
+
 ## Hard rules
 
 Each rule is paired with the check that enforces it in `docs/team.md` (Rules and checks).
@@ -75,7 +79,7 @@ forge test                      # contracts (from Phase 2)
 
 ## Map
 
-`docs/decisions-today.md` records decisions D1–D9 (decided October 30, 2026; D4 deferred to Phase 2) and `docs/reviews/` the adversarial review behind them. Read both first.
+`docs/decisions-today.md` records decisions D1–D9 (decided October 30, 2026; D4 deferred to Phase 2) and the open ones (D10, D11), and `docs/reviews/` the adversarial review behind them. Read both first.
 
 The other docs: `PRD.md`, `neutrality.md`, `architecture.md`, `judgment-and-defenses.md`, `api.md`, `demo.md`, `testing.md`, `team.md`, `plan.md`, `decisions/`, `tasks/`. Research is in `docs/research/`; open it only when a decision needs it.
 
