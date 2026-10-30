@@ -96,3 +96,4 @@ Every hard rule in `CLAUDE.md` is enforced by a check, not just by instruction. 
 
 - **Daily:** each active lane posts a three-line catch-up to `docs/log/YYYY-MM-DD.md` (done, next, blocked). The architect consolidates decisions needing Rafa at the top.
 - **End of phase:** a demo of the phase's evidence, plan updates, and ADRs closed or deferred.
+- **At each milestone** (a merged task, decision or phase change): run `/map` to regenerate the design map and republish it to the same link (https://claude.ai/artifact/4nAPcSGQz6nL5mb8AuDhd2, private to Rafa unless shared). The map is read-only; fix its sources (task files, plan, decisions, ADRs, API doc), never the page.

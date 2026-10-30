@@ -5,7 +5,7 @@
 - **Depends on:** T-005
 - **Paths this task may touch:** `.claude/commands/verify.md`, `scripts/verify.ts`, `docs/feature-map.md`, `.github/pull_request_template.md`
 - **Human gate:** no
-- **Status:** review
+- **Status:** done
 - **Agent/session:** kickoff session (implementer)
 
 ## Intent

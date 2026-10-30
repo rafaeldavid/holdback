@@ -5,7 +5,7 @@
 - **Depends on:** —
 - **Paths this task may touch:** root config, `.github/`, `.claude/settings.json`, `packages/*/package.json` stubs, `apps/*/package.json` stubs
 - **Human gate:** no
-- **Status:** review
+- **Status:** done
 - **Agent/session:** kickoff session (implementer)
 
 ## Intent

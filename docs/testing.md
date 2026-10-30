@@ -18,7 +18,7 @@ The goal is fast, deterministic feedback that agents can trust, plus readable ev
 | Contract tests | Invariants, fuzzing, no admin paths | Foundry (`forge test`, invariant tests) | Yes, from Phase 2 |
 | Formal model | Liveness and safety of the commitment state machine under any single actor halting | TLA+ (TLC/Apalache) or Quint | Yes, model check on PR touching the state machine |
 | Calibration and red team | Judge accuracy, injection resistance, drift | `pnpm calibrate` | No (on demand, before registry promotion) |
-| Demo dry run | The experience works for a newcomer | Manual checklist (T-012) | No |
+| Demo dry run | The experience works for a newcomer | Manual checklist (T-013) | No |
 
 ## Scenario fixtures
 

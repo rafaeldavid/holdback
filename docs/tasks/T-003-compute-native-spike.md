@@ -5,7 +5,7 @@
 - **Depends on:** —
 - **Paths this task may touch:** `docs/research/compute-native.md`, draft update to ADR-0013
 - **Human gate:** yes (ADR)
-- **Status:** review
+- **Status:** done
 - **Agent/session:** research-lane agent, branch `t-003-compute-native-spike`
 
 ## Intent
