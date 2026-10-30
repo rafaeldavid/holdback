@@ -41,6 +41,7 @@ Accepted for the prototype and tracked here:
 5. **Legal process.** Courts and regulators can compel real-world parties. The design limits what any one party can do technically. It does not place anyone beyond the law.
 6. **Adjudicator plaintext access.** Adjudicators decrypt the deliverable to judge it, so one adjudicator can copy or leak the held work without any decision. Bonds and appeals do not reach this. Mitigations: both parties name the adjudicators, and confidential-compute judging is a later option (ADR-0012). Fixture `todo.adjudicator-leaks-plaintext` records the gap.
 7. **Appeal finality.** The appeal adjudicator's decision is final within a commitment and moves the primary's bond. It is bounded by its own bond and a larger, more diverse panel, not by a further appeal.
+8. **Self-reported model identity.** The judgment record names the models that judged, but no provider signs responses, so an adjudicator could run a cheaper model under a pinned name. Bounded by the bond, appeals and calibration; removed only by provider-signed responses or attested confidential compute (ADR-0006). This is a question for the demo's AI-lab audience.
 
 ## Escape hatch requirements
 

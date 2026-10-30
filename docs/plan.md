@@ -136,5 +136,6 @@ Goal: fiat enters and leaves through ramps; the demo runs on a public testnet wi
 | `error.unpinned-model-refused` | — | 1 |
 | `error.adjudicator-affiliated` | — | 1 |
 | `error.mime-not-allowed` | — | 1 |
+| `error.policy-hash-mismatch` | — | 1 |
 | `todo.milestone-delivery` | — | records gap |
 | `work-for-work` | 9 | 6, if T-003 is positive |

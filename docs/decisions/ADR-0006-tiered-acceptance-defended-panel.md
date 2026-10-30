@@ -14,6 +14,10 @@ The mandatory defenses and their tests are listed in `docs/judgment-and-defenses
 
 **Registry binding.** Each commitment binds the hash of the judge registry its panel is drawn from (`adjudication.registryHash`, schema v0.2). The panel is a seeded shuffle of that registry's active entries, so no one, including Holdback's maintainers, can change which models judge after both parties sign. Each adjudicator may publish its own registry, subject to the pinning and family rules.
 
+**Policy binding.** Each commitment also binds `adjudication.policyHash`: the keccak256 of the RFC 8785 canonical JSON of the primary adjudicator's `policy` object. That object fixes the panel parameters, the SHA-256 of the first-instance and appeal prompt templates, the aggregation rule version and the screen version. The adjudicator cannot change its prompt or decision rule after both parties sign. Each verdict records `promptTemplateHash`, which must match the bound policy, and `inputHash`, the SHA-256 of the full rendered prompt, which anyone holding the plaintext can recompute. Schema v0.3.
+
+**What is proven and what is disclosed.** The commitment proves which models had to judge and under which prompt and rules. The judgment record discloses which models did judge and with which inputs, signed by the adjudicator. Nothing yet proves that a response came from the model named: no major provider signs responses (`docs/research/compute-native.md`, R3). Until provider-signed responses or attested confidential compute exist, a mislabeled model is an appeal ground backed by the bond, and the gap is residual control point 8 in `docs/neutrality.md`.
+
 **Escalation.** An escalated case goes to the appeal adjudicator with no first decision and no appellant bond. If the appeal adjudicator misses its deadline, the default outcome applies (ADR-0007).
 
 ## Rationale
@@ -25,6 +29,6 @@ The mandatory defenses and their tests are listed in `docs/judgment-and-defenses
 ## Consequences
 
 - At least two model-provider accounts are needed in live mode.
-- The schema change for `registryHash` bumps every schema `$id` to v0.2.
+- The schema changes bump every schema `$id`: v0.2 for `registryHash`, v0.3 for `policyHash` and the split prompt hashes.
 - CI uses recorded verdicts.
 - Model quality is measured in calibration runs, not in CI.

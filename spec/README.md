@@ -12,8 +12,10 @@ Validation as of October 30, 2026 (measured): all 11 examples pass under Ajv 8 (
 - a model ID containing "latest";
 - an extra field in a judge verdict.
 
-The `$id` URLs (`https://holdback.dev/schemas/v0.2/…`) are namespaces for resolving `$ref` between files. They are not hosted. Replace the domain if the project gets one.
+The `$id` URLs (`https://holdback.dev/schemas/v0.3/…`) are namespaces for resolving `$ref` between files. They are not hosted. Replace the domain if the project gets one.
 
 ## Changelog
+
+- **v0.3 (2026-10-30, ADR-0006):** `commitment.adjudication.policyHash` is required, binding the primary adjudicator's policy (keccak256 of the RFC 8785 canonical JSON of `adjudicator.policy`). The policy gains `promptTemplateHash`, `appealPromptTemplateHash`, `aggregationVersion` and `screenVersion`. `judgment.panel.policyHash` must equal the commitment's. Each verdict's `promptHash` splits into `promptTemplateHash` and `inputHash`. Every `$id` and `commitment.schemaVersion` moved to 0.3.
 
 - **v0.2 (2026-10-30, ADR-0006):** `commitment.adjudication.registryHash` is required, binding the judge registry the panel is drawn from. Every `$id` and `commitment.schemaVersion` moved to 0.2.

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.2/delivery.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.3/delivery.schema.json",
   "title": "Delivery (encrypted work + escrowed key)",
   "type": "object",
   "required": [

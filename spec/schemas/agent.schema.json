@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.2/agent.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.3/agent.schema.json",
   "title": "Agent registration",
   "type": "object",
   "required": [

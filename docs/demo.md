@@ -55,7 +55,7 @@ All names are invented for the demo.
 
 Closing slide in the transcript, also stated by the narrator:
 - what remains centralized: residual risks from `docs/neutrality.md`;
-- what an AI lab could add: response attestation for judges, a hold primitive on API credit as one rail among many, and model version disclosure for adjudication.
+- what an AI lab could add: response attestation for judges (today a commitment proves which models and prompt had to judge, but not that the named model answered), a hold primitive on API credit as one rail among many, and model version disclosure for adjudication.
 
 ## Narration rules
 
