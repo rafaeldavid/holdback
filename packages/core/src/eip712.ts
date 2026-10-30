@@ -19,8 +19,10 @@ import type {
   Commitment,
   CommitmentTerms,
   Delivery,
+  EncryptedKey,
   Hex32,
   Mandate,
+  CoSignedMessage,
   MutualSettlement,
   Receipt,
   Scope,
@@ -75,7 +77,9 @@ const structs = {
   SealedKey: [field('scheme', 'string'), field('ciphertext', 'string')],
   Beacon: [field('source', 'string'), field('round', 'uint64'), field('value', 'bytes32'), field('signature', 'bytes')],
   Ciphertext: [field('uri', 'string'), field('sha256', 'string'), field('bytes', 'uint64'), field('cipher', 'string')],
-  EncryptedKey: [field('recipient', 'address'), field('scheme', 'string'), field('ciphertext', 'string')],
+  EncryptedKey: [field('recipient', 'address'), field('scheme', 'string'), field('ciphertext', 'string'), field('unlock', 'KeyUnlock')],
+  KeyUnlock: [field('kind', 'string'), field('round', 'uint64')],
+  Disclosure: [field('level', 'string')],
   Scope: [
     field('roles', 'string[]'),
     field('maxPerCommitment', 'TokenAmount'),
@@ -99,6 +103,7 @@ const termsType = [
   field('timing', 'Timing'),
   field('settlement', 'Settlement'),
   field('remedy', 'Remedy'),
+  field('disclosure', 'Disclosure'),
   field('buyerEncryptionPublicKey', 'string'),
   field('nonce', 'bytes32'),
   stamp('createdAt'),
@@ -142,6 +147,7 @@ export const messageTypes = {
     field('keyForBuyer', 'SealedKey'),
     field('appealGround', 'string'),
     field('beacon', 'Beacon'),
+    field('encryptedKeys', 'EncryptedKey[]'),
     ...expiring,
   ],
   AgentRevocation: [field('agent', 'address'), field('principal', 'address'), ...expiring],
@@ -154,6 +160,7 @@ export const messageTypes = {
     field('grounds', 'string'),
     field('bond', 'TokenAmount'),
     field('fee', 'TokenAmount'),
+    field('encryptedKeys', 'EncryptedKey[]'),
     ...expiring,
   ],
   Delivery: [
@@ -181,6 +188,7 @@ export const messageTypes = {
     field('releaseKey', 'bool'),
     ...expiring,
   ],
+  Publish: [field('commitmentId', 'bytes32'), field('level', 'string'), ...expiring],
   Receipt: [field('operator', 'address'), field('eventSeq', 'uint64'), field('eventHash', 'bytes32'), field('commitmentId', 'bytes32')],
   Mandate: [field('principal', 'address'), field('agent', 'address'), field('clubId', 'string'), field('scope', 'Scope'), field('nonce', 'bytes32'), stamp('issuedAt')],
 };
@@ -199,9 +207,10 @@ export type SignableMessage =
   | (Appeal & { type: 'Appeal' })
   | (Receipt & { type: 'Receipt' })
   | (Mandate & { type: 'Mandate' });
-/** MutualSettlement carries a buyer and a seller signature over the identical struct (ADR-0019). */
+/** MutualSettlement and Publish carry a buyer and a seller signature over the identical struct (ADR-0019, ADR-0020). */
+export type UnsignedCoSigned = DistributiveOmit<CoSignedMessage, 'buyerSignature' | 'sellerSignature'>;
 export type UnsignedMutualSettlement = Omit<MutualSettlement, 'buyerSignature' | 'sellerSignature'>;
-export type UnsignedMessage = DistributiveOmit<SignableMessage, 'signature'> | UnsignedMutualSettlement;
+export type UnsignedMessage = DistributiveOmit<SignableMessage, 'signature'> | UnsignedCoSigned;
 
 type Encoded = Record<string, unknown>;
 
@@ -212,6 +221,13 @@ function seconds(ts: Timestamp): bigint {
 }
 
 const amount = (a: TokenAmount): Encoded => ({ token: a.token, amount: BigInt(a.amount) });
+// An absent unlock encodes as an empty kind, which the schema never admits.
+const key = (k: EncryptedKey): Encoded => ({
+  recipient: k.recipient,
+  scheme: k.scheme,
+  ciphertext: k.ciphertext,
+  unlock: k.unlock ? { kind: k.unlock.kind, round: BigInt(k.unlock.round ?? 0) } : { kind: '', round: 0n },
+});
 const scope = (s: Scope): Encoded => ({
   roles: s.roles,
   maxPerCommitment: amount(s.maxPerCommitment),
@@ -236,6 +252,7 @@ export function termsOf(c: Commitment): CommitmentTerms {
     timing: c.timing,
     settlement: c.settlement,
     remedy: c.remedy,
+    disclosure: c.disclosure,
     buyerEncryptionPublicKey: c.buyerEncryptionPublicKey,
     nonce: c.nonce,
     createdAt: c.createdAt,
@@ -266,6 +283,7 @@ export function typedTermsOf(t: CommitmentTerms): Encoded {
     },
     settlement: t.settlement,
     remedy: t.remedy,
+    disclosure: t.disclosure,
     buyerEncryptionPublicKey: t.buyerEncryptionPublicKey,
     nonce: t.nonce,
     createdAt: seconds(t.createdAt),
@@ -326,6 +344,8 @@ function encodeMessage(m: UnsignedMessage): Encoded {
         beacon: m.beacon
           ? { source: m.beacon.source, round: BigInt(m.beacon.round), value: m.beacon.value, signature: m.beacon.signature ?? '0x' }
           : { source: '', round: 0n, value: ZERO32, signature: '0x' },
+        // Absent encodes as an empty list; the schema requires at least one key when present.
+        encryptedKeys: (m.encryptedKeys ?? []).map(key),
         ...expiry(m),
       };
     case 'AgentRevocation':
@@ -335,7 +355,18 @@ function encodeMessage(m: UnsignedMessage): Encoded {
     case 'MemberRevocation':
       return { clubId: m.clubId, member: m.member, operator: m.operator, ...expiry(m) };
     case 'Dispute':
-      return { commitmentId: m.commitmentId, buyer: m.buyer, attempt: m.attempt, grounds: m.grounds, bond: amount(m.bond), fee: amount(m.fee), ...expiry(m) };
+      return {
+        commitmentId: m.commitmentId,
+        buyer: m.buyer,
+        attempt: m.attempt,
+        grounds: m.grounds,
+        bond: amount(m.bond),
+        fee: amount(m.fee),
+        encryptedKeys: m.encryptedKeys.map(key),
+        ...expiry(m),
+      };
+    case 'Publish':
+      return { commitmentId: m.commitmentId, level: m.level, ...expiry(m) };
     case 'MutualSettlement':
       // A null deliveryHash (settled before delivery) is flagged, so it never collides with a zero hash.
       return {
@@ -355,7 +386,7 @@ function encodeMessage(m: UnsignedMessage): Encoded {
         ciphertext: { ...m.ciphertext, bytes: BigInt(m.ciphertext.bytes) },
         plaintextSha256: m.plaintextSha256,
         plaintextMime: m.plaintextMime,
-        encryptedKeys: m.encryptedKeys,
+        encryptedKeys: m.encryptedKeys.map(key),
         submittedAt: seconds(m.submittedAt),
       };
     case 'Appeal':
@@ -428,15 +459,19 @@ export async function verifyMessage(domain: HoldbackDomain, message: SignableMes
   return recoversTo(typed(domain, message.type, encoded), signature, expected);
 }
 
-/** True when both parties signed the identical settlement struct. Never throws on malformed input. */
-export async function verifyMutualSettlement(domain: HoldbackDomain, m: MutualSettlement, buyer: Address, seller: Address): Promise<boolean> {
+/** True when buyer and seller both signed the identical struct. Never throws on malformed input. */
+export async function verifyCoSigned(domain: HoldbackDomain, m: CoSignedMessage, buyer: Address, seller: Address): Promise<boolean> {
   const { buyerSignature, sellerSignature, ...unsigned } = m;
   let encoded: Encoded;
   try {
-    encoded = encodeMessage(unsigned);
+    encoded = encodeMessage(unsigned as UnsignedCoSigned);
   } catch {
     return false;
   }
-  const t = typed(domain, 'MutualSettlement', encoded);
+  const t = typed(domain, m.type, encoded);
   return (await recoversTo(t, buyerSignature, buyer)) && (await recoversTo(t, sellerSignature, seller));
 }
+
+/** A mutual settlement is valid only when both parties signed it (ADR-0019). */
+export const verifyMutualSettlement = (domain: HoldbackDomain, m: MutualSettlement, buyer: Address, seller: Address): Promise<boolean> =>
+  verifyCoSigned(domain, m, buyer, seller);

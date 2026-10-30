@@ -453,6 +453,7 @@ export class StubSettlement {
       },
       settlement: { mode: 'guaranteed_on_decision', token: TOKEN },
       remedy: { onReject: 'full_refund' },
+      disclosure: { level: 'public' },
       buyerEncryptionPublicKey: b64url(this.ctx.rng.hex32()),
       nonce: this.ctx.rng.hex32(),
       createdAt: now,

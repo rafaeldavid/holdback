@@ -27,6 +27,8 @@ export const PROBLEM_TYPES = [
   'rate_limited',
   'not_found',
   'invalid_cursor',
+  // Reserved for Phase 2 reads of private records (ADR-0020)
+  'unauthorized',
 ] as const;
 
 export type ProblemType = (typeof PROBLEM_TYPES)[number];

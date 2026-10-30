@@ -17,6 +17,28 @@ export type Base64Url = string;
 export type Rate = number;
 export type SettlementMode = 'guaranteed_on_decision' | 'settle_after_window' | 'optimistic';
 export type RandomnessSource = 'sim' | 'drand-quicknet' | 'prevrandao';
+/** ADR-0020. Phase 1 admits public only. */
+export type DisclosureLevel = 'private' | 'judgment' | 'public';
+export type IdentityMode = 'long-term' | 'per-commitment';
+
+/** When a recipient may open an encrypted key (ADR-0020). Phase 1 admits none only. */
+export interface KeyUnlock {
+  kind: 'none' | 'beacon-round';
+  round?: number;
+}
+
+export interface EncryptedKey {
+  recipient: Address;
+  scheme: 'x25519-xsalsa20poly1305';
+  ciphertext: Base64Url;
+  unlock?: KeyUnlock;
+}
+
+/** A body kept off the public record: its hash and the readers' key envelopes (ADR-0020). */
+export interface PrivateBody {
+  hash: Hex32;
+  envelopes: EncryptedKey[];
+}
 export type PartyRole = 'buyer' | 'seller';
 export type MimeType = 'text/csv' | 'application/json' | 'text/plain' | 'text/markdown';
 
@@ -106,6 +128,8 @@ export interface CommitmentTerms {
   /** Phase 1: guaranteed_on_decision only (ADR-0007). */
   settlement: { mode: 'guaranteed_on_decision'; token: string };
   remedy: { onReject: 'full_refund' };
+  /** Phase 1: public only (ADR-0020). */
+  disclosure: { level: 'public' };
   buyerEncryptionPublicKey: Base64Url;
   nonce: Hex32;
   createdAt: Timestamp;
@@ -191,6 +215,8 @@ export interface Decision extends MessageBase {
   appealGround?: AppealGround;
   /** Fallback and appeal panels (ADR-0018). Required with a signature unless the source is sim. */
   beacon?: BeaconProof;
+  /** On escalate only: the content key for the appeal adjudicator (ADR-0020). */
+  encryptedKeys?: EncryptedKey[];
 }
 
 export interface BeaconProof {
@@ -209,6 +235,8 @@ export interface Dispute extends MessageBase {
   grounds: string;
   bond: TokenAmount;
   fee: TokenAmount;
+  /** The content key for the three adjudicators (ADR-0020). */
+  encryptedKeys: EncryptedKey[];
 }
 
 export interface AgentRevocation extends MessageBase {
@@ -262,8 +290,22 @@ export interface MutualSettlement {
   sellerSignature: Signature;
 }
 
+/** Buyer and seller raise the disclosure level by agreement (ADR-0020); raising only is checked by settlement (T-006). */
+export interface Publish {
+  type: 'Publish';
+  commitmentId: Hex32;
+  level: DisclosureLevel;
+  nonce: Hex32;
+  expiresAt: Timestamp;
+  buyerSignature: Signature;
+  sellerSignature: Signature;
+}
+
+/** Messages both parties sign over the identical struct. */
+export type CoSignedMessage = MutualSettlement | Publish;
+
 /** Everything messages.schema.json admits. */
-export type Message = SignedMessage | MutualSettlement;
+export type Message = SignedMessage | CoSignedMessage;
 
 // delivery.schema.json
 export interface Delivery {
@@ -272,7 +314,7 @@ export interface Delivery {
   ciphertext: { uri: string; sha256: Sha256; bytes: number; cipher: 'aes-256-gcm' };
   plaintextSha256: Sha256;
   plaintextMime: MimeType;
-  encryptedKeys: Array<{ recipient: Address } & SealedKey>;
+  encryptedKeys: EncryptedKey[];
   submittedAt: Timestamp;
   signature: Signature;
 }
@@ -332,6 +374,9 @@ export interface Rulebook {
   appealFee: TokenAmount;
   /** ADR-0019. The fee share is an integer in basis points (10000 = all), not a Rate. */
   mutualSettlement: { allowed: boolean; adjudicatorFeeShareAfterDeliveryBps: number };
+  disclosureMin: DisclosureLevel;
+  /** Phase 1: long-term only (ADR-0020). */
+  identityModes: IdentityMode[];
   firstLossShareMin: Rate;
   bondNoticePeriodMinSec: number;
   randomness: { source: RandomnessSource; chainHash?: Hex32 };
@@ -364,6 +409,8 @@ export interface AdjudicatorPolicy {
   appealPromptTemplateHash: Hex32;
   aggregationVersion: string;
   screenVersion: string;
+  providerPrivacy: 'standard' | 'zdr' | 'tee' | 'local';
+  disclosureMin: DisclosureLevel;
 }
 
 export interface AdjudicatorRegistration {
@@ -518,6 +565,7 @@ export interface Judgment {
     reasons: string[];
   };
   recordUri?: string;
+  privateRecord?: PrivateBody;
   recordHash: Hex32;
   decidedAt: Timestamp;
   signature: Signature;

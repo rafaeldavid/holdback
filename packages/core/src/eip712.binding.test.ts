@@ -65,6 +65,8 @@ export const fixtures: Record<string, UnsignedMessage> = {
     keyForBuyer: { scheme: 'x25519-xsalsa20poly1305', ciphertext: 'a2V5' },
     appealGround: 'wrong-outcome',
     beacon: { source: 'sim', round: 1200, value: h('13'), signature: '0xabcd' },
+    // The schema allows encryptedKeys on escalate only; this fixture pins the encoding, not that rule.
+    encryptedKeys: [{ recipient: B, scheme: 'x25519-xsalsa20poly1305', ciphertext: 'a2V5Mw', unlock: { kind: 'beacon-round', round: 1300 } }],
     nonce: h('0c'),
     expiresAt: at,
   },
@@ -79,10 +81,12 @@ export const fixtures: Record<string, UnsignedMessage> = {
     grounds: 'duplicate keys',
     bond: tusd('25000000'),
     fee: tusd('50000000'),
+    encryptedKeys: [{ recipient: C, scheme: 'x25519-xsalsa20poly1305', ciphertext: 'a2V5NA' }],
     nonce: h('14'),
     expiresAt: at,
   },
   Receipt: { type: 'Receipt', operator: A, eventSeq: 42, eventHash: h('15'), commitmentId: h('01') },
+  Publish: { type: 'Publish', commitmentId: h('01'), level: 'judgment', nonce: h('18'), expiresAt: at },
   MutualSettlement: {
     type: 'MutualSettlement',
     commitmentId: h('01'),
@@ -100,7 +104,7 @@ export const fixtures: Record<string, UnsignedMessage> = {
     plaintextSha256: `sha256:${'b'.repeat(64)}`,
     plaintextMime: 'text/csv',
     encryptedKeys: [
-      { recipient: C, scheme: 'x25519-xsalsa20poly1305', ciphertext: 'a2V5MQ' },
+      { recipient: C, scheme: 'x25519-xsalsa20poly1305', ciphertext: 'a2V5MQ', unlock: { kind: 'beacon-round', round: 1250 } },
       { recipient: B, scheme: 'x25519-xsalsa20poly1305', ciphertext: 'a2V5Mg' },
     ],
     submittedAt: '2026-11-01T09:00:00Z',
@@ -139,6 +143,7 @@ export const terms: CommitmentTerms = {
   },
   settlement: { mode: 'guaranteed_on_decision', token: 'tUSD' },
   remedy: { onReject: 'full_refund' },
+  disclosure: { level: 'public' },
   buyerEncryptionPublicKey: 'a2V5',
   nonce: h('12'),
   createdAt: '2026-10-30T10:00:00Z',
@@ -153,21 +158,23 @@ const encodeTypePins: Record<string, string> = {
     'FundingAuthorization(string scheme,bytes32 commitmentId,address from,uint256 value,string token,uint64 validAfter,uint64 validBefore,bytes32 nonce,uint64 expiresAt)',
   EarlyAccept: 'EarlyAccept(bytes32 commitmentId,address buyer,uint8 attempt,bytes32 nonce,uint64 expiresAt)',
   Decision:
-    'Decision(bytes32 commitmentId,uint8 attempt,address adjudicator,string role,string outcome,bytes32 seed,bytes32 policyHash,bytes32 registryHash,bytes32 judgmentRecordHash,SealedKey keyForBuyer,string appealGround,Beacon beacon,bytes32 nonce,uint64 expiresAt)' +
-    'Beacon(string source,uint64 round,bytes32 value,bytes signature)SealedKey(string scheme,string ciphertext)',
+    'Decision(bytes32 commitmentId,uint8 attempt,address adjudicator,string role,string outcome,bytes32 seed,bytes32 policyHash,bytes32 registryHash,bytes32 judgmentRecordHash,SealedKey keyForBuyer,string appealGround,Beacon beacon,EncryptedKey[] encryptedKeys,bytes32 nonce,uint64 expiresAt)' +
+    'Beacon(string source,uint64 round,bytes32 value,bytes signature)EncryptedKey(address recipient,string scheme,string ciphertext,KeyUnlock unlock)KeyUnlock(string kind,uint64 round)SealedKey(string scheme,string ciphertext)',
   AgentRevocation: 'AgentRevocation(address agent,address principal,bytes32 nonce,uint64 expiresAt)',
   MemberAdmission: 'MemberAdmission(string clubId,address member,address operator,uint64 validUntil,bytes32 nonce,uint64 expiresAt)',
   MemberRevocation: 'MemberRevocation(string clubId,address member,address operator,bytes32 nonce,uint64 expiresAt)',
-  Dispute: `Dispute(bytes32 commitmentId,address buyer,uint8 attempt,string grounds,TokenAmount bond,TokenAmount fee,bytes32 nonce,uint64 expiresAt)${TOKEN}`,
+  Dispute: `Dispute(bytes32 commitmentId,address buyer,uint8 attempt,string grounds,TokenAmount bond,TokenAmount fee,EncryptedKey[] encryptedKeys,bytes32 nonce,uint64 expiresAt)EncryptedKey(address recipient,string scheme,string ciphertext,KeyUnlock unlock)KeyUnlock(string kind,uint64 round)${TOKEN}`,
+  Publish: 'Publish(bytes32 commitmentId,string level,bytes32 nonce,uint64 expiresAt)',
   Receipt: 'Receipt(address operator,uint64 eventSeq,bytes32 eventHash,bytes32 commitmentId)',
   MutualSettlement: `MutualSettlement(bytes32 commitmentId,bool hasDelivery,bytes32 deliveryHash,TokenAmount sellerAmount,bool releaseKey,bytes32 nonce,uint64 expiresAt)${TOKEN}`,
   Delivery:
-    'Delivery(bytes32 commitmentId,uint8 attempt,Ciphertext ciphertext,string plaintextSha256,string plaintextMime,EncryptedKey[] encryptedKeys,uint64 submittedAt)Ciphertext(string uri,string sha256,uint64 bytes,string cipher)EncryptedKey(address recipient,string scheme,string ciphertext)',
+    'Delivery(bytes32 commitmentId,uint8 attempt,Ciphertext ciphertext,string plaintextSha256,string plaintextMime,EncryptedKey[] encryptedKeys,uint64 submittedAt)Ciphertext(string uri,string sha256,uint64 bytes,string cipher)EncryptedKey(address recipient,string scheme,string ciphertext,KeyUnlock unlock)KeyUnlock(string kind,uint64 round)',
   Appeal: `Appeal(bytes32 commitmentId,string appellant,address appellantAddress,string grounds,TokenAmount bond,uint64 filedAt)${TOKEN}`,
   Mandate: `Mandate(address principal,address agent,string clubId,Scope scope,bytes32 nonce,uint64 issuedAt)Scope(string[] roles,TokenAmount maxPerCommitment,TokenAmount maxDaily,bool hasCategories,string[] categories,uint64 expiresAt)${TOKEN}`,
   CommitmentTerms:
-    'CommitmentTerms(string schemaVersion,string clubId,bytes32 rulebookHash,address buyer,address seller,bytes32 deliverableHash,bytes32 acceptanceHash,TokenAmount price,Adjudication adjudication,Timing timing,Settlement settlement,Remedy remedy,string buyerEncryptionPublicKey,bytes32 nonce,uint64 createdAt)' +
+    'CommitmentTerms(string schemaVersion,string clubId,bytes32 rulebookHash,address buyer,address seller,bytes32 deliverableHash,bytes32 acceptanceHash,TokenAmount price,Adjudication adjudication,Timing timing,Settlement settlement,Remedy remedy,Disclosure disclosure,string buyerEncryptionPublicKey,bytes32 nonce,uint64 createdAt)' +
     'Adjudication(address adjudicator,address fallbackAdjudicator,address appealAdjudicator,string policyId,TokenAmount fee,bytes32 registryHash,bytes32 policyHash)' +
+    'Disclosure(string level)' +
     'Remedy(string onReject)Settlement(string mode,string token)' +
     'Timing(uint64 offerExpiresAt,uint64 fundBy,uint64 deliverBy,uint64 judgeBy,uint64 fallbackBy,uint64 appealWindowSec,uint64 appealDecideSec,uint8 maxSubmissions)' +
     TOKEN,
@@ -180,17 +187,18 @@ const digestPins: Record<string, Hex> = {
   AdjudicatorAcceptance: '0xacebf6ff92584830d13c78792efa6f7ef1f13c1edd6b94d2c3bd04153cfc46f6',
   FundingAuthorization: '0x75fc9c7b8284cb6b70e544cb8834bc693890fa6685999dd677072dd01c5118f9',
   EarlyAccept: '0xa78699f7b715d180b6e82f0655eb8b0db0a1d6d02230541d4833bb7651ec475e',
-  Decision: '0xe388a2bb386d5c15bd6d8e4f38b7959c2bae3e8170d4d80363e2375c2927979d',
+  Decision: '0x9ceddcf6df1de34f0501df8451d1e51382e461233e0e3323b0d47082d2d62f4b',
   AgentRevocation: '0x2e8948f37dd24a8f489f4892f45717e7d0b4e95e1e0031cc4726ac580634b6cc',
   MemberAdmission: '0x4c287d8c7afb55bbf264277e57cbc299aea5a7a42bdab1bae239d38fa0c34f89',
   MemberRevocation: '0x36305a20b58be29c84691558569d4cecb1b4b70deec0bb0da55c8520b3b5d0c7',
-  Dispute: '0x96020a61b91f318e7b9119b288615065f1956694715a7995b32e3347a3813afa',
+  Dispute: '0x715c61a6041268cacf7fc77f404c677caf9e30d249fe6583b0d5cede8f9b8135',
   Receipt: '0xb4f8e3fe53f0c7f60d3c9f1fa5cd1d05645f238fe22387bbbd53dd59bd08c8ca',
+  Publish: '0xdfbc5078dd18e6dfaf6e2f61334893670c82760fa927ecfe9b4a18d41c8543d6',
   MutualSettlement: '0xf67d31c60eafbed91f9861b505e20daa4c0cd50f2a427b256ce2dcdd34fbb257',
-  Delivery: '0x79264ed942cc6530155b2a73ef9869ffc7b89936d9320b12376695713b553ba6',
+  Delivery: '0x5e2c28a7ba7404cdb832ec973e4447ff43f61969c428d3d9634e98de8973c21a',
   Appeal: '0x3e03f3cd8fc63ce6cbc48fd61d0f601f6cb70f264e19b9857216a669855ad86d',
   Mandate: '0xa088db37eba2b2334bbe9bce8b65934596b122f5b861d2be73384ef5876f9497',
-  CommitmentTerms: '0xe2cb63c91a82889c237019a2439aebd9cc48cdd7c3384caf966e7ab647e7947c',
+  CommitmentTerms: '0xf4c4d750c7c652653f6c0ab2271480f51501f645a8ec56a1cf09190ea1f45172',
 };
 
 // A second, hand-written EIP-712 implementation (encodeType, encodeData, hashStruct, domain separator)
@@ -303,6 +311,7 @@ describe('EIP-712 bindings', () => {
     ['Decision.keyForBuyer', 'Decision', 'keyForBuyer'],
     ['Decision.appealGround', 'Decision', 'appealGround'],
     ['Decision.beacon', 'Decision', 'beacon'],
+    ['Decision.encryptedKeys', 'Decision', 'encryptedKeys'],
   ] as const)('changes the digest when %s is removed', (_label, name, key) => {
     const changed = structuredClone(fixtures[name]!) as Record<string, unknown>;
     delete changed[key];

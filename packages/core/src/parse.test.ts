@@ -77,6 +77,37 @@ describe('boundary parsers', () => {
     if (!r.ok) expect(r.error.detail).toContain('not supported in Phase 1');
   });
 
+  it.each([
+    ['a private disclosure level', (c: Record<string, unknown>) => (c['disclosure'] = { level: 'private' }), 'public only'],
+    ['privateTerms', (c: Record<string, unknown>) => (c['privateTerms'] = { hash: `0x${'21'.repeat(32)}`, envelopes: [{ recipient: c['buyer'], scheme: 'x25519-xsalsa20poly1305', ciphertext: 'a2V5' }] }), 'privateTerms'],
+  ] as const)('refuses %s in Phase 1 (ADR-0020)', (_label, change, detail) => {
+    const c = example('commitment.example.json');
+    change(c);
+    const r = parseCommitment(c);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.detail).toContain(detail);
+  });
+
+  it.each([
+    ['randomness', { source: 'drand-quicknet', chainHash: `0x${'52'.repeat(32)}` }, 'sim only'],
+    ['identityModes', ['long-term', 'per-commitment'], 'long-term only'],
+  ] as const)('refuses rulebook %s beyond Phase 1', (field, value, detail) => {
+    const c = example('club.example.json');
+    expect(parseClub(c).ok).toBe(true);
+    (c['rulebook'] as Record<string, unknown>)[field] = value;
+    const r = parseClub(c);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.detail).toContain(detail);
+  });
+
+  it('refuses a delivery key that unlocks at a beacon round in Phase 1 (ADR-0020)', () => {
+    const d = example('delivery.example.json');
+    (d['encryptedKeys'] as Array<Record<string, unknown>>)[0]!['unlock'] = { kind: 'beacon-round', round: 1200 };
+    const r = parseDelivery(d);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.detail).toContain('none only');
+  });
+
   it('refuses settle_after_window in Phase 1', () => {
     const c = example('commitment.example.json');
     (c['settlement'] as Record<string, unknown>)['mode'] = 'settle_after_window';

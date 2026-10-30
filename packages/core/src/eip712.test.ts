@@ -10,6 +10,7 @@ import {
   signMessage,
   signTerms,
   termsOf,
+  verifyCoSigned,
   verifyMessage,
   verifyMutualSettlement,
   verifyTerms,
@@ -35,10 +36,10 @@ const commitment = parsed.value;
 const terms = termsOf(commitment);
 
 // Pinned vectors. A change here changes every commitment ID and signature in the system: it needs an ADR.
-const EXAMPLE_TERMS_ID = '0x22e23e6d87969284e79d70d020fc0c0dac160ddaad7c65a5cdd0c6707a0823e1';
+const EXAMPLE_TERMS_ID = '0x8f132739ce2bd929282be1fb92e22562c98ed813f5326bef92c1d4848bb3ad48';
 const SELLER_ADDRESS = '0xDdC55D01F41A079E14F7Cbb3902ec14e1e8d3ce6';
 const EXAMPLE_TERMS_SELLER_SIGNATURE =
-  '0xcd4cf7d6fab9e2f41c6a676d81d34a99a3801774cfd230f0b3b5b41c8024dac465c1d0eeb35f216da0f5991c4d4c7bd0e2fc99fd98ed81d3f13891135894cd7b1b';
+  '0xa6efdfb93f0d88efe0cf586765184d89eb12867e9ab5b9044b4b22bc4da70c025e8c07ed25b4cb83f5464b54c8adc0e73ba64f461c8760871ff3b0aecb4a92881b';
 
 // Distributes over unions, so removing `signature` from a SignedMessage keeps each variant.
 function without<T extends object, K extends keyof T>(obj: T, key: K): T extends unknown ? Omit<T, K> : never {
@@ -154,7 +155,20 @@ describe('message signatures', () => {
     expect(await verifyMutualSettlement(domain, { ...both, releaseKey: !both.releaseKey }, buyer, seller)).toBe(false);
   });
 
-  it('defines EIP-712 types for all eleven messages plus Delivery, Appeal, Receipt and Mandate', () => {
+  it('verifies a Publish only when buyer and seller both signed it', async () => {
+    const r = parseMessage(loadExample('messages.publish.example.json'));
+    if (!r.ok || r.value.type !== 'Publish') throw new Error('expected a Publish');
+    const { buyerSignature: _b, sellerSignature: _s, ...unsigned } = r.value;
+    void _b;
+    void _s;
+    const buyer = privateKeyToAddress(otherKey);
+    const both = { ...unsigned, buyerSignature: await signMessage(otherKey, domain, unsigned), sellerSignature: await signMessage(sellerKey, domain, unsigned) };
+    expect(await verifyCoSigned(domain, both, buyer, seller)).toBe(true);
+    expect(await verifyCoSigned(domain, { ...both, level: 'private' }, buyer, seller)).toBe(false);
+    expect(await verifyCoSigned(domain, { ...both, buyerSignature: both.sellerSignature }, buyer, seller)).toBe(false);
+  });
+
+  it('defines EIP-712 types for all twelve messages plus Delivery, Appeal, Receipt and Mandate', () => {
     expect(Object.keys(messageTypes).sort()).toEqual(
       [
         'Offer',
@@ -168,6 +182,7 @@ describe('message signatures', () => {
         'MemberRevocation',
         'Dispute',
         'MutualSettlement',
+        'Publish',
         'Delivery',
         'Appeal',
         'Receipt',
@@ -179,7 +194,7 @@ describe('message signatures', () => {
   it.each(messageFiles)('signs and verifies %s', async (name) => {
     const r = parseMessage(loadExample(`${name}.example.json`));
     if (!r.ok) throw new Error(r.error.detail);
-    if (r.value.type === 'MutualSettlement') throw new Error('co-signed; covered below');
+    if (r.value.type === 'MutualSettlement' || r.value.type === 'Publish') throw new Error('co-signed; covered below');
     const unsigned = without(r.value, 'signature');
     const sig = await signMessage(sellerKey, domain, unsigned);
     expect(await verifyMessage(domain, { ...unsigned, signature: sig }, seller)).toBe(true);

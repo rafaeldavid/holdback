@@ -16,6 +16,7 @@ import type {
   Commitment,
   CommitmentStateView,
   Delivery,
+  EncryptedKey,
   JudgeVerdict,
   Judgment,
   Mandate,
@@ -133,6 +134,24 @@ function commitmentRules(c: Commitment): string | undefined {
     if (c.timing[key] > UINT32_MAX) return `timing.${key} ${c.timing[key]} exceeds ${UINT32_MAX}`;
   }
   if (!(Date.parse(c.createdAt) < Date.parse(c.timing.offerExpiresAt))) return 'createdAt must be before timing.offerExpiresAt';
+  // ADR-0020: Phase 1 commitments are public; private bodies arrive with Phase 2 reads.
+  const level: string = c.disclosure.level;
+  if (level !== 'public') return `disclosure.level ${level} is not supported in Phase 1 (public only)`;
+  if ('privateTerms' in c) return 'privateTerms is not supported in Phase 1';
+  return undefined;
+}
+
+/** ADR-0020: Phase 1 releases keys at once; beacon-round unlocks need a timelock that is not built yet. */
+function unlockRule(keys: readonly EncryptedKey[] | undefined): string | undefined {
+  const timed = keys?.find((k) => k.unlock?.kind === 'beacon-round');
+  return timed ? `key for ${timed.recipient} unlocks at a beacon round, which is not supported in Phase 1 (none only)` : undefined;
+}
+
+function clubRules(c: Club): string | undefined {
+  const source: string = c.rulebook.randomness.source;
+  if (source !== 'sim') return `rulebook.randomness.source ${source} is not supported in Phase 1 (sim only)`;
+  const other = c.rulebook.identityModes.find((m) => m !== 'long-term');
+  if (other) return `rulebook.identityModes ${other} is not supported in Phase 1 (long-term only)`;
   return undefined;
 }
 
@@ -141,6 +160,10 @@ function messageRules(m: Message): string | undefined {
   // value is signed as uint256; one canonical decimal form per amount.
   // ADR-0018: Phase 1 admits only the SimChain beacon, which is a settlement-layer fact, not a proof.
   if (m.type === 'Decision' && m.beacon && m.beacon.source !== 'sim') return `beacon source ${m.beacon.source} is not supported in Phase 1 (sim only)`;
+  if (m.type === 'Decision' || m.type === 'Dispute') {
+    const timed = unlockRule(m.encryptedKeys);
+    if (timed) return timed;
+  }
   if (m.type === 'FundingAuthorization' && !tokenAmount(m.token, m.value).ok) return `value ${m.value} is not a canonical uint256 decimal`;
   return undefined;
 }
@@ -148,10 +171,10 @@ function messageRules(m: Message): string | undefined {
 export const parseAdjudicator = parserFor<AdjudicatorRegistration>('adjudicator', false);
 export const parseAgent = parserFor<AgentRegistration>('agent', true);
 export const parseAppeal = parserFor<Appeal>('appeal', true);
-export const parseClub = parserFor<Club>('club', false);
+export const parseClub = parserFor<Club>('club', false, clubRules);
 export const parseCommitmentState = parserFor<CommitmentStateView>('commitment-state', false);
 export const parseCommitment = parserFor<Commitment>('commitment', true, commitmentRules);
-export const parseDelivery = parserFor<Delivery>('delivery', true);
+export const parseDelivery = parserFor<Delivery>('delivery', true, (d) => unlockRule(d.encryptedKeys));
 export const parseEvent = parserFor<SettlementEvent>('event', false);
 export const parseJudgeVerdict = parserFor<JudgeVerdict>('judge-verdict', false);
 export const parseJudgment = parserFor<Judgment>('judgment', false);
