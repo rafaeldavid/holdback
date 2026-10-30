@@ -31,16 +31,16 @@
         "version",
         "open",
         "minWindowsSec",
-        "windowCoverageRatio",
-        "appealBondRate",
-        "sealedChecksMaxWeight",
+        "windowCoverageRatioBps",
+        "appealBondRateBps",
+        "sealedChecksMaxWeightBps",
         "maxSubmissions",
         "defaultOutcome",
         "allowedSettlementModes",
         "allowedTokens",
         "panelPolicyMin",
         "appealFee",
-        "firstLossShareMin",
+        "firstLossShareMinBps",
         "bondNoticePeriodMinSec",
         "randomness",
         "minInspectionWindowSec",
@@ -90,17 +90,18 @@
             }
           }
         },
-        "windowCoverageRatio": {
-          "$ref": "common.schema.json#/$defs/Rate",
+        "windowCoverageRatioBps": {
+          "$ref": "common.schema.json#/$defs/Bps",
           "description": "Minimum bond share of open exposure for settle_after_window commitments; guaranteed commitments always need 100% (ADR-0007)"
         },
-        "appealBondRate": {
-          "$ref": "common.schema.json#/$defs/Rate"
+        "appealBondRateBps": {
+          "$ref": "common.schema.json#/$defs/Bps"
         },
-        "sealedChecksMaxWeight": {
-          "type": "number",
+        "sealedChecksMaxWeightBps": {
+          "type": "integer",
           "minimum": 0,
-          "maximum": 0.3
+          "maximum": 3000,
+          "description": "Most weight sealed checks may carry, in basis points (at most 3000)"
         },
         "maxSubmissions": {
           "type": "integer",
@@ -120,14 +121,14 @@
               "additionalProperties": false,
               "required": [
                 "refundBuyer",
-                "sellerCompensationRate"
+                "sellerCompensationRateBps"
               ],
               "properties": {
                 "refundBuyer": {
                   "const": true
                 },
-                "sellerCompensationRate": {
-                  "$ref": "common.schema.json#/$defs/Rate"
+                "sellerCompensationRateBps": {
+                  "$ref": "common.schema.json#/$defs/Bps"
                 }
               }
             },
@@ -136,16 +137,16 @@
               "additionalProperties": false,
               "required": [
                 "release",
-                "buyerCompensationRate"
+                "buyerCompensationRateBps"
               ],
               "properties": {
                 "release": {
                   "const": true,
                   "description": "Silence resolves to release to the seller, the tacit-acceptance baseline"
                 },
-                "buyerCompensationRate": {
-                  "$ref": "common.schema.json#/$defs/Rate",
-                  "description": "Paid to the buyer from a defaulting adjudicator's reserved bond"
+                "buyerCompensationRateBps": {
+                  "$ref": "common.schema.json#/$defs/Bps",
+                  "description": "Paid to the buyer from a defaulting adjudicator's reserved bond, in basis points of price"
                 }
               }
             }
@@ -192,9 +193,9 @@
           "$ref": "common.schema.json#/$defs/TokenAmount",
           "description": "Paid by an appellant to the appeal adjudicator"
         },
-        "firstLossShareMin": {
-          "$ref": "common.schema.json#/$defs/Rate",
-          "description": "Minimum junior share of an adjudicator's pool (ADR-0014); default 0.1"
+        "firstLossShareMinBps": {
+          "$ref": "common.schema.json#/$defs/Bps",
+          "description": "Minimum junior share of an adjudicator's pool, in basis points (ADR-0014); default 1000"
         },
         "bondNoticePeriodMinSec": {
           "type": "integer",

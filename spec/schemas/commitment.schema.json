@@ -126,9 +126,10 @@
               }
             },
             "passThreshold": {
-              "type": "number",
+              "type": "integer",
               "minimum": 0,
-              "maximum": 4
+              "maximum": 400,
+              "description": "Weighted score a delivery needs, in hundredths of a rubric point (300 = 3.00)"
             }
           }
         },
@@ -138,7 +139,7 @@
           "required": [
             "count",
             "commitment",
-            "weight"
+            "weightBps"
           ],
           "properties": {
             "count": {
@@ -150,10 +151,11 @@
               "$ref": "common.schema.json#/$defs/Hex32",
               "description": "keccak256(canonical checks JSON || salt)"
             },
-            "weight": {
-              "type": "number",
+            "weightBps": {
+              "type": "integer",
               "minimum": 0,
-              "maximum": 0.3
+              "maximum": 3000,
+              "description": "Weight of the sealed checks, in basis points (at most 3000)"
             }
           }
         }
@@ -439,7 +441,7 @@
             "type",
             "required",
             "column",
-            "max"
+            "maxBps"
           ],
           "properties": {
             "id": {
@@ -457,8 +459,9 @@
               "x-holdback-untrusted": true,
               "maxLength": 128
             },
-            "max": {
-              "$ref": "common.schema.json#/$defs/Rate"
+            "maxBps": {
+              "$ref": "common.schema.json#/$defs/Bps",
+              "description": "Most null cells allowed in the column, in basis points of rows"
             }
           }
         },
@@ -471,7 +474,7 @@
             "required",
             "column",
             "pattern",
-            "min"
+            "minBps"
           ],
           "properties": {
             "id": {
@@ -494,8 +497,9 @@
               "maxLength": 200,
               "x-holdback-untrusted": true
             },
-            "min": {
-              "$ref": "common.schema.json#/$defs/Rate"
+            "minBps": {
+              "$ref": "common.schema.json#/$defs/Bps",
+              "description": "Least share of rows that must match, in basis points"
             }
           }
         },
@@ -560,7 +564,7 @@
             "required",
             "reference",
             "keyColumn",
-            "min"
+            "minBps"
           ],
           "properties": {
             "id": {
@@ -594,8 +598,9 @@
               "x-holdback-untrusted": true,
               "maxLength": 128
             },
-            "min": {
-              "$ref": "common.schema.json#/$defs/Rate"
+            "minBps": {
+              "$ref": "common.schema.json#/$defs/Bps",
+              "description": "Least share of rows that must match, in basis points"
             }
           }
         },
@@ -672,9 +677,10 @@
           "x-holdback-untrusted": true
         },
         "weight": {
-          "type": "number",
-          "exclusiveMinimum": 0,
-          "maximum": 1
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000,
+          "description": "Relative weight among the rubric's criteria (an integer; only ratios matter)"
         },
         "anchors": {
           "type": "object",

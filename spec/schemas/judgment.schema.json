@@ -307,17 +307,27 @@
         },
         "weightedScore": {
           "type": [
-            "number",
+            "integer",
             "null"
           ],
           "minimum": 0,
-          "maximum": 4
+          "maximum": 400,
+          "description": "Mean weighted score in hundredths of a rubric point, or null when no verdict was valid"
         },
-        "passShare": {
-          "$ref": "common.schema.json#/$defs/Rate"
+        "passCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Valid verdicts that passed"
         },
-        "failShare": {
-          "$ref": "common.schema.json#/$defs/Rate"
+        "failCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Valid verdicts that failed"
+        },
+        "validCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Valid verdicts"
         },
         "passFamilies": {
           "type": "array",

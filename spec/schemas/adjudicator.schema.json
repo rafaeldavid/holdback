@@ -90,10 +90,12 @@
           "minimum": 3
         },
         "acceptSupermajority": {
-          "$ref": "common.schema.json#/$defs/Rate"
+          "$ref": "common.schema.json#/$defs/Fraction",
+          "description": "Share of valid verdicts needed to accept, as an exact fraction greater than one half"
         },
         "rejectSupermajority": {
-          "$ref": "common.schema.json#/$defs/Rate"
+          "$ref": "common.schema.json#/$defs/Fraction",
+          "description": "Share of valid verdicts needed to reject, as an exact fraction greater than one half"
         },
         "judgeTimeoutSec": {
           "type": "integer",
@@ -174,21 +176,21 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "falseAcceptRate",
-        "falseRejectRate",
-        "escalationRate",
+        "falseAcceptRateBps",
+        "falseRejectRateBps",
+        "escalationRateBps",
         "sampleSize",
         "measuredAt"
       ],
       "properties": {
-        "falseAcceptRate": {
-          "$ref": "common.schema.json#/$defs/Rate"
+        "falseAcceptRateBps": {
+          "$ref": "common.schema.json#/$defs/Bps"
         },
-        "falseRejectRate": {
-          "$ref": "common.schema.json#/$defs/Rate"
+        "falseRejectRateBps": {
+          "$ref": "common.schema.json#/$defs/Bps"
         },
-        "escalationRate": {
-          "$ref": "common.schema.json#/$defs/Rate"
+        "escalationRateBps": {
+          "$ref": "common.schema.json#/$defs/Bps"
         },
         "sampleSize": {
           "type": "integer",
@@ -230,24 +232,24 @@
           "type": "object",
           "additionalProperties": false,
           "required": [
-            "capitalChargeRate",
-            "capitalChargeToPoolRate",
-            "firstLossShare",
+            "capitalChargeRateBps",
+            "capitalChargeToPoolRateBps",
+            "firstLossShareBps",
             "noticePeriodSec"
           ],
           "description": "What backers deposit under. Its keccak256 over RFC 8785 canonical JSON is poolTermsHash.",
           "properties": {
-            "capitalChargeRate": {
-              "$ref": "common.schema.json#/$defs/Rate",
-              "description": "Quoted capital charge as a share of price (moved from fee in v0.5)"
+            "capitalChargeRateBps": {
+              "$ref": "common.schema.json#/$defs/Bps",
+              "description": "Quoted capital charge in basis points of price (moved from fee in v0.5)"
             },
-            "capitalChargeToPoolRate": {
-              "$ref": "common.schema.json#/$defs/Rate",
-              "description": "Share of the capital charge paid to the pool pro rata (from Phase 4)"
+            "capitalChargeToPoolRateBps": {
+              "$ref": "common.schema.json#/$defs/Bps",
+              "description": "Share of the capital charge paid to the pool pro rata, in basis points (from Phase 4)"
             },
-            "firstLossShare": {
-              "$ref": "common.schema.json#/$defs/Rate",
-              "description": "Junior's minimum share of the pool; at least the rulebook's firstLossShareMin"
+            "firstLossShareBps": {
+              "$ref": "common.schema.json#/$defs/Bps",
+              "description": "Junior's minimum share of the pool, in basis points; at least the rulebook's firstLossShareMinBps"
             },
             "noticePeriodSec": {
               "type": "integer",

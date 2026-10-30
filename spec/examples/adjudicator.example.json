@@ -11,8 +11,14 @@
     "minFamiliesAppeal": 3,
     "minValid": 2,
     "minValidAppeal": 4,
-    "acceptSupermajority": 0.667,
-    "rejectSupermajority": 0.667,
+    "acceptSupermajority": {
+      "numerator": 2,
+      "denominator": 3
+    },
+    "rejectSupermajority": {
+      "numerator": 2,
+      "denominator": 3
+    },
     "judgeTimeoutSec": 60,
     "rationaleMaxChars": 600,
     "promptTemplateHash": "0xfc57e4384c325f4d71292850f0fefd9edcd496aa652eacb33044b75b6bf45a8a",
@@ -34,9 +40,9 @@
     }
   },
   "metrics": {
-    "falseAcceptRate": 0.0,
-    "falseRejectRate": 0.05,
-    "escalationRate": 0.1,
+    "falseAcceptRateBps": 0,
+    "falseRejectRateBps": 500,
+    "escalationRateBps": 1000,
     "sampleSize": 40,
     "measuredAt": "2026-10-30T08:00:00Z"
   },
@@ -55,9 +61,9 @@
       "amount": "2000000000"
     },
     "terms": {
-      "capitalChargeRate": 0.02,
-      "capitalChargeToPoolRate": 0,
-      "firstLossShare": 1,
+      "capitalChargeRateBps": 200,
+      "capitalChargeToPoolRateBps": 0,
+      "firstLossShareBps": 10000,
       "noticePeriodSec": 691200
     }
   },

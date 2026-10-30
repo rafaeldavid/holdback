@@ -21,7 +21,7 @@ The `$id` URLs (`https://holdback.dev/schemas/v0.5/…`) are namespaces for reso
 
 ## Changelog
 
-- **v0.5 (2026-10-30, ADR-0014, ADR-0015, ADR-0017, ADR-0018, ADR-0019, ADR-0020, ADR-0021):** every `$id`, `commitment.schemaVersion` and the EIP-712 domain version move to 0.5.
+- **v0.5 (2026-10-30, ADR-0014, ADR-0015, ADR-0017, ADR-0018, ADR-0019, ADR-0020, ADR-0021, ADR-0022):** every `$id`, `commitment.schemaVersion` and the EIP-712 domain version move to 0.5.
   - **API (ADR-0017):** new `page.schema.json` (`items` plus `nextCursor`, `null` at the end), `operator-status.schema.json` (EIP-712 domain, receipt signer, settlement target, versions, head and lag) and `receipt.schema.json` (operator, event sequence and hash, commitment ID, signature; a new `Receipt` EIP-712 type). Party-authored strings carry `x-holdback-untrusted`.
   - **Bond pools (ADR-0014 §2a):** adjudicators gain `pool` (`junior`, `senior`, `reserved`, `terms`) and `poolTermsHash`, the keccak256 of the canonical JSON of `pool.terms`. `capitalChargeRate` moves from `fee` into `pool.terms`. The rulebook gains `firstLossShareMin` and `bondNoticePeriodMinSec`. Events add `bond.deposited`, `bond.withdrawn` and `bond.slashed`, with per-tranche payloads.
   - **Optimistic release (ADR-0015, shape only, built in Phase 4):** `SettlementMode` gains `optimistic`. `timing` gains `disputeBy`, `disputeJudgeSec` and `disputeFallbackSec`, required in optimistic mode and refused in the others. Messages add `Dispute` (a new EIP-712 type). The rulebook's `defaultOutcome` becomes per mode (`judged`, `optimistic`) and gains `minInspectionWindowSec` and `disputeBond`. The read model and events add `Disputed` and `dispute.opened`.
@@ -35,6 +35,18 @@ The `$id` URLs (`https://holdback.dev/schemas/v0.5/…`) are namespaces for reso
     - **Adjudicator policy:** `providerPrivacy` (`standard`, `zdr`, `tee`, `local`) and `disclosureMin`.
     - **Problems:** `unauthorized` is reserved for Phase 2 reads. Read tokens are deferred to Phase 2.
   - **Screen (ADR-0021):** a ninth deterministic check, `hidden_characters_max`, counts invisible characters in the raw bytes and fails above an integer maximum: per class (`tag`, `bidi`, `variationSelector`, `otherIgnorable`) or `total`, with at least one set. Screen signal kinds gain `nfkc_changed`, `variation_selector_run`, `mixed_script` and `hidden_characters`; the enum stays closed.
+  - **Integer rates (ADR-0022):** the floating `Rate` is gone; there are no floats left in the spec.
+    - **Basis points:** `Bps` is an integer from 0 to 10000. Every rate field takes a `Bps` suffix:
+      - rulebook: `appealBondRateBps`, `windowCoverageRatioBps`, `firstLossShareMinBps`, `sealedChecksMaxWeightBps` (at most 3000);
+      - default outcomes: `sellerCompensationRateBps`, `buyerCompensationRateBps`;
+      - pool terms: `capitalChargeRateBps`, `capitalChargeToPoolRateBps`, `firstLossShareBps`;
+      - metrics: `falseAcceptRateBps`, `falseRejectRateBps`, `escalationRateBps`;
+      - checks: `maxBps` and `minBps`;
+      - sealed checks: `weightBps` (at most 3000).
+    - **Supermajorities:** `acceptSupermajority` and `rejectSupermajority` are a `Fraction` (`numerator`, `denominator` 1 to 100). Parsers require them above one half and at most one.
+    - **Rubric:** criterion `weight` is an integer from 1 to 10000 (only ratios matter). `rubric.passThreshold` and `aggregate.weightedScore` are integer hundredths from 0 to 400.
+    - **Aggregate counts:** the judgment aggregate replaces `passShare` and `failShare` with `passCount`, `failCount` and `validCount`.
+    - **Examples:** 0.667 became 2/3, 0.05 became 500, and weights 0.4/0.4/0.2 became 40/40/20.
   - **Panel seed (ADR-0018):** the rulebook gains `randomness` (`sim`, `drand-quicknet` with a `chainHash`, or `prevrandao`). `Decision` gains an optional `beacon` (`source`, `round`, `value`, and a `signature` unless the source is `sim`), and its `seed` description is per role. The judgment panel gains `seedSource` and `beaconRound`; `seedCommitment` is required only for commit-reveal panels.
 
 - **v0.4 (2026-10-30, ADR-0016):** new `messages.schema.json` with every signed message (Offer, Agree, AdjudicatorAcceptance, FundingAuthorization, EarlyAccept, Decision, AgentRevocation, MemberAdmission, MemberRevocation); examples are `messages.<name>.example.json`. `adjudication.panelCommitment` removed from the commitment terms, so the ID is no longer circular; the commitment carries `adjudicatorAcceptance` outside the ID, and the judgment panel records `seedCommitment`. `commitment-state` splits `state` into `escrowState` and `appealState`. The club rulebook replaces `coverageRatio` with `windowCoverageRatio` and adds `appealFee`. Adjudicators publish `registry` (hash and URI) and `policyHash` instead of `registryVersion`. Events add `adjudicator.accepted`, `member.admitted` and `member.revoked`, and drop `judgment.opened`.

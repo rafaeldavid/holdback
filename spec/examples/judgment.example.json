@@ -153,9 +153,10 @@
   },
   "aggregate": {
     "decision": "accept",
-    "weightedScore": 3.8,
-    "passShare": 1.0,
-    "failShare": 0.0,
+    "weightedScore": 380,
+    "passCount": 3,
+    "failCount": 0,
+    "validCount": 3,
     "passFamilies": [
       "claude",
       "family-2"

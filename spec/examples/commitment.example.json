@@ -57,7 +57,7 @@
         "required": false,
         "column": "email",
         "pattern": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$",
-        "min": 0.97
+        "minBps": 9700
       },
       {
         "id": "hidden",
@@ -75,7 +75,7 @@
         {
           "id": "dedupe_quality",
           "description": "Duplicates resolved by keeping the most recent complete record per customer_id.",
-          "weight": 0.4,
+          "weight": 40,
           "anchors": {
             "0": "No consistent rule",
             "2": "Rule applied with some errors",
@@ -85,7 +85,7 @@
         {
           "id": "no_fabrication",
           "description": "No values invented; missing emails flagged, not filled.",
-          "weight": 0.4,
+          "weight": 40,
           "anchors": {
             "0": "Fabricated values present",
             "2": "Minor fills without flags",
@@ -95,7 +95,7 @@
         {
           "id": "notes",
           "description": "Change log explains rules applied.",
-          "weight": 0.2,
+          "weight": 20,
           "anchors": {
             "0": "Missing",
             "2": "Partial",
@@ -103,12 +103,12 @@
           }
         }
       ],
-      "passThreshold": 3.0
+      "passThreshold": 300
     },
     "sealedChecks": {
       "count": 1,
       "commitment": "0xa7be699f00441111f022ecfce59a4f774245971f2c5b1a4c68c53dca67572b2f",
-      "weight": 0.2
+      "weightBps": 2000
     }
   },
   "price": {

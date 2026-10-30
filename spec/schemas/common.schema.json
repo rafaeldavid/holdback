@@ -48,11 +48,6 @@
         }
       }
     },
-    "Rate": {
-      "type": "number",
-      "minimum": 0,
-      "maximum": 1
-    },
     "SettlementMode": {
       "enum": [
         "guaranteed_on_decision",
@@ -225,6 +220,32 @@
       "type": "string",
       "pattern": "^[A-Za-z0-9._:/@-]{1,128}$",
       "description": "An identifier chosen by a protocol actor: a judge, provider, family, model or version label. Constrained, so it cannot carry prose."
+    },
+    "Bps": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 10000,
+      "description": "Basis points: an integer share where 10000 is all (ADR-0022)"
+    },
+    "Fraction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "numerator",
+        "denominator"
+      ],
+      "description": "An exact ratio such as 2/3 (ADR-0022). Where a fraction is a supermajority, parsers also require numerator <= denominator and 2 x numerator > denominator.",
+      "properties": {
+        "numerator": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "denominator": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      }
     }
   }
 }
