@@ -1,8 +1,11 @@
 // Boundary parsers: validate unknown JSON against the real files in spec/schemas, then return typed
-// values. Code past the boundary trusts the types.
+// values. Code past the boundary trusts the types, so anything a parser accepts must be safe for the
+// rest of core: it can be EIP-712 encoded, stays within uint256, and never makes step or offer throw.
 import { readdirSync, readFileSync } from 'node:fs';
 import Ajv2020 from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
+import { isAddress } from 'viem';
+import { tokenAmount } from './money/index.js';
 import { problem, type Problem } from './problem.js';
 import { err, ok, type Result } from './result.js';
 import type {
@@ -22,56 +25,128 @@ import type {
 
 // Resolves to <repo>/spec/schemas from both src/ and dist/.
 const schemaDir = new URL('../../../spec/schemas/', import.meta.url);
+const schemas = readdirSync(schemaDir)
+  .filter((f) => f.endsWith('.schema.json'))
+  .map((file) => ({ name: file.replace('.schema.json', ''), schema: JSON.parse(readFileSync(new URL(file, schemaDir), 'utf8')) as { $id: string } }));
 
-// ajv and ajv-formats are CommonJS; under NodeNext their default export arrives as `.default`.
-const ajv = new Ajv2020.default({ strict: true, allErrors: true });
-addFormats.default(ajv);
+// Signed values are encoded as uint64 Unix seconds, so a signed timestamp must be an exact RFC 3339
+// instant in whole seconds, at or after 1970, that Date can represent. The schema's date-time is wider.
+const RFC3339 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
+function signedTimestamp(s: string): boolean {
+  const ms = Date.parse(s);
+  return RFC3339.test(s) && Number.isFinite(ms) && ms >= 0 && ms % 1000 === 0;
+}
 
-const ids = new Map<string, string>();
-for (const file of readdirSync(schemaDir).filter((f) => f.endsWith('.schema.json'))) {
-  const schema = JSON.parse(readFileSync(new URL(file, schemaDir), 'utf8')) as { $id: string };
-  ajv.addSchema(schema);
-  ids.set(file.replace('.schema.json', ''), schema.$id);
+// Two Ajv instances: one where date-time means a signable timestamp (for everything an agent signs),
+// one with the schema's ordinary date-time (event log, read model, judgment record, registrations).
+// allErrors stays off: input is untrusted, and the first error is enough to refuse it.
+function compile(signed: boolean): Map<string, ReturnType<InstanceType<typeof Ajv2020.default>['compile']>> {
+  // ajv and ajv-formats are CommonJS; under NodeNext their default export arrives as `.default`.
+  const ajv = new Ajv2020.default({ strict: true, allErrors: false });
+  if (signed) {
+    addFormats.default(ajv, ['uri']);
+    ajv.addFormat('date-time', signedTimestamp);
+  } else {
+    addFormats.default(ajv);
+  }
+  for (const { schema } of schemas) ajv.addSchema(schema);
+  const validators = new Map<string, ReturnType<typeof ajv.compile>>();
+  for (const { name, schema } of schemas) validators.set(name, ajv.getSchema(schema.$id)!);
+  return validators;
+}
+
+const signedValidators = compile(true);
+const plainValidators = compile(false);
+
+const UINT32_MAX = 2 ** 32 - 1;
+const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
+
+/** Checks every schema leaves open: amounts within uint256, integers exact, addresses with valid checksums. */
+function walk(value: unknown, signed: boolean, path = ''): string | undefined {
+  if (typeof value === 'number') {
+    return Number.isInteger(value) && !Number.isSafeInteger(value) ? `${path || '/'} is not an exact integer` : undefined;
+  }
+  if (typeof value === 'string') {
+    // Mixed-case addresses are EIP-55 checksums; viem refuses to encode a wrong one.
+    return signed && ADDRESS.test(value) && !isAddress(value, { strict: true }) ? `${path || '/'} has an invalid address checksum` : undefined;
+  }
+  if (Array.isArray(value)) {
+    for (const [i, v] of value.entries()) {
+      const bad = walk(v, signed, `${path}/${i}`);
+      if (bad) return bad;
+    }
+    return undefined;
+  }
+  if (value !== null && typeof value === 'object') {
+    const entries = Object.entries(value);
+    const keys = entries.map(([k]) => k).sort();
+    if (keys.length === 2 && keys[0] === 'amount' && keys[1] === 'token') {
+      const { token, amount } = value as { token: string; amount: string };
+      if (!tokenAmount(token, amount).ok) return `${path}/amount ${amount} is not a uint256 base-units amount`;
+    }
+    for (const [k, v] of entries) {
+      const bad = walk(v, signed, `${path}/${k}`);
+      if (bad) return bad;
+    }
+  }
+  return undefined;
 }
 
 type Parser<T> = (json: unknown) => Result<T, Problem>;
 
-function parserFor<T>(name: string, extra?: (value: T) => string | undefined): Parser<T> {
-  const id = ids.get(name);
-  const validate = id === undefined ? undefined : ajv.getSchema(id);
+function parserFor<T>(name: string, signed: boolean, extra?: (value: T) => string | undefined): Parser<T> {
+  const validate = (signed ? signedValidators : plainValidators).get(name);
   if (!validate) throw new Error(`spec/schemas/${name}.schema.json not found`);
   return (json) => {
-    if (!validate(json)) {
-      const detail = (validate.errors ?? []).map((e) => `${e.instancePath || '/'} ${e.message ?? 'is invalid'}`).join('; ');
-      return err(problem('invalid_terms', `${name}: ${detail}`));
+    // Validate and return a private copy, so the caller cannot change the value after it was checked.
+    let copy: unknown;
+    try {
+      copy = structuredClone(json);
+    } catch {
+      return err(problem('invalid_terms', `${name}: not JSON data`));
     }
-    const value = json as T;
-    const refusal = extra?.(value);
-    return refusal === undefined ? ok(value) : err(problem('invalid_terms', `${name}: ${refusal}`));
+    if (!validate(copy)) {
+      const e = validate.errors?.[0];
+      return err(problem('invalid_terms', `${name}: ${e ? `${e.instancePath || '/'} ${e.message ?? 'is invalid'}` : 'is invalid'}`));
+    }
+    const refusal = walk(copy, signed) ?? extra?.(copy as T);
+    return refusal === undefined ? ok(copy as T) : err(problem('invalid_terms', `${name}: ${refusal}`));
   };
 }
 
-// The schema admits both modes and up to three submissions; Phase 1 admits only these (ADR-0007).
-function phase1(c: Commitment): string | undefined {
+function commitmentRules(c: Commitment): string | undefined {
+  // The schema admits both modes and up to three submissions; Phase 1 admits only these (ADR-0007).
   const mode: string = c.settlement.mode;
   const max: number = c.timing.maxSubmissions;
   if (mode !== 'guaranteed_on_decision') return `settlement.mode ${mode} is not supported in Phase 1 (guaranteed_on_decision only)`;
   if (max !== 1) return `timing.maxSubmissions ${max} is not supported in Phase 1 (1 only)`;
+  // Window lengths are added to deadlines; uint32 seconds (136 years) keeps every derived deadline representable.
+  for (const key of ['appealWindowSec', 'appealDecideSec'] as const) {
+    if (c.timing[key] > UINT32_MAX) return `timing.${key} ${c.timing[key]} exceeds ${UINT32_MAX}`;
+  }
+  if (!(Date.parse(c.createdAt) < Date.parse(c.timing.offerExpiresAt))) return 'createdAt must be before timing.offerExpiresAt';
   return undefined;
 }
 
-export const parseAdjudicator = parserFor<AdjudicatorRegistration>('adjudicator');
-export const parseAgent = parserFor<AgentRegistration>('agent');
-export const parseAppeal = parserFor<Appeal>('appeal');
-export const parseClub = parserFor<Club>('club');
-export const parseCommitmentState = parserFor<CommitmentStateView>('commitment-state');
-export const parseCommitment = parserFor<Commitment>('commitment', phase1);
-export const parseDelivery = parserFor<Delivery>('delivery');
-export const parseEvent = parserFor<SettlementEvent>('event');
-export const parseJudgeVerdict = parserFor<JudgeVerdict>('judge-verdict');
-export const parseJudgment = parserFor<Judgment>('judgment');
-export const parseMandate = parserFor<Mandate>('mandate');
-export const parseMessage = parserFor<SignedMessage>('messages');
+function messageRules(m: SignedMessage): string | undefined {
+  if ((m.type === 'EarlyAccept' || m.type === 'Decision') && m.attempt > 255) return `attempt ${m.attempt} exceeds uint8`;
+  // value is signed as uint256; one canonical decimal form per amount.
+  if (m.type === 'FundingAuthorization' && !tokenAmount(m.token, m.value).ok) return `value ${m.value} is not a canonical uint256 decimal`;
+  return undefined;
+}
+
+export const parseAdjudicator = parserFor<AdjudicatorRegistration>('adjudicator', false);
+export const parseAgent = parserFor<AgentRegistration>('agent', true);
+export const parseAppeal = parserFor<Appeal>('appeal', true);
+export const parseClub = parserFor<Club>('club', false);
+export const parseCommitmentState = parserFor<CommitmentStateView>('commitment-state', false);
+export const parseCommitment = parserFor<Commitment>('commitment', true, commitmentRules);
+export const parseDelivery = parserFor<Delivery>('delivery', true);
+export const parseEvent = parserFor<SettlementEvent>('event', false);
+export const parseJudgeVerdict = parserFor<JudgeVerdict>('judge-verdict', false);
+export const parseJudgment = parserFor<Judgment>('judgment', false);
+export const parseMandate = parserFor<Mandate>('mandate', true);
+export const parseMessage = parserFor<SignedMessage>('messages', true, messageRules);
 
 /** One parser per schema file, keyed by the file's name. */
 export const parsers = {
