@@ -24,7 +24,7 @@ export type SettlementMode = 'guaranteed_on_decision' | 'settle_after_window' | 
 export type RandomnessSource = 'sim' | 'drand-quicknet' | 'prevrandao';
 /** ADR-0020. Phase 1 admits public only. */
 export type DisclosureLevel = 'private' | 'judgment' | 'public';
-export type IdentityMode = 'long-term' | 'per-commitment';
+export type IdentityMode = 'long-term' | 'pseudonymous';
 
 /** When a recipient may open an encrypted key (ADR-0020). Phase 1 admits none only. */
 export interface KeyUnlock {

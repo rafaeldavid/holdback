@@ -276,10 +276,10 @@
           "items": {
             "enum": [
               "long-term",
-              "per-commitment"
+              "pseudonymous"
             ]
           },
-          "description": "Signing identities parties may use: one long-term key, or a fresh key per commitment (ADR-0020). Phase 1 admits long-term only."
+          "description": "Signing identities parties may use: one long-term key, or a pseudonymous one-time key per commitment derived from a long-term meta-address (ADR-0020 §7). Phase 1 admits long-term only."
         }
       },
       "if": {

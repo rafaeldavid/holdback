@@ -361,6 +361,14 @@ describe('spec/', () => {
       expect(schema('judgment')(j)).toBe(false);
     });
 
+    it('names the identity modes long-term and pseudonymous (ADR-0020 §7)', () => {
+      const c = example('club');
+      c.rulebook.identityModes = ['long-term', 'pseudonymous'];
+      expect(schema('club')(c)).toBe(true);
+      c.rulebook.identityModes = ['long-term', 'per-commitment'];
+      expect(schema('club')(c)).toBe(false);
+    });
+
     it.each(['disclosureMin', 'identityModes'])('requires rulebook %s', (field) => {
       const c = example('club');
       expect(schema('club')(c)).toBe(true);

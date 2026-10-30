@@ -31,7 +31,7 @@ The `$id` URLs (`https://holdback.dev/schemas/v0.5/…`) are namespaces for reso
     - **Keys:** a shared `EncryptedKey` gains an optional `unlock { kind: none | beacon-round, round }`; Phase 1 admits `none` only. An escalating `Decision` must carry `encryptedKeys` for the appeal adjudicator, and only an escalating one may. `Dispute` carries `encryptedKeys` for the adjudicators.
     - **Publish:** a co-signed message that raises the level. Raising only is enforced by settlement, not by the schema.
     - **Events:** offered and agreed events always carry `termsHash`, and decided events carry `recordHash`; bodies appear by level. The judgment record gains an optional `privateRecord`.
-    - **Rulebook:** `disclosureMin` and `identityModes` (`long-term`, `per-commitment`); Phase 1 admits `long-term` only.
+    - **Rulebook:** `disclosureMin` and `identityModes` (`long-term`, `pseudonymous`); Phase 1 admits `long-term` only.
     - **Adjudicator policy:** `providerPrivacy` (`standard`, `zdr`, `tee`, `local`) and `disclosureMin`.
     - **Problems:** `unauthorized` is reserved for Phase 2 reads. Read tokens are deferred to Phase 2.
   - **Screen (ADR-0021):** a ninth deterministic check, `hidden_characters_max`, counts invisible characters in the raw bytes and fails above an integer maximum: per class (`tag`, `bidi`, `variationSelector`, `otherIgnorable`) or `total`, with at least one set. Screen signal kinds gain `nfkc_changed`, `variation_selector_run`, `mixed_script` and `hidden_characters`; the enum stays closed.

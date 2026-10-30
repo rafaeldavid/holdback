@@ -90,7 +90,7 @@ describe('boundary parsers', () => {
 
   it.each([
     ['randomness', { source: 'drand-quicknet', chainHash: `0x${'52'.repeat(32)}` }, 'sim only'],
-    ['identityModes', ['long-term', 'per-commitment'], 'long-term only'],
+    ['identityModes', ['long-term', 'pseudonymous'], 'long-term only'],
   ] as const)('refuses rulebook %s beyond Phase 1', (field, value, detail) => {
     const c = example('club.example.json');
     expect(parseClub(c).ok).toBe(true);
