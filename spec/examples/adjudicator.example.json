@@ -26,7 +26,9 @@
     "promptTemplateHash": "0xfc57e4384c325f4d71292850f0fefd9edcd496aa652eacb33044b75b6bf45a8a",
     "appealPromptTemplateHash": "0x87d455f345a36321d9b91b6f5dfd0c15dbb57c1f81239392d02291f9e7f628e2",
     "aggregationVersion": "agg-1",
-    "screenVersion": "screen-1"
+    "screenVersion": "screen-1",
+    "providerPrivacy": "zdr",
+    "disclosureMin": "public"
   },
   "registry": {
     "hash": "0x54bdcd5545af7f0a1d42fa9adad89dc6f5d20ea8c0e16b270d2160b78b16007a",

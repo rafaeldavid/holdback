@@ -334,6 +334,10 @@
     },
     "signature": {
       "$ref": "common.schema.json#/$defs/Signature"
+    },
+    "privateRecord": {
+      "$ref": "common.schema.json#/$defs/PrivateBody",
+      "description": "The full record kept off the public log when disclosure is private (ADR-0020)"
     }
   }
 }

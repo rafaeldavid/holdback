@@ -17,6 +17,7 @@
     "timing",
     "settlement",
     "remedy",
+    "disclosure",
     "buyerEncryptionPublicKey",
     "nonce",
     "createdAt",
@@ -313,6 +314,23 @@
     "adjudicatorAcceptance": {
       "$ref": "messages.schema.json#/$defs/AdjudicatorAcceptance",
       "description": "The primary adjudicator's signed acceptance, outside the ID. Required before funding (ADR-0016)"
+    },
+    "disclosure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "level"
+      ],
+      "description": "Signed term: who may read the terms and records (ADR-0020)",
+      "properties": {
+        "level": {
+          "$ref": "common.schema.json#/$defs/DisclosureLevel"
+        }
+      }
+    },
+    "privateTerms": {
+      "$ref": "common.schema.json#/$defs/PrivateBody",
+      "description": "Reserved for private and judgment levels; refused in Phase 1"
     }
   },
   "$defs": {

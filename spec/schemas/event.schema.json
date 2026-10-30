@@ -70,7 +70,8 @@
       "description": "Operator id or 'direct'"
     },
     "payload": {
-      "type": "object"
+      "type": "object",
+      "description": "Event body. Offered and agreed events always carry termsHash, judgment and appeal decisions always carry recordHash; the bodies themselves are present only as the disclosure level allows (ADR-0020)"
     },
     "prevHash": {
       "$ref": "common.schema.json#/$defs/Hex32"
@@ -178,6 +179,70 @@
         "properties": {
           "payload": {
             "$ref": "#/$defs/SettledSplit"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "enum": [
+              "commitment.offered",
+              "commitment.agreed"
+            ]
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "payload": {
+            "type": "object",
+            "required": [
+              "termsHash"
+            ],
+            "properties": {
+              "termsHash": {
+                "$ref": "common.schema.json#/$defs/Hex32"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "enum": [
+              "judgment.decided",
+              "appeal.decided"
+            ]
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "payload": {
+            "type": "object",
+            "required": [
+              "recordHash"
+            ],
+            "properties": {
+              "recordHash": {
+                "$ref": "common.schema.json#/$defs/Hex32"
+              }
+            }
           }
         }
       }

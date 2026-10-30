@@ -1,0 +1,14 @@
+{
+  "seq": 1,
+  "type": "commitment.offered",
+  "commitmentId": "0x9340180fb352b68aabcf457de90752525d862a9a6dac875100905fac2fc54ed8",
+  "at": "2026-10-30T15:00:00Z",
+  "actor": "0x9ff412388f11e58327e71f841705dbc739c8cc46",
+  "submittedVia": "op-1",
+  "payload": {
+    "termsHash": "0x9340180fb352b68aabcf457de90752525d862a9a6dac875100905fac2fc54ed8",
+    "disclosure": "public"
+  },
+  "prevHash": "0xe0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0",
+  "hash": "0xe1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1"
+}

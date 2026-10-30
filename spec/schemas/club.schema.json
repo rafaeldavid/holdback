@@ -45,7 +45,9 @@
         "randomness",
         "minInspectionWindowSec",
         "disputeBond",
-        "mutualSettlement"
+        "mutualSettlement",
+        "disclosureMin",
+        "identityModes"
       ],
       "properties": {
         "version": {
@@ -261,6 +263,22 @@
               "description": "Share of the held adjudicator fee paid to the primary adjudicator when the parties settle after delivery, in basis points (10000 = all); before delivery the fee returns to the buyer"
             }
           }
+        },
+        "disclosureMin": {
+          "$ref": "common.schema.json#/$defs/DisclosureLevel",
+          "description": "Lowest disclosure level a commitment under this rulebook may choose (ADR-0020)"
+        },
+        "identityModes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "long-term",
+              "per-commitment"
+            ]
+          },
+          "description": "Signing identities parties may use: one long-term key, or a fresh key per commitment (ADR-0020). Phase 1 admits long-term only."
         }
       },
       "if": {

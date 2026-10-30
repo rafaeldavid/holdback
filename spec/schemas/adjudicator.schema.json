@@ -64,7 +64,9 @@
         "promptTemplateHash",
         "appealPromptTemplateHash",
         "aggregationVersion",
-        "screenVersion"
+        "screenVersion",
+        "providerPrivacy",
+        "disclosureMin"
       ],
       "properties": {
         "id": {
@@ -124,6 +126,19 @@
         "screenVersion": {
           "type": "string",
           "description": "Version of the normalization and screen step"
+        },
+        "providerPrivacy": {
+          "enum": [
+            "standard",
+            "zdr",
+            "tee",
+            "local"
+          ],
+          "description": "How the adjudicator's model providers treat deliverables: standard terms, zero data retention, a trusted execution environment, or models run locally (ADR-0020)"
+        },
+        "disclosureMin": {
+          "$ref": "common.schema.json#/$defs/DisclosureLevel",
+          "description": "Lowest disclosure level this adjudicator accepts"
         }
       },
       "description": "The adjudicator policy. Its keccak256 over RFC 8785 canonical JSON is the policyHash a commitment binds."

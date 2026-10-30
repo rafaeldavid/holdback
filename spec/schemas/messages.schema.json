@@ -36,6 +36,9 @@
     },
     {
       "$ref": "#/$defs/MutualSettlement"
+    },
+    {
+      "$ref": "#/$defs/Publish"
     }
   ],
   "$defs": {
@@ -392,8 +395,52 @@
               "signature": {}
             }
           }
+        },
+        "encryptedKeys": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "common.schema.json#/$defs/EncryptedKey"
+          },
+          "description": "On escalate: the content key encrypted to the appeal adjudicator (ADR-0020); only on escalate"
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "type": "object",
+            "properties": {
+              "outcome": {
+                "const": "escalate"
+              }
+            },
+            "required": [
+              "outcome"
+            ]
+          },
+          "then": {
+            "type": "object",
+            "required": [
+              "encryptedKeys"
+            ],
+            "properties": {
+              "encryptedKeys": {}
+            }
+          },
+          "else": {
+            "type": "object",
+            "not": {
+              "type": "object",
+              "required": [
+                "encryptedKeys"
+              ],
+              "properties": {
+                "encryptedKeys": {}
+              }
+            }
+          }
+        }
+      ]
     },
     "AgentRevocation": {
       "type": "object",
@@ -518,6 +565,7 @@
         "grounds",
         "bond",
         "fee",
+        "encryptedKeys",
         "nonce",
         "expiresAt",
         "signature"
@@ -555,6 +603,14 @@
         },
         "signature": {
           "$ref": "common.schema.json#/$defs/Signature"
+        },
+        "encryptedKeys": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "common.schema.json#/$defs/EncryptedKey"
+          },
+          "description": "The content key encrypted to the primary, fallback and appeal adjudicators (ADR-0020)"
         }
       }
     },
@@ -633,6 +689,43 @@
         "required": [
           "releaseKey"
         ]
+      }
+    },
+    "Publish": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Buyer and seller raise a commitment's disclosure level by agreement (ADR-0020). Both sign the identical struct. Raising only: the settlement layer refuses a level below the current one (T-006), which a schema cannot check.",
+      "required": [
+        "type",
+        "commitmentId",
+        "level",
+        "nonce",
+        "expiresAt",
+        "buyerSignature",
+        "sellerSignature"
+      ],
+      "properties": {
+        "type": {
+          "const": "Publish"
+        },
+        "commitmentId": {
+          "$ref": "common.schema.json#/$defs/Hex32"
+        },
+        "level": {
+          "$ref": "common.schema.json#/$defs/DisclosureLevel"
+        },
+        "nonce": {
+          "$ref": "common.schema.json#/$defs/Hex32"
+        },
+        "expiresAt": {
+          "$ref": "common.schema.json#/$defs/Timestamp"
+        },
+        "buyerSignature": {
+          "$ref": "common.schema.json#/$defs/Signature"
+        },
+        "sellerSignature": {
+          "$ref": "common.schema.json#/$defs/Signature"
+        }
       }
     }
   }

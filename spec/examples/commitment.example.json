@@ -134,6 +134,9 @@
   "remedy": {
     "onReject": "full_refund"
   },
+  "disclosure": {
+    "level": "public"
+  },
   "buyerEncryptionPublicKey": "cb3adb3c24fb1b27f6b5c34b69AeeacA8db395159A8",
   "nonce": "0x9e3f156324d42f0ea4b6f4fce81d56fbd64a2143a3fdd60a130d9c90e5b4d688",
   "createdAt": "2026-10-30T10:00:00Z",

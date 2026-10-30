@@ -7,7 +7,7 @@ The JSON Schemas in `schemas/` (draft 2020-12) are the API contract. Change them
 
 The examples are illustrative. Their hashes and signatures are placeholders and will not verify cryptographically. The model IDs in the judgment example are placeholders, to be replaced with pinned IDs from `config/judges.yaml`.
 
-Validation as of October 30, 2026 (measured): all 20 examples pass under Ajv 8 (2020-12, strict mode). The schemas also reject three bad inputs:
+Validation as of October 30, 2026 (measured): all 22 examples pass under Ajv 8 (2020-12, strict mode). The schemas also reject three bad inputs:
 - a fractional amount;
 - a model ID containing "latest";
 - an extra field in a judge verdict.
@@ -20,11 +20,19 @@ The `$id` URLs (`https://holdback.dev/schemas/v0.5/…`) are namespaces for reso
 
 ## Changelog
 
-- **v0.5 (2026-10-30, ADR-0014, ADR-0015, ADR-0017, ADR-0018, ADR-0019):** every `$id`, `commitment.schemaVersion` and the EIP-712 domain version move to 0.5.
+- **v0.5 (2026-10-30, ADR-0014, ADR-0015, ADR-0017, ADR-0018, ADR-0019, ADR-0020):** every `$id`, `commitment.schemaVersion` and the EIP-712 domain version move to 0.5.
   - **API (ADR-0017):** new `page.schema.json` (`items` plus `nextCursor`, `null` at the end), `operator-status.schema.json` (EIP-712 domain, receipt signer, settlement target, versions, head and lag) and `receipt.schema.json` (operator, event sequence and hash, commitment ID, signature; a new `Receipt` EIP-712 type). Party-authored strings carry `x-holdback-untrusted`.
   - **Bond pools (ADR-0014 §2a):** adjudicators gain `pool` (`junior`, `senior`, `reserved`, `terms`) and `poolTermsHash`, the keccak256 of the canonical JSON of `pool.terms`. `capitalChargeRate` moves from `fee` into `pool.terms`. The rulebook gains `firstLossShareMin` and `bondNoticePeriodMinSec`. Events add `bond.deposited`, `bond.withdrawn` and `bond.slashed`, with per-tranche payloads.
   - **Optimistic release (ADR-0015, shape only, built in Phase 4):** `SettlementMode` gains `optimistic`. `timing` gains `disputeBy`, `disputeJudgeSec` and `disputeFallbackSec`, required in optimistic mode and refused in the others. Messages add `Dispute` (a new EIP-712 type). The rulebook's `defaultOutcome` becomes per mode (`judged`, `optimistic`) and gains `minInspectionWindowSec` and `disputeBond`. The read model and events add `Disputed` and `dispute.opened`.
   - **Mutual settlement (ADR-0019):** messages add `MutualSettlement` (`commitmentId`, `deliveryHash` or `null` before delivery, `sellerAmount` in the price token, `releaseKey`, `nonce`, `expiresAt`) with a `buyerSignature` and a `sellerSignature` over the identical struct, and a `MutualSettlement` EIP-712 type with a `hasDelivery` flag. The read model adds the terminal `Settled` state with `settled { sellerAmount, buyerAmount, keyReleased }`; events add `commitment.settled`. The rulebook gains `mutualSettlement { allowed, adjudicatorFeeShareAfterDeliveryBps }`, the first rate in the spec as integer basis points.
+  - **Privacy, Phase 1 shape (ADR-0020):**
+    - **Commitments:** a signed `disclosure { level }` (`private`, `judgment`, `public`) is part of the terms typed data. `privateTerms { hash, envelopes }` is reserved. The Phase 1 parser admits `public` only and refuses `privateTerms`.
+    - **Keys:** a shared `EncryptedKey` gains an optional `unlock { kind: none | beacon-round, round }`; Phase 1 admits `none` only. An escalating `Decision` must carry `encryptedKeys` for the appeal adjudicator, and only an escalating one may. `Dispute` carries `encryptedKeys` for the adjudicators.
+    - **Publish:** a co-signed message that raises the level. Raising only is enforced by settlement, not by the schema.
+    - **Events:** offered and agreed events always carry `termsHash`, and decided events carry `recordHash`; bodies appear by level. The judgment record gains an optional `privateRecord`.
+    - **Rulebook:** `disclosureMin` and `identityModes` (`long-term`, `per-commitment`); Phase 1 admits `long-term` only.
+    - **Adjudicator policy:** `providerPrivacy` (`standard`, `zdr`, `tee`, `local`) and `disclosureMin`.
+    - **Problems:** `unauthorized` is reserved for Phase 2 reads. Read tokens are deferred to Phase 2.
   - **Panel seed (ADR-0018):** the rulebook gains `randomness` (`sim`, `drand-quicknet` with a `chainHash`, or `prevrandao`). `Decision` gains an optional `beacon` (`source`, `round`, `value`, and a `signature` unless the source is `sim`), and its `seed` description is per role. The judgment panel gains `seedSource` and `beaconRound`; `seedCommitment` is required only for commit-reveal panels.
 
 - **v0.4 (2026-10-30, ADR-0016):** new `messages.schema.json` with every signed message (Offer, Agree, AdjudicatorAcceptance, FundingAuthorization, EarlyAccept, Decision, AgentRevocation, MemberAdmission, MemberRevocation); examples are `messages.<name>.example.json`. `adjudication.panelCommitment` removed from the commitment terms, so the ID is no longer circular; the commitment carries `adjudicatorAcceptance` outside the ID, and the judgment panel records `seedCommitment`. `commitment-state` splits `state` into `escrowState` and `appealState`. The club rulebook replaces `coverageRatio` with `windowCoverageRatio` and adds `appealFee`. Adjudicators publish `registry` (hash and URI) and `policyHash` instead of `registryVersion`. Events add `adjudicator.accepted`, `member.admitted` and `member.revoked`, and drop `judgment.opened`.

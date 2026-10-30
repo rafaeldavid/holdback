@@ -109,6 +109,110 @@
         "prevrandao"
       ],
       "description": "Where fallback and appeal panel seeds come from (ADR-0018). Phase 1 admits sim only."
+    },
+    "DisclosureLevel": {
+      "enum": [
+        "private",
+        "judgment",
+        "public"
+      ],
+      "description": "Who may read a commitment's terms and records (ADR-0020). Phase 1 admits public only."
+    },
+    "KeyUnlock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind"
+      ],
+      "description": "When a recipient may open an encrypted key: at once, or once a beacon round is published (ADR-0020)",
+      "properties": {
+        "kind": {
+          "enum": [
+            "none",
+            "beacon-round"
+          ]
+        },
+        "round": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "if": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "const": "beacon-round"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "required": [
+          "round"
+        ],
+        "properties": {
+          "round": {}
+        }
+      },
+      "else": {
+        "type": "object",
+        "not": {
+          "type": "object",
+          "required": [
+            "round"
+          ],
+          "properties": {
+            "round": {}
+          }
+        }
+      }
+    },
+    "EncryptedKey": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "recipient",
+        "scheme",
+        "ciphertext"
+      ],
+      "properties": {
+        "recipient": {
+          "$ref": "#/$defs/Address"
+        },
+        "scheme": {
+          "const": "x25519-xsalsa20poly1305"
+        },
+        "ciphertext": {
+          "$ref": "#/$defs/Base64Url"
+        },
+        "unlock": {
+          "$ref": "#/$defs/KeyUnlock"
+        }
+      }
+    },
+    "PrivateBody": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "hash",
+        "envelopes"
+      ],
+      "description": "A body kept off the public record: its keccak256 and the key envelopes for the parties allowed to read it (ADR-0020)",
+      "properties": {
+        "hash": {
+          "$ref": "#/$defs/Hex32"
+        },
+        "envelopes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/EncryptedKey"
+          }
+        }
+      }
     }
   }
 }
