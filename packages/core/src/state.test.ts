@@ -239,6 +239,18 @@ describe('offer', () => {
     ['an unparseable offer time', { at: 'not a time' }, 'invalid_terms'],
     ['a seller cap in another token', { sellerScope: scope(['seller'], { maxPerCommitment: { token: 'tEUR', amount: '5000000000' as TokenAmount['amount'] } }) }, 'invalid_terms'],
     ['a rulebook whose hash is not the one the terms bind', { rulebook: { ...rulebook, appealBondRate: 0.06 } }, 'rulebook_unknown'],
+    [
+      'optimistic mode in Phase 1, even when the rulebook allows it',
+      withRulebook(
+        { ...rulebook, allowedSettlementModes: ['guaranteed_on_decision', 'optimistic'] },
+        {
+          settlement: { mode: 'optimistic', token: 'tUSD' } as never,
+          timing: { ...exampleCommitment.timing, disputeBy: '2026-11-06T17:00:00Z', disputeJudgeSec: 86400, disputeFallbackSec: 86400 } as never,
+        },
+      ),
+      'invalid_terms',
+    ],
+    ['a private disclosure level in Phase 1', withRulebook(rulebook, { disclosure: { level: 'private' } as never }), 'invalid_terms'],
   ])('refuses %s', (_name, over, type) => {
     expect(offer(offerInput(over))).toMatchObject({ ok: false, error: { type } });
   });

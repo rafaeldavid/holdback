@@ -71,6 +71,11 @@ const structs = {
     field('appealWindowSec', 'uint64'),
     field('appealDecideSec', 'uint64'),
     field('maxSubmissions', 'uint8'),
+    // Optimistic mode only (ADR-0015). 0 when absent: settlement.mode is bound too, and the schema
+    // requires these exactly in optimistic mode with minimums of 1, so 0 never collides with a value.
+    stamp('disputeBy'),
+    field('disputeJudgeSec', 'uint64'),
+    field('disputeFallbackSec', 'uint64'),
   ],
   Settlement: [field('mode', 'string'), field('token', 'string')],
   Remedy: [field('onReject', 'string')],
@@ -280,6 +285,9 @@ export function typedTermsOf(t: CommitmentTerms): Encoded {
       appealWindowSec: BigInt(t.timing.appealWindowSec),
       appealDecideSec: BigInt(t.timing.appealDecideSec),
       maxSubmissions: t.timing.maxSubmissions,
+      disputeBy: t.timing.disputeBy === undefined ? 0n : seconds(t.timing.disputeBy),
+      disputeJudgeSec: BigInt(t.timing.disputeJudgeSec ?? 0),
+      disputeFallbackSec: BigInt(t.timing.disputeFallbackSec ?? 0),
     },
     settlement: t.settlement,
     remedy: t.remedy,

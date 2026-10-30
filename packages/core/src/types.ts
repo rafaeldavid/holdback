@@ -111,6 +111,10 @@ export interface Timing {
   appealDecideSec: number;
   /** Phase 1: resubmission is not supported (ADR-0007). */
   maxSubmissions: 1;
+  /** Optimistic mode only (ADR-0015); refused in Phase 1, bound by the commitment ID regardless. */
+  disputeBy?: Timestamp;
+  disputeJudgeSec?: number;
+  disputeFallbackSec?: number;
 }
 
 /** Everything the commitment ID hashes: the commitment minus id, signatures and adjudicatorAcceptance (ADR-0016). */

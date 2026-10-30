@@ -153,6 +153,12 @@ export function offer(input: OfferInput): R<Extract<EscrowState, { kind: 'Offere
   const scope = scopeAllows(input.sellerScope, 'seller', terms.price, at);
   if (!scope.ok) return scope;
 
+  // Phase 1 limits hold here too, not only in the parser, for callers that build terms in code.
+  const mode: string = terms.settlement.mode;
+  if (mode !== 'guaranteed_on_decision') return fail('invalid_terms', `settlement.mode ${mode} is not supported in Phase 1 (guaranteed_on_decision only)`);
+  const level: string = terms.disclosure.level;
+  if (level !== 'public') return fail('invalid_terms', `disclosure.level ${level} is not supported in Phase 1 (public only)`);
+
   const timing = validateTiming(terms.timing, rulebook);
   if (!timing.ok) return timing;
   if (!rulebook.allowedSettlementModes.includes(terms.settlement.mode)) return fail('invalid_terms', `the rulebook does not allow ${terms.settlement.mode}`);

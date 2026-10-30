@@ -6,7 +6,7 @@
   "family": "family-2",
   "model": "stub-family2-pinned-1",
   "promptTemplateHash": "0x3f829b31b4678baf50a5306966ebb9e9c9b1c61d602e809ad2cbc7346e5699de",
-  "inputHash": "0x8c1682831588a09d51f3dc65f5d640f88e18be86d6e650535c765d867b7f72b0",
+  "inputHash": "0x70f4d8bd4745eddf1cf33641fa403010af14a50d0e25ffadf48e9e2b81b1370b",
   "rubricHash": "0x55809f29b7fee704517442f8e2e3e64d9b96ccb6cc258855220243ff9337dba2",
   "capturedFrom": "fake",
   "verdict": {

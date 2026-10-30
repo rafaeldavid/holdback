@@ -36,10 +36,10 @@ const commitment = parsed.value;
 const terms = termsOf(commitment);
 
 // Pinned vectors. A change here changes every commitment ID and signature in the system: it needs an ADR.
-const EXAMPLE_TERMS_ID = '0x8f132739ce2bd929282be1fb92e22562c98ed813f5326bef92c1d4848bb3ad48';
+const EXAMPLE_TERMS_ID = '0x42f634f5d9707da80850c4572e83e34d8e6d5359b916af152c41f147157928b7';
 const SELLER_ADDRESS = '0xDdC55D01F41A079E14F7Cbb3902ec14e1e8d3ce6';
 const EXAMPLE_TERMS_SELLER_SIGNATURE =
-  '0xa6efdfb93f0d88efe0cf586765184d89eb12867e9ab5b9044b4b22bc4da70c025e8c07ed25b4cb83f5464b54c8adc0e73ba64f461c8760871ff3b0aecb4a92881b';
+  '0x803d79b0aa9c37b77c684d999fc398f3caa4cba54a2b72d5f1719a4eb170c88f2699662aec25b2d3d8b9bb0a94e91de198e56b6e79ace8d4fef33ed09aa2d2091b';
 
 // Distributes over unions, so removing `signature` from a SignedMessage keeps each variant.
 function without<T extends object, K extends keyof T>(obj: T, key: K): T extends unknown ? Omit<T, K> : never {
@@ -80,6 +80,21 @@ describe('domain', () => {
 });
 
 describe('commitment ID', () => {
+  it('binds the optimistic dispute timing (review of PR 23)', () => {
+    const optimistic = (disputeBy: string) =>
+      ({
+        ...terms,
+        settlement: { mode: 'optimistic', token: terms.settlement.token },
+        timing: { ...terms.timing, disputeBy, disputeJudgeSec: 86400, disputeFallbackSec: 86400 },
+      }) as never;
+    const a = commitmentId(optimistic('2026-11-06T17:00:00Z'));
+    expect(commitmentId(optimistic('2026-11-06T17:00:01Z'))).not.toBe(a);
+    const judge = { ...(optimistic('2026-11-06T17:00:00Z') as { timing: object }), timing: { ...(optimistic('2026-11-06T17:00:00Z') as { timing: object }).timing, disputeJudgeSec: 86401 } };
+    expect(commitmentId(judge as never)).not.toBe(a);
+    const fallback = { ...(optimistic('2026-11-06T17:00:00Z') as { timing: object }), timing: { ...(optimistic('2026-11-06T17:00:00Z') as { timing: object }).timing, disputeFallbackSec: 86401 } };
+    expect(commitmentId(fallback as never)).not.toBe(a);
+  });
+
   it('is stable for the example terms', () => {
     expect(commitmentId(terms)).toBe(EXAMPLE_TERMS_ID);
   });

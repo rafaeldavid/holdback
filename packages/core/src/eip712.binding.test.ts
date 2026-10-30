@@ -176,7 +176,7 @@ const encodeTypePins: Record<string, string> = {
     'Adjudication(address adjudicator,address fallbackAdjudicator,address appealAdjudicator,string policyId,TokenAmount fee,bytes32 registryHash,bytes32 policyHash)' +
     'Disclosure(string level)' +
     'Remedy(string onReject)Settlement(string mode,string token)' +
-    'Timing(uint64 offerExpiresAt,uint64 fundBy,uint64 deliverBy,uint64 judgeBy,uint64 fallbackBy,uint64 appealWindowSec,uint64 appealDecideSec,uint8 maxSubmissions)' +
+    'Timing(uint64 offerExpiresAt,uint64 fundBy,uint64 deliverBy,uint64 judgeBy,uint64 fallbackBy,uint64 appealWindowSec,uint64 appealDecideSec,uint8 maxSubmissions,uint64 disputeBy,uint64 disputeJudgeSec,uint64 disputeFallbackSec)' +
     TOKEN,
 };
 
@@ -198,7 +198,7 @@ const digestPins: Record<string, Hex> = {
   Delivery: '0x5e2c28a7ba7404cdb832ec973e4447ff43f61969c428d3d9634e98de8973c21a',
   Appeal: '0x3e03f3cd8fc63ce6cbc48fd61d0f601f6cb70f264e19b9857216a669855ad86d',
   Mandate: '0xa088db37eba2b2334bbe9bce8b65934596b122f5b861d2be73384ef5876f9497',
-  CommitmentTerms: '0xf4c4d750c7c652653f6c0ab2271480f51501f645a8ec56a1cf09190ea1f45172',
+  CommitmentTerms: '0xe12155c2b8ab24be58ac3769a0ea98e90fc52c2674466871fdb912e91b8ac793',
 };
 
 // A second, hand-written EIP-712 implementation (encodeType, encodeData, hashStruct, domain separator)
