@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.4/commitment-state.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.5/commitment-state.schema.json",
   "title": "Commitment state (read model)",
   "type": "object",
   "required": [
@@ -24,6 +24,7 @@
         "Agreed",
         "Held",
         "Delivered",
+        "Disputed",
         "FallbackJudging",
         "Escalated",
         "Released",

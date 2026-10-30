@@ -46,6 +46,7 @@
     "ran": true,
     "policyId": "bench-a/p1",
     "policyHash": "0x04221c401f162ef3a3c07c9d97024f3a13eb30f262b0c088ee6f63fa2c893dbb",
+    "seedSource": "commit-reveal",
     "seedCommitment": "0x9b7729175e6efa947ff5980e87390813228dc2eef1c4b2f1d72a9c3d2eb02d3e",
     "seed": "0x40a7da5565ae8c475972696a25d415b73a73e9451aa19d897e227ec6e7ff827a",
     "members": [

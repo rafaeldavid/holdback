@@ -37,8 +37,7 @@
     "min": {
       "token": "tUSD",
       "amount": "25000000"
-    },
-    "capitalChargeRate": 0.02
+    }
   },
   "metrics": {
     "falseAcceptRate": 0.0,
@@ -47,5 +46,26 @@
     "sampleSize": 40,
     "measuredAt": "2026-10-30T08:00:00Z"
   },
-  "status": "active"
+  "status": "active",
+  "pool": {
+    "junior": {
+      "token": "tUSD",
+      "amount": "25000000000"
+    },
+    "senior": {
+      "token": "tUSD",
+      "amount": "0"
+    },
+    "reserved": {
+      "token": "tUSD",
+      "amount": "2000000000"
+    },
+    "terms": {
+      "capitalChargeRate": 0.02,
+      "capitalChargeToPoolRate": 0,
+      "firstLossShare": 1,
+      "noticePeriodSec": 691200
+    }
+  },
+  "poolTermsHash": "0x7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a"
 }

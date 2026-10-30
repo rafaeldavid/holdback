@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.4/commitment.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.5/commitment.schema.json",
   "title": "Commitment (terms + EIP-712 signatures)",
   "type": "object",
   "required": [
@@ -25,7 +25,7 @@
   "additionalProperties": false,
   "properties": {
     "schemaVersion": {
-      "const": "0.4"
+      "const": "0.5"
     },
     "id": {
       "$ref": "common.schema.json#/$defs/Hex32",
@@ -61,7 +61,8 @@
         },
         "description": {
           "type": "string",
-          "maxLength": 4000
+          "maxLength": 4000,
+          "x-holdback-untrusted": true
         },
         "format": {
           "enum": [
@@ -240,6 +241,20 @@
           "type": "integer",
           "minimum": 1,
           "maximum": 3
+        },
+        "disputeBy": {
+          "$ref": "common.schema.json#/$defs/Timestamp",
+          "description": "Optimistic mode only: the buyer may dispute until this time; silence after it is acceptance (ADR-0015)"
+        },
+        "disputeJudgeSec": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Optimistic mode only: seconds from dispute open for the primary to decide"
+        },
+        "disputeFallbackSec": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Optimistic mode only: seconds from dispute open for the fallback to decide"
         }
       }
     },
@@ -448,7 +463,8 @@
             },
             "pattern": {
               "type": "string",
-              "maxLength": 200
+              "maxLength": 200,
+              "x-holdback-untrusted": true
             },
             "min": {
               "$ref": "common.schema.json#/$defs/Rate"
@@ -569,7 +585,8 @@
         },
         "description": {
           "type": "string",
-          "maxLength": 500
+          "maxLength": 500,
+          "x-holdback-untrusted": true
         },
         "weight": {
           "type": "number",
@@ -587,27 +604,105 @@
           "properties": {
             "0": {
               "type": "string",
-              "maxLength": 300
+              "maxLength": 300,
+              "x-holdback-untrusted": true
             },
             "1": {
               "type": "string",
-              "maxLength": 300
+              "maxLength": 300,
+              "x-holdback-untrusted": true
             },
             "2": {
               "type": "string",
-              "maxLength": 300
+              "maxLength": 300,
+              "x-holdback-untrusted": true
             },
             "3": {
               "type": "string",
-              "maxLength": 300
+              "maxLength": 300,
+              "x-holdback-untrusted": true
             },
             "4": {
               "type": "string",
-              "maxLength": 300
+              "maxLength": 300,
+              "x-holdback-untrusted": true
             }
           }
         }
       }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "settlement": {
+            "properties": {
+              "mode": {
+                "const": "optimistic"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
+      "then": {
+        "properties": {
+          "timing": {
+            "required": [
+              "disputeBy",
+              "disputeJudgeSec",
+              "disputeFallbackSec"
+            ],
+            "type": "object",
+            "properties": {
+              "disputeBy": {},
+              "disputeJudgeSec": {},
+              "disputeFallbackSec": {}
+            }
+          }
+        },
+        "type": "object"
+      },
+      "else": {
+        "properties": {
+          "timing": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "disputeBy"
+                  ],
+                  "type": "object",
+                  "properties": {
+                    "disputeBy": {}
+                  }
+                },
+                {
+                  "required": [
+                    "disputeJudgeSec"
+                  ],
+                  "type": "object",
+                  "properties": {
+                    "disputeJudgeSec": {}
+                  }
+                },
+                {
+                  "required": [
+                    "disputeFallbackSec"
+                  ],
+                  "type": "object",
+                  "properties": {
+                    "disputeFallbackSec": {}
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "type": "object"
+      }
+    }
+  ]
 }

@@ -88,7 +88,8 @@ describe('spec/', () => {
     const p = example('page');
     expect(validate(p)).toBe(true);
     expect(validate({ ...p, nextCursor: null })).toBe(true);
-    const { nextCursor: _omit, ...missing } = p;
+    const missing = structuredClone(p);
+    delete missing.nextCursor;
     expect(validate(missing)).toBe(false);
   });
 

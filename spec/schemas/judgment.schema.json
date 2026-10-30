@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.4/judgment.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.5/judgment.schema.json",
   "title": "Judgment record",
   "type": "object",
   "required": [
@@ -135,8 +135,8 @@
         "ran",
         "policyId",
         "policyHash",
-        "seedCommitment",
-        "members"
+        "members",
+        "seedSource"
       ],
       "properties": {
         "ran": {
@@ -151,7 +151,7 @@
         },
         "seedCommitment": {
           "$ref": "common.schema.json#/$defs/Hex32",
-          "description": "keccak256(seed) from the adjudicator's acceptance"
+          "description": "keccak256(seed) from the primary's acceptance; commit-reveal panels only"
         },
         "seed": {
           "$ref": "common.schema.json#/$defs/Hex32"
@@ -217,8 +217,65 @@
               }
             }
           }
+        },
+        "seedSource": {
+          "enum": [
+            "commit-reveal",
+            "beacon"
+          ],
+          "description": "commit-reveal for the primary; beacon for fallback and appeal panels (ADR-0018)"
+        },
+        "beaconRound": {
+          "type": "integer",
+          "minimum": 0
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "seedSource": {
+                "const": "commit-reveal"
+              }
+            },
+            "type": "object",
+            "required": [
+              "seedSource"
+            ]
+          },
+          "then": {
+            "required": [
+              "seedCommitment"
+            ],
+            "type": "object",
+            "properties": {
+              "seedCommitment": {}
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "seedSource": {
+                "const": "beacon"
+              }
+            },
+            "type": "object",
+            "required": [
+              "seedSource"
+            ]
+          },
+          "then": {
+            "required": [
+              "beaconRound"
+            ],
+            "type": "object",
+            "properties": {
+              "beaconRound": {}
+            }
+          }
+        }
+      ]
     },
     "aggregate": {
       "type": "object",

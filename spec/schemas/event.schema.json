@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.4/event.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.5/event.schema.json",
   "title": "Settlement event (hash-chained)",
   "type": "object",
   "required": [
@@ -41,7 +41,11 @@
         "settlement.refunded",
         "settlement.reclaimed",
         "key.released",
-        "bond.paid"
+        "bond.paid",
+        "bond.deposited",
+        "bond.withdrawn",
+        "bond.slashed",
+        "dispute.opened"
       ]
     },
     "commitmentId": {
@@ -73,5 +77,67 @@
     "hash": {
       "$ref": "common.schema.json#/$defs/Hex32"
     }
-  }
+  },
+  "$defs": {
+    "BondMovement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "adjudicator",
+        "junior",
+        "senior"
+      ],
+      "description": "Per-tranche amounts moved in or out of an adjudicator's pool (ADR-0014)",
+      "properties": {
+        "adjudicator": {
+          "$ref": "common.schema.json#/$defs/Address"
+        },
+        "backer": {
+          "$ref": "common.schema.json#/$defs/Address"
+        },
+        "junior": {
+          "$ref": "common.schema.json#/$defs/TokenAmount"
+        },
+        "senior": {
+          "$ref": "common.schema.json#/$defs/TokenAmount"
+        },
+        "reason": {
+          "enum": [
+            "deposit",
+            "withdrawal",
+            "overturn",
+            "default",
+            "appeal-upheld"
+          ]
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "enum": [
+              "bond.deposited",
+              "bond.withdrawn",
+              "bond.slashed"
+            ]
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "type": "object"
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/BondMovement"
+          }
+        },
+        "type": "object"
+      }
+    }
+  ]
 }

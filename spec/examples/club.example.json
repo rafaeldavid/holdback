@@ -16,8 +16,10 @@
     "sealedChecksMaxWeight": 0.3,
     "maxSubmissions": 1,
     "defaultOutcome": {
-      "refundBuyer": true,
-      "sellerCompensationRate": 1.0
+      "judged": {
+        "refundBuyer": true,
+        "sellerCompensationRate": 1.0
+      }
     },
     "allowedSettlementModes": [
       "guaranteed_on_decision"
@@ -31,6 +33,16 @@
       "minFamilies": 2
     },
     "appealFee": {
+      "token": "tUSD",
+      "amount": "25000000"
+    },
+    "firstLossShareMin": 0.1,
+    "bondNoticePeriodMinSec": 691200,
+    "randomness": {
+      "source": "sim"
+    },
+    "minInspectionWindowSec": 86400,
+    "disputeBond": {
       "token": "tUSD",
       "amount": "25000000"
     }

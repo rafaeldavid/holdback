@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.4/agent.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.5/agent.schema.json",
   "title": "Agent registration",
   "type": "object",
   "required": [
@@ -23,7 +23,8 @@
     },
     "memberId": {
       "type": "string",
-      "maxLength": 120
+      "maxLength": 120,
+      "x-holdback-untrusted": true
     },
     "principal": {
       "$ref": "common.schema.json#/$defs/Address"

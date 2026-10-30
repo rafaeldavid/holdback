@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.4/adjudicator.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.5/adjudicator.schema.json",
   "title": "Adjudicator registration",
   "type": "object",
   "required": [
@@ -14,7 +14,9 @@
     "registry",
     "policyHash",
     "fee",
-    "status"
+    "status",
+    "pool",
+    "poolTermsHash"
   ],
   "additionalProperties": false,
   "properties": {
@@ -23,7 +25,8 @@
     },
     "name": {
       "type": "string",
-      "maxLength": 120
+      "maxLength": 120,
+      "x-holdback-untrusted": true
     },
     "encryptionPublicKey": {
       "$ref": "common.schema.json#/$defs/Base64Url"
@@ -36,10 +39,12 @@
       "description": "Member IDs the adjudicator is affiliated with; it may not judge their commitments"
     },
     "bond": {
-      "$ref": "common.schema.json#/$defs/TokenAmount"
+      "$ref": "common.schema.json#/$defs/TokenAmount",
+      "description": "Total pool stake: pool.junior plus pool.senior"
     },
     "openExposure": {
-      "$ref": "common.schema.json#/$defs/TokenAmount"
+      "$ref": "common.schema.json#/$defs/TokenAmount",
+      "description": "Bond reserved by open commitments; equals pool.reserved"
     },
     "policy": {
       "type": "object",
@@ -149,15 +154,11 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "min",
-        "capitalChargeRate"
+        "min"
       ],
       "properties": {
         "min": {
           "$ref": "common.schema.json#/$defs/TokenAmount"
-        },
-        "capitalChargeRate": {
-          "$ref": "common.schema.json#/$defs/Rate"
         }
       }
     },
@@ -195,6 +196,63 @@
         "active",
         "suspended"
       ]
+    },
+    "pool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "junior",
+        "senior",
+        "reserved",
+        "terms"
+      ],
+      "description": "The adjudicator's bond pool (ADR-0014 §2a). Junior is the adjudicator's own stake and takes losses first; senior is backers' stake, pro rata. Senior stays empty in Phase 1.",
+      "properties": {
+        "junior": {
+          "$ref": "common.schema.json#/$defs/TokenAmount"
+        },
+        "senior": {
+          "$ref": "common.schema.json#/$defs/TokenAmount"
+        },
+        "reserved": {
+          "$ref": "common.schema.json#/$defs/TokenAmount",
+          "description": "Encumbered by open commitments; the coverage gate is junior + senior - reserved >= price"
+        },
+        "terms": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "capitalChargeRate",
+            "capitalChargeToPoolRate",
+            "firstLossShare",
+            "noticePeriodSec"
+          ],
+          "description": "What backers deposit under. Its keccak256 over RFC 8785 canonical JSON is poolTermsHash.",
+          "properties": {
+            "capitalChargeRate": {
+              "$ref": "common.schema.json#/$defs/Rate",
+              "description": "Quoted capital charge as a share of price (moved from fee in v0.5)"
+            },
+            "capitalChargeToPoolRate": {
+              "$ref": "common.schema.json#/$defs/Rate",
+              "description": "Share of the capital charge paid to the pool pro rata (from Phase 4)"
+            },
+            "firstLossShare": {
+              "$ref": "common.schema.json#/$defs/Rate",
+              "description": "Junior's minimum share of the pool; at least the rulebook's firstLossShareMin"
+            },
+            "noticePeriodSec": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Withdrawal notice for backers"
+            }
+          }
+        }
+      }
+    },
+    "poolTermsHash": {
+      "$ref": "common.schema.json#/$defs/Hex32",
+      "description": "keccak256 of the RFC 8785 canonical JSON of pool.terms; a backer's deposit binds it"
     }
   }
 }

@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://holdback.dev/schemas/v0.5/operator-status.schema.json",
+  "title": "Operator status (GET /v1/status, ADR-0017)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "operatorId",
+    "receiptSigner",
+    "settlement",
+    "domain",
+    "apiVersion",
+    "schemaVersion",
+    "head",
+    "settlementModes"
+  ],
+  "properties": {
+    "operatorId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "receiptSigner": {
+      "$ref": "common.schema.json#/$defs/Address"
+    },
+    "settlement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "sim",
+            "chain"
+          ]
+        },
+        "chainId": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]{0,19}$"
+        }
+      },
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "chain"
+          }
+        },
+        "type": "object"
+      },
+      "then": {
+        "required": [
+          "chainId"
+        ],
+        "type": "object",
+        "properties": {
+          "chainId": {}
+        }
+      }
+    },
+    "domain": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "version",
+        "chainId",
+        "verifyingContract"
+      ],
+      "description": "The EIP-712 domain agents sign under for this settlement target",
+      "properties": {
+        "name": {
+          "const": "Holdback"
+        },
+        "version": {
+          "type": "string"
+        },
+        "chainId": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]{0,19}$"
+        },
+        "verifyingContract": {
+          "$ref": "common.schema.json#/$defs/Address"
+        }
+      }
+    },
+    "apiVersion": {
+      "type": "string",
+      "pattern": "^v[0-9]+$"
+    },
+    "schemaVersion": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+$"
+    },
+    "head": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "eventSeq",
+        "lagSec"
+      ],
+      "properties": {
+        "eventSeq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "lagBlocks": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "lagSec": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "settlementModes": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "common.schema.json#/$defs/SettlementMode"
+      }
+    }
+  }
+}

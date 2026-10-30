@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.4/club.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.5/club.schema.json",
   "title": "Club and rulebook",
   "type": "object",
   "required": [
@@ -18,7 +18,8 @@
     },
     "name": {
       "type": "string",
-      "maxLength": 120
+      "maxLength": 120,
+      "x-holdback-untrusted": true
     },
     "operator": {
       "$ref": "common.schema.json#/$defs/Address"
@@ -38,7 +39,12 @@
         "allowedSettlementModes",
         "allowedTokens",
         "panelPolicyMin",
-        "appealFee"
+        "appealFee",
+        "firstLossShareMin",
+        "bondNoticePeriodMinSec",
+        "randomness",
+        "minInspectionWindowSec",
+        "disputeBond"
       ],
       "properties": {
         "version": {
@@ -102,15 +108,43 @@
           "type": "object",
           "additionalProperties": false,
           "required": [
-            "refundBuyer",
-            "sellerCompensationRate"
+            "judged"
           ],
+          "description": "Per settlement mode (ADR-0015). judged applies to guaranteed_on_decision and settle_after_window.",
           "properties": {
-            "refundBuyer": {
-              "const": true
+            "judged": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "refundBuyer",
+                "sellerCompensationRate"
+              ],
+              "properties": {
+                "refundBuyer": {
+                  "const": true
+                },
+                "sellerCompensationRate": {
+                  "$ref": "common.schema.json#/$defs/Rate"
+                }
+              }
             },
-            "sellerCompensationRate": {
-              "$ref": "common.schema.json#/$defs/Rate"
+            "optimistic": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "release",
+                "buyerCompensationRate"
+              ],
+              "properties": {
+                "release": {
+                  "const": true,
+                  "description": "Silence resolves to release to the seller, the tacit-acceptance baseline"
+                },
+                "buyerCompensationRate": {
+                  "$ref": "common.schema.json#/$defs/Rate",
+                  "description": "Paid to the buyer from a defaulting adjudicator's reserved bond"
+                }
+              }
             }
           }
         },
@@ -154,7 +188,87 @@
         "appealFee": {
           "$ref": "common.schema.json#/$defs/TokenAmount",
           "description": "Paid by an appellant to the appeal adjudicator"
+        },
+        "firstLossShareMin": {
+          "$ref": "common.schema.json#/$defs/Rate",
+          "description": "Minimum junior share of an adjudicator's pool (ADR-0014); default 0.1"
+        },
+        "bondNoticePeriodMinSec": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Minimum withdrawal notice for backers; default one appeal cycle"
+        },
+        "randomness": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source"
+          ],
+          "description": "Panel seed source for fallback and appeal decisions (ADR-0018)",
+          "properties": {
+            "source": {
+              "$ref": "common.schema.json#/$defs/RandomnessSource"
+            },
+            "chainHash": {
+              "$ref": "common.schema.json#/$defs/Hex32",
+              "description": "drand chain hash; required for drand-quicknet"
+            }
+          },
+          "if": {
+            "properties": {
+              "source": {
+                "const": "drand-quicknet"
+              }
+            },
+            "type": "object"
+          },
+          "then": {
+            "required": [
+              "chainHash"
+            ],
+            "type": "object",
+            "properties": {
+              "chainHash": {}
+            }
+          }
+        },
+        "minInspectionWindowSec": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Optimistic mode: deliverBy plus this is at most disputeBy"
+        },
+        "disputeBond": {
+          "$ref": "common.schema.json#/$defs/TokenAmount",
+          "description": "Optimistic mode: posted by a disputing buyer, paid to the seller if the dispute fails"
         }
+      },
+      "if": {
+        "properties": {
+          "allowedSettlementModes": {
+            "contains": {
+              "const": "optimistic"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "allowedSettlementModes"
+        ],
+        "type": "object"
+      },
+      "then": {
+        "properties": {
+          "defaultOutcome": {
+            "required": [
+              "optimistic"
+            ],
+            "type": "object",
+            "properties": {
+              "optimistic": {}
+            }
+          }
+        },
+        "type": "object"
       }
     },
     "rulebookHash": {

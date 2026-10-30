@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.4/messages.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.5/messages.schema.json",
   "title": "Signed protocol messages (EIP-712)",
   "description": "Every state-changing message other than Delivery and Appeal. Each carries its EIP-712 domain implicitly: name Holdback, version 0.4, chainId, verifyingContract (ADR-0016).",
   "oneOf": [
@@ -30,6 +30,9 @@
     },
     {
       "$ref": "#/$defs/MemberRevocation"
+    },
+    {
+      "$ref": "#/$defs/Dispute"
     }
   ],
   "$defs": {
@@ -298,7 +301,7 @@
         },
         "seed": {
           "$ref": "common.schema.json#/$defs/Hex32",
-          "description": "Must hash to the acceptance's seedCommitment"
+          "description": "The panel seed for the decider's role (ADR-0018): the primary reveals the preimage of its acceptance's seedCommitment; fallback and appeal decisions use the beacon seed for the round fixed by judgeBy, the escalation or the appeal filing"
         },
         "policyHash": {
           "$ref": "common.schema.json#/$defs/Hex32"
@@ -342,6 +345,50 @@
         },
         "signature": {
           "$ref": "common.schema.json#/$defs/Signature"
+        },
+        "beacon": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source",
+            "round",
+            "value"
+          ],
+          "description": "Beacon proof for a fallback or appeal panel seed. On SimChain the beacon is a settlement-layer fact; other sources carry the round's signature.",
+          "properties": {
+            "source": {
+              "$ref": "common.schema.json#/$defs/RandomnessSource"
+            },
+            "round": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "value": {
+              "$ref": "common.schema.json#/$defs/Hex32"
+            },
+            "signature": {
+              "type": "string",
+              "pattern": "^0x[0-9a-fA-F]{2,512}$",
+              "description": "The beacon's signature over the round (e.g. a 48-byte BLS signature for drand quicknet)"
+            }
+          },
+          "if": {
+            "properties": {
+              "source": {
+                "const": "sim"
+              }
+            },
+            "type": "object"
+          },
+          "else": {
+            "required": [
+              "signature"
+            ],
+            "type": "object",
+            "properties": {
+              "signature": {}
+            }
+          }
         }
       }
     },
@@ -444,6 +491,58 @@
         },
         "operator": {
           "$ref": "common.schema.json#/$defs/Address"
+        },
+        "nonce": {
+          "$ref": "common.schema.json#/$defs/Hex32"
+        },
+        "expiresAt": {
+          "$ref": "common.schema.json#/$defs/Timestamp"
+        },
+        "signature": {
+          "$ref": "common.schema.json#/$defs/Signature"
+        }
+      }
+    },
+    "Dispute": {
+      "type": "object",
+      "description": "Optimistic mode: the buyer disputes a delivery before disputeBy, posting the dispute bond and the adjudication fee (ADR-0015)",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "commitmentId",
+        "buyer",
+        "attempt",
+        "grounds",
+        "bond",
+        "fee",
+        "nonce",
+        "expiresAt",
+        "signature"
+      ],
+      "properties": {
+        "type": {
+          "const": "Dispute"
+        },
+        "commitmentId": {
+          "$ref": "common.schema.json#/$defs/Hex32"
+        },
+        "buyer": {
+          "$ref": "common.schema.json#/$defs/Address"
+        },
+        "attempt": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "grounds": {
+          "type": "string",
+          "maxLength": 2000,
+          "x-holdback-untrusted": true
+        },
+        "bond": {
+          "$ref": "common.schema.json#/$defs/TokenAmount"
+        },
+        "fee": {
+          "$ref": "common.schema.json#/$defs/TokenAmount"
         },
         "nonce": {
           "$ref": "common.schema.json#/$defs/Hex32"

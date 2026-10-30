@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.4/common.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.5/common.schema.json",
   "title": "Common definitions",
   "$defs": {
     "Address": {
@@ -59,7 +59,8 @@
     "SettlementMode": {
       "enum": [
         "guaranteed_on_decision",
-        "settle_after_window"
+        "settle_after_window",
+        "optimistic"
       ]
     },
     "Scope": {
@@ -100,6 +101,14 @@
           "$ref": "#/$defs/Timestamp"
         }
       }
+    },
+    "RandomnessSource": {
+      "enum": [
+        "sim",
+        "drand-quicknet",
+        "prevrandao"
+      ],
+      "description": "Where fallback and appeal panel seeds come from (ADR-0018). Phase 1 admits sim only."
     }
   }
 }
