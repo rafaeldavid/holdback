@@ -262,4 +262,109 @@ describe('spec/', () => {
       expect(validate(e)).toBe(false);
     });
   });
+
+  describe('privacy, Phase 1 shape (ADR-0020, D16)', () => {
+    const schema = (name: string) => loadSpec().ajv.getSchema(`${V}/${name}.schema.json`);
+    const key = (recipient: string) => ({ recipient, scheme: 'x25519-xsalsa20poly1305', ciphertext: 'a2V5' });
+    const A = '0x1111111111111111111111111111111111111111';
+
+    it('binds a disclosure level in the terms and reserves privateTerms', () => {
+      const c = example('commitment');
+      expect(c.disclosure).toEqual({ level: 'public' });
+      const validate = schema('commitment');
+      expect(validate(c)).toBe(true);
+      c.disclosure.level = 'secret';
+      expect(validate(c)).toBe(false);
+      c.disclosure.level = 'private';
+      c.privateTerms = { hash: '0x' + '21'.repeat(32), envelopes: [key(A)] };
+      expect(validate(c)).toBe(true);
+      delete c.disclosure;
+      expect(validate(c)).toBe(false);
+    });
+
+    it('lets a delivery key wait for a beacon round', () => {
+      const d = example('delivery');
+      d.encryptedKeys[0].unlock = { kind: 'beacon-round' };
+      expect(schema('delivery')(d)).toBe(false);
+      d.encryptedKeys[0].unlock = { kind: 'beacon-round', round: 1200 };
+      expect(schema('delivery')(d)).toBe(true);
+      d.encryptedKeys[0].unlock = { kind: 'none' };
+      expect(schema('delivery')(d)).toBe(true);
+    });
+
+    it('requires an escalating Decision to carry keys for the appeal adjudicator, and only then', () => {
+      const validate = schema('messages');
+      const d = example('messages.decision');
+      d.outcome = 'escalate';
+      delete d.keyForBuyer;
+      expect(validate(d)).toBe(false);
+      d.encryptedKeys = [key(A)];
+      expect(validate(d)).toBe(true);
+      d.outcome = 'reject';
+      expect(validate(d)).toBe(false);
+    });
+
+    it('requires a Dispute to carry adjudicator keys', () => {
+      const validate = schema('messages');
+      const d = example('messages.dispute');
+      expect(d.encryptedKeys.length).toBeGreaterThanOrEqual(1);
+      delete d.encryptedKeys;
+      expect(validate(d)).toBe(false);
+    });
+
+    it.each(['level', 'buyerSignature', 'sellerSignature'])('requires %s on a co-signed Publish', (field) => {
+      const validate = schema('messages');
+      const p = example('messages.publish');
+      expect(validate(p)).toBe(true);
+      delete p[field];
+      expect(validate(p)).toBe(false);
+    });
+
+    it.each([
+      ['commitment.offered', 'termsHash'],
+      ['commitment.agreed', 'termsHash'],
+      ['judgment.decided', 'recordHash'],
+      ['appeal.decided', 'recordHash'],
+    ])('%s always carries %s, with the body optional', (type, field) => {
+      const validate = schema('event');
+      const e = example('event');
+      e.type = type;
+      e.payload = {};
+      expect(validate(e)).toBe(false);
+      e.payload = { [field]: '0x' + '31'.repeat(32) };
+      expect(validate(e)).toBe(true);
+    });
+
+    it('has a valid offered-event example carrying the terms hash', () => {
+      const r = validateExamples().find((x: { file: string }) => x.file === 'event.offered.example.json');
+      expect(r?.ok).toBe(true);
+    });
+
+    it('takes an optional private judgment record', () => {
+      const j = example('judgment');
+      j.privateRecord = { hash: '0x' + '41'.repeat(32), envelopes: [key(A)] };
+      expect(schema('judgment')(j)).toBe(true);
+      delete j.privateRecord.hash;
+      expect(schema('judgment')(j)).toBe(false);
+    });
+
+    it.each(['disclosureMin', 'identityModes'])('requires rulebook %s', (field) => {
+      const c = example('club');
+      expect(schema('club')(c)).toBe(true);
+      delete c.rulebook[field];
+      expect(schema('club')(c)).toBe(false);
+    });
+
+    it.each([
+      ['providerPrivacy', 'cloud'],
+      ['disclosureMin', 'secret'],
+    ])('requires and constrains adjudicator policy %s', (field, bad) => {
+      const a = example('adjudicator');
+      expect(schema('adjudicator')(a)).toBe(true);
+      a.policy[field] = bad;
+      expect(schema('adjudicator')(a)).toBe(false);
+      delete a.policy[field];
+      expect(schema('adjudicator')(a)).toBe(false);
+    });
+  });
 });
