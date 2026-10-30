@@ -22,10 +22,11 @@ Restate this in your own words in this section before writing code.
 
 - [ ] Providers: Anthropic, OpenAI-compatible, recorded, fake. Each verdict records provider, family, pinned model ID, prompt hash, rubric hash, latency.
 - [ ] Registry loader rejects aliases and non-active entries; `error.unpinned-model-refused` path.
-- [ ] Commit-reveal: commitment posted at agreement; seeded shuffle with family constraints; anyone can recompute (test).
+- [ ] Commit-reveal: commitment posted at agreement; seeded shuffle with family constraints over the registry named by `registryHash`; anyone can recompute (test); a registry that does not hash to `registryHash` is refused.
 - [ ] Panel seed fixed per (commitment, attempt); no re-roll (test).
 - [ ] Adjudicator service: watches assignments, runs pipeline, signs Decision with judgment record hash, publishes record; acts as fallback or appeal adjudicator when assigned; appeal panel policy.
 - [ ] Fee quote stub returning policy minimum.
+- [ ] Appeal ground "missing or wrong key": the appeal decision may carry the key to the buyer.
 
 ## Out of scope
 

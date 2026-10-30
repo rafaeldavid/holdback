@@ -41,6 +41,10 @@ The missing piece is the acceptance desk. Someone has to decide whether work tha
 
 Machine-speed agent-to-agent escrow via direct API calls, with defended multi-model judgment, on a settlement layer no single party controls.
 
+## Where value accrues
+
+Escrow custody is close to a commodity: an existing contract with no admin keys can hold the buyer's funds (`docs/research/prior-art.md`). The scarce part is the overseer role, meaning the rules contract plus the adjudicators who decide release. Neutrality (ADR-0001) forbids any single party from owning that role, so it is a permissionless market: adjudicators post bonds and compete on fees priced from their measured error. Holdback earns only as one adjudicator among many or through tooling, never through control of the judge registry or the rules contract (ADR-0007).
+
 ## Goals
 
 | ID | Goal |
@@ -90,15 +94,15 @@ Machine-speed agent-to-agent escrow via direct API calls, with defended multi-mo
 ### Acceptance and judgment
 
 - **FR-12** Declarative deterministic checks run first. A required check that fails means reject. If all checks pass and there is no rubric, the work is accepted.
-- **FR-13** Otherwise a panel judges, with pinned models from at least two families. The panel is selected by commit-reveal, with the seed committed at agreement.
+- **FR-13** Otherwise a panel judges, with pinned models from at least two families. The panel is selected by commit-reveal, with the seed and the judge registry hash committed at agreement.
 - **FR-14** The defenses in `docs/judgment-and-defenses.md` are mandatory: untrusted-data handling, screen, schema-enforced verdicts, sealed checks, submission limits, family diversity.
 - **FR-15** Aggregation produces accept, reject or escalate. An injection flag or a cross-family disagreement means escalate, never auto-accept.
 
 ### Appeals and adjudicators
 
-- **FR-16** Either party may appeal within the appeal window by posting a bond. The appeal adjudicator decides with a larger panel of at least three families where available.
-- **FR-17** Adjudicators post bonds. An overturned decision pays the wronged party from the bond. A bond below the coverage ratio blocks new assignments.
-- **FR-18** Settlement modes: `guaranteed_on_decision` and `settle_after_window`.
+- **FR-16** Either party may appeal within the appeal window by posting a bond. The appeal adjudicator decides with a larger panel of at least three families where available. A missing or wrong content key is an appeal ground. An escalated case undecided by the appeal deadline goes to the default outcome.
+- **FR-17** Adjudicators post bonds. An overturned decision pays the wronged party from the bond. A bond below the coverage ratio blocks new assignments. In guaranteed mode the ratio is 100% per commitment still open to appeal.
+- **FR-18** Settlement modes: `guaranteed_on_decision` (Phase 1) and `settle_after_window` (Phase 4).
 
 ### Interfaces
 
@@ -163,7 +167,7 @@ Machine-speed agent-to-agent escrow via direct API calls, with defended multi-mo
 1. **Legal effect.** Signed agent messages bind under a club rulebook. That depends on jurisdiction: UETA §14 and the UNCITRAL Model Law on Automated Contracting, Art. 7(1).
 2. **Acceptance criteria.** Real jobs can state acceptance criteria up front precisely enough for a panel.
 3. **Accuracy targets.** The calibration targets are reachable for dataset cleaning. Transfer to other work types is untested.
-4. **Bond sizing.** Bonds sized at the default coverage ratio (20% of open exposure) cover realistic error rates. No loss data exists yet.
+4. **Bond sizing.** Adjudicators will post bonds equal to their open guaranteed volume, and 20% coverage suffices for `settle_after_window`. No loss data exists yet.
 5. **Settlement mode demand.** Buyers and sellers prefer guaranteed settlement despite paying adjudicators for the risk.
 6. **The escape hatch.** Direct submission is usable by agents in practice: gas, account abstraction and paymasters.
 7. **On-ramp risk.** Fiat on-ramps will accept card chargeback risk for agent-initiated purchases. Untested.

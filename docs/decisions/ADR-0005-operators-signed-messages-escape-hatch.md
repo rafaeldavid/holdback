@@ -1,6 +1,6 @@
 # ADR-0005: Permissionless operators, EIP-712 messages, escape hatch
 
-- **Status:** Proposed.
+- **Status:** Accepted, 2026-10-30.
 - **Date:** 2026-10-30
 
 ## Context

@@ -1,8 +1,10 @@
 # Decisions to make today
 
-Status: open, as of October 30, 2026. Owner: Rafa. Each decision has options, a recommendation and the ADR it settles. Phase 1 (the demo) can start once D1, D2 and D6 are settled. Phase 2 needs D3 and D4.
+Status: decided October 30, 2026, after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`). The options below are kept as the record. Owner: Rafa. Each decision has options, a recommendation and the ADR it settles. Phase 1 (the demo) can start once D1, D2 and D6 are settled. Phase 2 needs D3 and D4.
 
 ## D1. Adopt the neutrality litmus test as the top constraint (ADR-0001)
+
+**Decided 2026-10-30:** adopted (ADR-0001 Accepted). "Held work" means key release; adjudicator plaintext access is residual 6.
 
 **Proposed definition:** no single party can stop a valid commitment from settling according to its terms, or move held funds outside those terms. That covers operators, adjudicators, club operators, on-ramps, model providers and Holdback's own maintainers.
 
@@ -15,6 +17,8 @@ Status: open, as of October 30, 2026. Owner: Rafa. Each decision has options, a 
 
 ## D2. Where custody lives (ADR-0002)
 
+**Decided 2026-10-30:** A (ADR-0002 Accepted).
+
 | Option | Passes the litmus test? | Notes |
 | --- | --- | --- |
 | A. EVM escrow contract with no admin keys; cards and Stripe act only as on-ramps and off-ramps | Yes, apart from the residual risks in D1 | Card chargeback risk sits with the on-ramp |
@@ -25,6 +29,8 @@ Status: open, as of October 30, 2026. Owner: Rafa. Each decision has options, a 
 
 ## D3. Escrow contract base (ADR-0003)
 
+**Decided 2026-10-30:** A, `AuthCaptureEscrow` v1.1.0 with the conditions in ADR-0003, subject to T-201.
+
 | Option | For | Against |
 | --- | --- | --- |
 | A. Reuse Coinbase/Shopify Commerce Payments Protocol `AuthCaptureEscrow` for custody, with a Holdback rules contract as its operator | Custody code exists and was built for authorize/capture/void/reclaim/refund. Operators are permissionless, and the payer can reclaim after expiry. | Operator semantics, fees and deployments are unverified. Needs a one-day spike. |
@@ -34,6 +40,8 @@ Status: open, as of October 30, 2026. Owner: Rafa. Each decision has options, a 
 **Recommendation:** A, subject to two spikes: desk research in T-002 (Phase 0) and hands-on work on a local chain in T-201 (Phase 2). Fall back to B if CPP's operator model cannot run as a rules contract. Expose ERC-8183-compatible events either way.
 
 ## D4. Public testnet (ADR-0004)
+
+**Decided 2026-10-30:** deferred to the start of Phase 2 (ADR-0004).
 
 Phase 1 runs on SimChain, an in-process simulation of the escrow rules, so this choice is not urgent. The contract stays chain-agnostic on EVM.
 
@@ -47,6 +55,8 @@ Phase 1 runs on SimChain, an in-process simulation of the escrow rules, so this 
 
 ## D5. Liveness default when no adjudicator decides (ADR-0007)
 
+**Decided 2026-10-30:** A (ADR-0007). An escalated case that the appeal adjudicator does not decide also goes to the default outcome, paid from the appeal adjudicator's bond.
+
 If the primary adjudicator misses its deadline and the fallback adjudicator misses its own, anyone can trigger the default outcome.
 
 | Option | Effect |
@@ -59,6 +69,8 @@ If the primary adjudicator misses its deadline and the fallback adjudicator miss
 
 ## D6. Default settlement mode for the demo (ADR-0007)
 
+**Decided 2026-10-30:** A, and the only mode in Phase 1. Guaranteed commitments need bond equal to their price while open to appeal (ADR-0007).
+
 | Option | Effect |
 | --- | --- |
 | A. `guaranteed_on_decision`: funds move when the adjudicator decides; an overturned appeal is paid from the adjudicator's bond | Machine-speed finality with capital behind the judgment. This is the essay's argument. |
@@ -68,9 +80,13 @@ If the primary adjudicator misses its deadline and the fallback adjudicator miss
 
 ## D7. Fiat funding in the demo (ADR-0002)
 
+**Decided 2026-10-30:** as recommended (ADR-0002).
+
 **Recommendation:** in Phase 5, a Stripe test-mode card payment acts as an on-ramp that mints test tokens into the buyer's account before the hold. The Phase 1 demo funds from a SimChain faucet and states that cards enter only as an on-ramp.
 
 ## D8. Hold both sides: money and the work (ADR-0012)
+
+**Decided 2026-10-30:** A (ADR-0012). Atomic key release holds in guaranteed mode; early acceptance carries a seller-supplied key; a missing or wrong key is an appeal ground.
 
 A money-only hold leaves a gap: the buyer sees the deliverable before paying, so it can reject in bad faith and keep the work. The alternative is to hold the work as well:
 
@@ -89,6 +105,8 @@ This is the digital version of delivery versus payment. It follows the optimisti
 **Recommendation:** A. It is cheap in the SimChain demo and is the demo's clearest beat.
 
 ## D9. Research track: agreements funded by the user's compute or API access (ADR-0013)
+
+**Decided 2026-10-30:** spike run (T-003). Build R1 in Phase 6, defer R2, drop R3 and R4 as builds (ADR-0013).
 
 Finding: Anthropic's API credits cannot be transferred between accounts (Supplemental Credit Terms, March 4, 2024). Compute cannot serve as transferable money on Anthropic's platform today. Four creative routes go to a research spike (T-003). None blocks the demo.
 

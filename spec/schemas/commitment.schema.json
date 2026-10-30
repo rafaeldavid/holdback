@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.1/commitment.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.2/commitment.schema.json",
   "title": "Commitment (terms + EIP-712 signatures)",
   "type": "object",
   "required": [
@@ -25,7 +25,7 @@
   "additionalProperties": false,
   "properties": {
     "schemaVersion": {
-      "const": "0.1"
+      "const": "0.2"
     },
     "id": {
       "$ref": "common.schema.json#/$defs/Hex32",
@@ -169,7 +169,8 @@
         "appealAdjudicator",
         "policyId",
         "fee",
-        "panelCommitment"
+        "panelCommitment",
+        "registryHash"
       ],
       "properties": {
         "adjudicator": {
@@ -190,6 +191,10 @@
         "panelCommitment": {
           "$ref": "common.schema.json#/$defs/Hex32",
           "description": "keccak256(seed || commitmentId), posted by the adjudicator at agreement"
+        },
+        "registryHash": {
+          "$ref": "common.schema.json#/$defs/Hex32",
+          "description": "keccak256 of the canonical judge registry the panel is drawn from, bound at agreement (ADR-0006)"
         }
       }
     },

@@ -20,7 +20,7 @@ Restate this in your own words in this section before writing code.
 
 ## Acceptance criteria
 
-- [ ] Every Phase 1 row in the scenario index exists and passes.
+- [ ] Every Phase 1 row in the scenario index exists and passes, including the rows added by the Phase 0 review (`neutrality.appeal-adjudicator-offline-after-escalation`, `neutrality.maintainers-change-registry`, `attack.adjudicator-self-dealing`, `appeal-bad-key-release`, `todo.adjudicator-leaks-plaintext`).
 - [ ] Recordings captured with `--record` from at least two model families; model IDs visible in snapshots.
 - [ ] Each `neutrality.` fixture asserts the terminal state and balances named in `docs/neutrality.md`.
 - [ ] Snapshots reviewed for readability by a human (Rafa or reviewer agent) — record reviewer.

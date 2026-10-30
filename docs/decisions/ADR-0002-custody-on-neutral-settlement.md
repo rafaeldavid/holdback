@@ -1,6 +1,6 @@
 # ADR-0002: Custody on a neutral settlement layer; fiat only through ramps
 
-- **Status:** Proposed. Decide today (D2, D7).
+- **Status:** Accepted, 2026-10-30 (D2, D7).
 - **Date:** 2026-10-30
 
 ## Context
@@ -12,6 +12,7 @@ Card and processor holds are controlled by the processor and the platform. Strip
 - Held funds live in an escrow on a settlement layer with no owner, pause, freeze, blacklist or upgrade proxy.
 - Phase 1 uses SimChain, which implements the same rules in-process. Phase 2 moves to an EVM contract.
 - Cards, Stripe test mode and other fiat sources are on-ramps, which convert to the settlement token before the hold, and off-ramps, which convert after release.
+- D7: the Phase 1 demo funds buyers from a SimChain faucet and says that cards enter only as an on-ramp. A Stripe test-mode on-ramp that mints test tokens arrives in Phase 5.
 
 ## Consequences
 

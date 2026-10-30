@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.1/club.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.2/club.schema.json",
   "title": "Club and rulebook",
   "type": "object",
   "required": [
