@@ -568,7 +568,7 @@ describe('spec/', () => {
       ['a fractional criterion weight', (c: { acceptance: { rubric: { criteria: Array<{ weight: number }> } } }) => (c.acceptance.rubric.criteria[0]!.weight = 0.4)],
       ['a pass threshold above 400 hundredths', (c: { acceptance: { rubric: { passThreshold: number } } }) => (c.acceptance.rubric.passThreshold = 401)],
       ['a fractional pass threshold', (c: { acceptance: { rubric: { passThreshold: number } } }) => (c.acceptance.rubric.passThreshold = 3.5)],
-      ['a fractional null-rate maximum', (c: { acceptance: { deterministicChecks: Array<Record<string, unknown>> } }) => (c.acceptance.deterministicChecks.find((k) => 'maxBps' in k)!['maxBps'] = 0.02)],
+      ['a fractional regex match minimum', (c: { acceptance: { deterministicChecks: Array<Record<string, unknown>> } }) => (c.acceptance.deterministicChecks.find((k) => 'minBps' in k)!['minBps'] = 0.97)],
     ] as const)('rejects %s', (_label, edit) => {
       const c = example('commitment');
       expect(schema('commitment')(c)).toBe(true);
