@@ -1,6 +1,7 @@
 // Test helpers shared by the judgment tests. Deterministic: fixed keys, fixed IVs, fixed nonces.
 import { createCipheriv, createHash } from 'node:crypto';
-import type { AcceptanceSpec, AdjudicatorPolicy, Criterion, Delivery, Sha256 } from '@holdback/core';
+import type { Delivery, Sha256 } from '@holdback/core';
+import type { JudgmentCriterion, JudgmentPolicy, JudgmentRubric } from './terms.js';
 
 export const ADJUDICATOR = '0x5d10fecab9242e66cb134b77309a3566ed75e3dd' as const;
 export const CONTENT_KEY = new Uint8Array(32).map((_, i) => i + 1);
@@ -38,34 +39,26 @@ export function delivery(plaintext: Uint8Array, ciphertext: Uint8Array, over: Pa
   };
 }
 
-export const criterion = (id: string, weight: number): Criterion => ({
+export const criterion = (id: string, weight: number): JudgmentCriterion => ({
   id,
   description: `Criterion ${id}.`,
   weight,
   anchors: { '0': 'bad', '2': 'partial', '4': 'good' },
 });
 
-export const RUBRIC: AcceptanceSpec['rubric'] = {
-  criteria: [criterion('dedupe_quality', 0.4), criterion('no_fabrication', 0.4), criterion('notes', 0.2)],
-  passThreshold: 3,
+/** v0.5 (D18): integer weights 1..10000 and passThreshold in hundredths. */
+export const RUBRIC: JudgmentRubric = {
+  criteria: [criterion('dedupe_quality', 4000), criterion('no_fabrication', 4000), criterion('notes', 2000)],
+  passThreshold: 300,
 };
 
-export const POLICY: AdjudicatorPolicy = {
-  id: 'bench-a/p1',
-  panelSize: 3,
-  appealPanelSize: 5,
-  minFamilies: 2,
-  minFamiliesAppeal: 3,
+/** v0.5 (D18): supermajorities are fractions. */
+export const POLICY: JudgmentPolicy = {
   minValid: 2,
-  minValidAppeal: 4,
-  acceptSupermajority: 0.66,
-  rejectSupermajority: 0.66,
-  judgeTimeoutSec: 60,
+  minFamilies: 2,
   rationaleMaxChars: 600,
-  promptTemplateHash: `0x${'00'.repeat(32)}`,
-  appealPromptTemplateHash: `0x${'00'.repeat(32)}`,
-  aggregationVersion: 'agg-1',
-  screenVersion: 'screen-0',
+  acceptSupermajority: { numerator: 2, denominator: 3 },
+  rejectSupermajority: { numerator: 2, denominator: 3 },
 };
 
 export const GOOD_CSV = [

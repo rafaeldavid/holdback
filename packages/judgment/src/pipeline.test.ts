@@ -1,9 +1,9 @@
-import type { AcceptanceSpec } from '@holdback/core';
 import { parseJudgment } from '@holdback/core';
 import { describe, expect, it } from 'vitest';
 import { ADJUDICATOR, delivery, fakeUnwrap, GOOD_CSV, NONCES, POLICY, RUBRIC, seal, utf8 } from './_helpers.js';
 import { intake, type Intaken } from './intake.js';
-import { runPipeline, type JudgeProvider, type JudgeRequest, type JudgeResponse, type PanelSeat, type PipelineInput } from './pipeline.js';
+import type { JudgmentAcceptance as AcceptanceSpec } from './terms.js';
+import { runPipeline, validateTerms, type JudgeProvider, type JudgeRequest, type JudgeResponse, type PanelSeat, type PipelineInput } from './pipeline.js';
 import { PROMPT_TEMPLATE_HASH } from './prompt.js';
 
 const SEATS: PanelSeat[] = [
@@ -34,7 +34,7 @@ const ACCEPTANCE: AcceptanceSpec = {
   deterministicChecks: [
     { id: 'cols', type: 'csv_columns_exact', required: true, columns: ['customer_id', 'name', 'email', 'signup_date', 'email_valid'] },
     { id: 'rows', type: 'row_count_range', required: true, min: 1, max: 10 },
-    { id: 'emails', type: 'regex_match_rate_min', required: false, column: 'email', pattern: '^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$', min: 0.97 },
+    { id: 'emails', type: 'regex_match_rate_min', required: false, column: 'email', pattern: '^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$', minBps: 9700 },
   ],
   rubric: RUBRIC,
 };
@@ -76,7 +76,9 @@ describe('pipeline: happy path and record shape', () => {
     expect(d.panel.members.map((m) => [m.judgeId, m.status, m.promptTemplateHash])).toEqual(SEATS.map((s) => [s.judgeId, 'ok', PROMPT_TEMPLATE_HASH]));
   });
 
-  it('produces fields that fit judgment.schema.json once T-009 adds identity, seed, hash and signature', async () => {
+  it('produces intake, deterministic, screen and panel fields that fit judgment.schema.json (v0.4)', async () => {
+    // The aggregate is in the v0.5 shape (D18: counts, integer score) and is checked when PR 23
+    // lands; here a v0.4-shaped aggregate stands in so the other parts are validated now.
     const { result } = await run();
     if (!result.ok) throw new Error(result.error.detail);
     const record = {
@@ -85,7 +87,8 @@ describe('pipeline: happy path and record shape', () => {
       adjudicator: ADJUDICATOR,
       role: 'primary',
       ...result.value,
-      panel: { ...result.value.panel, policyId: POLICY.id, policyHash: `0x${'33'.repeat(32)}`, seedCommitment: `0x${'44'.repeat(32)}` },
+      aggregate: { decision: result.value.aggregate.decision, reasons: result.value.aggregate.reasons },
+      panel: { ...result.value.panel, policyId: 'bench-a/p1', policyHash: `0x${'33'.repeat(32)}`, seedCommitment: `0x${'44'.repeat(32)}` },
       recordHash: `0x${'55'.repeat(32)}`,
       decidedAt: '2026-11-01T00:00:00Z',
       signature: `0x${'66'.repeat(65)}`,
@@ -172,12 +175,13 @@ describe('pipeline: judge isolation', () => {
 });
 
 describe('pipeline: schema-invalid output abstains', () => {
-  it('one judge returns prose: it abstains and the other two still accept', async () => {
+  it('one judge returns prose: it abstains and the case escalates (a filter abstention is never ignored)', async () => {
     const f = fake({ 'claude-a': [okText('I think this passes.')], 'gpt-a': [okText(verdict('pass'))], 'gemini-a': [okText(verdict('pass'))] });
     const { result } = await run({ provider: f.provider });
     if (!result.ok) throw new Error(result.error.detail);
     expect(result.value.panel.members.map((m) => m.status)).toEqual(['abstain', 'ok', 'ok']);
-    expect(result.value.aggregate.decision).toBe('accept');
+    expect(result.value.aggregate.decision).toBe('escalate');
+    expect(result.value.aggregate.reasons).toEqual(['judge claude-a output rejected by a filter (not_json)']);
   });
 
   it('two judges return invalid output: too few valid verdicts escalates', async () => {
@@ -251,5 +255,114 @@ describe('pipeline: refusals before any judge is called', () => {
   it('refuses duplicate judge ids', async () => {
     const { result } = await run({ seats: [SEATS[0]!, SEATS[0]!, SEATS[1]!] });
     expect(result.ok).toBe(false);
+  });
+});
+
+describe('pipeline: red-team round fixes', () => {
+  const registry = new Map([
+    ['claude-opus-5-5-20260601', { family: 'claude' }],
+    ['gpt-7-2026-05-01', { family: 'gpt' }],
+    ['gemini-4-pro-001', { family: 'gemini' }],
+    ['claude-haiku-5-20260601', { family: 'claude' }],
+  ]);
+
+  it('takes each family from the registry, not from the seat label', async () => {
+    const lying = SEATS.map((s, i) => (i === 2 ? { ...s, model: 'claude-haiku-5-20260601', family: 'gemini' } : s));
+    const { result } = await run({ registry, seats: lying });
+    if (!result.ok) throw new Error(result.error.detail);
+    expect(result.value.panel.members.map((m) => m.family)).toEqual(['claude', 'gpt', 'claude']);
+  });
+
+  it('refuses a model that is not in the registry', async () => {
+    const { result } = await run({ registry, seats: SEATS.map((s, i) => (i === 0 ? { ...s, model: 'claude-opus-5-5-20260602' } : s)) });
+    expect(result.ok).toBe(false);
+  });
+
+  it('refuses a panel whose registry families fall below the minimum', async () => {
+    const reg = new Map([...registry].map(([m]) => [m, { family: 'claude' }] as const));
+    const { result } = await run({ registry: reg });
+    expect(!result.ok && result.error.detail).toMatch(/famil/);
+  });
+
+  it('refuses a delivery whose format differs from the agreed one', async () => {
+    const { result } = await run({ deliverable: { description: 'x', format: 'application/json' } });
+    expect(!result.ok && result.error.type).toBe('mime_not_allowed');
+  });
+
+  it('flags hidden characters in the agreed terms', async () => {
+    const tag = String.fromCodePoint(0xe0041);
+    const { result } = await run({ deliverable: { description: `Clean customers.csv.${tag}` } });
+    if (!result.ok) throw new Error(result.error.detail);
+    expect(result.value.screen.signals).toContainEqual({ kind: 'unicode_tags', detail: '1 Unicode tag characters in the agreed terms' });
+    expect(result.value.aggregate.decision).toBe('escalate');
+  });
+
+  it('escalates when the judges saw only a sample', async () => {
+    const big = `${GOOD_CSV}\n${Array.from({ length: 50 }, (_, k) => `${10 + k},Person ${k},p${k}@example.com,2024-01-02,true`).join('\n')}`;
+    const { result } = await run({ text: big, maxDataChars: 300, acceptance: { ...ACCEPTANCE, deterministicChecks: [] } });
+    if (!result.ok) throw new Error(result.error.detail);
+    expect(result.value.aggregate.decision).toBe('escalate');
+    expect(result.value.aggregate.reasons).toEqual(['the judges saw a sample of the deliverable, not all of it']);
+  });
+
+  it('escalates without the panel when the check budget runs out', async () => {
+    const rows = Array.from({ length: 300 }, () => 'a'.repeat(9000)).join('\n');
+    const f = allPass();
+    const { result } = await run({
+      provider: f.provider,
+      text: `v\n${rows}`,
+      acceptance: { deterministicChecks: [{ id: 'slow', type: 'regex_match_rate_min', required: true, column: 'v', pattern: '[a-z]{0,1000}[a-z]{0,1000}Z', minBps: 0 }], rubric: RUBRIC },
+    });
+    if (!result.ok) throw new Error(result.error.detail);
+    expect(result.value.aggregate.decision).toBe('escalate');
+    expect(result.value.deterministic[0]!.detail).toMatch(/budget/);
+    expect(f.calls).toHaveLength(0);
+  }, 30_000);
+
+  it('runs checks on the text as delivered, not the normalized text', async () => {
+    const { result } = await run({
+      text: 'customer_id\n\uFF11\n',
+      acceptance: { deterministicChecks: [{ id: 'digits', type: 'regex_match_rate_min', required: true, column: 'customer_id', pattern: '[0-9]+', minBps: 10000 }], rubric: RUBRIC },
+    });
+    expect(result.ok && result.value.aggregate.decision).toBe('reject');
+  });
+
+  it('neutrality (D17): Persian ZWNJ, a heart with VS16 and the England flag do not escalate, and a non-required hidden_characters_max over its limit does not reject', async () => {
+    const text = `customer_id,name,email,signup_date,email_valid\n1,\u0645\u06CC\u200C\u062E\u0648\u0627\u0647\u0645 \u2764\uFE0F \u{1F3F4}\u{E0067}\u{E0062}\u{E0065}\u{E006E}\u{E0067}\u{E007F},a@b.co,2024-01-02,true\n`;
+    const over = { id: 'hidden', type: 'hidden_characters_max' as const, required: false, max: { total: 0 } };
+    const { result } = await run({ text, acceptance: { deterministicChecks: [over], rubric: RUBRIC } });
+    if (!result.ok) throw new Error(result.error.detail);
+    expect(result.value.screen).toEqual({ flagged: false, signals: [] });
+    expect(result.value.deterministic[0]!.passed).toBe(false);
+    expect(result.value.aggregate.decision).toBe('accept');
+    const required = await run({ text, acceptance: { deterministicChecks: [{ ...over, required: true }], rubric: RUBRIC } });
+    expect(required.result.ok && required.result.value.aggregate.decision).toBe('reject');
+    const atLimit = await run({ text, acceptance: { deterministicChecks: [{ ...over, required: true, max: { total: 8 } }], rubric: RUBRIC } });
+    expect(atLimit.result.ok && atLimit.result.value.aggregate.decision).toBe('accept');
+  });
+
+  it('refuses a policy whose supermajority is not a strict majority', async () => {
+    const { result } = await run({ policy: { ...POLICY, acceptSupermajority: { numerator: 1, denominator: 2 } } });
+    expect(!result.ok && result.error.detail).toMatch(/strict majority/);
+  });
+
+  it('refuses a rubric with fractional weights', async () => {
+    const { result } = await run({ acceptance: { ...ACCEPTANCE, rubric: { ...RUBRIC, criteria: RUBRIC.criteria.map((c) => ({ ...c, weight: 0.4 })) } } });
+    expect(!result.ok && result.error.detail).toMatch(/weight/);
+  });
+});
+
+describe('validateTerms (offer time)', () => {
+  it('accepts ordinary terms, including Persian with ZWNJ', () => {
+    expect(validateTerms(ACCEPTANCE, 'Clean customers.csv.')).toEqual([]);
+    expect(validateTerms(ACCEPTANCE, '\u0645\u06CC\u200C\u062E\u0648\u0627\u0647\u0645')).toEqual([]);
+  });
+  it('refuses hidden characters and mixed-script words, naming where', () => {
+    const tag = String.fromCodePoint(0xe0041);
+    const crit = { ...RUBRIC.criteria[0]!, anchors: { ...RUBRIC.criteria[0]!.anchors, '4': `good${tag}` } };
+    expect(validateTerms({ ...ACCEPTANCE, rubric: { ...RUBRIC, criteria: [crit] } }, 'p\u0430ss')).toEqual([
+      'deliverable.description contains mixed-script words',
+      'criterion dedupe_quality anchor 4 contains tag, zero-width, bidi or other invisible characters',
+    ]);
   });
 });
