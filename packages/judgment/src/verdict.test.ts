@@ -14,7 +14,7 @@ const parse = (raw: unknown, over: Partial<Parameters<typeof parseVerdict>[1]> =
 
 describe('parseVerdict', () => {
   it('accepts a schema-valid verdict with exactly the rubric criteria', () => {
-    expect(parse(good)).toEqual({ status: 'ok', verdict: good });
+    expect(parse(good)).toEqual({ status: 'ok', verdict: good, redactedUrls: 0 });
   });
 
   it('accepts criteria in any order', () => {
@@ -39,7 +39,6 @@ describe('parseVerdict', () => {
     ['duplicate criterion', { ...good, criteria: [good.criteria[0], good.criteria[0], good.criteria[1]] }, 'criteria_mismatch'],
     ['renamed criterion', { ...good, criteria: [{ ...good.criteria[0], id: 'dedupe' }, ...good.criteria.slice(1)] }, 'criteria_mismatch'],
     ['URL in rationale', { ...good, rationale: 'see https://evil.example/x' }, 'url'],
-    ['URL in evidence', { ...good, criteria: [{ ...good.criteria[0], evidence: 'www.evil.example' }, ...good.criteria.slice(1)] }, 'url'],
     ['URL in injectionEvidence', { ...good, injectionEvidence: 'ftp://x.y/z' }, 'url'],
     ['canary echoed', { ...good, rationale: `token ${NONCES.canary}` }, 'canary_echo'],
   ])('abstains on %s', (_name, raw, reason) => {
@@ -64,6 +63,35 @@ describe('parseVerdict', () => {
     expect(r.status).toBe('abstain');
   });
 
+  it('redacts a URL in criterion evidence instead of abstaining (honest evidence may quote a cell)', () => {
+    const r = parse({ ...good, criteria: [{ ...good.criteria[0], evidence: 'row 2 cites www.evil.example and fake-co.biz/home' }, ...good.criteria.slice(1)] });
+    expect(r.status).toBe('ok');
+    if (r.status !== 'ok') return;
+    expect(r.redactedUrls).toBe(2);
+    expect(r.verdict.criteria[0]!.evidence).toBe('row 2 cites [link removed] and [link removed]');
+  });
+
+  it('abstains on a defanged URL in the rationale', () => {
+    for (const u of ['evil[.]com/x', 'hxxps://evil.example', '10.0.0.7', 'mailto:a@evil.com']) {
+      const r = parse({ ...good, rationale: `see ${u}` });
+      expect(r.status === 'abstain' && r.reason, u).toBe('url');
+    }
+  });
+
+  it('abstains when the canary is echoed in any case, spaced, split or base64-encoded', () => {
+    const c = NONCES.canary;
+    const echoes = [
+      { ...good, rationale: c.toUpperCase() },
+      { ...good, rationale: c.split('').join('-') },
+      { ...good, criteria: good.criteria.map((k, i) => ({ ...k, evidence: c.slice(i * 11, i * 11 + 11) })) },
+      { ...good, rationale: Buffer.from(c).toString('base64') },
+    ];
+    for (const e of echoes) {
+      const r = parse(e);
+      expect(r.status === 'abstain' && r.reason).toBe('canary_echo');
+    }
+  });
+
   it('applies a tighter policy rationale cap', () => {
     const r = parse({ ...good, rationale: 'x'.repeat(200) }, { rationaleMaxChars: 100 });
     expect(r.status === 'abstain' && r.reason).toBe('schema');
@@ -84,6 +112,6 @@ describe('parseVerdict', () => {
     const r = parse(raw);
     if (r.status !== 'ok') throw new Error('expected ok');
     r.verdict.criteria[0]!.score = 0;
-    expect(parse(raw)).toEqual({ status: 'ok', verdict: good });
+    expect(parse(raw)).toEqual({ status: 'ok', verdict: good, redactedUrls: 0 });
   });
 });

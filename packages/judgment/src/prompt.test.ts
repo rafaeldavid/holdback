@@ -106,7 +106,7 @@ describe('prompt builder: instructions, canary and hashes', () => {
 
   it('carries no party identity, price or reputation (blinding by construction)', () => {
     const p = build();
-    expect(Object.keys(p).sort()).toEqual(['boundary', 'canary', 'datamark', 'inputHash', 'promptTemplateHash', 'system', 'user']);
+    expect(Object.keys(p).sort()).toEqual(['boundary', 'canary', 'datamark', 'inputHash', 'promptTemplateHash', 'system', 'truncated', 'user']);
   });
 });
 
