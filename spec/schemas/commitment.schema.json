@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.2/commitment.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.3/commitment.schema.json",
   "title": "Commitment (terms + EIP-712 signatures)",
   "type": "object",
   "required": [
@@ -25,7 +25,7 @@
   "additionalProperties": false,
   "properties": {
     "schemaVersion": {
-      "const": "0.2"
+      "const": "0.3"
     },
     "id": {
       "$ref": "common.schema.json#/$defs/Hex32",
@@ -170,7 +170,8 @@
         "policyId",
         "fee",
         "panelCommitment",
-        "registryHash"
+        "registryHash",
+        "policyHash"
       ],
       "properties": {
         "adjudicator": {
@@ -183,7 +184,8 @@
           "$ref": "common.schema.json#/$defs/Address"
         },
         "policyId": {
-          "type": "string"
+          "type": "string",
+          "description": "Human-readable label for the policy; policyHash is what binds"
         },
         "fee": {
           "$ref": "common.schema.json#/$defs/TokenAmount"
@@ -195,6 +197,10 @@
         "registryHash": {
           "$ref": "common.schema.json#/$defs/Hex32",
           "description": "keccak256 of the canonical judge registry the panel is drawn from, bound at agreement (ADR-0006)"
+        },
+        "policyHash": {
+          "$ref": "common.schema.json#/$defs/Hex32",
+          "description": "keccak256 of the RFC 8785 canonical JSON of the primary adjudicator's policy object (adjudicator.schema.json), bound at agreement (ADR-0006)"
         }
       }
     },

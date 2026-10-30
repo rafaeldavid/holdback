@@ -22,7 +22,11 @@
     "acceptSupermajority": 0.667,
     "rejectSupermajority": 0.667,
     "judgeTimeoutSec": 60,
-    "rationaleMaxChars": 600
+    "rationaleMaxChars": 600,
+    "promptTemplateHash": "0xfc57e4384c325f4d71292850f0fefd9edcd496aa652eacb33044b75b6bf45a8a",
+    "appealPromptTemplateHash": "0x87d455f345a36321d9b91b6f5dfd0c15dbb57c1f81239392d02291f9e7f628e2",
+    "aggregationVersion": "agg-1",
+    "screenVersion": "screen-1"
   },
   "registryVersion": 1,
   "fee": {

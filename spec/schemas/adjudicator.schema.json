@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.2/adjudicator.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.3/adjudicator.schema.json",
   "title": "Adjudicator registration",
   "type": "object",
   "required": [
@@ -54,7 +54,11 @@
         "acceptSupermajority",
         "rejectSupermajority",
         "judgeTimeoutSec",
-        "rationaleMaxChars"
+        "rationaleMaxChars",
+        "promptTemplateHash",
+        "appealPromptTemplateHash",
+        "aggregationVersion",
+        "screenVersion"
       ],
       "properties": {
         "id": {
@@ -98,8 +102,25 @@
           "type": "integer",
           "minimum": 1,
           "maximum": 2000
+        },
+        "promptTemplateHash": {
+          "$ref": "common.schema.json#/$defs/Hex32",
+          "description": "SHA-256 of the fixed first-instance judge prompt template, before any commitment data is filled in"
+        },
+        "appealPromptTemplateHash": {
+          "$ref": "common.schema.json#/$defs/Hex32",
+          "description": "SHA-256 of the fixed appeal judge prompt template"
+        },
+        "aggregationVersion": {
+          "type": "string",
+          "description": "Version of the deterministic aggregation rule (docs/judgment-and-defenses.md)"
+        },
+        "screenVersion": {
+          "type": "string",
+          "description": "Version of the normalization and screen step"
         }
-      }
+      },
+      "description": "The adjudicator policy. Its keccak256 over RFC 8785 canonical JSON is the policyHash a commitment binds."
     },
     "registryVersion": {
       "type": "integer",

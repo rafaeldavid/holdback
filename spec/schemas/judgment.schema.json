@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.2/judgment.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.3/judgment.schema.json",
   "title": "Judgment record",
   "type": "object",
   "required": [
@@ -134,6 +134,7 @@
       "required": [
         "ran",
         "policyId",
+        "policyHash",
         "panelCommitment",
         "members"
       ],
@@ -143,6 +144,10 @@
         },
         "policyId": {
           "type": "string"
+        },
+        "policyHash": {
+          "$ref": "common.schema.json#/$defs/Hex32",
+          "description": "Must equal the commitment's adjudication.policyHash"
         },
         "panelCommitment": {
           "$ref": "common.schema.json#/$defs/Hex32"
@@ -160,7 +165,8 @@
               "provider",
               "family",
               "model",
-              "promptHash",
+              "promptTemplateHash",
+              "inputHash",
               "rubricHash",
               "status"
             ],
@@ -181,8 +187,13 @@
                 },
                 "description": "Pinned model ID; floating aliases such as 'latest' are rejected"
               },
-              "promptHash": {
-                "$ref": "common.schema.json#/$defs/Hex32"
+              "promptTemplateHash": {
+                "$ref": "common.schema.json#/$defs/Hex32",
+                "description": "SHA-256 of the fixed template; must match the policy bound by policyHash"
+              },
+              "inputHash": {
+                "$ref": "common.schema.json#/$defs/Hex32",
+                "description": "SHA-256 of the full rendered prompt (template plus spec, seeded criteria order and spotlighted deliverable data). Recomputable by anyone holding the plaintext"
               },
               "rubricHash": {
                 "$ref": "common.schema.json#/$defs/Hex32"

@@ -95,7 +95,7 @@ pnpm snap --judges=live <name>  # same fixture with live judges; prints the diff
 
 ### Recorded judges
 
-Recorded mode replays verdicts stored in `fixtures/recordings/<scenario>/<judgeId>.json`. They are captured from live runs with `pnpm snap --judges=live --record <name>`. Recordings include the model ID and prompt hash; a prompt or rubric change invalidates them, and the runner fails loudly.
+Recorded mode replays verdicts stored in `fixtures/recordings/<scenario>/<judgeId>.json`. They are captured from live runs with `pnpm snap --judges=live --record <name>`. Recordings include the model ID, the prompt template hash and the input hash; a template, rubric or input change invalidates them, and the runner fails loudly.
 
 ## Rules for adding tests
 

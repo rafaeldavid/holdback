@@ -49,6 +49,8 @@ A cleaned dataset has no delivery-versus-payment check of that kind, because whe
 
 Neither party, nor the adjudicator after seeing the delivery, can steer which models judge.
 
+**Policy binding.** The commitment binds `policyHash`, the hash of the adjudicator's policy: panel parameters, prompt template hashes, aggregation rule version and screen version (ADR-0006). At judging, every verdict's `promptTemplateHash` must match that policy and the judgment's `policyHash` must equal the commitment's, or the decision is invalid. Each verdict's `inputHash` covers the full rendered prompt, so the buyer can recompute it after the key is released. Model identity is disclosed, not proven: see residual 8 in `docs/neutrality.md`.
+
 **Blinding.** Judges see the deliverable, the spec and the criteria. They do not see party identities, price or reputation.
 
 **Criteria order** is shuffled per judge with the seed.
@@ -82,6 +84,7 @@ Unit-test this function exhaustively with table-driven cases.
 | T5 | Panel targeting, bribery | A party tries to pick or influence judges | Commit-reveal seed; judges are API calls with no channel to the parties; adjudicator independence check (the adjudicator is not affiliated with either party's member) | `error.adjudicator-affiliated` |
 | T6 | Retry until pass | The seller resubmits variants until one passes | `maxSubmissions` (1 in Phase 1; resubmission returns with `settle_after_window`) with a fee per attempt; panel seed fixed per (commitment, attempt); no re-roll | `error.submission-limit` |
 | T7 | Model drift | A provider upgrade flips outcomes (Kleros: Opus 4.7 → 4.8 changed 11 of 99) | Pinned model IDs in every verdict; registry promotion only after calibration regression; versions disclosed in receipts | `error.unpinned-model-refused`, calibration regression |
+| T20 | Policy swap after agreement | The adjudicator changes its prompt template or aggregation rule after both parties sign | `policyHash` bound in the commitment; each verdict's template hash checked against it; a mismatch invalidates the decision | `error.policy-hash-mismatch` |
 | T8 | Correlated error | Most adjudicators run the same models | Family diversity; cross-family agreement required for accept; pairwise agreement monitored; alert when one family diverges | Calibration report |
 | T9 | Bad-faith buyer rejection | The buyer sees the work and rejects to keep it | Two-sided hold: the buyer never sees plaintext before acceptance. The buyer cannot block judgment | `happy-path` + `neutrality.buyer-silent` |
 | T10 | Seller non-delivery | — | Anyone can reclaim after deliverBy | `reclaim-no-delivery` |

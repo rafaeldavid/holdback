@@ -26,7 +26,7 @@ Restate this in your own words in this section before writing code.
 - [ ] EIP-712 domain and types for Offer, Agree, FundingAuthorization, Delivery, Accept, Decision, Appeal, Mandate, Revocation; sign/verify helpers with viem; tests against fixed vectors.
 - [ ] Timing-rule validator enforcing ordering and rulebook minimums.
 - [ ] State machine per `docs/architecture.md` after the Phase 0 review: no `Rejected → Held` edge; `Appealed → Final` only after a party appeal; `Appealed → Defaulted` after an escalation times out. Phase 1 types admit only `guaranteed_on_decision` and `maxSubmissions = 1`.
-- [ ] Types for schema v0.2, including `adjudication.registryHash`.
+- [ ] Types for schema v0.3, including `adjudication.registryHash`, `adjudication.policyHash` and the split verdict hashes; a keccak256 helper over RFC 8785 canonical JSON with fixed test vectors.
 
 ## Out of scope
 

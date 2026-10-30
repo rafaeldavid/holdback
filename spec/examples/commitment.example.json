@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "0.2",
+  "schemaVersion": "0.3",
   "id": "0x9340180fb352b68aabcf457de90752525d862a9a6dac875100905fac2fc54ed8",
   "clubId": "data-services-v1",
   "rulebookHash": "0xb70959b8b5a5a9d365df7471120396553ed1bc0bff83059e4862e6d11b36a556",
@@ -110,6 +110,7 @@
     "fallbackAdjudicator": "0xf9e6283d068ff7016653ab6d36a7fab0294f4b8a",
     "appealAdjudicator": "0xc372bd536a0f63fe9fde6bca1db179ce93612520",
     "policyId": "bench-a/p1",
+    "policyHash": "0x04221c401f162ef3a3c07c9d97024f3a13eb30f262b0c088ee6f63fa2c893dbb",
     "fee": {
       "token": "tUSD",
       "amount": "50000000"
