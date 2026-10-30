@@ -40,7 +40,7 @@ import { keccak256, stringToBytes, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import type { SimContext } from './context.js';
 import { stubJudgment, type JudgmentView } from './judgment-stub.js';
-import type { StepProblem } from './prefix.js';
+import type { Outage, StepProblem } from './prefix.js';
 import type { JudgeProvider } from './recorded.js';
 import type { Scenario, Step } from './scenario.js';
 import { ScenarioError } from './scenario.js';
@@ -112,12 +112,48 @@ export interface StubRun {
   states: EscrowStateKind[];
   finalState: EscrowStateKind | null;
   problems: StepProblem[];
+  outages: Outage[];
   autoAccepted: boolean;
   balances: Record<string, bigint>;
 }
 
 const ESCROW = 'escrow';
 const GENESIS: Hex32 = `0x${'00'.repeat(32)}`;
+
+/** What the invariant checks read: the ledger after a run, independent of how it was produced. */
+export interface LedgerView {
+  balances: Record<string, bigint>;
+  faucetTotal: bigint;
+  events: Array<LedgerEvent & { prevHash: Hex32 }>;
+  finalState: EscrowStateKind | null;
+  /** Released by an adjudicator's decision (first instance or escalation), not by an early accept. */
+  releasedByDecision: boolean;
+  /** The releasing decision carried the buyer's sealed key. */
+  keyForBuyer: boolean;
+  replayOk: boolean;
+}
+
+/** The ledger invariants every snapshot reports. Pure, so tests can feed it deliberately broken ledgers. */
+export function checkInvariants(v: LedgerView): Invariant[] {
+  const values = Object.values(v.balances);
+  const total = values.reduce((a, b) => a + b, 0n);
+  const settlements = v.events.filter((e) => e.type.startsWith('settlement.'));
+  const settled = v.finalState === 'Released' || v.finalState === 'Refunded';
+  const released = v.events.find((e) => e.type === 'settlement.released');
+  const key = v.events.find((e) => e.type === 'key.released');
+  const chain = v.events.every((e, i) => e.seq === i && e.prevHash === (i === 0 ? GENESIS : v.events[i - 1]!.hash));
+  return [
+    { name: 'conservation', ok: total === v.faucetTotal },
+    { name: 'no negative balances', ok: values.every((x) => x >= 0n) },
+    { name: 'settled once', ok: settlements.length <= 1 },
+    settled ? { name: 'escrow empty after settlement', ok: (v.balances[ESCROW] ?? 0n) === 0n } : { name: 'escrow empty after settlement', ok: true, note: 'n/a' },
+    v.releasedByDecision
+      ? { name: 'key released atomically with payment', ok: !!released && !!key && released.step === key.step && v.keyForBuyer }
+      : { name: 'key released atomically with payment', ok: true, note: 'n/a' },
+    { name: 'event hash chain links', ok: chain },
+    { name: 'replay matches the settlement state', ok: v.replayOk },
+  ];
+}
 const DAY = 86_400;
 const MAX_SCOPE = tusd('1000000000000000');
 
@@ -144,6 +180,9 @@ export class StubSettlement {
   private readonly events: Array<LedgerEvent & { prevHash: Hex32 }> = [];
   private readonly receipts: Receipt[] = [];
   private readonly problems: StepProblem[] = [];
+  private readonly outages: Outage[] = [];
+  private readonly offline = new Set<string>();
+  private readonly refusingOperators = new Set<string>();
   private readonly states: EscrowStateKind[] = [];
   private readonly applied: EscrowEvent[] = [];
 
@@ -180,7 +219,6 @@ export class StubSettlement {
     this.balances.set(ESCROW, 0n);
     let total = 0n;
     for (const [who, amount] of Object.entries(scenario.faucet)) {
-      if (!this.balances.has(who)) throw new ScenarioError(`faucet.${who}: not a party, adjudicator or operator of this scenario`);
       this.balances.set(who, BigInt(amount));
       total += BigInt(amount);
     }
@@ -259,7 +297,7 @@ export class StubSettlement {
   }
 
   private refuse(actor: string, call: string, via: string, p: Problem): void {
-    this.problems.push({ step: this.stepNo, call, type: p.type });
+    this.problems.push({ step: this.stepNo, call, actor, type: p.type });
     this.row(actor, call, via, p.type, p.detail);
   }
 
@@ -299,8 +337,54 @@ export class StubSettlement {
 
   // ---- steps ---------------------------------------------------------------------------------
 
+  /** Who acts in a step, and through which operator, for the outage gate. */
+  private actingParty(s: Step): { actor: string; via: string } | null {
+    const { parties } = this.scenario;
+    switch (s.kind) {
+      case 'offer':
+      case 'deliver':
+        return { actor: parties.seller, via: s.via };
+      case 'agree_and_fund':
+      case 'reclaim':
+      case 'verify_key_release':
+        return { actor: parties.buyer, via: s.via };
+      case 'adjudicator_accept':
+        return { actor: this.scenario.adjudicators.primary, via: s.via };
+      case 'judge':
+        return { actor: s.adjudicator, via: 'direct' };
+      case 'settle':
+        return { actor: s.trigger === 'anyone' ? 'anyone' : parties[s.trigger], via: s.via };
+      case 'trigger_fallback':
+      case 'trigger_default':
+      case 'apply_default_outcome':
+      case 'expire':
+        return { actor: 'anyone', via: s.via };
+      default:
+        return null;
+    }
+  }
+
+  /** True when an offline actor or a refusing operator stops the step before any call is made. */
+  private blocked(s: Step): boolean {
+    const party = this.actingParty(s);
+    if (!party) return false;
+    const call = s.kind === 'judge' ? 'decide' : s.kind;
+    if (this.offline.has(party.actor)) {
+      this.outages.push({ step: this.stepNo, actor: party.actor, kind: 'offline' });
+      this.row(party.actor, call, party.via, 'offline (no call)');
+      return true;
+    }
+    if (this.refusingOperators.has(party.via)) {
+      this.outages.push({ step: this.stepNo, actor: party.via, kind: 'operator_refused' });
+      this.row(party.actor, call, party.via, `refused by ${party.via}`);
+      return true;
+    }
+    return false;
+  }
+
   private async runStep(s: Step): Promise<void> {
     const { parties } = this.scenario;
+    if (this.blocked(s)) return;
     switch (s.kind) {
       case 'offer':
         return this.offer(parties.seller, s.via);
@@ -309,7 +393,7 @@ export class StubSettlement {
       case 'agree_and_fund':
         return this.agreeAndFund(parties.buyer, s.via);
       case 'deliver':
-        return this.deliver(parties.seller, s.via, s.file);
+        return this.deliver(parties.seller, s.via, s.file, s.stubBytes === true);
       case 'advance_clock':
         this.ctx.clock.advanceSeconds(s.seconds);
         return;
@@ -321,6 +405,17 @@ export class StubSettlement {
         return this.reclaim(parties.buyer, s.via);
       case 'verify_key_release':
         return this.verifyKeyRelease(parties.buyer, s.via);
+      case 'offline':
+        this.offline.add(s.actor);
+        return this.row(s.actor, 'goes offline', 'direct', 'ok');
+      case 'operator_refuses':
+        this.refusingOperators.add(s.operator);
+        return this.row(s.operator, 'starts refusing to relay', 'direct', 'ok');
+      case 'trigger_fallback':
+      case 'trigger_default':
+      case 'apply_default_outcome':
+      case 'expire':
+        return this.timeout(s.kind, s.via);
     }
   }
 
@@ -387,6 +482,10 @@ export class StubSettlement {
   private async adjudicatorAccept(via: string, implied: boolean): Promise<void> {
     const name = this.scenario.adjudicators.primary;
     const call = implied ? 'accept (implied by agree_and_fund)' : 'accept';
+    if (implied && this.offline.has(name)) {
+      this.outages.push({ step: this.stepNo, actor: name, kind: 'offline' });
+      return this.row(name, call, via, 'offline (no call)');
+    }
     const c = this.needCommitment(name, call, via);
     if (!c) return;
     const seed = this.ctx.rng.hex32();
@@ -462,14 +561,20 @@ export class StubSettlement {
     this.balanceRows.push({ after: 'fund', balances: this.snapshotBalances() });
   }
 
-  private async deliver(seller: string, via: string, file: string): Promise<void> {
+  private async deliver(seller: string, via: string, file: string, stubBytes: boolean): Promise<void> {
     const c = this.needCommitment(seller, 'deliver', via);
     if (!c) return;
     const path = join(this.root, 'fixtures', file);
     const present = existsSync(path);
+    if (!present && !stubBytes) {
+      throw new ScenarioError(`steps[${this.stepNo}].deliver: fixtures/${file} does not exist; add the file, or set stub_bytes: true to deliver placeholder bytes on purpose`);
+    }
+    if (present && stubBytes) {
+      throw new ScenarioError(`steps[${this.stepNo}].deliver: fixtures/${file} exists, so stub_bytes: true would ignore it; remove stub_bytes`);
+    }
     // Reads bytes only; deliverables are data, never code.
     const plaintext = present ? new Uint8Array(readFileSync(path)) : new TextEncoder().encode(`stub deliverable for ${file}\n`);
-    const source = present ? `fixtures/${file}` : `stub bytes; fixtures/${file} absent`;
+    const source = present ? `fixtures/${file}` : `stub bytes by stub_bytes: true; fixtures/${file} absent`;
     const plaintextSha256 = sha256(plaintext);
     const contentKey = canonicalKeccak({ contentKey: plaintextSha256, commitmentId: c.id });
     const { adjudication } = c.terms;
@@ -504,6 +609,8 @@ export class StubSettlement {
       return this.refuse(name, call, 'direct', problem('invalid_state', `nothing to judge in ${c.state.kind}`));
     }
     const d = this.delivery;
+    // Only the primary committed to a seed; the fallback and appeal adjudicators draw their own (T-004 contract gap).
+    const seed = role === 'primary' ? this.seed : this.ctx.rng.hex32();
     const view = stubJudgment(
       {
         scenario: this.scenario.name,
@@ -517,8 +624,8 @@ export class StubSettlement {
         mime: d.message.plaintextMime,
         bytes: d.plaintext.length,
         source: d.source,
-        seed: this.seed,
-        seedCommitment: keccak256(this.seed),
+        seed,
+        seedCommitment: role === 'primary' ? keccak256(this.seed) : null,
       },
       this.judges,
     );
@@ -531,7 +638,7 @@ export class StubSettlement {
       adjudicator: actor.address,
       role,
       outcome,
-      seed: this.seed,
+      seed,
       policyHash: c.terms.adjudication.policyHash,
       registryHash: c.terms.adjudication.registryHash,
       judgmentRecordHash: canonicalKeccak(view),
@@ -563,6 +670,38 @@ export class StubSettlement {
     if (next.kind === 'Released' || next.kind === 'Refunded') this.balanceRows.push({ after: `decide: ${outcome}`, balances: this.snapshotBalances() });
   }
 
+  /** Permissionless timeouts. Each records an outage for the actor it acts in place of. */
+  private timeout(kind: 'trigger_fallback' | 'trigger_default' | 'apply_default_outcome' | 'expire', via: string): void {
+    const c = this.needCommitment('anyone', kind, via);
+    if (!c) return;
+    const { parties, adjudicators } = this.scenario;
+    const before = c.state;
+    const event = { type: kind, at: this.ctx.clock.now() } as EscrowEvent;
+    if (!this.transition('anyone', kind, via, step(before, event), event)) return;
+    const bypassed =
+      kind === 'trigger_fallback'
+        ? adjudicators.primary
+        : kind === 'trigger_default'
+          ? before.kind === 'Escalated'
+            ? adjudicators.appeal
+            : adjudicators.fallback
+          : kind === 'expire'
+            ? before.kind === 'Offered'
+              ? adjudicators.primary
+              : parties.buyer
+            : null;
+    if (bypassed) this.outages.push({ step: this.stepNo, actor: bypassed, kind: 'timeout' });
+    const types = { trigger_fallback: 'fallback.triggered', trigger_default: 'default.triggered', apply_default_outcome: 'settlement.refunded', expire: 'offer.expired' } as const;
+    if (kind === 'apply_default_outcome') {
+      // The default outcome refunds the buyer in full. Seller compensation from the adjudicators' bonds is a T-006 posting.
+      this.move(ESCROW, parties.buyer, this.balances.get(ESCROW)!);
+    }
+    this.emit(types[kind], 'anyone', via, {});
+    this.receipt(via, kind);
+    this.row('anyone', kind, via, 'ok');
+    if (kind === 'apply_default_outcome') this.balanceRows.push({ after: 'apply_default_outcome', balances: this.snapshotBalances() });
+  }
+
   private settle(who: string, via: string): void {
     const c = this.needCommitment(who, 'settle', via);
     if (!c) return;
@@ -580,6 +719,7 @@ export class StubSettlement {
     if (!this.transition(buyer, 'reclaim', via, step(c.state, event), event)) return;
     const held = this.balances.get(ESCROW)!;
     this.move(ESCROW, buyer, held);
+    this.outages.push({ step: this.stepNo, actor: this.scenario.parties.seller, kind: 'timeout' });
     this.emit('settlement.reclaimed', buyer, via, { amount: held.toString() });
     this.receipt(via, 'reclaim');
     this.row(buyer, 'reclaim', via, 'ok');
@@ -617,26 +757,16 @@ export class StubSettlement {
   }
 
   private invariants(replay: { ok: boolean }): Invariant[] {
-    const values = [...this.balances.values()];
-    const total = values.reduce((a, b) => a + b, 0n);
-    const settlements = this.events.filter((e) => e.type.startsWith('settlement.'));
-    const kind = this.state?.kind;
-    const settled = kind === 'Released' || kind === 'Refunded';
-    const released = this.events.find((e) => e.type === 'settlement.released');
-    const key = this.events.find((e) => e.type === 'key.released');
-    const byDecision = kind === 'Released' && this.state!.kind === 'Released' && this.state!.via.kind !== 'early_accept';
-    const chain = this.events.every((e, i) => e.prevHash === (i === 0 ? GENESIS : this.events[i - 1]!.hash));
-    return [
-      { name: 'conservation', ok: total === this.faucetTotal },
-      { name: 'no negative balances', ok: values.every((v) => v >= 0n) },
-      { name: 'settled once', ok: settlements.length <= 1 },
-      settled ? { name: 'escrow empty after settlement', ok: this.balances.get(ESCROW) === 0n } : { name: 'escrow empty after settlement', ok: true, note: 'n/a' },
-      byDecision
-        ? { name: 'key released atomically with payment', ok: !!released && !!key && released.step === key.step && !!this.decision?.keyForBuyer }
-        : { name: 'key released atomically with payment', ok: true, note: 'n/a' },
-      { name: 'event hash chain links', ok: chain },
-      { name: 'replay matches the settlement state', ok: replay.ok },
-    ];
+    const st = this.state;
+    return checkInvariants({
+      balances: this.snapshotBalances(),
+      faucetTotal: this.faucetTotal,
+      events: this.events,
+      finalState: st?.kind ?? null,
+      releasedByDecision: st?.kind === 'Released' && st.via.kind !== 'early_accept',
+      keyForBuyer: !!this.decision?.keyForBuyer,
+      replayOk: replay.ok,
+    });
   }
 
   private result(): StubRun {
@@ -660,6 +790,7 @@ export class StubSettlement {
       states: this.states,
       finalState: state?.kind ?? null,
       problems: this.problems,
+      outages: this.outages,
       autoAccepted: state?.kind === 'Released' && state.via.kind === 'first_instance' && state.via.decision.outcome === 'accept',
       balances: this.snapshotBalances(),
     };

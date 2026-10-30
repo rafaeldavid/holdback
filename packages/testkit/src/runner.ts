@@ -6,8 +6,8 @@ import { join } from 'node:path';
 import { createContext } from './context.js';
 import { JUDGES, SETTLEMENTS, type JudgeSource, type SettlementBackend } from './pragma.js';
 import { evaluate, prefixOf, type Outcome, type RunSummary } from './prefix.js';
-import { FakeJudges, RecordedJudges, RecordingJudges, type JudgeProvider } from './recorded.js';
-import { renderSnapshot } from './render.js';
+import { FakeJudges, RecordedJudges, RecordingInvalidError, RecordingJudges, RecordingMismatchError, RecordingMissingError, RecordingOverwriteError, type JudgeProvider } from './recorded.js';
+import { renderErrorSnapshot, renderSnapshot } from './render.js';
 import { parseScenario } from './scenario.js';
 import { StubSettlement } from './stub-settlement.js';
 import { STUB_ACCEPTANCE } from './stub-terms.js';
@@ -52,8 +52,29 @@ function provider(root: string, judges: JudgeSource, record: boolean): JudgeProv
   return new RecordedJudges(recordingsDir(root));
 }
 
-/** Runs one fixture and renders its snapshot. Throws on fixture, recording or usage errors. */
+/** Errors that must always fail a run, even for todo. fixtures. */
+const LOUD = [UsageError, RecordingMismatchError, RecordingMissingError, RecordingInvalidError, RecordingOverwriteError];
+
+/**
+ * Runs one fixture and renders its snapshot. Throws on fixture, recording or usage errors, except that a
+ * todo. fixture records a fixture or run error in its snapshot (docs/testing.md: todo records today's behavior).
+ */
 export async function runScenario(options: RunOptions): Promise<ScenarioRun> {
+  try {
+    return await runOnce(options);
+  } catch (e) {
+    const error = e as Error;
+    if (prefixOf(options.name) !== 'todo' || LOUD.some((k) => error instanceof k)) throw error;
+    return {
+      snapshot: renderErrorSnapshot(options.name, error),
+      outcome: { pass: true, label: 'todo', reasons: [] },
+      summary: { finalState: null, problems: [], outages: [], judgments: [], invariants: [], autoAccepted: false, balances: {}, runError: `${error.name}: ${error.message}` },
+      states: [],
+    };
+  }
+}
+
+async function runOnce(options: RunOptions): Promise<ScenarioRun> {
   const file = join(scenarioDir(options.root), `${options.name}.scenario.yaml`);
   const scenario = parseScenario(readFileSync(file, 'utf8'), options.name);
   if (options.judges) scenario.pragmas.judges = options.judges;
@@ -67,12 +88,14 @@ export async function runScenario(options: RunOptions): Promise<ScenarioRun> {
   const summary: RunSummary = {
     finalState: run.finalState,
     problems: run.problems,
+    outages: run.outages,
+    judgments: run.judgments.map((j) => j.aggregate.decision),
     invariants: run.invariants.map(({ name, ok }) => ({ name, ok })),
     autoAccepted: run.autoAccepted,
     balances: run.balances,
   };
   const prefix = prefixOf(scenario.name);
-  const outcome = evaluate(prefix, summary, scenario.expect);
+  const outcome = evaluate(prefix, summary, scenario.expect, scenario.fails);
   return { snapshot: renderSnapshot(scenario, prefix, run, outcome), outcome, summary, states: run.states };
 }
 
@@ -125,6 +148,7 @@ export function parseArgs(argv: readonly string[]): SnapArgs {
     const refusal = settlementRefusal(args.settlement);
     if (refusal) throw new UsageError(refusal);
   }
+  if (args.record && args.names.length === 0) throw new UsageError('--record needs a fixture name, so recordings are rewritten one fixture at a time');
   if (args.update && args.names.length === 0) throw new UsageError('--update needs a fixture name, so every snapshot rewrite is a deliberate, reviewed change');
   return args;
 }

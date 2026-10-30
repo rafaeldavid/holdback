@@ -1,10 +1,10 @@
 // Scenario fixtures are declarative YAML. The parser builds plain data from the core schema only
 // (no custom tags, no functions, bounded aliases) and checks every key against a closed set, so a
 // fixture can describe a run but can never carry code.
-import { PROBLEM_TYPES, type EscrowStateKind, type ProblemType } from '@holdback/core';
+import { PROBLEM_TYPES, type ProblemType } from '@holdback/core';
 import { parseDocument } from 'yaml';
 import { parsePragmas, type Pragmas } from './pragma.js';
-import { TERMINAL_STATES, type ScenarioExpect } from './prefix.js';
+import { prefixOf, TERMINAL_STATES, type ScenarioExpect } from './prefix.js';
 
 export class ScenarioError extends Error {
   override name = 'ScenarioError';
@@ -16,12 +16,19 @@ export type Step =
   | { kind: 'offer'; by: 'seller'; via: Via; signer?: string }
   | { kind: 'adjudicator_accept'; via: Via }
   | { kind: 'agree_and_fund'; by: 'buyer'; via: Via; signer?: string }
-  | { kind: 'deliver'; by: 'seller'; via: Via; file: string; signer?: string }
+  | { kind: 'deliver'; by: 'seller'; via: Via; file: string; signer?: string; stubBytes?: true }
   | { kind: 'advance_clock'; seconds: number }
   | { kind: 'judge'; adjudicator: string }
   | { kind: 'settle'; trigger: 'anyone' | 'buyer' | 'seller'; via: Via }
   | { kind: 'reclaim'; by: 'buyer'; via: Via }
-  | { kind: 'verify_key_release'; by: 'buyer'; via: Via };
+  | { kind: 'verify_key_release'; by: 'buyer'; via: Via }
+  // Outages and permissionless timeouts (neutrality fixtures).
+  | { kind: 'offline'; actor: string }
+  | { kind: 'operator_refuses'; operator: string }
+  | { kind: 'trigger_fallback'; via: Via }
+  | { kind: 'trigger_default'; via: Via }
+  | { kind: 'apply_default_outcome'; via: Via }
+  | { kind: 'expire'; via: Via };
 
 export type StepKind = Step['kind'];
 
@@ -35,6 +42,8 @@ export interface Scenario {
   club?: string;
   terms?: string;
   parties: { buyer: string; seller: string };
+  /** neutrality. fixtures: the actor that refuses or disappears. */
+  fails?: string;
   adjudicators: { primary: string; fallback: string; appeal: string };
   operators: string[];
   /** Starting balances in base units (decimal strings). */
@@ -48,7 +57,8 @@ type Obj = Record<string, unknown>;
 const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v);
 const NAME = /^[a-z0-9][a-z0-9._-]*$|^_[a-z0-9._-]+$/;
 const DECIMAL = /^(0|[1-9][0-9]{0,77})$/;
-const STATES: readonly EscrowStateKind[] = ['Offered', 'AcceptedByAdjudicator', 'Agreed', 'Held', 'Delivered', 'FallbackJudging', 'Escalated', 'Released', 'Refunded', 'Defaulted', 'Expired'];
+/** Ledger and routing names the runner uses itself; no actor may take them. */
+export const RESERVED_NAMES: readonly string[] = ['escrow', 'anyone', 'direct', 'faucet'];
 
 function fail(path: string, message: string): never {
   throw new ScenarioError(`${path}: ${message}`);
@@ -92,7 +102,25 @@ function positiveInt(v: unknown, path: string): number {
   return v;
 }
 
-function parseStep(raw: unknown, path: string, operators: readonly string[]): Step {
+const STEP_KINDS = [
+  'offer',
+  'adjudicator_accept',
+  'agree_and_fund',
+  'deliver',
+  'advance_clock',
+  'judge',
+  'settle',
+  'reclaim',
+  'verify_key_release',
+  'offline',
+  'operator_refuses',
+  'trigger_fallback',
+  'trigger_default',
+  'apply_default_outcome',
+  'expire',
+];
+
+function parseStep(raw: unknown, path: string, operators: readonly string[], actors: readonly string[]): Step {
   if (!isObj(raw) || Object.keys(raw).length !== 1) fail(path, 'each step is a mapping with exactly one key, e.g. "- offer: { by: seller }"');
   const [kind, body] = Object.entries(raw)[0]!;
   const p = `${path}.${kind}`;
@@ -117,10 +145,11 @@ function parseStep(raw: unknown, path: string, operators: readonly string[]): St
       return { kind, by: literal(o.by, `${p}.by`, ['buyer'] as const), via: via(o), ...signer(o) };
     }
     case 'deliver': {
-      const o = object(body, p, ['by', 'via', 'file', 'signer'], ['by', 'file']);
+      const o = object(body, p, ['by', 'via', 'file', 'signer', 'stub_bytes'], ['by', 'file']);
       const file = str(o.file, `${p}.file`);
       if (file.startsWith('/') || file.split('/').includes('..')) fail(`${p}.file`, 'must be a path relative to fixtures/ without ".."');
-      return { kind, by: literal(o.by, `${p}.by`, ['seller'] as const), via: via(o), file, ...signer(o) };
+      if (o.stub_bytes !== undefined && o.stub_bytes !== true) fail(`${p}.stub_bytes`, 'must be true when present');
+      return { kind, by: literal(o.by, `${p}.by`, ['seller'] as const), via: via(o), file, ...signer(o), ...(o.stub_bytes === true ? { stubBytes: true as const } : {}) };
     }
     case 'advance_clock': {
       const o = object(body, p, ['seconds'], ['seconds']);
@@ -142,8 +171,27 @@ function parseStep(raw: unknown, path: string, operators: readonly string[]): St
       const o = object(body, p, ['by', 'via'], ['by']);
       return { kind, by: literal(o.by, `${p}.by`, ['buyer'] as const), via: via(o) };
     }
+    case 'offline': {
+      const o = object(body, p, ['actor'], ['actor']);
+      const actor = name(o.actor, `${p}.actor`);
+      if (!actors.includes(actor)) fail(`${p}.actor`, `"${actor}" is not a party, adjudicator or operator of this scenario`);
+      return { kind, actor };
+    }
+    case 'operator_refuses': {
+      const o = object(body, p, ['operator'], ['operator']);
+      const op = name(o.operator, `${p}.operator`);
+      if (!operators.includes(op)) fail(`${p}.operator`, `operator "${op}" is not in operators [${operators.join(', ')}]`);
+      return { kind, operator: op };
+    }
+    case 'trigger_fallback':
+    case 'trigger_default':
+    case 'apply_default_outcome':
+    case 'expire': {
+      const o = object(body ?? {}, p, ['via']);
+      return { kind, via: via(o) };
+    }
     default:
-      fail(path, `unknown step "${kind}"; known: offer, adjudicator_accept, agree_and_fund, deliver, advance_clock, judge, settle, reclaim, verify_key_release`);
+      fail(path, `unknown step "${kind}"; known: ${STEP_KINDS.join(', ')}`);
   }
 }
 
@@ -161,12 +209,12 @@ function parseExpect(raw: unknown, shorthand: unknown): ScenarioExpect {
   }
   if (shorthand !== undefined) {
     if (out.terminal !== undefined) fail('expect_terminal', 'use expect.terminal or expect_terminal, not both');
-    out.terminal = literal(shorthand, 'expect_terminal', STATES);
+    out.terminal = literal(shorthand, 'expect_terminal', TERMINAL_STATES);
   }
   return out;
 }
 
-const TOP = ['name', 'description', 'club', 'terms', 'parties', 'adjudicators', 'operators', 'faucet', 'steps', 'expect', 'expect_terminal'] as const;
+const TOP = ['name', 'description', 'club', 'terms', 'parties', 'fails', 'adjudicators', 'operators', 'faucet', 'steps', 'expect', 'expect_terminal'] as const;
 
 /** Parses a scenario file. Throws ScenarioError with a path for anything it does not understand. */
 export function parseScenario(source: string, fileName: string): Scenario {
@@ -191,25 +239,45 @@ export function parseScenario(source: string, fileName: string): Scenario {
   const adjObj = object(top.adjudicators, 'adjudicators', ['primary', 'fallback', 'appeal'], ['primary', 'fallback', 'appeal']);
   const operators = top.operators === undefined ? [] : Array.isArray(top.operators) ? top.operators.map((o, i) => name(o, `operators[${i}]`)) : fail('operators', 'must be a list');
   if (!Array.isArray(top.steps)) fail('steps', 'must be a list');
+  const parties = { buyer: name(partiesObj.buyer, 'parties.buyer'), seller: name(partiesObj.seller, 'parties.seller') };
+  const adjudicators = {
+    primary: name(adjObj.primary, 'adjudicators.primary'),
+    fallback: name(adjObj.fallback, 'adjudicators.fallback'),
+    appeal: name(adjObj.appeal, 'adjudicators.appeal'),
+  };
+  const actors = [parties.buyer, parties.seller, ...Object.values(adjudicators), ...operators];
+  for (const a of actors) if (RESERVED_NAMES.includes(a)) fail('parties', `"${a}" is reserved for the runner (${RESERVED_NAMES.join(', ')})`);
+  if (new Set(actors).size !== actors.length) fail('parties', 'buyer, seller, adjudicators and operators must all have distinct names');
+
+  const faucet = top.faucet === undefined ? {} : moneyMap(top.faucet, 'faucet');
+  for (const who of Object.keys(faucet)) if (!actors.includes(who)) fail(`faucet.${who}`, 'not a party, adjudicator or operator of this scenario');
 
   const scenario: Scenario = {
     name: scenarioName,
     pragmas: pragmas.value,
-    parties: { buyer: name(partiesObj.buyer, 'parties.buyer'), seller: name(partiesObj.seller, 'parties.seller') },
-    adjudicators: {
-      primary: name(adjObj.primary, 'adjudicators.primary'),
-      fallback: name(adjObj.fallback, 'adjudicators.fallback'),
-      appeal: name(adjObj.appeal, 'adjudicators.appeal'),
-    },
+    parties,
+    adjudicators,
     operators,
-    faucet: top.faucet === undefined ? {} : moneyMap(top.faucet, 'faucet'),
-    steps: top.steps.map((s, i) => parseStep(s, `steps[${i + 1}]`, operators)),
+    faucet,
+    steps: top.steps.map((s, i) => parseStep(s, `steps[${i + 1}]`, operators, actors)),
     expect: parseExpect(top.expect, top.expect_terminal),
   };
   if (top.description !== undefined) scenario.description = str(top.description, 'description');
   if (top.club !== undefined) scenario.club = str(top.club, 'club');
   if (top.terms !== undefined) scenario.terms = str(top.terms, 'terms');
-  const actors = [scenario.parties.buyer, scenario.parties.seller, ...Object.values(scenario.adjudicators), ...operators];
-  if (new Set(actors).size !== actors.length) fail('parties', 'buyer, seller, adjudicators and operators must all have distinct names');
+
+  const prefix = prefixOf(scenarioName);
+  if (top.fails !== undefined) {
+    if (prefix !== 'neutrality') fail('fails', 'only neutrality. fixtures name a failing actor');
+    const failing = name(top.fails, 'fails');
+    if (!actors.includes(failing)) fail('fails', `"${failing}" is not a party, adjudicator or operator of this scenario`);
+    scenario.fails = failing;
+  } else if (prefix === 'neutrality') {
+    fail('fails', 'neutrality. fixtures must name the actor that refuses or disappears, e.g. "fails: bench-a"');
+  }
+  if (prefix === 'error') {
+    if (!scenario.expect.problem) fail('expect.problem', 'error. fixtures must state the refused step and problem type, e.g. "expect: { problem: { step: 2, type: invalid_state } }"');
+    if (scenario.expect.problem.step === undefined) fail('expect.problem.step', 'error. fixtures must state which step is refused');
+  }
   return scenario;
 }

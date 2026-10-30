@@ -15,6 +15,8 @@ export interface PanelMemberView {
   overall: 'pass' | 'fail' | 'abstain';
   scores: number[];
   injectionSuspected: boolean;
+  /** Why the runner made this judge abstain, if it did. */
+  abstainReason?: string;
 }
 
 export interface JudgmentView {
@@ -27,9 +29,10 @@ export interface JudgmentView {
     promptTemplateHash: Hex32;
     rubricHash: Hex32;
     inputHash: Hex32;
-    seedCommitment: Hex32;
+    /** Null for a judge with no seed commitment: only the primary commits (contract gap recorded in T-004). */
+    seedCommitment: Hex32 | null;
     seed: Hex32;
-    seedMatches: boolean;
+    seedMatches: boolean | null;
     members: PanelMemberView[];
   };
   aggregate: { decision: DecisionOutcome; weightedScore: string | null; reasons: string[] };
@@ -48,7 +51,7 @@ export interface JudgeInput {
   bytes: number;
   source: string;
   seed: Hex32;
-  seedCommitment: Hex32;
+  seedCommitment: Hex32 | null;
 }
 
 /** Runs the stub pipeline. Provider errors (a stale or missing recording) propagate: they must fail the run. */
@@ -68,14 +71,26 @@ export function stubJudgment(input: JudgeInput, judges: JudgeProvider): Judgment
   const members: PanelMemberView[] = STUB_PANEL.map((seat) => {
     const request: JudgeRequest = { scenario: input.scenario, ...seat, promptTemplateHash: STUB_PROMPT_TEMPLATE_HASH, inputHash, rubricHash };
     const result = judges.judge(request);
+    const ids = result.verdict.criteria.map((c) => c.id);
+    const expected = rubric.criteria.map((c) => c.id);
+    const matches = ids.length === expected.length && new Set(ids).size === ids.length && expected.every((id) => ids.includes(id));
     const byId = new Map(result.verdict.criteria.map((c) => [c.id, c.score]));
-    const view: PanelMemberView = {
-      ...seat,
-      status: result.status,
-      overall: result.verdict.overall,
-      scores: rubric.criteria.map((c) => byId.get(c.id) ?? 0),
-      injectionSuspected: result.verdict.injectionSuspected,
-    };
+    const view: PanelMemberView = matches
+      ? {
+          ...seat,
+          status: result.status,
+          overall: result.verdict.overall,
+          scores: rubric.criteria.map((c) => byId.get(c.id)!),
+          injectionSuspected: result.verdict.injectionSuspected,
+        }
+      : {
+          ...seat,
+          status: result.status,
+          overall: 'abstain',
+          scores: [],
+          injectionSuspected: result.verdict.injectionSuspected,
+          abstainReason: `criteria [${ids.join(', ')}] do not match the rubric [${expected.join(', ')}]`,
+        };
     if (result.capturedFrom) view.capturedFrom = result.capturedFrom;
     return view;
   });
@@ -92,14 +107,14 @@ export function stubJudgment(input: JudgeInput, judges: JudgeProvider): Judgment
       inputHash,
       seedCommitment: input.seedCommitment,
       seed: input.seed,
-      seedMatches: keccak256(input.seed) === input.seedCommitment,
+      seedMatches: input.seedCommitment === null ? null : keccak256(input.seed) === input.seedCommitment,
       members,
     },
     aggregate: aggregate(members, rubric.criteria.map((c) => c.weight), rubric.passThreshold),
   };
 }
 
-function aggregate(members: PanelMemberView[], weights: number[], threshold: number): JudgmentView['aggregate'] {
+export function aggregate(members: PanelMemberView[], weights: number[], threshold: number): JudgmentView['aggregate'] {
   const valid = members.filter((m) => m.overall !== 'abstain');
   const totalWeight = weights.reduce((a, b) => a + b, 0);
   const perJudge = valid.map((m) => m.scores.reduce((acc, s, i) => acc + s * (weights[i] ?? 0), 0) / totalWeight);
