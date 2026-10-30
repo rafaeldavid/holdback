@@ -26,6 +26,7 @@ Restate this in your own words in this section before writing code.
 - [ ] Prompt builder that only accepts deliverable content as `UntrustedData`; random-boundary delimiters + datamarking; canary token; test proving system prompt contains no deliverable bytes.
 - [ ] Verdict parsing against schema; failure → abstain.
 - [ ] Aggregation function with exhaustive table tests matching the pseudo-code.
+- [ ] Integer rates and fraction thresholds (ADR-0022): `acceptSupermajority` and `rejectSupermajority` are fractions compared by cross-multiplication (no `EPS`); accept requires `pass > fail` and reject `fail > pass`, so ties escalate; policies with `2 × numerator ≤ denominator` are refused; the weighted score is an integer in hundredths; the record carries counts; checks cross-multiply (`nulls × 10000 ≤ maxBps × rows`). Tests: 2 of 3 accepts at {2,3}; a 2–2 split escalates; 3 of 5 escalates and 4 of 5 accepts at {4,5}; a property that accept and reject never both hold.
 
 ## Out of scope
 
