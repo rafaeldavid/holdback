@@ -5,7 +5,7 @@
 - **Depends on:** T-001
 - **Paths this task may touch:** `packages/core/`
 - **Human gate:** no (yes if a schema must change)
-- **Status:** review
+- **Status:** done
 - **Agent/session:** implementer (Claude Opus 5.5), branch `t-004-core-types`
 
 ## Intent
