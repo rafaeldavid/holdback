@@ -475,4 +475,48 @@ describe('spec/', () => {
       expect(schema(file)(x)).toBe(true);
     });
   });
+
+  describe('hidden-character check and screen signals (ADR-0021, D17)', () => {
+    const schema = (name: string) => loadSpec().ajv.getSchema(`${V}/${name}.schema.json`);
+    const check = (max: unknown, extra: object = {}) => ({ id: 'hidden', type: 'hidden_characters_max', required: true, max, ...extra });
+    const withCheck = (c: unknown) => {
+      const x = example('commitment');
+      x.acceptance.deterministicChecks = [c];
+      return x;
+    };
+    it('ships an example commitment that uses the check', () => {
+      const x = example('commitment');
+      expect(x.acceptance.deterministicChecks.some((c: { type: string }) => c.type === 'hidden_characters_max')).toBe(true);
+    });
+    it.each([
+      ['a total maximum', { total: 0 }],
+      ['per-class maximums', { tag: 0, bidi: 0, variationSelector: 2, otherIgnorable: 5 }],
+    ])('accepts %s', (_label, max) => {
+      expect(schema('commitment')(withCheck(check(max)))).toBe(true);
+    });
+    it.each([
+      ['no maximum at all', {}],
+      ['an unknown class', { emoji: 1 }],
+      ['a fractional maximum', { total: 0.5 }],
+      ['a negative maximum', { tag: -1 }],
+    ])('rejects %s', (_label, max) => {
+      expect(schema('commitment')(withCheck(check(max)))).toBe(false);
+    });
+    it('requires the required flag and refuses extra fields', () => {
+      const noFlag: Record<string, unknown> = check({ total: 0 });
+      delete noFlag['required'];
+      expect(schema('commitment')(withCheck(noFlag))).toBe(false);
+      expect(schema('commitment')(withCheck(check({ total: 0 }, { normalize: true })))).toBe(false);
+    });
+    it.each(['nfkc_changed', 'variation_selector_run', 'mixed_script', 'hidden_characters'])('accepts screen signal %s', (kind) => {
+      const j = example('judgment');
+      j.screen.signals = [{ kind }];
+      expect(schema('judgment')(j)).toBe(true);
+    });
+    it('keeps the screen signal enum closed', () => {
+      const j = example('judgment');
+      j.screen.signals = [{ kind: 'homoglyph' }];
+      expect(schema('judgment')(j)).toBe(false);
+    });
+  });
 });
