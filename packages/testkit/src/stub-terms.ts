@@ -25,11 +25,16 @@ export const STUB_RULEBOOK: Rulebook = {
   appealBondRate: 0.05,
   sealedChecksMaxWeight: 0.3,
   maxSubmissions: 1,
-  defaultOutcome: { refundBuyer: true, sellerCompensationRate: 1 },
+  defaultOutcome: { judged: { refundBuyer: true, sellerCompensationRate: 1 } },
   allowedSettlementModes: ['guaranteed_on_decision'],
   allowedTokens: [TOKEN],
   panelPolicyMin: { panelSize: 3, appealPanelSize: 5, minFamilies: 2 },
   appealFee: tusd('25000000'),
+  firstLossShareMin: 0.1,
+  bondNoticePeriodMinSec: 600,
+  randomness: { source: 'sim' },
+  minInspectionWindowSec: 3600,
+  disputeBond: tusd('50000000'),
 };
 
 export const STUB_PRICE = tusd('2000000000');

@@ -34,10 +34,10 @@ const commitment = parsed.value;
 const terms = termsOf(commitment);
 
 // Pinned vectors. A change here changes every commitment ID and signature in the system: it needs an ADR.
-const EXAMPLE_TERMS_ID = '0xe8cf56d911501addc4cf7870e10cc0889ea7b5d3851256cb43e310235a05d585';
+const EXAMPLE_TERMS_ID = '0x22e23e6d87969284e79d70d020fc0c0dac160ddaad7c65a5cdd0c6707a0823e1';
 const SELLER_ADDRESS = '0xDdC55D01F41A079E14F7Cbb3902ec14e1e8d3ce6';
 const EXAMPLE_TERMS_SELLER_SIGNATURE =
-  '0x4d3bfabe279af17d750e46885283672d853a6dabd287ce29f967c26f4e4f8c3c3da15ece21e609817f096d4074cfb67910a65cefd33a7c7dcbf2d76768d4abc21c';
+  '0xcd4cf7d6fab9e2f41c6a676d81d34a99a3801774cfd230f0b3b5b41c8024dac465c1d0eeb35f216da0f5991c4d4c7bd0e2fc99fd98ed81d3f13891135894cd7b1b';
 
 // Distributes over unions, so removing `signature` from a SignedMessage keeps each variant.
 function without<T extends object, K extends keyof T>(obj: T, key: K): T extends unknown ? Omit<T, K> : never {
@@ -71,8 +71,8 @@ function setPath(obj: unknown, path: string[], v: Leaf): void {
 }
 
 describe('domain', () => {
-  it('is Holdback 0.4 with the SimChain placeholder contract by default', () => {
-    expect(domain).toEqual({ name: 'Holdback', version: '0.4', chainId: 31337n, verifyingContract: SIMCHAIN_VERIFYING_CONTRACT });
+  it('is Holdback 0.5 with the SimChain placeholder contract by default', () => {
+    expect(domain).toEqual({ name: 'Holdback', version: '0.5', chainId: 31337n, verifyingContract: SIMCHAIN_VERIFYING_CONTRACT });
     expect(SIMCHAIN_VERIFYING_CONTRACT).toMatch(/^0x[0-9a-f]{40}$/);
   });
 });
@@ -133,10 +133,10 @@ describe('terms signatures', () => {
   });
 });
 
-const messageFiles = ['messages.acceptance', 'messages.decision', 'messages.funding', 'messages.member-admission'];
+const messageFiles = ['messages.acceptance', 'messages.decision', 'messages.dispute', 'messages.funding', 'messages.member-admission'];
 
 describe('message signatures', () => {
-  it('defines EIP-712 types for all nine messages plus Delivery, Appeal and Mandate', () => {
+  it('defines EIP-712 types for all ten messages plus Delivery, Appeal, Receipt and Mandate', () => {
     expect(Object.keys(messageTypes).sort()).toEqual(
       [
         'Offer',
@@ -148,8 +148,10 @@ describe('message signatures', () => {
         'AgentRevocation',
         'MemberAdmission',
         'MemberRevocation',
+        'Dispute',
         'Delivery',
         'Appeal',
+        'Receipt',
         'Mandate',
       ].sort(),
     );
@@ -212,7 +214,7 @@ describe('message signatures', () => {
     const domainSeparator = keccak256(
       encodeAbiParameters(
         [{ type: 'bytes32' }, { type: 'bytes32' }, { type: 'bytes32' }, { type: 'uint256' }, { type: 'address' }],
-        [hashType('EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)'), hashType('Holdback'), hashType('0.4'), 31337n, SIMCHAIN_VERIFYING_CONTRACT],
+        [hashType('EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)'), hashType('Holdback'), hashType('0.5'), 31337n, SIMCHAIN_VERIFYING_CONTRACT],
       ),
     );
     const structHash = keccak256(

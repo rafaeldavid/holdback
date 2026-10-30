@@ -7,6 +7,8 @@
 // - Optional message fields are encoded as empty values when absent (empty string, empty array).
 //   Every schema value for those fields is non-empty, so absent and present never collide.
 //   Scope.categories may legitimately be empty, so it carries an explicit hasCategories flag.
+// - The domain version tracks the schema version, so a signature made under one schema never verifies
+//   under another.
 import { hashStruct, hashTypedData, isAddressEqual, recoverTypedDataAddress, type Hex } from 'viem';
 import { signTypedData } from 'viem/accounts';
 import { canonicalKeccak } from './canonical.js';
@@ -19,6 +21,7 @@ import type {
   Delivery,
   Hex32,
   Mandate,
+  Receipt,
   Scope,
   Signature,
   SignedMessage,
@@ -31,15 +34,16 @@ export const SIMCHAIN_VERIFYING_CONTRACT: Address = '0x0000000000000000000000000
 
 export interface HoldbackDomain {
   name: 'Holdback';
-  version: '0.4';
+  version: '0.5';
   chainId: bigint;
   verifyingContract: Address;
 }
 
 export function holdbackDomain(chainId: number | bigint, verifyingContract: Address = SIMCHAIN_VERIFYING_CONTRACT): HoldbackDomain {
-  return { name: 'Holdback', version: '0.4', chainId: BigInt(chainId), verifyingContract };
+  return { name: 'Holdback', version: '0.5', chainId: BigInt(chainId), verifyingContract };
 }
 
+const ZERO32: Hex32 = `0x${'0'.repeat(64)}`;
 const field = (name: string, type: string) => ({ name, type });
 const stamp = (name: string) => field(name, 'uint64');
 const expiring = [field('nonce', 'bytes32'), stamp('expiresAt')];
@@ -68,6 +72,7 @@ const structs = {
   Settlement: [field('mode', 'string'), field('token', 'string')],
   Remedy: [field('onReject', 'string')],
   SealedKey: [field('scheme', 'string'), field('ciphertext', 'string')],
+  Beacon: [field('source', 'string'), field('round', 'uint64'), field('value', 'bytes32'), field('signature', 'bytes')],
   Ciphertext: [field('uri', 'string'), field('sha256', 'string'), field('bytes', 'uint64'), field('cipher', 'string')],
   EncryptedKey: [field('recipient', 'address'), field('scheme', 'string'), field('ciphertext', 'string')],
   Scope: [
@@ -98,7 +103,7 @@ const termsType = [
   stamp('createdAt'),
 ];
 
-/** Primary types for every message in messages.schema.json plus Delivery, Appeal and Mandate. */
+/** Primary types for every message in messages.schema.json plus Delivery, Appeal, Receipt and Mandate. */
 export const messageTypes = {
   Offer: [field('commitmentId', 'bytes32'), field('seller', 'address'), ...expiring],
   Agree: [field('commitmentId', 'bytes32'), field('buyer', 'address'), ...expiring],
@@ -135,11 +140,21 @@ export const messageTypes = {
     field('judgmentRecordHash', 'bytes32'),
     field('keyForBuyer', 'SealedKey'),
     field('appealGround', 'string'),
+    field('beacon', 'Beacon'),
     ...expiring,
   ],
   AgentRevocation: [field('agent', 'address'), field('principal', 'address'), ...expiring],
   MemberAdmission: [field('clubId', 'string'), field('member', 'address'), field('operator', 'address'), stamp('validUntil'), ...expiring],
   MemberRevocation: [field('clubId', 'string'), field('member', 'address'), field('operator', 'address'), ...expiring],
+  Dispute: [
+    field('commitmentId', 'bytes32'),
+    field('buyer', 'address'),
+    field('attempt', 'uint8'),
+    field('grounds', 'string'),
+    field('bond', 'TokenAmount'),
+    field('fee', 'TokenAmount'),
+    ...expiring,
+  ],
   Delivery: [
     field('commitmentId', 'bytes32'),
     field('attempt', 'uint8'),
@@ -157,6 +172,7 @@ export const messageTypes = {
     field('bond', 'TokenAmount'),
     stamp('filedAt'),
   ],
+  Receipt: [field('operator', 'address'), field('eventSeq', 'uint64'), field('eventHash', 'bytes32'), field('commitmentId', 'bytes32')],
   Mandate: [field('principal', 'address'), field('agent', 'address'), field('clubId', 'string'), field('scope', 'Scope'), field('nonce', 'bytes32'), stamp('issuedAt')],
 };
 
@@ -164,8 +180,16 @@ export const eip712Types = { ...structs, CommitmentTerms: termsType, ...messageT
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 
-/** Everything an agent signs. Delivery, Appeal and Mandate have no `type` in their schemas; it is added here to pick the primary type. */
-export type SignableMessage = SignedMessage | (Delivery & { type: 'Delivery' }) | (Appeal & { type: 'Appeal' }) | (Mandate & { type: 'Mandate' });
+/**
+ * Everything an agent or operator signs. Delivery, Appeal, Receipt and Mandate have no `type` in their schemas; it is
+ * added here to pick the primary type. Receipts are signed by an operator (ADR-0017), everything else by a party.
+ */
+export type SignableMessage =
+  | SignedMessage
+  | (Delivery & { type: 'Delivery' })
+  | (Appeal & { type: 'Appeal' })
+  | (Receipt & { type: 'Receipt' })
+  | (Mandate & { type: 'Mandate' });
 export type UnsignedMessage = DistributiveOmit<SignableMessage, 'signature'>;
 
 type Encoded = Record<string, unknown>;
@@ -287,6 +311,10 @@ function encodeMessage(m: UnsignedMessage): Encoded {
         judgmentRecordHash: m.judgmentRecordHash,
         keyForBuyer: m.keyForBuyer ?? { scheme: '', ciphertext: '' },
         appealGround: m.appealGround ?? '',
+        // Absent encodes as an empty source, which the schema never admits, so absent and present never collide.
+        beacon: m.beacon
+          ? { source: m.beacon.source, round: BigInt(m.beacon.round), value: m.beacon.value, signature: m.beacon.signature ?? '0x' }
+          : { source: '', round: 0n, value: ZERO32, signature: '0x' },
         ...expiry(m),
       };
     case 'AgentRevocation':
@@ -295,6 +323,10 @@ function encodeMessage(m: UnsignedMessage): Encoded {
       return { clubId: m.clubId, member: m.member, operator: m.operator, validUntil: seconds(m.validUntil), ...expiry(m) };
     case 'MemberRevocation':
       return { clubId: m.clubId, member: m.member, operator: m.operator, ...expiry(m) };
+    case 'Dispute':
+      return { commitmentId: m.commitmentId, buyer: m.buyer, attempt: m.attempt, grounds: m.grounds, bond: amount(m.bond), fee: amount(m.fee), ...expiry(m) };
+    case 'Receipt':
+      return { operator: m.operator, eventSeq: BigInt(m.eventSeq), eventHash: m.eventHash, commitmentId: m.commitmentId };
     case 'Delivery':
       return {
         commitmentId: m.commitmentId,

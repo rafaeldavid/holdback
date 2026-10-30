@@ -64,12 +64,25 @@ export const fixtures: Record<string, UnsignedMessage> = {
     judgmentRecordHash: h('0b'),
     keyForBuyer: { scheme: 'x25519-xsalsa20poly1305', ciphertext: 'a2V5' },
     appealGround: 'wrong-outcome',
+    beacon: { source: 'sim', round: 1200, value: h('13'), signature: '0xabcd' },
     nonce: h('0c'),
     expiresAt: at,
   },
   AgentRevocation: { type: 'AgentRevocation', agent: A, principal: B, nonce: h('0d'), expiresAt: at },
   MemberAdmission: { type: 'MemberAdmission', clubId: 'data-services-v1', member: B, operator: C, validUntil: '2027-10-30T00:00:00Z', nonce: h('0e'), expiresAt: at },
   MemberRevocation: { type: 'MemberRevocation', clubId: 'data-services-v1', member: B, operator: C, nonce: h('0f'), expiresAt: at },
+  Dispute: {
+    type: 'Dispute',
+    commitmentId: h('01'),
+    buyer: B,
+    attempt: 1,
+    grounds: 'duplicate keys',
+    bond: tusd('25000000'),
+    fee: tusd('50000000'),
+    nonce: h('14'),
+    expiresAt: at,
+  },
+  Receipt: { type: 'Receipt', operator: A, eventSeq: 42, eventHash: h('15'), commitmentId: h('01') },
   Delivery: {
     type: 'Delivery',
     commitmentId: h('01'),
@@ -96,7 +109,7 @@ export const fixtures: Record<string, UnsignedMessage> = {
 };
 
 export const terms: CommitmentTerms = {
-  schemaVersion: '0.4',
+  schemaVersion: '0.5',
   clubId: 'data-services-v1',
   rulebookHash: h('11'),
   buyer: B,
@@ -131,10 +144,13 @@ const encodeTypePins: Record<string, string> = {
     'FundingAuthorization(string scheme,bytes32 commitmentId,address from,uint256 value,string token,uint64 validAfter,uint64 validBefore,bytes32 nonce,uint64 expiresAt)',
   EarlyAccept: 'EarlyAccept(bytes32 commitmentId,address buyer,uint8 attempt,bytes32 nonce,uint64 expiresAt)',
   Decision:
-    'Decision(bytes32 commitmentId,uint8 attempt,address adjudicator,string role,string outcome,bytes32 seed,bytes32 policyHash,bytes32 registryHash,bytes32 judgmentRecordHash,SealedKey keyForBuyer,string appealGround,bytes32 nonce,uint64 expiresAt)SealedKey(string scheme,string ciphertext)',
+    'Decision(bytes32 commitmentId,uint8 attempt,address adjudicator,string role,string outcome,bytes32 seed,bytes32 policyHash,bytes32 registryHash,bytes32 judgmentRecordHash,SealedKey keyForBuyer,string appealGround,Beacon beacon,bytes32 nonce,uint64 expiresAt)' +
+    'Beacon(string source,uint64 round,bytes32 value,bytes signature)SealedKey(string scheme,string ciphertext)',
   AgentRevocation: 'AgentRevocation(address agent,address principal,bytes32 nonce,uint64 expiresAt)',
   MemberAdmission: 'MemberAdmission(string clubId,address member,address operator,uint64 validUntil,bytes32 nonce,uint64 expiresAt)',
   MemberRevocation: 'MemberRevocation(string clubId,address member,address operator,bytes32 nonce,uint64 expiresAt)',
+  Dispute: `Dispute(bytes32 commitmentId,address buyer,uint8 attempt,string grounds,TokenAmount bond,TokenAmount fee,bytes32 nonce,uint64 expiresAt)${TOKEN}`,
+  Receipt: 'Receipt(address operator,uint64 eventSeq,bytes32 eventHash,bytes32 commitmentId)',
   Delivery:
     'Delivery(bytes32 commitmentId,uint8 attempt,Ciphertext ciphertext,string plaintextSha256,string plaintextMime,EncryptedKey[] encryptedKeys,uint64 submittedAt)Ciphertext(string uri,string sha256,uint64 bytes,string cipher)EncryptedKey(address recipient,string scheme,string ciphertext)',
   Appeal: `Appeal(bytes32 commitmentId,string appellant,address appellantAddress,string grounds,TokenAmount bond,uint64 filedAt)${TOKEN}`,
@@ -149,19 +165,21 @@ const encodeTypePins: Record<string, string> = {
 
 // Digests of the fixtures above under holdbackDomain(31337).
 const digestPins: Record<string, Hex> = {
-  Offer: '0x955c9970fbc91bbd9ce6e6ded3e89e8c5526ac05c3ae84e1a422d78c3082e998',
-  Agree: '0x15125494535bb03176a5aea2687d917dceb5938ab6307a9d8f21a25f21a2af6a',
-  AdjudicatorAcceptance: '0x2bad3c1d2fb7a2dd6c9e15a91983fbaae90c8c4a21bdc1f2def977258b4d0a8b',
-  FundingAuthorization: '0x9552ec4b85605235e8f6586366b51ab48f33410819285b1b7dcf484471337601',
-  EarlyAccept: '0xa041d0e7508181bca73be105938785aae7c2b20d26e89902407e4862ba905d19',
-  Decision: '0xe471e1b89abcbd850fd5ca97b1e172e1afc7cdf16f5ded3003a13af87e481ca4',
-  AgentRevocation: '0x7de4edce60d921e5b4656d55743247f6efb37daa5809dafb7bfc6b8266fd6814',
-  MemberAdmission: '0xdf2c959634749e1edb1167e364d94b22f01168332f5415da1b2044d3f36110ff',
-  MemberRevocation: '0x92bb6284a7e841c937568ec626d29d74b1d8d8b1d4b2e49ef0d77e5481735983',
-  Delivery: '0x3354cb51c8a78c42aac7baae35cdda7e23c7b79cd3f30f478af2f3cb7af2a038',
-  Appeal: '0x686ce179a67cb2584a602d6d69e3919420ce451444c28432c7007f1f1844e377',
-  Mandate: '0xe7eede61a631600749076e687233b6f4817f9593dc41e04b821ea67b59794e3e',
-  CommitmentTerms: '0x8123d602f4f5de187c90c48a7365ce10f66cb28a9c8caa017a77f27a00cf4474',
+  Offer: '0x53289189a8ac9be37596868110da55b156946d4c6b409ce0b1c9add04165a800',
+  Agree: '0x09c88607bff51077f239276582bb9df286a0311ab6f267311accbedf332b03da',
+  AdjudicatorAcceptance: '0xacebf6ff92584830d13c78792efa6f7ef1f13c1edd6b94d2c3bd04153cfc46f6',
+  FundingAuthorization: '0x75fc9c7b8284cb6b70e544cb8834bc693890fa6685999dd677072dd01c5118f9',
+  EarlyAccept: '0xa78699f7b715d180b6e82f0655eb8b0db0a1d6d02230541d4833bb7651ec475e',
+  Decision: '0xe388a2bb386d5c15bd6d8e4f38b7959c2bae3e8170d4d80363e2375c2927979d',
+  AgentRevocation: '0x2e8948f37dd24a8f489f4892f45717e7d0b4e95e1e0031cc4726ac580634b6cc',
+  MemberAdmission: '0x4c287d8c7afb55bbf264277e57cbc299aea5a7a42bdab1bae239d38fa0c34f89',
+  MemberRevocation: '0x36305a20b58be29c84691558569d4cecb1b4b70deec0bb0da55c8520b3b5d0c7',
+  Dispute: '0x96020a61b91f318e7b9119b288615065f1956694715a7995b32e3347a3813afa',
+  Receipt: '0xb4f8e3fe53f0c7f60d3c9f1fa5cd1d05645f238fe22387bbbd53dd59bd08c8ca',
+  Delivery: '0x79264ed942cc6530155b2a73ef9869ffc7b89936d9320b12376695713b553ba6',
+  Appeal: '0x3e03f3cd8fc63ce6cbc48fd61d0f601f6cb70f264e19b9857216a669855ad86d',
+  Mandate: '0xa088db37eba2b2334bbe9bce8b65934596b122f5b861d2be73384ef5876f9497',
+  CommitmentTerms: '0xe2cb63c91a82889c237019a2439aebd9cc48cdd7c3384caf966e7ab647e7947c',
 };
 
 // A second, hand-written EIP-712 implementation (encodeType, encodeData, hashStruct, domain separator)
@@ -192,6 +210,8 @@ function word(type: string, value: unknown): Hex {
   }
   if (types[type]) return hashStruct(type, value as Record<string, unknown>);
   if (type === 'string') return keccak256(stringToHex(value as string));
+  // EIP-712 hashes dynamic bytes like strings, by their contents.
+  if (type === 'bytes') return keccak256(value as Hex);
   return encodeAbiParameters([{ type }], [value]);
 }
 
@@ -203,7 +223,7 @@ function hashStruct(type: string, data: Record<string, unknown>): Hex {
 const domainSeparator = keccak256(
   encodeAbiParameters(
     [{ type: 'bytes32' }, { type: 'bytes32' }, { type: 'bytes32' }, { type: 'uint256' }, { type: 'address' }],
-    [keccak256(stringToHex('EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)')), keccak256(stringToHex('Holdback')), keccak256(stringToHex('0.4')), 31337n, SIMCHAIN_VERIFYING_CONTRACT],
+    [keccak256(stringToHex('EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)')), keccak256(stringToHex('Holdback')), keccak256(stringToHex('0.5')), 31337n, SIMCHAIN_VERIFYING_CONTRACT],
   ),
 );
 const handDigest = (primaryType: string, message: Record<string, unknown>): Hex => keccak256(concat(['0x1901', domainSeparator, hashStruct(primaryType, message)]));
@@ -271,10 +291,18 @@ describe('EIP-712 bindings', () => {
   it.each([
     ['Decision.keyForBuyer', 'Decision', 'keyForBuyer'],
     ['Decision.appealGround', 'Decision', 'appealGround'],
+    ['Decision.beacon', 'Decision', 'beacon'],
   ] as const)('changes the digest when %s is removed', (_label, name, key) => {
     const changed = structuredClone(fixtures[name]!) as Record<string, unknown>;
     delete changed[key];
     expect(messageDigest(domain, changed as UnsignedMessage)).not.toBe(messageDigest(domain, fixtures[name]!));
+  });
+
+  it('binds the beacon signature when present', () => {
+    const d = fixtures['Decision'] as Extract<UnsignedMessage, { type: 'Decision' }>;
+    const { signature: _s, ...unsigned } = d.beacon!;
+    void _s;
+    expect(messageDigest(domain, { ...d, beacon: unsigned })).not.toBe(messageDigest(domain, d));
   });
 
   it('distinguishes absent categories from an empty list in a Mandate scope', () => {

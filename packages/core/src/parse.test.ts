@@ -57,6 +57,26 @@ describe('boundary parsers', () => {
     expect(parseCommitment(null).ok).toBe(false);
   });
 
+  it('accepts a SimChain beacon on a Decision and refuses other sources in Phase 1 (ADR-0018)', () => {
+    const d = example('messages.decision.example.json');
+    d['role'] = 'fallback';
+    d['beacon'] = { source: 'sim', round: 1200, value: `0x${'11'.repeat(32)}` };
+    expect(parseMessage(d).ok).toBe(true);
+    d['beacon'] = { source: 'drand-quicknet', round: 1200, value: `0x${'11'.repeat(32)}`, signature: `0x${'ab'.repeat(48)}` };
+    const r = parseMessage(d);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.detail).toContain('sim only');
+  });
+
+  it('refuses optimistic commitments in Phase 1 (ADR-0015 is built in Phase 4)', () => {
+    const c = example('commitment.example.json');
+    (c['settlement'] as Record<string, unknown>)['mode'] = 'optimistic';
+    Object.assign(c['timing'] as Record<string, unknown>, { disputeBy: '2026-11-06T17:00:00Z', disputeJudgeSec: 86400, disputeFallbackSec: 86400 });
+    const r = parseCommitment(c);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.detail).toContain('not supported in Phase 1');
+  });
+
   it('refuses settle_after_window in Phase 1', () => {
     const c = example('commitment.example.json');
     (c['settlement'] as Record<string, unknown>)['mode'] = 'settle_after_window';

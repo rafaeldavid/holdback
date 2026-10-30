@@ -19,9 +19,15 @@ import type {
   JudgeVerdict,
   Judgment,
   Mandate,
+  OperatorStatus,
+  Page,
+  Receipt,
   SettlementEvent,
   SignedMessage,
 } from './types.js';
+
+/** The schema annotation on party-authored strings: content to read, never instructions (ADR-0017 §9). */
+export const UNTRUSTED = 'x-holdback-untrusted';
 
 // Resolves to <repo>/spec/schemas from both src/ and dist/.
 const schemaDir = new URL('../../../spec/schemas/', import.meta.url);
@@ -43,6 +49,8 @@ function signedTimestamp(s: string): boolean {
 function compile(signed: boolean): Map<string, ReturnType<InstanceType<typeof Ajv2020.default>['compile']>> {
   // ajv and ajv-formats are CommonJS; under NodeNext their default export arrives as `.default`.
   const ajv = new Ajv2020.default({ strict: true, allErrors: false });
+  // ADR-0017 §9: marks party-authored strings for consumers; it changes no validation.
+  ajv.addKeyword({ keyword: UNTRUSTED, schemaType: 'boolean' });
   if (signed) {
     addFormats.default(ajv, ['uri']);
     ajv.addFormat('date-time', signedTimestamp);
@@ -129,8 +137,10 @@ function commitmentRules(c: Commitment): string | undefined {
 }
 
 function messageRules(m: SignedMessage): string | undefined {
-  if ((m.type === 'EarlyAccept' || m.type === 'Decision') && m.attempt > 255) return `attempt ${m.attempt} exceeds uint8`;
+  if ((m.type === 'EarlyAccept' || m.type === 'Decision' || m.type === 'Dispute') && m.attempt > 255) return `attempt ${m.attempt} exceeds uint8`;
   // value is signed as uint256; one canonical decimal form per amount.
+  // ADR-0018: Phase 1 admits only the SimChain beacon, which is a settlement-layer fact, not a proof.
+  if (m.type === 'Decision' && m.beacon && m.beacon.source !== 'sim') return `beacon source ${m.beacon.source} is not supported in Phase 1 (sim only)`;
   if (m.type === 'FundingAuthorization' && !tokenAmount(m.token, m.value).ok) return `value ${m.value} is not a canonical uint256 decimal`;
   return undefined;
 }
@@ -147,6 +157,9 @@ export const parseJudgeVerdict = parserFor<JudgeVerdict>('judge-verdict', false)
 export const parseJudgment = parserFor<Judgment>('judgment', false);
 export const parseMandate = parserFor<Mandate>('mandate', true);
 export const parseMessage = parserFor<SignedMessage>('messages', true, messageRules);
+export const parseOperatorStatus = parserFor<OperatorStatus>('operator-status', false);
+export const parsePage = parserFor<Page>('page', false);
+export const parseReceipt = parserFor<Receipt>('receipt', true);
 
 /** One parser per schema file, keyed by the file's name. */
 export const parsers = {
@@ -162,4 +175,7 @@ export const parsers = {
   judgment: parseJudgment,
   mandate: parseMandate,
   messages: parseMessage,
+  'operator-status': parseOperatorStatus,
+  page: parsePage,
+  receipt: parseReceipt,
 } as const;
