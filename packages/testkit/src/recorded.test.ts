@@ -113,6 +113,7 @@ describe('recorded judges', () => {
     expect(thrown(() => new RecordedJudges(dirWith(request, { inputHash: '0x12' })).judge(request))).toBeInstanceOf(RecordingInvalidError);
     expect(thrown(() => new RecordedJudges(dirWith(request, { format: 'v9' })).judge(request))).toBeInstanceOf(RecordingInvalidError);
     expect(thrown(() => new RecordedJudges(dirWith(request, { extra: 1 })).judge(request))).toBeInstanceOf(RecordingInvalidError);
+    expect(thrown(() => new RecordedJudges(dirWith(request, { capturedFrom: 'imagined' })).judge(request))).toBeInstanceOf(RecordingInvalidError);
   });
 
   it('refuses a request for a floating model alias before reading anything', () => {
