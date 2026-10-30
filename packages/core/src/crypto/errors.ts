@@ -3,6 +3,9 @@
 export type CryptoErrorCode =
   | 'invalid_key'
   | 'invalid_random'
+  | 'invalid_plaintext'
+  | 'plaintext_too_large'
+  | 'invalid_expected_hash'
   | 'malformed_ciphertext'
   | 'decrypt_failed'
   | 'plaintext_hash_mismatch'
@@ -17,6 +20,9 @@ export type CryptoErrorCode =
 const MESSAGES: Record<CryptoErrorCode, string> = {
   invalid_key: 'content key must be 32 bytes',
   invalid_random: 'random source returned the wrong number of bytes',
+  invalid_plaintext: 'plaintext must be a Uint8Array',
+  plaintext_too_large: 'plaintext would exceed the maximum ciphertext size',
+  invalid_expected_hash: 'open requires the committed plaintext hash as sha256:<64 lowercase hex>',
   malformed_ciphertext: 'ciphertext is too short to hold an IV and a tag',
   decrypt_failed: 'ciphertext failed authentication: wrong key or tampered bytes',
   plaintext_hash_mismatch: 'decrypted plaintext does not match the committed plaintext hash',

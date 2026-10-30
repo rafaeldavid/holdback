@@ -44,8 +44,14 @@ function decodeBase64Url(text: unknown): Uint8Array | undefined {
 
 const encodeBase64Url = (bytes: Uint8Array): Base64Url => Buffer.from(bytes).toString('base64url');
 
-// X25519 ignores the top bit of a u-coordinate, so a key with it set has a twin. Refuse it.
-const canonicalPoint = (key: Uint8Array): boolean => key.length === KEY_BYTES && (key[KEY_BYTES - 1]! & 0x80) === 0;
+// A canonical u-coordinate is 32 little-endian bytes with value < p = 2^255 - 19. X25519 ignores the top
+// bit and reduces mod p, so any other encoding is a twin of a canonical one. Refuse those.
+function canonicalPoint(key: Uint8Array): boolean {
+  if (key.length !== KEY_BYTES || (key[KEY_BYTES - 1]! & 0x80) !== 0) return false;
+  // With the top bit clear, u >= p only when bytes 1..30 are 0xff, byte 31 is 0x7f and byte 0 >= 0xed.
+  const nonReduced = key[KEY_BYTES - 1] === 0x7f && key.subarray(1, KEY_BYTES - 1).every((b) => b === 0xff) && key[0]! >= 0xed;
+  return !nonReduced;
+}
 
 const allZero = (bytes: Uint8Array): boolean => bytes.every((b) => b === 0);
 
@@ -95,6 +101,8 @@ export function unwrapKey(sealed: SealedKey, recipientSecretKey: Uint8Array): Co
   if (!envelope || envelope.length !== ENVELOPE_BYTES) throw new CryptoError('malformed_envelope');
   const ephemeralPublicKey = envelope.slice(0, KEY_BYTES);
   if (!canonicalPoint(ephemeralPublicKey)) throw new CryptoError('malformed_envelope');
+  // A low-order ephemeral point gives an all-zero shared secret, so anyone could open the box.
+  if (allZero(nacl.scalarMult(Uint8Array.from(recipientSecretKey), ephemeralPublicKey))) throw new CryptoError('malformed_envelope');
   const nonce = envelope.slice(KEY_BYTES, KEY_BYTES + NONCE_BYTES);
   const box = envelope.slice(KEY_BYTES + NONCE_BYTES);
   const opened = nacl.box.open(box, nonce, ephemeralPublicKey, Uint8Array.from(recipientSecretKey));

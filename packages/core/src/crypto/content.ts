@@ -6,11 +6,13 @@
 import { webcrypto } from 'node:crypto';
 import type { Sha256 } from '../types.js';
 import { CryptoError } from './errors.js';
-import { sha256 } from './hash.js';
+import { isSha256, sha256 } from './hash.js';
 import { draw, systemRandom, type RandomSource } from './random.js';
 
 export const CONTENT_CIPHER = 'aes-256-gcm' as const;
 export const CONTENT_KEY_BYTES = 32;
+/** delivery.schema.json ciphertext.bytes maximum. */
+export const MAX_CIPHERTEXT_BYTES = 10_485_760;
 const IV_BYTES = 12;
 const TAG_BYTES = 16;
 const REDACTED = 'ContentKey(redacted)';
@@ -61,17 +63,14 @@ export interface SealOptions {
   random?: RandomSource;
 }
 
-export interface OpenOptions {
-  /** When given, the plaintext must hash to this value (the delivery's plaintextSha256). */
-  expectPlaintextSha256?: Sha256;
-}
-
 function importKey(key: ContentKey, usage: 'encrypt' | 'decrypt'): Promise<webcrypto.CryptoKey> {
   return webcrypto.subtle.importKey('raw', key.exportBytes(), { name: 'AES-GCM' }, false, [usage]);
 }
 
 /** Encrypts opaque bytes under a fresh content key. The plaintext is hashed, never parsed. */
 export async function seal(plaintext: Uint8Array, options: SealOptions = {}): Promise<SealedContent> {
+  if (!(plaintext instanceof Uint8Array)) throw new CryptoError('invalid_plaintext');
+  if (plaintext.length > MAX_CIPHERTEXT_BYTES - IV_BYTES - TAG_BYTES) throw new CryptoError('plaintext_too_large');
   const random = options.random ?? systemRandom;
   const key = ContentKey.fromBytes(draw(random, CONTENT_KEY_BYTES));
   const iv = draw(random, IV_BYTES);
@@ -84,8 +83,15 @@ export async function seal(plaintext: Uint8Array, options: SealOptions = {}): Pr
   return { ciphertext, key, plaintextSha256: sha256(plaintext), ciphertextSha256: sha256(ciphertext) };
 }
 
-/** Decrypts and authenticates. A wrong key or any change to the bytes throws CryptoError('decrypt_failed'). */
-export async function open(ciphertext: Uint8Array, key: ContentKey, options: OpenOptions = {}): Promise<Uint8Array> {
+/**
+ * Decrypts, authenticates and checks the result against the committed plaintext hash (the signed
+ * delivery's plaintextSha256). The hash is required: AES-GCM is not key-committing, so one ciphertext
+ * can authenticate under two keys to different plaintexts, and only the signed hash pins which
+ * plaintext the seller committed to. A wrong key or changed byte throws decrypt_failed; a key that
+ * authenticates but yields other bytes throws plaintext_hash_mismatch.
+ */
+export async function open(ciphertext: Uint8Array, key: ContentKey, expectedPlaintextSha256: Sha256): Promise<Uint8Array> {
+  if (!isSha256(expectedPlaintextSha256)) throw new CryptoError('invalid_expected_hash');
   if (!(key instanceof ContentKey)) throw new CryptoError('invalid_key');
   if (!(ciphertext instanceof Uint8Array) || ciphertext.length < IV_BYTES + TAG_BYTES) throw new CryptoError('malformed_ciphertext');
   const iv = ciphertext.slice(0, IV_BYTES);
@@ -97,8 +103,6 @@ export async function open(ciphertext: Uint8Array, key: ContentKey, options: Ope
     // Web Crypto's OperationError is dropped rather than attached as a cause, to keep errors uniform.
     throw new CryptoError('decrypt_failed');
   }
-  if (options.expectPlaintextSha256 !== undefined && sha256(plaintext) !== options.expectPlaintextSha256) {
-    throw new CryptoError('plaintext_hash_mismatch');
-  }
+  if (sha256(plaintext) !== expectedPlaintextSha256) throw new CryptoError('plaintext_hash_mismatch');
   return plaintext;
 }
