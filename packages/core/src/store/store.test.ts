@@ -1,9 +1,11 @@
-import { mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync, mkdirSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { chmodSync, lstatSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { inspect } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Sha256 } from '../types.js';
-import { LocalCiphertextStore, MemoryCiphertextStore, StoreError, type CiphertextStore } from './index.js';
+import { LocalCiphertextStore, MemoryCiphertextStore, StoreError, type CiphertextStore, type StoreOptions } from './index.js';
 
 async function codeOf(p: Promise<unknown>): Promise<string> {
   try {
@@ -153,5 +155,89 @@ describe('LocalCiphertextStore', () => {
         expect((e as Error).message).not.toContain(root);
       }
     }
+  });
+});
+
+// ---- Review findings 2, 3, 5 and 6 ----
+const hasMkfifo = spawnSync('mkfifo', ['--version']).error === undefined && process.platform !== 'win32';
+const isRoot = typeof process.getuid === 'function' && process.getuid() === 0;
+
+describe('LocalCiphertextStore hardening', () => {
+  it.skipIf(!hasMkfifo)('refuses a FIFO planted in the store without blocking', { timeout: 3000 }, async () => {
+    mkdirSync(root, { recursive: true });
+    expect(spawnSync('mkfifo', [join(root, ABC_HEX)]).status).toBe(0);
+    expect(await codeOf(new LocalCiphertextStore(root).get(ABC_ID))).toBe('not_a_file');
+  });
+
+  it.skipIf(isRoot)('maps other filesystem errors to io_error without leaking the path', async () => {
+    const store = new LocalCiphertextStore(root);
+    await store.put(ABC);
+    chmodSync(join(root, ABC_HEX), 0o000);
+    try {
+      await store.get(ABC_ID);
+      expect.unreachable();
+    } catch (e) {
+      expect(e).toBeInstanceOf(StoreError);
+      expect((e as StoreError).code).toBe('io_error');
+      expect(inspect(e)).not.toContain(dir);
+      expect(String(e)).not.toContain(ABC_HEX);
+    } finally {
+      chmodSync(join(root, ABC_HEX), 0o600);
+    }
+  });
+
+  it.skipIf(isRoot)('a failed put leaves no temp file, keeps the existing object and leaks no path', async () => {
+    const store = new LocalCiphertextStore(root);
+    await store.put(ABC);
+    chmodSync(root, 0o500);
+    try {
+      const failure = await store.put(Uint8Array.from([1, 2, 3])).then(
+        () => undefined,
+        (e: unknown) => e,
+      );
+      expect(failure).toBeInstanceOf(StoreError);
+      expect((failure as StoreError).code).toBe('io_error');
+      expect(inspect(failure)).not.toContain(dir);
+    } finally {
+      chmodSync(root, 0o700);
+    }
+    expect(readdirSync(root)).toEqual([ABC_HEX]);
+    expect(await store.get(ABC_ID)).toEqual(ABC);
+  });
+
+  it('cleans up the temp file when the final rename fails', async () => {
+    mkdirSync(join(root, ABC_HEX, 'occupied'), { recursive: true });
+    expect(await codeOf(new LocalCiphertextStore(root).put(ABC))).toBe('io_error');
+    expect(readdirSync(root).filter((f) => f.startsWith('.tmp-'))).toEqual([]);
+  });
+
+  it('replaces a planted symlink instead of writing through it', async () => {
+    mkdirSync(root, { recursive: true });
+    const outside = join(dir, 'outside');
+    writeFileSync(outside, 'untouched');
+    symlinkSync(outside, join(root, ABC_HEX));
+    expect(await new LocalCiphertextStore(root).put(ABC)).toBe(ABC_ID);
+    expect(readFileSync(outside, 'utf8')).toBe('untouched');
+    expect(lstatSync(join(root, ABC_HEX)).isFile()).toBe(true);
+    expect(await new LocalCiphertextStore(root).get(ABC_ID)).toEqual(ABC);
+  });
+});
+
+describe.each([
+  ['LocalCiphertextStore', (o: StoreOptions) => new LocalCiphertextStore(root, o)],
+  ['MemoryCiphertextStore', (o: StoreOptions) => new MemoryCiphertextStore(o)],
+] as const)('%s maxBytes validation', (_name, make) => {
+  it('requires a positive safe integer no larger than the schema maximum', () => {
+    for (const bad of [Number.NaN, -1, 0, 1.5, Number.POSITIVE_INFINITY, 10485761, '4' as unknown as number]) {
+      try {
+        make({ maxBytes: bad });
+        expect.unreachable(`accepted maxBytes ${String(bad)}`);
+      } catch (e) {
+        expect(e).toBeInstanceOf(StoreError);
+        expect((e as StoreError).code).toBe('invalid_option');
+      }
+    }
+    expect(() => make({ maxBytes: 1 })).not.toThrow();
+    expect(() => make({ maxBytes: 10485760 })).not.toThrow();
   });
 });

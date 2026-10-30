@@ -1,6 +1,6 @@
 import { inspect } from 'node:util';
 import nacl from 'tweetnacl';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Address } from '../types.js';
 import {
   ContentKey,
@@ -225,5 +225,60 @@ describe('wrapKeyForRecipients / unwrapKeyFor (delivery.encryptedKeys)', () => {
       const text = [String(e), (e as Error).message, inspect(e, { showHidden: true, depth: 10 }), JSON.stringify(e)].join('\n');
       for (const s of secrets) expect(text).not.toContain(s);
     }
+  });
+});
+
+// ---- Ephemeral key validation on unwrap (review finding 7) ----
+const P = (1n << 255n) - 19n;
+const uBytes = (u: bigint): Uint8Array => Uint8Array.from(Buffer.from(u.toString(16).padStart(64, '0'), 'hex').reverse());
+const envelopeWith = (ephemeralPublicKey: Uint8Array, box: Uint8Array): string =>
+  Buffer.from([...ephemeralPublicKey, ...NACL_NONCE, ...box]).toString('base64url');
+
+describe('unwrap refuses low-order and non-reduced ephemeral keys', () => {
+  // For these points X25519 gives an all-zero shared secret with every scalar, so anyone can open the box.
+  it.each([
+    ['0', 0n],
+    ['1', 1n],
+    ['p - 1', P - 1n],
+  ])('ephemeral u = %s: a box anyone can open is refused as malformed_envelope', (_label, u) => {
+    const lowOrder = uBytes(u);
+    // The "sender" uses an arbitrary secret key; the shared secret is zero either way.
+    const box = nacl.box(CONTENT_KEY, NACL_NONCE, lowOrder, ALICE_SK);
+    // Show the box really is openable by an unrelated key, so the refusal is what protects the recipient.
+    expect(nacl.box.open(box, NACL_NONCE, lowOrder, BOB_SK)).not.toBeNull();
+    expect(codeOf(() => unwrapKey({ scheme: 'x25519-xsalsa20poly1305', ciphertext: envelopeWith(lowOrder, box) }, BOB_SK))).toBe('malformed_envelope');
+  });
+
+  it('refuses a non-reduced ephemeral key (u >= p)', () => {
+    const box = nacl.box(CONTENT_KEY, NACL_NONCE, BOB_PK, ALICE_SK);
+    for (const u of [P, P + 9n, (1n << 255n) - 1n]) {
+      expect(codeOf(() => unwrapKey({ scheme: 'x25519-xsalsa20poly1305', ciphertext: envelopeWith(uBytes(u), box) }, BOB_SK))).toBe('malformed_envelope');
+    }
+  });
+
+  it('refuses a non-reduced recipient public key when wrapping', () => {
+    const key = ContentKey.fromBytes(CONTENT_KEY);
+    expect(codeOf(() => wrapKey(key, uBytes(P + 9n), { random: counter(1) }))).toBe('invalid_public_key');
+    expect(codeOf(() => decodePublicKey(uBytes(P)))).toBe('invalid_public_key');
+  });
+
+  it('accepts a reduced, full-order key such as the base point u = 9', () => {
+    // u = 9 is the base point: reduced, full order, accepted.
+    const key = ContentKey.fromBytes(CONTENT_KEY);
+    expect(wrapKey(key, uBytes(9n), { random: counter(1) }).scheme).toBe('x25519-xsalsa20poly1305');
+  });
+});
+
+describe('no logging in envelopes', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('wrap and unwrap, including failure paths, never write to the console', () => {
+    const spies = (['log', 'info', 'warn', 'error', 'debug', 'trace'] as const).map((m) => vi.spyOn(console, m).mockImplementation(() => undefined));
+    const sealed = wrapKey(ContentKey.fromBytes(CONTENT_KEY), BOB_PK, { random: counter(3) });
+    unwrapKey(sealed, BOB_SK);
+    codeOf(() => unwrapKey(sealed, ALICE_SK));
+    codeOf(() => unwrapKey({ scheme: 'x25519-xsalsa20poly1305', ciphertext: 'AAAA' }, BOB_SK));
+    codeOf(() => wrapKey(ContentKey.fromBytes(CONTENT_KEY), new Uint8Array(32), { random: counter(3) }));
+    for (const spy of spies) expect(spy).not.toHaveBeenCalled();
   });
 });
