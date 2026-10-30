@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { JudgeVerdict } from '@holdback/core';
-import { RecordedJudges, RecordingInvalidError, RecordingMismatchError, RecordingMissingError, recordingPath, toRecording, writeRecording, type JudgeRequest } from './recorded.js';
+import { RecordedJudges, RecordingInvalidError, RecordingMismatchError, RecordingMissingError, RecordingOverwriteError, recordingPath, toRecording, writeRecording, type JudgeRequest } from './recorded.js';
 
 const h = (c: string) => `0x${c.repeat(64)}` as const;
 const request: JudgeRequest = {
@@ -55,9 +55,9 @@ describe('recorded judges', () => {
     expect(r).toEqual({ status: 'recorded', verdict, capturedFrom: 'live' });
   });
 
-  for (const field of ['model', 'promptTemplateHash', 'inputHash', 'rubricHash'] as const) {
+  for (const field of ['provider', 'family', 'model', 'promptTemplateHash', 'inputHash', 'rubricHash'] as const) {
     it(`fails loudly when ${field} differs`, () => {
-      const changed = field === 'model' ? 'claude-pinned-2026-11-01' : h('9');
+      const changed = field === 'model' ? 'claude-pinned-2026-11-01' : field === 'provider' || field === 'family' ? `other-${field}` : h('9');
       const e = thrown(() => new RecordedJudges(dirWith()).judge({ ...request, [field]: changed }));
       expect(e).toBeInstanceOf(RecordingMismatchError);
       expect(e.name).toBe('RecordingMismatchError');
@@ -68,6 +68,28 @@ describe('recorded judges', () => {
       expect((e as RecordingMismatchError).mismatches.map((m) => m.field)).toEqual([field]);
     });
   }
+
+  it('gives a re-record hint this build can run', () => {
+    const e = thrown(() => new RecordedJudges(dirWith()).judge({ ...request, inputHash: h('9') }));
+    expect(e.message).toContain('pnpm snap --judges fake --record --update demo');
+    expect(e.message).not.toMatch(/Re-record with: pnpm snap --judges live/);
+    const missing = thrown(() => new RecordedJudges(mkdtempSync(join(tmpdir(), 'rec-'))).judge(request));
+    expect(missing.message).toContain('pnpm snap --judges fake --record --update demo');
+    expect(missing.message).not.toMatch(/Capture one with: pnpm snap --judges live/);
+  });
+
+  it('never overwrites a live recording with a fake one', () => {
+    const dir = dirWith();
+    const before = readFileSync(recordingPath(dir, 'demo', 'claude-a'), 'utf8');
+    const e = thrown(() => writeRecording(dir, toRecording(request, verdict, 'fake')));
+    expect(e).toBeInstanceOf(RecordingOverwriteError);
+    expect(e.message).toMatch(/live/);
+    expect(readFileSync(recordingPath(dir, 'demo', 'claude-a'), 'utf8')).toBe(before);
+    // A fake recording may replace a fake one.
+    const fakeDir = mkdtempSync(join(tmpdir(), 'rec-'));
+    writeRecording(fakeDir, toRecording(request, verdict, 'fake'));
+    expect(() => writeRecording(fakeDir, toRecording(request, verdict, 'fake'))).not.toThrow();
+  });
 
   it('lists every mismatching field at once', () => {
     const e = thrown(() => new RecordedJudges(dirWith()).judge({ ...request, model: 'other-pinned-1', inputHash: h('8') })) as RecordingMismatchError;

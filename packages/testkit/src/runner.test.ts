@@ -30,9 +30,29 @@ operators: [op-1]
 faucet: { atlas-buyer: "10000000000", bench-a: "25000000000" }
 steps:
   - offer: { by: seller, via: op-1 }
-  - deliver: { by: seller, via: op-1, file: data/x.csv }
+  - deliver: { by: seller, via: op-1, file: data/x.csv, stub_bytes: true }
 expect: { problem: { step: 2, type: invalid_state } }
 `;
+
+/** A full-flow fixture with the given steps after delivery. */
+const flow = (name: string, after: string, extra = '') => `# @settlement sim @judges fake @seed 11
+name: ${name}
+parties: { buyer: atlas-buyer, seller: tidewater-seller }
+adjudicators: { primary: bench-a, fallback: bench-b, appeal: bench-c }
+operators: [op-1, op-2]
+faucet: { atlas-buyer: "10000000000", bench-a: "25000000000", bench-b: "25000000000", bench-c: "25000000000" }
+${extra}steps:
+  - offer: { by: seller, via: op-1 }
+  - agree_and_fund: { by: buyer, via: op-1 }
+  - deliver: { by: seller, via: op-1, file: data/x.csv, stub_bytes: true }
+${after}`;
+
+async function fixture(root: string, name: string, text: string, ...argv: string[]) {
+  writeFileSync(join(root, `fixtures/scenarios/${name}.scenario.yaml`), text);
+  const r = await snap(root, '--judges', 'fake', '--update', name, ...argv);
+  const path = join(root, `fixtures/scenarios/${name}.expect.md`);
+  return { ...r, snapshot: existsSync(path) ? readFileSync(path, 'utf8') : '' };
+}
 
 afterEach(() => {
   vi.useRealTimers();
@@ -216,13 +236,167 @@ describe('pnpm snap', () => {
     const root = sandbox();
     const name = 'error.impersonated-buyer';
     const src = deliverBeforeFund(name)
-      .replace('  - deliver: { by: seller, via: op-1, file: data/x.csv }', '  - agree_and_fund: { by: buyer, via: op-1, signer: tidewater-seller }')
+      .replace('  - deliver: { by: seller, via: op-1, file: data/x.csv, stub_bytes: true }', '  - agree_and_fund: { by: buyer, via: op-1, signer: tidewater-seller }')
       .replace('type: invalid_state', 'type: invalid_signature');
     writeFileSync(join(root, `fixtures/scenarios/${name}.scenario.yaml`), src);
     const r = await snap(root, '--update', name);
     expect(r.out[0]).toBe(`pass  ${name} (snapshot updated)`);
     const written = readFileSync(join(root, `fixtures/scenarios/${name}.expect.md`), 'utf8');
     expect(written).toMatch(/\| atlas-buyer \| agree \| op-1 \| invalid_signature \| AcceptedByAdjudicator \|/);
+  });
+
+  it('refuses an offer whose terms are signed by the buyer instead of the seller', async () => {
+    const root = sandbox();
+    const name = 'error.offer-signed-by-buyer';
+    const src = deliverBeforeFund(name)
+      .replace('  - offer: { by: seller, via: op-1 }', '  - offer: { by: seller, via: op-1, signer: atlas-buyer }')
+      .replace('{ step: 2, type: invalid_state }', '{ step: 1, type: invalid_signature }');
+    const r = await fixture(root, name, src);
+    expect(r.out[0]).toBe(`pass  ${name} (snapshot updated)`);
+    expect(r.snapshot).toMatch(/\| tidewater-seller \| offer \| op-1 \| invalid_signature \| — \|/);
+  });
+
+  it('fails a deliver whose file is absent unless the fixture opts into stub bytes', async () => {
+    const root = sandbox();
+    const r = await fixture(root, 'nofile', flow('nofile', '').replace(', stub_bytes: true', ''));
+    expect(r.code).toBe(1);
+    expect(r.out[0]).toMatch(/fail {2}nofile: ScenarioError: .*fixtures\/data\/x\.csv.*stub_bytes: true/);
+  });
+
+  it('neutrality: the primary adjudicator goes offline and the fallback decides', async () => {
+    const root = sandbox();
+    const name = 'neutrality.primary-offline';
+    const r = await fixture(
+      root,
+      name,
+      flow(
+        name,
+        `  - offline: { actor: bench-a }
+  - judge: { adjudicator: bench-a }
+  - advance_clock: { seconds: 4200 }
+  - trigger_fallback: {}
+  - judge: { adjudicator: bench-b }
+  - verify_key_release: { by: buyer }
+`,
+        'fails: bench-a\n',
+      ),
+    );
+    expect(r.out[0]).toBe(`pass  ${name} (snapshot updated)`);
+    expect(r.snapshot).toMatch(/\| bench-a \| decide \| direct \| offline \(no call\) \| Delivered \|/);
+    expect(r.snapshot).toMatch(/\| anyone \| trigger_fallback \| direct \| ok \| FallbackJudging \|/);
+    expect(r.snapshot).toMatch(/\| bench-b \| decide: accept \| direct \| ok \| Released \|/);
+    expect(r.snapshot).toMatch(/### bench-b \(fallback\)/);
+    expect(r.snapshot).toMatch(/seed commitment none/);
+    // The fallback earns the fee; the offline primary earns nothing.
+    expect(r.snapshot).toMatch(/\| decide: accept \| 7,950\.000000 \| 0 \| 2,000\.000000 \| 25,000\.000000 \| 25,050\.000000 \|/);
+  });
+
+  it('neutrality: both first-instance adjudicators vanish and the default outcome refunds the buyer', async () => {
+    const root = sandbox();
+    const name = 'neutrality.adjudicators-offline';
+    const r = await fixture(
+      root,
+      name,
+      flow(
+        name,
+        `  - advance_clock: { seconds: 4200 }
+  - trigger_fallback: {}
+  - advance_clock: { seconds: 600 }
+  - trigger_default: { via: op-2 }
+  - apply_default_outcome: {}
+`,
+        'fails: bench-b\n',
+      ),
+    );
+    expect(r.out[0]).toBe(`pass  ${name} (snapshot updated)`);
+    expect(r.snapshot).toMatch(/\| anyone \| trigger_default \| op-2 \| ok \| Defaulted \|/);
+    expect(r.snapshot).toMatch(/\| apply_default_outcome \| 10,000\.000000 \| 0 \|/);
+  });
+
+  it('neutrality: an operator refuses to relay and the buyer goes direct', async () => {
+    const root = sandbox();
+    const name = 'neutrality.operator-refuses';
+    const r = await fixture(
+      root,
+      name,
+      flow(name, `  - judge: { adjudicator: bench-a }
+`, 'fails: op-1\n').replace(
+        '  - agree_and_fund: { by: buyer, via: op-1 }',
+        '  - operator_refuses: { operator: op-1 }\n  - agree_and_fund: { by: buyer, via: op-1 }\n  - agree_and_fund: { by: buyer }',
+      ).replace('  - deliver: { by: seller, via: op-1,', '  - deliver: { by: seller, via: op-2,'),
+    );
+    expect(r.out[0]).toBe(`pass  ${name} (snapshot updated)`);
+    expect(r.snapshot).toMatch(/\| atlas-buyer \| agree_and_fund \| op-1 \| refused by op-1 \| Offered \|/);
+  });
+
+  it('neutrality: a reclaim after deliverBy refunds the buyer when the seller never delivers', async () => {
+    const root = sandbox();
+    const name = 'neutrality.seller-vanishes';
+    const src = flow(name, `  - advance_clock: { seconds: 3600 }
+  - reclaim: { by: buyer }
+`, 'fails: tidewater-seller\n').replace(
+      '  - deliver: { by: seller, via: op-1, file: data/x.csv, stub_bytes: true }\n',
+      '',
+    );
+    const r = await fixture(root, name, src);
+    expect(r.out[0]).toBe(`pass  ${name} (snapshot updated)`);
+    expect(r.snapshot).toMatch(/\| reclaim \| 10,000\.000000 \| 0 \|/);
+  });
+
+  it('neutrality: a happy path that names no outage fails', async () => {
+    const root = sandbox();
+    const r = await fixture(root, 'neutrality.nothing-fails', flow('neutrality.nothing-fails', `  - judge: { adjudicator: bench-a }
+`, 'fails: bench-a\n'));
+    expect(r.code).toBe(1);
+    expect(r.out[0]).toMatch(/fail {2}neutrality\.nothing-fails: .*bench-a/);
+    const missing = await fixture(root, 'neutrality.unnamed', flow('neutrality.unnamed', `  - judge: { adjudicator: bench-a }
+`));
+    expect(missing.out[0]).toMatch(/fail {2}neutrality\.unnamed: ScenarioError: .*fails/);
+  });
+
+  it('expire: an accepted offer the buyer never agrees to expires after offerExpiresAt', async () => {
+    const root = sandbox();
+    const name = 'neutrality.buyer-never-funds';
+    const src = flow(name, '', 'fails: atlas-buyer\n')
+      .replace('  - agree_and_fund: { by: buyer, via: op-1 }\n', '  - adjudicator_accept: {}\n  - advance_clock: { seconds: 900 }\n  - expire: {}\n')
+      .replace('  - deliver: { by: seller, via: op-1, file: data/x.csv, stub_bytes: true }\n', '');
+    const r = await fixture(root, name, src);
+    expect(r.out[0]).toBe(`pass  ${name} (snapshot updated)`);
+    expect(r.snapshot).toMatch(/\| anyone \| expire \| direct \| ok \| Expired \|/);
+  });
+
+  it('attack: an empty attack fixture fails, as does one that stops at Held', async () => {
+    const root = sandbox();
+    const empty = deliverBeforeFund('attack.empty').replace(/steps:[\s\S]*$/, 'steps: []\n');
+    expect((await fixture(root, 'attack.empty', empty)).out[0]).toMatch(/fail {2}attack\.empty: .*(escalat|reject)/);
+    const held = flow('attack.held', '').replace('  - deliver: { by: seller, via: op-1, file: data/x.csv, stub_bytes: true }\n', '');
+    expect((await fixture(root, 'attack.held', held)).out[0]).toMatch(/fail {2}attack\.held: /);
+  });
+
+  it('todo: a fixture the runner cannot run records the error in its snapshot and passes', async () => {
+    const root = sandbox();
+    const name = 'todo.milestone-delivery';
+    const src = deliverBeforeFund(name).replace('  - offer: { by: seller, via: op-1 }', '  - deliver_milestone: { by: seller, milestone: 1 }');
+    const r = await fixture(root, name, src);
+    expect(r.out[0]).toBe(`pass  ${name} (todo) (snapshot updated)`);
+    expect(r.snapshot).toMatch(/## Error/);
+    expect(r.snapshot).toMatch(/ScenarioError: steps\[1\]: unknown step "deliver_milestone"/);
+    expect((await snap(root, name)).out[0]).toBe(`pass  ${name} (todo)`);
+  });
+
+  it('todo: a recording error still fails loudly', async () => {
+    const root = sandbox();
+    const src = readFileSync(join(root, 'fixtures/scenarios/_example.scenario.yaml'), 'utf8').replace('name: _example', 'name: todo.copy');
+    writeFileSync(join(root, 'fixtures/scenarios/todo.copy.scenario.yaml'), src);
+    const r = await snap(root, '--update', 'todo.copy');
+    expect(r.code).toBe(1);
+    expect(r.out[0]).toMatch(/fail {2}todo\.copy: RecordingMissingError/);
+  });
+
+  it('refuses --record without a fixture name', async () => {
+    const r = await snap(sandbox(), '--judges', 'fake', '--record');
+    expect(r.code).toBe(2);
+    expect(r.text).toMatch(/--record needs a fixture name/);
   });
 
   it('never writes a snapshot when not asked to', async () => {
