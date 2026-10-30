@@ -4,7 +4,7 @@ Each demo beat (`docs/demo.md`) maps to the scenario fixtures that prove it and 
 
 | Beat | What the viewer sees | Fixtures | Packages | Tasks |
 | --- | --- | --- | --- | --- |
-| 1 Agree and hold | Offer, buyer signature, one call moves price + fee into escrow | `happy-path`, `error.scope-exceeded`, `error.replay`, `error.invalid-signature`, `error.idempotency-conflict`, `error.concurrent-overdraft` | core, settlement, sdk, operator | T-004, T-006, T-007 |
+| 1 Choose, agree and hold | Offer naming the adjudicators, adjudicator acceptance, buyer signature, one call moves price + fee into escrow | `happy-path`, `error.scope-exceeded`, `error.replay`, `error.invalid-signature`, `error.idempotency-conflict`, `error.concurrent-overdraft`, `neutrality.adjudicator-never-accepts`, `error.acceptance-mismatch`, `error.member-not-admitted` | core, settlement, sdk, operator | T-004, T-006, T-007 |
 | 2 Deliver without revealing | Encrypted CSV delivered; buyer sees hashes only; key escrowed to the adjudicator | `happy-path`, `error.mime-not-allowed`, `reclaim-no-delivery` | core, settlement, sdk | T-004, T-006, T-007 |
 | 3 Defended judgment | Deterministic checks, panel seed revealed, pinned judges, cross-family accept | `happy-path`, `panel-disagreement-escalates`, `error.unpinned-model-refused`, `error.adjudicator-affiliated`, `neutrality.maintainers-change-registry`, `error.policy-hash-mismatch` | judgment, adjudicator | T-008, T-009 |
 | 4 Settle | Funds and content key released in one step; buyer verifies plaintext hash; receipts | `happy-path` | settlement, operator, sdk | T-006, T-007 |

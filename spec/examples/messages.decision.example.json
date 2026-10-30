@@ -1,0 +1,19 @@
+{
+  "type": "Decision",
+  "commitmentId": "0x9340180fb352b68aabcf457de90752525d862a9a6dac875100905fac2fc54ed8",
+  "attempt": 1,
+  "adjudicator": "0x5d10fecab9242e66cb134b77309a3566ed75e3dd",
+  "role": "primary",
+  "outcome": "accept",
+  "seed": "0x40a7da5565ae8c475972696a25d415b73a73e9451aa19d897e227ec6e7ff827a",
+  "policyHash": "0x04221c401f162ef3a3c07c9d97024f3a13eb30f262b0c088ee6f63fa2c893dbb",
+  "registryHash": "0x54bdcd5545af7f0a1d42fa9adad89dc6f5d20ea8c0e16b270d2160b78b16007a",
+  "judgmentRecordHash": "0xd0b0155458b2777710df84a106cdeea499f8fdae428b73f2476fdb0a3fadefe8",
+  "keyForBuyer": {
+    "scheme": "x25519-xsalsa20poly1305",
+    "ciphertext": "c2VhbGVkLWtleS1mb3ItYnV5ZXI"
+  },
+  "nonce": "0x8c23bc960ccf68b0e04c82f1ed509ea8f25e46b2698e01a8d437da4979a6e96d",
+  "expiresAt": "2026-11-01T10:02:00Z",
+  "signature": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+}

@@ -1,11 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.3/commitment-state.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.4/commitment-state.schema.json",
   "title": "Commitment state (read model)",
   "type": "object",
   "required": [
     "commitmentId",
-    "state",
+    "escrowState",
+    "appealState",
     "attempt",
     "deadlines",
     "lastEventSeq",
@@ -16,24 +17,31 @@
     "commitmentId": {
       "$ref": "common.schema.json#/$defs/Hex32"
     },
-    "state": {
+    "escrowState": {
       "enum": [
         "Offered",
+        "AcceptedByAdjudicator",
         "Agreed",
         "Held",
         "Delivered",
-        "Judging",
         "FallbackJudging",
         "Escalated",
-        "Accepted",
-        "Rejected",
-        "Appealed",
         "Released",
         "Refunded",
         "Defaulted",
-        "Expired",
-        "Final"
-      ]
+        "Expired"
+      ],
+      "description": "Where the money is (ADR-0016)"
+    },
+    "appealState": {
+      "enum": [
+        "none",
+        "open",
+        "upheld",
+        "overturned",
+        "expired"
+      ],
+      "description": "Defined after a first-instance decision; an overturn moves bond money, not escrow money"
     },
     "attempt": {
       "type": "integer",

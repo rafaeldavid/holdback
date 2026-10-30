@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.3/adjudicator.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.4/adjudicator.schema.json",
   "title": "Adjudicator registration",
   "type": "object",
   "required": [
@@ -11,7 +11,8 @@
     "bond",
     "openExposure",
     "policy",
-    "registryVersion",
+    "registry",
+    "policyHash",
     "fee",
     "status"
   ],
@@ -122,9 +123,27 @@
       },
       "description": "The adjudicator policy. Its keccak256 over RFC 8785 canonical JSON is the policyHash a commitment binds."
     },
-    "registryVersion": {
-      "type": "integer",
-      "minimum": 1
+    "registry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "hash",
+        "uri"
+      ],
+      "properties": {
+        "hash": {
+          "$ref": "common.schema.json#/$defs/Hex32"
+        },
+        "uri": {
+          "type": "string",
+          "format": "uri"
+        }
+      },
+      "description": "The judge registry this adjudicator draws panels from; commitments bind its hash"
+    },
+    "policyHash": {
+      "$ref": "common.schema.json#/$defs/Hex32",
+      "description": "keccak256 of the RFC 8785 canonical JSON of policy; commitments bind it"
     },
     "fee": {
       "type": "object",

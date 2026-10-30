@@ -1,0 +1,19 @@
+{
+  "type": "AdjudicatorAcceptance",
+  "commitmentId": "0x9340180fb352b68aabcf457de90752525d862a9a6dac875100905fac2fc54ed8",
+  "adjudicator": "0x5d10fecab9242e66cb134b77309a3566ed75e3dd",
+  "seedCommitment": "0x9b7729175e6efa947ff5980e87390813228dc2eef1c4b2f1d72a9c3d2eb02d3e",
+  "policyHash": "0x04221c401f162ef3a3c07c9d97024f3a13eb30f262b0c088ee6f63fa2c893dbb",
+  "registryHash": "0x54bdcd5545af7f0a1d42fa9adad89dc6f5d20ea8c0e16b270d2160b78b16007a",
+  "fee": {
+    "token": "tUSD",
+    "amount": "50000000"
+  },
+  "bondReserved": {
+    "token": "tUSD",
+    "amount": "2000000000"
+  },
+  "nonce": "0x8d635dd7a4aa046df7d485f7ae93b9db2d906874bf8df5a3efc046a42add2c51",
+  "expiresAt": "2026-10-30T10:15:00Z",
+  "signature": "0xababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab"
+}

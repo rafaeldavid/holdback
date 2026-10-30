@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.3/delivery.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.4/delivery.schema.json",
   "title": "Delivery (encrypted work + escrowed key)",
   "type": "object",
   "required": [
@@ -84,7 +84,7 @@
           }
         }
       },
-      "description": "Content key encrypted to the primary, fallback and appeal adjudicators"
+      "description": "The content key encrypted to the primary, fallback and appeal adjudicators, and to the buyer for early acceptance (ADR-0012, ADR-0016)"
     },
     "submittedAt": {
       "$ref": "common.schema.json#/$defs/Timestamp"

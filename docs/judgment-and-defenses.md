@@ -42,9 +42,9 @@ A cleaned dataset has no delivery-versus-payment check of that kind, because whe
 | Rationale cap | 600 characters, no URLs | same |
 
 **Commit-reveal selection.**
-1. At agreement, the adjudicator posts `panelCommitment = keccak256(seed ‖ commitmentId)`.
-2. At judging, it reveals `seed`.
-3. The panel is a deterministic seeded shuffle of the active entries in the registry whose hash the commitment binds (`adjudication.registryHash`), subject to the family constraints.
+1. Before funding, the primary adjudicator signs an acceptance carrying `seedCommitment = keccak256(seed)` (ADR-0016). The seed commitment sits outside the commitment ID, so the ID is not circular.
+2. In its decision, it reveals `seed`; the settlement layer checks it against `seedCommitment`.
+3. The panel is a deterministic seeded shuffle, keyed by `seed ‖ commitmentId`, of the active entries in the registry whose hash the commitment binds (`adjudication.registryHash`), subject to the family constraints.
 4. Anyone can recompute the panel.
 
 Neither party, nor the adjudicator after seeing the delivery, can steer which models judge.

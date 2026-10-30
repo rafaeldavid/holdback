@@ -12,9 +12,11 @@ Validation as of October 30, 2026 (measured): all 11 examples pass under Ajv 8 (
 - a model ID containing "latest";
 - an extra field in a judge verdict.
 
-The `$id` URLs (`https://holdback.dev/schemas/v0.3/…`) are namespaces for resolving `$ref` between files. They are not hosted. Replace the domain if the project gets one.
+The `$id` URLs (`https://holdback.dev/schemas/v0.4/…`) are namespaces for resolving `$ref` between files. They are not hosted. Replace the domain if the project gets one.
 
 ## Changelog
+
+- **v0.4 (2026-10-30, ADR-0016):** new `messages.schema.json` with every signed message (Offer, Agree, AdjudicatorAcceptance, FundingAuthorization, EarlyAccept, Decision, AgentRevocation, MemberAdmission, MemberRevocation); examples are `messages.<name>.example.json`. `adjudication.panelCommitment` removed from the commitment terms, so the ID is no longer circular; the commitment carries `adjudicatorAcceptance` outside the ID, and the judgment panel records `seedCommitment`. `commitment-state` splits `state` into `escrowState` and `appealState`. The club rulebook replaces `coverageRatio` with `windowCoverageRatio` and adds `appealFee`. Adjudicators publish `registry` (hash and URI) and `policyHash` instead of `registryVersion`. Events add `adjudicator.accepted`, `member.admitted` and `member.revoked`, and drop `judgment.opened`.
 
 - **v0.3 (2026-10-30, ADR-0006):** `commitment.adjudication.policyHash` is required, binding the primary adjudicator's policy (keccak256 of the RFC 8785 canonical JSON of `adjudicator.policy`). The policy gains `promptTemplateHash`, `appealPromptTemplateHash`, `aggregationVersion` and `screenVersion`. `judgment.panel.policyHash` must equal the commitment's. Each verdict's `promptHash` splits into `promptTemplateHash` and `inputHash`. Every `$id` and `commitment.schemaVersion` moved to 0.3.
 

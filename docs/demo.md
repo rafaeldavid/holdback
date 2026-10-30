@@ -43,7 +43,7 @@ All names are invented for the demo.
 
 | # | Beat | What the viewer sees | Litmus test shown |
 | --- | --- | --- | --- |
-| 1 | **Agree and hold** | Seller offers terms, buyer signs, one call moves $2,050 (price plus $50 adjudication fee) into escrow. Timer shows milliseconds. Balances update | Hold; machine speed |
+| 1 | **Choose, agree and hold** | Seller offers terms naming Bench A, B and C, chosen by the two agents. Bench A accepts and reserves bond. Buyer signs, one call moves $2,050 (price plus $50 adjudication fee) into escrow. Timer shows milliseconds. Balances update | Agents choose the adjudicator; hold; machine speed |
 | 2 | **Deliver without revealing** | Seller uploads an encrypted cleaned CSV. Buyer sees only hashes. Content key goes to the adjudicator | Two-sided hold |
 | 3 | **Defended judgment** | Deterministic checks pass (row count, unique keys, date format). Panel seed revealed, judges listed with pinned model IDs, verdicts shown, cross-family agreement, accept | Multi-model judgment |
 | 4 | **Settle** | Funds release to the seller; content key releases to the buyer in the same step; buyer verifies the plaintext hash; receipts signed | Fair exchange |

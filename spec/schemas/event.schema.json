@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.3/event.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.4/event.schema.json",
   "title": "Settlement event (hash-chained)",
   "type": "object",
   "required": [
@@ -24,11 +24,13 @@
         "agent.revoked",
         "adjudicator.registered",
         "commitment.offered",
+        "adjudicator.accepted",
+        "member.admitted",
+        "member.revoked",
         "commitment.agreed",
         "offer.expired",
         "hold.funded",
         "delivery.submitted",
-        "judgment.opened",
         "judgment.decided",
         "fallback.triggered",
         "default.triggered",

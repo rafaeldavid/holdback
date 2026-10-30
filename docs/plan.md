@@ -26,6 +26,7 @@ Goal: `pnpm demo` runs beats 1–7 of `docs/demo.md` in recorded mode. Every bea
 Scope after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`): `guaranteed_on_decision` only, `maxSubmissions = 1`, no sealed checks, and commitments bind `registryHash`.
 
 - [ ] T-004 Core types, state machine, EIP-712 types, money, timing rules (core)
+- [ ] T-014 Envelope encryption and ciphertext store (core)
 - [ ] T-005 Testkit: `snap` runner, pragmas, prefixes, deterministic clock/RNG, recordings (test)
 - [ ] T-006 SimChain: escrow rules, permissionless triggers, two-sided key release, bonds, property tests (settlement)
 - [ ] T-007 Operator API and SDK with failover and direct submit; idempotency; receipts; event log (api)
@@ -137,5 +138,11 @@ Goal: fiat enters and leaves through ramps; the demo runs on a public testnet wi
 | `error.adjudicator-affiliated` | — | 1 |
 | `error.mime-not-allowed` | — | 1 |
 | `error.policy-hash-mismatch` | — | 1 |
+| `neutrality.adjudicator-never-accepts` | 1 | 1 |
+| `neutrality.adjudicator-silent-before-judging` | 7 | 1 |
+| `error.acceptance-mismatch` | — | 1 |
+| `error.seed-mismatch` | — | 1 |
+| `error.member-not-admitted` | — | 1 |
+| `early-accept-releases-key` | — | 1 |
 | `todo.milestone-delivery` | — | records gap |
 | `work-for-work` | 9 | 6, if T-003 is positive |

@@ -26,6 +26,7 @@ Restate this in your own words in this section before writing code.
 - [ ] Panel seed fixed per (commitment, attempt); no re-roll (test).
 - [ ] Adjudicator service: watches assignments, runs pipeline, signs Decision with judgment record hash, publishes record; acts as fallback or appeal adjudicator when assigned; appeal panel policy.
 - [ ] Policy binding: `policyHash` computed as keccak256 of the RFC 8785 canonical JSON of the adjudicator's policy; a judgment whose template hash or `policyHash` does not match the commitment is refused (`error.policy-hash-mismatch`).
+- [ ] The adjudicator service signs `AdjudicatorAcceptance` (seed commitment, policy and registry hashes, fee, reserved bond) and publishes its registry hash and URI and its policy hash in its registration.
 - [ ] Fee quote stub returning policy minimum.
 - [ ] Appeal ground "missing or wrong key": the appeal decision may carry the key to the buyer.
 

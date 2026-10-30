@@ -20,7 +20,7 @@ Restate this in your own words in this section before writing code.
 
 ## Acceptance criteria
 
-- [ ] `pnpm snap`, `pnpm snap <name>`, `pnpm snap --update <name>`, `--settlement`, `--judges` flags.
+- [ ] `pnpm snap`, `pnpm snap <name>`, `pnpm snap --update <name>`, `--settlement`, `--judges` and `--record` flags.
 - [ ] Pragma parser for the first-line comment; prefix semantics (`error.`, `attack.`, `neutrality.`, `todo.`).
 - [ ] Deterministic clock and seeded RNG/ID generator injected into all packages via a context object.
 - [ ] Recorded-judge provider format with model ID, prompt template hash and input hash; mismatch fails loudly.
