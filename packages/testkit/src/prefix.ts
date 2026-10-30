@@ -75,8 +75,8 @@ export function evaluate(prefix: Prefix, run: RunSummary, expect: ScenarioExpect
       if (run.outages.length) reasons.push(`${run.outages[0]!.actor} failed at step ${run.outages[0]!.step}; use the neutrality. prefix for actor failures`);
       break;
     case 'error':
+      // The expect.problem check below then requires a matching refusal.
       if (!expect.problem || expect.problem.step === undefined) reasons.push('error. fixtures must set expect.problem with both type and step');
-      if (!first) reasons.push('expected the system to refuse a step, but every step succeeded');
       break;
     case 'attack': {
       if (run.autoAccepted) reasons.push('an attack fixture must not auto-accept, but a first-instance judgment released the funds');
