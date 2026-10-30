@@ -406,4 +406,60 @@ describe('spec/', () => {
       expect(schema('receipt')(r)).toBe(true);
     });
   });
+
+  // Review of PR 23, item 2: every rule in the v0.5 additions has a case that fails without it.
+  describe('rejects each mutant the review found, and the same for later additions', () => {
+    const schema = (name: string) => loadSpec().ajv.getSchema(`${V}/${name}.schema.json`);
+    const t = (amount: string) => ({ token: 'tUSD', amount });
+    const h = (b: string) => '0x' + b.repeat(32);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    type Edit = (x: any) => void;
+    const cases: Array<[string, string, string, Edit]> = [
+      ['adjudicator without a pool', 'adjudicator', 'adjudicator', (a) => delete a.pool],
+      ['pool terms with an extra field', 'adjudicator', 'adjudicator', (a) => (a.pool.terms.extra = 1)],
+      ['pool terms without noticePeriodSec', 'adjudicator', 'adjudicator', (a) => delete a.pool.terms.noticePeriodSec],
+      ['a bond.slashed event without per-tranche amounts', 'event', 'event.bond-slashed', (e) => delete e.payload.senior],
+      ['a bond.slashed event with an unknown reason', 'event', 'event.bond-slashed', (e) => (e.payload.reason = 'whim')],
+      ['an unknown event type', 'event', 'event', (e) => (e.type = 'bond.borrowed')],
+      ['an unknown escrow state', 'commitment-state', 'commitment-state', (s) => (s.escrowState = 'Paused')],
+      ['a judgment panel without seedSource', 'judgment', 'judgment', (j) => delete j.panel.seedSource],
+      ['an optimistic default that does not release', 'club', 'club', (c) => (c.rulebook.defaultOutcome.optimistic = { release: false, buyerCompensationRate: 1 })],
+      ['an optimistic default without buyerCompensationRate', 'club', 'club', (c) => (c.rulebook.defaultOutcome.optimistic = { release: true })],
+      ['a chain settlement without chainId', 'operator-status', 'operator-status', (s) => (s.settlement = { kind: 'chain' })],
+      ['operator head without lagSec', 'operator-status', 'operator-status', (s) => delete s.head.lagSec],
+      ['a page of more than 200 items', 'page', 'page', (p) => (p.items = Array(201).fill(p.items[0]))],
+      ['an empty cursor', 'page', 'page', (p) => (p.nextCursor = '')],
+      ['a Dispute without a bond', 'messages', 'messages.dispute', (d) => delete d.bond],
+      ['a Dispute with an extra field', 'messages', 'messages.dispute', (d) => (d.extra = 1)],
+      ['a zero disputeJudgeSec', 'commitment', 'commitment', (c) => { c.settlement.mode = 'optimistic'; Object.assign(c.timing, { disputeBy: '2026-11-06T17:00:00Z', disputeJudgeSec: 0, disputeFallbackSec: 86400 }); }],
+      ['an unknown randomness source', 'club', 'club', (c) => (c.rulebook.randomness = { source: 'dice' })],
+      ['a MutualSettlement with an extra field', 'messages', 'messages.mutual-settlement', (m) => (m.extra = 1)],
+      ['a MutualSettlement sellerAmount that is not money', 'messages', 'messages.mutual-settlement', (m) => (m.sellerAmount = { token: 'tUSD', amount: '1.5' })],
+      ['a settled split on a commitment that is not Settled', 'commitment-state', 'commitment-state', (s) => (s.settled = { sellerAmount: t('1'), buyerAmount: t('1'), keyReleased: false })],
+      ['a commitment.settled event without keyReleased', 'event', 'event', (e) => { e.type = 'commitment.settled'; e.payload = { sellerAmount: t('1'), buyerAmount: t('1') }; }],
+      ['a mutualSettlement rule without allowed', 'club', 'club', (c) => delete c.rulebook.mutualSettlement.allowed],
+      ['a Publish to an unknown level', 'messages', 'messages.publish', (p) => (p.level = 'secret')],
+      ['a Publish with an extra field', 'messages', 'messages.publish', (p) => (p.extra = 1)],
+      ['a key unlock with a round but no beacon', 'delivery', 'delivery', (d) => (d.encryptedKeys[0].unlock = { kind: 'none', round: 5 })],
+      ['a private judgment record with no envelopes', 'judgment', 'judgment', (j) => (j.privateRecord = { hash: h('41'), envelopes: [] })],
+      ['an unknown identity mode', 'club', 'club', (c) => (c.rulebook.identityModes = ['anonymous'])],
+      ['a club disclosure minimum outside the levels', 'club', 'club', (c) => (c.rulebook.disclosureMin = 'secret')],
+      ['an offered event whose termsHash is not a hash', 'event', 'event.offered', (e) => (e.payload.termsHash = 'abc')],
+    ];
+    it.each(cases)('rejects %s', (_label, file, name, edit) => {
+      const x = example(name);
+      expect(schema(file)(x)).toBe(true);
+      edit(x);
+      expect(schema(file)(x)).toBe(false);
+    });
+    it.each([
+      ['prevrandao', 'club', 'club', (c: { rulebook: { randomness: object } }) => (c.rulebook.randomness = { source: 'prevrandao' })],
+      ['the Disputed state', 'commitment-state', 'commitment-state', (s: { escrowState: string }) => (s.escrowState = 'Disputed')],
+      ['a dispute.opened event', 'event', 'event', (e: { type: string }) => (e.type = 'dispute.opened')],
+    ] as const)('accepts %s', (_label, file, name, edit) => {
+      const x = example(name);
+      edit(x as never);
+      expect(schema(file)(x)).toBe(true);
+    });
+  });
 });

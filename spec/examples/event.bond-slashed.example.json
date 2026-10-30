@@ -1,0 +1,22 @@
+{
+  "seq": 13,
+  "type": "bond.slashed",
+  "commitmentId": "0x9340180fb352b68aabcf457de90752525d862a9a6dac875100905fac2fc54ed8",
+  "at": "2026-11-02T10:00:00Z",
+  "actor": "anyone",
+  "submittedVia": "op-1",
+  "payload": {
+    "adjudicator": "0x5d10fecab9242e66cb134b77309a3566ed75e3dd",
+    "junior": {
+      "token": "tUSD",
+      "amount": "2000000000"
+    },
+    "senior": {
+      "token": "tUSD",
+      "amount": "0"
+    },
+    "reason": "overturn"
+  },
+  "prevHash": "0x5cccdc8e8790b6f0bcaba76075878c70f54a65919f2950337b9bce100d38876c",
+  "hash": "0xe2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2"
+}
