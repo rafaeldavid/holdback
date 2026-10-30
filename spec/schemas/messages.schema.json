@@ -33,6 +33,9 @@
     },
     {
       "$ref": "#/$defs/Dispute"
+    },
+    {
+      "$ref": "#/$defs/MutualSettlement"
     }
   ],
   "$defs": {
@@ -551,6 +554,61 @@
           "$ref": "common.schema.json#/$defs/Timestamp"
         },
         "signature": {
+          "$ref": "common.schema.json#/$defs/Signature"
+        }
+      }
+    },
+    "MutualSettlement": {
+      "type": "object",
+      "description": "Buyer and seller close a commitment by agreement (ADR-0019). Both sign the identical struct: everything except the two signatures.",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "commitmentId",
+        "deliveryHash",
+        "sellerAmount",
+        "releaseKey",
+        "nonce",
+        "expiresAt",
+        "buyerSignature",
+        "sellerSignature"
+      ],
+      "properties": {
+        "type": {
+          "const": "MutualSettlement"
+        },
+        "commitmentId": {
+          "$ref": "common.schema.json#/$defs/Hex32"
+        },
+        "deliveryHash": {
+          "oneOf": [
+            {
+              "$ref": "common.schema.json#/$defs/Hex32"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "EIP-712 struct hash of the delivery being settled, or null before any delivery"
+        },
+        "sellerAmount": {
+          "$ref": "common.schema.json#/$defs/TokenAmount",
+          "description": "Paid to the seller, in the price token; the rest of the hold returns to the buyer"
+        },
+        "releaseKey": {
+          "type": "boolean",
+          "description": "Whether the seller-supplied key is released to the buyer with the payment"
+        },
+        "nonce": {
+          "$ref": "common.schema.json#/$defs/Hex32"
+        },
+        "expiresAt": {
+          "$ref": "common.schema.json#/$defs/Timestamp"
+        },
+        "buyerSignature": {
+          "$ref": "common.schema.json#/$defs/Signature"
+        },
+        "sellerSignature": {
           "$ref": "common.schema.json#/$defs/Signature"
         }
       }

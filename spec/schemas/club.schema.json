@@ -44,7 +44,8 @@
         "bondNoticePeriodMinSec",
         "randomness",
         "minInspectionWindowSec",
-        "disputeBond"
+        "disputeBond",
+        "mutualSettlement"
       ],
       "properties": {
         "version": {
@@ -240,6 +241,26 @@
         "disputeBond": {
           "$ref": "common.schema.json#/$defs/TokenAmount",
           "description": "Optimistic mode: posted by a disputing buyer, paid to the seller if the dispute fails"
+        },
+        "mutualSettlement": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "allowed",
+            "adjudicatorFeeShareAfterDeliveryBps"
+          ],
+          "description": "Whether buyer and seller may close a commitment by co-signed agreement (ADR-0019)",
+          "properties": {
+            "allowed": {
+              "type": "boolean"
+            },
+            "adjudicatorFeeShareAfterDeliveryBps": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10000,
+              "description": "Share of the held adjudicator fee paid to the primary adjudicator when the parties settle after delivery, in basis points (10000 = all); before delivery the fee returns to the buyer"
+            }
+          }
         }
       },
       "if": {

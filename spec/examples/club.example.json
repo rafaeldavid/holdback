@@ -45,6 +45,10 @@
     "disputeBond": {
       "token": "tUSD",
       "amount": "25000000"
+    },
+    "mutualSettlement": {
+      "allowed": true,
+      "adjudicatorFeeShareAfterDeliveryBps": 5000
     }
   },
   "rulebookHash": "0xb70959b8b5a5a9d365df7471120396553ed1bc0bff83059e4862e6d11b36a556"

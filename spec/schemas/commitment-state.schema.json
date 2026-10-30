@@ -29,6 +29,7 @@
         "Escalated",
         "Released",
         "Refunded",
+        "Settled",
         "Defaulted",
         "Expired"
       ],
@@ -86,6 +87,63 @@
     },
     "updatedAt": {
       "$ref": "common.schema.json#/$defs/Timestamp"
+    },
+    "settled": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sellerAmount",
+        "buyerAmount",
+        "keyReleased"
+      ],
+      "properties": {
+        "sellerAmount": {
+          "$ref": "common.schema.json#/$defs/TokenAmount"
+        },
+        "buyerAmount": {
+          "$ref": "common.schema.json#/$defs/TokenAmount"
+        },
+        "keyReleased": {
+          "type": "boolean"
+        }
+      },
+      "description": "The agreed split, present only once a mutual settlement closed the commitment (ADR-0019)"
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "escrowState": {
+            "const": "Settled"
+          }
+        },
+        "required": [
+          "escrowState"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "required": [
+          "settled"
+        ],
+        "properties": {
+          "settled": {}
+        }
+      },
+      "else": {
+        "type": "object",
+        "not": {
+          "type": "object",
+          "required": [
+            "settled"
+          ],
+          "properties": {
+            "settled": {}
+          }
+        }
+      }
+    }
+  ]
 }
