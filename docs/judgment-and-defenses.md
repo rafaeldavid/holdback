@@ -35,7 +35,7 @@ A cleaned dataset has no delivery-versus-payment check of that kind, because whe
 | Minimum valid (non-abstain) verdicts | 2 | 4 |
 | Accept supermajority | ≥ 2/3 pass, with pass verdicts from ≥ 2 families | ≥ 4/5, with passes from ≥ 2 families |
 | Reject supermajority | ≥ 2/3 fail | ≥ 4/5 fail |
-| Otherwise | escalate | the first decision stands; appellant's bond returned |
+| Otherwise | escalate | after a party appeal, the first decision stands and the appellant's bond is returned; after an escalation, the default outcome applies |
 | Judge timeout | 60 s, then abstain | 90 s |
 | Retries | 1, on transport error only, same inputs | same |
 | Temperature | Lowest supported | same |
@@ -44,7 +44,7 @@ A cleaned dataset has no delivery-versus-payment check of that kind, because whe
 **Commit-reveal selection.**
 1. At agreement, the adjudicator posts `panelCommitment = keccak256(seed ‖ commitmentId)`.
 2. At judging, it reveals `seed`.
-3. The panel is a deterministic seeded shuffle of the active registry entries, subject to the family constraints.
+3. The panel is a deterministic seeded shuffle of the active entries in the registry whose hash the commitment binds (`adjudication.registryHash`), subject to the family constraints.
 4. Anyone can recompute the panel.
 
 Neither party, nor the adjudicator after seeing the delivery, can steer which models judge.
@@ -80,7 +80,7 @@ Unit-test this function exhaustively with table-driven cases.
 | T3 | Injection aimed at the reader | Text tries to make the reader emit instructions into features | Reader output is typed fields only (numbers, enums, strings capped at 120 characters and re-screened) | `attack.reader-poison` |
 | T4 | Rubric gaming | Correctly formatted output with wrong content; keyword stuffing | Deterministic checks on data properties; sealed checks (hash-committed at agreement, count disclosed, weight capped at 30%); criteria anchored to evidence; judges given sampled rows plus features | `attack.format-correct-content-wrong` |
 | T5 | Panel targeting, bribery | A party tries to pick or influence judges | Commit-reveal seed; judges are API calls with no channel to the parties; adjudicator independence check (the adjudicator is not affiliated with either party's member) | `error.adjudicator-affiliated` |
-| T6 | Retry until pass | The seller resubmits variants until one passes | `maxSubmissions` (default 2) with a fee per attempt; panel seed fixed per (commitment, attempt); no re-roll | `error.submission-limit` |
+| T6 | Retry until pass | The seller resubmits variants until one passes | `maxSubmissions` (1 in Phase 1; resubmission returns with `settle_after_window`) with a fee per attempt; panel seed fixed per (commitment, attempt); no re-roll | `error.submission-limit` |
 | T7 | Model drift | A provider upgrade flips outcomes (Kleros: Opus 4.7 → 4.8 changed 11 of 99) | Pinned model IDs in every verdict; registry promotion only after calibration regression; versions disclosed in receipts | `error.unpinned-model-refused`, calibration regression |
 | T8 | Correlated error | Most adjudicators run the same models | Family diversity; cross-family agreement required for accept; pairwise agreement monitored; alert when one family diverges | Calibration report |
 | T9 | Bad-faith buyer rejection | The buyer sees the work and rejects to keep it | Two-sided hold: the buyer never sees plaintext before acceptance. The buyer cannot block judgment | `happy-path` + `neutrality.buyer-silent` |
@@ -91,6 +91,8 @@ Unit-test this function exhaustively with table-driven cases.
 | T14 | Adjudicator insolvency | Bond too small for open exposure | Coverage-ratio gate on assignment; defaults compensated from the bond | `error.coverage-exceeded` |
 | T15 | Exfiltration through judge output | A judge is induced to write secrets or URLs | Judges hold no secrets; schema-limited output; URL and length filter | `attack.exfil-attempt` |
 | T16 | Operator tampering | An operator drops or alters messages | Signed messages; escape hatch; hash-chained log; receipts | `neutrality.operator-refuses` |
+| T18 | Adjudicator self-dealing | An adjudicator accepts every case for sellers it controls in guaranteed mode | 100% bond coverage per guaranteed commitment open to appeal; appeals to a different adjudicator; encumbered bond never counted twice | `attack.adjudicator-self-dealing` |
+| T19 | Wrong or missing key release | The decision pays the seller but releases a key that does not decrypt the committed plaintext | Buyer verifies against the plaintext hash; "missing or wrong key" is a bonded appeal ground; an appeal decision may carry the key | `appeal-bad-key-release` |
 | T17 | Malicious files | Oversized or archive files | MIME allowlist (`text/csv`, `application/json`, `text/plain`, `text/markdown`); 10 MB cap; parsing in a worker with a time limit | `error.mime-not-allowed` |
 
 Background on the defense designs:
@@ -102,6 +104,8 @@ Background on the defense designs:
 ## Model registry
 
 `config/judges.yaml`, versioned. Every promotion is an ADR-lite entry in `docs/decisions/registry-log.md`.
+
+A commitment binds the keccak256 hash of the canonical registry at agreement (`adjudication.registryHash`, ADR-0006), and the panel is drawn only from that registry. This file is Holdback's default registry; each adjudicator may publish its own under the same pinning and family rules.
 
 ```yaml
 version: 3

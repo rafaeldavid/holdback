@@ -23,6 +23,8 @@ Goal: a repo that agents can work in safely, and confirmation that no existing s
 
 Goal: `pnpm demo` runs beats 1–7 of `docs/demo.md` in recorded mode. Every beat is a passing scenario fixture.
 
+Scope after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`): `guaranteed_on_decision` only, `maxSubmissions = 1`, no sealed checks, and commitments bind `registryHash`.
+
 - [ ] T-004 Core types, state machine, EIP-712 types, money, timing rules (core)
 - [ ] T-005 Testkit: `snap` runner, pragmas, prefixes, deterministic clock/RNG, recordings (test)
 - [ ] T-006 SimChain: escrow rules, permissionless triggers, two-sided key release, bonds, property tests (settlement)
@@ -43,7 +45,7 @@ Goal: `pnpm demo` runs beats 1–7 of `docs/demo.md` in recorded mode. Every bea
 
 Goal: the same scenario fixtures pass against an EVM contract on a local chain. Differential testing against SimChain.
 
-- T-201 Hands-on spike, on local anvil: can a rules contract act as operator of `AuthCaptureEscrow` (D3-A)? If not, design an ERC-8183 extension (D3-B).
+- T-201 Hands-on spike, on local anvil: can a rules contract act as operator of `AuthCaptureEscrow` (D3-A)? If not, design an ERC-8183 extension (D3-B). Must confirm the ADR-0003 conditions: capture timing per mode, expiry margin, fee-only capture on the refund path with `maxFeeBps = 10000`, idempotency in the rules contract; compare deployed bytecode with the v1.1.0 tag; read the audits.
 - T-202 Escrow rules contract, Foundry: offer/agree hashes, funding via ERC-3009/Permit2, deliver, decide with adjudicator signature, permissionless triggers, key release events, bonds.
 - T-203 Invariant and fuzz tests: conservation, settle-once, no admin selectors.
 - T-204 Formal model of the commitment state machine (TLA+ or Quint): liveness under any single actor halting; safety of fund movement.
@@ -68,6 +70,7 @@ Goal: judgment metrics measured against the PRD targets. Defenses complete.
 Goal: bonds, coverage, appeals, fallback and default outcomes run on the contract, with demo beat 8.
 
 - Adjudicator registry with bonds and the coverage-ratio gate.
+- `settle_after_window` with its own key-release design (ADR-0012) and resubmission.
 - Overturn payouts in guaranteed mode; appeal bonds.
 - Default outcome with seller compensation from bonds (D5).
 - Adjudicator independence checks (affiliation declared at registration).
@@ -109,6 +112,11 @@ Goal: fiat enters and leaves through ramps; the demo runs on a public testnet wi
 | `neutrality.adjudicator-offline` | 7 | 1 |
 | `neutrality.adjudicator-and-fallback-offline` | — | 1 |
 | `neutrality.appeal-adjudicator-offline` | — | 1 |
+| `neutrality.appeal-adjudicator-offline-after-escalation` | 6 | 1 |
+| `neutrality.maintainers-change-registry` | — | 1 |
+| `attack.adjudicator-self-dealing` | — | 1 |
+| `appeal-bad-key-release` | — | 1 |
+| `todo.adjudicator-leaks-plaintext` | — | records residual 6 |
 | `neutrality.club-revokes-mid-flight` | 7 | 1 |
 | `neutrality.buyer-silent` | — | 1 |
 | `neutrality.provider-outage` | — | 1 |

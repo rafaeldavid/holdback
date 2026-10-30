@@ -11,9 +11,18 @@ describe('spec/', () => {
 
   it('rejects a fractional token amount', () => {
     const { ajv } = loadSpec();
-    const validate = ajv.getSchema('https://holdback.dev/schemas/v0.1/common.schema.json#/$defs/TokenAmount');
+    const validate = ajv.getSchema('https://holdback.dev/schemas/v0.2/common.schema.json#/$defs/TokenAmount');
     expect(validate).toBeDefined();
     expect(validate({ token: 'tUSD', amount: '2050000000' })).toBe(true);
     expect(validate({ token: 'tUSD', amount: '2050.5' })).toBe(false);
+  });
+
+  it('requires a commitment to bind the judge registry hash', () => {
+    const { ajv, examples } = loadSpec();
+    const validate = ajv.getSchema('https://holdback.dev/schemas/v0.2/commitment.schema.json');
+    const commitment = structuredClone(examples.find((e: { name: string }) => e.name === 'commitment').data);
+    expect(validate(commitment)).toBe(true);
+    delete commitment.adjudication.registryHash;
+    expect(validate(commitment)).toBe(false);
   });
 });

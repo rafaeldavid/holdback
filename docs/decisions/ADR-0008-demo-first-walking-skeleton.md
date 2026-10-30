@@ -1,6 +1,6 @@
 # ADR-0008: Demo-first walking skeleton on SimChain
 
-- **Status:** Proposed. Default unless Rafa objects.
+- **Status:** Accepted, 2026-10-30.
 - **Date:** 2026-10-30
 
 ## Decision

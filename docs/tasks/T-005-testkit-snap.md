@@ -26,6 +26,7 @@ Restate this in your own words in this section before writing code.
 - [ ] Recorded-judge provider format with model ID + prompt hash; mismatch fails loudly.
 - [ ] Snapshot renderer producing the sections listed in `docs/testing.md`; stable ordering; no wall-clock values.
 - [ ] The `_example` fixture runs against a stub settlement and produces its expect file.
+- [ ] `pnpm snap` prints one `pass`/`fail` line per fixture so `pnpm verify` can report it.
 
 ## Out of scope
 

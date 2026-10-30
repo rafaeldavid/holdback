@@ -69,7 +69,7 @@ Parallel lanes own disjoint paths, which reduces merge conflicts.
 2. T-004 and T-005 follow T-001.
 3. T-006, T-008 and T-012 follow T-004.
 4. T-007 and T-009 follow T-006.
-5. T-010 needs T-005, T-007 and T-009.
+5. T-010 needs T-005, T-007, T-009 and T-012.
 6. T-013 needs everything.
 
 ## Rules and checks

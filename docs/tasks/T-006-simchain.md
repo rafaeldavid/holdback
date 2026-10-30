@@ -23,7 +23,10 @@ Restate this in your own words in this section before writing code.
 - [ ] All postings in the table implemented; settle-once guard; permissionless triggers (expire-offer, reclaim, fallback, default, appeal-expiry, settle).
 - [ ] Signature, scope, mandate, nonce, deadline checks on every submitted message (reuse T-004).
 - [ ] Key release: decision accept carries key-for-buyer; stored and emitted atomically with release.
-- [ ] Bonds and coverage-ratio gate; overturn payouts in both settlement modes; default-outcome compensation.
+- [ ] Bonds and coverage-ratio gate (100% per guaranteed commitment open to appeal; encumbered bond never counted twice); overturn payouts in guaranteed mode; default-outcome compensation, including the default after an escalation times out (appeal adjudicator's bond).
+- [ ] Fee routing per the postings table: the fee goes to the adjudicator whose decision settles; early acceptance returns the fee to the buyer; appeal fee paid by the appellant.
+- [ ] Early acceptance releases the seller-supplied key for the buyer with the payment.
+- [ ] Model `authorizationExpiry` so SimChain and the Phase 2 contract agree (differential tests).
 - [ ] fast-check properties: conservation, non-negative balances, settle-once, idempotent resubmission, random interleavings of triggers.
 - [ ] Hash-chained event log with replay.
 - [ ] `pnpm load`: 1,000 holds, report p50/p95 (measured); 100 concurrent holds on one balance, zero overdrafts.

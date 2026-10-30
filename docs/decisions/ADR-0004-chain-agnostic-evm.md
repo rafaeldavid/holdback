@@ -1,6 +1,6 @@
 # ADR-0004: Chain-agnostic EVM; testnet choice deferred
 
-- **Status:** Proposed (D4).
+- **Status:** Deferred, 2026-10-30 (D4). Decide at the start of Phase 2.
 - **Date:** 2026-10-30
 
 ## Decision

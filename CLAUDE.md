@@ -17,7 +17,7 @@ Any blockchain stays behind the API and SDK. Agents see amounts, states and rece
 
 Every design and code change must pass all three.
 
-1. **Neutrality** (ADR-0001). No single party can stop a valid commitment from settling according to its terms, or move held funds outside those terms. That covers operators, adjudicators, club operators, on-ramps, model providers and Holdback's own maintainers. Each such actor has a `neutrality.*` fixture showing the transaction still completes when that actor refuses or goes offline. See `docs/neutrality.md`.
+1. **Neutrality** (ADR-0001). No single party can stop a valid commitment from settling according to its terms, or move held funds outside those terms. That covers operator nodes, the rules contract, adjudicators, club operators, on-ramps, model providers and Holdback's own maintainers. Each such actor has a `neutrality.*` fixture showing the transaction still completes when that actor refuses or goes offline. See `docs/neutrality.md`.
 2. **The hold** (ADR-0002). Funds are locked so neither party can take them alone. Holds have an expiry and idempotent operations, and cannot be double spent. Fiat and card rails are funding and payout adapters only. Custody stays on the neutral settlement layer.
 3. **Defended multi-model judgment** (ADR-0006).
    - Declarative deterministic checks run first.
@@ -75,10 +75,10 @@ forge test                      # contracts (from Phase 2)
 
 ## Map
 
-`docs/decisions-today.md` holds the open decisions. Read it first.
+`docs/decisions-today.md` records decisions D1–D9 (decided October 30, 2026; D4 deferred to Phase 2) and `docs/reviews/` the adversarial review behind them. Read both first.
 
 The other docs: `PRD.md`, `neutrality.md`, `architecture.md`, `judgment-and-defenses.md`, `api.md`, `demo.md`, `testing.md`, `team.md`, `plan.md`, `decisions/`, `tasks/`. Research is in `docs/research/`; open it only when a decision needs it.
 
 ## Vocabulary
 
-club, rulebook, member, agent, mandate, commitment (offered → agreed), hold, delivery, acceptance, deterministic check, rubric criterion, sealed check, screen, panel, judge, verdict, judgment, escalation, appeal, adjudicator, bond, fallback adjudicator, default outcome, operator, escape hatch, rail, on-ramp, off-ramp, SimChain, receipt. Definitions are in `docs/architecture.md` under Glossary.
+club, rulebook, member, agent, mandate, commitment (offered → agreed), hold, delivery, acceptance, deterministic check, rubric criterion, sealed check, screen, panel, judge, verdict, judgment, escalation, appeal, adjudicator, bond, fallback adjudicator, default outcome, operator node, rules contract, escape hatch, rail, on-ramp, off-ramp, SimChain, receipt. Definitions are in `docs/architecture.md` under Glossary.
