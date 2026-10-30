@@ -144,7 +144,7 @@ const ev = {
     spentToday: over.spentToday ?? tusd('0'),
     memberAdmitted: over.memberAdmitted ?? true,
   }),
-  fund: (at = T.fund, over: { from?: Hex; value?: string; balance?: TokenAmount; buyerScope?: Scope; message?: Partial<FundingAuthorization> } = {}): EscrowEvent => ({
+  fund: (at = T.fund, over: { from?: Hex; value?: string; balance?: TokenAmount; gasBuffer?: TokenAmount; buyerScope?: Scope; message?: Partial<FundingAuthorization> } = {}): EscrowEvent => ({
     type: 'fund',
     at,
     message: {
@@ -163,7 +163,7 @@ const ev = {
     },
     buyerScope: over.buyerScope ?? scope(['buyer']),
     balance: over.balance ?? tusd('3000000000'),
-    gasBuffer: tusd('1000000'),
+    gasBuffer: over.gasBuffer ?? tusd('1000000'),
   }),
   deliver: (at = T.deliver, over: Partial<Delivery> = {}): EscrowEvent => ({ type: 'deliver', at, delivery: delivery(over) }),
   earlyAccept: (at = T.decide, by: Hex = buyer, over: Partial<EarlyAccept> = {}): EscrowEvent => ({
@@ -237,6 +237,7 @@ describe('offer', () => {
     ['maxSubmissions above the rulebook maximum', withRulebook({ ...rulebook, maxSubmissions: 0 }), 'invalid_terms'],
     ['a fee in another allowed token', withRulebook({ ...rulebook, allowedTokens: ['tUSD', 'tEUR'] }, { adjudication: { ...exampleCommitment.adjudication, fee: { token: 'tEUR', amount: '50000000' as TokenAmount['amount'] } } }), 'invalid_terms'],
     ['an unparseable offer time', { at: 'not a time' }, 'invalid_terms'],
+    ['a seller cap in another token', { sellerScope: scope(['seller'], { maxPerCommitment: { token: 'tEUR', amount: '5000000000' as TokenAmount['amount'] } }) }, 'invalid_terms'],
     ['a rulebook whose hash is not the one the terms bind', { rulebook: { ...rulebook, appealBondRate: 0.06 } }, 'rulebook_unknown'],
   ])('refuses %s', (_name, over, type) => {
     expect(offer(offerInput(over))).toMatchObject({ ok: false, error: { type } });
@@ -290,6 +291,27 @@ describe('legal transitions', () => {
     const r = step(run([...path]), ev.at('apply_default_outcome', far));
     if (!r.ok) throw new Error(r.error.detail);
     expect(r.value.kind === 'Refunded' && r.value.via).toEqual({ kind: 'default_outcome', from });
+  });
+
+  it('refuses to fund when price plus fee overflows uint256', () => {
+    const MAX = tusd((2n ** 256n - 1n).toString());
+    const huge = commitmentFor(rulebook, { price: MAX });
+    const big = scope(['seller', 'buyer'], { maxPerCommitment: MAX, maxDaily: MAX });
+    const start = offer(offerInput({ commitment: huge, sellerScope: big }));
+    if (!start.ok) throw new Error(start.error.detail);
+    const hid = huge.id;
+    const events: EscrowEvent[] = [
+      { type: 'adjudicator_accept', at: T.accept, message: acceptance({ commitmentId: hid, bondReserved: MAX }), unencumberedBond: MAX },
+      { type: 'agree', at: T.agree, message: { type: 'Agree', commitmentId: hid, buyer, nonce: ZERO32, expiresAt: far, signature: SIG }, buyerScope: big, spentToday: tusd('0'), memberAdmitted: true },
+    ];
+    let s: EscrowState = start.value;
+    for (const e of events) {
+      const r = step(s, e);
+      if (!r.ok) throw new Error(r.error.detail);
+      s = r.value;
+    }
+    const f = ev.fund(T.fund, { buyerScope: big, message: { commitmentId: hid } });
+    expect(step(s, f)).toMatchObject({ ok: false, error: { type: 'invalid_terms' } });
   });
 
   it('records the hold as price plus fee', () => {
@@ -410,6 +432,17 @@ const illegal: Illegal[] = [
   ['an appeal bond below the rulebook rate', toReleased, ev.fileAppeal(T.appealFiled, { bond: tusd('99999999') }), 'insufficient_funds'],
   ['an appeal fee below the rulebook fee', toReleased, ev.fileAppeal(T.appealFiled, {}, { feePaid: tusd('24999999') }), 'insufficient_funds'],
   ['a delivery without a key for the buyer', toHeld, ev.deliver(T.deliver, { encryptedKeys: delivery().encryptedKeys.filter((k) => k.recipient !== buyer) }), 'invalid_terms'],
+  // second sweep: money-comparison error branches and the fundBy guard
+  ['funding at fundBy with a message valid beyond it', toAgreed, ev.fund(T.fundBy, { message: { expiresAt: far, validBefore: far } }), 'deadline_passed'],
+  ['the primary signing as fallback before judgeBy', toDelivered, ev.decide('fallback', 'accept', T.decide, { adjudicator: primary }), 'not_your_turn'],
+  ['acceptance after offer expiry with a message valid beyond it', [], ev.accept({ expiresAt: far }, T.offerExpiry), 'deadline_passed'],
+  ['a gas buffer in another token', toAgreed, ev.fund(T.fund, { gasBuffer: { token: 'tEUR', amount: '1' as TokenAmount['amount'] } }), 'invalid_terms'],
+  ['a balance in another token', toAgreed, ev.fund(T.fund, { balance: { token: 'tEUR', amount: '3000000000' as TokenAmount['amount'] } }), 'invalid_terms'],
+  ['an acceptance bond in another token', [], ev.accept({ bondReserved: { token: 'tEUR', amount: '2000000000' as TokenAmount['amount'] } }), 'invalid_terms'],
+  ['a daily spend in another token', toAccepted, ev.agree(T.agree, { spentToday: { token: 'tEUR', amount: '0' as TokenAmount['amount'] } }), 'invalid_terms'],
+  ['a daily cap in another token', toAccepted, ev.agree(T.agree, { buyerScope: scope(['buyer'], { maxDaily: { token: 'tEUR', amount: '9000000000' as TokenAmount['amount'] } }) }), 'invalid_terms'],
+  ['a funding value that is not canonical base units', toAgreed, ev.fund(T.fund, { message: { value: '02050000000' } }), 'invalid_terms'],
+  ['a funding authorization in another token', toAgreed, ev.fund(T.fund, { message: { token: 'tEUR' } }), 'invalid_terms'],
   // an unparseable clock must refuse, never fire a timeout (T-004 review item 5)
   ['expiring an offer with an unparseable time', [], ev.at('expire', 'garbage'), 'invalid_terms'],
   ['reclaiming with an unparseable time', toHeld, ev.at('reclaim', 'garbage'), 'invalid_terms'],
@@ -476,11 +509,27 @@ describe('totality', () => {
   });
 });
 
+// A small valid-looking change to the current value, so most mutants still parse and reach core.
+const NUDGE = Symbol('nudge');
+function nudge(v: unknown): unknown {
+  if (typeof v === 'boolean') return !v;
+  if (typeof v === 'number') return v + 1;
+  if (typeof v !== 'string') return v;
+  if (/^0x[0-9a-fA-F]+$/.test(v)) return v.slice(0, -1) + (v.endsWith('0') ? '1' : '0');
+  if (/^\d{4}-\d{2}-\d{2}T/.test(v)) return new Date(Date.parse(v) + 1000).toISOString().replace('.000Z', 'Z');
+  if (/^\d+$/.test(v)) return (BigInt(v) + 1n).toString();
+  return `${v}x`;
+}
+// Fixed seed: property runs are reproducible, so the suite and the mutation sweep are deterministic.
+const SEED = 20261030;
+
 // Every message a parser accepts, in every reachable state, gives a state or a problem: never a throw.
 describe('step never throws on parsed input', () => {
   const states: EscrowEvent[][] = [[], toAccepted, toAgreed, toHeld, toDelivered, toFallback, toEscalated, toReleased, toAppealOpen, toDefaulted];
   const built = states.map(run);
   const anyValue = fc.oneof(
+    fc.constant(NUDGE),
+    fc.constant(NUDGE),
     fc.constantFrom<unknown>('2026-11-01T10:01:00Z', '2026-10-30T10:30:00.500Z', '1969-12-31T23:59:59Z', 0, 1, 2, 255, 2 ** 60, '0', (2n ** 256n).toString(), buyer, seller, primary, appealAdj, ZERO32, 'escalate', 'appeal', 'fallback'),
     fc.string(),
     fc.integer(),
@@ -501,7 +550,8 @@ describe('step never throws on parsed input', () => {
       const path = paths[i % paths.length]!;
       let cur = copy;
       for (const k of path.slice(0, -1)) cur = cur[k] as Record<string, unknown>;
-      cur[path[path.length - 1]!] = v;
+      const key = path[path.length - 1]!;
+      cur[key] = v === NUDGE ? nudge(cur[key]) : v;
     }
     return copy;
   }
@@ -534,8 +584,8 @@ describe('step never throws on parsed input', () => {
           if (!r.ok) expect(PROBLEM_TYPES).toContain(r.error.type);
         }
       }),
-      { numRuns: 300 },
+      { numRuns: 300, seed: SEED },
     );
-    expect(accepted).toBeGreaterThan(0);
+    expect(accepted).toBeGreaterThan(20);
   });
 });

@@ -167,6 +167,20 @@ describe('parser hygiene', () => {
   });
 });
 
+// A small valid-looking change to the current value, so most mutants still parse and reach core.
+const NUDGE = Symbol('nudge');
+function nudge(v: unknown): unknown {
+  if (typeof v === 'boolean') return !v;
+  if (typeof v === 'number') return v + 1;
+  if (typeof v !== 'string') return v;
+  if (/^0x[0-9a-fA-F]+$/.test(v)) return v.slice(0, -1) + (v.endsWith('0') ? '1' : '0');
+  if (/^\d{4}-\d{2}-\d{2}T/.test(v)) return new Date(Date.parse(v) + 1000).toISOString().replace('.000Z', 'Z');
+  if (/^\d+$/.test(v)) return (BigInt(v) + 1n).toString();
+  return `${v}x`;
+}
+// Fixed seed: property runs are reproducible, so the suite and the mutation sweep are deterministic.
+const SEED = 20261030;
+
 // Anything a parser accepts must be safe to hand to the rest of core: no throws downstream.
 const nasty = fc.constantFrom<unknown>(
   '2026-10-30T10:30:00.500Z',
@@ -190,7 +204,7 @@ const nasty = fc.constantFrom<unknown>(
   'x',
   'settle_after_window',
 );
-const anyValue = fc.oneof(nasty, fc.string(), fc.integer(), fc.double(), fc.boolean(), fc.bigInt({ min: 0n, max: 2n ** 260n }).map(String));
+const anyValue = fc.oneof(fc.constant(NUDGE), fc.constant(NUDGE), nasty, fc.string(), fc.integer(), fc.double(), fc.boolean(), fc.bigInt({ min: 0n, max: 2n ** 260n }).map(String));
 
 function leafPaths(value: unknown, path: string[] = []): string[][] {
   if (Array.isArray(value)) return value.flatMap((v, i) => leafPaths(v, [...path, String(i)]));
@@ -205,7 +219,8 @@ function withMutations(base: Record<string, unknown>, edits: Array<[number, unkn
     const path = paths[i % paths.length]!;
     let cur = copy as Record<string, unknown>;
     for (const k of path.slice(0, -1)) cur = cur[k] as Record<string, unknown>;
-    cur[path[path.length - 1]!] = v;
+    const key = path[path.length - 1]!;
+    cur[key] = v === NUDGE ? nudge(cur[key]) : v;
   }
   return copy;
 }
@@ -230,9 +245,9 @@ describe('parsed input never makes core throw', () => {
         validateTiming(terms.timing, rulebook);
         offer({ commitment: c, at: '2026-10-30T10:00:00Z', sellerScope: { roles: ['seller'], maxPerCommitment: terms.price, maxDaily: terms.price, expiresAt: '2030-01-01T00:00:00Z' }, rulebook, nonceUsed: false });
       }),
-      { numRuns: 500 },
+      { numRuns: 500, seed: SEED },
     );
-    expect(accepted).toBeGreaterThan(0);
+    expect(accepted).toBeGreaterThan(20);
   });
 
   it.each(['messages.acceptance', 'messages.decision', 'messages.funding', 'messages.member-admission'])('%s: typedDataOf and messageDigest', (name) => {
@@ -246,8 +261,8 @@ describe('parsed input never makes core throw', () => {
         typedDataOf(unsigned);
         messageDigest(domain, unsigned);
       }),
-      { numRuns: 300 },
+      { numRuns: 300, seed: SEED },
     );
-    expect(accepted).toBeGreaterThan(0);
+    expect(accepted).toBeGreaterThan(20);
   });
 });
