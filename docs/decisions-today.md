@@ -1,6 +1,6 @@
 # Decisions to make today
 
-Status: D1–D9 decided October 30, 2026, after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`); the options are kept as the record. D10 and D11 are open. Owner: Rafa. Each decision has options, a recommendation and the ADR it settles. Phase 1 (the demo) can start once D1, D2 and D6 are settled. Phase 2 needs D3 and D4.
+Status: D1–D9 decided October 30, 2026, after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`); the options are kept as the record. D10, D11 and D12 are open. Owner: Rafa. Each decision has options, a recommendation and the ADR it settles. Phase 1 (the demo) can start once D1, D2 and D6 are settled. Phase 2 needs D3 and D4.
 
 ## D1. Adopt the neutrality litmus test as the top constraint (ADR-0001)
 
@@ -148,3 +148,19 @@ Rafa's principle: user choice. Parties may select `optimistic` mode. The work is
 | Inspection time | `disputeBy` ≥ `deliverBy` + a rulebook minimum |
 
 **Recommendation:** review ADR-0014 and ADR-0015 together in one adversarial pass, then decide both.
+
+## D12. Phase 1 contract fixes (ADR-0016)
+
+**Open.** Blocks Phase 1: T-004 cannot fix its types and state machine until this is decided.
+
+The Phase 0 readiness review found gaps that would stop Phase 1 tasks partway. ADR-0016 settles them together.
+
+| Gap | Proposal |
+| --- | --- |
+| Circular commitment ID; adjudicators consent to nothing | The primary adjudicator signs an acceptance with a seed commitment before funding; the ID hashes terms only |
+| Stall before judging; ambiguous guaranteed-mode states | `Delivered → FallbackJudging` at `judgeBy`; state split into escrow state and appeal state |
+| No message schemas | `messages.schema.json` with every signed message (v0.4) |
+| Clubs, registry, endpoints | Member admission and revocation; adjudicators publish registry hash and URI; acceptance, decision, discovery and membership endpoints |
+| Unowned encryption and store | `tweetnacl` plus Web Crypto; a local content-addressed store; new task T-014 |
+
+**Recommendation:** accept ADR-0016, then apply it in one PR (schemas v0.4, state machine, API doc, task files) before T-004 starts.
