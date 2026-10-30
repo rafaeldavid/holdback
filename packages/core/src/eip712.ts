@@ -194,7 +194,7 @@ export const messageTypes = {
     ...expiring,
   ],
   Publish: [field('commitmentId', 'bytes32'), field('level', 'string'), ...expiring],
-  Receipt: [field('operator', 'address'), field('eventSeq', 'uint64'), field('eventHash', 'bytes32'), field('commitmentId', 'bytes32')],
+  Receipt: [field('operator', 'address'), field('eventSeq', 'uint64'), field('eventHash', 'bytes32'), field('hasCommitment', 'bool'), field('commitmentId', 'bytes32')],
   Mandate: [field('principal', 'address'), field('agent', 'address'), field('clubId', 'string'), field('scope', 'Scope'), field('nonce', 'bytes32'), stamp('issuedAt')],
 };
 
@@ -386,7 +386,8 @@ function encodeMessage(m: UnsignedMessage): Encoded {
         ...expiry(m),
       };
     case 'Receipt':
-      return { operator: m.operator, eventSeq: BigInt(m.eventSeq), eventHash: m.eventHash, commitmentId: m.commitmentId };
+      // A flag, not a zero hash, marks a receipt for an event with no commitment.
+      return { operator: m.operator, eventSeq: BigInt(m.eventSeq), eventHash: m.eventHash, hasCommitment: m.commitmentId !== undefined, commitmentId: m.commitmentId ?? ZERO32 };
     case 'Delivery':
       return {
         commitmentId: m.commitmentId,

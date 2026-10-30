@@ -76,7 +76,7 @@ Any operator node serves this API. It adds speed and convenience, never authorit
 
 | Method | Path | Body | Result |
 | --- | --- | --- | --- |
-| GET | `/v1/adjudicators` | — | Page of registered adjudicators with policy hash, registry hash and URI, bond pool and `poolTermsHash`, open exposure, fee and public quality signals |
+| GET | `/v1/adjudicators` | — | Page of registered adjudicators with policy hash, registry hash and URI, bond pool (junior, senior and reserved, which is the open exposure) and `poolTermsHash`, fee and public quality signals |
 | GET | `/v1/adjudicators/{address}` | — | Policy and policy hash, registry hash and URI, bond pool (junior, senior, reserved, terms), coverage, metrics |
 | POST | `/v1/adjudicators/{address}/quote` | Draft terms | Fee quote with its inputs (false-accept and false-reject rates, capital charge, model cost) |
 

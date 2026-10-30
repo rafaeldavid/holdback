@@ -3,14 +3,6 @@
   "name": "Bench A",
   "encryptionPublicKey": "A6d8Adb682dd4Aed883d592c521ccc795599fdf4a1c",
   "affiliations": [],
-  "bond": {
-    "token": "tUSD",
-    "amount": "25000000000"
-  },
-  "openExposure": {
-    "token": "tUSD",
-    "amount": "2000000000"
-  },
   "policy": {
     "id": "bench-a/p1",
     "panelSize": 3,

@@ -8,8 +8,6 @@
     "name",
     "encryptionPublicKey",
     "affiliations",
-    "bond",
-    "openExposure",
     "policy",
     "registry",
     "policyHash",
@@ -37,14 +35,6 @@
         "type": "string"
       },
       "description": "Member IDs the adjudicator is affiliated with; it may not judge their commitments"
-    },
-    "bond": {
-      "$ref": "common.schema.json#/$defs/TokenAmount",
-      "description": "Total pool stake: pool.junior plus pool.senior"
-    },
-    "openExposure": {
-      "$ref": "common.schema.json#/$defs/TokenAmount",
-      "description": "Bond reserved by open commitments; equals pool.reserved"
     },
     "policy": {
       "type": "object",
@@ -221,7 +211,7 @@
         "reserved",
         "terms"
       ],
-      "description": "The adjudicator's bond pool (ADR-0014 §2a). Junior is the adjudicator's own stake and takes losses first; senior is backers' stake, pro rata. Senior stays empty in Phase 1.",
+      "description": "The adjudicator's bond pool (ADR-0014 §2a). Junior is the adjudicator's own stake and takes losses first; senior is backers' stake, pro rata. Senior stays empty in Phase 1. The total bond is junior + senior and the open exposure is reserved; there is no separate bond field to disagree with them.",
       "properties": {
         "junior": {
           "$ref": "common.schema.json#/$defs/TokenAmount"

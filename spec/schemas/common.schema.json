@@ -9,13 +9,13 @@
     },
     "Hex32": {
       "type": "string",
-      "pattern": "^0x[0-9a-fA-F]{64}$",
-      "description": "32-byte value (keccak256 hash, EIP-712 struct hash, seed, nonce)"
+      "pattern": "^0x[0-9a-f]{64}$",
+      "description": "32-byte value (keccak256 hash, EIP-712 struct hash, seed, nonce); lowercase, so each value has one spelling"
     },
     "Signature": {
       "type": "string",
-      "pattern": "^0x[0-9a-fA-F]{130}$",
-      "description": "65-byte secp256k1 signature over EIP-712 typed data"
+      "pattern": "^0x[0-9a-f]{130}$",
+      "description": "65-byte secp256k1 signature over EIP-712 typed data; lowercase"
     },
     "Sha256": {
       "type": "string",

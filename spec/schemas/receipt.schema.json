@@ -9,7 +9,6 @@
     "operator",
     "eventSeq",
     "eventHash",
-    "commitmentId",
     "signature"
   ],
   "properties": {
@@ -25,7 +24,8 @@
       "$ref": "common.schema.json#/$defs/Hex32"
     },
     "commitmentId": {
-      "$ref": "common.schema.json#/$defs/Hex32"
+      "$ref": "common.schema.json#/$defs/Hex32",
+      "description": "Absent for events with no commitment, such as bond deposits"
     },
     "signature": {
       "$ref": "common.schema.json#/$defs/Signature"

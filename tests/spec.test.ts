@@ -75,7 +75,7 @@ describe('spec/', () => {
     expect(r.ok).toBe(true);
   });
 
-  it.each(['operator', 'eventSeq', 'eventHash', 'commitmentId', 'signature'])('requires a receipt to carry %s', (field) => {
+  it.each(['operator', 'eventSeq', 'eventHash', 'signature'])('requires a receipt to carry %s', (field) => {
     const validate = loadSpec().ajv.getSchema(`${V}/receipt.schema.json`);
     const r = example('receipt');
     expect(validate(r)).toBe(true);
@@ -365,6 +365,45 @@ describe('spec/', () => {
       expect(schema('adjudicator')(a)).toBe(false);
       delete a.policy[field];
       expect(schema('adjudicator')(a)).toBe(false);
+    });
+  });
+
+  describe('review of PR 23: items 4, 5, 7 and 8', () => {
+    const schema = (name: string) => loadSpec().ajv.getSchema(`${V}/${name}.schema.json`);
+    it('describes messages under domain version 0.5', () => {
+      expect(schema('messages').schema.description).toContain('version 0.5');
+      expect(schema('messages').schema.description).not.toContain('0.4');
+    });
+    it.each([
+      ['odd-length hex', { source: 'drand-quicknet', round: 1, value: '0x' + '11'.repeat(32), signature: '0xabc' }],
+      ['uppercase hex', { source: 'drand-quicknet', round: 1, value: '0x' + '11'.repeat(32), signature: '0xABCD' }],
+      ['a signature on a sim beacon', { source: 'sim', round: 1, value: '0x' + '11'.repeat(32), signature: '0xabcd' }],
+    ])('refuses a beacon with %s', (_label, beacon) => {
+      const d = example('messages.decision');
+      d.role = 'fallback';
+      d.beacon = beacon;
+      expect(schema('messages')(d)).toBe(false);
+    });
+    it.each([
+      ['a 32-byte hash', 'commitmentId', 'AB'],
+      ['a signature', 'signature', 'CD'],
+    ])('gives %s exactly one spelling (lowercase)', (_label, field, upper) => {
+      const m = example('messages.acceptance');
+      expect(schema('messages')(m)).toBe(true);
+      m[field] = m[field].slice(0, -2) + upper;
+      expect(schema('messages')(m)).toBe(false);
+    });
+    it('keeps the bond in the pool only, so a read cannot disagree with itself', () => {
+      const a = example('adjudicator');
+      expect(a.bond).toBeUndefined();
+      expect(a.openExposure).toBeUndefined();
+      a.bond = a.pool.junior;
+      expect(schema('adjudicator')(a)).toBe(false);
+    });
+    it('lets a receipt omit the commitment for events that have none', () => {
+      const r = example('receipt');
+      delete r.commitmentId;
+      expect(schema('receipt')(r)).toBe(true);
     });
   });
 });

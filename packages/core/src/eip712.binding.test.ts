@@ -64,7 +64,7 @@ export const fixtures: Record<string, UnsignedMessage> = {
     judgmentRecordHash: h('0b'),
     keyForBuyer: { scheme: 'x25519-xsalsa20poly1305', ciphertext: 'a2V5' },
     appealGround: 'wrong-outcome',
-    beacon: { source: 'sim', round: 1200, value: h('13'), signature: '0xabcd' },
+    beacon: { source: 'drand-quicknet', round: 1200, value: h('13'), signature: '0xabcd' },
     // The schema allows encryptedKeys on escalate only; this fixture pins the encoding, not that rule.
     encryptedKeys: [{ recipient: B, scheme: 'x25519-xsalsa20poly1305', ciphertext: 'a2V5Mw', unlock: { kind: 'beacon-round', round: 1300 } }],
     nonce: h('0c'),
@@ -165,7 +165,7 @@ const encodeTypePins: Record<string, string> = {
   MemberRevocation: 'MemberRevocation(string clubId,address member,address operator,bytes32 nonce,uint64 expiresAt)',
   Dispute: `Dispute(bytes32 commitmentId,address buyer,uint8 attempt,string grounds,TokenAmount bond,TokenAmount fee,EncryptedKey[] encryptedKeys,bytes32 nonce,uint64 expiresAt)EncryptedKey(address recipient,string scheme,string ciphertext,KeyUnlock unlock)KeyUnlock(string kind,uint64 round)${TOKEN}`,
   Publish: 'Publish(bytes32 commitmentId,string level,bytes32 nonce,uint64 expiresAt)',
-  Receipt: 'Receipt(address operator,uint64 eventSeq,bytes32 eventHash,bytes32 commitmentId)',
+  Receipt: 'Receipt(address operator,uint64 eventSeq,bytes32 eventHash,bool hasCommitment,bytes32 commitmentId)',
   MutualSettlement: `MutualSettlement(bytes32 commitmentId,bool hasDelivery,bytes32 deliveryHash,TokenAmount sellerAmount,bool releaseKey,bytes32 nonce,uint64 expiresAt)${TOKEN}`,
   Delivery:
     'Delivery(bytes32 commitmentId,uint8 attempt,Ciphertext ciphertext,string plaintextSha256,string plaintextMime,EncryptedKey[] encryptedKeys,uint64 submittedAt)Ciphertext(string uri,string sha256,uint64 bytes,string cipher)EncryptedKey(address recipient,string scheme,string ciphertext,KeyUnlock unlock)KeyUnlock(string kind,uint64 round)',
@@ -187,12 +187,12 @@ const digestPins: Record<string, Hex> = {
   AdjudicatorAcceptance: '0xacebf6ff92584830d13c78792efa6f7ef1f13c1edd6b94d2c3bd04153cfc46f6',
   FundingAuthorization: '0x75fc9c7b8284cb6b70e544cb8834bc693890fa6685999dd677072dd01c5118f9',
   EarlyAccept: '0xa78699f7b715d180b6e82f0655eb8b0db0a1d6d02230541d4833bb7651ec475e',
-  Decision: '0x9ceddcf6df1de34f0501df8451d1e51382e461233e0e3323b0d47082d2d62f4b',
+  Decision: '0x32f0f4fa27b73b95bf67870a9041e124f514e3628f997d0991026017e8a9d29e',
   AgentRevocation: '0x2e8948f37dd24a8f489f4892f45717e7d0b4e95e1e0031cc4726ac580634b6cc',
   MemberAdmission: '0x4c287d8c7afb55bbf264277e57cbc299aea5a7a42bdab1bae239d38fa0c34f89',
   MemberRevocation: '0x36305a20b58be29c84691558569d4cecb1b4b70deec0bb0da55c8520b3b5d0c7',
   Dispute: '0x715c61a6041268cacf7fc77f404c677caf9e30d249fe6583b0d5cede8f9b8135',
-  Receipt: '0xb4f8e3fe53f0c7f60d3c9f1fa5cd1d05645f238fe22387bbbd53dd59bd08c8ca',
+  Receipt: '0x34cd1ec8d75421f2cc86412881a666878393c01f79fe99da8627dd6ef76e925e',
   Publish: '0xdfbc5078dd18e6dfaf6e2f61334893670c82760fa927ecfe9b4a18d41c8543d6',
   MutualSettlement: '0xf67d31c60eafbed91f9861b505e20daa4c0cd50f2a427b256ce2dcdd34fbb257',
   Delivery: '0x5e2c28a7ba7404cdb832ec973e4447ff43f61969c428d3d9634e98de8973c21a',
@@ -330,6 +330,13 @@ describe('EIP-712 bindings', () => {
     const before: UnsignedMessage = { ...m, deliveryHash: null };
     const zero: UnsignedMessage = { ...m, deliveryHash: `0x${'0'.repeat(64)}` };
     expect(messageDigest(domain, before)).not.toBe(messageDigest(domain, zero));
+  });
+
+  it('distinguishes a receipt with no commitment from one for a zero commitment ID', () => {
+    const r = fixtures['Receipt'] as Extract<UnsignedMessage, { type: 'Receipt' }>;
+    const { commitmentId: _c, ...none } = r;
+    void _c;
+    expect(messageDigest(domain, none)).not.toBe(messageDigest(domain, { ...r, commitmentId: `0x${'0'.repeat(64)}` }));
   });
 
   it('distinguishes absent categories from an empty list in a Mandate scope', () => {

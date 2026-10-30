@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://holdback.dev/schemas/v0.5/messages.schema.json",
   "title": "Signed protocol messages (EIP-712)",
-  "description": "Every state-changing message other than Delivery and Appeal. Each carries its EIP-712 domain implicitly: name Holdback, version 0.4, chainId, verifyingContract (ADR-0016).",
+  "description": "Every state-changing message other than Delivery and Appeal. Each carries its EIP-712 domain implicitly: name Holdback, version 0.5, chainId, verifyingContract (ADR-0016).",
   "oneOf": [
     {
       "$ref": "#/$defs/Offer"
@@ -374,17 +374,20 @@
             },
             "signature": {
               "type": "string",
-              "pattern": "^0x[0-9a-fA-F]{2,512}$",
-              "description": "The beacon's signature over the round (e.g. a 48-byte BLS signature for drand quicknet)"
+              "pattern": "^0x([0-9a-f]{2}){1,256}$",
+              "description": "The beacon's signature over the round (e.g. a 48-byte BLS signature for drand quicknet); lowercase, whole bytes"
             }
           },
           "if": {
+            "type": "object",
             "properties": {
               "source": {
                 "const": "sim"
               }
             },
-            "type": "object"
+            "required": [
+              "source"
+            ]
           },
           "else": {
             "required": [
@@ -393,6 +396,18 @@
             "type": "object",
             "properties": {
               "signature": {}
+            }
+          },
+          "then": {
+            "type": "object",
+            "not": {
+              "type": "object",
+              "required": [
+                "signature"
+              ],
+              "properties": {
+                "signature": {}
+              }
             }
           }
         },

@@ -422,8 +422,6 @@ export interface AdjudicatorRegistration {
   name: string;
   encryptionPublicKey: Base64Url;
   affiliations: string[];
-  bond: TokenAmount;
-  openExposure: TokenAmount;
   policy: AdjudicatorPolicy;
   registry: { hash: Hex32; uri: string };
   policyHash: Hex32;
@@ -586,7 +584,8 @@ export interface Receipt {
   operator: Address;
   eventSeq: number;
   eventHash: Hex32;
-  commitmentId: Hex32;
+  /** Absent for events with no commitment, such as bond deposits. */
+  commitmentId?: Hex32;
   signature: Signature;
 }
 
