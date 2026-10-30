@@ -35,6 +35,7 @@ Scope after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-inte
 - [ ] T-010 Scenario fixtures for beats 1–7 plus `error.` and `neutrality.` sets; capture live recordings once (test)
 - [ ] T-012 Demo data and scripted buyer/seller agents (demo)
 - [ ] T-013 Narrated CLI, transcript renderer, static viewer, dry run (demo; human gate)
+- [ ] T-015 OpenAPI document, staleness check and HTTP contract test (api; after T-007 and T-010; ADR-0017)
 
 **Exit:**
 - Demo success criteria met (`docs/demo.md`).

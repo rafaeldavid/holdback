@@ -16,7 +16,7 @@ Restate this in your own words in this section before writing code.
 
 ## Context
 
-- `docs/architecture.md` §Hold and settlement postings, §Settlement interface, §Two-sided hold; ADR-0002, ADR-0007, ADR-0012; `docs/neutrality.md`.
+- `docs/architecture.md` §Hold and settlement postings, §Settlement interface, §Two-sided hold; ADR-0002, ADR-0007, ADR-0012, ADR-0017 (dry run); `docs/neutrality.md`.
 
 ## Acceptance criteria
 
@@ -31,6 +31,7 @@ Restate this in your own words in this section before writing code.
 - [ ] Model `authorizationExpiry` so SimChain and the Phase 2 contract agree (differential tests).
 - [ ] fast-check properties: conservation, non-negative balances, settle-once, idempotent resubmission, random interleavings of triggers.
 - [ ] Hash-chained event log with replay.
+- [ ] `Settlement.validate(...)` runs the same guards as submission against the settlement layer's own facts and changes nothing (ADR-0017 §7). Party messages may be unsigned and report the skipped signature check; adjudicator messages and triggers must be signed. Property test `error.dry-run-has-no-effects`: state, nonces, idempotency records, reserved bond and events are unchanged.
 - [ ] `pnpm load`: 1,000 holds, report p50/p95 (measured); 100 concurrent holds on one balance, zero overdrafts.
 
 ## Out of scope
