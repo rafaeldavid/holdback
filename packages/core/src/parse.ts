@@ -19,11 +19,11 @@ import type {
   JudgeVerdict,
   Judgment,
   Mandate,
+  Message,
   OperatorStatus,
   Page,
   Receipt,
   SettlementEvent,
-  SignedMessage,
 } from './types.js';
 
 /** The schema annotation on party-authored strings: content to read, never instructions (ADR-0017 §9). */
@@ -136,7 +136,7 @@ function commitmentRules(c: Commitment): string | undefined {
   return undefined;
 }
 
-function messageRules(m: SignedMessage): string | undefined {
+function messageRules(m: Message): string | undefined {
   if ((m.type === 'EarlyAccept' || m.type === 'Decision' || m.type === 'Dispute') && m.attempt > 255) return `attempt ${m.attempt} exceeds uint8`;
   // value is signed as uint256; one canonical decimal form per amount.
   // ADR-0018: Phase 1 admits only the SimChain beacon, which is a settlement-layer fact, not a proof.
@@ -156,7 +156,7 @@ export const parseEvent = parserFor<SettlementEvent>('event', false);
 export const parseJudgeVerdict = parserFor<JudgeVerdict>('judge-verdict', false);
 export const parseJudgment = parserFor<Judgment>('judgment', false);
 export const parseMandate = parserFor<Mandate>('mandate', true);
-export const parseMessage = parserFor<SignedMessage>('messages', true, messageRules);
+export const parseMessage = parserFor<Message>('messages', true, messageRules);
 export const parseOperatorStatus = parserFor<OperatorStatus>('operator-status', false);
 export const parsePage = parserFor<Page>('page', false);
 export const parseReceipt = parserFor<Receipt>('receipt', true);

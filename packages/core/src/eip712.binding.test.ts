@@ -83,6 +83,15 @@ export const fixtures: Record<string, UnsignedMessage> = {
     expiresAt: at,
   },
   Receipt: { type: 'Receipt', operator: A, eventSeq: 42, eventHash: h('15'), commitmentId: h('01') },
+  MutualSettlement: {
+    type: 'MutualSettlement',
+    commitmentId: h('01'),
+    deliveryHash: h('16'),
+    sellerAmount: tusd('1200000000'),
+    releaseKey: true,
+    nonce: h('17'),
+    expiresAt: at,
+  },
   Delivery: {
     type: 'Delivery',
     commitmentId: h('01'),
@@ -151,6 +160,7 @@ const encodeTypePins: Record<string, string> = {
   MemberRevocation: 'MemberRevocation(string clubId,address member,address operator,bytes32 nonce,uint64 expiresAt)',
   Dispute: `Dispute(bytes32 commitmentId,address buyer,uint8 attempt,string grounds,TokenAmount bond,TokenAmount fee,bytes32 nonce,uint64 expiresAt)${TOKEN}`,
   Receipt: 'Receipt(address operator,uint64 eventSeq,bytes32 eventHash,bytes32 commitmentId)',
+  MutualSettlement: `MutualSettlement(bytes32 commitmentId,bool hasDelivery,bytes32 deliveryHash,TokenAmount sellerAmount,bool releaseKey,bytes32 nonce,uint64 expiresAt)${TOKEN}`,
   Delivery:
     'Delivery(bytes32 commitmentId,uint8 attempt,Ciphertext ciphertext,string plaintextSha256,string plaintextMime,EncryptedKey[] encryptedKeys,uint64 submittedAt)Ciphertext(string uri,string sha256,uint64 bytes,string cipher)EncryptedKey(address recipient,string scheme,string ciphertext)',
   Appeal: `Appeal(bytes32 commitmentId,string appellant,address appellantAddress,string grounds,TokenAmount bond,uint64 filedAt)${TOKEN}`,
@@ -176,6 +186,7 @@ const digestPins: Record<string, Hex> = {
   MemberRevocation: '0x36305a20b58be29c84691558569d4cecb1b4b70deec0bb0da55c8520b3b5d0c7',
   Dispute: '0x96020a61b91f318e7b9119b288615065f1956694715a7995b32e3347a3813afa',
   Receipt: '0xb4f8e3fe53f0c7f60d3c9f1fa5cd1d05645f238fe22387bbbd53dd59bd08c8ca',
+  MutualSettlement: '0xf67d31c60eafbed91f9861b505e20daa4c0cd50f2a427b256ce2dcdd34fbb257',
   Delivery: '0x79264ed942cc6530155b2a73ef9869ffc7b89936d9320b12376695713b553ba6',
   Appeal: '0x3e03f3cd8fc63ce6cbc48fd61d0f601f6cb70f264e19b9857216a669855ad86d',
   Mandate: '0xa088db37eba2b2334bbe9bce8b65934596b122f5b861d2be73384ef5876f9497',
@@ -303,6 +314,13 @@ describe('EIP-712 bindings', () => {
     const { signature: _s, ...unsigned } = d.beacon!;
     void _s;
     expect(messageDigest(domain, { ...d, beacon: unsigned })).not.toBe(messageDigest(domain, d));
+  });
+
+  it('distinguishes a settlement before delivery (null deliveryHash) from a zero delivery hash', () => {
+    const m = fixtures['MutualSettlement'] as Extract<UnsignedMessage, { type: 'MutualSettlement' }>;
+    const before: UnsignedMessage = { ...m, deliveryHash: null };
+    const zero: UnsignedMessage = { ...m, deliveryHash: `0x${'0'.repeat(64)}` };
+    expect(messageDigest(domain, before)).not.toBe(messageDigest(domain, zero));
   });
 
   it('distinguishes absent categories from an empty list in a Mandate scope', () => {

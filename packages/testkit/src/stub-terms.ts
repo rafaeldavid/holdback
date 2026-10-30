@@ -30,6 +30,7 @@ export const STUB_RULEBOOK: Rulebook = {
   allowedTokens: [TOKEN],
   panelPolicyMin: { panelSize: 3, appealPanelSize: 5, minFamilies: 2 },
   appealFee: tusd('25000000'),
+  mutualSettlement: { allowed: true, adjudicatorFeeShareAfterDeliveryBps: 5000 },
   firstLossShareMin: 0.1,
   bondNoticePeriodMinSec: 600,
   randomness: { source: 'sim' },

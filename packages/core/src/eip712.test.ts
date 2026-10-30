@@ -11,6 +11,7 @@ import {
   signTerms,
   termsOf,
   verifyMessage,
+  verifyMutualSettlement,
   verifyTerms,
   type UnsignedMessage,
 } from './eip712.js';
@@ -136,7 +137,24 @@ describe('terms signatures', () => {
 const messageFiles = ['messages.acceptance', 'messages.decision', 'messages.dispute', 'messages.funding', 'messages.member-admission'];
 
 describe('message signatures', () => {
-  it('defines EIP-712 types for all ten messages plus Delivery, Appeal, Receipt and Mandate', () => {
+  it('verifies a mutual settlement only when buyer and seller both signed the identical struct', async () => {
+    const r = parseMessage(loadExample('messages.mutual-settlement.example.json'));
+    if (!r.ok || r.value.type !== 'MutualSettlement') throw new Error('expected a MutualSettlement');
+    const { buyerSignature: _b, sellerSignature: _s, ...unsigned } = r.value;
+    void _b;
+    void _s;
+    const buyerKey = otherKey;
+    const buyer = privateKeyToAddress(buyerKey);
+    const buyerSignature = await signMessage(buyerKey, domain, unsigned);
+    const sellerSignature = await signMessage(sellerKey, domain, unsigned);
+    const both = { ...unsigned, buyerSignature, sellerSignature };
+    expect(await verifyMutualSettlement(domain, both, buyer, seller)).toBe(true);
+    expect(await verifyMutualSettlement(domain, { ...both, sellerSignature: buyerSignature }, buyer, seller)).toBe(false);
+    expect(await verifyMutualSettlement(domain, { ...both, sellerAmount: { token: 'tUSD', amount: '1' } as never }, buyer, seller)).toBe(false);
+    expect(await verifyMutualSettlement(domain, { ...both, releaseKey: !both.releaseKey }, buyer, seller)).toBe(false);
+  });
+
+  it('defines EIP-712 types for all eleven messages plus Delivery, Appeal, Receipt and Mandate', () => {
     expect(Object.keys(messageTypes).sort()).toEqual(
       [
         'Offer',
@@ -149,6 +167,7 @@ describe('message signatures', () => {
         'MemberAdmission',
         'MemberRevocation',
         'Dispute',
+        'MutualSettlement',
         'Delivery',
         'Appeal',
         'Receipt',
@@ -160,6 +179,7 @@ describe('message signatures', () => {
   it.each(messageFiles)('signs and verifies %s', async (name) => {
     const r = parseMessage(loadExample(`${name}.example.json`));
     if (!r.ok) throw new Error(r.error.detail);
+    if (r.value.type === 'MutualSettlement') throw new Error('co-signed; covered below');
     const unsigned = without(r.value, 'signature');
     const sig = await signMessage(sellerKey, domain, unsigned);
     expect(await verifyMessage(domain, { ...unsigned, signature: sig }, seller)).toBe(true);

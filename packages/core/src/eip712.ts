@@ -21,6 +21,7 @@ import type {
   Delivery,
   Hex32,
   Mandate,
+  MutualSettlement,
   Receipt,
   Scope,
   Signature,
@@ -172,6 +173,14 @@ export const messageTypes = {
     field('bond', 'TokenAmount'),
     stamp('filedAt'),
   ],
+  MutualSettlement: [
+    field('commitmentId', 'bytes32'),
+    field('hasDelivery', 'bool'),
+    field('deliveryHash', 'bytes32'),
+    field('sellerAmount', 'TokenAmount'),
+    field('releaseKey', 'bool'),
+    ...expiring,
+  ],
   Receipt: [field('operator', 'address'), field('eventSeq', 'uint64'), field('eventHash', 'bytes32'), field('commitmentId', 'bytes32')],
   Mandate: [field('principal', 'address'), field('agent', 'address'), field('clubId', 'string'), field('scope', 'Scope'), field('nonce', 'bytes32'), stamp('issuedAt')],
 };
@@ -190,7 +199,9 @@ export type SignableMessage =
   | (Appeal & { type: 'Appeal' })
   | (Receipt & { type: 'Receipt' })
   | (Mandate & { type: 'Mandate' });
-export type UnsignedMessage = DistributiveOmit<SignableMessage, 'signature'>;
+/** MutualSettlement carries a buyer and a seller signature over the identical struct (ADR-0019). */
+export type UnsignedMutualSettlement = Omit<MutualSettlement, 'buyerSignature' | 'sellerSignature'>;
+export type UnsignedMessage = DistributiveOmit<SignableMessage, 'signature'> | UnsignedMutualSettlement;
 
 type Encoded = Record<string, unknown>;
 
@@ -325,6 +336,16 @@ function encodeMessage(m: UnsignedMessage): Encoded {
       return { clubId: m.clubId, member: m.member, operator: m.operator, ...expiry(m) };
     case 'Dispute':
       return { commitmentId: m.commitmentId, buyer: m.buyer, attempt: m.attempt, grounds: m.grounds, bond: amount(m.bond), fee: amount(m.fee), ...expiry(m) };
+    case 'MutualSettlement':
+      // A null deliveryHash (settled before delivery) is flagged, so it never collides with a zero hash.
+      return {
+        commitmentId: m.commitmentId,
+        hasDelivery: m.deliveryHash !== null,
+        deliveryHash: m.deliveryHash ?? ZERO32,
+        sellerAmount: amount(m.sellerAmount),
+        releaseKey: m.releaseKey,
+        ...expiry(m),
+      };
     case 'Receipt':
       return { operator: m.operator, eventSeq: BigInt(m.eventSeq), eventHash: m.eventHash, commitmentId: m.commitmentId };
     case 'Delivery':
@@ -405,4 +426,17 @@ export async function verifyMessage(domain: HoldbackDomain, message: SignableMes
     return false;
   }
   return recoversTo(typed(domain, message.type, encoded), signature, expected);
+}
+
+/** True when both parties signed the identical settlement struct. Never throws on malformed input. */
+export async function verifyMutualSettlement(domain: HoldbackDomain, m: MutualSettlement, buyer: Address, seller: Address): Promise<boolean> {
+  const { buyerSignature, sellerSignature, ...unsigned } = m;
+  let encoded: Encoded;
+  try {
+    encoded = encodeMessage(unsigned);
+  } catch {
+    return false;
+  }
+  const t = typed(domain, 'MutualSettlement', encoded);
+  return (await recoversTo(t, buyerSignature, buyer)) && (await recoversTo(t, sellerSignature, seller));
 }

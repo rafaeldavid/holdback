@@ -244,6 +244,27 @@ export type SignedMessage =
   | MemberRevocation
   | Dispute;
 
+/**
+ * Buyer and seller close a commitment by agreement (ADR-0019). Both sign the identical struct, so it
+ * carries two signatures instead of MessageBase's one. Settlement behavior is T-006.
+ */
+export interface MutualSettlement {
+  type: 'MutualSettlement';
+  commitmentId: Hex32;
+  /** The delivery being settled, or null before any delivery. */
+  deliveryHash: Hex32 | null;
+  /** Paid to the seller in the price token; the rest of the hold returns to the buyer. */
+  sellerAmount: TokenAmount;
+  releaseKey: boolean;
+  nonce: Hex32;
+  expiresAt: Timestamp;
+  buyerSignature: Signature;
+  sellerSignature: Signature;
+}
+
+/** Everything messages.schema.json admits. */
+export type Message = SignedMessage | MutualSettlement;
+
 // delivery.schema.json
 export interface Delivery {
   commitmentId: Hex32;
@@ -309,6 +330,8 @@ export interface Rulebook {
   allowedTokens: string[];
   panelPolicyMin: { panelSize: number; appealPanelSize: number; minFamilies: number };
   appealFee: TokenAmount;
+  /** ADR-0019. The fee share is an integer in basis points (10000 = all), not a Rate. */
+  mutualSettlement: { allowed: boolean; adjudicatorFeeShareAfterDeliveryBps: number };
   firstLossShareMin: Rate;
   bondNoticePeriodMinSec: number;
   randomness: { source: RandomnessSource; chainHash?: Hex32 };
@@ -380,6 +403,7 @@ export type EscrowStateKind =
   | 'Escalated'
   | 'Released'
   | 'Refunded'
+  | 'Settled'
   | 'Defaulted'
   | 'Expired';
 export type AppealStateKind = 'none' | 'open' | 'upheld' | 'overturned' | 'expired';
@@ -392,6 +416,8 @@ export interface CommitmentStateView {
   hold?: { amount: TokenAmount; railRef: string };
   deadlines: Record<string, Timestamp>;
   balances?: Record<Address, TokenAmount>;
+  /** Present only when escrowState is Settled (ADR-0019). */
+  settled?: { sellerAmount: TokenAmount; buyerAmount: TokenAmount; keyReleased: boolean };
   lastEventSeq: number;
   updatedAt: Timestamp;
 }
@@ -424,7 +450,8 @@ export type SettlementEventType =
   | 'bond.deposited'
   | 'bond.withdrawn'
   | 'bond.slashed'
-  | 'dispute.opened';
+  | 'dispute.opened'
+  | 'commitment.settled';
 
 export interface SettlementEvent {
   seq: number;
