@@ -43,7 +43,7 @@ Happy path for the $2,000 dataset-cleaning job (demo beats 1–4).
 
 ### bench-a (primary), attempt 1
 
-- **Intake:** plaintext 0x865a…3322 · text/csv · 53 bytes (stub bytes; fixtures/data/customers.cleaned.good.csv absent) · hash verified ✓
+- **Intake:** plaintext 0x865a…3322 · text/csv · 53 bytes (stub bytes by stub_bytes: true; fixtures/data/customers.cleaned.good.csv absent) · hash verified ✓
 - **Deterministic checks:** not evaluated by the stub (T-008): cols · rows · uniq · dates · emails (optional)
 - **Screen:** not run by the stub (T-008).
 - **Panel:** template 0x3f82…99de · rubric 0x5580…dba2 · input 0xa204…5a3a · seed commitment 0xdf50…1c79 · seed 0x225e…632c (recomputed: match)
@@ -54,7 +54,7 @@ Happy path for the $2,000 dataset-cleaning job (demo beats 1–4).
 
 ## Receipts and log
 
-- Events 0–7. Chain head 0x7fc8…8fd0. Replay of 5 core events matches the settlement state.
+- Events 0–7. Chain head 0x35d1…d412. Replay of 5 core events matches the settlement state.
 - Receipts from op-1: 5 (rcpt-0001–rcpt-0005). Stub receipts are unsigned until T-007.
 
 ## Invariants
