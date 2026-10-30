@@ -41,7 +41,7 @@ describe('declarative JSON Schema subset', () => {
     expect(v({ exclusiveMaximum: 2 })(2)).toBe(false);
     expect(v({ exclusiveMinimum: 0 })(0)).toBe(false);
     expect(v({ minLength: 2, maxLength: 3 })('ab')).toBe(true);
-    expect(v({ maxLength: 1 })('😀')).toBe(true);
+    expect(v({ maxLength: 1 })('\u{1F600}')).toBe(true);
     expect(v({ pattern: 'b+' })('abba')).toBe(true);
     expect(v({ pattern: '^b+$' })('abba')).toBe(false);
   });

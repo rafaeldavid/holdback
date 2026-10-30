@@ -1,7 +1,7 @@
 // A small regular-expression engine for patterns that come from commitments. Patterns are parties'
 // input, so they never reach the JavaScript RegExp engine, which backtracks and can take exponential
 // time ("(a+)+$"). This engine compiles a closed subset to a Thompson NFA and simulates it with state
-// sets: time is O(subject length × pattern states) for every pattern it accepts.
+// sets: time is O(subject length x pattern states) for every pattern it accepts.
 //
 // Supported: literals; `.`; classes `[...]` and `[^...]` with ranges; escapes \d \D \w \W \s \S
 // \t \n \r \f \v and escaped syntax characters; groups `(...)` and `(?:...)` (no captures are
@@ -13,7 +13,7 @@ import { err, ok, type Result } from '@holdback/core';
 
 export const MAX_PATTERN_CHARS = 200;
 export const MAX_REPEAT = 1000;
-export const MAX_STATES = 10_000;
+export const MAX_STATES = 5_000;
 /** Longer subjects never match; this bounds the work per cell. */
 export const MAX_SUBJECT_CHARS = 10_000;
 
@@ -24,11 +24,28 @@ type Node =
   | { t: 'alt'; options: Node[] }
   | { t: 'repeat'; node: Node; min: number; max: number };
 
+/**
+ * Work allowance shared by every check on one delivery, in NFA state visits. Linear time per cell
+ * is not enough on its own: states x subject length x cells can still be large.
+ */
+export class StepBudget {
+  constructor(public remaining: number) {}
+  spend(n: number): void {
+    this.remaining -= n;
+    if (this.remaining < 0) throw new BudgetExhausted();
+  }
+}
+export class BudgetExhausted extends Error {
+  constructor() {
+    super('check budget exhausted');
+  }
+}
+
 export interface SafeRegex {
   /** True iff the whole subject matches (anchors implied). */
-  fullMatch(subject: string): boolean;
+  fullMatch(subject: string, budget?: StepBudget): boolean;
   /** True iff some substring matches, honoring a leading ^ and trailing $ (RegExp.test semantics). */
-  search(subject: string): boolean;
+  search(subject: string, budget?: StepBudget): boolean;
 }
 
 class PatternError extends Error {}
@@ -231,7 +248,7 @@ class Compiler {
   }
 }
 
-function simulate(states: State[], start: number, cps: number[], anchoredStart: boolean, anchoredEnd: boolean): boolean {
+function simulate(states: State[], start: number, cps: number[], anchoredStart: boolean, anchoredEnd: boolean, budget?: StepBudget): boolean {
   const mark = new Int32Array(states.length).fill(-1);
   let gen = 0;
   let current: number[] = [];
@@ -249,6 +266,7 @@ function simulate(states: State[], start: number, cps: number[], anchoredStart: 
   add(current, start);
   const accepts = (list: number[]) => list.some((x) => states[x]!.k === 'match');
   for (const cp of cps) {
+    budget?.spend(current.length + 1);
     if (!anchoredEnd && accepts(current)) return true;
     gen++;
     const next: number[] = [];
@@ -285,12 +303,12 @@ export function compileSafeRegex(pattern: string): Result<SafeRegex, string> {
     const c = new Compiler();
     const start = c.build(ast, 0);
     const { states } = c;
-    const run = (subject: string, full: boolean) => {
+    const run = (subject: string, full: boolean, budget?: StepBudget) => {
       const chars = [...subject];
       if (chars.length > MAX_SUBJECT_CHARS) return false;
-      return simulate(states, start, chars.map((ch) => ch.codePointAt(0)!), full || anchoredStart, full || anchoredEnd);
+      return simulate(states, start, chars.map((ch) => ch.codePointAt(0)!), full || anchoredStart, full || anchoredEnd, budget);
     };
-    return ok({ fullMatch: (s) => run(s, true), search: (s) => run(s, false) });
+    return ok({ fullMatch: (s, b) => run(s, true, b), search: (s, b) => run(s, false, b) });
   } catch (e) {
     if (e instanceof PatternError) return err(e.message);
     throw e;

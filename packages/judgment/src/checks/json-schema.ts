@@ -3,13 +3,13 @@
 // never resolves references: it is walked as data. Unknown keywords are refused, not ignored, so a
 // schema cannot quietly mean less than the parties thought.
 import { canonicalJson, err, ok, type Result } from '@holdback/core';
-import { compileSafeRegex, type SafeRegex } from './safe-regex.js';
+import { compileSafeRegex, type SafeRegex, type StepBudget } from './safe-regex.js';
 
 export const MAX_SCHEMA_DEPTH = 32;
 export const MAX_SCHEMA_NODES = 2000;
 
-/** Returns undefined when valid, or a short reason. */
-export type Validator = (value: unknown) => string | undefined;
+/** Returns undefined when valid, or a short reason. Spends one budget unit per subschema visit. */
+export type Validator = (value: unknown, budget?: StepBudget) => string | undefined;
 
 const ANNOTATIONS = new Set(['$schema', 'title', 'description', '$comment', 'examples', 'default']);
 const TYPES = new Set(['null', 'boolean', 'object', 'array', 'number', 'integer', 'string']);
@@ -59,10 +59,10 @@ function compile(schema: unknown, depth: number, budget: { nodes: number }): Val
       case 'properties': {
         if (!isObject(v)) throw new SchemaError('properties must be an object');
         const props = Object.entries(v).map(([name, s]) => [name, sub(s)] as const);
-        checks.push((x) => {
+        checks.push((x, b) => {
           if (!isObject(x)) return undefined;
           for (const [name, val] of props) if (own(x, name)) {
-            const e = val(x[name]);
+            const e = val(x[name], b);
             if (e) return `/${name}: ${e}`;
           }
           return undefined;
@@ -77,10 +77,10 @@ function compile(schema: unknown, depth: number, budget: { nodes: number }): Val
       case 'additionalProperties': {
         const known = isObject(schema.properties) ? new Set(Object.keys(schema.properties)) : new Set<string>();
         const val = sub(v);
-        checks.push((x) => {
+        checks.push((x, b) => {
           if (!isObject(x)) return undefined;
           for (const name of Object.keys(x)) if (!known.has(name)) {
-            const e = val(x[name]);
+            const e = val(x[name], b);
             if (e) return `/${name}: additional property ${e}`;
           }
           return undefined;
@@ -89,10 +89,10 @@ function compile(schema: unknown, depth: number, budget: { nodes: number }): Val
       }
       case 'items': {
         const val = sub(v);
-        checks.push((x) => {
+        checks.push((x, b) => {
           if (!Array.isArray(x)) return undefined;
           for (const [i, item] of x.entries()) {
-            const e = val(item);
+            const e = val(item, b);
             if (e) return `/${i}: ${e}`;
           }
           return undefined;
@@ -148,7 +148,7 @@ function compile(schema: unknown, depth: number, budget: { nodes: number }): Val
         const r = compileSafeRegex(v);
         if (!r.ok) throw new SchemaError(`pattern: ${r.error}`);
         const re: SafeRegex = r.value;
-        checks.push((x) => (typeof x === 'string' && !re.search(x) ? 'does not match pattern' : undefined));
+        checks.push((x, b) => (typeof x === 'string' && !re.search(x, b) ? 'does not match pattern' : undefined));
         break;
       }
       case 'anyOf':
@@ -156,8 +156,8 @@ function compile(schema: unknown, depth: number, budget: { nodes: number }): Val
       case 'oneOf': {
         if (!Array.isArray(v) || v.length === 0) throw new SchemaError(`${k} must be a non-empty array`);
         const vals = v.map(sub);
-        checks.push((x) => {
-          const passing = vals.filter((val) => val(x) === undefined).length;
+        checks.push((x, b) => {
+          const passing = vals.filter((val) => val(x, b) === undefined).length;
           if (k === 'allOf') return passing === vals.length ? undefined : 'allOf not satisfied';
           if (k === 'anyOf') return passing > 0 ? undefined : 'anyOf not satisfied';
           return passing === 1 ? undefined : `oneOf matched ${passing}`;
@@ -166,16 +166,17 @@ function compile(schema: unknown, depth: number, budget: { nodes: number }): Val
       }
       case 'not': {
         const val = sub(v);
-        checks.push((x) => (val(x) === undefined ? 'matches not' : undefined));
+        checks.push((x, b) => (val(x, b) === undefined ? 'matches not' : undefined));
         break;
       }
       default:
         throw new SchemaError(`keyword ${k.slice(0, 40)} is not supported`);
     }
   }
-  return (x) => {
+  return (x, b) => {
+    b?.spend(1);
     for (const c of checks) {
-      const e = c(x);
+      const e = c(x, b);
       if (e) return e;
     }
     return undefined;

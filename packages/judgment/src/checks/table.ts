@@ -1,15 +1,31 @@
 // A tabular view of a deliverable for the column checks: CSV (header plus rows) or a JSON array of
-// flat objects. Empty CSV cells and JSON null or "" are null.
+// flat objects. A cell is a string, null (empty CSV cell, JSON null or ""), or a non-scalar JSON
+// value (object, array, boolean) kept apart so no check mistakes it for text.
 import { canonicalJson, err, ok, type MimeType, type Result } from '@holdback/core';
 import { parseCsv } from './csv.js';
 
+export interface NonScalar {
+  nonScalar: 'object' | 'array' | 'boolean';
+  text: string;
+}
+export type Cell = string | null | NonScalar;
+
 export interface Table {
   columns: string[];
-  rows: Array<Array<string | null>>;
+  rows: Cell[][];
 }
 
-const cell = (v: unknown): string | null =>
-  v === null || v === undefined || v === '' ? null : typeof v === 'string' ? v : typeof v === 'object' ? canonicalJson(v) : String(v);
+export const isNonScalar = (c: Cell): c is NonScalar => typeof c === 'object' && c !== null;
+/** The cell as text for string checks; null and non-scalars have none. */
+export const cellText = (c: Cell): string | null => (typeof c === 'string' ? c : null);
+
+function cell(v: unknown): Cell {
+  if (v === null || v === undefined || v === '') return null;
+  if (typeof v === 'string') return v;
+  if (typeof v === 'number') return String(v);
+  if (typeof v === 'boolean') return { nonScalar: 'boolean', text: String(v) };
+  return { nonScalar: Array.isArray(v) ? 'array' : 'object', text: canonicalJson(v) };
+}
 
 export function toTable(text: string, mime: MimeType): Result<Table, string> {
   if (mime === 'application/json') {
