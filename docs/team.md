@@ -43,9 +43,9 @@ flowchart LR
 ```
 
 - **Task file:** `docs/tasks/T-xxx-<slug>.md`, from `_template.md`. It has a lane, dependencies, the paths the task may touch, acceptance criteria, an evidence block and a handoff block.
-- **Branch and worktree:** `git worktree add ../holdback-T-xxx -b t-xxx-<slug>`.
+- **Branch and worktree:** `git worktree add .worktrees/holdback-T-xxx -b t-xxx-<slug>`. `.worktrees/` sits inside the repo and is gitignored.
 - **Commits:** imperative subject, with the task ID in the body.
-- **PR template:** summary; acceptance criteria checklist; evidence (commands run, snapshot diffs, metrics, each labeled measured, inferred or guessed); risks; follow-ups.
+- **PR template:** `.github/pull_request_template.md`: summary; acceptance criteria checklist; evidence from `pnpm verify` (labeled measured, inferred or guessed); litmus tests; contract checklist; human gate; risks; follow-ups.
 - **Handoff:** before stopping, write what is done, what is not, how to resume, and which open questions remain into the task file.
 - **Decision log:** every non-trivial choice made inside a task goes into the task file's Decisions section. If the choice changes architecture, a contract or a defense, it becomes an ADR.
 
