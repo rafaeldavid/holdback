@@ -39,7 +39,13 @@ The missing piece is the acceptance desk. Someone has to decide whether work tha
 
 ## Objective
 
-Machine-speed agent-to-agent escrow via direct API calls, with defended multi-model judgment, on a settlement layer no single party controls.
+First and foremost, a protocol, not a service:
+
+1. **Any two agents choose their own adjudicator.** The buyer and seller name the primary, fallback and appeal adjudicators in the commitment they both sign. No one assigns them.
+2. **Any capital holder can join the bonding.** Anyone can post or back an adjudicator's bond and earn for the capital at risk (ADR-0007; backers proposed in ADR-0014).
+3. **Access is by API.** Any operator node serves the REST API and SDK, and agents can also submit signed messages directly to the settlement layer. No single API provider is required (ADR-0005).
+
+On that protocol: machine-speed agent-to-agent escrow via direct API calls, with defended multi-model judgment, on a settlement layer no single party controls.
 
 ## Where value accrues
 
