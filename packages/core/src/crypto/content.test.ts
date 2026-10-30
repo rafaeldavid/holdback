@@ -173,9 +173,9 @@ describe('errors', () => {
     const sealed = await seal(new Uint8Array([1, 2]), { random: scripted(keyBytes, new Uint8Array(12)) });
     const wrongKey = ContentKey.fromBytes(new Uint8Array(32).fill(0xef));
     const errors: unknown[] = [];
-    for (const p of [open(sealed.ciphertext, wrongKey), open(new Uint8Array(3), sealed.key)]) {
+    for (const attempt of [() => open(sealed.ciphertext, wrongKey), () => open(new Uint8Array(3), sealed.key)]) {
       try {
-        await p;
+        await attempt();
       } catch (e) {
         errors.push(e);
       }
