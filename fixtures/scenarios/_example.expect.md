@@ -11,10 +11,10 @@ Happy path for the $2,000 dataset-cleaning job (demo beats 1–4).
 | Pragmas | settlement=sim · judges=recorded · mode=guaranteed_on_decision · seed=7 |
 | Prefix | none (normal flow: reaches a terminal state, invariants hold) |
 | Settlement | stub settlement driving @holdback/core `step` (SimChain lands in T-006) |
-| Club | fixtures/clubs/data-services-v1.yaml (stub rulebook; file absent) · rulebook 0x0e22…03a2 |
+| Club | fixtures/clubs/data-services-v1.yaml (stub rulebook; file absent) · rulebook 0x0965…be22 |
 | Buyer | atlas-buyer 0x5e2E…Ea0B |
 | Seller | tidewater-seller 0x69B5…63eE |
-| Terms | fixtures/terms/clean-customers-2000.yaml (stub terms; file absent) · commitment 0xe8ff…2607 · price 2,000.000000 tUSD · fee 50.000000 tUSD |
+| Terms | fixtures/terms/clean-customers-2000.yaml (stub terms; file absent) · commitment 0x27f6…c801 · price 2,000.000000 tUSD · fee 50.000000 tUSD |
 | Adjudicators | primary bench-a 0xCcAa…AfC8 · fallback bench-b 0x2729…0795 · appeal bench-c 0x9690…A2fD |
 | Operators | op-1 · op-2 |
 
@@ -46,7 +46,7 @@ Happy path for the $2,000 dataset-cleaning job (demo beats 1–4).
 - **Intake:** plaintext 0x865a…3322 · text/csv · 53 bytes (stub bytes by stub_bytes: true; fixtures/data/customers.cleaned.good.csv absent) · hash verified ✓
 - **Deterministic checks:** not evaluated by the stub (T-008): cols · rows · uniq · dates · emails (optional)
 - **Screen:** not run by the stub (T-008).
-- **Panel:** template 0x3f82…99de · rubric 0x5580…dba2 · input 0x201e…2611 · seed commitment 0xdf50…1c79 · seed 0x225e…632c (recomputed: match)
+- **Panel:** template 0x3f82…99de · rubric 0x5580…dba2 · input 0x302e…cc20 · seed commitment 0xdf50…1c79 · seed 0x225e…632c (recomputed: match)
   - claude-a · anthropic/claude · recorded:stub-claude-pinned-1 (captured from fake judges) · pass · scores 4/4/4
   - claude-b · anthropic/claude · recorded:stub-claude-pinned-2 (captured from fake judges) · pass · scores 4/4/4
   - fam2-a · openai-compatible/family-2 · recorded:stub-family2-pinned-1 (captured from fake judges) · pass · scores 4/4/4
@@ -54,7 +54,7 @@ Happy path for the $2,000 dataset-cleaning job (demo beats 1–4).
 
 ## Receipts and log
 
-- Events 0–7. Chain head 0xe183…1a4a. Replay of 5 core events matches the settlement state.
+- Events 0–7. Chain head 0xc12a…dc19. Replay of 5 core events matches the settlement state.
 - Receipts from op-1: 5 (rcpt-0001–rcpt-0005). Stub receipts are unsigned until T-007.
 
 ## Invariants
