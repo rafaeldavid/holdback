@@ -1,14 +1,14 @@
 // In-memory store with the same contract as the local one, for tests and in-process SimChain runs.
 import type { Sha256 } from '../types.js';
 import { sha256 } from '../crypto/hash.js';
-import { MAX_CIPHERTEXT_BYTES, StoreError, checkPut, idHex, type CiphertextStore, type StoreOptions } from './store.js';
+import { StoreError, checkPut, idHex, resolveMaxBytes, type CiphertextStore, type StoreOptions } from './store.js';
 
 export class MemoryCiphertextStore implements CiphertextStore {
   readonly #objects = new Map<string, Uint8Array>();
   readonly #maxBytes: number;
 
   constructor(options: StoreOptions = {}) {
-    this.#maxBytes = options.maxBytes ?? MAX_CIPHERTEXT_BYTES;
+    this.#maxBytes = resolveMaxBytes(options);
   }
 
   async put(bytes: Uint8Array): Promise<Sha256> {
