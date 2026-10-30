@@ -38,6 +38,7 @@ Restate this in your own words in this section before writing code.
   - receipts conform to `receipt.schema.json`;
   - problem types `not_found` and `invalid_cursor`.
 - [ ] `POST /v1/commitments/{id}/settlements` accepts a co-signed `MutualSettlement`, with `?validateOnly=true` (ADR-0019); the SDK exposes `settle()` and `preview()` for it.
+- [ ] Privacy (ADR-0020): responses include a commitment's body only at disclosure levels that publish it (Phase 1: `public`). Read authentication (`ReadToken`, `unauthorized`) is out of scope until Phase 2.
 
 ## Out of scope
 

@@ -165,6 +165,29 @@ The primary's panel seed comes from its own commit-reveal. The fallback and appe
 
 SimChain runs a deterministic beacon, `keccak256(simSeed ‖ round)`, one round per simulated second. Phase 2 uses drand quicknet, verified on chain. If a round cannot be proven by the deadline, the decision is refused, and the fallback or default applies.
 
+## Privacy and disclosure (ADR-0020)
+
+Every commitment has a public skeleton and a private body.
+
+| Part | Contents | Who sees it |
+| --- | --- | --- |
+| Skeleton | Commitment ID, terms hash, payout addresses, token, price and fee, deadlines, the three adjudicators, mode, `policyHash`, `registryHash`, `rulebookHash`, outcomes, money and bond movements | Everyone, at every level. Timeouts, the coverage gate and settle-once need only this |
+| Body | Description, criteria, rubric, sealed checks, judgment reasons | Public at `public`; criteria and judgment record public at `judgment`; otherwise the parties and involved adjudicators, through a record key wrapped to each |
+| Work | The deliverable | Never published by the protocol. Readable by whoever holds the content key |
+
+Keys go only to those who need them. Whoever wants judgment carries the key; the seller is never the gate.
+
+| Path | Content key and record key |
+| --- | --- |
+| Mutual settlement | The parties only |
+| Early acceptance | The buyer, with the payment |
+| Optimistic mode | The buyer at delivery. A `Dispute` carries keys for all three adjudicators |
+| Guaranteed mode, primary | At delivery |
+| Fallback | Released on takeover: SimChain holds the envelope in Phase 1; time-locked to the beacon round at `judgeBy` in Phase 2 |
+| Appeal | Carried by the `escalate` decision or the appeal; time-locked to `appealBy` as a backstop in Phase 2 |
+
+Disclosure levels are a signed term: `private`, `judgment` or `public`. A rulebook sets `disclosureMin`, an adjudicator policy may require a minimum, and a co-signed `Publish` can raise the level, never lower it. Phase 1 admits `public` only. Bond backers see aggregate signals recomputed from skeleton events, not cases.
+
 ## Hold and settlement postings (SimChain)
 
 The prototype uses accounts per address and per escrow, in base units of the test token. Each adjudicator's bond is a pool with two tranches, `bond:{a}:junior` (its own stake, first loss) and `bond:{a}:senior` (backers, pro rata), plus one `reserved` counter (ADR-0014 §2a, D10). Below, `bond:{a}` means the pool: debits take junior first, then senior; the appeal-upheld credit goes to junior. Senior is empty in Phase 1.
@@ -280,5 +303,9 @@ docs/              specs, ADRs, tasks, research
 - **Rail:** where custody happens. **On-ramp / off-ramp:** fiat conversion before the hold / after release.
 - **Receipt:** an operator-signed record of an accepted message or a settlement event.
 - **Mutual settlement:** a message buyer and seller both sign that ends a funded, undecided commitment at any split of the price, with or without releasing the content key to the buyer (ADR-0019).
+- **Skeleton:** the public part of a commitment: IDs and hashes, payout addresses, token and amounts, deadlines, adjudicators, mode, outcomes and money movements. Anyone can act on it (ADR-0020).
+- **Disclosure level:** a signed term, `private`, `judgment` or `public`, that sets which parts of the body are public. A rulebook sets the minimum; a co-signed `Publish` can raise it.
+- **View key:** a key a party hands to an auditor or examiner so it can read a commitment's body without publishing it.
+- **Pseudonymous identity:** a one-time signing key per commitment, linked to the agent's long-term identity only for the counterparty and involved adjudicators (ADR-0020, Phase 2).
 - **Beacon:** a public source of randomness rounds that no adjudicator or party controls. It seeds fallback and appeal panels (ADR-0018). SimChain in Phase 1, drand quicknet in Phase 2.
 - **Backer:** any address that deposits into an adjudicator's bond pool and earns its capital charge pro rata, behind the adjudicator's first-loss stake (ADR-0014).

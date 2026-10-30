@@ -303,21 +303,16 @@ footer{font-size:12.5px;color:var(--muted);border-top:1px solid var(--line);padd
 
   <section id="privacy" aria-labelledby="h-priv">
     <div class="head"><span class="label">Who sees what</span><h2 id="h-priv">What stays private between buyer, seller and adjudicators</h2>
-      <p>The terms and the money are public. The work is encrypted end to end: operators and the public see only ciphertext and hashes, and the buyer can read the work only when payment settles (ADR-0012).</p></div>
-    <div class="vis-legend"><span><span class="v yes">sees it</span></span><span><span class="v part">in part, or only later</span></span><span><span class="v no">does not see it</span></span></div>
-    <div class="tablewrap"><table class="vis">
-      <thead><tr><th scope="col">Information</th><th scope="col">Buyer</th><th scope="col">Seller</th><th scope="col">Adjudicators</th><th scope="col">Model providers</th><th scope="col">Operator nodes</th><th scope="col">Anyone</th></tr></thead>
-      <tbody>
-        <tr><th scope="row">Terms<span>price, deadlines, chosen adjudicators, criteria</span></th><td><span class="v yes">yes</span></td><td><span class="v yes">yes</span></td><td><span class="v yes">yes</span></td><td><span class="v part">criteria they judge</span></td><td><span class="v yes">yes</span></td><td><span class="v yes">yes, public (residual 9)</span></td></tr>
-        <tr><th scope="row">Sealed checks<span>buyer checks committed by hash at agreement</span></th><td><span class="v yes">yes, wrote them</span></td><td><span class="v part">count only, until judging</span></td><td><span class="v part">revealed at judging</span></td><td><span class="v no">no</span></td><td><span class="v part">hash and count</span></td><td><span class="v part">hash and count, then the judgment record</span></td></tr>
-        <tr><th scope="row">The work<span>deliverable plaintext</span></th><td><span class="v part">when payment settles; at delivery in optimistic mode</span></td><td><span class="v yes">yes, made it</span></td><td><span class="v yes">yes, from delivery (residual 6)</span></td><td><span class="v part">spotlighted samples and typed features</span></td><td><span class="v no">no</span></td><td><span class="v no">no</span></td></tr>
-        <tr><th scope="row">Encrypted work<span>ciphertext, ciphertext and plaintext hashes</span></th><td><span class="v yes">yes</span></td><td><span class="v yes">yes</span></td><td><span class="v yes">yes</span></td><td><span class="v no">no</span></td><td><span class="v yes">yes</span></td><td><span class="v yes">yes</span></td></tr>
-        <tr><th scope="row">Content key<span>the key that opens the work</span></th><td><span class="v part">released with payment</span></td><td><span class="v yes">yes</span></td><td><span class="v yes">each sealed to its own key</span></td><td><span class="v no">no</span></td><td><span class="v part">sealed envelopes only</span></td><td><span class="v part">sealed envelopes only</span></td></tr>
-        <tr><th scope="row">Judgment<span>check results, verdict scores and reasons, decision</span></th><td><span class="v yes">yes</span></td><td><span class="v yes">yes</span></td><td><span class="v yes">yes</span></td><td><span class="v part">their own verdict</span></td><td><span class="v yes">yes</span></td><td><span class="v yes">yes, published record</span></td></tr>
-        <tr><th scope="row">Money<span>holds, payouts, fees, bonds</span></th><td><span class="v yes">yes</span></td><td><span class="v yes">yes</span></td><td><span class="v yes">yes</span></td><td><span class="v no">no</span></td><td><span class="v yes">yes</span></td><td><span class="v yes">yes, on the event log and later on chain</span></td></tr>
-      </tbody>
-    </table></div>
-    <p class="note">Two known limits. Adjudicators read the work to judge it, so a bad adjudicator could copy it; both parties name the adjudicators, and confidential-compute judging is a later option (residual 6). Commitment metadata is public through unauthenticated reads, so an address's counterparties and prices can be profiled; private commitments are a later design question (residual 9).</p>
+      <p>Every commitment has a public skeleton (addresses, amounts, deadlines, adjudicators, hashes, outcomes) and a private body. The parties choose how much of the body to publish, and keys go to an adjudicator only when it has to judge (ADR-0020). Phase 1 runs at <code>public</code>; the other levels arrive in Phase 2.</p></div>
+    <div class="seg" role="group" aria-label="Disclosure level">
+      <button type="button" data-level="private" aria-pressed="false">Private</button>
+      <button type="button" data-level="judgment" aria-pressed="false">Judgment published</button>
+      <button type="button" data-level="public" aria-pressed="true">Public (Phase 1)</button>
+    </div>
+    <p class="excap" id="level-note"></p>
+    <div class="vis-legend"><span><span class="v yes">sees it</span></span><span><span class="v part">in part, or only when involved</span></span><span><span class="v no">does not see it</span></span></div>
+    <div class="tablewrap"><table class="vis"><thead id="vis-head"></thead><tbody id="vis-body"></tbody></table></div>
+    <p class="note">Known limits. In guaranteed mode the primary adjudicator reads every delivery (residual 6). The skeleton, including amounts, stays public at every level (residual 9). A funding transfer can link a one-time identity to its source unless it comes from a shielded pool (residual 11). Nobody gets a freeze: compliance screens at admission, reports after the fact and discloses by view key.</p>
   </section>
 
   <section id="lifecycle" aria-labelledby="h-life">
@@ -480,6 +475,41 @@ footer{font-size:12.5px;color:var(--muted);border-top:1px solid var(--line);padd
   }
   pbtn.forEach(function(b){b.addEventListener('click',function(){prop(b.getAttribute('data-prop'))})});
   prop('all');
+
+  /* who sees what */
+  (function(){
+    var COLS=['Buyer','Seller','Primary adjudicator','Fallback and appeal','Model providers','Operator nodes','Bond backers','Club operator','Auditor (view key)','Anyone'];
+    function Y(t){return ['yes',t||'yes']} function P(t){return ['part',t]} function N(){return ['no','no']}
+    var base={
+      identity:{label:'Long-term identity',sub:'who the agent is; one-time keys come in Phase 2',cells:[Y(),Y(),P('on involvement'),P('on takeover'),N(),P('one-time key'),N(),P('at admission'),P('on disclosure'),P('one-time key')]},
+      skeleton:{label:'Skeleton',sub:'addresses, price, deadlines, adjudicators, mode, hashes',cells:[Y(),Y(),Y(),Y(),N(),Y(),Y(),Y(),Y(),Y()]},
+      body:{label:'Terms body',sub:'description, criteria, rubric, sealed checks',cells:[Y(),Y(),P('guaranteed: at delivery; optimistic: on dispute'),P('on takeover'),P('criteria they judge'),P('hash'),N(),N(),P('on disclosure'),P('hash')]},
+      work:{label:'The work',sub:'deliverable plaintext',cells:[P('after release; at delivery in optimistic mode'),Y('yes, made it'),P('as the body'),P('on takeover'),P('samples and typed features'),P('ciphertext'),N(),N(),P('on disclosure'),P('ciphertext')]},
+      key:{label:'Content key',sub:'opens the work',cells:[P('released with payment'),Y(),P('as the body'),P('released on takeover'),N(),P('sealed envelopes'),N(),N(),N(),P('sealed envelopes')]},
+      judgment:{label:'Judgment record',sub:'check results, verdict scores and reasons',cells:[Y(),Y(),Y(),P('if involved'),P('their own verdict'),P('hash'),P('outcome and hash'),P('hash'),P('on disclosure'),P('outcome and hash')]},
+      money:{label:'Money and bonds',sub:'holds, payouts, fees, bond movements',cells:[Y(),Y(),Y(),Y(),N(),Y(),Y(),Y(),Y(),Y()]}
+    };
+    function clone(o){return JSON.parse(JSON.stringify(o))}
+    var L={private:base, judgment:clone(base), public:clone(base)};
+    [5,6,7,9].forEach(function(c){L.judgment.body.cells[c]=P('criteria only');L.judgment.judgment.cells[c]=Y('published record')});
+    L.judgment.judgment.cells[8]=Y('published record');
+    [5,6,7,8,9].forEach(function(c){L.public.body.cells[c]=Y();L.public.judgment.cells[c]=Y('published record')});
+    [2,3,5,7,8,9].forEach(function(c){L.public.identity.cells[c]=Y('long-term address')});
+    var NOTES={
+      private:'Private: the public sees only the skeleton. The body, the judgment record and the work go to the parties and to each adjudicator only when it is involved. Phase 2.',
+      judgment:'Judgment published: as private, but the criteria and the judgment record with its reasons are public, which gives adjudicators precedent. The work stays private. Phase 2.',
+      public:'Public: everything except the work is public, as in the demo. Keys still reach the fallback and appeal adjudicators only on takeover.'
+    };
+    var ORDER=['identity','skeleton','body','work','key','judgment','money'];
+    $('vis-head').innerHTML='<tr><th scope="col">Information</th>'+COLS.map(function(c){return '<th scope="col">'+c+'</th>'}).join('')+'</tr>';
+    function show(level){
+      document.querySelectorAll('[data-level]').forEach(function(b){b.setAttribute('aria-pressed',b.getAttribute('data-level')===level?'true':'false')});
+      $('level-note').textContent=NOTES[level];
+      $('vis-body').innerHTML=ORDER.map(function(k){var r=L[level][k];return '<tr><th scope="row">'+r.label+'<span>'+r.sub+'</span></th>'+r.cells.map(function(c){return '<td><span class="v '+c[0]+'">'+esc(c[1])+'</span></td>'}).join('')+'</tr>'}).join('');
+    }
+    document.querySelectorAll('[data-level]').forEach(function(b){b.addEventListener('click',function(){show(b.getAttribute('data-level'))})});
+    show('public');
+  })();
 
   /* lifecycle */
   var ACC=[['buyer','Buyer','var(--accent)'],['escrow','Escrow','var(--held)'],['seller','Seller','var(--done)'],['adj','Bench A fee','var(--proposed)'],['bond','Bond locked','var(--alert)']];

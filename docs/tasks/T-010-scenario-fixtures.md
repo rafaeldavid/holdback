@@ -24,6 +24,7 @@ Restate this in your own words in this section before writing code.
 - [ ] Recordings captured with `--record` from at least two model families; model IDs visible in snapshots.
 - [ ] Each `neutrality.` fixture asserts the terminal state and balances named in `docs/neutrality.md`.
 - [ ] Snapshots reviewed for readability by a human (Rafa or reviewer agent) — record reviewer.
+- [ ] Privacy fixtures (ADR-0020): `neutrality.fallback-key-on-takeover` (Bench B cannot read before `judgeBy`, can after), `error.escalate-without-appeal-key`, `error.dispute-without-keys`, `error.disclosure-level-not-public-in-phase-1`.
 
 ## Out of scope
 
