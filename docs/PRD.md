@@ -45,6 +45,10 @@ Machine-speed agent-to-agent escrow via direct API calls, with defended multi-mo
 
 Escrow custody is close to a commodity: an existing contract with no admin keys can hold the buyer's funds (`docs/research/prior-art.md`). The scarce part is the overseer role, meaning the rules contract plus the adjudicators who decide release. Neutrality (ADR-0001) forbids any single party from owning that role, so it is a permissionless market: adjudicators post bonds and compete on fees priced from their measured error. Holdback earns only as one adjudicator among many or through tooling, never through control of the judge registry or the rules contract (ADR-0007).
 
+## Design principle
+
+User choice: the parties choose, and the protocol enforces what they chose. Settlement modes, adjudicators, the judge registry and acceptance checks are options selected per commitment, each with stated tradeoffs and a fee quote. Clubs may narrow them in a rulebook. An option is offered only if it keeps the neutrality test (ADR-0001, ADR-0015).
+
 ## Goals
 
 | ID | Goal |
@@ -102,7 +106,7 @@ Escrow custody is close to a commodity: an existing contract with no admin keys 
 
 - **FR-16** Either party may appeal within the appeal window by posting a bond. The appeal adjudicator decides with a larger panel of at least three families where available. A missing or wrong content key is an appeal ground. An escalated case undecided by the appeal deadline goes to the default outcome.
 - **FR-17** Adjudicators post bonds. An overturned decision pays the wronged party from the bond. A bond below the coverage ratio blocks new assignments. In guaranteed mode the ratio is 100% per commitment still open to appeal.
-- **FR-18** Settlement modes: `guaranteed_on_decision` (Phase 1) and `settle_after_window` (Phase 4).
+- **FR-18** Settlement modes, chosen per commitment: `guaranteed_on_decision` (Phase 1), `settle_after_window` (Phase 4) and, if ADR-0015 is accepted, `optimistic` (release at `disputeBy` unless the buyer disputes).
 
 ### Interfaces
 

@@ -1,6 +1,6 @@
 # Decisions to make today
 
-Status: D1–D9 decided October 30, 2026, after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`); the options are kept as the record. D10 is open. Owner: Rafa. Each decision has options, a recommendation and the ADR it settles. Phase 1 (the demo) can start once D1, D2 and D6 are settled. Phase 2 needs D3 and D4.
+Status: D1–D9 decided October 30, 2026, after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`); the options are kept as the record. D10 and D11 are open. Owner: Rafa. Each decision has options, a recommendation and the ADR it settles. Phase 1 (the demo) can start once D1, D2 and D6 are settled. Phase 2 needs D3 and D4.
 
 ## D1. Adopt the neutrality litmus test as the top constraint (ADR-0001)
 
@@ -133,3 +133,18 @@ Rafa's principles: reward better adjudicators; reward capital at risk; make comm
 | Attestation | `attested` judges as a policy option once providers sign responses | Not available today (residual 8) |
 
 **Recommendation:** run the adversarial review on ADR-0014 before deciding.
+
+## D11. Optional optimistic release (ADR-0015)
+
+**Open.** Not needed for the Phase 1 demo; it would land in Phase 4.
+
+Rafa's principle: user choice. Parties may select `optimistic` mode. The work is released to the buyer at delivery, the money is held until `disputeBy`, and with no dispute by then the parties have tacitly accepted: anyone triggers release and no adjudicator call is possible afterwards. A buyer who disputes pays the adjudication fee and a dispute bond, and the existing pipeline judges.
+
+| Choice | Proposal |
+| --- | --- |
+| Work release | At delivery (the parties waive the two-sided hold) |
+| Who may dispute | The buyer, before `disputeBy` |
+| Dispute cost | Adjudication fee plus a dispute bond, forfeited to the seller if the dispute fails |
+| Inspection time | `disputeBy` ≥ `deliverBy` + a rulebook minimum |
+
+**Recommendation:** review ADR-0014 and ADR-0015 together in one adversarial pass, then decide both.
