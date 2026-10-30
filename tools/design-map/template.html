@@ -158,6 +158,21 @@ details[open] summary{margin-bottom:8px}
 .zones.focus .comp.hl{opacity:1;border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
 .note{padding:12px 14px;border-left:3px solid var(--accent);background:var(--surface);border-radius:0 6px 6px 0;min-height:4.4em}
 
+/* visibility */
+.vis{border-collapse:separate;border-spacing:0;width:100%;font-size:13px}
+.vis th,.vis td{padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top;text-align:left}
+.vis thead th{background:var(--sunken);font-family:var(--mono);font-weight:500;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.vis tbody th{font-family:var(--body);text-transform:none;letter-spacing:0;color:var(--ink);font-weight:600;font-size:13.5px;min-width:160px;background:var(--surface)}
+.vis tbody th span{display:block;font-weight:400;font-size:12px;line-height:1.35;color:var(--muted);margin-top:2px}
+.vis td{min-width:104px}
+.v{display:inline-block;font-size:12px;line-height:1.35;padding:3px 7px;border-radius:4px}
+.v.yes{color:var(--done);background:var(--done-soft)}
+.v.part{color:var(--held);background:var(--held-soft)}
+.v.no{color:var(--muted);background:var(--sunken)}
+.vis-legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:12.5px;color:var(--muted);align-items:center}
+.readers{display:flex;gap:10px;align-items:baseline;font-size:13px}
+.readers b{font-weight:500;min-width:92px}
+
 /* lifecycle */
 .track{display:grid;grid-template-columns:repeat(auto-fit,minmax(88px,1fr));gap:4px}
 .track button{text-align:left;border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:6px;padding:6px 9px;cursor:pointer;display:grid;gap:1px;font-size:13px}
@@ -218,7 +233,7 @@ footer{font-size:12.5px;color:var(--muted);border-top:1px solid var(--line);padd
 <div class="bar">
   <div class="bar-inner">
     <span class="brand">Holdback</span>
-    <nav aria-label="Sections"><a href="#now">Now</a><a href="#waiting">Waiting</a><a href="#decisions">Decisions</a><a href="#protocol">Protocol</a><a href="#lifecycle">Lifecycle</a><a href="#api">API</a><a href="#feed">History</a></nav>
+    <nav aria-label="Sections"><a href="#now">Now</a><a href="#waiting">Waiting</a><a href="#decisions">Decisions</a><a href="#protocol">Protocol</a><a href="#privacy">Who sees what</a><a href="#lifecycle">Lifecycle</a><a href="#api">API</a><a href="#feed">History</a></nav>
   </div>
 </div>
 
@@ -286,6 +301,25 @@ footer{font-size:12.5px;color:var(--muted);border-top:1px solid var(--line);padd
     <p class="note" id="propnote" aria-live="polite"></p>
   </section>
 
+  <section id="privacy" aria-labelledby="h-priv">
+    <div class="head"><span class="label">Who sees what</span><h2 id="h-priv">What stays private between buyer, seller and adjudicators</h2>
+      <p>The terms and the money are public. The work is encrypted end to end: operators and the public see only ciphertext and hashes, and the buyer can read the work only when payment settles (ADR-0012).</p></div>
+    <div class="vis-legend"><span><span class="v yes">sees it</span></span><span><span class="v part">in part, or only later</span></span><span><span class="v no">does not see it</span></span></div>
+    <div class="tablewrap"><table class="vis">
+      <thead><tr><th scope="col">Information</th><th scope="col">Buyer</th><th scope="col">Seller</th><th scope="col">Adjudicators</th><th scope="col">Model providers</th><th scope="col">Operator nodes</th><th scope="col">Anyone</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">Terms<span>price, deadlines, chosen adjudicators, criteria</span></th><td><span class="v yes">yes</span></td><td><span class="v yes">yes</span></td><td><span class="v yes">yes</span></td><td><span class="v part">criteria they judge</span></td><td><span class="v yes">yes</span></td><td><span class="v yes">yes, public (residual 9)</span></td></tr>
+        <tr><th scope="row">Sealed checks<span>buyer checks committed by hash at agreement</span></th><td><span class="v yes">yes, wrote them</span></td><td><span class="v part">count only, until judging</span></td><td><span class="v part">revealed at judging</span></td><td><span class="v no">no</span></td><td><span class="v part">hash and count</span></td><td><span class="v part">hash and count, then the judgment record</span></td></tr>
+        <tr><th scope="row">The work<span>deliverable plaintext</span></th><td><span class="v part">when payment settles; at delivery in optimistic mode</span></td><td><span class="v yes">yes, made it</span></td><td><span class="v yes">yes, from delivery (residual 6)</span></td><td><span class="v part">spotlighted samples and typed features</span></td><td><span class="v no">no</span></td><td><span class="v no">no</span></td></tr>
+        <tr><th scope="row">Encrypted work<span>ciphertext, ciphertext and plaintext hashes</span></th><td><span class="v yes">yes</span></td><td><span class="v yes">yes</span></td><td><span class="v yes">yes</span></td><td><span class="v no">no</span></td><td><span class="v yes">yes</span></td><td><span class="v yes">yes</span></td></tr>
+        <tr><th scope="row">Content key<span>the key that opens the work</span></th><td><span class="v part">released with payment</span></td><td><span class="v yes">yes</span></td><td><span class="v yes">each sealed to its own key</span></td><td><span class="v no">no</span></td><td><span class="v part">sealed envelopes only</span></td><td><span class="v part">sealed envelopes only</span></td></tr>
+        <tr><th scope="row">Judgment<span>check results, verdict scores and reasons, decision</span></th><td><span class="v yes">yes</span></td><td><span class="v yes">yes</span></td><td><span class="v yes">yes</span></td><td><span class="v part">their own verdict</span></td><td><span class="v yes">yes</span></td><td><span class="v yes">yes, published record</span></td></tr>
+        <tr><th scope="row">Money<span>holds, payouts, fees, bonds</span></th><td><span class="v yes">yes</span></td><td><span class="v yes">yes</span></td><td><span class="v yes">yes</span></td><td><span class="v no">no</span></td><td><span class="v yes">yes</span></td><td><span class="v yes">yes, on the event log and later on chain</span></td></tr>
+      </tbody>
+    </table></div>
+    <p class="note">Two known limits. Adjudicators read the work to judge it, so a bad adjudicator could copy it; both parties name the adjudicators, and confidential-compute judging is a later option (residual 6). Commitment metadata is public through unauthenticated reads, so an address's counterparties and prices can be profiled; private commitments are a later design question (residual 9).</p>
+  </section>
+
   <section id="lifecycle" aria-labelledby="h-life">
     <div class="head"><span class="label">Lifecycle</span><h2 id="h-life">One 2,000 tUSD job, step by step</h2><p>The demo's job: Atlas Research's buyer agent pays Tidewater Data's seller agent to clean a customer dataset. tUSD is the test token.</p></div>
     <div class="seg" role="group" aria-label="Settlement mode">
@@ -306,6 +340,7 @@ footer{font-size:12.5px;color:var(--muted);border-top:1px solid var(--line);padd
         <h3>Balances <span class="unit">tUSD</span></h3>
         <div class="ledger" id="ledger"></div>
         <div class="keyrow"><span>Content key</span><span class="lock none" id="keystate">not created</span></div>
+        <div class="readers"><b>Can read the work</b><span id="readers">nobody yet</span></div>
       </div>
     </div>
   </section>
@@ -488,6 +523,7 @@ footer{font-size:12.5px;color:var(--muted);border-top:1px solid var(--line);padd
     $('s-who').textContent=s.who; $('s-title').textContent=s.t; $('s-body').textContent=s.b; $('s-risk').textContent=s.r;
     ACC.forEach(function(a,j){$('f-'+a[0]).style.width=(s.bal[j]/MAX*100)+'%';$('a-'+a[0]).textContent=fmt(s.bal[j])});
     var ks=$('keystate'); ks.className='lock '+s.key[0]; ks.textContent=s.key[1];
+    $('readers').textContent=({none:'nobody yet, nothing delivered',held:'the seller and the three adjudicators',buyer:'the seller, the three adjudicators and the buyer'})[s.key[0]];
     $('b-back').disabled=i===0; $('b-next').disabled=i===steps.length-1;
   }
   function stop(){if(timer){clearInterval(timer);timer=null}$('b-play').textContent='Play'}
