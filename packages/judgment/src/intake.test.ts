@@ -82,6 +82,20 @@ describe('intake', () => {
     expect(!r.ok && r.error.code).toBe('payload_too_large');
   });
 
+  it('refuses decrypted plaintext over 10 MB even when the ciphertext is small', async () => {
+    const big = new Uint8Array(MAX_PLAINTEXT_BYTES + 1).fill(0x61);
+    const ct = utf8('small');
+    const r = await intake({ delivery: delivery(big, ct), ciphertext: ct, recipient: ADJUDICATOR, unwrapKey: fakeUnwrap, open: async () => big });
+    expect(!r.ok && r.error.code).toBe('payload_too_large');
+  });
+
+  it('accepts decrypted plaintext of exactly 10 MB from a custom opener', async () => {
+    const big = new Uint8Array(MAX_PLAINTEXT_BYTES).fill(0x61);
+    const ct = utf8('small');
+    const r = await intake({ delivery: delivery(big, ct), ciphertext: ct, recipient: ADJUDICATOR, unwrapKey: fakeUnwrap, open: async () => big });
+    expect(r.ok).toBe(true);
+  });
+
   it('accepts plaintext of exactly 10 MB', async () => {
     const r = await run(new Uint8Array(MAX_PLAINTEXT_BYTES).fill(0x61));
     expect(r.ok).toBe(true);
@@ -151,6 +165,8 @@ describe('UntrustedData', () => {
     const d = UntrustedData.wrap('SECRET-CONTENT');
     expect(`${d}`).not.toContain('SECRET-CONTENT');
     expect(String(d)).not.toContain('SECRET-CONTENT');
+    expect(d.toString()).not.toContain('SECRET-CONTENT');
+    expect('' + d).not.toContain('SECRET-CONTENT');
     expect(JSON.stringify({ d })).not.toContain('SECRET-CONTENT');
     expect(d.reveal()).toBe('SECRET-CONTENT');
   });

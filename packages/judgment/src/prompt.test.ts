@@ -37,6 +37,13 @@ describe('prompt builder: deliverable content stays in the data section', () => 
     expect(p.user.split(`<<<BEGIN UNTRUSTED DATA ${NONCES.boundary}>>>`)).toHaveLength(2);
   });
 
+  it('the system prompt names the same boundary and datamark that delimit the data section', () => {
+    const p = build();
+    expect(p.system).toContain(`<<<BEGIN UNTRUSTED DATA ${NONCES.boundary}>>>`);
+    expect(p.system).toContain(`<<<END UNTRUSTED DATA ${NONCES.boundary}>>>`);
+    expect(p.system).toContain(p.datamark.trim());
+  });
+
   it('datamarks every data line', () => {
     const p = build();
     const inner = p.user.split(`<<<BEGIN UNTRUSTED DATA ${NONCES.boundary}>>>\n`)[1]!.split(`\n<<<END UNTRUSTED DATA`)[0]!;
