@@ -26,6 +26,7 @@ Restate this in your own words in this section before writing code.
 - [ ] Snapshots reviewed for readability by a human (Rafa or reviewer agent) — record reviewer.
 - [ ] Privacy fixtures (ADR-0020): `neutrality.fallback-key-on-takeover` (Bench B cannot read before `judgeBy`, can after), `error.escalate-without-appeal-key`, `error.dispute-without-keys`, `error.disclosure-level-not-public-in-phase-1`.
 - [ ] Screen fixtures (ADR-0021): `attack.injection-tags-empty-rubric` (accepted, screen flagged, SDK shows stripped text), `attack.injection-tags-required-check` (rejected by the required check, no panel), `neutrality.seller-multilingual-text` (Persian with ZWNJ, ❤️ and 🏴󠁧󠁢󠁥󠁮󠁧󠁿 settle without a false reject).
+- [ ] Phase 4 set, pinned now (D19): `error.dispute-by-seller` (a seller-signed `Dispute` is refused with `invalid_signature`); `neutrality.optimistic-buyer-silent` (release at `disputeBy` by anyone).
 
 ## Out of scope
 

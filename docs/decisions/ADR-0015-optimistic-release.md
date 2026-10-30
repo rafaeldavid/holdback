@@ -47,6 +47,12 @@ Add a third settlement mode, `optimistic`, which parties select per commitment a
 | `settle_after_window` | Design open (ADR-0012) | Every delivery the checks do not settle | 20% of exposure | Panel run plus capital charge |
 | `optimistic` | At delivery | Only on dispute | Only once a dispute opens | Checks only, or nothing |
 
+### Who may dispute (D19)
+
+- Only the buyer disputes at first instance. Silence pays the seller, so the buyer is the party the default disfavors, and that party holds the call.
+- The seller's instruments are the release at `disputeBy`, which anyone can trigger, and mutual settlement (ADR-0019). Appeals already let either party call the appeal adjudicator.
+- A seller call at first instance was considered and rejected (D19). It would let one party shorten the inspection window the other signed for, and the seller gains little from it. It can be reopened if pilots show buyers using informal rejection threats while `disputeBy` sits far beyond `minInspectionWindowSec`. Even then, a seller call would be allowed only after `deliveredAt + minInspectionWindowSec`, for the fee only, with a response window for the buyer.
+
 ## Alternatives considered
 
 - **Keep judged modes only.** This protects the seller's work in every case, but charges for a panel on commitments where both parties are satisfied, and it overrides the parties' choice.
@@ -81,6 +87,6 @@ Add a third settlement mode, `optimistic`, which parties select per commitment a
 
 ## Litmus tests
 
-- **Neutrality.** Once both parties have signed and the buyer has funded the hold, no single party can stop settlement. The buyer can delay payment only until `disputeBy`, and only by paying for a dispute. After that, anyone can trigger release. The seller cannot take funds before `disputeBy` or a decision. During a dispute, the fallback applies, and silence by every adjudicator resolves to the pre-dispute terms: release to the seller. No silent party can turn the outcome against the one who acted.
+- **Neutrality.** Once both parties have signed and the buyer has funded the hold, no single party can stop settlement. The buyer can delay payment only until `disputeBy`, and only by paying for a dispute. After that, anyone can trigger release. The seller cannot take funds before `disputeBy` or a decision. During a dispute, the fallback applies, and silence by every adjudicator resolves to the pre-dispute terms: release to the seller. No silent party can turn the outcome against the one who acted. No party can shorten the other's signed window (D19).
 - **The hold.** The money is held, with an expiry, idempotent operations and anyone-can-trigger timeouts, as in every mode. The work is not held: the parties chose that, and the neutrality test's "held work" applies only to modes that hold it.
 - **Defended judgment.** Unchanged when it runs. Fewer commitments are judged, so less traffic feeds the quality signals in ADR-0014.

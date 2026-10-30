@@ -1,6 +1,6 @@
 # Decisions to make today
 
-Status: D1–D9 decided October 30, 2026, after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`); the options are kept as the record. D10 to D18 decided October 30, 2026, each after an independent research pass; none are open. Owner: Rafa. Each decision has options, a recommendation and the ADR it settles. Phase 1 (the demo) can start once D1, D2 and D6 are settled. Phase 2 needs D3 and D4.
+Status: D1–D9 decided October 30, 2026, after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`); the options are kept as the record. D10 to D19 decided October 30, 2026, each after an independent research pass; none are open. Owner: Rafa. Each decision has options, a recommendation and the ADR it settles. Phase 1 (the demo) can start once D1, D2 and D6 are settled. Phase 2 needs D3 and D4.
 
 ## D1. Adopt the neutrality litmus test as the top constraint (ADR-0001)
 
@@ -261,3 +261,19 @@ The schema v0.5 review and the T-008 red team found that 18 rates are JSON float
 | D. Floats with defined rounding | Floats stay in signed hashes; blocked by the money lint |
 
 **Recommendation:** C (two research passes, Fable at max effort).
+
+## D19. Who can call the adjudicator (ADR-0015, ADR-0019, ADR-0014)
+
+**Decided 2026-10-30:** keep the modes as they are and write the rule down: the party the silence default disfavors holds the call. In judged modes judgment is automatic, so no one needs to call it. In optimistic mode the buyer disputes, and the seller relies on the anyone-callable release at `disputeBy` and on mutual settlement. Either party can appeal. The refundable bond, not loser-pays, deters low-merit calls. Nothing changes in Phase 1 or schema v0.5. An optional consent window for judged modes (`consentWindowSec`, default 0, during which either party may call early or settle) is a candidate ADR after Phase 1.
+
+Rafa asked whether either buyer or seller should be able to trigger review. A research pass (Fable, max effort) compared the options.
+
+| Option | Effect |
+| --- | --- |
+| A. Add a seller dispute in optimistic mode | Cuts the buyer's signed inspection window, or changes nothing; sellers gain little |
+| B. One "review on request" mode with a party-chosen default | The two existing modes under a vaguer name; a refund default with released work fails neutrality |
+| C. Keep the modes; write the rule down (chosen) | Passes all three litmus tests; no Phase 1 change |
+| D. Always automatic; drop optimistic | Removes an accepted choice (D11) |
+| E. C now, plus an optional consent window later | A real new choice at no neutrality cost; candidate ADR after Phase 1 |
+
+**Recommendation:** C now, E as a candidate after Phase 1.

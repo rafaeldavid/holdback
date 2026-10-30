@@ -38,7 +38,7 @@ The prior-art review scored as neutrality failures the systems that let the neut
 
 1. **Consent.** `EarlyAccept`, signed by the buyer, and `MutualSettlement`, signed by both parties.
 2. **Silence default.** There is none in judged modes. In optimistic mode, silence means release at `disputeBy`.
-3. **Adjudication.**
+3. **Adjudication.** It is called by the party the silence default disfavors (D19). In judged modes it is automatic, so no one needs to call it. In optimistic mode the buyer calls it with a dispute. Either party can appeal.
 
 Holdback is a 2-of-3 where the third key can only sign the outcomes the terms allow. The adjudicator signs accept, reject or escalate, under its bound policy, registry and seed, backed by a bond, an appeal and timeouts.
 
