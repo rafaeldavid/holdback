@@ -46,6 +46,7 @@ A cleaned dataset has no delivery-versus-payment check of that kind, because whe
 2. In its decision, it reveals `seed`; the settlement layer checks it against `seedCommitment`.
 3. The panel is a deterministic seeded shuffle, keyed by `seed ‖ commitmentId`, of the active entries in the registry whose hash the commitment binds (`adjudication.registryHash`), subject to the family constraints.
 4. Anyone can recompute the panel.
+5. The fallback and appeal adjudicators commit to nothing in advance. Their seed is derived from a public beacon round fixed by `judgeBy`, the escalation or the appeal filing (ADR-0018), so they cannot choose their panel after reading the work.
 
 Neither party, nor the adjudicator after seeing the delivery, can steer which models judge.
 
@@ -96,6 +97,7 @@ Unit-test this function exhaustively with table-driven cases.
 | T16 | Operator tampering | An operator drops or alters messages | Signed messages; escape hatch; hash-chained log; receipts | `neutrality.operator-refuses` |
 | T18 | Adjudicator self-dealing | An adjudicator accepts every case for sellers it controls in guaranteed mode | 100% bond coverage per guaranteed commitment open to appeal; appeals to a different adjudicator; encumbered bond never counted twice | `attack.adjudicator-self-dealing` |
 | T19 | Wrong or missing key release | The decision pays the seller but releases a key that does not decrypt the committed plaintext | Buyer verifies against the plaintext hash; "missing or wrong key" is a bonded appeal ground; an appeal decision may carry the key | `appeal-bad-key-release` |
+| T21 | Late panel selection | A fallback or appeal adjudicator reads the work, calls every judge once, then picks the seed whose panel gives the outcome it wants | Non-primary seeds come from a beacon round fixed by settlement state (ADR-0018); no substitute source; unprovable round leads to fallback or default | `attack.fallback-panel-shopping`, `attack.appeal-panel-shopping-after-escalation`, `attack.timing-grind`, `error.seed-mismatch` |
 | T17 | Malicious files | Oversized or archive files | MIME allowlist (`text/csv`, `application/json`, `text/plain`, `text/markdown`); 10 MB cap; parsing in a worker with a time limit | `error.mime-not-allowed` |
 
 Background on the defense designs:

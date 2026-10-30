@@ -5,7 +5,7 @@ Scenario fixtures are the main test suite and the source of the demo's transcrip
 ```
 fixtures/
   scenarios/      <name>.scenario.yaml + <name>.expect.md (golden snapshot)
-  recordings/     <scenario>/<judgeId>.json   recorded judge verdicts (model ID + prompt hash)
+  recordings/     <scenario>/<judgeId>.json   recorded judge verdicts (model ID, prompt, input and rubric hashes)
   clubs/          rulebooks used by scenarios
   terms/          commitment terms used by scenarios
   data/           input datasets and deliverables (generated, seeded; see scripts/gen-demo-data.ts)
@@ -18,18 +18,50 @@ fixtures/
 | Prefix | Meaning |
 | --- | --- |
 | none | Normal flow reaches a terminal state |
-| `error.` | The system must refuse something at a named step |
-| `attack.` | Adversarial input or party; must not auto-accept |
-| `neutrality.` | One actor refuses or disappears; the transaction still completes according to its terms |
-| `todo.` | Known gap; the snapshot records current behavior |
+| `error.` | The system must refuse something at a named step; the fixture states `expect.problem` with `step` and `type` |
+| `attack.` | Adversarial input or party; must not auto-accept, and must end escalated or rejected or state an `expect` block the run meets |
+| `neutrality.` | One actor refuses or disappears; the fixture names it with `fails:`, shows it failing, and still reaches a terminal state |
+| `todo.` | Known gap; the snapshot records current behavior, including a fixture or run error. Recording errors still fail |
 
 ## First line pragmas
 
 `# @settlement sim|local|testnet @judges recorded|fake|live @mode guaranteed_on_decision|settle_after_window @seed <int>`
 
+The first line must be this comment. Pragmas left out default to `sim`, `recorded`, `guaranteed_on_decision` and seed `0`. Unknown or repeated pragmas are errors. `--settlement` and `--judges` on the command line override the file.
+
+## Running
+
+```
+pnpm snap                          # every fixture; one pass/fail line each, exit 1 on any fail
+pnpm snap <name>                   # one fixture
+pnpm snap --update <name>          # rewrite <name>.expect.md; review the diff before committing
+pnpm snap --judges fake <name>     # fixed passing verdicts instead of recordings
+pnpm snap --judges fake --record --update <name>   # write stub recordings (capturedFrom: fake); never replaces a live one
+```
+
+`--judges live` and `--settlement local|testnet` refuse until T-008/T-009 and Phase 2. The runner makes no network calls.
+
+## Scenario files
+
+Fixtures are declarative YAML: the core schema only, no custom tags, bounded aliases, and a closed set of keys. Nothing in a fixture is executed or imported. Money is a quoted decimal string in base units (`"10000000000"`), never a YAML number.
+
+Step kinds: `offer`, `adjudicator_accept`, `agree_and_fund`, `deliver`, `advance_clock`, `judge`, `settle`, `reclaim`, `verify_key_release`, plus outages and permissionless timeouts: `offline: { actor }`, `operator_refuses: { operator }`, `trigger_fallback`, `trigger_default`, `apply_default_outcome`, `expire`. Timeouts run through core's `step`, so they are refused until their deadline. `via` names an operator from `operators` (default `direct`). Names `escrow`, `anyone`, `direct` and `faucet` are reserved.
+
+`deliver` reads `fixtures/<file>`. If the file is absent the run fails, unless the step sets `stub_bytes: true` to deliver placeholder bytes on purpose. `signer` on `offer`, `agree_and_fund` or `deliver` signs with another actor's key, for impersonation cases. `agree_and_fund` on an offer the primary adjudicator has not accepted runs that acceptance first and marks it implied.
+
+`expect` takes `terminal`, `balances` and, for `error.` fixtures, `problem: { step, type }` (1-based step, a problem type from `docs/api.md`).
+
+## Recordings
+
+`recordings/<scenario>/<judgeId>.json` holds one verdict plus what it answered: `provider`, `family`, `model` (pinned ID), `promptTemplateHash`, `inputHash`, `rubricHash`, and `capturedFrom` (`live` or `fake`). A verdict whose criterion IDs do not match the rubric makes that judge abstain. If any of the six bound values differs from the current request, the run fails with `RecordingMismatchError` naming each field; the runner never substitutes another verdict.
+
+## Stub settlement (until T-006)
+
+`pnpm snap` runs fixtures on a stub settlement inside `packages/testkit`. It drives `@holdback/core`'s `offer` and `step`, signs every message with a test key derived from the seed and actor name, and verifies it with core before applying it. It uses built-in stub rulebook, terms and panel values; the snapshot says so. A fixture whose `club` or `terms` file exists fails rather than having that file silently ignored. Deterministic checks and the screen are listed but not evaluated until T-008.
+
 ## Example
 
-`scenarios/_example.scenario.yaml` and `scenarios/_example.expect.md` show the intended format. The expect file was written by hand to show the shape; T-005's runner replaces it with generated output.
+`scenarios/_example.scenario.yaml` is the reference fixture. `scenarios/_example.expect.md` is generated by the runner; regenerate it with `pnpm snap --update _example`.
 
 ## Data generation
 

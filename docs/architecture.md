@@ -90,7 +90,13 @@ stateDiagram-v2
   Escalated --> Refunded: appeal adjudicator rejects
   Escalated --> Defaulted: appealDecideBy passed (anyone)
   Defaulted --> Refunded: default outcome (seller compensated from bonds)
+  Held --> Settled: buyer and seller co-sign a settlement
+  Delivered --> Settled: buyer and seller co-sign a settlement
+  FallbackJudging --> Settled: buyer and seller co-sign a settlement
+  Escalated --> Settled: buyer and seller co-sign a settlement
 ```
+
+`Settled` is terminal and not appealable. A co-signed `MutualSettlement` pays any split of the price and chooses whether the buyer receives the content key; the fee returns to the buyer in Phase 1 (ADR-0019, D15). Settle-once holds: if a settlement and a decision race, the first one applied wins.
 
 In `guaranteed_on_decision` a decision moves the money in the same step, so there is no separate settle step. `settle_after_window` (Phase 4) adds a `Decided` escrow state that settles when the appeal state closes.
 
@@ -119,7 +125,7 @@ Rules the types must enforce. Illegal states are unrepresentable (ADR-0009): a d
 | Deliver | Seller signature | Before deliverBy; attempt ≤ maxSubmissions; ciphertext and hashes present |
 | Reclaim | Anyone | After deliverBy with no delivery |
 | Accept early | Buyer signature | State Delivered |
-| Decide | The adjudicator whose turn it is | Before its deadline; seed hashes to the acceptance's `seedCommitment`; policy and registry hashes equal the commitment's; judgment record hash included |
+| Decide | The adjudicator whose turn it is | Before its deadline; seed valid for the role (primary: preimage of the acceptance's `seedCommitment`; fallback and appeal: the beacon seed for the round fixed by `judgeBy`, the escalation or the appeal filing, ADR-0018); policy and registry hashes equal the commitment's; judgment record hash included |
 | Fallback / default | Anyone | After judgeBy / fallbackBy; for an escalated case, after appealDecideBy |
 | Appeal | Party signature + bond + appeal fee | Within appealWindow after a first-instance decision. Grounds: wrong outcome, missing or wrong key, policy or panel violation, mislabeled model |
 | Settle | Anyone | `settle_after_window` only (Phase 4): appeal state closed |
@@ -146,9 +152,45 @@ The buyer can verify the received plaintext against the committed plaintext hash
 
 Limit: the adjudicator sees the plaintext. That is acceptable because adjudicators are bonded and named by both parties. Confidential-compute judging is a later option.
 
+## Panel randomness (ADR-0018)
+
+The primary's panel seed comes from its own commit-reveal. The fallback and appeal adjudicators take theirs from a public beacon, at a round the decider does not control: `panelSeed = keccak256(commitmentId ‖ role ‖ attempt ‖ beaconValue(round))`.
+
+| Decider | Beacon round |
+| --- | --- |
+| Primary | none (reveals the preimage of `seedCommitment`) |
+| Fallback | the round at `judgeBy` |
+| Appeal after escalation | the first round after the escalation was applied |
+| Appeal after a party appeal | the first round after the appeal was applied |
+
+SimChain runs a deterministic beacon, `keccak256(simSeed ‖ round)`, one round per simulated second. Phase 2 uses drand quicknet, verified on chain. If a round cannot be proven by the deadline, the decision is refused, and the fallback or default applies.
+
+## Privacy and disclosure (ADR-0020)
+
+Every commitment has a public skeleton and a private body.
+
+| Part | Contents | Who sees it |
+| --- | --- | --- |
+| Skeleton | Commitment ID, terms hash, payout addresses, token, price and fee, deadlines, the three adjudicators, mode, `policyHash`, `registryHash`, `rulebookHash`, outcomes, money and bond movements | Everyone, at every level. Timeouts, the coverage gate and settle-once need only this |
+| Body | Description, criteria, rubric, sealed checks, judgment reasons | Public at `public`; criteria and judgment record public at `judgment`; otherwise the parties and involved adjudicators, through a record key wrapped to each |
+| Work | The deliverable | Never published by the protocol. Readable by whoever holds the content key |
+
+Keys go only to those who need them. Whoever wants judgment carries the key; the seller is never the gate.
+
+| Path | Content key and record key |
+| --- | --- |
+| Mutual settlement | The parties only |
+| Early acceptance | The buyer, with the payment |
+| Optimistic mode | The buyer at delivery. A `Dispute` carries keys for all three adjudicators |
+| Guaranteed mode, primary | At delivery |
+| Fallback | Released on takeover: SimChain holds the envelope in Phase 1; time-locked to the beacon round at `judgeBy` in Phase 2 |
+| Appeal | Carried by the `escalate` decision or the appeal; time-locked to `appealBy` as a backstop in Phase 2 |
+
+Disclosure levels are a signed term: `private`, `judgment` or `public`. A rulebook sets `disclosureMin`, an adjudicator policy may require a minimum, and a co-signed `Publish` can raise the level, never lower it. Phase 1 admits `public` only. Bond backers see aggregate signals recomputed from skeleton events, not cases.
+
 ## Hold and settlement postings (SimChain)
 
-The prototype uses accounts per address and per escrow, in base units of the test token.
+The prototype uses accounts per address and per escrow, in base units of the test token. Each adjudicator's bond is a pool with two tranches, `bond:{a}:junior` (its own stake, first loss) and `bond:{a}:senior` (backers, pro rata), plus one `reserved` counter (ADR-0014 §2a, D10). Below, `bond:{a}` means the pool: debits take junior first, then senior; the appeal-upheld credit goes to junior. Senior is empty in Phase 1.
 
 | Operation | Postings |
 | --- | --- |
@@ -158,6 +200,7 @@ The prototype uses accounts per address and per escrow, in base units of the tes
 | Refund | `escrow:{id} → buyer` (price); `escrow:{id} → adjudicator:{a}` (fee earned for judging) |
 | Early acceptance | `escrow:{id} → seller` (price); `escrow:{id} → buyer` (fee; no adjudicator judged) |
 | Reclaim (no delivery) | `escrow:{id} → buyer` (price + fee) |
+| Mutual settlement | `escrow:{id} → seller` (`sellerAmount`); `escrow:{id} → buyer` (price − `sellerAmount` + fee); every reservation on the commitment released; buyer key emitted only if `releaseKey` |
 | Appeal bond and fee | `appellant → appealbond:{id}` (bond); `appellant → adjudicator:{appeal}` (appeal fee, rulebook parameter) |
 | Overturn, guaranteed mode, wrongful accept | `bond:{a} → buyer` (price); `appealbond:{id} → appellant` |
 | Overturn, guaranteed mode, wrongful reject | `bond:{a} → seller` (price); `appealbond:{id} → appellant` |
@@ -171,7 +214,8 @@ Invariants, property-tested:
 - conservation (the token total is constant except faucet mints);
 - no negative balances;
 - each escrow is settled at most once;
-- bond ≥ coverage ratio × open exposure before a new assignment, with a 100% ratio for `guaranteed_on_decision` commitments still open to appeal;
+- `junior + senior - reserved` ≥ coverage ratio × price before a new assignment, with a 100% ratio for `guaranteed_on_decision` commitments still open to appeal;
+- losses are taken from junior before senior;
 - encumbered bond is never counted twice (one commitment's overturn and another's default cannot draw on the same units).
 
 ## Settlement interface
@@ -193,7 +237,7 @@ The REST API and SDK call only this interface. Chain details stay in the `local`
 ## Identity and signing
 
 - Agents, principals and adjudicators are EVM addresses: externally owned accounts, or smart accounts later.
-- Signed messages are EIP-712 typed data, with domain `{name: "Holdback", version: "0.1", chainId, verifyingContract}`. SimChain uses a fixed placeholder contract address.
+- Signed messages are EIP-712 typed data, with domain `{name: "Holdback", version: "0.4", chainId, verifyingContract}`. SimChain uses a fixed placeholder contract address.
 - Funding is gasless for agents. The buyer signs a token transfer authorization (ERC-3009 `transferWithAuthorization` or Permit2), and any relayer can submit it.
 - A mandate is the principal's EIP-712 signature over the agent's scope: caps, roles, categories, expiry. It is checked at agree and fund.
 
@@ -258,3 +302,10 @@ docs/              specs, ADRs, tasks, research
 - **SimChain:** the in-process simulation of the settlement rules.
 - **Rail:** where custody happens. **On-ramp / off-ramp:** fiat conversion before the hold / after release.
 - **Receipt:** an operator-signed record of an accepted message or a settlement event.
+- **Mutual settlement:** a message buyer and seller both sign that ends a funded, undecided commitment at any split of the price, with or without releasing the content key to the buyer (ADR-0019).
+- **Skeleton:** the public part of a commitment: IDs and hashes, payout addresses, token and amounts, deadlines, adjudicators, mode, outcomes and money movements. Anyone can act on it (ADR-0020).
+- **Disclosure level:** a signed term, `private`, `judgment` or `public`, that sets which parts of the body are public. A rulebook sets the minimum; a co-signed `Publish` can raise it.
+- **View key:** a key a party hands to an auditor or examiner so it can read a commitment's body without publishing it.
+- **Pseudonymous identity:** a one-time signing key per commitment, linked to the agent's long-term identity only for the counterparty and involved adjudicators (ADR-0020, Phase 2).
+- **Beacon:** a public source of randomness rounds that no adjudicator or party controls. It seeds fallback and appeal panels (ADR-0018). SimChain in Phase 1, drand quicknet in Phase 2.
+- **Backer:** any address that deposits into an adjudicator's bond pool and earns its capital charge pro rata, behind the adjudicator's first-loss stake (ADR-0014).

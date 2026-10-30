@@ -1,6 +1,6 @@
 # Decisions to make today
 
-Status: D1–D9 decided October 30, 2026, after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`); the options are kept as the record. D12 decided; D10, D11 and D13 are open. Owner: Rafa. Each decision has options, a recommendation and the ADR it settles. Phase 1 (the demo) can start once D1, D2 and D6 are settled. Phase 2 needs D3 and D4.
+Status: D1–D9 decided October 30, 2026, after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`); the options are kept as the record. D10 to D16 decided October 30, 2026, each after an independent research pass; none are open. Owner: Rafa. Each decision has options, a recommendation and the ADR it settles. Phase 1 (the demo) can start once D1, D2 and D6 are settled. Phase 2 needs D3 and D4.
 
 ## D1. Adopt the neutrality litmus test as the top constraint (ADR-0001)
 
@@ -121,7 +121,9 @@ Finding: Anthropic's API credits cannot be transferred between accounts (Supplem
 
 ## D10. Incentives for adjudicators, capital and commitment design (ADR-0014)
 
-**Open.** Needed before Phase 3 (T-306, fee quotes); not needed for the Phase 1 demo.
+**Decided 2026-10-30:** a two-tranche bond pool per adjudicator (ADR-0014 §2a). The adjudicator's own stake is junior and takes losses first; backers are senior, pro rata. One `reserved` counter, a coverage gate of `junior + senior - reserved >= price`, and a forfeited appeal bond credited to junior. T-006 builds the accounts with senior empty and no deposit API; deposits, withdrawals and the capital charge to the pool come in Phase 4. Defaults (guessed): first-loss share at least 10%, notice period one appeal cycle. Audit sampling and checkability pricing wait for later phases.
+
+The proposal below is kept as the record.
 
 Rafa's principles: reward better adjudicators; reward capital at risk; make commitments that are likely to need the adjudicator pay for it.
 
@@ -136,7 +138,9 @@ Rafa's principles: reward better adjudicators; reward capital at risk; make comm
 
 ## D11. Optional optimistic release (ADR-0015)
 
-**Open.** Not needed for the Phase 1 demo; it would land in Phase 4.
+**Decided 2026-10-30:** accepted with amendments, built in Phase 4 (ADR-0015). If no adjudicator decides a dispute, the default is release to the seller, and the buyer gets its dispute bond and fee back. The adjudicator reserves 100% of price when a dispute opens, or the dispute passes to the fallback at once. Dispute windows count from dispute open. A failed dispute's bond goes to the seller. Clubs may exclude the mode and set a minimum inspection window. The schema shape lands in v0.5.
+
+The proposal below is kept as the record.
 
 Rafa's principle: user choice. Parties may select `optimistic` mode. The work is released to the buyer at delivery, the money is held until `disputeBy`, and with no dispute by then the parties have tacitly accepted: anyone triggers release and no adjudicator call is possible afterwards. A buyer who disputes pays the adjudication fee and a dispute bond, and the existing pipeline judges.
 
@@ -167,7 +171,9 @@ The Phase 0 readiness review found gaps that would stop Phase 1 tasks partway. A
 
 ## D13. Agent-ready API (ADR-0017)
 
-**Open.** Needed before T-007 starts (after T-006), because it sets the API's response shapes and adds schema v0.5.
+**Decided 2026-10-30:** a trimmed Phase 1 subset of ADR-0017, amended after an independent assessment. It adds lists with a page envelope ordered by event sequence, and reads for clubs, agents and members. It adds 429 with a capped `Retry-After`, request IDs, the schema-version header, and `/v1/status` with the signing domain. It adds an unsigned dry run through `Settlement.validate`, and a receipt schema. Party-authored text is marked untrusted in the schemas. OpenAPI and its contract test follow in T-015, after T-010. RateLimit headers, deprecation headers, operator ranking, Standard Webhooks and x402/AP2 interop wait for later phases.
+
+The proposal below is kept as the record.
 
 Scoring `docs/api.md` against Rafa's 16-question agent readiness test found eight gaps. Errors, money and time formats, current state, the event log, signed webhooks, idempotency, per-agent identity and the audit chain already pass.
 
@@ -183,3 +189,48 @@ Scoring `docs/api.md` against Rafa's 16-question agent readiness test found eigh
 | Untrusted text unmarked | `x-holdback-untrusted` on party-authored fields |
 
 **Recommendation:** adopt all of it in T-007 plus T-015 (alternative 1 in ADR-0017). Human approval per payment stays out of the API: the mandate is the standing approval and dry run is the preview.
+
+## D14. Panel seed for fallback and appeal decisions (ADR-0018)
+
+**Decided 2026-10-30:** the fallback and appeal adjudicators take their panel seed from a public randomness beacon, at a round fixed by `judgeBy`, the escalation or the appeal filing. The primary keeps its commit-reveal. SimChain runs a deterministic beacon in Phase 1; drand quicknet in Phase 2. If a round cannot be proven by the deadline, the fallback or default applies; there is no substitute source.
+
+Today only the primary commits to a seed, so a fallback or appeal adjudicator can read the work, call every judge once, and pick the seed whose panel gives the outcome it wants. The check cannot simply apply the primary's commitment to every role, because a silent primary would then leave only the default.
+
+| Option | Effect |
+| --- | --- |
+| A. Primary-only, gap recorded | No work; shopping by the fallback and the final appeal role stays undetectable |
+| B. Commit a seed at takeover | Little defense: the decider already has the work, so it grinds first and commits second |
+| C. All three commit before funding | Strong, but funding waits on two more signatures |
+| D. Beacon-derived seed (chosen) | No adjudicator or party knows the panel before its round; liveness kept |
+| E. VRF per adjudicator | Stops grinding, but a colluding seller can vary the commitment; expensive to verify |
+
+## D15. Mutual settlement (ADR-0019)
+
+**Decided 2026-10-30:** buyer and seller can end a funded, undecided commitment by co-signing a `MutualSettlement` at any split of the price, in every settlement mode. It is allowed in Held, Delivered, FallbackJudging and Escalated, and refused after a decision, in Defaulted, or when the rulebook disables it. One signature moves nothing. Both parties choose whether the buyer receives the content key: with it, the settlement is a discounted acceptance; without it, a paid cancellation in which the seller keeps the work. The fee returns to the buyer in Phase 1, and a later rulebook share can pay an adjudicator that already worked. The adjudicator's reserved bond is released. Adjudicator decisions stay binary: parties split, judges decide. `EarlyAccept` stays as the one-signature special case.
+
+Rafa's framing: escrow as a 2-of-3. The parties agree, or the adjudicator decides when they do not. The third key can only sign the outcomes the terms allow.
+
+| Option | Effect |
+| --- | --- |
+| A. Co-signed settlement, any split, in every funded undecided state and every mode | Symmetric consent path for both parties; the seller can concede; cheaper than judging |
+| B. The same, only before `judgeBy` | Protects late adjudicator revenue, but parties who agree must wait out fallback or escalation windows |
+| C. The adjudicator decides splits from the rubric score | Makes the third key discretionary; harder to calibrate and defend |
+| D. Defer to Phase 4 | Phase 1 unchanged; the seller concession gap stays |
+
+**Recommendation:** A (research pass, Fable at max effort).
+
+## D16. Privacy model (ADR-0020)
+
+**Decided 2026-10-30:** every commitment has a public skeleton and a private body. The skeleton holds what anyone needs to trigger timeouts and check coverage: addresses, token and amounts, deadlines, adjudicators, mode, hashes, outcomes and money movements. The body (description, criteria, rubric, judgment reasons) is encrypted to the parties and to each adjudicator only when it becomes involved; whoever wants judgment carries the key, and the seller is never the gate. Disclosure is a signed term, `private`, `judgment` or `public`, with a rulebook minimum; a co-signed `Publish` can only raise it. Bond backers get aggregate signals, not cases. Compliance follows the banking pattern without a freeze: screen at admission and on-ramps, report after the fact, disclose by view key, unmask through the parties and the club's admission records. A pseudonymous per-commitment identity mode comes in Phase 2. Phase 1 admits `public` only, carries hashes on every event, makes escalations and disputes carry keys, and has SimChain release fallback and appeal keys on takeover.
+
+Rafa's framing: end to end by default, the adjudicator and bond capital involved only as needed, an option to publish, banking patterns and compliance reporting, and dummy public IDs per escrow.
+
+| Option | Effect |
+| --- | --- |
+| A. Public by default, opt-in privacy later | Passes the litmus tests today; leaves residual 9 open and costs a schema break later |
+| B. Private by default: public skeleton, need-based keys, aggregate backer signals, opt-in publication | Narrows residuals 6 and 9; about two weeks in Phase 1 and three in Phase 2 (guessed) |
+| C. Full cryptographic privacy from Phase 2 (Aztec, fhEVM, shielded pools) | Hides amounts and parties; today it means alpha software or token admins, which fails "no admin keys" |
+| D. Tiered disclosure as a signed term with a rulebook minimum | User choice by construction; needs B underneath |
+| E. Banking model with a freezing party | Fails neutrality with the freeze; kept as a lens without it |
+
+**Recommendation:** B with D, and E as the compliance lens (research pass, Fable at max effort).

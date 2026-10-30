@@ -15,6 +15,13 @@ describe('design map', () => {
     for (const d of data.decisions) expect(['decided', 'deferred', 'open']).toContain(d.status);
   });
 
+  it('names the chosen option for every decided decision instead of a bare letter', () => {
+    for (const d of data.decisions.filter((x: { status: string }) => x.status === 'decided')) {
+      expect(d.choice.length).toBeGreaterThan(8);
+      expect(d.choice).not.toMatch(/^[A-D]([.,]|$)/);
+    }
+  });
+
   it('reads a status for every ADR and every task', () => {
     for (const a of data.adrs) expect(a.status).not.toBe('Unknown');
     for (const t of data.tasks) expect(t.status).not.toBe('');
