@@ -1,6 +1,6 @@
 # Decisions to make today
 
-Status: decided October 30, 2026, after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`). The options below are kept as the record. Owner: Rafa. Each decision has options, a recommendation and the ADR it settles. Phase 1 (the demo) can start once D1, D2 and D6 are settled. Phase 2 needs D3 and D4.
+Status: D1–D9 decided October 30, 2026, after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`); the options are kept as the record. D10 is open. Owner: Rafa. Each decision has options, a recommendation and the ADR it settles. Phase 1 (the demo) can start once D1, D2 and D6 are settled. Phase 2 needs D3 and D4.
 
 ## D1. Adopt the neutrality litmus test as the top constraint (ADR-0001)
 
@@ -118,3 +118,18 @@ Finding: Anthropic's API credits cannot be transferred between accounts (Supplem
 | R4. Provider-native hold on API credit | Ask an AI lab for a hold primitive on credits | Fails as the only rail; acceptable as one rail among many | A natural question to raise with an AI lab audience in the demo |
 
 **Recommendation:** run the spike in parallel with Phase 1. If the spike holds up, add R1 to the demo as an optional beat.
+
+## D10. Incentives for adjudicators, capital and commitment design (ADR-0014)
+
+**Open.** Needed before Phase 3 (T-306, fee quotes); not needed for the Phase 1 demo.
+
+Rafa's principles: reward better adjudicators; reward capital at risk; make commitments that are likely to need the adjudicator pay for it.
+
+| Part | Proposal | Main risk |
+| --- | --- | --- |
+| Quality | Public, recomputable signals (overturns, escalations, missed deadlines) plus opt-in audit sampling by a different adjudicator; fees may carry a margin above the cost floor | Audits widen plaintext access (residual 6) |
+| Capital | Bond backers earn the capital charge; the adjudicator takes first loss (default 10% of its pool); stake locked until `appealDecideBy` | New held funds and audit surface in the rules contract |
+| Commitment design | Price by checkability (deterministic-only terms pay `minFee`); per-attempt fee when a required check fails; no shared party reputation | Pricing estimates rest on each adjudicator's own history |
+| Attestation | `attested` judges as a policy option once providers sign responses | Not available today (residual 8) |
+
+**Recommendation:** run the adversarial review on ADR-0014 before deciding.
