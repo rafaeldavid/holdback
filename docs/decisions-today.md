@@ -1,6 +1,6 @@
 # Decisions to make today
 
-Status: D1–D9 decided October 30, 2026, after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`); the options are kept as the record. D10 to D15 decided October 30, 2026, each after an independent research pass; none are open. Owner: Rafa. Each decision has options, a recommendation and the ADR it settles. Phase 1 (the demo) can start once D1, D2 and D6 are settled. Phase 2 needs D3 and D4.
+Status: D1–D9 decided October 30, 2026, after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`); the options are kept as the record. D10 to D16 decided October 30, 2026, each after an independent research pass; none are open. Owner: Rafa. Each decision has options, a recommendation and the ADR it settles. Phase 1 (the demo) can start once D1, D2 and D6 are settled. Phase 2 needs D3 and D4.
 
 ## D1. Adopt the neutrality litmus test as the top constraint (ADR-0001)
 
@@ -219,3 +219,18 @@ Rafa's framing: escrow as a 2-of-3. The parties agree, or the adjudicator decide
 
 **Recommendation:** A (research pass, Fable at max effort).
 
+## D16. Privacy model (ADR-0020)
+
+**Decided 2026-10-30:** every commitment has a public skeleton and a private body. The skeleton holds what anyone needs to trigger timeouts and check coverage: addresses, token and amounts, deadlines, adjudicators, mode, hashes, outcomes and money movements. The body (description, criteria, rubric, judgment reasons) is encrypted to the parties and to each adjudicator only when it becomes involved; whoever wants judgment carries the key, and the seller is never the gate. Disclosure is a signed term, `private`, `judgment` or `public`, with a rulebook minimum; a co-signed `Publish` can only raise it. Bond backers get aggregate signals, not cases. Compliance follows the banking pattern without a freeze: screen at admission and on-ramps, report after the fact, disclose by view key, unmask through the parties and the club's admission records. A pseudonymous per-commitment identity mode comes in Phase 2. Phase 1 admits `public` only, carries hashes on every event, makes escalations and disputes carry keys, and has SimChain release fallback and appeal keys on takeover.
+
+Rafa's framing: end to end by default, the adjudicator and bond capital involved only as needed, an option to publish, banking patterns and compliance reporting, and dummy public IDs per escrow.
+
+| Option | Effect |
+| --- | --- |
+| A. Public by default, opt-in privacy later | Passes the litmus tests today; leaves residual 9 open and costs a schema break later |
+| B. Private by default: public skeleton, need-based keys, aggregate backer signals, opt-in publication | Narrows residuals 6 and 9; about two weeks in Phase 1 and three in Phase 2 (guessed) |
+| C. Full cryptographic privacy from Phase 2 (Aztec, fhEVM, shielded pools) | Hides amounts and parties; today it means alpha software or token admins, which fails "no admin keys" |
+| D. Tiered disclosure as a signed term with a rulebook minimum | User choice by construction; needs B underneath |
+| E. Banking model with a freezing party | Fails neutrality with the freeze; kept as a lens without it |
+
+**Recommendation:** B with D, and E as the compliance lens (research pass, Fable at max effort).

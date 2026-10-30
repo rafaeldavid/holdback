@@ -36,6 +36,7 @@ Restate this in your own words in this section before writing code.
 - [ ] `Settlement.validate(...)` runs the same guards as submission against the settlement layer's own facts and changes nothing (ADR-0017 §7). Party messages may be unsigned and report the skipped signature check; adjudicator messages and triggers must be signed. Property test `error.dry-run-has-no-effects`: state, nonces, idempotency records, reserved bond and events are unchanged.
 - [ ] Mutual settlement (ADR-0019): `mutual_settle` event with both signatures over the same struct; guards (funded and undecided state, signers equal buyer and seller, `deliveryHash` matches or is null in Held, `sellerAmount` ≤ price, `releaseKey` only with a delivery, rulebook allows); postings per the table; reservations released; settle-once race with a decision, first applied wins (property test).
 - [ ] `pnpm load`: 1,000 holds, report p50/p95 (measured); 100 concurrent holds on one balance, zero overdrafts.
+- [ ] Privacy (ADR-0020): SimChain holds the fallback and appeal key envelopes and releases each only on takeover; `escalate` decisions must carry the appeal adjudicator's envelope and `Dispute` must carry envelopes for all three adjudicators; every event carries `termsHash` and `recordHash`, with bodies only at disclosure levels that publish them (Phase 1: `public` only).
 
 ## Out of scope
 

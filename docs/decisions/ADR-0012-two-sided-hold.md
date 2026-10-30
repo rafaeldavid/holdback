@@ -26,3 +26,9 @@ This is delivery versus payment for digital work. It follows optimistic fair exc
 
 - Adjudicators see plaintext. They are bonded and named by both parties. Confidential-compute judging is a later option.
 - Buyers verify plaintext against the committed hash after release.
+
+## Amended by ADR-0020 (D16)
+
+- Keys go only to those who need them. The primary gets the content key at delivery in `guaranteed_on_decision`. The fallback's envelope is released on takeover: SimChain holds it in Phase 1, and in Phase 2 it is time-locked to the beacon round at `judgeBy`. The appeal adjudicator's key is carried by the `escalate` decision or the appeal, with a time-lock at `appealBy` as a backstop.
+- In optimistic mode a `Dispute` carries keys for all three adjudicators; with no dispute, no adjudicator reads the work.
+- The work is never published by the protocol at any disclosure level.

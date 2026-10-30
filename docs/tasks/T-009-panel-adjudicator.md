@@ -30,6 +30,7 @@ Restate this in your own words in this section before writing code.
 - [ ] The adjudicator service signs `AdjudicatorAcceptance` (seed commitment, policy and registry hashes, fee, reserved bond) and publishes its registry hash and URI and its policy hash in its registration.
 - [ ] Fee quote stub returning policy minimum.
 - [ ] Appeal ground "missing or wrong key": the appeal decision may carry the key to the buyer.
+- [ ] Privacy (ADR-0020): fallback and appeal adjudicators unwrap the content and record keys only from envelopes released on takeover, never from the delivery.
 
 ## Out of scope
 

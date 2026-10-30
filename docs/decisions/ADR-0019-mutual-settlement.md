@@ -153,3 +153,7 @@ MutualSettlement {
   - Adjudicator decisions stay binary.
   - Fewer cases are judged.
   - Passes.
+
+## Amended by ADR-0020 (D16)
+
+Who can see a settlement's split follows the disclosure level. The money movements are part of the public skeleton, so the amounts paid to each payout address are visible at every level. Any reasons or terms the parties attach stay in the body.

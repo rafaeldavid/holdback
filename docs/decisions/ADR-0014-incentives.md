@@ -110,3 +110,7 @@ Constraints. ADR-0001 forbids any single party from controlling settlement, so i
 - **Neutrality.** Every quality signal is recomputed from public events, so no keeper exists. Backers can only add or withdraw unencumbered stake, never alter a decision or an open commitment. Audit selection uses commit-reveal, so neither the audited adjudicator nor the parties choose which cases are audited. Holdback earns from tooling or as one adjudicator, never from scoring.
 - **The hold.** Backer stake is a new class of held funds, under the same rules: no admin keys, permissionless timeouts, settle-once and encumbrance until `appealDecideBy`. The buyer's funds are unaffected.
 - **Defended judgment.** Audits add an error measurement on real traffic that the adjudicator does not control. Measurement still rests on disclosed, not proven, model identity until attestation exists. Pricing by checkability pushes parties toward deterministic checks, the strongest tier of acceptance.
+
+## Amended by ADR-0020 (D16)
+
+Backer reporting is aggregate. Backers see tranches, reserved bond, pool terms and the rates of overturns, escalations, missed deadlines and defaults, all recomputed from public skeleton events. They do not see per-case contents or counterparties. Audit sampling, if a rulebook opts in, gets a wrapped record key under that rulebook.
