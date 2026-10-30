@@ -18,6 +18,8 @@ The mandatory defenses and their tests are listed in `docs/judgment-and-defenses
 
 **What is proven and what is disclosed.** The commitment proves which models had to judge and under which prompt and rules. The judgment record discloses which models did judge and with which inputs, signed by the adjudicator. Nothing yet proves that a response came from the model named: no major provider signs responses (`docs/research/compute-native.md`, R3). Until provider-signed responses or attested confidential compute exist, a mislabeled model is an appeal ground backed by the bond, and the gap is residual control point 8 in `docs/neutrality.md`.
 
+**Screen report (ADR-0021).** The screen protects the judges. Its signals are part of the signed judgment record, and the SDK must surface them to the buyer's agent with a normalized view of the work by default. When the rubric is empty, a flagged screen does not change the decision; aggregation appends the reason "screen flagged; see screen.signals". Parties who want hidden characters to reject can require the declarative check `hidden_characters_max`. Escalation on high-risk signals waits for a Phase 3 `screenPolicy` option.
+
 **Escalation.** An escalated case goes to the appeal adjudicator with no first decision and no appellant bond. If the appeal adjudicator misses its deadline, the default outcome applies (ADR-0007).
 
 ## Rationale

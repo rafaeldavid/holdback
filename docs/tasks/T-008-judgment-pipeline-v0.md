@@ -26,6 +26,7 @@ Restate this in your own words in this section before writing code.
 - [ ] Prompt builder that only accepts deliverable content as `UntrustedData`; random-boundary delimiters + datamarking; canary token; test proving system prompt contains no deliverable bytes.
 - [ ] Verdict parsing against schema; failure → abstain.
 - [ ] Aggregation function with exhaustive table tests matching the pseudo-code.
+- [ ] ADR-0021: on the empty-rubric accept with a flagged screen, append the reason "screen flagged; see screen.signals" (decision unchanged); add the check `hidden_characters_max` (per-category counts of tag, bidi-control, variation-selector and other invisible characters, from raw bytes) once the schema carries it.
 
 ## Out of scope
 
