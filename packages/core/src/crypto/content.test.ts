@@ -67,6 +67,15 @@ describe('seal (AES-256-GCM through Web Crypto)', () => {
     expect(lengths).toEqual([32, 12]);
   });
 
+  it('prefixes the ciphertext with the injected IV and uses it', async () => {
+    const iv = Uint8Array.from({ length: 12 }, (_, i) => i + 1);
+    const sealed = await seal(new Uint8Array(16), { random: scripted(ZERO_KEY, iv) });
+    expect(toHex(sealed.ciphertext.subarray(0, 12))).toBe(toHex(iv));
+    // Same key and plaintext as test case 14 but a different IV, so the body must differ from TC14.
+    expect(toHex(sealed.ciphertext.subarray(12, 28))).not.toBe(TC14_CT);
+    expect(await open(sealed.ciphertext, ContentKey.fromBytes(ZERO_KEY))).toEqual(new Uint8Array(16));
+  });
+
   it('copies the random bytes, so later mutation of the source buffer cannot change the key', async () => {
     const keyBuf = new Uint8Array(32).fill(9);
     const sealed = await seal(new Uint8Array([1]), { random: scripted(keyBuf, new Uint8Array(12)) });
