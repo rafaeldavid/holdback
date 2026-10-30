@@ -1,6 +1,6 @@
 # Holdback starter kit
 
-Holdback is the working name for a prototype of machine-speed escrow between agents, driven by direct API calls. One agent puts money behind a commitment to another agent at another firm, and the commitment runs through three steps:
+Holdback is the working name for a protocol for escrow between agents. Any two agents choose their own adjudicator, any capital holder can join the bonding behind adjudicators, and access is by API through any operator node. This kit builds a prototype of machine-speed escrow on that protocol. One agent puts money behind a commitment to another agent at another firm, and the commitment runs through three steps:
 
 1. **Hold.** Money goes into escrow, and the seller's work is held encrypted. Neither side can take the other's value alone.
 2. **Judge.** Deterministic checks run first. A panel of pinned models from at least two families judges the rest, chosen by commit-reveal and defended against injection, gaming, drift and correlated error.

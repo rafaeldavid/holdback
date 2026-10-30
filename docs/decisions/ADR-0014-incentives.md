@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-30
-- **Raised by:** Rafa, in chat on October 30, 2026, after the Phase 0 adversarial review. No task file yet. It shapes T-306 (fee quotes, Phase 3) and Phase 4 (adjudicator economics) in `docs/plan.md`.
+- **Raised by:** Rafa, in chat on October 30, 2026, after the Phase 0 adversarial review. No task file yet. It shapes T-306 (fee quotes, Phase 3) and Phase 4 (adjudicator economics) in `docs/plan.md`. Rafa later set open bonding participation as one of the protocol's three core properties (`CLAUDE.md`, Objective), which makes the backer role in section 2 part of the objective rather than an option.
 
 ## Context
 
