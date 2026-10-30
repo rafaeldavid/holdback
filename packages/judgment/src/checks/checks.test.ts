@@ -1,4 +1,4 @@
-import type { DeterministicCheck } from '@holdback/core';
+import type { DeterministicCheck, MimeType } from '@holdback/core';
 import { describe, expect, it } from 'vitest';
 import { GOOD_CSV, sha256, utf8 } from '../_helpers.js';
 import { UntrustedData } from '../untrusted.js';
@@ -6,8 +6,8 @@ import { CHECK_TYPES, evaluateChecks, validateCheck } from './index.js';
 import { isIso8601 } from './iso8601.js';
 import { parseCsv } from './csv.js';
 
-const csv = (text: string) => ({ data: UntrustedData.wrap(text), mime: 'text/csv' as const });
-const json = (value: unknown) => ({ data: UntrustedData.wrap(JSON.stringify(value)), mime: 'application/json' as const });
+const csv = (text: string): { data: UntrustedData; mime: MimeType } => ({ data: UntrustedData.wrap(text), mime: 'text/csv' });
+const json = (value: unknown): { data: UntrustedData; mime: MimeType } => ({ data: UntrustedData.wrap(JSON.stringify(value)), mime: 'application/json' });
 const one = (check: DeterministicCheck, input = csv(GOOD_CSV), references?: ReadonlyMap<string, Uint8Array>) => {
   const [r] = evaluateChecks([check], references ? { ...input, references } : input);
   return r!;
