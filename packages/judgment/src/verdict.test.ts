@@ -58,6 +58,12 @@ describe('parseVerdict', () => {
     expect(r.status === 'abstain' && r.reason).toBe('too_long');
   });
 
+  it('abstains, without throwing, on output nested deep enough to overflow the stack', () => {
+    const n = 30_000;
+    const r = parse(`{"criteria":${'['.repeat(n)}${']'.repeat(n)},"overall":"pass","injectionSuspected":false,"rationale":""}`);
+    expect(r.status).toBe('abstain');
+  });
+
   it('applies a tighter policy rationale cap', () => {
     const r = parse({ ...good, rationale: 'x'.repeat(200) }, { rationaleMaxChars: 100 });
     expect(r.status === 'abstain' && r.reason).toBe('schema');

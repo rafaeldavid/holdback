@@ -47,6 +47,22 @@ describe('check registry', () => {
   });
 });
 
+describe('check robustness', () => {
+  it('fails closed, without throwing, on JSON nested deep enough to overflow the stack', () => {
+    const n = 200_000;
+    const deep = json(null);
+    const input = { ...deep, data: UntrustedData.wrap(`[${'['.repeat(n)}${']'.repeat(n)},1]`) };
+    const rs = evaluateChecks(
+      [
+        { id: 'u', required: true, type: 'json_schema', schema: { uniqueItems: true } },
+        { id: 'c', required: true, type: 'csv_columns_exact', columns: ['a'] },
+      ],
+      input,
+    );
+    expect(rs.map((r) => [r.checkId, r.passed])).toEqual([['u', false], ['c', false]]);
+  });
+});
+
 describe('csv parser', () => {
   it('parses quoted fields, escaped quotes, CRLF and embedded newlines', () => {
     const r = parseCsv('a,b\r\n"x, y","say ""hi"""\r\n"multi\nline",2\r\n');

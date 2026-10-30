@@ -32,7 +32,12 @@ export function parseVerdict(raw: string, opts: VerdictOptions): ParsedVerdict {
   } catch {
     return abstain('not_json', 'output is not a single JSON value');
   }
-  const parsed = parseJudgeVerdict(json);
+  let parsed: ReturnType<typeof parseJudgeVerdict>;
+  try {
+    parsed = parseJudgeVerdict(json);
+  } catch {
+    return abstain('schema', 'output could not be validated');
+  }
   if (!parsed.ok) return abstain('schema', parsed.error.detail.slice(0, 200));
   const verdict = parsed.value;
   if (verdict.rationale.length > opts.rationaleMaxChars) return abstain('schema', `rationale exceeds the policy cap of ${opts.rationaleMaxChars}`);

@@ -168,9 +168,24 @@ function evaluate(check: DeterministicCheck, input: CheckInput, table: () => Ret
 /** Evaluates every check, in declaration order. */
 export function evaluateChecks(checks: readonly DeterministicCheck[], input: CheckInput): CheckOutcome[] {
   let cached: ReturnType<typeof toTable> | undefined;
-  const table = () => (cached ??= toTable(input.data.reveal(), input.mime));
+  const table = () => {
+    if (cached === undefined) {
+      try {
+        cached = toTable(input.data.reveal(), input.mime);
+      } catch {
+        cached = { ok: false, error: 'deliverable could not be read as a table' };
+      }
+    }
+    return cached;
+  };
   return checks.map((check) => {
-    const o = evaluate(check, input, table);
+    let o: Outcome;
+    try {
+      o = evaluate(check, input, table);
+    } catch {
+      // Hostile shapes (for example JSON nested deep enough to exhaust the stack) fail the check, never the pipeline.
+      o = fail('check could not be evaluated on this input');
+    }
     const out: CheckOutcome = { checkId: check.id, required: check.required, passed: o.passed };
     if (o.detail !== undefined) out.detail = cap(o.detail);
     return out;
