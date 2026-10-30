@@ -18,7 +18,7 @@ describe('design map', () => {
   it('names the chosen option for every decided decision instead of a bare letter', () => {
     for (const d of data.decisions.filter((x: { status: string }) => x.status === 'decided')) {
       expect(d.choice.length).toBeGreaterThan(8);
-      expect(d.choice).not.toMatch(/^[A-D]\b/);
+      expect(d.choice).not.toMatch(/^[A-D]([.,]|$)/);
     }
   });
 

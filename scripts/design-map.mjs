@@ -42,7 +42,7 @@ function outcome(body, decided) {
   const note = decided.replace(/\s*\(ADR-\d{4}[^)]*\)/g, '').trim();
   const recommendation = body.match(/^\*\*Recommendation:\*\*\s*(.+)$/m)?.[1] ?? '';
   if (/^as recommended\.?$/i.test(note)) return { choice: capitalize(recommendation), detail: '' };
-  const letter = note.match(/^([A-D])\b[.,]?\s*(.*)$/);
+  const letter = note.match(/^([A-D])(?:[.,]\s*|$)(.*)$/);
   if (!letter) return { choice: capitalize(note), detail: '' };
   const option = body.match(new RegExp(`^\\| ${letter[1]}\\. ([^|]+)\\|`, 'm'))?.[1].trim();
   const rest = letter[2].replace(/^and\s+/, '').trim();
