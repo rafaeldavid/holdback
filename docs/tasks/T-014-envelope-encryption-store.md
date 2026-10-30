@@ -57,7 +57,7 @@ Original statement: give the two-sided hold (ADR-0012) its building blocks: encr
 - **Determinism (measured):** tests draw randomness from scripted or counter sources and fast-check with fixed seeds; `untrusted.test.ts` asserts no `Math.random` or `Date.now` in the sources. The two "default source differs" tests use the system CSPRNG only to show two outputs differ.
 - **Untrusted bytes (measured, partial):** `untrusted.test.ts` scans the non-test sources for `JSON.parse`, `TextDecoder`, UTF-8 decoding, dynamic code and imports of `parse.js`; invalid UTF-8 and instruction-like JSON round-trip unchanged through both stores. That the modules do nothing else with content is inferred from reading the code.
 - **Keys out of errors (measured):** tests render every error path with `String`, `.message`, `util.inspect(showHidden)` and `JSON.stringify` and look for hex, decimal-array and base64 fragments of the keys; `ContentKey` renders as `ContentKey(redacted)`. Raw X25519 secret keys are plain `Uint8Array`s, so a caller who logs one directly would leak it (inferred).
-- **gitleaks (not run):** not installed on this machine. The test files contain public test-vector keys (RFC 7748, NaCl paper) that a scanner may flag; they are not secrets.
+- **gitleaks (measured in CI):** not installed locally; the PR's CI `gitleaks` job passes. The test files contain public test-vector keys (RFC 7748, NaCl paper), which it did not flag.
 
 ## Decisions
 
