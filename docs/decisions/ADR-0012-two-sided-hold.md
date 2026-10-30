@@ -14,6 +14,7 @@ With a money-only hold, the buyer sees the deliverable before paying. It could t
 - On acceptance, the decision carries the key encrypted to the buyer. In `guaranteed_on_decision`, payment release and key release happen in one atomic step on the settlement layer: the rules contract emits the encrypted key in the same transaction as the capture.
 - In `settle_after_window` the two cannot be atomic, because capture happens after the appeal window and an encrypted key published at the decision is readable at once. That mode needs its own key-release design before Phase 4.
 - On early acceptance, no adjudicator is involved, so the seller's delivery must also carry the key encrypted to the buyer, and the rules contract releases it with the payment.
+- On a co-signed mutual settlement with `releaseKey: true`, the rules contract releases that same buyer key with the payment. With `releaseKey: false` the seller keeps the work (ADR-0019, D15).
 - The settlement layer cannot check that the released key decrypts the committed plaintext. "Missing or wrong key" is an appeal ground backed by the adjudicator's bond, and an appeal decision may carry the key to the buyer.
 - On rejection or reclaim, the key is never released to the buyer.
 

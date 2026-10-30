@@ -16,7 +16,7 @@ Restate this in your own words in this section before writing code.
 
 ## Context
 
-- `docs/architecture.md` §Hold and settlement postings, §Settlement interface, §Two-sided hold; ADR-0002, ADR-0007, ADR-0012, ADR-0014 §2a (bond pools), ADR-0017 (dry run), ADR-0018 (panel seed); `docs/neutrality.md`.
+- `docs/architecture.md` §Hold and settlement postings, §Settlement interface, §Two-sided hold; ADR-0002, ADR-0007, ADR-0012, ADR-0014 §2a (bond pools), ADR-0017 (dry run), ADR-0018 (panel seed), ADR-0019 (mutual settlement); `docs/neutrality.md`.
 
 ## Acceptance criteria
 
@@ -34,6 +34,7 @@ Restate this in your own words in this section before writing code.
 - [ ] fast-check properties: conservation, non-negative balances, settle-once, idempotent resubmission, random interleavings of triggers.
 - [ ] Hash-chained event log with replay.
 - [ ] `Settlement.validate(...)` runs the same guards as submission against the settlement layer's own facts and changes nothing (ADR-0017 §7). Party messages may be unsigned and report the skipped signature check; adjudicator messages and triggers must be signed. Property test `error.dry-run-has-no-effects`: state, nonces, idempotency records, reserved bond and events are unchanged.
+- [ ] Mutual settlement (ADR-0019): `mutual_settle` event with both signatures over the same struct; guards (funded and undecided state, signers equal buyer and seller, `deliveryHash` matches or is null in Held, `sellerAmount` ≤ price, `releaseKey` only with a delivery, rulebook allows); postings per the table; reservations released; settle-once race with a decision, first applied wins (property test).
 - [ ] `pnpm load`: 1,000 holds, report p50/p95 (measured); 100 concurrent holds on one balance, zero overdrafts.
 
 ## Out of scope

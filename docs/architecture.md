@@ -90,7 +90,13 @@ stateDiagram-v2
   Escalated --> Refunded: appeal adjudicator rejects
   Escalated --> Defaulted: appealDecideBy passed (anyone)
   Defaulted --> Refunded: default outcome (seller compensated from bonds)
+  Held --> Settled: buyer and seller co-sign a settlement
+  Delivered --> Settled: buyer and seller co-sign a settlement
+  FallbackJudging --> Settled: buyer and seller co-sign a settlement
+  Escalated --> Settled: buyer and seller co-sign a settlement
 ```
+
+`Settled` is terminal and not appealable. A co-signed `MutualSettlement` pays any split of the price and chooses whether the buyer receives the content key; the fee returns to the buyer in Phase 1 (ADR-0019, D15). Settle-once holds: if a settlement and a decision race, the first one applied wins.
 
 In `guaranteed_on_decision` a decision moves the money in the same step, so there is no separate settle step. `settle_after_window` (Phase 4) adds a `Decided` escrow state that settles when the appeal state closes.
 
@@ -171,6 +177,7 @@ The prototype uses accounts per address and per escrow, in base units of the tes
 | Refund | `escrow:{id} → buyer` (price); `escrow:{id} → adjudicator:{a}` (fee earned for judging) |
 | Early acceptance | `escrow:{id} → seller` (price); `escrow:{id} → buyer` (fee; no adjudicator judged) |
 | Reclaim (no delivery) | `escrow:{id} → buyer` (price + fee) |
+| Mutual settlement | `escrow:{id} → seller` (`sellerAmount`); `escrow:{id} → buyer` (price − `sellerAmount` + fee); every reservation on the commitment released; buyer key emitted only if `releaseKey` |
 | Appeal bond and fee | `appellant → appealbond:{id}` (bond); `appellant → adjudicator:{appeal}` (appeal fee, rulebook parameter) |
 | Overturn, guaranteed mode, wrongful accept | `bond:{a} → buyer` (price); `appealbond:{id} → appellant` |
 | Overturn, guaranteed mode, wrongful reject | `bond:{a} → seller` (price); `appealbond:{id} → appellant` |
@@ -272,5 +279,6 @@ docs/              specs, ADRs, tasks, research
 - **SimChain:** the in-process simulation of the settlement rules.
 - **Rail:** where custody happens. **On-ramp / off-ramp:** fiat conversion before the hold / after release.
 - **Receipt:** an operator-signed record of an accepted message or a settlement event.
+- **Mutual settlement:** a message buyer and seller both sign that ends a funded, undecided commitment at any split of the price, with or without releasing the content key to the buyer (ADR-0019).
 - **Beacon:** a public source of randomness rounds that no adjudicator or party controls. It seeds fallback and appeal panels (ADR-0018). SimChain in Phase 1, drand quicknet in Phase 2.
 - **Backer:** any address that deposits into an adjudicator's bond pool and earns its capital charge pro rata, behind the adjudicator's first-loss stake (ADR-0014).
