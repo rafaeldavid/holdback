@@ -37,6 +37,8 @@ Model calls go through an injected provider. Tests use fakes, and the pipeline r
 - [x] Prompt builder that only accepts deliverable content as `UntrustedData`; random-boundary delimiters + datamarking; canary token; test proving system prompt contains no deliverable bytes.
 - [x] Verdict parsing against schema; failure → abstain.
 - [x] Aggregation function with exhaustive table tests matching the pseudo-code.
+- [x] ADR-0021: on the empty-rubric accept with a flagged screen, append the reason "screen flagged; see screen.signals" (decision unchanged); add the check `hidden_characters_max` (per-category counts of tag, bidi-control, variation-selector and other invisible characters, from raw bytes) once the schema carries it.
+- [x] Integer rates and fraction thresholds (ADR-0022): `acceptSupermajority` and `rejectSupermajority` are fractions compared by cross-multiplication (no `EPS`); accept requires `pass > fail` and reject `fail > pass`, so ties escalate; policies with `2 × numerator ≤ denominator` are refused; the weighted score is an integer in hundredths; the record carries counts; checks cross-multiply (`nulls × 10000 ≤ maxBps × rows`). Tests: 2 of 3 accepts at {2,3}; a 2–2 split escalates; 3 of 5 escalates and 4 of 5 accepts at {4,5}; a property that accept and reject never both hold.
 
 ## Out of scope
 

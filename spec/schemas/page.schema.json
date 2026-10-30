@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://holdback.dev/schemas/v0.5/page.schema.json",
+  "title": "Page of a collection (ADR-0017)",
+  "description": "Every collection endpoint returns this envelope, ordered by event sequence, newest first. Item shapes are given per endpoint in docs/api.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "items",
+    "nextCursor"
+  ],
+  "properties": {
+    "items": {
+      "type": "array",
+      "maxItems": 200
+    },
+    "nextCursor": {
+      "oneOf": [
+        {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,512}$",
+          "description": "Opaque; pass back as ?cursor="
+        },
+        {
+          "type": "null",
+          "description": "End of the data"
+        }
+      ]
+    }
+  }
+}

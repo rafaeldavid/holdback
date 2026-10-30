@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.4/judgment.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.5/judgment.schema.json",
   "title": "Judgment record",
   "type": "object",
   "required": [
@@ -51,7 +51,8 @@
           "type": "boolean"
         },
         "mime": {
-          "type": "string"
+          "type": "string",
+          "pattern": "^[a-z]+/[a-z0-9.+-]{1,100}$"
         },
         "bytes": {
           "type": "integer",
@@ -74,7 +75,8 @@
         ],
         "properties": {
           "checkId": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^[a-z0-9_-]{1,40}$"
           },
           "required": {
             "type": "boolean"
@@ -84,7 +86,8 @@
           },
           "detail": {
             "type": "string",
-            "maxLength": 300
+            "maxLength": 300,
+            "x-holdback-untrusted": true
           }
         }
       }
@@ -116,12 +119,18 @@
                   "unicode_tags",
                   "zero_width",
                   "canary_echo",
-                  "classifier"
-                ]
+                  "classifier",
+                  "nfkc_changed",
+                  "variation_selector_run",
+                  "mixed_script",
+                  "hidden_characters"
+                ],
+                "description": "Closed set (ADR-0021): instruction_phrase, encoded_run, unicode_tags, zero_width, canary_echo, classifier, nfkc_changed, variation_selector_run, mixed_script, hidden_characters"
               },
               "detail": {
                 "type": "string",
-                "maxLength": 300
+                "maxLength": 300,
+                "x-holdback-untrusted": true
               }
             }
           }
@@ -135,15 +144,17 @@
         "ran",
         "policyId",
         "policyHash",
-        "seedCommitment",
-        "members"
+        "members",
+        "seedSource"
       ],
       "properties": {
         "ran": {
           "type": "boolean"
         },
         "policyId": {
-          "type": "string"
+          "type": "string",
+          "x-holdback-untrusted": true,
+          "maxLength": 120
         },
         "policyHash": {
           "$ref": "common.schema.json#/$defs/Hex32",
@@ -151,7 +162,7 @@
         },
         "seedCommitment": {
           "$ref": "common.schema.json#/$defs/Hex32",
-          "description": "keccak256(seed) from the adjudicator's acceptance"
+          "description": "keccak256(seed) from the primary's acceptance; commit-reveal panels only"
         },
         "seed": {
           "$ref": "common.schema.json#/$defs/Hex32"
@@ -173,17 +184,19 @@
             ],
             "properties": {
               "judgeId": {
-                "type": "string"
+                "$ref": "common.schema.json#/$defs/Ident"
               },
               "provider": {
-                "type": "string"
+                "$ref": "common.schema.json#/$defs/Ident"
               },
               "family": {
-                "type": "string"
+                "$ref": "common.schema.json#/$defs/Ident"
               },
               "model": {
                 "type": "string",
+                "pattern": "^[A-Za-z0-9._:/@-]{1,128}$",
                 "not": {
+                  "type": "string",
                   "pattern": "[Ll][Aa][Tt][Ee][Ss][Tt]"
                 },
                 "description": "Pinned model ID; floating aliases such as 'latest' are rejected"
@@ -217,8 +230,65 @@
               }
             }
           }
+        },
+        "seedSource": {
+          "enum": [
+            "commit-reveal",
+            "beacon"
+          ],
+          "description": "commit-reveal for the primary; beacon for fallback and appeal panels (ADR-0018)"
+        },
+        "beaconRound": {
+          "type": "integer",
+          "minimum": 0
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "seedSource": {
+                "const": "commit-reveal"
+              }
+            },
+            "type": "object",
+            "required": [
+              "seedSource"
+            ]
+          },
+          "then": {
+            "required": [
+              "seedCommitment"
+            ],
+            "type": "object",
+            "properties": {
+              "seedCommitment": {}
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "seedSource": {
+                "const": "beacon"
+              }
+            },
+            "type": "object",
+            "required": [
+              "seedSource"
+            ]
+          },
+          "then": {
+            "required": [
+              "beaconRound"
+            ],
+            "type": "object",
+            "properties": {
+              "beaconRound": {}
+            }
+          }
+        }
+      ]
     },
     "aggregate": {
       "type": "object",
@@ -237,22 +307,32 @@
         },
         "weightedScore": {
           "type": [
-            "number",
+            "integer",
             "null"
           ],
           "minimum": 0,
-          "maximum": 4
+          "maximum": 400,
+          "description": "Mean weighted score in hundredths of a rubric point, or null when no verdict was valid"
         },
-        "passShare": {
-          "$ref": "common.schema.json#/$defs/Rate"
+        "passCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Valid verdicts that passed"
         },
-        "failShare": {
-          "$ref": "common.schema.json#/$defs/Rate"
+        "failCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Valid verdicts that failed"
+        },
+        "validCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Valid verdicts"
         },
         "passFamilies": {
           "type": "array",
           "items": {
-            "type": "string"
+            "$ref": "common.schema.json#/$defs/Ident"
           }
         },
         "reasons": {
@@ -260,7 +340,8 @@
           "minItems": 1,
           "items": {
             "type": "string",
-            "maxLength": 200
+            "maxLength": 200,
+            "x-holdback-untrusted": true
           }
         }
       }
@@ -277,6 +358,10 @@
     },
     "signature": {
       "$ref": "common.schema.json#/$defs/Signature"
+    },
+    "privateRecord": {
+      "$ref": "common.schema.json#/$defs/PrivateBody",
+      "description": "The full record kept off the public log when disclosure is private (ADR-0020)"
     }
   }
 }

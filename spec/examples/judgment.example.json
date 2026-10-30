@@ -46,6 +46,7 @@
     "ran": true,
     "policyId": "bench-a/p1",
     "policyHash": "0x04221c401f162ef3a3c07c9d97024f3a13eb30f262b0c088ee6f63fa2c893dbb",
+    "seedSource": "commit-reveal",
     "seedCommitment": "0x9b7729175e6efa947ff5980e87390813228dc2eef1c4b2f1d72a9c3d2eb02d3e",
     "seed": "0x40a7da5565ae8c475972696a25d415b73a73e9451aa19d897e227ec6e7ff827a",
     "members": [
@@ -53,7 +54,7 @@
         "judgeId": "claude-a",
         "provider": "anthropic",
         "family": "claude",
-        "model": "<pinned-model-id-1>",
+        "model": "pinned-model-id-1",
         "promptTemplateHash": "0xfc57e4384c325f4d71292850f0fefd9edcd496aa652eacb33044b75b6bf45a8a",
         "inputHash": "0xc7de682de2a6ecbcaff4d61c9043f1340d60ad8c3cf43040096c7e0207d14d8a",
         "rubricHash": "0x427a9abb2f667a6750d71780be14ebc0caf1961ad1de0f1f018f48a126630f56",
@@ -86,7 +87,7 @@
         "judgeId": "claude-b",
         "provider": "anthropic",
         "family": "claude",
-        "model": "<pinned-model-id-2>",
+        "model": "pinned-model-id-2",
         "promptTemplateHash": "0xfc57e4384c325f4d71292850f0fefd9edcd496aa652eacb33044b75b6bf45a8a",
         "inputHash": "0x1d300ea2335bbb1fae62cf9c71e50c53f1e64d083ae6b481161f1e6f140a5d91",
         "rubricHash": "0x427a9abb2f667a6750d71780be14ebc0caf1961ad1de0f1f018f48a126630f56",
@@ -119,7 +120,7 @@
         "judgeId": "fam2-a",
         "provider": "openai-compatible",
         "family": "family-2",
-        "model": "<pinned-model-id-3>",
+        "model": "pinned-model-id-3",
         "promptTemplateHash": "0xfc57e4384c325f4d71292850f0fefd9edcd496aa652eacb33044b75b6bf45a8a",
         "inputHash": "0x237973546a9370a302c1f382e3f07c804db6865e3ec8ec8187bc6ea12190f48e",
         "rubricHash": "0x427a9abb2f667a6750d71780be14ebc0caf1961ad1de0f1f018f48a126630f56",
@@ -152,9 +153,10 @@
   },
   "aggregate": {
     "decision": "accept",
-    "weightedScore": 3.8,
-    "passShare": 1.0,
-    "failShare": 0.0,
+    "weightedScore": 380,
+    "passCount": 3,
+    "failCount": 0,
+    "validCount": 3,
     "passFamilies": [
       "claude",
       "family-2"

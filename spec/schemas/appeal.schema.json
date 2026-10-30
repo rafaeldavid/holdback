@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.4/appeal.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.5/appeal.schema.json",
   "title": "Appeal",
   "type": "object",
   "required": [
@@ -28,7 +28,8 @@
     },
     "grounds": {
       "type": "string",
-      "maxLength": 2000
+      "maxLength": 2000,
+      "x-holdback-untrusted": true
     },
     "bond": {
       "$ref": "common.schema.json#/$defs/TokenAmount"

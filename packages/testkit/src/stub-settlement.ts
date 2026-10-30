@@ -424,7 +424,7 @@ export class StubSettlement {
     const now = this.ctx.clock.now();
     const { adjudicators } = this.scenario;
     const terms: CommitmentTerms = {
-      schemaVersion: '0.4',
+      schemaVersion: '0.5',
       clubId: STUB_CLUB_ID,
       rulebookHash: rulebookHash(STUB_RULEBOOK),
       buyer: this.address(this.scenario.parties.buyer),
@@ -453,6 +453,7 @@ export class StubSettlement {
       },
       settlement: { mode: 'guaranteed_on_decision', token: TOKEN },
       remedy: { onReject: 'full_refund' },
+      disclosure: { level: 'public' },
       buyerEncryptionPublicKey: b64url(this.ctx.rng.hex32()),
       nonce: this.ctx.rng.hex32(),
       createdAt: now,

@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.4/messages.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.5/messages.schema.json",
   "title": "Signed protocol messages (EIP-712)",
-  "description": "Every state-changing message other than Delivery and Appeal. Each carries its EIP-712 domain implicitly: name Holdback, version 0.4, chainId, verifyingContract (ADR-0016).",
+  "description": "Every state-changing message other than Delivery and Appeal. Each carries its EIP-712 domain implicitly: name Holdback, version 0.5, chainId, verifyingContract (ADR-0016).",
   "oneOf": [
     {
       "$ref": "#/$defs/Offer"
@@ -30,6 +30,15 @@
     },
     {
       "$ref": "#/$defs/MemberRevocation"
+    },
+    {
+      "$ref": "#/$defs/Dispute"
+    },
+    {
+      "$ref": "#/$defs/MutualSettlement"
+    },
+    {
+      "$ref": "#/$defs/Publish"
     }
   ],
   "$defs": {
@@ -192,7 +201,7 @@
           "description": "Base units, decimal string"
         },
         "token": {
-          "type": "string"
+          "$ref": "common.schema.json#/$defs/TokenId"
         },
         "validAfter": {
           "$ref": "common.schema.json#/$defs/Timestamp"
@@ -298,7 +307,7 @@
         },
         "seed": {
           "$ref": "common.schema.json#/$defs/Hex32",
-          "description": "Must hash to the acceptance's seedCommitment"
+          "description": "The panel seed for the decider's role (ADR-0018): the primary reveals the preimage of its acceptance's seedCommitment; fallback and appeal decisions use the beacon seed for the round fixed by judgeBy, the escalation or the appeal filing"
         },
         "policyHash": {
           "$ref": "common.schema.json#/$defs/Hex32"
@@ -342,8 +351,111 @@
         },
         "signature": {
           "$ref": "common.schema.json#/$defs/Signature"
+        },
+        "beacon": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source",
+            "round",
+            "value"
+          ],
+          "description": "Beacon proof for a fallback or appeal panel seed. On SimChain the beacon is a settlement-layer fact; other sources carry the round's signature.",
+          "properties": {
+            "source": {
+              "$ref": "common.schema.json#/$defs/RandomnessSource"
+            },
+            "round": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "value": {
+              "$ref": "common.schema.json#/$defs/Hex32"
+            },
+            "signature": {
+              "type": "string",
+              "pattern": "^0x([0-9a-f]{2}){1,256}$",
+              "description": "The beacon's signature over the round (e.g. a 48-byte BLS signature for drand quicknet); lowercase, whole bytes"
+            }
+          },
+          "if": {
+            "type": "object",
+            "properties": {
+              "source": {
+                "const": "sim"
+              }
+            },
+            "required": [
+              "source"
+            ]
+          },
+          "else": {
+            "required": [
+              "signature"
+            ],
+            "type": "object",
+            "properties": {
+              "signature": {}
+            }
+          },
+          "then": {
+            "type": "object",
+            "not": {
+              "type": "object",
+              "required": [
+                "signature"
+              ],
+              "properties": {
+                "signature": {}
+              }
+            }
+          }
+        },
+        "encryptedKeys": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "common.schema.json#/$defs/EncryptedKey"
+          },
+          "description": "On escalate: the content key encrypted to the appeal adjudicator (ADR-0020); only on escalate"
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "type": "object",
+            "properties": {
+              "outcome": {
+                "const": "escalate"
+              }
+            },
+            "required": [
+              "outcome"
+            ]
+          },
+          "then": {
+            "type": "object",
+            "required": [
+              "encryptedKeys"
+            ],
+            "properties": {
+              "encryptedKeys": {}
+            }
+          },
+          "else": {
+            "type": "object",
+            "not": {
+              "type": "object",
+              "required": [
+                "encryptedKeys"
+              ],
+              "properties": {
+                "encryptedKeys": {}
+              }
+            }
+          }
+        }
+      ]
     },
     "AgentRevocation": {
       "type": "object",
@@ -397,7 +509,7 @@
           "const": "MemberAdmission"
         },
         "clubId": {
-          "type": "string"
+          "$ref": "common.schema.json#/$defs/ClubId"
         },
         "member": {
           "$ref": "common.schema.json#/$defs/Address"
@@ -437,7 +549,7 @@
           "const": "MemberRevocation"
         },
         "clubId": {
-          "type": "string"
+          "$ref": "common.schema.json#/$defs/ClubId"
         },
         "member": {
           "$ref": "common.schema.json#/$defs/Address"
@@ -452,6 +564,181 @@
           "$ref": "common.schema.json#/$defs/Timestamp"
         },
         "signature": {
+          "$ref": "common.schema.json#/$defs/Signature"
+        }
+      }
+    },
+    "Dispute": {
+      "type": "object",
+      "description": "Optimistic mode: the buyer disputes a delivery before disputeBy, posting the dispute bond and the adjudication fee (ADR-0015)",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "commitmentId",
+        "buyer",
+        "attempt",
+        "grounds",
+        "bond",
+        "fee",
+        "encryptedKeys",
+        "nonce",
+        "expiresAt",
+        "signature"
+      ],
+      "properties": {
+        "type": {
+          "const": "Dispute"
+        },
+        "commitmentId": {
+          "$ref": "common.schema.json#/$defs/Hex32"
+        },
+        "buyer": {
+          "$ref": "common.schema.json#/$defs/Address"
+        },
+        "attempt": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "grounds": {
+          "type": "string",
+          "maxLength": 2000,
+          "x-holdback-untrusted": true
+        },
+        "bond": {
+          "$ref": "common.schema.json#/$defs/TokenAmount"
+        },
+        "fee": {
+          "$ref": "common.schema.json#/$defs/TokenAmount"
+        },
+        "nonce": {
+          "$ref": "common.schema.json#/$defs/Hex32"
+        },
+        "expiresAt": {
+          "$ref": "common.schema.json#/$defs/Timestamp"
+        },
+        "signature": {
+          "$ref": "common.schema.json#/$defs/Signature"
+        },
+        "encryptedKeys": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "common.schema.json#/$defs/EncryptedKey"
+          },
+          "description": "The content key encrypted to the primary, fallback and appeal adjudicators (ADR-0020)"
+        }
+      }
+    },
+    "MutualSettlement": {
+      "type": "object",
+      "description": "Buyer and seller close a commitment by agreement (ADR-0019). Both sign the identical struct: everything except the two signatures.",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "commitmentId",
+        "deliveryHash",
+        "sellerAmount",
+        "releaseKey",
+        "nonce",
+        "expiresAt",
+        "buyerSignature",
+        "sellerSignature"
+      ],
+      "properties": {
+        "type": {
+          "const": "MutualSettlement"
+        },
+        "commitmentId": {
+          "$ref": "common.schema.json#/$defs/Hex32"
+        },
+        "deliveryHash": {
+          "oneOf": [
+            {
+              "$ref": "common.schema.json#/$defs/Hex32"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "EIP-712 struct hash of the delivery being settled, or null before any delivery"
+        },
+        "sellerAmount": {
+          "$ref": "common.schema.json#/$defs/TokenAmount",
+          "description": "Paid to the seller, in the price token; the rest of the hold returns to the buyer"
+        },
+        "releaseKey": {
+          "type": "boolean",
+          "description": "Whether the seller-supplied key is released to the buyer with the payment; must be false when deliveryHash is null (ADR-0019)"
+        },
+        "nonce": {
+          "$ref": "common.schema.json#/$defs/Hex32"
+        },
+        "expiresAt": {
+          "$ref": "common.schema.json#/$defs/Timestamp"
+        },
+        "buyerSignature": {
+          "$ref": "common.schema.json#/$defs/Signature"
+        },
+        "sellerSignature": {
+          "$ref": "common.schema.json#/$defs/Signature"
+        }
+      },
+      "if": {
+        "type": "object",
+        "properties": {
+          "deliveryHash": {
+            "type": "null"
+          }
+        },
+        "required": [
+          "deliveryHash"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "releaseKey": {
+            "const": false
+          }
+        },
+        "required": [
+          "releaseKey"
+        ]
+      }
+    },
+    "Publish": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Buyer and seller raise a commitment's disclosure level by agreement (ADR-0020). Both sign the identical struct. Raising only: the settlement layer refuses a level below the current one (T-006), which a schema cannot check.",
+      "required": [
+        "type",
+        "commitmentId",
+        "level",
+        "nonce",
+        "expiresAt",
+        "buyerSignature",
+        "sellerSignature"
+      ],
+      "properties": {
+        "type": {
+          "const": "Publish"
+        },
+        "commitmentId": {
+          "$ref": "common.schema.json#/$defs/Hex32"
+        },
+        "level": {
+          "$ref": "common.schema.json#/$defs/DisclosureLevel"
+        },
+        "nonce": {
+          "$ref": "common.schema.json#/$defs/Hex32"
+        },
+        "expiresAt": {
+          "$ref": "common.schema.json#/$defs/Timestamp"
+        },
+        "buyerSignature": {
+          "$ref": "common.schema.json#/$defs/Signature"
+        },
+        "sellerSignature": {
           "$ref": "common.schema.json#/$defs/Signature"
         }
       }

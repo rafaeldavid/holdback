@@ -1,0 +1,39 @@
+{
+  "items": [
+    {
+      "commitmentId": "0x9340180fb352b68aabcf457de90752525d862a9a6dac875100905fac2fc54ed8",
+      "escrowState": "Released",
+      "appealState": "none",
+      "attempt": 1,
+      "hold": {
+        "amount": {
+          "token": "tUSD",
+          "amount": "2050000000"
+        },
+        "railRef": "sim:escrow:9340180fb352b68a"
+      },
+      "deadlines": {
+        "deliverBy": "2026-11-01T10:00:00Z",
+        "judgeBy": "2026-11-01T10:02:00Z",
+        "fallbackBy": "2026-11-01T10:04:00Z"
+      },
+      "balances": {
+        "0x04d6c65223896ba94e731bc9eb765c19bd289b0d": {
+          "token": "tUSD",
+          "amount": "7950000000"
+        },
+        "0x9ff412388f11e58327e71f841705dbc739c8cc46": {
+          "token": "tUSD",
+          "amount": "2000000000"
+        },
+        "0x5d10fecab9242e66cb134b77309a3566ed75e3dd": {
+          "token": "tUSD",
+          "amount": "50000000"
+        }
+      },
+      "lastEventSeq": 12,
+      "updatedAt": "2026-10-31T16:21:04Z"
+    }
+  ],
+  "nextCursor": "c2VxOjQx"
+}

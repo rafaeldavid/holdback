@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.4/commitment.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.5/commitment.schema.json",
   "title": "Commitment (terms + EIP-712 signatures)",
   "type": "object",
   "required": [
@@ -17,6 +17,7 @@
     "timing",
     "settlement",
     "remedy",
+    "disclosure",
     "buyerEncryptionPublicKey",
     "nonce",
     "createdAt",
@@ -25,14 +26,14 @@
   "additionalProperties": false,
   "properties": {
     "schemaVersion": {
-      "const": "0.4"
+      "const": "0.5"
     },
     "id": {
       "$ref": "common.schema.json#/$defs/Hex32",
       "description": "EIP-712 struct hash of the terms: everything except id, signatures and adjudicatorAcceptance (ADR-0016)"
     },
     "clubId": {
-      "type": "string"
+      "$ref": "common.schema.json#/$defs/ClubId"
     },
     "rulebookHash": {
       "$ref": "common.schema.json#/$defs/Hex32"
@@ -61,7 +62,8 @@
         },
         "description": {
           "type": "string",
-          "maxLength": 4000
+          "maxLength": 4000,
+          "x-holdback-untrusted": true
         },
         "format": {
           "enum": [
@@ -124,9 +126,10 @@
               }
             },
             "passThreshold": {
-              "type": "number",
+              "type": "integer",
               "minimum": 0,
-              "maximum": 4
+              "maximum": 400,
+              "description": "Weighted score a delivery needs, in hundredths of a rubric point (300 = 3.00)"
             }
           }
         },
@@ -136,7 +139,7 @@
           "required": [
             "count",
             "commitment",
-            "weight"
+            "weightBps"
           ],
           "properties": {
             "count": {
@@ -148,10 +151,11 @@
               "$ref": "common.schema.json#/$defs/Hex32",
               "description": "keccak256(canonical checks JSON || salt)"
             },
-            "weight": {
-              "type": "number",
+            "weightBps": {
+              "type": "integer",
               "minimum": 0,
-              "maximum": 0.3
+              "maximum": 3000,
+              "description": "Weight of the sealed checks, in basis points (at most 3000)"
             }
           }
         }
@@ -184,7 +188,9 @@
         },
         "policyId": {
           "type": "string",
-          "description": "Human-readable label for the policy; policyHash is what binds"
+          "description": "Human-readable label for the policy; policyHash is what binds",
+          "x-holdback-untrusted": true,
+          "maxLength": 120
         },
         "fee": {
           "$ref": "common.schema.json#/$defs/TokenAmount"
@@ -240,6 +246,20 @@
           "type": "integer",
           "minimum": 1,
           "maximum": 3
+        },
+        "disputeBy": {
+          "$ref": "common.schema.json#/$defs/Timestamp",
+          "description": "Optimistic mode only: the buyer may dispute until this time; silence after it is acceptance (ADR-0015)"
+        },
+        "disputeJudgeSec": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Optimistic mode only: seconds from dispute open for the primary to decide"
+        },
+        "disputeFallbackSec": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Optimistic mode only: seconds from dispute open for the fallback to decide"
         }
       }
     },
@@ -255,7 +275,7 @@
           "$ref": "common.schema.json#/$defs/SettlementMode"
         },
         "token": {
-          "type": "string"
+          "$ref": "common.schema.json#/$defs/TokenId"
         }
       }
     },
@@ -298,6 +318,23 @@
     "adjudicatorAcceptance": {
       "$ref": "messages.schema.json#/$defs/AdjudicatorAcceptance",
       "description": "The primary adjudicator's signed acceptance, outside the ID. Required before funding (ADR-0016)"
+    },
+    "disclosure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "level"
+      ],
+      "description": "Signed term: who may read the terms and records (ADR-0020)",
+      "properties": {
+        "level": {
+          "$ref": "common.schema.json#/$defs/DisclosureLevel"
+        }
+      }
+    },
+    "privateTerms": {
+      "$ref": "common.schema.json#/$defs/PrivateBody",
+      "description": "Reserved for private and judgment levels; refused in Phase 1"
     }
   },
   "$defs": {
@@ -327,7 +364,9 @@
               "type": "array",
               "minItems": 1,
               "items": {
-                "type": "string"
+                "type": "string",
+                "x-holdback-untrusted": true,
+                "maxLength": 128
               }
             }
           }
@@ -387,7 +426,9 @@
               "type": "array",
               "minItems": 1,
               "items": {
-                "type": "string"
+                "type": "string",
+                "x-holdback-untrusted": true,
+                "maxLength": 128
               }
             }
           }
@@ -400,7 +441,7 @@
             "type",
             "required",
             "column",
-            "max"
+            "maxBps"
           ],
           "properties": {
             "id": {
@@ -414,10 +455,13 @@
               "const": "null_rate_max"
             },
             "column": {
-              "type": "string"
+              "type": "string",
+              "x-holdback-untrusted": true,
+              "maxLength": 128
             },
-            "max": {
-              "$ref": "common.schema.json#/$defs/Rate"
+            "maxBps": {
+              "$ref": "common.schema.json#/$defs/Bps",
+              "description": "Most null cells allowed in the column, in basis points of rows"
             }
           }
         },
@@ -430,7 +474,7 @@
             "required",
             "column",
             "pattern",
-            "min"
+            "minBps"
           ],
           "properties": {
             "id": {
@@ -444,14 +488,18 @@
               "const": "regex_match_rate_min"
             },
             "column": {
-              "type": "string"
+              "type": "string",
+              "x-holdback-untrusted": true,
+              "maxLength": 128
             },
             "pattern": {
               "type": "string",
-              "maxLength": 200
+              "maxLength": 200,
+              "x-holdback-untrusted": true
             },
-            "min": {
-              "$ref": "common.schema.json#/$defs/Rate"
+            "minBps": {
+              "$ref": "common.schema.json#/$defs/Bps",
+              "description": "Least share of rows that must match, in basis points"
             }
           }
         },
@@ -476,7 +524,9 @@
               "const": "iso8601_date_column"
             },
             "column": {
-              "type": "string"
+              "type": "string",
+              "x-holdback-untrusted": true,
+              "maxLength": 128
             }
           }
         },
@@ -514,7 +564,7 @@
             "required",
             "reference",
             "keyColumn",
-            "min"
+            "minBps"
           ],
           "properties": {
             "id": {
@@ -544,10 +594,64 @@
               }
             },
             "keyColumn": {
-              "type": "string"
+              "type": "string",
+              "x-holdback-untrusted": true,
+              "maxLength": 128
             },
-            "min": {
-              "$ref": "common.schema.json#/$defs/Rate"
+            "minBps": {
+              "$ref": "common.schema.json#/$defs/Bps",
+              "description": "Least share of rows that must match, in basis points"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "type",
+            "required",
+            "max"
+          ],
+          "description": "Counts invisible characters in the raw delivered bytes, before any normalization, and fails when a count exceeds its maximum (ADR-0021)",
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^[a-z0-9_-]{1,40}$"
+            },
+            "required": {
+              "type": "boolean"
+            },
+            "type": {
+              "const": "hidden_characters_max"
+            },
+            "max": {
+              "type": "object",
+              "additionalProperties": false,
+              "minProperties": 1,
+              "description": "At least one maximum. Classes: Unicode tag characters (U+E0000 to U+E007F), bidirectional controls, variation selectors, and other default-ignorable or zero-width code points. total bounds their sum.",
+              "properties": {
+                "tag": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "bidi": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "variationSelector": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "otherIgnorable": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "total": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
             }
           }
         }
@@ -569,12 +673,14 @@
         },
         "description": {
           "type": "string",
-          "maxLength": 500
+          "maxLength": 500,
+          "x-holdback-untrusted": true
         },
         "weight": {
-          "type": "number",
-          "exclusiveMinimum": 0,
-          "maximum": 1
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000,
+          "description": "Relative weight among the rubric's criteria (an integer; only ratios matter)"
         },
         "anchors": {
           "type": "object",
@@ -587,27 +693,105 @@
           "properties": {
             "0": {
               "type": "string",
-              "maxLength": 300
+              "maxLength": 300,
+              "x-holdback-untrusted": true
             },
             "1": {
               "type": "string",
-              "maxLength": 300
+              "maxLength": 300,
+              "x-holdback-untrusted": true
             },
             "2": {
               "type": "string",
-              "maxLength": 300
+              "maxLength": 300,
+              "x-holdback-untrusted": true
             },
             "3": {
               "type": "string",
-              "maxLength": 300
+              "maxLength": 300,
+              "x-holdback-untrusted": true
             },
             "4": {
               "type": "string",
-              "maxLength": 300
+              "maxLength": 300,
+              "x-holdback-untrusted": true
             }
           }
         }
       }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "settlement": {
+            "properties": {
+              "mode": {
+                "const": "optimistic"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
+      "then": {
+        "properties": {
+          "timing": {
+            "required": [
+              "disputeBy",
+              "disputeJudgeSec",
+              "disputeFallbackSec"
+            ],
+            "type": "object",
+            "properties": {
+              "disputeBy": {},
+              "disputeJudgeSec": {},
+              "disputeFallbackSec": {}
+            }
+          }
+        },
+        "type": "object"
+      },
+      "else": {
+        "properties": {
+          "timing": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "disputeBy"
+                  ],
+                  "type": "object",
+                  "properties": {
+                    "disputeBy": {}
+                  }
+                },
+                {
+                  "required": [
+                    "disputeJudgeSec"
+                  ],
+                  "type": "object",
+                  "properties": {
+                    "disputeJudgeSec": {}
+                  }
+                },
+                {
+                  "required": [
+                    "disputeFallbackSec"
+                  ],
+                  "type": "object",
+                  "properties": {
+                    "disputeFallbackSec": {}
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "type": "object"
+      }
+    }
+  ]
 }

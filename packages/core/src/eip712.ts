@@ -7,6 +7,8 @@
 // - Optional message fields are encoded as empty values when absent (empty string, empty array).
 //   Every schema value for those fields is non-empty, so absent and present never collide.
 //   Scope.categories may legitimately be empty, so it carries an explicit hasCategories flag.
+// - The domain version tracks the schema version, so a signature made under one schema never verifies
+//   under another.
 import { hashStruct, hashTypedData, isAddressEqual, recoverTypedDataAddress, type Hex } from 'viem';
 import { signTypedData } from 'viem/accounts';
 import { canonicalKeccak } from './canonical.js';
@@ -17,8 +19,12 @@ import type {
   Commitment,
   CommitmentTerms,
   Delivery,
+  EncryptedKey,
   Hex32,
   Mandate,
+  CoSignedMessage,
+  MutualSettlement,
+  Receipt,
   Scope,
   Signature,
   SignedMessage,
@@ -31,15 +37,16 @@ export const SIMCHAIN_VERIFYING_CONTRACT: Address = '0x0000000000000000000000000
 
 export interface HoldbackDomain {
   name: 'Holdback';
-  version: '0.4';
+  version: '0.5';
   chainId: bigint;
   verifyingContract: Address;
 }
 
 export function holdbackDomain(chainId: number | bigint, verifyingContract: Address = SIMCHAIN_VERIFYING_CONTRACT): HoldbackDomain {
-  return { name: 'Holdback', version: '0.4', chainId: BigInt(chainId), verifyingContract };
+  return { name: 'Holdback', version: '0.5', chainId: BigInt(chainId), verifyingContract };
 }
 
+const ZERO32: Hex32 = `0x${'0'.repeat(64)}`;
 const field = (name: string, type: string) => ({ name, type });
 const stamp = (name: string) => field(name, 'uint64');
 const expiring = [field('nonce', 'bytes32'), stamp('expiresAt')];
@@ -64,12 +71,20 @@ const structs = {
     field('appealWindowSec', 'uint64'),
     field('appealDecideSec', 'uint64'),
     field('maxSubmissions', 'uint8'),
+    // Optimistic mode only (ADR-0015). 0 when absent: settlement.mode is bound too, and the schema
+    // requires these exactly in optimistic mode with minimums of 1, so 0 never collides with a value.
+    stamp('disputeBy'),
+    field('disputeJudgeSec', 'uint64'),
+    field('disputeFallbackSec', 'uint64'),
   ],
   Settlement: [field('mode', 'string'), field('token', 'string')],
   Remedy: [field('onReject', 'string')],
   SealedKey: [field('scheme', 'string'), field('ciphertext', 'string')],
+  Beacon: [field('source', 'string'), field('round', 'uint64'), field('value', 'bytes32'), field('signature', 'bytes')],
   Ciphertext: [field('uri', 'string'), field('sha256', 'string'), field('bytes', 'uint64'), field('cipher', 'string')],
-  EncryptedKey: [field('recipient', 'address'), field('scheme', 'string'), field('ciphertext', 'string')],
+  EncryptedKey: [field('recipient', 'address'), field('scheme', 'string'), field('ciphertext', 'string'), field('unlock', 'KeyUnlock')],
+  KeyUnlock: [field('kind', 'string'), field('round', 'uint64')],
+  Disclosure: [field('level', 'string')],
   Scope: [
     field('roles', 'string[]'),
     field('maxPerCommitment', 'TokenAmount'),
@@ -93,12 +108,13 @@ const termsType = [
   field('timing', 'Timing'),
   field('settlement', 'Settlement'),
   field('remedy', 'Remedy'),
+  field('disclosure', 'Disclosure'),
   field('buyerEncryptionPublicKey', 'string'),
   field('nonce', 'bytes32'),
   stamp('createdAt'),
 ];
 
-/** Primary types for every message in messages.schema.json plus Delivery, Appeal and Mandate. */
+/** Primary types for every message in messages.schema.json plus Delivery, Appeal, Receipt and Mandate. */
 export const messageTypes = {
   Offer: [field('commitmentId', 'bytes32'), field('seller', 'address'), ...expiring],
   Agree: [field('commitmentId', 'bytes32'), field('buyer', 'address'), ...expiring],
@@ -135,11 +151,23 @@ export const messageTypes = {
     field('judgmentRecordHash', 'bytes32'),
     field('keyForBuyer', 'SealedKey'),
     field('appealGround', 'string'),
+    field('beacon', 'Beacon'),
+    field('encryptedKeys', 'EncryptedKey[]'),
     ...expiring,
   ],
   AgentRevocation: [field('agent', 'address'), field('principal', 'address'), ...expiring],
   MemberAdmission: [field('clubId', 'string'), field('member', 'address'), field('operator', 'address'), stamp('validUntil'), ...expiring],
   MemberRevocation: [field('clubId', 'string'), field('member', 'address'), field('operator', 'address'), ...expiring],
+  Dispute: [
+    field('commitmentId', 'bytes32'),
+    field('buyer', 'address'),
+    field('attempt', 'uint8'),
+    field('grounds', 'string'),
+    field('bond', 'TokenAmount'),
+    field('fee', 'TokenAmount'),
+    field('encryptedKeys', 'EncryptedKey[]'),
+    ...expiring,
+  ],
   Delivery: [
     field('commitmentId', 'bytes32'),
     field('attempt', 'uint8'),
@@ -157,6 +185,16 @@ export const messageTypes = {
     field('bond', 'TokenAmount'),
     stamp('filedAt'),
   ],
+  MutualSettlement: [
+    field('commitmentId', 'bytes32'),
+    field('hasDelivery', 'bool'),
+    field('deliveryHash', 'bytes32'),
+    field('sellerAmount', 'TokenAmount'),
+    field('releaseKey', 'bool'),
+    ...expiring,
+  ],
+  Publish: [field('commitmentId', 'bytes32'), field('level', 'string'), ...expiring],
+  Receipt: [field('operator', 'address'), field('eventSeq', 'uint64'), field('eventHash', 'bytes32'), field('hasCommitment', 'bool'), field('commitmentId', 'bytes32')],
   Mandate: [field('principal', 'address'), field('agent', 'address'), field('clubId', 'string'), field('scope', 'Scope'), field('nonce', 'bytes32'), stamp('issuedAt')],
 };
 
@@ -164,9 +202,20 @@ export const eip712Types = { ...structs, CommitmentTerms: termsType, ...messageT
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 
-/** Everything an agent signs. Delivery, Appeal and Mandate have no `type` in their schemas; it is added here to pick the primary type. */
-export type SignableMessage = SignedMessage | (Delivery & { type: 'Delivery' }) | (Appeal & { type: 'Appeal' }) | (Mandate & { type: 'Mandate' });
-export type UnsignedMessage = DistributiveOmit<SignableMessage, 'signature'>;
+/**
+ * Everything an agent or operator signs. Delivery, Appeal, Receipt and Mandate have no `type` in their schemas; it is
+ * added here to pick the primary type. Receipts are signed by an operator (ADR-0017), everything else by a party.
+ */
+export type SignableMessage =
+  | SignedMessage
+  | (Delivery & { type: 'Delivery' })
+  | (Appeal & { type: 'Appeal' })
+  | (Receipt & { type: 'Receipt' })
+  | (Mandate & { type: 'Mandate' });
+/** MutualSettlement and Publish carry a buyer and a seller signature over the identical struct (ADR-0019, ADR-0020). */
+export type UnsignedCoSigned = DistributiveOmit<CoSignedMessage, 'buyerSignature' | 'sellerSignature'>;
+export type UnsignedMutualSettlement = Omit<MutualSettlement, 'buyerSignature' | 'sellerSignature'>;
+export type UnsignedMessage = DistributiveOmit<SignableMessage, 'signature'> | UnsignedCoSigned;
 
 type Encoded = Record<string, unknown>;
 
@@ -177,6 +226,13 @@ function seconds(ts: Timestamp): bigint {
 }
 
 const amount = (a: TokenAmount): Encoded => ({ token: a.token, amount: BigInt(a.amount) });
+// An absent unlock encodes as an empty kind, which the schema never admits.
+const key = (k: EncryptedKey): Encoded => ({
+  recipient: k.recipient,
+  scheme: k.scheme,
+  ciphertext: k.ciphertext,
+  unlock: k.unlock ? { kind: k.unlock.kind, round: BigInt(k.unlock.round ?? 0) } : { kind: '', round: 0n },
+});
 const scope = (s: Scope): Encoded => ({
   roles: s.roles,
   maxPerCommitment: amount(s.maxPerCommitment),
@@ -201,6 +257,7 @@ export function termsOf(c: Commitment): CommitmentTerms {
     timing: c.timing,
     settlement: c.settlement,
     remedy: c.remedy,
+    disclosure: c.disclosure,
     buyerEncryptionPublicKey: c.buyerEncryptionPublicKey,
     nonce: c.nonce,
     createdAt: c.createdAt,
@@ -228,9 +285,13 @@ export function typedTermsOf(t: CommitmentTerms): Encoded {
       appealWindowSec: BigInt(t.timing.appealWindowSec),
       appealDecideSec: BigInt(t.timing.appealDecideSec),
       maxSubmissions: t.timing.maxSubmissions,
+      disputeBy: t.timing.disputeBy === undefined ? 0n : seconds(t.timing.disputeBy),
+      disputeJudgeSec: BigInt(t.timing.disputeJudgeSec ?? 0),
+      disputeFallbackSec: BigInt(t.timing.disputeFallbackSec ?? 0),
     },
     settlement: t.settlement,
     remedy: t.remedy,
+    disclosure: t.disclosure,
     buyerEncryptionPublicKey: t.buyerEncryptionPublicKey,
     nonce: t.nonce,
     createdAt: seconds(t.createdAt),
@@ -287,6 +348,12 @@ function encodeMessage(m: UnsignedMessage): Encoded {
         judgmentRecordHash: m.judgmentRecordHash,
         keyForBuyer: m.keyForBuyer ?? { scheme: '', ciphertext: '' },
         appealGround: m.appealGround ?? '',
+        // Absent encodes as an empty source, which the schema never admits, so absent and present never collide.
+        beacon: m.beacon
+          ? { source: m.beacon.source, round: BigInt(m.beacon.round), value: m.beacon.value, signature: m.beacon.signature ?? '0x' }
+          : { source: '', round: 0n, value: ZERO32, signature: '0x' },
+        // Absent encodes as an empty list; the schema requires at least one key when present.
+        encryptedKeys: (m.encryptedKeys ?? []).map(key),
         ...expiry(m),
       };
     case 'AgentRevocation':
@@ -295,6 +362,32 @@ function encodeMessage(m: UnsignedMessage): Encoded {
       return { clubId: m.clubId, member: m.member, operator: m.operator, validUntil: seconds(m.validUntil), ...expiry(m) };
     case 'MemberRevocation':
       return { clubId: m.clubId, member: m.member, operator: m.operator, ...expiry(m) };
+    case 'Dispute':
+      return {
+        commitmentId: m.commitmentId,
+        buyer: m.buyer,
+        attempt: m.attempt,
+        grounds: m.grounds,
+        bond: amount(m.bond),
+        fee: amount(m.fee),
+        encryptedKeys: m.encryptedKeys.map(key),
+        ...expiry(m),
+      };
+    case 'Publish':
+      return { commitmentId: m.commitmentId, level: m.level, ...expiry(m) };
+    case 'MutualSettlement':
+      // A null deliveryHash (settled before delivery) is flagged, so it never collides with a zero hash.
+      return {
+        commitmentId: m.commitmentId,
+        hasDelivery: m.deliveryHash !== null,
+        deliveryHash: m.deliveryHash ?? ZERO32,
+        sellerAmount: amount(m.sellerAmount),
+        releaseKey: m.releaseKey,
+        ...expiry(m),
+      };
+    case 'Receipt':
+      // A flag, not a zero hash, marks a receipt for an event with no commitment.
+      return { operator: m.operator, eventSeq: BigInt(m.eventSeq), eventHash: m.eventHash, hasCommitment: m.commitmentId !== undefined, commitmentId: m.commitmentId ?? ZERO32 };
     case 'Delivery':
       return {
         commitmentId: m.commitmentId,
@@ -302,7 +395,7 @@ function encodeMessage(m: UnsignedMessage): Encoded {
         ciphertext: { ...m.ciphertext, bytes: BigInt(m.ciphertext.bytes) },
         plaintextSha256: m.plaintextSha256,
         plaintextMime: m.plaintextMime,
-        encryptedKeys: m.encryptedKeys,
+        encryptedKeys: m.encryptedKeys.map(key),
         submittedAt: seconds(m.submittedAt),
       };
     case 'Appeal':
@@ -374,3 +467,20 @@ export async function verifyMessage(domain: HoldbackDomain, message: SignableMes
   }
   return recoversTo(typed(domain, message.type, encoded), signature, expected);
 }
+
+/** True when buyer and seller both signed the identical struct. Never throws on malformed input. */
+export async function verifyCoSigned(domain: HoldbackDomain, m: CoSignedMessage, buyer: Address, seller: Address): Promise<boolean> {
+  const { buyerSignature, sellerSignature, ...unsigned } = m;
+  let encoded: Encoded;
+  try {
+    encoded = encodeMessage(unsigned as UnsignedCoSigned);
+  } catch {
+    return false;
+  }
+  const t = typed(domain, m.type, encoded);
+  return (await recoversTo(t, buyerSignature, buyer)) && (await recoversTo(t, sellerSignature, seller));
+}
+
+/** A mutual settlement is valid only when both parties signed it (ADR-0019). */
+export const verifyMutualSettlement = (domain: HoldbackDomain, m: MutualSettlement, buyer: Address, seller: Address): Promise<boolean> =>
+  verifyCoSigned(domain, m, buyer, seller);

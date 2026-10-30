@@ -1,6 +1,6 @@
 # Decisions to make today
 
-Status: D1–D9 decided October 30, 2026, after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`); the options are kept as the record. D10 to D16 decided October 30, 2026, each after an independent research pass; none are open. Owner: Rafa. Each decision has options, a recommendation and the ADR it settles. Phase 1 (the demo) can start once D1, D2 and D6 are settled. Phase 2 needs D3 and D4.
+Status: D1–D9 decided October 30, 2026, after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`); the options are kept as the record. D10 to D19 decided October 30, 2026, each after an independent research pass; none are open. Owner: Rafa. Each decision has options, a recommendation and the ADR it settles. Phase 1 (the demo) can start once D1, D2 and D6 are settled. Phase 2 needs D3 and D4.
 
 ## D1. Adopt the neutrality litmus test as the top constraint (ADR-0001)
 
@@ -234,3 +234,46 @@ Rafa's framing: end to end by default, the adjudicator and bond capital involved
 | E. Banking model with a freezing party | Fails neutrality with the freeze; kept as a lens without it |
 
 **Recommendation:** B with D, and E as the compliance lens (research pass, Fable at max effort).
+
+## D17. Screen report and hidden-character check (ADR-0021)
+
+**Decided 2026-10-30:** with an empty rubric, a delivery the screen flags is still accepted and delivered unchanged, but the screen report is part of the signed record and the SDK must surface it, handing the buyer's agent a normalized view by default with the raw bytes on request. Parties who want hidden characters to block payment can require a new declarative check, `hidden_characters_max`, which rejects without a panel; clubs may turn it on by default. Escalation on high-risk signals waits for a Phase 3 `screenPolicy` option, because without a classifier an escalation only drifts to the default outcome. The panel-threshold question from the same research is still open.
+
+| Option | Effect |
+| --- | --- |
+| A. Keep today's behavior | Buyer agent unprotected; report easy to miss |
+| B. Escalate on any flag | Stalls legitimate Persian and emoji data on an uncalibrated screen; ends in the default outcome |
+| C. Escalate on high-risk signals | Better precision, same degenerate path until Phase 3 |
+| D. Reject | A rule neither party wrote moves money; false positives are wrong refunds |
+| E. Annotate and surface, plus an opt-in check (chosen) | No unchosen rule moves money; the buyer's agent sees a cleaned view |
+
+## D18. Integer rates and fraction thresholds (ADR-0022)
+
+**Decided 2026-10-30:** money and statistical rates become integer basis points with a `Bps` suffix, and the accept and reject supermajorities become exact fractions such as `{ numerator: 2, denominator: 3 }`. Thresholds compare by cross-multiplication, inclusively; a policy must sit strictly above one half; ties escalate. Weights, the pass threshold and the weighted score become integers, and the judgment record carries counts. Requirements round up, splits round the rate side down with a named remainder claimant, and bond payouts round down with the dust kept, so no posting creates or destroys a unit. Lands in schema v0.5, core money helpers (`mulBps`, `splitBps`), T-006 and T-008.
+
+The schema v0.5 review and the T-008 red team found that 18 rates are JSON floats inside signed hashes. A Python operator would hash `1.0` differently from `1`, and 0.667 × 3 = 2.0010000000000003 makes 2 of 3 judges escalate instead of accept.
+
+| Option | Effect |
+| --- | --- |
+| A. Basis points everywhere | Exact and Solidity-native; cannot express 2/3 |
+| B. ppm or 1e18 WAD | No gain at 2% to 100% rates; WAD breaks the 2^53 integer rule |
+| C. Basis points for rates, fractions for thresholds | Exact, hash-stable, reads as the docs write it ("≥ 2/3") |
+| D. Floats with defined rounding | Floats stay in signed hashes; blocked by the money lint |
+
+**Recommendation:** C (two research passes, Fable at max effort).
+
+## D19. Who can call the adjudicator (ADR-0015, ADR-0019, ADR-0014)
+
+**Decided 2026-10-30:** keep the modes as they are and write the rule down: the party the silence default disfavors holds the call. In judged modes judgment is automatic, so no one needs to call it. In optimistic mode the buyer disputes, and the seller relies on the anyone-callable release at `disputeBy` and on mutual settlement. Either party can appeal. The refundable bond, not loser-pays, deters low-merit calls. Nothing changes in Phase 1 or schema v0.5. An optional consent window for judged modes (`consentWindowSec`, default 0, during which either party may call early or settle) is a candidate ADR after Phase 1.
+
+Rafa asked whether either buyer or seller should be able to trigger review. A research pass (Fable, max effort) compared the options.
+
+| Option | Effect |
+| --- | --- |
+| A. Add a seller dispute in optimistic mode | Cuts the buyer's signed inspection window, or changes nothing; sellers gain little |
+| B. One "review on request" mode with a party-chosen default | The two existing modes under a vaguer name; a refund default with released work fails neutrality |
+| C. Keep the modes; write the rule down (chosen) | Passes all three litmus tests; no Phase 1 change |
+| D. Always automatic; drop optimistic | Removes an accepted choice (D11) |
+| E. C now, plus an optional consent window later | A real new choice at no neutrality cost; candidate ADR after Phase 1 |
+
+**Recommendation:** C now, E as a candidate after Phase 1.

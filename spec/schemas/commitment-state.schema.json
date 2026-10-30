@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.4/commitment-state.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.5/commitment-state.schema.json",
   "title": "Commitment state (read model)",
   "type": "object",
   "required": [
@@ -24,10 +24,12 @@
         "Agreed",
         "Held",
         "Delivered",
+        "Disputed",
         "FallbackJudging",
         "Escalated",
         "Released",
         "Refunded",
+        "Settled",
         "Defaulted",
         "Expired"
       ],
@@ -60,7 +62,9 @@
           "$ref": "common.schema.json#/$defs/TokenAmount"
         },
         "railRef": {
-          "type": "string"
+          "type": "string",
+          "x-holdback-untrusted": true,
+          "maxLength": 200
         }
       }
     },
@@ -85,6 +89,63 @@
     },
     "updatedAt": {
       "$ref": "common.schema.json#/$defs/Timestamp"
+    },
+    "settled": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sellerAmount",
+        "buyerAmount",
+        "keyReleased"
+      ],
+      "properties": {
+        "sellerAmount": {
+          "$ref": "common.schema.json#/$defs/TokenAmount"
+        },
+        "buyerAmount": {
+          "$ref": "common.schema.json#/$defs/TokenAmount"
+        },
+        "keyReleased": {
+          "type": "boolean"
+        }
+      },
+      "description": "The agreed split, present only once a mutual settlement closed the commitment (ADR-0019)"
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "escrowState": {
+            "const": "Settled"
+          }
+        },
+        "required": [
+          "escrowState"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "required": [
+          "settled"
+        ],
+        "properties": {
+          "settled": {}
+        }
+      },
+      "else": {
+        "type": "object",
+        "not": {
+          "type": "object",
+          "required": [
+            "settled"
+          ],
+          "properties": {
+            "settled": {}
+          }
+        }
+      }
+    }
+  ]
 }

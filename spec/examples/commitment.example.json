@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "0.4",
+  "schemaVersion": "0.5",
   "id": "0x9340180fb352b68aabcf457de90752525d862a9a6dac875100905fac2fc54ed8",
   "clubId": "data-services-v1",
   "rulebookHash": "0xb70959b8b5a5a9d365df7471120396553ed1bc0bff83059e4862e6d11b36a556",
@@ -57,7 +57,17 @@
         "required": false,
         "column": "email",
         "pattern": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$",
-        "min": 0.97
+        "minBps": 9700
+      },
+      {
+        "id": "hidden",
+        "type": "hidden_characters_max",
+        "required": true,
+        "max": {
+          "tag": 0,
+          "bidi": 0,
+          "total": 0
+        }
       }
     ],
     "rubric": {
@@ -65,7 +75,7 @@
         {
           "id": "dedupe_quality",
           "description": "Duplicates resolved by keeping the most recent complete record per customer_id.",
-          "weight": 0.4,
+          "weight": 40,
           "anchors": {
             "0": "No consistent rule",
             "2": "Rule applied with some errors",
@@ -75,7 +85,7 @@
         {
           "id": "no_fabrication",
           "description": "No values invented; missing emails flagged, not filled.",
-          "weight": 0.4,
+          "weight": 40,
           "anchors": {
             "0": "Fabricated values present",
             "2": "Minor fills without flags",
@@ -85,7 +95,7 @@
         {
           "id": "notes",
           "description": "Change log explains rules applied.",
-          "weight": 0.2,
+          "weight": 20,
           "anchors": {
             "0": "Missing",
             "2": "Partial",
@@ -93,12 +103,12 @@
           }
         }
       ],
-      "passThreshold": 3.0
+      "passThreshold": 300
     },
     "sealedChecks": {
       "count": 1,
       "commitment": "0xa7be699f00441111f022ecfce59a4f774245971f2c5b1a4c68c53dca67572b2f",
-      "weight": 0.2
+      "weightBps": 2000
     }
   },
   "price": {
@@ -133,6 +143,9 @@
   },
   "remedy": {
     "onReject": "full_refund"
+  },
+  "disclosure": {
+    "level": "public"
   },
   "buyerEncryptionPublicKey": "cb3adb3c24fb1b27f6b5c34b69AeeacA8db395159A8",
   "nonce": "0x9e3f156324d42f0ea4b6f4fce81d56fbd64a2143a3fdd60a130d9c90e5b4d688",

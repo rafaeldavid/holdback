@@ -1,7 +1,7 @@
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  { ignores: ['**/dist/**', '**/node_modules/**', 'docs/research/**'] },
+  { ignores: ['**/dist/**', '**/node_modules/**', 'docs/research/**', '.worktrees/**'] },
   ...tseslint.configs.recommended,
   {
     // Hard rule: no code execution from inputs.
@@ -9,6 +9,22 @@ export default tseslint.config(
       'no-eval': 'error',
       'no-implied-eval': 'error',
       'no-new-func': 'error',
+    },
+  },
+  {
+    // ADR-0022: rates are integers (basis points, fractions, hundredths), so core source has no
+    // fractional literals. Tests are exempt: they write fractional values to prove the parsers refuse
+    // them. The money block below replaces this list for money code. Proven by money/lint.test.ts.
+    files: ['packages/core/src/**/*.ts'],
+    ignores: ['packages/core/src/**/*.test.ts'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: 'Literal[raw=/^(\\d[\\d_]*)?\\.\\d|^\\d[\\d_]*\\.$|^\\d[\\d_]*(\\.\\d*)?[eE]/]',
+          message: 'Core must not use fractional or exponent numeric literals. Use basis points, fractions or bigint.',
+        },
+      ],
     },
   },
   {

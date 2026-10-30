@@ -1,4 +1,4 @@
-// Hand-written types for spec/schemas v0.4. Values reach these types only through the parsers in
+// Hand-written types for spec/schemas v0.5. Values reach these types only through the parsers in
 // parse.ts, which validate against the schema files. Phase 1 narrows the commitment to
 // guaranteed_on_decision and maxSubmissions = 1 (ADR-0007).
 import type { TokenAmount } from './money/index.js';
@@ -13,9 +13,37 @@ export type Sha256 = `sha256:${string}`;
 /** RFC 3339 date-time. */
 export type Timestamp = string;
 export type Base64Url = string;
-/** 0..1 inclusive. Not money. */
-export type Rate = number;
-export type SettlementMode = 'guaranteed_on_decision' | 'settle_after_window';
+/** Basis points: an integer from 0 to 10000, where 10000 is all (ADR-0022). */
+export type Bps = number;
+/** An exact ratio; denominator 1..100. Supermajorities also need numerator <= denominator < 2 x numerator. */
+export interface Fraction {
+  numerator: number;
+  denominator: number;
+}
+export type SettlementMode = 'guaranteed_on_decision' | 'settle_after_window' | 'optimistic';
+export type RandomnessSource = 'sim' | 'drand-quicknet' | 'prevrandao';
+/** ADR-0020. Phase 1 admits public only. */
+export type DisclosureLevel = 'private' | 'judgment' | 'public';
+export type IdentityMode = 'long-term' | 'pseudonymous';
+
+/** When a recipient may open an encrypted key (ADR-0020). Phase 1 admits none only. */
+export interface KeyUnlock {
+  kind: 'none' | 'beacon-round';
+  round?: number;
+}
+
+export interface EncryptedKey {
+  recipient: Address;
+  scheme: 'x25519-xsalsa20poly1305';
+  ciphertext: Base64Url;
+  unlock?: KeyUnlock;
+}
+
+/** A body kept off the public record: its hash and the readers' key envelopes (ADR-0020). */
+export interface PrivateBody {
+  hash: Hex32;
+  envelopes: EncryptedKey[];
+}
 export type PartyRole = 'buyer' | 'seller';
 export type MimeType = 'text/csv' | 'application/json' | 'text/plain' | 'text/markdown';
 
@@ -42,11 +70,21 @@ export type DeterministicCheck =
   | (CheckBase & { type: 'csv_columns_exact'; columns: string[] })
   | (CheckBase & { type: 'row_count_range'; min: number; max: number })
   | (CheckBase & { type: 'unique_key'; columns: string[] })
-  | (CheckBase & { type: 'null_rate_max'; column: string; max: Rate })
-  | (CheckBase & { type: 'regex_match_rate_min'; column: string; pattern: string; min: Rate })
+  | (CheckBase & { type: 'null_rate_max'; column: string; maxBps: Bps })
+  | (CheckBase & { type: 'regex_match_rate_min'; column: string; pattern: string; minBps: Bps })
   | (CheckBase & { type: 'iso8601_date_column'; column: string })
   | (CheckBase & { type: 'json_schema'; schema: Record<string, unknown> })
-  | (CheckBase & { type: 'reference_row_match_min'; reference: ContentRef; keyColumn: string; min: Rate });
+  | (CheckBase & { type: 'reference_row_match_min'; reference: ContentRef; keyColumn: string; minBps: Bps })
+  | (CheckBase & { type: 'hidden_characters_max'; max: HiddenCharacterMax });
+
+/** ADR-0021: maximum counts of invisible characters in the raw bytes, per class or in total. At least one is set. */
+export interface HiddenCharacterMax {
+  tag?: number;
+  bidi?: number;
+  variationSelector?: number;
+  otherIgnorable?: number;
+  total?: number;
+}
 
 export interface Criterion {
   id: string;
@@ -64,8 +102,9 @@ export interface Deliverable {
 
 export interface AcceptanceSpec {
   deterministicChecks: DeterministicCheck[];
+  /** passThreshold is in hundredths of a rubric point (300 = 3.00). */
   rubric: { criteria: Criterion[]; passThreshold: number };
-  sealedChecks?: { count: number; commitment: Hex32; weight: number };
+  sealedChecks?: { count: number; commitment: Hex32; weightBps: Bps };
 }
 
 export interface Adjudication {
@@ -88,11 +127,15 @@ export interface Timing {
   appealDecideSec: number;
   /** Phase 1: resubmission is not supported (ADR-0007). */
   maxSubmissions: 1;
+  /** Optimistic mode only (ADR-0015); refused in Phase 1, bound by the commitment ID regardless. */
+  disputeBy?: Timestamp;
+  disputeJudgeSec?: number;
+  disputeFallbackSec?: number;
 }
 
 /** Everything the commitment ID hashes: the commitment minus id, signatures and adjudicatorAcceptance (ADR-0016). */
 export interface CommitmentTerms {
-  schemaVersion: '0.4';
+  schemaVersion: '0.5';
   clubId: string;
   rulebookHash: Hex32;
   buyer: Address;
@@ -105,6 +148,8 @@ export interface CommitmentTerms {
   /** Phase 1: guaranteed_on_decision only (ADR-0007). */
   settlement: { mode: 'guaranteed_on_decision'; token: string };
   remedy: { onReject: 'full_refund' };
+  /** Phase 1: public only (ADR-0020). */
+  disclosure: { level: 'public' };
   buyerEncryptionPublicKey: Base64Url;
   nonce: Hex32;
   createdAt: Timestamp;
@@ -188,6 +233,30 @@ export interface Decision extends MessageBase {
   judgmentRecordHash: Hex32;
   keyForBuyer?: SealedKey;
   appealGround?: AppealGround;
+  /** Fallback and appeal panels (ADR-0018). Required with a signature unless the source is sim. */
+  beacon?: BeaconProof;
+  /** On escalate only: the content key for the appeal adjudicator (ADR-0020). */
+  encryptedKeys?: EncryptedKey[];
+}
+
+export interface BeaconProof {
+  source: RandomnessSource;
+  round: number;
+  value: Hex32;
+  signature?: `0x${string}`;
+}
+
+/** Optimistic mode (ADR-0015): built in Phase 4; Phase 1 parses it but no state accepts it. */
+export interface Dispute extends MessageBase {
+  type: 'Dispute';
+  commitmentId: Hex32;
+  buyer: Address;
+  attempt: number;
+  grounds: string;
+  bond: TokenAmount;
+  fee: TokenAmount;
+  /** The content key for the three adjudicators (ADR-0020). */
+  encryptedKeys: EncryptedKey[];
 }
 
 export interface AgentRevocation extends MessageBase {
@@ -220,7 +289,43 @@ export type SignedMessage =
   | Decision
   | AgentRevocation
   | MemberAdmission
-  | MemberRevocation;
+  | MemberRevocation
+  | Dispute;
+
+/**
+ * Buyer and seller close a commitment by agreement (ADR-0019). Both sign the identical struct, so it
+ * carries two signatures instead of MessageBase's one. Settlement behavior is T-006.
+ */
+export interface MutualSettlement {
+  type: 'MutualSettlement';
+  commitmentId: Hex32;
+  /** The delivery being settled, or null before any delivery. */
+  deliveryHash: Hex32 | null;
+  /** Paid to the seller in the price token; the rest of the hold returns to the buyer. */
+  sellerAmount: TokenAmount;
+  releaseKey: boolean;
+  nonce: Hex32;
+  expiresAt: Timestamp;
+  buyerSignature: Signature;
+  sellerSignature: Signature;
+}
+
+/** Buyer and seller raise the disclosure level by agreement (ADR-0020); raising only is checked by settlement (T-006). */
+export interface Publish {
+  type: 'Publish';
+  commitmentId: Hex32;
+  level: DisclosureLevel;
+  nonce: Hex32;
+  expiresAt: Timestamp;
+  buyerSignature: Signature;
+  sellerSignature: Signature;
+}
+
+/** Messages both parties sign over the identical struct. */
+export type CoSignedMessage = MutualSettlement | Publish;
+
+/** Everything messages.schema.json admits. */
+export type Message = SignedMessage | CoSignedMessage;
 
 // delivery.schema.json
 export interface Delivery {
@@ -229,7 +334,7 @@ export interface Delivery {
   ciphertext: { uri: string; sha256: Sha256; bytes: number; cipher: 'aes-256-gcm' };
   plaintextSha256: Sha256;
   plaintextMime: MimeType;
-  encryptedKeys: Array<{ recipient: Address } & SealedKey>;
+  encryptedKeys: EncryptedKey[];
   submittedAt: Timestamp;
   signature: Signature;
 }
@@ -275,15 +380,28 @@ export interface Rulebook {
   open: boolean;
   documentUri?: string;
   minWindowsSec: { judge: number; fallback: number; appealWindow: number; appealDecide: number };
-  windowCoverageRatio: Rate;
-  appealBondRate: Rate;
-  sealedChecksMaxWeight: number;
+  windowCoverageRatioBps: Bps;
+  appealBondRateBps: Bps;
+  sealedChecksMaxWeightBps: Bps;
   maxSubmissions: number;
-  defaultOutcome: { refundBuyer: true; sellerCompensationRate: Rate };
+  defaultOutcome: {
+    judged: { refundBuyer: true; sellerCompensationRateBps: Bps };
+    optimistic?: { release: true; buyerCompensationRateBps: Bps };
+  };
   allowedSettlementModes: SettlementMode[];
   allowedTokens: string[];
   panelPolicyMin: { panelSize: number; appealPanelSize: number; minFamilies: number };
   appealFee: TokenAmount;
+  /** ADR-0019. */
+  mutualSettlement: { allowed: boolean; adjudicatorFeeShareAfterDeliveryBps: number };
+  disclosureMin: DisclosureLevel;
+  /** Phase 1: long-term only (ADR-0020). */
+  identityModes: IdentityMode[];
+  firstLossShareMinBps: Bps;
+  bondNoticePeriodMinSec: number;
+  randomness: { source: RandomnessSource; chainHash?: Hex32 };
+  minInspectionWindowSec: number;
+  disputeBond: TokenAmount;
 }
 
 export interface Club {
@@ -303,14 +421,16 @@ export interface AdjudicatorPolicy {
   minFamiliesAppeal: number;
   minValid: number;
   minValidAppeal: number;
-  acceptSupermajority: Rate;
-  rejectSupermajority: Rate;
+  acceptSupermajority: Fraction;
+  rejectSupermajority: Fraction;
   judgeTimeoutSec: number;
   rationaleMaxChars: number;
   promptTemplateHash: Hex32;
   appealPromptTemplateHash: Hex32;
   aggregationVersion: string;
   screenVersion: string;
+  providerPrivacy: 'standard' | 'zdr' | 'tee' | 'local';
+  disclosureMin: DisclosureLevel;
 }
 
 export interface AdjudicatorRegistration {
@@ -318,14 +438,22 @@ export interface AdjudicatorRegistration {
   name: string;
   encryptionPublicKey: Base64Url;
   affiliations: string[];
-  bond: TokenAmount;
-  openExposure: TokenAmount;
   policy: AdjudicatorPolicy;
   registry: { hash: Hex32; uri: string };
   policyHash: Hex32;
-  fee: { min: TokenAmount; capitalChargeRate: Rate };
-  metrics?: { falseAcceptRate: Rate; falseRejectRate: Rate; escalationRate: Rate; sampleSize: number; measuredAt: Timestamp };
+  fee: { min: TokenAmount };
+  pool: AdjudicatorPool;
+  poolTermsHash: Hex32;
+  metrics?: { falseAcceptRateBps: Bps; falseRejectRateBps: Bps; escalationRateBps: Bps; sampleSize: number; measuredAt: Timestamp };
   status: 'active' | 'suspended';
+}
+
+/** ADR-0014 §2a. terms is what poolTermsHash binds; balances are not part of it. */
+export interface AdjudicatorPool {
+  junior: TokenAmount;
+  senior: TokenAmount;
+  reserved: TokenAmount;
+  terms: { capitalChargeRateBps: Bps; capitalChargeToPoolRateBps: Bps; firstLossShareBps: Bps; noticePeriodSec: number };
 }
 
 // commitment-state.schema.json (the read model; the domain state machine is in state.ts)
@@ -335,10 +463,12 @@ export type EscrowStateKind =
   | 'Agreed'
   | 'Held'
   | 'Delivered'
+  | 'Disputed'
   | 'FallbackJudging'
   | 'Escalated'
   | 'Released'
   | 'Refunded'
+  | 'Settled'
   | 'Defaulted'
   | 'Expired';
 export type AppealStateKind = 'none' | 'open' | 'upheld' | 'overturned' | 'expired';
@@ -351,6 +481,8 @@ export interface CommitmentStateView {
   hold?: { amount: TokenAmount; railRef: string };
   deadlines: Record<string, Timestamp>;
   balances?: Record<Address, TokenAmount>;
+  /** Present only when escrowState is Settled (ADR-0019). */
+  settled?: { sellerAmount: TokenAmount; buyerAmount: TokenAmount; keyReleased: boolean };
   lastEventSeq: number;
   updatedAt: Timestamp;
 }
@@ -379,7 +511,12 @@ export type SettlementEventType =
   | 'settlement.refunded'
   | 'settlement.reclaimed'
   | 'key.released'
-  | 'bond.paid';
+  | 'bond.paid'
+  | 'bond.deposited'
+  | 'bond.withdrawn'
+  | 'bond.slashed'
+  | 'dispute.opened'
+  | 'commitment.settled';
 
 export interface SettlementEvent {
   seq: number;
@@ -403,7 +540,18 @@ export interface JudgeVerdict {
 }
 
 // judgment.schema.json
-export type ScreenSignalKind = 'instruction_phrase' | 'encoded_run' | 'unicode_tags' | 'zero_width' | 'canary_echo' | 'classifier';
+export type ScreenSignalKind =
+  | 'instruction_phrase'
+  | 'encoded_run'
+  | 'unicode_tags'
+  | 'zero_width'
+  | 'canary_echo'
+  | 'classifier'
+  // ADR-0021
+  | 'nfkc_changed'
+  | 'variation_selector_run'
+  | 'mixed_script'
+  | 'hidden_characters';
 
 export interface PanelMember {
   judgeId: string;
@@ -427,17 +575,57 @@ export interface Judgment {
   intake: { plaintextHashVerified: boolean; mime: string; bytes: number; normalized: boolean };
   deterministic: Array<{ checkId: string; required: boolean; passed: boolean; detail?: string }>;
   screen: { flagged: boolean; signals: Array<{ kind: ScreenSignalKind; detail?: string }> };
-  panel: { ran: boolean; policyId: string; policyHash: Hex32; seedCommitment: Hex32; seed?: Hex32; members: PanelMember[] };
+  panel: {
+    ran: boolean;
+    policyId: string;
+    policyHash: Hex32;
+    seedSource: 'commit-reveal' | 'beacon';
+    seedCommitment?: Hex32;
+    beaconRound?: number;
+    seed?: Hex32;
+    members: PanelMember[];
+  };
   aggregate: {
     decision: DecisionOutcome;
+    /** Hundredths of a rubric point, or null when no verdict was valid. */
     weightedScore?: number | null;
-    passShare?: Rate;
-    failShare?: Rate;
+    passCount?: number;
+    failCount?: number;
+    validCount?: number;
     passFamilies?: string[];
     reasons: string[];
   };
   recordUri?: string;
+  privateRecord?: PrivateBody;
   recordHash: Hex32;
   decidedAt: Timestamp;
   signature: Signature;
+}
+
+// page.schema.json (ADR-0017)
+export interface Page<T = unknown> {
+  items: T[];
+  nextCursor: string | null;
+}
+
+// receipt.schema.json (ADR-0017)
+export interface Receipt {
+  operator: Address;
+  eventSeq: number;
+  eventHash: Hex32;
+  /** Absent for events with no commitment, such as bond deposits. */
+  commitmentId?: Hex32;
+  signature: Signature;
+}
+
+// operator-status.schema.json (ADR-0017)
+export interface OperatorStatus {
+  operatorId: string;
+  receiptSigner: Address;
+  settlement: { kind: 'sim' | 'chain'; chainId?: string };
+  domain: { name: 'Holdback'; version: string; chainId: string; verifyingContract: Address };
+  apiVersion: string;
+  schemaVersion: string;
+  head: { eventSeq: number; lagBlocks?: number; lagSec: number };
+  settlementModes: SettlementMode[];
 }

@@ -14,6 +14,8 @@ const readJson = (path) => JSON.parse(readFileSync(path, 'utf8'));
 export function loadSpec() {
   const ajv = new Ajv2020({ strict: true, allErrors: true });
   addFormats(ajv);
+  // ADR-0017 §9: marks party-authored strings; annotation only, no validation effect.
+  ajv.addKeyword({ keyword: 'x-holdback-untrusted', schemaType: 'boolean' });
   const schemas = new Map();
   for (const file of readdirSync(schemaDir).filter((f) => f.endsWith('.schema.json'))) {
     const schema = readJson(join(schemaDir, file));

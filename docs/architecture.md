@@ -214,9 +214,10 @@ Invariants, property-tested:
 - conservation (the token total is constant except faucet mints);
 - no negative balances;
 - each escrow is settled at most once;
-- `junior + senior - reserved` ≥ coverage ratio × price before a new assignment, with a 100% ratio for `guaranteed_on_decision` commitments still open to appeal;
+- `junior + senior - reserved` ≥ `ceil(price × windowCoverageRatioBps / 10000)` before a new assignment, with a 100% ratio for `guaranteed_on_decision` commitments still open to appeal;
 - losses are taken from junior before senior;
-- encumbered bond is never counted twice (one commitment's overturn and another's default cannot draw on the same units).
+- encumbered bond is never counted twice (one commitment's overturn and another's default cannot draw on the same units);
+- every rate is applied with `mulBps` or `splitBps` (ADR-0022): requirements round up; a split rounds the rate side down and pays the remainder to a named party (fee share: remainder to the buyer; capital charge: remainder to the adjudicator; backers: dust to junior); payouts from a bond round down and the bond keeps the dust. No posting creates or destroys a unit.
 
 ## Settlement interface
 
@@ -237,7 +238,7 @@ The REST API and SDK call only this interface. Chain details stay in the `local`
 ## Identity and signing
 
 - Agents, principals and adjudicators are EVM addresses: externally owned accounts, or smart accounts later.
-- Signed messages are EIP-712 typed data, with domain `{name: "Holdback", version: "0.4", chainId, verifyingContract}`. SimChain uses a fixed placeholder contract address.
+- Signed messages are EIP-712 typed data, with domain `{name: "Holdback", version: "0.5", chainId, verifyingContract}`. SimChain uses a fixed placeholder contract address. The domain version tracks the schema version, so a signature made under one schema never verifies under another.
 - Funding is gasless for agents. The buyer signs a token transfer authorization (ERC-3009 `transferWithAuthorization` or Permit2), and any relayer can submit it.
 - A mandate is the principal's EIP-712 signature over the agent's scope: caps, roles, categories, expiry. It is checked at agree and fund.
 

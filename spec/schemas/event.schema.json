@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.4/event.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.5/event.schema.json",
   "title": "Settlement event (hash-chained)",
   "type": "object",
   "required": [
@@ -41,7 +41,12 @@
         "settlement.refunded",
         "settlement.reclaimed",
         "key.released",
-        "bond.paid"
+        "bond.paid",
+        "bond.deposited",
+        "bond.withdrawn",
+        "bond.slashed",
+        "dispute.opened",
+        "commitment.settled"
       ]
     },
     "commitmentId": {
@@ -62,10 +67,13 @@
     },
     "submittedVia": {
       "type": "string",
-      "description": "Operator id or 'direct'"
+      "description": "Operator id or 'direct'",
+      "x-holdback-untrusted": true,
+      "maxLength": 64
     },
     "payload": {
-      "type": "object"
+      "type": "object",
+      "description": "Event body. Offered and agreed events always carry termsHash, judgment and appeal decisions always carry recordHash; the bodies themselves are present only as the disclosure level allows (ADR-0020)"
     },
     "prevHash": {
       "$ref": "common.schema.json#/$defs/Hex32"
@@ -73,5 +81,173 @@
     "hash": {
       "$ref": "common.schema.json#/$defs/Hex32"
     }
-  }
+  },
+  "$defs": {
+    "BondMovement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "adjudicator",
+        "junior",
+        "senior"
+      ],
+      "description": "Per-tranche amounts moved in or out of an adjudicator's pool (ADR-0014)",
+      "properties": {
+        "adjudicator": {
+          "$ref": "common.schema.json#/$defs/Address"
+        },
+        "backer": {
+          "$ref": "common.schema.json#/$defs/Address"
+        },
+        "junior": {
+          "$ref": "common.schema.json#/$defs/TokenAmount"
+        },
+        "senior": {
+          "$ref": "common.schema.json#/$defs/TokenAmount"
+        },
+        "reason": {
+          "enum": [
+            "deposit",
+            "withdrawal",
+            "overturn",
+            "default",
+            "appeal-upheld"
+          ]
+        }
+      }
+    },
+    "SettledSplit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sellerAmount",
+        "buyerAmount",
+        "keyReleased"
+      ],
+      "properties": {
+        "sellerAmount": {
+          "$ref": "common.schema.json#/$defs/TokenAmount"
+        },
+        "buyerAmount": {
+          "$ref": "common.schema.json#/$defs/TokenAmount"
+        },
+        "keyReleased": {
+          "type": "boolean"
+        }
+      },
+      "description": "The split a mutual settlement applied (ADR-0019)"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "enum": [
+              "bond.deposited",
+              "bond.withdrawn",
+              "bond.slashed"
+            ]
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "type": "object"
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/BondMovement"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "const": "commitment.settled"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/SettledSplit"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "enum": [
+              "commitment.offered",
+              "commitment.agreed"
+            ]
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "payload": {
+            "type": "object",
+            "required": [
+              "termsHash"
+            ],
+            "properties": {
+              "termsHash": {
+                "$ref": "common.schema.json#/$defs/Hex32"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "enum": [
+              "judgment.decided",
+              "appeal.decided"
+            ]
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "payload": {
+            "type": "object",
+            "required": [
+              "recordHash"
+            ],
+            "properties": {
+              "recordHash": {
+                "$ref": "common.schema.json#/$defs/Hex32"
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
 }

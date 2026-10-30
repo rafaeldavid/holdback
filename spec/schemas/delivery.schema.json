@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.4/delivery.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.5/delivery.schema.json",
   "title": "Delivery (encrypted work + escrowed key)",
   "type": "object",
   "required": [
@@ -65,24 +65,7 @@
       "type": "array",
       "minItems": 3,
       "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "recipient",
-          "scheme",
-          "ciphertext"
-        ],
-        "properties": {
-          "recipient": {
-            "$ref": "common.schema.json#/$defs/Address"
-          },
-          "scheme": {
-            "const": "x25519-xsalsa20poly1305"
-          },
-          "ciphertext": {
-            "$ref": "common.schema.json#/$defs/Base64Url"
-          }
-        }
+        "$ref": "common.schema.json#/$defs/EncryptedKey"
       },
       "description": "The content key encrypted to the primary, fallback and appeal adjudicators, and to the buyer for early acceptance (ADR-0012, ADR-0016)"
     },

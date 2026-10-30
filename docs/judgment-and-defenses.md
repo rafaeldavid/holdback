@@ -23,7 +23,7 @@ A cleaned dataset has no delivery-versus-payment check of that kind, because whe
 
 **Short circuits:**
 - A required deterministic check fails: reject without the panel.
-- All checks pass and the rubric is empty: accept without the panel.
+- All checks pass and the rubric is empty: accept without the panel. If the screen flagged the delivery, the reasons say so and the signals stay in the record for the buyer's SDK to surface (ADR-0021).
 - The screen flags the delivery: run the panel for the record, but the decision can only be `escalate`.
 
 ## Panel policy (defaults; rulebook may tighten)
@@ -33,8 +33,8 @@ A cleaned dataset has no delivery-versus-payment check of that kind, because whe
 | Panel size | 3 | 5 |
 | Minimum distinct model families | 2 | 3 where available, else 2 |
 | Minimum valid (non-abstain) verdicts | 2 | 4 |
-| Accept supermajority | ≥ 2/3 pass, with pass verdicts from ≥ 2 families | ≥ 4/5, with passes from ≥ 2 families |
-| Reject supermajority | ≥ 2/3 fail | ≥ 4/5 fail |
+| Accept supermajority (`acceptSupermajority`, a fraction) | ≥ 2/3 pass, with pass verdicts from ≥ 2 families | ≥ 4/5, with passes from ≥ 2 families |
+| Reject supermajority (`rejectSupermajority`, a fraction) | ≥ 2/3 fail | ≥ 4/5 fail |
 | Otherwise | escalate | after a party appeal, the first decision stands and the appellant's bond is returned; after an escalation, the default outcome applies |
 | Judge timeout | 60 s, then abstain | 90 s |
 | Retries | 1, on transport error only, same inputs | same |
@@ -60,17 +60,20 @@ Neither party, nor the adjudicator after seeing the delivery, can steer which mo
 
 ```
 if any required deterministic check failed            -> REJECT  (no panel)
-if all checks passed and rubric is empty              -> ACCEPT  (no panel)
+if all checks passed and rubric is empty              -> ACCEPT  (no panel; add reason "screen flagged; see screen.signals" if flagged)
 verdicts = run panel
 if screen.flagged or any verdict.injectionSuspected   -> ESCALATE
 valid = verdicts where overall != "abstain"
 if len(valid) < policy.minValid                       -> ESCALATE
-score = weighted mean of criterion scores across valid verdicts (0–4), sealed checks capped at rulebook weight
+score = weighted mean of criterion scores across valid verdicts, in integer hundredths (0–400), sealed checks capped at rulebook weight
 passFamilies = distinct families among valid verdicts with overall == "pass"
-if share(pass) >= acceptSupermajority and len(passFamilies) >= 2 and score >= rubric.passThreshold -> ACCEPT
-if share(fail) >= rejectSupermajority                 -> REJECT
-otherwise                                             -> ESCALATE
+if pass * accept.den >= accept.num * len(valid) and pass > fail
+   and len(passFamilies) >= 2 and score >= rubric.passThreshold -> ACCEPT
+if fail * reject.den >= reject.num * len(valid) and fail > pass -> REJECT
+otherwise                                             -> ESCALATE   (ties escalate)
 ```
+
+Thresholds are exact fractions compared by cross-multiplication, never by division or floats (ADR-0022). A policy must satisfy `2 × numerator > denominator`, so accept and reject can never both hold. The record carries `passCount`, `failCount` and `validCount`, not shares.
 
 Unit-test this function exhaustively with table-driven cases.
 
@@ -98,6 +101,7 @@ Unit-test this function exhaustively with table-driven cases.
 | T18 | Adjudicator self-dealing | An adjudicator accepts every case for sellers it controls in guaranteed mode | 100% bond coverage per guaranteed commitment open to appeal; appeals to a different adjudicator; encumbered bond never counted twice | `attack.adjudicator-self-dealing` |
 | T19 | Wrong or missing key release | The decision pays the seller but releases a key that does not decrypt the committed plaintext | Buyer verifies against the plaintext hash; "missing or wrong key" is a bonded appeal ground; an appeal decision may carry the key | `appeal-bad-key-release` |
 | T21 | Late panel selection | A fallback or appeal adjudicator reads the work, calls every judge once, then picks the seed whose panel gives the outcome it wants | Non-primary seeds come from a beacon round fixed by settlement state (ADR-0018); no substitute source; unprovable round leads to fallback or default | `attack.fallback-panel-shopping`, `attack.appeal-panel-shopping-after-escalation`, `attack.timing-grind`, `error.seed-mismatch` |
+| T22 | Hidden payload aimed at the buyer's agent | With an empty rubric, the work passes every check but carries Unicode tag characters spelling instructions for the buyer's own agent | The screen report is in the signed record and the SDK surfaces it, handing the agent a normalized view by default; parties may require `hidden_characters_max`, which rejects without a panel; escalation on high-risk signals is a Phase 3 `screenPolicy` option (ADR-0021) | `attack.injection-tags-empty-rubric`, `attack.injection-tags-required-check`, `neutrality.seller-multilingual-text` |
 | T17 | Malicious files | Oversized or archive files | MIME allowlist (`text/csv`, `application/json`, `text/plain`, `text/markdown`); 10 MB cap; parsing in a worker with a time limit | `error.mime-not-allowed` |
 
 Background on the defense designs:
