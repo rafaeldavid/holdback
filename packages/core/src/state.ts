@@ -6,7 +6,9 @@
 // - Signatures are verified before step (eip712.ts). Step checks that the signer field names the
 //   party whose turn it is. Guards that need outside data (scopes, balances, bond, membership, nonce
 //   use) take it as facts on the event, supplied by the settlement layer.
-// - Time: an action is on time iff at < deadline; a timeout fires iff at >= deadline.
+// - Time: an action is on time iff at < deadline; a timeout fires iff at >= deadline. Both comparisons
+//   are false for an unparseable time, so a bad clock refuses instead of firing a timeout, and step
+//   refuses an unparseable event time outright.
 import { keccak256 } from 'viem';
 import { rulebookHash } from './canonical.js';
 import { commitmentId, termsOf } from './eip712.js';
@@ -97,11 +99,14 @@ export interface OfferInput {
 export type EscrowEvent =
   | { type: 'adjudicator_accept'; at: Timestamp; message: AdjudicatorAcceptance; unencumberedBond: TokenAmount }
   | { type: 'agree'; at: Timestamp; message: Agree; buyerScope: Scope; spentToday: TokenAmount; memberAdmitted: boolean }
-  | { type: 'fund'; at: Timestamp; message: FundingAuthorization; balance: TokenAmount; gasBuffer: TokenAmount }
+  // The mandate is checked again at funding (docs/architecture.md, Identity and signing).
+  | { type: 'fund'; at: Timestamp; message: FundingAuthorization; buyerScope: Scope; balance: TokenAmount; gasBuffer: TokenAmount }
   | { type: 'deliver'; at: Timestamp; delivery: Delivery }
   | { type: 'early_accept'; at: Timestamp; message: EarlyAccept }
   | { type: 'decide'; at: Timestamp; message: Decision }
-  | { type: 'file_appeal'; at: Timestamp; appeal: Appeal }
+  // requiredBond is price x the rulebook appealBondRate and requiredFee the rulebook appealFee, both
+  // computed by the caller; feePaid is the appeal-fee authorization that accompanies the appeal.
+  | { type: 'file_appeal'; at: Timestamp; appeal: Appeal; requiredBond: TokenAmount; requiredFee: TokenAmount; feePaid: TokenAmount }
   // Permissionless timeouts: anyone may trigger them.
   | { type: 'expire'; at: Timestamp }
   | { type: 'reclaim'; at: Timestamp }
@@ -114,6 +119,8 @@ type R<T = EscrowState> = Result<T, Problem>;
 
 const ms = (ts: Timestamp): number => Date.parse(ts);
 const before = (at: Timestamp, deadline: Timestamp): boolean => ms(at) < ms(deadline);
+const reached = (at: Timestamp, deadline: Timestamp): boolean => ms(at) >= ms(deadline);
+const validTime = (at: Timestamp): boolean => Number.isFinite(ms(at));
 const fail = (type: ProblemType, detail: string): R<never> => err(problem(type, detail));
 const sameAddress = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase();
 
@@ -136,6 +143,7 @@ function messageLive(m: { expiresAt: Timestamp }, at: Timestamp): R<true> {
 
 export function offer(input: OfferInput): R<Extract<EscrowState, { kind: 'Offered' }>> {
   const { commitment, at, rulebook } = input;
+  if (!validTime(at)) return fail('invalid_terms', `offer time ${at} is not a timestamp`);
   const terms = termsOf(commitment);
   if (commitment.id !== commitmentId(terms)) return fail('invalid_terms', 'id is not the struct hash of the terms');
   if (rulebook === null) return fail('rulebook_unknown', `no rulebook registered for ${terms.rulebookHash}`);
@@ -208,7 +216,9 @@ function fund(s: Extract<EscrowState, { kind: 'Agreed' }>, e: Extract<EscrowEven
   if (!before(e.at, terms.timing.fundBy)) return fail('deadline_passed', `fundBy passed at ${terms.timing.fundBy}`);
   const live = messageLive(m, e.at);
   if (!live.ok) return live;
-  if (ms(e.at) < ms(m.validAfter) || !before(e.at, m.validBefore)) return fail('deadline_passed', 'outside the authorization validity window');
+  if (!reached(e.at, m.validAfter) || !before(e.at, m.validBefore)) return fail('deadline_passed', 'outside the authorization validity window');
+  const scope = scopeAllows(e.buyerScope, 'buyer', terms.price, e.at);
+  if (!scope.ok) return scope;
 
   const total = money(add(terms.price, terms.adjudication.fee), 'price + fee');
   if (!total.ok) return total;
@@ -232,10 +242,12 @@ function deliver(s: Extract<EscrowState, { kind: 'Held' }>, e: Extract<EscrowEve
   if (d.commitmentId !== s.id) return fail('invalid_terms', 'delivery is for another commitment');
   if (!before(e.at, terms.timing.deliverBy)) return fail('deadline_passed', `deliverBy passed at ${terms.timing.deliverBy}`);
   if (d.attempt !== 1) return fail('submission_limit_reached', `attempt ${d.attempt} exceeds maxSubmissions ${terms.timing.maxSubmissions}`);
-  // Every adjudicator who may have to judge must be able to read the work (ADR-0012, ADR-0016).
+  // Every adjudicator who may have to judge must be able to read the work (ADR-0012, ADR-0016), and the
+  // buyer's key must be there for early acceptance, which releases it with the payment (architecture.md
+  // Two-sided hold, step 5). Checking at delivery means early acceptance can never strand the buyer.
   const { adjudicator, fallbackAdjudicator, appealAdjudicator } = terms.adjudication;
-  for (const recipient of [adjudicator, fallbackAdjudicator, appealAdjudicator]) {
-    if (!d.encryptedKeys.some((k) => sameAddress(k.recipient, recipient))) return fail('invalid_terms', `no content key for adjudicator ${recipient}`);
+  for (const recipient of [adjudicator, fallbackAdjudicator, appealAdjudicator, terms.buyer]) {
+    if (!d.encryptedKeys.some((k) => sameAddress(k.recipient, recipient))) return fail('invalid_terms', `no content key for ${recipient}`);
   }
   return ok({ ...s, kind: 'Delivered', delivery: d });
 }
@@ -265,6 +277,7 @@ function firstInstance(s: Extract<EscrowState, { kind: 'Delivered' | 'FallbackJu
   );
   if (!bound.ok) return bound;
   if (m.attempt !== s.delivery.attempt) return fail('invalid_terms', `decision is for attempt ${m.attempt}, delivery is attempt ${s.delivery.attempt}`);
+  if (m.appealGround !== undefined) return fail('invalid_terms', 'appealGround belongs to appeal decisions only');
   // Only the primary committed to a seed. Contract gap recorded in T-004 Handoff: the fallback cannot know it.
   if (role === 'primary' && keccak256(m.seed) !== s.acceptance.seedCommitment) return fail('seed_mismatch', 'seed does not hash to the acceptance seedCommitment');
 
@@ -312,7 +325,14 @@ export function stepAppeal(a: AppealState, e: AppealEvent, ctx: AppealContext): 
       if (!sameAddress(p.appellantAddress, p.appellant === 'buyer' ? terms.buyer : terms.seller)) {
         return fail('invalid_signature', `appellant address is not the ${p.appellant}`);
       }
-      if (p.bond.token !== terms.price.token) return fail('invalid_terms', 'appeal bond must be in the price token');
+      for (const [what, paid, required] of [
+        ['appeal bond', p.bond, e.requiredBond],
+        ['appeal fee', e.feePaid, e.requiredFee],
+      ] as const) {
+        const enough = money(gte(paid, required), what);
+        if (!enough.ok) return enough;
+        if (!enough.value) return fail('insufficient_funds', `${what} ${paid.amount} is below the required ${required.amount}`);
+      }
       return ok({ kind: 'open', appeal: p, appealDecideBy: a.appealDecideBy });
     }
     case 'decide': {
@@ -325,8 +345,8 @@ export function stepAppeal(a: AppealState, e: AppealEvent, ctx: AppealContext): 
       return ok({ kind: m.outcome === ctx.firstOutcome ? 'upheld' : 'overturned', appeal: a.appeal, decision: m });
     }
     case 'expire_appeal': {
-      if (a.kind === 'none' && !before(e.at, a.appealBy)) return ok({ kind: 'expired', appeal: null });
-      if (a.kind === 'open' && !before(e.at, a.appealDecideBy)) return ok({ kind: 'expired', appeal: a.appeal });
+      if (a.kind === 'none' && reached(e.at, a.appealBy)) return ok({ kind: 'expired', appeal: null });
+      if (a.kind === 'open' && reached(e.at, a.appealDecideBy)) return ok({ kind: 'expired', appeal: a.appeal });
       return fail('invalid_state', a.kind === 'none' || a.kind === 'open' ? 'the appeal deadline has not passed' : `appeal state is ${a.kind}`);
     }
   }
@@ -348,6 +368,7 @@ const wrongState = (s: EscrowState, e: EscrowEvent): R => fail('invalid_state', 
 const tooEarly = (deadline: Timestamp): R => fail('invalid_state', `deadline ${deadline} has not passed`);
 
 export function step(s: EscrowState, e: EscrowEvent): R {
+  if (!validTime(e.at)) return fail('invalid_terms', `event time ${e.at} is not a timestamp`);
   switch (s.kind) {
     case 'Offered':
       if (e.type === 'adjudicator_accept') return adjudicatorAccept(s, e);
@@ -359,14 +380,14 @@ export function step(s: EscrowState, e: EscrowEvent): R {
     case 'Agreed':
       if (e.type === 'fund') return fund(s, e);
       if (e.type === 'expire') {
-        if (before(e.at, s.terms.timing.fundBy)) return tooEarly(s.terms.timing.fundBy);
+        if (!reached(e.at, s.terms.timing.fundBy)) return tooEarly(s.terms.timing.fundBy);
         return ok({ kind: 'Expired', id: s.id, terms: s.terms, from: s.kind, expiredAt: e.at });
       }
       break;
     case 'Held':
       if (e.type === 'deliver') return deliver(s, e);
       if (e.type === 'reclaim') {
-        if (before(e.at, s.terms.timing.deliverBy)) return tooEarly(s.terms.timing.deliverBy);
+        if (!reached(e.at, s.terms.timing.deliverBy)) return tooEarly(s.terms.timing.deliverBy);
         return ok({ kind: 'Refunded', id: s.id, terms: s.terms, settledAt: e.at, via: { kind: 'reclaim' } });
       }
       break;
@@ -381,21 +402,21 @@ export function step(s: EscrowState, e: EscrowEvent): R {
         return ok({ kind: 'Released', id: s.id, terms: s.terms, settledAt: e.at, via: { kind: 'early_accept', earlyAccept: m } });
       }
       if (e.type === 'trigger_fallback') {
-        if (before(e.at, s.terms.timing.judgeBy)) return tooEarly(s.terms.timing.judgeBy);
+        if (!reached(e.at, s.terms.timing.judgeBy)) return tooEarly(s.terms.timing.judgeBy);
         return ok({ ...s, kind: 'FallbackJudging', fallbackSince: e.at });
       }
       break;
     case 'FallbackJudging':
       if (e.type === 'decide') return firstInstance(s, e.message, e.at);
       if (e.type === 'trigger_default') {
-        if (before(e.at, s.terms.timing.fallbackBy)) return tooEarly(s.terms.timing.fallbackBy);
+        if (!reached(e.at, s.terms.timing.fallbackBy)) return tooEarly(s.terms.timing.fallbackBy);
         return ok({ kind: 'Defaulted', id: s.id, terms: s.terms, acceptance: s.acceptance, hold: s.hold, from: s.kind, defaultedAt: e.at });
       }
       break;
     case 'Escalated':
       if (e.type === 'decide') return escalationDecision(s, e.message, e.at);
       if (e.type === 'trigger_default') {
-        if (before(e.at, s.escalation.appealDecideBy)) return tooEarly(s.escalation.appealDecideBy);
+        if (!reached(e.at, s.escalation.appealDecideBy)) return tooEarly(s.escalation.appealDecideBy);
         return ok({ kind: 'Defaulted', id: s.id, terms: s.terms, acceptance: s.acceptance, hold: s.hold, from: s.kind, defaultedAt: e.at });
       }
       break;
@@ -412,7 +433,7 @@ export function step(s: EscrowState, e: EscrowEvent): R {
       break;
   }
   if ((s.kind === 'Offered' || s.kind === 'AcceptedByAdjudicator') && e.type === 'expire') {
-    if (before(e.at, s.terms.timing.offerExpiresAt)) return tooEarly(s.terms.timing.offerExpiresAt);
+    if (!reached(e.at, s.terms.timing.offerExpiresAt)) return tooEarly(s.terms.timing.offerExpiresAt);
     return ok({ kind: 'Expired', id: s.id, terms: s.terms, from: s.kind, expiredAt: e.at });
   }
   return wrongState(s, e);

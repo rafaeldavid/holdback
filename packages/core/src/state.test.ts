@@ -1,13 +1,14 @@
 import { readFileSync } from 'node:fs';
 import { keccak256, type Hex } from 'viem';
+import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { rulebookHash } from './canonical.js';
 import { commitmentId, termsOf } from './eip712.js';
 import type { TokenAmount } from './money/index.js';
-import { parseClub, parseCommitment } from './parse.js';
+import { parseAppeal, parseClub, parseCommitment, parseDelivery, parseMessage } from './parse.js';
 import { PROBLEM_TYPES, type ProblemType } from './problem.js';
 import { offer, step, type EscrowEvent, type EscrowState, type OfferInput } from './state.js';
-import type { AdjudicatorAcceptance, Appeal, Commitment, Decision, Delivery, Rulebook, Scope } from './types.js';
+import type { AdjudicatorAcceptance, Agree, Appeal, Commitment, CommitmentTerms, Decision, Delivery, EarlyAccept, FundingAuthorization, Rulebook, Scope } from './types.js';
 
 function load(file: string): unknown {
   return JSON.parse(readFileSync(new URL(`../../../spec/examples/${file}`, import.meta.url), 'utf8'));
@@ -23,14 +24,14 @@ const tusd = (amount: string): TokenAmount => ({ token: 'tUSD', amount: amount a
 
 // The example's hashes are placeholders, so derive a self-consistent commitment from its terms.
 const rulebook = parsedClub.value.rulebook;
-function commitmentFor(rb: Rulebook): Commitment {
-  const t = { ...termsOf(exampleCommitment), rulebookHash: rulebookHash(rb) };
+function commitmentFor(rb: Rulebook, patch: Partial<CommitmentTerms> = {}): Commitment {
+  const t = { ...termsOf(exampleCommitment), ...patch, rulebookHash: rulebookHash(rb) };
   return { ...t, id: commitmentId(t), signatures: { seller: SIG } };
 }
 const commitment = commitmentFor(rulebook);
 const terms = termsOf(commitment);
 const id = commitment.id;
-const withRulebook = (rb: Rulebook): Partial<OfferInput> => ({ rulebook: rb, commitment: commitmentFor(rb) });
+const withRulebook = (rb: Rulebook, patch: Partial<CommitmentTerms> = {}): Partial<OfferInput> => ({ rulebook: rb, commitment: commitmentFor(rb, patch) });
 const { buyer, seller } = terms;
 const { adjudicator: primary, fallbackAdjudicator: fallback, appealAdjudicator: appealAdj, policyHash, registryHash } = terms.adjudication;
 const seed: Hex = `0x${'5e'.repeat(32)}`;
@@ -135,15 +136,15 @@ const ev = {
     message: acceptance(over),
     unencumberedBond: bond,
   }),
-  agree: (at = T.agree, over: { buyerScope?: Scope; spentToday?: TokenAmount; memberAdmitted?: boolean; commitmentId?: Hex } = {}): EscrowEvent => ({
+  agree: (at = T.agree, over: { buyerScope?: Scope; spentToday?: TokenAmount; memberAdmitted?: boolean; commitmentId?: Hex; message?: Partial<Agree> } = {}): EscrowEvent => ({
     type: 'agree',
     at,
-    message: { type: 'Agree', commitmentId: over.commitmentId ?? id, buyer, nonce: ZERO32, expiresAt: far, signature: SIG },
+    message: { type: 'Agree', commitmentId: over.commitmentId ?? id, buyer, nonce: ZERO32, expiresAt: far, signature: SIG, ...over.message },
     buyerScope: over.buyerScope ?? scope(['buyer']),
     spentToday: over.spentToday ?? tusd('0'),
     memberAdmitted: over.memberAdmitted ?? true,
   }),
-  fund: (at = T.fund, over: { from?: Hex; value?: string; balance?: TokenAmount } = {}): EscrowEvent => ({
+  fund: (at = T.fund, over: { from?: Hex; value?: string; balance?: TokenAmount; buyerScope?: Scope; message?: Partial<FundingAuthorization> } = {}): EscrowEvent => ({
     type: 'fund',
     at,
     message: {
@@ -158,22 +159,32 @@ const ev = {
       nonce: ZERO32,
       expiresAt: T.fundBy,
       signature: SIG,
+      ...over.message,
     },
+    buyerScope: over.buyerScope ?? scope(['buyer']),
     balance: over.balance ?? tusd('3000000000'),
     gasBuffer: tusd('1000000'),
   }),
   deliver: (at = T.deliver, over: Partial<Delivery> = {}): EscrowEvent => ({ type: 'deliver', at, delivery: delivery(over) }),
-  earlyAccept: (at = T.decide, by: Hex = buyer): EscrowEvent => ({
+  earlyAccept: (at = T.decide, by: Hex = buyer, over: Partial<EarlyAccept> = {}): EscrowEvent => ({
     type: 'early_accept',
     at,
-    message: { type: 'EarlyAccept', commitmentId: id, buyer: by, attempt: 1, nonce: ZERO32, expiresAt: far, signature: SIG },
+    message: { type: 'EarlyAccept', commitmentId: id, buyer: by, attempt: 1, nonce: ZERO32, expiresAt: far, signature: SIG, ...over },
   }),
   decide: (role: Decision['role'], outcome: Decision['outcome'], at: string, over: Partial<Decision> = {}): EscrowEvent => ({
     type: 'decide',
     at,
     message: decision(role, outcome, over),
   }),
-  fileAppeal: (at = T.appealFiled, over: Partial<Appeal> = {}): EscrowEvent => ({ type: 'file_appeal', at, appeal: appeal(over) }),
+  // Required bond: 5% of the 2000 tUSD price (example rulebook appealBondRate); fee: the rulebook appealFee.
+  fileAppeal: (at = T.appealFiled, over: Partial<Appeal> = {}, facts: { requiredBond?: TokenAmount; requiredFee?: TokenAmount; feePaid?: TokenAmount } = {}): EscrowEvent => ({
+    type: 'file_appeal',
+    at,
+    appeal: appeal(over),
+    requiredBond: facts.requiredBond ?? tusd('100000000'),
+    requiredFee: facts.requiredFee ?? tusd('25000000'),
+    feePaid: facts.feePaid ?? tusd('25000000'),
+  }),
   at: (type: 'reclaim' | 'trigger_fallback' | 'trigger_default' | 'expire' | 'apply_default_outcome' | 'expire_appeal', at: string): EscrowEvent => ({ type, at }),
 };
 
@@ -223,6 +234,9 @@ describe('offer', () => {
     ['timing below the rulebook minimum', withRulebook({ ...rulebook, minWindowsSec: { ...rulebook.minWindowsSec, judge: 121 } }), 'invalid_terms'],
     ['a settlement mode the rulebook does not allow', withRulebook({ ...rulebook, allowedSettlementModes: ['settle_after_window'] }), 'invalid_terms'],
     ['a token the rulebook does not allow', withRulebook({ ...rulebook, allowedTokens: ['tEUR'] }), 'invalid_terms'],
+    ['maxSubmissions above the rulebook maximum', withRulebook({ ...rulebook, maxSubmissions: 0 }), 'invalid_terms'],
+    ['a fee in another allowed token', withRulebook({ ...rulebook, allowedTokens: ['tUSD', 'tEUR'] }, { adjudication: { ...exampleCommitment.adjudication, fee: { token: 'tEUR', amount: '50000000' as TokenAmount['amount'] } } }), 'invalid_terms'],
+    ['an unparseable offer time', { at: 'not a time' }, 'invalid_terms'],
     ['a rulebook whose hash is not the one the terms bind', { rulebook: { ...rulebook, appealBondRate: 0.06 } }, 'rulebook_unknown'],
   ])('refuses %s', (_name, over, type) => {
     expect(offer(offerInput(over))).toMatchObject({ ok: false, error: { type } });
@@ -267,6 +281,15 @@ describe('legal transitions', () => {
     if (!r.ok) throw new Error(`${r.error.type}: ${r.error.detail}`);
     expect(r.value.kind).toBe(to);
     expect(appealKind(r.value)).toBe(appealState);
+  });
+
+  it.each([
+    ['FallbackJudging', toDefaulted],
+    ['Escalated', [...toEscalated, ev.at('trigger_default', escalationDecideBy)]],
+  ] as const)('records that the default came from %s through to the refund', (from, path) => {
+    const r = step(run([...path]), ev.at('apply_default_outcome', far));
+    if (!r.ok) throw new Error(r.error.detail);
+    expect(r.value.kind === 'Refunded' && r.value.via).toEqual({ kind: 'default_outcome', from });
   });
 
   it('records the hold as price plus fee', () => {
@@ -363,6 +386,37 @@ const illegal: Illegal[] = [
   ['an appeal decision at appealDecideBy', toAppealOpen, ev.decide('appeal', 'reject', T.appealDecideBy), 'deadline_passed'],
   ['expiring an open appeal before appealDecideBy', toAppealOpen, ev.at('expire_appeal', T.appealDecided), 'invalid_state'],
   ['expiring the appeal window early', toReleased, ev.at('expire_appeal', T.appealFiled), 'invalid_state'],
+  // guards the first mutation sweep showed were untested (T-004 review item 2)
+  ['acceptance message already expired', [], ev.accept({ expiresAt: T.offer }), 'deadline_passed'],
+  ['agreement signed by the seller', toAccepted, ev.agree(T.agree, { message: { buyer: seller } }), 'invalid_signature'],
+  ['an expired agreement message', toAccepted, ev.agree(T.agree, { message: { expiresAt: T.accept } }), 'deadline_passed'],
+  ['funding for another commitment', toAgreed, ev.fund(T.fund, { message: { commitmentId: ZERO32 } }), 'invalid_terms'],
+  ['an expired funding authorization', toAgreed, ev.fund(T.fund, { message: { expiresAt: T.agree } }), 'deadline_passed'],
+  ['funding before validAfter', toAgreed, ev.fund(T.fund, { message: { validAfter: T.offerExpiry } }), 'deadline_passed'],
+  ['funding at validBefore', toAgreed, ev.fund(T.fund, { message: { validBefore: T.fund } }), 'deadline_passed'],
+  ['funding under an expired buyer mandate', toAgreed, ev.fund(T.fund, { buyerScope: scope(['buyer'], { expiresAt: T.fund }) }), 'mandate_expired'],
+  ['funding under a scope without the buyer role', toAgreed, ev.fund(T.fund, { buyerScope: scope(['seller']) }), 'scope_exceeded'],
+  ['early acceptance for another commitment', toDelivered, ev.earlyAccept(T.decide, buyer, { commitmentId: ZERO32 }), 'invalid_terms'],
+  ['early acceptance of another attempt', toDelivered, ev.earlyAccept(T.decide, buyer, { attempt: 2 }), 'invalid_terms'],
+  ['an expired early acceptance', toDelivered, ev.earlyAccept(T.decide, buyer, { expiresAt: T.deliver }), 'deadline_passed'],
+  ['a decision for another commitment', toDelivered, ev.decide('primary', 'accept', T.decide, { commitmentId: ZERO32 }), 'invalid_terms'],
+  ['an appeal ground on a first-instance decision', toDelivered, ev.decide('primary', 'reject', T.decide, { appealGround: 'wrong-outcome' }), 'invalid_terms'],
+  ['the appeal adjudicator signing as primary on an escalation', toEscalated, ev.decide('primary', 'accept', T.fallbackDecide, { adjudicator: appealAdj }), 'not_your_turn'],
+  ['the appeal adjudicator signing as fallback on an open appeal', toAppealOpen, ev.decide('fallback', 'reject', T.appealDecided, { adjudicator: appealAdj }), 'not_your_turn'],
+  ['an appeal decision that escalates', toAppealOpen, ev.decide('appeal', 'escalate', T.appealDecided), 'invalid_terms'],
+  ['an appeal for another commitment', toReleased, ev.fileAppeal(T.appealFiled, { commitmentId: ZERO32 }), 'invalid_terms'],
+  ['an appeal bond in another token', toReleased, ev.fileAppeal(T.appealFiled, { bond: { token: 'tEUR', amount: '100000000' as TokenAmount['amount'] } }), 'invalid_terms'],
+  ['a zero appeal bond', toReleased, ev.fileAppeal(T.appealFiled, { bond: tusd('0') }), 'insufficient_funds'],
+  ['an appeal bond below the rulebook rate', toReleased, ev.fileAppeal(T.appealFiled, { bond: tusd('99999999') }), 'insufficient_funds'],
+  ['an appeal fee below the rulebook fee', toReleased, ev.fileAppeal(T.appealFiled, {}, { feePaid: tusd('24999999') }), 'insufficient_funds'],
+  ['a delivery without a key for the buyer', toHeld, ev.deliver(T.deliver, { encryptedKeys: delivery().encryptedKeys.filter((k) => k.recipient !== buyer) }), 'invalid_terms'],
+  // an unparseable clock must refuse, never fire a timeout (T-004 review item 5)
+  ['expiring an offer with an unparseable time', [], ev.at('expire', 'garbage'), 'invalid_terms'],
+  ['reclaiming with an unparseable time', toHeld, ev.at('reclaim', 'garbage'), 'invalid_terms'],
+  ['triggering fallback with an unparseable time', toDelivered, ev.at('trigger_fallback', 'garbage'), 'invalid_terms'],
+  ['triggering default with an empty time', toFallback, ev.at('trigger_default', ''), 'invalid_terms'],
+  ['expiring an appeal with an unparseable time', toReleased, ev.at('expire_appeal', 'garbage'), 'invalid_terms'],
+  ['deciding with an unparseable time', toDelivered, ev.decide('primary', 'accept', 'garbage'), 'invalid_terms'],
   // terminal states
   ['any event after expiry', [ev.at('expire', T.offerExpiry)], ev.accept(), 'invalid_state'],
   ['deciding a released commitment again as primary', toReleased, ev.decide('primary', 'reject', T.decide), 'invalid_state'],
@@ -419,5 +473,69 @@ describe('totality', () => {
     const snapshot = structuredClone(s);
     step(s, ev.decide('primary', 'accept', T.decide));
     expect(s).toEqual(snapshot);
+  });
+});
+
+// Every message a parser accepts, in every reachable state, gives a state or a problem: never a throw.
+describe('step never throws on parsed input', () => {
+  const states: EscrowEvent[][] = [[], toAccepted, toAgreed, toHeld, toDelivered, toFallback, toEscalated, toReleased, toAppealOpen, toDefaulted];
+  const built = states.map(run);
+  const anyValue = fc.oneof(
+    fc.constantFrom<unknown>('2026-11-01T10:01:00Z', '2026-10-30T10:30:00.500Z', '1969-12-31T23:59:59Z', 0, 1, 2, 255, 2 ** 60, '0', (2n ** 256n).toString(), buyer, seller, primary, appealAdj, ZERO32, 'escalate', 'appeal', 'fallback'),
+    fc.string(),
+    fc.integer(),
+    fc.double(),
+    fc.boolean(),
+  );
+  const edits = fc.array(fc.tuple(fc.nat(), anyValue), { minLength: 1, maxLength: 3 });
+
+  function leafPaths(value: unknown, path: string[] = []): string[][] {
+    if (Array.isArray(value)) return value.flatMap((v, i) => leafPaths(v, [...path, String(i)]));
+    if (value !== null && typeof value === 'object') return Object.entries(value).flatMap(([k, v]) => leafPaths(v, [...path, k]));
+    return [path];
+  }
+  function mutated(base: unknown, e: Array<[number, unknown]>): unknown {
+    const copy = structuredClone(base) as Record<string, unknown>;
+    const paths = leafPaths(copy);
+    for (const [i, v] of e) {
+      const path = paths[i % paths.length]!;
+      let cur = copy;
+      for (const k of path.slice(0, -1)) cur = cur[k] as Record<string, unknown>;
+      cur[path[path.length - 1]!] = v;
+    }
+    return copy;
+  }
+
+  const fundEvent = ev.fund();
+  const agreeEvent = ev.agree();
+  const acceptEvent = ev.accept();
+  const appealEvent = ev.fileAppeal();
+  type Case = [string, unknown, (json: unknown) => EscrowEvent | undefined];
+  const cases: Case[] = [
+    ['Decision', decision('primary', 'accept'), (j) => { const r = parseMessage(j); return r.ok && r.value.type === 'Decision' ? { type: 'decide', at: T.decide, message: r.value } : undefined; }],
+    ['EarlyAccept', (ev.earlyAccept() as Extract<EscrowEvent, { type: 'early_accept' }>).message, (j) => { const r = parseMessage(j); return r.ok && r.value.type === 'EarlyAccept' ? { type: 'early_accept', at: T.decide, message: r.value } : undefined; }],
+    ['Agree', (agreeEvent as Extract<EscrowEvent, { type: 'agree' }>).message, (j) => { const r = parseMessage(j); return r.ok && r.value.type === 'Agree' ? { ...(agreeEvent as Extract<EscrowEvent, { type: 'agree' }>), message: r.value } : undefined; }],
+    ['AdjudicatorAcceptance', acceptance(), (j) => { const r = parseMessage(j); return r.ok && r.value.type === 'AdjudicatorAcceptance' ? { ...(acceptEvent as Extract<EscrowEvent, { type: 'adjudicator_accept' }>), message: r.value } : undefined; }],
+    ['FundingAuthorization', (fundEvent as Extract<EscrowEvent, { type: 'fund' }>).message, (j) => { const r = parseMessage(j); return r.ok && r.value.type === 'FundingAuthorization' ? { ...(fundEvent as Extract<EscrowEvent, { type: 'fund' }>), message: r.value } : undefined; }],
+    ['Delivery', delivery(), (j) => { const r = parseDelivery(j); return r.ok ? { type: 'deliver', at: T.deliver, delivery: r.value } : undefined; }],
+    ['Appeal', appeal(), (j) => { const r = parseAppeal(j); return r.ok ? { ...(appealEvent as Extract<EscrowEvent, { type: 'file_appeal' }>), appeal: r.value } : undefined; }],
+  ];
+
+  it.each(cases)('%s', (_name, base, toEvent) => {
+    expect(toEvent(base)).toBeDefined(); // the baseline itself parses
+    let accepted = 0;
+    fc.assert(
+      fc.property(edits, (e) => {
+        const event = toEvent(mutated(base, e));
+        if (!event) return;
+        accepted++;
+        for (const s of built) {
+          const r = step(s, event);
+          if (!r.ok) expect(PROBLEM_TYPES).toContain(r.error.type);
+        }
+      }),
+      { numRuns: 300 },
+    );
+    expect(accepted).toBeGreaterThan(0);
   });
 });
