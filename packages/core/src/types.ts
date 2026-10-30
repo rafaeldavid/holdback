@@ -13,8 +13,13 @@ export type Sha256 = `sha256:${string}`;
 /** RFC 3339 date-time. */
 export type Timestamp = string;
 export type Base64Url = string;
-/** 0..1 inclusive. Not money. */
-export type Rate = number;
+/** Basis points: an integer from 0 to 10000, where 10000 is all (ADR-0022). */
+export type Bps = number;
+/** An exact ratio; denominator 1..100. Supermajorities also need numerator <= denominator < 2 x numerator. */
+export interface Fraction {
+  numerator: number;
+  denominator: number;
+}
 export type SettlementMode = 'guaranteed_on_decision' | 'settle_after_window' | 'optimistic';
 export type RandomnessSource = 'sim' | 'drand-quicknet' | 'prevrandao';
 /** ADR-0020. Phase 1 admits public only. */
@@ -65,11 +70,11 @@ export type DeterministicCheck =
   | (CheckBase & { type: 'csv_columns_exact'; columns: string[] })
   | (CheckBase & { type: 'row_count_range'; min: number; max: number })
   | (CheckBase & { type: 'unique_key'; columns: string[] })
-  | (CheckBase & { type: 'null_rate_max'; column: string; max: Rate })
-  | (CheckBase & { type: 'regex_match_rate_min'; column: string; pattern: string; min: Rate })
+  | (CheckBase & { type: 'null_rate_max'; column: string; maxBps: Bps })
+  | (CheckBase & { type: 'regex_match_rate_min'; column: string; pattern: string; minBps: Bps })
   | (CheckBase & { type: 'iso8601_date_column'; column: string })
   | (CheckBase & { type: 'json_schema'; schema: Record<string, unknown> })
-  | (CheckBase & { type: 'reference_row_match_min'; reference: ContentRef; keyColumn: string; min: Rate })
+  | (CheckBase & { type: 'reference_row_match_min'; reference: ContentRef; keyColumn: string; minBps: Bps })
   | (CheckBase & { type: 'hidden_characters_max'; max: HiddenCharacterMax });
 
 /** ADR-0021: maximum counts of invisible characters in the raw bytes, per class or in total. At least one is set. */
@@ -97,8 +102,9 @@ export interface Deliverable {
 
 export interface AcceptanceSpec {
   deterministicChecks: DeterministicCheck[];
+  /** passThreshold is in hundredths of a rubric point (300 = 3.00). */
   rubric: { criteria: Criterion[]; passThreshold: number };
-  sealedChecks?: { count: number; commitment: Hex32; weight: number };
+  sealedChecks?: { count: number; commitment: Hex32; weightBps: Bps };
 }
 
 export interface Adjudication {
@@ -374,24 +380,24 @@ export interface Rulebook {
   open: boolean;
   documentUri?: string;
   minWindowsSec: { judge: number; fallback: number; appealWindow: number; appealDecide: number };
-  windowCoverageRatio: Rate;
-  appealBondRate: Rate;
-  sealedChecksMaxWeight: number;
+  windowCoverageRatioBps: Bps;
+  appealBondRateBps: Bps;
+  sealedChecksMaxWeightBps: Bps;
   maxSubmissions: number;
   defaultOutcome: {
-    judged: { refundBuyer: true; sellerCompensationRate: Rate };
-    optimistic?: { release: true; buyerCompensationRate: Rate };
+    judged: { refundBuyer: true; sellerCompensationRateBps: Bps };
+    optimistic?: { release: true; buyerCompensationRateBps: Bps };
   };
   allowedSettlementModes: SettlementMode[];
   allowedTokens: string[];
   panelPolicyMin: { panelSize: number; appealPanelSize: number; minFamilies: number };
   appealFee: TokenAmount;
-  /** ADR-0019. The fee share is an integer in basis points (10000 = all), not a Rate. */
+  /** ADR-0019. */
   mutualSettlement: { allowed: boolean; adjudicatorFeeShareAfterDeliveryBps: number };
   disclosureMin: DisclosureLevel;
   /** Phase 1: long-term only (ADR-0020). */
   identityModes: IdentityMode[];
-  firstLossShareMin: Rate;
+  firstLossShareMinBps: Bps;
   bondNoticePeriodMinSec: number;
   randomness: { source: RandomnessSource; chainHash?: Hex32 };
   minInspectionWindowSec: number;
@@ -415,8 +421,8 @@ export interface AdjudicatorPolicy {
   minFamiliesAppeal: number;
   minValid: number;
   minValidAppeal: number;
-  acceptSupermajority: Rate;
-  rejectSupermajority: Rate;
+  acceptSupermajority: Fraction;
+  rejectSupermajority: Fraction;
   judgeTimeoutSec: number;
   rationaleMaxChars: number;
   promptTemplateHash: Hex32;
@@ -438,7 +444,7 @@ export interface AdjudicatorRegistration {
   fee: { min: TokenAmount };
   pool: AdjudicatorPool;
   poolTermsHash: Hex32;
-  metrics?: { falseAcceptRate: Rate; falseRejectRate: Rate; escalationRate: Rate; sampleSize: number; measuredAt: Timestamp };
+  metrics?: { falseAcceptRateBps: Bps; falseRejectRateBps: Bps; escalationRateBps: Bps; sampleSize: number; measuredAt: Timestamp };
   status: 'active' | 'suspended';
 }
 
@@ -447,7 +453,7 @@ export interface AdjudicatorPool {
   junior: TokenAmount;
   senior: TokenAmount;
   reserved: TokenAmount;
-  terms: { capitalChargeRate: Rate; capitalChargeToPoolRate: Rate; firstLossShare: Rate; noticePeriodSec: number };
+  terms: { capitalChargeRateBps: Bps; capitalChargeToPoolRateBps: Bps; firstLossShareBps: Bps; noticePeriodSec: number };
 }
 
 // commitment-state.schema.json (the read model; the domain state machine is in state.ts)
@@ -581,9 +587,11 @@ export interface Judgment {
   };
   aggregate: {
     decision: DecisionOutcome;
+    /** Hundredths of a rubric point, or null when no verdict was valid. */
     weightedScore?: number | null;
-    passShare?: Rate;
-    failShare?: Rate;
+    passCount?: number;
+    failCount?: number;
+    validCount?: number;
     passFamilies?: string[];
     reasons: string[];
   };

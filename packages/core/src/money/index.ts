@@ -17,7 +17,8 @@ export type MoneyError =
   | { kind: 'malformed'; input: string }
   | { kind: 'negative' }
   | { kind: 'overflow' }
-  | { kind: 'token_mismatch'; left: string; right: string };
+  | { kind: 'token_mismatch'; left: string; right: string }
+  | { kind: 'bps_out_of_range'; bps: bigint };
 
 export type Ordering = -1 | 0 | 1;
 
@@ -75,4 +76,25 @@ export function sum(token: string, amounts: readonly TokenAmount[]): Result<Toke
     total = add(total.value, a);
   }
   return total;
+}
+
+const BPS_ALL = 10000n;
+
+/**
+ * amount x bps / 10000 in base units (ADR-0022), rounded down or up. bps is an integer from 0 to 10000
+ * (10000 = all). Callers pass schema Bps values through BigInt().
+ */
+export function mulBps(a: TokenAmount, bps: bigint, round: 'floor' | 'ceil'): Result<TokenAmount, MoneyError> {
+  if (bps < 0n || bps > BPS_ALL) return err({ kind: 'bps_out_of_range', bps });
+  const product = BigInt(a.amount) * bps;
+  return fromBigInt(a.token, round === 'floor' ? product / BPS_ALL : (product + BPS_ALL - 1n) / BPS_ALL);
+}
+
+/** Splits a pot: share is pot x bps / 10000 rounded down, and remainder is the rest, so they always sum to the pot. */
+export function splitBps(pot: TokenAmount, bps: bigint): Result<{ share: TokenAmount; remainder: TokenAmount }, MoneyError> {
+  const share = mulBps(pot, bps, 'floor');
+  if (!share.ok) return share;
+  const remainder = sub(pot, share.value);
+  if (!remainder.ok) return remainder;
+  return ok({ share: share.value, remainder: remainder.value });
 }

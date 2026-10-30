@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
 import { rulebookHash } from './canonical.js';
 import { commitmentId, holdbackDomain, messageDigest, termsDigest, termsOf, typedDataOf, type UnsignedMessage } from './eip712.js';
-import { parseClub, parseCommitment, parseCommitmentState, parseDelivery, parseMandate, parseMessage, parsers } from './parse.js';
+import { parseAdjudicator, parseClub, parseCommitment, parseCommitmentState, parseDelivery, parseMandate, parseMessage, parsers } from './parse.js';
 import { offer } from './state.js';
 import { validateTiming } from './timing.js';
 import type { Commitment, Rulebook } from './types.js';
@@ -106,6 +106,19 @@ describe('boundary parsers', () => {
     const r = parseDelivery(d);
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error.detail).toContain('none only');
+  });
+
+  it.each([
+    ['exactly one half', { numerator: 1, denominator: 2 }],
+    ['below one half', { numerator: 1, denominator: 3 }],
+    ['above one', { numerator: 4, denominator: 3 }],
+  ] as const)('refuses a supermajority of %s (ADR-0022)', (_label, f) => {
+    const a = example('adjudicator.example.json');
+    expect(parseAdjudicator(a).ok).toBe(true);
+    (a['policy'] as Record<string, unknown>)['rejectSupermajority'] = f;
+    const r = parseAdjudicator(a);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.detail).toContain('rejectSupermajority');
   });
 
   it('refuses settle_after_window in Phase 1', () => {

@@ -176,7 +176,7 @@ const ev = {
     at,
     message: decision(role, outcome, over),
   }),
-  // Required bond: 5% of the 2000 tUSD price (example rulebook appealBondRate); fee: the rulebook appealFee.
+  // Required bond: 5% of the 2000 tUSD price (example rulebook appealBondRateBps); fee: the rulebook appealFee.
   fileAppeal: (at = T.appealFiled, over: Partial<Appeal> = {}, facts: { requiredBond?: TokenAmount; requiredFee?: TokenAmount; feePaid?: TokenAmount } = {}): EscrowEvent => ({
     type: 'file_appeal',
     at,
@@ -238,7 +238,7 @@ describe('offer', () => {
     ['a fee in another allowed token', withRulebook({ ...rulebook, allowedTokens: ['tUSD', 'tEUR'] }, { adjudication: { ...exampleCommitment.adjudication, fee: { token: 'tEUR', amount: '50000000' as TokenAmount['amount'] } } }), 'invalid_terms'],
     ['an unparseable offer time', { at: 'not a time' }, 'invalid_terms'],
     ['a seller cap in another token', { sellerScope: scope(['seller'], { maxPerCommitment: { token: 'tEUR', amount: '5000000000' as TokenAmount['amount'] } }) }, 'invalid_terms'],
-    ['a rulebook whose hash is not the one the terms bind', { rulebook: { ...rulebook, appealBondRate: 0.06 } }, 'rulebook_unknown'],
+    ['a rulebook whose hash is not the one the terms bind', { rulebook: { ...rulebook, appealBondRateBps: 600 } }, 'rulebook_unknown'],
     [
       'optimistic mode in Phase 1, even when the rulebook allows it',
       withRulebook(

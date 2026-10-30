@@ -168,7 +168,17 @@ function messageRules(m: Message): string | undefined {
   return undefined;
 }
 
-export const parseAdjudicator = parserFor<AdjudicatorRegistration>('adjudicator', false);
+/** ADR-0022: a supermajority is an exact fraction strictly above one half and at most one. */
+function adjudicatorRules(a: AdjudicatorRegistration): string | undefined {
+  for (const key of ['acceptSupermajority', 'rejectSupermajority'] as const) {
+    const { numerator: n, denominator: d } = a.policy[key];
+    if (n > d) return `policy.${key} ${n}/${d} is above one`;
+    if (2 * n <= d) return `policy.${key} ${n}/${d} is not more than one half`;
+  }
+  return undefined;
+}
+
+export const parseAdjudicator = parserFor<AdjudicatorRegistration>('adjudicator', false, adjudicatorRules);
 export const parseAgent = parserFor<AgentRegistration>('agent', true);
 export const parseAppeal = parserFor<Appeal>('appeal', true);
 export const parseClub = parserFor<Club>('club', false, clubRules);

@@ -104,7 +104,7 @@ export type EscrowEvent =
   | { type: 'deliver'; at: Timestamp; delivery: Delivery }
   | { type: 'early_accept'; at: Timestamp; message: EarlyAccept }
   | { type: 'decide'; at: Timestamp; message: Decision }
-  // requiredBond is price x the rulebook appealBondRate and requiredFee the rulebook appealFee, both
+  // requiredBond is price x the rulebook appealBondRateBps and requiredFee the rulebook appealFee, both
   // computed by the caller; feePaid is the appeal-fee authorization that accompanies the appeal.
   | { type: 'file_appeal'; at: Timestamp; appeal: Appeal; requiredBond: TokenAmount; requiredFee: TokenAmount; feePaid: TokenAmount }
   // Permissionless timeouts: anyone may trigger them.

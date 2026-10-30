@@ -110,7 +110,7 @@ export function stubJudgment(input: JudgeInput, judges: JudgeProvider): Judgment
       seedMatches: input.seedCommitment === null ? null : keccak256(input.seed) === input.seedCommitment,
       members,
     },
-    aggregate: aggregate(members, rubric.criteria.map((c) => c.weight), rubric.passThreshold),
+    aggregate: aggregate(members, rubric.criteria.map((c) => c.weight), rubric.passThreshold / 100),
   };
 }
 
