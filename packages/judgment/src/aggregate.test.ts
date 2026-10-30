@@ -39,7 +39,7 @@ describe('preDecision (the short circuits)', () => {
     ['all passed, rubric present', [ok('a')], RUBRIC, 'panel'],
     ['optional failed, rubric present', [ok('a'), bad('b', false)], RUBRIC, 'panel'],
   ] as const)('%s -> %s', (_n, checks, rubric, expected) => {
-    expect(preDecision([...checks], rubric)).toBe(expected);
+    expect(preDecision([...checks], { criteria: [...rubric.criteria], passThreshold: rubric.passThreshold })).toBe(expected);
   });
 });
 
@@ -78,8 +78,8 @@ describe('aggregate: table', () => {
     ['1 pass, 1 fail, 1 invalid', { verdicts: [v('claude', 'pass'), v('gpt', 'fail', [0, 0, 0]), invalid('gemini')] }, 'escalate'],
     // Thresholds are compared literally against the policy Rate.
     ['policy 0.667: 2 of 3 pass is not a supermajority', { thresholds: { ...T, acceptSupermajority: 0.667 }, verdicts: [v('claude', 'pass'), v('gpt', 'pass'), v('gemini', 'fail', [1, 1, 1])] }, 'escalate'],
-    ['policy 0.6: 3 of 5 pass despite 0.6*5 float error', { thresholds: { ...T, acceptSupermajority: 0.6 }, verdicts: [v('a', 'pass'), v('b', 'pass'), v('c', 'pass'), v('d', 'fail', [0, 0, 0]), v('e', 'fail', [0, 0, 0])] }, 'accept'],
-    ['accept is tested before reject', { thresholds: { ...T, acceptSupermajority: 0.5, rejectSupermajority: 0.5 }, verdicts: [v('a', 'pass'), v('b', 'pass'), v('c', 'fail', [0, 0, 0]), v('d', 'fail', [0, 0, 0])] }, 'accept'],
+    ['policy 0.6: 3 of 5 pass despite 0.6*5 float error', { thresholds: { ...T, acceptSupermajority: 0.6 }, verdicts: [v('a', 'pass'), v('b', 'pass'), v('c', 'pass'), v('d', 'fail'), v('e', 'fail')] }, 'accept'],
+    ['accept is tested before reject', { thresholds: { ...T, acceptSupermajority: 0.5, rejectSupermajority: 0.5 }, verdicts: [v('a', 'pass'), v('b', 'pass'), v('c', 'fail'), v('d', 'fail')] }, 'accept'],
     ['minValid 0 with no verdicts escalates (no share)', { thresholds: { ...T, minValid: 0 }, verdicts: [] }, 'escalate'],
   ];
   it.each(cases)('%s', (_name, over, expected) => expect(decide(over)).toBe(expected));
