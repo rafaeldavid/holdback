@@ -6,7 +6,7 @@
   "family": "claude",
   "model": "stub-claude-pinned-2",
   "promptTemplateHash": "0x3f829b31b4678baf50a5306966ebb9e9c9b1c61d602e809ad2cbc7346e5699de",
-  "inputHash": "0xa204c3228bf5b8f5623f95a7830cfd780261bc531ddb16f108c8afd94c5c5a3a",
+  "inputHash": "0x201e833db0771e88276fd7a7e769d0cbc12f23eb18a13dd1f247edc25ae12611",
   "rubricHash": "0x55809f29b7fee704517442f8e2e3e64d9b96ccb6cc258855220243ff9337dba2",
   "capturedFrom": "fake",
   "verdict": {
