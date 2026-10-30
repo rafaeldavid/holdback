@@ -18,10 +18,10 @@ fixtures/
 | Prefix | Meaning |
 | --- | --- |
 | none | Normal flow reaches a terminal state |
-| `error.` | The system must refuse something at a named step |
-| `attack.` | Adversarial input or party; must not auto-accept |
-| `neutrality.` | One actor refuses or disappears; the transaction still completes according to its terms |
-| `todo.` | Known gap; the snapshot records current behavior |
+| `error.` | The system must refuse something at a named step; the fixture states `expect.problem` with `step` and `type` |
+| `attack.` | Adversarial input or party; must not auto-accept, and must end escalated or rejected or state an `expect` block the run meets |
+| `neutrality.` | One actor refuses or disappears; the fixture names it with `fails:`, shows it failing, and still reaches a terminal state |
+| `todo.` | Known gap; the snapshot records current behavior, including a fixture or run error. Recording errors still fail |
 
 ## First line pragmas
 
@@ -36,7 +36,7 @@ pnpm snap                          # every fixture; one pass/fail line each, exi
 pnpm snap <name>                   # one fixture
 pnpm snap --update <name>          # rewrite <name>.expect.md; review the diff before committing
 pnpm snap --judges fake <name>     # fixed passing verdicts instead of recordings
-pnpm snap --judges fake --record <name>   # write stub recordings (capturedFrom: fake)
+pnpm snap --judges fake --record --update <name>   # write stub recordings (capturedFrom: fake); never replaces a live one
 ```
 
 `--judges live` and `--settlement local|testnet` refuse until T-008/T-009 and Phase 2. The runner makes no network calls.
@@ -45,13 +45,15 @@ pnpm snap --judges fake --record <name>   # write stub recordings (capturedFrom:
 
 Fixtures are declarative YAML: the core schema only, no custom tags, bounded aliases, and a closed set of keys. Nothing in a fixture is executed or imported. Money is a quoted decimal string in base units (`"10000000000"`), never a YAML number.
 
-Step kinds: `offer`, `adjudicator_accept`, `agree_and_fund`, `deliver`, `advance_clock`, `judge`, `settle`, `reclaim`, `verify_key_release`. `via` names an operator from `operators` (default `direct`). `signer` on `offer`, `agree_and_fund` or `deliver` signs with another actor's key, for impersonation cases. `agree_and_fund` on an offer the primary adjudicator has not accepted runs that acceptance first and marks it implied.
+Step kinds: `offer`, `adjudicator_accept`, `agree_and_fund`, `deliver`, `advance_clock`, `judge`, `settle`, `reclaim`, `verify_key_release`, plus outages and permissionless timeouts: `offline: { actor }`, `operator_refuses: { operator }`, `trigger_fallback`, `trigger_default`, `apply_default_outcome`, `expire`. Timeouts run through core's `step`, so they are refused until their deadline. `via` names an operator from `operators` (default `direct`). Names `escrow`, `anyone`, `direct` and `faucet` are reserved.
+
+`deliver` reads `fixtures/<file>`. If the file is absent the run fails, unless the step sets `stub_bytes: true` to deliver placeholder bytes on purpose. `signer` on `offer`, `agree_and_fund` or `deliver` signs with another actor's key, for impersonation cases. `agree_and_fund` on an offer the primary adjudicator has not accepted runs that acceptance first and marks it implied.
 
 `expect` takes `terminal`, `balances` and, for `error.` fixtures, `problem: { step, type }` (1-based step, a problem type from `docs/api.md`).
 
 ## Recordings
 
-`recordings/<scenario>/<judgeId>.json` holds one verdict plus what it answered: `model` (pinned ID), `promptTemplateHash`, `inputHash`, `rubricHash`, and `capturedFrom` (`live` or `fake`). If any of the four bound values differs from the current request, the run fails with `RecordingMismatchError` naming each field; the runner never substitutes another verdict.
+`recordings/<scenario>/<judgeId>.json` holds one verdict plus what it answered: `provider`, `family`, `model` (pinned ID), `promptTemplateHash`, `inputHash`, `rubricHash`, and `capturedFrom` (`live` or `fake`). A verdict whose criterion IDs do not match the rubric makes that judge abstain. If any of the six bound values differs from the current request, the run fails with `RecordingMismatchError` naming each field; the runner never substitutes another verdict.
 
 ## Stub settlement (until T-006)
 
