@@ -63,7 +63,7 @@ Closing slide in the transcript, also stated by the narrator:
 - Show the signed message for one beat, collapsed by default in the viewer.
 - No marketing language. Say "recorded verdicts" in recorded mode.
 
-## Success criteria (T-012)
+## Success criteria (T-013)
 
 - A fresh clone produces all transcripts in recorded mode within 5 minutes, with no keys.
 - A reviewer who has not read the docs can answer, from the transcript alone:

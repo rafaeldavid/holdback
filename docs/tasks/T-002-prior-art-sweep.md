@@ -5,7 +5,7 @@
 - **Depends on:** —
 - **Paths this task may touch:** `docs/research/prior-art.md`
 - **Human gate:** no
-- **Status:** review
+- **Status:** done
 - **Agent/session:** research-lane agent (Claude Code), 2026-10-30
 
 ## Intent

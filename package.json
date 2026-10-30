@@ -15,7 +15,8 @@
     "validate:spec": "node scripts/validate-spec.mjs",
     "snap": "node scripts/placeholder.mjs snap T-005",
     "demo": "node scripts/placeholder.mjs demo T-013",
-    "verify": "node scripts/verify.ts"
+    "verify": "node scripts/verify.ts",
+    "map": "node scripts/design-map.mjs"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",

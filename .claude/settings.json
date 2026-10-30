@@ -3,6 +3,7 @@
     "allow": [
       "Bash(pnpm install)",
       "Bash(pnpm typecheck)",
+      "Bash(pnpm map)",
       "Bash(pnpm build)",
       "Bash(pnpm validate:*)",
       "Bash(pnpm test:*)",

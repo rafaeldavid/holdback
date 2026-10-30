@@ -8,10 +8,10 @@ Iterative. Demo first, then harden one layer per phase. Each phase ends with evi
 
 Goal: a repo that agents can work in safely, and confirmation that no existing solution already meets the three litmus tests.
 
-- [ ] T-001 Monorepo scaffold, CI, schema validation, guardrails (infra)
-- [ ] T-002 Prior-art sweep: confirm the gap; evaluate the Commerce Payments Protocol for D3 (research)
-- [ ] T-003 Spike: agreements funded by the user's own compute or API access, routes R1–R4 (research)
-- [ ] T-011 `/verify` command, feature map, PR template (infra; finishes after T-005)
+- [x] T-001 Monorepo scaffold, CI, schema validation, guardrails (infra)
+- [x] T-002 Prior-art sweep: confirm the gap; evaluate the Commerce Payments Protocol for D3 (research)
+- [x] T-003 Spike: agreements funded by the user's own compute or API access, routes R1–R4 (research)
+- [x] T-011 `/verify` command, feature map, PR template (infra; finishes after T-005)
 
 **Exit:**
 - CI is green on an empty skeleton.

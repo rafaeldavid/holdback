@@ -142,7 +142,7 @@ User choice: the parties choose, and the protocol enforces what they chose. Sett
 
 | Metric | Target | Measured by |
 | --- | --- | --- |
-| Demo time-to-first-transcript, recorded mode, fresh clone | ≤ 5 min | Manual dry run (T-012) |
+| Demo time-to-first-transcript, recorded mode, fresh clone | ≤ 5 min | Manual dry run (T-013) |
 | Hold p95 (SimChain) | ≤ 250 ms | `pnpm load` |
 | Overdrafts under 100 concurrent holds | 0 | Property and load tests |
 | Neutrality fixtures passing | 100% | `pnpm snap` |

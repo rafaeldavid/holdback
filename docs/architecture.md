@@ -1,6 +1,6 @@
 # Architecture v0.1
 
-Proposed. Decisions D1–D9 in `docs/decisions-today.md` may change parts of this document.
+Reflects decisions D1–D9 (`docs/decisions-today.md`) and the Phase 0 reviews in `docs/reviews/`. Open gaps for Phase 1 are listed in `docs/reviews/2026-10-30-phase0-readiness.md`.
 
 ## Shape of the system
 
