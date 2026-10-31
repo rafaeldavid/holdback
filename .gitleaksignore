@@ -1,2 +1,4 @@
 # False positive: a pinned keccak256 test vector of public RFC 8785 test data, keyed 'key ordering'.
 1d1514549be92f008bd807d683c462d0d98eb8c5:packages/core/src/canonical.test.ts:generic-api-key:30
+# False positive: a test x25519 public key (the lying operator's), not a secret; removed from source in 6318c27.
+d3d6dedc4e363a8d8dfe7e328c165faae72e4c08:examples/verify.test.ts:generic-api-key:164
