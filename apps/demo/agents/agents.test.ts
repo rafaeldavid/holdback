@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { loadTermsFile } from '@holdback/testkit';
 import { adjudicatorProfiles, rulebookReasons } from './adjudicators.js';
 import { BenchDirectory, demoRegistry, ServiceBench, type AdjudicatorSeam } from './bench.js';
-import { beatBadWork, beatHappyPath, beatHiddenTags, beatHold, beatMutualSplit, chooseAdjudicators, players } from './beats.js';
+import { beatBadWork, beatHappyPath, beatHiddenTags, beatHold, beatInjection, beatMutualSplit, beatNeutrality, chooseAdjudicators, NEUTRALITY_WORLD, players } from './beats.js';
 import { ATLAS, BENCH_A, BENCH_B, BENCH_C, BOND_BACKER, display, PROFILES, resolveJudges, SWIFTLINE, TIDEWATER } from './cast.js';
 import { createDemoWorld, DATA_DIR, TERMS_FILE, type DemoWorld } from './world.js';
 
@@ -325,6 +325,57 @@ describe('beat 6, ADR-0021 half: hidden tags under an empty rubric', () => {
     expect(r.opened!.screen.signals.map((s) => s.kind)).toContain('unicode_tags');
     // What Ledger reads is the clean file: the tag characters never reach it.
     expect(r.opened!.text).toBe(readFileSync(join(DATA_DIR, 'customers.clean.csv'), 'utf8'));
+  });
+});
+
+describe('beat 6a: base64 injection, escalation, the appeal panel rejects (T-018, L3-1)', () => {
+  it("Clearfield's screen flags the encoded instruction and escalates; Atrium's five scripted judges reject with the flag in the record; Ledger is refunded and never gets the key", async () => {
+    const w = await world();
+    const r = await beatInjection(w);
+    expect(r.finalState).toBe('Refunded');
+    expect(r.opened).toBeUndefined();
+    const [first, appeal] = r.reports!;
+    expect(first!.outcome).toBe('escalate');
+    expect(first!.record.screen.flagged).toBe(true);
+    expect(first!.record.screen.signals.map((s) => s.detail).join(' ')).toMatch(/base64/);
+    expect(first!.record.panel.members).toHaveLength(3);
+    expect(appeal!.outcome).toBe('reject');
+    expect(appeal!.record.role).toBe('appeal');
+    expect(appeal!.record.adjudicator.toLowerCase()).toBe(w.addressOf('bench-c').toLowerCase());
+    expect(appeal!.record.panel.members).toHaveLength(5);
+    expect(new Set(appeal!.record.panel.members.map((m) => m.family)).size).toBeGreaterThanOrEqual(2);
+    expect(appeal!.record.panel.seedSource).toBe('beacon');
+    expect(appeal!.record.screen.flagged).toBe(true);
+    expect(appeal!.record.aggregate.reasons).toContain('screen flagged; see screen.signals');
+    for (const m of appeal!.record.panel.members) expect(m.verdict?.rationale).toMatch(/^scripted verdict/);
+    expect(parseJudgment(appeal!.record).ok).toBe(true);
+    expect(await w.balance('atlas')).toBeGreaterThan(9_900n * TUSD);
+    expect(await w.balance('tidewater')).toBe(0n);
+  });
+});
+
+describe('beat 7: nobody in control (T-018)', () => {
+  it('op-1 refuses through its policy, op-2 relays the hold then goes offline, the delivery goes direct; Clearfield stays silent, Ledger triggers the fallback and Northgate releases', async () => {
+    const w = await createDemoWorld({ seed: 7, ...NEUTRALITY_WORLD });
+    worlds.push(w);
+    const r = await beatNeutrality(w);
+    const op2 = w.operatorUrl('op-2');
+    expect(r.vias).toEqual([op2, op2, 'direct', 'direct', 'direct']);
+    expect(r.neutrality!.refused.calls).toEqual(['the offer', 'the agree-and-fund call', 'the delivery', 'the fallback trigger']);
+    expect(r.neutrality!.fallbackTrigger.via).toBe('direct');
+    expect(r.finalState).toBe('Released');
+    expect(r.decision).toBe('accept');
+    expect(r.record!.role).toBe('fallback');
+    expect(r.record!.adjudicator.toLowerCase()).toBe(w.addressOf('bench-b').toLowerCase());
+    expect(r.record!.panel.seedSource).toBe('beacon');
+    expect(r.opened?.matchesDelivery).toBe(true);
+    expect(await w.balance('tidewater')).toBe(2_000n * TUSD);
+    // The settlement log carries no write relayed by op-1.
+    expect(w.chain.log().some((e) => e.submittedVia === 'op-1')).toBe(false);
+  });
+
+  it('refuses to run on a world where op-1 relays for everyone', async () => {
+    await expect(beatNeutrality(await world())).rejects.toThrow(/NEUTRALITY_WORLD/);
   });
 });
 
