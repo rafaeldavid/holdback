@@ -36,7 +36,7 @@ Non-goals: club revocation at run time (SimChain has none; the beat drops it and
 
 ## Evidence
 
-- **Measured:** `pnpm verify` PASS on a clean tree at `cc97389` (main merged, D28 included): typecheck 212 ms, lint 2,263 ms, test 22,575 ms (65 files, 1,957 tests), spec 269 ms, snap 8,505 ms (31 passed), demo 3,582 ms (8 transcripts, first after 698 ms, all in 2,973 ms). Report: `reports/verify-t-018-beats-6a-7.md`.
+- **Measured:** `pnpm verify` PASS on a clean tree at `15711ef` (main merged, D28 and the D29 framing included): typecheck 196 ms, lint 2,296 ms, test 22,001 ms (65 files, 1,957 tests), spec 267 ms, snap 8,537 ms (31 passed), demo 3,571 ms. Report: `reports/verify-t-018-beats-6a-7.md`.
 - **Measured, D27b/c failing first:** `cb67d78` adds the tests alone. On it, 11 fail:
   - forced sample: two aggregate cases and a service case;
   - party appeal: three aggregate cases, a pipeline case and a service case;
@@ -63,6 +63,7 @@ Non-goals: club revocation at run time (SimChain has none; the beat drops it and
 
 ## Decisions
 
+- **D27a-c are the default clause set (D29).** They fill gaps when the terms are silent, versioned as `agg-3`; making them negotiable is a schema change after the demo (backlog, Modes and calls). No code change for D29.
 - **D27b/c (red-team re-check), under D28.**
   - `aggregate` takes `appeal: 'escalated' | 'party'` (pipeline `appealKind`, set by the service and the snap runner from `firstOutcome`).
   - After an escalation, a sampled read is one more seller-controllable condition under the strict rule.
