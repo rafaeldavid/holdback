@@ -83,6 +83,28 @@
         "$ref": "common.schema.json#/$defs/TokenAmount"
       }
     },
+    "settledAt": {
+      "oneOf": [
+        {
+          "$ref": "common.schema.json#/$defs/Timestamp"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "When money moved to its payee; irrevocable for that payee (D20). Null or absent before then. Not signed."
+    },
+    "finalAt": {
+      "oneOf": [
+        {
+          "$ref": "common.schema.json#/$defs/Timestamp"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "When no protocol step can change who got what, for example after the appeal window closes (D20). Null until that is true. Not signed."
+    },
     "lastEventSeq": {
       "type": "integer",
       "minimum": 0
