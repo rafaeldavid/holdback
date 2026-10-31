@@ -10,11 +10,12 @@ ADR-0007's 100% coverage rule in guaranteed mode. Bench A's bond is $1,000, but 
 | --- | --- |
 | Pragmas | settlement=sim · judges=recorded · mode=guaranteed_on_decision · seed=71 |
 | Prefix | error. (the system must refuse a step; invariants hold) |
-| Settlement | SimChain (T-006) driving @holdback/core `step`; stub policy and registry hashes and stub panel |
+| Settlement | SimChain (T-006) driving @holdback/core `step` |
+| Judgment | @holdback/judgment (checks, screen, panel) · registry config/judges.yaml 0x8aa4…4549 · policy bench-a/p1 0x7970…3bf0 |
 | Club | fixtures/clubs/data-services-v1.yaml (loaded) · rulebook 0x140e…971e |
 | Buyer | atlas-buyer 0xA2A4…9Cd6 |
 | Seller | tidewater-seller 0x9C44…65Ba |
-| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0x4160…73cd · price 2,000.000000 tUSD · fee 50.000000 tUSD |
+| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0xba8a…9325 · price 2,000.000000 tUSD · fee 50.000000 tUSD |
 | Adjudicators | primary bench-a 0xC1bC…a11A · fallback bench-b 0x6Eec…1bb5 · appeal bench-c 0x3Ee5…246E |
 | Operators | op-1 · op-2 |
 
@@ -41,7 +42,7 @@ Refusals:
 
 ## Receipts and log
 
-- Events 0–0. Chain head 0x0a31…2f56. Replay of 1 SimChain submissions from genesis matches the settlement state.
+- Events 0–0. Chain head 0x9ae6…c8dd. Replay of 1 SimChain submissions from genesis matches the settlement state.
 - Receipts from op-1: 1 (rcpt-0001–rcpt-0001). Stub receipts are unsigned until T-007.
 
 ## Invariants

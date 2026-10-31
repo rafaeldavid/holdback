@@ -5,7 +5,7 @@ description: >-
   to Bench C. Bench C is offline. After appealDecideBy (escalation + 300 s) anyone triggers the default,
   then applies the default outcome under the signed rulebook: Atlas gets its $2,050 back and Bench C's
   bond pays Tidewater $2,000 (sellerCompensationRateBps 10000). The split verdicts are authored
-  recordings (capturedFrom fake).
+  recordings (capturedFrom authored).
 fails: bench-c
 club: fixtures/clubs/data-services-v1.yaml
 terms: fixtures/terms/clean-customers-2000.yaml

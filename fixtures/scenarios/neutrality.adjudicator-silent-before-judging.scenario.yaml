@@ -4,7 +4,6 @@ description: >-
   ADR-0016 stall before judging. Bench A accepts and reserves bond, then goes silent before the hold is
   even funded. Atlas funds and Tidewater delivers anyway; once judgeBy passes, anyone triggers the
   fallback and Bench B decides with the beacon-derived panel seed (ADR-0018). $2,000 releases to Tidewater.
-  The beacon round is not yet rendered in the snapshot (T-016).
 fails: bench-a
 club: fixtures/clubs/data-services-v1.yaml
 terms: fixtures/terms/clean-customers-2000.yaml

@@ -4,8 +4,7 @@ description: >-
   Demo beat 7, second failure. Bench A accepts and the hold is funded, then Bench A goes offline after
   the delivery and never decides. After judgeBy, anyone (here via op-2) triggers the fallback; Bench B
   takes the panel seed from the SimChain beacon round at judgeBy, decides accept, and $2,000 releases
-  to Tidewater with the key to Atlas. Bench B, not Bench A, earns the $50 fee. The beacon round is not
-  yet rendered in the snapshot (T-016).
+  to Tidewater with the key to Atlas. Bench B, not Bench A, earns the $50 fee.
 fails: bench-a
 club: fixtures/clubs/data-services-v1.yaml
 terms: fixtures/terms/clean-customers-2000.yaml

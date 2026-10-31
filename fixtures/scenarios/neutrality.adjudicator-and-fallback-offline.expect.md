@@ -10,11 +10,12 @@ Bench A and Bench B both go offline after the delivery. After judgeBy anyone tri
 | --- | --- |
 | Pragmas | settlement=sim · judges=recorded · mode=guaranteed_on_decision · seed=41 |
 | Prefix | neutrality. (an actor fails: terms-compliant terminal state anyway) |
-| Settlement | SimChain (T-006) driving @holdback/core `step`; stub policy and registry hashes and stub panel |
+| Settlement | SimChain (T-006) driving @holdback/core `step` |
+| Judgment | @holdback/judgment (checks, screen, panel) · registry config/judges.yaml 0x8aa4…4549 · policy bench-a/p1 0x7970…3bf0 |
 | Club | fixtures/clubs/data-services-v1.yaml (loaded) · rulebook 0x140e…971e |
 | Buyer | atlas-buyer 0xC9b5…f3fD |
 | Seller | tidewater-seller 0xA1E4…2C95 |
-| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0x2c9e…ab39 · price 2,000.000000 tUSD · fee 50.000000 tUSD |
+| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0x0412…736f · price 2,000.000000 tUSD · fee 50.000000 tUSD |
 | Adjudicators | primary bench-a 0xe0B9…c7D4 · fallback bench-b 0x6138…665A · appeal bench-c 0xd68B…A21f |
 | Operators | op-1 · op-2 |
 
@@ -56,7 +57,7 @@ Outages:
 
 ## Receipts and log
 
-- Events 0–11. Chain head 0xa33c…1697. Replay of 8 SimChain submissions from genesis matches the settlement state.
+- Events 0–11. Chain head 0x1aaa…ac9a. Replay of 8 SimChain submissions from genesis matches the settlement state.
 - Receipts from op-1: 5 (rcpt-0001–rcpt-0005). Stub receipts are unsigned until T-007.
 - Receipts from op-2: 3 (rcpt-0006–rcpt-0008). Stub receipts are unsigned until T-007.
 
