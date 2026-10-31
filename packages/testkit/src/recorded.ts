@@ -31,7 +31,13 @@ export interface JudgeRequest {
   rubricHash: Hex32;
 }
 
-export type CapturedFrom = 'live' | 'fake';
+/**
+ * live: a model's answer. fake: the fixed passing verdict of FakeJudges. authored: a verdict a fixture author
+ * wrote by hand to set up a scenario (a split panel, an abstention). Fake capture never overwrites live or
+ * authored recordings.
+ */
+export type CapturedFrom = 'live' | 'fake' | 'authored';
+const CAPTURED_FROM: readonly CapturedFrom[] = ['live', 'fake', 'authored'];
 
 export interface Recording extends JudgeRequest {
   format: typeof RECORDING_FORMAT;
@@ -82,8 +88,23 @@ export class RecordingInvalidError extends Error {
 
 export class RecordingOverwriteError extends Error {
   override name = 'RecordingOverwriteError';
-  constructor(readonly path: string) {
-    super(`refusing to overwrite ${path}: it holds a live-captured verdict, and a fake verdict must never replace it. Delete it deliberately if you mean to.`);
+  constructor(
+    readonly path: string,
+    existing: string = 'live',
+    mismatches: readonly Mismatch[] = [],
+  ) {
+    super(
+      [
+        `refusing to overwrite ${path}: it holds a ${existing === 'authored' ? 'authored' : 'live-captured'} verdict, and a fake verdict must never replace it.`,
+        ...(mismatches.length
+          ? [
+              'It no longer matches the judge input:',
+              ...mismatches.map((m) => `  ${m.field}: recorded ${m.recorded}, requested ${m.requested}`),
+              existing === 'authored' ? 'Re-author it: copy the requested values into the file and check the verdict still makes sense for the new input.' : 'Re-capture it live, or delete it deliberately.',
+            ]
+          : ['Delete it deliberately if you mean to.']),
+      ].join('\n'),
+    );
   }
 }
 
@@ -137,8 +158,9 @@ export function writeRecording(dir: string, recording: Recording): string {
     } catch {
       existing = null;
     }
-    // Anything not provably fake is treated as live and kept.
-    if (typeof existing !== 'object' || existing === null || (existing as { capturedFrom?: unknown }).capturedFrom !== 'fake') throw new RecordingOverwriteError(path);
+    // Anything not provably fake is treated as live or authored and kept.
+    const from = typeof existing === 'object' && existing !== null ? (existing as { capturedFrom?: unknown }).capturedFrom : undefined;
+    if (from !== 'fake') throw new RecordingOverwriteError(path, from === 'authored' ? 'authored' : 'live');
   }
   const ordered = Object.fromEntries(KEYS.map((k) => [k, recording[k as keyof Recording]]));
   mkdirSync(dirname(path), { recursive: true });
@@ -171,7 +193,7 @@ function readRecording(path: string, request: JudgeRequest): Recording {
   for (const k of ['promptTemplateHash', 'inputHash', 'rubricHash']) {
     if (typeof r[k] !== 'string' || !HASH.test(r[k])) throw new RecordingInvalidError(path, `${k} must be a 0x-prefixed 32-byte lowercase hex hash`);
   }
-  if (r.capturedFrom !== 'live' && r.capturedFrom !== 'fake') throw new RecordingInvalidError(path, 'capturedFrom must be "live" or "fake"');
+  if (!CAPTURED_FROM.includes(r.capturedFrom as CapturedFrom)) throw new RecordingInvalidError(path, 'capturedFrom must be "live", "fake" or "authored"');
   if (r.scenario !== request.scenario || r.role !== request.role || r.judgeId !== request.judgeId) {
     throw new RecordingInvalidError(path, `filed under ${request.scenario}/${request.role}/${request.judgeId} but records ${String(r.scenario)}/${String(r.role)}/${String(r.judgeId)}`);
   }
@@ -179,6 +201,9 @@ function readRecording(path: string, request: JudgeRequest): Recording {
   if (!verdict.ok) throw new RecordingInvalidError(path, `verdict does not match judge-verdict.schema.json: ${verdict.error.detail}`);
   return { ...(r as unknown as Recording), verdict: verdict.value };
 }
+
+const mismatchesOf = (rec: Recording, request: JudgeRequest): Mismatch[] =>
+  BOUND.filter((f) => rec[f] !== request[f]).map((field) => ({ field, recorded: rec[field], requested: request[field] }));
 
 export class RecordedJudges implements JudgeProvider {
   readonly kind = 'recorded';
@@ -188,7 +213,7 @@ export class RecordedJudges implements JudgeProvider {
     assertPinned(request.model);
     const path = recordingPath(this.dir, request.scenario, request.role, request.judgeId);
     const rec = readRecording(path, request);
-    const mismatches = BOUND.filter((f) => rec[f] !== request[f]).map((field) => ({ field, recorded: rec[field], requested: request[field] }));
+    const mismatches = mismatchesOf(rec, request);
     if (mismatches.length) throw new RecordingMismatchError(path, mismatches, request);
     return { status: 'recorded', verdict: rec.verdict, capturedFrom: rec.capturedFrom };
   }
@@ -255,7 +280,11 @@ export class FakeJudges implements JudgeProvider {
   }
 }
 
-/** Wraps a provider and writes each verdict it returns as a recording. */
+/**
+ * Wraps a provider and writes each verdict it returns as a recording. A live or authored recording already
+ * on file is never overwritten: if it still answers this request it is replayed, otherwise the run stops
+ * with the bindings that changed.
+ */
 export class RecordingJudges implements JudgeProvider {
   constructor(
     private readonly inner: FakeJudges,
@@ -265,6 +294,15 @@ export class RecordingJudges implements JudgeProvider {
     return this.inner.kind;
   }
   judge(request: JudgeRequest): JudgeResult {
+    const path = recordingPath(this.dir, request.scenario, request.role, request.judgeId);
+    if (existsSync(path)) {
+      const rec = readRecording(path, request);
+      if (rec.capturedFrom !== 'fake') {
+        const mismatches = mismatchesOf(rec, request);
+        if (mismatches.length) throw new RecordingOverwriteError(path, rec.capturedFrom, mismatches);
+        return { status: 'recorded', verdict: rec.verdict, capturedFrom: rec.capturedFrom };
+      }
+    }
     const result = this.inner.judge(request);
     writeRecording(this.dir, toRecording(request, result.verdict, 'fake'));
     return result;

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { JudgeVerdict } from '@holdback/core';
-import { migrateRecordings, RecordedJudges, RecordingInvalidError, RecordingMismatchError, RecordingMissingError, RecordingOverwriteError, recordingPath, toRecording, writeRecording, type JudgeRequest } from './recorded.js';
+import { FakeJudges, migrateRecordings, RecordedJudges, RecordingJudges, RecordingInvalidError, RecordingMismatchError, RecordingMissingError, RecordingOverwriteError, recordingPath, toRecording, writeRecording, type JudgeRequest } from './recorded.js';
 
 const h = (c: string) => `0x${c.repeat(64)}` as const;
 const request: JudgeRequest = {
@@ -135,6 +135,42 @@ describe('recorded judges', () => {
     const fakeDir = mkdtempSync(join(tmpdir(), 'rec-'));
     writeRecording(fakeDir, toRecording(request, verdict, 'fake'));
     expect(() => writeRecording(fakeDir, toRecording(request, verdict, 'fake'))).not.toThrow();
+  });
+
+  it('never overwrites an authored recording with a fake one', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'rec-'));
+    const authored: JudgeVerdict = { ...verdict, overall: 'fail', rationale: 'authored fixture verdict' };
+    writeRecording(dir, toRecording(request, authored, 'authored'));
+    const before = readFileSync(recordingPath(dir, 'demo', 'primary', 'claude-a'), 'utf8');
+    const e = thrown(() => writeRecording(dir, toRecording(request, verdict, 'fake')));
+    expect(e).toBeInstanceOf(RecordingOverwriteError);
+    expect(e.message).toMatch(/authored/);
+    expect(readFileSync(recordingPath(dir, 'demo', 'primary', 'claude-a'), 'utf8')).toBe(before);
+    expect(new RecordedJudges(dir).judge(request)).toEqual({ status: 'recorded', verdict: authored, capturedFrom: 'authored' });
+  });
+
+  it('--judges fake --record replays a matching authored or live recording instead of overwriting it', () => {
+    for (const from of ['authored', 'live'] as const) {
+      const dir = mkdtempSync(join(tmpdir(), 'rec-'));
+      const kept: JudgeVerdict = { ...verdict, overall: 'fail' };
+      writeRecording(dir, toRecording(request, kept, from));
+      const before = readFileSync(recordingPath(dir, 'demo', 'primary', 'claude-a'), 'utf8');
+      const recorder = new RecordingJudges(new FakeJudges(['quality']), dir);
+      expect(recorder.judge(request)).toEqual({ status: 'recorded', verdict: kept, capturedFrom: from });
+      expect(readFileSync(recordingPath(dir, 'demo', 'primary', 'claude-a'), 'utf8')).toBe(before);
+      // A fake judge with no recording yet is still written.
+      recorder.judge({ ...request, judgeId: 'gpt-a' });
+      expect(existsSync(recordingPath(dir, 'demo', 'primary', 'gpt-a'))).toBe(true);
+    }
+  });
+
+  it('--judges fake --record refuses a stale authored recording and prints the bindings to re-author it with', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'rec-'));
+    writeRecording(dir, toRecording(request, verdict, 'authored'));
+    const e = thrown(() => new RecordingJudges(new FakeJudges(['quality']), dir).judge({ ...request, inputHash: h('7') }));
+    expect(e).toBeInstanceOf(RecordingOverwriteError);
+    expect(e.message).toMatch(/authored/);
+    expect(e.message).toContain(`inputHash: recorded ${h('2')}, requested ${h('7')}`);
   });
 
   it('lists every mismatching field at once', () => {

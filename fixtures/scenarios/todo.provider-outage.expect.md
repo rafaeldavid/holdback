@@ -47,13 +47,13 @@ The scenario index's neutrality.provider-outage row, recorded as a known gap. Th
 - **Panel:** 3 judges from 2 families (policy: 3 seats, at least 2 families) · first-instance template 0xabb5…4dd2 · rubric 0x4201…7925 · seed source: commit-reveal (commitment 0xf23c…182c, seed 0x7178…7261, recomputed: match)
   - gpt-a · openai-compatible/gpt · placeholder-gpt-a-20260601 · recorded (captured from fake judges) · pass · scores 4/4/4 · input 0x45ec…5941
   - gpt-b · openai-compatible/gpt · placeholder-gpt-b-20260601 · recorded (captured from fake judges) · pass · scores 4/4/4 · input 0x9e8c…8a18
-  - qwen-a · openai-compatible/qwen · placeholder-qwen-a-20260601 · recorded (captured from fake judges) · abstain · input 0x0ce3…b9c0
+  - qwen-a · openai-compatible/qwen · placeholder-qwen-a-20260601 · recorded (authored) · abstain · input 0x0ce3…b9c0
 - **Aggregate:** escalate (weighted score 4.00; 2 pass, 0 fail of 2 valid; pass families gpt). Reasons: 2 pass, 0 fail of 2 valid: pass verdicts from 1 family.
 - **Signed:** escalate.
 
 ## Receipts and log
 
-- Events 0–7. Chain head 0x12fa…786b. Replay of 6 SimChain submissions from genesis matches the settlement state.
+- Events 0–7. Chain head 0x9225…8179. Replay of 6 SimChain submissions from genesis matches the settlement state.
 - Receipts from op-1: 5 (rcpt-0001–rcpt-0005). Stub receipts are unsigned until T-007.
 
 ## Invariants

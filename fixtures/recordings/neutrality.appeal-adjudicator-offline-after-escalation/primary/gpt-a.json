@@ -9,7 +9,7 @@
   "promptTemplateHash": "0xabb5ec9b33cf9a936e140bf8530c217f6629fdf1e08a46fbdf6bd7363ce84dd2",
   "inputHash": "0xb7592f243708dfcd1a65e3d387a6c179eef64dd863582144d0ec6206c8c3a6f0",
   "rubricHash": "0x4201c2a950347823c494fcfc89f88fab1ca670b2086f66ed726aa9c7b0ec7925",
-  "capturedFrom": "fake",
+  "capturedFrom": "authored",
   "verdict": {
     "criteria": [
       {
