@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { rulebookHash } from '../packages/core/src/canonical.ts';
 // @ts-expect-error -- plain ESM helper without type declarations
-import { loadSpec, validateExamples } from '../scripts/spec.mjs';
+import { loadSpec as loadSpecFresh, validateExamples as validateExamplesFresh } from '../scripts/spec.mjs';
+
+// Compile every schema once per file (T-022): the tests only read the shared Ajv instance and clone
+// the examples before changing them, so one load serves all of them.
+let spec: ReturnType<typeof loadSpecFresh> | undefined;
+let exampleResults: ReturnType<typeof validateExamplesFresh> | undefined;
+const loadSpec = () => (spec ??= loadSpecFresh());
+const validateExamples = () => (exampleResults ??= validateExamplesFresh(loadSpec()));
 
 const V = 'https://holdback.dev/schemas/v0.6';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

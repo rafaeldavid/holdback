@@ -4,12 +4,16 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Nightly on main with the full property-test counts (T-022).
+  schedule:
+    - cron: '17 3 * * *'
 
 permissions:
   contents: read
 
 jobs:
-  check:
+  static:
+    name: typecheck, lint, spec, snap
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -21,9 +25,42 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm lint
-      - run: pnpm test
       - run: pnpm validate:spec
       - run: pnpm snap
+
+  test:
+    name: test (${{ matrix.shard }}/4)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    env:
+      # Pull requests cap the property-test runs (same seed, so a capped run is a prefix of the full
+      # one); push to main and the nightly schedule leave it empty, which runs the full counts.
+      HOLDBACK_PROPERTY_RUNS: ${{ github.event_name == 'pull_request' && '40' || '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm test --shard=${{ matrix.shard }}/4
+
+  # The one status to require: it fails unless the static job and every test shard succeeded.
+  check:
+    needs: [static, test]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: all jobs passed
+        run: |
+          echo "static=${{ needs.static.result }} test=${{ needs.test.result }}"
+          test "${{ needs.static.result }}" = success
+          test "${{ needs.test.result }}" = success
 
   gitleaks:
     runs-on: ubuntu-latest
