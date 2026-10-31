@@ -468,6 +468,11 @@ describe('spec/', () => {
       ['an unknown identity mode', 'club', 'club', (c) => (c.rulebook.identityModes = ['anonymous'])],
       ['a club disclosure minimum outside the levels', 'club', 'club', (c) => (c.rulebook.disclosureMin = 'secret')],
       ['an offered event whose termsHash is not a hash', 'event', 'event.offered', (e) => (e.payload.termsHash = 'abc')],
+      // Second review of PR 23, item 6.
+      ['a Settled split without keyReleased', 'commitment-state', 'commitment-state', (s) => { s.escrowState = 'Settled'; s.settled = { sellerAmount: t('1'), buyerAmount: t('1') }; }],
+      ['a mutualSettlement rule without its fee share', 'club', 'club', (c) => delete c.rulebook.mutualSettlement.adjudicatorFeeShareAfterDeliveryBps],
+      ['a weighted score above 400 hundredths', 'judgment', 'judgment', (j) => (j.aggregate.weightedScore = 401)],
+      ['a MutualSettlement without a nonce', 'messages', 'messages.mutual-settlement', (m) => delete m.nonce],
     ];
     it.each(cases)('rejects %s', (_label, file, name, edit) => {
       const x = example(name);
