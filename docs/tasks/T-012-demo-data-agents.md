@@ -5,7 +5,7 @@
 - **Depends on:** T-007, T-009 (the data generator can start after T-004)
 - **Paths this task may touch:** `apps/demo/agents/`, `fixtures/data/`, `fixtures/clubs/`, `fixtures/terms/`, `scripts/gen-demo-data.ts`
 - **Human gate:** no
-- **Status:** review (agents, club and terms; Bench registrations and the panel wait on T-009)
+- **Status:** review (agents, club and terms, with T-009's adjudicator service)
 - **Agent/session:** implementer; branch `t-012-demo-data` (data generator part, merged), branch `t-012-demo-agents` (club, terms, agents)
 
 ## Intent
@@ -23,8 +23,8 @@ Restated (agents part, after T-006 and T-007 merged; T-009 still in PR 37):
 
 - Land the drafted club and terms as files SimChain's genesis and the fixture driver load: `fixtures/clubs/data-services-v1.yaml`, `fixtures/terms/clean-customers-2000.yaml`, and a checks-only twin with an empty rubric for the ADR-0021 beat. `_example` must keep passing once these files exist, which means the testkit driver loads them instead of refusing.
 - Scripted agents in `apps/demo/agents/`: Tidewater (seller) offers, encrypts and delivers the generated CSV with core crypto; Atlas (buyer) holds in one SDK call, waits for the outcome, opens the work and checks the plaintext hash; both co-sign a 70/30 split for beat 10. Calls go through the SDK to an operator over SimChain. Keys, clock and randomness come from the testkit context.
-- The adjudicator is reached only through a narrow seam (`AdjudicatorSeam`), with a stand-in until T-009's service merges.
-- Non-goals: the defended panel (T-009), beats 6 (injection half), 7, 8 and 9, adversarial agents, narration and the viewer (T-013), Bench registration files.
+- The adjudicator is reached only through a narrow seam (`AdjudicatorSeam`); since T-009 merged, it is T-009's service with fake judges.
+- Non-goals: live judges, beats 6 (injection half), 7, 8 and 9, adversarial agents, narration and the viewer (T-013).
 
 ## Context
 
@@ -35,7 +35,7 @@ Restated (agents part, after T-006 and T-007 merged; T-009 still in PR 37):
 - [ ] Seeded generator for a dirty customers CSV (duplicates, mixed date formats, invalid emails, nulls) and deliverables: good, row-drop (8%), panel-borderline, injection-plain, injection-base64, injection-unicode-tags. (Done except panel-borderline, injection-plain and injection-base64: backlog.)
 - [x] Terms file for the $2,000 job with deterministic checks and three rubric criteria with anchors.
 - [x] Scripted buyer and seller agents using only the SDK; each beat callable alone. (Beats 1, 2-4, 5, 6's ADR-0021 half and 10; the rest are in the backlog.)
-- [ ] Club rulebook v1 (`fixtures/clubs/`, guaranteed mode only, `maxSubmissions` 1) and adjudicator registrations for Bench A/B/C with registry and policy hashes from T-009. (Club done; registrations wait on T-009.)
+- [x] Club rulebook v1 (`fixtures/clubs/`, guaranteed mode only, `maxSubmissions` 1) and adjudicator registrations for Bench A/B/C with registry and policy hashes from T-009. (Registrations are built in code per seed, from T-009's `defaultPolicy` and `config/judges.yaml`, and validated against the schema; keys depend on the seed, so they are not static files.)
 
 ## Out of scope
 
@@ -83,36 +83,36 @@ Fill this in before review. Label each item measured, inferred or guessed.
 ### Club, terms and agents (2026-10-31, branch `t-012-demo-agents`)
 
 - **Test first (measured):** `packages/testkit/src/fixture-files.test.ts` failed with a missing module before the loader existed; `apps/demo/agents/agents.test.ts` was committed alone in `3fda8d0` and failed with `Cannot find module './beats.js'`. After the code: 6 of 6 and 9 of 9 pass.
-- **Club file (measured):** loads through `parseClub`; its rulebook equals `spec/examples/club.example.json`'s, and the computed `rulebookHash` is `0x140edd09…0d971e`. The example's own `rulebookHash` field (`0xb70959b8…a556`) does not match its rulebook (stale; it predates `payoutsTo`). Proposed check in `docs/team.md`.
+- **Club file (measured):** loads through `parseClub`; its rulebook equals `spec/examples/club.example.json`'s, and the computed `rulebookHash` is `0x140edd09…0d971e`. The example's own `rulebookHash` was stale (`0xb70959b8…a556`, predating `payoutsTo`); fixed in `cdb269a`, and `tests/spec.test.ts` now recomputes it (it failed before the fix, measured). The commitment and adjudicator examples have other stale derived hashes (measured: commitment `rulebookHash`, `id`; adjudicator `policyHash`, `poolTermsHash`); changing the commitment example breaks core's two pinned EIP-712 vectors (measured), so they are backlog.
 - **Terms files (measured):** both build terms that `parseCommitment` accepts and that core `offer` accepts under the club rulebook. The checks-only file has an empty rubric (`criteria: []`, `passThreshold: 0`), which the v0.6 schema allows. Money as a YAML number, a fractional window, an unknown key, a written `rulebookHash` and a custom tag are each refused.
 - **`_example` (measured):** the driver now loads the club and terms files. The fake recordings were re-recorded (`--judges fake --record --update`) because the real rubric and input change `rubricHash` and `inputHash`; the reviewed snapshot diff changes only the club and terms rows, the check list (now nine), the panel hashes and the chain head. Timeline, balances and terminal state are unchanged.
-- **Beats (measured, seed 7, `agents.test.ts`):**
+- **Beats with T-009's adjudicator service (measured, seed 7, `agents.test.ts`, after merging main at `2e0e5ae`):** Clearfield (Bench A), Northgate (B) and Atrium (C) are `Adjudicator` instances on the world's SimChain through `SettlementAdapter`, with fake judges over `config/judges.yaml`. No stand-in remains.
 
-  | Beat | Final state | Atlas | Tidewater | Bench A balance | Notes |
+  | Beat | Final state | Ledger (Atlas) | Tide-7 (Tidewater) | Clearfield balance | What the record shows |
   | --- | --- | --- | --- | --- | --- |
-  | 1 hold | Held | 7,950 | 0 | 0 | one SDK call through op-1; Bench A reserves 2,000 of bond |
-  | 2-4 clean CSV | Released | 7,950 | 2,000 | 50 | every check passes; Atlas's raw plaintext hashes to `sha256:1939b96f…87e5`; text equals the file; bond stays reserved until `appeal_expiry` after 300 s, then `finalAt` is set and the reservation is 0 |
-  | 5 row-drop | Refunded | 9,950 | 0 | 50 | only `rows` fails; no key released to Atlas |
-  | 6 (ADR-0021) hidden tags, checks-only terms | Released | 7,950 | 2,000 | 50 | raw hash is the hidden-tags file's; the screen is flagged with `unicode_tags`; the text Atlas's agent reads equals the clean file |
-  | 10 70/30 split | Settled | 8,600 | 1,400 | 0 | Bench A never judges; reservation released; fee back to Atlas; Atlas opens the work |
+  | 1 hold | Held | 7,950 | 0 | 0 | offer and agree-and-fund through op-1; Clearfield accepted from the event log and reserved 2,000 of bond |
+  | 2-4 clean CSV | Released | 7,950 | 2,000 | 50 | all nine checks pass; screen clean; panel ran, commit-reveal seed: qwen-a, claude-a, claude-b (2 families, `placeholder-*-20260601` models), 3 of 3 pass, weighted score 400; each judge got a seeded sample (prompt about 121 KB, `drawn at random`), not the 512 KB file; Ledger's plaintext hash matches; bond released by `appeal_expiry` after 300 s, `finalAt` set |
+  | 5 row-drop | Refunded | 9,950 | 0 | 50 | `rows` fails (8,740 rows; expected 9,400 to 9,600); panel did not run; no judge calls; no key to Ledger |
+  | 6 (ADR-0021) hidden tags, checks-only terms | Released | 7,950 | 2,000 | 50 | screen flagged: `unicode_tags`, 111 tag characters removed; empty rubric, so no panel; accepted with "screen flagged" in the reasons; Ledger reads the clean file |
+  | 10 70/30 split | Settled | 8,600 | 1,400 | 0 | Clearfield never judges; reservation released; fee back to Ledger |
 
-  Amounts in tUSD. Atlas starts with 10,000; each bench has a 25,000 bond.
-- **Determinism (measured):** two worlds with seed 7 give the same commitment ID, the same delivery (ciphertext, envelopes, signature) and the same SimChain digest; seed 8 gives another commitment. The context clock and SimChain's clock stay equal across `advance`.
-- **Ciphertext is not plaintext (measured):** the stored ciphertext does not contain the first 64 bytes of the CSV; the delivery names Bench A, B, C and Atlas as envelope recipients, in that order.
-- **Seam (measured):** a wrapper around `StandInBench` passed to `players()` is the only adjudicator the beat calls.
-- **`pnpm verify` (measured, commit `9fbba8a`, clean tree):**
+  Amounts in tUSD. Ledger starts with 10,000; each bench has a 25,000 bond.
+- **Registrations (measured):** all three parse against `adjudicator.schema.json` (names Clearfield Adjudication, Northgate Review, Atrium Appeals; registry hash of `config/judges.yaml`; pool from SimChain).
+- **Determinism (measured):** two seed-7 worlds give the same commitment, delivery, judgment `recordHash` and settlement log except one field: the envelope Clearfield seals to Ledger in its decision, because T-009's service draws that ephemeral key from system randomness (backlog). Seed 8 gives another commitment. Context and SimChain clocks stay equal.
+- **Ciphertext is not plaintext (measured):** the stored ciphertext does not contain the first 64 bytes of the CSV; envelopes go to Clearfield, Northgate, Atrium and Ledger, in that order.
+- **Seam (measured):** a wrapper around the service bench passed as `benchA` is the only primary the beat calls.
+- **`pnpm verify` (measured, commit `53a0d85`, clean tree):**
 
   | Step | Command | Status | Time |
   | --- | --- | --- | --- |
-  | typecheck | `pnpm typecheck` | pass | 193 ms |
-  | lint | `pnpm lint` | pass | 1762 ms |
-  | test | `pnpm test` | pass | 16520 ms |
-  | spec | `pnpm validate:spec` | pass | 268 ms |
-  | snap | `pnpm snap` | pass | 648 ms |
-  | demo | `pnpm demo` | placeholder | 107 ms |
+  | typecheck | `pnpm typecheck` | pass | 1119 ms |
+  | lint | `pnpm lint` | pass | 2035 ms |
+  | test | `pnpm test` | pass | 15686 ms |
+  | spec | `pnpm validate:spec` | pass | 295 ms |
+  | snap | `pnpm snap` | pass | 636 ms |
+  | demo | `pnpm demo` | placeholder | 97 ms |
 
-  47 test files, 1,681 tests, all passing. `redteam.test.ts` K2 passed this run.
-- **Speed (measured):** the 9 agent tests take about 2.8 s together, including starting two HTTP operators per world on 127.0.0.1.
+  55 test files, 1,784 tests, all passing; no snapshot diffs against HEAD.
 
 ## Decisions
 
@@ -120,9 +120,11 @@ Fill this in before review. Label each item measured, inferred or guessed.
 - **The loader lives in `packages/testkit`,** which already parses fixture YAML, so the driver and the agents share it. SimChain itself takes `Club` objects in genesis and needed no change.
 - **Terms files are templates:** relative windows (`deliverWithinSec` from `createdAt`, `judgeWithinSec` from `deliverBy`, `fallbackWithinSec` from `judgeBy`), plus `schemaVersion` and `clubId`; no parties, keys, nonces, `policyHash` or `registryHash`. Every load is validated as a full commitment.
 - **`payoutsTo: any`** in the club, as D23 states for the demo club.
-- **No `Fraction` in these files:** v0.6 uses `Fraction` only in adjudicator registrations, which wait on T-009.
-- **Adjudicator through a seam, with a stand-in.** `AdjudicatorSeam` (`accept`, `judge`) is what the beats call. `StandInBench` does commit-reveal of a seed, opens its envelope, runs the terms' declarative checks with `@holdback/judgment`, rejects on any failed required check, and otherwise accepts with the key sealed to the buyer. With a non-empty rubric it accepts without a panel and its report says `not run (stand-in for T-009)`. It is not the defended pipeline and is not used by `pnpm snap`.
-- **One-shot hold:** the seller's signed terms go to the bench and the buyer off-chain; the buyer's SDK call carries offer, acceptance, agreement and funding together.
+- **No `Fraction` in the club or terms files:** v0.6 uses it only in adjudicator registrations, which the benches build from `defaultPolicy` (2/3 supermajorities) and validate with `parseAdjudicator`.
+- **Adjudicator: T-009's service behind `AdjudicatorSeam`** (`acceptOffers`, `judge`). `ServiceBench` wraps `Adjudicator` with `SettlementAdapter` over the world's SimChain, the world's ciphertext store, an in-memory record store and the registrations; judges are `fakeProvider` (honest passing verdicts, no models, no keys). The earlier checks-only stand-in was removed; no beat needs it. `apps/adjudicator/src/index.ts` now exports `SettlementAdapter`.
+- **Recorded judges not used yet:** fake judges are deterministic and need no capture; recorded verdicts for the beats are a backlog item for when live capture is allowed.
+- **No one-shot hold:** the service accepts only offers it finds on the settlement layer and submits its own acceptance, so the flow is offer (Tide-7 through op-1), acceptance (Clearfield, direct), then agree-and-fund in one call (Ledger through op-1). That one call still moves the $2,050.
+- **Cast (`apps/demo/agents/cast.ts`):** display names only; key labels are unchanged, so no address or hash moved. Ledger's mandate now carries the published limits (5,000 tUSD per job, 20,000 per day). Kite Capital is named for narration; Phase 1 has no backer deposits.
 - **Reads:** events through the SDK; released keys through the operator's `GET /v1/commitments/{id}/key` with `fetch`, because the SDK has no key read yet (backlog), falling back to SimChain.
 - **Ciphertext store:** `MemoryCiphertextStore` from `@holdback/core/store`, addressed as `mem://ciphertext/sha256:…`, as T-009's test world does.
 - **Wiring outside the listed paths:** `apps/demo/package.json` (workspace dependencies), root `tsconfig.json` (reference to `apps/demo/agents`, its own project, so `apps/demo/src` stays T-013's), `vitest.config.ts` (include `apps/demo/agents/**/*.test.ts`), `fixtures/README.md`, `docs/backlog.md`, `docs/team.md`.
@@ -140,16 +142,16 @@ Fill this in before review. Label each item measured, inferred or guessed.
 
 ## Handoff
 
-**Done (club, terms, agents; branch `t-012-demo-agents`):** `fixtures/clubs/data-services-v1.yaml`; `fixtures/terms/clean-customers-2000.yaml` and `clean-customers-2000-checks-only.yaml`; the testkit loader and driver wiring; `apps/demo/agents/` (`world.ts`, `keys.ts`, `seller.ts`, `buyer.ts`, `bench.ts`, `beats.ts`, `agents.test.ts`). Run one beat with `createDemoWorld({ seed })` and `beatHappyPath`, `beatBadWork`, `beatHiddenTags`, `beatMutualSplit` or `beatHold`; close the world afterwards (it runs two operators).
+**Done (club, terms, agents; branch `t-012-demo-agents`):** `fixtures/clubs/data-services-v1.yaml`; `fixtures/terms/clean-customers-2000.yaml` and `clean-customers-2000-checks-only.yaml`; the testkit loader and driver wiring; `apps/demo/agents/` (`cast.ts`, `world.ts`, `keys.ts`, `seller.ts`, `buyer.ts`, `bench.ts`, `beats.ts`, `agents.test.ts`), with T-009's adjudicator service for every beat; the club example's `rulebookHash` fix and its check. Run one beat with `createDemoWorld({ seed })` and `beatHappyPath`, `beatBadWork`, `beatHiddenTags`, `beatMutualSplit` or `beatHold`; close the world afterwards (it runs two operators).
 
-**Not done (backlog, source T-012):** Bench A/B/C registrations; T-009's adjudicator behind `AdjudicatorSeam`; beats 6 (injection half), 7, 8 and 9; injection and panel-borderline deliverables; an SDK key read; adversarial agents.
+**Not done (backlog, source T-012):** beats 6 (injection half), 7, 8 and 9; injection and panel-borderline deliverables; recorded verdicts for the beats; an SDK key read; an injectable random source in T-009's service; the remaining stale example hashes; adversarial agents.
 
 **For other lanes:**
 
-- T-013 (demo CLI): import the beats from `apps/demo/agents/beats.ts`. Each returns the commitment, delivery facts, outcome, checks, what Atlas opened and the relaying operator per call. `pnpm demo` is still a placeholder.
-- T-009: implement `AdjudicatorSeam` (`apps/demo/agents/bench.ts`) over the adjudicator service and pass it to `players(world, bench)`. The terms take `policyHash` and `registryHash` from the seam.
+- T-013 (demo CLI): import the beats from `apps/demo/agents/beats.ts` and the names from `cast.ts` (`display.party`, `display.bench`). Each beat returns the commitment, delivery facts, outcome, Clearfield's signed judgment record (checks, screen, panel with models and seed, aggregate), the judge requests, what Ledger opened and the relaying operator per call. `pnpm demo` is still a placeholder.
+- T-009: `AdjudicatorConfig` could take a random source for the buyer's key envelope so seeded transcripts replay exactly.
 - T-010: `_example` still delivers stub bytes; point it at `data/dataset-cleaning/customers.clean.csv` and re-record.
-- Spec lane: `spec/examples/club.example.json`'s `rulebookHash` does not match its rulebook (computed `0x140edd090559cb7dd3950b3a8b755b9cca7b81a37d11359738e1b9df7d0d971e`). Fixing it is a spec example change.
+- Spec lane: the commitment and adjudicator examples still carry stale derived hashes; core's EIP-712 vectors move with the commitment example.
 
 **Done (data generator):** `scripts/gen-demo-data.ts`, `fixtures/data/dataset-cleaning/` (8 CSVs and a manifest, seed 2000), `tests/gen-demo-data.test.ts`. Regenerate with `node scripts/gen-demo-data.ts`; check drift with `--check`.
 
