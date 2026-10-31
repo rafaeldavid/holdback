@@ -5,4 +5,5 @@ export * from './randomness.js';
 export * from './registry-file.js';
 export * from './service.js';
 export * from './simchain-adapter.js';
+export * from './test-adjudicator.js';
 export type * from './settlement-port.js';
