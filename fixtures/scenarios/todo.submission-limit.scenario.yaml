@@ -1,0 +1,33 @@
+# @settlement sim @judges recorded @mode guaranteed_on_decision @seed 79
+name: todo.submission-limit
+description: >-
+  The scenario index's error.submission-limit row, recorded as a known gap. The club allows one
+  submission. Tidewater delivers, then tries a second delivery; core refuses any delivery once the
+  commitment is Delivered with invalid_state, whatever the attempt number, so in Phase 1 invalid_state
+  already enforces maxSubmissions = 1. The submission_limit_reached refusal fires only for a first
+  delivery from Held that carries attempt 2, which the testkit cannot sign (it always sends attempt 1).
+  Promote to error.submission-limit once the deliver step takes an attempt number, by sending attempt 2
+  as the first delivery from Held.
+club: fixtures/clubs/data-services-v1.yaml
+terms: fixtures/terms/clean-customers-2000.yaml
+parties:
+  buyer: atlas-buyer
+  seller: tidewater-seller
+adjudicators:
+  primary: bench-a
+  fallback: bench-b
+  appeal: bench-c
+operators: [op-1, op-2]
+faucet:
+  atlas-buyer: "10000000000"
+  bench-a: "25000000000"
+  bench-b: "25000000000"
+  bench-c: "25000000000"
+steps:
+  - offer:              { by: seller, via: op-1 }
+  - adjudicator_accept: { via: op-1 }
+  - agree_and_fund:     { by: buyer, via: op-1 }
+  - deliver:            { by: seller, via: op-1, file: data/dataset-cleaning/customers.clean.row-drop.csv }
+  - deliver:            { by: seller, via: op-1, file: data/dataset-cleaning/customers.clean.csv }
+# No expect block: a todo. snapshot records today's refusal (step 5, invalid_state). Once promoted, the
+# error. fixture delivers attempt 2 from Held and expects { problem: { step: 4, type: submission_limit_reached } }.

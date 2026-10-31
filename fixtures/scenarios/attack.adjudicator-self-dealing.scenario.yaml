@@ -1,0 +1,37 @@
+# @settlement sim @judges recorded @mode guaranteed_on_decision @seed 73
+name: attack.adjudicator-self-dealing
+description: >-
+  Threat T18. Bench A secretly controls Tidewater and wants to judge a $2,000 job for it while posting
+  only a $500 bond, so that a self-dealt accept would cost it at most $500 if overturned. The 100%
+  coverage rule refuses the acceptance (coverage_exceeded), Atlas cannot agree to an unaccepted offer,
+  and the offer expires with no money held. Single-commitment form only: the "encumbered bond never
+  counted twice" case needs two commitments, which the testkit cannot drive yet (T-010 Handoff).
+club: fixtures/clubs/data-services-v1.yaml
+terms: fixtures/terms/clean-customers-2000.yaml
+parties:
+  buyer: atlas-buyer
+  seller: tidewater-seller
+adjudicators:
+  primary: bench-a
+  fallback: bench-b
+  appeal: bench-c
+operators: [op-1, op-2]
+faucet:
+  atlas-buyer: "10000000000"
+  bench-a: "500000000"              # $500 bond against a $2,000 price
+  bench-b: "25000000000"
+  bench-c: "25000000000"
+steps:
+  - offer:              { by: seller, via: op-1 }
+  - adjudicator_accept: { via: op-1 }
+  - agree_and_fund:     { by: buyer, via: op-1 }
+  - advance_clock:      { seconds: 900 }             # past offerExpiresAt
+  - expire:             { via: op-2 }
+expect:
+  terminal: Expired
+  problem: { step: 2, type: coverage_exceeded }
+  balances:
+    atlas-buyer: "10000000000"
+    tidewater-seller: "0"
+    bench-a: "500000000"
+    escrow: "0"

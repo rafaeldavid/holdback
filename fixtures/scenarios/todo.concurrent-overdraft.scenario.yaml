@@ -1,0 +1,28 @@
+# @settlement sim @judges recorded @mode guaranteed_on_decision @seed 83
+name: todo.concurrent-overdraft
+description: >-
+  The scenario index's error.concurrent-overdraft row, recorded as a known gap. The row needs two
+  commitments funded concurrently from one $2,050 balance, but a scenario drives a single commitment.
+  This records the single-commitment form: Atlas holds $2,000, the hold needs $2,050, and fund is refused
+  with insufficient_funds while the commitment stays Agreed. Promote once scenarios can drive two commitments.
+club: fixtures/clubs/data-services-v1.yaml
+terms: fixtures/terms/clean-customers-2000.yaml
+parties:
+  buyer: atlas-buyer
+  seller: tidewater-seller
+adjudicators:
+  primary: bench-a
+  fallback: bench-b
+  appeal: bench-c
+operators: [op-1, op-2]
+faucet:
+  atlas-buyer: "2000000000"         # $2,000; price plus fee is $2,050
+  bench-a: "25000000000"
+  bench-b: "25000000000"
+  bench-c: "25000000000"
+steps:
+  - offer:              { by: seller, via: op-1 }
+  - adjudicator_accept: { via: op-1 }
+  - agree_and_fund:     { by: buyer, via: op-1 }
+expect:
+  problem: { step: 3, type: insufficient_funds }   # today's single-commitment refusal (measured)

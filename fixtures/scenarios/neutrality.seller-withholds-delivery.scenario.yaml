@@ -1,0 +1,39 @@
+# @settlement sim @judges recorded @mode guaranteed_on_decision @seed 47
+name: neutrality.seller-withholds-delivery
+description: >-
+  The scenario index's reclaim-no-delivery row (neutrality.md: seller, "S8 reclaim"). Tidewater takes the
+  commitment and then never delivers. After deliverBy the buyer (anyone may; the testkit's reclaim
+  step only takes the buyer) reclaims the whole hold, price and fee, to Atlas, and
+  nothing reaches the seller or Bench A. Named neutrality. because the testkit records the reclaim as the
+  seller's timeout, which the no-prefix rules reject (see T-010 Handoff).
+fails: tidewater-seller
+club: fixtures/clubs/data-services-v1.yaml
+terms: fixtures/terms/clean-customers-2000.yaml
+parties:
+  buyer: atlas-buyer
+  seller: tidewater-seller
+adjudicators:
+  primary: bench-a
+  fallback: bench-b
+  appeal: bench-c
+operators: [op-1, op-2]
+faucet:
+  atlas-buyer: "10000000000"
+  bench-a: "25000000000"
+  bench-b: "25000000000"
+  bench-c: "25000000000"
+steps:
+  - offer:              { by: seller, via: op-1 }
+  - adjudicator_accept: { via: op-1 }
+  - agree_and_fund:     { by: buyer, via: op-1 }
+  - offline:            { actor: tidewater-seller }
+  - deliver:            { by: seller, via: op-1, file: data/dataset-cleaning/customers.clean.csv }   # no call
+  - advance_clock:      { seconds: 172800 }          # past deliverBy (offer + 48 h)
+  - reclaim:            { by: buyer, via: op-2 }
+expect:
+  terminal: Refunded
+  balances:
+    atlas-buyer: "10000000000"        # price and fee back
+    tidewater-seller: "0"
+    bench-a: "25000000000"
+    escrow: "0"

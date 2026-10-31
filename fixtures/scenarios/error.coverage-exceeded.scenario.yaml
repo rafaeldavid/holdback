@@ -1,0 +1,29 @@
+# @settlement sim @judges recorded @mode guaranteed_on_decision @seed 71
+name: error.coverage-exceeded
+description: >-
+  ADR-0007's 100% coverage rule in guaranteed mode. Bench A's bond is $1,000, but accepting the $2,000
+  job would reserve $2,000 of bond. The acceptance is refused with coverage_exceeded, so the buyer can
+  never fund a commitment its adjudicator could not pay for if overturned.
+club: fixtures/clubs/data-services-v1.yaml
+terms: fixtures/terms/clean-customers-2000.yaml
+parties:
+  buyer: atlas-buyer
+  seller: tidewater-seller
+adjudicators:
+  primary: bench-a
+  fallback: bench-b
+  appeal: bench-c
+operators: [op-1, op-2]
+faucet:
+  atlas-buyer: "10000000000"
+  bench-a: "1000000000"             # $1,000 bond, half the price
+  bench-b: "25000000000"
+  bench-c: "25000000000"
+steps:
+  - offer:              { by: seller, via: op-1 }
+  - adjudicator_accept: { via: op-1 }
+expect:
+  problem: { step: 2, type: coverage_exceeded }
+  balances:
+    atlas-buyer: "10000000000"
+    bench-a: "1000000000"
