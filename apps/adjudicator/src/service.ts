@@ -28,7 +28,7 @@ import {
   type TokenAmount,
 } from '@holdback/core';
 import { ContentKey, decodePublicKey, encodePublicKey, encryptionKeyPairFromSecretKey, open as openContent, unwrapKey, wrapKey, wrapKeyForRecipients } from '@holdback/core/crypto';
-import { intake, panelPlan, runPipeline, type IntakeError, type JudgeProvider, type JudgmentDraft, type LoadedRegistry } from '@holdback/judgment';
+import { intake, panelPlan, runPipeline, signedOutcome, type IntakeError, type JudgeProvider, type JudgmentDraft, type LoadedRegistry } from '@holdback/judgment';
 import { concat, keccak256, stringToBytes, toBytes, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { checkPolicyBinding, policyHashOf } from './policy.js';
@@ -347,8 +347,8 @@ export class Adjudicator {
     }
 
     // Map the panel's decision onto what the role may sign.
-    let outcome: DecisionOutcome | null = draft.aggregate.decision;
-    if (appeal && outcome === 'escalate') outcome = task.firstOutcome ?? null; // party appeal: first decision stands; after escalation: no decision
+    // Party appeal: an undecided appeal panel leaves the first decision standing; after an escalation: no decision.
+    const outcome: DecisionOutcome | null = signedOutcome(draft.aggregate.decision, { appeal, ...(task.firstOutcome ? { firstOutcome: task.firstOutcome } : {}) });
     const record = await this.#record(task, { ...draft, panel: { ...panelBase, ran: draft.panel.ran, members: draft.panel.members } });
     return ok({ record, outcome, published: false, ...(contentKey ? { contentKey } : {}) });
   }

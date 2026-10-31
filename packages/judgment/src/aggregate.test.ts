@@ -2,7 +2,7 @@ import type { JudgeVerdict } from '@holdback/core';
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { criterion, RUBRIC } from './_helpers.js';
-import { aggregate, preDecision, SCREEN_FLAGGED_REASON, type AggregateInput, type PanelVerdict } from './aggregate.js';
+import { aggregate, preDecision, SCREEN_FLAGGED_REASON, signedOutcome, type AggregateInput, type PanelVerdict } from './aggregate.js';
 import type { CheckOutcome } from './checks/index.js';
 import type { Fraction, JudgmentRubric } from './terms.js';
 
@@ -128,6 +128,16 @@ describe('aggregate: the appeal decides a flagged case (L3-1)', () => {
     expect(a.decision).toBe('accept');
     expect(a.reasons).toContain(SCREEN_FLAGGED_REASON);
   });
+});
+
+describe('signedOutcome: what a role signs (shared by the service and the snap runner)', () => {
+  it.each([
+    ['primary signs an escalation', 'escalate', { appeal: false }, 'escalate'],
+    ['primary signs a reject', 'reject', { appeal: false }, 'reject'],
+    ['appeal after escalation, undecided: no decision', 'escalate', { appeal: true }, null],
+    ['party appeal, undecided: the first decision stands', 'escalate', { appeal: true, firstOutcome: 'accept' }, 'accept'],
+    ['appeal decides a reject', 'reject', { appeal: true }, 'reject'],
+  ] as const)('%s', (_n, decision, role, expected) => expect(signedOutcome(decision, role)).toBe(expected));
 });
 
 describe('aggregate: reported fields', () => {

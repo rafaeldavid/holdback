@@ -69,7 +69,22 @@ export interface Aggregate {
   reasons: string[];
 }
 
-export type PreDecision = 'reject' | 'escalate' | 'accept' | 'panel';
+/**
+ * What a role may sign for the panel's decision (the adjudicator service and the snap runner both call this).
+ * The primary and fallback sign what aggregation decided, escalation included. At the appeal there is no
+ * instance after it: an appeal panel that cannot decide leaves a party appeal's first decision standing
+ * (`firstOutcome`), and signs nothing after an escalation (null: the default outcome applies). A flag alone
+ * no longer makes the appeal panel escalate (L3-1); `aggregate` with `appeal: true` decides it.
+ */
+export function signedOutcome(
+  decision: Aggregate['decision'],
+  role: { appeal: boolean; firstOutcome?: 'accept' | 'reject' },
+): Aggregate['decision'] | null {
+  if (role.appeal && decision === 'escalate') return role.firstOutcome ?? null;
+  return decision;
+}
+
+export type PreDecision ='reject' | 'escalate' | 'accept' | 'panel';
 const cap = (s: string) => (s.length > 200 ? `${s.slice(0, 197)}...` : s);
 
 /** The short circuits: whether the panel runs at all. */
