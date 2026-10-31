@@ -104,3 +104,18 @@ Recorded mode replays verdicts stored in `fixtures/recordings/<scenario>/<judgeI
 - Every new actor or timeout adds a `neutrality.` fixture.
 - Do not snapshot UI markup, provider SDK internals or log formatting.
 - Do not test model quality in CI. Use `pnpm calibrate` for that.
+
+## CI layout (T-022)
+
+`.github/workflows/ci.yml` runs these jobs in parallel:
+
+| Job | Runs |
+| --- | --- |
+| `typecheck, lint, spec, snap` | `pnpm typecheck`, `pnpm lint`, `pnpm validate:spec`, `pnpm snap` |
+| `test (i/4)` | `pnpm build`, then `pnpm test --shard=i/4`, four shards |
+| `check` | Fails unless the job above and every shard succeeded. This is the one status to require in branch protection. |
+| `gitleaks` | Secret scan, unchanged |
+
+- **Shards.** `vitest.config.ts` assigns test files to shards by measured cost, longest first, rather than by Vitest's path-hash split. A file missing from its cost table costs 2 (tenths of a second), so a new file is still run; only the balance drifts. To refresh the table, read the per-file times from `npx vitest run --reporter=json --outputFile=<file>`.
+- **Property-test runs.** `HOLDBACK_PROPERTY_RUNS` caps the run count of the SimChain properties (`packages/settlement/sim/properties.test.ts`). Pull requests set it to 40. Pushes to `main`, the nightly `schedule` run and local runs (including `pnpm verify`) leave it unset, which means the full counts. The seed is fixed, so a capped run checks exactly the first cases of the full run and a failure reproduces with the same seed. The deepest event kinds (`appeal.filed`, `default.triggered`, `commitment.settled`) need about 100 cases at this seed, so they are asserted only at the full count.
+- **Heavy files.** The 9 MB adversarial screen inputs stay in every run: they test the screen at the 10 MB intake cap.
