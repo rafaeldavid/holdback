@@ -5,7 +5,7 @@
 - **Depends on:** T-012 (agents), T-013 (CLI and viewer)
 - **Paths this task may touch:** `apps/demo/`, `docs/backlog.md` (if a registration field is the right home for display-only data), this task file
 - **Human gate:** no
-- **Status:** in progress
+- **Status:** review
 - **Agent/session:** implementer; branch `t-017-demo-adjudicator-selection`
 
 ## Intent
@@ -68,7 +68,7 @@ Fill this in before review. Label each item measured, inferred or guessed.
   | snap | `pnpm snap` | pass | 2068 ms |
   | demo | `pnpm demo` | pass | 2579 ms |
 
-  62 test files, 1,855 tests, all passing; no snapshot diffs against HEAD. Run at `7a0e83e`, before rebasing onto `df6486d` (docs only); re-run on the final commit is recorded in the PR.
+  62 test files, 1,855 tests, all passing; no snapshot diffs against HEAD. First run at `7a0e83e`; re-run after rebasing onto `df6486d` at `07c9fad`: all six steps pass, 1,855 tests (measured). Only this status line changed after that run.
 
 ## Decisions
 
