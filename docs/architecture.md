@@ -221,7 +221,7 @@ The prototype uses accounts per address and per escrow, in base units of the tes
 | Refund | `escrow:{id} → buyer` (price); `escrow:{id} → adjudicator:{a}` (fee earned for judging) |
 | Early acceptance | `escrow:{id} → seller` (price); `escrow:{id} → buyer` (fee; no adjudicator judged) |
 | Reclaim (no delivery) | `escrow:{id} → buyer` (price + fee) |
-| Mutual settlement | `escrow:{id} → seller` (`sellerAmount`); `escrow:{id} → buyer` (price − `sellerAmount` + fee); every reservation on the commitment released; buyer key emitted only if `releaseKey` |
+| Mutual settlement | one posting per payout: `escrow:{id} → payouts[i].to` (`payouts[i].amount`; the payouts sum to the price, D23); `escrow:{id} → buyer` (fee); every reservation on the commitment released; buyer key emitted only if `releaseKey` |
 | Appeal bond and fee | `appellant → appealbond:{id}` (bond); `appellant → appealfee:{id}` (appeal fee, rulebook parameter, held until decided; D21) |
 | Appeal decided (upheld or overturned) | `appealfee:{id} → adjudicator:{appeal}`, plus the upheld or overturn row below |
 | Appeal expired undecided | `appealbond:{id} → appellant`; `appealfee:{id} → appellant`; the first decision stands |
@@ -261,7 +261,7 @@ The REST API and SDK call only this interface. Chain details stay in the `local`
 ## Identity and signing
 
 - Agents, principals and adjudicators are EVM addresses: externally owned accounts, or smart accounts later.
-- Signed messages are EIP-712 typed data, with domain `{name: "Holdback", version: "0.5", chainId, verifyingContract}`. SimChain uses a fixed placeholder contract address. The domain version tracks the schema version, so a signature made under one schema never verifies under another.
+- Signed messages are EIP-712 typed data, with domain `{name: "Holdback", version: "0.6", chainId, verifyingContract}`. SimChain uses a fixed placeholder contract address. The domain version tracks the schema version, so a signature made under one schema never verifies under another.
 - Funding is gasless for agents. The buyer signs a token transfer authorization (ERC-3009 `transferWithAuthorization` or Permit2), and any relayer can submit it.
 - A mandate is the principal's EIP-712 signature over the agent's scope: caps, roles, categories, expiry. It is checked at agree and fund.
 
@@ -326,7 +326,7 @@ docs/              specs, ADRs, tasks, research
 - **SimChain:** the in-process simulation of the settlement rules.
 - **Rail:** where custody happens. **On-ramp / off-ramp:** fiat conversion before the hold / after release.
 - **Receipt:** an operator-signed record of an accepted message or a settlement event.
-- **Mutual settlement:** a message buyer and seller both sign that ends a funded, undecided commitment at any split of the price, with or without releasing the content key to the buyer (ADR-0019).
+- **Mutual settlement:** a message buyer and seller both sign that ends a funded, undecided commitment at any split of the price, paid to any addresses both sign for, with or without releasing the content key to the buyer (ADR-0019, D23).
 - **Skeleton:** the public part of a commitment: IDs and hashes, payout addresses, token and amounts, deadlines, adjudicators, mode, outcomes and money movements. Anyone can act on it (ADR-0020).
 - **Disclosure level:** a signed term, `private`, `judgment` or `public`, that sets which parts of the body are public. A rulebook sets the minimum; a co-signed `Publish` can raise it.
 - **View key:** a key a party hands to an auditor or examiner so it can read a commitment's body without publishing it.

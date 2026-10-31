@@ -1,6 +1,6 @@
 # API v0.2 (operator node)
 
-Any operator node serves this API. It adds speed and convenience, never authority: every state change is an agent-signed message that is equally valid when submitted straight to the settlement layer (`docs/neutrality.md`). v0.2 adds the agent-ready subset of ADR-0017 and serves schema v0.5.
+Any operator node serves this API. It adds speed and convenience, never authority: every state change is an agent-signed message that is equally valid when submitted straight to the settlement layer (`docs/neutrality.md`). v0.2 adds the agent-ready subset of ADR-0017 and serves schema v0.6.
 
 ## Conventions
 
@@ -8,7 +8,7 @@ Any operator node serves this API. It adds speed and convenience, never authorit
 - **Authentication:** none at the transport layer. Authority comes from the EIP-712 signature inside each mutating request body. Reads are public, so commitment metadata is public too (`docs/neutrality.md`, residual 9).
 - **Headers on every response:**
   - `Request-Id`, repeated in a problem's `instance` as `urn:holdback:request:<id>`;
-  - `Holdback-Schema-Version`, for example `0.5`. While the version is 0.x, every contract change bumps it, and nothing is promised stable.
+  - `Holdback-Schema-Version`, for example `0.6`. While the version is 0.x, every contract change bumps it, and nothing is promised stable.
 - **Trace context:** operators accept a W3C `traceparent` header and log it. Neither it nor `Request-Id` ever enters a signed message, a receipt or the event hash chain.
 - **Throttling:** a throttled request gets 429 `rate_limited` with `Retry-After`. Writes are limited per signer address, reads per client. The SDK waits once, for at most 2 seconds, then fails over to the next operator. The IETF `RateLimit` headers are deferred until the draft is stable.
 - **Collections:** every list returns `page.schema.json`, `{ "items": [...], "nextCursor": "<opaque>" | null }`, where `null` is the end. Requests take `?cursor=&limit=`, with a default limit of 50 and a maximum of 200. Order is by event sequence, newest first, never by `createdAt`, which a party chooses.
@@ -61,12 +61,12 @@ Any operator node serves this API. It adds speed and convenience, never authorit
 | POST | `/v1/commitments/{id}/accept` | `EarlyAccept`, buyer-signed | `Released`; the seller-supplied key for the buyer is released with the payment |
 | POST | `/v1/commitments/{id}/decisions` | `Decision`, signed by the adjudicator whose turn it is; carries the seed reveal and, on accept, the key for the buyer | `Released`, `Refunded` or `Escalated` |
 | POST | `/v1/commitments/{id}/appeals` | Appeal (`appeal.schema.json`) plus bond and appeal-fee authorization | Appeal state `open` |
-| POST | `/v1/commitments/{id}/settlements` | `MutualSettlement` (ADR-0019): the split (`sellerAmount` in the price token), `deliveryHash` or `null` before delivery, `releaseKey`, and a buyer and a seller signature over the identical struct. `?validateOnly=true` previews it unsigned | `Settled`: the seller gets `sellerAmount`, the buyer the rest of the hold, the key is released if agreed; the club rulebook must allow it |
+| POST | `/v1/commitments/{id}/settlements` | `MutualSettlement` (ADR-0019, D23): `payouts` (one to eight `{to, amount}` in the price token, summing to the price, to any addresses both sign for), `deliveryHash` or `null` before delivery, `releaseKey`, and a buyer and a seller signature over the identical struct. `?validateOnly=true` previews it unsigned | `Settled`: each payout is paid, the fee returns to the buyer, the key is released if agreed; the club rulebook must allow it and may restrict payouts to the parties (`payoutsTo`) |
 | POST | `/v1/commitments/{id}/publish` | `Publish` (ADR-0020): a new `level`, with a buyer and a seller signature over the identical struct. Raising only: the settlement layer refuses a lower level. `?validateOnly=true` previews it unsigned | The commitment at the new disclosure level |
 | POST | `/v1/commitments/{id}/disputes` | `Dispute`, buyer-signed, with dispute bond and fee (optimistic mode, Phase 4; refused in Phase 1) | `Disputed` |
 | POST | `/v1/commitments/{id}/triggers/{kind}` | `kind` ∈ `expire-offer`, `reclaim`, `fallback`, `default`, `appeal-expiry`, `settle` (Phase 4); no signature needed | New state |
 | GET | `/v1/commitments?party=&role=&escrowState=` | — | Page of commitment states; `role` is `buyer`, `seller` or `adjudicator`; `escrowState` may repeat |
-| GET | `/v1/commitments/{id}` | — | Commitment, escrow state, appeal state, balances (`commitment-state.schema.json`); a `Settled` commitment carries `settled { sellerAmount, buyerAmount, keyReleased }` |
+| GET | `/v1/commitments/{id}` | — | Commitment, escrow state, appeal state, balances (`commitment-state.schema.json`); a `Settled` commitment carries `settled { payouts, keyReleased }` |
 | GET | `/v1/commitments/{id}/events` | — | Page of this commitment's events, each with its sequence number and time |
 | GET | `/v1/commitments/{id}/judgment` | — | Judgment record (`judgment.schema.json`) |
 | GET | `/v1/commitments/{id}/receipts` | — | Page of operator receipts (`receipt.schema.json`) |

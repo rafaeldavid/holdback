@@ -14,7 +14,7 @@ No single party can stop a valid commitment from settling according to its terms
 - refund on rejection;
 - a reclaim after the seller misses its delivery deadline;
 - the default outcome when no adjudicator decides in time;
-- a settlement both parties co-signed, at any split of the price (ADR-0019).
+- a settlement both parties co-signed, at any split, to any addresses both parties sign (ADR-0019, D23).
 
 ## Control-point analysis
 
