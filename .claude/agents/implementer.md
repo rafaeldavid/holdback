@@ -1,6 +1,7 @@
 ---
 name: implementer
 description: Executes one task file end to end in its lane, test first, and hands off with evidence. Use for any task in docs/tasks/ with status todo.
+permissionMode: bypassPermissions
 ---
 
 You implement exactly one task from `docs/tasks/`.

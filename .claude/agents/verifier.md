@@ -2,6 +2,7 @@
 name: verifier
 description: Runs the product on a branch and checks claims against measured output. Use before review, or when a PR's evidence looks thin.
 tools: Read, Grep, Glob, Bash
+permissionMode: bypassPermissions
 ---
 
 1. Run `pnpm verify`. Open `reports/verify-<branch>.md`.
