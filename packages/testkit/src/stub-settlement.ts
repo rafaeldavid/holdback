@@ -1,7 +1,9 @@
 // The fixture driver: turns scenario steps into the signed messages each actor would send and submits them
 // to SimChain (T-006), which verifies every signature, runs @holdback/core's `step`, and owns the ledger,
 // bond pools and the hash-chained event log. Signing keys are derived from the fixture seed and actor name.
-// The class keeps its T-005 name; built-in stub terms and the stub judgment panel are unchanged.
+// The class keeps its T-005 name. A scenario's club and terms files are loaded when they exist
+// (fixture-files.ts); otherwise the built-in stub rulebook and terms stand in. The policy and registry hashes
+// and the judgment panel are still the stub's until T-009.
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -36,6 +38,7 @@ import { account, SimChain, type Genesis } from '@holdback/settlement/sim';
 import { keccak256, stringToBytes, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import type { SimContext } from './context.js';
+import { loadClubFile, loadTermsFile, termsFromTemplate, type TermsTemplate } from './fixture-files.js';
 import { stubJudgment, type JudgmentView } from './judgment-stub.js';
 import type { Outage, StepProblem } from './prefix.js';
 import type { JudgeProvider } from './recorded.js';
@@ -99,6 +102,8 @@ export interface StubRun {
   accounts: string[];
   commitment: { id: Hex32; terms: CommitmentTerms } | null;
   rulebookHash: Hex32;
+  /** Whether the scenario's club and terms files were loaded (true) or the built-in stubs stood in. */
+  loaded: { club: boolean; terms: boolean };
   rows: TimelineRow[];
   balanceRows: Array<{ after: string; balances: Record<string, bigint> }>;
   judgments: JudgmentView[];
@@ -192,6 +197,9 @@ export class StubSettlement {
   private readonly refusingOperators = new Set<string>();
   private readonly states: EscrowStateKind[] = [];
 
+  private club: Club | null = null;
+  private loadedClub = false;
+  private template: TermsTemplate | null = null;
   private chain: SimChain | null = null;
   private genesis: Genesis | null = null;
   private terms: CommitmentTerms | null = null;
@@ -238,14 +246,15 @@ export class StubSettlement {
       else balances[a] = amount;
     }
     const operator = privateKeyToAccount(testKey(ctx.seed, 'club-operator')).address;
-    const club: Club = { id: STUB_CLUB_ID, name: 'Stub club', operator, rulebook: STUB_RULEBOOK, rulebookHash: rulebookHash(STUB_RULEBOOK) };
+    const club: Club = this.club ?? { id: STUB_CLUB_ID, name: 'Stub club', operator, rulebook: STUB_RULEBOOK, rulebookHash: rulebookHash(STUB_RULEBOOK) };
+    this.club = club;
     const mandates: Mandate[] = [];
     for (const name of [scenario.parties.buyer, scenario.parties.seller]) {
       const principalKey = testKey(ctx.seed, `${name}/principal`);
       const body = {
         principal: privateKeyToAccount(principalKey).address,
         agent: this.address(name),
-        clubId: STUB_CLUB_ID,
+        clubId: club.id,
         scope: { roles: ['buyer', 'seller'], maxPerCommitment: MAX_SCOPE, maxDaily: MAX_SCOPE, expiresAt: plus(at, 365 * DAY) } as Scope,
         nonce: keccak256(stringToBytes(`mandate/${name}`)),
         issuedAt: at,
@@ -273,11 +282,13 @@ export class StubSettlement {
     if (scenario.pragmas.mode !== 'guaranteed_on_decision') {
       throw new ScenarioError(`@mode ${scenario.pragmas.mode}: Phase 1 supports guaranteed_on_decision only (ADR-0007)`);
     }
-    for (const ref of [scenario.club, scenario.terms]) {
-      if (ref !== undefined && existsSync(join(root, ref))) {
-        throw new ScenarioError(`${ref} exists, but the fixture driver uses built-in stub terms and will not ignore a real file; teach packages/testkit to load it`);
-      }
+    // A named file that exists is loaded and validated, never ignored; a named file that is absent falls back
+    // to the built-in stub, and the snapshot says which.
+    if (scenario.club !== undefined && existsSync(join(root, scenario.club))) {
+      this.club = loadClubFile(join(root, scenario.club));
+      this.loadedClub = true;
     }
+    if (scenario.terms !== undefined && existsSync(join(root, scenario.terms))) this.template = loadTermsFile(join(root, scenario.terms));
     this.chain = await this.start();
     this.balanceRows.push({ after: 'faucet', balances: this.snapshotBalances() });
     for (const s of scenario.steps) {
@@ -463,7 +474,36 @@ export class StubSettlement {
     if (this.state) return this.refuse(seller, 'offer', via, problem('invalid_state', 'this scenario already has a commitment'));
     const now = this.ctx.clock.now();
     const { adjudicators } = this.scenario;
-    const terms: CommitmentTerms = {
+    const terms: CommitmentTerms = this.template
+      ? termsFromTemplate(this.template, {
+          club: this.club!,
+          buyer: this.address(this.scenario.parties.buyer),
+          seller: this.address(seller),
+          adjudicator: this.address(adjudicators.primary),
+          fallbackAdjudicator: this.address(adjudicators.fallback),
+          appealAdjudicator: this.address(adjudicators.appeal),
+          registryHash: STUB_REGISTRY_HASH,
+          policyHash: STUB_POLICY_HASH,
+          buyerEncryptionPublicKey: b64url(this.ctx.rng.hex32()),
+          nonce: this.ctx.rng.hex32(),
+          createdAt: wholeSecond(now),
+        })
+      : this.stubTerms(seller, now);
+    const signature = await signTerms(this.keyFor(seller), this.domain, terms);
+    const id = commitmentIdOf(terms);
+    if (await this.submit(seller, 'offer', via, { kind: 'offer', commitment: { ...terms, id, signatures: { seller: signature } } })) {
+      this.terms = terms;
+      this.id = id;
+      // The first state is recorded after the ID is known.
+      if (this.states.at(-1) !== 'Offered') this.states.push('Offered');
+      this.receipt(via, 'offer');
+      this.row(seller, 'offer', via, 'ok');
+    }
+  }
+
+  private stubTerms(seller: string, now: Timestamp): CommitmentTerms {
+    const { adjudicators } = this.scenario;
+    return {
       schemaVersion: '0.6',
       clubId: STUB_CLUB_ID,
       rulebookHash: rulebookHash(STUB_RULEBOOK),
@@ -498,16 +538,6 @@ export class StubSettlement {
       nonce: this.ctx.rng.hex32(),
       createdAt: now,
     };
-    const signature = await signTerms(this.keyFor(seller), this.domain, terms);
-    const id = commitmentIdOf(terms);
-    if (await this.submit(seller, 'offer', via, { kind: 'offer', commitment: { ...terms, id, signatures: { seller: signature } } })) {
-      this.terms = terms;
-      this.id = id;
-      // The first state is recorded after the ID is known.
-      if (this.states.at(-1) !== 'Offered') this.states.push('Offered');
-      this.receipt(via, 'offer');
-      this.row(seller, 'offer', via, 'ok');
-    }
   }
 
   private async adjudicatorAccept(via: string, implied: boolean): Promise<void> {
@@ -772,7 +802,8 @@ export class StubSettlement {
       actors: this.actors,
       accounts: ordered.filter(touched),
       commitment: this.terms && this.id ? { id: this.id, terms: this.terms } : null,
-      rulebookHash: rulebookHash(STUB_RULEBOOK),
+      rulebookHash: this.club?.rulebookHash ?? rulebookHash(STUB_RULEBOOK),
+      loaded: { club: this.loadedClub, terms: this.template !== null },
       rows: this.rows,
       balanceRows: this.balanceRows,
       judgments: this.judgments,

@@ -57,7 +57,17 @@ Step kinds: `offer`, `adjudicator_accept`, `agree_and_fund`, `deliver`, `advance
 
 ## Settlement
 
-`pnpm snap` runs fixtures on SimChain (`packages/settlement/sim`, T-006). The driver in `packages/testkit` signs every message with a test key derived from the seed and actor name; SimChain verifies it, runs `@holdback/core`'s `offer` and `step`, and owns the ledger, bonds and hash-chained event log, which it replays from genesis for the snapshot. Faucet amounts for adjudicators become their junior bond, and the balances table shows an adjudicator's own balance plus its bond. The driver still uses built-in stub rulebook, terms and panel values; the snapshot says so. A fixture whose `club` or `terms` file exists fails rather than having that file silently ignored. Deterministic checks and the screen are listed but not evaluated until T-008.
+`pnpm snap` runs fixtures on SimChain (`packages/settlement/sim`, T-006). The driver in `packages/testkit` signs every message with a test key derived from the seed and actor name; SimChain verifies it, runs `@holdback/core`'s `offer` and `step`, and owns the ledger, bonds and hash-chained event log, which it replays from genesis for the snapshot. Faucet amounts for adjudicators become their junior bond, and the balances table shows an adjudicator's own balance plus its bond. The driver loads the fixture's `club` and `terms` files when they exist (`packages/testkit/src/fixture-files.ts`) and validates them against `spec/schemas`; an invalid file fails the fixture rather than being ignored. A named file that is absent falls back to the built-in stub rulebook or terms, and the snapshot says which. Policy and registry hashes and the judge panel are still stubs until T-009. Deterministic checks and the screen are listed but not evaluated until T-008.
+
+## Club and terms files
+
+`clubs/<id>.yaml` is a `club.schema.json` object without `rulebookHash`, which the loader computes. `terms/<name>.yaml` is a terms template: the commitment fields that describe a job, with `timing` as windows in seconds (`offerExpiresInSec`, `fundWithinSec` and `deliverWithinSec` from `createdAt`; `judgeWithinSec` from `deliverBy`; `fallbackWithinSec` from `judgeBy`) and without parties, adjudicator addresses, `policyHash`, `registryHash`, keys or nonces, which the offering agent fills in. Both use the same YAML rules as scenarios. Money is a quoted string; rates are integer basis points.
+
+| File | Used by |
+| --- | --- |
+| `clubs/data-services-v1.yaml` | Data Services Club, open rulebook v1 (guaranteed mode only, one submission, payouts to any address) |
+| `terms/clean-customers-2000.yaml` | The $2,000 dataset-cleaning job: nine deterministic checks and a three-criterion rubric (demo beats 1–5) |
+| `terms/clean-customers-2000-checks-only.yaml` | The same job without the `hidden` check and with an empty rubric, for the ADR-0021 half of beat 6 |
 
 ## Example
 

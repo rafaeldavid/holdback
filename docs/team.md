@@ -96,6 +96,7 @@ Every hard rule in `CLAUDE.md` is enforced by a check, not just by instruction. 
 | Secrets stay out | `.claude/settings.json` denies reading `.env*`; gitleaks in CI | T-001 |
 | Neutrality | `neutrality.*` fixtures for every actor in `docs/neutrality.md` | T-010, then ongoing |
 | Generated fixtures are not hand-edited | Drift test in `tests/gen-demo-data.test.ts`; `node scripts/gen-demo-data.ts --check` | T-012 |
+| Example hashes match their bodies | `tests/spec.test.ts` recomputes the club example's `rulebookHash` (added after it was found stale: it predated `payoutsTo`). Still to cover: the commitment example's `rulebookHash`, `id` and signature (core pins EIP-712 vectors over it) and the adjudicator example's `policyHash` and `poolTermsHash`, all stale today | Partial (T-012) |
 | Tests do not assert on wall-clock time | Cost limits use `StepBudget` counts, not `performance.now()`; a lint or grep check over `*.test.ts` (proposed after `redteam.test.ts` K2 failed 3 of 3 full `pnpm test` runs on this machine and passed alone) | Proposed (T-012) |
 | A mutation sweep never leaves a mutant behind | Both `mutants.mjs` scripts journal the original to `reports/mutant-inflight.json` before each mutation and restore it on the next start, since `finally` does not run when the agent is killed (two stopped T-009 sweeps left mutants committed in WIP checkpoints) | T-009 |
 
