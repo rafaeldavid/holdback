@@ -4,16 +4,21 @@
   "private": true,
   "type": "module",
   "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
+  "bin": { "holdback-sim": "./dist/sim-bin.js" },
   "scripts": {
-    "build": "tsc -b"
+    "build": "tsc -b",
+    "sim": "node dist/sim-bin.js"
   },
   "dependencies": {
+    "@holdback/adjudicator": "workspace:*",
     "@holdback/core": "workspace:*",
+    "@holdback/judgment": "workspace:*",
     "@holdback/sdk": "workspace:*",
     "@holdback/settlement": "workspace:*",
     "viem": "^2.57.13"
   },
   "devDependencies": {
-    "fast-check": "^4.10.2"
+    "fast-check": "^4.10.2",
+    "tweetnacl": "^1.0.3"
   }
 }

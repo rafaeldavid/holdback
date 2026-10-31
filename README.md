@@ -12,7 +12,18 @@ The first product priority is a demo that conveys the experience to an AI lab re
 
 This folder is a starter kit for a Claude Code session and a team of agents. It holds the brief, specs, contracts, task files, agent roles and research. It holds the Phase 1 build: core, SimChain settlement, judgment, SDK, operator, adjudicator, testkit and the narrated demo (`pnpm demo`).
 
-## Start
+## Use it
+
+**[docs/quickstart.md](docs/quickstart.md): your first deal in ten minutes.** Install, `pnpm build`, `pnpm sim`, then settle a deal with curl and a standard EIP-712 signer, or run `pnpm example buy-dataset`. Agents talk to any operator node over HTTP (`docs/api.md`): the operator prepares each message as EIP-712 typed data, the agent verifies and signs it with its own key, and the operator relays it. Everything runs on SimChain with the test token tUSD (6 decimals) and fake judges; no real money moves.
+
+| Command | What it does |
+| --- | --- |
+| `pnpm sim` | Starts a local world: SimChain, two operator nodes, three test adjudicators with fake judges; prints endpoints and funded test keys |
+| `pnpm example buy-dataset` | Buys a CSV for 25 tUSD, checked by declarative checks (`examples/buy-dataset.ts`) |
+| `pnpm example sell-translation` | Sells a translation for 8 tUSD, judged by a (fake) three-judge panel (`examples/sell-translation.ts`) |
+| `pnpm demo` | The narrated demo for an audience (`docs/demo.md`) |
+
+## Start (building Holdback with a team of agents)
 
 1. Read `docs/decisions-today.md` and decide D1, D2 and D6. The others can follow.
 2. Copy this kit into an empty folder and open Claude Code there. Claude Code reads `CLAUDE.md` automatically.

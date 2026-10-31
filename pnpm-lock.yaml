@@ -235,9 +235,15 @@ importers:
 
   apps/operator:
     dependencies:
+      '@holdback/adjudicator':
+        specifier: workspace:*
+        version: link:../adjudicator
       '@holdback/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@holdback/judgment':
+        specifier: workspace:*
+        version: link:../../packages/judgment
       '@holdback/sdk':
         specifier: workspace:*
         version: link:../../packages/sdk
@@ -251,6 +257,22 @@ importers:
       fast-check:
         specifier: ^4.10.2
         version: 4.10.2
+      tweetnacl:
+        specifier: ^1.0.3
+        version: 1.0.3
+
+  examples:
+    dependencies:
+      tweetnacl:
+        specifier: ^1.0.3
+        version: 1.0.3
+      viem:
+        specifier: ^2.57.13
+        version: 2.57.13(typescript@6.0.3)
+    devDependencies:
+      '@holdback/operator':
+        specifier: workspace:*
+        version: link:../apps/operator
 
   packages/core:
     dependencies:
