@@ -17,7 +17,7 @@ describe('scenario parser', () => {
     expect(s.operators).toEqual(['op-1', 'op-2']);
     expect(s.faucet['atlas-buyer']).toBe('10000000000');
     expect(s.steps.map((x) => x.kind)).toEqual(['offer', 'agree_and_fund', 'deliver', 'advance_clock', 'judge', 'settle', 'verify_key_release']);
-    expect(s.steps[2]).toEqual({ kind: 'deliver', by: 'seller', via: 'op-1', file: 'data/customers.cleaned.good.csv', stubBytes: true });
+    expect(s.steps[2]).toEqual({ kind: 'deliver', by: 'seller', via: 'op-1', file: 'data/dataset-cleaning/customers.clean.csv' });
     expect(s.steps[3]).toEqual({ kind: 'advance_clock', seconds: 5 });
     expect(s.steps[6]).toEqual({ kind: 'verify_key_release', by: 'buyer', via: 'direct' });
     expect(s.expect).toEqual({ terminal: 'Released', balances: { 'atlas-buyer': '7950000000', 'tidewater-seller': '2000000000', 'bench-a': '25050000000' } });

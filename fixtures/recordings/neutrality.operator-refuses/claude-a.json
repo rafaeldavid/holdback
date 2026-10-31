@@ -4,9 +4,9 @@
   "judgeId": "claude-a",
   "provider": "anthropic",
   "family": "claude",
-  "model": "stub-claude-pinned-1",
-  "promptTemplateHash": "0x3f829b31b4678baf50a5306966ebb9e9c9b1c61d602e809ad2cbc7346e5699de",
-  "inputHash": "0x1056993d4fe248fdd7aa28e8b27d4bb00c0e77ed9053855b8593caf8573767e4",
+  "model": "placeholder-claude-a-20260601",
+  "promptTemplateHash": "0xabb5ec9b33cf9a936e140bf8530c217f6629fdf1e08a46fbdf6bd7363ce84dd2",
+  "inputHash": "0x519281355c9ea0ea2eeabe7e41dcb42192957bc0e66dde1081688f8a5ca84cfa",
   "rubricHash": "0x4201c2a950347823c494fcfc89f88fab1ca670b2086f66ed726aa9c7b0ec7925",
   "capturedFrom": "fake",
   "verdict": {

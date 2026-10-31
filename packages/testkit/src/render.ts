@@ -1,6 +1,7 @@
 // The snapshot renderer. Output depends only on the run, which depends only on the fixture and its
 // seed: times are offsets on the simulated clock, IDs come from the seeded generator, and rows and
 // columns have a fixed order. Nothing here reads the machine's clock or randomness.
+import type { JudgmentView, PanelMemberView } from './judgment.js';
 import type { Outcome, Prefix } from './prefix.js';
 import type { Scenario } from './scenario.js';
 import type { StubRun } from './stub-settlement.js';
@@ -67,7 +68,13 @@ export function renderSnapshot(scenario: Scenario, prefix: Prefix, run: StubRun,
       [
         ['Pragmas', `settlement=${pragmas.settlement} · judges=${pragmas.judges} · mode=${pragmas.mode} · seed=${pragmas.seed}`],
         ['Prefix', PREFIX_TEXT[prefix]],
-        ['Settlement', `SimChain (T-006) driving @holdback/core \`step\`; ${run.loaded.terms ? 'stub policy and registry hashes and stub panel' : 'stub terms and panel'}`],
+        ['Settlement', 'SimChain (T-006) driving @holdback/core `step`'],
+        [
+          'Judgment',
+          c
+            ? `@holdback/judgment (checks, screen, panel) · registry config/judges.yaml ${short(c.terms.adjudication.registryHash)} · policy ${c.terms.adjudication.policyId} ${short(c.terms.adjudication.policyHash)}`
+            : '@holdback/judgment (checks, screen, panel) · registry config/judges.yaml',
+        ],
         ['Club', `${ref(scenario.club, 'rulebook', run.loaded.club)} · rulebook ${short(run.rulebookHash)}`],
         ['Buyer', who(parties.buyer)],
         ['Seller', who(parties.seller)],
@@ -103,25 +110,7 @@ export function renderSnapshot(scenario: Scenario, prefix: Prefix, run: StubRun,
 
   out.push('## Judgment', '');
   if (run.judgments.length === 0) out.push('- No judgment ran.');
-  for (const j of run.judgments) {
-    const p = j.panel;
-    out.push(
-      `### ${j.adjudicator} (${j.role}), attempt ${j.attempt}`,
-      '',
-      `- **Intake:** plaintext ${short(j.intake.plaintextSha256.replace('sha256:', '0x'))} · ${j.intake.mime} · ${j.intake.bytes} bytes (${j.intake.source}) · hash verified ${mark(j.intake.hashVerified)}`,
-      `- **Deterministic checks:** not evaluated by the stub (T-008): ${j.checks.map((ch) => `${ch.id}${ch.required ? '' : ' (optional)'}`).join(' · ')}`,
-      '- **Screen:** not run by the stub (T-008).',
-      `- **Panel:** template ${short(p.promptTemplateHash)} · rubric ${short(p.rubricHash)} · input ${short(p.inputHash)} · ${p.seedCommitment === null ? `seed commitment none (${j.role} adjudicator; only the primary commits, T-004 gap) · seed ${short(p.seed)}` : `seed commitment ${short(p.seedCommitment)} · seed ${short(p.seed)} (recomputed: ${p.seedMatches ? 'match' : 'MISMATCH'})`}`,
-      ...p.members.map((m) => {
-        const model = m.status === 'recorded' ? `recorded:${m.model}${m.capturedFrom === 'fake' ? ' (captured from fake judges)' : ''}` : `${m.model} (fake)`;
-        const flag = m.injectionSuspected ? ' · injection suspected' : '';
-        const scores = m.abstainReason ? `abstained by the runner: ${m.abstainReason}` : `scores ${m.scores.join('/')}`;
-        return `  - ${m.judgeId} · ${m.provider}/${m.family} · ${model} · ${m.overall} · ${scores}${flag}`;
-      }),
-      `- **Aggregate:** ${j.aggregate.decision}${j.aggregate.weightedScore === null ? '' : ` (weighted score ${j.aggregate.weightedScore})`}. Reasons: ${j.aggregate.reasons.join('; ')}.`,
-      '',
-    );
-  }
+  for (const j of run.judgments) out.push(...renderJudgment(j), '');
   if (run.judgments.length === 0) out.push('');
 
   out.push('## Receipts and log', '');
@@ -146,6 +135,53 @@ export function renderSnapshot(scenario: Scenario, prefix: Prefix, run: StubRun,
   out.push(`- Final state: ${run.finalState ?? 'no commitment'}.`);
   out.push(`- Prefix expectations: ${outcome.label}${outcome.reasons.length ? `: ${outcome.reasons.join('; ')}` : ''}.`);
   return `${out.join('\n')}\n`;
+}
+
+const SOURCE_TEXT: Record<string, string> = { fake: ' (captured from fake judges)', authored: ' (authored)', live: '' };
+
+/** One panel seat: who judged, with which pinned model, where the verdict came from, and what it said. */
+export function renderMember(m: PanelMemberView): string {
+  const source = m.source === 'recorded' ? `recorded${SOURCE_TEXT[m.capturedFrom ?? 'live'] ?? ''}` : 'fake judge';
+  const said = m.overall === null ? `no verdict (${m.status})` : m.overall === 'abstain' ? 'abstain' : `${m.overall} · scores ${m.scores.join('/')}`;
+  const flag = m.injectionSuspected ? ' · injection suspected' : '';
+  return `  - ${m.judgeId} · ${m.provider}/${m.family} · ${m.model} · ${source} · ${said}${flag} · input ${short(m.inputHash)}`;
+}
+
+/** ADR-0018: where the panel seed came from, and whether it recomputes. */
+export function seedSourceText(p: JudgmentView['panel']): string {
+  if (p.seedSource === 'commit-reveal') {
+    return `seed source: commit-reveal (commitment ${p.seedCommitment === null ? 'none' : short(p.seedCommitment)}, seed ${short(p.seed)}, recomputed: ${p.seedMatches ? 'match' : 'MISMATCH'})`;
+  }
+  return p.beaconRound === null ? `seed source: beacon, round not yet published (seed ${short(p.seed)})` : `seed source: beacon round ${p.beaconRound} (seed ${short(p.seed)})`;
+}
+
+export function renderJudgment(j: JudgmentView): string[] {
+  const p = j.panel;
+  const a = j.aggregate;
+  const intake = j.intake.refused
+    ? `refused (${j.intake.refused})`
+    : `hash verified ${mark(j.intake.hashVerified)}${j.intake.normalized ? ' · normalized' : ''}`;
+  const checks = j.checks.length
+    ? j.checks.map((ch) => `${ch.id}${ch.required ? '' : ' (optional)'} ${mark(ch.passed)}${!ch.passed && ch.detail ? ` (${ch.detail})` : ''}`).join(' · ')
+    : 'not run';
+  const screen = j.checks.length === 0 && !j.screen.flagged ? 'not run' : j.screen.flagged ? `flagged: ${j.screen.signals.map((s) => `${s.kind}${s.detail ? ` (${s.detail})` : ''}`).join('; ')}` : 'clean';
+  const panelHead = `${p.template} template ${short(p.promptTemplateHash)} · rubric ${short(p.rubricHash)} · ${seedSourceText(p)}`;
+  const counts = a.validCount === undefined ? '' : `; ${a.passCount} pass, ${a.failCount} fail of ${a.validCount} valid${a.passFamilies?.length ? `; pass families ${a.passFamilies.join(', ')}` : ''}`;
+  const score = a.weightedScore === null ? '' : `weighted score ${(a.weightedScore / 100).toFixed(2)}`;
+  const detail = [score, counts.slice(2)].filter(Boolean).join('; ');
+  return [
+    `### ${j.adjudicator} (${j.role}), attempt ${j.attempt}`,
+    '',
+    `- **Intake:** plaintext ${short(j.intake.plaintextSha256.replace('sha256:', '0x'))} · ${j.intake.mime} · ${j.intake.bytes} bytes (${j.intake.source}) · ${intake}`,
+    `- **Deterministic checks:** ${checks}`,
+    `- **Screen:** ${screen}`,
+    p.ran
+      ? `- **Panel:** ${p.members.length} judges from ${new Set(p.members.map((m) => m.family)).size} families (policy: ${p.size} seats, at least ${p.minFamilies} families) · ${panelHead}`
+      : `- **Panel:** not run · ${panelHead}`,
+    ...p.members.map(renderMember),
+    `- **Aggregate:** ${a.decision}${detail ? ` (${detail})` : ''}. Reasons: ${a.reasons.join('; ')}.`,
+    `- **Signed:** ${j.outcome === null ? 'no decision (an appeal panel cannot escalate; the default outcome applies)' : j.outcome === a.decision ? j.outcome : `${j.outcome} (the first decision stands: an appeal panel cannot escalate)`}.`,
+  ];
 }
 
 /** The snapshot of a todo. fixture the runner cannot run yet: it records the error as today's behavior. */

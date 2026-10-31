@@ -10,11 +10,12 @@ The scenario index's error.submission-limit row, recorded as a known gap. The cl
 | --- | --- |
 | Pragmas | settlement=sim · judges=recorded · mode=guaranteed_on_decision · seed=79 |
 | Prefix | todo. (known gap: records current behavior) |
-| Settlement | SimChain (T-006) driving @holdback/core `step`; stub policy and registry hashes and stub panel |
+| Settlement | SimChain (T-006) driving @holdback/core `step` |
+| Judgment | @holdback/judgment (checks, screen, panel) · registry config/judges.yaml 0x8aa4…4549 · policy bench-a/p1 0x7970…3bf0 |
 | Club | fixtures/clubs/data-services-v1.yaml (loaded) · rulebook 0x140e…971e |
 | Buyer | atlas-buyer 0xB6c8…686A |
 | Seller | tidewater-seller 0x6995…B27a |
-| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0xbb03…fac7 · price 2,000.000000 tUSD · fee 50.000000 tUSD |
+| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0xf6a8…286c · price 2,000.000000 tUSD · fee 50.000000 tUSD |
 | Adjudicators | primary bench-a 0x0098…265F · fallback bench-b 0xb591…4919 · appeal bench-c 0x4521…48C9 |
 | Operators | op-1 · op-2 |
 
@@ -46,7 +47,7 @@ Refusals:
 
 ## Receipts and log
 
-- Events 0–5. Chain head 0x1d00…d821. Replay of 5 SimChain submissions from genesis matches the settlement state.
+- Events 0–5. Chain head 0xc883…8532. Replay of 5 SimChain submissions from genesis matches the settlement state.
 - Receipts from op-1: 5 (rcpt-0001–rcpt-0005). Stub receipts are unsigned until T-007.
 
 ## Invariants

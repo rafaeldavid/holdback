@@ -10,11 +10,12 @@ The scenario index's error.concurrent-overdraft row, recorded as a known gap. Th
 | --- | --- |
 | Pragmas | settlement=sim · judges=recorded · mode=guaranteed_on_decision · seed=83 |
 | Prefix | todo. (known gap: records current behavior) |
-| Settlement | SimChain (T-006) driving @holdback/core `step`; stub policy and registry hashes and stub panel |
+| Settlement | SimChain (T-006) driving @holdback/core `step` |
+| Judgment | @holdback/judgment (checks, screen, panel) · registry config/judges.yaml 0x8aa4…4549 · policy bench-a/p1 0x7970…3bf0 |
 | Club | fixtures/clubs/data-services-v1.yaml (loaded) · rulebook 0x140e…971e |
 | Buyer | atlas-buyer 0x0ECF…C423 |
 | Seller | tidewater-seller 0xf642…E0c4 |
-| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0x1aa1…18ba · price 2,000.000000 tUSD · fee 50.000000 tUSD |
+| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0xa4d8…4097 · price 2,000.000000 tUSD · fee 50.000000 tUSD |
 | Adjudicators | primary bench-a 0x8886…141e · fallback bench-b 0xc57C…9376 · appeal bench-c 0x0138…591B |
 | Operators | op-1 · op-2 |
 
@@ -43,7 +44,7 @@ Refusals:
 
 ## Receipts and log
 
-- Events 0–2. Chain head 0x7665…f254. Replay of 3 SimChain submissions from genesis matches the settlement state.
+- Events 0–2. Chain head 0xfa34…dda9. Replay of 3 SimChain submissions from genesis matches the settlement state.
 - Receipts from op-1: 3 (rcpt-0001–rcpt-0003). Stub receipts are unsigned until T-007.
 
 ## Invariants

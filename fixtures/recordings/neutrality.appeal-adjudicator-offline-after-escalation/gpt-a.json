@@ -1,0 +1,34 @@
+{
+  "format": "holdback.recording/v0",
+  "scenario": "neutrality.appeal-adjudicator-offline-after-escalation",
+  "judgeId": "gpt-a",
+  "provider": "openai-compatible",
+  "family": "gpt",
+  "model": "placeholder-gpt-a-20260601",
+  "promptTemplateHash": "0xabb5ec9b33cf9a936e140bf8530c217f6629fdf1e08a46fbdf6bd7363ce84dd2",
+  "inputHash": "0xb7592f243708dfcd1a65e3d387a6c179eef64dd863582144d0ec6206c8c3a6f0",
+  "rubricHash": "0x4201c2a950347823c494fcfc89f88fab1ca670b2086f66ed726aa9c7b0ec7925",
+  "capturedFrom": "fake",
+  "verdict": {
+    "criteria": [
+      {
+        "id": "dedupe_quality",
+        "score": 2,
+        "evidence": "authored fixture verdict: dedupe rule applied inconsistently"
+      },
+      {
+        "id": "no_fabrication",
+        "score": 1,
+        "evidence": "authored fixture verdict: some missing emails filled"
+      },
+      {
+        "id": "notes",
+        "score": 2,
+        "evidence": "authored fixture verdict: change log partial"
+      }
+    ],
+    "overall": "fail",
+    "injectionSuspected": false,
+    "rationale": "authored fixture verdict for neutrality.appeal-adjudicator-offline-after-escalation (T-010), not a model output: the only second-family judge fails, so the passes come from one family and the panel escalates"
+  }
+}

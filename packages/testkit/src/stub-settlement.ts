@@ -39,7 +39,10 @@ import { keccak256, stringToBytes, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import type { SimContext } from './context.js';
 import { loadClubFile, loadTermsFile, termsFromTemplate, type TermsTemplate } from './fixture-files.js';
-import { stubJudgment, type JudgmentView } from './judgment-stub.js';
+import type { AdjudicatorPolicy } from '@holdback/core';
+import type { LoadedRegistry } from '@holdback/judgment';
+import { loadJudgeRegistry, policyHashOf, runnerPolicy } from './judges-config.js';
+import { runJudgment, type JudgmentView } from './judgment.js';
 import type { Outage, StepProblem } from './prefix.js';
 import type { JudgeProvider } from './recorded.js';
 import type { Scenario, Step } from './scenario.js';
@@ -50,9 +53,7 @@ import {
   STUB_CLUB_ID,
   STUB_DELIVERABLE,
   STUB_FEE,
-  STUB_POLICY_HASH,
   STUB_PRICE,
-  STUB_REGISTRY_HASH,
   STUB_RULEBOOK,
   TOKEN,
   tusd,
@@ -207,6 +208,9 @@ export class StubSettlement {
   private seed: Hex32 | null = null;
   private delivery: { message: Delivery; plaintext: Uint8Array; source: string; contentKey: Hex32 } | null = null;
   private decision: Decision | null = null;
+  /** One judgment per commitment|role|attempt: a panel is never re-rolled. */
+  private readonly judged = new Map<string, JudgmentView>();
+  private registryCache: LoadedRegistry | null = null;
   private stepNo = 0;
   private signerOverride: string | undefined;
 
@@ -304,6 +308,17 @@ export class StubSettlement {
   private get sim(): SimChain {
     if (!this.chain) throw new Error('SimChain not started');
     return this.chain;
+  }
+
+  /** config/judges.yaml, loaded on first use. */
+  private get registry(): LoadedRegistry {
+    this.registryCache ??= loadJudgeRegistry(this.root);
+    return this.registryCache;
+  }
+
+  /** The adjudicator policy the commitment binds, by its policyId. */
+  private policyFor(terms: CommitmentTerms): AdjudicatorPolicy {
+    return runnerPolicy(terms.adjudication.policyId);
   }
 
   private get state(): EscrowState | null {
@@ -482,8 +497,8 @@ export class StubSettlement {
           adjudicator: this.address(adjudicators.primary),
           fallbackAdjudicator: this.address(adjudicators.fallback),
           appealAdjudicator: this.address(adjudicators.appeal),
-          registryHash: STUB_REGISTRY_HASH,
-          policyHash: STUB_POLICY_HASH,
+          registryHash: this.registry.hash,
+          policyHash: policyHashOf(runnerPolicy(this.template.adjudication.policyId)),
           buyerEncryptionPublicKey: b64url(this.ctx.rng.hex32()),
           nonce: this.ctx.rng.hex32(),
           createdAt: wholeSecond(now),
@@ -516,10 +531,10 @@ export class StubSettlement {
         adjudicator: this.address(adjudicators.primary),
         fallbackAdjudicator: this.address(adjudicators.fallback),
         appealAdjudicator: this.address(adjudicators.appeal),
-        policyId: `${adjudicators.primary}/stub-p1`,
+        policyId: `${adjudicators.primary}/p1`,
         fee: STUB_FEE,
-        registryHash: STUB_REGISTRY_HASH,
-        policyHash: STUB_POLICY_HASH,
+        registryHash: this.registry.hash,
+        policyHash: policyHashOf(runnerPolicy(`${adjudicators.primary}/p1`)),
       },
       timing: {
         offerExpiresAt: plus(now, 900),
@@ -655,26 +670,41 @@ export class StubSettlement {
     const round = role === 'primary' ? null : beaconRoundFor(c.state, role);
     const beaconValue = round === null ? null : this.sim.beacon(round);
     const seed = role === 'primary' ? this.seed : beaconValue ? panelSeed(c.id, role, d.message.attempt, beaconValue) : this.ctx.rng.hex32();
-    const view = stubJudgment(
-      {
-        scenario: this.scenario.name,
-        adjudicator: name,
-        role,
-        terms: c.terms,
-        commitmentId: c.id,
-        attempt: d.message.attempt,
-        plaintextSha256: d.message.plaintextSha256,
-        plaintextVerified: sha256(d.plaintext) === d.message.plaintextSha256,
-        mime: d.message.plaintextMime,
-        bytes: d.plaintext.length,
-        source: d.source,
-        seed,
-        seedCommitment: role === 'primary' ? keccak256(this.seed) : null,
-      },
-      this.judges,
-    );
-    this.judgments.push(view);
-    const outcome = view.aggregate.decision;
+    const key = `${c.id}|${role}|${d.message.attempt}`;
+    let view = this.judged.get(key);
+    if (!view) {
+      const st = c.state;
+      const firstOutcome =
+        role === 'appeal' && (st.kind === 'Released' || st.kind === 'Refunded') && st.via.kind === 'first_instance' ? (st.kind === 'Released' ? 'accept' : 'reject') : undefined;
+      const judged = await runJudgment(
+        {
+          scenario: this.scenario.name,
+          adjudicator: name,
+          adjudicatorAddress: actor.address,
+          role,
+          terms: c.terms,
+          commitmentId: c.id,
+          delivery: d.message,
+          plaintext: d.plaintext,
+          source: d.source,
+          seed,
+          seedCommitment: role === 'primary' ? keccak256(this.seed) : null,
+          beaconRound: round,
+          registry: this.registry,
+          policy: this.policyFor(c.terms),
+          ...(firstOutcome ? { firstOutcome } : {}),
+        },
+        this.judges,
+      );
+      if (!judged.ok) return this.refuse(name, call, 'direct', judged.error);
+      view = judged.value;
+      this.judged.set(key, view);
+      this.judgments.push(view);
+    }
+    const outcome = view.outcome;
+    if (outcome === null) {
+      return this.row(name, `${call}: none`, 'direct', 'no decision: the appeal panel was inconclusive, so the default outcome applies');
+    }
     const envelope = (recipient: Address) => ({ scheme: 'x25519-xsalsa20poly1305' as const, ciphertext: b64url(canonicalKeccak({ contentKey: d.contentKey, recipient })) });
     const unsigned = {
       type: 'Decision',
@@ -688,7 +718,8 @@ export class StubSettlement {
       registryHash: c.terms.adjudication.registryHash,
       judgmentRecordHash: canonicalKeccak(view),
       nonce: this.ctx.rng.hex32(),
-      expiresAt: role === 'fallback' ? c.terms.timing.fallbackBy : c.terms.timing.judgeBy,
+      expiresAt: this.decisionDeadline(c.state, role),
+      ...(round !== null && beaconValue ? { beacon: { source: 'sim' as const, round, value: beaconValue } } : {}),
       ...(outcome === 'accept' ? { keyForBuyer: envelope(c.terms.buyer) } : {}),
       // ADR-0020: an escalation carries the appeal adjudicator's content key.
       ...(outcome === 'escalate' ? { encryptedKeys: [{ recipient: c.terms.adjudication.appealAdjudicator, ...envelope(c.terms.adjudication.appealAdjudicator) }] } : {}),
@@ -699,6 +730,15 @@ export class StubSettlement {
     const next = this.state!;
     this.row(name, `${call}: ${outcome}`, 'direct', 'ok');
     if (next.kind === 'Released' || next.kind === 'Refunded') this.balanceRows.push({ after: `decide: ${outcome}`, balances: this.snapshotBalances() });
+  }
+
+  /** The deadline a role's decision answers to: judgeBy, fallbackBy, or the appeal's appealDecideBy. */
+  private decisionDeadline(s: EscrowState, role: 'primary' | 'fallback' | 'appeal'): Timestamp {
+    if (role === 'primary') return s.terms.timing.judgeBy;
+    if (role === 'fallback') return s.terms.timing.fallbackBy;
+    if (s.kind === 'Escalated') return s.escalation.appealDecideBy;
+    if ((s.kind === 'Released' || s.kind === 'Refunded') && s.via.kind === 'first_instance' && s.via.appeal.kind !== 'expired' && 'appealDecideBy' in s.via.appeal) return s.via.appeal.appealDecideBy;
+    return s.terms.timing.judgeBy;
   }
 
   /** Permissionless timeouts. Each records an outage for the actor it acts in place of. */

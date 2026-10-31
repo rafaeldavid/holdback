@@ -8,13 +8,14 @@ The scenario index's panel-disagreement-escalates row, recorded as a known gap. 
 
 | Field | Value |
 | --- | --- |
-| Pragmas | settlement=sim · judges=recorded · mode=guaranteed_on_decision · seed=61 |
+| Pragmas | settlement=sim · judges=fake · mode=guaranteed_on_decision · seed=61 |
 | Prefix | todo. (known gap: records current behavior) |
-| Settlement | SimChain (T-006) driving @holdback/core `step`; stub policy and registry hashes and stub panel |
+| Settlement | SimChain (T-006) driving @holdback/core `step` |
+| Judgment | @holdback/judgment (checks, screen, panel) · registry config/judges.yaml 0x8aa4…4549 · policy bench-a/p1 0x7970…3bf0 |
 | Club | fixtures/clubs/data-services-v1.yaml (loaded) · rulebook 0x140e…971e |
 | Buyer | atlas-buyer 0xBe44…76f3 |
 | Seller | tidewater-seller 0x1864…5683 |
-| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0xca0e…1b32 · price 2,000.000000 tUSD · fee 50.000000 tUSD |
+| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0xb73c…8fbc · price 2,000.000000 tUSD · fee 50.000000 tUSD |
 | Adjudicators | primary bench-a 0x1B45…71eb · fallback bench-b 0x6eCc…8776 · appeal bench-c 0x6A66…3c4A |
 | Operators | op-1 · op-2 |
 
@@ -27,54 +28,59 @@ The scenario index's panel-disagreement-escalates row, recorded as a known gap. 
 | 00:02.000 | 3 | atlas-buyer | agree | op-1 | ok | Agreed |
 | 00:03.000 | 3 | atlas-buyer | fund | op-1 | ok | Held |
 | 00:04.000 | 4 | tidewater-seller | deliver (attempt 1) | op-1 | ok | Delivered |
-| 00:10.000 | 6 | bench-a | decide: escalate | direct | ok | Escalated |
-| 00:11.000 | 7 | bench-c | decide: escalate | direct | invalid_terms | Escalated |
+| 00:10.000 | 6 | bench-a | decide: accept | direct | ok | Released |
+| 00:11.000 | 7 | bench-c | decide: accept | direct | invalid_state | Released |
 
 Refusals:
 
-- Step 7 decide: escalate: invalid_terms: the appeal adjudicator decides accept or reject; it cannot escalate
+- Step 7 decide: accept: invalid_state: appeal state is none
 
 ## Balances (tUSD)
 
-| After | atlas-buyer | escrow | bench-a | bench-b | bench-c |
-| --- | --- | --- | --- | --- | --- |
-| faucet | 10,000.000000 | 0 | 25,000.000000 | 25,000.000000 | 25,000.000000 |
-| fund | 7,950.000000 | 2,050.000000 | 25,000.000000 | 25,000.000000 | 25,000.000000 |
+| After | atlas-buyer | escrow | tidewater-seller | bench-a | bench-b | bench-c |
+| --- | --- | --- | --- | --- | --- | --- |
+| faucet | 10,000.000000 | 0 | 0 | 25,000.000000 | 25,000.000000 | 25,000.000000 |
+| fund | 7,950.000000 | 2,050.000000 | 0 | 25,000.000000 | 25,000.000000 | 25,000.000000 |
+| decide: accept | 7,950.000000 | 0 | 2,000.000000 | 25,050.000000 | 25,000.000000 | 25,000.000000 |
 
 ## Judgment
 
 ### bench-a (primary), attempt 1
 
-- **Intake:** plaintext 0x1939…87e5 · text/csv · 511912 bytes (fixtures/data/dataset-cleaning/customers.clean.csv) · hash verified ✓
-- **Deterministic checks:** not evaluated by the stub (T-008): cols · rows · uniq · dates · id_nulls · name_nulls · email_nulls · emails (optional) · hidden
-- **Screen:** not run by the stub (T-008).
-- **Panel:** template 0x3f82…99de · rubric 0x4201…7925 · input 0xb520…c4b4 · seed commitment 0x32a8…d7a7 · seed 0x821b…2db8 (recomputed: match)
-  - claude-a · anthropic/claude · recorded:stub-claude-pinned-1 (captured from fake judges) · pass · scores 4/4/4
-  - claude-b · anthropic/claude · recorded:stub-claude-pinned-2 (captured from fake judges) · pass · scores 4/4/4
-  - fam2-a · openai-compatible/family-2 · recorded:stub-family2-pinned-1 (captured from fake judges) · fail · scores 2/1/2
-- **Aggregate:** escalate (weighted score 3.20). Reasons: the panel split or missed the threshold; 2/3 pass across 1 family.
+- **Intake:** plaintext 0x1939…87e5 · text/csv · 511912 bytes (fixtures/data/dataset-cleaning/customers.clean.csv) · hash verified ✓ · normalized
+- **Deterministic checks:** cols ✓ · rows ✓ · uniq ✓ · dates ✓ · id_nulls ✓ · name_nulls ✓ · email_nulls ✓ · emails (optional) ✓ · hidden ✓
+- **Screen:** clean
+- **Panel:** 3 judges from 2 families (policy: 3 seats, at least 2 families) · first-instance template 0xabb5…4dd2 · rubric 0x4201…7925 · seed source: commit-reveal (commitment 0x32a8…d7a7, seed 0x821b…2db8, recomputed: match)
+  - gpt-b · openai-compatible/gpt · placeholder-gpt-b-20260601 · fake judge · pass · scores 4/4/4 · input 0x7473…f15c
+  - claude-a · anthropic/claude · placeholder-claude-a-20260601 · fake judge · pass · scores 4/4/4 · input 0x52ad…f841
+  - claude-b · anthropic/claude · placeholder-claude-b-20260601 · fake judge · pass · scores 4/4/4 · input 0xe4b2…6143
+- **Aggregate:** accept (weighted score 4.00; 3 pass, 0 fail of 3 valid; pass families claude, gpt). Reasons: 3 of 3 valid verdicts pass, from 2 families, score at or above 3.
+- **Signed:** accept.
 
 ### bench-c (appeal), attempt 1
 
-- **Intake:** plaintext 0x1939…87e5 · text/csv · 511912 bytes (fixtures/data/dataset-cleaning/customers.clean.csv) · hash verified ✓
-- **Deterministic checks:** not evaluated by the stub (T-008): cols · rows · uniq · dates · id_nulls · name_nulls · email_nulls · emails (optional) · hidden
-- **Screen:** not run by the stub (T-008).
-- **Panel:** template 0x3f82…99de · rubric 0x4201…7925 · input 0xb520…c4b4 · seed commitment none (appeal adjudicator; only the primary commits, T-004 gap) · seed 0x85bf…4d45
-  - claude-a · anthropic/claude · recorded:stub-claude-pinned-1 (captured from fake judges) · pass · scores 4/4/4
-  - claude-b · anthropic/claude · recorded:stub-claude-pinned-2 (captured from fake judges) · pass · scores 4/4/4
-  - fam2-a · openai-compatible/family-2 · recorded:stub-family2-pinned-1 (captured from fake judges) · fail · scores 2/1/2
-- **Aggregate:** escalate (weighted score 3.20). Reasons: the panel split or missed the threshold; 2/3 pass across 1 family.
+- **Intake:** plaintext 0x1939…87e5 · text/csv · 511912 bytes (fixtures/data/dataset-cleaning/customers.clean.csv) · hash verified ✓ · normalized
+- **Deterministic checks:** cols ✓ · rows ✓ · uniq ✓ · dates ✓ · id_nulls ✓ · name_nulls ✓ · email_nulls ✓ · emails (optional) ✓ · hidden ✓
+- **Screen:** clean
+- **Panel:** 5 judges from 3 families (policy: 5 seats, at least 3 families) · appeal template 0xa0bb…8659 · rubric 0x4201…7925 · seed source: beacon, round not yet published (seed 0x1818…135b)
+  - qwen-a · openai-compatible/qwen · placeholder-qwen-a-20260601 · fake judge · pass · scores 4/4/4 · input 0xba59…8be8
+  - claude-a · anthropic/claude · placeholder-claude-a-20260601 · fake judge · pass · scores 4/4/4 · input 0xf907…6407
+  - gpt-a · openai-compatible/gpt · placeholder-gpt-a-20260601 · fake judge · pass · scores 4/4/4 · input 0xd2db…a5f9
+  - claude-b · anthropic/claude · placeholder-claude-b-20260601 · fake judge · pass · scores 4/4/4 · input 0x4d3e…01b6
+  - gpt-b · openai-compatible/gpt · placeholder-gpt-b-20260601 · fake judge · pass · scores 4/4/4 · input 0xf8e5…b94a
+- **Aggregate:** accept (weighted score 4.00; 5 pass, 0 fail of 5 valid; pass families claude, gpt, qwen). Reasons: 5 of 5 valid verdicts pass, from 3 families, score at or above 3.
+- **Signed:** accept.
 
 ## Receipts and log
 
-- Events 0–7. Chain head 0x48a6…5ab0. Replay of 6 SimChain submissions from genesis matches the settlement state.
+- Events 0–8. Chain head 0x81db…62d4. Replay of 6 SimChain submissions from genesis matches the settlement state.
 - Receipts from op-1: 5 (rcpt-0001–rcpt-0005). Stub receipts are unsigned until T-007.
 
 ## Invariants
 
-- conservation ✓ · no negative balances ✓ · settled once ✓ · escrow empty after settlement n/a · key released atomically with payment n/a · event hash chain links ✓ · replay matches the settlement state ✓
+- conservation ✓ · no negative balances ✓ · settled once ✓ · escrow empty after settlement ✓ · key released atomically with payment ✓ · event hash chain links ✓ · replay matches the settlement state ✓
 
 ## Outcome
 
-- Final state: Escalated.
+- Final state: Released.
 - Prefix expectations: todo.

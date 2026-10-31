@@ -19,7 +19,7 @@ terms: fixtures/terms/clean-customers-2000.yaml
 steps:
   - offer:            { by: seller, via: op-1 }
   - agree_and_fund:   { by: buyer, via: op-1 }
-  - deliver:          { by: seller, via: op-1, file: data/customers.cleaned.good.csv, stub_bytes: true }
+  - deliver:          { by: seller, via: op-1, file: data/dataset-cleaning/customers.clean.csv }
   - advance_clock:    { seconds: 5 }
   - judge:            { adjudicator: bench-a }
   - settle:           { trigger: anyone }

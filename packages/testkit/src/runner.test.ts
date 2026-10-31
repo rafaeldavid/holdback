@@ -13,7 +13,9 @@ function sandbox(): string {
   mkdirSync(join(root, 'fixtures/scenarios'), { recursive: true });
   for (const f of ['_example.scenario.yaml', '_example.expect.md']) cpSync(join(repo, 'fixtures/scenarios', f), join(root, 'fixtures/scenarios', f));
   cpSync(join(repo, 'fixtures/recordings/_example'), join(root, 'fixtures/recordings/_example'), { recursive: true });
-  for (const dir of ['clubs', 'terms']) cpSync(join(repo, 'fixtures', dir), join(root, 'fixtures', dir), { recursive: true });
+  for (const dir of ['clubs', 'terms', 'data']) cpSync(join(repo, 'fixtures', dir), join(root, 'fixtures', dir), { recursive: true });
+  mkdirSync(join(root, 'config'));
+  cpSync(join(repo, 'config/judges.yaml'), join(root, 'config/judges.yaml'));
   return root;
 }
 
@@ -35,6 +37,9 @@ steps:
 expect: { problem: { step: 2, type: invalid_state } }
 `;
 
+/** A clean delivery the real deterministic checks pass, so the panel runs. */
+const DELIVER = '  - deliver: { by: seller, via: op-1, file: data/dataset-cleaning/customers.clean.csv }';
+
 /** A full-flow fixture with the given steps after delivery. */
 const flow = (name: string, after: string, extra = '') => `# @settlement sim @judges fake @seed 11
 name: ${name}
@@ -45,7 +50,7 @@ faucet: { atlas-buyer: "10000000000", bench-a: "25000000000", bench-b: "25000000
 ${extra}steps:
   - offer: { by: seller, via: op-1 }
   - agree_and_fund: { by: buyer, via: op-1 }
-  - deliver: { by: seller, via: op-1, file: data/x.csv, stub_bytes: true }
+${DELIVER}
 ${after}`;
 
 async function fixture(root: string, name: string, text: string, ...argv: string[]) {
@@ -182,8 +187,8 @@ describe('pnpm snap', () => {
     const root = sandbox();
     writeFileSync(join(root, 'fixtures/scenarios/_example.scenario.yaml'), readFileSync(join(root, 'fixtures/scenarios/_example.scenario.yaml'), 'utf8').replace('@seed 7', '@seed 9'));
     expect((await snap(root, '--judges', 'fake', '--record', '--update', '_example')).code).toBe(0);
-    const saved = JSON.parse(readFileSync(join(root, 'fixtures/recordings/_example/fam2-a.json'), 'utf8'));
-    expect(saved).toMatchObject({ judgeId: 'fam2-a', capturedFrom: 'fake' });
+    const saved = JSON.parse(readFileSync(join(root, 'fixtures/recordings/_example/claude-a.json'), 'utf8'));
+    expect(saved).toMatchObject({ judgeId: 'claude-a', model: 'placeholder-claude-a-20260601', capturedFrom: 'fake' });
     // Recorded mode replays the new recordings without a mismatch, then the snapshot matches.
     expect((await snap(root, '--update', '_example')).code).toBe(0);
     expect((await snap(root, '_example')).code).toBe(0);
@@ -273,7 +278,7 @@ describe('pnpm snap', () => {
 
   it('fails a deliver whose file is absent unless the fixture opts into stub bytes', async () => {
     const root = sandbox();
-    const r = await fixture(root, 'nofile', flow('nofile', '').replace(', stub_bytes: true', ''));
+    const r = await fixture(root, 'nofile', flow('nofile', '').replace('data/dataset-cleaning/customers.clean.csv', 'data/x.csv'));
     expect(r.code).toBe(1);
     expect(r.out[0]).toMatch(/fail {2}nofile: ScenarioError: .*fixtures\/data\/x\.csv.*stub_bytes: true/);
   });
@@ -301,7 +306,8 @@ describe('pnpm snap', () => {
     expect(r.snapshot).toMatch(/\| anyone \| trigger_fallback \| direct \| ok \| FallbackJudging \|/);
     expect(r.snapshot).toMatch(/\| bench-b \| decide: accept \| direct \| ok \| Released \|/);
     expect(r.snapshot).toMatch(/### bench-b \(fallback\)/);
-    expect(r.snapshot).toMatch(/seed commitment none/);
+    // ADR-0018: the fallback's panel seed comes from the beacon round at judgeBy, and the snapshot says so.
+    expect(r.snapshot).toMatch(/seed source: beacon round \d+ \(seed 0x/);
     // The fallback earns the fee; the offline primary earns nothing.
     expect(r.snapshot).toMatch(/\| decide: accept \| 7,950\.000000 \| 0 \| 2,000\.000000 \| 25,000\.000000 \| 25,050\.000000 \|/);
   });
@@ -350,7 +356,7 @@ describe('pnpm snap', () => {
     const src = flow(name, `  - advance_clock: { seconds: 3600 }
   - reclaim: { by: buyer }
 `, 'fails: tidewater-seller\n').replace(
-      '  - deliver: { by: seller, via: op-1, file: data/x.csv, stub_bytes: true }\n',
+      `${DELIVER}\n`,
       '',
     );
     const r = await fixture(root, name, src);
@@ -374,7 +380,7 @@ describe('pnpm snap', () => {
     const name = 'neutrality.buyer-never-funds';
     const src = flow(name, '', 'fails: atlas-buyer\n')
       .replace('  - agree_and_fund: { by: buyer, via: op-1 }\n', '  - adjudicator_accept: {}\n  - advance_clock: { seconds: 900 }\n  - expire: {}\n')
-      .replace('  - deliver: { by: seller, via: op-1, file: data/x.csv, stub_bytes: true }\n', '');
+      .replace(`${DELIVER}\n`, '');
     const r = await fixture(root, name, src);
     expect(r.out[0]).toBe(`pass  ${name} (snapshot updated)`);
     expect(r.snapshot).toMatch(/\| anyone \| expire \| direct \| ok \| Expired \|/);
@@ -384,7 +390,7 @@ describe('pnpm snap', () => {
     const root = sandbox();
     const empty = deliverBeforeFund('attack.empty').replace(/steps:[\s\S]*$/, 'steps: []\n');
     expect((await fixture(root, 'attack.empty', empty)).out[0]).toMatch(/fail {2}attack\.empty: .*(escalat|reject)/);
-    const held = flow('attack.held', '').replace('  - deliver: { by: seller, via: op-1, file: data/x.csv, stub_bytes: true }\n', '');
+    const held = flow('attack.held', '').replace(`${DELIVER}\n`, '');
     expect((await fixture(root, 'attack.held', held)).out[0]).toMatch(/fail {2}attack\.held: /);
   });
 

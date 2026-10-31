@@ -10,11 +10,12 @@ Bad work the deterministic checks would not catch. All three judges (two Claude,
 | --- | --- |
 | Pragmas | settlement=sim · judges=recorded · mode=guaranteed_on_decision · seed=11 |
 | Prefix | none (normal flow: reaches a terminal state, invariants hold) |
-| Settlement | SimChain (T-006) driving @holdback/core `step`; stub policy and registry hashes and stub panel |
+| Settlement | SimChain (T-006) driving @holdback/core `step` |
+| Judgment | @holdback/judgment (checks, screen, panel) · registry config/judges.yaml 0x8aa4…4549 · policy bench-a/p1 0x7970…3bf0 |
 | Club | fixtures/clubs/data-services-v1.yaml (loaded) · rulebook 0x140e…971e |
 | Buyer | atlas-buyer 0x0774…D45F |
 | Seller | tidewater-seller 0xFd01…6ccb |
-| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0x1857…5feb · price 2,000.000000 tUSD · fee 50.000000 tUSD |
+| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0x4de8…f2d5 · price 2,000.000000 tUSD · fee 50.000000 tUSD |
 | Adjudicators | primary bench-a 0x762C…8Fe7 · fallback bench-b 0x2f14…4555 · appeal bench-c 0x8568…a965 |
 | Operators | op-1 · op-2 |
 
@@ -42,18 +43,16 @@ Bad work the deterministic checks would not catch. All three judges (two Claude,
 
 ### bench-a (primary), attempt 1
 
-- **Intake:** plaintext 0x427e…981e · text/csv · 81 bytes (stub bytes by stub_bytes: true; fixtures/data/dataset-cleaning/customers.clean.fabricated-values.csv absent) · hash verified ✓
-- **Deterministic checks:** not evaluated by the stub (T-008): cols · rows · uniq · dates · id_nulls · name_nulls · email_nulls · emails (optional) · hidden
-- **Screen:** not run by the stub (T-008).
-- **Panel:** template 0x3f82…99de · rubric 0x4201…7925 · input 0x0fd5…00dd · seed commitment 0x4319…906e · seed 0x5729…0c1d (recomputed: match)
-  - claude-a · anthropic/claude · recorded:stub-claude-pinned-1 (captured from fake judges) · fail · scores 1/0/1
-  - claude-b · anthropic/claude · recorded:stub-claude-pinned-2 (captured from fake judges) · fail · scores 1/0/1
-  - fam2-a · openai-compatible/family-2 · recorded:stub-family2-pinned-1 (captured from fake judges) · fail · scores 1/0/1
-- **Aggregate:** reject (weighted score 0.60). Reasons: 0/3 pass across 0 families.
+- **Intake:** plaintext 0x427e…981e · text/csv · 81 bytes (stub bytes by stub_bytes: true; fixtures/data/dataset-cleaning/customers.clean.fabricated-values.csv absent) · hash verified ✓ · normalized
+- **Deterministic checks:** cols ✗ (columns are [stub deliverable for data/dataset-cleaning/customers.clean.fabricated-values.csv]; expected [customer_id, name, email, signup_date, email_valid]) · rows ✗ (0 rows; expected 9400 to 9600) · uniq ✗ (column customer_id not found) · dates ✗ (column signup_date not found) · id_nulls ✗ (column customer_id not found) · name_nulls ✗ (column name not found) · email_nulls ✗ (column email not found) · emails (optional) ✗ (column email not found) · hidden ✓
+- **Screen:** clean
+- **Panel:** not run · first-instance template 0xabb5…4dd2 · rubric 0x4201…7925 · seed source: commit-reveal (commitment 0x4319…906e, seed 0x5729…0c1d, recomputed: match)
+- **Aggregate:** reject. Reasons: required deterministic check failed: cols, rows, uniq, dates, id_nulls, name_nulls, email_nulls.
+- **Signed:** reject.
 
 ## Receipts and log
 
-- Events 0–7. Chain head 0xfd0a…cd4d. Replay of 6 SimChain submissions from genesis matches the settlement state.
+- Events 0–7. Chain head 0x7340…9319. Replay of 6 SimChain submissions from genesis matches the settlement state.
 - Receipts from op-1: 5 (rcpt-0001–rcpt-0005). Stub receipts are unsigned until T-007.
 
 ## Invariants

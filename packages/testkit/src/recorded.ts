@@ -48,9 +48,9 @@ const FLOATING = /latest/i;
 const BOUND = ['provider', 'family', 'model', 'promptTemplateHash', 'inputHash', 'rubricHash'] as const;
 const KEYS = ['format', 'scenario', 'judgeId', ...BOUND, 'capturedFrom', 'verdict'];
 
-/** The re-record command this build can run. Live capture refuses until T-008/T-009. */
+/** The re-record command this build can run. Live capture needs live providers in the testkit and model keys. */
 function rerecordHint(scenario: string): string {
-  return `Re-record stub verdicts with: pnpm snap --judges fake --record --update ${scenario}, then pnpm snap --update ${scenario}. Live capture (--judges live --record) refuses until T-008/T-009 land.`;
+  return `Re-record stub verdicts with: pnpm snap --judges fake --record --update ${scenario}, then pnpm snap --update ${scenario}. Live capture (--judges live --record) is not wired into the testkit yet (it needs model keys).`;
 }
 
 export class RecordingMissingError extends Error {
