@@ -1,8 +1,8 @@
 // Narration (docs/demo.md §Narration rules): every line states what happened and the number behind it
 // (amount, milliseconds, model ID, hash prefix). Plain statements only. Recorded mode says "recorded verdicts".
-import { labelOf, nameOf } from './cast.js';
+import { CAST, labelOf, nameOf } from './cast.js';
 import { formatAmount } from './money.js';
-import type { BeatTranscript, CheckResult, DemoEvent, Via } from './types.js';
+import type { BeatTranscript, CastKey, CheckResult, DemoEvent, Via } from './types.js';
 import { plain } from './untrusted.js';
 
 /** Words the narration never uses. Checked by narrate.test.ts over every transcript. */
@@ -54,7 +54,25 @@ export const describeEvent = (e: DemoEvent): string => plain(describeRaw(e));
 
 function describeRaw(e: DemoEvent): string {
   const who = labelOf(e.actor);
+  const slate = (s: { primary: CastKey; fallback: CastKey; appeal: CastKey }) => `${nameOf(s.primary)} (primary), ${nameOf(s.fallback)} (fallback), ${nameOf(s.appeal)} (appeal)`;
+  const offChain = 'Agent-to-agent; nothing on chain.';
   switch (e.kind) {
+    case 'adjudicator-proposal': {
+      // One line: each excluded listing with its first reason; the rules and the rest are in the viewer.
+      const excluded = e.considered.filter((c) => !c.eligible);
+      const why = excluded.length
+        ? `Excluded by the ${CAST.club.name} rulebook: ${excluded.map((c) => `${c.name}, ${c.reasons[0] ?? 'no reason given'}${c.reasons.length > 1 ? ` (${c.reasons.length - 1} more in the viewer)` : ''}`).join('; ')}.`
+        : `None excluded by the ${CAST.club.name} rulebook.`;
+      return `${who} reads ${e.registrations} published adjudicators and proposes ${slate(e.proposed)}. ${why} ${offChain}`;
+    }
+    case 'adjudicator-agreement': {
+      const frees = new Set(e.bonds.map((b) => b.free.amount));
+      const bond =
+        frees.size === 1 && e.bonds[0]
+          ? `free bond ${formatAmount(e.bonds[0].free)} covers ${formatAmount(e.bondRequired)}`
+          : `free bond covers ${formatAmount(e.bondRequired)} (${e.bonds.map((b) => `${nameOf(b.who)} ${formatAmount(b.free)}`).join(', ')})`;
+      return `${who} checks all three against its own policy (${[...e.policy, bond].join(', ')}) and agrees; the offer names exactly these. ${offChain}`;
+    }
     case 'offer':
       return `${who} offers ${formatAmount(e.price)} plus a ${formatAmount(e.fee)} adjudication fee, commitment ${short(e.commitmentId)}. The two agents chose the adjudicators: ${nameOf(e.primary)} (primary), ${nameOf(e.fallback)} (fallback), ${nameOf(e.appeal)} (appeal). Disclosure: ${e.disclosure}.`;
     case 'acceptance':

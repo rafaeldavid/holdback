@@ -6,6 +6,9 @@
 import { signMessage, splitBps, type Commitment, type CommitmentStateView, type Hex32, type Sha256, type Signature } from '@holdback/core';
 import { sha256 } from '@holdback/core/crypto';
 import { decryptDeliverable, type Decrypted, type Holdback, type Submitted } from '@holdback/sdk';
+import type { TermsTemplate } from '@holdback/testkit';
+import { proposeSlate, type AdjudicatorProposal } from './adjudicators.js';
+import type { Listing } from './bench.js';
 import type { AgentKeys } from './keys.js';
 import type { MutualSettlementBody } from './seller.js';
 import { deliveryFacts, DOMAIN, type DemoWorld } from './world.js';
@@ -36,6 +39,14 @@ export class AtlasAgent {
     private readonly budget = ATLAS_BUDGET,
   ) {
     this.hb = world.sdk();
+  }
+
+  /**
+   * Before any offer (T-017): reads the published registrations, keeps those the club rulebook allows for this
+   * price and settlement mode, and proposes a primary, fallback and appeal adjudicator to the seller.
+   */
+  proposeAdjudicators(listings: readonly Listing[], terms: TermsTemplate): AdjudicatorProposal {
+    return proposeSlate(listings, { rulebook: this.world.club.rulebook, price: BigInt(terms.price.amount), mode: terms.settlement.mode });
   }
 
   /** Agreement and funding in one call, after the primary accepted: the commitment goes from accepted to Held. */

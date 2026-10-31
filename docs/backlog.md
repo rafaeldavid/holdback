@@ -162,6 +162,8 @@ Deferred until after the basic demo. The demo assumes honest parties (Rafa, Octo
 | Terms windows as a schema-level template (`deliverWithinSec` and friends) if other tools need terms files | T-012 | When a second consumer appears |
 | Adversarial agents (a buyer that withholds agreement after acceptance, a seller that delivers to the wrong envelope set, a split the seller did not agree to) | T-012 | After the basic demo |
 | Root `.gitignore` rule `data/` also matches `fixtures/data/`; anchor it as `/data/` | T-012 | Next scaffold change |
+| Registration fields for what agents choose on but v0.6 cannot carry: roles offered (primary, fallback, appeal), a per-judge reasoning or effort setting bound into the policy hash, and a fee rate (bps of price) beside `fee.min`. The demo keeps them as cast-level profile data (`apps/demo/agents/cast.ts`) | T-017 | Next schema bump; before agents choose adjudicators from registrations they did not write |
+| Signed adjudicator proposal and agreement messages (today plain agent-to-agent objects), and a counter-proposal path when the seller rejects one bench but another eligible one offers the role | T-017 | When negotiation happens between agents of different operators |
 
 ## Housekeeping
 

@@ -31,9 +31,35 @@ describe('SimChain source (T-012 beat runner)', () => {
     }
   });
 
+  it('beat 1: the agents agree on adjudicators in two steps before the offer; Swiftline is excluded by the rulebook', () => {
+    const t = beat(1);
+    const proposal = only(t, 'adjudicator-proposal')[0]!;
+    expect(proposal.actor).toBe('buyer');
+    expect(proposal.proposed).toEqual({ primary: 'benchA', fallback: 'benchB', appeal: 'benchC' });
+    const swift = proposal.considered.find((c) => c.name === 'Swiftline Verdicts')!;
+    expect(swift.eligible).toBe(false);
+    expect(swift.reasons.join(' ')).toMatch(/panelPolicyMin\.minFamilies/);
+    const agreement = only(t, 'adjudicator-agreement')[0]!;
+    expect(agreement).toMatchObject({ actor: 'seller', agreed: proposal.proposed });
+    const offer = only(t, 'offer')[0]!;
+    expect({ primary: offer.primary, fallback: offer.fallback, appeal: offer.appeal }).toEqual(agreement.agreed);
+    expect(proposal.atMs).toBeLessThanOrEqual(agreement.atMs);
+    expect(agreement.atMs).toBeLessThanOrEqual(offer.atMs);
+    // Profiles for the viewer: the three benches and the declined listing, judges from the registry.
+    const registered = new Set(demoRegistry().active.map((j) => j.model));
+    expect(t.adjudicators?.map((a) => [a.name, a.selected])).toEqual([
+      ['Clearfield Adjudication', 'primary'],
+      ['Northgate Review', 'fallback'],
+      ['Atrium Appeals', 'appeal'],
+      ['Swiftline Verdicts', 'declined'],
+    ]);
+    for (const a of t.adjudicators!) for (const j of a.judges) expect(registered.has(j.model), j.model).toBe(true);
+    expect(t.adjudicators!.every((a) => a.history.rolePlay)).toBe(true);
+  });
+
   it('beat 1: offer, acceptance and a one-call hold through op-1, with the signed offer', () => {
     const t = beat(1);
-    expect(t.events.map((e) => e.kind).filter((k) => k !== 'balances')).toEqual(['offer', 'signed', 'acceptance', 'hold']);
+    expect(t.events.map((e) => e.kind).filter((k) => k !== 'balances')).toEqual(['adjudicator-proposal', 'adjudicator-agreement', 'offer', 'signed', 'acceptance', 'hold']);
     expect(only(t, 'hold')[0]).toMatchObject({ amount: { token: 'tUSD', amount: '2050000000' }, via: 'op1' });
     expect(row(t, 'after hold', 'buyer')?.amount.amount).toBe('7950000000');
     expect(row(t, 'after hold', 'escrow')?.amount.amount).toBe('2050000000');

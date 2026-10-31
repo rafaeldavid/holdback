@@ -6,7 +6,8 @@ import { commitmentId, signMessage, signTerms, type Address, type Base64Url, typ
 import { seal, wrapKeyForRecipients } from '@holdback/core/crypto';
 import { termsFromTemplate, type TermsTemplate } from '@holdback/testkit';
 import type { Holdback } from '@holdback/sdk';
-import type { AdjudicatorSeam } from './bench.js';
+import { reviewSlate, type AdjudicatorProposal, type SellerAdjudicatorPolicy, type SellerReview } from './adjudicators.js';
+import { demoRegistry, type AdjudicatorSeam, type Listing } from './bench.js';
 import type { AgentKeys } from './keys.js';
 import { DOMAIN, type DemoWorld } from './world.js';
 
@@ -29,11 +30,24 @@ export type MutualSettlementBody = Omit<MutualSettlement, 'buyerSignature' | 'se
 export class TidewaterAgent {
   private readonly hb: Holdback;
 
+  private readonly adjudicatorPolicy: Required<SellerAdjudicatorPolicy>;
+
   constructor(
     readonly keys: AgentKeys,
     private readonly world: DemoWorld,
+    policy: SellerAdjudicatorPolicy = {},
   ) {
     this.hb = world.sdk();
+    this.adjudicatorPolicy = { minFreeBondBps: policy.minFreeBondBps ?? 10_000, registry: policy.registry ?? demoRegistry() };
+  }
+
+  /**
+   * Checks the buyer's proposed adjudicators against Tide-7's own policy (T-017): each registration validates,
+   * names the registry Tide-7 trusts with every model pinned, binds the hash of its own policy, and holds free
+   * bond of at least minFreeBondBps of the price. Agrees to exactly that slate, or refuses with reasons.
+   */
+  reviewAdjudicators(proposal: AdjudicatorProposal, listings: readonly Listing[], terms: TermsTemplate): SellerReview {
+    return reviewSlate(proposal, listings, BigInt(terms.price.amount), this.adjudicatorPolicy);
   }
 
   /** Signs terms naming the chosen adjudicators and publishes the offer through the SDK. */

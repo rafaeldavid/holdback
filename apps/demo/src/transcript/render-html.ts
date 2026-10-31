@@ -5,7 +5,7 @@ import { closing } from './closing.js';
 import { formatAmount } from './money.js';
 import { describeEvent, formatMs, formatScore, header } from './narrate.js';
 import { eventsOf } from './render-md.js';
-import type { BeatTranscript, CastKey } from './types.js';
+import type { AdjudicatorProfile, BeatTranscript, CastKey } from './types.js';
 import { plain, safeJson } from './untrusted.js';
 
 const escRaw = (s: string) => s.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
@@ -52,6 +52,11 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:now
 details.signed{margin-top:14px;border:1px solid var(--line);border-radius:8px;padding:8px 12px}
 details.signed summary{cursor:pointer;font-weight:600}
 details.signed pre{overflow-x:auto;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;margin:10px 0 0}
+details.profile{margin-top:10px;border:1px solid var(--line);border-radius:8px;padding:8px 12px}
+details.profile summary{cursor:pointer;font-weight:600}
+details.profile h4{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:12px 0 4px}
+details.profile ul{padding-left:18px;margin:4px 0}
+.badge.declined{color:var(--bad);border-color:var(--bad)}
 .closing ol,.closing ul{padding-left:20px}
 .closing li{margin:4px 0}
 `;
@@ -102,6 +107,36 @@ function signed(t: BeatTranscript): string {
     .join('\n');
 }
 
+const SELECTED: Readonly<Record<AdjudicatorProfile['selected'], string>> = { primary: 'chosen as primary', fallback: 'chosen as fallback', appeal: 'chosen as appeal', declined: 'considered and declined' };
+
+/** One collapsed profile per adjudicator the agents considered (T-017). Registration and profile text is escaped. */
+function profiles(t: BeatTranscript): string {
+  if (!t.adjudicators?.length) return '';
+  const one = (a: AdjudicatorProfile) =>
+    [
+      `<details class="profile"><summary>${esc(a.name)}${a.who ? ` <small>(${esc(CAST[a.who].org ?? '')})</small>` : ''} <span class="badge${a.selected === 'declined' ? ' declined' : ''}">${esc(SELECTED[a.selected])}</span></summary>`,
+      `<p><em>${esc(a.tagline)}</em> Roles offered: ${esc(a.roles.join(', '))}.</p>`,
+      a.declinedBecause?.length ? `<p class="fail">Declined because:</p><ul>${a.declinedBecause.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>` : '',
+      a.sellerChecks?.length ? `<h4>Seller's checks (${esc(CAST.seller.name)})</h4><ul>${a.sellerChecks.map((c) => `<li>${esc(c)}</li>`).join('')}</ul>` : '',
+      '<h4>Judges</h4>',
+      '<div class="scroll"><table><thead><tr><th>Registry ID</th><th>Pinned model ID</th><th>Family</th><th>Declared effort</th></tr></thead><tbody>',
+      ...a.judges.map((j) => `<tr><td>${esc(j.id)}</td><td><code>${esc(j.model)}</code></td><td>${esc(j.family)}</td><td>${esc(j.effort)}</td></tr>`),
+      '</tbody></table></div>',
+      '<p class="meta">Effort is the reasoning setting the bench declares per judge; the v0.6 registration cannot carry it, and recorded mode applies none.</p>',
+      '<h4>Harness</h4>',
+      `<ul>${a.harness.map((h) => `<li>${esc(h)}</li>`).join('')}</ul>`,
+      '<h4>Terms</h4>',
+      `<table><tbody>${a.terms.map((x) => `<tr><th>${esc(x.label)}</th><td>${esc(x.value)}</td></tr>`).join('')}</tbody></table>`,
+      '<h4>History <span class="badge standin">role-play</span></h4>',
+      `<ul>${a.history.lines.map((h) => `<li>${esc(h)}</li>`).join('')}</ul>`,
+      '<p class="meta">Role-play: invented for this demo, not a real firm or record.</p>',
+      '</details>',
+    ].join('\n');
+  const rules = eventsOf(t, 'adjudicator-proposal')[0]?.rules ?? [];
+  const applied = rules.length ? `<p class="meta">Rules applied by ${esc(CAST.buyer.name)} (${esc(CAST.club.name)} rulebook):</p><ul class="meta">${rules.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>` : '';
+  return ['<h3>Adjudicators considered</h3>', applied, ...t.adjudicators.map(one)].join('\n');
+}
+
 function beatSection(t: BeatTranscript): string {
   const items = t.events
     .filter((e) => e.kind !== 'balances')
@@ -117,7 +152,7 @@ function beatSection(t: BeatTranscript): string {
     `<p><span class="badge${standIn ? ' standin' : ''}">${t.source.kind === 'stand-in' ? 'stand-in source' : t.source.kind === 'mixed' ? 'SimChain + stand-in' : 'SimChain'}</span><span class="badge">${esc(t.mode)}</span>${t.commitmentId ? `<span class="badge">commitment <code>${esc(t.commitmentId.slice(0, 10))}…</code></span>` : ''}</p>`,
     `<ul class="meta">${header(t).map((l) => `<li>${esc(l)}</li>`).join('')}</ul>`,
     '<div class="grid">',
-    `<div><h3>Timeline</h3><ol class="timeline">\n${items.join('\n')}\n</ol>${signed(t)}</div>`,
+    `<div><h3>Timeline</h3><ol class="timeline">\n${items.join('\n')}\n</ol>${signed(t)}${profiles(t)}</div>`,
     `<div>${balancesTable(t)}${panelTables(t)}</div>`,
     '</div>',
     '</section>',

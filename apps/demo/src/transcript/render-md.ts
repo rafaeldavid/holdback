@@ -21,6 +21,21 @@ export function renderMarkdown(t: BeatTranscript): string {
 
   out.push('## Timeline', '', ...t.events.filter((e) => e.kind !== 'balances').map((e) => `- ${mdText(narrate(e))}`), '');
 
+  if (t.adjudicators?.length) {
+    // Registration names and profile text are party text: escaped like every other line (T-017).
+    out.push('## Adjudicators considered', '', 'Judges are pinned registry model IDs; effort is what each bench declares (recorded mode applies none). History is role-play, invented for this demo.', '');
+    const rules = eventsOf(t, 'adjudicator-proposal')[0]?.rules ?? [];
+    if (rules.length) out.push('Rules applied by the buyer (club rulebook):', '', ...rules.map((r) => `- ${mdText(r)}`), '');
+    for (const a of t.adjudicators) {
+      out.push(`### ${mdText(a.name)}`, '', `${mdText(a.selected === 'declined' ? 'Considered and declined' : `Chosen as ${a.selected}`)}. ${mdText(a.tagline)}`, '');
+      if (a.declinedBecause?.length) out.push(...a.declinedBecause.map((r) => `- Declined: ${mdText(r)}`), '');
+      if (a.sellerChecks?.length) out.push(...a.sellerChecks.map((c) => `- Seller check: ${mdText(c)}`), '');
+      out.push('| Judge | Pinned model ID | Family | Declared effort |', '| --- | --- | --- | --- |');
+      for (const j of a.judges) out.push(`| ${mdText(j.id)} | ${code(j.model)} | ${mdText(j.family)} | ${mdText(j.effort)} |`);
+      out.push('', ...a.harness.map((h) => `- Harness: ${mdText(h)}`), ...a.terms.map((x) => `- ${mdText(`${x.label}: ${x.value}`)}`), ...a.history.lines.map((h) => `- History (role-play): ${mdText(h)}`), '');
+    }
+  }
+
   for (const p of eventsOf(t, 'panel')) {
     out.push(`## Panel${mark(p)}`, '', `${p.standIn ? '\\[stand-in\\] ' : ''}Seed ${code(p.seed)} (${mdText(p.seedSource)}); ${mdText(p.rule)}; outcome ${mdText(p.outcome)}.`, '');
     out.push('| Seat | Pinned model ID | Family | Verdict | Score |', '| --- | --- | --- | --- | --- |');
