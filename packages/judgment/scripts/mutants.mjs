@@ -3,7 +3,7 @@
 // Usage (from the repo root): node packages/judgment/scripts/mutants.mjs [filter]
 // With a filter, only mutants whose group or description contains it run.
 import { spawnSync } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const src = (f) => fileURLToPath(new URL(`../src/${f}`, import.meta.url));
@@ -133,6 +133,17 @@ function runTests(paths = ['packages/judgment']) {
   return { failed: r.status !== 0, failedCount: m ? `${m[1]} tests` : files ? `${files[1]} files` : 'suite' };
 }
 
+// A journal of the file under mutation, written before each mutation and removed after its restore,
+// so a sweep killed mid-run (where finally never runs) is undone by the next start.
+const JOURNAL = `${root}reports/mutant-inflight.json`;
+if (existsSync(JOURNAL)) {
+  const j = JSON.parse(readFileSync(JOURNAL, 'utf8'));
+  writeFileSync(j.path, j.original);
+  rmSync(JOURNAL);
+  console.error(`restored ${j.path} from a killed sweep`);
+}
+mkdirSync(`${root}reports`, { recursive: true });
+
 const filter = process.argv[2];
 const rows = [];
 for (const [group, desc, file, find, replace, tests] of MUTANTS.filter(([g, d]) => !filter || `${g}: ${d}`.includes(filter))) {
@@ -143,12 +154,14 @@ for (const [group, desc, file, find, replace, tests] of MUTANTS.filter(([g, d]) 
     rows.push({ group, desc, result: `NOT APPLIED (${count} matches)` });
     continue;
   }
+  writeFileSync(JOURNAL, JSON.stringify({ path, original }));
   try {
     writeFileSync(path, original.replace(find, () => replace));
     const r = runTests(tests);
     rows.push({ group, desc, result: r.failed ? `killed (${r.failedCount} failed)` : 'SURVIVED' });
   } finally {
     writeFileSync(path, original);
+    rmSync(JOURNAL);
   }
   console.error(`${rows.at(-1).result.padEnd(28)} ${group}: ${desc}`);
 }

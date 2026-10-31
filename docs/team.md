@@ -96,6 +96,7 @@ Every hard rule in `CLAUDE.md` is enforced by a check, not just by instruction. 
 | Neutrality | `neutrality.*` fixtures for every actor in `docs/neutrality.md` | T-010, then ongoing |
 | Generated fixtures are not hand-edited | Drift test in `tests/gen-demo-data.test.ts`; `node scripts/gen-demo-data.ts --check` | T-012 |
 | Tests do not assert on wall-clock time | Cost limits use `StepBudget` counts, not `performance.now()`; a lint or grep check over `*.test.ts` (proposed after `redteam.test.ts` K2 failed 3 of 3 full `pnpm test` runs on this machine and passed alone) | Proposed (T-012) |
+| A mutation sweep never leaves a mutant behind | Both `mutants.mjs` scripts journal the original to `reports/mutant-inflight.json` before each mutation and restore it on the next start, since `finally` does not run when the agent is killed (two stopped T-009 sweeps left mutants committed in WIP checkpoints) | T-009 |
 
 ## Cadence
 
