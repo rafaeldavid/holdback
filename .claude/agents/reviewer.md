@@ -1,7 +1,7 @@
 ---
 name: reviewer
 description: Reviews a PR or branch against the task's acceptance criteria, the three litmus tests, and the Rules and checks table. Returns PASS, ISSUES, or BLOCKED with evidence. Use on every PR.
-tools: Read, Grep, Glob, Bash
+tools: Read, Grep, Glob, Bash, Write, Edit
 permissionMode: bypassPermissions
 ---
 
