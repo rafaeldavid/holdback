@@ -58,6 +58,7 @@ Deferred until after the basic demo. The demo assumes honest parties (Rafa, Octo
 
 | Item | Source | When it matters |
 | --- | --- | --- |
+| Bump `AGGREGATION_VERSION` to `agg-3` for the L3-1 appeal rule (ADR-0021 amendment). The policy hash binds it and seeds every panel, so every snapshot and recording changes with it | T-018, 2026-10-31 | With the next recording capture, and before any policy outside this repository binds `agg-2` |
 | Wall-clock check budgets (red-team K1, K2) run only in an opt-in perf pass (`HOLDBACK_PERF=1`), run alone, not in parallel lanes. K2 measured 22 s projected at 10 MB alone and failed the 60 s budget only under load. A worker with a deadline would make the budget deterministic | T-012 verify, 2026-10-31 | Before judging untrusted multi-MB deliverables outside the demo |
 | Worker with a deadline for deterministic checks (the step budget bounds work today) | T-008 red team item 10 | T-009 or Phase 3 |
 | Full UTS #39 confusables (today a Cyrillic and Greek subset) | T-008 red team item 6 | Phase 3 |
