@@ -72,6 +72,8 @@ Parallel lanes own disjoint paths, which reduces merge conflicts.
 5. T-010 needs T-005, T-007, T-009 and T-012.
 6. T-013 needs everything.
 
+Deferred work: when a finding or decision is not needed for the honest-party demo, add it to `docs/backlog.md` with its source and when it matters, instead of building it now.
+
 ## Rules and checks
 
 Every hard rule in `CLAUDE.md` is enforced by a check, not just by instruction. When a check is missing, adding it is a task.

@@ -41,6 +41,7 @@ Restate this in your own words in this section before writing code.
 - [ ] SDK decrypt helper (ADR-0021): returns `{ plaintext, screen, removed }`, hands the agent a normalized view by default with the raw bytes on request, and always verifies the plaintext hash on the raw bytes.
 - [ ] Privacy (ADR-0020): responses include a commitment's body only at disclosure levels that publish it (Phase 1: `public`). Read authentication (`ReadToken`, `unauthorized`) is out of scope until Phase 2.
 
+- [ ] Finality (D20): `GET /v1/commitments/{id}` serves `settledAt` and `finalAt`. SDK `waitFor('final')` if T-012's agents need it; otherwise it may slip to API v0.3.
 ## Out of scope
 
 - MCP wrapper (Phase 6).

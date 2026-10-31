@@ -90,3 +90,7 @@ Add a third settlement mode, `optimistic`, which parties select per commitment a
 - **Neutrality.** Once both parties have signed and the buyer has funded the hold, no single party can stop settlement. The buyer can delay payment only until `disputeBy`, and only by paying for a dispute. After that, anyone can trigger release. The seller cannot take funds before `disputeBy` or a decision. During a dispute, the fallback applies, and silence by every adjudicator resolves to the pre-dispute terms: release to the seller. No silent party can turn the outcome against the one who acted. No party can shorten the other's signed window (D19).
 - **The hold.** The money is held, with an expiry, idempotent operations and anyone-can-trigger timeouts, as in every mode. The work is not held: the parties chose that, and the neutrality test's "held work" applies only to modes that hold it.
 - **Defended judgment.** Unchanged when it runs. Fewer commitments are judged, so less traffic feeds the quality signals in ADR-0014.
+
+## Finality (D20)
+
+In `optimistic` mode the work is final for the seller at delivery, before the money is. The money is final at the release at `disputeBy`, or at the decision if the buyer disputes. See `docs/architecture.md` §Finality.
