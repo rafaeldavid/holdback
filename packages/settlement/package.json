@@ -3,8 +3,18 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
+  "exports": {
+    ".": { "types": "./dist/src/index.d.ts", "default": "./dist/src/index.js" },
+    "./sim": { "types": "./dist/sim/index.d.ts", "default": "./dist/sim/index.js" }
+  },
   "scripts": {
     "build": "tsc -b"
+  },
+  "dependencies": {
+    "@holdback/core": "workspace:*",
+    "viem": "^2.57.13"
+  },
+  "devDependencies": {
+    "fast-check": "^4.10.2"
   }
 }

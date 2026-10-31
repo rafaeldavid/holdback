@@ -14,6 +14,7 @@
     "test": "vitest run",
     "validate:spec": "node scripts/validate-spec.mjs",
     "snap": "tsc -b packages/testkit && node packages/testkit/dist/cli.js",
+    "load": "tsc -b packages/settlement && node packages/settlement/dist/sim/load.js",
     "demo": "node scripts/placeholder.mjs demo T-013",
     "verify": "node scripts/verify.ts",
     "map": "node scripts/design-map.mjs"

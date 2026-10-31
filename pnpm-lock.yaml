@@ -225,13 +225,27 @@ importers:
 
   packages/sdk: {}
 
-  packages/settlement: {}
+  packages/settlement:
+    dependencies:
+      '@holdback/core':
+        specifier: workspace:*
+        version: link:../core
+      viem:
+        specifier: ^2.57.13
+        version: 2.57.13(typescript@6.0.3)
+    devDependencies:
+      fast-check:
+        specifier: ^4.10.2
+        version: 4.10.2
 
   packages/testkit:
     dependencies:
       '@holdback/core':
         specifier: workspace:*
         version: link:../core
+      '@holdback/settlement':
+        specifier: workspace:*
+        version: link:../settlement
       viem:
         specifier: ^2.57.13
         version: 2.57.13(typescript@6.0.3)

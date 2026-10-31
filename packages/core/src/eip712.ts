@@ -425,6 +425,16 @@ export function commitmentId(terms: CommitmentTerms): Hex32 {
 type Typed = { domain: HoldbackDomain; types: typeof eip712Types; primaryType: string; message: Encoded };
 const typed = (domain: HoldbackDomain, primaryType: string, message: Encoded): Typed => ({ domain, types: eip712Types, primaryType, message });
 
+/**
+ * The delivery hash a MutualSettlement names (ADR-0019): the EIP-712 struct hash of the delivery without
+ * its signature. Like the commitment ID it has no domain, so it is the same on every chain.
+ */
+export function deliveryHash(d: Delivery): Hex32 {
+  const unsigned: Omit<Delivery, 'signature'> & { signature?: unknown } = { ...d };
+  delete unsigned.signature;
+  return hashStruct({ primaryType: 'Delivery', types: eip712Types, data: encodeMessage({ ...unsigned, type: 'Delivery' }) });
+}
+
 /** The EIP-712 digest an agent signs for a message, e.g. for a contract or relayer to compare. */
 export const messageDigest = (domain: HoldbackDomain, message: UnsignedMessage): Hex32 =>
   hashTypedData(typed(domain, message.type, encodeMessage(message)) as Parameters<typeof hashTypedData>[0]);
