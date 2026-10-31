@@ -61,7 +61,7 @@ class BalancedSequencer extends BaseSequencer {
 
 export default defineConfig({
   test: {
-    include: ['tests/**/*.test.ts', 'packages/*/src/**/*.test.ts', 'packages/settlement/sim/**/*.test.ts', 'apps/*/src/**/*.test.ts', 'apps/demo/agents/**/*.test.ts', 'examples/*.test.ts'],
+    include: ['tests/**/*.test.ts', 'packages/*/src/**/*.test.ts', 'packages/settlement/sim/**/*.test.ts', 'apps/*/src/**/*.test.ts', 'apps/demo/agents/**/*.test.ts', 'examples/*.test.ts', 'tools/sim/*.test.ts'],
     sequence: { sequencer: BalancedSequencer },
   },
 });
