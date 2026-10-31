@@ -2,7 +2,7 @@
 import { holdbackDomain, parseOperatorStatus, parsePage, parseReceipt, verifyMessage, type CommitmentStateView, type Receipt } from '@holdback/core';
 import { Holdback, requestOf } from '@holdback/sdk';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { LogEntry } from './index.js';
+import { Operator, simRegistry, type LogEntry } from './index.js';
 import { asOperation, hex32, holdOf, world, type World } from './_world.js';
 
 let w: World;
@@ -101,6 +101,16 @@ describe('mutations', () => {
   });
 });
 
+describe('startup guards apply to every operator', () => {
+  it('constructing an Operator directly runs the guards', async () => {
+    const registry = simRegistry(w.chain);
+    const options = { settlement: w.chain, registry, signerKey: `0x${'22'.repeat(32)}` as const, operatorId: 'direct' };
+    expect(() => new Operator({ ...options, env: { STRIPE_SECRET_KEY: 'sk_live_x' } })).toThrow(/sk_test_/);
+    expect(() => new Operator({ ...options, env: {}, registry: { ...registry, chainId: 100 } })).toThrow(/allowlist/);
+    expect(() => new Operator({ ...options, env: {} })).not.toThrow();
+  });
+});
+
 describe('dry run (?validateOnly=true)', () => {
   it('validates an unsigned party message, records nothing, and marks the response', async () => {
     const hb = new Holdback({ operators: [base] });
@@ -160,6 +170,67 @@ describe('headers and problems', () => {
     expect(t2.status).toBe(429);
     expect((await json(t2))['type']).toBe('rate_limited');
     expect(Number(t2.headers.get('retry-after'))).toBeGreaterThan(0);
+  });
+});
+
+describe('refusals change nothing (docs/team.md: signed messages only)', () => {
+  async function deliveredEarlyAccept() {
+    const hb = new Holdback({ operators: [base] });
+    await hb.hold(await holdOf(w.deal));
+    await hb.submit(asOperation(await w.deal.deliver()));
+    return requestOf(asOperation(await w.deal.earlyAccept()));
+  }
+
+  it('an unsigned live EarlyAccept is 400 invalid_terms, and SimChain is unchanged', async () => {
+    const { path, body } = await deliveredEarlyAccept();
+    const unsigned = { ...(body as Record<string, unknown>) };
+    delete unsigned['signature'];
+    const before = w.chain.digest();
+    const r = await post(path, unsigned, { 'idempotency-key': 'unsigned' });
+    expect([r.status, (await json(r))['type']]).toEqual([400, 'invalid_terms']);
+    expect(w.chain.digest()).toBe(before);
+  });
+
+  it('an EarlyAccept with a zero signature is 401 invalid_signature, and SimChain is unchanged', async () => {
+    const { path, body } = await deliveredEarlyAccept();
+    const before = w.chain.digest();
+    const r = await post(path, { ...(body as object), signature: `0x${'00'.repeat(65)}` }, { 'idempotency-key': 'zero-sig' });
+    expect([r.status, (await json(r))['type']]).toEqual([401, 'invalid_signature']);
+    expect(w.chain.digest()).toBe(before);
+  });
+
+  it('an EarlyAccept signed by the wrong key is 401 invalid_signature, and SimChain is unchanged', async () => {
+    const { path, body } = await deliveredEarlyAccept();
+    const before = w.chain.digest();
+    const r = await post(path, { ...(body as object), signature: `0x${'11'.repeat(64)}1b` }, { 'idempotency-key': 'bad-sig' });
+    expect([r.status, (await json(r))['type']]).toEqual([401, 'invalid_signature']);
+    expect(w.chain.digest()).toBe(before);
+  });
+
+  it('a malformed body is 400 invalid_terms, not 500, even with rate limits on', async () => {
+    const limited = await w.operator('op-shape', { rateLimit: { writes: 10, reads: 10, windowMs: 60_000 } });
+    for (const [path, body] of [
+      ['/v1/commitments', { seller: 1 }],
+      ['/v1/holds', { commitment: { seller: 1 }, acceptance: {}, agree: { buyer: 1 }, funding: {} }],
+      [`/v1/commitments/${w.deal.id}/fund`, { commitmentId: w.deal.id, from: 1 }],
+    ] as const) {
+      const r = await fetch(`${limited.url}${path}`, { method: 'POST', headers: { 'idempotency-key': `shape-${path}` }, body: JSON.stringify(body) });
+      expect([path, r.status, ((await r.json()) as Record<string, unknown>)['type']]).toEqual([path, 400, 'invalid_terms']);
+    }
+  });
+
+  it.each(['1', 'TRUE', 'yes', ''])('?validateOnly=%j is 400 invalid_terms and executes nothing', async (value) => {
+    const { path, body } = await deliveredEarlyAccept();
+    const before = w.chain.digest();
+    const r = await post(`${path}?validateOnly=${value}`, body, { 'idempotency-key': `vo-${value}` });
+    expect([r.status, (await json(r))['type']]).toEqual([400, 'invalid_terms']);
+    expect(w.chain.digest()).toBe(before);
+  });
+
+  it('?validateOnly=false is a live call', async () => {
+    const { path, body } = await deliveredEarlyAccept();
+    const r = await post(`${path}?validateOnly=false`, body, { 'idempotency-key': 'vo-false' });
+    expect((await json(r))['escrowState']).toBe('Released');
   });
 });
 
