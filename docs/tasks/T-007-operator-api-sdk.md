@@ -75,7 +75,7 @@ Non-goals: run-time registration of clubs, agents, members and adjudicators (Sim
 
 ## Handoff
 
-- PR targets `t-006-simchain` until PR 38 merges; then merge `origin/main` and retarget to `main`.
+- PR 41 targets `main` (PR 38 merged; `origin/main` merged in at `6eb6bed`, verify passes there with 1664 tests and 27 of 27 mutants killed).
 - T-012 (agents) and T-013 (demo): start operators in process with `startOperator({ settlement, registry: simRegistry(chain), signerKey, operatorId, env: process.env })`, and use `new Holdback({ operators, settlement: chain })`. There is no operator binary yet (backlog).
 - Fixtures lane: `neutrality.operator-refuses`, `-offline` and `-rate-limits` and `error.dry-run-has-no-effects` exist as vitest cases only; porting them to `.scenario.yaml` needs testkit to drive HTTP operators (backlog).
 - Not served yet: judgment record, quotes, webhooks, audit verify, publish, disputes (backlog, with phases).
