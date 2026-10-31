@@ -1,8 +1,8 @@
 // Narration (docs/demo.md §Narration rules): every line states what happened and the number behind it
 // (amount, milliseconds, model ID, hash prefix). Plain statements only. Recorded mode says "recorded verdicts".
-import { labelOf, nameOf } from './cast.js';
+import { CAST, labelOf, nameOf } from './cast.js';
 import { formatAmount } from './money.js';
-import type { BeatTranscript, CheckResult, DemoEvent, Via } from './types.js';
+import type { BeatTranscript, CastKey, CheckResult, DemoEvent, Via } from './types.js';
 import { plain } from './untrusted.js';
 
 /** Words the narration never uses. Checked by narrate.test.ts over every transcript. */
@@ -54,7 +54,16 @@ export const describeEvent = (e: DemoEvent): string => plain(describeRaw(e));
 
 function describeRaw(e: DemoEvent): string {
   const who = labelOf(e.actor);
+  const slate = (s: { primary: CastKey; fallback: CastKey; appeal: CastKey }) => `${nameOf(s.primary)} (primary), ${nameOf(s.fallback)} (fallback), ${nameOf(s.appeal)} (appeal)`;
+  const offChain = 'Agent-to-agent message; nothing goes on chain.';
   switch (e.kind) {
+    case 'adjudicator-proposal': {
+      const excluded = e.considered.filter((c) => !c.eligible);
+      const why = excluded.length ? excluded.map((c) => `${c.name}: ${c.reasons.join('; ')}`).join(' | ') : 'none';
+      return `${who} reads ${e.registrations} published adjudicator registrations and keeps those the ${CAST.club.name} rulebook allows: ${e.rules.join('; ')}. Excluded: ${why}. Proposes ${slate(e.proposed)} to ${nameOf('seller')}. ${offChain}`;
+    }
+    case 'adjudicator-agreement':
+      return `${who} checks the proposal against its own policy: ${e.checks.join('; ')}. Agrees to ${slate(e.agreed)}; the offer will name exactly these. ${offChain}`;
     case 'offer':
       return `${who} offers ${formatAmount(e.price)} plus a ${formatAmount(e.fee)} adjudication fee, commitment ${short(e.commitmentId)}. The two agents chose the adjudicators: ${nameOf(e.primary)} (primary), ${nameOf(e.fallback)} (fallback), ${nameOf(e.appeal)} (appeal). Disclosure: ${e.disclosure}.`;
     case 'acceptance':

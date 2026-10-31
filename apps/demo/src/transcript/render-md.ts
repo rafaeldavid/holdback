@@ -21,6 +21,18 @@ export function renderMarkdown(t: BeatTranscript): string {
 
   out.push('## Timeline', '', ...t.events.filter((e) => e.kind !== 'balances').map((e) => `- ${mdText(narrate(e))}`), '');
 
+  if (t.adjudicators?.length) {
+    // Registration names and profile text are party text: escaped like every other line (T-017).
+    out.push('## Adjudicators considered', '', 'Judges are pinned registry model IDs; effort is what each bench declares (recorded mode applies none). History is role-play, invented for this demo.', '');
+    for (const a of t.adjudicators) {
+      const judges = a.judges.map((j) => `${code(j.model)} (${mdText(j.family)}, ${mdText(j.effort)})`).join(', ');
+      const terms = a.terms.map((x) => `${x.label}: ${x.value}`).join('; ');
+      const declined = a.declinedBecause?.length ? ` Declined because: ${a.declinedBecause.join('; ')}.` : '';
+      out.push(`- **${mdText(a.name)}**, ${mdText(a.selected === 'declined' ? 'considered and declined' : `chosen as ${a.selected}`)}. ${mdText(`${a.tagline}${declined} Terms: ${terms}.`)} Judges: ${judges}. ${mdText(`History (role-play): ${a.history.lines.join(' ')}`)}`);
+    }
+    out.push('');
+  }
+
   for (const p of eventsOf(t, 'panel')) {
     out.push(`## Panel${mark(p)}`, '', `${p.standIn ? '\\[stand-in\\] ' : ''}Seed ${code(p.seed)} (${mdText(p.seedSource)}); ${mdText(p.rule)}; outcome ${mdText(p.outcome)}.`, '');
     out.push('| Seat | Pinned model ID | Family | Verdict | Score |', '| --- | --- | --- | --- | --- |');
