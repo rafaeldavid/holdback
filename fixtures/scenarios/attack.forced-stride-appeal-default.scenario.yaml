@@ -1,0 +1,40 @@
+# @settlement sim @judges fake @mode guaranteed_on_decision @seed 41
+name: attack.forced-stride-appeal-default
+description: >-
+  Red team of PR 52 (D27a), path 5. No injection and no screen flag: the seller pads one name cell past the
+  per-record sampling budget (100,000 / 100 characters), so the delivery is unsampleable and every judge
+  gets the even-stride sample. Sampling escalates at the primary and, unflagged, escalates again at the
+  appeal, so no decision is signed and the default outcome pays the seller from the appeal bond. Judges
+  are fake passes; the outcome does not depend on them. Under D27b a sampled read after an escalation is
+  seller-controllable: Bench C rejects at once even though all five judges pass, so the default path is
+  refused (invalid_state: already Refunded) and the appeal bond pays nothing.
+club: fixtures/clubs/data-services-v1.yaml
+terms: fixtures/terms/clean-customers-2000.yaml
+parties:
+  buyer: atlas-buyer
+  seller: tidewater-seller
+adjudicators:
+  primary: bench-a
+  fallback: bench-b
+  appeal: bench-c
+operators: [op-1, op-2]
+faucet:
+  atlas-buyer: "10000000000"
+  bench-a: "25000000000"
+  bench-b: "25000000000"
+  bench-c: "25000000000"
+steps:
+  - offer:              { by: seller, via: op-1 }
+  - adjudicator_accept: { via: op-1 }
+  - agree_and_fund:     { by: buyer, via: op-1 }
+  - deliver:            { by: seller, via: op-1, file: data/dataset-cleaning/customers.clean.long-record.csv }
+  - advance_clock:      { seconds: 5 }
+  - judge:              { adjudicator: bench-a }     # stride sample: escalate
+  - judge:              { adjudicator: bench-c }     # stride sample, unflagged: escalate, so no decision
+  - advance_clock:      { seconds: 300 }
+  - trigger_default:    { via: op-2 }
+  - apply_default_outcome: { via: op-2 }
+expect:
+  terminal: Refunded
+  balances:
+    tidewater-seller: "0"   # forcing an unsampleable delivery must not pay the seller from the appeal bond
