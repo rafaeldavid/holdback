@@ -91,7 +91,10 @@ export const fixtures: Record<string, UnsignedMessage> = {
     type: 'MutualSettlement',
     commitmentId: h('01'),
     deliveryHash: h('16'),
-    sellerAmount: tusd('1200000000'),
+    payouts: [
+      { to: B, amount: tusd('1200000000') },
+      { to: '0x9999999999999999999999999999999999999999', amount: tusd('800000000') },
+    ],
     releaseKey: true,
     nonce: h('17'),
     expiresAt: at,
@@ -122,7 +125,7 @@ export const fixtures: Record<string, UnsignedMessage> = {
 };
 
 export const terms: CommitmentTerms = {
-  schemaVersion: '0.5',
+  schemaVersion: '0.6',
   clubId: 'data-services-v1',
   rulebookHash: h('11'),
   buyer: B,
@@ -166,7 +169,7 @@ const encodeTypePins: Record<string, string> = {
   Dispute: `Dispute(bytes32 commitmentId,address buyer,uint8 attempt,string grounds,TokenAmount bond,TokenAmount fee,EncryptedKey[] encryptedKeys,bytes32 nonce,uint64 expiresAt)EncryptedKey(address recipient,string scheme,string ciphertext,KeyUnlock unlock)KeyUnlock(string kind,uint64 round)${TOKEN}`,
   Publish: 'Publish(bytes32 commitmentId,string level,bytes32 nonce,uint64 expiresAt)',
   Receipt: 'Receipt(address operator,uint64 eventSeq,bytes32 eventHash,bool hasCommitment,bytes32 commitmentId)',
-  MutualSettlement: `MutualSettlement(bytes32 commitmentId,bool hasDelivery,bytes32 deliveryHash,TokenAmount sellerAmount,bool releaseKey,bytes32 nonce,uint64 expiresAt)${TOKEN}`,
+  MutualSettlement: 'MutualSettlement(bytes32 commitmentId,bool hasDelivery,bytes32 deliveryHash,Payout[] payouts,bool releaseKey,bytes32 nonce,uint64 expiresAt)Payout(address to,TokenAmount amount)TokenAmount(string token,uint256 amount)',
   Delivery:
     'Delivery(bytes32 commitmentId,uint8 attempt,Ciphertext ciphertext,string plaintextSha256,string plaintextMime,EncryptedKey[] encryptedKeys,uint64 submittedAt)Ciphertext(string uri,string sha256,uint64 bytes,string cipher)EncryptedKey(address recipient,string scheme,string ciphertext,KeyUnlock unlock)KeyUnlock(string kind,uint64 round)',
   Appeal: `Appeal(bytes32 commitmentId,string appellant,address appellantAddress,string grounds,TokenAmount bond,uint64 filedAt)${TOKEN}`,
@@ -182,23 +185,23 @@ const encodeTypePins: Record<string, string> = {
 
 // Digests of the fixtures above under holdbackDomain(31337).
 const digestPins: Record<string, Hex> = {
-  Offer: '0x53289189a8ac9be37596868110da55b156946d4c6b409ce0b1c9add04165a800',
-  Agree: '0x09c88607bff51077f239276582bb9df286a0311ab6f267311accbedf332b03da',
-  AdjudicatorAcceptance: '0xacebf6ff92584830d13c78792efa6f7ef1f13c1edd6b94d2c3bd04153cfc46f6',
-  FundingAuthorization: '0x75fc9c7b8284cb6b70e544cb8834bc693890fa6685999dd677072dd01c5118f9',
-  EarlyAccept: '0xa78699f7b715d180b6e82f0655eb8b0db0a1d6d02230541d4833bb7651ec475e',
-  Decision: '0x32f0f4fa27b73b95bf67870a9041e124f514e3628f997d0991026017e8a9d29e',
-  AgentRevocation: '0x2e8948f37dd24a8f489f4892f45717e7d0b4e95e1e0031cc4726ac580634b6cc',
-  MemberAdmission: '0x4c287d8c7afb55bbf264277e57cbc299aea5a7a42bdab1bae239d38fa0c34f89',
-  MemberRevocation: '0x36305a20b58be29c84691558569d4cecb1b4b70deec0bb0da55c8520b3b5d0c7',
-  Dispute: '0x715c61a6041268cacf7fc77f404c677caf9e30d249fe6583b0d5cede8f9b8135',
-  Receipt: '0x34cd1ec8d75421f2cc86412881a666878393c01f79fe99da8627dd6ef76e925e',
-  Publish: '0xdfbc5078dd18e6dfaf6e2f61334893670c82760fa927ecfe9b4a18d41c8543d6',
-  MutualSettlement: '0xf67d31c60eafbed91f9861b505e20daa4c0cd50f2a427b256ce2dcdd34fbb257',
-  Delivery: '0x5e2c28a7ba7404cdb832ec973e4447ff43f61969c428d3d9634e98de8973c21a',
-  Appeal: '0x3e03f3cd8fc63ce6cbc48fd61d0f601f6cb70f264e19b9857216a669855ad86d',
-  Mandate: '0xa088db37eba2b2334bbe9bce8b65934596b122f5b861d2be73384ef5876f9497',
-  CommitmentTerms: '0xe12155c2b8ab24be58ac3769a0ea98e90fc52c2674466871fdb912e91b8ac793',
+  Offer: '0x6556874e4fe09c1d5380bb80b52cdfb2e3f934c96c0bc576ebb0399e9918258b',
+  Agree: '0x224c5b608bbceb2eceeee04860c0ec00f4283922a4a4a908389f7ffe00ab6660',
+  AdjudicatorAcceptance: '0x78999d9306e0e4cd6c1f45b815e10b660c97698c13c6fc7ed9b5337f21c006f6',
+  FundingAuthorization: '0x23cdeb00d6a7d7992aec2961658f11ee0cc7d456370888c2f201ce47c631b69b',
+  EarlyAccept: '0xa24f6800602f25651af58f39b3045324c97c42d26dbdda9d03c66a90286bee8d',
+  Decision: '0x4bbe91e10f92eae5d5182acc01d1394ae1c5cc1d52a90ca5cd491d030c0b1277',
+  AgentRevocation: '0x96c8844e514d2a4119eba1bce1fa14f1e70c08895fca499a68253c30e380abf6',
+  MemberAdmission: '0xa0907ae2902f15ff24c453ab5a6733f138efffa7d316e977c924e042b2547300',
+  MemberRevocation: '0x4056b4f6b26a349f0d91bf8763b70b079cb1a94fb36146407e9e5a5a339de4a4',
+  Dispute: '0xd66ded91568fee5014b754a94cd40f612c552f62b0e7df19c7179c360ccf9d62',
+  Receipt: '0x8ebafd23f09e5aee09946caf098f1558126926ac2f08472d66535014883d96e4',
+  Publish: '0xe41ef334d238e97abb356097ad5954609c78abea0e9bfd271906afda156bd394',
+  MutualSettlement: '0x86fc0a151e2fe6492a8f4c6fc5322e6305002fc3cc35d805e82b8b673bb33073',
+  Delivery: '0x1e78504be610bba1912938d2702966c9017940080ef99151c153953eaa85415d',
+  Appeal: '0x53756af3b2e9a4652147aca18d8bc38ed160582557b369b88abbb1b6b028fab2',
+  Mandate: '0xa5a6a54ee851f75067ccc68bda24d7c0bfb2a07d7d59e9c2f547f26c47485810',
+  CommitmentTerms: '0xd98b1700753aec82b1ecc322fbd3f07bb83c6abe4f0bb1a94022b22732662092',
 };
 
 // A second, hand-written EIP-712 implementation (encodeType, encodeData, hashStruct, domain separator)
@@ -242,7 +245,7 @@ function hashStruct(type: string, data: Record<string, unknown>): Hex {
 const domainSeparator = keccak256(
   encodeAbiParameters(
     [{ type: 'bytes32' }, { type: 'bytes32' }, { type: 'bytes32' }, { type: 'uint256' }, { type: 'address' }],
-    [keccak256(stringToHex('EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)')), keccak256(stringToHex('Holdback')), keccak256(stringToHex('0.5')), 31337n, SIMCHAIN_VERIFYING_CONTRACT],
+    [keccak256(stringToHex('EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)')), keccak256(stringToHex('Holdback')), keccak256(stringToHex('0.6')), 31337n, SIMCHAIN_VERIFYING_CONTRACT],
   ),
 );
 const handDigest = (primaryType: string, message: Record<string, unknown>): Hex => keccak256(concat(['0x1901', domainSeparator, hashStruct(primaryType, message)]));

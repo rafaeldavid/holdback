@@ -1,4 +1,4 @@
-// Hand-written types for spec/schemas v0.5. Values reach these types only through the parsers in
+// Hand-written types for spec/schemas v0.6. Values reach these types only through the parsers in
 // parse.ts, which validate against the schema files. Phase 1 narrows the commitment to
 // guaranteed_on_decision and maxSubmissions = 1 (ADR-0007).
 import type { TokenAmount } from './money/index.js';
@@ -135,7 +135,7 @@ export interface Timing {
 
 /** Everything the commitment ID hashes: the commitment minus id, signatures and adjudicatorAcceptance (ADR-0016). */
 export interface CommitmentTerms {
-  schemaVersion: '0.5';
+  schemaVersion: '0.6';
   clubId: string;
   rulebookHash: Hex32;
   buyer: Address;
@@ -293,16 +293,26 @@ export type SignedMessage =
   | Dispute;
 
 /**
- * Buyer and seller close a commitment by agreement (ADR-0019). Both sign the identical struct, so it
- * carries two signatures instead of MessageBase's one. Settlement behavior is T-006.
+ * Buyer and seller close a commitment by agreement (ADR-0019, amended by D23). Both sign the identical
+ * struct, so it carries two signatures instead of MessageBase's one. Settlement behavior is T-006.
  */
+/** D23: `parties` limits payouts to the buyer and the seller; `any` admits any address both sign for. */
+export type PayoutsTo = 'parties' | 'any';
+
+export interface Payout {
+  /** Any address both parties sign for, unless the rulebook restricts payouts to the parties. */
+  to: Address;
+  /** Above zero, in the price token. */
+  amount: TokenAmount;
+}
+
 export interface MutualSettlement {
   type: 'MutualSettlement';
   commitmentId: Hex32;
   /** The delivery being settled, or null before any delivery. */
   deliveryHash: Hex32 | null;
-  /** Paid to the seller in the price token; the rest of the hold returns to the buyer. */
-  sellerAmount: TokenAmount;
+  /** One to eight payouts that sum to the price (D23); the adjudication fee returns to the buyer. */
+  payouts: Payout[];
   releaseKey: boolean;
   nonce: Hex32;
   expiresAt: Timestamp;
@@ -393,7 +403,7 @@ export interface Rulebook {
   panelPolicyMin: { panelSize: number; appealPanelSize: number; minFamilies: number };
   appealFee: TokenAmount;
   /** ADR-0019. */
-  mutualSettlement: { allowed: boolean; adjudicatorFeeShareAfterDeliveryBps: number };
+  mutualSettlement: { allowed: boolean; adjudicatorFeeShareAfterDeliveryBps: number; payoutsTo: PayoutsTo };
   disclosureMin: DisclosureLevel;
   /** Phase 1: long-term only (ADR-0020). */
   identityModes: IdentityMode[];
@@ -482,7 +492,7 @@ export interface CommitmentStateView {
   deadlines: Record<string, Timestamp>;
   balances?: Record<Address, TokenAmount>;
   /** Present only when escrowState is Settled (ADR-0019). */
-  settled?: { sellerAmount: TokenAmount; buyerAmount: TokenAmount; keyReleased: boolean };
+  settled?: { payouts: Payout[]; keyReleased: boolean };
   /** D20: money moved and is irrevocable for its payee. Not signed. */
   settledAt?: Timestamp | null;
   /** D20: no protocol step can change who got what; null until true. Not signed. */

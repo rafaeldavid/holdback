@@ -170,6 +170,17 @@ function messageRules(m: Message): string | undefined {
     if (timed) return timed;
   }
   if (m.type === 'FundingAuthorization' && !tokenAmount(m.token, m.value).ok) return `value ${m.value} is not a canonical uint256 decimal`;
+  if (m.type === 'MutualSettlement') {
+    // D23: payouts may name any address, but each recipient once and all in one token. Sum and token
+    // against the price are checked with the terms (mutualSettlementProblem).
+    const seen = new Set<string>();
+    for (const p of m.payouts) {
+      const to = p.to.toLowerCase();
+      if (seen.has(to)) return `payout recipient ${p.to} appears more than once`;
+      seen.add(to);
+    }
+    if (new Set(m.payouts.map((p) => p.amount.token)).size > 1) return 'payouts must all be in one token';
+  }
   return undefined;
 }
 

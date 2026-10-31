@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 // @ts-expect-error -- plain ESM helper without type declarations
 import { loadSpec, validateExamples } from '../scripts/spec.mjs';
 
-const V = 'https://holdback.dev/schemas/v0.5';
+const V = 'https://holdback.dev/schemas/v0.6';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const example = (name: string): any => structuredClone(loadSpec().examples.find((e: { name: string }) => e.name === name).data);
 
@@ -59,13 +59,13 @@ describe('spec/', () => {
     expect(validate(message)).toBe(false);
   });
 
-  it('moves every schema $id and the commitment schemaVersion to v0.5', () => {
+  it('moves every schema $id and the commitment schemaVersion to v0.6', () => {
     const { schemas, ajv } = loadSpec();
-    for (const id of schemas.values()) expect(id).toMatch(/\/schemas\/v0\.5\//);
+    for (const id of schemas.values()) expect(id).toMatch(/\/schemas\/v0\.6\//);
     const validate = ajv.getSchema(`${V}/commitment.schema.json`);
     const c = example('commitment');
-    expect(c.schemaVersion).toBe('0.5');
-    c.schemaVersion = '0.4';
+    expect(c.schemaVersion).toBe('0.6');
+    c.schemaVersion = '0.5';
     expect(validate(c)).toBe(false);
   });
 
@@ -227,7 +227,7 @@ describe('spec/', () => {
       const r = validateExamples().find((x: { file: string }) => x.file === 'messages.mutual-settlement.example.json');
       expect(r?.ok).toBe(true);
     });
-    it.each(['sellerAmount', 'buyerSignature', 'sellerSignature', 'releaseKey', 'deliveryHash'])('requires %s', (field) => {
+    it.each(['payouts', 'buyerSignature', 'sellerSignature', 'releaseKey', 'deliveryHash'])('requires %s', (field) => {
       const m = example('messages.mutual-settlement');
       expect(messages()(m)).toBe(true);
       delete m[field];
@@ -247,13 +247,15 @@ describe('spec/', () => {
       m.releaseKey = true;
       expect(messages()(m)).toBe(false);
     });
-    it('records the split and key release on a Settled commitment', () => {
+    it('records the payouts and key release on a Settled commitment', () => {
       const validate = loadSpec().ajv.getSchema(`${V}/commitment-state.schema.json`);
       const s = example('commitment-state');
       s.escrowState = 'Settled';
       expect(validate(s)).toBe(false);
-      s.settled = { sellerAmount: { token: 'tUSD', amount: '1200000000' }, buyerAmount: { token: 'tUSD', amount: '850000000' }, keyReleased: true };
+      s.settled = { payouts: [{ to: '0x2222222222222222222222222222222222222222', amount: { token: 'tUSD', amount: '1200000000' } }], keyReleased: true };
       expect(validate(s)).toBe(true);
+      s.settled = { sellerAmount: { token: 'tUSD', amount: '1200000000' }, buyerAmount: { token: 'tUSD', amount: '850000000' }, keyReleased: true };
+      expect(validate(s)).toBe(false);
     });
     it('lets a club allow or refuse mutual settlement, with an integer basis-point fee share', () => {
       const validate = loadSpec().ajv.getSchema(`${V}/club.schema.json`);
@@ -266,14 +268,61 @@ describe('spec/', () => {
       delete c.rulebook.mutualSettlement;
       expect(validate(c)).toBe(false);
     });
-    it('emits commitment.settled with the split', () => {
+    it('emits commitment.settled with the payouts', () => {
       const validate = loadSpec().ajv.getSchema(`${V}/event.schema.json`);
       const e = example('event');
       e.type = 'commitment.settled';
-      e.payload = { sellerAmount: { token: 'tUSD', amount: '1200000000' }, buyerAmount: { token: 'tUSD', amount: '850000000' }, keyReleased: true };
+      e.payload = { payouts: [{ to: '0x2222222222222222222222222222222222222222', amount: { token: 'tUSD', amount: '1200000000' } }], keyReleased: true };
       expect(validate(e)).toBe(true);
       e.payload = { note: 'split' };
       expect(validate(e)).toBe(false);
+    });
+  });
+
+  describe('mutual settlement to any addresses (ADR-0019 as amended by D23)', () => {
+    const messages = () => loadSpec().ajv.getSchema(`${V}/messages.schema.json`);
+    const club = () => loadSpec().ajv.getSchema(`${V}/club.schema.json`);
+    const pay = (to: string, amount: string) => ({ to, amount: { token: 'tUSD', amount } });
+    const THIRD = '0x9999999999999999999999999999999999999999';
+    it('pays a third-party address named by both parties', () => {
+      const m = example('messages.mutual-settlement');
+      expect(m.payouts.some((p: { to: string }) => p.to === THIRD)).toBe(true);
+      expect(messages()(m)).toBe(true);
+    });
+    it('replaces sellerAmount with payouts', () => {
+      const m = example('messages.mutual-settlement');
+      m.sellerAmount = { token: 'tUSD', amount: '1' };
+      expect(messages()(m)).toBe(false);
+    });
+    it('takes one to eight payouts', () => {
+      const m = example('messages.mutual-settlement');
+      m.payouts = [];
+      expect(messages()(m)).toBe(false);
+      m.payouts = Array.from({ length: 8 }, (_, i) => pay('0x' + String(i + 1).repeat(40), '1'));
+      expect(messages()(m)).toBe(true);
+      m.payouts.push(pay('0x' + 'a'.repeat(40), '1'));
+      expect(messages()(m)).toBe(false);
+    });
+    it.each([
+      ['a zero amount', (p: Record<string, unknown>) => (p.amount = { token: 'tUSD', amount: '0' })],
+      ['a fractional amount', (p: Record<string, unknown>) => (p.amount = { token: 'tUSD', amount: '1.5' })],
+      ['a payout with no recipient', (p: Record<string, unknown>) => delete p.to],
+      ['a payout with an extra field', (p: Record<string, unknown>) => (p.memo = 'x')],
+      ['a recipient that is not an address', (p: Record<string, unknown>) => (p.to = 'escrow.com')],
+    ])('refuses %s', (_label, edit) => {
+      const m = example('messages.mutual-settlement');
+      edit(m.payouts[0]);
+      expect(messages()(m)).toBe(false);
+    });
+    it('lets a club restrict payouts to the parties or allow any address', () => {
+      const c = example('club');
+      expect(c.rulebook.mutualSettlement.payoutsTo).toBe('any');
+      c.rulebook.mutualSettlement.payoutsTo = 'parties';
+      expect(club()(c)).toBe(true);
+      c.rulebook.mutualSettlement.payoutsTo = 'anyone';
+      expect(club()(c)).toBe(false);
+      delete c.rulebook.mutualSettlement.payoutsTo;
+      expect(club()(c)).toBe(false);
     });
   });
 
@@ -392,9 +441,9 @@ describe('spec/', () => {
 
   describe('review of PR 23: items 4, 5, 7 and 8', () => {
     const schema = (name: string) => loadSpec().ajv.getSchema(`${V}/${name}.schema.json`);
-    it('describes messages under domain version 0.5', () => {
-      expect(schema('messages').schema.description).toContain('version 0.5');
-      expect(schema('messages').schema.description).not.toContain('0.4');
+    it('describes messages under domain version 0.6', () => {
+      expect(schema('messages').schema.description).toContain('version 0.6');
+      expect(schema('messages').schema.description).not.toContain('0.5');
     });
     it.each([
       ['odd-length hex', { source: 'drand-quicknet', round: 1, value: '0x' + '11'.repeat(32), signature: '0xabc' }],
@@ -457,9 +506,9 @@ describe('spec/', () => {
       ['a zero disputeJudgeSec', 'commitment', 'commitment', (c) => { c.settlement.mode = 'optimistic'; Object.assign(c.timing, { disputeBy: '2026-11-06T17:00:00Z', disputeJudgeSec: 0, disputeFallbackSec: 86400 }); }],
       ['an unknown randomness source', 'club', 'club', (c) => (c.rulebook.randomness = { source: 'dice' })],
       ['a MutualSettlement with an extra field', 'messages', 'messages.mutual-settlement', (m) => (m.extra = 1)],
-      ['a MutualSettlement sellerAmount that is not money', 'messages', 'messages.mutual-settlement', (m) => (m.sellerAmount = { token: 'tUSD', amount: '1.5' })],
-      ['a settled split on a commitment that is not Settled', 'commitment-state', 'commitment-state', (s) => (s.settled = { sellerAmount: t('1'), buyerAmount: t('1'), keyReleased: false })],
-      ['a commitment.settled event without keyReleased', 'event', 'event', (e) => { e.type = 'commitment.settled'; e.payload = { sellerAmount: t('1'), buyerAmount: t('1') }; }],
+      ['a MutualSettlement payout that is not money', 'messages', 'messages.mutual-settlement', (m) => (m.payouts[0].amount = { token: 'tUSD', amount: '1.5' })],
+      ['a settled split on a commitment that is not Settled', 'commitment-state', 'commitment-state', (s) => (s.settled = { payouts: [{ to: h('11').slice(0, 42), amount: t('1') }], keyReleased: false })],
+      ['a commitment.settled event without keyReleased', 'event', 'event', (e) => { e.type = 'commitment.settled'; e.payload = { payouts: [{ to: h('11').slice(0, 42), amount: t('1') }] }; }],
       ['a mutualSettlement rule without allowed', 'club', 'club', (c) => delete c.rulebook.mutualSettlement.allowed],
       ['a Publish to an unknown level', 'messages', 'messages.publish', (p) => (p.level = 'secret')],
       ['a Publish with an extra field', 'messages', 'messages.publish', (p) => (p.extra = 1)],
@@ -469,7 +518,9 @@ describe('spec/', () => {
       ['a club disclosure minimum outside the levels', 'club', 'club', (c) => (c.rulebook.disclosureMin = 'secret')],
       ['an offered event whose termsHash is not a hash', 'event', 'event.offered', (e) => (e.payload.termsHash = 'abc')],
       // Second review of PR 23, item 6.
-      ['a Settled split without keyReleased', 'commitment-state', 'commitment-state', (s) => { s.escrowState = 'Settled'; s.settled = { sellerAmount: t('1'), buyerAmount: t('1') }; }],
+      ['a Settled split without keyReleased', 'commitment-state', 'commitment-state', (s) => { s.escrowState = 'Settled'; s.settled = { payouts: [{ to: h('11').slice(0, 42), amount: t('1') }] }; }],
+      ['a Settled split without payouts', 'commitment-state', 'commitment-state', (s) => { s.escrowState = 'Settled'; s.settled = { keyReleased: true }; }],
+      ['a mutualSettlement rule without payoutsTo', 'club', 'club', (c) => delete c.rulebook.mutualSettlement.payoutsTo],
       ['a mutualSettlement rule without its fee share', 'club', 'club', (c) => delete c.rulebook.mutualSettlement.adjudicatorFeeShareAfterDeliveryBps],
       ['a weighted score above 400 hundredths', 'judgment', 'judgment', (j) => (j.aggregate.weightedScore = 401)],
       ['a MutualSettlement without a nonce', 'messages', 'messages.mutual-settlement', (m) => delete m.nonce],
