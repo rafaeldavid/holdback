@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.5/common.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.6/common.schema.json",
   "title": "Common definitions",
   "$defs": {
     "Address": {
@@ -245,6 +245,47 @@
           "minimum": 1,
           "maximum": 100
         }
+      }
+    },
+    "Payout": {
+      "type": "object",
+      "description": "One recipient of a mutual settlement and the amount it receives, in the price token (D23)",
+      "additionalProperties": false,
+      "required": [
+        "to",
+        "amount"
+      ],
+      "properties": {
+        "to": {
+          "$ref": "#/$defs/Address",
+          "description": "Any address both parties sign for: a party, another escrow, an arbiter"
+        },
+        "amount": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/TokenAmount"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "amount": {
+                  "type": "string",
+                  "pattern": "^[1-9][0-9]{0,77}$"
+                }
+              }
+            }
+          ],
+          "description": "Above zero"
+        }
+      }
+    },
+    "Payouts": {
+      "type": "array",
+      "description": "One to eight payouts. Their sum must equal the price and every amount must be in the price token; the core parser refuses a recipient named twice (D23)",
+      "minItems": 1,
+      "maxItems": 8,
+      "items": {
+        "$ref": "#/$defs/Payout"
       }
     }
   }

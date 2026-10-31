@@ -19,7 +19,7 @@ No single party can stop a valid commitment from settling according to its terms
 - Holdback's maintainers;
 - either agent.
 
-Settling according to its terms includes a settlement both parties co-signed (ADR-0019, D15): any split of the price that buyer and seller both sign ends the commitment without an adjudicator.
+Settling according to its terms includes a settlement both parties co-signed (ADR-0019, D15): any split of the price, to any addresses buyer and seller both sign for, ends the commitment without an adjudicator (D23).
 
 Every actor gets a `neutrality.*` fixture. Residual control points are listed in `docs/neutrality.md`.
 

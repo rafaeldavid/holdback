@@ -1,0 +1,62 @@
+{
+  "generator": "scripts/gen-demo-data.ts",
+  "seed": 2000,
+  "files": [
+    {
+      "name": "customers.raw.csv",
+      "bytes": 705630,
+      "rows": 10020,
+      "sha256": "sha256:67051d4c1ab2bc2f85dcfe39f63221615b9d41c5a029ddb6f719a3616bdb14d9",
+      "description": "Buyer input: 9500 customers in 10020 rows (stale and repeated copies), mixed date formats, padded and upper-case emails, null tokens."
+    },
+    {
+      "name": "customers.clean.csv",
+      "bytes": 511912,
+      "rows": 9500,
+      "sha256": "sha256:1939b96f9809583e1fac057027eb44d37001d6a1f2606f16c0801e71498287e5",
+      "description": "Honest cleaning: newest record per customer_id, ISO 8601 signup_date, trimmed lower-case emails, missing values left empty and invalid emails kept but flagged email_valid=false."
+    },
+    {
+      "name": "customers.clean.row-drop.csv",
+      "bytes": 471196,
+      "rows": 8740,
+      "sha256": "sha256:3ee0ca3bfb431c2e68e117cc79564d37cf8784d5525a611a5b4635f6ece58312",
+      "description": "Beat 5: 760 rows (8%) silently dropped; fails row_count_range."
+    },
+    {
+      "name": "customers.clean.dup-keys.csv",
+      "bytes": 511912,
+      "rows": 9500,
+      "sha256": "sha256:74c2a96ae69e4b999ae381dcb24f0a8dfe91c7a958c4a2829363d1d3a7917317",
+      "description": "25 rows reuse another row's customer_id; fails unique_key."
+    },
+    {
+      "name": "customers.clean.bad-dates.csv",
+      "bytes": 511912,
+      "rows": 9500,
+      "sha256": "sha256:12c86158023f329406b5a75b51f02f02f2539cafc0c4a225aeaa7392ab62c4e0",
+      "description": "40 signup_date values left as MM/DD/YYYY and one impossible 2025-02-30; fails iso8601_date_column."
+    },
+    {
+      "name": "customers.clean.missing-column.csv",
+      "bytes": 464191,
+      "rows": 9500,
+      "sha256": "sha256:d274ea06be2c219eebb59f3121f4f91cc23fa29849d05fe74acbc9f3e1951b20",
+      "description": "email_valid column missing; fails csv_columns_exact."
+    },
+    {
+      "name": "customers.clean.blank-cells.csv",
+      "bytes": 505677,
+      "rows": 9500,
+      "sha256": "sha256:86e22719796b72b1917f974fcd1683eb475d6abbcd62536016337ed0863a266a",
+      "description": "380 emails replaced by blank-looking cells (space, N/A, null, zero-width, Hangul filler, dash) instead of empty; fails null_rate_max on email."
+    },
+    {
+      "name": "customers.clean.hidden-tags.csv",
+      "bytes": 512356,
+      "rows": 9500,
+      "sha256": "sha256:7cc827e6317e2a6983b6787dfe2dd1662710140d1d2585c88ac990034a83cda6",
+      "description": "Clean file with an instruction to the buyer's agent hidden in 111 Unicode tag characters in the first name cell (ADR-0021); passes the demo checks, fails hidden_characters_max."
+    }
+  ]
+}

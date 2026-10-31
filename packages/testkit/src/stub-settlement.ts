@@ -424,7 +424,7 @@ export class StubSettlement {
     const now = this.ctx.clock.now();
     const { adjudicators } = this.scenario;
     const terms: CommitmentTerms = {
-      schemaVersion: '0.5',
+      schemaVersion: '0.6',
       clubId: STUB_CLUB_ID,
       rulebookHash: rulebookHash(STUB_RULEBOOK),
       buyer: this.address(this.scenario.parties.buyer),

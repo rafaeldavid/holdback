@@ -36,10 +36,10 @@ const commitment = parsed.value;
 const terms = termsOf(commitment);
 
 // Pinned vectors. A change here changes every commitment ID and signature in the system: it needs an ADR.
-const EXAMPLE_TERMS_ID = '0x04819eff2b80e7edfe3cc9e2d4b91e07ae71e51e028bb7adba1cce3b5595ad15';
+const EXAMPLE_TERMS_ID = '0xaa040742a9332cea7152228c808005e0e359c9b28c5ebc71074dd67642c12855';
 const SELLER_ADDRESS = '0xDdC55D01F41A079E14F7Cbb3902ec14e1e8d3ce6';
 const EXAMPLE_TERMS_SELLER_SIGNATURE =
-  '0x6ec08eb2f91e2fe77150ca1bad359ec1b408d6505c05c902f82929d875427b3e7a4db21f00f5f737dbe1c094aaa7c8c177befaa9e6a3e780c2a95794a0cedec81c';
+  '0xccd8520e7a5fab1e63ffebe6b9d98a01ab099c5a5e127e1128604c4fe4a68acd05135942ac873efd1d51c39ee451ac6c2811e9a6b5ce7e2d12ee19c50661ba1c1c';
 
 // Distributes over unions, so removing `signature` from a SignedMessage keeps each variant.
 function without<T extends object, K extends keyof T>(obj: T, key: K): T extends unknown ? Omit<T, K> : never {
@@ -73,8 +73,8 @@ function setPath(obj: unknown, path: string[], v: Leaf): void {
 }
 
 describe('domain', () => {
-  it('is Holdback 0.5 with the SimChain placeholder contract by default', () => {
-    expect(domain).toEqual({ name: 'Holdback', version: '0.5', chainId: 31337n, verifyingContract: SIMCHAIN_VERIFYING_CONTRACT });
+  it('is Holdback 0.6 with the SimChain placeholder contract by default', () => {
+    expect(domain).toEqual({ name: 'Holdback', version: '0.6', chainId: 31337n, verifyingContract: SIMCHAIN_VERIFYING_CONTRACT });
     expect(SIMCHAIN_VERIFYING_CONTRACT).toMatch(/^0x[0-9a-f]{40}$/);
   });
 });
@@ -166,7 +166,7 @@ describe('message signatures', () => {
     const both = { ...unsigned, buyerSignature, sellerSignature };
     expect(await verifyMutualSettlement(domain, both, buyer, seller)).toBe(true);
     expect(await verifyMutualSettlement(domain, { ...both, sellerSignature: buyerSignature }, buyer, seller)).toBe(false);
-    expect(await verifyMutualSettlement(domain, { ...both, sellerAmount: { token: 'tUSD', amount: '1' } as never }, buyer, seller)).toBe(false);
+    expect(await verifyMutualSettlement(domain, { ...both, payouts: [{ ...both.payouts[0]!, to: seller }, ...both.payouts.slice(1)] }, buyer, seller)).toBe(false);
     expect(await verifyMutualSettlement(domain, { ...both, releaseKey: !both.releaseKey }, buyer, seller)).toBe(false);
   });
 
@@ -264,7 +264,7 @@ describe('message signatures', () => {
     const domainSeparator = keccak256(
       encodeAbiParameters(
         [{ type: 'bytes32' }, { type: 'bytes32' }, { type: 'bytes32' }, { type: 'uint256' }, { type: 'address' }],
-        [hashType('EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)'), hashType('Holdback'), hashType('0.5'), 31337n, SIMCHAIN_VERIFYING_CONTRACT],
+        [hashType('EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)'), hashType('Holdback'), hashType('0.6'), 31337n, SIMCHAIN_VERIFYING_CONTRACT],
       ),
     );
     const structHash = keccak256(

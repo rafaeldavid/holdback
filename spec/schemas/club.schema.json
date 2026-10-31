@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.5/club.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.6/club.schema.json",
   "title": "Club and rulebook",
   "type": "object",
   "required": [
@@ -252,7 +252,8 @@
           "additionalProperties": false,
           "required": [
             "allowed",
-            "adjudicatorFeeShareAfterDeliveryBps"
+            "adjudicatorFeeShareAfterDeliveryBps",
+            "payoutsTo"
           ],
           "description": "Whether buyer and seller may close a commitment by co-signed agreement (ADR-0019)",
           "properties": {
@@ -264,6 +265,13 @@
               "minimum": 0,
               "maximum": 10000,
               "description": "Share of the held adjudicator fee paid to the sitting adjudicator when the parties settle after delivery, in basis points (10000 = all); before delivery the fee returns to the buyer. Phase 1 requires 0 (ADR-0019)."
+            },
+            "payoutsTo": {
+              "enum": [
+                "parties",
+                "any"
+              ],
+              "description": "parties: payouts may name only the buyer and the seller. any: any addresses both parties sign for, such as another escrow or an outside arbiter (D23). A regulated club sets parties."
             }
           }
         },

@@ -37,7 +37,7 @@ Restate this in your own words in this section before writing code.
   - `?validateOnly=true` through `Settlement.validate`, unsigned for party messages, with the live response shape minus `receipt` and `Holdback-Dry-Run: true`; SDK `preview()`;
   - receipts conform to `receipt.schema.json`;
   - problem types `not_found` and `invalid_cursor`.
-- [ ] `POST /v1/commitments/{id}/settlements` accepts a co-signed `MutualSettlement`, with `?validateOnly=true` (ADR-0019); the SDK exposes `settle()` and `preview()` for it.
+- [ ] `POST /v1/commitments/{id}/settlements` accepts a co-signed `MutualSettlement` with `payouts: [{to, amount}]` (one to eight, summing to the price; D23), with `?validateOnly=true` (ADR-0019); the SDK exposes `settle()` and `preview()` for it.
 - [ ] SDK decrypt helper (ADR-0021): returns `{ plaintext, screen, removed }`, hands the agent a normalized view by default with the raw bytes on request, and always verifies the plaintext hash on the raw bytes.
 - [ ] Privacy (ADR-0020): responses include a commitment's body only at disclosure levels that publish it (Phase 1: `public`). Read authentication (`ReadToken`, `unauthorized`) is out of scope until Phase 2.
 

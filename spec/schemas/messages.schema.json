@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.5/messages.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.6/messages.schema.json",
   "title": "Signed protocol messages (EIP-712)",
-  "description": "Every state-changing message other than Delivery and Appeal. Each carries its EIP-712 domain implicitly: name Holdback, version 0.5, chainId, verifyingContract (ADR-0016).",
+  "description": "Every state-changing message other than Delivery and Appeal. Each carries its EIP-712 domain implicitly: name Holdback, version 0.6, chainId, verifyingContract (ADR-0016).",
   "oneOf": [
     {
       "$ref": "#/$defs/Offer"
@@ -631,13 +631,13 @@
     },
     "MutualSettlement": {
       "type": "object",
-      "description": "Buyer and seller close a commitment by agreement (ADR-0019). Both sign the identical struct: everything except the two signatures.",
+      "description": "Buyer and seller close a commitment by agreement (ADR-0019, amended by D23). Both sign the identical struct: everything except the two signatures. The held price goes to the payouts; the adjudication fee returns to the buyer.",
       "additionalProperties": false,
       "required": [
         "type",
         "commitmentId",
         "deliveryHash",
-        "sellerAmount",
+        "payouts",
         "releaseKey",
         "nonce",
         "expiresAt",
@@ -662,9 +662,9 @@
           ],
           "description": "EIP-712 struct hash of the delivery being settled, or null before any delivery"
         },
-        "sellerAmount": {
-          "$ref": "common.schema.json#/$defs/TokenAmount",
-          "description": "Paid to the seller, in the price token; the rest of the hold returns to the buyer"
+        "payouts": {
+          "$ref": "common.schema.json#/$defs/Payouts",
+          "description": "Who receives the held price and how much. Any addresses both parties sign for, unless the rulebook restricts payouts to the parties"
         },
         "releaseKey": {
           "type": "boolean",
