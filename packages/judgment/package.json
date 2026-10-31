@@ -3,8 +3,20 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
   "scripts": {
-    "build": "tsc -b"
+    "build": "tsc -b",
+    "mutants": "node scripts/mutants.mjs"
+  },
+  "dependencies": {
+    "@holdback/core": "workspace:*"
+  },
+  "devDependencies": {
+    "fast-check": "^4.10.2"
   }
 }
