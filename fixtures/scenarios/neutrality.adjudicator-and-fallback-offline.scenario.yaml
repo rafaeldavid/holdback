@@ -1,0 +1,43 @@
+# @settlement sim @judges recorded @mode guaranteed_on_decision @seed 41
+name: neutrality.adjudicator-and-fallback-offline
+description: >-
+  Bench A and Bench B both go offline after the delivery. After judgeBy anyone triggers the fallback;
+  after fallbackBy anyone triggers the default and applies the default outcome from the signed rulebook
+  (ADR-0007): Atlas gets its $2,050 back and the defaulting adjudicators' bonds pay Tidewater $2,000.
+fails: bench-b
+parties:
+  buyer: atlas-buyer
+  seller: tidewater-seller
+adjudicators:
+  primary: bench-a
+  fallback: bench-b
+  appeal: bench-c
+operators: [op-1, op-2]
+faucet:
+  atlas-buyer: "10000000000"
+  bench-a: "25000000000"
+  bench-b: "25000000000"
+  bench-c: "25000000000"
+steps:
+  - offer:                 { by: seller, via: op-1 }
+  - adjudicator_accept:    { via: op-1 }
+  - agree_and_fund:        { by: buyer, via: op-1 }
+  - deliver:               { by: seller, via: op-1, file: data/dataset-cleaning/customers.clean.csv }
+  - offline:               { actor: bench-a }
+  - offline:               { actor: bench-b }
+  - judge:                 { adjudicator: bench-a }   # no call
+  - advance_clock:         { seconds: 4300 }          # past judgeBy (offer + 4,200 s)
+  - trigger_fallback:      { via: op-2 }
+  - judge:                 { adjudicator: bench-b }   # no call
+  - advance_clock:         { seconds: 600 }           # past fallbackBy (offer + 4,800 s)
+  - trigger_default:       { via: op-2 }
+  - apply_default_outcome: { via: op-2 }
+expect:
+  terminal: Refunded
+  balances:
+    atlas-buyer: "10000000000"        # price and fee returned
+    tidewater-seller: "2000000000"    # compensation from the two defaulting bonds
+    bench-a: "24000000000"
+    bench-b: "24000000000"
+    bench-c: "25000000000"
+    escrow: "0"

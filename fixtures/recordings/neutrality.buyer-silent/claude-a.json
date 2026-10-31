@@ -1,0 +1,34 @@
+{
+  "format": "holdback.recording/v0",
+  "scenario": "neutrality.buyer-silent",
+  "judgeId": "claude-a",
+  "provider": "anthropic",
+  "family": "claude",
+  "model": "stub-claude-pinned-1",
+  "promptTemplateHash": "0x3f829b31b4678baf50a5306966ebb9e9c9b1c61d602e809ad2cbc7346e5699de",
+  "inputHash": "0x7c7e1a3ec01b8f7e4403eb5470a2d8605dda1c81baa4a179b0c62a81938115b7",
+  "rubricHash": "0xd3a599a728db2ce6ec63a890c8d5ed19e8e7f0f047d2571ff26ac13b623d72e6",
+  "capturedFrom": "fake",
+  "verdict": {
+    "criteria": [
+      {
+        "id": "dedupe_quality",
+        "score": 4,
+        "evidence": "fake judge: fixed score"
+      },
+      {
+        "id": "no_fabrication",
+        "score": 4,
+        "evidence": "fake judge: fixed score"
+      },
+      {
+        "id": "notes",
+        "score": 4,
+        "evidence": "fake judge: fixed score"
+      }
+    ],
+    "overall": "pass",
+    "injectionSuspected": false,
+    "rationale": "fake judge: fixed passing verdict, not a model output"
+  }
+}
