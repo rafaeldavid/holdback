@@ -35,7 +35,7 @@ A cleaned dataset has no delivery-versus-payment check of that kind, because whe
 | Minimum valid (non-abstain) verdicts | 2 | 4 |
 | Accept supermajority (`acceptSupermajority`, a fraction) | ≥ 2/3 pass, with pass verdicts from ≥ 2 families | ≥ 4/5, with passes from ≥ 2 families |
 | Reject supermajority (`rejectSupermajority`, a fraction) | ≥ 2/3 fail | ≥ 4/5 fail |
-| Flagged (screen, `injectionSuspected`, filter abstention) | escalate | accept only if every seat passes validly from the family minimum with no injection suspected; otherwise reject (D27a) |
+| Flagged (screen, `injectionSuspected`, filter abstention, sampled read) | escalate | after an escalation: accept only if every seat passes validly on the whole file from the family minimum with no injection suspected, otherwise reject (D27a, D27b). On a party appeal: escalate, so the first decision stands (D27c, D28) |
 | Otherwise | escalate | after a party appeal, the first decision stands and the appellant's bond is returned; after an escalation, the default outcome applies |
 | Judge timeout | 60 s, then abstain | 90 s |
 | Retries | 1, on transport error only, same inputs | same |
@@ -63,10 +63,12 @@ Neither party, nor the adjudicator after seeing the delivery, can steer which mo
 if any required deterministic check failed            -> REJECT  (no panel)
 if all checks passed and rubric is empty              -> ACCEPT  (no panel; add reason "screen flagged; see screen.signals" if flagged)
 verdicts = run panel
-if screen.flagged or any verdict.injectionSuspected   -> ESCALATE at the primary and the fallback;
-                                                         at the appeal (also on a filter abstention): ACCEPT only if
-                                                         every seat passes validly, from the appeal family minimum,
-                                                         with no injectionSuspected and the score met; else REJECT
+if screen.flagged or any verdict.injectionSuspected   -> ESCALATE at the primary, the fallback and a party appeal;
+                                                         at the appeal after an escalation (also on a filter
+                                                         abstention or a sampled read): ACCEPT only if every seat
+                                                         passes validly on the whole file, from the appeal family
+                                                         minimum, with no injectionSuspected and the score met;
+                                                         else REJECT
 valid = verdicts where overall != "abstain"
 if len(valid) < policy.minValid                       -> ESCALATE
 score = weighted mean of criterion scores across valid verdicts, in integer hundredths (0–400), sealed checks capped at rulebook weight
@@ -77,7 +79,7 @@ if fail * reject.den >= reject.num * len(valid) and fail > pass -> REJECT
 otherwise                                             -> ESCALATE   (ties escalate)
 ```
 
-**The appeal decides a flagged case** (ADR-0021 amendment, D25, review finding L3-1). There is no instance after the appeal, and an escalation there means no decision, so the default outcome would pay an injecting seller from the appeal bond. At the appeal role a flagged case (screen flag, a judge's injection suspicion, or a filter abstention) never escalates: it is accepted only by a unanimous valid panel from all available families in which no judge suspects injection, and is otherwise rejected (D27a, after the red team showed a steered supermajority and a split panel both paid the injector). The flag stays in the signed record. Aggregation version `agg-3`, pinned to a digest of the decision table in `aggregate.test.ts`.
+**The appeal decides a flagged case** (ADR-0021 amendment, D25, review finding L3-1). There is no instance after the appeal, and an escalation there means no decision, so the default outcome would pay an injecting seller from the appeal bond. At the appeal after an escalation, a seller-controllable condition never escalates: a screen flag, a judge's injection suspicion, a filter abstention, or a sampled read the seller can force with one overlong record. The case is accepted only by a unanimous valid panel over the whole file, from all available families, in which no judge suspects injection; otherwise it is rejected (D27a, D27b). The red team showed that a steered supermajority, a split panel and a forced sample each paid the injector. On a party appeal against a first decision these conditions escalate and the first decision stands, so judge noise cannot overturn an honest accept (D27c; D28: after an accept the appealing buyer carries the burden). The flag stays in the signed record. Aggregation version `agg-3`, pinned to a digest of the decision table in `aggregate.test.ts`.
 
 Thresholds are exact fractions compared by cross-multiplication, never by division or floats (ADR-0022). A policy must satisfy `2 × numerator > denominator`, so accept and reject can never both hold. The record carries `passCount`, `failCount` and `validCount`, not shares.
 

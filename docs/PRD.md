@@ -110,7 +110,7 @@ Agreed terms bind; the buyer carries the burden of acceptance. The buyer accepts
 - **FR-12** Declarative deterministic checks run first. A required check that fails means reject. If all checks pass and there is no rubric, the work is accepted.
 - **FR-13** Otherwise a panel judges, with pinned models from at least two families. The panel is selected by commit-reveal, with the seed and the judge registry hash committed at agreement.
 - **FR-14** The defenses in `docs/judgment-and-defenses.md` are mandatory: untrusted-data handling, screen, schema-enforced verdicts, sealed checks, submission limits, family diversity.
-- **FR-15** Aggregation produces accept, reject or escalate. An injection flag or a cross-family disagreement means escalate, never auto-accept, except at the appeal, where a flagged case is accepted only by a unanimous panel from all available families in which no judge suspects injection, and is otherwise rejected (D27).
+- **FR-15** Aggregation produces accept, reject or escalate. An injection flag or a cross-family disagreement means escalate, never auto-accept, except at the appeal after an escalation, where a flagged case (including a sampled read a seller can force) is accepted only by a unanimous panel from all available families in which no judge suspects injection, and is otherwise rejected (D27). On a party appeal a flag escalates and the first decision stands (D27c, D28).
 
 ### Appeals and adjudicators
 
