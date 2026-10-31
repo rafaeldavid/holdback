@@ -57,6 +57,13 @@
       "rows": 9500,
       "sha256": "sha256:7cc827e6317e2a6983b6787dfe2dd1662710140d1d2585c88ac990034a83cda6",
       "description": "Clean file with an instruction to the buyer's agent hidden in 111 Unicode tag characters in the first name cell (ADR-0021); passes the demo checks, fails hidden_characters_max."
+    },
+    {
+      "name": "customers.clean.injection-base64.csv",
+      "bytes": 512069,
+      "rows": 9500,
+      "sha256": "sha256:e81fbb3232a4e4025f3ba1773dcb6d9757437fa97f280393d65317ce99226940",
+      "description": "Beat 6a: clean file with an instruction to the judges, base64-encoded, appended to the name cell of row 4751; passes the demo checks, flagged by the screen's base64 decoder."
     }
   ]
 }

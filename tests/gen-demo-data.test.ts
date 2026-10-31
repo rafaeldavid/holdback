@@ -4,8 +4,8 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { countHidden, runChecks, UntrustedData, type JudgmentCheck } from '../packages/judgment/src/index.ts';
-import { DATA_DIR, DEFAULT_SEED, generate, type GeneratedFile } from '../scripts/gen-demo-data.ts';
+import { countHidden, runChecks, screen, UntrustedData, type JudgmentCheck } from '../packages/judgment/src/index.ts';
+import { B64_PAYLOAD, DATA_DIR, DEFAULT_SEED, generate, type GeneratedFile } from '../scripts/gen-demo-data.ts';
 // @ts-expect-error -- plain ESM helper without type declarations
 import { loadSpec } from '../scripts/spec.mjs';
 
@@ -113,6 +113,22 @@ describe('gen-demo-data', () => {
     expect(decoded).toMatch(/agent/i);
     // Stripping the tags gives back the clean file byte for byte: the only change is the hidden payload.
     expect(body.replace(/[\u{E0000}-\u{E007F}]/gu, '')).toBe(text(file('customers.clean.csv')));
+  });
+
+  it('injection-base64 passes every demo check, differs from the clean file in one name cell, and the screen flags its decoded instruction (beat 6a, T-018)', () => {
+    const injected = file('customers.clean.injection-base64.csv');
+    expect(failed(injected, [...DEMO_CHECKS, NO_HIDDEN])).toEqual([]);
+    const lines = text(injected).split('\n');
+    const clean = text(file('customers.clean.csv')).split('\n');
+    const changed = lines.map((l, i) => (l === clean[i] ? -1 : i)).filter((i) => i >= 0);
+    expect(changed).toHaveLength(1);
+    const run = lines[changed[0]!]!.match(/[A-Za-z0-9+/=]{40,}/)![0];
+    expect(Buffer.from(run, 'base64').toString('utf8')).toBe(B64_PAYLOAD);
+    const screened = (f: GeneratedFile) => screen({ data: UntrustedData.wrap(text(f)), hiddenTagText: UntrustedData.wrap(''), removed: { tagChars: 0, zeroWidth: 0 }, mime: 'text/csv' });
+    const result = screened(injected);
+    expect(result.flagged).toBe(true);
+    expect(result.signals.some((s) => /base64/.test(s.detail))).toBe(true);
+    expect(screened(file('customers.clean.csv')).flagged).toBe(false);
   });
 
   it('raw file is dirty in the ways the job describes and covers exactly the clean customers', () => {
