@@ -35,6 +35,7 @@ A cleaned dataset has no delivery-versus-payment check of that kind, because whe
 | Minimum valid (non-abstain) verdicts | 2 | 4 |
 | Accept supermajority (`acceptSupermajority`, a fraction) | ≥ 2/3 pass, with pass verdicts from ≥ 2 families | ≥ 4/5, with passes from ≥ 2 families |
 | Reject supermajority (`rejectSupermajority`, a fraction) | ≥ 2/3 fail | ≥ 4/5 fail |
+| Flagged (screen, `injectionSuspected`, filter abstention) | escalate | accept only if every seat passes validly from the family minimum with no injection suspected; otherwise reject (D27a) |
 | Otherwise | escalate | after a party appeal, the first decision stands and the appellant's bond is returned; after an escalation, the default outcome applies |
 | Judge timeout | 60 s, then abstain | 90 s |
 | Retries | 1, on transport error only, same inputs | same |
@@ -63,7 +64,9 @@ if any required deterministic check failed            -> REJECT  (no panel)
 if all checks passed and rubric is empty              -> ACCEPT  (no panel; add reason "screen flagged; see screen.signals" if flagged)
 verdicts = run panel
 if screen.flagged or any verdict.injectionSuspected   -> ESCALATE at the primary and the fallback;
-                                                         at the appeal, add the flag to the reasons and continue
+                                                         at the appeal (also on a filter abstention): ACCEPT only if
+                                                         every seat passes validly, from the appeal family minimum,
+                                                         with no injectionSuspected and the score met; else REJECT
 valid = verdicts where overall != "abstain"
 if len(valid) < policy.minValid                       -> ESCALATE
 score = weighted mean of criterion scores across valid verdicts, in integer hundredths (0–400), sealed checks capped at rulebook weight
@@ -74,7 +77,7 @@ if fail * reject.den >= reject.num * len(valid) and fail > pass -> REJECT
 otherwise                                             -> ESCALATE   (ties escalate)
 ```
 
-**The appeal decides a flagged case** (ADR-0021 amendment, D25, review finding L3-1). There is no instance after the appeal, and an escalation there means no decision, so the default outcome would pay an injecting seller from the appeal bond. At the appeal role the flag stays in the signed record and the five-judge panel decides by its supermajority. It never accepts without the cross-family accept supermajority (FR-15). The aggregation version stays `agg-2` until the next recording capture (ADR-0021 amendment).
+**The appeal decides a flagged case** (ADR-0021 amendment, D25, review finding L3-1). There is no instance after the appeal, and an escalation there means no decision, so the default outcome would pay an injecting seller from the appeal bond. At the appeal role a flagged case (screen flag, a judge's injection suspicion, or a filter abstention) never escalates: it is accepted only by a unanimous valid panel from all available families in which no judge suspects injection, and is otherwise rejected (D27a, after the red team showed a steered supermajority and a split panel both paid the injector). The flag stays in the signed record. Aggregation version `agg-3`, pinned to a digest of the decision table in `aggregate.test.ts`.
 
 Thresholds are exact fractions compared by cross-multiplication, never by division or floats (ADR-0022). A policy must satisfy `2 × numerator > denominator`, so accept and reject can never both hold. The record carries `passCount`, `failCount` and `validCount`, not shares.
 

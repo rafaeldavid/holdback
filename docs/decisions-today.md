@@ -388,9 +388,9 @@ Rafa first asked that both parties be able to change any term, as in a regular c
 
 | Choice | Decided | Why |
 | --- | --- | --- |
-| Which flags the appeal keeps rather than escalates on | Both the screen flag and a judge's `injectionSuspected` | Either one escalating at the appeal means no decision, and the default outcome pays the seller from the appeal bond: the L3-1 failure again. An accept still needs the cross-family supermajority (FR-15) |
-| Aggregation version | Stays `agg-2` for now; bump to `agg-3` with the next recording capture (backlog) | The policy hash binds the version and seeds every panel: the bump re-seeded all 25 snap fixtures and invalidated every recording (measured after merging PR 50). No policy outside this repository binds `agg-2`, so nothing is judged under a rule its signers did not see |
-| Operator refusal shape | `refuseParties` answers 403 `member_not_admitted`, no new problem type | No schema change; the SDK treats any operator failure as non-final and fails over |
+| Which flags the appeal keeps rather than escalates on | Superseded by D27a | — |
+| Aggregation version | Superseded by D27b (`agg-3` now) | — |
+| Operator refusal shape | Superseded by D27c (`relay_refused`) | — |
 | Beat 7's second failure | op-2 goes offline after relaying the hold, so the delivery and the fallback trigger are submitted directly | Shows "no operator required" from measured events, not only failover |
 | Beat 6a's fee | The appeal adjudicator earns the 50 tUSD fee; Ledger ends at 9,950 tUSD | Existing SimChain postings ("fee to the appeal adjudicator, whose decision settles"); not changed here |
 
@@ -407,3 +407,24 @@ What follows from it:
 - Neutrality is unchanged: no party gets a technical freeze. Courts act on real-world parties (residual 5), not on the settlement layer.
 
 Recorded in `CLAUDE.md` and `docs/PRD.md` (Design principle). D22 (no principal recourse in the protocol) already follows this rule.
+
+## D27. A flagged appeal accepts only unanimously, else rejects (red-team review of PR 52)
+
+**Decided 2026-10-31 under the autonomy rule, for Rafa to overrule.** A red-team review of PR 52 (T-018) found that D25's L3-1 fix, "the appeal panel decides a flagged case by its supermajority", still paid an injecting seller. Its findings, each now a fixture in this PR:
+
+- **Steered supermajority.** An injection that steers four of five appeal judges to pass with no injection suspected was accepted (`attack.injection-steers-appeal-supermajority`).
+- **Steered across two families.** Three passes from two families failed the accept rule, but under `agg-2` the case then escalated and drifted to the default outcome (`attack.injection-steers-appeal-two-families`).
+- **Split to default.** Two steered passes and three fails escalated, so the default outcome paid the seller from Bench C's bond (`attack.injection-splits-appeal-to-default`).
+- **Filter abstention to default.** One judge induced to write a URL abstained by filter, which escalated, with the same result (`attack.injection-filter-abstain-appeal-default`).
+- **Version.** The rule changed under the same `AGGREGATION_VERSION`, which policies bind.
+- **Refusal type.** An operator refusal reused the club's `member_not_admitted` problem type, and a relay policy received the operation by reference.
+
+| Item | Decided |
+| --- | --- |
+| D27a: flagged appeal rule | At the appeal, when the screen flagged the delivery, any judge set `injectionSuspected`, or any judge's output was rejected by a filter: accept only if every seat returned a valid verdict, all pass, the passes span the appeal family minimum (three where the registry has them), no judge suspects injection, and the score is met. Otherwise reject (refund; key not released; seller keeps the work). Never escalate or end without a decision on a flagged appeal; filter abstentions and timeouts count against accept. Primary and fallback unchanged. Implemented once in `@holdback/judgment` (`aggregate`, `signedOutcome`) for the service and the snap runner |
+| D27b: version | `AGGREGATION_VERSION` `agg-3` in this PR. `aggregate.test.ts` pins a digest of the decision table to the version, so semantics cannot change without a bump. Every recording was re-recorded (fake) or re-seated (authored); no pre-existing fixture changed its terminal state or balances |
+| D27c: refusal | New problem type `relay_refused` (403, operator API only: `packages/core/src/problem.ts`, `docs/api.md`; not in `spec/schemas`). Policies receive a frozen deep copy of the operation |
+| D27d: wording | FR-15 amended in `docs/PRD.md` for the appeal; ADR-0021 amendment, `docs/judgment-and-defenses.md` and `docs/demo.md` beat 6 updated |
+| D27e: backlog | Tell appeal judges about the screen flag (a new appeal template); revisit the default outcome after an unflagged, inconclusive appeal, where the appeal bond pays the seller though no adjudicator was at fault |
+
+**Recommendation:** as decided. The tradeoff: a false positive on a flagged appeal now refunds the buyer and the seller loses the sale, where before it might have been accepted by a supermajority. The screen is uncalibrated (ADR-0021), so this can happen to honest sellers. On the other side, an injector can no longer win by steering or splitting the panel.

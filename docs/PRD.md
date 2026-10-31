@@ -108,7 +108,7 @@ Widen collaboration; the law stays the backstop. The product's job is to extend 
 - **FR-12** Declarative deterministic checks run first. A required check that fails means reject. If all checks pass and there is no rubric, the work is accepted.
 - **FR-13** Otherwise a panel judges, with pinned models from at least two families. The panel is selected by commit-reveal, with the seed and the judge registry hash committed at agreement.
 - **FR-14** The defenses in `docs/judgment-and-defenses.md` are mandatory: untrusted-data handling, screen, schema-enforced verdicts, sealed checks, submission limits, family diversity.
-- **FR-15** Aggregation produces accept, reject or escalate. An injection flag or a cross-family disagreement means escalate, never auto-accept.
+- **FR-15** Aggregation produces accept, reject or escalate. An injection flag or a cross-family disagreement means escalate, never auto-accept, except at the appeal, where a flagged case is accepted only by a unanimous panel from all available families in which no judge suspects injection, and is otherwise rejected (D27).
 
 ### Appeals and adjudicators
 
