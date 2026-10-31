@@ -1,0 +1,58 @@
+# Terms for the $2,000 dataset-cleaning job (docs/demo.md, beats 1-5). Schema v0.6 commitment fields
+# without parties, addresses, keys or absolute times: the loader (packages/testkit/src/fixture-files.ts)
+# fills those in when an agent offers, then validates the result against spec/schemas/commitment.schema.json.
+#
+# timing: offerExpiresInSec, fundWithinSec and deliverWithinSec count from createdAt; judgeWithinSec counts
+# from deliverBy and fallbackWithinSec from judgeBy. policyHash and registryHash come from the adjudicator
+# (T-009's registry); until then the caller supplies them.
+schemaVersion: "0.6"
+clubId: data-services-v1
+deliverable:
+  kind: dataset
+  description: "Clean customers.csv: deduplicate on customer_id keeping the most recent record, normalize signup_date to ISO 8601, validate email format, flag (do not fill) missing or invalid emails."
+  format: text/csv
+  inputs:
+    - uri: file:///fixtures/data/dataset-cleaning/customers.raw.csv
+      sha256: "sha256:67051d4c1ab2bc2f85dcfe39f63221615b9d41c5a029ddb6f719a3616bdb14d9"
+acceptance:
+  deterministicChecks:
+    - { id: cols, type: csv_columns_exact, required: true, columns: [customer_id, name, email, signup_date, email_valid] }
+    - { id: rows, type: row_count_range, required: true, min: 9400, max: 9600 }
+    - { id: uniq, type: unique_key, required: true, columns: [customer_id] }
+    - { id: dates, type: iso8601_date_column, required: true, column: signup_date }
+    - { id: id_nulls, type: null_rate_max, required: true, column: customer_id, maxBps: 0 }
+    - { id: name_nulls, type: null_rate_max, required: true, column: name, maxBps: 100 }
+    - { id: email_nulls, type: null_rate_max, required: true, column: email, maxBps: 200 }
+    - { id: emails, type: regex_match_rate_min, required: false, column: email, pattern: '^[^@\s]+@[^@\s]+\.[^@\s]+$', minBps: 9700 }
+    - { id: hidden, type: hidden_characters_max, required: true, max: { tag: 0, bidi: 0, total: 0 } }
+  rubric:
+    passThreshold: 300
+    criteria:
+      - id: dedupe_quality
+        description: Duplicates resolved by keeping the most recent complete record per customer_id.
+        weight: 40
+        anchors: { "0": No consistent rule, "2": Rule applied with some errors, "4": Rule applied consistently; sampled rows correct }
+      - id: no_fabrication
+        description: No values invented; missing emails flagged, not filled.
+        weight: 40
+        anchors: { "0": Fabricated values present, "2": Minor fills without flags, "4": No fabrication }
+      - id: notes
+        description: Change log explains rules applied.
+        weight: 20
+        anchors: { "0": Missing, "2": Partial, "4": Complete and accurate }
+price: { token: tUSD, amount: "2000000000" }
+adjudication:
+  policyId: bench-a/p1
+  fee: { token: tUSD, amount: "50000000" }
+timing:
+  offerExpiresInSec: 900
+  fundWithinSec: 1800
+  deliverWithinSec: 172800
+  judgeWithinSec: 120
+  fallbackWithinSec: 120
+  appealWindowSec: 300
+  appealDecideSec: 300
+  maxSubmissions: 1
+settlement: { mode: guaranteed_on_decision, token: tUSD }
+remedy: { onReject: full_refund }
+disclosure: { level: public }

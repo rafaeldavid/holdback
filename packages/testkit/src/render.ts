@@ -49,7 +49,8 @@ export function renderSnapshot(scenario: Scenario, prefix: Prefix, run: StubRun,
     const a = run.actors.find((x) => x.name === name);
     return a ? `${name} ${short(a.address)}` : name;
   };
-  const ref = (path: string | undefined, what: string) => (path ? `${path} (stub ${what}; file absent)` : `built-in stub ${what}`);
+  const ref = (path: string | undefined, what: string, loaded: boolean) =>
+    loaded ? `${path} (loaded)` : path ? `${path} (stub ${what}; file absent)` : `built-in stub ${what}`;
   const c = run.commitment;
   const out: string[] = [
     `# ${scenario.name}`,
@@ -66,15 +67,15 @@ export function renderSnapshot(scenario: Scenario, prefix: Prefix, run: StubRun,
       [
         ['Pragmas', `settlement=${pragmas.settlement} · judges=${pragmas.judges} · mode=${pragmas.mode} · seed=${pragmas.seed}`],
         ['Prefix', PREFIX_TEXT[prefix]],
-        ['Settlement', 'SimChain (T-006) driving @holdback/core `step`; stub terms and panel'],
-        ['Club', `${ref(scenario.club, 'rulebook')} · rulebook ${short(run.rulebookHash)}`],
+        ['Settlement', `SimChain (T-006) driving @holdback/core \`step\`; ${run.loaded.terms ? 'stub policy and registry hashes and stub panel' : 'stub terms and panel'}`],
+        ['Club', `${ref(scenario.club, 'rulebook', run.loaded.club)} · rulebook ${short(run.rulebookHash)}`],
         ['Buyer', who(parties.buyer)],
         ['Seller', who(parties.seller)],
         [
           'Terms',
           c
-            ? `${ref(scenario.terms, 'terms')} · commitment ${short(c.id)} · price ${formatAmount(BigInt(c.terms.price.amount))} ${TOKEN} · fee ${formatAmount(BigInt(c.terms.adjudication.fee.amount))} ${TOKEN}`
-            : `${ref(scenario.terms, 'terms')} · no commitment created`,
+            ? `${ref(scenario.terms, 'terms', run.loaded.terms)} · commitment ${short(c.id)} · price ${formatAmount(BigInt(c.terms.price.amount))} ${TOKEN} · fee ${formatAmount(BigInt(c.terms.adjudication.fee.amount))} ${TOKEN}`
+            : `${ref(scenario.terms, 'terms', run.loaded.terms)} · no commitment created`,
         ],
         ['Adjudicators', `primary ${who(adjudicators.primary)} · fallback ${who(adjudicators.fallback)} · appeal ${who(adjudicators.appeal)}`],
         ['Operators', scenario.operators.length ? scenario.operators.join(' · ') : 'none'],

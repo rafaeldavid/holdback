@@ -1,4 +1,5 @@
 export * from './context.js';
+export * from './fixture-files.js';
 export * from './judgment-stub.js';
 export * from './pragma.js';
 export * from './prefix.js';
