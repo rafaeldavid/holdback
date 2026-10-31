@@ -14,8 +14,9 @@ describe('narrate', () => {
     for (const t of await allTranscripts()) {
       for (const e of t.events) {
         const line = narrate(e);
-        expect(line, `${t.beat}/${e.kind}`).toMatch(/\d/);
         expect(line, `${t.beat}/${e.kind}`).toMatch(/^\+\d[\d,]* ms /);
+        // The number behind the event, beyond the timestamp.
+        expect(line.replace(/^\+[\d,]+ ms /, ''), `${t.beat}/${e.kind}`).toMatch(/\d/);
       }
     }
   });
