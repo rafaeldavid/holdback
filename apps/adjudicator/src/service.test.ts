@@ -385,6 +385,27 @@ describe('escalation and appeal', () => {
     expect(record.panel.members).toHaveLength(5);
   });
 
+  it('D27a: a flagged appeal steered to a 4-of-5 pass supermajority signs reject (red-team attack.injection-steers-appeal-supermajority)', async () => {
+    const steered: FakeScript = { 'claude-a': 'pass', 'claude-b': 'pass', 'gpt-a': 'pass', 'gpt-b': 'pass', 'qwen-a': 'fail', 'qwen-b': 'fail' };
+    const { s, a, c, id } = await setup({ csv: injected, scriptC: steered });
+    s.at('2026-11-01T10:00:30Z');
+    await a.adj.runOnce();
+    s.at('2026-11-01T10:00:32Z');
+    await c.adj.runOnce();
+    expect(s.decisions(id)[1]).toMatchObject({ role: 'appeal', outcome: 'reject' });
+    expect(s.state(id).kind).toBe('Refunded');
+  });
+
+  it('D27a: a flagged appeal with a timed-out seat signs reject, never no decision', async () => {
+    const timeout: FakeScript = { ...allFail, 'qwen-a': 'timeout', 'qwen-b': 'timeout' };
+    const { s, a, c, id } = await setup({ csv: injected, scriptC: timeout });
+    s.at('2026-11-01T10:00:30Z');
+    await a.adj.runOnce();
+    s.at('2026-11-01T10:00:32Z');
+    await c.adj.runOnce();
+    expect(s.decisions(id)[1]).toMatchObject({ role: 'appeal', outcome: 'reject' });
+  });
+
   it('L3-1: the fallback still escalates a screen-flagged delivery (only the appeal decides one)', async () => {
     const { s, b, id } = await setup({ csv: injected, scriptB: allFail });
     s.at('2026-11-01T10:02:00Z');
