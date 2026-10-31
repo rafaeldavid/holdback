@@ -5,7 +5,7 @@ coverage/
 .env
 .env.*
 !.env.example
-data/
+/data/
 reports/
 demo/out/
 .DS_Store

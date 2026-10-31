@@ -94,6 +94,8 @@ Every hard rule in `CLAUDE.md` is enforced by a check, not just by instruction. 
 | Schema contract | CI validates `spec/examples/` against schemas; CODEOWNERS-style gate on `spec/` | T-001 |
 | Secrets stay out | `.claude/settings.json` denies reading `.env*`; gitleaks in CI | T-001 |
 | Neutrality | `neutrality.*` fixtures for every actor in `docs/neutrality.md` | T-010, then ongoing |
+| Generated fixtures are not hand-edited | Drift test in `tests/gen-demo-data.test.ts`; `node scripts/gen-demo-data.ts --check` | T-012 |
+| Tests do not assert on wall-clock time | Cost limits use `StepBudget` counts, not `performance.now()`; a lint or grep check over `*.test.ts` (proposed after `redteam.test.ts` K2 failed 3 of 3 full `pnpm test` runs on this machine and passed alone) | Proposed (T-012) |
 
 ## Cadence
 
