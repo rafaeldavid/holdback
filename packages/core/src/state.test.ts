@@ -3,12 +3,12 @@ import { keccak256, type Hex } from 'viem';
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { rulebookHash } from './canonical.js';
-import { commitmentId, termsOf } from './eip712.js';
+import { commitmentId, deliveryHash, termsOf } from './eip712.js';
 import type { TokenAmount } from './money/index.js';
 import { parseAppeal, parseClub, parseCommitment, parseDelivery, parseMessage } from './parse.js';
 import { PROBLEM_TYPES, type ProblemType } from './problem.js';
-import { offer, step, type EscrowEvent, type EscrowState, type OfferInput } from './state.js';
-import type { AdjudicatorAcceptance, Agree, Appeal, Commitment, CommitmentTerms, Decision, Delivery, EarlyAccept, FundingAuthorization, Rulebook, Scope } from './types.js';
+import { beaconRoundFor, offer, panelSeed, step, type EscrowEvent, type EscrowState, type OfferInput } from './state.js';
+import type { AdjudicatorAcceptance, Agree, Appeal, Commitment, CommitmentTerms, Decision, Delivery, EarlyAccept, FundingAuthorization, MutualSettlement, Rulebook, Scope } from './types.js';
 
 function load(file: string): unknown {
   return JSON.parse(readFileSync(new URL(`../../../spec/examples/${file}`, import.meta.url), 'utf8'));
@@ -185,15 +185,50 @@ const ev = {
     requiredFee: facts.requiredFee ?? tusd('25000000'),
     feePaid: facts.feePaid ?? tusd('25000000'),
   }),
+  mutual: (at: string, over: Partial<MutualSettlement> = {}, rulebookAllows = true): EscrowEvent => ({
+    type: 'mutual_settle',
+    at,
+    message: {
+      type: 'MutualSettlement',
+      commitmentId: id,
+      deliveryHash: null,
+      sellerAmount: tusd('1400000000'),
+      releaseKey: false,
+      nonce: ZERO32,
+      expiresAt: far,
+      buyerSignature: SIG,
+      sellerSignature: SIG,
+      ...over,
+    },
+    rulebookAllows,
+  }),
   at: (type: 'reclaim' | 'trigger_fallback' | 'trigger_default' | 'expire' | 'apply_default_outcome' | 'expire_appeal', at: string): EscrowEvent => ({ type, at }),
 };
+
+// A stand-in beacon for core tests; SimChain's real one is keccak256(simSeed || round) (ADR-0018).
+const testBeacon = (round: number): Hex => keccak256(`0x${round.toString(16).padStart(16, '0')}`);
+const secondsOf = (ts: string): number => Math.floor(Date.parse(ts) / 1000);
+
+/**
+ * Supplies the beacon fact a settlement layer would, and the seed an honest fallback or appeal adjudicator
+ * derives from it, for a decision that names neither (the default `seed`). Tests of the seed rule build
+ * their events explicitly.
+ */
+function fill(s: EscrowState, e: EscrowEvent): EscrowEvent {
+  if (e.type !== 'decide' || e.beacon !== undefined || e.message.role === 'primary' || e.message.seed !== seed) return e;
+  const round = beaconRoundFor(s, e.message.role);
+  if (round === null) return e;
+  const value = testBeacon(round);
+  return { ...e, beacon: { round, value }, message: { ...e.message, seed: panelSeed(e.message.commitmentId, e.message.role, e.message.attempt, value) } };
+}
+const stepF = (s: EscrowState, e: EscrowEvent) => step(s, fill(s, e));
 
 function run(events: EscrowEvent[]): EscrowState {
   const start = offer(offerInput());
   if (!start.ok) throw new Error(`offer failed: ${start.error.detail}`);
   let s: EscrowState = start.value;
   for (const e of events) {
-    const r = step(s, e);
+    const r = stepF(s, e);
     if (!r.ok) throw new Error(`setup step ${e.type} failed in ${s.kind}: ${r.error.type} ${r.error.detail}`);
     s = r.value;
   }
@@ -290,7 +325,7 @@ const legal: Legal[] = [
 
 describe('legal transitions', () => {
   it.each(legal)('%s', (_name, path, event, to, appealState) => {
-    const r = step(run(path), event);
+    const r = stepF(run(path), event);
     if (!r.ok) throw new Error(`${r.error.type}: ${r.error.detail}`);
     expect(r.value.kind).toBe(to);
     expect(appealKind(r.value)).toBe(appealState);
@@ -300,7 +335,7 @@ describe('legal transitions', () => {
     ['FallbackJudging', toDefaulted],
     ['Escalated', [...toEscalated, ev.at('trigger_default', escalationDecideBy)]],
   ] as const)('records that the default came from %s through to the refund', (from, path) => {
-    const r = step(run([...path]), ev.at('apply_default_outcome', far));
+    const r = stepF(run([...path]), ev.at('apply_default_outcome', far));
     if (!r.ok) throw new Error(r.error.detail);
     expect(r.value.kind === 'Refunded' && r.value.via).toEqual({ kind: 'default_outcome', from });
   });
@@ -469,7 +504,7 @@ const illegal: Illegal[] = [
 
 describe('illegal transitions', () => {
   it.each(illegal)('refuses %s', (_name, path, event, problem) => {
-    const r = step(run(path), event);
+    const r = stepF(run(path), event);
     expect(r.ok ? `ok: ${r.value.kind}` : r.error.type).toBe(problem);
   });
 });
@@ -487,6 +522,7 @@ describe('totality', () => {
     ['Refunded', toRefunded],
     ['Defaulted', toDefaulted],
     ['Expired', [ev.at('expire', T.offerExpiry)]],
+    ['Settled', [...toHeld, ev.mutual(T.deliver)]],
   ];
   const events: EscrowEvent[] = [
     ev.accept(),
@@ -498,17 +534,18 @@ describe('totality', () => {
     ev.decide('fallback', 'reject', T.fallbackDecide),
     ev.decide('appeal', 'accept', T.appealDecided),
     ev.fileAppeal(),
+    ev.mutual(T.deliver),
     ...(['reclaim', 'trigger_fallback', 'trigger_default', 'expire', 'apply_default_outcome', 'expire_appeal'] as const).map((t) => ev.at(t, far)),
   ];
 
   it('reaches every escrow state kind', () => {
-    expect(new Set(states.map(([, p]) => run(p).kind)).size).toBe(11);
+    expect(new Set(states.map(([, p]) => run(p).kind)).size).toBe(12);
   });
 
   it.each(states)('every event on %s returns a state or a known problem type, never throws', (_name, path) => {
     const s = run(path);
     for (const e of events) {
-      const r = step(s, e);
+      const r = stepF(s, e);
       if (!r.ok) expect(PROBLEM_TYPES).toContain(r.error.type);
     }
   });
@@ -518,6 +555,107 @@ describe('totality', () => {
     const snapshot = structuredClone(s);
     step(s, ev.decide('primary', 'accept', T.decide));
     expect(s).toEqual(snapshot);
+  });
+});
+
+describe('panel seed per role (ADR-0018)', () => {
+  const judgeByRound = secondsOf(T.judgeBy);
+  const chosen = (role: Decision['role'], outcome: Decision['outcome'], at: string): EscrowEvent => ({ type: 'decide', at, message: decision(role, outcome), beacon: null });
+  const decideWith = (role: 'fallback' | 'appeal', outcome: Decision['outcome'], at: string, round: number | null, over: Partial<Decision> = {}): EscrowEvent => {
+    const value = round === null ? ZERO32 : testBeacon(round);
+    return {
+      type: 'decide',
+      at,
+      message: decision(role, outcome, { seed: panelSeed(id, role, 1, value), ...over }),
+      beacon: round === null ? null : { round, value },
+    };
+  };
+
+  it('fixes the fallback round at judgeBy, the escalation round one after the escalation, and the appeal round one after filing', () => {
+    expect(beaconRoundFor(run(toDelivered), 'fallback')).toBe(judgeByRound);
+    expect(beaconRoundFor(run(toFallback), 'fallback')).toBe(judgeByRound);
+    expect(beaconRoundFor(run(toEscalated), 'appeal')).toBe(secondsOf(escalatedAt) + 1);
+    expect(beaconRoundFor(run(toAppealOpen), 'appeal')).toBe(secondsOf(T.appealFiled) + 1);
+    expect(beaconRoundFor(run(toReleased), 'appeal')).toBeNull();
+    expect(beaconRoundFor(run(toHeld), 'fallback')).toBeNull();
+  });
+
+  it('records when the settlement layer opened the appeal', () => {
+    const s = run(toAppealOpen);
+    expect(s.kind === 'Released' && s.via.kind === 'first_instance' && s.via.appeal.kind === 'open' && s.via.appeal.openedAt).toBe(T.appealFiled);
+  });
+
+  it.each<[string, EscrowEvent[], EscrowEvent, ProblemType | EscrowState['kind']]>([
+    ['the fallback with the beacon seed for judgeBy', toFallback, decideWith('fallback', 'accept', T.fallbackDecide, judgeByRound), 'Released'],
+    ['the fallback with a seed it chose', toFallback, chosen('fallback', 'accept', T.fallbackDecide), 'seed_mismatch'],
+    ['the fallback with no beacon fact', toFallback, decideWith('fallback', 'accept', T.fallbackDecide, null), 'seed_mismatch'],
+    ['the fallback at a later round it picked', toFallback, decideWith('fallback', 'accept', T.fallbackDecide, judgeByRound + 1), 'seed_mismatch'],
+    ['the fallback whose signed beacon differs from the fact', toFallback, decideWith('fallback', 'accept', T.fallbackDecide, judgeByRound, { beacon: { source: 'sim', round: judgeByRound + 1, value: ZERO32 } }), 'seed_mismatch'],
+    ['the appeal adjudicator after escalation with its round', toEscalated, decideWith('appeal', 'reject', T.fallbackDecide, secondsOf(escalatedAt) + 1), 'Refunded'],
+    ['the appeal adjudicator after escalation with the fallback round', toEscalated, decideWith('appeal', 'reject', T.fallbackDecide, judgeByRound), 'seed_mismatch'],
+    ['the appeal adjudicator after escalation with a seed it chose', toEscalated, chosen('appeal', 'reject', T.fallbackDecide), 'seed_mismatch'],
+    ['the appeal adjudicator on a party appeal with its round', toAppealOpen, decideWith('appeal', 'reject', T.appealDecided, secondsOf(T.appealFiled) + 1), 'Released'],
+    ['the appeal adjudicator on a party appeal with a seed it chose', toAppealOpen, chosen('appeal', 'reject', T.appealDecided), 'seed_mismatch'],
+    ['the appeal adjudicator on a party appeal with the round at filing', toAppealOpen, decideWith('appeal', 'reject', T.appealDecided, secondsOf(T.appealFiled)), 'seed_mismatch'],
+  ])('%s', (_name, path, event, expected) => {
+    const r = step(run(path), event);
+    expect(r.ok ? r.value.kind : r.error.type).toBe(expected);
+  });
+
+  it('derives the seed from the commitment, role, attempt and beacon only, never from what the decider controls', () => {
+    const s = run(toFallback);
+    const value = testBeacon(judgeByRound);
+    const expected = panelSeed(id, 'fallback', 1, value);
+    fc.assert(
+      fc.property(fc.integer({ min: 0, max: 59 }), fc.constantFrom<Decision['outcome']>('accept', 'reject', 'escalate'), fc.uint8Array({ minLength: 32, maxLength: 32 }), (sec, outcome, nonceBytes) => {
+        const at = new Date(Date.parse(T.judgeBy) + sec * 1000).toISOString();
+        const nonce = `0x${Buffer.from(nonceBytes).toString('hex')}` as Hex;
+        expect(beaconRoundFor(s, 'fallback')).toBe(judgeByRound);
+        const ok = step(s, { type: 'decide', at, message: decision('fallback', outcome, { seed: expected, nonce }), beacon: { round: judgeByRound, value } });
+        expect(ok.ok).toBe(true);
+        const other = step(s, { type: 'decide', at, message: decision('fallback', outcome, { seed: keccak256(nonce), nonce }), beacon: { round: judgeByRound, value } });
+        expect(other.ok ? 'ok' : other.error.type).toBe('seed_mismatch');
+      }),
+      { numRuns: 100, seed: 20261031 },
+    );
+  });
+});
+
+describe('mutual settlement (ADR-0019)', () => {
+  const dh = deliveryHash(delivery());
+  const settledView = (s: EscrowState) => (s.kind === 'Settled' ? { sellerAmount: s.sellerAmount, buyerAmount: s.buyerAmount, keyReleased: s.keyReleased, settledAt: s.settledAt } : s.kind);
+
+  it.each<[string, EscrowEvent[], EscrowEvent, { sellerAmount: TokenAmount; buyerAmount: TokenAmount; keyReleased: boolean }]>([
+    ['refund-before-delivery split in Held', toHeld, ev.mutual(T.deliver), { sellerAmount: tusd('1400000000'), buyerAmount: tusd('650000000'), keyReleased: false }],
+    ['discounted acceptance in Delivered', toDelivered, ev.mutual(T.decide, { deliveryHash: dh, releaseKey: true }), { sellerAmount: tusd('1400000000'), buyerAmount: tusd('650000000'), keyReleased: true }],
+    ['full price, key kept, during fallback judging', toFallback, ev.mutual(T.fallbackDecide, { deliveryHash: dh, sellerAmount: tusd('2000000000') }), { sellerAmount: tusd('2000000000'), buyerAmount: tusd('50000000'), keyReleased: false }],
+    ['zero to the seller while escalated', toEscalated, ev.mutual(T.fallbackDecide, { deliveryHash: dh, sellerAmount: tusd('0') }), { sellerAmount: tusd('0'), buyerAmount: tusd('2050000000'), keyReleased: false }],
+  ])('settles: %s (the buyer gets the rest of the hold, fee included)', (_name, path, event, split) => {
+    const r = step(run(path), event);
+    if (!r.ok) throw new Error(`${r.error.type}: ${r.error.detail}`);
+    expect(settledView(r.value)).toEqual({ ...split, settledAt: event.at });
+  });
+
+  it.each<[string, EscrowEvent[], EscrowEvent, ProblemType]>([
+    ['a delivery hash while Held', toHeld, ev.mutual(T.deliver, { deliveryHash: dh }), 'invalid_terms'],
+    ['releasing a key that does not exist yet', toHeld, ev.mutual(T.deliver, { releaseKey: true }), 'invalid_terms'],
+    ['a stale delivery hash', toDelivered, ev.mutual(T.decide, { deliveryHash: ZERO32 }), 'invalid_terms'],
+    ['a null delivery hash after delivery', toDelivered, ev.mutual(T.decide), 'invalid_terms'],
+    ['a seller amount above the price', toHeld, ev.mutual(T.deliver, { sellerAmount: tusd('2000000001') }), 'invalid_terms'],
+    ['a seller amount in another token', toHeld, ev.mutual(T.deliver, { sellerAmount: { token: 'tEUR', amount: '1' as TokenAmount['amount'] } }), 'invalid_terms'],
+    ['a rulebook that does not allow it', toHeld, ev.mutual(T.deliver, {}, false), 'invalid_terms'],
+    ['an expired settlement message', toHeld, ev.mutual(T.deliver, { expiresAt: T.fund }), 'deadline_passed'],
+    ['a settlement for another commitment', toHeld, ev.mutual(T.deliver, { commitmentId: ZERO32 }), 'invalid_terms'],
+    ['settling after a decision moved the funds', toReleased, ev.mutual(T.decide, { deliveryHash: dh }), 'invalid_state'],
+    ['settling in Defaulted', toDefaulted, ev.mutual(T.fallbackBy, { deliveryHash: dh }), 'invalid_state'],
+    ['settling before funding', toAgreed, ev.mutual(T.fund), 'invalid_state'],
+    ['settling twice', [...toHeld, ev.mutual(T.deliver)], ev.mutual(T.deliver), 'invalid_state'],
+    ['a decision after the settlement (race: settlement applied first)', [...toDelivered, ev.mutual(T.decide, { deliveryHash: dh })], ev.decide('primary', 'accept', T.decide), 'invalid_state'],
+    ['a settlement after the decision (race: decision applied first)', [...toDelivered, ev.decide('primary', 'accept', T.decide)], ev.mutual(T.decide, { deliveryHash: dh }), 'invalid_state'],
+    ['appealing a settlement', [...toHeld, ev.mutual(T.deliver)], ev.fileAppeal(), 'invalid_state'],
+  ])('refuses %s', (_name, path, event, type) => {
+    const r = stepF(run(path), event);
+    expect(r.ok ? `ok: ${r.value.kind}` : r.error.type).toBe(type);
   });
 });
 
