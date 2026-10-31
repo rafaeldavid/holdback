@@ -76,7 +76,14 @@ Labels: measured (M), inferred (I), guessed (G).
 - Seeded sampling: 13 mutants. 11 were killed on the first run; "no head rows" and "skip rows that do not fit" survived, the tests were strengthened, and both are now killed (M).
 - Seat selection: 7 of 7 killed. Registry: 5 of 5 killed (M).
 - Adjudicator service: 18 mutants. 16 were killed on the first run; "primary seed not bound to the commitment" and "registry hash not checked" survived and gained tests, and both are now killed (M).
-- The full T-008 sweep was not re-run (M).
+- After the review fixes, both full sweeps were run at `ff27fca` with no filter: adjudicator 29 of 29 killed, judgment (T-008 defenses plus T-009) 107 of 107 killed, none not applied (M). New adjudicator mutants cover the review items: appeal `minFamilies` and `minValid`, the `firstOutcome === 'accept'` condition, the store-mismatch retry, the released-key recipient check, the appeal-template hash check, the role in the decision nonce, the judged-record cache, the appeal registration preflight, the publication-failure catch, the buyer key preflight and the unopenable-key refusal (M).
+- Two stopped sweeps had left mutants in WIP checkpoints (fixed in `0936df7` and `ae7d21f`). After the sweeps, every mutant's original text is present in the tree (M, checked by script). The scripts now journal the original file to `reports/mutant-inflight.json` and restore it on the next start (M: written; I: restore path not exercised by a real kill).
+
+**Review fixes (no re-roll, keys, sampling).**
+- A missing appeal-adjudicator registration and an invalid buyer key refuse with zero judge calls and no record; after the registration returns, the retry judges once (3 calls) (M).
+- A failed record publication: 3 judge calls, no record; the retry publishes the same record, makes no new judge call and the decision binds that record's hash (M).
+- A key the primary cannot unwrap: refused with `key_unwrap_failed`, no record and no decision; the fallback takes over at judgeBy and the case is `Released` (M).
+- A CSV with one record costing more than maxChars / 100 is unsampleable; the cap is inclusive at exactly maxChars / 100 (M, `sample.test.ts`).
 
 **Flake.** `redteam.test.ts` K2 (a wall-clock bound) failed twice under parallel load during this work and passed alone and in `pnpm verify` (M). It predates T-009 (I).
 
