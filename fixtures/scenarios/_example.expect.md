@@ -10,11 +10,12 @@ Happy path for the $2,000 dataset-cleaning job (demo beats 1–4).
 | --- | --- |
 | Pragmas | settlement=sim · judges=recorded · mode=guaranteed_on_decision · seed=7 |
 | Prefix | none (normal flow: reaches a terminal state, invariants hold) |
-| Settlement | SimChain (T-006) driving @holdback/core `step`; stub policy and registry hashes and stub panel |
+| Settlement | SimChain (T-006) driving @holdback/core `step` |
+| Judgment | @holdback/judgment (checks, screen, panel) · registry config/judges.yaml 0x8aa4…4549 · policy bench-a/p1 0x7970…3bf0 |
 | Club | fixtures/clubs/data-services-v1.yaml (loaded) · rulebook 0x140e…971e |
 | Buyer | atlas-buyer 0x5e2E…Ea0B |
 | Seller | tidewater-seller 0x69B5…63eE |
-| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0xc1f2…e978 · price 2,000.000000 tUSD · fee 50.000000 tUSD |
+| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0xd986…3a51 · price 2,000.000000 tUSD · fee 50.000000 tUSD |
 | Adjudicators | primary bench-a 0xCcAa…AfC8 · fallback bench-b 0x2729…0795 · appeal bench-c 0x9690…A2fD |
 | Operators | op-1 · op-2 |
 
@@ -43,18 +44,19 @@ Happy path for the $2,000 dataset-cleaning job (demo beats 1–4).
 
 ### bench-a (primary), attempt 1
 
-- **Intake:** plaintext 0x865a…3322 · text/csv · 53 bytes (stub bytes by stub_bytes: true; fixtures/data/customers.cleaned.good.csv absent) · hash verified ✓
-- **Deterministic checks:** not evaluated by the stub (T-008): cols · rows · uniq · dates · id_nulls · name_nulls · email_nulls · emails (optional) · hidden
-- **Screen:** not run by the stub (T-008).
-- **Panel:** template 0x3f82…99de · rubric 0x4201…7925 · input 0xc88a…26ee · seed commitment 0xdf50…1c79 · seed 0x225e…632c (recomputed: match)
-  - claude-a · anthropic/claude · recorded:stub-claude-pinned-1 (captured from fake judges) · pass · scores 4/4/4
-  - claude-b · anthropic/claude · recorded:stub-claude-pinned-2 (captured from fake judges) · pass · scores 4/4/4
-  - fam2-a · openai-compatible/family-2 · recorded:stub-family2-pinned-1 (captured from fake judges) · pass · scores 4/4/4
-- **Aggregate:** accept (weighted score 4.00). Reasons: 3/3 pass across 2 families; weighted score 4.00 >= 3.0.
+- **Intake:** plaintext 0x1939…87e5 · text/csv · 511912 bytes (fixtures/data/dataset-cleaning/customers.clean.csv) · hash verified ✓ · normalized
+- **Deterministic checks:** cols ✓ · rows ✓ · uniq ✓ · dates ✓ · id_nulls ✓ · name_nulls ✓ · email_nulls ✓ · emails (optional) ✓ · hidden ✓
+- **Screen:** clean
+- **Panel:** 3 judges from 3 families (policy: 3 seats, at least 2 families) · first-instance template 0xabb5…4dd2 · rubric 0x4201…7925 · seed source: commit-reveal (commitment 0xdf50…1c79, seed 0x225e…632c, recomputed: match)
+  - claude-a · anthropic/claude · placeholder-claude-a-20260601 · recorded (captured from fake judges) · pass · scores 4/4/4 · input 0xce51…bd9f
+  - qwen-a · openai-compatible/qwen · placeholder-qwen-a-20260601 · recorded (captured from fake judges) · pass · scores 4/4/4 · input 0x9b1d…c360
+  - gpt-a · openai-compatible/gpt · placeholder-gpt-a-20260601 · recorded (captured from fake judges) · pass · scores 4/4/4 · input 0xb487…d996
+- **Aggregate:** accept (weighted score 4.00; 3 pass, 0 fail of 3 valid; pass families claude, gpt, qwen). Reasons: 3 of 3 valid verdicts pass, from 3 families, score at or above 3.
+- **Signed:** accept.
 
 ## Receipts and log
 
-- Events 0–8. Chain head 0x5ccd…e2fb. Replay of 6 SimChain submissions from genesis matches the settlement state.
+- Events 0–8. Chain head 0x67e1…96ac. Replay of 6 SimChain submissions from genesis matches the settlement state.
 - Receipts from op-1: 5 (rcpt-0001–rcpt-0005). Stub receipts are unsigned until T-007.
 
 ## Invariants

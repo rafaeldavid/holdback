@@ -3,7 +3,8 @@ import type { DecisionOutcome, EscrowStateKind, ProblemType } from '@holdback/co
 
 export type Prefix = 'normal' | 'error' | 'attack' | 'neutrality' | 'todo';
 
-export const TERMINAL_STATES: readonly EscrowStateKind[] = ['Released', 'Refunded', 'Expired'];
+/** Settled: closed by a mutual settlement both parties signed (ADR-0019, D23). */
+export const TERMINAL_STATES: readonly EscrowStateKind[] = ['Released', 'Refunded', 'Expired', 'Settled'];
 
 export interface StepProblem {
   /** 1-based index of the fixture step. */
@@ -19,6 +20,11 @@ export interface Outage {
   step: number;
   actor: string;
   kind: 'offline' | 'operator_refused' | 'timeout';
+  /**
+   * The buyer reclaimed after deliverBy because the seller never delivered. A seller may simply not deliver;
+   * the terms provide for it, so a normal (no-prefix) fixture may end this way.
+   */
+  reclaim?: true;
 }
 
 /** Escrow states that show an attack was escalated or rejected rather than paid out. */
@@ -35,6 +41,8 @@ export interface RunSummary {
   /** True when a first-instance judgment released the funds without escalation or a buyer's early accept. */
   autoAccepted: boolean;
   balances: Record<string, bigint>;
+  /** Some delivery was placeholder bytes (stub_bytes: true), not a real file. */
+  stubBytes?: boolean;
   /** The scenario could not run to the end (a fixture or recording error). */
   runError?: string;
 }
@@ -66,13 +74,15 @@ export function evaluate(prefix: Prefix, run: RunSummary, expect: ScenarioExpect
   for (const inv of run.invariants) if (!inv.ok) reasons.push(`invariant violated: ${inv.name}`);
   const terminal = run.finalState !== null && TERMINAL_STATES.includes(run.finalState);
   const first = run.problems[0];
-  const hasExpect = expect.terminal !== undefined || expect.balances !== undefined || expect.problem !== undefined;
 
   switch (prefix) {
     case 'normal':
       if (!terminal) reasons.push(`expected a terminal state, ended in ${run.finalState ?? 'no commitment'}`);
       if (first) reasons.push(`step ${first.step} (${first.call}) was refused with ${first.type}; use the error. prefix for expected refusals`);
-      if (run.outages.length) reasons.push(`${run.outages[0]!.actor} failed at step ${run.outages[0]!.step}; use the neutrality. prefix for actor failures`);
+      {
+        const failed = run.outages.filter((o) => !o.reclaim);
+        if (failed.length) reasons.push(`${failed[0]!.actor} failed at step ${failed[0]!.step}; use the neutrality. prefix for actor failures`);
+      }
       break;
     case 'error':
       // The expect.problem check below then requires a matching refusal.
@@ -80,9 +90,17 @@ export function evaluate(prefix: Prefix, run: RunSummary, expect: ScenarioExpect
       break;
     case 'attack': {
       if (run.autoAccepted) reasons.push('an attack fixture must not auto-accept, but a first-instance judgment released the funds');
-      const stopped = (run.finalState !== null && NOT_PAID_OUT.includes(run.finalState)) || run.judgments.some((d) => d === 'escalate' || d === 'reject');
-      if (!stopped && !hasExpect) {
-        reasons.push(`an attack fixture must end escalated or rejected (Escalated, FallbackJudging, Refunded, or an escalate/reject judgment), or state an expect block the run meets; ended in ${run.finalState ?? 'no commitment'}`);
+      // Placeholder bytes fail the deterministic checks before any defense sees the attack, so a pass would prove nothing.
+      if (run.stubBytes) reasons.push('the deliverable is placeholder bytes (stub_bytes), so no defense is exercised; use the todo. prefix until the real file exists');
+      // Required whatever the expect block says: an attack that is neither rejected, escalated nor refused got through.
+      const stopped =
+        (run.finalState !== null && NOT_PAID_OUT.includes(run.finalState)) ||
+        run.judgments.some((d) => d === 'escalate' || d === 'reject') ||
+        (run.problems.length > 0 && run.finalState !== 'Released' && run.finalState !== 'Settled');
+      if (!stopped) {
+        reasons.push(
+          `an attack fixture must end escalated, rejected or refused (Escalated, FallbackJudging, Refunded, an escalate/reject judgment, or a refused step with no release); ended in ${run.finalState ?? 'no commitment'}`,
+        );
       }
       break;
     }

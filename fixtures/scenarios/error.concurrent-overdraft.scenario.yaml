@@ -1,0 +1,31 @@
+# @settlement sim @judges recorded @mode guaranteed_on_decision @seed 83
+name: error.concurrent-overdraft
+description: >-
+  Atlas holds $2,050, enough for one $2,000 job plus its $50 fee. Tidewater offers two commitments on the
+  same terms and Atlas agrees to both before funding either. The first hold takes the $2,050; funding the
+  second is refused with insufficient_funds and commitment #2 stays Agreed, so one balance never backs two
+  holds. Promoted from todo. by T-016 (a second commitment per scenario).
+club: fixtures/clubs/data-services-v1.yaml
+terms: fixtures/terms/clean-customers-2000.yaml
+parties:
+  buyer: atlas-buyer
+  seller: tidewater-seller
+adjudicators:
+  primary: bench-a
+  fallback: bench-b
+  appeal: bench-c
+operators: [op-1, op-2]
+faucet:
+  atlas-buyer: "2050000000"         # $2,050: price plus fee for exactly one commitment
+  bench-a: "25000000000"
+  bench-b: "25000000000"
+  bench-c: "25000000000"
+steps:
+  - offer:              { by: seller, via: op-1 }
+  - offer:              { by: seller, via: op-1, commitment: 2 }
+  - adjudicator_accept: { via: op-1 }
+  - adjudicator_accept: { via: op-1, commitment: 2 }
+  - agree_and_fund:     { by: buyer, via: op-1 }
+  - agree_and_fund:     { by: buyer, via: op-1, commitment: 2 }   # agree succeeds, fund is refused
+expect:
+  problem: { step: 6, type: insufficient_funds }
