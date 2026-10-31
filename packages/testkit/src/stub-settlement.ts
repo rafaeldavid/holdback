@@ -46,7 +46,7 @@ import { loadJudgeRegistry, policyHashOf, runnerPolicy } from './judges-config.j
 import { runJudgment, type JudgmentView } from './judgment.js';
 import type { Outage, StepProblem } from './prefix.js';
 import type { JudgeProvider } from './recorded.js';
-import type { Scenario, Step } from './scenario.js';
+import type { Scenario, Step, Tamper } from './scenario.js';
 import { ScenarioError } from './scenario.js';
 import {
   SIM_CHAIN_ID,
@@ -238,6 +238,10 @@ export class StubSettlement {
   private registryCache: LoadedRegistry | null = null;
   private stepNo = 0;
   private signerOverride: string | undefined;
+  /** The current step's deliberate message faults (scenario `tamper:`). */
+  private tampers = new Set<Tamper>();
+  /** Each signer's last nonce, per scope: offers' terms nonces, and every other signed message's. */
+  private readonly lastNonce = new Map<string, Hex32>();
 
   constructor(
     private readonly ctx: SimContext,
@@ -324,6 +328,7 @@ export class StubSettlement {
       this.stepNo++;
       this.signerOverride = 'signer' in s ? s.signer : undefined;
       this.current = s.commitment ?? 1;
+      this.tampers = new Set(s.tamper ?? []);
       await this.runStep(s);
     }
     this.current = 1;
@@ -588,7 +593,7 @@ export class StubSettlement {
           registryHash: this.registry.hash,
           policyHash: policyHashOf(runnerPolicy(this.template.adjudication.policyId)),
           buyerEncryptionPublicKey: b64url(this.ctx.rng.hex32()),
-          nonce: this.ctx.rng.hex32(),
+          nonce: this.nonceFor(seller, 'terms'),
           createdAt: wholeSecond(now),
         })
       : this.stubTerms(seller, now);
@@ -638,7 +643,7 @@ export class StubSettlement {
       remedy: { onReject: 'full_refund' },
       disclosure: { level: 'public' },
       buyerEncryptionPublicKey: b64url(this.ctx.rng.hex32()),
-      nonce: this.ctx.rng.hex32(),
+      nonce: this.nonceFor(seller, 'terms'),
       createdAt: now,
     };
   }
@@ -655,14 +660,14 @@ export class StubSettlement {
     const seed = this.ctx.rng.hex32();
     const message = await this.sign(name, {
       type: 'AdjudicatorAcceptance',
-      commitmentId: c.id,
+      commitmentId: this.tamperable('wrong_commitment_id', c.id),
       adjudicator: this.address(name),
-      seedCommitment: keccak256(seed),
-      policyHash: c.terms.adjudication.policyHash,
-      registryHash: c.terms.adjudication.registryHash,
+      seedCommitment: this.tamperable('wrong_seed_commitment', keccak256(seed)),
+      policyHash: this.tamperable('wrong_policy_hash', c.terms.adjudication.policyHash),
+      registryHash: this.tamperable('wrong_registry_hash', c.terms.adjudication.registryHash),
       fee: c.terms.adjudication.fee,
       bondReserved: c.terms.price,
-      nonce: this.ctx.rng.hex32(),
+      nonce: this.nonceFor(name, 'msg'),
       expiresAt: c.terms.timing.offerExpiresAt,
     } as const);
     if (await this.submit(name, call, via, { kind: 'adjudicator_accept', message })) {
@@ -674,16 +679,20 @@ export class StubSettlement {
 
   private async agreeAndFund(buyer: string, via: string): Promise<void> {
     if (this.state?.kind === 'Offered') {
+      // The implied acceptance is the adjudicator's own, honest message: no impersonation, no tampering.
       const override = this.signerOverride;
+      const tampers = this.tampers;
       this.signerOverride = undefined;
+      this.tampers = new Set();
       await this.adjudicatorAccept(via, true);
       this.signerOverride = override;
+      this.tampers = tampers;
     }
     const c = this.needCommitment(buyer, 'agree', via);
     if (!c) return;
     const buyerAddress = this.address(buyer);
 
-    const agree = await this.sign(buyer, { type: 'Agree', commitmentId: c.id, buyer: buyerAddress, nonce: this.ctx.rng.hex32(), expiresAt: c.terms.timing.offerExpiresAt } as const);
+    const agree = await this.sign(buyer, { type: 'Agree', commitmentId: c.id, buyer: buyerAddress, nonce: this.nonceFor(buyer, 'msg'), expiresAt: c.terms.timing.offerExpiresAt } as const);
     if (!(await this.submit(buyer, 'agree', via, { kind: 'agree', message: agree }))) return;
     this.receipt(via, 'agree');
     this.row(buyer, 'agree', via, 'ok');
@@ -698,7 +707,7 @@ export class StubSettlement {
       token: TOKEN,
       validAfter: c.terms.createdAt,
       validBefore: c.terms.timing.fundBy,
-      nonce: this.ctx.rng.hex32(),
+      nonce: this.nonceFor(buyer, 'msg'),
       expiresAt: c.terms.timing.fundBy,
     } as const);
     if (!(await this.submit(buyer, 'fund', via, { kind: 'fund', message: funding }))) return;
@@ -806,11 +815,11 @@ export class StubSettlement {
       adjudicator: actor.address,
       role,
       outcome,
-      seed,
-      policyHash: c.terms.adjudication.policyHash,
-      registryHash: c.terms.adjudication.registryHash,
+      seed: this.tamperable('wrong_seed', seed),
+      policyHash: this.tamperable('wrong_policy_hash', c.terms.adjudication.policyHash),
+      registryHash: this.tamperable('wrong_registry_hash', c.terms.adjudication.registryHash),
       judgmentRecordHash: canonicalKeccak(view),
-      nonce: this.ctx.rng.hex32(),
+      nonce: this.nonceFor(name, 'msg'),
       expiresAt: this.decisionDeadline(c.state, role),
       ...(round !== null && beaconValue ? { beacon: { source: 'sim' as const, round, value: beaconValue } } : {}),
       ...(outcome === 'accept' ? { keyForBuyer: envelope(c.terms.buyer) } : {}),
@@ -890,7 +899,7 @@ export class StubSettlement {
       commitmentId: c.id,
       buyer: this.address(buyer),
       attempt,
-      nonce: this.ctx.rng.hex32(),
+      nonce: this.nonceFor(buyer, 'msg'),
       expiresAt: c.terms.timing.judgeBy,
     } as const);
     if (!(await this.submit(buyer, call, via, { kind: 'early_accept', message }))) return;
@@ -949,6 +958,25 @@ export class StubSettlement {
     this.receipt(via, call);
     this.row(`${buyer} + ${seller}`, call, via, 'ok');
     this.balanceRows.push({ after: this.label(call), balances: this.snapshotBalances() });
+  }
+
+  /**
+   * A fresh nonce for `signer`, or with `tamper: reuse_nonce` its previous one in the same scope (once per
+   * step: the step's first signed message reuses, the rest are fresh).
+   */
+  private nonceFor(signer: string, scope: 'terms' | 'msg'): Hex32 {
+    const key = `${signer}|${scope}`;
+    const prev = this.lastNonce.get(key);
+    let n: Hex32;
+    if (prev && this.tampers.delete('reuse_nonce')) n = prev;
+    else n = this.ctx.rng.hex32();
+    this.lastNonce.set(key, n);
+    return n;
+  }
+
+  /** The honest value, or a random one when the step tampers with it. */
+  private tamperable(t: Tamper, honest: Hex32): Hex32 {
+    return this.tampers.has(t) ? this.ctx.rng.hex32() : honest;
   }
 
   /** "call" for commitment 1, "call #n" for the others. */

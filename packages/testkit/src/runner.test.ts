@@ -504,6 +504,29 @@ describe('pnpm snap', () => {
     expect(r.snapshot).toMatch(/\| anyone \| expire_appeal \| direct \| ok \| Released \|/);
   });
 
+  it('tamper: each deliberate message fault is refused with its problem type', async () => {
+    const root = sandbox();
+    const accept = (tamper: string) => flow('x', '').replace('  - agree_and_fund: { by: buyer, via: op-1 }', `  - adjudicator_accept: { tamper: ${tamper} }`).replace(`${DELIVER}\n`, '');
+    const cases: Array<[string, string, number, string]> = [
+      ['policy', accept('wrong_policy_hash'), 2, 'policy_mismatch'],
+      ['registry', accept('wrong_registry_hash'), 2, 'registry_mismatch'],
+      ['acceptance', accept('wrong_commitment_id'), 2, 'not_found'],
+      ['seed', flow('x', '  - judge: { adjudicator: bench-a, tamper: wrong_seed }\n'), 4, 'seed_mismatch'],
+      ['preimage', flow('x', '  - judge: { adjudicator: bench-a }\n').replace('  - agree_and_fund: { by: buyer, via: op-1 }', '  - adjudicator_accept: { tamper: wrong_seed_commitment }\n  - agree_and_fund: { by: buyer, via: op-1 }'), 5, 'seed_mismatch'],
+      ['decision-nonce', flow('x', '  - judge: { adjudicator: bench-a, tamper: reuse_nonce }\n'), 4, 'nonce_reused'],
+      ['terms-nonce', flow('x', '  - offer: { by: seller, commitment: 2, tamper: reuse_nonce }\n'), 4, 'nonce_reused'],
+    ];
+    for (const [label, src, step, type] of cases) {
+      const name = `error.tamper-${label}`;
+      const r = await fixture(root, name, `${src.replace('name: x', `name: ${name}`)}expect: { problem: { step: ${step}, type: ${type} } }\n`);
+      expect(r.out[0], label).toBe(`pass  ${name} (snapshot updated)`);
+    }
+    const bad = await fixture(root, 'x-tamper', flow('x-tamper', '  - reclaim: { by: buyer, tamper: wrong_seed }\n'));
+    expect(bad.out[0]).toMatch(/reclaim signs nothing that can be tampered with/);
+    const wrong = await fixture(root, 'x-tamper2', flow('x-tamper2', '  - judge: { adjudicator: bench-a, tamper: wrong_commitment_id }\n'));
+    expect(wrong.out[0]).toMatch(/must be one of reuse_nonce, wrong_seed/);
+  });
+
   it('refuses steps the settlement cannot run yet, with the reason', async () => {
     const root = sandbox();
     for (const [step, why] of [

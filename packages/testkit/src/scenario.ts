@@ -37,8 +37,28 @@ export type StepBody =
   | { kind: 'expire'; via: Via }
   | { kind: 'expire_appeal'; via: Via };
 
-/** A step, and which of the scenario's commitments it acts on (1 when absent). */
-export type Step = StepBody & { commitment?: number };
+/**
+ * Deliberate faults in the messages a step signs, for error. fixtures. Each must be refused by settlement:
+ * - reuse_nonce: the signer reuses its previous nonce (terms nonce for an offer) -> nonce_reused;
+ * - wrong_seed: a Decision reveals a seed that is not the committed or beacon seed -> seed_mismatch;
+ * - wrong_seed_commitment: the acceptance commits to another seed, so the honest reveal fails -> seed_mismatch;
+ * - wrong_policy_hash / wrong_registry_hash: the message names another policy or registry -> *_mismatch;
+ * - wrong_commitment_id: the acceptance names another commitment -> acceptance_mismatch.
+ */
+export const TAMPERS = ['reuse_nonce', 'wrong_seed', 'wrong_seed_commitment', 'wrong_policy_hash', 'wrong_registry_hash', 'wrong_commitment_id'] as const;
+export type Tamper = (typeof TAMPERS)[number];
+
+/** Which tampers each step's messages can carry. */
+const TAMPERABLE: Record<string, readonly Tamper[]> = {
+  offer: ['reuse_nonce'],
+  adjudicator_accept: ['reuse_nonce', 'wrong_seed_commitment', 'wrong_policy_hash', 'wrong_registry_hash', 'wrong_commitment_id'],
+  agree_and_fund: ['reuse_nonce'],
+  early_accept: ['reuse_nonce'],
+  judge: ['reuse_nonce', 'wrong_seed', 'wrong_policy_hash', 'wrong_registry_hash'],
+};
+
+/** A step, which of the scenario's commitments it acts on (1 when absent), and any deliberate message faults. */
+export type Step = StepBody & { commitment?: number; tamper?: Tamper[] };
 /** A scenario drives at most this many commitments. */
 export const MAX_COMMITMENTS = 4;
 
@@ -151,15 +171,25 @@ function parseStep(raw: unknown, path: string, operators: readonly string[], act
   const [kind, rawBody] = Object.entries(raw)[0]!;
   const p = `${path}.${kind}`;
   if (kind in UNSUPPORTED) fail(path, `step "${kind}" is not supported: ${UNSUPPORTED[kind]}`);
-  if (isObj(rawBody) && 'commitment' in rawBody) {
+  if (!isObj(rawBody) || !('commitment' in rawBody || 'tamper' in rawBody)) return parseStepBody(kind, rawBody, path, operators, actors);
+  const extra: { commitment?: number; tamper?: Tamper[] } = {};
+  if ('commitment' in rawBody) {
     if (NO_COMMITMENT.includes(kind)) fail(`${p}.commitment`, `${kind} does not act on a commitment`);
     const n = positiveInt(rawBody.commitment, `${p}.commitment`);
     if (n > MAX_COMMITMENTS) fail(`${p}.commitment`, `a scenario drives at most ${MAX_COMMITMENTS} commitments`);
-    const rest = { ...rawBody };
-    delete rest.commitment;
-    return { ...parseStepBody(kind, Object.keys(rest).length ? rest : undefined, path, operators, actors), commitment: n };
+    extra.commitment = n;
   }
-  return parseStepBody(kind, rawBody, path, operators, actors);
+  if ('tamper' in rawBody) {
+    const allowed = TAMPERABLE[kind] ?? [];
+    if (!allowed.length) fail(`${p}.tamper`, `${kind} signs nothing that can be tampered with`);
+    const list = Array.isArray(rawBody.tamper) ? rawBody.tamper : [rawBody.tamper];
+    if (!list.length) fail(`${p}.tamper`, 'needs at least one fault');
+    extra.tamper = list.map((t, i) => literal(t, `${p}.tamper[${i}]`, allowed));
+  }
+  const rest = { ...rawBody };
+  delete rest.commitment;
+  delete rest.tamper;
+  return { ...parseStepBody(kind, Object.keys(rest).length ? rest : undefined, path, operators, actors), ...extra };
 }
 
 function parseStepBody(kind: string, body: unknown, path: string, operators: readonly string[], actors: readonly string[]): StepBody {
