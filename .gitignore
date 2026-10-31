@@ -10,3 +10,6 @@ reports/
 demo/out/
 .DS_Store
 .worktrees/
+
+# Personal Claude Code settings
+.claude/settings.local.json
