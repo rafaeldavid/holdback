@@ -48,7 +48,8 @@
     },
     "mutualSettlement": {
       "allowed": true,
-      "adjudicatorFeeShareAfterDeliveryBps": 0
+      "adjudicatorFeeShareAfterDeliveryBps": 0,
+      "payoutsTo": "any"
     },
     "disclosureMin": "public",
     "identityModes": [

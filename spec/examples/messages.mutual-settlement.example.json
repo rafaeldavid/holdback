@@ -2,10 +2,22 @@
   "type": "MutualSettlement",
   "commitmentId": "0x9340180fb352b68aabcf457de90752525d862a9a6dac875100905fac2fc54ed8",
   "deliveryHash": "0x4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b",
-  "sellerAmount": {
-    "token": "tUSD",
-    "amount": "1200000000"
-  },
+  "payouts": [
+    {
+      "to": "0x9ff412388f11e58327e71f841705dbc739c8cc46",
+      "amount": {
+        "token": "tUSD",
+        "amount": "1200000000"
+      }
+    },
+    {
+      "to": "0x9999999999999999999999999999999999999999",
+      "amount": {
+        "token": "tUSD",
+        "amount": "800000000"
+      }
+    }
+  ],
   "releaseKey": true,
   "nonce": "0x5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d",
   "expiresAt": "2026-11-01T10:02:00Z",

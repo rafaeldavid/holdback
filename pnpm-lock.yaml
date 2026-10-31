@@ -213,7 +213,15 @@ importers:
         specifier: ^4.10.2
         version: 4.10.2
 
-  packages/judgment: {}
+  packages/judgment:
+    dependencies:
+      '@holdback/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      fast-check:
+        specifier: ^4.10.2
+        version: 4.10.2
 
   packages/sdk: {}
 

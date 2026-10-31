@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
+import { getAddress } from 'viem';
 import { rulebookHash } from './canonical.js';
 import { commitmentId, holdbackDomain, messageDigest, termsDigest, termsOf, typedDataOf, type UnsignedMessage } from './eip712.js';
 import { parseAdjudicator, parseClub, parseCommitment, parseCommitmentState, parseDelivery, parseJudgment, parseMandate, parseMessage, parsers } from './parse.js';
@@ -91,7 +92,7 @@ describe('boundary parsers', () => {
   it.each([
     ['randomness', { source: 'drand-quicknet', chainHash: `0x${'52'.repeat(32)}` }, 'sim only'],
     ['identityModes', ['long-term', 'pseudonymous'], 'long-term only'],
-    ['mutualSettlement', { allowed: true, adjudicatorFeeShareAfterDeliveryBps: 5000 }, 'must be 0 in Phase 1'],
+    ['mutualSettlement', { allowed: true, adjudicatorFeeShareAfterDeliveryBps: 5000, payoutsTo: 'any' }, 'must be 0 in Phase 1'],
   ] as const)('refuses rulebook %s beyond Phase 1', (field, value, detail) => {
     const c = example('club.example.json');
     expect(parseClub(c).ok).toBe(true);
@@ -108,6 +109,25 @@ describe('boundary parsers', () => {
     const r = parseJudgment(j);
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error.detail).toContain('privateRecord');
+  });
+
+  it('refuses mutual settlement payouts that name one recipient twice, in any letter case (D23)', () => {
+    const m = example('messages.mutual-settlement.example.json');
+    expect(parseMessage(m).ok).toBe(true);
+    const payouts = m['payouts'] as Array<{ to: string }>;
+    payouts[1]!.to = getAddress(payouts[0]!.to);
+    expect(payouts[1]!.to).not.toBe(payouts[0]!.to);
+    const r = parseMessage(m);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.detail).toContain('more than once');
+  });
+
+  it('refuses mutual settlement payouts in more than one token (D23)', () => {
+    const m = example('messages.mutual-settlement.example.json');
+    (m['payouts'] as Array<{ amount: { token: string } }>)[1]!.amount.token = 'tEUR';
+    const r = parseMessage(m);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.detail).toContain('one token');
   });
 
   it.each(['private', 'judgment'])('refuses a Publish to %s in Phase 1 (ADR-0020)', (level) => {

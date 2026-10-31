@@ -12,7 +12,7 @@ Validation as of October 30, 2026 (measured): all 22 examples pass under Ajv 8 (
 - a model ID containing "latest";
 - an extra field in a judge verdict.
 
-The `$id` URLs (`https://holdback.dev/schemas/v0.5/…`) are namespaces for resolving `$ref` between files. They are not hosted. Replace the domain if the project gets one.
+The `$id` URLs (`https://holdback.dev/schemas/v0.6/…`) are namespaces for resolving `$ref` between files. They are not hosted. Replace the domain if the project gets one.
 
 ## Annotations
 
@@ -20,6 +20,11 @@ The `$id` URLs (`https://holdback.dev/schemas/v0.5/…`) are namespaces for reso
 - **Every free-text string is marked or constrained.** A string with no `date-time` format, pattern, enum or const must carry the marker. URIs count as free text: they are marked and capped at 2048 characters. Identifiers instead get a pattern: club IDs, token IDs, and `Ident` for judge, provider, family, model and version labels. `tests/spec.test.ts` lints this, with an empty allowlist.
 
 ## Changelog
+
+- **v0.6 (2026-10-31, D23, amends ADR-0019):** every `$id`, `commitment.schemaVersion` and the EIP-712 domain version move to 0.6.
+  - **Mutual settlement to any addresses:** `MutualSettlement.sellerAmount` is replaced by `payouts`, one to eight `Payout { to, amount }` entries (new `common.schema.json` definitions `Payout` and `Payouts`). Amounts are above zero. The EIP-712 type becomes `MutualSettlement(…,Payout[] payouts,…)Payout(address to,TokenAmount amount)`. The core parser refuses a recipient named twice and payouts in more than one token; `mutualSettlementProblem` checks the sum, the price token and the rulebook against the terms.
+  - **Read model and events:** `settled` and the `commitment.settled` payload carry `{ payouts, keyReleased }`. `sellerAmount` and `buyerAmount` are dropped; the fee returned to the buyer follows from the terms.
+  - **Rulebook:** `mutualSettlement.payoutsTo` is `parties` or `any` (required).
 
 - **v0.5 (2026-10-30, ADR-0014, ADR-0015, ADR-0017, ADR-0018, ADR-0019, ADR-0020, ADR-0021, ADR-0022):** every `$id`, `commitment.schemaVersion` and the EIP-712 domain version move to 0.5.
   - **API (ADR-0017):** new `page.schema.json` (`items` plus `nextCursor`, `null` at the end), `operator-status.schema.json` (EIP-712 domain, receipt signer, settlement target, versions, head and lag) and `receipt.schema.json` (operator, event sequence and hash, commitment ID, signature; a new `Receipt` EIP-712 type). Party-authored strings carry `x-holdback-untrusted`. Two additions go beyond ADR-0017's text: `operator-status.settlementModes`, and the throttling rule that writes are limited per signer and reads per client (`docs/api.md`). A receipt's `commitmentId` is optional for events with no commitment and is encoded with a `hasCommitment` flag.

@@ -1,6 +1,6 @@
 # Decisions to make today
 
-Status: D1–D9 decided October 30, 2026, after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`); the options are kept as the record. D10 to D22 decided October 30, 2026, each after an independent research pass; none are open. Owner: Rafa. Each decision has options, a recommendation and the ADR it settles. Phase 1 (the demo) can start once D1, D2 and D6 are settled. Phase 2 needs D3 and D4.
+Status: D1–D9 decided October 30, 2026, after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`); the options are kept as the record. D10 to D23 decided October 30 and 31, 2026, each after an independent research pass; none are open. Owner: Rafa. Each decision has options, a recommendation and the ADR it settles. Phase 1 (the demo) can start once D1, D2 and D6 are settled. Phase 2 needs D3 and D4.
 
 ## D1. Adopt the neutrality litmus test as the top constraint (ADR-0001)
 
@@ -325,3 +325,19 @@ The escrow-theory review (F8) found no chargeback analog for the agent's princip
 | E. Nothing in the protocol (chosen) | Matches every rail today; passes all three litmus tests |
 
 **Recommendation:** E now, A first in the backlog.
+
+## D23. Mutual settlement to any addresses (ADR-0019 amendment)
+
+**Decided 2026-10-31:** a co-signed mutual settlement may pay the held price to any addresses, in any split that sums to the price, up to eight payouts. The fee, bond, key and race rules are unchanged, and only money leaves: the content key cannot follow the funds. The rulebook's `mutualSettlement.payoutsTo` is `parties` or `any`; the demo club uses `any` and a regulated club sets `parties`. Schema v0.6 replaces `sellerAmount` with `payouts`.
+
+Rafa: if buyer and seller agree, they should be able to pull their funds to any address or mechanism, so they can arbitrate outside the model. A research pass (Fable, max effort) compared the options.
+
+| Option | Effect |
+| --- | --- |
+| A. Keep payees fixed to the parties | To use another mechanism, one party must take custody first |
+| B. Payouts to any addresses, rulebook may restrict to the parties (chosen) | Two signatures still move the funds; the parties can exit together to any mechanism |
+| C. Only to exit addresses registered in advance | The parties cannot name a shared outside arbiter |
+| D. Defer to a later schema | A second schema bump after T-006 and T-007 build on `sellerAmount` |
+
+**Recommendation:** B.
+

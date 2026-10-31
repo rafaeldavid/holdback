@@ -37,13 +37,13 @@ export const SIMCHAIN_VERIFYING_CONTRACT: Address = '0x0000000000000000000000000
 
 export interface HoldbackDomain {
   name: 'Holdback';
-  version: '0.5';
+  version: '0.6';
   chainId: bigint;
   verifyingContract: Address;
 }
 
 export function holdbackDomain(chainId: number | bigint, verifyingContract: Address = SIMCHAIN_VERIFYING_CONTRACT): HoldbackDomain {
-  return { name: 'Holdback', version: '0.5', chainId: BigInt(chainId), verifyingContract };
+  return { name: 'Holdback', version: '0.6', chainId: BigInt(chainId), verifyingContract };
 }
 
 const ZERO32: Hex32 = `0x${'0'.repeat(64)}`;
@@ -84,6 +84,7 @@ const structs = {
   Ciphertext: [field('uri', 'string'), field('sha256', 'string'), field('bytes', 'uint64'), field('cipher', 'string')],
   EncryptedKey: [field('recipient', 'address'), field('scheme', 'string'), field('ciphertext', 'string'), field('unlock', 'KeyUnlock')],
   KeyUnlock: [field('kind', 'string'), field('round', 'uint64')],
+  Payout: [field('to', 'address'), field('amount', 'TokenAmount')],
   Disclosure: [field('level', 'string')],
   Scope: [
     field('roles', 'string[]'),
@@ -189,7 +190,7 @@ export const messageTypes = {
     field('commitmentId', 'bytes32'),
     field('hasDelivery', 'bool'),
     field('deliveryHash', 'bytes32'),
-    field('sellerAmount', 'TokenAmount'),
+    field('payouts', 'Payout[]'),
     field('releaseKey', 'bool'),
     ...expiring,
   ],
@@ -381,7 +382,7 @@ function encodeMessage(m: UnsignedMessage): Encoded {
         commitmentId: m.commitmentId,
         hasDelivery: m.deliveryHash !== null,
         deliveryHash: m.deliveryHash ?? ZERO32,
-        sellerAmount: amount(m.sellerAmount),
+        payouts: m.payouts.map((p) => ({ to: p.to, amount: amount(p.amount) })),
         releaseKey: m.releaseKey,
         ...expiry(m),
       };

@@ -157,3 +157,38 @@ MutualSettlement {
 ## Amended by ADR-0020 (D16)
 
 Who can see a settlement's split follows the disclosure level. The money movements are part of the public skeleton, so the amounts paid to each payout address are visible at every level. Any reasons or terms the parties attach stay in the body.
+
+## Amended by D23 (any recipients)
+
+Accepted 2026-10-31 (D23). Rafa's framing: if buyer and seller agree, they should be able to pull the held funds to any address or mechanism in any split, for example to arbitrate outside the model. An independent research pass (Fable, max effort) recommended this shape. Schema v0.6 carries it.
+
+**What changes.**
+- `sellerAmount` is replaced by `payouts`: one to eight entries, each `{to, amount}`.
+- `to` is any address both parties sign for: a party, another escrow, an outside arbiter.
+- Every amount is above zero and in the price token. The core parser refuses a recipient named twice, in any letter case, and payouts in more than one token.
+- The payouts must sum to the price exactly. `mutualSettlementProblem` in core checks the sum, the token and the rulebook against the terms; T-006 applies it before any posting.
+- The EIP-712 type gains `Payout(address to,TokenAmount amount)` and `Payout[] payouts`. Every leaf of a payout is signed.
+
+**What does not change.**
+- The adjudication fee still returns to `terms.buyer`.
+- Every reservation on the commitment is released.
+- The content key still goes only to the buyer, and only if both chose `releaseKey`.
+- Settle-once, the nonce, the expiry and the race rule against a decision are unchanged.
+
+**Rulebook.** `mutualSettlement.payoutsTo` is `parties` or `any`. With `parties`, every payout must name the buyer or the seller. The demo club uses `any`. A regulated club sets `parties`, because a payout to a non-party is a standard anti-money-laundering flag (FinCEN advisory on third-party layering, https://www.fincen.gov/system/files/2025-08/FinCEN-Advisory-CMLN-508.pdf).
+
+**The limit.** Only money leaves. The content key is wrapped to the buyer and cannot follow the funds to an outside mechanism (ADR-0012, ADR-0020). If the parties exit to another arbiter, the seller hands the work over outside the protocol.
+
+**Prior art.**
+- Bitcoin 2-of-3 escrow: any two keys spend to any output, and the mediator never chooses alone (https://en.bitcoin.it/wiki/Contract).
+- Safe multisig: `execTransaction(to, value, data, ...)` runs on the owner threshold, to any destination (https://github.com/safe-global/safe-smart-account/blob/main/contracts/Safe.sol).
+- Escrow.com: disputes end by a "joint instruction providing the terms of an agreed upon resolution" (https://www.escrow.com/escrow-101/general-escrow-instructions).
+- M&A escrow: joint written instructions release funds "to the account designated in writing in such joint written instruction" (https://lawinsider.com/clause/joint-written-instructions).
+- In contrast, Kleros escrow fixes payees to the sender, the receiver and the arbitrator (https://github.com/kleros/kleros-interaction/blob/master/contracts/standard/arbitration/MultipleArbitrableTransaction.sol).
+
+**Phase 2 on AuthCaptureEscrow (inferred from the contract code).** A payout to a third party is a fee-only `capture` to that address. The seller's share is a normal capture. The buyer's share is `void()`. All of it runs in one rules-contract transaction. A recipient the token issuer has denylisted reverts the whole settlement; the hold stays and the parties sign again (residual 1).
+
+**Litmus tests.** Neutrality: two signatures still move the funds and no one else can; no actor loses a right it had under ADR-0019. The hold: integer sum, settle-once, nonce and expiry are unchanged, and a settlement applies atomically or not at all. Defended judgment: unchanged.
+
+**Alternatives.** Keep payees fixed (option A): exiting to another mechanism would then need one party to take custody first, which is the trust escrow removes. Exit only to pre-registered addresses (C): the parties could not name a shared outside arbiter. Defer to a later schema (D): costs a second bump after T-006 and T-007 build on `sellerAmount`.
+
