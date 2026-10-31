@@ -368,3 +368,18 @@ Rafa first asked that both parties be able to change any term, as in a regular c
 | C. Defer | No way to change terms short of a dispute |
 
 **Recommendation:** B.
+
+## D25. Build review: what to do before the dry run (docs/reviews/2026-10-31-build-and-simplification-review.md)
+
+**Decided 2026-10-31 under the autonomy rule, for Rafa to overrule.** An independent review (Fable, max effort, PR 49) measured the build (`pnpm verify` green, `pnpm demo` in 1.9 s) and found the demo does not yet show its two strongest claims: beat 7 (neutrality) and the injection half of beat 6 are stand-in. It also found one defense gap (L3-1): the appeal adjudicator cannot decide a screen-flagged case, so the default outcome would pay an injecting seller from the appeal bond.
+
+| Item | Decided |
+| --- | --- |
+| Before the dry run | Review proposals 1–9: beat 7 and beat 6a on SimChain (T-018); honest labels, one commitment ID per job, meaningful judging time, one judge prompt and verdict in beat 3, lean balance tables (T-019); trim T-016 to real judgment in snap, role-keyed recordings, authored guard and `mutual_settle`, the rest to T-016b; fix stale docs |
+| L3-1 (defense) | At the appeal, a screen flag stays in the record and the five-judge panel decides by supermajority; it never auto-accepts (FR-15 kept). T-018 amends ADR-0021 and `docs/judgment-and-defenses.md` with the rule and a failing-first test |
+| Fixture target | The ~45 open T-010 rows are not needed before the dry run; the demo needs its beats as fixtures. Moving the rest to the backlog by name happens after the demo (proposal 14) |
+| T-017 profiles | Kept, against review proposal 10: Rafa asked for adjudicator profiles and the agreement step. Invented history stays labelled role-play |
+| Design map | Kept, against review proposal 16: Rafa uses it to track progress |
+| After the demo | Proposals 11–19 (one driver for snap and demo, delete the adjudicator's second in-memory settlement, one mutation script, prune `docs/api.md`, backlog triage, leaner task files, batched Phase 4 research) |
+
+**Recommendation:** as decided.

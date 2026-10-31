@@ -63,9 +63,9 @@ pnpm typecheck && pnpm test     # types, unit + property tests (no network)
 pnpm verify                     # all checks + snap + demo; writes reports/verify-<branch>.md
 pnpm lint                       # ESLint, including the no-eval and money rules
 pnpm validate:spec              # spec/examples against spec/schemas (Ajv 2020-12, strict)
-pnpm snap                       # scenario fixtures vs .expect.md snapshots (placeholder until T-005)
+pnpm snap                       # scenario fixtures vs .expect.md snapshots
 pnpm snap --update <name>       # regenerate a snapshot; review the diff before committing
-pnpm demo                       # recorded mode: no keys needed (placeholder until T-013)
+pnpm demo                       # scripted judges: no keys needed; writes demo/out
 pnpm demo --live                # live judges (needs two model-family keys)
 forge test                      # contracts (from Phase 2)
 ```
@@ -85,7 +85,7 @@ forge test                      # contracts (from Phase 2)
 
 ## Map
 
-`docs/decisions-today.md` records decisions D1 to D23 (decided October 30, 2026; D4 deferred to Phase 2), and `docs/reviews/` the reviews behind them. Read both first. `docs/backlog.md` holds work deferred until after the basic demo.
+`docs/decisions-today.md` records decisions D1 to D25 (decided October 30, 2026; D4 deferred to Phase 2), and `docs/reviews/` the reviews behind them. Read both first. `docs/backlog.md` holds work deferred until after the basic demo.
 
 The other docs: `PRD.md`, `neutrality.md`, `architecture.md`, `judgment-and-defenses.md`, `api.md`, `demo.md`, `testing.md`, `team.md`, `plan.md`, `decisions/`, `tasks/`. Research is in `docs/research/`; open it only when a decision needs it.
 
