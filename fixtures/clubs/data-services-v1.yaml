@@ -1,7 +1,7 @@
 # Data Services Club, open rulebook v1 (docs/demo.md, Cast). Schema v0.6 (spec/schemas/club.schema.json).
 # The loader (packages/testkit/src/fixture-files.ts) computes rulebookHash; it is never written here.
-# Same rulebook as spec/examples/club.example.json (whose own rulebookHash field is stale; the hash of this
-# rulebook is 0x140edd090559cb7dd3950b3a8b755b9cca7b81a37d11359738e1b9df7d0d971e).
+# Same rulebook as spec/examples/club.example.json, so the computed hash equals that example's rulebookHash
+# (0x140edd090559cb7dd3950b3a8b755b9cca7b81a37d11359738e1b9df7d0d971e).
 id: data-services-v1
 name: Data Services Club
 operator: "0xc189bbabd7b55343a731ed82c5f80b5e5e354e88"

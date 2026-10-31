@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { rulebookHash } from '../packages/core/src/canonical.ts';
 // @ts-expect-error -- plain ESM helper without type declarations
 import { loadSpec, validateExamples } from '../scripts/spec.mjs';
 
@@ -680,5 +681,14 @@ describe('spec/', () => {
       s[field] = 1793379820;
       expect(validate()(s)).toBe(false);
     });
+  });
+
+  // Derived hashes in examples must match their bodies, or a reader copying an example gets a club no
+  // settlement layer recognizes (found stale in T-012: the club example predated payoutsTo). The commitment
+  // example's rulebookHash, id and signature, and the adjudicator example's policyHash and poolTermsHash, are
+  // still stale; core pins EIP-712 vectors over the commitment example, so they move together (docs/backlog.md).
+  it("the club example's rulebookHash is the keccak256 of its rulebook's canonical JSON", () => {
+    const club = example('club');
+    expect(club.rulebookHash).toBe(rulebookHash(club.rulebook));
   });
 });
