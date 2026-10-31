@@ -9,6 +9,7 @@ import { renderHtml } from './transcript/render-html.js';
 import { renderJson } from './transcript/render-json.js';
 import { renderClosingMarkdown, renderMarkdown } from './transcript/render-md.js';
 import type { BeatTranscript, EventSource } from './transcript/types.js';
+import { plain } from './transcript/untrusted.js';
 
 export interface Args {
   live: boolean;
@@ -95,9 +96,10 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
     writeFileSync(join(outDir, `beat-${beat}.json`), renderJson(t));
     firstMs ??= Math.round(now() - started);
     transcripts.push(t);
-    io.log(`\nBeat ${t.beat}: ${t.title}`);
-    for (const line of header(t)) io.log(`  ${line}`);
-    for (const e of t.events) if (e.kind !== 'balances') io.log(`  ${narrate(e)}`);
+    // Terminal: every line is plain (no escape sequences, bidi or tag characters, no embedded line breaks).
+    io.log(`\nBeat ${t.beat}: ${plain(t.title)}`);
+    for (const line of header(t)) io.log(`  ${plain(line)}`);
+    for (const e of t.events) if (e.kind !== 'balances') io.log(`  ${plain(narrate(e))}`);
   }
   const closing = renderClosingMarkdown();
   writeFileSync(join(outDir, 'closing.md'), closing);

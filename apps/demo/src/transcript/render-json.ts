@@ -1,4 +1,6 @@
-// <beat>.json: the machine-readable trace. The transcript already holds only strings, integers and booleans.
+// <beat>.json: the machine-readable trace. The transcript holds only strings, integers and booleans; invisible
+// and control characters (possible in deliverable-derived text) are written as \u escapes.
 import type { BeatTranscript } from './types.js';
+import { safeJson } from './untrusted.js';
 
-export const renderJson = (t: BeatTranscript): string => `${JSON.stringify(t, null, 2)}\n`;
+export const renderJson = (t: BeatTranscript): string => `${safeJson(t)}\n`;

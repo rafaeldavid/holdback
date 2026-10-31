@@ -86,13 +86,17 @@ describe('pnpm demo', () => {
 });
 
 describe('secrets', () => {
-  it('the demo source never reads the environment or an env file', () => {
-    const dir = new URL('.', import.meta.url).pathname;
-    const sources = readdirSync(dir, { recursive: true, encoding: 'utf8' }).filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts'));
-    expect(sources.length).toBeGreaterThan(5);
-    for (const f of sources) {
-      const text = readFileSync(join(dir, f), 'utf8');
-      expect(text, f).not.toMatch(/process\.env|\.env\b|dotenv/);
+  it('the demo CLI and the agents it imports never read the environment or an env file', () => {
+    // apps/demo/src (the CLI) and apps/demo/agents (T-012's beats it runs). The operators the agents start get
+    // `env: {}` from world.ts, so the operator's startup guard sees no keys either.
+    const dirs = [new URL('.', import.meta.url).pathname, new URL('../agents/', import.meta.url).pathname];
+    let count = 0;
+    for (const dir of dirs) {
+      const sources = readdirSync(dir, { recursive: true, encoding: 'utf8' }).filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts') && !f.endsWith('.d.ts'));
+      count += sources.length;
+      for (const f of sources) expect(readFileSync(join(dir, f), 'utf8'), f).not.toMatch(/process\.env|\.env\b|dotenv/);
     }
+    expect(count).toBeGreaterThan(15);
+    expect(readFileSync(new URL('../agents/world.ts', import.meta.url), 'utf8')).toMatch(/env: \{\}/);
   });
 });

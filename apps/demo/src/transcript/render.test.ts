@@ -45,7 +45,8 @@ describe('renderMarkdown', () => {
     const base = await withSigned();
     const t: BeatTranscript = { ...base, source: { kind: 'mixed', note: 'part measured' }, events: base.events.map((e) => ({ ...e, standIn: true as const })) };
     const md = renderMarkdown(t);
-    for (const line of md.split('\n').filter((l) => l.startsWith('- +'))) expect(line).toContain('[stand-in]');
+    // Narrated lines are Markdown-escaped, so the mark reads \[stand-in\] in the source and [stand-in] rendered.
+    for (const line of md.split('\n').filter((l) => l.startsWith('- +'))) expect(line).toContain('\\[stand-in\\]');
     expect(md).toMatch(/^## Panel \[stand-in\]$/m);
     expect(md).toMatch(/^## Signed message \[stand-in\]$/m);
     for (const line of md.split('\n').filter((l) => l.startsWith('**'))) expect(line).toContain('[stand-in]');

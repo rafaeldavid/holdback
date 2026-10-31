@@ -49,8 +49,8 @@ describe('untrusted text helpers', () => {
 
   it('mdText escapes Markdown and HTML specials and breaks autolinks', () => {
     const m = mdText(HOSTILE);
-    expect(m).not.toContain('![');
-    expect(m).not.toContain('](');
+    expect(m).not.toMatch(/(^|[^\\])!\[/);
+    expect(m).not.toMatch(/(^|[^\\])\]\(/);
     expect(m).not.toMatch(/(^|[^\\])<img/);
     expect(m).not.toContain('https://');
     expect(m).not.toMatch(/(^|[^\\])`/);
@@ -86,8 +86,10 @@ describe('hostile deliverable-derived text on every output surface', () => {
   it('Markdown: no image, link, inline HTML, heading, table row or fence break', async () => {
     const md = renderMarkdown(await hostileTranscript());
     expect(md).not.toMatch(BAD_CHARS);
-    expect(md).not.toContain('![x](');
-    expect(md).not.toContain('[click](');
+    // Outside the signed-message fence (where the payload is inert code text), nothing forms an image or link.
+    const prose = md.slice(0, md.indexOf('## Signed message'));
+    expect(prose).not.toMatch(/(^|[^\\])!\[/m);
+    expect(prose).not.toMatch(/(^|[^\\])\]\(/m);
     // Outside the fenced signed message, '<' only ever appears backslash-escaped.
     expect(md.slice(0, md.indexOf('## Signed message'))).not.toMatch(/(^|[^\\])<img/m);
     expect(md).not.toMatch(/^# pwned/m);
@@ -96,7 +98,8 @@ describe('hostile deliverable-derived text on every output surface', () => {
     const fenceAt = md.indexOf('## Signed message');
     for (const line of md.slice(0, fenceAt).split('\n').filter((l) => l.includes('HOSTILE'))) {
       expect(line).not.toContain('https://');
-      expect(line).not.toMatch(/(^|[^\\])[`<]/);
+      // The renderer's own code spans hold identifiers only; any other backtick or '<' must be escaped.
+      expect(line.replace(/`[0-9A-Za-z._:-]+`/g, '')).not.toMatch(/(^|[^\\])[`<]/);
     }
     // The signed body sits in a fence its own backticks cannot close.
     const signed = md.slice(fenceAt);

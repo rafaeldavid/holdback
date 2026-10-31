@@ -6,6 +6,7 @@
 import type { Commitment, Hex32, Judgment, SettlementEvent } from '@holdback/core';
 import { beatBadWork, beatHappyPath, beatHiddenTags, beatHold, beatMutualSplit, type JobResult } from '@holdback/demo/agents/beats.js';
 import { createDemoWorld, type ActorName, type DemoWorld } from '@holdback/demo/agents/world.js';
+import { plain } from '../transcript/untrusted.js';
 import type { Amount, BalanceRow, BeatTranscript, CastKey, DemoEvent, EventSource, JudgeSeat, Json, Via } from '../transcript/types.js';
 
 export const SIMCHAIN_NOTE =
@@ -302,7 +303,15 @@ class Narrator {
     return k ? this.key(String(k.payload.recipient)) : undefined;
   }
 
-  private judgment(ms: number, r: Judgment): void {
+  private judgment(ms: number, record: Judgment): void {
+    // Untrusted at ingestion: check details (csv_columns_exact quotes the seller's header), screen signal details
+    // and aggregate reasons can carry deliverable text. The renderers escape again per surface.
+    const r: Judgment = {
+      ...record,
+      deterministic: record.deterministic.map((d) => (d.detail === undefined ? d : { ...d, detail: plain(d.detail) })),
+      screen: { ...record.screen, signals: record.screen.signals.map((s) => (s.detail === undefined ? s : { ...s, detail: plain(s.detail) })) },
+      aggregate: { ...record.aggregate, reasons: record.aggregate.reasons.map(plain) },
+    };
     const actor = this.key(r.adjudicator);
     const weights = this.run.commitment.acceptance.rubric.criteria.map((x) => x.weight);
     const totalWeight = weights.reduce((a, b) => a + b, 0);

@@ -4,7 +4,6 @@
 // text that cannot add escapes, markup, links or invisible reordering.
 
 /** C0 and C1 controls, including ESC (terminal escapes), CR, LF and TAB. */
-// eslint-disable-next-line no-control-regex
 const CONTROLS = /[\u0000-\u001f\u007f-\u009f]/g;
 /** Bidi overrides and isolates, marks, zero-width characters, BOM, and Unicode tag characters. */
 const INVISIBLE = /[\u061c\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]|[\u{e0000}-\u{e007f}]/gu;
@@ -19,7 +18,8 @@ export const plain = (s: string): string => s.replace(LINE_BREAKS, ' ').replace(
  */
 export function mdText(s: string): string {
   return plain(s)
-    .replace(/[\\`*_[\]{}()<>!|~#&]/g, '\\$&')
+    // Parentheses stay: they only form a link after a ']', which is escaped.
+    .replace(/[\\`*_[\]<>!|~#&]/g, '\\$&')
     .replace(/:\/\//g, '\\://')
     .replace(/\bwww\./gi, (m) => `${m.slice(0, 3)}\\.`);
 }

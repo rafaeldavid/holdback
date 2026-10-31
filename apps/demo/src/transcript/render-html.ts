@@ -6,10 +6,13 @@ import { formatAmount } from './money.js';
 import { describeEvent, formatMs, formatScore, header } from './narrate.js';
 import { eventsOf } from './render-md.js';
 import type { BeatTranscript, CastKey } from './types.js';
+import { plain, safeJson } from './untrusted.js';
 
-const esc = (s: string) => s.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
-/** Escape, then turn `code` spans into <code>. */
-const inline = (s: string) => esc(s).replace(/`([^`]+)`/g, '<code>$1</code>');
+const escRaw = (s: string) => s.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
+/** Every text node: one plain line (no controls, bidi or tag characters), then HTML-escaped. */
+const esc = (s: string) => escRaw(plain(s));
+const BADGE = ' <span class="badge standin">stand-in</span>';
+const mark = (e: { standIn?: true }) => (e.standIn ? BADGE : '');
 
 const CSS = `
 :root{--bg:#f7f6f2;--panel:#ffffff;--ink:#1d1f23;--muted:#5d636d;--line:#e2e0d8;--accent:#1f5f8b;--warn-bg:#fff3d6;--warn-ink:#7a4b00;--ok:#1e6b3a;--bad:#a12d2d;--code-bg:#f0eee7}
@@ -66,7 +69,7 @@ function balancesTable(t: BeatTranscript): string {
   return [
     '<h3>Balances</h3>',
     '<div class="scroll"><table class="balances">',
-    `<thead><tr><th>Party</th>${snaps.map((s) => `<th class="num">${esc(s.label)}<br><small>${esc(formatMs(s.atMs))}</small></th>`).join('')}</tr></thead>`,
+    `<thead><tr><th>Party</th>${snaps.map((s) => `<th class="num">${esc(s.label)}<br><small>${esc(formatMs(s.atMs))}</small>${mark(s)}</th>`).join('')}</tr></thead>`,
     '<tbody>',
     ...who.map((k) => `<tr><td>${esc(labelOf(k))}</td>${snaps.map((s) => cellFor(s, k)).join('')}</tr>`),
     '</tbody></table></div>',
@@ -77,7 +80,7 @@ function panelTables(t: BeatTranscript): string {
   return eventsOf(t, 'panel')
     .map((p) =>
       [
-        `<h3>Panel, ${esc(CAST[p.actor].name)}</h3>`,
+        `<h3>Panel, ${esc(CAST[p.actor].name)}${mark(p)}</h3>`,
         `<p class="meta">Seed <code>${esc(p.seed)}</code> (${esc(p.seedSource)}); ${esc(p.rule)}; outcome <strong>${esc(p.outcome)}</strong>.</p>`,
         '<div class="scroll"><table class="panel"><thead><tr><th>Seat</th><th>Pinned model ID</th><th>Family</th><th>Verdict</th><th class="num">Score</th></tr></thead><tbody>',
         ...p.judges.map(
@@ -94,7 +97,7 @@ function signed(t: BeatTranscript): string {
   return eventsOf(t, 'signed')
     .map(
       (s) =>
-        `<details class="signed"><summary>Signed message: ${esc(s.messageType)} from ${esc(labelOf(s.actor))}</summary><pre>${esc(JSON.stringify({ ...s.body, signature: s.signature }, null, 2))}</pre></details>`,
+        `<details class="signed"><summary>Signed message: ${esc(s.messageType)} from ${esc(labelOf(s.actor))}${mark(s)}</summary><pre>${escRaw(safeJson({ ...s.body, signature: s.signature }))}</pre></details>`,
     )
     .join('\n');
 }
@@ -104,7 +107,7 @@ function beatSection(t: BeatTranscript): string {
     .filter((e) => e.kind !== 'balances')
     .map(
       (e) =>
-        `<li class="event${e.kind === 'neutrality' ? ' neutrality' : ''}" data-kind="${e.kind}"><span class="t">${esc(formatMs(e.atMs))}${e.standIn ? ' <span class="badge standin">stand-in</span>' : ''}</span>${inline(describeEvent(e))}</li>`,
+        `<li class="event${e.kind === 'neutrality' ? ' neutrality' : ''}" data-kind="${e.kind}"><span class="t">${esc(formatMs(e.atMs))}${mark(e)}</span>${esc(describeEvent(e))}</li>`,
     );
   const standIn = t.source.kind !== 'simchain';
   return [

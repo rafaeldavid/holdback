@@ -3,6 +3,7 @@
 import { labelOf, nameOf } from './cast.js';
 import { formatAmount } from './money.js';
 import type { BeatTranscript, CheckResult, DemoEvent, Via } from './types.js';
+import { plain } from './untrusted.js';
 
 /** Words the narration never uses. Checked by narrate.test.ts over every transcript. */
 export const MARKETING_WORDS = [
@@ -49,7 +50,9 @@ function checksLine(results: CheckResult[]): string {
 }
 
 /** What happened, with its number, without the timestamp. */
-export function describeEvent(e: DemoEvent): string {
+export const describeEvent = (e: DemoEvent): string => plain(describeRaw(e));
+
+function describeRaw(e: DemoEvent): string {
   const who = labelOf(e.actor);
   switch (e.kind) {
     case 'offer':
@@ -67,7 +70,7 @@ export function describeEvent(e: DemoEvent): string {
         ? `The screen at ${who} flags ${e.signals.length} signal${e.signals.length === 1 ? '' : 's'} (${e.signals.join(', ')}): ${e.consequence}.`
         : `The screen at ${who} finds 0 hidden or encoded instructions: ${e.consequence}.`;
     case 'panel': {
-      const seats = e.judges.map((j) => `seat ${j.seat} \`${j.model}\` (${j.family}) ${j.verdict}${j.score === undefined ? '' : ` ${formatScore(j.score)}`}`).join('; ');
+      const seats = e.judges.map((j) => `seat ${j.seat} ${j.model} (${j.family}) ${j.verdict}${j.score === undefined ? '' : ` ${formatScore(j.score)}`}`).join('; ');
       const passes = e.judges.filter((j) => j.verdict === 'pass').length;
       const families = new Set(e.judges.map((j) => j.family)).size;
       return `${who} seats ${e.judges.length} judges by ${e.seedSource} seed ${short(e.seed)}: ${seats}. ${passes} of ${e.judges.length} pass across ${families} families (${e.rule}); panel outcome: ${e.outcome}.`;
@@ -120,5 +123,5 @@ export function header(t: BeatTranscript): string[] {
     `Source: ${t.source.note}`,
     `Shows: ${t.litmus}.`,
     'Amounts are in tUSD, a test token on SimChain (1 tUSD stands for $1). Times are milliseconds since the job\'s first call.',
-  ];
+  ].map(plain);
 }
