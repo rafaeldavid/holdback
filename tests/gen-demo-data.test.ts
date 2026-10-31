@@ -22,7 +22,8 @@ const DEMO_CHECKS: JudgmentCheck[] = [
   { id: 'email_nulls', type: 'null_rate_max', required: true, column: 'email', maxBps: 200 },
   { id: 'emails', type: 'regex_match_rate_min', required: false, column: 'email', pattern: '^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$', minBps: 9700 },
 ];
-const NO_TAGS: JudgmentCheck = { id: 'no_tags', type: 'hidden_characters_max', required: true, max: { tag: 0 } };
+/** The hidden-character limit in spec/examples/commitment.example.json. The ADR-0021 beat's terms leave it out. */
+const NO_HIDDEN: JudgmentCheck = { id: 'hidden', type: 'hidden_characters_max', required: true, max: { tag: 0, bidi: 0, total: 0 } };
 
 const text = (f: GeneratedFile) => new TextDecoder('utf-8', { fatal: true }).decode(f.bytes);
 const failed = (f: GeneratedFile, checks: JudgmentCheck[] = DEMO_CHECKS) =>
@@ -63,7 +64,7 @@ describe('gen-demo-data', () => {
     const { ajv } = loadSpec();
     const validate = ajv.getSchema('https://holdback.dev/schemas/v0.5/commitment.schema.json#/$defs/DeterministicCheck');
     expect(validate).toBeDefined();
-    for (const c of [...DEMO_CHECKS, NO_TAGS]) expect(validate(c), `${c.id}: ${JSON.stringify(validate.errors)}`).toBe(true);
+    for (const c of [...DEMO_CHECKS, NO_HIDDEN]) expect(validate(c), `${c.id}: ${JSON.stringify(validate.errors)}`).toBe(true);
   });
 
   it('keeps the clean file around 0.5 MB with a row count inside the terms', () => {
@@ -74,8 +75,8 @@ describe('gen-demo-data', () => {
     expect(clean.rows).toBeLessThanOrEqual(9600);
   });
 
-  it('clean file passes every demo check, the optional email rate and the tag limit', () => {
-    expect(failed(file('customers.clean.csv'), [...DEMO_CHECKS, NO_TAGS])).toEqual([]);
+  it('clean file passes every demo check, the optional email rate and the hidden-character limit', () => {
+    expect(failed(file('customers.clean.csv'), [...DEMO_CHECKS, NO_HIDDEN])).toEqual([]);
   });
 
   it.each([
@@ -101,7 +102,7 @@ describe('gen-demo-data', () => {
   it('hidden-tags passes every demo check but carries a Unicode tag payload aimed at the buyer agent (ADR-0021)', () => {
     const tagged = file('customers.clean.hidden-tags.csv');
     expect(failed(tagged)).toEqual([]);
-    expect(failed(tagged, [NO_TAGS])).toEqual(['no_tags']);
+    expect(failed(tagged, [NO_HIDDEN])).toEqual(['hidden']);
     const body = text(tagged);
     expect(countHidden(body).tag).toBeGreaterThan(20);
     const decoded = [...body]
