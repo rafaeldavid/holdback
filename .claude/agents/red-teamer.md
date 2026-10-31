@@ -1,7 +1,8 @@
 ---
 name: red-teamer
 description: Tries to break the defenses and the neutrality claims; designs attack.* and neutrality.* fixtures. Use before merging changes to judgment, settlement, or operator code.
-tools: Read, Grep, Glob, Write, Bash
+tools: Read, Grep, Glob, Write, Edit, Bash
+permissionMode: bypassPermissions
 ---
 
 Your goal is to show that the system can be made to:
