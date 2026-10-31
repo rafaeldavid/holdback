@@ -132,10 +132,14 @@ Deferred until after the basic demo. The demo assumes honest parties (Rafa, Octo
 | Injection deliverables: `injection-plain` and `injection-base64` (beat 6, first delivery) | T-012 | With T-009's panel and the beat 6 fixture |
 | `panel-borderline` deliverable that passes every check but splits the panel | T-012 | With T-009 recordings |
 | Change-log notes file delivered with the clean CSV (graded by the `notes` rubric criterion) | T-012 | When live or recorded judges grade the rubric (T-009) |
-| Club rulebook, $2,000 terms and Bench A/B/C registration files (drafted in the T-012 Handoff) | T-012 | When T-006 loads club and terms files |
-| `_example` delivers the generated clean file instead of stub bytes, with recordings re-captured | T-012 | After the files above land (T-010 lane) |
-| Scripted buyer and seller agents in `apps/demo/agents/` | T-012 | After T-007 (SDK) and T-009 |
-| Data for optional beats 9 (work for work) and 10 (a gap both agents settle 70/30) | T-012 | When those beats are built |
+| Bench A/B/C registration files (`adjudicator.schema.json`, with `Fraction` supermajorities) and their policy and registry hashes in the terms | T-012 | With T-009's registry (PR 37) |
+| `_example` delivers the generated clean file instead of stub bytes, with recordings re-captured | T-012 | T-010 lane; the club and terms files are loaded since T-012 |
+| Swap `StandInBench` (checks only, no panel) for T-009's adjudicator service behind `AdjudicatorSeam` in `apps/demo/agents/bench.ts` | T-012 | When PR 37 merges; before beat 3 shows a panel |
+| Agents for beat 6's injection half (escalation to Bench C), beat 7 (op-1 refuses, Bench A offline, club revokes the seller) and beat 8 (appeal paid by the bond) | T-012 | With T-009's fallback and appeal service; beat 7's operator half works today through the SDK failover |
+| Data for optional beat 9 (work for work) | T-012 | When that beat is built |
+| SDK read for released keys (`GET /v1/commitments/{id}/key`); the agents call the operator with `fetch` and fall back to SimChain | T-012 | Next SDK change |
+| Terms windows as a schema-level template (`deliverWithinSec` and friends) if other tools need terms files | T-012 | When a second consumer appears |
+| Adversarial agents (a buyer that withholds agreement after acceptance, a seller that delivers to the wrong envelope set, a split the seller did not agree to) | T-012 | After the basic demo |
 | Root `.gitignore` rule `data/` also matches `fixtures/data/`; anchor it as `/data/` | T-012 | Next scaffold change |
 
 ## Housekeeping

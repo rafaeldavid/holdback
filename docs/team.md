@@ -96,6 +96,7 @@ Every hard rule in `CLAUDE.md` is enforced by a check, not just by instruction. 
 | Secrets stay out | `.claude/settings.json` denies reading `.env*`; gitleaks in CI | T-001 |
 | Neutrality | `neutrality.*` fixtures for every actor in `docs/neutrality.md` | T-010, then ongoing |
 | Generated fixtures are not hand-edited | Drift test in `tests/gen-demo-data.test.ts`; `node scripts/gen-demo-data.ts --check` | T-012 |
+| Example hashes match their bodies | `pnpm validate:spec` recomputes derived hashes in `spec/examples` (a club's `rulebookHash`, a commitment's `id`) and fails on a mismatch (proposed after `club.example.json`'s `rulebookHash` was found stale: it predates `payoutsTo`; `packages/testkit/src/fixture-files.test.ts` pins the computed value) | Proposed (T-012) |
 | Tests do not assert on wall-clock time | Cost limits use `StepBudget` counts, not `performance.now()`; a lint or grep check over `*.test.ts` (proposed after `redteam.test.ts` K2 failed 3 of 3 full `pnpm test` runs on this machine and passed alone) | Proposed (T-012) |
 
 ## Cadence
