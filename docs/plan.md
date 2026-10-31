@@ -25,17 +25,21 @@ Goal: `pnpm demo` runs beats 1–7 of `docs/demo.md` in recorded mode. Every bea
 
 Scope after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`): `guaranteed_on_decision` only, `maxSubmissions = 1`, no sealed checks, and commitments bind `registryHash`.
 
-- [ ] T-004 Core types, state machine, EIP-712 types, money, timing rules (core)
-- [ ] T-014 Envelope encryption and ciphertext store (core)
-- [ ] T-005 Testkit: `snap` runner, pragmas, prefixes, deterministic clock/RNG, recordings (test)
-- [ ] T-006 SimChain: escrow rules, permissionless triggers, two-sided key release, bonds, property tests (settlement)
-- [ ] T-007 Operator API and SDK with failover and direct submit; idempotency; receipts; event log (api)
-- [ ] T-008 Judgment pipeline v0: intake, declarative checks, screen heuristics, spotlighting prompt builder, verdict schema, aggregation (judgment)
-- [ ] T-009 Providers, pinned registry, commit-reveal panel, adjudicator service with fallback and appeal (judgment)
+- [x] T-004 Core types, state machine, EIP-712 types, money, timing rules (core)
+- [x] T-014 Envelope encryption and ciphertext store (core)
+- [x] T-005 Testkit: `snap` runner, pragmas, prefixes, deterministic clock/RNG, recordings (test)
+- [x] T-006 SimChain: escrow rules, permissionless triggers, two-sided key release, bonds, property tests (settlement)
+- [x] T-007 Operator API and SDK with failover and direct submit; idempotency; receipts; event log (api)
+- [x] T-008 Judgment pipeline v0: intake, declarative checks, screen heuristics, spotlighting prompt builder, verdict schema, aggregation (judgment)
+- [x] T-009 Providers, pinned registry, commit-reveal panel, adjudicator service with fallback and appeal (judgment)
 - [ ] T-010 Scenario fixtures for beats 1–7 plus `error.` and `neutrality.` sets; capture live recordings once (test)
-- [ ] T-012 Demo data and scripted buyer/seller agents (demo)
+- [x] T-012 Demo data and scripted buyer/seller agents (demo)
 - [ ] T-013 Narrated CLI, transcript renderer, static viewer, dry run (demo; human gate)
 - [ ] T-015 OpenAPI document, staleness check and HTTP contract test (api; after T-007 and T-010; ADR-0017)
+- [ ] T-016 Testkit runner: real judgment in snap, role-keyed recordings, authored guard, mutual_settle (test; trimmed by D25, rest is T-016b)
+- [x] T-017 Demo: adjudicator profiles and buyer/seller agreement on adjudicators (demo)
+- [ ] T-018 Beats 6a and 7 on SimChain; appeal decides a screen-flagged case (judgment + demo; D25)
+- [ ] T-019 Demo honesty and clarity: scripted labels, one ID per job, judging time, one prompt and verdict, lean balances (demo; D25)
 
 **Exit:**
 - Demo success criteria met (`docs/demo.md`).

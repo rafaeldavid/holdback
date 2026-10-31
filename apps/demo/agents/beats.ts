@@ -7,7 +7,9 @@ import { join } from 'node:path';
 import type { Commitment, CommitmentStateView, DecisionOutcome, Delivery, EscrowStateKind, Hex32, Judgment, Payout } from '@holdback/core';
 import type { FakeScript, JudgeRequest } from '@holdback/judgment';
 import { loadTermsFile, type TermsTemplate } from '@holdback/testkit';
-import { BenchDirectory, ServiceBench, type AdjudicatorSeam } from './bench.js';
+import type { AdjudicatorProposal, SellerAdjudicatorPolicy, SellerReview, Slate } from './adjudicators.js';
+import { BenchDirectory, publishSwiftline, ServiceBench, type AdjudicatorSeam, type Listing } from './bench.js';
+import { display, TIDEWATER } from './cast.js';
 import { AtlasAgent, type OpenedWork } from './buyer.js';
 import { TidewaterAgent } from './seller.js';
 import { CHECKS_ONLY_TERMS_FILE, DATA_DIR, TERMS_FILE, type DemoWorld } from './world.js';
@@ -20,6 +22,8 @@ export interface Players {
   benchB: AdjudicatorSeam;
   /** Appeal adjudicator. */
   benchC: AdjudicatorSeam;
+  /** Where every adjudicator posts its registration and profile, Swiftline Verdicts included. */
+  directory: BenchDirectory;
 }
 
 export interface PlayerOptions {
@@ -27,20 +31,65 @@ export interface PlayerOptions {
   benchA?: AdjudicatorSeam;
   /** Per-judge fake verdicts for the benches ('pass' by default). */
   judges?: FakeScript;
+  /** Tide-7's own adjudicator policy (T-017). */
+  seller?: SellerAdjudicatorPolicy;
 }
 
 export function players(world: DemoWorld, options: PlayerOptions = {}): Players {
   const { cast } = world;
   const directory = new BenchDirectory(world);
   const bench = (keys: typeof cast.benchA) => new ServiceBench(keys, directory, options.judges ? { judges: options.judges } : {});
+  // Clearfield's registration is posted even when a test replaces the seam: the listing is public data, and the
+  // agents choose from listings before any seam acts.
+  const serviceA = bench(cast.benchA);
+  const benchA = options.benchA ?? serviceA;
+  const benchB = bench(cast.benchB);
+  const benchC = bench(cast.benchC);
+  publishSwiftline(directory, cast.swiftline);
   return {
     atlas: new AtlasAgent(cast.atlas, world),
-    tidewater: new TidewaterAgent(cast.tidewater, world),
-    benchA: options.benchA ?? bench(cast.benchA),
-    benchB: bench(cast.benchB),
-    benchC: bench(cast.benchC),
+    tidewater: new TidewaterAgent(cast.tidewater, world, options.seller),
+    benchA,
+    benchB,
+    benchC,
+    directory,
   };
 }
+
+/** The adjudicator negotiation before an offer: Ledger's proposal and Tide-7's review of it. */
+export interface Negotiation {
+  proposal: AdjudicatorProposal;
+  review: SellerReview;
+  /** The listings as Ledger read them, before any bond was reserved for this job. */
+  listings: Listing[];
+}
+
+export type NegotiationStep = 'proposed' | 'reviewed';
+
+/**
+ * Beat 1, before the offer (T-017): Ledger reads the posted registrations, filters by the club rulebook and
+ * proposes a slate; Tide-7 checks it against its own policy and agrees or refuses. Agent-to-agent messages:
+ * nothing is signed or submitted. `observe` is called after each step (the transcript times them).
+ */
+export function chooseAdjudicators(world: DemoWorld, p: Players, terms: TermsTemplate, observe?: (step: NegotiationStep) => void): Negotiation {
+  const listings = p.directory.listings();
+  const proposal = p.atlas.proposeAdjudicators(listings, terms);
+  observe?.('proposed');
+  // Tide-7 reads the same public listings itself; it does not take the buyer's word for them.
+  const review = p.tidewater.reviewAdjudicators(proposal, p.directory.listings(), terms);
+  observe?.('reviewed');
+  return { proposal, review, listings };
+}
+
+/** The seam for an address in the slate. Only the benches that run a service can be named. */
+function seamAt(p: Players, address: string): AdjudicatorSeam {
+  const seam = [p.benchA, p.benchB, p.benchC].find((b) => b.keys.address.toLowerCase() === address.toLowerCase());
+  if (!seam) throw new Error(`no adjudicator service runs at ${address}`);
+  return seam;
+}
+
+/** Primary, fallback and appeal as the agreed slate names them. */
+const slatePlayers = (p: Players, slate: Slate) => ({ primary: seamAt(p, slate.primary), fallback: seamAt(p, slate.fallback), appeal: seamAt(p, slate.appeal) });
 
 /** A generated deliverable from fixtures/data/dataset-cleaning (scripts/gen-demo-data.ts). */
 export const deliverable = (name: string): Uint8Array => new Uint8Array(readFileSync(join(DATA_DIR, name)));
@@ -51,20 +100,35 @@ export interface HoldResult {
   /** Operator URL (or 'direct') for the offer and for Atlas's agree-and-fund call. */
   vias: { offer: string; hold: string };
   players: Players;
+  /** How the two agents chose the adjudicators the offer names. */
+  negotiation: Negotiation;
+  /** The terms template the offer was built from. */
+  terms: TermsTemplate;
+  /** The agreed slate as seams: the primary accepts and decides. */
+  slate: { primary: AdjudicatorSeam; fallback: AdjudicatorSeam; appeal: AdjudicatorSeam };
 }
 
 /**
- * Beat 1: Tidewater offers terms naming Bench A, B and C; Bench A finds the offer and accepts it with a seed
- * commitment, reserving bond; Atlas agrees and funds price plus fee in one call.
+ * Beat 1: Ledger and Tide-7 agree on the adjudicators; Tide-7 offers terms naming exactly that slate; the
+ * primary finds the offer and accepts it with a seed commitment, reserving bond; Ledger agrees and funds price
+ * plus fee in one call.
  */
-export async function beatHold(world: DemoWorld, options: { terms?: TermsTemplate; players?: Players } = {}): Promise<HoldResult> {
+export async function beatHold(world: DemoWorld, options: { terms?: TermsTemplate; players?: Players; observe?: (step: NegotiationStep) => void } = {}): Promise<HoldResult> {
   const p = options.players ?? players(world);
-  const terms = options.terms ?? loadTermsFile(TERMS_FILE);
-  const offered = await p.tidewater.offer(terms, { buyer: p.atlas.keys, primary: p.benchA, fallback: p.benchB.keys, appeal: p.benchC.keys });
-  const accepted = await p.benchA.acceptOffers();
-  if (!accepted.includes(offered.commitment.id)) throw new Error(`${p.benchA.name} did not accept ${offered.commitment.id}`);
+  const template = options.terms ?? loadTermsFile(TERMS_FILE);
+  const negotiation = chooseAdjudicators(world, p, template, options.observe);
+  const { review } = negotiation;
+  if (!review.agreed) {
+    throw new Error(`${display.party(TIDEWATER)} refused the proposed adjudicators: ${review.refusals.map((r) => `${r.name} (${r.role}): ${r.reason}`).join('; ')}`);
+  }
+  const slate = slatePlayers(p, review.slate);
+  // The terms name the agreed primary's policy; its policy and registry hashes bind at agreement.
+  const terms: TermsTemplate = { ...template, adjudication: { ...template.adjudication, policyId: slate.primary.policy.id } };
+  const offered = await p.tidewater.offer(terms, { buyer: p.atlas.keys, primary: slate.primary, fallback: slate.fallback.keys, appeal: slate.appeal.keys });
+  const accepted = await slate.primary.acceptOffers();
+  if (!accepted.includes(offered.commitment.id)) throw new Error(`${slate.primary.name} did not accept ${offered.commitment.id}`);
   const held = await p.atlas.agreeAndFund(offered.commitment);
-  return { commitment: offered.commitment, state: held.state, vias: { offer: offered.via, hold: held.via }, players: p };
+  return { commitment: offered.commitment, state: held.state, vias: { offer: offered.via, hold: held.via }, players: p, negotiation, terms, slate };
 }
 
 export interface JobResult {
@@ -85,14 +149,15 @@ export interface JobResult {
   vias: string[];
 }
 
-const recipients = (p: Players) => ({ primary: p.benchA.keys, fallback: p.benchB.keys, appeal: p.benchC.keys });
+/** The content key is sealed to the agreed primary, fallback and appeal adjudicators (then the buyer). */
+const recipients = (hold: HoldResult) => ({ primary: hold.slate.primary.keys, fallback: hold.slate.fallback.keys, appeal: hold.slate.appeal.keys });
 
-/** Hold, encrypted delivery, Bench A's judgment, and Atlas opening the work when its key was released. */
+/** Hold, encrypted delivery, the primary's judgment, and Atlas opening the work when its key was released. */
 async function judgedJob(world: DemoWorld, terms: TermsTemplate, file: string, options: PlayerOptions = {}): Promise<JobResult> {
   const hold = await beatHold(world, { terms, players: players(world, options) });
   const { commitment, players: p } = hold;
-  const delivered = await p.tidewater.deliver(commitment, deliverable(file), recipients(p));
-  const report = await p.benchA.judge(commitment.id);
+  const delivered = await p.tidewater.deliver(commitment, deliverable(file), recipients(hold));
+  const report = await hold.slate.primary.judge(commitment.id);
   const state = await p.atlas.waitForOutcome(commitment.id);
   const opened = state.escrowState === 'Released' ? await p.atlas.openWork(commitment.id) : undefined;
   return {
@@ -131,7 +196,7 @@ export const beatHiddenTags = (world: DemoWorld, options: PlayerOptions = {}): P
 export async function beatMutualSplit(world: DemoWorld, toSellerBps = 7000n): Promise<JobResult> {
   const hold = await beatHold(world);
   const { commitment, players: p } = hold;
-  const delivered = await p.tidewater.deliver(commitment, deliverable('customers.clean.csv'), recipients(p));
+  const delivered = await p.tidewater.deliver(commitment, deliverable('customers.clean.csv'), recipients(hold));
   const proposal = await p.atlas.proposeSplit(commitment, toSellerBps);
   const sellerSignature = await p.tidewater.cosign(proposal.body, { toSeller: proposal.toSeller });
   const settled = await p.atlas.settle(proposal.body, proposal.buyerSignature, sellerSignature);

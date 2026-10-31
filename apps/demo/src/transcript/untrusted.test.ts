@@ -11,6 +11,7 @@ import { renderJson } from './render-json.js';
 import { renderMarkdown } from './render-md.js';
 import type { BeatTranscript, DemoEvent, EventSource } from './types.js';
 import { fenced, mdText, plain, safeJson } from './untrusted.js';
+import { withAdjudicators } from './adjudicators.fixture.js';
 
 const HOSTILE = [
   'HOSTILE',
@@ -37,7 +38,8 @@ async function hostileTranscript(): Promise<BeatTranscript> {
     { kind: 'panel', atMs: 3, actor: 'benchA', seed: '0xabc', seedSource: 'commit-reveal', rule: HOSTILE, judges: [{ seat: 1, model: 'placeholder-claude-a-20260601', family: 'claude', verdict: 'pass', score: 400 }], outcome: 'accept' },
     { kind: 'signed', atMs: 4, actor: 'seller', messageType: 'Offer', signer: '0x5969b88346862fcd013a8f1eee8a33e50335a684', body: { description: HOSTILE }, signature: '0xab' },
   ];
-  return { ...t, events: [...t.events.slice(0, 1), ...extra, ...t.events.slice(1)] };
+  // A registration name is party text too (x-holdback-untrusted): it reaches the proposal line and the profile (T-017).
+  return withAdjudicators({ ...t, events: [...t.events.slice(0, 1), ...extra, ...t.events.slice(1)] }, HOSTILE);
 }
 
 describe('untrusted text helpers', () => {

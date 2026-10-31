@@ -22,7 +22,7 @@ Outputs per beat, in `demo/out/`:
 - `<beat>.json`: the machine-readable trace;
 - `index.html`: a static timeline viewer, with no build step and no network.
 
-The recorded transcripts double as the `.expect.md` snapshots in `fixtures/scenarios/`. The demo is the test suite.
+Goal (not yet true): the transcripts and the `.expect.md` snapshots in `fixtures/scenarios/` become two renderings of one run (build review proposal 11, after the demo). Today each beat has its own fixture.
 
 ## Cast
 

@@ -35,6 +35,10 @@ Every design and code change must pass all three.
 
 The parties choose; the protocol enforces what they chose. Offer options with stated tradeoffs (settlement mode, adjudicators, registry, checks) instead of one behavior for everyone, unless an option would let one party break the neutrality test against the other. Clubs may narrow the options in their rulebook. See ADR-0015.
 
+## Design principle: widen collaboration, the law stays the backstop
+
+Holdback extends the set of deals agents can safely make with each other. It does not replace legal recourse: agent owners and controllers will go to court when something goes wrong, and courts can compel real-world parties (residual 5). So the protocol does not need machinery for every dispute. Prefer bounded loss (caps, bonds, expiry) and a clean, signed, attributable record that can serve as evidence, over new protocol steps for edge cases (Rafa, 2026-10-31; D26).
+
 ## Hard rules
 
 Each rule is paired with the check that enforces it in `docs/team.md` (Rules and checks).
@@ -63,9 +67,9 @@ pnpm typecheck && pnpm test     # types, unit + property tests (no network)
 pnpm verify                     # all checks + snap + demo; writes reports/verify-<branch>.md
 pnpm lint                       # ESLint, including the no-eval and money rules
 pnpm validate:spec              # spec/examples against spec/schemas (Ajv 2020-12, strict)
-pnpm snap                       # scenario fixtures vs .expect.md snapshots (placeholder until T-005)
+pnpm snap                       # scenario fixtures vs .expect.md snapshots
 pnpm snap --update <name>       # regenerate a snapshot; review the diff before committing
-pnpm demo                       # recorded mode: no keys needed (placeholder until T-013)
+pnpm demo                       # scripted judges: no keys needed; writes demo/out
 pnpm demo --live                # live judges (needs two model-family keys)
 forge test                      # contracts (from Phase 2)
 ```
@@ -85,7 +89,7 @@ forge test                      # contracts (from Phase 2)
 
 ## Map
 
-`docs/decisions-today.md` records decisions D1 to D23 (decided October 30, 2026; D4 deferred to Phase 2), and `docs/reviews/` the reviews behind them. Read both first. `docs/backlog.md` holds work deferred until after the basic demo.
+`docs/decisions-today.md` records decisions D1 to D26 (decided October 30, 2026; D4 deferred to Phase 2), and `docs/reviews/` the reviews behind them. Read both first. `docs/backlog.md` holds work deferred until after the basic demo.
 
 The other docs: `PRD.md`, `neutrality.md`, `architecture.md`, `judgment-and-defenses.md`, `api.md`, `demo.md`, `testing.md`, `team.md`, `plan.md`, `decisions/`, `tasks/`. Research is in `docs/research/`; open it only when a decision needs it.
 

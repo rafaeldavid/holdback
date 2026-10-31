@@ -1,6 +1,6 @@
 # Feature map
 
-Each demo beat (`docs/demo.md`) maps to the scenario fixtures that prove it and the packages that implement it. A beat is done when every fixture in its row passes `pnpm snap`. Status as of T-011: no fixtures exist yet (T-010).
+Each demo beat (`docs/demo.md`) maps to the scenario fixtures that prove it and the packages that implement it. A beat is done when every fixture in its row passes `pnpm snap`. Status: see `docs/tasks/T-010-scenario-fixtures.md` (Rows table) and `pnpm snap`.
 
 | Beat | What the viewer sees | Fixtures | Packages | Tasks |
 | --- | --- | --- | --- | --- |

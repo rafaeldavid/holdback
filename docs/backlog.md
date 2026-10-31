@@ -135,6 +135,11 @@ Deferred until after the basic demo. The demo assumes honest parties (Rafa, Octo
 | Club guarantee fund with its own claim window | D22 (option C) | Consumer-facing clubs, Phase 5+ |
 | Agent-operator bonds and signed intent mandates | D22 (option D) | Phase 6 interop |
 | Card-funded holds keep Reg Z and network dispute rights against the ramp | D22 | Phase 5 ramps |
+| Party journal: the SDK keeps a local, append-only copy of every signed message, receipt, judgment record and posting for its own commitments, so an agent remembers the exchange even if every operator disappears | D26 | After the demo; feeds the evidence bundle |
+| Fixture `neutrality.both-parties-same-record`: buyer's and seller's exported records are identical (apart from their own key material) | D26 | With the evidence bundle |
+| Evidence bundle: a party exports one commitment's signed terms, messages, receipts, judgment record and audit-chain proof, verifiable offline, with the content key disclosed only if the party chooses | D26 | After the demo; before the first pilot with real principals |
+| Rulebook names governing law and a dispute forum (court or arbitral seat) so a court knows which agreement governs; the protocol does not enforce it | D26; PRD Assumption 1 | Schema change before the first pilot |
+| Attribution: each agent key traceable to its principal through the mandate and club membership, disclosable under legal process without making it public | D26; ADR-0020 | With the privacy work in Phase 5 |
 
 ## Compliance and operations
 
@@ -162,6 +167,8 @@ Deferred until after the basic demo. The demo assumes honest parties (Rafa, Octo
 | Terms windows as a schema-level template (`deliverWithinSec` and friends) if other tools need terms files | T-012 | When a second consumer appears |
 | Adversarial agents (a buyer that withholds agreement after acceptance, a seller that delivers to the wrong envelope set, a split the seller did not agree to) | T-012 | After the basic demo |
 | Root `.gitignore` rule `data/` also matches `fixtures/data/`; anchor it as `/data/` | T-012 | Next scaffold change |
+| Registration fields for what agents choose on but v0.6 cannot carry: roles offered (primary, fallback, appeal), a per-judge reasoning or effort setting bound into the policy hash, and a fee rate (bps of price) beside `fee.min`. The demo keeps them as cast-level profile data (`apps/demo/agents/cast.ts`) | T-017 | Next schema bump; before agents choose adjudicators from registrations they did not write |
+| Signed adjudicator proposal and agreement messages (today plain agent-to-agent objects), and a counter-proposal path when the seller rejects one bench but another eligible one offers the role | T-017 | When negotiation happens between agents of different operators |
 
 ## Housekeeping
 

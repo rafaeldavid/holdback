@@ -10,7 +10,7 @@ The litmus test is neutrality: no single party can stop a valid commitment from 
 
 The first product priority is a demo that conveys the experience to an AI lab researching agentic commerce (`docs/demo.md`).
 
-This folder is a starter kit for a Claude Code session and a team of agents. It holds the brief, specs, contracts, task files, agent roles and research. It contains no application code yet.
+This folder is a starter kit for a Claude Code session and a team of agents. It holds the brief, specs, contracts, task files, agent roles and research. It holds the Phase 1 build: core, SimChain settlement, judgment, SDK, operator, adjudicator, testkit and the narrated demo (`pnpm demo`).
 
 ## Start
 
@@ -40,8 +40,8 @@ This folder is a starter kit for a Claude Code session and a team of agents. It 
 | `docs/testing.md` | Test layers; scenario expect fixtures with `error.`, `attack.`, `neutrality.` and `todo.` prefixes |
 | `docs/team.md` | Roles, task lifecycle, lanes and ownership, the Rules and checks table, cadence |
 | `docs/plan.md` | Phases 0–6, scenario index, releases |
-| `docs/decisions/` | ADR-0001 to ADR-0013 |
-| `docs/tasks/` | Task template and Phase 0–1 tasks (T-001 to T-013) |
+| `docs/decisions/` | ADR-0001 to ADR-0022 |
+| `docs/tasks/` | Task template and Phase 0–1 tasks (T-001 to T-019) |
 | `docs/log/` | Daily catch-ups; decisions waiting on Rafa at the top |
 | `.claude/` | Permission settings; role subagents (architect, implementer, fixture-author, red-teamer, reviewer, verifier); commands (`/task`, `/verify`, `/snap`, `/handoff`, `/decide`) |
 | `spec/` | JSON Schemas (the contract) and validated examples |

@@ -4,10 +4,12 @@
 // milliseconds since the job's first call, and the ledger is snapshotted with it. Observation only: the wrapper
 // passes every call through unchanged.
 import type { Commitment, Hex32, Judgment, SettlementEvent } from '@holdback/core';
-import { beatBadWork, beatHappyPath, beatHiddenTags, beatHold, beatMutualSplit, type JobResult } from '@holdback/demo/agents/beats.js';
+import { adjudicatorProfiles, type ProfileView, type Slate } from '@holdback/demo/agents/adjudicators.js';
+import { beatBadWork, beatHappyPath, beatHiddenTags, beatHold, beatMutualSplit, type JobResult, type Negotiation, type NegotiationStep } from '@holdback/demo/agents/beats.js';
 import { createDemoWorld, type ActorName, type DemoWorld } from '@holdback/demo/agents/world.js';
+import { formatAmount } from '../transcript/money.js';
 import { plain } from '../transcript/untrusted.js';
-import type { Amount, BalanceRow, BeatTranscript, CastKey, DemoEvent, EventSource, JudgeSeat, Json, Via } from '../transcript/types.js';
+import type { AdjudicatorProfile, Amount, BalanceRow, BeatTranscript, CastKey, DemoEvent, EventSource, JudgeSeat, Json, SlateKeys, Via } from '../transcript/types.js';
 
 export const SIMCHAIN_NOTE =
   "measured on SimChain in this run, through T-012's scripted agents and T-009's adjudicator service. Judges are fake providers scripted to pass, seated from config/judges.yaml's pinned placeholder model IDs; times are wall-clock milliseconds on this machine.";
@@ -21,7 +23,8 @@ export interface BeatMeta {
 export const BEAT_META: Readonly<Record<number, BeatMeta>> = {
   1: {
     title: 'Choose, agree and hold',
-    summary: 'Tide-7 offers terms naming three adjudicators the two agents chose; Clearfield accepts and reserves bond; Ledger agrees and holds price plus fee in one call.',
+    summary:
+      'Ledger filters the published adjudicators by the club rulebook and proposes three; Tide-7 checks them against its own policy and agrees; Tide-7 offers terms naming exactly that slate; Clearfield accepts and reserves bond; Ledger agrees and holds price plus fee in one call.',
     litmus: 'the agents choose the adjudicator; the hold; machine speed',
   },
   2: { title: 'Deliver without revealing', summary: 'Tide-7 uploads the cleaned CSV encrypted. Ledger sees only hashes; the content key is sealed to Clearfield.', litmus: 'the two-sided hold: money and work' },
@@ -68,6 +71,12 @@ interface Snapshot {
 /** Stamps every settlement event with wall-clock ms since `start()` and the ledger after its submission. */
 class Recorder {
   readonly stamps = new Map<number, { ms: number; snap: Snapshot }>();
+  /** Off-chain steps (the adjudicator negotiation), stamped when the agents finish them. */
+  readonly marks = new Map<NegotiationStep, number>();
+
+  mark(step: NegotiationStep): void {
+    this.marks.set(step, this.elapsed());
+  }
   private t0 = 0;
   initial!: Snapshot;
 
@@ -111,29 +120,44 @@ interface Run {
   /** When the beat call returned (Ledger has opened the work by then). */
   doneMs: number;
   events: SettlementEvent[];
+  /** Beat 1: how the agents chose the adjudicators, and the profiles they read. */
+  choice?: { negotiation: Negotiation; profiles: ProfileView[] };
 }
 
-async function runJob(job: (world: DemoWorld) => Promise<JobResult | { commitment: Commitment }>): Promise<Run> {
+type JobOut = JobResult | { commitment: Commitment; choice?: Run['choice'] };
+
+async function runJob(job: (world: DemoWorld, recorder: Recorder) => Promise<JobOut>): Promise<Run> {
   const world = await createDemoWorld();
   try {
     const recorder = new Recorder(world);
     recorder.start();
-    const out = await job(world);
+    const out = await job(world, recorder);
     const doneMs = recorder.elapsed();
     const events = world.chain.log().filter((e) => e.commitmentId === out.commitment.id);
-    return { world, recorder, commitment: out.commitment, ...('vias' in out && Array.isArray(out.vias) ? { result: out as JobResult } : {}), doneMs, events };
+    const choice = 'choice' in out && out.choice ? { choice: out.choice } : {};
+    return { world, recorder, commitment: out.commitment, ...('vias' in out && Array.isArray(out.vias) ? { result: out as JobResult } : {}), doneMs, events, ...choice };
   } finally {
     await world.close();
   }
 }
+
+/** Beat 1's job: negotiation (each step stamped), offer, acceptance and hold; profiles read before the world closes. */
+const holdJob = async (world: DemoWorld, recorder: Recorder): Promise<JobOut> => {
+  const hold = await beatHold(world, { observe: (step) => recorder.mark(step) });
+  return { commitment: hold.commitment, choice: { negotiation: hold.negotiation, profiles: adjudicatorProfiles(hold) } };
+};
 
 /** Builds transcript events from a run. Each event carries the beat it belongs to in the 1-4 job. */
 class Narrator {
   private readonly who = new Map<string, CastKey>();
   private readonly out: { phase: 1 | 2 | 3 | 4; e: DemoEvent }[] = [];
 
+  /** Listed adjudicators no commitment names: their bonds sit on SimChain but are not a balance row. */
+  private readonly offStage = new Set<string>();
+
   constructor(private readonly run: Run) {
     for (const [name, key] of ACTORS) this.who.set(lc(run.world.addressOf(name)), key);
+    this.offStage.add(lc(run.world.addressOf('swiftline')));
   }
 
   private key(address: string): CastKey {
@@ -142,10 +166,15 @@ class Narrator {
     return k;
   }
 
-  /** A ledger account as a cast key: a party, its bond pool, or an escrow. */
-  private account(acct: string): CastKey {
+  private maybeKey(address: string): CastKey | undefined {
+    return this.who.get(lc(address));
+  }
+
+  /** A ledger account as a cast key: a party, its bond pool, or an escrow; null for an off-stage bond. */
+  private account(acct: string): CastKey | null {
     if (acct.startsWith('escrow:')) return 'escrow';
     const bond = /^bond:(0x[0-9a-f]{40}):(junior|senior)$/.exec(acct);
+    if (bond && this.offStage.has(bond[1]!)) return null;
     return this.key(bond ? bond[1]! : acct);
   }
 
@@ -153,6 +182,7 @@ class Narrator {
     const sums = new Map<CastKey, bigint>();
     for (const [acct, v] of Object.entries(snap.ledger)) {
       const k = this.account(acct);
+      if (k === null) continue;
       sums.set(k, (sums.get(k) ?? 0n) + v);
     }
     const order: CastKey[] = ['buyer', 'seller', 'escrow', 'benchA', 'benchB', 'benchC'];
@@ -180,6 +210,7 @@ class Narrator {
     const { commitment: c, result, events, recorder } = this.run;
     const record = result?.record;
     this.push(1, this.balances(0, 'before', recorder.initial));
+    if (this.run.choice) this.negotiation(this.run.choice.negotiation);
     const stamp = (e: SettlementEvent) => recorder.stamps.get(e.seq)!;
     for (let i = 0; i < events.length; i++) {
       const e = events[i]!;
@@ -251,7 +282,7 @@ class Narrator {
             atMs: ms,
             actor: 'escrow',
             settlement: e.type === 'settlement.released' ? 'release' : 'refund',
-            payouts: postings.map((x) => ({ to: this.account(x.to), amount: x.amount, reason: x.why })),
+            payouts: postings.map((x) => ({ to: this.account(x.to) ?? this.key(x.to), amount: x.amount, reason: x.why })),
             ...(keyTo ? { keyReleasedTo: keyTo } : {}),
             via: this.via(e),
           });
@@ -294,6 +325,38 @@ class Narrator {
       this.push(4, { kind: 'open', atMs: this.run.doneMs, actor: 'buyer', plaintextSha256: opened.plaintextSha256, matchesDelivery: opened.matchesDelivery, bytes: opened.bytes, ...stripped });
     }
     return this.out;
+  }
+
+  /**
+   * The two off-chain steps before the offer (T-017). Registration names and reasons are party text, so they are
+   * made plain at ingestion; the renderers escape again per surface.
+   */
+  private negotiation(n: Negotiation): void {
+    const { proposal, review } = n;
+    if (!review.agreed) throw new Error('beat 1 ran without an agreed slate');
+    const slate = (s: Slate): SlateKeys => ({ primary: this.key(s.primary), fallback: this.key(s.fallback), appeal: this.key(s.appeal) });
+    const marks = this.run.recorder.marks;
+    this.push(1, {
+      kind: 'adjudicator-proposal',
+      atMs: marks.get('proposed') ?? 0,
+      actor: 'buyer',
+      registrations: proposal.considered.length,
+      rules: proposal.rules.map(plain),
+      considered: proposal.considered.map((c) => {
+        const who = this.maybeKey(c.address);
+        return { name: plain(c.name), ...(who ? { who } : {}), eligible: c.eligible, reasons: c.reasons.map(plain) };
+      }),
+      proposed: slate(proposal.slate),
+    });
+    this.push(1, {
+      kind: 'adjudicator-agreement',
+      atMs: marks.get('reviewed') ?? 0,
+      actor: 'seller',
+      agreed: slate(review.slate),
+      policy: review.policy.map(plain),
+      bondRequired: tusd(review.requiredFreeBond),
+      bonds: review.checks.map((c) => ({ who: this.key(c.address), free: tusd(c.freeBond) })),
+    });
   }
 
   /** The buyer, when a key was released to it by the same submission as the settlement at index i. */
@@ -359,9 +422,48 @@ class Narrator {
   }
 }
 
+const DEADLINE_FROM: Readonly<Record<ProfileView['terms']['deadline']['after'], string>> = {
+  deliverBy: 'after the delivery deadline',
+  judgeBy: "after the primary's judgeBy (fallback takeover)",
+  appeal: 'after an appeal is filed',
+};
+
+/** A profile for the transcript: terms formatted, party text made plain at ingestion (renderers escape again). */
+function profileOf(v: ProfileView, who: CastKey | undefined): AdjudicatorProfile {
+  const t = v.terms;
+  const terms: { label: string; value: string }[] = [
+    { label: 'Fee', value: `${formatAmount(t.fee)} minimum (registration)${t.feeRateBps === undefined ? '' : `; priced at ${Math.trunc(t.feeRateBps / 100)}.${String(t.feeRateBps % 100).padStart(2, '0')}% of the price`}` },
+    {
+      label: 'Panel',
+      value: `${t.panelSize ?? '?'} judges from at least ${t.minFamilies ?? '?'} families${t.threshold ? `; accept or reject by ${t.threshold.numerator}/${t.threshold.denominator} of valid verdicts` : ''}`,
+    },
+    { label: 'Appeal panel', value: `${t.appealPanelSize ?? '?'} judges from at least ${t.minFamiliesAppeal ?? '?'} families` },
+    { label: 'Decides within', value: `${t.deadline.sec} s ${DEADLINE_FROM[t.deadline.after]} (terms file)` },
+    { label: 'Appeal window', value: `${t.appealWindowSec} s (terms file)` },
+    { label: 'Bond', value: `${formatAmount(t.bond)} on SimChain; ${formatAmount(t.freeBond)} free` },
+  ];
+  if (t.registryHash) terms.push({ label: 'Registry', value: `${t.registryHash.slice(0, 10)}… (config/judges.yaml)` });
+  return {
+    ...(who ? { who } : {}),
+    name: plain(v.name),
+    tagline: v.tagline,
+    roles: [...v.roles],
+    selected: v.selected,
+    ...(v.declinedBecause ? { declinedBecause: v.declinedBecause.map(plain) } : {}),
+    ...(v.sellerChecks ? { sellerChecks: v.sellerChecks.map(plain) } : {}),
+    judges: v.judges,
+    harness: [...v.harness],
+    terms,
+    history: { rolePlay: true, lines: [...v.history.lines] },
+  };
+}
+
 const transcript = (beat: number, run: Run, events: DemoEvent[]): BeatTranscript => {
   const meta = BEAT_META[beat]!;
+  const who = new Map(ACTORS.map(([name, key]) => [lc(run.world.addressOf(name)), key]));
+  const adjudicators = run.choice ? { adjudicators: run.choice.profiles.map((v) => profileOf(v, who.get(lc(v.address)))) } : {};
   return {
+    ...adjudicators,
     format: 'holdback.demo.transcript/v0',
     beat,
     title: meta.title,
@@ -384,7 +486,7 @@ export function simchainSource(): EventSource {
     run: async (beat) => {
       switch (beat) {
         case 1: {
-          const run = await runJob((w) => beatHold(w));
+          const run = await runJob(holdJob);
           return transcript(1, run, new Narrator(run).build({ signed: true }).map((x) => x.e));
         }
         case 2:
@@ -399,7 +501,7 @@ export function simchainSource(): EventSource {
         case 6:
         case 10: {
           const job = beat === 5 ? beatBadWork : beat === 6 ? beatHiddenTags : (w: DemoWorld) => beatMutualSplit(w);
-          const run = await runJob(job);
+          const run = await runJob((w) => job(w));
           return transcript(beat, run, new Narrator(run).build({ signed: false }).map((x) => x.e));
         }
         default:

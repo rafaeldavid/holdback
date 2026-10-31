@@ -63,7 +63,52 @@ interface At {
 
 export type Json = string | number | boolean | null | Json[] | { [key: string]: Json };
 
+/** Primary, fallback and appeal adjudicators as cast keys. */
+export interface SlateKeys {
+  primary: CastKey;
+  fallback: CastKey;
+  appeal: CastKey;
+}
+
+/** One registration the buyer read before proposing (T-017). `name` is the registration's own text: untrusted. */
+export interface ConsideredAdjudicator {
+  name: string;
+  who?: CastKey;
+  eligible: boolean;
+  /** Why the club rulebook excludes it; empty when eligible. */
+  reasons: string[];
+}
+
+/** A bench's profile for the viewer (T-017). Effort, harness, roles and history are display data, not protocol. */
+export interface AdjudicatorProfile {
+  who?: CastKey;
+  name: string;
+  tagline: string;
+  roles: string[];
+  selected: 'primary' | 'fallback' | 'appeal' | 'declined';
+  declinedBecause?: string[];
+  /** The seller's checks this bench passed, with its numbers. */
+  sellerChecks?: string[];
+  /** Pinned model IDs from the registry, with the reasoning setting the bench declares per judge. */
+  judges: { id: string; model: string; family: string; effort: string }[];
+  harness: string[];
+  /** Formatted terms: fee, panel, deadline, appeal window, bond. */
+  terms: { label: string; value: string }[];
+  /** Invented for the demo. */
+  history: { rolePlay: true; lines: string[] };
+}
+
 export type DemoEvent =
+  | (At & { kind: 'adjudicator-proposal'; actor: CastKey; registrations: number; rules: string[]; considered: ConsideredAdjudicator[]; proposed: SlateKeys })
+  | (At & {
+      kind: 'adjudicator-agreement';
+      actor: CastKey;
+      agreed: SlateKeys;
+      /** The checks the seller applies to every bench, in words; per-bench results are in the profiles. */
+      policy: string[];
+      bondRequired: Amount;
+      bonds: { who: CastKey; free: Amount }[];
+    })
   | (At & { kind: 'offer'; actor: CastKey; commitmentId: string; price: Amount; fee: Amount; primary: CastKey; fallback: CastKey; appeal: CastKey; disclosure: 'public' | 'judgment' | 'private' })
   | (At & { kind: 'acceptance'; actor: CastKey; bondReserved: Amount; seedCommitment: string })
   | (At & { kind: 'hold'; actor: CastKey; amount: Amount; via: Via })
@@ -103,6 +148,8 @@ export interface BeatTranscript {
   source: TranscriptSource;
   commitmentId?: string;
   events: DemoEvent[];
+  /** Beat 1: every adjudicator the agents considered, with its profile (T-017). */
+  adjudicators?: AdjudicatorProfile[];
 }
 
 /** Produces transcripts, one beat at a time. Each beat runs alone. */
