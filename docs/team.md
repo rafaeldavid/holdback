@@ -9,7 +9,7 @@ The project is large enough to need parallel agents. Parallel agents only help w
 3. **Restate intent before code.** Each task starts with the agent restating its goal, inputs, outputs and non-goals in the task file.
 4. **Small PRs, ordered commits, one task per branch and worktree.**
 5. **Fix the environment, not just the bug.** When an agent repeats a mistake, add a type, lint rule, test or fixture that catches it, and record it in the Rules and checks table below.
-6. **Humans decide the irreversible.** ADRs, schema changes, contract code, defense changes, key handling, deploys and force pushes wait for Rafa.
+6. **Autonomy inside the repo, gates outside it.** Work confined to this repository (ADRs, schema changes, contract code, defense changes, merges after green CI and fixed review findings) proceeds without waiting. Decisions are researched, then recorded in `docs/decisions-today.md` for Rafa to overrule. Deploys, remote force pushes or history rewrites, real keys or money, anything published or sent to others, and repository access or settings wait for Rafa.
 
 ## Roles (`.claude/agents/`)
 
@@ -94,6 +94,8 @@ Every hard rule in `CLAUDE.md` is enforced by a check, not just by instruction. 
 | Schema contract | CI validates `spec/examples/` against schemas; CODEOWNERS-style gate on `spec/` | T-001 |
 | Secrets stay out | `.claude/settings.json` denies reading `.env*`; gitleaks in CI | T-001 |
 | Neutrality | `neutrality.*` fixtures for every actor in `docs/neutrality.md` | T-010, then ongoing |
+| Generated fixtures are not hand-edited | Drift test in `tests/gen-demo-data.test.ts`; `node scripts/gen-demo-data.ts --check` | T-012 |
+| Tests do not assert on wall-clock time | Cost limits use `StepBudget` counts, not `performance.now()`; a lint or grep check over `*.test.ts` (proposed after `redteam.test.ts` K2 failed 3 of 3 full `pnpm test` runs on this machine and passed alone) | Proposed (T-012) |
 
 ## Cadence
 

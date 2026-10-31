@@ -5,8 +5,11 @@ coverage/
 .env
 .env.*
 !.env.example
-data/
+/data/
 reports/
 demo/out/
 .DS_Store
 .worktrees/
+
+# Personal Claude Code settings
+.claude/settings.local.json
