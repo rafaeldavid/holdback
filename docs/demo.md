@@ -11,7 +11,7 @@ The first product priority. The demo exists to describe the experience to an AI 
 ## Run it
 
 ```
-pnpm demo                 # recorded mode: deterministic, no keys, ~1 minute
+pnpm demo                 # scripted judges: deterministic, no keys, a few seconds
 pnpm demo --live          # live judges (needs two model-family keys), ~3 minutes
 pnpm demo --beat 4        # run one beat
 open demo/out/index.html  # timeline viewer
@@ -62,12 +62,16 @@ Closing slide in the transcript, also stated by the narrator:
 ## Narration rules
 
 - Every line states what happened and the number behind it: amount, milliseconds, model ID, hash prefix.
-- Show the signed message for one beat, collapsed by default in the viewer.
-- No marketing language. Say "recorded verdicts" in recorded mode.
+- Show the signed message for one beat, and one judge's prompt and verdict in beat 3, both collapsed by default in the viewer. The prompt is untrusted text: every surface makes it plain and escapes it.
+- No marketing language. Label the mode honestly: "scripted" when fake judges run, "recorded" only when real model recordings are replayed, "live" when models are called. Never name task IDs in a transcript.
+- The viewer and the terminal print the mode, source and units once; each beat adds only what differs.
+- Show a balance table only when the ledger changed. The decision line states how long after delivery it came and how long judging took, measured by the adjudicator service.
+- Each job ends with one line showing that both agents hold the same record (D26). Ledger reads through an SDK client that tries op-1 first, Tide-7 through one that tries op-2 first; each fetches the commitment, every event and every receipt, and the line names the operator that signed each copy's receipts. The judgment record is the one the adjudicator published, found by the hash the decision event names (there is no read API for records yet). The hashes compare everything except the receipts' signer and signature, which differ by operator.
+- The closing lists four residual control points (collusion, legal process, plaintext access, self-reported model identity) and points to `docs/neutrality.md` for the rest.
 
 ## Success criteria (T-013)
 
-- A fresh clone produces all transcripts in recorded mode within 5 minutes, with no keys.
+- A fresh clone produces all transcripts with scripted judges within 5 minutes, with no keys.
 - A reviewer who has not read the docs can answer, from the transcript alone:
   1. Who held the money?
   2. Who decided?

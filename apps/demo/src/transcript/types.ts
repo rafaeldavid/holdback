@@ -1,7 +1,9 @@
 // The transcript interface between a beat runner and the narration, renderers and viewer (T-013).
 // A beat runner (T-012's SimChain runner, or the scripted stand-in) produces a BeatTranscript; everything
 // downstream reads only this. Money is a token amount in base units as a decimal string; times are whole
-// milliseconds since the job's first call. No deliverable content ever appears here: hashes, sizes and counts only.
+// milliseconds since the job's first call. Deliverable content appears in one place only: the 'judge-prompt'
+// event (T-019), an excerpt of one judge's prompt and its verdict, made plain line by line at ingestion and escaped
+// again by every renderer. Everything else is hashes, sizes and counts.
 
 /** Who appears in the demo. Display names live in cast.ts. */
 export type CastKey =
@@ -98,6 +100,36 @@ export interface AdjudicatorProfile {
   history: { rolePlay: true; lines: string[] };
 }
 
+/** A judge's verdict as the transcript shows it. Model output over untrusted input: plain at ingestion. */
+export interface VerdictView {
+  overall: 'pass' | 'fail' | 'abstain';
+  criteria: { id: string; score: number; evidence: string }[];
+  injectionSuspected: boolean;
+  injectionEvidence?: string;
+  rationale: string;
+}
+
+/**
+ * One judge's prompt, as the judge received it, with the middle of the data section left out. Each entry is one
+ * line, made plain (no controls, bidi or tag characters). `omitted` lines sit between `head` and `tail`.
+ */
+export interface PromptView {
+  system: string[];
+  user: { head: string[]; omitted: number; tail: string[]; lines: number };
+}
+
+/** How long judging took, measured by the adjudicator service's run (T-019). */
+export interface JudgingTiming {
+  /** From the delivery's stamp to the decision's. */
+  afterDeliveryMs: number;
+  /** From the start of the adjudicator service's run (read, decrypt, checks, screen, panel) to its signed decision. */
+  judgingMs: number;
+  /** From the first judge call to the last verdict; absent when no panel sat. */
+  panelMs?: number;
+  /** Where the judging time went, in order, each part measured between two of the service's marks. */
+  parts?: { what: string; ms: number }[];
+}
+
 export type DemoEvent =
   | (At & { kind: 'adjudicator-proposal'; actor: CastKey; registrations: number; rules: string[]; considered: ConsideredAdjudicator[]; proposed: SlateKeys })
   | (At & {
@@ -116,13 +148,47 @@ export type DemoEvent =
   | (At & { kind: 'checks'; actor: CastKey; results: CheckResult[] })
   | (At & { kind: 'screen'; actor: CastKey; flagged: boolean; signals: string[]; consequence: string })
   | (At & { kind: 'panel'; actor: CastKey; seed: string; seedSource: 'commit-reveal' | 'beacon'; rule: string; judges: JudgeSeat[]; outcome: 'accept' | 'reject' | 'escalate' })
-  | (At & { kind: 'decision'; actor: CastKey; role: 'primary' | 'fallback' | 'appeal'; outcome: 'accept' | 'reject'; via: Via })
+  | (At & {
+      kind: 'judge-prompt';
+      actor: CastKey;
+      seat: number;
+      model: string;
+      family: string;
+      /** SHA-256 of the full {system, user} prompt, as the judgment record holds it. */
+      inputHash: string;
+      /** True when a fake provider wrote the verdict (no model read the prompt). */
+      scripted: boolean;
+      prompt: PromptView;
+      verdict?: VerdictView;
+    })
+  | (At & { kind: 'decision'; actor: CastKey; role: 'primary' | 'fallback' | 'appeal'; outcome: 'accept' | 'reject'; via: Via; timing?: JudgingTiming })
   | (At & { kind: 'escalation'; actor: CastKey; to: CastKey; reason: string; panelSize: number; families: number })
   | (At & { kind: 'settlement'; actor: CastKey; settlement: 'release' | 'refund' | 'mutual'; payouts: { to: CastKey; amount: Amount; reason: string }[]; keyReleasedTo?: CastKey; via: Via })
   | (At & { kind: 'open'; actor: CastKey; plaintextSha256: string; matchesDelivery: boolean; bytes: number; stripped?: { what: string; count: number } })
   | (At & { kind: 'finality'; actor: CastKey; payee: CastKey; appealWindowSec: number; bondAtRisk: Amount; bondHolder: CastKey })
   | (At & { kind: 'receipt'; actor: CastKey; receiptHash: string })
   | (At & { kind: 'neutrality'; actor: CastKey; target: CastKey; failure: 'refused' | 'offline' | 'revoked'; consequence: string; via?: Via })
+  | (At & {
+      /**
+       * D26: each party fetches its own copy of the record through its own SDK client (commitment state, every
+       * settlement event, every operator receipt) plus the judgment record its decision names, as published, and
+       * hashes it without the receipts' signers. The work itself is excluded; only its hash is in the events.
+       * `match` is measured: true only when every party's hash is equal and every copy is whole.
+       */
+      kind: 'shared-record';
+      actor: CastKey;
+      /** `via`: the operator that signed every receipt in this party's copy, when it was one known operator. */
+      parties: { who: CastKey; hash: string; via?: Via }[];
+      events: number;
+      receipts: number;
+      /** The judgment record's hash, when an adjudicator decided. */
+      judgmentRecord?: string;
+      /** The adjudicator that published that record. */
+      judgedBy?: CastKey;
+      /** The decision event's hash, as its operator receipt attests it. */
+      decision?: string;
+      match: boolean;
+    })
   | (At & { kind: 'balances'; actor: CastKey; label: string; rows: BalanceRow[] })
   | (At & { kind: 'signed'; actor: CastKey; messageType: string; signer: string; body: { [key: string]: Json }; signature: string });
 
@@ -144,7 +210,8 @@ export interface BeatTranscript {
   summary: string;
   /** The litmus test this beat shows. */
   litmus: string;
-  mode: 'recorded' | 'live';
+  /** scripted: fake judges; recorded: replayed model recordings; live: models called in this run. */
+  mode: 'scripted' | 'recorded' | 'live';
   source: TranscriptSource;
   commitmentId?: string;
   events: DemoEvent[];

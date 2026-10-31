@@ -1,6 +1,7 @@
 import { demoRegistry } from '@holdback/demo/agents/bench.js';
 import { beforeAll, describe, expect, it } from 'vitest';
 import type { BalanceRow, BeatTranscript, DemoEvent } from '../transcript/types.js';
+import { renderMarkdown } from '../transcript/render-md.js';
 import { demoSource } from './demo.js';
 import { simchainSource } from './simchain.js';
 
@@ -67,8 +68,21 @@ describe('SimChain source (T-012 beat runner)', () => {
     expect(only(t, 'signed')[0]?.signature).toMatch(/^0x[0-9a-f]{130}$/);
   });
 
-  it('beats 2 to 4 are one job', () => {
-    expect(new Set([2, 3, 4].map((b) => beat(b).commitmentId)).size).toBe(1);
+  it('beats 1 to 4 are one job on one world, with one continuous timeline (T-019)', () => {
+    expect(new Set([1, 2, 3, 4].map((b) => beat(b).commitmentId)).size).toBe(1);
+    // Time never runs backwards from beat 1 into beat 4: the four beats are slices of one run.
+    const times = [1, 2, 3, 4].flatMap((b) => beat(b).events.map((e) => e.atMs));
+    expect(times).toEqual([...times].sort((a, b) => a - b));
+    // The ledger beat 1 leaves is the ledger beat 2 starts from, and beat 4 ends where the job's record does.
+    const after = (b: number, label: string) => only(beat(b), 'balances').find((x) => x.label === label)?.rows;
+    expect(after(2, 'after delivery')).toEqual(after(1, 'after hold'));
+    // The delivery is for the hold beat 1 funded: same escrow balance, and the decision stamps come after it.
+    expect(only(beat(2), 'delivery')[0]!.atMs).toBeGreaterThanOrEqual(only(beat(1), 'hold')[0]!.atMs);
+    // Only beat 1 carries the negotiation and the profiles.
+    for (const b of [2, 3, 4]) {
+      expect(beat(b).adjudicators).toBeUndefined();
+      expect(only(beat(b), 'adjudicator-proposal')).toEqual([]);
+    }
   });
 
   it('beat 3: every check passes and a panel of pinned config/judges.yaml models from two or more families accepts', () => {
@@ -123,6 +137,106 @@ describe('SimChain source (T-012 beat runner)', () => {
     expect(row(t, 'after settlement', 'benchA')?.reserved?.amount).toBe('0');
   });
 
+  it('labels scripted judges as scripted, with no task IDs in the source line (T-019)', () => {
+    for (const t of byBeat.values()) {
+      expect(t.mode).toBe('scripted');
+      expect(t.source.note).not.toMatch(/\bT-\d+/);
+      expect(t.source.note).toMatch(/scripted agents over the operator API; the adjudicator service with scripted judges/);
+    }
+  });
+
+  it('gives each job its own commitment ID and seed commitment (T-019)', () => {
+    const jobs = [1, 5, 6, 10].map((b) => beat(b));
+    expect(new Set(jobs.map((t) => t.commitmentId)).size).toBe(4);
+    expect(new Set(jobs.map((t) => only(t, 'acceptance')[0]?.seedCommitment)).size).toBe(4);
+    // Beats 1 to 4 are one job: the hold in beat 1 is the hold judged in beat 3.
+    expect(beat(1).commitmentId).toBe(beat(3).commitmentId);
+  });
+
+  it('beat 3: one judge prompt and its verdict, from the panel that sat (T-019)', () => {
+    const t = beat(3);
+    const [jp, ...more] = only(t, 'judge-prompt');
+    expect(more).toEqual([]);
+    const panel = only(t, 'panel')[0]!;
+    expect(jp).toMatchObject({ actor: 'benchA', seat: 1, model: panel.judges[0]!.model, family: panel.judges[0]!.family, scripted: true });
+    expect(jp!.inputHash).toMatch(/^0x[0-9a-f]{64}$/);
+    expect(jp!.prompt.system[0]).toMatch(/You are one judge/);
+    expect(jp!.prompt.user.head.some((l) => l.startsWith('<<<BEGIN UNTRUSTED DATA'))).toBe(true);
+    expect(jp!.prompt.user.tail.at(-1)).toMatch(/^<<<END UNTRUSTED DATA/);
+    expect(jp!.prompt.user.omitted).toBeGreaterThan(1000);
+    expect(jp!.verdict?.overall).toBe('pass');
+    expect(jp!.verdict?.criteria.map((c) => c.id)).toEqual(['no_fabrication', 'notes', 'dedupe_quality']);
+  });
+
+  it('beat 3: judging is stamped by the adjudicator service, and the decision says how long it took (T-019)', () => {
+    const t = beat(3);
+    const checks = only(t, 'checks')[0]!;
+    const panel = only(t, 'panel')[0]!;
+    const decision = only(t, 'decision')[0]!;
+    expect(checks.atMs).toBeLessThanOrEqual(panel.atMs);
+    expect(panel.atMs).toBeLessThanOrEqual(decision.atMs);
+    const delivered = only(beat(2), 'delivery')[0]!;
+    expect(checks.atMs).toBeGreaterThanOrEqual(delivered.atMs);
+    expect(decision.timing?.afterDeliveryMs).toBe(decision.atMs - delivered.atMs);
+    expect(decision.timing?.judgingMs).toBeGreaterThanOrEqual(0);
+    expect(decision.timing?.judgingMs).toBeLessThanOrEqual(decision.timing!.afterDeliveryMs);
+    expect(decision.timing?.panelMs).toBeGreaterThanOrEqual(0);
+    // Checks and screen are stamped when they were done: when the first judge was called.
+    expect(panel.atMs - checks.atMs).toBeLessThanOrEqual(decision.timing!.panelMs! + 1);
+    // The parts are named and add up to the judging time.
+    const parts = decision.timing!.parts!;
+    expect(parts.map((p) => p.what)).toEqual([
+      'reading the delivery and fetching its ciphertext',
+      'decrypting, checks and screen',
+      'panel of 3 scripted judges',
+      'aggregating and publishing the signed record',
+      'signing and submitting the decision',
+    ]);
+    expect(parts.reduce((s, p) => s + p.ms, 0)).toBe(decision.timing!.judgingMs);
+    for (const p of parts) expect(p.ms).toBeGreaterThanOrEqual(0);
+    // Beat 5 judged without a panel: the decision still carries its judging time, in named parts.
+    const five = only(beat(5), 'decision')[0]!.timing!;
+    expect(five.panelMs).toBeUndefined();
+    expect(five.parts!.map((p) => p.what)).toEqual(['reading the delivery and fetching its ciphertext', 'decrypting, checks, screen and publishing the signed record', 'signing and submitting the decision']);
+    expect(five.parts!.reduce((s, p) => s + p.ms, 0)).toBe(five.judgingMs);
+  });
+
+  it('ends every job with both parties holding the same record, each read through a different operator (D26)', () => {
+    for (const b of [4, 5, 6, 10]) {
+      const t = beat(b);
+      const all = only(t, 'shared-record');
+      // Beat 6 is two jobs, so two record lines; each job ends with its own.
+      expect(all, `beat ${b}`).toHaveLength(b === 6 ? 2 : 1);
+      expect(t.events.at(-1)?.kind, `beat ${b}`).toBe('shared-record');
+      for (const r of all) {
+        expect(r.match, `beat ${b}`).toBe(true);
+        // Measured from the receipts each copy holds: Ledger's were signed by op-1, Tide-7's by op-2.
+        expect(r.parties.map((p) => [p.who, p.via])).toEqual([
+          ['buyer', 'op1'],
+          ['seller', 'op2'],
+        ]);
+        expect(r.receipts).toBe(r.events);
+      }
+    }
+    // Beat 6a's record is the one Atrium's appeal decision names.
+    expect(only(beat(6), 'shared-record')[0]?.judgedBy).toBe('benchC');
+    // Beat 7: op-2 is offline and op-1 refuses only writes, so both copies are read through op-1 (measured).
+    const seven = only(beat(7), 'shared-record');
+    expect(seven).toHaveLength(1);
+    expect(seven[0]!.match).toBe(true);
+    expect(seven[0]!.parties.map((p) => [p.who, p.via])).toEqual([
+      ['buyer', 'op1'],
+      ['seller', 'op1'],
+    ]);
+    expect(seven[0]!.judgedBy).toBe('benchB');
+    // Beats 1 to 3 are the start of the job beat 4 ends; the record line comes once, at its end.
+    for (const b of [1, 2, 3]) expect(only(beat(b), 'shared-record')).toEqual([]);
+    expect(only(beat(4), 'shared-record')[0]?.judgedBy).toBe('benchA');
+    expect(only(beat(4), 'shared-record')[0]?.judgmentRecord).toMatch(/^0x[0-9a-f]{64}$/);
+    expect(only(beat(4), 'shared-record')[0]?.decision).toMatch(/^0x[0-9a-f]{64}$/);
+    expect(only(beat(10), 'shared-record')[0]?.judgmentRecord).toBeUndefined();
+  });
+
   it('conserves money and keeps measured times in order', () => {
     for (const t of byBeat.values()) {
       const sums = only(t, 'balances').map((b) => total(b.rows));
@@ -157,6 +271,10 @@ describe('beat 6a on SimChain: base64 injection, escalation, appeal reject (T-01
     expect(row(t, 'after settlement', 'benchC')!.amount.amount).toBe((25_050n * 1_000_000n).toString());
     expect(row(t, 'after settlement', 'seller')!.amount.amount).toBe('0');
     expect(t.source.note).toMatch(/scripted verdicts/);
+    // Both panels get a Markdown section, each named for its adjudicator.
+    const md = renderMarkdown(t);
+    expect(md).toMatch(/^## Panel: Clearfield Adjudication \(Bench A\)$/m);
+    expect(md).toMatch(/^## Panel: Atrium Appeals \(Bench C\)$/m);
   });
 });
 

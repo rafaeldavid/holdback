@@ -156,6 +156,8 @@ export interface JobResult {
   reports?: JudgeReport[];
   /** Beat 7: the failures injected and what the agents' SDKs did about them, measured. */
   neutrality?: NeutralityFacts;
+  /** How the agents chose the adjudicators and the terms the offer was built from (beat 1 reads the profiles). */
+  hold?: { negotiation: Negotiation; terms: TermsTemplate };
 }
 
 /** What beat 7 measured: refusals from the operator logs, the relay of each call, the simulated wait. */
@@ -174,8 +176,8 @@ export interface NeutralityFacts {
 const recipients = (hold: HoldResult) => ({ primary: hold.slate.primary.keys, fallback: hold.slate.fallback.keys, appeal: hold.slate.appeal.keys });
 
 /** Hold, encrypted delivery, the primary's judgment, and Atlas opening the work when its key was released. */
-async function judgedJob(world: DemoWorld, terms: TermsTemplate, file: string, options: PlayerOptions = {}): Promise<JobResult> {
-  const hold = await beatHold(world, { terms, players: players(world, options) });
+async function judgedJob(world: DemoWorld, terms: TermsTemplate, file: string, options: JobOptions = {}): Promise<JobResult> {
+  const hold = await beatHold(world, { terms, players: players(world, options), ...(options.observe ? { observe: options.observe } : {}) });
   const { commitment, players: p } = hold;
   const delivered = await p.tidewater.deliver(commitment, deliverable(file), recipients(hold));
   const report = await hold.slate.primary.judge(commitment.id);
@@ -191,11 +193,18 @@ async function judgedJob(world: DemoWorld, terms: TermsTemplate, file: string, o
     requests: report.requests,
     ...(opened ? { opened } : {}),
     vias: [hold.vias.offer, hold.vias.hold, delivered.via, report.via],
+    reports: [report],
+    hold: { negotiation: hold.negotiation, terms: hold.terms },
   };
 }
 
+/** Player options plus the negotiation observer (the transcript stamps beat 1's off-chain steps with it). */
+export interface JobOptions extends PlayerOptions {
+  observe?: (step: NegotiationStep) => void;
+}
+
 /** Beats 1-4: the honest cleaned CSV passes the checks, a three-judge panel accepts, $2,000 and the key move together. */
-export const beatHappyPath = (world: DemoWorld, options: PlayerOptions = {}): Promise<JobResult> =>
+export const beatHappyPath = (world: DemoWorld, options: JobOptions = {}): Promise<JobResult> =>
   judgedJob(world, loadTermsFile(TERMS_FILE), 'customers.clean.csv', options);
 
 /** Beat 5: the file drops 8% of rows, the required rows check fails, Atlas is refunded and Tidewater keeps the work. */

@@ -1,5 +1,6 @@
 // Narration (docs/demo.md §Narration rules): every line states what happened and the number behind it
-// (amount, milliseconds, model ID, hash prefix). Plain statements only. Recorded mode says "recorded verdicts".
+// (amount, milliseconds, model ID, hash prefix). Plain statements only. Scripted mode says the judges are fake;
+// "recorded" is kept for replayed model recordings only (T-019).
 import { CAST, labelOf, nameOf } from './cast.js';
 import { formatAmount } from './money.js';
 import type { BeatTranscript, CastKey, CheckResult, DemoEvent, Via } from './types.js';
@@ -93,8 +94,41 @@ function describeRaw(e: DemoEvent): string {
       const families = new Set(e.judges.map((j) => j.family)).size;
       return `${who} seats ${e.judges.length} judges by ${e.seedSource} seed ${short(e.seed)}: ${seats}. ${passes} of ${e.judges.length} pass across ${families} families (${e.rule}); panel outcome: ${e.outcome}.`;
     }
-    case 'decision':
-      return `${who} signs the ${e.role} decision: ${e.outcome}, ${relay(e.via)}.`;
+    case 'judge-prompt': {
+      const scores = e.verdict ? e.verdict.criteria.map((c) => `${c.id} ${c.score}`).join(', ') : '';
+      const verdict = e.verdict
+        ? `${e.scripted ? 'its scripted verdict (a fake provider wrote it; no model read the prompt)' : 'its verdict'}: ${e.verdict.overall}${scores ? `, ${scores} of 4` : ''}${e.verdict.injectionSuspected ? ', injection suspected' : ''}`
+        : 'no valid verdict';
+      return `${who}'s seat ${e.seat} judge, ${e.model} (${e.family}), receives a ${group(e.prompt.system.length)}-line system message and a ${group(e.prompt.user.lines)}-line user message holding the data sample (input hash ${short(e.inputHash)}); ${verdict}. Prompt and verdict below.`;
+    }
+    case 'decision': {
+      const t = e.timing;
+      const parts = t?.parts?.length
+        ? `: ${t.parts.map((x) => `${x.what} ${group(x.ms)} ms`).join(', ')}${t.panelMs === undefined ? '; no panel sat' : ''}`
+        : t?.panelMs === undefined
+          ? ' (no panel sat)'
+          : ` (panel ${group(t.panelMs)} ms)`;
+      const timing = t ? ` Decision ${group(t.afterDeliveryMs)} ms after delivery; judging took ${group(t.judgingMs)} ms${parts}.` : '';
+      return `${who} signs the ${e.role} decision: ${e.outcome}, ${relay(e.via)}.${timing}`;
+    }
+    case 'shared-record': {
+      const names = e.parties.map((p) => nameOf(p.who));
+      const both = names.length === 2 ? `${names[0]} and ${names[1]}` : names.join(', ');
+      const what = [
+        `${group(e.events)} settlement events, ${group(e.receipts)} operator receipts`,
+        ...(e.judgmentRecord ? [`judgment record ${short(e.judgmentRecord)}${e.judgedBy ? ` as ${nameOf(e.judgedBy)} published it` : ''}, by the hash the decision names`] : []),
+        ...(e.decision ? [`decision event ${short(e.decision)}`] : []),
+      ].join(', ');
+      const routes = e.parties.every((p) => p.via)
+        ? ` (${e.parties.map((p) => `${nameOf(p.who)} through ${p.via === 'direct' ? 'SimChain' : nameOf(p.via!)}`).join(', ')}, by the operator that signed each copy's receipts)`
+        : '';
+      const vias = new Set(e.parties.map((p) => p.via));
+      const apart = vias.size > 1 ? ', receipt signers aside' : '';
+      const result = e.match
+        ? `Record hash ${short(e.parties[0]?.hash ?? '')} on both sides${apart}: both copies match`
+        : `The copies DIFFER: ${e.parties.map((p) => `${nameOf(p.who)} ${short(p.hash)}`).join(', ')}`;
+      return `${both} each fetch the record through their own SDK client${routes}: ${what}; the work itself only by its hash. ${result}.`;
+    }
     case 'escalation':
       return `${who} escalates to ${labelOf(e.to)}, reason: ${e.reason}; the appeal panel seats ${e.panelSize} judges from ${e.families} families.`;
     case 'settlement': {
@@ -130,16 +164,45 @@ export function narrate(e: DemoEvent): string {
   return `${formatMs(e.atMs)} ${e.standIn ? '[stand-in] ' : ''}${describeEvent(e)}`;
 }
 
-/** Lines printed before the timeline: mode, source, litmus test, units. */
+const MODE_LINE: Readonly<Record<BeatTranscript['mode'], string>> = {
+  scripted: 'Mode: scripted. Judges are fake providers that return verdicts written in advance (pass, unless the beat says it scripted a fail): no model was called in this run.',
+  recorded: 'Mode: recorded. Judge outputs are replayed model recordings: no model was called in this run.',
+  live: 'Mode: live. Judges were called with pinned model IDs during this run.',
+};
+const UNITS_LINE = "Amounts are in tUSD, a test token on SimChain (1 tUSD stands for $1). Times are milliseconds since the job's first call.";
+
+/** Lines printed before the timeline of a stand-alone transcript: mode, source, litmus test, units. */
 export function header(t: BeatTranscript): string[] {
-  const mode =
-    t.mode === 'recorded'
-      ? 'Mode: recorded. Judge outputs are recorded verdicts: no model was called in this run.'
-      : 'Mode: live. Judges were called with pinned model IDs during this run.';
+  return [MODE_LINE[t.mode], `Source: ${t.source.note}`, `Shows: ${t.litmus}.`, UNITS_LINE].map(plain);
+}
+
+/** What several transcripts share, printed once above them (T-019): the most common mode and source note. */
+export interface SharedHeader {
+  mode: BeatTranscript['mode'];
+  note: string;
+  lines: string[];
+}
+
+function mostCommon<T>(xs: readonly T[], fallback: T): T {
+  const counts = new Map<T, number>();
+  for (const x of xs) counts.set(x, (counts.get(x) ?? 0) + 1);
+  let best = fallback;
+  let n = 0;
+  for (const [x, c] of counts) if (c > n) [best, n] = [x, c];
+  return best;
+}
+
+export function sharedHeader(ts: readonly BeatTranscript[]): SharedHeader {
+  const mode = mostCommon(ts.map((t) => t.mode), 'scripted' as BeatTranscript['mode']);
+  const note = mostCommon(ts.map((t) => t.source.note), '');
+  return { mode, note, lines: [MODE_LINE[mode], ...(note ? [`Source: ${note}`] : []), UNITS_LINE].map(plain) };
+}
+
+/** A beat's lines under a shared header: what it shows, and its mode or source only where they differ. */
+export function beatHeader(t: BeatTranscript, shared: Pick<SharedHeader, 'mode' | 'note'>): string[] {
   return [
-    mode,
-    `Source: ${t.source.note}`,
+    ...(t.mode === shared.mode ? [] : [MODE_LINE[t.mode]]),
+    ...(t.source.note === shared.note ? [] : [`Source: ${t.source.note}`]),
     `Shows: ${t.litmus}.`,
-    'Amounts are in tUSD, a test token on SimChain (1 tUSD stands for $1). Times are milliseconds since the job\'s first call.',
   ].map(plain);
 }

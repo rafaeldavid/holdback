@@ -13,9 +13,8 @@ describe('narrate', () => {
       for (const e of t.events) {
         const line = narrate(e);
         expect(line, `${t.beat}/${e.kind}`).toMatch(/^\+\d[\d,]* ms /);
-        // The number behind the event, beyond the timestamp. A decision's number is its timestamp until T-019
-        // adds the judging time to the line (the stand-in fixture this test used to read never had a decision line).
-        if (e.kind !== 'decision') expect(line.replace(/^\+[\d,]+ ms /, ''), `${t.beat}/${e.kind}`).toMatch(/\d/);
+        // The number behind the event, beyond the timestamp (a decision carries its judging time, T-019).
+        expect(line.replace(/^\+[\d,]+ ms /, ''), `${t.beat}/${e.kind}`).toMatch(/\d/);
       }
     }
   });
@@ -63,10 +62,10 @@ describe('narrate', () => {
 });
 
 describe('header', () => {
-  it('says recorded verdicts in recorded mode, names the SimChain source, and never says stand-in (T-018)', async () => {
+  it('states the mode, names the SimChain source, and never says stand-in (T-018)', async () => {
     for (const t of await allTranscripts()) {
       const h = header(t).join('\n');
-      expect(h).toContain('recorded verdicts');
+      expect(h).toMatch(/^Mode: (scripted|recorded|live)\./);
       expect(h).toContain(t.source.note);
       expect(h).toMatch(/measured on SimChain/);
       expect([...h.split('\n'), ...t.events.map(narrate)].join('\n')).not.toMatch(/stand-in/i);

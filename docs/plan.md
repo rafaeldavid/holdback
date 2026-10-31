@@ -21,7 +21,7 @@ Goal: a repo that agents can work in safely, and confirmation that no existing s
 
 ## Phase 1: Demo walking skeleton on SimChain
 
-Goal: `pnpm demo` runs beats 1–7 of `docs/demo.md` in recorded mode. Every beat is a passing scenario fixture.
+Goal: `pnpm demo` runs beats 1–7 of `docs/demo.md` with scripted judges (no keys). Every beat is a passing scenario fixture.
 
 Scope after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`): `guaranteed_on_decision` only, `maxSubmissions = 1`, no sealed checks, and commitments bind `registryHash`.
 
@@ -39,7 +39,7 @@ Scope after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-inte
 - [x] T-016 Testkit runner: real judgment in snap, role-keyed recordings, authored guard, mutual_settle (test; trimmed by D25, rest is T-016b)
 - [x] T-017 Demo: adjudicator profiles and buyer/seller agreement on adjudicators (demo)
 - [ ] T-018 Beats 6a and 7 on SimChain; appeal decides a screen-flagged case (judgment + demo; D25)
-- [ ] T-019 Demo honesty and clarity: scripted labels, one ID per job, judging time, one prompt and verdict, lean balances (demo; D25)
+- [x] T-019 Demo honesty and clarity: scripted labels, one ID per job, judging time, one prompt and verdict, lean balances (demo; D25)
 
 **Exit:**
 - Demo success criteria met (`docs/demo.md`).

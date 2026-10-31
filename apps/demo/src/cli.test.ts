@@ -42,7 +42,8 @@ describe('pnpm demo', () => {
     expect(files).toContain('closing.md');
     expect(files).toContain('index.html');
     const one = readFileSync(join(out, 'beat-1.md'), 'utf8');
-    expect(one).toContain('recorded verdicts');
+    expect(one).toContain('Mode: scripted');
+    expect(one).not.toContain('recorded verdicts');
     expect(one).toContain('measured on SimChain');
     const seven = readFileSync(join(out, 'beat-7.md'), 'utf8');
     expect(seven).toContain('measured on SimChain');

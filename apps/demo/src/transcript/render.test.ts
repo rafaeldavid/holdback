@@ -27,10 +27,10 @@ async function all(): Promise<BeatTranscript[]> {
 }
 
 describe('renderMarkdown', () => {
-  it('has a title, the recorded-mode header, a timeline and the balances', async () => {
+  it('has a title, the mode header, a timeline and the balances', async () => {
     const md = renderMarkdown(await withSigned());
     expect(md).toMatch(/^# Beat 7: Nobody in control\n/);
-    expect(md).toContain('recorded verdicts');
+    expect(md).toContain('> Mode: ');
     expect(md).toContain('## Timeline');
     expect(md).toContain('## Balances');
     expect(md).toContain('| Ledger (Atlas Research) |');
@@ -45,7 +45,8 @@ describe('renderMarkdown', () => {
 
   it('marks every section built from a stand-in event: timeline, panel, neutrality, balances, signed message', async () => {
     const base = await withSigned();
-    const t: BeatTranscript = { ...base, source: { kind: 'mixed', note: 'part measured' }, events: base.events.map((e) => ({ ...e, standIn: true as const })) };
+    // No stand-in source writes judge prompts (none exists since T-018), so that section carries no mark.
+    const t: BeatTranscript = { ...base, source: { kind: 'mixed', note: 'part measured' }, events: base.events.filter((e) => e.kind !== 'judge-prompt').map((e) => ({ ...e, standIn: true as const })) };
     const md = renderMarkdown(t);
     // Narrated lines are Markdown-escaped, so the mark reads \[stand-in\] in the source and [stand-in] rendered.
     for (const line of md.split('\n').filter((l) => l.startsWith('- +'))) expect(line).toContain('\\[stand-in\\]');
@@ -84,7 +85,7 @@ describe('closing', () => {
   it('states finality per mode, residual risks and what an AI lab could add', () => {
     const c = closing();
     expect(c.finality.length).toBeGreaterThan(0);
-    expect(c.residuals.map((r) => r.n)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+    expect(c.residuals.map((r) => r.n)).toEqual([3, 5, 6, 8]);
     expect(c.asks.join(' ')).toMatch(/response attestation/i);
     expect(c.asks.join(' ')).toMatch(/hold primitive on API credit/i);
     expect(c.asks.join(' ')).toMatch(/model version disclosure/i);
