@@ -36,8 +36,11 @@ export class TidewaterAgent {
     this.hb = world.sdk();
   }
 
-  /** Signed terms for the buyer and the primary adjudicator. Not submitted: the buyer's one-shot hold carries them. */
-  async offer(template: TermsTemplate, choice: OfferChoice): Promise<Commitment> {
+  /** Signs terms naming the chosen adjudicators and publishes the offer through the SDK. */
+  async offer(template: TermsTemplate, choice: OfferChoice): Promise<{ commitment: Commitment; via: string }> {
+    if (template.adjudication.policyId !== choice.primary.policy.id) {
+      throw new Error(`the terms name policy ${template.adjudication.policyId}, but ${choice.primary.name} runs ${choice.primary.policy.id}`);
+    }
     const terms = termsFromTemplate(template, {
       club: this.world.club,
       buyer: choice.buyer.address,
@@ -52,7 +55,9 @@ export class TidewaterAgent {
       createdAt: this.world.now(),
     });
     const seller = await signTerms(this.keys.signingKey, DOMAIN, terms);
-    return { ...terms, id: commitmentId(terms), signatures: { seller } };
+    const commitment: Commitment = { ...terms, id: commitmentId(terms), signatures: { seller } };
+    const submitted = await this.hb.offer(commitment, this.world.call());
+    return { commitment, via: submitted.via };
   }
 
   /**
@@ -87,7 +92,7 @@ export class TidewaterAgent {
   /** Co-signs a settlement the buyer proposed. An honest seller signs what it agreed to and nothing else. */
   async cosign(body: MutualSettlementBody, expect: { toSeller: bigint }): Promise<Signature> {
     const mine = body.payouts.find((p) => p.to.toLowerCase() === this.keys.address.toLowerCase());
-    if (!mine || BigInt(mine.amount.amount) !== expect.toSeller) throw new Error(`Tidewater did not agree to ${JSON.stringify(body.payouts)}`);
+    if (!mine || BigInt(mine.amount.amount) !== expect.toSeller) throw new Error(`Tide-7 (Tidewater Data) did not agree to ${JSON.stringify(body.payouts)}`);
     return signMessage(this.keys.signingKey, DOMAIN, body);
   }
 }

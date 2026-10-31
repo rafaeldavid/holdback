@@ -12,7 +12,9 @@ import { Holdback, type SubmitCallOptions } from '@holdback/sdk';
 import { mandateFor, SIM_CHAIN_ID, SimChain, TOKEN, wideScope, type Genesis } from '@holdback/settlement/sim';
 import { createContext, loadClubFile, type SimContext } from '@holdback/testkit';
 import { keccak256, stringToBytes } from 'viem';
+import { ATLAS, BENCH_A, BENCH_B, BENCH_C, TIDEWATER } from './cast.js';
 import { agentKeys, rngSource, type AgentKeys } from './keys.js';
+import { TUSD } from './units.js';
 
 function repoRoot(): string {
   let dir = dirname(new URL(import.meta.url).pathname);
@@ -30,17 +32,21 @@ export const CLUB_FILE = join(REPO_ROOT, 'fixtures/clubs/data-services-v1.yaml')
 export const TERMS_FILE = join(REPO_ROOT, 'fixtures/terms/clean-customers-2000.yaml');
 export const CHECKS_ONLY_TERMS_FILE = join(REPO_ROOT, 'fixtures/terms/clean-customers-2000-checks-only.yaml');
 
-export const TUSD = 1_000_000n;
+export { TUSD };
 export const DEMO_START: Timestamp = '2026-11-01T09:00:00.000Z';
 export const DOMAIN = holdbackDomain(SIM_CHAIN_ID);
 
+/** Keys per cast member (names and roles in cast.ts). */
 export interface Cast {
-  /** Atlas Research's procurement agent (buyer). */
+  /** Ledger, Atlas Research's procurement agent (buyer). */
   atlas: AgentKeys;
-  /** Tidewater Data's cleaning agent (seller). */
+  /** Tide-7, Tidewater Data's cleaning agent (seller). */
   tidewater: AgentKeys;
+  /** Clearfield Adjudication (primary). */
   benchA: AgentKeys;
+  /** Northgate Review (fallback). */
   benchB: AgentKeys;
+  /** Atrium Appeals (appeal). */
   benchC: AgentKeys;
 }
 
@@ -91,22 +97,25 @@ export async function createDemoWorld(options: DemoWorldOptions = {}): Promise<D
   const start = wholeSecond(ctx.clock.now());
   if (`${start.slice(0, -1)}.000Z` !== ctx.clock.now()) throw new RangeError(`start ${ctx.clock.now()} must be a whole second`);
   const cast: Cast = {
-    atlas: agentKeys(seed, 'atlas'),
-    tidewater: agentKeys(seed, 'tidewater'),
-    benchA: agentKeys(seed, 'bench-a'),
-    benchB: agentKeys(seed, 'bench-b'),
-    benchC: agentKeys(seed, 'bench-c'),
+    atlas: agentKeys(seed, ATLAS.label),
+    tidewater: agentKeys(seed, TIDEWATER.label),
+    benchA: agentKeys(seed, BENCH_A.label),
+    benchB: agentKeys(seed, BENCH_B.label),
+    benchC: agentKeys(seed, BENCH_C.label),
   };
   const club = loadClubFile(CLUB_FILE);
   const expires = new Date(Date.parse(start) + 365 * 86_400_000).toISOString().replace('.000Z', 'Z');
-  // Each agent acts under a mandate its principal (Atlas Research, Tidewater Data) signed.
+  // Each agent acts under a mandate its principal signed: Priya Raman for Ledger (buyer, up to 5,000 tUSD a
+  // job and 20,000 a day), Marcus Oyelaran for Tide-7 (seller).
+  const tusdAmount = (v: bigint) => ({ token: TOKEN, amount: v.toString() }) as ReturnType<typeof wideScope>['maxDaily'];
+  const scopes = [
+    [cast.atlas, ATLAS.principal.label, { ...wideScope(['buyer'], expires), maxPerCommitment: tusdAmount(ATLAS.mandate.maxPerJob), maxDaily: tusdAmount(ATLAS.mandate.maxDaily) }],
+    [cast.tidewater, TIDEWATER.principal.label, wideScope(['seller'], expires)],
+  ] as const;
   const mandates = [];
-  for (const [agent, principal] of [
-    [cast.atlas, 'atlas-research'],
-    [cast.tidewater, 'tidewater-data'],
-  ] as const) {
+  for (const [agent, principal, scope] of scopes) {
     const p = agentKeys(seed, principal);
-    mandates.push(await mandateFor({ name: principal, key: p.signingKey, address: p.address }, agent.address, club.id, wideScope(['buyer', 'seller'], expires), start));
+    mandates.push(await mandateFor({ name: principal, key: p.signingKey, address: p.address }, agent.address, club.id, scope, start));
   }
   const bond = (options.bond ?? 25_000n * TUSD).toString();
   const genesis: Genesis = {

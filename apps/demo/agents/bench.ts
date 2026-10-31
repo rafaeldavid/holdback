@@ -1,140 +1,175 @@
-// SEAM (T-009): the adjudicator as the demo agents see it. The parties name it in the terms and send it the
-// signed offer; it signs an acceptance and, after delivery, a decision. T-009's adjudicator service (PR 37,
-// apps/adjudicator) replaces StandInBench behind this interface; nothing else in apps/demo/agents changes.
-//
-// StandInBench is a stand-in, not the defended pipeline. It opens its envelope, runs the terms' declarative
-// checks with @holdback/judgment's registry on the raw text, and then:
-//   - any required check failed: reject;
-//   - every required check passed and the rubric is empty: accept (no panel sits, as in the real pipeline);
-//   - every required check passed and the rubric has criteria: accept WITHOUT a panel, and say so in the
-//     report (`panel: 'not run (stand-in for T-009)'`). Honest parties only until the basic demo works.
-// It never re-rolls anything and reads the deliverable only as data.
+// The adjudicators as the demo agents see them. The parties name a primary, fallback and appeal adjudicator
+// in the terms; the primary finds the offer on the settlement layer and accepts it with a seed commitment, and
+// after delivery it decides. `AdjudicatorSeam` is that narrow interface; `ServiceBench` is T-009's adjudicator
+// service (apps/adjudicator) running on the world's SimChain through its settlement adapter, with fake judges
+// (no models, no keys) drawn from config/judges.yaml's pinned placeholder registry.
 import {
   canonicalKeccak,
-  signMessage,
-  type AdjudicatorAcceptance,
-  type Commitment,
-  type Decision,
+  parseAdjudicator,
+  parseJudgment,
+  type AdjudicatorPolicy,
+  type AdjudicatorRegistration,
+  type Address,
+  type Base64Url,
   type DecisionOutcome,
   type Hex32,
-  type Timestamp,
+  type Judgment,
 } from '@holdback/core';
-import { open, unwrapKeyFor, wrapKey, type RandomSource } from '@holdback/core/crypto';
-import type { CiphertextStore } from '@holdback/core/store';
-import { runChecks, UntrustedData, type CheckOutcome } from '@holdback/judgment';
-import type { Holdback } from '@holdback/sdk';
-import type { Rng } from '@holdback/testkit';
-import { keccak256 } from 'viem';
+import { Adjudicator, defaultPolicy, loadRegistryFile, policyHashOf, SettlementAdapter } from '@holdback/adjudicator';
+import { fakeProvider, type FakeScript, type JudgeProvider, type JudgeRequest, type LoadedRegistry } from '@holdback/judgment';
+import { join } from 'node:path';
+import { keccak256, stringToBytes } from 'viem';
+import { BENCH_A, BENCH_B, BENCH_C } from './cast.js';
 import type { AgentKeys } from './keys.js';
-import { deliveryFacts, DOMAIN, type DemoWorld } from './world.js';
+
+const BENCHES = [BENCH_A, BENCH_B, BENCH_C];
+import { DOMAIN, REPO_ROOT, TUSD, type DemoWorld } from './world.js';
+
+export const REGISTRY_FILE = join(REPO_ROOT, 'config/judges.yaml');
+export const REGISTRY_URI = 'file:///config/judges.yaml';
 
 export interface JudgeReport {
   commitmentId: Hex32;
   outcome: DecisionOutcome;
-  checks: CheckOutcome[];
-  /** What decided beyond the checks. */
-  panel: 'none (empty rubric)' | 'not run (stand-in for T-009)' | 'not reached (a required check failed)';
-  decision: Decision;
-  /** The operator URL that relayed the decision, or 'direct'. */
-  via: string;
+  /** The signed judgment record the bench published: checks, screen, panel and aggregate. */
+  record: Judgment;
+  /** Judge requests this decision made (empty when no panel sat). */
+  requests: JudgeRequest[];
+  /** Adjudicators submit to the settlement layer themselves. */
+  via: 'direct';
 }
 
 export interface AdjudicatorSeam {
-  readonly keys: AgentKeys;
+  readonly name: string;
+  readonly keys: { address: Address; encryptionPublicKey: Base64Url };
+  readonly policy: AdjudicatorPolicy;
   readonly policyHash: Hex32;
   readonly registryHash: Hex32;
-  /** Signs an acceptance of an offer that names this bench as primary. The settlement layer checks the bond. */
-  accept(commitment: Commitment): Promise<AdjudicatorAcceptance>;
-  /** Judges the latest delivery of an accepted commitment and submits the signed decision. */
+  /** Accepts open offers that name it as primary; returns the commitments it accepted. */
+  acceptOffers(): Promise<Hex32[]>;
+  /** Decides the commitment if it is this bench's turn, and returns the published record. */
   judge(commitmentId: Hex32): Promise<JudgeReport>;
 }
 
-/** The stand-in's policy object; its hash binds at agreement exactly as a T-009 policy hash would. */
-export const STAND_IN_POLICY = { id: 'stand-in/checks-only/v0', panel: 'none', note: 'T-012 stand-in; T-009 replaces it' } as const;
-export const STAND_IN_REGISTRY = { registry: 'stand-in/v0', models: [] as string[] } as const;
+/** Bond pool terms the benches publish (adjudicator.schema.json); backers arrive in a later phase. */
+export const POOL_TERMS = { capitalChargeRateBps: 0, capitalChargeToPoolRateBps: 0, firstLossShareBps: 10000, noticePeriodSec: 691200 } as const;
 
-const plus = (ts: Timestamp, seconds: number): Timestamp => new Date(Date.parse(ts) + seconds * 1000).toISOString().replace('.000Z', 'Z');
+/** Registrations and judgment records, off the settlement layer, shared by the world's benches. */
+export class BenchDirectory {
+  readonly registrations = new Map<string, AdjudicatorRegistration>();
+  readonly records = new Map<Hex32, Judgment>();
+  readonly adapter: SettlementAdapter;
 
-export class StandInBench implements AdjudicatorSeam {
-  readonly policyHash = canonicalKeccak(STAND_IN_POLICY);
-  readonly registryHash = canonicalKeccak(STAND_IN_REGISTRY);
-  private readonly accepted = new Map<Hex32, { commitment: Commitment; seed: Hex32 }>();
-  private readonly hb: Holdback;
-  private readonly store: CiphertextStore;
-  private readonly rng: Rng;
-  private readonly random: RandomSource;
+  constructor(readonly world: DemoWorld) {
+    this.adapter = new SettlementAdapter({
+      chain: world.chain,
+      store: {
+        ciphertext: async (uri) => {
+          const id = uri.replace(/^mem:\/\/ciphertext\//, '');
+          return world.store.get(id as `sha256:${string}`);
+        },
+        publishRecord: async (record) => {
+          const parsed = parseJudgment(record);
+          if (!parsed.ok) throw new Error(`judgment record: ${parsed.error.detail}`);
+          this.records.set(record.recordHash, record);
+          return `mem://records/${record.recordHash}`;
+        },
+      },
+      registration: async (a) => this.registration(a),
+    });
+  }
+
+  /** A full adjudicator.schema.json registration, with the bond pool as SimChain holds it now. */
+  registration(address: Address): AdjudicatorRegistration | null {
+    const base = this.registrations.get(address.toLowerCase());
+    if (!base) return null;
+    const p = this.world.chain.pool(address);
+    const amount = (v: bigint) => ({ token: 'tUSD', amount: v.toString() }) as AdjudicatorRegistration['fee']['min'];
+    return { ...base, pool: { junior: amount(p.junior), senior: amount(p.senior), reserved: amount(p.reserved), terms: { ...POOL_TERMS } } };
+  }
+
+  register(r: AdjudicatorRegistration): void {
+    const parsed = parseAdjudicator(r);
+    if (!parsed.ok) throw new Error(`registration for ${r.name}: ${parsed.error.detail}`);
+    this.registrations.set(r.address.toLowerCase(), r);
+  }
+}
+
+let registryCache: LoadedRegistry | undefined;
+export function demoRegistry(): LoadedRegistry {
+  if (!registryCache) {
+    const r = loadRegistryFile(REGISTRY_FILE);
+    if (!r.ok) throw new Error(`config/judges.yaml: ${r.error.detail}`);
+    registryCache = r.value;
+  }
+  return registryCache;
+}
+
+export class ServiceBench implements AdjudicatorSeam {
+  readonly service: Adjudicator;
+  readonly policy: AdjudicatorPolicy;
+  readonly policyHash: Hex32;
+  readonly registryHash: Hex32;
+  readonly requests: JudgeRequest[] = [];
 
   constructor(
-    readonly keys: AgentKeys,
-    private readonly world: DemoWorld,
+    readonly agent: AgentKeys,
+    private readonly directory: BenchDirectory,
+    options: { judges?: FakeScript; provider?: JudgeProvider } = {},
   ) {
-    this.hb = world.sdk();
-    this.store = world.store;
-    this.rng = world.ctx.rng;
-    this.random = world.random;
+    const registry = demoRegistry();
+    this.policy = defaultPolicy(`${agent.name}/p1`);
+    this.policyHash = policyHashOf(this.policy);
+    this.registryHash = registry.hash;
+    const inner = options.provider ?? fakeProvider(options.judges ?? {});
+    this.service = new Adjudicator({
+      address: agent.address,
+      // The registration carries the display name (cast.ts); the policy ID keeps the label.
+      name: BENCHES.find((b) => b.label === agent.name)?.name ?? agent.name,
+      signingKey: agent.signingKey,
+      encryptionSecretKey: agent.encryption.secretKey,
+      // Derived from the context seed like every demo key; it fixes the primary's commit-reveal seeds.
+      seedSecret: keccak256(stringToBytes(`${agent.signingKey}/seed-secret`)),
+      policy: this.policy,
+      registry,
+      registryUri: REGISTRY_URI,
+      fee: { min: { token: 'tUSD', amount: (50n * TUSD).toString() } as AdjudicatorRegistration['fee']['min'] },
+      domain: DOMAIN,
+      provider: { complete: (r) => (this.requests.push(r), inner.complete(r)) },
+      settlement: directory.adapter,
+    });
+    directory.register({
+      ...this.service.registration(),
+      pool: { junior: { token: 'tUSD', amount: '0' }, senior: { token: 'tUSD', amount: '0' }, reserved: { token: 'tUSD', amount: '0' }, terms: { ...POOL_TERMS } },
+      poolTermsHash: canonicalKeccak(POOL_TERMS),
+      status: 'active',
+    } as AdjudicatorRegistration);
   }
 
-  private async sign<T extends Parameters<typeof signMessage>[2]>(m: T): Promise<T & { signature: `0x${string}` }> {
-    return { ...m, signature: await signMessage(this.keys.signingKey, DOMAIN, m) };
+  /** Display name, e.g. Clearfield Adjudication. */
+  get name(): string {
+    return BENCHES.find((b) => b.label === this.agent.name)?.name ?? this.agent.name;
   }
 
-  async accept(commitment: Commitment): Promise<AdjudicatorAcceptance> {
-    const { adjudication, price, timing } = commitment;
-    if (adjudication.adjudicator.toLowerCase() !== this.keys.address.toLowerCase()) throw new Error(`${this.keys.name} is not the primary adjudicator of ${commitment.id}`);
-    if (adjudication.policyHash !== this.policyHash || adjudication.registryHash !== this.registryHash) throw new Error(`${commitment.id} does not bind ${this.keys.name}'s policy and registry`);
-    // Commit-reveal: the seed is fixed now and revealed in the decision.
-    const seed = this.rng.hex32();
-    this.accepted.set(commitment.id, { commitment, seed });
-    return this.sign({
-      type: 'AdjudicatorAcceptance',
-      commitmentId: commitment.id,
-      adjudicator: this.keys.address,
-      seedCommitment: keccak256(seed),
-      policyHash: this.policyHash,
-      registryHash: this.registryHash,
-      fee: adjudication.fee,
-      bondReserved: price,
-      nonce: this.rng.hex32(),
-      expiresAt: timing.offerExpiresAt,
-    } as const);
+  get keys() {
+    return this.agent;
+  }
+
+  async acceptOffers(): Promise<Hex32[]> {
+    const r = await this.service.runOnce();
+    if (r.declined.length) throw new Error(`${this.name} declined: ${r.declined.map((d) => d.reason).join('; ')}`);
+    return r.accepted;
   }
 
   async judge(commitmentId: Hex32): Promise<JudgeReport> {
-    const entry = this.accepted.get(commitmentId);
-    if (!entry) throw new Error(`${this.keys.name} did not accept ${commitmentId}`);
-    const { commitment, seed } = entry;
-    const facts = await deliveryFacts(this.world, commitmentId);
-    // ADR-0020: the primary's envelope is released at delivery.
-    const envelopes = await this.world.keysFor(commitmentId, this.keys.address);
-    const key = unwrapKeyFor(envelopes, this.keys.address, this.keys.encryption.secretKey);
-    const plaintext = await open(await this.store.get(facts.ciphertext.sha256), key, facts.plaintextSha256);
-    const text = new TextDecoder('utf-8', { fatal: true }).decode(plaintext);
-    const run = runChecks(commitment.acceptance.deterministicChecks, { data: UntrustedData.wrap(text), mime: commitment.deliverable.format });
-    const failedRequired = run.outcomes.some((c) => c.required && !c.passed) || run.inconclusive.length > 0;
-    const outcome: DecisionOutcome = failedRequired ? 'reject' : 'accept';
-    const panel: JudgeReport['panel'] = failedRequired
-      ? 'not reached (a required check failed)'
-      : commitment.acceptance.rubric.criteria.length === 0
-        ? 'none (empty rubric)'
-        : 'not run (stand-in for T-009)';
-    const record = { commitmentId, attempt: facts.attempt, plaintextSha256: facts.plaintextSha256, checks: run.outcomes, inconclusive: run.inconclusive, panel, outcome, policy: STAND_IN_POLICY.id };
-    const decision = (await this.sign({
-      type: 'Decision',
-      commitmentId,
-      attempt: facts.attempt,
-      adjudicator: this.keys.address,
-      role: 'primary',
-      outcome,
-      seed,
-      policyHash: this.policyHash,
-      registryHash: this.registryHash,
-      judgmentRecordHash: canonicalKeccak(record),
-      nonce: this.rng.hex32(),
-      expiresAt: plus(this.world.now(), 86_400),
-      // Two-sided hold: an accept carries the content key sealed to the buyer's published key.
-      ...(outcome === 'accept' ? { keyForBuyer: wrapKey(key, commitment.buyerEncryptionPublicKey, { random: this.random }) } : {}),
-    } as const)) as Decision;
-    const submitted = await this.hb.decide(decision, this.world.call());
-    return { commitmentId, outcome, checks: run.outcomes, panel, decision, via: submitted.via };
+    const before = this.requests.length;
+    const r = await this.service.runOnce();
+    const refused = r.refused.find((x) => x.commitmentId === commitmentId);
+    if (refused) throw new Error(`${this.name} refused ${commitmentId}: ${refused.problem.type}: ${refused.problem.detail}`);
+    const decided = r.decided.find((x) => x.commitmentId === commitmentId);
+    if (!decided) throw new Error(`${this.name} had nothing to decide for ${commitmentId}`);
+    const record = [...this.directory.records.values()].filter((x) => x.commitmentId === commitmentId && x.adjudicator.toLowerCase() === this.agent.address.toLowerCase()).at(-1);
+    if (!record) throw new Error(`${this.name} decided ${commitmentId} without publishing a record`);
+    return { commitmentId, outcome: decided.outcome, record, requests: this.requests.slice(before), via: 'direct' };
   }
 }

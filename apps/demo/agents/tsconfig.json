@@ -8,6 +8,7 @@
     { "path": "../../../packages/settlement" },
     { "path": "../../../packages/sdk" },
     { "path": "../../../packages/testkit" },
-    { "path": "../../operator" }
+    { "path": "../../operator" },
+    { "path": "../../adjudicator" }
   ]
 }

@@ -1,8 +1,9 @@
-// Atlas Research's procurement agent (buyer). It checks an offer against its budget, holds price plus fee in
-// one SDK call (offer, adjudicator acceptance, agreement and funding together), waits for the outcome, and
+// Atlas Research's procurement agent (buyer). Once the primary adjudicator has accepted, it checks the offer
+// against its budget and holds price plus fee in one SDK call (agreement and funding together, applied both
+// or neither), waits for the outcome, and
 // opens the work with its own key, checking the plaintext against the hash the seller signed. It can also
 // propose and submit a co-signed mutual settlement (ADR-0019, D23).
-import { signMessage, splitBps, type AdjudicatorAcceptance, type Commitment, type CommitmentStateView, type Hex32, type Sha256, type Signature } from '@holdback/core';
+import { signMessage, splitBps, type Commitment, type CommitmentStateView, type Hex32, type Sha256, type Signature } from '@holdback/core';
 import { sha256 } from '@holdback/core/crypto';
 import { decryptDeliverable, type Decrypted, type Holdback, type Submitted } from '@holdback/sdk';
 import type { AgentKeys } from './keys.js';
@@ -37,12 +38,12 @@ export class AtlasAgent {
     this.hb = world.sdk();
   }
 
-  /** The one-shot hold: the seller's signed terms, the adjudicator's acceptance, Atlas's agreement and funding. */
-  async hold(commitment: Commitment, acceptance: AdjudicatorAcceptance): Promise<Submitted> {
+  /** Agreement and funding in one call, after the primary accepted: the commitment goes from accepted to Held. */
+  async agreeAndFund(commitment: Commitment): Promise<Submitted> {
     const total = BigInt(commitment.price.amount) + BigInt(commitment.adjudication.fee.amount);
     if (commitment.buyer.toLowerCase() !== this.keys.address.toLowerCase()) throw new Error('the offer names another buyer');
-    if (commitment.buyerEncryptionPublicKey !== this.keys.encryptionPublicKey) throw new Error('the offer seals the work to a key Atlas does not hold');
-    if (total > this.budget) throw new Error(`price plus fee ${total} exceeds Atlas's budget ${this.budget}`);
+    if (commitment.buyerEncryptionPublicKey !== this.keys.encryptionPublicKey) throw new Error('the offer seals the work to a key Ledger does not hold');
+    if (total > this.budget) throw new Error(`price plus fee ${total} exceeds Ledger's budget ${this.budget}`);
     const { rng } = this.world.ctx;
     const agree = await this.sign({ type: 'Agree', commitmentId: commitment.id, buyer: this.keys.address, nonce: rng.hex32(), expiresAt: commitment.timing.offerExpiresAt } as const);
     const funding = await this.sign({
@@ -57,7 +58,7 @@ export class AtlasAgent {
       nonce: rng.hex32(),
       expiresAt: commitment.timing.fundBy,
     } as const);
-    return this.hb.hold({ commitment, acceptance, agree, funding }, this.world.call());
+    return this.hb.agree(agree, funding, this.world.call());
   }
 
   /** Waits until the commitment leaves Delivered: released, refunded, escalated or settled. */
@@ -69,7 +70,7 @@ export class AtlasAgent {
   async openWork(id: Hex32): Promise<OpenedWork> {
     const facts = await deliveryFacts(this.world, id);
     const envelopes = await this.world.keysFor(id, this.keys.address);
-    if (envelopes.length === 0) throw new Error(`no content key has been released to Atlas for ${id}`);
+    if (envelopes.length === 0) throw new Error(`no content key has been released to Ledger (Atlas Research) for ${id}`);
     const ciphertext = await this.world.store.get(facts.ciphertext.sha256);
     const input = { ciphertext, plaintextSha256: facts.plaintextSha256, envelopes, recipient: this.keys.address, secretKey: this.keys.encryption.secretKey, plaintextMime: 'text/csv' as const };
     // The raw bytes are checked against the signed hash; the agent reads the normalized view.
