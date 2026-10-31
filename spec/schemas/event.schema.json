@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.5/event.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.6/event.schema.json",
   "title": "Settlement event (hash-chained)",
   "type": "object",
   "required": [
@@ -120,22 +120,18 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "sellerAmount",
-        "buyerAmount",
+        "payouts",
         "keyReleased"
       ],
       "properties": {
-        "sellerAmount": {
-          "$ref": "common.schema.json#/$defs/TokenAmount"
-        },
-        "buyerAmount": {
-          "$ref": "common.schema.json#/$defs/TokenAmount"
+        "payouts": {
+          "$ref": "common.schema.json#/$defs/Payouts"
         },
         "keyReleased": {
           "type": "boolean"
         }
       },
-      "description": "The split a mutual settlement applied (ADR-0019)"
+      "description": "The payouts a mutual settlement applied (ADR-0019, D23)"
     }
   },
   "allOf": [

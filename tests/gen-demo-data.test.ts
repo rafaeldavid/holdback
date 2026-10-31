@@ -1,5 +1,5 @@
 // Tests for scripts/gen-demo-data.ts (T-012). The checks below are declarative DeterministicCheck
-// definitions (schema v0.5), evaluated by @holdback/judgment's built-in check registry. Nothing here
+// definitions (current schema), evaluated by @holdback/judgment's built-in check registry. Nothing here
 // reads expectations from the generated fixtures.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -62,7 +62,7 @@ describe('gen-demo-data', () => {
 
   it('uses check definitions that are valid under the commitment schema', () => {
     const { ajv } = loadSpec();
-    const validate = ajv.getSchema('https://holdback.dev/schemas/v0.5/commitment.schema.json#/$defs/DeterministicCheck');
+    const validate = ajv.getSchema(`${JSON.parse(readFileSync('spec/schemas/commitment.schema.json', 'utf8')).$id}#/$defs/DeterministicCheck`);
     expect(validate).toBeDefined();
     for (const c of [...DEMO_CHECKS, NO_HIDDEN]) expect(validate(c), `${c.id}: ${JSON.stringify(validate.errors)}`).toBe(true);
   });

@@ -18,6 +18,9 @@ Deferred until after the basic demo. The demo assumes honest parties (Rafa, Octo
 | Default compensation shortfall: bonds reserved only on takeover may not cover compensation; fixture `todo.default-bond-shortfall` | Escrow-theory review F5 | Phase 3 hardening |
 | Segregation statements: per-pool and per-commitment statements and invariants (segregation is by accounting, not by account) | Review F6 | Phase 4 backers; any audit |
 | Surety claim list and penal sum stated explicitly | Review F9 | Phase 4 backers |
+| Recipient validation for third-party payouts: the address can receive the token, checked by a dry transfer | D23 | Phase 2 contract tasks |
+| Key hand-off when the parties exit to another mechanism: re-wrap the content key to a named arbiter, or a time-locked envelope | D23 | When a pilot exits to another arbiter; Phase 2 privacy work |
+| Demo beat "the agents leave together": both sign the hold over to an outside arbiter | D23 | After T-013's success criteria pass |
 
 ## Finality
 
@@ -78,6 +81,7 @@ Deferred until after the basic demo. The demo assumes honest parties (Rafa, Octo
 | Item | Source | When it matters |
 | --- | --- | --- |
 | Principal standing: the mandate signer may sign `Appeal`, `Dispute`, `MutualSettlement`, `EarlyAccept` for its agent | D22 (option A); review F8 | Before the Phase 2 rules contract fixes signers |
+| Scope gate for third-party payouts: each mandate carries `payouts: parties \| any`, or the principal co-signs a settlement that pays a non-party | D23 | Before the Phase 2 rules contract fixes signers; with `attack.hijacked-agent-*` in Phase 3 |
 | Revocation also disables a revoked agent's consent messages on live commitments | D22 | When key compromise is live (Phase 5 testnet) |
 | Scope hardening: enforce `scope.categories`; allowed counterparties or clubs; per-counterparty caps | D22 | Cheap, any phase; when a pilot asks |
 | Fixture `attack.hijacked-agent-early-accepts` showing loss capped by scope | D22 | Phase 3 |
