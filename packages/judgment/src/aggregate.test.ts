@@ -105,10 +105,11 @@ describe('aggregate: table', () => {
 // escalates: it accepts only on a unanimous valid panel from all required families with no injection
 // suspected and the score met, and otherwise rejects.
 describe('aggregate: a flagged appeal accepts only unanimously, else rejects (L3-1, D27a)', () => {
-  const appeal = (over: Partial<AggregateInput>) => input({ appeal: true, appealFamilies: 3, thresholds: APPEAL, ...over });
+  const appeal = (over: Partial<AggregateInput>) => input({ appeal: 'escalated', appealFamilies: 3, thresholds: APPEAL, ...over });
   const injected = (passes: number) => ['a', 'b', 'c', 'd', 'e'].map((f, i) => (i < passes ? v(f, 'pass') : v(f, 'fail', [0, 0, 0], true)));
   const fams = (...f: string[]) => f.map((x) => v(x, 'pass'));
   const FILTER = ['judge x output rejected by a filter (url)'];
+  const SAMPLED = 'the judges saw a sample of the deliverable, not all of it';
   it.each([
     ['screen flagged, 5 of 5 fail rejects', { screenFlagged: true, verdicts: five(0) }, 'reject'],
     ['screen flagged, 5 of 5 pass from 5 families accepts', { screenFlagged: true, verdicts: five(5) }, 'accept'],
@@ -126,15 +127,36 @@ describe('aggregate: a flagged appeal accepts only unanimously, else rejects (L3
     ['unflagged, a filter abstention alone flags the appeal: 4 pass then reject', { verdicts: [...five(5).slice(0, 4), invalid('e')], escalate: FILTER, filterAbstentions: 1 }, 'reject'],
     ['unflagged, a judge suspects injection: 4 of 5 fail rejects', { verdicts: injected(1) }, 'reject'],
     ['unflagged, a judge suspects injection while 4 pass: rejects', { verdicts: [...five(4), v('e', 'fail', [0, 0, 0], true)] }, 'reject'],
-    // Without a flag the appeal keeps the normal rule (and the service maps an escalation to no decision).
+    // D27b: a forced even-stride sample (a seller can pad one record past the sampling budget) is seller-controllable
+    // too: after an escalation it never ends in no decision, and the judges never read the whole file, so reject.
+    ['unflagged, sampled data, 5 of 5 pass: rejects (path 5)', { verdicts: five(5), escalate: [SAMPLED] }, 'reject'],
+    ['unflagged, sampled data, 3 of 5 pass: rejects, never escalates', { verdicts: five(3), escalate: [SAMPLED] }, 'reject'],
+    // Without a seller-controllable condition the appeal keeps the normal rule (an escalation there maps to no
+    // decision, and a genuine split goes to the default outcome; backlog).
     ['unflagged, 4 of 5 pass accepts by the supermajority', { verdicts: five(4) }, 'accept'],
     ['unflagged, 3 of 5 pass escalates', { verdicts: five(3) }, 'escalate'],
   ] as const)('%s', (_name, over, expected) => expect(aggregate(appeal(over as Partial<AggregateInput>)).decision).toBe(expected));
 
   it('the primary and fallback (first instance) still escalate a flag under the same thresholds', () => {
     expect(decide({ thresholds: APPEAL, screenFlagged: true, verdicts: five(0) })).toBe('escalate');
-    expect(decide({ appeal: false, appealFamilies: 3, thresholds: APPEAL, screenFlagged: true, verdicts: five(5) })).toBe('escalate');
+    expect(decide({ appealFamilies: 3, thresholds: APPEAL, screenFlagged: true, verdicts: five(5) })).toBe('escalate');
     expect(decide({ thresholds: APPEAL, verdicts: five(5), escalate: FILTER, filterAbstentions: 1 })).toBe('escalate');
+    expect(decide({ thresholds: APPEAL, verdicts: five(5), escalate: [SAMPLED] })).toBe('escalate');
+  });
+
+  // D27c: on a party appeal (the first decision exists), judge-level noise must not overturn it. Flags escalate
+  // as at first instance, and signedOutcome then keeps the first decision.
+  it.each([
+    ['party appeal, 5 of 5 pass but one false injection suspicion: escalates (the first decision stands)', { verdicts: [...five(4), v('e', 'pass', [4, 4, 4], true)] }, 'escalate'],
+    ['party appeal, one filter abstention (not_json): escalates', { verdicts: [...five(5).slice(0, 4), invalid('e')], escalate: ['judge e output rejected by a filter (not_json)'], filterAbstentions: 1 }, 'escalate'],
+    ['party appeal, screen flagged: escalates', { screenFlagged: true, verdicts: five(5) }, 'escalate'],
+    ['party appeal, sampled data: escalates', { verdicts: five(5), escalate: [SAMPLED] }, 'escalate'],
+    ['party appeal, unflagged 5 of 5 fail: rejects (an overturn)', { verdicts: five(0) }, 'reject'],
+    ['party appeal, unflagged 4 of 5 pass: accepts', { verdicts: five(4) }, 'accept'],
+  ] as const)('%s', (_name, over, expected) => {
+    const d = aggregate(input({ appeal: 'party', appealFamilies: 3, thresholds: APPEAL, ...(over as Partial<AggregateInput>) })).decision;
+    expect(d).toBe(expected);
+    expect(signedOutcome(d, { appeal: true, firstOutcome: 'accept' })).toBe(expected === 'escalate' ? 'accept' : expected);
   });
 
   it('keeps the flag in the record: a flagged appeal decision carries the screen and injection reasons', () => {
@@ -157,9 +179,14 @@ describe('aggregate: the decision table is pinned to AGGREGATION_VERSION', () =>
   const PINNED: Readonly<Record<string, string>> = {
     'agg-3': '8a9a32043f99dda0a04bf0109409aac2caf2e7dbefb7bbebd1c901dc1f3e2305',
   };
-  it('the digest of decisions on a seeded corpus matches the pinned digest for this version', () => {
+  it('the digest of decisions and signed outcomes on a seeded corpus matches the pinned digest for this version', () => {
     const corpus = fc.sample(arbInputPublic, { seed: 2718, numRuns: 3000 }).map(buildPublic);
-    const digest = createHash('sha256').update(corpus.map((i) => aggregate(i).decision).join(',')).digest('hex');
+    // Each decision, then what each role signs for it (signedOutcome is part of the rule a policy binds).
+    const row = (i: AggregateInput) => {
+      const d = aggregate(i).decision;
+      return [d, signedOutcome(d, { appeal: false }), signedOutcome(d, { appeal: true }), signedOutcome(d, { appeal: true, firstOutcome: 'accept' }), signedOutcome(d, { appeal: true, firstOutcome: 'reject' })].join(':');
+    };
+    const digest = createHash('sha256').update(corpus.map(row).join(',')).digest('hex');
     expect(PINNED[AGGREGATION_VERSION], `aggregate semantics changed: bump AGGREGATION_VERSION and pin ${digest} under it`).toBe(digest);
   });
 });
@@ -236,11 +263,13 @@ function oracle(i: AggregateInput): 'accept' | 'reject' | 'escalate' {
   const fams = new Set(valid.filter((x) => x.verdict!.overall === 'pass').map((x) => x.family)).size;
   const n = valid.length;
   const scoreOk = i.rubric.criteria.length === 0 || sum * 100 >= i.rubric.passThreshold * W * n;
-  // D27a: a flagged appeal accepts only on a whole, unanimous, cross-family panel with no injection suspected.
-  if (i.appeal && (i.screenFlagged || injection || (i.filterAbstentions ?? 0) > 0)) {
+  // D27a/b: after an escalation, any seller-controllable condition (screen flag, injection suspicion, filter
+  // abstention, sampled data) accepts only on a whole, unanimous, cross-family panel; otherwise reject.
+  // D27c: a party appeal handles those conditions as at first instance (below).
+  const sampled = (i.escalate?.length ?? 0) > (i.filterAbstentions ?? 0);
+  if (i.appeal === 'escalated' && (i.screenFlagged || injection || (i.filterAbstentions ?? 0) > 0 || sampled)) {
     const whole = i.verdicts.length > 0 && n === i.verdicts.length && pass === n;
-    const sampledOnly = (i.escalate?.length ?? 0) > (i.filterAbstentions ?? 0);
-    return whole && !injection && !sampledOnly && fams >= Math.max(2, i.appealFamilies ?? 2) && scoreOk ? 'accept' : 'reject';
+    return whole && !injection && !sampled && fams >= Math.max(2, i.appealFamilies ?? 2) && scoreOk ? 'accept' : 'reject';
   }
   if (i.screenFlagged || injection) return 'escalate';
   if (i.escalate?.length) return 'escalate';
@@ -266,7 +295,7 @@ const arbInputPublic = fc.record({
   emptyRubric: fc.boolean(),
   passThreshold: fc.integer({ min: 0, max: 400 }),
   screenFlagged: fc.boolean(),
-  appeal: fc.boolean(),
+  appeal: fc.constantFrom(undefined, 'escalated' as const, 'party' as const),
   appealFamilies: fc.integer({ min: 1, max: 3 }),
   filtered: fc.integer({ min: 0, max: 2 }),
   sampled: fc.boolean(),
@@ -282,7 +311,7 @@ function buildPublic(a: ArbIn): AggregateInput {
     inconclusive: a.inconclusive.filter((id) => a.checks.some((c) => c.checkId === id && !c.passed)),
     rubric: a.emptyRubric ? { criteria: [], passThreshold: a.passThreshold } : { ...RUBRIC, passThreshold: a.passThreshold },
     screenFlagged: a.screenFlagged,
-    appeal: a.appeal,
+    ...(a.appeal ? { appeal: a.appeal } : {}),
     appealFamilies: a.appealFamilies,
     filterAbstentions: a.filtered,
     verdicts: a.verdicts.map((x) => (x.kind === 'invalid' ? invalid(x.family) : v(x.family, x.kind as JudgeVerdict['overall'], x.scores, x.inj))),

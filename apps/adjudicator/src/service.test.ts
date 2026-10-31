@@ -6,6 +6,7 @@ import {
   buildPrompt,
   criteriaOrder,
   fakeProvider,
+  honestVerdict,
   judgeNonces,
   loadRegistry,
   PROMPT_TEMPLATE_HASH,
@@ -414,6 +415,36 @@ describe('escalation and appeal', () => {
     expect(d.role).toBe('fallback');
     expect(d.outcome).toBe('escalate');
     expect(s.state(id).kind).toBe('Escalated');
+  });
+
+  it('D27b: a forced even-stride sample (one padded record) escalates at the primary, and the appeal rejects even when all judges pass (path 5)', async () => {
+    const padded = `${demoCsv(9499)}\n109499,Customer${' and Associates Holdings'.repeat(50)},x@example.com,2024-05-06,true`;
+    const { s, a, c, id } = await setup({ csv: padded });
+    s.at('2026-11-01T10:00:30Z');
+    await a.adj.runOnce();
+    expect(s.state(id).kind).toBe('Escalated');
+    expect([...s.records.values()][0]!.aggregate.reasons.join(' ')).toMatch(/sample/);
+    s.at('2026-11-01T10:00:32Z');
+    await c.adj.runOnce();
+    expect(s.decisions(id)[1]).toMatchObject({ role: 'appeal', outcome: 'reject' });
+    expect(s.state(id).kind).toBe('Refunded');
+  });
+
+  it('D27c: on a party appeal, one false injection suspicion among five passes leaves the first accept standing', async () => {
+    const noisy: FakeScript = { 'qwen-a': (req) => {
+      const v = JSON.parse((honestVerdict(req, 'pass') as { text: string }).text) as Record<string, unknown>;
+      return { kind: 'ok', text: JSON.stringify({ ...v, injectionSuspected: true }) };
+    } };
+    const { s, a, c, id } = await setup({ scriptC: { ...noisy, 'qwen-b': noisy['qwen-a']! } });
+    s.at('2026-11-01T10:00:30Z');
+    await a.adj.runOnce();
+    expect(s.state(id).kind).toBe('Released');
+    s.at('2026-11-01T10:01:00Z');
+    s.fileAppeal(id, 'wrong-outcome');
+    s.at('2026-11-01T10:01:05Z');
+    await c.adj.runOnce();
+    expect(s.decisions(id)[1]).toMatchObject({ role: 'appeal', outcome: 'accept' });
+    expect([...s.records.values()][1]!.aggregate.decision).toBe('escalate');
   });
 
   it('after a party appeal, an inconclusive appeal panel leaves the first decision standing', async () => {

@@ -131,6 +131,17 @@ describe('gen-demo-data', () => {
     expect(screened(file('customers.clean.csv')).flagged).toBe(false);
   });
 
+  it('long-record passes every demo check and differs from the clean file only in one name cell over 1,000 characters (red team path 5, D27b)', () => {
+    const long = file('customers.clean.long-record.csv');
+    expect(failed(long, [...DEMO_CHECKS, NO_HIDDEN])).toEqual([]);
+    const lines = text(long).split('\n');
+    const clean = text(file('customers.clean.csv')).split('\n');
+    const changed = lines.map((l, i) => (l === clean[i] ? -1 : i)).filter((i) => i >= 0);
+    expect(changed).toEqual([1]);
+    expect(lines[1]!.length).toBeGreaterThan(1000);
+    expect(lines[1]).toBe(clean[1]!.replace('Max Oduya,', `Max Oduya${' and Associates Holdings'.repeat(50)},`));
+  });
+
   it('raw file is dirty in the ways the job describes and covers exactly the clean customers', () => {
     const raw = file('customers.raw.csv');
     expect(failed(raw, DEMO_CHECKS.filter((c) => c.id !== 'cols' && c.id !== 'rows'))).toEqual(
