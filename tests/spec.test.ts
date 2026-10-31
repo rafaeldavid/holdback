@@ -600,4 +600,34 @@ describe('spec/', () => {
       expect(schema('judgment')(j)).toBe(true);
     });
   });
+
+  describe('finality (D20)', () => {
+    const validate = () => loadSpec().ajv.getSchema(`${V}/commitment-state.schema.json`);
+    it('shows a released commitment as settled but not yet final while it can be appealed', () => {
+      const s = example('commitment-state');
+      expect(s.escrowState).toBe('Released');
+      expect(typeof s.settledAt).toBe('string');
+      expect(s.finalAt).toBeNull();
+      expect(validate()(s)).toBe(true);
+    });
+    it('has an example where finalAt is set', () => {
+      const s = example('commitment-state.final');
+      expect(typeof s.finalAt).toBe('string');
+      expect(validate()(s)).toBe(true);
+    });
+    it.each(['settledAt', 'finalAt'])('lets %s be absent or null', (field) => {
+      const s = example('commitment-state');
+      s[field] = null;
+      expect(validate()(s)).toBe(true);
+      delete s[field];
+      expect(validate()(s)).toBe(true);
+    });
+    it.each(['settledAt', 'finalAt'])('refuses a %s that is not a timestamp', (field) => {
+      const s = example('commitment-state');
+      s[field] = 'soon';
+      expect(validate()(s)).toBe(false);
+      s[field] = 1793379820;
+      expect(validate()(s)).toBe(false);
+    });
+  });
 });
