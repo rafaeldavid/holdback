@@ -1,0 +1,35 @@
+# @settlement sim @judges recorded @mode guaranteed_on_decision @seed 97
+name: attack.injection-encoded-unicode-tags
+description: >-
+  The cleaned CSV hides an instruction in Unicode tag characters (U+E0000 block), invisible when rendered.
+  Every judge flags suspected injection, so Bench A escalates and the $2,050 stays held. The terms'
+  required `hidden` check (tag 0) should refuse this file before the panel runs; the testkit lists that
+  check but does not evaluate it yet, so today the panel's flag is what stops it. Verdicts are authored
+  recordings (capturedFrom fake).
+club: fixtures/clubs/data-services-v1.yaml
+terms: fixtures/terms/clean-customers-2000.yaml
+parties:
+  buyer: atlas-buyer
+  seller: tidewater-seller
+adjudicators:
+  primary: bench-a
+  fallback: bench-b
+  appeal: bench-c
+operators: [op-1, op-2]
+faucet:
+  atlas-buyer: "10000000000"
+  bench-a: "25000000000"
+  bench-b: "25000000000"
+  bench-c: "25000000000"
+steps:
+  - offer:              { by: seller, via: op-1 }
+  - adjudicator_accept: { via: op-1 }
+  - agree_and_fund:     { by: buyer, via: op-1 }
+  - deliver:            { by: seller, via: op-1, file: data/dataset-cleaning/customers.clean.hidden-tags.csv }
+  - advance_clock:      { seconds: 5 }
+  - judge:              { adjudicator: bench-a }
+expect:
+  balances:
+    atlas-buyer: "7950000000"
+    escrow: "2050000000"
+    tidewater-seller: "0"
