@@ -1,11 +1,13 @@
-// Seller: encrypts a file for a commitment, uploads the ciphertext, seals the content key to every recipient,
-// and prints the prepared delivery to sign. Usage: node examples/seal.ts <commitmentId> <file> > delivery.json
-// Env: HOLDBACK_API (operator base URL, default http://127.0.0.1:8787). Uses agent.ts (Web Crypto, tweetnacl).
+// Seller: encrypts a file for a commitment, uploads the ciphertext, seals the content key to the buyer's key from
+// the terms you signed and to each adjudicator's key as every operator serves it, verifies the prepared delivery
+// and submits it signed. Usage: node examples/seal.ts terms.json <file>   (terms.json: the offer you signed)
+// Env: HOLDBACK_KEY, HOLDBACK_OPERATORS (two or more, comma-separated). Uses agent.ts (Web Crypto, tweetnacl).
 import { readFileSync } from 'node:fs';
 import type { Hex } from 'viem';
 import { Agent } from './agent.ts';
 
-const [id, file] = process.argv.slice(2) as [Hex, string];
-// Sealing needs no signing key; the delivery is signed afterwards with sign.ts.
-const seller = new Agent(process.env['HOLDBACK_API'] ?? 'http://127.0.0.1:8787', `0x${'11'.repeat(32)}`, new Uint8Array(32));
-console.log(JSON.stringify(await seller.prepareDelivery(id, new Uint8Array(readFileSync(file)))));
+const [termsFile, file] = process.argv.slice(2);
+const operators = (process.env['HOLDBACK_OPERATORS'] ?? 'http://127.0.0.1:8787,http://127.0.0.1:8788').split(',');
+const seller = new Agent(operators, process.env['HOLDBACK_KEY'] as Hex, new Uint8Array(32)); // sealing needs no secret encryption key
+const state = await seller.deliver(JSON.parse(readFileSync(termsFile!, 'utf8')), new Uint8Array(readFileSync(file!)));
+console.log(JSON.stringify({ escrowState: state.escrowState }));
