@@ -135,6 +135,8 @@ Deferred until after the basic demo. The demo assumes honest parties (Rafa, Octo
 | Club guarantee fund with its own claim window | D22 (option C) | Consumer-facing clubs, Phase 5+ |
 | Agent-operator bonds and signed intent mandates | D22 (option D) | Phase 6 interop |
 | Card-funded holds keep Reg Z and network dispute rights against the ramp | D22 | Phase 5 ramps |
+| Party journal: the SDK keeps a local, append-only copy of every signed message, receipt, judgment record and posting for its own commitments, so an agent remembers the exchange even if every operator disappears | D26 | After the demo; feeds the evidence bundle |
+| Fixture `neutrality.both-parties-same-record`: buyer's and seller's exported records are identical (apart from their own key material) | D26 | With the evidence bundle |
 | Evidence bundle: a party exports one commitment's signed terms, messages, receipts, judgment record and audit-chain proof, verifiable offline, with the content key disclosed only if the party chooses | D26 | After the demo; before the first pilot with real principals |
 | Rulebook names governing law and a dispute forum (court or arbitral seat) so a court knows which agreement governs; the protocol does not enforce it | D26; PRD Assumption 1 | Schema change before the first pilot |
 | Attribution: each agent key traceable to its principal through the mandate and club membership, disclosable under legal process without making it public | D26; ADR-0020 | With the privacy work in Phase 5 |

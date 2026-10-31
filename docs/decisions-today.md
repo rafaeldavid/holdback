@@ -393,6 +393,7 @@ What follows from it:
 - Bounded loss (scope caps, bonds, expiry) and a clean, signed, attributable record come before new protocol steps for edge cases. This is the same rule as "assume honest parties until the demo works", made permanent.
 - The record should serve as evidence. A party should be able to export one commitment's signed terms, receipts, judgment record and audit-chain proof and hand them to a court or arbitrator (backlog: evidence bundle).
 - A rulebook should say which law governs and where disputes go, so the signed messages bind (PRD Assumption 1). The protocol records that choice; it does not enforce it (backlog).
+- **Both parties remember everything, equally.** Each side ends the exchange holding the same complete record: every message either party signed, every operator receipt, the adjudicator's judgment record with reasons, the decision and the settlement postings, each verifiable without trusting an operator. Neither party can hold a part of the record the other cannot see. ADR-0020 already makes bodies and judgment records readable by both parties at every disclosure level; the work itself still follows the hold (the buyer gets it with payment; on a refund the seller keeps it, and both hold its hash).
 - Neutrality is unchanged: no party gets a technical freeze. Courts act on real-world parties (residual 5), not on the settlement layer.
 
 Recorded in `CLAUDE.md` and `docs/PRD.md` (Design principle). D22 (no principal recourse in the protocol) already follows this rule.
