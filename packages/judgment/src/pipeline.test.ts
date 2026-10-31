@@ -302,6 +302,33 @@ describe('pipeline: red-team round fixes', () => {
     expect(result.value.aggregate.reasons).toEqual(['the judges saw a sample of the deliverable, not all of it']);
   });
 
+  it('judges a large CSV from a seeded sample and accepts it (T-009: no escalation for honest large work)', async () => {
+    const rows = Array.from({ length: 9500 }, (_, k) => `${10 + k},Person ${k} Surname,person${k}@example.com,2024-01-02,true`);
+    const big = `${GOOD_CSV.replace(',,', ',z@z.io,')}\n${rows.join('\n')}`;
+    const seeds = new Set<string>();
+    const { result, calls } = await run({
+      text: big,
+      acceptance: { ...ACCEPTANCE, deterministicChecks: [] },
+      sampleSeed: (seat) => {
+        seeds.add(seat.judgeId);
+        return `0x${'7'.repeat(63)}${seat.judgeId.length % 10}`;
+      },
+    });
+    if (!result.ok) throw new Error(result.error.detail);
+    expect(big.length).toBeGreaterThan(400_000);
+    expect(seeds.size).toBe(3);
+    expect(calls[0]!.user).toMatch(/drawn at random/);
+    expect(result.value.aggregate.decision).toBe('accept');
+    expect(result.value.aggregate.reasons).not.toContain('the judges saw a sample of the deliverable, not all of it');
+  });
+
+  it('still escalates a seeded but unsampleable deliverable (rows too wide)', async () => {
+    const wide = Array.from({ length: 300 }, (_, k) => `${10 + k},${'x'.repeat(2000)},a@b.co,2024-01-02,true`);
+    const { result } = await run({ text: `${GOOD_CSV}\n${wide.join('\n')}`, acceptance: { ...ACCEPTANCE, deterministicChecks: [] }, sampleSeed: () => `0x${'7'.repeat(64)}` });
+    if (!result.ok) throw new Error(result.error.detail);
+    expect(result.value.aggregate.decision).toBe('escalate');
+  });
+
   it('escalates without the panel when the check budget runs out', async () => {
     const rows = Array.from({ length: 300 }, () => 'a'.repeat(9000)).join('\n');
     const f = allPass();
