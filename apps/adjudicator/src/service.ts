@@ -242,7 +242,7 @@ export class Adjudicator {
     // Key-wrapping prerequisites: the buyer's key (accept) and, for roles that may escalate, the appeal adjudicator's.
     let buyerKey: Uint8Array;
     try {
-      buyerKey = new Uint8Array(32);
+      buyerKey = decodePublicKey(commitment.buyerEncryptionPublicKey);
     } catch {
       return err(problem('invalid_terms', 'the buyer encryption key in the commitment is not a valid public key'));
     }
