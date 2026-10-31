@@ -6,11 +6,13 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
+  beaconRoundFor,
   canonicalJson,
   canonicalKeccak,
   commitmentId as commitmentIdOf,
   holdbackDomain,
   offer,
+  panelSeed,
   problem,
   rulebookHash,
   signMessage,
@@ -36,7 +38,7 @@ import {
   type Timestamp,
   type UnsignedMessage,
 } from '@holdback/core';
-import { keccak256, stringToBytes, type Hex } from 'viem';
+import { encodePacked, keccak256, stringToBytes, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import type { SimContext } from './context.js';
 import { stubJudgment, type JudgmentView } from './judgment-stub.js';
@@ -610,8 +612,11 @@ export class StubSettlement {
       return this.refuse(name, call, 'direct', problem('invalid_state', `nothing to judge in ${c.state.kind}`));
     }
     const d = this.delivery;
-    // Only the primary committed to a seed; the fallback and appeal adjudicators draw their own (T-004 contract gap).
-    const seed = role === 'primary' ? this.seed : this.ctx.rng.hex32();
+    // ADR-0018: the primary reveals its committed seed; the fallback and appeal adjudicators take the beacon
+    // seed for the round the state fixes. The sim beacon is keccak256(simSeed || round), as on SimChain.
+    const round = role === 'primary' ? null : beaconRoundFor(c.state, role);
+    const beacon = round === null ? null : { round, value: keccak256(encodePacked(['bytes32', 'uint64'], [keccak256(stringToBytes(`holdback/sim-beacon/v0/${this.ctx.seed}`)), BigInt(round)])) };
+    const seed = role === 'primary' ? this.seed : beacon ? panelSeed(c.id, role, d.message.attempt, beacon.value) : this.ctx.rng.hex32();
     const view = stubJudgment(
       {
         scenario: this.scenario.name,
@@ -649,7 +654,7 @@ export class StubSettlement {
     } as const;
     const decision = await this.sign(name, unsigned as UnsignedMessage & { type: 'Decision' });
     if (!(await this.verified(name, `${call}: ${outcome}`, 'direct', decision, actor.address))) return;
-    const event: EscrowEvent = { type: 'decide', at: this.ctx.clock.now(), message: decision as Decision };
+    const event: EscrowEvent = { type: 'decide', at: this.ctx.clock.now(), message: decision as Decision, beacon };
     if (!this.transition(name, `${call}: ${outcome}`, 'direct', step(c.state, event), event)) return;
     this.decision = decision as Decision;
     this.emit('judgment.decided', name, 'direct', { outcome, judgmentRecordHash: decision.judgmentRecordHash });
