@@ -263,7 +263,7 @@
               "type": "integer",
               "minimum": 0,
               "maximum": 10000,
-              "description": "Share of the held adjudicator fee paid to the primary adjudicator when the parties settle after delivery, in basis points (10000 = all); before delivery the fee returns to the buyer"
+              "description": "Share of the held adjudicator fee paid to the sitting adjudicator when the parties settle after delivery, in basis points (10000 = all); before delivery the fee returns to the buyer. Phase 1 requires 0 (ADR-0019)."
             }
           }
         },

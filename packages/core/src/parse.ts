@@ -152,6 +152,9 @@ function clubRules(c: Club): string | undefined {
   if (source !== 'sim') return `rulebook.randomness.source ${source} is not supported in Phase 1 (sim only)`;
   const other = c.rulebook.identityModes.find((m) => m !== 'long-term');
   if (other) return `rulebook.identityModes ${other} is not supported in Phase 1 (long-term only)`;
+  // ADR-0019: the kill fee to the sitting adjudicator is a later option; Phase 1 pays none.
+  const share = c.rulebook.mutualSettlement.adjudicatorFeeShareAfterDeliveryBps;
+  if (share !== 0) return `rulebook.mutualSettlement.adjudicatorFeeShareAfterDeliveryBps ${share} must be 0 in Phase 1`;
   return undefined;
 }
 
