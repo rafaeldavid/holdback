@@ -5,7 +5,7 @@
 - **Depends on:** T-009, T-012, T-013, D25; D27 (red-team review of PR 52) widened the scope to `packages/core/src/problem.ts`, `packages/testkit` (shared appeal mapping, a re-seated runner test), every snap fixture and recording (agg-3), `docs/PRD.md` (FR-15), `docs/api.md`, `docs/backlog.md`
 - **Paths this task may touch:** `packages/judgment/src/aggregate.ts`, `packages/judgment/src/pipeline.ts`, `apps/adjudicator/src/service.ts` and tests, `apps/operator/src/` (a refusal policy hook) and tests, `packages/sdk/` tests, `scripts/gen-demo-data.ts`, `fixtures/data/dataset-cleaning/`, `apps/demo/agents/`, `apps/demo/src/source/`, `docs/decisions/ADR-0021-screen-report-hidden-characters.md`, `docs/judgment-and-defenses.md`, `docs/decisions-today.md`
 - **Human gate:** no
-- **Status:** review
+- **Status:** done
 - **Agent/session:** implementer, branch `t-018-beats-6a-7`
 
 ## Intent
