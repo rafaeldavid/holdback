@@ -812,16 +812,14 @@ export class SimChain implements Settlement {
     const rec = this.recOf(tx, id);
     tx.useNonce(`mutual:${id}:${m.nonce}`);
     const prev = rec.state;
-    const next = this.stepped(prev, { type: 'mutual_settle', at: tx.at, message: m, rulebookAllows: rec.club.rulebook.mutualSettlement.allowed });
+    const next = this.stepped(prev, { type: 'mutual_settle', at: tx.at, message: m, rule: rec.club.rulebook.mutualSettlement });
     if (next.kind !== 'Settled') return refuse('invalid_state', `settlement led to ${next.kind}`);
     this.setState(tx, id, next);
-    const { price, adjudication, buyer, seller } = next.terms;
-    // The split as a list of payouts of the price (a pending decision may let the message carry the list itself).
-    const payouts: Array<{ to: Address; amount: bigint }> = [
-      { to: seller, amount: BigInt(next.sellerAmount.amount) },
-      { to: buyer, amount: BigInt(price.amount) - BigInt(next.sellerAmount.amount) },
-    ];
-    if (payouts.some((p) => p.amount < 0n) || payouts.reduce((a, p) => a + p.amount, 0n) !== BigInt(price.amount)) refuse('invalid_terms', 'payouts must sum to the price');
+    const { price, adjudication, buyer } = next.terms;
+    // D23: one posting per payout. Core already checked the sum, token and recipients; this re-checks the sum
+    // so a posting can never take more than the price out of escrow.
+    const payouts = next.payouts.map((p) => ({ to: p.to, amount: BigInt(p.amount.amount) }));
+    if (payouts.some((p) => p.amount <= 0n) || payouts.reduce((a, p) => a + p.amount, 0n) !== BigInt(price.amount)) refuse('invalid_terms', 'payouts must be positive and sum to the price');
     const postings: Posting[] = [];
     const escrow = account.escrow(id);
     for (const p of payouts) tx.post(escrow, account.party(p.to), p.amount, 'agreed payout', postings);
@@ -834,7 +832,7 @@ export class SimChain implements Settlement {
       tx.post(escrow, account.party(buyer), BigInt(fee.value.remainder.amount), 'fee back to the buyer', postings);
     }
     this.releaseAll(tx, id);
-    tx.emit('commitment.settled', id, 'anyone', { sellerAmount: next.sellerAmount, buyerAmount: next.buyerAmount, keyReleased: next.keyReleased });
+    tx.emit('commitment.settled', id, 'anyone', { payouts: next.payouts, keyReleased: next.keyReleased });
     if (next.keyReleased) this.releaseHeld(tx, id, buyer, 'anyone', 'mutual settlement');
     return id;
   }
@@ -936,7 +934,7 @@ export class SimChain implements Settlement {
       lastEventSeq: rec.lastEventSeq,
       updatedAt: rec.updatedAt,
     };
-    if (s.kind === 'Settled') view.settled = { sellerAmount: s.sellerAmount, buyerAmount: s.buyerAmount, keyReleased: s.keyReleased };
+    if (s.kind === 'Settled') view.settled = { payouts: s.payouts, keyReleased: s.keyReleased };
     return view;
   }
 

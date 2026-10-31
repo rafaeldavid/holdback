@@ -25,6 +25,7 @@ import {
   type Rulebook,
   type Scope,
   type Timestamp,
+  type Payout,
   type TokenAmount,
   type UnsignedMessage,
 } from '@holdback/core';
@@ -68,7 +69,7 @@ export const SIM_RULEBOOK: Rulebook = {
   allowedTokens: [TOKEN],
   panelPolicyMin: { panelSize: 3, appealPanelSize: 5, minFamilies: 2 },
   appealFee: tusd('25000000'),
-  mutualSettlement: { allowed: true, adjudicatorFeeShareAfterDeliveryBps: 0 },
+  mutualSettlement: { allowed: true, adjudicatorFeeShareAfterDeliveryBps: 0, payoutsTo: 'parties' },
   disclosureMin: 'public',
   identityModes: ['long-term'],
   firstLossShareMinBps: 1000,
@@ -157,7 +158,7 @@ export class Deal {
     const now = chain.now();
     const tag = options.tag ?? '0';
     this.terms = {
-      schemaVersion: '0.5',
+      schemaVersion: '0.6',
       clubId: options.club.id,
       rulebookHash: options.club.rulebookHash,
       buyer: cast.buyer.address,
@@ -331,12 +332,21 @@ export class Deal {
     return { kind: 'appeal', appeal: { ...body, signature } };
   }
 
-  async mutual(over: { sellerAmount?: TokenAmount; releaseKey?: boolean; deliveryHash?: Hex32 | null; signers?: [SimActor, SimActor] } = {}): Promise<Submission> {
+  /** Payouts that split the price between seller and buyer; zero amounts are left out (D23 requires amounts above zero). */
+  split(toSeller: bigint): Payout[] {
+    const toBuyer = BigInt(this.terms.price.amount) - toSeller;
+    return [
+      { to: this.terms.seller, amount: tusd(toSeller) },
+      { to: this.terms.buyer, amount: tusd(toBuyer < 0n ? 0n : toBuyer) },
+    ].filter((p) => p.amount.amount !== '0');
+  }
+
+  async mutual(over: { payouts?: Payout[]; releaseKey?: boolean; deliveryHash?: Hex32 | null; signers?: [SimActor, SimActor] } = {}): Promise<Submission> {
     const body = {
       type: 'MutualSettlement' as const,
       commitmentId: this.id,
       deliveryHash: over.deliveryHash !== undefined ? over.deliveryHash : this.delivery ? deliveryHash(this.delivery) : null,
-      sellerAmount: over.sellerAmount ?? tusd('1400000000'),
+      payouts: over.payouts ?? this.split((BigInt(this.terms.price.amount) * 7n) / 10n),
       releaseKey: over.releaseKey ?? false,
       nonce: this.nonce(),
       expiresAt: this.far(),

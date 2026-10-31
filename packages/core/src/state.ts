@@ -12,7 +12,8 @@
 import { encodePacked, keccak256 } from 'viem';
 import { rulebookHash } from './canonical.js';
 import { commitmentId, deliveryHash, termsOf } from './eip712.js';
-import { add, gte, sub, tokenAmount, type MoneyError } from './money/index.js';
+import { add, gte, tokenAmount, type MoneyError } from './money/index.js';
+import { mutualSettlementProblem } from './mutual.js';
 import { problem, type Problem, type ProblemType } from './problem.js';
 import { err, ok, type Result } from './result.js';
 import { addSeconds, validateTiming } from './timing.js';
@@ -28,6 +29,7 @@ import type {
   FundingAuthorization,
   Hex32,
   MutualSettlement,
+  Payout,
   Rulebook,
   Scope,
   Signature,
@@ -87,8 +89,9 @@ export type EscrowState =
   | (Base & { kind: 'Released'; settledAt: Timestamp; via: ReleaseVia })
   | (Base & { kind: 'Refunded'; settledAt: Timestamp; via: RefundVia })
   | (Base & { kind: 'Expired'; from: 'Offered' | 'AcceptedByAdjudicator' | 'Agreed'; expiredAt: Timestamp })
-  // ADR-0019: closed by a settlement both parties signed. Terminal, not appealable. buyerAmount is the rest of the hold, fee included.
-  | (Base & { kind: 'Settled'; settledAt: Timestamp; from: 'Held' | 'Delivered' | 'FallbackJudging' | 'Escalated'; settlement: MutualSettlement; sellerAmount: TokenAmount; buyerAmount: TokenAmount; keyReleased: boolean });
+  // ADR-0019, D23: closed by a settlement both parties signed. Terminal, not appealable. The payouts split the
+  // price; the fee returns to the buyer (Phase 1).
+  | (Base & { kind: 'Settled'; settledAt: Timestamp; from: 'Held' | 'Delivered' | 'FallbackJudging' | 'Escalated'; settlement: MutualSettlement; payouts: Payout[]; keyReleased: boolean });
 
 /** A beacon round and its value, supplied by the settlement layer as a fact (ADR-0018). */
 export interface BeaconFact {
@@ -116,8 +119,8 @@ export type EscrowEvent =
   // beacon: the settlement layer's value for the round beaconRoundFor fixes; required for fallback and appeal
   // decisions, ignored for the primary (ADR-0018). null when the round cannot be proven.
   | { type: 'decide'; at: Timestamp; message: Decision; beacon?: BeaconFact | null }
-  // ADR-0019. Both signatures are verified before step; rulebookAllows is the rulebook's mutualSettlement.allowed.
-  | { type: 'mutual_settle'; at: Timestamp; message: MutualSettlement; rulebookAllows: boolean }
+  // ADR-0019, D23. Both signatures are verified before step; rule is the club rulebook's mutualSettlement.
+  | { type: 'mutual_settle'; at: Timestamp; message: MutualSettlement; rule: Pick<Rulebook['mutualSettlement'], 'allowed' | 'payoutsTo'> }
   // requiredBond is price x the rulebook appealBondRateBps and requiredFee the rulebook appealFee, both
   // computed by the caller; feePaid is the appeal-fee authorization that accompanies the appeal.
   | { type: 'file_appeal'; at: Timestamp; appeal: Appeal; requiredBond: TokenAmount; requiredFee: TokenAmount; feePaid: TokenAmount }
@@ -428,22 +431,18 @@ type Settleable = Extract<EscrowState, { kind: 'Held' | 'Delivered' | 'FallbackJ
 /** ADR-0019: a settlement both parties signed closes a funded, undecided commitment. Signatures are checked before step. */
 function mutualSettle(s: Settleable, e: Extract<EscrowEvent, { type: 'mutual_settle' }>): R {
   const m = e.message;
-  const { price } = s.terms;
   if (m.commitmentId !== s.id) return fail('invalid_terms', 'settlement is for another commitment');
   const live = messageLive(m, e.at);
   if (!live.ok) return live;
-  if (!e.rulebookAllows) return fail('invalid_terms', 'the club rulebook does not allow mutual settlement');
   if (s.kind === 'Held') {
     if (m.deliveryHash !== null) return fail('invalid_terms', 'nothing was delivered, so deliveryHash must be null');
     if (m.releaseKey) return fail('invalid_terms', 'releaseKey needs a delivery');
   } else if (m.deliveryHash !== deliveryHash(s.delivery)) {
     return fail('invalid_terms', 'deliveryHash does not name the current delivery');
   }
-  const within = money(gte(price, m.sellerAmount), 'sellerAmount');
-  if (!within.ok) return within;
-  if (!within.value) return fail('invalid_terms', `sellerAmount ${m.sellerAmount.amount} exceeds the price ${price.amount}`);
-  const buyerAmount = money(sub(s.hold.amount, m.sellerAmount), 'buyer share');
-  if (!buyerAmount.ok) return buyerAmount;
+  // D23: rulebook allows it, payouts in the price token sum to the price, recipients as payoutsTo allows.
+  const why = mutualSettlementProblem(m, s.terms, e.rule);
+  if (why !== undefined) return fail('invalid_terms', why);
   return ok({
     kind: 'Settled',
     id: s.id,
@@ -451,8 +450,7 @@ function mutualSettle(s: Settleable, e: Extract<EscrowEvent, { type: 'mutual_set
     settledAt: e.at,
     from: s.kind,
     settlement: m,
-    sellerAmount: m.sellerAmount,
-    buyerAmount: buyerAmount.value,
+    payouts: m.payouts,
     keyReleased: m.releaseKey,
   });
 }

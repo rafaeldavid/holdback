@@ -290,16 +290,42 @@ describe('timeouts with nothing judged', () => {
 });
 
 describe('mutual settlement (ADR-0019)', () => {
-  it('pays the split, returns the rest of the hold with the fee, releases the key and every reservation', async () => {
+  it('posts each payout, returns the fee to the buyer, releases the key and every reservation', async () => {
     const w = await world();
     await delivered(w);
-    const r = await w.ok(w.deal.mutual({ sellerAmount: tusd('1400000000'), releaseKey: true }));
+    const payouts = w.deal.split(1_400_000_000n);
+    const r = await w.ok(w.deal.mutual({ payouts, releaseKey: true }));
     expect(types(r)).toEqual(['commitment.settled', 'key.released']);
-    expect(r.state).toMatchObject({ escrowState: 'Settled', settled: { sellerAmount: tusd('1400000000'), buyerAmount: tusd('650000000'), keyReleased: true } });
+    expect(r.state).toMatchObject({ escrowState: 'Settled', settled: { payouts, keyReleased: true } });
     expect(await w.bal(w.cast.seller)).toBe(1_000_000_000n + 1_400_000_000n);
     expect(await w.bal(w.cast.buyer)).toBe(10_000_000_000n - 1_400_000_000n);
     expect(w.chain.pool(w.cast.primary.address).reserved).toBe(0n);
     expect(await w.chain.keysFor(w.deal.id, w.cast.buyer.address)).toHaveLength(1);
+  });
+
+  it('pays a third party both sign for when the rulebook allows any recipient, and refuses it under parties only (D23)', async () => {
+    const outsider = simActor('outsider');
+    const cast = simCast();
+    const payouts = [
+      { to: cast.seller.address, amount: tusd(1_000_000_000n) },
+      { to: cast.buyer.address, amount: tusd(500_000_000n) },
+      { to: outsider.address, amount: tusd(500_000_000n) },
+    ];
+    const parties = await world();
+    await delivered(parties);
+    expect(await parties.refused(parties.deal.mutual({ payouts }))).toBe('invalid_terms');
+    const any = await world({ rulebook: { ...SIM_RULEBOOK, mutualSettlement: { ...SIM_RULEBOOK.mutualSettlement, payoutsTo: 'any' } } });
+    await delivered(any);
+    await any.ok(any.deal.mutual({ payouts }));
+    expect(await any.bal(outsider)).toBe(500_000_000n);
+    expect(await any.bal(any.cast.seller)).toBe(1_000_000_000n + 1_000_000_000n);
+    expect(await any.bal(any.cast.buyer)).toBe(10_000_000_000n - HOLD + 500_000_000n + FEE);
+  });
+
+  it('refuses payouts that do not sum to the price', async () => {
+    const w = await world();
+    await delivered(w);
+    expect(await w.refused(w.deal.mutual({ payouts: [{ to: w.cast.seller.address, amount: tusd(PRICE + 1n) }] }))).toBe('invalid_terms');
   });
 
   it('refuses one party signing for both', async () => {
@@ -309,7 +335,7 @@ describe('mutual settlement (ADR-0019)', () => {
   });
 
   it('refuses when the rulebook does not allow it', async () => {
-    const w = await world({ rulebook: { ...SIM_RULEBOOK, mutualSettlement: { allowed: false, adjudicatorFeeShareAfterDeliveryBps: 0 } } });
+    const w = await world({ rulebook: { ...SIM_RULEBOOK, mutualSettlement: { ...SIM_RULEBOOK.mutualSettlement, allowed: false } } });
     await delivered(w);
     expect(await w.refused(w.deal.mutual())).toBe('invalid_terms');
   });

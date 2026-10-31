@@ -129,6 +129,14 @@ const appeal = (over: Partial<Appeal> = {}): Appeal => ({
   ...over,
 });
 
+/** D23 payouts of the price: to the seller, then to the buyer; zero amounts left out. */
+const split = (toSeller: string, toBuyer: string) =>
+  [
+    { to: seller, amount: tusd(toSeller) },
+    { to: buyer, amount: tusd(toBuyer) },
+  ].filter((p) => p.amount.amount !== '0');
+const outsider: Hex = '0x00000000000000000000000000000000000000ab';
+
 const ev = {
   accept: (over: Partial<AdjudicatorAcceptance> = {}, at = T.accept, bond = tusd('10000000000')): EscrowEvent => ({
     type: 'adjudicator_accept',
@@ -185,14 +193,14 @@ const ev = {
     requiredFee: facts.requiredFee ?? tusd('25000000'),
     feePaid: facts.feePaid ?? tusd('25000000'),
   }),
-  mutual: (at: string, over: Partial<MutualSettlement> = {}, rulebookAllows = true): EscrowEvent => ({
+  mutual: (at: string, over: Partial<MutualSettlement> = {}, rule: { allowed: boolean; payoutsTo: 'parties' | 'any' } = { allowed: true, payoutsTo: 'parties' }): EscrowEvent => ({
     type: 'mutual_settle',
     at,
     message: {
       type: 'MutualSettlement',
       commitmentId: id,
       deliveryHash: null,
-      sellerAmount: tusd('1400000000'),
+      payouts: split('1400000000', '600000000'),
       releaseKey: false,
       nonce: ZERO32,
       expiresAt: far,
@@ -200,7 +208,7 @@ const ev = {
       sellerSignature: SIG,
       ...over,
     },
-    rulebookAllows,
+    rule,
   }),
   at: (type: 'reclaim' | 'trigger_fallback' | 'trigger_default' | 'expire' | 'apply_default_outcome' | 'expire_appeal', at: string): EscrowEvent => ({ type, at }),
 };
@@ -621,19 +629,25 @@ describe('panel seed per role (ADR-0018)', () => {
   });
 });
 
-describe('mutual settlement (ADR-0019)', () => {
+describe('mutual settlement (ADR-0019, D23 payouts)', () => {
   const dh = deliveryHash(delivery());
-  const settledView = (s: EscrowState) => (s.kind === 'Settled' ? { sellerAmount: s.sellerAmount, buyerAmount: s.buyerAmount, keyReleased: s.keyReleased, settledAt: s.settledAt } : s.kind);
+  const settledView = (s: EscrowState) => (s.kind === 'Settled' ? { payouts: s.payouts, keyReleased: s.keyReleased, settledAt: s.settledAt } : s.kind);
 
-  it.each<[string, EscrowEvent[], EscrowEvent, { sellerAmount: TokenAmount; buyerAmount: TokenAmount; keyReleased: boolean }]>([
-    ['refund-before-delivery split in Held', toHeld, ev.mutual(T.deliver), { sellerAmount: tusd('1400000000'), buyerAmount: tusd('650000000'), keyReleased: false }],
-    ['discounted acceptance in Delivered', toDelivered, ev.mutual(T.decide, { deliveryHash: dh, releaseKey: true }), { sellerAmount: tusd('1400000000'), buyerAmount: tusd('650000000'), keyReleased: true }],
-    ['full price, key kept, during fallback judging', toFallback, ev.mutual(T.fallbackDecide, { deliveryHash: dh, sellerAmount: tusd('2000000000') }), { sellerAmount: tusd('2000000000'), buyerAmount: tusd('50000000'), keyReleased: false }],
-    ['zero to the seller while escalated', toEscalated, ev.mutual(T.fallbackDecide, { deliveryHash: dh, sellerAmount: tusd('0') }), { sellerAmount: tusd('0'), buyerAmount: tusd('2050000000'), keyReleased: false }],
-  ])('settles: %s (the buyer gets the rest of the hold, fee included)', (_name, path, event, split) => {
+  it.each<[string, EscrowEvent[], EscrowEvent, { payouts: ReturnType<typeof split>; keyReleased: boolean }]>([
+    ['refund-before-delivery split in Held', toHeld, ev.mutual(T.deliver), { payouts: split('1400000000', '600000000'), keyReleased: false }],
+    ['discounted acceptance in Delivered', toDelivered, ev.mutual(T.decide, { deliveryHash: dh, releaseKey: true }), { payouts: split('1400000000', '600000000'), keyReleased: true }],
+    ['full price, key kept, during fallback judging', toFallback, ev.mutual(T.fallbackDecide, { deliveryHash: dh, payouts: split('2000000000', '0') }), { payouts: split('2000000000', '0'), keyReleased: false }],
+    ['all to the buyer while escalated', toEscalated, ev.mutual(T.fallbackDecide, { deliveryHash: dh, payouts: split('0', '2000000000') }), { payouts: split('0', '2000000000'), keyReleased: false }],
+    [
+      'a third-party payout when the rulebook allows any recipient',
+      toHeld,
+      ev.mutual(T.deliver, { payouts: [...split('1000000000', '500000000'), { to: outsider, amount: tusd('500000000') }] }, { allowed: true, payoutsTo: 'any' }),
+      { payouts: [...split('1000000000', '500000000'), { to: outsider, amount: tusd('500000000') }], keyReleased: false },
+    ],
+  ])('settles: %s', (_name, path, event, expected) => {
     const r = step(run(path), event);
     if (!r.ok) throw new Error(`${r.error.type}: ${r.error.detail}`);
-    expect(settledView(r.value)).toEqual({ ...split, settledAt: event.at });
+    expect(settledView(r.value)).toEqual({ ...expected, settledAt: event.at });
   });
 
   it.each<[string, EscrowEvent[], EscrowEvent, ProblemType]>([
@@ -641,9 +655,11 @@ describe('mutual settlement (ADR-0019)', () => {
     ['releasing a key that does not exist yet', toHeld, ev.mutual(T.deliver, { releaseKey: true }), 'invalid_terms'],
     ['a stale delivery hash', toDelivered, ev.mutual(T.decide, { deliveryHash: ZERO32 }), 'invalid_terms'],
     ['a null delivery hash after delivery', toDelivered, ev.mutual(T.decide), 'invalid_terms'],
-    ['a seller amount above the price', toHeld, ev.mutual(T.deliver, { sellerAmount: tusd('2000000001') }), 'invalid_terms'],
-    ['a seller amount in another token', toHeld, ev.mutual(T.deliver, { sellerAmount: { token: 'tEUR', amount: '1' as TokenAmount['amount'] } }), 'invalid_terms'],
-    ['a rulebook that does not allow it', toHeld, ev.mutual(T.deliver, {}, false), 'invalid_terms'],
+    ['payouts above the price', toHeld, ev.mutual(T.deliver, { payouts: split('1400000001', '600000000') }), 'invalid_terms'],
+    ['payouts below the price', toHeld, ev.mutual(T.deliver, { payouts: split('1400000000', '599999999') }), 'invalid_terms'],
+    ['a payout in another token', toHeld, ev.mutual(T.deliver, { payouts: [{ to: seller, amount: { token: 'tEUR', amount: '2000000000' as TokenAmount['amount'] } }] }), 'invalid_terms'],
+    ['a third-party payout when the rulebook allows the parties only', toHeld, ev.mutual(T.deliver, { payouts: [...split('1000000000', '500000000'), { to: outsider, amount: tusd('500000000') }] }), 'invalid_terms'],
+    ['a rulebook that does not allow it', toHeld, ev.mutual(T.deliver, {}, { allowed: false, payoutsTo: 'parties' }), 'invalid_terms'],
     ['an expired settlement message', toHeld, ev.mutual(T.deliver, { expiresAt: T.fund }), 'deadline_passed'],
     ['a settlement for another commitment', toHeld, ev.mutual(T.deliver, { commitmentId: ZERO32 }), 'invalid_terms'],
     ['settling after a decision moved the funds', toReleased, ev.mutual(T.decide, { deliveryHash: dh }), 'invalid_state'],

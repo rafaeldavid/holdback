@@ -193,8 +193,8 @@ async function toSubmission(chain: SimChain, deals: Deal[], x: Action, bondBps: 
       return d.appealBy(x.who, tusd((BigInt(d.terms.price.amount) * BigInt(bondBps) + 9999n) / 10000n));
     case 'mutual': {
       const price = BigInt(d.terms.price.amount);
-      const seller = x.over ? price + 1n : (price * BigInt(x.sellerBps)) / 10000n;
-      return d.mutual({ sellerAmount: tusd(seller), releaseKey: x.releaseKey && d.delivery !== null });
+      const payouts = x.over ? [{ to: d.terms.seller, amount: tusd(price + 1n) }] : d.split((price * BigInt(x.sellerBps)) / 10000n);
+      return d.mutual({ payouts, releaseKey: x.releaseKey && d.delivery !== null });
     }
     case 'trigger':
       return d.trigger(x.kind);
@@ -268,7 +268,7 @@ describe('settle-once race between a mutual settlement and a decision', () => {
         const { chain, deals, cast } = await build({ prices: [2_000_000_000n], compBps: 1000, bondBps: 500, junior: 3_000_000_000n, senior: 0n });
         const d = deals[0]!;
         for (const s of [d.offer(), d.accept(), d.agreeAndFund(), d.deliver()]) expect((await chain.submit(await s)).ok).toBe(true);
-        const settle = await d.mutual({ sellerAmount: tusd((2_000_000_000n * BigInt(bps)) / 10000n) });
+        const settle = await d.mutual({ payouts: d.split((2_000_000_000n * BigInt(bps)) / 10000n) });
         const decide = await d.decide('primary', outcome);
         const [first, second] = settleFirst ? [settle, decide] : [decide, settle];
         // Submitted concurrently: the queue applies them in arrival order.
