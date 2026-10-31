@@ -64,10 +64,10 @@ describe('narrate', () => {
 });
 
 describe('header', () => {
-  it('says recorded verdicts in recorded mode, and names a stand-in source', async () => {
+  it('states the mode, and names a stand-in source', async () => {
     for (const t of await allTranscripts()) {
       const h = header(t).join('\n');
-      expect(h).toContain('recorded verdicts');
+      expect(h).toMatch(/^Mode: (scripted|recorded|live)\./);
       expect(h).toContain(t.source.note);
       expect(h).toMatch(/stand-in/i);
     }

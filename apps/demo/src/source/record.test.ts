@@ -1,0 +1,91 @@
+// D26: both parties hold the same record. The comparison is measured: any difference between the two copies
+// turns `match` false, and the narration says the copies differ.
+import type { CommitmentStateView, Hex32, Judgment, Receipt, SettlementEvent } from '@holdback/core';
+import { describe, expect, it } from 'vitest';
+import { sharedRecordEvent, type PartyView } from './record.js';
+
+const ID = `0x${'87'.repeat(32)}` as Hex32;
+const H = (b: string) => `0x${b.repeat(32)}` as Hex32;
+
+function view(over: Partial<PartyView> = {}): PartyView {
+  const events = [
+    { seq: 0, commitmentId: ID, type: 'commitment.offered', actor: '0x01', payload: {} },
+    { seq: 1, commitmentId: ID, type: 'judgment.decided', actor: '0x02', payload: { recordHash: H('b1') } },
+  ] as unknown as SettlementEvent[];
+  const receipts = [0, 1].map((seq) => ({ operator: '0x03', eventSeq: seq, eventHash: H(seq ? 'de' : 'aa'), commitmentId: ID, signature: '0xsig' })) as unknown as Receipt[];
+  return {
+    commitment: { commitmentId: ID, escrowState: 'Released' } as unknown as CommitmentStateView,
+    events,
+    receipts,
+    judgment: { recordHash: H('b1') } as unknown as Judgment,
+    ...over,
+  };
+}
+
+describe('sharedRecordEvent', () => {
+  it('matches when both copies are equal, and names the judgment record and the decision', () => {
+    const e = sharedRecordEvent(7, [
+      { who: 'buyer', view: view() },
+      { who: 'seller', view: view() },
+    ]);
+    expect(e).toMatchObject({ kind: 'shared-record', match: true, events: 2, receipts: 2, judgmentRecord: H('b1'), decision: H('de') });
+    expect(e.kind === 'shared-record' && e.parties[0]!.hash).toBe(e.kind === 'shared-record' && e.parties[1]!.hash);
+  });
+
+  it('does not match when one copy is missing a receipt', () => {
+    const short = view();
+    const e = sharedRecordEvent(7, [
+      { who: 'buyer', view: view() },
+      { who: 'seller', view: { ...short, receipts: short.receipts.slice(0, 1) } },
+    ]);
+    expect(e.kind === 'shared-record' && e.match).toBe(false);
+  });
+
+  it('does not match when both copies are whole but one event differs', () => {
+    const changed = view();
+    const events = changed.events.map((e) => (e.seq === 0 ? ({ ...e, payload: { termsHash: H('ff') } } as unknown as SettlementEvent) : e));
+    const e = sharedRecordEvent(7, [
+      { who: 'buyer', view: view() },
+      { who: 'seller', view: { ...changed, events } },
+    ]);
+    expect(e.kind === 'shared-record' && e.match).toBe(false);
+    expect(e.kind === 'shared-record' && e.parties[0]!.hash).not.toBe(e.kind === 'shared-record' && e.parties[1]!.hash);
+  });
+
+  it('does not match when the receipts attest a different event hash', () => {
+    const other = view();
+    const receipts = other.receipts.map((r) => (r.eventSeq === 1 ? { ...r, eventHash: H('99') } : r));
+    const e = sharedRecordEvent(7, [
+      { who: 'buyer', view: view() },
+      { who: 'seller', view: { ...other, receipts } },
+    ]);
+    expect(e.kind === 'shared-record' && e.match).toBe(false);
+  });
+
+  it('matches copies read through different operators: receipt signer and signature aside, and names each route', () => {
+    const op2 = view();
+    const receipts = op2.receipts.map((r) => ({ ...r, operator: '0x04', signature: '0xother' }) as unknown as Receipt);
+    const signers = new Map([
+      ['0x03', 'op1' as const],
+      ['0x04', 'op2' as const],
+    ]);
+    const e = sharedRecordEvent(
+      7,
+      [
+        { who: 'buyer', view: view() },
+        { who: 'seller', view: { ...op2, receipts } },
+      ],
+      { signers, judgedBy: 'benchA' },
+    );
+    expect(e).toMatchObject({ match: true, judgedBy: 'benchA' });
+    expect(e.kind === 'shared-record' && e.parties.map((p) => p.via)).toEqual(['op1', 'op2']);
+  });
+
+  it('does not match when the judgment record is not the one the decision event names', () => {
+    const e = sharedRecordEvent(7, [
+      { who: 'buyer', view: view() },
+      { who: 'seller', view: view({ judgment: { recordHash: H('c2') } as unknown as Judgment }) },
+    ]);
+    expect(e.kind === 'shared-record' && e.match).toBe(false);
+  });
+});

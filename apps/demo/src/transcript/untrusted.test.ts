@@ -12,6 +12,7 @@ import { renderMarkdown } from './render-md.js';
 import type { BeatTranscript, DemoEvent, EventSource } from './types.js';
 import { fenced, mdText, plain, safeJson } from './untrusted.js';
 import { withAdjudicators } from './adjudicators.fixture.js';
+import { judgePromptView } from './judge.js';
 
 const HOSTILE = [
   'HOSTILE',
@@ -37,9 +38,42 @@ async function hostileTranscript(): Promise<BeatTranscript> {
     { kind: 'screen', atMs: 2, actor: 'benchA', flagged: true, signals: ['encoded_run'], consequence: HOSTILE },
     { kind: 'panel', atMs: 3, actor: 'benchA', seed: '0xabc', seedSource: 'commit-reveal', rule: HOSTILE, judges: [{ seat: 1, model: 'placeholder-claude-a-20260601', family: 'claude', verdict: 'pass', score: 400 }], outcome: 'accept' },
     { kind: 'signed', atMs: 4, actor: 'seller', messageType: 'Offer', signer: '0x5969b88346862fcd013a8f1eee8a33e50335a684', body: { description: HOSTILE }, signature: '0xab' },
+    // The judge prompt quotes the terms and the deliverable, and the verdict is model output over them (T-019).
+    // The verdict is left raw here, so the renderers are shown safe without the source's ingestion pass.
+    {
+      kind: 'judge-prompt',
+      atMs: 5,
+      actor: 'benchA',
+      seat: 1,
+      model: 'placeholder-claude-a-20260601',
+      family: 'claude',
+      inputHash: `0x${'a7'.repeat(32)}`,
+      scripted: true,
+      prompt: judgePromptView(`You are one judge.\n${HOSTILE}`, ['intro', '<<<BEGIN UNTRUSTED DATA ab>>>', ...Array.from({ length: 40 }, (_, i) => `^ab^ row ${i} ${HOSTILE}`), '<<<END UNTRUSTED DATA ab>>>'].join('\n')),
+      verdict: { overall: 'pass', criteria: [{ id: HOSTILE, score: 4, evidence: HOSTILE }], injectionSuspected: true, injectionEvidence: HOSTILE, rationale: HOSTILE },
+    },
   ];
   // A registration name is party text too (x-holdback-untrusted): it reaches the proposal line and the profile (T-017).
   return withAdjudicators({ ...t, events: [...t.events.slice(0, 1), ...extra, ...t.events.slice(1)] }, HOSTILE);
+}
+
+/** CommonMark fences: a block opens on a line of 3+ backticks and closes only on a line of at least as many. */
+function splitFences(md: string): { outside: string; blocks: { fence: string; lang: string; lines: string[] }[]; open: boolean } {
+  const outside: string[] = [];
+  const blocks: { fence: string; lang: string; lines: string[] }[] = [];
+  let cur: (typeof blocks)[number] | undefined;
+  for (const line of md.split('\n')) {
+    if (cur) {
+      const close = /^(`{3,})\s*$/.exec(line);
+      if (close && close[1]!.length >= cur.fence.length) cur = undefined;
+      else cur.lines.push(line);
+      continue;
+    }
+    const open = /^(`{3,})([^`]*)$/.exec(line);
+    if (open) blocks.push((cur = { fence: open[1]!, lang: open[2]!.trim(), lines: [] }));
+    else outside.push(line);
+  }
+  return { outside: outside.join('\n'), blocks, open: cur !== undefined };
 }
 
 describe('untrusted text helpers', () => {
@@ -94,8 +128,17 @@ describe('hostile deliverable-derived text on every output surface', () => {
     expect(prose).not.toMatch(/(^|[^\\])\]\(/m);
     // Outside the fenced signed message, '<' only ever appears backslash-escaped.
     expect(md.slice(0, md.indexOf('## Signed message'))).not.toMatch(/(^|[^\\])<img/m);
-    expect(md).not.toMatch(/^# pwned/m);
-    expect(md).not.toMatch(/^\| injected/m);
+    // The judge prompt keeps the payload's own line breaks, but only inside fences (T-019): outside them no line
+    // is a heading or table row from the payload, and every fence closes where the renderer closed it.
+    const { outside, blocks, open: unclosed } = splitFences(md);
+    expect(unclosed).toBe(false);
+    expect(outside).not.toMatch(/^# pwned/m);
+    expect(outside).not.toMatch(/^\| injected/m);
+    // One signed message, then the judge's system message, the head and tail of its user message, and its verdict.
+    expect(blocks.map((b) => b.lang)).toEqual(['json', 'text', 'text', 'text', 'json']);
+    for (const b of blocks) expect(b.fence.length).toBeGreaterThan(3);
+    const judge = md.slice(md.indexOf('## Judge prompt and verdict'));
+    expect(judge.split('\n').filter((l) => l.includes('HOSTILE') && !blocks.some((b) => b.lines.includes(l)))).toEqual([]);
     // Every line that mentions the payload outside the signed-message fence has it escaped.
     const fenceAt = md.indexOf('## Signed message');
     for (const line of md.slice(0, fenceAt).split('\n').filter((l) => l.includes('HOSTILE'))) {

@@ -21,7 +21,7 @@ Goal: a repo that agents can work in safely, and confirmation that no existing s
 
 ## Phase 1: Demo walking skeleton on SimChain
 
-Goal: `pnpm demo` runs beats 1–7 of `docs/demo.md` in recorded mode. Every beat is a passing scenario fixture.
+Goal: `pnpm demo` runs beats 1–7 of `docs/demo.md` with scripted judges (no keys). Every beat is a passing scenario fixture.
 
 Scope after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`): `guaranteed_on_decision` only, `maxSubmissions = 1`, no sealed checks, and commitments bind `registryHash`.
 
