@@ -1,6 +1,6 @@
 # Decisions to make today
 
-Status: D1–D9 decided October 30, 2026, after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`); the options are kept as the record. D10 to D23 decided October 30 and 31, 2026, each after an independent research pass; none are open. Owner: Rafa. Each decision has options, a recommendation and the ADR it settles. Phase 1 (the demo) can start once D1, D2 and D6 are settled. Phase 2 needs D3 and D4.
+Status: D1–D9 decided October 30, 2026, after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`); the options are kept as the record. D10 to D24 decided October 30 and 31, 2026, each after an independent research pass; none are open. Owner: Rafa. Each decision has options, a recommendation and the ADR it settles. Phase 1 (the demo) can start once D1, D2 and D6 are settled. Phase 2 needs D3 and D4.
 
 ## D1. Adopt the neutrality litmus test as the top constraint (ADR-0001)
 
@@ -341,3 +341,30 @@ Rafa: if buyer and seller agree, they should be able to pull their funds to any 
 
 **Recommendation:** B.
 
+## T-009 judgment choices
+
+**Decided 2026-10-31 by the T-009 implementer, for Rafa to overrule.** Five choices in the panel and adjudicator service (PR #37) change what judges see or how a panel decides. Under the autonomy rule they proceed inside the repo; the numbers are the task's Decisions in `docs/tasks/T-009-panel-adjudicator.md`.
+
+| Choice | Decided | Alternative not taken |
+| --- | --- | --- |
+| 1. Seeded sampling, CSV only | A CSV over the prompt budget is shown as the header, the first 20 and last 20 rows, and rows drawn from the panel seed until the first that does not fit. Anyone with the seed and the plaintext can recompute it. A CSV with an unterminated quote or any record costing more than budget / 100 characters, and every non-CSV input over the budget, keep the stride sample and escalate | Escalate every large deliverable (the demo CSV would never be accepted); sample JSON and text too (no reader stage yet) |
+| 2. One sample per judge | Each judge's sample has its own seed, derived from the panel seed and the judge ID, so the panel together sees more of the file | One shared sample (easier to audit, less coverage) |
+| 7. Appeal thresholds | Appeals use the bound policy's supermajority fractions with `minValidAppeal` and `appealPanelSize`; the schema has no appeal fractions. With 5 valid seats, 2/3 already needs 4 passes | 4/5 from the docs table, which needs a schema field (backlog) |
+| 8. Inconclusive appeal panel | After a party appeal, the first decision stands. After an escalation, the record is published and no Decision is signed, so the default outcome applies at `appealDecideBy` | A "no decision" message (backlog, with default compensation) |
+| 13. Fallback and appeal judge under the bound policy | They use the primary's published policy, checked against the bound hash and this build's template hashes, and refuse when they cannot obtain it | Each adjudicator's own policy, which the parties did not agree to |
+
+**Recommendation:** keep all five for the demo; revisit 1 and 7 with calibration in Phase 3.
+
+## D24. Changing terms by mutual agreement (ADR-0019)
+
+**Decided 2026-10-31:** no protocol change. Commitments are ephemeral and machine speed, so changing terms means closing the active commitment with a co-signed mutual settlement (D23) and opening a new one, distributing the held funds as needed. The sequence is recorded in ADR-0019 under "Changing terms". Settlement is refused after a decision, so reopening can never re-roll an adverse verdict. The gaps (an atomic close-and-reopen, a `supersedes` link, the daily cap, double bond during the overlap, offer withdrawal) are in `docs/backlog.md`.
+
+Rafa first asked that both parties be able to change any term, as in a regular contract, then proposed close-and-reopen instead. A research pass (Fable, max effort) confirmed today's spec supports it end to end.
+
+| Option | Effect |
+| --- | --- |
+| A. A co-signed amendment that keeps the commitment, with adjudicator re-acceptance | New message, new ID or version rules, new consent path for bound third parties |
+| B. Close and reopen: mutual settlement plus a new commitment (chosen) | Works today; every party re-consents through the normal flow |
+| C. Defer | No way to change terms short of a dispute |
+
+**Recommendation:** B.

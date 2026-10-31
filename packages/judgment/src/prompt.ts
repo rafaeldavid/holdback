@@ -8,8 +8,9 @@
 // and appear only as JSON-quoted values inside their own delimited block, never as bare system text.
 // Party identities, price and reputation are not inputs (blinding).
 import { createHash } from 'node:crypto';
-import { canonicalJson, err, ok, type Hex32, type Result } from '@holdback/core';
+import { canonicalJson, err, ok, type Hex32, type MimeType, type Result } from '@holdback/core';
 import { normalizeText } from './normalize.js';
+import { csvRecords, sampleCsv } from './sample.js';
 import type { JudgmentCriterion } from './terms.js';
 import { UntrustedData } from './untrusted.js';
 
@@ -44,6 +45,17 @@ export const PROMPT_TEMPLATE = [
 
 const sha256Hex = (s: string): Hex32 => `0x${createHash('sha256').update(s).digest('hex')}`;
 export const PROMPT_TEMPLATE_HASH: Hex32 = sha256Hex(PROMPT_TEMPLATE);
+
+/**
+ * The appeal template (policy.appealPromptTemplateHash). Only the opening line differs: appeal judges
+ * decide afresh and are not told the first decision, the parties or the appellant.
+ */
+export const APPEAL_PROMPT_TEMPLATE = [
+  'You are one judge on an appeal panel deciding afresh whether delivered work meets an agreed specification.',
+  ...PROMPT_TEMPLATE.split('\n').slice(1),
+].join('\n');
+export const APPEAL_PROMPT_TEMPLATE_HASH: Hex32 = sha256Hex(APPEAL_PROMPT_TEMPLATE);
+export type PromptTemplateKind = 'first-instance' | 'appeal';
 export const DEFAULT_MAX_DATA_CHARS = 100_000;
 /** Every Unicode line break a model may render as a new line. */
 const LINE_BREAK = /\r\n|[\n\r\u000b\u000c\u001c\u001d\u001e\u0085\u2028\u2029]/;
@@ -62,7 +74,17 @@ export interface PromptInput {
   data: UntrustedData;
   nonces: Nonces;
   maxDataChars?: number;
+  /**
+   * The seed and delivered MIME for seeded sampling (sample.ts). Without it, or for an unsampleable
+   * deliverable, data over the budget gets the predictable even-stride sample, which escalates.
+   */
+  sample?: { seed: Hex32; mime: MimeType };
+  /** Defaults to the first-instance template. */
+  template?: PromptTemplateKind;
 }
+
+/** none: the whole deliverable; seeded: a recomputable seeded sample; stride: the even-stride fallback. */
+export type Sampling = 'none' | 'seeded' | 'stride';
 
 export interface RenderedPrompt {
   system: string;
@@ -72,6 +94,7 @@ export interface RenderedPrompt {
   canary: string;
   /** True when the data section holds a sample rather than the whole deliverable. */
   truncated: boolean;
+  sampling: Sampling;
   promptTemplateHash: Hex32;
   /** SHA-256 of the RFC 8785 JSON of {system, user}. */
   inputHash: Hex32;
@@ -125,8 +148,19 @@ export function buildPrompt(input: PromptInput): Result<RenderedPrompt, string> 
   const max = input.maxDataChars ?? DEFAULT_MAX_DATA_CHARS;
   let lines = text.split(LINE_BREAK);
   const truncated = text.length > max;
+  let sampling: Sampling = 'none';
   let note = `The data section holds the whole deliverable (${lines.length} lines).`;
-  if (truncated) {
+  const records = truncated && input.sample?.mime === 'text/csv' ? csvRecords(text) : null;
+  const seeded = records ? sampleCsv(records, max, input.sample!.seed) : null;
+  if (seeded) {
+    sampling = 'seeded';
+    lines = seeded.records.join('\n').split(LINE_BREAK);
+    note =
+      `The data section holds a sample of the deliverable: the header row, the first ${seeded.head} and last ${seeded.tail} of ${seeded.totalRows} data rows, ` +
+      `and ${seeded.random} further rows drawn at random with a seed fixed before delivery was judged, in file order. ` +
+      'Judge the sample as representative of the whole file. The deterministic checks ran on the whole file, so do not fail the work only because rows are absent from the sample.';
+  } else if (truncated) {
+    sampling = 'stride';
     const total = lines.length;
     lines = sample(lines, max);
     note = `The data section holds the first line and ${lines.length - 1} of ${total - 1} further lines, sampled at even intervals.`;
@@ -141,7 +175,8 @@ export function buildPrompt(input: PromptInput): Result<RenderedPrompt, string> 
   }));
   const terms = [canonicalJson({ description: clean(input.spec.description) }), ...criteria.map((c) => canonicalJson(c))].join('\n');
   if (terms.includes(boundary)) return err('agreed terms contain the boundary; draw new nonces');
-  const [systemTemplate, userTemplate] = PROMPT_TEMPLATE.split(USER_SPLIT);
+  const appeal = input.template === 'appeal';
+  const [systemTemplate, userTemplate] = (appeal ? APPEAL_PROMPT_TEMPLATE : PROMPT_TEMPLATE).split(USER_SPLIT);
   const system = render(systemTemplate!, {
     boundary,
     datamark: datamark.trim(),
@@ -157,7 +192,8 @@ export function buildPrompt(input: PromptInput): Result<RenderedPrompt, string> 
     datamark,
     canary,
     truncated,
-    promptTemplateHash: PROMPT_TEMPLATE_HASH,
+    sampling,
+    promptTemplateHash: appeal ? APPEAL_PROMPT_TEMPLATE_HASH : PROMPT_TEMPLATE_HASH,
     inputHash: sha256Hex(canonicalJson({ system, user })),
   });
 }

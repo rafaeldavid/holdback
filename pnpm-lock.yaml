@@ -188,7 +188,23 @@ importers:
         specifier: ^5.0.5
         version: 5.0.5(@types/node@26.6.6)(vite@8.3.5(@types/node@26.6.6)(yaml@2.9.1))
 
-  apps/adjudicator: {}
+  apps/adjudicator:
+    dependencies:
+      '@holdback/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@holdback/judgment':
+        specifier: workspace:*
+        version: link:../../packages/judgment
+      '@holdback/settlement':
+        specifier: workspace:*
+        version: link:../../packages/settlement
+      viem:
+        specifier: ^2.57.13
+        version: 2.57.13(typescript@6.0.3)
+      yaml:
+        specifier: ^2.9.1
+        version: 2.9.1
 
   apps/demo:
     dependencies:
@@ -257,6 +273,9 @@ importers:
       '@holdback/core':
         specifier: workspace:*
         version: link:../core
+      viem:
+        specifier: ^2.57.13
+        version: 2.57.13(typescript@6.0.3)
     devDependencies:
       fast-check:
         specifier: ^4.10.2

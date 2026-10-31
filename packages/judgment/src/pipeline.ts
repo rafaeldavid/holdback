@@ -3,12 +3,12 @@
 // and refuses an unpinned, unregistered or single-family panel before any judge is called. Model
 // calls go through an injected provider; a request carries the model ID, the two prompt strings and
 // fixed sampling parameters, and nothing else (no tools, no secrets, no URLs to fetch).
-import type { MimeType, PanelMember, Problem, Result } from '@holdback/core';
+import type { Hex32, MimeType, PanelMember, Problem, Result } from '@holdback/core';
 import { canonicalKeccak, err, ok, problem } from '@holdback/core';
 import { aggregate, preDecision, type Aggregate, type PanelVerdict } from './aggregate.js';
 import { runChecks } from './checks/index.js';
 import type { Intaken } from './intake.js';
-import { buildPrompt, type Nonces } from './prompt.js';
+import { buildPrompt, type Nonces, type PromptTemplateKind } from './prompt.js';
 import { screen, screenTerms, validateTermsText, type ScreenResult } from './screen.js';
 import { validatePolicy, validateRubric, type JudgmentAcceptance, type JudgmentCriterion, type JudgmentPolicy } from './terms.js';
 import { parseVerdict } from './verdict.js';
@@ -60,6 +60,13 @@ export interface PipelineInput {
   provider: JudgeProvider;
   /** Per-judge boundary and canary. */
   nonces: (seat: PanelSeat, index: number) => Nonces;
+  /**
+   * Per-judge sampling seed (T-009: derived from the panel seed). With it, a CSV over the data budget
+   * is judged from a seeded sample without escalating; without it, sampled data escalates.
+   */
+  sampleSeed?: (seat: PanelSeat, index: number) => Hex32;
+  /** First-instance (default) or appeal template. */
+  template?: PromptTemplateKind;
   /** Per-judge criteria order; defaults to rubric order. Must be a permutation of the rubric. */
   criteriaFor?: (seat: PanelSeat, index: number) => readonly JudgmentCriterion[];
   references?: ReadonlyMap<string, Uint8Array>;
@@ -176,7 +183,7 @@ export async function runPipeline(input: PipelineInput): Promise<Result<Judgment
   const rubricIds = acceptance.rubric.criteria.map((c) => c.id);
   const sameIds = (cs: readonly JudgmentCriterion[]) => cs.length === rubricIds.length && cs.every((c) => rubricIds.includes(c.id)) && new Set(cs.map((c) => c.id)).size === cs.length;
 
-  type SeatResult = { member: PanelMember; verdict: PanelVerdict; canaryEcho: boolean; filtered?: string; truncated: boolean };
+  type SeatResult = { member: PanelMember; verdict: PanelVerdict; canaryEcho: boolean; filtered?: string; strided: boolean };
   const results = await Promise.all(
     seats.map(async (seat, i): Promise<SeatResult | string> => {
       const family = families[i]!;
@@ -187,7 +194,9 @@ export async function runPipeline(input: PipelineInput): Promise<Result<Judgment
         criteria,
         data: input.intake.data,
         nonces: input.nonces(seat, i),
+        ...(input.template ? { template: input.template } : {}),
         ...(input.maxDataChars !== undefined ? { maxDataChars: input.maxDataChars } : {}),
+        ...(input.sampleSeed ? { sample: { seed: input.sampleSeed(seat, i), mime: input.intake.mime } } : {}),
       });
       if (!prompt.ok) return `prompt for ${seat.judgeId}: ${prompt.error}`;
       const p = prompt.value;
@@ -211,14 +220,14 @@ export async function runPipeline(input: PipelineInput): Promise<Result<Judgment
         maxOutputTokens: input.maxOutputTokens ?? 2048,
       });
       const none = { family, verdict: null };
-      if (res.kind !== 'ok') return { member: { ...member, status: res.kind }, verdict: none, canaryEcho: false, truncated: p.truncated };
+      if (res.kind !== 'ok') return { member: { ...member, status: res.kind }, verdict: none, canaryEcho: false, strided: p.sampling === 'stride' };
       if (res.latencyMs !== undefined) member.latencyMs = res.latencyMs;
       const parsed = parseVerdict(res.text, { criterionIds: rubricIds, canary: p.canary, rationaleMaxChars: policy.rationaleMaxChars });
       if (parsed.status === 'abstain') {
-        return { member: { ...member, status: 'abstain' }, verdict: none, canaryEcho: parsed.reason === 'canary_echo', filtered: parsed.reason, truncated: p.truncated };
+        return { member: { ...member, status: 'abstain' }, verdict: none, canaryEcho: parsed.reason === 'canary_echo', filtered: parsed.reason, strided: p.sampling === 'stride' };
       }
       const status = parsed.verdict.overall === 'abstain' ? 'abstain' : 'ok';
-      return { member: { ...member, status, verdict: parsed.verdict }, verdict: { family, verdict: parsed.verdict }, canaryEcho: false, truncated: p.truncated };
+      return { member: { ...member, status, verdict: parsed.verdict }, verdict: { family, verdict: parsed.verdict }, canaryEcho: false, strided: p.sampling === 'stride' };
     }),
   );
   const refused = results.find((r): r is string => typeof r === 'string');
@@ -229,7 +238,8 @@ export async function runPipeline(input: PipelineInput): Promise<Result<Judgment
   const finalScreen: ScreenResult = { flagged: baseScreen.flagged || canarySignals.length > 0, signals: [...baseScreen.signals, ...canarySignals] };
   // A filter abstention could be induced by the seller, so it escalates rather than shrinking the panel.
   const escalate = rs.filter((r) => r.filtered).map((r) => `judge ${r.member.judgeId} output rejected by a filter (${r.filtered})`);
-  if (rs.some((r) => r.truncated)) escalate.push('the judges saw a sample of the deliverable, not all of it');
+  // A seeded sample is recomputable and unpredictable to the seller; only the even-stride fallback escalates.
+  if (rs.some((r) => r.strided)) escalate.push('the judges saw a sample of the deliverable, not all of it');
   const agg = aggregate({ checks: deterministic, rubric: acceptance.rubric, screenFlagged: finalScreen.flagged, verdicts: rs.map((r) => r.verdict), thresholds, escalate });
   return ok({ ...base, screen: finalScreen, panel: { ran: true, members: rs.map((r) => r.member) }, aggregate: agg });
 }
