@@ -26,7 +26,8 @@ import {
   type Result,
   type SettlementEvent,
 } from '@holdback/core';
-import { operationOf, previewSubmission, submissionKeys, submissionsOf, type Operation } from '@holdback/sdk';
+import { commitmentIdOf, operationOf, previewSubmission, submissionKeys, submissionsOf, type Operation } from '@holdback/sdk';
+import type { PolicyContext, RelayPolicy } from './policy.js';
 import type { DryRunSubmission, Settlement, SubmitResult } from '@holdback/settlement';
 import { privateKeyToAccount } from 'viem/accounts';
 import { startupGuards } from './guards.js';
@@ -70,9 +71,10 @@ export interface OperatorOptions {
   log?: (entry: LogEntry) => void;
   /**
    * A relay policy: returns a problem to refuse an operation. Any operator may refuse anything; the
-   * neutrality tests use it to show that a refusal never stops a valid commitment (ADR-0005).
+   * neutrality tests and demo beat 7 use it to show that a refusal never stops a valid commitment
+   * (ADR-0005). `refuseParties` in policy.ts is the stock one.
    */
-  policy?: (op: Operation) => Problem | undefined;
+  policy?: RelayPolicy;
   /** Test only: relay, then drop the connection without answering (a response lost in transit). */
   dropResponses?: boolean;
   now?: () => number;
@@ -436,10 +438,24 @@ export class Operator {
     // Shape first: the throttle reads the signer address, which only a checked body is sure to carry.
     checkShape(dryRun ? placeholderSigned(op) : op);
     this.throttle(`w:${lc(signerOf(op) ?? this.client(ctx))}`, this.o.rateLimit?.writes ?? 0);
-    const refusal = this.o.policy?.(op);
+    const refusal = this.o.policy?.(op, await this.policyContext(op));
     if (refusal) fail(refusal.type, refusal.detail);
     if (dryRun) return this.send(ctx, await this.dryRun(op));
     return this.idempotent(ctx, raw, () => this.relay(ctx, op));
+  }
+
+  /** The parties of the commitment an operation touches: from the operation, else from this node's index. */
+  private async policyContext(op: Operation): Promise<PolicyContext> {
+    const signer = signerOf(op);
+    const out: PolicyContext = signer ? { signer: lc(signer) } : {};
+    if (op.kind === 'offer' || op.kind === 'hold') {
+      const t = op.commitment;
+      const a = t.adjudication;
+      return { ...out, parties: { buyer: lc(t.buyer), seller: lc(t.seller), adjudicators: [a.adjudicator, a.fallbackAdjudicator, a.appealAdjudicator].map(lc) } };
+    }
+    await this.sync();
+    const entry = this.index.get(commitmentIdOf(op));
+    return entry ? { ...out, parties: { buyer: entry.buyer, seller: entry.seller, adjudicators: entry.adjudicators } } : out;
   }
 
   private async idempotent(ctx: Ctx, raw: unknown, handler: (key: string) => Promise<StoredResponse>): Promise<void> {

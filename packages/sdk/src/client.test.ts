@@ -111,6 +111,20 @@ describe('operator failover', () => {
     expect(keys[0]).toBe(keys[1]);
   });
 
+  it("an operator's policy refusal (403) is not final: the SDK fails over, then submits directly under the same key (T-018)", async () => {
+    const keys: string[] = [];
+    const policy = await stub((req, _b, res) => {
+      keys.push(req.headers['idempotency-key'] as string);
+      json(res, 403, { type: 'member_not_admitted', title: 'member_not_admitted', status: 403, detail: 'operator policy: op-1 does not relay for this party' });
+    });
+    const { settlement, calls } = directSettlement(view('Delivered'));
+    const hb = new Holdback({ operators: [policy, await offline()], settlement });
+    const r = await hb.submit(trigger, { idempotencyKey: 'k-policy' });
+    expect([r.via, r.state.escrowState]).toEqual(['direct', 'Delivered']);
+    expect(keys).toEqual(['k-policy']);
+    expect(calls.map((c) => c.options?.idempotencyKey)).toEqual(['k-policy']);
+  });
+
   it('falls back to direct submission when every operator fails, with the same idempotency key', async () => {
     const { settlement, calls } = directSettlement();
     const hb = new Holdback({ operators: [await offline(), await offline()], settlement });
