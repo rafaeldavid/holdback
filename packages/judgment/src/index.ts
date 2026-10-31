@@ -9,7 +9,7 @@ export * from './normalize.js';
 export * from './pipeline.js';
 export * from './prompt.js';
 export * from './panel.js';
-export * from './providers/registry.js';
+export * from './providers/index.js';
 export * from './sample.js';
 export * from './screen.js';
 export * from './terms.js';

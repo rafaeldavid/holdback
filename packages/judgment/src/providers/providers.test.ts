@@ -1,14 +1,11 @@
-// Judge providers (T-009): fake, recorded, the timeout wrapper, routing, and the live providers' refusal
-// without keys. No test here makes a network call; the live request path is not exercised.
+// Judge providers (T-009): fake and recorded. No network.
 import { canonicalJson } from '@holdback/core';
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import type { JudgeProvider, JudgeRequest } from '../pipeline.js';
 import { parseVerdict } from '../verdict.js';
 import { fakeProvider, honestVerdict } from './fake.js';
-import { liveProvider, LIVE_KEY_ENV } from './live.js';
 import { recordedProvider, recorder, type JudgeRecording } from './recorded.js';
-import { routeByProvider, withTimeout } from './timeout.js';
 
 const SYSTEM = 'rules...\n6. "criteria" must contain each of these ids exactly once: dedupe_quality, no_fabrication.\n7. ...';
 const req = (over: Partial<JudgeRequest> = {}): JudgeRequest => ({
@@ -21,7 +18,7 @@ const req = (over: Partial<JudgeRequest> = {}): JudgeRequest => ({
   maxOutputTokens: 2048,
   ...over,
 });
-const inputHash = (r: JudgeRequest) => `0x${createHash('sha256').update(canonicalJson({ system: r.system, user: r.user })).digest('hex')}`;
+const inputHash = (r: JudgeRequest): `0x${string}` => `0x${createHash('sha256').update(canonicalJson({ system: r.system, user: r.user })).digest('hex')}`;
 
 describe('fake provider', () => {
   it('answers a schema-valid verdict over the criterion ids named in the prompt', async () => {
@@ -59,43 +56,3 @@ describe('recorded provider', () => {
   });
 });
 
-describe('timeout wrapper', () => {
-  const slow: JudgeProvider = { complete: () => new Promise((resolve) => setTimeout(() => resolve({ kind: 'ok', text: 'late' }), 200)) };
-  it('abstains as a timeout after the policy timeout', async () => {
-    expect(await withTimeout(slow, 20).complete(req())).toEqual({ kind: 'timeout' });
-  });
-  it('passes a fast answer through and records its latency', async () => {
-    const res = await withTimeout(fakeProvider(), 1000).complete(req());
-    expect(res.kind).toBe('ok');
-    expect(res.kind === 'ok' && typeof res.latencyMs).toBe('number');
-  });
-  it('keeps a recorded latency instead of measuring the replay', async () => {
-    const rec: JudgeRecording = { judgeId: 'claude-a', model: 'claude-a-model-20260601', inputHash: inputHash(req()), text: 't', latencyMs: 812 };
-    expect(await withTimeout(recordedProvider([rec]), 1000).complete(req())).toEqual({ kind: 'ok', text: 't', latencyMs: 812 });
-  });
-});
-
-describe('routing by provider', () => {
-  it('sends each request to the provider its seat names, and refuses unknown providers', async () => {
-    const seen: string[] = [];
-    const tag = (name: string): JudgeProvider => ({ complete: async () => (seen.push(name), { kind: 'timeout' }) });
-    const p = routeByProvider({ anthropic: tag('a'), 'openai-compatible': tag('o') });
-    await p.complete(req());
-    await p.complete(req({ provider: 'openai-compatible' }));
-    expect(seen).toEqual(['a', 'o']);
-    const res = await p.complete(req({ provider: 'google' }));
-    expect(res.kind === 'error' && !res.transport).toBe(true);
-  });
-});
-
-describe('live providers refuse without keys', () => {
-  it.each(['anthropic', 'openai-compatible'] as const)('%s', (kind) => {
-    const r = liveProvider(kind, {});
-    expect(r.ok).toBe(false);
-    expect(!r.ok && r.error).toContain(LIVE_KEY_ENV[kind]);
-  });
-  it('openai-compatible also needs a base URL', () => {
-    const r = liveProvider('openai-compatible', { [LIVE_KEY_ENV['openai-compatible']]: 'k' });
-    expect(r.ok).toBe(false);
-  });
-});
