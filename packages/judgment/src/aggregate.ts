@@ -4,7 +4,8 @@
 //   if a check ran out of its work budget                 -> ESCALATE (no panel)
 //   if all checks passed and rubric is empty              -> ACCEPT  (no panel; a screen flag adds a reason, D17)
 //   verdicts = run panel
-//   if screen.flagged or any verdict.injectionSuspected   -> ESCALATE
+//   if screen.flagged or any verdict.injectionSuspected   -> ESCALATE at first instance (primary, fallback);
+//                                                            at the appeal, keep it as a reason and go on (L3-1)
 //   if a judge's output was rejected by a filter, or the judges saw a sample  -> ESCALATE
 //   valid = verdicts where overall != "abstain"
 //   if len(valid) < policy.minValid or len(valid) == 0    -> ESCALATE
@@ -19,7 +20,7 @@ import type { JudgeVerdict } from '@holdback/core';
 import type { CheckOutcome } from './checks/index.js';
 import type { Fraction, JudgmentRubric } from './terms.js';
 
-export const AGGREGATION_VERSION = 'agg-2';
+export const AGGREGATION_VERSION = 'agg-3';
 /** Cross-family agreement required for accept (threat T8). Fixed by the rule, not by policy. */
 export const MIN_PASS_FAMILIES = 2;
 export const SCREEN_FLAGGED_REASON = 'screen flagged; see screen.signals';
@@ -42,6 +43,12 @@ export interface AggregateInput {
   inconclusive?: readonly string[];
   rubric: JudgmentRubric;
   screenFlagged: boolean;
+  /**
+   * The appeal panel (ADR-0021 amendment, L3-1). There is no instance after it, so a flag there does
+   * not escalate (which would mean no decision and the default outcome); it stays in the reasons and
+   * the panel decides by its supermajority. Never set for the primary or the fallback.
+   */
+  appeal?: boolean;
   verdicts: readonly PanelVerdict[];
   thresholds: Thresholds;
   /** Reasons that force escalation once the panel ran: filter abstentions, sampled data. */
@@ -112,21 +119,26 @@ export function aggregate(input: AggregateInput): Aggregate {
     passFamilies,
   };
 
-  if (input.screenFlagged) return { decision: 'escalate', ...stats, reasons: ['the screen flagged the delivery'] };
-  if (parsed.some((v) => v.verdict.injectionSuspected)) return { decision: 'escalate', ...stats, reasons: ['a judge suspected injection'] };
+  const injection = parsed.some((v) => v.verdict.injectionSuspected);
+  if (!input.appeal) {
+    if (input.screenFlagged) return { decision: 'escalate', ...stats, reasons: ['the screen flagged the delivery'] };
+    if (injection) return { decision: 'escalate', ...stats, reasons: ['a judge suspected injection'] };
+  }
+  // At the appeal the flags stay in the record next to the panel's reason (L3-1).
+  const flags = [...(input.screenFlagged ? [SCREEN_FLAGGED_REASON] : []), ...(injection ? ['a judge suspected injection'] : [])];
   if (input.escalate?.length) return { decision: 'escalate', ...stats, reasons: input.escalate.slice(0, 5).map(cap) };
   if (n < thresholds.minValid || n === 0) {
-    return { decision: 'escalate', ...stats, reasons: [`${n} valid verdicts; the policy needs ${Math.max(1, thresholds.minValid)}`] };
+    return { decision: 'escalate', ...stats, reasons: [`${n} valid verdicts; the policy needs ${Math.max(1, thresholds.minValid)}`, ...flags] };
   }
 
   const scoreOk = rubric.criteria.length === 0 || sumWS * 100 >= rubric.passThreshold * totalWeight * n;
   const acceptShare = meets(pass.length, thresholds.acceptSupermajority, n) && pass.length > fail.length;
   if (acceptShare && passFamilies.length >= MIN_PASS_FAMILIES && scoreOk) {
-    return { decision: 'accept', ...stats, reasons: [cap(`${pass.length} of ${n} valid verdicts pass, from ${passFamilies.length} families, score at or above ${rubric.passThreshold / 100}`)] };
+    return { decision: 'accept', ...stats, reasons: [cap(`${pass.length} of ${n} valid verdicts pass, from ${passFamilies.length} families, score at or above ${rubric.passThreshold / 100}`), ...flags] };
   }
   if (meets(fail.length, thresholds.rejectSupermajority, n) && fail.length > pass.length) {
-    return { decision: 'reject', ...stats, reasons: [cap(`${fail.length} of ${n} valid verdicts fail`)] };
+    return { decision: 'reject', ...stats, reasons: [cap(`${fail.length} of ${n} valid verdicts fail`), ...flags] };
   }
   const why = !acceptShare ? 'no supermajority' : passFamilies.length < MIN_PASS_FAMILIES ? `pass verdicts from ${passFamilies.length} family` : 'score below the pass threshold';
-  return { decision: 'escalate', ...stats, reasons: [cap(`${pass.length} pass, ${fail.length} fail of ${n} valid: ${why}`)] };
+  return { decision: 'escalate', ...stats, reasons: [cap(`${pass.length} pass, ${fail.length} fail of ${n} valid: ${why}`), ...flags] };
 }

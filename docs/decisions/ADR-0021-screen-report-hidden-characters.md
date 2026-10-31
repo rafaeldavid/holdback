@@ -1,6 +1,6 @@
 # ADR-0021: Screen report and hidden-character check
 
-- **Status:** Accepted, 2026-10-30 (D17)
+- **Status:** Accepted, 2026-10-30 (D17); amended 2026-10-31 (D25: the appeal decides a flagged case)
 - **Date:** 2026-10-30
 - **Raised by:** the T-008 red team (PR #21, finding 9) and an independent research pass (Fable, max effort). It amends ADR-0006 and changes T-007, T-008 and T-010. The panel-threshold question from the same research is not decided here.
 
@@ -50,6 +50,15 @@
   - `neutrality.seller-multilingual-text`: Persian with ZWNJ, ❤️ and 🏴󠁧󠁢󠁥󠁮󠁧󠁿 settle without a false reject.
 - **Demo:** the injection scene can show "a hidden payload was stripped before your agent read it", at no model cost.
 - **Agents that submit directly** without the SDK still get the public signed judgment record and its screen signals. Surfacing them is the agent's job.
+
+## Amendment, 2026-10-31: the appeal decides a flagged case (L3-1, D25)
+
+- **The gap (measured in code; review finding L3-1).** Aggregation escalated every flagged case at every role, and the adjudicator service turns an appeal-role `escalate` after an escalation into no decision. A screen-flagged delivery therefore escalated at the primary, escalated again at the appeal, and reached the default outcome at `appealDecideBy`: the buyer refunded and the seller compensated from the appeal adjudicator's bond. An injecting seller was paid for injecting. The context line above ("an escalated case drifts to the default outcome") named the same path for the empty-rubric case.
+- **Rule.** At the **appeal** role, a screen flag or a judge's `injectionSuspected` no longer forces escalation. The flag stays in the signed record: `screen.flagged` and `screen.signals` as before, and the aggregate reasons gain "screen flagged; see screen.signals" and, when a judge flagged it, "a judge suspected injection". The appeal panel (five seats, at least three families where the registry has them, `minValidAppeal`, the policy's supermajorities) then decides by the normal rule: accept only with the accept supermajority from two or more families and a score at or above the threshold; reject with the reject supermajority; otherwise escalate. Filter abstentions, sampled data and too few valid verdicts still escalate.
+- **Unchanged.** The primary and the fallback still escalate on any flag (FR-15). An appeal accept is never automatic: it needs the same cross-family supermajority as any accept, from a larger panel.
+- **Why not reject on a flag at the appeal.** The screen is uncalibrated (see Context) and would refund against the seller on a rule neither party wrote; the five-judge panel reads the work.
+- **Version.** `AGGREGATION_VERSION` moves from `agg-2` to `agg-3`; policies bind it, so a policy written for `agg-2` is refused at judging (`apps/adjudicator/src/policy.ts`).
+- **Tests.** `aggregate.test.ts` ("aggregate: the appeal decides a flagged case (L3-1)", the oracle property), `pipeline.test.ts` ("L3-1: on the appeal template …"), `apps/adjudicator/src/service.test.ts` ("L3-1: a screen-flagged delivery escalates at the primary, and the appeal panel signs a reject Decision …", "L3-1: the fallback still escalates …"). Demo beat 6a shows it on SimChain.
 
 ## Litmus tests
 

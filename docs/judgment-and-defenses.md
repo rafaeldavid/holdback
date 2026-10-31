@@ -62,7 +62,8 @@ Neither party, nor the adjudicator after seeing the delivery, can steer which mo
 if any required deterministic check failed            -> REJECT  (no panel)
 if all checks passed and rubric is empty              -> ACCEPT  (no panel; add reason "screen flagged; see screen.signals" if flagged)
 verdicts = run panel
-if screen.flagged or any verdict.injectionSuspected   -> ESCALATE
+if screen.flagged or any verdict.injectionSuspected   -> ESCALATE at the primary and the fallback;
+                                                         at the appeal, add the flag to the reasons and continue
 valid = verdicts where overall != "abstain"
 if len(valid) < policy.minValid                       -> ESCALATE
 score = weighted mean of criterion scores across valid verdicts, in integer hundredths (0–400), sealed checks capped at rulebook weight
@@ -72,6 +73,8 @@ if pass * accept.den >= accept.num * len(valid) and pass > fail
 if fail * reject.den >= reject.num * len(valid) and fail > pass -> REJECT
 otherwise                                             -> ESCALATE   (ties escalate)
 ```
+
+**The appeal decides a flagged case** (ADR-0021 amendment, D25, review finding L3-1). There is no instance after the appeal, and an escalation there means no decision, so the default outcome would pay an injecting seller from the appeal bond. At the appeal role the flag stays in the signed record and the five-judge panel decides by its supermajority. It never accepts without the cross-family accept supermajority (FR-15). Aggregation version `agg-3`.
 
 Thresholds are exact fractions compared by cross-multiplication, never by division or floats (ADR-0022). A policy must satisfy `2 × numerator > denominator`, so accept and reject can never both hold. The record carries `passCount`, `failCount` and `validCount`, not shares.
 
