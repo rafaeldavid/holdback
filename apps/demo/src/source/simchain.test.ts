@@ -122,6 +122,70 @@ describe('SimChain source (T-012 beat runner)', () => {
     expect(row(t, 'after settlement', 'benchA')?.reserved?.amount).toBe('0');
   });
 
+  it('labels scripted judges as scripted, with no task IDs in the source line (T-019)', () => {
+    for (const t of byBeat.values()) {
+      expect(t.mode).toBe('scripted');
+      expect(t.source.note).not.toMatch(/\bT-\d+/);
+      expect(t.source.note).toMatch(/scripted agents over the operator API; the adjudicator service with scripted judges/);
+    }
+  });
+
+  it('gives each job its own commitment ID and seed commitment (T-019)', () => {
+    const jobs = [1, 5, 6, 10].map((b) => beat(b));
+    expect(new Set(jobs.map((t) => t.commitmentId)).size).toBe(4);
+    expect(new Set(jobs.map((t) => only(t, 'acceptance')[0]?.seedCommitment)).size).toBe(4);
+    // Beats 1 to 4 are one job: the hold in beat 1 is the hold judged in beat 3.
+    expect(beat(1).commitmentId).toBe(beat(3).commitmentId);
+  });
+
+  it('beat 3: one judge prompt and its verdict, from the panel that sat (T-019)', () => {
+    const t = beat(3);
+    const [jp, ...more] = only(t, 'judge-prompt');
+    expect(more).toEqual([]);
+    const panel = only(t, 'panel')[0]!;
+    expect(jp).toMatchObject({ actor: 'benchA', seat: 1, model: panel.judges[0]!.model, family: panel.judges[0]!.family, scripted: true });
+    expect(jp!.inputHash).toMatch(/^0x[0-9a-f]{64}$/);
+    expect(jp!.prompt.system[0]).toMatch(/You are one judge/);
+    expect(jp!.prompt.user.head.some((l) => l.startsWith('<<<BEGIN UNTRUSTED DATA'))).toBe(true);
+    expect(jp!.prompt.user.tail.at(-1)).toMatch(/^<<<END UNTRUSTED DATA/);
+    expect(jp!.prompt.user.omitted).toBeGreaterThan(1000);
+    expect(jp!.verdict?.overall).toBe('pass');
+    expect(jp!.verdict?.criteria.map((c) => c.id)).toEqual(['no_fabrication', 'notes', 'dedupe_quality']);
+  });
+
+  it('beat 3: judging is stamped by the adjudicator service, and the decision says how long it took (T-019)', () => {
+    const t = beat(3);
+    const checks = only(t, 'checks')[0]!;
+    const panel = only(t, 'panel')[0]!;
+    const decision = only(t, 'decision')[0]!;
+    expect(checks.atMs).toBeLessThanOrEqual(panel.atMs);
+    expect(panel.atMs).toBeLessThanOrEqual(decision.atMs);
+    const delivered = only(beat(2), 'delivery')[0]!;
+    expect(checks.atMs).toBeGreaterThanOrEqual(delivered.atMs);
+    expect(decision.timing?.afterDeliveryMs).toBe(decision.atMs - delivered.atMs);
+    expect(decision.timing?.judgingMs).toBeGreaterThanOrEqual(0);
+    expect(decision.timing?.judgingMs).toBeLessThanOrEqual(decision.timing!.afterDeliveryMs);
+    expect(decision.timing?.panelMs).toBeGreaterThanOrEqual(0);
+    // Beat 5 judged without a panel: the decision still carries its judging time.
+    expect(only(beat(5), 'decision')[0]?.timing?.panelMs).toBeUndefined();
+  });
+
+  it('ends every job with both parties holding the same record, fetched through the SDK (D26)', () => {
+    for (const b of [1, 4, 5, 6, 10]) {
+      const t = beat(b);
+      const r = only(t, 'shared-record');
+      expect(r, `beat ${b}`).toHaveLength(1);
+      expect(t.events.at(-1)?.kind, `beat ${b}`).toBe('shared-record');
+      expect(r[0]!.match, `beat ${b}`).toBe(true);
+      expect(r[0]!.parties.map((p) => p.who)).toEqual(['buyer', 'seller']);
+      expect(r[0]!.receipts).toBe(r[0]!.events);
+    }
+    for (const b of [2, 3]) expect(only(beat(b), 'shared-record')).toEqual([]);
+    expect(only(beat(4), 'shared-record')[0]?.judgmentRecord).toMatch(/^0x[0-9a-f]{64}$/);
+    expect(only(beat(4), 'shared-record')[0]?.decision).toMatch(/^0x[0-9a-f]{64}$/);
+    expect(only(beat(10), 'shared-record')[0]?.judgmentRecord).toBeUndefined();
+  });
+
   it('conserves money and keeps measured times in order', () => {
     for (const t of byBeat.values()) {
       const sums = only(t, 'balances').map((b) => total(b.rows));
