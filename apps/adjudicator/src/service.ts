@@ -27,7 +27,7 @@ import {
   type Result,
   type TokenAmount,
 } from '@holdback/core';
-import { ContentKey, encodePublicKey, encryptionKeyPairFromSecretKey, open as openContent, unwrapKey, wrapKey, wrapKeyForRecipients } from '@holdback/core/crypto';
+import { ContentKey, decodePublicKey, encodePublicKey, encryptionKeyPairFromSecretKey, open as openContent, unwrapKey, wrapKey, wrapKeyForRecipients } from '@holdback/core/crypto';
 import { intake, panelPlan, runPipeline, type IntakeError, type JudgeProvider, type JudgmentDraft, type LoadedRegistry } from '@holdback/judgment';
 import { concat, keccak256, stringToBytes, toBytes, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
@@ -67,6 +67,24 @@ export interface RunReport {
 
 type Outcome = { decision: Decision; record: Judgment } | { decision: null; record: Judgment };
 
+interface Preflight {
+  policy: AdjudicatorPolicy;
+  envelope: EncryptedKey;
+  seed: Hex32;
+  beacon?: NonNullable<Decision['beacon']>;
+  buyerKey: Uint8Array;
+  /** Absent for the appeal role, which cannot escalate. */
+  appealKey?: Uint8Array;
+}
+
+interface Judged {
+  record: Judgment;
+  /** null: an inconclusive appeal panel after an escalation; nothing is signed. */
+  outcome: DecisionOutcome | null;
+  contentKey?: ContentKey;
+  published: boolean;
+}
+
 /** keccak256 of the RFC 8785 JSON of the record without recordHash, signature and recordUri. */
 export function recordHashOf(record: Omit<Judgment, 'recordHash' | 'signature'> & Partial<Judgment>): Hex32 {
   const body: Partial<Judgment> = { ...record };
@@ -83,8 +101,8 @@ export class Adjudicator {
   readonly address: Address;
   readonly #cfg: AdjudicatorConfig;
   readonly #account;
-  /** Computed decisions by commitment|role|attempt: resubmitted unchanged, never recomputed. */
-  readonly #done = new Map<string, Outcome>();
+  /** Judged records by commitment|role|attempt, kept the moment the panel returns (no re-roll). */
+  readonly #judged = new Map<string, Judged>();
 
   constructor(cfg: AdjudicatorConfig) {
     this.#cfg = cfg;
@@ -182,51 +200,87 @@ export class Adjudicator {
     return check.ok ? ok(policy) : err(check.error);
   }
 
-  /** Judges one task and signs its Decision (or returns the refusal). Idempotent per (commitment, role, attempt). */
+  /**
+   * Judges one task and signs its Decision (or returns the refusal). Idempotent per (commitment, role,
+   * attempt), and never re-rolls: everything that can fail is checked before any judge is called, and
+   * the judged record is kept the moment the panel returns, so a retry after a later failure (record
+   * publication, submission) only publishes, wraps and signs again. It never calls the judges twice.
+   */
   async decideTask(task: DecisionTask): Promise<Result<Outcome, Problem>> {
     const key = `${task.commitment.id}|${task.role}|${task.attempt}`;
-    const done = this.#done.get(key);
-    if (done) return ok(done);
-    const r = await this.#decide(task);
-    if (r.ok) this.#done.set(key, r.value);
-    return r;
+    const pre = await this.#preflight(task);
+    if (!pre.ok) return pre;
+    let judged = this.#judged.get(key);
+    if (!judged) {
+      const r = await this.#judge(task, pre.value);
+      if (!r.ok) return r;
+      judged = r.value;
+    }
+    if (!judged.published) {
+      try {
+        await this.#cfg.settlement.publishRecord(judged.record);
+      } catch (e) {
+        return err(problem('adjudicator_unavailable', `judgment record publication failed (${String((e as Error).message).slice(0, 120)}); retrying without re-judging`));
+      }
+      judged.published = true;
+    }
+    // Signing is deterministic (RFC 6979), so a retry signs the identical Decision.
+    if (judged.outcome === null) return ok({ decision: null, record: judged.record });
+    return ok({ decision: await this.#sign(task, pre.value, judged), record: judged.record });
   }
 
-  async #decide(task: DecisionTask): Promise<Result<Outcome, Problem>> {
+  /** Every check that can refuse the task, before any judge is called or anything is published. */
+  async #preflight(task: DecisionTask): Promise<Result<Preflight, Problem>> {
     const { commitment, role, attempt } = task;
     const id = commitment.id;
     const policyR = await this.#boundPolicy(task);
     if (!policyR.ok) return policyR;
-    const policy = policyR.value;
     if (this.#cfg.registry.hash !== commitment.adjudication.registryHash) {
       return err(problem('registry_mismatch', `this adjudicator's registry hashes to ${this.#cfg.registry.hash}; the commitment binds ${commitment.adjudication.registryHash}`));
     }
-
+    // Key-wrapping prerequisites: the buyer's key (accept) and, for roles that may escalate, the appeal adjudicator's.
+    let buyerKey: Uint8Array;
+    try {
+      buyerKey = decodePublicKey(commitment.buyerEncryptionPublicKey);
+    } catch {
+      return err(problem('invalid_terms', 'the buyer encryption key in the commitment is not a valid public key'));
+    }
+    let appealKey: Uint8Array | undefined;
+    if (role !== 'appeal') {
+      const next = await this.#cfg.settlement.registration(commitment.adjudication.appealAdjudicator);
+      try {
+        if (!next) throw new Error('missing');
+        appealKey = decodePublicKey(next.encryptionPublicKey);
+      } catch {
+        return err(problem('adjudicator_unavailable', 'the appeal adjudicator has no usable registration, so an escalation could not carry its key; refusing before judging'));
+      }
+    }
     // The key this adjudicator may use (ADR-0020).
     const envelope: EncryptedKey | undefined =
       role === 'primary' ? task.delivery.encryptedKeys.find((k) => k.recipient.toLowerCase() === this.address) : task.releasedKey;
     if (!envelope || envelope.recipient.toLowerCase() !== this.address) {
       return err(problem('invalid_state', role === 'primary' ? 'no envelope for this adjudicator in the delivery' : `no key released to the ${role} adjudicator; it does not read the work before takeover`));
     }
-
     // The seed for the role (ADR-0018).
-    let seed: Hex32;
-    let beacon: Decision['beacon'];
-    if (role === 'primary') seed = this.seedFor(id);
-    else {
-      const fixedAt = task.roundFixedAt ?? (role === 'fallback' ? commitment.timing.judgeBy : undefined);
-      if (!fixedAt) return err(problem('seed_mismatch', 'no settlement time fixes the beacon round for this appeal'));
-      const round = roundFor(role, fixedAt);
-      const value = await this.#cfg.settlement.randomness.value(round);
-      if (!value) return err(problem('seed_mismatch', `beacon round ${round} is not published yet; waiting (no substitute source)`));
-      seed = panelSeed(id, role, attempt, value);
-      beacon = { source: this.#cfg.settlement.randomness.kind, round, value };
-    }
+    if (role === 'primary') return ok({ policy: policyR.value, envelope, seed: this.seedFor(id), buyerKey, ...(appealKey ? { appealKey } : {}) });
+    const fixedAt = task.roundFixedAt ?? (role === 'fallback' ? commitment.timing.judgeBy : undefined);
+    if (!fixedAt) return err(problem('seed_mismatch', 'no settlement time fixes the beacon round for this appeal'));
+    const round = roundFor(role, fixedAt);
+    const value = await this.#cfg.settlement.randomness.value(round);
+    if (!value) return err(problem('seed_mismatch', `beacon round ${round} is not published yet; waiting (no substitute source)`));
+    const beacon = { source: this.#cfg.settlement.randomness.kind, round, value };
+    return ok({ policy: policyR.value, envelope, seed: panelSeed(id, role, attempt, value), beacon, buyerKey, ...(appealKey ? { appealKey } : {}) });
+  }
 
+  /** Intake and the panel. The only step that calls judges; its result is cached by the caller. */
+  async #judge(task: DecisionTask, pre: Preflight): Promise<Result<Judged, Problem>> {
+    const { commitment, role } = task;
+    const id = commitment.id;
+    const { policy, seed, beacon } = pre;
     let contentKey: ContentKey | undefined;
     const ciphertext = await this.#cfg.settlement.ciphertext(task.delivery.ciphertext.uri);
     const intaken = await intake({
-      delivery: { ...task.delivery, encryptedKeys: [envelope] },
+      delivery: { ...task.delivery, encryptedKeys: [pre.envelope] },
       ciphertext,
       recipient: this.address,
       format: commitment.deliverable.format,
@@ -243,7 +297,7 @@ export class Adjudicator {
 
     let draft: Pick<JudgmentDraft, 'intake' | 'deterministic' | 'screen' | 'panel' | 'aggregate'>;
     if (!intaken.ok) {
-      const mapped = mapIntakeError(intaken.error, role);
+      const mapped = mapIntakeError(intaken.error);
       if (!mapped.ok) return mapped;
       draft = {
         intake: { plaintextHashVerified: false, mime: task.delivery.plaintextMime, bytes: 0, normalized: false },
@@ -295,9 +349,14 @@ export class Adjudicator {
     let outcome: DecisionOutcome | null = draft.aggregate.decision;
     if (appeal && outcome === 'escalate') outcome = task.firstOutcome ?? null; // party appeal: first decision stands; after escalation: no decision
     const record = await this.#record(task, { ...draft, panel: { ...panelBase, ran: draft.panel.ran, members: draft.panel.members } });
-    await this.#cfg.settlement.publishRecord(record);
-    if (outcome === null) return ok({ decision: null, record });
+    return ok({ record, outcome, published: false, ...(contentKey ? { contentKey } : {}) });
+  }
 
+  /** Wraps the keys and signs. Cannot fail on inputs: the preflight checked every prerequisite. */
+  async #sign(task: DecisionTask, pre: Preflight, judged: Judged): Promise<Decision> {
+    const { commitment, role, attempt } = task;
+    const id = commitment.id;
+    const outcome = judged.outcome!;
     const unsigned: Omit<Decision, 'signature'> = {
       type: 'Decision',
       commitmentId: id,
@@ -305,23 +364,20 @@ export class Adjudicator {
       adjudicator: this.address,
       role,
       outcome,
-      seed,
+      seed: pre.seed,
       policyHash: commitment.adjudication.policyHash,
       registryHash: commitment.adjudication.registryHash,
-      judgmentRecordHash: record.recordHash,
+      judgmentRecordHash: judged.record.recordHash,
       nonce: keccak256(concat([toBytes(id), stringToBytes(`holdback.decision-nonce.v1:${role}:${attempt}`)])),
       expiresAt: task.deadline,
-      ...(beacon ? { beacon } : {}),
-      ...(appeal && task.appealGround ? { appealGround: task.appealGround } : {}),
+      ...(pre.beacon ? { beacon: pre.beacon } : {}),
+      ...(role === 'appeal' && task.appealGround ? { appealGround: task.appealGround } : {}),
     };
-    if (outcome === 'accept' && contentKey) unsigned.keyForBuyer = wrapKey(contentKey, commitment.buyerEncryptionPublicKey);
-    if (outcome === 'escalate') {
-      const next = await this.#cfg.settlement.registration(commitment.adjudication.appealAdjudicator);
-      if (!next || !contentKey) return err(problem('adjudicator_unavailable', 'cannot wrap the content key for the appeal adjudicator'));
-      unsigned.encryptedKeys = wrapKeyForRecipients(contentKey, [{ recipient: commitment.adjudication.appealAdjudicator, publicKey: next.encryptionPublicKey }]);
+    if (outcome === 'accept' && judged.contentKey) unsigned.keyForBuyer = wrapKey(judged.contentKey, pre.buyerKey);
+    if (outcome === 'escalate' && judged.contentKey && pre.appealKey) {
+      unsigned.encryptedKeys = wrapKeyForRecipients(judged.contentKey, [{ recipient: commitment.adjudication.appealAdjudicator, publicKey: pre.appealKey }]);
     }
-    const decision: Decision = { ...unsigned, signature: await signMessage(this.#cfg.signingKey, this.#cfg.domain, unsigned) };
-    return ok({ decision, record });
+    return { ...unsigned, signature: await signMessage(this.#cfg.signingKey, this.#cfg.domain, unsigned) };
   }
 
   async #record(task: DecisionTask, draft: Pick<Judgment, 'intake' | 'deterministic' | 'screen' | 'panel' | 'aggregate'>): Promise<Judgment> {
@@ -345,17 +401,18 @@ export class Adjudicator {
 }
 
 /**
- * Intake failures (T-008 Handoff). The seller's faults reject (or, for a key the primary cannot open,
- * escalate so the appeal adjudicator checks its own envelope); a ciphertext that does not match the
- * delivery hash is the store's fault and is retried, never decided.
+ * Intake failures (T-008 Handoff). The seller's faults reject without a panel. Everything else is
+ * refused before any record is published: a key this adjudicator cannot open (the fallback takes over
+ * at judgeBy, or the default applies) and a stored ciphertext that does not match the delivery (the
+ * store, not the seller, may be at fault; retried).
  */
-export function mapIntakeError(e: IntakeError, role: DecisionTask['role']): Result<DecisionOutcome, Problem> {
+export function mapIntakeError(e: IntakeError): Result<DecisionOutcome, Problem> {
   switch (e.code) {
     case 'ciphertext_hash_mismatch':
       return err(problem('invalid_state', 'the stored ciphertext does not match the delivery; retrying later'));
     case 'no_key_for_recipient':
     case 'key_unwrap_failed':
-      return role === 'appeal' ? err(problem('invalid_state', `appeal adjudicator cannot open its key (${e.code})`)) : ok('escalate');
+      return err(problem('invalid_state', `this adjudicator cannot open its key (${e.code}); refusing without a record`));
     default:
       return ok('reject');
   }

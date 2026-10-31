@@ -223,6 +223,7 @@ describe('primary decision on the demo CSV (about 0.5 MB)', () => {
   it('rejects without the panel when the delivered plaintext does not match its hash', async () => {
     const s = new TestSettlement();
     const a = bench(A, 'bench-a', s);
+    bench(C, 'bench-c', s);
     const c = makeCommitment({ primary: A.address, fallback: B.address, appeal: C.address, policyHash: policyHashOf(a.adj.policy), registryHash: reg.hash, buyer: BUYER, seller: SELLER });
     s.offer(c);
     await a.adj.runOnce();
