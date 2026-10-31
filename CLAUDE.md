@@ -41,7 +41,9 @@ Holdback extends the set of deals agents can safely make with each other. It doe
 
 ## Design principle: agreed terms bind; the buyer carries the burden of acceptance
 
-The seller offers terms; the buyer agrees to them or doesn't. Once agreed, the terms bind whether or not they turn out favourable. Judges check the work against the agreed terms only, never their fairness. A buyer who wants protection writes it into the acceptance checks and rubric before agreeing. After an accept, a buyer who appeals must show the work fails the terms; otherwise the first decision stands. The burden shifts only when a party games the judgment itself (injection, forcing an unreadable delivery): that is not a term anyone agreed to (Rafa, 2026-10-31; D28).
+The seller offers terms; the buyer agrees to them or doesn't. Once agreed, the terms bind whether or not they turn out favourable. Judges check the work against the agreed terms only, never their fairness. A buyer who wants protection writes it into the acceptance checks and rubric before agreeing. After an accept, a buyer who appeals must show the work fails the terms; otherwise the first decision stands (Rafa, 2026-10-31; D28).
+
+It is not the protocol's job to decide whether terms are favourable or a party is malicious. As in contract law, the parties negotiate dispute clauses (what happens when the adjudicator is involved: on a screen flag, an unreadable delivery, an inconclusive panel, who bears fees). The protocol supplies **default rules** that apply when the terms are silent (today's D27 rules), and keeps **mandatory rules** no agreement can waive: the hard rules and the three litmus tests. Clubs may narrow the clauses in their rulebook; adjudicators may decline clauses they won't run (D29, after the demo).
 
 ## Hard rules
 
