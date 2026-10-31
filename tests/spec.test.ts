@@ -188,7 +188,7 @@ describe('spec/', () => {
   });
 
   // ADR-0017 §9, review of PR 23 item 3: every free-text string is either marked untrusted or constrained.
-  // A string with no format, pattern, enum or const can carry anything, so a consumer must treat it as
+  // A string with no date-time format, pattern, enum or const can carry anything, so a consumer must treat it as
   // content, never instructions. Identifiers get a pattern instead. The allowlist is empty; adding to
   // it needs a reason here and a note in the PR.
   const ALLOWED_UNMARKED: string[] = [];
@@ -199,7 +199,8 @@ describe('spec/', () => {
     const walk = (node: any, path: string, file: string): void => {
       if (Array.isArray(node)) return node.forEach((v, i) => walk(v, `${path}/${i}`, file));
       if (node === null || typeof node !== 'object') return;
-      const free = node.type === 'string' && !['format', 'pattern', 'enum', 'const'].some((k) => k in node);
+      // Only date-time constrains a string's content; a uri can still carry prose (second review, item 3).
+      const free = node.type === 'string' && node.format !== 'date-time' && !['pattern', 'enum', 'const'].some((k) => k in node);
       if (free && node['x-holdback-untrusted'] !== true && !ALLOWED_UNMARKED.includes(`${file}${path}`)) unmarked.push(`${file}${path}`);
       for (const [k, v] of Object.entries(node)) walk(v, `${path}/${k}`, file);
     };
@@ -452,6 +453,7 @@ describe('spec/', () => {
       ['an empty cursor', 'page', 'page', (p) => (p.nextCursor = '')],
       ['a Dispute without a bond', 'messages', 'messages.dispute', (d) => delete d.bond],
       ['a Dispute with an extra field', 'messages', 'messages.dispute', (d) => (d.extra = 1)],
+      ['a Dispute with keys for fewer than three adjudicators', 'messages', 'messages.dispute', (d) => d.encryptedKeys.pop()],
       ['a zero disputeJudgeSec', 'commitment', 'commitment', (c) => { c.settlement.mode = 'optimistic'; Object.assign(c.timing, { disputeBy: '2026-11-06T17:00:00Z', disputeJudgeSec: 0, disputeFallbackSec: 86400 }); }],
       ['an unknown randomness source', 'club', 'club', (c) => (c.rulebook.randomness = { source: 'dice' })],
       ['a MutualSettlement with an extra field', 'messages', 'messages.mutual-settlement', (m) => (m.extra = 1)],
@@ -466,6 +468,11 @@ describe('spec/', () => {
       ['an unknown identity mode', 'club', 'club', (c) => (c.rulebook.identityModes = ['anonymous'])],
       ['a club disclosure minimum outside the levels', 'club', 'club', (c) => (c.rulebook.disclosureMin = 'secret')],
       ['an offered event whose termsHash is not a hash', 'event', 'event.offered', (e) => (e.payload.termsHash = 'abc')],
+      // Second review of PR 23, item 6.
+      ['a Settled split without keyReleased', 'commitment-state', 'commitment-state', (s) => { s.escrowState = 'Settled'; s.settled = { sellerAmount: t('1'), buyerAmount: t('1') }; }],
+      ['a mutualSettlement rule without its fee share', 'club', 'club', (c) => delete c.rulebook.mutualSettlement.adjudicatorFeeShareAfterDeliveryBps],
+      ['a weighted score above 400 hundredths', 'judgment', 'judgment', (j) => (j.aggregate.weightedScore = 401)],
+      ['a MutualSettlement without a nonce', 'messages', 'messages.mutual-settlement', (m) => delete m.nonce],
     ];
     it.each(cases)('rejects %s', (_label, file, name, edit) => {
       const x = example(name);
@@ -591,6 +598,36 @@ describe('spec/', () => {
       expect(schema('judgment')(j)).toBe(false);
       j.aggregate.weightedScore = 340;
       expect(schema('judgment')(j)).toBe(true);
+    });
+  });
+
+  describe('finality (D20)', () => {
+    const validate = () => loadSpec().ajv.getSchema(`${V}/commitment-state.schema.json`);
+    it('shows a released commitment as settled but not yet final while it can be appealed', () => {
+      const s = example('commitment-state');
+      expect(s.escrowState).toBe('Released');
+      expect(typeof s.settledAt).toBe('string');
+      expect(s.finalAt).toBeNull();
+      expect(validate()(s)).toBe(true);
+    });
+    it('has an example where finalAt is set', () => {
+      const s = example('commitment-state.final');
+      expect(typeof s.finalAt).toBe('string');
+      expect(validate()(s)).toBe(true);
+    });
+    it.each(['settledAt', 'finalAt'])('lets %s be absent or null', (field) => {
+      const s = example('commitment-state');
+      s[field] = null;
+      expect(validate()(s)).toBe(true);
+      delete s[field];
+      expect(validate()(s)).toBe(true);
+    });
+    it.each(['settledAt', 'finalAt'])('refuses a %s that is not a timestamp', (field) => {
+      const s = example('commitment-state');
+      s[field] = 'soon';
+      expect(validate()(s)).toBe(false);
+      s[field] = 1793379820;
+      expect(validate()(s)).toBe(false);
     });
   });
 });

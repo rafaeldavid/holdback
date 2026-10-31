@@ -151,7 +151,9 @@
         },
         "uri": {
           "type": "string",
-          "format": "uri"
+          "format": "uri",
+          "x-holdback-untrusted": true,
+          "maxLength": 2048
         }
       },
       "description": "The judge registry this adjudicator draws panels from; commitments bind its hash"

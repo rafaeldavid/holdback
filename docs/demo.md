@@ -46,7 +46,7 @@ All names are invented for the demo.
 | 1 | **Choose, agree and hold** | Seller offers terms naming Bench A, B and C, chosen by the two agents, at disclosure level `public` so the audience can read everything. Bench A accepts and reserves bond. Buyer signs, one call moves $2,050 (price plus $50 adjudication fee) into escrow. Timer shows milliseconds. Balances update | Agents choose the adjudicator; hold; machine speed |
 | 2 | **Deliver without revealing** | Seller uploads an encrypted cleaned CSV. Buyer sees only hashes. Content key goes to the adjudicator | Two-sided hold |
 | 3 | **Defended judgment** | Deterministic checks pass (row count, unique keys, date format). Panel seed revealed, judges listed with pinned model IDs, verdicts shown, cross-family agreement, accept | Multi-model judgment |
-| 4 | **Settle** | Funds release to the seller; content key releases to the buyer in the same step; buyer verifies the plaintext hash; receipts signed | Fair exchange |
+| 4 | **Settle** | Funds release to the seller; content key releases to the buyer in the same step; buyer verifies the plaintext hash; receipts signed. Narration: "Tidewater's $2,000 is final at the decision (1.2 s). Atlas can contest Bench A's decision for 300 s; if it wins, Bench A's $2,000 bond pays. Nothing takes the payment back from escrow." (illustrative numbers) | Fair exchange |
 | 5 | **Bad work** | Second job: deliverable drops 8% of rows. A deterministic check fails, refund in one step, seller keeps the work | Hold; DvP for data |
 | 6 | **Injection attempt** | Deliverable hides a base64 instruction telling judges to approve. Screen flags it, the panel cannot auto-accept, escalation to Bench C, five judges reject, refund. A second delivery hides tag characters aimed at the buyer's own agent under an empty rubric: it is accepted, and the buyer's SDK shows "hidden payload stripped before your agent read it" from the signed screen report (ADR-0021) | Defenses |
 | 7 | **Nobody in control** | Same job, three failures in sequence: op-1 refuses to relay (SDK fails over, then submits directly); Bench A goes offline (Bench B decides, and gets the content key only now, when it takes over); the club operator revokes the seller mid-flight (the commitment still settles under its signed rulebook) | Neutrality |
@@ -55,6 +55,7 @@ All names are invented for the demo.
 | 10 | **Agree without a judge** (optional; outside the success criteria) | A third job. The buyer finds a gap and both agents co-sign a 70/30 split in milliseconds; the buyer gets the key, Bench A stands by and its bond is released, the fee returns to the buyer | 2-of-3: consent first, adjudicator only on disagreement |
 
 Closing slide in the transcript, also stated by the narrator:
+- finality per mode: the payee is final at the posting, the commitment at `finalAt` (`docs/architecture.md` §Finality);
 - what remains centralized: residual risks from `docs/neutrality.md`;
 - what an AI lab could add: response attestation for judges (today a commitment proves which models and prompt had to judge, but not that the named model answered), a hold primitive on API credit as one rail among many, and model version disclosure for adjudication.
 

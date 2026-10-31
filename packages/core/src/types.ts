@@ -483,6 +483,10 @@ export interface CommitmentStateView {
   balances?: Record<Address, TokenAmount>;
   /** Present only when escrowState is Settled (ADR-0019). */
   settled?: { sellerAmount: TokenAmount; buyerAmount: TokenAmount; keyReleased: boolean };
+  /** D20: money moved and is irrevocable for its payee. Not signed. */
+  settledAt?: Timestamp | null;
+  /** D20: no protocol step can change who got what; null until true. Not signed. */
+  finalAt?: Timestamp | null;
   lastEventSeq: number;
   updatedAt: Timestamp;
 }

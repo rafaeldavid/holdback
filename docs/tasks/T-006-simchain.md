@@ -28,7 +28,7 @@ Restate this in your own words in this section before writing code.
 - [ ] Key release: decision accept carries key-for-buyer; stored and emitted atomically with release.
 - [ ] Bond pools per ADR-0014 §2a: `bond:{a}:junior` and `bond:{a}:senior` with one `reserved` counter; coverage gate `junior + senior - reserved >= price`; losses from junior first, then senior pro rata; appeal-upheld credit to junior; senior empty in Phase 1 with no deposit API, exercised by a synthetic deposit in property tests.
 - [ ] Bonds and coverage-ratio gate (100% per guaranteed commitment open to appeal; encumbered bond never counted twice); overturn payouts in guaranteed mode; default-outcome compensation, including the default after an escalation times out (appeal adjudicator's bond).
-- [ ] Fee routing per the postings table: the fee goes to the adjudicator whose decision settles; early acceptance returns the fee to the buyer; appeal fee paid by the appellant.
+- [ ] Fee routing per the postings table: the fee goes to the adjudicator whose decision settles; early acceptance returns the fee to the buyer; appeal fee held at filing, paid to the appeal adjudicator on its decision, returned to the appellant on expiry (D21).
 - [ ] Early acceptance releases the seller-supplied key for the buyer with the payment.
 - [ ] Model `authorizationExpiry` so SimChain and the Phase 2 contract agree (differential tests).
 - [ ] fast-check properties: conservation, non-negative balances, settle-once, idempotent resubmission, random interleavings of triggers.
@@ -39,6 +39,7 @@ Restate this in your own words in this section before writing code.
 - [ ] Integer rates (ADR-0022): every rate applied to money uses core's `mulBps` or `splitBps` with the rounding rules (requirements ceil; splits floor with the named remainder claimant; bond payouts floor, dust kept); a property test checks conservation across every posting.
 - [ ] Privacy (ADR-0020): SimChain holds the fallback and appeal key envelopes and releases each only on takeover; `escalate` decisions must carry the appeal adjudicator's envelope and `Dispute` must carry envelopes for all three adjudicators; every event carries `termsHash` and `recordHash`, with bodies only at disclosure levels that publish them (Phase 1: `public` only).
 
+- [ ] Finality (D20): compute `settledAt` and `finalAt` for the read model from `step` output and the sim clock; `finalAt` is set once `appealBy` passes with no appeal, without waiting for a trigger.
 ## Out of scope
 
 - EVM contracts (Phase 2).

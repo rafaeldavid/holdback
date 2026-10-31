@@ -149,6 +149,30 @@ describe('basis points (ADR-0022)', () => {
     expect(r.ok && toBigInt(r.value)).toBe(want);
   });
 
+  it('gives a share that is exactly pot x bps / 10000, rounded down', () => {
+    fc.assert(
+      fc.property(amountArb, bpsArb, (pot, bps) => {
+        const r = splitBps(amt(pot), bps);
+        return r.ok && toBigInt(r.value.share) === (pot * bps) / 10000n;
+      }),
+      { seed: 22, numRuns: 500 },
+    );
+  });
+
+  it.each([
+    ['ceil on an exact product stays exact', 2000n, 500n, 'ceil', 100n],
+    ['ceil rounds a remainder up by one', 3n, 5000n, 'ceil', 2n],
+    ['floor rounds a remainder down', 3n, 5000n, 'floor', 1n],
+  ] as const)('%s', (_label, a, bps, round, want) => {
+    const r = mulBps(amt(a), bps, round);
+    expect(r.ok && toBigInt(r.value)).toBe(want);
+  });
+
+  it('splits an odd pot with the share rounded down and the remainder taking the dust', () => {
+    const r = splitBps(amt(3n), 5000n);
+    expect(r.ok && [toBigInt(r.value.share), toBigInt(r.value.remainder)]).toEqual([1n, 2n]);
+  });
+
   it.each([-1n, 10001n])('refuses %s basis points', (bps) => {
     expect(mulBps(amt(100n), bps, 'floor').ok).toBe(false);
     expect(splitBps(amt(100n), bps).ok).toBe(false);

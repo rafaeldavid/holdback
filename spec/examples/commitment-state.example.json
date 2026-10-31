@@ -29,6 +29,8 @@
       "amount": "50000000"
     }
   },
+  "settledAt": "2026-10-31T16:21:04Z",
+  "finalAt": null,
   "lastEventSeq": 12,
   "updatedAt": "2026-10-31T16:21:04Z"
 }
