@@ -41,6 +41,22 @@ describe('renderMarkdown', () => {
     expect(md).toMatch(/\| 1 \| `placeholder-claude-a-20260601` \|/);
   });
 
+  it('marks every section built from a stand-in event: timeline, panel, neutrality, balances, signed message', async () => {
+    const base = await withSigned();
+    const t: BeatTranscript = { ...base, source: { kind: 'mixed', note: 'part measured' }, events: base.events.map((e) => ({ ...e, standIn: true as const })) };
+    const md = renderMarkdown(t);
+    for (const line of md.split('\n').filter((l) => l.startsWith('- +'))) expect(line).toContain('[stand-in]');
+    expect(md).toMatch(/^## Panel \[stand-in\]$/m);
+    expect(md).toMatch(/^## Signed message \[stand-in\]$/m);
+    for (const line of md.split('\n').filter((l) => l.startsWith('**'))) expect(line).toContain('[stand-in]');
+    const html = renderHtml([t]);
+    const badge = '<span class="badge standin">stand-in</span>';
+    for (const m of html.matchAll(/<h3>Panel[^\n]*<\/h3>/g)) expect(m[0]).toContain(badge);
+    for (const m of html.matchAll(/<summary>Signed message[^\n]*<\/summary>/g)) expect(m[0]).toContain(badge);
+    for (const m of html.matchAll(/<th class="num">[^<]*<br><small>[^<]*<\/small>[^\n]*?<\/th>/g)) expect(m[0]).toContain(badge);
+    for (const m of html.matchAll(/<li class="event[^\n]*/g)) expect(m[0]).toContain(badge);
+  });
+
   it('marks stand-in events in a mixed transcript', async () => {
     const t = await standInSource().run(6);
     const mixed: BeatTranscript = { ...t, source: { kind: 'mixed', note: 'part measured' }, events: t.events.map((e, i) => (i < 3 ? { ...e, standIn: true as const } : e)) };
