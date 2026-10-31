@@ -55,6 +55,15 @@ Deferred until after the basic demo. The demo assumes honest parties (Rafa, Octo
 | Escalate on high-risk screen signals as a `screenPolicy` option | ADR-0021 | Phase 3, with a classifier |
 | Confidential-compute checks for checks-only commitments; state the independence choice (judging the goods, not documents) in the PRD | Review F2 | PRD edit now or soon; compute in Phase 3+ |
 | Response attestation for judges (residual 8) | ADR-0006 | When providers sign responses |
+| Sampling for JSON, text and markdown deliverables (today they escalate over 100,000 characters); a reader stage for typed features | T-009 | When a demo or pilot delivers large non-CSV work |
+| Residual of sampling: bad rows in a small fraction of a large file can miss every judge's sample; size the sample from a target detection rate and state it in the policy | T-009 | Phase 3, with calibration |
+| Appeal supermajorities (`appealAcceptSupermajority`, 4/5 in the docs table) need policy schema fields; today appeals use the first-instance fractions | T-009 | Next schema bump |
+| "No decision" message for an inconclusive appeal panel after an escalation (today the appeal adjudicator stays silent and the default applies, exposing its bond) | T-009 | Phase 3, with default compensation (F5) |
+| Fetch another adjudicator's registry by URI (today a fallback or appeal adjudicator must hold the bound registry itself) | T-009 | When benches publish different registries |
+| Record key (ADR-0020) unwrapping on takeover, alongside the content key | T-009 | Phase 2, with private records |
+| Reference inputs for `reference_row_match_min` fetched by the adjudicator (`deliverable.inputs`) | T-009 | When a commitment uses that check |
+| Adjudicator affiliation check at acceptance (`error.adjudicator-affiliated`) | T-009 | Before open clubs |
+| Persist computed decisions across restarts (today the no-re-roll memo is in memory; seeds are derived, so a restart re-judges with the same panel but can get different live verdicts) | T-009 | Before live judges in a long-running service |
 
 ## Privacy
 
