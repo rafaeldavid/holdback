@@ -7,6 +7,8 @@ Working drafts for how Holdback looks and talks. Nothing here is final, and noth
 | `mascot.md` | The mule: why it fits, its character, how to use it, the one risk to manage |
 | `messaging.md` | One-liner, pitch, audiences, pillars, proof points, voice, words to use and avoid |
 | `mule.svg` | First sketch of the mark |
+| `explorations.md` | Mule vs donkey vs crow (es**crow**), with risks and a recommendation |
+| `crow.svg` | First sketch of the crow, guarding a sealed crate |
 
 ## Rules for anything written here
 
