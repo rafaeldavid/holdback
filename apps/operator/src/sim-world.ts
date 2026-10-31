@@ -8,7 +8,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from 'node:net';
 import { canonicalKeccak, holdbackDomain, parseAdjudicator, type AdjudicatorRegistration, type Address, type Hex32, type Judgment, type Timestamp } from '@holdback/core';
 import { MemoryCiphertextStore } from '@holdback/core/store';
-import { testAdjudicator, type TestAdjudicator } from '@holdback/adjudicator';
+import { FAIL_MARKER, testAdjudicator, type TestAdjudicator } from '@holdback/adjudicator';
 import type { FakeScript } from '@holdback/judgment';
 import { mandateFor, SIM_CHAIN_ID, SIM_RULEBOOK, simClub, SimChain, TOKEN, wideScope, type Genesis } from '@holdback/settlement/sim';
 import { testAccount } from './accounts.js';
@@ -22,6 +22,8 @@ export type SimRole = 'primary' | 'fallback' | 'appeal';
 export interface SimInfo {
   kind: 'holdback-sim';
   chainId: number;
+  /** The EIP-712 domain to configure in your agent (pin it there; do not take it from an operator). */
+  domain: { name: 'Holdback'; version: string; chainId: number; verifyingContract: Address };
   clubId: string;
   /** Operator base URLs (each serves /v1 and /.well-known/holdback.json). */
   operators: string[];
@@ -42,6 +44,8 @@ export interface SimWorldOptions {
   operatorPorts?: readonly number[];
   /** Funded test accounts, by label. Each may act as buyer or seller. */
   accounts?: readonly string[];
+  /** More funded accounts, handed out one at a time by POST <sim>/accounts. Default 32. */
+  spareAccounts?: number;
   /** Each account's starting balance in base units. Default 10,000 tUSD. */
   balance?: bigint;
   /** Each adjudicator's bond in base units. Default 25,000 tUSD. */
@@ -64,6 +68,8 @@ export interface SimWorld {
   chain: SimChain;
   operators: readonly RunningOperator[];
   adjudicators: Record<SimRole, TestAdjudicator>;
+  /** Stops (or restarts) an adjudicator looking for work, to try fallback and default paths. */
+  silence(role: SimRole, silent: boolean): void;
   /** Moves the clock forward (the sim clock otherwise follows the wall clock). */
   advance(seconds: number): Timestamp;
   close(): Promise<void>;
@@ -103,7 +109,11 @@ export async function startSimWorld(options: SimWorldOptions = {}): Promise<SimW
   // Genesis: the club, a mandate per account (both roles, a year), balances and bonds.
   const club = simClub(testAccount('sim-club-operator').address, SIM_RULEBOOK, SIM_CLUB_ID);
   const expires = wholeSecond(Date.parse(start) + 365 * 86_400_000);
-  const accounts = labels.map((l) => testAccount(l));
+  const named = labels.map((l) => testAccount(l));
+  // Spares are labelled by the run's start time, so a restarted sim hands out accounts nobody has used.
+  const spares = Array.from({ length: options.spareAccounts ?? 32 }, (_, i) => testAccount(`sim/${start}/agent-${i + 1}`));
+  const accounts = [...named, ...spares];
+  let nextSpare = 0;
   const adjKeys = ADJUDICATORS.map((a) => ({ ...a, keys: testAccount(a.label) }));
   const mandates = [];
   for (const a of accounts) {
@@ -187,10 +197,12 @@ export async function startSimWorld(options: SimWorldOptions = {}): Promise<SimW
 
   // The adjudicators look for work in turn, one pass at a time.
   let running = true;
+  const silent = new Set<SimRole>();
   const loop = (async () => {
     while (running) {
       tick();
-      for (const a of Object.values(adjudicators)) {
+      for (const [role, a] of Object.entries(adjudicators) as Array<[SimRole, TestAdjudicator]>) {
+        if (silent.has(role)) continue;
         try {
           const r = await a.runOnce();
           for (const d of r.declined) onError(new Error(`${a.registration().name} declined ${d.commitmentId}: ${d.reason}`));
@@ -205,21 +217,24 @@ export async function startSimWorld(options: SimWorldOptions = {}): Promise<SimW
 
   const rb = club.rulebook;
   const b64 = (bytes: Uint8Array) => Buffer.from(bytes).toString('base64url');
+  const domain = holdbackDomain(SIM_CHAIN_ID);
+  const accountView = (a: (typeof accounts)[number]) => ({
+    label: a.label,
+    address: a.address,
+    balance: balance.toString(),
+    privateKey: a.privateKey,
+    encryptionPublicKey: a.encryptionPublicKey,
+    encryptionSecretKey: b64(a.encryptionSecretKey),
+  });
   const info: SimInfo = {
     kind: 'holdback-sim',
     chainId: SIM_CHAIN_ID,
+    domain: { name: 'Holdback', version: domain.version, chainId: SIM_CHAIN_ID, verifyingContract: domain.verifyingContract },
     clubId: club.id,
     operators: operators.map((o) => o.url),
     token: { symbol: 'tUSD', decimals: 6 },
     adjudicators: ADJUDICATORS.map((a) => ({ role: a.role, name: a.name, address: adjudicators[a.role].address, fakeJudges: true as const })),
-    accounts: accounts.map((a) => ({
-      label: a.label,
-      address: a.address,
-      balance: balance.toString(),
-      privateKey: a.privateKey,
-      encryptionPublicKey: a.encryptionPublicKey,
-      encryptionSecretKey: b64(a.encryptionSecretKey),
-    })),
+    accounts: named.map(accountView),
     economics: {
       adjudicationFeeMin: fee.amount,
       adjudicatorBond: bond.toString(),
@@ -234,6 +249,9 @@ export async function startSimWorld(options: SimWorldOptions = {}): Promise<SimW
       'Fake judges: no model runs; every verdict starts "[fake judge, no model ran]" and model IDs start "placeholder-".',
       'The adjudication fee is paid on a refund too: a refunded buyer gets the price back, not the fee.',
       'Settlement-layer time follows the wall clock; POST /advance {"seconds": n} moves it forward.',
+      'POST /accounts hands out a fresh funded account nobody else has used.',
+      `Work containing ${FAIL_MARKER} fails every fake judge (panel deals), so reject and appeal paths can be tried.`,
+      'POST /adjudicators/<primary|fallback|appeal> {"silent": true} stops that adjudicator, to try fallback and default.',
     ],
   };
 
@@ -245,16 +263,22 @@ export async function startSimWorld(options: SimWorldOptions = {}): Promise<SimW
     if (req.method === 'GET' && path === '/') return send(res, 200, info);
     if (req.method === 'GET' && path === '/clock') return send(res, 200, { now: chain.now() });
     if (req.method === 'POST' && path === '/advance') {
-      const chunks: Buffer[] = [];
-      for await (const c of req as AsyncIterable<Buffer>) if (chunks.push(c) > 16) break;
-      let seconds: unknown;
-      try {
-        seconds = (JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}') as { seconds?: unknown }).seconds;
-      } catch {
-        seconds = undefined;
-      }
+      const seconds = (await json(req))['seconds'];
       if (!Number.isSafeInteger(seconds) || (seconds as number) < 0) return send(res, 400, { type: 'invalid_terms', detail: 'advance takes {"seconds": <whole seconds>}' });
       return send(res, 200, { now: world.advance(seconds as number) });
+    }
+    if (req.method === 'POST' && path === '/accounts') {
+      const a = spares[nextSpare];
+      if (!a) return send(res, 409, { type: 'invalid_state', detail: 'no fresh accounts left; restart the sim or pass a larger spareAccounts' });
+      nextSpare++;
+      return send(res, 200, accountView(a));
+    }
+    const role = /^\/adjudicators\/(primary|fallback|appeal)$/.exec(path)?.[1] as SimRole | undefined;
+    if (req.method === 'POST' && role) {
+      const s = (await json(req))['silent'];
+      if (typeof s !== 'boolean') return send(res, 400, { type: 'invalid_terms', detail: 'takes {"silent": true | false}' });
+      world.silence(role, s);
+      return send(res, 200, { role, silent: s });
     }
     send(res, 404, { type: 'not_found', detail: `no route ${req.method} ${path}` });
   }
@@ -265,6 +289,7 @@ export async function startSimWorld(options: SimWorldOptions = {}): Promise<SimW
     chain,
     operators,
     adjudicators,
+    silence: (r, s) => void (s ? silent.add(r) : silent.delete(r)),
     advance: (seconds) => {
       offsetMs += seconds * 1000;
       tick();
@@ -282,6 +307,22 @@ export async function startSimWorld(options: SimWorldOptions = {}): Promise<SimW
     },
   };
   return world;
+}
+
+async function json(req: IncomingMessage): Promise<Record<string, unknown>> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const c of req as AsyncIterable<Buffer>) {
+    size += c.length;
+    if (size > 4096) return {};
+    chunks.push(c);
+  }
+  try {
+    const v = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}') as unknown;
+    return typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
 }
 
 function send(res: ServerResponse, status: number, body: unknown): void {

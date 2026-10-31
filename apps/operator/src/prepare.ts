@@ -131,8 +131,37 @@ const lc = (a: string) => a.toLowerCase();
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const isAddress = (v: unknown): v is Address => typeof v === 'string' && /^0x[0-9a-fA-F]{40}$/.test(v);
 const isHex32 = (v: unknown): v is Hex32 => typeof v === 'string' && /^0x[0-9a-fA-F]{64}$/.test(v);
-/** A default nonce: keccak256 of the kind, the canonical inputs and a label. Same inputs, same nonce. */
-const nonceOf = (kind: string, input: unknown, label: string): Hex32 => keccak256(stringToBytes(`holdback/prepare/v1/${kind}/${label}/${canonicalJson(input)}`)) as Hex32;
+/** A default nonce: keccak256 of the whole message without its nonce. Same message, same nonce. */
+const nonceOf = (message: Record<string, unknown>): Hex32 => {
+  const rest = { ...message };
+  delete rest['nonce'];
+  return keccak256(stringToBytes(`holdback/prepare/v1/${canonicalJson(rest)}`)) as Hex32;
+};
+const ZERO_NONCE: Hex32 = `0x${'0'.repeat(64)}`;
+/** Relative windows: whole seconds, at most ten years each. */
+const MAX_WINDOW_SEC = 315_360_000;
+/** How far createdAt and other caller-chosen times may sit from settlement-layer time. */
+const MAX_SKEW_SEC = 86_400;
+const TIMING_KEYS: ReadonlyArray<keyof RelativeTiming> = ['offerExpiresInSec', 'fundWithinSec', 'deliverWithinSec', 'judgeWithinSec', 'fallbackWithinSec', 'appealWindowSec', 'appealDecideSec'];
+
+function timingIn(v: unknown): Partial<RelativeTiming> | undefined {
+  if (v === undefined) return undefined;
+  if (!isObj(v)) bad(`timing is an object of whole-second windows: ${TIMING_KEYS.join(', ')}`);
+  const out: Partial<RelativeTiming> = {};
+  for (const [k, x] of Object.entries(v as Record<string, unknown>)) {
+    if (!(TIMING_KEYS as readonly string[]).includes(k)) bad(`timing.${k} is not a known window (${TIMING_KEYS.join(', ')})`);
+    if (!Number.isSafeInteger(x) || (x as number) < 1 || (x as number) > MAX_WINDOW_SEC) bad(`timing.${k} must be a whole number of seconds from 1 to ${MAX_WINDOW_SEC}`);
+    out[k as keyof RelativeTiming] = x as number;
+  }
+  return out;
+}
+
+/** A caller-chosen time must sit within a day of settlement-layer time. */
+function nearNow(ctx: PrepareContext, ts: Timestamp | undefined, name: string): Timestamp | undefined {
+  if (ts === undefined) return undefined;
+  if (Math.abs(Date.parse(ts) - Date.parse(ctx.now())) > MAX_SKEW_SEC * 1000) bad(`${name} ${ts} is more than a day from settlement-layer time ${ctx.now()}`);
+  return ts;
+}
 const amountText = (a: TokenAmount) => (a.token === 'tUSD' ? formatTusd(a.amount) : `${a.amount} base units of ${a.token}`);
 
 function timestamp(v: unknown, name: string): Timestamp | undefined {
@@ -183,7 +212,7 @@ async function offer(ctx: PrepareContext, input: Record<string, unknown>): Promi
     price: amountIn(input['price'], 'price'),
     deliverable: input['deliverable'] as unknown as TermsDraft['deliverable'],
     ...(input['fee'] !== undefined ? { fee: amountIn(input['fee'], 'fee') } : {}),
-    ...(isObj(input['timing']) ? { timing: input['timing'] as Partial<RelativeTiming> } : {}),
+    ...(input['timing'] !== undefined ? { timing: timingIn(input['timing'])! } : {}),
   };
   let draft: TermsDraft;
   try {
@@ -194,18 +223,18 @@ async function offer(ctx: PrepareContext, input: Record<string, unknown>): Promi
   } catch (e) {
     return bad((e as Error).message);
   }
-  const createdAt = timestamp(input['createdAt'], 'createdAt') ?? ctx.now();
-  const nonce = nonceIn(input['nonce'], 'nonce') ?? nonceOf('offer', { ...input, createdAt }, 'terms');
-  const terms: CommitmentTerms = completeTerms(draft, {
+  const createdAt = nearNow(ctx, timestamp(input['createdAt'], 'createdAt'), 'createdAt') ?? ctx.now();
+  const resolved = {
     seller: lc(input['seller'] as string) as Address,
     rulebookHash: club.rulebookHash,
     policyId: primary.policy.id,
     policyHash: primary.policyHash,
     registryHash: primary.registry.hash,
     fee: primary.fee.min,
-    nonce,
     createdAt,
-  });
+  };
+  const nonce = nonceIn(input['nonce'], 'nonce') ?? nonceOf(completeTerms(draft, { ...resolved, nonce: ZERO_NONCE }) as unknown as Record<string, unknown>);
+  const terms: CommitmentTerms = completeTerms(draft, { ...resolved, nonce });
   const id = commitmentId(terms);
   const total = BigInt(terms.price.amount) + BigInt(terms.adjudication.fee.amount);
   return {
@@ -227,11 +256,9 @@ async function offer(ctx: PrepareContext, input: Record<string, unknown>): Promi
 
 async function agreeAndFund(ctx: PrepareContext, input: Record<string, unknown>): Promise<Prepared> {
   const c = await commitmentIn(ctx, input);
-  const agreeNonce = nonceIn(input['agreeNonce'], 'agreeNonce') ?? nonceOf('agree', c.id, 'agree');
-  const fundingNonce = nonceIn(input['fundingNonce'], 'fundingNonce') ?? nonceOf('agree', c.id, 'funding');
   const total = (BigInt(c.price.amount) + BigInt(c.adjudication.fee.amount)).toString();
-  const agree = { type: 'Agree', commitmentId: c.id, buyer: c.buyer, nonce: agreeNonce, expiresAt: c.timing.offerExpiresAt } as const;
-  const funding = {
+  const agreeBody = { type: 'Agree', commitmentId: c.id, buyer: c.buyer, expiresAt: c.timing.offerExpiresAt } as const;
+  const fundingBody = {
     type: 'FundingAuthorization',
     scheme: 'erc3009',
     commitmentId: c.id,
@@ -240,9 +267,12 @@ async function agreeAndFund(ctx: PrepareContext, input: Record<string, unknown>)
     token: c.price.token,
     validAfter: c.createdAt,
     validBefore: c.timing.fundBy,
-    nonce: fundingNonce,
     expiresAt: c.timing.fundBy,
   } as const;
+  const agreeNonce = nonceIn(input['agreeNonce'], 'agreeNonce') ?? nonceOf(agreeBody);
+  const fundingNonce = nonceIn(input['fundingNonce'], 'fundingNonce') ?? nonceOf(fundingBody);
+  const agree = { ...agreeBody, nonce: agreeNonce };
+  const funding = { ...fundingBody, nonce: fundingNonce };
   return {
     kind: 'agree-and-fund',
     commitmentId: c.id,
@@ -273,7 +303,7 @@ async function delivery(ctx: PrepareContext, input: Record<string, unknown>): Pr
   const have = (keys as EncryptedKey[]).map((k) => lc(String(k?.recipient)));
   const missing = need.filter((a) => !have.includes(a));
   if (missing.length) bad(`encryptedKeys has no envelope for ${missing.join(', ')}; seal the content key to every recipient GET /v1/commitments/${c.id}/recipients lists`);
-  const submittedAt = timestamp(input['submittedAt'], 'submittedAt') ?? ctx.now();
+  const submittedAt = nearNow(ctx, timestamp(input['submittedAt'], 'submittedAt'), 'submittedAt') ?? ctx.now();
   const body = {
     commitmentId: c.id,
     attempt: Number.isSafeInteger(input['attempt']) ? (input['attempt'] as number) : 1,
@@ -288,16 +318,22 @@ async function delivery(ctx: PrepareContext, input: Record<string, unknown>): Pr
     commitmentId: c.id,
     sign: [{ slot: 'signature', signer: c.seller, ...forMessage(ctx.domain, { ...body, type: 'Delivery' }) }],
     submit: { method: 'POST', path: `/v1/commitments/${c.id}/deliveries`, body: { ...body, signature: null } },
-    check: [`you are the seller ${c.seller}`, `ciphertext ${body.ciphertext.sha256} (${body.ciphertext.bytes} bytes) at ${body.ciphertext.uri}`, `plaintext ${body.plaintextSha256}`, `envelopes for ${need.join(', ')}`],
+    check: [
+      `you are the seller ${c.seller}`,
+      `ciphertext ${body.ciphertext.sha256} (${body.ciphertext.bytes} bytes) at ${body.ciphertext.uri}; plaintext ${body.plaintextSha256}: the hashes you computed`,
+      `envelopes for ${need.join(', ')}: the buyer's sealed to buyerEncryptionPublicKey ${c.buyerEncryptionPublicKey} from the terms you signed, not a key from this operator`,
+      "each adjudicator's envelope sealed to the encryption key in its registration as a source you trust gives it (a second operator, or the adjudicator itself), not only this operator's /recipients",
+    ],
     defaults: { submittedAt },
   };
 }
 
 async function earlyAccept(ctx: PrepareContext, input: Record<string, unknown>): Promise<Prepared> {
   const c = await commitmentIn(ctx, input);
-  const nonce = nonceIn(input['nonce'], 'nonce') ?? nonceOf('early-accept', c.id, 'accept');
-  const expiresAt = timestamp(input['expiresAt'], 'expiresAt') ?? plus(ctx.now(), 3600);
-  const m = { type: 'EarlyAccept', commitmentId: c.id, buyer: c.buyer, attempt: await ctx.attempt(c.id), nonce, expiresAt } as const;
+  const expiresAt = nearNow(ctx, timestamp(input['expiresAt'], 'expiresAt'), 'expiresAt') ?? plus(ctx.now(), 3600);
+  const body = { type: 'EarlyAccept', commitmentId: c.id, buyer: c.buyer, attempt: await ctx.attempt(c.id), expiresAt } as const;
+  const nonce = nonceIn(input['nonce'], 'nonce') ?? nonceOf(body);
+  const m = { ...body, nonce };
   return {
     kind: 'early-accept',
     commitmentId: c.id,
@@ -316,7 +352,7 @@ async function appeal(ctx: PrepareContext, input: Record<string, unknown>): Prom
   const rulebook = ctx.club(c.clubId)?.rulebook ?? bad(`no club ${c.clubId}`);
   const bond = mulBps(c.price, BigInt(rulebook.appealBondRateBps), 'ceil');
   if (!bond.ok) return bad('cannot compute the appeal bond');
-  const filedAt = timestamp(input['filedAt'], 'filedAt') ?? ctx.now();
+  const filedAt = nearNow(ctx, timestamp(input['filedAt'], 'filedAt'), 'filedAt') ?? ctx.now();
   const body = { commitmentId: c.id, appellant, appellantAddress: who as Address, grounds: typeof input['grounds'] === 'string' ? input['grounds'] : 'wrong-outcome', bond: bond.value, filedAt };
   const fee = rulebook.appealFee;
   return {
@@ -352,10 +388,11 @@ async function settlement(ctx: PrepareContext, input: Record<string, unknown>): 
     ].filter((p) => p.amount.amount !== '0');
   }
   const delivered = await ctx.delivery(c.id);
-  const nonce = nonceIn(input['nonce'], 'nonce') ?? nonceOf('settlement', { id: c.id, payouts }, 'settle');
-  const expiresAt = timestamp(input['expiresAt'], 'expiresAt') ?? plus(ctx.now(), 3600);
+  const expiresAt = nearNow(ctx, timestamp(input['expiresAt'], 'expiresAt'), 'expiresAt') ?? plus(ctx.now(), 3600);
   const releaseKey = typeof input['releaseKey'] === 'boolean' ? input['releaseKey'] : delivered !== undefined;
-  const m = { type: 'MutualSettlement', commitmentId: c.id, deliveryHash: delivered?.deliveryHash ?? null, payouts, releaseKey, nonce, expiresAt } as const;
+  const body = { type: 'MutualSettlement', commitmentId: c.id, deliveryHash: delivered?.deliveryHash ?? null, payouts, releaseKey, expiresAt } as const;
+  const nonce = nonceIn(input['nonce'], 'nonce') ?? nonceOf(body);
+  const m = { ...body, nonce };
   const signed = forMessage(ctx.domain, m);
   return {
     kind: 'settlement',

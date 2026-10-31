@@ -1,6 +1,6 @@
 import { fakeProvider, type JudgeRequest } from '@holdback/judgment';
 import { describe, expect, it } from 'vitest';
-import { FAKE_JUDGE_MARK, markedFake, placeholderRegistry } from './test-adjudicator.js';
+import { FAIL_MARKER, FAKE_JUDGE_MARK, markedFake, markerFake, placeholderRegistry } from './test-adjudicator.js';
 
 const req = {
   judgeId: 'claude-a',
@@ -24,6 +24,12 @@ describe('test adjudicator fake judges', () => {
       expect(c.evidence.startsWith(FAKE_JUDGE_MARK)).toBe(true);
       expect(c.evidence.length).toBeLessThanOrEqual(300);
     }
+  });
+
+  it('fails work that contains the FAIL-ME marker, and passes it otherwise', async () => {
+    const verdict = async (user: string) => JSON.parse(((await markedFake(markerFake()).complete({ ...req, user })) as { text: string }).text).overall;
+    expect(await verdict('a faithful translation')).toBe('pass');
+    expect(await verdict(`a translation ${FAIL_MARKER} with a marker`)).toBe('fail');
   });
 
   it('passes timeouts through untouched', async () => {

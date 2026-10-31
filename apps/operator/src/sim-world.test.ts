@@ -101,7 +101,7 @@ describe('operator API: prepare, sign, submit', () => {
     const res = await fetch(`${api}/.well-known/holdback.json`);
     const doc = (await res.json()) as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
     expect(doc.apiBaseUrl).toBe(`${api}/v1`);
-    expect(doc.domain.chainId).toBe('31337');
+    expect(doc.domain.chainId).toBe(31337); // a number, as in prepared typed data
     expect(doc.settlement).toEqual({ kind: 'sim' });
     expect(doc.receiptSigner).toMatch(/^0x/);
   });
@@ -109,8 +109,9 @@ describe('operator API: prepare, sign, submit', () => {
   it('prepares offer typed data that is deterministic, matches core, and fills hashes from the registration', async () => {
     const input: Record<string, unknown> = offerInput('buyer-1', 'seller-1');
     delete input['nonce'];
-    const a = (await call<Prepared>('POST', '/v1/prepare/offer', { ...input, createdAt: '2026-11-01T09:00:00Z' })).body;
-    const b = (await call<Prepared>('POST', '/v1/prepare/offer', { ...input, createdAt: '2026-11-01T09:00:00Z' })).body;
+    const createdAt = world.chain.now();
+    const a = (await call<Prepared>('POST', '/v1/prepare/offer', { ...input, createdAt })).body;
+    const b = (await call<Prepared>('POST', '/v1/prepare/offer', { ...input, createdAt })).body;
     expect(a.sign[0]!.digest).toBe(b.sign[0]!.digest);
     expect((a.defaults as { nonce: string }).nonce).toMatch(/^0x[0-9a-f]{64}$/);
     const body = a.submit.body as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -182,8 +183,9 @@ describe('operator API: prepare, sign, submit', () => {
   it('stores ciphertext content-addressed under an Idempotency-Key and serves it back', async () => {
     const bytes = new Uint8Array([1, 2, 3, 4]);
     const put = await call('POST', '/v1/ciphertext', bytes);
-    const got = new Uint8Array(await (await fetch(put.body.uri as string)).arrayBuffer());
-    expect(got).toEqual(bytes);
+    const res = await fetch(put.body.uri as string);
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(new Uint8Array(await res.arrayBuffer())).toEqual(bytes);
     const noKey = await fetch(`${api}/v1/ciphertext`, { method: 'POST', body: bytes });
     expect(noKey.status).toBe(400);
   });
@@ -193,5 +195,68 @@ describe('operator API: prepare, sign, submit', () => {
     const r = await call('POST', '/v1/prepare/offer', { ...offerInput('buyer-1', 'seller-1'), price: { token: 'tUSD', amount: '25.5' } });
     expect(r.status).toBe(400);
     expect(r.body.detail).toMatch(/6 decimals/);
+    // Timing windows: whole seconds from 1 to ten years; anything else is a 400, never a 500.
+    for (const bad of [1.5, 1e20, 'abc', -5, 0]) {
+      const t = await call('POST', '/v1/prepare/offer', { ...offerInput('buyer-1', 'seller-1'), timing: { judgeWithinSec: bad } });
+      expect(t.status, String(bad)).toBe(400);
+      expect(t.body.type).toBe('invalid_terms');
+    }
+    expect((await call('POST', '/v1/prepare/offer', { ...offerInput('buyer-1', 'seller-1'), timing: { nope: 5 } })).status).toBe(400);
+    const far = await call('POST', '/v1/prepare/offer', { ...offerInput('buyer-1', 'seller-1'), createdAt: '2020-01-01T00:00:00Z' });
+    expect(far.status).toBe(400);
+    expect(far.body.detail).toMatch(/more than a day/);
+  });
+
+  it('derives a default nonce from the whole message: a different key release is a different nonce', async () => {
+    const id = await heldDeal('buyer-1', 'seller-1', '4000000');
+    const a = (await call<Prepared>('POST', '/v1/prepare/settlement', { commitmentId: id, toSellerBps: 5000, releaseKey: false, expiresAt: plusSeconds(600) })).body;
+    const b = (await call<Prepared>('POST', '/v1/prepare/settlement', { commitmentId: id, toSellerBps: 5000, releaseKey: true, expiresAt: plusSeconds(600) })).body;
+    const c = (await call<Prepared>('POST', '/v1/prepare/settlement', { commitmentId: id, toSellerBps: 5000, releaseKey: false, expiresAt: plusSeconds(600) })).body;
+    expect(a.defaults['nonce']).not.toBe(b.defaults['nonce']);
+    expect(a.defaults['nonce']).toBe(c.defaults['nonce']);
+  });
+});
+
+const plusSeconds = (s: number) => new Date(Date.parse(world.chain.now()) + s * 1000).toISOString().replace('.000Z', 'Z');
+
+describe('sim world test controls', () => {
+  it('hands out fresh funded accounts nobody has used', async () => {
+    const take = async () => (await (await fetch(`${world.url}/accounts`, { method: 'POST' })).json()) as { address: string; balance: string };
+    const [x, y] = [await take(), await take()];
+    expect(x.address).not.toBe(y.address);
+    expect((await call('GET', `/v1/balances/${x.address}`)).body.amount).toBe('10000000000');
+  });
+
+  it('fails panel deals whose work contains FAIL-ME, so the reject path is reachable', async () => {
+    const input = { ...offerInput('buyer-2', 'seller-2'), template: 'default', checks: [], rubric: { passThreshold: 300, criteria: [{ id: 'ok', description: 'Fine.', weight: 1, anchors: { '0': 'No', '2': 'Partly', '4': 'Yes' } }] }, deliverable: { kind: 'document', description: 'a note', format: 'text/plain' } };
+    const offer = (await call<Prepared>('POST', '/v1/prepare/offer', input)).body;
+    await submit(await sign(offer, 'seller-2'));
+    await waitFor(offer.commitmentId, ['AcceptedByAdjudicator']);
+    await submit(await sign((await call<Prepared>('POST', '/v1/prepare/agree-and-fund', { commitmentId: offer.commitmentId })).body, 'buyer-2'));
+    await deliver(offer.commitmentId, 'seller-2', 'a note that says FAIL-ME');
+    expect((await waitFor(offer.commitmentId, ['Released', 'Refunded'])).escrowState).toBe('Refunded');
+  });
+
+  it('silences an adjudicator, so the fallback takes over after judgeBy', async () => {
+    const r = await fetch(`${world.url}/adjudicators/primary`, { method: 'POST', body: JSON.stringify({ silent: true }) });
+    expect(r.status).toBe(200);
+    try {
+      await fetch(`${world.url}/adjudicators/primary`, { method: 'POST', body: JSON.stringify({ silent: false }) });
+      const id = await heldDeal('buyer-1', 'seller-1', '3000000');
+      await fetch(`${world.url}/adjudicators/primary`, { method: 'POST', body: JSON.stringify({ silent: true }) });
+      await deliver(id, 'seller-1', CSV);
+      await new Promise((r) => setTimeout(r, 300));
+      expect((await call('GET', `/v1/commitments/${id}`)).body.escrowState).toBe('Delivered'); // the primary is silent
+      // judgeBy is deliverBy (a day after the offer by default) plus 5 minutes: move the clock past it.
+      await fetch(`${world.url}/advance`, { method: 'POST', body: JSON.stringify({ seconds: 86_400 + 330 }) });
+      // Anyone may trigger the fallback; the fallback adjudicator does it itself if nobody has.
+      const t = await call('POST', `/v1/commitments/${id}/triggers/fallback`, {});
+      expect([200, 409]).toContain(t.status);
+      expect((await waitFor(id, ['Released', 'Refunded'])).escrowState).toBe('Released');
+      const decided = (await call('GET', `/v1/commitments/${id}/events?limit=200`)).body.items.find((e: { type: string }) => e.type === 'judgment.decided');
+      expect(decided.payload.role).toBe('fallback');
+    } finally {
+      await fetch(`${world.url}/adjudicators/primary`, { method: 'POST', body: JSON.stringify({ silent: false }) });
+    }
   });
 });

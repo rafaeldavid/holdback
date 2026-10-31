@@ -439,7 +439,12 @@ export class Operator {
 
   private async route(ctx: Ctx): Promise<void> {
     const { method, segments: s } = ctx;
-    if (method === 'GET' && ctx.url.pathname === '/.well-known/holdback.json') return this.send(ctx, this.ok({ ...(await this.status()), apiBaseUrl: `${this.baseUrl}/v1` }));
+    if (method === 'GET' && ctx.url.pathname === '/.well-known/holdback.json') {
+      // chainId as a number, as in prepared typed data (/v1/status keeps the schema's string). Discovery only:
+      // an agent pins its EIP-712 domain from its own configuration, not from an operator.
+      const s = await this.status();
+      return this.send(ctx, this.ok({ ...s, domain: { ...s.domain, chainId: Number(s.domain.chainId) }, apiBaseUrl: `${this.baseUrl}/v1` }));
+    }
     if (s[0] !== 'v1') fail('not_found', `no route ${ctx.url.pathname}`);
     if (s[1] === 'ciphertext') return this.ciphertext(ctx);
     if (method === 'POST' && s[1] === 'prepare' && s.length === 3) return this.prepare(ctx, s[2]!);
@@ -591,7 +596,7 @@ export class Operator {
       } catch {
         return fail('not_found', 'no ciphertext with this id');
       }
-      ctx.res.writeHead(200, { 'content-type': 'application/octet-stream', 'content-length': String(bytes.length) });
+      ctx.res.writeHead(200, { 'content-type': 'application/octet-stream', 'content-length': String(bytes.length), 'x-content-type-options': 'nosniff' });
       return void ctx.res.end(Buffer.from(bytes));
     }
     if (ctx.method !== 'POST' || s.length !== 2) fail('not_found', `no route ${ctx.method} ${ctx.url.pathname}`);

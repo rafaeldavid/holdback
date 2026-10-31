@@ -16,7 +16,15 @@ if (!Number.isInteger(port) || operatorPorts.some((p) => !Number.isInteger(p))) 
   process.exit(2);
 }
 
-const world = await startSimWorld({ port, operatorPorts });
+let world: Awaited<ReturnType<typeof startSimWorld>>;
+try {
+  world = await startSimWorld({ port, operatorPorts });
+} catch (e) {
+  const err = e as NodeJS.ErrnoException & { port?: number };
+  if (err.code !== 'EADDRINUSE') throw e;
+  console.error(`Port ${err.port ?? ''} is in use, probably by another sim. Stop it, or pick free ports: pnpm sim --port 9780 --operator-ports 9787,9788`);
+  process.exit(1);
+}
 const { info } = world;
 const e = info.economics;
 const pct = (bps: string) => `${Number(bps) / 100}%`;
@@ -26,6 +34,9 @@ const lines = [
   ...info.operators.map((u, i) => `  operator ${i + 1}    ${u}   REST API; start at GET ${u}/.well-known/holdback.json`),
   `  sim service   ${world.url}   test accounts with keys (GET /), clock (GET /clock, POST /advance)`,
   `  club          ${info.clubId}   rules at GET ${info.operators[0]}/v1/clubs/${info.clubId}`,
+  '',
+  'EIP-712 domain to pin in your agent (verify every prepared message against it, not against an operator):',
+  `  name Holdback, version ${info.domain.version}, chainId ${info.domain.chainId}, verifyingContract ${info.domain.verifyingContract}`,
   '',
   'Adjudicators (test adjudicators; fake judges, no model runs):',
   ...info.adjudicators.map((a) => `  ${a.role.padEnd(9)} ${a.name.padEnd(32)} ${a.address}`),
@@ -38,6 +49,8 @@ const lines = [
   `  the adjudication fee is paid on a refund too: a refunded buyer gets the price back, not the fee`,
   `  appeal: bond ${pct(e['appealBondRateBps']!)} of the price (rounded up) plus a ${formatTusd(e['appealFee']!)} fee`,
   `  default outcome (no adjudicator decided in time): the buyer is refunded and the seller is compensated ${pct(e['defaultOutcomeSellerCompensationRateBps']!)} of the price`,
+  '',
+  `Fresh funded accounts: POST ${world.url}/accounts. Work containing FAIL-ME fails the fake judges. Silence an adjudicator: POST ${world.url}/adjudicators/primary {"silent": true}.`,
   '',
   'Run an example in another terminal: pnpm example buy-dataset  (docs/quickstart.md). Ctrl-C stops the sim.',
 ];

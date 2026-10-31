@@ -16,6 +16,16 @@ import { Adjudicator, type RunReport } from './service.js';
 import { SettlementAdapter, type ContentStore, type SettlementReads } from './simchain-adapter.js';
 
 export const FAKE_JUDGE_MARK = '[fake judge, no model ran]';
+/** A delivery containing this text fails every fake judge, so the reject and appeal paths can be tried. */
+export const FAIL_MARKER = 'FAIL-ME';
+
+/** Fake judges that fail any work containing `marker` and otherwise follow `script` (unscripted judges pass). */
+export function markerFake(script: FakeScript = {}, marker = FAIL_MARKER): JudgeProvider {
+  const normal = fakeProvider(script);
+  return {
+    complete: (req) => (req.user.includes(marker) ? fakeProvider({ [req.judgeId]: 'fail' }).complete(req) : normal.complete(req)),
+  };
+}
 
 const mark = (text: unknown, max: number): unknown => (typeof text === 'string' && !text.startsWith(FAKE_JUDGE_MARK) ? `${FAKE_JUDGE_MARK} ${text}`.slice(0, max) : text);
 
@@ -92,7 +102,7 @@ export function testAdjudicator(o: TestAdjudicatorOptions): TestAdjudicator {
     registryUri: 'file:///config/judges.yaml',
     fee: { min: o.fee },
     domain: o.domain,
-    provider: markedFake(fakeProvider(o.judges ?? {})),
+    provider: markedFake(markerFake(o.judges ?? {})),
     settlement: new SettlementAdapter({ chain: o.chain, store: o.store, registration: o.registration }),
   });
   return { address, service, registration: () => service.registration(), runOnce: () => service.runOnce() };
