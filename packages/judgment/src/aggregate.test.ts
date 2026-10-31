@@ -224,3 +224,10 @@ describe('aggregate: properties', () => {
     }), { seed: 7, numRuns: 2000 });
   });
 });
+
+describe('aggregate: the tie guard is defense in depth', () => {
+  it('a 2-2 split escalates even under a non-majority fraction (which the pipeline refuses)', () => {
+    const half = { minValid: 2, acceptSupermajority: frac(1, 2), rejectSupermajority: frac(1, 2) };
+    expect(decide({ thresholds: half, verdicts: [v('a', 'pass'), v('b', 'pass'), v('c', 'fail'), v('d', 'fail')] })).toBe('escalate');
+  });
+});

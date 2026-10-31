@@ -76,9 +76,7 @@ describe('pipeline: happy path and record shape', () => {
     expect(d.panel.members.map((m) => [m.judgeId, m.status, m.promptTemplateHash])).toEqual(SEATS.map((s) => [s.judgeId, 'ok', PROMPT_TEMPLATE_HASH]));
   });
 
-  it('produces intake, deterministic, screen and panel fields that fit judgment.schema.json (v0.4)', async () => {
-    // The aggregate is in the v0.5 shape (D18: counts, integer score) and is checked when PR 23
-    // lands; here a v0.4-shaped aggregate stands in so the other parts are validated now.
+  it('produces a draft that fits judgment.schema.json v0.5 once T-009 adds identity, seed, hash and signature', async () => {
     const { result } = await run();
     if (!result.ok) throw new Error(result.error.detail);
     const record = {
@@ -87,8 +85,7 @@ describe('pipeline: happy path and record shape', () => {
       adjudicator: ADJUDICATOR,
       role: 'primary',
       ...result.value,
-      aggregate: { decision: result.value.aggregate.decision, reasons: result.value.aggregate.reasons },
-      panel: { ...result.value.panel, policyId: 'bench-a/p1', policyHash: `0x${'33'.repeat(32)}`, seedCommitment: `0x${'44'.repeat(32)}` },
+      panel: { ...result.value.panel, seedSource: 'commit-reveal', policyId: 'bench-a/p1', policyHash: `0x${'33'.repeat(32)}`, seedCommitment: `0x${'44'.repeat(32)}` },
       recordHash: `0x${'55'.repeat(32)}`,
       decidedAt: '2026-11-01T00:00:00Z',
       signature: `0x${'66'.repeat(65)}`,
@@ -364,5 +361,23 @@ describe('validateTerms (offer time)', () => {
       'deliverable.description contains mixed-script words',
       'criterion dedupe_quality anchor 4 contains tag, zero-width, bidi or other invisible characters',
     ]);
+  });
+});
+
+describe('pipeline: seat guards in isolation', () => {
+  it('counts family labels case- and space-insensitively (distinct models)', async () => {
+    const seats = SEATS.map((s, i) => ({ ...s, family: ['claude', 'Claude ', 'CLAUDE'][i]! }));
+    const { result } = await run({ seats });
+    expect(!result.ok && result.error.detail).toMatch(/1 model families/);
+  });
+  it('refuses the same model twice even under different family labels', async () => {
+    const seats = [SEATS[0]!, { ...SEATS[1]!, model: SEATS[0]!.model }, SEATS[2]!];
+    const { result } = await run({ seats });
+    expect(!result.ok && result.error.detail).toMatch(/duplicate model/);
+  });
+  it('refuses a non-ASCII model ID that otherwise looks pinned', async () => {
+    const seats = SEATS.map((s, i) => (i === 0 ? { ...s, model: 'claude\u2010opus-5-5-20260601' } : s));
+    const { result } = await run({ seats });
+    expect(!result.ok && result.error.detail).toMatch(/pinned/);
   });
 });

@@ -248,10 +248,10 @@ describe('hidden_characters_max (D17)', () => {
   const hc = (max: Extract<DeterministicCheck, { type: 'hidden_characters_max' }>['max'], required = true): DeterministicCheck => ({ id: 'hid', required, type: 'hidden_characters_max', max });
 
   it('counts each class on the text as delivered', () => {
-    expect(one(hc({ total: 100 }), csv(ALL)).detail).toBe('tag 6, bidi 0, variationSelector 1, invisible 1, total 8');
+    expect(one(hc({ total: 100 }), csv(ALL)).detail).toBe('tag 6, bidi 0, variationSelector 1, otherIgnorable 1, total 8');
   });
   it.each([
-    ['ZWNJ', PERSIAN, { invisible: 1 }, { invisible: 0 }],
+    ['ZWNJ', PERSIAN, { otherIgnorable: 1 }, { otherIgnorable: 0 }],
     ['VS16', HEART, { variationSelector: 1 }, { variationSelector: 0 }],
     ['flag tags', ENGLAND, { tag: 6 }, { tag: 5 }],
     ['total', ALL, { total: 8 }, { total: 7 }],
@@ -268,5 +268,14 @@ describe('hidden_characters_max (D17)', () => {
     expect(validateCheck(hc({}))).toMatch(/at least one/);
     expect(validateCheck(hc({ tag: -1 }))).toMatch(/non-negative/);
     expect(validateCheck({ ...hc({ tag: 0 }), max: { tags: 0 } } as unknown as DeterministicCheck)).toMatch(/unknown/);
+  });
+});
+
+describe('null_rate_max: non-scalar counting at the boundary', () => {
+  it('counts one object in four rows as exactly 25% null', () => {
+    const rows = json([{ v: {} }, { v: 'x' }, { v: 'y' }, { v: 'z' }]);
+    const check = (maxBps: number): DeterministicCheck => ({ ...base, type: 'null_rate_max', column: 'v', maxBps });
+    expect(one(check(2500), rows)).toEqual({ checkId: 'c', required: true, passed: true, detail: 'null 1/4' });
+    expect(one(check(2499), rows).passed).toBe(false);
   });
 });

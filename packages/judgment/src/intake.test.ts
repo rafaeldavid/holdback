@@ -171,3 +171,18 @@ describe('UntrustedData', () => {
     expect(d.reveal()).toBe('SECRET-CONTENT');
   });
 });
+
+describe('intake: agreed format', () => {
+  it('refuses a delivery in a format other than the agreed one', async () => {
+    const pt = utf8('[]');
+    const ct = seal(pt);
+    const r = await intake({ delivery: delivery(pt, ct, { plaintextMime: 'application/json' }), ciphertext: ct, recipient: ADJUDICATOR, unwrapKey: fakeUnwrap, format: 'text/csv' });
+    expect(!r.ok && r.error.code).toBe('mime_mismatch');
+  });
+  it('accepts the agreed format', async () => {
+    const pt = utf8(GOOD_CSV);
+    const ct = seal(pt);
+    const r = await intake({ delivery: delivery(pt, ct), ciphertext: ct, recipient: ADJUDICATOR, unwrapKey: fakeUnwrap, format: 'text/csv' });
+    expect(r.ok).toBe(true);
+  });
+});

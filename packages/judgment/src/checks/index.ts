@@ -87,7 +87,7 @@ const pct = (count: number, total: number) => (total ? `${count}/${total}` : '0/
 const bps = (b: number) => `${b} bps`;
 const isBps = (n: unknown) => typeof n === 'number' && Number.isSafeInteger(n) && n >= 0 && n <= 10_000;
 const isCount = (n: unknown) => typeof n === 'number' && Number.isSafeInteger(n) && n >= 0;
-const HIDDEN_KEYS = ['tag', 'bidi', 'variationSelector', 'invisible', 'total'] as const;
+const HIDDEN_KEYS = ['tag', 'bidi', 'variationSelector', 'otherIgnorable', 'total'] as const;
 const sha256 = (b: Uint8Array): Sha256 => `sha256:${createHash('sha256').update(b).digest('hex')}`;
 
 /** Static validation, usable at offer time. Returns a reason the check cannot be evaluated, or undefined. */

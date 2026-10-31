@@ -311,15 +311,15 @@ export function screen(input: ScreenInput): ScreenResult {
   scanView(text, 'text', out, 0);
   if (input.mime === 'text/csv' && FORMULA_CELL.test(text)) out.add('instruction_phrase', 'a CSV cell starts with a spreadsheet formula prefix');
 
-  // JSON escapes are decoded after intake normalization, so screen the decoded strings separately.
-  guarded(out, 'text with \\u escapes decoded', () => {
-    if (!UNICODE_ESCAPE.test(text)) return;
-    UNICODE_ESCAPE.lastIndex = 0;
-    scanDerived(text.replace(UNICODE_ESCAPE, (_, h: string) => String.fromCharCode(Number.parseInt(h, 16))), 'text with \\u escapes decoded', out);
-  });
-  guarded(out, 'JSON string values', () => {
+  // Escapes are decoded after intake normalization, so screen the decoded text separately: a JSON
+  // document through its parsed string values (exact), any other text through its \\u escapes.
+  guarded(out, 'decoded escapes', () => {
     const strings = jsonStrings(text);
     if (strings !== undefined) scanDerived(strings, 'JSON string values', out);
+    else if (UNICODE_ESCAPE.test(text)) {
+      UNICODE_ESCAPE.lastIndex = 0;
+      scanDerived(text.replace(UNICODE_ESCAPE, (_, h: string) => String.fromCharCode(Number.parseInt(h, 16))), 'text with \\u escapes decoded', out);
+    }
   });
 
   return { flagged: out.list.length > 0, signals: out.list };

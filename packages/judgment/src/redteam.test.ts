@@ -217,7 +217,7 @@ describe('E. URL-like exfiltration that passes the filter', () => {
 // ---------------------------------------------------------------- F. seller-induced abstention
 describe('F. abstentions shrink the denominator; the seller can induce them', () => {
   it('F1 an honest fail verdict quoting a URL-like cell abstains, flipping escalate to accept at 0.667', async () => {
-    const policy = { ...POLICY, acceptSupermajority: { numerator: 667, denominator: 1000 }, rejectSupermajority: { numerator: 667, denominator: 1000 } };
+    const policy = { ...POLICY, acceptSupermajority: { numerator: 2, denominator: 3 }, rejectSupermajority: { numerator: 2, denominator: 3 } }; // 0.667 -> {2,3} (ADR-0022)
     const csv = 'id,website\n1,acme.io/about\n2,fake-co.biz/home\n';
     const honest = v('fail', 0, {}, 'row 2 website fake-co.biz/home does not exist');
     const control = await run({ text: csv, policy, provider: provider({ 'claude-a': v('pass'), 'gpt-a': v('pass'), 'gemini-a': v('fail', 0, {}, 'row 2 website is fabricated') }) });
