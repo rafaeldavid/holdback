@@ -2,7 +2,8 @@
 name: neutrality.seller-withholds-delivery
 description: >-
   The scenario index's reclaim-no-delivery row (neutrality.md: seller, "S8 reclaim"). Tidewater takes the
-  commitment and then never delivers. After deliverBy Atlas reclaims the whole hold, price and fee, and
+  commitment and then never delivers. After deliverBy the buyer (anyone may; the testkit's reclaim
+  step only takes the buyer) reclaims the whole hold, price and fee, to Atlas, and
   nothing reaches the seller or Bench A. Named neutrality. because the testkit records the reclaim as the
   seller's timeout, which the no-prefix rules reject (see T-010 Handoff).
 fails: tidewater-seller

@@ -5,7 +5,7 @@
 - **Depends on:** T-008, T-006
 - **Paths this task may touch:** `packages/judgment/providers/`, `apps/adjudicator/`, `config/judges.yaml`
 - **Human gate:** yes (defenses)
-- **Status:** review
+- **Status:** done
 - **Agent/session:** implementer, branch `t-009-panel-adjudicator`
 
 ## Intent

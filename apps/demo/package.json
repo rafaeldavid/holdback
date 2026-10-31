@@ -3,7 +3,10 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+    "./agents/*.js": { "types": "./dist/agents/*.d.ts", "default": "./dist/agents/*.js" }
+  },
   "scripts": {
     "build": "tsc -b"
   },

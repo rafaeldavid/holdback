@@ -5,7 +5,7 @@
 - **Depends on:** T-004
 - **Paths this task may touch:** `packages/judgment/`
 - **Human gate:** yes (defenses)
-- **Status:** review
+- **Status:** done
 - **Agent/session:** implementer, branch `t-008-judgment-v0`
 
 ## Intent

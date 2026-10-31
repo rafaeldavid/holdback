@@ -28,7 +28,7 @@ steps:
   - deliver:            { by: seller, via: op-1, file: data/dataset-cleaning/customers.clean.csv }
   - advance_clock:      { seconds: 5 }
   - judge:              { adjudicator: bench-a }
-expect:
+expect:                             # today's outcome (measured)
   terminal: Released
   balances:
     atlas-buyer: "7950000000"

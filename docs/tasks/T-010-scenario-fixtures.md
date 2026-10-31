@@ -5,7 +5,7 @@
 - **Depends on:** T-005, T-007, T-009, T-012
 - **Paths this task may touch:** `fixtures/scenarios/`, `fixtures/recordings/` (`fixtures/clubs/` and `fixtures/terms/` belong to T-012)
 - **Human gate:** no
-- **Status:** review (first slice; rows that need runner features stay open, see Handoff)
+- **Status:** in progress (first slice merged in PR 47; open rows wait on T-016)
 - **Agent/session:** implementer, branch `t-010-scenario-fixtures`
 
 ## Intent
@@ -44,7 +44,7 @@ Non-goals and limits for this slice:
 
 Fill this in before review. Label each item measured, inferred or guessed.
 
-- **measured:** `pnpm verify` PASS on a clean tree at `a84ab41` (typecheck, lint, test, spec, snap pass; demo is still a placeholder). Report in `reports/verify-t-010-scenario-fixtures.md` (gitignored). `pnpm snap`: 25 passed, 0 failed (24 new fixtures plus `_example`); 18 pass under their real prefix, 6 are `todo.` records.
+- **measured:** `pnpm verify` PASS on a clean tree at `a84ab41` (typecheck, lint, test, spec, snap pass; demo is still a placeholder). Report in `reports/verify-t-010-scenario-fixtures.md` (gitignored). `pnpm snap`: 25 passed, 0 failed (24 new fixtures plus `_example`); 16 pass under their prefix; 8 are `todo.` (2 are the plan's own `todo.` rows, `todo.adjudicator-leaks-plaintext` and `todo.principal-no-recourse`).
 - **measured:** every fixture names `fixtures/clubs/data-services-v1.yaml` and `fixtures/terms/clean-customers-2000.yaml`, and the snapshots show both as "(loaded)", rulebook `0x140e…971e` (the T-012 files merged in PR45).
 - **measured:** each passing `neutrality.` fixture asserts terminal state and balances: operator-refuses, adjudicator-offline, adjudicator-silent-before-judging (Released, $2,000 to Tidewater, fee to whoever decided), adjudicator-never-accepts (Expired, nothing moved), adjudicator-and-fallback-offline (Refunded $2,050, Bench A and B bonds pay $1,000 each to Tidewater), appeal-adjudicator-offline-after-escalation (Refunded $2,050, Bench C's bond pays Tidewater $2,000), buyer-silent (Released), seller-withholds-delivery (Refunded $2,050).
 - **measured:** a recording bound to the stub terms failed with `RecordingMismatchError` naming `inputHash` and `rubricHash` once the real terms loaded; the runner never replayed a stale verdict.
@@ -79,7 +79,7 @@ Fill this in before review. Label each item measured, inferred or guessed.
 | `panel-disagreement-escalates` | todo: appeal replays the primary's split | `todo.panel-disagreement-escalates` |
 | `neutrality.operator-offline` | todo: offline operator still relays | `todo.operator-offline` |
 | `neutrality.provider-outage` | todo: a provider is not an actor | `todo.provider-outage` |
-| `error.submission-limit` | todo: attempt fixed at 1, refused as invalid_state | `todo.submission-limit` |
+| `error.submission-limit` | todo: a second delivery is refused as invalid_state (which already enforces maxSubmissions = 1); submission_limit_reached needs attempt 2 from Held | `todo.submission-limit` |
 | `error.concurrent-overdraft` | todo: one commitment per scenario | `todo.concurrent-overdraft` |
 | `neutrality.club-revokes-mid-flight` (beat 7) | open: no revoke step | — |
 | `neutrality.appeal-adjudicator-offline`, `appeal-overturn-bond-pays-seller`, `appeal-overturn-bond-pays-buyer`, `appeal-bad-key-release` | open: no party-appeal step, no role-specific recordings | — |
@@ -108,11 +108,16 @@ Fill this in before review. Label each item measured, inferred or guessed.
 **Runner features that unblock the open rows** (testkit lane; I did not edit `packages/testkit`):
 1. Run `@holdback/judgment` in the testkit: deterministic checks, screen, and panels drawn from `config/judges.yaml` with role-specific sizes (appeal: five judges, three families). Unblocks `bad-work-row-drop`, the injection-tags and multilingual rows, `error.unpinned-model-refused`, real pinned IDs in snapshots, and Bench C's reject in beat 6.
 2. Key recordings by role (`<scenario>/<role>/<judgeId>.json`), so a primary and an appeal panel in one scenario can disagree. Unblocks `panel-disagreement-escalates` and the appeal rows.
-3. New steps: `appeal` (party, with bond and fee), `early_accept`, `mutual_settle` (and `Settled` as a terminal state), `dispute`, `revoke_member`, `revoke_mandate`, deliver `attempt`, and a second commitment per scenario.
+3. New steps: `appeal` (party, with bond and fee), `early_accept`, `mutual_settle` (and `Settled` as a terminal state), `dispute`, `revoke_member`, `revoke_mandate`, deliver `attempt`, and a second commitment per scenario. Core already refuses any delivery after Delivered with `invalid_state` (`packages/core/src/state.ts`), so Phase 1's `maxSubmissions = 1` holds today; promoting `error.submission-limit` means sending attempt 2 as the first delivery from Held, which needs the `attempt` field.
 4. Message overrides for refusal fixtures: reuse a nonce, wrong seed or seed preimage, wrong policy or acceptance hash.
 5. Route `offline: { actor: <operator> }` like `operator_refuses`, and let the no-prefix rules accept the seller's reclaim timeout.
 6. Snapshot rendering: `settledAt` and `finalAt` (D20), "seed source: beacon round N" (ADR-0018), the recipients of each content-key envelope (ADR-0020), and hours in the clock column past 60 minutes (`2882:08.000` today).
 7. Phase 4 (D19): optimistic mode so `neutrality.optimistic-buyer-silent` can run.
+8. With the check wiring (T-016), switch `bad-work-panel-reject`, `attack.injection-plain` and `attack.injection-encoded-base64` from `stub_bytes` placeholders (about 80 bytes) to real T-012 data files; otherwise the rows and cols checks refund them before the panel runs and the fixtures stop testing the panel.
+
+Items 1, 2 and 6, and the rendering backlog from the PR47 review (clock hours, seller column, seed label, abstain display, receipt range, an "authored" label, a `fails:` list), belong to T-016.
+
+`todo.` expect blocks are marked in the YAML as today's measured outcome or as the outcome desired once promoted; `todo.panel-disagreement-escalates` has none because Bench C's outcome depends on recordings that do not exist yet.
 
 **Proposed check (repeated failure mode):** `--judges fake --record` silently overwrote my authored verdicts when I re-recorded after the terms change, and I had to re-apply them. Proposal: a `capturedFrom: authored` value that the fake recorder refuses to overwrite, like `live`. That is a testkit and `docs/team.md` change outside this task's paths, so it is not made here; the next testkit task should add it and the Rules and checks row.
 

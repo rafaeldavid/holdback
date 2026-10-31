@@ -5,7 +5,7 @@
 - **Depends on:** T-004
 - **Paths this task may touch:** `packages/core/src/crypto/`, `packages/core/src/store/`, `packages/core/package.json`
 - **Human gate:** no
-- **Status:** review
+- **Status:** done
 - **Agent/session:** implementer subagent, branch `t-014-envelope-store`
 
 ## Intent
