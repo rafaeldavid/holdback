@@ -16,3 +16,7 @@
 ## Consequences
 
 Throughput is bounded by the speed of verification and review. That bound is deliberate.
+
+## Amended 2026-10-31
+
+Rafa waived the in-repository human gates. ADRs, schemas, contracts and defenses proceed once CI passes and review findings are fixed, and decisions are recorded for him to overrule. Gates now apply only to actions outside the repository: deploys, remote force pushes or history rewrites, real keys or money, publishing, and repository access or settings (see CLAUDE.md, Working as a team of agents).
