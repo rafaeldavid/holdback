@@ -51,7 +51,6 @@ Deferred until after the basic demo. The demo assumes honest parties (Rafa, Octo
 | Calibrate screen phrase families and false-positive rates | T-008 Handoff | Phase 3 |
 | Dedicated screen signal kinds (new signals reuse `encoded_run` and `instruction_phrase`) | T-008 Handoff | Next schema bump |
 | Per-check null-token list (built in today) | T-008 red team item 3 | When a club needs custom null tokens |
-| `inputHash` recomputable by the buyer (needs the per-judge nonces) | T-008 Handoff | T-009 |
 | Escalate on high-risk screen signals as a `screenPolicy` option | ADR-0021 | Phase 3, with a classifier |
 | Confidential-compute checks for checks-only commitments; state the independence choice (judging the goods, not documents) in the PRD | Review F2 | PRD edit now or soon; compute in Phase 3+ |
 | Response attestation for judges (residual 8) | ADR-0006 | When providers sign responses |
