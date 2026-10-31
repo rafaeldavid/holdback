@@ -41,6 +41,46 @@ describe('sharedRecordEvent', () => {
     expect(e.kind === 'shared-record' && e.match).toBe(false);
   });
 
+  it('does not match when both copies are whole but one event differs', () => {
+    const changed = view();
+    const events = changed.events.map((e) => (e.seq === 0 ? ({ ...e, payload: { termsHash: H('ff') } } as unknown as SettlementEvent) : e));
+    const e = sharedRecordEvent(7, [
+      { who: 'buyer', view: view() },
+      { who: 'seller', view: { ...changed, events } },
+    ]);
+    expect(e.kind === 'shared-record' && e.match).toBe(false);
+    expect(e.kind === 'shared-record' && e.parties[0]!.hash).not.toBe(e.kind === 'shared-record' && e.parties[1]!.hash);
+  });
+
+  it('does not match when the receipts attest a different event hash', () => {
+    const other = view();
+    const receipts = other.receipts.map((r) => (r.eventSeq === 1 ? { ...r, eventHash: H('99') } : r));
+    const e = sharedRecordEvent(7, [
+      { who: 'buyer', view: view() },
+      { who: 'seller', view: { ...other, receipts } },
+    ]);
+    expect(e.kind === 'shared-record' && e.match).toBe(false);
+  });
+
+  it('matches copies read through different operators: receipt signer and signature aside, and names each route', () => {
+    const op2 = view();
+    const receipts = op2.receipts.map((r) => ({ ...r, operator: '0x04', signature: '0xother' }) as unknown as Receipt);
+    const signers = new Map([
+      ['0x03', 'op1' as const],
+      ['0x04', 'op2' as const],
+    ]);
+    const e = sharedRecordEvent(
+      7,
+      [
+        { who: 'buyer', view: view() },
+        { who: 'seller', view: { ...op2, receipts } },
+      ],
+      { signers, judgedBy: 'benchA' },
+    );
+    expect(e).toMatchObject({ match: true, judgedBy: 'benchA' });
+    expect(e.kind === 'shared-record' && e.parties.map((p) => p.via)).toEqual(['op1', 'op2']);
+  });
+
   it('does not match when the judgment record is not the one the decision event names', () => {
     const e = sharedRecordEvent(7, [
       { who: 'buyer', view: view() },

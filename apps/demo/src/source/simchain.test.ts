@@ -59,7 +59,7 @@ describe('SimChain source (T-012 beat runner)', () => {
 
   it('beat 1: offer, acceptance and a one-call hold through op-1, with the signed offer', () => {
     const t = beat(1);
-    expect(t.events.map((e) => e.kind).filter((k) => k !== 'balances')).toEqual(['adjudicator-proposal', 'adjudicator-agreement', 'offer', 'signed', 'acceptance', 'hold', 'shared-record']);
+    expect(t.events.map((e) => e.kind).filter((k) => k !== 'balances')).toEqual(['adjudicator-proposal', 'adjudicator-agreement', 'offer', 'signed', 'acceptance', 'hold']);
     expect(only(t, 'hold')[0]).toMatchObject({ amount: { token: 'tUSD', amount: '2050000000' }, via: 'op1' });
     expect(row(t, 'after hold', 'buyer')?.amount.amount).toBe('7950000000');
     expect(row(t, 'after hold', 'escrow')?.amount.amount).toBe('2050000000');
@@ -67,8 +67,21 @@ describe('SimChain source (T-012 beat runner)', () => {
     expect(only(t, 'signed')[0]?.signature).toMatch(/^0x[0-9a-f]{130}$/);
   });
 
-  it('beats 2 to 4 are one job', () => {
-    expect(new Set([2, 3, 4].map((b) => beat(b).commitmentId)).size).toBe(1);
+  it('beats 1 to 4 are one job on one world, with one continuous timeline (T-019)', () => {
+    expect(new Set([1, 2, 3, 4].map((b) => beat(b).commitmentId)).size).toBe(1);
+    // Time never runs backwards from beat 1 into beat 4: the four beats are slices of one run.
+    const times = [1, 2, 3, 4].flatMap((b) => beat(b).events.map((e) => e.atMs));
+    expect(times).toEqual([...times].sort((a, b) => a - b));
+    // The ledger beat 1 leaves is the ledger beat 2 starts from, and beat 4 ends where the job's record does.
+    const after = (b: number, label: string) => only(beat(b), 'balances').find((x) => x.label === label)?.rows;
+    expect(after(2, 'after delivery')).toEqual(after(1, 'after hold'));
+    // The delivery is for the hold beat 1 funded: same escrow balance, and the decision stamps come after it.
+    expect(only(beat(2), 'delivery')[0]!.atMs).toBeGreaterThanOrEqual(only(beat(1), 'hold')[0]!.atMs);
+    // Only beat 1 carries the negotiation and the profiles.
+    for (const b of [2, 3, 4]) {
+      expect(beat(b).adjudicators).toBeUndefined();
+      expect(only(beat(b), 'adjudicator-proposal')).toEqual([]);
+    }
   });
 
   it('beat 3: every check passes and a panel of pinned config/judges.yaml models from two or more families accepts', () => {
@@ -166,21 +179,43 @@ describe('SimChain source (T-012 beat runner)', () => {
     expect(decision.timing?.judgingMs).toBeGreaterThanOrEqual(0);
     expect(decision.timing?.judgingMs).toBeLessThanOrEqual(decision.timing!.afterDeliveryMs);
     expect(decision.timing?.panelMs).toBeGreaterThanOrEqual(0);
-    // Beat 5 judged without a panel: the decision still carries its judging time.
-    expect(only(beat(5), 'decision')[0]?.timing?.panelMs).toBeUndefined();
+    // Checks and screen are stamped when they were done: when the first judge was called.
+    expect(panel.atMs - checks.atMs).toBeLessThanOrEqual(decision.timing!.panelMs! + 1);
+    // The parts are named and add up to the judging time.
+    const parts = decision.timing!.parts!;
+    expect(parts.map((p) => p.what)).toEqual([
+      'reading the delivery and fetching its ciphertext',
+      'decrypting, checks and screen',
+      'panel of 3 scripted judges',
+      'aggregating and publishing the signed record',
+      'signing and submitting the decision',
+    ]);
+    expect(parts.reduce((s, p) => s + p.ms, 0)).toBe(decision.timing!.judgingMs);
+    for (const p of parts) expect(p.ms).toBeGreaterThanOrEqual(0);
+    // Beat 5 judged without a panel: the decision still carries its judging time, in named parts.
+    const five = only(beat(5), 'decision')[0]!.timing!;
+    expect(five.panelMs).toBeUndefined();
+    expect(five.parts!.map((p) => p.what)).toEqual(['reading the delivery and fetching its ciphertext', 'decrypting, checks, screen and publishing the signed record', 'signing and submitting the decision']);
+    expect(five.parts!.reduce((s, p) => s + p.ms, 0)).toBe(five.judgingMs);
   });
 
-  it('ends every job with both parties holding the same record, fetched through the SDK (D26)', () => {
-    for (const b of [1, 4, 5, 6, 10]) {
+  it('ends every job with both parties holding the same record, each read through a different operator (D26)', () => {
+    for (const b of [4, 5, 6, 10]) {
       const t = beat(b);
       const r = only(t, 'shared-record');
       expect(r, `beat ${b}`).toHaveLength(1);
       expect(t.events.at(-1)?.kind, `beat ${b}`).toBe('shared-record');
       expect(r[0]!.match, `beat ${b}`).toBe(true);
-      expect(r[0]!.parties.map((p) => p.who)).toEqual(['buyer', 'seller']);
+      // Measured from the receipts each copy holds: Ledger's were signed by op-1, Tide-7's by op-2.
+      expect(r[0]!.parties.map((p) => [p.who, p.via])).toEqual([
+        ['buyer', 'op1'],
+        ['seller', 'op2'],
+      ]);
       expect(r[0]!.receipts).toBe(r[0]!.events);
     }
-    for (const b of [2, 3]) expect(only(beat(b), 'shared-record')).toEqual([]);
+    // Beats 1 to 3 are the start of the job beat 4 ends; the record line comes once, at its end.
+    for (const b of [1, 2, 3]) expect(only(beat(b), 'shared-record')).toEqual([]);
+    expect(only(beat(4), 'shared-record')[0]?.judgedBy).toBe('benchA');
     expect(only(beat(4), 'shared-record')[0]?.judgmentRecord).toMatch(/^0x[0-9a-f]{64}$/);
     expect(only(beat(4), 'shared-record')[0]?.decision).toMatch(/^0x[0-9a-f]{64}$/);
     expect(only(beat(10), 'shared-record')[0]?.judgmentRecord).toBeUndefined();
