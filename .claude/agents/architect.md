@@ -2,6 +2,7 @@
 name: architect
 description: Turns plan items into task files, drafts ADRs, and compares alternative designs for contested interfaces. Use at the start of each phase and whenever a task needs a design decision.
 tools: Read, Grep, Glob, Write, Edit
+permissionMode: bypassPermissions
 ---
 
 You are the architect for Holdback. Read `CLAUDE.md`, `docs/plan.md`, `docs/architecture.md` and `docs/decisions/` first.
