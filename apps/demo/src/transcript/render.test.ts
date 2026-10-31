@@ -5,6 +5,7 @@ import { renderHtml } from './render-html.js';
 import { renderClosingMarkdown, renderMarkdown } from './render-md.js';
 import { renderJson } from './render-json.js';
 import type { BeatTranscript } from './types.js';
+import { withAdjudicators } from './adjudicators.fixture.js';
 
 /** Beat 7 plus a signed message, so one fast fixture exercises every section. */
 async function withSigned(): Promise<BeatTranscript> {
@@ -121,6 +122,36 @@ describe('renderHtml', () => {
     const html = renderHtml(await all());
     expect(html).toMatch(/<details class="signed">/);
     expect(html).not.toMatch(/<details[^>]*\bopen\b/);
+  });
+
+  it('shows a collapsed profile per adjudicator, with judges, effort, harness, terms and history marked role-play (T-017)', async () => {
+    const t = withAdjudicators(await standInSource().run(7));
+    const html = renderHtml([t]);
+    const profiles = [...html.matchAll(/<details class="profile">[\s\S]*?<\/details>/g)].map((m) => m[0]);
+    expect(profiles).toHaveLength(4);
+    expect(html).not.toMatch(/<details[^>]*\bopen\b/);
+    for (const p of profiles) {
+      expect(p).toContain('<code>placeholder-gpt-a-20260601</code>');
+      expect(p).toMatch(/effort/);
+      expect(p).toMatch(/harness/);
+      expect(p).toMatch(/Fee/);
+      expect(p).toMatch(/role-play/i);
+    }
+    expect(profiles[3]).toMatch(/declined/);
+    expect(profiles[3]).toMatch(/panelPolicyMin\.panelSize/);
+  });
+
+  it('narrates the proposal and the agreement before the offer (T-017)', async () => {
+    const t = withAdjudicators(await standInSource().run(7));
+    const md = renderMarkdown(t);
+    const lines = md.split('\n').filter((l) => l.startsWith('- +'));
+    expect(lines[0]).toMatch(/Ledger \(Atlas Research\) reads 4 published adjudicator registrations/);
+    expect(lines[0]).toMatch(/Excluded: Swiftline Verdicts/);
+    expect(lines[0]).toMatch(/nothing goes on chain/);
+    expect(lines[1]).toMatch(/Tide-7 \(Tidewater Data\) checks the proposal against its own policy/);
+    expect(lines[1]).toMatch(/Agrees/);
+    expect(md).toContain('## Adjudicators considered');
+    expect(md).toMatch(/role-play/i);
   });
 
   it('escapes text, so a hostile string in a transcript cannot add markup', async () => {
