@@ -98,6 +98,38 @@ describe('aggregate: table', () => {
   it.each(cases)('%s', (_name, over, expected) => expect(decide(over)).toBe(expected));
 });
 
+// L3-1 (ADR-0021 amendment, D25): at the appeal there is no further instance, so an escalation there
+// means no decision and the default outcome pays the seller from the appeal bond. The flag stays in the
+// record and the appeal panel decides by its supermajority; it never accepts without one (FR-15).
+describe('aggregate: the appeal decides a flagged case (L3-1)', () => {
+  const appeal = (over: Partial<AggregateInput>) => input({ appeal: true, thresholds: APPEAL, ...over });
+  const injected = (passes: number) => ['a', 'b', 'c', 'd', 'e'].map((f, i) => (i < passes ? v(f, 'pass') : v(f, 'fail', [0, 0, 0], true)));
+  it.each([
+    ['screen flagged, 5 of 5 fail rejects', { screenFlagged: true, verdicts: five(0) }, 'reject'],
+    ['screen flagged, 4 of 5 fail rejects', { screenFlagged: true, verdicts: five(1) }, 'reject'],
+    ['screen flagged, 4 of 5 pass accepts by the supermajority', { screenFlagged: true, verdicts: five(4) }, 'accept'],
+    ['screen flagged, 3 of 5 pass still escalates (no supermajority)', { screenFlagged: true, verdicts: five(3) }, 'escalate'],
+    ['screen flagged, unanimous pass from one family escalates', { screenFlagged: true, verdicts: [v('a', 'pass'), v('a', 'pass'), v('a', 'pass'), v('a', 'pass'), v('a', 'pass')] }, 'escalate'],
+    ['judges suspect injection, 4 of 5 fail rejects', { verdicts: injected(1) }, 'reject'],
+    ['a filter abstention still escalates', { screenFlagged: true, verdicts: five(0), escalate: ['judge x output rejected by a filter (canary_echo)'] }, 'escalate'],
+    ['too few valid verdicts still escalates', { screenFlagged: true, verdicts: [v('a', 'fail'), v('b', 'fail'), invalid('c'), invalid('d'), invalid('e')] }, 'escalate'],
+  ] as const)('%s', (_name, over, expected) => expect(aggregate(appeal(over as Partial<AggregateInput>)).decision).toBe(expected));
+
+  it('the primary and fallback (first instance) still escalate a flag under the same thresholds', () => {
+    expect(decide({ thresholds: APPEAL, screenFlagged: true, verdicts: five(0) })).toBe('escalate');
+    expect(decide({ appeal: false, thresholds: APPEAL, screenFlagged: true, verdicts: five(5) })).toBe('escalate');
+  });
+
+  it('keeps the flag in the record: a flagged appeal decision carries the screen and injection reasons', () => {
+    const r = aggregate(appeal({ screenFlagged: true, verdicts: injected(0) }));
+    expect(r.decision).toBe('reject');
+    expect(r.reasons).toEqual(['5 of 5 valid verdicts fail', SCREEN_FLAGGED_REASON, 'a judge suspected injection']);
+    const a = aggregate(appeal({ screenFlagged: true, verdicts: five(5) }));
+    expect(a.decision).toBe('accept');
+    expect(a.reasons).toContain(SCREEN_FLAGGED_REASON);
+  });
+});
+
 describe('aggregate: reported fields', () => {
   it('weighted score is integer hundredths of the mean over valid verdicts', () => {
     const r = aggregate(input({ verdicts: [v('claude', 'pass', [4, 4, 3]), v('gpt', 'pass', [2, 2, 2]), v('gemini', 'abstain', [0, 0, 0]), invalid('x')] }));
@@ -151,7 +183,7 @@ function oracle(i: AggregateInput): 'accept' | 'reject' | 'escalate' {
   if (i.checks.some((c) => c.required && !c.passed && !inc.has(c.checkId))) return 'reject';
   if (inc.size) return 'escalate';
   if (i.checks.every((c) => c.passed) && i.rubric.criteria.length === 0) return 'accept';
-  if (i.screenFlagged || i.verdicts.some((x) => x.verdict?.injectionSuspected)) return 'escalate';
+  if (!i.appeal && (i.screenFlagged || i.verdicts.some((x) => x.verdict?.injectionSuspected))) return 'escalate';
   if (i.escalate?.length) return 'escalate';
   const valid = i.verdicts.filter((x) => x.verdict && x.verdict.overall !== 'abstain');
   if (valid.length < i.thresholds.minValid || valid.length === 0) return 'escalate';
@@ -184,6 +216,7 @@ describe('aggregate: properties', () => {
     emptyRubric: fc.boolean(),
     passThreshold: fc.integer({ min: 0, max: 400 }),
     screenFlagged: fc.boolean(),
+    appeal: fc.boolean(),
     escalate: fc.boolean(),
     verdicts: fc.array(arbVerdict, { maxLength: 7 }),
     minValid: fc.integer({ min: 0, max: 4 }),
@@ -197,6 +230,7 @@ describe('aggregate: properties', () => {
       inconclusive: a.inconclusive.filter((id) => a.checks.some((c) => c.checkId === id && !c.passed)),
       rubric: a.emptyRubric ? { criteria: [], passThreshold: a.passThreshold } : { ...RUBRIC, passThreshold: a.passThreshold },
       screenFlagged: a.screenFlagged,
+      appeal: a.appeal,
       verdicts: a.verdicts.map((x) => (x.kind === 'invalid' ? invalid(x.family) : v(x.family, x.kind as JudgeVerdict['overall'], x.scores, x.inj))),
       thresholds: { minValid: a.minValid, acceptSupermajority: a.accept, rejectSupermajority: a.reject },
       escalate: a.escalate ? ['forced'] : [],
