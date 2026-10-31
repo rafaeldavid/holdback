@@ -5,7 +5,7 @@
 - **Depends on:** all Phase 1 tasks
 - **Paths this task may touch:** `apps/demo/`
 - **Human gate:** yes (dry run with Rafa)
-- **Status:** review (stand-in source; SimChain runner wiring waits on PR 45; dry run with Rafa open)
+- **Status:** review (SimChain runner wired after PR 45; beat 7 and beat 6's injection half stay stand-in; dry run with Rafa open)
 - **Agent/session:** implementer; branch `t-013-demo-cli`
 
 ## Intent
@@ -28,9 +28,9 @@ Restated (2026-10-31):
 
 ## Acceptance criteria
 
-- [x] `pnpm demo`, `--live`, `--beat n`; writes `demo/out/<beat>.md`, `.json`, `index.html` (static, no network). (`--live` refuses until keys exist; the source is the stand-in until PR 45.)
+- [x] `pnpm demo`, `--live`, `--beat n`; writes `demo/out/<beat>.md`, `.json`, `index.html` (static, no network). (`--live` refuses until keys exist. Beats 1 to 5, 10 and the hidden-tags half of 6 run on SimChain; beat 7 and the injection half of 6 are a labeled stand-in.)
 - [x] Narration follows the rules in `docs/demo.md`; recorded mode says so.
-- [x] Viewer shows timeline, balances, panel (model IDs), signed message (collapsed), neutrality events. (Model IDs are placeholders until the Bench registrations land.)
+- [x] Viewer shows timeline, balances, panel (model IDs), signed message (collapsed), neutrality events. (Model IDs are config/judges.yaml's pinned placeholders.)
 - [x] Closing section states residual risks and asks for AI labs.
 - [ ] Dry run on a fresh clone: time-to-first-transcript measured; four comprehension questions answered by a reviewer from transcripts alone.
 
@@ -42,7 +42,18 @@ Restated (2026-10-31):
 
 Fill this in before review. Label each item measured, inferred or guessed.
 
-### Stand-in source (2026-10-31, branch `t-013-demo-cli`, before PR 45 merges)
+### SimChain runner wired (2026-10-31, after PR 45 merged as `779b13e`)
+
+- **Test first (measured):** `source/simchain.test.ts` and the narrowed `stand-in.test.ts` were committed in `a37e8bb` before `source/simchain.ts` and `source/demo.ts` existed; the SimChain file failed to import and 4 CLI tests failed. After `978c1f3`: 53 of 53 demo tests pass.
+- **Beats on SimChain (measured, seed 7, `simchain.test.ts`):** beat 1 holds 2,050 tUSD through op-1 (Ledger 7,950, Escrow 2,050, Clearfield 2,000 reserved), with Tide-7's signed offer (a 65-byte EIP-712 signature). Beats 2 to 4 share one commitment. In beat 3, 9 of 9 checks pass and a commit-reveal panel of 3 judges (`placeholder-qwen-a-20260601`, `placeholder-claude-a-20260601`, `placeholder-claude-b-20260601`, 2 families) accepts. In beat 4, 2,000 tUSD goes to Tide-7 and 50 to Clearfield, the key goes to Ledger, and the 511,912 plaintext bytes match `sha256:1939b96f…`. In beat 5 only `rows` fails (8,740 rows), Ledger ends at 9,950 tUSD and no key is released. In beat 6's hidden-tags half the screen flags `unicode_tags`, and Ledger's SDK strips 111 tag characters. In beat 10 the 70/30 split leaves Ledger at 8,600, Tide-7 at 1,400, and Clearfield's reservation at 0. Every SimChain transcript's balance snapshots sum to the same total, and every time is a non-negative integer in order.
+- **Times are measured (measured):** each settlement event carries the wall-clock milliseconds since the job's first call, recorded by wrapping the world's `SimChain.submit` and `trigger`. One run gave offer +15 ms, hold +24 ms, delivery +39 ms, and decision and release +324 ms; Ledger opened the work at +586 ms. Times vary per run, so these transcripts cannot be byte-stable snapshots (inferred).
+- **Model IDs (measured):** every panel model in both sources is an active entry in `config/judges.yaml`, read through `demoRegistry()`; a test checks this.
+- **Cast (measured):** the names come from `apps/demo/agents/cast.ts` through the package's `./agents/*.js` export; only the operators, SimChain, Escrow and Ledgerwatch Audit are local.
+- **Fresh tree (measured):** `git archive HEAD` extracted into an empty directory, warm pnpm store: install 0.84 s; `pnpm demo` 7.5 s wall, including `tsc -b` of every referenced package from scratch; first transcript 118 ms after the CLI started, all 8 in 1,785 ms; 18 files written.
+- **Viewer (measured):** in the browser pane at 408 px the page does not scroll sideways (`scrollWidth` 393); beat 6 shows 10 events badged "stand-in"; no `<details>` is open.
+- **`pnpm verify` (measured, commit `978c1f3`, clean tree):** PASS. typecheck 185 ms, lint 1,909 ms, test 16,506 ms (61 files, 1,837 tests), spec 264 ms, snap 632 ms, demo 2,377 ms.
+
+### Stand-in source (2026-10-31, branch `t-013-demo-cli`, before PR 45 merged; superseded where noted above)
 
 - **Test first (measured):** the five test files were committed alone in `a05cf94` (types only, no implementation); `vitest run apps/demo` failed 5 of 5 files with missing modules. After the implementation: 41 of 41 pass.
 - **Commands (measured):** `pnpm demo` writes 18 files to `demo/out/`: `beat-<n>.md` and `beat-<n>.json` for beats 1, 2, 3, 4, 5, 6, 7 and 10, plus `closing.md` and `index.html`, and prints the narration. `pnpm demo --beat 4` writes only `beat-4.*`, `closing.md` and `index.html`. `pnpm demo --beat 9` exits 2 naming the available beats and writes nothing. `pnpm demo --live` exits 2 with "Live mode calls judges from two model families and needs an API key for each…" and writes nothing.
@@ -71,38 +82,50 @@ Fill this in before review. Label each item measured, inferred or guessed.
 Not done; Rafa runs it. Prepared:
 
 1. On a fresh clone: `pnpm install && time pnpm demo`, then `open demo/out/index.html`. Record the time to the first transcript (the CLI prints it) and the wall time.
-2. Hand a reviewer who has not read the docs only `demo/out/` and ask the four questions. Expected answers, quoted from the stand-in transcripts:
+2. Hand a reviewer who has not read the docs only `demo/out/` and ask the four questions. Expected answers, quoted from the transcripts (SimChain unless marked stand-in):
 
    | Question | Expected answer | Where |
    | --- | --- | --- |
-   | Who held the money? | The escrow on SimChain: "Ledger (Atlas Research) signs and holds 2,050 tUSD in escrow in one call, relayed by op-1. Neither party can move it alone." Balances show Escrow 2,050 tUSD. | `beat-1.md`, Timeline and Balances |
-   | Who decided? | Clearfield Adjudication (Bench A), which both agents named in the offer, on a panel of three pinned judges from two families: "Clearfield Adjudication (Bench A) signs the primary decision: accept". In beat 7, Northgate Review as fallback. | `beat-3.md`, `beat-1.md` (offer), `beat-7.md` |
-   | What stopped the injection? | The screen flagged a base64 instruction, so the panel could not auto-accept; Clearfield escalated to Atrium Appeals, whose five judges from three families all failed it, and Ledger was refunded. Hidden tag characters in the second delivery were stripped by Ledger's SDK before Ledger read the file. | `beat-6.md` |
-   | What happened when op-1 refused? | "Ledger's SDK got 1 refusal (HTTP 503) and failed over to op-2 within 9 ms; Tide-7 later submits its signed delivery directly to SimChain, so no operator is required." The commitment settled. | `beat-7.md`, Neutrality events |
+   | Who held the money? | The escrow on SimChain: "Ledger (Atlas Research) signs and holds 2,050 tUSD in escrow in one call, relayed by op-1. Neither party can move it alone." The balances show Escrow 2,050 tUSD. | `beat-1.md`, Timeline and Balances |
+   | Who decided? | Clearfield Adjudication (Bench A), which both agents named in the offer, on a panel of three pinned judges from two families: "Clearfield Adjudication (Bench A) signs the primary decision: accept, submitted directly to SimChain (no operator)." In beat 7 (stand-in), Northgate Review decides as fallback. | `beat-3.md`, `beat-1.md` (offer), `beat-7.md` |
+   | What stopped the injection? | Stand-in half: the screen flagged an encoded instruction, so the panel could not auto-accept; Clearfield escalated to Atrium Appeals, whose five judges from three families all failed it; Ledger was refunded. SimChain half: the hidden tag characters were recorded in the signed judgment record, and Ledger's SDK stripped all 111 before Ledger read the file. | `beat-6.md` |
+   | What happened when op-1 refused? | Stand-in: "Ledger's SDK got 1 refusal (HTTP 503) and failed over to op-2 within 9 ms; Tide-7 later submits its signed delivery directly to SimChain, so no operator is required." The commitment settled. | `beat-7.md`, Neutrality events |
+
+   Questions 3 and 4 still rest on stand-in events until T-012's backlog adds injection deliverables, escalation and neutrality runners. If the reviewer reads the stand-in badge as "not real", record that here.
 
 3. Record whether each answer came from the transcript alone, and anything the reviewer misread, here.
 
 ## Decisions
 
 - **A typed transcript interface between runner and renderers** (`apps/demo/src/transcript/types.ts`): `BeatTranscript` with a closed union of 16 event kinds, and `EventSource { beats(), run(beat) }`. Narration, Markdown, JSON and HTML read only this, so the runner can change without touching them, and T-012's runner plugs in as a second source.
-- **Stand-in source, labeled.** `apps/demo/src/source/stand-in.ts` scripts beats 1 to 7 and 10 with illustrative numbers so `pnpm demo` works and the viewer can be reviewed now. Each transcript's header and the viewer badge say "stand-in". Its balances follow T-012's measured beat table.
-- **Beats 1 to 4 are four transcripts of one job,** each with times since its own start, so `--beat 4` shows settlement alone. Beat 6 holds both deliveries (base64 injection, then hidden tags) in one transcript. Beats 8 and 9 are not offered (optional; no runner).
+- **Three sources.** `simchainSource` (T-012's beats, measured), `standInSource` (beat 7 and beat 6's injection half only, illustrative), and `demoSource`, which `pnpm demo` uses and which composes the two. A transcript's `source.kind` is `simchain`, `stand-in` or `mixed`. In a mixed transcript, each stand-in event carries `standIn: true`, which narration prints as `[stand-in]` and the viewer as a badge.
+- **Beat 1 runs `beatHold` alone,** so `--beat 1` does not deliver. Beats 2 to 4 share one `beatHappyPath` run per source instance, sliced by phase. Times count from the job's first call, so beat 4's times continue beat 3's.
+- **Measured times by wrapping `SimChain.submit` and `trigger`** on the demo world's chain instance. The beat functions return only final results, and the sim clock moves in whole seconds. The wrapper passes each call through unchanged and records the time and ledger after it. Times therefore vary per run.
+- **Balances from the ledger:** each party's account; Escrow as the sum of `escrow:*`; each bench as its free balance plus its junior and senior bond, with its reserved bond. All three benches always appear, so the snapshots sum to the minted total.
+- **Mutual settlement shows the fee returned to Ledger** as a payout row. The `commitment.settled` payload lists only the price split; the fee row follows the ADR-0019 Phase 1 rule, and the balance snapshot (8,600 tUSD) confirms it.
+- **Beat 6 is one transcript:** the stand-in injection half first, without its balance snapshots, then the measured hidden-tags half with its times shifted to start after it. Beats 8 and 9 are not offered (optional; no runner).
+- **Panel rule** comes from the record's first aggregate reason, not from a threshold field, since the policy is not in `JobResult`. Scores are hundredths of a rubric point ("4.00 of 4"), computed from the verdict criteria and the terms' weights.
 - **File names `beat-<n>.md` / `.json`,** plus `closing.md` for the closing section; `index.html` covers the beats run in that invocation.
 - **`--live` exits 2** with a message, before any source runs; it never looks for keys.
 - **No JavaScript in the viewer.** `<details>` collapses the signed message natively; light and dark themes by CSS only.
-- **Placeholder model IDs** (`claude-opus-5-5-20260601`, `claude-haiku-5-20260601`, `gemini-4-pro-001`, `gemini-4-flash-001`, `mistral-large-2611`) in the stand-in panels; the real pinned IDs come from the Bench registrations (T-012 backlog). Before showing the demo to an AI lab, these must be real registry IDs.
-- **Outside `apps/demo/`:** the root `package.json` `demo` script now runs `tsc -b apps/demo && node apps/demo/dist/bin.js` instead of the placeholder, since `pnpm demo` is the acceptance criterion; and this task file. `apps/demo/tsconfig.json` gains `types: ["node"]`.
-- **Cast names** live in `apps/demo/src/transcript/cast.ts` until T-012's `apps/demo/agents/cast.ts` exists (it is not on PR 45 yet).
+- **Model IDs from `config/judges.yaml`.** The stand-in panels name registry judges by ID (`claude-a`, `gpt-a` and so on) and take their pinned placeholder models through `demoRegistry()`, so no model ID is invented. The registry's IDs are themselves placeholders until promotion (`docs/decisions/registry-log.md`).
+- **Cast from `apps/demo/agents/cast.ts`,** imported through a self-reference export, `"./agents/*.js"`, in `apps/demo/package.json`. `dist/` and `agents/` are siblings, so a relative import would not resolve at run time. Ledgerwatch Audit is not in that file and stays local, for the viewer's introduction only.
+- **Outside `apps/demo/`:** the root `package.json` `demo` script (`tsc -b apps/demo && node apps/demo/dist/bin.js`) and this task file. Nothing in `apps/demo/agents/` changed.
 
 ## Handoff
 
-**Wired:** `pnpm demo`, `--beat n`, `--live` (refuses), `--out dir`; narration; `beat-<n>.md`, `beat-<n>.json`, `closing.md`, `index.html`; the closing section (finality, residuals 1 to 12, three asks for AI labs); the stand-in source.
+**Wired:**
+- Commands: `pnpm demo`, `--beat n`, `--live` (refuses), `--out dir`.
+- Output: narration, `beat-<n>.md`, `beat-<n>.json`, `closing.md`, `index.html`, and the closing section.
+- SimChain: beats 1, 2 to 4, 5, 10, and the hidden-tags half of 6 run through T-012's beat functions.
+- Cast: names come from `agents/cast.ts`.
 
-**Stubbed, waiting on T-012 (PR 45):** the SimChain beat runner. When PR 45 merges:
+**Stand-in, labeled (waits on T-012's backlog):**
+- Beat 6's injection half (base64 instruction, escalation, five-judge appeal panel) needs an injection deliverable and an escalation beat in `apps/demo/agents/`.
+- Beat 7 (op-1 refusal, Bench A offline with fallback takeover, club revocation) needs a neutrality beat.
+- When either lands, add it to `simchainSource` and drop the matching script from `stand-in.ts`; `demoSource` then picks the SimChain run.
 
-1. Merge `origin/main`; add a `simchain` `EventSource` in `apps/demo/src/source/` that calls `createDemoWorld({ seed })` and `beatHold`, `beatHappyPath` (sliced into beats 1 to 4), `beatBadWork`, `beatHiddenTags` and `beatMutualSplit`, maps `JobResult` (commitment, delivery facts, checks, panel, opened, payouts, vias) and `world.balance()` reads into events, and closes the world. Timings: measured wall milliseconds, or a fixed clock if the transcripts are to double as `.expect.md` snapshots (T-010).
-2. Compose sources per beat: SimChain where T-012 has a runner, the stand-in for beat 6's injection half and beat 7 until those runners exist. The per-transcript `source` already says which is which.
-3. Import cast names from `apps/demo/agents/cast.ts` if it lands; add the workspace dependencies and a tsconfig reference to `apps/demo/agents`.
-4. Re-measure time to first transcript and re-run `pnpm verify`.
-
-**Not done:** the dry run with Rafa (human gate, prepared above); real pinned model IDs (needs Bench registrations); beats 8 and 9; transcripts as scenario snapshots (T-010).
+**Not done:**
+- The dry run with Rafa (human gate, prepared above).
+- Beats 8 and 9.
+- Transcripts as scenario snapshots (T-010). Measured times differ per run, so snapshots would need a fixed clock or the times masked.
