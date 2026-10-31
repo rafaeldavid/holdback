@@ -376,9 +376,8 @@ describe('validate (ADR-0017 §7)', () => {
     await w.ok(w.deal.accept());
     const before = w.chain.digest();
     const { agree, funding } = (await w.deal.agreeAndFund()) as Extract<Submission, { kind: 'agree_and_fund' }>;
-    const { signature: _a, ...unsignedAgree } = agree;
-    const { signature: _f, ...unsignedFunding } = funding;
-    const r = await w.chain.validate({ kind: 'agree_and_fund', agree: unsignedAgree, funding: unsignedFunding });
+    const strip = <T extends { signature?: unknown }>(m: T): Omit<T, 'signature'> => Object.fromEntries(Object.entries(m).filter(([k]) => k !== 'signature')) as Omit<T, 'signature'>;
+    const r = await w.chain.validate({ kind: 'agree_and_fund', agree: strip(agree), funding: strip(funding) });
     expect(r).toMatchObject({ ok: true, dryRun: true, signatureCheck: 'skipped', events: [], state: { escrowState: 'Held' } });
     expect(w.chain.digest()).toBe(before);
     expect((await w.chain.state(w.deal.id))?.escrowState).toBe('AcceptedByAdjudicator');
