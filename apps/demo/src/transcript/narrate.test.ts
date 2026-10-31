@@ -41,7 +41,7 @@ describe('narrate', () => {
       actor: 'benchA',
       seed: '0xabcdef0123456789',
       seedSource: 'commit-reveal',
-      threshold: '2/3',
+      rule: 'accept at 2/3 or more',
       judges: [
         { seat: 1, model: 'model-one-20260601', family: 'familyA', verdict: 'pass', score: 380 },
         { seat: 2, model: 'model-two-001', family: 'familyB', verdict: 'fail', score: 120 },

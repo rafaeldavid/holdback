@@ -6,16 +6,28 @@ import { renderClosingMarkdown, renderMarkdown } from './render-md.js';
 import { renderJson } from './render-json.js';
 import type { BeatTranscript } from './types.js';
 
+/** Beat 7 plus a signed message, so one fast fixture exercises every section. */
+async function withSigned(): Promise<BeatTranscript> {
+  const t = await standInSource().run(7);
+  return {
+    ...t,
+    events: [
+      ...t.events.slice(0, 2),
+      { kind: 'signed', atMs: 0, actor: 'seller', messageType: 'Offer', signer: '0x5969b88346862fcd013a8f1eee8a33e50335a684', body: { price: { token: 'tUSD', amount: '2000000000' } }, signature: `0x${'ab'.repeat(65)}` },
+      ...t.events.slice(2),
+    ],
+  };
+}
+
 async function all(): Promise<BeatTranscript[]> {
   const s = standInSource();
-  return Promise.all(s.beats().map((b) => s.run(b)));
+  return [await withSigned(), ...(await Promise.all(s.beats().filter((b) => b !== 7).map((b) => s.run(b))))];
 }
 
 describe('renderMarkdown', () => {
   it('has a title, the recorded-mode header, a timeline and the balances', async () => {
-    const t = await standInSource().run(1);
-    const md = renderMarkdown(t);
-    expect(md).toMatch(/^# Beat 1: Choose, agree and hold\n/);
+    const md = renderMarkdown(await withSigned());
+    expect(md).toMatch(/^# Beat 7: Nobody in control\n/);
     expect(md).toContain('recorded verdicts');
     expect(md).toContain('## Timeline');
     expect(md).toContain('## Balances');
@@ -24,9 +36,16 @@ describe('renderMarkdown', () => {
   });
 
   it('shows the panel as a table with pinned model IDs', async () => {
-    const md = renderMarkdown(await standInSource().run(3));
+    const md = renderMarkdown(await standInSource().run(6));
     expect(md).toContain('## Panel');
-    expect(md).toMatch(/\| 1 \| `[a-z0-9.-]+` \|/);
+    expect(md).toMatch(/\| 1 \| `placeholder-claude-a-20260601` \|/);
+  });
+
+  it('marks stand-in events in a mixed transcript', async () => {
+    const t = await standInSource().run(6);
+    const mixed: BeatTranscript = { ...t, source: { kind: 'mixed', note: 'part measured' }, events: t.events.map((e, i) => (i < 3 ? { ...e, standIn: true as const } : e)) };
+    expect(renderMarkdown(mixed)).toContain('[stand-in]');
+    expect(renderHtml([mixed])).toContain('<span class="badge standin">stand-in</span>');
   });
 
   it('marks neutrality events', async () => {
@@ -73,8 +92,8 @@ describe('renderHtml', () => {
     for (const t of ts) expect(html).toContain(`id="beat-${t.beat}"`);
     expect(html).toContain('class="timeline"');
     expect(html).toContain('class="balances"');
-    const panel = ts.find((t) => t.beat === 3)!.events.find((e) => e.kind === 'panel');
-    if (panel?.kind !== 'panel') throw new Error('beat 3 has no panel');
+    const panel = ts.find((t) => t.beat === 6)!.events.find((e) => e.kind === 'panel');
+    if (panel?.kind !== 'panel') throw new Error('beat 6 has no panel');
     for (const j of panel.judges) expect(html).toContain(j.model);
     expect(html).toContain('class="event neutrality"');
     expect(html).toContain('id="closing"');
@@ -88,7 +107,7 @@ describe('renderHtml', () => {
   });
 
   it('escapes text, so a hostile string in a transcript cannot add markup', async () => {
-    const t = await standInSource().run(1);
+    const t = await standInSource().run(7);
     const hostile: BeatTranscript = { ...t, title: '<script>alert(1)</script>', summary: '"><img src=x onerror=alert(1)>' };
     const html = renderHtml([hostile]);
     expect(html).not.toContain('<script>alert');

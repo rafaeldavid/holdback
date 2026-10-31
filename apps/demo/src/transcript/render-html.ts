@@ -3,7 +3,7 @@
 import { CAST, labelOf } from './cast.js';
 import { closing } from './closing.js';
 import { formatAmount } from './money.js';
-import { describeEvent, formatMs, header } from './narrate.js';
+import { describeEvent, formatMs, formatScore, header } from './narrate.js';
 import { eventsOf } from './render-md.js';
 import type { BeatTranscript, CastKey } from './types.js';
 
@@ -78,11 +78,11 @@ function panelTables(t: BeatTranscript): string {
     .map((p) =>
       [
         `<h3>Panel, ${esc(CAST[p.actor].name)}</h3>`,
-        `<p class="meta">Seed <code>${esc(p.seed)}</code> (${esc(p.seedSource)}); threshold ${esc(p.threshold)}; outcome <strong>${esc(p.outcome)}</strong>.</p>`,
+        `<p class="meta">Seed <code>${esc(p.seed)}</code> (${esc(p.seedSource)}); ${esc(p.rule)}; outcome <strong>${esc(p.outcome)}</strong>.</p>`,
         '<div class="scroll"><table class="panel"><thead><tr><th>Seat</th><th>Pinned model ID</th><th>Family</th><th>Verdict</th><th class="num">Score</th></tr></thead><tbody>',
         ...p.judges.map(
           (j) =>
-            `<tr><td>${j.seat}</td><td><code>${esc(j.model)}</code></td><td>${esc(j.family)}</td><td class="${j.verdict}">${j.verdict}</td><td class="num">${j.score ?? '-'}</td></tr>`,
+            `<tr><td>${j.seat}</td><td><code>${esc(j.model)}</code></td><td>${esc(j.family)}</td><td class="${j.verdict}">${j.verdict}</td><td class="num">${j.score === undefined ? '-' : esc(formatScore(j.score))}</td></tr>`,
         ),
         '</tbody></table></div>',
       ].join('\n'),
@@ -102,13 +102,16 @@ function signed(t: BeatTranscript): string {
 function beatSection(t: BeatTranscript): string {
   const items = t.events
     .filter((e) => e.kind !== 'balances')
-    .map((e) => `<li class="event${e.kind === 'neutrality' ? ' neutrality' : ''}" data-kind="${e.kind}"><span class="t">${esc(formatMs(e.atMs))}</span>${inline(describeEvent(e))}</li>`);
-  const standIn = t.source.kind === 'stand-in';
+    .map(
+      (e) =>
+        `<li class="event${e.kind === 'neutrality' ? ' neutrality' : ''}" data-kind="${e.kind}"><span class="t">${esc(formatMs(e.atMs))}${e.standIn ? ' <span class="badge standin">stand-in</span>' : ''}</span>${inline(describeEvent(e))}</li>`,
+    );
+  const standIn = t.source.kind !== 'simchain';
   return [
     `<section class="beat" id="beat-${t.beat}">`,
     `<h2>Beat ${t.beat}: ${esc(t.title)}</h2>`,
     `<p>${esc(t.summary)}</p>`,
-    `<p><span class="badge${standIn ? ' standin' : ''}">${standIn ? 'stand-in source' : 'SimChain'}</span><span class="badge">${esc(t.mode)}</span>${t.commitmentId ? `<span class="badge">commitment <code>${esc(t.commitmentId.slice(0, 10))}…</code></span>` : ''}</p>`,
+    `<p><span class="badge${standIn ? ' standin' : ''}">${t.source.kind === 'stand-in' ? 'stand-in source' : t.source.kind === 'mixed' ? 'SimChain + stand-in' : 'SimChain'}</span><span class="badge">${esc(t.mode)}</span>${t.commitmentId ? `<span class="badge">commitment <code>${esc(t.commitmentId.slice(0, 10))}…</code></span>` : ''}</p>`,
     `<ul class="meta">${header(t).map((l) => `<li>${esc(l)}</li>`).join('')}</ul>`,
     '<div class="grid">',
     `<div><h3>Timeline</h3><ol class="timeline">\n${items.join('\n')}\n</ol>${signed(t)}</div>`,
@@ -136,7 +139,7 @@ function closingSection(): string {
 
 export function renderHtml(transcripts: readonly BeatTranscript[]): string {
   const ts = [...transcripts].sort((a, b) => a.beat - b.beat);
-  const anyStandIn = ts.some((t) => t.source.kind === 'stand-in');
+  const anyStandIn = ts.some((t) => t.source.kind !== 'simchain');
   return [
     '<!doctype html>',
     '<html lang="en">',
@@ -150,7 +153,7 @@ export function renderHtml(transcripts: readonly BeatTranscript[]): string {
     '<main>',
     '<h1>Two agents, one 2,000 tUSD job, nobody in control</h1>',
     `<p class="lede">${esc(CAST.buyer.name)}, ${esc(CAST.buyer.org ?? '')}'s buyer agent (principal ${esc(CAST.buyer.principal ?? '')}), hires ${esc(CAST.seller.name)}, ${esc(CAST.seller.org ?? '')}'s seller agent (principal ${esc(CAST.seller.principal ?? '')}), to clean a customer dataset. The two agents name ${esc(CAST.benchA.name)}, ${esc(CAST.benchB.name)} and ${esc(CAST.benchC.name)} as primary, fallback and appeal adjudicators. ${esc(CAST.backer.name)} backs bonds; ${esc(CAST.observer.name)} observes. Settlement runs on SimChain with a test token.</p>`,
-    anyStandIn ? '<p class="lede"><span class="badge standin">stand-in source</span>Beats marked stand-in are scripted with illustrative numbers until the SimChain beat runner is wired in.</p>' : '',
+    anyStandIn ? '<p class="lede"><span class="badge standin">stand-in source</span>Beats and events marked stand-in are scripted with illustrative numbers, because no SimChain runner drives them yet. Everything else is measured on SimChain in this run.</p>' : '',
     `<nav><ol>${ts.map((t) => `<li><a href="#beat-${t.beat}">${t.beat}. ${esc(t.title)}</a></li>`).join('')}<li><a href="#closing">Closing</a></li></ol></nav>`,
     ...ts.map(beatSection),
     closingSection(),

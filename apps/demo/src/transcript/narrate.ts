@@ -24,6 +24,9 @@ export const MARKETING_WORDS = [
 
 const group = (n: number) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 
+/** A weighted rubric score in hundredths of a point (0 to 400): "3.80 of 4". Integer arithmetic only. */
+export const formatScore = (h: number) => `${Math.trunc(h / 100)}.${String(h % 100).padStart(2, '0')} of 4`;
+
 /** "+1,204 ms" */
 export const formatMs = (ms: number) => `+${group(ms)} ms`;
 
@@ -64,10 +67,10 @@ export function describeEvent(e: DemoEvent): string {
         ? `The screen at ${who} flags ${e.signals.length} signal${e.signals.length === 1 ? '' : 's'} (${e.signals.join(', ')}): ${e.consequence}.`
         : `The screen at ${who} finds 0 hidden or encoded instructions: ${e.consequence}.`;
     case 'panel': {
-      const seats = e.judges.map((j) => `seat ${j.seat} \`${j.model}\` (${j.family}) ${j.verdict}${j.score === undefined ? '' : ` ${j.score}`}`).join('; ');
+      const seats = e.judges.map((j) => `seat ${j.seat} \`${j.model}\` (${j.family}) ${j.verdict}${j.score === undefined ? '' : ` ${formatScore(j.score)}`}`).join('; ');
       const passes = e.judges.filter((j) => j.verdict === 'pass').length;
       const families = new Set(e.judges.map((j) => j.family)).size;
-      return `${who} seats ${e.judges.length} judges by ${e.seedSource} seed ${short(e.seed)}: ${seats}. ${passes} of ${e.judges.length} pass across ${families} families; threshold ${e.threshold}; panel outcome: ${e.outcome}.`;
+      return `${who} seats ${e.judges.length} judges by ${e.seedSource} seed ${short(e.seed)}: ${seats}. ${passes} of ${e.judges.length} pass across ${families} families (${e.rule}); panel outcome: ${e.outcome}.`;
     }
     case 'decision':
       return `${who} signs the ${e.role} decision: ${e.outcome}, ${relay(e.via)}.`;
@@ -103,7 +106,7 @@ export function describeEvent(e: DemoEvent): string {
 
 /** One narrated line: "+1,204 ms <what happened, with its number>". */
 export function narrate(e: DemoEvent): string {
-  return `${formatMs(e.atMs)} ${describeEvent(e)}`;
+  return `${formatMs(e.atMs)} ${e.standIn ? '[stand-in] ' : ''}${describeEvent(e)}`;
 }
 
 /** Lines printed before the timeline: mode, source, litmus test, units. */
@@ -116,6 +119,6 @@ export function header(t: BeatTranscript): string[] {
     mode,
     `Source: ${t.source.note}`,
     `Shows: ${t.litmus}.`,
-    'Amounts are in tUSD, a test token on SimChain (1 tUSD stands for $1). Times are milliseconds since the beat started.',
+    'Amounts are in tUSD, a test token on SimChain (1 tUSD stands for $1). Times are milliseconds since the job\'s first call.',
   ];
 }

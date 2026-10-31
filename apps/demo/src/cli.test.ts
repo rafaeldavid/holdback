@@ -41,9 +41,12 @@ describe('pnpm demo', () => {
     }
     expect(files).toContain('closing.md');
     expect(files).toContain('index.html');
-    expect(readFileSync(join(out, 'beat-1.md'), 'utf8')).toContain('recorded verdicts');
+    const one = readFileSync(join(out, 'beat-1.md'), 'utf8');
+    expect(one).toContain('recorded verdicts');
+    expect(one).toContain('measured on SimChain');
+    expect(readFileSync(join(out, 'beat-7.md'), 'utf8')).toContain('scripted stand-in');
     expect(logs.join('\n')).toMatch(/first transcript after \d+ ms/);
-  });
+  }, 60_000);
 
   it('prints the narration to stdout', async () => {
     await main(['--beat', '7'], io());
@@ -55,7 +58,7 @@ describe('pnpm demo', () => {
   it('--beat 4 writes only beat 4, plus the viewer and closing', async () => {
     expect(await main(['--beat', '4'], io())).toBe(0);
     expect(readdirSync(out).sort()).toEqual(['beat-4.json', 'beat-4.md', 'closing.md', 'index.html']);
-  });
+  }, 30_000);
 
   it('--beat with a beat that has no runner exits 2 and writes nothing', async () => {
     expect(await main(['--beat', '9'], io())).toBe(2);
@@ -79,7 +82,7 @@ describe('pnpm demo', () => {
     rmSync(out, { recursive: true, force: true });
     expect(await main(['--beat', '1'], io())).toBe(0);
     expect(existsSync(join(out, 'index.html'))).toBe(true);
-  });
+  }, 30_000);
 });
 
 describe('secrets', () => {

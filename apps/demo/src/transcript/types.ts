@@ -1,7 +1,7 @@
 // The transcript interface between a beat runner and the narration, renderers and viewer (T-013).
 // A beat runner (T-012's SimChain runner, or the scripted stand-in) produces a BeatTranscript; everything
 // downstream reads only this. Money is a token amount in base units as a decimal string; times are whole
-// milliseconds since the beat started. No deliverable content ever appears here: hashes, sizes and counts only.
+// milliseconds since the job's first call. No deliverable content ever appears here: hashes, sizes and counts only.
 
 /** Who appears in the demo. Display names live in cast.ts. */
 export type CastKey =
@@ -42,7 +42,7 @@ export interface JudgeSeat {
   model: string;
   family: string;
   verdict: 'pass' | 'fail' | 'abstain';
-  /** Weighted rubric score (integer), when the judge returned one. */
+  /** Weighted rubric score in hundredths of a point (0 to 400), when the judge returned one. */
   score?: number;
 }
 
@@ -55,9 +55,13 @@ export interface BalanceRow {
 }
 
 interface At {
-  /** Whole milliseconds since the beat started. */
+  /** Whole milliseconds since the job's first call. */
   atMs: number;
+  /** Set on events the scripted stand-in wrote (illustrative), in a transcript that also has SimChain events. */
+  standIn?: true;
 }
+
+export type Json = string | number | boolean | null | Json[] | { [key: string]: Json };
 
 export type DemoEvent =
   | (At & { kind: 'offer'; actor: CastKey; commitmentId: string; price: Amount; fee: Amount; primary: CastKey; fallback: CastKey; appeal: CastKey; disclosure: 'public' | 'judgment' | 'private' })
@@ -66,7 +70,7 @@ export type DemoEvent =
   | (At & { kind: 'delivery'; actor: CastKey; deliveryHash: string; plaintextSha256: string; ciphertextBytes: number; keyRecipients: CastKey[]; via: Via })
   | (At & { kind: 'checks'; actor: CastKey; results: CheckResult[] })
   | (At & { kind: 'screen'; actor: CastKey; flagged: boolean; signals: string[]; consequence: string })
-  | (At & { kind: 'panel'; actor: CastKey; seed: string; seedSource: 'commit-reveal' | 'beacon'; threshold: string; judges: JudgeSeat[]; outcome: 'accept' | 'reject' | 'escalate' })
+  | (At & { kind: 'panel'; actor: CastKey; seed: string; seedSource: 'commit-reveal' | 'beacon'; rule: string; judges: JudgeSeat[]; outcome: 'accept' | 'reject' | 'escalate' })
   | (At & { kind: 'decision'; actor: CastKey; role: 'primary' | 'fallback' | 'appeal'; outcome: 'accept' | 'reject'; via: Via })
   | (At & { kind: 'escalation'; actor: CastKey; to: CastKey; reason: string; panelSize: number; families: number })
   | (At & { kind: 'settlement'; actor: CastKey; settlement: 'release' | 'refund' | 'mutual'; payouts: { to: CastKey; amount: Amount; reason: string }[]; keyReleasedTo?: CastKey; via: Via })
@@ -75,14 +79,15 @@ export type DemoEvent =
   | (At & { kind: 'receipt'; actor: CastKey; receiptHash: string })
   | (At & { kind: 'neutrality'; actor: CastKey; target: CastKey; failure: 'refused' | 'offline' | 'revoked'; consequence: string; via?: Via })
   | (At & { kind: 'balances'; actor: CastKey; label: string; rows: BalanceRow[] })
-  | (At & { kind: 'signed'; actor: CastKey; messageType: string; signer: string; body: Record<string, string | number | boolean>; signature: string });
+  | (At & { kind: 'signed'; actor: CastKey; messageType: string; signer: string; body: { [key: string]: Json }; signature: string });
 
 export type EventKind = DemoEvent['kind'];
 
 /** Where a beat's numbers come from. */
 export interface TranscriptSource {
-  kind: 'simchain' | 'stand-in';
-  /** One sentence the transcript prints, e.g. that stand-in numbers are illustrative. */
+  /** 'mixed': SimChain events plus stand-in events, each stand-in event marked `standIn`. */
+  kind: 'simchain' | 'stand-in' | 'mixed';
+  /** What the transcript prints about where its numbers come from. */
   note: string;
 }
 

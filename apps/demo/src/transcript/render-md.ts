@@ -2,7 +2,7 @@
 import { labelOf } from './cast.js';
 import { closing } from './closing.js';
 import { formatAmount } from './money.js';
-import { formatMs, header, narrate } from './narrate.js';
+import { formatMs, formatScore, header, narrate } from './narrate.js';
 import type { BeatTranscript, DemoEvent } from './types.js';
 
 type Of<K extends DemoEvent['kind']> = Extract<DemoEvent, { kind: K }>;
@@ -17,9 +17,9 @@ export function renderMarkdown(t: BeatTranscript): string {
   out.push('## Timeline', '', ...t.events.filter((e) => e.kind !== 'balances').map((e) => `- ${narrate(e)}`), '');
 
   for (const p of eventsOf(t, 'panel')) {
-    out.push('## Panel', '', `Seed ${p.seed} (${p.seedSource}); threshold ${p.threshold}; outcome ${p.outcome}.`, '');
+    out.push('## Panel', '', `Seed ${p.seed} (${p.seedSource}); ${p.rule}; outcome ${p.outcome}.`, '');
     out.push('| Seat | Pinned model ID | Family | Verdict | Score |', '| --- | --- | --- | --- | --- |');
-    for (const j of p.judges) out.push(`| ${j.seat} | \`${cell(j.model)}\` | ${cell(j.family)} | ${j.verdict} | ${j.score ?? '-'} |`);
+    for (const j of p.judges) out.push(`| ${j.seat} | \`${cell(j.model)}\` | ${cell(j.family)} | ${j.verdict} | ${j.score === undefined ? '-' : formatScore(j.score)} |`);
     out.push('');
   }
 
