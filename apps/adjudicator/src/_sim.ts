@@ -1,8 +1,11 @@
-// Test harness: an in-memory settlement on core's `step`, standing in for T-006's SimChain behind the
-// AdjudicatorSettlement port. It applies the rules T-006 is to enforce that core does not yet (per-role
-// beacon seeds, ADR-0018; fallback and appeal envelopes held until takeover, ADR-0020), and verifies
-// every signature. Test-only; not exported from the package.
+// Test harness: a small in-memory settlement on core's `step` behind the AdjudicatorSettlement port, for
+// unit tests that need to skip agreement and funding, inject failures (submission, record store) or open
+// an appeal directly. Core checks the seeds (ADR-0018) from the beacon fact this harness supplies; the
+// harness holds fallback and appeal envelopes until takeover (ADR-0020) and verifies every signature.
+// The end-to-end path runs on the real SimChain through simchain-adapter.ts. Test-only; not exported.
 import {
+  beaconRoundFor,
+  type BeaconFact,
   commitmentId,
   holdbackDomain,
   parseJudgment,
@@ -13,7 +16,6 @@ import {
   verifyMessage,
   type TokenAmount,
   err,
-  ok,
   type AdjudicatorAcceptance,
   type AdjudicatorRegistration,
   type Address,
@@ -31,10 +33,9 @@ import {
 } from '@holdback/core';
 import { encodePublicKey, encryptionKeyPairFromSecretKey, seal, wrapKeyForRecipients, type ContentKey, type EncryptionKeyPair } from '@holdback/core/crypto';
 import { readFileSync } from 'node:fs';
-import { keccak256 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import type { AdjudicatorSettlement, DecisionTask, OfferTask } from './settlement-port.js';
-import { panelSeed, roundFor, simBeacon, simRoundAt, type RandomnessSource } from './randomness.js';
+import { simBeacon, simRoundAt, type RandomnessSource } from './randomness.js';
 
 export const DOMAIN = holdbackDomain(31337);
 export const SIM_SEED: Hex32 = `0x${'5e'.repeat(32)}`;
@@ -186,7 +187,7 @@ export class TestSettlement implements AdjudicatorSettlement {
     const c = this.get(id);
     if ((c.state.kind !== 'Released' && c.state.kind !== 'Refunded') || c.state.via.kind !== 'first_instance') throw new Error('nothing to appeal');
     c.appealOpen = { at: this.now(), firstOutcome: c.state.kind === 'Released' ? 'accept' : 'reject', ...(ground ? { ground } : {}) };
-    c.state = { ...c.state, via: { ...c.state.via, appeal: { kind: 'open', appeal: {} as never, appealDecideBy: new Date(this.clock + 600_000).toISOString() } } } as EscrowState;
+    c.state = { ...c.state, via: { ...c.state.via, appeal: { kind: 'open', appeal: {} as never, appealDecideBy: new Date(this.clock + 600_000).toISOString(), openedAt: this.now() } } };
   }
 
   async offers(adj: Hex32): Promise<OfferTask[]> {
@@ -261,16 +262,13 @@ export class TestSettlement implements AdjudicatorSettlement {
     return this.registrations.get(address.toLowerCase()) ?? null;
   }
 
-  /** The per-role seed rule T-006 enforces (ADR-0018); core checks only the primary today. */
-  private async seedValid(c: Case, m: Decision): Promise<Result<true, Problem>> {
-    if (m.role === 'primary') return ok(true);
-    const fixedAt = m.role === 'fallback' ? c.commitment.timing.judgeBy : c.state.kind === 'Escalated' ? c.state.escalation.at : c.appealOpen?.at;
-    if (!fixedAt) return err(problem('seed_mismatch', 'no round for this role'));
-    const round = roundFor(m.role, fixedAt);
+  /** The beacon fact core's step checks for fallback and appeal decisions (ADR-0018), as SimChain supplies it. */
+  private async beaconFact(c: Case, m: Decision): Promise<BeaconFact | null | undefined> {
+    if (m.role === 'primary') return undefined;
+    const round = beaconRoundFor(c.state, m.role);
+    if (round === null) return null;
     const value = await this.randomness.value(round);
-    if (!value || !m.beacon || m.beacon.round !== round || m.beacon.value !== value) return err(problem('seed_mismatch', `beacon round ${round} not proven`));
-    if (m.seed !== panelSeed(c.commitment.id, m.role, m.attempt, value)) return err(problem('seed_mismatch', 'seed is not the beacon seed for the role'));
-    return ok(true);
+    return value ? { round, value } : null;
   }
 
   async submit(m: AdjudicatorAcceptance | Decision): Promise<Result<unknown, Problem>> {
@@ -285,10 +283,8 @@ export class TestSettlement implements AdjudicatorSettlement {
       this.failNextDecisions--;
       return err(problem('adjudicator_unavailable', 'transient failure'));
     }
-    const seed = await this.seedValid(c, m);
-    if (!seed.ok) return seed;
-    if (m.role === 'primary' && keccak256(m.seed) !== (c.state as { acceptance?: AdjudicatorAcceptance }).acceptance?.seedCommitment) return err(problem('seed_mismatch', 'primary seed'));
-    const r = this.apply(c, { type: 'decide', at: this.now(), message: m });
+    const beacon = await this.beaconFact(c, m);
+    const r = this.apply(c, { type: 'decide', at: this.now(), message: m, ...(beacon !== undefined ? { beacon } : {}) });
     if (r.ok) {
       this.submitted.push(m);
       if (m.role === 'appeal') delete c.appealOpen;

@@ -1,13 +1,13 @@
 // Panel seeds for the decider's role (ADR-0018) and the RandomnessSource the service reads rounds
 // through. Phase 1 has the SimChain beacon only; drand quicknet comes with Phase 2.
 //
-// SEAM (T-006): core's state.ts is to gain `panelSeed` and `beaconRoundFor`, and T-006 the SimChain
-// beacon. Until they exist this module defines them; the encodings below must match T-006's, and the
-// adjudicator should import T-006's once packages/settlement/src/interface.ts lands. Checked against
-// origin/t-006-simchain (5c83f7b): panelSeed packs attempt as uint8, the sim beacon is
-// keccak256(encodePacked(bytes32 simSeed, uint64 round)), and the round rules match beaconRoundFor.
-import { concat, encodePacked, keccak256, numberToBytes, toBytes } from 'viem';
+// `panelSeed` is core's (T-006). `roundFor` computes core's `beaconRoundFor` from the time the port
+// reports, since the service sees tasks, not escrow states; `simBeacon` is the SimChain beacon for the
+// unit-test settlement. randomness.test.ts pins both against core and SimChain.
+import { concat, keccak256, numberToBytes, toBytes } from 'viem';
 import type { AdjudicatorRole, Hex32, RandomnessSource as RandomnessSourceKind, Timestamp } from '@holdback/core';
+
+export { panelSeed } from '@holdback/core';
 
 export interface BeaconRound {
   source: RandomnessSourceKind;
@@ -44,7 +44,3 @@ export function simBeacon(simSeed: Hex32, now: () => Timestamp): RandomnessSourc
     },
   };
 }
-
-/** panelSeed(role) = keccak256(commitmentId || role || attempt || beaconValue(round)) (ADR-0018 §1). */
-export const panelSeed = (commitmentId: Hex32, role: AdjudicatorRole, attempt: number, beaconValue: Hex32): Hex32 =>
-  keccak256(encodePacked(['bytes32', 'string', 'uint8', 'bytes32'], [commitmentId, role, attempt, beaconValue]));
