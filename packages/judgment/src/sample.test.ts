@@ -100,7 +100,8 @@ describe('seeded sampling of a large CSV', () => {
 describe('unsampleable inputs keep the stride sample (which escalates)', () => {
   it('no seed: stride', () => expect(prompt(demoCsv(), undefined).sampling).toBe('stride'));
   it('JSON is not row-sampled', () => {
-    const json = JSON.stringify(Array.from({ length: 5000 }, (_, k) => ({ id: k, name: `Person ${k} with a long name` })));
+    // Pretty-printed, so every line is short: only the MIME keeps it from being row-sampled.
+    const json = JSON.stringify(Array.from({ length: 5000 }, (_, k) => ({ id: k, name: `Person ${k} with a long name` })), null, 1);
     expect(prompt(json, SEED_A, 'application/json').sampling).toBe('stride');
   });
   it('rows too long to sample at least the minimum number of rows', () => {
@@ -136,15 +137,15 @@ describe('csvRecords and sampleCsv', () => {
     expect(sampleCsv(recs, 60 * (MIN_SAMPLED_ROWS + 50), SEED_A)?.random).toBeGreaterThan(0);
   });
   it('stops at the first random row that does not fit, so long rows are not skipped over (no short-row bias)', () => {
-    const recs = [HEADER, ...Array.from({ length: 4000 }, (_, k) => (k % 2 ? `${k},${'z'.repeat(1000)}` : `${k},s`))];
+    const recs = [HEADER, ...Array.from({ length: 4000 }, (_, k) => (k % 2 ? `${k},${'z'.repeat(500)}` : `${k},s`))];
     const s = sampleCsv(recs, 60_000, SEED_A)!;
     const random = s.records.slice(1 + s.head, s.records.length - s.tail);
     const long = random.filter((r) => r.length > 100).length;
-    // Stopping at the first misfit leaves under 1,001 characters unused; skipping misfits would pack
-    // in up to ~150 more short rows and push the long share far below a half.
+    // Stopping at the first misfit leaves under 504 characters unused (about 200 random rows, half long);
+    // skipping misfits would pack in up to ~70 more short rows and pull the long share toward a third.
     expect(s.random).toBe(random.length);
-    expect(random.length).toBeLessThan(120);
-    expect(long / random.length).toBeGreaterThan(0.35);
+    expect(random.length).toBeLessThan(240);
+    expect(long / random.length).toBeGreaterThan(0.42);
   });
 });
 

@@ -10,8 +10,8 @@
 // and with it the judge's inputHash. The seller does not know the seed when it delivers, so it cannot
 // steer bad rows away from the sample; deterministic checks still run on the whole file.
 //
-// Only CSV is row-sampled. Anything else over the budget, a CSV with an unterminated quote, or rows
-// too wide to show MIN_SAMPLED_ROWS of them is "unsampleable": the prompt falls back to the
+// Only CSV is row-sampled. Anything else over the budget, a CSV with an unterminated quote, or any
+// record longer than the budget / MIN_SAMPLED_ROWS is "unsampleable": the prompt falls back to the
 // even-stride sample, and the pipeline escalates as before.
 import { bytesToBigInt, concat, keccak256, numberToBytes, stringToBytes, toBytes } from 'viem';
 import type { Hex32 } from '@holdback/core';
@@ -19,7 +19,7 @@ import type { Hex32 } from '@holdback/core';
 export const SAMPLE_VERSION = 'sample-1';
 export const SAMPLE_HEAD = 20;
 export const SAMPLE_TAIL = 20;
-/** A sample must show at least this many data rows (or all of them) to be judged without escalating. */
+/** No record may cost more than maxChars / MIN_SAMPLED_ROWS, so a sample always shows about this many rows. */
 export const MIN_SAMPLED_ROWS = 100;
 
 /**
@@ -66,11 +66,14 @@ export interface CsvSample {
 
 /**
  * Samples records (header first) within `maxChars` (each record counts its length plus a line break).
- * Null when fewer than min(MIN_SAMPLED_ROWS, rows) data rows fit.
+ * Null (unsampleable) when any record costs more than maxChars / MIN_SAMPLED_ROWS: such a record could
+ * never be shown and could hide anything. Under that cap every sample shows at least
+ * min(MIN_SAMPLED_ROWS - 1, rows) data rows.
  */
 export function sampleCsv(records: readonly string[], maxChars: number, seed: Hex32): CsvSample | null {
   if (records.length === 0) return null;
   const cost = (k: number) => records[k]!.length + 1;
+  for (let k = 0; k < records.length; k++) if (cost(k) * MIN_SAMPLED_ROWS > maxChars) return null;
   let used = cost(0);
   const n = records.length - 1;
   const chosen = new Set<number>();
@@ -94,7 +97,6 @@ export function sampleCsv(records: readonly string[], maxChars: number, seed: He
     if (!take(middle[i]!)) break;
     random++;
   }
-  if (chosen.size < Math.min(MIN_SAMPLED_ROWS, n)) return null;
   const order = [...chosen].sort((a, b) => a - b);
   return { records: [records[0]!, ...order.map((k) => records[k]!)], head, tail, random, totalRows: n };
 }
