@@ -93,6 +93,7 @@ Fill this in before review. Label each item measured, inferred or guessed.
   - Before: a 9 MB CSV of letters took the screen 124 s, because a joined-base64 pattern backtracked quadratically. Several shapes threw `RangeError` from V8's regex stack.
   - Now: every shape screens in at most about 3.5 s with no failed pass. Six shapes are pinned in `screen.test.ts` with a 20 s bound.
   - Two source rules prevent a repeat (see Handoff).
+- **CI (measured):** on PR #21 at `1c7b724`, the `check` job (install, typecheck, lint, test, spec, snap) and `gitleaks` both pass.
 - **Schema v0.5 (measured):** after merging `origin/d-schema-v0.5`, a pipeline draft plus placeholder identity, seed, `seedSource`, hash and signature parses with core's `parseJudgment`, the v0.5 aggregate included.
 - **Neutrality, D17 (measured):** Persian with ZWNJ, U+2764 U+FE0F and the England flag tag sequence screen clean and are accepted by a cross-family panel. A non-required `hidden_characters_max` over its limit fails without rejecting. At its limit it passes; required and over it, it rejects with no panel.
 - **Screen false positives on real data (guessed):** still uncalibrated. The new skeletons (rot13, reversed, leetspeak) were checked only against the fixtures and the clean tests in this package.
@@ -292,7 +293,6 @@ For Rafa (human gate, defenses): this round is defense code and waits for approv
 
 Not done or not verified:
 
-- gitleaks has not run on this branch: CI was queued without a runner on the previous push, and gitleaks is not installed locally.
 - No `red-teamer` re-run on this round.
 - Commits `c1fc896` to `1ebd7d7` were not verified one by one; only the branch head was.
 
