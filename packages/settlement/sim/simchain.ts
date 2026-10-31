@@ -104,6 +104,19 @@ const refuse = (type: ProblemType, detail: string): never => {
 const lc = (a: string): string => a.toLowerCase();
 const iso = (msTime: number): Timestamp => new Date(msTime).toISOString().replace('.000Z', 'Z');
 const min = (a: bigint, b: bigint): bigint => (a < b ? a : b);
+/**
+ * Copies only the signed fields of a key envelope (EIP-712 EncryptedKey). A relayer can add fields the
+ * signature does not cover; spreading the message would store them, and a smuggled field could override one
+ * the settlement layer sets (the recipient of a SealedKey).
+ */
+const signedEnvelope = (k: EncryptedKey): EncryptedKey => ({
+  recipient: k.recipient,
+  scheme: k.scheme,
+  ciphertext: k.ciphertext,
+  ...(k.unlock ? { unlock: { kind: k.unlock.kind, ...(k.unlock.round !== undefined ? { round: k.unlock.round } : {}) } } : {}),
+});
+/** A SealedKey (scheme and ciphertext signed) addressed to the recipient the terms name. */
+const sealedFor = (recipient: Address, k: { scheme: EncryptedKey['scheme']; ciphertext: EncryptedKey['ciphertext'] }): EncryptedKey => ({ recipient, scheme: k.scheme, ciphertext: k.ciphertext });
 const toJson = (v: unknown): unknown => JSON.parse(JSON.stringify(v, (_k, x: unknown) => (typeof x === 'bigint' ? x.toString() : x)));
 
 /** The world's mutable stores. A Tx reads through to them and writes to its own overlay. */
@@ -652,7 +665,7 @@ export class SimChain implements Settlement {
         const d = s.delivery;
         const rec = this.recOf(tx, d.commitmentId);
         const next = this.stepped(rec.state, { type: 'deliver', at, delivery: d });
-        tx.setRec(d.commitmentId, { ...rec, state: next, held: d.encryptedKeys });
+        tx.setRec(d.commitmentId, { ...rec, state: next, held: d.encryptedKeys.map(signedEnvelope) });
         const primary = next.terms.adjudication.adjudicator;
         tx.emit('delivery.submitted', d.commitmentId, next.terms.seller, {
           attempt: d.attempt,
@@ -773,7 +786,7 @@ export class SimChain implements Settlement {
         this.payFromBond(tx, id, first, account.party(wronged), BigInt(price.amount), 'overturn', bondPostings);
       }
       this.releaseAll(tx, id);
-      if (m.keyForBuyer) this.releaseKey(tx, id, { recipient: buyer, ...m.keyForBuyer }, m.adjudicator, 'appeal decision');
+      if (m.keyForBuyer) this.releaseKey(tx, id, sealedFor(buyer, m.keyForBuyer), m.adjudicator, 'appeal decision');
       return id;
     }
 
@@ -793,7 +806,7 @@ export class SimChain implements Settlement {
       tx.emit(next.kind === 'Released' ? 'settlement.released' : 'settlement.refunded', id, m.adjudicator, { postings });
       if (m.role === 'appeal') this.releaseAll(tx, id);
       else for (const a of Object.keys(tx.rec(id)!.reservations)) if (a !== lc(m.adjudicator)) this.release(tx, id, a);
-      if (next.kind === 'Released') this.releaseKey(tx, id, { recipient: buyer, ...m.keyForBuyer! }, m.adjudicator, 'decision');
+      if (next.kind === 'Released') this.releaseKey(tx, id, sealedFor(buyer, m.keyForBuyer!), m.adjudicator, 'decision');
       return id;
     }
     if (next.kind === 'Escalated') {
@@ -801,7 +814,7 @@ export class SimChain implements Settlement {
       this.reserveUpTo(tx, id, adjudication.appealAdjudicator, BigInt(price.amount));
       tx.emit('judgment.decided', id, m.adjudicator, decidedBy);
       const env = (m.encryptedKeys ?? []).find((k) => lc(k.recipient) === lc(adjudication.appealAdjudicator))!;
-      this.releaseKey(tx, id, env, m.adjudicator, 'escalation');
+      this.releaseKey(tx, id, signedEnvelope(env), m.adjudicator, 'escalation');
       return id;
     }
     return refuse('invalid_state', `a decision led to ${next.kind}`);
@@ -886,13 +899,20 @@ export class SimChain implements Settlement {
         break;
       }
       case 'expire_appeal': {
-        if ((prev.kind === 'Released' || prev.kind === 'Refunded') && prev.via.kind === 'first_instance' && prev.via.appeal.kind === 'open') {
-          const appellant = prev.via.appeal.appeal.appellantAddress;
-          tx.post(account.appealBond(id), account.party(appellant), tx.bal(account.appealBond(id)), 'appeal bond back: undecided', postings);
-          tx.post(account.appealFee(id), account.party(appellant), tx.bal(account.appealFee(id)), 'appeal fee back: undecided (D21)', postings);
+        // D20: finality is the deadline that closed the window, not the moment someone triggered the expiry.
+        let closedAt: Timestamp = tx.at;
+        if ((prev.kind === 'Released' || prev.kind === 'Refunded') && prev.via.kind === 'first_instance') {
+          const a = prev.via.appeal;
+          if (a.kind === 'none') closedAt = a.appealBy;
+          if (a.kind === 'open') {
+            closedAt = a.appealDecideBy;
+            const appellant = a.appeal.appellantAddress;
+            tx.post(account.appealBond(id), account.party(appellant), tx.bal(account.appealBond(id)), 'appeal bond back: undecided', postings);
+            tx.post(account.appealFee(id), account.party(appellant), tx.bal(account.appealFee(id)), 'appeal fee back: undecided (D21)', postings);
+          }
         }
         this.releaseAll(tx, id);
-        tx.setRec(id, { ...tx.rec(id)!, appealClosedAt: tx.at });
+        tx.setRec(id, { ...tx.rec(id)!, appealClosedAt: closedAt });
         tx.emit('appeal.expired', id, 'anyone', { postings });
         break;
       }

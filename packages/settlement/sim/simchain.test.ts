@@ -17,6 +17,7 @@ interface World {
   genesis: Genesis;
   cast: Cast;
   deal: Deal;
+  club: ReturnType<typeof simClub>;
   bal: (a: { address: `0x${string}` }) => Promise<bigint>;
   ok: (s: Submission | Promise<Submission>) => Promise<Extract<SubmitResult, { ok: true }>>;
   refused: (s: Submission | Promise<Submission>) => Promise<ProblemType>;
@@ -45,7 +46,7 @@ async function world(over: { bonds?: Partial<Record<keyof Cast, bigint>>; rulebo
     if (r.ok) throw new Error(`expected a refusal, got ${r.state.escrowState}`);
     return r.problem.type;
   };
-  return { chain, genesis, cast, deal, bal, ok, refused };
+  return { chain, genesis, cast, deal, club, bal, ok, refused };
 }
 
 async function delivered(w: World): Promise<void> {
@@ -117,6 +118,43 @@ describe('happy path (demo beats 1-4)', () => {
     expect(await w.bal(w.cast.primary)).toBe(FEE);
     expect(await w.chain.keysFor(w.deal.id, w.cast.buyer.address)).toEqual([]);
   });
+
+  it('withholds the key on a refund even when the reject carries one for the buyer', async () => {
+    const w = await world();
+    await delivered(w);
+    const r = await w.ok(w.deal.decide('primary', 'reject', { withKey: true }));
+    expect(r.state.escrowState).toBe('Refunded');
+    expect(types(r)).not.toContain('key.released');
+    expect(await w.chain.keysFor(w.deal.id, w.cast.buyer.address)).toEqual([]);
+  });
+
+  it('delivers the key to the buyer, not to a relayer that adds an unsigned recipient to the signed key', async () => {
+    const w = await world();
+    await delivered(w);
+    const relayer = simActor('relayer');
+    const s = await w.deal.decide('primary', 'accept');
+    if (s.kind !== 'decide' || !s.message.keyForBuyer) throw new Error('expected a decision with a key');
+    // SealedKey signs scheme and ciphertext only; the relayer smuggles a recipient past the signature.
+    const tampered = { ...s, message: { ...s.message, keyForBuyer: { ...s.message.keyForBuyer, recipient: relayer.address } } } as Submission;
+    const r = await w.ok(tampered);
+    expect(r.state.escrowState).toBe('Released');
+    expect(await w.chain.keysFor(w.deal.id, relayer.address)).toEqual([]);
+    expect(await w.chain.keysFor(w.deal.id, w.cast.buyer.address)).toEqual([
+      { recipient: w.cast.buyer.address, scheme: s.message.keyForBuyer.scheme, ciphertext: s.message.keyForBuyer.ciphertext },
+    ]);
+  });
+
+  it('keeps finalAt at appealBy when appeal expiry is triggered late (D20)', async () => {
+    const w = await world();
+    await delivered(w);
+    await w.ok(w.deal.decide('primary', 'accept'));
+    w.chain.advance(1_000);
+    const before = (await w.chain.state(w.deal.id))!;
+    expect(before.finalAt).toBe(before.deadlines['appealBy']);
+    const r = await w.ok(w.deal.trigger('appeal_expiry'));
+    expect(r.state.finalAt).toBe(before.finalAt);
+    expect((await w.chain.state(w.deal.id))?.finalAt).toBe(before.finalAt);
+  });
 });
 
 describe('early acceptance', () => {
@@ -131,6 +169,21 @@ describe('early acceptance', () => {
     expect(await w.chain.keysFor(w.deal.id, w.cast.buyer.address)).toEqual([w.deal.envelope(w.cast.buyer.address)]);
     expect(w.chain.pool(w.cast.primary.address).reserved).toBe(0n);
     expect(r.state.finalAt).toBe(r.state.settledAt);
+  });
+
+  it('stores and releases only the signed fields of a delivery envelope, never extras a relayer adds', async () => {
+    const w = await world();
+    await w.ok(w.deal.offer());
+    await w.ok(w.deal.accept());
+    await w.ok(w.deal.agreeAndFund());
+    const s = await w.deal.deliver();
+    if (s.kind !== 'deliver') throw new Error('expected a delivery');
+    const encryptedKeys = s.delivery.encryptedKeys.map((k) => ({ ...k, note: 'unsigned' }));
+    await w.ok({ ...s, delivery: { ...s.delivery, encryptedKeys } } as Submission);
+    w.chain.advance(5);
+    await w.ok(w.deal.earlyAccept());
+    const [released] = await w.chain.keysFor(w.deal.id, w.cast.buyer.address);
+    expect(released).toStrictEqual(w.deal.envelope(w.cast.buyer.address));
   });
 });
 
@@ -256,6 +309,34 @@ describe('party appeal (D21: the appeal fee is held until decided)', () => {
     expect(await w.bal(w.cast.appeal)).toBe(0n);
     expect(w.chain.pool(w.cast.primary.address).reserved).toBe(0n);
   });
+
+  it('expired late: finalAt stays at appealDecideBy, not the trigger time (D20)', async () => {
+    const w = await world();
+    await rejected(w);
+    await w.ok(w.deal.appealBy('seller'));
+    const appealDecideBy = (await w.chain.state(w.deal.id))!.deadlines['appealDecideBy']!;
+    w.chain.advanceTo(appealDecideBy);
+    w.chain.advance(1_000);
+    expect((await w.chain.state(w.deal.id))?.finalAt).toBe(appealDecideBy);
+    const r = await w.ok(w.deal.trigger('appeal_expiry'));
+    expect(r.state.finalAt).toBe(appealDecideBy);
+  });
+
+  it('rounds the appeal bond up when the price does not divide exactly (ADR-0022)', async () => {
+    const w = await world();
+    const price = 2_000_000_001n; // 500 bps of it is 100_000_000.05, so the bond is 100_000_001
+    const deal = new Deal(w.chain, w.cast, { club: w.club, price: tusd(price), tag: 'odd-price' });
+    await w.ok(deal.offer());
+    await w.ok(deal.accept());
+    await w.ok(deal.agreeAndFund());
+    await w.ok(deal.deliver());
+    w.chain.advance(5);
+    await w.ok(deal.decide('primary', 'reject'));
+    w.chain.advance(10);
+    expect(await w.refused(deal.appealBy('seller', tusd(100_000_000n)))).toBe('insufficient_funds');
+    const filed = await w.ok(deal.appealBy('seller', tusd(100_000_001n)));
+    expect(types(filed)).toContain('appeal.filed');
+  });
 });
 
 describe('timeouts with nothing judged', () => {
@@ -320,6 +401,15 @@ describe('mutual settlement (ADR-0019)', () => {
     expect(await any.bal(outsider)).toBe(500_000_000n);
     expect(await any.bal(any.cast.seller)).toBe(1_000_000_000n + 1_000_000_000n);
     expect(await any.bal(any.cast.buyer)).toBe(10_000_000_000n - HOLD + 500_000_000n + FEE);
+  });
+
+  it('keeps the key held when the parties settle with releaseKey false', async () => {
+    const w = await world();
+    await delivered(w);
+    const r = await w.ok(w.deal.mutual({ releaseKey: false }));
+    expect(r.state).toMatchObject({ escrowState: 'Settled', settled: { keyReleased: false } });
+    expect(types(r)).toEqual(['commitment.settled']);
+    expect(await w.chain.keysFor(w.deal.id, w.cast.buyer.address)).toEqual([]);
   });
 
   it('refuses payouts that do not sum to the price', async () => {

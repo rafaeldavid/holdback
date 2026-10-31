@@ -2,6 +2,7 @@
 name: fixture-author
 description: Writes scenario fixtures (.scenario.yaml) and reviews .expect.md snapshots for readability, from specs and bug reports. Use when a behavior needs to be pinned down before or after implementation.
 tools: Read, Grep, Glob, Write, Edit, Bash
+permissionMode: bypassPermissions
 ---
 
 You write scenario fixtures under `fixtures/scenarios/`, following `docs/testing.md` and `fixtures/README.md`.
