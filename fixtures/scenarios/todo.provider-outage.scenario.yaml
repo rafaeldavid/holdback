@@ -6,6 +6,8 @@ description: >-
   one family is below the panel's two-family minimum, so Bench A escalates instead of accepting. A model
   provider is not a scenario actor, so the neutrality. prefix (fails:) cannot name it, and the appeal panel
   replays the same recordings, so the run stops at Escalated. Promote once the testkit models providers.
+club: fixtures/clubs/data-services-v1.yaml
+terms: fixtures/terms/clean-customers-2000.yaml
 parties:
   buyer: atlas-buyer
   seller: tidewater-seller

@@ -6,6 +6,8 @@ description: >-
   step only blocks calls whose acting party is offline, never calls routed via an offline operator, so the
   fixture cannot show op-1 failing. Promote once the testkit treats "offline operator" like
   operator_refuses (then route steps 4-5 via op-2 or direct).
+club: fixtures/clubs/data-services-v1.yaml
+terms: fixtures/terms/clean-customers-2000.yaml
 parties:
   buyer: atlas-buyer
   seller: tidewater-seller

@@ -10,11 +10,11 @@ Atlas funds the hold and then goes silent: it never accepts early, never appeals
 | --- | --- |
 | Pragmas | settlement=sim · judges=recorded · mode=guaranteed_on_decision · seed=43 |
 | Prefix | neutrality. (an actor fails: terms-compliant terminal state anyway) |
-| Settlement | SimChain (T-006) driving @holdback/core `step`; stub terms and panel |
-| Club | built-in stub rulebook · rulebook 0xe3d9…0cd6 |
+| Settlement | SimChain (T-006) driving @holdback/core `step`; stub policy and registry hashes and stub panel |
+| Club | fixtures/clubs/data-services-v1.yaml (loaded) · rulebook 0x140e…971e |
 | Buyer | atlas-buyer 0xe5Fe…A50b |
 | Seller | tidewater-seller 0xe6c7…589A |
-| Terms | built-in stub terms · commitment 0x1e3a…01fc · price 2,000.000000 tUSD · fee 50.000000 tUSD |
+| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0x0cf2…d6df · price 2,000.000000 tUSD · fee 50.000000 tUSD |
 | Adjudicators | primary bench-a 0xF39a…19eb · fallback bench-b 0x48E4…67DE · appeal bench-c 0x78fb…aA6C |
 | Operators | op-1 · op-2 |
 
@@ -49,9 +49,9 @@ Outages:
 ### bench-a (primary), attempt 1
 
 - **Intake:** plaintext 0x1939…87e5 · text/csv · 511912 bytes (fixtures/data/dataset-cleaning/customers.clean.csv) · hash verified ✓
-- **Deterministic checks:** not evaluated by the stub (T-008): cols · rows · uniq · dates · emails (optional)
+- **Deterministic checks:** not evaluated by the stub (T-008): cols · rows · uniq · dates · id_nulls · name_nulls · email_nulls · emails (optional) · hidden
 - **Screen:** not run by the stub (T-008).
-- **Panel:** template 0x3f82…99de · rubric 0xd3a5…72e6 · input 0x7c7e…15b7 · seed commitment 0x7525…504c · seed 0xa680…f8d1 (recomputed: match)
+- **Panel:** template 0x3f82…99de · rubric 0x4201…7925 · input 0x9332…7b06 · seed commitment 0x7525…504c · seed 0xa680…f8d1 (recomputed: match)
   - claude-a · anthropic/claude · recorded:stub-claude-pinned-1 (captured from fake judges) · pass · scores 4/4/4
   - claude-b · anthropic/claude · recorded:stub-claude-pinned-2 (captured from fake judges) · pass · scores 4/4/4
   - fam2-a · openai-compatible/family-2 · recorded:stub-family2-pinned-1 (captured from fake judges) · pass · scores 4/4/4
@@ -59,7 +59,7 @@ Outages:
 
 ## Receipts and log
 
-- Events 0–8. Chain head 0xb927…9211. Replay of 6 SimChain submissions from genesis matches the settlement state.
+- Events 0–8. Chain head 0xd6fb…7229. Replay of 6 SimChain submissions from genesis matches the settlement state.
 - Receipts from op-1: 6 (rcpt-0001–rcpt-0006). Stub receipts are unsigned until T-007.
 
 ## Invariants

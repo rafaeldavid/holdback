@@ -10,11 +10,11 @@ ADR-0016 stall before judging. Bench A accepts and reserves bond, then goes sile
 | --- | --- |
 | Pragmas | settlement=sim · judges=recorded · mode=guaranteed_on_decision · seed=29 |
 | Prefix | neutrality. (an actor fails: terms-compliant terminal state anyway) |
-| Settlement | SimChain (T-006) driving @holdback/core `step`; stub terms and panel |
-| Club | built-in stub rulebook · rulebook 0xe3d9…0cd6 |
+| Settlement | SimChain (T-006) driving @holdback/core `step`; stub policy and registry hashes and stub panel |
+| Club | fixtures/clubs/data-services-v1.yaml (loaded) · rulebook 0x140e…971e |
 | Buyer | atlas-buyer 0x5e05…4c1E |
 | Seller | tidewater-seller 0x96b9…f8C1 |
-| Terms | built-in stub terms · commitment 0x992b…325b · price 2,000.000000 tUSD · fee 50.000000 tUSD |
+| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0x9beb…c965 · price 2,000.000000 tUSD · fee 50.000000 tUSD |
 | Adjudicators | primary bench-a 0xBEa5…E591 · fallback bench-b 0x465b…4d0f · appeal bench-c 0x28b1…aF44 |
 | Operators | op-1 · op-2 |
 
@@ -28,9 +28,9 @@ ADR-0016 stall before judging. Bench A accepts and reserves bond, then goes sile
 | 00:03.000 | 4 | atlas-buyer | agree | op-1 | ok | Agreed |
 | 00:04.000 | 4 | atlas-buyer | fund | op-1 | ok | Held |
 | 00:05.000 | 5 | tidewater-seller | deliver (attempt 1) | op-1 | ok | Delivered |
-| 71:46.000 | 7 | anyone | trigger_fallback | op-1 | ok | FallbackJudging |
-| 71:47.000 | 8 | bench-b | decide: accept | direct | ok | Released |
-| 71:48.000 | 9 | atlas-buyer | fetch key + verify plaintext hash | op-1 | hash matches | Released |
+| 2882:06.000 | 7 | anyone | trigger_fallback | op-1 | ok | FallbackJudging |
+| 2882:07.000 | 8 | bench-b | decide: accept | direct | ok | Released |
+| 2882:08.000 | 9 | atlas-buyer | fetch key + verify plaintext hash | op-1 | hash matches | Released |
 
 Outages:
 
@@ -49,9 +49,9 @@ Outages:
 ### bench-b (fallback), attempt 1
 
 - **Intake:** plaintext 0x1939…87e5 · text/csv · 511912 bytes (fixtures/data/dataset-cleaning/customers.clean.csv) · hash verified ✓
-- **Deterministic checks:** not evaluated by the stub (T-008): cols · rows · uniq · dates · emails (optional)
+- **Deterministic checks:** not evaluated by the stub (T-008): cols · rows · uniq · dates · id_nulls · name_nulls · email_nulls · emails (optional) · hidden
 - **Screen:** not run by the stub (T-008).
-- **Panel:** template 0x3f82…99de · rubric 0xd3a5…72e6 · input 0xb141…8f4b · seed commitment none (fallback adjudicator; only the primary commits, T-004 gap) · seed 0x5425…7b3d
+- **Panel:** template 0x3f82…99de · rubric 0x4201…7925 · input 0xb9dd…2158 · seed commitment none (fallback adjudicator; only the primary commits, T-004 gap) · seed 0xce1f…c6ea
   - claude-a · anthropic/claude · recorded:stub-claude-pinned-1 (captured from fake judges) · pass · scores 4/4/4
   - claude-b · anthropic/claude · recorded:stub-claude-pinned-2 (captured from fake judges) · pass · scores 4/4/4
   - fam2-a · openai-compatible/family-2 · recorded:stub-family2-pinned-1 (captured from fake judges) · pass · scores 4/4/4
@@ -59,7 +59,7 @@ Outages:
 
 ## Receipts and log
 
-- Events 0–10. Chain head 0x6b94…a18b. Replay of 7 SimChain submissions from genesis matches the settlement state.
+- Events 0–10. Chain head 0x91b8…4a4b. Replay of 7 SimChain submissions from genesis matches the settlement state.
 - Receipts from op-1: 7 (rcpt-0001–rcpt-0007). Stub receipts are unsigned until T-007.
 
 ## Invariants

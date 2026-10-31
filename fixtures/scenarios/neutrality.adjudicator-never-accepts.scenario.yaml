@@ -5,6 +5,8 @@ description: >-
   Bench A, which is offline and never accepts. Nothing is held; after offerExpiresAt anyone expires the
   offer, and every balance is unchanged.
 fails: bench-a
+club: fixtures/clubs/data-services-v1.yaml
+terms: fixtures/terms/clean-customers-2000.yaml
 parties:
   buyer: atlas-buyer
   seller: tidewater-seller

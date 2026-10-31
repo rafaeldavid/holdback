@@ -5,6 +5,8 @@ description: >-
   even funded. Atlas funds and Tidewater delivers anyway; once judgeBy passes, anyone triggers the
   fallback and Bench B decides with the beacon-derived panel seed (ADR-0018). $2,000 releases to Tidewater.
 fails: bench-a
+club: fixtures/clubs/data-services-v1.yaml
+terms: fixtures/terms/clean-customers-2000.yaml
 parties:
   buyer: atlas-buyer
   seller: tidewater-seller
@@ -24,7 +26,7 @@ steps:
   - offline:            { actor: bench-a }
   - agree_and_fund:     { by: buyer, via: op-1 }
   - deliver:            { by: seller, via: op-1, file: data/dataset-cleaning/customers.clean.csv }
-  - advance_clock:      { seconds: 4300 }             # past judgeBy
+  - advance_clock:      { seconds: 172920 }           # past judgeBy (offer + 48 h + 120 s)
   - trigger_fallback:   { via: op-1 }
   - judge:              { adjudicator: bench-b }
   - verify_key_release: { by: buyer, via: op-1 }

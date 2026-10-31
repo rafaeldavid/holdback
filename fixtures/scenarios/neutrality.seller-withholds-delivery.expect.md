@@ -10,11 +10,11 @@ The scenario index's reclaim-no-delivery row (neutrality.md: seller, "S8 reclaim
 | --- | --- |
 | Pragmas | settlement=sim · judges=recorded · mode=guaranteed_on_decision · seed=47 |
 | Prefix | neutrality. (an actor fails: terms-compliant terminal state anyway) |
-| Settlement | SimChain (T-006) driving @holdback/core `step`; stub terms and panel |
-| Club | built-in stub rulebook · rulebook 0xe3d9…0cd6 |
+| Settlement | SimChain (T-006) driving @holdback/core `step`; stub policy and registry hashes and stub panel |
+| Club | fixtures/clubs/data-services-v1.yaml (loaded) · rulebook 0x140e…971e |
 | Buyer | atlas-buyer 0x36f8…B956 |
 | Seller | tidewater-seller 0x4Fe3…8139 |
-| Terms | built-in stub terms · commitment 0x36ab…bbd6 · price 2,000.000000 tUSD · fee 50.000000 tUSD |
+| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0x0a5f…ebe9 · price 2,000.000000 tUSD · fee 50.000000 tUSD |
 | Adjudicators | primary bench-a 0xaf59…3Ad2 · fallback bench-b 0xA7b4…Cb62 · appeal bench-c 0x2650…307A |
 | Operators | op-1 · op-2 |
 
@@ -28,7 +28,7 @@ The scenario index's reclaim-no-delivery row (neutrality.md: seller, "S8 reclaim
 | 00:03.000 | 3 | atlas-buyer | fund | op-1 | ok | Held |
 | 00:04.000 | 4 | tidewater-seller | goes offline | direct | ok | Held |
 | 00:05.000 | 5 | tidewater-seller | deliver | op-1 | offline (no call) | Held |
-| 60:06.000 | 7 | atlas-buyer | reclaim | op-2 | ok | Refunded |
+| 2880:06.000 | 7 | atlas-buyer | reclaim | op-2 | ok | Refunded |
 
 Outages:
 
@@ -49,7 +49,7 @@ Outages:
 
 ## Receipts and log
 
-- Events 0–4. Chain head 0xec5c…daea. Replay of 5 SimChain submissions from genesis matches the settlement state.
+- Events 0–4. Chain head 0xc8f5…9468. Replay of 5 SimChain submissions from genesis matches the settlement state.
 - Receipts from op-1: 4 (rcpt-0001–rcpt-0004). Stub receipts are unsigned until T-007.
 - Receipts from op-2: 1 (rcpt-0005–rcpt-0005). Stub receipts are unsigned until T-007.
 

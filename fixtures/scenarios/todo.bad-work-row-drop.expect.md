@@ -10,11 +10,11 @@ Demo beat 5, recorded as a known gap. Tidewater delivers a cleaned CSV that drop
 | --- | --- |
 | Pragmas | settlement=sim · judges=recorded · mode=guaranteed_on_decision · seed=13 |
 | Prefix | todo. (known gap: records current behavior) |
-| Settlement | SimChain (T-006) driving @holdback/core `step`; stub terms and panel |
-| Club | built-in stub rulebook · rulebook 0xe3d9…0cd6 |
+| Settlement | SimChain (T-006) driving @holdback/core `step`; stub policy and registry hashes and stub panel |
+| Club | fixtures/clubs/data-services-v1.yaml (loaded) · rulebook 0x140e…971e |
 | Buyer | atlas-buyer 0x2787…0946 |
 | Seller | tidewater-seller 0x8933…25d0 |
-| Terms | built-in stub terms · commitment 0x3fc0…3c76 · price 2,000.000000 tUSD · fee 50.000000 tUSD |
+| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0x2358…8ca5 · price 2,000.000000 tUSD · fee 50.000000 tUSD |
 | Adjudicators | primary bench-a 0xb77D…5C9E · fallback bench-b 0x05a1…6E68 · appeal bench-c 0x363a…471F |
 | Operators | op-1 · op-2 |
 
@@ -43,9 +43,9 @@ Demo beat 5, recorded as a known gap. Tidewater delivers a cleaned CSV that drop
 ### bench-a (primary), attempt 1
 
 - **Intake:** plaintext 0x3ee0…8312 · text/csv · 471196 bytes (fixtures/data/dataset-cleaning/customers.clean.row-drop.csv) · hash verified ✓
-- **Deterministic checks:** not evaluated by the stub (T-008): cols · rows · uniq · dates · emails (optional)
+- **Deterministic checks:** not evaluated by the stub (T-008): cols · rows · uniq · dates · id_nulls · name_nulls · email_nulls · emails (optional) · hidden
 - **Screen:** not run by the stub (T-008).
-- **Panel:** template 0x3f82…99de · rubric 0xd3a5…72e6 · input 0x11c7…1ac8 · seed commitment 0x233d…9166 · seed 0x3635…65cc (recomputed: match)
+- **Panel:** template 0x3f82…99de · rubric 0x4201…7925 · input 0xdc1c…0887 · seed commitment 0x233d…9166 · seed 0x3635…65cc (recomputed: match)
   - claude-a · anthropic/claude · recorded:stub-claude-pinned-1 (captured from fake judges) · pass · scores 4/4/4
   - claude-b · anthropic/claude · recorded:stub-claude-pinned-2 (captured from fake judges) · pass · scores 4/4/4
   - fam2-a · openai-compatible/family-2 · recorded:stub-family2-pinned-1 (captured from fake judges) · pass · scores 4/4/4
@@ -53,7 +53,7 @@ Demo beat 5, recorded as a known gap. Tidewater delivers a cleaned CSV that drop
 
 ## Receipts and log
 
-- Events 0–8. Chain head 0x753c…3b38. Replay of 6 SimChain submissions from genesis matches the settlement state.
+- Events 0–8. Chain head 0x6b6a…2a83. Replay of 6 SimChain submissions from genesis matches the settlement state.
 - Receipts from op-1: 5 (rcpt-0001–rcpt-0005). Stub receipts are unsigned until T-007.
 
 ## Invariants

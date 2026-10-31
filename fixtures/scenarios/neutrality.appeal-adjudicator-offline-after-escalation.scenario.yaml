@@ -7,6 +7,8 @@ description: >-
   bond pays Tidewater $2,000 (sellerCompensationRateBps 10000). The split verdicts are authored
   recordings (capturedFrom fake).
 fails: bench-c
+club: fixtures/clubs/data-services-v1.yaml
+terms: fixtures/terms/clean-customers-2000.yaml
 parties:
   buyer: atlas-buyer
   seller: tidewater-seller

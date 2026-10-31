@@ -5,6 +5,8 @@ description: >-
   Judgment runs without the buyer. Bench A accepts and $2,000 releases to Tidewater at the decision; the
   buyer's content key is released in the same step and waits for Atlas.
 fails: atlas-buyer
+club: fixtures/clubs/data-services-v1.yaml
+terms: fixtures/terms/clean-customers-2000.yaml
 parties:
   buyer: atlas-buyer
   seller: tidewater-seller

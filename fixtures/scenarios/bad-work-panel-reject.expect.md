@@ -10,11 +10,11 @@ Bad work the deterministic checks would not catch. All three judges (two Claude,
 | --- | --- |
 | Pragmas | settlement=sim · judges=recorded · mode=guaranteed_on_decision · seed=11 |
 | Prefix | none (normal flow: reaches a terminal state, invariants hold) |
-| Settlement | SimChain (T-006) driving @holdback/core `step`; stub terms and panel |
-| Club | built-in stub rulebook · rulebook 0xe3d9…0cd6 |
+| Settlement | SimChain (T-006) driving @holdback/core `step`; stub policy and registry hashes and stub panel |
+| Club | fixtures/clubs/data-services-v1.yaml (loaded) · rulebook 0x140e…971e |
 | Buyer | atlas-buyer 0x0774…D45F |
 | Seller | tidewater-seller 0xFd01…6ccb |
-| Terms | built-in stub terms · commitment 0x4b8c…32c1 · price 2,000.000000 tUSD · fee 50.000000 tUSD |
+| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0x1857…5feb · price 2,000.000000 tUSD · fee 50.000000 tUSD |
 | Adjudicators | primary bench-a 0x762C…8Fe7 · fallback bench-b 0x2f14…4555 · appeal bench-c 0x8568…a965 |
 | Operators | op-1 · op-2 |
 
@@ -43,9 +43,9 @@ Bad work the deterministic checks would not catch. All three judges (two Claude,
 ### bench-a (primary), attempt 1
 
 - **Intake:** plaintext 0x427e…981e · text/csv · 81 bytes (stub bytes by stub_bytes: true; fixtures/data/dataset-cleaning/customers.clean.fabricated-values.csv absent) · hash verified ✓
-- **Deterministic checks:** not evaluated by the stub (T-008): cols · rows · uniq · dates · emails (optional)
+- **Deterministic checks:** not evaluated by the stub (T-008): cols · rows · uniq · dates · id_nulls · name_nulls · email_nulls · emails (optional) · hidden
 - **Screen:** not run by the stub (T-008).
-- **Panel:** template 0x3f82…99de · rubric 0xd3a5…72e6 · input 0xab73…157f · seed commitment 0x4319…906e · seed 0x5729…0c1d (recomputed: match)
+- **Panel:** template 0x3f82…99de · rubric 0x4201…7925 · input 0x0fd5…00dd · seed commitment 0x4319…906e · seed 0x5729…0c1d (recomputed: match)
   - claude-a · anthropic/claude · recorded:stub-claude-pinned-1 (captured from fake judges) · fail · scores 1/0/1
   - claude-b · anthropic/claude · recorded:stub-claude-pinned-2 (captured from fake judges) · fail · scores 1/0/1
   - fam2-a · openai-compatible/family-2 · recorded:stub-family2-pinned-1 (captured from fake judges) · fail · scores 1/0/1
@@ -53,7 +53,7 @@ Bad work the deterministic checks would not catch. All three judges (two Claude,
 
 ## Receipts and log
 
-- Events 0–7. Chain head 0x48d2…208e. Replay of 6 SimChain submissions from genesis matches the settlement state.
+- Events 0–7. Chain head 0xfd0a…cd4d. Replay of 6 SimChain submissions from genesis matches the settlement state.
 - Receipts from op-1: 5 (rcpt-0001–rcpt-0005). Stub receipts are unsigned until T-007.
 
 ## Invariants

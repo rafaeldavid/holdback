@@ -6,6 +6,8 @@ description: >-
   Today the testkit lists the deterministic checks but does not evaluate them (T-008's pipeline is not
   wired into packages/testkit), so the stub panel's passing verdicts release the $2,000. Promote to
   bad-work-row-drop, expecting Refunded, once the testkit runs @holdback/judgment's checks.
+club: fixtures/clubs/data-services-v1.yaml
+terms: fixtures/terms/clean-customers-2000.yaml
 parties:
   buyer: atlas-buyer
   seller: tidewater-seller

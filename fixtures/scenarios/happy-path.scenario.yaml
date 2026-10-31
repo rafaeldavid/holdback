@@ -4,7 +4,9 @@ description: >-
   Demo beats 1-4. Tidewater offers the $2,000 customers.csv cleaning job naming Bench A, B and C;
   Bench A accepts; Atlas agrees and holds $2,050 in one call; Tidewater delivers the honest cleaned CSV;
   Bench A's panel accepts; $2,000 releases to Tidewater with the content key to Atlas in the same step;
-  Atlas verifies the plaintext hash. Club and terms are the testkit's built-in stubs (T-012 owns the files).
+  Atlas verifies the plaintext hash.
+club: fixtures/clubs/data-services-v1.yaml
+terms: fixtures/terms/clean-customers-2000.yaml
 parties:
   buyer: atlas-buyer
   seller: tidewater-seller

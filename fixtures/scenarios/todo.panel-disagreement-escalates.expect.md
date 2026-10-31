@@ -10,11 +10,11 @@ The scenario index's panel-disagreement-escalates row, recorded as a known gap. 
 | --- | --- |
 | Pragmas | settlement=sim · judges=recorded · mode=guaranteed_on_decision · seed=61 |
 | Prefix | todo. (known gap: records current behavior) |
-| Settlement | SimChain (T-006) driving @holdback/core `step`; stub terms and panel |
-| Club | built-in stub rulebook · rulebook 0xe3d9…0cd6 |
+| Settlement | SimChain (T-006) driving @holdback/core `step`; stub policy and registry hashes and stub panel |
+| Club | fixtures/clubs/data-services-v1.yaml (loaded) · rulebook 0x140e…971e |
 | Buyer | atlas-buyer 0xBe44…76f3 |
 | Seller | tidewater-seller 0x1864…5683 |
-| Terms | built-in stub terms · commitment 0xdd51…c06e · price 2,000.000000 tUSD · fee 50.000000 tUSD |
+| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0xca0e…1b32 · price 2,000.000000 tUSD · fee 50.000000 tUSD |
 | Adjudicators | primary bench-a 0x1B45…71eb · fallback bench-b 0x6eCc…8776 · appeal bench-c 0x6A66…3c4A |
 | Operators | op-1 · op-2 |
 
@@ -46,9 +46,9 @@ Refusals:
 ### bench-a (primary), attempt 1
 
 - **Intake:** plaintext 0x1939…87e5 · text/csv · 511912 bytes (fixtures/data/dataset-cleaning/customers.clean.csv) · hash verified ✓
-- **Deterministic checks:** not evaluated by the stub (T-008): cols · rows · uniq · dates · emails (optional)
+- **Deterministic checks:** not evaluated by the stub (T-008): cols · rows · uniq · dates · id_nulls · name_nulls · email_nulls · emails (optional) · hidden
 - **Screen:** not run by the stub (T-008).
-- **Panel:** template 0x3f82…99de · rubric 0xd3a5…72e6 · input 0xf681…f234 · seed commitment 0x32a8…d7a7 · seed 0x821b…2db8 (recomputed: match)
+- **Panel:** template 0x3f82…99de · rubric 0x4201…7925 · input 0xb520…c4b4 · seed commitment 0x32a8…d7a7 · seed 0x821b…2db8 (recomputed: match)
   - claude-a · anthropic/claude · recorded:stub-claude-pinned-1 (captured from fake judges) · pass · scores 4/4/4
   - claude-b · anthropic/claude · recorded:stub-claude-pinned-2 (captured from fake judges) · pass · scores 4/4/4
   - fam2-a · openai-compatible/family-2 · recorded:stub-family2-pinned-1 (captured from fake judges) · fail · scores 2/1/2
@@ -57,9 +57,9 @@ Refusals:
 ### bench-c (appeal), attempt 1
 
 - **Intake:** plaintext 0x1939…87e5 · text/csv · 511912 bytes (fixtures/data/dataset-cleaning/customers.clean.csv) · hash verified ✓
-- **Deterministic checks:** not evaluated by the stub (T-008): cols · rows · uniq · dates · emails (optional)
+- **Deterministic checks:** not evaluated by the stub (T-008): cols · rows · uniq · dates · id_nulls · name_nulls · email_nulls · emails (optional) · hidden
 - **Screen:** not run by the stub (T-008).
-- **Panel:** template 0x3f82…99de · rubric 0xd3a5…72e6 · input 0xf681…f234 · seed commitment none (appeal adjudicator; only the primary commits, T-004 gap) · seed 0xee90…5568
+- **Panel:** template 0x3f82…99de · rubric 0x4201…7925 · input 0xb520…c4b4 · seed commitment none (appeal adjudicator; only the primary commits, T-004 gap) · seed 0x85bf…4d45
   - claude-a · anthropic/claude · recorded:stub-claude-pinned-1 (captured from fake judges) · pass · scores 4/4/4
   - claude-b · anthropic/claude · recorded:stub-claude-pinned-2 (captured from fake judges) · pass · scores 4/4/4
   - fam2-a · openai-compatible/family-2 · recorded:stub-family2-pinned-1 (captured from fake judges) · fail · scores 2/1/2
@@ -67,7 +67,7 @@ Refusals:
 
 ## Receipts and log
 
-- Events 0–7. Chain head 0xb488…0d15. Replay of 6 SimChain submissions from genesis matches the settlement state.
+- Events 0–7. Chain head 0x48a6…5ab0. Replay of 6 SimChain submissions from genesis matches the settlement state.
 - Receipts from op-1: 5 (rcpt-0001–rcpt-0005). Stub receipts are unsigned until T-007.
 
 ## Invariants

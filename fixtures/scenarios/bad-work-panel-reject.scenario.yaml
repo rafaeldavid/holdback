@@ -5,6 +5,8 @@ description: >-
   family) fail every rubric criterion, the aggregate rejects, and the hold refunds the $2,000 price to
   Atlas in the same step; Bench A keeps the $50 fee. No key goes to the buyer, so Tidewater keeps the work. The deliverable is
   placeholder bytes (stub_bytes) and the verdicts are authored recordings (capturedFrom fake), not model output.
+club: fixtures/clubs/data-services-v1.yaml
+terms: fixtures/terms/clean-customers-2000.yaml
 parties:
   buyer: atlas-buyer
   seller: tidewater-seller

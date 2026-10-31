@@ -5,6 +5,8 @@ description: >-
   after fallbackBy anyone triggers the default and applies the default outcome from the signed rulebook
   (ADR-0007): Atlas gets its $2,050 back and the defaulting adjudicators' bonds pay Tidewater $2,000.
 fails: bench-b
+club: fixtures/clubs/data-services-v1.yaml
+terms: fixtures/terms/clean-customers-2000.yaml
 parties:
   buyer: atlas-buyer
   seller: tidewater-seller
@@ -26,10 +28,10 @@ steps:
   - offline:               { actor: bench-a }
   - offline:               { actor: bench-b }
   - judge:                 { adjudicator: bench-a }   # no call
-  - advance_clock:         { seconds: 4300 }          # past judgeBy (offer + 4,200 s)
+  - advance_clock:         { seconds: 172920 }        # past judgeBy (offer + 48 h + 120 s)
   - trigger_fallback:      { via: op-2 }
   - judge:                 { adjudicator: bench-b }   # no call
-  - advance_clock:         { seconds: 600 }           # past fallbackBy (offer + 4,800 s)
+  - advance_clock:         { seconds: 120 }           # past fallbackBy (judgeBy + 120 s)
   - trigger_default:       { via: op-2 }
   - apply_default_outcome: { via: op-2 }
 expect:

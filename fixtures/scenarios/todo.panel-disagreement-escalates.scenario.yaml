@@ -7,6 +7,8 @@ description: >-
   verdicts, but the testkit seats the same three stub judges for every role and keys recordings by
   scenario and judge only, so Bench C replays the split, decides escalate, and is refused (the appeal
   adjudicator must accept or reject). Promote once the testkit draws role-specific panels and recordings.
+club: fixtures/clubs/data-services-v1.yaml
+terms: fixtures/terms/clean-customers-2000.yaml
 parties:
   buyer: atlas-buyer
   seller: tidewater-seller

@@ -6,6 +6,8 @@ description: >-
   nothing reaches the seller or Bench A. Named neutrality. because the testkit records the reclaim as the
   seller's timeout, which the no-prefix rules reject (see T-010 Handoff).
 fails: tidewater-seller
+club: fixtures/clubs/data-services-v1.yaml
+terms: fixtures/terms/clean-customers-2000.yaml
 parties:
   buyer: atlas-buyer
   seller: tidewater-seller
@@ -25,7 +27,7 @@ steps:
   - agree_and_fund:     { by: buyer, via: op-1 }
   - offline:            { actor: tidewater-seller }
   - deliver:            { by: seller, via: op-1, file: data/dataset-cleaning/customers.clean.csv }   # no call
-  - advance_clock:      { seconds: 3600 }            # past deliverBy (offer + 3,600 s)
+  - advance_clock:      { seconds: 172800 }          # past deliverBy (offer + 48 h)
   - reclaim:            { by: buyer, via: op-2 }
 expect:
   terminal: Refunded
