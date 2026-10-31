@@ -18,6 +18,7 @@ import {
   type RegistryDoc,
 } from '@holdback/judgment';
 import { keccak256, recoverMessageAddress } from 'viem';
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { demoCsv, DOMAIN, makeCommitment, party, TestSettlement, tusd, type Party } from './_sim.js';
 import { defaultPolicy, policyHashOf } from './policy.js';
@@ -146,6 +147,21 @@ describe('primary decision on the demo CSV (about 0.5 MB)', () => {
     expect(buyerKey.exportBytes()).toEqual(key.exportBytes());
   });
 
+  it("judges T-012's real demo deliverable (customers.clean.csv, about 512 KB) from a seeded sample and accepts it", async () => {
+    const csv = readFileSync(new URL('../../../fixtures/data/dataset-cleaning/customers.clean.csv', import.meta.url), 'utf8');
+    expect(csv.length).toBeGreaterThan(500_000);
+    const { s, a, id } = await setup({ csv });
+    s.at('2026-11-01T10:00:30Z');
+    const report = await a.adj.runOnce();
+    expect(report.refused).toEqual([]);
+    const record = [...s.records.values()][0]!;
+    expect(record.deterministic.filter((c) => c.required && !c.passed)).toEqual([]);
+    expect(record.aggregate.reasons).not.toContain('the judges saw a sample of the deliverable, not all of it');
+    expect(record.aggregate.decision).toBe('accept');
+    expect(a.calls.every((c) => /drawn at random/.test(c.user) && c.user.length < 130_000)).toBe(true);
+    expect(s.state(id).kind).toBe('Released');
+  });
+
   it('publishes a schema-valid record whose hash the decision carries and whose signature recovers to the adjudicator', async () => {
     const { s, a, id } = await setup();
     s.at('2026-11-01T10:00:30Z');
@@ -199,6 +215,7 @@ describe('primary decision on the demo CSV (about 0.5 MB)', () => {
     const { a, id } = await setup();
     const again = bench(A, 'bench-a', new TestSettlement());
     expect(again.adj.seedFor(id)).toBe(a.adj.seedFor(id));
+    expect(a.adj.seedFor(`0x${'12'.repeat(32)}`)).not.toBe(a.adj.seedFor(id));
   });
 
   it('rejects without the panel when the delivered plaintext does not match its hash', async () => {
@@ -230,6 +247,20 @@ describe('policy and registry binding', () => {
     expect(b.calls).toHaveLength(0);
     expect(a.calls).toHaveLength(0);
     expect(s.state(id).kind).toBe('FallbackJudging');
+  });
+
+  it('refuses to judge a commitment bound to another registry', async () => {
+    const s = new TestSettlement();
+    const a = bench(A, 'bench-a', s);
+    const r = await a.adj.decideTask({
+      commitment: makeCommitment({ primary: A.address, fallback: B.address, appeal: C.address, policyHash: policyHashOf(a.adj.policy), registryHash: `0x${'02'.repeat(32)}`, buyer: BUYER, seller: SELLER }),
+      role: 'primary',
+      attempt: 1,
+      delivery: {} as never,
+      deadline: '2026-11-01T10:02:00Z',
+    });
+    expect(!r.ok && r.error.type).toBe('registry_mismatch');
+    expect(a.calls).toHaveLength(0);
   });
 
   it('refuses a bound policy whose template hash is not this build', async () => {
