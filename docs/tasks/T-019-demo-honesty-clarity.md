@@ -5,7 +5,7 @@
 - **Depends on:** T-013, T-017, D25, D26
 - **Paths this task may touch:** `apps/demo/src/`, `apps/demo/agents/bench.ts`, `docs/demo.md`
 - **Human gate:** no
-- **Status:** review
+- **Status:** done
 - **Agent/session:** implementer, branch `t-019-demo-honesty`
 
 ## Intent
