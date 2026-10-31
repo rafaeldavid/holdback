@@ -89,6 +89,7 @@ Every hard rule in `CLAUDE.md` is enforced by a check, not just by instruction. 
 | Ledger invariants | fast-check properties in `packages/settlement` | T-006 |
 | Every settlement guard is tested on its own | Mutation sweep over SimChain and the core guards it relies on: each mutant must fail a test (proposed after 2 of 16 T-006 mutants survived because an earlier guard in core masked the SimChain one) | Proposed (T-006); script to land under `scripts/` |
 | Deliverables untrusted | Prompt builder API accepts content only as `UntrustedData` (branded type); test that the system prompt has no data; `attack.*` fixtures | T-008 |
+| Deliverables untrusted, output surfaces | Text that can come from a deliverable or a party (check details, screen signal details, aggregate reasons, the seller's terms) reaches the terminal only as one plain line, reaches Markdown only escaped or in a fence it cannot close, and reaches HTML and JSON escaped (`apps/demo/src/transcript/untrusted.ts`). A hostile check detail is tested on all four surfaces in `apps/demo/src/transcript/untrusted.test.ts` (added after PR 46's review found `csv_columns_exact` header names reaching `beat-n.md` and the terminal raw) | T-013 |
 | No code execution from inputs | Check registry is a closed union; no `eval` or `Function` (lint) | T-008 |
 | Pinned models | Registry loader rejects aliases; `error.unpinned-model-refused` fixture | T-009 |
 | No re-roll | Panel seed derived from (commitment, attempt); test | T-009 |
