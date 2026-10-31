@@ -1,0 +1,29 @@
+// The seed encodings must match T-006's SimChain and core (origin/t-006-simchain): a mismatch would make
+// every fallback and appeal decision fail the settlement layer's seed check.
+import type { Hex32 } from '@holdback/core';
+import { concat, keccak256, numberToBytes, stringToBytes, toBytes } from 'viem';
+import { describe, expect, it } from 'vitest';
+import { panelSeed, roundFor, simBeacon, simRoundAt } from './randomness.js';
+
+const ID: Hex32 = `0x${'11'.repeat(32)}`;
+const V: Hex32 = `0x${'22'.repeat(32)}`;
+const SIM: Hex32 = `0x${'33'.repeat(32)}`;
+
+describe('ADR-0018 encodings', () => {
+  it('panelSeed = keccak256(id || role || uint8 attempt || value)', () => {
+    expect(panelSeed(ID, 'fallback', 1, V)).toBe(keccak256(concat([toBytes(ID), stringToBytes('fallback'), new Uint8Array([1]), toBytes(V)])));
+  });
+  it('sim beacon value = keccak256(simSeed || uint64 round), published once the clock reaches the round', async () => {
+    let now = '2026-11-01T10:02:00Z';
+    const b = simBeacon(SIM, () => now);
+    const round = simRoundAt(now);
+    expect(await b.value(round)).toBe(keccak256(concat([toBytes(SIM), numberToBytes(BigInt(round), { size: 8 })])));
+    expect(await b.value(round + 1)).toBeNull();
+    now = '2026-11-01T10:02:01Z';
+    expect(await b.value(round + 1)).not.toBeNull();
+  });
+  it('rounds: judgeBy for the fallback; strictly after for the appeal', () => {
+    expect(roundFor('fallback', '2026-11-01T10:02:00Z')).toBe(simRoundAt('2026-11-01T10:02:00Z'));
+    expect(roundFor('appeal', '2026-11-01T10:02:00.999Z')).toBe(simRoundAt('2026-11-01T10:02:00Z') + 1);
+  });
+});
