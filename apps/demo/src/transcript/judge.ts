@@ -8,17 +8,20 @@ import { plain } from './untrusted.js';
 /** Data lines shown at the head of the data section: the CSV header row and the first rows after it. */
 export const DATA_LINES_SHOWN = 9;
 
-const BEGIN = '<<<BEGIN UNTRUSTED DATA';
-const END = '<<<END UNTRUSTED DATA';
+/** The template's opening marker line; its nonce names the matching end marker. */
+const BEGIN = /^<<<BEGIN UNTRUSTED DATA ([0-9a-f]+)>>>$/;
 
 /**
  * The system message whole; the user message up to the first DATA_LINES_SHOWN data lines, then the last data
  * line and everything from the end marker on. The count of lines left out is kept; nothing is reworded.
+ * The end marker must carry the begin marker's nonce, and is searched from the end, so a data line that imitates
+ * a marker cannot move the cut.
  */
 export function judgePromptView(system: string, user: string): PromptView {
   const lines = user.split(/\r\n|\n/);
-  const begin = lines.findIndex((l) => l.startsWith(BEGIN));
-  const end = lines.findIndex((l) => l.startsWith(END));
+  const begin = lines.findIndex((l) => BEGIN.test(l));
+  const nonce = begin >= 0 ? BEGIN.exec(lines[begin]!)![1] : undefined;
+  const end = nonce === undefined ? -1 : lines.lastIndexOf(`<<<END UNTRUSTED DATA ${nonce}>>>`);
   const headEnd = begin >= 0 ? begin + 1 + DATA_LINES_SHOWN : 30;
   const tailStart = end > 0 ? end - 1 : lines.length;
   const omitted = tailStart - headEnd;

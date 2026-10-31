@@ -52,7 +52,7 @@ export type AdjudicatorRole = 'primary' | 'fallback' | 'appeal';
  * What a bench publishes beside its registration (T-017): display data the v0.6 registration cannot carry
  * (docs/backlog.md). Judges are registry judge IDs from config/judges.yaml, resolved to pinned model IDs by
  * `resolveJudges`; nothing here invents a model ID. `effort` is the reasoning setting the bench declares per
- * judge; recorded mode runs fake judges, so no effort is applied in this demo. `history` is invented.
+ * judge; the demo runs scripted (fake) judges, so no effort is applied. `history` is invented.
  */
 export interface BenchProfile {
   tagline: string;

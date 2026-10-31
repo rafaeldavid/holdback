@@ -103,9 +103,12 @@ function describeRaw(e: DemoEvent): string {
     }
     case 'decision': {
       const t = e.timing;
-      const timing = t
-        ? ` Decision ${group(t.afterDeliveryMs)} ms after delivery; judging took ${group(t.judgingMs)} ms${t.panelMs === undefined ? ' (no panel sat)' : ` (panel ${group(t.panelMs)} ms)`}.`
-        : '';
+      const parts = t?.parts?.length
+        ? `: ${t.parts.map((x) => `${x.what} ${group(x.ms)} ms`).join(', ')}${t.panelMs === undefined ? '; no panel sat' : ''}`
+        : t?.panelMs === undefined
+          ? ' (no panel sat)'
+          : ` (panel ${group(t.panelMs)} ms)`;
+      const timing = t ? ` Decision ${group(t.afterDeliveryMs)} ms after delivery; judging took ${group(t.judgingMs)} ms${parts}.` : '';
       return `${who} signs the ${e.role} decision: ${e.outcome}, ${relay(e.via)}.${timing}`;
     }
     case 'shared-record': {
@@ -113,13 +116,18 @@ function describeRaw(e: DemoEvent): string {
       const both = names.length === 2 ? `${names[0]} and ${names[1]}` : names.join(', ');
       const what = [
         `${group(e.events)} settlement events, ${group(e.receipts)} operator receipts`,
-        ...(e.judgmentRecord ? [`judgment record ${short(e.judgmentRecord)}`] : []),
-        ...(e.decision ? [`decision ${short(e.decision)}`] : []),
+        ...(e.judgmentRecord ? [`judgment record ${short(e.judgmentRecord)}${e.judgedBy ? ` as ${nameOf(e.judgedBy)} published it` : ''}, by the hash the decision names`] : []),
+        ...(e.decision ? [`decision event ${short(e.decision)}`] : []),
       ].join(', ');
+      const routes = e.parties.every((p) => p.via)
+        ? ` (${e.parties.map((p) => `${nameOf(p.who)} through ${p.via === 'direct' ? 'SimChain' : nameOf(p.via!)}`).join(', ')}, by the operator that signed each copy's receipts)`
+        : '';
+      const vias = new Set(e.parties.map((p) => p.via));
+      const apart = vias.size > 1 ? ', receipt signers aside' : '';
       const result = e.match
-        ? `Record hash ${short(e.parties[0]?.hash ?? '')} on both sides: both copies match`
+        ? `Record hash ${short(e.parties[0]?.hash ?? '')} on both sides${apart}: both copies match`
         : `The copies DIFFER: ${e.parties.map((p) => `${nameOf(p.who)} ${short(p.hash)}`).join(', ')}`;
-      return `${both} each fetch the record through their own SDK client: ${what}; the work itself only by its hash. ${result}.`;
+      return `${both} each fetch the record through their own SDK client${routes}: ${what}; the work itself only by its hash. ${result}.`;
     }
     case 'escalation':
       return `${who} escalates to ${labelOf(e.to)}, reason: ${e.reason}; the appeal panel seats ${e.panelSize} judges from ${e.families} families.`;

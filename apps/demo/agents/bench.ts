@@ -47,17 +47,30 @@ export interface JudgeReport {
  */
 export interface JudgingTime {
   startedAt: number;
-  endedAt: number;
+  /** When the service had fetched the delivery's ciphertext (decryption, checks and screen follow). */
+  fetchedAt?: number;
   panel?: { startedAt: number; endedAt: number };
+  /** When the service published the signed judgment record (its decision is submitted next). */
+  publishedAt?: number;
+  endedAt: number;
 }
 
 const judgingTimes = new Map<Hex32, JudgingTime>();
 
 /**
- * The last judging run's marks for a commitment, for the demo's timeline (T-019). Kept here because JobResult
- * does not carry the JudgeReport; commitment IDs are unique per seed.
+ * Takes (reads and forgets) the last judging run's marks for a commitment, for the demo's timeline (T-019).
+ * Kept here because JobResult does not carry the JudgeReport.
  */
-export const judgingTimeOf = (commitmentId: Hex32): JudgingTime | undefined => judgingTimes.get(commitmentId);
+export function takeJudgingTime(commitmentId: Hex32): JudgingTime | undefined {
+  const t = judgingTimes.get(commitmentId);
+  judgingTimes.delete(commitmentId);
+  return t;
+}
+
+/** Forgets every mark; the demo source calls it before each run, so marks never outlive their world. */
+export function clearJudgingTimes(): void {
+  judgingTimes.clear();
+}
 
 export interface AdjudicatorSeam {
   readonly name: string;
@@ -91,6 +104,8 @@ export class BenchDirectory {
   /** Everything posted, valid or not, in posting order: what agents read when they choose adjudicators. */
   private readonly posted = new Map<string, { document: Record<string, unknown>; profile?: BenchProfile }>();
   readonly adapter: SettlementAdapter;
+  /** performance.now() at the last ciphertext fetch and record publication through this directory (T-019). */
+  readonly marks: { fetchedAt?: number; publishedAt?: number } = {};
 
   constructor(readonly world: DemoWorld) {
     this.adapter = new SettlementAdapter({
@@ -98,12 +113,15 @@ export class BenchDirectory {
       store: {
         ciphertext: async (uri) => {
           const id = uri.replace(/^mem:\/\/ciphertext\//, '');
-          return world.store.get(id as `sha256:${string}`);
+          const bytes = await world.store.get(id as `sha256:${string}`);
+          this.marks.fetchedAt = performance.now();
+          return bytes;
         },
         publishRecord: async (record) => {
           const parsed = parseJudgment(record);
           if (!parsed.ok) throw new Error(`judgment record: ${parsed.error.detail}`);
           this.records.set(record.recordHash, record);
+          this.marks.publishedAt = performance.now();
           return `mem://records/${record.recordHash}`;
         },
       },
@@ -266,10 +284,16 @@ export class ServiceBench implements AdjudicatorSeam {
     const r = await this.service.runOnce();
     const endedAt = performance.now();
     const calls = this.calls.slice(before);
+    // Marks from this run only: the directory is shared by the world's benches.
+    const within = (m: number | undefined) => (m !== undefined && m >= startedAt && m <= endedAt ? m : undefined);
+    const fetchedAt = within(this.directory.marks.fetchedAt);
+    const publishedAt = within(this.directory.marks.publishedAt);
     const timing: JudgingTime = {
       startedAt,
-      endedAt,
+      ...(fetchedAt === undefined ? {} : { fetchedAt }),
       ...(calls.length ? { panel: { startedAt: Math.min(...calls.map((c) => c.startedAt)), endedAt: Math.max(...calls.map((c) => c.endedAt ?? endedAt)) } } : {}),
+      ...(publishedAt === undefined ? {} : { publishedAt }),
+      endedAt,
     };
     const refused = r.refused.find((x) => x.commitmentId === commitmentId);
     if (refused) throw new Error(`${this.name} refused ${commitmentId}: ${refused.problem.type}: ${refused.problem.detail}`);

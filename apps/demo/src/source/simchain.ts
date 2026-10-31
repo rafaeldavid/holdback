@@ -5,21 +5,21 @@
 // passes every call through unchanged.
 import type { Commitment, Hex32, Judgment, SettlementEvent } from '@holdback/core';
 import { adjudicatorProfiles, type ProfileView, type Slate } from '@holdback/demo/agents/adjudicators.js';
-import { beatBadWork, beatHappyPath, beatHiddenTags, beatHold, beatMutualSplit, type JobResult, type Negotiation, type NegotiationStep } from '@holdback/demo/agents/beats.js';
-import { judgingTimeOf, type JudgingTime } from '@holdback/demo/agents/bench.js';
+import { beatBadWork, beatHiddenTags, beatHold, beatMutualSplit, deliverable, type JobResult, type Negotiation, type NegotiationStep } from '@holdback/demo/agents/beats.js';
+import { clearJudgingTimes, takeJudgingTime, type JudgingTime } from '@holdback/demo/agents/bench.js';
 import { createDemoWorld, type ActorName, type DemoWorld } from '@holdback/demo/agents/world.js';
 import { judgePromptView, verdictView } from '../transcript/judge.js';
 import { formatAmount } from '../transcript/money.js';
+import { Holdback } from '@holdback/sdk';
 import { fetchPartyView, sharedRecordEvent } from './record.js';
 import { plain } from '../transcript/untrusted.js';
-import type { AdjudicatorProfile, Amount, BalanceRow, BeatTranscript, CastKey, DemoEvent, EventSource, JudgeSeat, Json, SlateKeys, Via } from '../transcript/types.js';
+import type { AdjudicatorProfile, Amount, BalanceRow, BeatTranscript, CastKey, DemoEvent, EventSource, JudgeSeat, JudgingTiming, Json, SlateKeys, Via } from '../transcript/types.js';
 
 export const SIMCHAIN_NOTE =
   "measured on SimChain in this run: scripted agents over the operator API; the adjudicator service with scripted judges, seated from config/judges.yaml's pinned placeholder model IDs. Times are wall-clock milliseconds on this machine.";
 
 /** Each job runs on its own world (T-019): beats 1 to 4 are one job on seed 7; beat n's job uses seed 7 + n. */
 export const seedOf = (beat: number): number => (beat <= 4 ? 7 : 7 + beat);
-
 export interface BeatMeta {
   title: string;
   summary: string;
@@ -139,10 +139,11 @@ interface Run {
   shared: DemoEvent;
 }
 
-type JobOut = JobResult | { commitment: Commitment; choice?: Run['choice'] };
+type JobOut = (JobResult & { choice?: Run['choice'] }) | { commitment: Commitment; choice?: Run['choice'] };
 
 async function runJob(seed: number, job: (world: DemoWorld, recorder: Recorder) => Promise<JobOut>): Promise<Run> {
   const world = await createDemoWorld({ seed });
+  clearJudgingTimes();
   try {
     const recorder = new Recorder(world);
     recorder.start();
@@ -151,23 +152,61 @@ async function runJob(seed: number, job: (world: DemoWorld, recorder: Recorder) 
     const events = world.chain.log().filter((e) => e.commitmentId === out.commitment.id);
     const choice = 'choice' in out && out.choice ? { choice: out.choice } : {};
     const result = 'vias' in out && Array.isArray(out.vias) ? (out as JobResult) : undefined;
-    const judging = judgingTimeOf(out.commitment.id);
-    // Each party reads its own copy through its own SDK client; the judgment record by the hash its decision names.
-    const records = (hash: string) => (result?.record?.recordHash === hash ? result.record : undefined);
-    const copies = await Promise.all(
-      (['buyer', 'seller'] as const).map(async (who) => ({ who, view: await fetchPartyView(world.sdk(), out.commitment.id, records) })),
-    );
-    const shared = sharedRecordEvent(recorder.elapsed(), copies);
+    const judging = takeJudgingTime(out.commitment.id);
+    const shared = await compareRecords(world, out.commitment.id, result?.record, recorder.elapsed());
     return { world, recorder, commitment: out.commitment, ...(result ? { result } : {}), doneMs, events, ...choice, ...(judging ? { judging } : {}), shared };
   } finally {
     await world.close();
   }
 }
 
-/** Beat 1's job: negotiation (each step stamped), offer, acceptance and hold; profiles read before the world closes. */
-const holdJob = async (world: DemoWorld, recorder: Recorder): Promise<JobOut> => {
+/**
+ * D26: Ledger reads its copy through an SDK client that tries op-1 first, Tide-7 through one that tries op-2
+ * first. Which operator answered is read from the receipts each copy holds (each operator signs its own), and
+ * mapped to an operator by asking each operator for its receipt signer. The judgment record is the one Clearfield
+ * published, found by the hash the decision event names (there is no read API for records yet).
+ */
+async function compareRecords(world: DemoWorld, id: Hex32, record: Judgment | undefined, atMs: number): Promise<DemoEvent> {
+  const url = (op: string) => world.operatorUrl(op);
+  const signers = new Map<string, Via>();
+  for (const [op, via] of [['op-1', 'op1'], ['op-2', 'op2']] as const) {
+    const status = await new Holdback({ operators: [url(op)], pollMs: 10 }).status();
+    signers.set(lc(status.receiptSigner), via);
+  }
+  const records = (hash: string) => (record?.recordHash === hash ? record : undefined);
+  const client = (first: string, second: string) => new Holdback({ operators: [url(first), url(second)], settlement: world.chain, pollMs: 10 });
+  const copies = [
+    { who: 'buyer' as const, view: await fetchPartyView(client('op-1', 'op-2'), id, records) },
+    { who: 'seller' as const, view: await fetchPartyView(client('op-2', 'op-1'), id, records) },
+  ];
+  const judgedBy = record && ACTORS.find(([name]) => lc(world.addressOf(name)) === lc(record.adjudicator))?.[1];
+  return sharedRecordEvent(atMs, copies, { signers, ...(judgedBy ? { judgedBy } : {}) });
+}
+
+/**
+ * Beats 1 to 4 as one job on one world (T-019): the negotiation (each step stamped by the observer), offer,
+ * acceptance and hold, then the honest delivery, the primary's judgment, settlement and Ledger opening the work.
+ * It is beatHappyPath's sequence with beatHold's observer, so beat 1's hold is the hold beats 2 to 4 continue.
+ */
+const happyJob = async (world: DemoWorld, recorder: Recorder): Promise<JobOut> => {
   const hold = await beatHold(world, { observe: (step) => recorder.mark(step) });
-  return { commitment: hold.commitment, choice: { negotiation: hold.negotiation, profiles: adjudicatorProfiles(hold) } };
+  const { commitment, players: p, slate } = hold;
+  const delivered = await p.tidewater.deliver(commitment, deliverable('customers.clean.csv'), { primary: slate.primary.keys, fallback: slate.fallback.keys, appeal: slate.appeal.keys });
+  const report = await slate.primary.judge(commitment.id);
+  const state = await p.atlas.waitForOutcome(commitment.id);
+  const opened = state.escrowState === 'Released' ? await p.atlas.openWork(commitment.id) : undefined;
+  const result: JobResult = {
+    commitmentId: commitment.id,
+    commitment,
+    delivery: delivered.delivery,
+    finalState: state.escrowState,
+    decision: report.outcome,
+    record: report.record,
+    requests: report.requests,
+    ...(opened ? { opened } : {}),
+    vias: [hold.vias.offer, hold.vias.hold, delivered.via, report.via],
+  };
+  return { ...result, choice: { negotiation: hold.negotiation, profiles: adjudicatorProfiles(hold) } };
 };
 
 /** Builds transcript events from a run. Each event carries the beat it belongs to in the 1-4 job. */
@@ -298,18 +337,11 @@ class Narrator {
           // previous settlement event and the decision.
           const j = this.run.judging;
           const clamp = (mark: number | undefined) => (mark === undefined ? ms : Math.min(ms, Math.max(prevMs, recorder.at(mark))));
-          if (record) this.judgment({ checksMs: clamp(j?.startedAt), panelMs: clamp(j?.panel?.endedAt) }, record);
+          // Checks and screen are done when the first judge is called, or, with no panel, when the record is published.
+          const checksDone = j?.panel?.startedAt ?? j?.publishedAt;
+          if (record) this.judgment({ checksMs: clamp(checksDone), panelMs: clamp(j?.panel?.endedAt) }, record);
           const delivered = events.find((x) => x.type === 'delivery.submitted');
-          const timing =
-            j && delivered
-              ? {
-                  timing: {
-                    afterDeliveryMs: ms - stamp(delivered).ms,
-                    judgingMs: Math.max(0, ms - clamp(j.startedAt)),
-                    ...(j.panel ? { panelMs: Math.round(j.panel.endedAt - j.panel.startedAt) } : {}),
-                  },
-                }
-              : {};
+          const timing = j && delivered ? { timing: this.judgingTiming(j, ms, ms - stamp(delivered).ms, clamp, record) } : {};
           this.push(3, { kind: 'decision', atMs: ms, actor: this.key(String(e.actor)), role: p.role as 'primary', outcome: p.outcome as 'accept' | 'reject', via: this.via(e), ...timing });
           break;
         }
@@ -408,7 +440,48 @@ class Narrator {
     return k ? this.key(String(k.payload.recipient)) : undefined;
   }
 
-  /** `at`: checks and screen when the service's run began, the panel when its last verdict came back. */
+  /**
+   * Where the judging time went (T-019), from the service's marks: each part is the gap between two clamped,
+   * rounded stamps, so the parts add up to `judgingMs`. A part whose marks are missing is left out.
+   */
+  private judgingTiming(j: JudgingTime, decisionMs: number, afterDeliveryMs: number, clamp: (mark: number | undefined) => number, record: Judgment | undefined): JudgingTiming {
+    const seats = record?.panel.members.length ?? 0;
+    const marks: [string, number | undefined][] = j.panel
+      ? [
+          ['reading the delivery and fetching its ciphertext', j.fetchedAt],
+          ['decrypting, checks and screen', j.panel.startedAt],
+          [`panel of ${seats} scripted judges`, j.panel.endedAt],
+          ['aggregating and publishing the signed record', j.publishedAt],
+          ['signing and submitting the decision', decisionMs],
+        ]
+      : [
+          ['reading the delivery and fetching its ciphertext', j.fetchedAt],
+          ['decrypting, checks, screen and publishing the signed record', j.publishedAt],
+          ['signing and submitting the decision', decisionMs],
+        ];
+    const parts: { what: string; ms: number }[] = [];
+    let from = clamp(j.startedAt);
+    let pending = '';
+    for (const [what, mark] of marks) {
+      if (mark === undefined) {
+        pending = pending ? `${pending}; ${what}` : what;
+        continue;
+      }
+      const to = what === 'signing and submitting the decision' ? decisionMs : clamp(mark);
+      // A missing mark folds its part into the next one, named for both.
+      parts.push({ what: pending ? `${pending}; ${what}` : what, ms: to - from });
+      pending = '';
+      from = to;
+    }
+    return {
+      afterDeliveryMs,
+      judgingMs: decisionMs - clamp(j.startedAt),
+      ...(j.panel ? { panelMs: Math.round(j.panel.endedAt - j.panel.startedAt) } : {}),
+      parts,
+    };
+  }
+
+  /** `at`: checks and screen when they were done, the panel when its last verdict came back. */
   private judgment(at: { checksMs: number; panelMs: number }, record: Judgment): void {
     // Untrusted at ingestion: check details (csv_columns_exact quotes the seller's header), screen signal details
     // and aggregate reasons can carry deliverable text. The renderers escape again per surface.
@@ -522,7 +595,8 @@ function profileOf(v: ProfileView, who: CastKey | undefined): AdjudicatorProfile
 const transcript = (beat: number, run: Run, events: DemoEvent[]): BeatTranscript => {
   const meta = BEAT_META[beat]!;
   const who = new Map(ACTORS.map(([name, key]) => [lc(run.world.addressOf(name)), key]));
-  const adjudicators = run.choice ? { adjudicators: run.choice.profiles.map((v) => profileOf(v, who.get(lc(v.address)))) } : {};
+  // The profiles belong to beat 1, where the agents choose.
+  const adjudicators = run.choice && beat === 1 ? { adjudicators: run.choice.profiles.map((v) => profileOf(v, who.get(lc(v.address)))) } : {};
   return {
     ...adjudicators,
     format: 'holdback.demo.transcript/v0',
@@ -546,16 +620,14 @@ export function simchainSource(): EventSource {
     beats: () => beats,
     run: async (beat) => {
       switch (beat) {
-        case 1: {
-          const run = await runJob(seedOf(1), holdJob);
-          return transcript(1, run, new Narrator(run).build({ signed: true }).map((x) => x.e));
-        }
+        case 1:
         case 2:
         case 3:
         case 4: {
-          happy ??= runJob(seedOf(2), (w) => beatHappyPath(w));
+          // One run, sliced by phase: beat 1's times run straight on into beat 2's.
+          happy ??= runJob(seedOf(1), happyJob);
           const run = await happy;
-          const all = new Narrator(run).build({ signed: false });
+          const all = new Narrator(run).build({ signed: true });
           return transcript(beat, run, all.filter((x) => x.phase === beat).map((x) => x.e));
         }
         case 5:

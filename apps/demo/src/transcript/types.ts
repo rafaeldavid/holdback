@@ -126,6 +126,8 @@ export interface JudgingTiming {
   judgingMs: number;
   /** From the first judge call to the last verdict; absent when no panel sat. */
   panelMs?: number;
+  /** Where the judging time went, in order, each part measured between two of the service's marks. */
+  parts?: { what: string; ms: number }[];
 }
 
 export type DemoEvent =
@@ -169,16 +171,20 @@ export type DemoEvent =
   | (At & {
       /**
        * D26: each party fetches its own copy of the record through its own SDK client (commitment state, every
-       * settlement event, every operator receipt, the judgment record) and hashes it. The work itself is excluded;
-       * only its hash is in the events. `match` is measured: true only when every party's hash is equal.
+       * settlement event, every operator receipt) plus the judgment record its decision names, as published, and
+       * hashes it without the receipts' signers. The work itself is excluded; only its hash is in the events.
+       * `match` is measured: true only when every party's hash is equal and every copy is whole.
        */
       kind: 'shared-record';
       actor: CastKey;
-      parties: { who: CastKey; hash: string }[];
+      /** `via`: the operator that signed every receipt in this party's copy, when it was one known operator. */
+      parties: { who: CastKey; hash: string; via?: Via }[];
       events: number;
       receipts: number;
       /** The judgment record's hash, when an adjudicator decided. */
       judgmentRecord?: string;
+      /** The adjudicator that published that record. */
+      judgedBy?: CastKey;
       /** The decision event's hash, as its operator receipt attests it. */
       decision?: string;
       match: boolean;
