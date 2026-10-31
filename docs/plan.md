@@ -40,6 +40,8 @@ Scope after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-inte
 - [x] T-017 Demo: adjudicator profiles and buyer/seller agreement on adjudicators (demo)
 - [x] T-018 Beats 6a and 7 on SimChain; appeal decides a screen-flagged case (judgment + demo; D25)
 - [x] T-019 Demo honesty and clarity: scripted labels, one ID per job, judging time, one prompt and verdict, lean balances (demo; D25)
+- [ ] T-020 Developer surface: high-level SDK, examples, `pnpm sim`, quickstart (api + demo; from the outsider usability review)
+- [ ] T-021 Agent simulation: MCP tools over the SDK and a multi-model runner (test; after T-020)
 
 **Exit:**
 - Demo success criteria met (`docs/demo.md`).

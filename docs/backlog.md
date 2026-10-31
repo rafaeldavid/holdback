@@ -105,6 +105,9 @@ Deferred until after the basic demo. The demo assumes honest parties (Rafa, Octo
 | Item | Source | When it matters |
 | --- | --- | --- |
 | IETF `RateLimit` headers; `Deprecation` and `Sunset` headers | ADR-0017 | When the draft stabilizes; at API v1.0 |
+| Overturned wrongful reject: the buyer keeps its refund and also gets the work, while the seller is paid from the primary's bond. Document it; decide whether the key should be released to the buyer in that case | Outsider usability review | Before a pilot; with D29 clauses |
+| Deterministic checks for text deliverables (length ratio to a committed source, clause or segment count, required glossary terms, language detection) | Outsider usability review | After the demo; before a translation or document pilot |
+| Distinct `beacon_pending` problem with `Retry-After` instead of `seed_mismatch … waiting`; appeal refusals for lack of funds state the bond and fee required | Outsider usability review | With T-020 if cheap, else after the demo |
 | SDK operator ranking by `/v1/status` | ADR-0017 | Phase 5, several operators |
 | Standard Webhooks signing headers | ADR-0017 | When webhooks are built |
 | x402 and AP2 interop; field selection | ADR-0017 | Phase 6 |
