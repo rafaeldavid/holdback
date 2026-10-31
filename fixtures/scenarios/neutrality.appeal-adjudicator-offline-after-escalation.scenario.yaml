@@ -1,0 +1,42 @@
+# @settlement sim @judges recorded @mode guaranteed_on_decision @seed 37
+name: neutrality.appeal-adjudicator-offline-after-escalation
+description: >-
+  Bench A's panel splits (both Claude judges pass, the second-family judge fails), so Bench A escalates
+  to Bench C. Bench C is offline. After appealDecideBy (escalation + 300 s) anyone triggers the default,
+  then applies the default outcome under the signed rulebook: Atlas gets its $2,050 back and Bench C's
+  bond pays Tidewater $2,000 (sellerCompensationRateBps 10000). The split verdicts are authored
+  recordings (capturedFrom fake).
+fails: bench-c
+parties:
+  buyer: atlas-buyer
+  seller: tidewater-seller
+adjudicators:
+  primary: bench-a
+  fallback: bench-b
+  appeal: bench-c
+operators: [op-1, op-2]
+faucet:
+  atlas-buyer: "10000000000"
+  bench-a: "25000000000"
+  bench-b: "25000000000"
+  bench-c: "25000000000"
+steps:
+  - offer:                 { by: seller, via: op-1 }
+  - adjudicator_accept:    { via: op-1 }
+  - agree_and_fund:        { by: buyer, via: op-1 }
+  - deliver:               { by: seller, via: op-1, file: data/dataset-cleaning/customers.clean.csv }
+  - advance_clock:         { seconds: 5 }
+  - judge:                 { adjudicator: bench-a }   # escalate
+  - offline:               { actor: bench-c }
+  - judge:                 { adjudicator: bench-c }   # no call: Bench C is offline
+  - advance_clock:         { seconds: 300 }           # past appealDecideBy
+  - trigger_default:       { via: op-2 }
+  - apply_default_outcome: { via: op-2 }
+expect:
+  terminal: Refunded
+  balances:
+    atlas-buyer: "10000000000"        # price and fee returned
+    tidewater-seller: "2000000000"    # compensation from the defaulting adjudicator's bond
+    bench-a: "25000000000"
+    bench-c: "23000000000"            # bond pays the default compensation
+    escrow: "0"

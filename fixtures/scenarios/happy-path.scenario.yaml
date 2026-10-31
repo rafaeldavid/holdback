@@ -1,0 +1,38 @@
+# @settlement sim @judges recorded @mode guaranteed_on_decision @seed 7
+name: happy-path
+description: >-
+  Demo beats 1-4. Tidewater offers the $2,000 customers.csv cleaning job naming Bench A, B and C;
+  Bench A accepts; Atlas agrees and holds $2,050 in one call; Tidewater delivers the honest cleaned CSV;
+  Bench A's panel accepts; $2,000 releases to Tidewater with the content key to Atlas in the same step;
+  Atlas verifies the plaintext hash. Club and terms are the testkit's built-in stubs (T-012 owns the files).
+parties:
+  buyer: atlas-buyer
+  seller: tidewater-seller
+adjudicators:
+  primary: bench-a
+  fallback: bench-b
+  appeal: bench-c
+operators: [op-1, op-2]
+faucet:
+  atlas-buyer: "10000000000"        # 10,000 tUSD (6 decimals)
+  bench-a: "25000000000"            # bond
+  bench-b: "25000000000"
+  bench-c: "25000000000"
+steps:
+  - offer:              { by: seller, via: op-1 }
+  - adjudicator_accept: { via: op-1 }
+  - agree_and_fund:     { by: buyer, via: op-1 }
+  - deliver:            { by: seller, via: op-1, file: data/dataset-cleaning/customers.clean.csv }
+  - advance_clock:      { seconds: 5 }
+  - judge:              { adjudicator: bench-a }
+  - settle:             { trigger: anyone }
+  - verify_key_release: { by: buyer, via: op-1 }
+expect:
+  terminal: Released
+  balances:
+    atlas-buyer: "7950000000"         # 10,000 - 2,000 price - 50 fee
+    tidewater-seller: "2000000000"
+    bench-a: "25050000000"            # bond + 50 fee
+    bench-b: "25000000000"
+    bench-c: "25000000000"
+    escrow: "0"

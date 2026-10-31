@@ -1,0 +1,40 @@
+# @settlement sim @judges recorded @mode guaranteed_on_decision @seed 23
+name: neutrality.adjudicator-offline
+description: >-
+  Demo beat 7, second failure. Bench A accepts and the hold is funded, then Bench A goes offline after
+  the delivery and never decides. After judgeBy, anyone (here via op-2) triggers the fallback; Bench B
+  takes the panel seed from the SimChain beacon round at judgeBy, decides accept, and $2,000 releases
+  to Tidewater with the key to Atlas. Bench B, not Bench A, earns the $50 fee.
+fails: bench-a
+parties:
+  buyer: atlas-buyer
+  seller: tidewater-seller
+adjudicators:
+  primary: bench-a
+  fallback: bench-b
+  appeal: bench-c
+operators: [op-1, op-2]
+faucet:
+  atlas-buyer: "10000000000"
+  bench-a: "25000000000"
+  bench-b: "25000000000"
+  bench-c: "25000000000"
+steps:
+  - offer:              { by: seller, via: op-1 }
+  - adjudicator_accept: { via: op-1 }
+  - agree_and_fund:     { by: buyer, via: op-1 }
+  - deliver:            { by: seller, via: op-1, file: data/dataset-cleaning/customers.clean.csv }
+  - offline:            { actor: bench-a }
+  - judge:              { adjudicator: bench-a }      # no call: Bench A is offline
+  - advance_clock:      { seconds: 4300 }             # past judgeBy (offer + 4,200 s)
+  - trigger_fallback:   { via: op-2 }
+  - judge:              { adjudicator: bench-b }
+  - verify_key_release: { by: buyer, via: op-2 }
+expect:
+  terminal: Released
+  balances:
+    atlas-buyer: "7950000000"
+    tidewater-seller: "2000000000"
+    bench-a: "25000000000"            # earns nothing; its bond reservation is released
+    bench-b: "25050000000"            # the fallback that decided earns the $50 fee
+    escrow: "0"

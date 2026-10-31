@@ -1,0 +1,35 @@
+# @settlement sim @judges recorded @mode guaranteed_on_decision @seed 11
+name: bad-work-panel-reject
+description: >-
+  Bad work the deterministic checks would not catch. All three judges (two Claude, one from a second
+  family) fail every rubric criterion, the aggregate rejects, and the hold refunds the $2,000 price to
+  Atlas in the same step; Bench A keeps the $50 fee. No key goes to the buyer, so Tidewater keeps the work. The deliverable is
+  placeholder bytes (stub_bytes) and the verdicts are authored recordings (capturedFrom fake), not model output.
+parties:
+  buyer: atlas-buyer
+  seller: tidewater-seller
+adjudicators:
+  primary: bench-a
+  fallback: bench-b
+  appeal: bench-c
+operators: [op-1, op-2]
+faucet:
+  atlas-buyer: "10000000000"
+  bench-a: "25000000000"
+  bench-b: "25000000000"
+  bench-c: "25000000000"
+steps:
+  - offer:              { by: seller, via: op-1 }
+  - adjudicator_accept: { via: op-1 }
+  - agree_and_fund:     { by: buyer, via: op-1 }
+  - deliver:            { by: seller, via: op-1, file: data/dataset-cleaning/customers.clean.fabricated-values.csv, stub_bytes: true }
+  - advance_clock:      { seconds: 5 }
+  - judge:              { adjudicator: bench-a }
+  - settle:             { trigger: anyone }
+expect:
+  terminal: Refunded
+  balances:
+    atlas-buyer: "9950000000"         # price refunded; the $50 fee pays Bench A for judging
+    tidewater-seller: "0"
+    bench-a: "25050000000"
+    escrow: "0"
