@@ -1,45 +1,51 @@
-# T-020: Developer surface: an SDK, examples and a quickstart a newcomer can use
+# T-020: Developer surface: an HTTP API, examples and a quickstart a newcomer can use
 
 - **Lane:** api + demo
 - **Phase:** 1
 - **Depends on:** T-007, T-009, T-012, T-018
-- **Paths this task may touch:** `packages/sdk/`, `examples/` (new, inside the pnpm workspace), `apps/operator/` (a start script and bin), `apps/adjudicator/` (a start script for a test adjudicator), `README.md`, `docs/api.md`, `docs/quickstart.md` (new), package `README.md` files, `pnpm-workspace.yaml`, root `package.json` scripts
+- **Paths this task may touch:** `examples/` (new, inside the pnpm workspace), `apps/operator/` (new endpoints, a start script and bin), `apps/adjudicator/` (a test adjudicator), `README.md`, `docs/api.md`, `docs/quickstart.md` (new), package `README.md` files, `pnpm-workspace.yaml`, root `package.json` scripts, and the root `tsconfig.json` and `vitest.config.ts` (to compile and test `examples/`)
 - **Human gate:** no
-- **Status:** todo
-- **Agent/session:** —
+- **Status:** in progress
+- **Agent/session:** implementer, 2026-10-31
+- **Re-scoped:** 2026-10-31 by D30 (API-first, Rafa via the coordinator): no high-level SDK layer and no MCP server now; the existing SDK client stays as it is.
 
 ## Intent
 
 Two outsider agents (`docs/reviews/2026-10-31-outsider-usability.md`) settled deals correctly but spent nearly all their time reading source, because there is no way in: no quickstart, a wrong SDK example, a low-level SDK, no runnable operator or adjudicator. Make the first deal take minutes from `README.md`.
 
-**Restated (implementer, 2026-10-31).** A developer who has never seen this repository should get from `README.md` to a settled deal in a few minutes without opening product source. That needs four things that do not exist today:
+**Restated (implementer, after D30).** An agent in any language should settle its first deal from `README.md` in minutes, talking only to an operator's HTTP API and signing with a standard library (viem, ethers, eth-account). The operator prepares; the agent verifies and signs; the operator relays. Concretely:
 
-1. **A party-level SDK.** A `Party` object that holds one agent's keys and turns each step of a deal into one call: offer, agree and fund, deliver, open the delivered work, appeal, settle by agreement, read status, wait for a state. It builds and signs every EIP-712 message itself (nonces, expiries, amounts), encrypts deliverables with the real envelope functions in `@holdback/core/crypto`, and reads adjudicator policy and registry hashes from the adjudicator's published registration. The low-level `Holdback` client stays as it is; the party layer sits on top. Where the demo agents (Ledger, Tide-7) already build these messages, that logic moves into the SDK and the demo imports it, with byte-identical demo output.
-2. **A world to run against.** `pnpm sim` starts SimChain, two operator nodes and three test adjudicators with fake judges, and prints the endpoints, the funded test keys and the economics (fees, bonds, default outcome). Nothing in it can touch real money.
-3. **Examples that run.** `examples/buy-dataset.ts` and `examples/sell-translation.ts`, short, one command each, executed by the test suite so they cannot rot.
-4. **Docs for users.** `docs/quickstart.md` first in `README.md`; `docs/api.md`'s SDK example compiled against the real SDK; the surprises from the review stated where they bite (fee kept on refund, 6 decimals, whose key a `key.released` is, fake-judge records, `apply_default`).
+1. **Prepare, sign, submit.** For each party message (offer, agree and fund, delivery, early accept, appeal, mutual settlement), `POST /v1/prepare/<kind>` takes plain inputs and returns the exact EIP-712 typed data (domain, the types it needs, primary type, message with nonce and expiry filled), its digest, and the body to submit with the signature slot(s) named. The typed data is a pure function of the inputs plus defaults the response states, so an agent can recompute and check it. The agent submits the signed body to the existing write route. The operator never signs a party message and never holds a party key.
+2. **Deliveries without our SDK.** `GET /v1/commitments/{id}/recipients` lists each required recipient's encryption public key and the envelope spec. The envelope (our NaCl box construction, not HPKE) is documented byte for byte with test vectors that a test checks against core. `POST /v1/ciphertext` stores ciphertext; operators never see plaintext.
+3. **Defaults.** `POST /v1/prepare/offer` takes a `default` or `checks-only` template and fills the club's rulebook hash and the primary adjudicator's policy ID, policy hash, registry hash and minimum fee from its published registration.
+4. **A world.** `pnpm sim`: SimChain, two operator nodes, three test adjudicators with fake judges, funded test keys, all printed.
+5. **Docs and examples.** `docs/quickstart.md` (first in `README.md`): curl for every step, plus a short signing snippet in TypeScript and in Python. `examples/buy-dataset.ts` and `examples/sell-translation.ts` use only `fetch`, a signing library and a NaCl library, and run in CI. The review's doc fixes.
+6. **Discovery (optional add).** `/.well-known/holdback.json`: the status document plus the API base URL.
 
-**Non-goals.** No protocol, schema or settlement-rule change; no change to what SimChain enforces; no package publishing; no MCP surface (T-021); no new defenses. Operators stay relays: the party signs everything. The direct-submit escape hatch stays available to in-process callers but the HTTP-only sim client has none (stated in the quickstart). The outsider re-test itself is run by the coordinator, not by this task's implementer (Handoff).
+**Non-goals.** No protocol, schema or settlement-rule change; no SDK expansion (the client stays internal); no MCP server; no operator-side encryption of plaintext; no package publishing. The outsider re-test is run by the coordinator (Handoff).
 
 ## Context
 
-- The outsider review (all friction items); `docs/api.md`; `packages/sdk/`; `packages/settlement/sim/actors.ts` (the `Deal` test helper the testers copied); `apps/demo/agents/` (Ledger and Tide-7 already do the high-level flow internally).
+- The outsider review (all friction items); `docs/api.md`; `apps/operator/`; `packages/core/src/eip712.ts` and `packages/core/src/crypto/`; D30.
 
 ## Acceptance criteria
 
-- [ ] High-level SDK, layered on the existing client (which stays): a party object holding its signer (a local private key in Phase 1), with `offer(terms)`, `agreeAndFund(offer)`, `deliver(commitmentId, bytes, mime)` (encrypts, uploads, wraps keys for every required recipient, signs), `openDeliverable(commitmentId)`, `appeal(...)`, `settle(...)` (mutual), `status(id)`, `waitFor(id, state)`. Signing, nonces and expiry are handled inside. Real crypto, not the `Deal` helper's fake encryption.
-- [ ] `defaultTerms()` and a checks-only preset; the adjudicator's policy and registry hashes are fetched from its published registration (no hand-computed hashes).
-- [ ] `pnpm sim` (or similar) starts a local world: SimChain, two operator nodes, and three test adjudicators with fake judges, printing endpoints and funded test keys. The operator gets a documented start script.
-- [ ] `examples/` in the workspace: `buy-dataset.ts` and `sell-translation.ts`, each under ~60 lines, runnable with one command, and run in CI.
-- [ ] `docs/quickstart.md` linked first from `README.md` ("Use it" above the team workflow): install, build, start the sim, run an example, read the result. States plainly: SimChain, fake judges, no real money; the fee is kept on a refund; tUSD has 6 decimals.
-- [ ] `docs/api.md` SDK example matches the real SDK (tested by compiling it). `apply_default` in the trigger table. A `key.released` event says whose key it is.
+- [ ] Prepare endpoints for offer, agree-and-fund, delivery, early accept, appeal and mutual settlement return EIP-712 typed data, digest and submit body; signing that typed data with viem and submitting the body moves the commitment. The operator signs nothing.
+- [ ] "Verify before you sign" documented with the fields to check (counterparty, amount, adjudicators, payouts).
+- [ ] Recipients endpoint and envelope spec with test vectors checked in CI; ciphertext upload and read endpoints.
+- [ ] Offer prepare with `default` and `checks-only` templates; policy and registry hashes from the adjudicator's published registration.
+- [ ] `pnpm sim` starts SimChain, two operator nodes and three test adjudicators with fake judges, printing endpoints and funded test keys.
+- [ ] `examples/buy-dataset.ts` and `examples/sell-translation.ts` (fetch + signing library only), each under ~60 lines, run in CI.
+- [ ] `docs/quickstart.md` linked first from `README.md`: curl per step, TypeScript and Python signing snippets; states SimChain, fake judges, no real money, fee kept on refund, tUSD 6 decimals.
+- [ ] `docs/api.md`: example matches the API; `apply_default` in the trigger table; `key.released` says whose key it is.
 - [ ] Fake-judge records are marked as fake wherever they appear to an integrator.
-- [ ] Re-run the outsider test (both briefs, fresh agents) and record time to first settled deal; target under 15 minutes with no source reading.
+- [ ] OpenAPI for the new endpoints if T-015's document is cheap to extend; otherwise noted.
+- [ ] Re-run the outsider test (both briefs, fresh agents) and record time to first settled deal; target under 15 minutes with no source reading (coordinator).
 - [ ] `pnpm verify` green.
 
 ## Out of scope
 
-- Publishing packages to a registry (needs Rafa); the MCP tool surface (T-021); protocol changes.
+- Publishing packages to a registry (needs Rafa); a high-level SDK and the MCP tool surface (D30); protocol changes; operator-side encryption of plaintext.
 
 ## Evidence
 
