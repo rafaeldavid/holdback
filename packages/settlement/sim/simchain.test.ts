@@ -353,6 +353,35 @@ describe('mutual settlement (ADR-0019)', () => {
 });
 
 describe('coverage gate (ADR-0014 §2a, ADR-0007)', () => {
+  it('pays an overturn only from the overturned commitment reservation, never from units another commitment reserved', async () => {
+    const w = await world({ bonds: { primary: BOND, fallback: 2_500_000_000n, appeal: BOND } });
+    const club = simClub(simActor('club-operator').address);
+    const b = new Deal(w.chain, w.cast, { club, tag: 'b' });
+    for (const d of [w.deal, b]) for (const s of [d.offer(), d.accept(), d.agreeAndFund(), d.deliver()]) await w.ok(s);
+    w.chain.advanceTo(w.deal.terms.timing.judgeBy);
+    await w.ok(w.deal.trigger('fallback'));
+    await w.ok(b.trigger('fallback'));
+    // A reserved 2,000 of the fallback's 2,500; B could reserve only the 500 left.
+    expect(w.chain.pool(w.cast.fallback.address)).toEqual({ junior: 2_500_000_000n, senior: 0n, reserved: 2_500_000_000n });
+    await w.ok(b.decide('fallback', 'reject'));
+    await w.ok(b.appealBy('seller'));
+    w.chain.advance(1);
+    const sellerBefore = await w.bal(w.cast.seller);
+    await w.ok(b.decide('appeal', 'accept'));
+    expect(await w.bal(w.cast.seller)).toBe(sellerBefore + 500_000_000n + 100_000_000n); // capped payout + appeal bond back
+    expect(w.chain.pool(w.cast.fallback.address)).toEqual({ junior: 2_000_000_000n, senior: 0n, reserved: 2_000_000_000n });
+  });
+
+  it('refuses an appeal the appellant cannot pay for, with no effects', async () => {
+    const w = await world({ balances: { buyer: 10_000_000_000n } });
+    await delivered(w);
+    await w.ok(w.deal.decide('primary', 'reject'));
+    const before = w.chain.digest();
+    expect(await w.refused(w.deal.appealBy('seller'))).toBe('insufficient_funds');
+    expect(w.chain.digest()).toBe(before);
+  });
+
+
   it('counts reserved bond once: a second guaranteed commitment waits until the first leaves its appeal window', async () => {
     const w = await world({ bonds: { primary: 3_000_000_000n, fallback: BOND, appeal: BOND } });
     await delivered(w);
