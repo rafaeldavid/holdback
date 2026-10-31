@@ -60,7 +60,18 @@ Fill this in before review. Label each item measured, inferred or guessed.
 - **Hidden tags (measured):** removing U+E0000..U+E007F from the variant gives the clean file byte for byte; the decoded payload is an instruction to the buyer's agent.
 - **Raw covers clean (measured):** the distinct raw customer IDs equal the clean IDs.
 - **Size on disk (measured):** `fixtures/data` is 4.0 MB.
-- **`pnpm verify` (measured):** see the table below.
+- **`pnpm verify` (measured, commit `91b523e`, clean tree):**
+
+  | Step | Command | Status | Time |
+  | --- | --- | --- | --- |
+  | typecheck | `pnpm typecheck` | pass | 190 ms |
+  | lint | `pnpm lint` | pass | 1615 ms |
+  | test | `pnpm test` | fail | 16054 ms |
+  | spec | `pnpm validate:spec` | pass | 338 ms |
+  | snap | `pnpm snap` | pass | 684 ms |
+  | demo | `pnpm demo` | placeholder | 118 ms |
+
+  The one failing test is `packages/judgment/src/redteam.test.ts` K2, a wall-clock limit (`ms * scale < 60000`) from T-008. It failed 3 of 3 full runs with `tests/gen-demo-data.test.ts` excluded and passed when run alone (measured), so it is not caused by this branch; the machine was loaded by parallel agents (inferred). Every other test passes, 1,443 of 1,444 (measured).
 
 ## Decisions
 
