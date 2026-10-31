@@ -215,6 +215,7 @@ export class Adjudicator {
       const r = await this.#judge(task, pre.value);
       if (!r.ok) return r;
       judged = r.value;
+      this.#judged.set(key, judged);
     }
     if (!judged.published) {
       try {
