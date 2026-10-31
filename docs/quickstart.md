@@ -25,11 +25,13 @@ The sim service has test controls: `POST /accounts` hands out a fresh funded acc
 
 ## 2. Discover the API and configure your agent
 
-An operator publishes where its API is at a well-known address: the API base, the EIP-712 domain, the operator's receipt key and the settlement target.
+The commands below are written for bash and also run in zsh; they need `curl`, `jq`, `openssl` and `uuidgen`.
+
+An operator publishes where its API is at a well-known address: `apiBaseUrl`, the EIP-712 domain, the operator's receipt key, the settlement target and settlement-layer time. `apiBaseUrl` has no `/v1`; every path, including each `submit.path` a prepare returns, starts with `/v1`, so `$API` below is `apiBaseUrl`.
 
 ```sh
 curl -s http://127.0.0.1:8787/.well-known/holdback.json | jq
-export API=http://127.0.0.1:8787
+export API=$(curl -s http://127.0.0.1:8787/.well-known/holdback.json | jq -r .apiBaseUrl)   # http://127.0.0.1:8787
 export HOLDBACK_OPERATORS=http://127.0.0.1:8787,http://127.0.0.1:8788   # trusted reads must agree on both
 export HOLDBACK_CHAIN_ID=31337 HOLDBACK_VERIFYING_CONTRACT=0x00000000000000000000000000000000484f4c44
 ```
@@ -58,17 +60,18 @@ curl -s $API/v1/clubs/$CLUB | jq .rulebook
 
 ## 3. Prepare, verify, sign, submit
 
-Every step has the same shape. `POST /v1/prepare/<kind>` returns the EIP-712 typed data to sign, its digest, a `check` list in words, and the body to submit with empty signature slots. That answer is a proposal. **Verify before you sign:** `examples/sign.ts` rebuilds the message from your own intent (the request you sent, or the terms you agreed to), with your pinned domain and the schema's types, takes from the operator only a nonce and a time near your clock, and refuses on any other difference. Then it signs the typed data it built and prints the body it built. docs/api.md ("Verify before you sign") lists every field it checks.
+Every step has the same shape. `POST /v1/prepare/<kind>` returns the EIP-712 typed data to sign, its digest, a `check` list in words, and the body to submit with empty signature slots. That answer is a proposal. **Verify before you sign:** `examples/sign.ts` rebuilds the message from your own intent (the request you sent, or the terms you agreed to) with your pinned domain and the schema's types. You pick every nonce yourself and send it with the request; the only thing it takes from the operator is a time, and only within bounds of settlement-layer time as both operators report it. It refuses on any other difference, then signs the typed data it built and prints the body it built. docs/api.md ("Verify before you sign") lists every field it checks.
 
 ```sh
 submit() { curl -s "$API$(jq -r .submit.path $1)" -H 'content-type: application/json' -H "Idempotency-Key: $(uuidgen)" -d @$2; }
+nonce() { echo "0x$(openssl rand -hex 32)"; }
 ```
 
-**Seller offers.** A `checks-only` template: the declarative checks alone decide, so no judge panel sits. The request is the seller's intent; keep it.
+**Seller offers.** A `checks-only` template: the declarative checks alone decide, so no judge panel sits. The request is the seller's intent, nonce included; keep it.
 
 ```sh
 cat > offer.request.json <<EOF
-{ "template": "checks-only", "clubId": "$CLUB", "seller": "$SELLER",
+{ "nonce": "$(nonce)", "template": "checks-only", "clubId": "$CLUB", "seller": "$SELLER",
   "buyer": { "address": "$BUYER", "encryptionPublicKey": "$BUYER_ENC_PUB" },
   "adjudicators": { "primary": "$PRIMARY", "fallback": "$FALLBACK", "appeal": "$APPEAL" },
   "price": { "token": "tUSD", "amount": "25000000" },
@@ -91,16 +94,17 @@ The primary adjudicator accepts the offer within a moment:
 curl -s $API/v1/commitments/$ID | jq .escrowState        # "AcceptedByAdjudicator"
 ```
 
-**Buyer agrees and funds** price plus fee in one call. Its intent: the terms it was sent, and the most it will hold.
+**Buyer agrees and funds** price plus fee in one call. Its intent: the terms it was sent, the most it will hold, and two nonces of its own.
 
 ```sh
-jq '{terms: ., maxTotal: "30000000"}' offer.body.json > agree.intent.json
-curl -s $API/v1/prepare/agree-and-fund -H 'content-type: application/json' -d "{\"commitmentId\": \"$ID\"}" > agree.json
+jq --arg a "$(nonce)" --arg f "$(nonce)" '{terms: ., maxTotal: "30000000", agreeNonce: $a, fundingNonce: $f}' offer.body.json > agree.intent.json
+jq --arg id "$ID" '{commitmentId: $id, agreeNonce, fundingNonce}' agree.intent.json > agree.request.json
+curl -s $API/v1/prepare/agree-and-fund -H 'content-type: application/json' -d @agree.request.json > agree.json
 HOLDBACK_KEY=$BUYER_KEY HOLDBACK_ENCRYPTION_KEY=$BUYER_ENC node examples/sign.ts agree.json agree.intent.json > agree.body.json
 submit agree.json agree.body.json | jq '{escrowState, hold}'   # "Held", 26000000
 ```
 
-`sign.ts` refuses if the terms name another buyer, seal the work to a key the buyer does not hold, cost more than `maxTotal`, or do not hash to `$ID`.
+`sign.ts` refuses if the terms name another buyer or seal the work to a key the buyer does not hold, if price plus fee exceeds `maxTotal`, if the nonces are not the buyer's own, or if the prepared agreement and funding name a commitment other than the EIP-712 hash of the terms in `agree.intent.json`.
 
 **Seller delivers.** The work is encrypted before it leaves the seller: AES-256-GCM under a fresh key, the key sealed to each adjudicator and to the buyer. `examples/seal.ts` takes the buyer's key from the terms the seller signed and each adjudicator's key from its registration as both operators serve it, cross-checks the operator's `/recipients`, uploads the ciphertext, verifies the prepared delivery, signs and submits it (format and test vectors: docs/api.md, "Encrypting a delivery"):
 
@@ -112,7 +116,7 @@ HOLDBACK_KEY=$SELLER_KEY node examples/seal.ts offer.body.json customers.csv   #
 
 ## 4. Read the result
 
-The adjudicator decrypts, runs the checks and decides. On accept, the seller is paid and the buyer's key is released in the same step:
+The adjudicator decrypts, runs the checks and decides. On accept, the seller is paid and the buyer's key is released in the same step. `Released` means paid; final means the appeal window has also closed (`finalAt`, at `deadlines.appealBy`; `POST /advance` in the sim moves past it).
 
 ```sh
 curl -s $API/v1/commitments/$ID | jq '{escrowState, finalAt, deadlines}'   # "Released"
@@ -140,41 +144,18 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { verifyPrepared, configuredDomain } from './verify.ts';
 
 const account = privateKeyToAccount(process.env.HOLDBACK_KEY);
-// intent: what you asked for, e.g. { kind: 'agree-and-fund', terms, me, encryptionPublicKey, maxTotal: 30_000_000n }
-const { path, body, toSign } = verifyPrepared(prepared, intent, account.address, configuredDomain()); // throws on any difference
+// intent: what you asked for, e.g. { kind: 'agree-and-fund', terms, me, encryptionPublicKey, maxTotal: 30_000_000n,
+//   agreeNonce, fundingNonce } with the nonces you generated and sent in the prepare request
+// now: settlement-layer time from at least two operators (Agent.settlementNow in examples/agent.ts)
+const { path, body, toSign } = verifyPrepared(prepared, intent, account.address, configuredDomain(), now); // throws on any difference
 for (const s of toSign) {
   const keys = s.slot.split('.');
   keys.slice(0, -1).reduce((o, k) => o[k], body)[keys.at(-1)] = await account.signTypedData(s.typed);
 }
-// POST body to path with an Idempotency-Key header
+// POST *your* body to path with an Idempotency-Key header
 ```
 
-Python (eth-account; not run in this repository's CI), for an agreement, building the message from the terms you were sent:
-
-```python
-import os
-from datetime import datetime
-from eth_account import Account
-from eth_account.messages import encode_typed_data
-from eth_utils import keccak
-
-DOMAIN = {"name": "Holdback", "version": "0.6", "chainId": 31337, "verifyingContract": "0x00000000000000000000000000000000484f4c44"}
-TYPES = {"EIP712Domain": [{"name": "name", "type": "string"}, {"name": "version", "type": "string"},
-                          {"name": "chainId", "type": "uint256"}, {"name": "verifyingContract", "type": "address"}],
-         "Agree": [{"name": "commitmentId", "type": "bytes32"}, {"name": "buyer", "type": "address"},
-                   {"name": "nonce", "type": "bytes32"}, {"name": "expiresAt", "type": "uint64"}]}
-account = Account.from_key(os.environ["HOLDBACK_KEY"])
-assert terms["buyer"].lower() == account.address.lower(), "the terms name another buyer"
-op = prepared["sign"][0]  # the operator's proposal: take only the nonce from it
-msg = {"commitmentId": commitment_id, "buyer": terms["buyer"], "nonce": op["typedData"]["message"]["nonce"],
-       "expiresAt": int(datetime.fromisoformat(terms["timing"]["offerExpiresAt"].replace("Z", "+00:00")).timestamp())}
-td = {"domain": DOMAIN, "types": TYPES, "primaryType": "Agree", "message": msg}
-m = encode_typed_data(full_message=td)
-assert "0x" + keccak(b"\x19" + m.version + m.header + m.body).hex() == op["digest"], "not the message you intend"
-signature = "0x" + bytes(Account.sign_typed_data(account.key, full_message=td).signature).hex()
-```
-
-`commitment_id` is the EIP-712 struct hash of the terms you checked (`commitmentIdOf` in `examples/verify.ts` shows the encoding). Encrypting a delivery in Python uses PyNaCl (`nacl.public.Box`) for the envelope and `cryptography`'s `AESGCM` for the content, following the byte layouts and test vectors in docs/api.md.
+**Other languages.** There is no Python (or other) port of `verify.ts` yet, and a signing call alone is not safe: port the checks first. With eth-account, `Account.sign_typed_data(key, full_message=td)` signs EIP-712 JSON in the shape the operator returns, once you have rebuilt `td` yourself from your intent, with your pinned domain and the types from `verify.ts`, and converted every `uint*` field to an integer. Port all of `verify.ts`: both halves of agree-and-fund, the buyer key and `maxTotal` checks, your own nonces, the exact appeal bond, settlement-time bounds. Then submit the body you built. For the delivery encryption, PyNaCl (`nacl.public.Box`) builds the envelope and `cryptography`'s `AESGCM` the content, following the byte layouts and test vectors in docs/api.md.
 
 ## Where next
 
