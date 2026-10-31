@@ -1,8 +1,10 @@
 // The Holdback SDK client (docs/api.md, SDK). It relays an agent's signed messages through an ordered list of
 // operators and, when none of them accepts, submits the same messages straight to the settlement layer
-// (ADR-0005, the escape hatch). Operators add speed, never authority, so the SDK trusts an operator's success only
-// as far as its receipt and treats any operator refusal as a reason to try the next one: only the settlement
-// layer's own refusal is final.
+// (ADR-0005, the escape hatch). Operators add speed, never authority: the SDK treats any operator refusal as a
+// reason to try the next one, and only the settlement layer's own refusal is final. An operator's success is
+// taken as reported. The SDK returns the receipt but does not check it: neither its signature against
+// /v1/status nor its event against the settlement log (an opt-in verifyReceipts mode is in docs/backlog.md).
+// An agent that must not rely on an operator's word reads the state back from the settlement layer.
 import { randomUUID } from 'node:crypto';
 import type { CommitmentStateView, Hex32, OperatorStatus, Page, Problem, ProblemType, Receipt, SettlementEvent } from '@holdback/core';
 import type { Settlement, SubmitResult } from '@holdback/settlement';
@@ -43,7 +45,7 @@ export interface Submitted {
   /** The operator URL that relayed it, or 'direct'. */
   via: string;
   state: CommitmentStateView;
-  /** The operator's signed receipt for the last event; absent on the direct path, which has no operator. */
+  /** The operator's signed receipt for the last event, as received and not verified; absent on the direct path. */
   receipt?: Receipt;
 }
 
@@ -167,6 +169,7 @@ export class Holdback {
       return r.ok ? { ok: true as const, value: r.value.body as CommitmentStateView & { receipt?: Receipt } } : r;
     });
     if (relayed.ok) {
+      // Unverified: the state and receipt are what the operator answered (see the header comment).
       const { receipt, ...state } = relayed.value;
       return { via: relayed.via, state: state as CommitmentStateView, ...(receipt ? { receipt } : {}) };
     }
