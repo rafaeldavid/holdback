@@ -109,7 +109,7 @@ stateDiagram-v2
   none --> expired: appealBy passed
   open --> upheld: appeal adjudicator upholds (appellant bond to the adjudicator's bond)
   open --> overturned: appeal adjudicator overturns (adjudicator bond pays the wronged party)
-  open --> expired: appealDecideBy passed (first decision stands, appellant bond returned)
+  open --> expired: appealDecideBy passed (first decision stands, appellant bond and fee returned)
 ```
 
 An overturn moves bond money, not escrow money: the escrow is already `Released` or `Refunded`.
@@ -188,6 +188,27 @@ Keys go only to those who need them. Whoever wants judgment carries the key; the
 
 Disclosure levels are a signed term: `private`, `judgment` or `public`. A rulebook sets `disclosureMin`, an adjudicator policy may require a minimum, and a co-signed `Publish` can raise the level, never lower it. Phase 1 admits `public` only. Bond backers see aggregate signals recomputed from skeleton events, not cases.
 
+## Finality (D20)
+
+Two moments matter, and the read model reports both.
+
+- **Payee finality** (`settledAt`): the money a party receives is irrevocable at the posting that pays it. Nothing in the protocol takes it back out of escrow.
+- **Commitment finality** (`finalAt`): no appeal, dispute or settlement path remains, so nothing in the protocol can change who ended up with what, fees included. `finalAt` is reported once `appealBy` passes with no appeal, even if nobody has triggered `appeal-expiry`, because a late appeal is refused anyway.
+
+Both fields are derived from state, terms and the clock. They are never signed, so they change no EIP-712 type.
+
+| Path | Money moves | Irrevocable for the payee | Nothing can change any more | Work (key) |
+| --- | --- | --- | --- | --- |
+| Guaranteed, first-instance accept or reject | At the decision | At the decision. An overturn pays from the bond, not from escrow | `appealBy` with no appeal; otherwise the appeal decision or `appealDecideBy` | Key with the payment on accept |
+| Guaranteed, escalation decision | At the decision | At the decision | At the decision; not appealable | Same |
+| Early accept, reclaim, default, mutual settlement | At the step | At the step | At the step; none is appealable | Early accept, and settlement with `releaseKey` |
+| `settle_after_window` (Phase 4) | At window close | At window close | Same moment | Design open (ADR-0012) |
+| `optimistic` (Phase 4) | Release at `disputeBy` (anyone) or at the decision | At that step | `disputeBy` with no dispute; otherwise as guaranteed | At delivery: the work is final for the seller before the money is |
+
+Guaranteed mode is finality with indemnity. The payee is final at the decision, and the other party's recourse until the window closes is a claim on the adjudicator's bond. A payee may act (ship, pay onward) at the posting. A payer should treat the case as closed at `finalAt`.
+
+Protocol finality is not legal finality. Courts can still compel real-world parties (residual 5), and chargebacks on a card on-ramp sit with the ramp (ADR-0002).
+
 ## Hold and settlement postings (SimChain)
 
 The prototype uses accounts per address and per escrow, in base units of the test token. Each adjudicator's bond is a pool with two tranches, `bond:{a}:junior` (its own stake, first loss) and `bond:{a}:senior` (backers, pro rata), plus one `reserved` counter (ADR-0014 §2a, D10). Below, `bond:{a}` means the pool: debits take junior first, then senior; the appeal-upheld credit goes to junior. Senior is empty in Phase 1.
@@ -201,7 +222,9 @@ The prototype uses accounts per address and per escrow, in base units of the tes
 | Early acceptance | `escrow:{id} → seller` (price); `escrow:{id} → buyer` (fee; no adjudicator judged) |
 | Reclaim (no delivery) | `escrow:{id} → buyer` (price + fee) |
 | Mutual settlement | `escrow:{id} → seller` (`sellerAmount`); `escrow:{id} → buyer` (price − `sellerAmount` + fee); every reservation on the commitment released; buyer key emitted only if `releaseKey` |
-| Appeal bond and fee | `appellant → appealbond:{id}` (bond); `appellant → adjudicator:{appeal}` (appeal fee, rulebook parameter) |
+| Appeal bond and fee | `appellant → appealbond:{id}` (bond); `appellant → appealfee:{id}` (appeal fee, rulebook parameter, held until decided; D21) |
+| Appeal decided (upheld or overturned) | `appealfee:{id} → adjudicator:{appeal}`, plus the upheld or overturn row below |
+| Appeal expired undecided | `appealbond:{id} → appellant`; `appealfee:{id} → appellant`; the first decision stands |
 | Overturn, guaranteed mode, wrongful accept | `bond:{a} → buyer` (price); `appealbond:{id} → appellant` |
 | Overturn, guaranteed mode, wrongful reject | `bond:{a} → seller` (price); `appealbond:{id} → appellant` |
 | Appeal upheld | `appealbond:{id} → bond:{a}` |

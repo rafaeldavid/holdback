@@ -28,6 +28,8 @@ Restate this in your own words in this section before writing code.
 - [ ] Screen fixtures (ADR-0021): `attack.injection-tags-empty-rubric` (accepted, screen flagged, SDK shows stripped text), `attack.injection-tags-required-check` (rejected by the required check, no panel), `neutrality.seller-multilingual-text` (Persian with ZWNJ, ❤️ and 🏴󠁧󠁢󠁥󠁮󠁧󠁿 settle without a false reject).
 - [ ] Phase 4 set, pinned now (D19): `error.dispute-by-seller` (a seller-signed `Dispute` is refused with `invalid_signature`); `neutrality.optimistic-buyer-silent` (release at `disputeBy` by anyone).
 
+- [ ] Finality and appeal fee (D20, D21): snapshots of `happy-path`, `appeal-overturn-bond-pays-seller` and `neutrality.buyer-silent` show `settledAt` and `finalAt` (`finalAt` equals `appealBy` with no trigger in the last). `neutrality.appeal-adjudicator-offline` asserts the appellant's balance returns to its pre-appeal value; the uphold and overturn fixtures assert the appeal adjudicator is paid at the decision, not at filing.
+- [ ] Principal recourse (D22): `todo.principal-no-recourse` records residual 12.
 ## Out of scope
 
 - Phase 3+ fixtures.

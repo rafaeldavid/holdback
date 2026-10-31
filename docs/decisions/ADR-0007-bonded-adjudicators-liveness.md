@@ -13,6 +13,7 @@
   - For `settle_after_window` commitments the default coverage ratio stays 20%, because the funds are still held while an appeal is possible.
   - An overturned decision pays the wronged party the price from the bond. Encumbered bond cannot back a second commitment's overturn or default payout at the same time.
   - A missed deadline pays the seller compensation set by the rulebook (D5-A).
+- **Appeal fee held (D21):** the appeal fee is held at filing and paid to the appeal adjudicator only when it decides. If `appealDecideBy` passes undecided, the appellant gets the fee back with its bond.
 - **Timeouts:** when judgeBy passes, the fallback adjudicator may decide. When fallbackBy passes, anyone triggers the default outcome: refund the buyer and compensate the seller from the defaulting adjudicators' bonds.
 - **Escalation:** an escalated case has no first decision. If the appeal adjudicator misses `appealDecideBy`, anyone triggers the default outcome, and the appeal adjudicator's bond pays the seller's compensation. Escalation needs no appellant bond.
 - **Resubmission:** Phase 1 sets `maxSubmissions = 1`. In guaranteed mode a reject refunds at the decision, so nothing is left to hold for a second attempt.
@@ -26,3 +27,7 @@
 - Bond sizing has no loss data yet (PRD assumption 4). Guaranteed mode is capital-heavy by design: an adjudicator's open guaranteed volume cannot exceed its bond.
 - **Value capture.** The overseer role, meaning the rules contract plus the adjudicators who decide release, is where value accrues. It is permissionless, and adjudicators compete on fees priced from their measured error. Holdback earns only as one adjudicator among many or through tooling, never through control of the judge registry or the rules contract.
 - The appeal adjudicator's decision is final within a commitment. That is residual control point 7 in `docs/neutrality.md`.
+
+## Finality (D20)
+
+In `guaranteed_on_decision` the payee's money is final at the decision; an overturn pays from the bond, never from escrow. The commitment is final when no appeal path remains. See `docs/architecture.md` §Finality.

@@ -621,11 +621,11 @@
         },
         "encryptedKeys": {
           "type": "array",
-          "minItems": 1,
+          "minItems": 3,
           "items": {
             "$ref": "common.schema.json#/$defs/EncryptedKey"
           },
-          "description": "The content key encrypted to the primary, fallback and appeal adjudicators (ADR-0020)"
+          "description": "The content key encrypted to the primary, fallback and appeal adjudicators, so at least three (ADR-0020)"
         }
       }
     },

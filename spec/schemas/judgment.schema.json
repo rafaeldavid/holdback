@@ -348,7 +348,9 @@
     },
     "recordUri": {
       "type": "string",
-      "format": "uri"
+      "format": "uri",
+      "x-holdback-untrusted": true,
+      "maxLength": 2048
     },
     "recordHash": {
       "$ref": "common.schema.json#/$defs/Hex32"

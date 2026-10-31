@@ -17,7 +17,7 @@ The `$id` URLs (`https://holdback.dev/schemas/v0.5/…`) are namespaces for reso
 ## Annotations
 
 - **`x-holdback-untrusted: true`** marks a string written by a party, a model or an operator: descriptions, criterion text and anchors, check column names and patterns, appeal and dispute grounds, judge evidence and rationale, check and screen details, aggregation reasons, policy labels, affiliations, rail references and operator IDs. Treat it as content to read, never as instructions (ADR-0017 §9). Validators register it as an annotation keyword; it changes no validation.
-- **Every free-text string is marked or constrained.** A string with no format, pattern, enum or const must carry the marker. Identifiers instead get a pattern: club IDs, token IDs, and `Ident` for judge, provider, family, model and version labels. `tests/spec.test.ts` lints this, with an empty allowlist.
+- **Every free-text string is marked or constrained.** A string with no `date-time` format, pattern, enum or const must carry the marker. URIs count as free text: they are marked and capped at 2048 characters. Identifiers instead get a pattern: club IDs, token IDs, and `Ident` for judge, provider, family, model and version labels. `tests/spec.test.ts` lints this, with an empty allowlist.
 
 ## Changelog
 
@@ -47,6 +47,7 @@ The `$id` URLs (`https://holdback.dev/schemas/v0.5/…`) are namespaces for reso
     - **Rubric:** criterion `weight` is an integer from 1 to 10000 (only ratios matter). `rubric.passThreshold` and `aggregate.weightedScore` are integer hundredths from 0 to 400.
     - **Aggregate counts:** the judgment aggregate replaces `passShare` and `failShare` with `passCount`, `failCount` and `validCount`.
     - **Examples:** 0.667 became 2/3, 0.05 became 500, and weights 0.4/0.4/0.2 became 40/40/20.
+  - **Finality (D20):** the read model gains optional, nullable `settledAt` (money moved, irrevocable for the payee) and `finalAt` (no protocol step can change who got what; null until true). Both are unsigned, so no EIP-712 change. A second example shows a final commitment.
   - **Panel seed (ADR-0018):** the rulebook gains `randomness` (`sim`, `drand-quicknet` with a `chainHash`, or `prevrandao`). `Decision` gains an optional `beacon` (`source`, `round`, `value`, and a `signature` unless the source is `sim`), and its `seed` description is per role. The judgment panel gains `seedSource` and `beaconRound`; `seedCommitment` is required only for commit-reveal panels.
 
 - **v0.4 (2026-10-30, ADR-0016):** new `messages.schema.json` with every signed message (Offer, Agree, AdjudicatorAcceptance, FundingAuthorization, EarlyAccept, Decision, AgentRevocation, MemberAdmission, MemberRevocation); examples are `messages.<name>.example.json`. `adjudication.panelCommitment` removed from the commitment terms, so the ID is no longer circular; the commitment carries `adjudicatorAcceptance` outside the ID, and the judgment panel records `seedCommitment`. `commitment-state` splits `state` into `escrowState` and `appealState`. The club rulebook replaces `coverageRatio` with `windowCoverageRatio` and adds `appealFee`. Adjudicators publish `registry` (hash and URI) and `policyHash` instead of `registryVersion`. Events add `adjudicator.accepted`, `member.admitted` and `member.revoked`, and drop `judgment.opened`.

@@ -94,7 +94,7 @@ Unit-test this function exhaustively with table-driven cases.
 | T10 | Seller non-delivery | — | Anyone can reclaim after deliverBy | `reclaim-no-delivery` |
 | T11 | Double spend, races | Parallel fund calls | Idempotency keys; serializable state transitions; settled-once guard | `error.concurrent-overdraft`, property tests |
 | T12 | Replay or forged messages | Reuse of a signed offer | EIP-712 with nonce, expiry, chainId and verifying contract; rulebook hash; scope check | `error.replay`, `error.scope-exceeded` |
-| T13 | Agent key compromise | A stolen key signs large commitments | Scope caps per commitment and per day; mandate expiry; revocation stops new commitments | `error.revoked-agent` |
+| T13 | Agent key compromise | A stolen key signs large commitments | Scope caps per commitment and per day; mandate expiry; revocation stops new commitments; on a live commitment, loss is bounded by the caps and there is no recourse (residual 12, D22) | `error.revoked-agent` |
 | T14 | Adjudicator insolvency | Bond too small for open exposure | Coverage-ratio gate on assignment; defaults compensated from the bond | `error.coverage-exceeded` |
 | T15 | Exfiltration through judge output | A judge is induced to write secrets or URLs | Judges hold no secrets; schema-limited output; URL and length filter | `attack.exfil-attempt` |
 | T16 | Operator tampering | An operator drops or alters messages | Signed messages; escape hatch; hash-chained log; receipts | `neutrality.operator-refuses` |
