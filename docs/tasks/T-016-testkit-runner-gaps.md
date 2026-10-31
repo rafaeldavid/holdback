@@ -5,7 +5,7 @@
 - **Depends on:** T-005, T-008, T-009, T-010 (PR47)
 - **Paths this task may touch:** `packages/testkit/`, `docs/team.md` (Rules and checks row for authored recordings), regenerated `fixtures/scenarios/*.expect.md` and `fixtures/recordings/` only where a runner change alters existing output
 - **Human gate:** no
-- **Status:** review
+- **Status:** done
 - **Agent/session:** implementer, branch `t-016-testkit-runner`
 
 ## Intent
