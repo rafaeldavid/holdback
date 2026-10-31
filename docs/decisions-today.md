@@ -53,6 +53,8 @@ Phase 1 runs on SimChain, an in-process simulation of the escrow rules, so this 
 
 **Recommendation:** defer until Phase 2, and choose on account-abstraction and paymaster fit.
 
+**Update 2026-10-31:** Matter Labs Prividium was evaluated and not adopted. It is a single-operator permissioned chain whose operator can gate access, stop the sequencer, block forced inclusion and read everything (ADR-0004). A fifth criterion now applies: anyone can read the public skeleton and submit a signed message without an admin. A club-chosen permissioned chain is in the backlog.
+
 ## D5. Liveness default when no adjudicator decides (ADR-0007)
 
 **Decided 2026-10-30:** A (ADR-0007). An escalated case that the appeal adjudicator does not decide also goes to the default outcome, paid from the appeal adjudicator's bond.
