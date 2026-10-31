@@ -8,6 +8,7 @@
     { "path": "packages/testkit" },
     { "path": "apps/operator" },
     { "path": "apps/adjudicator" },
-    { "path": "apps/demo" }
+    { "path": "apps/demo" },
+    { "path": "apps/demo/agents" }
   ]
 }

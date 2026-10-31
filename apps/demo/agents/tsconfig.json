@@ -1,0 +1,13 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": { "rootDir": ".", "outDir": "../dist/agents", "types": ["node"] },
+  "include": ["."],
+  "references": [
+    { "path": "../../../packages/core" },
+    { "path": "../../../packages/judgment" },
+    { "path": "../../../packages/settlement" },
+    { "path": "../../../packages/sdk" },
+    { "path": "../../../packages/testkit" },
+    { "path": "../../operator" }
+  ]
+}
