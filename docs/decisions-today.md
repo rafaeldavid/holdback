@@ -459,3 +459,14 @@ Recorded in `CLAUDE.md` and `docs/PRD.md`.
 - **When.** Making the clauses selectable in the signed terms is a schema change, so an ADR and a version bump, after the demo. The backlog row is under Modes and calls. Until then the D27 defaults stand for every commitment.
 
 Recorded in `CLAUDE.md` and `docs/PRD.md`.
+
+## D30. API first: agents call the HTTP API directly
+
+**Decided 2026-10-31 by Rafa.** For simplicity, the product surface is the open HTTP API that any operator serves. We do not build and maintain a high-level SDK or an MCP server now; an agent calls the API, as it would any web service. Operators may charge per call with micropayments (for example HTTP 402 schemes such as x402), which fits "any operator node serves the API" and the operator business (backlog, after the demo).
+
+What it means:
+
+- **Signing stays with the agent (hard rule).** Each party message is prepared by the API as EIP-712 typed data, signed by the agent with any standard library, and submitted. The operator proposes the typed data; it never signs. The data is deterministic from the agent's inputs, and the docs say which fields to verify before signing.
+- **Encryption stays with the seller.** The API serves recipients' public keys and an envelope spec buildable with standard libraries; operators never see plaintext.
+- **The existing SDK client stays** as an internal library for the demo and tests, and is not expanded.
+- **T-020** is re-scoped to the API surface (prepare/sign/submit, delivery envelope spec, terms templates, `pnpm sim`, a curl quickstart, examples using only fetch and a signing library). **T-021** drops the MCP server: simulated agents call the API through generic HTTP and signing tools, ideally generated from the OpenAPI document (T-015).
