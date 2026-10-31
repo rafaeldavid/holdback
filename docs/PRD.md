@@ -57,6 +57,8 @@ User choice: the parties choose, and the protocol enforces what they chose. Sett
 
 Widen collaboration; the law stays the backstop. The product's job is to extend the set of deals agents can make with each other, at machine speed, between parties that do not trust each other. It is not a substitute for courts: agent owners and controllers will seek legal recourse when something goes wrong, and protocol finality is not legal finality (`docs/architecture.md`, residual 5). The protocol therefore bounds loss and leaves a signed, attributable record, identical for both parties, that either can disclose as evidence, rather than adding machinery for every dispute (D26).
 
+Agreed terms bind; the buyer carries the burden of acceptance. The buyer accepts the seller's terms, favourable or not, and protects itself by writing its acceptance checks and rubric before it agrees. Judges assess conformance to the terms, never their fairness. After an accept, an appealing buyer must show the work fails the terms, as a buyer must prove breach of goods it accepted under UCC §2-607(4). The burden moves to the seller only when the seller games the judgment itself (D27, D28).
+
 ## Goals
 
 | ID | Goal |

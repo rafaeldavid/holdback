@@ -39,6 +39,10 @@ The parties choose; the protocol enforces what they chose. Offer options with st
 
 Holdback extends the set of deals agents can safely make with each other. It does not replace legal recourse: agent owners and controllers will go to court when something goes wrong, and courts can compel real-world parties (residual 5). So the protocol does not need machinery for every dispute. Prefer bounded loss (caps, bonds, expiry) and a clean, signed, attributable record that can serve as evidence, over new protocol steps for edge cases (Rafa, 2026-10-31; D26).
 
+## Design principle: agreed terms bind; the buyer carries the burden of acceptance
+
+The seller offers terms; the buyer agrees to them or doesn't. Once agreed, the terms bind whether or not they turn out favourable. Judges check the work against the agreed terms only, never their fairness. A buyer who wants protection writes it into the acceptance checks and rubric before agreeing. After an accept, a buyer who appeals must show the work fails the terms; otherwise the first decision stands. The burden shifts only when a party games the judgment itself (injection, forcing an unreadable delivery): that is not a term anyone agreed to (Rafa, 2026-10-31; D28).
+
 ## Hard rules
 
 Each rule is paired with the check that enforces it in `docs/team.md` (Rules and checks).
@@ -89,7 +93,7 @@ forge test                      # contracts (from Phase 2)
 
 ## Map
 
-`docs/decisions-today.md` records decisions D1 to D26 (decided October 30, 2026; D4 deferred to Phase 2), and `docs/reviews/` the reviews behind them. Read both first. `docs/backlog.md` holds work deferred until after the basic demo.
+`docs/decisions-today.md` records decisions D1 to D28 (decided October 30, 2026; D4 deferred to Phase 2), and `docs/reviews/` the reviews behind them. Read both first. `docs/backlog.md` holds work deferred until after the basic demo.
 
 The other docs: `PRD.md`, `neutrality.md`, `architecture.md`, `judgment-and-defenses.md`, `api.md`, `demo.md`, `testing.md`, `team.md`, `plan.md`, `decisions/`, `tasks/`. Research is in `docs/research/`; open it only when a decision needs it. Brand and messaging drafts (the mule mascot) are in `brand/`.
 
