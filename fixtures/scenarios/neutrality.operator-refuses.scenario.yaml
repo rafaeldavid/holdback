@@ -1,0 +1,40 @@
+# @settlement sim @judges recorded @mode guaranteed_on_decision @seed 19
+name: neutrality.operator-refuses
+description: >-
+  Demo beat 7, first failure. op-1 relays the offer and Bench A's acceptance, then refuses to relay
+  anything more. Atlas's agree and fund fail over to op-2; Tidewater submits its delivery directly to the
+  settlement layer (the escape hatch). Bench A decides, $2,000 releases to Tidewater with the key to Atlas.
+fails: op-1
+club: fixtures/clubs/data-services-v1.yaml
+terms: fixtures/terms/clean-customers-2000.yaml
+parties:
+  buyer: atlas-buyer
+  seller: tidewater-seller
+adjudicators:
+  primary: bench-a
+  fallback: bench-b
+  appeal: bench-c
+operators: [op-1, op-2]
+faucet:
+  atlas-buyer: "10000000000"
+  bench-a: "25000000000"
+  bench-b: "25000000000"
+  bench-c: "25000000000"
+steps:
+  - offer:              { by: seller, via: op-1 }
+  - adjudicator_accept: { via: op-1 }
+  - operator_refuses:   { operator: op-1 }
+  - agree_and_fund:     { by: buyer, via: op-1 }         # refused by op-1
+  - agree_and_fund:     { by: buyer, via: op-2 }         # SDK fails over
+  - deliver:            { by: seller, via: op-1, file: data/dataset-cleaning/customers.clean.csv }   # refused by op-1
+  - deliver:            { by: seller, file: data/dataset-cleaning/customers.clean.csv }              # direct submit
+  - advance_clock:      { seconds: 5 }
+  - judge:              { adjudicator: bench-a }
+  - verify_key_release: { by: buyer, via: op-2 }
+expect:
+  terminal: Released
+  balances:
+    atlas-buyer: "7950000000"
+    tidewater-seller: "2000000000"
+    bench-a: "25050000000"
+    escrow: "0"
