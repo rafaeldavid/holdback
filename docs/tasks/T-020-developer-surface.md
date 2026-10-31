@@ -5,7 +5,7 @@
 - **Depends on:** T-007, T-009, T-012, T-018
 - **Paths this task may touch:** `docs/team.md` (Rules and checks rows, at review), `docs/backlog.md` (rows, at review), `examples/` (new, inside the pnpm workspace), `apps/operator/` (new endpoints, a start script and bin), `apps/adjudicator/` (a test adjudicator), `README.md`, `docs/api.md`, `docs/quickstart.md` (new), package `README.md` files, `pnpm-workspace.yaml`, root `package.json` scripts, and the root `tsconfig.json` and `vitest.config.ts` (to compile and test `examples/`)
 - **Human gate:** no
-- **Status:** review
+- **Status:** done
 - **Agent/session:** implementer, 2026-10-31
 - **Re-scoped:** 2026-10-31 by D30 (API-first, Rafa via the coordinator): no high-level SDK layer and no MCP server now; the existing SDK client stays as it is.
 
