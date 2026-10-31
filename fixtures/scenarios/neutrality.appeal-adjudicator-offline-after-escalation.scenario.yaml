@@ -1,8 +1,8 @@
 # @settlement sim @judges recorded @mode guaranteed_on_decision @seed 37
 name: neutrality.appeal-adjudicator-offline-after-escalation
 description: >-
-  Bench A's panel splits (both Claude judges pass, the second-family judge fails), so Bench A escalates
-  to Bench C. Bench C is offline. After appealDecideBy (escalation + 300 s) anyone triggers the default,
+  Bench A's panel splits (one judge passes, one fails, one abstains: no supermajority), so Bench A
+  escalates to Bench C. Bench C is offline. After appealDecideBy (escalation + 300 s) anyone triggers the default,
   then applies the default outcome under the signed rulebook: Atlas gets its $2,050 back and Bench C's
   bond pays Tidewater $2,000 (sellerCompensationRateBps 10000). The split verdicts are authored
   recordings (capturedFrom authored).

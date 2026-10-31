@@ -165,7 +165,7 @@ export function narrate(e: DemoEvent): string {
 }
 
 const MODE_LINE: Readonly<Record<BeatTranscript['mode'], string>> = {
-  scripted: 'Mode: scripted. Judges are fake providers that return a fixed verdict: no model was called in this run.',
+  scripted: 'Mode: scripted. Judges are fake providers that return verdicts written in advance (pass, unless the beat says it scripted a fail): no model was called in this run.',
   recorded: 'Mode: recorded. Judge outputs are replayed model recordings: no model was called in this run.',
   live: 'Mode: live. Judges were called with pinned model IDs during this run.',
 };

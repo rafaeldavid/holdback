@@ -5,9 +5,21 @@
 // passes every call through unchanged.
 import type { Commitment, Hex32, Judgment, SettlementEvent } from '@holdback/core';
 import { adjudicatorProfiles, type ProfileView, type Slate } from '@holdback/demo/agents/adjudicators.js';
-import { beatBadWork, beatHiddenTags, beatHold, beatMutualSplit, deliverable, type JobResult, type Negotiation, type NegotiationStep } from '@holdback/demo/agents/beats.js';
+import {
+  beatBadWork,
+  beatHappyPath,
+  beatHiddenTags,
+  beatInjection,
+  beatMutualSplit,
+  beatNeutrality,
+  NEUTRALITY_WORLD,
+  type JobResult,
+  type Negotiation,
+  type NegotiationStep,
+} from '@holdback/demo/agents/beats.js';
 import { clearJudgingTimes, takeJudgingTime, type JudgingTime } from '@holdback/demo/agents/bench.js';
-import { createDemoWorld, type ActorName, type DemoWorld } from '@holdback/demo/agents/world.js';
+import type { JudgeRequest } from '@holdback/judgment';
+import { createDemoWorld, type ActorName, type DemoWorld, type DemoWorldOptions } from '@holdback/demo/agents/world.js';
 import { judgePromptView, verdictView } from '../transcript/judge.js';
 import { formatAmount } from '../transcript/money.js';
 import { Holdback } from '@holdback/sdk';
@@ -46,9 +58,16 @@ export const BEAT_META: Readonly<Record<number, BeatMeta>> = {
     litmus: 'the hold; delivery versus payment for data',
   },
   6: {
-    title: 'Injection attempt (hidden tags)',
-    summary: "A delivery hides tag characters aimed at Ledger itself under an empty rubric: it is accepted, the screen report records it, and Ledger's SDK strips the payload before Ledger reads the file.",
+    title: 'Injection attempt',
+    summary:
+      "A delivery hides a base64 instruction telling the judges to pass it: Clearfield's screen flags it, its panel cannot accept, it escalates to Atrium, whose five judges (scripted verdicts) reject with the flag in the record, and Ledger is refunded. A second delivery hides tag characters aimed at Ledger itself under an empty rubric: it is accepted, the screen report records it, and Ledger's SDK strips the payload before Ledger reads the file.",
     litmus: 'the defenses',
+  },
+  7: {
+    title: 'Nobody in control',
+    summary:
+      "op-1 refuses to relay for Tide-7's commitment and op-2 then goes offline: the agents' SDKs fail over, then submit straight to SimChain. Clearfield stays silent past judgeBy; Ledger triggers the fallback and Northgate decides. The commitment settles under its signed terms. The club operator signs nothing in this flow.",
+    litmus: 'neutrality',
   },
   10: {
     title: 'Agree without a judge',
@@ -141,8 +160,8 @@ interface Run {
 
 type JobOut = (JobResult & { choice?: Run['choice'] }) | { commitment: Commitment; choice?: Run['choice'] };
 
-async function runJob(seed: number, job: (world: DemoWorld, recorder: Recorder) => Promise<JobOut>): Promise<Run> {
-  const world = await createDemoWorld({ seed });
+async function runJob(seed: number, job: (world: DemoWorld, recorder: Recorder) => Promise<JobOut>, options: DemoWorldOptions = {}): Promise<Run> {
+  const world = await createDemoWorld({ ...options, seed });
   clearJudgingTimes();
   try {
     const recorder = new Recorder(world);
@@ -153,7 +172,8 @@ async function runJob(seed: number, job: (world: DemoWorld, recorder: Recorder) 
     const choice = 'choice' in out && out.choice ? { choice: out.choice } : {};
     const result = 'vias' in out && Array.isArray(out.vias) ? (out as JobResult) : undefined;
     const judging = takeJudgingTime(out.commitment.id);
-    const shared = await compareRecords(world, out.commitment.id, result?.record, recorder.elapsed());
+    const published = result?.reports?.map((r) => r.record) ?? (result?.record ? [result.record] : []);
+    const shared = await compareRecords(world, out.commitment.id, published, recorder.elapsed());
     return { world, recorder, commitment: out.commitment, ...(result ? { result } : {}), doneMs, events, ...choice, ...(judging ? { judging } : {}), shared };
   } finally {
     await world.close();
@@ -163,17 +183,24 @@ async function runJob(seed: number, job: (world: DemoWorld, recorder: Recorder) 
 /**
  * D26: Ledger reads its copy through an SDK client that tries op-1 first, Tide-7 through one that tries op-2
  * first. Which operator answered is read from the receipts each copy holds (each operator signs its own), and
- * mapped to an operator by asking each operator for its receipt signer. The judgment record is the one Clearfield
- * published, found by the hash the decision event names (there is no read API for records yet).
+ * mapped to an operator by asking each operator for its receipt signer; an operator that is offline (beat 7's op-2)
+ * answers nothing and serves no copy. Reads are not writes: an operator whose policy refuses to relay a party's
+ * messages may still serve its reads. The judgment record is the one the last decision event names, as its
+ * adjudicator published it (there is no read API for records yet).
  */
-async function compareRecords(world: DemoWorld, id: Hex32, record: Judgment | undefined, atMs: number): Promise<DemoEvent> {
+async function compareRecords(world: DemoWorld, id: Hex32, published: readonly Judgment[], atMs: number): Promise<DemoEvent> {
   const url = (op: string) => world.operatorUrl(op);
   const signers = new Map<string, Via>();
   for (const [op, via] of [['op-1', 'op1'], ['op-2', 'op2']] as const) {
-    const status = await new Holdback({ operators: [url(op)], pollMs: 10 }).status();
-    signers.set(lc(status.receiptSigner), via);
+    try {
+      const status = await new Holdback({ operators: [url(op)], pollMs: 10, requestTimeoutMs: 500 }).status();
+      signers.set(lc(status.receiptSigner), via);
+    } catch {
+      // Offline: it signs no receipt either, so no copy can name it.
+    }
   }
-  const records = (hash: string) => (record?.recordHash === hash ? record : undefined);
+  const records = (hash: string) => published.find((r) => r.recordHash === hash);
+  const record = published.at(-1);
   const client = (first: string, second: string) => new Holdback({ operators: [url(first), url(second)], settlement: world.chain, pollMs: 10 });
   const copies = [
     { who: 'buyer' as const, view: await fetchPartyView(client('op-1', 'op-2'), id, records) },
@@ -186,27 +213,12 @@ async function compareRecords(world: DemoWorld, id: Hex32, record: Judgment | un
 /**
  * Beats 1 to 4 as one job on one world (T-019): the negotiation (each step stamped by the observer), offer,
  * acceptance and hold, then the honest delivery, the primary's judgment, settlement and Ledger opening the work.
- * It is beatHappyPath's sequence with beatHold's observer, so beat 1's hold is the hold beats 2 to 4 continue.
+ * It is beatHappyPath with the negotiation observer, so beat 1's hold is the hold beats 2 to 4 continue.
  */
 const happyJob = async (world: DemoWorld, recorder: Recorder): Promise<JobOut> => {
-  const hold = await beatHold(world, { observe: (step) => recorder.mark(step) });
-  const { commitment, players: p, slate } = hold;
-  const delivered = await p.tidewater.deliver(commitment, deliverable('customers.clean.csv'), { primary: slate.primary.keys, fallback: slate.fallback.keys, appeal: slate.appeal.keys });
-  const report = await slate.primary.judge(commitment.id);
-  const state = await p.atlas.waitForOutcome(commitment.id);
-  const opened = state.escrowState === 'Released' ? await p.atlas.openWork(commitment.id) : undefined;
-  const result: JobResult = {
-    commitmentId: commitment.id,
-    commitment,
-    delivery: delivered.delivery,
-    finalState: state.escrowState,
-    decision: report.outcome,
-    record: report.record,
-    requests: report.requests,
-    ...(opened ? { opened } : {}),
-    vias: [hold.vias.offer, hold.vias.hold, delivered.via, report.via],
-  };
-  return { ...result, choice: { negotiation: hold.negotiation, profiles: adjudicatorProfiles(hold) } };
+  const result = await beatHappyPath(world, { observe: (step) => recorder.mark(step) });
+  if (!result.hold) throw new Error('beatHappyPath returned no negotiation');
+  return { ...result, choice: { negotiation: result.hold.negotiation, profiles: adjudicatorProfiles(result.hold) } };
 };
 
 /** Builds transcript events from a run. Each event carries the beat it belongs to in the 1-4 job. */
@@ -256,6 +268,18 @@ class Narrator {
     return { kind: 'balances', atMs, actor: 'chain', label, rows };
   }
 
+  /** The signed record a decision event names, from every decision the job made. */
+  private recordFor(recordHash: string): Judgment | undefined {
+    const r = this.run.result;
+    return r?.reports?.find((x) => x.record.recordHash === recordHash)?.record ?? (r?.record?.recordHash === recordHash ? r.record : undefined);
+  }
+
+  private operatorKey(id: string): CastKey {
+    if (id === 'op-1') return 'op1';
+    if (id === 'op-2') return 'op2';
+    throw new Error(`unknown operator ${id}`);
+  }
+
   private via(e: SettlementEvent): Via {
     const v = e.submittedVia ?? 'direct';
     if (v === 'op-1') return 'op1';
@@ -274,12 +298,27 @@ class Narrator {
     this.push(1, this.balances(0, 'before', recorder.initial));
     if (this.run.choice) this.negotiation(this.run.choice.negotiation);
     const stamp = (e: SettlementEvent) => recorder.stamps.get(e.seq)!;
+    const facts = result?.neutrality;
+    /** The role of the decision that settles, so finality is narrated only where an appeal can follow. */
+    let decidedRole = 'primary';
     for (let i = 0; i < events.length; i++) {
       const e = events[i]!;
       const { ms, snap } = stamp(e);
       const p = e.payload;
       switch (e.type) {
         case 'commitment.offered':
+          if (facts && e.submittedVia !== facts.refused.operator) {
+            const r = facts.refused;
+            this.push(1, {
+              kind: 'neutrality',
+              atMs: ms,
+              actor: 'seller',
+              target: this.operatorKey(r.operator),
+              failure: 'refused',
+              consequence: `${r.operator}'s own relay policy answered HTTP ${r.status} ("${r.detail}") to ${r.refusals} write calls during the job: ${r.calls.join(', ')}. Each agent's SDK moved on at once under the same idempotency key; ${r.operator} holds no authority over the commitment`,
+              via: this.via(e),
+            });
+          }
           this.push(1, {
             kind: 'offer',
             atMs: ms,
@@ -316,6 +355,17 @@ class Narrator {
             .filter((x) => x.type === 'key.released' && stamp(x).ms === ms)
             .map((x) => this.key(String(x.payload.recipient)));
           const ct = p.ciphertext as { bytes: number };
+          if (facts) {
+            this.push(2, {
+              kind: 'neutrality',
+              atMs: ms,
+              actor: 'seller',
+              target: this.operatorKey(facts.offline),
+              failure: 'offline',
+              consequence: `${facts.offline} stopped before the delivery and ${facts.refused.operator} still refuses, so Tide-7's SDK submits the signed delivery straight to SimChain (${this.via(e) === 'direct' ? 'measured: submitted directly' : `measured: relayed by ${e.submittedVia}`}). No operator is required`,
+              via: this.via(e),
+            });
+          }
           this.push(2, {
             kind: 'delivery',
             atMs: ms,
@@ -329,19 +379,51 @@ class Narrator {
           this.push(2, this.balances(ms, 'after delivery', snap));
           break;
         }
+        case 'fallback.triggered': {
+          if (!facts) break;
+          const t = facts.fallbackTrigger;
+          this.push(3, {
+            kind: 'neutrality',
+            atMs: ms,
+            actor: t.by === 'atlas' ? 'buyer' : 'chain',
+            target: this.key(c.adjudication.adjudicator),
+            failure: 'offline',
+            consequence: `${facts.silentPrimary.name} never decided: SimChain time moved ${facts.silentPrimary.secondsToJudgeBy.toLocaleString('en-US')} s from the delivery to judgeBy with no decision on the log. Ledger triggered the fallback (anyone may; SimChain checks only the deadline). Northgate Review receives the content key only now, and its panel seed is beacon round ${String(p.beaconRound)}`,
+            via: this.via(e),
+          });
+          break;
+        }
         case 'judgment.decided': {
           // The decision and its settlement are one submission, so the ledger before it is the previous event's.
           const prevMs = i > 0 ? stamp(events[i - 1]!).ms : 0;
           this.push(3, this.balances(prevMs, 'before the decision', i > 0 ? stamp(events[i - 1]!).snap : recorder.initial));
+          // The record and the service's marks for this decision: a job may decide more than once (beat 6a's
+          // escalation, then the appeal), so each decision reads its own report.
+          const report = result?.reports?.find((r) => r.record.recordHash === p.recordHash);
+          const decidedRecord = report?.record ?? this.recordFor(String(p.recordHash)) ?? record;
           // Judging sub-steps are stamped from the adjudicator service's own marks (T-019), kept between the
           // previous settlement event and the decision.
-          const j = this.run.judging;
+          const j = report?.timing ?? this.run.judging;
           const clamp = (mark: number | undefined) => (mark === undefined ? ms : Math.min(ms, Math.max(prevMs, recorder.at(mark))));
           // Checks and screen are done when the first judge is called, or, with no panel, when the record is published.
           const checksDone = j?.panel?.startedAt ?? j?.publishedAt;
-          if (record) this.judgment({ checksMs: clamp(checksDone), panelMs: clamp(j?.panel?.endedAt) }, record);
+          if (decidedRecord) this.judgment({ checksMs: clamp(checksDone), panelMs: clamp(j?.panel?.endedAt) }, decidedRecord, report?.requests ?? result?.requests ?? []);
+          decidedRole = String(p.role);
           const delivered = events.find((x) => x.type === 'delivery.submitted');
-          const timing = j && delivered ? { timing: this.judgingTiming(j, ms, ms - stamp(delivered).ms, clamp, record) } : {};
+          const timing = j && delivered ? { timing: this.judgingTiming(j, ms, ms - stamp(delivered).ms, clamp, decidedRecord) } : {};
+          if (p.outcome === 'escalate') {
+            const appeal = result?.reports?.find((r) => r.record.role === 'appeal')?.record;
+            this.push(3, {
+              kind: 'escalation',
+              atMs: ms,
+              actor: this.key(String(e.actor)),
+              to: this.key(c.adjudication.appealAdjudicator),
+              reason: plain(decidedRecord?.aggregate.reasons[0] ?? 'escalated'),
+              panelSize: appeal?.panel.members.length ?? 0,
+              families: appeal ? new Set(appeal.panel.members.map((m) => m.family)).size : 0,
+            });
+            break;
+          }
           this.push(3, { kind: 'decision', atMs: ms, actor: this.key(String(e.actor)), role: p.role as 'primary', outcome: p.outcome as 'accept' | 'reject', via: this.via(e), ...timing });
           break;
         }
@@ -359,15 +441,18 @@ class Narrator {
             via: this.via(e),
           });
           const decider = this.key(String(e.actor));
-          this.push(4, {
-            kind: 'finality',
-            atMs: ms,
-            actor: 'chain',
-            payee: e.type === 'settlement.released' ? 'seller' : 'buyer',
-            appealWindowSec: c.timing.appealWindowSec,
-            bondAtRisk: c.price,
-            bondHolder: decider,
-          });
+          // An appeal decision is the last word: no appeal window follows it.
+          if (decidedRole !== 'appeal') {
+            this.push(4, {
+              kind: 'finality',
+              atMs: ms,
+              actor: 'chain',
+              payee: e.type === 'settlement.released' ? 'seller' : 'buyer',
+              appealWindowSec: c.timing.appealWindowSec,
+              bondAtRisk: c.price,
+              bondHolder: decider,
+            });
+          }
           this.push(4, this.balances(ms, 'after settlement', snap));
           break;
         }
@@ -482,7 +567,7 @@ class Narrator {
   }
 
   /** `at`: checks and screen when they were done, the panel when its last verdict came back. */
-  private judgment(at: { checksMs: number; panelMs: number }, record: Judgment): void {
+  private judgment(at: { checksMs: number; panelMs: number }, record: Judgment, requests: readonly JudgeRequest[]): void {
     // Untrusted at ingestion: check details (csv_columns_exact quotes the seller's header), screen signal details
     // and aggregate reasons can carry deliverable text. The renderers escape again per surface.
     const r: Judgment = {
@@ -535,10 +620,11 @@ class Narrator {
       judges,
       outcome: r.aggregate.decision,
     });
-    // One judge's prompt and verdict (T-019): seat 1, matched to the request the service sent it. Both are
-    // untrusted (terms, deliverable sample, model output): made plain line by line here, escaped again per surface.
+    // One judge's prompt and verdict per panel (T-019): seat 1, matched to the request this decision's service sent
+    // it. Both are untrusted (terms, deliverable sample, model output): made plain line by line here, escaped
+    // again per surface.
     const seat = r.panel.members[0];
-    const request = seat && this.run.result?.requests.find((q) => q.judgeId === seat.judgeId && q.model === seat.model);
+    const request = seat && requests.find((q) => q.judgeId === seat.judgeId && q.model === seat.model);
     if (seat && request)
       this.push(3, {
         kind: 'judge-prompt',
@@ -592,6 +678,12 @@ function profileOf(v: ProfileView, who: CastKey | undefined): AdjudicatorProfile
   };
 }
 
+/** What a beat adds to the source note beyond SIMCHAIN_NOTE. */
+const NOTE_EXTRA: Readonly<Record<number, string>> = {
+  6: " In the first delivery Atrium's five appeal judges are scripted to reject and report suspected injection (scripted verdicts, no model). The second delivery is a separate commitment on its own world; its times start where the first job's end.",
+  7: ' op-1 refuses through its relay policy hook and op-2 is stopped, both on this run; SimChain time jumps to judgeBy while Clearfield stays silent, so the wall-clock times do not include that wait.',
+};
+
 const transcript = (beat: number, run: Run, events: DemoEvent[]): BeatTranscript => {
   const meta = BEAT_META[beat]!;
   const who = new Map(ACTORS.map(([name, key]) => [lc(run.world.addressOf(name)), key]));
@@ -605,16 +697,36 @@ const transcript = (beat: number, run: Run, events: DemoEvent[]): BeatTranscript
     summary: meta.summary,
     litmus: meta.litmus,
     mode: 'scripted',
-    source: { kind: 'simchain', note: SIMCHAIN_NOTE },
+    source: { kind: 'simchain', note: `${SIMCHAIN_NOTE}${NOTE_EXTRA[beat] ?? ''}` },
     commitmentId: run.commitment.id as Hex32,
     events,
   };
 };
 
-/** Beats 1, 2-4 (one job, sliced), 5, 6 (hidden-tags half) and 10, each on a fresh world seeded by seedOf. */
+/**
+ * Beat 6: the base64 injection job (escalated, decided on appeal), then the hidden-tags job, each on its own
+ * world and seed. The second job's times are shifted to start after the first's, and its balance labels say
+ * which job. Each job ends with its own shared-record line.
+ */
+async function beatSix(): Promise<BeatTranscript> {
+  const injection = await runJob(seedOf(6), (w) => beatInjection(w));
+  const tags = await runJob(TAGS_SEED, (w) => beatHiddenTags(w));
+  const first = new Narrator(injection).build({ signed: false }).map((x) => x.e);
+  const offset = injection.doneMs + 1;
+  const second = new Narrator(tags)
+    .build({ signed: false })
+    .map((x) => x.e)
+    .map((e) => ({ ...e, atMs: e.atMs + offset, ...(e.kind === 'balances' ? { label: `second delivery, ${e.label}` } : {}) }) as DemoEvent);
+  return transcript(6, injection, [...first, ...second]);
+}
+
+/** Beat 6's second job (hidden tags) runs on its own seed, apart from every seedOf value. */
+const TAGS_SEED = 7 + 60;
+
+/** Every beat on SimChain: 1-4 (one job, sliced), 5, 6 (two jobs), 7 and 10, each on a fresh world seeded by seedOf. */
 export function simchainSource(): EventSource {
   let happy: Promise<Run> | undefined;
-  const beats = [1, 2, 3, 4, 5, 6, 10];
+  const beats = [1, 2, 3, 4, 5, 6, 7, 10];
   return {
     name: 'simchain',
     beats: () => beats,
@@ -630,10 +742,15 @@ export function simchainSource(): EventSource {
           const all = new Narrator(run).build({ signed: true });
           return transcript(beat, run, all.filter((x) => x.phase === beat).map((x) => x.e));
         }
-        case 5:
         case 6:
+          return beatSix();
+        case 7: {
+          const run = await runJob(seedOf(7), (w) => beatNeutrality(w), NEUTRALITY_WORLD);
+          return transcript(7, run, new Narrator(run).build({ signed: false }).map((x) => x.e));
+        }
+        case 5:
         case 10: {
-          const job = beat === 5 ? beatBadWork : beat === 6 ? beatHiddenTags : (w: DemoWorld) => beatMutualSplit(w);
+          const job = beat === 5 ? beatBadWork : (w: DemoWorld) => beatMutualSplit(w);
           const run = await runJob(seedOf(beat), (w) => job(w));
           return transcript(beat, run, new Narrator(run).build({ signed: false }).map((x) => x.e));
         }

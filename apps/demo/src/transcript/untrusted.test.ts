@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { main } from '../cli.js';
-import { standInSource } from '../source/stand-in.js';
+import { measured } from '../source/measured.fixture.js';
 import { renderHtml } from './render-html.js';
 import { renderJson } from './render-json.js';
 import { renderMarkdown } from './render-md.js';
@@ -32,7 +32,9 @@ const HOSTILE = [
 const BAD_CHARS = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f‪-‮⁦-⁩]|[\u{e0000}-\u{e007f}]/u;
 
 async function hostileTranscript(): Promise<BeatTranscript> {
-  const t = await standInSource().run(7);
+  // Beat 7's own judge prompt is left out: the hostile one below is the only judge prompt in this transcript.
+  const m = await measured(7);
+  const t = { ...m, events: m.events.filter((e) => e.kind !== 'judge-prompt') };
   const extra: DemoEvent[] = [
     { kind: 'checks', atMs: 1, actor: 'benchA', results: [{ id: 'cols', type: 'csv_columns_exact', required: true, passed: false, detail: HOSTILE }] },
     { kind: 'screen', atMs: 2, actor: 'benchA', flagged: true, signals: ['encoded_run'], consequence: HOSTILE },

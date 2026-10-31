@@ -11,11 +11,11 @@ ADR-0016: an adjudicator can refuse a case only before any funds are held. Tidew
 | Pragmas | settlement=sim · judges=recorded · mode=guaranteed_on_decision · seed=31 |
 | Prefix | neutrality. (an actor fails: terms-compliant terminal state anyway) |
 | Settlement | SimChain (T-006) driving @holdback/core `step` |
-| Judgment | @holdback/judgment (checks, screen, panel) · registry config/judges.yaml 0x8aa4…4549 · policy bench-a/p1 0x7970…3bf0 |
+| Judgment | @holdback/judgment (checks, screen, panel) · registry config/judges.yaml 0x8aa4…4549 · policy bench-a/p1 0x8cb8…ea79 |
 | Club | fixtures/clubs/data-services-v1.yaml (loaded) · rulebook 0x140e…971e |
 | Buyer | atlas-buyer 0xD340…AA39 |
 | Seller | tidewater-seller 0x91E7…512f |
-| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0x4733…37ad · price 2,000.000000 tUSD · fee 50.000000 tUSD |
+| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0x6fbc…465d · price 2,000.000000 tUSD · fee 50.000000 tUSD |
 | Adjudicators | primary bench-a 0xa936…9F24 · fallback bench-b 0xf71D…3aba · appeal bench-c 0x2836…7576 |
 | Operators | op-1 · op-2 |
 
@@ -45,7 +45,7 @@ Outages:
 
 ## Receipts and log
 
-- Events 0–1. Chain head 0x3e57…8a54. Replay of 2 SimChain submissions from genesis matches the settlement state.
+- Events 0–1. Chain head 0xeafa…d3f6. Replay of 2 SimChain submissions from genesis matches the settlement state.
 - Receipts from op-1: 1 (rcpt-0001–rcpt-0001). Stub receipts are unsigned until T-007.
 - Receipts from op-2: 1 (rcpt-0002–rcpt-0002). Stub receipts are unsigned until T-007.
 

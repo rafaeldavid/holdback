@@ -1,0 +1,42 @@
+# @settlement sim @judges recorded @mode guaranteed_on_decision @seed 7
+name: honest-seller-survives-judge-noise-on-appeal
+description: >-
+  Red team of PR 52 (D27a), honest-seller case. The honest cleaned CSV is accepted by Bench A (screen clean).
+  Atlas files a party appeal on the accept. At Bench C all five judges pass; one of them also sets
+  injectionSuspected (a false positive; nothing in the file is an injection). D27a treats a judge's
+  suspicion as a flag at every appeal, so the appeal rejects and overturns an accept that five of five
+  judges passed. Expected: the first decision stands (accept upheld). Under D27c (a party appeal handles
+  judge-level flags as at first instance) Bench C's panel escalates and the first accept stands.
+club: fixtures/clubs/data-services-v1.yaml
+terms: fixtures/terms/clean-customers-2000.yaml
+parties:
+  buyer: atlas-buyer
+  seller: tidewater-seller
+adjudicators:
+  primary: bench-a
+  fallback: bench-b
+  appeal: bench-c
+operators: [op-1, op-2]
+faucet:
+  atlas-buyer: "10000000000"
+  bench-a: "25000000000"
+  bench-b: "25000000000"
+  bench-c: "25000000000"
+steps:
+  - offer:              { by: seller, via: op-1 }
+  - adjudicator_accept: { via: op-1 }
+  - agree_and_fund:     { by: buyer, via: op-1 }
+  - deliver:            { by: seller, via: op-1, file: data/dataset-cleaning/customers.clean.csv }
+  - advance_clock:      { seconds: 5 }
+  - judge:              { adjudicator: bench-a }     # accept
+  - appeal:             { by: buyer, via: op-1 }
+  - judge:              { adjudicator: bench-c }     # 5 pass, one also suspects injection
+expect:
+  terminal: Released
+  balances:
+    tidewater-seller: "2000000000"
+    # Bench A decided correctly and its bond pays nothing. It also receives the appellant's 100 tUSD appeal bond
+    # (forfeited when the first decision is upheld; D21 postings), so 25,000 + 50 fee + 100 = 25,150. Bench C gets
+    # the 25 tUSD appeal fee. (T-018: the red team's 25,050 left out the forfeited appeal bond.)
+    bench-a: "25150000000"
+    bench-c: "25025000000"

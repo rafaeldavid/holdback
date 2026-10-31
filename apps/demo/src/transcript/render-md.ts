@@ -87,8 +87,10 @@ export function renderMarkdown(t: BeatTranscript): string {
     }
   }
 
-  for (const p of eventsOf(t, 'panel')) {
-    out.push(`## Panel${mark(p)}`, '', `${p.standIn ? '\\[stand-in\\] ' : ''}Seed ${code(p.seed)} (${mdText(p.seedSource)}); ${mdText(p.rule)}; outcome ${mdText(p.outcome)}.`, '');
+  // One section per panel; a job with an escalation has two (beat 6a: the primary's, then the appeal's).
+  const panels = eventsOf(t, 'panel');
+  for (const p of panels) {
+    out.push(`## Panel${panels.length > 1 ? `: ${mdText(labelOf(p.actor))}` : ''}${mark(p)}`, '', `${p.standIn ? '\\[stand-in\\] ' : ''}Seed ${code(p.seed)} (${mdText(p.seedSource)}); ${mdText(p.rule)}; outcome ${mdText(p.outcome)}.`, '');
     out.push('| Seat | Pinned model ID | Family | Verdict | Score |', '| --- | --- | --- | --- | --- |');
     for (const j of p.judges) out.push(`| ${j.seat} | ${code(j.model)} | ${mdText(j.family)} | ${mdText(j.verdict)} | ${j.score === undefined ? '-' : formatScore(j.score)} |`);
     out.push('');

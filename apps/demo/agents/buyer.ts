@@ -77,6 +77,14 @@ export class AtlasAgent {
     return this.hb.waitFor(id, ['Released', 'Refunded', 'Escalated', 'Settled', 'Defaulted'], { timeoutMs: 10_000 });
   }
 
+  /**
+   * After the primary misses judgeBy, anyone may move the commitment to its fallback adjudicator (ADR-0001);
+   * Ledger does it here. An unsigned trigger: SimChain checks the deadline, not the caller.
+   */
+  triggerFallback(id: Hex32): Promise<Submitted> {
+    return this.hb.trigger(id, 'fallback', this.world.call());
+  }
+
   /** Fetches Atlas's released key and the ciphertext, decrypts, and checks the plaintext hash. Throws without a key. */
   async openWork(id: Hex32): Promise<OpenedWork> {
     const facts = await deliveryFacts(this.world, id);

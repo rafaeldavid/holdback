@@ -65,6 +65,11 @@ export interface PipelineInput {
    * is judged from a seeded sample without escalating; without it, sampled data escalates.
    */
   sampleSeed?: (seat: PanelSeat, index: number) => Hex32;
+  /**
+   * With the appeal template: the appeal after an escalation (default) or a party's appeal against a first
+   * decision (D27c). The two differ in how seller-controllable conditions are aggregated.
+   */
+  appealKind?: 'escalated' | 'party';
   /** First-instance (default) or appeal template. */
   template?: PromptTemplateKind;
   /** Per-judge criteria order; defaults to rubric order. Must be a permutation of the rubric. */
@@ -240,6 +245,16 @@ export async function runPipeline(input: PipelineInput): Promise<Result<Judgment
   const escalate = rs.filter((r) => r.filtered).map((r) => `judge ${r.member.judgeId} output rejected by a filter (${r.filtered})`);
   // A seeded sample is recomputable and unpredictable to the seller; only the even-stride fallback escalates.
   if (rs.some((r) => r.strided)) escalate.push('the judges saw a sample of the deliverable, not all of it');
-  const agg = aggregate({ checks: deterministic, rubric: acceptance.rubric, screenFlagged: finalScreen.flagged, verdicts: rs.map((r) => r.verdict), thresholds, escalate });
+  const agg = aggregate({
+    checks: deterministic,
+    rubric: acceptance.rubric,
+    screenFlagged: finalScreen.flagged,
+    ...(input.template === 'appeal' ? { appeal: input.appealKind ?? 'escalated' } : {}),
+    appealFamilies: policy.minFamilies,
+    filterAbstentions: rs.filter((r) => r.filtered).length,
+    verdicts: rs.map((r) => r.verdict),
+    thresholds,
+    escalate,
+  });
   return ok({ ...base, screen: finalScreen, panel: { ran: true, members: rs.map((r) => r.member) }, aggregate: agg });
 }

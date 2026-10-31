@@ -1,6 +1,6 @@
 # ADR-0021: Screen report and hidden-character check
 
-- **Status:** Accepted, 2026-10-30 (D17)
+- **Status:** Accepted, 2026-10-30 (D17); amended 2026-10-31 (D25: the appeal decides a flagged case; D27: a flagged appeal accepts only unanimously, else rejects)
 - **Date:** 2026-10-30
 - **Raised by:** the T-008 red team (PR #21, finding 9) and an independent research pass (Fable, max effort). It amends ADR-0006 and changes T-007, T-008 and T-010. The panel-threshold question from the same research is not decided here.
 
@@ -50,6 +50,27 @@
   - `neutrality.seller-multilingual-text`: Persian with ZWNJ, ❤️ and 🏴󠁧󠁢󠁥󠁮󠁧󠁿 settle without a false reject.
 - **Demo:** the injection scene can show "a hidden payload was stripped before your agent read it", at no model cost.
 - **Agents that submit directly** without the SDK still get the public signed judgment record and its screen signals. Surfacing them is the agent's job.
+
+## Amendment, 2026-10-31: the appeal decides a flagged case (L3-1, D25)
+
+- **The gap (measured in code; review finding L3-1).** Aggregation escalated every flagged case at every role, and the adjudicator service turns an appeal-role `escalate` after an escalation into no decision. A screen-flagged delivery therefore escalated at the primary, escalated again at the appeal, and reached the default outcome at `appealDecideBy`: the buyer refunded and the seller compensated from the appeal adjudicator's bond. An injecting seller was paid for injecting. The context line above ("an escalated case drifts to the default outcome") named the same path for the empty-rubric case.
+- **Which appeal (D27c, D28).** The rule below applies only to the **appeal after an escalation**, where no first decision exists. On a **party appeal** against a first decision, every condition below escalates as at first instance, and the first decision stands. Judge noise (one false `injectionSuspected`, one `not_json`) cannot overturn an honest first decision: after an accept, the appealing buyer carries the burden of showing failure.
+- **Rule (D27a, D27b, after the red-team review of PR 52 and its re-check).** At the appeal after an escalation, a case is *flagged* when any seller-controllable condition holds:
+  - the screen flagged the delivery;
+  - any judge set `injectionSuspected`;
+  - any judge's output was rejected by a filter;
+  - the judges saw an even-stride sample, which a seller can force by padding one record past the sampler's budget (D27b).
+
+  A flagged appeal never escalates and never ends without a decision. It **accepts** only if every seat returned a valid verdict on the whole file, all of them pass, the passes span the appeal panel's family minimum (three where the registry has them), no judge suspects injection, and the score is at or above the threshold. **Otherwise it rejects**: the buyer is refunded, the key is not released and the seller keeps the work. Filter abstentions and timeouts count against accept. The flag stays in the signed record: `screen.flagged` and `screen.signals` as before, and the reasons name the flag and what the panel lacked. An unflagged appeal keeps the normal rule.
+- **Why not the supermajority rule first adopted here (D25).** The red team showed an injection that steers four of five appeal judges (or three across two families) would be accepted, and one that splits the panel or induces one filter abstention would still escalate to the default outcome, paying the seller from the appeal bond. Its four fixtures (`attack.injection-steers-appeal-supermajority`, `attack.injection-steers-appeal-two-families`, `attack.injection-splits-appeal-to-default`, `attack.injection-filter-abstain-appeal-default`) end Refunded with the seller at 0 under this rule.
+- **Unchanged.** The primary and the fallback still escalate on any flag (FR-15, amended in `docs/PRD.md` for the appeal).
+- **Why reject rather than escalate when unsure.** There is no instance after the appeal. A false positive costs the seller this sale on a rule the club rulebook named; a false negative pays an injector from someone else's bond.
+- **Re-check (D27b, D27c).**
+  - `attack.forced-stride-appeal-default` (a padded record forces the even-stride sample) now ends Refunded with the seller at 0. Before, the unflagged appeal escalated to the default outcome.
+  - `honest-seller-survives-judge-noise-on-appeal` (a party appeal; five passes, one of them with a false injection suspicion) now ends Released with the first accept standing. Before, the appeal rejected and Bench A's bond paid the buyer.
+  - A genuine unflagged split at the appeal after an escalation still goes to the default outcome (backlog).
+- **Version.** `AGGREGATION_VERSION` is `agg-3`; `aggregate.test.ts` pins a digest of the decision table and of `signedOutcome` to it, so the rule cannot change under the same version (re-pinned for D27b/c before `agg-3` reached `main`). The bump changed every policy hash and so every commitment ID, seed and panel in the snap fixtures; recordings were re-recorded (fake) or re-seated (authored), and no pre-existing fixture changed its terminal state or balances.
+- **Tests.** `aggregate.test.ts` ("a flagged appeal accepts only unanimously, else rejects (L3-1, D27a)", the oracle property, the version pin), `pipeline.test.ts` ("L3-1 …", "D27a …", "D27c …"), `apps/adjudicator/src/service.test.ts` ("L3-1 …", "D27a …", "D27b …", "D27c …"), the five `attack.injection-*` appeal fixtures, `attack.forced-stride-appeal-default`, `honest-seller-survives-judge-noise-on-appeal`. Demo beat 6a shows it on SimChain.
 
 ## Litmus tests
 

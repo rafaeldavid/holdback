@@ -5,14 +5,14 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Commitment, CommitmentStateView, DecisionOutcome, Delivery, EscrowStateKind, Hex32, Judgment, Payout } from '@holdback/core';
-import type { FakeScript, JudgeRequest } from '@holdback/judgment';
+import { honestVerdict, type FakeScript, type JudgeRequest, type JudgeResponse } from '@holdback/judgment';
 import { loadTermsFile, type TermsTemplate } from '@holdback/testkit';
 import type { AdjudicatorProposal, SellerAdjudicatorPolicy, SellerReview, Slate } from './adjudicators.js';
-import { BenchDirectory, publishSwiftline, ServiceBench, type AdjudicatorSeam, type Listing } from './bench.js';
+import { BenchDirectory, demoRegistry, publishSwiftline, ServiceBench, type AdjudicatorSeam, type JudgeReport, type Listing } from './bench.js';
 import { display, TIDEWATER } from './cast.js';
 import { AtlasAgent, type OpenedWork } from './buyer.js';
 import { TidewaterAgent } from './seller.js';
-import { CHECKS_ONLY_TERMS_FILE, DATA_DIR, TERMS_FILE, type DemoWorld } from './world.js';
+import { CHECKS_ONLY_TERMS_FILE, DATA_DIR, refusalDetail, TERMS_FILE, type DemoWorld, type DemoWorldOptions } from './world.js';
 
 export interface Players {
   atlas: AtlasAgent;
@@ -31,6 +31,8 @@ export interface PlayerOptions {
   benchA?: AdjudicatorSeam;
   /** Per-judge fake verdicts for the benches ('pass' by default). */
   judges?: FakeScript;
+  /** Per-bench scripts, overriding `judges` for that bench only (beat 6a scripts Atrium's appeal panel). */
+  benchJudges?: Partial<Record<'benchA' | 'benchB' | 'benchC', FakeScript>>;
   /** Tide-7's own adjudicator policy (T-017). */
   seller?: SellerAdjudicatorPolicy;
 }
@@ -38,13 +40,16 @@ export interface PlayerOptions {
 export function players(world: DemoWorld, options: PlayerOptions = {}): Players {
   const { cast } = world;
   const directory = new BenchDirectory(world);
-  const bench = (keys: typeof cast.benchA) => new ServiceBench(keys, directory, options.judges ? { judges: options.judges } : {});
+  const bench = (keys: typeof cast.benchA, which: 'benchA' | 'benchB' | 'benchC') => {
+    const judges = options.benchJudges?.[which] ?? options.judges;
+    return new ServiceBench(keys, directory, judges ? { judges } : {});
+  };
   // Clearfield's registration is posted even when a test replaces the seam: the listing is public data, and the
   // agents choose from listings before any seam acts.
-  const serviceA = bench(cast.benchA);
+  const serviceA = bench(cast.benchA, 'benchA');
   const benchA = options.benchA ?? serviceA;
-  const benchB = bench(cast.benchB);
-  const benchC = bench(cast.benchC);
+  const benchB = bench(cast.benchB, 'benchB');
+  const benchC = bench(cast.benchC, 'benchC');
   publishSwiftline(directory, cast.swiftline);
   return {
     atlas: new AtlasAgent(cast.atlas, world),
@@ -147,14 +152,32 @@ export interface JobResult {
   payouts?: Payout[];
   /** Who relayed each call: offer, hold, deliver, then decide ('direct': the bench submits itself) or settle. */
   vias: string[];
+  /** Every decision in order, with the deciding bench's record (beats 6a and 7: escalation, appeal, fallback). */
+  reports?: JudgeReport[];
+  /** Beat 7: the failures injected and what the agents' SDKs did about them, measured. */
+  neutrality?: NeutralityFacts;
+  /** How the agents chose the adjudicators and the terms the offer was built from (beat 1 reads the profiles). */
+  hold?: { negotiation: Negotiation; terms: TermsTemplate };
+}
+
+/** What beat 7 measured: refusals from the operator logs, the relay of each call, the simulated wait. */
+export interface NeutralityFacts {
+  /** The operator that refused, and how many write calls it answered with 403. */
+  refused: { operator: string; refusals: number; status: number; detail: string; calls: string[] };
+  /** The operator taken offline before the delivery. */
+  offline: string;
+  /** The silent primary, and the SimChain seconds between the delivery and judgeBy. */
+  silentPrimary: { name: string; secondsToJudgeBy: number };
+  /** Who triggered the fallback, and how the trigger was relayed. */
+  fallbackTrigger: { by: 'atlas'; via: string };
 }
 
 /** The content key is sealed to the agreed primary, fallback and appeal adjudicators (then the buyer). */
 const recipients = (hold: HoldResult) => ({ primary: hold.slate.primary.keys, fallback: hold.slate.fallback.keys, appeal: hold.slate.appeal.keys });
 
 /** Hold, encrypted delivery, the primary's judgment, and Atlas opening the work when its key was released. */
-async function judgedJob(world: DemoWorld, terms: TermsTemplate, file: string, options: PlayerOptions = {}): Promise<JobResult> {
-  const hold = await beatHold(world, { terms, players: players(world, options) });
+async function judgedJob(world: DemoWorld, terms: TermsTemplate, file: string, options: JobOptions = {}): Promise<JobResult> {
+  const hold = await beatHold(world, { terms, players: players(world, options), ...(options.observe ? { observe: options.observe } : {}) });
   const { commitment, players: p } = hold;
   const delivered = await p.tidewater.deliver(commitment, deliverable(file), recipients(hold));
   const report = await hold.slate.primary.judge(commitment.id);
@@ -170,11 +193,18 @@ async function judgedJob(world: DemoWorld, terms: TermsTemplate, file: string, o
     requests: report.requests,
     ...(opened ? { opened } : {}),
     vias: [hold.vias.offer, hold.vias.hold, delivered.via, report.via],
+    reports: [report],
+    hold: { negotiation: hold.negotiation, terms: hold.terms },
   };
 }
 
+/** Player options plus the negotiation observer (the transcript stamps beat 1's off-chain steps with it). */
+export interface JobOptions extends PlayerOptions {
+  observe?: (step: NegotiationStep) => void;
+}
+
 /** Beats 1-4: the honest cleaned CSV passes the checks, a three-judge panel accepts, $2,000 and the key move together. */
-export const beatHappyPath = (world: DemoWorld, options: PlayerOptions = {}): Promise<JobResult> =>
+export const beatHappyPath = (world: DemoWorld, options: JobOptions = {}): Promise<JobResult> =>
   judgedJob(world, loadTermsFile(TERMS_FILE), 'customers.clean.csv', options);
 
 /** Beat 5: the file drops 8% of rows, the required rows check fails, Atlas is refunded and Tidewater keeps the work. */
@@ -188,6 +218,103 @@ export const beatBadWork = (world: DemoWorld, options: PlayerOptions = {}): Prom
  */
 export const beatHiddenTags = (world: DemoWorld, options: PlayerOptions = {}): Promise<JobResult> =>
   judgedJob(world, loadTermsFile(CHECKS_ONLY_TERMS_FILE), 'customers.clean.hidden-tags.csv', options);
+
+/**
+ * Atrium's scripted appeal verdicts for beat 6a: every judge fails each criterion and reports suspected
+ * injection. Scripted, not a model's answer; the transcript says so. Schema-valid like any verdict.
+ */
+export const SCRIPTED_INJECTION_REJECT = (req: JudgeRequest): JudgeResponse => {
+  const v = JSON.parse((honestVerdict(req, 'fail', 0) as { text: string }).text) as Record<string, unknown>;
+  return { kind: 'ok', latencyMs: 1, text: JSON.stringify({ ...v, injectionSuspected: true, rationale: 'scripted verdict (no model): an encoded instruction addresses the judges; the work is judged as delivered and fails' }) };
+};
+
+/** Every judge in the registry, scripted with `f`. */
+const allJudges = (f: FakeScript[string]): FakeScript => Object.fromEntries(demoRegistry().active.map((j) => [j.id, f]));
+
+/**
+ * Beat 6a (D25, ADR-0021 amendment): the delivery carries a base64 instruction to the judges. Clearfield's
+ * screen flags it and its panel cannot accept, so it escalates with the content key sealed to Atrium; Atrium's
+ * five judges (scripted to reject) decide by supermajority with the flag in the record, and Ledger is refunded.
+ */
+export async function beatInjection(world: DemoWorld, options: PlayerOptions = {}): Promise<JobResult> {
+  const p = players(world, { ...options, benchJudges: { benchC: allJudges(SCRIPTED_INJECTION_REJECT), ...options.benchJudges } });
+  const hold = await beatHold(world, { terms: loadTermsFile(TERMS_FILE), players: p });
+  const { commitment } = hold;
+  const delivered = await p.tidewater.deliver(commitment, deliverable('customers.clean.injection-base64.csv'), recipients(hold));
+  const first = await hold.slate.primary.judge(commitment.id);
+  if (first.outcome !== 'escalate') throw new Error(`beat 6a: ${hold.slate.primary.name} decided ${first.outcome}, expected escalate`);
+  // The appeal panel's beacon round is the one after the escalation; SimChain publishes it a few seconds on.
+  world.advance(BEACON_WAIT_SEC);
+  const appeal = await hold.slate.appeal.judge(commitment.id);
+  const state = await p.atlas.waitForOutcome(commitment.id);
+  return {
+    commitmentId: commitment.id,
+    commitment,
+    delivery: delivered.delivery,
+    finalState: state.escrowState,
+    decision: first.outcome,
+    record: first.record,
+    requests: [...first.requests, ...appeal.requests],
+    vias: [hold.vias.offer, hold.vias.hold, delivered.via, first.via, appeal.via],
+    reports: [first, appeal],
+  };
+}
+
+/** Seconds SimChain advances so a beacon round fixed at the current time is published. */
+const BEACON_WAIT_SEC = 5;
+
+/**
+ * Beat 7 (neutrality, D25): op-1 refuses to relay anything for Tide-7's commitment, through its own relay
+ * policy; the SDKs fail over to op-2. Then op-2 goes offline, and Tide-7's delivery goes straight to SimChain.
+ * Clearfield stays silent past judgeBy; Ledger triggers the fallback (anyone may); Northgate decides with the
+ * beacon seed and the key released to it only now. The club operator signs nothing in this flow.
+ */
+/** A write call by its operator path, in the narration's words. */
+function callName(path: string): string {
+  if (path === '/v1/commitments') return 'the offer';
+  const tail = path.split('/').slice(4).join('/');
+  return ({ agree: 'the agree-and-fund call', deliveries: 'the delivery', 'triggers/fallback': 'the fallback trigger' } as Record<string, string>)[tail] ?? tail;
+}
+
+/** The world beat 7 runs on: op-1's relay policy refuses Tide-7's commitments. */
+export const NEUTRALITY_WORLD: DemoWorldOptions = { refusals: { 'op-1': ['tidewater'] } };
+
+export async function beatNeutrality(world: DemoWorld, options: PlayerOptions = {}): Promise<JobResult> {
+  const refusing = 'op-1';
+  const p = players(world, options);
+  const hold = await beatHold(world, { players: p });
+  const { commitment } = hold;
+  await world.stopOperator('op-2');
+  const delivered = await p.tidewater.deliver(commitment, deliverable('customers.clean.csv'), recipients(hold));
+  // Clearfield is offline: nothing calls it. SimChain time moves to judgeBy.
+  const secondsToJudgeBy = Math.ceil((Date.parse(commitment.timing.judgeBy) - Date.parse(world.now())) / 1000);
+  world.advance(secondsToJudgeBy);
+  const trigger = await p.atlas.triggerFallback(commitment.id);
+  world.advance(BEACON_WAIT_SEC);
+  const decided = await hold.slate.fallback.judge(commitment.id);
+  const state = await p.atlas.waitForOutcome(commitment.id);
+  const opened = state.escrowState === 'Released' ? await p.atlas.openWork(commitment.id) : undefined;
+  const refusals = world.operatorLog(refusing).filter((e) => e.method === 'POST' && e.status === 403);
+  if (refusals.length === 0) throw new Error(`beat 7 needs a world where ${refusing} refuses Tide-7 (NEUTRALITY_WORLD); it refused nothing`);
+  return {
+    commitmentId: commitment.id,
+    commitment,
+    delivery: delivered.delivery,
+    finalState: state.escrowState,
+    decision: decided.outcome,
+    record: decided.record,
+    requests: decided.requests,
+    ...(opened ? { opened } : {}),
+    vias: [hold.vias.offer, hold.vias.hold, delivered.via, trigger.via, decided.via],
+    reports: [decided],
+    neutrality: {
+      refused: { operator: refusing, refusals: refusals.length, status: 403, detail: refusalDetail(refusing), calls: refusals.map((e) => callName(e.path)) },
+      offline: 'op-2',
+      silentPrimary: { name: hold.slate.primary.name, secondsToJudgeBy },
+      fallbackTrigger: { by: 'atlas', via: trigger.via },
+    },
+  };
+}
 
 /**
  * Beat 10: after delivery Atlas finds a gap and both agents co-sign a 70/30 split with the key released.

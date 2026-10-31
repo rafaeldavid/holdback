@@ -11,11 +11,11 @@ Known gap. Meant as bad work the deterministic checks would not catch (fabricate
 | Pragmas | settlement=sim · judges=recorded · mode=guaranteed_on_decision · seed=11 |
 | Prefix | todo. (known gap: records current behavior) |
 | Settlement | SimChain (T-006) driving @holdback/core `step` |
-| Judgment | @holdback/judgment (checks, screen, panel) · registry config/judges.yaml 0x8aa4…4549 · policy bench-a/p1 0x7970…3bf0 |
+| Judgment | @holdback/judgment (checks, screen, panel) · registry config/judges.yaml 0x8aa4…4549 · policy bench-a/p1 0x8cb8…ea79 |
 | Club | fixtures/clubs/data-services-v1.yaml (loaded) · rulebook 0x140e…971e |
 | Buyer | atlas-buyer 0x0774…D45F |
 | Seller | tidewater-seller 0xFd01…6ccb |
-| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0x4de8…f2d5 · price 2,000.000000 tUSD · fee 50.000000 tUSD |
+| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0x4d1c…ecac · price 2,000.000000 tUSD · fee 50.000000 tUSD |
 | Adjudicators | primary bench-a 0x762C…8Fe7 · fallback bench-b 0x2f14…4555 · appeal bench-c 0x8568…a965 |
 | Operators | op-1 · op-2 |
 
@@ -52,7 +52,7 @@ Known gap. Meant as bad work the deterministic checks would not catch (fabricate
 
 ## Receipts and log
 
-- Events 0–7. Chain head 0x7340…9319. Replay of 6 SimChain submissions from genesis matches the settlement state.
+- Events 0–7. Chain head 0xc7f3…4156. Replay of 6 SimChain submissions from genesis matches the settlement state.
 - Receipts from op-1: 5 (rcpt-0001–rcpt-0005). Stub receipts are unsigned until T-007.
 
 ## Invariants

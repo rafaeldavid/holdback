@@ -7,29 +7,29 @@
   "family": "gpt",
   "model": "placeholder-gpt-b-20260601",
   "promptTemplateHash": "0xabb5ec9b33cf9a936e140bf8530c217f6629fdf1e08a46fbdf6bd7363ce84dd2",
-  "inputHash": "0x9e8c7d8e7a02be39f096518f63b7fb5594dcc266acb54f1d3ddc8161c9e08a18",
+  "inputHash": "0x83be9ff92b9bba364ef2faa7ee14ede7f8184f0b7b54a18fb533aaaf8e682614",
   "rubricHash": "0x4201c2a950347823c494fcfc89f88fab1ca670b2086f66ed726aa9c7b0ec7925",
-  "capturedFrom": "fake",
+  "capturedFrom": "authored",
   "verdict": {
     "criteria": [
       {
         "id": "dedupe_quality",
-        "score": 4,
-        "evidence": "fake judge: fixed score"
+        "score": 0,
+        "evidence": "authored fixture verdict: provider unavailable, no score"
       },
       {
         "id": "no_fabrication",
-        "score": 4,
-        "evidence": "fake judge: fixed score"
+        "score": 0,
+        "evidence": "authored fixture verdict: provider unavailable, no score"
       },
       {
         "id": "notes",
-        "score": 4,
-        "evidence": "fake judge: fixed score"
+        "score": 0,
+        "evidence": "authored fixture verdict: provider unavailable, no score"
       }
     ],
-    "overall": "pass",
+    "overall": "abstain",
     "injectionSuspected": false,
-    "rationale": "fake judge: fixed passing verdict, not a model output"
+    "rationale": "authored fixture verdict for todo.provider-outage (T-010, re-seated under agg-3 by T-018), not a model output: the gpt provider returned no answer, so this judge abstains"
   }
 }

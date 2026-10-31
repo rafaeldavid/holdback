@@ -7,7 +7,7 @@ import { dirname, join } from 'node:path';
 import { holdbackDomain, type Address, type Club, type EncryptedKey, type Hex32, type SettlementEvent, type Sha256, type Timestamp } from '@holdback/core';
 import type { RandomSource } from '@holdback/core/crypto';
 import { MemoryCiphertextStore, type CiphertextStore } from '@holdback/core/store';
-import { simRegistry, startOperator, type RunningOperator } from '@holdback/operator';
+import { refuseParties, simRegistry, startOperator, type RunningOperator } from '@holdback/operator';
 import { Holdback, type SubmitCallOptions } from '@holdback/sdk';
 import { mandateFor, SIM_CHAIN_ID, SimChain, TOKEN, wideScope, type Genesis } from '@holdback/settlement/sim';
 import { createContext, loadClubFile, type SimContext } from '@holdback/testkit';
@@ -66,6 +66,21 @@ export interface DemoWorldOptions {
   buyerBalance?: bigint;
   /** Each bench's junior bond in base units. Default 25,000 tUSD. */
   bond?: bigint;
+  /**
+   * Operators that refuse to relay for some cast members (beat 7): operator ID to the actors it refuses,
+   * through the operator's own relay policy hook (`refuseParties`). Nothing on SimChain changes.
+   */
+  refusals?: Readonly<Record<string, readonly ActorName[]>>;
+}
+
+/** What an operator answers when its policy refuses a call (beat 7). */
+export const refusalDetail = (operatorId: string) => `operator policy: ${operatorId} does not relay for this commitment's parties`;
+
+/** One HTTP request an operator served, as its access log records it. */
+export interface OperatorLogEntry {
+  method: string;
+  path: string;
+  status: number;
 }
 
 export interface DemoWorld {
@@ -78,6 +93,10 @@ export interface DemoWorld {
   /** Deterministic bytes from the context's RNG. */
   readonly random: RandomSource;
   operatorUrl(id: string): string;
+  /** The requests an operator answered, oldest first (method, path and status; no bodies). */
+  operatorLog(id: string): readonly OperatorLogEntry[];
+  /** Takes an operator offline: its port closes and every later call to it fails to connect. */
+  stopOperator(id: string): Promise<void>;
   /** An SDK client over the operators in order, with SimChain as the direct-submit escape hatch. */
   sdk(): Holdback;
   /** A fresh idempotency key from the context, so reruns send the same keys. */
@@ -139,18 +158,33 @@ export async function createDemoWorld(options: DemoWorldOptions = {}): Promise<D
     },
   };
   const chain = new SimChain(genesis);
+  const addressOf = (who: ActorName): Address =>
+    ({ atlas: cast.atlas, tidewater: cast.tidewater, 'bench-a': cast.benchA, 'bench-b': cast.benchB, 'bench-c': cast.benchC, swiftline: cast.swiftline })[who].address;
   const operators: RunningOperator[] = [];
+  const logs = new Map<string, OperatorLogEntry[]>();
+  const stopped = new Set<string>();
   const ids = options.operators ?? ['op-1', 'op-2'];
   for (const id of ids) {
     const signer = agentKeys(seed, `operator/${id}`);
-    operators.push(await startOperator({ settlement: chain, registry: simRegistry(chain), signerKey: signer.signingKey, operatorId: id, env: {} }));
+    const log: OperatorLogEntry[] = [];
+    logs.set(id, log);
+    const refused = options.refusals?.[id];
+    operators.push(
+      await startOperator({
+        settlement: chain,
+        registry: simRegistry(chain),
+        signerKey: signer.signingKey,
+        operatorId: id,
+        env: {},
+        log: (e) => void log.push({ method: e.method, path: e.path, status: e.status }),
+        ...(refused?.length ? { policy: refuseParties(refused.map(addressOf), refusalDetail(id)) } : {}),
+      }),
+    );
   }
   const urls = new Map(ids.map((id, i) => [id, operators[i]!.url]));
   const sdk = () => new Holdback({ operators: [...urls.values()], settlement: chain, pollMs: 10 });
   const store = new MemoryCiphertextStore();
   const random = rngSource(ctx.rng);
-  const addressOf = (who: ActorName): Address =>
-    ({ atlas: cast.atlas, tidewater: cast.tidewater, 'bench-a': cast.benchA, 'bench-b': cast.benchB, 'bench-c': cast.benchC, swiftline: cast.swiftline })[who].address;
 
   async function firstOperator<T>(path: string): Promise<T | undefined> {
     for (const url of urls.values()) {
@@ -177,6 +211,14 @@ export async function createDemoWorld(options: DemoWorldOptions = {}): Promise<D
       if (!u) throw new Error(`no operator ${id}`);
       return u;
     },
+    operatorLog: (id) => logs.get(id) ?? [],
+    stopOperator: async (id) => {
+      const i = ids.indexOf(id);
+      if (i < 0) throw new Error(`no operator ${id}`);
+      if (stopped.has(id)) return;
+      stopped.add(id);
+      await operators[i]!.close();
+    },
     sdk,
     call: () => ({ idempotencyKey: `demo-${seed}-${ctx.ids.next('call')}` }),
     now: () => wholeSecond(ctx.clock.now()),
@@ -199,7 +241,7 @@ export async function createDemoWorld(options: DemoWorldOptions = {}): Promise<D
       const page = await firstOperator<{ items: EncryptedKey[] }>(`/v1/commitments/${id}/key?recipient=${recipient}`);
       return page ? page.items : chain.keysFor(id, recipient);
     },
-    close: async () => void (await Promise.all(operators.map((o) => o.close()))),
+    close: async () => void (await Promise.all(operators.filter((_, i) => !stopped.has(ids[i]!)).map((o) => o.close()))),
   };
 }
 

@@ -15,6 +15,7 @@ import {
   PROMPT_TEMPLATE_HASH,
   requestInputHash,
   runPipeline,
+  signedOutcome,
   type IntakeErrorCode,
   type JudgeProvider as PipelineProvider,
   type LoadedRegistry,
@@ -217,6 +218,8 @@ export async function runJudgment(input: RunJudgmentInput, judges: JudgeProvider
     criteriaFor: plan.value.criteriaFor,
     sampleSeed: plan.value.sampleSeed,
     template: appeal ? 'appeal' : 'first-instance',
+    // D27c, as the adjudicator service: a party appeal (a first decision exists) or the appeal after an escalation.
+    ...(appeal ? { appealKind: input.firstOutcome ? ('party' as const) : ('escalated' as const) } : {}),
   });
   if (loud) throw loud;
   if (!run.ok) return err(run.error);
@@ -243,10 +246,9 @@ export async function runJudgment(input: RunJudgmentInput, judges: JudgeProvider
     return view;
   });
 
-  let outcome: DecisionOutcome | null = draft.aggregate.decision;
-  // apps/adjudicator: an appeal panel that cannot decide leaves a party appeal's first decision standing,
-  // and signs nothing after an escalation (the default outcome then applies).
-  if (appeal && outcome === 'escalate') outcome = input.firstOutcome ?? null;
+  // The same mapping the adjudicator service signs by (@holdback/judgment signedOutcome): an appeal panel that
+  // cannot decide leaves a party appeal's first decision standing, and signs nothing after an escalation.
+  const outcome: DecisionOutcome | null = signedOutcome(draft.aggregate.decision, { appeal, ...(input.firstOutcome ? { firstOutcome: input.firstOutcome } : {}) });
 
   return ok({
     ...base,

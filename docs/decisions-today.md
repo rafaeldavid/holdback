@@ -384,6 +384,16 @@ Rafa first asked that both parties be able to change any term, as in a regular c
 
 **Recommendation:** as decided.
 
+**T-018 implementation choices (2026-10-31, for Rafa to overrule).**
+
+| Choice | Decided | Why |
+| --- | --- | --- |
+| Which flags the appeal keeps rather than escalates on | Superseded by D27a | — |
+| Aggregation version | Superseded by D27b (`agg-3` now) | — |
+| Operator refusal shape | Superseded by D27c (`relay_refused`) | — |
+| Beat 7's second failure | op-2 goes offline after relaying the hold, so the delivery and the fallback trigger are submitted directly | Shows "no operator required" from measured events, not only failover |
+| Beat 6a's fee | The appeal adjudicator earns the 50 tUSD fee; Ledger ends at 9,950 tUSD | Existing SimChain postings ("fee to the appeal adjudicator, whose decision settles"); not changed here |
+
 ## D26. Widen collaboration; the law stays the backstop
 
 **Decided 2026-10-31 by Rafa.** Agent owners and controllers will seek legal recourse if something goes wrong. The product's job is to extend the set of deals agents can make with each other, not to resolve every dispute inside the protocol.
@@ -397,3 +407,55 @@ What follows from it:
 - Neutrality is unchanged: no party gets a technical freeze. Courts act on real-world parties (residual 5), not on the settlement layer.
 
 Recorded in `CLAUDE.md` and `docs/PRD.md` (Design principle). D22 (no principal recourse in the protocol) already follows this rule.
+
+## D27. The default clause set for appeals: a flagged appeal accepts only unanimously, else rejects (red-team review of PR 52)
+
+**Decided 2026-10-31 under the autonomy rule, for Rafa to overrule.**
+
+**What these rules are.** D27a to D27c are the **default clause set**: gap-fillers that apply when the agreed terms say nothing about these cases. They are versioned with the aggregation as `agg-3`. They are not the protocol judging whether a party is malicious. Each condition they name (a screen flag, an injection suspicion, a filter abstention, a sampled read) is an observable fact in the signed record, and the clause says what follows from it. D29 makes the clauses negotiable after the demo.
+
+**Findings.** A red-team review of PR 52 (T-018) found that D25's L3-1 fix, "the appeal panel decides a flagged case by its supermajority", still paid an injecting seller. Its findings, each now a fixture in this PR:
+
+- **Steered supermajority.** An injection that steers four of five appeal judges to pass with no injection suspected was accepted (`attack.injection-steers-appeal-supermajority`).
+- **Steered across two families.** Three passes from two families failed the accept rule, but under `agg-2` the case then escalated and drifted to the default outcome (`attack.injection-steers-appeal-two-families`).
+- **Split to default.** Two steered passes and three fails escalated, so the default outcome paid the seller from Bench C's bond (`attack.injection-splits-appeal-to-default`).
+- **Filter abstention to default.** One judge induced to write a URL abstained by filter, which escalated, with the same result (`attack.injection-filter-abstain-appeal-default`).
+- **Version.** The rule changed under the same `AGGREGATION_VERSION`, which policies bind.
+- **Refusal type.** An operator refusal reused the club's `member_not_admitted` problem type, and a relay policy received the operation by reference.
+
+| Item | Decided |
+| --- | --- |
+| D27a: flagged appeal rule | At the appeal after an escalation, when the screen flagged the delivery, any judge set `injectionSuspected`, or any judge's output was rejected by a filter: accept only if every seat returned a valid verdict, all pass, the passes span the appeal family minimum (three where the registry has them), no judge suspects injection, and the score is met. Otherwise reject (refund; key not released; seller keeps the work). Never escalate or end without a decision; filter abstentions and timeouts count against accept. Primary and fallback unchanged. Implemented once in `@holdback/judgment` (`aggregate`, `signedOutcome`) for the service and the snap runner |
+| D27b: forced sampling (re-check, path 5) | A seller can pad one CSV record past the sampler's per-record budget and force the even-stride sample. The primary escalates; the unflagged appeal escalated again, so no decision was signed and the default outcome paid the seller 2,000 from Bench C's bond, even when all five judges passed bad work (`attack.forced-stride-appeal-default`). After an escalation, a sampled read joins the seller-controllable conditions of D27a: accept only on unanimous valid passes of the whole file across the family minimum, else reject. After an escalation the appeal never returns no decision for these conditions. A genuine unflagged split (for example 3-2) still goes to the default outcome (backlog) |
+| D27c: party appeals (re-check) | D27a and D27b apply only to the appeal after an escalation (no first decision). On a party appeal against a first decision, judge-level flags (`injectionSuspected`, filter abstentions), a screen flag and a sampled read escalate as at first instance, and the first decision stands. Before this, one false `injectionSuspected` among five passes overturned an honest accept and Bench A's bond paid the buyer (`honest-seller-survives-judge-noise-on-appeal`). `aggregate` takes `appeal: 'escalated' \| 'party'`; the service and the snap runner set it from `firstOutcome`. Follows D28 |
+| D27d: version | `AGGREGATION_VERSION` `agg-3`. `aggregate.test.ts` pins a digest of the decision table and of `signedOutcome` to the version, so semantics cannot change without a bump. The digest was re-pinned for D27b/c without an `agg-4`, because `agg-3` has not reached `main`. Every recording was re-recorded (fake) or re-seated (authored); no pre-existing fixture changed its terminal state or balances |
+| D27e: refusal | New problem type `relay_refused` (403, operator API only: `packages/core/src/problem.ts`, `docs/api.md`; not in `spec/schemas`). Policies receive a frozen deep copy of the operation |
+| D27f: wording | FR-15 amended in `docs/PRD.md` for the appeal; ADR-0021 amendment, `docs/judgment-and-defenses.md` and `docs/demo.md` beat 6 updated |
+| D27g: backlog | Tell appeal judges about the screen flag (a new appeal template). Revisit the default outcome after an unflagged, inconclusive appeal, where the appeal bond pays the seller though no adjudicator was at fault, and separate adjudicator-absence compensation from a panel that ruled but could not decide. A sampler that handles long records, or a declared `max_record_chars` check, so honest long-record CSVs are not refunded. On unflagged appeals, a provider's `not_json` (a filter abstention) and a timeout are treated differently |
+
+**Recommendation:** as decided. The tradeoff: after an escalation, a false positive on a flagged or sampled appeal now refunds the buyer and the seller loses the sale, where before it might have been accepted by a supermajority. The screen is uncalibrated (ADR-0021), and an honest CSV with one very long record is sampled by stride, so this can happen to honest sellers (backlog: a long-record sampler or a declared check). On the other side, an injector can no longer win by steering, splitting or forcing the panel. A party appeal is not affected, so judge noise cannot overturn an honest first decision.
+
+D27b and D27c were added after a red-team re-check of PR 52 (`42fa67a`), **decided 2026-10-31 under the autonomy rule, for Rafa to overrule**.
+
+## D28. Agreed terms bind; the buyer carries the burden of acceptance
+
+**Decided 2026-10-31 by Rafa.**
+
+- **Judges.** They assess conformance to the agreed terms, never their fairness.
+- **The buyer protects itself in advance.** Its protection is the acceptance checks and rubric it writes into the terms before agreeing.
+- **After an accept.** An appealing buyer must show the work fails the terms, as a buyer must prove breach of goods it accepted (cf. UCC §2-607(4)); otherwise the first decision stands (D27c).
+- **The exception.** The burden shifts only when a party games the judgment itself: an injection, or forcing an unreadable delivery. Nobody agreed to that as a term (D27a, D27b).
+
+Recorded in `CLAUDE.md` and `docs/PRD.md`.
+
+## D29. Dispute clauses are negotiated terms (after the demo)
+
+**Decided 2026-10-31 by Rafa.**
+
+- **Not the protocol's call.** The protocol does not decide whether terms are favourable or whether a party is malicious. As in contract law, the parties negotiate dispute clauses: what happens on a screen flag, an unreadable delivery or an inconclusive panel, and who bears the fees.
+- **Default rules.** The protocol supplies rules that apply when the terms are silent. Today these are the D27 clause set, versioned as `agg-3`.
+- **Mandatory rules.** The hard rules and the three litmus tests apply whatever the terms say; no agreement can waive them.
+- **Who narrows the menu.** Clubs may narrow the clauses in their rulebook, and adjudicators may decline clauses they won't run.
+- **When.** Making the clauses selectable in the signed terms is a schema change, so an ADR and a version bump, after the demo. The backlog row is under Modes and calls. Until then the D27 defaults stand for every commitment.
+
+Recorded in `CLAUDE.md` and `docs/PRD.md`.

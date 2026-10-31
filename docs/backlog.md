@@ -59,6 +59,11 @@ Deferred until after the basic demo. The demo assumes honest parties (Rafa, Octo
 
 | Item | Source | When it matters |
 | --- | --- | --- |
+| Tell appeal judges the screen flagged the delivery: a new appeal template (a new `appealPromptTemplateHash`, so a policy and version change) that names the flag and its signals as data, without quoting the payload as instructions | D27g, red-team review of PR 52 | Before live appeal judges see flagged cases |
+| Revisit the default outcome after an unflagged, inconclusive appeal: today the appeal bond pays the seller's compensation although no adjudicator failed to act (the panel sat and split, for example 3-2) | D27g, red-team review of PR 52 | Before Phase 4 bonding economics; needs its own decision |
+| Separate adjudicator-absence compensation (an adjudicator that never decided) from a panel that ruled but could not decide; today both reach the same default outcome and the appeal bond pays | D27g, red-team re-check of PR 52 | With the default-outcome decision above |
+| A sampler that handles long records (or a declared `max_record_chars` deterministic check in the terms), so an honest CSV with one very long record is not read by stride and, after an escalation, refunded under D27b | D27g, red-team re-check of PR 52 (path 5) | Before real long-text datasets |
+| On unflagged appeals, a provider's `not_json` (a filter abstention, which escalates) and a timeout (an invalid seat, which only lowers the valid count) are treated differently; decide whether a provider fault should count the same way | D27g, red-team re-check of PR 52 | Before live judges at the appeal |
 | Wall-clock check budgets (red-team K1, K2) run only in an opt-in perf pass (`HOLDBACK_PERF=1`), run alone, not in parallel lanes. K2 measured 22 s projected at 10 MB alone and failed the 60 s budget only under load. A worker with a deadline would make the budget deterministic | T-012 verify, 2026-10-31 | Before judging untrusted multi-MB deliverables outside the demo |
 | Worker with a deadline for deterministic checks (the step budget bounds work today) | T-008 red team item 10 | T-009 or Phase 3 |
 | Full UTS #39 confusables (today a Cyrillic and Greek subset) | T-008 red team item 6 | Phase 3 |

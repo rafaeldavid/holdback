@@ -1,0 +1,35 @@
+{
+  "format": "holdback.recording/v1",
+  "scenario": "panel-disagreement-escalates",
+  "role": "primary",
+  "judgeId": "qwen-a",
+  "provider": "openai-compatible",
+  "family": "qwen",
+  "model": "placeholder-qwen-a-20260601",
+  "promptTemplateHash": "0xabb5ec9b33cf9a936e140bf8530c217f6629fdf1e08a46fbdf6bd7363ce84dd2",
+  "inputHash": "0xb8d904a2a2271f875f86fa9265082f57584bb12da0485003bf2a820ea61b4c5d",
+  "rubricHash": "0x4201c2a950347823c494fcfc89f88fab1ca670b2086f66ed726aa9c7b0ec7925",
+  "capturedFrom": "authored",
+  "verdict": {
+    "criteria": [
+      {
+        "id": "dedupe_quality",
+        "score": 0,
+        "evidence": "authored fixture verdict: cannot tell from the rows shown"
+      },
+      {
+        "id": "no_fabrication",
+        "score": 0,
+        "evidence": "authored fixture verdict: cannot tell from the rows shown"
+      },
+      {
+        "id": "notes",
+        "score": 0,
+        "evidence": "authored fixture verdict: cannot tell from the rows shown"
+      }
+    ],
+    "overall": "abstain",
+    "injectionSuspected": false,
+    "rationale": "authored fixture verdict for panel-disagreement-escalates (T-018, re-seated under agg-3), not a model output: this judge abstains, leaving one pass and one fail"
+  }
+}

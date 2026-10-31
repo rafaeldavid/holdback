@@ -27,7 +27,8 @@ Any operator node serves this API. It adds speed and convenience, never authorit
   - deliveries: `mime_not_allowed`, `payload_too_large`;
   - adjudication bindings: `acceptance_missing`, `acceptance_mismatch`, `seed_mismatch`, `policy_mismatch`, `registry_mismatch`, `not_your_turn`;
   - clubs: `member_not_admitted`;
-  - requests: `idempotency_conflict`, `rate_limited`, `not_found`, `invalid_cursor`.
+  - requests: `idempotency_conflict`, `rate_limited`, `not_found`, `invalid_cursor`;
+  - operator policy: `relay_refused` (403): this operator's own relay policy declines the call (D27). The signed message is still valid; the SDK fails over to the next operator, then submits directly to the settlement layer (ADR-0005). An operator-only type: no settlement layer or schema returns it.
 - **Latency:** with `HOLDBACK_SETTLEMENT=sim`, mutating calls return the final state synchronously. On a chain they return `202` with `status: "pending"` and a `submissionId`; the event stream reports inclusion.
 
 ## Endpoints
