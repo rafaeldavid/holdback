@@ -21,7 +21,7 @@ describe('refuseParties: an operator refuses to relay for one party', () => {
     // The hold is signed by the buyer, but the commitment names the refused seller.
     const e = await only1.hold(hold).catch((x: unknown) => x);
     expect(e).toBeInstanceOf(HoldbackError);
-    expect((e as HoldbackError).problem.type).toBe('member_not_admitted');
+    expect((e as HoldbackError).problem.type).toBe('relay_refused');
     expect((e as HoldbackError).problem.status).toBe(403);
     expect((e as HoldbackError).problem.detail).toBe('op-1 does not relay for this seller');
     expect(w.chain.log()).toHaveLength(0);
@@ -33,8 +33,27 @@ describe('refuseParties: an operator refuses to relay for one party', () => {
     // The hold goes in through op-2; op-1 sees the commitment only on its event log.
     await new Holdback({ operators: [op2.url] }).hold(await holdOf(w.deal));
     const e = await new Holdback({ operators: [op1.url] }).submit(asOperation(await w.deal.deliver())).catch((x: unknown) => x);
-    expect((e as HoldbackError).problem.type).toBe('member_not_admitted');
+    expect((e as HoldbackError).problem.type).toBe('relay_refused');
     expect((e as HoldbackError).problem.detail).toMatch(/operator policy/);
+  });
+
+  it('a policy gets a frozen copy of the operation: it cannot change what is relayed (red-team review of PR 52)', async () => {
+    let mutated: unknown;
+    const op1 = await w.operator('op-1', {
+      policy: (op) => {
+        try {
+          (op as { commitment?: { price?: unknown } }).commitment!.price = { token: 'tUSD', amount: '1' };
+        } catch (e) {
+          mutated = e;
+        }
+        return undefined;
+      },
+    });
+    const hold = await holdOf(w.deal);
+    const r = await new Holdback({ operators: [op1.url] }).hold(hold);
+    expect(mutated).toBeInstanceOf(TypeError);
+    expect(r.state.escrowState).toBe('Held');
+    expect(w.chain.log().find((e) => e.type === 'hold.funded')?.payload.amount).toEqual({ token: 'tUSD', amount: (BigInt(hold.commitment.price.amount) + BigInt(hold.commitment.adjudication.fee.amount)).toString() });
   });
 
   it('relays for everyone else: a policy naming another address does not refuse this deal', async () => {

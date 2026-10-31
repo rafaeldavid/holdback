@@ -115,7 +115,7 @@ describe('operator failover', () => {
     const keys: string[] = [];
     const policy = await stub((req, _b, res) => {
       keys.push(req.headers['idempotency-key'] as string);
-      json(res, 403, { type: 'member_not_admitted', title: 'member_not_admitted', status: 403, detail: 'operator policy: op-1 does not relay for this party' });
+      json(res, 403, { type: 'relay_refused', title: 'relay_refused', status: 403, detail: 'operator policy: op-1 does not relay for this party' });
     });
     const { settlement, calls } = directSettlement(view('Delivered'));
     const hb = new Holdback({ operators: [policy, await offline()], settlement });

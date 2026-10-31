@@ -5,4 +5,8 @@ describe('problem types', () => {
   it('includes the operator API types from ADR-0017 and the reserved ADR-0020 type', () => {
     for (const t of ['rate_limited', 'not_found', 'invalid_cursor', 'unauthorized']) expect(PROBLEM_TYPES).toContain(t);
   });
+
+  it('includes relay_refused, an operator declining to relay (D27, red-team review of PR 52)', () => {
+    expect(PROBLEM_TYPES).toContain('relay_refused');
+  });
 });
