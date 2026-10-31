@@ -19,7 +19,7 @@ import { Adjudicator, defaultPolicy, loadRegistryFile, policyHashOf, SettlementA
 import { fakeProvider, type FakeScript, type JudgeProvider, type JudgeRequest, type LoadedRegistry } from '@holdback/judgment';
 import { join } from 'node:path';
 import { keccak256, stringToBytes } from 'viem';
-import { BENCH_A, BENCH_B, BENCH_C } from './cast.js';
+import { BENCH_A, BENCH_B, BENCH_C, PROFILES, SWIFTLINE, type BenchProfile } from './cast.js';
 import type { AgentKeys } from './keys.js';
 
 const BENCHES = [BENCH_A, BENCH_B, BENCH_C];
@@ -54,10 +54,22 @@ export interface AdjudicatorSeam {
 /** Bond pool terms the benches publish (adjudicator.schema.json); backers arrive in a later phase. */
 export const POOL_TERMS = { capitalChargeRateBps: 0, capitalChargeToPoolRateBps: 0, firstLossShareBps: 10000, noticePeriodSec: 691200 } as const;
 
+/**
+ * A published registration as a reader finds it (T-017): the document the bench posted, untrusted and not
+ * yet validated, with the bond pool replaced by what SimChain holds now, and the profile posted beside it.
+ */
+export interface Listing {
+  address: Address;
+  document: Record<string, unknown>;
+  profile?: BenchProfile;
+}
+
 /** Registrations and judgment records, off the settlement layer, shared by the world's benches. */
 export class BenchDirectory {
   readonly registrations = new Map<string, AdjudicatorRegistration>();
   readonly records = new Map<Hex32, Judgment>();
+  /** Everything posted, valid or not, in posting order: what agents read when they choose adjudicators. */
+  private readonly posted = new Map<string, { document: Record<string, unknown>; profile?: BenchProfile }>();
   readonly adapter: SettlementAdapter;
 
   constructor(readonly world: DemoWorld) {
@@ -88,11 +100,65 @@ export class BenchDirectory {
     return { ...base, pool: { junior: amount(p.junior), senior: amount(p.senior), reserved: amount(p.reserved), terms: { ...POOL_TERMS } } };
   }
 
-  register(r: AdjudicatorRegistration): void {
+  register(r: AdjudicatorRegistration, profile?: BenchProfile): void {
     const parsed = parseAdjudicator(r);
     if (!parsed.ok) throw new Error(`registration for ${r.name}: ${parsed.error.detail}`);
     this.registrations.set(r.address.toLowerCase(), r);
+    this.publish(r as unknown as Record<string, unknown> & { address: Address }, profile);
   }
+
+  /** Posts a document as-is. Anyone can post; readers validate (the directory is a bulletin board, not a gate). */
+  publish(document: Record<string, unknown> & { address: Address }, profile?: BenchProfile): void {
+    this.posted.set(document.address.toLowerCase(), { document, ...(profile ? { profile } : {}) });
+  }
+
+  /** Every posted registration, with its pool as SimChain holds it now. */
+  listings(): Listing[] {
+    const amount = (v: bigint) => ({ token: 'tUSD', amount: v.toString() });
+    return [...this.posted.values()].map(({ document, profile }) => {
+      // Lower case, as registrations write addresses, whatever case the poster used.
+      const address = (document.address as string).toLowerCase() as Address;
+      const p = this.world.chain.pool(address);
+      const pool = { junior: amount(p.junior), senior: amount(p.senior), reserved: amount(p.reserved), terms: { ...POOL_TERMS } };
+      return { address, document: { ...document, pool }, ...(profile ? { profile } : {}) };
+    });
+  }
+}
+
+/** Swiftline's minimum fee on this job: 1.0% of a 2,000 tUSD price (the registration carries an amount, not a rate). */
+export const SWIFTLINE_FEE = 20n * TUSD;
+
+/**
+ * Posts Swiftline Verdicts' registration: one judge from one family. It declares the panel it actually runs,
+ * so it does not validate against adjudicator.schema.json (v0.6 floors: panelSize 3, minFamilies 2); the
+ * agents see that and the rulebook reasons when they read it. Swiftline never runs a service in the demo.
+ */
+export function publishSwiftline(directory: BenchDirectory, keys: AgentKeys): void {
+  const policy = defaultPolicy(`${SWIFTLINE.label}/p1`, {
+    panelSize: 1,
+    appealPanelSize: 1,
+    minFamilies: 1,
+    minFamiliesAppeal: 1,
+    minValid: 1,
+    minValidAppeal: 1,
+    acceptSupermajority: { numerator: 1, denominator: 1 },
+    rejectSupermajority: { numerator: 1, denominator: 1 },
+  });
+  directory.publish(
+    {
+      address: keys.address.toLowerCase() as Address,
+      name: SWIFTLINE.name,
+      encryptionPublicKey: keys.encryptionPublicKey,
+      affiliations: [],
+      policy,
+      registry: { hash: demoRegistry().hash, uri: REGISTRY_URI },
+      policyHash: policyHashOf(policy),
+      fee: { min: { token: 'tUSD', amount: SWIFTLINE_FEE.toString() } },
+      status: 'active',
+      poolTermsHash: canonicalKeccak(POOL_TERMS),
+    },
+    PROFILES[SWIFTLINE.label],
+  );
 }
 
 let registryCache: LoadedRegistry | undefined;
@@ -143,7 +209,7 @@ export class ServiceBench implements AdjudicatorSeam {
       pool: { junior: { token: 'tUSD', amount: '0' }, senior: { token: 'tUSD', amount: '0' }, reserved: { token: 'tUSD', amount: '0' }, terms: { ...POOL_TERMS } },
       poolTermsHash: canonicalKeccak(POOL_TERMS),
       status: 'active',
-    } as AdjudicatorRegistration);
+    } as AdjudicatorRegistration, PROFILES[agent.name]);
   }
 
   /** Display name, e.g. Clearfield Adjudication. */

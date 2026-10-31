@@ -12,7 +12,7 @@ import { Holdback, type SubmitCallOptions } from '@holdback/sdk';
 import { mandateFor, SIM_CHAIN_ID, SimChain, TOKEN, wideScope, type Genesis } from '@holdback/settlement/sim';
 import { createContext, loadClubFile, type SimContext } from '@holdback/testkit';
 import { keccak256, stringToBytes } from 'viem';
-import { ATLAS, BENCH_A, BENCH_B, BENCH_C, TIDEWATER } from './cast.js';
+import { ATLAS, BENCH_A, BENCH_B, BENCH_C, SWIFTLINE, TIDEWATER } from './cast.js';
 import { agentKeys, rngSource, type AgentKeys } from './keys.js';
 import { TUSD } from './units.js';
 
@@ -48,9 +48,14 @@ export interface Cast {
   benchB: AgentKeys;
   /** Atrium Appeals (appeal). */
   benchC: AgentKeys;
+  /** Swiftline Verdicts: listed and bonded, declined by the rulebook at beat 1 (T-017). */
+  swiftline: AgentKeys;
 }
 
-export type ActorName = 'atlas' | 'tidewater' | 'bench-a' | 'bench-b' | 'bench-c';
+export type ActorName = 'atlas' | 'tidewater' | 'bench-a' | 'bench-b' | 'bench-c' | 'swiftline';
+
+/** Swiftline Verdicts' bond: real on SimChain, and enough for the price, so only the panel rules exclude it. */
+export const SWIFTLINE_BOND = 40_000n * TUSD;
 
 export interface DemoWorldOptions {
   seed?: number;
@@ -102,6 +107,7 @@ export async function createDemoWorld(options: DemoWorldOptions = {}): Promise<D
     benchA: agentKeys(seed, BENCH_A.label),
     benchB: agentKeys(seed, BENCH_B.label),
     benchC: agentKeys(seed, BENCH_C.label),
+    swiftline: agentKeys(seed, SWIFTLINE.label),
   };
   const club = loadClubFile(CLUB_FILE);
   const expires = new Date(Date.parse(start) + 365 * 86_400_000).toISOString().replace('.000Z', 'Z');
@@ -127,7 +133,10 @@ export async function createDemoWorld(options: DemoWorldOptions = {}): Promise<D
     mandates,
     members: [],
     balances: { [cast.atlas.address]: (options.buyerBalance ?? 10_000n * TUSD).toString() },
-    bonds: Object.fromEntries([cast.benchA, cast.benchB, cast.benchC].map((b) => [b.address, { junior: bond, senior: '0' }])),
+    bonds: {
+      ...Object.fromEntries([cast.benchA, cast.benchB, cast.benchC].map((b) => [b.address, { junior: bond, senior: '0' }])),
+      [cast.swiftline.address]: { junior: SWIFTLINE_BOND.toString(), senior: '0' },
+    },
   };
   const chain = new SimChain(genesis);
   const operators: RunningOperator[] = [];
@@ -141,7 +150,7 @@ export async function createDemoWorld(options: DemoWorldOptions = {}): Promise<D
   const store = new MemoryCiphertextStore();
   const random = rngSource(ctx.rng);
   const addressOf = (who: ActorName): Address =>
-    ({ atlas: cast.atlas, tidewater: cast.tidewater, 'bench-a': cast.benchA, 'bench-b': cast.benchB, 'bench-c': cast.benchC })[who].address;
+    ({ atlas: cast.atlas, tidewater: cast.tidewater, 'bench-a': cast.benchA, 'bench-b': cast.benchB, 'bench-c': cast.benchC, swiftline: cast.swiftline })[who].address;
 
   async function firstOperator<T>(path: string): Promise<T | undefined> {
     for (const url of urls.values()) {

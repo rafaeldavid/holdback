@@ -108,16 +108,19 @@ describe('adjudicator profiles (T-017)', () => {
   it('terms come from the registration, the terms file and SimChain; history is marked role-play', async () => {
     const w = await world();
     const r = await beatHold(w);
-    const views = adjudicatorProfiles(w, r);
+    const views = adjudicatorProfiles(r);
     expect(views.map((v) => v.name)).toEqual(['Clearfield Adjudication', 'Northgate Review', 'Atrium Appeals', 'Swiftline Verdicts']);
     expect(views.map((v) => v.selected)).toEqual(['primary', 'fallback', 'appeal', 'declined']);
     const [a, , c, s] = views;
     expect(a!.terms).toMatchObject({ fee: { token: 'tUSD', amount: (50n * TUSD).toString() }, panelSize: 3, minFamilies: 2, threshold: { numerator: 2, denominator: 3 }, appealWindowSec: 300 });
     // judgeWithinSec, fallbackWithinSec and appealDecideSec from fixtures/terms/clean-customers-2000.yaml.
-    expect(a!.terms.deadline).toEqual({ sec: 120, after: 'delivery' });
+    expect(a!.terms.deadline).toEqual({ sec: 120, after: 'deliverBy' });
     expect(views[1]!.terms.deadline).toEqual({ sec: 120, after: 'judgeBy' });
     expect(c!.terms.deadline).toEqual({ sec: 300, after: 'appeal' });
     expect(a!.terms.bond).toEqual({ token: 'tUSD', amount: (25_000n * TUSD).toString() });
+    // As the agents read it, before Clearfield reserved 2,000 for this job.
+    expect(a!.terms.freeBond).toEqual({ token: 'tUSD', amount: (25_000n * TUSD).toString() });
+    expect(w.chain.pool(w.cast.benchA.address).reserved).toBe(2_000n * TUSD);
     expect(c!.terms).toMatchObject({ appealPanelSize: 5, minFamiliesAppeal: 3 });
     expect(s!.terms).toMatchObject({ panelSize: 1, minFamilies: 1, feeRateBps: 100, bond: { token: 'tUSD', amount: (40_000n * TUSD).toString() } });
     for (const v of views) {
@@ -142,7 +145,7 @@ describe('beat 1: the agents choose the adjudicators before the offer (T-017)', 
       ['Atrium Appeals', true],
       ['Swiftline Verdicts', false],
     ]);
-    const swift = proposal.considered.find((x) => x.address === w.cast.swiftline.address)!;
+    const swift = proposal.considered.find((x) => x.address === w.cast.swiftline.address.toLowerCase())!;
     expect(swift.reasons.join(' | ')).toMatch(/1 model family.*panelPolicyMin\.minFamilies/);
     expect(swift.reasons.join(' | ')).toMatch(/panel of 1 judge.*panelPolicyMin\.panelSize/);
     // Its bond is real and covers the price: only the panel rules exclude it.
@@ -156,18 +159,18 @@ describe('beat 1: the agents choose the adjudicators before the offer (T-017)', 
     expect(r.negotiation.review.agreed).toBe(true);
     if (!r.negotiation.review.agreed) return;
     expect(r.negotiation.review.slate).toEqual(r.negotiation.proposal.slate);
-    expect(r.negotiation.review.slate).toEqual({
-      primary: r.commitment.adjudication.adjudicator,
-      fallback: r.commitment.adjudication.fallbackAdjudicator,
-      appeal: r.commitment.adjudication.appealAdjudicator,
-    });
+    // Registrations write addresses in lower case, commitments in EIP-55 checksum case: the same addresses.
+    const lc = (s: { primary: string; fallback: string; appeal: string }) => ({ primary: s.primary.toLowerCase(), fallback: s.fallback.toLowerCase(), appeal: s.appeal.toLowerCase() });
+    const a = r.commitment.adjudication;
+    expect(lc(r.negotiation.review.slate)).toEqual(lc({ primary: a.adjudicator, fallback: a.fallbackAdjudicator, appeal: a.appealAdjudicator }));
+    expect(lc(r.negotiation.review.slate)).toEqual(lc({ primary: w.cast.benchA.address, fallback: w.cast.benchB.address, appeal: w.cast.benchC.address }));
     expect(r.negotiation.review.checks.map((c) => c.passed.length)).toEqual([4, 4, 4]);
   });
 
   it('the rule, not the name, excludes: a compliant bench whose declared policy drops to one family is excluded the same way', async () => {
     const w = await world();
     const p = players(w);
-    const clearfield = p.directory.listings().find((l) => l.address === w.cast.benchA.address)!;
+    const clearfield = p.directory.listings().find((l) => l.address === w.cast.benchA.address.toLowerCase())!;
     const policy = { ...(clearfield.document.policy as object), minFamilies: 1 };
     const reasons = rulebookReasons({ ...clearfield, document: { ...clearfield.document, policy } }, { rulebook: w.club.rulebook, price: 2_000n * TUSD, mode: 'guaranteed_on_decision' });
     expect(reasons.join(' ')).toMatch(/1 model family.*panelPolicyMin\.minFamilies/);
