@@ -5,14 +5,16 @@
 - **Depends on:** T-006
 - **Paths this task may touch:** `apps/operator/`, `packages/sdk/`
 - **Human gate:** no
-- **Status:** todo
-- **Agent/session:** —
+- **Status:** in progress
+- **Agent/session:** implementer (Claude Opus 5.5), branch `t-007-operator-api`
 
 ## Intent
 
 Expose the REST API in `docs/api.md` on top of `Settlement`, and an SDK that fails over across operators and falls back to direct submission.
 
-Restate this in your own words in this section before writing code.
+Restated (implementer): an operator node is a thin HTTP relay over the `Settlement` interface. It turns each mutating request into the signed submissions T-006 defined, adds conveniences (idempotent replay, request IDs, version header, page envelope, dry run, signed receipts, reads, an event stream, status) and never adds authority: it authors no message, and anything it relays is equally valid when an agent submits it straight to SimChain. The SDK is the agent's side: typed calls, an ordered operator list it fails over across (one capped `Retry-After` wait), and the escape hatch that submits the same messages under the same idempotency keys directly to the settlement layer, so a call one operator half-relayed completes and never doubles. Two operators share one SimChain in tests; one refuses, one is offline, and the deal still settles.
+
+Non-goals: run-time registration of clubs, agents, members and adjudicators (SimChain reads them from genesis; the GET reads serve genesis), quotes, webhooks, read tokens and private disclosure levels (Phase 2), disputes (Phase 4), the MCP wrapper, OpenAPI (T-015), persistence across operator restarts. Honest parties until the demo works; edge cases go to `docs/backlog.md`.
 
 ## Context
 
