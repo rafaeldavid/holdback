@@ -2,7 +2,7 @@
 import { canonicalJson } from '@holdback/core';
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import type { JudgeProvider, JudgeRequest } from '../pipeline.js';
+import type { JudgeRequest } from '../pipeline.js';
 import { parseVerdict } from '../verdict.js';
 import { fakeProvider, honestVerdict } from './fake.js';
 import { recordedProvider, recorder, type JudgeRecording } from './recorded.js';

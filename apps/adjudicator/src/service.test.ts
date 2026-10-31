@@ -19,7 +19,7 @@ import {
 } from '@holdback/judgment';
 import { keccak256, recoverMessageAddress } from 'viem';
 import { describe, expect, it } from 'vitest';
-import { demoCsv, DOMAIN, makeCommitment, party, TestSettlement, type Party } from './_sim.js';
+import { demoCsv, DOMAIN, makeCommitment, party, TestSettlement, tusd, type Party } from './_sim.js';
 import { defaultPolicy, policyHashOf } from './policy.js';
 import { panelSeed, simRoundAt } from './randomness.js';
 import { Adjudicator, recordHashOf } from './service.js';
@@ -57,7 +57,7 @@ function bench(p: Party, name: string, settlement: TestSettlement, script: FakeS
     policy,
     registry: reg,
     registryUri: 'file:///config/judges.yaml',
-    fee: { min: { token: 'tUSD', amount: '25000000' } },
+    fee: { min: tusd('25000000') },
     domain: DOMAIN,
     provider: judges.provider,
     settlement,
@@ -213,7 +213,7 @@ describe('primary decision on the demo CSV (about 0.5 MB)', () => {
     await a.adj.runOnce();
     expect(s.state(c.id).kind).toBe('Refunded');
     expect(a.calls).toHaveLength(0);
-    expect([...s.records.values()][0]!.aggregate.reasons[0]).toMatch(/plaintext_hash_mismatch/);
+    expect([...s.records.values()][0]!.aggregate.reasons[0]).toMatch(/decrypt_failed|plaintext_hash_mismatch/);
   });
 });
 

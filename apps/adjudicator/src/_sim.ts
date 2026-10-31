@@ -9,7 +9,9 @@ import {
   problem,
   step,
   termsOf,
+  tokenAmount,
   verifyMessage,
+  type TokenAmount,
   err,
   ok,
   type AdjudicatorAcceptance,
@@ -38,6 +40,12 @@ export const DOMAIN = holdbackDomain(31337);
 export const SIM_SEED: Hex32 = `0x${'5e'.repeat(32)}`;
 export const T0 = '2026-11-01T09:00:00Z';
 
+export function tusd(amount: string | bigint): TokenAmount {
+  const r = tokenAmount('tUSD', amount);
+  if (!r.ok) throw new Error('bad amount');
+  return r.value;
+}
+
 export interface Party {
   key: `0x${string}`;
   address: Address;
@@ -60,7 +68,10 @@ export interface CommitmentOver {
   seller: Party;
 }
 export function makeCommitment(o: CommitmentOver): Commitment {
-  const { id: _id, signatures: _s, adjudicatorAcceptance: _a, ...rest } = EXAMPLE;
+  const rest: Omit<Commitment, 'id' | 'signatures' | 'adjudicatorAcceptance'> & Partial<Commitment> = { ...EXAMPLE };
+  delete rest.id;
+  delete rest.signatures;
+  delete rest.adjudicatorAcceptance;
   const terms = {
     ...rest,
     buyer: o.buyer.address,
@@ -130,7 +141,7 @@ export class TestSettlement implements AdjudicatorSettlement {
   fund(id: Hex32) {
     const c = this.get(id);
     if (c.state.kind !== 'AcceptedByAdjudicator') throw new Error(`fund in ${c.state.kind}`);
-    const amount = { token: c.state.terms.price.token, amount: String(BigInt(c.state.terms.price.amount) + BigInt(c.state.terms.adjudication.fee.amount)) };
+    const amount = tusd(BigInt(c.state.terms.price.amount) + BigInt(c.state.terms.adjudication.fee.amount));
     c.state = { kind: 'Held', id, terms: c.state.terms, acceptance: c.state.acceptance, hold: { amount, funding: {} as FundingAuthorization, heldAt: this.now() } };
   }
 
@@ -179,7 +190,7 @@ export class TestSettlement implements AdjudicatorSettlement {
   async offers(adj: Hex32): Promise<OfferTask[]> {
     return [...this.cases.values()]
       .filter((c) => c.state.kind === 'Offered' && c.commitment.adjudication.adjudicator.toLowerCase() === adj.toLowerCase())
-      .map((c) => ({ commitment: c.commitment, unencumberedBond: { token: 'tUSD', amount: '100000000000' } }));
+      .map((c) => ({ commitment: c.commitment, unencumberedBond: tusd('100000000000') }));
   }
 
   async tasks(adj: Hex32): Promise<DecisionTask[]> {
@@ -260,7 +271,7 @@ export class TestSettlement implements AdjudicatorSettlement {
     if (!(await verifyMessage(DOMAIN, m, m.adjudicator))) return err(problem('invalid_signature', 'bad signature'));
     const c = this.get(m.commitmentId);
     if (m.type === 'AdjudicatorAcceptance') {
-      const r = this.apply(c, { type: 'adjudicator_accept', at: this.now(), message: m, unencumberedBond: { token: 'tUSD', amount: '100000000000' } });
+      const r = this.apply(c, { type: 'adjudicator_accept', at: this.now(), message: m, unencumberedBond: tusd('100000000000') });
       if (r.ok) this.submitted.push(m);
       return r;
     }
@@ -274,7 +285,7 @@ export class TestSettlement implements AdjudicatorSettlement {
     const r = this.apply(c, { type: 'decide', at: this.now(), message: m });
     if (r.ok) {
       this.submitted.push(m);
-      if (m.role === 'appeal') c.appealOpen = undefined;
+      if (m.role === 'appeal') delete c.appealOpen;
     }
     return r;
   }
