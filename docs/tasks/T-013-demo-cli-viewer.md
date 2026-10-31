@@ -5,7 +5,7 @@
 - **Depends on:** all Phase 1 tasks
 - **Paths this task may touch:** `apps/demo/`
 - **Human gate:** yes (dry run with Rafa)
-- **Status:** in progress (merged in PR 46; dry run with Rafa open; beat 7 and beat 6 injection half still stand-in)
+- **Status:** in progress (merged in PR 46; dry run with Rafa open; beats 6a and 7 on SimChain since T-018)
 - **Agent/session:** implementer; branch `t-013-demo-cli`
 
 ## Intent
@@ -99,11 +99,11 @@ Not done; Rafa runs it. Prepared:
    | Question | Expected answer | Where |
    | --- | --- | --- |
    | Who held the money? | The escrow on SimChain: "Ledger (Atlas Research) signs and holds 2,050 tUSD in escrow in one call, relayed by op-1. Neither party can move it alone." The balances show Escrow 2,050 tUSD. | `beat-1.md`, Timeline and Balances |
-   | Who decided? | Clearfield Adjudication (Bench A), which both agents named in the offer, on a panel of three pinned judges from two families: "Clearfield Adjudication (Bench A) signs the primary decision: accept, submitted directly to SimChain (no operator)." In beat 7 (stand-in), Northgate Review decides as fallback. | `beat-3.md`, `beat-1.md` (offer), `beat-7.md` |
-   | What stopped the injection? | Stand-in half: the screen flagged an encoded instruction, so the panel could not auto-accept; Clearfield escalated to Atrium Appeals, whose five judges from three families all failed it; Ledger was refunded. SimChain half: the hidden tag characters were recorded in the signed judgment record, and Ledger's SDK stripped all 111 before Ledger read the file. | `beat-6.md` |
-   | What happened when op-1 refused? | Stand-in: "Ledger's SDK got 1 refusal (HTTP 503) and failed over to op-2 within 9 ms; Tide-7 later submits its signed delivery directly to SimChain, so no operator is required." The commitment settled. | `beat-7.md`, Neutrality events |
+   | Who decided? | Clearfield Adjudication (Bench A), which both agents named in the offer, on a panel of three pinned judges from two families: "Clearfield Adjudication (Bench A) signs the primary decision: accept, submitted directly to SimChain (no operator)." In beat 7, Northgate Review decides as fallback; in beat 6, Atrium Appeals decides the escalated case. | `beat-3.md`, `beat-1.md` (offer), `beat-7.md` |
+   | What stopped the injection? | Measured on SimChain since T-018. The base64 delivery: "The screen at Clearfield Adjudication (Bench A) flags 2 signals (encoded\_run, instruction\_phrase): decodable base64 run of 156 characters at line 4752 …"; Clearfield's three judges all passed it, yet "panel outcome: escalate"; "Clearfield Adjudication (Bench A) escalates to Atrium Appeals (Bench C) … the appeal panel seats 5 judges from 3 families"; Atrium's five judges (scripted verdicts) fail it and "Atrium Appeals (Bench C) signs the appeal decision: reject"; "Escrow refunds: 2,000 tUSD to Ledger". The hidden-tags delivery: the tag characters are in the signed judgment record, and Ledger's SDK stripped all 111 before Ledger read the file. | `beat-6.md` |
+   | What happened when op-1 refused? | Measured on SimChain since T-018: "op-1's own relay policy answered HTTP 403 … to 4 write calls during the job: the offer, the agree-and-fund call, the delivery, the fallback trigger"; the hold is "relayed by op-2"; op-2 then goes offline and the delivery is "submitted directly to SimChain (no operator)"; Clearfield stays silent, Ledger triggers the fallback, and Northgate Review releases 2,000 tUSD to Tide-7 with the key to Ledger. | `beat-7.md`, Neutrality events |
 
-   Questions 3 and 4 still rest on stand-in events until T-012's backlog adds injection deliverables, escalation and neutrality runners. If the reviewer reads the stand-in badge as "not real", record that here.
+   No transcript carries stand-in events since T-018. Beat 6's appeal verdicts are scripted, and the source note says so. If the reviewer reads "scripted verdicts" as "not real", record that here.
 
 3. Record whether each answer came from the transcript alone, and anything the reviewer misread, here.
 
