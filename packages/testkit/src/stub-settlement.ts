@@ -11,6 +11,7 @@ import {
   beaconRoundFor,
   canonicalKeccak,
   commitmentId as commitmentIdOf,
+  deliveryHash,
   holdbackDomain,
   panelSeed,
   problem,
@@ -39,10 +40,13 @@ import { keccak256, stringToBytes, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import type { SimContext } from './context.js';
 import { loadClubFile, loadTermsFile, termsFromTemplate, type TermsTemplate } from './fixture-files.js';
-import { stubJudgment, type JudgmentView } from './judgment-stub.js';
+import type { AdjudicatorPolicy } from '@holdback/core';
+import type { LoadedRegistry } from '@holdback/judgment';
+import { loadJudgeRegistry, policyHashOf, runnerPolicy } from './judges-config.js';
+import { runJudgment, type JudgmentView } from './judgment.js';
 import type { Outage, StepProblem } from './prefix.js';
 import type { JudgeProvider } from './recorded.js';
-import type { Scenario, Step } from './scenario.js';
+import type { Scenario, Step, Tamper } from './scenario.js';
 import { ScenarioError } from './scenario.js';
 import {
   SIM_CHAIN_ID,
@@ -50,9 +54,7 @@ import {
   STUB_CLUB_ID,
   STUB_DELIVERABLE,
   STUB_FEE,
-  STUB_POLICY_HASH,
   STUB_PRICE,
-  STUB_REGISTRY_HASH,
   STUB_RULEBOOK,
   TOKEN,
   tusd,
@@ -82,6 +84,7 @@ export interface LedgerEvent {
   step: number;
   type: SettlementEventType;
   hash: Hex32;
+  commitmentId?: Hex32;
 }
 
 export interface Receipt {
@@ -101,6 +104,8 @@ export interface StubRun {
   /** Account names in display order. */
   accounts: string[];
   commitment: { id: Hex32; terms: CommitmentTerms } | null;
+  /** Commitments 2 and up, when a scenario drives more than one. */
+  others: Array<{ n: number; id: Hex32; finalState: EscrowStateKind }>;
   rulebookHash: Hex32;
   /** Whether the scenario's club and terms files were loaded (true) or the built-in stubs stood in. */
   loaded: { club: boolean; terms: boolean };
@@ -120,6 +125,16 @@ export interface StubRun {
 }
 
 const ESCROW = 'escrow';
+const APPEAL_HOLD = 'appeal-hold';
+
+/** One commitment the scenario drives. */
+interface Slot {
+  terms: CommitmentTerms | null;
+  id: Hex32 | null;
+  seed: Hex32 | null;
+  delivery: { message: Delivery; plaintext: Uint8Array; source: string; contentKey: Hex32 } | null;
+  decision: Decision | null;
+}
 const GENESIS: Hex32 = `0x${'00'.repeat(32)}`;
 
 /** What the invariant checks read: the ledger after a run, independent of how it was produced. */
@@ -133,14 +148,24 @@ export interface LedgerView {
   /** The releasing decision carried the buyer's sealed key. */
   keyForBuyer: boolean;
   replayOk: boolean;
+  /**
+   * With more than one commitment: the escrow left in the commitments that reached a terminal state. Absent,
+   * the escrow balance and finalState stand for the single commitment.
+   */
+  escrowOfSettled?: { settled: boolean; amount: bigint };
 }
+
+const SETTLED_STATES: readonly EscrowStateKind[] = ['Released', 'Refunded', 'Settled'];
 
 /** The ledger invariants every snapshot reports. Pure, so tests can feed it deliberately broken ledgers. */
 export function checkInvariants(v: LedgerView): Invariant[] {
   const values = Object.values(v.balances);
   const total = values.reduce((a, b) => a + b, 0n);
-  const settlements = v.events.filter((e) => e.type.startsWith('settlement.'));
-  const settled = v.finalState === 'Released' || v.finalState === 'Refunded';
+  // Settled once per commitment: events without a commitment ID count as one commitment.
+  const perCommitment = new Map<string, number>();
+  for (const e of v.events) if (e.type.startsWith('settlement.') || e.type === 'commitment.settled') perCommitment.set(e.commitmentId ?? '', (perCommitment.get(e.commitmentId ?? '') ?? 0) + 1);
+  const settled = v.escrowOfSettled ? v.escrowOfSettled.settled : v.finalState !== null && SETTLED_STATES.includes(v.finalState);
+  const leftInEscrow = v.escrowOfSettled ? v.escrowOfSettled.amount : (v.balances[ESCROW] ?? 0n);
   const released = v.events.find((e) => e.type === 'settlement.released');
   // Envelopes for adjudicators are released too (ADR-0020), so look for a key release in the paying step.
   const key = released && v.events.find((e) => e.type === 'key.released' && e.step === released.step);
@@ -148,8 +173,8 @@ export function checkInvariants(v: LedgerView): Invariant[] {
   return [
     { name: 'conservation', ok: total === v.faucetTotal },
     { name: 'no negative balances', ok: values.every((x) => x >= 0n) },
-    { name: 'settled once', ok: settlements.length <= 1 },
-    settled ? { name: 'escrow empty after settlement', ok: (v.balances[ESCROW] ?? 0n) === 0n } : { name: 'escrow empty after settlement', ok: true, note: 'n/a' },
+    { name: 'settled once', ok: [...perCommitment.values()].every((n) => n <= 1) },
+    settled ? { name: 'escrow empty after settlement', ok: leftInEscrow === 0n } : { name: 'escrow empty after settlement', ok: true, note: 'n/a' },
     v.releasedByDecision
       ? { name: 'key released atomically with payment', ok: !!released && !!key && released.step === key.step && v.keyForBuyer }
       : { name: 'key released atomically with payment', ok: true, note: 'n/a' },
@@ -171,11 +196,14 @@ function testKey(seed: number, name: string): Hex {
   return keccak256(stringToBytes(`holdback/testkit/v0/${seed}/${name}`));
 }
 
-const TIMEOUTS: Record<'trigger_fallback' | 'trigger_default' | 'apply_default_outcome' | 'expire', TimeoutKind> = {
+type TimeoutStep = 'trigger_fallback' | 'trigger_default' | 'apply_default_outcome' | 'expire' | 'expire_appeal';
+
+const TIMEOUTS: Record<TimeoutStep, TimeoutKind> = {
   trigger_fallback: 'fallback',
   trigger_default: 'default',
   apply_default_outcome: 'apply_default',
   expire: 'expire_offer',
+  expire_appeal: 'appeal_expiry',
 };
 
 const wholeSecond = (ts: Timestamp): Timestamp => new Date(Math.floor(Date.parse(ts) / 1000) * 1000).toISOString().replace('.000Z', 'Z');
@@ -202,13 +230,20 @@ export class StubSettlement {
   private template: TermsTemplate | null = null;
   private chain: SimChain | null = null;
   private genesis: Genesis | null = null;
-  private terms: CommitmentTerms | null = null;
-  private id: Hex32 | null = null;
-  private seed: Hex32 | null = null;
-  private delivery: { message: Delivery; plaintext: Uint8Array; source: string; contentKey: Hex32 } | null = null;
-  private decision: Decision | null = null;
+  /** Commitments by number (a step's `commitment:`, default 1). Steps act on the current one. */
+  private readonly slots = new Map<number, Slot>();
+  private current = 1;
+  /** One judgment per commitment|role|attempt: a panel is never re-rolled. */
+  private readonly judged = new Map<string, JudgmentView>();
+  private registryCache: LoadedRegistry | null = null;
   private stepNo = 0;
   private signerOverride: string | undefined;
+  /** The current step's deliberate message faults (scenario `tamper:`). */
+  private tampers = new Set<Tamper>();
+  /** The faults the current step actually put into a signed message. */
+  private applied = new Set<Tamper>();
+  /** Each signer's last nonce, per scope: offers' terms nonces, and every other signed message's. */
+  private readonly lastNonce = new Map<string, Hex32>();
 
   constructor(
     private readonly ctx: SimContext,
@@ -294,16 +329,85 @@ export class StubSettlement {
     for (const s of scenario.steps) {
       this.stepNo++;
       this.signerOverride = 'signer' in s ? s.signer : undefined;
+      this.current = s.commitment ?? 1;
+      this.tampers = new Set(s.tamper ?? []);
+      this.applied = new Set();
       await this.runStep(s);
+      // A fault the step never put into a signed message would let an error. fixture pass for the wrong reason.
+      const unapplied = [...this.tampers].filter((t) => !this.applied.has(t));
+      if (unapplied.length) {
+        throw new ScenarioError(
+          `steps[${this.stepNo}].${s.kind}: tamper ${unapplied.join(', ')} was never applied (the step signed no such message${unapplied.includes('reuse_nonce') ? ', or the signer had no earlier nonce to reuse' : ''})`,
+        );
+      }
     }
+    this.current = 1;
     return this.result();
   }
 
   // ---- helpers -------------------------------------------------------------------------------
 
+  private get slot(): Slot {
+    let s = this.slots.get(this.current);
+    if (!s) {
+      s = { terms: null, id: null, seed: null, delivery: null, decision: null };
+      this.slots.set(this.current, s);
+    }
+    return s;
+  }
+  private get terms(): CommitmentTerms | null {
+    return this.slot.terms;
+  }
+  private set terms(v: CommitmentTerms | null) {
+    this.slot.terms = v;
+  }
+  private get id(): Hex32 | null {
+    return this.slot.id;
+  }
+  private set id(v: Hex32 | null) {
+    this.slot.id = v;
+  }
+  private get seed(): Hex32 | null {
+    return this.slot.seed;
+  }
+  private set seed(v: Hex32 | null) {
+    this.slot.seed = v;
+  }
+  private get delivery(): Slot['delivery'] {
+    return this.slot.delivery;
+  }
+  private set delivery(v: Slot['delivery']) {
+    this.slot.delivery = v;
+  }
+  private get decision(): Decision | null {
+    return this.slot.decision;
+  }
+  private set decision(v: Decision | null) {
+    this.slot.decision = v;
+  }
+
+  /** Commitment IDs in commitment-number order. */
+  private ids(): Hex32[] {
+    return [...this.slots.entries()]
+      .sort(([a], [b]) => a - b)
+      .map(([, s]) => s.id)
+      .filter((x): x is Hex32 => x !== null);
+  }
+
   private get sim(): SimChain {
     if (!this.chain) throw new Error('SimChain not started');
     return this.chain;
+  }
+
+  /** config/judges.yaml, loaded on first use. */
+  private get registry(): LoadedRegistry {
+    this.registryCache ??= loadJudgeRegistry(this.root);
+    return this.registryCache;
+  }
+
+  /** The adjudicator policy the commitment binds, by its policyId. */
+  private policyFor(terms: CommitmentTerms): AdjudicatorPolicy {
+    return runnerPolicy(terms.adjudication.policyId);
   }
 
   private get state(): EscrowState | null {
@@ -339,7 +443,9 @@ export class StubSettlement {
     for (const a of this.actors) {
       out[a.name] = (ledger[account.party(a.address)] ?? 0n) + (ledger[account.junior(a.address)] ?? 0n) + (ledger[account.senior(a.address)] ?? 0n);
     }
-    out[ESCROW] = this.id ? (ledger[account.escrow(this.id)] ?? 0n) : 0n;
+    out[ESCROW] = this.ids().reduce((a, id) => a + (ledger[account.escrow(id)] ?? 0n), 0n);
+    // An appeal's bond and fee are held apart from the escrow until the appeal is decided or expires (D21).
+    out[APPEAL_HOLD] = this.ids().reduce((a, id) => a + (ledger[account.appealBond(id)] ?? 0n) + (ledger[account.appealFee(id)] ?? 0n), 0n);
     return out;
   }
 
@@ -348,7 +454,7 @@ export class StubSettlement {
   }
 
   private row(actor: string, call: string, via: string, result: string, detail?: string): void {
-    const r: TimelineRow = { t: this.ctx.clock.elapsedMs(), step: this.stepNo, actor, call, via, result, state: this.kind() };
+    const r: TimelineRow = { t: this.ctx.clock.elapsedMs(), step: this.stepNo, actor, call: this.label(call), via, result, state: this.kind() };
     if (detail !== undefined) r.detail = detail;
     this.rows.push(r);
     // Every call takes one simulated second, so messages stay on whole-second timestamps.
@@ -398,7 +504,11 @@ export class StubSettlement {
       case 'agree_and_fund':
       case 'reclaim':
       case 'verify_key_release':
+      case 'early_accept':
+      case 'mutual_settle':
         return { actor: parties.buyer, via: s.via };
+      case 'appeal':
+        return { actor: parties[s.by], via: s.via };
       case 'adjudicator_accept':
         return { actor: this.scenario.adjudicators.primary, via: s.via };
       case 'judge':
@@ -409,6 +519,7 @@ export class StubSettlement {
       case 'trigger_default':
       case 'apply_default_outcome':
       case 'expire':
+      case 'expire_appeal':
         return { actor: 'anyone', via: s.via };
       default:
         return null;
@@ -423,6 +534,12 @@ export class StubSettlement {
     if (this.offline.has(party.actor)) {
       this.outages.push({ step: this.stepNo, actor: party.actor, kind: 'offline' });
       this.row(party.actor, call, party.via, 'offline (no call)');
+      return true;
+    }
+    // An operator that went offline relays nothing; the caller can retry through another operator or directly.
+    if (party.via !== 'direct' && this.offline.has(party.via)) {
+      this.outages.push({ step: this.stepNo, actor: party.via, kind: 'offline' });
+      this.row(party.actor, call, party.via, `${party.via} is offline (not relayed)`);
       return true;
     }
     if (this.refusingOperators.has(party.via)) {
@@ -444,7 +561,13 @@ export class StubSettlement {
       case 'agree_and_fund':
         return this.agreeAndFund(parties.buyer, s.via);
       case 'deliver':
-        return this.deliver(parties.seller, s.via, s.file, s.stubBytes === true);
+        return this.deliver(parties.seller, s.via, s.file, s.stubBytes === true, s.attempt ?? 1);
+      case 'early_accept':
+        return this.earlyAccept(parties.buyer, s.via);
+      case 'appeal':
+        return this.appeal(s.by, s.grounds, s.bond, s.via);
+      case 'mutual_settle':
+        return this.mutualSettle(s.payouts, s.releaseKey, s.via);
       case 'advance_clock':
         this.ctx.clock.advanceSeconds(s.seconds);
         return;
@@ -466,6 +589,7 @@ export class StubSettlement {
       case 'trigger_default':
       case 'apply_default_outcome':
       case 'expire':
+      case 'expire_appeal':
         return this.timeout(s.kind, s.via);
     }
   }
@@ -482,10 +606,10 @@ export class StubSettlement {
           adjudicator: this.address(adjudicators.primary),
           fallbackAdjudicator: this.address(adjudicators.fallback),
           appealAdjudicator: this.address(adjudicators.appeal),
-          registryHash: STUB_REGISTRY_HASH,
-          policyHash: STUB_POLICY_HASH,
+          registryHash: this.registry.hash,
+          policyHash: policyHashOf(runnerPolicy(this.template.adjudication.policyId)),
           buyerEncryptionPublicKey: b64url(this.ctx.rng.hex32()),
-          nonce: this.ctx.rng.hex32(),
+          nonce: this.nonceFor(seller, 'terms'),
           createdAt: wholeSecond(now),
         })
       : this.stubTerms(seller, now);
@@ -516,10 +640,10 @@ export class StubSettlement {
         adjudicator: this.address(adjudicators.primary),
         fallbackAdjudicator: this.address(adjudicators.fallback),
         appealAdjudicator: this.address(adjudicators.appeal),
-        policyId: `${adjudicators.primary}/stub-p1`,
+        policyId: `${adjudicators.primary}/p1`,
         fee: STUB_FEE,
-        registryHash: STUB_REGISTRY_HASH,
-        policyHash: STUB_POLICY_HASH,
+        registryHash: this.registry.hash,
+        policyHash: policyHashOf(runnerPolicy(`${adjudicators.primary}/p1`)),
       },
       timing: {
         offerExpiresAt: plus(now, 900),
@@ -535,7 +659,7 @@ export class StubSettlement {
       remedy: { onReject: 'full_refund' },
       disclosure: { level: 'public' },
       buyerEncryptionPublicKey: b64url(this.ctx.rng.hex32()),
-      nonce: this.ctx.rng.hex32(),
+      nonce: this.nonceFor(seller, 'terms'),
       createdAt: now,
     };
   }
@@ -552,14 +676,14 @@ export class StubSettlement {
     const seed = this.ctx.rng.hex32();
     const message = await this.sign(name, {
       type: 'AdjudicatorAcceptance',
-      commitmentId: c.id,
+      commitmentId: this.tamperable('wrong_commitment_id', c.id),
       adjudicator: this.address(name),
-      seedCommitment: keccak256(seed),
-      policyHash: c.terms.adjudication.policyHash,
-      registryHash: c.terms.adjudication.registryHash,
+      seedCommitment: this.tamperable('wrong_seed_commitment', keccak256(seed)),
+      policyHash: this.tamperable('wrong_policy_hash', c.terms.adjudication.policyHash),
+      registryHash: this.tamperable('wrong_registry_hash', c.terms.adjudication.registryHash),
       fee: c.terms.adjudication.fee,
       bondReserved: c.terms.price,
-      nonce: this.ctx.rng.hex32(),
+      nonce: this.nonceFor(name, 'msg'),
       expiresAt: c.terms.timing.offerExpiresAt,
     } as const);
     if (await this.submit(name, call, via, { kind: 'adjudicator_accept', message })) {
@@ -571,16 +695,20 @@ export class StubSettlement {
 
   private async agreeAndFund(buyer: string, via: string): Promise<void> {
     if (this.state?.kind === 'Offered') {
+      // The implied acceptance is the adjudicator's own, honest message: no impersonation, no tampering.
       const override = this.signerOverride;
+      const tampers = this.tampers;
       this.signerOverride = undefined;
+      this.tampers = new Set();
       await this.adjudicatorAccept(via, true);
       this.signerOverride = override;
+      this.tampers = tampers;
     }
     const c = this.needCommitment(buyer, 'agree', via);
     if (!c) return;
     const buyerAddress = this.address(buyer);
 
-    const agree = await this.sign(buyer, { type: 'Agree', commitmentId: c.id, buyer: buyerAddress, nonce: this.ctx.rng.hex32(), expiresAt: c.terms.timing.offerExpiresAt } as const);
+    const agree = await this.sign(buyer, { type: 'Agree', commitmentId: c.id, buyer: buyerAddress, nonce: this.nonceFor(buyer, 'msg'), expiresAt: c.terms.timing.offerExpiresAt } as const);
     if (!(await this.submit(buyer, 'agree', via, { kind: 'agree', message: agree }))) return;
     this.receipt(via, 'agree');
     this.row(buyer, 'agree', via, 'ok');
@@ -595,7 +723,7 @@ export class StubSettlement {
       token: TOKEN,
       validAfter: c.terms.createdAt,
       validBefore: c.terms.timing.fundBy,
-      nonce: this.ctx.rng.hex32(),
+      nonce: this.nonceFor(buyer, 'msg'),
       expiresAt: c.terms.timing.fundBy,
     } as const);
     if (!(await this.submit(buyer, 'fund', via, { kind: 'fund', message: funding }))) return;
@@ -604,7 +732,7 @@ export class StubSettlement {
     this.balanceRows.push({ after: 'fund', balances: this.snapshotBalances() });
   }
 
-  private async deliver(seller: string, via: string, file: string, stubBytes: boolean): Promise<void> {
+  private async deliver(seller: string, via: string, file: string, stubBytes: boolean, attempt: number): Promise<void> {
     const c = this.needCommitment(seller, 'deliver', via);
     if (!c) return;
     const path = join(this.root, 'fixtures', file);
@@ -624,7 +752,7 @@ export class StubSettlement {
     const recipients = [adjudication.adjudicator, adjudication.fallbackAdjudicator, adjudication.appealAdjudicator, c.terms.buyer];
     const body: Omit<Delivery, 'signature'> = {
       commitmentId: c.id,
-      attempt: 1,
+      attempt,
       ciphertext: { uri: `sim://blobs/${this.ctx.ids.next('blob')}`, sha256: sha256(`ciphertext:${plaintextSha256}`), bytes: plaintext.length + 16, cipher: 'aes-256-gcm' },
       plaintextSha256,
       plaintextMime: c.terms.deliverable.format,
@@ -633,10 +761,11 @@ export class StubSettlement {
     };
     const signed = await this.sign(seller, { ...body, type: 'Delivery' as const });
     const message: Delivery = { ...body, signature: signed.signature };
-    if (!(await this.submit(seller, 'deliver', via, { kind: 'deliver', delivery: message }))) return;
+    const call = `deliver (attempt ${attempt})`;
+    if (!(await this.submit(seller, call, via, { kind: 'deliver', delivery: message }))) return;
     this.delivery = { message, plaintext, source, contentKey };
     this.receipt(via, 'deliver');
-    this.row(seller, 'deliver (attempt 1)', via, 'ok');
+    this.row(seller, call, via, 'ok');
   }
 
   private async judge(name: string): Promise<void> {
@@ -654,27 +783,46 @@ export class StubSettlement {
     this.sim.advanceTo(this.ctx.clock.now());
     const round = role === 'primary' ? null : beaconRoundFor(c.state, role);
     const beaconValue = round === null ? null : this.sim.beacon(round);
-    const seed = role === 'primary' ? this.seed : beaconValue ? panelSeed(c.id, role, d.message.attempt, beaconValue) : this.ctx.rng.hex32();
-    const view = stubJudgment(
-      {
-        scenario: this.scenario.name,
-        adjudicator: name,
-        role,
-        terms: c.terms,
-        commitmentId: c.id,
-        attempt: d.message.attempt,
-        plaintextSha256: d.message.plaintextSha256,
-        plaintextVerified: sha256(d.plaintext) === d.message.plaintextSha256,
-        mime: d.message.plaintextMime,
-        bytes: d.plaintext.length,
-        source: d.source,
-        seed,
-        seedCommitment: role === 'primary' ? keccak256(this.seed) : null,
-      },
-      this.judges,
-    );
-    this.judgments.push(view);
-    const outcome = view.aggregate.decision;
+    // Like the adjudicator service, refuse before any judge is called: a role with no turn has no round, and
+    // an unpublished round has no seed (no substitute source, ADR-0018).
+    if (role !== 'primary' && round === null) return this.refuse(name, call, 'direct', problem('not_your_turn', `the ${role} adjudicator has no turn in ${c.state.kind}`));
+    if (role !== 'primary' && !beaconValue) return this.refuse(name, call, 'direct', problem('seed_mismatch', `beacon round ${round} is not published yet; no panel is drawn without it`));
+    const seed = role === 'primary' ? this.seed : panelSeed(c.id, role, d.message.attempt, beaconValue!);
+    const key = `${c.id}|${role}|${d.message.attempt}`;
+    let view = this.judged.get(key);
+    if (!view) {
+      const st = c.state;
+      const firstOutcome =
+        role === 'appeal' && (st.kind === 'Released' || st.kind === 'Refunded') && st.via.kind === 'first_instance' ? (st.kind === 'Released' ? 'accept' : 'reject') : undefined;
+      const judged = await runJudgment(
+        {
+          scenario: this.scenario.name,
+          adjudicator: name,
+          adjudicatorAddress: actor.address,
+          role,
+          terms: c.terms,
+          commitmentId: c.id,
+          delivery: d.message,
+          plaintext: d.plaintext,
+          source: d.source,
+          seed,
+          seedCommitment: role === 'primary' ? keccak256(this.seed) : null,
+          beaconRound: round,
+          registry: this.registry,
+          policy: this.policyFor(c.terms),
+          ...(firstOutcome ? { firstOutcome } : {}),
+        },
+        this.judges,
+      );
+      if (!judged.ok) return this.refuse(name, call, 'direct', judged.error);
+      view = judged.value;
+      this.judged.set(key, view);
+      this.judgments.push(view);
+    }
+    const outcome = view.outcome;
+    if (outcome === null) {
+      return this.row(name, `${call}: none`, 'direct', 'no decision: the appeal panel was inconclusive, so the default outcome applies');
+    }
     const envelope = (recipient: Address) => ({ scheme: 'x25519-xsalsa20poly1305' as const, ciphertext: b64url(canonicalKeccak({ contentKey: d.contentKey, recipient })) });
     const unsigned = {
       type: 'Decision',
@@ -683,12 +831,13 @@ export class StubSettlement {
       adjudicator: actor.address,
       role,
       outcome,
-      seed,
-      policyHash: c.terms.adjudication.policyHash,
-      registryHash: c.terms.adjudication.registryHash,
+      seed: this.tamperable('wrong_seed', seed),
+      policyHash: this.tamperable('wrong_policy_hash', c.terms.adjudication.policyHash),
+      registryHash: this.tamperable('wrong_registry_hash', c.terms.adjudication.registryHash),
       judgmentRecordHash: canonicalKeccak(view),
-      nonce: this.ctx.rng.hex32(),
-      expiresAt: role === 'fallback' ? c.terms.timing.fallbackBy : c.terms.timing.judgeBy,
+      nonce: this.nonceFor(name, 'msg'),
+      expiresAt: this.decisionDeadline(c.state, role),
+      ...(round !== null && beaconValue ? { beacon: { source: 'sim' as const, round, value: beaconValue } } : {}),
       ...(outcome === 'accept' ? { keyForBuyer: envelope(c.terms.buyer) } : {}),
       // ADR-0020: an escalation carries the appeal adjudicator's content key.
       ...(outcome === 'escalate' ? { encryptedKeys: [{ recipient: c.terms.adjudication.appealAdjudicator, ...envelope(c.terms.adjudication.appealAdjudicator) }] } : {}),
@@ -701,8 +850,17 @@ export class StubSettlement {
     if (next.kind === 'Released' || next.kind === 'Refunded') this.balanceRows.push({ after: `decide: ${outcome}`, balances: this.snapshotBalances() });
   }
 
+  /** The deadline a role's decision answers to: judgeBy, fallbackBy, or the appeal's appealDecideBy. */
+  private decisionDeadline(s: EscrowState, role: 'primary' | 'fallback' | 'appeal'): Timestamp {
+    if (role === 'primary') return s.terms.timing.judgeBy;
+    if (role === 'fallback') return s.terms.timing.fallbackBy;
+    if (s.kind === 'Escalated') return s.escalation.appealDecideBy;
+    if ((s.kind === 'Released' || s.kind === 'Refunded') && s.via.kind === 'first_instance' && s.via.appeal.kind !== 'expired' && 'appealDecideBy' in s.via.appeal) return s.via.appeal.appealDecideBy;
+    return s.terms.timing.judgeBy;
+  }
+
   /** Permissionless timeouts. Each records an outage for the actor it acts in place of. */
-  private async timeout(kind: 'trigger_fallback' | 'trigger_default' | 'apply_default_outcome' | 'expire', via: string): Promise<void> {
+  private async timeout(kind: TimeoutStep, via: string): Promise<void> {
     const c = this.needCommitment('anyone', kind, via);
     if (!c) return;
     const { parties, adjudicators } = this.scenario;
@@ -723,13 +881,13 @@ export class StubSettlement {
     if (bypassed) this.outages.push({ step: this.stepNo, actor: bypassed, kind: 'timeout' });
     this.receipt(via, kind);
     this.row('anyone', kind, via, 'ok');
-    if (kind === 'apply_default_outcome') this.balanceRows.push({ after: 'apply_default_outcome', balances: this.snapshotBalances() });
+    if (kind === 'apply_default_outcome' || kind === 'expire_appeal') this.balanceRows.push({ after: this.label(kind), balances: this.snapshotBalances() });
   }
 
   private settle(who: string, via: string): void {
     const c = this.needCommitment(who, 'settle', via);
     if (!c) return;
-    if (c.state.kind === 'Released' || c.state.kind === 'Refunded') {
+    if (c.state.kind === 'Released' || c.state.kind === 'Refunded' || c.state.kind === 'Settled') {
       this.receipt(via, 'settle');
       return this.row(who, 'settle', via, 'ok (no-op: guaranteed_on_decision settled at the decision)');
     }
@@ -740,10 +898,110 @@ export class StubSettlement {
     const c = this.needCommitment(buyer, 'reclaim', via);
     if (!c) return;
     if (!(await this.submit(buyer, 'reclaim', via, { kind: 'trigger', commitmentId: c.id, timeout: 'reclaim' }))) return;
-    this.outages.push({ step: this.stepNo, actor: this.scenario.parties.seller, kind: 'timeout' });
+    this.outages.push({ step: this.stepNo, actor: this.scenario.parties.seller, kind: 'timeout', reclaim: true });
     this.receipt(via, 'reclaim');
     this.row(buyer, 'reclaim', via, 'ok');
     this.balanceRows.push({ after: 'reclaim', balances: this.snapshotBalances() });
+  }
+
+  /** The buyer accepts the delivery before any decision: price to the seller, fee back, key to the buyer. */
+  private async earlyAccept(buyer: string, via: string): Promise<void> {
+    const call = 'early_accept';
+    const c = this.needCommitment(buyer, call, via);
+    if (!c) return;
+    const attempt = this.delivery?.message.attempt ?? 1;
+    const message = await this.sign(buyer, {
+      type: 'EarlyAccept',
+      commitmentId: c.id,
+      buyer: this.address(buyer),
+      attempt,
+      nonce: this.nonceFor(buyer, 'msg'),
+      expiresAt: c.terms.timing.judgeBy,
+    } as const);
+    if (!(await this.submit(buyer, call, via, { kind: 'early_accept', message }))) return;
+    this.receipt(via, call);
+    this.row(buyer, call, via, 'ok');
+    this.balanceRows.push({ after: this.label(call), balances: this.snapshotBalances() });
+  }
+
+  /** A party appeals a first-instance decision with the rulebook's bond (or the step's) and the appeal fee. */
+  private async appeal(by: 'buyer' | 'seller', grounds: string, bondOverride: string | undefined, via: string): Promise<void> {
+    const who = this.scenario.parties[by];
+    const call = `appeal (${by})`;
+    const c = this.needCommitment(who, call, via);
+    if (!c) return;
+    const rate = BigInt(this.club!.rulebook.appealBondRateBps);
+    // ADR-0022 rule 1: a requirement rounds up.
+    const required = (BigInt(c.terms.price.amount) * rate + 9_999n) / 10_000n;
+    const body = {
+      commitmentId: c.id,
+      appellant: by,
+      appellantAddress: this.address(who),
+      grounds,
+      bond: tusd(bondOverride ?? required.toString()),
+      filedAt: wholeSecond(this.ctx.clock.now()),
+    };
+    const signed = await this.sign(who, { ...body, type: 'Appeal' as const });
+    if (!(await this.submit(who, call, via, { kind: 'appeal', appeal: { ...body, signature: signed.signature } }))) return;
+    this.receipt(via, 'appeal');
+    this.row(who, call, via, 'ok', undefined);
+    this.balanceRows.push({ after: this.label('appeal'), balances: this.snapshotBalances() });
+  }
+
+  /** ADR-0019, D23: both parties sign one settlement; the payouts split the price, the fee returns to the buyer. */
+  private async mutualSettle(payouts: Record<string, string>, releaseKey: boolean, via: string): Promise<void> {
+    const { buyer, seller } = this.scenario.parties;
+    const call = 'mutual_settle';
+    const c = this.needCommitment(buyer, call, via);
+    if (!c) return;
+    if (this.offline.has(seller)) {
+      this.outages.push({ step: this.stepNo, actor: seller, kind: 'offline' });
+      return this.row(seller, call, via, 'offline (no call)');
+    }
+    const delivered = 'delivery' in c.state ? c.state.delivery : null;
+    const unsigned = {
+      type: 'MutualSettlement' as const,
+      commitmentId: c.id,
+      deliveryHash: delivered ? deliveryHash(delivered) : null,
+      payouts: Object.entries(payouts).map(([name, amount]) => ({ to: this.address(name), amount: tusd(amount) })),
+      releaseKey,
+      nonce: this.ctx.rng.hex32(),
+      expiresAt: plus(wholeSecond(this.ctx.clock.now()), DAY),
+    };
+    const buyerSignature = await signMessage(this.keyFor(buyer), this.domain, unsigned);
+    const sellerSignature = await signMessage(this.keyFor(seller), this.domain, unsigned);
+    if (!(await this.submit(`${buyer} + ${seller}`, call, via, { kind: 'mutual_settle', message: { ...unsigned, buyerSignature, sellerSignature } }))) return;
+    this.receipt(via, call);
+    this.row(`${buyer} + ${seller}`, call, via, 'ok');
+    this.balanceRows.push({ after: this.label(call), balances: this.snapshotBalances() });
+  }
+
+  /**
+   * A fresh nonce for `signer`, or with `tamper: reuse_nonce` its previous one in the same scope (once per
+   * step: the step's first signed message reuses, the rest are fresh).
+   */
+  private nonceFor(signer: string, scope: 'terms' | 'msg'): Hex32 {
+    const key = `${signer}|${scope}`;
+    const prev = this.lastNonce.get(key);
+    let n: Hex32;
+    if (prev && this.tampers.has('reuse_nonce') && !this.applied.has('reuse_nonce')) {
+      n = prev;
+      this.applied.add('reuse_nonce');
+    } else n = this.ctx.rng.hex32();
+    this.lastNonce.set(key, n);
+    return n;
+  }
+
+  /** The honest value, or a random one when the step tampers with it. */
+  private tamperable(t: Tamper, honest: Hex32): Hex32 {
+    if (!this.tampers.has(t)) return honest;
+    this.applied.add(t);
+    return this.ctx.rng.hex32();
+  }
+
+  /** "call" for commitment 1, "call #n" for the others. */
+  private label(call: string): string {
+    return this.current === 1 ? call : `${call} #${this.current}`;
   }
 
   private async verifyKeyRelease(buyer: string, via: string): Promise<void> {
@@ -751,7 +1009,8 @@ export class StubSettlement {
     const c = this.needCommitment(buyer, call, via);
     if (!c) return;
     const released = await this.sim.keysFor(c.id, c.terms.buyer);
-    if (c.state.kind !== 'Released' || released.length === 0 || !this.delivery) {
+    const keyed = c.state.kind === 'Released' || (c.state.kind === 'Settled' && c.state.keyReleased);
+    if (!keyed || released.length === 0 || !this.delivery) {
       return this.refuse(buyer, call, via, problem('invalid_state', `no key was released to the buyer in ${c.state.kind}`));
     }
     const expected = b64url(canonicalKeccak({ contentKey: this.delivery.contentKey, recipient: c.terms.buyer }));
@@ -764,7 +1023,14 @@ export class StubSettlement {
   // ---- results -------------------------------------------------------------------------------
 
   private events(): Array<LedgerEvent & { prevHash: Hex32 }> {
-    return this.sim.log().map((e) => ({ seq: e.seq, step: this.eventSteps[e.seq] ?? 0, type: e.type as SettlementEventType, hash: e.hash, prevHash: e.prevHash }));
+    return this.sim.log().map((e) => ({
+      seq: e.seq,
+      step: this.eventSteps[e.seq] ?? 0,
+      type: e.type as SettlementEventType,
+      hash: e.hash,
+      prevHash: e.prevHash,
+      ...(e.commitmentId ? { commitmentId: e.commitmentId } : {}),
+    }));
   }
 
   /** Replays SimChain's journal from genesis; the replay must reproduce the same state digest. */
@@ -780,8 +1046,13 @@ export class StubSettlement {
   }
 
   private invariants(replay: { ok: boolean }): Invariant[] {
+    this.current = 1;
     const st = this.state;
+    const ledger = this.sim.ledger();
+    const many = this.ids().length > 1;
+    const settledIds = this.ids().filter((id) => SETTLED_STATES.includes(this.sim.escrowState(id)!.kind));
     return checkInvariants({
+      ...(many ? { escrowOfSettled: { settled: settledIds.length > 0, amount: settledIds.reduce((a, id) => a + (ledger[account.escrow(id)] ?? 0n), 0n) } } : {}),
       balances: this.snapshotBalances(),
       faucetTotal: this.faucetTotal,
       events: this.events(),
@@ -795,13 +1066,17 @@ export class StubSettlement {
   private async result(): Promise<StubRun> {
     const replay = await this.replay();
     const { parties, adjudicators, operators } = this.scenario;
-    const ordered = [parties.buyer, ESCROW, parties.seller, adjudicators.primary, adjudicators.fallback, adjudicators.appeal, ...operators];
+    const ordered = [parties.buyer, ESCROW, APPEAL_HOLD, parties.seller, adjudicators.primary, adjudicators.fallback, adjudicators.appeal, ...operators];
     const touched = (name: string) => this.balanceRows.some((r) => (r.balances[name] ?? 0n) !== 0n) || name === ESCROW;
     const state = this.state;
     return {
       actors: this.actors,
       accounts: ordered.filter(touched),
       commitment: this.terms && this.id ? { id: this.id, terms: this.terms } : null,
+      others: [...this.slots.entries()]
+        .filter(([n, s]) => n !== 1 && s.id !== null)
+        .sort(([a], [b]) => a - b)
+        .map(([n, s]) => ({ n, id: s.id!, finalState: this.sim.escrowState(s.id!)!.kind })),
       rulebookHash: this.club?.rulebookHash ?? rulebookHash(STUB_RULEBOOK),
       loaded: { club: this.loadedClub, terms: this.template !== null },
       rows: this.rows,

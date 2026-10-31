@@ -1,0 +1,33 @@
+# @settlement sim @judges recorded @mode guaranteed_on_decision @seed 61
+name: panel-disagreement-escalates
+description: >-
+  Bench A's panel splits: both Claude judges pass, the only GPT judge fails (authored recording), so the
+  passes come from one family and Bench A escalates to Bench C. Bench C draws its own panel of five judges
+  from three families under the appeal template, seeded from the beacon round after the escalation, and
+  its judges, recorded under appeal/, all pass: Bench C accepts and Tidewater is paid. Promoted from
+  todo. by T-016 (role-specific panels and role-keyed recordings).
+club: fixtures/clubs/data-services-v1.yaml
+terms: fixtures/terms/clean-customers-2000.yaml
+parties:
+  buyer: atlas-buyer
+  seller: tidewater-seller
+adjudicators:
+  primary: bench-a
+  fallback: bench-b
+  appeal: bench-c
+operators: [op-1, op-2]
+faucet:
+  atlas-buyer: "10000000000"
+  bench-a: "25000000000"
+  bench-b: "25000000000"
+  bench-c: "25000000000"
+steps:
+  - offer:              { by: seller, via: op-1 }
+  - adjudicator_accept: { via: op-1 }
+  - agree_and_fund:     { by: buyer, via: op-1 }
+  - deliver:            { by: seller, via: op-1, file: data/dataset-cleaning/customers.clean.csv }
+  - advance_clock:      { seconds: 5 }
+  - judge:              { adjudicator: bench-a }     # escalate
+  - judge:              { adjudicator: bench-c }     # appeal panel of five accepts
+expect:
+  terminal: Released

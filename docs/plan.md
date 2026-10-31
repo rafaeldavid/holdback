@@ -36,7 +36,7 @@ Scope after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-inte
 - [x] T-012 Demo data and scripted buyer/seller agents (demo)
 - [ ] T-013 Narrated CLI, transcript renderer, static viewer, dry run (demo; human gate)
 - [ ] T-015 OpenAPI document, staleness check and HTTP contract test (api; after T-007 and T-010; ADR-0017)
-- [ ] T-016 Testkit runner: real judgment in snap, role-keyed recordings, authored guard, mutual_settle (test; trimmed by D25, rest is T-016b)
+- [x] T-016 Testkit runner: real judgment in snap, role-keyed recordings, authored guard, mutual_settle (test; trimmed by D25, rest is T-016b)
 - [x] T-017 Demo: adjudicator profiles and buyer/seller agreement on adjudicators (demo)
 - [ ] T-018 Beats 6a and 7 on SimChain; appeal decides a screen-flagged case (judgment + demo; D25)
 - [ ] T-019 Demo honesty and clarity: scripted labels, one ID per job, judging time, one prompt and verdict, lean balances (demo; D25)

@@ -1,0 +1,31 @@
+# @settlement sim @judges recorded @mode guaranteed_on_decision @seed 13
+name: bad-work-row-drop
+description: >-
+  Demo beat 5. Tidewater delivers a cleaned CSV that drops 8% of rows. The required row-count check
+  (9,400-9,600 rows) fails, so Bench A rejects in one step with no panel: Atlas gets the $2,000 back and
+  Bench A earns the fee. Promoted from todo. by T-016, which runs @holdback/judgment in the testkit.
+club: fixtures/clubs/data-services-v1.yaml
+terms: fixtures/terms/clean-customers-2000.yaml
+parties:
+  buyer: atlas-buyer
+  seller: tidewater-seller
+adjudicators:
+  primary: bench-a
+  fallback: bench-b
+  appeal: bench-c
+operators: [op-1, op-2]
+faucet:
+  atlas-buyer: "10000000000"
+  bench-a: "25000000000"
+  bench-b: "25000000000"
+  bench-c: "25000000000"
+steps:
+  - offer:              { by: seller, via: op-1 }
+  - adjudicator_accept: { via: op-1 }
+  - agree_and_fund:     { by: buyer, via: op-1 }
+  - deliver:            { by: seller, via: op-1, file: data/dataset-cleaning/customers.clean.row-drop.csv }
+  - advance_clock:      { seconds: 5 }
+  - judge:              { adjudicator: bench-a }
+  - settle:             { trigger: anyone }
+expect:
+  terminal: Refunded
