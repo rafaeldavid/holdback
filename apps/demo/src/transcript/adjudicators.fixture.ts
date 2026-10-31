@@ -12,7 +12,9 @@ function profile(name: string, selected: AdjudicatorProfile['selected'], who?: A
     tagline: `${name} tagline`,
     roles: selected === 'declined' ? ['primary'] : [selected],
     selected,
-    ...(selected === 'declined' ? { declinedBecause: [`${name}: panel of 1 judge; the rulebook requires at least 3 (panelPolicyMin.panelSize)`] } : {}),
+    ...(selected === 'declined'
+      ? { declinedBecause: [`${name}: panel of 1 judge (rulebook minimum 3, panelPolicyMin.panelSize)`] }
+      : { sellerChecks: [`offers the ${selected} role`, 'free bond 25,000 tUSD covers 2,000 tUSD'] }),
     judges: [{ id: 'gpt-a', model: 'placeholder-gpt-a-20260601', family: 'gpt', effort: `${name} effort` }],
     harness: [`${name} harness`],
     terms: [
@@ -33,11 +35,19 @@ export function withAdjudicators(t: BeatTranscript, name = 'Swiftline Verdicts')
       rules: ['panels of at least 3 judges from at least 2 model families (panelPolicyMin)', `free bond of at least ${tusd(2000n).amount} base units`],
       considered: [
         { name: 'Clearfield Adjudication', who: 'benchA', eligible: true, reasons: [] },
-        { name, eligible: false, reasons: [`${name}: draws from 1 model family; the rulebook requires at least 2 (panelPolicyMin.minFamilies)`] },
+        { name, eligible: false, reasons: [`${name}: 1 model family (rulebook minimum 2, panelPolicyMin.minFamilies)`, 'appeal panel of 1 judge (rulebook minimum 5, panelPolicyMin.appealPanelSize)'] },
       ],
       proposed: { primary: 'benchA', fallback: 'benchB', appeal: 'benchC' },
     },
-    { kind: 'adjudicator-agreement', atMs: 1, actor: 'seller', agreed: { primary: 'benchA', fallback: 'benchB', appeal: 'benchC' }, checks: ['free bond at least 2,000 tUSD'] },
+    {
+      kind: 'adjudicator-agreement',
+      atMs: 1,
+      actor: 'seller',
+      agreed: { primary: 'benchA', fallback: 'benchB', appeal: 'benchC' },
+      policy: ['valid registration', 'policy hash matches its policy'],
+      bondRequired: tusd(2000n),
+      bonds: (['benchA', 'benchB', 'benchC'] as const).map((who) => ({ who, free: tusd(25_000n) })),
+    },
   ];
   return {
     ...t,

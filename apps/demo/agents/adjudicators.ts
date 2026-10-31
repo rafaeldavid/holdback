@@ -39,13 +39,24 @@ export interface SellerCheck {
   address: Address;
   name: string;
   role: AdjudicatorRole;
-  /** The checks this bench passed, in words. */
+  /** The checks this bench passed, in words, with its own numbers. */
   passed: string[];
+  /** Free bond as Tide-7 read it, in base units. */
+  freeBond: bigint;
 }
+
+/** The checks Tide-7 applies to every proposed bench, in words (each bench's numbers are in its SellerCheck). */
+export const SELLER_POLICY_CHECKS = [
+  'three distinct adjudicators',
+  'each offers its proposed role',
+  'valid registration',
+  'the registry Tide-7 trusts, every model pinned',
+  'policy hash matches its policy',
+] as const;
 
 /** Tide-7 to Ledger: agreement on the exact slate, or a refusal naming each bench it rejects and why. */
 export type SellerReview =
-  | { agreed: true; slate: Slate; checks: SellerCheck[] }
+  | { agreed: true; slate: Slate; checks: SellerCheck[]; policy: readonly string[]; requiredFreeBond: bigint }
   | { agreed: false; refusals: { address: Address; name: string; role: AdjudicatorRole; reason: string }[] };
 
 /** Tide-7's own adjudicator policy. */
@@ -110,11 +121,11 @@ export function rulebookReasons(l: Listing, c: RuleContext): string[] {
   const panel = int(policy.panelSize);
   const appeal = int(policy.appealPanelSize);
   const families = int(policy.minFamilies);
-  if (panel === undefined || panel < m.panelSize) out.push(`panel of ${panel === undefined ? 'unstated size' : plural(panel, 'judge')}; the rulebook requires at least ${m.panelSize} (panelPolicyMin.panelSize)`);
+  if (panel === undefined || panel < m.panelSize) out.push(`panel of ${panel === undefined ? 'unstated size' : plural(panel, 'judge')} (rulebook minimum ${m.panelSize}, panelPolicyMin.panelSize)`);
   if (families === undefined || families < m.minFamilies)
-    out.push(`draws from ${families === undefined ? 'an unstated number of model families' : plural(families, 'model family', 'model families')}; the rulebook requires at least ${m.minFamilies} (panelPolicyMin.minFamilies)`);
+    out.push(`${families === undefined ? 'unstated model families' : plural(families, 'model family', 'model families')} (rulebook minimum ${m.minFamilies}, panelPolicyMin.minFamilies)`);
   if (appeal === undefined || appeal < m.appealPanelSize)
-    out.push(`appeal panel of ${appeal === undefined ? 'unstated size' : plural(appeal, 'judge')}; the rulebook requires at least ${m.appealPanelSize} (panelPolicyMin.appealPanelSize)`);
+    out.push(`appeal panel of ${appeal === undefined ? 'unstated size' : plural(appeal, 'judge')} (rulebook minimum ${m.appealPanelSize}, panelPolicyMin.appealPanelSize)`);
   const need = requiredFreeBond(c.rulebook, c.price, c.mode);
   const free = freeBond(l);
   if (free < need) out.push(`free bond ${tusdText(free)} is below the ${tusdText(need)} this commitment needs`);
@@ -154,32 +165,43 @@ export function reviewSlate(proposal: AdjudicatorProposal, listings: readonly Li
   const checks: SellerCheck[] = [];
   const refusals: Extract<SellerReview, { agreed: false }>['refusals'] = [];
   const need = (price * BigInt(policy.minFreeBondBps) + 9_999n) / 10_000n;
+  const addresses = ROLES.map((role) => proposal.slate[role].toLowerCase());
   for (const role of ROLES) {
     const address = proposal.slate[role];
     const l = listings.find((x) => x.address.toLowerCase() === address.toLowerCase());
     const name = l ? nameOf(l) : address;
     const refuse = (reason: string) => void refusals.push({ address, name, role, reason });
+    if (addresses.filter((a) => a === address.toLowerCase()).length > 1) {
+      refuse('proposed for more than one role; the slate needs three distinct adjudicators');
+      continue;
+    }
     if (!l) {
       refuse('no published registration');
       continue;
     }
+    if (!(l.profile?.roles ?? []).includes(role)) {
+      refuse(`does not offer the ${role} role`);
+      continue;
+    }
+    const passed = [`offers the ${role} role`];
     const parsed = parseAdjudicator(l.document);
     if (!parsed.ok) {
       refuse('the registration does not validate against adjudicator.schema.json v0.6');
       continue;
     }
     const r = parsed.value;
-    const passed = ['registration validates'];
+    passed.push('registration validates');
     if (r.registry.hash !== policy.registry.hash) {
       refuse(`registry ${r.registry.hash.slice(0, 10)}… is not the registry Tide-7 trusts`);
       continue;
     }
+    // The bench's registry hash equals the trusted registry's, so these are the models its panels draw from.
     const unpinned = policy.registry.active.filter((j) => !PINNED.test(j.model) || /latest/i.test(j.model));
     if (unpinned.length) {
       refuse(`registry has unpinned models: ${unpinned.map((j) => j.model).join(', ')}`);
       continue;
     }
-    passed.push(`registry ${r.registry.hash.slice(0, 10)}… with every active model pinned`);
+    passed.push(`the registry Tide-7 trusts (${r.registry.hash.slice(0, 10)}…), every model pinned`);
     if (policyHashOf(r.policy) !== r.policyHash) {
       refuse('policyHash does not match its policy');
       continue;
@@ -191,9 +213,9 @@ export function reviewSlate(proposal: AdjudicatorProposal, listings: readonly Li
       continue;
     }
     passed.push(`free bond ${tusdText(free)} covers ${tusdText(need)}`);
-    checks.push({ address, name, role, passed });
+    checks.push({ address, name, role, passed, freeBond: free });
   }
-  return refusals.length ? { agreed: false, refusals } : { agreed: true, slate: { ...proposal.slate }, checks };
+  return refusals.length ? { agreed: false, refusals } : { agreed: true, slate: { ...proposal.slate }, checks, policy: SELLER_POLICY_CHECKS, requiredFreeBond: need };
 }
 
 // ---- profiles for the viewer ------------------------------------------------------------------------------
@@ -206,6 +228,8 @@ export interface ProfileView {
   roles: readonly AdjudicatorRole[];
   selected: AdjudicatorRole | 'declined';
   declinedBecause?: string[];
+  /** The checks Tide-7 ran on this bench and passed, when it was proposed. */
+  sellerChecks?: string[];
   judges: { id: string; model: string; family: string; effort: string }[];
   harness: readonly string[];
   terms: {
@@ -230,11 +254,13 @@ export interface ProfileView {
 /** Profiles of every listing posted with one, as they stood when the agents chose (a beat-1 result). */
 export function adjudicatorProfiles(hold: { negotiation: { proposal: AdjudicatorProposal; review: SellerReview; listings: readonly Listing[] }; terms: TermsTemplate }): ProfileView[] {
   const { proposal, review, listings } = hold.negotiation;
-  return profileViews(listings, proposal, review.agreed ? review.slate : undefined, hold.terms, demoRegistry());
+  return profileViews(listings, proposal, review, hold.terms, demoRegistry());
 }
 
-export function profileViews(listings: readonly Listing[], proposal: AdjudicatorProposal, agreed: Slate | undefined, terms: TermsTemplate, registry: LoadedRegistry): ProfileView[] {
+export function profileViews(listings: readonly Listing[], proposal: AdjudicatorProposal, review: SellerReview, terms: TermsTemplate, registry: LoadedRegistry): ProfileView[] {
   const amount = (v: bigint): TokenAmount => ({ token: 'tUSD', amount: v.toString() }) as TokenAmount;
+  const agreed = review.agreed ? review.slate : undefined;
+  const sellerChecks = (address: string) => (review.agreed ? review.checks.find((c) => c.address.toLowerCase() === address.toLowerCase())?.passed : undefined);
   return listings
     .filter((l): l is Listing & { profile: BenchProfile } => l.profile !== undefined)
     .map((l) => {
@@ -259,6 +285,7 @@ export function profileViews(listings: readonly Listing[], proposal: Adjudicator
         roles: l.profile.roles,
         selected: role ?? 'declined',
         ...(role === undefined && considered?.reasons.length ? { declinedBecause: considered.reasons } : {}),
+        ...(sellerChecks(l.address) ? { sellerChecks: sellerChecks(l.address)! } : {}),
         judges: resolveJudges(l.profile, registry),
         harness: l.profile.harness,
         terms: {

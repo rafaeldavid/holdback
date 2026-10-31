@@ -116,7 +116,8 @@ function profiles(t: BeatTranscript): string {
     [
       `<details class="profile"><summary>${esc(a.name)}${a.who ? ` <small>(${esc(CAST[a.who].org ?? '')})</small>` : ''} <span class="badge${a.selected === 'declined' ? ' declined' : ''}">${esc(SELECTED[a.selected])}</span></summary>`,
       `<p><em>${esc(a.tagline)}</em> Roles offered: ${esc(a.roles.join(', '))}.</p>`,
-      a.declinedBecause?.length ? `<p class="fail">Declined because: ${esc(a.declinedBecause.join('; '))}.</p>` : '',
+      a.declinedBecause?.length ? `<p class="fail">Declined because:</p><ul>${a.declinedBecause.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>` : '',
+      a.sellerChecks?.length ? `<h4>Seller's checks (${esc(CAST.seller.name)})</h4><ul>${a.sellerChecks.map((c) => `<li>${esc(c)}</li>`).join('')}</ul>` : '',
       '<h4>Judges</h4>',
       '<div class="scroll"><table><thead><tr><th>Registry ID</th><th>Pinned model ID</th><th>Family</th><th>Declared effort</th></tr></thead><tbody>',
       ...a.judges.map((j) => `<tr><td>${esc(j.id)}</td><td><code>${esc(j.model)}</code></td><td>${esc(j.family)}</td><td>${esc(j.effort)}</td></tr>`),
@@ -131,7 +132,9 @@ function profiles(t: BeatTranscript): string {
       '<p class="meta">Role-play: invented for this demo, not a real firm or record.</p>',
       '</details>',
     ].join('\n');
-  return ['<h3>Adjudicators considered</h3>', ...t.adjudicators.map(one)].join('\n');
+  const rules = eventsOf(t, 'adjudicator-proposal')[0]?.rules ?? [];
+  const applied = rules.length ? `<p class="meta">Rules applied by ${esc(CAST.buyer.name)} (${esc(CAST.club.name)} rulebook):</p><ul class="meta">${rules.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>` : '';
+  return ['<h3>Adjudicators considered</h3>', applied, ...t.adjudicators.map(one)].join('\n');
 }
 
 function beatSection(t: BeatTranscript): string {

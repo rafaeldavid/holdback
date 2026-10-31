@@ -87,6 +87,8 @@ export interface AdjudicatorProfile {
   roles: string[];
   selected: 'primary' | 'fallback' | 'appeal' | 'declined';
   declinedBecause?: string[];
+  /** The seller's checks this bench passed, with its numbers. */
+  sellerChecks?: string[];
   /** Pinned model IDs from the registry, with the reasoning setting the bench declares per judge. */
   judges: { id: string; model: string; family: string; effort: string }[];
   harness: string[];
@@ -98,7 +100,15 @@ export interface AdjudicatorProfile {
 
 export type DemoEvent =
   | (At & { kind: 'adjudicator-proposal'; actor: CastKey; registrations: number; rules: string[]; considered: ConsideredAdjudicator[]; proposed: SlateKeys })
-  | (At & { kind: 'adjudicator-agreement'; actor: CastKey; agreed: SlateKeys; checks: string[] })
+  | (At & {
+      kind: 'adjudicator-agreement';
+      actor: CastKey;
+      agreed: SlateKeys;
+      /** The checks the seller applies to every bench, in words; per-bench results are in the profiles. */
+      policy: string[];
+      bondRequired: Amount;
+      bonds: { who: CastKey; free: Amount }[];
+    })
   | (At & { kind: 'offer'; actor: CastKey; commitmentId: string; price: Amount; fee: Amount; primary: CastKey; fallback: CastKey; appeal: CastKey; disclosure: 'public' | 'judgment' | 'private' })
   | (At & { kind: 'acceptance'; actor: CastKey; bondReserved: Amount; seedCommitment: string })
   | (At & { kind: 'hold'; actor: CastKey; amount: Amount; via: Via })

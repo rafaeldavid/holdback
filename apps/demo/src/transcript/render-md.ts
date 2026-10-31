@@ -24,13 +24,16 @@ export function renderMarkdown(t: BeatTranscript): string {
   if (t.adjudicators?.length) {
     // Registration names and profile text are party text: escaped like every other line (T-017).
     out.push('## Adjudicators considered', '', 'Judges are pinned registry model IDs; effort is what each bench declares (recorded mode applies none). History is role-play, invented for this demo.', '');
+    const rules = eventsOf(t, 'adjudicator-proposal')[0]?.rules ?? [];
+    if (rules.length) out.push('Rules applied by the buyer (club rulebook):', '', ...rules.map((r) => `- ${mdText(r)}`), '');
     for (const a of t.adjudicators) {
-      const judges = a.judges.map((j) => `${code(j.model)} (${mdText(j.family)}, ${mdText(j.effort)})`).join(', ');
-      const terms = a.terms.map((x) => `${x.label}: ${x.value}`).join('; ');
-      const declined = a.declinedBecause?.length ? ` Declined because: ${a.declinedBecause.join('; ')}.` : '';
-      out.push(`- **${mdText(a.name)}**, ${mdText(a.selected === 'declined' ? 'considered and declined' : `chosen as ${a.selected}`)}. ${mdText(`${a.tagline}${declined} Terms: ${terms}.`)} Judges: ${judges}. ${mdText(`History (role-play): ${a.history.lines.join(' ')}`)}`);
+      out.push(`### ${mdText(a.name)}`, '', `${mdText(a.selected === 'declined' ? 'Considered and declined' : `Chosen as ${a.selected}`)}. ${mdText(a.tagline)}`, '');
+      if (a.declinedBecause?.length) out.push(...a.declinedBecause.map((r) => `- Declined: ${mdText(r)}`), '');
+      if (a.sellerChecks?.length) out.push(...a.sellerChecks.map((c) => `- Seller check: ${mdText(c)}`), '');
+      out.push('| Judge | Pinned model ID | Family | Declared effort |', '| --- | --- | --- | --- |');
+      for (const j of a.judges) out.push(`| ${mdText(j.id)} | ${code(j.model)} | ${mdText(j.family)} | ${mdText(j.effort)} |`);
+      out.push('', ...a.harness.map((h) => `- Harness: ${mdText(h)}`), ...a.terms.map((x) => `- ${mdText(`${x.label}: ${x.value}`)}`), ...a.history.lines.map((h) => `- History (role-play): ${mdText(h)}`), '');
     }
-    out.push('');
   }
 
   for (const p of eventsOf(t, 'panel')) {

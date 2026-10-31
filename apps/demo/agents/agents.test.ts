@@ -164,7 +164,8 @@ describe('beat 1: the agents choose the adjudicators before the offer (T-017)', 
     const a = r.commitment.adjudication;
     expect(lc(r.negotiation.review.slate)).toEqual(lc({ primary: a.adjudicator, fallback: a.fallbackAdjudicator, appeal: a.appealAdjudicator }));
     expect(lc(r.negotiation.review.slate)).toEqual(lc({ primary: w.cast.benchA.address, fallback: w.cast.benchB.address, appeal: w.cast.benchC.address }));
-    expect(r.negotiation.review.checks.map((c) => c.passed.length)).toEqual([4, 4, 4]);
+    expect(r.negotiation.review.checks.map((c) => c.passed.length)).toEqual([5, 5, 5]);
+    expect(r.negotiation.review.checks[0]!.passed).toContain('offers the primary role');
   });
 
   it('the rule, not the name, excludes: a compliant bench whose declared policy drops to one family is excluded the same way', async () => {
@@ -177,6 +178,34 @@ describe('beat 1: the agents choose the adjudicators before the offer (T-017)', 
     expect(rulebookReasons(clearfield, { rulebook: w.club.rulebook, price: 2_000n * TUSD, mode: 'guaranteed_on_decision' })).toEqual([]);
     // A price above the free bond excludes every bench on the bond rule.
     expect(rulebookReasons(clearfield, { rulebook: w.club.rulebook, price: 30_000n * TUSD, mode: 'guaranteed_on_decision' }).join(' ')).toMatch(/free bond 25,000 tUSD/);
+  });
+
+  it('a stricter rulebook excludes a schema-valid listing on the rulebook alone', async () => {
+    const w = await world();
+    const clearfield = players(w).directory.listings().find((l) => l.address === w.cast.benchA.address.toLowerCase())!;
+    expect(parseAdjudicator(clearfield.document).ok).toBe(true);
+    const strict = { ...w.club.rulebook, panelPolicyMin: { ...w.club.rulebook.panelPolicyMin, panelSize: 5 } };
+    expect(rulebookReasons(clearfield, { rulebook: strict, price: 2_000n * TUSD, mode: 'guaranteed_on_decision' })).toEqual(['panel of 3 judges (rulebook minimum 5, panelPolicyMin.panelSize)']);
+  });
+
+  it('Tide-7 refuses a slate that repeats a bench or names a bench for a role it does not offer', async () => {
+    const w = await world();
+    const p = players(w);
+    const terms = loadTermsFile(TERMS_FILE);
+    const proposal = p.atlas.proposeAdjudicators(p.directory.listings(), terms);
+    const { primary, fallback, appeal } = proposal.slate;
+    const repeated = p.tidewater.reviewAdjudicators({ ...proposal, slate: { primary, fallback: primary, appeal } }, p.directory.listings(), terms);
+    expect(repeated.agreed).toBe(false);
+    if (!repeated.agreed) expect(repeated.refusals.map((x) => [x.role, x.reason])).toEqual([
+      ['primary', 'proposed for more than one role; the slate needs three distinct adjudicators'],
+      ['fallback', 'proposed for more than one role; the slate needs three distinct adjudicators'],
+    ]);
+    const swapped = p.tidewater.reviewAdjudicators({ ...proposal, slate: { primary: fallback, fallback: primary, appeal } }, p.directory.listings(), terms);
+    expect(swapped.agreed).toBe(false);
+    if (!swapped.agreed) expect(swapped.refusals.map((x) => [x.name, x.reason])).toEqual([
+      ['Northgate Review', 'does not offer the primary role'],
+      ['Clearfield Adjudication', 'does not offer the fallback role'],
+    ]);
   });
 
   it('a seller policy that rejects the benches refuses the proposal, and no offer is made', async () => {

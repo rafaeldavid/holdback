@@ -145,13 +145,24 @@ describe('renderHtml', () => {
     const t = withAdjudicators(await standInSource().run(7));
     const md = renderMarkdown(t);
     const lines = md.split('\n').filter((l) => l.startsWith('- +'));
-    expect(lines[0]).toMatch(/Ledger \(Atlas Research\) reads 4 published adjudicator registrations/);
-    expect(lines[0]).toMatch(/Excluded: Swiftline Verdicts/);
-    expect(lines[0]).toMatch(/nothing goes on chain/);
-    expect(lines[1]).toMatch(/Tide-7 \(Tidewater Data\) checks the proposal against its own policy/);
-    expect(lines[1]).toMatch(/Agrees/);
+    expect(lines[0]).toMatch(/Ledger \(Atlas Research\) reads 4 published adjudicators and proposes Clearfield Adjudication \(primary\), Northgate Review \(fallback\), Atrium Appeals \(appeal\)\./);
+    expect(lines[0]).toMatch(/Excluded by the Data Services Club rulebook: Swiftline Verdicts, .*minFamilies.*\(1 more in the viewer\)\./);
+    expect(lines[0]).toMatch(/Agent-to-agent; nothing on chain\.$/);
+    expect(lines[0]).not.toMatch(/panelPolicyMin\)/); // the rules themselves are in the viewer, not the line
+    expect(lines[1]).toMatch(/Tide-7 \(Tidewater Data\) checks all three against its own policy \(valid registration, policy hash matches its policy, free bond 25,000 tUSD covers 2,000 tUSD\) and agrees; the offer names exactly these\./);
+    for (const l of lines.slice(0, 2)) expect(l.length).toBeLessThan(400);
     expect(md).toContain('## Adjudicators considered');
+    expect(md).toMatch(/Rules applied by the buyer/);
+    expect(md).toMatch(/- Harness: /);
+    expect(md).toMatch(/- Seller check: offers the primary role/);
     expect(md).toMatch(/role-play/i);
+  });
+
+  it('the viewer lists the rules applied and each bench\'s seller checks (T-017)', async () => {
+    const html = renderHtml([withAdjudicators(await standInSource().run(7))]);
+    expect(html).toMatch(/Rules applied by Ledger \(Data Services Club rulebook\)/);
+    expect(html).toContain('panels of at least 3 judges from at least 2 model families (panelPolicyMin)');
+    expect(html).toMatch(/Seller's checks \(Tide-7\)<\/h4><ul><li>offers the primary role<\/li>/);
   });
 
   it('escapes text, so a hostile string in a transcript cannot add markup', async () => {

@@ -353,7 +353,9 @@ class Narrator {
       atMs: marks.get('reviewed') ?? 0,
       actor: 'seller',
       agreed: slate(review.slate),
-      checks: review.checks.map((c) => plain(`${c.name}: ${c.passed.join(', ')}`)),
+      policy: review.policy.map(plain),
+      bondRequired: tusd(review.requiredFreeBond),
+      bonds: review.checks.map((c) => ({ who: this.key(c.address), free: tusd(c.freeBond) })),
     });
   }
 
@@ -448,6 +450,7 @@ function profileOf(v: ProfileView, who: CastKey | undefined): AdjudicatorProfile
     roles: [...v.roles],
     selected: v.selected,
     ...(v.declinedBecause ? { declinedBecause: v.declinedBecause.map(plain) } : {}),
+    ...(v.sellerChecks ? { sellerChecks: v.sellerChecks.map(plain) } : {}),
     judges: v.judges,
     harness: [...v.harness],
     terms,
