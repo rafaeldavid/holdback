@@ -30,4 +30,4 @@ steps:
   - judge:              { adjudicator: bench-a }
   - settle:             { trigger: anyone }
 expect:
-  terminal: Refunded
+  terminal: Refunded                # desired once promoted; today the run ends Released

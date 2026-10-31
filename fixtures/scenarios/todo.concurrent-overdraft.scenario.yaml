@@ -25,4 +25,4 @@ steps:
   - adjudicator_accept: { via: op-1 }
   - agree_and_fund:     { by: buyer, via: op-1 }
 expect:
-  problem: { step: 3, type: insufficient_funds }
+  problem: { step: 3, type: insufficient_funds }   # today's single-commitment refusal (measured)

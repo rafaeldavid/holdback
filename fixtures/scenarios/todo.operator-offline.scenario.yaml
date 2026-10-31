@@ -30,4 +30,4 @@ steps:
   - advance_clock:      { seconds: 5 }
   - judge:              { adjudicator: bench-a }
 expect:
-  terminal: Released
+  terminal: Released                # today's outcome, and still the desired one once promoted

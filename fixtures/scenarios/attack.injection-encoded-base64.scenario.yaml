@@ -6,6 +6,8 @@ description: >-
   held for Bench C. The deliverable is placeholder bytes (stub_bytes; the injection files are in
   docs/backlog.md) and the verdicts are authored recordings (capturedFrom fake). The screen is not run by
   the testkit yet, and the appeal panel's reject needs its own recordings, so the run stops at Escalated.
+  Once checks run (T-016), the rows and cols checks would refund the ~80-byte placeholder before the panel;
+  switch to a real T-012 injection file then.
 club: fixtures/clubs/data-services-v1.yaml
 terms: fixtures/terms/clean-customers-2000.yaml
 parties:

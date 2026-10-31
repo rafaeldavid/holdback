@@ -4,6 +4,7 @@ description: >-
   Bench A and Bench B both go offline after the delivery. After judgeBy anyone triggers the fallback;
   after fallbackBy anyone triggers the default and applies the default outcome from the signed rulebook
   (ADR-0007): Atlas gets its $2,050 back and the defaulting adjudicators' bonds pay Tidewater $2,000.
+  Bench A fails too; `fails:` takes one name, so it names Bench B, the last one to miss its deadline.
 fails: bench-b
 club: fixtures/clubs/data-services-v1.yaml
 terms: fixtures/terms/clean-customers-2000.yaml
