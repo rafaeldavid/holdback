@@ -93,6 +93,19 @@ Deferred until after the basic demo. The demo assumes honest parties (Rafa, Octo
 | Audit sampling as an opt-in rulebook feature; checkability pricing | ADR-0014 | Phase 3 (T-306) |
 | Backer deposit, withdrawal-notice and withdraw messages | ADR-0014 | Phase 4 |
 
+## Demo data and agents
+
+| Item | Source | When it matters |
+| --- | --- | --- |
+| Injection deliverables: `injection-plain` and `injection-base64` (beat 6, first delivery) | T-012 | With T-009's panel and the beat 6 fixture |
+| `panel-borderline` deliverable that passes every check but splits the panel | T-012 | With T-009 recordings |
+| Change-log notes file delivered with the clean CSV (graded by the `notes` rubric criterion) | T-012 | When live or recorded judges grade the rubric (T-009) |
+| Club rulebook, $2,000 terms and Bench A/B/C registration files (drafted in the T-012 Handoff) | T-012 | When T-006 loads club and terms files |
+| `_example` delivers the generated clean file instead of stub bytes, with recordings re-captured | T-012 | After the files above land (T-010 lane) |
+| Scripted buyer and seller agents in `apps/demo/agents/` | T-012 | After T-007 (SDK) and T-009 |
+| Data for optional beats 9 (work for work) and 10 (a gap both agents settle 70/30) | T-012 | When those beats are built |
+| Root `.gitignore` rule `data/` also matches `fixtures/data/`; anchor it as `/data/` | T-012 | Next scaffold change |
+
 ## Housekeeping
 
 | Item | Source | When it matters |
