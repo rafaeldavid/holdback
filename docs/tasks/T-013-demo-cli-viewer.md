@@ -42,6 +42,18 @@ Restated (2026-10-31):
 
 Fill this in before review. Label each item measured, inferred or guessed.
 
+### PR 46 review fixes (2026-10-31)
+
+- **Untrusted output surfaces (measured):** `untrusted.test.ts` was committed in `3c0e1c5` before the renderers used the helpers, and 5 tests failed. The hostile check detail combines a Markdown image, a link, `<img>`, an OSC 8 terminal hyperlink, a screen-clear escape, a bidi override, tag characters, a newline heading, a CRLF table row, a fence and `www.`. After `2a941ff` it passes on four surfaces:
+  - terminal: no control, bidi or tag character and no line break in any line that carries the payload;
+  - Markdown: no unescaped image, link, `<`, heading or table row outside the signed-message fence, and that fence is longer than the payload's backtick run;
+  - HTML: `&lt;img`, no invisible characters;
+  - JSON: invisibles written as `\u` escapes.
+- **Confirmed upstream (measured):** `packages/judgment/src/checks/index.ts:164` writes the CSV header names into `csv_columns_exact`'s detail. It is recorded in `docs/backlog.md` (Judgment defenses); `packages/judgment` is unchanged.
+- **Stand-in marks (measured):** a test marks every event stand-in and checks each timeline line, panel heading, balances label and signed-message heading in Markdown, and each panel `<h3>`, balances header, signed `<summary>` and timeline item in HTML.
+- **No-env test (measured):** now scans `apps/demo/agents` too (more than 15 files), and checks that `world.ts` starts operators with `env: {}`.
+- **`pnpm verify` (measured, commit `2a941ff`, clean tree):** PASS. 62 test files, 1,845 tests; demo 2,455 ms.
+
 ### SimChain runner wired (2026-10-31, after PR 45 merged as `779b13e`)
 
 - **Test first (measured):** `source/simchain.test.ts` and the narrowed `stand-in.test.ts` were committed in `a37e8bb` before `source/simchain.ts` and `source/demo.ts` existed; the SimChain file failed to import and 4 CLI tests failed. After `978c1f3`: 53 of 53 demo tests pass.
