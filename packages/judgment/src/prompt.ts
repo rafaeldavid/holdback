@@ -45,6 +45,17 @@ export const PROMPT_TEMPLATE = [
 
 const sha256Hex = (s: string): Hex32 => `0x${createHash('sha256').update(s).digest('hex')}`;
 export const PROMPT_TEMPLATE_HASH: Hex32 = sha256Hex(PROMPT_TEMPLATE);
+
+/**
+ * The appeal template (policy.appealPromptTemplateHash). Only the opening line differs: appeal judges
+ * decide afresh and are not told the first decision, the parties or the appellant.
+ */
+export const APPEAL_PROMPT_TEMPLATE = [
+  'You are one judge on an appeal panel deciding afresh whether delivered work meets an agreed specification.',
+  ...PROMPT_TEMPLATE.split('\n').slice(1),
+].join('\n');
+export const APPEAL_PROMPT_TEMPLATE_HASH: Hex32 = sha256Hex(APPEAL_PROMPT_TEMPLATE);
+export type PromptTemplateKind = 'first-instance' | 'appeal';
 export const DEFAULT_MAX_DATA_CHARS = 100_000;
 /** Every Unicode line break a model may render as a new line. */
 const LINE_BREAK = /\r\n|[\n\r\u000b\u000c\u001c\u001d\u001e\u0085\u2028\u2029]/;
@@ -68,6 +79,8 @@ export interface PromptInput {
    * deliverable, data over the budget gets the predictable even-stride sample, which escalates.
    */
   sample?: { seed: Hex32; mime: MimeType };
+  /** Defaults to the first-instance template. */
+  template?: PromptTemplateKind;
 }
 
 /** none: the whole deliverable; seeded: a recomputable seeded sample; stride: the even-stride fallback. */
@@ -162,7 +175,8 @@ export function buildPrompt(input: PromptInput): Result<RenderedPrompt, string> 
   }));
   const terms = [canonicalJson({ description: clean(input.spec.description) }), ...criteria.map((c) => canonicalJson(c))].join('\n');
   if (terms.includes(boundary)) return err('agreed terms contain the boundary; draw new nonces');
-  const [systemTemplate, userTemplate] = PROMPT_TEMPLATE.split(USER_SPLIT);
+  const appeal = input.template === 'appeal';
+  const [systemTemplate, userTemplate] = (appeal ? APPEAL_PROMPT_TEMPLATE : PROMPT_TEMPLATE).split(USER_SPLIT);
   const system = render(systemTemplate!, {
     boundary,
     datamark: datamark.trim(),
@@ -179,7 +193,7 @@ export function buildPrompt(input: PromptInput): Result<RenderedPrompt, string> 
     canary,
     truncated,
     sampling,
-    promptTemplateHash: PROMPT_TEMPLATE_HASH,
+    promptTemplateHash: appeal ? APPEAL_PROMPT_TEMPLATE_HASH : PROMPT_TEMPLATE_HASH,
     inputHash: sha256Hex(canonicalJson({ system, user })),
   });
 }

@@ -8,7 +8,7 @@ import { canonicalKeccak, err, ok, problem } from '@holdback/core';
 import { aggregate, preDecision, type Aggregate, type PanelVerdict } from './aggregate.js';
 import { runChecks } from './checks/index.js';
 import type { Intaken } from './intake.js';
-import { buildPrompt, type Nonces } from './prompt.js';
+import { buildPrompt, type Nonces, type PromptTemplateKind } from './prompt.js';
 import { screen, screenTerms, validateTermsText, type ScreenResult } from './screen.js';
 import { validatePolicy, validateRubric, type JudgmentAcceptance, type JudgmentCriterion, type JudgmentPolicy } from './terms.js';
 import { parseVerdict } from './verdict.js';
@@ -65,6 +65,8 @@ export interface PipelineInput {
    * is judged from a seeded sample without escalating; without it, sampled data escalates.
    */
   sampleSeed?: (seat: PanelSeat, index: number) => Hex32;
+  /** First-instance (default) or appeal template. */
+  template?: PromptTemplateKind;
   /** Per-judge criteria order; defaults to rubric order. Must be a permutation of the rubric. */
   criteriaFor?: (seat: PanelSeat, index: number) => readonly JudgmentCriterion[];
   references?: ReadonlyMap<string, Uint8Array>;
@@ -192,6 +194,7 @@ export async function runPipeline(input: PipelineInput): Promise<Result<Judgment
         criteria,
         data: input.intake.data,
         nonces: input.nonces(seat, i),
+        ...(input.template ? { template: input.template } : {}),
         ...(input.maxDataChars !== undefined ? { maxDataChars: input.maxDataChars } : {}),
         ...(input.sampleSeed ? { sample: { seed: input.sampleSeed(seat, i), mime: input.intake.mime } } : {}),
       });
