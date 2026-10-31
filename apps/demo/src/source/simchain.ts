@@ -5,8 +5,20 @@
 // passes every call through unchanged.
 import type { Commitment, Hex32, Judgment, SettlementEvent } from '@holdback/core';
 import { adjudicatorProfiles, type ProfileView, type Slate } from '@holdback/demo/agents/adjudicators.js';
-import { beatBadWork, beatHappyPath, beatHiddenTags, beatHold, beatMutualSplit, type JobResult, type Negotiation, type NegotiationStep } from '@holdback/demo/agents/beats.js';
-import { createDemoWorld, type ActorName, type DemoWorld } from '@holdback/demo/agents/world.js';
+import {
+  beatBadWork,
+  beatHappyPath,
+  beatHiddenTags,
+  beatHold,
+  beatInjection,
+  beatMutualSplit,
+  beatNeutrality,
+  NEUTRALITY_WORLD,
+  type JobResult,
+  type Negotiation,
+  type NegotiationStep,
+} from '@holdback/demo/agents/beats.js';
+import { createDemoWorld, type ActorName, type DemoWorld, type DemoWorldOptions } from '@holdback/demo/agents/world.js';
 import { formatAmount } from '../transcript/money.js';
 import { plain } from '../transcript/untrusted.js';
 import type { AdjudicatorProfile, Amount, BalanceRow, BeatTranscript, CastKey, DemoEvent, EventSource, JudgeSeat, Json, SlateKeys, Via } from '../transcript/types.js';
@@ -40,9 +52,16 @@ export const BEAT_META: Readonly<Record<number, BeatMeta>> = {
     litmus: 'the hold; delivery versus payment for data',
   },
   6: {
-    title: 'Injection attempt (hidden tags)',
-    summary: "A delivery hides tag characters aimed at Ledger itself under an empty rubric: it is accepted, the screen report records it, and Ledger's SDK strips the payload before Ledger reads the file.",
+    title: 'Injection attempt',
+    summary:
+      "A delivery hides a base64 instruction telling the judges to pass it: Clearfield's screen flags it, its panel cannot accept, it escalates to Atrium, whose five judges (scripted verdicts) reject with the flag in the record, and Ledger is refunded. A second delivery hides tag characters aimed at Ledger itself under an empty rubric: it is accepted, the screen report records it, and Ledger's SDK strips the payload before Ledger reads the file.",
     litmus: 'the defenses',
+  },
+  7: {
+    title: 'Nobody in control',
+    summary:
+      "op-1 refuses to relay for Tide-7's commitment and op-2 then goes offline: the agents' SDKs fail over, then submit straight to SimChain. Clearfield stays silent past judgeBy; Ledger triggers the fallback and Northgate decides. The commitment settles under its signed terms. The club operator signs nothing in this flow.",
+    litmus: 'neutrality',
   },
   10: {
     title: 'Agree without a judge',
@@ -126,8 +145,8 @@ interface Run {
 
 type JobOut = JobResult | { commitment: Commitment; choice?: Run['choice'] };
 
-async function runJob(job: (world: DemoWorld, recorder: Recorder) => Promise<JobOut>): Promise<Run> {
-  const world = await createDemoWorld();
+async function runJob(job: (world: DemoWorld, recorder: Recorder) => Promise<JobOut>, options: DemoWorldOptions = {}): Promise<Run> {
+  const world = await createDemoWorld(options);
   try {
     const recorder = new Recorder(world);
     recorder.start();
@@ -194,6 +213,18 @@ class Narrator {
     return { kind: 'balances', atMs, actor: 'chain', label, rows };
   }
 
+  /** The signed record a decision event names, from every decision the job made. */
+  private recordFor(recordHash: string): Judgment | undefined {
+    const r = this.run.result;
+    return r?.reports?.find((x) => x.record.recordHash === recordHash)?.record ?? (r?.record?.recordHash === recordHash ? r.record : undefined);
+  }
+
+  private operatorKey(id: string): CastKey {
+    if (id === 'op-1') return 'op1';
+    if (id === 'op-2') return 'op2';
+    throw new Error(`unknown operator ${id}`);
+  }
+
   private via(e: SettlementEvent): Via {
     const v = e.submittedVia ?? 'direct';
     if (v === 'op-1') return 'op1';
@@ -212,12 +243,27 @@ class Narrator {
     this.push(1, this.balances(0, 'before', recorder.initial));
     if (this.run.choice) this.negotiation(this.run.choice.negotiation);
     const stamp = (e: SettlementEvent) => recorder.stamps.get(e.seq)!;
+    const facts = result?.neutrality;
+    /** The role of the decision that settles, so finality is narrated only where an appeal can follow. */
+    let decidedRole = 'primary';
     for (let i = 0; i < events.length; i++) {
       const e = events[i]!;
       const { ms, snap } = stamp(e);
       const p = e.payload;
       switch (e.type) {
         case 'commitment.offered':
+          if (facts && e.submittedVia !== facts.refused.operator) {
+            const r = facts.refused;
+            this.push(1, {
+              kind: 'neutrality',
+              atMs: ms,
+              actor: 'seller',
+              target: this.operatorKey(r.operator),
+              failure: 'refused',
+              consequence: `${r.operator}'s own relay policy answered HTTP ${r.status} ("${r.detail}") to ${r.refusals} write calls during the job: ${r.calls.join(', ')}. Each agent's SDK moved on at once under the same idempotency key; ${r.operator} holds no authority over the commitment`,
+              via: this.via(e),
+            });
+          }
           this.push(1, {
             kind: 'offer',
             atMs: ms,
@@ -254,6 +300,17 @@ class Narrator {
             .filter((x) => x.type === 'key.released' && stamp(x).ms === ms)
             .map((x) => this.key(String(x.payload.recipient)));
           const ct = p.ciphertext as { bytes: number };
+          if (facts) {
+            this.push(2, {
+              kind: 'neutrality',
+              atMs: ms,
+              actor: 'seller',
+              target: this.operatorKey(facts.offline),
+              failure: 'offline',
+              consequence: `${facts.offline} stopped before the delivery and ${facts.refused.operator} still refuses, so Tide-7's SDK submits the signed delivery straight to SimChain (${this.via(e) === 'direct' ? 'measured: submitted directly' : `measured: relayed by ${e.submittedVia}`}). No operator is required`,
+              via: this.via(e),
+            });
+          }
           this.push(2, {
             kind: 'delivery',
             atMs: ms,
@@ -267,12 +324,42 @@ class Narrator {
           this.push(2, this.balances(ms, 'after delivery', snap));
           break;
         }
-        case 'judgment.decided':
+        case 'fallback.triggered': {
+          if (!facts) break;
+          const t = facts.fallbackTrigger;
+          this.push(3, {
+            kind: 'neutrality',
+            atMs: ms,
+            actor: t.by === 'atlas' ? 'buyer' : 'chain',
+            target: this.key(c.adjudication.adjudicator),
+            failure: 'offline',
+            consequence: `${facts.silentPrimary.name} never decided: SimChain time moved ${facts.silentPrimary.secondsToJudgeBy.toLocaleString('en-US')} s from the delivery to judgeBy with no decision on the log. Ledger triggered the fallback (anyone may; SimChain checks only the deadline). Northgate Review receives the content key only now, and its panel seed is beacon round ${String(p.beaconRound)}`,
+            via: this.via(e),
+          });
+          break;
+        }
+        case 'judgment.decided': {
           // The decision and its settlement are one submission, so the ledger before it is the previous event's.
           this.push(3, this.balances(ms, 'before the decision', i > 0 ? stamp(events[i - 1]!).snap : recorder.initial));
-          if (record) this.judgment(ms, record);
+          const decidedRecord = this.recordFor(String(p.recordHash)) ?? record;
+          if (decidedRecord) this.judgment(ms, decidedRecord);
+          decidedRole = String(p.role);
+          if (p.outcome === 'escalate') {
+            const appeal = result?.reports?.find((r) => r.record.role === 'appeal')?.record;
+            this.push(3, {
+              kind: 'escalation',
+              atMs: ms,
+              actor: this.key(String(e.actor)),
+              to: this.key(c.adjudication.appealAdjudicator),
+              reason: plain(decidedRecord?.aggregate.reasons[0] ?? 'escalated'),
+              panelSize: appeal?.panel.members.length ?? 0,
+              families: appeal ? new Set(appeal.panel.members.map((m) => m.family)).size : 0,
+            });
+            break;
+          }
           this.push(3, { kind: 'decision', atMs: ms, actor: this.key(String(e.actor)), role: p.role as 'primary', outcome: p.outcome as 'accept' | 'reject', via: this.via(e) });
           break;
+        }
         case 'settlement.released':
         case 'settlement.refunded': {
           const postings = (p.postings as { from: string; to: string; amount: Amount; why: string }[]).filter((x) => x.from.startsWith('escrow:'));
@@ -287,15 +374,18 @@ class Narrator {
             via: this.via(e),
           });
           const decider = this.key(String(e.actor));
-          this.push(4, {
-            kind: 'finality',
-            atMs: ms,
-            actor: 'chain',
-            payee: e.type === 'settlement.released' ? 'seller' : 'buyer',
-            appealWindowSec: c.timing.appealWindowSec,
-            bondAtRisk: c.price,
-            bondHolder: decider,
-          });
+          // An appeal decision is the last word: no appeal window follows it.
+          if (decidedRole !== 'appeal') {
+            this.push(4, {
+              kind: 'finality',
+              atMs: ms,
+              actor: 'chain',
+              payee: e.type === 'settlement.released' ? 'seller' : 'buyer',
+              appealWindowSec: c.timing.appealWindowSec,
+              bondAtRisk: c.price,
+              bondHolder: decider,
+            });
+          }
           this.push(4, this.balances(ms, 'after settlement', snap));
           break;
         }
@@ -458,6 +548,12 @@ function profileOf(v: ProfileView, who: CastKey | undefined): AdjudicatorProfile
   };
 }
 
+/** What a beat adds to the source note beyond SIMCHAIN_NOTE. */
+const NOTE_EXTRA: Readonly<Record<number, string>> = {
+  6: " In the first delivery Atrium's five appeal judges are scripted to reject and report suspected injection (scripted verdicts, no model). The second delivery is a separate commitment on its own world; its times start where the first job's end.",
+  7: ' op-1 refuses through its relay policy hook and op-2 is stopped, both on this run; SimChain time jumps to judgeBy while Clearfield stays silent, so the wall-clock times do not include that wait.',
+};
+
 const transcript = (beat: number, run: Run, events: DemoEvent[]): BeatTranscript => {
   const meta = BEAT_META[beat]!;
   const who = new Map(ACTORS.map(([name, key]) => [lc(run.world.addressOf(name)), key]));
@@ -470,16 +566,32 @@ const transcript = (beat: number, run: Run, events: DemoEvent[]): BeatTranscript
     summary: meta.summary,
     litmus: meta.litmus,
     mode: 'recorded',
-    source: { kind: 'simchain', note: SIMCHAIN_NOTE },
+    source: { kind: 'simchain', note: `${SIMCHAIN_NOTE}${NOTE_EXTRA[beat] ?? ''}` },
     commitmentId: run.commitment.id as Hex32,
     events,
   };
 };
 
-/** Beats 1, 2-4 (one job, sliced), 5, 6 (hidden-tags half) and 10, each on a fresh world with seed 7. */
+/**
+ * Beat 6: the base64 injection job (escalated, decided on appeal), then the hidden-tags job, each on its own
+ * world. The second job's times are shifted to start after the first's, and its balance labels say which job.
+ */
+async function beatSix(): Promise<BeatTranscript> {
+  const injection = await runJob((w) => beatInjection(w));
+  const tags = await runJob((w) => beatHiddenTags(w));
+  const first = new Narrator(injection).build({ signed: false }).map((x) => x.e);
+  const offset = injection.doneMs + 1;
+  const second = new Narrator(tags)
+    .build({ signed: false })
+    .map((x) => x.e)
+    .map((e) => ({ ...e, atMs: e.atMs + offset, ...(e.kind === 'balances' ? { label: `second delivery, ${e.label}` } : {}) }) as DemoEvent);
+  return transcript(6, injection, [...first, ...second]);
+}
+
+/** Every beat on SimChain: 1, 2-4 (one job, sliced), 5, 6 (two jobs), 7 and 10, each on a fresh world with seed 7. */
 export function simchainSource(): EventSource {
   let happy: Promise<Run> | undefined;
-  const beats = [1, 2, 3, 4, 5, 6, 10];
+  const beats = [1, 2, 3, 4, 5, 6, 7, 10];
   return {
     name: 'simchain',
     beats: () => beats,
@@ -497,10 +609,15 @@ export function simchainSource(): EventSource {
           const all = new Narrator(run).build({ signed: false });
           return transcript(beat, run, all.filter((x) => x.phase === beat).map((x) => x.e));
         }
-        case 5:
         case 6:
+          return beatSix();
+        case 7: {
+          const run = await runJob((w) => beatNeutrality(w), NEUTRALITY_WORLD);
+          return transcript(7, run, new Narrator(run).build({ signed: false }).map((x) => x.e));
+        }
+        case 5:
         case 10: {
-          const job = beat === 5 ? beatBadWork : beat === 6 ? beatHiddenTags : (w: DemoWorld) => beatMutualSplit(w);
+          const job = beat === 5 ? beatBadWork : (w: DemoWorld) => beatMutualSplit(w);
           const run = await runJob((w) => job(w));
           return transcript(beat, run, new Narrator(run).build({ signed: false }).map((x) => x.e));
         }

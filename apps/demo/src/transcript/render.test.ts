@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { standInSource } from '../source/stand-in.js';
+import { beforeAll, describe, expect, it } from 'vitest';
+import { allMeasured, measured } from '../source/measured.fixture.js';
 import { closing } from './closing.js';
 import { renderHtml } from './render-html.js';
 import { renderClosingMarkdown, renderMarkdown } from './render-md.js';
@@ -7,9 +7,9 @@ import { renderJson } from './render-json.js';
 import type { BeatTranscript } from './types.js';
 import { withAdjudicators } from './adjudicators.fixture.js';
 
-/** Beat 7 plus a signed message, so one fast fixture exercises every section. */
+/** Beat 7 plus a signed message, so one transcript exercises every section. */
 async function withSigned(): Promise<BeatTranscript> {
-  const t = await standInSource().run(7);
+  const t = await measured(7);
   return {
     ...t,
     events: [
@@ -20,9 +20,10 @@ async function withSigned(): Promise<BeatTranscript> {
   };
 }
 
+beforeAll(() => allMeasured(), 60_000);
+
 async function all(): Promise<BeatTranscript[]> {
-  const s = standInSource();
-  return [await withSigned(), ...(await Promise.all(s.beats().filter((b) => b !== 7).map((b) => s.run(b))))];
+  return [await withSigned(), ...(await allMeasured()).filter((t) => t.beat !== 7)];
 }
 
 describe('renderMarkdown', () => {
@@ -37,9 +38,9 @@ describe('renderMarkdown', () => {
   });
 
   it('shows the panel as a table with pinned model IDs', async () => {
-    const md = renderMarkdown(await standInSource().run(6));
+    const md = renderMarkdown(await measured(6));
     expect(md).toContain('## Panel');
-    expect(md).toMatch(/\| 1 \| `placeholder-claude-a-20260601` \|/);
+    expect(md).toMatch(/\| 1 \| `placeholder-[a-z0-9-]+-20260601` \|/);
   });
 
   it('marks every section built from a stand-in event: timeline, panel, neutrality, balances, signed message', async () => {
@@ -60,14 +61,14 @@ describe('renderMarkdown', () => {
   });
 
   it('marks stand-in events in a mixed transcript', async () => {
-    const t = await standInSource().run(6);
+    const t = await measured(6);
     const mixed: BeatTranscript = { ...t, source: { kind: 'mixed', note: 'part measured' }, events: t.events.map((e, i) => (i < 3 ? { ...e, standIn: true as const } : e)) };
     expect(renderMarkdown(mixed)).toContain('[stand-in]');
     expect(renderHtml([mixed])).toContain('<span class="badge standin">stand-in</span>');
   });
 
   it('marks neutrality events', async () => {
-    const md = renderMarkdown(await standInSource().run(7));
+    const md = renderMarkdown(await measured(7));
     expect(md).toContain('## Neutrality events');
     expect(md).toMatch(/op-1.*refused/);
   });
@@ -125,7 +126,7 @@ describe('renderHtml', () => {
   });
 
   it('shows a collapsed profile per adjudicator, with judges, effort, harness, terms and history marked role-play (T-017)', async () => {
-    const t = withAdjudicators(await standInSource().run(7));
+    const t = withAdjudicators(await measured(7));
     const html = renderHtml([t]);
     const profiles = [...html.matchAll(/<details class="profile">[\s\S]*?<\/details>/g)].map((m) => m[0]);
     expect(profiles).toHaveLength(4);
@@ -142,7 +143,7 @@ describe('renderHtml', () => {
   });
 
   it('narrates the proposal and the agreement before the offer (T-017)', async () => {
-    const t = withAdjudicators(await standInSource().run(7));
+    const t = withAdjudicators(await measured(7));
     const md = renderMarkdown(t);
     const lines = md.split('\n').filter((l) => l.startsWith('- +'));
     expect(lines[0]).toMatch(/Ledger \(Atlas Research\) reads 4 published adjudicators and proposes Clearfield Adjudication \(primary\), Northgate Review \(fallback\), Atrium Appeals \(appeal\)\./);
@@ -159,14 +160,14 @@ describe('renderHtml', () => {
   });
 
   it('the viewer lists the rules applied and each bench\'s seller checks (T-017)', async () => {
-    const html = renderHtml([withAdjudicators(await standInSource().run(7))]);
+    const html = renderHtml([withAdjudicators(await measured(7))]);
     expect(html).toMatch(/Rules applied by Ledger \(Data Services Club rulebook\)/);
     expect(html).toContain('panels of at least 3 judges from at least 2 model families (panelPolicyMin)');
     expect(html).toMatch(/Seller's checks \(Tide-7\)<\/h4><ul><li>offers the primary role<\/li>/);
   });
 
   it('escapes text, so a hostile string in a transcript cannot add markup', async () => {
-    const t = await standInSource().run(7);
+    const t = await measured(7);
     const hostile: BeatTranscript = { ...t, title: '<script>alert(1)</script>', summary: '"><img src=x onerror=alert(1)>' };
     const html = renderHtml([hostile]);
     expect(html).not.toContain('<script>alert');

@@ -44,7 +44,9 @@ describe('pnpm demo', () => {
     const one = readFileSync(join(out, 'beat-1.md'), 'utf8');
     expect(one).toContain('recorded verdicts');
     expect(one).toContain('measured on SimChain');
-    expect(readFileSync(join(out, 'beat-7.md'), 'utf8')).toContain('scripted stand-in');
+    const seven = readFileSync(join(out, 'beat-7.md'), 'utf8');
+    expect(seven).toContain('measured on SimChain');
+    for (const b of [1, 2, 3, 4, 5, 6, 7, 10]) expect(readFileSync(join(out, `beat-${b}.md`), 'utf8')).not.toMatch(/stand-in/i);
     expect(logs.join('\n')).toMatch(/first transcript after \d+ ms/);
   }, 60_000);
 

@@ -19,8 +19,8 @@ beforeAll(async () => {
 const beat = (n: number) => byBeat.get(n)!;
 
 describe('SimChain source (T-012 beat runner)', () => {
-  it('drives beats 1 to 5, the hidden-tags half of 6, and 10', () => {
-    expect(simchainSource().beats()).toEqual([1, 2, 3, 4, 5, 6, 10]);
+  it('drives every beat: 1 to 7 and 10', () => {
+    expect(simchainSource().beats()).toEqual([1, 2, 3, 4, 5, 6, 7, 10]);
   });
 
   it('labels every transcript as measured on SimChain', () => {
@@ -109,7 +109,8 @@ describe('SimChain source (T-012 beat runner)', () => {
 
   it('beat 6 (hidden tags): the screen flags tag characters and Ledger reads the file with 111 stripped', () => {
     const t = beat(6);
-    expect(only(t, 'screen')[0]).toMatchObject({ flagged: true, signals: ['unicode_tags'] });
+    // The second delivery in beat 6; the first is the base64 job (beat 6a).
+    expect(only(t, 'screen').at(-1)).toMatchObject({ flagged: true, signals: ['unicode_tags'] });
     expect(only(t, 'open')[0]?.stripped).toEqual({ what: 'Unicode tag characters', count: 111 });
   });
 
@@ -134,19 +135,60 @@ describe('SimChain source (T-012 beat runner)', () => {
   });
 });
 
-describe('demo source (SimChain plus labeled stand-in)', () => {
-  it('offers beats 1 to 7 and 10; beat 7 is stand-in, beat 6 is mixed', async () => {
+describe('beat 6a on SimChain: base64 injection, escalation, appeal reject (T-018)', () => {
+  it('the screen flags the first delivery, Clearfield escalates to Atrium, five scripted judges reject, Ledger is refunded and pays only the fee', () => {
+    const t = beat(6);
+    const screens = only(t, 'screen');
+    expect(screens[0]!.flagged).toBe(true);
+    expect(screens[0]!.actor).toBe('benchA');
+    const [esc] = only(t, 'escalation');
+    expect(esc).toMatchObject({ actor: 'benchA', to: 'benchC', panelSize: 5 });
+    expect(esc!.families).toBeGreaterThanOrEqual(2);
+    const panels = only(t, 'panel');
+    expect(panels[1]).toMatchObject({ actor: 'benchC', seedSource: 'beacon', outcome: 'reject' });
+    expect(panels[1]!.judges.map((j) => j.verdict)).toEqual(['fail', 'fail', 'fail', 'fail', 'fail']);
+    expect(screens[1]!.consequence).toMatch(/screen flagged; see screen\.signals/);
+    const decisions = only(t, 'decision');
+    expect(decisions[0]).toMatchObject({ actor: 'benchC', role: 'appeal', outcome: 'reject', via: 'direct' });
+    const refund = only(t, 'settlement')[0]!;
+    expect(refund.settlement).toBe('refund');
+    expect(refund.keyReleasedTo).toBeUndefined();
+    expect(row(t, 'after settlement', 'buyer')!.amount.amount).toBe((9_950n * 1_000_000n).toString());
+    expect(row(t, 'after settlement', 'benchC')!.amount.amount).toBe((25_050n * 1_000_000n).toString());
+    expect(row(t, 'after settlement', 'seller')!.amount.amount).toBe('0');
+    expect(t.source.note).toMatch(/scripted verdicts/);
+  });
+});
+
+describe('beat 7 on SimChain: nobody in control (T-018)', () => {
+  it('op-1 refuses, op-2 relays then goes offline, the delivery goes direct, Clearfield is silent, Ledger triggers the fallback and Northgate releases', () => {
+    const t = beat(7);
+    const n = only(t, 'neutrality');
+    expect(n.map((e) => [e.target, e.failure, e.via])).toEqual([
+      ['op1', 'refused', 'op2'],
+      ['op2', 'offline', 'direct'],
+      ['benchA', 'offline', 'direct'],
+    ]);
+    expect(n[0]!.consequence).toMatch(/HTTP 403/);
+    expect(n[0]!.consequence).toMatch(/4 write calls/);
+    expect(only(t, 'hold')[0]!.via).toBe('op2');
+    expect(only(t, 'delivery')[0]!.via).toBe('direct');
+    expect(only(t, 'decision')).toEqual([expect.objectContaining({ actor: 'benchB', role: 'fallback', outcome: 'accept' })]);
+    expect(only(t, 'panel')[0]!.seedSource).toBe('beacon');
+    expect(only(t, 'settlement')[0]).toMatchObject({ settlement: 'release', keyReleasedTo: 'buyer' });
+    expect(row(t, 'after settlement', 'seller')!.amount.amount).toBe((2_000n * 1_000_000n).toString());
+    expect(row(t, 'after settlement', 'benchB')!.amount.amount).toBe((25_050n * 1_000_000n).toString());
+    expect(row(t, 'after settlement', 'benchA')!.reserved!.amount).toBe('0');
+    expect(only(t, 'open')[0]!.matchesDelivery).toBe(true);
+    // The club operator is not in the flow: no revocation is narrated.
+    expect(n.some((e) => e.failure === 'revoked')).toBe(false);
+  });
+});
+
+describe('demo source', () => {
+  it('is the SimChain source: beats 1 to 7 and 10, no stand-in events', async () => {
     const s = demoSource();
     expect(s.beats()).toEqual([1, 2, 3, 4, 5, 6, 7, 10]);
-    expect((await s.run(7)).source.kind).toBe('stand-in');
-    const six = await s.run(6);
-    expect(six.source.kind).toBe('mixed');
-    const flags = six.events.map((e) => e.standIn === true);
-    const firstReal = flags.indexOf(false);
-    expect(firstReal).toBeGreaterThan(0);
-    expect(flags.slice(firstReal).every((f) => !f)).toBe(true);
-    const times = six.events.map((e) => e.atMs);
-    expect(times).toEqual([...times].sort((a, b) => a - b));
-    expect(six.events.filter((e) => e.kind === 'balances' && e.standIn)).toEqual([]);
-  }, 30_000);
+    expect(s.name).toBe('simchain');
+  });
 });
