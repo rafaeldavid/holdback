@@ -174,7 +174,7 @@ export async function runPipeline(input: PipelineInput): Promise<Result<Judgment
   const thresholds = { minValid: policy.minValid, acceptSupermajority: policy.acceptSupermajority, rejectSupermajority: policy.rejectSupermajority };
   const base = { intake: input.intake.record, deterministic };
 
-  if (false) {
+  if (preDecision(deterministic, acceptance.rubric, inconclusive) !== 'panel') {
     const agg = aggregate({ checks: deterministic, inconclusive, rubric: acceptance.rubric, screenFlagged: baseScreen.flagged, verdicts: [], thresholds });
     return ok({ ...base, screen: baseScreen, panel: { ran: false, members: [] }, aggregate: agg });
   }
