@@ -104,6 +104,7 @@ Deferred until after the basic demo. The demo assumes honest parties (Rafa, Octo
 
 | Item | Source | When it matters |
 | --- | --- | --- |
+| Per-call micropayments for operator API access (HTTP 402 schemes such as x402): pricing per call, free reads vs paid writes, how a paid call interacts with idempotency replays, and an operator refusing unpaid calls without breaking the escape hatch (direct submission stays free of operator fees) | D30 | After the demo; with the operator business model |
 | IETF `RateLimit` headers; `Deprecation` and `Sunset` headers | ADR-0017 | When the draft stabilizes; at API v1.0 |
 | Overturned wrongful reject: the buyer keeps its refund and also gets the work, while the seller is paid from the primary's bond. Document it; decide whether the key should be released to the buyer in that case | Outsider usability review | Before a pilot; with D29 clauses |
 | Deterministic checks for text deliverables (length ratio to a committed source, clause or segment count, required glossary terms, language detection) | Outsider usability review | After the demo; before a translation or document pilot |
