@@ -218,6 +218,9 @@ importers:
       '@holdback/core':
         specifier: workspace:*
         version: link:../core
+      viem:
+        specifier: ^2.57.13
+        version: 2.57.13(typescript@6.0.3)
     devDependencies:
       fast-check:
         specifier: ^4.10.2

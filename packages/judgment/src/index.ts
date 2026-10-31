@@ -8,6 +8,7 @@ export * from './intake.js';
 export * from './normalize.js';
 export * from './pipeline.js';
 export * from './prompt.js';
+export * from './sample.js';
 export * from './screen.js';
 export * from './terms.js';
 export * from './untrusted.js';

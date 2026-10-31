@@ -8,8 +8,9 @@
 // and appear only as JSON-quoted values inside their own delimited block, never as bare system text.
 // Party identities, price and reputation are not inputs (blinding).
 import { createHash } from 'node:crypto';
-import { canonicalJson, err, ok, type Hex32, type Result } from '@holdback/core';
+import { canonicalJson, err, ok, type Hex32, type MimeType, type Result } from '@holdback/core';
 import { normalizeText } from './normalize.js';
+import { csvRecords, sampleCsv } from './sample.js';
 import type { JudgmentCriterion } from './terms.js';
 import { UntrustedData } from './untrusted.js';
 
@@ -62,7 +63,15 @@ export interface PromptInput {
   data: UntrustedData;
   nonces: Nonces;
   maxDataChars?: number;
+  /**
+   * The seed and delivered MIME for seeded sampling (sample.ts). Without it, or for an unsampleable
+   * deliverable, data over the budget gets the predictable even-stride sample, which escalates.
+   */
+  sample?: { seed: Hex32; mime: MimeType };
 }
+
+/** none: the whole deliverable; seeded: a recomputable seeded sample; stride: the even-stride fallback. */
+export type Sampling = 'none' | 'seeded' | 'stride';
 
 export interface RenderedPrompt {
   system: string;
@@ -72,6 +81,7 @@ export interface RenderedPrompt {
   canary: string;
   /** True when the data section holds a sample rather than the whole deliverable. */
   truncated: boolean;
+  sampling: Sampling;
   promptTemplateHash: Hex32;
   /** SHA-256 of the RFC 8785 JSON of {system, user}. */
   inputHash: Hex32;
@@ -125,8 +135,19 @@ export function buildPrompt(input: PromptInput): Result<RenderedPrompt, string> 
   const max = input.maxDataChars ?? DEFAULT_MAX_DATA_CHARS;
   let lines = text.split(LINE_BREAK);
   const truncated = text.length > max;
+  let sampling: Sampling = 'none';
   let note = `The data section holds the whole deliverable (${lines.length} lines).`;
-  if (truncated) {
+  const records = truncated && input.sample?.mime === 'text/csv' ? csvRecords(text) : null;
+  const seeded = records ? sampleCsv(records, max, input.sample!.seed) : null;
+  if (seeded) {
+    sampling = 'seeded';
+    lines = seeded.records.join('\n').split(LINE_BREAK);
+    note =
+      `The data section holds a sample of the deliverable: the header row, the first ${seeded.head} and last ${seeded.tail} of ${seeded.totalRows} data rows, ` +
+      `and ${seeded.random} further rows drawn at random with a seed fixed before delivery was judged, in file order. ` +
+      'Judge the sample as representative of the whole file. The deterministic checks ran on the whole file, so do not fail the work only because rows are absent from the sample.';
+  } else if (truncated) {
+    sampling = 'stride';
     const total = lines.length;
     lines = sample(lines, max);
     note = `The data section holds the first line and ${lines.length - 1} of ${total - 1} further lines, sampled at even intervals.`;
@@ -157,6 +178,7 @@ export function buildPrompt(input: PromptInput): Result<RenderedPrompt, string> 
     datamark,
     canary,
     truncated,
+    sampling,
     promptTemplateHash: PROMPT_TEMPLATE_HASH,
     inputHash: sha256Hex(canonicalJson({ system, user })),
   });
