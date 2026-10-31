@@ -48,10 +48,46 @@ Restated in my own words:
 
 Fill this in before review. Label each item measured, inferred or guessed.
 
-- Commands run and results:
-- Snapshot diffs:
-- Metrics:
+- **Test first (measured):** `1f66814` adds the tests and the beat-1 fixture alone; `apps/demo/agents/agents.test.ts` then failed to load (`./adjudicators.js` missing, 0 tests run), and `tsc -b` failed on the new event kinds and `BeatTranscript.adjudicators`. After `b7a3eee` and `0deef11`: 19 of 19 agents tests and 83 of 83 `apps/demo` tests pass.
+- **Selection on SimChain, seed 7 (measured, `agents.test.ts` and `pnpm demo --beat 1`):** Ledger reads 4 registrations. Clearfield, Northgate and Atrium are eligible; Swiftline Verdicts is excluded with: panel of 1 judge (rulebook `panelPolicyMin.panelSize` 3), 1 model family (`minFamilies` 2), appeal panel of 1 (`appealPanelSize` 5), and its registration does not validate against `adjudicator.schema.json` v0.6. Its bond (40,000 tUSD, in genesis) covers the 2,000 tUSD price, so no bond reason appears. Tide-7 passes 4 checks per bench and agrees; the offer's `adjudicator`, `fallbackAdjudicator` and `appealAdjudicator` equal the agreed slate (registrations write addresses in lower case, the commitment in checksum case).
+- **By rule, not name (measured):** Clearfield's own listing with `policy.minFamilies` set to 1 gets the same `panelPolicyMin.minFamilies` reason; a 30,000 tUSD price excludes it on the bond rule.
+- **Refusal (measured):** with Tide-7's policy at `minFreeBondBps: 150000` (30,000 tUSD), the review refuses all three benches with `free bond 25,000 tUSD is below the 30,000 tUSD Tide-7 requires`, `beatHold` throws, and SimChain has no `commitment.offered` event.
+- **Profiles (measured):** each of Clearfield, Northgate and Atrium resolves to the 5 active `config/judges.yaml` entries (`placeholder-claude-a/b`, `placeholder-gpt-a/b`, `placeholder-qwen-a`, all `-20260601`); Swiftline to `placeholder-gpt-a-20260601` only. A profile naming `gpt-latest` or the candidate `qwen-b` throws. Terms: fee 50 tUSD (registration `fee.min`; Swiftline 20 tUSD, 100 bps declared), panel 3 from 2 families at 2/3, appeal panel 5 from 3, deadlines 120 s / 120 s / 300 s from the terms file, appeal window 300 s, bond 25,000 tUSD (Swiftline 40,000) read before the job's reservation.
+- **Beat-1 transcript (measured, `pnpm demo --beat 1`):** event order `adjudicator-proposal` (+19 ms), `adjudicator-agreement` (+20 ms), `offer` (+42 ms), `signed`, `acceptance` (+50 ms), `hold` (+59 ms). Times are wall-clock on this machine and vary run to run.
+- **Viewer (measured):** `index.html` has 4 `<details class="profile">` blocks, none open; each lists judges with pinned model IDs and declared effort, harness, terms and history under a "role-play" badge. `beat-1.md` has an "Adjudicators considered" section.
+- **Untrusted text (measured):** the hostile-text tests now put the hostile string in the declined listing's name; terminal, Markdown, HTML and JSON surfaces pass unchanged assertions.
+- **Commitment unchanged (inferred):** the terms, policy ID and RNG draws before the offer are unchanged (the negotiation draws no randomness), and the determinism test still passes; I did not diff the commitment ID against `main`.
+- **`pnpm verify` (measured, clean tree):**
+
+  | Step | Command | Status | Time |
+  | --- | --- | --- | --- |
+  | typecheck | `pnpm typecheck` | pass | 233 ms |
+  | lint | `pnpm lint` | pass | 2293 ms |
+  | test | `pnpm test` | pass | 24408 ms |
+  | spec | `pnpm validate:spec` | pass | 309 ms |
+  | snap | `pnpm snap` | pass | 2068 ms |
+  | demo | `pnpm demo` | pass | 2579 ms |
+
+  62 test files, 1,855 tests, all passing; no snapshot diffs against HEAD. Run at `7a0e83e`, before rebasing onto `df6486d` (docs only); re-run on the final commit is recorded in the PR.
 
 ## Decisions
 
+- **No schema change.** Effort, harness, roles offered, a fee rate and history are cast-level display data in `PROFILES` (`apps/demo/agents/cast.ts`). Backlog rows: registration fields for roles, per-judge effort and fee rate; signed negotiation messages and counter-proposals.
+- **Judges are registry IDs, not model strings.** A profile lists `claude-a`, `gpt-b` and so on; `resolveJudges` maps them through `demoRegistry()` and throws on anything not active. The three benches list all five active entries because T-009's service draws every panel from that population.
+- **Swiftline's registration declares what it runs** (panel 1, one family) and therefore fails the v0.6 schema floors. The directory is a bulletin board: anyone posts, readers validate. Ledger reports the rulebook reasons first and the schema failure last. Swiftline has a real 40,000 tUSD bond in genesis so the bond rule passes and only the panel rules exclude it; the narrator leaves its bond out of the balance rows (no commitment names it).
+- **Bond rule from the rulebook:** free bond ≥ `ceil(price × windowCoverageRatioBps / 10000)`, at 100% for `guaranteed_on_decision` (`docs/architecture.md` coverage invariant). The club allows only that mode, so the bar is the price.
+- **Role assignment:** for each role, the cheapest eligible listing whose profile offers it, ties in posting order. The terms template's `policyId` is replaced by the agreed primary's policy ID before the offer.
+- **Seller policy:** registration validates, registry hash equals the registry Tide-7 trusts and every active model is dated (no alias), `policyHash` equals the hash of the policy, free bond ≥ `minFreeBondBps` of the price (default 10,000). Refusal is the one non-agree path.
+- **Profiles are read as the agents read them,** before the primary reserves bond for the job (`Negotiation.listings`).
+- **Clearfield is posted even when a test swaps its seam:** the listing is public data and selection happens before any seam acts.
+- **Untrusted text:** registration names and reasons go through `plain` at ingestion (`source/simchain.ts`) and `esc`/`mdText` per surface.
+
 ## Handoff
+
+**Done:** `apps/demo/agents/adjudicators.ts` (rules, proposal, seller review, profile views), profiles and `SWIFTLINE` in `cast.ts`, `BenchDirectory.publish`/`listings` and `publishSwiftline` in `bench.ts`, Swiftline keys and bond in `world.ts`, `AtlasAgent.proposeAdjudicators`, `TidewaterAgent.reviewAdjudicators` (with a policy option), `chooseAdjudicators` and the slate-driven `beatHold` in `beats.ts`; in `apps/demo/src/`, two new event kinds, `BeatTranscript.adjudicators`, narration, the viewer's collapsed profiles and a Markdown section. `docs/backlog.md` has two new rows.
+
+**Not done:** counter-proposals; signed negotiation messages; effort applied to live judges (no live mode yet).
+
+**How to resume:** `chooseAdjudicators(world, players(world, { seller }), terms)` runs the negotiation alone; `adjudicatorProfiles(holdResult)` gives the profile views.
+
+**Open questions:** whether roles offered and per-judge effort belong in the registration (and so in `policyHash`) at the next schema bump.
