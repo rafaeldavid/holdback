@@ -61,7 +61,7 @@ Widen collaboration; the law stays the backstop. The product's job is to extend 
 
 | ID | Goal |
 | --- | --- |
-| G0 | **Demo first.** A researcher can run the demo in recorded mode in under 5 minutes with no keys, and understand hold, judgment, settlement and neutrality from the transcript |
+| G0 | **Demo first.** A researcher can run the demo with scripted judges in under 5 minutes with no keys, and understand hold, judgment, settlement and neutrality from the transcript |
 | G1 | **Machine-speed hold and settlement** through direct API calls |
 | G2 | **Two-sided hold:** money in escrow, work encrypted, key released on settlement |
 | G3 | **Defended multi-model judgment** |
@@ -128,7 +128,7 @@ Widen collaboration; the law stays the backstop. The product's job is to extend 
 
 ### Demo
 
-- **FR-23** `pnpm demo` runs the scripted scenarios in recorded mode and writes a narrated transcript (Markdown and JSON) plus a static timeline viewer. `--live` uses real judges.
+- **FR-23** `pnpm demo` runs the scripted scenarios with scripted judges (recorded model verdicts later) and writes a narrated transcript (Markdown and JSON) plus a static timeline viewer. `--live` uses real judges.
 
 ### Non-functional
 
@@ -144,7 +144,7 @@ Widen collaboration; the law stays the backstop. The product's job is to extend 
 
 | Metric | Target | Measured by |
 | --- | --- | --- |
-| Demo time-to-first-transcript, recorded mode, fresh clone | ≤ 5 min | Manual dry run (T-013) |
+| Demo time-to-first-transcript, scripted judges, fresh clone | ≤ 5 min | Manual dry run (T-013) |
 | Hold p95 (SimChain) | ≤ 250 ms | `pnpm load` |
 | Overdrafts under 100 concurrent holds | 0 | Property and load tests |
 | Neutrality fixtures passing | 100% | `pnpm snap` |

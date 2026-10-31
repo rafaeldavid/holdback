@@ -66,7 +66,7 @@ Closing slide in the transcript, also stated by the narrator:
 - No marketing language. Label the mode honestly: "scripted" when fake judges run, "recorded" only when real model recordings are replayed, "live" when models are called. Never name task IDs in a transcript.
 - The viewer and the terminal print the mode, source and units once; each beat adds only what differs.
 - Show a balance table only when the ledger changed. The decision line states how long after delivery it came and how long judging took, measured by the adjudicator service.
-- Each job ends with one line showing that both agents hold the same record (D26): each fetches commitment, events, receipts and judgment record through its own SDK client, and the line compares the hashes.
+- Each job ends with one line showing that both agents hold the same record (D26). Ledger reads through an SDK client that tries op-1 first, Tide-7 through one that tries op-2 first; each fetches the commitment, every event and every receipt, and the line names the operator that signed each copy's receipts. The judgment record is the one the adjudicator published, found by the hash the decision event names (there is no read API for records yet). The hashes compare everything except the receipts' signer and signature, which differ by operator.
 - The closing lists four residual control points (collusion, legal process, plaintext access, self-reported model identity) and points to `docs/neutrality.md` for the rest.
 
 ## Success criteria (T-013)
