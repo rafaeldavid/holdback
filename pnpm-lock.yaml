@@ -245,6 +245,9 @@ importers:
       '@holdback/core':
         specifier: workspace:*
         version: link:../core
+      '@holdback/judgment':
+        specifier: workspace:*
+        version: link:../judgment
       '@holdback/settlement':
         specifier: workspace:*
         version: link:../settlement

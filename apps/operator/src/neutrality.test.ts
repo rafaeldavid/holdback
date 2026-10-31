@@ -29,8 +29,8 @@ describe('two operators on one SimChain', () => {
     const op2 = await w.operator('op-2');
     await new Holdback({ operators: [op1.url] }).hold(await holdOf(w.deal));
     expect((await new Holdback({ operators: [op2.url] }).commitment(w.deal.id))?.escrowState).toBe('Held');
-    const s1 = await (await fetch(`${op1.url}/v1/status`)).json();
-    const s2 = await (await fetch(`${op2.url}/v1/status`)).json();
+    const s1 = (await (await fetch(`${op1.url}/v1/status`)).json()) as { receiptSigner: string };
+    const s2 = (await (await fetch(`${op2.url}/v1/status`)).json()) as { receiptSigner: string };
     expect(s1.receiptSigner).not.toBe(s2.receiptSigner);
   });
 

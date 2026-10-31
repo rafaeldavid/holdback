@@ -2,11 +2,12 @@
 import { holdbackDomain, parseOperatorStatus, parsePage, parseReceipt, verifyMessage, type CommitmentStateView, type Receipt } from '@holdback/core';
 import { Holdback, requestOf } from '@holdback/sdk';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { LogEntry } from './index.js';
 import { asOperation, hex32, holdOf, world, type World } from './_world.js';
 
 let w: World;
 let base: string;
-const logs: Array<Record<string, unknown>> = [];
+const logs: LogEntry[] = [];
 
 beforeEach(async () => {
   w = await world();
@@ -108,7 +109,8 @@ describe('dry run (?validateOnly=true)', () => {
     const op = asOperation(await w.deal.earlyAccept());
     const before = { log: w.chain.log().length, digest: w.chain.digest() };
     const { path, body } = requestOf(op);
-    const { signature: _s, ...unsigned } = body as Record<string, unknown>;
+    const unsigned = { ...(body as Record<string, unknown>) };
+    delete unsigned['signature'];
     const r = await post(`${path}?validateOnly=true`, unsigned);
     expect(r.status).toBe(200);
     expect(r.headers.get('holdback-dry-run')).toBe('true');
@@ -146,7 +148,7 @@ describe('headers and problems', () => {
     const tp = '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01';
     const { path, body } = requestOf(await holdOf(w.deal));
     const r = await post(path, body, { 'idempotency-key': 'k-tp', traceparent: tp });
-    expect(logs.some((l) => l['traceparent'] === tp)).toBe(true);
+    expect(logs.some((l) => l.traceparent === tp)).toBe(true);
     expect(JSON.stringify(await r.json())).not.toContain('0af7651916cd43dd8448eb211c80319c');
   });
 
