@@ -14,7 +14,8 @@
     "mutants": "node scripts/mutants.mjs"
   },
   "dependencies": {
-    "@holdback/core": "workspace:*"
+    "@holdback/core": "workspace:*",
+    "viem": "^2.57.13"
   },
   "devDependencies": {
     "fast-check": "^4.10.2"

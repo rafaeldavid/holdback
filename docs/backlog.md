@@ -64,10 +64,24 @@ Deferred until after the basic demo. The demo assumes honest parties (Rafa, Octo
 | Calibrate screen phrase families and false-positive rates | T-008 Handoff | Phase 3 |
 | Dedicated screen signal kinds (new signals reuse `encoded_run` and `instruction_phrase`) | T-008 Handoff | Next schema bump |
 | Per-check null-token list (built in today) | T-008 red team item 3 | When a club needs custom null tokens |
-| `inputHash` recomputable by the buyer (needs the per-judge nonces) | T-008 Handoff | T-009 |
 | Escalate on high-risk screen signals as a `screenPolicy` option | ADR-0021 | Phase 3, with a classifier |
 | Confidential-compute checks for checks-only commitments; state the independence choice (judging the goods, not documents) in the PRD | Review F2 | PRD edit now or soon; compute in Phase 3+ |
 | Response attestation for judges (residual 8) | ADR-0006 | When providers sign responses |
+| Sampling for JSON, text and markdown deliverables (today they escalate over 100,000 characters); a reader stage for typed features | T-009 | When a demo or pilot delivers large non-CSV work |
+| Residual of sampling: bad rows in a small fraction of a large file can miss every judge's sample; size the sample from a target detection rate and state it in the policy | T-009 | Phase 3, with calibration |
+| Appeal supermajorities (`appealAcceptSupermajority`, 4/5 in the docs table) need policy schema fields; today appeals use the first-instance fractions | T-009 | Next schema bump |
+| "No decision" message for an inconclusive appeal panel after an escalation (today the appeal adjudicator stays silent and the default applies, exposing its bond) | T-009 | Phase 3, with default compensation (F5) |
+| Fetch another adjudicator's registry by URI (today a fallback or appeal adjudicator must hold the bound registry itself) | T-009 | When benches publish different registries |
+| Record key (ADR-0020) unwrapping on takeover, alongside the content key | T-009 | Phase 2, with private records |
+| Reference inputs for `reference_row_match_min` fetched by the adjudicator (`deliverable.inputs`) | T-009 | When a commitment uses that check |
+| Adjudicator affiliation check at acceptance (`error.adjudicator-affiliated`) | T-009 | Before open clubs |
+| Persist computed decisions across restarts (today the no-re-roll memo is in memory; seeds are derived, so a restart re-judges with the same panel but can get different live verdicts) | T-009 review | Before live judges in a long-running service |
+| Primary seed ignores the attempt number: `seedFor(commitmentId)` is the same for every attempt, so a re-delivery judged by the primary draws the same seats and samples; fold `attempt` into the primary seed (and its acceptance commitment) | T-009 review | Before re-delivery (attempt > 0) reaches the primary |
+| A colluding primary knows its seed from acceptance, before delivery, so it can tell the seller which judges and sample rows to expect; commit-reveal stops grinding, not leakage. Options: a beacon contribution mixed into the primary seed, or a seed committed only after delivery | T-009 review | Before open clubs (honest primary assumed for the demo) |
+| One OpenAI-compatible base URL per service (`HOLDBACK_OPENAI_COMPATIBLE_BASE_URL`): a registry naming two OpenAI-compatible hosts cannot be served; key the base URL and API key by registry entry or provider host | T-009 review | When the registry seats two OpenAI-compatible providers |
+| Live providers do not abort the fetch on timeout (`withTimeout` races it, the request keeps running) and read the whole response body with no size cap; pass an `AbortSignal` and cap the body before parsing | T-009 review | Before live judges in a long-running service |
+| `unencumberedBond` in `OfferTask` is unused: the service accepts without checking it can cover `bondReserved`; refuse offers the bond cannot cover (core still enforces it at acceptance) | T-009 review | With T-006's adapter, before open bonding |
+| Appeal family minimum lowered to what the registry has: `max(minFamilies, min(minFamiliesAppeal, families in registry))`, so a two-family registry gives a two-family appeal panel; refuse (or require the registry to meet `minFamiliesAppeal`) instead | T-009 review | Before benches publish registries with fewer than three families |
 
 ## Privacy
 

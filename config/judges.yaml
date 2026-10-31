@@ -1,0 +1,40 @@
+# Holdback's default judge registry (docs/judgment-and-defenses.md, Model registry).
+# A commitment binds keccak256 of this document's RFC 8785 canonical JSON (adjudication.registryHash),
+# and every panel is a seeded shuffle of the active entries below. Any change is a new registry hash.
+#
+# PLACEHOLDERS: the model IDs are pinned-format placeholders for the recorded demo, not real provider
+# model IDs, and the metrics are absent because no calibration has run. Promotion to real IDs follows
+# the promotion rule and is logged in docs/decisions/registry-log.md. Never an alias such as "latest".
+# Metrics, when present, are integer basis points (ADR-0022): no floats in a hashed body.
+version: 1
+judges:
+  - id: claude-a
+    provider: anthropic
+    family: claude
+    model: placeholder-claude-a-20260601
+    status: active
+  - id: claude-b
+    provider: anthropic
+    family: claude
+    model: placeholder-claude-b-20260601
+    status: active
+  - id: gpt-a
+    provider: openai-compatible
+    family: gpt
+    model: placeholder-gpt-a-20260601
+    status: active
+  - id: gpt-b
+    provider: openai-compatible
+    family: gpt
+    model: placeholder-gpt-b-20260601
+    status: active
+  - id: qwen-a
+    provider: openai-compatible
+    family: qwen
+    model: placeholder-qwen-a-20260601
+    status: active
+  - id: qwen-b
+    provider: openai-compatible
+    family: qwen
+    model: placeholder-qwen-b-20260601
+    status: candidate
