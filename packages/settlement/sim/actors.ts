@@ -295,9 +295,9 @@ export class Deal {
     return value === null ? keccak256(stringToBytes(`no beacon yet/${role}`)) : panelSeed(this.id, role, 1, value);
   }
 
-  async decide(role: Role, outcome: Decision['outcome'], over: { seed?: Hex32; withoutKey?: boolean; withoutAppealEnvelope?: boolean; signer?: SimActor } = {}): Promise<Submission> {
+  async decide(role: Role, outcome: Decision['outcome'], over: { seed?: Hex32; withoutKey?: boolean; withKey?: boolean; withoutAppealEnvelope?: boolean; signer?: SimActor } = {}): Promise<Submission> {
     const actor = role === 'primary' ? this.cast.primary : role === 'fallback' ? this.cast.fallback : this.cast.appeal;
-    const key = outcome === 'accept' && !over.withoutKey ? { keyForBuyer: { scheme: 'x25519-xsalsa20poly1305' as const, ciphertext: this.envelope(this.terms.buyer).ciphertext } } : {};
+    const key = (outcome === 'accept' && !over.withoutKey) || over.withKey ? { keyForBuyer: { scheme: 'x25519-xsalsa20poly1305' as const, ciphertext: this.envelope(this.terms.buyer).ciphertext } } : {};
     const appealEnvelope = outcome === 'escalate' && !over.withoutAppealEnvelope ? { encryptedKeys: [this.envelope(this.terms.adjudication.appealAdjudicator)] } : {};
     const message = await sign(over.signer ?? actor, {
       type: 'Decision',
