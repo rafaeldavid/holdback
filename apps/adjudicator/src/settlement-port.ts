@@ -1,6 +1,6 @@
-// SEAM (T-006): the slice of the Settlement interface the adjudicator service needs. T-006 defines the
-// real interface in packages/settlement/src/interface.ts; until it lands this port is the contract, and
-// an adapter from T-006's Settlement to this port is the only code that should change.
+// The slice of the settlement layer the adjudicator service needs. simchain-adapter.ts implements it on
+// T-006's Settlement (packages/settlement/src/interface.ts) plus SimChain's reads; _sim.ts implements it
+// for unit tests that inject failures.
 import type {
   AdjudicatorAcceptance,
   AdjudicatorRegistration,

@@ -196,6 +196,9 @@ importers:
       '@holdback/judgment':
         specifier: workspace:*
         version: link:../../packages/judgment
+      '@holdback/settlement':
+        specifier: workspace:*
+        version: link:../../packages/settlement
       viem:
         specifier: ^2.57.13
         version: 2.57.13(typescript@6.0.3)

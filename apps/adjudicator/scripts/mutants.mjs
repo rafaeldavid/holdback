@@ -40,6 +40,12 @@ const MUTANTS = [
   ['record', 'record hash covers the signature', A('service.ts'), '  delete body.signature;\n', ''],
   ['decision', 'role not in the decision nonce', A('service.ts'), '`holdback.decision-nonce.v1:${role}:${attempt}`', '`holdback.decision-nonce.v1:${attempt}`'],
   ['acceptance', 'acceptance reserves no bond', A('service.ts'), '      bondReserved: c.price,', "      bondReserved: { ...c.price, amount: '0' } as typeof c.price,"],
+  // The SimChain adapter (end-to-end tests in simchain-adapter.test.ts).
+  ['simchain adapter', 'primary given no released envelope', A('simchain-adapter.ts'), "task.role === 'primary' ? released : []", '[]'],
+  ['simchain adapter', 'fallback given no released key', A('simchain-adapter.ts'), "const releasedKey = task.role === 'primary' ? undefined : released.at(-1);", 'const releasedKey = undefined;'],
+  ['simchain adapter', 'fallback takes no task after the takeover', A('simchain-adapter.ts'), "else if (s.kind === 'FallbackJudging' && lc(fallbackAdjudicator) === me)", 'else if (false)'],
+  ['simchain adapter', 'offers not found in the event log', A('simchain-adapter.ts'), "if (e.type === 'commitment.offered') {", "if (e.type === 'commitment.agreed') {"],
+  ['simchain adapter', 'acceptance submitted as a decision', A('simchain-adapter.ts'), "{ kind: 'adjudicator_accept', message }", "{ kind: 'decide', message: message as never }"],
 ];
 
 function runTests() {
