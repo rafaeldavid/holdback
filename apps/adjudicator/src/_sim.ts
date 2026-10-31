@@ -116,6 +116,8 @@ export class TestSettlement implements AdjudicatorSettlement {
   readonly submitted: Array<AdjudicatorAcceptance | Decision> = [];
   /** Refuse the next N decision submissions (a transient failure). */
   failNextDecisions = 0;
+  /** Throw on the next N record publications (a transient store failure). */
+  failNextPublishes = 0;
   readonly randomness: RandomnessSource = simBeacon(SIM_SEED, () => this.now());
 
   now = (): Timestamp => new Date(this.clock).toISOString();
@@ -244,6 +246,10 @@ export class TestSettlement implements AdjudicatorSettlement {
   }
 
   async publishRecord(record: Judgment) {
+    if (this.failNextPublishes > 0) {
+      this.failNextPublishes--;
+      throw new Error('record store unavailable');
+    }
     const parsed = parseJudgment(record);
     if (!parsed.ok) throw new Error(`record does not parse: ${parsed.error.detail}`);
     const uri = `mem://records/${record.recordHash}`;

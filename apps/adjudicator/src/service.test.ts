@@ -15,6 +15,7 @@ import {
   type FakeScript,
   type JudgeProvider,
   type JudgeRequest,
+  type LoadedRegistry,
   type RegistryDoc,
 } from '@holdback/judgment';
 import { keccak256, recoverMessageAddress } from 'viem';
@@ -47,7 +48,7 @@ function counting(inner: JudgeProvider) {
   return { calls, provider: { complete: (r: JudgeRequest) => (calls.push(r), inner.complete(r)) } satisfies JudgeProvider };
 }
 
-function bench(p: Party, name: string, settlement: TestSettlement, script: FakeScript = {}, policy: AdjudicatorPolicy = defaultPolicy(`${name}/p1`)) {
+function bench(p: Party, name: string, settlement: TestSettlement, script: FakeScript = {}, policy: AdjudicatorPolicy = defaultPolicy(`${name}/p1`), registry: LoadedRegistry = reg) {
   const judges = counting(fakeProvider(script));
   const adj = new Adjudicator({
     address: p.address,
@@ -56,7 +57,7 @@ function bench(p: Party, name: string, settlement: TestSettlement, script: FakeS
     encryptionSecretKey: p.enc.secretKey,
     seedSecret: keccak256(p.key),
     policy,
-    registry: reg,
+    registry,
     registryUri: 'file:///config/judges.yaml',
     fee: { min: tusd('25000000') },
     domain: DOMAIN,
@@ -67,17 +68,18 @@ function bench(p: Party, name: string, settlement: TestSettlement, script: FakeS
   return { adj, calls: judges.calls };
 }
 
-async function setup(opts: { scriptA?: FakeScript; scriptB?: FakeScript; scriptC?: FakeScript; policyHash?: Hex32; registryHash?: Hex32; csv?: string } = {}) {
+async function setup(opts: { scriptA?: FakeScript; scriptB?: FakeScript; scriptC?: FakeScript; policyHash?: Hex32; registryHash?: Hex32; csv?: string; registry?: LoadedRegistry } = {}) {
   const s = new TestSettlement();
-  const a = bench(A, 'bench-a', s, opts.scriptA);
-  const b = bench(B, 'bench-b', s, opts.scriptB);
-  const c = bench(C, 'bench-c', s, opts.scriptC);
+  const r = opts.registry ?? reg;
+  const a = bench(A, 'bench-a', s, opts.scriptA, undefined, r);
+  const b = bench(B, 'bench-b', s, opts.scriptB, undefined, r);
+  const c = bench(C, 'bench-c', s, opts.scriptC, undefined, r);
   const commitment = makeCommitment({
     primary: A.address,
     fallback: B.address,
     appeal: C.address,
     policyHash: opts.policyHash ?? policyHashOf(a.adj.policy),
-    registryHash: opts.registryHash ?? reg.hash,
+    registryHash: opts.registryHash ?? r.hash,
     buyer: BUYER,
     seller: SELLER,
   });
@@ -370,5 +372,165 @@ describe('escalation and appeal', () => {
     const appeal = s.decisions(id)[1]!;
     expect(appeal.outcome).toBe('accept');
     expect([...s.records.values()][1]!.aggregate.decision).toBe('escalate');
+  });
+});
+
+// ---------------------------------------------------------------- T-009 review fixes
+const ONE_FAMILY_HEAVY = (() => {
+  const r = loadRegistry({
+    version: 1,
+    judges: [entry('claude-a', 'claude', 'anthropic'), entry('claude-b', 'claude', 'anthropic'), entry('claude-c', 'claude', 'anthropic'), entry('claude-d', 'claude', 'anthropic'), entry('gpt-a', 'gpt', 'openai-compatible'), entry('qwen-a', 'qwen', 'openai-compatible')],
+  });
+  if (!r.ok) throw new Error(r.error.detail);
+  return r.value;
+})();
+const onlyClaudePasses: FakeScript = { 'gpt-a': 'timeout', 'gpt-b': 'timeout', 'qwen-a': 'timeout', 'qwen-b': 'timeout' };
+
+describe('never re-roll after a post-panel failure (review item 1)', () => {
+  it('a missing appeal-adjudicator registration refuses before any judge is called; the retry judges once', async () => {
+    const { s, a, id } = await setup({ scriptA: onlyClaudePasses });
+    const saved = s.registrations.get(C.address)!;
+    s.registrations.delete(C.address);
+    s.at('2026-11-01T10:00:30Z');
+    const first = await a.adj.runOnce();
+    expect(first.refused.map((r) => r.problem.type)).toEqual(['adjudicator_unavailable']);
+    expect(a.calls).toHaveLength(0);
+    expect(s.records.size).toBe(0);
+    s.registrations.set(C.address, saved);
+    await a.adj.runOnce();
+    expect(s.state(id).kind).toBe('Escalated');
+    expect(a.calls).toHaveLength(3);
+    expect(s.records.size).toBe(1);
+  });
+
+  it('a failed record publication is retried with the same record and no new judge calls', async () => {
+    const { s, a, id } = await setup();
+    s.at('2026-11-01T10:00:30Z');
+    s.failNextPublishes = 1;
+    const first = await a.adj.runOnce();
+    expect(first.refused).toHaveLength(1);
+    expect(a.calls).toHaveLength(3);
+    expect(s.records.size).toBe(0);
+    s.at('2026-11-01T10:00:40Z');
+    await a.adj.runOnce();
+    expect(a.calls).toHaveLength(3);
+    expect(s.records.size).toBe(1);
+    expect(s.state(id).kind).toBe('Released');
+    const [d] = s.decisions(id) as [Decision];
+    expect(d.judgmentRecordHash).toBe([...s.records.values()][0]!.recordHash);
+  });
+
+  it('a buyer key that cannot be wrapped refuses before any judge is called', async () => {
+    const s = new TestSettlement();
+    const a = bench(A, 'bench-a', s);
+    const c = { ...makeCommitment({ primary: A.address, fallback: B.address, appeal: C.address, policyHash: policyHashOf(a.adj.policy), registryHash: reg.hash, buyer: BUYER, seller: SELLER }), buyerEncryptionPublicKey: 'not-a-key' };
+    const r = await a.adj.decideTask({ commitment: c, role: 'primary', attempt: 1, delivery: { encryptedKeys: [{ recipient: A.address, scheme: 'x25519-xsalsa20poly1305', ciphertext: 'x' }] } as never, deadline: '2026-11-01T10:02:00Z' });
+    expect(r.ok).toBe(false);
+    expect(a.calls).toHaveLength(0);
+    expect(s.records.size).toBe(0);
+  });
+});
+
+describe('intake refusals publish nothing (review item 3)', () => {
+  it('a key the primary cannot unwrap refuses without a record or a decision; the fallback takes over at judgeBy', async () => {
+    const { s, a, b, id } = await setup();
+    const c = s.cases.get(id)!;
+    const bad = { ...c.delivery!.encryptedKeys.find((k) => k.recipient === A.address)!, ciphertext: c.delivery!.encryptedKeys.find((k) => k.recipient === BUYER.address)!.ciphertext };
+    c.state = { ...(c.state as object), delivery: { ...c.delivery!, encryptedKeys: c.delivery!.encryptedKeys.map((k) => (k.recipient === A.address ? bad : k)) } } as typeof c.state;
+    s.at('2026-11-01T10:00:30Z');
+    const report = await a.adj.runOnce();
+    expect(report.refused[0]!.problem.detail).toMatch(/key_unwrap_failed/);
+    expect(s.records.size).toBe(0);
+    expect(s.decisions(id)).toHaveLength(0);
+    s.at('2026-11-01T10:02:00Z');
+    await b.adj.runOnce();
+    expect(s.state(id).kind).toBe('Released');
+  });
+
+  it('a stored ciphertext that does not match the delivery is retried, never decided', async () => {
+    const { s, a, id } = await setup();
+    const uri = s.cases.get(id)!.delivery!.ciphertext.uri;
+    const good = s.blobs.get(uri)!;
+    s.blobs.set(uri, new Uint8Array(good.length));
+    s.at('2026-11-01T10:00:30Z');
+    const report = await a.adj.runOnce();
+    expect(report.refused[0]!.problem.detail).toMatch(/stored ciphertext/);
+    expect(s.records.size).toBe(0);
+    expect(s.state(id).kind).toBe('Delivered');
+    s.blobs.set(uri, good);
+    await a.adj.runOnce();
+    expect(s.state(id).kind).toBe('Released');
+  });
+});
+
+describe('review item 4: rules the mutation sweep found untested', () => {
+  it('the appeal panel keeps three families when one family dominates the registry', async () => {
+    const { s, a, c, id } = await setup({ registry: ONE_FAMILY_HEAVY, scriptA: onlyClaudePasses });
+    s.at('2026-11-01T10:00:30Z');
+    await a.adj.runOnce();
+    expect(s.state(id).kind).toBe('Escalated');
+    s.at('2026-11-01T10:00:32Z');
+    await c.adj.runOnce();
+    const record = [...s.records.values()][1]!;
+    expect(record.panel.members).toHaveLength(5);
+    expect(new Set(record.panel.members.map((m) => m.family)).size).toBe(3);
+  });
+
+  it('the appeal panel needs minValidAppeal (4) valid verdicts, not the first-instance minimum', async () => {
+    const script: FakeScript = { 'gpt-a': 'timeout', 'claude-a': 'timeout', 'claude-b': 'timeout' };
+    const { s, a, c, id } = await setup({ registry: ONE_FAMILY_HEAVY, scriptA: onlyClaudePasses, scriptC: script });
+    s.at('2026-11-01T10:00:30Z');
+    await a.adj.runOnce();
+    s.at('2026-11-01T10:00:32Z');
+    const report = await c.adj.runOnce();
+    // At most 3 valid of 5: the appeal panel is inconclusive, so after an escalation nothing is signed.
+    expect(report.undecided).toEqual([id]);
+    expect(s.state(id).kind).toBe('Escalated');
+  });
+
+  it('a "missing or wrong key" appeal against a reject is judged by the panel, not waved through', async () => {
+    const allFail: FakeScript = Object.fromEntries(REGISTRY.judges.map((j) => [j.id, 'fail' as const]));
+    const { s, a, c, id } = await setup({ scriptA: allFail });
+    s.at('2026-11-01T10:00:30Z');
+    await a.adj.runOnce();
+    expect(s.state(id).kind).toBe('Refunded');
+    s.at('2026-11-01T10:01:00Z');
+    s.fileAppeal(id, 'missing-or-wrong-key');
+    s.at('2026-11-01T10:01:05Z');
+    await c.adj.runOnce();
+    expect(c.calls.length).toBeGreaterThan(0);
+    expect(s.decisions(id)[1]!.keyForBuyer).toBeDefined();
+  });
+
+  it('a released envelope addressed to someone else is refused as not released to this adjudicator', async () => {
+    const { s, b, id, commitment } = await setup();
+    const forC = s.cases.get(id)!.held.get(C.address)!;
+    s.at('2026-11-01T10:02:00Z');
+    const r = await b.adj.decideTask({ commitment, role: 'fallback', attempt: 1, delivery: s.cases.get(id)!.delivery!, releasedKey: forC, roundFixedAt: commitment.timing.judgeBy, deadline: commitment.timing.fallbackBy });
+    expect(!r.ok && r.error.detail).toMatch(/no key released/);
+    expect(b.calls).toHaveLength(0);
+  });
+
+  it('refuses a bound policy whose appeal template hash is not this build', async () => {
+    const s = new TestSettlement();
+    const other = defaultPolicy('bench-a/p1', { appealPromptTemplateHash: `0x${'ab'.repeat(32)}` });
+    const a = bench(A, 'bench-a', s, {}, other);
+    const r = await a.adj.decideTask({
+      commitment: makeCommitment({ primary: A.address, fallback: B.address, appeal: C.address, policyHash: policyHashOf(other), registryHash: reg.hash, buyer: BUYER, seller: SELLER }),
+      role: 'primary',
+      attempt: 1,
+      delivery: {} as never,
+      deadline: '2026-11-01T10:02:00Z',
+    });
+    expect(!r.ok && r.error.detail).toMatch(/policy-hash-mismatch: appeal template/);
+  });
+
+  it('decision nonces differ by role, so a primary and a fallback decision never share one', async () => {
+    const { s, a, b, id, commitment } = await setup();
+    s.at('2026-11-01T10:02:00Z');
+    const primary = await a.adj.decideTask({ commitment, role: 'primary', attempt: 1, delivery: s.cases.get(id)!.delivery!, deadline: commitment.timing.judgeBy });
+    const fallback = await b.adj.decideTask({ commitment, role: 'fallback', attempt: 1, delivery: s.cases.get(id)!.delivery!, releasedKey: s.cases.get(id)!.held.get(B.address)!, roundFixedAt: commitment.timing.judgeBy, deadline: commitment.timing.fallbackBy });
+    if (!primary.ok || !fallback.ok) throw new Error('decide');
+    expect(primary.value.decision!.nonce).not.toBe(fallback.value.decision!.nonce);
   });
 });

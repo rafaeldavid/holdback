@@ -329,6 +329,14 @@ describe('pipeline: red-team round fixes', () => {
     expect(result.value.aggregate.decision).toBe('escalate');
   });
 
+  it('escalates a large CSV with one record too large to show (T-009 review item 2)', async () => {
+    const rows = Array.from({ length: 9500 }, (_, k) => `${10 + k},Person ${k} Surname,person${k}@example.com,2024-01-02,true`);
+    rows.splice(4000, 0, `99999,"${Array.from({ length: 3000 }, () => 'BADROW').join('\n')}",x@y.io,2024-01-02,true`);
+    const { result } = await run({ text: `${GOOD_CSV}\n${rows.join('\n')}`, acceptance: { ...ACCEPTANCE, deterministicChecks: [] }, sampleSeed: () => `0x${'7'.repeat(64)}` });
+    if (!result.ok) throw new Error(result.error.detail);
+    expect(result.value.aggregate.decision).toBe('escalate');
+  });
+
   it('escalates without the panel when the check budget runs out', async () => {
     const rows = Array.from({ length: 300 }, () => 'a'.repeat(9000)).join('\n');
     const f = allPass();
