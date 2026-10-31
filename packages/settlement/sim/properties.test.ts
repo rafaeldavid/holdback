@@ -10,6 +10,18 @@ import { account, SimChain, type Genesis } from './simchain.js';
 
 const START = '2026-11-01T09:00:00Z';
 const SEED = 20261031;
+
+/**
+ * The run count for a property. HOLDBACK_PROPERTY_RUNS caps it (CI sets it on pull requests, T-022);
+ * unset, every property runs its full count, as on main, in the nightly job and locally. The seed is
+ * fixed, so a capped run sees exactly the first cases of the full run and its failures reproduce.
+ */
+function propertyRuns(full: number, env: Record<string, string | undefined> = process.env): number {
+  const cap = env.HOLDBACK_PROPERTY_RUNS;
+  if (cap === undefined || cap === '') return full;
+  if (!/^[1-9][0-9]*$/.test(cap)) throw new Error(`HOLDBACK_PROPERTY_RUNS must be a positive integer, got ${JSON.stringify(cap)}`);
+  return Math.min(full, Number(cap));
+}
 const TERMINAL = new Set(['Released', 'Refunded', 'Settled', 'Expired']);
 const SETTLING = new Set(['settlement.released', 'settlement.refunded', 'settlement.reclaimed', 'commitment.settled']);
 
@@ -203,6 +215,7 @@ async function toSubmission(chain: SimChain, deals: Deal[], x: Action, bondBps: 
 
 describe('random interleavings of messages and triggers', () => {
   it('keep every ledger invariant, settle each commitment once, and replay to the same state', async () => {
+    const runs = propertyRuns(120);
     let applied = 0;
     let refusedCount = 0;
     const kinds = new Set<string>();
@@ -251,13 +264,17 @@ describe('random interleavings of messages and triggers', () => {
         const replayed = await SimChain.replay(genesis, chain.journal());
         expect(replayed.digest()).toBe(chain.digest());
       }),
-      { numRuns: 120, seed: SEED },
+      { numRuns: runs, seed: SEED },
     );
-    // The generator reaches deep paths, not just refusals.
-    // Measured at seed 20261031: 483 applied, 2187 refused. Bond payouts are exercised by the pool properties below.
-    expect(applied).toBeGreaterThan(400);
-    expect(refusedCount).toBeGreaterThan(1000);
-    for (const k of ['settlement.released', 'settlement.refunded', 'settlement.reclaimed', 'offer.expired', 'appeal.filed', 'appeal.expired', 'fallback.triggered', 'default.triggered', 'commitment.settled']) expect(kinds, k).toContain(k);
+    // The generator reaches deep paths, not just refusals. The floors scale with the run count.
+    // Measured at seed 20261031: 483 applied, 2187 refused at 120 runs. Bond payouts are exercised by the pool properties below.
+    expect(applied).toBeGreaterThan(Math.floor((400 * runs) / 120));
+    expect(refusedCount).toBeGreaterThan(Math.floor((1000 * runs) / 120));
+    // The first 40 cases (the pull-request cap) reach these; the deepest paths need about 100 cases at
+    // this seed (measured, T-022), so they are checked at the full count, on main and nightly.
+    const reached = ['settlement.released', 'settlement.refunded', 'settlement.reclaimed', 'offer.expired', 'appeal.expired', 'fallback.triggered'];
+    const deep = ['appeal.filed', 'default.triggered', 'commitment.settled'];
+    for (const k of runs >= 120 ? [...reached, ...deep] : runs >= 40 ? reached : []) expect(kinds, k).toContain(k);
   }, 300_000);
 });
 
@@ -278,7 +295,7 @@ describe('settle-once race between a mutual settlement and a decision', () => {
         expect(chain.escrowState(d.id)?.kind).toBe(settleFirst ? 'Settled' : outcome === 'accept' ? 'Released' : 'Refunded');
         checkInvariants(chain, cast);
       }),
-      { numRuns: 20, seed: SEED },
+      { numRuns: propertyRuns(20), seed: SEED },
     );
   }, 120_000);
 });
@@ -311,7 +328,20 @@ describe('bond pools (ADR-0014 §2a)', () => {
         expect(sellerAfter - sellerBefore).toBe((price * BigInt(compBps)) / 10000n);
         checkInvariants(chain, cast);
       }),
-      { numRuns: 15, seed: SEED },
+      { numRuns: propertyRuns(15), seed: SEED },
     );
   }, 120_000);
+});
+
+describe('HOLDBACK_PROPERTY_RUNS (T-022)', () => {
+  it('runs the full count when unset or empty, and caps it otherwise', () => {
+    const cap = (v?: string) => ({ HOLDBACK_PROPERTY_RUNS: v });
+    expect(propertyRuns(120, {})).toBe(120);
+    expect(propertyRuns(120, cap(''))).toBe(120);
+    expect(propertyRuns(120, cap('40'))).toBe(40);
+    expect(propertyRuns(15, cap('40'))).toBe(15);
+  });
+  it.each(['0', '-1', '1.5', 'full', ' 40'])('refuses %j instead of silently running another count', (v) => {
+    expect(() => propertyRuns(120, { HOLDBACK_PROPERTY_RUNS: v })).toThrow(/positive integer/);
+  });
 });
