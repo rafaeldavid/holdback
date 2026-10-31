@@ -27,8 +27,17 @@ const MUTANTS = [
   ['failover', 'a new key per operator', sdk('client.ts'), "const r = await this.request(base, 'POST', path, body, { 'idempotency-key': key });", "const r = await this.request(base, 'POST', path, body, { 'idempotency-key': `${key}@${base}` });"],
   ['failover', 'preview sends signatures', sdk('client.ts'), 'const bare = unsigned(op);', 'const bare = op;'],
   ['receipts', 'receipt signed by the wrong key', op('server.ts'), 'signMessage(this.o.signerKey, this.domain,', "signMessage(`0x${'11'.repeat(32)}`, this.domain,"],
-  ['guards', 'live Stripe keys allowed', op('guards.ts'), "if (!value.startsWith('sk_test_')) throw", 'if (false) throw'],
-  ['guards', 'mainnet chain IDs allowed', op('guards.ts'), 'if (MAINNET_CHAIN_IDS.has(id)) throw', 'if (false) throw'],
+  ['guards', 'secret key variables not checked', op('guards.ts'), "if (SECRET_KEY_NAME.test(name) && !value.startsWith('sk_test_')) throw", 'if (false) throw'],
+  ['guards', 'live keys in other STRIPE_* variables allowed', op('guards.ts'), 'if (STRIPE_KEY_VALUE.test(value) && !ALLOWED_VALUE.test(value)) throw', 'if (false) throw'],
+  ['guards', 'publishable test keys refused', op('guards.ts'), 'const ALLOWED_VALUE = /^(?:sk_test_|pk_test_)/;', 'const ALLOWED_VALUE = /^sk_test_/;'],
+  ['guards', 'mainnet backstop dropped', op('guards.ts'), 'if (MAINNET_CHAIN_IDS.has(id)) throw', 'if (false) throw'],
+  ['guards', 'allowlist dropped (denylist only)', op('guards.ts'), 'if (!TEST_CHAIN_IDS.has(id) && !optIn.has(id)) throw', 'if (false) throw'],
+  ['guards', 'opt-in ignored', op('guards.ts'), 'if (!TEST_CHAIN_IDS.has(id) && !optIn.has(id)) throw', 'if (!TEST_CHAIN_IDS.has(id)) throw'],
+  ['guards', 'Operator constructor unguarded', op('server.ts'), '    startupGuards({ env: o.env, chainId: o.registry.chainId });\n    this.domain', '    this.domain'],
+  ['shape before throttle', 'throttle reads the signer before the shape check', op('server.ts'), '    checkShape(dryRun ? placeholderSigned(op) : op);\n    this.throttle(`w:${lc(signerOf(op) ?? this.client(ctx))}`, this.o.rateLimit?.writes ?? 0);', '    this.throttle(`w:${lc(signerOf(op) ?? this.client(ctx))}`, this.o.rateLimit?.writes ?? 0);\n    checkShape(dryRun ? placeholderSigned(op) : op);'],
+  ['shape before throttle', 'no shape check on live calls', op('server.ts'), 'checkShape(dryRun ? placeholderSigned(op) : op);', 'if (dryRun) checkShape(placeholderSigned(op));'],
+  ['validateOnly', 'lax: anything but true runs live', op('server.ts'), "if (values.length > 1 || (values[0] !== 'true' && values[0] !== 'false')) fail(", 'if (false) fail('],
+  ['validateOnly', 'false runs as a dry run', op('server.ts'), "  return values[0] === 'true';\n}", '  return true;\n}'],
 ];
 
 const filter = process.argv[2];

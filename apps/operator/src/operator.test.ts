@@ -229,8 +229,12 @@ describe('refusals change nothing (docs/team.md: signed messages only)', () => {
 
   it('?validateOnly=false is a live call', async () => {
     const { path, body } = await deliveredEarlyAccept();
+    const before = w.chain.digest();
     const r = await post(`${path}?validateOnly=false`, body, { 'idempotency-key': 'vo-false' });
-    expect((await json(r))['escrowState']).toBe('Released');
+    const out = await json(r);
+    expect([out['escrowState'], r.headers.get('holdback-dry-run')]).toEqual(['Released', null]);
+    expect(out).toHaveProperty('receipt');
+    expect(w.chain.digest()).not.toBe(before);
   });
 });
 
