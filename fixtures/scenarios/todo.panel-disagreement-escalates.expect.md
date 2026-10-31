@@ -8,7 +8,7 @@ The scenario index's panel-disagreement-escalates row, recorded as a known gap. 
 
 | Field | Value |
 | --- | --- |
-| Pragmas | settlement=sim · judges=fake · mode=guaranteed_on_decision · seed=61 |
+| Pragmas | settlement=sim · judges=recorded · mode=guaranteed_on_decision · seed=61 |
 | Prefix | todo. (known gap: records current behavior) |
 | Settlement | SimChain (T-006) driving @holdback/core `step` |
 | Judgment | @holdback/judgment (checks, screen, panel) · registry config/judges.yaml 0x8aa4…4549 · policy bench-a/p1 0x7970…3bf0 |
@@ -29,11 +29,11 @@ The scenario index's panel-disagreement-escalates row, recorded as a known gap. 
 | 00:03.000 | 3 | atlas-buyer | fund | op-1 | ok | Held |
 | 00:04.000 | 4 | tidewater-seller | deliver (attempt 1) | op-1 | ok | Delivered |
 | 00:10.000 | 6 | bench-a | decide: accept | direct | ok | Released |
-| 00:11.000 | 7 | bench-c | decide: accept | direct | invalid_state | Released |
+| 00:11.000 | 7 | bench-c | decide | direct | not_your_turn | Released |
 
 Refusals:
 
-- Step 7 decide: accept: invalid_state: appeal state is none
+- Step 7 decide: not_your_turn: the appeal adjudicator has no turn in Released
 
 ## Balances (tUSD)
 
@@ -51,29 +51,15 @@ Refusals:
 - **Deterministic checks:** cols ✓ · rows ✓ · uniq ✓ · dates ✓ · id_nulls ✓ · name_nulls ✓ · email_nulls ✓ · emails (optional) ✓ · hidden ✓
 - **Screen:** clean
 - **Panel:** 3 judges from 2 families (policy: 3 seats, at least 2 families) · first-instance template 0xabb5…4dd2 · rubric 0x4201…7925 · seed source: commit-reveal (commitment 0x32a8…d7a7, seed 0x821b…2db8, recomputed: match)
-  - gpt-b · openai-compatible/gpt · placeholder-gpt-b-20260601 · fake judge · pass · scores 4/4/4 · input 0x7473…f15c
-  - claude-a · anthropic/claude · placeholder-claude-a-20260601 · fake judge · pass · scores 4/4/4 · input 0x52ad…f841
-  - claude-b · anthropic/claude · placeholder-claude-b-20260601 · fake judge · pass · scores 4/4/4 · input 0xe4b2…6143
+  - gpt-b · openai-compatible/gpt · placeholder-gpt-b-20260601 · recorded (captured from fake judges) · pass · scores 4/4/4 · input 0x7473…f15c
+  - claude-a · anthropic/claude · placeholder-claude-a-20260601 · recorded (captured from fake judges) · pass · scores 4/4/4 · input 0x52ad…f841
+  - claude-b · anthropic/claude · placeholder-claude-b-20260601 · recorded (captured from fake judges) · pass · scores 4/4/4 · input 0xe4b2…6143
 - **Aggregate:** accept (weighted score 4.00; 3 pass, 0 fail of 3 valid; pass families claude, gpt). Reasons: 3 of 3 valid verdicts pass, from 2 families, score at or above 3.
-- **Signed:** accept.
-
-### bench-c (appeal), attempt 1
-
-- **Intake:** plaintext 0x1939…87e5 · text/csv · 511912 bytes (fixtures/data/dataset-cleaning/customers.clean.csv) · hash verified ✓ · normalized
-- **Deterministic checks:** cols ✓ · rows ✓ · uniq ✓ · dates ✓ · id_nulls ✓ · name_nulls ✓ · email_nulls ✓ · emails (optional) ✓ · hidden ✓
-- **Screen:** clean
-- **Panel:** 5 judges from 3 families (policy: 5 seats, at least 3 families) · appeal template 0xa0bb…8659 · rubric 0x4201…7925 · seed source: beacon, round not yet published (seed 0x1818…135b)
-  - qwen-a · openai-compatible/qwen · placeholder-qwen-a-20260601 · fake judge · pass · scores 4/4/4 · input 0xba59…8be8
-  - claude-a · anthropic/claude · placeholder-claude-a-20260601 · fake judge · pass · scores 4/4/4 · input 0xf907…6407
-  - gpt-a · openai-compatible/gpt · placeholder-gpt-a-20260601 · fake judge · pass · scores 4/4/4 · input 0xd2db…a5f9
-  - claude-b · anthropic/claude · placeholder-claude-b-20260601 · fake judge · pass · scores 4/4/4 · input 0x4d3e…01b6
-  - gpt-b · openai-compatible/gpt · placeholder-gpt-b-20260601 · fake judge · pass · scores 4/4/4 · input 0xf8e5…b94a
-- **Aggregate:** accept (weighted score 4.00; 5 pass, 0 fail of 5 valid; pass families claude, gpt, qwen). Reasons: 5 of 5 valid verdicts pass, from 3 families, score at or above 3.
 - **Signed:** accept.
 
 ## Receipts and log
 
-- Events 0–8. Chain head 0x81db…62d4. Replay of 6 SimChain submissions from genesis matches the settlement state.
+- Events 0–8. Chain head 0x8c65…be14. Replay of 6 SimChain submissions from genesis matches the settlement state.
 - Receipts from op-1: 5 (rcpt-0001–rcpt-0005). Stub receipts are unsigned until T-007.
 
 ## Invariants

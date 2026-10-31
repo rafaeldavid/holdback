@@ -669,7 +669,11 @@ export class StubSettlement {
     this.sim.advanceTo(this.ctx.clock.now());
     const round = role === 'primary' ? null : beaconRoundFor(c.state, role);
     const beaconValue = round === null ? null : this.sim.beacon(round);
-    const seed = role === 'primary' ? this.seed : beaconValue ? panelSeed(c.id, role, d.message.attempt, beaconValue) : this.ctx.rng.hex32();
+    // Like the adjudicator service, refuse before any judge is called: a role with no turn has no round, and
+    // an unpublished round has no seed (no substitute source, ADR-0018).
+    if (role !== 'primary' && round === null) return this.refuse(name, call, 'direct', problem('not_your_turn', `the ${role} adjudicator has no turn in ${c.state.kind}`));
+    if (role !== 'primary' && !beaconValue) return this.refuse(name, call, 'direct', problem('seed_mismatch', `beacon round ${round} is not published yet; no panel is drawn without it`));
+    const seed = role === 'primary' ? this.seed : panelSeed(c.id, role, d.message.attempt, beaconValue!);
     const key = `${c.id}|${role}|${d.message.attempt}`;
     let view = this.judged.get(key);
     if (!view) {

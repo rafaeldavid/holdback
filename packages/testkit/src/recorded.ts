@@ -1,16 +1,26 @@
-// Recorded judges: verdicts replayed from fixtures/recordings/<scenario>/<judgeId>.json.
+// Recorded judges: verdicts replayed from fixtures/recordings/<scenario>/<role>/<judgeId>.json.
+// The role (primary, fallback, appeal) is part of the key, so a primary panel and an appeal panel in one
+// scenario can seat the same judge and still give different verdicts (T-016).
 // A recording is bound to the pinned model ID, the prompt template hash, the rubric hash and the hash
 // of the exact judge input. If any of them changes, the verdict no longer answers the question being
 // asked, so the provider throws instead of replaying it (docs/testing.md, Recorded judges).
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { parseJudgeVerdict, type Hex32, type JudgeVerdict } from '@holdback/core';
+import { APPEAL_PROMPT_TEMPLATE_HASH } from '@holdback/judgment';
 
-export const RECORDING_FORMAT = 'holdback.recording/v0';
+export const RECORDING_FORMAT = 'holdback.recording/v1';
+/** The T-005 format: no role, filed under <scenario>/<judgeId>.json. Read only by the migration. */
+export const RECORDING_FORMAT_V0 = 'holdback.recording/v0';
+
+export type JudgeRole = 'primary' | 'fallback' | 'appeal';
+export const JUDGE_ROLES: readonly JudgeRole[] = ['primary', 'fallback', 'appeal'];
 
 /** What a panel member is asked: who answers, with which template and rubric, about which input. */
 export interface JudgeRequest {
   scenario: string;
+  /** The adjudicator role whose panel this judge sits on. */
+  role: JudgeRole;
   judgeId: string;
   provider: string;
   family: string;
@@ -46,7 +56,7 @@ const ID = /^[a-z0-9_][a-z0-9._-]*$/;
 const FLOATING = /latest/i;
 /** Everything a verdict answered. A recording replays only when all of these match the request. */
 const BOUND = ['provider', 'family', 'model', 'promptTemplateHash', 'inputHash', 'rubricHash'] as const;
-const KEYS = ['format', 'scenario', 'judgeId', ...BOUND, 'capturedFrom', 'verdict'];
+const KEYS = ['format', 'scenario', 'role', 'judgeId', ...BOUND, 'capturedFrom', 'verdict'];
 
 /** The re-record command this build can run. Live capture needs live providers in the testkit and model keys. */
 function rerecordHint(scenario: string): string {
@@ -97,14 +107,15 @@ export class RecordingMismatchError extends Error {
   }
 }
 
-export function recordingPath(dir: string, scenario: string, judgeId: string): string {
+export function recordingPath(dir: string, scenario: string, role: JudgeRole, judgeId: string): string {
   for (const [what, v] of [
     ['scenario', scenario],
     ['judgeId', judgeId],
   ] as const) {
     if (!ID.test(v) || v.includes('..')) throw new RangeError(`invalid ${what} "${v}" for a recording path`);
   }
-  return join(dir, scenario, `${judgeId}.json`);
+  if (!JUDGE_ROLES.includes(role)) throw new RangeError(`invalid role "${String(role)}" for a recording path`);
+  return join(dir, scenario, role, `${judgeId}.json`);
 }
 
 function assertPinned(model: string): void {
@@ -118,7 +129,7 @@ export function toRecording(request: JudgeRequest, verdict: JudgeVerdict, captur
 /** Writes a recording as stable, reviewable JSON (fixed key order, trailing newline). */
 export function writeRecording(dir: string, recording: Recording): string {
   assertPinned(recording.model);
-  const path = recordingPath(dir, recording.scenario, recording.judgeId);
+  const path = recordingPath(dir, recording.scenario, recording.role, recording.judgeId);
   if (recording.capturedFrom === 'fake' && existsSync(path)) {
     let existing: unknown;
     try {
@@ -151,6 +162,7 @@ function readRecording(path: string, request: JudgeRequest): Recording {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw new RecordingInvalidError(path, 'not an object');
   const r = raw as Record<string, unknown>;
   for (const k of Object.keys(r)) if (!KEYS.includes(k)) throw new RecordingInvalidError(path, `unknown key "${k}"`);
+  if (r.format === RECORDING_FORMAT_V0) throw new RecordingInvalidError(path, `format ${RECORDING_FORMAT_V0} has no role; run pnpm snap --migrate-recordings`);
   if (r.format !== RECORDING_FORMAT) throw new RecordingInvalidError(path, `format must be "${RECORDING_FORMAT}"`);
   for (const k of ['scenario', 'judgeId', 'provider', 'family', 'model']) {
     if (typeof r[k] !== 'string' || r[k] === '') throw new RecordingInvalidError(path, `${k} must be a non-empty string`);
@@ -160,8 +172,8 @@ function readRecording(path: string, request: JudgeRequest): Recording {
     if (typeof r[k] !== 'string' || !HASH.test(r[k])) throw new RecordingInvalidError(path, `${k} must be a 0x-prefixed 32-byte lowercase hex hash`);
   }
   if (r.capturedFrom !== 'live' && r.capturedFrom !== 'fake') throw new RecordingInvalidError(path, 'capturedFrom must be "live" or "fake"');
-  if (r.scenario !== request.scenario || r.judgeId !== request.judgeId) {
-    throw new RecordingInvalidError(path, `filed under ${request.scenario}/${request.judgeId} but records ${String(r.scenario)}/${String(r.judgeId)}`);
+  if (r.scenario !== request.scenario || r.role !== request.role || r.judgeId !== request.judgeId) {
+    throw new RecordingInvalidError(path, `filed under ${request.scenario}/${request.role}/${request.judgeId} but records ${String(r.scenario)}/${String(r.role)}/${String(r.judgeId)}`);
   }
   const verdict = parseJudgeVerdict(r.verdict);
   if (!verdict.ok) throw new RecordingInvalidError(path, `verdict does not match judge-verdict.schema.json: ${verdict.error.detail}`);
@@ -174,12 +186,54 @@ export class RecordedJudges implements JudgeProvider {
 
   judge(request: JudgeRequest): JudgeResult {
     assertPinned(request.model);
-    const path = recordingPath(this.dir, request.scenario, request.judgeId);
+    const path = recordingPath(this.dir, request.scenario, request.role, request.judgeId);
     const rec = readRecording(path, request);
     const mismatches = BOUND.filter((f) => rec[f] !== request[f]).map((field) => ({ field, recorded: rec[field], requested: request[field] }));
     if (mismatches.length) throw new RecordingMismatchError(path, mismatches, request);
     return { status: 'recorded', verdict: rec.verdict, capturedFrom: rec.capturedFrom };
   }
+}
+
+export interface Migrated {
+  from: string;
+  to: string;
+  role: JudgeRole;
+}
+
+/**
+ * Moves T-005 recordings (<scenario>/<judgeId>.json, format v0) to <scenario>/<role>/<judgeId>.json (v1).
+ * A v0 recording names no role: one bound to the appeal template becomes an appeal recording, any other a
+ * primary one. Nothing else in the file changes, so a recording that was stale stays stale, and a fallback
+ * recording filed as primary fails loudly (missing) on its next run instead of replaying. Idempotent.
+ */
+export function migrateRecordings(dir: string): Migrated[] {
+  const moved: Migrated[] = [];
+  if (!existsSync(dir)) return moved;
+  for (const scenario of readdirSync(dir).sort()) {
+    const sdir = join(dir, scenario);
+    if (!statSync(sdir).isDirectory()) continue;
+    for (const file of readdirSync(sdir).sort()) {
+      const from = join(sdir, file);
+      if (!file.endsWith('.json') || !statSync(from).isFile()) continue;
+      let raw: Record<string, unknown>;
+      try {
+        raw = JSON.parse(readFileSync(from, 'utf8')) as Record<string, unknown>;
+      } catch (e) {
+        throw new RecordingInvalidError(from, `not JSON (${(e as Error).message})`);
+      }
+      if (raw.format !== RECORDING_FORMAT_V0) throw new RecordingInvalidError(from, `expected format ${RECORDING_FORMAT_V0} directly under the scenario directory`);
+      const role: JudgeRole = raw.promptTemplateHash === APPEAL_PROMPT_TEMPLATE_HASH ? 'appeal' : 'primary';
+      const rec = { ...raw, format: RECORDING_FORMAT, role } as unknown as Recording;
+      const to = recordingPath(dir, String(raw.scenario), role, String(raw.judgeId));
+      if (existsSync(to)) throw new RecordingOverwriteError(to);
+      const ordered = Object.fromEntries(KEYS.map((k) => [k, rec[k as keyof Recording]]));
+      mkdirSync(dirname(to), { recursive: true });
+      writeFileSync(to, `${JSON.stringify(ordered, null, 2)}\n`);
+      unlinkSync(from);
+      moved.push({ from, to, role });
+    }
+  }
+  return moved;
 }
 
 /** Fake judges: a fixed passing verdict for every criterion. For stubs and for capturing stub recordings. */

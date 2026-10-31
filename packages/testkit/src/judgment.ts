@@ -180,6 +180,7 @@ export async function runJudgment(input: RunJudgmentInput, judges: JudgeProvider
       const seat = seats.get(req.judgeId)!;
       const request: JudgeRequest = {
         scenario: input.scenario,
+        role,
         judgeId: seat.judgeId,
         provider: seat.provider,
         family: seat.family,

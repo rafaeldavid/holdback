@@ -2,12 +2,12 @@
 // transcript with its .expect.md snapshot. Prints one pass/fail line per fixture and a summary;
 // exits 1 when any fixture fails and 2 on a usage error.
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { createContext } from './context.js';
 import { loadTermsFile } from './fixture-files.js';
 import { JUDGES, SETTLEMENTS, type JudgeSource, type SettlementBackend } from './pragma.js';
 import { evaluate, prefixOf, type Outcome, type RunSummary } from './prefix.js';
-import { FakeJudges, RecordedJudges, RecordingInvalidError, RecordingJudges, RecordingMismatchError, RecordingMissingError, RecordingOverwriteError, type JudgeProvider } from './recorded.js';
+import { FakeJudges, migrateRecordings, RecordedJudges, RecordingInvalidError, RecordingJudges, RecordingMismatchError, RecordingMissingError, RecordingOverwriteError, type JudgeProvider } from './recorded.js';
 import { renderErrorSnapshot, renderSnapshot } from './render.js';
 import { parseScenario } from './scenario.js';
 import { StubSettlement } from './stub-settlement.js';
@@ -106,6 +106,8 @@ export interface SnapArgs {
   names: string[];
   update: boolean;
   record: boolean;
+  /** Move v0 recordings to the role-keyed layout and exit. */
+  migrateRecordings?: boolean;
   judges?: JudgeSource;
   settlement?: SettlementBackend;
 }
@@ -128,6 +130,9 @@ export function parseArgs(argv: readonly string[]): SnapArgs {
       case '--record':
         args.record = true;
         break;
+      case '--migrate-recordings':
+        args.migrateRecordings = true;
+        break;
       case '--judges': {
         const v = value();
         if (!(JUDGES as readonly string[]).includes(v)) throw new UsageError(`--judges must be one of ${JUDGES.join(', ')}; got "${v}"`);
@@ -141,10 +146,14 @@ export function parseArgs(argv: readonly string[]): SnapArgs {
         break;
       }
       default:
-        if (arg.startsWith('-')) throw new UsageError(`unknown flag ${arg}; usage: pnpm snap [name...] [--update] [--settlement sim] [--judges recorded|fake] [--record]`);
+        if (arg.startsWith('-')) throw new UsageError(`unknown flag ${arg}; usage: pnpm snap [name...] [--update] [--settlement sim] [--judges recorded|fake] [--record] | pnpm snap --migrate-recordings`);
         args.names.push(arg);
     }
   }
+  if (args.migrateRecordings && (args.names.length || args.update || args.record || args.judges || args.settlement)) {
+    throw new UsageError('--migrate-recordings runs on its own: it moves every v0 recording and exits');
+  }
+  if (args.migrateRecordings) return args;
   if (args.record && args.judges !== 'live' && args.judges !== 'fake') throw new UsageError('--record needs --judges live (or --judges fake for stub recordings)');
   if (args.judges === 'live') throw new UsageError(LIVE_REFUSAL);
   if (args.settlement) {
@@ -178,6 +187,17 @@ export async function main(argv: readonly string[], io: SnapIO): Promise<number>
   } catch (e) {
     io.out(`snap: ${(e as Error).message}`);
     return 2;
+  }
+  if (args.migrateRecordings) {
+    try {
+      const moved = migrateRecordings(recordingsDir(io.root));
+      for (const m of moved) io.out(`moved  ${relative(io.root, m.from)} -> ${relative(io.root, m.to)}`);
+      io.out(`snap: migrated ${moved.length} recordings to <scenario>/<role>/<judgeId>.json`);
+      return 0;
+    } catch (e) {
+      io.out(`snap: ${(e as Error).name}: ${(e as Error).message}`);
+      return 1;
+    }
   }
 
   const dir = scenarioDir(io.root);

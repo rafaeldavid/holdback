@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -174,7 +174,7 @@ describe('pnpm snap', () => {
 
   it('fails loudly when a recording no longer matches the judge input', async () => {
     const root = sandbox();
-    const rec = join(root, 'fixtures/recordings/_example/claude-a.json');
+    const rec = join(root, 'fixtures/recordings/_example/primary/claude-a.json');
     const json = JSON.parse(readFileSync(rec, 'utf8'));
     writeFileSync(rec, JSON.stringify({ ...json, promptTemplateHash: `0x${'0'.repeat(64)}` }));
     const r = await snap(root);
@@ -187,11 +187,25 @@ describe('pnpm snap', () => {
     const root = sandbox();
     writeFileSync(join(root, 'fixtures/scenarios/_example.scenario.yaml'), readFileSync(join(root, 'fixtures/scenarios/_example.scenario.yaml'), 'utf8').replace('@seed 7', '@seed 9'));
     expect((await snap(root, '--judges', 'fake', '--record', '--update', '_example')).code).toBe(0);
-    const saved = JSON.parse(readFileSync(join(root, 'fixtures/recordings/_example/claude-a.json'), 'utf8'));
-    expect(saved).toMatchObject({ judgeId: 'claude-a', model: 'placeholder-claude-a-20260601', capturedFrom: 'fake' });
+    const saved = JSON.parse(readFileSync(join(root, 'fixtures/recordings/_example/primary/claude-a.json'), 'utf8'));
+    expect(saved).toMatchObject({ role: 'primary', judgeId: 'claude-a', model: 'placeholder-claude-a-20260601', capturedFrom: 'fake' });
     // Recorded mode replays the new recordings without a mismatch, then the snapshot matches.
     expect((await snap(root, '--update', '_example')).code).toBe(0);
     expect((await snap(root, '_example')).code).toBe(0);
+  });
+
+  it('--migrate-recordings moves v0 recordings under their role and runs alone', async () => {
+    const root = sandbox();
+    const dir = join(root, 'fixtures/recordings/_example');
+    const v1 = JSON.parse(readFileSync(join(dir, 'primary/claude-a.json'), 'utf8'));
+    delete v1.role;
+    writeFileSync(join(dir, 'claude-a.json'), JSON.stringify({ ...v1, format: 'holdback.recording/v0' }));
+    rmSync(join(dir, 'primary/claude-a.json'));
+    const r = await snap(root, '--migrate-recordings');
+    expect(r.code).toBe(0);
+    expect(r.out).toContain('moved  fixtures/recordings/_example/claude-a.json -> fixtures/recordings/_example/primary/claude-a.json');
+    expect((await snap(root, '_example')).code).toBe(0);
+    expect((await snap(root, '--migrate-recordings', '_example')).code).toBe(2);
   });
 
   it('accepts --flag=value and --flag value forms', async () => {
