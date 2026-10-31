@@ -5,7 +5,7 @@
 - **Depends on:** T-020
 - **Paths this task may touch:** `.github/workflows/ci.yml`, `vitest.config.ts`, root `package.json` scripts, and the test files named below (plus their helpers): `packages/settlement/sim/properties.test.ts`, `tests/spec.test.ts`, `packages/judgment/src/screen.test.ts` and `packages/judgment/src/screen.ts` (only if the screen itself is slow), `packages/testkit/src/runner.test.ts`, `apps/adjudicator/src/service.test.ts`, `apps/demo/agents/agents.test.ts`, `apps/demo/src/cli.test.ts`; `docs/testing.md`
 - **Human gate:** no
-- **Status:** review
+- **Status:** done
 - **Agent/session:** implementer, branch `t-022-ci-speed`, PR #54
 
 ## Intent
