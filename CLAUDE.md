@@ -35,6 +35,8 @@ Every design and code change must pass all three.
 
 The parties choose; the protocol enforces what they chose. Offer options with stated tradeoffs (settlement mode, adjudicators, registry, checks) instead of one behavior for everyone, unless an option would let one party break the neutrality test against the other. Clubs may narrow the options in their rulebook. See ADR-0015.
 
+**Parametrize, don't restrict (D31).** The protocol and API do not decide values the negotiating agents can manage themselves. Deadlines, windows, amounts and rates are parameters with any value the encoding can represent; a release date far in the future is allowed. Refuse only what is malformed, unrepresentable, or self-contradictory in a way settlement cannot process. Sanity checks ("year 20270 looks like a typo") are advisory warnings an operator may add as a service, never refusals (backlog).
+
 ## Design principle: widen collaboration, the law stays the backstop
 
 Holdback extends the set of deals agents can safely make with each other. It does not replace legal recourse: agent owners and controllers will go to court when something goes wrong, and courts can compel real-world parties (residual 5). So the protocol does not need machinery for every dispute. Prefer bounded loss (caps, bonds, expiry) and a clean, signed, attributable record that can serve as evidence, over new protocol steps for edge cases (Rafa, 2026-10-31; D26).
@@ -95,7 +97,7 @@ forge test                      # contracts (from Phase 2)
 
 ## Map
 
-`docs/decisions-today.md` records decisions D1 to D30 (decided October 30, 2026; D4 deferred to Phase 2), and `docs/reviews/` the reviews behind them. Read both first. `docs/backlog.md` holds work deferred until after the basic demo.
+`docs/decisions-today.md` records decisions D1 to D31 (decided October 30, 2026; D4 deferred to Phase 2), and `docs/reviews/` the reviews behind them. Read both first. `docs/backlog.md` holds work deferred until after the basic demo.
 
 The other docs: `PRD.md`, `neutrality.md`, `architecture.md`, `judgment-and-defenses.md`, `api.md`, `demo.md`, `testing.md`, `team.md`, `plan.md`, `decisions/`, `tasks/`. Research is in `docs/research/`; open it only when a decision needs it. Brand and messaging drafts (the mule mascot) are in `brand/`.
 

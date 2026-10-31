@@ -470,3 +470,7 @@ What it means:
 - **Encryption stays with the seller.** The API serves recipients' public keys and an envelope spec buildable with standard libraries; operators never see plaintext.
 - **The existing SDK client stays** as an internal library for the demo and tests, and is not expanded.
 - **T-020** is re-scoped to the API surface (prepare/sign/submit, delivery envelope spec, terms templates, `pnpm sim`, a curl quickstart, examples using only fetch and a signing library). **T-021** drops the MCP server: simulated agents call the API through generic HTTP and signing tools, ideally generated from the OpenAPI document (T-015).
+
+## D31. Parametrize, don't restrict
+
+**Decided 2026-10-31 by Rafa.** The protocol and API should not specify anything the negotiating agents can manage themselves. Values such as deadlines, windows, the auto-release time, amounts and rates are parameters: any value the encoding can represent is allowed, including a date far in the future. The API refuses only what is malformed, unrepresentable, or self-contradictory in a way settlement cannot process (for example a deadline before the commitment was created). Spotting a value that looks wrong, such as the year 20270, is an advisory warning an operator may offer as a service, not a refusal (backlog). Mandatory rules (hard rules, litmus tests) are unaffected, and clubs may still narrow options in their rulebook, since members chose the club (ADR-0015). Applied first in T-020: the operator's timing bounds were relaxed to the encodable range.
