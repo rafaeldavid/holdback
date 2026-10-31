@@ -165,7 +165,8 @@ describe('SimChain source (T-012 beat runner)', () => {
     expect(jp!.prompt.user.tail.at(-1)).toMatch(/^<<<END UNTRUSTED DATA/);
     expect(jp!.prompt.user.omitted).toBeGreaterThan(1000);
     expect(jp!.verdict?.overall).toBe('pass');
-    expect(jp!.verdict?.criteria.map((c) => c.id)).toEqual(['no_fabrication', 'notes', 'dedupe_quality']);
+    // The order is shuffled per judge by the panel seed (it moved when agg-3 changed the policy hash).
+    expect(jp!.verdict?.criteria.map((c) => c.id).sort()).toEqual(['dedupe_quality', 'no_fabrication', 'notes']);
   });
 
   it('beat 3: judging is stamped by the adjudicator service, and the decision says how long it took (T-019)', () => {

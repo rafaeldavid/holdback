@@ -240,6 +240,16 @@ export async function runPipeline(input: PipelineInput): Promise<Result<Judgment
   const escalate = rs.filter((r) => r.filtered).map((r) => `judge ${r.member.judgeId} output rejected by a filter (${r.filtered})`);
   // A seeded sample is recomputable and unpredictable to the seller; only the even-stride fallback escalates.
   if (rs.some((r) => r.strided)) escalate.push('the judges saw a sample of the deliverable, not all of it');
-  const agg = aggregate({ checks: deterministic, rubric: acceptance.rubric, screenFlagged: finalScreen.flagged, appeal: input.template === 'appeal', verdicts: rs.map((r) => r.verdict), thresholds, escalate });
+  const agg = aggregate({
+    checks: deterministic,
+    rubric: acceptance.rubric,
+    screenFlagged: finalScreen.flagged,
+    appeal: input.template === 'appeal',
+    appealFamilies: policy.minFamilies,
+    filterAbstentions: rs.filter((r) => r.filtered).length,
+    verdicts: rs.map((r) => r.verdict),
+    thresholds,
+    escalate,
+  });
   return ok({ ...base, screen: finalScreen, panel: { ran: true, members: rs.map((r) => r.member) }, aggregate: agg });
 }

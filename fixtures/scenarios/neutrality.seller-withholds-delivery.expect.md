@@ -11,11 +11,11 @@ The scenario index's reclaim-no-delivery row (neutrality.md: seller, "S8 reclaim
 | Pragmas | settlement=sim · judges=recorded · mode=guaranteed_on_decision · seed=47 |
 | Prefix | neutrality. (an actor fails: terms-compliant terminal state anyway) |
 | Settlement | SimChain (T-006) driving @holdback/core `step` |
-| Judgment | @holdback/judgment (checks, screen, panel) · registry config/judges.yaml 0x8aa4…4549 · policy bench-a/p1 0x7970…3bf0 |
+| Judgment | @holdback/judgment (checks, screen, panel) · registry config/judges.yaml 0x8aa4…4549 · policy bench-a/p1 0x8cb8…ea79 |
 | Club | fixtures/clubs/data-services-v1.yaml (loaded) · rulebook 0x140e…971e |
 | Buyer | atlas-buyer 0x36f8…B956 |
 | Seller | tidewater-seller 0x4Fe3…8139 |
-| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0x582d…6ed4 · price 2,000.000000 tUSD · fee 50.000000 tUSD |
+| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0x2d7e…a205 · price 2,000.000000 tUSD · fee 50.000000 tUSD |
 | Adjudicators | primary bench-a 0xaf59…3Ad2 · fallback bench-b 0xA7b4…Cb62 · appeal bench-c 0x2650…307A |
 | Operators | op-1 · op-2 |
 
@@ -50,7 +50,7 @@ Outages:
 
 ## Receipts and log
 
-- Events 0–4. Chain head 0x30af…de56. Replay of 5 SimChain submissions from genesis matches the settlement state.
+- Events 0–4. Chain head 0xe902…92a2. Replay of 5 SimChain submissions from genesis matches the settlement state.
 - Receipts from op-1: 4 (rcpt-0001–rcpt-0004). Stub receipts are unsigned until T-007.
 - Receipts from op-2: 1 (rcpt-0005–rcpt-0005). Stub receipts are unsigned until T-007.
 

@@ -11,11 +11,11 @@ Known gap. The deliverable should carry a plain-text instruction to the judges (
 | Pragmas | settlement=sim · judges=recorded · mode=guaranteed_on_decision · seed=89 |
 | Prefix | todo. (known gap: records current behavior) |
 | Settlement | SimChain (T-006) driving @holdback/core `step` |
-| Judgment | @holdback/judgment (checks, screen, panel) · registry config/judges.yaml 0x8aa4…4549 · policy bench-a/p1 0x7970…3bf0 |
+| Judgment | @holdback/judgment (checks, screen, panel) · registry config/judges.yaml 0x8aa4…4549 · policy bench-a/p1 0x8cb8…ea79 |
 | Club | fixtures/clubs/data-services-v1.yaml (loaded) · rulebook 0x140e…971e |
 | Buyer | atlas-buyer 0x71b0…2D66 |
 | Seller | tidewater-seller 0x97a6…3718 |
-| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0x072d…d155 · price 2,000.000000 tUSD · fee 50.000000 tUSD |
+| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0xa37b…6505 · price 2,000.000000 tUSD · fee 50.000000 tUSD |
 | Adjudicators | primary bench-a 0xd83c…26fA · fallback bench-b 0x162C…aa08 · appeal bench-c 0xc6F3…C2Fc |
 | Operators | op-1 · op-2 |
 
@@ -51,7 +51,7 @@ Known gap. The deliverable should carry a plain-text instruction to the judges (
 
 ## Receipts and log
 
-- Events 0–7. Chain head 0x8c37…eb71. Replay of 6 SimChain submissions from genesis matches the settlement state.
+- Events 0–7. Chain head 0x9a89…9e25. Replay of 6 SimChain submissions from genesis matches the settlement state.
 - Receipts from op-1: 5 (rcpt-0001–rcpt-0005). Stub receipts are unsigned until T-007.
 
 ## Invariants

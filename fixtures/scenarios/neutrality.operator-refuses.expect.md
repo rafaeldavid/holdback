@@ -11,11 +11,11 @@ Demo beat 7, first failure. op-1 relays the offer and Bench A's acceptance, then
 | Pragmas | settlement=sim · judges=recorded · mode=guaranteed_on_decision · seed=19 |
 | Prefix | neutrality. (an actor fails: terms-compliant terminal state anyway) |
 | Settlement | SimChain (T-006) driving @holdback/core `step` |
-| Judgment | @holdback/judgment (checks, screen, panel) · registry config/judges.yaml 0x8aa4…4549 · policy bench-a/p1 0x7970…3bf0 |
+| Judgment | @holdback/judgment (checks, screen, panel) · registry config/judges.yaml 0x8aa4…4549 · policy bench-a/p1 0x8cb8…ea79 |
 | Club | fixtures/clubs/data-services-v1.yaml (loaded) · rulebook 0x140e…971e |
 | Buyer | atlas-buyer 0xEd4F…021f |
 | Seller | tidewater-seller 0x251c…0640 |
-| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0x73a7…fdea · price 2,000.000000 tUSD · fee 50.000000 tUSD |
+| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0xc9c6…f864 · price 2,000.000000 tUSD · fee 50.000000 tUSD |
 | Adjudicators | primary bench-a 0xa6bC…8f37 · fallback bench-b 0x0F10…8382 · appeal bench-c 0xad08…01c9 |
 | Operators | op-1 · op-2 |
 
@@ -54,16 +54,16 @@ Outages:
 - **Intake:** plaintext 0x1939…87e5 · text/csv · 511912 bytes (fixtures/data/dataset-cleaning/customers.clean.csv) · hash verified ✓ · normalized
 - **Deterministic checks:** cols ✓ · rows ✓ · uniq ✓ · dates ✓ · id_nulls ✓ · name_nulls ✓ · email_nulls ✓ · emails (optional) ✓ · hidden ✓
 - **Screen:** clean
-- **Panel:** 3 judges from 2 families (policy: 3 seats, at least 2 families) · first-instance template 0xabb5…4dd2 · rubric 0x4201…7925 · seed source: commit-reveal (commitment 0xdddf…8b94, seed 0x3f9c…5445, recomputed: match)
-  - claude-a · anthropic/claude · placeholder-claude-a-20260601 · recorded (captured from fake judges) · pass · scores 4/4/4 · input 0x5192…4cfa
-  - gpt-b · openai-compatible/gpt · placeholder-gpt-b-20260601 · recorded (captured from fake judges) · pass · scores 4/4/4 · input 0x5971…a998
-  - claude-b · anthropic/claude · placeholder-claude-b-20260601 · recorded (captured from fake judges) · pass · scores 4/4/4 · input 0x1f1d…cb16
-- **Aggregate:** accept (weighted score 4.00; 3 pass, 0 fail of 3 valid; pass families claude, gpt). Reasons: 3 of 3 valid verdicts pass, from 2 families, score at or above 3.
+- **Panel:** 3 judges from 3 families (policy: 3 seats, at least 2 families) · first-instance template 0xabb5…4dd2 · rubric 0x4201…7925 · seed source: commit-reveal (commitment 0xdddf…8b94, seed 0x3f9c…5445, recomputed: match)
+  - claude-a · anthropic/claude · placeholder-claude-a-20260601 · recorded (captured from fake judges) · pass · scores 4/4/4 · input 0xdb74…374c
+  - gpt-a · openai-compatible/gpt · placeholder-gpt-a-20260601 · recorded (captured from fake judges) · pass · scores 4/4/4 · input 0x2ca7…9aa6
+  - qwen-a · openai-compatible/qwen · placeholder-qwen-a-20260601 · recorded (captured from fake judges) · pass · scores 4/4/4 · input 0xa355…e0cf
+- **Aggregate:** accept (weighted score 4.00; 3 pass, 0 fail of 3 valid; pass families claude, gpt, qwen). Reasons: 3 of 3 valid verdicts pass, from 3 families, score at or above 3.
 - **Signed:** accept.
 
 ## Receipts and log
 
-- Events 0–8. Chain head 0x26d5…a939. Replay of 6 SimChain submissions from genesis matches the settlement state.
+- Events 0–8. Chain head 0x72d5…4619. Replay of 6 SimChain submissions from genesis matches the settlement state.
 - Receipts from op-1: 2 (rcpt-0001–rcpt-0002). Stub receipts are unsigned until T-007.
 - Receipts from op-2: 3 (rcpt-0003–rcpt-0005). Stub receipts are unsigned until T-007.
 
