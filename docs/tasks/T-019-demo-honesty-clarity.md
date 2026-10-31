@@ -57,6 +57,6 @@ Non-goals: beats 6a and 7 on SimChain and deleting the stand-in source (T-018); 
 
 ## Handoff
 
-- PR: see the link in the PR list for branch `t-019-demo-honesty`.
+- PR: https://github.com/rafaeldavid/holdback/pull/51
 - For T-018: `runJob` now takes a seed (`seedOf(beat)`), and every run ends with a `shared-record` event. A new SimChain beat 7 or 6a gets both for free if it goes through `runJob` and `Narrator`. Its transcript should set `mode: 'scripted'` (`transcript()` already does). When the stand-in is deleted, drop the `mode: 'scripted'` override in `demo.ts` and the `'recorded'` wording tests that read stand-in output.
 - Follow-ups (not done here): carry `JudgeReport.timing` on `JobResult` (one line in `beats.ts`) and remove `judgingTimeOf`; an SDK read that reports which operator answered, so each party can read through a different operator and the line can say so; a published-record read API so parties fetch the judgment record themselves; receipts as narrated events (review "Missing").
