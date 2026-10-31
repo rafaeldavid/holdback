@@ -1,12 +1,11 @@
 # @settlement sim @judges recorded @mode guaranteed_on_decision @seed 61
-name: todo.panel-disagreement-escalates
+name: panel-disagreement-escalates
 description: >-
-  The scenario index's panel-disagreement-escalates row, recorded as a known gap. Bench A's panel splits
-  (both Claude judges pass, the second-family judge fails; authored recordings, capturedFrom fake) and
-  Bench A escalates to Bench C. Bench C's panel should be five judges from three families with its own
-  verdicts, but the testkit seats the same three stub judges for every role and keys recordings by
-  scenario and judge only, so Bench C replays the split, decides escalate, and is refused (the appeal
-  adjudicator must accept or reject). Promote once the testkit draws role-specific panels and recordings.
+  Bench A's panel splits: both Claude judges pass, the only GPT judge fails (authored recording), so the
+  passes come from one family and Bench A escalates to Bench C. Bench C draws its own panel of five judges
+  from three families under the appeal template, seeded from the beacon round after the escalation, and
+  its judges, recorded under appeal/, all pass: Bench C accepts and Tidewater is paid. Promoted from
+  todo. by T-016 (role-specific panels and role-keyed recordings).
 club: fixtures/clubs/data-services-v1.yaml
 terms: fixtures/terms/clean-customers-2000.yaml
 parties:
@@ -29,6 +28,6 @@ steps:
   - deliver:            { by: seller, via: op-1, file: data/dataset-cleaning/customers.clean.csv }
   - advance_clock:      { seconds: 5 }
   - judge:              { adjudicator: bench-a }     # escalate
-  - judge:              { adjudicator: bench-c }     # should accept or reject; replays the split instead
+  - judge:              { adjudicator: bench-c }     # appeal panel of five accepts
 expect:
   terminal: Released
