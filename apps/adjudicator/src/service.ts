@@ -341,6 +341,8 @@ export class Adjudicator {
         criteriaFor: plan.value.criteriaFor,
         sampleSeed: plan.value.sampleSeed,
         template: appeal ? 'appeal' : 'first-instance',
+        // D27c: a party appeal (a first decision exists) differs from the appeal after an escalation.
+        ...(appeal ? { appealKind: task.firstOutcome ? ('party' as const) : ('escalated' as const) } : {}),
       });
       if (!run.ok) return run;
       draft = run.value;

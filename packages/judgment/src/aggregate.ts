@@ -4,11 +4,12 @@
 //   if a check ran out of its work budget                 -> ESCALATE (no panel)
 //   if all checks passed and rubric is empty              -> ACCEPT  (no panel; a screen flag adds a reason, D17)
 //   verdicts = run panel
-//   flagged = screen.flagged or any verdict.injectionSuspected (or, at the appeal, a filter abstention)
-//   if appeal and flagged                                 -> ACCEPT only if every seat returned a valid pass,
-//                                                            passes span appealFamilies, no injectionSuspected
-//                                                            and the score is met; otherwise REJECT (D27a)
-//   if flagged                                            -> ESCALATE (primary, fallback)
+//   flagged = screen.flagged or any verdict.injectionSuspected
+//   if appeal after escalation and (flagged or a filter abstention or a sampled read)
+//                                                         -> ACCEPT only if every seat returned a valid pass on
+//                                                            the whole file, passes span appealFamilies, no
+//                                                            injectionSuspected, score met; else REJECT (D27a/b)
+//   if flagged                                            -> ESCALATE (primary, fallback, party appeal: D27c)
 //   if a judge's output was rejected by a filter, or the judges saw a sample  -> ESCALATE
 //   valid = verdicts where overall != "abstain"
 //   if len(valid) < policy.minValid or len(valid) == 0    -> ESCALATE
@@ -49,12 +50,15 @@ export interface AggregateInput {
   rubric: JudgmentRubric;
   screenFlagged: boolean;
   /**
-   * The appeal panel (ADR-0021 amendment, L3-1, D27a). There is no instance after it, so a flagged appeal
-   * never escalates (which would mean no decision and the default outcome): it accepts only on a whole,
-   * unanimous panel from `appealFamilies` families with no injection suspected, and otherwise rejects.
-   * Never set for the primary or the fallback.
+   * Which appeal this panel sits for (ADR-0021 amendment; D27). Never set for the primary or the fallback.
+   * - `escalated`: the appeal after an escalation (no first decision). There is no instance after it, and an
+   *   escalation means no decision and the default outcome, so any seller-controllable condition (screen flag,
+   *   injection suspicion, filter abstention, sampled data) accepts only on a whole, unanimous panel from
+   *   `appealFamilies` families with no injection suspected, and otherwise rejects (D27a, D27b).
+   * - `party`: a party's appeal against a first decision. Those conditions escalate as at first instance, so
+   *   one judge's noise cannot overturn the first decision; signedOutcome keeps it (D27c).
    */
-  appeal?: boolean;
+  appeal?: 'escalated' | 'party';
   /** Families the passes of a flagged appeal must span (the appeal panel's family minimum; at least 2). */
   appealFamilies?: number;
   /** Judges whose output a filter rejected (also listed in `escalate`); at the appeal they flag the case. */
@@ -148,17 +152,22 @@ export function aggregate(input: AggregateInput): Aggregate {
   const filtered = input.filterAbstentions ?? 0;
   const scoreOk = rubric.criteria.length === 0 || sumWS * 100 >= rubric.passThreshold * totalWeight * n;
 
-  // D27a: a flagged appeal. It never escalates: accept only on a whole, unanimous, cross-family panel with no
-  // injection suspected and the score met; otherwise reject (refund; the key is not released).
-  if (input.appeal && (input.screenFlagged || injection || filtered > 0)) {
+  // Escalation reasons other than filter abstentions: the judges saw an even-stride sample (seller-forceable).
+  const sampled = (input.escalate?.length ?? 0) > filtered;
+
+  // D27a/b: the appeal after an escalation with a seller-controllable condition. It never escalates: accept only
+  // on a whole, unanimous, cross-family, full-file panel with no injection suspected and the score met;
+  // otherwise reject (refund; the key is not released). A party appeal (D27c) falls through to the
+  // first-instance handling below.
+  if (input.appeal === 'escalated' && (input.screenFlagged || injection || filtered > 0 || sampled)) {
     const flags = [
       ...(input.screenFlagged ? [SCREEN_FLAGGED_REASON] : []),
       ...(injection ? ['a judge suspected injection'] : []),
       ...(filtered > 0 ? [`${filtered} judge output${filtered === 1 ? '' : 's'} rejected by a filter`] : []),
+      ...(sampled ? ['the judges saw a sample of the deliverable, not all of it'] : []),
     ];
     const seats = input.verdicts.length;
     const needFamilies = Math.max(MIN_PASS_FAMILIES, input.appealFamilies ?? MIN_PASS_FAMILIES);
-    const sampled = (input.escalate?.length ?? 0) > filtered;
     const missing = [
       ...(seats === 0 ? ['no seat returned a verdict'] : []),
       ...(n < seats ? [`${seats - n} of ${seats} seats returned no valid verdict`] : []),

@@ -218,6 +218,8 @@ export async function runJudgment(input: RunJudgmentInput, judges: JudgeProvider
     criteriaFor: plan.value.criteriaFor,
     sampleSeed: plan.value.sampleSeed,
     template: appeal ? 'appeal' : 'first-instance',
+    // D27c, as the adjudicator service: a party appeal (a first decision exists) or the appeal after an escalation.
+    ...(appeal ? { appealKind: input.firstOutcome ? ('party' as const) : ('escalated' as const) } : {}),
   });
   if (loud) throw loud;
   if (!run.ok) return err(run.error);

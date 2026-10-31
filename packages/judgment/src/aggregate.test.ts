@@ -177,7 +177,8 @@ describe('aggregate: a flagged appeal accepts only unanimously, else rejects (L3
 // semantics changes it, and the test then demands a new version and a new pinned entry.
 describe('aggregate: the decision table is pinned to AGGREGATION_VERSION', () => {
   const PINNED: Readonly<Record<string, string>> = {
-    'agg-3': '8a9a32043f99dda0a04bf0109409aac2caf2e7dbefb7bbebd1c901dc1f3e2305',
+    // Re-pinned for D27b/c before agg-3 reached main (no policy outside this repository bound the earlier table).
+    'agg-3': '4cbc921977c5e5ad282d4eb1b66f197222b5fd6a04b25d3de17b913db6e50f25',
   };
   it('the digest of decisions and signed outcomes on a seeded corpus matches the pinned digest for this version', () => {
     const corpus = fc.sample(arbInputPublic, { seed: 2718, numRuns: 3000 }).map(buildPublic);
