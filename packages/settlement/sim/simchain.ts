@@ -899,13 +899,20 @@ export class SimChain implements Settlement {
         break;
       }
       case 'expire_appeal': {
-        if ((prev.kind === 'Released' || prev.kind === 'Refunded') && prev.via.kind === 'first_instance' && prev.via.appeal.kind === 'open') {
-          const appellant = prev.via.appeal.appeal.appellantAddress;
-          tx.post(account.appealBond(id), account.party(appellant), tx.bal(account.appealBond(id)), 'appeal bond back: undecided', postings);
-          tx.post(account.appealFee(id), account.party(appellant), tx.bal(account.appealFee(id)), 'appeal fee back: undecided (D21)', postings);
+        // D20: finality is the deadline that closed the window, not the moment someone triggered the expiry.
+        let closedAt: Timestamp = tx.at;
+        if ((prev.kind === 'Released' || prev.kind === 'Refunded') && prev.via.kind === 'first_instance') {
+          const a = prev.via.appeal;
+          if (a.kind === 'none') closedAt = a.appealBy;
+          if (a.kind === 'open') {
+            closedAt = a.appealDecideBy;
+            const appellant = a.appeal.appellantAddress;
+            tx.post(account.appealBond(id), account.party(appellant), tx.bal(account.appealBond(id)), 'appeal bond back: undecided', postings);
+            tx.post(account.appealFee(id), account.party(appellant), tx.bal(account.appealFee(id)), 'appeal fee back: undecided (D21)', postings);
+          }
         }
         this.releaseAll(tx, id);
-        tx.setRec(id, { ...tx.rec(id)!, appealClosedAt: tx.at });
+        tx.setRec(id, { ...tx.rec(id)!, appealClosedAt: closedAt });
         tx.emit('appeal.expired', id, 'anyone', { postings });
         break;
       }

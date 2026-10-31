@@ -133,6 +133,18 @@ describe('happy path (demo beats 1-4)', () => {
       { recipient: w.cast.buyer.address, scheme: s.message.keyForBuyer.scheme, ciphertext: s.message.keyForBuyer.ciphertext },
     ]);
   });
+
+  it('keeps finalAt at appealBy when appeal expiry is triggered late (D20)', async () => {
+    const w = await world();
+    await delivered(w);
+    await w.ok(w.deal.decide('primary', 'accept'));
+    w.chain.advance(1_000);
+    const before = (await w.chain.state(w.deal.id))!;
+    expect(before.finalAt).toBe(before.deadlines['appealBy']);
+    const r = await w.ok(w.deal.trigger('appeal_expiry'));
+    expect(r.state.finalAt).toBe(before.finalAt);
+    expect((await w.chain.state(w.deal.id))?.finalAt).toBe(before.finalAt);
+  });
 });
 
 describe('early acceptance', () => {
@@ -286,6 +298,18 @@ describe('party appeal (D21: the appeal fee is held until decided)', () => {
     expect(await w.bal(w.cast.seller)).toBe(1_000_000_000n);
     expect(await w.bal(w.cast.appeal)).toBe(0n);
     expect(w.chain.pool(w.cast.primary.address).reserved).toBe(0n);
+  });
+
+  it('expired late: finalAt stays at appealDecideBy, not the trigger time (D20)', async () => {
+    const w = await world();
+    await rejected(w);
+    await w.ok(w.deal.appealBy('seller'));
+    const appealDecideBy = (await w.chain.state(w.deal.id))!.deadlines['appealDecideBy']!;
+    w.chain.advanceTo(appealDecideBy);
+    w.chain.advance(1_000);
+    expect((await w.chain.state(w.deal.id))?.finalAt).toBe(appealDecideBy);
+    const r = await w.ok(w.deal.trigger('appeal_expiry'));
+    expect(r.state.finalAt).toBe(appealDecideBy);
   });
 });
 
