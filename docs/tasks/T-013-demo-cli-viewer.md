@@ -44,7 +44,7 @@ Fill this in before review. Label each item measured, inferred or guessed.
 
 ### PR 46 review fixes (2026-10-31)
 
-- **Untrusted output surfaces (measured):** `untrusted.test.ts` was committed in `3c0e1c5` before the renderers used the helpers, and 5 tests failed. The hostile check detail combines a Markdown image, a link, `<img>`, an OSC 8 terminal hyperlink, a screen-clear escape, a bidi override, tag characters, a newline heading, a CRLF table row, a fence and `www.`. After `2a941ff` it passes on four surfaces:
+- **Untrusted output surfaces (measured):** `untrusted.test.ts` was committed in `a59f084` before the renderers used the helpers, and 5 tests failed. The hostile check detail combines a Markdown image, a link, `<img>`, an OSC 8 terminal hyperlink, a screen-clear escape, a bidi override, tag characters, a newline heading, a CRLF table row, a fence and `www.`. After `2a941ff` it passes on four surfaces:
   - terminal: no control, bidi or tag character and no line break in any line that carries the payload;
   - Markdown: no unescaped image, link, `<`, heading or table row outside the signed-message fence, and that fence is longer than the payload's backtick run;
   - HTML: `&lt;img`, no invisible characters;
