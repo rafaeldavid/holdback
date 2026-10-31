@@ -45,7 +45,7 @@ Non-goals: calibration and fees from metrics (Phase 3); live model calls in test
 
 Labels: measured (M), inferred (I), guessed (G).
 
-**Verify.** `pnpm verify` on a clean tree at `837bac5` (after merging origin/main `e79c221`): typecheck, lint, test, spec and snap pass; demo is a placeholder (T-013). Report `reports/verify-t-009-panel-adjudicator.md` (M). Full suite: 1,564 tests in 43 files pass (M). ESLint also lints untracked scripts under `reports/`, so scratch `.mjs` files there fail verify (M).
+**Verify.** `pnpm verify` on a clean tree at `151bf96`, after the merge of main with T-006 and T-007 (`9dc461d`): typecheck, lint, test, spec and snap pass; demo is a placeholder (T-013). Report `reports/verify-t-009-panel-adjudicator.md` (M). Full suite: 1,763 tests in 53 files pass (M). ESLint also lints untracked scripts under `reports/`, so scratch `.mjs` files there fail verify (M).
 
 **Demo deliverable (priority 1).**
 - T-012's `fixtures/data/dataset-cleaning/customers.clean.csv` (511,912 bytes, 9,500 rows) runs through the service with the example commitment's checks: every required check passes, each judge sees a seeded sample under 130,000 characters, the decision is `accept` and the commitment is `Released` (M, `apps/adjudicator/src/service.test.ts`).
