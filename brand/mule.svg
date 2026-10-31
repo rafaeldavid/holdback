@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 104" role="img" aria-labelledby="t">
+  <title id="t">Holdback mule carrying a sealed crate</title>
+  <style>
+    .ink{fill:#2B2A33}
+    .crate{fill:#E8A33D}
+    .line{fill:none;stroke:#2B2A33;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
+    .seal{fill:#2B2A33}
+    @media (prefers-color-scheme: dark){.ink,.seal{fill:#F2EFE8}.line{stroke:#F2EFE8}}
+  </style>
+  <!-- tail -->
+  <path class="line" d="M25 50 C17 56 15 66 17 74"/>
+  <path class="ink" d="M13 72 q4 -3 8 1 q-1 7 -4 9 q-4 -3 -4 -10z"/>
+  <!-- body -->
+  <path class="ink" d="M24 44 C26 34 38 31 52 32 L78 32 C86 32 90 36 92 42 L94 58 C94 64 89 67 83 67 L32 67 C26 67 22 62 22 56 Z"/>
+  <!-- legs -->
+  <rect class="ink" x="28" y="62" width="7" height="32" rx="3"/>
+  <rect class="ink" x="40" y="62" width="7" height="32" rx="3"/>
+  <rect class="ink" x="72" y="62" width="7" height="32" rx="3"/>
+  <rect class="ink" x="84" y="62" width="7" height="32" rx="3"/>
+  <!-- neck and head -->
+  <path class="ink" d="M82 40 L94 22 C96 18 101 16 105 18 L120 30 C124 33 124 38 121 41 C118 44 113 43 110 41 L101 36 L94 52 Z"/>
+  <!-- ears: long, the mule's tell -->
+  <path class="ink" d="M98 20 L92 2 C91 0 94 -1 95 1 L103 18 Z"/>
+  <path class="ink" d="M103 19 L101 3 C101 1 104 0 105 2 L108 21 Z"/>
+  <!-- eye and nostril -->
+  <circle cx="106" cy="25" r="1.8" fill="#FFFFFF"/>
+  <circle cx="119" cy="36" r="1.2" fill="#FFFFFF"/>
+  <!-- the load: a sealed crate on a pack saddle -->
+  <rect class="crate" x="38" y="12" width="36" height="24" rx="3"/>
+  <path class="line" d="M38 24 H74 M56 12 V36"/>
+  <circle class="seal" cx="56" cy="24" r="4"/>
+  <path class="line" d="M36 36 Q56 42 76 36"/>
+</svg>
