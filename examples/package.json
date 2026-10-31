@@ -1,0 +1,16 @@
+{
+  "name": "@holdback/examples",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "tweetnacl": "^1.0.3",
+    "viem": "^2.57.13"
+  },
+  "devDependencies": {
+    "@holdback/operator": "workspace:*"
+  }
+}
