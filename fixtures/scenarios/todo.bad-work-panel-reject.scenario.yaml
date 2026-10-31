@@ -1,12 +1,12 @@
 # @settlement sim @judges recorded @mode guaranteed_on_decision @seed 11
-name: bad-work-panel-reject
+name: todo.bad-work-panel-reject
 description: >-
-  Bad work the deterministic checks would not catch. All three judges (two Claude, one from a second
-  family) fail every rubric criterion, the aggregate rejects, and the hold refunds the $2,000 price to
-  Atlas in the same step; Bench A keeps the $50 fee. No key goes to the buyer, so Tidewater keeps the work. The deliverable is
-  placeholder bytes (stub_bytes, about 80 bytes) and the verdicts are authored recordings (capturedFrom
-  fake), not model output. Since T-016 the testkit evaluates the deterministic checks, so today the rows and cols
-  checks refund this placeholder before any panel runs; it needs a real T-012 data file (T-016 Handoff).
+  Known gap. Meant as bad work the deterministic checks would not catch (fabricated values): the panel
+  fails every criterion and the hold refunds the $2,000 to Atlas, with Bench A keeping the $50 fee. No
+  fabricated-values file exists yet, so the seller delivers placeholder bytes (stub_bytes); they fail the
+  required column and row checks, so the refund below comes from the checks, not the panel. Restore as
+  bad-work-panel-reject with a real data file that passes the checks, and author the panel's fail verdicts
+  (capturedFrom authored).
 club: fixtures/clubs/data-services-v1.yaml
 terms: fixtures/terms/clean-customers-2000.yaml
 parties:

@@ -95,7 +95,7 @@ export class RecordingOverwriteError extends Error {
   ) {
     super(
       [
-        `refusing to overwrite ${path}: it holds a ${existing === 'authored' ? 'authored' : 'live-captured'} verdict, and a fake verdict must never replace it.`,
+        `refusing to overwrite ${path}: it holds ${existing === 'authored' ? 'an authored' : 'a live-captured'} verdict, and a fake verdict must never replace it.`,
         ...(mismatches.length
           ? [
               'It no longer matches the judge input:',

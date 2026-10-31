@@ -95,6 +95,7 @@ async function runOnce(options: RunOptions): Promise<ScenarioRun> {
     judgments: run.judgments.map((j) => j.aggregate.decision),
     invariants: run.invariants.map(({ name, ok }) => ({ name, ok })),
     autoAccepted: run.autoAccepted,
+    stubBytes: scenario.steps.some((s) => s.kind === 'deliver' && s.stubBytes === true),
     balances: run.balances,
   };
   const prefix = prefixOf(scenario.name);

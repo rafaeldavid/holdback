@@ -240,6 +240,8 @@ export class StubSettlement {
   private signerOverride: string | undefined;
   /** The current step's deliberate message faults (scenario `tamper:`). */
   private tampers = new Set<Tamper>();
+  /** The faults the current step actually put into a signed message. */
+  private applied = new Set<Tamper>();
   /** Each signer's last nonce, per scope: offers' terms nonces, and every other signed message's. */
   private readonly lastNonce = new Map<string, Hex32>();
 
@@ -329,7 +331,15 @@ export class StubSettlement {
       this.signerOverride = 'signer' in s ? s.signer : undefined;
       this.current = s.commitment ?? 1;
       this.tampers = new Set(s.tamper ?? []);
+      this.applied = new Set();
       await this.runStep(s);
+      // A fault the step never put into a signed message would let an error. fixture pass for the wrong reason.
+      const unapplied = [...this.tampers].filter((t) => !this.applied.has(t));
+      if (unapplied.length) {
+        throw new ScenarioError(
+          `steps[${this.stepNo}].${s.kind}: tamper ${unapplied.join(', ')} was never applied (the step signed no such message${unapplied.includes('reuse_nonce') ? ', or the signer had no earlier nonce to reuse' : ''})`,
+        );
+      }
     }
     this.current = 1;
     return this.result();
@@ -974,15 +984,19 @@ export class StubSettlement {
     const key = `${signer}|${scope}`;
     const prev = this.lastNonce.get(key);
     let n: Hex32;
-    if (prev && this.tampers.delete('reuse_nonce')) n = prev;
-    else n = this.ctx.rng.hex32();
+    if (prev && this.tampers.has('reuse_nonce') && !this.applied.has('reuse_nonce')) {
+      n = prev;
+      this.applied.add('reuse_nonce');
+    } else n = this.ctx.rng.hex32();
     this.lastNonce.set(key, n);
     return n;
   }
 
   /** The honest value, or a random one when the step tampers with it. */
   private tamperable(t: Tamper, honest: Hex32): Hex32 {
-    return this.tampers.has(t) ? this.ctx.rng.hex32() : honest;
+    if (!this.tampers.has(t)) return honest;
+    this.applied.add(t);
+    return this.ctx.rng.hex32();
   }
 
   /** "call" for commitment 1, "call #n" for the others. */

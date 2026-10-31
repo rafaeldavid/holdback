@@ -3,6 +3,7 @@
 // columns have a fixed order. Nothing here reads the machine's clock or randomness.
 import type { JudgmentView, PanelMemberView } from './judgment.js';
 import type { Outcome, Prefix } from './prefix.js';
+import { fenced, mdText } from './untrusted.js';
 import type { Scenario } from './scenario.js';
 import type { StubRun } from './stub-settlement.js';
 import { TOKEN, TOKEN_DECIMALS } from './stub-terms.js';
@@ -102,7 +103,7 @@ export function renderSnapshot(scenario: Scenario, prefix: Prefix, run: StubRun,
       ),
     );
   const refusals = run.rows.filter((r) => r.detail !== undefined);
-  if (refusals.length) out.push('', 'Refusals:', '', ...refusals.map((r) => `- Step ${r.step} ${r.call}: ${r.result}: ${r.detail}`));
+  if (refusals.length) out.push('', 'Refusals:', '', ...refusals.map((r) => `- Step ${r.step} ${r.call}: ${r.result}: ${mdText(r.detail!)}`));
   if (run.outages.length) out.push('', 'Outages:', '', ...run.outages.map((o) => `- Step ${o.step}: ${o.actor} ${o.kind === 'offline' ? 'is offline' : o.kind === 'operator_refused' ? 'refused to relay' : 'timed out; a permissionless timeout acted instead'}`));
   out.push('');
 
@@ -134,7 +135,7 @@ export function renderSnapshot(scenario: Scenario, prefix: Prefix, run: StubRun,
 
   out.push('## Outcome', '');
   out.push(`- Final state: ${run.finalState ?? 'no commitment'}${run.others.map((o) => `; commitment #${o.n}: ${o.finalState}`).join('')}.`);
-  out.push(`- Prefix expectations: ${outcome.label}${outcome.reasons.length ? `: ${outcome.reasons.join('; ')}` : ''}.`);
+  out.push(`- Prefix expectations: ${outcome.label}${outcome.reasons.length ? `: ${outcome.reasons.map(mdText).join('; ')}` : ''}.`);
   return `${out.join('\n')}\n`;
 }
 
@@ -163,9 +164,9 @@ export function renderJudgment(j: JudgmentView): string[] {
     ? `refused (${j.intake.refused})`
     : `hash verified ${mark(j.intake.hashVerified)}${j.intake.normalized ? ' · normalized' : ''}`;
   const checks = j.checks.length
-    ? j.checks.map((ch) => `${ch.id}${ch.required ? '' : ' (optional)'} ${mark(ch.passed)}${!ch.passed && ch.detail ? ` (${ch.detail})` : ''}`).join(' · ')
+    ? j.checks.map((ch) => `${ch.id}${ch.required ? '' : ' (optional)'} ${mark(ch.passed)}${!ch.passed && ch.detail ? ` (${mdText(ch.detail)})` : ''}`).join(' · ')
     : 'not run';
-  const screen = j.checks.length === 0 && !j.screen.flagged ? 'not run' : j.screen.flagged ? `flagged: ${j.screen.signals.map((s) => `${s.kind}${s.detail ? ` (${s.detail})` : ''}`).join('; ')}` : 'clean';
+  const screen = j.checks.length === 0 && !j.screen.flagged ? 'not run' : j.screen.flagged ? `flagged: ${j.screen.signals.map((s) => `${s.kind}${s.detail ? ` (${mdText(s.detail)})` : ''}`).join('; ')}` : 'clean';
   const panelHead = `${p.template} template ${short(p.promptTemplateHash)} · rubric ${short(p.rubricHash)} · ${seedSourceText(p)}`;
   const counts = a.validCount === undefined ? '' : `; ${a.passCount} pass, ${a.failCount} fail of ${a.validCount} valid${a.passFamilies?.length ? `; pass families ${a.passFamilies.join(', ')}` : ''}`;
   const score = a.weightedScore === null ? '' : `weighted score ${(a.weightedScore / 100).toFixed(2)}`;
@@ -180,7 +181,7 @@ export function renderJudgment(j: JudgmentView): string[] {
       ? `- **Panel:** ${p.members.length} judges from ${new Set(p.members.map((m) => m.family)).size} families (policy: ${p.size} seats, at least ${p.minFamilies} families) · ${panelHead}`
       : `- **Panel:** not run · ${panelHead}`,
     ...p.members.map(renderMember),
-    `- **Aggregate:** ${a.decision}${detail ? ` (${detail})` : ''}. Reasons: ${a.reasons.join('; ')}.`,
+    `- **Aggregate:** ${a.decision}${detail ? ` (${detail})` : ''}. Reasons: ${a.reasons.map(mdText).join('; ')}.`,
     `- **Signed:** ${j.outcome === null ? 'no decision (an appeal panel cannot escalate; the default outcome applies)' : j.outcome === a.decision ? j.outcome : `${j.outcome} (the first decision stands: an appeal panel cannot escalate)`}.`,
   ];
 }
@@ -200,9 +201,7 @@ export function renderErrorSnapshot(name: string, error: Error): string {
     '',
     'The runner cannot run this fixture yet. This records the current behavior; promote the fixture when it runs.',
     '',
-    '```',
-    `${error.name}: ${error.message}`,
-    '```',
+    fenced('', `${error.name}: ${error.message}`.replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, '')),
     '',
     '## Outcome',
     '',

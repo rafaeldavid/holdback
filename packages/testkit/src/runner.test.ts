@@ -552,6 +552,27 @@ describe('pnpm snap', () => {
     expect(wrong.out[0]).toMatch(/must be one of reuse_nonce, wrong_seed/);
   });
 
+  it('tamper: a fault the step never applied is a run error, not a pass', async () => {
+    const root = sandbox();
+    // The seller has no earlier terms nonce to reuse on its first offer.
+    const r = await fixture(root, 'error.no-prior-nonce', `${flow('error.no-prior-nonce', '').replace('  - offer: { by: seller, via: op-1 }', '  - offer: { by: seller, via: op-1, tamper: reuse_nonce }')}expect: { problem: { step: 1, type: nonce_reused } }\n`);
+    expect(r.out[0]).toMatch(/fail {2}error\.no-prior-nonce: ScenarioError: steps\[1\]\.offer: tamper reuse_nonce was never applied/);
+  });
+
+  it('attack: placeholder bytes fail the fixture, since no defense is exercised', async () => {
+    const root = sandbox();
+    const src = flow('attack.stub', '  - judge: { adjudicator: bench-a }\n').replace(DELIVER, '  - deliver: { by: seller, via: op-1, file: data/absent.csv, stub_bytes: true }');
+    const r = await fixture(root, 'attack.stub', `${src}expect: { terminal: Refunded }\n`);
+    expect(r.out[0]).toMatch(/fail {2}attack\.stub: .*placeholder bytes .*use the todo\. prefix/);
+  });
+
+  it('attack: an expect block does not excuse an attack that was neither rejected, escalated nor refused', async () => {
+    const root = sandbox();
+    const held = flow('attack.held2', '').replace(`${DELIVER}\n`, '');
+    const r = await fixture(root, 'attack.held2', `${held}expect: { balances: { escrow: "2050000000" } }\n`);
+    expect(r.out[0]).toMatch(/fail {2}attack\.held2: .*must end escalated, rejected or refused/);
+  });
+
   it('refuses steps the settlement cannot run yet, with the reason', async () => {
     const root = sandbox();
     for (const [step, why] of [
