@@ -5,7 +5,7 @@
 - **Depends on:** all Phase 1 tasks
 - **Paths this task may touch:** `apps/demo/`
 - **Human gate:** yes (dry run with Rafa)
-- **Status:** review (SimChain runner wired after PR 45; beat 7 and beat 6's injection half stay stand-in; dry run with Rafa open)
+- **Status:** in progress (merged in PR 46; dry run with Rafa open; beat 7 and beat 6 injection half still stand-in)
 - **Agent/session:** implementer; branch `t-013-demo-cli`
 
 ## Intent

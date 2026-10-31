@@ -5,7 +5,7 @@
 - **Depends on:** T-007, T-009 (the data generator can start after T-004)
 - **Paths this task may touch:** `apps/demo/agents/`, `fixtures/data/`, `fixtures/clubs/`, `fixtures/terms/`, `scripts/gen-demo-data.ts`
 - **Human gate:** no
-- **Status:** review (agents, club and terms, with T-009's adjudicator service)
+- **Status:** done
 - **Agent/session:** implementer; branch `t-012-demo-data` (data generator part, merged), branch `t-012-demo-agents` (club, terms, agents)
 
 ## Intent

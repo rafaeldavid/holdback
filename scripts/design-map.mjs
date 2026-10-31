@@ -86,7 +86,8 @@ export function tasks() {
       title: head?.[2] ?? file,
       lane: field('Lane'),
       phase: Number(field('Phase').match(/\d+/)?.[0] ?? -1),
-      status: field('Status').toLowerCase(),
+      // A status may carry a note in parentheses: "in progress (first slice merged)".
+      status: field('Status').toLowerCase().replace(/\s*\(.*$/, ''),
       dependsOn: [...dependsText.matchAll(/T-\d{3}/g)].map((m) => m[0]),
       dependsOnAll: /^all\b/i.test(dependsText),
     };

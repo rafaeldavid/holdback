@@ -5,7 +5,7 @@
 - **Depends on:** T-001
 - **Paths this task may touch:** `packages/testkit/`, `fixtures/README.md`
 - **Human gate:** no
-- **Status:** review
+- **Status:** done
 - **Agent/session:** implementer (Claude Opus 5.5), worktree .worktrees/holdback-T-005, branch t-005-testkit
 
 ## Intent

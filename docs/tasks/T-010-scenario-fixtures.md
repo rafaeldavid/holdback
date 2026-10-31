@@ -5,7 +5,7 @@
 - **Depends on:** T-005, T-007, T-009, T-012
 - **Paths this task may touch:** `fixtures/scenarios/`, `fixtures/recordings/` (`fixtures/clubs/` and `fixtures/terms/` belong to T-012)
 - **Human gate:** no
-- **Status:** review (first slice; rows that need runner features stay open, see Handoff)
+- **Status:** in progress (first slice merged in PR 47; open rows wait on T-016)
 - **Agent/session:** implementer, branch `t-010-scenario-fixtures`
 
 ## Intent

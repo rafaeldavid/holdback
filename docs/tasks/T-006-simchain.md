@@ -5,7 +5,7 @@
 - **Depends on:** T-004, T-014
 - **Paths this task may touch:** `packages/settlement/sim/`, `packages/settlement/src/interface.ts`
 - **Human gate:** no
-- **Status:** review
+- **Status:** done
 - **Agent/session:** implementer (Claude Opus 5.5), branch `t-006-simchain`
 
 ## Intent

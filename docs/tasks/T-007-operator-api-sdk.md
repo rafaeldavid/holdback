@@ -5,7 +5,7 @@
 - **Depends on:** T-006
 - **Paths this task may touch:** `apps/operator/`, `packages/sdk/`
 - **Human gate:** no
-- **Status:** review
+- **Status:** done
 - **Agent/session:** implementer (Claude Opus 5.5), branch `t-007-operator-api`
 
 ## Intent
