@@ -6,6 +6,7 @@
 // the inputs and of the defaults the response states (nonce, times), so an agent can recompute it.
 import {
   canonicalJson,
+  parseCommitment,
   commitmentId,
   eip712Types,
   messageDigest,
@@ -138,35 +139,45 @@ const nonceOf = (message: Record<string, unknown>): Hex32 => {
   return keccak256(stringToBytes(`holdback/prepare/v1/${canonicalJson(rest)}`)) as Hex32;
 };
 const ZERO_NONCE: Hex32 = `0x${'0'.repeat(64)}`;
-/** Relative windows: whole seconds, at most ten years each. */
-const MAX_WINDOW_SEC = 315_360_000;
-/** How far createdAt and other caller-chosen times may sit from settlement-layer time. */
-const MAX_SKEW_SEC = 86_400;
+const RFC3339 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
 const TIMING_KEYS: ReadonlyArray<keyof RelativeTiming> = ['offerExpiresInSec', 'fundWithinSec', 'deliverWithinSec', 'judgeWithinSec', 'fallbackWithinSec', 'appealWindowSec', 'appealDecideSec'];
 
+/**
+ * Windows are free parameters the parties negotiate (D31): any non-negative whole number of seconds. Only
+ * malformed values are refused here; whether the resulting deadlines are representable and consistent is
+ * decided by the commitment contract (parseCommitment) below, and the club rulebook's minimums by the
+ * settlement layer when the offer is submitted.
+ */
 function timingIn(v: unknown): Partial<RelativeTiming> | undefined {
   if (v === undefined) return undefined;
   if (!isObj(v)) bad(`timing is an object of whole-second windows: ${TIMING_KEYS.join(', ')}`);
   const out: Partial<RelativeTiming> = {};
   for (const [k, x] of Object.entries(v as Record<string, unknown>)) {
     if (!(TIMING_KEYS as readonly string[]).includes(k)) bad(`timing.${k} is not a known window (${TIMING_KEYS.join(', ')})`);
-    if (!Number.isSafeInteger(x) || (x as number) < 1 || (x as number) > MAX_WINDOW_SEC) bad(`timing.${k} must be a whole number of seconds from 1 to ${MAX_WINDOW_SEC}`);
+    if (!Number.isSafeInteger(x) || (x as number) < 0) bad(`timing.${k} must be a non-negative whole number of seconds`);
     out[k as keyof RelativeTiming] = x as number;
   }
   return out;
 }
 
-/** A caller-chosen time must sit within a day of settlement-layer time. */
-function nearNow(ctx: PrepareContext, ts: Timestamp | undefined, name: string): Timestamp | undefined {
-  if (ts === undefined) return undefined;
-  if (Math.abs(Date.parse(ts) - Date.parse(ctx.now())) > MAX_SKEW_SEC * 1000) bad(`${name} ${ts} is more than a day from settlement-layer time ${ctx.now()}`);
-  return ts;
+/** The completed terms must be a commitment the contract can represent; its own refusal is the 400. */
+function representable(build: () => CommitmentTerms): CommitmentTerms {
+  let terms: CommitmentTerms;
+  try {
+    terms = build();
+  } catch (e) {
+    return bad(`the windows give a deadline that cannot be represented as a timestamp (${(e as Error).message})`);
+  }
+  const r = parseCommitment({ ...terms, id: ZERO_NONCE, signatures: { seller: `0x${'0'.repeat(130)}` } });
+  if (!r.ok) bad(`these terms are not a valid commitment: ${r.error.detail}`);
+  return terms;
 }
 const amountText = (a: TokenAmount) => (a.token === 'tUSD' ? formatTusd(a.amount) : `${a.amount} base units of ${a.token}`);
 
 function timestamp(v: unknown, name: string): Timestamp | undefined {
   if (v === undefined) return undefined;
-  if (typeof v !== 'string' || !Number.isFinite(Date.parse(v))) bad(`${name} must be an RFC 3339 timestamp`);
+  // RFC 3339 (the schemas' date-time) has four-digit years, so that is the representable range.
+  if (typeof v !== 'string' || !RFC3339.test(v) || !Number.isFinite(Date.parse(v))) bad(`${name} must be an RFC 3339 timestamp, e.g. 2026-11-01T09:00:00Z`);
   return wholeSecond(v as Timestamp);
 }
 function nonceIn(v: unknown, name: string): Hex32 | undefined {
@@ -223,7 +234,7 @@ async function offer(ctx: PrepareContext, input: Record<string, unknown>): Promi
   } catch (e) {
     return bad((e as Error).message);
   }
-  const createdAt = nearNow(ctx, timestamp(input['createdAt'], 'createdAt'), 'createdAt') ?? ctx.now();
+  const createdAt = timestamp(input['createdAt'], 'createdAt') ?? ctx.now();
   const resolved = {
     seller: lc(input['seller'] as string) as Address,
     rulebookHash: club.rulebookHash,
@@ -233,8 +244,8 @@ async function offer(ctx: PrepareContext, input: Record<string, unknown>): Promi
     fee: primary.fee.min,
     createdAt,
   };
-  const nonce = nonceIn(input['nonce'], 'nonce') ?? nonceOf(completeTerms(draft, { ...resolved, nonce: ZERO_NONCE }) as unknown as Record<string, unknown>);
-  const terms: CommitmentTerms = completeTerms(draft, { ...resolved, nonce });
+  const nonce = nonceIn(input['nonce'], 'nonce') ?? nonceOf(representable(() => completeTerms(draft, { ...resolved, nonce: ZERO_NONCE })) as unknown as Record<string, unknown>);
+  const terms: CommitmentTerms = representable(() => completeTerms(draft, { ...resolved, nonce }));
   const id = commitmentId(terms);
   const total = BigInt(terms.price.amount) + BigInt(terms.adjudication.fee.amount);
   return {
@@ -303,7 +314,7 @@ async function delivery(ctx: PrepareContext, input: Record<string, unknown>): Pr
   const have = (keys as EncryptedKey[]).map((k) => lc(String(k?.recipient)));
   const missing = need.filter((a) => !have.includes(a));
   if (missing.length) bad(`encryptedKeys has no envelope for ${missing.join(', ')}; seal the content key to every recipient GET /v1/commitments/${c.id}/recipients lists`);
-  const submittedAt = nearNow(ctx, timestamp(input['submittedAt'], 'submittedAt'), 'submittedAt') ?? ctx.now();
+  const submittedAt = timestamp(input['submittedAt'], 'submittedAt') ?? ctx.now();
   const body = {
     commitmentId: c.id,
     attempt: Number.isSafeInteger(input['attempt']) ? (input['attempt'] as number) : 1,
@@ -330,7 +341,7 @@ async function delivery(ctx: PrepareContext, input: Record<string, unknown>): Pr
 
 async function earlyAccept(ctx: PrepareContext, input: Record<string, unknown>): Promise<Prepared> {
   const c = await commitmentIn(ctx, input);
-  const expiresAt = nearNow(ctx, timestamp(input['expiresAt'], 'expiresAt'), 'expiresAt') ?? plus(ctx.now(), 3600);
+  const expiresAt = timestamp(input['expiresAt'], 'expiresAt') ?? plus(ctx.now(), 3600);
   const body = { type: 'EarlyAccept', commitmentId: c.id, buyer: c.buyer, attempt: await ctx.attempt(c.id), expiresAt } as const;
   const nonce = nonceIn(input['nonce'], 'nonce') ?? nonceOf(body);
   const m = { ...body, nonce };
@@ -352,7 +363,7 @@ async function appeal(ctx: PrepareContext, input: Record<string, unknown>): Prom
   const rulebook = ctx.club(c.clubId)?.rulebook ?? bad(`no club ${c.clubId}`);
   const bond = mulBps(c.price, BigInt(rulebook.appealBondRateBps), 'ceil');
   if (!bond.ok) return bad('cannot compute the appeal bond');
-  const filedAt = nearNow(ctx, timestamp(input['filedAt'], 'filedAt'), 'filedAt') ?? ctx.now();
+  const filedAt = timestamp(input['filedAt'], 'filedAt') ?? ctx.now();
   const body = { commitmentId: c.id, appellant, appellantAddress: who as Address, grounds: typeof input['grounds'] === 'string' ? input['grounds'] : 'wrong-outcome', bond: bond.value, filedAt };
   const fee = rulebook.appealFee;
   return {
@@ -388,7 +399,7 @@ async function settlement(ctx: PrepareContext, input: Record<string, unknown>): 
     ].filter((p) => p.amount.amount !== '0');
   }
   const delivered = await ctx.delivery(c.id);
-  const expiresAt = nearNow(ctx, timestamp(input['expiresAt'], 'expiresAt'), 'expiresAt') ?? plus(ctx.now(), 3600);
+  const expiresAt = timestamp(input['expiresAt'], 'expiresAt') ?? plus(ctx.now(), 3600);
   const releaseKey = typeof input['releaseKey'] === 'boolean' ? input['releaseKey'] : delivered !== undefined;
   const body = { type: 'MutualSettlement', commitmentId: c.id, deliveryHash: delivered?.deliveryHash ?? null, payouts, releaseKey, expiresAt } as const;
   const nonce = nonceIn(input['nonce'], 'nonce') ?? nonceOf(body);
@@ -424,5 +435,9 @@ const PREPARERS: Record<PrepareKind, (ctx: PrepareContext, input: Record<string,
 export function prepare(kind: string, ctx: PrepareContext, input: unknown): Promise<Prepared> {
   if (!(PREPARE_KINDS as readonly string[]).includes(kind)) throw new PrepareError(problem('not_found', `nothing to prepare for ${kind}; kinds: ${PREPARE_KINDS.join(', ')}`));
   if (!isObj(input)) bad('the body must be a JSON object');
-  return PREPARERS[kind as PrepareKind](ctx, input as Record<string, unknown>);
+  // A value the EIP-712 encoders cannot represent is the caller's malformed input: 400, never 500.
+  return PREPARERS[kind as PrepareKind](ctx, input as Record<string, unknown>).catch((e: unknown) => {
+    if (e instanceof RangeError || e instanceof TypeError) bad(`a value cannot be encoded: ${e.message}`);
+    throw e;
+  });
 }

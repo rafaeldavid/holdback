@@ -443,7 +443,8 @@ export class Operator {
       // chainId as a number, as in prepared typed data (/v1/status keeps the schema's string). Discovery only:
       // an agent pins its EIP-712 domain from its own configuration, not from an operator.
       const s = await this.status();
-      return this.send(ctx, this.ok({ ...s, domain: { ...s.domain, chainId: Number(s.domain.chainId) }, apiBaseUrl: `${this.baseUrl}/v1` }));
+      const settlementTime = this.o.registry.now?.() ?? new Date(Math.floor(Date.now() / 1000) * 1000).toISOString().replace('.000Z', 'Z');
+      return this.send(ctx, this.ok({ ...s, domain: { ...s.domain, chainId: Number(s.domain.chainId) }, apiBaseUrl: this.baseUrl, settlementTime }));
     }
     if (s[0] !== 'v1') fail('not_found', `no route ${ctx.url.pathname}`);
     if (s[1] === 'ciphertext') return this.ciphertext(ctx);

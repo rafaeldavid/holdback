@@ -100,7 +100,8 @@ describe('operator API: prepare, sign, submit', () => {
   it('serves its discovery document at /.well-known/holdback.json', async () => {
     const res = await fetch(`${api}/.well-known/holdback.json`);
     const doc = (await res.json()) as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
-    expect(doc.apiBaseUrl).toBe(`${api}/v1`);
+    expect(doc.apiBaseUrl).toBe(api); // every path, including a prepared submit.path, starts with /v1
+    expect(Math.abs(Date.parse(doc.settlementTime) - Date.parse(world.chain.now()))).toBeLessThanOrEqual(1000);
     expect(doc.domain.chainId).toBe(31337); // a number, as in prepared typed data
     expect(doc.settlement).toEqual({ kind: 'sim' });
     expect(doc.receiptSigner).toMatch(/^0x/);
@@ -195,16 +196,25 @@ describe('operator API: prepare, sign, submit', () => {
     const r = await call('POST', '/v1/prepare/offer', { ...offerInput('buyer-1', 'seller-1'), price: { token: 'tUSD', amount: '25.5' } });
     expect(r.status).toBe(400);
     expect(r.body.detail).toMatch(/6 decimals/);
-    // Timing windows: whole seconds from 1 to ten years; anything else is a 400, never a 500.
-    for (const bad of [1.5, 1e20, 'abc', -5, 0]) {
-      const t = await call('POST', '/v1/prepare/offer', { ...offerInput('buyer-1', 'seller-1'), timing: { judgeWithinSec: bad } });
+    // Windows are free parameters (D31): only malformed values are refused, with 400 and never 500.
+    const timed = (timing: Record<string, unknown>) => call('POST', '/v1/prepare/offer', { ...offerInput('buyer-1', 'seller-1'), timing });
+    for (const bad of [1.5, 1e20, 'abc', -5]) {
+      const t = await timed({ judgeWithinSec: bad });
       expect(t.status, String(bad)).toBe(400);
       expect(t.body.type).toBe('invalid_terms');
     }
-    expect((await call('POST', '/v1/prepare/offer', { ...offerInput('buyer-1', 'seller-1'), timing: { nope: 5 } })).status).toBe(400);
-    const far = await call('POST', '/v1/prepare/offer', { ...offerInput('buyer-1', 'seller-1'), createdAt: '2020-01-01T00:00:00Z' });
-    expect(far.status).toBe(400);
-    expect(far.body.detail).toMatch(/more than a day/);
+    expect((await timed({ nope: 5 })).status).toBe(400); // unknown field: schema strictness
+    // Unusual but representable values are the parties' choice.
+    expect((await timed({ judgeWithinSec: 0 })).status).toBe(200);
+    expect((await timed({ deliverWithinSec: 400 * 365 * 86_400 })).status).toBe(200); // four centuries
+    expect((await call('POST', '/v1/prepare/offer', { ...offerInput('buyer-1', 'seller-1'), createdAt: '2020-01-01T00:00:00Z' })).status).toBe(200);
+    // Refused because the contract cannot represent or process it: past year 9999, a uint32 window, an offer
+    // that expires as it is made, a year-20270 timestamp.
+    expect((await timed({ deliverWithinSec: 9_000_000_000_000 })).body.detail).toMatch(/cannot be represented|not a valid commitment/);
+    expect((await timed({ appealWindowSec: 2 ** 32 })).body.detail).toMatch(/not a valid commitment/);
+    expect((await timed({ offerExpiresInSec: 0 })).body.detail).toMatch(/createdAt must be before/);
+    const y = await call('POST', '/v1/prepare/offer', { ...offerInput('buyer-1', 'seller-1'), createdAt: '+020270-01-01T00:00:00Z' });
+    expect([y.status, y.body.detail]).toEqual([400, expect.stringMatching(/RFC 3339/)]);
   });
 
   it('derives a default nonce from the whole message: a different key release is a different nonce', async () => {
