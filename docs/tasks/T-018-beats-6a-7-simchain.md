@@ -36,7 +36,20 @@ Non-goals: club revocation at run time (SimChain has none; the beat drops it and
 
 ## Evidence
 
-- **Measured:** `pnpm verify` PASS on a clean tree at `f9c2615` (after merging `origin/main` with PR 50 and PR 51): typecheck 199 ms, lint 2,369 ms, test 26,097 ms (65 files, 1,945 tests), spec 285 ms, snap 7,956 ms (29 passed), demo 3,761 ms (8 transcripts, first after 737 ms, all in 3,104 ms). Report: `reports/verify-t-018-beats-6a-7.md`.
+- **Measured:** `pnpm verify` PASS on a clean tree at `cc97389` (main merged, D28 included): typecheck 212 ms, lint 2,263 ms, test 22,575 ms (65 files, 1,957 tests), spec 269 ms, snap 8,505 ms (31 passed), demo 3,582 ms (8 transcripts, first after 698 ms, all in 2,973 ms). Report: `reports/verify-t-018-beats-6a-7.md`.
+- **Measured, D27b/c failing first:** `cb67d78` adds the tests alone. On it, 11 fail:
+  - forced sample: two aggregate cases and a service case;
+  - party appeal: three aggregate cases, a pipeline case and a service case;
+  - the oracle property and the digest, which now covers `signedOutcome` too;
+  - the long-record generator test.
+
+  `d2440ba` makes them pass and re-pins the `agg-3` digest.
+- **Measured, red-team re-check fixtures:**
+  - `attack.forced-stride-appeal-default` ends Refunded: Bench C rejects although its five fake judges pass, Tidewater ends at 0 and Bench C at 25,050, and the later default trigger is refused `invalid_state`.
+  - `honest-seller-survives-judge-noise-on-appeal` ends Released with the first accept standing. Its Bench A expectation is corrected from 25,050 to 25,150, which adds the appellant's 100 tUSD appeal bond, forfeited to the upheld adjudicator; Bench C gets the 25 tUSD appeal fee.
+  - The invariant "key released atomically with payment" holds (✓). The red team saw it trip only when an accept was overturned after release, which no longer happens here, so I left the invariant unchanged.
+  - The D27b/c code changed no other snapshot (snap 29 to 31, only the two new fixtures).
+- **Measured:** `customers.clean.long-record.csv` comes from `gen-demo-data.ts` and is byte-identical to the red team's file (`cmp`); earlier files are unchanged.
 - **Measured, D27a failing first:** `f9d7944` adds the D27a tests alone (15 fail in `aggregate.test.ts`, including the oracle property and the version pin, plus the new `pipeline.test.ts` and `service.test.ts` cases); `78ec229` makes them pass. `196e59d` adds the `relay_refused` and frozen-op tests alone (4 fail); `ccf71b3` makes them pass.
 - **Measured, snapshot diffs (agg-3):** every snap fixture's snapshot changed, because the policy hash binds `AGGREGATION_VERSION` and feeds the commitment ID, so commitment IDs, seeds, panels, input hashes and chain heads all moved. `git diff origin/main` over the `.expect.md` files shows no removed "Final state" or balance row: no pre-existing fixture changed its terminal state or balances. New fixtures: `attack.injection-encoded-base64` (from `todo.`) and the red team's four, all Refunded with the seller at 0 and Bench C at 25,050. Fake recordings were re-recorded. Authored ones were re-seated: the five appeal verdicts per injection fixture kept, with `inputHash` refreshed (the appeal panel is the same five judges); `neutrality.appeal-adjudicator-offline-after-escalation`, `panel-disagreement-escalates` and `todo.provider-outage` re-assigned to the new primary seats (one fail and one abstain, or one abstain), with descriptions updated.
 - **Measured, red-team fixtures under D27a:** steers-supermajority, 4 pass and 1 fail, rejected; steers-two-families, 3 pass from 2 families and 2 fail, rejected; splits-appeal-to-default, 2 pass and 3 fail, rejected, and the later default trigger refused `invalid_state`; filter-abstain-appeal-default, 4 fail and 1 filter abstention, rejected, default trigger refused.
@@ -50,6 +63,11 @@ Non-goals: club revocation at run time (SimChain has none; the beat drops it and
 
 ## Decisions
 
+- **D27b/c (red-team re-check), under D28.**
+  - `aggregate` takes `appeal: 'escalated' | 'party'` (pipeline `appealKind`, set by the service and the snap runner from `firstOutcome`).
+  - After an escalation, a sampled read is one more seller-controllable condition under the strict rule.
+  - On a party appeal every such condition escalates and `signedOutcome` keeps the first decision.
+  - The `agg-3` digest is re-pinned without an `agg-4` (`agg-3` has not reached `main`), and it now also covers `signedOutcome`.
 - **D27 replaces the first L3-1 rule (D25).** After the red-team review, a flagged appeal (screen flag, `injectionSuspected`, or a filter abstention) accepts only on a unanimous valid panel from the appeal family minimum with no injection suspected and the score met, and otherwise rejects; it never escalates. Primary and fallback unchanged. It keys on the pipeline's `template` (`appeal`, `appealFamilies` from the policy's family minimum, `filterAbstentions`), so the service and snap share it, and both sign through `signedOutcome`. A sampled (strided) appeal also counts against accept. The empty-rubric accept with no panel (ADR-0021) is unchanged at every role. `AGGREGATION_VERSION` is `agg-3`, pinned to a decision-table digest. Recorded in ADR-0021 (amendment), FR-15, `docs/judgment-and-defenses.md` and D27.
 - `OperatorOptions.policy` receives a frozen deep copy of the operation and a `PolicyContext` (parties from the operation or the node's index, and the signer); `refuseParties` answers 403 `relay_refused`, a new operator-only problem type (`packages/core/src/problem.ts`, `docs/api.md`; not in `spec/schemas`).
 - Beat 7 adds op-2 going offline after the hold, so "submits directly" is measured, not only failover. The world gained `refusals`, `operatorLog` and `stopOperator`; benches take per-bench scripts (`benchJudges`).
@@ -63,5 +81,9 @@ Non-goals: club revocation at run time (SimChain has none; the beat drops it and
 
 - **Demo cleanup left:** the `standIn` event field, the `stand-in`/`mixed` source kinds and their renderer badges are unused since the stand-in source is gone; two renderer tests still exercise them on synthetic transcripts. Removing them is a small follow-up.
 - **T-016 follow-ups (T-010 lane):** `todo.attack.injection-plain` still waits on an `injection-plain` data file; `docs/tasks/T-016-testkit-runner-gaps.md` lines 64 and 81 still list the base64 fixture as todo. The runner's other mirrors (panel sizing, `defaultPolicy`) are unchanged.
-- **Backlog (D27e):** a new appeal template that tells judges the screen flagged the delivery; revisit the default outcome after an unflagged, inconclusive appeal.
+- **Backlog (D27g):**
+  - a new appeal template that tells judges the screen flagged the delivery;
+  - revisit the default outcome after an unflagged, inconclusive appeal, and separate adjudicator-absence compensation from a panel that ruled but could not decide;
+  - a long-record sampler or a declared `max_record_chars` check;
+  - `not_json` vs timeout on unflagged appeals.
 - **Not done:** club revocation (out of scope); live judges.
