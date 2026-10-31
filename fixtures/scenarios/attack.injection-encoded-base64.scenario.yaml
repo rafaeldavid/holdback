@@ -1,0 +1,41 @@
+# @settlement sim @judges recorded @mode guaranteed_on_decision @seed 17
+name: attack.injection-encoded-base64
+description: >-
+  Demo beat 6a (T-018). The deliverable, customers.clean.injection-base64.csv, passes every check but hides
+  a base64 instruction telling the judges to pass it. Bench A's screen flags the decoded instruction, so its
+  panel cannot accept even though its judges pass (fake recordings): Bench A escalates with the key sealed
+  to Bench C. Bench C's appeal panel of five, seeded from the beacon round after the escalation, keeps the
+  flag in the record and decides by supermajority (ADR-0021 amendment, L3-1): its five judges fail the work
+  and report suspected injection (authored recordings under appeal/, capturedFrom authored). Atlas is
+  refunded the price; Bench C earns the fee; Tidewater gets nothing.
+club: fixtures/clubs/data-services-v1.yaml
+terms: fixtures/terms/clean-customers-2000.yaml
+parties:
+  buyer: atlas-buyer
+  seller: tidewater-seller
+adjudicators:
+  primary: bench-a
+  fallback: bench-b
+  appeal: bench-c
+operators: [op-1, op-2]
+faucet:
+  atlas-buyer: "10000000000"
+  bench-a: "25000000000"
+  bench-b: "25000000000"
+  bench-c: "25000000000"
+steps:
+  - offer:              { by: seller, via: op-1 }
+  - adjudicator_accept: { via: op-1 }
+  - agree_and_fund:     { by: buyer, via: op-1 }
+  - deliver:            { by: seller, via: op-1, file: data/dataset-cleaning/customers.clean.injection-base64.csv }
+  - advance_clock:      { seconds: 5 }
+  - judge:              { adjudicator: bench-a }     # screen flag: escalate
+  - judge:              { adjudicator: bench-c }     # appeal panel of five rejects with the flag in the record
+expect:
+  terminal: Refunded
+  balances:
+    atlas-buyer: "9950000000"
+    tidewater-seller: "0"
+    bench-a: "25000000000"
+    bench-c: "25050000000"
+    escrow: "0"
