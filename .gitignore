@@ -13,3 +13,4 @@ demo/out/
 
 # Personal Claude Code settings
 .claude/settings.local.json
+.claude/worktrees/
