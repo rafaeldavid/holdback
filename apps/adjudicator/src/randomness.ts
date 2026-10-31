@@ -3,7 +3,9 @@
 //
 // SEAM (T-006): core's state.ts is to gain `panelSeed` and `beaconRoundFor`, and T-006 the SimChain
 // beacon. Until they exist this module defines them; the encodings below must match T-006's, and the
-// adjudicator should import T-006's once packages/settlement/src/interface.ts lands.
+// adjudicator should import T-006's once packages/settlement/src/interface.ts lands. Checked against
+// origin/t-006-simchain (5c83f7b): panelSeed packs attempt as uint8, the sim beacon is
+// keccak256(encodePacked(bytes32 simSeed, uint64 round)), and the round rules match beaconRoundFor.
 import { concat, encodePacked, keccak256, numberToBytes, toBytes } from 'viem';
 import type { AdjudicatorRole, Hex32, RandomnessSource as RandomnessSourceKind, Timestamp } from '@holdback/core';
 
@@ -45,4 +47,4 @@ export function simBeacon(simSeed: Hex32, now: () => Timestamp): RandomnessSourc
 
 /** panelSeed(role) = keccak256(commitmentId || role || attempt || beaconValue(round)) (ADR-0018 §1). */
 export const panelSeed = (commitmentId: Hex32, role: AdjudicatorRole, attempt: number, beaconValue: Hex32): Hex32 =>
-  keccak256(encodePacked(['bytes32', 'string', 'uint32', 'bytes32'], [commitmentId, role, attempt, beaconValue]));
+  keccak256(encodePacked(['bytes32', 'string', 'uint8', 'bytes32'], [commitmentId, role, attempt, beaconValue]));
