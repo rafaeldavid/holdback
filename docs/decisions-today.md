@@ -1,6 +1,6 @@
 # Decisions to make today
 
-Status: D1–D9 decided October 30, 2026, after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`); the options are kept as the record. D10 to D19 decided October 30, 2026, each after an independent research pass; none are open. Owner: Rafa. Each decision has options, a recommendation and the ADR it settles. Phase 1 (the demo) can start once D1, D2 and D6 are settled. Phase 2 needs D3 and D4.
+Status: D1–D9 decided October 30, 2026, after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`); the options are kept as the record. D10 to D22 decided October 30, 2026, each after an independent research pass; none are open. Owner: Rafa. Each decision has options, a recommendation and the ADR it settles. Phase 1 (the demo) can start once D1, D2 and D6 are settled. Phase 2 needs D3 and D4.
 
 ## D1. Adopt the neutrality litmus test as the top constraint (ADR-0001)
 
@@ -279,3 +279,49 @@ Rafa asked whether either buyer or seller should be able to trigger review. A re
 | E. C now, plus an optional consent window later | A real new choice at no neutrality cost; candidate ADR after Phase 1 |
 
 **Recommendation:** C now, E as a candidate after Phase 1.
+
+## D20. Settlement finality per mode (ADR-0007, ADR-0015)
+
+**Decided 2026-10-30:** define two moments and expose them. Payee finality (`settledAt`) is at the posting that pays a party. Commitment finality (`finalAt`) is when no appeal, dispute or settlement path remains. Both are derived read-model fields, never signed. Guaranteed mode is finality with indemnity: an overturn pays from the bond, never from escrow. A Finality section in `docs/architecture.md` holds the per-mode table. A finality object, a `commitment.final` event and chain finality stages are in `docs/backlog.md`.
+
+The escrow-theory review (F1) found that "final" differs by mode and is not stated anywhere, as PFMI Principle 8 requires. A research pass (Fable, max effort) compared the options.
+
+| Option | Effect |
+| --- | --- |
+| A. Docs only | Agents keep inferring finality from `appealBy` |
+| B. Docs plus `settledAt` and `finalAt` (chosen) | Additive, derived, no signed change; cheapest before T-006 and T-007 build the read model |
+| C. A full finality object and event | Right for Phases 2 and 4; too much for the honest-party demo |
+| D. A per-commitment finality wait | That is `settle_after_window` under another name |
+
+**Recommendation:** B.
+
+## D21. Fees and the appeal fee (ADR-0007, ADR-0014)
+
+**Decided 2026-10-30:** keep today's fee postings for the demo, with one change: the appeal fee is held at filing, paid to the appeal adjudicator only when it decides, and returned to the appellant if `appealDecideBy` passes undecided. Full "fees follow the event" (refunding an overturned adjudicator's fee and a winning appellant's appeal fee from the bond) is in `docs/backlog.md`. ADR-0014's citation for deposits is corrected.
+
+The escrow-theory review (F3) found that fees do not follow the outcome. The research pass also found that a silent appeal adjudicator kept a fee for no judgment.
+
+| Option | Effect |
+| --- | --- |
+| A. Status quo | A silent appeal adjudicator keeps the appeal fee |
+| B. Hold the appeal fee until decided (chosen) | Three postings rows, no schema change; "no judgment, no fee" everywhere |
+| C. Fees follow the event | Needs a larger bond reservation; matters before Phase 2 bonds and Phase 4 |
+| D. Only the appeal fee follows the event | As C, smaller |
+
+**Recommendation:** B now, C to the backlog.
+
+## D22. Principal recourse after the agent signs (residual 12)
+
+**Decided 2026-10-30:** nothing in the protocol for the demo. The mandate is the principal's standing approval; caps bound the loss on a live commitment; revocation blocks new commitments. Recourse for an agent's in-mandate action lies between the principal and its agent provider, as on card rails, Reg E, AP2 and under agency law. Residual 12 in `docs/neutrality.md` records it. Principal standing to sign party messages is the first item for this area in `docs/backlog.md`.
+
+The escrow-theory review (F8) found no chargeback analog for the agent's principal.
+
+| Option | Effect |
+| --- | --- |
+| A. Principal standing on party messages | Neutral; a candidate ADR before the Phase 2 contract |
+| B. A recall window | Before funding it exists in effect; after funding a unilateral cancel fails neutrality |
+| C. A chargeback-like claim | Nobody holds settled funds; reversing them fails neutrality |
+| D. Bonded agent operators or intent mandates | Needs signed intent; later interop |
+| E. Nothing in the protocol (chosen) | Matches every rail today; passes all three litmus tests |
+
+**Recommendation:** E now, A first in the backlog.

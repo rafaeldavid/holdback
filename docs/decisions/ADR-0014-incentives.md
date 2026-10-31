@@ -65,7 +65,7 @@ Constraints. ADR-0001 forbids any single party from controlling settlement, so i
 - **Bad faith pays, use does not.** A party is never charged more for calling the adjudicator a commitment names. The penalties are:
   - an appeal that fails forfeits the appeal bond (already in ADR-0007);
   - a delivery that fails a required deterministic check forfeits a per-attempt fee to the adjudicator. The rulebook sets it, and it is quoted at agreement.
-- **Deposits, not fee shifting (D19).** The refundable bond is the defense against low-merit calls; there is no loser-pays rule. Fee shifting raises spend per case and does not deter weak claims under asymmetric information, while a refundable deposit does (Katz 1990; Polinsky and Rubinfeld 1998; summary at https://reference.findlaw.com/?p=27257). The requester pays the fee for a call it chooses to make, as in ADR-0015.
+- **Deposits, not fee shifting (D19).** The refundable bond is the defense against low-merit calls; there is no loser-pays rule. The cited literature finds that fee shifting raises spend per case and does not reliably deter weak claims (Katz 1990; Polinsky and Rubinfeld 1998; summary at https://reference.findlaw.com/?p=27257). It does not evaluate refundable deposits; the refundable appeal bond is Holdback's chosen deterrent (corrected in D21). The requester pays the fee for a call it chooses to make, as in ADR-0015.
 - **Optimistic release (ADR-0015).** In `optimistic` mode adjudication is paid only when the buyer disputes, which applies this principle at the level of the settlement mode.
 - **No shared party reputation.** Each adjudicator may price a party's history from its own records and must say so in its policy. No shared score exists.
 
