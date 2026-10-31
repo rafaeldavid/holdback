@@ -243,6 +243,9 @@ importers:
       '@holdback/core':
         specifier: workspace:*
         version: link:../core
+      '@holdback/settlement':
+        specifier: workspace:*
+        version: link:../settlement
       viem:
         specifier: ^2.57.13
         version: 2.57.13(typescript@6.0.3)

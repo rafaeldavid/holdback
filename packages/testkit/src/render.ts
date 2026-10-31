@@ -66,7 +66,7 @@ export function renderSnapshot(scenario: Scenario, prefix: Prefix, run: StubRun,
       [
         ['Pragmas', `settlement=${pragmas.settlement} · judges=${pragmas.judges} · mode=${pragmas.mode} · seed=${pragmas.seed}`],
         ['Prefix', PREFIX_TEXT[prefix]],
-        ['Settlement', 'stub settlement driving @holdback/core `step` (SimChain lands in T-006)'],
+        ['Settlement', 'SimChain (T-006) driving @holdback/core `step`; stub terms and panel'],
         ['Club', `${ref(scenario.club, 'rulebook')} · rulebook ${short(run.rulebookHash)}`],
         ['Buyer', who(parties.buyer)],
         ['Seller', who(parties.seller)],
@@ -127,7 +127,7 @@ export function renderSnapshot(scenario: Scenario, prefix: Prefix, run: StubRun,
   const head = run.events.at(-1);
   out.push(
     head
-      ? `- Events 0–${head.seq}. Chain head ${short(head.hash)}. Replay of ${run.replay.events} core events ${run.replay.ok ? 'matches' : 'DOES NOT match'} the settlement state.`
+      ? `- Events 0–${head.seq}. Chain head ${short(head.hash)}. Replay of ${run.replay.events} SimChain submissions from genesis ${run.replay.ok ? 'matches' : 'DOES NOT match'} the settlement state.`
       : '- No events.',
   );
   const byOperator = new Map<string, string[]>();

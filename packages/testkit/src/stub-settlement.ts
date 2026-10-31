@@ -1,44 +1,39 @@
-// The stub settlement: an in-memory ledger that drives @holdback/core's real state machine.
-// Every agent message is EIP-712 signed with a key derived from the fixture seed and verified with
-// core's verifier before `offer`/`step` sees it, as the real settlement will do. Money moves only on
-// accepted transitions. SimChain (T-006) replaces this; the snapshot format stays.
+// The fixture driver: turns scenario steps into the signed messages each actor would send and submits them
+// to SimChain (T-006), which verifies every signature, runs @holdback/core's `step`, and owns the ledger,
+// bond pools and the hash-chained event log. Signing keys are derived from the fixture seed and actor name.
+// The class keeps its T-005 name; built-in stub terms and the stub judgment panel are unchanged.
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   beaconRoundFor,
-  canonicalJson,
   canonicalKeccak,
   commitmentId as commitmentIdOf,
   holdbackDomain,
-  offer,
   panelSeed,
   problem,
   rulebookHash,
   signMessage,
   signTerms,
-  step,
-  verifyMessage,
-  verifyTerms,
   type Address,
+  type Club,
   type CommitmentTerms,
   type Decision,
   type Delivery,
-  type EscrowEvent,
   type EscrowState,
   type EscrowStateKind,
   type Hex32,
-  type OfferInput,
+  type Mandate,
   type Problem,
-  type Result,
   type Scope,
   type SettlementEventType,
   type Sha256,
-  type SignableMessage,
   type Timestamp,
   type UnsignedMessage,
 } from '@holdback/core';
-import { encodePacked, keccak256, stringToBytes, type Hex } from 'viem';
+import type { Submission, TimeoutKind } from '@holdback/settlement';
+import { account, SimChain, type Genesis } from '@holdback/settlement/sim';
+import { keccak256, stringToBytes, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import type { SimContext } from './context.js';
 import { stubJudgment, type JudgmentView } from './judgment-stub.js';
@@ -142,7 +137,8 @@ export function checkInvariants(v: LedgerView): Invariant[] {
   const settlements = v.events.filter((e) => e.type.startsWith('settlement.'));
   const settled = v.finalState === 'Released' || v.finalState === 'Refunded';
   const released = v.events.find((e) => e.type === 'settlement.released');
-  const key = v.events.find((e) => e.type === 'key.released');
+  // Envelopes for adjudicators are released too (ADR-0020), so look for a key release in the paying step.
+  const key = released && v.events.find((e) => e.type === 'key.released' && e.step === released.step);
   const chain = v.events.every((e, i) => e.seq === i && e.prevHash === (i === 0 ? GENESIS : v.events[i - 1]!.hash));
   return [
     { name: 'conservation', ok: total === v.faucetTotal },
@@ -170,26 +166,34 @@ function testKey(seed: number, name: string): Hex {
   return keccak256(stringToBytes(`holdback/testkit/v0/${seed}/${name}`));
 }
 
+const TIMEOUTS: Record<'trigger_fallback' | 'trigger_default' | 'apply_default_outcome' | 'expire', TimeoutKind> = {
+  trigger_fallback: 'fallback',
+  trigger_default: 'default',
+  apply_default_outcome: 'apply_default',
+  expire: 'expire_offer',
+};
+
+const wholeSecond = (ts: Timestamp): Timestamp => new Date(Math.floor(Date.parse(ts) / 1000) * 1000).toISOString().replace('.000Z', 'Z');
+
 export class StubSettlement {
   private readonly domain = holdbackDomain(SIM_CHAIN_ID);
   private readonly keys = new Map<string, Hex>();
   private readonly actors: Actor[] = [];
-  private readonly balances = new Map<string, bigint>();
   private readonly faucetTotal: bigint;
   private readonly rows: TimelineRow[] = [];
   private readonly balanceRows: StubRun['balanceRows'] = [];
   private readonly judgments: JudgmentView[] = [];
-  private readonly events: Array<LedgerEvent & { prevHash: Hex32 }> = [];
+  /** The step that emitted each event, by sequence number. */
+  private readonly eventSteps: number[] = [];
   private readonly receipts: Receipt[] = [];
   private readonly problems: StepProblem[] = [];
   private readonly outages: Outage[] = [];
   private readonly offline = new Set<string>();
   private readonly refusingOperators = new Set<string>();
   private readonly states: EscrowStateKind[] = [];
-  private readonly applied: EscrowEvent[] = [];
 
-  private state: EscrowState | null = null;
-  private offerInput: OfferInput | null = null;
+  private chain: SimChain | null = null;
+  private genesis: Genesis | null = null;
   private terms: CommitmentTerms | null = null;
   private id: Hex32 | null = null;
   private seed: Hex32 | null = null;
@@ -216,16 +220,52 @@ export class StubSettlement {
     add(adjudicators.fallback, 'fallback');
     add(adjudicators.appeal, 'appeal');
     for (const op of operators) add(op, 'operator');
-
-    for (const a of this.actors) this.balances.set(a.name, 0n);
-    this.balances.set(ESCROW, 0n);
     let total = 0n;
-    for (const [who, amount] of Object.entries(scenario.faucet)) {
-      this.balances.set(who, BigInt(amount));
-      total += BigInt(amount);
-    }
+    for (const amount of Object.values(scenario.faucet)) total += BigInt(amount);
     this.faucetTotal = total;
-    this.balanceRows.push({ after: 'faucet', balances: this.snapshotBalances() });
+  }
+
+  /** Genesis: faucet amounts become party balances, or junior bond for adjudicators; mandates for the parties. */
+  private async start(): Promise<SimChain> {
+    const { scenario, ctx } = this;
+    const at = wholeSecond(ctx.clock.now());
+    const isAdjudicator = (name: string) => ['primary', 'fallback', 'appeal'].includes(this.actor(name).role);
+    const balances: Record<Address, string> = {};
+    const bonds: Record<Address, { junior: string; senior: string }> = {};
+    for (const [who, amount] of Object.entries(scenario.faucet)) {
+      const a = this.address(who);
+      if (isAdjudicator(who)) bonds[a] = { junior: amount, senior: '0' };
+      else balances[a] = amount;
+    }
+    const operator = privateKeyToAccount(testKey(ctx.seed, 'club-operator')).address;
+    const club: Club = { id: STUB_CLUB_ID, name: 'Stub club', operator, rulebook: STUB_RULEBOOK, rulebookHash: rulebookHash(STUB_RULEBOOK) };
+    const mandates: Mandate[] = [];
+    for (const name of [scenario.parties.buyer, scenario.parties.seller]) {
+      const principalKey = testKey(ctx.seed, `${name}/principal`);
+      const body = {
+        principal: privateKeyToAccount(principalKey).address,
+        agent: this.address(name),
+        clubId: STUB_CLUB_ID,
+        scope: { roles: ['buyer', 'seller'], maxPerCommitment: MAX_SCOPE, maxDaily: MAX_SCOPE, expiresAt: plus(at, 365 * DAY) } as Scope,
+        nonce: keccak256(stringToBytes(`mandate/${name}`)),
+        issuedAt: at,
+      };
+      const signature = await signMessage(principalKey, this.domain, { ...body, type: 'Mandate' });
+      mandates.push({ ...body, signature });
+    }
+    this.genesis = {
+      start: at,
+      // The sim beacon seed is public and derived from the fixture seed (ADR-0018).
+      simSeed: keccak256(stringToBytes(`holdback/sim-beacon/v0/${ctx.seed}`)),
+      chainId: SIM_CHAIN_ID,
+      token: TOKEN,
+      clubs: [club],
+      mandates,
+      members: [],
+      balances,
+      bonds,
+    };
+    return new SimChain(this.genesis);
   }
 
   async run(): Promise<StubRun> {
@@ -235,9 +275,11 @@ export class StubSettlement {
     }
     for (const ref of [scenario.club, scenario.terms]) {
       if (ref !== undefined && existsSync(join(root, ref))) {
-        throw new ScenarioError(`${ref} exists, but the stub settlement uses built-in stub terms and will not ignore a real file; run this fixture on the T-006 settlement`);
+        throw new ScenarioError(`${ref} exists, but the fixture driver uses built-in stub terms and will not ignore a real file; teach packages/testkit to load it`);
       }
     }
+    this.chain = await this.start();
+    this.balanceRows.push({ after: 'faucet', balances: this.snapshotBalances() });
     for (const s of scenario.steps) {
       this.stepNo++;
       this.signerOverride = 'signer' in s ? s.signer : undefined;
@@ -247,6 +289,15 @@ export class StubSettlement {
   }
 
   // ---- helpers -------------------------------------------------------------------------------
+
+  private get sim(): SimChain {
+    if (!this.chain) throw new Error('SimChain not started');
+    return this.chain;
+  }
+
+  private get state(): EscrowState | null {
+    return this.id ? this.sim.escrowState(this.id) : null;
+  }
 
   private actor(name: string): Actor {
     const a = this.actors.find((x) => x.name === name);
@@ -270,20 +321,15 @@ export class StubSettlement {
     return { ...message, signature } as Signed<T>;
   }
 
+  /** Balances by actor name: own balance plus bond (junior and senior) for adjudicators, and the escrow. */
   private snapshotBalances(): Record<string, bigint> {
-    return Object.fromEntries(this.balances);
-  }
-
-  private move(from: string, to: string, amount: bigint): void {
-    this.balances.set(from, (this.balances.get(from) ?? 0n) - amount);
-    this.balances.set(to, (this.balances.get(to) ?? 0n) + amount);
-  }
-
-  private emit(type: SettlementEventType, actor: string, via: string, payload: Record<string, unknown>): void {
-    const prevHash = this.events.at(-1)?.hash ?? GENESIS;
-    const seq = this.events.length;
-    const hash = canonicalKeccak({ seq, type, commitmentId: this.id, at: this.ctx.clock.now(), actor, submittedVia: via, payload, prevHash });
-    this.events.push({ seq, step: this.stepNo, type, hash, prevHash });
+    const ledger = this.sim.ledger();
+    const out: Record<string, bigint> = {};
+    for (const a of this.actors) {
+      out[a.name] = (ledger[account.party(a.address)] ?? 0n) + (ledger[account.junior(a.address)] ?? 0n) + (ledger[account.senior(a.address)] ?? 0n);
+    }
+    out[ESCROW] = this.id ? (ledger[account.escrow(this.id)] ?? 0n) : 0n;
+    return out;
   }
 
   private kind(): string {
@@ -307,34 +353,26 @@ export class StubSettlement {
     if (via !== 'direct') this.receipts.push({ id: this.ctx.ids.next('rcpt'), operator: via, call });
   }
 
-  /** Applies a core transition, or records the refusal. Returns true when the state changed. */
-  private transition(actor: string, call: string, via: string, r: Result<EscrowState, Problem>, event?: EscrowEvent): boolean {
+  /** Submits to SimChain at the scenario clock's time, or records the refusal. Returns true when it applied. */
+  private async submit(actor: string, call: string, via: string, submission: Submission): Promise<boolean> {
+    this.sim.advanceTo(this.ctx.clock.now());
+    const r = await this.sim.submit(submission, { via });
     if (!r.ok) {
-      this.refuse(actor, call, via, r.error);
+      this.refuse(actor, call, via, r.problem);
       return false;
     }
-    this.state = r.value;
-    if (event) this.applied.push(event);
-    if (this.states.at(-1) !== r.value.kind) this.states.push(r.value.kind);
+    this.eventSteps.push(...r.events.map(() => this.stepNo));
+    if (this.states.at(-1) !== r.state.escrowState) this.states.push(r.state.escrowState);
     return true;
   }
 
   private needCommitment(actor: string, call: string, via: string): { terms: CommitmentTerms; id: Hex32; state: EscrowState } | null {
-    if (!this.state || !this.terms || !this.id) {
+    const state = this.state;
+    if (!state || !this.terms || !this.id) {
       this.refuse(actor, call, via, problem('invalid_state', `${call} needs a commitment; none was offered`));
       return null;
     }
-    return { terms: this.terms, id: this.id, state: this.state };
-  }
-
-  private async verified(actor: string, call: string, via: string, message: SignableMessage, signer: Address): Promise<boolean> {
-    if (await verifyMessage(this.domain, message, signer)) return true;
-    this.refuse(actor, call, via, problem('invalid_signature', `${message.type} signature does not recover to ${signer}`));
-    return false;
-  }
-
-  private scope(role: 'buyer' | 'seller'): Scope {
-    return { roles: [role], maxPerCommitment: MAX_SCOPE, maxDaily: MAX_SCOPE, expiresAt: plus(this.ctx.clock.now(), 30 * DAY) };
+    return { terms: this.terms, id: this.id, state };
   }
 
   // ---- steps ---------------------------------------------------------------------------------
@@ -461,22 +499,12 @@ export class StubSettlement {
       createdAt: now,
     };
     const signature = await signTerms(this.keyFor(seller), this.domain, terms);
-    if (!(await verifyTerms(this.domain, terms, signature, terms.seller))) {
-      return this.refuse(seller, 'offer', via, problem('invalid_signature', 'seller signature over the terms does not verify'));
-    }
-    const input: OfferInput = {
-      commitment: { ...terms, id: commitmentIdOf(terms), signatures: { seller: signature } },
-      at: now,
-      sellerScope: this.scope('seller'),
-      rulebook: STUB_RULEBOOK,
-      nonceUsed: false,
-    };
-    const r = offer(input);
-    if (this.transition(seller, 'offer', via, r)) {
-      this.offerInput = input;
+    const id = commitmentIdOf(terms);
+    if (await this.submit(seller, 'offer', via, { kind: 'offer', commitment: { ...terms, id, signatures: { seller: signature } } })) {
       this.terms = terms;
-      this.id = input.commitment.id;
-      this.emit('commitment.offered', seller, via, { commitmentId: this.id });
+      this.id = id;
+      // The first state is recorded after the ID is known.
+      if (this.states.at(-1) !== 'Offered') this.states.push('Offered');
       this.receipt(via, 'offer');
       this.row(seller, 'offer', via, 'ok');
     }
@@ -492,7 +520,6 @@ export class StubSettlement {
     const c = this.needCommitment(name, call, via);
     if (!c) return;
     const seed = this.ctx.rng.hex32();
-    const at = this.ctx.clock.now();
     const message = await this.sign(name, {
       type: 'AdjudicatorAcceptance',
       commitmentId: c.id,
@@ -505,11 +532,8 @@ export class StubSettlement {
       nonce: this.ctx.rng.hex32(),
       expiresAt: c.terms.timing.offerExpiresAt,
     } as const);
-    if (!(await this.verified(name, call, via, message, this.address(name)))) return;
-    const event: EscrowEvent = { type: 'adjudicator_accept', at, message, unencumberedBond: tusd(this.balances.get(name)!) };
-    if (this.transition(name, call, via, step(c.state, event), event)) {
+    if (await this.submit(name, call, via, { kind: 'adjudicator_accept', message })) {
       this.seed = seed;
-      this.emit('adjudicator.accepted', name, via, { seedCommitment: message.seedCommitment });
       this.receipt(via, 'accept');
       this.row(name, call, via, 'ok');
     }
@@ -527,10 +551,7 @@ export class StubSettlement {
     const buyerAddress = this.address(buyer);
 
     const agree = await this.sign(buyer, { type: 'Agree', commitmentId: c.id, buyer: buyerAddress, nonce: this.ctx.rng.hex32(), expiresAt: c.terms.timing.offerExpiresAt } as const);
-    if (!(await this.verified(buyer, 'agree', via, agree, buyerAddress))) return;
-    const agreeEvent: EscrowEvent = { type: 'agree', at: this.ctx.clock.now(), message: agree, buyerScope: this.scope('buyer'), spentToday: tusd(0n), memberAdmitted: true };
-    if (!this.transition(buyer, 'agree', via, step(c.state, agreeEvent), agreeEvent)) return;
-    this.emit('commitment.agreed', buyer, via, {});
+    if (!(await this.submit(buyer, 'agree', via, { kind: 'agree', message: agree }))) return;
     this.receipt(via, 'agree');
     this.row(buyer, 'agree', via, 'ok');
 
@@ -547,18 +568,7 @@ export class StubSettlement {
       nonce: this.ctx.rng.hex32(),
       expiresAt: c.terms.timing.fundBy,
     } as const);
-    if (!(await this.verified(buyer, 'fund', via, funding, buyerAddress))) return;
-    const fundEvent: EscrowEvent = {
-      type: 'fund',
-      at: this.ctx.clock.now(),
-      message: funding,
-      buyerScope: this.scope('buyer'),
-      balance: tusd(this.balances.get(buyer)!),
-      gasBuffer: tusd(0n),
-    };
-    if (!this.transition(buyer, 'fund', via, step(this.state!, fundEvent), fundEvent)) return;
-    this.move(buyer, ESCROW, total);
-    this.emit('hold.funded', buyer, via, { amount: total.toString() });
+    if (!(await this.submit(buyer, 'fund', via, { kind: 'fund', message: funding }))) return;
     this.receipt(via, 'fund');
     this.row(buyer, 'fund', via, 'ok');
     this.balanceRows.push({ after: 'fund', balances: this.snapshotBalances() });
@@ -592,12 +602,9 @@ export class StubSettlement {
       submittedAt: this.ctx.clock.now(),
     };
     const signed = await this.sign(seller, { ...body, type: 'Delivery' as const });
-    if (!(await this.verified(seller, 'deliver', via, signed, this.address(seller)))) return;
     const message: Delivery = { ...body, signature: signed.signature };
-    const event: EscrowEvent = { type: 'deliver', at: this.ctx.clock.now(), delivery: message };
-    if (!this.transition(seller, 'deliver', via, step(c.state, event), event)) return;
+    if (!(await this.submit(seller, 'deliver', via, { kind: 'deliver', delivery: message }))) return;
     this.delivery = { message, plaintext, source, contentKey };
-    this.emit('delivery.submitted', seller, via, { attempt: 1, plaintextSha256 });
     this.receipt(via, 'deliver');
     this.row(seller, 'deliver (attempt 1)', via, 'ok');
   }
@@ -612,11 +619,12 @@ export class StubSettlement {
       return this.refuse(name, call, 'direct', problem('invalid_state', `nothing to judge in ${c.state.kind}`));
     }
     const d = this.delivery;
-    // ADR-0018: the primary reveals its committed seed; the fallback and appeal adjudicators take the beacon
-    // seed for the round the state fixes. The sim beacon is keccak256(simSeed || round), as on SimChain.
+    // ADR-0018: the primary reveals its committed seed; the fallback and appeal adjudicators take the
+    // SimChain beacon seed for the round the state fixes. Before that round is published they have none.
+    this.sim.advanceTo(this.ctx.clock.now());
     const round = role === 'primary' ? null : beaconRoundFor(c.state, role);
-    const beacon = round === null ? null : { round, value: keccak256(encodePacked(['bytes32', 'uint64'], [keccak256(stringToBytes(`holdback/sim-beacon/v0/${this.ctx.seed}`)), BigInt(round)])) };
-    const seed = role === 'primary' ? this.seed : beacon ? panelSeed(c.id, role, d.message.attempt, beacon.value) : this.ctx.rng.hex32();
+    const beaconValue = round === null ? null : this.sim.beacon(round);
+    const seed = role === 'primary' ? this.seed : beaconValue ? panelSeed(c.id, role, d.message.attempt, beaconValue) : this.ctx.rng.hex32();
     const view = stubJudgment(
       {
         scenario: this.scenario.name,
@@ -637,6 +645,7 @@ export class StubSettlement {
     );
     this.judgments.push(view);
     const outcome = view.aggregate.decision;
+    const envelope = (recipient: Address) => ({ scheme: 'x25519-xsalsa20poly1305' as const, ciphertext: b64url(canonicalKeccak({ contentKey: d.contentKey, recipient })) });
     const unsigned = {
       type: 'Decision',
       commitmentId: c.id,
@@ -650,40 +659,25 @@ export class StubSettlement {
       judgmentRecordHash: canonicalKeccak(view),
       nonce: this.ctx.rng.hex32(),
       expiresAt: role === 'fallback' ? c.terms.timing.fallbackBy : c.terms.timing.judgeBy,
-      ...(outcome === 'accept' ? { keyForBuyer: { scheme: 'x25519-xsalsa20poly1305', ciphertext: b64url(canonicalKeccak({ contentKey: d.contentKey, recipient: c.terms.buyer })) } } : {}),
+      ...(outcome === 'accept' ? { keyForBuyer: envelope(c.terms.buyer) } : {}),
+      // ADR-0020: an escalation carries the appeal adjudicator's content key.
+      ...(outcome === 'escalate' ? { encryptedKeys: [{ recipient: c.terms.adjudication.appealAdjudicator, ...envelope(c.terms.adjudication.appealAdjudicator) }] } : {}),
     } as const;
-    const decision = await this.sign(name, unsigned as UnsignedMessage & { type: 'Decision' });
-    if (!(await this.verified(name, `${call}: ${outcome}`, 'direct', decision, actor.address))) return;
-    const event: EscrowEvent = { type: 'decide', at: this.ctx.clock.now(), message: decision as Decision, beacon };
-    if (!this.transition(name, `${call}: ${outcome}`, 'direct', step(c.state, event), event)) return;
-    this.decision = decision as Decision;
-    this.emit('judgment.decided', name, 'direct', { outcome, judgmentRecordHash: decision.judgmentRecordHash });
-
-    const price = BigInt(c.terms.price.amount);
-    const fee = BigInt(c.terms.adjudication.fee.amount);
+    const decision = (await this.sign(name, unsigned as UnsignedMessage & { type: 'Decision' })) as Decision;
+    if (!(await this.submit(name, `${call}: ${outcome}`, 'direct', { kind: 'decide', message: decision }))) return;
+    this.decision = decision;
     const next = this.state!;
-    if (next.kind === 'Released') {
-      this.move(ESCROW, this.scenario.parties.seller, price);
-      this.move(ESCROW, name, fee);
-      this.emit('settlement.released', name, 'direct', { amount: price.toString() });
-      this.emit('key.released', name, 'direct', {});
-    } else if (next.kind === 'Refunded') {
-      this.move(ESCROW, this.scenario.parties.buyer, price);
-      this.move(ESCROW, name, fee);
-      this.emit('settlement.refunded', name, 'direct', { amount: price.toString() });
-    }
     this.row(name, `${call}: ${outcome}`, 'direct', 'ok');
     if (next.kind === 'Released' || next.kind === 'Refunded') this.balanceRows.push({ after: `decide: ${outcome}`, balances: this.snapshotBalances() });
   }
 
   /** Permissionless timeouts. Each records an outage for the actor it acts in place of. */
-  private timeout(kind: 'trigger_fallback' | 'trigger_default' | 'apply_default_outcome' | 'expire', via: string): void {
+  private async timeout(kind: 'trigger_fallback' | 'trigger_default' | 'apply_default_outcome' | 'expire', via: string): Promise<void> {
     const c = this.needCommitment('anyone', kind, via);
     if (!c) return;
     const { parties, adjudicators } = this.scenario;
     const before = c.state;
-    const event = { type: kind, at: this.ctx.clock.now() } as EscrowEvent;
-    if (!this.transition('anyone', kind, via, step(before, event), event)) return;
+    if (!(await this.submit('anyone', kind, via, { kind: 'trigger', commitmentId: c.id, timeout: TIMEOUTS[kind] }))) return;
     const bypassed =
       kind === 'trigger_fallback'
         ? adjudicators.primary
@@ -697,12 +691,6 @@ export class StubSettlement {
               : parties.buyer
             : null;
     if (bypassed) this.outages.push({ step: this.stepNo, actor: bypassed, kind: 'timeout' });
-    const types = { trigger_fallback: 'fallback.triggered', trigger_default: 'default.triggered', apply_default_outcome: 'settlement.refunded', expire: 'offer.expired' } as const;
-    if (kind === 'apply_default_outcome') {
-      // The default outcome refunds the buyer in full. Seller compensation from the adjudicators' bonds is a T-006 posting.
-      this.move(ESCROW, parties.buyer, this.balances.get(ESCROW)!);
-    }
-    this.emit(types[kind], 'anyone', via, {});
     this.receipt(via, kind);
     this.row('anyone', kind, via, 'ok');
     if (kind === 'apply_default_outcome') this.balanceRows.push({ after: 'apply_default_outcome', balances: this.snapshotBalances() });
@@ -718,30 +706,26 @@ export class StubSettlement {
     this.refuse(who, 'settle', via, problem('invalid_state', `nothing to settle in ${c.state.kind}`));
   }
 
-  private reclaim(buyer: string, via: string): void {
+  private async reclaim(buyer: string, via: string): Promise<void> {
     const c = this.needCommitment(buyer, 'reclaim', via);
     if (!c) return;
-    const event: EscrowEvent = { type: 'reclaim', at: this.ctx.clock.now() };
-    if (!this.transition(buyer, 'reclaim', via, step(c.state, event), event)) return;
-    const held = this.balances.get(ESCROW)!;
-    this.move(ESCROW, buyer, held);
+    if (!(await this.submit(buyer, 'reclaim', via, { kind: 'trigger', commitmentId: c.id, timeout: 'reclaim' }))) return;
     this.outages.push({ step: this.stepNo, actor: this.scenario.parties.seller, kind: 'timeout' });
-    this.emit('settlement.reclaimed', buyer, via, { amount: held.toString() });
     this.receipt(via, 'reclaim');
     this.row(buyer, 'reclaim', via, 'ok');
     this.balanceRows.push({ after: 'reclaim', balances: this.snapshotBalances() });
   }
 
-  private verifyKeyRelease(buyer: string, via: string): void {
+  private async verifyKeyRelease(buyer: string, via: string): Promise<void> {
     const call = 'fetch key + verify plaintext hash';
     const c = this.needCommitment(buyer, call, via);
     if (!c) return;
-    const key = this.decision?.keyForBuyer;
-    if (c.state.kind !== 'Released' || !key || !this.delivery) {
+    const released = await this.sim.keysFor(c.id, c.terms.buyer);
+    if (c.state.kind !== 'Released' || released.length === 0 || !this.delivery) {
       return this.refuse(buyer, call, via, problem('invalid_state', `no key was released to the buyer in ${c.state.kind}`));
     }
     const expected = b64url(canonicalKeccak({ contentKey: this.delivery.contentKey, recipient: c.terms.buyer }));
-    const matches = key.ciphertext === expected && sha256(this.delivery.plaintext) === this.delivery.message.plaintextSha256;
+    const matches = released.some((k) => k.ciphertext === expected) && sha256(this.delivery.plaintext) === this.delivery.message.plaintextSha256;
     this.receipt(via, 'fetch_key');
     if (!matches) return this.refuse(buyer, call, via, problem('invalid_state', 'released key does not open the delivered plaintext'));
     this.row(buyer, call, via, 'hash matches');
@@ -749,17 +733,20 @@ export class StubSettlement {
 
   // ---- results -------------------------------------------------------------------------------
 
-  private replay(): { ok: boolean; events: number } {
-    if (!this.offerInput || !this.state) return { ok: this.state === null, events: 0 };
-    const start = offer(this.offerInput);
-    if (!start.ok) return { ok: false, events: 0 };
-    let s: EscrowState = start.value;
-    for (const e of this.applied) {
-      const r = step(s, e);
-      if (!r.ok) return { ok: false, events: this.applied.length };
-      s = r.value;
+  private events(): Array<LedgerEvent & { prevHash: Hex32 }> {
+    return this.sim.log().map((e) => ({ seq: e.seq, step: this.eventSteps[e.seq] ?? 0, type: e.type as SettlementEventType, hash: e.hash, prevHash: e.prevHash }));
+  }
+
+  /** Replays SimChain's journal from genesis; the replay must reproduce the same state digest. */
+  private async replay(): Promise<{ ok: boolean; events: number }> {
+    const journal = this.sim.journal();
+    const submits = journal.filter((e) => e.op === 'submit').length;
+    try {
+      const again = await SimChain.replay(this.genesis!, journal);
+      return { ok: again.digest() === this.sim.digest() && SimChain.verifyLog(this.sim.log()), events: submits };
+    } catch {
+      return { ok: false, events: submits };
     }
-    return { ok: canonicalJson(s) === canonicalJson(this.state), events: this.applied.length };
   }
 
   private invariants(replay: { ok: boolean }): Invariant[] {
@@ -767,7 +754,7 @@ export class StubSettlement {
     return checkInvariants({
       balances: this.snapshotBalances(),
       faucetTotal: this.faucetTotal,
-      events: this.events,
+      events: this.events(),
       finalState: st?.kind ?? null,
       releasedByDecision: st?.kind === 'Released' && st.via.kind !== 'early_accept',
       keyForBuyer: !!this.decision?.keyForBuyer,
@@ -775,8 +762,8 @@ export class StubSettlement {
     });
   }
 
-  private result(): StubRun {
-    const replay = this.replay();
+  private async result(): Promise<StubRun> {
+    const replay = await this.replay();
     const { parties, adjudicators, operators } = this.scenario;
     const ordered = [parties.buyer, ESCROW, parties.seller, adjudicators.primary, adjudicators.fallback, adjudicators.appeal, ...operators];
     const touched = (name: string) => this.balanceRows.some((r) => (r.balances[name] ?? 0n) !== 0n) || name === ESCROW;
@@ -789,7 +776,7 @@ export class StubSettlement {
       rows: this.rows,
       balanceRows: this.balanceRows,
       judgments: this.judgments,
-      events: this.events.map((e) => ({ seq: e.seq, step: e.step, type: e.type, hash: e.hash })),
+      events: this.events().map((e) => ({ seq: e.seq, step: e.step, type: e.type, hash: e.hash })),
       receipts: this.receipts,
       replay,
       invariants: this.invariants(replay),
@@ -802,4 +789,3 @@ export class StubSettlement {
     };
   }
 }
-
