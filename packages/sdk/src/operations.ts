@@ -94,11 +94,14 @@ export function operationOf(segments: readonly string[], body: unknown): Result<
   const fail = (type: Problem['type'], detail: string) => ({ ok: false as const, error: problem(type, detail) });
   if (segments[0] !== 'v1') return fail('not_found', 'no such route');
   if (!isObject(body)) return fail('invalid_terms', 'the body must be a JSON object');
-  const b = body as Record<string, never>;
+  const b = body as Record<string, unknown>;
   if (segments.length === 2 && segments[1] === 'commitments') return { ok: true, value: { kind: 'offer', commitment: b as unknown as Commitment } };
   if (segments.length === 2 && segments[1] === 'holds') {
     for (const part of ['commitment', 'acceptance', 'agree', 'funding'] as const) if (!isObject(b[part])) return fail('invalid_terms', `a one-shot hold needs ${part}`);
-    return { ok: true, value: { kind: 'hold', commitment: b.commitment, acceptance: b.acceptance, agree: b.agree, funding: b.funding } };
+    return {
+      ok: true,
+      value: { kind: 'hold', commitment: b['commitment'] as Commitment, acceptance: b['acceptance'] as AdjudicatorAcceptance, agree: b['agree'] as Agree, funding: b['funding'] as FundingAuthorization },
+    };
   }
   if (segments[1] !== 'commitments' || segments.length < 4) return fail('not_found', 'no such route');
   const id = segments[2] as Hex32;
