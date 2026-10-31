@@ -4,12 +4,15 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { startSimWorld, type SimWorld } from '@holdback/operator';
-import { hashTypedData, type Hex } from 'viem';
+import nacl from 'tweetnacl';
+import { hashTypedData, hexToBytes, keccak256, toBytes, type Hex } from 'viem';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Agent } from './agent.ts';
 import { appealBondOf, commitmentIdOf, freshNonce, Refusal, SIMCHAIN_DOMAIN, verifyPrepared, type Intent } from './verify.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
+/** A lying operator's own x25519 public key, derived at test time from a public label (no key literal in source). */
+const OPERATOR_PUBLIC_KEY = Buffer.from(nacl.box.keyPair.fromSecretKey(hexToBytes(keccak256(toBytes('holdback/test/lying-operator')))).publicKey).toString('base64url');
 let world: SimWorld;
 let honest: string[];
 let seller: Agent;
@@ -129,7 +132,7 @@ describe('neutrality.operator-lies-in-prepare', { timeout: 30_000 }, () => {
       ['extra signature slot', (p) => { p.sign.push({ ...p.sign[0], slot: 'signatures.buyer' }); }],
       ['primaryType', (p) => { p.sign[0].typedData.primaryType = 'Agree'; }],
       ['types', (p) => { p.sign[0].typedData.types.TokenAmount.reverse(); }],
-      ['buyerEncryptionPublicKey', both(0, 'buyerEncryptionPublicKey', 'pOCSkrZRwni5dyxWn1-puxPZBrRqtoyd-dwrRAn4ogk')],
+      ['buyerEncryptionPublicKey', both(0, 'buyerEncryptionPublicKey', OPERATOR_PUBLIC_KEY)],
       ['deliverable', (p) => { p.submit.body.deliverable.description = 'anything'; p.sign[0].typedData.message.deliverableHash = `0x${'ab'.repeat(32)}`; }],
       ['checks', (p) => { p.submit.body.acceptance.deterministicChecks = []; }],
       ['token', (p) => { p.sign[0].typedData.message.price.token = 'USDC'; p.submit.body.price.token = 'USDC'; }],
@@ -249,7 +252,7 @@ describe('neutrality.operator-lies-in-prepare', { timeout: 30_000 }, () => {
 
   it('a seller never seals the key to a recipient or key an operator substitutes', async () => {
     const { terms } = await held();
-    const operatorKey = 'pOCSkrZRwni5dyxWn1-puxPZBrRqtoyd-dwrRAn4ogk';
+    const operatorKey = OPERATOR_PUBLIC_KEY;
     // The same seller, relaying through the lying operator first and reading the honest one as its second source.
     const liarSeller = new Agent([liarUrl, honest[1]!], keys.get(seller)!.privateKey, keys.get(seller)!.enc);
     lie = (path, body) => (path.endsWith('/recipients') ? { ...body, recipients: body.recipients.map((r: J) => (r.role === 'buyer' ? { ...r, encryptionPublicKey: operatorKey } : r)) } : body);
