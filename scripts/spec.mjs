@@ -28,8 +28,9 @@ export function loadSpec() {
   return { ajv, schemas, examples };
 }
 
-export function validateExamples() {
-  const { ajv, schemas, examples } = loadSpec();
+/** Validates every example; pass an already loaded spec to reuse its compiled schemas. */
+export function validateExamples(spec = loadSpec()) {
+  const { ajv, schemas, examples } = spec;
   return examples.map(({ file, name, data }) => {
     const id = schemas.get(name.split('.')[0]);
     if (!id) return { file, ok: false, errors: [`no schema named ${name.split('.')[0]}.schema.json`] };
