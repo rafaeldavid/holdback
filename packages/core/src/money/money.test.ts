@@ -1,6 +1,6 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
-import { add, compare, gte, sub, sum, toBigInt, tokenAmount, type TokenAmount } from './index.js';
+import { add, compare, gte, mulBps, splitBps, sub, sum, toBigInt, tokenAmount, type TokenAmount } from './index.js';
 
 const UINT256_MAX = (1n << 256n) - 1n;
 
@@ -103,5 +103,78 @@ describe('properties', () => {
     fc.assert(
       fc.property(fc.bigInt({ min: 0n, max: UINT256_MAX }), (a) => amt('tUSD', a).amount === a.toString()),
     );
+  });
+});
+
+describe('basis points (ADR-0022)', () => {
+  const amountArb = fc.bigInt({ min: 0n, max: (1n << 200n) - 1n });
+  const bpsArb = fc.bigInt({ min: 0n, max: 10000n });
+  const amt = (v: bigint) => {
+    const r = tokenAmount('tUSD', v);
+    if (!r.ok) throw new Error('bad amount');
+    return r.value;
+  };
+
+  it('splits a pot into a share and a remainder that sum to the pot', () => {
+    fc.assert(
+      fc.property(amountArb, bpsArb, (pot, bps) => {
+        const r = splitBps(amt(pot), bps);
+        if (!r.ok) return false;
+        return toBigInt(r.value.share) + toBigInt(r.value.remainder) === pot && r.value.share.token === 'tUSD';
+      }),
+      { seed: 22, numRuns: 500 },
+    );
+  });
+
+  it('rounds ceil at least as high as floor, and never more than one unit apart', () => {
+    fc.assert(
+      fc.property(amountArb, bpsArb, (a, bps) => {
+        const lo = mulBps(amt(a), bps, 'floor');
+        const hi = mulBps(amt(a), bps, 'ceil');
+        if (!lo.ok || !hi.ok) return false;
+        const d = toBigInt(hi.value) - toBigInt(lo.value);
+        return d >= 0n && d <= 1n;
+      }),
+      { seed: 22, numRuns: 500 },
+    );
+  });
+
+  it.each([
+    ['0 bps', 2050n, 0n, 'floor', 0n],
+    ['all', 2050n, 10000n, 'floor', 2050n],
+    ['5% floor', 2050n, 500n, 'floor', 102n],
+    ['5% ceil', 2050n, 500n, 'ceil', 103n],
+  ] as const)('computes %s exactly', (_label, a, bps, round, want) => {
+    const r = mulBps(amt(a), bps, round);
+    expect(r.ok && toBigInt(r.value)).toBe(want);
+  });
+
+  it('gives a share that is exactly pot x bps / 10000, rounded down', () => {
+    fc.assert(
+      fc.property(amountArb, bpsArb, (pot, bps) => {
+        const r = splitBps(amt(pot), bps);
+        return r.ok && toBigInt(r.value.share) === (pot * bps) / 10000n;
+      }),
+      { seed: 22, numRuns: 500 },
+    );
+  });
+
+  it.each([
+    ['ceil on an exact product stays exact', 2000n, 500n, 'ceil', 100n],
+    ['ceil rounds a remainder up by one', 3n, 5000n, 'ceil', 2n],
+    ['floor rounds a remainder down', 3n, 5000n, 'floor', 1n],
+  ] as const)('%s', (_label, a, bps, round, want) => {
+    const r = mulBps(amt(a), bps, round);
+    expect(r.ok && toBigInt(r.value)).toBe(want);
+  });
+
+  it('splits an odd pot with the share rounded down and the remainder taking the dust', () => {
+    const r = splitBps(amt(3n), 5000n);
+    expect(r.ok && [toBigInt(r.value.share), toBigInt(r.value.remainder)]).toEqual([1n, 2n]);
+  });
+
+  it.each([-1n, 10001n])('refuses %s basis points', (bps) => {
+    expect(mulBps(amt(100n), bps, 'floor').ok).toBe(false);
+    expect(splitBps(amt(100n), bps).ok).toBe(false);
   });
 });

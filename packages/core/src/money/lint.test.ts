@@ -32,7 +32,22 @@ describe('money lint rule', () => {
     expect(await messages(code, inMoney)).toEqual([]);
   });
 
-  it('does not apply outside money code', async () => {
-    expect(await messages('export const x: number = 0.5;\n', 'packages/core/src/probe.ts')).toEqual([]);
+  it('rejects fractional literals anywhere in core source (ADR-0022), but allows number there', async () => {
+    expect(await messages('export const x = 0.5;\n', 'packages/core/src/probe.ts')).not.toEqual([]);
+    expect(await messages('export const x = 1e3;\n', 'packages/core/src/probe.ts')).not.toEqual([]);
+    expect(await messages('export const n: number = 3;\n', 'packages/core/src/probe.ts')).toEqual([]);
+  });
+
+  it('exempts core tests, which must write fractional values to prove the parsers refuse them', async () => {
+    expect(await messages('export const x = 0.5;\n', 'packages/core/src/probe.test.ts')).toEqual([]);
+  });
+
+  it('rejects fractional literals in the judgment aggregation (ADR-0022)', async () => {
+    expect(await messages('export const x = 0.5;\n', 'packages/judgment/src/aggregate.ts')).not.toEqual([]);
+  });
+
+  it('does not apply outside core and the judgment aggregation', async () => {
+    expect(await messages('export const x: number = 0.5;\n', 'packages/testkit/src/probe.ts')).toEqual([]);
+    expect(await messages('export const x = 0.5;\n', 'packages/judgment/src/screen.ts')).toEqual([]);
   });
 });

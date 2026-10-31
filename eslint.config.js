@@ -12,6 +12,24 @@ export default tseslint.config(
     },
   },
   {
+    // ADR-0022: rates are integers (basis points, fractions, hundredths), so core source and the
+    // judgment aggregation have no fractional literals. Tests are exempt: they write fractional values
+    // to prove the parsers refuse them. The money block below replaces this list for money code.
+    // Proven by money/lint.test.ts. It does not catch a fraction written as a string ("0.5" passed to
+    // a parser) or division that produces a float at run time; integer math and the schemas cover those.
+    files: ['packages/core/src/**/*.ts', 'packages/judgment/src/aggregate.ts'],
+    ignores: ['packages/core/src/**/*.test.ts'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: 'Literal[raw=/^(\\d[\\d_]*)?\\.\\d|^\\d[\\d_]*\\.$|^\\d[\\d_]*(\\.\\d*)?[eE]/]',
+          message: 'Core must not use fractional or exponent numeric literals. Use basis points, fractions or bigint.',
+        },
+      ],
+    },
+  },
+  {
     // Hard rule: money is a string-backed amount in base units, never a float.
     // Money code uses TokenAmount (packages/core/src/money) and bigint. Proven by packages/core/src/money/lint.test.ts.
     files: ['packages/core/src/money/**/*.ts'],

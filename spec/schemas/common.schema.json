@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.4/common.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.5/common.schema.json",
   "title": "Common definitions",
   "$defs": {
     "Address": {
@@ -9,13 +9,13 @@
     },
     "Hex32": {
       "type": "string",
-      "pattern": "^0x[0-9a-fA-F]{64}$",
-      "description": "32-byte value (keccak256 hash, EIP-712 struct hash, seed, nonce)"
+      "pattern": "^0x[0-9a-f]{64}$",
+      "description": "32-byte value (keccak256 hash, EIP-712 struct hash, seed, nonce); lowercase, so each value has one spelling"
     },
     "Signature": {
       "type": "string",
-      "pattern": "^0x[0-9a-fA-F]{130}$",
-      "description": "65-byte secp256k1 signature over EIP-712 typed data"
+      "pattern": "^0x[0-9a-f]{130}$",
+      "description": "65-byte secp256k1 signature over EIP-712 typed data; lowercase"
     },
     "Sha256": {
       "type": "string",
@@ -39,10 +39,7 @@
       "additionalProperties": false,
       "properties": {
         "token": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 64,
-          "description": "Token identifier, e.g. tUSD on SimChain or an ERC-20 address on a chain"
+          "$ref": "#/$defs/TokenId"
         },
         "amount": {
           "type": "string",
@@ -51,15 +48,11 @@
         }
       }
     },
-    "Rate": {
-      "type": "number",
-      "minimum": 0,
-      "maximum": 1
-    },
     "SettlementMode": {
       "enum": [
         "guaranteed_on_decision",
-        "settle_after_window"
+        "settle_after_window",
+        "optimistic"
       ]
     },
     "Scope": {
@@ -93,11 +86,164 @@
           "type": "array",
           "items": {
             "type": "string",
-            "maxLength": 64
+            "maxLength": 64,
+            "x-holdback-untrusted": true
           }
         },
         "expiresAt": {
           "$ref": "#/$defs/Timestamp"
+        }
+      }
+    },
+    "RandomnessSource": {
+      "enum": [
+        "sim",
+        "drand-quicknet",
+        "prevrandao"
+      ],
+      "description": "Where fallback and appeal panel seeds come from (ADR-0018). Phase 1 admits sim only."
+    },
+    "DisclosureLevel": {
+      "enum": [
+        "private",
+        "judgment",
+        "public"
+      ],
+      "description": "Who may read a commitment's terms and records (ADR-0020). Phase 1 admits public only."
+    },
+    "KeyUnlock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind"
+      ],
+      "description": "When a recipient may open an encrypted key: at once, or once a beacon round is published (ADR-0020)",
+      "properties": {
+        "kind": {
+          "enum": [
+            "none",
+            "beacon-round"
+          ]
+        },
+        "round": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "if": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "const": "beacon-round"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "required": [
+          "round"
+        ],
+        "properties": {
+          "round": {}
+        }
+      },
+      "else": {
+        "type": "object",
+        "not": {
+          "type": "object",
+          "required": [
+            "round"
+          ],
+          "properties": {
+            "round": {}
+          }
+        }
+      }
+    },
+    "EncryptedKey": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "recipient",
+        "scheme",
+        "ciphertext"
+      ],
+      "properties": {
+        "recipient": {
+          "$ref": "#/$defs/Address"
+        },
+        "scheme": {
+          "const": "x25519-xsalsa20poly1305"
+        },
+        "ciphertext": {
+          "$ref": "#/$defs/Base64Url"
+        },
+        "unlock": {
+          "$ref": "#/$defs/KeyUnlock"
+        }
+      }
+    },
+    "PrivateBody": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "hash",
+        "envelopes"
+      ],
+      "description": "A body kept off the public record: its keccak256 and the key envelopes for the parties allowed to read it (ADR-0020)",
+      "properties": {
+        "hash": {
+          "$ref": "#/$defs/Hex32"
+        },
+        "envelopes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/EncryptedKey"
+          }
+        }
+      }
+    },
+    "ClubId": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]{3,64}$"
+    },
+    "TokenId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._:-]{1,64}$",
+      "description": "Token identifier, e.g. tUSD on SimChain or an ERC-20 address on a chain"
+    },
+    "Ident": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._:/@-]{1,128}$",
+      "description": "An identifier chosen by a protocol actor: a judge, provider, family, model or version label. Constrained, so it cannot carry prose."
+    },
+    "Bps": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 10000,
+      "description": "Basis points: an integer share where 10000 is all (ADR-0022)"
+    },
+    "Fraction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "numerator",
+        "denominator"
+      ],
+      "description": "An exact ratio such as 2/3 (ADR-0022). Where a fraction is a supermajority, parsers also require numerator <= denominator and 2 x numerator > denominator.",
+      "properties": {
+        "numerator": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "denominator": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
         }
       }
     }

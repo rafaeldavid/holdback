@@ -23,6 +23,12 @@ export const PROBLEM_TYPES = [
   'not_your_turn',
   'member_not_admitted',
   'idempotency_conflict',
+  // ADR-0017: operator API
+  'rate_limited',
+  'not_found',
+  'invalid_cursor',
+  // Reserved for Phase 2 reads of private records (ADR-0020)
+  'unauthorized',
 ] as const;
 
 export type ProblemType = (typeof PROBLEM_TYPES)[number];

@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
 import { rulebookHash } from './canonical.js';
 import { commitmentId, holdbackDomain, messageDigest, termsDigest, termsOf, typedDataOf, type UnsignedMessage } from './eip712.js';
-import { parseClub, parseCommitment, parseCommitmentState, parseDelivery, parseMandate, parseMessage, parsers } from './parse.js';
+import { parseAdjudicator, parseClub, parseCommitment, parseCommitmentState, parseDelivery, parseJudgment, parseMandate, parseMessage, parsers } from './parse.js';
 import { offer } from './state.js';
 import { validateTiming } from './timing.js';
 import type { Commitment, Rulebook } from './types.js';
@@ -55,6 +55,89 @@ describe('boundary parsers', () => {
   it('refuses non-objects', () => {
     expect(parseCommitment('nope').ok).toBe(false);
     expect(parseCommitment(null).ok).toBe(false);
+  });
+
+  it('accepts a SimChain beacon on a Decision and refuses other sources in Phase 1 (ADR-0018)', () => {
+    const d = example('messages.decision.example.json');
+    d['role'] = 'fallback';
+    d['beacon'] = { source: 'sim', round: 1200, value: `0x${'11'.repeat(32)}` };
+    expect(parseMessage(d).ok).toBe(true);
+    d['beacon'] = { source: 'drand-quicknet', round: 1200, value: `0x${'11'.repeat(32)}`, signature: `0x${'ab'.repeat(48)}` };
+    const r = parseMessage(d);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.detail).toContain('sim only');
+  });
+
+  it('refuses optimistic commitments in Phase 1 (ADR-0015 is built in Phase 4)', () => {
+    const c = example('commitment.example.json');
+    (c['settlement'] as Record<string, unknown>)['mode'] = 'optimistic';
+    Object.assign(c['timing'] as Record<string, unknown>, { disputeBy: '2026-11-06T17:00:00Z', disputeJudgeSec: 86400, disputeFallbackSec: 86400 });
+    const r = parseCommitment(c);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.detail).toContain('not supported in Phase 1');
+  });
+
+  it.each([
+    ['a private disclosure level', (c: Record<string, unknown>) => (c['disclosure'] = { level: 'private' }), 'public only'],
+    ['privateTerms', (c: Record<string, unknown>) => (c['privateTerms'] = { hash: `0x${'21'.repeat(32)}`, envelopes: [{ recipient: c['buyer'], scheme: 'x25519-xsalsa20poly1305', ciphertext: 'a2V5' }] }), 'privateTerms'],
+  ] as const)('refuses %s in Phase 1 (ADR-0020)', (_label, change, detail) => {
+    const c = example('commitment.example.json');
+    change(c);
+    const r = parseCommitment(c);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.detail).toContain(detail);
+  });
+
+  it.each([
+    ['randomness', { source: 'drand-quicknet', chainHash: `0x${'52'.repeat(32)}` }, 'sim only'],
+    ['identityModes', ['long-term', 'pseudonymous'], 'long-term only'],
+    ['mutualSettlement', { allowed: true, adjudicatorFeeShareAfterDeliveryBps: 5000 }, 'must be 0 in Phase 1'],
+  ] as const)('refuses rulebook %s beyond Phase 1', (field, value, detail) => {
+    const c = example('club.example.json');
+    expect(parseClub(c).ok).toBe(true);
+    (c['rulebook'] as Record<string, unknown>)[field] = value;
+    const r = parseClub(c);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.detail).toContain(detail);
+  });
+
+  it('refuses a private judgment record in Phase 1 (ADR-0020)', () => {
+    const j = example('judgment.example.json');
+    expect(parseJudgment(j).ok).toBe(true);
+    j['privateRecord'] = { hash: `0x${'41'.repeat(32)}`, envelopes: [{ recipient: `0x${'11'.repeat(20)}`, scheme: 'x25519-xsalsa20poly1305', ciphertext: 'a2V5' }] };
+    const r = parseJudgment(j);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.detail).toContain('privateRecord');
+  });
+
+  it.each(['private', 'judgment'])('refuses a Publish to %s in Phase 1 (ADR-0020)', (level) => {
+    const p = example('messages.publish.example.json');
+    expect(parseMessage(p).ok).toBe(true);
+    p['level'] = level;
+    const r = parseMessage(p);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.detail).toContain('public only');
+  });
+
+  it('refuses a delivery key that unlocks at a beacon round in Phase 1 (ADR-0020)', () => {
+    const d = example('delivery.example.json');
+    (d['encryptedKeys'] as Array<Record<string, unknown>>)[0]!['unlock'] = { kind: 'beacon-round', round: 1200 };
+    const r = parseDelivery(d);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.detail).toContain('none only');
+  });
+
+  it.each([
+    ['exactly one half', { numerator: 1, denominator: 2 }],
+    ['below one half', { numerator: 1, denominator: 3 }],
+    ['above one', { numerator: 4, denominator: 3 }],
+  ] as const)('refuses a supermajority of %s (ADR-0022)', (_label, f) => {
+    const a = example('adjudicator.example.json');
+    expect(parseAdjudicator(a).ok).toBe(true);
+    (a['policy'] as Record<string, unknown>)['rejectSupermajority'] = f;
+    const r = parseAdjudicator(a);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.detail).toContain('rejectSupermajority');
   });
 
   it('refuses settle_after_window in Phase 1', () => {

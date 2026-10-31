@@ -11,13 +11,15 @@
       "appealWindow": 300,
       "appealDecide": 300
     },
-    "windowCoverageRatio": 0.2,
-    "appealBondRate": 0.05,
-    "sealedChecksMaxWeight": 0.3,
+    "windowCoverageRatioBps": 2000,
+    "appealBondRateBps": 500,
+    "sealedChecksMaxWeightBps": 3000,
     "maxSubmissions": 1,
     "defaultOutcome": {
-      "refundBuyer": true,
-      "sellerCompensationRate": 1.0
+      "judged": {
+        "refundBuyer": true,
+        "sellerCompensationRateBps": 10000
+      }
     },
     "allowedSettlementModes": [
       "guaranteed_on_decision"
@@ -33,7 +35,25 @@
     "appealFee": {
       "token": "tUSD",
       "amount": "25000000"
-    }
+    },
+    "firstLossShareMinBps": 1000,
+    "bondNoticePeriodMinSec": 691200,
+    "randomness": {
+      "source": "sim"
+    },
+    "minInspectionWindowSec": 86400,
+    "disputeBond": {
+      "token": "tUSD",
+      "amount": "25000000"
+    },
+    "mutualSettlement": {
+      "allowed": true,
+      "adjudicatorFeeShareAfterDeliveryBps": 0
+    },
+    "disclosureMin": "public",
+    "identityModes": [
+      "long-term"
+    ]
   },
   "rulebookHash": "0xb70959b8b5a5a9d365df7471120396553ed1bc0bff83059e4862e6d11b36a556"
 }

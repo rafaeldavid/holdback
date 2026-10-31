@@ -10,7 +10,9 @@ import {
   signMessage,
   signTerms,
   termsOf,
+  verifyCoSigned,
   verifyMessage,
+  verifyMutualSettlement,
   verifyTerms,
   type UnsignedMessage,
 } from './eip712.js';
@@ -34,10 +36,10 @@ const commitment = parsed.value;
 const terms = termsOf(commitment);
 
 // Pinned vectors. A change here changes every commitment ID and signature in the system: it needs an ADR.
-const EXAMPLE_TERMS_ID = '0xe8cf56d911501addc4cf7870e10cc0889ea7b5d3851256cb43e310235a05d585';
+const EXAMPLE_TERMS_ID = '0x04819eff2b80e7edfe3cc9e2d4b91e07ae71e51e028bb7adba1cce3b5595ad15';
 const SELLER_ADDRESS = '0xDdC55D01F41A079E14F7Cbb3902ec14e1e8d3ce6';
 const EXAMPLE_TERMS_SELLER_SIGNATURE =
-  '0x4d3bfabe279af17d750e46885283672d853a6dabd287ce29f967c26f4e4f8c3c3da15ece21e609817f096d4074cfb67910a65cefd33a7c7dcbf2d76768d4abc21c';
+  '0x6ec08eb2f91e2fe77150ca1bad359ec1b408d6505c05c902f82929d875427b3e7a4db21f00f5f737dbe1c094aaa7c8c177befaa9e6a3e780c2a95794a0cedec81c';
 
 // Distributes over unions, so removing `signature` from a SignedMessage keeps each variant.
 function without<T extends object, K extends keyof T>(obj: T, key: K): T extends unknown ? Omit<T, K> : never {
@@ -71,13 +73,28 @@ function setPath(obj: unknown, path: string[], v: Leaf): void {
 }
 
 describe('domain', () => {
-  it('is Holdback 0.4 with the SimChain placeholder contract by default', () => {
-    expect(domain).toEqual({ name: 'Holdback', version: '0.4', chainId: 31337n, verifyingContract: SIMCHAIN_VERIFYING_CONTRACT });
+  it('is Holdback 0.5 with the SimChain placeholder contract by default', () => {
+    expect(domain).toEqual({ name: 'Holdback', version: '0.5', chainId: 31337n, verifyingContract: SIMCHAIN_VERIFYING_CONTRACT });
     expect(SIMCHAIN_VERIFYING_CONTRACT).toMatch(/^0x[0-9a-f]{40}$/);
   });
 });
 
 describe('commitment ID', () => {
+  it('binds the optimistic dispute timing (review of PR 23)', () => {
+    const optimistic = (disputeBy: string) =>
+      ({
+        ...terms,
+        settlement: { mode: 'optimistic', token: terms.settlement.token },
+        timing: { ...terms.timing, disputeBy, disputeJudgeSec: 86400, disputeFallbackSec: 86400 },
+      }) as never;
+    const a = commitmentId(optimistic('2026-11-06T17:00:00Z'));
+    expect(commitmentId(optimistic('2026-11-06T17:00:01Z'))).not.toBe(a);
+    const judge = { ...(optimistic('2026-11-06T17:00:00Z') as { timing: object }), timing: { ...(optimistic('2026-11-06T17:00:00Z') as { timing: object }).timing, disputeJudgeSec: 86401 } };
+    expect(commitmentId(judge as never)).not.toBe(a);
+    const fallback = { ...(optimistic('2026-11-06T17:00:00Z') as { timing: object }), timing: { ...(optimistic('2026-11-06T17:00:00Z') as { timing: object }).timing, disputeFallbackSec: 86401 } };
+    expect(commitmentId(fallback as never)).not.toBe(a);
+  });
+
   it('is stable for the example terms', () => {
     expect(commitmentId(terms)).toBe(EXAMPLE_TERMS_ID);
   });
@@ -133,10 +150,40 @@ describe('terms signatures', () => {
   });
 });
 
-const messageFiles = ['messages.acceptance', 'messages.decision', 'messages.funding', 'messages.member-admission'];
+const messageFiles = ['messages.acceptance', 'messages.decision', 'messages.dispute', 'messages.funding', 'messages.member-admission'];
 
 describe('message signatures', () => {
-  it('defines EIP-712 types for all nine messages plus Delivery, Appeal and Mandate', () => {
+  it('verifies a mutual settlement only when buyer and seller both signed the identical struct', async () => {
+    const r = parseMessage(loadExample('messages.mutual-settlement.example.json'));
+    if (!r.ok || r.value.type !== 'MutualSettlement') throw new Error('expected a MutualSettlement');
+    const { buyerSignature: _b, sellerSignature: _s, ...unsigned } = r.value;
+    void _b;
+    void _s;
+    const buyerKey = otherKey;
+    const buyer = privateKeyToAddress(buyerKey);
+    const buyerSignature = await signMessage(buyerKey, domain, unsigned);
+    const sellerSignature = await signMessage(sellerKey, domain, unsigned);
+    const both = { ...unsigned, buyerSignature, sellerSignature };
+    expect(await verifyMutualSettlement(domain, both, buyer, seller)).toBe(true);
+    expect(await verifyMutualSettlement(domain, { ...both, sellerSignature: buyerSignature }, buyer, seller)).toBe(false);
+    expect(await verifyMutualSettlement(domain, { ...both, sellerAmount: { token: 'tUSD', amount: '1' } as never }, buyer, seller)).toBe(false);
+    expect(await verifyMutualSettlement(domain, { ...both, releaseKey: !both.releaseKey }, buyer, seller)).toBe(false);
+  });
+
+  it('verifies a Publish only when buyer and seller both signed it', async () => {
+    const r = parseMessage(loadExample('messages.publish.example.json'));
+    if (!r.ok || r.value.type !== 'Publish') throw new Error('expected a Publish');
+    const { buyerSignature: _b, sellerSignature: _s, ...unsigned } = r.value;
+    void _b;
+    void _s;
+    const buyer = privateKeyToAddress(otherKey);
+    const both = { ...unsigned, buyerSignature: await signMessage(otherKey, domain, unsigned), sellerSignature: await signMessage(sellerKey, domain, unsigned) };
+    expect(await verifyCoSigned(domain, both, buyer, seller)).toBe(true);
+    expect(await verifyCoSigned(domain, { ...both, level: 'private' }, buyer, seller)).toBe(false);
+    expect(await verifyCoSigned(domain, { ...both, buyerSignature: both.sellerSignature }, buyer, seller)).toBe(false);
+  });
+
+  it('defines EIP-712 types for all twelve messages plus Delivery, Appeal, Receipt and Mandate', () => {
     expect(Object.keys(messageTypes).sort()).toEqual(
       [
         'Offer',
@@ -148,8 +195,12 @@ describe('message signatures', () => {
         'AgentRevocation',
         'MemberAdmission',
         'MemberRevocation',
+        'Dispute',
+        'MutualSettlement',
+        'Publish',
         'Delivery',
         'Appeal',
+        'Receipt',
         'Mandate',
       ].sort(),
     );
@@ -158,6 +209,7 @@ describe('message signatures', () => {
   it.each(messageFiles)('signs and verifies %s', async (name) => {
     const r = parseMessage(loadExample(`${name}.example.json`));
     if (!r.ok) throw new Error(r.error.detail);
+    if (r.value.type === 'MutualSettlement' || r.value.type === 'Publish') throw new Error('co-signed; covered below');
     const unsigned = without(r.value, 'signature');
     const sig = await signMessage(sellerKey, domain, unsigned);
     expect(await verifyMessage(domain, { ...unsigned, signature: sig }, seller)).toBe(true);
@@ -212,7 +264,7 @@ describe('message signatures', () => {
     const domainSeparator = keccak256(
       encodeAbiParameters(
         [{ type: 'bytes32' }, { type: 'bytes32' }, { type: 'bytes32' }, { type: 'uint256' }, { type: 'address' }],
-        [hashType('EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)'), hashType('Holdback'), hashType('0.4'), 31337n, SIMCHAIN_VERIFYING_CONTRACT],
+        [hashType('EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)'), hashType('Holdback'), hashType('0.5'), 31337n, SIMCHAIN_VERIFYING_CONTRACT],
       ),
     );
     const structHash = keccak256(

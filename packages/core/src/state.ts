@@ -104,7 +104,7 @@ export type EscrowEvent =
   | { type: 'deliver'; at: Timestamp; delivery: Delivery }
   | { type: 'early_accept'; at: Timestamp; message: EarlyAccept }
   | { type: 'decide'; at: Timestamp; message: Decision }
-  // requiredBond is price x the rulebook appealBondRate and requiredFee the rulebook appealFee, both
+  // requiredBond is price x the rulebook appealBondRateBps and requiredFee the rulebook appealFee, both
   // computed by the caller; feePaid is the appeal-fee authorization that accompanies the appeal.
   | { type: 'file_appeal'; at: Timestamp; appeal: Appeal; requiredBond: TokenAmount; requiredFee: TokenAmount; feePaid: TokenAmount }
   // Permissionless timeouts: anyone may trigger them.
@@ -152,6 +152,12 @@ export function offer(input: OfferInput): R<Extract<EscrowState, { kind: 'Offere
   if (!before(at, terms.timing.offerExpiresAt)) return fail('deadline_passed', `offer expired at ${terms.timing.offerExpiresAt}`);
   const scope = scopeAllows(input.sellerScope, 'seller', terms.price, at);
   if (!scope.ok) return scope;
+
+  // Phase 1 limits hold here too, not only in the parser, for callers that build terms in code.
+  const mode: string = terms.settlement.mode;
+  if (mode !== 'guaranteed_on_decision') return fail('invalid_terms', `settlement.mode ${mode} is not supported in Phase 1 (guaranteed_on_decision only)`);
+  const level: string = terms.disclosure.level;
+  if (level !== 'public') return fail('invalid_terms', `disclosure.level ${level} is not supported in Phase 1 (public only)`);
 
   const timing = validateTiming(terms.timing, rulebook);
   if (!timing.ok) return timing;

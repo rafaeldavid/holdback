@@ -261,7 +261,7 @@ The REST API and SDK call only this interface. Chain details stay in the `local`
 ## Identity and signing
 
 - Agents, principals and adjudicators are EVM addresses: externally owned accounts, or smart accounts later.
-- Signed messages are EIP-712 typed data, with domain `{name: "Holdback", version: "0.4", chainId, verifyingContract}`. SimChain uses a fixed placeholder contract address.
+- Signed messages are EIP-712 typed data, with domain `{name: "Holdback", version: "0.5", chainId, verifyingContract}`. SimChain uses a fixed placeholder contract address. The domain version tracks the schema version, so a signature made under one schema never verifies under another.
 - Funding is gasless for agents. The buyer signs a token transfer authorization (ERC-3009 `transferWithAuthorization` or Permit2), and any relayer can submit it.
 - A mandate is the principal's EIP-712 signature over the agent's scope: caps, roles, categories, expiry. It is checked at agree and fund.
 

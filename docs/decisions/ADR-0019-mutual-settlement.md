@@ -68,7 +68,7 @@ MutualSettlement {
 - **Amounts.** `sellerAmount` goes to the seller, and `price - sellerAmount` goes to the buyer. The sum always equals the price.
 - **Fee.** The rulebook sets it, never the message, so the parties cannot assign it against the rulebook.
   - In Phase 1 the full fee returns to the buyer, because no one decided. This mirrors early acceptance.
-  - Later, a rulebook parameter `adjudicatorFeeShareAfterDelivery` (default 0) can pay the sitting adjudicator a kill fee.
+  - Later, a rulebook parameter `adjudicatorFeeShareAfterDeliveryBps` (default 0) can pay the sitting adjudicator a kill fee. ADR-0022 added the `Bps` suffix: the share is an integer in basis points.
 - **Bond.** The adjudicator's reserved bond is released at settlement, because nothing is open to appeal.
 - **Key.** Both parties choose `releaseKey`.
   - `true` is a discounted acceptance: the buyer receives the content key from the buyer-encrypted envelope in the delivery.
@@ -97,7 +97,7 @@ MutualSettlement {
   - `messages.schema.json` adds `MutualSettlement` with `buyerSignature` and `sellerSignature`;
   - `commitment-state.schema.json` adds `Settled`, with `sellerAmount`, `buyerAmount` and `keyReleased`;
   - `event.schema.json` adds `commitment.settled`;
-  - `club.schema.json` adds `mutualSettlement: { allowed, adjudicatorFeeShareAfterDelivery }`.
+  - `club.schema.json` adds `mutualSettlement: { allowed, adjudicatorFeeShareAfterDeliveryBps }` (the suffix per ADR-0022).
 - **Core `state.ts`:**
   - a new event `mutual_settle`;
   - guards:

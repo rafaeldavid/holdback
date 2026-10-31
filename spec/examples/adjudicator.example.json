@@ -3,14 +3,6 @@
   "name": "Bench A",
   "encryptionPublicKey": "A6d8Adb682dd4Aed883d592c521ccc795599fdf4a1c",
   "affiliations": [],
-  "bond": {
-    "token": "tUSD",
-    "amount": "25000000000"
-  },
-  "openExposure": {
-    "token": "tUSD",
-    "amount": "2000000000"
-  },
   "policy": {
     "id": "bench-a/p1",
     "panelSize": 3,
@@ -19,14 +11,22 @@
     "minFamiliesAppeal": 3,
     "minValid": 2,
     "minValidAppeal": 4,
-    "acceptSupermajority": 0.667,
-    "rejectSupermajority": 0.667,
+    "acceptSupermajority": {
+      "numerator": 2,
+      "denominator": 3
+    },
+    "rejectSupermajority": {
+      "numerator": 2,
+      "denominator": 3
+    },
     "judgeTimeoutSec": 60,
     "rationaleMaxChars": 600,
     "promptTemplateHash": "0xfc57e4384c325f4d71292850f0fefd9edcd496aa652eacb33044b75b6bf45a8a",
     "appealPromptTemplateHash": "0x87d455f345a36321d9b91b6f5dfd0c15dbb57c1f81239392d02291f9e7f628e2",
     "aggregationVersion": "agg-1",
-    "screenVersion": "screen-1"
+    "screenVersion": "screen-1",
+    "providerPrivacy": "zdr",
+    "disclosureMin": "public"
   },
   "registry": {
     "hash": "0x54bdcd5545af7f0a1d42fa9adad89dc6f5d20ea8c0e16b270d2160b78b16007a",
@@ -37,15 +37,35 @@
     "min": {
       "token": "tUSD",
       "amount": "25000000"
-    },
-    "capitalChargeRate": 0.02
+    }
   },
   "metrics": {
-    "falseAcceptRate": 0.0,
-    "falseRejectRate": 0.05,
-    "escalationRate": 0.1,
+    "falseAcceptRateBps": 0,
+    "falseRejectRateBps": 500,
+    "escalationRateBps": 1000,
     "sampleSize": 40,
     "measuredAt": "2026-10-30T08:00:00Z"
   },
-  "status": "active"
+  "status": "active",
+  "pool": {
+    "junior": {
+      "token": "tUSD",
+      "amount": "25000000000"
+    },
+    "senior": {
+      "token": "tUSD",
+      "amount": "0"
+    },
+    "reserved": {
+      "token": "tUSD",
+      "amount": "2000000000"
+    },
+    "terms": {
+      "capitalChargeRateBps": 200,
+      "capitalChargeToPoolRateBps": 0,
+      "firstLossShareBps": 10000,
+      "noticePeriodSec": 691200
+    }
+  },
+  "poolTermsHash": "0x7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a"
 }

@@ -1,0 +1,35 @@
+{
+  "type": "Dispute",
+  "commitmentId": "0x9340180fb352b68aabcf457de90752525d862a9a6dac875100905fac2fc54ed8",
+  "buyer": "0x04d6c65223896ba94e731bc9eb765c19bd289b0d",
+  "attempt": 1,
+  "grounds": "Rows 410-512 keep duplicate customer_id values, which the unique_key check should have caught.",
+  "bond": {
+    "token": "tUSD",
+    "amount": "25000000"
+  },
+  "fee": {
+    "token": "tUSD",
+    "amount": "50000000"
+  },
+  "encryptedKeys": [
+    {
+      "recipient": "0x5d10fecab9242e66cb134b77309a3566ed75e3dd",
+      "scheme": "x25519-xsalsa20poly1305",
+      "ciphertext": "a2V50"
+    },
+    {
+      "recipient": "0xf9e6283d068ff7016653ab6d36a7fab0294f4b8a",
+      "scheme": "x25519-xsalsa20poly1305",
+      "ciphertext": "a2V51"
+    },
+    {
+      "recipient": "0xc372bd536a0f63fe9fde6bca1db179ce93612520",
+      "scheme": "x25519-xsalsa20poly1305",
+      "ciphertext": "a2V52"
+    }
+  ],
+  "nonce": "0x3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d",
+  "expiresAt": "2026-11-01T10:02:00Z",
+  "signature": "0x6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e"
+}

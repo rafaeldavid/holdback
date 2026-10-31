@@ -1,12 +1,24 @@
-# API v0.1 (operator node)
+# API v0.2 (operator node)
 
-Any operator node serves this API. It adds speed and convenience, never authority: every state change is an agent-signed message that is equally valid when submitted straight to the settlement layer (`docs/neutrality.md`).
+Any operator node serves this API. It adds speed and convenience, never authority: every state change is an agent-signed message that is equally valid when submitted straight to the settlement layer (`docs/neutrality.md`). v0.2 adds the agent-ready subset of ADR-0017 and serves schema v0.5.
 
 ## Conventions
 
 - **Format:** JSON over HTTPS. Base path `/v1`.
-- **Authentication:** none at the transport layer. Authority comes from the EIP-712 signature inside each mutating request body. Operators may rate-limit by signer address.
-- **Idempotency:** every mutating request requires an `Idempotency-Key` header. The same key and body returns the stored response. The same key with a different body returns 409 `idempotency_conflict`.
+- **Authentication:** none at the transport layer. Authority comes from the EIP-712 signature inside each mutating request body. Reads are public, so commitment metadata is public too (`docs/neutrality.md`, residual 9).
+- **Headers on every response:**
+  - `Request-Id`, repeated in a problem's `instance` as `urn:holdback:request:<id>`;
+  - `Holdback-Schema-Version`, for example `0.5`. While the version is 0.x, every contract change bumps it, and nothing is promised stable.
+- **Trace context:** operators accept a W3C `traceparent` header and log it. Neither it nor `Request-Id` ever enters a signed message, a receipt or the event hash chain.
+- **Throttling:** a throttled request gets 429 `rate_limited` with `Retry-After`. Writes are limited per signer address, reads per client. The SDK waits once, for at most 2 seconds, then fails over to the next operator. The IETF `RateLimit` headers are deferred until the draft is stable.
+- **Collections:** every list returns `page.schema.json`, `{ "items": [...], "nextCursor": "<opaque>" | null }`, where `null` is the end. Requests take `?cursor=&limit=`, with a default limit of 50 and a maximum of 200. Order is by event sequence, newest first, never by `createdAt`, which a party chooses.
+- **Dry run:** every mutating endpoint accepts `?validateOnly=true`, which runs `Settlement.validate` against the settlement layer's own facts and changes nothing. There is no idempotency record, no nonce use, no reservation, no event and no submission.
+  - Party messages (Offer, Agree, FundingAuthorization, Delivery, EarlyAccept, Appeal, Dispute, MutualSettlement, Publish) are sent unsigned. The response says the signature check was skipped, so a preview never hands an operator a usable authorization. The SDK's `preview()` does this before signing.
+  - Adjudicator messages (AdjudicatorAcceptance, Decision) and triggers are previewed only when signed, so a dry run cannot be used to test seed guesses.
+  - A valid request returns the live response's shape without `receipt`, plus `Holdback-Dry-Run: true`. An invalid one returns the problem the live call would. Judgment never runs.
+- **Disclosure (ADR-0020):** each commitment signs a `disclosure.level`: `private`, `judgment` or `public`. Phase 1 admits `public` only, and refuses `privateTerms` and keys that unlock at a beacon round. Offered and agreed events always carry `termsHash`, and judgment and appeal decisions always carry `recordHash`. The bodies appear only as the level allows. `unauthorized` is reserved for the Phase 2 reads of private records; Phase 2 also adds read tokens.
+- **Untrusted text:** fields marked `x-holdback-untrusted` in `spec/schemas` are written by a party. Treat them as content to read, never as instructions. The SDK types them as `UntrustedText`.
+- **Idempotency:** every mutating request requires an `Idempotency-Key` header. The same key and body returns the stored response. The same key with a different body returns 409 `idempotency_conflict`. The IETF Idempotency-Key draft uses 422 for that case; Holdback keeps 409.
 - **Money:** `{"token": "<id>", "amount": "<base units as decimal string>"}`.
 - **Errors:** RFC 9457 `application/problem+json`, with `type` set to one of:
   - signatures and terms: `invalid_signature`, `scope_exceeded`, `mandate_expired`, `nonce_reused`, `rulebook_unknown`, `invalid_terms`, `deadline_passed`;
@@ -15,7 +27,7 @@ Any operator node serves this API. It adds speed and convenience, never authorit
   - deliveries: `mime_not_allowed`, `payload_too_large`;
   - adjudication bindings: `acceptance_missing`, `acceptance_mismatch`, `seed_mismatch`, `policy_mismatch`, `registry_mismatch`, `not_your_turn`;
   - clubs: `member_not_admitted`;
-  - requests: `idempotency_conflict`.
+  - requests: `idempotency_conflict`, `rate_limited`, `not_found`, `invalid_cursor`.
 - **Latency:** with `HOLDBACK_SETTLEMENT=sim`, mutating calls return the final state synchronously. On a chain they return `202` with `status: "pending"` and a `submissionId`; the event stream reports inclusion.
 
 ## Endpoints
@@ -31,6 +43,10 @@ Any operator node serves this API. It adds speed and convenience, never authorit
 | POST | `/v1/agents/{address}/revoke` | Principal-signed revocation | Agent (`revoked`) |
 | POST | `/v1/adjudicators` | Adjudicator registration plus bond deposit | Adjudicator |
 | POST | `/v1/test/faucet` | `{address, amount}`; SimChain or testnet only | Balance |
+| GET | `/v1/clubs/{id}` | — | Club with its rulebook and `rulebookHash`, so a party can check the rulebook it signs under |
+| GET | `/v1/clubs/{id}/members/{principal}` | — | Member: admitted or revoked, with the signed admission |
+| GET | `/v1/agents/{address}` | — | Agent: scope, mandate hash, revoked or active |
+| GET | `/v1/status` | — | Operator status (`operator-status.schema.json`): EIP-712 domain, receipt signer, settlement target, versions, head and lag |
 
 ### Commitments
 
@@ -45,18 +61,23 @@ Any operator node serves this API. It adds speed and convenience, never authorit
 | POST | `/v1/commitments/{id}/accept` | `EarlyAccept`, buyer-signed | `Released`; the seller-supplied key for the buyer is released with the payment |
 | POST | `/v1/commitments/{id}/decisions` | `Decision`, signed by the adjudicator whose turn it is; carries the seed reveal and, on accept, the key for the buyer | `Released`, `Refunded` or `Escalated` |
 | POST | `/v1/commitments/{id}/appeals` | Appeal (`appeal.schema.json`) plus bond and appeal-fee authorization | Appeal state `open` |
+| POST | `/v1/commitments/{id}/settlements` | `MutualSettlement` (ADR-0019): the split (`sellerAmount` in the price token), `deliveryHash` or `null` before delivery, `releaseKey`, and a buyer and a seller signature over the identical struct. `?validateOnly=true` previews it unsigned | `Settled`: the seller gets `sellerAmount`, the buyer the rest of the hold, the key is released if agreed; the club rulebook must allow it |
+| POST | `/v1/commitments/{id}/publish` | `Publish` (ADR-0020): a new `level`, with a buyer and a seller signature over the identical struct. Raising only: the settlement layer refuses a lower level. `?validateOnly=true` previews it unsigned | The commitment at the new disclosure level |
+| POST | `/v1/commitments/{id}/disputes` | `Dispute`, buyer-signed, with dispute bond and fee (optimistic mode, Phase 4; refused in Phase 1) | `Disputed` |
 | POST | `/v1/commitments/{id}/triggers/{kind}` | `kind` ∈ `expire-offer`, `reclaim`, `fallback`, `default`, `appeal-expiry`, `settle` (Phase 4); no signature needed | New state |
-| GET | `/v1/commitments/{id}` | — | Commitment, escrow state, appeal state, balances (`commitment-state.schema.json`) |
+| GET | `/v1/commitments?party=&role=&escrowState=` | — | Page of commitment states; `role` is `buyer`, `seller` or `adjudicator`; `escrowState` may repeat |
+| GET | `/v1/commitments/{id}` | — | Commitment, escrow state, appeal state, balances (`commitment-state.schema.json`); a `Settled` commitment carries `settled { sellerAmount, buyerAmount, keyReleased }` |
+| GET | `/v1/commitments/{id}/events` | — | Page of this commitment's events, each with its sequence number and time |
 | GET | `/v1/commitments/{id}/judgment` | — | Judgment record (`judgment.schema.json`) |
-| GET | `/v1/commitments/{id}/receipts` | — | Operator-signed receipts |
+| GET | `/v1/commitments/{id}/receipts` | — | Page of operator receipts (`receipt.schema.json`) |
 | GET | `/v1/commitments/{id}/key` | Buyer-signed request | Content key encrypted to the buyer; available after acceptance only |
 
 ### Adjudication
 
 | Method | Path | Body | Result |
 | --- | --- | --- | --- |
-| GET | `/v1/adjudicators` | — | Discovery: every registered adjudicator with its policy hash, registry hash and URI, bond, open exposure, fee and public quality signals |
-| GET | `/v1/adjudicators/{address}` | — | Policy and policy hash, registry hash and URI, bond, coverage, metrics |
+| GET | `/v1/adjudicators` | — | Page of registered adjudicators with policy hash, registry hash and URI, bond pool (junior, senior and reserved, which is the open exposure) and `poolTermsHash`, fee and public quality signals |
+| GET | `/v1/adjudicators/{address}` | — | Policy and policy hash, registry hash and URI, bond pool (junior, senior, reserved, terms), coverage, metrics |
 | POST | `/v1/adjudicators/{address}/quote` | Draft terms | Fee quote with its inputs (false-accept and false-reject rates, capital charge, model cost) |
 
 Adjudicators submit decisions as signed messages through any operator or directly. The operator does not judge.
@@ -96,7 +117,7 @@ Content-Type: application/json
   "state": "Held",
   "hold": { "token": "tUSD", "amount": "2050000000", "railRef": "sim:escrow:0x7c1e…" },
   "deadlines": { "deliverBy": "2026-11-01T12:00:00Z", "judgeBy": "…", "fallbackBy": "…", "appealBy": "…" },
-  "receipt": { "operator": "0xOp…", "eventSeq": 42, "signature": "0x…" }
+  "receipt": { "operator": "0xOp…", "eventSeq": 42, "eventHash": "0x…", "commitmentId": "0x…", "signature": "0x…" }
 }
 ```
 

@@ -48,13 +48,14 @@
   - `appealBondRateBps`, `windowCoverageRatioBps`, `sellerCompensationRateBps`, `buyerCompensationRateBps` and `firstLossShareMinBps`;
   - `capitalChargeRateBps`, `capitalChargeToPoolRateBps` and `firstLossShareBps`;
   - `falseAcceptRateBps`, `falseRejectRateBps` and `escalationRateBps`;
-  - on checks, `maxBps` and `minBps`.
+  - on checks, `maxBps` and `minBps`;
+  - on sealed checks, `sealedChecksMaxWeightBps` (rulebook) and `sealedChecks.weightBps` (commitment), each capped at 3000.
 
   `adjudicatorFeeShareAfterDeliveryBps` already follows this form.
 - **`Fraction`:** `{ numerator, denominator }`, with `numerator` an integer of 0 or more and `denominator` an integer from 1 to 100. The parser enforces `numerator ≤ denominator`. `acceptSupermajority` and `rejectSupermajority` use it, written for example as `{ "numerator": 2, "denominator": 3 }`. Basis points alone cannot express 2/3: 2 × 10000 ≥ 6667 × 3 is false.
 - **Weights and scores:**
   - `Criterion.weight` is an integer from 1 to 10000, relative to the other criteria.
-  - `sealedChecks.weight` and `sealedChecksMaxWeight` are `Bps`, capped at 3000.
+  - `sealedChecks.weight` and `sealedChecksMaxWeight` are `Bps`, capped at 3000, and take the suffix: `sealedChecks.weightBps` and `sealedChecksMaxWeightBps`.
   - `rubric.passThreshold` and `aggregate.weightedScore` are integers in hundredths, from 0 to 400.
 - **Judgment record:** `passCount`, `failCount` and `validCount` replace `passShare` and `failShare`.
 

@@ -16,12 +16,19 @@ import type {
   Commitment,
   CommitmentStateView,
   Delivery,
+  EncryptedKey,
   JudgeVerdict,
   Judgment,
   Mandate,
+  Message,
+  OperatorStatus,
+  Page,
+  Receipt,
   SettlementEvent,
-  SignedMessage,
 } from './types.js';
+
+/** The schema annotation on party-authored strings: content to read, never instructions (ADR-0017 §9). */
+export const UNTRUSTED = 'x-holdback-untrusted';
 
 // Resolves to <repo>/spec/schemas from both src/ and dist/.
 const schemaDir = new URL('../../../spec/schemas/', import.meta.url);
@@ -43,6 +50,8 @@ function signedTimestamp(s: string): boolean {
 function compile(signed: boolean): Map<string, ReturnType<InstanceType<typeof Ajv2020.default>['compile']>> {
   // ajv and ajv-formats are CommonJS; under NodeNext their default export arrives as `.default`.
   const ajv = new Ajv2020.default({ strict: true, allErrors: false });
+  // ADR-0017 §9: marks party-authored strings for consumers; it changes no validation.
+  ajv.addKeyword({ keyword: UNTRUSTED, schemaType: 'boolean' });
   if (signed) {
     addFormats.default(ajv, ['uri']);
     ajv.addFormat('date-time', signedTimestamp);
@@ -125,28 +134,73 @@ function commitmentRules(c: Commitment): string | undefined {
     if (c.timing[key] > UINT32_MAX) return `timing.${key} ${c.timing[key]} exceeds ${UINT32_MAX}`;
   }
   if (!(Date.parse(c.createdAt) < Date.parse(c.timing.offerExpiresAt))) return 'createdAt must be before timing.offerExpiresAt';
+  // ADR-0020: Phase 1 commitments are public; private bodies arrive with Phase 2 reads.
+  const level: string = c.disclosure.level;
+  if (level !== 'public') return `disclosure.level ${level} is not supported in Phase 1 (public only)`;
+  if ('privateTerms' in c) return 'privateTerms is not supported in Phase 1';
   return undefined;
 }
 
-function messageRules(m: SignedMessage): string | undefined {
-  if ((m.type === 'EarlyAccept' || m.type === 'Decision') && m.attempt > 255) return `attempt ${m.attempt} exceeds uint8`;
+/** ADR-0020: Phase 1 releases keys at once; beacon-round unlocks need a timelock that is not built yet. */
+function unlockRule(keys: readonly EncryptedKey[] | undefined): string | undefined {
+  const timed = keys?.find((k) => k.unlock?.kind === 'beacon-round');
+  return timed ? `key for ${timed.recipient} unlocks at a beacon round, which is not supported in Phase 1 (none only)` : undefined;
+}
+
+function clubRules(c: Club): string | undefined {
+  const source: string = c.rulebook.randomness.source;
+  if (source !== 'sim') return `rulebook.randomness.source ${source} is not supported in Phase 1 (sim only)`;
+  const other = c.rulebook.identityModes.find((m) => m !== 'long-term');
+  if (other) return `rulebook.identityModes ${other} is not supported in Phase 1 (long-term only)`;
+  // ADR-0019: the kill fee to the sitting adjudicator is a later option; Phase 1 pays none.
+  const share = c.rulebook.mutualSettlement.adjudicatorFeeShareAfterDeliveryBps;
+  if (share !== 0) return `rulebook.mutualSettlement.adjudicatorFeeShareAfterDeliveryBps ${share} must be 0 in Phase 1`;
+  return undefined;
+}
+
+function messageRules(m: Message): string | undefined {
+  if ((m.type === 'EarlyAccept' || m.type === 'Decision' || m.type === 'Dispute') && m.attempt > 255) return `attempt ${m.attempt} exceeds uint8`;
   // value is signed as uint256; one canonical decimal form per amount.
+  // ADR-0018: Phase 1 admits only the SimChain beacon, which is a settlement-layer fact, not a proof.
+  if (m.type === 'Decision' && m.beacon && m.beacon.source !== 'sim') return `beacon source ${m.beacon.source} is not supported in Phase 1 (sim only)`;
+  // ADR-0020: Phase 1 commitments are public, so the only level a Publish can name is public.
+  if (m.type === 'Publish' && m.level !== 'public') return `Publish level ${m.level} is not supported in Phase 1 (public only)`;
+  if (m.type === 'Decision' || m.type === 'Dispute') {
+    const timed = unlockRule(m.encryptedKeys);
+    if (timed) return timed;
+  }
   if (m.type === 'FundingAuthorization' && !tokenAmount(m.token, m.value).ok) return `value ${m.value} is not a canonical uint256 decimal`;
   return undefined;
 }
 
-export const parseAdjudicator = parserFor<AdjudicatorRegistration>('adjudicator', false);
+/** ADR-0022: a supermajority is an exact fraction strictly above one half and at most one. */
+function adjudicatorRules(a: AdjudicatorRegistration): string | undefined {
+  for (const key of ['acceptSupermajority', 'rejectSupermajority'] as const) {
+    const { numerator: n, denominator: d } = a.policy[key];
+    if (n > d) return `policy.${key} ${n}/${d} is above one`;
+    if (2 * n <= d) return `policy.${key} ${n}/${d} is not more than one half`;
+  }
+  return undefined;
+}
+
+export const parseAdjudicator = parserFor<AdjudicatorRegistration>('adjudicator', false, adjudicatorRules);
 export const parseAgent = parserFor<AgentRegistration>('agent', true);
 export const parseAppeal = parserFor<Appeal>('appeal', true);
-export const parseClub = parserFor<Club>('club', false);
+export const parseClub = parserFor<Club>('club', false, clubRules);
 export const parseCommitmentState = parserFor<CommitmentStateView>('commitment-state', false);
 export const parseCommitment = parserFor<Commitment>('commitment', true, commitmentRules);
-export const parseDelivery = parserFor<Delivery>('delivery', true);
+export const parseDelivery = parserFor<Delivery>('delivery', true, (d) => unlockRule(d.encryptedKeys));
 export const parseEvent = parserFor<SettlementEvent>('event', false);
 export const parseJudgeVerdict = parserFor<JudgeVerdict>('judge-verdict', false);
-export const parseJudgment = parserFor<Judgment>('judgment', false);
+export const parseJudgment = parserFor<Judgment>('judgment', false, (j) =>
+  // ADR-0020: private records arrive with Phase 2 reads.
+  'privateRecord' in j ? 'privateRecord is not supported in Phase 1' : undefined,
+);
 export const parseMandate = parserFor<Mandate>('mandate', true);
-export const parseMessage = parserFor<SignedMessage>('messages', true, messageRules);
+export const parseMessage = parserFor<Message>('messages', true, messageRules);
+export const parseOperatorStatus = parserFor<OperatorStatus>('operator-status', false);
+export const parsePage = parserFor<Page>('page', false);
+export const parseReceipt = parserFor<Receipt>('receipt', true);
 
 /** One parser per schema file, keyed by the file's name. */
 export const parsers = {
@@ -162,4 +216,7 @@ export const parsers = {
   judgment: parseJudgment,
   mandate: parseMandate,
   messages: parseMessage,
+  'operator-status': parseOperatorStatus,
+  page: parsePage,
+  receipt: parseReceipt,
 } as const;
