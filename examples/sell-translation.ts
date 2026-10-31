@@ -27,8 +27,7 @@ const offer = await seller.offer({
 });
 
 await buyer.waitFor(offer.id, ['AcceptedByAdjudicator']);
-const prepared = await buyer.call('POST', '/v1/prepare/agree-and-fund', { commitmentId: offer.id });
-await buyer.signAndSubmit(prepared, { kind: 'agree-and-fund', terms: offer.terms, me: buyer.address, encryptionPublicKey: buyer.encryptionPublicKey, maxTotal: 10_000_000n });
+await buyer.agreeAndFund(offer.terms, 10_000_000n);
 
 // Put FAIL-ME in the text to see the fake panel reject it, and the refund.
 const french = 'Les marchandises sont expédiées mardi. Le paiement est dû dans les 30 jours suivant la livraison.';

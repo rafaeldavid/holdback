@@ -4,7 +4,7 @@
 import nacl from 'tweetnacl';
 import type { Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { commitmentIdOf, configuredDomain, jcs, jcsHash, verifyPrepared, type Domain, type Intent } from './verify.ts';
+import { commitmentIdOf, configuredDomain, freshNonce, jcs, jcsHash, verifyPrepared, type Domain, type Intent } from './verify.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 const b64 = (b: Uint8Array) => Buffer.from(b).toString('base64url');
@@ -36,12 +36,24 @@ export class Agent {
     if (!res.ok) throw new Error(`${method} ${path}: ${out.type}: ${out.detail}`);
     return out as T;
   }
-  /** A read every configured operator must answer identically (on `pick`); one lying operator is caught. */
+  /** The configured operators, one per distinct origin (the same node listed twice is one source). */
+  sources(): string[] {
+    const byOrigin = new Map<string, string>();
+    for (const api of this.operators) byOrigin.set(new URL(api).origin.toLowerCase(), api.replace(/\/+$/, ''));
+    if (byOrigin.size < 2) throw new Error('trusted reads need at least two operators at distinct origins');
+    return [...byOrigin.values()];
+  }
+  /** A read every distinct operator must answer identically (on `pick`): one lying operator is caught. */
   async trusted<T = J>(path: string, pick: (x: J) => T = (x) => x): Promise<T> {
-    if (this.operators.length < 2) throw new Error('trusted reads need at least two operators');
-    const answers = await Promise.all(this.operators.map(async (api) => pick(await this.call('GET', path, undefined, api))));
+    const answers = await Promise.all(this.sources().map(async (api) => pick(await this.call('GET', path, undefined, api))));
     if (new Set(answers.map((a) => jcs(a))).size !== 1) throw new Error(`operators disagree on ${path}; do not proceed`);
     return answers[0]!;
+  }
+  /** Settlement-layer time as every distinct operator reports it; they must agree within 5 seconds. */
+  async settlementNow(): Promise<number> {
+    const times = await Promise.all(this.sources().map(async (api) => Date.parse((await (await fetch(`${api}/.well-known/holdback.json`)).json() as J).settlementTime)));
+    if (times.some((t) => !Number.isFinite(t)) || Math.max(...times) - Math.min(...times) > 5000) throw new Error('operators disagree on settlement-layer time; do not proceed');
+    return Math.max(...times);
   }
   /** An adjudicator's registration as every operator serves it, with its policy hash checked. */
   async registration(address: string) {
@@ -49,14 +61,16 @@ export class Agent {
     if (jcsHash(r.policy) !== r.policyHash) throw new Error(`adjudicator ${address} publishes a policyHash that does not match its policy`);
     return r;
   }
-  async rulebookHash(clubId: string): Promise<Hex> {
+  /** The club's rulebook as every operator serves it, with its hash checked. */
+  async club(clubId: string): Promise<{ rulebook: J; rulebookHash: Hex }> {
     const club = await this.trusted(`/v1/clubs/${clubId}`, (x) => ({ rulebook: x.rulebook, rulebookHash: x.rulebookHash }));
     if (jcsHash(club.rulebook) !== club.rulebookHash) throw new Error(`club ${clubId}'s rulebookHash does not match its rulebook`);
-    return club.rulebookHash;
+    return club;
   }
+  rulebookHash = async (clubId: string): Promise<Hex> => (await this.club(clubId)).rulebookHash;
   /** Verifies a prepared message against this agent's intent, signs its own typed data, submits its own body. */
   async signAndSubmit(prepared: J, intent: Intent): Promise<J> {
-    const { path, body, toSign } = verifyPrepared(prepared, intent, this.address, this.domain);
+    const { path, body, toSign } = verifyPrepared(prepared, intent, this.address, this.domain, await this.settlementNow());
     for (const s of toSign) {
       const keys = s.slot.split('.');
       const parent = keys.slice(0, -1).reduce((o: J, k: string) => o[k], body);
@@ -65,14 +79,21 @@ export class Agent {
     return this.call('POST', path, body);
   }
   /** Seller: an offer from a request, checked against the club and primary as every operator serves them. */
-  async offer(request: J): Promise<{ id: Hex; terms: J; state: J }> {
+  async offer(given: J): Promise<{ id: Hex; terms: J; state: J }> {
+    const request = { nonce: freshNonce(), ...given }; // the agent picks its own nonce
     const prepared = await this.call('POST', '/v1/prepare/offer', request);
     const intent: Intent = { kind: 'offer', request, registration: await this.registration(request.adjudicators.primary), rulebookHash: await this.rulebookHash(request.clubId) };
-    const terms = { ...verifyPrepared(prepared, intent, this.address, this.domain).body };
+    const terms = { ...verifyPrepared(prepared, intent, this.address, this.domain, await this.settlementNow()).body };
     const id = terms.id as Hex;
     delete terms.id;
     delete terms.signatures;
     return { id, terms, state: await this.signAndSubmit(prepared, intent) };
+  }
+  /** Buyer: agree to the terms it was sent and hold price plus fee, with nonces it picked itself. */
+  async agreeAndFund(terms: J, maxTotal: bigint): Promise<J> {
+    const nonces = { agreeNonce: freshNonce(), fundingNonce: freshNonce() };
+    const prepared = await this.call('POST', '/v1/prepare/agree-and-fund', { commitmentId: commitmentIdOf(terms), ...nonces });
+    return this.signAndSubmit(prepared, { kind: 'agree-and-fund', terms, me: this.address, encryptionPublicKey: this.encryptionPublicKey, maxTotal, ...nonces });
   }
   async waitFor(id: Hex, states: string[], timeoutMs = 20_000): Promise<{ escrowState: string; deadlines: Record<string, string> }> {
     for (const end = Date.now() + timeoutMs; Date.now() < end; await new Promise((r) => setTimeout(r, 100))) {
@@ -87,6 +108,10 @@ export class Agent {
    * An operator's /recipients answer is only cross-checked, never trusted.
    */
   async deliver(terms: J, plaintext: Uint8Array): Promise<J> {
+    const { prepared, intent } = await this.prepareDelivery(terms, plaintext);
+    return this.signAndSubmit(prepared, intent);
+  }
+  async prepareDelivery(terms: J, plaintext: Uint8Array): Promise<{ prepared: J; intent: Intent }> {
     const a = terms.adjudication;
     const recipients = [];
     for (const address of [a.adjudicator, a.fallbackAdjudicator, a.appealAdjudicator]) recipients.push({ address, encryptionPublicKey: (await this.registration(address)).encryptionPublicKey });
@@ -108,7 +133,7 @@ export class Agent {
     });
     const intent: Intent = { kind: 'delivery', terms, ciphertext: { uri: stored.uri, sha256: stored.id, bytes: ciphertext.length }, plaintextSha256: await sha(plaintext), encryptedKeys };
     const prepared = await this.call('POST', '/v1/prepare/delivery', { commitmentId: id, ciphertext: intent.ciphertext, plaintextSha256: intent.plaintextSha256, encryptedKeys });
-    return this.signAndSubmit(prepared, intent);
+    return { prepared, intent };
   }
   /** Buyer: fetch this agent's released envelope and the ciphertext, decrypt, check the signed hashes. */
   async openDelivery(id: Hex): Promise<string> {

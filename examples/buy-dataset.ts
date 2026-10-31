@@ -29,9 +29,7 @@ console.log(`offer ${offer.id}: ${offer.state.escrowState}`);
 // 2. Buyer: checks the terms the seller sent (its address, its key, its budget), waits for the primary's
 //    acceptance, then agrees and holds price plus fee in one signed call.
 await buyer.waitFor(offer.id, ['AcceptedByAdjudicator']);
-const prepared = await buyer.call('POST', '/v1/prepare/agree-and-fund', { commitmentId: offer.id });
-const intent = { kind: 'agree-and-fund', terms: offer.terms, me: buyer.address, encryptionPublicKey: buyer.encryptionPublicKey, maxTotal: 30_000_000n } as const;
-const held = await buyer.signAndSubmit(prepared, intent);
+const held = await buyer.agreeAndFund(offer.terms, 30_000_000n); // at most 30 tUSD
 console.log(`held: ${held.escrowState}, ${held.hold.amount.amount} base units`);
 
 // 3. Seller: encrypt, upload, seal the key to each adjudicator and the buyer, sign the delivery.

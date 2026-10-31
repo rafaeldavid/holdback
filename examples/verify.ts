@@ -1,7 +1,7 @@
 // Operator proposes, agent verifies. An operator's /v1/prepare answer is a proposal: before signing, the agent
 // rebuilds the message from its own intent (what it asked for, the terms it agreed to, the hashes it computed),
-// pins the EIP-712 domain and types from its own configuration, and accepts from the operator only a nonce
-// and a time within bounds. Any other difference, in the typed data, the digest, the slots or the body,
+// pins the EIP-712 domain and types from its own configuration, picks its own nonces, and accepts from the
+// operator only a time within bounds of settlement-layer time. Any other difference, in the typed data, the digest, the slots or the body,
 // refuses. The agent then signs its own typed data and submits its own body. Standard libraries only (viem).
 import { hashStruct, hashTypedData, keccak256, toBytes, type Hex } from 'viem';
 
@@ -51,12 +51,19 @@ const lower = (v: J): J => (typeof v === 'string' && /^0x[0-9a-fA-F]+$/.test(v) 
 const secs = (ts: string) => BigInt(Date.parse(ts) / 1000);
 const iso = (ms: number) => new Date(ms).toISOString().replace('.000Z', 'Z');
 const amt = (a: J) => ({ token: a.token, amount: BigInt(a.amount) });
-const nonce = (v: J) => (typeof v === 'string' && /^0x[0-9a-fA-F]{64}$/.test(v) ? v : refuse('the nonce is not 32 bytes of hex'));
-/** An operator-chosen time must lie within [now - behind, now + ahead] seconds of the agent's own clock. */
-const near = (ts: J, behind: number, ahead: number, name: string) => {
-  const d = (Date.parse(ts) - Date.now()) / 1000;
-  return typeof ts === 'string' && d >= -behind && d <= ahead ? ts : refuse(`${name} ${ts} is not within the expected window`);
+const HEX32 = /^0x[0-9a-fA-F]{64}$/;
+/** A fresh random nonce for the agent to send with its prepare request. */
+export const freshNonce = (): Hex => `0x${Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('hex')}`;
+/** The agent picks its nonces; the operator must echo exactly the one the agent sent. */
+const own = (mine: J, theirs: J, name: string) =>
+  typeof mine !== 'string' || !HEX32.test(mine) ? refuse(`generate ${name} yourself (32 random bytes) and send it with the prepare request`) : String(theirs).toLowerCase() === mine.toLowerCase() ? mine : refuse(`${name} is not the one you sent`);
+/** An operator-chosen time must lie within [now - behind, now + ahead] seconds of settlement-layer time. */
+const nearTo = (now: number) => (ts: J, behind: number, ahead: number, name: string) => {
+  const d = (Date.parse(ts) - now) / 1000;
+  return typeof ts === 'string' && d >= -behind && d <= ahead ? ts : refuse(`${name} ${ts} is not within the expected window around settlement time`);
 };
+/** An appeal bond is the rulebook's rate of the price, rounded up; the settlement layer would accept more. */
+export const appealBondOf = (price: J, rateBps: number): string => ((BigInt(price.amount) * BigInt(rateBps) + 9_999n) / 10_000n).toString();
 
 const termsMessage = (t: J) => ({
   ...t, deliverableHash: jcsHash(t.deliverable), acceptanceHash: jcsHash(t.acceptance), price: amt(t.price), adjudication: { ...t.adjudication, fee: amt(t.adjudication.fee) }, createdAt: secs(t.createdAt),
@@ -77,20 +84,22 @@ const ENCODE: Record<string, (m: J) => J> = {
 /** What the agent itself intends, per kind. `terms` are the commitment terms the agent signed or agreed to. */
 export type Intent =
   | { kind: 'offer'; request: J; registration: { policy: J; policyHash: Hex; registry: { hash: Hex }; fee: { min: J } }; rulebookHash: Hex }
-  | { kind: 'agree-and-fund'; terms: J; me: string; encryptionPublicKey: string; maxTotal: bigint }
+  | { kind: 'agree-and-fund'; terms: J; me: string; encryptionPublicKey: string; maxTotal: bigint; agreeNonce: Hex; fundingNonce: Hex }
   | { kind: 'delivery'; terms: J; ciphertext: { uri: string; sha256: string; bytes: number }; plaintextSha256: string; encryptedKeys: J[] }
-  | { kind: 'early-accept'; terms: J }
-  | { kind: 'appeal'; terms: J; me: string; grounds?: string; maxBond: bigint }
-  | { kind: 'settlement'; terms: J; payouts: J[]; releaseKey: boolean; deliveryHash: Hex | null };
+  | { kind: 'early-accept'; terms: J; nonce: Hex }
+  /** appealBondRateBps: from the club rulebook as at least two operators serve it. */
+  | { kind: 'appeal'; terms: J; me: string; grounds?: string; appealBondRateBps: number }
+  | { kind: 'settlement'; terms: J; payouts: J[]; releaseKey: boolean; deliveryHash: Hex | null; nonce: Hex };
 type Plan = { path: string; body: J; slots: Array<{ slot: string; primaryType: string; signer: string; message: J }> };
 
-/** Builds the body the agent expects, taking from the operator's proposal only nonces and bounded times. */
-function expected(intent: Intent, op: J): Plan {
+/** Builds the body the agent expects, taking from the operator's proposal only times bounded around `now`. */
+function expected(intent: Intent, op: J, now: number): Plan {
   const plus = (ts: string, s: number) => iso(Date.parse(ts) + s * 1000);
+  const near = nearTo(now);
   if (intent.kind === 'offer') {
     const r = intent.request, reg = intent.registration;
     if (jcsHash(reg.policy) !== reg.policyHash) refuse("the adjudicator's policyHash does not match its policy");
-    const timing = { ...DEFAULT_TIMING, ...r.timing }, createdAt = near(op.createdAt, 600, 600, 'createdAt');
+    const timing = { ...DEFAULT_TIMING, ...r.timing }, createdAt = near(op.createdAt, 600, 60, 'createdAt');
     const deliverBy = plus(createdAt, timing['deliverWithinSec']!), judgeBy = plus(deliverBy, timing['judgeWithinSec']!);
     const terms = {
       schemaVersion: '0.6', clubId: r.clubId, rulebookHash: intent.rulebookHash, buyer: r.buyer.address.toLowerCase(), seller: r.seller.toLowerCase(), deliverable: r.deliverable,
@@ -98,7 +107,7 @@ function expected(intent: Intent, op: J): Plan {
       adjudication: { adjudicator: r.adjudicators.primary, fallbackAdjudicator: r.adjudicators.fallback, appealAdjudicator: r.adjudicators.appeal, policyId: reg.policy.id, fee: r.fee ?? reg.fee.min, registryHash: reg.registry.hash, policyHash: reg.policyHash },
       timing: { offerExpiresAt: plus(createdAt, timing['offerExpiresInSec']!), fundBy: plus(createdAt, timing['fundWithinSec']!), deliverBy, judgeBy, fallbackBy: plus(judgeBy, timing['fallbackWithinSec']!), appealWindowSec: timing['appealWindowSec'], appealDecideSec: timing['appealDecideSec'], maxSubmissions: 1 },
       settlement: { mode: 'guaranteed_on_decision', token: r.price.token }, remedy: { onReject: 'full_refund' }, disclosure: { level: 'public' },
-      buyerEncryptionPublicKey: r.buyer.encryptionPublicKey, nonce: nonce(op.nonce), createdAt,
+      buyerEncryptionPublicKey: r.buyer.encryptionPublicKey, nonce: own(r.nonce, op.nonce, 'nonce'), createdAt,
     };
     return { path: '/v1/commitments', body: { ...terms, id: commitmentIdOf(terms), signatures: { seller: null } }, slots: [{ slot: 'signatures.seller', primaryType: 'CommitmentTerms', signer: terms.seller, message: terms }] };
   }
@@ -108,25 +117,27 @@ function expected(intent: Intent, op: J): Plan {
     if (t.buyerEncryptionPublicKey !== intent.encryptionPublicKey) refuse('the terms seal the work to a key you do not hold');
     const total = BigInt(t.price.amount) + BigInt(t.adjudication.fee.amount);
     if (total > intent.maxTotal) refuse(`price plus fee ${total} exceeds your limit ${intent.maxTotal}`);
-    const agree = { type: 'Agree', commitmentId: id, buyer: t.buyer, nonce: nonce(op.nonce), expiresAt: t.timing.offerExpiresAt };
-    const fund = { type: 'FundingAuthorization', scheme: 'erc3009', commitmentId: id, from: t.buyer, value: total.toString(), token: t.price.token, validAfter: t.createdAt, validBefore: t.timing.fundBy, nonce: nonce(op.fund?.nonce), expiresAt: t.timing.fundBy };
+    if (String(intent.agreeNonce).toLowerCase() === String(intent.fundingNonce).toLowerCase()) refuse('agreeNonce and fundingNonce must differ');
+    const agree = { type: 'Agree', commitmentId: id, buyer: t.buyer, nonce: own(intent.agreeNonce, op.nonce, 'agreeNonce'), expiresAt: t.timing.offerExpiresAt };
+    const fund = { type: 'FundingAuthorization', scheme: 'erc3009', commitmentId: id, from: t.buyer, value: total.toString(), token: t.price.token, validAfter: t.createdAt, validBefore: t.timing.fundBy, nonce: own(intent.fundingNonce, op.fund?.nonce, 'fundingNonce'), expiresAt: t.timing.fundBy };
     return { path: `/v1/commitments/${id}/agree`, body: { ...agree, signature: null, fund: { ...fund, signature: null } }, slots: [{ slot: 'signature', primaryType: 'Agree', signer: t.buyer, message: agree }, { slot: 'fund.signature', primaryType: 'FundingAuthorization', signer: t.buyer, message: fund }] };
   }
   if (intent.kind === 'delivery') {
-    const m = { commitmentId: id, attempt: 1, ciphertext: { ...intent.ciphertext, cipher: 'aes-256-gcm' }, plaintextSha256: intent.plaintextSha256, plaintextMime: t.deliverable.format, encryptedKeys: intent.encryptedKeys, submittedAt: near(op.submittedAt, 600, 600, 'submittedAt') };
+    const m = { commitmentId: id, attempt: 1, ciphertext: { ...intent.ciphertext, cipher: 'aes-256-gcm' }, plaintextSha256: intent.plaintextSha256, plaintextMime: t.deliverable.format, encryptedKeys: intent.encryptedKeys, submittedAt: near(op.submittedAt, 600, 60, 'submittedAt') };
     return { path: `/v1/commitments/${id}/deliveries`, body: { ...m, signature: null }, slots: [{ slot: 'signature', primaryType: 'Delivery', signer: t.seller, message: m }] };
   }
   if (intent.kind === 'early-accept') {
-    const m = { type: 'EarlyAccept', commitmentId: id, buyer: t.buyer, attempt: 1, nonce: nonce(op.nonce), expiresAt: near(op.expiresAt, 0, 86_400, 'expiresAt') };
+    const m = { type: 'EarlyAccept', commitmentId: id, buyer: t.buyer, attempt: 1, nonce: own(intent.nonce, op.nonce, 'nonce'), expiresAt: near(op.expiresAt, 0, 86_400, 'expiresAt') };
     return { path: `/v1/commitments/${id}/accept`, body: { ...m, signature: null }, slots: [{ slot: 'signature', primaryType: 'EarlyAccept', signer: t.buyer, message: m }] };
   }
   if (intent.kind === 'appeal') {
     const role = intent.me.toLowerCase() === t.buyer.toLowerCase() ? 'buyer' : intent.me.toLowerCase() === t.seller.toLowerCase() ? 'seller' : refuse('you are neither party');
-    if (op.bond?.token !== t.price.token || !(BigInt(op.bond.amount) <= intent.maxBond)) refuse(`the bond ${jcs(op.bond)} is not in the price token within your limit ${intent.maxBond}`);
-    const m = { commitmentId: id, appellant: role, appellantAddress: intent.me.toLowerCase(), grounds: intent.grounds ?? 'wrong-outcome', bond: { token: op.bond.token, amount: op.bond.amount }, filedAt: near(op.filedAt, 600, 600, 'filedAt') };
+    if (!Number.isSafeInteger(intent.appealBondRateBps) || intent.appealBondRateBps < 0 || intent.appealBondRateBps > 10_000) refuse('appealBondRateBps must come from the club rulebook');
+    const bond = { token: t.price.token, amount: appealBondOf(t.price, intent.appealBondRateBps) };
+    const m = { commitmentId: id, appellant: role, appellantAddress: intent.me.toLowerCase(), grounds: intent.grounds ?? 'wrong-outcome', bond, filedAt: near(op.filedAt, 600, 60, 'filedAt') };
     return { path: `/v1/commitments/${id}/appeals`, body: { ...m, signature: null }, slots: [{ slot: 'signature', primaryType: 'Appeal', signer: intent.me, message: m }] };
   }
-  const m = { type: 'MutualSettlement', commitmentId: id, deliveryHash: intent.deliveryHash, payouts: intent.payouts, releaseKey: intent.releaseKey, nonce: nonce(op.nonce), expiresAt: near(op.expiresAt, 0, 86_400, 'expiresAt') };
+  const m = { type: 'MutualSettlement', commitmentId: id, deliveryHash: intent.deliveryHash, payouts: intent.payouts, releaseKey: intent.releaseKey, nonce: own(intent.nonce, op.nonce, 'nonce'), expiresAt: near(op.expiresAt, 0, 86_400, 'expiresAt') };
   const slots = [{ slot: 'buyerSignature', signer: t.buyer }, { slot: 'sellerSignature', signer: t.seller }].map((s) => ({ ...s, primaryType: 'MutualSettlement', message: m }));
   return { path: `/v1/commitments/${id}/settlements`, body: { ...m, buyerSignature: null, sellerSignature: null }, slots };
 }
@@ -144,9 +155,10 @@ const ints = (types: J, type: string, v: J): J =>
  * Checks a prepared message against the agent's intent and pinned domain. Returns the body to submit and the
  * typed data the agent built itself for each slot `me` signs. Throws Refusal on any difference.
  */
-export function verifyPrepared(prepared: J, intent: Intent, me: string, domain: Domain = configuredDomain()): { path: string; body: J; toSign: Array<{ slot: string; typed: J }> } {
+export function verifyPrepared(prepared: J, intent: Intent, me: string, domain: Domain, settlementNowMs: number): { path: string; body: J; toSign: Array<{ slot: string; typed: J }> } {
   if (prepared?.kind !== intent.kind) refuse(`expected a ${intent.kind}, got ${prepared?.kind}`);
-  const plan = expected(intent, prepared.submit?.body ?? {});
+  if (!Number.isFinite(settlementNowMs)) refuse('settlement-layer time is unknown');
+  const plan = expected(intent, prepared.submit?.body ?? {}, settlementNowMs);
   if (prepared.submit.path !== plan.path) refuse(`submit path ${prepared.submit.path} is not ${plan.path}`);
   const where = diff(lower(plan.body), lower(prepared.submit.body));
   if (where) refuse(`${where} differs from what you asked for`);
