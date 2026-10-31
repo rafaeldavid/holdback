@@ -87,6 +87,7 @@ Every hard rule in `CLAUDE.md` is enforced by a check, not just by instruction. 
 | Signed messages only | Operator rejects unsigned mutations; `error.invalid-signature` fixture | T-007, T-010 |
 | Idempotency | Middleware plus `error.idempotency-conflict` fixture plus property test | T-007 |
 | Ledger invariants | fast-check properties in `packages/settlement` | T-006 |
+| Every settlement guard is tested on its own | Mutation sweep over SimChain and the core guards it relies on: each mutant must fail a test (proposed after 2 of 16 T-006 mutants survived because an earlier guard in core masked the SimChain one) | Proposed (T-006); script to land under `scripts/` |
 | Deliverables untrusted | Prompt builder API accepts content only as `UntrustedData` (branded type); test that the system prompt has no data; `attack.*` fixtures | T-008 |
 | No code execution from inputs | Check registry is a closed union; no `eval` or `Function` (lint) | T-008 |
 | Pinned models | Registry loader rejects aliases; `error.unpinned-model-refused` fixture | T-009 |

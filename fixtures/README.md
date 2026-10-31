@@ -55,9 +55,9 @@ Step kinds: `offer`, `adjudicator_accept`, `agree_and_fund`, `deliver`, `advance
 
 `recordings/<scenario>/<judgeId>.json` holds one verdict plus what it answered: `provider`, `family`, `model` (pinned ID), `promptTemplateHash`, `inputHash`, `rubricHash`, and `capturedFrom` (`live` or `fake`). A verdict whose criterion IDs do not match the rubric makes that judge abstain. If any of the six bound values differs from the current request, the run fails with `RecordingMismatchError` naming each field; the runner never substitutes another verdict.
 
-## Stub settlement (until T-006)
+## Settlement
 
-`pnpm snap` runs fixtures on a stub settlement inside `packages/testkit`. It drives `@holdback/core`'s `offer` and `step`, signs every message with a test key derived from the seed and actor name, and verifies it with core before applying it. It uses built-in stub rulebook, terms and panel values; the snapshot says so. A fixture whose `club` or `terms` file exists fails rather than having that file silently ignored. Deterministic checks and the screen are listed but not evaluated until T-008.
+`pnpm snap` runs fixtures on SimChain (`packages/settlement/sim`, T-006). The driver in `packages/testkit` signs every message with a test key derived from the seed and actor name; SimChain verifies it, runs `@holdback/core`'s `offer` and `step`, and owns the ledger, bonds and hash-chained event log, which it replays from genesis for the snapshot. Faucet amounts for adjudicators become their junior bond, and the balances table shows an adjudicator's own balance plus its bond. The driver still uses built-in stub rulebook, terms and panel values; the snapshot says so. A fixture whose `club` or `terms` file exists fails rather than having that file silently ignored. Deterministic checks and the screen are listed but not evaluated until T-008.
 
 ## Example
 

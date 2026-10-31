@@ -7,6 +7,13 @@ Deferred until after the basic demo. The demo assumes honest parties (Rafa, Octo
 | Item | Source | When it matters |
 | --- | --- | --- |
 | Club-chosen permissioned settlement chain (for example Matter Labs Prividium), with a signed residual "the club's chain operator can halt settlement" | ADR-0004 evaluation, 2026-10-31 | A regulated club asks to run its own chain (Phase 5 or later); needs its own ADR |
+| Model `authorizationExpiry` in SimChain and differential-test it against the Phase 2 contract (`authorizationExpiry` ≥ `appealDecideBy` + forced-inclusion margin) | T-006 | T-202, when the contract exists to compare against |
+| Agent registration, `AgentRevocation` and signed `MemberAdmission` at run time; SimChain reads mandates and members from genesis only | T-006 | T-007, when operators register agents live; with D22 revocation |
+| Persistence: SimChain is in memory; the journal replays it, but nothing writes it to disk | T-006 | T-007, when an operator restarts |
+| Release a reservation when `appealBy` passes with no appeal, without waiting for the appeal-expiry trigger (the coverage gate counts it as encumbered until someone triggers) | T-006 | When adjudicators run many concurrent commitments |
+| `Dispute` must carry envelopes for all three adjudicators: no Phase 1 state accepts a `Dispute`, so SimChain has no guard yet | T-006; ADR-0020 | Phase 4, optimistic mode |
+| `termsHash` and `recordHash` on every event: the schema requires them on offered, agreed and decided events and forbids extra fields on settled and bond payloads | T-006; ADR-0020 | Next schema bump |
+| Idempotency records keep successful results only; a refused call with the same key can be retried | T-006 | T-007, if clients expect refusals replayed |
 
 ## Settlement and fees
 
@@ -16,6 +23,7 @@ Deferred until after the basic demo. The demo assumes honest parties (Rafa, Octo
 | Kill fee for a sitting adjudicator on mutual settlement (`adjudicatorFeeShareAfterDeliveryBps` above 0) | ADR-0019; D21 | When adjudicators report lost panel cost on settlements |
 | Fee refund on a wrongful-reject overturn where the appeal decision also releases the key | D21 | Phase 4, with finality work |
 | Default compensation shortfall: bonds reserved only on takeover may not cover compensation; fixture `todo.default-bond-shortfall` | Escrow-theory review F5 | Phase 3 hardening |
+| Default compensation split between primary and fallback as a rulebook term (SimChain splits it evenly: the fallback pays half rounded down, the primary the rest) | T-006 | When a club wants another split |
 | Segregation statements: per-pool and per-commitment statements and invariants (segregation is by accounting, not by account) | Review F6 | Phase 4 backers; any audit |
 | Surety claim list and penal sum stated explicitly | Review F9 | Phase 4 backers |
 | Recipient validation for third-party payouts: the address can receive the token, checked by a dry transfer | D23 | Phase 2 contract tasks |
