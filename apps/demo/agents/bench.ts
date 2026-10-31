@@ -37,7 +37,27 @@ export interface JudgeReport {
   requests: JudgeRequest[];
   /** Adjudicators submit to the settlement layer themselves. */
   via: 'direct';
+  /** Wall-clock marks of the run that decided (T-019); seams other than ServiceBench may omit them. */
+  timing?: JudgingTime;
 }
+
+/**
+ * Wall-clock marks (performance.now()) of one judging run: the service run from reading the delivery to its
+ * submitted decision, and the span from the first judge call to the last verdict when a panel sat.
+ */
+export interface JudgingTime {
+  startedAt: number;
+  endedAt: number;
+  panel?: { startedAt: number; endedAt: number };
+}
+
+const judgingTimes = new Map<Hex32, JudgingTime>();
+
+/**
+ * The last judging run's marks for a commitment, for the demo's timeline (T-019). Kept here because JobResult
+ * does not carry the JudgeReport; commitment IDs are unique per seed.
+ */
+export const judgingTimeOf = (commitmentId: Hex32): JudgingTime | undefined => judgingTimes.get(commitmentId);
 
 export interface AdjudicatorSeam {
   readonly name: string;
@@ -177,6 +197,8 @@ export class ServiceBench implements AdjudicatorSeam {
   readonly policyHash: Hex32;
   readonly registryHash: Hex32;
   readonly requests: JudgeRequest[] = [];
+  /** performance.now() at each judge call and its answer, in call order. */
+  private readonly calls: { startedAt: number; endedAt?: number }[] = [];
 
   constructor(
     readonly agent: AgentKeys,
@@ -201,7 +223,18 @@ export class ServiceBench implements AdjudicatorSeam {
       registryUri: REGISTRY_URI,
       fee: { min: { token: 'tUSD', amount: (50n * TUSD).toString() } as AdjudicatorRegistration['fee']['min'] },
       domain: DOMAIN,
-      provider: { complete: (r) => (this.requests.push(r), inner.complete(r)) },
+      provider: {
+        complete: async (r) => {
+          const call: { startedAt: number; endedAt?: number } = { startedAt: performance.now() };
+          this.requests.push(r);
+          this.calls.push(call);
+          try {
+            return await inner.complete(r);
+          } finally {
+            call.endedAt = performance.now();
+          }
+        },
+      },
       settlement: directory.adapter,
     });
     directory.register({
@@ -229,13 +262,22 @@ export class ServiceBench implements AdjudicatorSeam {
 
   async judge(commitmentId: Hex32): Promise<JudgeReport> {
     const before = this.requests.length;
+    const startedAt = performance.now();
     const r = await this.service.runOnce();
+    const endedAt = performance.now();
+    const calls = this.calls.slice(before);
+    const timing: JudgingTime = {
+      startedAt,
+      endedAt,
+      ...(calls.length ? { panel: { startedAt: Math.min(...calls.map((c) => c.startedAt)), endedAt: Math.max(...calls.map((c) => c.endedAt ?? endedAt)) } } : {}),
+    };
     const refused = r.refused.find((x) => x.commitmentId === commitmentId);
     if (refused) throw new Error(`${this.name} refused ${commitmentId}: ${refused.problem.type}: ${refused.problem.detail}`);
     const decided = r.decided.find((x) => x.commitmentId === commitmentId);
     if (!decided) throw new Error(`${this.name} had nothing to decide for ${commitmentId}`);
     const record = [...this.directory.records.values()].filter((x) => x.commitmentId === commitmentId && x.adjudicator.toLowerCase() === this.agent.address.toLowerCase()).at(-1);
     if (!record) throw new Error(`${this.name} decided ${commitmentId} without publishing a record`);
-    return { commitmentId, outcome: decided.outcome, record, requests: this.requests.slice(before), via: 'direct' };
+    judgingTimes.set(commitmentId, timing);
+    return { commitmentId, outcome: decided.outcome, record, requests: this.requests.slice(before), via: 'direct', timing };
   }
 }
