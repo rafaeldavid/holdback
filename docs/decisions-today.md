@@ -408,9 +408,13 @@ What follows from it:
 
 Recorded in `CLAUDE.md` and `docs/PRD.md` (Design principle). D22 (no principal recourse in the protocol) already follows this rule.
 
-## D27. A flagged appeal accepts only unanimously, else rejects (red-team review of PR 52)
+## D27. The default clause set for appeals: a flagged appeal accepts only unanimously, else rejects (red-team review of PR 52)
 
-**Decided 2026-10-31 under the autonomy rule, for Rafa to overrule.** A red-team review of PR 52 (T-018) found that D25's L3-1 fix, "the appeal panel decides a flagged case by its supermajority", still paid an injecting seller. Its findings, each now a fixture in this PR:
+**Decided 2026-10-31 under the autonomy rule, for Rafa to overrule.**
+
+**What these rules are.** D27a to D27c are the **default clause set**: gap-fillers that apply when the agreed terms say nothing about these cases. They are versioned with the aggregation as `agg-3`. They are not the protocol judging whether a party is malicious. Each condition they name (a screen flag, an injection suspicion, a filter abstention, a sampled read) is an observable fact in the signed record, and the clause says what follows from it. D29 makes the clauses negotiable after the demo.
+
+**Findings.** A red-team review of PR 52 (T-018) found that D25's L3-1 fix, "the appeal panel decides a flagged case by its supermajority", still paid an injecting seller. Its findings, each now a fixture in this PR:
 
 - **Steered supermajority.** An injection that steers four of five appeal judges to pass with no injection suspected was accepted (`attack.injection-steers-appeal-supermajority`).
 - **Steered across two families.** Three passes from two families failed the accept rule, but under `agg-2` the case then escalated and drifted to the default outcome (`attack.injection-steers-appeal-two-families`).
@@ -441,5 +445,17 @@ D27b and D27c were added after a red-team re-check of PR 52 (`42fa67a`), **decid
 - **The buyer protects itself in advance.** Its protection is the acceptance checks and rubric it writes into the terms before agreeing.
 - **After an accept.** An appealing buyer must show the work fails the terms, as a buyer must prove breach of goods it accepted (cf. UCC §2-607(4)); otherwise the first decision stands (D27c).
 - **The exception.** The burden shifts only when a party games the judgment itself: an injection, or forcing an unreadable delivery. Nobody agreed to that as a term (D27a, D27b).
+
+Recorded in `CLAUDE.md` and `docs/PRD.md`.
+
+## D29. Dispute clauses are negotiated terms (after the demo)
+
+**Decided 2026-10-31 by Rafa.**
+
+- **Not the protocol's call.** The protocol does not decide whether terms are favourable or whether a party is malicious. As in contract law, the parties negotiate dispute clauses: what happens on a screen flag, an unreadable delivery or an inconclusive panel, and who bears the fees.
+- **Default rules.** The protocol supplies rules that apply when the terms are silent. Today these are the D27 clause set, versioned as `agg-3`.
+- **Mandatory rules.** The hard rules and the three litmus tests apply whatever the terms say; no agreement can waive them.
+- **Who narrows the menu.** Clubs may narrow the clauses in their rulebook, and adjudicators may decline clauses they won't run.
+- **When.** Making the clauses selectable in the signed terms is a schema change, so an ADR and a version bump, after the demo. The backlog row is under Modes and calls. Until then the D27 defaults stand for every commitment.
 
 Recorded in `CLAUDE.md` and `docs/PRD.md`.
