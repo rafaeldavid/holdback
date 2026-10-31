@@ -188,7 +188,7 @@ describe('spec/', () => {
   });
 
   // ADR-0017 §9, review of PR 23 item 3: every free-text string is either marked untrusted or constrained.
-  // A string with no format, pattern, enum or const can carry anything, so a consumer must treat it as
+  // A string with no date-time format, pattern, enum or const can carry anything, so a consumer must treat it as
   // content, never instructions. Identifiers get a pattern instead. The allowlist is empty; adding to
   // it needs a reason here and a note in the PR.
   const ALLOWED_UNMARKED: string[] = [];
@@ -199,7 +199,8 @@ describe('spec/', () => {
     const walk = (node: any, path: string, file: string): void => {
       if (Array.isArray(node)) return node.forEach((v, i) => walk(v, `${path}/${i}`, file));
       if (node === null || typeof node !== 'object') return;
-      const free = node.type === 'string' && !['format', 'pattern', 'enum', 'const'].some((k) => k in node);
+      // Only date-time constrains a string's content; a uri can still carry prose (second review, item 3).
+      const free = node.type === 'string' && node.format !== 'date-time' && !['pattern', 'enum', 'const'].some((k) => k in node);
       if (free && node['x-holdback-untrusted'] !== true && !ALLOWED_UNMARKED.includes(`${file}${path}`)) unmarked.push(`${file}${path}`);
       for (const [k, v] of Object.entries(node)) walk(v, `${path}/${k}`, file);
     };

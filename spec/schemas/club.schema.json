@@ -60,7 +60,9 @@
         },
         "documentUri": {
           "type": "string",
-          "format": "uri"
+          "format": "uri",
+          "x-holdback-untrusted": true,
+          "maxLength": 2048
         },
         "minWindowsSec": {
           "type": "object",

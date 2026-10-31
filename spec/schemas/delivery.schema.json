@@ -35,7 +35,9 @@
       "properties": {
         "uri": {
           "type": "string",
-          "format": "uri"
+          "format": "uri",
+          "x-holdback-untrusted": true,
+          "maxLength": 2048
         },
         "sha256": {
           "$ref": "common.schema.json#/$defs/Sha256"

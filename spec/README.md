@@ -17,7 +17,7 @@ The `$id` URLs (`https://holdback.dev/schemas/v0.5/…`) are namespaces for reso
 ## Annotations
 
 - **`x-holdback-untrusted: true`** marks a string written by a party, a model or an operator: descriptions, criterion text and anchors, check column names and patterns, appeal and dispute grounds, judge evidence and rationale, check and screen details, aggregation reasons, policy labels, affiliations, rail references and operator IDs. Treat it as content to read, never as instructions (ADR-0017 §9). Validators register it as an annotation keyword; it changes no validation.
-- **Every free-text string is marked or constrained.** A string with no format, pattern, enum or const must carry the marker. Identifiers instead get a pattern: club IDs, token IDs, and `Ident` for judge, provider, family, model and version labels. `tests/spec.test.ts` lints this, with an empty allowlist.
+- **Every free-text string is marked or constrained.** A string with no `date-time` format, pattern, enum or const must carry the marker. URIs count as free text: they are marked and capped at 2048 characters. Identifiers instead get a pattern: club IDs, token IDs, and `Ident` for judge, provider, family, model and version labels. `tests/spec.test.ts` lints this, with an empty allowlist.
 
 ## Changelog
 
