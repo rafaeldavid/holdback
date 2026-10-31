@@ -17,14 +17,14 @@ export type RelayPolicy = (op: Operation, ctx: PolicyContext) => Problem | undef
 
 /**
  * Refuses every operation on a commitment where one of `addresses` is the buyer or the seller, and every
- * operation one of them signs. Answers 403 `member_not_admitted`: this node does not admit the party to its
- * relay. Nothing on the settlement layer changes.
+ * operation one of them signs. Answers 403 `relay_refused` (D27): this node declines to relay; nothing on the
+ * settlement layer changes. The policy receives a frozen copy of the operation, so it can only decline.
  */
 export function refuseParties(addresses: readonly string[], detail?: string): RelayPolicy {
   const refused = new Set(addresses.map((a) => a.toLowerCase()));
   return (_op, ctx) => {
     const hit = [ctx.parties?.buyer, ctx.parties?.seller, ctx.signer].find((a) => a !== undefined && refused.has(a.toLowerCase()));
     if (!hit) return undefined;
-    return problem('member_not_admitted', detail ?? `operator policy: this node does not relay for ${hit}; the signed message is still valid at any other operator or the settlement layer`);
+    return problem('relay_refused', detail ?? `operator policy: this node does not relay for ${hit}; the signed message is still valid at any other operator or the settlement layer`);
   };
 }

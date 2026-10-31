@@ -89,6 +89,7 @@ const STATUS: Partial<Record<ProblemType, number>> = {
   scope_exceeded: 403,
   mandate_expired: 403,
   member_not_admitted: 403,
+  relay_refused: 403,
   adjudicator_affiliated: 403,
   not_your_turn: 403,
   not_found: 404,
@@ -268,6 +269,14 @@ interface Ctx {
 }
 
 const lc = (s: string) => s.toLowerCase();
+
+function deepFreeze<T>(v: T): T {
+  if (v && typeof v === 'object' && !Object.isFrozen(v)) {
+    Object.freeze(v);
+    for (const x of Object.values(v)) deepFreeze(x);
+  }
+  return v;
+}
 const isAddress = (s: string | undefined): s is Address => s !== undefined && /^0x[0-9a-fA-F]{40}$/.test(s);
 const isHex32 = (s: string | undefined): s is Hex32 => s !== undefined && /^0x[0-9a-f]{64}$/.test(s);
 
@@ -438,7 +447,8 @@ export class Operator {
     // Shape first: the throttle reads the signer address, which only a checked body is sure to carry.
     checkShape(dryRun ? placeholderSigned(op) : op);
     this.throttle(`w:${lc(signerOf(op) ?? this.client(ctx))}`, this.o.rateLimit?.writes ?? 0);
-    const refusal = this.o.policy?.(op, await this.policyContext(op));
+    // The policy sees a frozen copy: it can decline, never alter what this node relays.
+    const refusal = this.o.policy?.(deepFreeze(structuredClone(op)), await this.policyContext(op));
     if (refusal) fail(refusal.type, refusal.detail);
     if (dryRun) return this.send(ctx, await this.dryRun(op));
     return this.idempotent(ctx, raw, () => this.relay(ctx, op));
