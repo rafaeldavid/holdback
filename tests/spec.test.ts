@@ -453,6 +453,7 @@ describe('spec/', () => {
       ['an empty cursor', 'page', 'page', (p) => (p.nextCursor = '')],
       ['a Dispute without a bond', 'messages', 'messages.dispute', (d) => delete d.bond],
       ['a Dispute with an extra field', 'messages', 'messages.dispute', (d) => (d.extra = 1)],
+      ['a Dispute with keys for fewer than three adjudicators', 'messages', 'messages.dispute', (d) => d.encryptedKeys.pop()],
       ['a zero disputeJudgeSec', 'commitment', 'commitment', (c) => { c.settlement.mode = 'optimistic'; Object.assign(c.timing, { disputeBy: '2026-11-06T17:00:00Z', disputeJudgeSec: 0, disputeFallbackSec: 86400 }); }],
       ['an unknown randomness source', 'club', 'club', (c) => (c.rulebook.randomness = { source: 'dice' })],
       ['a MutualSettlement with an extra field', 'messages', 'messages.mutual-settlement', (m) => (m.extra = 1)],

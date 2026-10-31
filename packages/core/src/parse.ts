@@ -163,6 +163,8 @@ function messageRules(m: Message): string | undefined {
   // value is signed as uint256; one canonical decimal form per amount.
   // ADR-0018: Phase 1 admits only the SimChain beacon, which is a settlement-layer fact, not a proof.
   if (m.type === 'Decision' && m.beacon && m.beacon.source !== 'sim') return `beacon source ${m.beacon.source} is not supported in Phase 1 (sim only)`;
+  // ADR-0020: Phase 1 commitments are public, so the only level a Publish can name is public.
+  if (m.type === 'Publish' && m.level !== 'public') return `Publish level ${m.level} is not supported in Phase 1 (public only)`;
   if (m.type === 'Decision' || m.type === 'Dispute') {
     const timed = unlockRule(m.encryptedKeys);
     if (timed) return timed;
@@ -190,7 +192,10 @@ export const parseCommitment = parserFor<Commitment>('commitment', true, commitm
 export const parseDelivery = parserFor<Delivery>('delivery', true, (d) => unlockRule(d.encryptedKeys));
 export const parseEvent = parserFor<SettlementEvent>('event', false);
 export const parseJudgeVerdict = parserFor<JudgeVerdict>('judge-verdict', false);
-export const parseJudgment = parserFor<Judgment>('judgment', false);
+export const parseJudgment = parserFor<Judgment>('judgment', false, (j) =>
+  // ADR-0020: private records arrive with Phase 2 reads.
+  'privateRecord' in j ? 'privateRecord is not supported in Phase 1' : undefined,
+);
 export const parseMandate = parserFor<Mandate>('mandate', true);
 export const parseMessage = parserFor<Message>('messages', true, messageRules);
 export const parseOperatorStatus = parserFor<OperatorStatus>('operator-status', false);

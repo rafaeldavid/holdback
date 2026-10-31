@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
 import { rulebookHash } from './canonical.js';
 import { commitmentId, holdbackDomain, messageDigest, termsDigest, termsOf, typedDataOf, type UnsignedMessage } from './eip712.js';
-import { parseAdjudicator, parseClub, parseCommitment, parseCommitmentState, parseDelivery, parseMandate, parseMessage, parsers } from './parse.js';
+import { parseAdjudicator, parseClub, parseCommitment, parseCommitmentState, parseDelivery, parseJudgment, parseMandate, parseMessage, parsers } from './parse.js';
 import { offer } from './state.js';
 import { validateTiming } from './timing.js';
 import type { Commitment, Rulebook } from './types.js';
@@ -99,6 +99,24 @@ describe('boundary parsers', () => {
     const r = parseClub(c);
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error.detail).toContain(detail);
+  });
+
+  it('refuses a private judgment record in Phase 1 (ADR-0020)', () => {
+    const j = example('judgment.example.json');
+    expect(parseJudgment(j).ok).toBe(true);
+    j['privateRecord'] = { hash: `0x${'41'.repeat(32)}`, envelopes: [{ recipient: `0x${'11'.repeat(20)}`, scheme: 'x25519-xsalsa20poly1305', ciphertext: 'a2V5' }] };
+    const r = parseJudgment(j);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.detail).toContain('privateRecord');
+  });
+
+  it.each(['private', 'judgment'])('refuses a Publish to %s in Phase 1 (ADR-0020)', (level) => {
+    const p = example('messages.publish.example.json');
+    expect(parseMessage(p).ok).toBe(true);
+    p['level'] = level;
+    const r = parseMessage(p);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.detail).toContain('public only');
   });
 
   it('refuses a delivery key that unlocks at a beacon round in Phase 1 (ADR-0020)', () => {
