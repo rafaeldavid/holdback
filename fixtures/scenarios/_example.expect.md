@@ -10,7 +10,7 @@ Happy path for the $2,000 dataset-cleaning job (demo beats 1–4).
 | --- | --- |
 | Pragmas | settlement=sim · judges=recorded · mode=guaranteed_on_decision · seed=7 |
 | Prefix | none (normal flow: reaches a terminal state, invariants hold) |
-| Settlement | stub settlement driving @holdback/core `step` (SimChain lands in T-006) |
+| Settlement | SimChain (T-006) driving @holdback/core `step`; stub terms and panel |
 | Club | fixtures/clubs/data-services-v1.yaml (stub rulebook; file absent) · rulebook 0xe3d9…0cd6 |
 | Buyer | atlas-buyer 0x5e2E…Ea0B |
 | Seller | tidewater-seller 0x69B5…63eE |
@@ -54,7 +54,7 @@ Happy path for the $2,000 dataset-cleaning job (demo beats 1–4).
 
 ## Receipts and log
 
-- Events 0–7. Chain head 0xdfb4…40e1. Replay of 5 core events matches the settlement state.
+- Events 0–8. Chain head 0x3aa2…3a7d. Replay of 6 SimChain submissions from genesis matches the settlement state.
 - Receipts from op-1: 5 (rcpt-0001–rcpt-0005). Stub receipts are unsigned until T-007.
 
 ## Invariants

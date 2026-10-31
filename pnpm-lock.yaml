@@ -205,7 +205,24 @@ importers:
 
   apps/demo: {}
 
-  apps/operator: {}
+  apps/operator:
+    dependencies:
+      '@holdback/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@holdback/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+      '@holdback/settlement':
+        specifier: workspace:*
+        version: link:../../packages/settlement
+      viem:
+        specifier: ^2.57.13
+        version: 2.57.13(typescript@6.0.3)
+    devDependencies:
+      fast-check:
+        specifier: ^4.10.2
+        version: 4.10.2
 
   packages/core:
     dependencies:
@@ -239,15 +256,39 @@ importers:
         specifier: ^4.10.2
         version: 4.10.2
 
-  packages/sdk: {}
+  packages/sdk:
+    dependencies:
+      '@holdback/core':
+        specifier: workspace:*
+        version: link:../core
+      '@holdback/judgment':
+        specifier: workspace:*
+        version: link:../judgment
+      '@holdback/settlement':
+        specifier: workspace:*
+        version: link:../settlement
 
-  packages/settlement: {}
+  packages/settlement:
+    dependencies:
+      '@holdback/core':
+        specifier: workspace:*
+        version: link:../core
+      viem:
+        specifier: ^2.57.13
+        version: 2.57.13(typescript@6.0.3)
+    devDependencies:
+      fast-check:
+        specifier: ^4.10.2
+        version: 4.10.2
 
   packages/testkit:
     dependencies:
       '@holdback/core':
         specifier: workspace:*
         version: link:../core
+      '@holdback/settlement':
+        specifier: workspace:*
+        version: link:../settlement
       viem:
         specifier: ^2.57.13
         version: 2.57.13(typescript@6.0.3)

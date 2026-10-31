@@ -7,6 +7,13 @@ Deferred until after the basic demo. The demo assumes honest parties (Rafa, Octo
 | Item | Source | When it matters |
 | --- | --- | --- |
 | Club-chosen permissioned settlement chain (for example Matter Labs Prividium), with a signed residual "the club's chain operator can halt settlement" | ADR-0004 evaluation, 2026-10-31 | A regulated club asks to run its own chain (Phase 5 or later); needs its own ADR |
+| Model `authorizationExpiry` in SimChain and differential-test it against the Phase 2 contract (`authorizationExpiry` ≥ `appealDecideBy` + forced-inclusion margin) | T-006 | T-202, when the contract exists to compare against |
+| Agent registration, `AgentRevocation` and signed `MemberAdmission` at run time; SimChain reads mandates and members from genesis only | T-006 | T-007, when operators register agents live; with D22 revocation |
+| Persistence: SimChain is in memory; the journal replays it, but nothing writes it to disk | T-006 | T-007, when an operator restarts |
+| Release a reservation when `appealBy` passes with no appeal, without waiting for the appeal-expiry trigger (the coverage gate counts it as encumbered until someone triggers) | T-006 | When adjudicators run many concurrent commitments |
+| `Dispute` must carry envelopes for all three adjudicators: no Phase 1 state accepts a `Dispute`, so SimChain has no guard yet | T-006; ADR-0020 | Phase 4, optimistic mode |
+| `termsHash` and `recordHash` on every event: the schema requires them on offered, agreed and decided events and forbids extra fields on settled and bond payloads | T-006; ADR-0020 | Next schema bump |
+| Idempotency records keep successful results only; a refused call with the same key can be retried | T-006 | T-007, if clients expect refusals replayed |
 
 ## Settlement and fees
 
@@ -16,6 +23,7 @@ Deferred until after the basic demo. The demo assumes honest parties (Rafa, Octo
 | Kill fee for a sitting adjudicator on mutual settlement (`adjudicatorFeeShareAfterDeliveryBps` above 0) | ADR-0019; D21 | When adjudicators report lost panel cost on settlements |
 | Fee refund on a wrongful-reject overturn where the appeal decision also releases the key | D21 | Phase 4, with finality work |
 | Default compensation shortfall: bonds reserved only on takeover may not cover compensation; fixture `todo.default-bond-shortfall` | Escrow-theory review F5 | Phase 3 hardening |
+| Default compensation split between primary and fallback as a rulebook term (SimChain splits it evenly: the fallback pays half rounded down, the primary the rest) | T-006 | When a club wants another split |
 | Segregation statements: per-pool and per-commitment statements and invariants (segregation is by accounting, not by account) | Review F6 | Phase 4 backers; any audit |
 | Surety claim list and penal sum stated explicitly | Review F9 | Phase 4 backers |
 | Recipient validation for third-party payouts: the address can receive the token, checked by a dry transfer | D23 | Phase 2 contract tasks |
@@ -89,6 +97,25 @@ Deferred until after the basic demo. The demo assumes honest parties (Rafa, Octo
 | Standard Webhooks signing headers | ADR-0017 | When webhooks are built |
 | x402 and AP2 interop; field selection | ADR-0017 | Phase 6 |
 | More list filters (`club`, `appealState`, dates) | ADR-0017 | When the viewer or MCP needs them |
+| Run-time `POST /v1/clubs`, `/members`, `/agents`, `/adjudicators` and revocations; the operator serves genesis reads only | T-007 | With the T-006 registration item; D22 revocation |
+| `GET /v1/commitments/{id}/key` takes `?recipient=` with no buyer-signed request; envelopes are encrypted to the recipient and already public in `key.released` events | T-007 | Phase 2 read authentication |
+| `GET /v1/commitments/{id}/judgment`, `POST /v1/adjudicators/{address}/quote`, `POST /v1/webhooks`, `GET /v1/audit/verify`, `/publish`, `/disputes`: not served (404) | T-007 | T-009 (judgment record), Phase 2 (quotes, webhooks), Phase 4 (disputes) |
+| Chain-mode `202 pending` with `submissionId`; the operator answers synchronously as on SimChain | T-007 | Phase 2 (T-202) |
+| Operator state is in memory: idempotency records, receipts, rate-limit windows and the event index are lost on restart (SimChain replay rebuilds the index, not the records) | T-007 | When an operator restarts mid-demo; Phase 5 operators |
+| Operator stores successful responses only; a refused call can be retried under its key, matching SimChain | T-007 | If clients expect refusals replayed |
+| Rate limiting is a fixed window per signer address as named in the body; it does not verify the signature first, so a caller can spend another signer's budget | T-007 | Before any public operator (Phase 5) |
+| `/v1/events` SSE polls the settlement log every 50 ms and ignores `Last-Event-ID`; no backpressure | T-007 | Phase 2, chain event subscription |
+| An operator binary (CLI entry that reads `HOLDBACK_*` env and genesis); today operators start in process through `startOperator` | T-007 | T-013 if the demo runs operators as processes |
+| `neutrality.operator-*` and `error.dry-run-has-no-effects` as `.scenario.yaml` fixtures; today they are vitest cases in `apps/operator/src/neutrality.test.ts` and `operator.test.ts` | T-007 | When testkit drives HTTP operators |
+| SDK signer integration (`hb.offer(terms)` signs) as in the docs/api.md example; today the SDK takes signed messages | T-007 | T-012 agents, if they want it |
+| SDK `verifyReceipts` mode: check each receipt's signature against `status().receiptSigner`, and its `eventHash` and `eventSeq` against the settlement layer's events; today the SDK returns receipts unverified | T-007 review | When agents rely on receipts as evidence (T-015; Phase 5 operators) |
+| Idempotency keys share one global namespace across operators and the direct path; scope them by signer, or derive settlement keys from the key plus the submission hash, so one agent's key cannot collide with another's | T-007 review | Before any shared operator (Phase 5) |
+| A response lost after relay, then retried under a new key: the SDK should read the commitment back and reconcile instead of resubmitting into a refusal | T-007 review | When agents generate keys per attempt |
+| Rate limits trust the signer address named in the body; a caller dodges them by rotating addresses, or spends another signer's budget. Verify the signature before charging a budget | T-007 review | Before any public operator (Phase 5) |
+| A non-JSON 200 response crashes `submit` (body read as state); treat it as an operator failure and fail over | T-007 review | Before untrusted third-party operators |
+| `GET .../receipts` re-signs receipts per read, and the receipt cache is unbounded | T-007 review | With operator persistence |
+| The `dropResponses` test hook is part of production `OperatorOptions`; move it behind a test-only wrapper | T-007 review | Before an operator binary ships |
+| `/v1/events` streams every event unfiltered; revisit when private disclosure levels exist | T-007 review; ADR-0020 | Phase 2 privacy |
 
 ## Principal recourse
 
@@ -132,3 +159,19 @@ Deferred until after the basic demo. The demo assumes honest parties (Rafa, Octo
 | `state.ts` comment pointing to `mulBps` for the appeal bond | Schema v0.5 second review | Next core change |
 | README notes for additions beyond ADR text (`providerPrivacy: standard`, narrowed `termsHash`/`recordHash` events) | Schema v0.5 second review | Next spec change |
 | Normalize an absent `unlock` to `none`; dispute windows under the uint32 check | Schema v0.5 second review | Before optimistic mode is admitted |
+
+## T-006 review survivors
+
+Findings from the T-006 (SimChain) review that the demo does not need. The three blocking findings (unsigned `recipient` on a `SealedKey`, `finalAt` moving on a late appeal-expiry trigger, the untested `releaseKey: false` guard) were fixed on the T-006 branch.
+
+| Item | Source | When it matters |
+| --- | --- | --- |
+| Coverage-gate boundary test is masked by core, so it does not pin SimChain's own gate at the boundary | T-006 review | T-202, when the gate moves into the contract |
+| F5 shortfall, measured: a fallback with no free bond pays 0 default compensation; an overturn of a fallback decision pays 500M of the 2,000M price | T-006 review; escrow-theory review F5 | Phase 3 hardening, with `todo.default-bond-shortfall` |
+| Even split of default compensation between primary and fallback needs Rafa's call (Decision 4) | T-006 review | Before the split is written into a rulebook term or the contract |
+| Fee share on a mutual settlement before delivery, when genesis clubs are not parsed against the rulebook schema | T-006 review | When a club sets `adjudicatorFeeShareAfterDeliveryBps` above 0 |
+| `journal()` exposes held key envelopes before they are released | T-006 review | Before private disclosure levels are admitted (ADR-0020) |
+| `bond.slashed` is emitted with zero amounts when the reservation or pool is empty | T-006 review | When indexers count slashes |
+| Mixed timestamp formats: deadlines from core carry milliseconds (`…05.000Z`), SimChain times do not (`…05Z`); string comparison of the two fails | T-006 review | Next core change; before clients compare timestamps as strings |
+| `missingSignature` reporting for `agree_and_fund` in validate (ADR-0017 §7) | T-006 review | T-007, when the SDK previews combined submissions |
+| Core stores signed sub-objects as received (mutual-settlement `payouts`, the `Delivery` in state), so unsigned extra fields a relayer adds reach state and events; SimChain now copies key envelopes field by field, core should do the same | T-006 review fix | Next core change; before events are validated strictly |
