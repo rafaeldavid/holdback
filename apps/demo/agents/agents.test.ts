@@ -2,8 +2,10 @@
 // clock and randomness from the testkit context. Honest parties only (docs/backlog.md has the rest).
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { canonicalKeccak } from '@holdback/core';
 import { afterEach, describe, expect, it } from 'vitest';
-import { beatBadWork, beatHappyPath, beatHiddenTags, beatHold, beatMutualSplit } from './beats.js';
+import { STAND_IN_POLICY, StandInBench, type AdjudicatorSeam } from './bench.js';
+import { beatBadWork, beatHappyPath, beatHiddenTags, beatHold, beatMutualSplit, players } from './beats.js';
 import { createDemoWorld, DATA_DIR, type DemoWorld } from './world.js';
 
 const TUSD = 1_000_000n;
@@ -34,6 +36,25 @@ describe('beat 1: choose, agree and hold', () => {
   });
 });
 
+describe('the adjudicator seam (T-009)', () => {
+  it('beats take any AdjudicatorSeam, so the T-009 service can replace the stand-in without touching the agents', async () => {
+    const w = await world();
+    const inner = new StandInBench(w.cast.benchA, w);
+    const calls: string[] = [];
+    const seam: AdjudicatorSeam = {
+      keys: inner.keys,
+      policyHash: inner.policyHash,
+      registryHash: inner.registryHash,
+      accept: (c) => (calls.push('accept'), inner.accept(c)),
+      judge: (id) => (calls.push('judge'), inner.judge(id)),
+    };
+    const r = await beatHold(w, { players: players(w, seam) });
+    expect(calls).toEqual(['accept']);
+    expect(r.commitment.adjudication.policyHash).toBe(canonicalKeccak(STAND_IN_POLICY));
+    expect(r.state.escrowState).toBe('Held');
+  });
+});
+
 describe('beats 2-4: deliver encrypted, judge, settle, open the work', () => {
   it('releases $2,000 to Tidewater and the key to Atlas, whose SDK opens the CSV and matches the committed plaintext hash', async () => {
     const w = await world();
@@ -49,8 +70,13 @@ describe('beats 2-4: deliver encrypted, judge, settle, open the work', () => {
     expect(await w.balance('atlas')).toBe(7_950n * TUSD);
     expect(await w.balance('tidewater')).toBe(2_000n * TUSD);
     expect(await w.balance('bench-a')).toBe(50n * TUSD);
-    expect(w.chain.pool(w.cast.benchA.address).reserved).toBe(0n);
     expect(r.vias.every((v) => v === w.operatorUrl('op-1'))).toBe(true);
+    // Bench A's bond backs its decision through the 300 s appeal window, then anyone can release it.
+    expect(w.chain.pool(w.cast.benchA.address).reserved).toBe(2_000n * TUSD);
+    w.advance(301);
+    const after = await w.sdk().trigger(r.commitmentId, 'appeal_expiry', w.call());
+    expect(after.state.finalAt).not.toBeNull();
+    expect(w.chain.pool(w.cast.benchA.address).reserved).toBe(0n);
   });
 
   it('the delivery carries only hashes and envelopes: the ciphertext in the store does not contain the plaintext', async () => {
