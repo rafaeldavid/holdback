@@ -341,3 +341,17 @@ Rafa: if buyer and seller agree, they should be able to pull their funds to any 
 
 **Recommendation:** B.
 
+
+## T-009 judgment choices
+
+**Decided 2026-10-31 by the T-009 implementer, for Rafa to overrule.** Five choices in the panel and adjudicator service (PR #37) change what judges see or how a panel decides. Under the autonomy rule they proceed inside the repo; the numbers are the task's Decisions in `docs/tasks/T-009-panel-adjudicator.md`.
+
+| Choice | Decided | Alternative not taken |
+| --- | --- | --- |
+| 1. Seeded sampling, CSV only | A CSV over the prompt budget is shown as the header, the first 20 and last 20 rows, and rows drawn from the panel seed until the first that does not fit. Anyone with the seed and the plaintext can recompute it. A CSV with an unterminated quote or any record costing more than budget / 100 characters, and every non-CSV input over the budget, keep the stride sample and escalate | Escalate every large deliverable (the demo CSV would never be accepted); sample JSON and text too (no reader stage yet) |
+| 2. One sample per judge | Each judge's sample has its own seed, derived from the panel seed and the judge ID, so the panel together sees more of the file | One shared sample (easier to audit, less coverage) |
+| 7. Appeal thresholds | Appeals use the bound policy's supermajority fractions with `minValidAppeal` and `appealPanelSize`; the schema has no appeal fractions. With 5 valid seats, 2/3 already needs 4 passes | 4/5 from the docs table, which needs a schema field (backlog) |
+| 8. Inconclusive appeal panel | After a party appeal, the first decision stands. After an escalation, the record is published and no Decision is signed, so the default outcome applies at `appealDecideBy` | A "no decision" message (backlog, with default compensation) |
+| 13. Fallback and appeal judge under the bound policy | They use the primary's published policy, checked against the bound hash and this build's template hashes, and refuse when they cannot obtain it | Each adjudicator's own policy, which the parties did not agree to |
+
+**Recommendation:** keep all five for the demo; revisit 1 and 7 with calibration in Phase 3.
