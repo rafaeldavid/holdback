@@ -29,6 +29,11 @@ Deferred until after the basic demo. The demo assumes honest parties (Rafa, Octo
 | Recipient validation for third-party payouts: the address can receive the token, checked by a dry transfer | D23 | Phase 2 contract tasks |
 | Key hand-off when the parties exit to another mechanism: re-wrap the content key to a named arbiter, or a time-locked envelope | D23 | When a pilot exits to another arbiter; Phase 2 privacy work |
 | Demo beat "the agents leave together": both sign the hold over to an outside arbiter | D23 | After T-013's success criteria pass |
+| Atomic close-and-reopen: one submission that settles the old commitment and funds the new hold (Phase 2: `void` plus `authorize` in one rules-contract call), so funds never leave escrow between the two | D24 | If pilots show the gap between `Settled` and the new `Held` exploited |
+| Optional signed `supersedes` term linking a reopened commitment to the one it replaces, with `supersededBy` in the read model (schema bump) | D24 | When auditors or the demo transcript need the link |
+| Settlement refunds do not credit the buyer's daily cap (`spentToday`), so a reopen near the cap fails `scope_exceeded` | D24 | When mandates with tight daily caps reopen commitments |
+| An adjudicator accepting the reopened commitment before the old one settles needs free bond for both prices; the SDK should order the steps | D24 | SDK helper for amendments |
+| Seller-signed `OfferWithdrawal`, so an unwanted offer stops encumbering the adjudicator's reservation before `offerExpiresAt` | D24 | When offers carry long expiry windows |
 
 ## Finality
 

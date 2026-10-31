@@ -1,6 +1,6 @@
 # Decisions to make today
 
-Status: D1–D9 decided October 30, 2026, after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`); the options are kept as the record. D10 to D23 decided October 30 and 31, 2026, each after an independent research pass; none are open. Owner: Rafa. Each decision has options, a recommendation and the ADR it settles. Phase 1 (the demo) can start once D1, D2 and D6 are settled. Phase 2 needs D3 and D4.
+Status: D1–D9 decided October 30, 2026, after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`); the options are kept as the record. D10 to D24 decided October 30 and 31, 2026, each after an independent research pass; none are open. Owner: Rafa. Each decision has options, a recommendation and the ADR it settles. Phase 1 (the demo) can start once D1, D2 and D6 are settled. Phase 2 needs D3 and D4.
 
 ## D1. Adopt the neutrality litmus test as the top constraint (ADR-0001)
 
@@ -341,7 +341,6 @@ Rafa: if buyer and seller agree, they should be able to pull their funds to any 
 
 **Recommendation:** B.
 
-
 ## T-009 judgment choices
 
 **Decided 2026-10-31 by the T-009 implementer, for Rafa to overrule.** Five choices in the panel and adjudicator service (PR #37) change what judges see or how a panel decides. Under the autonomy rule they proceed inside the repo; the numbers are the task's Decisions in `docs/tasks/T-009-panel-adjudicator.md`.
@@ -355,3 +354,17 @@ Rafa: if buyer and seller agree, they should be able to pull their funds to any 
 | 13. Fallback and appeal judge under the bound policy | They use the primary's published policy, checked against the bound hash and this build's template hashes, and refuse when they cannot obtain it | Each adjudicator's own policy, which the parties did not agree to |
 
 **Recommendation:** keep all five for the demo; revisit 1 and 7 with calibration in Phase 3.
+
+## D24. Changing terms by mutual agreement (ADR-0019)
+
+**Decided 2026-10-31:** no protocol change. Commitments are ephemeral and machine speed, so changing terms means closing the active commitment with a co-signed mutual settlement (D23) and opening a new one, distributing the held funds as needed. The sequence is recorded in ADR-0019 under "Changing terms". Settlement is refused after a decision, so reopening can never re-roll an adverse verdict. The gaps (an atomic close-and-reopen, a `supersedes` link, the daily cap, double bond during the overlap, offer withdrawal) are in `docs/backlog.md`.
+
+Rafa first asked that both parties be able to change any term, as in a regular contract, then proposed close-and-reopen instead. A research pass (Fable, max effort) confirmed today's spec supports it end to end.
+
+| Option | Effect |
+| --- | --- |
+| A. A co-signed amendment that keeps the commitment, with adjudicator re-acceptance | New message, new ID or version rules, new consent path for bound third parties |
+| B. Close and reopen: mutual settlement plus a new commitment (chosen) | Works today; every party re-consents through the normal flow |
+| C. Defer | No way to change terms short of a dispute |
+
+**Recommendation:** B.

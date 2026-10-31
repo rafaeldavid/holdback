@@ -192,3 +192,18 @@ Accepted 2026-10-31 (D23). Rafa's framing: if buyer and seller agree, they shoul
 
 **Alternatives.** Keep payees fixed (option A): exiting to another mechanism would then need one party to take custody first, which is the trust escrow removes. Exit only to pre-registered addresses (C): the parties could not name a shared outside arbiter. Defer to a later schema (D): costs a second bump after T-006 and T-007 build on `sellerAmount`.
 
+## Changing terms (D24)
+
+There is no amendment message. Commitments are ephemeral, so the parties change terms by closing the active commitment and opening a new one. Every party re-consents through the normal flow, and the adjudicator re-prices or declines. Settlement is refused after a decision, so reopening cannot re-roll an adverse verdict.
+
+The sequence, with the old commitment `O` in `Held`, `Delivered`, `FallbackJudging` or `Escalated`:
+
+1. The seller signs the new terms `O'` and submits the offer.
+2. The primary adjudicator for `O'`, the same one or a new one, signs an acceptance with a fresh seed commitment, fee and bond. It may decline; then nothing changes and `O` stands.
+3. The buyer signs `Agree` for `O'`.
+4. Both parties sign a `MutualSettlement` on `O`, with payouts that distribute the held funds as they agreed.
+5. The buyer funds `O'`. Steps 3 and 5 can be one `agree_and_fund`.
+6. If the same work continues, the seller delivers again for `O'`: the same ciphertext and hashes, with the key wrapped to the new recipients.
+
+Doing steps 1 to 3 before step 4 leaves a single submission between the money moving and the new hold. The gaps are in `docs/backlog.md` under D24. Prior art: UCC 2-209(1) (https://www.law.cornell.edu/ucc/2/2-209), FAR 43.103(a) (https://www.acquisition.gov/far/43.103) and UCP 600 Art. 10 treat a modification as both parties signing new terms.
+
