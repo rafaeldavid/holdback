@@ -13,6 +13,7 @@ function sandbox(): string {
   mkdirSync(join(root, 'fixtures/scenarios'), { recursive: true });
   for (const f of ['_example.scenario.yaml', '_example.expect.md']) cpSync(join(repo, 'fixtures/scenarios', f), join(root, 'fixtures/scenarios', f));
   cpSync(join(repo, 'fixtures/recordings/_example'), join(root, 'fixtures/recordings/_example'), { recursive: true });
+  for (const dir of ['clubs', 'terms']) cpSync(join(repo, 'fixtures', dir), join(root, 'fixtures', dir), { recursive: true });
   return root;
 }
 
@@ -223,13 +224,27 @@ describe('pnpm snap', () => {
     expect((await snap(sandbox(), '--judges=maybe')).text).toMatch(/--judges/);
   });
 
-  it('refuses to silently ignore a club or terms file that exists', async () => {
+  it('loads the club and terms files the fixture names and says so in the snapshot', async () => {
+    const { snapshot } = await runScenario({ root: repo, name: '_example' });
+    expect(snapshot).toContain('| Club | fixtures/clubs/data-services-v1.yaml (loaded) · rulebook 0x140e…971e |');
+    expect(snapshot).toMatch(/\| Terms \| fixtures\/terms\/clean-customers-2000\.yaml \(loaded\) · commitment /);
+  });
+
+  it('fails a fixture whose club file exists but is invalid, rather than ignoring it', async () => {
     const root = sandbox();
-    mkdirSync(join(root, 'fixtures/clubs'), { recursive: true });
     writeFileSync(join(root, 'fixtures/clubs/data-services-v1.yaml'), 'id: data-services-v1\n');
     const r = await snap(root);
     expect(r.code).toBe(1);
-    expect(r.out[0]).toMatch(/fail {2}_example: .*fixtures\/clubs\/data-services-v1\.yaml exists/);
+    expect(r.out[0]).toMatch(/fail {2}_example: .*data-services-v1\.yaml: /);
+  });
+
+  it('fails a fixture whose terms file exists but is invalid, rather than ignoring it', async () => {
+    const root = sandbox();
+    const terms = join(root, 'fixtures/terms/clean-customers-2000.yaml');
+    writeFileSync(terms, readFileSync(terms, 'utf8').replace('amount: "2000000000"', 'amount: 2000000000'));
+    const r = await snap(root);
+    expect(r.code).toBe(1);
+    expect(r.out[0]).toMatch(/fail {2}_example: .*clean-customers-2000\.yaml: .*amount/);
   });
 
   it('refuses a message signed by the wrong key with invalid_signature', async () => {

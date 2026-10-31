@@ -206,7 +206,32 @@ importers:
         specifier: ^2.9.1
         version: 2.9.1
 
-  apps/demo: {}
+  apps/demo:
+    dependencies:
+      '@holdback/adjudicator':
+        specifier: workspace:*
+        version: link:../adjudicator
+      '@holdback/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@holdback/judgment':
+        specifier: workspace:*
+        version: link:../../packages/judgment
+      '@holdback/operator':
+        specifier: workspace:*
+        version: link:../operator
+      '@holdback/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+      '@holdback/settlement':
+        specifier: workspace:*
+        version: link:../../packages/settlement
+      '@holdback/testkit':
+        specifier: workspace:*
+        version: link:../../packages/testkit
+      viem:
+        specifier: ^2.57.13
+        version: 2.57.13(typescript@6.0.3)
 
   apps/operator:
     dependencies:

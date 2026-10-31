@@ -4,6 +4,7 @@
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createContext } from './context.js';
+import { loadTermsFile } from './fixture-files.js';
 import { JUDGES, SETTLEMENTS, type JudgeSource, type SettlementBackend } from './pragma.js';
 import { evaluate, prefixOf, type Outcome, type RunSummary } from './prefix.js';
 import { FakeJudges, RecordedJudges, RecordingInvalidError, RecordingJudges, RecordingMismatchError, RecordingMissingError, RecordingOverwriteError, type JudgeProvider } from './recorded.js';
@@ -44,9 +45,11 @@ function settlementRefusal(s: SettlementBackend): string | null {
   return s === 'sim' ? null : `--settlement ${s} runs the same fixtures against the EVM contract, which arrives in Phase 2; use --settlement sim`;
 }
 
-function provider(root: string, judges: JudgeSource, record: boolean): JudgeProvider {
+function provider(root: string, judges: JudgeSource, record: boolean, termsFile: string | undefined): JudgeProvider {
   if (judges === 'live') throw new UsageError(LIVE_REFUSAL);
-  const criteria = STUB_ACCEPTANCE.rubric.criteria.map((c) => c.id);
+  // Fake judges score the rubric the commitment will carry: the terms file's when it exists, else the stub's.
+  const acceptance = termsFile !== undefined && existsSync(join(root, termsFile)) ? loadTermsFile(join(root, termsFile)).acceptance : STUB_ACCEPTANCE;
+  const criteria = acceptance.rubric.criteria.map((c) => c.id);
   if (judges === 'fake') return record ? new RecordingJudges(new FakeJudges(criteria), recordingsDir(root)) : new FakeJudges(criteria);
   if (record) throw new UsageError('--record needs --judges live (or --judges fake for stub recordings)');
   return new RecordedJudges(recordingsDir(root));
@@ -83,7 +86,7 @@ async function runOnce(options: RunOptions): Promise<ScenarioRun> {
   if (refusal) throw new UsageError(refusal);
 
   const ctx = createContext({ seed: scenario.pragmas.seed });
-  const judges = provider(options.root, scenario.pragmas.judges, options.record ?? false);
+  const judges = provider(options.root, scenario.pragmas.judges, options.record ?? false, scenario.terms);
   const run = await new StubSettlement(ctx, scenario, judges, options.root).run();
   const summary: RunSummary = {
     finalState: run.finalState,

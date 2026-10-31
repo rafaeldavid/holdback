@@ -151,10 +151,15 @@ Deferred until after the basic demo. The demo assumes honest parties (Rafa, Octo
 | Injection deliverables: `injection-plain` and `injection-base64` (beat 6, first delivery) | T-012 | With T-009's panel and the beat 6 fixture |
 | `panel-borderline` deliverable that passes every check but splits the panel | T-012 | With T-009 recordings |
 | Change-log notes file delivered with the clean CSV (graded by the `notes` rubric criterion) | T-012 | When live or recorded judges grade the rubric (T-009) |
-| Club rulebook, $2,000 terms and Bench A/B/C registration files (drafted in the T-012 Handoff) | T-012 | When T-006 loads club and terms files |
-| `_example` delivers the generated clean file instead of stub bytes, with recordings re-captured | T-012 | After the files above land (T-010 lane) |
-| Scripted buyer and seller agents in `apps/demo/agents/` | T-012 | After T-007 (SDK) and T-009 |
-| Data for optional beats 9 (work for work) and 10 (a gap both agents settle 70/30) | T-012 | When those beats are built |
+| `_example` delivers the generated clean file instead of stub bytes, with recordings re-captured | T-012 | T-010 lane; the club and terms files are loaded since T-012 |
+| Recorded (not fake) judge verdicts for the demo beats, captured once live judges are allowed, so beat 3 shows real rationales | T-012 | With `pnpm demo --live` (T-013) |
+| `AdjudicatorConfig` takes an injectable random source for the envelope it seals to the buyer, so a seeded run's settlement log replays byte for byte (today only that ciphertext differs) | T-012 | T-009 lane; before T-013 diffs transcripts |
+| Stale derived hashes in `spec/examples`: the commitment example's `rulebookHash`, `id` and signature, and the adjudicator example's `policyHash` and `poolTermsHash`. Core's EIP-712 vectors are pinned over the commitment example, so fix them together and extend the check in `tests/spec.test.ts` | T-012 | Next spec change |
+| Agents for beat 6's injection half (escalation to Bench C), beat 7 (op-1 refuses, Bench A offline, club revokes the seller) and beat 8 (appeal paid by the bond) | T-012 | Next demo step: Northgate and Atrium already run as T-009 services in every world (Northgate takes over at judgeBy); beat 7's operator half works today through the SDK failover |
+| Data for optional beat 9 (work for work) | T-012 | When that beat is built |
+| SDK read for released keys (`GET /v1/commitments/{id}/key`); the agents call the operator with `fetch` and fall back to SimChain | T-012 | Next SDK change |
+| Terms windows as a schema-level template (`deliverWithinSec` and friends) if other tools need terms files | T-012 | When a second consumer appears |
+| Adversarial agents (a buyer that withholds agreement after acceptance, a seller that delivers to the wrong envelope set, a split the seller did not agree to) | T-012 | After the basic demo |
 | Root `.gitignore` rule `data/` also matches `fixtures/data/`; anchor it as `/data/` | T-012 | Next scaffold change |
 
 ## Housekeeping
