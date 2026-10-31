@@ -1,0 +1,30 @@
+# Data Services Club, open rulebook v1 (docs/demo.md, Cast). Schema v0.6 (spec/schemas/club.schema.json).
+# The loader (packages/testkit/src/fixture-files.ts) computes rulebookHash; it is never written here.
+# Same rulebook as spec/examples/club.example.json (whose own rulebookHash field is stale; the hash of this
+# rulebook is 0x140edd090559cb7dd3950b3a8b755b9cca7b81a37d11359738e1b9df7d0d971e).
+id: data-services-v1
+name: Data Services Club
+operator: "0xc189bbabd7b55343a731ed82c5f80b5e5e354e88"
+rulebook:
+  version: "1.0"
+  open: true
+  minWindowsSec: { judge: 120, fallback: 120, appealWindow: 300, appealDecide: 300 }
+  windowCoverageRatioBps: 2000
+  appealBondRateBps: 500
+  sealedChecksMaxWeightBps: 3000
+  maxSubmissions: 1
+  defaultOutcome:
+    judged: { refundBuyer: true, sellerCompensationRateBps: 10000 }
+  allowedSettlementModes: [guaranteed_on_decision]
+  allowedTokens: [tUSD]
+  panelPolicyMin: { panelSize: 3, appealPanelSize: 5, minFamilies: 2 }
+  appealFee: { token: tUSD, amount: "25000000" }
+  firstLossShareMinBps: 1000
+  bondNoticePeriodMinSec: 691200
+  randomness: { source: sim }
+  minInspectionWindowSec: 86400
+  disputeBond: { token: tUSD, amount: "25000000" }
+  # D23: the demo club lets a co-signed settlement pay any address; a regulated club sets `parties`.
+  mutualSettlement: { allowed: true, adjudicatorFeeShareAfterDeliveryBps: 0, payoutsTo: any }
+  disclosureMin: public
+  identityModes: [long-term]
