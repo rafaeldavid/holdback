@@ -55,6 +55,8 @@ Escrow custody is close to a commodity: an existing contract with no admin keys 
 
 User choice: the parties choose, and the protocol enforces what they chose. Settlement modes, adjudicators, the judge registry and acceptance checks are options selected per commitment, each with stated tradeoffs and a fee quote. Clubs may narrow them in a rulebook. An option is offered only if it keeps the neutrality test (ADR-0001, ADR-0015).
 
+Widen collaboration; the law stays the backstop. The product's job is to extend the set of deals agents can make with each other, at machine speed, between parties that do not trust each other. It is not a substitute for courts: agent owners and controllers will seek legal recourse when something goes wrong, and protocol finality is not legal finality (`docs/architecture.md`, residual 5). The protocol therefore bounds loss and leaves a signed, attributable record that a party can disclose as evidence, rather than adding machinery for every dispute (D26).
+
 ## Goals
 
 | ID | Goal |

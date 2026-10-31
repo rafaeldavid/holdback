@@ -383,3 +383,16 @@ Rafa first asked that both parties be able to change any term, as in a regular c
 | After the demo | Proposals 11–19 (one driver for snap and demo, delete the adjudicator's second in-memory settlement, one mutation script, prune `docs/api.md`, backlog triage, leaner task files, batched Phase 4 research) |
 
 **Recommendation:** as decided.
+
+## D26. Widen collaboration; the law stays the backstop
+
+**Decided 2026-10-31 by Rafa.** Agent owners and controllers will seek legal recourse if something goes wrong. The product's job is to extend the set of deals agents can make with each other, not to resolve every dispute inside the protocol.
+
+What follows from it:
+
+- Bounded loss (scope caps, bonds, expiry) and a clean, signed, attributable record come before new protocol steps for edge cases. This is the same rule as "assume honest parties until the demo works", made permanent.
+- The record should serve as evidence. A party should be able to export one commitment's signed terms, receipts, judgment record and audit-chain proof and hand them to a court or arbitrator (backlog: evidence bundle).
+- A rulebook should say which law governs and where disputes go, so the signed messages bind (PRD Assumption 1). The protocol records that choice; it does not enforce it (backlog).
+- Neutrality is unchanged: no party gets a technical freeze. Courts act on real-world parties (residual 5), not on the settlement layer.
+
+Recorded in `CLAUDE.md` and `docs/PRD.md` (Design principle). D22 (no principal recourse in the protocol) already follows this rule.
