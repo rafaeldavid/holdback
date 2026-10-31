@@ -19,7 +19,7 @@ const MUTANTS = [
   ["injection screen", "tag and variation-selector text not screened", "screen.ts", "  scanView(input.hiddenTagText.reveal(), 'Unicode tag or variation-selector characters', out, MAX_DEPTH);\n", ""],
   ["injection screen", "confusables not folded", "screen.ts", "    .replace(CONFUSABLE_RE, (c) => CONFUSABLE[c] ?? c)\n", ""],
   ["injection screen", "JSON string values not screened", "screen.ts", "if (strings !== undefined) scanDerived(strings, 'JSON string values', out);", ""],
-  ["injection screen", "\\u escapes not decoded", "screen.ts", "if (!UNICODE_ESCAPE.test(text)) return;", "return;"],
+  ["injection screen", "\\u escapes not decoded", "screen.ts", "else if (UNICODE_ESCAPE.test(text)) {", "else if (false) {"],
   ["injection screen", "NFKC changes not signalled", "screen.ts", "if (nfkcChanged > 0) out.add(", "if (false) out.add("],
   ["injection screen", "mixed-script words not signalled", "screen.ts", "  if (mixed) out.add('encoded_run', `${mixed} mixed-script words (Latin with Cyrillic or Greek) in ${where}`);\n", ""],
   ["injection screen", "CSV formula prefix not signalled", "screen.ts", "if (input.mime === 'text/csv' && FORMULA_CELL.test(text))", "if (false)"],
