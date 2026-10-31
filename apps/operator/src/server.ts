@@ -216,6 +216,14 @@ function checkShape(op: Operation): void {
   }
 }
 
+/** `?validateOnly=` is `true`, `false` or absent; anything else is refused rather than run live. */
+function validateOnly(q: URLSearchParams): boolean {
+  const values = q.getAll('validateOnly');
+  if (values.length === 0) return false;
+  if (values.length > 1 || (values[0] !== 'true' && values[0] !== 'false')) fail('invalid_terms', 'validateOnly must be true or false');
+  return values[0] === 'true';
+}
+
 /** The address whose write budget an operation spends, when it names one. */
 function signerOf(op: Operation): string | undefined {
   switch (op.kind) {
@@ -273,7 +281,9 @@ export class Operator {
   private syncing: Promise<void> = Promise.resolve();
   private readonly now: () => number;
 
+  /** Runs the startup guards: no Operator exists off a test chain or with a live Stripe key. */
   constructor(private readonly o: OperatorOptions) {
+    startupGuards({ env: o.env, chainId: o.registry.chainId });
     this.domain = holdbackDomain(o.registry.chainId);
     this.signer = privateKeyToAccount(o.signerKey).address;
     this.now = o.now ?? Date.now;
@@ -415,7 +425,7 @@ export class Operator {
 
   private async write(ctx: Ctx): Promise<void> {
     const raw = await this.body(ctx);
-    const dryRun = ctx.url.searchParams.get('validateOnly') === 'true';
+    const dryRun = validateOnly(ctx.url.searchParams);
     if (ctx.segments.join('/') === 'v1/test/faucet') {
       this.throttle(`w:${this.client(ctx)}`, this.o.rateLimit?.writes ?? 0);
       return this.idempotent(ctx, raw, () => this.faucet(raw));
@@ -423,8 +433,9 @@ export class Operator {
     const parsedOp = operationOf(ctx.segments, raw);
     if (!parsedOp.ok) fail(parsedOp.error.type, parsedOp.error.detail);
     const op = (parsedOp as Extract<typeof parsedOp, { ok: true }>).value;
-    this.throttle(`w:${lc(signerOf(op) ?? this.client(ctx))}`, this.o.rateLimit?.writes ?? 0);
+    // Shape first: the throttle reads the signer address, which only a checked body is sure to carry.
     checkShape(dryRun ? placeholderSigned(op) : op);
+    this.throttle(`w:${lc(signerOf(op) ?? this.client(ctx))}`, this.o.rateLimit?.writes ?? 0);
     const refusal = this.o.policy?.(op);
     if (refusal) fail(refusal.type, refusal.detail);
     if (dryRun) return this.send(ctx, await this.dryRun(op));
@@ -602,9 +613,8 @@ export interface RunningOperator {
   close(): Promise<void>;
 }
 
-/** Runs the startup guards, then serves the API. `port: 0` picks a free port. */
+/** Builds an operator (which runs the startup guards), then serves the API. `port: 0` picks a free port. */
 export async function startOperator(o: OperatorOptions & { port?: number; host?: string }): Promise<RunningOperator> {
-  startupGuards({ env: o.env, chainId: o.registry.chainId });
   const operator = new Operator(o);
   const server: Server = createServer(operator.handle);
   await new Promise<void>((resolve, reject) => {
