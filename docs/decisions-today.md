@@ -384,6 +384,16 @@ Rafa first asked that both parties be able to change any term, as in a regular c
 
 **Recommendation:** as decided.
 
+**T-018 implementation choices (2026-10-31, for Rafa to overrule).**
+
+| Choice | Decided | Why |
+| --- | --- | --- |
+| Which flags the appeal keeps rather than escalates on | Both the screen flag and a judge's `injectionSuspected` | Either one escalating at the appeal means no decision, and the default outcome pays the seller from the appeal bond: the L3-1 failure again. An accept still needs the cross-family supermajority (FR-15) |
+| Aggregation version | `agg-2` → `agg-3` | The policy binds the rule version; a policy written for the old rule is refused rather than silently judged under the new one |
+| Operator refusal shape | `refuseParties` answers 403 `member_not_admitted`, no new problem type | No schema change; the SDK treats any operator failure as non-final and fails over |
+| Beat 7's second failure | op-2 goes offline after relaying the hold, so the delivery and the fallback trigger are submitted directly | Shows "no operator required" from measured events, not only failover |
+| Beat 6a's fee | The appeal adjudicator earns the 50 tUSD fee; Ledger ends at 9,950 tUSD | Existing SimChain postings ("fee to the appeal adjudicator, whose decision settles"); not changed here |
+
 ## D26. Widen collaboration; the law stays the backstop
 
 **Decided 2026-10-31 by Rafa.** Agent owners and controllers will seek legal recourse if something goes wrong. The product's job is to extend the set of deals agents can make with each other, not to resolve every dispute inside the protocol.

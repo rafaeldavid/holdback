@@ -12,7 +12,9 @@
 
 Make the demo's two strongest claims real. Beat 7 shows an operator refusing and the primary adjudicator going silent, and the deal still settling. Beat 6a shows a base64 injection that the screen flags, the case escalating, and the appeal panel rejecting it. Today both are stand-in fiction, and beat 6a cannot happen because of review finding L3-1.
 
-Restate this in your own words in this section before writing code.
+**Restated (implementer, 2026-10-31).** Turn the two scripted beats into runs on SimChain that a researcher can trust. Beat 6a: a seller hides a base64 instruction to the judges; the screen flags it, the primary escalates, the appeal panel decides and refunds the buyer. That needs a defense fix first: today a flagged case escalates at every role, so the appeal never signs a decision and the default outcome pays the injecting seller from the appeal bond (L3-1). At the appeal the flag must stay in the record while the panel decides by supermajority, never auto-accepting; the primary and fallback keep escalating. Beat 7: an operator refuses through its own policy and the agents still settle (failover, then direct submission); the primary goes silent and anyone moves the case to the fallback, which decides. Then delete the stand-in so no transcript carries fiction.
+
+Non-goals: club revocation at run time (SimChain has none; the beat drops it and says so), live judges, T-016 runner work, T-019's labels, IDs, timing and prompt display, and any schema change.
 
 ## Context
 
