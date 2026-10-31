@@ -126,3 +126,19 @@ Deferred until after the basic demo. The demo assumes honest parties (Rafa, Octo
 | `state.ts` comment pointing to `mulBps` for the appeal bond | Schema v0.5 second review | Next core change |
 | README notes for additions beyond ADR text (`providerPrivacy: standard`, narrowed `termsHash`/`recordHash` events) | Schema v0.5 second review | Next spec change |
 | Normalize an absent `unlock` to `none`; dispute windows under the uint32 check | Schema v0.5 second review | Before optimistic mode is admitted |
+
+## T-006 review survivors
+
+Findings from the T-006 (SimChain) review that the demo does not need. The three blocking findings (unsigned `recipient` on a `SealedKey`, `finalAt` moving on a late appeal-expiry trigger, the untested `releaseKey: false` guard) were fixed on the T-006 branch.
+
+| Item | Source | When it matters |
+| --- | --- | --- |
+| Coverage-gate boundary test is masked by core, so it does not pin SimChain's own gate at the boundary | T-006 review | T-202, when the gate moves into the contract |
+| F5 shortfall, measured: a fallback with no free bond pays 0 default compensation; an overturn of a fallback decision pays 500M of the 2,000M price | T-006 review; escrow-theory review F5 | Phase 3 hardening, with `todo.default-bond-shortfall` |
+| Even split of default compensation between primary and fallback needs Rafa's call (Decision 4) | T-006 review | Before the split is written into a rulebook term or the contract |
+| Fee share on a mutual settlement before delivery, when genesis clubs are not parsed against the rulebook schema | T-006 review | When a club sets `adjudicatorFeeShareAfterDeliveryBps` above 0 |
+| `journal()` exposes held key envelopes before they are released | T-006 review | Before private disclosure levels are admitted (ADR-0020) |
+| `bond.slashed` is emitted with zero amounts when the reservation or pool is empty | T-006 review | When indexers count slashes |
+| Mixed timestamp formats: deadlines from core carry milliseconds (`…05.000Z`), SimChain times do not (`…05Z`); string comparison of the two fails | T-006 review | Next core change; before clients compare timestamps as strings |
+| `missingSignature` reporting for `agree_and_fund` in validate (ADR-0017 §7) | T-006 review | T-007, when the SDK previews combined submissions |
+| Core stores signed sub-objects as received (mutual-settlement `payouts`, the `Delivery` in state), so unsigned extra fields a relayer adds reach state and events; SimChain now copies key envelopes field by field, core should do the same | T-006 review fix | Next core change; before events are validated strictly |
