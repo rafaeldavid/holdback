@@ -43,6 +43,7 @@ This folder is a starter kit for a Claude Code session and a team of agents. It 
 | `docs/decisions/` | ADR-0001 to ADR-0022 |
 | `docs/tasks/` | Task template and Phase 0–1 tasks (T-001 to T-019) |
 | `docs/log/` | Daily catch-ups; decisions waiting on Rafa at the top |
+| `brand/` | Brand and messaging drafts: the mule mascot ("carries the load"), pitch, pillars, voice |
 | `.claude/` | Permission settings; role subagents (architect, implementer, fixture-author, red-teamer, reviewer, verifier); commands (`/task`, `/verify`, `/snap`, `/handoff`, `/decide`) |
 | `spec/` | JSON Schemas (the contract) and validated examples |
 | `fixtures/` | Fixture conventions and a format example |

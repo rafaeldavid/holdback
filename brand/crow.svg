@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 112" role="img" aria-labelledby="t">
+  <title id="t">Holdback crow guarding a sealed crate</title>
+  <style>
+    .ink{fill:#2B2A33}
+    .crate{fill:#E8A33D}
+    .line{fill:none;stroke:#2B2A33;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
+    .seal{fill:#2B2A33}
+    @media (prefers-color-scheme: dark){.ink,.seal{fill:#F2EFE8}.line{stroke:#F2EFE8}}
+  </style>
+  <!-- the load: a sealed crate the crow stands on -->
+  <rect class="crate" x="30" y="72" width="64" height="34" rx="4"/>
+  <path class="line" d="M30 89 H94 M62 72 V106"/>
+  <circle class="seal" cx="62" cy="89" r="5"/>
+  <!-- tail -->
+  <path class="ink" d="M44 60 L22 70 L26 62 L18 60 L42 50 Z"/>
+  <!-- body -->
+  <path class="ink" d="M40 50 C40 34 54 24 70 26 C82 28 88 38 86 50 C84 62 72 68 58 68 C48 68 40 60 40 50 Z"/>
+  <!-- wing -->
+  <path d="M48 44 C56 38 70 40 76 50 C66 56 54 56 46 52 Z" fill="#46454F"/>
+  <!-- head -->
+  <circle class="ink" cx="84" cy="26" r="14"/>
+  <!-- beak -->
+  <path class="ink" d="M95 21 L114 27 L96 32 Z"/>
+  <!-- eye: bright and watchful -->
+  <circle cx="88" cy="23" r="3.2" fill="#FFFFFF"/>
+  <circle cx="89" cy="23" r="1.4" fill="#2B2A33"/>
+  <!-- legs, planted on the crate -->
+  <path class="line" d="M58 66 L56 72 M70 66 L72 72"/>
+</svg>

@@ -143,6 +143,22 @@ Deferred until after the basic demo. The demo assumes honest parties (Rafa, Octo
 | Rulebook names governing law and a dispute forum (court or arbitral seat) so a court knows which agreement governs; the protocol does not enforce it | D26; PRD Assumption 1 | Schema change before the first pilot |
 | Attribution: each agent key traceable to its principal through the mandate and club membership, disclosable under legal process without making it public | D26; ADR-0020 | With the privacy work in Phase 5 |
 
+## Risk and incentives (after the escrow works end to end)
+
+Rafa, 2026-10-31: get the escrow working first, then sort out risk and incentive management. One candidate ADR covers the rows below, preceded by a Fable max-effort research pass.
+
+**Research brief (queued, not started).** Compare clearing members at central counterparties (margin, default fund, client clearing), payment facilitators and merchant reserves (Stripe, acquirers), surety and performance bonds, security deposits, and optimistic-oracle and fraud-proof bonds (UMA, Reality.eth, rollup challenge bonds). Answer: what triggers a slash and who proves it; how big a bond must be to deter an attack worth the price P; the capital cost to honest agents and how backing or pooling lowers it; where slashed funds go; how an underwriting operator earns without gaining control; and what each choice does to the three litmus tests and D26.
+
+| Item | Source | When it matters |
+| --- | --- | --- |
+| Party bonds: an optional per-agent (or per-mandate) bond covering all its commitments, sized by the rulebook or terms, so a seller has something to lose as the buyer already does (the hold). Today an injecting seller's worst case is a refund | Rafa, 2026-10-31; PR 52 red-team | Phase 4, with adjudicator economics |
+| Slash triggers, strongest first: cryptographic equivocation (two contradictory signed messages); an injection the appeal panel confirmed (D27); never "intent" alone, which stays with courts (D26). Slashing stays inside signed terms and is appealable | Same | Same |
+| Slashed funds go to the victim first, then refill adjudicator bonds, then a club fund or burn; never to the adjudicator that found the fault | Same | Same |
+| Operators as underwriters (the clearing-member model): an operator vets agent owners, posts or backs their party bonds on chain, takes first loss and recovers from its client by contract; it may carry insurance. The backing lives on the settlement layer, so it holds whichever operator relays or if the agent submits directly; an operator can stop backing new commitments, never live ones; the counterparty sees who backs the bond | Rafa, 2026-10-31 | Phase 4–5; the operator business model |
+| Clubs and third parties may back party bonds, as backers do for adjudicators (ADR-0014) | Same | Phase 4 |
+| Operator injection protection as a bundled service, at the points the adjudicator does not cover: (1) screening counterparty offers, terms text and agent-to-agent messages before the agent reads them; (2) scanning a released deliverable before the buyer's agent consumes it, client-side in the SDK, or by the operator only if the buyer chooses to share the key (operators never see plaintext by default); (3) an adjudicator may name a third-party detector as a pinned, versioned check in its policy. An operator's classifier may refuse to relay but never alters a message; the escape hatch stands. Vendors to compare in the research pass: Lakera, Protect AI / LLM Guard, HiddenLayer, Prompt Security, Cisco AI Defense, Meta Prompt Guard, NVIDIA NeMo Guardrails, and the cloud guardrail services (Azure Prompt Shields, Google Model Armor, AWS Bedrock Guardrails); list from memory, unverified | Rafa, 2026-10-31 | With the operator business model; client-side scanning any time after the demo |
+| Liability limits stated plainly: an operator can cap and absorb money losses in the protocol (bond, indemnity, insurance); it cannot shield an owner from legal liability to third parties | D26 | With the operator terms of service |
+
 ## Compliance and operations
 
 | Item | Source | When it matters |
