@@ -5,7 +5,7 @@
 - **Depends on:** T-007, T-009, T-012, T-018
 - **Paths this task may touch:** `examples/` (new, inside the pnpm workspace), `apps/operator/` (new endpoints, a start script and bin), `apps/adjudicator/` (a test adjudicator), `README.md`, `docs/api.md`, `docs/quickstart.md` (new), package `README.md` files, `pnpm-workspace.yaml`, root `package.json` scripts, and the root `tsconfig.json` and `vitest.config.ts` (to compile and test `examples/`)
 - **Human gate:** no
-- **Status:** in progress
+- **Status:** review
 - **Agent/session:** implementer, 2026-10-31
 - **Re-scoped:** 2026-10-31 by D30 (API-first, Rafa via the coordinator): no high-level SDK layer and no MCP server now; the existing SDK client stays as it is.
 
@@ -30,18 +30,18 @@ Two outsider agents (`docs/reviews/2026-10-31-outsider-usability.md`) settled de
 
 ## Acceptance criteria
 
-- [ ] Prepare endpoints for offer, agree-and-fund, delivery, early accept, appeal and mutual settlement return EIP-712 typed data, digest and submit body; signing that typed data with viem and submitting the body moves the commitment. The operator signs nothing.
-- [ ] "Verify before you sign" documented with the fields to check (counterparty, amount, adjudicators, payouts).
-- [ ] Recipients endpoint and envelope spec with test vectors checked in CI; ciphertext upload and read endpoints.
-- [ ] Offer prepare with `default` and `checks-only` templates; policy and registry hashes from the adjudicator's published registration.
-- [ ] `pnpm sim` starts SimChain, two operator nodes and three test adjudicators with fake judges, printing endpoints and funded test keys.
-- [ ] `examples/buy-dataset.ts` and `examples/sell-translation.ts` (fetch + signing library only), each under ~60 lines, run in CI.
-- [ ] `docs/quickstart.md` linked first from `README.md`: curl per step, TypeScript and Python signing snippets; states SimChain, fake judges, no real money, fee kept on refund, tUSD 6 decimals.
-- [ ] `docs/api.md`: example matches the API; `apply_default` in the trigger table; `key.released` says whose key it is.
-- [ ] Fake-judge records are marked as fake wherever they appear to an integrator.
-- [ ] OpenAPI for the new endpoints if T-015's document is cheap to extend; otherwise noted.
+- [x] Prepare endpoints for offer, agree-and-fund, delivery, early accept, appeal and mutual settlement return EIP-712 typed data, digest and submit body; signing that typed data with viem and submitting the body moves the commitment. The operator signs nothing.
+- [x] "Verify before you sign" documented with the fields to check (counterparty, amount, adjudicators, payouts).
+- [x] Recipients endpoint and envelope spec with test vectors checked in CI; ciphertext upload and read endpoints.
+- [x] Offer prepare with `default` and `checks-only` templates; policy and registry hashes from the adjudicator's published registration.
+- [x] `pnpm sim` starts SimChain, two operator nodes and three test adjudicators with fake judges, printing endpoints and funded test keys.
+- [x] `examples/buy-dataset.ts` and `examples/sell-translation.ts` (fetch + signing library only), each under ~60 lines, run in CI.
+- [x] `docs/quickstart.md` linked first from `README.md`: curl per step, TypeScript and Python signing snippets; states SimChain, fake judges, no real money, fee kept on refund, tUSD 6 decimals.
+- [x] `docs/api.md`: example matches the API; `apply_default` in the trigger table; `key.released` says whose key it is.
+- [x] Fake-judge records are marked as fake wherever they appear to an integrator.
+- [x] OpenAPI for the new endpoints if T-015's document is cheap to extend; otherwise noted. (Noted: no document exists yet; see Decisions.)
 - [ ] Re-run the outsider test (both briefs, fresh agents) and record time to first settled deal; target under 15 minutes with no source reading (coordinator).
-- [ ] `pnpm verify` green.
+- [x] `pnpm verify` green.
 
 ## Out of scope
 
@@ -49,6 +49,37 @@ Two outsider agents (`docs/reviews/2026-10-31-outsider-usability.md`) settled de
 
 ## Evidence
 
+- **`pnpm verify` green on a clean tree** (measured, 2026-10-31, branch `t-020-developer-surface`): typecheck, lint, test (71 files, 1,983 tests), spec, snap and demo all pass; report `reports/verify-t-020-developer-surface.md`.
+- **Prepare, sign, submit works end to end with viem and the agent's own key** (measured): `apps/operator/src/sim-world.test.ts` signs every prepared message with viem after checking `hashTypedData` of the converted typed data equals the operator's `digest`, and drives offer, agree-and-fund, delivery, release, refund, appeal and co-signed settlement through the second operator node. The offer digest equals core's `termsDigest`; two prepares with the same inputs give the same digest; the offer's `policyHash`, `registryHash` and fee equal the primary's published registration.
+- **The operator signs no party message** (inferred from code): `prepare.ts` builds typed data and digests only; the operator's only key signs receipts, as before.
+- **Deliveries need only standard libraries** (measured): `examples/agent.ts` encrypts with Web Crypto and seals keys with `tweetnacl`, and the core-based test adjudicators open and judge those deliveries (both examples settle). `envelope-spec.test.ts` checks the docs/api.md test vectors against core and against a tweetnacl and Web Crypto build of the spec.
+- **Examples run in CI** (measured): `examples/examples.test.ts` runs `node examples/run.ts buy-dataset` against a running sim and `sell-translation` with no sim (run.ts starts one), checks outcomes and the fake-judge label, runs `sign.ts` on a prepared offer, keeps each example at 60 lines or fewer with no `@holdback/*` import, and checks that every `$API/...` path the quickstart curls is an operator route. CI's `pnpm test` includes `examples/*.test.ts`.
+- **The quickstart works as written** (measured): its commands, run in order by a scratch script against `node apps/operator/dist/sim-bin.js` on the default ports, went Offered, AcceptedByAdjudicator, Held, Delivered, Released; the buyer opened the CSV; balances 9,974 and 10,025 tUSD; events show `key.released` to the primary, then to the buyer; 3.6 s wall time for the deal steps.
+- **`pnpm sim`** (measured): prints both operators, the sim service, three adjudicators, four funded accounts with signing keys, and the economics; `/.well-known/holdback.json` answers with `apiBaseUrl`.
+- **docs/api.md example matches the API** (measured): a test posts the agree-and-fund shape and compares the documented request and response fields with the live ones.
+- **Demo unchanged** (measured): `git diff c523faa -- apps/demo packages/sdk packages/core packages/settlement packages/judgment spec` is empty. `pnpm demo` stdout before and after, timings masked, differs only in "Record hash" and one beat-6a "decision event" hash; two runs of the same build differ in those same fields (measured), so they vary run to run on main too.
+- **Python signing snippet** (guessed): written against eth-account's documented `encode_typed_data` and `sign_typed_data`; not run (eth-account is not installed here and is not in CI).
+- **Time to first settled deal for an outsider** (not measured): the coordinator re-runs the two briefs (Handoff).
+
 ## Decisions
 
+- **API-first per D30.** The party-level SDK built before D30 arrived was removed before any push; `packages/sdk` and `apps/demo` are byte-identical to `main`. Terms presets, test accounts and tUSD units moved into `apps/operator` for the prepare endpoint and the sim.
+- **The submit endpoint is the existing write route.** A prepare response names `submit.path` and a body with signature slots; the agent fills them and POSTs with an `Idempotency-Key`. No new submit route: a self-built message and a prepared one take the same path.
+- **Prepare is a read.** `POST /v1/prepare/{kind}` records nothing, so it takes no `Idempotency-Key`; it is throttled as a read.
+- **Deterministic defaults.** Default nonces are keccak256 of the kind and inputs; times default to settlement-layer time and are echoed in `defaults`. A retried prepare yields the same message (accepted once). Cost: two separate identical offers in the same second need distinct `nonce` values (documented).
+- **Integers as decimal strings in typed data**, `chainId` as a number. Measured: viem hashes a string-valued uint differently from the integer without an error, so the docs and every snippet convert by `types` and compare with `digest` before signing.
+- **Envelope: not HPKE.** Core's envelope is a NaCl box from an ephemeral key (`x25519-xsalsa20poly1305`), not RFC 9180. Changing it would be a schema and crypto change needing an ADR; instead the construction is specified byte for byte with test vectors, and it is buildable with libsodium, tweetnacl or PyNaCl.
+- **Ciphertext upload requires an Idempotency-Key** (hard rule), fingerprinted by the bytes' SHA-256.
+- **The sim service serves test keys over HTTP** (`GET :8780/`). They derive from public labels and fund only SimChain tUSD; it keeps the examples free of key derivation code.
+- **`apps/operator` now depends on `apps/adjudicator` and `packages/judgment`** for the sim world only. No cycle.
+- **Root `tsconfig.json` and `vitest.config.ts` touched** to compile and test `examples/` (listed in the re-scoped paths).
+- **OpenAPI not generated.** T-015 (OpenAPI contract) is still `todo` and no document exists to extend; writing one for only the new endpoints would fork it.
+- **Discovery (optional add) done:** `/.well-known/holdback.json` is `/v1/status` plus `apiBaseUrl`; quickstart step 2.
+
 ## Handoff
+
+- **Outsider re-test (coordinator):** re-run both outsider briefs (`docs/reviews/2026-10-31-outsider-usability.md`) with fresh agents starting at `README.md`, now pointed at `docs/quickstart.md`, and record time to first settled deal (target under 15 minutes, no source reading). This implementer spawned nothing.
+- **Decisions file:** the decisions above are not yet in `docs/decisions-today.md` (outside this task's paths); the coordinator may record the envelope-not-HPKE and deterministic-nonce choices there.
+- **Possible opt-in later (not built):** operator-side encryption of plaintext for agents without crypto libraries. It would put plaintext and the content key on an operator, against the two-sided hold's privacy model (ADR-0012, ADR-0020); it would need an ADR.
+- **Backlog candidates:** OpenAPI for the prepare, ciphertext and recipients endpoints once T-015 lands; a Python example in CI; `GET /v1/commitments/{id}/key` signed requests (Phase 2, private disclosure); an HPKE envelope option via ADR if a standard is wanted.
+- **Proposed check (Rules and checks, `docs/team.md`, not edited here):** examples run with Node's type stripping, which rejects TypeScript-only syntax at run time (hit once: a parameter property). `examples/tsconfig.json` now sets `erasableSyntaxOnly`, so `pnpm typecheck` catches it.
