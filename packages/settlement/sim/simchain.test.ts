@@ -117,6 +117,22 @@ describe('happy path (demo beats 1-4)', () => {
     expect(await w.bal(w.cast.primary)).toBe(FEE);
     expect(await w.chain.keysFor(w.deal.id, w.cast.buyer.address)).toEqual([]);
   });
+
+  it('delivers the key to the buyer, not to a relayer that adds an unsigned recipient to the signed key', async () => {
+    const w = await world();
+    await delivered(w);
+    const relayer = simActor('relayer');
+    const s = await w.deal.decide('primary', 'accept');
+    if (s.kind !== 'decide' || !s.message.keyForBuyer) throw new Error('expected a decision with a key');
+    // SealedKey signs scheme and ciphertext only; the relayer smuggles a recipient past the signature.
+    const tampered = { ...s, message: { ...s.message, keyForBuyer: { ...s.message.keyForBuyer, recipient: relayer.address } } } as Submission;
+    const r = await w.ok(tampered);
+    expect(r.state.escrowState).toBe('Released');
+    expect(await w.chain.keysFor(w.deal.id, relayer.address)).toEqual([]);
+    expect(await w.chain.keysFor(w.deal.id, w.cast.buyer.address)).toEqual([
+      { recipient: w.cast.buyer.address, scheme: s.message.keyForBuyer.scheme, ciphertext: s.message.keyForBuyer.ciphertext },
+    ]);
+  });
 });
 
 describe('early acceptance', () => {
@@ -131,6 +147,21 @@ describe('early acceptance', () => {
     expect(await w.chain.keysFor(w.deal.id, w.cast.buyer.address)).toEqual([w.deal.envelope(w.cast.buyer.address)]);
     expect(w.chain.pool(w.cast.primary.address).reserved).toBe(0n);
     expect(r.state.finalAt).toBe(r.state.settledAt);
+  });
+
+  it('stores and releases only the signed fields of a delivery envelope, never extras a relayer adds', async () => {
+    const w = await world();
+    await w.ok(w.deal.offer());
+    await w.ok(w.deal.accept());
+    await w.ok(w.deal.agreeAndFund());
+    const s = await w.deal.deliver();
+    if (s.kind !== 'deliver') throw new Error('expected a delivery');
+    const encryptedKeys = s.delivery.encryptedKeys.map((k) => ({ ...k, note: 'unsigned' }));
+    await w.ok({ ...s, delivery: { ...s.delivery, encryptedKeys } } as Submission);
+    w.chain.advance(5);
+    await w.ok(w.deal.earlyAccept());
+    const [released] = await w.chain.keysFor(w.deal.id, w.cast.buyer.address);
+    expect(released).toStrictEqual(w.deal.envelope(w.cast.buyer.address));
   });
 });
 
