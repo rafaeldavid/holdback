@@ -9,6 +9,57 @@ import { fenced, mdText, plain, safeJson } from './untrusted.js';
 type Of<K extends DemoEvent['kind']> = Extract<DemoEvent, { kind: K }>;
 export const eventsOf = <K extends DemoEvent['kind']>(t: BeatTranscript, kind: K): Of<K>[] => t.events.filter((e): e is Of<K> => e.kind === kind);
 
+const sameRows = (a: Of<'balances'>, b: Of<'balances'>) => JSON.stringify(a.rows) === JSON.stringify(b.rows);
+
+/**
+ * The balance snapshots worth a table (T-019): each one that differs from the snapshot before it, plus the first
+ * as the starting point. A beat that moved no money gets none.
+ */
+export function leanBalances(t: BeatTranscript): Of<'balances'>[] {
+  const all = eventsOf(t, 'balances');
+  const changed = all.filter((b, i) => i > 0 && !sameRows(b, all[i - 1]!));
+  return changed.length ? [all[0]!, ...changed] : [];
+}
+
+/** One prompt or verdict line inside a fence: plain again, so a renderer is safe without the source's pass. */
+const fenceBody = (lines: readonly string[]) => lines.map(plain).join('\n');
+
+/** Seat, model, hashes, the prompt (head, omitted count, tail) and the verdict, each in its own fence. */
+function judgeSection(j: Of<'judge-prompt'>): string[] {
+  const u = j.prompt.user;
+  const omitted = u.omitted ? ['', `\\[${u.omitted.toLocaleString('en-US')} line${u.omitted === 1 ? '' : 's'} of the data section omitted here; the input hash covers them.\\]`, '', fenced('text', fenceBody(u.tail))] : [];
+  return [
+    `## Judge prompt and verdict${mark(j)}`,
+    '',
+    `Seat ${j.seat} on ${mdText(labelOf(j.actor))}'s panel, ${code(j.model)} (${mdText(j.family)}). Input hash ${code(j.inputHash)}. ${j.scripted ? 'The verdict is scripted: a fake provider wrote it, and no model read this prompt.' : 'The verdict is the model\'s reply.'} The deliverable and the terms are quoted as the judge received them.`,
+    '',
+    `**System message** (${j.prompt.system.length} lines):`,
+    '',
+    fenced('text', fenceBody(j.prompt.system)),
+    '',
+    `**User message** (${u.lines.toLocaleString('en-US')} lines):`,
+    '',
+    fenced('text', fenceBody(u.head)),
+    ...omitted,
+    '',
+    '**Verdict:**',
+    '',
+    j.verdict ? fenced('json', safeJson(verdictJson(j))) : 'No valid verdict.',
+    '',
+  ];
+}
+
+/** The verdict with its strings plain, for a fence or <pre>. */
+export const verdictJson = (j: Of<'judge-prompt'>) =>
+  j.verdict
+    ? {
+        ...j.verdict,
+        criteria: j.verdict.criteria.map((c) => ({ id: plain(c.id), score: c.score, evidence: plain(c.evidence) })),
+        ...(j.verdict.injectionEvidence === undefined ? {} : { injectionEvidence: plain(j.verdict.injectionEvidence) }),
+        rationale: plain(j.verdict.rationale),
+      }
+    : null;
+
 /** A code span for an identifier: plain text with backticks removed, so it cannot close early. */
 const code = (s: string) => `\`${plain(s).replaceAll('`', '')}\``;
 const mark = (e: { standIn?: true }) => (e.standIn ? ' [stand-in]' : '');
@@ -23,7 +74,7 @@ export function renderMarkdown(t: BeatTranscript): string {
 
   if (t.adjudicators?.length) {
     // Registration names and profile text are party text: escaped like every other line (T-017).
-    out.push('## Adjudicators considered', '', 'Judges are pinned registry model IDs; effort is what each bench declares (recorded mode applies none). History is role-play, invented for this demo.', '');
+    out.push('## Adjudicators considered', '', 'Judges are pinned registry model IDs; effort is what each bench declares (scripted judges apply none). History is role-play, invented for this demo.', '');
     const rules = eventsOf(t, 'adjudicator-proposal')[0]?.rules ?? [];
     if (rules.length) out.push('Rules applied by the buyer (club rulebook):', '', ...rules.map((r) => `- ${mdText(r)}`), '');
     for (const a of t.adjudicators) {
@@ -46,7 +97,7 @@ export function renderMarkdown(t: BeatTranscript): string {
   const neutrality = eventsOf(t, 'neutrality');
   if (neutrality.length) out.push('## Neutrality events', '', ...neutrality.map((e) => `- ${mdText(narrate(e))}`), '');
 
-  const balances = eventsOf(t, 'balances');
+  const balances = leanBalances(t);
   if (balances.length) {
     out.push('## Balances', '');
     for (const b of balances) {
@@ -59,6 +110,8 @@ export function renderMarkdown(t: BeatTranscript): string {
   for (const s of eventsOf(t, 'signed')) {
     out.push(`## Signed message${mark(s)}`, '', `${mdText(s.messageType)}, signed by ${mdText(labelOf(s.actor))} (${code(s.signer)}).`, '', fenced('json', safeJson({ ...s.body, signature: s.signature })), '');
   }
+  // Last: the prompt keeps the deliverable's line breaks, inside fences only.
+  for (const j of eventsOf(t, 'judge-prompt')) out.push(...judgeSection(j));
   return `${out.join('\n').trimEnd()}\n`;
 }
 
@@ -73,9 +126,9 @@ export function renderClosingMarkdown(): string {
     '',
     '## What remains centralized',
     '',
-    'Residual control points, from `docs/neutrality.md`:',
+    `${c.residualsIntro}`,
     '',
-    ...c.residuals.map((r) => `${r.n}. **${r.title}.** ${r.line}`),
+    ...c.residuals.map((r) => `- **${r.title}** (residual ${r.n}). ${r.line}`),
     '',
     '## What an AI lab could add',
     '',

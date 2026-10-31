@@ -59,7 +59,7 @@ describe('SimChain source (T-012 beat runner)', () => {
 
   it('beat 1: offer, acceptance and a one-call hold through op-1, with the signed offer', () => {
     const t = beat(1);
-    expect(t.events.map((e) => e.kind).filter((k) => k !== 'balances')).toEqual(['adjudicator-proposal', 'adjudicator-agreement', 'offer', 'signed', 'acceptance', 'hold']);
+    expect(t.events.map((e) => e.kind).filter((k) => k !== 'balances')).toEqual(['adjudicator-proposal', 'adjudicator-agreement', 'offer', 'signed', 'acceptance', 'hold', 'shared-record']);
     expect(only(t, 'hold')[0]).toMatchObject({ amount: { token: 'tUSD', amount: '2050000000' }, via: 'op1' });
     expect(row(t, 'after hold', 'buyer')?.amount.amount).toBe('7950000000');
     expect(row(t, 'after hold', 'escrow')?.amount.amount).toBe('2050000000');

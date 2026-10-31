@@ -1,0 +1,41 @@
+// One judge's prompt and verdict for the transcript (T-019). The prompt quotes the agreed terms and a sample of
+// the deliverable, and the verdict is model output over both: untrusted. Every line is made plain here (no
+// controls, bidi or tag characters); the renderers escape again per surface and keep it inside fences or <pre>.
+import type { JudgeVerdict } from '@holdback/core';
+import type { PromptView, VerdictView } from './types.js';
+import { plain } from './untrusted.js';
+
+/** Data lines shown at the head of the data section: the CSV header row and the first rows after it. */
+export const DATA_LINES_SHOWN = 9;
+
+const BEGIN = '<<<BEGIN UNTRUSTED DATA';
+const END = '<<<END UNTRUSTED DATA';
+
+/**
+ * The system message whole; the user message up to the first DATA_LINES_SHOWN data lines, then the last data
+ * line and everything from the end marker on. The count of lines left out is kept; nothing is reworded.
+ */
+export function judgePromptView(system: string, user: string): PromptView {
+  const lines = user.split(/\r\n|\n/);
+  const begin = lines.findIndex((l) => l.startsWith(BEGIN));
+  const end = lines.findIndex((l) => l.startsWith(END));
+  const headEnd = begin >= 0 ? begin + 1 + DATA_LINES_SHOWN : 30;
+  const tailStart = end > 0 ? end - 1 : lines.length;
+  const omitted = tailStart - headEnd;
+  const [head, tail] = omitted > 0 ? [lines.slice(0, headEnd), lines.slice(tailStart)] : [lines, []];
+  return {
+    system: system.split(/\r\n|\n/).map(plain),
+    user: { head: head.map(plain), omitted: Math.max(0, omitted), tail: tail.map(plain), lines: lines.length },
+  };
+}
+
+/** A verdict with every string made plain. */
+export function verdictView(v: JudgeVerdict): VerdictView {
+  return {
+    overall: v.overall,
+    criteria: v.criteria.map((c) => ({ id: plain(c.id), score: c.score, evidence: plain(c.evidence) })),
+    injectionSuspected: v.injectionSuspected,
+    ...(v.injectionEvidence === undefined ? {} : { injectionEvidence: plain(v.injectionEvidence) }),
+    rationale: plain(v.rationale),
+  };
+}

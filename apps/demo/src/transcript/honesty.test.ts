@@ -140,8 +140,8 @@ describe('shared record (D26)', () => {
     atMs: 50,
     actor: 'chain',
     parties: [
-      { who: 'buyer', via: 'op1', hash: `0x${'11'.repeat(32)}` },
-      { who: 'seller', via: 'op2', hash: `0x${(match ? '11' : '22').repeat(32)}` },
+      { who: 'buyer', hash: `0x${'11'.repeat(32)}` },
+      { who: 'seller', hash: `0x${(match ? '11' : '22').repeat(32)}` },
     ],
     events: 9,
     receipts: 9,

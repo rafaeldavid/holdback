@@ -1,10 +1,10 @@
 // pnpm demo [--beat n] [--live] [--out dir]
 // Runs the beats, prints the narration, and writes demo/out/beat-<n>.md, beat-<n>.json, closing.md and
-// index.html. Recorded mode only: --live refuses until two model-family keys exist. Reads no environment.
+// index.html. Scripted judges only: --live refuses until two model-family keys exist. Reads no environment.
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { demoSource } from './source/demo.js';
-import { header, narrate } from './transcript/narrate.js';
+import { beatHeader, narrate, sharedHeader, type SharedHeader } from './transcript/narrate.js';
 import { renderHtml } from './transcript/render-html.js';
 import { renderJson } from './transcript/render-json.js';
 import { renderClosingMarkdown, renderMarkdown } from './transcript/render-md.js';
@@ -17,7 +17,7 @@ export interface Args {
   out?: string;
 }
 
-export const USAGE = 'usage: pnpm demo [--beat <n>] [--out <dir>]   (recorded mode; --live needs two model-family keys)';
+export const USAGE = 'usage: pnpm demo [--beat <n>] [--out <dir>]   (scripted judges; --live needs two model-family keys)';
 
 export function parseArgs(argv: readonly string[]): Args {
   const args: Args = { live: false };
@@ -61,7 +61,7 @@ export interface Io {
 export const LIVE_REFUSAL = [
   'pnpm demo --live is not available yet.',
   'Live mode calls judges from two model families and needs an API key for each, supplied as environment variables to the adjudicator. None is configured for this prototype.',
-  'Run `pnpm demo` for recorded mode: the same beats with recorded verdicts and no keys.',
+  'Run `pnpm demo` for scripted mode: the same beats with scripted judges and no keys.',
 ].join('\n');
 
 /** Returns the process exit code: 0 on success, 2 on a usage error or refusal. */
@@ -90,6 +90,7 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
 
   const transcripts: BeatTranscript[] = [];
   let firstMs: number | undefined;
+  let shared: SharedHeader | undefined;
   for (const beat of args.beat === undefined ? available : [args.beat]) {
     const t = await source.run(beat);
     writeFileSync(join(outDir, `beat-${beat}.md`), renderMarkdown(t));
@@ -97,8 +98,11 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
     firstMs ??= Math.round(now() - started);
     transcripts.push(t);
     // Terminal: every line is plain (no escape sequences, bidi or tag characters, no embedded line breaks).
+    // The first beat's mode, source and units print once; later beats print only what differs (T-019).
+    shared ??= sharedHeader([t]);
+    if (transcripts.length === 1) for (const line of shared.lines) io.log(plain(line));
     io.log(`\nBeat ${t.beat}: ${plain(t.title)}`);
-    for (const line of header(t)) io.log(`  ${plain(line)}`);
+    for (const line of beatHeader(t, shared)) io.log(`  ${plain(line)}`);
     for (const e of t.events) if (e.kind !== 'balances') io.log(`  ${plain(narrate(e))}`);
   }
   const closing = renderClosingMarkdown();

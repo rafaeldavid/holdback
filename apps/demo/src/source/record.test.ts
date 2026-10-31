@@ -25,8 +25,8 @@ function view(over: Partial<PartyView> = {}): PartyView {
 describe('sharedRecordEvent', () => {
   it('matches when both copies are equal, and names the judgment record and the decision', () => {
     const e = sharedRecordEvent(7, [
-      { who: 'buyer', via: 'op1', view: view() },
-      { who: 'seller', via: 'op1', view: view() },
+      { who: 'buyer', view: view() },
+      { who: 'seller', view: view() },
     ]);
     expect(e).toMatchObject({ kind: 'shared-record', match: true, events: 2, receipts: 2, judgmentRecord: H('b1'), decision: H('de') });
     expect(e.kind === 'shared-record' && e.parties[0]!.hash).toBe(e.kind === 'shared-record' && e.parties[1]!.hash);
@@ -35,16 +35,16 @@ describe('sharedRecordEvent', () => {
   it('does not match when one copy is missing a receipt', () => {
     const short = view();
     const e = sharedRecordEvent(7, [
-      { who: 'buyer', via: 'op1', view: view() },
-      { who: 'seller', via: 'op1', view: { ...short, receipts: short.receipts.slice(0, 1) } },
+      { who: 'buyer', view: view() },
+      { who: 'seller', view: { ...short, receipts: short.receipts.slice(0, 1) } },
     ]);
     expect(e.kind === 'shared-record' && e.match).toBe(false);
   });
 
   it('does not match when the judgment record is not the one the decision event names', () => {
     const e = sharedRecordEvent(7, [
-      { who: 'buyer', via: 'op1', view: view() },
-      { who: 'seller', via: 'op1', view: view({ judgment: { recordHash: H('c2') } as unknown as Judgment }) },
+      { who: 'buyer', view: view() },
+      { who: 'seller', view: view({ judgment: { recordHash: H('c2') } as unknown as Judgment }) },
     ]);
     expect(e.kind === 'shared-record' && e.match).toBe(false);
   });

@@ -174,7 +174,7 @@ export type DemoEvent =
        */
       kind: 'shared-record';
       actor: CastKey;
-      parties: { who: CastKey; via: Via; hash: string }[];
+      parties: { who: CastKey; hash: string }[];
       events: number;
       receipts: number;
       /** The judgment record's hash, when an adjudicator decided. */

@@ -3,9 +3,9 @@
 import { CAST, labelOf } from './cast.js';
 import { closing } from './closing.js';
 import { formatAmount } from './money.js';
-import { describeEvent, formatMs, formatScore, header } from './narrate.js';
-import { eventsOf } from './render-md.js';
-import type { AdjudicatorProfile, BeatTranscript, CastKey } from './types.js';
+import { beatHeader, describeEvent, formatMs, formatScore, sharedHeader, type SharedHeader } from './narrate.js';
+import { eventsOf, leanBalances, verdictJson } from './render-md.js';
+import type { AdjudicatorProfile, BeatTranscript, CastKey, DemoEvent } from './types.js';
 import { plain, safeJson } from './untrusted.js';
 
 const escRaw = (s: string) => s.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
@@ -42,6 +42,10 @@ ol.timeline{list-style:none;margin:0;padding:0;border-left:2px solid var(--line)
 .event .who{font-weight:600}
 .event.neutrality{background:var(--warn-bg);color:var(--warn-ink);border-radius:6px;padding:6px 10px 8px 16px;margin:2px 0 8px}
 .event.neutrality::before{border-color:var(--warn-ink)}
+.event.record{border-top:1px dashed var(--line);margin-top:4px;padding-top:8px}
+.event.record::before{border-color:var(--ok)}
+details.judge h4{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:12px 0 4px}
+details.judge pre{max-height:24em;overflow:auto}
 code{font:12.5px ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--code-bg);padding:1px 4px;border-radius:4px;overflow-wrap:anywhere}
 table{border-collapse:collapse;width:100%;font-size:13px}
 th,td{text-align:left;padding:5px 6px;border-bottom:1px solid var(--line);vertical-align:top}
@@ -62,7 +66,7 @@ details.profile ul{padding-left:18px;margin:4px 0}
 `;
 
 function balancesTable(t: BeatTranscript): string {
-  const snaps = eventsOf(t, 'balances');
+  const snaps = leanBalances(t);
   if (!snaps.length) return '';
   const who: CastKey[] = [];
   for (const s of snaps) for (const r of s.rows) if (!who.includes(r.who)) who.push(r.who);
@@ -122,7 +126,7 @@ function profiles(t: BeatTranscript): string {
       '<div class="scroll"><table><thead><tr><th>Registry ID</th><th>Pinned model ID</th><th>Family</th><th>Declared effort</th></tr></thead><tbody>',
       ...a.judges.map((j) => `<tr><td>${esc(j.id)}</td><td><code>${esc(j.model)}</code></td><td>${esc(j.family)}</td><td>${esc(j.effort)}</td></tr>`),
       '</tbody></table></div>',
-      '<p class="meta">Effort is the reasoning setting the bench declares per judge; the v0.6 registration cannot carry it, and recorded mode applies none.</p>',
+      '<p class="meta">Effort is the reasoning setting the bench declares per judge; the v0.6 registration cannot carry it, and scripted judges apply none.</p>',
       '<h4>Harness</h4>',
       `<ul>${a.harness.map((h) => `<li>${esc(h)}</li>`).join('')}</ul>`,
       '<h4>Terms</h4>',
@@ -137,12 +141,35 @@ function profiles(t: BeatTranscript): string {
   return ['<h3>Adjudicators considered</h3>', applied, ...t.adjudicators.map(one)].join('\n');
 }
 
-function beatSection(t: BeatTranscript): string {
+/** Prompt or verdict lines inside <pre>: each made plain, then escaped. */
+const preLines = (lines: readonly string[]) => lines.map(esc).join('\n');
+
+/** One judge's prompt and verdict, collapsed like the signed message (T-019). Every line is untrusted. */
+function judgePrompts(t: BeatTranscript): string {
+  return eventsOf(t, 'judge-prompt')
+    .map((j) => {
+      const u = j.prompt.user;
+      return [
+        `<details class="signed judge"><summary>Judge prompt and verdict: seat ${j.seat}, <code>${esc(j.model)}</code> (${esc(j.family)})${mark(j)}</summary>`,
+        `<p class="meta">On ${esc(labelOf(j.actor))}'s panel. Input hash <code>${esc(j.inputHash)}</code>. ${j.scripted ? 'The verdict is scripted: a fake provider wrote it, and no model read this prompt.' : "The verdict is the model's reply."} The deliverable and the terms are quoted as the judge received them.</p>`,
+        `<h4>System message (${j.prompt.system.length} lines)</h4><pre>${preLines(j.prompt.system)}</pre>`,
+        `<h4>User message (${esc(u.lines.toLocaleString('en-US'))} lines)</h4><pre>${preLines(u.head)}</pre>`,
+        u.omitted ? `<p class="meta">${esc(u.omitted.toLocaleString('en-US'))} line${u.omitted === 1 ? '' : 's'} of the data section omitted here; the input hash covers them.</p><pre>${preLines(u.tail)}</pre>` : '',
+        `<h4>Verdict</h4>${j.verdict ? `<pre>${escRaw(safeJson(verdictJson(j)))}</pre>` : '<p>No valid verdict.</p>'}`,
+        '</details>',
+      ].join('\n');
+    })
+    .join('\n');
+}
+
+const EVENT_CLASS: Partial<Record<DemoEvent['kind'], string>> = { neutrality: ' neutrality', 'shared-record': ' record' };
+
+function beatSection(t: BeatTranscript, shared: SharedHeader): string {
   const items = t.events
     .filter((e) => e.kind !== 'balances')
     .map(
       (e) =>
-        `<li class="event${e.kind === 'neutrality' ? ' neutrality' : ''}" data-kind="${e.kind}"><span class="t">${esc(formatMs(e.atMs))}${mark(e)}</span>${esc(describeEvent(e))}</li>`,
+        `<li class="event${EVENT_CLASS[e.kind] ?? ''}" data-kind="${e.kind}"><span class="t">${esc(formatMs(e.atMs))}${mark(e)}</span>${esc(describeEvent(e))}</li>`,
     );
   const standIn = t.source.kind !== 'simchain';
   return [
@@ -150,9 +177,9 @@ function beatSection(t: BeatTranscript): string {
     `<h2>Beat ${t.beat}: ${esc(t.title)}</h2>`,
     `<p>${esc(t.summary)}</p>`,
     `<p><span class="badge${standIn ? ' standin' : ''}">${t.source.kind === 'stand-in' ? 'stand-in source' : t.source.kind === 'mixed' ? 'SimChain + stand-in' : 'SimChain'}</span><span class="badge">${esc(t.mode)}</span>${t.commitmentId ? `<span class="badge">commitment <code>${esc(t.commitmentId.slice(0, 10))}…</code></span>` : ''}</p>`,
-    `<ul class="meta">${header(t).map((l) => `<li>${esc(l)}</li>`).join('')}</ul>`,
+    `<ul class="meta">${beatHeader(t, shared).map((l) => `<li>${esc(l)}</li>`).join('')}</ul>`,
     '<div class="grid">',
-    `<div><h3>Timeline</h3><ol class="timeline">\n${items.join('\n')}\n</ol>${signed(t)}${profiles(t)}</div>`,
+    `<div><h3>Timeline</h3><ol class="timeline">\n${items.join('\n')}\n</ol>${signed(t)}${judgePrompts(t)}${profiles(t)}</div>`,
     `<div>${balancesTable(t)}${panelTables(t)}</div>`,
     '</div>',
     '</section>',
@@ -167,8 +194,8 @@ function closingSection(): string {
     '<h3>Finality</h3>',
     `<ul>${c.finality.map((l) => `<li>${esc(l)}</li>`).join('')}</ul>`,
     '<h3>What remains centralized</h3>',
-    '<p class="meta">Residual control points from docs/neutrality.md.</p>',
-    `<ol>${c.residuals.map((r) => `<li><strong>${esc(r.title)}.</strong> ${esc(r.line)}</li>`).join('')}</ol>`,
+    `<p class="meta">${esc(c.residualsIntro)}</p>`,
+    `<ul>${c.residuals.map((r) => `<li><strong>${esc(r.title)}</strong> (residual ${r.n}). ${esc(r.line)}</li>`).join('')}</ul>`,
     '<h3>What an AI lab could add</h3>',
     `<ul>${c.asks.map((a) => `<li>${esc(a)}</li>`).join('')}</ul>`,
     '</section>',
@@ -178,6 +205,7 @@ function closingSection(): string {
 export function renderHtml(transcripts: readonly BeatTranscript[]): string {
   const ts = [...transcripts].sort((a, b) => a.beat - b.beat);
   const anyStandIn = ts.some((t) => t.source.kind !== 'simchain');
+  const shared = sharedHeader(ts);
   return [
     '<!doctype html>',
     '<html lang="en">',
@@ -192,8 +220,9 @@ export function renderHtml(transcripts: readonly BeatTranscript[]): string {
     '<h1>Two agents, one 2,000 tUSD job, nobody in control</h1>',
     `<p class="lede">${esc(CAST.buyer.name)}, ${esc(CAST.buyer.org ?? '')}'s buyer agent (principal ${esc(CAST.buyer.principal ?? '')}), hires ${esc(CAST.seller.name)}, ${esc(CAST.seller.org ?? '')}'s seller agent (principal ${esc(CAST.seller.principal ?? '')}), to clean a customer dataset. The two agents name ${esc(CAST.benchA.name)}, ${esc(CAST.benchB.name)} and ${esc(CAST.benchC.name)} as primary, fallback and appeal adjudicators. ${esc(CAST.backer.name)} backs bonds; ${esc(CAST.observer.name)} observes. Settlement runs on SimChain with a test token.</p>`,
     anyStandIn ? '<p class="lede"><span class="badge standin">stand-in source</span>Beats and events marked stand-in are scripted with illustrative numbers, because no SimChain runner drives them yet. Everything else is measured on SimChain in this run.</p>' : '',
+    `<ul class="meta header">${shared.lines.map((l) => `<li>${esc(l)}</li>`).join('')}</ul>`,
     `<nav><ol>${ts.map((t) => `<li><a href="#beat-${t.beat}">${t.beat}. ${esc(t.title)}</a></li>`).join('')}<li><a href="#closing">Closing</a></li></ol></nav>`,
-    ...ts.map(beatSection),
+    ...ts.map((t) => beatSection(t, shared)),
     closingSection(),
     '</main>',
     '</body>',

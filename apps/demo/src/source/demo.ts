@@ -30,7 +30,8 @@ export function demoSource(): EventSource {
         };
       }
       if (sim.beats().includes(beat)) return sim.run(beat);
-      return stand.run(beat);
+      // No judge ran for a stand-in beat, and nothing was recorded: label it scripted like the rest (T-019).
+      return { ...(await stand.run(beat)), mode: 'scripted' };
     },
   };
 }
