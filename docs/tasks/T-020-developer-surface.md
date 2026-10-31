@@ -3,7 +3,7 @@
 - **Lane:** api + demo
 - **Phase:** 1
 - **Depends on:** T-007, T-009, T-012, T-018
-- **Paths this task may touch:** `examples/` (new, inside the pnpm workspace), `apps/operator/` (new endpoints, a start script and bin), `apps/adjudicator/` (a test adjudicator), `README.md`, `docs/api.md`, `docs/quickstart.md` (new), package `README.md` files, `pnpm-workspace.yaml`, root `package.json` scripts, and the root `tsconfig.json` and `vitest.config.ts` (to compile and test `examples/`)
+- **Paths this task may touch:** `docs/team.md` (Rules and checks rows, at review), `examples/` (new, inside the pnpm workspace), `apps/operator/` (new endpoints, a start script and bin), `apps/adjudicator/` (a test adjudicator), `README.md`, `docs/api.md`, `docs/quickstart.md` (new), package `README.md` files, `pnpm-workspace.yaml`, root `package.json` scripts, and the root `tsconfig.json` and `vitest.config.ts` (to compile and test `examples/`)
 - **Human gate:** no
 - **Status:** review
 - **Agent/session:** implementer, 2026-10-31
@@ -40,7 +40,7 @@ Two outsider agents (`docs/reviews/2026-10-31-outsider-usability.md`) settled de
 - [x] `docs/api.md`: example matches the API; `apply_default` in the trigger table; `key.released` says whose key it is.
 - [x] Fake-judge records are marked as fake wherever they appear to an integrator.
 - [x] OpenAPI for the new endpoints if T-015's document is cheap to extend; otherwise noted. (Noted: no document exists yet; see Decisions.)
-- [ ] Re-run the outsider test (both briefs, fresh agents) and record time to first settled deal; target under 15 minutes with no source reading (coordinator).
+- [x] Re-run the outsider test (both briefs, fresh agents) and record time to first settled deal; target under 15 minutes with no source reading (coordinator). Buyer 2 min 35 s, seller about 62 s, no product-source reads (reported by the coordinator).
 - [x] `pnpm verify` green.
 
 ## Out of scope
@@ -59,7 +59,18 @@ Two outsider agents (`docs/reviews/2026-10-31-outsider-usability.md`) settled de
 - **docs/api.md example matches the API** (measured): a test posts the agree-and-fund shape and compares the documented request and response fields with the live ones.
 - **Demo unchanged** (measured): `git diff c523faa -- apps/demo packages/sdk packages/core packages/settlement packages/judgment spec` is empty. `pnpm demo` stdout before and after, timings masked, differs only in "Record hash" and one beat-6a "decision event" hash; two runs of the same build differ in those same fields (measured), so they vary run to run on main too.
 - **Python signing snippet** (guessed): written against eth-account's documented `encode_typed_data` and `sign_typed_data`; not run (eth-account is not installed here and is not in CI).
-- **Time to first settled deal for an outsider** (not measured): the coordinator re-runs the two briefs (Handoff).
+- **Time to first settled deal for an outsider** (reported by the coordinator, not measured here): buyer 2 min 35 s, seller about 62 s, zero product-source reads.
+
+**Review round (PR 53).**
+
+- **HIGH 1, signers trusted the operator** (measured, fixed): `examples/verify.ts` rebuilds every kind's message from the agent's own intent, with the EIP-712 domain and types pinned in the agent, and accepts from the operator only a nonce and a time near the agent's clock. `examples/verify.test.ts` (`neutrality.operator-lies-in-prepare`) applies 19 edits to a prepared offer (buyer in typed data, body or both; price; fee; primary; `domain.chainId`; `verifyingContract`; extra slot; `primaryType`; types; `buyerEncryptionPublicKey`; deliverable hash; checks; token; a deadline; nonce; `createdAt`; submit path), each with the digest recomputed, plus 4 agreement edits, a budget, a foreign key and settlement payout and `releaseKey` edits: every one is refused. The reviewer's exact attack through `sign.ts` exits 3 with "refusing to sign" (`examples/examples.test.ts`). The honest messages, signed from the agent's own typed data, are accepted by SimChain, so the pinned encoding matches core (measured).
+- **HIGH 2, seller sealed to whatever /recipients returned** (measured, fixed): `Agent.deliver` takes the buyer's key from the signed terms and each adjudicator's key from its registration as both operators serve it, and refuses when `/recipients` or one operator's registration differs. Tested with a lying proxy operator in front of operator 1: a swapped buyer key and a swapped adjudicator key are both refused; through the same proxy with no lie the delivery succeeds.
+- **MEDIUM 3** (measured, fixed): timing windows must be whole seconds from 1 to ten years, unknown windows are refused, and caller-chosen times must be within a day of settlement-layer time; `1.5`, `1e20`, `"abc"`, `-5`, `0` and a 2020 `createdAt` all answer 400 `invalid_terms`.
+- **LOW 4** (measured, fixed): default nonces are keccak256 of the whole message without its nonce; two settlements differing only in `releaseKey` get different nonces, identical ones the same.
+- **LOW 5, LOW 6** (fixed): the retry wording now says defaults must be passed back; `/.well-known/holdback.json` gives `domain.chainId` as a number (measured), `/v1/status` keeps the schema's string.
+- **Re-test items** (measured): `pnpm sim` on a taken port prints a one-line hint (`Port 8787 is in use … pnpm sim --port 9780 --operator-ports 9787,9788`); `POST <sim>/accounts` hands out fresh funded accounts and both examples and the quickstart use them; `FAIL-ME` in panel-judged work is refunded; `POST <sim>/adjudicators/primary {"silent": true}` plus `/advance` lets the fallback decide; `GET /v1/ciphertext/{id}` sends `X-Content-Type-Options: nosniff`; docs/api.md marks 11 unbuilt routes "planned: 404 today", and a test checks the marked set equals the set the operator does not route. Check-types table, rubric shape and a who-gets-what table added to docs/api.md (inferred from `packages/judgment/src/checks/index.ts` and SimChain's postings, not each run).
+- **Quickstart after the fixes** (measured): its commands, run in order against `pnpm sim`, settle a deal with every message verified (Offered, AcceptedByAdjudicator, Held, Delivered, Released; balances 9,974 and 10,025 tUSD); 3.4 s wall time for the deal steps.
+- **Python snippet** (guessed, not run): rewritten to build the Agree message itself and compare with the operator's digest; eth-account is not installed here or in CI.
 
 ## Decisions
 
@@ -74,12 +85,17 @@ Two outsider agents (`docs/reviews/2026-10-31-outsider-usability.md`) settled de
 - **`apps/operator` now depends on `apps/adjudicator` and `packages/judgment`** for the sim world only. No cycle.
 - **Root `tsconfig.json` and `vitest.config.ts` touched** to compile and test `examples/` (listed in the re-scoped paths).
 - **OpenAPI not generated.** T-015 (OpenAPI contract) is still `todo` and no document exists to extend; writing one for only the new endpoints would fork it.
+- **The verifier is example code, not a package** (D30): `examples/verify.ts`, about 170 lines rather than the suggested 50 to 80, because a field-by-field rebuild needs the pinned types (about 25 lines) and one builder per kind. The agent signs the typed data it built and submits the body it built; the operator's typed data and digest only have to match.
+- **Trusted reads = agreement of at least two operators.** Adjudicator registrations and the club rulebook are read from every configured operator and must be identical (and `policyHash`/`rulebookHash` must hash correctly). An adjudicator's own well-known document is not built; a settlement-layer registry is the later source (Phase 2).
+- **Operator times are bounded, not trusted:** `createdAt`, `submittedAt` and `filedAt` within 10 minutes of the agent's clock; `expiresAt` within a day ahead. An agent that advanced the sim clock passes its own times.
 - **Discovery (optional add) done:** `/.well-known/holdback.json` is `/v1/status` plus `apiBaseUrl`; quickstart step 2.
 
 ## Handoff
 
-- **Outsider re-test (coordinator):** re-run both outsider briefs (`docs/reviews/2026-10-31-outsider-usability.md`) with fresh agents starting at `README.md`, now pointed at `docs/quickstart.md`, and record time to first settled deal (target under 15 minutes, no source reading). This implementer spawned nothing.
+- **Outsider re-test:** done by the coordinator (see Evidence). This implementer spawned nothing. The quickstart changed after it (verified signing, fresh accounts), so a short re-run would confirm the new steps.
+- **Not built, from the re-tests:** a "final at T" and a "buyer can decrypt" field on the commitment view. The view is `commitment-state.schema.json`, so that is a contract change (ADR and version bump); today `deadlines.appealBy` and `GET /v1/commitments/{id}/key?recipient=` answer both. Backlog candidate.
+- **Adjudicator well-known document:** a third trusted source for adjudicator keys and policies (an adjudicator serving its own registration) is not built; backlog candidate alongside the Phase 2 settlement-layer registry.
 - **Decisions file:** the decisions above are not yet in `docs/decisions-today.md` (outside this task's paths); the coordinator may record the envelope-not-HPKE and deterministic-nonce choices there.
 - **Possible opt-in later (not built):** operator-side encryption of plaintext for agents without crypto libraries. It would put plaintext and the content key on an operator, against the two-sided hold's privacy model (ADR-0012, ADR-0020); it would need an ADR.
 - **Backlog candidates:** OpenAPI for the prepare, ciphertext and recipients endpoints once T-015 lands; a Python example in CI; `GET /v1/commitments/{id}/key` signed requests (Phase 2, private disclosure); an HPKE envelope option via ADR if a standard is wanted.
-- **Proposed check (Rules and checks, `docs/team.md`, not edited here):** examples run with Node's type stripping, which rejects TypeScript-only syntax at run time (hit once: a parameter property). `examples/tsconfig.json` now sets `erasableSyntaxOnly`, so `pnpm typecheck` catches it.
+- **Rules and checks (`docs/team.md`):** two rows added at the reviewer's request: "Operator proposes, agent verifies" (`examples/verify.test.ts`) and "Examples run as written" (`erasableSyntaxOnly` in `examples/tsconfig.json`).

@@ -38,7 +38,9 @@ An agent needs only HTTP and a standard EIP-712 library (viem, ethers, eth-accou
 
 ### Discovery
 
-Given an operator's address, fetch `/.well-known/holdback.json`. It is the `/v1/status` document (EIP-712 domain, receipt signer, settlement target, versions) plus `apiBaseUrl`, the base for every path below.
+Given an operator's address, fetch `/.well-known/holdback.json`. It is the `/v1/status` document (EIP-712 domain, receipt signer, settlement target, versions) plus `apiBaseUrl`, the base for every path below. There `domain.chainId` is a number, as in prepared typed data; `/v1/status` keeps the schema's decimal string.
+
+Discovery tells you where an operator is, not what to trust. **Pin the EIP-712 domain (`chainId`, `verifyingContract`) in your agent's own configuration** and check every message against it: an operator that served a different domain could collect a signature that is valid elsewhere. `pnpm sim` prints SimChain's domain at startup (`chainId` 31337, `verifyingContract` `0x00000000000000000000000000000000484f4c44`).
 
 ### Prepare, sign, submit
 
@@ -71,20 +73,35 @@ The agent signs each `sign` entry whose `signer` is its address, writes the sign
 
 `offer` fills the club's `rulebookHash` and the primary adjudicator's `policyId`, `policyHash`, `registryHash` and minimum fee from its published registration (`GET /v1/adjudicators/{address}`), and the timing from defaults: 15 minutes to accept, 30 to fund, a day to deliver, 5 minutes for each adjudicator, the appeal window and the appeal decision. `appeal` computes the bond the rulebook requires (`appealBondRateBps` of the price, rounded up) and names it and the appeal fee in `check`. A prepare call changes nothing and needs no `Idempotency-Key`.
 
-**Typed data.** `typedData` is EIP-712 JSON. `types` holds `EIP712Domain`, the primary type and only the structs it uses (delete `EIP712Domain` for ethers' `signTypedData`, which adds it itself). Every `uint*` field of `message` is a decimal string, because amounts can exceed 2^53; convert those to integers before hashing, using `types`. `domain.chainId` is a number. `digest` is the EIP-712 hash: compute it from the converted typed data and refuse to sign if it differs. Nonces default to keccak256 of the inputs, and times default to settlement-layer time; every default is in `defaults`, so passing them back reproduces the typed data byte for byte. A retried prepare therefore yields the same message, which the settlement layer accepts once; two genuinely separate offers with identical inputs in the same second need distinct `nonce` values.
+**Typed data.** `typedData` is EIP-712 JSON. `types` holds `EIP712Domain`, the primary type and only the structs it uses (delete `EIP712Domain` for ethers' `signTypedData`, which adds it itself). Every `uint*` field of `message` is a decimal string, because amounts can exceed 2^53; convert those to integers before hashing, using `types`. `domain.chainId` is a number. `digest` is the EIP-712 hash: compute it from the converted typed data and refuse to sign if it differs. Times default to settlement-layer time (a caller-chosen `createdAt`, `submittedAt`, `filedAt` or `expiresAt` must lie within a day of it), and a default nonce is keccak256 of the whole message without its nonce. Every default is echoed in `defaults`. Passing those defaults back reproduces the typed data byte for byte; a prepare retried without them can differ (a later time gives a different message and nonce), so to retry safely either pass `defaults` back or resubmit the body you already signed under the same `Idempotency-Key`. Two separate offers with identical inputs in the same second need distinct `nonce` values.
 
-**Verify before you sign.** The typed data is everything the signature authorizes; an operator that lied could only get a signature over something else if you sign without reading it. Check, in the typed data itself rather than in `check`:
+**Verify before you sign.** A prepare answer is a proposal. The typed data is everything your signature authorizes, and an operator that edited it, even consistently with its digest and body, would get a signature over something you did not intend. So do not check the operator's typed data against the operator's own digest; rebuild the message from your own intent and compare. `examples/verify.ts` does this in about 170 lines of TypeScript with viem only (most of it the pinned types and one builder per kind), and a test (`neutrality.operator-lies-in-prepare`, `examples/verify.test.ts`) edits each field below, recomputes the digest, and expects a refusal:
 
-- **counterparty:** `buyer` and `seller` are who you agreed with, and you are the one `signer` names;
-- **amount:** `price.amount` and `adjudication.fee.amount` (offer), `value` (funding: price plus fee, nothing more), `bond` (appeal), in base units of the token you expect;
-- **adjudicators:** `adjudication.adjudicator`, `fallbackAdjudicator` and `appealAdjudicator` are the three you chose, and `policyHash` equals keccak256 of the RFC 8785 JSON of the policy in the primary's registration;
-- **payouts:** in a settlement, every `to` and `amount`, and that they sum to the price;
-- **the work:** in an offer the typed data carries `deliverableHash` and `acceptanceHash`, keccak256 of the RFC 8785 JSON of `submit.body.deliverable` and `submit.body.acceptance`; recompute them from the body you read;
-- **times:** `expiresAt`, `fundBy`, `deliverBy` are what you expect.
+- **domain:** `name` `Holdback`, `version`, `chainId` and `verifyingContract` equal the domain pinned in your configuration, never the one an operator serves;
+- **types and primaryType:** the primary type is the one this kind signs (`CommitmentTerms`, `Agree` and `FundingAuthorization`, `Delivery`, `EarlyAccept`, `Appeal`, `MutualSettlement`), the type definitions are schema 0.6's (pin them; `examples/verify.ts` has them), and there are exactly the slots you expect, each with your address as `signer`;
+- **counterparty:** `buyer` and `seller` are who you agreed with;
+- **amount and token:** `price` and `adjudication.fee` (offer), `value` (funding: price plus fee, nothing more), `bond` (appeal), with `token` the one you expect, in base units;
+- **adjudicators:** `adjudicator`, `fallbackAdjudicator` and `appealAdjudicator` are the three you chose; `policyHash` equals keccak256 of the RFC 8785 JSON of the policy in the primary's registration, and `policyId`, `registryHash` and the fee match that registration as at least two operators serve it;
+- **buyerEncryptionPublicKey:** the buyer's own key; a buyer refuses terms that seal the work to any other key;
+- **the work:** `deliverableHash` and `acceptanceHash` are keccak256 of the RFC 8785 JSON of the deliverable and acceptance you specified, recomputed from your own JSON, not from the operator's body;
+- **the commitment:** `commitmentId` is the EIP-712 struct hash of the terms you agreed to, recomputed;
+- **payouts, releaseKey and deliveryHash:** in a settlement, every `to` and `amount`, that they sum to the price, whether the key is released, and the delivery it names (or `null` before delivery);
+- **nonce:** 32 bytes of hex; a nonce is the one field you may take from the operator as proposed;
+- **times:** `createdAt`, `submittedAt` and `filedAt` near your own clock; `expiresAt`, `fundBy`, `deliverBy` and the other deadlines what your terms say.
+
+Then sign the typed data you built, and submit the body you built. An operator that lies gets a refusal or a failed submission, never a signature over something else.
 
 ### Encrypting a delivery
 
 The seller encrypts; no operator sees plaintext or a content key. `GET /v1/commitments/{id}/recipients` lists who the content key must be sealed to (the primary, fallback and appeal adjudicators, then the buyer) with each one's encryption public key, and repeats this spec as `envelope`.
+
+**Seal only to keys you trust.** An operator also stores the ciphertext, so an operator that answered `/recipients` with its own keys could read the work. Take the keys from sources you trust, and use `/recipients` only as a cross-check:
+
+- **the buyer's key** is `buyerEncryptionPublicKey` in the terms you signed, never a key an operator supplies;
+- **each adjudicator's key** is the `encryptionPublicKey` of its registration as at least two operators serve it (refuse if they disagree), or as the adjudicator itself publishes it. In Phase 1 registrations live off the settlement layer; a registry on the settlement layer becomes the source later (Phase 2).
+- the recipients are exactly the terms' `adjudicator`, `fallbackAdjudicator`, `appealAdjudicator` and `buyer`, in that order.
+
+`examples/agent.ts` (`deliver`) does all three and refuses on any difference.
 
 1. Content: a fresh 32-byte content key; ciphertext = `iv (12 random bytes) || AES-256-GCM ciphertext || tag (16 bytes); no associated data`. `POST /v1/ciphertext` with the bytes (`application/octet-stream`, `Idempotency-Key`) answers `{id, uri, bytes}`; `id` is `sha256:<hex>` of the bytes.
 2. Envelope per recipient, scheme `x25519-xsalsa20poly1305` (a NaCl box from a fresh ephemeral key; libsodium `crypto_box`, tweetnacl `nacl.box`, PyNaCl `Box`): `ephemeral public key (32) || nonce (24 random bytes) || crypto_box(contentKey, nonce, recipientPublicKey, ephemeralSecretKey) (48)`, base64url without padding (139 characters). Entry: `{"recipient": <address>, "scheme": "x25519-xsalsa20poly1305", "ciphertext": <envelope>}`. This is not HPKE (RFC 9180); it is the construction `@holdback/core/crypto` implements.
@@ -108,6 +125,39 @@ Test vectors (a test checks them against core and against a tweetnacl and Web Cr
 
 To open the work, the buyer reads its envelope at `GET /v1/commitments/{id}/key?recipient=<address>` (empty until its key is released, which happens with payment), the delivery's `ciphertext.uri` and `plaintextSha256` from the `delivery.submitted` event, opens the box, decrypts, and checks both hashes.
 
+### Acceptance: checks and rubric
+
+Deterministic checks run first and are declarative (no code). Each has an `id`, `required` (a failed required check rejects) and its own fields (`commitment.schema.json`):
+
+| `type` | Example | Passes when |
+| --- | --- | --- |
+| `csv_columns_exact` | `{"id": "cols", "type": "csv_columns_exact", "required": true, "columns": ["customer_id", "email"]}` | The header has exactly these columns |
+| `row_count_range` | `{"id": "rows", "type": "row_count_range", "required": true, "min": 9400, "max": 9600}` | Data rows are within `min` and `max` |
+| `unique_key` | `{"id": "uniq", "type": "unique_key", "required": true, "columns": ["customer_id"]}` | No two rows share these columns' values |
+| `null_rate_max` | `{"id": "nulls", "type": "null_rate_max", "required": true, "column": "email", "maxBps": 200}` | At most `maxBps` basis points of rows are empty in `column` |
+| `regex_match_rate_min` | `{"id": "emails", "type": "regex_match_rate_min", "required": false, "column": "email", "pattern": "^[^@\\s]+@[^@\\s]+$", "minBps": 9700}` | At least `minBps` of rows match `pattern` |
+| `iso8601_date_column` | `{"id": "dates", "type": "iso8601_date_column", "required": true, "column": "signup_date"}` | Every value in `column` is an ISO 8601 date |
+| `json_schema` | `{"id": "shape", "type": "json_schema", "required": true, "schema": {"type": "object"}}` | A JSON deliverable validates against `schema` |
+| `reference_row_match_min` | `{"id": "ref", "type": "reference_row_match_min", "required": true, "reference": {"uri": "…", "sha256": "sha256:…"}, "keyColumn": "id", "minBps": 9500}` | At least `minBps` of the reference rows appear in the deliverable with the same values, matched on `keyColumn` |
+| `hidden_characters_max` | `{"id": "hidden", "type": "hidden_characters_max", "required": true, "max": {"tag": 0, "bidi": 0, "total": 0}}` | Invisible characters per class stay within `max` (ADR-0021) |
+
+Checks fit datasets; a document such as a translation is judged by the rubric. The rubric is what the judge panel scores: `{"passThreshold": 300, "criteria": [{"id": "faithful", "description": "…", "weight": 70, "anchors": {"0": "…", "2": "…", "4": "…"}}]}`. Each judge scores each criterion 0 to 4 (anchors `0`, `2` and `4` are required, `1` and `3` optional); the weighted score is compared with `passThreshold` in hundredths of a point (300 is 3.00 of 4). A `checks-only` template sends an empty rubric (`criteria: []`, `passThreshold: 0`), so no panel sits.
+
+### Who gets what
+
+The buyer holds price plus fee. Payment, once made, is never clawed back; an overturned decision is made good from the adjudicator's bond instead.
+
+| Outcome | Buyer | Seller | Adjudicators | Content key |
+| --- | --- | --- | --- | --- |
+| Released (accepted) | — | the price | the deciding adjudicator keeps the fee | released to the buyer with payment |
+| Refunded (checks or panel reject) | the price back; **the fee is kept** | — | the deciding adjudicator keeps the fee | not released to the buyer |
+| Early accept by the buyer | the fee back (no adjudicator judged) | the price | — | released to the buyer |
+| Reclaimed (nothing delivered by `deliverBy`; trigger `reclaim`) | price and fee back | — | reservations released | — |
+| Settled by agreement | its payout; the fee back | its payout | — | released if `releaseKey` |
+| Appeal upheld | — | — | the appeal adjudicator gets the appeal fee; the appellant's bond goes to the first adjudicator's bond pool | as decided |
+| Appeal overturned | if wrongly released, the price from the first adjudicator's bond | if wrongly refunded, the price from the first adjudicator's bond | the appeal adjudicator gets the appeal fee; the bond returns to the appellant | released to the buyer on an accept |
+| Every adjudicator silent (triggers `fallback`, `default`, `apply-default`) | price and fee back | `sellerCompensationRateBps` of the price from the silent adjudicators' bonds (10% in the sim's club) | bonds pay the compensation; no fee | not released to the buyer |
+
 ## Endpoints
 
 ### Discovery, preparation and storage
@@ -125,12 +175,12 @@ To open the work, the buyer reads its envelope at `GET /v1/commitments/{id}/key?
 
 | Method | Path | Body | Result |
 | --- | --- | --- | --- |
-| POST | `/v1/clubs` | Club with rulebook (`club.schema.json`), signed by the club operator | Club with `rulebookHash` |
-| POST | `/v1/clubs/{id}/members` | `MemberAdmission`, signed by the club operator | Member |
-| POST | `/v1/clubs/{id}/members/{principal}/revoke` | `MemberRevocation`, signed by the club operator | Member (`revoked`); blocks new commitments only |
-| POST | `/v1/agents` | Agent registration plus mandate (`agent.schema.json`, `mandate.schema.json`); under a club rulebook the principal must be an admitted member | Agent |
-| POST | `/v1/agents/{address}/revoke` | Principal-signed revocation | Agent (`revoked`) |
-| POST | `/v1/adjudicators` | Adjudicator registration plus bond deposit | Adjudicator |
+| POST | `/v1/clubs` (planned: 404 today; clubs come from genesis) | Club with rulebook (`club.schema.json`), signed by the club operator | Club with `rulebookHash` |
+| POST | `/v1/clubs/{id}/members` (planned: 404 today) | `MemberAdmission`, signed by the club operator | Member |
+| POST | `/v1/clubs/{id}/members/{principal}/revoke` (planned: 404 today) | `MemberRevocation`, signed by the club operator | Member (`revoked`); blocks new commitments only |
+| POST | `/v1/agents` (planned: 404 today; mandates come from genesis, and `pnpm sim` funds accounts that have one) | Agent registration plus mandate (`agent.schema.json`, `mandate.schema.json`); under a club rulebook the principal must be an admitted member | Agent |
+| POST | `/v1/agents/{address}/revoke` (planned: 404 today) | Principal-signed revocation | Agent (`revoked`) |
+| POST | `/v1/adjudicators` (planned: 404 today) | Adjudicator registration plus bond deposit | Adjudicator |
 | POST | `/v1/test/faucet` | `{address, amount}`; SimChain or testnet only | Balance |
 | GET | `/v1/clubs/{id}` | — | Club with its rulebook and `rulebookHash`, so a party can check the rulebook it signs under |
 | GET | `/v1/clubs/{id}/members/{principal}` | — | Member: admitted or revoked, with the signed admission |
@@ -151,8 +201,8 @@ To open the work, the buyer reads its envelope at `GET /v1/commitments/{id}/key?
 | POST | `/v1/commitments/{id}/decisions` | `Decision`, signed by the adjudicator whose turn it is; carries the seed reveal and, on accept, the key for the buyer | `Released`, `Refunded` or `Escalated` |
 | POST | `/v1/commitments/{id}/appeals` | Appeal (`appeal.schema.json`) plus bond and appeal-fee authorization | Appeal state `open` |
 | POST | `/v1/commitments/{id}/settlements` | `MutualSettlement` (ADR-0019, D23): `payouts` (one to eight `{to, amount}` in the price token, summing to the price, to any addresses both sign for), `deliveryHash` or `null` before delivery, `releaseKey`, and a buyer and a seller signature over the identical struct. `?validateOnly=true` previews it unsigned | `Settled`: each payout is paid, the fee returns to the buyer, the key is released if agreed; the club rulebook must allow it and may restrict payouts to the parties (`payoutsTo`) |
-| POST | `/v1/commitments/{id}/publish` | `Publish` (ADR-0020): a new `level`, with a buyer and a seller signature over the identical struct. Raising only: the settlement layer refuses a lower level. `?validateOnly=true` previews it unsigned | The commitment at the new disclosure level |
-| POST | `/v1/commitments/{id}/disputes` | `Dispute`, buyer-signed, with dispute bond and fee (optimistic mode, Phase 4; refused in Phase 1) | `Disputed` |
+| POST | `/v1/commitments/{id}/publish` (planned: 404 today) | `Publish` (ADR-0020): a new `level`, with a buyer and a seller signature over the identical struct. Raising only: the settlement layer refuses a lower level. `?validateOnly=true` previews it unsigned | The commitment at the new disclosure level |
+| POST | `/v1/commitments/{id}/disputes` (planned: 404 today) | `Dispute`, buyer-signed, with dispute bond and fee (optimistic mode, Phase 4; refused in Phase 1) | `Disputed` |
 | POST | `/v1/commitments/{id}/triggers/{kind}` | No signature needed; anyone may call once the deadline passed. `kind`: `expire-offer` (offer not agreed by `offerExpiresAt`), `reclaim` (buyer's hold, nothing delivered by `deliverBy`), `fallback` (primary missed `judgeBy`: the fallback adjudicator decides), `default` (fallback missed `fallbackBy`, or the appeal adjudicator missed its deadline: `Defaulted`), `apply-default` (applies the rulebook's default outcome to a `Defaulted` commitment: the buyer is refunded and the seller is compensated from the adjudicators' bonds at `defaultOutcome.judged.sellerCompensationRateBps` of the price), `appeal-expiry`, `settle` (Phase 4) | New state |
 | GET | `/v1/commitments?party=&role=&escrowState=` | — | Page of commitment states; `role` is `buyer`, `seller` or `adjudicator`; `escrowState` may repeat |
 | GET | `/v1/commitments/{id}` | — | Commitment, escrow state, appeal state, balances (`commitment-state.schema.json`); a `Settled` commitment carries `settled { payouts, keyReleased }` |
@@ -167,7 +217,7 @@ To open the work, the buyer reads its envelope at `GET /v1/commitments/{id}/key?
 | --- | --- | --- | --- |
 | GET | `/v1/adjudicators` | — | Page of registered adjudicators with policy hash, registry hash and URI, bond pool (junior, senior and reserved, which is the open exposure) and `poolTermsHash`, fee and public quality signals |
 | GET | `/v1/adjudicators/{address}` | — | The published registration (`adjudicator.schema.json`: name, encryption public key, policy and policy hash, registry hash and URI, minimum fee, pool terms) with `bond` as the settlement layer holds it. Check `policyHash` = keccak256(RFC 8785 JSON of `policy`) before binding it |
-| POST | `/v1/adjudicators/{address}/quote` | Draft terms | Fee quote with its inputs (false-accept and false-reject rates, capital charge, model cost) |
+| POST | `/v1/adjudicators/{address}/quote` (planned: 404 today) | Draft terms | Fee quote with its inputs (false-accept and false-reject rates, capital charge, model cost) |
 
 Adjudicators submit decisions as signed messages through any operator or directly. The operator does not judge.
 
@@ -176,8 +226,8 @@ Adjudicators submit decisions as signed messages through any operator or directl
 | Method | Path | Result |
 | --- | --- | --- |
 | GET | `/v1/events?from=<seq>` | Server-sent events stream (`event.schema.json`). A `key.released` event's `payload.recipient` says whose key it is: the first one after a delivery is usually the primary adjudicator's, released so it can judge; the buyer's comes with payment |
-| POST | `/v1/webhooks` | Register a webhook. Payloads carry an operator signature |
-| GET | `/v1/audit/verify?from=&to=` | Hash-chain verification report |
+| POST | `/v1/webhooks` (planned: 404 today) | Register a webhook. Payloads carry an operator signature |
+| GET | `/v1/audit/verify?from=&to=` (planned: 404 today) | Hash-chain verification report |
 
 ## Example: agree and fund
 
