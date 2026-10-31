@@ -80,7 +80,7 @@ forge test                      # contracts (from Phase 2)
   - run `/verify`;
   - fill in the task's Evidence and Handoff sections;
   - open a PR.
-- **Human gates:** ADRs, schema changes, contract code, defense changes, and any irreversible action (deploys, force pushes, key handling) wait for Rafa's approval.
+- **Autonomy inside the repo, gates outside it** (Rafa, 2026-10-31). Anything confined to this repository is pre-approved: ADRs, schema changes, contract code, defense changes, and merging a PR once CI passes and review findings are fixed. Decisions still get a research pass and are recorded in `docs/decisions-today.md`, where Rafa can overrule them. Actions that reach outside the repository still wait for Rafa: deploys, force pushes or history rewrites on the remote, real keys or real money, anything published or sent to other people, and repository access or settings.
 - Use the role subagents in `.claude/agents/` and the commands in `.claude/commands/`. Process details are in `docs/team.md`.
 
 ## Map

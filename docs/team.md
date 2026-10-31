@@ -9,7 +9,7 @@ The project is large enough to need parallel agents. Parallel agents only help w
 3. **Restate intent before code.** Each task starts with the agent restating its goal, inputs, outputs and non-goals in the task file.
 4. **Small PRs, ordered commits, one task per branch and worktree.**
 5. **Fix the environment, not just the bug.** When an agent repeats a mistake, add a type, lint rule, test or fixture that catches it, and record it in the Rules and checks table below.
-6. **Humans decide the irreversible.** ADRs, schema changes, contract code, defense changes, key handling, deploys and force pushes wait for Rafa.
+6. **Autonomy inside the repo, gates outside it.** Work confined to this repository (ADRs, schema changes, contract code, defense changes, merges after green CI and fixed review findings) proceeds without waiting. Decisions are researched, then recorded in `docs/decisions-today.md` for Rafa to overrule. Deploys, remote force pushes or history rewrites, real keys or money, anything published or sent to others, and repository access or settings wait for Rafa.
 
 ## Roles (`.claude/agents/`)
 
