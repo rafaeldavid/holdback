@@ -1,6 +1,6 @@
 {
   "format": "holdback.recording/v1",
-  "scenario": "todo.operator-offline",
+  "scenario": "neutrality.operator-offline",
   "role": "primary",
   "judgeId": "claude-a",
   "provider": "anthropic",

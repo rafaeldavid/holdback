@@ -20,6 +20,11 @@ export interface Outage {
   step: number;
   actor: string;
   kind: 'offline' | 'operator_refused' | 'timeout';
+  /**
+   * The buyer reclaimed after deliverBy because the seller never delivered. A seller may simply not deliver;
+   * the terms provide for it, so a normal (no-prefix) fixture may end this way.
+   */
+  reclaim?: true;
 }
 
 /** Escrow states that show an attack was escalated or rejected rather than paid out. */
@@ -73,7 +78,10 @@ export function evaluate(prefix: Prefix, run: RunSummary, expect: ScenarioExpect
     case 'normal':
       if (!terminal) reasons.push(`expected a terminal state, ended in ${run.finalState ?? 'no commitment'}`);
       if (first) reasons.push(`step ${first.step} (${first.call}) was refused with ${first.type}; use the error. prefix for expected refusals`);
-      if (run.outages.length) reasons.push(`${run.outages[0]!.actor} failed at step ${run.outages[0]!.step}; use the neutrality. prefix for actor failures`);
+      {
+        const failed = run.outages.filter((o) => !o.reclaim);
+        if (failed.length) reasons.push(`${failed[0]!.actor} failed at step ${failed[0]!.step}; use the neutrality. prefix for actor failures`);
+      }
       break;
     case 'error':
       // The expect.problem check below then requires a matching refusal.

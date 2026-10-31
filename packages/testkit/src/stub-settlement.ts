@@ -526,6 +526,12 @@ export class StubSettlement {
       this.row(party.actor, call, party.via, 'offline (no call)');
       return true;
     }
+    // An operator that went offline relays nothing; the caller can retry through another operator or directly.
+    if (party.via !== 'direct' && this.offline.has(party.via)) {
+      this.outages.push({ step: this.stepNo, actor: party.via, kind: 'offline' });
+      this.row(party.actor, call, party.via, `${party.via} is offline (not relayed)`);
+      return true;
+    }
     if (this.refusingOperators.has(party.via)) {
       this.outages.push({ step: this.stepNo, actor: party.via, kind: 'operator_refused' });
       this.row(party.actor, call, party.via, `refused by ${party.via}`);
@@ -882,7 +888,7 @@ export class StubSettlement {
     const c = this.needCommitment(buyer, 'reclaim', via);
     if (!c) return;
     if (!(await this.submit(buyer, 'reclaim', via, { kind: 'trigger', commitmentId: c.id, timeout: 'reclaim' }))) return;
-    this.outages.push({ step: this.stepNo, actor: this.scenario.parties.seller, kind: 'timeout' });
+    this.outages.push({ step: this.stepNo, actor: this.scenario.parties.seller, kind: 'timeout', reclaim: true });
     this.receipt(via, 'reclaim');
     this.row(buyer, 'reclaim', via, 'ok');
     this.balanceRows.push({ after: 'reclaim', balances: this.snapshotBalances() });

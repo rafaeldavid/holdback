@@ -364,6 +364,31 @@ describe('pnpm snap', () => {
     expect(r.snapshot).toMatch(/\| atlas-buyer \| agree_and_fund \| op-1 \| refused by op-1 \| Offered \|/);
   });
 
+  it('neutrality: an offline operator relays nothing, and the buyer goes through another operator', async () => {
+    const root = sandbox();
+    const name = 'neutrality.op-offline';
+    const r = await fixture(
+      root,
+      name,
+      flow(name, '  - judge: { adjudicator: bench-a }\n', 'fails: op-1\n')
+        .replace('  - agree_and_fund: { by: buyer, via: op-1 }', '  - offline: { actor: op-1 }\n  - agree_and_fund: { by: buyer, via: op-1 }\n  - agree_and_fund: { by: buyer, via: op-2 }')
+        .replace(DELIVER, DELIVER.replace('op-1', 'op-2')),
+    );
+    expect(r.out[0]).toBe(`pass  ${name} (snapshot updated)`);
+    expect(r.snapshot).toMatch(/\| atlas-buyer \| agree_and_fund \| op-1 \| op-1 is offline \(not relayed\) \| Offered \|/);
+    expect(r.snapshot).toMatch(/- Step 3: op-1 is offline/);
+  });
+
+  it('a normal fixture may end with the buyer reclaiming after the seller never delivers', async () => {
+    const root = sandbox();
+    const src = flow('reclaimed', '  - advance_clock: { seconds: 172800 }\n  - reclaim: { by: buyer }\n').replace(`${DELIVER}\n`, '');
+    const r = await fixture(root, 'reclaimed', src);
+    expect(r.out[0]).toBe('pass  reclaimed (snapshot updated)');
+    // Any other outage still needs the neutrality. prefix.
+    const offline = flow('offline-plain', '  - offline: { actor: bench-a }\n  - judge: { adjudicator: bench-a }\n');
+    expect((await fixture(root, 'offline-plain', offline)).out[0]).toMatch(/bench-a failed at step 5; use the neutrality\. prefix/);
+  });
+
   it('neutrality: a reclaim after deliverBy refunds the buyer when the seller never delivers', async () => {
     const root = sandbox();
     const name = 'neutrality.seller-vanishes';
