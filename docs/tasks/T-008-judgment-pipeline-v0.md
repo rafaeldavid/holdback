@@ -48,6 +48,57 @@ Model calls go through an injected provider. Tests use fakes, and the pipeline r
 
 Fill this in before review. Label each item measured, inferred or guessed.
 
+### Round 2: red-team fixes, D17 and D18 (2026-10-31)
+
+- **`pnpm verify` (measured, commit `56e994f`, clean tree):**
+
+  | Step | Command | Status | Time |
+  | --- | --- | --- | --- |
+  | typecheck | `pnpm typecheck` | pass | 210 ms |
+  | lint | `pnpm lint` | pass | 1469 ms |
+  | test | `pnpm test` | pass | 12054 ms |
+  | spec | `pnpm validate:spec` | pass | 291 ms |
+  | snap | `pnpm snap` | pass | 634 ms |
+  | demo | `pnpm demo` | placeholder | 106 ms |
+
+  `snap` now runs the T-005 runner (1 scenario, `_example`, passes). `demo` is the T-013 placeholder, not a pass.
+- **Test count (measured):** 1408 in the repo; 422 in `packages/judgment` across 11 files, including the 85 red-team cases.
+- **Red-team suite (measured).**
+  - Committed failing first in `0d92646`: 68 of 85 failed, the coordinator's count.
+  - Now 85 of 85 pass.
+  - Edits to the red-team file:
+    - an unused import removed (it failed lint);
+    - migrated to the v0.5 shapes with assertions unchanged: rates in basis points, thresholds as fractions; F1 `0.667` became `{2,3}` (the ADR-0022 mapping), and L-tie `0.5` became `{51,100}`, since a half is now refused.
+  - No case is skipped or marked `todo`.
+- **Mutation sweep (measured):** `node packages/judgment/scripts/mutants.mjs`, **81 mutants, 81 killed (80 in the full run; the `\u`-escape mutant was retargeted after the view split and killed in a filtered run)**.
+  - The list grew from 41 to 81 mutants, re-targeted at the changed code. New mutants cover the new defenses:
+    - confusables, the JSON and `\u` views, NFKC and mixed-script signals, formula prefixes, terms screening;
+    - registry families, label normalization, duplicate models, non-ASCII IDs;
+    - redaction, refanging, the canary split across fields;
+    - forced escalation, raw-text checks, the check budget;
+    - the tie guard, inclusive cross-multiplication, the strict-majority policy guard;
+    - the null semantics and `hidden_characters_max`;
+    - quoting of party terms, line-terminator datamarking, escalation on sampled data;
+    - format binding at intake and in the pipeline.
+  - The first run left 10 survivors, each closed with a new test:
+    - confusables (masked by the mixed-script signal);
+    - the JSON view and the `\u` view (each masked the other, so they were split by input kind);
+    - family-label normalization and duplicate models (G1 tripped both guards at once);
+    - the tie guard (equivalent under validated policies; now tested directly under a non-majority fraction);
+    - non-scalar null (the mutant crashed and failed closed, which the old test read as a pass);
+    - quoting of the description;
+    - non-ASCII model IDs (masked by the version-stamp rule);
+    - intake format binding (untested at intake).
+- **Large inputs (measured, 9 MB adversarial shapes such as dots, letters, spaced letters, mixed-script words, base64, percent, Morse, JSON and `\u` escapes):**
+  - Before: a 9 MB CSV of letters took the screen 124 s, because a joined-base64 pattern backtracked quadratically. Several shapes threw `RangeError` from V8's regex stack.
+  - Now: every shape screens in at most about 3.5 s with no failed pass. Six shapes are pinned in `screen.test.ts` with a 20 s bound.
+  - Two source rules prevent a repeat (see Handoff).
+- **Schema v0.5 (measured):** after merging `origin/d-schema-v0.5`, a pipeline draft plus placeholder identity, seed, `seedSource`, hash and signature parses with core's `parseJudgment`, the v0.5 aggregate included.
+- **Neutrality, D17 (measured):** Persian with ZWNJ, U+2764 U+FE0F and the England flag tag sequence screen clean and are accepted by a cross-family panel. A non-required `hidden_characters_max` over its limit fails without rejecting. At its limit it passes; required and over it, it rejects with no panel.
+- **Screen false positives on real data (guessed):** still uncalibrated. The new skeletons (rot13, reversed, leetspeak) were checked only against the fixtures and the clean tests in this package.
+
+### Round 1 (2026-10-30)
+
 - **`pnpm verify` (measured, commit `afbadc3`, 2026-10-30T17:44Z, clean tree):**
 
   | Step | Command | Status | Time |
@@ -95,6 +146,75 @@ Fill this in before review. Label each item measured, inferred or guessed.
 
 ## Decisions
 
+### Round 2 (supersedes round 1 where they differ)
+
+- **Checks read the text as delivered.**
+  - Intake now returns `raw` (decoded, unnormalized) next to `data` (normalized).
+  - Deterministic checks and `hidden_characters_max` use `raw`; the screen and the prompts use `data`.
+- **`null_rate_max` counts as null:**
+  - a cell that is empty after trimming whitespace, format characters and blank-looking letters (Hangul fillers, the braille blank);
+  - the built-in tokens `null`, `nil`, `n/a`, `nan`, `undefined`, `-`, `--` and `?`, case-insensitive (not `none` or `na`, which are real values, for example Namibia);
+  - JSON objects, arrays and booleans.
+- **`csv_columns_exact`** fails on anything but a CSV deliverable.
+- **Hidden characters, classified (ADR-0021):** tag, bidi, variation selector, `otherIgnorable` (total = their sum).
+  - Normalization strips them all, but these are "explained" and not counted as suspicious:
+    - emoji tag sequences;
+    - VS15 and VS16 after an emoji or keycap base;
+    - ZWJ between emoji;
+    - ZWNJ or ZWJ between letters of a script other than Latin, Cyrillic or Greek.
+  - `hidden_characters_max` counts everything, explained or not, on the raw text. It uses `type`, like every check, though the brief wrote `kind`.
+- **Screen.** Phrase patterns run over six views of each text:
+  - the lowercase text;
+  - a skeleton (NFD, combining marks dropped, UTS #39 Cyrillic and Greek confusables subset, camelCase and separators split);
+  - rejoined spaced letters;
+  - leetspeak inside mixed letter-and-digit tokens;
+  - rot13;
+  - the reversed text.
+
+  Beyond phrases, the screen:
+  - decodes base64 without the space rule, joined chunks, hex, percent-encoding and Morse in its variants, re-screening decoded text two levels deep;
+  - screens a JSON document through its parsed strings, and other text through decoded `\u` escapes;
+  - adds signals for NFKC changes (space variants excluded), mixed-script words and CSV formula prefixes;
+  - adds new phrase families (addressing a judge, judge notes, verdict claims).
+
+  Engineering rules:
+  - Every run pattern is a bounded character class (at most 4096 characters per match), never a quantified group or an open-ended `{n,}`.
+  - Failed decodes do not count against the signal cap.
+  - A pass that throws becomes an `encoded_run` signal instead of a crash.
+- **New signals reuse existing kinds,** because the schema enum is fixed:
+  - NFKC changes, mixed-script words and failed passes use `encoded_run`;
+  - formula prefixes and phrases in party terms use `instruction_phrase`.
+- **Party terms.** Description, criteria and anchors are:
+  - normalized, and placed as JSON values inside a `<<<BEGIN AGREED TERMS boundary>>>` block, never as bare system text;
+  - screened (hidden characters, hidden text, mixed-script words), with the signals merged into the screen;
+  - refusable at offer time through `validateTerms(acceptance, description)`.
+- **Induced abstention.** Any filter abstention (output too long, canary, not JSON, schema, criteria mismatch, URL in the rationale or injectionEvidence) escalates the case. A URL in criterion evidence is redacted to `[link removed]`. URL detection refangs `[.]`, `(.)`, spaced dots, ideographic and fullwidth dots, `hxxp` and `[:]`, and covers `mailto:`, `data:`, `javascript:` and IPv4 addresses.
+- **Canary.** Detected case-insensitively, ignoring separators, in the raw output and across the concatenated free-text values, and inside base64 tokens.
+- **Sampling.**
+  - Data over 100,000 characters is sampled: the header plus lines at an even stride across the whole file.
+  - The prompt is marked `truncated`, and the case escalates. The even stride is predictable, so the escalation is the defense until T-009 adds seeded sampling.
+  - Every Unicode line terminator starts a datamarked line.
+- **Format binding.** `intake({ format })` refuses `mime_mismatch`, and `runPipeline` refuses a `deliverable.format` mismatch. Both inputs are optional so the red-team helpers compile; T-009 must pass them.
+- **Panel guards.**
+  - Families come from an injected registry (`ReadonlyMap<modelId, { family }>`), never from the seat label. Without a registry, labels are trimmed and lowercased.
+  - Duplicate model IDs are refused.
+  - Model IDs must be ASCII and free of alias words (`latest`, `preview`, `current`, `default`, `stable`, `newest`, `beta`, `experimental`).
+  - With a registry, an ID must be in it. Without one, it must end in a date or revision stamp, as in `-20260601`, `-2026-05-01`, `-001` or `-2411`.
+- **Check budget.** 50,000,000 regex state visits and schema node visits per delivery, shared by all checks, with `MAX_STATES` lowered from 10,000 to 5,000. A check that exhausts it is inconclusive: recorded as not passed, and the case escalates without a panel. A definite required failure still rejects.
+- **Integer rules (D18, ADR-0022).**
+  - Thresholds are fractions (denominator 1 to 100), compared inclusively by cross-multiplication, with no `EPS`.
+  - A policy must have `2 × numerator > denominator`.
+  - Accept also needs `pass > fail`, and reject needs `fail > pass`.
+  - Weights are integers 1 to 10000. `passThreshold` and `weightedScore` are integer hundredths, and the score is floored.
+  - The record carries `passCount`, `failCount` and `validCount`.
+  - Checks compare `count × 10000` against `bps × rows`.
+  - `AGGREGATION_VERSION` is now `agg-2`.
+- **D17.** An empty-rubric accept with a flagged screen keeps `accept` and appends "screen flagged; see screen.signals".
+- **Types.** `terms.ts` aliases core's v0.5 types (merged from `origin/d-schema-v0.5`).
+- **Source hygiene.** Judgment sources must be ASCII, with characters written as `\u` escapes, and contain no `{n,}` regex loop. Both rules are enforced by `source.test.ts`.
+
+### Round 1
+
 - **Dependencies.** `@holdback/core` (workspace) and `fast-check` (dev; already in the lockfile through core). No new third-party packages. TypeScript stays `~6.0.3`.
 - **`UntrustedData`** is a class with a private field, not a structural brand, so it cannot be forged by an object literal. `toString`, `toJSON` and `Symbol.toPrimitive` return `[UntrustedData]`. Reading content takes an explicit `reveal()`.
 - **Regex engine.** Commitment patterns never reach `RegExp`. A Thompson NFA over a closed subset guarantees linear time instead of bounding a backtracking engine.
@@ -139,39 +259,45 @@ Fill this in before review. Label each item measured, inferred or guessed.
 
 ## Handoff
 
-For Rafa (human gate, defenses): this PR adds defense code and needs approval before merge. Points to decide:
+For Rafa (human gate, defenses): this round is defense code and waits for approval. PR #21 now contains a merge of `origin/d-schema-v0.5`, so **PR 23 must merge first** (or together).
 
-1. **Supermajority threshold vs. the example policy (contract gap).** `spec/examples/adjudicator.example.json` uses `acceptSupermajority: 0.667`. Compared literally, 2 of 3 (0.6667) is not a supermajority, so a 3-judge panel needs 3 of 3 to accept, contradicting "≥ 2/3" in the docs. A test pins this. Options:
-   - change the example to `0.66` or `0.6666`;
-   - express supermajority as a fraction in the schema (schema change, ADR);
-   - define rounding.
+**Open decisions:**
 
-   I did not add a rounding rule.
-2. **Invalid checks.** A check the engine refuses (for example a backreference pattern) fails closed, and a required one rejects the seller. This matches the pseudo-code, but it punishes the seller for terms both parties signed. Operators (T-007) should call `validateCheck` at offer time. Alternatively an ADR could make invalid checks escalate.
-3. **`inputHash` is not recomputable by the buyer yet.** The rendered prompt includes the per-judge boundary and canary, and the judgment record has no field for them. Options for T-009 and ADR-0018:
-   - derive them from the revealed seed, for example HMAC(seed, judgeId ‖ attempt), unpredictable until reveal;
-   - add them to the record (schema change).
+1. **Sampled data always escalates (red-team item 7, as instructed).** Every deliverable over 100,000 characters escalates until T-009 adds seeded sampling. That includes the demo's roughly 9,500-row customer CSV, which is about 0.5 MB (inferred). **This will make the demo's happy path escalate** unless T-009 lands sampling first, or the demo raises `maxDataChars`.
+2. **The screen escalates on any signal when the panel runs,** NFKC changes and mixed-script words included. ADR-0021 deferred finer escalation to Phase 3. Fullwidth or ligature characters in real data now escalate.
+3. **Invalid checks** still fail closed, and a required one rejects (round 1, item 2).
+4. **`inputHash` cannot be recomputed** without the per-judge nonces (round 1, item 3). Still open for T-009 and ADR-0018.
+5. **The null-token list is built in.** A per-check list needs a schema field.
+6. **Screen signal kinds.** NFKC changes, mixed-script words, CSV formula prefixes and failed passes have no dedicated kind in the enum. They reuse `encoded_run` and `instruction_phrase`. Dedicated kinds would be a schema change.
 
-   This PR takes nonces as input and does not derive them.
-4. **Party-authored text in the system prompt.** The spec description and criteria are written by the offering party (the seller) and agreed by the buyer. They sit in the instruction position by design, and the screen does not scan them. Consider screening terms at offer time.
-5. **Residuals.**
-   - The canary check is exact-match, so a transformed echo (spaced or encoded) is not caught.
-   - The URL filter may abstain on evidence such as `customers.csv/row`.
-   - Judges see the first 100,000 characters only.
-   - Sealed checks are not evaluated or weighted.
-   - Screen thresholds (any zero-width character flags) are uncalibrated.
+**For T-009:**
 
-For T-009:
+- Pass `registry` (from the registry bound by `registryHash`), `deliverable.format` and intake `format`.
+- Replace the even-stride sample with seeded sampling, or keep the escalation.
+- Implement `JudgeProvider` with the judge timeout.
+- Run the check stage in a worker with a deadline. Item 10's worker is not built here; the step budget bounds the work instead.
+- Inject core's T-014 `open` in place of `openAes256Gcm`. It now exists in core with plaintext-hash verification.
+- Derive the per-judge nonces from the seed and supply `criteriaFor`.
 
-- Implement `JudgeProvider` (enforce `judgeTimeoutSec`, measure `latencyMs`), seat selection, a per-judge `criteriaFor` shuffle and `nonces`, the appeal template and appeal thresholds (`minValidAppeal`; the pipeline takes first-instance thresholds today), and policy binding: check `PROMPT_TEMPLATE_HASH` against `policy.promptTemplateHash`.
-- Map `IntakeError` to an outcome. A plaintext hash mismatch or a missing key is seller fault, but no rule says reject versus escalate.
-- `SCREEN_VERSION` is `screen-0` and `AGGREGATION_VERSION` is `agg-1`. The example policy says `screen-1`.
+**Backlog (post-demo).** Nothing from red-team items 1 to 15 is skipped: all 85 cases pass, and none is marked `todo`. Partial or follow-up items:
 
-For T-014: replace `openAes256Gcm` and the fake unwrapper with the real envelope format and the x25519 unwrap. Intake takes both by injection.
+- Item 6: the confusables table is a Cyrillic and Greek subset of UTS #39, not the full data file (C "Cyrillic homoglyphs" passes).
+- Item 10: the worker with a deadline is recorded for T-009 (K1 and K2 pass on the budget alone).
+- Items 6 and 15: thresholds are uncalibrated (C "paraphrase" and H2 "JUDGE NOTE" pass through fixed phrase families, which a paraphrase outside them will evade).
 
-Out of lane, not touched:
+**Proposed rows for `docs/team.md` Rules and checks** (outside my lane; not edited):
 
-- **Proposed row for `docs/team.md` Rules and checks:** "Judgment defenses are tested", enforced by `node packages/judgment/scripts/mutants.mjs`. Each mutant breaks one defense and must be killed (41/41 today). Run it on PRs that touch `packages/judgment`. The failure mode it caught: tests that assert behavior through one path while the defense can be bypassed on another, as with the three first-run survivors.
-- The "Deliverables untrusted" and "No code execution" rows can point at `prompt.test.ts`, `source.test.ts` and the sweep.
-- Recommend a `red-teamer` pass on this branch before review, per `prompts/phase-1-demo.md`. I did not run one.
-- gitleaks is not installed locally, so CI will be its first run on this branch. I added no ignore entries.
+- "Judgment defenses are tested": `node packages/judgment/scripts/mutants.mjs`, 81 mutants, 81 killed (80 in the full run; the `\u`-escape mutant was retargeted after the view split and killed in a filtered run) today.
+- "Judgment sources are ASCII and have no open-ended regex loops": `source.test.ts`. The failure mode it catches: my editing tool silently turned `\uXXXX` escapes into literal invisible characters in three source files; I caught it with a byte scan. Separately, `{n,}` patterns overflowed V8's regex stack on 9 MB inputs.
+
+Not done or not verified:
+
+- gitleaks has not run on this branch: CI was queued without a runner on the previous push, and gitleaks is not installed locally.
+- No `red-teamer` re-run on this round.
+- Commits `c1fc896` to `1ebd7d7` were not verified one by one; only the branch head was.
+
+Outside my lane, not touched:
+
+- core types and parsers (they come from the PR 23 merge);
+- `docs/team.md`;
+- `docs/judgment-and-defenses.md`, whose pseudo-code should gain the D17 reason, the forced-escalation line and the integer rules.
