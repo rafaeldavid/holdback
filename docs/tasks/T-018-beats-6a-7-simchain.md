@@ -47,7 +47,7 @@ Non-goals: club revocation at run time (SimChain has none; the beat drops it and
 
 ## Decisions
 
-- The L3-1 rule keys on the pipeline's `template` (`appeal: input.template === 'appeal'` passed to `aggregate`), not on `service.ts`, so every caller of the pipeline gets it. Both the screen flag and `injectionSuspected` stay in the reasons at the appeal; filter abstentions, sampled data and too few valid verdicts still escalate. `AGGREGATION_VERSION` is `agg-3`. Recorded in ADR-0021 (amendment) and D25.
+- The L3-1 rule keys on the pipeline's `template` (`appeal: input.template === 'appeal'` passed to `aggregate`), not on `service.ts`, so every caller of the pipeline gets it. Both the screen flag and `injectionSuspected` stay in the reasons at the appeal; filter abstentions, sampled data and too few valid verdicts still escalate. `AGGREGATION_VERSION` stays `agg-2`: bumping it changed every policy hash, re-seeded all 25 snap panels and invalidated every recording after PR 50 (measured); deferred to the next recording capture. Recorded in ADR-0021 (amendment) and D25.
 - `OperatorOptions.policy` now receives a `PolicyContext` (parties from the operation or the node's index, and the signer); `refuseParties` answers 403 `member_not_admitted`. No new problem type, so no schema change.
 - Beat 7 adds op-2 going offline after the hold, so "submits directly" is measured, not only failover. The world gained `refusals`, `operatorLog` and `stopOperator`; benches take per-bench scripts (`benchJudges`).
 - Beat 6 is two jobs on two worlds; the second job's times are shifted after the first's and its balance labels say "second delivery". The source note says so.

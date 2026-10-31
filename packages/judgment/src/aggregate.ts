@@ -20,7 +20,9 @@ import type { JudgeVerdict } from '@holdback/core';
 import type { CheckOutcome } from './checks/index.js';
 import type { Fraction, JudgmentRubric } from './terms.js';
 
-export const AGGREGATION_VERSION = 'agg-3';
+// Not bumped for the L3-1 appeal rule (ADR-0021 amendment): the policy hash binds this string, and bumping it
+// re-seeds every snap fixture's panel and invalidates every recording. Bump with the next recording capture.
+export const AGGREGATION_VERSION = 'agg-2';
 /** Cross-family agreement required for accept (threat T8). Fixed by the rule, not by policy. */
 export const MIN_PASS_FAMILIES = 2;
 export const SCREEN_FLAGGED_REASON = 'screen flagged; see screen.signals';

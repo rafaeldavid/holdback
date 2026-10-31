@@ -389,7 +389,7 @@ Rafa first asked that both parties be able to change any term, as in a regular c
 | Choice | Decided | Why |
 | --- | --- | --- |
 | Which flags the appeal keeps rather than escalates on | Both the screen flag and a judge's `injectionSuspected` | Either one escalating at the appeal means no decision, and the default outcome pays the seller from the appeal bond: the L3-1 failure again. An accept still needs the cross-family supermajority (FR-15) |
-| Aggregation version | `agg-2` → `agg-3` | The policy binds the rule version; a policy written for the old rule is refused rather than silently judged under the new one |
+| Aggregation version | Stays `agg-2` for now; bump to `agg-3` with the next recording capture (backlog) | The policy hash binds the version and seeds every panel: the bump re-seeded all 25 snap fixtures and invalidated every recording (measured after merging PR 50). No policy outside this repository binds `agg-2`, so nothing is judged under a rule its signers did not see |
 | Operator refusal shape | `refuseParties` answers 403 `member_not_admitted`, no new problem type | No schema change; the SDK treats any operator failure as non-final and fails over |
 | Beat 7's second failure | op-2 goes offline after relaying the hold, so the delivery and the fallback trigger are submitted directly | Shows "no operator required" from measured events, not only failover |
 | Beat 6a's fee | The appeal adjudicator earns the 50 tUSD fee; Ledger ends at 9,950 tUSD | Existing SimChain postings ("fee to the appeal adjudicator, whose decision settles"); not changed here |

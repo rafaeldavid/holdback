@@ -74,7 +74,7 @@ if fail * reject.den >= reject.num * len(valid) and fail > pass -> REJECT
 otherwise                                             -> ESCALATE   (ties escalate)
 ```
 
-**The appeal decides a flagged case** (ADR-0021 amendment, D25, review finding L3-1). There is no instance after the appeal, and an escalation there means no decision, so the default outcome would pay an injecting seller from the appeal bond. At the appeal role the flag stays in the signed record and the five-judge panel decides by its supermajority. It never accepts without the cross-family accept supermajority (FR-15). Aggregation version `agg-3`.
+**The appeal decides a flagged case** (ADR-0021 amendment, D25, review finding L3-1). There is no instance after the appeal, and an escalation there means no decision, so the default outcome would pay an injecting seller from the appeal bond. At the appeal role the flag stays in the signed record and the five-judge panel decides by its supermajority. It never accepts without the cross-family accept supermajority (FR-15). The aggregation version stays `agg-2` until the next recording capture (ADR-0021 amendment).
 
 Thresholds are exact fractions compared by cross-multiplication, never by division or floats (ADR-0022). A policy must satisfy `2 × numerator > denominator`, so accept and reject can never both hold. The record carries `passCount`, `failCount` and `validCount`, not shares.
 
