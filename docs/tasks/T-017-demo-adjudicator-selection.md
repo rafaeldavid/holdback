@@ -5,7 +5,7 @@
 - **Depends on:** T-012 (agents), T-013 (CLI and viewer)
 - **Paths this task may touch:** `apps/demo/`, `docs/backlog.md` (if a registration field is the right home for display-only data), this task file
 - **Human gate:** no
-- **Status:** review
+- **Status:** done
 - **Agent/session:** implementer; branch `t-017-demo-adjudicator-selection`
 
 ## Intent
