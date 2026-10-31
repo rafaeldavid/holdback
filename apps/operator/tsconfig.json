@@ -2,5 +2,11 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": { "rootDir": "src", "outDir": "dist", "types": ["node"] },
   "include": ["src"],
-  "references": [{ "path": "../../packages/core" }, { "path": "../../packages/settlement" }, { "path": "../../packages/sdk" }]
+  "references": [
+    { "path": "../../packages/core" },
+    { "path": "../../packages/settlement" },
+    { "path": "../../packages/judgment" },
+    { "path": "../../packages/sdk" },
+    { "path": "../adjudicator" }
+  ]
 }

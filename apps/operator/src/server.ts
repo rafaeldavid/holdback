@@ -30,7 +30,12 @@ import { commitmentIdOf, operationOf, previewSubmission, submissionKeys, submiss
 import type { PolicyContext, RelayPolicy } from './policy.js';
 import type { DryRunSubmission, Settlement, SubmitResult } from '@holdback/settlement';
 import { privateKeyToAccount } from 'viem/accounts';
+import type { CommitmentTerms, Sha256, Signature, Timestamp } from '@holdback/core';
+import { sha256 } from '@holdback/core/crypto';
+import { MAX_CIPHERTEXT_BYTES, type CiphertextStore } from '@holdback/core/store';
+import { ENVELOPE_SPEC } from './envelope-spec.js';
 import { startupGuards } from './guards.js';
+import { prepare, PrepareError, type PrepareContext } from './prepare.js';
 import { IdempotencyStore, fingerprint, type StoredResponse } from './idempotency.js';
 import type { Registry } from './registry.js';
 
@@ -75,6 +80,13 @@ export interface OperatorOptions {
    * (ADR-0005). `refuseParties` in policy.ts is the stock one.
    */
   policy?: RelayPolicy;
+  /**
+   * A content-addressed ciphertext store served at /v1/ciphertext (ADR-0016 §8). Ciphertext only: an
+   * operator never receives plaintext or a content key. Without one, those routes answer not_found.
+   */
+  store?: CiphertextStore;
+  /** This node's public base URL, for ciphertext URIs and the well-known document. Default: the listening address. */
+  baseUrl?: string;
   /** Test only: relay, then drop the connection without answering (a response lost in transit). */
   dropResponses?: boolean;
   now?: () => number;
@@ -291,10 +303,13 @@ export class Operator {
   private head = -1;
   private syncing: Promise<void> = Promise.resolve();
   private readonly now: () => number;
+  /** Public base URL (no trailing slash); startOperator sets it to the listening address when not given. */
+  baseUrl: string;
 
   /** Runs the startup guards: no Operator exists off a test chain or with a live Stripe key. */
   constructor(private readonly o: OperatorOptions) {
     startupGuards({ env: o.env, chainId: o.registry.chainId });
+    this.baseUrl = (o.baseUrl ?? '').replace(/\/+$/, '');
     this.domain = holdbackDomain(o.registry.chainId);
     this.signer = privateKeyToAccount(o.signerKey).address;
     this.now = o.now ?? Date.now;
@@ -424,7 +439,10 @@ export class Operator {
 
   private async route(ctx: Ctx): Promise<void> {
     const { method, segments: s } = ctx;
+    if (method === 'GET' && ctx.url.pathname === '/.well-known/holdback.json') return this.send(ctx, this.ok({ ...(await this.status()), apiBaseUrl: `${this.baseUrl}/v1` }));
     if (s[0] !== 'v1') fail('not_found', `no route ${ctx.url.pathname}`);
+    if (s[1] === 'ciphertext') return this.ciphertext(ctx);
+    if (method === 'POST' && s[1] === 'prepare' && s.length === 3) return this.prepare(ctx, s[2]!);
     if (method === 'POST') return this.write(ctx);
     if (method !== 'GET') fail('not_found', `no route ${method} ${ctx.url.pathname}`);
     this.throttle(`r:${this.client(ctx)}`, this.o.rateLimit?.reads ?? 0);
@@ -525,6 +543,75 @@ export class Operator {
     return this.ok({ address: b.address, balance });
   }
 
+  // ---- prepare, ciphertext -------------------------------------------------------------------------
+
+  /** POST /v1/prepare/{kind}: typed data to sign and the body to submit. Reads only; nothing is recorded. */
+  private async prepare(ctx: Ctx, kind: string): Promise<void> {
+    this.throttle(`r:${this.client(ctx)}`, this.o.rateLimit?.reads ?? 0);
+    const input = await this.body(ctx);
+    try {
+      return this.send(ctx, this.ok(await prepare(kind, this.prepareContext(), input)));
+    } catch (e) {
+      if (e instanceof PrepareError) fail(e.problem.type, e.problem.detail);
+      throw e;
+    }
+  }
+
+  private prepareContext(): PrepareContext {
+    const reg = this.o.registry;
+    const eventsOf = async (id: Hex32) => {
+      await this.sync();
+      return this.index.get(id)?.events ?? [];
+    };
+    return {
+      domain: this.domain,
+      now: () => reg.now?.() ?? (new Date(Math.floor(Date.now() / 1000) * 1000).toISOString().replace('.000Z', 'Z') as Timestamp),
+      club: (id) => reg.clubs.find((c) => c.id === id),
+      registration: (a) => reg.registration?.(a) ?? null,
+      commitment: async (id) => {
+        const offered = (await eventsOf(id)).find((e) => e.type === 'commitment.offered');
+        if (!offered) return undefined;
+        const p = offered.payload as unknown as { terms: CommitmentTerms; sellerSignature: Signature };
+        return { ...p.terms, id, signatures: { seller: p.sellerSignature } };
+      },
+      delivery: async (id) => (await eventsOf(id)).filter((e) => e.type === 'delivery.submitted').at(-1)?.payload as { deliveryHash: Hex32; attempt: number } | undefined,
+      attempt: async (id) => (await this.o.settlement.state(id))?.attempt ?? 1,
+    };
+  }
+
+  /** POST /v1/ciphertext (raw bytes, Idempotency-Key) stores ciphertext; GET /v1/ciphertext/{sha256:hex} reads it. */
+  private async ciphertext(ctx: Ctx): Promise<void> {
+    const store = this.o.store ?? fail('not_found', 'this operator does not store ciphertext');
+    const s = ctx.segments;
+    if (ctx.method === 'GET' && s.length === 3) {
+      this.throttle(`r:${this.client(ctx)}`, this.o.rateLimit?.reads ?? 0);
+      let bytes: Uint8Array;
+      try {
+        bytes = await store!.get(decodeURIComponent(s[2]!) as Sha256);
+      } catch {
+        return fail('not_found', 'no ciphertext with this id');
+      }
+      ctx.res.writeHead(200, { 'content-type': 'application/octet-stream', 'content-length': String(bytes.length) });
+      return void ctx.res.end(Buffer.from(bytes));
+    }
+    if (ctx.method !== 'POST' || s.length !== 2) fail('not_found', `no route ${ctx.method} ${ctx.url.pathname}`);
+    this.throttle(`w:${this.client(ctx)}`, this.o.rateLimit?.writes ?? 0);
+    const chunks: Buffer[] = [];
+    let size = 0;
+    for await (const chunk of ctx.req as AsyncIterable<Buffer>) {
+      size += chunk.length;
+      if (size > MAX_CIPHERTEXT_BYTES) fail('payload_too_large', `ciphertext is limited to ${MAX_CIPHERTEXT_BYTES} bytes`);
+      chunks.push(chunk);
+    }
+    const bytes = new Uint8Array(Buffer.concat(chunks));
+    if (bytes.length === 0) fail('invalid_terms', 'POST the ciphertext bytes as the body (application/octet-stream)');
+    // Content-addressed, so the fingerprint is the hash: the same key with other bytes is a conflict.
+    return this.idempotent(ctx, { sha256: sha256(bytes) }, async () => {
+      const id = await store!.put(bytes);
+      return this.ok({ id, uri: `${this.baseUrl}/v1/ciphertext/${id}`, bytes: bytes.length });
+    });
+  }
+
   // ---- reads -------------------------------------------------------------------------------------
 
   private async read(ctx: Ctx): Promise<unknown> {
@@ -542,13 +629,23 @@ export class Operator {
       if (mandates.length === 0) fail('not_found', `no agent ${s[2]}`);
       return { address: mandates[0]!.agent, status: 'active', mandates: mandates.map((m) => ({ ...m, mandateHash: canonicalKeccak(m) })) };
     }
+    // A published registration, when there is one, is served with the bond the settlement layer holds.
+    const listing = (a: ReturnType<Registry['adjudicators']>[number]) => {
+      const r = reg.registration?.(a.address);
+      return r ? { ...r, ...a } : a;
+    };
     if (s[1] === 'adjudicators' && s.length === 2) {
-      const all = reg.adjudicators();
+      const all = reg.adjudicators().map(listing);
       const order = new Map(all.map((a, i) => [a, i]));
       return paginate(all, (a) => order.get(a)!, q);
     }
     if (s[1] === 'adjudicators' && s.length === 3) {
-      return reg.adjudicators().find((a) => lc(a.address) === lc(s[2]!)) ?? fail('not_found', `no adjudicator ${s[2]}`);
+      const a = reg.adjudicators().find((x) => lc(x.address) === lc(s[2]!));
+      return a ? listing(a) : fail('not_found', `no adjudicator ${s[2]}`);
+    }
+    if (s[1] === 'balances' && s.length === 3) {
+      if (!isAddress(s[2])) fail('invalid_terms', 'balances takes an address');
+      return (await this.o.settlement.balances([s[2] as Address]))[s[2] as Address];
     }
     if (s[1] === 'commitments' && s.length === 2) return this.commitments(q);
     if (s[1] === 'commitments' && s.length >= 3) {
@@ -564,6 +661,10 @@ export class Operator {
         for (const e of entry!.events) if (!this.receipts.get(id as Hex32)?.has(e.seq)) await this.receiptFor(e);
         return paginate([...this.receipts.get(id as Hex32)!.values()], (r) => r.eventSeq, q);
       }
+      if (s.length === 4 && s[3] === 'recipients') return this.recipients(id as Hex32);
+      if (s.length === 4 && s[3] === 'judgment') {
+        return reg.judgment?.(id as Hex32) ?? fail('not_found', `no judgment record for ${id} on this operator`);
+      }
       if (s.length === 4 && s[3] === 'key') {
         const recipient = q.get('recipient') ?? undefined;
         if (!isAddress(recipient)) fail('invalid_terms', 'key takes ?recipient=<address>');
@@ -571,6 +672,22 @@ export class Operator {
       }
     }
     return fail('not_found', `no route GET ${ctx.url.pathname}`);
+  }
+
+  /** GET /v1/commitments/{id}/recipients: who the content key must be sealed to, and how (ENVELOPE_SPEC). */
+  private async recipients(id: Hex32): Promise<unknown> {
+    const c = (await this.prepareContext().commitment(id)) ?? fail('not_found', `no commitment ${id}`);
+    const a = c!.adjudication;
+    const reg = (role: string, address: Address) => {
+      const r = this.o.registry.registration?.(address);
+      if (!r) fail('not_found', `the ${role} adjudicator ${address} has no published registration`);
+      return { role, address, encryptionPublicKey: r!.encryptionPublicKey };
+    };
+    return {
+      commitmentId: id,
+      recipients: [reg('primary', a.adjudicator), reg('fallback', a.fallbackAdjudicator), reg('appeal', a.appealAdjudicator), { role: 'buyer', address: c!.buyer, encryptionPublicKey: c!.buyerEncryptionPublicKey }],
+      envelope: ENVELOPE_SPEC,
+    };
   }
 
   private async commitments(q: URLSearchParams): Promise<Page<CommitmentStateView>> {
@@ -648,9 +765,11 @@ export async function startOperator(o: OperatorOptions & { port?: number; host?:
     server.listen(o.port ?? 0, o.host ?? '127.0.0.1', resolve);
   });
   const { port } = server.address() as AddressInfo;
+  const url = `http://${o.host ?? '127.0.0.1'}:${port}`;
+  if (!operator.baseUrl) operator.baseUrl = url;
   let closed: Promise<void> | undefined;
   return {
-    url: `http://${o.host ?? '127.0.0.1'}:${port}`,
+    url,
     operator,
     close: () =>
       (closed ??= new Promise<void>((resolve) => {
