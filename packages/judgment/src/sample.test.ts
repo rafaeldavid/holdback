@@ -42,8 +42,10 @@ describe('seeded sampling of a large CSV', () => {
   it('keeps the header, the first and last rows, and stays within the budget', () => {
     const rows = csv.split('\n');
     expect(lines[0]).toBe(HEADER);
-    expect(lines.slice(1, 1 + SAMPLE_HEAD)).toEqual(rows.slice(1, 1 + SAMPLE_HEAD));
-    expect(lines.slice(-SAMPLE_TAIL)).toEqual(rows.slice(-SAMPLE_TAIL));
+    expect(SAMPLE_HEAD).toBe(20);
+    expect(SAMPLE_TAIL).toBe(20);
+    expect(lines.slice(1, 21)).toEqual(rows.slice(1, 21));
+    expect(lines.slice(-20)).toEqual(rows.slice(-20));
     expect(lines.join('\n').length).toBeLessThanOrEqual(100_000);
     expect(lines.length).toBeGreaterThan(1000);
   });
@@ -121,12 +123,15 @@ describe('csvRecords and sampleCsv', () => {
     expect(sampleCsv(recs, 60 * (MIN_SAMPLED_ROWS + 50), SEED_A)?.random).toBeGreaterThan(0);
   });
   it('stops at the first random row that does not fit, so long rows are not skipped over (no short-row bias)', () => {
-    const recs = [HEADER, ...Array.from({ length: 2000 }, (_, k) => (k % 2 ? `${k},${'z'.repeat(400)}` : `${k},s`))];
-    const s = sampleCsv(recs, 40_000, SEED_A)!;
-    const random = s.records.slice(1 + SAMPLE_HEAD, s.records.length - SAMPLE_TAIL);
+    const recs = [HEADER, ...Array.from({ length: 4000 }, (_, k) => (k % 2 ? `${k},${'z'.repeat(1000)}` : `${k},s`))];
+    const s = sampleCsv(recs, 60_000, SEED_A)!;
+    const random = s.records.slice(1 + s.head, s.records.length - s.tail);
     const long = random.filter((r) => r.length > 100).length;
-    // Unbiased: roughly half the random rows are long ones.
-    expect(long / random.length).toBeGreaterThan(0.3);
+    // Stopping at the first misfit leaves under 1,001 characters unused; skipping misfits would pack
+    // in up to ~150 more short rows and push the long share far below a half.
+    expect(s.random).toBe(random.length);
+    expect(random.length).toBeLessThan(120);
+    expect(long / random.length).toBeGreaterThan(0.35);
   });
 });
 

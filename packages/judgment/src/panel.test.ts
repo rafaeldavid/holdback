@@ -133,6 +133,8 @@ describe('per-judge derivations from the seed', () => {
     expect(criteriaOrder(seed(3), CID, 'claude-a', RUBRIC.criteria)).toEqual(a);
     const orders = new Set(Array.from({ length: 40 }, (_, i) => criteriaOrder(seed(i), CID, 'claude-a', RUBRIC.criteria).map((c) => c.id).join()));
     expect(orders.size).toBeGreaterThan(3);
+    const differsAcrossJudges = Array.from({ length: 20 }, (_, i) => criteriaOrder(seed(i), CID, 'claude-a', RUBRIC.criteria).map((c) => c.id).join() !== criteriaOrder(seed(i), CID, 'gpt-a', RUBRIC.criteria).map((c) => c.id).join());
+    expect(differsAcrossJudges.some(Boolean)).toBe(true);
   });
 
   it('nonces are 128-bit hex, fixed per judge, and differ across judges', () => {
