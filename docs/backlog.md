@@ -83,6 +83,25 @@ Deferred until after the basic demo. The demo assumes honest parties (Rafa, Octo
 | Standard Webhooks signing headers | ADR-0017 | When webhooks are built |
 | x402 and AP2 interop; field selection | ADR-0017 | Phase 6 |
 | More list filters (`club`, `appealState`, dates) | ADR-0017 | When the viewer or MCP needs them |
+| Run-time `POST /v1/clubs`, `/members`, `/agents`, `/adjudicators` and revocations; the operator serves genesis reads only | T-007 | With the T-006 registration item; D22 revocation |
+| `GET /v1/commitments/{id}/key` takes `?recipient=` with no buyer-signed request; envelopes are encrypted to the recipient and already public in `key.released` events | T-007 | Phase 2 read authentication |
+| `GET /v1/commitments/{id}/judgment`, `POST /v1/adjudicators/{address}/quote`, `POST /v1/webhooks`, `GET /v1/audit/verify`, `/publish`, `/disputes`: not served (404) | T-007 | T-009 (judgment record), Phase 2 (quotes, webhooks), Phase 4 (disputes) |
+| Chain-mode `202 pending` with `submissionId`; the operator answers synchronously as on SimChain | T-007 | Phase 2 (T-202) |
+| Operator state is in memory: idempotency records, receipts, rate-limit windows and the event index are lost on restart (SimChain replay rebuilds the index, not the records) | T-007 | When an operator restarts mid-demo; Phase 5 operators |
+| Operator stores successful responses only; a refused call can be retried under its key, matching SimChain | T-007 | If clients expect refusals replayed |
+| Rate limiting is a fixed window per signer address as named in the body; it does not verify the signature first, so a caller can spend another signer's budget | T-007 | Before any public operator (Phase 5) |
+| `/v1/events` SSE polls the settlement log every 50 ms and ignores `Last-Event-ID`; no backpressure | T-007 | Phase 2, chain event subscription |
+| An operator binary (CLI entry that reads `HOLDBACK_*` env and genesis); today operators start in process through `startOperator` | T-007 | T-013 if the demo runs operators as processes |
+| `neutrality.operator-*` and `error.dry-run-has-no-effects` as `.scenario.yaml` fixtures; today they are vitest cases in `apps/operator/src/neutrality.test.ts` and `operator.test.ts` | T-007 | When testkit drives HTTP operators |
+| SDK signer integration (`hb.offer(terms)` signs) as in the docs/api.md example; today the SDK takes signed messages | T-007 | T-012 agents, if they want it |
+| SDK `verifyReceipts` mode: check each receipt's signature against `status().receiptSigner`, and its `eventHash` and `eventSeq` against the settlement layer's events; today the SDK returns receipts unverified | T-007 review | When agents rely on receipts as evidence (T-015; Phase 5 operators) |
+| Idempotency keys share one global namespace across operators and the direct path; scope them by signer, or derive settlement keys from the key plus the submission hash, so one agent's key cannot collide with another's | T-007 review | Before any shared operator (Phase 5) |
+| A response lost after relay, then retried under a new key: the SDK should read the commitment back and reconcile instead of resubmitting into a refusal | T-007 review | When agents generate keys per attempt |
+| Rate limits trust the signer address named in the body; a caller dodges them by rotating addresses, or spends another signer's budget. Verify the signature before charging a budget | T-007 review | Before any public operator (Phase 5) |
+| A non-JSON 200 response crashes `submit` (body read as state); treat it as an operator failure and fail over | T-007 review | Before untrusted third-party operators |
+| `GET .../receipts` re-signs receipts per read, and the receipt cache is unbounded | T-007 review | With operator persistence |
+| The `dropResponses` test hook is part of production `OperatorOptions`; move it behind a test-only wrapper | T-007 review | Before an operator binary ships |
+| `/v1/events` streams every event unfiltered; revisit when private disclosure levels exist | T-007 review; ADR-0020 | Phase 2 privacy |
 
 ## Principal recourse
 
