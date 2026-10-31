@@ -12,23 +12,35 @@ export class ScenarioError extends Error {
 
 export type Via = 'direct' | string;
 
-export type Step =
+export type StepBody =
   | { kind: 'offer'; by: 'seller'; via: Via; signer?: string }
   | { kind: 'adjudicator_accept'; via: Via }
   | { kind: 'agree_and_fund'; by: 'buyer'; via: Via; signer?: string }
-  | { kind: 'deliver'; by: 'seller'; via: Via; file: string; signer?: string; stubBytes?: true }
+  | { kind: 'deliver'; by: 'seller'; via: Via; file: string; signer?: string; stubBytes?: true; attempt?: number }
   | { kind: 'advance_clock'; seconds: number }
   | { kind: 'judge'; adjudicator: string }
   | { kind: 'settle'; trigger: 'anyone' | 'buyer' | 'seller'; via: Via }
   | { kind: 'reclaim'; by: 'buyer'; via: Via }
   | { kind: 'verify_key_release'; by: 'buyer'; via: Via }
+  // The buyer accepts the delivery before any decision (releases price and key; the fee returns to the buyer).
+  | { kind: 'early_accept'; by: 'buyer'; via: Via; signer?: string }
+  // A party appeals a first-instance decision, posting the rulebook's appeal bond (or `bond`) and fee.
+  | { kind: 'appeal'; by: 'buyer' | 'seller'; via: Via; grounds: string; bond?: string; signer?: string }
+  // ADR-0019, D23: both parties sign payouts (actor name to amount) that sum to the price.
+  | { kind: 'mutual_settle'; via: Via; payouts: Record<string, string>; releaseKey: boolean; signer?: string }
   // Outages and permissionless timeouts (neutrality fixtures).
   | { kind: 'offline'; actor: string }
   | { kind: 'operator_refuses'; operator: string }
   | { kind: 'trigger_fallback'; via: Via }
   | { kind: 'trigger_default'; via: Via }
   | { kind: 'apply_default_outcome'; via: Via }
-  | { kind: 'expire'; via: Via };
+  | { kind: 'expire'; via: Via }
+  | { kind: 'expire_appeal'; via: Via };
+
+/** A step, and which of the scenario's commitments it acts on (1 when absent). */
+export type Step = StepBody & { commitment?: number };
+/** A scenario drives at most this many commitments. */
+export const MAX_COMMITMENTS = 4;
 
 export type StepKind = Step['kind'];
 
@@ -58,7 +70,7 @@ const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !
 const NAME = /^[a-z0-9][a-z0-9._-]*$|^_[a-z0-9._-]+$/;
 const DECIMAL = /^(0|[1-9][0-9]{0,77})$/;
 /** Ledger and routing names the runner uses itself; no actor may take them. */
-export const RESERVED_NAMES: readonly string[] = ['escrow', 'anyone', 'direct', 'faucet'];
+export const RESERVED_NAMES: readonly string[] = ['escrow', 'appeal-hold', 'anyone', 'direct', 'faucet'];
 
 function fail(path: string, message: string): never {
   throw new ScenarioError(`${path}: ${message}`);
@@ -118,11 +130,39 @@ const STEP_KINDS = [
   'trigger_default',
   'apply_default_outcome',
   'expire',
+  'expire_appeal',
+  'early_accept',
+  'appeal',
+  'mutual_settle',
 ];
+
+/** Steps the scenario index names that need settlement support this build does not have. */
+const UNSUPPORTED: Record<string, string> = {
+  dispute: 'a dispute belongs to optimistic mode (settle_after_window, D19, Phase 4); SimChain accepts no Dispute submission yet',
+  revoke_member: 'SimChain has no member revocation: club membership is fixed at genesis (needs a settlement submission; see the T-016 Handoff)',
+  revoke_mandate: 'SimChain has no mandate revocation: mandates are fixed at genesis (needs a settlement submission; see the T-016 Handoff)',
+};
+
+/** Steps that do not act on a commitment, so `commitment:` makes no sense on them. */
+const NO_COMMITMENT = ['advance_clock', 'offline', 'operator_refuses'];
 
 function parseStep(raw: unknown, path: string, operators: readonly string[], actors: readonly string[]): Step {
   if (!isObj(raw) || Object.keys(raw).length !== 1) fail(path, 'each step is a mapping with exactly one key, e.g. "- offer: { by: seller }"');
-  const [kind, body] = Object.entries(raw)[0]!;
+  const [kind, rawBody] = Object.entries(raw)[0]!;
+  const p = `${path}.${kind}`;
+  if (kind in UNSUPPORTED) fail(path, `step "${kind}" is not supported: ${UNSUPPORTED[kind]}`);
+  if (isObj(rawBody) && 'commitment' in rawBody) {
+    if (NO_COMMITMENT.includes(kind)) fail(`${p}.commitment`, `${kind} does not act on a commitment`);
+    const n = positiveInt(rawBody.commitment, `${p}.commitment`);
+    if (n > MAX_COMMITMENTS) fail(`${p}.commitment`, `a scenario drives at most ${MAX_COMMITMENTS} commitments`);
+    const rest = { ...rawBody };
+    delete rest.commitment;
+    return { ...parseStepBody(kind, Object.keys(rest).length ? rest : undefined, path, operators, actors), commitment: n };
+  }
+  return parseStepBody(kind, rawBody, path, operators, actors);
+}
+
+function parseStepBody(kind: string, body: unknown, path: string, operators: readonly string[], actors: readonly string[]): StepBody {
   const p = `${path}.${kind}`;
   const via = (o: Obj): Via => {
     if (o.via === undefined || o.via === 'direct') return 'direct';
@@ -145,11 +185,42 @@ function parseStep(raw: unknown, path: string, operators: readonly string[], act
       return { kind, by: literal(o.by, `${p}.by`, ['buyer'] as const), via: via(o), ...signer(o) };
     }
     case 'deliver': {
-      const o = object(body, p, ['by', 'via', 'file', 'signer', 'stub_bytes'], ['by', 'file']);
+      const o = object(body, p, ['by', 'via', 'file', 'signer', 'stub_bytes', 'attempt'], ['by', 'file']);
       const file = str(o.file, `${p}.file`);
       if (file.startsWith('/') || file.split('/').includes('..')) fail(`${p}.file`, 'must be a path relative to fixtures/ without ".."');
       if (o.stub_bytes !== undefined && o.stub_bytes !== true) fail(`${p}.stub_bytes`, 'must be true when present');
-      return { kind, by: literal(o.by, `${p}.by`, ['seller'] as const), via: via(o), file, ...signer(o), ...(o.stub_bytes === true ? { stubBytes: true as const } : {}) };
+      return {
+        kind,
+        by: literal(o.by, `${p}.by`, ['seller'] as const),
+        via: via(o),
+        file,
+        ...signer(o),
+        ...(o.stub_bytes === true ? { stubBytes: true as const } : {}),
+        ...(o.attempt !== undefined ? { attempt: positiveInt(o.attempt, `${p}.attempt`) } : {}),
+      };
+    }
+    case 'early_accept': {
+      const o = object(body, p, ['by', 'via', 'signer'], ['by']);
+      return { kind, by: literal(o.by, `${p}.by`, ['buyer'] as const), via: via(o), ...signer(o) };
+    }
+    case 'appeal': {
+      const o = object(body, p, ['by', 'via', 'grounds', 'bond', 'signer'], ['by']);
+      return {
+        kind,
+        by: literal(o.by, `${p}.by`, ['buyer', 'seller'] as const),
+        via: via(o),
+        grounds: o.grounds === undefined ? 'wrong-outcome' : str(o.grounds, `${p}.grounds`),
+        ...(o.bond !== undefined ? { bond: money(o.bond, `${p}.bond`) } : {}),
+        ...signer(o),
+      };
+    }
+    case 'mutual_settle': {
+      const o = object(body, p, ['via', 'payouts', 'release_key', 'signer'], ['payouts']);
+      const payouts = moneyMap(o.payouts, `${p}.payouts`);
+      for (const who of Object.keys(payouts)) if (!actors.includes(who)) fail(`${p}.payouts.${who}`, 'not a party, adjudicator or operator of this scenario');
+      if (Object.keys(payouts).length === 0) fail(`${p}.payouts`, 'needs at least one payout');
+      if (o.release_key !== undefined && typeof o.release_key !== 'boolean') fail(`${p}.release_key`, 'must be true or false');
+      return { kind, via: via(o), payouts, releaseKey: o.release_key === true, ...signer(o) };
     }
     case 'advance_clock': {
       const o = object(body, p, ['seconds'], ['seconds']);
@@ -186,7 +257,8 @@ function parseStep(raw: unknown, path: string, operators: readonly string[], act
     case 'trigger_fallback':
     case 'trigger_default':
     case 'apply_default_outcome':
-    case 'expire': {
+    case 'expire':
+    case 'expire_appeal': {
       const o = object(body ?? {}, p, ['via']);
       return { kind, via: via(o) };
     }

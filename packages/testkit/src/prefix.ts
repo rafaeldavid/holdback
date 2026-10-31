@@ -3,7 +3,8 @@ import type { DecisionOutcome, EscrowStateKind, ProblemType } from '@holdback/co
 
 export type Prefix = 'normal' | 'error' | 'attack' | 'neutrality' | 'todo';
 
-export const TERMINAL_STATES: readonly EscrowStateKind[] = ['Released', 'Refunded', 'Expired'];
+/** Settled: closed by a mutual settlement both parties signed (ADR-0019, D23). */
+export const TERMINAL_STATES: readonly EscrowStateKind[] = ['Released', 'Refunded', 'Expired', 'Settled'];
 
 export interface StepProblem {
   /** 1-based index of the fixture step. */

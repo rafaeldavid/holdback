@@ -28,11 +28,11 @@ The scenario index's error.submission-limit row, recorded as a known gap. The cl
 | 00:02.000 | 3 | atlas-buyer | agree | op-1 | ok | Agreed |
 | 00:03.000 | 3 | atlas-buyer | fund | op-1 | ok | Held |
 | 00:04.000 | 4 | tidewater-seller | deliver (attempt 1) | op-1 | ok | Delivered |
-| 00:05.000 | 5 | tidewater-seller | deliver | op-1 | invalid_state | Delivered |
+| 00:05.000 | 5 | tidewater-seller | deliver (attempt 1) | op-1 | invalid_state | Delivered |
 
 Refusals:
 
-- Step 5 deliver: invalid_state: deliver is not allowed in Delivered
+- Step 5 deliver (attempt 1): invalid_state: deliver is not allowed in Delivered
 
 ## Balances (tUSD)
 

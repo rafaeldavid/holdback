@@ -86,6 +86,7 @@ export function renderSnapshot(scenario: Scenario, prefix: Prefix, run: StubRun,
         ],
         ['Adjudicators', `primary ${who(adjudicators.primary)} · fallback ${who(adjudicators.fallback)} · appeal ${who(adjudicators.appeal)}`],
         ['Operators', scenario.operators.length ? scenario.operators.join(' · ') : 'none'],
+        ...run.others.map((o) => [`Commitment #${o.n}`, `same terms, new nonce · commitment ${short(o.id)}`]),
       ],
     ),
     '',
@@ -132,7 +133,7 @@ export function renderSnapshot(scenario: Scenario, prefix: Prefix, run: StubRun,
   out.push(`- ${run.invariants.map((i) => `${i.name} ${i.note ?? mark(i.ok)}`).join(' · ')}`, '');
 
   out.push('## Outcome', '');
-  out.push(`- Final state: ${run.finalState ?? 'no commitment'}.`);
+  out.push(`- Final state: ${run.finalState ?? 'no commitment'}${run.others.map((o) => `; commitment #${o.n}: ${o.finalState}`).join('')}.`);
   out.push(`- Prefix expectations: ${outcome.label}${outcome.reasons.length ? `: ${outcome.reasons.join('; ')}` : ''}.`);
   return `${out.join('\n')}\n`;
 }
