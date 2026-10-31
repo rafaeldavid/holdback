@@ -29,7 +29,7 @@ Non-goals: calibration and fees from metrics (Phase 3); live model calls in test
 - [x] Commit-reveal: commitment posted at agreement; seeded shuffle with family constraints over the registry named by `registryHash`; anyone can recompute (test); a registry that does not hash to `registryHash` is refused.
 - [x] Panel seed fixed per (commitment, attempt); no re-roll (test).
 - [x] The shuffle takes the seed for the decider's role (ADR-0018): the primary's revealed seed, or `keccak256(commitmentId ‖ role ‖ attempt ‖ beaconValue(round))` for the fallback and appeal adjudicators. The adjudicator service reads rounds through a `RandomnessSource` interface (`sim` now, `drand` later).
-- [x] Adjudicator service: watches assignments, runs pipeline, signs Decision with judgment record hash, publishes record; acts as fallback or appeal adjudicator when assigned; appeal panel policy. (Against a port; see Handoff for the T-006 seam.)
+- [x] Adjudicator service: watches assignments, runs pipeline, signs Decision with judgment record hash, publishes record; acts as fallback or appeal adjudicator when assigned; appeal panel policy. (Against a port, with an adapter to T-006's SimChain; primary and fallback paths run end to end on SimChain.)
 - [x] Policy binding: `policyHash` computed as keccak256 of the RFC 8785 canonical JSON of the adjudicator's policy; a judgment whose template hash or `policyHash` does not match the commitment is refused (`error.policy-hash-mismatch`). (Problem type `policy_mismatch`, detail prefixed `policy-hash-mismatch`.)
 - [x] The adjudicator service signs `AdjudicatorAcceptance` (seed commitment, policy and registry hashes, fee, reserved bond) and publishes its registry hash and URI and its policy hash in its registration.
 - [x] Fee quote stub returning policy minimum.
@@ -66,7 +66,13 @@ Labels: measured (M), inferred (I), guessed (G).
 - An unpublished beacon round makes it wait (M).
 - Escalation carries the appeal adjudicator's envelope; the appeal panel has 5 seats, 3 families and the appeal template hash; its round is the escalation's second plus one (M).
 - "Missing or wrong key" appeal: accept with the key wrapped to the buyer, no judge called (M).
-- Encodings match origin/t-006-simchain at `5c83f7b` (uint8 attempt, `encodePacked(bytes32, uint64)` beacon, same round rules): read from that branch's source, not run against it (I).
+- Encodings match T-006 on main: `panelSeed` is core's own; `simBeacon` equals `SimChain.beacon` for three published rounds and both return null for the next round; `roundFor` equals core's `beaconRoundFor` for the fallback and an escalation (M, `randomness.test.ts`).
+
+**On T-006's real SimChain** (`apps/adjudicator/src/simchain-adapter.test.ts`, through `SettlementAdapter`):
+- The full path uses T-012's `customers.clean.csv` and the example commitment's checks. The seller signs the offer, the service finds it in the event log and accepts, and the buyer agrees and funds. The seller then seals the CSV to three adjudicators and the buyer; only the primary's envelope is released at delivery. The primary judges a seeded sample (3 judge calls, each prompt under 130,000 characters) and accepts. The state is `Released`, the seller's balance rises by exactly the price, and the published record that the decision binds says `accept`. The buyer unwraps the envelope from `keysFor` and recovers the CSV byte for byte. A second run makes no judge call (M).
+- The fallback path, with a silent primary: before judgeBy the fallback has nothing to do. At judgeBy it triggers the takeover and receives one released envelope. Its decision carries the beacon round at judgeBy, SimChain accepts the seed through core, and the case settles as above. The primary then finds nothing to decide (M).
+- Five adapter mutants are killed: primary given no envelope, fallback given no released key, no fallback task after takeover, offers not read from the log, acceptance submitted as a decision (M).
+- After the T-006 merge, the 6 failing `_sim.ts` tests came from core's new rule: a fallback or appeal decision without a beacon fact is refused. The harness now supplies the fact from `beaconRoundFor`, as SimChain does, and all 48 adjudicator tests pass (M). The test file was written after the adapter, not before (M).
 
 **Test first.**
 - `sample.test.ts`, `panel.test.ts`, `providers.test.ts`, the appeal-template tests and `service.test.ts` were committed before their implementations (commit order in the PR) (M).
@@ -76,6 +82,7 @@ Labels: measured (M), inferred (I), guessed (G).
 - Seeded sampling: 13 mutants. 11 were killed on the first run; "no head rows" and "skip rows that do not fit" survived, the tests were strengthened, and both are now killed (M).
 - Seat selection: 7 of 7 killed. Registry: 5 of 5 killed (M).
 - Adjudicator service: 18 mutants. 16 were killed on the first run; "primary seed not bound to the commitment" and "registry hash not checked" survived and gained tests, and both are now killed (M).
+- After the SimChain adapter (`bc8394f`), the adjudicator sweep is 34 of 34 killed, the five adapter mutants among them (M). The judgment package did not change in the T-006 merge, so its sweep was not re-run (M).
 - After the review fixes, both full sweeps were run at `ff27fca` with no filter: adjudicator 29 of 29 killed, judgment (T-008 defenses plus T-009) 107 of 107 killed, none not applied (M). New adjudicator mutants cover the review items: appeal `minFamilies` and `minValid`, the `firstOutcome === 'accept'` condition, the store-mismatch retry, the released-key recipient check, the appeal-template hash check, the role in the decision nonce, the judged-record cache, the appeal registration preflight, the publication-failure catch, the buyer key preflight and the unopenable-key refusal (M).
 - Two stopped sweeps had left mutants in WIP checkpoints (fixed in `0936df7` and `ae7d21f`). After the sweeps, every mutant's original text is present in the tree (M, checked by script). The scripts now journal the original file to `reports/mutant-inflight.json` and restore it on the next start (M: written; I: restore path not exercised by a real kill).
 
@@ -108,19 +115,14 @@ Labels: measured (M), inferred (I), guessed (G).
 
 **For Rafa.** Defense code (sampling changes what judges see). Under the 2026-10-31 autonomy rule this is pre-approved inside the repo; flagging it for overrule. Points to check: decisions 1, 2, 7, 8 and 13, recorded in `docs/decisions-today.md` under "T-009 judgment choices"; decisions 9 and 14 changed after review.
 
-**T-006 seam.**
-- `apps/adjudicator/src/settlement-port.ts` (`AdjudicatorSettlement`, `DecisionTask`, `OfferTask`) is the contract the service codes against.
-- `apps/adjudicator/src/randomness.ts` holds `panelSeed`, `roundFor`, `simBeacon` and the `RandomnessSource` interface.
-- `apps/adjudicator/src/_sim.ts` is a test-only stand-in on core's `step`. It enforces the beacon seed and key-on-takeover rules that T-006 adds.
-- T-006's `Settlement` (origin/t-006-simchain `5c83f7b`) has `submit`, `trigger`, `state`, `events` and `keysFor`, but no task listing or beacon read. Once T-006 lands, an adapter is needed:
-  - `tasks` and `offers` from `events()` plus `state()`;
-  - `releasedKey` from `keysFor(id, me)`;
-  - `roundFixedAt` from the escalation or appeal event time, or use core's `beaconRoundFor` directly;
-  - `randomness.value` from `SimChain.beacon(round)`;
-  - `submit` mapped to `{kind: 'adjudicator_accept' | 'decide'}`;
-  - `triggerFallback` mapped to `trigger(id, 'fallback')`.
-- Then replace the local `panelSeed` with core's (same encoding, pinned by `randomness.test.ts`).
-- The ciphertext store and record publication are not in T-006's interface; T-007 or T-014 should own them.
+**T-006 seam (closed after T-006 merged).**
+- `apps/adjudicator/src/settlement-port.ts` (`AdjudicatorSettlement`) is the contract the service codes against. `apps/adjudicator/src/simchain-adapter.ts` (`SettlementAdapter`) implements it on T-006's `Settlement` plus four SimChain reads the interface lacks (`now`, `beacon`, `escrowState`, `pool`; the `SettlementReads` type names them). A Phase 2 chain needs the same four reads.
+  - Offers and tasks come from the event log (`commitment.offered` gives the signed terms) and `escrowState`. Envelopes come only from `keysFor(id, me)` (ADR-0020). The primary gets its released envelope in the delivery, and the fallback and appeal adjudicators get the last released one as `releasedKey`.
+  - Submissions are `adjudicator_accept` and `decide`, with idempotency key `type:commitmentId:nonce`; `triggerFallback` is `trigger(id, 'fallback')`.
+  - A party appeal on a settled case rebuilds the delivery from the `delivery.submitted` event and `deliverable.format`, because `Released` and `Refunded` states drop the delivery and the event omits the MIME type. Untested end to end: SimChain could add `plaintextMime` to that event.
+- `panelSeed` is core's (re-exported from `randomness.ts`). `roundFor` stays: the service sees times, not states, and a test pins it to core's `beaconRoundFor`. `simBeacon` is pinned to `SimChain.beacon`.
+- `apps/adjudicator/src/_sim.ts` stays as a unit-test harness on core's `step`. It skips agreement and funding, injects submission and store failures, and opens appeals directly. Core now checks the seeds from the beacon fact the harness supplies.
+- The ciphertext store, record publication and the adjudicator registry are not in T-006's interface; the adapter takes them as options. T-007 or T-014 should own them.
 
 **For T-010 (fixtures):** `error.unpinned-model-refused`, `error.policy-hash-mismatch` and `error.seed-mismatch` (fallback and appeal) can now be driven through the service. The demo-CSV accept path is ready for `happy-path`.
 
@@ -136,6 +138,6 @@ Labels: measured (M), inferred (I), guessed (G).
 
 **Not done or not verified:**
 - No `red-teamer` pass on sampling.
-- The service has not run against the real SimChain.
+- On the real SimChain, only the primary-accept and fallback-takeover paths run end to end. Escalation, appeal and reject run only on the `_sim.ts` harness.
 - The live providers have never made a call.
 - Commits were not verified one by one; only the head was.
