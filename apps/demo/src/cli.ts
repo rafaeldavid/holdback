@@ -3,7 +3,7 @@
 // index.html. Recorded mode only: --live refuses until two model-family keys exist. Reads no environment.
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { standInSource } from './source/stand-in.js';
+import { demoSource } from './source/demo.js';
 import { header, narrate } from './transcript/narrate.js';
 import { renderHtml } from './transcript/render-html.js';
 import { renderJson } from './transcript/render-json.js';
@@ -78,7 +78,7 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
     io.error(LIVE_REFUSAL);
     return 2;
   }
-  const source = io.source ?? standInSource();
+  const source = io.source ?? demoSource();
   const available = source.beats();
   if (args.beat !== undefined && !available.includes(args.beat)) {
     io.error(`no runner for beat ${args.beat}; available: ${available.join(', ')}`);

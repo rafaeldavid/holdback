@@ -2,5 +2,5 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": { "rootDir": "src", "outDir": "dist", "types": ["node"] },
   "include": ["src"],
-  "references": [{ "path": "./agents" }]
+  "references": [{ "path": "../../packages/core" }, { "path": "./agents" }]
 }
