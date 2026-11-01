@@ -65,3 +65,13 @@ The operator's Idempotency-Key replays the stored answer; the settlement layer's
 - **Neutrality: passes.** The fee conditions only one node's relay, never settlement. The settlement layer accepts the same agree without a fee from anyone; `neutrality.operator-fee-direct-submission-free` shows a fee-charging node answering 402 and the deal still reaching `Held` and `Released` by direct submission. No operator can stop or alter a deal by its fee.
 - **The hold: passes.** The fee is a separate transfer from the buyer's own balance, never through the escrow account; the hold's amount, conservation and every payout are unchanged (`fee.kept-on-refund`). The transfer is atomic with the funding, nonce-protected and idempotent.
 - **Defended judgment: unaffected.** No judge, check, panel or appeal path changes.
+
+## Amendment: EVM mechanism (Proposed, 2026-11-01, T-202)
+
+On the EVM settlement layer, step 3 of the mechanism ("executed by the settlement layer") changes: the rules contract has no fee code.
+
+- **The transfer** is the price token's own ERC-3009 `transferWithAuthorization(from = buyer, to = fees.operator.to, value, validAfter, validBefore = fundBy, nonce = keccak256(abi.encode(commitmentId, "operator_fee")), signature)`, signed by the buyer under the token's domain. The nonce binds the fee to one commitment and makes it payable once.
+- **Atomicity** comes from bundling, not from the contract: the relaying operator sends one transaction that calls the token's `transferWithAuthorization` and then `HoldbackRules.agreeAndFund`, through any stateless batcher (Multicall3 `aggregate3` with `allowFailure = false`, or the operator's own account batching). Both apply or neither does, and the value never passes through CPP's hold or the rules contract.
+- **Why not in the contract:** the contract would have to know operators and verify a second token signature on every funding; bundling keeps the fee entirely at the API level (ADR-0023's direction) and costs nothing for deals without a fee. The contract stays under the EIP-170 size limit with no room to spare (T-202, measured).
+- **Residual (inferred, not tested in T-202):** anyone who sees the bundle in the mempool can submit the `transferWithAuthorization` alone first. The buyer then pays the fee it signed, the bundle reverts, and the operator relays `agreeAndFund` alone; the attacker gains nothing. T-205 tests the bundle on anvil.
+- **The Holdback `TransferAuthorization` message** stays the API-level record the operator checks; on EVM its `signature` is the ERC-3009 one (ADR-0025's pattern for funding). The schema change goes with ADR-0025's follow-up.

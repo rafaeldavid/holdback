@@ -546,3 +546,19 @@ Wording owed elsewhere if accepted: the scope hard rule in `CLAUDE.md` and the n
 - **Mandatory rules still hold:** pinned exact model versions (pin OpenRouter's model slug and its upstream provider routing; no aliases), at least two families, judges with no tools, the injection screen, the verdict schema, and no re-roll after a verdict.
 - **Concentration risk:** one gateway in front of every model fails or misroutes for all of them at once, and sees plaintext unless zero-retention routing is used. So a panel needs two providers or one self-hosted seat (the ADR-0024 research rule), and OpenRouter is an option or second provider, not the only path.
 - **When:** with the policy and registry work after T-207. Backlog row under Judgment defenses.
+
+## D37. Rules contract design (T-202)
+
+**Decided 2026-11-01 in T-202 under "autonomy inside the repo"; Rafa may overrule.** The four design questions of `docs/tasks/T-202-escrow-rules-contract.md`, answered from the built contract and its measured tests. Details, measurements and the SimChain differences for T-205 are in the task file.
+
+1. **Two transactions on the happy path.** `agreeAndFund` verifies the seller's terms signature, the primary's acceptance and the buyer's Agree, and funds CPP in one call; `decide` may carry the seller-signed delivery, so a happy path is two transactions (395,831 gas, measured). A seller can still post `deliver` itself (61,302 gas) to stop a reclaim after `deliverBy`.
+2. **Operator fee by bundling, not in the contract.** The buyer's ERC-3009 `transferWithAuthorization` to the operator is bundled with `agreeAndFund` in one transaction by a stateless batcher; the contract has no fee code (ADR-0023 amendment, Proposed).
+3. **Envelopes: tlock and the off-chain union, nothing stored.** The contract stores no envelope or delivery hash (one word per deal, ADR-0024 §8). The buyer's envelope is proven against the seller-signed delivery and emitted only when it is released; fallback and appeal envelopes rely on the time-lock and the union of envelopes (ADR-0020, ADR-0024 §5).
+4. **Bonds in Phase 2: custody primitives only.** Deposit, encumber per commitment (primary at funding; fallback and appeal at takeover, all or nothing), release, withdraw when free, appeal bond in and out. Coverage ratios, backers, overturn payouts and default compensation are Phase 4.
+
+Also: the funding signature on EVM is CPP's collector signature and token identifiers are lowercase addresses (ADR-0025, Proposed; schema change after PR 67); default and apply-default are one call (T-204 finding 2); beacon BLS verification (EIP-2537) is split out to a follow-up (backlog), the round and seed derivation are checked now.
+
+| Option (question 2) | Effect |
+| --- | --- |
+| Contract executes `transferWithAuthorization` | Atomic, but fee code and operator knowledge in neutral custody code; no size headroom (EIP-170) |
+| Stateless bundling (chosen) | Atomic per transaction, zero contract code; a mempool observer can split the fee off, gaining nothing |
