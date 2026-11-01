@@ -83,10 +83,12 @@ curl -s $API/v1/prepare/offer -H 'content-type: application/json' -d @offer.requ
 jq .check offer.json
 HOLDBACK_KEY=$SELLER_KEY node examples/sign.ts offer.json offer.request.json > offer.body.json
 submit offer.json offer.body.json | jq .escrowState      # "Offered"
-ID=$(jq -r .id offer.body.json)
+ID=$(jq -r .id offer.body.json)                          # the commitment ID
 ```
 
-`offer.body.json` is the signed offer. The seller sends it to the buyer, agent to agent; the buyer checks it before agreeing.
+`offer.body.json` is the signed offer. Its `id` is the commitment ID: the EIP-712 struct hash of the terms, which prepare computed and `sign.ts` recomputed (`commitmentIdOf` in `examples/verify.ts`; `POST /v1/commitments` refuses a body without it). The seller sends the body to the buyer, agent to agent; the buyer checks it before agreeing.
+
+To preview any prepared message before signing, POST its `submit.body` as returned, `"signature": null` included, with `?validateOnly=true`: the settlement layer checks everything but the signature and changes nothing.
 
 The primary adjudicator accepts the offer within a moment:
 
@@ -94,17 +96,24 @@ The primary adjudicator accepts the offer within a moment:
 curl -s $API/v1/commitments/$ID | jq .escrowState        # "AcceptedByAdjudicator"
 ```
 
-**Buyer agrees and funds** price plus fee in one call. Its intent: the terms it was sent, the most it will hold, and two nonces of its own.
+**Buyer checks the offer** against the operator's copy of the signed terms. `GET /v1/commitments/$ID` is the state only; its `Link` header points to `/terms`, the commitment as the seller signed it. Any difference means the offer you were sent is not the one on the settlement layer:
 
 ```sh
-jq --arg a "$(nonce)" --arg f "$(nonce)" '{terms: ., maxTotal: "30000000", agreeNonce: $a, fundingNonce: $f}' offer.body.json > agree.intent.json
+diff <(curl -s $API/v1/commitments/$ID/terms | jq -S .) <(jq -S . offer.body.json) && echo same   # read it from the second operator too
+jq '{price, buyerEncryptionPublicKey, checks: .acceptance.deterministicChecks}' offer.body.json      # what you are agreeing to
+```
+
+**Buyer agrees and funds** price plus fee in one call. Its intent: the terms it was sent, the price it negotiated (checked exactly, so a price raised within budget is refused), the most it will hold, and two nonces of its own.
+
+```sh
+jq --arg a "$(nonce)" --arg f "$(nonce)" '{terms: ., expectedPrice: {token: "tUSD", amount: "25000000"}, maxTotal: "30000000", agreeNonce: $a, fundingNonce: $f}' offer.body.json > agree.intent.json
 jq --arg id "$ID" '{commitmentId: $id, agreeNonce, fundingNonce}' agree.intent.json > agree.request.json
 curl -s $API/v1/prepare/agree-and-fund -H 'content-type: application/json' -d @agree.request.json > agree.json
 HOLDBACK_KEY=$BUYER_KEY HOLDBACK_ENCRYPTION_KEY=$BUYER_ENC node examples/sign.ts agree.json agree.intent.json > agree.body.json
 submit agree.json agree.body.json | jq '{escrowState, hold}'   # "Held", 26000000
 ```
 
-`sign.ts` refuses if the terms name another buyer or seal the work to a key the buyer does not hold, if price plus fee exceeds `maxTotal`, if the nonces are not the buyer's own, or if the prepared agreement and funding name a commitment other than the EIP-712 hash of the terms in `agree.intent.json`.
+`sign.ts` refuses if the terms name another buyer or seal the work to a key the buyer does not hold, if the price is not `expectedPrice` (or the terms' ID is not `expectedCommitmentId`, when you give one), if price plus fee exceeds `maxTotal`, if the nonces are not the buyer's own, or if the prepared agreement and funding name a commitment other than the EIP-712 hash of the terms in `agree.intent.json`.
 
 **Seller delivers.** The work is encrypted before it leaves the seller: AES-256-GCM under a fresh key, the key sealed to each adjudicator and to the buyer. `examples/seal.ts` takes the buyer's key from the terms the seller signed and each adjudicator's key from its registration as both operators serve it, cross-checks the operator's `/recipients`, uploads the ciphertext, verifies the prepared delivery, signs and submits it (format and test vectors: docs/api.md, "Encrypting a delivery"):
 
@@ -116,7 +125,7 @@ HOLDBACK_KEY=$SELLER_KEY node examples/seal.ts offer.body.json customers.csv   #
 
 ## 4. Read the result
 
-The adjudicator decrypts, runs the checks and decides. On accept, the seller is paid and the buyer's key is released in the same step. `Released` means paid; final means the appeal window has also closed (`finalAt`, at `deadlines.appealBy`; `POST /advance` in the sim moves past it).
+The adjudicator decrypts, runs the checks and decides. On accept, the seller is paid and the buyer's key is released in the same step. `Released` means paid, **not final**: either party may still appeal until `deadlines.appealBy`, and the commitment is final at `finalAt` (`null` until then; `POST /advance` in the sim moves past it). The sim's adjudicators decide moments after delivery, so a poller may never see `Delivered`: it can read `Held`, then `Released`. Read the events instead of waiting for a state.
 
 ```sh
 curl -s $API/v1/commitments/$ID | jq '{escrowState, finalAt, deadlines}'   # "Released"
@@ -131,9 +140,21 @@ Two `key.released` events appear: `payload.recipient` says whose key each is. Th
 
 Try a bad delivery (two rows instead of three): the checks fail, the buyer is refunded 25 tUSD, gets no key, and the 1 tUSD fee stays with the adjudicator.
 
-Other steps follow the same pattern: `early-accept`, `appeal` and `settlement` (a co-signed split; both parties sign the same typed data). `examples/sign.ts` lists the intent each takes.
+Other steps follow the same pattern: `early-accept`, `appeal` (prepare it with `"appellant": "<your address>"`) and `settlement` (a co-signed split; both parties sign the same typed data). `examples/sign.ts` lists the intent each takes. Prepare answers 409 `invalid_state` when the commitment's state cannot take the step (an early accept after a decision, an appeal of a final decision).
 
-Before an early accept, open your envelope: an early accept releases the envelope the seller supplied with the payment, and nothing else checks that it opens with your key. Ask the seller for its signed delivery body and put it in the intent as `"delivery"`; `sign.ts` checks it against the `delivery.submitted` event, opens your envelope with `HOLDBACK_ENCRYPTION_KEY`, decrypts the ciphertext and checks the plaintext hash, and refuses to sign otherwise. No appeal follows an early accept, so this check is your protection (D32; docs/api.md, "Before an early accept, open your envelope"). Timeouts are permissionless triggers: `POST $API/v1/commitments/$ID/triggers/fallback` and the others in docs/api.md.
+Before an early accept, open your envelope: an early accept releases the envelope the seller supplied with the payment, and nothing else checks that it opens with your key. Ask the seller for its signed delivery body and put it in the intent as `"delivery"`; `sign.ts` checks it against the `delivery.submitted` event, opens your envelope with `HOLDBACK_ENCRYPTION_KEY`, decrypts the ciphertext and checks the plaintext hash, and refuses to sign otherwise. No appeal follows an early accept, so this check is your protection (D32; docs/api.md, "Before an early accept, open your envelope").
+
+Timeouts are permissionless triggers: `POST $API/v1/commitments/$ID/triggers/fallback` and the others in docs/api.md. An offer nobody agreed keeps the primary adjudicator's bond reserved until someone calls `triggers/expire-offer` after `offerExpiresAt`; the seller or the adjudicator should.
+
+**Before you appeal, or write your next checks,** read docs/api.md, "Escalation, screen flags and appeals" and "Writing checks that resist a seller doing the minimum". In short: on a checks-only deal, work that passes your checks is accepted (a screen flag does not change that), and an appeal re-runs the same checks, so it costs the bond and the 25 tUSD fee and fails unless a check was misreported. A deal the primary escalates is decided by the appeal adjudicator, and that decision is final at once, with no appeal window.
+
+## Using the examples from your own code
+
+Run them from any directory by absolute path, for example `node ~/holdback/examples/sign.ts prepared.json intent.json`: Node resolves each file's own imports (`viem`, `tweetnacl`) from `examples/node_modules`, beside the file. A script of yours can likewise `import { verifyPrepared, commitmentIdOf } from '/abs/path/to/holdback/examples/verify.ts'` from anywhere. Only bare imports in your own file (`import { keccak256 } from 'viem'`) resolve from your directory, so give it the examples' dependencies with one line, run in your directory:
+
+```sh
+ln -s /abs/path/to/holdback/examples/node_modules node_modules
+```
 
 ## Signing in your language
 

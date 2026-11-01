@@ -86,7 +86,11 @@ const ENCODE: Record<string, (m: J) => J> = {
 /** What the agent itself intends, per kind. `terms` are the commitment terms the agent signed or agreed to. */
 export type Intent =
   | { kind: 'offer'; request: J; registration: { policy: J; policyHash: Hex; registry: { hash: Hex }; fee: { min: J } }; rulebookHash: Hex }
-  | { kind: 'agree-and-fund'; terms: J; me: string; encryptionPublicKey: string; maxTotal: bigint; agreeNonce: Hex; fundingNonce: Hex }
+  /**
+   * expectedPrice: the price you negotiated, checked exactly (maxTotal alone lets a price raised within budget pass).
+   * expectedCommitmentId: optionally, the ID of the exact terms you expect (commitmentIdOf of your own copy).
+   */
+  | { kind: 'agree-and-fund'; terms: J; me: string; encryptionPublicKey: string; maxTotal: bigint; agreeNonce: Hex; fundingNonce: Hex; expectedPrice?: { token: string; amount: string }; expectedCommitmentId?: Hex }
   | { kind: 'delivery'; terms: J; ciphertext: { uri: string; sha256: string; bytes: number }; plaintextSha256: string; encryptedKeys: J[] }
   /** Run openOwnEnvelope on the seller's signed delivery first: an early accept pays for the envelope the seller filed. */
   | { kind: 'early-accept'; terms: J; nonce: Hex }
@@ -118,6 +122,11 @@ function expected(intent: Intent, op: J, now: number): Plan {
   if (intent.kind === 'agree-and-fund') {
     if (t.buyer.toLowerCase() !== intent.me.toLowerCase()) refuse('the terms name another buyer');
     if (t.buyerEncryptionPublicKey !== intent.encryptionPublicKey) refuse('the terms seal the work to a key you do not hold');
+    const want = intent.expectedPrice;
+    // Money is a decimal string of base units (no floats, no leading zeros): compared as strings, never parsed loosely.
+    if (want && (typeof want.token !== 'string' || typeof want.amount !== 'string' || !/^(0|[1-9][0-9]*)$/.test(want.amount))) refuse('expectedPrice must be {"token", "amount"} with amount in base units as a decimal string, e.g. "25000000"');
+    if (want && (t.price.token !== want.token || t.price.amount !== want.amount)) refuse(`price ${t.price.amount} ${t.price.token} is not the ${want.amount} ${want.token} you agreed`);
+    if (intent.expectedCommitmentId && id.toLowerCase() !== intent.expectedCommitmentId.toLowerCase()) refuse(`the terms you were sent are not the ones you expected (commitment ${id}, expected ${intent.expectedCommitmentId})`);
     const total = BigInt(t.price.amount) + BigInt(t.adjudication.fee.amount);
     if (total > intent.maxTotal) refuse(`price plus fee ${total} exceeds your limit ${intent.maxTotal}`);
     if (String(intent.agreeNonce).toLowerCase() === String(intent.fundingNonce).toLowerCase()) refuse('agreeNonce and fundingNonce must differ');

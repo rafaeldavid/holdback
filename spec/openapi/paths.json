@@ -129,8 +129,8 @@
         "operationId": "prepareEarlyAccept",
         "tags": ["prepare"],
         "summary": "Prepare an early accept (buyer)",
-        "description": "Returns the `EarlyAccept` typed data for the buyer to sign (slot `signature`) and the body for `submitEarlyAccept`. Accepting early releases the price to the seller now, with the buyer's content key, and returns the fee to the buyer, since no adjudicator judged.\n\n**Verify before you sign.** Check the domain against your pinned configuration, the primary type `EarlyAccept`, that you are the buyer, that `commitmentId` is the struct hash of your terms, that the nonce is the one you sent and that `expiresAt` is what you intend (docs/api.md, \"Verify before you sign\").",
-        "x-holdback-errors": [400, 404, 413, 429],
+        "description": "Returns the `EarlyAccept` typed data for the buyer to sign (slot `signature`) and the body for `submitEarlyAccept`. Accepting early releases the price to the seller now, with the buyer's content key, and returns the fee to the buyer, since no adjudicator judged. 409 `invalid_state` unless the commitment is `Delivered`.\n\n**Verify before you sign.** Check the domain against your pinned configuration, the primary type `EarlyAccept`, that you are the buyer, that `commitmentId` is the struct hash of your terms, that the nonce is the one you sent and that `expiresAt` is what you intend (docs/api.md, \"Verify before you sign\").",
+        "x-holdback-errors": [400, 404, 409, 413, 429],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PrepareEarlyAcceptInput" } } } },
         "responses": {
           "200": { "description": "Typed data to sign and the body to submit", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Prepared" } } } }
@@ -142,8 +142,8 @@
         "operationId": "prepareAppeal",
         "tags": ["prepare"],
         "summary": "Prepare an appeal (buyer or seller)",
-        "description": "Returns the `Appeal` typed data for the appellant to sign (slot `signature`) and the body for `submitAppeal`. The operator computes the bond the club rulebook requires (`appealBondRateBps` of the price, rounded up) and names it and the appeal fee in `check`. The appellant loses the bond if the decision is upheld.\n\n**Verify before you sign.** Check the domain against your pinned configuration, the primary type `Appeal`, that you are the appellant, and that the bond is exactly `appealBondRateBps` of the price, rounded up, from the club rulebook as at least two operators serve it: the settlement layer accepts any larger bond, so an operator that proposed more would make you overpay (docs/api.md, \"Verify before you sign\").",
-        "x-holdback-errors": [400, 404, 413, 429],
+        "description": "Returns the `Appeal` typed data for the appellant to sign (slot `signature`) and the body for `submitAppeal`. The operator computes the bond the club rulebook requires (`appealBondRateBps` of the price, rounded up) and names it and the appeal fee in `check`. The appellant loses the bond if the decision is upheld. 409 `invalid_state` unless the commitment is `Released` or `Refunded` by a first-instance decision whose appeal window is open and unused (an escalated decision is final at once).\n\n**Verify before you sign.** Check the domain against your pinned configuration, the primary type `Appeal`, that you are the appellant, and that the bond is exactly `appealBondRateBps` of the price, rounded up, from the club rulebook as at least two operators serve it: the settlement layer accepts any larger bond, so an operator that proposed more would make you overpay (docs/api.md, \"Verify before you sign\").",
+        "x-holdback-errors": [400, 404, 409, 413, 429],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PrepareAppealInput" } } } },
         "responses": {
           "200": { "description": "Typed data to sign and the body to submit", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Prepared" } } } }
@@ -155,8 +155,8 @@
         "operationId": "prepareSettlement",
         "tags": ["prepare"],
         "summary": "Prepare a mutual settlement (buyer and seller)",
-        "description": "Returns one `MutualSettlement` typed data that both parties sign (slots `buyerSignature` and `sellerSignature`) and the body for `submitSettlement`. Give `toSellerBps` (the seller's share of the price, the buyer gets the rest) or explicit `payouts`. The fee returns to the buyer; the club rulebook must allow settlement and may restrict payouts to the parties.\n\n**Verify before you sign.** Check the domain against your pinned configuration, the primary type `MutualSettlement`, every payout's `to` and `amount` and that they sum to the price, whether the content key is released, the delivery it names (or `null` before delivery), and that the nonce is the one you sent (docs/api.md, \"Verify before you sign\").",
-        "x-holdback-errors": [400, 404, 413, 429],
+        "description": "Returns one `MutualSettlement` typed data that both parties sign (slots `buyerSignature` and `sellerSignature`) and the body for `submitSettlement`. Give `toSellerBps` (the seller's share of the price, the buyer gets the rest) or explicit `payouts`. The fee returns to the buyer; the club rulebook must allow settlement and may restrict payouts to the parties. 409 `invalid_state` unless the commitment is `Held`, `Delivered`, `FallbackJudging` or `Escalated`.\n\n**Verify before you sign.** Check the domain against your pinned configuration, the primary type `MutualSettlement`, every payout's `to` and `amount` and that they sum to the price, whether the content key is released, the delivery it names (or `null` before delivery), and that the nonce is the one you sent (docs/api.md, \"Verify before you sign\").",
+        "x-holdback-errors": [400, 404, 409, 413, 429],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PrepareSettlementInput" } } } },
         "responses": {
           "200": { "description": "Typed data to sign and the body to submit", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Prepared" } } } }
@@ -298,7 +298,7 @@
         "operationId": "submitOffer",
         "tags": ["commitments"],
         "summary": "Submit a signed offer",
-        "description": "Submits commitment terms with the seller's signature (the `submit.body` of `prepareOffer`, signed). The commitment becomes `Offered`; the primary adjudicator then accepts it (`AcceptedByAdjudicator`).",
+        "description": "Submits commitment terms with the seller's signature (the `submit.body` of `prepareOffer`, signed). The commitment becomes `Offered`; the primary adjudicator then accepts it (`AcceptedByAdjudicator`). `id` is required: the EIP-712 struct hash of the terms (primary type `CommitmentTerms`, without `id` and `signatures`), which `prepareOffer` returns as `commitmentId`; without it the answer is 400 `invalid_terms` saying so.",
         "x-holdback-errors": [400, 401, 403, 404, 409, 413, 422, 429],
         "parameters": [{ "$ref": "#/components/parameters/IdempotencyKey" }, { "$ref": "#/components/parameters/ValidateOnly" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Commitment" } } } },
@@ -322,11 +322,28 @@
         "operationId": "getCommitment",
         "tags": ["commitments"],
         "summary": "Read a commitment's state",
-        "description": "Escrow state, appeal state, attempt, hold, deadlines and balances. A `Settled` commitment carries `settled { payouts, keyReleased }`.",
+        "description": "Escrow state, appeal state, attempt, hold, deadlines and balances. A `Settled` commitment carries `settled { payouts, keyReleased }`. `Released` means paid, not final: it is final at `finalAt`, once the appeal window closes. The terms are not repeated here; the `Link` header (`rel=\"terms\"`) points to `getCommitmentTerms`.",
         "x-holdback-errors": [404, 429],
         "parameters": [{ "$ref": "#/components/parameters/CommitmentId" }],
         "responses": {
-          "200": { "description": "Commitment state", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CommitmentState" } } } }
+          "200": {
+            "description": "Commitment state",
+            "headers": { "Link": { "required": true, "description": "`</v1/commitments/{commitmentId}/terms>; rel=\"terms\"` (RFC 8288): where the signed terms are", "schema": { "type": "string" } } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CommitmentState" } } }
+          }
+        }
+      }
+    },
+    "/v1/commitments/{commitmentId}/terms": {
+      "get": {
+        "operationId": "getCommitmentTerms",
+        "tags": ["commitments"],
+        "summary": "Read the signed terms",
+        "description": "The commitment as the seller signed and offered it: the terms, `id` and `signatures.seller` (`commitment.schema.json`), from the `commitment.offered` event. Compare it with the offer you were sent before you agree: the price, `buyerEncryptionPublicKey`, the adjudicators, the checks. It is this operator's copy: recompute `id` as the struct hash of the terms, recover the seller's signature yourself, and read it from at least two operators.",
+        "x-holdback-errors": [404, 429],
+        "parameters": [{ "$ref": "#/components/parameters/CommitmentId" }],
+        "responses": {
+          "200": { "description": "The signed commitment", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Commitment" } } } }
         }
       }
     },
@@ -546,7 +563,7 @@
       "CommitmentId": { "name": "commitmentId", "in": "path", "required": true, "description": "The commitment ID: the EIP-712 struct hash of its terms", "schema": { "$ref": "#/components/schemas/Hex32" } },
       "Address": { "name": "address", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/Address" } },
       "IdempotencyKey": { "name": "Idempotency-Key", "in": "header", "required": true, "description": "Any unique string per intended call (a UUID). The same key and body replays the stored response; the same key with another body is 409 idempotency_conflict. A dry run (`validateOnly=true`) ignores the key: it records nothing and needs none.", "schema": { "type": "string", "minLength": 1, "maxLength": 255 } },
-      "ValidateOnly": { "name": "validateOnly", "in": "query", "required": false, "description": "`true` runs the settlement layer's checks and changes nothing: no idempotency record, no nonce use, no reservation, no event, no submission. Party messages are sent unsigned (leave the signature fields out) and the response says the signature check was skipped (`Holdback-Signature-Check: skipped`); adjudicator messages and triggers are previewed only when signed. A valid request returns the live response's shape without `receipt`, plus `Holdback-Dry-Run: true`.", "schema": { "enum": ["true", "false"] } },
+      "ValidateOnly": { "name": "validateOnly", "in": "query", "required": false, "description": "`true` runs the settlement layer's checks and changes nothing: no idempotency record, no nonce use, no reservation, no event, no submission. Party messages are sent unsigned: leave the signature fields out or send them as `null`, as prepare returns them, so a prepared `submit.body` previews as is; and the response says the signature check was skipped (`Holdback-Signature-Check: skipped`); adjudicator messages and triggers are previewed only when signed. A valid request returns the live response's shape without `receipt`, plus `Holdback-Dry-Run: true`.", "schema": { "enum": ["true", "false"] } },
       "Cursor": { "name": "cursor", "in": "query", "required": false, "description": "`nextCursor` from the previous page", "schema": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,512}$" } },
       "Limit": { "name": "limit", "in": "query", "required": false, "description": "Items per page, 1 to 200 (default 50)", "schema": { "type": "string", "pattern": "^[0-9]{1,3}$" } }
     },

@@ -112,6 +112,9 @@ describe('examples', () => {
     expect(ok.code, ok.out).toBe(0);
     const res = await fetch(`${api}/v1/commitments`, { method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': 'sign-ts-1' }, body: ok.out });
     expect(((await res.json()) as { escrowState: string }).escrowState).toBe('Offered');
+    // The quickstart's buyer diffs the mailed body against the operator's /terms (T-025): they are the same JSON.
+    const signed = JSON.parse(ok.out) as { id: string };
+    expect(await (await fetch(`${api}/v1/commitments/${signed.id}/terms`)).json()).toEqual(signed);
   }, 30_000);
 
   it('sign.ts signs an early accept only with the seller-handed delivery, after opening the envelope (T-024, D32)', async () => {
