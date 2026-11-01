@@ -279,14 +279,12 @@ const TRY = `<section class="try" aria-label="Try ’crow">
 <div class="cta"><button class="btn primary" id="copy" type="button">Try ’crow</button><button class="btn" id="join-open" type="button">Request early access</button></div>
 <p class="copied" id="copied" role="status" hidden>Prompt copied: <span id="prompt">“${esc(PROMPT)}”</span></p>
 </section>`;
-const JOIN = `<dialog id="join" aria-labelledby="join-h">
+const JOIN = `<dialog id="join" aria-label="Request early access">
+<button class="x" id="join-close" type="button" aria-label="Close">×</button>
 <form id="join-form" novalidate>
-<h3 id="join-h">Request early access</h3>
-<p>Leave your email and we’ll write when ’crow opens to more agents. Nothing else.</p>
-<label for="join-email">Email</label>
-<input id="join-email" name="email" type="email" autocomplete="email" required placeholder="you@example.com">
+<input id="join-email" name="email" type="email" autocomplete="email" required placeholder="you@example.com" aria-label="Email">
 <input class="hp" name="company" tabindex="-1" autocomplete="off" aria-hidden="true">
-<div class="row"><button class="btn" id="join-close" type="button">Close</button><button class="btn primary" id="join-send" type="submit">Request access</button></div>
+<button class="btn primary" id="join-send" type="submit">Request access</button>
 <p class="msg" id="join-msg" role="status"></p>
 </form>
 </dialog>
@@ -386,16 +384,17 @@ text.note { text-anchor: middle; font-style: italic; font-variant: normal; lette
 .cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
 dialog { box-sizing: border-box; border: 1px solid #d8d2c4; border-radius: 12px; padding: 28px; width: min(420px, calc(100% - 32px)); background: var(--paper); color: var(--graphite); font-family: var(--serif); text-align: left; box-shadow: 0 20px 60px rgba(47, 45, 42, .18); }
 dialog::backdrop { background: rgba(47, 45, 42, .28); }
-dialog h3 { font-weight: 500; font-size: 26px; margin: 0 0 6px; }
-dialog p { margin: 0 0 18px; color: var(--pencil); font-size: 17px; line-height: 1.45; }
-dialog label { display: block; font-size: 15px; font-variant: small-caps; letter-spacing: 0.08em; color: var(--pencil); margin-bottom: 6px; }
-dialog input[type=email] { width: 100%; box-sizing: border-box; font: 18px var(--serif); color: var(--graphite); background: #fffdf8; border: 1px solid #cfc8b8; border-radius: 8px; padding: 10px 12px; margin-bottom: 16px; }
-dialog .row { display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; }
-dialog .msg { margin: 14px 0 0; min-height: 1.4em; font-style: italic; }
+dialog { padding-top: 44px; }
+dialog form { display: flex; gap: 10px; flex-wrap: wrap; }
+dialog input[type=email] { flex: 1 1 200px; min-width: 0; box-sizing: border-box; font: 18px var(--serif); color: var(--graphite); background: #fffdf8; border: 1px solid #cfc8b8; border-radius: 999px; padding: 9px 16px; }
+dialog .x { position: absolute; top: 8px; right: 10px; width: 36px; height: 36px; border: 0; background: transparent; font: 26px/1 var(--serif); color: var(--pencil); cursor: pointer; border-radius: 50%; }
+dialog .x:hover { background: #efe9dc; } dialog .x:focus-visible { outline: 2px solid var(--sepia); outline-offset: 2px; }
+dialog .msg { flex-basis: 100%; margin: 4px 0 0; color: var(--pencil); font-size: 16px; font-style: italic; }
+dialog .msg:empty { display: none; }
 .hp { position: absolute; left: -10000px; width: 1px; height: 1px; opacity: 0; }
 /* on phones the request slides up as a drawer from the bottom */
 @media (max-width: 640px) {
-  dialog { margin: auto 0 0; width: 100%; max-width: none; border-radius: 16px 16px 0 0; border-bottom: 0; padding: 24px max(20px, env(safe-area-inset-left, 0px)) calc(24px + env(safe-area-inset-bottom, 0px)); }
+  dialog { margin: auto 0 0; width: 100%; max-width: none; border-radius: 16px 16px 0 0; border-bottom: 0; padding: 52px max(20px, env(safe-area-inset-left, 0px)) calc(24px + env(safe-area-inset-bottom, 0px)); }
   dialog[open] { animation: drawer .26s ease-out; }
   @keyframes drawer { from { transform: translateY(100%); } }
 }
