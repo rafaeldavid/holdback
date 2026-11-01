@@ -173,6 +173,11 @@ describe('neutrality.operator-lies-in-prepare', { timeout: 30_000 }, () => {
     expect(() => verify(prepared, { ...intent, fundingNonce: nonces.agreeNonce }, buyer.address)).toThrow(/must differ/);
     expect(() => verify(prepared, { ...intent, maxTotal: 25_000_000n }, buyer.address)).toThrow(/exceeds your limit/);
     expect(() => verify(prepared, { ...intent, encryptionPublicKey: seller.encryptionPublicKey }, buyer.address)).toThrow(/key you do not hold/);
+    // T-025: the price agreed by mail, and optionally the whole terms' hash, bind even within maxTotal.
+    expect(verify(prepared, { ...intent, expectedPrice: { token: 'tUSD', amount: '25000000' }, expectedCommitmentId: offer.id }, buyer.address).toSign).toHaveLength(2);
+    expect(() => verify(prepared, { ...intent, expectedPrice: { token: 'tUSD', amount: '24000000' } }, buyer.address)).toThrow(/price 25000000 tUSD is not the 24000000 tUSD you agreed/);
+    expect(() => verify(prepared, { ...intent, expectedPrice: { token: 'USDC', amount: '25000000' } }, buyer.address)).toThrow(/not the 25000000 USDC you agreed/);
+    expect(() => verify(prepared, { ...intent, expectedCommitmentId: `0x${'cd'.repeat(32)}` }, buyer.address)).toThrow(/terms you were sent are not the ones you expected/);
     // The honest message, signed from the agent's own typed data, is accepted by the settlement layer.
     expect((await buyer.signAndSubmit(prepared, intent)).escrowState).toBe('Held');
   });

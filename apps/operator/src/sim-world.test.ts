@@ -227,6 +227,67 @@ describe('operator API: prepare, sign, submit', () => {
   });
 });
 
+// T-025: friction the sim batch 1 agents hit (docs/reviews/2026-11-01-sim-batch-1.md, F5).
+describe('operator API: sim batch 1 friction', () => {
+  it('a dry run takes the prepared body as returned, "signature": null included', async () => {
+    const offer = (await call<Prepared>('POST', '/v1/prepare/offer', offerInput('buyer-1', 'seller-1'))).body;
+    expect((offer.submit.body['signatures'] as Record<string, unknown>)['seller']).toBeNull();
+    const dry = await fetch(`${api}${offer.submit.path}?validateOnly=true`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(offer.submit.body) });
+    expect(dry.status).toBe(200);
+    expect(dry.headers.get('holdback-signature-check')).toBe('skipped');
+    await submit(await sign(offer, 'seller-1'));
+    await waitFor(offer.commitmentId, ['AcceptedByAdjudicator']);
+    const af = (await call<Prepared>('POST', '/v1/prepare/agree-and-fund', { commitmentId: offer.commitmentId })).body;
+    const dryAgree = await fetch(`${api}${af.submit.path}?validateOnly=true`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(af.submit.body) });
+    expect(dryAgree.status).toBe(200);
+    expect(((await dryAgree.json()) as { escrowState: string }).escrowState).toBe('Held');
+  });
+
+  it('refuses an offer without id with a problem that says how to compute it', async () => {
+    const offer = await sign((await call<Prepared>('POST', '/v1/prepare/offer', offerInput('buyer-1', 'seller-1'))).body, 'seller-1');
+    const body = { ...offer.submit.body };
+    delete body['id'];
+    for (const path of ['/v1/commitments', '/v1/commitments?validateOnly=true']) {
+      const r = await call('POST', path, body);
+      expect(r.status, path).toBe(400);
+      expect(r.body.type).toBe('invalid_terms');
+      expect(r.body.detail).toMatch(/id is required/);
+      expect(r.body.detail).toMatch(/EIP-712 struct hash/);
+      expect(r.body.detail).toMatch(/\/v1\/prepare\/offer/);
+    }
+  });
+
+  it('serves the signed terms at /terms, linked from the commitment read', async () => {
+    const offer = await sign((await call<Prepared>('POST', '/v1/prepare/offer', offerInput('buyer-2', 'seller-2', '7000000'))).body, 'seller-2');
+    await submit(offer);
+    const res = await fetch(`${api}/v1/commitments/${offer.commitmentId}`);
+    expect(res.headers.get('link')).toBe(`</v1/commitments/${offer.commitmentId}/terms>; rel="terms"`);
+    const terms = (await call('GET', `/v1/commitments/${offer.commitmentId}/terms`)).body;
+    expect(terms).toEqual(offer.submit.body); // the seller-signed offer, byte for byte as JSON
+    expect(terms.price).toEqual({ token: 'tUSD', amount: '7000000' });
+    expect(terms.buyerEncryptionPublicKey).toBe(acct('buyer-2').encryptionPublicKey);
+    expect((await call('GET', `/v1/commitments/0x${'ab'.repeat(32)}/terms`)).status).toBe(404);
+  });
+
+  it('refuses to prepare early-accept, appeal and settlement in a state that cannot take them', async () => {
+    const id = await heldDeal('buyer-1', 'seller-1', '2000000');
+    const early = await call('POST', '/v1/prepare/early-accept', { commitmentId: id });
+    expect([early.status, early.body.type]).toEqual([409, 'invalid_state']);
+    expect(early.body.detail).toMatch(/is Held; early-accept needs Delivered/);
+    const appeal = await call('POST', '/v1/prepare/appeal', { commitmentId: id, appellant: acct('buyer-1').address });
+    expect([appeal.status, appeal.body.type]).toEqual([409, 'invalid_state']);
+    expect(appeal.body.detail).toMatch(/is Held; an appeal needs a first-instance decision/);
+    expect((await call('POST', '/v1/prepare/settlement', { commitmentId: id, toSellerBps: 5000 })).status).toBe(200); // Held can settle
+    await deliver(id, 'seller-1', CSV);
+    await waitFor(id, ['Released']);
+    const late = await call('POST', '/v1/prepare/settlement', { commitmentId: id, toSellerBps: 5000 });
+    expect([late.status, late.body.type]).toEqual([409, 'invalid_state']);
+    expect(late.body.detail).toMatch(/is Released; a settlement needs Held, Delivered, FallbackJudging or Escalated/);
+    expect((await call('POST', '/v1/prepare/early-accept', { commitmentId: id })).status).toBe(409);
+    expect((await call('POST', '/v1/prepare/appeal', { commitmentId: id, appellant: acct('buyer-1').address })).status).toBe(200); // window open
+  });
+});
+
 const plusSeconds = (s: number) => new Date(Date.parse(world.chain.now()) + s * 1000).toISOString().replace('.000Z', 'Z');
 
 describe('sim world test controls', () => {
