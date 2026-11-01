@@ -11,6 +11,8 @@ import {
   eip712Types,
   messageDigest,
   mulBps,
+  operatorFeeDue,
+  operatorFeeRule,
   problem,
   splitBps,
   termsDigest,
@@ -27,6 +29,7 @@ import {
   type Hex32,
   type HoldbackDomain,
   type MimeType,
+  type OperatorFeeSchedule,
   type Payout,
   type Problem,
   type Sha256,
@@ -77,6 +80,13 @@ export interface PrepareContext {
   attempt(id: Hex32): Promise<number>;
   /** The commitment's read model, or null when the settlement layer does not know it. */
   state(id: Hex32): Promise<CommitmentStateView | null>;
+  /** ADR-0023: this node's published fee schedule, if it charges one. */
+  operatorFee?: OperatorFeeSchedule;
+}
+
+/** "0.2 tUSD to 0x…: 1 bp of the price rounded up, at least 0.01 tUSD", the fee as check text and 402 details say it. */
+export function operatorFeeText(fee: TokenAmount, s: OperatorFeeSchedule): string {
+  return `${amountText(fee)} to ${s.to} (${operatorFeeRule(s, (a) => amountText({ token: s.token, amount: a } as TokenAmount))})`;
 }
 
 export class PrepareError extends Error {
@@ -175,7 +185,7 @@ function representable(build: () => CommitmentTerms): CommitmentTerms {
   if (!r.ok) bad(`these terms are not a valid commitment: ${r.error.detail}`);
   return terms;
 }
-const amountText = (a: TokenAmount) => (a.token === 'tUSD' ? formatTusd(a.amount) : `${a.amount} base units of ${a.token}`);
+export const amountText = (a: TokenAmount) => (a.token === 'tUSD' ? formatTusd(a.amount) : `${a.amount} base units of ${a.token}`);
 
 function timestamp(v: unknown, name: string): Timestamp | undefined {
   if (v === undefined) return undefined;
@@ -287,22 +297,53 @@ async function agreeAndFund(ctx: PrepareContext, input: Record<string, unknown>)
   const fundingNonce = nonceIn(input['fundingNonce'], 'fundingNonce') ?? nonceOf(fundingBody);
   const agree = { ...agreeBody, nonce: agreeNonce };
   const funding = { ...fundingBody, nonce: fundingNonce };
+  // ADR-0023: this node's fee, a third signature, only when it asks for more than zero.
+  const schedule = ctx.operatorFee;
+  const due = schedule ? operatorFeeDue(c.price, schedule) : undefined;
+  const feeBody =
+    schedule && due && due.amount !== '0'
+      ? ({
+          type: 'TransferAuthorization',
+          scheme: 'erc3009',
+          purpose: 'operator_fee',
+          commitmentId: c.id,
+          from: c.buyer,
+          to: schedule.to,
+          value: due.amount,
+          token: due.token,
+          validAfter: c.createdAt,
+          validBefore: c.timing.fundBy,
+          expiresAt: c.timing.fundBy,
+        } as const)
+      : undefined;
+  const operatorFeeNonce = feeBody ? (nonceIn(input['operatorFeeNonce'], 'operatorFeeNonce') ?? nonceOf(feeBody)) : undefined;
+  const fee = feeBody ? { ...feeBody, nonce: operatorFeeNonce! } : undefined;
   return {
     kind: 'agree-and-fund',
     commitmentId: c.id,
     sign: [
       { slot: 'signature', signer: c.buyer, ...forMessage(ctx.domain, agree) },
       { slot: 'fund.signature', signer: c.buyer, ...forMessage(ctx.domain, funding) },
+      ...(fee ? [{ slot: 'operatorFee.signature', signer: c.buyer, ...forMessage(ctx.domain, fee) }] : []),
     ],
-    submit: { method: 'POST', path: `/v1/commitments/${c.id}/agree`, body: { ...agree, signature: null, fund: { ...funding, signature: null } } },
+    submit: {
+      method: 'POST',
+      path: `/v1/commitments/${c.id}/agree`,
+      body: { ...agree, signature: null, fund: { ...funding, signature: null }, ...(fee ? { operatorFee: { ...fee, signature: null } } : {}) },
+    },
     check: [
       `you are the buyer ${c.buyer}; the seller is ${c.seller}`,
       `you authorize ${amountText({ token: c.price.token, amount: total } as TokenAmount)}: price ${amountText(c.price)} plus fee ${amountText(c.adjudication.fee)}; the fee is kept on a refund`,
+      ...(fee && due
+        ? [
+            `you also pay this operator's operator fee of ${operatorFeeText(due, schedule!)}, the schedule in its /v1/status fees.operator; it is a separate transfer, never part of the hold, and not refunded, even on a refund. Another operator, or direct submission to the settlement layer, relays this agreement without it`,
+          ]
+        : []),
       `the terms name buyerEncryptionPublicKey ${c.buyerEncryptionPublicKey}: the seller seals the work's key to it, so confirm you hold the secret key for it (this operator cannot know your key)`,
       `adjudicators: primary ${c.adjudication.adjudicator}, fallback ${c.adjudication.fallbackAdjudicator}, appeal ${c.adjudication.appealAdjudicator}`,
       'the primary adjudicator must have accepted the offer first (escrowState AcceptedByAdjudicator)',
     ],
-    defaults: { agreeNonce, fundingNonce },
+    defaults: { agreeNonce, fundingNonce, ...(operatorFeeNonce ? { operatorFeeNonce } : {}) },
   };
 }
 

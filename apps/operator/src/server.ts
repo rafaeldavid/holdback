@@ -9,6 +9,7 @@ import type { AddressInfo } from 'node:net';
 import {
   canonicalKeccak,
   holdbackDomain,
+  operatorFeeDue,
   parseAppeal,
   parseCommitment,
   parseDelivery,
@@ -18,6 +19,7 @@ import {
   type Address,
   type CommitmentStateView,
   type Hex32,
+  type OperatorFeeSchedule,
   type OperatorStatus,
   type Page,
   type Problem,
@@ -30,18 +32,18 @@ import { commitmentIdOf, operationOf, previewSubmission, submissionKeys, submiss
 import type { PolicyContext, RelayPolicy } from './policy.js';
 import type { DryRunSubmission, Settlement, SubmitResult } from '@holdback/settlement';
 import { privateKeyToAccount } from 'viem/accounts';
-import type { CommitmentTerms, Sha256, Signature, Timestamp } from '@holdback/core';
+import type { CommitmentTerms, Sha256, Signature, Timestamp, TokenAmount } from '@holdback/core';
 import { sha256 } from '@holdback/core/crypto';
 import { MAX_CIPHERTEXT_BYTES, type CiphertextStore } from '@holdback/core/store';
 import { ENVELOPE_SPEC } from './envelope-spec.js';
 import { startupGuards } from './guards.js';
-import { prepare, PrepareError, type PrepareContext } from './prepare.js';
+import { amountText, operatorFeeText, prepare, PrepareError, type PrepareContext } from './prepare.js';
 import { IdempotencyStore, fingerprint, type StoredResponse } from './idempotency.js';
 import { llmsTxt, openApiDocument } from './openapi/index.js';
 import type { Registry } from './registry.js';
 
 export const API_VERSION = 'v1';
-export const SCHEMA_VERSION = '0.6';
+export const SCHEMA_VERSION = '0.7';
 const MAX_BODY_BYTES = 1_048_576;
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
@@ -94,6 +96,13 @@ export interface OperatorOptions {
    * Absent by default, so `pnpm sim` serves neither.
    */
   notes?: readonly string[];
+  /**
+   * ADR-0023: this node's operator fee, published in /v1/status and discovery as `fees.operator`. When the fee it
+   * gives for a commitment's price is above zero, prepare/agree-and-fund adds the third slot and a funded agree
+   * without it is answered 402 payment_required. Nothing on the settlement layer requires it: other operators and
+   * direct submission relay the same agreement free. Absent: this node charges nothing.
+   */
+  fee?: OperatorFeeSchedule;
   /** Test only: relay, then drop the connection without answering (a response lost in transit). */
   dropResponses?: boolean;
   now?: () => number;
@@ -105,6 +114,7 @@ const STATUS: Partial<Record<ProblemType, number>> = {
   mime_not_allowed: 400,
   invalid_signature: 401,
   unauthorized: 401,
+  payment_required: 402,
   scope_exceeded: 403,
   mandate_expired: 403,
   member_not_admitted: 403,
@@ -175,7 +185,9 @@ function placeholderSigned(op: Operation): Operation {
     case 'hold':
       return { ...op, commitment: { ...op.commitment, signatures: withSig(op.commitment.signatures ?? {}, 'seller') }, agree: withSig(op.agree, 'signature'), funding: withSig(op.funding, 'signature') };
     case 'agree':
-      return op.fund ? { ...op, message: withSig(op.message, 'signature'), fund: withSig(op.fund, 'signature') } : { ...op, message: withSig(op.message, 'signature') };
+      return op.fund
+        ? { ...op, message: withSig(op.message, 'signature'), fund: withSig(op.fund, 'signature'), ...(op.operatorFee ? { operatorFee: withSig(op.operatorFee, 'signature') } : {}) }
+        : { ...op, message: withSig(op.message, 'signature') };
     case 'fund':
     case 'early_accept':
       return { ...op, message: withSig(op.message, 'signature') } as Operation;
@@ -213,6 +225,7 @@ function checkShape(op: Operation): void {
     case 'agree':
       message(op.message, 'Agree');
       if (op.fund) message(op.fund, 'FundingAuthorization');
+      if (op.operatorFee) message(op.operatorFee, 'TransferAuthorization');
       return;
     case 'hold':
       parsed(parseCommitment(op.commitment));
@@ -497,7 +510,30 @@ export class Operator {
     const refusal = this.o.policy?.(deepFreeze(structuredClone(op)), await this.policyContext(op));
     if (refusal) fail(refusal.type, refusal.detail);
     if (dryRun) return this.send(ctx, await this.dryRun(op));
+    await this.chargeFee(op);
     return this.idempotent(ctx, raw, () => this.relay(ctx, op));
+  }
+
+  /**
+   * ADR-0023: a funded agree relayed by this node carries this node's fee, or the answer is 402 naming it. Only this
+   * node asks: the settlement layer, other operators and direct submission take the same agreement without it.
+   * A dry run is free, and so is every other call.
+   */
+  private async chargeFee(op: Operation): Promise<void> {
+    const schedule = this.o.fee;
+    if (!schedule || op.kind !== 'agree' || !op.fund) return;
+    const terms = await this.prepareContext().commitment(op.message.commitmentId);
+    if (!terms) return; // the settlement layer answers for a commitment this node has not indexed
+    const due = operatorFeeDue(terms.price, schedule);
+    if (due.amount === '0') return;
+    const paid = op.operatorFee;
+    if (paid && lc(paid.to) === lc(schedule.to) && paid.token === due.token && BigInt(paid.value) >= BigInt(due.amount)) return;
+    const what = !paid ? 'carries no operatorFee' : lc(paid.to) !== lc(schedule.to) ? `pays its operatorFee to ${paid.to}, not to this operator` : `pays an operatorFee of ${amountText({ token: paid.token, amount: paid.value } as TokenAmount)}`;
+    fail(
+      'payment_required',
+      `this operator relays a funded agreement for its operator fee of ${operatorFeeText(due, schedule)}, not refunded; this agree ${what}. ` +
+        'Prepare it again with POST /v1/prepare/agree-and-fund and sign the operatorFee slot, or send the same signed agreement to another operator or directly to the settlement layer, where no fee of this operator applies',
+    );
   }
 
   /** The parties of the commitment an operation touches: from the operation, else from this node's index. */
@@ -605,6 +641,7 @@ export class Operator {
       delivery: async (id) => (await eventsOf(id)).filter((e) => e.type === 'delivery.submitted').at(-1)?.payload as { deliveryHash: Hex32; attempt: number } | undefined,
       attempt: async (id) => (await this.o.settlement.state(id))?.attempt ?? 1,
       state: (id) => this.o.settlement.state(id),
+      ...(this.o.fee ? { operatorFee: this.o.fee } : {}),
     };
   }
 
@@ -760,6 +797,7 @@ export class Operator {
       schemaVersion: SCHEMA_VERSION,
       head: { eventSeq: Math.max(this.head, 0), lagSec: 0 },
       settlementModes: ['guaranteed_on_decision'],
+      ...(this.o.fee ? { fees: { operator: { ...this.o.fee } } } : {}),
     };
   }
 
