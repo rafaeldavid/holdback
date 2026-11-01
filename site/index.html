@@ -15,7 +15,17 @@
 /* A naturalist's notebook, to sit with Thorburn's 1919 study: laid paper, graphite, a book face of the period, sepia for the one accent. */
 :root { color-scheme: light; --paper: #faf7f0; --graphite: #2f2d2a; --pencil: #57534c; --faint: #8f897e; --sepia: #8a6237; --serif: "EB Garamond", Garamond, "Times New Roman", serif; }
 body { margin: 0; background: var(--paper); color: var(--graphite); font-family: var(--serif); text-align: center; }
-main { margin: 0 auto; padding: 9vh max(24px, env(safe-area-inset-left, 0px)) 72px; max-width: 720px; }
+main { position: relative; z-index: 1; margin: 0 auto; padding: 9vh max(24px, env(safe-area-inset-left, 0px)) 72px; max-width: 720px; }
+/* the agents' code: faint terminal text down each side (buyer left, seller right), misting out at the edges */
+.stream { position: fixed; z-index: 0; top: 0; bottom: 0; width: calc((100vw - 720px) / 2 + 40px); max-width: 460px; box-sizing: border-box;
+  display: flex; flex-direction: column; justify-content: flex-end; overflow: hidden; pointer-events: none; user-select: none;
+  font: 10.5px/1.7 ui-monospace, "SF Mono", Menlo, monospace; color: var(--faint); opacity: .6; text-align: left; white-space: pre; }
+#stream-b { left: 0; padding: 0 12px 14vh max(20px, env(safe-area-inset-left, 0px));
+  -webkit-mask-image: radial-gradient(ellipse 95% 70% at 35% 62%, #000 25%, transparent 78%); mask-image: radial-gradient(ellipse 95% 70% at 35% 62%, #000 25%, transparent 78%); }
+#stream-s { right: 0; padding: 0 max(20px, env(safe-area-inset-right, 0px)) 14vh 12px;
+  -webkit-mask-image: radial-gradient(ellipse 95% 70% at 65% 62%, #000 25%, transparent 78%); mask-image: radial-gradient(ellipse 95% 70% at 65% 62%, #000 25%, transparent 78%); }
+.stream div { overflow: hidden; }
+@media (max-width: 1100px) { .stream { width: 50%; opacity: .16; } }
 .mark { display: block; margin: 0 auto 12px; width: min(320px, 72vw); height: auto; }
 h1 { font-family: var(--serif); font-size: clamp(56px, 12vw, 96px); line-height: 1; letter-spacing: -0.01em; font-weight: 500; margin: 0 0 10px; }
 .sub { font-style: italic; font-size: clamp(20px, 4vw, 26px); color: var(--pencil); margin: 0 0 28px; }
@@ -38,6 +48,8 @@ text.note { text-anchor: middle; font-style: italic; font-variant: normal; lette
 </style>
 </head>
 <body>
+<div id="stream-b" class="stream" aria-hidden="true"></div>
+<div id="stream-s" class="stream" aria-hidden="true"></div>
 <main>
 <!-- Hooded crow: Archibald Thorburn, "A naturalist's sketch book" (1919), plate 18, public domain. -->
 <img class="mark" src="/escrow/crow.png" alt="A pencil study of a hooded crow by Archibald Thorburn, 1919" width="640" height="406">
@@ -85,6 +97,129 @@ text.note { text-anchor: middle; font-style: italic; font-variant: normal; lette
     { cap: 'Appeal', note: 'An appeal overturns the decision: the bond pays the wronged party.', on: 0, off: -1,
       m: [['$', 'b', 'e', 0], ['w', 's', 'e', 700], ['w', 'e', 'g0', 1500], ['$', 'e', 's', 2600], ['w', 'b', 'g0', 3300], ['$', 'k', 'b', 4300]] }
   ];
+  // The case study's code (examples/buy-dataset.ts: a buyer agent buys a cleaned customers.csv for 25 tUSD from a
+  // seller agent), typed faintly down the page: the buyer's code on the left, the seller's on the right, each
+  // with its call results as comments. Same delays as the plate. Each line is [delay ms, 'b' | 's', text].
+  var hex = function (n) { var s = ''; while (s.length < n) s += Math.floor(Math.random() * 16).toString(16); return s; };
+  var K = 2.2; // one pace for the tokens and both code streams: a plate lasts about 13.6 s
+  var CALLS = function (i, id) {
+    var open = [
+      [0, 'b', "const me = { address: buyer.address, encryptionPublicKey: buyer.encryptionPublicKey };"],
+      [80, 'b', "await mail(seller, me); // ask for an offer: customers.csv, at most 30 tUSD"],
+      [0, 's', "const offer = await seller.offer({"],
+      [60, 's', "  template: 'checks-only', price: { token: 'tUSD', amount: '25000000' },"],
+      [120, 's', "  deliverable: { kind: 'dataset', description: 'customers.csv', format: 'text/csv' },"],
+      [180, 's', "  checks: [cols, rows, uniq], buyer: me, adjudicators: { primary, fallback, appeal },"],
+      [240, 's', "}); // \u2192 offer " + id + ": Offered"],
+      [300, 's', "await mail(buyer, offer.terms);"],
+      [320, 'b', "await buyer.waitFor(offer.id, ['AcceptedByAdjudicator']);"],
+      [420, 'b', "const held = await buyer.agreeAndFund(offer.terms, 30_000_000n);"],
+      [520, 'b', "// verify domain, price, nonces \u00b7 sign Agree + FundingAuthorization"],
+      [600, 'b', "// \u2192 Held, 26000000 base units (price + fee)"],
+      [620, 's', "await seller.waitFor(offer.id, ['Held']); // \u2192 Held"],
+      [700, 's', "await seller.deliver(offer.terms, new TextEncoder().encode(csv));"],
+      [820, 's', "// AES-256-GCM \u00b7 key sealed to 3 adjudicators + buyer \u00b7 sign Delivery"],
+      [1100, 's', "// \u2192 Delivered"]
+    ];
+    var tail = [
+      [ // release
+        [1500, 'b', "const done = await buyer.waitFor(offer.id, ['Released', 'Refunded']);"],
+        [1500, 's', "await seller.waitFor(offer.id, ['Released', 'Refunded']);"],
+        [2100, 'b', "// adjudicator: cols \u2713 rows \u2713 uniq \u2713 \u2192 accept"],
+        [2900, 'b', "// \u2192 Released: the content key is mine"],
+        [2900, 's', "// \u2192 Released: 25000000 tUSD paid to me"],
+        [3300, 'b', "const work = await buyer.openDelivery(offer.id); // open envelope, check sha256"],
+        [3600, 'b', "// customer_id,email \u00b7 1,ada@example.com \u00b7 2,alan@\u2026"],
+        [4300, 'b', "await balance(buyer); // \u2192 9974000000"],
+        [4300, 's', "await balance(seller); // \u2192 10025000000"]
+      ],
+      [ // refund
+        [1500, 'b', "const done = await buyer.waitFor(offer.id, ['Released', 'Refunded']);"],
+        [1500, 's', "await seller.waitFor(offer.id, ['Released', 'Refunded']);"],
+        [2100, 'b', "// adjudicator: cols \u2713 rows \u2717 (2 of 3) uniq \u2713 \u2192 reject"],
+        [2900, 'b', "// \u2192 Refunded: 25000000 tUSD back to me (the 1 tUSD fee is spent)"],
+        [2900, 's', "// \u2192 Refunded: unpaid, and the buyer never got the key"],
+        [4300, 'b', "await balance(buyer); // \u2192 9999000000"]
+      ],
+      [ // default
+        [1500, 'b', "// judgeBy passes with no decision from the adjudicator"],
+        [1500, 's', "// judgeBy passes with no decision from the adjudicator"],
+        [2200, 'b', "await buyer.call('POST', '/v1/commitments/' + offer.id + '/triggers/default');"],
+        [2350, 'b', "// \u2192 Defaulted"],
+        [2600, 's', "await seller.call('POST', '/v1/commitments/' + offer.id + '/triggers/apply-default');"],
+        [2900, 'b', "// \u2192 refunded: 25000000 tUSD back to me"],
+        [2900, 's', "// \u2192 compensated from the adjudicator's bond"]
+      ],
+      [ // appeal
+        [1500, 'b', "const done = await buyer.waitFor(offer.id, ['Released', 'Refunded']);"],
+        [2100, 'b', "// adjudicator \u2192 accept: but the rows fail the terms"],
+        [2600, 's', "// \u2192 Released: 25000000 tUSD paid to me"],
+        [3300, 'b', "const p = await buyer.call('POST', '/v1/prepare/appeal', { commitmentId: offer.id, appellant: buyer.address });"],
+        [3450, 'b', "await buyer.signAndSubmit(p, { kind: 'appeal', terms: offer.terms }); // bond 5% + fee"],
+        [3600, 'b', "// \u2192 appealState: open"],
+        [3600, 's', "// appeal filed by the buyer \u00b7 appealState: open"],
+        [4200, 'b', "// appeal adjudicator \u2192 overturned"],
+        [4350, 'b', "// \u2192 the bond pays me 25000000 tUSD"],
+        [4350, 's', "// appeal overturned: the bond pays the buyer"]
+      ]
+    ][i];
+    // the agents asking the API about itself, spread over the four plates so every feature shows once
+    var c = "'/v1/commitments/' + offer.id + '";
+    var QA = [
+      [ // plate I
+        [4500, 'b', "// which adjudicators can we name, and what do they charge?"],
+        [4620, 'b', "await buyer.call('GET', '/v1/adjudicators'); // \u2192 3 \u00b7 fee.min 1 tUSD \u00b7 bonded"],
+        [4500, 's', "// does every operator serve the same record?"],
+        [4620, 's', "await seller.call('GET', " + c + "/events'); // \u2192 same hashes on op-1 and op-2"],
+        [5200, 'b', "// what did the seller actually sign?"],
+        [5320, 'b', "await buyer.call('GET', " + c + "/terms'); // \u2192 matches the mailed offer"],
+        [5200, 's', "// a fresh agent? the faucet funds it and admits it to the club"],
+        [5320, 's', "await fresh.call('POST', '/v1/faucet', { address }); // \u2192 1000 tUSD \u00b7 demo-club"]
+      ],
+      [ // plate II
+        [4500, 'b', "// what exactly did the checks find?"],
+        [4620, 'b', "await buyer.call('GET', " + c + "/judgment'); // \u2192 rows: 2, terms say 3"],
+        [4500, 's', "// can I preview a submit before signing it?"],
+        [4620, 's', "await seller.call('POST', " + c + "/deliveries?validateOnly=true', draft); // \u2192 200, nothing changed"],
+        [5200, 's', "// who must the content key be sealed to?"],
+        [5320, 's', "await seller.call('GET', " + c + "/recipients'); // \u2192 primary, fallback, appeal, buyer"]
+      ],
+      [ // plate III
+        [4500, 'b', "// what does the club's rulebook say a default pays?"],
+        [4620, 'b', "await buyer.call('GET', '/v1/clubs/demo-club'); // \u2192 refund buyer, compensate seller"],
+        [4500, 's', "// what can this API do?"],
+        [4620, 's', "await seller.call('GET', '/v1/openapi.json'); // \u2192 OpenAPI 3.1, every route"],
+        [5200, 's', "// which settlement layer is this, and what time is it there?"],
+        [5320, 's', "await seller.call('GET', '/.well-known/holdback.json'); // \u2192 domain, settlementTime"]
+      ],
+      [ // plate IV
+        [2700, 'b', "// what would an appeal cost?"],
+        [2820, 'b', "await buyer.call('GET', '/v1/clubs/demo-club'); // \u2192 appealBondRateBps 500 \u00b7 appealFee 25 tUSD"],
+        [4800, 's', "// where are my receipts?"],
+        [4920, 's', "await seller.call('GET', " + c + "/receipts'); // \u2192 signed by each operator"],
+        [5000, 'b', "// what do I hold now?"],
+        [5120, 'b', "await buyer.call('GET', '/v1/balances/' + buyer.address); // \u2192 the bond's 25 tUSD arrived"]
+      ]
+    ][i];
+    return open.concat(tail, QA);
+  };
+  var streams = { b: document.getElementById('stream-b'), s: document.getElementById('stream-s') }, streamTimers = [];
+  function say(side, text) {
+    var el = streams[side];
+    if (!el) return;
+    var line = document.createElement('div'); line.textContent = text; el.appendChild(line);
+    while (el.childNodes.length > 90) el.removeChild(el.firstChild);
+  }
+  function play(i) {
+    streamTimers.forEach(clearTimeout); streamTimers = [];
+    var id = '0x' + hex(6) + '\u2026' + hex(4);
+    var calls = CALLS(i, id);
+    if (reduce) { calls.forEach(function (l) { say(l[1], l[2]); }); return; }
+    var head = ' \u00b7 plate ' + ['i', 'ii', 'iii', 'iv'][i] + ', ' + S[i].cap.toLowerCase();
+    say('b', ''); say('b', '// buyer agent' + head);
+    say('s', ''); say('s', '// seller agent' + head);
+    calls.forEach(function (l) { streamTimers.push(setTimeout(function () { say(l[1], l[2]); }, l[0] * K)); });
+  }
   var NS = 'http://www.w3.org/2000/svg', T = document.getElementById('tokens');
   var reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
   function mk(kind) {
@@ -103,13 +238,14 @@ text.note { text-anchor: middle; font-style: italic; font-variant: normal; lette
       c.toggle('on', g === s.on); c.toggle('off', g === s.off);
     }
     T.textContent = '';
-    var items = s.m.map(function (m) { return { kind: m[0], a: P[m[1]], b: P[m[2]], t0: m[3], el: mk(m[0]) }; });
+    play(i);
+    var items = s.m.map(function (m) { return { kind: m[0], a: P[m[1]], b: P[m[2]], t0: m[3] * K, el: mk(m[0]) }; });
     if (reduce) { items.forEach(function (it) { it.el.setAttribute('transform', 'translate(' + it.b + ')'); }); return; }
     var start = performance.now();
     (function tick(now) {
       var live = false;
       items.forEach(function (it) {
-        var t = (now - start - it.t0) / 900;
+        var t = (now - start - it.t0) / (900 * K * 0.8);
         if (t < 0) { it.el.style.opacity = 0; live = true; return; }
         t = Math.min(1, t); var e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
         it.el.style.opacity = 1;
@@ -120,7 +256,7 @@ text.note { text-anchor: middle; font-style: italic; font-variant: normal; lette
     })(start);
   }
   var i = 0; show(0);
-  if (!reduce) setInterval(function () { i = (i + 1) % S.length; show(i); }, 6000);
+  if (!reduce) setInterval(function () { i = (i + 1) % S.length; show(i); }, 6200 * K);
 })();
 </script>
 </main>
