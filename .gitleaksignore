@@ -14,5 +14,10 @@ bf986e1cc27afbfddaee4d970192c0ad019c5edf:docs/research/sources/stripe-place-a-ho
 bf986e1cc27afbfddaee4d970192c0ad019c5edf:docs/research/sources/stripe-place-a-hold-2026-10.md:curl-auth-user:184
 # False positive: prose in the T-029 task file ("third slot `operatorFee.signature`, 200,000 base units").
 5b2490a31020ffdcdf0bc22fefbd9f900af8e1f1:docs/tasks/T-029-operator-fee.md:generic-api-key:36
+# False positives: illustrative values in ADR-0024 spec examples (a published disclosure key, a per-deal address,
+# and a public encryption key that decodes to "seller-deal-key-for-illustration").
+1ac95309c8edb90d23070d579231fcfdda1c3c13:spec/examples/disclosure.example.json:generic-api-key:13
+1ac95309c8edb90d23070d579231fcfdda1c3c13:spec/examples/messages.delegation.example.json:generic-api-key:5
+1ac95309c8edb90d23070d579231fcfdda1c3c13:spec/examples/messages.delegation.example.json:generic-api-key:6
 # False positive: a public example address (keyReleasedTo) in a spec example.
 bf986e1cc27afbfddaee4d970192c0ad019c5edf:spec/examples/event.example.json:generic-api-key:14
