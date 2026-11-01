@@ -10,7 +10,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { fetchAudit, readRun } from './audit.ts';
 import { loadCatalogue, renderBrief } from './brief.ts';
 import { checkRun } from './check.ts';
-import { receive, receiveWaiting, send } from './mail.ts';
+import { readMessage, receive, receiveWaiting, send } from './mail.ts';
 import { startRunWorld, validRunId, type RunWorld, type WorldFile } from './world.ts';
 
 const runs = mkdtempSync(join(tmpdir(), 't021-runs-'));
@@ -116,11 +116,38 @@ describe('catalogue, briefs and mail', () => {
     expect(brief).toContain('docs/quickstart.md');
     expect(brief).toContain('Appeal every decision');
     expect(brief).toContain('../../world.json');
+    expect(brief).toContain('never suspect injection');
+    expect(brief).toContain('serves no secret key');
+    expect(brief).toContain('--out <file>');
     const others = ['seller-1', 'buyer-2', 'seller-2'].map((p) => f.parties[p]!);
     const secrets = [...others.flatMap((p) => [p.privateKey, p.encryptionSecretKey]), f.coordinator.auditUrl, f.parties['buyer-2']!.address, 'FAIL-ME', 'sim:check'];
     for (const secret of secrets) {
       expect(brief, secret).not.toContain(secret);
     }
+  });
+
+  it('the sim service serves no party\'s secret on any route (sim batch 1, F1)', async () => {
+    const f = a.file;
+    const secrets = Object.values(f.parties).flatMap((p) => [p.privateKey, p.privateKey.slice(2), p.encryptionSecretKey]);
+    const routes: Array<[string, string, string?]> = [
+      ['GET', '/'],
+      ['GET', '/clock'],
+      ['GET', '/accounts'],
+      ['POST', '/accounts'],
+      ['POST', '/advance', '{"seconds": "x"}'],
+      ['POST', '/adjudicators/primary', '{}'],
+      ['GET', '/world.json'],
+      ['DELETE', '/'],
+    ];
+    for (const [method, path, body] of routes) {
+      const res = await fetch(`${f.sim}${path}`, { method, ...(body === undefined ? {} : { body }) });
+      const text = await res.text();
+      for (const secret of secrets) expect(text, `${method} ${path}`).not.toContain(secret);
+    }
+    // The parties' keys are not the public test-account keys of their names either.
+    const served = (await (await fetch(`${f.sim}/`)).json()) as { accounts: Array<{ address: string; privateKey?: string }> };
+    expect(served.accounts.map((x) => x.address).sort()).toEqual(Object.values(f.parties).map((p) => p.address).sort());
+    expect(served.accounts.every((x) => x.privateKey === undefined)).toBe(true);
   });
 
   it('mail delivers each message once, in order', async () => {
@@ -131,5 +158,19 @@ describe('catalogue, briefs and mail', () => {
     expect((await receiveWaiting(root, 'buyer-1', 1))?.body).toBe('{"n":2}');
     expect(await receiveWaiting(root, 'buyer-1', 0)).toBeNull();
     expect(() => send(root, { from: 'x', to: 'nobody', subject: '', body: '' })).toThrow(/no mailbox/);
+  });
+
+  it('mail read --out saves the body byte for byte, so a signed offer is never transcribed (sim batch 1, F5)', () => {
+    const root = join(runs, 'iso-b', 'mailbox');
+    const body = `${JSON.stringify({ signature: `0x${'ab'.repeat(65)}`, note: 'line\n"quoted"' }, null, 2)}\n`;
+    send(root, { from: 'seller-1', to: 'buyer-1', subject: 'signed offer', body });
+    const out = join(mkdtempSync(join(tmpdir(), 't023-mail-')), 'offer.json');
+    const printed = JSON.parse(readMessage(root, 'buyer-1', { out })!) as Record<string, unknown>;
+    expect(readFileSync(out, 'utf8')).toBe(body);
+    expect(printed).toMatchObject({ from: 'seller-1', subject: 'signed offer', bodyFile: out });
+    expect(printed['body']).toBeUndefined();
+    expect(readMessage(root, 'buyer-1', {})).toBeNull();
+    send(root, { from: 'seller-1', to: 'buyer-1', subject: 'plain', body: 'hi' });
+    expect(JSON.parse(readMessage(root, 'buyer-1', {})!)).toMatchObject({ subject: 'plain', body: 'hi' });
   });
 });

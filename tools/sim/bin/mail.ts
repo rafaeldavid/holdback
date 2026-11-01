@@ -1,9 +1,10 @@
 // The parties' mailbox (agent to agent, outside the protocol; unauthenticated).
 //   node tools/sim/bin/mail.ts send <run-id> <from> <to> <file> [--subject "<text>"]
-//   node tools/sim/bin/mail.ts read <run-id> <me> [--wait <seconds>]
+//   node tools/sim/bin/mail.ts read <run-id> <me> [--wait <seconds>] [--out <file>]
+// --out writes the message body to <file> exactly as sent, so a signed offer is never copied by hand.
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { receiveWaiting, send } from '../mail.ts';
+import { join, resolve } from 'node:path';
+import { formatMail, receiveWaiting, send } from '../mail.ts';
 import { RUNS_DIR, validRunId } from '../world.ts';
 
 const args = process.argv.slice(2);
@@ -13,7 +14,7 @@ const opt = (name: string) => {
 };
 const [cmd, runId = ''] = args;
 const usage = () => {
-  console.error('usage: mail.ts send <run-id> <from> <to> <file> [--subject "<text>"] | mail.ts read <run-id> <me> [--wait <seconds>]');
+  console.error('usage: mail.ts send <run-id> <from> <to> <file> [--subject "<text>"] | mail.ts read <run-id> <me> [--wait <seconds>] [--out <file>]');
   process.exit(2);
 };
 if (!validRunId(runId)) usage();
@@ -29,8 +30,10 @@ try {
     if (!me || !validRunId(me)) usage();
     const wait = Number(opt('wait') ?? '0');
     if (!Number.isInteger(wait) || wait < 0 || wait > 600) usage();
+    const out = opt('out');
+    if (args.includes('--out') && !out) usage();
     const m = await receiveWaiting(root, me!, wait);
-    if (m) console.log(JSON.stringify(m, null, 2));
+    if (m) console.log(formatMail(m, out === undefined ? undefined : resolve(out)));
     else console.log('no unread mail');
   } else usage();
 } catch (e) {

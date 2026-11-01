@@ -37,6 +37,23 @@ export function receive(mailRoot: string, me: string): Mail | null {
   return JSON.parse(readFileSync(join(box, 'read', next), 'utf8')) as Mail;
 }
 
+/**
+ * What `mail.ts read` prints for a message. With `out`, the body is written to that file exactly as sent (a
+ * signed offer stays byte for byte what the sender signed) and the printout names the file instead.
+ */
+export function formatMail(m: Mail, out?: string): string {
+  if (out === undefined) return JSON.stringify(m, null, 2);
+  writeFileSync(out, m.body);
+  const { body: _body, ...rest } = m; // eslint-disable-line @typescript-eslint/no-unused-vars
+  return JSON.stringify({ ...rest, bodyFile: out }, null, 2);
+}
+
+/** The oldest unread message as `mail.ts read` prints it (its body saved to `out` if given), or null. */
+export function readMessage(mailRoot: string, me: string, o: { out?: string }): string | null {
+  const m = receive(mailRoot, me);
+  return m ? formatMail(m, o.out) : null;
+}
+
 export async function receiveWaiting(mailRoot: string, me: string, waitSec: number): Promise<Mail | null> {
   const until = Date.now() + waitSec * 1000;
   for (;;) {

@@ -1,8 +1,10 @@
 // sim:world: one isolated world per run. Each run gets its own SimChain, operators, adjudicators and sim
-// service on free ports, its own party accounts (keys derived from the run id, so no two runs share a key or
-// a signature), and its own directory: runs/<run-id>/ with world.json, a mailbox per party and a reports
-// folder. Parallel runs never share state. The coordinator also gets an audit endpoint, which no party brief
-// mentions: sim:check reads the settlement layer's own record from it.
+// service on free ports, its own party accounts, and its own directory: runs/<run-id>/ with world.json, a
+// mailbox per party and a reports folder. Parallel runs never share state. Party keys derive from a random
+// per-world secret, so no two runs share a key and nobody can recompute another party's key from its name;
+// the sim service publishes no secret key (sim batch 1, F1). Each party gets its own keys from its brief
+// only. The coordinator also gets an audit endpoint, which no party brief mentions: sim:check reads the
+// settlement layer's own record from it.
 import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -20,7 +22,7 @@ export const validRunId = (id: string): boolean => NAME.test(id);
 
 export interface PartyAccount {
   address: string;
-  /** TEST KEY ONLY: derived from the public label sim-run/<run-id>/<party>. */
+  /** TEST KEY ONLY: derived from the label sim-run/<run-id>/<party> and a per-world secret; in this party's brief only. */
   privateKey: string;
   encryptionPublicKey: string;
   encryptionSecretKey: string;
@@ -35,7 +37,7 @@ export interface WorldFile {
   runId: string;
   pid: number;
   startedAt: string;
-  /** The sim service: GET / (where everything is), GET /clock, POST /advance. */
+  /** The sim service: GET / (where everything is; no secret keys), GET /clock, POST /advance. */
   sim: string;
   operators: string[];
   /** The EIP-712 domain a party pins in its own configuration. */
@@ -73,7 +75,7 @@ export async function startRunWorld(o: RunWorldOptions): Promise<RunWorld> {
   if (existsSync(join(dir, 'world.json'))) throw new Error(`run ${o.runId} already has a world (${join(dir, 'world.json')}); pick a new run id`);
 
   const labels = parties.map((p) => `sim-run/${o.runId}/${p}`);
-  const world = await startSimWorld({ accounts: labels, spareAccounts: 4, ...(o.env ? { env: o.env } : {}), ...(o.onError ? { onError: o.onError } : {}) });
+  const world = await startSimWorld({ accounts: labels, spareAccounts: 4, publishSecrets: false, ...(o.env ? { env: o.env } : {}), ...(o.onError ? { onError: o.onError } : {}) });
   try {
     return await withAudit(o.runId, dir, parties, labels, world);
   } catch (e) {
