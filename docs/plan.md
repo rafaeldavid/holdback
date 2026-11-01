@@ -48,6 +48,7 @@ Scope after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-inte
 - [x] T-025 API and docs friction from sim batch 1 (api; after T-015, T-020; PR 58)
 - [x] T-026 Public demo API on Cloudflare: two operator Workers, one Durable Object world, faucet, test tokens (api + infra; PR 61; live)
 - [x] T-027 The site at npc.here.now/escrow: tagline and agent docs, no repo needed (demo + docs; PR 60; live)
+- [ ] T-028 One live two-family adjudicator (Anthropic + DeepSeek), local and in the public demo, with spending caps (judgment + demo + infra)
 
 **Exit:**
 - Demo success criteria met (`docs/demo.md`).
