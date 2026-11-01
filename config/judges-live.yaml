@@ -1,0 +1,44 @@
+# Holdback's live judge registry (T-028; docs/decisions/registry-log.md, 2026-11-01).
+# Real, pinned model IDs from two families that the live adjudicators can actually call: Anthropic and DeepSeek
+# (through the OpenAI-compatible provider). config/judges.yaml stays the scripted registry with placeholder IDs:
+# a panel is a seeded shuffle of every active entry, so one registry cannot mix models a live adjudicator can
+# call with placeholders it cannot.
+#
+# Model IDs end in "@<date>" (the Vertex AI convention): the live provider sends the part before "@".
+# - Anthropic: claude-sonnet-5-5, claude-opus-5-5 and claude-sonnet-5 are Anthropic's snapshot IDs (no dated
+#   form exists); the date is the model's created_at from GET /v1/models. claude-haiku-5-5 was tried first and
+#   left out: in two live runs its evidence ran past the schema's 300 characters, so the filter abstained it.
+# - DeepSeek: deepseek-v4-pro and deepseek-flash are the names GET /models returned on 2026-11-01. DeepSeek does
+#   not publish dated snapshots, so these are provider aliases that may change underneath the same name; the
+#   date is the day they were checked, not a provider snapshot. Recorded limit (registry-log.md).
+#
+# Not calibrated: promoted for the test-scale public demo on Rafa's go-ahead (T-028), not by the promotion rule
+# in docs/judgment-and-defenses.md. Five active entries so the appeal panel (five judges) can be seated; the
+# appeal family minimum is capped at the two families here. Any change is a new registry hash.
+version: 1
+judges:
+  - id: claude-sonnet-5-5
+    provider: anthropic
+    family: claude
+    model: claude-sonnet-5-5@2026-09-28
+    status: active
+  - id: claude-opus-5-5
+    provider: anthropic
+    family: claude
+    model: claude-opus-5-5@2026-09-21
+    status: active
+  - id: claude-sonnet-5
+    provider: anthropic
+    family: claude
+    model: claude-sonnet-5@2026-06-29
+    status: active
+  - id: deepseek-v4-pro
+    provider: openai-compatible
+    family: deepseek
+    model: deepseek-v4-pro@2026-11-01
+    status: active
+  - id: deepseek-flash
+    provider: openai-compatible
+    family: deepseek
+    model: deepseek-flash@2026-11-01
+    status: active

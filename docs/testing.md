@@ -94,6 +94,10 @@ pnpm snap --settlement=local    # same fixtures against the EVM contract (Phase 
 pnpm snap --judges=live <name>  # same fixture with live judges; prints the diff, never updates snapshots
 ```
 
+### Live judges (T-028)
+
+Live providers (`apps/adjudicator/src/providers/live.ts`) never run in CI or `pnpm verify`: their tests stub `fetch` and check the request shape (provider model ID without the registry's `@date`, output cap, no sampling parameters for Claude, DeepSeek thinking off, no tools), and that a missing key is named, never printed. The live paths of `pnpm demo --live` and the public demo run in tests with `markerFake()` standing in for the models. Real calls happen only on demand: `pnpm demo --live` (keys from `.env`), and `pnpm demo-cloud:deal <op1> <op2> --rubric [--inject]` against the public demo once its Worker has the secrets. Live models are stochastic and cost money, so their runs are evidence in a task or review, not a gate.
+
 ### Recorded judges
 
 Recorded mode replays verdicts stored in `fixtures/recordings/<scenario>/<judgeId>.json`. They are captured from live runs with `pnpm snap --judges=live --record <name>`. Recordings include the model ID, the prompt template hash and the input hash; a template, rubric or input change invalidates them, and the runner fails loudly.

@@ -17,6 +17,7 @@ import { StoreError, type CiphertextStore } from '@holdback/core/store';
 import { testAdjudicator, type TestAdjudicator } from '@holdback/adjudicator';
 import { fetchHandler, fingerprint, IdempotencyStore, Operator, simRegistry, testAccount, type Registry, type StoredResponse, type TestAccount } from '@holdback/operator';
 import { mandateFor, SIM_CHAIN_ID, SIM_RULEBOOK, simClub, SimChain, TOKEN, wideScope, type Genesis, type JournalEntry } from '@holdback/settlement/sim';
+import { panelConfig, type JudgeProvider, type PanelConfig } from './judges.js';
 import type { WorldStorage } from './storage.js';
 
 export type Role = 'primary' | 'fallback' | 'appeal';
@@ -35,6 +36,14 @@ export interface PublicWorldOptions {
   faucetPerClient?: number;
   /** Per-client operator throttle. Default 120 writes and 1,200 reads a minute. */
   rateLimit?: { writes: number; reads: number; windowMs: number };
+  /**
+   * Live judge calls a day across the demo (T-028). Default LIVE_JUDGE_CALLS_PER_DAY from `env`, else 30.
+   * Live judging needs HOLDBACK_ANTHROPIC_API_KEY, HOLDBACK_OPENAI_COMPATIBLE_API_KEY and
+   * HOLDBACK_OPENAI_COMPATIBLE_BASE_URL in `env` (Worker secrets); without them the panel is scripted.
+   */
+  liveCallsPerDay?: number;
+  /** Stands in for the live models (tests): the world runs as if the keys were set. */
+  judgeProvider?: JudgeProvider;
   now?: () => number;
   onError?: (e: Error) => void;
 }
@@ -51,16 +60,19 @@ export interface Via {
 export const DEMO_CLUB_ID = 'demo-club';
 const TUSD = 1_000_000n;
 const ADJUDICATORS: ReadonlyArray<{ role: Role; label: string; name: string }> = [
-  { role: 'primary', label: 'demo-adjudicator-a', name: 'Demo Adjudicator A (test; real checks, scripted panel)' },
-  { role: 'fallback', label: 'demo-adjudicator-b', name: 'Demo Adjudicator B (test; real checks, scripted panel)' },
-  { role: 'appeal', label: 'demo-adjudicator-c', name: 'Demo Adjudicator C (test; real checks, scripted panel)' },
+  { role: 'primary', label: 'demo-adjudicator-a', name: 'Demo Adjudicator A' },
+  { role: 'fallback', label: 'demo-adjudicator-b', name: 'Demo Adjudicator B' },
+  { role: 'appeal', label: 'demo-adjudicator-c', name: 'Demo Adjudicator C' },
 ];
+const nameOf = (a: { name: string }, live: boolean) => `${a.name} (test; real checks, ${live ? 'live panel within a daily budget' : 'scripted panel'})`;
 const POOL_TERMS = { capitalChargeRateBps: 0, capitalChargeToPoolRateBps: 0, firstLossShareBps: 10000, noticePeriodSec: 691200 } as const;
 /** Largest ciphertext this demo stores (a Durable Object value is at most 2 MiB). */
 export const DEMO_MAX_CIPHERTEXT_BYTES = 1_048_576;
 /** Work stays scheduled this long after the last write or adjudicator action. */
 const ACTIVE_FOR_MS = 15 * 60_000;
 const SCRIPTED_PANEL = 'scripted judge panel: no model runs in this demo, every panel verdict is a fake judge marked "[fake judge, no model ran]"; use template checks-only for real acceptance';
+const livePanel = (perDay: number) =>
+  `live judge panel: pinned models from two families (Anthropic, DeepSeek; config/judges-live.yaml), at most ${perDay} live judge calls a day across this demo; past that, panels are scripted fake judges whose verdicts are marked "[fake judge, no model ran]"`;
 
 const wholeSecond = (ms: number): Timestamp => new Date(Math.floor(ms / 1000) * 1000).toISOString().replace('.000Z', 'Z');
 const lc = (s: string) => s.toLowerCase();
@@ -104,6 +116,7 @@ export class PublicWorld {
     private readonly keys: TestAccount[],
     readonly operators: readonly Operator[],
     readonly adjudicators: Record<Role, TestAdjudicator>,
+    private readonly panel: PanelConfig,
     persisted: number,
   ) {
     this.persisted = persisted;
@@ -150,6 +163,8 @@ export class PublicWorld {
 
     const store = new StorageCiphertextStore(storage);
     const records = new Map<Hex32, Judgment>(Array.from(await storage.list<Judgment>({ prefix: 'jr:' }), ([k, v]) => [k.slice(3) as Hex32, v]));
+    // Live or scripted judges, fixed for this instance: the registry it binds depends on which (T-028).
+    const panel = panelConfig({ env: o.env, storage, now: o.now ?? Date.now, ...(o.judgeProvider ? { judgeProvider: o.judgeProvider } : {}), ...(o.liveCallsPerDay !== undefined ? { liveCallsPerDay: o.liveCallsPerDay } : {}) });
     const registrations = new Map<string, Omit<AdjudicatorRegistration, 'pool'>>();
     const registration = (address: Address): AdjudicatorRegistration | null => {
       const r = registrations.get(lc(address));
@@ -182,7 +197,7 @@ export class PublicWorld {
           operatorId: `demo-op-${i + 1}`,
           env: o.env,
           rateLimit: o.rateLimit ?? { writes: 120, reads: 1200, windowMs: 60_000 },
-          notes: notesFor(club.id, m, o.faucetAmount ?? 1_000n * TUSD, o.faucetWindowSec ?? 3600),
+          notes: notesFor(club.id, m, o.faucetAmount ?? 1_000n * TUSD, o.faucetWindowSec ?? 3600, panel),
         }),
     );
 
@@ -190,7 +205,10 @@ export class PublicWorld {
     const adjudicators = {} as Record<Role, TestAdjudicator>;
     for (const a of adjKeys) {
       const adj = testAdjudicator({
-        name: a.name,
+        name: nameOf(a, panel.live),
+        registry: panel.registry,
+        registryUri: panel.registryUri,
+        provider: panel.provider,
         label: a.label,
         signingKey: a.keys.privateKey,
         encryptionSecretKey: a.keys.encryptionSecretKey,
@@ -214,11 +232,11 @@ export class PublicWorld {
       });
       registrations.set(adj.address, { ...adj.registration(), poolTermsHash: canonicalKeccak(POOL_TERMS), status: 'active' });
       const parsed = parseAdjudicator(registration(adj.address));
-      if (!parsed.ok) throw new Error(`${a.name}'s registration does not validate: ${parsed.error.detail}`);
+      if (!parsed.ok) throw new Error(`${nameOf(a, panel.live)}'s registration does not validate: ${parsed.error.detail}`);
       adjudicators[a.role] = adj;
     }
     const keys = [principal, key('demo-club-operator'), ...adjKeys.map((a) => a.keys), key('demo-operator-1'), key('demo-operator-2')];
-    return new PublicWorld(o, secret, chain, club, principal, keys, operators, adjudicators, journal.length);
+    return new PublicWorld(o, secret, chain, club, principal, keys, operators, adjudicators, panel, journal.length);
   }
 
   /** Every secret this world holds, for the test that no route serves one. In-process only. */
@@ -255,14 +273,24 @@ export class PublicWorld {
   /** One adjudicator pass (the Durable Object alarm): accept offers, trigger fallbacks, decide. */
   async work(): Promise<void> {
     this.tick();
-    for (const a of Object.values(this.adjudicators)) {
+    const { panel } = this;
+    for (const [role, a] of Object.entries(this.adjudicators) as [Role, TestAdjudicator][]) {
       try {
+        // Live only when today's budget still holds a whole panel of this adjudicator's size, so a panel is
+        // live or scripted as a whole (a pass deciding several cases can still cross the line).
+        if (panel.live) {
+          const policy = a.registration().policy;
+          panel.allowLive = (await panel.budget.remaining()) >= (role === 'appeal' ? policy.appealPanelSize : policy.panelSize);
+        }
         const r = await a.runOnce();
         if (r.accepted.length + r.decided.length + r.triggered.length > 0) this.lastActive = this.now();
       } catch (e) {
         this.o.onError?.(e as Error);
+      } finally {
+        panel.allowLive = false;
       }
     }
+    await panel.budget.flush();
     await this.persist();
   }
 
@@ -272,14 +300,14 @@ export class PublicWorld {
     op.baseUrl = via.origin.replace(/\/+$/, '');
     const url = new URL(request.url);
     let response: Response;
-    if (request.method === 'GET' && url.pathname === '/') response = json(200, this.index(via));
+    if (request.method === 'GET' && url.pathname === '/') response = json(200, await this.index(via));
     else if (url.pathname === '/v1/faucet' && request.method === 'POST') response = await this.faucet(request, via);
     else {
-      const notice = request.method === 'POST' ? await this.scriptedPanel(request.clone(), url.pathname) : false;
+      const notice = request.method === 'POST' ? await this.judgedByPanel(request.clone(), url.pathname) : false;
       response = await this.handlers[via.node]!(request, via.client);
       if (notice) {
         response = new Response(response.body, response);
-        response.headers.set('holdback-notice', SCRIPTED_PANEL);
+        response.headers.set('holdback-notice', this.panel.live ? livePanel(this.panel.budget.perDay) : SCRIPTED_PANEL);
       }
     }
     if (request.method === 'POST') this.lastActive = this.now();
@@ -287,8 +315,8 @@ export class PublicWorld {
     return response;
   }
 
-  /** A prepared or submitted offer that a judge panel would score: its response says the panel is scripted. */
-  private async scriptedPanel(request: Request, path: string): Promise<boolean> {
+  /** A prepared or submitted offer that a judge panel would score: its response says whether the panel is live. */
+  private async judgedByPanel(request: Request, path: string): Promise<boolean> {
     if (path !== '/v1/prepare/offer' && path !== '/v1/commitments') return false;
     try {
       const b = (await request.json()) as { template?: unknown; acceptance?: { rubric?: { criteria?: unknown[] } } };
@@ -299,8 +327,10 @@ export class PublicWorld {
   }
 
   /** GET /: where things are, for an agent that has only a URL. */
-  private index(via: Via): Record<string, unknown> {
+  private async index(via: Via): Promise<Record<string, unknown>> {
     const domain = holdbackDomain(SIM_CHAIN_ID);
+    const p = this.panel;
+    const today = await p.budget.used();
     return {
       kind: 'holdback-public-demo',
       notice: 'Public demo. TEST TOKENS ONLY (tUSD on SimChain, chain id 31337); no real money.',
@@ -316,8 +346,17 @@ export class PublicWorld {
       /** The club's shortest judge, fallback and appeal window, in seconds. */
       minWindowSec: this.o.minWindowSec ?? 60,
       token: { symbol: 'tUSD', decimals: 6 },
-      adjudicators: ADJUDICATORS.map((a) => ({ role: a.role, name: a.name, address: this.adjudicators[a.role].address, scriptedPanel: true })),
-      notes: notesFor(this.club.id, this.o.minWindowSec ?? 60, this.o.faucetAmount ?? 1_000n * TUSD, this.o.faucetWindowSec ?? 3600),
+      adjudicators: ADJUDICATORS.map((a) => ({ role: a.role, name: nameOf(a, p.live), address: this.adjudicators[a.role].address, scriptedPanel: !p.live })),
+      /** Who judges rubric deals (T-028): the registry every adjudicator here binds, and today's live budget (UTC). */
+      judges: {
+        panel: p.live ? 'live' : 'scripted',
+        registry: { uri: p.registryUri, hash: p.registry.hash },
+        models: p.registry.active.map((e) => e.model),
+        ...(p.live
+          ? { liveCallsPerDay: p.budget.perDay, liveCallsToday: today.calls, tokensToday: { input: today.inputTokens, output: today.outputTokens }, day: today.day }
+          : { missing: p.missing }),
+      },
+      notes: notesFor(this.club.id, this.o.minWindowSec ?? 60, this.o.faucetAmount ?? 1_000n * TUSD, this.o.faucetWindowSec ?? 3600, p),
     };
   }
 
@@ -390,14 +429,17 @@ function json(status: number, body: unknown): Response {
 }
 
 /** What each node states about itself in discovery and llms.txt. */
-export function notesFor(clubId: string, minWindowSec: number, faucetAmount: bigint, faucetWindowSec: number): string[] {
+export function notesFor(clubId: string, minWindowSec: number, faucetAmount: bigint, faucetWindowSec: number, panel?: Pick<PanelConfig, 'live' | 'registry' | 'budget'>): string[] {
   const whole = (faucetAmount / TUSD).toString();
+  const judges = panel?.live
+    ? `Adjudicators: three test adjudicators run by this demo (GET / or GET /v1/adjudicators). Deterministic checks are real. Rubric deals get a live judge panel: pinned models from two families, Anthropic and DeepSeek (${panel.registry.active.map((e) => e.model).join(', ')}; registry config/judges-live.yaml, not calibrated). At most ${panel.budget.perDay} live judge calls a day across this demo (UTC; GET / shows today's count); past that, panels are scripted fake judges whose verdicts start "[fake judge, no model ran]". DeepSeek's model names are provider aliases that can change underneath.`
+    : 'Adjudicators: three test adjudicators run by this demo (GET / or GET /v1/adjudicators). Deterministic checks are real. Judge panels are scripted fake judges (no model runs; verdicts start "[fake judge, no model ran]"), so use template "checks-only" for real acceptance.';
   return [
     'Public demo node. TEST TOKENS ONLY: tUSD on SimChain (chain id 31337) has no value; no real money moves, and none can be deposited or withdrawn.',
     'Both demo operator nodes serve one shared simulated settlement layer (SimChain) held in one Cloudflare Durable Object. Each node signs receipts with its own key, but they are not independent operators: independent nodes need testnet contracts (Phase 2).',
     `Get test tokens: POST /v1/faucet {"address": "0x..."} with an Idempotency-Key header grants ${whole} tUSD and a mandate in club ${clubId}, once per address per ${faucetWindowSec} seconds. Make your own keys: no route here ever returns a secret key.`,
     `The faucet mandate is signed by the demo club's own test principal, which this demo holds; it lets your address act as buyer or seller in ${clubId}.`,
-    'Adjudicators: three test adjudicators run by this demo (GET / or GET /v1/adjudicators). Deterministic checks are real. Judge panels are scripted fake judges (no model runs; verdicts start "[fake judge, no model ran]"), so use template "checks-only" for real acceptance.',
+    judges,
     `Settlement time is the wall clock. Club ${clubId} allows windows from ${minWindowSec} seconds: timing {"judgeWithinSec": ${minWindowSec}, "fallbackWithinSec": ${minWindowSec}, "appealWindowSec": ${minWindowSec}, "appealDecideSec": ${minWindowSec}} completes a deal in a few minutes.`,
     'State is journaled and replayed after a restart, but this is a demo: it may be reset at any time.',
   ];

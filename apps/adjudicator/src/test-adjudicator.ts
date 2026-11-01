@@ -47,18 +47,24 @@ export function markedFake(inner: JudgeProvider): JudgeProvider {
   };
 }
 
-/** config/judges.yaml: pinned-format placeholder model IDs, used by fake judges only. */
-export function placeholderRegistry(): LoadedRegistry {
+function repoRegistry(file: string): LoadedRegistry {
   let dir = dirname(fileURLToPath(import.meta.url));
-  while (!existsSync(join(dir, 'config/judges.yaml'))) {
+  while (!existsSync(join(dir, file))) {
     const up = dirname(dir);
-    if (up === dir) throw new Error('config/judges.yaml not found above the adjudicator package');
+    if (up === dir) throw new Error(`${file} not found above the adjudicator package`);
     dir = up;
   }
-  const r = loadRegistryFile(join(dir, 'config/judges.yaml'));
-  if (!r.ok) throw new Error(`config/judges.yaml: ${r.error.detail}`);
+  const r = loadRegistryFile(join(dir, file));
+  if (!r.ok) throw new Error(`${file}: ${r.error.detail}`);
   return r.value;
 }
+
+/** config/judges.yaml: pinned-format placeholder model IDs, used by fake judges only. */
+export const placeholderRegistry = (): LoadedRegistry => repoRegistry('config/judges.yaml');
+
+export const LIVE_REGISTRY_URI = 'file:///config/judges-live.yaml';
+/** config/judges-live.yaml (T-028): real pinned models from two families, which live judges can call. */
+export const liveRegistry = (): LoadedRegistry => repoRegistry('config/judges-live.yaml');
 
 export interface TestAdjudicatorOptions {
   /** Display name, published in the registration. */
@@ -77,6 +83,13 @@ export interface TestAdjudicatorOptions {
   /** Per judge: 'pass', 'fail', 'timeout' or a function. Default: every judge passes. */
   judges?: FakeScript;
   registry?: LoadedRegistry;
+  /** Where `registry` is published. Default file:///config/judges.yaml. */
+  registryUri?: string;
+  /**
+   * Replaces the marked fake judges (T-028: a live panel). Already routed by provider and wrapped in the judge
+   * timeout; the caller labels anything scripted it routes to.
+   */
+  provider?: JudgeProvider;
 }
 
 export interface TestAdjudicator {
@@ -99,10 +112,10 @@ export function testAdjudicator(o: TestAdjudicatorOptions): TestAdjudicator {
     seedSecret: keccak256(stringToBytes(`${o.signingKey}/seed-secret`)) as Hex32,
     policy: defaultPolicy(`${o.label}/p1`),
     registry,
-    registryUri: 'file:///config/judges.yaml',
+    registryUri: o.registryUri ?? 'file:///config/judges.yaml',
     fee: { min: o.fee },
     domain: o.domain,
-    provider: markedFake(markerFake(o.judges ?? {})),
+    provider: o.provider ?? markedFake(markerFake(o.judges ?? {})),
     settlement: new SettlementAdapter({ chain: o.chain, store: o.store, registration: o.registration }),
   });
   return { address, service, registration: () => service.registration(), runOnce: () => service.runOnce() };
