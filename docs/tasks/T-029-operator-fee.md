@@ -5,7 +5,7 @@
 - **Depends on:** T-025, T-026
 - **Paths this task may touch:** `docs/decisions/ADR-0023-operator-fee.md` (new), `spec/schemas/` (v0.7: messages, operator status/discovery, event, problem types), `spec/examples/`, `spec/openapi/paths.json` and generated `spec/openapi.json`, `packages/core/` (types, EIP-712 for the new message), `packages/settlement/sim/` (execute the fee transfer, post `fee.operator`), `apps/operator/src/` (prepare slot and check text, 402 policy, fee schedule in discovery and status), `apps/demo-cloud/` (fee schedule from env vars), `examples/` (verify.ts and sign.ts handle the fee slot), `fixtures/scenarios/` (fee and neutrality fixtures), `docs/api.md`, `docs/neutrality.md` (operator row), `docs/architecture.md` (glossary), `site/llms.txt`, `docs/backlog.md` (rows), `docs/tasks/T-029-operator-fee.md`
 - **Human gate:** none for the code (D33 confirmed by Rafa on 2026-11-01). Redeploying the two demo Workers with the fee switched on is approved; test tokens only.
-- **Status:** review
+- **Status:** done
 - **Agent/session:** implementer, branch `t-029-operator-fee`, 2026-11-01
 
 ## Intent
