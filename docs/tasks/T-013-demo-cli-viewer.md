@@ -5,7 +5,7 @@
 - **Depends on:** all Phase 1 tasks
 - **Paths this task may touch:** `apps/demo/`
 - **Human gate:** yes (dry run with Rafa)
-- **Status:** in progress (merged in PR 46; dry run with Rafa open; beats 6a and 7 on SimChain since T-018)
+- **Status:** done (merged in PR 46; beats 6a and 7 on SimChain since T-018; dry run done 2026-11-01)
 - **Agent/session:** implementer; branch `t-013-demo-cli`
 
 ## Intent
@@ -89,9 +89,21 @@ Fill this in before review. Label each item measured, inferred or guessed.
 
   58 test files, 1,804 tests, all passing. `demo` is no longer a placeholder.
 
-### Dry run (human gate, open)
+### Dry run (done 2026-11-01, run by the coordinator at Rafa's request)
 
-Not done; Rafa runs it. Prepared:
+**Result (measured).**
+- Fresh clone of the public repo at `d2caae6`. `pnpm install --frozen-lockfile` took under 1 s on a warm pnpm store; a cold machine is slower and was not measured. `pnpm demo` wrote 8 transcripts with source `simchain`: first transcript after 741 ms, all in 3,150 ms, 10 s wall time including the build.
+- Reviewer: a no-context Sonnet agent given only `demo/out/`. It answered all four questions correctly from the transcripts alone, quoting `beat-1.md`, `beat-3.md`, `beat-6.md`, `beat-7.md` and `beat-10.md`.
+- What it found confusing, for later polish (backlog, not blocking):
+  - the scripted judges look real (placeholder model IDs, thinking budgets), and beat 6's "3 of 3 pass" could read as the judges resisting the injection;
+  - the beat 4 finality wording ("final at the decision" next to a 300 s appeal window);
+  - "keeps the work" after a refund in beat 5;
+  - the simulated 172,920 s jump in beat 7;
+  - the missing beats 8 and 9;
+  - undefined jargon, and a closing link to `docs/neutrality.md`;
+  - role-play adjudicator histories that are labelled only in small text.
+
+Prepared plan:
 
 1. On a fresh clone: `pnpm install && time pnpm demo`, then `open demo/out/index.html`. Record the time to the first transcript (the CLI prints it) and the wall time.
 2. Hand a reviewer who has not read the docs only `demo/out/` and ask the four questions. Expected answers, quoted from the transcripts (SimChain unless marked stand-in):

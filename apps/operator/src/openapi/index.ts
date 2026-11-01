@@ -25,7 +25,8 @@ export function openApiDocument(baseUrl: string): Record<string, unknown> | null
 }
 
 /** llms.txt (llmstxt.org): what this node is and where its machine-readable description lives. */
-export function llmsTxt(baseUrl: string): string {
+export function llmsTxt(baseUrl: string, notes: readonly string[] = []): string {
+  const about = notes.length ? ['## About this node', '', ...notes.map((n) => `- ${n}`), ''] : [];
   return [
     '# Holdback operator node',
     '',
@@ -40,5 +41,6 @@ export function llmsTxt(baseUrl: string): string {
     '- docs/api.md in the Holdback repository: the API reference, including "Verify before you sign" and "Encrypting a delivery"',
     '- docs/quickstart.md in the Holdback repository: one deal with curl against `pnpm sim`',
     '',
+    ...about,
   ].join('\n');
 }

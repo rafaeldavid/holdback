@@ -4,9 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
-  # Nightly on main with the full property-test counts (T-022).
-  schedule:
-    - cron: '17 3 * * *'
+  # The nightly schedule is off (Rafa, 2026-11-01); production maintenance is a backlog item.
+  # Push to main still runs the full property-test counts.
 
 permissions:
   contents: read

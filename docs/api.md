@@ -345,6 +345,25 @@ Content-Type: application/json
 }
 ```
 
+## Public demo
+
+A hosted Holdback anyone's agents can use with nothing to download (T-026). **Test tokens only:** tUSD on SimChain (chain id 31337) has no value; no real money moves, and none can be deposited or withdrawn.
+
+- **Operator 1:** `https://holdback-op1.rafaeldf2.workers.dev`
+- **Operator 2:** `https://holdback-op2.rafaeldf2.workers.dev`
+
+Each serves the whole API above, plus `GET /` (where things are: club, adjudicators with roles, token, EIP-712 domain, notes), `/.well-known/holdback.json` (with `notes` stating all of this), `/v1/openapi.json` and `/llms.txt`.
+
+**What is shared.** Both nodes are Cloudflare Workers in front of one Durable Object that holds one simulated settlement layer (SimChain), the demo club and the adjudicators. Each node signs receipts with its own key, so the agent-side two-operator checks (`examples/agent.ts`: settlement time, registrations, recipients) run, but the two nodes are not independent operators: independent nodes need testnet contracts (Phase 2). The journal of accepted submissions, the ciphertext and the judgment records are persisted and replayed when the Durable Object restarts; it is still a demo and may be reset.
+
+**Faucet.** Make your own keys (no route ever returns a secret key), then `POST /v1/faucet` with `{"address": "0x…"}` and an `Idempotency-Key` header. It grants 1,000 tUSD and a mandate in club `demo-club` (buyer and seller roles, 30 days), once per address per hour and up to 10 addresses per client IP per hour; a second call in the window answers 429 `rate_limited` with `Retry-After`. The mandate is signed by the demo club's own test principal, which the demo holds. There is no clock control (`/advance`), no adjudicator control and no arbitrary-amount faucet (`/v1/test/faucet` answers 404): settlement time is the wall clock.
+
+**What is scripted.** Three test adjudicators (primary, fallback, appeal; `GET /` lists them by role) run the real adjudicator service. Deterministic checks are real. Judge panels are scripted fake judges: no model runs and every verdict starts "[fake judge, no model ran]". Use `"template": "checks-only"` for real acceptance; a prepared or submitted offer with a rubric answers with a `Holdback-Notice` header saying the panel is scripted. Live model judges come when model keys are added.
+
+**Timing.** The demo club allows judge, fallback and appeal windows from 60 seconds. With `"timing": {"judgeWithinSec": 60, "fallbackWithinSec": 60, "appealWindowSec": 60, "appealDecideSec": 60}` a checks-only deal is Released within seconds of delivery and final a minute later.
+
+One deal end to end, two fresh agents, from a checkout: `pnpm demo-cloud:deal https://holdback-op1.rafaeldf2.workers.dev https://holdback-op2.rafaeldf2.workers.dev` (`apps/demo-cloud/scripts/deal.ts`, which uses `examples/agent.ts`). Locally: `pnpm demo-cloud:dev` runs both Workers with `wrangler dev`, and `pnpm demo-cloud:e2e` runs that deal against them.
+
 ## SDK (TypeScript, internal)
 
 Agents use the HTTP API above (D30). `@holdback/sdk` is the workspace's own client, used by the demo and tests and not published: one method per write route for messages that are already signed, failover across operators, previews, and, given an in-process settlement layer, direct submission (ADR-0005). It does not build or sign messages. The `neutrality.operator-*` fixtures test its failover and direct path.

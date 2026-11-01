@@ -34,7 +34,7 @@ Scope after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-inte
 - [x] T-009 Providers, pinned registry, commit-reveal panel, adjudicator service with fallback and appeal (judgment)
 - [ ] T-010 Scenario fixtures for beats 1–7 plus `error.` and `neutrality.` sets; capture live recordings once (test)
 - [x] T-012 Demo data and scripted buyer/seller agents (demo)
-- [ ] T-013 Narrated CLI, transcript renderer, static viewer, dry run (demo; human gate)
+- [x] T-013 Narrated CLI, transcript renderer, static viewer, dry run (demo; human gate; dry run 2026-11-01)
 - [x] T-015 OpenAPI document, staleness check and HTTP contract test (api; after T-007 and T-010; ADR-0017; PR 56)
 - [x] T-016 Testkit runner: real judgment in snap, role-keyed recordings, authored guard, mutual_settle (test; trimmed by D25, rest is T-016b)
 - [x] T-017 Demo: adjudicator profiles and buyer/seller agreement on adjudicators (demo)
