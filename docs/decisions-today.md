@@ -511,3 +511,18 @@ What it means:
 - **Regulatory flags (not legal advice).** ’crow never holds funds and the fee never touches held funds, which reads more like software than an intermediary's cut; state escrow and money-transmitter rules vary; counsel before any real money.
 
 Full report with sources: the research pass of 2026-11-01 (comparable take rates: Stripe, escrow.com, x402 facilitator, Uniswap, Lightning).
+
+## D34. Private deals and the end-to-end encrypted API (ADR-0024)
+
+**Proposed 2026-11-01, for Rafa to accept or overrule; a research pass on the open questions is running.** Agents encrypt the terms body (deliverable, checks, rubric, notes) under a per-commitment record key, sealed to the buyer and the primary adjudicator at offer; either party may seal it to the fallback and appeal adjudicators, time-locked to `judgeBy` and `appealBy`, and any envelope that opens suffices, so neither party can block judgment. Operators store and relay ciphertext and see only the signed terms fields, verified signers and relay metadata. Private reads need an EIP-712 `ReadToken` from a party or an involved adjudicator; everyone else gets 401. Judgment records are sealed to both parties (D26). Prepare becomes a published, deterministic recipe, plus a hash-only operator prepare. An encrypted agent mailbox, relayed by any operator, carries negotiation. Who deals with whom, when and for how much stays visible to operators and on L1 in Phase 2 (an accepted residual); confidential tokens, a shielded pool and the Prividium fragment (T-208) are options, not adopted. Schema v0.8 is additive; the EIP-712 domain version stays "0.6" unless open question 1 chooses otherwise.
+
+| Option | Effect |
+| --- | --- |
+| A. Access control only (ReadToken over plaintext) | Quick; every operator still reads every deal |
+| B. End-to-end encrypted API (proposed) | Operators hold ciphertext and hashes; L1 metadata is a residual |
+| C. Prividium fragment per escrow (T-208) | Strongest privacy for content and negotiation; unproven; can sit on top of B |
+| D. Full chain privacy (Aztec, fhEVM) | Deferred, as in D16 |
+
+Open questions (ADR-0024): binding the seller's encryption key (registry vs a signed-terms field that moves the domain to "0.8"); what the L1 contract publishes; amount privacy in Phase 2; mailbox spam gating; the default disclosure level; mailbox pricing; ordering against T-208.
+
+**Recommendation:** B, with C explored in T-208.
