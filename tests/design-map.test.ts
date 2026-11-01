@@ -5,9 +5,12 @@ import { build, collect } from '../scripts/design-map.mjs';
 describe('design map', () => {
   const data = collect();
 
-  it('reads every phase in docs/plan.md and marks exactly one as next or active', () => {
+  it('reads every phase in docs/plan.md and marks the first unfinished phase next or active', () => {
     expect(data.phases.map((p: { n: number }) => p.n)).toEqual([0, 1, 2, 3, 4, 5, 6]);
-    expect(data.phases.filter((p: { status: string }) => p.status === 'next' || p.status === 'active')).toHaveLength(1);
+    // Phases may overlap (Phase 2 starts while a Phase 1 row is deferred), so more than one can be active;
+    // the first phase that is not done must be the one shown as next or active.
+    const first = data.phases.find((p: { status: string }) => p.status !== 'done');
+    expect(['next', 'active']).toContain(first.status);
   });
 
   it('reads every decision with a known status', () => {
