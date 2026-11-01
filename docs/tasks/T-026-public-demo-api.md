@@ -5,14 +5,16 @@
 - **Depends on:** T-020, T-023, T-025
 - **Paths this task may touch:** `apps/demo-cloud/` (new), `apps/operator/src/` (only to expose a fetch-style handler and a public mode; no behaviour change for existing callers), `apps/adjudicator/src/test-adjudicator.ts` (only if the cloud runtime needs a hook), `packages/settlement/sim/` (only a persistence hook: snapshot or journal replay), `pnpm-workspace.yaml`, root `package.json` scripts, root `tsconfig.json`, `vitest.config.ts`, `docs/api.md` (a "Public demo" section), `docs/tasks/T-026-public-demo-api.md`
 - **Human gate:** deploy approved by Rafa on 2026-11-01 ("use my Cloudflare account"), workers.dev only, test tokens only
-- **Status:** todo
-- **Agent/session:** —
+- **Status:** review
+- **Agent/session:** implementer (Claude Opus 5.5), branch `t-026-public-demo-api`, 2026-11-01
 
 ## Intent
 
 Let anyone's two agents run one honest deal end to end against a hosted Holdback, with nothing to download: discover the API, get test tUSD, offer, agree and fund, deliver, judge, settle. Rafa, 2026-11-01: keep it to the happy path, honest content and a basic adjudicator; test tokens with a notice; agents should not need the repo.
 
-Restate this in your own words in this section before writing code.
+**Restated (implementer, 2026-11-01).** Put a Holdback that anyone can reach on the internet, so two agents written by strangers can do one honest deal with nothing but HTTP: read discovery (`/.well-known/holdback.json`, `/v1/openapi.json`, `/llms.txt`), make their own keys, get test tUSD and a club mandate from a public faucet, then offer, agree and fund, deliver, have the checks decide, and see the funds released and the outcome final. It runs as two Cloudflare Workers (two operator origins, each with its own receipt key, because the agent-side verifier wants two) over one Durable Object holding one SimChain, the club and test adjudicators; the docs and discovery say plainly that the two nodes share it. Public mode means: no clock or adjudicator controls, wall-clock settlement time, no secret on any route, a faucet with a fixed amount and rate limits. The operator logic is reused through a fetch-style adapter, not forked; `pnpm sim` is unchanged. State survives Durable Object eviction by journal replay.
+
+**Non-goals.** Edge cases (faucet abuse beyond simple limits, timeouts, disputes, appeals, resets, large deliveries) go to backlog rows. No live model judges (the panel stays scripted and says so), no testnet or mainnet contracts, no custom domains, no independence between the two nodes, no change to signed-message or idempotency rules, nothing on the Cloudflare account beyond the two Workers and the one Durable Object class.
 
 ## Design constraints
 
@@ -27,11 +29,11 @@ Restate this in your own words in this section before writing code.
 
 ## Acceptance criteria
 
-- [ ] `apps/demo-cloud/` builds two Workers and one Durable Object with wrangler config; `pnpm demo-cloud:dev` runs both locally (wrangler dev) and a test drives a full checks-only deal over HTTP using `examples/agent.ts`-style calls against the local dev URLs.
-- [ ] Public mode: tests show no secret on any route, no `/advance`, faucet funds and admits a fresh address once per rate window.
-- [ ] Deployed to Rafa's Cloudflare account on workers.dev (two Workers, only resources this task creates). A live checks-only deal between two fresh agents completes (Released, final), measured with `examples/` scripts pointed at the live URLs, and `/.well-known/holdback.json` and `/v1/openapi.json` and `/llms.txt` are served by both.
-- [ ] `docs/api.md` "Public demo" section: the two URLs, the faucet, what is shared, what is scripted, test tokens only.
-- [ ] `pnpm verify` green. PR opened; deploy URLs in the PR.
+- [x] `apps/demo-cloud/` builds two Workers and one Durable Object with wrangler config; `pnpm demo-cloud:dev` runs both locally (wrangler dev) and a test drives a full checks-only deal over HTTP using `examples/agent.ts`-style calls against the local dev URLs.
+- [x] Public mode: tests show no secret on any route, no `/advance`, faucet funds and admits a fresh address once per rate window.
+- [x] Deployed to Rafa's Cloudflare account on workers.dev (two Workers, only resources this task creates). A live checks-only deal between two fresh agents completes (Released, final), measured with `examples/` scripts pointed at the live URLs, and `/.well-known/holdback.json` and `/v1/openapi.json` and `/llms.txt` are served by both.
+- [x] `docs/api.md` "Public demo" section: the two URLs, the faucet, what is shared, what is scripted, test tokens only.
+- [x] `pnpm verify` green. PR opened; deploy URLs in the PR.
 
 ## Out of scope
 
@@ -39,6 +41,34 @@ Restate this in your own words in this section before writing code.
 
 ## Evidence
 
+- **Live URLs (measured).** `https://holdback-op1.rafaeldf2.workers.dev` and `https://holdback-op2.rafaeldf2.workers.dev`, deployed with `pnpm demo-cloud:deploy` (wrangler 4.85.0, OAuth login; versions `68146559-…` and `67e7c427-…`). Bundle 1,560 KiB (303 KiB gzip), startup 542 ms and 453 ms as wrangler reported. Before deploying, `wrangler deployments list` answered "This Worker does not exist" for both names, so nothing existing was overwritten.
+- **Live deal (measured).** `pnpm demo-cloud:deal <op1> <op2>` (`apps/demo-cloud/scripts/deal.ts`, driving `examples/agent.ts` with keys it generated): two fresh agents took the faucet, offer `0x2cc78b60…8028` was accepted by the primary at 0.9 s, held at 1.1 s, delivered at 1.5 s, `Released` at 1.9 s, final at 63.5 s (`finalAt` 2026-11-01T11:57:45Z, the 60 s appeal window), the buyer decrypted the delivery with matching hashes, balances buyer 974 / seller 1,025 tUSD (25 price + 1 fee), 9 receipts from each operator. Every prepared message was verified by the agent against its intent, and its two-operator checks (settlement time, registrations, recipients) passed against the two origins.
+- **Live discovery (measured).** `/.well-known/holdback.json`, `/v1/openapi.json` and `/llms.txt` answer 200 on both nodes (1,862 B, 140,350 B, 2,715 B); discovery carries 7 `notes` and the two `receiptSigner`s differ.
+- **Live public mode (measured, `reports/probe-live.mjs`, not committed).** POST `/advance`, `/accounts`, `/adjudicators/primary`, `/v1/test/faucet` and GET `/clock`: 404. Faucet for a fresh address via op1: 200, 1,000 tUSD; again via op2 with a new key: 429 `rate_limited`, `Retry-After: 3600`. A rubric `prepare/offer` carries `Holdback-Notice: scripted judge panel…`. No response from 8 GET routes on both nodes contains a secret-key field name.
+- **Local Workers runtime (measured).** `MIN_WINDOW_SEC=5 pnpm demo-cloud:e2e` builds, starts both Workers with `wrangler dev` (op2 binds op1's Durable Object through the dev registry, "local [connected]"), runs the same deal script against `http://127.0.0.1:8787` and `:8788`: Released at 1.7 s, final at 9.7 s, exit 0. An earlier run with the default 60 s window reached final at 64 s.
+- **Node tests (measured).** `apps/demo-cloud/src/world.test.ts` (6 tests): faucet once per address per window, idempotent replay, per-client limit, 400s; no clock, adjudicator or arbitrary-amount routes; no world secret (the random world secret, the club principal's, adjudicators' and receipt signers' signing and encryption keys) in the faucet answer or any of 12 GET routes on both nodes; notes in discovery, llms.txt and `GET /`; the scripted-panel header; and a full checks-only deal between two fresh agents over HTTP to Released and final, then a world rebuilt from the same storage with the same digest, state, judgment record and balances, keeping its original club windows under a changed configuration. `apps/operator/src/fetch.test.ts` (5 tests): discovery, relay with idempotent replay, problems, per-client throttle, notes, server-sent events through the adapter. `packages/settlement/sim/admit.test.ts` (3 tests): admission, refusals, journal and replay.
+- **Tests first (measured for the SimChain hook, inferred for the rest).** `admit.test.ts` failed 3 of 3 before `SimChain.admit` existed. `fetch.test.ts` and `world.test.ts` were written before `fetch.ts` and `world.ts` but first run after them, so their red state was not observed.
+- **Persistence on Cloudflare (inferred).** Eviction replay is measured in Node with an in-memory storage; on Cloudflare the same code runs over the Durable Object's storage, and the local `wrangler dev` run showed a replay against stored state (it failed when the club's windows changed between runs, which led to pinning them in the world's meta). Not measured: an actual eviction of the live object.
+- **`pnpm verify` (measured).** All six steps pass: typecheck, lint, test (79 files, 2,073 tests), spec (24/24 examples, `spec/openapi.json` fresh), snap (32), demo. Report: `reports/verify-t-026-public-demo-api.md`.
+- **CPU limits (guessed).** The live deal ran without errors, so the account's CPU limits held for these requests; wake-time replay cost grows with the journal (backlog row).
+
 ## Decisions
 
+- **The adapter, not a fork.** `apps/operator/src/fetch.ts` wraps `Operator.handle` with a minimal IncomingMessage/ServerResponse pair and streams the response, so the Workers serve exactly the `pnpm sim` code path. `pnpm sim` and all existing callers are unchanged.
+- **Run-time admission in SimChain.** The faucet must admit addresses that do not exist at genesis, so `SimChain.admit(mandate)` verifies the principal's signature and journals the mandate (`op: 'admit'`), and `journal(from)` lets the world persist only new entries. This goes slightly past "only a persistence hook" in the task's paths: without it, admission would mean rebuilding the chain from a new genesis on every faucet call. It is test-only, like `faucet`.
+- **Persistence by journal replay.** The world stores its meta (random secret, start time, club windows), the journal, ciphertext and judgment records; on wake it rebuilds genesis from the meta and replays. The club's windows are pinned at creation, because a journal only replays under the genesis it was written under.
+- **Keys from a per-world secret.** Every key the world holds (club principal and operator, three adjudicators, two receipt signers) derives from a random secret generated inside the Durable Object on first use and never served. Nothing secret is committed or configured; the Cloudflare login is wrangler's own.
+- **Three test adjudicators, not one in three roles.** The sim's existing primary/fallback/appeal layout is kept (less divergence from `pnpm sim`, and nothing in the prepare path to re-check for a repeated address).
+- **Demo club with 60 s minimum windows** (`MIN_WINDOW_SEC`, D31: the club narrows, the parties choose), so a deal is final about a minute after release. Other rulebook terms are the sim's.
+- **The faucet lives in the demo Worker**, at `POST /v1/faucet`, with `GET /` as an index. The operator's arbitrary-amount `/v1/test/faucet` is not offered (the registry has no `faucet`, so it answers 404). Neither new route is added to the OpenAPI document, to keep the contract test (which requires every documented route to be exercised against the sim) out of this task; backlog row.
+- **Discovery `notes`: an optional field in `spec/openapi/paths.json`.** The task asks for notes in `/.well-known/holdback.json`, whose Discovery schema is closed. The Discovery schema is the operator API in the paths file, not `spec/schemas`, so following T-025's precedent this is an additive optional field with no ADR or version bump; `spec/openapi.json` is regenerated. The field is marked `x-holdback-untrusted`.
+- **Scripted panel said in a header.** A rubric `prepare/offer` or offer submission answers with `Holdback-Notice`, rather than a new body field, so no schema changes.
+
 ## Handoff
+
+- **Live:** `https://holdback-op1.rafaeldf2.workers.dev` and `https://holdback-op2.rafaeldf2.workers.dev`; faucet `POST /v1/faucet {"address"}` with an `Idempotency-Key`. A live checks-only deal between two fresh agents reached Released and final (Evidence).
+- **Resources created on the Cloudflare account:** Workers `holdback-op1` and `holdback-op2` on workers.dev (preview URLs off, observability on) and the Durable Object class `World` (SQLite-backed, migration `v1`) in `holdback-op1`. Nothing else was touched. To reset the world, change `WORLD_NAME` in `apps/demo-cloud/src/worker.ts` and redeploy; to remove the demo, delete the two Workers (`npx wrangler@4 delete --name holdback-op2`, then `holdback-op1`).
+- **Files outside the listed paths (small, stated here):** `spec/openapi/paths.json` and the regenerated `spec/openapi.json` (Discovery `notes`); `eslint.config.js` (ignore `apps/demo-cloud/.wrangler/`, its `reports/` and the generated embed file, which wrangler and the build write); `apps/operator/src/index.ts` also exports `accounts.js` (test-account derivation the world reuses); `pnpm-lock.yaml` (the new workspace package); `docs/backlog.md` (Public demo rows, as the lead asked).
+- **Bundling notes for whoever touches the Worker:** wrangler aliases `node:fs` to `apps/demo-cloud/worker/fs-shim.js`, which serves the schemas, `spec/openapi.json` and `config/judges.yaml` embedded by `scripts/embed.mjs` (run by `pnpm -C apps/demo-cloud build`), and defines `import.meta.url` as a fixed file URL so the modules' relative paths resolve. Ajv compiles at module load, which Workers allow during startup (`allow_eval_during_startup`, default since 2025-06-01); compiling a schema later, at request time, would fail.
+- **For the lead to record if wanted:** the Discovery `notes` field and the `SimChain.admit` hook; `docs/decisions-today.md` was not edited.
+- **T-027 (agent docs site)** can point at the two URLs, `GET /`, and the "Public demo" section of `docs/api.md`.
