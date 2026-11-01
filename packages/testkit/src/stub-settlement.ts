@@ -561,7 +561,7 @@ export class StubSettlement {
       case 'agree_and_fund':
         return this.agreeAndFund(parties.buyer, s.via);
       case 'deliver':
-        return this.deliver(parties.seller, s.via, s.file, s.stubBytes === true, s.attempt ?? 1);
+        return this.deliver(parties.seller, s.via, s.file, s.stubBytes === true, s.attempt ?? 1, s.buyerEnvelope === 'wrong_key');
       case 'early_accept':
         return this.earlyAccept(parties.buyer, s.via);
       case 'appeal':
@@ -732,7 +732,7 @@ export class StubSettlement {
     this.balanceRows.push({ after: 'fund', balances: this.snapshotBalances() });
   }
 
-  private async deliver(seller: string, via: string, file: string, stubBytes: boolean, attempt: number): Promise<void> {
+  private async deliver(seller: string, via: string, file: string, stubBytes: boolean, attempt: number, buyerWrongKey = false): Promise<void> {
     const c = this.needCommitment(seller, 'deliver', via);
     if (!c) return;
     const path = join(this.root, 'fixtures', file);
@@ -756,12 +756,13 @@ export class StubSettlement {
       ciphertext: { uri: `sim://blobs/${this.ctx.ids.next('blob')}`, sha256: sha256(`ciphertext:${plaintextSha256}`), bytes: plaintext.length + 16, cipher: 'aes-256-gcm' },
       plaintextSha256,
       plaintextMime: c.terms.deliverable.format,
-      encryptedKeys: recipients.map((recipient) => ({ recipient, scheme: 'x25519-xsalsa20poly1305', ciphertext: b64url(canonicalKeccak({ contentKey, recipient })) })),
+      // A wrong-key buyer envelope names the buyer but seals to another key: it can never open to the content key.
+      encryptedKeys: recipients.map((recipient) => ({ recipient, scheme: 'x25519-xsalsa20poly1305', ciphertext: b64url(canonicalKeccak(buyerWrongKey && recipient === c.terms.buyer ? { contentKey, recipient, sealedTo: 'a key the buyer does not hold' } : { contentKey, recipient })) })),
       submittedAt: this.ctx.clock.now(),
     };
     const signed = await this.sign(seller, { ...body, type: 'Delivery' as const });
     const message: Delivery = { ...body, signature: signed.signature };
-    const call = `deliver (attempt ${attempt})`;
+    const call = `deliver (attempt ${attempt})${buyerWrongKey ? ", buyer's envelope sealed to another key" : ''}`;
     if (!(await this.submit(seller, call, via, { kind: 'deliver', delivery: message }))) return;
     this.delivery = { message, plaintext, source, contentKey };
     this.receipt(via, 'deliver');
