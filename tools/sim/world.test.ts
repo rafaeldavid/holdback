@@ -8,7 +8,9 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { fetchAudit, readRun } from './audit.ts';
+import { loadCatalogue, renderBrief } from './brief.ts';
 import { checkRun } from './check.ts';
+import { receive, receiveWaiting, send } from './mail.ts';
 import { startRunWorld, validRunId, type RunWorld, type WorldFile } from './world.ts';
 
 const runs = mkdtempSync(join(tmpdir(), 't021-runs-'));
@@ -74,4 +76,57 @@ describe('sim:world', () => {
     expect(bad.ok).toBe(false);
     expect(bad.invariants.find((i) => i.id === 'conservation')!.ok).toBe(false);
   }, 60_000);
+});
+
+describe('catalogue, briefs and mail', () => {
+  it('every job in the catalogue prepares as an offer on a live world', async () => {
+    const f = a.file;
+    const [primary, fallback, appeal] = f.adjudicators.map((x) => x.address);
+    for (const job of loadCatalogue().jobs) {
+      const res = await fetch(`${f.operators[0]}/v1/prepare/offer`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          ...job.terms,
+          clubId: f.clubId,
+          seller: f.parties['seller-1']!.address,
+          buyer: { address: f.parties['buyer-1']!.address, encryptionPublicKey: f.parties['buyer-1']!.encryptionPublicKey },
+          adjudicators: { primary, fallback, appeal },
+        }),
+      });
+      expect(res.status, `${job.id}: ${await res.clone().text()}`).toBe(200);
+    }
+  });
+
+  it('every profile has a brief, and adversarial ones have tactics per role', () => {
+    const c = loadCatalogue();
+    expect(c.profiles.map((p) => p.id)).toEqual(['honest', 'sloppy', 'impatient', 'adversarial']);
+    const adv = c.profiles.find((p) => p.id === 'adversarial')!;
+    expect(adv.tactics!.buyer.length).toBeGreaterThan(2);
+    expect(adv.tactics!.seller.length).toBeGreaterThan(2);
+    for (const p of c.pairings) expect(c.jobs.some((j) => j.id === p.job), p.run).toBe(true);
+  });
+
+  it('a brief carries outsider knowledge and the party\'s own account only', () => {
+    const f = a.file;
+    const brief = renderBrief({ world: f, party: 'buyer-1', counterparty: 'seller-1', role: 'buyer', job: 'dataset', profile: 'adversarial', model: 'opus' });
+    expect(brief).not.toMatch(/\{\{/);
+    expect(brief).toContain(f.parties['buyer-1']!.privateKey);
+    expect(brief).toContain(f.parties['seller-1']!.address);
+    expect(brief).toContain('docs/quickstart.md');
+    expect(brief).toContain('Appeal every decision');
+    for (const secret of [f.parties['seller-1']!.privateKey, f.parties['seller-1']!.encryptionSecretKey, f.coordinator.auditUrl, f.parties['buyer-2']!.address, 'FAIL-ME', 'sim:check']) {
+      expect(brief, secret).not.toContain(secret);
+    }
+  });
+
+  it('mail delivers each message once, in order', async () => {
+    const root = join(runs, 'iso-a', 'mailbox');
+    send(root, { from: 'seller-1', to: 'buyer-1', subject: 'offer', body: '{"n":1}' });
+    send(root, { from: 'seller-1', to: 'buyer-1', subject: 'again', body: '{"n":2}' });
+    expect(receive(root, 'buyer-1')?.subject).toBe('offer');
+    expect((await receiveWaiting(root, 'buyer-1', 1))?.body).toBe('{"n":2}');
+    expect(await receiveWaiting(root, 'buyer-1', 0)).toBeNull();
+    expect(() => send(root, { from: 'x', to: 'nobody', subject: '', body: '' })).toThrow(/no mailbox/);
+  });
 });
