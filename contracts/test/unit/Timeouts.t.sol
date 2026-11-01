@@ -183,4 +183,9 @@ contract BondsTest is Base {
         bonds.deposit(address(usdc), 5);
         assertEq(bonds.bondOf(address(this), address(usdc)), 5);
     }
+
+    function test_deposit_refusesWithoutTheTokens() public {
+        vm.expectRevert();
+        bonds.deposit(address(usdc), 5);
+    }
 }
