@@ -126,6 +126,13 @@ function move(a: Audit, from: string, to: string, amount: bigint): void {
   a.ledger[to] = (BigInt(a.ledger[to] ?? '0') + amount).toString();
 }
 
+const ms = (ts: string) => Date.parse(ts);
+
+/** The operators' answers for a forged log, as a forger who also controls every operator would serve them. */
+function readsFor(audit: Audit): OperatorRead[] {
+  return f.reads.map((o) => ({ ...o, commitments: Object.fromEntries(Object.entries(o.commitments).map(([id, c]) => [id, { ...c, events: audit.log.filter((e) => e.commitmentId === id) }])) }));
+}
+
 let f: Fixture;
 beforeAll(async () => {
   f = await run();
@@ -228,10 +235,117 @@ describe('sim:check catches a violation', () => {
     expect(r.invariants.find((i) => i.id === 'records-match')!.violations.join('\n')).toMatch(/op-2/);
   });
 
-  it('a commitment whose held money does not match its state (terminal or explained)', async () => {
+  it('operators that agree on a state the log does not replay to (records match, not trusted for terminal)', async () => {
     const reads = clone(f.reads);
-    for (const o of reads) o.commitments[f.ids['open']!]!.view!.escrowState = 'Held';
+    for (const o of reads) o.commitments[f.ids['open']!]!.view!.escrowState = 'Released';
     const r = await check(f, { reads });
-    expect(failed(r)).toContain('terminal-or-explained');
+    expect(failed(r)).toEqual(['records-match']);
+    expect(r.invariants.find((i) => i.id === 'records-match')!.violations.join('\n')).toMatch(/replays to AcceptedByAdjudicator/);
+    expect(r.commitments.find((c) => c.id === f.ids['open'])!.escrowState).toBe('AcceptedByAdjudicator');
+  });
+
+  it('a refund that moved no money out of escrow (terminal or explained)', async () => {
+    const audit = clone(f.audit);
+    const id = f.ids['reclaimed']!;
+    const i = audit.log.findIndex((e) => e.commitmentId === id && e.type === 'settlement.reclaimed');
+    audit.log[i] = { ...audit.log[i]!, payload: { ...audit.log[i]!.payload, postings: [] } };
+    rehash(audit.log, i);
+    move(audit, f.cast.buyer.address.toLowerCase(), `escrow:${id}`, 2_050_000_000n);
+    const buyer = f.cast.buyer.address.toLowerCase();
+    const reads = readsFor(audit).map((o) => ({ ...o, balances: { ...o.balances, [buyer]: (BigInt(o.balances[buyer]!) - 2_050_000_000n).toString() } }));
+    const r = await check(f, { audit, reads });
+    expect(failed(r)).toEqual(expect.arrayContaining(['terminal-or-explained', 'within-terms']));
+    expect(r.invariants.find((i) => i.id === 'terminal-or-explained')!.violations.join('\n')).toMatch(/is Refunded but escrow holds 2050000000/);
+  });
+
+  it('a default forged on a delivered deal: no fallback, backdated before judgeBy (review H1)', async () => {
+    const audit = clone(f.audit);
+    const id = f.ids['defaulted']!;
+    const delivered = audit.log.find((e) => e.commitmentId === id && e.type === 'delivery.submitted')!;
+    const backdated = new Set(['default.triggered', 'settlement.refunded', 'bond.slashed', 'key.released']);
+    audit.log = audit.log
+      .filter((e) => !(e.commitmentId === id && e.type === 'fallback.triggered'))
+      .map((e, seq) => ({ ...e, seq, ...(e.commitmentId === id && backdated.has(e.type) ? { at: delivered.at } : {}) }));
+    rehash(audit.log);
+    const r = await check(f, { audit, reads: readsFor(audit) });
+    expect(failed(r)).toContain('within-terms');
+    const why = r.invariants.find((i) => i.id === 'within-terms')!.violations.join('\n');
+    expect(why).toMatch(/default\.triggered.*not allowed in state Delivered/);
+    expect(failed(r)).toContain('log-integrity'); // the backdated events also break time order
+  });
+
+  it('a default triggered before fallbackBy, in time order (review H1)', async () => {
+    const audit = clone(f.audit);
+    const id = f.ids['defaulted']!;
+    const fb = audit.log.find((e) => e.commitmentId === id && e.type === 'fallback.triggered')!;
+    audit.log = audit.log.map((e) => (e.commitmentId === id && e.seq > fb.seq && e.seq <= fb.seq + 6 && ms(e.at) > ms(fb.at) ? { ...e, at: fb.at } : e));
+    rehash(audit.log);
+    const r = await check(f, { audit, reads: readsFor(audit) });
+    expect(r.invariants.find((i) => i.id === 'within-terms')!.violations.join('\n')).toMatch(/default\.triggered.*before fallbackBy/);
+  });
+
+  it('an upheld appeal relabelled overturned, with the appellant\'s bond returned (review H2)', async () => {
+    const audit = clone(f.audit);
+    const id = f.ids['upheld']!;
+    const i = audit.log.findIndex((e) => e.commitmentId === id && e.type === 'appeal.decided');
+    const ev = audit.log[i]!;
+    const buyer = f.cast.buyer.address.toLowerCase();
+    let bond = 0n;
+    const postings = (ev.payload['postings'] as Array<{ from: string; to: string; amount: { token: string; amount: string } }>).map((p) => {
+      if (!p.to.startsWith('bond:')) return p;
+      bond = BigInt(p.amount.amount);
+      move(audit, p.to, buyer, bond);
+      return { ...p, to: buyer };
+    });
+    expect(bond).toBeGreaterThan(0n);
+    audit.log[i] = { ...ev, payload: { ...ev.payload, appealState: 'overturned', postings } };
+    rehash(audit.log, i);
+    const reads = readsFor(audit).map((o) => {
+      const c = o.commitments[id]!;
+      return { ...o, balances: { ...o.balances, [buyer]: (BigInt(o.balances[buyer]!) + bond).toString() }, commitments: { ...o.commitments, [id]: { ...c, view: { ...c.view!, appealState: 'overturned' as const } } } };
+    });
+    const r = await check(f, { audit, reads });
+    const why = r.invariants.find((i) => i.id === 'within-terms')!.violations.join('\n');
+    expect(why).toMatch(/the event says overturned; the signed appeal decision makes it upheld/);
+    expect(why).toMatch(/not in the terms/);
+    expect(failed(r)).toContain('records-match'); // the operators' "overturned" differs from the replayed "upheld"
+  });
+
+  it('a decision event whose role and record differ from the signed decision (review M3)', async () => {
+    const audit = clone(f.audit);
+    const id = f.ids['released']!;
+    const i = audit.log.findIndex((e) => e.commitmentId === id && e.type === 'judgment.decided');
+    audit.log[i] = { ...audit.log[i]!, payload: { ...audit.log[i]!.payload, role: 'fallback', recordHash: `0x${'ab'.repeat(32)}` } };
+    rehash(audit.log, i);
+    const r = await check(f, { audit, reads: readsFor(audit) });
+    expect(failed(r)).toEqual(['within-terms']);
+    const why = r.invariants.find((i) => i.id === 'within-terms')!.violations.join('\n');
+    expect(why).toMatch(/says role fallback/);
+    expect(why).toMatch(/another judgment record/);
+  });
+
+  it('a default payout taken from an adjudicator who is not liable (review M4)', async () => {
+    const audit = clone(f.audit);
+    const id = f.ids['defaulted']!;
+    const appeal = f.cast.appeal.address.toLowerCase();
+    const i = audit.log.findIndex((e) => e.commitmentId === id && e.type === 'bond.slashed');
+    const ev = audit.log[i]!;
+    const from = String(ev.payload['adjudicator']).toLowerCase();
+    const amount = BigInt((ev.payload['junior'] as { amount: string }).amount);
+    audit.log[i] = { ...ev, payload: { ...ev.payload, adjudicator: appeal } };
+    rehash(audit.log, i);
+    move(audit, `bond:${appeal}:junior`, `bond:${from}:junior`, amount);
+    const r = await check(f, { audit, reads: readsFor(audit) });
+    expect(failed(r)).toEqual(['within-terms']);
+    expect(r.invariants.find((i) => i.id === 'within-terms')!.violations.join('\n')).toMatch(/who is not liable for a default from FallbackJudging/);
+  });
+
+  it('one signed decision backing two decision events (review L6)', async () => {
+    const audit = clone(f.audit);
+    const id = f.ids['overturned']!;
+    // Drop the appeal adjudicator's signed decision: the primary's signed reject must not back the appeal too.
+    audit.journal = audit.journal.filter((j) => !(j.op === 'submit' && j.submission.kind === 'decide' && j.submission.message.commitmentId === id && j.submission.message.role === 'appeal'));
+    const r = await check(f, { audit });
+    expect(r.invariants.find((i) => i.id === 'within-terms')!.violations.join('\n')).toMatch(/no unused appeal decision signed/);
   });
 });

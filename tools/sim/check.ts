@@ -1,7 +1,9 @@
 // sim:check: the invariants of one simulated run, computed from the settlement layer's own record and the
-// operators' public answers. Nothing here trusts a party's report or a SimChain helper: it re-verifies the
-// hash chain and every signature, re-derives each posting from the signed terms and the club rulebook,
-// replays the postings from genesis into its own ledger, and compares. Party reports only add findings.
+// operators' public answers. Nothing here trusts a party's report, an operator's state view, an unsigned event
+// field or a SimChain helper. It re-verifies the hash chain and every signature (each signed message backs one
+// event only), replays each commitment's state machine from the log with deadlines from the signed terms,
+// re-derives each posting from the signed terms, the signed decisions and the club rulebook, replays the
+// postings from genesis into its own ledger, and compares. Party reports only add findings.
 import {
   canonicalKeccak,
   commitmentId,
@@ -12,6 +14,7 @@ import {
   type Address,
   type Club,
   type CommitmentTerms,
+  type Decision,
   type Hex32,
   type Judgment,
   type SettlementEvent,
@@ -36,6 +39,7 @@ export interface CommitmentSummary {
   seller: string;
   price: string;
   fee: string;
+  /** Replayed from the log, not taken from an operator. */
   escrowState: string;
   appealState: string;
   /** final: no protocol step can change who got what. open: a named party or trigger can still move it. */
@@ -57,16 +61,18 @@ export interface CheckResult {
 }
 
 const TITLES: Record<InvariantId, string> = {
-  'log-integrity': 'The settlement log is one unbroken hash chain',
+  'log-integrity': 'The settlement log is one unbroken hash chain in time order',
   conservation: 'Funds are conserved per token: the ledger equals genesis plus faucet, account by account, as replayed from the log',
-  'within-terms': 'Nothing moved outside the signed terms: every posting matches a signed decision, settlement, appeal, funding or a due trigger',
-  'terminal-or-explained': 'Every commitment is final, or open for a stated reason, and its held money matches its state',
-  'records-match': 'Both parties read the same record: every operator serves the log, state, judgment and balances identically',
+  'within-terms': 'Nothing moved outside the signed terms: every step is allowed by the replayed state and its deadlines, and every posting matches a signed message or a due trigger',
+  'terminal-or-explained': 'Every commitment is final, or open for a stated reason, and its held money matches its replayed state',
+  'records-match': 'Both parties read the same record: every operator serves the log, the replayed state, the judgment and the balances',
 };
 
 const ZERO_HASH = `0x${'00'.repeat(32)}` as Hex32;
 const BPS = 10_000n;
 const lc = (a: string) => a.toLowerCase();
+const ms = (ts: string) => Date.parse(ts);
+const plus = (ts: string, sec: number) => new Date(ms(ts) + sec * 1000).toISOString().replace('.000Z', 'Z');
 const acct = {
   party: (a: string) => lc(a),
   escrow: (id: string) => `escrow:${id}`,
@@ -79,6 +85,7 @@ const HOLDING = new Set(['Held', 'Delivered', 'FallbackJudging', 'Escalated', 'D
 
 type Posting = { from: string; to: string; amount: bigint };
 const key = (p: Posting) => `${lc(p.from)} -> ${lc(p.to)}: ${p.amount}`;
+type Role = 'primary' | 'fallback' | 'appeal';
 
 interface Ctx {
   terms: CommitmentTerms;
@@ -87,15 +94,21 @@ interface Ctx {
   fee: bigint;
   buyer: string;
   seller: string;
-  adjudicators: { primary: string; fallback: string; appeal: string };
-  /** The adjudicator whose decision first moved the escrow, and which way. */
-  first?: { by: string; outcome: 'Released' | 'Refunded' };
-  delivered: boolean;
-  fallback: boolean;
-  escalated: boolean;
-  defaulted: boolean;
-  defaultApplied: boolean;
-  appeal?: { appellant: string; open: boolean; overturned: boolean };
+  adjudicators: Record<Role, string>;
+  /** The escrow state, replayed from the log. */
+  state: string;
+  settledAt?: string;
+  /** How a Released or Refunded state was reached; only a first-instance decision is appealable. */
+  via?: 'first_instance' | 'escalation' | 'early_accept' | 'reclaim' | 'default_outcome';
+  escalationDecideBy?: string;
+  defaultedFrom?: 'FallbackJudging' | 'Escalated';
+  /** A signed accept or reject waiting for its settlement event, in the same submission. */
+  pending?: { by: string; role: Role; outcome: 'accept' | 'reject' } | undefined;
+  /** The first-instance decision that moved the escrow. */
+  first?: { by: string; outcome: 'accept' | 'reject' };
+  appeal: { state: 'none' | 'open' | 'upheld' | 'overturned' | 'expired'; appealBy?: string; decideBy?: string; closedAt?: string; appellant?: string };
+  /** An overturn whose bond payout has not been seen yet. */
+  owedOverturn: boolean;
   /** The buyer has paid for the work, so its content key may be released. */
   paid: boolean;
   slashed: bigint;
@@ -120,11 +133,14 @@ export async function checkRun(input: CheckInput): Promise<CheckResult> {
 
   // ---- 1. log integrity ------------------------------------------------------------------------------
   let prev: string = ZERO_HASH;
+  let lastAt = -Infinity;
   for (const [i, e] of audit.log.entries()) {
     const { hash, ...body } = e;
     if (e.seq !== i) v['log-integrity'].push(`event ${i} carries seq ${e.seq}`);
     if (e.prevHash !== prev) v['log-integrity'].push(`event ${e.seq} (${e.type}) does not link to the event before it`);
     if (canonicalKeccak(body) !== hash) v['log-integrity'].push(`event ${e.seq} (${e.type}) does not hash to its own hash: it was edited after it was written`);
+    if (!(ms(e.at) >= lastAt)) v['log-integrity'].push(`event ${e.seq} (${e.type}) at ${e.at} is earlier than the event before it`);
+    lastAt = Math.max(lastAt, ms(e.at));
     prev = hash;
   }
 
@@ -148,14 +164,41 @@ export async function checkRun(input: CheckInput): Promise<CheckResult> {
     if ((ledger.get(p.from) ?? 0n) < 0n) v.conservation.push(`event ${e.seq} (${e.type}) takes ${ledger.get(p.from)! + p.amount} below zero: ${p.from} pays ${p.amount}`);
   };
 
-  // Signed submissions, by commitment. The journal holds only what the chain accepted.
+  // Signed submissions. The journal holds only what the chain accepted; each signed message backs one event.
   const subs = audit.journal.flatMap((j) => (j.op === 'submit' ? [j.submission] : []));
-  const of = <K extends Submission['kind']>(kind: K, id: string) =>
-    subs.filter((s): s is Extract<Submission, { kind: K }> => s.kind === kind && lc(idOf(s)) === lc(id));
+  const used = new Set<string>();
   const signedBy = async (m: SignableMessage, signer: string) => verifyMessage(domain, m, signer as Address);
+  /** The first unused signed message of this kind for this commitment that passes `ok`; marks it used. */
+  async function take<K extends Submission['kind'], M>(kind: K, id: string, pick: (s: Extract<Submission, { kind: K }>) => M, ok: (m: M) => boolean | Promise<boolean>, slot = ''): Promise<M | null> {
+    for (const [n, s] of subs.entries()) {
+      const tag = `${n}:${slot}`;
+      if (s.kind !== kind || lc(idOf(s)) !== lc(id) || used.has(tag)) continue;
+      const m = pick(s as Extract<Submission, { kind: K }>);
+      try {
+        if (await ok(m)) {
+          used.add(tag);
+          return m;
+        }
+      } catch {
+        // a malformed message verifies as nothing
+      }
+    }
+    return null;
+  }
 
   const ctxs = new Map<string, Ctx>();
   const within = (e: SettlementEvent, what: string) => v['within-terms'].push(`event ${e.seq} (${e.type}${e.commitmentId ? ` on ${short(e.commitmentId)}` : ''}): ${what}`);
+  /** Moves the replayed state; an event the state does not allow is outside the terms. */
+  const step = (c: Ctx, e: SettlementEvent, from: readonly string[], to: string) => {
+    if (!from.includes(c.state)) within(e, `not allowed in state ${c.state} (only from ${from.join(', ')})`);
+    c.state = to;
+  };
+  const notBefore = (e: SettlementEvent, deadline: string | undefined, what: string) => {
+    if (!deadline || ms(e.at) < ms(deadline)) within(e, `at ${e.at}, before ${what} ${deadline ?? '(none)'}`);
+  };
+  const before = (e: SettlementEvent, deadline: string | undefined, what: string) => {
+    if (!deadline || ms(e.at) >= ms(deadline)) within(e, `at ${e.at}, not before ${what} ${deadline ?? '(none)'}`);
+  };
 
   for (const [i, e] of audit.log.entries()) {
     const id = e.commitmentId ?? '';
@@ -175,9 +218,14 @@ export async function checkRun(input: CheckInput): Promise<CheckResult> {
       if (actual) for (const p of actual) post(p, e);
       continue;
     }
+    if (c?.pending && e.type !== 'settlement.released' && e.type !== 'settlement.refunded') {
+      within(e, `the ${c.pending.outcome} decision before it moved no money`);
+      c.pending = undefined;
+    }
     switch (e.type) {
       case 'commitment.offered': {
         const terms = e.payload['terms'] as CommitmentTerms;
+        if (ctxs.has(id)) within(e, 'offered twice');
         if (commitmentId(terms) !== id) within(e, 'the commitment id is not the EIP-712 hash of the terms');
         if (!(await verifyTerms(domain, terms, e.payload['sellerSignature'] as Signature, terms.seller))) within(e, `the terms are not signed by the seller ${terms.seller}`);
         const club = audit.genesis.clubs.find((k) => k.id === terms.clubId && k.rulebookHash === terms.rulebookHash);
@@ -194,11 +242,9 @@ export async function checkRun(input: CheckInput): Promise<CheckResult> {
           buyer: lc(terms.buyer),
           seller: lc(terms.seller),
           adjudicators: { primary: lc(a.adjudicator), fallback: lc(a.fallbackAdjudicator), appeal: lc(a.appealAdjudicator) },
-          delivered: false,
-          fallback: false,
-          escalated: false,
-          defaulted: false,
-          defaultApplied: false,
+          state: 'Offered',
+          appeal: { state: 'none' },
+          owedOverturn: false,
           paid: false,
           slashed: 0n,
         });
@@ -207,35 +253,57 @@ export async function checkRun(input: CheckInput): Promise<CheckResult> {
       }
       case 'adjudicator.accepted':
         if (actor !== c!.adjudicators.primary) within(e, `accepted by ${actor}, not the primary adjudicator the terms name`);
+        step(c!, e, ['Offered'], 'AcceptedByAdjudicator');
         break;
       case 'commitment.agreed': {
-        const ok = await anyAsync(of('agree', id).map((s) => s.message).concat(of('agree_and_fund', id).map((s) => s.agree)), (m) => lc(m.buyer) === c!.buyer && signedBy(m, c!.buyer));
-        if (!ok) within(e, 'no agreement signed by the buyer');
+        const agrees = await take('agree', id, (s) => s.message, (m) => lc(m.buyer) === c!.buyer && signedBy(m, c!.buyer), 'agree');
+        const both = agrees ?? (await take('agree_and_fund', id, (s) => s.agree, (m) => lc(m.buyer) === c!.buyer && signedBy(m, c!.buyer), 'agree'));
+        if (!both) within(e, 'no unused agreement signed by the buyer');
+        step(c!, e, ['AcceptedByAdjudicator'], 'Agreed');
         break;
       }
       case 'hold.funded': {
         const hold = c!.price + c!.fee;
-        const funding = of('fund', id).map((s) => s.message).concat(of('agree_and_fund', id).map((s) => s.funding));
-        const ok = await anyAsync(funding, (m) => lc(m.from) === c!.buyer && BigInt(m.value) === hold && m.token === token && signedBy(m, c!.buyer));
-        if (!ok) within(e, `no funding authorization for ${hold} signed by the buyer`);
+        const ok = (m: { from: string; value: string; token: string } & SignableMessage) => lc(m.from) === c!.buyer && BigInt(m.value) === hold && m.token === token && signedBy(m, c!.buyer);
+        const funding = (await take('fund', id, (s) => s.message, ok, 'funding')) ?? (await take('agree_and_fund', id, (s) => s.funding, ok, 'funding'));
+        if (!funding) within(e, `no unused funding authorization for ${hold} signed by the buyer`);
         if (actor !== c!.buyer) within(e, `funded by ${actor}, not the buyer`);
+        before(e, c!.terms.timing.fundBy, 'fundBy');
+        step(c!, e, ['Agreed'], 'Held');
         expected = [{ from: acct.party(c!.buyer), to: acct.escrow(id), amount: hold }];
         break;
       }
       case 'delivery.submitted': {
-        const ok = await anyAsync(of('deliver', id), (s) => signedBy({ ...s.delivery, type: 'Delivery' } as SignableMessage, c!.seller));
-        if (!ok) within(e, 'no delivery signed by the seller');
-        c!.delivered = true;
+        const ok = await take('deliver', id, (s) => s.delivery, (d) => signedBy({ ...d, type: 'Delivery' } as SignableMessage, c!.seller));
+        if (!ok) within(e, 'no unused delivery signed by the seller');
+        before(e, c!.terms.timing.deliverBy, 'deliverBy');
+        step(c!, e, ['Held'], 'Delivered');
         break;
       }
       case 'judgment.decided': {
-        const outcome = String(e.payload['outcome']);
-        const adjs = Object.values(c!.adjudicators);
-        if (!adjs.includes(actor)) within(e, `decided by ${actor}, who is not an adjudicator the terms name`);
-        const ok = await anyAsync(of('decide', id), (s) => lc(s.message.adjudicator) === actor && s.message.outcome === outcome && signedBy(s.message, actor));
-        if (!ok) within(e, `no ${outcome} decision signed by ${actor}`);
-        if (outcome === 'escalate') c!.escalated = true;
-        c!.lastRecordHash = String(e.payload['recordHash']);
+        const sitting: Role | null = c!.state === 'Delivered' ? 'primary' : c!.state === 'FallbackJudging' ? 'fallback' : c!.state === 'Escalated' ? 'appeal' : null;
+        if (!sitting) {
+          within(e, `a decision in state ${c!.state}, where no adjudicator sits`);
+          break;
+        }
+        const by = c!.adjudicators[sitting];
+        if (actor !== by) within(e, `decided by ${actor}, not the sitting ${sitting} adjudicator ${by}`);
+        const deadline = sitting === 'primary' ? c!.terms.timing.judgeBy : sitting === 'fallback' ? c!.terms.timing.fallbackBy : c!.escalationDecideBy;
+        before(e, deadline, `the ${sitting} deadline`);
+        const m = await take('decide', id, (s) => s.message, (d: Decision) => lc(d.adjudicator) === by && d.role === sitting && signedBy(d, by));
+        if (!m) {
+          within(e, `no unused ${sitting} decision signed by ${by}`);
+          break;
+        }
+        if (e.payload['outcome'] !== m.outcome) within(e, `the event says ${String(e.payload['outcome'])}; the signed decision says ${m.outcome}`);
+        if (e.payload['role'] !== m.role) within(e, `the event says role ${String(e.payload['role'])}; the signed decision says ${m.role}`);
+        if (e.payload['recordHash'] !== m.judgmentRecordHash) within(e, 'the event names another judgment record than the signed decision');
+        c!.lastRecordHash = m.judgmentRecordHash;
+        if (m.outcome === 'escalate') {
+          if (sitting === 'appeal') within(e, 'the appeal adjudicator cannot escalate');
+          c!.state = 'Escalated';
+          c!.escalationDecideBy = plus(e.at, c!.terms.timing.appealDecideSec);
+        } else c!.pending = { by, role: sitting, outcome: m.outcome };
         break;
       }
       case 'settlement.released':
@@ -244,100 +312,139 @@ export async function checkRun(input: CheckInput): Promise<CheckResult> {
         const via = e.payload['via'];
         if (via === 'early_accept') {
           if (!released) within(e, 'an early accept can only release');
-          const ok = await anyAsync(of('early_accept', id), (s) => lc(s.message.buyer) === c!.buyer && signedBy(s.message, c!.buyer));
-          if (!ok) within(e, 'no early accept signed by the buyer');
+          const ok = await take('early_accept', id, (s) => s.message, (m) => lc(m.buyer) === c!.buyer && signedBy(m, c!.buyer));
+          if (!ok) within(e, 'no unused early accept signed by the buyer');
+          step(c!, e, ['Delivered'], 'Released');
+          c!.via = 'early_accept';
           expected = [
             { from: acct.escrow(id), to: acct.party(c!.seller), amount: c!.price },
             { from: acct.escrow(id), to: acct.party(c!.buyer), amount: c!.fee },
           ];
           c!.paid = true;
         } else if (via === 'default_outcome') {
-          if (released || !c!.defaulted) within(e, 'a default outcome without a default.triggered before it');
+          if (released) within(e, 'a default outcome only refunds');
+          step(c!, e, ['Defaulted'], 'Refunded');
+          c!.via = 'default_outcome';
           expected = [{ from: acct.escrow(id), to: acct.party(c!.buyer), amount: c!.price + c!.fee }];
-          c!.defaultApplied = true;
         } else {
-          const before = audit.log[i - 1];
           const want = released ? 'accept' : 'reject';
-          if (!before || before.type !== 'judgment.decided' || before.commitmentId !== id || lc(String(before.actor)) !== actor || before.payload['outcome'] !== want) {
-            within(e, `no judgment.decided (${want}) by ${actor} immediately before it, so no signed decision backs this posting`);
+          const p = c!.pending;
+          const before = audit.log[i - 1];
+          if (!p || p.outcome !== want || p.by !== actor || before?.type !== 'judgment.decided' || before.commitmentId !== id) {
+            within(e, `no signed ${want} decision by ${actor} immediately before it, so nothing backs this posting`);
+          }
+          c!.pending = undefined;
+          const role = p?.role ?? 'primary';
+          step(c!, e, [role === 'primary' ? 'Delivered' : role === 'fallback' ? 'FallbackJudging' : 'Escalated'], released ? 'Released' : 'Refunded');
+          c!.via = role === 'appeal' ? 'escalation' : 'first_instance';
+          if (c!.via === 'first_instance') {
+            const appealBy = plus(e.at, c!.terms.timing.appealWindowSec);
+            c!.appeal = { state: 'none', appealBy, decideBy: plus(appealBy, c!.terms.timing.appealDecideSec) };
+            c!.first = { by: actor, outcome: want };
           }
           expected = [
             { from: acct.escrow(id), to: acct.party(released ? c!.seller : c!.buyer), amount: c!.price },
             { from: acct.escrow(id), to: acct.party(actor), amount: c!.fee },
           ];
-          c!.first = { by: actor, outcome: released ? 'Released' : 'Refunded' };
           if (released) c!.paid = true;
         }
+        c!.settledAt = e.at;
         break;
       }
       case 'settlement.reclaimed':
-        if (Date.parse(e.at) < Date.parse(c!.terms.timing.deliverBy)) within(e, `reclaimed at ${e.at}, before deliverBy ${c!.terms.timing.deliverBy}`);
-        if (c!.delivered) within(e, 'reclaimed after a delivery');
+        notBefore(e, c!.terms.timing.deliverBy, 'deliverBy');
+        step(c!, e, ['Held'], 'Refunded');
+        c!.via = 'reclaim';
+        c!.settledAt = e.at;
         expected = [{ from: acct.escrow(id), to: acct.party(c!.buyer), amount: c!.price + c!.fee }];
         break;
       case 'commitment.settled': {
         const payouts = e.payload['payouts'] as Array<{ to: string; amount: { token: string; amount: string } }>;
         const same = (m: { payouts: typeof payouts }) => JSON.stringify(m.payouts.map((p) => [lc(p.to), p.amount.amount])) === JSON.stringify(payouts.map((p) => [lc(p.to), p.amount.amount]));
-        const ok = await anyAsync(of('mutual_settle', id), (s) => same(s.message) && verifyMutualSettlement(domain, s.message, c!.buyer as Address, c!.seller as Address));
-        if (!ok) within(e, 'no settlement with these payouts signed by both the buyer and the seller');
+        const m = await take('mutual_settle', id, (s) => s.message, (x) => same(x) && verifyMutualSettlement(domain, x, c!.buyer as Address, c!.seller as Address));
+        if (!m) within(e, 'no unused settlement with these payouts signed by both the buyer and the seller');
+        if (m && m.releaseKey !== (e.payload['keyReleased'] === true)) within(e, 'the event releases the key differently from the signed settlement');
         const sum = payouts.reduce((a, p) => a + BigInt(p.amount.amount), 0n);
         if (sum !== c!.price) within(e, `payouts sum to ${sum}, not the price ${c!.price}`);
         const rule = c!.club?.rulebook.mutualSettlement;
         if (rule && !rule.allowed) within(e, 'the club rulebook does not allow settlement by agreement');
         if (rule?.payoutsTo === 'parties' && payouts.some((p) => ![c!.buyer, c!.seller].includes(lc(p.to)))) within(e, 'a payout to someone other than the parties, which the rulebook forbids');
         const share = (c!.fee * BigInt(rule?.adjudicatorFeeShareAfterDeliveryBps ?? 0)) / BPS;
-        const sitting = c!.escalated ? c!.adjudicators.appeal : c!.fallback ? c!.adjudicators.fallback : c!.adjudicators.primary;
+        const sitting = c!.state === 'Escalated' ? c!.adjudicators.appeal : c!.state === 'FallbackJudging' ? c!.adjudicators.fallback : c!.adjudicators.primary;
+        step(c!, e, ['Held', 'Delivered', 'FallbackJudging', 'Escalated'], 'Settled');
+        c!.settledAt = e.at;
         derived = [
           ...payouts.map((p) => ({ from: acct.escrow(id), to: acct.party(p.to), amount: BigInt(p.amount.amount) })),
           { from: acct.escrow(id), to: acct.party(sitting), amount: share },
           { from: acct.escrow(id), to: acct.party(c!.buyer), amount: c!.fee - share },
         ].filter((p) => p.amount !== 0n);
-        c!.paid = e.payload['keyReleased'] === true;
+        c!.paid = m?.releaseKey === true;
         break;
       }
+      case 'offer.expired':
+        if (c!.state === 'Agreed') notBefore(e, c!.terms.timing.fundBy, 'fundBy');
+        else notBefore(e, c!.terms.timing.offerExpiresAt, 'offerExpiresAt');
+        step(c!, e, ['Offered', 'AcceptedByAdjudicator', 'Agreed'], 'Expired');
+        c!.settledAt = e.at;
+        break;
       case 'appeal.filed': {
         const appellant = actor;
         if (![c!.buyer, c!.seller].includes(appellant)) within(e, `appeal filed by ${appellant}, who is not a party`);
+        if (!['Released', 'Refunded'].includes(c!.state) || c!.via !== 'first_instance' || c!.appeal.state !== 'none') within(e, `nothing appealable (state ${c!.state}, ${c!.via ?? 'no decision'}, appeal ${c!.appeal.state})`);
+        before(e, c!.appeal.appealBy, 'appealBy');
         const rb = c!.club?.rulebook;
         const required = rb ? (c!.price * BigInt(rb.appealBondRateBps) + BPS - 1n) / BPS : 0n;
         const bond = BigInt((e.payload['bond'] as { amount: string }).amount);
         if (bond < required) within(e, `appeal bond ${bond} is below the required ${required}`);
         const fee = BigInt(rb?.appealFee.amount ?? '0');
-        const ok = await anyAsync(of('appeal', id), (s) => lc(s.appeal.appellantAddress) === appellant && BigInt(s.appeal.bond.amount) === bond && signedBy({ ...s.appeal, type: 'Appeal' } as SignableMessage, appellant));
-        if (!ok) within(e, `no appeal with bond ${bond} signed by ${appellant}`);
+        const ok = await take('appeal', id, (s) => s.appeal, (a) => lc(a.appellantAddress) === appellant && lc(a.appellant === 'buyer' ? c!.buyer : c!.seller) === appellant && BigInt(a.bond.amount) === bond && signedBy({ ...a, type: 'Appeal' } as SignableMessage, appellant));
+        if (!ok) within(e, `no unused appeal with bond ${bond} signed by ${appellant}`);
         expected = [
           { from: acct.party(appellant), to: acct.appealBond(id), amount: bond },
           { from: acct.party(appellant), to: acct.appealFee(id), amount: fee },
         ].filter((p) => p.amount !== 0n);
-        c!.appeal = { appellant, open: true, overturned: false };
+        c!.appeal = { ...c!.appeal, state: 'open', appellant };
         break;
       }
       case 'appeal.decided': {
-        const verdict = String(e.payload['appealState']);
-        if (actor !== c!.adjudicators.appeal) within(e, `decided by ${actor}, not the appeal adjudicator`);
-        const ok = await anyAsync(of('decide', id), (s) => lc(s.message.adjudicator) === actor && s.message.outcome === e.payload['outcome'] && signedBy(s.message, actor));
-        if (!ok) within(e, `no appeal decision signed by ${actor}`);
-        if (!c!.appeal?.open || !c!.first) within(e, 'no open appeal against a first decision');
+        const appealAdj = c!.adjudicators.appeal;
+        if (actor !== appealAdj) within(e, `decided by ${actor}, not the appeal adjudicator`);
+        if (c!.appeal.state !== 'open' || !c!.first) within(e, `no open appeal against a first decision (appeal ${c!.appeal.state})`);
+        before(e, c!.appeal.decideBy, 'appealDecideBy');
+        const m = await take('decide', id, (s) => s.message, (d: Decision) => lc(d.adjudicator) === appealAdj && d.role === 'appeal' && d.outcome !== 'escalate' && signedBy(d, appealAdj));
+        if (!m) within(e, `no unused appeal decision signed by ${appealAdj}`);
+        // The verdict follows from the signed outcome against the first decision, never from the event.
+        const verdict = m && c!.first ? (m.outcome === c!.first.outcome ? 'upheld' : 'overturned') : 'upheld';
+        if (e.payload['appealState'] !== verdict) within(e, `the event says ${String(e.payload['appealState'])}; the signed appeal decision makes it ${verdict}`);
+        if (m && e.payload['recordHash'] !== m.judgmentRecordHash) within(e, 'the event names another judgment record than the signed decision');
+        if (m) c!.lastRecordHash = m.judgmentRecordHash;
         const bond = ledger.get(acct.appealBond(id)) ?? 0n;
         const fee = ledger.get(acct.appealFee(id)) ?? 0n;
         expected = [
-          { from: acct.appealFee(id), to: acct.party(c!.adjudicators.appeal), amount: fee },
-          verdict === 'upheld' ? { from: acct.appealBond(id), to: acct.junior(c!.first?.by ?? ''), amount: bond } : { from: acct.appealBond(id), to: acct.party(c!.appeal?.appellant ?? ''), amount: bond },
+          { from: acct.appealFee(id), to: acct.party(appealAdj), amount: fee },
+          verdict === 'upheld' ? { from: acct.appealBond(id), to: acct.junior(c!.first?.by ?? ''), amount: bond } : { from: acct.appealBond(id), to: acct.party(c!.appeal.appellant ?? ''), amount: bond },
         ].filter((p) => p.amount !== 0n);
-        if (c!.appeal) c!.appeal = { ...c!.appeal, open: false, overturned: verdict === 'overturned' };
-        if (verdict === 'overturned' && c!.first?.outcome === 'Refunded') c!.paid = true;
-        c!.lastRecordHash = String(e.payload['recordHash']);
+        c!.appeal = { ...c!.appeal, state: verdict, closedAt: e.at };
+        if (verdict === 'overturned') {
+          c!.owedOverturn = true;
+          if (c!.first?.outcome === 'reject') c!.paid = true;
+        }
         break;
       }
       case 'appeal.expired': {
-        const open = c!.appeal?.open;
-        expected = open
-          ? [
-              { from: acct.appealBond(id), to: acct.party(c!.appeal!.appellant), amount: ledger.get(acct.appealBond(id)) ?? 0n },
-              { from: acct.appealFee(id), to: acct.party(c!.appeal!.appellant), amount: ledger.get(acct.appealFee(id)) ?? 0n },
-            ].filter((p) => p.amount !== 0n)
-          : [];
-        if (c!.appeal) c!.appeal.open = false;
+        const a = c!.appeal;
+        if (a.state === 'none') notBefore(e, a.appealBy, 'appealBy');
+        else if (a.state === 'open') notBefore(e, a.decideBy, 'appealDecideBy');
+        else within(e, `the appeal is already ${a.state}`);
+        if (c!.via !== 'first_instance') within(e, 'no first-instance decision to close');
+        expected =
+          a.state === 'open'
+            ? [
+                { from: acct.appealBond(id), to: acct.party(a.appellant ?? ''), amount: ledger.get(acct.appealBond(id)) ?? 0n },
+                { from: acct.appealFee(id), to: acct.party(a.appellant ?? ''), amount: ledger.get(acct.appealFee(id)) ?? 0n },
+              ].filter((p) => p.amount !== 0n)
+            : [];
+        c!.appeal = { ...a, state: 'expired', closedAt: a.state === 'open' ? a.decideBy! : (a.appealBy ?? e.at) };
         break;
       }
       case 'bond.slashed': {
@@ -347,14 +454,17 @@ export async function checkRun(input: CheckInput): Promise<CheckResult> {
         const reason = e.payload['reason'];
         let to = '';
         if (reason === 'overturn') {
-          if (!c!.appeal?.overturned || !c!.first) within(e, 'a bond paid out for an overturn that no appeal decided');
+          if (c!.appeal.state !== 'overturned' || !c!.first) within(e, 'a bond paid out for an overturn that no signed appeal decided');
           if (c!.first && a !== c!.first.by) within(e, `slashes ${a}, not the adjudicator whose decision was overturned`);
-          to = c!.first?.outcome === 'Released' ? c!.buyer : c!.seller;
+          to = c!.first?.outcome === 'accept' ? c!.buyer : c!.seller;
           c!.slashed += junior + senior;
+          c!.owedOverturn = false;
           if (c!.slashed > c!.price) within(e, `overturn payouts of ${c!.slashed} exceed the price ${c!.price}`);
         } else if (reason === 'default') {
-          if (!c!.defaultApplied) within(e, 'a default payout without the default outcome applied');
-          if (!Object.values(c!.adjudicators).includes(a)) within(e, `slashes ${a}, not an adjudicator the terms name`);
+          if (c!.via !== 'default_outcome') within(e, 'a default payout without the default outcome applied');
+          // Mirrors the settlement rule: after an escalation the appeal adjudicator pays; else primary and fallback.
+          const liable = c!.defaultedFrom === 'Escalated' ? [c!.adjudicators.appeal] : [c!.adjudicators.primary, c!.adjudicators.fallback];
+          if (!liable.includes(a)) within(e, `slashes ${a}, who is not liable for a default from ${c!.defaultedFrom ?? 'nowhere'}`);
           to = c!.seller;
           c!.slashed += junior + senior;
           const cap = (c!.price * BigInt(c!.club?.rulebook.defaultOutcome.judged.sellerCompensationRateBps ?? 0)) / BPS;
@@ -367,11 +477,15 @@ export async function checkRun(input: CheckInput): Promise<CheckResult> {
         break;
       }
       case 'fallback.triggered':
-        if (Date.parse(e.at) < Date.parse(c!.terms.timing.judgeBy)) within(e, `fallback triggered at ${e.at}, before judgeBy`);
-        c!.fallback = true;
+        notBefore(e, c!.terms.timing.judgeBy, 'judgeBy');
+        step(c!, e, ['Delivered'], 'FallbackJudging');
         break;
       case 'default.triggered':
-        c!.defaulted = true;
+        // Only from FallbackJudging after fallbackBy, or from Escalated after its appeal deadline.
+        if (c!.state === 'FallbackJudging') notBefore(e, c!.terms.timing.fallbackBy, 'fallbackBy');
+        else if (c!.state === 'Escalated') notBefore(e, c!.escalationDecideBy, 'appealDecideBy');
+        c!.defaultedFrom = c!.state === 'Escalated' ? 'Escalated' : 'FallbackJudging';
+        step(c!, e, ['FallbackJudging', 'Escalated'], 'Defaulted');
         break;
       case 'key.released': {
         const to = lc(String(e.payload['recipient']));
@@ -396,6 +510,10 @@ export async function checkRun(input: CheckInput): Promise<CheckResult> {
       for (const p of derived) post(p, e);
     }
   }
+  for (const [id, c] of ctxs) {
+    if (c.pending) v['within-terms'].push(`commitment ${short(id)}: a signed ${c.pending.outcome} decision moved no money`);
+    if (c.owedOverturn) v['within-terms'].push(`commitment ${short(id)}: the appeal overturned the decision but no bond paid the wronged party`);
+  }
 
   // ---- 3. conservation -------------------------------------------------------------------------------
   const sum = (xs: Iterable<bigint>) => [...xs].reduce((a, b) => a + b, 0n);
@@ -410,12 +528,13 @@ export async function checkRun(input: CheckInput): Promise<CheckResult> {
     if (held < 0n) v.conservation.push(`account ${k} is negative: ${held}`);
   }
 
-  // ---- 4. terminal or explained, and 5. records match ------------------------------------------------
-  const now = Date.parse(audit.now);
+  // ---- 4. terminal or explained (replayed state), and 5. records match -------------------------------
+  const now = ms(audit.now);
   const commitments: CommitmentSummary[] = [];
   for (const [id, c] of ctxs) {
     const per = reads.map((r) => ({ op: r.operator, read: r.commitments[id] }));
     const logged = audit.log.filter((e) => e.commitmentId === id).map((e) => e.hash);
+    const appealState = c.via === 'first_instance' ? c.appeal.state : 'none';
     for (const { op, read } of per) {
       if (!read?.view) {
         v['records-match'].push(`${op} does not serve commitment ${short(id)}`);
@@ -426,46 +545,32 @@ export async function checkRun(input: CheckInput): Promise<CheckResult> {
         const missing = audit.log.filter((e) => e.commitmentId === id && !served.includes(e.hash)).map((e) => `${e.seq} ${e.type}`);
         v['records-match'].push(`${op} serves ${served.length} events for ${short(id)}; the log has ${logged.length}${missing.length ? ` (missing: ${missing.join(', ')})` : ''}`);
       }
+      if (read.view.escrowState !== c.state) v['records-match'].push(`${op} says ${short(id)} is ${read.view.escrowState}; the log replays to ${c.state}`);
+      if (read.view.appealState !== appealState) v['records-match'].push(`${op} says ${short(id)} has appeal ${read.view.appealState}; the log replays to ${appealState}`);
       if (c.lastRecordHash && requireRecords) {
         const rec = read.judgment;
         if (!rec) v['records-match'].push(`${op} serves no judgment record for ${short(id)}, which was decided`);
         else if (recordHashOf(rec) !== rec.recordHash) v['records-match'].push(`${op} serves a judgment record for ${short(id)} that does not hash to its recordHash`);
-        else if (rec.recordHash !== c.lastRecordHash) v['records-match'].push(`${op} serves judgment record ${short(rec.recordHash)} for ${short(id)}; the last decision signed ${short(c.lastRecordHash)}`);
+        else if (rec.recordHash !== c.lastRecordHash) v['records-match'].push(`${op} serves judgment record ${short(rec.recordHash)} for ${short(id)}; the last signed decision names ${short(c.lastRecordHash)}`);
       }
     }
-    const views = per.flatMap(({ op, read }) => (read?.view ? [{ op, view: read.view }] : []));
-    const first = views[0];
+    const views = per.flatMap(({ op, read }) => (read?.view ? [{ op, read }] : []));
     for (const o of views.slice(1)) {
-      for (const f of ['escrowState', 'appealState', 'finalAt'] as const) {
-        if (String(o.view[f] ?? null) !== String(first!.view[f] ?? null)) v['records-match'].push(`${o.op} says ${f} ${String(o.view[f])} for ${short(id)}; ${first!.op} says ${String(first!.view[f])}`);
-      }
-      if (c.lastRecordHash && requireRecords) {
-        const x = per.find((p) => p.op === o.op)?.read?.judgment;
-        const y = per.find((p) => p.op === first!.op)?.read?.judgment;
-        if (x && y && canonicalKeccak(x) !== canonicalKeccak(y)) v['records-match'].push(`${o.op} and ${first!.op} serve different judgment records for ${short(id)}`);
+      if (String(o.read.view!.finalAt ?? null) !== String(views[0]!.read.view!.finalAt ?? null)) v['records-match'].push(`${o.op} and ${views[0]!.op} disagree on finalAt for ${short(id)}`);
+      if (c.lastRecordHash && requireRecords && o.read.judgment && views[0]!.read.judgment && canonicalKeccak(o.read.judgment) !== canonicalKeccak(views[0]!.read.judgment)) {
+        v['records-match'].push(`${o.op} and ${views[0]!.op} serve different judgment records for ${short(id)}`);
       }
     }
-    const summary: CommitmentSummary = { id, buyer: c.buyer, seller: c.seller, price: c.price.toString(), fee: c.fee.toString(), escrowState: '?', appealState: '?', status: 'unexplained', explanation: '' };
-    commitments.push(summary);
-    if (!first) {
-      v['terminal-or-explained'].push(`commitment ${short(id)}: no operator serves its state`);
-      summary.explanation = 'no operator serves its state';
-      continue;
-    }
-    const view = first.view;
-    summary.escrowState = view.escrowState;
-    summary.appealState = view.appealState;
     const escrow = ledger.get(acct.escrow(id)) ?? 0n;
     const hold = c.price + c.fee;
-    if (HOLDING.has(view.escrowState) ? escrow !== hold : escrow !== 0n) {
-      v['terminal-or-explained'].push(`commitment ${short(id)} is ${view.escrowState} but escrow holds ${escrow} (expected ${HOLDING.has(view.escrowState) ? hold : 0n})`);
+    if (HOLDING.has(c.state) ? escrow !== hold : escrow !== 0n) {
+      v['terminal-or-explained'].push(`commitment ${short(id)} is ${c.state} but escrow holds ${escrow} (expected ${HOLDING.has(c.state) ? hold : 0n})`);
     }
     const appealHeld = (ledger.get(acct.appealBond(id)) ?? 0n) + (ledger.get(acct.appealFee(id)) ?? 0n);
-    if (appealHeld !== 0n && view.appealState !== 'open') v['terminal-or-explained'].push(`commitment ${short(id)} holds ${appealHeld} for an appeal that is ${view.appealState}`);
-    const [status, explanation] = classify(view.escrowState, view.appealState, view.deadlines, view.finalAt ?? null, now);
-    summary.status = status;
-    summary.explanation = explanation;
+    if (appealHeld !== 0n && appealState !== 'open') v['terminal-or-explained'].push(`commitment ${short(id)} holds ${appealHeld} for an appeal that is ${appealState}`);
+    const [status, explanation] = classify(c, now);
     if (status === 'unexplained') v['terminal-or-explained'].push(`commitment ${short(id)}: ${explanation}`);
+    commitments.push({ id, buyer: c.buyer, seller: c.seller, price: c.price.toString(), fee: c.fee.toString(), escrowState: c.state, appealState, status, explanation });
   }
   for (const r of reads) {
     for (const [a, n] of Object.entries(r.balances)) {
@@ -510,37 +615,42 @@ export async function checkRun(input: CheckInput): Promise<CheckResult> {
   };
 }
 
-/** Final, open for a stated reason (who acts next, or which permissionless trigger is due), or unexplained. */
-export function classify(state: string, appealState: string, d: Record<string, string>, finalAt: string | null, now: number): ['final' | 'open' | 'unexplained', string] {
+/** Final, open for a stated reason (who acts next, or which permissionless trigger is due), or unexplained. Deadlines come from the signed terms and the replayed log. */
+function classify(c: Ctx, now: number): ['final' | 'open' | 'unexplained', string] {
+  const t = c.terms.timing;
   const until = (deadline: string | undefined, waiting: string, trigger: string): ['open', string] =>
-    deadline && now < Date.parse(deadline) ? ['open', `${waiting} until ${deadline}`] : ['open', `${deadline ? `passed ${deadline}` : 'past its deadline'}; anyone may trigger ${trigger}`];
-  switch (state) {
+    deadline && now < ms(deadline) ? ['open', `${waiting} until ${deadline}`] : ['open', `${deadline ? `passed ${deadline}` : 'past its deadline'}; anyone may trigger ${trigger}`];
+  switch (c.state) {
     case 'Settled':
-      return ['final', 'settled by agreement of both parties'];
+      return ['final', `settled by agreement of both parties at ${c.settledAt}`];
     case 'Expired':
-      return ['final', 'expired before it was funded'];
+      return ['final', `expired before it was funded, at ${c.settledAt}`];
     case 'Released':
-    case 'Refunded':
-      if (finalAt && Date.parse(finalAt) <= now) return ['final', `${state.toLowerCase()}; final at ${finalAt}`];
-      if (appealState === 'open') return until(d['appealDecideBy'], `${state.toLowerCase()}; the appeal adjudicator decides`, 'appeal-expiry');
-      return ['open', `${state.toLowerCase()}; a party may appeal until ${d['appealBy'] ?? '?'}`];
+    case 'Refunded': {
+      const what = c.state.toLowerCase();
+      if (c.via !== 'first_instance') return ['final', `${what} (${c.via}); final at ${c.settledAt}`];
+      const a = c.appeal;
+      if (a.state === 'none') return now >= ms(a.appealBy!) ? ['final', `${what}; final at ${a.appealBy}`] : ['open', `${what}; a party may appeal until ${a.appealBy}`];
+      if (a.state === 'open') return now >= ms(a.decideBy!) ? ['final', `${what}; the appeal went undecided, final at ${a.decideBy}`] : until(a.decideBy, `${what}; the appeal adjudicator decides`, 'appeal-expiry');
+      return ['final', `${what}; appeal ${a.state}, final at ${a.closedAt}`];
+    }
     case 'Offered':
     case 'AcceptedByAdjudicator':
-      return until(d['offerExpiresAt'], 'waiting for the buyer to agree and fund', 'expire-offer');
+      return until(t.offerExpiresAt, 'waiting for the buyer to agree and fund', 'expire-offer');
     case 'Agreed':
-      return until(d['fundBy'], 'waiting for the buyer to fund', 'expire-offer');
+      return until(t.fundBy, 'waiting for the buyer to fund', 'expire-offer');
     case 'Held':
-      return until(d['deliverBy'], 'waiting for the seller to deliver', 'reclaim');
+      return until(t.deliverBy, 'waiting for the seller to deliver', 'reclaim');
     case 'Delivered':
-      return until(d['judgeBy'], 'waiting for the primary adjudicator', 'fallback');
+      return until(t.judgeBy, 'waiting for the primary adjudicator', 'fallback');
     case 'FallbackJudging':
-      return until(d['fallbackBy'], 'waiting for the fallback adjudicator', 'default');
+      return until(t.fallbackBy, 'waiting for the fallback adjudicator', 'default');
     case 'Escalated':
-      return until(d['appealDecideBy'], 'waiting for the appeal adjudicator', 'default');
+      return until(c.escalationDecideBy, 'waiting for the appeal adjudicator', 'default');
     case 'Defaulted':
       return ['open', 'defaulted; anyone may trigger apply-default'];
     default:
-      return ['unexplained', `state ${state} has no rule that ends it`];
+      return ['unexplained', `state ${c.state} has no rule that ends it`];
   }
 }
 
@@ -559,17 +669,6 @@ function idOf(s: Submission): string {
     default:
       return s.message.commitmentId;
   }
-}
-
-async function anyAsync<T>(xs: readonly T[], f: (x: T) => boolean | Promise<boolean>): Promise<boolean> {
-  for (const x of xs) {
-    try {
-      if (await f(x)) return true;
-    } catch {
-      // a malformed message verifies as nothing
-    }
-  }
-  return false;
 }
 
 const short = (h: string) => (h.length > 14 ? `${h.slice(0, 10)}…` : h);
