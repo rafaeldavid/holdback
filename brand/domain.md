@@ -1,6 +1,17 @@
 # Domain for ’crow
 
-Status: research, 2026-11-01. Nothing bought; buying is Rafa's call (it uses his payment details). The site lives at `npc.here.now/escrow` until then.
+Status: **chosen: crow.so** (Rafa, 2026-11-01). Rafa buys it (his payment details); the site lives at `npc.here.now/escrow` until the domain is pointed.
+
+## Setup plan for crow.so
+
+| Name | Points to | How |
+| --- | --- | --- |
+| `crow.so` | the site (here.now site `mighty-canvas-c3tc`) | here.now custom domain: apex `ALIAS`/flattened `CNAME` to `fallback.here.now`, plus the `TXT` ownership record here.now returns |
+| `api.crow.so` | operator 1 (`holdback-op1` Worker) | Cloudflare Workers custom domain (needs the zone on Cloudflare) |
+| `api2.crow.so` | operator 2 (`holdback-op2` Worker) | Workers custom domain |
+| `join.crow.so` | early-access sign-ups (`crow-early-access` Worker) | Workers custom domain |
+
+Simplest path: buy at a registrar that supports `.so`, then add `crow.so` as a zone on Cloudflare (free plan) and switch the registrar's nameservers to Cloudflare's. That lets the Workers use custom domains, and the apex can be flattened to here.now. After DNS: update `SITE_URL` in `site/build.mjs`, the operator URLs in `llms.txt`, the allowed origins in `apps/early-access/worker.js`, and the discovery documents; keep `npc.here.now/escrow` redirecting.
 
 ## What the name has to do
 
