@@ -1,7 +1,7 @@
-// crow-early-access: stores early-access email sign-ups from the ’crow site (npc.here.now/escrow).
+// crow-early-access: stores early-access email sign-ups from the ’crow site (escrow.stream; served at join.escrow.stream).
 // One KV entry per address: the email (lowercased), when, and which page. No IP addresses, no cookies, no tracking.
 // List sign-ups: npx wrangler@4 kv key list --binding EMAILS --config apps/early-access/wrangler.jsonc --remote
-const ALLOWED = ['https://npc.here.now', 'https://mighty-canvas-c3tc.here.now'];
+const ALLOWED = ['https://escrow.stream', 'https://www.escrow.stream', 'https://npc.here.now', 'https://mighty-canvas-c3tc.here.now'];
 const EMAIL = /^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,63}$/;
 
 const cors = (origin) => ({

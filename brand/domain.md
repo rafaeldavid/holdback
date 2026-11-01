@@ -1,17 +1,17 @@
 # Domain for ’crow
 
-Status: **chosen: crow.so** (Rafa, 2026-11-01). Rafa buys it (his payment details); the site lives at `npc.here.now/escrow` until the domain is pointed.
+Status: **live on escrow.stream** (Rafa bought it on Cloudflare on 2026-11-01, "for now"). crow.so was the first choice from the study below and is not bought. `npc.here.now/escrow` redirects to escrow.stream.
 
-## Setup plan for crow.so
+## escrow.stream (live)
 
-| Name | Points to | How |
+| Name | Serves | Worker |
 | --- | --- | --- |
-| `crow.so` | the site (here.now site `mighty-canvas-c3tc`) | here.now custom domain: apex `ALIAS`/flattened `CNAME` to `fallback.here.now`, plus the `TXT` ownership record here.now returns |
-| `api.crow.so` | operator 1 (`holdback-op1` Worker) | Cloudflare Workers custom domain (needs the zone on Cloudflare) |
-| `api2.crow.so` | operator 2 (`holdback-op2` Worker) | Workers custom domain |
-| `join.crow.so` | early-access sign-ups (`crow-early-access` Worker) | Workers custom domain |
+| `escrow.stream`, `www.escrow.stream` | the site (`index.html`, `llms.txt`, images) | `crow-site` (`apps/site/wrangler.jsonc`, static assets from `reports/site-out`) |
+| `api.escrow.stream` | operator 1 | `holdback-op1` (also at its workers.dev address) |
+| `api2.escrow.stream` | operator 2 | `holdback-op2` |
+| `join.escrow.stream` | early-access sign-ups | `crow-early-access` |
 
-Simplest path: buy at a registrar that supports `.so`, then add `crow.so` as a zone on Cloudflare (free plan) and switch the registrar's nameservers to Cloudflare's. That lets the Workers use custom domains, and the apex can be flattened to here.now. After DNS: update `SITE_URL` in `site/build.mjs`, the operator URLs in `llms.txt`, the allowed origins in `apps/early-access/worker.js`, and the discovery documents; keep `npc.here.now/escrow` redirecting.
+Publish the site: `node site/build.mjs --op1 https://api.escrow.stream --op2 https://api2.escrow.stream --out reports/site-out`, copy `site/crow.png` and `site/favicon.png` into it if missing, then `npx wrangler@4 deploy --config apps/site/wrangler.jsonc`.
 
 ## What the name has to do
 

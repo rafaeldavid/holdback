@@ -10,7 +10,9 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-export const SITE_URL = 'https://npc.here.now/escrow/';
+export const SITE_URL = 'https://escrow.stream/';
+/** The path the site is served under ('/' on escrow.stream); every link is absolute from it. */
+export const BASE = new URL(SITE_URL).pathname;
 const here = (p) => new URL(p, import.meta.url);
 
 const esc = (s) => s.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
@@ -307,7 +309,7 @@ const JOIN = `<dialog id="join" aria-labelledby="join-h">
     var email = form.email.value.trim();
     if (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]{2,}$/.test(email)) { msg.textContent = 'Please enter a full email address, like you@example.com.'; return; }
     send.disabled = true; msg.textContent = 'Sending…';
-    fetch('https://crow-early-access.rafaeldf2.workers.dev/early-access', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: email, company: form.company.value, page: location.pathname }) })
+    fetch('https://join.escrow.stream/early-access', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: email, company: form.company.value, page: location.pathname }) })
       .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, b: b }; }); })
       .then(function (x) { msg.textContent = x.ok ? 'Thank you. We’ll be in touch at ' + email + '.' : (x.b && x.b.error) || 'That didn’t go through. Please try again.'; if (x.ok) form.email.value = ''; })
       .catch(function () { msg.textContent = 'That didn’t go through. Check your connection and try again.'; })
@@ -333,10 +335,10 @@ export function page(md) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)}</title>
-<link rel="icon" type="image/png" href="/escrow/favicon.png">
-<link rel="apple-touch-icon" href="/escrow/favicon.png">
+<link rel="icon" type="image/png" href="${BASE}favicon.png">
+<link rel="apple-touch-icon" href="${BASE}favicon.png">
 <meta name="description" content="${esc(tagline)}">
-<link rel="alternate" type="text/plain" title="Agent docs (llms.txt)" href="/escrow/llms.txt">
+<link rel="alternate" type="text/plain" title="Agent docs (llms.txt)" href="${BASE}llms.txt">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;1,400&display=swap">
@@ -405,7 +407,7 @@ dialog .msg { margin: 14px 0 0; min-height: 1.4em; font-style: italic; }
 <div id="stream-s" class="stream" aria-hidden="true"></div>
 <main>
 <!-- Hooded crow: Archibald Thorburn, "A naturalist's sketch book" (1919), plate 18, public domain. -->
-<img class="mark" src="/escrow/crow.png" alt="A pencil study of a hooded crow by Archibald Thorburn, 1919" width="640" height="406">
+<img class="mark" src="${BASE}crow.png" alt="A pencil study of a hooded crow by Archibald Thorburn, 1919" width="640" height="406">
 <h1>${inline(title)}</h1>
 <p class="sub">${inline(subtitle)}</p>
 <p class="intro">${inline(intro)}</p>

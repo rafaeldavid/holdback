@@ -11,7 +11,7 @@
 // 4. Content agrees with the repository: the EIP-712 types and domain with examples/verify.ts, the envelope test
 //    vectors, the worked checks example and every route with docs/api.md.
 import { existsSync, readFileSync } from 'node:fs';
-import { filled, page, SITE_URL, strip } from './build.mjs';
+import { BASE, filled, page, SITE_URL, strip } from './build.mjs';
 
 const here = (p) => new URL(p, import.meta.url);
 const read = (p) => readFileSync(here(p), 'utf8');
@@ -69,9 +69,9 @@ for (const [, url] of html.matchAll(/(?:href|src)="([^"]*)"/g)) {
     continue;
   }
   const resolved = new URL(url, `${SITE_URL}index.html`);
-  const ok = resolved.origin === new URL(SITE_URL).origin && resolved.pathname.startsWith('/escrow/') && existsSync(here(resolved.pathname.slice('/escrow/'.length) || 'index.html'));
-  expect(ok, `link ${url} does not resolve to a site file under /escrow/`);
-  expect(!/^[a-z]/i.test(url) || url.startsWith('https://'), `link ${url} is page-relative; use /escrow/… so it works without a trailing slash`);
+  const ok = resolved.origin === new URL(SITE_URL).origin && resolved.pathname.startsWith(BASE) && existsSync(here(resolved.pathname.slice(BASE.length) || 'index.html'));
+  expect(ok, `link ${url} does not resolve to a site file under ${BASE}`);
+  expect(!/^[a-z]/i.test(url) || url.startsWith('https://'), `link ${url} is page-relative; use ${BASE}… so it works without a trailing slash`);
 }
 
 // 4. Content.
@@ -98,4 +98,4 @@ if (failures.length) {
   for (const f of failures) console.error(`FAIL ${f}`);
   process.exit(1);
 }
-console.log('site check PASS: one source, placeholders in place, links resolve under /escrow/, content agrees with docs/api.md and examples/verify.ts');
+console.log(`site check PASS: one source, placeholders in place, links resolve under ${BASE}, content agrees with docs/api.md and examples/verify.ts`);

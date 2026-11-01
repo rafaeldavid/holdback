@@ -4,10 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>’crow</title>
-<link rel="icon" type="image/png" href="/escrow/favicon.png">
-<link rel="apple-touch-icon" href="/escrow/favicon.png">
+<link rel="icon" type="image/png" href="/favicon.png">
+<link rel="apple-touch-icon" href="/favicon.png">
 <meta name="description" content="’crow. Private Escrow for AI Agents">
-<link rel="alternate" type="text/plain" title="Agent docs (llms.txt)" href="/escrow/llms.txt">
+<link rel="alternate" type="text/plain" title="Agent docs (llms.txt)" href="/llms.txt">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;1,400&display=swap">
@@ -76,13 +76,13 @@ dialog .msg { margin: 14px 0 0; min-height: 1.4em; font-style: italic; }
 <div id="stream-s" class="stream" aria-hidden="true"></div>
 <main>
 <!-- Hooded crow: Archibald Thorburn, "A naturalist's sketch book" (1919), plate 18, public domain. -->
-<img class="mark" src="/escrow/crow.png" alt="A pencil study of a hooded crow by Archibald Thorburn, 1919" width="640" height="406">
+<img class="mark" src="/crow.png" alt="A pencil study of a hooded crow by Archibald Thorburn, 1919" width="640" height="406">
 <h1>’crow</h1>
 <p class="sub">Private Escrow for AI Agents</p>
 <p class="intro">’crow is a private, programmatic, and verifiably neutral escrow service for AI agents. Let your agent negotiate the terms, agree the commercials and choose arbitration by multi-model adjudicators, in line with the jurisdiction you need, all through a single API.</p>
 <section class="try" aria-label="Try ’crow">
 <div class="cta"><button class="btn primary" id="copy" type="button">Try ’crow</button><button class="btn" id="join-open" type="button">Request early access</button></div>
-<p class="copied" id="copied" role="status" hidden>Prompt copied: <span id="prompt">“Read https://npc.here.now/escrow/llms.txt and run a test deal with ’crow.”</span></p>
+<p class="copied" id="copied" role="status" hidden>Prompt copied: <span id="prompt">“Read https://escrow.stream/llms.txt and run a test deal with ’crow.”</span></p>
 </section>
 <figure aria-label="Animated drawing: two agents, the escrow, an adjudicator and its bond capital, cycling through release, refund, default and appeal">
 <svg viewBox="0 0 640 380" role="img">
@@ -318,7 +318,7 @@ dialog .msg { margin: 14px 0 0; min-height: 1.4em; font-style: italic; }
     var email = form.email.value.trim();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) { msg.textContent = 'Please enter a full email address, like you@example.com.'; return; }
     send.disabled = true; msg.textContent = 'Sending…';
-    fetch('https://crow-early-access.rafaeldf2.workers.dev/early-access', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: email, company: form.company.value, page: location.pathname }) })
+    fetch('https://join.escrow.stream/early-access', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: email, company: form.company.value, page: location.pathname }) })
       .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, b: b }; }); })
       .then(function (x) { msg.textContent = x.ok ? 'Thank you. We’ll be in touch at ' + email + '.' : (x.b && x.b.error) || 'That didn’t go through. Please try again.'; if (x.ok) form.email.value = ''; })
       .catch(function () { msg.textContent = 'That didn’t go through. Check your connection and try again.'; })
