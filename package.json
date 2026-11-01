@@ -13,6 +13,7 @@
     "lint": "eslint .",
     "test": "vitest run",
     "validate:spec": "node scripts/validate-spec.mjs",
+    "openapi": "node scripts/openapi.mjs",
     "snap": "tsc -b packages/testkit && node packages/testkit/dist/cli.js",
     "load": "tsc -b packages/settlement && node packages/settlement/dist/sim/load.js",
     "demo": "tsc -b apps/demo && node apps/demo/dist/bin.js",
