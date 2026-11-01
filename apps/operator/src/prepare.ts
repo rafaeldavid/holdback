@@ -295,7 +295,7 @@ async function agreeAndFund(ctx: PrepareContext, input: Record<string, unknown>)
     check: [
       `you are the buyer ${c.buyer}; the seller is ${c.seller}`,
       `you authorize ${amountText({ token: c.price.token, amount: total } as TokenAmount)}: price ${amountText(c.price)} plus fee ${amountText(c.adjudication.fee)}; the fee is kept on a refund`,
-      `the work is sealed to your encryption key ${c.buyerEncryptionPublicKey}`,
+      `the terms name buyerEncryptionPublicKey ${c.buyerEncryptionPublicKey}: the seller seals the work's key to it, so confirm you hold the secret key for it (this operator cannot know your key)`,
       `adjudicators: primary ${c.adjudication.adjudicator}, fallback ${c.adjudication.fallbackAdjudicator}, appeal ${c.adjudication.appealAdjudicator}`,
       'the primary adjudicator must have accepted the offer first (escrowState AcceptedByAdjudicator)',
     ],
@@ -350,7 +350,12 @@ async function earlyAccept(ctx: PrepareContext, input: Record<string, unknown>):
     commitmentId: c.id,
     sign: [{ slot: 'signature', signer: c.buyer, ...forMessage(ctx.domain, m) }],
     submit: { method: 'POST', path: `/v1/commitments/${c.id}/accept`, body: { ...m, signature: null } },
-    check: [`you are the buyer ${c.buyer}`, `you accept the delivery and release ${amountText(c.price)} to the seller ${c.seller} now`],
+    check: [
+      `you are the buyer ${c.buyer}`,
+      `you accept the delivery and release ${amountText(c.price)} to the seller ${c.seller} now`,
+      'open your envelope first: get the signed delivery from the seller, check it is the one the settlement layer holds (its deliveryHash in delivery.submitted), open your envelope with your own key, decrypt the ciphertext and check the plaintext hash; the envelope the seller supplied is what an early accept releases, and nothing else checks it',
+      'if it does not open, do not accept early: an adjudicator\'s decision re-seals the key to your terms key (a wrong key after an early accept is an appeal ground in ADR-0012, not yet appealable here)',
+    ],
     defaults: { nonce, expiresAt },
   };
 }
