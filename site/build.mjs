@@ -277,8 +277,8 @@ ${GPU(320, 0, 'adjudicator')}
 // One line: the instructions live in llms.txt ("Try it"), not in the prompt.
 const PROMPT = `Read ${SITE_URL}llms.txt and run a test deal with ’crow.`;
 const TRY = `<section class="try" aria-label="Try ’crow">
-<div class="cta"><button class="btn primary" id="copy" type="button">Try ’crow</button></div>
-<p class="copied" id="copied" role="status" hidden>Prompt copied: <span id="prompt">“${esc(PROMPT)}”</span></p>
+<p class="try-line">Try ’crow today by asking your AI assistant about the escrow.stream demo<button class="copy" id="copy" type="button" aria-label="Copy a prompt for your AI assistant" title="Copy a prompt for your AI assistant"><svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 3.5v-.5A1.5 1.5 0 0 0 9 1.5H3A1.5 1.5 0 0 0 1.5 3v6A1.5 1.5 0 0 0 3 10.5h.5"/></svg></button><span class="copied" id="copied" role="status"></span></p>
+<span id="prompt" hidden>${esc(PROMPT)}</span>
 <form class="join" id="join-form" novalidate aria-label="Request early access">
 <input id="join-email" name="email" type="email" autocomplete="email" required placeholder="you@example.com" aria-label="Email">
 <input class="hp" name="company" tabindex="-1" autocomplete="off" aria-hidden="true">
@@ -288,13 +288,12 @@ const TRY = `<section class="try" aria-label="Try ’crow">
 </section>`;
 const JOIN = `<script>
 (function () {
-  // Try ’crow: copy the one-line prompt and say so on one line below the buttons
-  var copy = document.getElementById('copy'), line = document.getElementById('copied'), prompt = document.getElementById('prompt');
-  var text = prompt.textContent.replace(/^\\u201c|\\u201d$/g, '');
+  // Try ’crow: the copy icon copies a one-line prompt for the visitor's AI assistant
+  var copy = document.getElementById('copy'), tag = document.getElementById('copied'), text = document.getElementById('prompt').textContent;
   copy.addEventListener('click', function () {
-    var show = function (lead) { line.firstChild.textContent = lead; line.hidden = false; };
-    var select = function () { show('Copy this prompt: '); var r = document.createRange(); r.selectNodeContents(prompt); var s = getSelection(); s.removeAllRanges(); s.addRange(r); };
-    if (navigator.clipboard) navigator.clipboard.writeText(text).then(function () { show('Prompt copied: '); }, select); else select();
+    var done = function () { tag.textContent = 'Copied'; setTimeout(function () { tag.textContent = ''; }, 2500); };
+    var show = function () { tag.textContent = '\\u201c' + text + '\\u201d'; var r = document.createRange(); r.selectNodeContents(tag); var s = getSelection(); s.removeAllRanges(); s.addRange(r); };
+    if (navigator.clipboard) navigator.clipboard.writeText(text).then(done, show); else show();
   });
   // early access: the email form sits on the page
   var form = document.getElementById('join-form'), msg = document.getElementById('join-msg'), send = document.getElementById('join-send');
@@ -370,8 +369,11 @@ text.note { text-anchor: middle; font-style: italic; font-variant: normal; lette
 .tm { fill: var(--graphite); stroke: none; } .tk { fill: var(--paper); stroke: var(--sepia); stroke-width: 1.4; } .tw { fill: var(--paper); stroke: var(--graphite); stroke-width: 1; }
 /* Try ’crow: one prompt to paste into an agent; and the early-access request */
 .try { margin: 36px auto 0; max-width: 36em; }
-.copied { margin: 16px 0 0; font-size: 16px; font-style: italic; color: var(--pencil); overflow-wrap: anywhere; }
-.copied span { font-style: normal; color: var(--graphite); }
+.try-line { margin: 0; font-size: clamp(17px, 2.4vw, 19px); font-style: italic; color: var(--pencil); text-wrap: balance; }
+.copy { display: inline-grid; place-items: center; width: 28px; height: 28px; margin-left: 6px; vertical-align: -6px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--pencil); cursor: pointer; }
+.copy svg { fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linejoin: round; }
+.copy:hover { background: #efe9dc; color: var(--graphite); } .copy:focus-visible { outline: 2px solid var(--sepia); outline-offset: 2px; }
+.copied { margin-left: 6px; font-size: 15px; color: var(--sepia); font-style: normal; overflow-wrap: anywhere; }
 .btn { font: 16px var(--serif); color: var(--graphite); background: transparent; border: 1px solid var(--graphite); border-radius: 999px; padding: 8px 18px; cursor: pointer; }
 .btn:hover { background: #efe9dc; } .btn:focus-visible, input:focus-visible { outline: 2px solid var(--sepia); outline-offset: 2px; }
 .btn.primary { background: var(--graphite); color: var(--paper); } .btn.primary:hover { background: #45423d; }
