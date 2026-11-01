@@ -12,5 +12,7 @@ bf986e1cc27afbfddaee4d970192c0ad019c5edf:docs/research/sources/stripe-place-a-ho
 bf986e1cc27afbfddaee4d970192c0ad019c5edf:docs/research/sources/stripe-place-a-hold-2026-10.md:curl-auth-user:141
 bf986e1cc27afbfddaee4d970192c0ad019c5edf:docs/research/sources/stripe-place-a-hold-2026-10.md:curl-auth-user:163
 bf986e1cc27afbfddaee4d970192c0ad019c5edf:docs/research/sources/stripe-place-a-hold-2026-10.md:curl-auth-user:184
+# False positive: prose in the T-029 task file ("third slot `operatorFee.signature`, 200,000 base units").
+5b2490a31020ffdcdf0bc22fefbd9f900af8e1f1:docs/tasks/T-029-operator-fee.md:generic-api-key:36
 # False positive: a public example address (keyReleasedTo) in a spec example.
 bf986e1cc27afbfddaee4d970192c0ad019c5edf:spec/examples/event.example.json:generic-api-key:14
