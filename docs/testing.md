@@ -102,6 +102,8 @@ Recorded mode replays verdicts stored in `fixtures/recordings/<scenario>/<judgeI
 
 Scripted agents only do what their authors thought of. In a simulated run the coordinator starts an isolated world (`pnpm sim:world <run-id>`: its own SimChain, operators, fake-judge adjudicators and accounts on free ports), spawns one subagent per party with a brief from `pnpm sim:brief` (outsider knowledge, a job, a profile: honest, sloppy, impatient or adversarial), and then runs `pnpm sim:check <run-id>`. The check trusts no party: it re-verifies the hash chain and every signature in the journal, re-derives each posting from the signed terms and the club rulebook, replays the postings from genesis, and compares with the ledger and with what every operator serves. Party reports only add findings. The run is exploration and never gates CI; a finding worth keeping becomes a scenario fixture (`tools/sim/README.md`, "Promote a finding").
 
+An adversarial run only tests the protocol if no party can sign as another. A run's world therefore keeps every key private (`startSimWorld({ publishSecrets: false })`, T-023). The keys of the parties, adjudicators, operators and club operator all derive from a random per-world secret, and the sim service serves no secret key on any route. `world.test.ts` scans every sim-service route and the operators' public reads for any of those keys and for the secret itself. It also scans each brief for other parties' keys. The fake judges never suspect injection and pass any rubric unless the work contains `FAIL-ME`, so a run says nothing about how real judges would decide (batch 1, F3).
+
 ## Rules for adding tests
 
 - Every bug fix adds or changes a scenario fixture that fails before the fix.

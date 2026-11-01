@@ -12,6 +12,6 @@ The seller proposes terms and sends you the signed offer by mail. Before that, s
 {{terms}}
 ```
 
-You decide whether to agree. Check the terms before you fund: who the parties are, the price plus the adjudication fee against your budget, the acceptance checks and rubric (they are your only protection), the adjudicators, and that the work is sealed to your encryption key. Then agree and fund, wait for delivery and the decision, open the work if you were given its key, and appeal, settle or trigger a timeout only when your profile and the terms call for it.
+You decide whether to agree. Check the terms before you fund: who the parties are, the price plus the adjudication fee against your budget, the acceptance checks and rubric (they are your only protection), the adjudicators, and that the buyer encryption public key in the terms (the key the work's content key will be sealed to) is yours, one whose secret key you hold. Then agree and fund, wait for delivery and the decision, open the work if you were given its key, and appeal, settle or trigger a timeout only when your profile and the terms call for it.
 
 {{common}}

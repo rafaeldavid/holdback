@@ -2,7 +2,7 @@
 
 Model agents of different sizes play buyers and sellers against a local Holdback world through the HTTP API, the way an outside developer's agent would. Each run gets its own world, so runs never share state. Afterwards `sim:check` recomputes the run's invariants from the settlement layer's own record. The sim is for exploration, not CI: a finding worth keeping becomes a deterministic fixture.
 
-Nothing here is real: SimChain, the test token tUSD (6 decimals), test keys derived from public labels, and **fake judges** (a panel passes any work unless it contains `FAIL-ME`; deterministic checks are real). Simulated parties are never adjudicators.
+Nothing here is real: SimChain, the test token tUSD (6 decimals), test keys, and **fake judges** (a panel passes any work unless it contains `FAIL-ME`, and never suspects injection; deterministic checks are real). Simulated parties are not given an adjudicator role: the adjudicators are the world's own test adjudicators, and briefs forbid signing decisions or calling their controls. The protocol stops a party from deciding only because it lacks the adjudicators' keys. Unlike `pnpm sim`, a run's world keeps every key private (`publishSecrets: false`). The parties', adjudicators', operators' and club operator's keys all derive from a random per-world secret, and the sim service serves none of them. Each party's keys appear only in `world.json` and in that party's brief.
 
 ## Pieces
 
@@ -10,9 +10,9 @@ Nothing here is real: SimChain, the test token tUSD (6 decimals), test keys deri
 | --- | --- |
 | `catalogue.json` | Jobs (dataset, translation, code fix, research brief) with terms a party can propose; behaviour profiles (honest, sloppy, impatient, adversarial with tactics per role); model sizes; suggested pairings |
 | `briefs/` | The brief template per role (`buyer.md`, `seller.md`, shared `common.md`). A brief gives the model only outsider knowledge: the allowed docs (`README.md`, `docs/quickstart.md`, `docs/api.md`, `examples/`), this world's public endpoints, its own account, the counterparty's address, its job, its profile, and how to report |
-| `pnpm sim:world <run-id>` | Starts an isolated world on free ports (SimChain, two operators, three fake-judge adjudicators, a sim service) with fresh party accounts keyed to the run id, and writes `runs/<run-id>/world.json`. Keeps running. `--parties a,b,c` names the parties (default `buyer-1,seller-1,buyer-2,seller-2`) |
+| `pnpm sim:world <run-id>` | Starts an isolated world on free ports (SimChain, two operators, three fake-judge adjudicators, a sim service) with fresh party accounts whose keys derive from a random per-world secret, and writes `runs/<run-id>/world.json`. The sim service's `GET /` lists addresses and encryption public keys only. Keeps running. `--parties a,b,c` names the parties (default `buyer-1,seller-1,buyer-2,seller-2`) |
 | `pnpm sim:brief <run-id> <party> ...` | Renders a party's brief and saves it to `runs/<run-id>/briefs/<party>.md` |
-| `bin/mail.ts` | The agent-to-agent channel: `send` and `read [--wait n]` over `runs/<run-id>/mailbox/<party>/`. Unauthenticated, like any channel outside the protocol |
+| `bin/mail.ts` | The agent-to-agent channel: `send` and `read [--wait n] [--out <file>]` over `runs/<run-id>/mailbox/<party>/`. `--out` saves the body to a file exactly as sent, so a party never transcribes a signed offer. Unauthenticated, like any channel outside the protocol |
 | `pnpm sim:check <run-id>` | Checks the run's invariants against the live world, writes `runs/<run-id>/check.json` and `audit.json`, exits 1 on a violation. `--audit <file>` checks a saved audit instead (writes nothing) |
 | `pnpm sim:stop <run-id>` | Stops the run's world |
 
@@ -74,7 +74,8 @@ The proof that it catches violations is in `check.test.ts` (one SimChain deal pe
 
 ## Limits
 
-- Fake judges: a panel's verdict says nothing about the work's quality. Use deterministic checks to see real acceptance behaviour.
-- Nothing enforces a party's limits; they are rules in its brief. The sim service has no access control, and the run directory (including `world.json`, which holds every party's keys, and the other mailboxes) is readable by any subagent. Briefs forbid the sim's `/accounts` and `/adjudicators` routes, `world.json`, the briefs, reports and audit files and other parties' directories and mailboxes. `sim:check` does not detect a party that ignores this, though a signature by the wrong key would still fail its counterparty's checks. Read each party's `actions` for signs of it.
+- Fake judges: a panel's verdict says nothing about the work's quality. Fake judges never suspect injection, and a panel passes any work against any rubric unless the work contains `FAIL-ME`. Only deterministic checks show real acceptance behaviour, and only a live-judge run shows whether a judge would catch an injected instruction (batch 1, F3).
+- The sim service serves no secret key in a run's world. `GET /`, `GET /clock`, the controls and every error carry none, and `POST /accounts` hands a fresh spare account's keys to its caller only. `world.test.ts` scans every sim route, and the operators' discovery, club and mandate reads, for the keys of the parties, adjudicators, operators and club operator, and for the world secret itself. Every key derives from that per-world secret, so no label, party name or run id gives a key (in particular, nobody can sign a decision as an adjudicator).
+- Nothing else enforces a party's limits; they are rules in its brief. The sim service has no access control: any party could call `POST /advance`, `POST /accounts` or the `/adjudicators` controls (briefs forbid all but `/advance`; out of scope for T-023). The run directory (including `world.json`, which holds every party's keys, and the other mailboxes) is readable by any subagent. Briefs forbid `world.json`, the briefs, reports and audit files and other parties' directories and mailboxes. `sim:check` does not detect a party that ignores this, though a signature by the wrong key would still fail its counterparty's checks. Read each party's `actions` for signs of it.
 - `sim:check` needs the live world (it reads the operators); run it before `sim:stop`.
 - Claude-family models only until keys for other families are available.
