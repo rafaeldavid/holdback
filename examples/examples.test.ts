@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { hashTypedData } from 'viem';
 import { startSimWorld, type SimWorld } from '@holdback/operator';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { Agent } from './agent.ts';
 
 const here = (f: string) => fileURLToPath(new URL(f, import.meta.url));
 /** Nothing listens here, so run.ts starts its own sim for the run. */
@@ -23,6 +24,20 @@ afterAll(() => world.close());
 function example(args: string[], simUrl: string): Promise<{ code: number | null; out: string }> {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [here('./run.ts'), ...args], { env: { ...process.env, HOLDBACK_SIM_URL: simUrl } });
+    let out = '';
+    child.stdout.on('data', (d: Buffer) => (out += d.toString()));
+    child.stderr.on('data', (d: Buffer) => (out += d.toString()));
+    child.on('exit', (code) => resolve({ code, out }));
+  });
+}
+
+/** `node examples/sign.ts prepared.json intent.json` with `env`; resolves with the exit code and output. */
+function signTs(prepared: unknown, intent: unknown, env: Record<string, string>): Promise<{ code: number | null; out: string }> {
+  const dir = mkdtempSync(join(tmpdir(), 't024-sign-'));
+  writeFileSync(join(dir, 'prepared.json'), JSON.stringify(prepared));
+  writeFileSync(join(dir, 'intent.json'), JSON.stringify(intent));
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, [here('./sign.ts'), join(dir, 'prepared.json'), join(dir, 'intent.json')], { env: { ...process.env, ...env } });
     let out = '';
     child.stdout.on('data', (d: Buffer) => (out += d.toString()));
     child.stderr.on('data', (d: Buffer) => (out += d.toString()));
@@ -100,6 +115,41 @@ describe('examples', () => {
     // The quickstart's buyer diffs the mailed body against the operator's /terms (T-025): they are the same JSON.
     const signed = JSON.parse(ok.out) as { id: string };
     expect(await (await fetch(`${api}/v1/commitments/${signed.id}/terms`)).json()).toEqual(signed);
+  }, 30_000);
+
+  it('sign.ts signs an early accept only with the seller-handed delivery, after opening the envelope (T-024, D32)', async () => {
+    const fresh = async () => {
+      const a = (await (await fetch(`${world.url}/accounts`, { method: 'POST' })).json()) as { privateKey: `0x${string}`; encryptionSecretKey: string };
+      return { a, agent: new Agent([...world.info.operators], a.privateKey, Buffer.from(a.encryptionSecretKey, 'base64url')) };
+    };
+    const seller = (await fresh()).agent;
+    const { a: buyerKeys, agent: buyer } = await fresh();
+    const [primary, fallback, appeal] = world.info.adjudicators.map((x) => x.address);
+    const offer = await seller.offer({
+      template: 'checks-only', clubId: world.info.clubId, seller: seller.address,
+      buyer: { address: buyer.address, encryptionPublicKey: buyer.encryptionPublicKey }, adjudicators: { primary, fallback, appeal },
+      price: { token: 'tUSD', amount: '5000000' }, deliverable: { kind: 'dataset', description: 'sign.ts early accept', format: 'text/csv' },
+      checks: [{ id: 'cols', type: 'csv_columns_exact', required: true, columns: ['a'] }],
+    });
+    await buyer.waitFor(offer.id, ['AcceptedByAdjudicator']);
+    await buyer.agreeAndFund(offer.terms, 100_000_000n);
+    world.silence('primary', true);
+    try {
+      const { delivery } = await seller.deliverAndShare(offer.terms, new TextEncoder().encode('a\n1\n'));
+      const nonce = `0x${'e1'.repeat(32)}`;
+      const api = world.info.operators[0]!;
+      const prepared = await (await fetch(`${api}/v1/prepare/early-accept`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ commitmentId: offer.id, nonce }) })).json() as { submit: { path: string } };
+      const env = { HOLDBACK_KEY: buyerKeys.privateKey, HOLDBACK_ENCRYPTION_KEY: buyerKeys.encryptionSecretKey, HOLDBACK_OPERATORS: world.info.operators.join(',') };
+      const without = await signTs(prepared, { terms: offer.terms, nonce }, env);
+      expect(without.code, without.out).toBe(3);
+      expect(without.out).toMatch(/needs "delivery"/);
+      const ok = await signTs(prepared, { terms: offer.terms, nonce, delivery }, env);
+      expect(ok.code, ok.out).toBe(0);
+      const res = await fetch(`${api}${prepared.submit.path}`, { method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': 'sign-ts-early-1' }, body: ok.out });
+      expect(((await res.json()) as { escrowState: string }).escrowState).toBe('Released');
+    } finally {
+      world.silence('primary', false);
+    }
   }, 30_000);
 
   it('refuses an unknown example name', async () => {

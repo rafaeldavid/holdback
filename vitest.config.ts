@@ -28,6 +28,7 @@ const COST: Record<string, number> = {
   'tests/contract/openapi.contract.test.ts': 23,
   'tools/sim/check.test.ts': 10, // estimated by the PR 55 review, not yet measured in CI
   'examples/verify.test.ts': 20,
+  'examples/early-accept.test.ts': 20, // T-024, measured locally at about 2 s; not yet measured in CI
   'tests/gen-demo-data.test.ts': 18,
   'packages/settlement/sim/simchain.test.ts': 18,
   'apps/demo/src/transcript/untrusted.test.ts': 13,

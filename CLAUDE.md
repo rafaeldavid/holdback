@@ -47,6 +47,8 @@ The seller offers terms; the buyer agrees to them or doesn't. Once agreed, the t
 
 It is not the protocol's job to decide whether terms are favourable or a party is malicious. As in contract law, the parties negotiate dispute clauses (what happens when the adjudicator is involved: on a screen flag, an unreadable delivery, an inconclusive panel, who bears fees). The protocol supplies **default rules** that apply when the terms are silent (today's D27 rules), and keeps **mandatory rules** no agreement can waive: the hard rules and the three litmus tests. Clubs may narrow the clauses in their rulebook; adjudicators may decline clauses they won't run (D29, after the demo).
 
+Responsibility sits with the buyer and the seller. When a party can protect itself with a check it runs before signing, the protocol does not add settlement machinery for the party that skipped it; prefer the simpler fix (Rafa, 2026-11-01; D32).
+
 ## Hard rules
 
 Each rule is paired with the check that enforces it in `docs/team.md` (Rules and checks).
@@ -97,7 +99,7 @@ forge test                      # contracts (from Phase 2)
 
 ## Map
 
-`docs/decisions-today.md` records decisions D1 to D31 (decided October 30, 2026; D4 deferred to Phase 2), and `docs/reviews/` the reviews behind them. Read both first. `docs/backlog.md` holds work deferred until after the basic demo.
+`docs/decisions-today.md` records decisions D1 to D32 (decided October 30, 2026; D4 deferred to Phase 2), and `docs/reviews/` the reviews behind them. Read both first. `docs/backlog.md` holds work deferred until after the basic demo.
 
 The other docs: `PRD.md`, `neutrality.md`, `architecture.md`, `judgment-and-defenses.md`, `api.md`, `demo.md`, `testing.md`, `team.md`, `plan.md`, `decisions/`, `tasks/`. Research is in `docs/research/`; open it only when a decision needs it. Brand and messaging drafts (the mule mascot) are in `brand/`.
 

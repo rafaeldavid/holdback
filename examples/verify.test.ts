@@ -8,7 +8,7 @@ import nacl from 'tweetnacl';
 import { hashTypedData, hexToBytes, keccak256, toBytes, type Hex } from 'viem';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Agent } from './agent.ts';
-import { appealBondOf, commitmentIdOf, freshNonce, Refusal, SIMCHAIN_DOMAIN, verifyPrepared, type Intent } from './verify.ts';
+import { appealBondOf, commitmentIdOf, freshNonce, openOwnEnvelope, Refusal, SIMCHAIN_DOMAIN, verifyPrepared, type Intent } from './verify.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 /** A lying operator's own x25519 public key, derived at test time from a public label (no key literal in source). */
@@ -203,9 +203,10 @@ describe('neutrality.operator-lies-in-prepare', { timeout: 30_000 }, () => {
     const { id, terms } = await held();
     await silence('primary', true); // keep the deal in Delivered so the buyer can accept early
     try {
-      await seller.deliver(terms, new TextEncoder().encode('a\n1\n'));
+      const { delivery } = await seller.deliverAndShare(terms, new TextEncoder().encode('a\n1\n'));
       const nonce = freshNonce();
       const prepared = await buyer.call('POST', '/v1/prepare/early-accept', { commitmentId: id, nonce });
+      await openOwnEnvelope(await buyer.envelopeMaterial(terms, delivery)); // T-024, D32: open before accepting
       const intent: Intent = { kind: 'early-accept', terms, nonce };
       expect(verify(prepared, intent, buyer.address).toSign).toHaveLength(1);
       refusesEach(prepared, intent, buyer.address, [

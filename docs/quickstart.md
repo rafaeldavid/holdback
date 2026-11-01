@@ -19,7 +19,7 @@ pnpm sim
 
 `pnpm sim` keeps running and prints two operator nodes (`http://127.0.0.1:8787` and `:8788`), a sim service (`http://127.0.0.1:8780`), three test adjudicators, the EIP-712 domain to pin in your agent, and the club's economics. If a port is taken, it says so; choose others with `pnpm sim --port 9780 --operator-ports 9787,9788` (then use those ports below). Leave it running and open a second terminal.
 
-The sim service has test controls: `POST /accounts` hands out a fresh funded account, `POST /advance {"seconds": n}` moves the clock, and `POST /adjudicators/primary {"silent": true}` stops an adjudicator so you can try the fallback. Work containing the text `FAIL-ME` fails every fake judge, so you can try a reject and an appeal.
+Every account in this sim is yours, so its `GET /` lists the funded test accounts with their keys. (A world several agents share, such as the agent simulation in `tools/sim`, lists only addresses and public keys; each party gets its own keys privately.) The sim service has test controls: `POST /accounts` hands out a fresh funded account, `POST /advance {"seconds": n}` moves the clock, and `POST /adjudicators/primary {"silent": true}` stops an adjudicator so you can try the fallback. Work containing the text `FAIL-ME` fails every fake judge, so you can try a reject and an appeal.
 
 **In a hurry?** `pnpm example buy-dataset` and `pnpm example sell-translation` run whole deals (`examples/`); they start their own sim if none is running. The rest of this page does the same deal step by step with curl.
 
@@ -140,7 +140,11 @@ Two `key.released` events appear: `payload.recipient` says whose key each is. Th
 
 Try a bad delivery (two rows instead of three): the checks fail, the buyer is refunded 25 tUSD, gets no key, and the 1 tUSD fee stays with the adjudicator.
 
-Other steps follow the same pattern: `early-accept`, `appeal` (prepare it with `"appellant": "<your address>"`) and `settlement` (a co-signed split; both parties sign the same typed data). `examples/sign.ts` lists the intent each takes. Prepare answers 409 `invalid_state` when the commitment's state cannot take the step (an early accept after a decision, an appeal of a final decision). Timeouts are permissionless triggers: `POST $API/v1/commitments/$ID/triggers/fallback` and the others in docs/api.md. An offer nobody agreed keeps the primary adjudicator's bond reserved until someone calls `triggers/expire-offer` after `offerExpiresAt`; the seller or the adjudicator should.
+Other steps follow the same pattern: `early-accept`, `appeal` (prepare it with `"appellant": "<your address>"`) and `settlement` (a co-signed split; both parties sign the same typed data). `examples/sign.ts` lists the intent each takes. Prepare answers 409 `invalid_state` when the commitment's state cannot take the step (an early accept after a decision, an appeal of a final decision).
+
+Before an early accept, open your envelope: an early accept releases the envelope the seller supplied with the payment, and nothing else checks that it opens with your key. Ask the seller for its signed delivery body and put it in the intent as `"delivery"`; `sign.ts` checks it against the `delivery.submitted` event, opens your envelope with `HOLDBACK_ENCRYPTION_KEY`, decrypts the ciphertext and checks the plaintext hash, and refuses to sign otherwise. No appeal follows an early accept, so this check is your protection (D32; docs/api.md, "Before an early accept, open your envelope").
+
+Timeouts are permissionless triggers: `POST $API/v1/commitments/$ID/triggers/fallback` and the others in docs/api.md. An offer nobody agreed keeps the primary adjudicator's bond reserved until someone calls `triggers/expire-offer` after `offerExpiresAt`; the seller or the adjudicator should.
 
 **Before you appeal, or write your next checks,** read docs/api.md, "Escalation, screen flags and appeals" and "Writing checks that resist a seller doing the minimum". In short: on a checks-only deal, work that passes your checks is accepted (a screen flag does not change that), and an appeal re-runs the same checks, so it costs the bond and the 25 tUSD fee and fails unless a check was misreported. A deal the primary escalates is decided by the appeal adjudicator, and that decision is final at once, with no appeal window.
 

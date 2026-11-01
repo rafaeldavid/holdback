@@ -5,14 +5,16 @@
 - **Depends on:** T-021
 - **Paths this task may touch:** `apps/operator/src/sim-world.ts`, `apps/operator/src/sim-world.test.ts`, `apps/operator/src/sim-bin.ts`, `tools/sim/` (all), `docs/quickstart.md` (only the sim-service section), `docs/testing.md`
 - **Human gate:** no
-- **Status:** todo
-- **Agent/session:** —
+- **Status:** done
+- **Agent/session:** implementer (Opus 5.5), worktree `agent-ac7754cae5ca1e609`
 
 ## Intent
 
 Batch 1 (`docs/reviews/2026-11-01-sim-batch-1.md`, F1) found that `GET /` on the sim service returns every account's private signing key and encryption secret key. In a multi-party T-021 world that lets any party sign as its counterparty, which voids adversarial runs. Make the multi-party worlds keep each party's secrets private, and fix the small harness gaps the batch hit.
 
-Restate this in your own words in this section before writing code.
+**Restated (implementer, 2026-11-01).** A simulated run is only a test of the protocol if each party can sign only as itself. Today the sim service hands every account's signing and encryption secret keys to anyone who asks `GET /`, and in any case the keys derive from labels anyone can guess (`sim-run/<run-id>/<party>`). So: give `startSimWorld` a `publishSecrets` option; when it is off, no public sim route (the info document, the clock, controls, errors) carries a secret key, a fresh account from `POST /accounts` carries its keys only in that one response, and keys stop being recomputable from public labels. `tools/sim` worlds turn it off; each party still gets its own keys from its brief. The single-developer `pnpm sim` keeps listing keys, because there every account belongs to the one developer. Alongside: `mail.ts read --out <file>` saves a body byte for byte, and the README and brief say what the sim service now serves and that fake judges never suspect injection and pass any rubric without the fail marker.
+
+Non-goals: access control on `/advance`, `/accounts` or `/adjudicators` (briefs forbid them); hiding `world.json` from subagents (a brief rule, as before); smarter fake judges (F3); anything in `examples/`, `prepare.ts` or `docs/api.md` (T-024, T-025).
 
 ## Context
 
@@ -22,12 +24,12 @@ Restate this in your own words in this section before writing code.
 
 ## Acceptance criteria
 
-- [ ] `startSimWorld` takes an option (for example `publishSecrets`) that controls whether `GET /` and any other public sim route include private or encryption secret keys. `tools/sim` worlds set it off. A test shows a T-021 world's sim service serves no secret key on any route (`/`, `/accounts` reads, `/clock`, errors).
-- [ ] `POST /accounts` in a T-021 world still hands a fresh account (with its keys) only to the caller who asked; it never lists other accounts' secrets.
-- [ ] Parties still get their own keys through their brief (unchanged), and `world.test.ts`'s forbidden-strings check also scans every sim-service route's output for other parties' secrets.
-- [ ] `bin/mail.ts read` can write a message body to a file (`--out <file>` or raw body output), so a party does not transcribe a signed offer by hand.
-- [ ] The README's "Limits" section and the brief's sim-endpoint description match the new behaviour, and say plainly that fake judges never suspect injection and pass any rubric without the fail marker.
-- [ ] `pnpm verify` green.
+- [x] `startSimWorld` takes an option (for example `publishSecrets`) that controls whether `GET /` and any other public sim route include private or encryption secret keys. `tools/sim` worlds set it off. A test shows a T-021 world's sim service serves no secret key on any route (`/`, `/accounts` reads, `/clock`, errors).
+- [x] `POST /accounts` in a T-021 world still hands a fresh account (with its keys) only to the caller who asked; it never lists other accounts' secrets.
+- [x] Parties still get their own keys through their brief (unchanged), and `world.test.ts`'s forbidden-strings check also scans every sim-service route's output for other parties' secrets.
+- [x] `bin/mail.ts read` can write a message body to a file (`--out <file>` or raw body output), so a party does not transcribe a signed offer by hand.
+- [x] The README's "Limits" section and the brief's sim-endpoint description match the new behaviour, and say plainly that fake judges never suspect injection and pass any rubric without the fail marker.
+- [x] `pnpm verify` green.
 
 ## Out of scope
 
@@ -36,6 +38,43 @@ Restate this in your own words in this section before writing code.
 
 ## Evidence
 
+- **Measured.** Test first: before the implementation, the five new tests failed (`vitest run apps/operator/src/sim-world.test.ts tools/sim/world.test.ts`: 5 failed, 20 passed). The failing `GET /` body of a T-021 world showed all four parties' `privateKey` and `encryptionSecretKey`.
+- **Measured.** After: the same files plus `examples/` pass, 42 of 42.
+- **Measured.** `sim-world.test.ts`, "a sim world that keeps secrets": with `publishSecrets: false`, `GET /`, `GET /clock`, `GET /accounts`, `GET /accounts/0`, `POST /advance` (bad and good), a bad `POST /adjudicators/appeal`, an unknown route and `POST /` contain neither account's signing key (with or without `0x`) nor encryption secret key; `GET /` lists exactly `label, address, balance, encryptionPublicKey` per account and a "not published" note; `testAccount(label)` gives neither a named nor a spare account's address or public key; two `POST /accounts` calls return different accounts, the second response and a later `GET /` contain none of the first's secrets, the handed-out key signs for its address, and the address is funded (10,000 tUSD) per an operator.
+- **Measured.** The default world (`pnpm sim`) still serves `buyer-1`'s signing key on `GET /`.
+- **Measured.** `world.test.ts`: a T-021 world's sim service returns no party's secret on `GET /`, `/clock`, `/accounts`, `POST /accounts`, bad `/advance` and `/adjudicators/primary`, `/world.json` and `DELETE /`; `GET /` lists every party's address and no `privateKey`. The rendered brief contains "never suspect injection", "serves no secret key" and `--out <file>`, and still none of the other parties' keys, the audit URL or `FAIL-ME`.
+- **Measured.** `readMessage(..., { out })` writes the body byte for byte (a multi-line JSON body with quotes) and prints the headers with `bodyFile` and no `body`. By hand, `node tools/sim/bin/mail.ts send` then `read --out <file>`: `cmp` reports the files identical; `read --out` with no file prints usage and exits 2.
+- **Measured.** `pnpm verify`: PASS (typecheck, lint, test 2044 of 2044 in 75 files, spec, snap with no snapshot diffs, demo); report `reports/verify-t-023-sim-secrets.md`.
+- **Inferred.** Mandates don't leak the salted label: the principal key now derives from the salted label too, and the mandate nonce is a hash. I checked the operator's agent and mandate reads in code. Since the review, a test also checks the principal address.
+
+**PR 57 review fixes (2026-11-01)**
+
+- **Measured.** With a world secret, the keys of the adjudicators (`sim-adjudicator-a/b/c`), operator signers (`sim-operator-N`) and club operator (`sim-club-operator`) now derive from the salted label.
+  - New test, `sim-world.test.ts`, "derives no adjudicator, operator, club operator or principal key": for all three adjudicators, `testAccount(label).address` differs from the published address and the salted label matches it. Each operator's `receiptSigner`, the served club operator and every mandate principal differ from their bare-label accounts.
+  - With the three derivations reverted to `testAccount(label)`, this test and `world.test.ts`'s route scan (its final adjudicator-address check) both failed: 2 failed, 25 passed. After restoring the fix, both pass.
+- **Measured.** The leak scans now also cover the world secret itself and the keys of the adjudicators, operators, club operator and principals (signing key with or without `0x`; encryption secret as hex and base64url).
+  - Sim routes scanned: `/`, `/clock`, `/accounts` (GET and POST), the controls and errors.
+  - Operator reads scanned: `/.well-known/holdback.json`, `/v1/status`, `/v1/clubs/<id>`, `/v1/adjudicators` and `/v1/agents/<addr>` (the mandate read).
+  - Both tests pass: `sim-world.test.ts`, and `world.test.ts` on a T-021 world with both operators.
+- **Measured.** `mail read --out` now saves the body before marking the message read. An `--out` path that cannot be written throws, and the message is still the next unread one (`world.test.ts`). The bin refuses an `--out` value starting with `--`.
+- **Measured.** After the fixes, `pnpm verify` passes: typecheck, lint, test (2046 of 2046), spec, snap (no diffs) and demo. The operator sim, tools/sim and examples tests pass, 60 of 60.
+- **Guessed.** Batch 2 parties will no longer report a key leak; to be confirmed by the batch.
+
 ## Decisions
 
+- `publishSecrets` defaults to `true`. `pnpm sim` passes it explicitly, and every account there is the one developer's, so `GET /` keeps listing keys as T-020's quickstart assumes. `tools/sim` worlds pass `false` (D31: an option, not a hardcoded behaviour).
+- Without `publishSecrets`, keys derive from the label plus a 32-byte random secret per world that is never served, for named accounts, spares and mandate principals alike. Hiding the keys alone would not help: before, anyone could recompute `testAccount('sim-run/<run-id>/<party>')`. Labels stay in `GET /` because they no longer give a key.
+- `SimWorld.info` keeps every key (in-process: the world's starter holds them all, and `tools/sim/world.ts` writes them to `world.json`). The new `SimWorld.published` is exactly what `GET /` serves. `SimInfo`'s type is unchanged, so `examples/` compiles untouched.
+- `POST /accounts` still returns the spare's keys, to the caller only. Gating who may call it is access control, which is out of scope.
+- `mail.ts read --out <file>` writes the raw body and prints the headers with `bodyFile` in place of `body`. I didn't add a separate raw-output mode, since one way is enough.
+- The brief now says fake judges never suspect injection and a panel passes any rubric. It still doesn't name the fail marker: briefs keep sim internals out (`world.test.ts` forbids `FAIL-ME`).
+- No ADR: sim tooling only; no schema, contract or defense change.
+- After review: one derivation, `worldAccount`, now covers every key the world makes: accounts, spares, principals, adjudicators, operator signers and the club operator. `SimWorld.keySecret` and `SimWorld.keysOf(label)` expose the secret and the derived keys in-process so the tests can scan for them. Neither is ever served. With `publishSecrets` on, adjudicator and operator addresses are unchanged (bare labels), which a test checks.
+- The buyer brief now asks the buyer to confirm that the buyer encryption public key in the terms is one whose secret key it holds. This matches T-024's agree-and-fund wording and replaces "sealed to your encryption key".
+
 ## Handoff
+
+- Done on branch `t-023-sim-secrets`. Batch 2 (adversarial runs) can start once this merges.
+- Still open, recorded in the README Limits: the sim service has no access control on `/advance`, `/accounts` or `/adjudicators`, and `world.json` (every party's keys) is readable by any subagent. Briefs forbid both, and `sim:check` doesn't detect a party that ignores this.
+- PR 57 review findings 1 to 5, the README's "never adjudicators" line and the buyer brief wording are fixed in a follow-up commit on this branch.
+- `docs/quickstart.md`: one sentence in the sim-service paragraph. If T-025 rewrites that paragraph, keep the sentence about `GET /` listing keys only in `pnpm sim`.

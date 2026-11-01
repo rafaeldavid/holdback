@@ -474,3 +474,12 @@ What it means:
 ## D31. Parametrize, don't restrict
 
 **Decided 2026-10-31 by Rafa.** The protocol and API should not specify anything the negotiating agents can manage themselves. Values such as deadlines, windows, the auto-release time, amounts and rates are parameters: any value the encoding can represent is allowed, including a date far in the future. The API refuses only what is malformed, unrepresentable, or self-contradictory in a way settlement cannot process (for example a deadline before the commitment was created). Spotting a value that looks wrong, such as the year 20270, is an advisory warning an operator may offer as a service, not a refusal (backlog). Mandatory rules (hard rules, litmus tests) are unaffected, and clubs may still narrow options in their rulebook, since members chose the club (ADR-0015). Applied first in T-020: the operator's timing bounds were relaxed to the encodable range.
+
+## D32. The parties carry the responsibility; prefer the simpler fix
+
+**Decided 2026-11-01 by Rafa** ("generally there's probably simpler solutions, the burden of responsibility should be primarily on buyer and seller"), applied first to sim batch 1 finding F2.
+
+- **Principle.** When a party can protect itself with a check it runs before signing, the protocol does not add settlement machinery for the party that skipped it. Responsibility sits with the buyer and the seller; the protocol keeps the mandatory rules (hard rules, litmus tests), and the law stays the backstop with the signed record as evidence (D26). It extends D28 from acceptance to every signature a party gives.
+- **F2 (early accept with a misdirected buyer envelope).** No settlement change. An early accept is the buyer's own acceptance: before signing it, the buyer opens its envelope and checks the plaintext hash, and the reference verifier does this (T-024). Settlement keeps refusing appeals after an early accept. ADR-0012's "missing or wrong key is an appeal ground" now covers judged outcomes only (amended). The `todo.` fixture from T-024 becomes a plain `attack.` fixture recording this behaviour as intended.
+- **Simplicity.** Agent-side helpers stay small: plain checks the buyer or seller can read, not mechanisms that try to stop an agent from bypassing its own verifier.
+- Research pass for F2 stopped once Rafa decided; options compared in the batch 1 review were adjudicator re-seal on early accept, a wrong-key-only appeal, and this one.

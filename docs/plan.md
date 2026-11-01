@@ -43,8 +43,8 @@ Scope after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-inte
 - [x] T-020 Developer surface, API first (D30): prepare-sign-submit endpoints, delivery envelope spec, terms templates, `pnpm sim`, curl quickstart, examples (api + demo)
 - [x] T-021 Agent simulation: model agents call the HTTP API through generic HTTP and signing tools; multi-model runner (test; after T-020; PR 55)
 - [x] T-022 Faster CI without losing coverage: sharded tests, lighter property runs on PRs, schema compile once, screen timing (infra)
-- [ ] T-023 Sim worlds stop publishing secrets; harness fixes from sim batch 1 (test + api; after T-021)
-- [ ] T-024 Early accept never pays for an envelope the buyer cannot open (api + test; sim batch 1 F2)
+- [x] T-023 Sim worlds stop publishing secrets; harness fixes from sim batch 1 (test + api; after T-021; PR 57)
+- [x] T-024 Early accept never pays for an envelope the buyer cannot open (api + test; sim batch 1 F2; D32; PR 59)
 - [ ] T-025 API and docs friction from sim batch 1 (api; after T-015, T-020)
 
 **Exit:**
