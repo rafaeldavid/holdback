@@ -184,6 +184,7 @@ Rafa, 2026-10-31: get the escrow working first, then sort out risk and incentive
 | Recovery objective and operational-risk plan (PFMI P17) | Review F12 | Before testnet |
 | Audit sampling as an opt-in rulebook feature; checkability pricing | ADR-0014 | Phase 3 (T-306) |
 | Backer deposit, withdrawal-notice and withdraw messages | ADR-0014 | Phase 4 |
+| Reliable production maintenance and self-healing for the hosted demo: monitoring, alerts, restarts, scheduled checks (the nightly CI run was turned off on 2026-11-01) | Rafa, 2026-11-01 | After the public demo is live |
 
 ## Demo data and agents
 
