@@ -47,7 +47,7 @@ Scope after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-inte
 - [x] T-024 Early accept never pays for an envelope the buyer cannot open (api + test; sim batch 1 F2; D32; PR 59)
 - [x] T-025 API and docs friction from sim batch 1 (api; after T-015, T-020; PR 58)
 - [x] T-026 Public demo API on Cloudflare: two operator Workers, one Durable Object world, faucet, test tokens (api + infra; PR 61; live)
-- [ ] T-027 The site at npc.here.now/escrow: tagline and agent docs, no repo needed (demo + docs)
+- [x] T-027 The site at npc.here.now/escrow: tagline and agent docs, no repo needed (demo + docs; PR 60; live)
 
 **Exit:**
 - Demo success criteria met (`docs/demo.md`).

@@ -5,7 +5,7 @@
 - **Depends on:** T-025 (docs content); T-026 (live URLs, filled in at the end)
 - **Paths this task may touch:** `site/` (new: `index.html`, `llms.txt`, `agents.md` or equivalent), `docs/tasks/T-027-agent-docs-site.md`
 - **Human gate:** publishing is done by the coordinator (Rafa approved the location on 2026-11-01)
-- **Status:** review
+- **Status:** done (PR 60; published 2026-11-01 at https://npc.here.now/escrow/, here.now site `mighty-canvas-c3tc`)
 - **Agent/session:** implementer, branch `t-027-agent-docs-site`
 
 ## Intent

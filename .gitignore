@@ -10,6 +10,8 @@ reports/
 demo/out/
 .DS_Store
 .worktrees/
+.herenow/
+tools/sim/runs/
 
 # Personal Claude Code settings
 .claude/settings.local.json
