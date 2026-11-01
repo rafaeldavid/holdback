@@ -19,7 +19,7 @@ pnpm sim
 
 `pnpm sim` keeps running and prints two operator nodes (`http://127.0.0.1:8787` and `:8788`), a sim service (`http://127.0.0.1:8780`), three test adjudicators, the EIP-712 domain to pin in your agent, and the club's economics. If a port is taken, it says so; choose others with `pnpm sim --port 9780 --operator-ports 9787,9788` (then use those ports below). Leave it running and open a second terminal.
 
-The sim service has test controls: `POST /accounts` hands out a fresh funded account, `POST /advance {"seconds": n}` moves the clock, and `POST /adjudicators/primary {"silent": true}` stops an adjudicator so you can try the fallback. Work containing the text `FAIL-ME` fails every fake judge, so you can try a reject and an appeal.
+Every account in this sim is yours, so its `GET /` lists the funded test accounts with their keys. (A world several agents share, such as the agent simulation in `tools/sim`, lists only addresses and public keys; each party gets its own keys privately.) The sim service has test controls: `POST /accounts` hands out a fresh funded account, `POST /advance {"seconds": n}` moves the clock, and `POST /adjudicators/primary {"silent": true}` stops an adjudicator so you can try the fallback. Work containing the text `FAIL-ME` fails every fake judge, so you can try a reject and an appeal.
 
 **In a hurry?** `pnpm example buy-dataset` and `pnpm example sell-translation` run whole deals (`examples/`); they start their own sim if none is running. The rest of this page does the same deal step by step with curl.
 
