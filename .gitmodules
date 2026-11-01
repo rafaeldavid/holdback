@@ -1,0 +1,3 @@
+[submodule "contracts/lib/commerce-payments"]
+	path = contracts/lib/commerce-payments
+	url = https://github.com/base/commerce-payments

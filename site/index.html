@@ -32,11 +32,9 @@ h1 { font-family: var(--serif); font-size: clamp(56px, 12vw, 96px); line-height:
 .intro { font-size: clamp(18px, 2.6vw, 20px); line-height: 1.55; color: var(--graphite); max-width: 34em; margin: 0 auto; text-wrap: pretty; }
 figure { margin: 56px auto 0; max-width: 640px; }
 svg { width: 100%; height: auto; display: block; }
-svg path, svg rect, .agent circle, .safe circle { fill: none; stroke: var(--pencil); stroke-width: 0.9; stroke-linecap: round; stroke-linejoin: round; }
-.safe .inner { stroke: var(--faint); stroke-width: 0.6; }
+svg path, svg rect { fill: none; stroke: var(--pencil); stroke-width: 0.9; stroke-linecap: round; stroke-linejoin: round; }
 .frame rect { stroke: var(--pencil); stroke-width: 0.8; } .frame .inner { stroke: var(--faint); stroke-width: 0.5; }
 .ln path { stroke: var(--faint); stroke-width: 0.7; }
-.box .inner { stroke: var(--faint); stroke-width: 0.5; }
 svg text { font-family: var(--serif); font-size: 11px; font-variant: small-caps; letter-spacing: 0.06em; fill: var(--graphite); text-anchor: middle; }
 .cap { font-style: italic; font-variant: normal; letter-spacing: 0; text-anchor: start; }
 .cap.k { fill: var(--faint); font-size: 10.5px; }
@@ -47,29 +45,22 @@ text.note { text-anchor: middle; font-style: italic; font-variant: normal; lette
 .tm { fill: var(--graphite); stroke: none; } .tk { fill: var(--paper); stroke: var(--sepia); stroke-width: 1.4; } .tw { fill: var(--paper); stroke: var(--graphite); stroke-width: 1; }
 /* Try ’crow: one prompt to paste into an agent; and the early-access request */
 .try { margin: 36px auto 0; max-width: 36em; }
-.copied { margin: 16px 0 0; font-size: 16px; font-style: italic; color: var(--pencil); overflow-wrap: anywhere; }
-.copied span { font-style: normal; color: var(--graphite); }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.try-line { margin: 0; font-size: clamp(17px, 2.4vw, 19px); font-style: italic; color: var(--pencil); text-wrap: balance; }
+.copy { display: inline-grid; place-items: center; width: 18px; height: 18px; margin-left: 4px; vertical-align: -2px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--pencil); cursor: pointer; }
+.copy svg { fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linejoin: round; }
+.copy:hover { background: #efe9dc; color: var(--graphite); } .copy:focus-visible { outline: 2px solid var(--sepia); outline-offset: 2px; }
+.copied { margin-left: 6px; font-size: 15px; color: var(--sepia); font-style: normal; overflow-wrap: anywhere; }
 .btn { font: 16px var(--serif); color: var(--graphite); background: transparent; border: 1px solid var(--graphite); border-radius: 999px; padding: 8px 18px; cursor: pointer; }
 .btn:hover { background: #efe9dc; } .btn:focus-visible, input:focus-visible { outline: 2px solid var(--sepia); outline-offset: 2px; }
 .btn.primary { background: var(--graphite); color: var(--paper); } .btn.primary:hover { background: #45423d; }
 .cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
-dialog { box-sizing: border-box; border: 1px solid #d8d2c4; border-radius: 12px; padding: 28px; width: min(420px, calc(100% - 32px)); background: var(--paper); color: var(--graphite); font-family: var(--serif); text-align: left; box-shadow: 0 20px 60px rgba(47, 45, 42, .18); }
-dialog::backdrop { background: rgba(47, 45, 42, .28); }
-dialog { padding-top: 44px; }
-dialog form { display: flex; gap: 10px; flex-wrap: wrap; }
-dialog input[type=email] { flex: 1 1 200px; min-width: 0; box-sizing: border-box; font: 18px var(--serif); color: var(--graphite); background: #fffdf8; border: 1px solid #cfc8b8; border-radius: 999px; padding: 9px 16px; }
-dialog .x { position: absolute; top: 8px; right: 10px; width: 36px; height: 36px; border: 0; background: transparent; font: 26px/1 var(--serif); color: var(--pencil); cursor: pointer; border-radius: 50%; }
-dialog .x:hover { background: #efe9dc; } dialog .x:focus-visible { outline: 2px solid var(--sepia); outline-offset: 2px; }
-dialog .msg { flex-basis: 100%; margin: 4px 0 0; color: var(--pencil); font-size: 16px; font-style: italic; }
-dialog .msg:empty { display: none; }
+/* early access: an email box and a button, on the page */
+.join { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; max-width: 30em; margin: 0 auto 32px; }
+.join input[type=email] { flex: 1 1 220px; min-width: 0; box-sizing: border-box; font: 17px var(--serif); color: var(--graphite); background: #fffdf8; border: 1px solid #cfc8b8; border-radius: 999px; padding: 8px 16px; }
+.join .msg { flex-basis: 100%; margin: 2px 0 0; color: var(--pencil); font-size: 16px; font-style: italic; }
+.join .msg:empty { display: none; }
 .hp { position: absolute; left: -10000px; width: 1px; height: 1px; opacity: 0; }
-/* on phones the request slides up as a drawer from the bottom */
-@media (max-width: 640px) {
-  dialog { margin: auto 0 0; width: 100%; max-width: none; border-radius: 16px 16px 0 0; border-bottom: 0; padding: 52px max(20px, env(safe-area-inset-left, 0px)) calc(24px + env(safe-area-inset-bottom, 0px)); }
-  dialog[open] { animation: drawer .26s ease-out; }
-  @keyframes drawer { from { transform: translateY(100%); } }
-}
-@media (prefers-reduced-motion: reduce) { dialog[open] { animation: none; } }
 </style>
 </head>
 <body>
@@ -80,34 +71,36 @@ dialog .msg:empty { display: none; }
 <img class="mark" src="/crow.png" alt="A pencil study of a hooded crow by Archibald Thorburn, 1919" width="640" height="406">
 <h1>’crow</h1>
 <p class="sub">Private Escrow for AI Agents</p>
+<form class="join" id="join-form" novalidate aria-label="Request early access">
+<input id="join-email" name="email" type="email" autocomplete="email" required placeholder="you@example.com" aria-label="Email">
+<input class="hp" name="company" tabindex="-1" autocomplete="off" aria-hidden="true">
+<button class="btn" id="join-send" type="submit">Request early access</button>
+<p class="msg" id="join-msg" role="status"></p>
+</form>
 <p class="intro">’crow is a private, programmatic, and verifiably neutral escrow service for AI agents. Let your agent negotiate the terms, agree the commercials and choose arbitration by multi-model adjudicators, in line with the jurisdiction you need, all through a single API.</p>
 <section class="try" aria-label="Try ’crow">
-<div class="cta"><button class="btn primary" id="copy" type="button">Try ’crow</button><button class="btn" id="join-open" type="button">Request early access</button></div>
-<p class="copied" id="copied" role="status" hidden>Prompt copied: <span id="prompt">“Read https://escrow.stream/llms.txt and run a test deal with ’crow.”</span></p>
+<p class="try-line">Try ’crow today by asking your AI assistant to run a test deal with https://escrow.stream<button class="copy" id="copy" type="button" aria-label="Copy a prompt for your AI assistant" title="Copy a prompt for your AI assistant"><svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 3.5v-.5A1.5 1.5 0 0 0 9 1.5H3A1.5 1.5 0 0 0 1.5 3v6A1.5 1.5 0 0 0 3 10.5h.5"/></svg></button><span class="copied" id="copied" role="status"></span></p>
+<span id="prompt" hidden>Run a test deal with https://escrow.stream</span>
+<p class="sr-only">For AI agents: everything you need to run a deal is at https://escrow.stream/llms.txt</p>
 </section>
 <figure aria-label="Animated drawing: two agents, the escrow, an adjudicator and its bond capital, cycling through release, refund, default and appeal">
 <svg viewBox="0 0 640 380" role="img">
 <defs><filter id="pencil" x="-2%" y="-2%" width="104%" height="104%"><feTurbulence type="fractalNoise" baseFrequency="0.035" numOctaves="2" seed="3" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="2.2" xChannelSelector="R" yChannelSelector="G"/></filter></defs>
 <g filter="url(#pencil)">
 <g class="frame"><rect x="6" y="6" width="628" height="368"/><rect x="11" y="11" width="618" height="358" class="inner"/></g>
-<g class="ln"><path d="M116 100H280M360 100H524"/><path d="M320 134V182"/><path d="M320 300V258" stroke-dasharray="2 3"/></g>
-<g class="agent" transform="translate(86 100)">
-<rect x="-22" y="-18" width="44" height="34" rx="7"/><rect x="-15" y="-11" width="30" height="16" rx="3"/>
-<circle cx="-7" cy="-3" r="2.6"/><circle cx="7" cy="-3" r="2.6"/><path d="M-5 10h10M0 -18v-8"/><circle cx="0" cy="-29" r="2.6"/>
-<path d="M-22 -6h-5v12h5M22 -6h5v12h-5M-12 16v6h24v-6"/></g><g class="agent" transform="translate(554 100)">
-<rect x="-22" y="-18" width="44" height="34" rx="7"/><rect x="-15" y="-11" width="30" height="16" rx="3"/>
-<circle cx="-7" cy="-3" r="2.6"/><circle cx="7" cy="-3" r="2.6"/><path d="M-5 10h10M0 -18v-8"/><circle cx="0" cy="-29" r="2.6"/>
-<path d="M-22 -6h-5v12h5M22 -6h5v12h-5M-12 16v6h24v-6"/></g><g class="safe" transform="translate(320 100)">
-<rect x="-38" y="-32" width="76" height="62" rx="3"/><rect x="-32" y="-26" width="64" height="50" rx="2" class="inner"/>
-<circle cx="4" cy="-1" r="12"/><circle cx="4" cy="-1" r="3"/><path d="M4 -13v4M4 11v-4M-8 -1h4M16 -1h-4M-4.5 -9.5l2.8 2.8M12.5 7.5l-2.8 -2.8"/>
-<path d="M24 -10v18"/><path d="M-36 -18h-4v8h4M-36 6h-4v8h4M-30 30v5h10v-5M20 30v5h10v-5"/></g>
-<g class="box"><rect x="250" y="300" width="140" height="34"/></g>
+<g class="ln"><path d="M116 100H274M366 100H524"/><path d="M320 144V182"/><path d="M320 292V264" stroke-dasharray="2 3"/></g>
+<!-- Agents: Vaucanson's automaton tambourine player, 18th-century engraving reproduced in H.-R. d'Allemagne, "Histoire des jouets" (1902); public domain. https://commons.wikimedia.org/wiki/File:Automates_Vaucanson.jpg -->
+<image href="/agent.png" x="49" y="53" width="74" height="94"/><image href="/agent.png" x="-591" y="53" width="74" height="94" transform="scale(-1 1)"/>
+<!-- Escrow: "A Sixteenth Century Coffre-fort", from F. Litchfield, "Illustrated History of Furniture" (1893); public domain. https://commons.wikimedia.org/wiki/File:A_Sixteenth_Century_Coffre-fort.jpg -->
+<image href="/escrow.png" x="274" y="58" width="92" height="86" opacity="0.85"/>
+<!-- Bond capital: money bags from José Guadalupe Posada, "A rich man with bags of money at his feet sending people away" (c. 1880-1910), The Met; CC0. https://commons.wikimedia.org/wiki/File:A_rich_man_with_bags_of_money_at_his_feet_sending_people_away_MET_DP869407.jpg -->
+<image href="/bond.png" x="268" y="292" width="104" height="49"/>
 <g class="gpu" id="g0" transform="translate(320 214)">
 <rect x="-22" y="-22" width="44" height="44"/><rect x="-11" y="-11" width="22" height="22"/>
 <path d="M-14 -22v-6M-5 -22v-6M5 -22v-6M14 -22v-6M-14 22v6M-5 22v6M5 22v6M14 22v6M-22 -14h-6M-22 -5h-6M-22 5h-6M-22 14h-6M22 -14h6M22 -5h6M22 5h6M22 14h6"/>
 <text y="44">adjudicator</text></g>
 </g>
-<g class="lbl"><text x="86" y="150">buyer agent</text><text x="554" y="150">seller agent</text><text x="320" y="58">escrow</text><text x="320" y="321">bond capital</text></g>
+<g class="lbl"><text x="86" y="162">buyer agent</text><text x="554" y="162">seller agent</text><text x="320" y="53">escrow</text><text x="320" y="356">bond capital</text></g>
 <text x="320" y="38" class="note" id="note">Checks pass: the price to the seller, the key to the buyer, in one step.</text>
 <text x="24" y="358" class="cap k" id="sh">Plate I of IV</text><text x="616" y="358" class="cap" id="cap" style="text-anchor:end">Release</text>
 <g id="tokens"></g>
@@ -289,29 +282,17 @@ dialog .msg:empty { display: none; }
 })();
 </script>
 </main>
-<dialog id="join" aria-label="Request early access">
-<button class="x" id="join-close" type="button" aria-label="Close">×</button>
-<form id="join-form" novalidate>
-<input id="join-email" name="email" type="email" autocomplete="email" required placeholder="you@example.com" aria-label="Email">
-<input class="hp" name="company" tabindex="-1" autocomplete="off" aria-hidden="true">
-<button class="btn primary" id="join-send" type="submit">Request access</button>
-<p class="msg" id="join-msg" role="status"></p>
-</form>
-</dialog>
 <script>
 (function () {
-  // Try ’crow: copy the one-line prompt and say so on one line below the buttons
-  var copy = document.getElementById('copy'), line = document.getElementById('copied'), prompt = document.getElementById('prompt');
-  var text = prompt.textContent.replace(/^\u201c|\u201d$/g, '');
+  // Try ’crow: the copy icon copies a one-line prompt for the visitor's AI assistant
+  var copy = document.getElementById('copy'), tag = document.getElementById('copied'), text = document.getElementById('prompt').textContent;
   copy.addEventListener('click', function () {
-    var show = function (lead) { line.firstChild.textContent = lead; line.hidden = false; };
-    var select = function () { show('Copy this prompt: '); var r = document.createRange(); r.selectNodeContents(prompt); var s = getSelection(); s.removeAllRanges(); s.addRange(r); };
-    if (navigator.clipboard) navigator.clipboard.writeText(text).then(function () { show('Prompt copied: '); }, select); else select();
+    var done = function () { tag.textContent = 'Copied'; setTimeout(function () { tag.textContent = ''; }, 2500); };
+    var show = function () { tag.textContent = '\u201c' + text + '\u201d'; var r = document.createRange(); r.selectNodeContents(tag); var s = getSelection(); s.removeAllRanges(); s.addRange(r); };
+    if (navigator.clipboard) navigator.clipboard.writeText(text).then(done, show); else show();
   });
-  var dlg = document.getElementById('join'), form = document.getElementById('join-form'), msg = document.getElementById('join-msg'), send = document.getElementById('join-send');
-  document.getElementById('join-open').addEventListener('click', function () { msg.textContent = ''; if (dlg.showModal) dlg.showModal(); else dlg.setAttribute('open', ''); document.getElementById('join-email').focus(); });
-  document.getElementById('join-close').addEventListener('click', function () { dlg.close ? dlg.close() : dlg.removeAttribute('open'); });
-  dlg.addEventListener('click', function (e) { if (e.target === dlg && dlg.close) dlg.close(); });
+  // early access: the email form sits on the page
+  var form = document.getElementById('join-form'), msg = document.getElementById('join-msg'), send = document.getElementById('join-send');
   form.addEventListener('submit', function (e) {
     e.preventDefault();
     var email = form.email.value.trim();

@@ -360,3 +360,4 @@ For the curious: the source is at https://github.com/rafaeldavid/holdback. You d
 - `GET /v1/commitments/<id>`, `/terms`, `/recipients`, `/events`, `/judgment`, `/key?recipient=<address>`
 
 The hooded crow on the page is a pencil study by Archibald Thorburn, from *A Naturalist's Sketch Book* (1919), plate 18. Public domain.
+The drawing's figures are period engravings: Vaucanson's automaton tambourine player (18th century, from H.-R. d'Allemagne, *Histoire des jouets*, 1902; public domain), "A Sixteenth Century Coffre-fort" (F. Litchfield, *Illustrated History of Furniture*, 1893; public domain) and money bags from a José Guadalupe Posada print (c. 1880–1910, The Met; CC0).

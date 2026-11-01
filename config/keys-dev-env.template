@@ -19,9 +19,6 @@ GH_TOKEN=
 CLOUDFLARE_API_TOKEN=
 CLOUDFLARE_ACCOUNT_ID=eb8b88391c380106b33970809c7ae949
 
-# here.now: publishes npc.here.now/escrow. Create a key at here.now (dashboard → API keys); the publish script reads this.
-HERENOW_API_KEY=
-
 # Model keys for the live judges are already above (HOLDBACK_ANTHROPIC_API_KEY, HOLDBACK_OPENAI_COMPATIBLE_*).
 # Set a monthly spend limit for each in the Anthropic console and the DeepSeek platform as well as the code's daily cap.
 
