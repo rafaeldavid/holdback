@@ -60,37 +60,37 @@ export function render(md) {
 export const strip = (md) => md.split('\n').filter((l) => !l.startsWith('%% ')).join('\n');
 
 /**
- * One hairline drawing (Rafa, 2026-11-01): two agents, the escrow, three adjudicator GPUs and the bond
- * capital behind them, cycling through four outcomes. Complete at rest (sheet 01 drawn); motion is extra.
+ * One hairline drawing (Rafa, 2026-11-01): two agents, the escrow, one adjudicator GPU and the bond
+ * capital behind it, cycling through four outcomes. Complete at rest (sheet 01 drawn); motion is extra.
  */
 const GPU = (x, i, name) => `<g class="gpu" id="g${i}" transform="translate(${x} 214)">
 <rect x="-22" y="-22" width="44" height="44"/><rect x="-11" y="-11" width="22" height="22"/>
 <path d="M-14 -22v-6M-5 -22v-6M5 -22v-6M14 -22v-6M-14 22v6M-5 22v6M5 22v6M14 22v6M-22 -14h-6M-22 -5h-6M-22 5h-6M-22 14h-6M22 -14h6M22 -5h6M22 5h6M22 14h6"/>
 <text y="44">${name}</text></g>`;
-const FIGURE = `<figure aria-label="Animated drawing: two agents, the escrow, three adjudicators and their bond capital, cycling through release, refund, fallback and appeal">
+const FIGURE = `<figure aria-label="Animated drawing: two agents, the escrow, an adjudicator and its bond capital, cycling through release, refund, default and appeal">
 <svg viewBox="0 0 640 360" role="img">
 <g class="frame"><rect x="6" y="6" width="628" height="348"/><path d="M6 20h8M20 6v8M634 20h-8M620 6v8M6 340h8M20 354v-8M634 340h-8M620 354v-8"/></g>
-<g class="ln"><path d="M136 100H260M380 100H504"/><path d="M320 130V150M320 150H228V182M320 150V182M320 150H412V182"/><path d="M320 300V284M320 284H228V268M320 284V268M320 284H412V268" stroke-dasharray="2 3"/></g>
+<g class="ln"><path d="M136 100H260M380 100H504"/><path d="M320 130V182"/><path d="M320 300V258" stroke-dasharray="2 3"/></g>
 <g class="tick"><path d="M136 96v8M260 96v8M380 96v8M504 96v8"/></g>
 <g class="box"><rect x="36" y="72" width="100" height="56"/><rect x="504" y="72" width="100" height="56"/><rect x="260" y="70" width="120" height="60"/><rect x="262" y="72" width="116" height="56" class="inner"/><rect x="250" y="300" width="140" height="34"/></g>
 <g class="lbl"><text x="86" y="104">BUYER AGENT</text><text x="554" y="104">SELLER AGENT</text><text x="320" y="62">ESCROW</text><text x="320" y="321">BOND CAPITAL</text></g>
-${GPU(228, 0, 'PRIMARY')}${GPU(320, 1, 'FALLBACK')}${GPU(412, 2, 'APPEAL')}
+${GPU(320, 0, 'ADJUDICATOR')}
 <g class="tb"><path d="M440 300H634M440 300V354M520 300V354"/><text x="448" y="321" class="k">SHEET</text><text x="448" y="340" id="sh">01 / 04</text><text x="528" y="321" class="k">OUTCOME</text><text x="528" y="340" id="cap">RELEASE</text></g>
 <text x="20" y="40" class="note" id="note">CHECKS PASS · PRICE TO SELLER, KEY TO BUYER, IN ONE STEP</text>
 <g id="tokens"></g>
 </svg></figure>
 <script>
 (function () {
-  var P = { b: [86, 100], s: [554, 100], e: [320, 100], g0: [228, 214], g1: [320, 214], g2: [412, 214], k: [320, 317] };
+  var P = { b: [86, 100], s: [554, 100], e: [320, 100], g0: [320, 214], k: [320, 317] };
   var S = [
     { cap: 'RELEASE', note: 'CHECKS PASS \\u00b7 PRICE TO SELLER, KEY TO BUYER, IN ONE STEP', on: 0, off: -1,
       m: [['$', 'b', 'e', 0], ['w', 's', 'e', 700], ['w', 'e', 'g0', 1500], ['$', 'e', 's', 2900], ['k', 'e', 'b', 2900]] },
     { cap: 'REFUND', note: 'A REQUIRED CHECK FAILS \\u00b7 THE PRICE GOES BACK TO THE BUYER', on: 0, off: -1,
       m: [['$', 'b', 'e', 0], ['w', 's', 'e', 700], ['w', 'e', 'g0', 1500], ['$', 'e', 'b', 2900]] },
-    { cap: 'FALLBACK', note: 'PRIMARY SILENT PAST ITS DEADLINE \\u00b7 THE FALLBACK DECIDES', on: 1, off: 0,
-      m: [['$', 'b', 'e', 0], ['w', 's', 'e', 700], ['w', 'e', 'g1', 1700], ['$', 'e', 's', 3100], ['k', 'e', 'b', 3100]] },
-    { cap: 'APPEAL', note: 'APPEAL OVERTURNS THE DECISION \\u00b7 THE BOND PAYS THE WRONGED PARTY', on: 2, off: -1,
-      m: [['$', 'b', 'e', 0], ['w', 's', 'e', 700], ['w', 'e', 'g0', 1500], ['$', 'e', 's', 2600], ['w', 'b', 'g2', 3300], ['$', 'k', 'b', 4300]] }
+    { cap: 'DEFAULT', note: 'ADJUDICATOR SILENT PAST ITS DEADLINE \\u00b7 BUYER REFUNDED, SELLER PAID FROM THE BOND', on: -1, off: 0,
+      m: [['$', 'b', 'e', 0], ['w', 's', 'e', 700], ['$', 'e', 'b', 2600], ['$', 'k', 's', 2900]] },
+    { cap: 'APPEAL', note: 'APPEAL OVERTURNS THE DECISION \\u00b7 THE BOND PAYS THE WRONGED PARTY', on: 0, off: -1,
+      m: [['$', 'b', 'e', 0], ['w', 's', 'e', 700], ['w', 'e', 'g0', 1500], ['$', 'e', 's', 2600], ['w', 'b', 'g0', 3300], ['$', 'k', 'b', 4300]] }
   ];
   var NS = 'http://www.w3.org/2000/svg', T = document.getElementById('tokens');
   var reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -105,7 +105,7 @@ ${GPU(228, 0, 'PRIMARY')}${GPU(320, 1, 'FALLBACK')}${GPU(412, 2, 'APPEAL')}
     document.getElementById('sh').textContent = '0' + (i + 1) + ' / 04';
     document.getElementById('cap').textContent = s.cap;
     document.getElementById('note').textContent = s.note;
-    for (var g = 0; g < 3; g++) {
+    for (var g = 0; g < 1; g++) {
       var c = document.getElementById('g' + g).classList;
       c.toggle('on', g === s.on); c.toggle('off', g === s.off);
     }
