@@ -5,7 +5,7 @@
 - **Depends on:** T-201 merged (its recommendation picks the base: D3-A, CPP `AuthCaptureEscrow` with this contract as operator; or the fallback, D3-B, an ERC-8183 extension, or C, custom). Do not start until T-201's PR is merged, because both write `contracts/`.
 - **Paths this task may touch:** `contracts/src/`, `contracts/test/unit/`, `contracts/foundry.toml`, `contracts/remappings.txt`, `contracts/lib/` (via `forge install`, pinned commits), `contracts/.gas-snapshot`, `docs/decisions/ADR-0003-escrow-contract-base.md` (an "As built" section only), `docs/decisions/ADR-0023-operator-fee.md` (an "EVM mechanism" amendment, Proposed, only if needed), `docs/decisions-today.md` (record decisions made here), `docs/tasks/T-202-escrow-rules-contract.md`
 - **Human gate:** none. Local chain only (anvil, chain id 31337). No `forge script --broadcast`, no `cast send`, no RPC to any public network. Sepolia is T-206's gate.
-- **Status:** review
+- **Status:** done (PR 68; beacon verification split out as T-209)
 - **Agent/session:** implementer (Claude Opus 5.5), worktree branch `t-202-rules-contract`, 2026-11-01
 
 ## Intent
