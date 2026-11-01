@@ -5,7 +5,7 @@
 - **Depends on:** T-005, T-007, T-009, T-012
 - **Paths this task may touch:** `fixtures/scenarios/`, `fixtures/recordings/` (`fixtures/clubs/` and `fixtures/terms/` belong to T-012)
 - **Human gate:** no
-- **Status:** in progress (first slice merged in PR 47; open rows wait on T-016)
+- **Status:** done for Phase 1 (first slice merged in PR 47; closed 2026-11-01). The open rows in Handoff, and live recordings (the snap runner refuses `--judges live`; recordings are keyed to the placeholder registry, not `config/judges-live.yaml`), move to T-016b. Live judging itself is proven on the public demo (T-028).
 - **Agent/session:** implementer, branch `t-010-scenario-fixtures`
 
 ## Intent

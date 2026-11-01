@@ -32,7 +32,7 @@ Scope after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-inte
 - [x] T-007 Operator API and SDK with failover and direct submit; idempotency; receipts; event log (api)
 - [x] T-008 Judgment pipeline v0: intake, declarative checks, screen heuristics, spotlighting prompt builder, verdict schema, aggregation (judgment)
 - [x] T-009 Providers, pinned registry, commit-reveal panel, adjudicator service with fallback and appeal (judgment)
-- [ ] T-010 Scenario fixtures for beats 1–7 plus `error.` and `neutrality.` sets; capture live recordings once (test)
+- [x] T-010 Scenario fixtures for beats 1–7 plus `error.` and `neutrality.` sets (test; closed 2026-11-01; open rows and live recordings moved to T-016b)
 - [x] T-012 Demo data and scripted buyer/seller agents (demo)
 - [x] T-013 Narrated CLI, transcript renderer, static viewer, dry run (demo; human gate; dry run 2026-11-01)
 - [x] T-015 OpenAPI document, staleness check and HTTP contract test (api; after T-007 and T-010; ADR-0017; PR 56)
@@ -52,10 +52,10 @@ Scope after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-inte
 - [x] T-029 Operator fee per D33 (confirmed 2026-11-01; PR 63; live): ADR-0023, schema v0.7, a buyer-signed fee transfer in agree-and-fund, 402 on unpaid relay, published at 0 then 1 bp / 0.01 tUSD minimum (api + settlement)
 
 **Exit:**
-- Demo success criteria met (`docs/demo.md`).
-- Scenarios pass in CI.
-- Hold p95 ≤ 250 ms on SimChain (measured).
-- Rafa has walked through the demo.
+- Demo success criteria met (`docs/demo.md`). *Met, with one criterion partly met and moved to T-016b (2026-11-01).*
+- Scenarios pass in CI. *Met: 32 fixtures pass on main.*
+- Hold p95 ≤ 250 ms on SimChain (measured). *Met: 8.27 ms per hold over 1,000 holds (T-006).*
+- Rafa has walked through the demo. *Open: the only remaining Phase 1 gate.*
 
 ## Phase 2: Settlement on EVM, no admin keys
 
@@ -69,6 +69,7 @@ Goal: the same scenario fixtures pass against an EVM contract on a local chain. 
 - T-206 Contract review: checklist plus a cross-family review; human gate.
 - T-207 Private deals, to make "private escrow" true end to end (Rafa, 2026-11-01). Today only the work is private: it is encrypted, and only the adjudicators and the paid buyer can open it. Terms, amounts, addresses and events are public reads. Build: read authentication (`ReadToken`) so only the parties and their adjudicators read a deal; private judgment records; disclosure levels enforced, not just recorded; commitment metadata private on unauthenticated reads (residual 9); amount privacy weighed with the D4 chain choice (confidential tokens or a privacy chain). Sources: ADR-0020, D13, D16, backlog Privacy. Needs an ADR and a schema version bump. Done when a third party reading any operator learns nothing about a deal beyond what its disclosure level allows, shown by a fixture.
   - **End-to-end encrypted API (Rafa, 2026-11-01): the operator cannot read the deal either, as far as possible.** Agents encrypt the terms body (deliverable, checks, rubric, notes) to the parties and the named adjudicators, as deliveries are today; operators store and relay ciphertext and see only what settlement must check (signatures, hashes, and the money and deadline fields, themselves hidden where the chain allows). The terms already commit to `deliverableHash` and `acceptanceHash`, so settlement needs hashes, not text. Prepare becomes a published, deterministic client-side recipe (the operator cannot prepare what it cannot read). An encrypted agent-to-agent mailbox for negotiation, relayed by any operator, replaces off-protocol mail. Open questions for the ADR: what an operator must still see to relay and rate-limit, metadata leakage (who deals with whom, when, how much), key discovery and rotation, and how adjudicators get the plaintext they judge.
+- T-016b Testkit follow-ups from Phase 1: T-010's open rows (appeal, early accept, mutual settle, dispute and revoke steps; a second commitment per scenario; refusal overrides; offline operators), live recording against `config/judges-live.yaml` (`--judges live --record`, keys via `--env-file`), snapshot rendering items, and transcripts as snapshots (T-013 Handoff).
 - T-209 Beacon verification in `HoldbackRules` (BLS check of the drand value for fallback and appeal panel seeds, ADR-0018), split out of T-202; until it lands, the fallback and appeal adjudicators can choose the value their seed comes from. Also: ADR-0025 (Proposed) schema follow-up for the EVM funding signature and token identifiers.
 - T-208 Exploration: a single-use Prividium fragment per escrow, assets kept in the L1 escrow (backlog section "Exploration: a single-use Prividium fragment per escrow"); must answer D4's 2026-10-31 objections (no fragment operator can block settlement or read the deal). After T-206.
 - D4 decided (2026-11-01): target Ethereum mainnet; build and test on a local chain, then Sepolia. Mainnet deployment is a separate gate for Rafa after an audit. Record gas per deal in the evidence.

@@ -80,3 +80,9 @@ Closing slide in the transcript, also stated by the narrator:
   3. What stopped the injection?
   4. What happened when op-1 refused?
 - Every beat is a passing scenario fixture.
+
+**Status (2026-11-01, the Phase 1 close):**
+
+- Fresh clone, no keys, all transcripts: **met** (measured in the T-013 dry run: first transcript after 741 ms, 10 s wall time with a warm pnpm store; a cold machine was not measured).
+- A reviewer who has not read the docs answers the four questions from the transcripts alone: **met** (a no-context reviewer answered all four, quoting the transcripts; T-013 dry run). Rafa's own walkthrough is the Phase 1 human gate.
+- Every beat is a passing scenario fixture: **partly met**. Every beat runs on SimChain in `pnpm demo` and its tests, and 32 scenario fixtures pass in CI, but the transcripts are not themselves snapshots and some beat rows wait on runner features (T-016b: appeal steps, multi-commitment scenarios, live recordings). Accepted as the Phase 1 position; the rest moves to T-016b.
