@@ -6,6 +6,9 @@ libs = ["lib"]
 solc_version = "0.8.28"
 optimizer = true
 optimizer_runs = 200
+# T-202: the settlement view and the decision struct need the IR pipeline (stack depth); it also keeps
+# HoldbackRules under the EIP-170 runtime size limit.
+via_ir = true
 # Local chain only (anvil, chain id 31337). No RPC endpoints are configured on purpose.
 chain_id = 31337
 gas_reports = ["AuthCaptureEscrow", "HoldbackRules"]

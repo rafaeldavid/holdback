@@ -79,3 +79,16 @@ This section records evidence. It does not change the Status line above. The con
 
   [measured, Foundry isolated-transaction mode]
 - **Follow-up.** The on-chain funding signature is CPP's ERC-3009 `ReceiveWithAuthorization`, with `validAfter = 0` and a derived nonce. It does not match today's `FundingAuthorization`, so a schema change goes to T-202 through an ADR. [measured]
+
+## As built (T-202, 2026-11-01)
+
+Code: `contracts/src/HoldbackRules.sol`, `HoldbackBonds.sol`, `HoldbackTypes.sol`; tests in `contracts/test/unit/` (95 passing, measured). Option A as recommended; the conditions above are met as follows.
+
+- **Operator, no admin.** `HoldbackRules` is CPP's operator. Its ABI is an exact allowlist with no owner, pause, upgrade, blacklist or freeze function, and its runtime bytecode has no `SELFDESTRUCT` or `DELEGATECALL` (measured, `NoAdmin.t.sol`). `HoldbackBonds` is deployed by the rules contract, which is its only privileged caller. [measured]
+- **Capture timing.** `guaranteed_on_decision` only: accept captures `price + fee` with the fee to the deciding adjudicator; reject is a fee-only capture then `void`; early accept captures the price and voids the fee back. `settle_after_window` and `optimistic` are refused by construction (the contract hashes the mode as `guaranteed_on_decision`). [measured]
+- **Expiry.** `authorizationExpiry = refundExpiry = fallbackBy + appealDecideSec + EXPIRY_MARGIN` (a deployment constant; ADR-0025 proposes a terms field later). Every capturing decision lands before `fallbackBy + appealDecideSec`; after expiry the buyer's own CPP `reclaim` works with no operator (measured). [measured, inferred]
+- **Timeouts.** `expireOffer`, `reclaim`, `triggerFallback`, `triggerDefault` (default and apply-default in one call), `expireAppeal`: anyone may call each once its deadline passes. `settle` is Phase 4 and has no function. [measured]
+- **Idempotency and settle-once.** One packed word per commitment holds the stage; every money path moves it out of a funded stage first, so a second settle reverts. Signed messages are not nonce-tracked on chain: the stage machine refuses every replay (a T-205 difference). [measured]
+- **Fees.** `feeReceiver = 0`, `minFeeBps = 0`, `maxFeeBps = 10000`; the code pays the fee to whichever adjudicator decided, and all-fee captures pay third-party payouts in a mutual settlement. [measured]
+- **Events.** ERC-8183-shaped events (`JobCreated`, `JobFunded`, `JobSubmitted`, `JobCompleted`, `JobRejected`, `JobExpired`, `PaymentReleased`, `Refunded`) keyed by the commitment ID, plus Holdback events, including `KeyReleased` in the same transaction as the payment. The names follow the ERC-8183 draft as recorded in `docs/research/`; they are not yet checked against the current draft text. [guessed]
+- **Gas** (Foundry `--isolate`, steady state, mock ERC-3009 token): happy path 395,831 over two transactions; see T-202 Evidence. [measured]
