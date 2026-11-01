@@ -126,6 +126,14 @@ Test vectors (a test checks them against core and against a tweetnacl and Web Cr
 
 To open the work, the buyer reads its envelope at `GET /v1/commitments/{id}/key?recipient=<address>` (empty until its key is released, which happens with payment), the delivery's `ciphertext.uri` and `plaintextSha256` from the `delivery.submitted` event, opens the box, decrypts, and checks both hashes.
 
+**Before an early accept, open your envelope.** An early accept is the buyer's own acceptance, and the buyer is responsible for opening its envelope before signing one (D32). Nothing checks the buyer's envelope at delivery: a seller can seal it to a key you do not hold while naming you as the recipient, and settlement records the delivery all the same. A decision re-seals the key to your terms key, so judged deals are safe; an early accept releases exactly the envelope the seller supplied, with the payment, and no appeal follows it. So before you sign one:
+
+1. Get the signed delivery body from the seller (your envelope is not readable at `/key` until payment, so the seller hands it over). Sellers: this gives the buyer the content key before payment, so if the buyer does not accept early and the deal is then refunded, the buyer keeps the work. Handing it over is your choice (D32); if you don't, wait for the adjudicator.
+2. Check that its delivery hash (the EIP-712 struct hash of the delivery without its signature) equals `payload.deliveryHash` of the `delivery.submitted` event. Read that event from at least two distinct operators and require them to agree; one operator's answer could match a forged delivery. That is the envelope settlement will release.
+3. Open your one envelope with your own secret key, fetch the ciphertext from `ciphertext.uri`, check its `sha256`, decrypt, and check the plaintext against the signed `plaintextSha256`.
+
+`openOwnEnvelope` in `examples/verify.ts` runs steps 2 and 3 and says which check failed; `Agent.earlyAccept(terms, delivery)` in `examples/agent.ts` and `examples/sign.ts` (intent field `delivery`) run it, reading `recorded` from two operators, before they sign. If the envelope does not open, do not accept early. No appeal follows an early accept (settlement refuses it: `invalid_state`, "nothing to appeal after early_accept"; fixture `error.early-accept-wrong-key-envelope`); ADR-0012's missing-or-wrong-key ground covers judged outcomes only (D32).
+
 ### Acceptance: checks and rubric
 
 Deterministic checks run first and are declarative (no code). Each has an `id`, `required` (a failed required check rejects) and its own fields (`commitment.schema.json`):
@@ -200,7 +208,7 @@ The buyer holds price plus fee. Payment, once made, is never clawed back; an ove
 | POST | `/v1/holds` | One-shot: terms, seller and buyer signatures, adjudicator acceptance, funding authorization | `Held` (target p95 ≤ 300 ms on SimChain) |
 | POST | `/v1/commitments/{id}/fund` | Funding authorization (ERC-3009 or Permit2 style, buyer-signed) | `Held` |
 | POST | `/v1/commitments/{id}/deliveries` | Delivery (`delivery.schema.json`), seller-signed | `Delivered` |
-| POST | `/v1/commitments/{id}/accept` | `EarlyAccept`, buyer-signed | `Released`; the seller-supplied key for the buyer is released with the payment |
+| POST | `/v1/commitments/{id}/accept` | `EarlyAccept`, buyer-signed | `Released`; the seller-supplied key for the buyer is released with the payment. Open your envelope first (see "Before an early accept, open your envelope") |
 | POST | `/v1/commitments/{id}/decisions` | `Decision`, signed by the adjudicator whose turn it is; carries the seed reveal and, on accept, the key for the buyer | `Released`, `Refunded` or `Escalated` |
 | POST | `/v1/commitments/{id}/appeals` | Appeal (`appeal.schema.json`) plus bond and appeal-fee authorization | Appeal state `open` |
 | POST | `/v1/commitments/{id}/settlements` | `MutualSettlement` (ADR-0019, D23): `payouts` (one to eight `{to, amount}` in the price token, summing to the price, to any addresses both sign for), `deliveryHash` or `null` before delivery, `releaseKey`, and a buyer and a seller signature over the identical struct. `?validateOnly=true` previews it unsigned | `Settled`: each payout is paid, the fee returns to the buyer, the key is released if agreed; the club rulebook must allow it and may restrict payouts to the parties (`payoutsTo`) |

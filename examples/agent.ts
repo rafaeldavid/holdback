@@ -4,7 +4,7 @@
 import nacl from 'tweetnacl';
 import type { Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { commitmentIdOf, configuredDomain, freshNonce, jcs, jcsHash, verifyPrepared, type Domain, type Intent } from './verify.ts';
+import { commitmentIdOf, configuredDomain, freshNonce, jcs, jcsHash, openOwnEnvelope, verifyPrepared, type Domain, type EnvelopeMaterial, type Intent } from './verify.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 const b64 = (b: Uint8Array) => Buffer.from(b).toString('base64url');
@@ -68,14 +68,19 @@ export class Agent {
     return club;
   }
   rulebookHash = async (clubId: string): Promise<Hex> => (await this.club(clubId)).rulebookHash;
-  /** Verifies a prepared message against this agent's intent, signs its own typed data, submits its own body. */
-  async signAndSubmit(prepared: J, intent: Intent): Promise<J> {
+  /** Verifies a prepared message against this agent's intent and signs its own typed data into its own body. */
+  async sign(prepared: J, intent: Intent): Promise<{ path: string; body: J }> {
     const { path, body, toSign } = verifyPrepared(prepared, intent, this.address, this.domain, await this.settlementNow());
     for (const s of toSign) {
       const keys = s.slot.split('.');
       const parent = keys.slice(0, -1).reduce((o: J, k: string) => o[k], body);
       parent[keys.at(-1)!] = await this.account.signTypedData(s.typed);
     }
+    return { path, body };
+  }
+  /** Verifies a prepared message against this agent's intent, signs its own typed data, submits its own body. */
+  async signAndSubmit(prepared: J, intent: Intent): Promise<J> {
+    const { path, body } = await this.sign(prepared, intent);
     return this.call('POST', path, body);
   }
   /** Seller: an offer from a request, checked against the club and primary as every operator serves them. */
@@ -108,8 +113,18 @@ export class Agent {
    * An operator's /recipients answer is only cross-checked, never trusted.
    */
   async deliver(terms: J, plaintext: Uint8Array): Promise<J> {
+    return (await this.deliverAndShare(terms, plaintext)).state;
+  }
+  /**
+   * Seller: deliver, and keep the signed delivery body. To be paid by an early accept, hand it to the buyer: it
+   * carries the buyer's envelope, which the buyer opens before accepting. That gives the buyer the content key
+   * before payment: if the buyer does not accept early and the deal is then refunded, the buyer keeps the work.
+   * Handing it over is your choice (D32); otherwise wait for the adjudicator.
+   */
+  async deliverAndShare(terms: J, plaintext: Uint8Array): Promise<{ state: J; delivery: J }> {
     const { prepared, intent } = await this.prepareDelivery(terms, plaintext);
-    return this.signAndSubmit(prepared, intent);
+    const { path, body } = await this.sign(prepared, intent);
+    return { state: await this.call('POST', path, body), delivery: body };
   }
   async prepareDelivery(terms: J, plaintext: Uint8Array): Promise<{ prepared: J; intent: Intent }> {
     const a = terms.adjudication;
@@ -134,6 +149,29 @@ export class Agent {
     const intent: Intent = { kind: 'delivery', terms, ciphertext: { uri: stored.uri, sha256: stored.id, bytes: ciphertext.length }, plaintextSha256: await sha(plaintext), encryptedKeys };
     const prepared = await this.call('POST', '/v1/prepare/delivery', { commitmentId: id, ciphertext: intent.ciphertext, plaintextSha256: intent.plaintextSha256, encryptedKeys });
     return { prepared, intent };
+  }
+  /**
+   * Buyer: what openOwnEnvelope needs for a delivery the seller handed over: the delivery the settlement layer
+   * recorded, as every operator serves it, and the ciphertext bytes it names.
+   */
+  async envelopeMaterial(terms: J, delivery: J): Promise<EnvelopeMaterial> {
+    const id = commitmentIdOf(terms);
+    const recorded = await this.trusted(`/v1/commitments/${id}/events?limit=200`, (x) => x.items.filter((e: J) => e.type === 'delivery.submitted').at(-1)?.payload ?? null);
+    if (!recorded) throw new Error(`no delivery recorded for ${id} yet`);
+    const res = await fetch(recorded.ciphertext.uri);
+    if (!res.ok) throw new Error(`could not fetch the ciphertext at ${recorded.ciphertext.uri}`);
+    return { terms, delivery, recorded, ciphertext: new Uint8Array(await res.arrayBuffer()), encryptionSecretKey: this.encryptionSecretKey };
+  }
+  /**
+   * Buyer: accept a delivery before any decision. It opens this agent's own envelope from the signed delivery
+   * the seller handed over, checks it against what the settlement layer holds and the signed hashes, and only
+   * then signs: an early accept releases the seller-supplied envelope with the payment, and no appeal follows it (D32).
+   */
+  async earlyAccept(terms: J, delivery: J): Promise<J> {
+    await openOwnEnvelope(await this.envelopeMaterial(terms, delivery)); // throws Refusal if it does not open
+    const nonce = freshNonce();
+    const prepared = await this.call('POST', '/v1/prepare/early-accept', { commitmentId: commitmentIdOf(terms), nonce });
+    return this.signAndSubmit(prepared, { kind: 'early-accept', terms, nonce });
   }
   /** Buyer: fetch this agent's released envelope and the ciphertext, decrypt, check the signed hashes. */
   async openDelivery(id: Hex): Promise<string> {

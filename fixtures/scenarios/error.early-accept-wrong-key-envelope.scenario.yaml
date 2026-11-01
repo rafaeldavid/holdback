@@ -1,0 +1,40 @@
+# @settlement sim @judges recorded @mode guaranteed_on_decision @seed 241
+name: error.early-accept-wrong-key-envelope
+description: >-
+  Sim batch 1, F2; decided by D32 (ADR-0012 amended). Tidewater seals Atlas's content-key envelope to a key
+  Atlas does not hold, naming Atlas as the recipient; settlement cannot tell and records the delivery. Atlas's
+  agent skips the open-your-envelope check that examples/agent.ts and sign.ts run before an early accept, and
+  accepts early: the price goes to Tidewater and the misdirected envelope is released, which Atlas cannot
+  open. Its missing-or-wrong-key appeal is refused, as intended: an early accept is the buyer's own acceptance,
+  no appeal follows it, and the wrong-key ground covers judged outcomes only. Responsibility sits with the
+  buyer's check before signing; the signed record is the evidence (D26). Prefixed error., not attack.: the
+  attack. rule requires that nothing is paid out, and here the release is the buyer's own signed choice.
+club: fixtures/clubs/data-services-v1.yaml
+terms: fixtures/terms/clean-customers-2000.yaml
+parties:
+  buyer: atlas-buyer
+  seller: tidewater-seller
+adjudicators:
+  primary: bench-a
+  fallback: bench-b
+  appeal: bench-c
+operators: [op-1, op-2]
+faucet:
+  atlas-buyer: "10000000000"
+  bench-a: "25000000000"
+  bench-b: "25000000000"
+  bench-c: "25000000000"
+steps:
+  - offer:              { by: seller, via: op-1 }
+  - adjudicator_accept: { via: op-1 }
+  - agree_and_fund:     { by: buyer, via: op-1 }
+  - deliver:            { by: seller, via: op-1, file: data/dataset-cleaning/customers.clean.csv, buyer_envelope: wrong_key }
+  - early_accept:       { by: buyer, via: op-1 }
+  - appeal:             { by: buyer, via: op-1, grounds: missing-or-wrong-key }
+  - verify_key_release: { by: buyer, via: op-1 }
+expect:                             # intended (D32): Atlas paid, has no appeal, and cannot open the work
+  problem: { type: invalid_state, step: 6 }
+  terminal: Released
+  balances:
+    atlas-buyer: "8000000000"
+    tidewater-seller: "2000000000"
