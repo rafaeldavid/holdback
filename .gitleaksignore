@@ -19,5 +19,10 @@ bf986e1cc27afbfddaee4d970192c0ad019c5edf:docs/research/sources/stripe-place-a-ho
 1ac95309c8edb90d23070d579231fcfdda1c3c13:spec/examples/disclosure.example.json:generic-api-key:13
 1ac95309c8edb90d23070d579231fcfdda1c3c13:spec/examples/messages.delegation.example.json:generic-api-key:5
 1ac95309c8edb90d23070d579231fcfdda1c3c13:spec/examples/messages.delegation.example.json:generic-api-key:6
+# False positives: T-202 test placeholders (a cipher-scheme name and base64 of "sealed-key-for-buyer").
+0e3052496fd42c6083bcce85c382c72d594b24a0:contracts/test/unit/Vectors.t.sol:generic-api-key:121
+0e3052496fd42c6083bcce85c382c72d594b24a0:contracts/test/unit/Vectors.t.sol:generic-api-key:122
+0e3052496fd42c6083bcce85c382c72d594b24a0:contracts/test/unit/Base.sol:generic-api-key:99
+0e3052496fd42c6083bcce85c382c72d594b24a0:contracts/test/unit/Base.sol:generic-api-key:100
 # False positive: a public example address (keyReleasedTo) in a spec example.
 bf986e1cc27afbfddaee4d970192c0ad019c5edf:spec/examples/event.example.json:generic-api-key:14
