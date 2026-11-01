@@ -19,6 +19,7 @@ The goal is fast, deterministic feedback that agents can trust, plus readable ev
 | Formal model | Liveness and safety of the commitment state machine under any single actor halting | TLA+ (TLC/Apalache) or Quint | Yes, model check on PR touching the state machine |
 | Calibration and red team | Judge accuracy, injection resistance, drift | `pnpm calibrate` | No (on demand, before registry promotion) |
 | Demo dry run | The experience works for a newcomer | Manual checklist (T-013) | No |
+| Agent simulation | Model agents of different sizes, given only outsider knowledge and a behaviour profile, use the HTTP API as buyers and sellers; `sim:check` recomputes conservation, terms-compliance, terminal-or-explained and matching records from the settlement log | `pnpm sim:world`, subagents, `pnpm sim:check` (`tools/sim/README.md`, T-021) | No (exploration; its unit tests run in CI, and findings become fixtures) |
 
 ## Scenario fixtures
 
@@ -96,6 +97,10 @@ pnpm snap --judges=live <name>  # same fixture with live judges; prints the diff
 ### Recorded judges
 
 Recorded mode replays verdicts stored in `fixtures/recordings/<scenario>/<judgeId>.json`. They are captured from live runs with `pnpm snap --judges=live --record <name>`. Recordings include the model ID, the prompt template hash and the input hash; a template, rubric or input change invalidates them, and the runner fails loudly.
+
+## Agent simulation (T-021)
+
+Scripted agents only do what their authors thought of. In a simulated run the coordinator starts an isolated world (`pnpm sim:world <run-id>`: its own SimChain, operators, fake-judge adjudicators and accounts on free ports), spawns one subagent per party with a brief from `pnpm sim:brief` (outsider knowledge, a job, a profile: honest, sloppy, impatient or adversarial), and then runs `pnpm sim:check <run-id>`. The check trusts no party: it re-verifies the hash chain and every signature in the journal, re-derives each posting from the signed terms and the club rulebook, replays the postings from genesis, and compares with the ledger and with what every operator serves. Party reports only add findings. The run is exploration and never gates CI; a finding worth keeping becomes a scenario fixture (`tools/sim/README.md`, "Promote a finding").
 
 ## Rules for adding tests
 
