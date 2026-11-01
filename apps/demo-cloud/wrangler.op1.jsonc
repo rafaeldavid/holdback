@@ -10,6 +10,7 @@
   "compatibility_date": "2025-09-15",
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
+  "routes": [{ "pattern": "api.escrow.stream", "custom_domain": true }],
   "preview_urls": false,
   "vars": { "NODE_INDEX": "0", "MIN_WINDOW_SEC": "60", "OPERATOR_FEE_BPS": "1", "OPERATOR_FEE_MIN": "10000" },
   "durable_objects": { "bindings": [{ "name": "WORLD", "class_name": "World" }] },
