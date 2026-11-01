@@ -88,6 +88,12 @@ export interface OperatorOptions {
   store?: CiphertextStore;
   /** This node's public base URL, for ciphertext URIs and the well-known document. Default: the listening address. */
   baseUrl?: string;
+  /**
+   * Plain-language notes a public node states about itself (T-026's hosted demo: test tokens only, what is
+   * shared, what is scripted), served as `notes` in /.well-known/holdback.json and appended to /llms.txt.
+   * Absent by default, so `pnpm sim` serves neither.
+   */
+  notes?: readonly string[];
   /** Test only: relay, then drop the connection without answering (a response lost in transit). */
   dropResponses?: boolean;
   now?: () => number;
@@ -454,9 +460,10 @@ export class Operator {
       // an agent pins its EIP-712 domain from its own configuration, not from an operator.
       const s = await this.status();
       const settlementTime = this.o.registry.now?.() ?? new Date(Math.floor(Date.now() / 1000) * 1000).toISOString().replace('.000Z', 'Z');
-      return this.send(ctx, this.ok({ ...s, domain: { ...s.domain, chainId: Number(s.domain.chainId) }, apiBaseUrl: this.baseUrl, settlementTime }));
+      const notes = this.o.notes ? { notes: [...this.o.notes] } : {};
+      return this.send(ctx, this.ok({ ...s, domain: { ...s.domain, chainId: Number(s.domain.chainId) }, apiBaseUrl: this.baseUrl, settlementTime, ...notes }));
     }
-    if (method === 'GET' && ctx.url.pathname === '/llms.txt') return this.send(ctx, { status: 200, headers: { 'content-type': 'text/plain; charset=utf-8' }, body: llmsTxt(this.baseUrl) });
+    if (method === 'GET' && ctx.url.pathname === '/llms.txt') return this.send(ctx, { status: 200, headers: { 'content-type': 'text/plain; charset=utf-8' }, body: llmsTxt(this.baseUrl, this.o.notes) });
     if (s[0] !== 'v1') fail('not_found', `no route ${ctx.url.pathname}`);
     if (s[1] === 'ciphertext') return this.ciphertext(ctx);
     if (method === 'POST' && s[1] === 'prepare' && s.length === 3) return this.prepare(ctx, s[2]!);

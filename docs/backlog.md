@@ -186,6 +186,23 @@ Rafa, 2026-10-31: get the escrow working first, then sort out risk and incentive
 | Backer deposit, withdrawal-notice and withdraw messages | ADR-0014 | Phase 4 |
 | Reliable production maintenance and self-healing for the hosted demo: monitoring, alerts, restarts, scheduled checks (the nightly CI run was turned off on 2026-11-01) | Rafa, 2026-11-01 | After the public demo is live |
 
+## Public demo (T-026)
+
+The hosted demo is the happy path only (Rafa, 2026-11-01); these edge cases are deferred.
+
+| Item | Source | When it matters |
+| --- | --- | --- |
+| `POST /v1/faucet` and `GET /` are served by the demo Worker, not the operator router, so they are not in `spec/openapi.json`; describe them there (a demo-only tag) or in a separate demo document | T-026 | When agents generate tools from the OpenAPI document alone |
+| Faucet abuse: per-client limits are in memory (reset when the Durable Object restarts) and keyed by IP; per-address limits persist. No proof of work or captcha; total supply is unbounded test tokens | T-026 | If the demo is spammed |
+| Journal growth: every request that moves the clock adds an `advance` entry, and replay on wake re-verifies every signature; snapshot the chain (or compact clock entries) when the journal grows | T-026 | After a few thousand requests, or when wake time nears the CPU limit |
+| A configuration change (`MIN_WINDOW_SEC`) applies only to a fresh world (the window is pinned in the world's stored meta); a reset is renaming `WORLD_NAME` in `worker.ts` and redeploying. No admin route resets or migrates a world | T-026 | When the demo club's rules need to change |
+| Replay failure on wake (a journal entry the code no longer accepts after a code change) leaves the world unopenable; detect it, keep the old journal, and start a fresh world with a notice | T-026 | Before any SimChain rule change is deployed to the hosted demo |
+| Ciphertext is capped at 1 MiB per object (Durable Object value limit) where the protocol allows 10 MiB; the operator answers a larger upload with a 500, not a 413 | T-026 | When a demo deal ships a larger deliverable |
+| Idempotency records (operator and faucet) live in memory; a retry after a Durable Object restart re-runs the call (the chain's own idempotency still stops a double submit) | T-026 | When agents retry across restarts |
+| Timeout triggers (offer expiry, fallback, default) are left to agents and the adjudicators' pass; the demo runs adjudicator passes only for 15 minutes after the last write | T-026 | When demo deals exercise timeouts |
+| The two nodes share one Durable Object, so a demo cannot show one node refusing or going offline (the neutrality fixtures do, locally); independent nodes need testnet contracts | T-026; Phase 2 | Phase 2 |
+| Live model judges on the hosted demo: needs two model-family keys as Worker secrets, and a CPU-time check for the panel | T-026 | When Rafa adds model keys |
+
 ## Demo data and agents
 
 | Item | Source | When it matters |

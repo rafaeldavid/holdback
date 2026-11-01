@@ -233,6 +233,27 @@ importers:
         specifier: ^2.57.13
         version: 2.57.13(typescript@6.0.3)
 
+  apps/demo-cloud:
+    dependencies:
+      '@holdback/adjudicator':
+        specifier: workspace:*
+        version: link:../adjudicator
+      '@holdback/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@holdback/operator':
+        specifier: workspace:*
+        version: link:../operator
+      '@holdback/settlement':
+        specifier: workspace:*
+        version: link:../../packages/settlement
+      tweetnacl:
+        specifier: ^1.0.3
+        version: 1.0.3
+      viem:
+        specifier: ^2.57.13
+        version: 2.57.13(typescript@6.0.3)
+
   apps/operator:
     dependencies:
       '@holdback/adjudicator':
