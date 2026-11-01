@@ -1,3 +1,4 @@
+export * from './fetch.js';
 export * from './guards.js';
 export * from './idempotency.js';
 export * from './policy.js';
