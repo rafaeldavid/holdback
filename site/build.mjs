@@ -275,9 +275,10 @@ ${GPU(320, 0, 'adjudicator')}
 // Try ’crow: a single prompt for any agent, and the early-access request (a drawer on phones). Sign-ups go to
 // the crow-early-access Worker (apps/early-access), which keeps only the address, the time and the page.
 // One line: the instructions live in llms.txt ("Try it"), not in the prompt.
-const PROMPT = `Read ${SITE_URL}llms.txt and run a test deal with ’crow.`;
+// The copy icon copies the same instruction the line shows; an agent at escrow.stream finds llms.txt via the page head.
+const PROMPT = `Run a test deal with ${SITE_URL.replace(/\/$/, '')}`;
 const TRY = `<section class="try" aria-label="Try ’crow">
-<p class="try-line">Try ’crow today by asking your AI assistant about the escrow.stream demo<button class="copy" id="copy" type="button" aria-label="Copy a prompt for your AI assistant" title="Copy a prompt for your AI assistant"><svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 3.5v-.5A1.5 1.5 0 0 0 9 1.5H3A1.5 1.5 0 0 0 1.5 3v6A1.5 1.5 0 0 0 3 10.5h.5"/></svg></button><span class="copied" id="copied" role="status"></span></p>
+<p class="try-line">Try ’crow today by asking your AI assistant to run a test deal with https://escrow.stream<button class="copy" id="copy" type="button" aria-label="Copy a prompt for your AI assistant" title="Copy a prompt for your AI assistant"><svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 3.5v-.5A1.5 1.5 0 0 0 9 1.5H3A1.5 1.5 0 0 0 1.5 3v6A1.5 1.5 0 0 0 3 10.5h.5"/></svg></button><span class="copied" id="copied" role="status"></span></p>
 <span id="prompt" hidden>${esc(PROMPT)}</span>
 <form class="join" id="join-form" novalidate aria-label="Request early access">
 <input id="join-email" name="email" type="email" autocomplete="email" required placeholder="you@example.com" aria-label="Email">
