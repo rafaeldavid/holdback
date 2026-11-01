@@ -514,24 +514,35 @@ Full report with sources: the research pass of 2026-11-01 (comparable take rates
 
 ## D34. Private deals and the end-to-end encrypted API (ADR-0024)
 
-**Proposed 2026-11-01, for Rafa to accept or overrule; a research pass on the open questions is running.** Agents encrypt the terms body (deliverable, checks, rubric, notes) under a per-commitment record key, sealed to the buyer and the primary adjudicator at offer; either party may seal it to the fallback and appeal adjudicators, time-locked to `judgeBy` and `appealBy`, and any envelope that opens suffices, so neither party can block judgment. Operators store and relay ciphertext and see only the signed terms fields, verified signers and relay metadata. Private reads need an EIP-712 `ReadToken` from a party or an involved adjudicator; everyone else gets 401. Judgment records are sealed to both parties (D26). Prepare becomes a published, deterministic recipe, plus a hash-only operator prepare. An encrypted agent mailbox, relayed by any operator, carries negotiation. Who deals with whom, when and for how much stays visible to operators and on L1 in Phase 2 (an accepted residual); confidential tokens, a shielded pool and the Prividium fragment (T-208) are options, not adopted. Schema v0.8 is additive; the EIP-712 domain version stays "0.6" unless open question 1 chooses otherwise.
+**Proposed 2026-11-01, amended after the research pass the same day, for Rafa to accept or overrule.** Agents encrypt the `deliverable` and `acceptance` bodies under two keys (so `judgment` can publish the acceptance alone), sealed to the buyer and the primary adjudicator at offer; either party may seal them to the fallback and appeal adjudicators, time-locked to `judgeBy` and `appealBy`, and any envelope that opens suffices, so neither party can block judgment. Operators store and relay ciphertext and see only the settlement view, verified signers and relay metadata. Private reads need an EIP-712 `ReadToken` (optional `audience`) from a party or an involved adjudicator; everyone else gets 401. Judgment records are sealed to both parties (D26). Prepare becomes a published, deterministic recipe, plus a hash-only operator prepare. Publication discloses keys in a `disclosure` body; `Publish` is unchanged.
+
+Research pass 2026-11-01: keep the domain at 0.6; bind the seller's per-deal encryption key in the hashed `deliverable` body and the buyer's in the struct as today; adjudicator keys by self-signed registration, two operators now, an on-chain registry later (ERC-6538 is a deployed candidate). The L1 contract takes a settlement view in calldata, stores one word per deal and emits ERC-8183 events; happy path about 0.5–0.65M gas (inferred; T-202 measures). Amounts stay public in Phase 2; confidential tokens are not adopted (admin surface; public wrap/unwrap). Default level `private`. The mailbox leaves the protocol (identity, discovery and negotiation are outside it, D35); an operator may offer one free with delivery-token gating. Per-deal keys with a `Delegation` certificate shown to the counterparty and the adjudicator become the default for private deals; L1 funding linkage stays residual 11. Private inference (D35) is `providerPrivacy: zdr` with a named provider; the registry needs two providers or one `local` seat. Build B now; T-208 after T-206.
 
 | Option | Effect |
 | --- | --- |
 | A. Access control only (ReadToken over plaintext) | Quick; every operator still reads every deal |
-| B. End-to-end encrypted API (proposed) | Operators hold ciphertext and hashes; L1 metadata is a residual |
-| C. Prividium fragment per escrow (T-208) | Strongest privacy for content and negotiation; unproven; can sit on top of B |
+| B. End-to-end encrypted API, amended (proposed) | Operators hold ciphertext and hashes; per-deal keys hide identity; L1 amounts and funding links are residuals; no on-chain cost, no new actor, domain stays 0.6 |
+| C. Prividium fragment per escrow (T-208) | Content off every operator; private settlement not shipped; about 460k L1 gas per batch proof; new sequencer actor; spike after T-206, can sit on top of B |
 | D. Full chain privacy (Aztec, fhEVM) | Deferred, as in D16 |
+| Seller key as a `CommitmentTerms` field | Rejected: moves the domain to 0.8 for no gain over the hashed body |
 
-Open questions (ADR-0024): binding the seller's encryption key (registry vs a signed-terms field that moves the domain to "0.8"); what the L1 contract publishes; amount privacy in Phase 2; mailbox spam gating; the default disclosure level; mailbox pricing; ordering against T-208.
+Wording owed elsewhere if accepted: the scope hard rule in `CLAUDE.md` and the neutrality definition each gain one sentence (at the pseudonymous level the certificate attests scope and membership, checked by the counterparty and adjudicator, not settlement); T-207's acceptance criteria drop `neutrality.operator-refuses-mailbox` and the mailbox schemas.
 
-**Recommendation:** B, with C explored in T-208.
+**Recommendation:** B, amended as above.
 
 ## D35. Rails, not a record-keeper: disclosure is each party's choice
 
 **Decided 2026-11-01 by Rafa** ("the protocol and API as rails, and maximal information then becomes something each party chooses to disclose, and can privately arbitrate ideally based on model usage, maybe use something like Venice for private inference").
 
-- **The protocol and API are rails.** They hold funds, check signatures, enforce deadlines and settle. They need keys, hashes and amounts, not identities or content. Buyer and seller find each other and agree however they like; the protocol assumes they know each other (Rafa, same day). Per-deal keys that do not link to a party's long-term identity follow naturally (under study in the ADR-0024 research pass).
+- **The protocol and API are rails.** They hold funds, check signatures, enforce deadlines and settle. They need keys, hashes and amounts, not identities or content. Buyer and seller find each other and agree however they like; the protocol assumes they know each other (Rafa, same day). Per-deal keys that do not link to a party's long-term identity follow naturally; the ADR-0024 research pass recommends them as the default for private deals (D34, proposed).
 - **Disclosure is a choice.** Who a party is, what it bought, the terms and the judgment are disclosed by each party, to whom and when it chooses. The default is minimal; a party can reveal more to its counterparty, an adjudicator, a club or a court (D26 evidence by selective disclosure).
 - **Arbitration can be private.** Adjudicators may run judges through private inference: a provider that keeps no prompts or outputs, such as Venice, as an adjudicator option. Mandatory rules still hold: pinned model IDs, at least two families, no tools for judges, untrusted deliverables, the verdict schema. Backlog row under Judgment defenses.
 - **Shapes:** ADR-0024 (private deals) and T-207; the mailbox and identity may leave the protocol entirely.
+
+## D36. Parties may choose their judge panel; ’crow offers a default; OpenRouter as a provider
+
+**Proposed 2026-11-01 from Rafa's suggestion, for Rafa to confirm.** Buyer and seller may name their own judge structure in the terms: models and families, seat count, pass threshold, private inference or not. The adjudicator runs it or declines (D29), and the terms bind it by hash as they already bind the policy and registry. ’crow's adjudicator offers its live panel (Anthropic and DeepSeek, two families) as the default for parties who do not choose. OpenRouter joins as an `openai-compatible` provider, so any model is reachable without a per-lab integration.
+
+- **Mandatory rules still hold:** pinned exact model versions (pin OpenRouter's model slug and its upstream provider routing; no aliases), at least two families, judges with no tools, the injection screen, the verdict schema, and no re-roll after a verdict.
+- **Concentration risk:** one gateway in front of every model fails or misroutes for all of them at once, and sees plaintext unless zero-retention routing is used. So a panel needs two providers or one self-hosted seat (the ADR-0024 research rule), and OpenRouter is an option or second provider, not the only path.
+- **When:** with the policy and registry work after T-207. Backlog row under Judgment defenses.
