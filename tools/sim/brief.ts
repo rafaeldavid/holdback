@@ -65,6 +65,7 @@ export function renderBrief(r: BriefRequest, catalogue: Catalogue = loadCatalogu
     counterparty: r.counterparty,
     counterpartyAddress: them.address,
     workdir: me.workdir,
+    worldFile: join(r.world.coordinator.runDir, 'world.json'),
     mailTool: MAIL_TOOL,
     reportPath: join(r.world.coordinator.reports, `${r.party}.json`),
     profile: profile.id,

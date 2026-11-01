@@ -115,7 +115,10 @@ describe('catalogue, briefs and mail', () => {
     expect(brief).toContain(f.parties['seller-1']!.address);
     expect(brief).toContain('docs/quickstart.md');
     expect(brief).toContain('Appeal every decision');
-    for (const secret of [f.parties['seller-1']!.privateKey, f.parties['seller-1']!.encryptionSecretKey, f.coordinator.auditUrl, f.parties['buyer-2']!.address, 'FAIL-ME', 'sim:check']) {
+    expect(brief).toContain('../../world.json');
+    const others = ['seller-1', 'buyer-2', 'seller-2'].map((p) => f.parties[p]!);
+    const secrets = [...others.flatMap((p) => [p.privateKey, p.encryptionSecretKey]), f.coordinator.auditUrl, f.parties['buyer-2']!.address, 'FAIL-ME', 'sim:check'];
+    for (const secret of secrets) {
       expect(brief, secret).not.toContain(secret);
     }
   });

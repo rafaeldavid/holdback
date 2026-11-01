@@ -74,23 +74,43 @@ export async function startRunWorld(o: RunWorldOptions): Promise<RunWorld> {
 
   const labels = parties.map((p) => `sim-run/${o.runId}/${p}`);
   const world = await startSimWorld({ accounts: labels, spareAccounts: 4, ...(o.env ? { env: o.env } : {}), ...(o.onError ? { onError: o.onError } : {}) });
+  try {
+    return await withAudit(o.runId, dir, parties, labels, world);
+  } catch (e) {
+    await world.close(); // never leave a half-started world running
+    throw e;
+  }
+}
 
+async function withAudit(runId: string, dir: string, parties: readonly string[], labels: readonly string[], world: SimWorld): Promise<RunWorld> {
   const audit: Server = createServer((req, res) => {
     const path = new URL(req.url ?? '/', 'http://audit.invalid').pathname;
     if (req.method !== 'GET' || (path !== '/' && path !== '/audit')) return void res.writeHead(404, { 'content-type': 'application/json' }).end('{"type":"not_found"}');
-    res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(auditOf(world.chain, o.runId)));
+    res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(auditOf(world.chain, runId)));
   });
   await new Promise<void>((resolve, reject) => {
     audit.once('error', reject);
     audit.listen(0, '127.0.0.1', resolve);
   });
-  const auditUrl = `http://127.0.0.1:${(audit.address() as AddressInfo).port}/audit`;
+  const closeAudit = () =>
+    new Promise<void>((r) => {
+      audit.close(() => r());
+      audit.closeAllConnections();
+    });
+  try {
+    return writeWorldFile(runId, dir, parties, labels, world, `http://127.0.0.1:${(audit.address() as AddressInfo).port}/audit`, closeAudit);
+  } catch (e) {
+    await closeAudit();
+    throw e;
+  }
+}
 
+function writeWorldFile(runId: string, dir: string, parties: readonly string[], labels: readonly string[], world: SimWorld, auditUrl: string, closeAudit: () => Promise<void>): RunWorld {
   mkdirSync(join(dir, 'reports'), { recursive: true });
   const info = world.info;
   const file: WorldFile = {
     kind: 'holdback-sim-run',
-    runId: o.runId,
+    runId,
     pid: process.pid,
     startedAt: world.chain.now(),
     sim: world.url,
@@ -119,10 +139,7 @@ export async function startRunWorld(o: RunWorldOptions): Promise<RunWorld> {
     file,
     world,
     close: async () => {
-      await new Promise<void>((r) => {
-        audit.close(() => r());
-        audit.closeAllConnections();
-      });
+      await closeAudit();
       await world.close();
     },
   };

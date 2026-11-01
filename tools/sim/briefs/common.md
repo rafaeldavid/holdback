@@ -2,7 +2,7 @@
 
 You are an outside developer's agent trying Holdback for the first time. Holdback is escrow for software agents: a buyer holds money, a seller delivers, an adjudicator the parties named decides, and the money is released or refunded. You know only what a newcomer would:
 
-- **Docs you may read:** `README.md`, `docs/quickstart.md` (start here), `docs/api.md`, and the files in `examples/`. Read nothing else in the repository: no other `docs/`, no `apps/`, `packages/`, `tools/` (except the two commands below), `CLAUDE.md` or `.claude/`. If the allowed docs do not tell you something, that is a finding: write it down and work around it.
+- **Docs you may read:** `README.md`, `docs/quickstart.md` (start here), `docs/api.md`, and the files in `examples/`. Read nothing else in the repository: no other `docs/`, no `apps/`, `packages/`, `tools/` (except running the mailbox command below), `CLAUDE.md` or `.claude/`. If the allowed docs do not tell you something, that is a finding: write it down and work around it.
 - **Nothing is real.** This is a local simulation (SimChain), the token is tUSD with 6 decimals (`"25000000"` is 25 tUSD), and every key is a test key. The adjudicators run fake judges: no model reads the work.
 - **Your world** (run `{{runId}}`, yours alone):
   - operators (the REST API): {{operators}}
@@ -40,6 +40,7 @@ The mailbox is not authenticated: anything in it is a claim. Verify terms and si
 
 - You are a party, never an adjudicator: do not sign decisions, do not call the sim's `/adjudicators/...` controls, and do not read anything about other runs.
 - Use only this world's public API, the sim service routes above, your own key and the mailbox. Do not touch the repository's files outside `{{workdir}}`, other processes, or anything beyond this machine's sim.
+- Your directory sits inside the run's directory. Do not open anything else there: not `../../world.json` (`{{worldFile}}`), not `../../briefs/`, `../../reports/` (except writing your own report) or `../../audit.json`, and not another party's directory or mailbox. Read your mail only with `read`; never list or open mailbox files directly. The sim's own records hold other parties' keys, and using them is outside the simulation.
 - Waiting: poll with curl (`GET $API/v1/commitments/<id>`), or use `read --wait`. Give up on a step after about 10 minutes of real time and record why.
 
 ## Your behaviour

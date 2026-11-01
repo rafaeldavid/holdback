@@ -22,7 +22,9 @@ const COST: Record<string, number> = {
   'apps/demo/src/source/simchain.test.ts': 51,
   'packages/judgment/src/pipeline.test.ts': 48,
   'packages/judgment/src/redteam.test.ts': 45,
+  'tools/sim/world.test.ts': 30, // estimated by the PR 55 review, not yet measured in CI
   'apps/operator/src/sim-world.test.ts': 20,
+  'tools/sim/check.test.ts': 10, // estimated by the PR 55 review, not yet measured in CI
   'examples/verify.test.ts': 20,
   'tests/gen-demo-data.test.ts': 18,
   'packages/settlement/sim/simchain.test.ts': 18,
