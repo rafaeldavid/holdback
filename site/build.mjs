@@ -333,7 +333,23 @@ export function page(md) {
 <title>${esc(title)}</title>
 <link rel="icon" type="image/png" href="${BASE}favicon.png">
 <link rel="apple-touch-icon" href="${BASE}favicon.png">
-<meta name="description" content="${esc(tagline)}">
+<meta name="description" content="${esc(intro)}">
+<link rel="canonical" href="${SITE_URL}">
+<meta name="theme-color" content="#faf7f0">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="${esc(title)}">
+<meta property="og:title" content="${esc(title)} · ${esc(subtitle)}">
+<meta property="og:description" content="${esc(intro)}">
+<meta property="og:url" content="${SITE_URL}">
+<meta property="og:image" content="${SITE_URL}og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="A pencil study of a hooded crow by Archibald Thorburn, 1919">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="${esc(title)} · ${esc(subtitle)}">
+<meta name="twitter:description" content="${esc(intro)}">
+<meta name="twitter:image" content="${SITE_URL}og.png">
+<meta name="twitter:image:alt" content="A pencil study of a hooded crow by Archibald Thorburn, 1919">
 <link rel="alternate" type="text/plain" title="Agent docs (llms.txt)" href="${BASE}llms.txt">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -434,7 +450,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     mkdirSync(out, { recursive: true });
     writeFileSync(join(out, 'llms.txt'), txt);
     writeFileSync(join(out, 'index.html'), page(txt));
-    for (const f of ['crow.png', 'favicon.png', 'agent.png', 'escrow.png', 'bond.png']) writeFileSync(join(out, f), readFileSync(here(f)));
+    for (const f of ['crow.png', 'favicon.png', 'agent.png', 'escrow.png', 'bond.png', 'og.png']) writeFileSync(join(out, f), readFileSync(here(f)));
     console.log(`wrote ${join(out, 'llms.txt')} and ${join(out, 'index.html')}: publish both under ${SITE_URL}`);
   }
 }
