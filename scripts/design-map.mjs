@@ -106,7 +106,11 @@ export function phases(allTasks) {
     const own = allTasks.filter((t) => t.phase === n);
     const done = own.length > 0 && own.every((t) => t.status === 'done');
     const active = own.some((t) => t.status === 'in progress' || t.status === 'review');
-    result.push({ n, title: parts[i + 1], goal, exit, tasks: own.map((t) => t.id), status: done ? 'done' : active ? 'active' : 'later' });
+    // every planned line of the phase ("- T-201 …", "- [x] T-013 …", "- D4 decided …"), for the roadmap
+    const items = [...body.matchAll(/^- (?:\[([ x])\] )?(.+)$/gm)]
+      .map((m) => ({ checked: m[1] === 'x', id: m[2].match(/^(T-\d+)/)?.[1] ?? null, text: m[2].replace(/^T-\d+\s*/, '').replace(/\s+/g, ' ').trim() }))
+      .filter((it) => it.id || /^(Decide|D\d+)/.test(it.text));
+    result.push({ n, title: parts[i + 1], goal, exit, items, tasks: own.map((t) => t.id), status: done ? 'done' : active ? 'active' : 'later' });
   }
   const next = result.find((p) => p.status !== 'done');
   if (next && next.status === 'later') next.status = 'next';

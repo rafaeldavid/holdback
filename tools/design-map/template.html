@@ -63,6 +63,20 @@ section{display:grid;gap:20px;scroll-margin-top:64px}
 .stamp{display:flex;flex-wrap:wrap;gap:6px 18px;font-family:var(--mono);font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
 .stamp b{color:var(--ink);font-weight:500}
 
+/* roadmap */
+.road{display:grid;gap:14px}
+.road .ph{border:1px solid var(--line);border-radius:8px;background:var(--surface);padding:14px 16px;min-width:0}
+.road .ph h3{margin:0 0 4px;font-size:15px}
+.road .ph h3 .n{font-family:var(--mono);font-size:12px;color:var(--muted);margin-right:8px}
+.road .ph p{margin:0 0 10px;color:var(--muted);font-size:13px}
+.road ul{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+.road li{display:grid;grid-template-columns:64px minmax(0,1fr) auto;gap:10px;align-items:baseline;font-size:13px;line-height:1.4}
+.road li .id{font-family:var(--mono);font-size:12px;color:var(--muted)}
+.road li .st{font-family:var(--mono);font-size:11px;padding:1px 7px;border-radius:999px;border:1px solid var(--line);color:var(--muted);white-space:nowrap}
+.road li .st.done{color:var(--done);border-color:var(--done)}
+.road li .st.active{color:var(--accent);border-color:var(--accent)}
+.road .ph.current{border-color:var(--accent)}
+@media (max-width:640px){.road li{grid-template-columns:52px minmax(0,1fr)}.road li .st{grid-column:2;justify-self:start}}
 /* phase ladder */
 .ladder{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(7,minmax(0,1fr));border:1px solid var(--line);border-radius:8px;background:var(--surface);overflow:hidden}
 .ladder li{padding:12px 12px 14px;display:grid;gap:4px;align-content:start;border-left:1px solid var(--line);position:relative;min-width:0}
@@ -233,7 +247,7 @@ footer{font-size:12.5px;color:var(--muted);border-top:1px solid var(--line);padd
 <div class="bar">
   <div class="bar-inner">
     <span class="brand">Holdback</span>
-    <nav aria-label="Sections"><a href="#now">Now</a><a href="#waiting">Waiting</a><a href="#decisions">Decisions</a><a href="#protocol">Protocol</a><a href="#privacy">Who sees what</a><a href="#lifecycle">Lifecycle</a><a href="#api">API</a><a href="#feed">History</a></nav>
+    <nav aria-label="Sections"><a href="#now">Now</a><a href="#roadmap">Roadmap</a><a href="#waiting">Waiting</a><a href="#decisions">Decisions</a><a href="#protocol">Protocol</a><a href="#privacy">Who sees what</a><a href="#lifecycle">Lifecycle</a><a href="#api">API</a><a href="#feed">History</a></nav>
   </div>
 </div>
 
@@ -254,6 +268,11 @@ footer{font-size:12.5px;color:var(--muted);border-top:1px solid var(--line);padd
     </div>
     <div class="legend"><span class="label">Task order</span><span><span class="chip done">done</span> merged</span><span><span class="chip todo">ready</span> can start now</span><span><span class="chip block">blocked</span> waiting on another task</span></div>
     <div class="graph"><svg id="graph" role="img" aria-labelledby="graph-title"><title id="graph-title">Task dependencies in the current phase</title><g id="gedges"></g><g id="gnodes"></g></svg></div>
+  </section>
+
+  <section id="roadmap" aria-labelledby="h-road">
+    <div class="head"><span class="label">Roadmap</span><h2 id="h-road">What we are building next, phase by phase</h2><p>From docs/plan.md. Each line is a planned piece of work; its status comes from its task file when one exists.</p></div>
+    <div class="road" id="road"></div>
   </section>
 
   <section id="waiting" aria-labelledby="h-wait">
@@ -381,6 +400,13 @@ footer{font-size:12.5px;color:var(--muted);border-top:1px solid var(--line);padd
   var cur=M.phases.find(function(p){return p.status==='active'||p.status==='next'}) || M.phases[M.phases.length-1];
   var pct=function(p){var ts=p.tasks.map(function(id){return byId[id]});return ts.length?Math.round(ts.filter(function(t){return t.status==='done'}).length/ts.length*100):0};
   var TAG={done:'done',active:'in progress',next:'next',later:'later'};
+  // roadmap: every phase from the first unfinished one on, with each planned line and its task status
+  var startN=(M.phases.find(function(p){return p.status!=='done'})||{n:0}).n;
+  var stOf=function(it){if(it.checked)return['done','done'];var t=it.id&&byId[it.id];if(!t)return['','planned'];var s=t.status||'todo';return[s==='done'?'done':(s==='in progress'||s==='review')?'active':'',s]};
+  $('road').innerHTML=M.phases.filter(function(p){return p.n>=startN&&p.n>=2||p.status==='active'}).map(function(p){
+    var items=(p.items||[]).map(function(it){var s=stOf(it);var txt=it.text.length>170?it.text.slice(0,167)+'…':it.text;return '<li><span class="id">'+esc(it.id||'')+'</span><span>'+esc(txt)+'</span><span class="st '+s[0]+'">'+esc(s[1])+'</span></li>'}).join('');
+    return '<div class="ph'+(p.status==='active'?' current':'')+'"><h3><span class="n">Phase '+p.n+'</span>'+esc(p.title)+'</h3>'+(p.goal?'<p>'+esc(p.goal)+'</p>':'')+(items?'<ul>'+items+'</ul>':'<p>Task files are written at the start of the phase.</p>')+'</div>';
+  }).join('');
   $('ladder').innerHTML=M.phases.map(function(p){
     var cls=p.status==='next'?'active':p.status;
     var extra=p===cur&&p.tasks.length?' style="--pct:'+pct(p)+'%"':'';
