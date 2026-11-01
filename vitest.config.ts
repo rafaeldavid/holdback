@@ -24,6 +24,8 @@ const COST: Record<string, number> = {
   'packages/judgment/src/redteam.test.ts': 45,
   'tools/sim/world.test.ts': 30, // estimated by the PR 55 review, not yet measured in CI
   'apps/operator/src/sim-world.test.ts': 20,
+  // T-015, from PR 56's CI run 41288716778 (shard 2/4).
+  'tests/contract/openapi.contract.test.ts': 23,
   'tools/sim/check.test.ts': 10, // estimated by the PR 55 review, not yet measured in CI
   'examples/verify.test.ts': 20,
   'tests/gen-demo-data.test.ts': 18,

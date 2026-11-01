@@ -126,7 +126,7 @@
           "discovery"
         ],
         "summary": "Read this OpenAPI document",
-        "description": "This document, with `servers` set to the serving operator's base URL.",
+        "description": "This document, with `servers` set to the serving operator's base URL. 404 when the operator's build has no spec/openapi.json.",
         "responses": {
           "200": {
             "description": "OpenAPI 3.1 document",
@@ -161,6 +161,9 @@
                 "$ref": "#/components/headers/SchemaVersion"
               }
             }
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem404"
           },
           "429": {
             "$ref": "#/components/responses/Problem429"
@@ -2167,7 +2170,7 @@
         "name": "Idempotency-Key",
         "in": "header",
         "required": true,
-        "description": "Any unique string per intended call (a UUID). The same key and body replays the stored response; the same key with another body is 409 idempotency_conflict.",
+        "description": "Any unique string per intended call (a UUID). The same key and body replays the stored response; the same key with another body is 409 idempotency_conflict. A dry run (`validateOnly=true`) ignores the key: it records nothing and needs none.",
         "schema": {
           "type": "string",
           "minLength": 1,

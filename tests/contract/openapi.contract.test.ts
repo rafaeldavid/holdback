@@ -13,6 +13,9 @@ import { testAccount } from '../../apps/operator/src/accounts.ts';
 import { simRegistry } from '../../apps/operator/src/registry.ts';
 import { startOperator, statusOf, SCHEMA_VERSION, type RunningOperator } from '../../apps/operator/src/server.ts';
 import { startSimWorld, type SimWorld } from '../../apps/operator/src/sim-world.ts';
+import { PREPARE_KINDS } from '../../apps/operator/src/prepare.ts';
+import { triggerPath } from '../../packages/sdk/src/operations.ts';
+import { TIMEOUT_KINDS } from '../../packages/settlement/src/interface.ts';
 import { simAgents, type Agent } from '../../examples/agent.ts';
 // @ts-expect-error -- plain ESM helper without type declarations
 import { buildOpenApi, checkOpenApiDocument, resolvePointer, serialize } from '../../scripts/openapi.mjs';
@@ -42,6 +45,26 @@ describe('spec/openapi.json, the document', () => {
     const documented = new Set(OPERATIONS.map((o) => norm(...(o.key.split(' ') as [string, string]))));
     expect([...documented].sort()).toEqual([...served].sort());
     expect(DOC['x-holdback-planned'].map((p: J) => norm(p.method, p.path)).sort()).toEqual([...planned].sort());
+  });
+
+  it("documents every route the operator's router names: a route added to server.ts or the SDK's write table without the document fails", () => {
+    // The router is code, not a table, so read the path literals it compares against: segments in server.ts
+    // (s[N] === '...'), whole paths, and the write routes in the SDK's operationOf. Each must be a literal
+    // segment of some documented path; the prepare kinds and trigger kinds must match the document exactly.
+    const server = readFileSync(here('../../apps/operator/src/server.ts'), 'utf8');
+    const ops = readFileSync(here('../../packages/sdk/src/operations.ts'), 'utf8');
+    const start = ops.indexOf('export function operationOf');
+    const operationOf = ops.slice(start, ops.indexOf('\n}\n', start));
+    const literals = new Set([
+      ...[...server.matchAll(/\bs\[\d\]!? [=!]== '([^']+)'/g)].map((m) => m[1]!),
+      ...[...server.matchAll(/(?:pathname|join\('\/'\)) === '([^']+)'/g)].flatMap((m) => m[1]!.split('/').filter(Boolean)),
+      ...[...operationOf.matchAll(/(?:segments\[\d\] [=!]== |action === |case )'([^']+)'/g)].map((m) => m[1]!),
+    ]);
+    expect(literals.size).toBeGreaterThan(25);
+    const segments = new Set(Object.keys(DOC.paths).flatMap((p) => p.split('/').filter((x) => x && !x.startsWith('{'))));
+    expect([...literals].filter((l) => !segments.has(l)).sort()).toEqual([]);
+    expect(Object.keys(DOC.paths).filter((p) => p.startsWith('/v1/prepare/')).map((p) => p.slice('/v1/prepare/'.length)).sort()).toEqual([...PREPARE_KINDS].sort());
+    expect(DOC.paths['/v1/commitments/{commitmentId}/triggers/{kind}'].post.parameters.find((p: J) => p.name === 'kind').schema.enum).toEqual(TIMEOUT_KINDS.map(triggerPath));
   });
 
   it('gives every operation an operationId, summary, description and tag; prepare operations say verify before you sign', () => {
@@ -311,6 +334,8 @@ describe('HTTP contract: every operator response matches spec/openapi.json', () 
     const hit = new Set(results.map((x) => x.operationId));
     const ok = new Set(results.filter((x) => x.status < 300).map((x) => x.operationId));
     expect(OPERATIONS.map((o) => o.operationId).filter((id) => !hit.has(id))).toEqual([]);
+    // ...and the operator routed each of them: no documented call was answered "no route".
+    expect(exchanges.filter((x) => /no (such )?route/i.test(x.body?.toString('utf8') ?? '')).map((x) => `${x.method} ${x.url.pathname}`)).toEqual([]);
     expect(OPERATIONS.map((o) => o.operationId).filter((id) => !ok.has(id)).sort()).toEqual(['getClubMember', 'submitAdjudicatorAcceptance', 'submitDecision', 'submitFunding', 'submitHold']);
     const statuses = [...new Set(results.map((x) => x.status))].sort();
     expect(statuses).toEqual([200, 400, 403, 404, 409, 429]);

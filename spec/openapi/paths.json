@@ -66,8 +66,8 @@
         "operationId": "getOpenApiDocument",
         "tags": ["discovery"],
         "summary": "Read this OpenAPI document",
-        "description": "This document, with `servers` set to the serving operator's base URL.",
-        "x-holdback-errors": [429],
+        "description": "This document, with `servers` set to the serving operator's base URL. 404 when the operator's build has no spec/openapi.json.",
+        "x-holdback-errors": [404, 429],
         "responses": {
           "200": { "description": "OpenAPI 3.1 document", "content": { "application/json": { "schema": { "type": "object", "required": ["openapi", "info", "paths"], "properties": { "openapi": { "const": "3.1.0" }, "info": { "type": "object" }, "paths": { "type": "object" } } } } } }
         }
@@ -545,7 +545,7 @@
     "parameters": {
       "CommitmentId": { "name": "commitmentId", "in": "path", "required": true, "description": "The commitment ID: the EIP-712 struct hash of its terms", "schema": { "$ref": "#/components/schemas/Hex32" } },
       "Address": { "name": "address", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/Address" } },
-      "IdempotencyKey": { "name": "Idempotency-Key", "in": "header", "required": true, "description": "Any unique string per intended call (a UUID). The same key and body replays the stored response; the same key with another body is 409 idempotency_conflict.", "schema": { "type": "string", "minLength": 1, "maxLength": 255 } },
+      "IdempotencyKey": { "name": "Idempotency-Key", "in": "header", "required": true, "description": "Any unique string per intended call (a UUID). The same key and body replays the stored response; the same key with another body is 409 idempotency_conflict. A dry run (`validateOnly=true`) ignores the key: it records nothing and needs none.", "schema": { "type": "string", "minLength": 1, "maxLength": 255 } },
       "ValidateOnly": { "name": "validateOnly", "in": "query", "required": false, "description": "`true` runs the settlement layer's checks and changes nothing: no idempotency record, no nonce use, no reservation, no event, no submission. Party messages are sent unsigned (leave the signature fields out) and the response says the signature check was skipped (`Holdback-Signature-Check: skipped`); adjudicator messages and triggers are previewed only when signed. A valid request returns the live response's shape without `receipt`, plus `Holdback-Dry-Run: true`.", "schema": { "enum": ["true", "false"] } },
       "Cursor": { "name": "cursor", "in": "query", "required": false, "description": "`nextCursor` from the previous page", "schema": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,512}$" } },
       "Limit": { "name": "limit", "in": "query", "required": false, "description": "Items per page, 1 to 200 (default 50)", "schema": { "type": "string", "pattern": "^[0-9]{1,3}$" } }
