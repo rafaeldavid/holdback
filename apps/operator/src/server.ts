@@ -348,6 +348,11 @@ export class Operator {
     return this.signer;
   }
 
+  /** ADR-0023: the fee schedule this node publishes, if any. */
+  get feeSchedule(): OperatorFeeSchedule | undefined {
+    return this.o.fee;
+  }
+
   /** Ends open event streams (server shutdown). */
   endStreams(): void {
     for (const s of this.streams) s.end();
