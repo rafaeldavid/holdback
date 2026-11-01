@@ -73,7 +73,8 @@ text.note { text-anchor: middle; font-style: italic; font-variant: normal; lette
 </svg></figure>
 <script>
 (function () {
-  var P = { b: [86, 100], s: [554, 100], e: [320, 100], g0: [320, 214], k: [320, 317] };
+  // tokens leave and arrive at the agents' sides, where the lines meet them, not on their faces
+  var P = { b: [116, 100], s: [524, 100], e: [320, 100], g0: [320, 214], k: [320, 317] };
   var S = [
     { cap: 'Release', note: 'Checks pass: the price to the seller, the key to the buyer, in one step.', on: 0, off: -1,
       m: [['$', 'b', 'e', 0], ['w', 's', 'e', 700], ['w', 'e', 'g0', 1500], ['$', 'e', 's', 2900], ['k', 'e', 'b', 2900]] },
