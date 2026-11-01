@@ -4,7 +4,9 @@
 // You pick every nonce yourself (32 random bytes, e.g. `openssl rand -hex 32` with 0x in front), send it with
 // the prepare request, and put the same value in the intent:
 //   offer:          intent = the request you sent to /v1/prepare/offer, including "nonce"
-//   agree-and-fund: intent = { "terms": <the offer the seller sent you>, "maxTotal": "<base units>", "agreeNonce": …, "fundingNonce": … }
+//   agree-and-fund: intent = { "terms": <the offer the seller sent you>, "maxTotal": "<base units>", "agreeNonce": …, "fundingNonce": …,
+//                              "expectedPrice": {"token": "tUSD", "amount": "<the price you negotiated>"},   (recommended; checked exactly)
+//                              "expectedCommitmentId": "0x…" }                                           (optional; the exact terms)
 //   early-accept:   intent = { "terms": …, "nonce": … }
 //   appeal:         intent = { "terms": …, "grounds": "wrong-outcome" }   (the bond comes from the club rulebook)
 //   settlement:     intent = { "terms": …, "payouts": [ … ], "releaseKey": true, "deliveryHash": "0x…" | null, "nonce": … }
@@ -28,7 +30,7 @@ try {
     kind === 'offer'
       ? { kind, request: given, registration: await agent.registration(given.adjudicators.primary), rulebookHash: await agent.rulebookHash(given.clubId) }
       : kind === 'agree-and-fund'
-        ? { kind, terms: given.terms, me, encryptionPublicKey: agent.encryptionPublicKey, maxTotal: BigInt(given.maxTotal), agreeNonce: given.agreeNonce, fundingNonce: given.fundingNonce }
+        ? { kind, terms: given.terms, me, encryptionPublicKey: agent.encryptionPublicKey, maxTotal: BigInt(given.maxTotal), agreeNonce: given.agreeNonce, fundingNonce: given.fundingNonce, ...(given.expectedPrice ? { expectedPrice: given.expectedPrice } : {}), ...(given.expectedCommitmentId ? { expectedCommitmentId: given.expectedCommitmentId } : {}) }
         : kind === 'appeal'
           ? { kind, terms: given.terms, me, appealBondRateBps: (await agent.club(given.terms.clubId)).rulebook.appealBondRateBps, ...(given.grounds ? { grounds: given.grounds } : {}) }
           : kind === 'settlement'
