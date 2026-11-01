@@ -102,7 +102,47 @@ Deferred until after the basic demo. The demo assumes honest parties (Rafa, Octo
 | Retention and erasure rule (BSA five years vs GDPR Art. 17), a named reporting entity, an open-rulebook compliance posture | Review F4 | Before any real user data; Phase 5 |
 | Local-store URI scheme; ciphertext and envelope byte layouts in `docs/api.md`; binding an envelope's address label to the published encryption key; AAD binding ciphertext to a commitment | T-014 Handoff | T-007 (layouts) and Phase 2 |
 | Commitment metadata privacy for unauthenticated reads (residual 9) | D13; ADR-0017 | With read authentication |
-| Evaluate Prividium: a private, Ethereum-anchored chain where ’crow's operators run as a consortium that cannot see the transactions on their own chain. Check what operators can see, neutrality with a permissioned operator set (admission, forced inclusion, exit to Ethereum), USDC and finality. Variant to test (Rafa, 2026-11-01): **every escrow is its own single-use Prividium**, whose only participants are the two parties and their named adjudicators; it holds the deal privately, settles the outcome to Ethereum and is retired. Refinement (Rafa, same day): not a full chain per deal but a **temporary fragment of shared Prividium architecture** (shared prover and infrastructure, a private per-deal state), and **the assets never leave Ethereum mainnet**: USDC or any asset sits in the L1 escrow contract, the private instance only runs the deal and the judgment, and the L1 contract releases or refunds as a byproduct of the instance's proven settlement. That removes bridging. Questions: what proof the L1 contract verifies and its gas cost; what still shows on L1 (the funding and payout transfers are public unless the token is confidential, so amounts and addresses need a separate answer); who sequences the fragment and whether either party can force the outcome or a default to L1 if it stalls; spin-up time and cost per deal; data availability and what each party keeps as the record afterwards (D26 evidence) | Rafa, 2026-11-01; D4 update | With T-207 private deals |
+| Evaluate Prividium for private deals: the single-use fragment architecture below | Rafa, 2026-11-01; D4 update | With T-207 private deals |
+
+## Exploration: a single-use Prividium fragment per escrow
+
+Proposed by Rafa on 2026-11-01. To explore with T-207 (private deals), after the Phase 2 contracts exist on Sepolia. Not a decision: a research and spike task.
+
+**The idea.** Each escrow runs inside its own short-lived private instance built from shared Prividium architecture, whose only participants are the two parties and their named adjudicators. The deal's content, negotiation and judgment happen there, unseen by operators or anyone else. The assets never leave Ethereum mainnet: they sit in the L1 escrow contract, which releases or refunds as a byproduct of the fragment's proven outcome. When the deal is final, the fragment is retired.
+
+**Proposed architecture.**
+
+| Layer | Where | What it holds or does |
+| --- | --- | --- |
+| Assets | Ethereum mainnet: the escrow rules contract (Phase 2, no admin keys) | USDC or any asset, locked at funding. Releases or refunds only on a valid proof of the fragment's outcome, or on a permissionless timeout trigger (reclaim, default) |
+| Deal | One Prividium fragment per escrow | The terms, messages, deliveries and the judgment record; participants are the buyer, the seller and the adjudicators named in the terms; operators relay, but cannot read |
+| Shared infrastructure | Prividium (shared prover, sequencing and data services) | Instantiates fragments on demand, proves each fragment's final state to L1, and keeps per-fragment state isolated |
+| Bridge of outcome, not of assets | The L1 contract verifies the fragment's proof | Only the outcome (release, refund, split, default) and a commitment to the private record cross to L1 |
+
+**Lifecycle.**
+
+1. **Open:** the parties agree the terms. The L1 contract records the commitment hash, the hold and the deadlines, and a fragment is created with only the named participants.
+2. **Run:** offers, delivery, the adjudicator's private judgment and any appeal happen inside the fragment.
+3. **Settle:** the fragment proves its final state. The L1 contract verifies the proof and moves the assets once: release, refund or the agreed split.
+4. **Fall back:** if the fragment stalls past a deadline, anyone can trigger the L1 timeout path (reclaim or default) without the fragment. No sequencer or operator can block settlement.
+5. **Retire:** the fragment closes. Each party keeps the signed private record, and L1 keeps the commitment to it (D26 evidence).
+
+**What it must show to pass the litmus tests.**
+
+- **Neutrality:** no fragment operator, sequencer or prover can stop a valid deal or move held funds outside the terms. The L1 timeout path works with the fragment offline (a `neutrality.` fixture).
+- **The hold:** funds stay locked in the L1 contract, which has no admin keys, and move once.
+- **Defended judgment:** the panel runs inside the fragment with the same defenses, and the proof binds the judgment record hash.
+
+**Questions to answer.**
+
+- Which proof the L1 contract verifies, and the gas cost per deal on mainnet (with D33's fee in mind).
+- What stays public on L1: the funding and payout transfers show amounts and addresses unless the token is confidential. That needs its own answer (confidential tokens, or a shielded pool).
+- Who sequences each fragment (a party, the adjudicator or a neutral prover), and how either party forces the outcome or a default to L1 if it stalls.
+- Spin-up time and cost per fragment, against deal size, and how many fragments the shared infrastructure can run at once.
+- Data availability: where the private record lives after retirement, and how each party and a court can verify it later.
+- Whether Prividium supports ephemeral, per-escrow participant sets today, or what it would take.
+
+**Deliverables of the exploration.** A short design doc and an ADR draft; a spike on Sepolia showing one deal settle on L1 from a fragment's proof, including the stalled-fragment timeout path; measured gas, latency and cost per deal; a recommendation on whether to adopt it for T-207.
 
 ## API
 
