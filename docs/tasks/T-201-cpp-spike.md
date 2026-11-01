@@ -5,7 +5,7 @@
 - **Depends on:** Phase 1 done
 - **Paths this task may touch:** `contracts/` (new Foundry project: `foundry.toml`, `src/`, `test/`, `lib/` via `forge install`), `docs/research/` (the spike report), `docs/decisions/ADR-0003-escrow-contract-base.md` (an "Outcome of T-201" section only), `docs/tasks/T-201-cpp-spike.md`, root `.gitignore` (Foundry `out/`, `cache/`)
 - **Human gate:** none. Local chain only (anvil, chain id 31337). No `forge script` broadcasts, no `cast send`, no RPC to any public network.
-- **Status:** review
+- **Status:** done (PR 64; recommendation: keep option A)
 - **Agent/session:** implementer (Claude Opus 5.5), branch `t-201-cpp-spike`, 2026-11-01
 
 ## Intent

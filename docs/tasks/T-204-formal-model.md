@@ -5,7 +5,7 @@
 - **Depends on:** Phase 1 done. Independent of T-201 and T-202: it models the protocol rules in `packages/core/src/state.ts`, so it can start now. T-206 checks that the contract matches it.
 - **Paths this task may touch:** `formal/` (new: the model, its configs, `formal/check.sh`, `formal/README.md`), `docs/tasks/T-204-formal-model.md`. CI wiring is T-203's (`formal` job runs `formal/check.sh` when present).
 - **Human gate:** none.
-- **Status:** review
+- **Status:** done (PR 66)
 - **Agent/session:** implementer, branch `t-204-formal-model` (2026-11-01)
 
 ## Intent
