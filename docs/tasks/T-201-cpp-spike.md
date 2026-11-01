@@ -85,7 +85,7 @@ Full report: `docs/research/2026-11-T-201-cpp-spike.md`.
 - **measured: bytecode.** A `deploy`-profile build of `6b0a5ef3` has the same metadata IPFS hash (`…725808fe…eac99a04`) as the verified v1.1.0 contract data on Base Sepolia Blockscout. Basescan shows the Base mainnet contract as an exact match with solc 0.8.28, 100000 runs and cancun.
 - **measured: networks.** Ethereum mainnet and Sepolia have no code at either CPP address (Etherscan says "Address (EOA)").
 - **measured: audits.** The July 2026 Cantina review covers commit `6b0a5ef3`, `AuthCaptureEscrow.sol` only, with 3 informational findings fixed in documentation. The collectors and `TokenStore` changed in comments only between v1.0.0 and v1.1.0.
-- **measured: `pnpm verify`.** `typecheck`, `lint`, `spec`, `snap` and `demo` pass. The result of the final run is under Handoff.
+- **measured: `pnpm verify`.** `typecheck`, `lint`, `spec`, `snap` and `demo` pass. `test` fails on the design-map phase assertion, which this task's Status change triggers, and on load flakes; see Handoff.
 - **inferred:** the recommendation to keep A, and every T-202 condition listed in the report.
 - **guessed:** the dollar cost per deal (about $0.80 at 1 gwei and $3,000 per ETH), the extra gas of real USDC over the mock (+10k to +25k), option C's saving (20 to 30%), and the deadline margin default (one day or more).
 
@@ -124,6 +124,14 @@ Full report: `docs/research/2026-11-T-201-cpp-spike.md`.
 3. A Sepolia deployment of CPP from `6b0a5ef3` with the `deploy` profile, checked by the metadata hash.
 4. The gas evidence goes to the D4 revisit: about $0.80 per deal at 1 gwei (guessed price), against a D33 minimum fee of 0.01 tUSD.
 
-**`pnpm verify`:**
+**`pnpm verify`: not green.** The final run on `625a3f6` is in `reports/verify-t-201-cpp-spike.md`.
 - **measured:** `typecheck`, `lint`, `spec`, `snap` and `demo` pass.
-- **measured:** `test` failed only on the known load flake `packages/testkit/src/judgment.test.ts` ("draws the same panel…", a 5-second timeout). T-024 records the same flake. The file passes alone (10 of 10). The final run's report is `reports/verify-t-201-cpp-spike.md`.
+- **measured:** `test` fails, for two reasons.
+  1. **Deterministic, caused by this task's Status change.** `tests/design-map.test.ts` asserts that exactly one plan phase is `next` or `active`. `scripts/design-map.mjs` (L108) marks a phase active when any of its tasks is `in progress` or `review`. Phase 1 is active through T-010 (in progress), and this task, a Phase 2 task, is now `review`, so two phases are active.
+     - **inferred:** the test passes with T-201 at `todo`, and any Phase 2 task under parallel lanes will hit the same failure.
+     - **Fix, for the infra lane or coordinator:** change the assertion to "at least one phase is next or active, and the first non-done phase is one of them". It is not changed here because `tests/` and `scripts/` are outside this task's paths.
+  2. **Load flakes.** These timeouts change from run to run on a busy machine:
+     - `packages/testkit/src/judgment.test.ts` ("draws the same panel…"), which T-024 also records and which passes alone (10 of 10, measured);
+     - `apps/demo/agents/agents.test.ts` (determinism) in one run.
+     
+     This task touches neither.
