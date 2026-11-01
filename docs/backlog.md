@@ -34,6 +34,12 @@ Deferred until after the basic demo. The demo assumes honest parties (Rafa, Octo
 | Settlement refunds do not credit the buyer's daily cap (`spentToday`), so a reopen near the cap fails `scope_exceeded` | D24 | When mandates with tight daily caps reopen commitments |
 | An adjudicator accepting the reopened commitment before the old one settles needs free bond for both prices; the SDK should order the steps | D24 | SDK helper for amendments |
 | Seller-signed `OfferWithdrawal`, so an unwanted offer stops encumbering the adjudicator's reservation before `offerExpiresAt` | D24 | When offers carry long expiry windows |
+| Operator fee: a cap (`max`), a seller-side fee, per-call payments, and an on-chain rulebook fee are not built; the schema carries `max`, the demo publishes `null` | D33; ADR-0023 | After a week of measured 1 bp / 0.01 tUSD on the demo nodes; before any real token |
+| Operator fee on the separate `fund` call and on the one-shot `POST /v1/holds`: both relay a funding without the fee today, so a buyer can agree, then fund, through a fee-charging node for free | T-029 | When an operator's revenue depends on the fee |
+| Operator fee across independent operators: `examples/agent.ts` requires the schedule to be identical at its two sources (true for the demo's one operator); an agent using independent operators should read the relay's own schedule and confirm it from a second source that indexes it | T-029; ADR-0023 residual | Phase 2, with independent operators on testnet contracts |
+| The operator fee is not checked against the buyer's mandate caps (`maxPerCommitment`, `maxDaily`): only price is counted | T-029 | When mandates with tight caps meet fee-charging operators |
+| The adjudication fee as a cost-plus quote with a capital charge on the bond for large deals (ADR-0014), so model cost and bond capital are priced where they arise | D33 | Before deals large enough for the flat 1 tUSD to under-price the bond |
+| Counsel on escrow and money-transmitter rules for a fee-charging operator that never holds funds | D33 | Before any real money |
 
 ## Finality
 
