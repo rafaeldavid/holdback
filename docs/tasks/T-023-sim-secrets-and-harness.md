@@ -45,7 +45,19 @@ Non-goals: access control on `/advance`, `/accounts` or `/adjudicators` (briefs 
 - **Measured.** `world.test.ts`: a T-021 world's sim service returns no party's secret on `GET /`, `/clock`, `/accounts`, `POST /accounts`, bad `/advance` and `/adjudicators/primary`, `/world.json` and `DELETE /`; `GET /` lists every party's address and no `privateKey`. The rendered brief contains "never suspect injection", "serves no secret key" and `--out <file>`, and still none of the other parties' keys, the audit URL or `FAIL-ME`.
 - **Measured.** `readMessage(..., { out })` writes the body byte for byte (a multi-line JSON body with quotes) and prints the headers with `bodyFile` and no `body`. By hand, `node tools/sim/bin/mail.ts send` then `read --out <file>`: `cmp` reports the files identical; `read --out` with no file prints usage and exits 2.
 - **Measured.** `pnpm verify`: PASS (typecheck, lint, test 2044 of 2044 in 75 files, spec, snap with no snapshot diffs, demo); report `reports/verify-t-023-sim-secrets.md`.
-- **Inferred.** Mandates don't leak the salted label: the principal key now derives from the salted label too, and the mandate nonce is a hash. I checked the operator's agent and mandate reads in code; no test covers this.
+- **Inferred.** Mandates don't leak the salted label: the principal key now derives from the salted label too, and the mandate nonce is a hash. I checked the operator's agent and mandate reads in code. Since the review, a test also checks the principal address.
+
+**PR 57 review fixes (2026-11-01)**
+
+- **Measured.** With a world secret, the keys of the adjudicators (`sim-adjudicator-a/b/c`), operator signers (`sim-operator-N`) and club operator (`sim-club-operator`) now derive from the salted label.
+  - New test, `sim-world.test.ts`, "derives no adjudicator, operator, club operator or principal key": for all three adjudicators, `testAccount(label).address` differs from the published address and the salted label matches it. Each operator's `receiptSigner`, the served club operator and every mandate principal differ from their bare-label accounts.
+  - With the three derivations reverted to `testAccount(label)`, this test and `world.test.ts`'s route scan (its final adjudicator-address check) both failed: 2 failed, 25 passed. After restoring the fix, both pass.
+- **Measured.** The leak scans now also cover the world secret itself and the keys of the adjudicators, operators, club operator and principals (signing key with or without `0x`; encryption secret as hex and base64url).
+  - Sim routes scanned: `/`, `/clock`, `/accounts` (GET and POST), the controls and errors.
+  - Operator reads scanned: `/.well-known/holdback.json`, `/v1/status`, `/v1/clubs/<id>`, `/v1/adjudicators` and `/v1/agents/<addr>` (the mandate read).
+  - Both tests pass: `sim-world.test.ts`, and `world.test.ts` on a T-021 world with both operators.
+- **Measured.** `mail read --out` now saves the body before marking the message read. An `--out` path that cannot be written throws, and the message is still the next unread one (`world.test.ts`). The bin refuses an `--out` value starting with `--`.
+- **Measured.** After the fixes, `pnpm verify` passes: typecheck, lint, test (2046 of 2046), spec, snap (no diffs) and demo. The operator sim, tools/sim and examples tests pass, 60 of 60.
 - **Guessed.** Batch 2 parties will no longer report a key leak; to be confirmed by the batch.
 
 ## Decisions
@@ -57,9 +69,12 @@ Non-goals: access control on `/advance`, `/accounts` or `/adjudicators` (briefs 
 - `mail.ts read --out <file>` writes the raw body and prints the headers with `bodyFile` in place of `body`. I didn't add a separate raw-output mode, since one way is enough.
 - The brief now says fake judges never suspect injection and a panel passes any rubric. It still doesn't name the fail marker: briefs keep sim internals out (`world.test.ts` forbids `FAIL-ME`).
 - No ADR: sim tooling only; no schema, contract or defense change.
+- After review: one derivation, `worldAccount`, now covers every key the world makes: accounts, spares, principals, adjudicators, operator signers and the club operator. `SimWorld.keySecret` and `SimWorld.keysOf(label)` expose the secret and the derived keys in-process so the tests can scan for them. Neither is ever served. With `publishSecrets` on, adjudicator and operator addresses are unchanged (bare labels), which a test checks.
+- The buyer brief now asks the buyer to confirm that the buyer encryption public key in the terms is one whose secret key it holds. This matches T-024's agree-and-fund wording and replaces "sealed to your encryption key".
 
 ## Handoff
 
 - Done on branch `t-023-sim-secrets`. Batch 2 (adversarial runs) can start once this merges.
 - Still open, recorded in the README Limits: the sim service has no access control on `/advance`, `/accounts` or `/adjudicators`, and `world.json` (every party's keys) is readable by any subagent. Briefs forbid both, and `sim:check` doesn't detect a party that ignores this.
+- PR 57 review findings 1 to 5, the README's "never adjudicators" line and the buyer brief wording are fixed in a follow-up commit on this branch.
 - `docs/quickstart.md`: one sentence in the sim-service paragraph. If T-025 rewrites that paragraph, keep the sentence about `GET /` listing keys only in `pnpm sim`.

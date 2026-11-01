@@ -24,40 +24,44 @@ export function send(mailRoot: string, m: Omit<Mail, 'at'>): string {
   return name;
 }
 
-/** The oldest unread message, moved to read/, or null. */
-export function receive(mailRoot: string, me: string): Mail | null {
+/**
+ * The oldest unread message, moved to read/, or null. `beforeRead` runs first (for example saving the body to
+ * a file); if it throws, the message stays unread and the error propagates.
+ */
+export function receive(mailRoot: string, me: string, beforeRead?: (m: Mail) => void): Mail | null {
   const box = join(mailRoot, me);
   if (!existsSync(box)) throw new Error(`no mailbox for ${me}`);
   const next = readdirSync(box)
     .filter((f) => f.endsWith('.json') && !f.startsWith('.'))
     .sort()[0];
   if (!next) return null;
+  const m = JSON.parse(readFileSync(join(box, next), 'utf8')) as Mail;
+  beforeRead?.(m);
   mkdirSync(join(box, 'read'), { recursive: true });
   renameSync(join(box, next), join(box, 'read', next));
-  return JSON.parse(readFileSync(join(box, 'read', next), 'utf8')) as Mail;
+  return m;
 }
 
-/**
- * What `mail.ts read` prints for a message. With `out`, the body is written to that file exactly as sent (a
- * signed offer stays byte for byte what the sender signed) and the printout names the file instead.
- */
+/** Writes a message body to `out` exactly as sent (a signed offer stays byte for byte what the sender signed). */
+export const saveBodyTo = (out: string) => (m: Mail) => writeFileSync(out, m.body);
+
+/** What `mail.ts read` prints for a message: the whole message, or, once its body is saved to `out`, the headers and that file. */
 export function formatMail(m: Mail, out?: string): string {
   if (out === undefined) return JSON.stringify(m, null, 2);
-  writeFileSync(out, m.body);
   const { body: _body, ...rest } = m; // eslint-disable-line @typescript-eslint/no-unused-vars
   return JSON.stringify({ ...rest, bodyFile: out }, null, 2);
 }
 
-/** The oldest unread message as `mail.ts read` prints it (its body saved to `out` if given), or null. */
+/** The oldest unread message as `mail.ts read` prints it (its body saved to `out` first, if given), or null. */
 export function readMessage(mailRoot: string, me: string, o: { out?: string }): string | null {
-  const m = receive(mailRoot, me);
+  const m = receive(mailRoot, me, o.out === undefined ? undefined : saveBodyTo(o.out));
   return m ? formatMail(m, o.out) : null;
 }
 
-export async function receiveWaiting(mailRoot: string, me: string, waitSec: number): Promise<Mail | null> {
+export async function receiveWaiting(mailRoot: string, me: string, waitSec: number, beforeRead?: (m: Mail) => void): Promise<Mail | null> {
   const until = Date.now() + waitSec * 1000;
   for (;;) {
-    const m = receive(mailRoot, me);
+    const m = receive(mailRoot, me, beforeRead);
     if (m || Date.now() >= until) return m;
     await new Promise((r) => setTimeout(r, 500));
   }
