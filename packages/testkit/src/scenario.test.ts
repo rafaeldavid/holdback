@@ -103,6 +103,12 @@ steps:
     expect(() => parseScenario(minimal('steps:\n  - deliver: { by: seller, file: data/x.csv, stub_bytes: "yes" }\n'), 't')).toThrow(/stub_bytes/);
   });
 
+  it('reads a buyer envelope sealed to the wrong key on deliver (T-024)', () => {
+    const s = parseScenario(minimal('steps:\n  - deliver: { by: seller, file: data/x.csv, buyer_envelope: wrong_key }\n'), 't');
+    expect(s.steps[0]).toEqual({ kind: 'deliver', by: 'seller', via: 'direct', file: 'data/x.csv', buyerEnvelope: 'wrong_key' });
+    expect(() => parseScenario(minimal('steps:\n  - deliver: { by: seller, file: data/x.csv, buyer_envelope: missing }\n'), 't')).toThrow(/buyer_envelope/);
+  });
+
   it('reserves ledger account names and checks faucet accounts', () => {
     for (const reserved of ['escrow', 'anyone', 'direct']) {
       expect(() => parseScenario(minimal('steps: []\n').replace('buyer: b', `buyer: ${reserved}`), 't')).toThrow(/reserved/);

@@ -5,14 +5,14 @@
 - **Depends on:** T-020
 - **Paths this task may touch:** `examples/verify.ts`, `examples/sign.ts`, `examples/agent.ts`, `examples/*.test.ts`, `apps/operator/src/prepare.ts` (check text only), `fixtures/scenarios/` (new `attack.` fixture and snapshot), `packages/testkit/` (only if the fixture needs a new step), `docs/api.md`, `docs/quickstart.md`, `docs/backlog.md` (rows)
 - **Human gate:** no
-- **Status:** todo
-- **Agent/session:** —
+- **Status:** in progress
+- **Agent/session:** implementer subagent, branch `t-024-early-accept-envelope`
 
 ## Intent
 
 Batch 1 (`docs/reviews/2026-11-01-sim-batch-1.md`, F2): a seller can seal the buyer's content-key envelope to a key the buyer does not hold while naming the right recipient. Nothing detects that at delivery. A decision re-seals the key to the buyer's terms key, so judged deals are safe, but an early accept releases the seller-supplied envelope with the payment. ADR-0012 makes a wrong key an appeal ground. Close the gap on both sides: prevention in the buyer's own verifier, and a fixture showing the recourse works.
 
-Restate this in your own words in this section before writing code.
+**Restated (implementer).** An early accept pays the seller and releases whatever envelope the seller filed for the buyer, and no one (operator, settlement, adjudicator) checks that envelope opens with the buyer's key. A buyer must therefore never sign an early accept for work it has not opened itself. The buyer's held envelope is not readable before payment (`/key` is empty until release, by the fair-exchange design), so the buyer opens it from the signed delivery body the seller hands over, after checking that body's delivery hash equals the one settlement recorded; then decrypts the ciphertext and checks the signed hashes. The verifier (`examples/verify.ts`) enforces this for the early-accept intent; prepare's check text says it; the docs say it. A scenario fixture records what happens to a buyer that skips the check and then appeals on ADR-0012's wrong-key ground. Non-goals: any settlement, core or contract change (if the appeal path is broken, it is recorded as a gap, not fixed); detecting a misdirected envelope at delivery; a new operator endpoint for reading the buyer envelope before payment; the agree-and-fund intent beyond its check text (T-025).
 
 ## Context
 
