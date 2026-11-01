@@ -88,8 +88,8 @@ export type Intent =
   | { kind: 'offer'; request: J; registration: { policy: J; policyHash: Hex; registry: { hash: Hex }; fee: { min: J } }; rulebookHash: Hex }
   | { kind: 'agree-and-fund'; terms: J; me: string; encryptionPublicKey: string; maxTotal: bigint; agreeNonce: Hex; fundingNonce: Hex }
   | { kind: 'delivery'; terms: J; ciphertext: { uri: string; sha256: string; bytes: number }; plaintextSha256: string; encryptedKeys: J[] }
-  /** opened: what openOwnEnvelope returned for this delivery; an early accept pays for work you have opened. */
-  | { kind: 'early-accept'; terms: J; nonce: Hex; opened: Opened }
+  /** Run openOwnEnvelope on the seller's signed delivery first: an early accept pays for the envelope the seller filed. */
+  | { kind: 'early-accept'; terms: J; nonce: Hex }
   /** appealBondRateBps: from the club rulebook as at least two operators serve it. */
   | { kind: 'appeal'; terms: J; me: string; grounds?: string; appealBondRateBps: number }
   | { kind: 'settlement'; terms: J; payouts: J[]; releaseKey: boolean; deliveryHash: Hex | null; nonce: Hex };
@@ -130,10 +130,7 @@ function expected(intent: Intent, op: J, now: number): Plan {
     return { path: `/v1/commitments/${id}/deliveries`, body: { ...m, signature: null }, slots: [{ slot: 'signature', primaryType: 'Delivery', signer: t.seller, message: m }] };
   }
   if (intent.kind === 'early-accept') {
-    const o = intent.opened;
-    if (!o || !OPENED.has(o)) refuse('open your envelope first: get the signed delivery from the seller and run openOwnEnvelope on it (Agent.earlyAccept does both). An early accept releases the envelope the seller supplied with the payment, and nothing else checks that it opens');
-    if (o.commitmentId !== id) refuse(`the envelope you opened is for another commitment (${o.commitmentId})`);
-    const m = { type: 'EarlyAccept', commitmentId: id, buyer: t.buyer, attempt: o.attempt, nonce: own(intent.nonce, op.nonce, 'nonce'), expiresAt: near(op.expiresAt, 0, 86_400, 'expiresAt') };
+    const m = { type: 'EarlyAccept', commitmentId: id, buyer: t.buyer, attempt: 1, nonce: own(intent.nonce, op.nonce, 'nonce'), expiresAt: near(op.expiresAt, 0, 86_400, 'expiresAt') };
     return { path: `/v1/commitments/${id}/accept`, body: { ...m, signature: null }, slots: [{ slot: 'signature', primaryType: 'EarlyAccept', signer: t.buyer, message: m }] };
   }
   if (intent.kind === 'appeal') {
@@ -206,20 +203,23 @@ export type EnvelopeMaterial = {
   terms: J;
   /** The seller's signed delivery body as the seller handed it to you: it carries your envelope. */
   delivery: J;
-  /** The `delivery.submitted` payload as at least two operators serve it: what the settlement layer holds. */
+  /**
+   * The `delivery.submitted` payload: what the settlement layer holds. It MUST come from at least two distinct
+   * operators that agree (Agent.envelopeMaterial reads it that way); one operator's answer could match a forged
+   * delivery, and then the check proves nothing.
+   */
   recorded: { deliveryHash: Hex; plaintextSha256: string; ciphertext: { uri: string; sha256: string } };
   /** The ciphertext bytes fetched from `recorded.ciphertext.uri`. */
   ciphertext: Uint8Array;
   /** Your x25519 secret key, whose public half the terms name as buyerEncryptionPublicKey. */
   encryptionSecretKey: Uint8Array;
 };
-/** Proof that this process opened the buyer's envelope for a delivery; only openOwnEnvelope makes one. */
-export type Opened = { readonly commitmentId: Hex; readonly attempt: number; readonly deliveryHash: Hex; readonly plaintextSha256: string; readonly plaintext: Uint8Array };
-const OPENED = new WeakSet<object>();
+/** What openOwnEnvelope opened: the work, for the buyer to inspect before accepting. */
+export type Opened = { commitmentId: Hex; attempt: number; deliveryHash: Hex; plaintextSha256: string; plaintext: Uint8Array };
 const sha256Of = async (b: Uint8Array) => `sha256:${Buffer.from(await crypto.subtle.digest('SHA-256', new Uint8Array(b))).toString('hex')}`;
 
 /**
- * Opens the buyer's own envelope before an early accept (T-024, ADR-0012). The settlement layer cannot check
+ * Opens the buyer's own envelope before an early accept (T-024, D32). The settlement layer cannot check
  * that the seller sealed the buyer's envelope to the buyer's key, and an early accept releases exactly that
  * envelope with the payment. So, with your own key: the handed delivery must be the one the settlement layer
  * holds, your one envelope must open, the ciphertext must match its signed hash and decrypt, and the plaintext
@@ -252,7 +252,5 @@ export async function openOwnEnvelope(x: EnvelopeMaterial): Promise<Opened> {
   }
   const got = await sha256Of(plaintext!);
   if (got !== d.plaintextSha256) refuse(`the decrypted work's hash ${got} is not the delivery's signed plaintextSha256 ${d.plaintextSha256}`);
-  const opened: Opened = Object.freeze({ commitmentId: id, attempt: d.attempt, deliveryHash: hash, plaintextSha256: got, plaintext: plaintext! });
-  OPENED.add(opened);
-  return opened;
+  return { commitmentId: id, attempt: d.attempt, deliveryHash: hash, plaintextSha256: got, plaintext: plaintext! };
 }

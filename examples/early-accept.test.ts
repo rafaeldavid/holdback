@@ -1,13 +1,13 @@
-// T-024 (sim batch 1, F2): an early accept releases the seller-supplied buyer envelope with the payment, and
-// nothing checks that envelope at delivery. The buyer's verifier therefore refuses to sign an early accept
-// until the buyer has opened its own envelope, from the signed delivery the seller hands it, bound to the
-// delivery the settlement layer holds, and the plaintext hash matches the signed one.
+// T-024 (sim batch 1, F2; D32): an early accept releases the seller-supplied buyer envelope with the payment,
+// nothing checks that envelope at delivery, and no appeal follows an early accept. So the buyer's agent opens its
+// own envelope before signing one: from the signed delivery the seller hands it, bound to the delivery the
+// settlement layer holds, with the plaintext hash matching the signed one.
 import { startSimWorld, type SimWorld } from '@holdback/operator';
 import nacl from 'tweetnacl';
 import { hexToBytes, keccak256, toBytes, type Hex } from 'viem';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Agent } from './agent.ts';
-import { commitmentIdOf, deliveryHashOf, freshNonce, openOwnEnvelope, Refusal, SIMCHAIN_DOMAIN, verifyPrepared, type EnvelopeMaterial, type Intent, type Opened } from './verify.ts';
+import { commitmentIdOf, deliveryHashOf, freshNonce, openOwnEnvelope, Refusal, type EnvelopeMaterial, type Intent } from './verify.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 const b64 = (b: Uint8Array) => Buffer.from(b).toString('base64url');
@@ -32,7 +32,6 @@ afterAll(async () => {
   await world.close();
 });
 
-const now = () => Date.parse(world.chain.now());
 const silence = (role: string, silent: boolean) => fetch(`${world.url}/adjudicators/${role}`, { method: 'POST', body: JSON.stringify({ silent }) });
 let deals = 0;
 /** A funded deal; the primary is silenced by the caller to keep it in Delivered. */
@@ -140,25 +139,19 @@ describe('early accept opens the buyer envelope first (T-024)', { timeout: 30_00
     }
   });
 
-  it('the verifier refuses an early accept with no opened envelope, a forged one, or one for another deal', async () => {
+  it("a delivery handed for another deal refuses; prepare's check says open first and that no appeal follows", async () => {
     const first = await held();
     const { id, terms } = await held();
     await silence('primary', true);
     try {
-      const { delivery } = await seller.deliverAndShare(terms, WORK);
+      await seller.deliverAndShare(terms, WORK);
       const other = await seller.deliverAndShare(first.terms, WORK);
-      const nonce = freshNonce();
-      const prepared = await buyer.call('POST', '/v1/prepare/early-accept', { commitmentId: id, nonce });
-      expect(prepared.check.join(' ')).toMatch(/open your envelope/);
-      const verify = (opened: unknown) => verifyPrepared(prepared, { kind: 'early-accept', terms, nonce, opened } as Intent, buyer.address, SIMCHAIN_DOMAIN, now());
-      expect(() => verify(undefined)).toThrow(/open your envelope first/);
-      const opened = await openOwnEnvelope(await material(terms, delivery));
-      expect(() => verify({ ...opened })).toThrow(/open your envelope first/); // a copy is a promise, not a proof
-      const elsewhere = await openOwnEnvelope(await material(first.terms, other.delivery));
-      expect(() => verify(elsewhere)).toThrow(/another commitment/);
-      expect(verify(opened).toSign).toHaveLength(1);
-      const o: Opened = opened;
-      expect(o.commitmentId).toBe(id);
+      await expect(buyer.earlyAccept(terms, other.delivery)).rejects.toThrow(/another commitment/);
+      expect((await buyer.call('GET', `/v1/commitments/${id}`)).escrowState).toBe('Delivered');
+      const prepared = await buyer.call('POST', '/v1/prepare/early-accept', { commitmentId: id, nonce: freshNonce() });
+      const text = prepared.check.join(' ');
+      expect(text).toMatch(/open your envelope first/);
+      expect(text).toMatch(/no appeal follows an early accept/);
     } finally {
       await silence('primary', false);
     }

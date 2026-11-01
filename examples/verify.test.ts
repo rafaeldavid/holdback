@@ -201,7 +201,8 @@ describe('neutrality.operator-lies-in-prepare', { timeout: 30_000 }, () => {
       const { delivery } = await seller.deliverAndShare(terms, new TextEncoder().encode('a\n1\n'));
       const nonce = freshNonce();
       const prepared = await buyer.call('POST', '/v1/prepare/early-accept', { commitmentId: id, nonce });
-      const intent: Intent = { kind: 'early-accept', terms, nonce, opened: await openOwnEnvelope(await buyer.envelopeMaterial(terms, delivery)) }; // T-024
+      await openOwnEnvelope(await buyer.envelopeMaterial(terms, delivery)); // T-024, D32: open before accepting
+      const intent: Intent = { kind: 'early-accept', terms, nonce };
       expect(verify(prepared, intent, buyer.address).toSign).toHaveLength(1);
       refusesEach(prepared, intent, buyer.address, [
         ['buyer', both(0, 'buyer', seller.address)],

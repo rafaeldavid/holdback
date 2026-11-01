@@ -117,7 +117,9 @@ export class Agent {
   }
   /**
    * Seller: deliver, and keep the signed delivery body. To be paid by an early accept, hand it to the buyer: it
-   * carries the buyer's envelope, which the buyer opens before accepting (so the buyer sees the work first).
+   * carries the buyer's envelope, which the buyer opens before accepting. That gives the buyer the content key
+   * before payment: if the buyer does not accept early and the deal is then refunded, the buyer keeps the work.
+   * Handing it over is your choice (D32); otherwise wait for the adjudicator.
    */
   async deliverAndShare(terms: J, plaintext: Uint8Array): Promise<{ state: J; delivery: J }> {
     const { prepared, intent } = await this.prepareDelivery(terms, plaintext);
@@ -163,13 +165,13 @@ export class Agent {
   /**
    * Buyer: accept a delivery before any decision. It opens this agent's own envelope from the signed delivery
    * the seller handed over, checks it against what the settlement layer holds and the signed hashes, and only
-   * then signs: an early accept releases the seller-supplied envelope with the payment (ADR-0012, T-024).
+   * then signs: an early accept releases the seller-supplied envelope with the payment, and no appeal follows it (D32).
    */
   async earlyAccept(terms: J, delivery: J): Promise<J> {
-    const opened = await openOwnEnvelope(await this.envelopeMaterial(terms, delivery));
+    await openOwnEnvelope(await this.envelopeMaterial(terms, delivery)); // throws Refusal if it does not open
     const nonce = freshNonce();
     const prepared = await this.call('POST', '/v1/prepare/early-accept', { commitmentId: commitmentIdOf(terms), nonce });
-    return this.signAndSubmit(prepared, { kind: 'early-accept', terms, nonce, opened });
+    return this.signAndSubmit(prepared, { kind: 'early-accept', terms, nonce });
   }
   /** Buyer: fetch this agent's released envelope and the ciphertext, decrypt, check the signed hashes. */
   async openDelivery(id: Hex): Promise<string> {
