@@ -5,14 +5,18 @@
 - **Depends on:** T-025 (docs content); T-026 (live URLs, filled in at the end)
 - **Paths this task may touch:** `site/` (new: `index.html`, `llms.txt`, `agents.md` or equivalent), `docs/tasks/T-027-agent-docs-site.md`
 - **Human gate:** publishing is done by the coordinator (Rafa approved the location on 2026-11-01)
-- **Status:** todo
-- **Agent/session:** —
+- **Status:** review
+- **Agent/session:** implementer, branch `t-027-agent-docs-site`
 
 ## Intent
 
 Rafa, 2026-11-01: "keep it super super simple (apple light simple), only a tagline and agent docs needed for someone to execute the protocol." The page is for a person deciding to try it and, mostly, for the agent they point at it. An agent reading only this site (no repo) can run one honest checks-only deal: get keys, get test tUSD, offer, agree and fund, deliver, settle.
 
 Restate this in your own words in this section before writing code.
+
+**Restated (implementer).** Two static files at `/escrow/`: a quiet page that says what Holdback is in a tagline and a sentence, says plainly that only test tokens are involved, and tells a person where to point their agent; and the agent docs, which are the real product of this task. The docs must be enough on their own: an agent that never sees the repo makes its own keys, gets test tUSD, offers or agrees, funds, encrypts and delivers, and reads and opens the result, verifying each prepared message against its own intent with the domain and types printed on the page. The content is honest about what is simulated (one shared settlement layer, one basic adjudicator, scripted panel, resettable state) and stays on the checks-only happy path.
+
+Non-goals: publishing or hosting (coordinator); filling the live operator URLs (placeholders `{{OP1}}`/`{{OP2}}` until T-026 deploys); appeals, timeouts, early accept, settlements and other edge paths; a rubric or panel walkthrough; brand work beyond the tagline; any change outside `site/` and this task file.
 
 ## Design
 
@@ -31,10 +35,10 @@ Restate this in your own words in this section before writing code.
 
 ## Acceptance criteria
 
-- [ ] `site/index.html` and `site/llms.txt` exist, match the design, and contain everything above; no repo link is required to complete the happy path.
-- [ ] A check (test or script) confirms every `{{OP1}}`/`{{OP2}}` placeholder is in a known place and every relative link resolves under `/escrow/`.
-- [ ] Content agrees with `docs/api.md` (field names, routes, envelope spec, test vector).
-- [ ] PR opened.
+- [x] `site/index.html` and `site/llms.txt` exist, match the design, and contain everything above; no repo link is required to complete the happy path.
+- [x] A check (test or script) confirms every `{{OP1}}`/`{{OP2}}` placeholder is in a known place and every relative link resolves under `/escrow/`.
+- [x] Content agrees with `docs/api.md` (field names, routes, envelope spec, test vector).
+- [x] PR opened.
 
 ## Out of scope
 
@@ -42,6 +46,28 @@ Restate this in your own words in this section before writing code.
 
 ## Evidence
 
+- **Measured:** `node site/walkthrough.mjs` follows llms.txt with no Holdback code (fetch, viem, tweetnacl, types parsed from llms.txt itself) against an in-process sim and prints `walkthrough PASS`. Each step is checked: the pinned domain matches; registrations and rulebook agree on both operators and hash as documented; the offer's `CommitmentTerms`, built from intent with the documented defaults, matches the operator's message and digest; `id` is its struct hash; /terms recomputes to the same ID; `Agree` and `FundingAuthorization` built from the terms match and the hold is `Held 26000000`; /recipients matches the documented order; four 139-character envelopes; `Delivery` with `unlock {kind:"", round:0}` matches; then `Released`, `finalAt` null until `appealBy`, judgment `accept` with `panel.ran false`, and the buyer opens and hash-checks the work.
+- **Measured:** `node site/check.mjs` prints `site check PASS`. It covers: index.html is fresh; each placeholder appears once in its known place; filled builds leave no placeholder or note; a build with a CONFIRM note left is refused; every link resolves under /escrow/; the types and domain equal `examples/verify.ts`; the test vectors and worked checks equal `docs/api.md`; every route (except `/v1/faucet`) is in `docs/api.md`.
+- **Measured:** `pnpm verify` PASS (typecheck, lint, test, spec, snap, demo): `reports/verify-t-027-agent-docs-site.md`.
+- **Measured:** the page was viewed in the browser pane at desktop width and at 375 px. At 375 px, scrollWidth equals clientWidth (375), so there is no horizontal page scroll. Code blocks and tables scroll inside their own boxes.
+- **Inferred:** check.mjs fails on a stale page or a moved placeholder (from the code paths; no mutation run was recorded).
+- **Not measured:** the faucet step and the live operators. Both wait on T-026 (Handoff step 2).
+
 ## Decisions
 
+- **One source.** `site/llms.txt` is the canonical text; `site/build.mjs` renders `site/index.html` from it (a small Markdown subset: headings, paragraphs, lists, tables, fenced code). The page's top (tagline, sentence, test-token notice) is taken from the head of llms.txt, so the two cannot drift; `site/check.mjs` fails if `index.html` is stale. Alternative rejected: hand-written HTML duplicating the docs.
+- **Placeholders in one place.** `{{OP1}}` and `{{OP2}}` appear once each, as `OP1=` / `OP2=` under "Configure"; every command uses `$OP1`/`$OP2`. A third, `{{REPO}}`, is the repo link: the repo is private today (`gh repo view`: PRIVATE), so a filled build without `--repo` drops that line instead of publishing a dead link.
+- **The faucet shape is the one unconfirmed thing.** It is written to T-026's plan (`POST /v1/faucet {address}`, response with `balance` and `clubId`), and so is "one adjudicator in all three roles". Both are marked with `%% CONFIRM after T-026` editor notes. `%%` lines never reach a published file, and `build.mjs --out` refuses to build while any remains, so the coordinator cannot publish unconfirmed text by accident.
+- **Links are `/escrow/…`, not page-relative.** A page-relative `llms.txt` breaks if the host serves `/escrow` without a trailing slash; root-relative paths with the prefix work either way. `check.mjs` refuses page-relative links.
+- **Typefaces.** The system UI face for text, and the system monospace face only inside code, because hashes, JSON and curl lines need fixed width. No web fonts, no images, no scripts, light only.
+- **Verification without the repo.** `verify.ts` is TypeScript in the repo, so the page states the checks as a six-point list plus the exact field values for each message (including the default timing arithmetic and `unlock: {kind: "", round: 0}` in Delivery), and prints the schema 0.6 types. `site/walkthrough.mjs` proves the list is sufficient and correct: it builds every message from the page alone and compares with the operator.
+
 ## Handoff
+
+For the coordinator, after T-026 deploys:
+
+1. Check the two `%% CONFIRM after T-026` notes in `site/llms.txt` against the live API (faucet route, request and response fields; adjudicator listing and roles). Fix the text if it differs, delete the notes, run `node site/build.mjs` (regenerates `site/index.html`) and `node site/check.mjs`.
+2. Measure the docs against the live nodes: `OP1=https://… OP2=https://… node site/walkthrough.mjs` (fresh keys, funded by the faucet). It must print `walkthrough PASS (live …)`. If the walkthrough's faucet expectations (`clubId`, `balance.amount` in the response) differ from T-026's final shape, adjust both the docs and the walkthrough.
+3. Build the publishable files: `node site/build.mjs --op1 https://<op1 origin> --op2 https://<op2 origin> --out <dir>` (add `--repo <url>` only once the repo is public). Publish `<dir>/index.html` and `<dir>/llms.txt` to npc.here.now/escrow/. Do not publish `site/` directly: its `llms.txt` still holds placeholders and editor notes.
+
+Cross-lane follow-up (outside this task's paths): `site/check.mjs` is not yet run by CI. Add a root script (for example `"site:check": "node site/check.mjs"`) and a `scripts/verify.ts` step, or move it to `tests/site.test.ts`. `site/walkthrough.mjs` needs a built `apps/operator` (`pnpm build`) in its local mode.

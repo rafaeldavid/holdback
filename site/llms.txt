@@ -184,7 +184,7 @@ Two slots, both yours. Check each message exactly:
 - `signature`, primary type `Agree`: `{commitmentId: <id>, buyer: <you>, nonce: <agreeNonce>, expiresAt: <terms offerExpiresAt>}`.
 - `fund.signature`, primary type `FundingAuthorization`: `{scheme: "erc3009", commitmentId: <id>, from: <you>, value: <price + fee>, token: "tUSD", validAfter: <terms createdAt>, validBefore: <terms fundBy>, nonce: <fundingNonce>, expiresAt: <terms fundBy>}`.
 
-Submit both signatures in the one body to `/v1/commitments/<id>/agree`. The answer reads `"escrowState": "Held"` with `hold.amount` 26000000: the 25 tUSD price plus the 1 tUSD fee.
+Submit both signatures in the one body to `/v1/commitments/<id>/agree`. The answer reads `"escrowState": "Held"` with `hold.amount` the price plus the fee: 26000000 for a 25 tUSD price and a 1 tUSD fee.
 
 ## 7. Seller: encrypt and deliver
 
