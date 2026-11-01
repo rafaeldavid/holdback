@@ -349,6 +349,18 @@ importers:
         specifier: ^2.9.1
         version: 2.9.1
 
+  tools/sim:
+    dependencies:
+      '@holdback/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@holdback/operator':
+        specifier: workspace:*
+        version: link:../../apps/operator
+      '@holdback/settlement':
+        specifier: workspace:*
+        version: link:../../packages/settlement
+
 packages:
 
   '@adraffy/ens-normalize@1.11.1':

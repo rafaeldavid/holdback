@@ -1,0 +1,14 @@
+{
+  "name": "@holdback/sim-tools",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@holdback/core": "workspace:*",
+    "@holdback/operator": "workspace:*",
+    "@holdback/settlement": "workspace:*"
+  }
+}
