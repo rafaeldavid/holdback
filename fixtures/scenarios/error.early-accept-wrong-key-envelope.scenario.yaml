@@ -1,13 +1,14 @@
 # @settlement sim @judges recorded @mode guaranteed_on_decision @seed 241
-name: todo.attack.early-accept-wrong-key-envelope
+name: error.early-accept-wrong-key-envelope
 description: >-
-  Known gap (sim batch 1, F2; T-024). Tidewater seals Atlas's content-key envelope to a key Atlas does not
-  hold, naming Atlas as the recipient; settlement cannot tell and records the delivery. Atlas's agent skips
-  the open-your-envelope check that examples/verify.ts now enforces and accepts early, so the price goes to
-  Tidewater and the misdirected envelope is released. Atlas cannot open the work. ADR-0012 makes a missing or
-  wrong key an appeal ground, but settlement refuses any appeal after an early accept ("nothing to appeal
-  after early_accept"), so the recourse does not work end to end today. Restore as attack.* once an appeal
-  (or another remedy) on the missing-or-wrong-key ground is possible after an early accept.
+  Sim batch 1, F2; decided by D32 (ADR-0012 amended). Tidewater seals Atlas's content-key envelope to a key
+  Atlas does not hold, naming Atlas as the recipient; settlement cannot tell and records the delivery. Atlas's
+  agent skips the open-your-envelope check that examples/agent.ts and sign.ts run before an early accept, and
+  accepts early: the price goes to Tidewater and the misdirected envelope is released, which Atlas cannot
+  open. Its missing-or-wrong-key appeal is refused, as intended: an early accept is the buyer's own acceptance,
+  no appeal follows it, and the wrong-key ground covers judged outcomes only. Responsibility sits with the
+  buyer's check before signing; the signed record is the evidence (D26). Prefixed error., not attack.: the
+  attack. rule requires that nothing is paid out, and here the release is the buyer's own signed choice.
 club: fixtures/clubs/data-services-v1.yaml
 terms: fixtures/terms/clean-customers-2000.yaml
 parties:
@@ -29,9 +30,10 @@ steps:
   - agree_and_fund:     { by: buyer, via: op-1 }
   - deliver:            { by: seller, via: op-1, file: data/dataset-cleaning/customers.clean.csv, buyer_envelope: wrong_key }
   - early_accept:       { by: buyer, via: op-1 }
-  - verify_key_release: { by: buyer, via: op-1 }
   - appeal:             { by: buyer, via: op-1, grounds: missing-or-wrong-key }
-expect:                             # today's outcome (measured): Atlas paid and cannot open the work or appeal
+  - verify_key_release: { by: buyer, via: op-1 }
+expect:                             # intended (D32): Atlas paid, has no appeal, and cannot open the work
+  problem: { type: invalid_state, step: 6 }
   terminal: Released
   balances:
     atlas-buyer: "8000000000"
