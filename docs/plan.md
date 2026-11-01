@@ -66,6 +66,7 @@ Goal: the same scenario fixtures pass against an EVM contract on a local chain. 
 - T-204 Formal model of the commitment state machine (TLA+ or Quint): liveness under any single actor halting; safety of fund movement.
 - T-205 `Settlement` EVM implementation; `pnpm snap --settlement=local` green; differential report.
 - T-206 Contract review: checklist plus a cross-family review; human gate.
+- T-207 Private deals, to make "private escrow" true end to end (Rafa, 2026-11-01). Today only the work is private: it is encrypted, and only the adjudicators and the paid buyer can open it. Terms, amounts, addresses and events are public reads. Build: read authentication (`ReadToken`) so only the parties and their adjudicators read a deal; private judgment records; disclosure levels enforced, not just recorded; commitment metadata private on unauthenticated reads (residual 9); amount privacy weighed with the D4 chain choice (confidential tokens or a privacy chain). Sources: ADR-0020, D13, D16, backlog Privacy. Needs an ADR and a schema version bump. Done when a third party reading any operator learns nothing about a deal beyond what its disclosure level allows, shown by a fixture.
 - Decide D4 (testnet).
 
 ## Phase 3: Judgment hardening

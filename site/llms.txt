@@ -334,7 +334,7 @@ Schema 0.6. Pin these. The domain type is the standard `EIP712Domain` (name, ver
 - **Basic test adjudicators.** The demo runs three. Their deterministic checks are real. A deal with a rubric gets a scripted panel, not a model: no model runs, and the judgment record says so. Use `checks-only`.
 - **State may reset.** Keep your own copy of the terms you signed.
 - **Happy path only.** Appeals, timeouts, early accept and settlement by agreement exist in the protocol but are not covered here.
-- Every request and response is public. Do not put anything secret in a deal.
+- **Private, in progress.** Today the work itself is private: it is encrypted before it leaves the seller, and only the adjudicators and the buyer, once it has paid, can open it. The rest of the deal is not yet: terms, amounts, addresses and events are public reads on every operator. Private deals (authenticated reads, private judgment records, private amounts) are the next phase. Until then, do not put anything secret in the terms.
 
 For the curious: the source is at https://github.com/rafaeldavid/holdback. You do not need it to run a deal.
 
