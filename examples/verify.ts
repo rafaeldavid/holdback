@@ -5,7 +5,7 @@
 // refuses. The agent then signs its own typed data and submits its own body. Standard libraries only (viem), and
 // tweetnacl with Web Crypto to open the buyer's own envelope before an early accept (openOwnEnvelope).
 import nacl from 'tweetnacl';
-import { hashStruct, hashTypedData, keccak256, toBytes, type Hex } from 'viem';
+import { hashStruct, hashTypedData, keccak256, recoverTypedDataAddress, toBytes, type Hex } from 'viem';
 
 export type Domain = { name: 'Holdback'; version: string; chainId: number; verifyingContract: Hex };
 /** SimChain's domain, as `pnpm sim` prints it. Configure yours; never take it from an operator. */
@@ -18,7 +18,7 @@ export const configuredDomain = (): Domain => ({
 
 const f = (name: string, type: string) => ({ name, type });
 const exp = [f('nonce', 'bytes32'), f('expiresAt', 'uint64')];
-/** The EIP-712 types of schema 0.7, domain version 0.6 (packages/core/src/eip712.ts), pinned here. */
+/** The EIP-712 types of schema 0.8, domain version 0.6 (packages/core/src/eip712.ts), pinned here. */
 export const TYPES = {
   TokenAmount: [f('token', 'string'), f('amount', 'uint256')],
   Adjudication: [f('adjudicator', 'address'), f('fallbackAdjudicator', 'address'), f('appealAdjudicator', 'address'), f('policyId', 'string'), f('fee', 'TokenAmount'), f('registryHash', 'bytes32'), f('policyHash', 'bytes32')],
@@ -39,6 +39,11 @@ export const TYPES = {
   Appeal: [f('commitmentId', 'bytes32'), f('appellant', 'string'), f('appellantAddress', 'address'), f('grounds', 'string'), f('bond', 'TokenAmount'), f('filedAt', 'uint64')],
   Payout: [f('to', 'address'), f('amount', 'TokenAmount')],
   MutualSettlement: [f('commitmentId', 'bytes32'), f('hasDelivery', 'bool'), f('deliveryHash', 'bytes32'), f('payouts', 'Payout[]'), f('releaseKey', 'bool'), ...exp],
+  // Schema 0.8 (ADR-0024), same domain version 0.6: private reads, per-deal key certificates, publication.
+  Scope: [f('roles', 'string[]'), f('maxPerCommitment', 'TokenAmount'), f('maxDaily', 'TokenAmount'), f('hasCategories', 'bool'), f('categories', 'string[]'), f('expiresAt', 'uint64')],
+  ReadToken: [f('viewer', 'address'), f('commitmentId', 'bytes32'), f('hasAudience', 'bool'), f('audience', 'address'), ...exp],
+  Delegation: [f('principal', 'address'), f('agent', 'address'), f('dealKey', 'address'), f('dealEncryptionKey', 'string'), f('clubId', 'string'), f('scope', 'Scope'), ...exp],
+  Publish: [f('commitmentId', 'bytes32'), f('level', 'string'), ...exp],
 };
 const DEFAULT_TIMING: Record<string, number> = { offerExpiresInSec: 900, fundWithinSec: 1800, deliverWithinSec: 86_400, judgeWithinSec: 300, fallbackWithinSec: 300, appealWindowSec: 300, appealDecideSec: 300 };
 
@@ -99,7 +104,15 @@ const ENCODE: Record<string, (m: J) => J> = {
   Delivery: (m) => ({ ...m, ciphertext: { ...m.ciphertext, bytes: BigInt(m.ciphertext.bytes) }, encryptedKeys: m.encryptedKeys.map((k: J) => ({ ...k, unlock: { kind: '', round: 0n } })), submittedAt: secs(m.submittedAt) }),
   Appeal: (m) => ({ ...m, bond: amt(m.bond), filedAt: secs(m.filedAt) }),
   MutualSettlement: (m) => ({ ...m, hasDelivery: m.deliveryHash !== null, deliveryHash: m.deliveryHash ?? `0x${'0'.repeat(64)}`, payouts: m.payouts.map((p: J) => ({ to: p.to, amount: amt(p.amount) })), expiresAt: secs(m.expiresAt) }),
+  ReadToken: (m) => ({ viewer: m.viewer, commitmentId: m.commitmentId, hasAudience: m.audience !== undefined, audience: m.audience ?? `0x${'0'.repeat(40)}`, nonce: m.nonce, expiresAt: secs(m.expiresAt) }),
+  Delegation: (m) => ({
+    ...m, nonce: m.nonce, expiresAt: secs(m.expiresAt),
+    scope: { roles: m.scope.roles, maxPerCommitment: amt(m.scope.maxPerCommitment), maxDaily: amt(m.scope.maxDaily), hasCategories: m.scope.categories !== undefined, categories: m.scope.categories ?? [], expiresAt: secs(m.scope.expiresAt) },
+  }),
+  Publish: (m) => ({ commitmentId: m.commitmentId, level: m.level, nonce: m.nonce, expiresAt: secs(m.expiresAt) }),
 };
+/** EIP-712 typed data for a message this agent builds itself, under its own pinned domain. */
+export const typedOf = (primaryType: string, message: J, domain: Domain): J => ({ domain, types: TYPES, primaryType, message: ENCODE[primaryType]!(message) });
 
 /** What the agent itself intends, per kind. `terms` are the commitment terms the agent signed or agreed to. */
 export type Intent =
@@ -300,4 +313,166 @@ export async function openOwnEnvelope(x: EnvelopeMaterial): Promise<Opened> {
   const got = await sha256Of(plaintext!);
   if (got !== d.plaintextSha256) refuse(`the decrypted work's hash ${got} is not the delivery's signed plaintextSha256 ${d.plaintextSha256}`);
   return { commitmentId: id, attempt: d.attempt, deliveryHash: hash, plaintextSha256: got, plaintext: plaintext! };
+}
+
+// ---- Private deals (ADR-0024): the client-side prepare recipe, the two-part encrypted terms, Delegation checks ----
+
+const SALT = /^0x[0-9a-f]{64}$/;
+const whole = (ts: J) => typeof ts === 'string' && Number.isFinite(Date.parse(ts)) && Date.parse(ts) % 1000 === 0;
+
+/** What the recipe takes. Every value is the agent's own or read from at least two operators; none is the relay's. */
+export type PrivateOfferInput = {
+  clubId: string;
+  /** The club's rulebookHash, as two operators serve it and checked against the rulebook (Agent.club). */
+  rulebookHash: Hex;
+  /** The seller's per-deal address. */
+  seller: string;
+  /** The buyer's per-deal address and x25519 key, as its Delegation certifies them. */
+  buyer: { address: string; encryptionPublicKey: string };
+  adjudicators: { primary: string; fallback: string; appeal: string };
+  /** The primary's registration, as two operators serve it (Agent.registration). */
+  registration: { policy: J; policyHash: Hex; registry: { hash: Hex }; fee: { min: J } };
+  price: J;
+  /** Default: the primary's published minimum. */
+  fee?: J;
+  /** kind, description, format, and optionally inputs and notes. */
+  deliverable: J;
+  /** deterministicChecks and rubric (and optionally sealedChecks), written out in full: the recipe has no templates. */
+  acceptance: J;
+  /** Windows in seconds, as in POST /v1/prepare/offer; defaults as there. */
+  timing?: Record<string, number>;
+  /** Default private (ADR-0024). */
+  level?: 'private' | 'judgment';
+  /** The seller's per-deal x25519 public key, bound in the deliverable body. */
+  sellerEncryptionPublicKey: string;
+  /** Settlement-layer time in whole seconds, as at least two operators report it (Agent.settlementNow). */
+  createdAt: string;
+  /** 32 random bytes each, generated by the agent. */
+  nonce: Hex;
+  salts: { deliverable: Hex; acceptance: Hex };
+};
+
+/**
+ * The client-side prepare recipe (ADR-0024 §4, docs/api.md "Private deals"): the plaintext terms of a private offer
+ * from the agent's own inputs, with no operator call. Pure and deterministic: field for field what POST
+ * /v1/prepare/offer would build, plus the level, the salts and the seller's per-deal key in the bodies. Its
+ * commitmentIdOf is the ID the sealed form carries.
+ */
+export function privateOfferTerms(x: PrivateOfferInput): J {
+  if (jcsHash(x.registration.policy) !== x.registration.policyHash) refuse("the adjudicator's policyHash does not match its policy");
+  if (!whole(x.createdAt)) refuse('createdAt must be settlement-layer time in whole seconds');
+  if (!SALT.test(String(x.nonce)) || !SALT.test(String(x.salts?.deliverable)) || !SALT.test(String(x.salts?.acceptance))) refuse('nonce and both salts must be 32 random bytes of lowercase hex');
+  if (x.salts.deliverable === x.salts.acceptance) refuse('use a different salt for each body');
+  const level = x.level ?? 'private';
+  if (level !== 'private' && level !== 'judgment') refuse('a private offer is at level private or judgment');
+  const plus = (ts: string, s: number) => iso(Date.parse(ts) + s * 1000);
+  const timing = { ...DEFAULT_TIMING, ...x.timing };
+  const createdAt = iso(Date.parse(x.createdAt));
+  const deliverBy = plus(createdAt, timing['deliverWithinSec']!), judgeBy = plus(deliverBy, timing['judgeWithinSec']!);
+  return {
+    schemaVersion: '0.6', clubId: x.clubId, rulebookHash: x.rulebookHash, buyer: x.buyer.address.toLowerCase(), seller: x.seller.toLowerCase(),
+    deliverable: { ...x.deliverable, salt: x.salts.deliverable, sellerEncryptionPublicKey: x.sellerEncryptionPublicKey },
+    acceptance: { ...x.acceptance, salt: x.salts.acceptance },
+    price: x.price,
+    adjudication: { adjudicator: x.adjudicators.primary.toLowerCase(), fallbackAdjudicator: x.adjudicators.fallback.toLowerCase(), appealAdjudicator: x.adjudicators.appeal.toLowerCase(), policyId: x.registration.policy.id, fee: x.fee ?? x.registration.fee.min, registryHash: x.registration.registry.hash, policyHash: x.registration.policyHash },
+    timing: { offerExpiresAt: plus(createdAt, timing['offerExpiresInSec']!), fundBy: plus(createdAt, timing['fundWithinSec']!), deliverBy, judgeBy, fallbackBy: plus(judgeBy, timing['fallbackWithinSec']!), appealWindowSec: timing['appealWindowSec'], appealDecideSec: timing['appealDecideSec'], maxSubmissions: 1 },
+    settlement: { mode: 'guaranteed_on_decision', token: x.price.token }, remedy: { onReject: 'full_refund' }, disclosure: { level },
+    buyerEncryptionPublicKey: x.buyer.encryptionPublicKey, nonce: x.nonce, createdAt,
+  };
+}
+
+const b64u = (b: Uint8Array) => Buffer.from(b).toString('base64url');
+const hexBytes = (h: string) => new Uint8Array(Buffer.from(h.slice(2), 'hex'));
+/** AAD for one part: the commitment ID's 32 bytes, then the part name in UTF-8 (ADR-0024 §2). */
+const aadOf = (id: Hex, name: 'deliverable' | 'acceptance') => new Uint8Array([...hexBytes(id), ...new TextEncoder().encode(name)]);
+
+/** AES-256-GCM of the body's RFC 8785 JSON under `key`, AAD bound to the deal and part: iv || ciphertext || tag, base64url. */
+export async function sealPart(body: J, id: Hex, name: 'deliverable' | 'acceptance', key: Uint8Array): Promise<string> {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const aes = await crypto.subtle.importKey('raw', new Uint8Array(key), 'AES-GCM', false, ['encrypt']);
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: aadOf(id, name) }, aes, new TextEncoder().encode(jcs(body))));
+  return b64u(new Uint8Array([...iv, ...ct]));
+}
+
+/** Opens one part and checks it is the canonical JSON whose keccak256 the terms bind. Throws Refusal. */
+export async function openPart(part: J, id: Hex, name: 'deliverable' | 'acceptance', key: Uint8Array): Promise<J> {
+  const bytes = new Uint8Array(Buffer.from(String(part?.ciphertext), 'base64url'));
+  let text: string;
+  try {
+    const aes = await crypto.subtle.importKey('raw', new Uint8Array(key), 'AES-GCM', false, ['decrypt']);
+    text = new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bytes.slice(0, 12), additionalData: aadOf(id, name) }, aes, bytes.slice(12)));
+  } catch {
+    return refuse(`the ${name} does not decrypt with its key for this commitment`);
+  }
+  let body: J;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    return refuse(`the ${name} is not JSON`);
+  }
+  if (jcs(body) !== text || jcsHash(body) !== String(part.hash).toLowerCase()) refuse(`the ${name} does not hash to the ${name}Hash the terms bind`);
+  return body;
+}
+
+/** Seals a 32-byte key to one reader's x25519 key, as delivery envelopes are (x25519-xsalsa20poly1305). */
+export function sealKeyTo(key: Uint8Array, recipient: string, encryptionPublicKey: string): J {
+  const eph = nacl.box.keyPair();
+  const nonce = nacl.randomBytes(24);
+  const box = nacl.box(key, nonce, new Uint8Array(Buffer.from(encryptionPublicKey, 'base64url')), eph.secretKey);
+  return { recipient: recipient.toLowerCase(), scheme: 'x25519-xsalsa20poly1305', ciphertext: b64u(new Uint8Array([...eph.publicKey, ...nonce, ...box])) };
+}
+
+/** Opens this reader's one envelope among `envelopes`. Throws Refusal. */
+export function openEnvelopeKey(envelopes: J[], me: string, secretKey: Uint8Array): Uint8Array {
+  const mine = (envelopes ?? []).filter((e) => String(e.recipient).toLowerCase() === me.toLowerCase());
+  if (mine.length !== 1) refuse(mine.length ? 'more than one envelope names you' : 'no envelope names you');
+  const env = Buffer.from(String(mine[0].ciphertext), 'base64url');
+  const key = mine[0].scheme === 'x25519-xsalsa20poly1305' && env.length === 104 ? nacl.box.open(env.subarray(56), env.subarray(32, 56), env.subarray(0, 32), secretKey) : null;
+  return key && key.length === 32 ? key : refuse('your envelope does not open with your key');
+}
+
+/**
+ * The sealed wire form (ADR-0024 §2): both bodies encrypted under separate fresh keys and each key sealed to every
+ * reader (at offer: the buyer and the primary). The keys come back for the seller to keep for later disclosure.
+ */
+export async function sealPrivateTerms(terms: J, readers: Array<{ address: string; encryptionPublicKey: string }>): Promise<{ sealed: J; id: Hex; keys: { deliverable: Uint8Array; acceptance: Uint8Array } }> {
+  const id = commitmentIdOf(terms);
+  const keys = { deliverable: crypto.getRandomValues(new Uint8Array(32)), acceptance: crypto.getRandomValues(new Uint8Array(32)) };
+  const part = async (name: 'deliverable' | 'acceptance') => ({ hash: jcsHash(terms[name]), ciphertext: await sealPart(terms[name], id, name, keys[name]), envelopes: readers.map((r) => sealKeyTo(keys[name], r.address, r.encryptionPublicKey)) });
+  const { deliverable: _d, acceptance: _a, ...rest } = terms; // eslint-disable-line @typescript-eslint/no-unused-vars
+  return { sealed: { ...rest, privateTerms: { deliverable: await part('deliverable'), acceptance: await part('acceptance') } }, id, keys };
+}
+
+/** A reader opens the sealed terms with its own envelopes: the plaintext terms, checked to have the same ID. Throws Refusal. */
+export async function openPrivateTerms(sealed: J, id: Hex, me: string, secretKey: Uint8Array): Promise<J> {
+  const p = sealed?.privateTerms ?? refuse('these terms carry no privateTerms');
+  const { privateTerms: _p, id: _i, signatures: _s, adjudicatorAcceptance: _a, ...rest } = sealed; // eslint-disable-line @typescript-eslint/no-unused-vars
+  const deliverable = await openPart(p.deliverable, id, 'deliverable', openEnvelopeKey(p.deliverable.envelopes, me, secretKey));
+  const acceptance = await openPart(p.acceptance, id, 'acceptance', openEnvelopeKey(p.acceptance.envelopes, me, secretKey));
+  const terms = { ...rest, deliverable, acceptance };
+  if (commitmentIdOf(terms) !== id) refuse('the opened terms are not the commitment you asked for');
+  return terms;
+}
+
+/**
+ * Checks a counterparty's per-deal key certificate before you sign anything with that party (ADR-0024 §7): signed by
+ * the long-term agent it names, for exactly the per-deal keys in the terms, this club and role, the price within its
+ * per-commitment cap, unexpired. Then check the agent's mandate from `principal` as two operators serve it
+ * (Agent.checkDelegation does both). Throws Refusal.
+ */
+export async function verifyDelegation(d: J, want: { dealKey: string; dealEncryptionKey?: string; clubId: string; role: 'buyer' | 'seller'; price: J; nowMs: number }, domain: Domain): Promise<void> {
+  if (d?.type !== 'Delegation') refuse('not a Delegation');
+  let signer: string;
+  try {
+    signer = await recoverTypedDataAddress({ ...typedOf('Delegation', d, domain), signature: d.signature });
+  } catch {
+    return refuse('the delegation signature does not parse');
+  }
+  if (signer.toLowerCase() !== String(d.agent).toLowerCase()) refuse('the delegation is not signed by the agent it names');
+  if (String(d.dealKey).toLowerCase() !== want.dealKey.toLowerCase()) refuse(`the delegation certifies ${d.dealKey}, not ${want.dealKey}`);
+  if (want.dealEncryptionKey !== undefined && d.dealEncryptionKey !== want.dealEncryptionKey) refuse('the delegation certifies another encryption key than the terms use');
+  if (d.clubId !== want.clubId) refuse(`the delegation is for club ${d.clubId}, not ${want.clubId}`);
+  if (!d.scope?.roles?.includes(want.role)) refuse(`the delegation does not allow the ${want.role} role`);
+  if (!(want.nowMs < Date.parse(d.expiresAt)) || !(want.nowMs < Date.parse(d.scope.expiresAt))) refuse('the delegation has expired');
+  if (d.scope.maxPerCommitment.token !== want.price.token || BigInt(d.scope.maxPerCommitment.amount) < BigInt(want.price.amount)) refuse('the price exceeds the delegation per-commitment cap');
 }

@@ -5,14 +5,14 @@
 - **Depends on:** stage 1 (ADR) on nothing; it can start now. Stage 2's off-chain parts (read authentication, private records, ciphertext terms, mailbox) depend on stage 1 only. Stage 2's on-chain parts (what the contract emits, amount privacy) depend on T-202 and T-205. The Prividium fragment spike needs a Sepolia deployment (T-206) and is a separate task.
 - **Paths this task may touch:** stage 1: `docs/decisions/ADR-0024-private-deals.md` (new, Proposed), `docs/decisions-today.md` (a new D entry), `docs/research/` (the research pass). Stage 2: `spec/schemas/`, `spec/examples/`, `spec/openapi/`, `spec/README.md`, `packages/core/`, `packages/sdk/`, `apps/operator/`, `examples/`, `fixtures/scenarios/` (new `attack.` and `neutrality.` privacy fixtures), `docs/api.md`, `docs/neutrality.md` (residual 9), `docs/backlog.md` (Privacy rows closed or moved). Not `contracts/` or `packages/settlement/evm/`: on-chain changes go to T-202 and T-205 owners through Handoff.
 - **Human gate:** none for the repository work. Updating the live public demo (Cloudflare) or the site is a deploy and waits for Rafa. Local chain and Sepolia only; no mainnet.
-- **Status:** todo
-- **Agent/session:** —
+- **Status:** in progress (stage 2a in review, draft PR; stopped early at the token limit, see Handoff)
+- **Agent/session:** implementer, branch `t-207-private-deals-2a`
 
 ## Intent
 
 Make "private escrow" true end to end (Rafa, 2026-11-01). Today only the work is private; terms, amounts, addresses, judgment records and events are public reads at every operator. After this task a third party reading any operator learns nothing beyond the deal's disclosure level, and, as far as possible, the operator relaying a deal cannot read it either: agents encrypt the terms body to the parties and named adjudicators, operators store and relay ciphertext and see only what settlement must check (signatures, hashes, money and deadline fields). Prepare becomes a published, deterministic client-side recipe. An encrypted agent-to-agent mailbox, relayed by any operator, replaces off-protocol negotiation mail.
 
-Restate this in your own words in this section before writing code.
+Restated (stage 2a, off-chain only): a private deal's two terms bodies travel only as ciphertext under two keys, sealed to the buyer and the primary, so an operator stores and relays ciphertext and hashes and settlement verifies the same signatures as before (the ID binds only the hashes, so the domain stays 0.6). Parties use one-time keys certified by a `Delegation` from their long-term key, which the counterparty checks and settlement does not. Reads of bodies, full events and records need a `ReadToken` from a party or an involved adjudicator; everyone else gets the settlement projection. Publication posts keys with a co-signed `Publish`, and the operator checks each key against its hash. Non-goals for 2a: contracts and the EVM settlement view, ERC-6538, the adjudicator opening sealed terms, sealed judgment records, time-locked fallback/appeal envelopes, the mailbox, and any deploy.
 
 ## Context
 
@@ -45,6 +45,38 @@ ADR-0024 (Proposed) answers, with options and the three litmus tests: what an op
 
 ## Evidence
 
+Stage 2a, stopped early at the coordinator's token-limit call. `pnpm verify` was **not** run.
+
+- **Measured:** `pnpm vitest run tests/spec.test.ts`: 182/182 pass, including the new v0.8 block (private commitment, ReadToken, Delegation, KeyRegistration, disclosure and projection examples; two-part form per level; projection refuses clubId, buyer key, privateTerms and bodies).
+- **Measured:** `pnpm vitest run packages/core`: all pass (822), including `private.test.ts` (12). It shows the same commitment ID and signature for the plaintext and sealed forms; no canary in the sealed form; the buyer and primary open it and an outsider cannot; the acceptance key does not open the deliverable; AAD stops swapped parts and other IDs; a wrong hash is refused; the projection carries no body, club, buyer key or ciphertext; the ReadToken audience is bound (another audience fails verification); Delegation and KeyRegistration verify.
+- **Measured:** `pnpm vitest run apps/operator/src/read-auth.test.ts`: 6/6. Anonymous without a header. Buyer, seller and primary admitted; an outsider refused; fallback refused until FallbackJudging. `error.read-token-audience`: a token for op A is refused at op B. `error.read-token-expired`, a token for another commitment, a forged signature and a malformed header are all refused.
+- **Measured (before the operator changes):** the full `pnpm test` had 2 failures, both the stale `spec/openapi.json` (not regenerated yet).
+- **Measured, last check:** `pnpm typecheck` still fails in `apps/operator/src/server.ts` (PrepareContext.commitment returns AnyCommitment, but prepare.ts still types it as Commitment) and `examples/private.test.ts` line 113 (`string | undefined` adjudicator addresses).
+- **Not run:** `examples/private.test.ts` (end-to-end: per-deal keys to Released, the outsider canary scan over every read route and SSE at both operators, operator-state scan, two-key disclosure, recipe vs hash-only prepare). So what an outsider and a party can read over HTTP is **inferred** from the code and unit tests, not measured: an outsider gets the projection from `/terms`, projected offer events from `/events` and SSE, and 401 from `/judgment` at private; a party with a token gets the sealed terms (ciphertext and envelopes) and opens them locally.
+
 ## Decisions
 
+- Two wire forms with one ID: at public the bodies are in the clear; at private and judgment only `privateTerms {deliverable, acceptance: {hash, ciphertext, envelopes}}` is admitted (schema if/then/else). `parseAnyCommitment` takes either form; `parseCommitment` stays plaintext-only for callers that read the bodies. EIP-712 domain and `schemaVersion` stay 0.6 (measured: the same digest for both forms).
+- Body encryption: AES-256-GCM over the RFC 8785 JSON, AAD = commitment ID bytes ‖ part name; the hash check requires canonical bytes.
+- SimChain: a party with no mandate is admitted only at private or judgment, and only under a rulebook listing `pseudonymous`. Its scope is then this commitment's price, and membership is attested by the certificate (ADR-0024 §7). `SIM_RULEBOOK` now has `disclosureMin: private` and `identityModes: [long-term, pseudonymous]`, which changes its hash. `offer()` enforces `disclosureMin` and the body form per level.
+- An unauthenticated read gets the projection (200); a token that fails gets 401; a private deal's judgment record gets 401 without a token. SSE always projects offered events of sealed deals. Projected events keep the full event's hash, so an outsider cannot recompute it (residual).
+- Publication is checked per operator: the operator verifies the co-signed Publish itself, because SimChain does not record Publish yet. `recordKeys` is reserved and refused.
+- New schemas `disclosure.schema.json` and `projection.schema.json`. `EncryptedKey.keyId` was deferred: adding it to the signed struct would move the domain.
+- `tests/spec.test.ts` (outside the listed paths) was edited for v0.8. The edits are needed, since the schema bump breaks the old version assertions.
+
 ## Handoff
+
+Resume on branch `t-207-private-deals-2a`, in this order:
+1. **Make it compile:** change `PrepareContext.commitment` in `apps/operator/src/prepare.ts` to `Promise<AnyCommitment | undefined>`. In prepare delivery, require `plaintextMime` when `isSealed(c)`. Add the **hash-only offer prepare** (`hashOnly: true`, `deliverableHash`, `acceptanceHash`, `disclosure`, required `nonce` and `createdAt`; build the typed data from the hashes). Fix the `primary/fallback/appeal` typing in `examples/private.test.ts` (add `!`).
+2. Fix the operator tests that still assert `'0.7'` (`operator.test.ts`, `fee.test.ts`). Run `pnpm openapi` after adding the disclosure route, the Authorization header and the 401 to `spec/openapi/paths.json`. Then `pnpm validate:spec`.
+3. Run `examples/private.test.ts` and fix it until green. Then `pnpm test`, `pnpm snap` (the SIM_RULEBOOK hash change may move snapshots or demo output), and `pnpm verify`.
+4. Write the spec/README v0.8 changelog entry (drafted only in this Decisions section). Update `docs/api.md` (ReadToken header, projection, disclosure route, the recipe with test vectors, default level private) and `docs/neutrality.md` residual 9 (narrowed to the projection) and residual 11. Rebuild the site with `node site/build.mjs --op1 https://api.escrow.stream --op2 https://api2.escrow.stream --out reports/site-out`; do not deploy.
+5. Fix up `examples/sign.ts`: it has no private-deal changes yet.
+
+Deferred to later slices (backlog rows still to add):
+- **Adjudicator lane (`apps/adjudicator`):** open `privateTerms` with the primary's key and verify the hashes before `AdjudicatorAcceptance`; judge from the opened bodies; seal judgment records to both parties. Today the sim primary accepts sealed offers without reading them, and would fail at decision time.
+- **Settlement:** record `Publish` on SimChain and the contract (T-202).
+- **On-chain:** the settlement view in calldata, events, and the ERC-6538 registry (T-202/T-205).
+- **Read tokens:** list reads with a zero commitmentId.
+- **Envelopes and keys:** fallback/appeal envelopes time-locked to beacon rounds; `KeyRegistration` served by operators; `EncryptedKey.keyId`.
+- **Deploy:** the public demo redeploy (Rafa's gate).
