@@ -51,3 +51,31 @@ If T-201 shows the operator model cannot be driven by a rules contract, implemen
 
 - `AuthCaptureEscrow` covers the buyer's funds only. Adjudicator bonds, appeal bonds, key release, timeouts and idempotency live in the rules contract and a bond escrow. That is the custody and audit surface Holdback owns; the existing audits cover only the vault.
 - Reusing custody code reduces that surface but adds a dependency whose deployed bytecode is not yet compared with the tagged source (T-201).
+
+## Outcome of T-201 (2026-11-01)
+
+The spike recommends **keeping option A**. Report: `docs/research/2026-11-T-201-cpp-spike.md`. Code: `contracts/`, with CPP vendored at `6b0a5ef3` and 36 `forge test` cases passing.
+
+This section records evidence. It does not change the Status line above. The conditions it lists become design inputs for T-202 and are not yet built.
+
+- **Operator model: confirmed.** A minimal no-admin `HoldbackRules` contract drove `authorize`, `capture` and `void` from four permissionless entry points: `fund`, `decide`, `earlyAccept` and `timeout`. The buyer reclaimed after expiry with no operator action. The ABI matches an exact allowlist with no admin selectors. [measured]
+- **Conditions confirmed or sharpened:**
+  - The `salt` is the hash of the agreed terms, so the buyer's one ERC-3009 signature binds the operator and every term. [measured]
+  - The rules contract needs its own settle-once guard. With `maxFeeBps = 10000` and `feeReceiver = 0`, CPP allows repeated all-fee captures to any address. [measured]
+  - The fee-only capture followed by `void` works on reject. [measured]
+  - A decision that lands at or after `authorizationExpiry` cannot capture, so a seller-favourable outcome must land before it. [measured]
+  - A refund via `void` works at any time. [measured, inferred]
+- **Deployments.** CPP is on Base mainnet and Base Sepolia only, with no code on Ethereum mainnet or Sepolia. Under D4, Holdback deploys the pinned bytecode itself. [measured]
+- **Bytecode.** The Base deployment's metadata hash matches a `deploy`-profile build of `6b0a5ef3`, which closes the open bytecode point above for `AuthCaptureEscrow`. The collectors were not compared. [measured]
+- **Audit.** A July 2026 Cantina review covers `AuthCaptureEscrow.sol` at exactly `6b0a5ef3`, with three informational findings. [measured]
+- **Gas, for the D4 revisit.**
+
+  | Path | Gas over two transactions |
+  | --- | --- |
+  | Happy path | 266,536 |
+  | Early accept | 255,777 |
+  | Refund (reject) | 272,717 |
+  | Timeout | 244,879 |
+
+  [measured, Foundry isolated-transaction mode]
+- **Follow-up.** The on-chain funding signature is CPP's ERC-3009 `ReceiveWithAuthorization`, with `validAfter = 0` and a derived nonce. It does not match today's `FundingAuthorization`, so a schema change goes to T-202 through an ADR. [measured]
