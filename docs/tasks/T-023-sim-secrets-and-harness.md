@@ -5,7 +5,7 @@
 - **Depends on:** T-021
 - **Paths this task may touch:** `apps/operator/src/sim-world.ts`, `apps/operator/src/sim-world.test.ts`, `apps/operator/src/sim-bin.ts`, `tools/sim/` (all), `docs/quickstart.md` (only the sim-service section), `docs/testing.md`
 - **Human gate:** no
-- **Status:** review
+- **Status:** done
 - **Agent/session:** implementer (Opus 5.5), worktree `agent-ac7754cae5ca1e609`
 
 ## Intent
