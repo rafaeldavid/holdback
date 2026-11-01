@@ -5,7 +5,7 @@
 - **Depends on:** T-007, T-010
 - **Paths this task may touch:** `spec/openapi/` (paths file), `spec/openapi.json` (generated), `scripts/openapi.mjs`, `scripts/validate-spec.mjs`, `tests/contract/`, `apps/operator/src/openapi/`, root `package.json` (`openapi` script)
 - **Human gate:** no (the schemas it reads are already accepted in v0.5)
-- **Status:** todo
+- **Status:** review
 - **Agent/session:** —
 
 ## Intent
@@ -42,8 +42,34 @@ Non-goals: no change to `spec/schemas` (no version bump); no new bounds on negot
 
 ## Evidence
 
-Fill this in before review. Label each item measured, inferred or guessed.
+- **measured:** `pnpm verify` on a clean tree at the branch head passes all six steps: typecheck, lint, test (73 files, 2014 tests), spec, snap, demo (`reports/verify-t-015-openapi.md`).
+- **measured:** `pnpm openapi` writes `spec/openapi.json`: 38 operations, 79 component schemas, schema v0.6. `pnpm validate:spec` prints `ok spec/openapi.json (38 operations, 158 schemas compiled strictly, fresh)`. A test writes a hand-edited copy and `checkOpenApiDocument` reports it stale.
+- **measured:** contract test (`tests/contract/openapi.contract.test.ts`): 177 operator exchanges recorded, 0 failures; 38 of 38 documented operations exercised, 33 with a 2xx; statuses seen 200, 400, 403, 404, 409, 429. The five reached only with a refusal: `submitAdjudicatorAcceptance` and `submitDecision` (the sim adjudicators submit to SimChain directly), `submitFunding` and `submitHold` (signatures the prepare flow does not produce), `getClubMember` (the sim club admits no members). About 1.1 s for the flows, 2.3 s for the file.
+- **measured:** the contract test found a real violation on its first run: `GET /v1/clubs/sim-club` served `rulebook.version: "1.0-sim"`, which `club.schema.json` refuses. Fixed in `packages/settlement/sim/actors.ts` (see Decisions).
+- **measured:** the documented operations equal docs/api.md's served rows exactly, and `x-holdback-planned` equals its 11 "planned: 404 today" rows (test). Every `x-holdback-untrusted` marker in `spec/schemas` (39) is at the mapped place in the document (47 in all: the extended schemas repeat some, plus `Problem.detail` and `Prepared.check`).
+- **measured:** a negative check: the validator refuses a fractional amount, an unlisted status, a malformed or missing required header, an undocumented content type and a problem whose `instance` does not repeat `Request-Id`.
+- **measured:** D31: the prepare-offer timing windows are `{type: integer, minimum: 0}` with no maximum; a request with a four-century delivery window and a 2020 `createdAt` validates against the request schema, and every JSON request the operator accepted in the flows validated against its request schema.
+- **inferred:** `pnpm validate:spec` needs no build in CI's static job: `scripts/openapi.mjs` imports only `packages/core/src/problem.ts`, which has no imports, through Node 22's type stripping (on by default since 22.18; measured locally on 22.22.2).
+- **guessed:** the document works with common OpenAPI tool generators. It uses only local `#/components/...` references and plain JSON Schema 2020-12, but no generator was run against it (that needs a new dependency; T-021 will).
 
 ## Decisions
 
+- **Paths file is JSON** (`spec/openapi/paths.json`), with OpenAPI's own reuse (`components.parameters`, `headers`, `responses`) and two generator conveniences: `x-holdback-errors` lists an operation's problem statuses (the generator adds 500 and the `Problem<status>` responses) and `x-holdback-extends` deep-merges additions into a spec schema. JSON keeps the generator dependency-free and the contract language-neutral.
+- **Spec schemas are flattened, not linked by `$id`.** Each file becomes `components.schemas.<PascalCase file>` and each `$defs` entry `components.schemas.<name>`, with every `$ref` rewritten to a local pointer; the generator refuses a name collision. Tool generators handle local pointers far better than cross-document `$id` resolution.
+- **Operator-only shapes are written once, in the paths file**, and reuse spec schemas by `$ref`: prepare inputs and answers, recipients, discovery, member and agent views, the faucet. Where a spec schema is closed (`additionalProperties: false`) and the operator adds a field (a write's `receipt`, an adjudicator's `bond`, a mandate's `mandateHash`, a page's item type, discovery's numeric `chainId`), the paths file extends it with `x-holdback-extends` instead of copying it. No change to `spec/schemas`, so no version bump.
+- **One operation per prepare kind** (`prepareOffer`, `prepareAgreeAndFund`, ...) rather than one `/v1/prepare/{kind}`: each gets its own input schema and its own "verify before you sign" list, which is what a generated tool needs. Triggers stay one operation with an enum `kind`, since they share an empty body.
+- **Planned routes are left out of `paths`** and listed under top-level `x-holdback-planned`, so a generator makes no tool that always 404s.
+- **The contract test drives the HTTP flows, not the scenario fixtures**, because the snap runner submits to SimChain directly and never touches an operator. It uses `examples/agent.ts` as-is for the buy-dataset flow and a plain signer for the rest, plus a third operator node over the same chain with a one-read budget and a refuse-all relay policy, for 429 and 403.
+- **Problem `type` enum is generated from `@holdback/core`'s `PROBLEM_TYPES`**, and a test checks that each type is named under the status `statusOf` gives it.
+- **Out-of-lane edits, each one line or a table row:** `packages/settlement/sim/actors.ts` (sim rulebook `version` `1.0-sim` to `1.0`: the operator was serving a club that fails `club.schema.json`; nothing hard-codes the sim club's `rulebookHash`, and verify, snap and demo pass); `apps/operator/src/server.ts` (route `/v1/openapi.json` and `/llms.txt` to `apps/operator/src/openapi/`, which the acceptance criterion requires); `docs/api.md` (two rows in the discovery table for the new routes, so the existing route test covers them); `docs/team.md` (a Rules and checks row for the contract test).
+- **`llms.txt` lives at the operator root (`/llms.txt`)**, unthrottled like discovery. It names docs/api.md by repository path, since the docs have no public URL yet.
+
 ## Handoff
+
+- **Done:** every acceptance criterion. `pnpm openapi`, `spec/openapi.json`, the staleness and strict-compile checks in `pnpm validate:spec`, the HTTP contract test in CI (it runs in the ordinary `pnpm test` shards on SimChain), `GET /v1/openapi.json` and `GET /llms.txt`, `x-holdback-untrusted` preserved.
+- **Not done / follow-ups:**
+  - `vitest.config.ts`'s shard cost table (infra lane) has no entry for `tests/contract/openapi.contract.test.ts`; it defaults to 0.2 s against about 2.3 s measured. Add it at the next cost refresh.
+  - `submitAdjudicatorAcceptance`, `submitDecision`, `submitFunding` and `submitHold` are proven only on their problem answers. A success case needs an adjudicator-signed acceptance or decision over HTTP; T-021's simulated agents, or a sim option that makes the adjudicators submit through an operator, would cover them.
+  - The `202 pending` answer for chain settlement (docs/api.md, Latency) is not documented; add it with Phase 2's chain target.
+  - When a spec schema changes, run `pnpm openapi` and commit the result; `validate:spec` fails until then.
+- **Open question:** should `docs/api.md` and the OpenAPI document get a public URL so `llms.txt` can link docs/api.md directly? Not needed for the demo.
