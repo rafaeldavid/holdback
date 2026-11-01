@@ -2,7 +2,9 @@
 // rebuilds the message from its own intent (what it asked for, the terms it agreed to, the hashes it computed),
 // pins the EIP-712 domain and types from its own configuration, picks its own nonces, and accepts from the
 // operator only a time within bounds of settlement-layer time. Any other difference, in the typed data, the digest, the slots or the body,
-// refuses. The agent then signs its own typed data and submits its own body. Standard libraries only (viem).
+// refuses. The agent then signs its own typed data and submits its own body. Standard libraries only (viem), and
+// tweetnacl with Web Crypto to open the buyer's own envelope before an early accept (openOwnEnvelope).
+import nacl from 'tweetnacl';
 import { hashStruct, hashTypedData, keccak256, toBytes, type Hex } from 'viem';
 
 export type Domain = { name: 'Holdback'; version: string; chainId: number; verifyingContract: Hex };
@@ -86,7 +88,8 @@ export type Intent =
   | { kind: 'offer'; request: J; registration: { policy: J; policyHash: Hex; registry: { hash: Hex }; fee: { min: J } }; rulebookHash: Hex }
   | { kind: 'agree-and-fund'; terms: J; me: string; encryptionPublicKey: string; maxTotal: bigint; agreeNonce: Hex; fundingNonce: Hex }
   | { kind: 'delivery'; terms: J; ciphertext: { uri: string; sha256: string; bytes: number }; plaintextSha256: string; encryptedKeys: J[] }
-  | { kind: 'early-accept'; terms: J; nonce: Hex }
+  /** opened: what openOwnEnvelope returned for this delivery; an early accept pays for work you have opened. */
+  | { kind: 'early-accept'; terms: J; nonce: Hex; opened: Opened }
   /** appealBondRateBps: from the club rulebook as at least two operators serve it. */
   | { kind: 'appeal'; terms: J; me: string; grounds?: string; appealBondRateBps: number }
   | { kind: 'settlement'; terms: J; payouts: J[]; releaseKey: boolean; deliveryHash: Hex | null; nonce: Hex };
@@ -127,7 +130,10 @@ function expected(intent: Intent, op: J, now: number): Plan {
     return { path: `/v1/commitments/${id}/deliveries`, body: { ...m, signature: null }, slots: [{ slot: 'signature', primaryType: 'Delivery', signer: t.seller, message: m }] };
   }
   if (intent.kind === 'early-accept') {
-    const m = { type: 'EarlyAccept', commitmentId: id, buyer: t.buyer, attempt: 1, nonce: own(intent.nonce, op.nonce, 'nonce'), expiresAt: near(op.expiresAt, 0, 86_400, 'expiresAt') };
+    const o = intent.opened;
+    if (!o || !OPENED.has(o)) refuse('open your envelope first: get the signed delivery from the seller and run openOwnEnvelope on it (Agent.earlyAccept does both). An early accept releases the envelope the seller supplied with the payment, and nothing else checks that it opens');
+    if (o.commitmentId !== id) refuse(`the envelope you opened is for another commitment (${o.commitmentId})`);
+    const m = { type: 'EarlyAccept', commitmentId: id, buyer: t.buyer, attempt: o.attempt, nonce: own(intent.nonce, op.nonce, 'nonce'), expiresAt: near(op.expiresAt, 0, 86_400, 'expiresAt') };
     return { path: `/v1/commitments/${id}/accept`, body: { ...m, signature: null }, slots: [{ slot: 'signature', primaryType: 'EarlyAccept', signer: t.buyer, message: m }] };
   }
   if (intent.kind === 'appeal') {
@@ -181,4 +187,72 @@ export function verifyPrepared(prepared: J, intent: Intent, me: string, domain: 
     if (want.signer.toLowerCase() === me.toLowerCase()) toSign.push({ slot: want.slot, typed });
   }
   return { path: plan.path, body: plan.body, toSign };
+}
+
+/** The delivery hash the settlement layer records (EIP-712 struct hash of the delivery without its signature). */
+export const deliveryHashOf = (d: J): Hex =>
+  hashStruct({
+    types: TYPES,
+    primaryType: 'Delivery',
+    data: {
+      ...d, ciphertext: { uri: d.ciphertext.uri, sha256: d.ciphertext.sha256, bytes: BigInt(d.ciphertext.bytes), cipher: d.ciphertext.cipher }, submittedAt: secs(d.submittedAt),
+      encryptedKeys: d.encryptedKeys.map((k: J) => ({ recipient: k.recipient, scheme: k.scheme, ciphertext: k.ciphertext, unlock: k.unlock ? { kind: k.unlock.kind, round: BigInt(k.unlock.round ?? 0) } : { kind: '', round: 0n } })),
+    },
+  });
+
+/** What the buyer gathers before an early accept. */
+export type EnvelopeMaterial = {
+  /** The terms you agreed to. */
+  terms: J;
+  /** The seller's signed delivery body as the seller handed it to you: it carries your envelope. */
+  delivery: J;
+  /** The `delivery.submitted` payload as at least two operators serve it: what the settlement layer holds. */
+  recorded: { deliveryHash: Hex; plaintextSha256: string; ciphertext: { uri: string; sha256: string } };
+  /** The ciphertext bytes fetched from `recorded.ciphertext.uri`. */
+  ciphertext: Uint8Array;
+  /** Your x25519 secret key, whose public half the terms name as buyerEncryptionPublicKey. */
+  encryptionSecretKey: Uint8Array;
+};
+/** Proof that this process opened the buyer's envelope for a delivery; only openOwnEnvelope makes one. */
+export type Opened = { readonly commitmentId: Hex; readonly attempt: number; readonly deliveryHash: Hex; readonly plaintextSha256: string; readonly plaintext: Uint8Array };
+const OPENED = new WeakSet<object>();
+const sha256Of = async (b: Uint8Array) => `sha256:${Buffer.from(await crypto.subtle.digest('SHA-256', new Uint8Array(b))).toString('hex')}`;
+
+/**
+ * Opens the buyer's own envelope before an early accept (T-024, ADR-0012). The settlement layer cannot check
+ * that the seller sealed the buyer's envelope to the buyer's key, and an early accept releases exactly that
+ * envelope with the payment. So, with your own key: the handed delivery must be the one the settlement layer
+ * holds, your one envelope must open, the ciphertext must match its signed hash and decrypt, and the plaintext
+ * must match the signed plaintextSha256. Throws Refusal saying which check failed. The plaintext is yours to
+ * inspect before you accept.
+ */
+export async function openOwnEnvelope(x: EnvelopeMaterial): Promise<Opened> {
+  const t = x.terms, d = x.delivery, id = commitmentIdOf(t);
+  if (String(d?.commitmentId).toLowerCase() !== id.toLowerCase()) refuse(`the delivery you were handed is for another commitment (${d?.commitmentId}), not ${id}`);
+  if (x.encryptionSecretKey?.length !== 32 || Buffer.from(nacl.box.keyPair.fromSecretKey(x.encryptionSecretKey).publicKey).toString('base64url') !== t.buyerEncryptionPublicKey) {
+    refuse(`your encryption key is not the buyerEncryptionPublicKey in the terms (${t.buyerEncryptionPublicKey}); open with the secret key for that public key`);
+  }
+  const hash = deliveryHashOf(d);
+  if (hash !== String(x.recorded?.deliveryHash).toLowerCase()) refuse(`the delivery you were handed (${hash}) is not the one the settlement layer holds (${x.recorded?.deliveryHash}); ask the seller for the signed delivery it submitted`);
+  const mine = (d.encryptedKeys as J[]).filter((k) => String(k.recipient).toLowerCase() === String(t.buyer).toLowerCase());
+  if (mine.length !== 1) refuse(mine.length ? 'the delivery has more than one envelope for you; which one is released is not yours to choose' : 'the delivery has no envelope for you');
+  const env = Buffer.from(String(mine[0].ciphertext), 'base64url');
+  const key = mine[0].scheme === 'x25519-xsalsa20poly1305' && env.length === 104 ? nacl.box.open(env.subarray(56), env.subarray(32, 56), env.subarray(0, 32), x.encryptionSecretKey) : null;
+  if (!key || key.length !== 32) {
+    refuse('your envelope does not open with your encryption key: the seller sealed it to another key. Do not accept early; an adjudicator\'s decision re-seals the key to your terms key');
+  }
+  const ct = new Uint8Array(x.ciphertext);
+  if ((await sha256Of(ct)) !== d.ciphertext.sha256) refuse(`the ciphertext you fetched (${await sha256Of(ct)}) does not match the delivery's signed ciphertext.sha256 ${d.ciphertext.sha256}`);
+  let plaintext: Uint8Array | undefined;
+  try {
+    const aes = await crypto.subtle.importKey('raw', new Uint8Array(key!), 'AES-GCM', false, ['decrypt']);
+    plaintext = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: ct.slice(0, 12) }, aes, ct.slice(12)));
+  } catch {
+    refuse('the ciphertext does not decrypt with the content key in your envelope');
+  }
+  const got = await sha256Of(plaintext!);
+  if (got !== d.plaintextSha256) refuse(`the decrypted work's hash ${got} is not the delivery's signed plaintextSha256 ${d.plaintextSha256}`);
+  const opened: Opened = Object.freeze({ commitmentId: id, attempt: d.attempt, deliveryHash: hash, plaintextSha256: got, plaintext: plaintext! });
+  OPENED.add(opened);
+  return opened;
 }

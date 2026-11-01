@@ -5,7 +5,9 @@
 // the prepare request, and put the same value in the intent:
 //   offer:          intent = the request you sent to /v1/prepare/offer, including "nonce"
 //   agree-and-fund: intent = { "terms": <the offer the seller sent you>, "maxTotal": "<base units>", "agreeNonce": …, "fundingNonce": … }
-//   early-accept:   intent = { "terms": …, "nonce": … }
+//   early-accept:   intent = { "terms": …, "nonce": …, "delivery": <the signed delivery body the seller handed you> }
+//                   (sign.ts first opens your envelope from it with HOLDBACK_ENCRYPTION_KEY and refuses unless
+//                   it opens and the plaintext hash matches: an early accept releases that envelope with payment)
 //   appeal:         intent = { "terms": …, "grounds": "wrong-outcome" }   (the bond comes from the club rulebook)
 //   settlement:     intent = { "terms": …, "payouts": [ … ], "releaseKey": true, "deliveryHash": "0x…" | null, "nonce": … }
 // Env: HOLDBACK_KEY, HOLDBACK_ENCRYPTION_KEY (buyer), HOLDBACK_OPERATORS (two or more distinct operators,
@@ -13,7 +15,7 @@
 import { readFileSync } from 'node:fs';
 import type { Hex } from 'viem';
 import { Agent } from './agent.ts';
-import { Refusal, verifyPrepared, type Intent } from './verify.ts';
+import { openOwnEnvelope, Refusal, verifyPrepared, type Intent } from './verify.ts';
 
 const [preparedFile, intentFile] = process.argv.slice(2);
 const prepared = JSON.parse(readFileSync(preparedFile!, 'utf8'));
@@ -34,7 +36,7 @@ try {
           : kind === 'settlement'
             ? { kind, terms: given.terms, payouts: given.payouts, releaseKey: given.releaseKey, deliveryHash: given.deliveryHash ?? null, nonce: given.nonce }
             : kind === 'early-accept'
-              ? { kind, terms: given.terms, nonce: given.nonce }
+              ? { kind, terms: given.terms, nonce: given.nonce, opened: await openOwnEnvelope(await agent.envelopeMaterial(given.terms, given.delivery ?? (() => { throw new Refusal('refusing to sign: the early-accept intent needs "delivery", the signed delivery body the seller handed you, so you can open your envelope first'); })())) }
               : (() => { throw new Refusal(`sign.ts does not sign ${kind}; deliveries are sealed and signed by seal.ts`); })();
   const { body, toSign } = verifyPrepared(prepared, intent, me, agent.domain, await agent.settlementNow());
   for (const s of toSign) {
