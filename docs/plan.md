@@ -49,7 +49,7 @@ Scope after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-inte
 - [x] T-026 Public demo API on Cloudflare: two operator Workers, one Durable Object world, faucet, test tokens (api + infra; PR 61; live)
 - [x] T-027 The site at npc.here.now/escrow: tagline and agent docs, no repo needed (demo + docs; PR 60; live)
 - [x] T-028 One live two-family adjudicator (Anthropic + DeepSeek), local and in the public demo, with spending caps (judgment + demo + infra; PR 62; live)
-- [ ] T-029 Operator fee per D33 once Rafa confirms: ADR-0023, schema v0.7, a buyer-signed fee transfer in agree-and-fund, 402 on unpaid relay, published at 0 then 1 bp / 0.01 tUSD minimum (api + settlement)
+- [ ] T-029 Operator fee per D33 (confirmed 2026-11-01): ADR-0023, schema v0.7, a buyer-signed fee transfer in agree-and-fund, 402 on unpaid relay, published at 0 then 1 bp / 0.01 tUSD minimum (api + settlement)
 
 **Exit:**
 - Demo success criteria met (`docs/demo.md`).
