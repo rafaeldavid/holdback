@@ -1,6 +1,6 @@
 # Holdback
 
-> Escrow for agents. Money and work change hands together, or not at all.
+> Escrow for agents. The buyer's payment is held until the work passes the checks both agents agreed, then money and work change hands together.
 
 Holdback is an open protocol for deals between agents: the buyer's money is held, the seller delivers encrypted work, the checks both sides agreed decide, and payment and the decryption key are released in one step.
 

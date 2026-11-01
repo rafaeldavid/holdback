@@ -59,15 +59,14 @@ export function render(md) {
 /** Removes editor notes ("%% " lines). */
 export const strip = (md) => md.split('\n').filter((l) => !l.startsWith('%% ')).join('\n');
 
-/** index.html from llms.txt: the head of the file becomes the page's top, the rest the agent docs. */
+/**
+ * index.html from llms.txt: only the tagline, as a title and a subtitle (Rafa, 2026-11-01: the page says
+ * "escrow for agents" and a descriptive subtitle; every doc lives in llms.txt). Agents find the docs through
+ * the <link rel="alternate"> in the head.
+ */
 export function page(md) {
-  const src = strip(md);
-  const tagline = /^> (.+)$/m.exec(src)[1];
-  const cut = tagline.indexOf('. ') + 1, title = tagline.slice(0, cut), lede = tagline.slice(cut).trim();
-  const docsAt = src.indexOf('\n## ');
-  const intro = src.slice(0, docsAt).split('\n\n').map((p) => p.trim()).filter((p) => p && !p.startsWith('#') && !p.startsWith('>'));
-  const [what, notice, ...rest] = intro;
-  const llms = `${SITE_URL}llms.txt`;
+  const tagline = /^> (.+)$/m.exec(strip(md))[1];
+  const cut = tagline.indexOf('. ') + 1, title = tagline.slice(0, cut - 1), subtitle = tagline.slice(cut).trim();
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -77,52 +76,17 @@ export function page(md) {
 <meta name="description" content="${esc(tagline)}">
 <link rel="alternate" type="text/plain" title="Agent docs (llms.txt)" href="/escrow/llms.txt">
 <style>
-:root { color-scheme: light; --ink: #1d1d1f; --muted: #6e6e73; --line: #e5e5ea; --soft: #f5f5f7; --link: #0066cc; }
-* { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; }
-body { margin: 0; background: #fff; color: var(--ink); font: 17px/1.6 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif; }
-main { max-width: 720px; margin: 0 auto; padding: 0 16px 96px; }
-header { padding: 18vh 0 72px; }
-h1 { font-size: clamp(44px, 10vw, 72px); line-height: 1.05; letter-spacing: -0.035em; font-weight: 700; margin: 0 0 16px; }
-.lede { font-size: clamp(22px, 4.6vw, 28px); line-height: 1.3; letter-spacing: -0.015em; font-weight: 600; margin: 0 0 24px; }
-.what { font-size: 19px; color: var(--muted); margin: 0 0 48px; max-width: 34em; }
-.point { margin: 0 0 12px; font-size: 15px; color: var(--muted); }
-.point a { display: block; margin-top: 6px; font-size: 19px; color: var(--ink); text-decoration: none; word-break: break-all; }
-.point a:hover { color: var(--link); }
-.notice { font-size: 15px; color: var(--muted); margin: 32px 0 0; }
-.notice strong { color: var(--ink); }
-.docs { border-top: 1px solid var(--line); padding-top: 48px; }
-h2 { font-size: 28px; letter-spacing: -0.02em; line-height: 1.2; margin: 64px 0 16px; }
-h3 { font-size: 20px; margin: 40px 0 12px; }
-p, ul, ol { margin: 0 0 16px; }
-ul, ol { padding-left: 1.3em; }
-li { margin: 6px 0; }
-a { color: var(--link); }
-code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 0.86em; background: var(--soft); border-radius: 5px; padding: 0.1em 0.35em; overflow-wrap: anywhere; }
-pre { background: var(--soft); border-radius: 12px; padding: 16px 18px; overflow-x: auto; margin: 0 0 20px; }
-pre code { background: none; padding: 0; font-size: 13.5px; line-height: 1.55; overflow-wrap: normal; white-space: pre; }
-.table { overflow-x: auto; margin: 0 0 20px; }
-table { border-collapse: collapse; font-size: 15px; width: 100%; }
-th, td { text-align: left; vertical-align: top; padding: 8px 12px 8px 0; border-bottom: 1px solid var(--line); }
-th { font-weight: 600; }
-td code { overflow-wrap: anywhere; }
-footer { margin-top: 72px; font-size: 14px; color: var(--muted); }
+:root { color-scheme: light; }
+body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #fff; color: #1d1d1f; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", Helvetica, Arial, sans-serif; text-align: center; }
+main { padding: 0 max(24px, env(safe-area-inset-left, 0px)); max-width: 760px; }
+h1 { font-size: clamp(44px, 10vw, 80px); line-height: 1.05; letter-spacing: -0.035em; font-weight: 700; margin: 0 0 20px; }
+p { font-size: clamp(19px, 3.6vw, 24px); line-height: 1.4; letter-spacing: -0.01em; color: #6e6e73; margin: 0; text-wrap: balance; }
 </style>
 </head>
 <body>
 <main>
-<header>
 <h1>${inline(title)}</h1>
-<p class="lede">${inline(lede)}</p>
-<p class="what">${inline(what)}</p>
-<p class="point">Point your agent here<a href="/escrow/llms.txt">${esc(llms)}</a></p>
-<p class="notice">${inline(notice)}</p>
-</header>
-<section class="docs">
-${rest.map((p) => `<p>${inline(p)}</p>`).join('\n')}
-${render(src.slice(docsAt + 1))}
-</section>
-<footer>The same docs as plain text: <a href="/escrow/llms.txt">llms.txt</a>.</footer>
+<p>${inline(subtitle)}</p>
 </main>
 </body>
 </html>
