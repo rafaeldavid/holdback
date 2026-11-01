@@ -5,7 +5,7 @@
 - **Depends on:** T-015, T-020
 - **Paths this task may touch:** `apps/operator/src/server.ts`, `apps/operator/src/prepare.ts` (except the agree-and-fund and early-accept check text, which T-024 owns), `apps/operator/src/*.test.ts`, `spec/openapi/paths.json` and the generated `spec/openapi.json`, `examples/sign.ts`, `examples/verify.ts` (agree-and-fund intent only; T-024 owns early-accept), `examples/*.test.ts`, `examples/package.json`, `docs/api.md`, `docs/quickstart.md`, `docs/backlog.md` (rows)
 - **Human gate:** no
-- **Status:** review
+- **Status:** done
 - **Agent/session:** implementer (Claude Opus 5.5), branch `t-025-api-friction`
 
 ## Intent
