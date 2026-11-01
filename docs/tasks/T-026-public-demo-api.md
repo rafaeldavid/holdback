@@ -5,7 +5,7 @@
 - **Depends on:** T-020, T-023, T-025
 - **Paths this task may touch:** `apps/demo-cloud/` (new), `apps/operator/src/` (only to expose a fetch-style handler and a public mode; no behaviour change for existing callers), `apps/adjudicator/src/test-adjudicator.ts` (only if the cloud runtime needs a hook), `packages/settlement/sim/` (only a persistence hook: snapshot or journal replay), `pnpm-workspace.yaml`, root `package.json` scripts, root `tsconfig.json`, `vitest.config.ts`, `docs/api.md` (a "Public demo" section), `docs/tasks/T-026-public-demo-api.md`
 - **Human gate:** deploy approved by Rafa on 2026-11-01 ("use my Cloudflare account"), workers.dev only, test tokens only
-- **Status:** review
+- **Status:** done
 - **Agent/session:** implementer (Claude Opus 5.5), branch `t-026-public-demo-api`, 2026-11-01
 
 ## Intent
