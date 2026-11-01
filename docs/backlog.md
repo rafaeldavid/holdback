@@ -14,6 +14,15 @@ Deferred until after the basic demo. The demo assumes honest parties (Rafa, Octo
 | `Dispute` must carry envelopes for all three adjudicators: no Phase 1 state accepts a `Dispute`, so SimChain has no guard yet | T-006; ADR-0020 | Phase 4, optimistic mode |
 | `termsHash` and `recordHash` on every event: the schema requires them on offered, agreed and decided events and forbids extra fields on settled and bond payloads | T-006; ADR-0020 | Next schema bump |
 | Idempotency records keep successful results only; a refused call with the same key can be retried | T-006 | T-007, if clients expect refusals replayed |
+| Beacon verification on chain: check the drand quicknet BLS signature of the fallback and appeal beacon value with EIP-2537 (ADR-0018 §4); pin drand's round formula (`(t - genesis) / period + 1`) against the contract's `beaconRoundAt`. Today the contract checks the round and the seed derivation only, so a fallback or appeal adjudicator can still choose the beacon value | T-202 (split out) | Before T-206's review; proposed follow-up task T-209 |
+| Schema v0.9 for ADR-0025 (CPP funding schemes, lowercase-address token identifiers) and the `core` helpers for the derived CPP `PaymentInfo` | T-202; ADR-0025 | Now that PR 67 merged; before T-205 |
+| `HoldbackRules` runtime is 24,542 bytes, 34 under EIP-170: any new code needs room first (split appeal handling into its own contract, or drop the ERC-8183 duplicate events) | T-202 | The next change to `HoldbackRules` |
+| Rulebook terms the contract cannot see (only `rulebookHash` is on chain): appeal bond rate and appeal fee, `mutualSettlement.allowed` and `payoutsTo`, fee share, `allowedTokens`. Today the appeal adjudicator and the parties check them (D32); a rulebook fee or appeal parameters on chain need them in the settlement view | T-202 | Phase 4 appeals economics; any club that relies on these on chain |
+| Holdback-domain nonces are not spent on chain (Decision, Agree, EarlyAccept, MutualSettlement); the stage machine refuses replays instead | T-202 | If a message type ever applies in more than one stage |
+| `EXPIRY_MARGIN` is a deployment constant; a per-deal margin needs a terms field (domain move) | T-202; ADR-0025 | The next terms-encoding change |
+| An early accept or mutual settlement after `authorizationExpiry` reverts in CPP (capture after expiry); only the buyer's CPP `reclaim` remains. Possible only when nobody triggers the fallback or default for longer than the margin | T-202 | Before choosing `EXPIRY_MARGIN` for Sepolia (T-206) |
+| Check the ERC-8183 event names and argument types against the current draft text | T-202 | T-206 |
+| Gas with real USDC (FiatToken proxy) instead of the mock ERC-3009 token | T-201; T-202 | T-206 on Sepolia |
 
 ## Settlement and fees
 
