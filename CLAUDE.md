@@ -49,6 +49,10 @@ It is not the protocol's job to decide whether terms are favourable or a party i
 
 Responsibility sits with the buyer and the seller. When a party can protect itself with a check it runs before signing, the protocol does not add settlement machinery for the party that skipped it; prefer the simpler fix (Rafa, 2026-11-01; D32).
 
+## Design principle: rails, not a record-keeper
+
+The protocol and the API are rails: they hold funds, check signatures, enforce deadlines and settle. They need keys, hashes and amounts, not identities or content. Everything else is information each party chooses to disclose, to whom and when: who it is, what it bought, the terms, the judgment. The default is minimal disclosure; a party can reveal more to its counterparty, an adjudicator, a club or a court. Arbitration can be private too: adjudicators may judge with private inference (an inference provider that keeps no data, such as Venice, offered as an option) as long as the judges stay pinned models from at least two families (Rafa, 2026-11-01; D35).
+
 ## Hard rules
 
 Each rule is paired with the check that enforces it in `docs/team.md` (Rules and checks).
@@ -99,7 +103,7 @@ forge test                      # contracts (from Phase 2)
 
 ## Map
 
-`docs/decisions-today.md` records decisions D1 to D33 (decided October 30, 2026; D4 deferred to Phase 2), and `docs/reviews/` the reviews behind them. Read both first. `docs/backlog.md` holds work deferred until after the basic demo.
+`docs/decisions-today.md` records decisions D1 to D35 (decided October 30, 2026; D4 deferred to Phase 2), and `docs/reviews/` the reviews behind them. Read both first. `docs/backlog.md` holds work deferred until after the basic demo.
 
 The other docs: `PRD.md`, `neutrality.md`, `architecture.md`, `judgment-and-defenses.md`, `api.md`, `demo.md`, `testing.md`, `team.md`, `plan.md`, `decisions/`, `tasks/`. Research is in `docs/research/`; open it only when a decision needs it. Brand and messaging drafts (the mule mascot) are in `brand/`.
 

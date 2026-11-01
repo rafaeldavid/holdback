@@ -526,3 +526,12 @@ Full report with sources: the research pass of 2026-11-01 (comparable take rates
 Open questions (ADR-0024): binding the seller's encryption key (registry vs a signed-terms field that moves the domain to "0.8"); what the L1 contract publishes; amount privacy in Phase 2; mailbox spam gating; the default disclosure level; mailbox pricing; ordering against T-208.
 
 **Recommendation:** B, with C explored in T-208.
+
+## D35. Rails, not a record-keeper: disclosure is each party's choice
+
+**Decided 2026-11-01 by Rafa** ("the protocol and API as rails, and maximal information then becomes something each party chooses to disclose, and can privately arbitrate ideally based on model usage, maybe use something like Venice for private inference").
+
+- **The protocol and API are rails.** They hold funds, check signatures, enforce deadlines and settle. They need keys, hashes and amounts, not identities or content. Buyer and seller find each other and agree however they like; the protocol assumes they know each other (Rafa, same day). Per-deal keys that do not link to a party's long-term identity follow naturally (under study in the ADR-0024 research pass).
+- **Disclosure is a choice.** Who a party is, what it bought, the terms and the judgment are disclosed by each party, to whom and when it chooses. The default is minimal; a party can reveal more to its counterparty, an adjudicator, a club or a court (D26 evidence by selective disclosure).
+- **Arbitration can be private.** Adjudicators may run judges through private inference: a provider that keeps no prompts or outputs, such as Venice, as an adjudicator option. Mandatory rules still hold: pinned model IDs, at least two families, no tools for judges, untrusted deliverables, the verdict schema. Backlog row under Judgment defenses.
+- **Shapes:** ADR-0024 (private deals) and T-207; the mailbox and identity may leave the protocol entirely.
