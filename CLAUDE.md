@@ -85,8 +85,17 @@ pnpm snap                       # scenario fixtures vs .expect.md snapshots
 pnpm snap --update <name>       # regenerate a snapshot; review the diff before committing
 pnpm demo                       # scripted judges: no keys needed; writes demo/out
 pnpm demo --live                # live judges (needs two model-family keys)
-forge test                      # contracts (from Phase 2)
+(cd contracts && forge test)    # contracts, local chain only (Phase 2)
+formal/check.sh                 # TLA+ model of the state machine (T-204); safety in seconds, liveness ~11 min
+node site/build.mjs && node site/check.mjs   # the site and its agent docs (site/llms.txt)
 ```
+
+## Start here (for a new session or agent)
+
+1. Read this file, then the latest `docs/log/` entry: its "Next steps (resume here)" list is the current work.
+2. `docs/plan.md` lists every task by phase; each task file in `docs/tasks/` has Intent, acceptance criteria, Evidence and a Handoff section that says how to resume.
+3. `docs/operations.md`: what is live (escrow.stream, the API, sign-ups), how to deploy, secrets handling, and the gates.
+4. Open decisions and their history: `docs/decisions-today.md` (D1 to D36) and `docs/decisions/` (ADRs).
 
 ## Working as a team of agents
 
@@ -105,7 +114,7 @@ forge test                      # contracts (from Phase 2)
 
 `docs/decisions-today.md` records decisions D1 to D36 (decided October 30, 2026; D4 deferred to Phase 2), and `docs/reviews/` the reviews behind them. Read both first. `docs/backlog.md` holds work deferred until after the basic demo.
 
-The other docs: `PRD.md`, `neutrality.md`, `architecture.md`, `judgment-and-defenses.md`, `api.md`, `demo.md`, `testing.md`, `team.md`, `plan.md`, `decisions/`, `tasks/`. Research is in `docs/research/`; open it only when a decision needs it. Brand and messaging drafts (the mule mascot) are in `brand/`.
+The other docs: `PRD.md`, `neutrality.md`, `architecture.md`, `judgment-and-defenses.md`, `api.md`, `demo.md`, `testing.md`, `team.md`, `plan.md`, `decisions/`, `tasks/`. Research is in `docs/research/`; open it only when a decision needs it. `docs/operations.md` covers the live demo and deploys. Brand work is in `brand/`: the product is ’crow ("escrow" with the "es" unsaid), "Private Escrow for AI Agents", at escrow.stream; its mark is Archibald Thorburn's 1919 hooded crow (public domain); Holdback stays the protocol's working name and EIP-712 domain.
 
 ## Vocabulary
 
