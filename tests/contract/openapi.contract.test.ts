@@ -238,6 +238,7 @@ describe('HTTP contract: every operator response matches spec/openapi.json', () 
     await a.buyer.call('GET', `/v1/balances/${a.buyer.address}`);
     await a.buyer.call('GET', `/v1/commitments/${a.id}/receipts`);
     await a.buyer.call('GET', `/v1/commitments/${a.id}/judgment`);
+    await a.buyer.call('GET', `/v1/commitments/${a.id}/terms`); // T-025
     await a.buyer.call('GET', `/v1/agents/${world.info.accounts[0]!.address}`);
     await a.buyer.call('GET', '/v1/adjudicators');
     await a.buyer.call('GET', `/v1/commitments?party=${a.buyer.address}&role=buyer&escrowState=Released&escrowState=Refunded`);
