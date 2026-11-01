@@ -29,6 +29,8 @@ export const PROBLEM_TYPES = [
   'invalid_cursor',
   // D27: an operator's own relay policy declined; the signed message is still valid elsewhere (ADR-0005)
   'relay_refused',
+  // ADR-0023: this operator relays a funded agreement only with its published fee; free elsewhere (402)
+  'payment_required',
   // Reserved for Phase 2 reads of private records (ADR-0020)
   'unauthorized',
 ] as const;

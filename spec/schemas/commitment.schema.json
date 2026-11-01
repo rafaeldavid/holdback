@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.6/commitment.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.7/commitment.schema.json",
   "title": "Commitment (terms + EIP-712 signatures)",
   "type": "object",
   "required": [

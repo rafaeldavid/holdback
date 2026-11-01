@@ -1,0 +1,15 @@
+{
+  "type": "TransferAuthorization",
+  "scheme": "erc3009",
+  "purpose": "operator_fee",
+  "commitmentId": "0x9340180fb352b68aabcf457de90752525d862a9a6dac875100905fac2fc54ed8",
+  "from": "0x04d6c65223896ba94e731bc9eb765c19bd289b0d",
+  "to": "0x7e3b0c55e1c0d1a2b3c4d5e6f708192a3b4c5d6e",
+  "value": "200000",
+  "token": "tUSD",
+  "validAfter": "2026-10-30T10:00:00Z",
+  "validBefore": "2026-10-30T10:30:00Z",
+  "nonce": "0x5b2f4c8e1d3a6b7c9e0f1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f",
+  "expiresAt": "2026-10-30T10:30:00Z",
+  "signature": "0x3434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434"
+}

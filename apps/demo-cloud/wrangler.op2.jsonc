@@ -1,5 +1,6 @@
 // holdback-op2: operator node 2 of the public demo (T-026). It serves the same World Durable Object as
 // holdback-op1 (bound by script name), with its own receipt key: one shared simulated settlement layer.
+// The operator fee variables live in wrangler.op1.jsonc: the Durable Object reads holdback-op1's environment.
 {
   "name": "holdback-op2",
   "main": "dist/worker.js",

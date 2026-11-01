@@ -1,6 +1,6 @@
 # API v0.2 (operator node)
 
-Any operator node serves this API. It adds speed and convenience, never authority: every state change is an agent-signed message that is equally valid when submitted straight to the settlement layer (`docs/neutrality.md`). v0.2 adds the agent-ready subset of ADR-0017 and serves schema v0.6.
+Any operator node serves this API. It adds speed and convenience, never authority: every state change is an agent-signed message that is equally valid when submitted straight to the settlement layer (`docs/neutrality.md`). v0.2 adds the agent-ready subset of ADR-0017 and serves schema v0.7 (signed under EIP-712 domain version 0.6; ADR-0023).
 
 ## Conventions
 
@@ -21,6 +21,7 @@ Any operator node serves this API. It adds speed and convenience, never authorit
 - **Idempotency:** every mutating request requires an `Idempotency-Key` header. The same key and body returns the stored response. The same key with a different body returns 409 `idempotency_conflict`. The IETF Idempotency-Key draft uses 422 for that case; Holdback keeps 409.
 - **Money:** `{"token": "<id>", "amount": "<base units as decimal string>"}`. The test token tUSD has 6 decimals: 25 tUSD is `{"token": "tUSD", "amount": "25000000"}`.
 - **Fees:** the buyer holds price plus the adjudication fee. The fee pays the adjudicator whatever it decides, so a refunded buyer gets the price back, not the fee (2,000 of 2,050 tUSD). A co-signed settlement returns the fee to the buyer.
+- **Operator fee (ADR-0023, D33):** an operator may charge for relaying the buyer's funded agreement, and only that. It publishes `fees.operator` in `/v1/status` and discovery: `to`, `token`, `bps`, `min`, `max` (or `null`), `appliesAt: "agree-and-fund"`, `refundable: false`. The fee is max(`min`, ceil(price × `bps` / 10000)), capped at `max`, in base units of the price token. `POST /v1/prepare/agree-and-fund` then returns a third signature, a `TransferAuthorization` to `to` (slot `operatorFee.signature`, body field `operatorFee`); the settlement layer moves it with the agreement and the funding, all or nothing, as a plain transfer outside the hold, and posts `fee.operator`. It is never refunded. A funded agree without it, or with less, gets 402 `payment_required` naming the fee. Reads, prepare, the faucet, deliveries, decisions, appeals and direct submission to the settlement layer are free; another operator relays the same signed agreement under its own schedule or none. The public demo charges 1 bp, at least 0.01 tUSD.
 - **Errors:** RFC 9457 `application/problem+json`, with `type` set to one of:
   - signatures and terms: `invalid_signature`, `scope_exceeded`, `mandate_expired`, `nonce_reused`, `rulebook_unknown`, `invalid_terms`, `deadline_passed`;
   - funds and state: `insufficient_funds`, `invalid_state`, `submission_limit_reached`;
@@ -29,7 +30,8 @@ Any operator node serves this API. It adds speed and convenience, never authorit
   - adjudication bindings: `acceptance_missing`, `acceptance_mismatch`, `seed_mismatch`, `policy_mismatch`, `registry_mismatch`, `not_your_turn`;
   - clubs: `member_not_admitted`;
   - requests: `idempotency_conflict`, `rate_limited`, `not_found`, `invalid_cursor`;
-  - operator policy: `relay_refused` (403): this operator's own relay policy declines the call (D27). The signed message is still valid; the SDK fails over to the next operator, then submits directly to the settlement layer (ADR-0005). An operator-only type: no settlement layer or schema returns it.
+  - operator policy: `relay_refused` (403): this operator's own relay policy declines the call (D27). The signed message is still valid; the SDK fails over to the next operator, then submits directly to the settlement layer (ADR-0005). An operator-only type: no settlement layer or schema returns it;
+  - operator fee: `payment_required` (402): this operator relays a funded agreement only with its published fee (ADR-0023), and the detail names the amount and the address. The signed agreement is still valid elsewhere: the SDK fails over, and direct submission is free. Operator-only, like `relay_refused`.
 - **Latency:** with `HOLDBACK_SETTLEMENT=sim`, mutating calls return the final state synchronously. On a chain they return `202` with `status: "pending"` and a `submissionId`; the event stream reports inclusion.
 
 ## Start here
@@ -65,7 +67,7 @@ The agent signs each `sign` entry whose `signer` is its address, writes the sign
 | `kind` | Inputs | Signed by | Submits to |
 | --- | --- | --- | --- |
 | `offer` | `template` (`default`: checks then a judge panel on `rubric`; `checks-only`: `checks` alone decide, no panel), `clubId`, `seller`, `buyer` `{address, encryptionPublicKey}`, `adjudicators` `{primary, fallback, appeal}`, `price`, `deliverable`, `checks`, `rubric`; optional `fee`, `timing`, `nonce`, `createdAt` | seller (`signatures.seller`) | `POST /v1/commitments` |
-| `agree-and-fund` | `commitmentId`; optional `agreeNonce`, `fundingNonce` | buyer (`signature`, `fund.signature`) | `POST /v1/commitments/{id}/agree` |
+| `agree-and-fund` | `commitmentId`; optional `agreeNonce`, `fundingNonce`, `operatorFeeNonce` | buyer (`signature`, `fund.signature`, and `operatorFee.signature` when this operator charges a fee) | `POST /v1/commitments/{id}/agree` |
 | `delivery` | `commitmentId`, `ciphertext` `{uri, sha256, bytes}` from `POST /v1/ciphertext`, `plaintextSha256`, `encryptedKeys`; optional `plaintextMime`, `submittedAt` | seller (`signature`) | `POST /v1/commitments/{id}/deliveries` |
 | `early-accept` | `commitmentId`; optional `nonce`, `expiresAt` | buyer (`signature`) | `POST /v1/commitments/{id}/accept` |
 | `appeal` | `commitmentId`, `appellant` (your address, buyer's or seller's: it sets which party appeals); optional `grounds`, `filedAt` | appellant (`signature`) | `POST /v1/commitments/{id}/appeals` |
@@ -80,7 +82,8 @@ The agent signs each `sign` entry whose `signer` is its address, writes the sign
 **Verify before you sign.** A prepare answer is a proposal. The typed data is everything your signature authorizes, and an operator that edited it, even consistently with its digest and body, would get a signature over something you did not intend. So do not check the operator's typed data against the operator's own digest; rebuild the message from your own intent and compare. `examples/verify.ts` does this in about 170 lines of TypeScript with viem only (most of it the pinned types and one builder per kind), and a test (`neutrality.operator-lies-in-prepare`, `examples/verify.test.ts`) edits each field below, recomputes the digest, and expects a refusal:
 
 - **domain:** `name` `Holdback`, `version`, `chainId` and `verifyingContract` equal the domain pinned in your configuration, never the one an operator serves;
-- **types and primaryType:** the primary type is the one this kind signs (`CommitmentTerms`, `Agree` and `FundingAuthorization`, `Delivery`, `EarlyAccept`, `Appeal`, `MutualSettlement`), the type definitions are schema 0.6's (pin them; `examples/verify.ts` has them), and there are exactly the slots you expect, each with your address as `signer`;
+- **types and primaryType:** the primary type is the one this kind signs (`CommitmentTerms`, `Agree` and `FundingAuthorization` and, when the operator charges a fee, `TransferAuthorization`, `Delivery`, `EarlyAccept`, `Appeal`, `MutualSettlement`), the type definitions are schema 0.7's under domain version 0.6 (pin them; `examples/verify.ts` has them), and there are exactly the slots you expect, each with your address as `signer`;
+- **operator fee:** compute it yourself from `fees.operator` as at least two operators serve it: `to`, and max(`min`, ceil(price × `bps` / 10000)) capped at `max`. Refuse a fee slot you do not expect, a higher `value`, another `to` or token, and count the fee in your budget. `examples/verify.ts` (`operatorFeeOf`) does this; it is a separate transfer, not part of the hold, and not refunded;
 - **counterparty:** `buyer` and `seller` are who you agreed with;
 - **amount and token:** `price` and `adjudication.fee` (offer), `value` (funding: price plus fee, nothing more), with `token` the one you expect, in base units. A buyer checks the price it negotiated exactly, not only a budget: a seller can mail terms whose price was raised but still fits under your limit, and a message's prose is not the offer (only the signed `price` field counts). `examples/sign.ts` takes `expectedPrice` (and optionally `expectedCommitmentId`, the ID of your own copy of the terms) in the agree-and-fund intent and refuses any difference;
 - **appeal bond:** exactly `appealBondRateBps` of the price, rounded up, from the club rulebook as at least two operators serve it. The settlement layer accepts any larger bond, so an operator that proposed more would make you overpay;
@@ -89,7 +92,7 @@ The agent signs each `sign` entry whose `signer` is its address, writes the sign
 - **the work:** `deliverableHash` and `acceptanceHash` are keccak256 of the RFC 8785 JSON of the deliverable and acceptance you specified, recomputed from your own JSON, not from the operator's body;
 - **the commitment:** `commitmentId` is the EIP-712 struct hash of the terms you agreed to, recomputed;
 - **payouts, releaseKey and deliveryHash:** in a settlement, every `to` and `amount`, that they sum to the price, whether the key is released, and the delivery it names (or `null` before delivery);
-- **nonces:** generate each one yourself (32 random bytes), send it in the prepare request, and refuse a message with any other; agreement and funding need two different nonces;
+- **nonces:** generate each one yourself (32 random bytes), send it in the prepare request, and refuse a message with any other; agreement, funding and the operator fee need different nonces;
 - **times:** `createdAt`, `submittedAt` and `filedAt` near settlement-layer time (`examples/verify.ts`: up to 10 minutes behind and 60 seconds ahead), read as `settlementTime` from at least two operators, not from your wall clock (a sim clock moved by `/advance`, or a chain, differs from it); `expiresAt` within a day ahead; `fundBy`, `deliverBy` and the other deadlines what your terms say. These bounds are the agent's own policy; the API itself accepts any representable time.
 
 Then sign the typed data you built, and submit the body you built. An operator that lies gets a refusal or a failed submission, never a signature over something else.
@@ -197,6 +200,8 @@ The buyer holds price plus fee. Payment, once made, is never clawed back; an ove
 | Appeal overturned | if wrongly released, the price from the first adjudicator's bond | if wrongly refunded, the price from the first adjudicator's bond | the appeal adjudicator gets the appeal fee; the bond returns to the appellant | released to the buyer on an accept |
 | Every adjudicator silent (triggers `fallback`, `default`, `apply-default`) | price and fee back | `sellerCompensationRateBps` of the price from the silent adjudicators' bonds (10% in the sim's club) | bonds pay the compensation; no fee | not released to the buyer |
 
+An operator fee (ADR-0023) is outside this table: it moved to the relaying operator when the hold was funded, and no outcome returns it.
+
 ### Escalation, screen flags and appeals
 
 The protocol supplies **default rules** for these cases (D27, aggregation version `agg-3`); they apply because today's terms cannot say otherwise. Negotiated dispute clauses (what a screen flag does, who bears fees) come after the demo (D29).
@@ -252,7 +257,7 @@ The protocol supplies **default rules** for these cases (D27, aggregation versio
 | GET | `/v1/clubs/{id}` | — | Club with its rulebook and `rulebookHash`, so a party can check the rulebook it signs under |
 | GET | `/v1/clubs/{id}/members/{principal}` | — | Member: admitted or revoked, with the signed admission |
 | GET | `/v1/agents/{address}` | — | Agent: scope, mandate hash, revoked or active |
-| GET | `/v1/status` | — | Operator status (`operator-status.schema.json`): EIP-712 domain, receipt signer, settlement target, versions, head and lag |
+| GET | `/v1/status` | — | Operator status (`operator-status.schema.json`): EIP-712 domain, receipt signer, settlement target, versions, head and lag, and `fees.operator` when this node charges an operator fee (ADR-0023) |
 
 ### Commitments
 
@@ -361,6 +366,8 @@ Each serves the whole API above, plus `GET /` (where things are: club, adjudicat
 **Who judges (T-028).** Three test adjudicators (primary, fallback, appeal; `GET /` lists them by role) run the real adjudicator service. Deterministic checks are real. When the Worker `holdback-op1` has the secrets `HOLDBACK_ANTHROPIC_API_KEY`, `HOLDBACK_OPENAI_COMPATIBLE_API_KEY` and `HOLDBACK_OPENAI_COMPATIBLE_BASE_URL` (`pnpm demo-cloud:secrets`, which pipes them from the git-ignored `.env` to `wrangler secret bulk`), all three seat the live registry `config/judges-live.yaml` (Anthropic and DeepSeek; not calibrated) and call the models for rubric (`default`-template) deals. `GET /` says which under `judges`: `panel` (`live` or `scripted`), the registry URI and hash every adjudicator binds, the model IDs, and for a live panel `liveCallsPerDay`, `liveCallsToday` and today's tokens (UTC day). Spending caps: each call is capped at 8,192 output tokens, and the demo makes at most `LIVE_JUDGE_CALLS_PER_DAY` live calls a day (Worker variable; default 30). An adjudicator runs live only while the day's remainder holds a whole panel of its size (3, or 5 for the appeal); otherwise its panel is scripted, and each verdict in the judgment record starts "[fake judge, no model ran]". Without the secrets every panel is scripted and `GET /` names the missing variables. A prepared or submitted offer with a rubric answers with a `Holdback-Notice` header saying which panel will judge it. `checks-only` deals never seat a panel.
 
 The registry is fixed when the Durable Object starts: adding or removing the secrets changes the registry hash the adjudicators publish, so a commitment offered under the other registry is refused at judgment (`registry_mismatch`) and falls to its default outcome. Change the secrets only when no rubric deal is open, or reset the world.
+
+**Operator fee (T-029).** Both nodes publish one schedule, D33's 1 bp of the price, at least 0.01 tUSD (`fees.operator` in `/v1/status`, `operatorFee` in `GET /`), paid to one demo address with the funded agreement and not refunded: a 25 tUSD deal costs the buyer 26.01 tUSD (price, adjudication fee, operator fee). The Worker variables `OPERATOR_FEE_BPS`, `OPERATOR_FEE_MIN` and optional `OPERATOR_FEE_MAX` on `holdback-op1` set it (the Durable Object reads that Worker's environment); without them no fee is published. Direct submission stays free.
 
 **Timing.** The demo club allows judge, fallback and appeal windows from 60 seconds. With `"timing": {"judgeWithinSec": 60, "fallbackWithinSec": 60, "appealWindowSec": 60, "appealDecideSec": 60}` a checks-only deal is Released within seconds of delivery and final a minute later.
 

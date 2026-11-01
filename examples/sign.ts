@@ -6,7 +6,9 @@
 //   offer:          intent = the request you sent to /v1/prepare/offer, including "nonce"
 //   agree-and-fund: intent = { "terms": <the offer the seller sent you>, "maxTotal": "<base units>", "agreeNonce": …, "fundingNonce": …,
 //                              "expectedPrice": {"token": "tUSD", "amount": "<the price you negotiated>"},   (recommended; checked exactly)
-//                              "expectedCommitmentId": "0x…" }                                           (optional; the exact terms)
+//                              "expectedCommitmentId": "0x…",                                            (optional; the exact terms)
+//                              "operatorFeeNonce": "0x…" }   (needed when the operators publish fees.operator, ADR-0023: sign.ts
+//                              reads the schedule from them, computes the fee itself and refuses a higher one; maxTotal covers it)
 //   early-accept:   intent = { "terms": …, "nonce": …, "delivery": <the signed delivery body the seller handed you> }
 //                   (sign.ts first opens your envelope from it with HOLDBACK_ENCRYPTION_KEY and refuses unless
 //                   it opens and the plaintext hash matches: an early accept releases that envelope with payment)
@@ -37,7 +39,12 @@ try {
     kind === 'offer'
       ? { kind, request: given, registration: await agent.registration(given.adjudicators.primary), rulebookHash: await agent.rulebookHash(given.clubId) }
       : kind === 'agree-and-fund'
-        ? { kind, terms: given.terms, me, encryptionPublicKey: agent.encryptionPublicKey, maxTotal: BigInt(given.maxTotal), agreeNonce: given.agreeNonce, fundingNonce: given.fundingNonce, ...(given.expectedPrice ? { expectedPrice: given.expectedPrice } : {}), ...(given.expectedCommitmentId ? { expectedCommitmentId: given.expectedCommitmentId } : {}) }
+        ? await (async () => {
+            // ADR-0023: the operator fee comes from the schedule the operators publish, never from the prepared message.
+            const schedule = await agent.operatorFeeSchedule();
+            if (schedule && !given.operatorFeeNonce) throw new Refusal('refusing to sign: these operators charge an operator fee (fees.operator); pick "operatorFeeNonce" (32 random bytes), send it with the prepare request, and put it in the intent');
+            return { kind, terms: given.terms, me, encryptionPublicKey: agent.encryptionPublicKey, maxTotal: BigInt(given.maxTotal), agreeNonce: given.agreeNonce, fundingNonce: given.fundingNonce, ...(given.expectedPrice ? { expectedPrice: given.expectedPrice } : {}), ...(given.expectedCommitmentId ? { expectedCommitmentId: given.expectedCommitmentId } : {}), ...(schedule ? { operatorFee: { schedule, nonce: given.operatorFeeNonce } } : {}) } as Intent;
+          })()
         : kind === 'appeal'
           ? { kind, terms: given.terms, me, appealBondRateBps: (await agent.club(given.terms.clubId)).rulebook.appealBondRateBps, ...(given.grounds ? { grounds: given.grounds } : {}) }
           : kind === 'settlement'

@@ -7,8 +7,9 @@
 // - Optional message fields are encoded as empty values when absent (empty string, empty array).
 //   Every schema value for those fields is non-empty, so absent and present never collide.
 //   Scope.categories may legitimately be empty, so it carries an explicit hasCategories flag.
-// - The domain version tracks the schema version, so a signature made under one schema never verifies
-//   under another.
+// - The domain version tracks the signed encoding: it moves when an existing typed-data struct or the terms
+//   encoding changes, so a signature made under one encoding never verifies under another. Additive schema
+//   versions leave it (ADR-0023: schema 0.7 adds TransferAuthorization and keeps domain version 0.6).
 import { hashStruct, hashTypedData, isAddressEqual, recoverTypedDataAddress, type Hex } from 'viem';
 import { signTypedData } from 'viem/accounts';
 import { canonicalKeccak } from './canonical.js';
@@ -133,6 +134,19 @@ export const messageTypes = {
     field('scheme', 'string'),
     field('commitmentId', 'bytes32'),
     field('from', 'address'),
+    field('value', 'uint256'),
+    field('token', 'string'),
+    stamp('validAfter'),
+    stamp('validBefore'),
+    ...expiring,
+  ],
+  // ADR-0023: the buyer's operator fee, bound to one commitment and paid to one address.
+  TransferAuthorization: [
+    field('scheme', 'string'),
+    field('purpose', 'string'),
+    field('commitmentId', 'bytes32'),
+    field('from', 'address'),
+    field('to', 'address'),
     field('value', 'uint256'),
     field('token', 'string'),
     stamp('validAfter'),
@@ -328,6 +342,19 @@ function encodeMessage(m: UnsignedMessage): Encoded {
         scheme: m.scheme,
         commitmentId: m.commitmentId,
         from: m.from,
+        value: BigInt(m.value),
+        token: m.token,
+        validAfter: seconds(m.validAfter),
+        validBefore: seconds(m.validBefore),
+        ...expiry(m),
+      };
+    case 'TransferAuthorization':
+      return {
+        scheme: m.scheme,
+        purpose: m.purpose,
+        commitmentId: m.commitmentId,
+        from: m.from,
+        to: m.to,
         value: BigInt(m.value),
         token: m.token,
         validAfter: seconds(m.validAfter),

@@ -89,6 +89,11 @@ export interface SimWorldOptions {
   env?: Readonly<Record<string, string | undefined>>;
   /** Where adjudicator errors go. Default: stderr. */
   onError?: (e: Error) => void;
+  /**
+   * ADR-0023: an operator fee every node of this world charges, paid to one address (`to`, default the world's
+   * `sim-operator-fees` account): the nodes are one operator with one schedule. Default: no fee.
+   */
+  operatorFee?: { bps: number; min: string; max: string | null; to?: Address };
 }
 
 export interface SimWorld {
@@ -194,12 +199,17 @@ export async function startSimWorld(options: SimWorldOptions = {}): Promise<SimW
   };
 
   const operators: RunningOperator[] = [];
+  const of = options.operatorFee;
+  const operatorFee = of
+    ? { fee: { to: of.to ?? worldAccount('sim-operator-fees').address, token: TOKEN, bps: of.bps, min: of.min, max: of.max, appliesAt: 'agree-and-fund' as const, refundable: false as const } }
+    : {};
   for (const [i, port] of (options.operatorPorts ?? [0, 0]).entries()) {
     operators.push(
       await startOperator({
         settlement: chain,
         registry: { ...simRegistry(chain), registration, judgment: (id) => latest.get(id) ?? null },
         store,
+        ...operatorFee,
         signerKey: worldAccount(`sim-operator-${i + 1}`).privateKey,
         operatorId: `op-${i + 1}`,
         env: options.env ?? process.env,

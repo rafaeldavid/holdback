@@ -62,7 +62,10 @@ export class World {
 
   private async schedule(world: PublicWorld, delayMs: number): Promise<void> {
     if (!world.active()) return;
-    if ((await this.state.storage.getAlarm()) === null) await this.state.storage.setAlarm(Date.now() + delayMs);
+    // An alarm whose handler threw stays set, overdue, while the runtime backs off its retries; a request then
+    // re-arms it rather than wait (T-029 measured adjudicators idle for minutes after one failed version).
+    const at = await this.state.storage.getAlarm();
+    if (at === null || at < Date.now() - 5000) await this.state.storage.setAlarm(Date.now() + delayMs);
   }
 
   async fetch(request: Request): Promise<Response> {

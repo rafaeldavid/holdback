@@ -88,6 +88,9 @@ await buyer.waitFor(offer.id, ['AcceptedByAdjudicator'], 60_000);
 log('primary adjudicator accepted the offer');
 const held = await buyer.agreeAndFund(offer.terms, 40_000_000n);
 log(`buyer agreed and funded: ${held.escrowState}, hold ${held.hold.amount.amount} base units`);
+// ADR-0023: the operator fee the buyer paid with the agreement, if these nodes charge one (a fee.operator event).
+const feeEvent = (await buyer.call('GET', `/v1/commitments/${offer.id}/events?limit=200`)).items.find((e: J) => e.type === 'fee.operator');
+log(index.operatorFee ? `operator fee schedule: ${index.operatorFee.bps} bp, min ${index.operatorFee.min} base units; paid ${feeEvent ? feeEvent.payload.amount.amount : 0} to ${index.operatorFee.to}` : 'no operator fee published');
 await seller.deliver(offer.terms, new TextEncoder().encode(DELIVERY));
 log('seller delivered (encrypted, key sealed to the adjudicators and the buyer)');
 
@@ -145,6 +148,7 @@ const summary = {
   settledAt: state.settledAt,
   finalAt: state.finalAt,
   balances: { buyer: await balance(buyer), seller: await balance(seller) },
+  operatorFee: { schedule: index.operatorFee ?? null, paid: feeEvent ? feeEvent.payload.amount : null },
   receiptsPerOperator: receipts,
   ...(rubric ? { panels, judgesAfter: (await getIndex()).judges } : {}),
   seconds: Math.round((Date.now() - started) / 1000),

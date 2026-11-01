@@ -123,6 +123,7 @@ describe('spec/openapi.json, the document', () => {
 
 let world: SimWorld;
 let extra: RunningOperator;
+let feeNode: RunningOperator;
 const exchanges: Exchange[] = [];
 const realFetch = globalThis.fetch;
 
@@ -160,11 +161,21 @@ beforeAll(async () => {
     rateLimit: { reads: 1, writes: 100, windowMs: 60_000 },
     policy: () => ({ type: 'relay_refused', detail: 'this test node relays nothing' }),
   });
-  globalThis.fetch = recording([...world.info.operators, extra.url]);
+  // A fourth node that charges D33's operator fee (ADR-0023), for the third prepared slot and the 402 answer.
+  feeNode = await startOperator({
+    settlement: world.chain,
+    registry: simRegistry(world.chain),
+    signerKey: testAccount('t029-operator').privateKey,
+    operatorId: 't029-fee',
+    env: {},
+    fee: { to: testAccount('t029-fees').address, token: 'tUSD', bps: 1, min: '10000', max: null, appliesAt: 'agree-and-fund', refundable: false },
+  });
+  globalThis.fetch = recording([...world.info.operators, extra.url, feeNode.url]);
 }, 30_000);
 afterAll(async () => {
   globalThis.fetch = realFetch;
   await extra?.close();
+  await feeNode?.close();
   await world?.close();
 });
 
@@ -311,6 +322,19 @@ describe('HTTP contract: every operator response matches spec/openapi.json', () 
     const declined = await http('POST', `${extra.url}/v1/commitments`, await signed(draft, [e1]).then((s) => s.body), key('declined'));
     expect([declined.status, declined.body.type]).toEqual([403, 'relay_refused']);
 
+    // 7b. The fee node (ADR-0023): status with fees, three slots, 402 without the fee, Held with it.
+    expect((await http('GET', `${feeNode.url}/v1/status`)).body.fees.operator.bps).toBe(1);
+    const feeOffer = await e1.offer(request(e1, e2));
+    await e2.waitFor(feeOffer.id, ['AcceptedByAdjudicator']);
+    const fp = (await http('POST', `${feeNode.url}/v1/prepare/agree-and-fund`, { commitmentId: feeOffer.id })).body;
+    expect(fp.sign.map((s: J) => s.slot)).toEqual(['signature', 'fund.signature', 'operatorFee.signature']);
+    const paid = await signed(fp, [e2]);
+    const { operatorFee, ...unpaid } = paid.body;
+    expect(operatorFee.value).toBe('10000');
+    const owed = await http('POST', `${feeNode.url}${paid.path}`, unpaid, key('unpaid'));
+    expect([owed.status, owed.body.type]).toEqual([402, 'payment_required']);
+    expect((await http('POST', `${feeNode.url}${paid.path}`, paid.body, key('paid'))).body.escrowState).toBe('Held');
+
     // 8. Triggers once deadlines pass: an offer nobody agreed to expires; a hold with no delivery is reclaimed.
     const lapsed = await e1.offer(request(e1, e2));
     const r = await held();
@@ -343,7 +367,7 @@ describe('HTTP contract: every operator response matches spec/openapi.json', () 
     expect(exchanges.filter((x) => /no (such )?route/i.test(x.body?.toString('utf8') ?? '')).map((x) => `${x.method} ${x.url.pathname}`)).toEqual([]);
     expect(OPERATIONS.map((o) => o.operationId).filter((id) => !ok.has(id)).sort()).toEqual(['getClubMember', 'submitAdjudicatorAcceptance', 'submitDecision', 'submitFunding', 'submitHold']);
     const statuses = [...new Set(results.map((x) => x.status))].sort();
-    expect(statuses).toEqual([200, 400, 403, 404, 409, 429]);
+    expect(statuses).toEqual([200, 400, 402, 403, 404, 409, 429]);
     console.log(`contract: ${exchanges.length} exchanges, ${hit.size}/${OPERATIONS.length} operations, ${ok.size} with a 2xx, statuses ${statuses.join(' ')}`);
   }, 120_000);
 

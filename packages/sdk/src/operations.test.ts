@@ -48,6 +48,23 @@ describe('operations', () => {
     expect(submissionKeys('k', 3)).toEqual(['k#0', 'k#1', 'k#2']);
   });
 
+  it('carries the operator fee (ADR-0023) from the agree body into the one agree-and-fund submission', () => {
+    const op: Operation = { kind: 'agree', message: m('Agree'), fund: m('FundingAuthorization'), operatorFee: m('TransferAuthorization') };
+    const req = requestOf(op);
+    expect(req.body).toMatchObject({ fund: { type: 'FundingAuthorization' }, operatorFee: { type: 'TransferAuthorization' } });
+    const back = operationOf(req.path.split('/').filter(Boolean), req.body);
+    expect(back.ok && back.value).toEqual(op);
+    const subs = submissionsOf(op);
+    expect(subs).toHaveLength(1);
+    expect(subs[0]).toMatchObject({ kind: 'agree_and_fund', operatorFee: { type: 'TransferAuthorization' } });
+    expect(JSON.stringify(unsigned(op))).not.toContain('0xsig');
+  });
+
+  it('refuses an operator fee without funding: the fee is paid with the funded agreement only', () => {
+    const r = operationOf(['v1', 'commitments', ID, 'agree'], { ...(m('Agree') as object), operatorFee: m('TransferAuthorization') });
+    expect(r.ok || r.error.type).toBe('invalid_terms');
+  });
+
   it('unsigned() removes every signature a party message carries', () => {
     const hold = unsigned({
       kind: 'hold',

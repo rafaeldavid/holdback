@@ -290,3 +290,45 @@ describe('a checks-only deal between two fresh agents, over HTTP', () => {
     expect((await again.call('GET', `/v1/balances/${seller.address}`)).amount).toBe('1025000000');
   }, 60_000);
 });
+
+describe('operator fee from Worker variables (ADR-0023, T-029)', () => {
+  const D33 = { OPERATOR_FEE_BPS: '1', OPERATOR_FEE_MIN: '10000' };
+
+  it('publishes no fee without the variables, and one schedule on both nodes with them', async () => {
+    const none = await serve();
+    expect(((await (await fetch(`${none.urls[0]}/v1/status`)).json()) as J).fees).toBeUndefined();
+    const { urls } = await serve({ env: D33 });
+    const [a, b] = await Promise.all(urls.map(async (u) => ((await (await fetch(`${u}/.well-known/holdback.json`)).json()) as J).fees.operator));
+    expect(a).toEqual(b);
+    expect(a).toMatchObject({ token: 'tUSD', bps: 1, min: '10000', max: null, appliesAt: 'agree-and-fund', refundable: false });
+    const index = (await (await fetch(`${urls[0]}/`)).json()) as J;
+    expect(index.operatorFee).toEqual(a);
+    expect(index.notes.join(' ')).toMatch(/operator fee of 1 bp of the price, at least 0.01 tUSD/);
+    expect(await (await fetch(`${urls[1]}/llms.txt`)).text()).toMatch(/not refunded/);
+  });
+
+  it('a 25 tUSD deal pays 0.01 tUSD to the operator; at 0 / 0 it pays nothing', async () => {
+    for (const [env, paid] of [[D33, 10_000n], [{ OPERATOR_FEE_BPS: '0', OPERATOR_FEE_MIN: '0' }, 0n]] as const) {
+      const { urls } = await serve({ env });
+      const index = (await (await fetch(`${urls[0]}/`)).json()) as J;
+      const buyer = freshAgent(urls);
+      const seller = freshAgent(urls);
+      for (const x of [buyer, seller]) await x.call('POST', '/v1/faucet', { address: x.address });
+      const [primary, fallback, appeal] = index.adjudicators.map((x: J) => x.address);
+      const offer = await seller.offer({
+        template: 'checks-only', clubId: index.clubId, seller: seller.address, buyer: { address: buyer.address, encryptionPublicKey: buyer.encryptionPublicKey },
+        adjudicators: { primary, fallback, appeal }, price: { token: 'tUSD', amount: '25000000' },
+        deliverable: { kind: 'dataset', description: 'customers.csv', format: 'text/csv' }, checks: [{ id: 'cols', type: 'csv_columns_exact', required: true, columns: ['customer_id', 'email'] }],
+      });
+      await buyer.waitFor(offer.id, ['AcceptedByAdjudicator']);
+      expect((await buyer.agreeAndFund(offer.terms, 30_000_000n)).escrowState).toBe('Held');
+      expect(1_000_000_000n - BigInt((await buyer.call('GET', `/v1/balances/${buyer.address}`)).amount)).toBe(26_000_000n + paid);
+      expect((await buyer.call('GET', `/v1/balances/${index.operatorFee.to}`)).amount).toBe(paid.toString());
+    }
+  }, 60_000);
+
+  it('refuses a malformed schedule at start', async () => {
+    await expect(PublicWorld.open({ storage: new MemoryStorage(), env: { OPERATOR_FEE_BPS: '0.5', OPERATOR_FEE_MIN: '10000' } })).rejects.toThrow(/OPERATOR_FEE_BPS/);
+    await expect(PublicWorld.open({ storage: new MemoryStorage(), env: { OPERATOR_FEE_BPS: '1', OPERATOR_FEE_MIN: '0.01' } })).rejects.toThrow(/OPERATOR_FEE_MIN/);
+  });
+});

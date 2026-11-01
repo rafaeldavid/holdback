@@ -41,7 +41,7 @@ Pin this EIP-712 domain in your own configuration and sign under nothing else. N
 ## How a deal works
 
 1. The seller offers terms: the work, the price, the checks the work must pass, the adjudicator.
-2. The buyer agrees and funds a hold of price plus fee. Neither side can take the money alone.
+2. The buyer agrees and funds a hold of price plus fee. Neither side can take the money alone. With it, the buyer pays the operator's small relay fee (1 bp of the price, at least 0.01 tUSD), outside the hold.
 3. The seller delivers the work encrypted. The adjudicator runs the checks. If they pass, the seller is paid and the buyer gets the decryption key in the same step. If they fail, the buyer gets the price back.
 
 The operator prepares messages and relays them. It never signs for you and never holds your keys. Every state change is a message you sign yourself.
@@ -194,19 +194,22 @@ The offer you were sent is a claim. Check it against the settlement layer:
 - `buyer` is you, `buyerEncryptionPublicKey` is yours, `price` is exactly the price you negotiated (not just under a budget), the adjudicators are the ones you chose, and the checks are the ones you want. On a checks-only deal the checks are the whole contract: work that passes them is accepted.
 - `GET /v1/commitments/<id>` reads `"AcceptedByAdjudicator"`.
 
-Then agree and fund in one call, with two fresh nonces of your own:
+**The operator fee.** Read `fees.operator` from `$OP1/.well-known/holdback.json` and `$OP2/.well-known/holdback.json`; both must be equal (the two demo nodes are one operator). It is `{to, token, bps, min, max, appliesAt: "agree-and-fund", refundable: false}`. Compute the fee yourself, in base units: `max(min, ceil(price × bps / 10000))`, then at most `max` unless `max` is null. The demo publishes `bps` 1 and `min` "10000", so a 25 tUSD deal pays 10000 (0.01 tUSD). It goes to `to` as a separate transfer, never into the hold, and it is not refunded, even on a refund. Reads, prepare, the faucet and deliveries are free.
+
+Then agree and fund in one call, with three fresh nonces of your own:
 
 ```sh
 curl -s $OP1/v1/prepare/agree-and-fund -H 'content-type: application/json' \
-  -d '{"commitmentId": "0x<id>", "agreeNonce": "0x<32 random bytes>", "fundingNonce": "0x<32 other random bytes>"}'
+  -d '{"commitmentId": "0x<id>", "agreeNonce": "0x<32 random bytes>", "fundingNonce": "0x<32 other random bytes>", "operatorFeeNonce": "0x<32 more random bytes>"}'
 ```
 
-Two slots, both yours. Check each message exactly:
+Three slots, all yours. Check each message exactly:
 
 - `signature`, primary type `Agree`: `{commitmentId: <id>, buyer: <you>, nonce: <agreeNonce>, expiresAt: <terms offerExpiresAt>}`.
 - `fund.signature`, primary type `FundingAuthorization`: `{scheme: "erc3009", commitmentId: <id>, from: <you>, value: <price + fee>, token: "tUSD", validAfter: <terms createdAt>, validBefore: <terms fundBy>, nonce: <fundingNonce>, expiresAt: <terms fundBy>}`.
+- `operatorFee.signature`, primary type `TransferAuthorization`: `{scheme: "erc3009", purpose: "operator_fee", commitmentId: <id>, from: <you>, to: <fees.operator.to>, value: <the fee you computed>, token: "tUSD", validAfter: <terms createdAt>, validBefore: <terms fundBy>, nonce: <operatorFeeNonce>, expiresAt: <terms fundBy>}`. Refuse a higher `value`, another `to`, or a third slot when `fees.operator` is absent or gives 0.
 
-Submit both signatures in the one body to `/v1/commitments/<id>/agree`. The answer reads `"escrowState": "Held"` with `hold.amount` the price plus the fee: 26000000 for a 25 tUSD price and a 1 tUSD fee.
+Submit all three signatures in the one body to `/v1/commitments/<id>/agree`. The answer reads `"escrowState": "Held"` with `hold.amount` the price plus the fee: 26000000 for a 25 tUSD price and a 1 tUSD fee; your balance also drops by the operator fee (26.01 tUSD in all). A body without the operator fee gets 402 `payment_required` from these nodes, naming the fee.
 
 ## 7. Seller: encrypt and deliver
 
@@ -279,6 +282,8 @@ curl -s "$OP1/v1/commitments/<id>/events?limit=200"
 | Released (checks pass) | the content key | the price | the fee |
 | Refunded (a required check fails) | the price back; not the fee | keeps the work; no key is released | the fee |
 
+The operator fee went to the operator when you funded; no outcome returns it.
+
 ## Writing checks that protect a buyer
 
 On a checks-only deal the checks are the whole contract. Write each as if the seller will deliver the least that passes. A CSV once passed every check its buyer wrote with emails like `a@a`, one date repeated, and an instruction string as a customer ID. These checks would have refused it:
@@ -307,7 +312,7 @@ The check types: `csv_columns_exact` (`columns`), `row_count_range` (`min`, `max
 
 ## EIP-712 types
 
-Schema 0.6. Pin these. The domain type is the standard `EIP712Domain` (name, version, chainId, verifyingContract); some libraries add it themselves.
+Schema 0.7, signed under domain version "0.6" (the domain moves only when an existing type changes). Pin these. The domain type is the standard `EIP712Domain` (name, version, chainId, verifyingContract); some libraries add it themselves.
 
 ```json
 {
@@ -320,6 +325,7 @@ Schema 0.6. Pin these. The domain type is the standard `EIP712Domain` (name, ver
   "CommitmentTerms": [{"name":"schemaVersion","type":"string"},{"name":"clubId","type":"string"},{"name":"rulebookHash","type":"bytes32"},{"name":"buyer","type":"address"},{"name":"seller","type":"address"},{"name":"deliverableHash","type":"bytes32"},{"name":"acceptanceHash","type":"bytes32"},{"name":"price","type":"TokenAmount"},{"name":"adjudication","type":"Adjudication"},{"name":"timing","type":"Timing"},{"name":"settlement","type":"Settlement"},{"name":"remedy","type":"Remedy"},{"name":"disclosure","type":"Disclosure"},{"name":"buyerEncryptionPublicKey","type":"string"},{"name":"nonce","type":"bytes32"},{"name":"createdAt","type":"uint64"}],
   "Agree": [{"name":"commitmentId","type":"bytes32"},{"name":"buyer","type":"address"},{"name":"nonce","type":"bytes32"},{"name":"expiresAt","type":"uint64"}],
   "FundingAuthorization": [{"name":"scheme","type":"string"},{"name":"commitmentId","type":"bytes32"},{"name":"from","type":"address"},{"name":"value","type":"uint256"},{"name":"token","type":"string"},{"name":"validAfter","type":"uint64"},{"name":"validBefore","type":"uint64"},{"name":"nonce","type":"bytes32"},{"name":"expiresAt","type":"uint64"}],
+  "TransferAuthorization": [{"name":"scheme","type":"string"},{"name":"purpose","type":"string"},{"name":"commitmentId","type":"bytes32"},{"name":"from","type":"address"},{"name":"to","type":"address"},{"name":"value","type":"uint256"},{"name":"token","type":"string"},{"name":"validAfter","type":"uint64"},{"name":"validBefore","type":"uint64"},{"name":"nonce","type":"bytes32"},{"name":"expiresAt","type":"uint64"}],
   "Ciphertext": [{"name":"uri","type":"string"},{"name":"sha256","type":"string"},{"name":"bytes","type":"uint64"},{"name":"cipher","type":"string"}],
   "KeyUnlock": [{"name":"kind","type":"string"},{"name":"round","type":"uint64"}],
   "EncryptedKey": [{"name":"recipient","type":"address"},{"name":"scheme","type":"string"},{"name":"ciphertext","type":"string"},{"name":"unlock","type":"KeyUnlock"}],
@@ -332,6 +338,7 @@ Schema 0.6. Pin these. The domain type is the standard `EIP712Domain` (name, ver
 - **Test tokens only.** tUSD is worth nothing, and no real money can enter.
 - **One simulated settlement layer.** Both operator nodes serve the same in-memory ledger, so reading from two of them shows less than it would on independent nodes. Independent nodes need testnet contracts, which come later.
 - **Basic test adjudicators.** The demo runs three. Their deterministic checks are real. A deal with a rubric (template `default`) gets a live judge panel: pinned models from two families, Anthropic and DeepSeek, listed in `GET /` under `judges`. They are not calibrated, and DeepSeek's model names can change underneath. Live calls are capped per day across the whole demo (`GET /` shows the cap and today's count); past the cap, or if the demo runs without model keys, the panel is scripted, no model runs, and each verdict in the judgment record starts "[fake judge, no model ran]". Read the record before you trust a rubric decision; `checks-only` deals never use a panel.
+- **The operator fee is a demo of pricing, in test tokens.** These nodes ask 1 bp of the price, at least 0.01 tUSD, for relaying your funded agreement. Submitting directly to the settlement layer, or through another operator, needs no fee from these nodes; the demo has no other public route to the settlement layer.
 - **State may reset.** Keep your own copy of the terms you signed.
 - **Happy path only.** Appeals, timeouts, early accept and settlement by agreement exist in the protocol but are not covered here.
 - **Private, in progress.** Today the work itself is private: it is encrypted before it leaves the seller, and only the adjudicators and the buyer, once it has paid, can open it. The rest of the deal is not yet: terms, amounts, addresses and events are public reads on every operator. Private deals (authenticated reads, private judgment records, private amounts) are the next phase. Until then, do not put anything secret in the terms.

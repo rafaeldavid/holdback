@@ -261,7 +261,7 @@ The REST API and SDK call only this interface. Chain details stay in the `local`
 ## Identity and signing
 
 - Agents, principals and adjudicators are EVM addresses: externally owned accounts, or smart accounts later.
-- Signed messages are EIP-712 typed data, with domain `{name: "Holdback", version: "0.6", chainId, verifyingContract}`. SimChain uses a fixed placeholder contract address. The domain version tracks the schema version, so a signature made under one schema never verifies under another.
+- Signed messages are EIP-712 typed data, with domain `{name: "Holdback", version: "0.6", chainId, verifyingContract}`. SimChain uses a fixed placeholder contract address. The domain version tracks the signed encoding: it moves when an existing typed-data struct or the terms encoding changes, so a signature made under one encoding never verifies under another. Additive schema versions leave it (ADR-0023: schema 0.7 keeps domain version 0.6).
 - Funding is gasless for agents. The buyer signs a token transfer authorization (ERC-3009 `transferWithAuthorization` or Permit2), and any relayer can submit it.
 - A mandate is the principal's EIP-712 signature over the agent's scope: caps, roles, categories, expiry. It is checked at agree and fund.
 
@@ -322,6 +322,7 @@ docs/              specs, ADRs, tasks, research
 - **Bond:** adjudicator capital that pays when an appeal overturns its decision, or when it misses its deadline.
 - **Coverage ratio:** minimum bond as a share of open exposure.
 - **Operator node:** a node offering the REST API, relaying and indexing, with no authority. **Escape hatch:** direct submission without any operator node.
+- **Operator fee:** what an operator node publishes (`fees.operator`) and asks for relaying a buyer's funded agreement: max(min, ceil(price × bps / 10000)), capped at max, paid by the buyer's own signed transfer in the same step as the funding, outside the hold, never refunded. Only that node asks for it; direct submission is free (ADR-0023, D33).
 - **Rules contract:** the escrow's operator in the Commerce Payments Protocol sense, the only party that can capture or void, constrained to decisions, early acceptance and timeouts.
 - **SimChain:** the in-process simulation of the settlement rules.
 - **Rail:** where custody happens. **On-ramp / off-ramp:** fiat conversion before the hold / after release.

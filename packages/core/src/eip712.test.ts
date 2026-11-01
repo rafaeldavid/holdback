@@ -183,9 +183,16 @@ describe('message signatures', () => {
     expect(await verifyCoSigned(domain, { ...both, buyerSignature: both.sellerSignature }, buyer, seller)).toBe(false);
   });
 
-  it('defines EIP-712 types for all twelve messages plus Delivery, Appeal, Receipt and Mandate', () => {
+  it('defines TransferAuthorization (ADR-0023) as FundingAuthorization plus to and purpose', () => {
+    expect(messageTypes.TransferAuthorization.map((f) => `${f.type} ${f.name}`).join(',')).toBe(
+      'string scheme,string purpose,bytes32 commitmentId,address from,address to,uint256 value,string token,uint64 validAfter,uint64 validBefore,bytes32 nonce,uint64 expiresAt',
+    );
+  });
+
+  it('defines EIP-712 types for all thirteen messages plus Delivery, Appeal, Receipt and Mandate', () => {
     expect(Object.keys(messageTypes).sort()).toEqual(
       [
+        'TransferAuthorization',
         'Offer',
         'Agree',
         'AdjudicatorAcceptance',

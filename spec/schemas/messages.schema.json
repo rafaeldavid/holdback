@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.6/messages.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.7/messages.schema.json",
   "title": "Signed protocol messages (EIP-712)",
   "description": "Every state-changing message other than Delivery and Appeal. Each carries its EIP-712 domain implicitly: name Holdback, version 0.6, chainId, verifyingContract (ADR-0016).",
   "oneOf": [
@@ -39,6 +39,9 @@
     },
     {
       "$ref": "#/$defs/Publish"
+    },
+    {
+      "$ref": "#/$defs/TransferAuthorization"
     }
   ],
   "$defs": {
@@ -198,6 +201,71 @@
         "value": {
           "type": "string",
           "pattern": "^[0-9]+$",
+          "description": "Base units, decimal string"
+        },
+        "token": {
+          "$ref": "common.schema.json#/$defs/TokenId"
+        },
+        "validAfter": {
+          "$ref": "common.schema.json#/$defs/Timestamp"
+        },
+        "validBefore": {
+          "$ref": "common.schema.json#/$defs/Timestamp"
+        },
+        "nonce": {
+          "$ref": "common.schema.json#/$defs/Hex32"
+        },
+        "expiresAt": {
+          "$ref": "common.schema.json#/$defs/Timestamp"
+        },
+        "signature": {
+          "$ref": "common.schema.json#/$defs/Signature"
+        }
+      }
+    },
+    "TransferAuthorization": {
+      "type": "object",
+      "description": "ADR-0023: the buyer's transfer of an operator fee to the relaying operator's published fee address, sent in the agree body as operatorFee and applied by the settlement layer in the same step as the agreement and the funding, outside the hold. Never refunded",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "scheme",
+        "purpose",
+        "commitmentId",
+        "from",
+        "to",
+        "value",
+        "token",
+        "validAfter",
+        "validBefore",
+        "nonce",
+        "expiresAt",
+        "signature"
+      ],
+      "properties": {
+        "type": {
+          "const": "TransferAuthorization"
+        },
+        "scheme": {
+          "enum": [
+            "erc3009"
+          ]
+        },
+        "purpose": {
+          "const": "operator_fee"
+        },
+        "commitmentId": {
+          "$ref": "common.schema.json#/$defs/Hex32"
+        },
+        "from": {
+          "$ref": "common.schema.json#/$defs/Address"
+        },
+        "to": {
+          "$ref": "common.schema.json#/$defs/Address"
+        },
+        "value": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,77})$",
           "description": "Base units, decimal string"
         },
         "token": {

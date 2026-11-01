@@ -11,7 +11,7 @@
 // - the journal of what the chain accepted, the ciphertext and the judgment records are persisted, so the
 //   world is rebuilt by replay after the Durable Object is evicted.
 // No real money: SimChain (chain id 31337), the test token tUSD, and the operators' startup guards.
-import { canonicalKeccak, holdbackDomain, parseAdjudicator, type AdjudicatorRegistration, type Address, type Hex32, type Judgment, type Mandate, type Sha256, type Timestamp } from '@holdback/core';
+import { canonicalKeccak, holdbackDomain, parseAdjudicator, type AdjudicatorRegistration, type Address, type Hex32, type Judgment, type Mandate, type OperatorFeeSchedule, type Sha256, type Timestamp } from '@holdback/core';
 import { sha256 } from '@holdback/core/crypto';
 import { StoreError, type CiphertextStore } from '@holdback/core/store';
 import { testAdjudicator, type TestAdjudicator } from '@holdback/adjudicator';
@@ -187,17 +187,20 @@ export class PublicWorld {
       judgment: (id) => records.get(id) ?? null,
       // No `faucet`: POST /v1/test/faucet (any amount) is not served here; POST /v1/faucet is.
     };
+    // ADR-0023: one schedule for both nodes (one operator), paid to one world address; from Worker variables.
+    const operatorFee = operatorFeeFromEnv(o.env, key('demo-operator-fees').address);
     const operators = [0, 1].map(
       (i) =>
         new Operator({
           settlement: chain,
           registry,
           store,
+          ...(operatorFee ? { fee: operatorFee } : {}),
           signerKey: key(`demo-operator-${i + 1}`).privateKey,
           operatorId: `demo-op-${i + 1}`,
           env: o.env,
           rateLimit: o.rateLimit ?? { writes: 120, reads: 1200, windowMs: 60_000 },
-          notes: notesFor(club.id, m, o.faucetAmount ?? 1_000n * TUSD, o.faucetWindowSec ?? 3600, panel),
+          notes: notesFor(club.id, m, o.faucetAmount ?? 1_000n * TUSD, o.faucetWindowSec ?? 3600, panel, operatorFee),
         }),
     );
 
@@ -356,8 +359,14 @@ export class PublicWorld {
           ? { liveCallsPerDay: p.budget.perDay, liveCallsToday: today.calls, tokensToday: { input: today.inputTokens, output: today.outputTokens }, day: today.day }
           : { missing: p.missing }),
       },
-      notes: notesFor(this.club.id, this.o.minWindowSec ?? 60, this.o.faucetAmount ?? 1_000n * TUSD, this.o.faucetWindowSec ?? 3600, p),
+      /** ADR-0023: what these nodes charge for relaying a funded agreement; absent when nothing. */
+      ...(this.operatorFee ? { operatorFee: this.operatorFee } : {}),
+      notes: notesFor(this.club.id, this.o.minWindowSec ?? 60, this.o.faucetAmount ?? 1_000n * TUSD, this.o.faucetWindowSec ?? 3600, p, this.operatorFee),
     };
+  }
+
+  private get operatorFee(): OperatorFeeSchedule | undefined {
+    return this.operators[0]?.feeSchedule;
   }
 
   // ---- the faucet -------------------------------------------------------------------------------
@@ -428,8 +437,44 @@ function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 }
 
+const DECIMAL = /^(0|[1-9][0-9]{0,77})$/;
+
+/**
+ * ADR-0023, T-029: the demo's operator fee from Worker variables. OPERATOR_FEE_BPS (integer basis points, 0 to
+ * 10000) and OPERATOR_FEE_MIN (base units) publish a schedule, OPERATOR_FEE_MAX (base units) caps it; with neither
+ * of the first two, the nodes charge nothing and publish no schedule. A malformed value refuses to start.
+ */
+export function operatorFeeFromEnv(env: Readonly<Record<string, string | undefined>>, to: Address): OperatorFeeSchedule | undefined {
+  const bps = env['OPERATOR_FEE_BPS'];
+  const min = env['OPERATOR_FEE_MIN'];
+  const max = env['OPERATOR_FEE_MAX'];
+  if (bps === undefined && min === undefined) return undefined;
+  if (bps === undefined || !/^(0|[1-9][0-9]{0,4})$/.test(bps) || Number(bps) > 10_000) throw new Error(`OPERATOR_FEE_BPS must be whole basis points from 0 to 10000, got ${JSON.stringify(bps)}`);
+  if (min === undefined || !DECIMAL.test(min)) throw new Error(`OPERATOR_FEE_MIN must be base units as a decimal string (0.01 tUSD is "10000"), got ${JSON.stringify(min)}`);
+  if (max !== undefined && max !== '' && !DECIMAL.test(max)) throw new Error(`OPERATOR_FEE_MAX must be base units as a decimal string, or unset, got ${JSON.stringify(max)}`);
+  return { to, token: TOKEN, bps: Number(bps), min, max: max === undefined || max === '' ? null : max, appliesAt: 'agree-and-fund', refundable: false };
+}
+
+const tusdText = (base: string): string => {
+  const v = BigInt(base);
+  const frac = (v % TUSD).toString().padStart(6, '0').replace(/0+$/, '');
+  return `${v / TUSD}${frac ? `.${frac}` : ''} tUSD`;
+};
+
 /** What each node states about itself in discovery and llms.txt. */
-export function notesFor(clubId: string, minWindowSec: number, faucetAmount: bigint, faucetWindowSec: number, panel?: Pick<PanelConfig, 'live' | 'registry' | 'budget'>): string[] {
+export function notesFor(
+  clubId: string,
+  minWindowSec: number,
+  faucetAmount: bigint,
+  faucetWindowSec: number,
+  panel?: Pick<PanelConfig, 'live' | 'registry' | 'budget'>,
+  fee?: OperatorFeeSchedule,
+): string[] {
+  const feeNote = fee
+    ? fee.bps === 0 && fee.min === '0'
+      ? `Operator fee: published at 0 (fees.operator in /v1/status): these nodes relay a funded agreement free for now. When it is switched on, POST /v1/prepare/agree-and-fund adds a third signature (slot operatorFee.signature), paid to ${fee.to}, outside the hold and not refunded.`
+      : `Operator fee: these nodes charge an operator fee of ${fee.bps} bp of the price, at least ${tusdText(fee.min)}${fee.max === null ? '' : `, at most ${tusdText(fee.max)}`}, rounded up, paid by the buyer to ${fee.to} with the funded agreement: POST /v1/prepare/agree-and-fund returns a third signature (slot operatorFee.signature). It is a separate transfer, never part of the hold, and not refunded. A funded agree without it gets 402 payment_required; reads, prepare, the faucet, deliveries and direct submission to the settlement layer are free (ADR-0023).`
+    : undefined;
   const whole = (faucetAmount / TUSD).toString();
   const judges = panel?.live
     ? `Adjudicators: three test adjudicators run by this demo (GET / or GET /v1/adjudicators). Deterministic checks are real. Rubric deals get a live judge panel: pinned models from two families, Anthropic and DeepSeek (${panel.registry.active.map((e) => e.model).join(', ')}; registry config/judges-live.yaml, not calibrated). At most ${panel.budget.perDay} live judge calls a day across this demo (UTC; GET / shows today's count); past that, panels are scripted fake judges whose verdicts start "[fake judge, no model ran]". DeepSeek's model names are provider aliases that can change underneath.`
@@ -441,6 +486,7 @@ export function notesFor(clubId: string, minWindowSec: number, faucetAmount: big
     `The faucet mandate is signed by the demo club's own test principal, which this demo holds; it lets your address act as buyer or seller in ${clubId}.`,
     judges,
     `Settlement time is the wall clock. Club ${clubId} allows windows from ${minWindowSec} seconds: timing {"judgeWithinSec": ${minWindowSec}, "fallbackWithinSec": ${minWindowSec}, "appealWindowSec": ${minWindowSec}, "appealDecideSec": ${minWindowSec}} completes a deal in a few minutes.`,
+    ...(feeNote ? [feeNote] : []),
     'State is journaled and replayed after a restart, but this is a demo: it may be reset at any time.',
   ];
 }

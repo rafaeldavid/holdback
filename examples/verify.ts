@@ -18,7 +18,7 @@ export const configuredDomain = (): Domain => ({
 
 const f = (name: string, type: string) => ({ name, type });
 const exp = [f('nonce', 'bytes32'), f('expiresAt', 'uint64')];
-/** The EIP-712 types of schema 0.6 (packages/core/src/eip712.ts), pinned here. */
+/** The EIP-712 types of schema 0.7, domain version 0.6 (packages/core/src/eip712.ts), pinned here. */
 export const TYPES = {
   TokenAmount: [f('token', 'string'), f('amount', 'uint256')],
   Adjudication: [f('adjudicator', 'address'), f('fallbackAdjudicator', 'address'), f('appealAdjudicator', 'address'), f('policyId', 'string'), f('fee', 'TokenAmount'), f('registryHash', 'bytes32'), f('policyHash', 'bytes32')],
@@ -29,6 +29,8 @@ export const TYPES = {
   CommitmentTerms: [f('schemaVersion', 'string'), f('clubId', 'string'), f('rulebookHash', 'bytes32'), f('buyer', 'address'), f('seller', 'address'), f('deliverableHash', 'bytes32'), f('acceptanceHash', 'bytes32'), f('price', 'TokenAmount'), f('adjudication', 'Adjudication'), f('timing', 'Timing'), f('settlement', 'Settlement'), f('remedy', 'Remedy'), f('disclosure', 'Disclosure'), f('buyerEncryptionPublicKey', 'string'), f('nonce', 'bytes32'), f('createdAt', 'uint64')],
   Agree: [f('commitmentId', 'bytes32'), f('buyer', 'address'), ...exp],
   FundingAuthorization: [f('scheme', 'string'), f('commitmentId', 'bytes32'), f('from', 'address'), f('value', 'uint256'), f('token', 'string'), f('validAfter', 'uint64'), f('validBefore', 'uint64'), ...exp],
+  // Schema 0.7 (ADR-0023), same domain version 0.6: the buyer's operator fee.
+  TransferAuthorization: [f('scheme', 'string'), f('purpose', 'string'), f('commitmentId', 'bytes32'), f('from', 'address'), f('to', 'address'), f('value', 'uint256'), f('token', 'string'), f('validAfter', 'uint64'), f('validBefore', 'uint64'), ...exp],
   EarlyAccept: [f('commitmentId', 'bytes32'), f('buyer', 'address'), f('attempt', 'uint8'), ...exp],
   Ciphertext: [f('uri', 'string'), f('sha256', 'string'), f('bytes', 'uint64'), f('cipher', 'string')],
   KeyUnlock: [f('kind', 'string'), f('round', 'uint64')],
@@ -66,6 +68,21 @@ const nearTo = (now: number) => (ts: J, behind: number, ahead: number, name: str
 };
 /** An appeal bond is the rulebook's rate of the price, rounded up; the settlement layer would accept more. */
 export const appealBondOf = (price: J, rateBps: number): string => ((BigInt(price.amount) * BigInt(rateBps) + 9_999n) / 10_000n).toString();
+const DEC = /^(0|[1-9][0-9]{0,77})$/;
+/**
+ * ADR-0023: the operator fee a published schedule (`fees.operator` in /.well-known/holdback.json) gives for a price:
+ * max(min, ceil(price x bps / 10000)), capped at max, in base units; 0 in another token than the schedule's.
+ */
+export const operatorFeeOf = (price: J, s: J): bigint => {
+  if (!s || !/^0x[0-9a-fA-F]{40}$/.test(s.to) || !Number.isSafeInteger(s.bps) || s.bps < 0 || s.bps > 10_000 || !DEC.test(s.min) || !(s.max === null || DEC.test(s.max)) || s.refundable !== false || s.appliesAt !== 'agree-and-fund') {
+    return refuse('the operator fee schedule is malformed; read fees.operator from at least two operators');
+  }
+  if (price.token !== s.token) return 0n;
+  let fee = (BigInt(price.amount) * BigInt(s.bps) + 9_999n) / 10_000n;
+  if (fee < BigInt(s.min)) fee = BigInt(s.min);
+  if (s.max !== null && fee > BigInt(s.max)) fee = BigInt(s.max);
+  return fee;
+};
 
 const termsMessage = (t: J) => ({
   ...t, deliverableHash: jcsHash(t.deliverable), acceptanceHash: jcsHash(t.acceptance), price: amt(t.price), adjudication: { ...t.adjudication, fee: amt(t.adjudication.fee) }, createdAt: secs(t.createdAt),
@@ -77,6 +94,7 @@ const ENCODE: Record<string, (m: J) => J> = {
   CommitmentTerms: termsMessage,
   Agree: (m) => ({ ...m, expiresAt: secs(m.expiresAt) }),
   FundingAuthorization: (m) => ({ ...m, value: BigInt(m.value), validAfter: secs(m.validAfter), validBefore: secs(m.validBefore), expiresAt: secs(m.expiresAt) }),
+  TransferAuthorization: (m) => ({ ...m, value: BigInt(m.value), validAfter: secs(m.validAfter), validBefore: secs(m.validBefore), expiresAt: secs(m.expiresAt) }),
   EarlyAccept: (m) => ({ ...m, expiresAt: secs(m.expiresAt) }),
   Delivery: (m) => ({ ...m, ciphertext: { ...m.ciphertext, bytes: BigInt(m.ciphertext.bytes) }, encryptedKeys: m.encryptedKeys.map((k: J) => ({ ...k, unlock: { kind: '', round: 0n } })), submittedAt: secs(m.submittedAt) }),
   Appeal: (m) => ({ ...m, bond: amt(m.bond), filedAt: secs(m.filedAt) }),
@@ -90,7 +108,11 @@ export type Intent =
    * expectedPrice: the price you negotiated, checked exactly (maxTotal alone lets a price raised within budget pass).
    * expectedCommitmentId: optionally, the ID of the exact terms you expect (commitmentIdOf of your own copy).
    */
-  | { kind: 'agree-and-fund'; terms: J; me: string; encryptionPublicKey: string; maxTotal: bigint; agreeNonce: Hex; fundingNonce: Hex; expectedPrice?: { token: string; amount: string }; expectedCommitmentId?: Hex }
+  /**
+   * operatorFee (ADR-0023): the relaying operator's `fees.operator` as at least two operators serve it, and your own
+   * nonce for the fee. Without it, no fee slot is accepted. maxTotal covers price, adjudication fee and operator fee.
+   */
+  | { kind: 'agree-and-fund'; terms: J; me: string; encryptionPublicKey: string; maxTotal: bigint; agreeNonce: Hex; fundingNonce: Hex; expectedPrice?: { token: string; amount: string }; expectedCommitmentId?: Hex; operatorFee?: { schedule: J; nonce: Hex } | undefined }
   | { kind: 'delivery'; terms: J; ciphertext: { uri: string; sha256: string; bytes: number }; plaintextSha256: string; encryptedKeys: J[] }
   /** Run openOwnEnvelope on the seller's signed delivery first: an early accept pays for the envelope the seller filed. */
   | { kind: 'early-accept'; terms: J; nonce: Hex }
@@ -128,11 +150,27 @@ function expected(intent: Intent, op: J, now: number): Plan {
     if (want && (t.price.token !== want.token || t.price.amount !== want.amount)) refuse(`price ${t.price.amount} ${t.price.token} is not the ${want.amount} ${want.token} you agreed`);
     if (intent.expectedCommitmentId && id.toLowerCase() !== intent.expectedCommitmentId.toLowerCase()) refuse(`the terms you were sent are not the ones you expected (commitment ${id}, expected ${intent.expectedCommitmentId})`);
     const total = BigInt(t.price.amount) + BigInt(t.adjudication.fee.amount);
-    if (total > intent.maxTotal) refuse(`price plus fee ${total} exceeds your limit ${intent.maxTotal}`);
+    // ADR-0023: the fee comes from the schedule you read, never from the prepared message.
+    const due = intent.operatorFee ? operatorFeeOf(t.price, intent.operatorFee.schedule) : 0n;
+    const asked = op.operatorFee === undefined ? undefined : DEC.test(String(op.operatorFee?.value)) ? BigInt(op.operatorFee.value) : refuse('the operator fee value is not base units');
+    if (asked !== undefined && asked > due) refuse(`the operator asks for an operator fee of ${asked} base units, above the schedule you read (${due})`);
+    if (total + due > intent.maxTotal) refuse(`price plus fee${due ? ' plus operator fee' : ''} ${total + due} exceeds your limit ${intent.maxTotal}`);
     if (String(intent.agreeNonce).toLowerCase() === String(intent.fundingNonce).toLowerCase()) refuse('agreeNonce and fundingNonce must differ');
     const agree = { type: 'Agree', commitmentId: id, buyer: t.buyer, nonce: own(intent.agreeNonce, op.nonce, 'agreeNonce'), expiresAt: t.timing.offerExpiresAt };
     const fund = { type: 'FundingAuthorization', scheme: 'erc3009', commitmentId: id, from: t.buyer, value: total.toString(), token: t.price.token, validAfter: t.createdAt, validBefore: t.timing.fundBy, nonce: own(intent.fundingNonce, op.fund?.nonce, 'fundingNonce'), expiresAt: t.timing.fundBy };
-    return { path: `/v1/commitments/${id}/agree`, body: { ...agree, signature: null, fund: { ...fund, signature: null } }, slots: [{ slot: 'signature', primaryType: 'Agree', signer: t.buyer, message: agree }, { slot: 'fund.signature', primaryType: 'FundingAuthorization', signer: t.buyer, message: fund }] };
+    const slots = [{ slot: 'signature', primaryType: 'Agree', signer: t.buyer, message: agree }, { slot: 'fund.signature', primaryType: 'FundingAuthorization', signer: t.buyer, message: fund }];
+    if (due === 0n) return { path: `/v1/commitments/${id}/agree`, body: { ...agree, signature: null, fund: { ...fund, signature: null } }, slots };
+    const feeNonce = intent.operatorFee!.nonce;
+    if ([intent.agreeNonce, intent.fundingNonce].some((n) => String(n).toLowerCase() === String(feeNonce).toLowerCase())) refuse('the operator fee nonce must differ from agreeNonce and fundingNonce');
+    const fee = {
+      type: 'TransferAuthorization', scheme: 'erc3009', purpose: 'operator_fee', commitmentId: id, from: t.buyer, to: intent.operatorFee!.schedule.to, value: due.toString(), token: t.price.token,
+      validAfter: t.createdAt, validBefore: t.timing.fundBy, nonce: own(feeNonce, op.operatorFee?.nonce, 'operatorFeeNonce'), expiresAt: t.timing.fundBy,
+    };
+    return {
+      path: `/v1/commitments/${id}/agree`,
+      body: { ...agree, signature: null, fund: { ...fund, signature: null }, operatorFee: { ...fee, signature: null } },
+      slots: [...slots, { slot: 'operatorFee.signature', primaryType: 'TransferAuthorization', signer: t.buyer, message: fee }],
+    };
   }
   if (intent.kind === 'delivery') {
     const m = { commitmentId: id, attempt: 1, ciphertext: { ...intent.ciphertext, cipher: 'aes-256-gcm' }, plaintextSha256: intent.plaintextSha256, plaintextMime: t.deliverable.format, encryptedKeys: intent.encryptedKeys, submittedAt: near(op.submittedAt, 600, 60, 'submittedAt') };

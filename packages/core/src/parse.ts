@@ -47,9 +47,13 @@ function signedTimestamp(s: string): boolean {
 // Two Ajv instances: one where date-time means a signable timestamp (for everything an agent signs),
 // one with the schema's ordinary date-time (event log, read model, judgment record, registrations).
 // allErrors stays off: input is untrusted, and the first error is enough to refuse it.
+// Everything compiles at import, on purpose: a Cloudflare Worker may generate code only at startup, never in a
+// request (T-029 measured "Code generation from strings disallowed" when compiling lazily). To keep that startup
+// within the Worker's CPU limit, the schemas are not re-validated against the 2020-12 meta-schema here (which
+// compiled the large meta-schema once per instance); `pnpm validate:spec` checks them, in strict mode, in CI.
 function compile(signed: boolean): Map<string, ReturnType<InstanceType<typeof Ajv2020.default>['compile']>> {
   // ajv and ajv-formats are CommonJS; under NodeNext their default export arrives as `.default`.
-  const ajv = new Ajv2020.default({ strict: true, allErrors: false });
+  const ajv = new Ajv2020.default({ strict: true, allErrors: false, validateSchema: false, code: { optimize: false } });
   // ADR-0017 §9: marks party-authored strings for consumers; it changes no validation.
   ajv.addKeyword({ keyword: UNTRUSTED, schemaType: 'boolean' });
   if (signed) {
@@ -169,7 +173,7 @@ function messageRules(m: Message): string | undefined {
     const timed = unlockRule(m.encryptedKeys);
     if (timed) return timed;
   }
-  if (m.type === 'FundingAuthorization' && !tokenAmount(m.token, m.value).ok) return `value ${m.value} is not a canonical uint256 decimal`;
+  if ((m.type === 'FundingAuthorization' || m.type === 'TransferAuthorization') && !tokenAmount(m.token, m.value).ok) return `value ${m.value} is not a canonical uint256 decimal`;
   if (m.type === 'MutualSettlement') {
     // D23: payouts may name any address, but each recipient once and all in one token. Sum and token
     // against the price are checked with the terms (mutualSettlementProblem).
