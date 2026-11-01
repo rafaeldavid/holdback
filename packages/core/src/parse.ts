@@ -169,7 +169,7 @@ function messageRules(m: Message): string | undefined {
     const timed = unlockRule(m.encryptedKeys);
     if (timed) return timed;
   }
-  if (m.type === 'FundingAuthorization' && !tokenAmount(m.token, m.value).ok) return `value ${m.value} is not a canonical uint256 decimal`;
+  if ((m.type === 'FundingAuthorization' || m.type === 'TransferAuthorization') && !tokenAmount(m.token, m.value).ok) return `value ${m.value} is not a canonical uint256 decimal`;
   if (m.type === 'MutualSettlement') {
     // D23: payouts may name any address, but each recipient once and all in one token. Sum and token
     // against the price are checked with the terms (mutualSettlementProblem).

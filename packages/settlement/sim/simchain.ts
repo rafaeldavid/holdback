@@ -512,6 +512,7 @@ export class SimChain implements Settlement {
       case 'agree_and_fund':
         await check(s.agree, s.agree.buyer, 'Agree');
         await check(s.funding, s.funding.from, 'FundingAuthorization');
+        if (s.operatorFee) await check(s.operatorFee, s.operatorFee.from, 'TransferAuthorization');
         break;
       case 'deliver':
         await check({ ...s.delivery, type: 'Delivery' }, terms(s.delivery.commitmentId).seller, 'Delivery');
@@ -540,7 +541,7 @@ export class SimChain implements Settlement {
       case 'offer':
         return blank(s.commitment.signatures?.seller);
       case 'agree_and_fund':
-        return blank(s.agree.signature) || blank(s.funding.signature);
+        return blank(s.agree.signature) || blank(s.funding.signature) || (s.operatorFee !== undefined && blank(s.operatorFee.signature));
       case 'deliver':
         return blank(s.delivery.signature);
       case 'appeal':
@@ -688,8 +689,11 @@ export class SimChain implements Settlement {
         return this.fund(tx, s.message);
       case 'agree_and_fund':
         if (s.agree.commitmentId !== s.funding.commitmentId) refuse('invalid_terms', 'agreement and funding name different commitments');
+        if (s.operatorFee && s.operatorFee.commitmentId !== s.agree.commitmentId) refuse('invalid_terms', 'the operator fee names another commitment');
         this.agree(tx, s.agree);
-        return this.fund(tx, s.funding);
+        this.fund(tx, s.funding);
+        if (s.operatorFee) this.operatorFee(tx, s.operatorFee);
+        return s.agree.commitmentId;
       case 'deliver': {
         const d = s.delivery;
         const rec = this.recOf(tx, d.commitmentId);
@@ -779,6 +783,23 @@ export class SimChain implements Settlement {
     tx.post(account.party(m.from), account.escrow(m.commitmentId), BigInt(next.kind === 'Held' ? next.hold.amount.amount : '0'), 'hold: price + fee', postings);
     tx.emit('hold.funded', m.commitmentId, m.from, { amount: next.kind === 'Held' ? next.hold.amount : null, postings });
     return m.commitmentId;
+  }
+
+  /**
+   * ADR-0023: the buyer's operator fee, a plain transfer from the buyer to `to`, never through the escrow account.
+   * It runs inside the agree-and-fund transaction, so a refusal here undoes the agreement and the funding too.
+   */
+  private operatorFee(tx: Tx, m: NonNullable<Extract<Submission, { kind: 'agree_and_fund' }>['operatorFee']>): void {
+    const { terms } = this.recOf(tx, m.commitmentId).state;
+    if (lc(m.from) !== lc(terms.buyer)) refuse('invalid_terms', `the operator fee must come from the buyer ${terms.buyer}`);
+    if (m.token !== terms.price.token) refuse('invalid_terms', `the operator fee is in ${m.token}, not the price token ${terms.price.token}`);
+    if (lc(m.to) === lc(m.from)) refuse('invalid_terms', 'the operator fee pays its own payer');
+    const at = Date.parse(tx.at);
+    if (at < Date.parse(m.validAfter) || at >= Date.parse(m.validBefore) || at >= Date.parse(m.expiresAt)) refuse('deadline_passed', `the operator fee is valid from ${m.validAfter} to ${m.validBefore}`);
+    tx.useNonce(`${lc(m.from)}:${m.nonce}`);
+    const postings: Posting[] = [];
+    tx.post(account.party(m.from), account.party(m.to), BigInt(m.value), 'operator fee: earned at relay, not refunded (ADR-0023)', postings);
+    tx.emit('fee.operator', m.commitmentId, m.from, { from: lc(m.from), to: lc(m.to), amount: tx.amount(BigInt(m.value)), postings });
   }
 
   private decide(tx: Tx, m: Extract<Submission, { kind: 'decide' }>['message']): Hex32 {

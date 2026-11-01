@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.6/event.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.7/event.schema.json",
   "title": "Settlement event (hash-chained)",
   "type": "object",
   "required": [
@@ -46,7 +46,8 @@
         "bond.withdrawn",
         "bond.slashed",
         "dispute.opened",
-        "commitment.settled"
+        "commitment.settled",
+        "fee.operator"
       ]
     },
     "commitmentId": {
@@ -132,9 +133,58 @@
         }
       },
       "description": "The payouts a mutual settlement applied (ADR-0019, D23)"
+    },
+    "OperatorFeePaid": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "from",
+        "to",
+        "amount"
+      ],
+      "description": "ADR-0023: the buyer's operator fee, moved from the buyer to the operator's fee address with the funded agreement, outside the hold; never refunded",
+      "properties": {
+        "from": {
+          "$ref": "common.schema.json#/$defs/Address"
+        },
+        "to": {
+          "$ref": "common.schema.json#/$defs/Address"
+        },
+        "amount": {
+          "$ref": "common.schema.json#/$defs/TokenAmount"
+        },
+        "postings": {
+          "type": "array",
+          "description": "The ledger postings that moved it, as every settlement event lists them",
+          "items": {
+            "type": "object"
+          }
+        }
+      }
     }
   },
   "allOf": [
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "const": "fee.operator"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/OperatorFeePaid"
+          }
+        }
+      }
+    },
     {
       "if": {
         "properties": {

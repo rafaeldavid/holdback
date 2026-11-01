@@ -1,5 +1,6 @@
 export * from './canonical.js';
 export * from './eip712.js';
+export * from './fee.js';
 export * from './money/index.js';
 export * from './mutual.js';
 export * from './parse.js';

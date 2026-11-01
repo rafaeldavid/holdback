@@ -73,7 +73,7 @@ function merge(base, over) {
   return out;
 }
 
-const PROBLEM_STATUSES = [400, 401, 403, 404, 409, 413, 422, 429];
+const PROBLEM_STATUSES = [400, 401, 402, 403, 404, 409, 413, 422, 429];
 
 export function buildOpenApi() {
   const paths = readJson(PATHS_FILE);

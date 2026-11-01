@@ -11,12 +11,23 @@
     "verifyingContract": "0x00000000000000000000000000000000484f4c44"
   },
   "apiVersion": "v1",
-  "schemaVersion": "0.6",
+  "schemaVersion": "0.7",
   "head": {
     "eventSeq": 12,
     "lagSec": 0
   },
   "settlementModes": [
     "guaranteed_on_decision"
-  ]
+  ],
+  "fees": {
+    "operator": {
+      "to": "0x7e3b0c55e1c0d1a2b3c4d5e6f708192a3b4c5d6e",
+      "token": "tUSD",
+      "bps": 1,
+      "min": "10000",
+      "max": null,
+      "appliesAt": "agree-and-fund",
+      "refundable": false
+    }
+  }
 }

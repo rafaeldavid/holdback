@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.6/receipt.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.7/receipt.schema.json",
   "title": "Operator receipt (ADR-0017)",
   "description": "An operator's EIP-712 signature over an event it relayed or indexed. Verify it with the receipt signer from GET /v1/status and the event hash chain.",
   "type": "object",

@@ -16,14 +16,15 @@ import {
   type MutualSettlement,
   type Problem,
   type Result,
+  type TransferAuthorization,
 } from '@holdback/core';
 import { TIMEOUT_KINDS, type DryRunSubmission, type Submission, type TimeoutKind } from '@holdback/settlement';
 
 export type Operation =
   | { kind: 'offer'; commitment: Commitment }
   | { kind: 'acceptance'; message: AdjudicatorAcceptance }
-  /** Agree, optionally funding in the same step (`Held` at once). */
-  | { kind: 'agree'; message: Agree; fund?: FundingAuthorization }
+  /** Agree, optionally funding in the same step (`Held` at once), and with funding an operator fee (ADR-0023). */
+  | { kind: 'agree'; message: Agree; fund?: FundingAuthorization; operatorFee?: TransferAuthorization }
   /** One-shot hold: offer, adjudicator acceptance, agreement and funding. */
   | { kind: 'hold'; commitment: Commitment; acceptance: AdjudicatorAcceptance; agree: Agree; funding: FundingAuthorization }
   | { kind: 'fund'; message: FundingAuthorization }
@@ -64,7 +65,7 @@ export function requestOf(op: Operation): { path: string; body: unknown } {
     case 'acceptance':
       return { path: c('acceptance'), body: op.message };
     case 'agree':
-      return { path: c('agree'), body: op.fund ? { ...op.message, fund: op.fund } : op.message };
+      return { path: c('agree'), body: op.fund ? { ...op.message, fund: op.fund, ...(op.operatorFee ? { operatorFee: op.operatorFee } : {}) } : op.message };
     case 'hold':
       return { path: '/v1/holds', body: { commitment: op.commitment, acceptance: op.acceptance, agree: op.agree, funding: op.funding } };
     case 'fund':
@@ -118,9 +119,13 @@ export function operationOf(segments: readonly string[], body: unknown): Result<
       op = { kind: 'acceptance', message: b as unknown as AdjudicatorAcceptance };
       break;
     case 'agree': {
-      const { fund, ...message } = b as Record<string, unknown>;
+      const { fund, operatorFee, ...message } = b as Record<string, unknown>;
       if (fund !== undefined && !isObject(fund)) return fail('invalid_terms', 'fund must be a funding authorization');
-      op = fund ? { kind: 'agree', message: message as unknown as Agree, fund: fund as unknown as FundingAuthorization } : { kind: 'agree', message: message as unknown as Agree };
+      if (operatorFee !== undefined && !isObject(operatorFee)) return fail('invalid_terms', 'operatorFee must be a transfer authorization');
+      if (operatorFee !== undefined && fund === undefined) return fail('invalid_terms', 'operatorFee is paid with the funded agreement: send it with fund');
+      op = fund
+        ? { kind: 'agree', message: message as unknown as Agree, fund: fund as unknown as FundingAuthorization, ...(operatorFee ? { operatorFee: operatorFee as unknown as TransferAuthorization } : {}) }
+        : { kind: 'agree', message: message as unknown as Agree };
       break;
     }
     case 'fund':
@@ -156,7 +161,7 @@ export function submissionsOf(op: Operation): Submission[] {
     case 'acceptance':
       return [{ kind: 'adjudicator_accept', message: op.message }];
     case 'agree':
-      return op.fund ? [{ kind: 'agree_and_fund', agree: op.message, funding: op.fund }] : [{ kind: 'agree', message: op.message }];
+      return op.fund ? [{ kind: 'agree_and_fund', agree: op.message, funding: op.fund, ...(op.operatorFee ? { operatorFee: op.operatorFee } : {}) }] : [{ kind: 'agree', message: op.message }];
     case 'hold':
       return [
         { kind: 'offer', commitment: op.commitment },
@@ -203,7 +208,9 @@ export function unsigned(op: Operation): Operation {
         funding: drop(op.funding, 'signature'),
       };
     case 'agree':
-      return op.fund ? { ...op, message: drop(op.message, 'signature'), fund: drop(op.fund, 'signature') } : { ...op, message: drop(op.message, 'signature') };
+      return op.fund
+        ? { ...op, message: drop(op.message, 'signature'), fund: drop(op.fund, 'signature'), ...(op.operatorFee ? { operatorFee: drop(op.operatorFee, 'signature') } : {}) }
+        : { ...op, message: drop(op.message, 'signature') };
     case 'fund':
     case 'early_accept':
       return { ...op, message: drop(op.message, 'signature') } as Operation;

@@ -12,7 +12,7 @@ Validation as of October 30, 2026 (measured): all 22 examples pass under Ajv 8 (
 - a model ID containing "latest";
 - an extra field in a judge verdict.
 
-The `$id` URLs (`https://holdback.dev/schemas/v0.6/…`) are namespaces for resolving `$ref` between files. They are not hosted. Replace the domain if the project gets one.
+The `$id` URLs (`https://holdback.dev/schemas/v0.7/…`) are namespaces for resolving `$ref` between files. They are not hosted. Replace the domain if the project gets one.
 
 ## Annotations
 
@@ -20,6 +20,9 @@ The `$id` URLs (`https://holdback.dev/schemas/v0.6/…`) are namespaces for reso
 - **Every free-text string is marked or constrained.** A string with no `date-time` format, pattern, enum or const must carry the marker. URIs count as free text: they are marked and capped at 2048 characters. Identifiers instead get a pattern: club IDs, token IDs, and `Ident` for judge, provider, family, model and version labels. `tests/spec.test.ts` lints this, with an empty allowlist.
 
 ## Changelog
+
+- **v0.7 (2026-11-01, D33, ADR-0023), additive:** every `$id`, the `Holdback-Schema-Version` header and the OpenAPI `x-holdback-schema-version` move to 0.7. The signed encoding does not change, so the EIP-712 domain version and `commitment.schemaVersion` stay 0.6: from now on they move only when an existing typed-data struct or the terms encoding changes.
+  - **Operator fee:** messages add `TransferAuthorization` (`scheme`, `purpose: operator_fee`, `commitmentId`, `from`, `to`, `value`, `token`, `validAfter`, `validBefore`, `nonce`, `expiresAt`), a new EIP-712 type, sent in the agree body as `operatorFee`. `operator-status` gains optional `fees.operator` (`to`, `token`, `bps`, `min`, `max` or `null`, `appliesAt: agree-and-fund`, `refundable: false`). Events add `fee.operator` (`from`, `to`, `amount`, `postings`). The operator API adds the problem type `payment_required` (402).
 
 - **v0.6 (2026-10-31, D23, amends ADR-0019):** every `$id`, `commitment.schemaVersion` and the EIP-712 domain version move to 0.6.
   - **Mutual settlement to any addresses:** `MutualSettlement.sellerAmount` is replaced by `payouts`, one to eight `Payout { to, amount }` entries (new `common.schema.json` definitions `Payout` and `Payouts`). Amounts are above zero. The EIP-712 type becomes `MutualSettlement(…,Payout[] payouts,…)Payout(address to,TokenAmount amount)`. The core parser refuses a recipient named twice and payouts in more than one token; `mutualSettlementProblem` checks the sum, the price token and the rulebook against the terms.

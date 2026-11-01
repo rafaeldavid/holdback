@@ -1,4 +1,4 @@
-// Hand-written types for spec/schemas v0.6. Values reach these types only through the parsers in
+// Hand-written types for spec/schemas v0.7 (signed encoding 0.6, ADR-0023). Values reach these types only through the parsers in
 // parse.ts, which validate against the schema files. Phase 1 narrows the commitment to
 // guaranteed_on_decision and maxSubmissions = 1 (ADR-0007).
 import type { TokenAmount } from './money/index.js';
@@ -204,6 +204,24 @@ export interface FundingAuthorization extends MessageBase {
   validBefore: Timestamp;
 }
 
+/**
+ * ADR-0023: the buyer pays the relaying operator's fee. Sent in the agree body as `operatorFee`; the settlement
+ * layer applies it with the agreement and the funding, as a plain transfer outside the hold. Never refunded.
+ */
+export interface TransferAuthorization extends MessageBase {
+  type: 'TransferAuthorization';
+  scheme: 'erc3009';
+  purpose: 'operator_fee';
+  commitmentId: Hex32;
+  from: Address;
+  to: Address;
+  /** Base units, decimal string. */
+  value: string;
+  token: string;
+  validAfter: Timestamp;
+  validBefore: Timestamp;
+}
+
 export interface EarlyAccept extends MessageBase {
   type: 'EarlyAccept';
   commitmentId: Hex32;
@@ -290,7 +308,8 @@ export type SignedMessage =
   | AgentRevocation
   | MemberAdmission
   | MemberRevocation
-  | Dispute;
+  | Dispute
+  | TransferAuthorization;
 
 /**
  * Buyer and seller close a commitment by agreement (ADR-0019, amended by D23). Both sign the identical
@@ -530,7 +549,9 @@ export type SettlementEventType =
   | 'bond.withdrawn'
   | 'bond.slashed'
   | 'dispute.opened'
-  | 'commitment.settled';
+  | 'commitment.settled'
+  /** ADR-0023: the buyer's operator fee, paid with the funded agreement, outside the hold. */
+  | 'fee.operator';
 
 export interface SettlementEvent {
   seq: number;
@@ -642,4 +663,19 @@ export interface OperatorStatus {
   schemaVersion: string;
   head: { eventSeq: number; lagBlocks?: number; lagSec: number };
   settlementModes: SettlementMode[];
+  /** ADR-0023: what this operator charges; absent when it charges nothing. */
+  fees?: { operator: OperatorFeeSchedule };
+}
+
+/** ADR-0023 (operator-status.schema.json OperatorFee): max(min, ceil(price x bps / 10000)), capped at max. */
+export interface OperatorFeeSchedule {
+  to: Address;
+  token: string;
+  bps: number;
+  /** Base units, decimal string. */
+  min: string;
+  /** Base units, decimal string, or null for no cap. */
+  max: string | null;
+  appliesAt: 'agree-and-fund';
+  refundable: false;
 }

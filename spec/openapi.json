@@ -8,7 +8,7 @@
     "license": {
       "name": "Unlicensed prototype; no real money"
     },
-    "x-holdback-schema-version": "0.6"
+    "x-holdback-schema-version": "0.7"
   },
   "servers": [
     {
@@ -272,7 +272,7 @@
           "prepare"
         ],
         "summary": "Prepare agreement and funding (buyer)",
-        "description": "Returns two messages for the buyer to sign, `Agree` (slot `signature`) and an ERC-3009-style `FundingAuthorization` for price plus fee (slot `fund.signature`), and the body for `submitAgreement`, which agrees and holds the funds in one call. The primary adjudicator must have accepted the offer first (escrowState `AcceptedByAdjudicator`).\n\n**Verify before you sign.** Check the domain against your pinned configuration, the primary types `Agree` and `FundingAuthorization`, that you are the buyer and the seller is who you agreed with, that `value` is price plus fee and nothing more, in the token you expect, that `commitmentId` is the struct hash of the terms you agreed to, recomputed, and that both nonces are the two different ones you sent. The fee is kept on a refund (docs/api.md, \"Verify before you sign\").",
+        "description": "Returns two messages for the buyer to sign, `Agree` (slot `signature`) and an ERC-3009-style `FundingAuthorization` for price plus fee (slot `fund.signature`), and the body for `submitAgreement`, which agrees and holds the funds in one call. The primary adjudicator must have accepted the offer first (escrowState `AcceptedByAdjudicator`).\n\n**Verify before you sign.** Check the domain against your pinned configuration, the primary types `Agree` and `FundingAuthorization`, that you are the buyer and the seller is who you agreed with, that `value` is price plus fee and nothing more, in the token you expect, that `commitmentId` is the struct hash of the terms you agreed to, recomputed, and that both nonces are the two different ones you sent. The fee is kept on a refund (docs/api.md, \"Verify before you sign\").\n\n**Operator fee (ADR-0023).** When this operator publishes `fees.operator` in `getStatus` and the fee it gives for this price is above zero, a third entry asks you to sign a `TransferAuthorization` (slot `operatorFee.signature`) from you to `fees.operator.to` for max(min, ceil(price × bps / 10000)), capped at `max`, bound to this commitment. It is a separate transfer, never part of the hold, and it is not refunded. Compute the amount yourself from the schedule as at least two operators serve it and refuse any more. Another operator, or direct submission to the settlement layer, relays the same agreement without this operator's fee.",
         "requestBody": {
           "required": true,
           "content": {
@@ -1341,7 +1341,7 @@
           "commitments"
         ],
         "summary": "Submit the buyer's agreement, optionally funding it",
-        "description": "The buyer's signed `Agree`, with an optional signed `FundingAuthorization` in `fund` (the `submit.body` of `prepareAgreeAndFund`, signed). The commitment becomes `Agreed`, or `Held` when funded.",
+        "description": "The buyer's signed `Agree`, with an optional signed `FundingAuthorization` in `fund` and, with it, an optional signed `TransferAuthorization` in `operatorFee` (the `submit.body` of `prepareAgreeAndFund`, signed). The commitment becomes `Agreed`, or `Held` when funded; the operator fee moves to the operator in the same step, outside the hold (`fee.operator` event). An operator that publishes a fee above zero answers 402 `payment_required` to a funded agreement without its fee; another operator or direct submission takes it as it is.",
         "parameters": [
           {
             "$ref": "#/components/parameters/CommitmentId"
@@ -1372,6 +1372,9 @@
           },
           "401": {
             "$ref": "#/components/responses/Problem401"
+          },
+          "402": {
+            "$ref": "#/components/responses/Problem402"
           },
           "403": {
             "$ref": "#/components/responses/Problem403"
@@ -2341,6 +2344,24 @@
       },
       "Problem400": {
         "description": "Malformed request or terms: invalid_terms, invalid_cursor, mime_not_allowed",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        },
+        "headers": {
+          "Request-Id": {
+            "$ref": "#/components/headers/RequestId"
+          },
+          "Holdback-Schema-Version": {
+            "$ref": "#/components/headers/SchemaVersion"
+          }
+        }
+      },
+      "Problem402": {
+        "description": "Payment required: payment_required. This operator relays a funded agreement only with its published fee (`fees.operator` in getStatus, ADR-0023); the detail names the amount. The signed agreement is still valid at another operator or at the settlement layer, with no fee",
         "content": {
           "application/problem+json": {
             "schema": {
@@ -4571,6 +4592,34 @@
         },
         "description": "The payouts a mutual settlement applied (ADR-0019, D23)"
       },
+      "OperatorFeePaid": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "from",
+          "to",
+          "amount"
+        ],
+        "description": "ADR-0023: the buyer's operator fee, moved from the buyer to the operator's fee address with the funded agreement, outside the hold; never refunded",
+        "properties": {
+          "from": {
+            "$ref": "#/components/schemas/Address"
+          },
+          "to": {
+            "$ref": "#/components/schemas/Address"
+          },
+          "amount": {
+            "$ref": "#/components/schemas/TokenAmount"
+          },
+          "postings": {
+            "type": "array",
+            "description": "The ledger postings that moved it, as every settlement event lists them",
+            "items": {
+              "type": "object"
+            }
+          }
+        }
+      },
       "Event": {
         "title": "Settlement event (hash-chained)",
         "type": "object",
@@ -4617,7 +4666,8 @@
               "bond.withdrawn",
               "bond.slashed",
               "dispute.opened",
-              "commitment.settled"
+              "commitment.settled",
+              "fee.operator"
             ]
           },
           "commitmentId": {
@@ -4654,6 +4704,27 @@
           }
         },
         "allOf": [
+          {
+            "if": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "const": "fee.operator"
+                }
+              },
+              "required": [
+                "type"
+              ]
+            },
+            "then": {
+              "type": "object",
+              "properties": {
+                "payload": {
+                  "$ref": "#/components/schemas/OperatorFeePaid"
+                }
+              }
+            }
+          },
           {
             "if": {
               "properties": {
@@ -5410,6 +5481,71 @@
           }
         }
       },
+      "TransferAuthorization": {
+        "type": "object",
+        "description": "ADR-0023: the buyer's transfer of an operator fee to the relaying operator's published fee address, sent in the agree body as operatorFee and applied by the settlement layer in the same step as the agreement and the funding, outside the hold. Never refunded",
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "scheme",
+          "purpose",
+          "commitmentId",
+          "from",
+          "to",
+          "value",
+          "token",
+          "validAfter",
+          "validBefore",
+          "nonce",
+          "expiresAt",
+          "signature"
+        ],
+        "properties": {
+          "type": {
+            "const": "TransferAuthorization"
+          },
+          "scheme": {
+            "enum": [
+              "erc3009"
+            ]
+          },
+          "purpose": {
+            "const": "operator_fee"
+          },
+          "commitmentId": {
+            "$ref": "#/components/schemas/Hex32"
+          },
+          "from": {
+            "$ref": "#/components/schemas/Address"
+          },
+          "to": {
+            "$ref": "#/components/schemas/Address"
+          },
+          "value": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]{0,77})$",
+            "description": "Base units, decimal string"
+          },
+          "token": {
+            "$ref": "#/components/schemas/TokenId"
+          },
+          "validAfter": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "validBefore": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "nonce": {
+            "$ref": "#/components/schemas/Hex32"
+          },
+          "expiresAt": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "signature": {
+            "$ref": "#/components/schemas/Signature"
+          }
+        }
+      },
       "EarlyAccept": {
         "type": "object",
         "description": "Buyer accepts a delivery before any decision; releases payment and the seller-supplied key for the buyer",
@@ -5972,8 +6108,59 @@
           },
           {
             "$ref": "#/components/schemas/Publish"
+          },
+          {
+            "$ref": "#/components/schemas/TransferAuthorization"
           }
         ]
+      },
+      "OperatorFee": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "to",
+          "token",
+          "bps",
+          "min",
+          "max",
+          "appliesAt",
+          "refundable"
+        ],
+        "description": "ADR-0023: fee = max(min, ceil(price x bps / 10000)), capped at max when max is not null, in base units of the price token; paid by the buyer to `to` with the funded agreement this operator relays. A schedule in another token than the price charges nothing. Direct submission and other operators charge their own or none",
+        "properties": {
+          "to": {
+            "$ref": "#/components/schemas/Address"
+          },
+          "token": {
+            "$ref": "#/components/schemas/TokenId"
+          },
+          "bps": {
+            "$ref": "#/components/schemas/Bps"
+          },
+          "min": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]{0,77})$",
+            "description": "Base units, decimal string"
+          },
+          "max": {
+            "oneOf": [
+              {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]{0,77})$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Base units, decimal string, or null for no cap"
+          },
+          "appliesAt": {
+            "const": "agree-and-fund"
+          },
+          "refundable": {
+            "const": false
+          }
+        }
       },
       "OperatorStatus": {
         "title": "Operator status (GET /v1/status, ADR-0017)",
@@ -6099,6 +6286,19 @@
             "items": {
               "$ref": "#/components/schemas/SettlementMode"
             }
+          },
+          "fees": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "operator"
+            ],
+            "description": "ADR-0023: what this operator charges. Absent: it charges nothing",
+            "properties": {
+              "operator": {
+                "$ref": "#/components/schemas/OperatorFee"
+              }
+            }
           }
         }
       },
@@ -6206,6 +6406,7 @@
               "not_found",
               "invalid_cursor",
               "relay_refused",
+              "payment_required",
               "unauthorized"
             ]
           },
@@ -6354,6 +6555,19 @@
             "uniqueItems": true,
             "items": {
               "$ref": "#/components/schemas/SettlementMode"
+            }
+          },
+          "fees": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "operator"
+            ],
+            "description": "ADR-0023: what this operator charges. Absent: it charges nothing",
+            "properties": {
+              "operator": {
+                "$ref": "#/components/schemas/OperatorFee"
+              }
             }
           },
           "apiBaseUrl": {
@@ -7284,6 +7498,7 @@
               "CommitmentTerms",
               "Agree",
               "FundingAuthorization",
+              "TransferAuthorization",
               "Delivery",
               "EarlyAccept",
               "Appeal",
@@ -7531,6 +7746,10 @@
           "fundingNonce": {
             "$ref": "#/components/schemas/Hex32",
             "description": "Your own nonce for FundingAuthorization, different from agreeNonce"
+          },
+          "operatorFeeNonce": {
+            "$ref": "#/components/schemas/Hex32",
+            "description": "Your own nonce for the operator fee's TransferAuthorization (ADR-0023), different from the other two; used only when this operator charges a fee"
           }
         }
       },
@@ -7714,10 +7933,14 @@
           },
           "fund": {
             "$ref": "#/components/schemas/FundingAuthorization"
+          },
+          "operatorFee": {
+            "$ref": "#/components/schemas/TransferAuthorization",
+            "description": "ADR-0023: the relaying operator's fee, with fund only; applied with the agreement and the funding, outside the hold, never refunded"
           }
         },
         "x-holdback-extends": "Agree",
-        "title": "Agree, optionally with the funding authorization in fund"
+        "title": "Agree, optionally with the funding authorization in fund and the operator fee in operatorFee"
       }
     }
   },

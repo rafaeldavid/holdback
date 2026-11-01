@@ -10,7 +10,7 @@ let exampleResults: ReturnType<typeof validateExamplesFresh> | undefined;
 const loadSpec = () => (spec ??= loadSpecFresh());
 const validateExamples = () => (exampleResults ??= validateExamplesFresh(loadSpec()));
 
-const V = 'https://holdback.dev/schemas/v0.6';
+const V = 'https://holdback.dev/schemas/v0.7';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const example = (name: string): any => structuredClone(loadSpec().examples.find((e: { name: string }) => e.name === name).data);
 
@@ -67,9 +67,10 @@ describe('spec/', () => {
     expect(validate(message)).toBe(false);
   });
 
-  it('moves every schema $id and the commitment schemaVersion to v0.6', () => {
+  // ADR-0023: v0.7 is additive, so the signed encoding (EIP-712 domain version and commitment.schemaVersion) stays 0.6.
+  it('moves every schema $id to v0.7 and keeps the commitment schemaVersion at 0.6', () => {
     const { schemas, ajv } = loadSpec();
-    for (const id of schemas.values()) expect(id).toMatch(/\/schemas\/v0\.6\//);
+    for (const id of schemas.values()) expect(id).toMatch(/\/schemas\/v0\.7\//);
     const validate = ajv.getSchema(`${V}/commitment.schema.json`);
     const c = example('commitment');
     expect(c.schemaVersion).toBe('0.6');
@@ -81,6 +82,47 @@ describe('spec/', () => {
     const r = validateExamples().find((x: { file: string }) => x.file === `${name}.example.json`);
     expect(r).toBeDefined();
     expect(r.ok).toBe(true);
+  });
+
+  describe('operator fee (ADR-0023, D33)', () => {
+    const schema = (name: string) => loadSpec().ajv.getSchema(`${V}/${name}.schema.json`);
+    it('has valid transfer, fee event and fee schedule examples', () => {
+      for (const name of ['messages.transfer', 'event.fee-operator', 'operator-status']) {
+        const r = validateExamples().find((x: { file: string }) => x.file === `${name}.example.json`);
+        expect(r?.ok, name).toBe(true);
+      }
+      expect(example('operator-status').fees.operator).toMatchObject({ bps: 1, min: '10000', max: null, appliesAt: 'agree-and-fund', refundable: false });
+    });
+    it.each(['to', 'value', 'purpose', 'commitmentId', 'nonce', 'signature'])('requires a TransferAuthorization to carry %s', (field) => {
+      const m = example('messages.transfer');
+      expect(schema('messages')(m)).toBe(true);
+      delete m[field];
+      expect(schema('messages')(m)).toBe(false);
+    });
+    it('refuses a fractional or negative fee value and an unknown purpose', () => {
+      for (const [k, v] of [['value', '0.5'], ['value', '-1'], ['purpose', 'tip']] as const) {
+        const m = example('messages.transfer');
+        m[k] = v;
+        expect(schema('messages')(m), `${k}=${v}`).toBe(false);
+      }
+    });
+    it('keeps fees optional in status and refuses a fractional bps, a float min or a refundable fee', () => {
+      const s = example('operator-status');
+      const bare = structuredClone(s);
+      delete bare.fees;
+      expect(schema('operator-status')(bare)).toBe(true);
+      for (const [k, v] of [['bps', 0.5], ['bps', 10001], ['min', '0.01'], ['refundable', true], ['appliesAt', 'deliver']] as const) {
+        const bad = structuredClone(s);
+        bad.fees.operator[k] = v;
+        expect(schema('operator-status')(bad), `${k}=${v}`).toBe(false);
+      }
+      const capped = structuredClone(s);
+      capped.fees.operator.max = '100000000';
+      expect(schema('operator-status')(capped)).toBe(true);
+    });
+    it('admits a fee.operator event', () => {
+      expect(schema('event')(example('event.fee-operator'))).toBe(true);
+    });
   });
 
   it.each(['operator', 'eventSeq', 'eventHash', 'signature'])('requires a receipt to carry %s', (field) => {

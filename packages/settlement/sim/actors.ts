@@ -137,6 +137,15 @@ export interface DealOptions {
   tag?: string;
 }
 
+/** An operator fee for Deal.agreeAndFund (ADR-0023). */
+export interface OperatorFeeOptions {
+  to: Address;
+  value: bigint;
+  signer?: SimActor;
+  commitmentId?: Hex32;
+  token?: string;
+}
+
 type Role = 'primary' | 'fallback' | 'appeal';
 
 /**
@@ -255,8 +264,28 @@ export class Deal {
     return { kind: 'fund', message: await this.fundingMessage() };
   }
 
-  async agreeAndFund(): Promise<Submission> {
-    return { kind: 'agree_and_fund', agree: await this.agreeMessage(), funding: await this.fundingMessage() };
+  /** ADR-0023: the buyer's operator fee to `to`; `signer`, `commitmentId` and `token` override for refusal tests. */
+  async operatorFeeMessage(o: OperatorFeeOptions) {
+    return sign(o.signer ?? this.cast.buyer, {
+      type: 'TransferAuthorization',
+      scheme: 'erc3009',
+      purpose: 'operator_fee',
+      commitmentId: o.commitmentId ?? this.id,
+      from: this.cast.buyer.address,
+      to: o.to,
+      value: o.value.toString(),
+      token: o.token ?? TOKEN,
+      validAfter: this.terms.createdAt,
+      validBefore: this.terms.timing.fundBy,
+      nonce: this.nonce(),
+      expiresAt: this.terms.timing.fundBy,
+    } as const);
+  }
+
+  async agreeAndFund(o: { operatorFee?: OperatorFeeOptions } = {}): Promise<Submission> {
+    const agree = await this.agreeMessage();
+    const funding = await this.fundingMessage();
+    return o.operatorFee ? { kind: 'agree_and_fund', agree, funding, operatorFee: await this.operatorFeeMessage(o.operatorFee) } : { kind: 'agree_and_fund', agree, funding };
   }
 
   /** Fake envelope for a recipient: a hash, never a real key. */

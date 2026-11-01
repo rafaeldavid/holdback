@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.6/operator-status.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.7/operator-status.schema.json",
   "title": "Operator status (GET /v1/status, ADR-0017)",
   "type": "object",
   "additionalProperties": false,
@@ -123,6 +123,69 @@
       "uniqueItems": true,
       "items": {
         "$ref": "common.schema.json#/$defs/SettlementMode"
+      }
+    },
+    "fees": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operator"
+      ],
+      "description": "ADR-0023: what this operator charges. Absent: it charges nothing",
+      "properties": {
+        "operator": {
+          "$ref": "#/$defs/OperatorFee"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "OperatorFee": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "to",
+        "token",
+        "bps",
+        "min",
+        "max",
+        "appliesAt",
+        "refundable"
+      ],
+      "description": "ADR-0023: fee = max(min, ceil(price x bps / 10000)), capped at max when max is not null, in base units of the price token; paid by the buyer to `to` with the funded agreement this operator relays. A schedule in another token than the price charges nothing. Direct submission and other operators charge their own or none",
+      "properties": {
+        "to": {
+          "$ref": "common.schema.json#/$defs/Address"
+        },
+        "token": {
+          "$ref": "common.schema.json#/$defs/TokenId"
+        },
+        "bps": {
+          "$ref": "common.schema.json#/$defs/Bps"
+        },
+        "min": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,77})$",
+          "description": "Base units, decimal string"
+        },
+        "max": {
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,77})$"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Base units, decimal string, or null for no cap"
+        },
+        "appliesAt": {
+          "const": "agree-and-fund"
+        },
+        "refundable": {
+          "const": false
+        }
       }
     }
   }

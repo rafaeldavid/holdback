@@ -20,6 +20,7 @@ import type {
   SettlementEvent,
   Signature,
   TokenAmount,
+  TransferAuthorization,
 } from '@holdback/core';
 
 /**
@@ -42,8 +43,11 @@ export type Submission =
   | { kind: 'adjudicator_accept'; message: AdjudicatorAcceptance }
   | { kind: 'agree'; message: Agree }
   | { kind: 'fund'; message: FundingAuthorization }
-  /** Agreement and funding applied together: both or neither (a one-shot hold). */
-  | { kind: 'agree_and_fund'; agree: Agree; funding: FundingAuthorization }
+  /**
+   * Agreement and funding applied together: both or neither (a one-shot hold). With `operatorFee` (ADR-0023),
+   * the buyer's fee to the relaying operator moves in the same step, outside the hold: all three or none.
+   */
+  | { kind: 'agree_and_fund'; agree: Agree; funding: FundingAuthorization; operatorFee?: TransferAuthorization }
   | { kind: 'deliver'; delivery: Delivery }
   | { kind: 'early_accept'; message: EarlyAccept }
   | { kind: 'decide'; message: Decision }
@@ -65,7 +69,7 @@ export type DryRunSubmission =
   | { kind: 'offer'; commitment: Omit<Commitment, 'signatures'> & { signatures: { seller?: Signature; buyer?: Signature } } }
   | { kind: 'agree'; message: Unsigned<Agree> }
   | { kind: 'fund'; message: Unsigned<FundingAuthorization> }
-  | { kind: 'agree_and_fund'; agree: Unsigned<Agree>; funding: Unsigned<FundingAuthorization> }
+  | { kind: 'agree_and_fund'; agree: Unsigned<Agree>; funding: Unsigned<FundingAuthorization>; operatorFee?: Unsigned<TransferAuthorization> }
   | { kind: 'deliver'; delivery: Unsigned<Delivery> }
   | { kind: 'early_accept'; message: Unsigned<EarlyAccept> }
   | { kind: 'appeal'; appeal: Unsigned<Appeal> }

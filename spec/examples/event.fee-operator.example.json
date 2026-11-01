@@ -1,0 +1,29 @@
+{
+  "seq": 4,
+  "type": "fee.operator",
+  "commitmentId": "0x9340180fb352b68aabcf457de90752525d862a9a6dac875100905fac2fc54ed8",
+  "at": "2026-10-30T10:05:00Z",
+  "actor": "0x04d6c65223896ba94e731bc9eb765c19bd289b0d",
+  "submittedVia": "op-1",
+  "payload": {
+    "from": "0x04d6c65223896ba94e731bc9eb765c19bd289b0d",
+    "to": "0x7e3b0c55e1c0d1a2b3c4d5e6f708192a3b4c5d6e",
+    "amount": {
+      "token": "tUSD",
+      "amount": "200000"
+    },
+    "postings": [
+      {
+        "from": "0x04d6c65223896ba94e731bc9eb765c19bd289b0d",
+        "to": "0x7e3b0c55e1c0d1a2b3c4d5e6f708192a3b4c5d6e",
+        "amount": {
+          "token": "tUSD",
+          "amount": "200000"
+        },
+        "why": "operator fee: 1 bp of the price, at least 0.010000 tUSD; not refunded"
+      }
+    ]
+  },
+  "prevHash": "0xe43c28e69db6705871162259bd96d4bc3ec12f2956cdbf81c4b84b882fbdb522",
+  "hash": "0x1f2e3d4c5b6a79881f2e3d4c5b6a79881f2e3d4c5b6a79881f2e3d4c5b6a7988"
+}
