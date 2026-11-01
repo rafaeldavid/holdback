@@ -20,6 +20,7 @@ import {
   type Address,
   type Club,
   type Commitment,
+  type CommitmentStateView,
   type CommitmentTerms,
   type DeterministicCheck,
   type EncryptedKey,
@@ -74,6 +75,8 @@ export interface PrepareContext {
   /** The last delivery event's payload, if any. */
   delivery(id: Hex32): Promise<{ deliveryHash: Hex32; attempt: number } | undefined>;
   attempt(id: Hex32): Promise<number>;
+  /** The commitment's read model, or null when the settlement layer does not know it. */
+  state(id: Hex32): Promise<CommitmentStateView | null>;
 }
 
 export class PrepareError extends Error {
@@ -432,11 +435,38 @@ const PREPARERS: Record<PrepareKind, (ctx: PrepareContext, input: Record<string,
   settlement,
 };
 
+/**
+ * Kinds whose submit only one set of states can take: preparing them in another state would collect a signature
+ * the settlement layer refuses (sim batch 1, F5), so prepare answers 409 invalid_state with the state it saw.
+ * The settlement layer still decides: a state can change between prepare and submit.
+ */
+const STATE_GATES: Partial<Record<PrepareKind, { needs: string; open(s: CommitmentStateView): boolean }>> = {
+  'early-accept': { needs: 'early-accept needs Delivered (a delivery no adjudicator has decided yet)', open: (s) => s.escrowState === 'Delivered' },
+  appeal: {
+    needs: 'an appeal needs a first-instance decision (Released or Refunded) whose appeal window is open and unused; escalated decisions are final',
+    open: (s) => (s.escrowState === 'Released' || s.escrowState === 'Refunded') && s.appealState === 'none' && !s.finalAt,
+  },
+  settlement: { needs: 'a settlement needs Held, Delivered, FallbackJudging or Escalated', open: (s) => ['Held', 'Delivered', 'FallbackJudging', 'Escalated'].includes(s.escrowState) },
+};
+
+async function stateGate(kind: PrepareKind, ctx: PrepareContext, input: Record<string, unknown>): Promise<void> {
+  const gate = STATE_GATES[kind];
+  if (!gate || !isHex32(input['commitmentId'])) return; // the preparer reports a missing or malformed id
+  const s = await ctx.state(input['commitmentId'] as Hex32);
+  if (!s || gate.open(s)) return;
+  const why = s.finalAt ? `, final since ${s.finalAt}` : s.appealState !== 'none' ? `, appeal ${s.appealState}` : '';
+  throw new PrepareError(problem('invalid_state', `commitment ${s.commitmentId} is ${s.escrowState}${why}; ${gate.needs}`));
+}
+
 export function prepare(kind: string, ctx: PrepareContext, input: unknown): Promise<Prepared> {
   if (!(PREPARE_KINDS as readonly string[]).includes(kind)) throw new PrepareError(problem('not_found', `nothing to prepare for ${kind}; kinds: ${PREPARE_KINDS.join(', ')}`));
   if (!isObj(input)) bad('the body must be a JSON object');
+  const run = async () => {
+    await stateGate(kind as PrepareKind, ctx, input as Record<string, unknown>);
+    return PREPARERS[kind as PrepareKind](ctx, input as Record<string, unknown>);
+  };
   // A value the EIP-712 encoders cannot represent is the caller's malformed input: 400, never 500.
-  return PREPARERS[kind as PrepareKind](ctx, input as Record<string, unknown>).catch((e: unknown) => {
+  return run().catch((e: unknown) => {
     if (e instanceof RangeError || e instanceof TypeError) bad(`a value cannot be encoded: ${e.message}`);
     throw e;
   });

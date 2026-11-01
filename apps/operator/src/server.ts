@@ -154,9 +154,14 @@ function paginate<T>(items: readonly T[], seq: (t: T) => number, q: URLSearchPar
 // ---- schema checks ------------------------------------------------------------------------------
 
 const ZERO_SIGNATURE = `0x${'00'.repeat(65)}` as const;
-const withSig = <T extends object>(m: T, ...keys: string[]): T => ({ ...Object.fromEntries(keys.map((k) => [k, ZERO_SIGNATURE])), ...m }) as T;
+/** A slot left out or left `null` (as prepare returns it) gets the placeholder; a signature present is kept. */
+const withSig = <T extends object>(m: T, ...keys: string[]): T => {
+  const out = { ...m } as Record<string, unknown>;
+  for (const k of keys) if (out[k] === undefined || out[k] === null) out[k] = ZERO_SIGNATURE;
+  return out as T;
+};
 
-/** Fills the signatures a dry run leaves out, so the unsigned body can be checked for shape only. */
+/** Fills the signatures a dry run leaves out or sends as null, so the unsigned body can be checked for shape only. */
 function placeholderSigned(op: Operation): Operation {
   switch (op.kind) {
     case 'offer':
@@ -231,6 +236,10 @@ function checkShape(op: Operation): void {
       return;
   }
 }
+
+const MISSING_ID =
+  'id is required: the commitment ID is the EIP-712 struct hash (hashStruct, primary type CommitmentTerms) of the terms, without id and signatures. ' +
+  'POST /v1/prepare/offer returns it as commitmentId and in submit.body.id; to compute it yourself, see commitmentIdOf in examples/verify.ts';
 
 /** `?validateOnly=` is `true`, `false` or absent; anything else is refused rather than run live. */
 function validateOnly(q: URLSearchParams): boolean {
@@ -455,7 +464,10 @@ export class Operator {
     if (method !== 'GET') fail('not_found', `no route ${method} ${ctx.url.pathname}`);
     this.throttle(`r:${this.client(ctx)}`, this.o.rateLimit?.reads ?? 0);
     if (s.length === 2 && s[1] === 'events') return this.stream(ctx);
-    return this.send(ctx, this.ok(await this.read(ctx)));
+    const body = await this.read(ctx);
+    // The state read links to the signed terms it is about (RFC 8288), so a party compares against the operator's copy.
+    const link = s[1] === 'commitments' && s.length === 3 ? { link: `</v1/commitments/${s[2]}/terms>; rel="terms"` } : {};
+    return this.send(ctx, this.ok(body, link));
   }
 
   // ---- writes ------------------------------------------------------------------------------------
@@ -470,6 +482,7 @@ export class Operator {
     const parsedOp = operationOf(ctx.segments, raw);
     if (!parsedOp.ok) fail(parsedOp.error.type, parsedOp.error.detail);
     const op = (parsedOp as Extract<typeof parsedOp, { ok: true }>).value;
+    if ((op.kind === 'offer' || op.kind === 'hold') && (op.commitment as { id?: unknown }).id === undefined) fail('invalid_terms', MISSING_ID);
     // Shape first: the throttle reads the signer address, which only a checked body is sure to carry.
     checkShape(dryRun ? placeholderSigned(op) : op);
     this.throttle(`w:${lc(signerOf(op) ?? this.client(ctx))}`, this.o.rateLimit?.writes ?? 0);
@@ -584,6 +597,7 @@ export class Operator {
       },
       delivery: async (id) => (await eventsOf(id)).filter((e) => e.type === 'delivery.submitted').at(-1)?.payload as { deliveryHash: Hex32; attempt: number } | undefined,
       attempt: async (id) => (await this.o.settlement.state(id))?.attempt ?? 1,
+      state: (id) => this.o.settlement.state(id),
     };
   }
 
@@ -671,6 +685,8 @@ export class Operator {
         return paginate([...this.receipts.get(id as Hex32)!.values()], (r) => r.eventSeq, q);
       }
       if (s.length === 4 && s[3] === 'recipients') return this.recipients(id as Hex32);
+      // The terms as the seller signed them (commitment.schema.json): the commitment.offered event's terms, id and seller signature.
+      if (s.length === 4 && s[3] === 'terms') return (await this.prepareContext().commitment(id as Hex32)) ?? fail('not_found', `no commitment ${id}`);
       if (s.length === 4 && s[3] === 'judgment') {
         return reg.judgment?.(id as Hex32) ?? fail('not_found', `no judgment record for ${id} on this operator`);
       }
