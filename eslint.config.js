@@ -1,7 +1,7 @@
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  { ignores: ['**/dist/**', '**/node_modules/**', 'docs/research/**', '.worktrees/**', '.claude/worktrees/**', 'tools/sim/runs/**'] },
+  { ignores: ['**/dist/**', '**/node_modules/**', 'docs/research/**', '.worktrees/**', '.claude/worktrees/**', 'tools/sim/runs/**', 'apps/demo-cloud/.wrangler/**', 'apps/demo-cloud/reports/**', 'apps/demo-cloud/worker/generated-files.js'] },
   ...tseslint.configs.recommended,
   {
     // Hard rule: no code execution from inputs.

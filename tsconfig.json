@@ -10,6 +10,7 @@
     { "path": "apps/adjudicator" },
     { "path": "apps/demo" },
     { "path": "apps/demo/agents" },
+    { "path": "apps/demo-cloud" },
     { "path": "examples" },
     { "path": "tools/sim" }
   ]

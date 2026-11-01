@@ -1,0 +1,15 @@
+// holdback-op2: operator node 2 of the public demo (T-026). It serves the same World Durable Object as
+// holdback-op1 (bound by script name), with its own receipt key: one shared simulated settlement layer.
+{
+  "name": "holdback-op2",
+  "main": "dist/worker.js",
+  "compatibility_date": "2025-09-15",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "preview_urls": false,
+  "vars": { "NODE_INDEX": "1" },
+  "durable_objects": { "bindings": [{ "name": "WORLD", "class_name": "World", "script_name": "holdback-op1" }] },
+  "alias": { "node:fs": "./worker/fs-shim.js" },
+  "define": { "import.meta.url": "\"file:///holdback/bundle/a/b/worker.js\"" },
+  "observability": { "enabled": true }
+}
