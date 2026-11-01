@@ -27,6 +27,7 @@ import {
   verifyMutualSettlement,
   verifyTerms,
   type Address,
+  type AnyCommitmentTerms,
   type BeaconFact,
   type Club,
   type CommitmentStateView,
@@ -75,6 +76,7 @@ const MAINNETS = new Set([1, 10, 56, 137, 324, 8453, 42161, 43114, 59144, 534352
 const GENESIS_HASH: Hex32 = `0x${'00'.repeat(32)}`;
 const ALL_BPS = 10000n;
 const HALF_BPS = 5000n;
+const UINT256_MAX = (2n ** 256n - 1n).toString();
 
 interface Rec {
   state: EscrowState;
@@ -559,13 +561,30 @@ export class SimChain implements Settlement {
 
   // ---- the rules ---------------------------------------------------------------------------------
 
-  private scopeFor(agent: Address, clubId: string): Scope {
+  /**
+   * The scope settlement checks for a party: its mandate's. A per-deal key (ADR-0024 §7) has no mandate; in a private
+   * or judgment deal under a rulebook that admits pseudonymous identities, settlement checks no scope of its own (the
+   * counterparty and the adjudicator check the Delegation certificate) and only this commitment's price is allowed.
+   */
+  private scopeFor(agent: Address, clubId: string, deal?: { terms: AnyCommitmentTerms; club: Club | undefined }): Scope {
     const m = this.mandates.get(`${lc(agent)}|${clubId}`);
-    return m ? m.scope : refuse('scope_exceeded', `${agent} has no mandate in club ${clubId}`);
+    if (m) return m.scope;
+    if (deal && this.pseudonymous(deal.terms, deal.club)) {
+      const { price } = deal.terms;
+      return { roles: ['buyer', 'seller'], maxPerCommitment: price, maxDaily: { token: price.token, amount: UINT256_MAX } as TokenAmount, expiresAt: '9999-12-31T23:59:59Z' };
+    }
+    return refuse('scope_exceeded', `${agent} has no mandate in club ${clubId}`);
   }
 
-  private admitted(club: Club, agent: Address): boolean {
+  /** ADR-0024 §7: per-deal keys are admitted at private and judgment when the rulebook lists the pseudonymous mode. */
+  private pseudonymous(terms: AnyCommitmentTerms, club: Club | undefined): boolean {
+    return terms.disclosure.level !== 'public' && (club?.rulebook.identityModes.includes('pseudonymous') ?? false);
+  }
+
+  private admitted(club: Club, agent: Address, terms?: AnyCommitmentTerms): boolean {
     if (club.rulebook.open) return true;
+    // A per-deal key's membership is attested by its certificate, checked by the counterparty (ADR-0024 §7).
+    if (terms && !this.mandates.has(`${lc(agent)}|${club.id}`) && this.pseudonymous(terms, club)) return true;
     const principal = this.mandates.get(`${lc(agent)}|${club.id}`)?.principal;
     return this.genesis.members.some((m) => m.clubId === club.id && (lc(m.member) === lc(agent) || (principal !== undefined && lc(m.member) === lc(principal))));
   }
@@ -658,7 +677,7 @@ export class SimChain implements Settlement {
         const t = termsOf(c);
         if (tx.rec(c.id)) refuse('invalid_state', `commitment ${c.id} was already offered`);
         const club = this.genesis.clubs.find((k) => k.id === t.clubId && k.rulebookHash === t.rulebookHash);
-        const sellerScope = this.scopeFor(t.seller, t.clubId);
+        const sellerScope = this.scopeFor(t.seller, t.clubId, { terms: t, club });
         const nonce = `${lc(t.seller)}:terms:${t.nonce}`;
         const r = offer({ commitment: c, at, sellerScope, rulebook: club?.rulebook ?? null, nonceUsed: tx.nonceUsed(nonce) });
         if (!r.ok) refuse(r.error.type, r.error.detail);
@@ -755,9 +774,9 @@ export class SimChain implements Settlement {
     const rec = this.recOf(tx, m.commitmentId);
     const { terms } = rec.state;
     tx.useNonce(`${lc(m.buyer)}:${m.nonce}`);
-    const buyerScope = this.scopeFor(terms.buyer, terms.clubId);
+    const buyerScope = this.scopeFor(terms.buyer, terms.clubId, { terms, club: rec.club });
     const day = `${lc(terms.buyer)}|${tx.at.slice(0, 10)}`;
-    const next = this.stepped(rec.state, { type: 'agree', at: tx.at, message: m, buyerScope, spentToday: tx.amount(tx.spentOf(day)), memberAdmitted: this.admitted(rec.club, terms.buyer) });
+    const next = this.stepped(rec.state, { type: 'agree', at: tx.at, message: m, buyerScope, spentToday: tx.amount(tx.spentOf(day)), memberAdmitted: this.admitted(rec.club, terms.buyer, terms) });
     this.setState(tx, m.commitmentId, next);
     tx.spent.set(day, tx.spentOf(day) + BigInt(terms.price.amount));
     tx.emit('commitment.agreed', m.commitmentId, m.buyer, { termsHash: m.commitmentId });
@@ -768,7 +787,7 @@ export class SimChain implements Settlement {
     const rec = this.recOf(tx, m.commitmentId);
     const { terms } = rec.state;
     tx.useNonce(`${lc(m.from)}:${m.nonce}`);
-    const buyerScope = this.scopeFor(terms.buyer, terms.clubId);
+    const buyerScope = this.scopeFor(terms.buyer, terms.clubId, { terms, club: rec.club });
     const next = this.stepped(rec.state, {
       type: 'fund',
       at: tx.at,

@@ -10,7 +10,7 @@ let exampleResults: ReturnType<typeof validateExamplesFresh> | undefined;
 const loadSpec = () => (spec ??= loadSpecFresh());
 const validateExamples = () => (exampleResults ??= validateExamplesFresh(loadSpec()));
 
-const V = 'https://holdback.dev/schemas/v0.7';
+const V = 'https://holdback.dev/schemas/v0.8';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const example = (name: string): any => structuredClone(loadSpec().examples.find((e: { name: string }) => e.name === name).data);
 
@@ -67,10 +67,11 @@ describe('spec/', () => {
     expect(validate(message)).toBe(false);
   });
 
-  // ADR-0023: v0.7 is additive, so the signed encoding (EIP-712 domain version and commitment.schemaVersion) stays 0.6.
-  it('moves every schema $id to v0.7 and keeps the commitment schemaVersion at 0.6', () => {
+  // ADR-0023 and ADR-0024: v0.7 and v0.8 are additive, so the signed encoding (EIP-712 domain version and
+  // commitment.schemaVersion) stays 0.6.
+  it('moves every schema $id to v0.8 and keeps the commitment schemaVersion at 0.6', () => {
     const { schemas, ajv } = loadSpec();
-    for (const id of schemas.values()) expect(id).toMatch(/\/schemas\/v0\.7\//);
+    for (const id of schemas.values()) expect(id).toMatch(/\/schemas\/v0\.8\//);
     const validate = ajv.getSchema(`${V}/commitment.schema.json`);
     const c = example('commitment');
     expect(c.schemaVersion).toBe('0.6');
@@ -381,7 +382,7 @@ describe('spec/', () => {
     const key = (recipient: string) => ({ recipient, scheme: 'x25519-xsalsa20poly1305', ciphertext: 'a2V5' });
     const A = '0x1111111111111111111111111111111111111111';
 
-    it('binds a disclosure level in the terms and reserves privateTerms', () => {
+    it('binds a disclosure level in the terms; private and judgment carry the bodies as privateTerms (ADR-0024)', () => {
       const c = example('commitment');
       expect(c.disclosure).toEqual({ level: 'public' });
       const validate = schema('commitment');
@@ -389,7 +390,12 @@ describe('spec/', () => {
       c.disclosure.level = 'secret';
       expect(validate(c)).toBe(false);
       c.disclosure.level = 'private';
-      c.privateTerms = { hash: '0x' + '21'.repeat(32), envelopes: [key(A)] };
+      // At private the plaintext bodies are refused: they travel only as ciphertext.
+      expect(validate(c)).toBe(false);
+      const part = { hash: '0x' + '21'.repeat(32), ciphertext: 'Y2lwaGVy', envelopes: [key(A)] };
+      c.privateTerms = { deliverable: part, acceptance: part };
+      delete c.deliverable;
+      delete c.acceptance;
       expect(validate(c)).toBe(true);
       delete c.disclosure;
       expect(validate(c)).toBe(false);
@@ -736,6 +742,85 @@ describe('spec/', () => {
   // settlement layer recognizes (found stale in T-012: the club example predated payoutsTo). The commitment
   // example's rulebookHash, id and signature, and the adjudicator example's policyHash and poolTermsHash, are
   // still stale; core pins EIP-712 vectors over the commitment example, so they move together (docs/backlog.md).
+  describe('private deals, v0.8 (ADR-0024, D34)', () => {
+    const schema = (name: string) => loadSpec().ajv.getSchema(`${V}/${name}.schema.json`);
+
+    it('has valid private commitment, read token, delegation, key registration, disclosure and projection examples', () => {
+      for (const name of ['commitment.private', 'messages.read-token', 'messages.delegation', 'messages.key-registration', 'disclosure', 'projection']) {
+        const r = validateExamples().find((x: { file: string }) => x.file === `${name}.example.json`);
+        expect(r, name).toBeDefined();
+        expect(r.ok, `${name}: ${r?.errors}`).toBe(true);
+      }
+    });
+
+    it('keeps two keys: deliverable and acceptance are separate parts, each with ciphertext and envelopes', () => {
+      const validate = schema('commitment');
+      const c = example('commitment.private');
+      expect(Object.keys(c.privateTerms).sort()).toEqual(['acceptance', 'deliverable']);
+      delete c.privateTerms.acceptance;
+      expect(validate(c)).toBe(false);
+      const d = example('commitment.private');
+      d.privateTerms.deliverable.envelopes = [];
+      expect(validate(d)).toBe(false);
+      const p = example('commitment');
+      p.privateTerms = example('commitment.private').privateTerms;
+      expect(validate(p)).toBe(false); // public carries plaintext only
+    });
+
+    it('takes a salt, notes and the seller per-deal key in the deliverable body, and a salt in the acceptance', () => {
+      const validate = schema('commitment');
+      const c = example('commitment');
+      c.deliverable.salt = '0x' + '5a'.repeat(32);
+      c.deliverable.notes = 'free text';
+      c.deliverable.sellerEncryptionPublicKey = 'S2V5S2V5';
+      c.acceptance.salt = '0x' + '6b'.repeat(32);
+      expect(validate(c)).toBe(true);
+      c.acceptance.salt = '0x1';
+      expect(validate(c)).toBe(false);
+    });
+
+    it('takes an optional audience on a ReadToken and refuses unknown fields', () => {
+      const validate = schema('messages');
+      const t = example('messages.read-token');
+      expect(t.audience).toBeDefined();
+      expect(validate(t)).toBe(true);
+      delete t.audience;
+      expect(validate(t)).toBe(true);
+      t.scope = 'all';
+      expect(validate(t)).toBe(false);
+    });
+
+    it('requires a Delegation to name the per-deal signing and encryption keys and a scope', () => {
+      const validate = schema('messages');
+      for (const field of ['dealKey', 'dealEncryptionKey', 'scope', 'principal']) {
+        const d = example('messages.delegation');
+        delete d[field];
+        expect(validate(d), field).toBe(false);
+      }
+    });
+
+    it('refuses a disclosure body with no key, and a key that is not 32 bytes', () => {
+      const validate = schema('disclosure');
+      const d = example('disclosure');
+      d.keys = {};
+      expect(validate(d)).toBe(false);
+      const e = example('disclosure');
+      e.keys.acceptanceKey = 'c2hvcnQ';
+      expect(validate(e)).toBe(false);
+    });
+
+    it('gives the projection hashes, never bodies or identities beyond the per-deal addresses', () => {
+      const validate = schema('projection');
+      const p = example('projection');
+      expect(validate(p)).toBe(true);
+      for (const extra of ['clubId', 'buyerEncryptionPublicKey', 'privateTerms', 'deliverable']) {
+        const q = example('projection');
+        q[extra] = 'x';
+        expect(validate(q), extra).toBe(false);
+      }
+    });
+  });
+
   it("the club example's rulebookHash is the keccak256 of its rulebook's canonical JSON", () => {
     const club = example('club');
     expect(club.rulebookHash).toBe(rulebookHash(club.rulebook));

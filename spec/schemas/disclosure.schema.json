@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://holdback.dev/schemas/v0.8/disclosure.schema.json",
+  "title": "Disclosure keys (POST /v1/commitments/{id}/disclosure)",
+  "description": "Publication of a private deal's bodies (ADR-0024 §3). Publish is unchanged and carries no key; the keys travel here. Posted with the co-signed Publish that raises the level, or later by either party once the level allows the part. The operator decrypts each part with its key and checks it against the hash the terms bind before it serves the plaintext; at judgment it serves the acceptance only, at public both bodies.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "commitmentId",
+    "keys"
+  ],
+  "properties": {
+    "commitmentId": {
+      "$ref": "common.schema.json#/$defs/Hex32"
+    },
+    "publish": {
+      "$ref": "messages.schema.json#/$defs/Publish",
+      "description": "The co-signed Publish raising the level; absent when the level already allows the keys posted"
+    },
+    "keys": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "acceptanceKey": {
+          "$ref": "#/$defs/BodyKey"
+        },
+        "deliverableKey": {
+          "$ref": "#/$defs/BodyKey"
+        },
+        "recordKeys": {
+          "type": "array",
+          "maxItems": 16,
+          "description": "Keys of sealed judgment records, by record hash. Reserved: records are sealed in a later slice of T-207",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "recordHash",
+              "key"
+            ],
+            "properties": {
+              "recordHash": {
+                "$ref": "common.schema.json#/$defs/Hex32"
+              },
+              "key": {
+                "$ref": "#/$defs/BodyKey"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "BodyKey": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{43}$",
+      "description": "A 32-byte AES-256-GCM key, base64url without padding"
+    }
+  }
+}

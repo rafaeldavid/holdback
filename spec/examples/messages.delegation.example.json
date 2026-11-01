@@ -1,0 +1,25 @@
+{
+  "type": "Delegation",
+  "principal": "0x23f0af4dc12c97f0714cd2b12f30dd95da5dd5e4",
+  "agent": "0x9ff412388f11e58327e71f841705dbc739c8cc46",
+  "dealKey": "0x3e5f7a9b1c2d4e6f8a0b1c3d5e7f9a1b3c5d7e9f",
+  "dealEncryptionKey": "c2VsbGVyLWRlYWwta2V5LWZvci1pbGx1c3RyYXRpb24",
+  "clubId": "data-services-v1",
+  "scope": {
+    "roles": [
+      "seller"
+    ],
+    "maxPerCommitment": {
+      "token": "tUSD",
+      "amount": "5000000000"
+    },
+    "maxDaily": {
+      "token": "tUSD",
+      "amount": "20000000000"
+    },
+    "expiresAt": "2027-01-31T00:00:00Z"
+  },
+  "nonce": "0x3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a",
+  "expiresAt": "2026-11-02T10:00:00Z",
+  "signature": "0x4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b"
+}

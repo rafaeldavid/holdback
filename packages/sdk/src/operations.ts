@@ -7,6 +7,7 @@ import {
   type AdjudicatorAcceptance,
   type Agree,
   type Appeal,
+  type AnyCommitment,
   type Commitment,
   type Decision,
   type Delivery,
@@ -21,12 +22,13 @@ import {
 import { TIMEOUT_KINDS, type DryRunSubmission, type Submission, type TimeoutKind } from '@holdback/settlement';
 
 export type Operation =
-  | { kind: 'offer'; commitment: Commitment }
+  /** Either wire form; at private and judgment the bodies travel only as privateTerms ciphertext (ADR-0024). */
+  | { kind: 'offer'; commitment: AnyCommitment }
   | { kind: 'acceptance'; message: AdjudicatorAcceptance }
   /** Agree, optionally funding in the same step (`Held` at once), and with funding an operator fee (ADR-0023). */
   | { kind: 'agree'; message: Agree; fund?: FundingAuthorization; operatorFee?: TransferAuthorization }
   /** One-shot hold: offer, adjudicator acceptance, agreement and funding. */
-  | { kind: 'hold'; commitment: Commitment; acceptance: AdjudicatorAcceptance; agree: Agree; funding: FundingAuthorization }
+  | { kind: 'hold'; commitment: AnyCommitment; acceptance: AdjudicatorAcceptance; agree: Agree; funding: FundingAuthorization }
   | { kind: 'fund'; message: FundingAuthorization }
   | { kind: 'deliver'; delivery: Delivery }
   | { kind: 'early_accept'; message: EarlyAccept }
@@ -96,12 +98,12 @@ export function operationOf(segments: readonly string[], body: unknown): Result<
   if (segments[0] !== 'v1') return fail('not_found', 'no such route');
   if (!isObject(body)) return fail('invalid_terms', 'the body must be a JSON object');
   const b = body as Record<string, unknown>;
-  if (segments.length === 2 && segments[1] === 'commitments') return { ok: true, value: { kind: 'offer', commitment: b as unknown as Commitment } };
+  if (segments.length === 2 && segments[1] === 'commitments') return { ok: true, value: { kind: 'offer', commitment: b as unknown as AnyCommitment } };
   if (segments.length === 2 && segments[1] === 'holds') {
     for (const part of ['commitment', 'acceptance', 'agree', 'funding'] as const) if (!isObject(b[part])) return fail('invalid_terms', `a one-shot hold needs ${part}`);
     return {
       ok: true,
-      value: { kind: 'hold', commitment: b['commitment'] as Commitment, acceptance: b['acceptance'] as AdjudicatorAcceptance, agree: b['agree'] as Agree, funding: b['funding'] as FundingAuthorization },
+      value: { kind: 'hold', commitment: b['commitment'] as AnyCommitment, acceptance: b['acceptance'] as AdjudicatorAcceptance, agree: b['agree'] as Agree, funding: b['funding'] as FundingAuthorization },
     };
   }
   if (segments[1] !== 'commitments' || segments.length < 4) return fail('not_found', 'no such route');

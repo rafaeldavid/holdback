@@ -16,9 +16,13 @@ import { canonicalKeccak } from './canonical.js';
 import { instant } from './timing.js';
 import type {
   Address,
+  AnyCommitment,
+  AnyCommitmentTerms,
   Appeal,
   Commitment,
   CommitmentTerms,
+  CredentialMessage,
+  SealedCommitmentTerms,
   Delivery,
   EncryptedKey,
   Hex32,
@@ -48,6 +52,7 @@ export function holdbackDomain(chainId: number | bigint, verifyingContract: Addr
 }
 
 const ZERO32: Hex32 = `0x${'0'.repeat(64)}`;
+const ZERO_ADDRESS: Address = `0x${'0'.repeat(40)}`;
 const field = (name: string, type: string) => ({ name, type });
 const stamp = (name: string) => field(name, 'uint64');
 const expiring = [field('nonce', 'bytes32'), stamp('expiresAt')];
@@ -209,6 +214,18 @@ export const messageTypes = {
     ...expiring,
   ],
   Publish: [field('commitmentId', 'bytes32'), field('level', 'string'), ...expiring],
+  // ADR-0024: new types, so no existing struct changes and the domain stays 0.6. A flag marks an absent audience.
+  ReadToken: [field('viewer', 'address'), field('commitmentId', 'bytes32'), field('hasAudience', 'bool'), field('audience', 'address'), ...expiring],
+  Delegation: [
+    field('principal', 'address'),
+    field('agent', 'address'),
+    field('dealKey', 'address'),
+    field('dealEncryptionKey', 'string'),
+    field('clubId', 'string'),
+    field('scope', 'Scope'),
+    ...expiring,
+  ],
+  KeyRegistration: [field('adjudicator', 'address'), field('encryptionPublicKey', 'string'), field('keyId', 'string'), ...expiring],
   Receipt: [field('operator', 'address'), field('eventSeq', 'uint64'), field('eventHash', 'bytes32'), field('hasCommitment', 'bool'), field('commitmentId', 'bytes32')],
   Mandate: [field('principal', 'address'), field('agent', 'address'), field('clubId', 'string'), field('scope', 'Scope'), field('nonce', 'bytes32'), stamp('issuedAt')],
 };
@@ -223,6 +240,7 @@ type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K>
  */
 export type SignableMessage =
   | SignedMessage
+  | CredentialMessage
   | (Delivery & { type: 'Delivery' })
   | (Appeal & { type: 'Appeal' })
   | (Receipt & { type: 'Receipt' })
@@ -257,16 +275,31 @@ const scope = (s: Scope): Encoded => ({
   expiresAt: seconds(s.expiresAt),
 });
 
-/** The terms of a commitment: every field except id, signatures and adjudicatorAcceptance. */
-export function termsOf(c: Commitment): CommitmentTerms {
+/** True for the sealed wire form (private and judgment levels, ADR-0024): bodies as privateTerms ciphertext. */
+export const isSealed = (t: AnyCommitmentTerms): t is SealedCommitmentTerms => (t as Partial<SealedCommitmentTerms>).privateTerms !== undefined;
+
+/** The bodies' hashes as the struct binds them: from the plaintext, or from privateTerms in the sealed form. */
+export function bodyHashes(t: AnyCommitmentTerms): { deliverableHash: Hex32; acceptanceHash: Hex32 } {
+  return isSealed(t)
+    ? { deliverableHash: t.privateTerms.deliverable.hash, acceptanceHash: t.privateTerms.acceptance.hash }
+    : { deliverableHash: canonicalKeccak(t.deliverable), acceptanceHash: canonicalKeccak(t.acceptance) };
+}
+
+/**
+ * The terms of a commitment: every field except id, signatures and adjudicatorAcceptance. The sealed form keeps
+ * privateTerms (outside the ID, which binds only its hashes).
+ */
+export function termsOf(c: Commitment): CommitmentTerms;
+export function termsOf(c: AnyCommitment): AnyCommitmentTerms;
+export function termsOf(c: AnyCommitment): AnyCommitmentTerms {
+  const bodies = isSealed(c) ? { privateTerms: c.privateTerms } : { deliverable: c.deliverable, acceptance: c.acceptance };
   return {
     schemaVersion: c.schemaVersion,
     clubId: c.clubId,
     rulebookHash: c.rulebookHash,
     buyer: c.buyer,
     seller: c.seller,
-    deliverable: c.deliverable,
-    acceptance: c.acceptance,
+    ...bodies,
     price: c.price,
     adjudication: c.adjudication,
     timing: c.timing,
@@ -276,19 +309,18 @@ export function termsOf(c: Commitment): CommitmentTerms {
     buyerEncryptionPublicKey: c.buyerEncryptionPublicKey,
     nonce: c.nonce,
     createdAt: c.createdAt,
-  };
+  } as AnyCommitmentTerms;
 }
 
-/** The terms as EIP-712 typed values (primary type CommitmentTerms). */
-export function typedTermsOf(t: CommitmentTerms): Encoded {
+/** The terms as EIP-712 typed values (primary type CommitmentTerms). Either form gives the same values. */
+export function typedTermsOf(t: AnyCommitmentTerms): Encoded {
   return {
     schemaVersion: t.schemaVersion,
     clubId: t.clubId,
     rulebookHash: t.rulebookHash,
     buyer: t.buyer,
     seller: t.seller,
-    deliverableHash: canonicalKeccak(t.deliverable),
-    acceptanceHash: canonicalKeccak(t.acceptance),
+    ...bodyHashes(t),
     price: amount(t.price),
     adjudication: { ...t.adjudication, fee: amount(t.adjudication.fee) },
     timing: {
@@ -403,6 +435,20 @@ function encodeMessage(m: UnsignedMessage): Encoded {
       };
     case 'Publish':
       return { commitmentId: m.commitmentId, level: m.level, ...expiry(m) };
+    case 'ReadToken':
+      return { viewer: m.viewer, commitmentId: m.commitmentId, hasAudience: m.audience !== undefined, audience: m.audience ?? ZERO_ADDRESS, ...expiry(m) };
+    case 'Delegation':
+      return {
+        principal: m.principal,
+        agent: m.agent,
+        dealKey: m.dealKey,
+        dealEncryptionKey: m.dealEncryptionKey,
+        clubId: m.clubId,
+        scope: scope(m.scope),
+        ...expiry(m),
+      };
+    case 'KeyRegistration':
+      return { adjudicator: m.adjudicator, encryptionPublicKey: m.encryptionPublicKey, keyId: m.keyId, ...expiry(m) };
     case 'MutualSettlement':
       // A null deliveryHash (settled before delivery) is flagged, so it never collides with a zero hash.
       return {
@@ -444,7 +490,7 @@ function encodeMessage(m: UnsignedMessage): Encoded {
  * The commitment ID: the EIP-712 struct hash of the terms only (ADR-0016). It has no domain, so it
  * is the same on every chain; signatures over the terms add the domain.
  */
-export function commitmentId(terms: CommitmentTerms): Hex32 {
+export function commitmentId(terms: AnyCommitmentTerms): Hex32 {
   return hashStruct({ primaryType: 'CommitmentTerms', types: eip712Types, data: typedTermsOf(terms) });
 }
 
@@ -467,7 +513,7 @@ export const messageDigest = (domain: HoldbackDomain, message: UnsignedMessage):
   hashTypedData(typed(domain, message.type, encodeMessage(message)) as Parameters<typeof hashTypedData>[0]);
 
 /** The EIP-712 digest a party signs for the terms. */
-export const termsDigest = (domain: HoldbackDomain, terms: CommitmentTerms): Hex32 =>
+export const termsDigest = (domain: HoldbackDomain, terms: AnyCommitmentTerms): Hex32 =>
   hashTypedData(typed(domain, 'CommitmentTerms', typedTermsOf(terms)) as Parameters<typeof hashTypedData>[0]);
 
 async function sign(privateKey: Hex, t: Typed): Promise<Signature> {
@@ -484,10 +530,10 @@ async function recoversTo(t: Typed, signature: Signature, expected: Address): Pr
 }
 
 /** A party's signature over the full terms, as held in commitment.signatures. */
-export const signTerms = (privateKey: Hex, domain: HoldbackDomain, terms: CommitmentTerms): Promise<Signature> =>
+export const signTerms = (privateKey: Hex, domain: HoldbackDomain, terms: AnyCommitmentTerms): Promise<Signature> =>
   sign(privateKey, typed(domain, 'CommitmentTerms', typedTermsOf(terms)));
 
-export function verifyTerms(domain: HoldbackDomain, terms: CommitmentTerms, signature: Signature, expected: Address): Promise<boolean> {
+export function verifyTerms(domain: HoldbackDomain, terms: AnyCommitmentTerms, signature: Signature, expected: Address): Promise<boolean> {
   return recoversTo(typed(domain, 'CommitmentTerms', typedTermsOf(terms)), signature, expected);
 }
 

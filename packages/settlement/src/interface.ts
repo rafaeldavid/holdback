@@ -6,8 +6,8 @@ import type {
   AdjudicatorAcceptance,
   Agree,
   Address,
+  AnyCommitment,
   Appeal,
-  Commitment,
   CommitmentStateView,
   Decision,
   Delivery,
@@ -39,7 +39,8 @@ export const TIMEOUT_KINDS: readonly TimeoutKind[] = ['expire_offer', 'reclaim',
 
 /** One submission to the settlement layer. Signatures are checked against the settlement layer's own facts. */
 export type Submission =
-  | { kind: 'offer'; commitment: Commitment }
+  /** Either wire form: at private and judgment the bodies are privateTerms ciphertext, and settlement reads their hashes (ADR-0024). */
+  | { kind: 'offer'; commitment: AnyCommitment }
   | { kind: 'adjudicator_accept'; message: AdjudicatorAcceptance }
   | { kind: 'agree'; message: Agree }
   | { kind: 'fund'; message: FundingAuthorization }
@@ -66,7 +67,7 @@ type Unsigned<T> = T extends { signature: Signature } ? Omit<T, 'signature'> & {
  */
 export type DryRunSubmission =
   | Exclude<Submission, { kind: 'offer' | 'agree' | 'fund' | 'agree_and_fund' | 'deliver' | 'early_accept' | 'appeal' | 'mutual_settle' }>
-  | { kind: 'offer'; commitment: Omit<Commitment, 'signatures'> & { signatures: { seller?: Signature; buyer?: Signature } } }
+  | { kind: 'offer'; commitment: Omit<AnyCommitment, 'signatures'> & { signatures: { seller?: Signature; buyer?: Signature } } }
   | { kind: 'agree'; message: Unsigned<Agree> }
   | { kind: 'fund'; message: Unsigned<FundingAuthorization> }
   | { kind: 'agree_and_fund'; agree: Unsigned<Agree>; funding: Unsigned<FundingAuthorization>; operatorFee?: Unsigned<TransferAuthorization> }

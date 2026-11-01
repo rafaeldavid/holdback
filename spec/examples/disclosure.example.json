@@ -1,0 +1,15 @@
+{
+  "commitmentId": "0x2b4e8f1c7d9a3b5e6f0a1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f",
+  "publish": {
+    "type": "Publish",
+    "commitmentId": "0x2b4e8f1c7d9a3b5e6f0a1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f",
+    "level": "judgment",
+    "nonce": "0x6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c",
+    "expiresAt": "2026-11-03T10:00:00Z",
+    "buyerSignature": "0x8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a",
+    "sellerSignature": "0x8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b"
+  },
+  "keys": {
+    "acceptanceKey": "q0J8xXk2v9Zr4Lw1sT7nYp3Gd6Hf0Ae5Bc8Dm2Ku4Ri"
+  }
+}

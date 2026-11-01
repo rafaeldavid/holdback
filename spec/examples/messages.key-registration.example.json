@@ -1,0 +1,9 @@
+{
+  "type": "KeyRegistration",
+  "adjudicator": "0x5d10fecab9242e66cb134b77309a3566ed75e3dd",
+  "encryptionPublicKey": "YWRqdWRpY2F0b3Ita2V5LWZvci1pbGx1c3RyYXRpb24",
+  "keyId": "bench-a/2026-11",
+  "nonce": "0x2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c",
+  "expiresAt": "2027-11-01T00:00:00Z",
+  "signature": "0x6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e"
+}

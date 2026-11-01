@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://holdback.dev/schemas/v0.8/projection.schema.json",
+  "title": "Settlement projection (what anyone may read about a private deal)",
+  "description": "GET /v1/commitments/{id}/terms without a ReadToken at disclosure level private or judgment (ADR-0024 §3, §8): the fields settlement enforces in the clear and hashes of the rest, enough to check coverage and trigger any timeout. With per-deal keys the addresses name no long-term identity. disclosed carries a body only once its key was published and checked against its hash.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "commitmentId",
+    "disclosure",
+    "buyer",
+    "seller",
+    "price",
+    "adjudication",
+    "timing",
+    "settlement",
+    "hashes"
+  ],
+  "properties": {
+    "commitmentId": {
+      "$ref": "common.schema.json#/$defs/Hex32"
+    },
+    "disclosure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "level"
+      ],
+      "properties": {
+        "level": {
+          "$ref": "common.schema.json#/$defs/DisclosureLevel"
+        }
+      }
+    },
+    "buyer": {
+      "$ref": "common.schema.json#/$defs/Address"
+    },
+    "seller": {
+      "$ref": "common.schema.json#/$defs/Address"
+    },
+    "price": {
+      "$ref": "common.schema.json#/$defs/TokenAmount"
+    },
+    "adjudication": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "adjudicator",
+        "fallbackAdjudicator",
+        "appealAdjudicator",
+        "fee"
+      ],
+      "properties": {
+        "adjudicator": {
+          "$ref": "common.schema.json#/$defs/Address"
+        },
+        "fallbackAdjudicator": {
+          "$ref": "common.schema.json#/$defs/Address"
+        },
+        "appealAdjudicator": {
+          "$ref": "common.schema.json#/$defs/Address"
+        },
+        "fee": {
+          "$ref": "common.schema.json#/$defs/TokenAmount"
+        }
+      }
+    },
+    "timing": {
+      "$ref": "commitment.schema.json#/properties/timing"
+    },
+    "settlement": {
+      "$ref": "commitment.schema.json#/properties/settlement"
+    },
+    "hashes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "deliverableHash",
+        "acceptanceHash",
+        "rulebookHash",
+        "registryHash",
+        "policyHash"
+      ],
+      "properties": {
+        "deliverableHash": {
+          "$ref": "common.schema.json#/$defs/Hex32"
+        },
+        "acceptanceHash": {
+          "$ref": "common.schema.json#/$defs/Hex32"
+        },
+        "rulebookHash": {
+          "$ref": "common.schema.json#/$defs/Hex32"
+        },
+        "registryHash": {
+          "$ref": "common.schema.json#/$defs/Hex32"
+        },
+        "policyHash": {
+          "$ref": "common.schema.json#/$defs/Hex32"
+        }
+      }
+    },
+    "disclosed": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "deliverable": {
+          "$ref": "commitment.schema.json#/properties/deliverable"
+        },
+        "acceptance": {
+          "$ref": "commitment.schema.json#/properties/acceptance"
+        }
+      }
+    }
+  }
+}

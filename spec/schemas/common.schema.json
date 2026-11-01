@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.7/common.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.8/common.schema.json",
   "title": "Common definitions",
   "$defs": {
     "Address": {
@@ -109,7 +109,8 @@
         "judgment",
         "public"
       ],
-      "description": "Who may read a commitment's terms and records (ADR-0020). Phase 1 admits public only."
+      "description": "Who may read a commitment's terms and records (ADR-0020). Default private (ADR-0024): the recipe and SDK choose it unless the parties pick another. At private and judgment the terms bodies travel as privateTerms ciphertext.",
+      "default": "private"
     },
     "KeyUnlock": {
       "type": "object",
@@ -204,6 +205,51 @@
           "items": {
             "$ref": "#/$defs/EncryptedKey"
           }
+        }
+      }
+    },
+    "PrivatePart": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "hash",
+        "ciphertext",
+        "envelopes"
+      ],
+      "description": "One encrypted terms body (ADR-0024 §2). The plaintext is the RFC 8785 JSON of the body (UTF-8) and hash is its keccak256, the value the terms bind as deliverableHash or acceptanceHash. Encrypted with AES-256-GCM under its own 32-byte key with AAD = the commitment ID (32 bytes) followed by the part name (\"deliverable\" or \"acceptance\", UTF-8); ciphertext is iv (12 bytes) || ciphertext || tag (16 bytes), base64url. Each envelope seals that key (x25519-xsalsa20poly1305) to one reader.",
+      "properties": {
+        "hash": {
+          "$ref": "#/$defs/Hex32"
+        },
+        "ciphertext": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "maxLength": 1400000
+        },
+        "envelopes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": {
+            "$ref": "#/$defs/EncryptedKey"
+          }
+        }
+      }
+    },
+    "PrivateTerms": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "deliverable",
+        "acceptance"
+      ],
+      "description": "The two terms bodies as ciphertext, under separate keys so that judgment-level publication can disclose the acceptance while the deliverable stays private (ADR-0024 §2). Sealed to the buyer and the primary adjudicator at offer.",
+      "properties": {
+        "deliverable": {
+          "$ref": "#/$defs/PrivatePart"
+        },
+        "acceptance": {
+          "$ref": "#/$defs/PrivatePart"
         }
       }
     },
