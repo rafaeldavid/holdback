@@ -30,7 +30,8 @@ HERENOW_API_KEY=
 # ANTHROPIC_API_KEY=
 
 # Commit identity in the new environment (not secret).
-GIT_AUTHOR_NAME=rafa
-GIT_AUTHOR_EMAIL=rafaeldf2@gmail.com
-GIT_COMMITTER_NAME=rafa
-GIT_COMMITTER_EMAIL=rafaeldf2@gmail.com
+# Use your GitHub noreply address (github.com/settings/emails) to keep your email out of public commits.
+GIT_AUTHOR_NAME=
+GIT_AUTHOR_EMAIL=
+GIT_COMMITTER_NAME=
+GIT_COMMITTER_EMAIL=
