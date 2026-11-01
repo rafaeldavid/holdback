@@ -55,7 +55,7 @@ Scope after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-inte
 - Demo success criteria met (`docs/demo.md`). *Met, with one criterion partly met and moved to T-016b (2026-11-01).*
 - Scenarios pass in CI. *Met: 32 fixtures pass on main.*
 - Hold p95 ≤ 250 ms on SimChain (measured). *Met: 8.27 ms per hold over 1,000 holds (T-006).*
-- Rafa has walked through the demo. *Open: the only remaining Phase 1 gate.*
+- Rafa has walked through the demo. *Met: Rafa walked through it on 2026-11-01 with the guided walkthrough (`reports/phase1-walkthrough.html`). Phase 1 is done.*
 
 ## Phase 2: Settlement on EVM, no admin keys
 
