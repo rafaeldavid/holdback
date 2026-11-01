@@ -1,0 +1,182 @@
+// The local EVM world for kind 'local' (T-205): an anvil process on 127.0.0.1 (chain id 31337), the T-202 contracts
+// deployed once from `contracts/out` (run `forge build` first), and a snapshot each fresh settlement reverts to.
+// Deployment: LocalUSDC (anvil-only test token with ERC-3009), CPP AuthCaptureEscrow v1.1.0 and both collectors,
+// LocalMulticall3 (aggregate3, for the operator-fee bundle) and HoldbackRules (which deploys HoldbackBonds).
+// Permit2 is not deployed: the Permit2 collector points at an address with no code, so only ERC-3009 funding runs.
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
+import { createServer } from 'node:net';
+import { join } from 'node:path';
+import { createPublicClient, createWalletClient, http, type Abi, type Address, type Hex, type PublicClient, type WalletClient } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
+import { foundry } from 'viem/chains';
+import { assertLocalRpc, assertSafeChain } from './guard.js';
+
+export const LOCAL_CHAIN_ID = 31337;
+/** anvil's first well-known dev key (public; guards no value). Deploys the contracts and relays for 'anyone'. */
+export const ANVIL_DEPLOYER_KEY: Hex = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
+/** The chain starts here so any scenario clock after it can be mined at its own second. */
+const ANVIL_GENESIS_TIME = 1_700_000_000;
+/** CPP authorizationExpiry margin after fallbackBy + appealDecideSec (ADR-0025; same as the T-202 tests). */
+export const EXPIRY_MARGIN = 86_400n;
+
+export interface Artifact {
+  abi: Abi;
+  bytecode: Hex;
+}
+
+/** Reads a forge artifact from contracts/out. */
+export function artifact(root: string, file: string, name: string): Artifact {
+  const path = join(root, 'contracts', 'out', file, `${name}.json`);
+  if (!existsSync(path)) throw new Error(`no artifact ${path}: run \`forge build\` in contracts/ first`);
+  const json = JSON.parse(readFileSync(path, 'utf8')) as { abi: Abi; bytecode: { object: Hex } };
+  return { abi: json.abi, bytecode: json.bytecode.object };
+}
+
+export interface Deployment {
+  token: Address;
+  escrow: Address;
+  erc3009Collector: Address;
+  permit2Collector: Address;
+  multicall: Address;
+  rules: Address;
+  bonds: Address;
+  /** The first block after deployment; logs before it are setup. */
+  fromBlock: bigint;
+}
+
+export interface Abis {
+  rules: Abi;
+  bonds: Abi;
+  token: Abi;
+  escrow: Abi;
+  multicall: Abi;
+  collector: Abi;
+}
+
+async function freePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const s = createServer();
+    s.unref();
+    s.on('error', reject);
+    s.listen(0, '127.0.0.1', () => {
+      const port = (s.address() as { port: number }).port;
+      s.close(() => resolve(port));
+    });
+  });
+}
+
+/** True when `anvil` is on PATH. */
+export function anvilAvailable(): boolean {
+  return spawnSync('anvil', ['--version'], { encoding: 'utf8' }).status === 0;
+}
+
+export class EvmWorld {
+  readonly chainId = LOCAL_CHAIN_ID;
+  private snapshotId: Hex | null = null;
+
+  private constructor(
+    readonly rpcUrl: string,
+    readonly publicClient: PublicClient,
+    readonly deployment: Deployment,
+    readonly abis: Abis,
+    private readonly proc: ChildProcess | null,
+  ) {}
+
+  /** Starts anvil on a free localhost port and deploys. `root` is the repository root (for contracts/out). */
+  static async start(root: string, options: { rpcUrl?: string } = {}): Promise<EvmWorld> {
+    let proc: ChildProcess | null = null;
+    let rpcUrl = options.rpcUrl;
+    if (!rpcUrl) {
+      const port = await freePort();
+      proc = spawn('anvil', ['--chain-id', String(LOCAL_CHAIN_ID), '--host', '127.0.0.1', '--port', String(port), '--timestamp', String(ANVIL_GENESIS_TIME), '--silent'], {
+        stdio: 'ignore',
+      });
+      rpcUrl = `http://127.0.0.1:${port}`;
+    }
+    assertLocalRpc(rpcUrl);
+    const publicClient = createPublicClient({ chain: foundry, transport: http(rpcUrl) }) as PublicClient;
+    try {
+      await waitFor(publicClient);
+      const chainId = await publicClient.getChainId();
+      assertSafeChain(chainId);
+      if (chainId !== LOCAL_CHAIN_ID) throw new RangeError(`kind local expects anvil chain id ${LOCAL_CHAIN_ID}, got ${chainId}`);
+      const { deployment, abis } = await deploy(root, rpcUrl, publicClient);
+      const world = new EvmWorld(rpcUrl, publicClient, deployment, abis, proc);
+      world.snapshotId = await world.rpc<Hex>('evm_snapshot', []);
+      return world;
+    } catch (e) {
+      proc?.kill();
+      throw e;
+    }
+  }
+
+  async rpc<T>(method: string, params: unknown[]): Promise<T> {
+    return (await this.publicClient.request({ method: method as never, params: params as never })) as T;
+  }
+
+  /** Reverts the chain to just after deployment, so each settlement starts from the same state. */
+  async fresh(): Promise<void> {
+    if (!this.snapshotId) throw new Error('EvmWorld has no snapshot');
+    const ok = await this.rpc<boolean>('evm_revert', [this.snapshotId]);
+    if (!ok) throw new Error('anvil refused evm_revert');
+    this.snapshotId = await this.rpc<Hex>('evm_snapshot', []);
+  }
+
+  wallet(key: Hex): WalletClient {
+    return createWalletClient({ account: privateKeyToAccount(key), chain: foundry, transport: http(this.rpcUrl) });
+  }
+
+  async stop(): Promise<void> {
+    if (!this.proc) return;
+    const p = this.proc;
+    await new Promise<void>((resolve) => {
+      p.once('exit', () => resolve());
+      p.kill();
+      setTimeout(resolve, 2000).unref();
+    });
+  }
+}
+
+async function waitFor(client: PublicClient): Promise<void> {
+  for (let i = 0; i < 100; i++) {
+    try {
+      await client.getBlockNumber();
+      return;
+    } catch {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+  }
+  throw new Error('anvil did not start within 10 s');
+}
+
+async function deploy(root: string, rpcUrl: string, client: PublicClient): Promise<{ deployment: Deployment; abis: Abis }> {
+  const wallet = createWalletClient({ account: privateKeyToAccount(ANVIL_DEPLOYER_KEY), chain: foundry, transport: http(rpcUrl) });
+  const one = async (a: Artifact, args: unknown[] = []): Promise<Address> => {
+    const hash = await wallet.deployContract({ abi: a.abi, bytecode: a.bytecode, args } as Parameters<typeof wallet.deployContract>[0]);
+    const r = await client.waitForTransactionReceipt({ hash });
+    if (r.status !== 'success' || !r.contractAddress) throw new Error(`deployment failed: ${hash}`);
+    return r.contractAddress;
+  };
+  const token = artifact(root, 'LocalUSDC.sol', 'LocalUSDC');
+  const escrowA = artifact(root, 'AuthCaptureEscrow.sol', 'AuthCaptureEscrow');
+  const c3009 = artifact(root, 'ERC3009PaymentCollector.sol', 'ERC3009PaymentCollector');
+  const cPermit2 = artifact(root, 'Permit2PaymentCollector.sol', 'Permit2PaymentCollector');
+  const multicallA = artifact(root, 'LocalMulticall3.sol', 'LocalMulticall3');
+  const rulesA = artifact(root, 'HoldbackRules.sol', 'HoldbackRules');
+  const bondsA = artifact(root, 'HoldbackBonds.sol', 'HoldbackBonds');
+
+  const tokenAddr = await one(token);
+  const escrow = await one(escrowA);
+  const multicall = await one(multicallA);
+  const erc3009Collector = await one(c3009, [escrow, multicall]);
+  const permit2Collector = await one(cPermit2, [escrow, '0x000000000022D473030F116dDEE9F6B43aC78BA3', multicall]);
+  // Beacon round arithmetic: genesis 0, period 1 s, so round(t) = t, as SimChain's floor(ms / 1000) (ADR-0018).
+  const rules = await one(rulesA, [escrow, erc3009Collector, permit2Collector, EXPIRY_MARGIN, 0n, 1n]);
+  const bonds = (await client.readContract({ address: rules, abi: rulesA.abi, functionName: 'BONDS' })) as Address;
+  const fromBlock = (await client.getBlockNumber()) + 1n;
+  return {
+    deployment: { token: tokenAddr, escrow, erc3009Collector, permit2Collector, multicall, rules, bonds, fromBlock },
+    abis: { rules: rulesA.abi, bonds: bondsA.abi, token: token.abi, escrow: escrowA.abi, multicall: multicallA.abi, collector: c3009.abi },
+  };
+}
