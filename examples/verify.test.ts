@@ -178,6 +178,10 @@ describe('neutrality.operator-lies-in-prepare', { timeout: 30_000 }, () => {
     expect(() => verify(prepared, { ...intent, expectedPrice: { token: 'tUSD', amount: '24000000' } }, buyer.address)).toThrow(/price 25000000 tUSD is not the 24000000 tUSD you agreed/);
     expect(() => verify(prepared, { ...intent, expectedPrice: { token: 'USDC', amount: '25000000' } }, buyer.address)).toThrow(/not the 25000000 USDC you agreed/);
     expect(() => verify(prepared, { ...intent, expectedCommitmentId: `0x${'cd'.repeat(32)}` }, buyer.address)).toThrow(/terms you were sent are not the ones you expected/);
+    // Money rule: a decimal string of base units, nothing looser (a float, leading zeros, a number, an exponent).
+    for (const amount of ['25.0', '025000000', 25000000, '2.5e7', ' 25000000', '']) {
+      expect(() => verify(prepared, { ...intent, expectedPrice: { token: 'tUSD', amount } as J }, buyer.address), String(amount)).toThrow(/decimal string/);
+    }
     // The honest message, signed from the agent's own typed data, is accepted by the settlement layer.
     expect((await buyer.signAndSubmit(prepared, intent)).escrowState).toBe('Held');
   });

@@ -123,7 +123,9 @@ function expected(intent: Intent, op: J, now: number): Plan {
     if (t.buyer.toLowerCase() !== intent.me.toLowerCase()) refuse('the terms name another buyer');
     if (t.buyerEncryptionPublicKey !== intent.encryptionPublicKey) refuse('the terms seal the work to a key you do not hold');
     const want = intent.expectedPrice;
-    if (want && (t.price.token !== want.token || BigInt(t.price.amount) !== BigInt(want.amount))) refuse(`price ${t.price.amount} ${t.price.token} is not the ${want.amount} ${want.token} you agreed`);
+    // Money is a decimal string of base units (no floats, no leading zeros): compared as strings, never parsed loosely.
+    if (want && (typeof want.token !== 'string' || typeof want.amount !== 'string' || !/^(0|[1-9][0-9]*)$/.test(want.amount))) refuse('expectedPrice must be {"token", "amount"} with amount in base units as a decimal string, e.g. "25000000"');
+    if (want && (t.price.token !== want.token || t.price.amount !== want.amount)) refuse(`price ${t.price.amount} ${t.price.token} is not the ${want.amount} ${want.token} you agreed`);
     if (intent.expectedCommitmentId && id.toLowerCase() !== intent.expectedCommitmentId.toLowerCase()) refuse(`the terms you were sent are not the ones you expected (commitment ${id}, expected ${intent.expectedCommitmentId})`);
     const total = BigInt(t.price.amount) + BigInt(t.adjudication.fee.amount);
     if (total > intent.maxTotal) refuse(`price plus fee ${total} exceeds your limit ${intent.maxTotal}`);
