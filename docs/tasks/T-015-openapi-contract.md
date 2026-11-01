@@ -5,7 +5,7 @@
 - **Depends on:** T-007, T-010
 - **Paths this task may touch:** `spec/openapi/` (paths file), `spec/openapi.json` (generated), `scripts/openapi.mjs`, `scripts/validate-spec.mjs`, `tests/contract/`, `apps/operator/src/openapi/`, root `package.json` (`openapi` script). Added after review, approved by lead: `apps/operator/src/server.ts` (routes for `/v1/openapi.json` and `/llms.txt`), `packages/settlement/sim/actors.ts` (sim rulebook version), `docs/api.md` (two discovery rows), `docs/team.md` (Rules and checks row), `vitest.config.ts` (shard cost entry), root `package.json` (`engines`)
 - **Human gate:** no (the schemas it reads are already accepted in v0.5)
-- **Status:** review
+- **Status:** done
 - **Agent/session:** —
 
 ## Intent
