@@ -269,6 +269,51 @@ ${GPU(320, 0, 'adjudicator')}
 })();
 </script>`;
 
+// Try ’crow: a single prompt for any agent, and the early-access request (a drawer on phones). Sign-ups go to
+// the crow-early-access Worker (apps/early-access), which keeps only the address, the time and the page.
+const PROMPT = `Read ${SITE_URL}llms.txt and use the ’crow escrow API to run one complete test deal, playing both sides. Make a buyer and a seller, each with its own signing and encryption keys, and fund both from the faucet. As the seller, offer a small checks-only dataset deal. As the buyer, check the offer and agree and fund it. Then deliver the work, wait for the outcome, and open what the buyer received. Verify every prepared message against your own intent before you sign it. Report each step and the final state. Test tokens only.`;
+const TRY = `<section class="try" aria-labelledby="try-h">
+<h2 id="try-h">Try ’crow</h2>
+<div class="prompt"><p id="prompt">${esc(PROMPT)}</p><button class="btn" id="copy" type="button">Copy prompt</button></div>
+<div class="cta"><button class="btn primary" id="join-open" type="button">Request early access</button></div>
+</section>`;
+const JOIN = `<dialog id="join" aria-labelledby="join-h">
+<form id="join-form" novalidate>
+<h3 id="join-h">Request early access</h3>
+<p>Leave your email and we’ll write when ’crow opens to more agents. Nothing else.</p>
+<label for="join-email">Email</label>
+<input id="join-email" name="email" type="email" autocomplete="email" required placeholder="you@example.com">
+<input class="hp" name="company" tabindex="-1" autocomplete="off" aria-hidden="true">
+<div class="row"><button class="btn" id="join-close" type="button">Close</button><button class="btn primary" id="join-send" type="submit">Request access</button></div>
+<p class="msg" id="join-msg" role="status"></p>
+</form>
+</dialog>
+<script>
+(function () {
+  var copy = document.getElementById('copy'), text = document.getElementById('prompt').textContent;
+  copy.addEventListener('click', function () {
+    var done = function () { copy.textContent = 'Copied'; setTimeout(function () { copy.textContent = 'Copy prompt'; }, 2000); };
+    var select = function () { var r = document.createRange(); r.selectNodeContents(document.getElementById('prompt')); var s = getSelection(); s.removeAllRanges(); s.addRange(r); copy.textContent = 'Selected: press copy'; };
+    if (navigator.clipboard) navigator.clipboard.writeText(text).then(done, select); else select();
+  });
+  var dlg = document.getElementById('join'), form = document.getElementById('join-form'), msg = document.getElementById('join-msg'), send = document.getElementById('join-send');
+  document.getElementById('join-open').addEventListener('click', function () { msg.textContent = ''; if (dlg.showModal) dlg.showModal(); else dlg.setAttribute('open', ''); document.getElementById('join-email').focus(); });
+  document.getElementById('join-close').addEventListener('click', function () { dlg.close ? dlg.close() : dlg.removeAttribute('open'); });
+  dlg.addEventListener('click', function (e) { if (e.target === dlg && dlg.close) dlg.close(); });
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var email = form.email.value.trim();
+    if (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]{2,}$/.test(email)) { msg.textContent = 'Please enter a full email address, like you@example.com.'; return; }
+    send.disabled = true; msg.textContent = 'Sending…';
+    fetch('https://crow-early-access.rafaeldf2.workers.dev/early-access', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: email, company: form.company.value, page: location.pathname }) })
+      .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, b: b }; }); })
+      .then(function (x) { msg.textContent = x.ok ? 'Thank you. We’ll be in touch at ' + email + '.' : (x.b && x.b.error) || 'That didn’t go through. Please try again.'; if (x.ok) form.email.value = ''; })
+      .catch(function () { msg.textContent = 'That didn’t go through. Check your connection and try again.'; })
+      .then(function () { send.disabled = false; });
+  });
+})();
+</script>`;
+
 /**
  * index.html from llms.txt: the tagline as a title and a subtitle, and the drawing (Rafa, 2026-11-01: the
  * page says "escrow for agents" and a descriptive subtitle; every doc lives in llms.txt). Agents find the
@@ -327,6 +372,32 @@ text.note { text-anchor: middle; font-style: italic; font-variant: normal; lette
 .gpu.on rect, .gpu.on path { stroke: var(--sepia); stroke-width: 1.3; } .gpu.on text { fill: var(--sepia); }
 .gpu.off { opacity: .3; } .gpu.off rect { stroke-dasharray: 2 3; }
 .tm { fill: var(--graphite); stroke: none; } .tk { fill: var(--paper); stroke: var(--sepia); stroke-width: 1.4; } .tw { fill: var(--paper); stroke: var(--graphite); stroke-width: 1; }
+/* Try ’crow: one prompt to paste into an agent; and the early-access request */
+.try { margin: 44px auto 0; max-width: 36em; }
+.try h2 { font-weight: 500; font-size: 15px; font-variant: small-caps; letter-spacing: 0.12em; color: var(--pencil); margin: 0 0 12px; }
+.prompt { position: relative; text-align: left; background: #f2eee4; border: 1px solid #e2ddd2; border-radius: 8px; padding: 16px 18px 52px; }
+.prompt p { margin: 0; font: 13.5px/1.6 ui-monospace, "SF Mono", Menlo, monospace; color: var(--graphite); white-space: pre-wrap; overflow-wrap: anywhere; }
+.btn { font: 16px var(--serif); color: var(--graphite); background: transparent; border: 1px solid var(--graphite); border-radius: 999px; padding: 8px 18px; cursor: pointer; }
+.btn:hover { background: #efe9dc; } .btn:focus-visible, input:focus-visible { outline: 2px solid var(--sepia); outline-offset: 2px; }
+.btn.primary { background: var(--graphite); color: var(--paper); } .btn.primary:hover { background: #45423d; }
+.prompt .btn { position: absolute; right: 12px; bottom: 12px; font-size: 14px; padding: 5px 14px; }
+.cta { margin-top: 22px; }
+dialog { box-sizing: border-box; border: 1px solid #d8d2c4; border-radius: 12px; padding: 28px; width: min(420px, calc(100% - 32px)); background: var(--paper); color: var(--graphite); font-family: var(--serif); text-align: left; box-shadow: 0 20px 60px rgba(47, 45, 42, .18); }
+dialog::backdrop { background: rgba(47, 45, 42, .28); }
+dialog h3 { font-weight: 500; font-size: 26px; margin: 0 0 6px; }
+dialog p { margin: 0 0 18px; color: var(--pencil); font-size: 17px; line-height: 1.45; }
+dialog label { display: block; font-size: 15px; font-variant: small-caps; letter-spacing: 0.08em; color: var(--pencil); margin-bottom: 6px; }
+dialog input[type=email] { width: 100%; box-sizing: border-box; font: 18px var(--serif); color: var(--graphite); background: #fffdf8; border: 1px solid #cfc8b8; border-radius: 8px; padding: 10px 12px; margin-bottom: 16px; }
+dialog .row { display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; }
+dialog .msg { margin: 14px 0 0; min-height: 1.4em; font-style: italic; }
+.hp { position: absolute; left: -10000px; width: 1px; height: 1px; opacity: 0; }
+/* on phones the request slides up as a drawer from the bottom */
+@media (max-width: 640px) {
+  dialog { margin: auto 0 0; width: 100%; max-width: none; border-radius: 16px 16px 0 0; border-bottom: 0; padding: 24px max(20px, env(safe-area-inset-left, 0px)) calc(24px + env(safe-area-inset-bottom, 0px)); }
+  dialog[open] { animation: drawer .26s ease-out; }
+  @keyframes drawer { from { transform: translateY(100%); } }
+}
+@media (prefers-reduced-motion: reduce) { dialog[open] { animation: none; } }
 </style>
 </head>
 <body>
@@ -338,8 +409,10 @@ text.note { text-anchor: middle; font-style: italic; font-variant: normal; lette
 <h1>${inline(title)}</h1>
 <p class="sub">${inline(subtitle)}</p>
 <p class="intro">${inline(intro)}</p>
+${TRY}
 ${FIGURE}
 </main>
+${JOIN}
 </body>
 </html>
 `;
