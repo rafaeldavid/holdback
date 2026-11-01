@@ -1,6 +1,6 @@
 # ADR-0024: Private deals and the end-to-end encrypted API
 
-- **Status:** Proposed (D34). Rafa accepts or overrules.
+- **Status:** Accepted by Rafa, 2026-11-01 (D34), as amended after the research pass.
 - **Date:** 2026-11-01 (amended the same day after the research pass)
 - **Raised by:** Rafa, 2026-11-01: make "private escrow" true end to end; the operator should not be able to read the deal either (T-207). Rafa, 2026-11-01: identity, discovery and negotiation stay outside the protocol; per-deal keys by default (D35, rails not a record-keeper). Builds on ADR-0020 (D16), ADR-0012, ADR-0017 (D13), ADR-0023's version rule, D26 and D32.
 - **Changes:** schema v0.8; `packages/core`, `packages/sdk`, `apps/operator`, `examples/`, `docs/api.md`, `docs/neutrality.md`; handoff to T-202/T-205 (settlement view, events) and T-207 (acceptance criteria).

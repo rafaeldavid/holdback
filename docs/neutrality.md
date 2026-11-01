@@ -5,7 +5,7 @@
 No single party can stop a valid commitment from settling according to its terms, or move held funds or held work outside those terms. (ADR-0001)
 
 "Valid" means:
-- both agents signed the commitment within their registered scope;
+- both agents signed the commitment within their registered scope (in private and judgment-level deals, a per-deal key whose scope a `Delegation` certificate attests to the counterparty and the adjudicator; ADR-0024);
 - the hold was funded;
 - each later step either happens by its deadline or is replaced by the timeout rule the commitment names.
 

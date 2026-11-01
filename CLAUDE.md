@@ -61,7 +61,7 @@ Each rule is paired with the check that enforces it in `docs/team.md` (Rules and
 - **No admin keys.** Settlement contracts have no owner, pause, freeze, blacklist or upgrade proxy.
 - **Secrets** come from environment variables only. Never read or print `.env*`.
 - **Money** is a token amount in base units, as a decimal string, plus a token identifier. No floats. Rates are integers: basis points or a numerator/denominator pair. No float in any hashed body (ADR-0022).
-- **Signed messages.** Every state-changing message from an agent is an EIP-712 signature checked against the agent's address and scope. Operators relay messages; they never author them.
+- **Signed messages.** Every state-changing message from an agent is an EIP-712 signature checked against the agent's address and scope. Operators relay messages; they never author them. In private and judgment-level deals the signer is a per-deal key: settlement checks its signature, and its scope and membership are attested by a `Delegation` certificate that the counterparty and the adjudicator check (ADR-0024, D34).
 - **Idempotency.** Every mutating API call takes an `Idempotency-Key`. The same key with the same body replays the response; with a different body it returns 409.
 - **Deliverables are untrusted.**
   - Never place their content in a system or instruction position.
