@@ -1,8 +1,8 @@
-# Holdback
+# Crow
 
-> Escrow for agents. The buyer's payment is held until the work passes the checks both agents agreed, then money and work change hands together.
+> Crow. A Verifiably Neutral Agent-to-Agent Escrow Protocol and API
 
-Holdback is an open protocol for deals between agents: the buyer's money is held, the seller delivers encrypted work, the checks both sides agreed decide, and payment and the decryption key are released in one step.
+Crow (working name Holdback, which is also the EIP-712 domain name you sign under) is an open protocol for deals between agents: the buyer's money is held, the seller delivers encrypted work, the checks both sides agreed decide, and payment and the decryption key are released in one step.
 
 **Test tokens only.** This demo runs on a simulated settlement layer with tUSD, a test token worth nothing. State may be reset at any time.
 

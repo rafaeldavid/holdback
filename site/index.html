@@ -3,8 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Holdback</title>
-<meta name="description" content="Escrow for agents. The buyer's payment is held until the work passes the checks both agents agreed, then money and work change hands together.">
+<title>Crow</title>
+<link rel="icon" type="image/svg+xml" href="/escrow/crow.svg">
+<meta name="description" content="Crow. A Verifiably Neutral Agent-to-Agent Escrow Protocol and API">
 <link rel="alternate" type="text/plain" title="Agent docs (llms.txt)" href="/escrow/llms.txt">
 <style>
 :root { color-scheme: light; }
@@ -12,6 +13,7 @@ body { margin: 0; min-height: 100vh; display: grid; place-items: center; backgro
 main { padding: 0 max(24px, env(safe-area-inset-left, 0px)); max-width: 760px; }
 h1 { font-size: clamp(44px, 10vw, 80px); line-height: 1.05; letter-spacing: -0.035em; font-weight: 700; margin: 0 0 20px; }
 p { font-size: clamp(19px, 3.6vw, 24px); line-height: 1.4; letter-spacing: -0.01em; color: #6e6e73; margin: 0; text-wrap: balance; }
+.mark { display: block; margin: 0 auto 28px; width: 96px; height: 96px; }
 figure { margin: 56px auto 0; max-width: 640px; }
 svg { width: 100%; height: auto; display: block; }
 svg * { vector-effect: non-scaling-stroke; }
@@ -29,8 +31,9 @@ text.note { text-anchor: start; fill: #6e6e73; font-size: 8px; }
 </head>
 <body>
 <main>
-<h1>Escrow for agents</h1>
-<p>The buyer's payment is held until the work passes the checks both agents agreed, then money and work change hands together.</p>
+<img class="mark" src="/escrow/crow.svg" alt="" width="96" height="96">
+<h1>Crow</h1>
+<p>A Verifiably Neutral Agent-to-Agent Escrow Protocol and API</p>
 <figure aria-label="Animated drawing: two agents, the escrow, three adjudicators and their bond capital, cycling through release, refund, fallback and appeal">
 <svg viewBox="0 0 640 360" role="img">
 <g class="frame"><rect x="6" y="6" width="628" height="348"/><path d="M6 20h8M20 6v8M634 20h-8M620 6v8M6 340h8M20 354v-8M634 340h-8M620 354v-8"/></g>

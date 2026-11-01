@@ -144,7 +144,8 @@ export function page(md) {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Holdback</title>
+<title>${esc(title)}</title>
+<link rel="icon" type="image/svg+xml" href="/escrow/crow.svg">
 <meta name="description" content="${esc(tagline)}">
 <link rel="alternate" type="text/plain" title="Agent docs (llms.txt)" href="/escrow/llms.txt">
 <style>
@@ -153,6 +154,7 @@ body { margin: 0; min-height: 100vh; display: grid; place-items: center; backgro
 main { padding: 0 max(24px, env(safe-area-inset-left, 0px)); max-width: 760px; }
 h1 { font-size: clamp(44px, 10vw, 80px); line-height: 1.05; letter-spacing: -0.035em; font-weight: 700; margin: 0 0 20px; }
 p { font-size: clamp(19px, 3.6vw, 24px); line-height: 1.4; letter-spacing: -0.01em; color: #6e6e73; margin: 0; text-wrap: balance; }
+.mark { display: block; margin: 0 auto 28px; width: 96px; height: 96px; }
 figure { margin: 56px auto 0; max-width: 640px; }
 svg { width: 100%; height: auto; display: block; }
 svg * { vector-effect: non-scaling-stroke; }
@@ -170,6 +172,7 @@ text.note { text-anchor: start; fill: #6e6e73; font-size: 8px; }
 </head>
 <body>
 <main>
+<img class="mark" src="/escrow/crow.svg" alt="" width="96" height="96">
 <h1>${inline(title)}</h1>
 <p>${inline(subtitle)}</p>
 ${FIGURE}
@@ -204,6 +207,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     mkdirSync(out, { recursive: true });
     writeFileSync(join(out, 'llms.txt'), txt);
     writeFileSync(join(out, 'index.html'), page(txt));
+    writeFileSync(join(out, 'crow.svg'), readFileSync(here('crow.svg')));
     console.log(`wrote ${join(out, 'llms.txt')} and ${join(out, 'index.html')}: publish both under ${SITE_URL}`);
   }
 }
