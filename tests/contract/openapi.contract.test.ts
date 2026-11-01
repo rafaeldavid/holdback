@@ -276,6 +276,10 @@ describe('HTTP contract: every operator response matches spec/openapi.json', () 
     const unsigned = { ...draft.submit.body, signatures: {} };
     const dry = await http('POST', `${api}/v1/commitments?validateOnly=true`, unsigned, { 'idempotency-key': 't015-dry' });
     expect([dry.status, dry.headers.get('holdback-dry-run'), dry.headers.get('holdback-signature-check')]).toEqual([200, 'true', 'skipped']);
+    // T-025: the prepared body exactly as returned, "signatures": { "seller": null }, previews too.
+    expect(draft.submit.body.signatures).toEqual({ seller: null });
+    const asReturned = await http('POST', `${api}/v1/commitments?validateOnly=true`, draft.submit.body);
+    expect([asReturned.status, asReturned.headers.get('holdback-signature-check')]).toEqual([200, 'skipped']);
     const faucet = { address: e1.address, amount: '1000000' };
     const once = await http('POST', `${api}/v1/test/faucet`, faucet, { 'idempotency-key': 't015-faucet' });
     const again = await http('POST', `${api}/v1/test/faucet`, faucet, { 'idempotency-key': 't015-faucet' });
