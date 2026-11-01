@@ -159,7 +159,7 @@ describe('sim:check on an honest run', () => {
 describe('sim:check catches a violation', () => {
   it('a mutated ledger: units moved between parties with no posting (conservation per account)', async () => {
     const audit = clone(f.audit);
-    move(audit, f.cast.buyer.address, f.cast.seller.address, 1n);
+    move(audit, f.cast.buyer.address.toLowerCase(), f.cast.seller.address.toLowerCase(), 1n);
     const r = await check(f, { audit });
     expect(r.ok).toBe(false);
     expect(failed(r)).toContain('conservation');
@@ -168,7 +168,8 @@ describe('sim:check catches a violation', () => {
 
   it('a mutated ledger: units created from nothing (total conservation)', async () => {
     const audit = clone(f.audit);
-    audit.ledger[f.cast.seller.address] = (BigInt(audit.ledger[f.cast.seller.address]!) + 1_000_000n).toString();
+    const seller = f.cast.seller.address.toLowerCase();
+    audit.ledger[seller] = (BigInt(audit.ledger[seller]!) + 1_000_000n).toString();
     const r = await check(f, { audit });
     expect(failed(r)).toContain('conservation');
     expect(r.invariants.find((i) => i.id === 'conservation')!.violations.join('\n')).toMatch(/ledger sums to .* minted/);
@@ -182,8 +183,10 @@ describe('sim:check catches a violation', () => {
     const postings = (ev.payload['postings'] as Array<{ from: string; to: string; amount: { amount: string } }>).map((p) => (p.to === f.cast.seller.address.toLowerCase() ? { ...p, to: outsider } : p));
     audit.log[i] = { ...ev, payload: { ...ev.payload, postings } };
     rehash(audit.log, i);
-    move(audit, f.cast.seller.address.toLowerCase(), outsider, 2_000_000_000n);
-    const reads = f.reads.map((o) => ({ ...o, commitments: Object.fromEntries(Object.entries(o.commitments).map(([id, c]) => [id, { ...c, events: audit.log.filter((e) => e.commitmentId === id) }])) }));
+    const seller = f.cast.seller.address.toLowerCase();
+    move(audit, seller, outsider, 2_000_000_000n);
+    // A forger who controls the whole world also makes the operators agree.
+    const reads = f.reads.map((o) => ({ ...o, balances: { ...o.balances, [seller]: (BigInt(o.balances[seller]!) - 2_000_000_000n).toString() }, commitments: Object.fromEntries(Object.entries(o.commitments).map(([id, c]) => [id, { ...c, events: audit.log.filter((e) => e.commitmentId === id) }])) }));
     const r = await check(f, { audit, reads });
     expect(failed(r)).toEqual(['within-terms']);
     expect(r.invariants.find((i) => i.id === 'within-terms')!.violations.join('\n')).toMatch(new RegExp(`${outsider}`));
