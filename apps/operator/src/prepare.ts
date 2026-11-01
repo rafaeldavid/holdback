@@ -8,6 +8,7 @@ import {
   canonicalJson,
   parseCommitment,
   commitmentId,
+  isSealed,
   eip712Types,
   messageDigest,
   mulBps,
@@ -21,7 +22,9 @@ import {
   type AdjudicatorRegistration,
   type Address,
   type Club,
-  type Commitment,
+  type AnyCommitment,
+  type AnyCommitmentTerms,
+  type DisclosureLevel,
   type CommitmentStateView,
   type CommitmentTerms,
   type DeterministicCheck,
@@ -74,7 +77,8 @@ export interface PrepareContext {
   now(): Timestamp;
   club(id: string): Club | undefined;
   registration(address: Address): AdjudicatorRegistration | null;
-  commitment(id: Hex32): Promise<Commitment | undefined>;
+  /** Either wire form: at private and judgment the bodies are ciphertext this operator cannot read (ADR-0024). */
+  commitment(id: Hex32): Promise<AnyCommitment | undefined>;
   /** The last delivery event's payload, if any. */
   delivery(id: Hex32): Promise<{ deliveryHash: Hex32; attempt: number } | undefined>;
   attempt(id: Hex32): Promise<number>;
@@ -205,7 +209,7 @@ function amountIn(v: unknown, name: string): TokenAmount {
   return { token: v['token'], amount: v['amount'] } as TokenAmount;
 }
 
-async function commitmentIn(ctx: PrepareContext, input: Record<string, unknown>): Promise<Commitment> {
+async function commitmentIn(ctx: PrepareContext, input: Record<string, unknown>): Promise<AnyCommitment> {
   if (!isHex32(input['commitmentId'])) bad('commitmentId is required');
   const c = await ctx.commitment(input['commitmentId'] as Hex32);
   if (!c) throw new PrepareError(problem('not_found', `no commitment ${String(input['commitmentId'])}`));
@@ -214,7 +218,44 @@ async function commitmentIn(ctx: PrepareContext, input: Record<string, unknown>)
 
 // ---- each kind -------------------------------------------------------------------------------------
 
+const PLACEHOLDER_BODY = { deliverable: { kind: 'other', description: 'hash-only', format: 'text/plain' }, check: { id: 'hash-only', type: 'row_count_range', required: true, min: 0, max: 0 } } as const;
+
+/**
+ * ADR-0024 §4: the hash-only offer. The agent built the terms with the client-side recipe and sends only the bodies'
+ * hashes, its nonce, createdAt and the level; this operator never sees a body. It returns the typed data and digest
+ * to compare with the agent's own, and the body without privateTerms, which the agent adds (ciphertext and envelopes
+ * whose hashes are these). nonce and createdAt are required: the agent encrypted under the commitment ID already.
+ */
+async function hashOnlyOffer(ctx: PrepareContext, input: Record<string, unknown>): Promise<Prepared> {
+  for (const k of ['deliverable', 'acceptance', 'checks', 'rubric', 'template']) if (input[k] !== undefined) bad(`a hash-only offer takes deliverableHash and acceptanceHash, not ${k}: the operator never sees a body`);
+  if (!isHex32(input['deliverableHash']) || !isHex32(input['acceptanceHash'])) bad('deliverableHash and acceptanceHash are keccak256 of the RFC 8785 JSON of each body (docs/api.md, the client-side recipe)');
+  const level = (input['disclosure'] ?? 'private') as DisclosureLevel;
+  if (level !== 'private' && level !== 'judgment') bad('disclosure is "private" (the default) or "judgment"; a public offer carries its bodies in the clear');
+  const nonce = nonceIn(input['nonce'], 'nonce') ?? bad('nonce is required for a hash-only offer: you encrypted the bodies under the commitment ID');
+  const createdAt = timestamp(input['createdAt'], 'createdAt') ?? bad('createdAt is required for a hash-only offer: you encrypted the bodies under the commitment ID');
+  const plain = await offer(ctx, { ...input, hashOnly: undefined, deliverableHash: undefined, acceptanceHash: undefined, disclosure: undefined, template: 'checks-only', deliverable: PLACEHOLDER_BODY.deliverable, checks: [PLACEHOLDER_BODY.check], nonce, createdAt });
+  const body = plain.submit.body as unknown as CommitmentTerms;
+  const { deliverable: _d, acceptance: _a, id: _i, signatures: _s, ...rest } = body as CommitmentTerms & { id: unknown; signatures: unknown }; // eslint-disable-line @typescript-eslint/no-unused-vars
+  const part = (hash: Hex32) => ({ hash, ciphertext: '', envelopes: [] as EncryptedKey[] });
+  const terms = { ...rest, disclosure: { level }, privateTerms: { deliverable: part(lc(input['deliverableHash'] as string) as Hex32), acceptance: part(lc(input['acceptanceHash'] as string) as Hex32) } } as AnyCommitmentTerms;
+  const id = commitmentId(terms);
+  const { privateTerms: _p, ...wire } = terms as AnyCommitmentTerms & { privateTerms: unknown }; // eslint-disable-line @typescript-eslint/no-unused-vars
+  return {
+    kind: 'offer',
+    commitmentId: id,
+    sign: [{ slot: 'signatures.seller', signer: terms.seller, typedData: typedData(ctx.domain, 'CommitmentTerms', typedTermsOf(terms) as Record<string, unknown>), digest: termsDigest(ctx.domain, terms) }],
+    submit: { method: 'POST', path: '/v1/commitments', body: { ...wire, id, signatures: { seller: null } } },
+    check: [
+      ...plain.check.filter((c) => !c.startsWith('deliverableHash')),
+      `disclosure.level ${level}: add privateTerms {deliverable, acceptance} to submit.body, each {hash, ciphertext, envelopes} with the hashes you sent (${String(input['deliverableHash'])}, ${String(input['acceptanceHash'])}); the operator never saw the bodies`,
+      'compare digest with your own: the client-side recipe needs no operator, this answer is a cross-check',
+    ],
+    defaults: { nonce, createdAt },
+  };
+}
+
 async function offer(ctx: PrepareContext, input: Record<string, unknown>): Promise<Prepared> {
+  if (input['hashOnly'] === true) return hashOnlyOffer(ctx, input);
   const template = input['template'] ?? 'default';
   if (template !== 'default' && template !== 'checks-only') bad('template is "default" (checks, then a judge panel on the rubric) or "checks-only"');
   if (!isAddress(input['seller'])) bad('seller (your address) is required');
@@ -364,7 +405,8 @@ async function delivery(ctx: PrepareContext, input: Record<string, unknown>): Pr
     attempt: Number.isSafeInteger(input['attempt']) ? (input['attempt'] as number) : 1,
     ciphertext: { uri: ct!['uri'] as string, sha256: ct!['sha256'] as Sha256, bytes: ct!['bytes'] as number, cipher: 'aes-256-gcm' as const },
     plaintextSha256: input['plaintextSha256'] as Sha256,
-    plaintextMime: (input['plaintextMime'] ?? c.deliverable.format) as MimeType,
+    // A sealed deal's format is in its ciphertext body, which this operator cannot read (ADR-0024): the seller names it.
+    plaintextMime: (input['plaintextMime'] ?? (isSealed(c) ? bad('plaintextMime is required for a private or judgment deal: the operator cannot read the deliverable format') : c.deliverable.format)) as MimeType,
     encryptedKeys: (keys as EncryptedKey[]).map((k) => ({ recipient: k.recipient, scheme: k.scheme, ciphertext: k.ciphertext })),
     submittedAt,
   };

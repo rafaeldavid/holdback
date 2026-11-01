@@ -45,7 +45,7 @@ import { commitmentIdOf, operationOf, previewSubmission, submissionKeys, submiss
 import type { PolicyContext, RelayPolicy } from './policy.js';
 import type { DryRunSubmission, Settlement, SubmitResult } from '@holdback/settlement';
 import { privateKeyToAccount } from 'viem/accounts';
-import type { CommitmentTerms, Sha256, Signature, Timestamp, TokenAmount } from '@holdback/core';
+import type { Sha256, Signature, Timestamp, TokenAmount } from '@holdback/core';
 import { CryptoError, sha256 } from '@holdback/core/crypto';
 import { MAX_CIPHERTEXT_BYTES, type CiphertextStore } from '@holdback/core/store';
 import { ENVELOPE_SPEC } from './envelope-spec.js';

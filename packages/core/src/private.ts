@@ -13,7 +13,7 @@ import { ContentKey, CONTENT_KEY_BYTES } from './crypto/content.js';
 import { unwrapKeyFor, wrapKeyForRecipients, type Recipient } from './crypto/envelope.js';
 import { CryptoError } from './crypto/errors.js';
 import { draw, systemRandom, type RandomSource } from './crypto/random.js';
-import { bodyHashes, commitmentId, isSealed, verifyMessage, type HoldbackDomain } from './eip712.js';
+import { bodyHashes, commitmentId, verifyMessage, type HoldbackDomain } from './eip712.js';
 import { gte } from './money/index.js';
 import { parseMessage } from './parse.js';
 import { problem, type Problem } from './problem.js';

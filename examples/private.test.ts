@@ -27,7 +27,11 @@ function strings(v: unknown, out: string[] = [], seen = new Set<unknown>()): str
   else if (v instanceof Uint8Array) out.push(Buffer.from(v).toString('utf8'));
   else if (v && typeof v === 'object' && !seen.has(v)) {
     seen.add(v);
-    if (v instanceof Map) for (const [k, x] of v) (strings(k, out, seen), strings(x, out, seen));
+    if (v instanceof Map)
+      for (const [k, x] of v) {
+        strings(k, out, seen);
+        strings(x, out, seen);
+      }
     else if (v instanceof Set) for (const x of v) strings(x, out, seen);
     else for (const k of Object.getOwnPropertyNames(v)) strings((v as Record<string, unknown>)[k], out, seen);
   }
@@ -110,7 +114,7 @@ beforeAll(async () => {
   buyerLT = lt('buyer-1');
   sellerLT = lt('seller-1');
   outsider = lt('buyer-2');
-  [primary, fallback, appeal] = world.info.adjudicators.map((a) => a.address);
+  [primary, fallback, appeal] = world.info.adjudicators.map((a) => a.address) as [string, string, string];
   deal = await privateDeal();
 }, 60_000);
 afterAll(() => world.close());
@@ -125,7 +129,8 @@ describe('private deals over HTTP (ADR-0024, T-207 stage 2a)', () => {
     const { agent: _agent, signature: _sig, ...rest } = deal.sellerDelegation; // eslint-disable-line @typescript-eslint/no-unused-vars
     const selfSigned = { ...rest, agent: deal.seller.address, signature: await deal.seller.account.signTypedData(typedOf('Delegation', { ...rest, agent: deal.seller.address }, deal.seller.domain)) };
     const want = { dealKey: deal.terms.seller, dealEncryptionKey: deal.terms.deliverable.sellerEncryptionPublicKey, clubId: world.info.clubId, role: 'seller' as const, price: PRICE };
-    await expect(buyerLT.checkDelegation(selfSigned, want)).rejects.toThrow(/no mandate/);
+    // The deal key holds no mandate: the registry has no such agent.
+    await expect(buyerLT.checkDelegation(selfSigned, want)).rejects.toThrow(/not_found|no mandate/);
     // A genuine certificate for another deal key is refused.
     await expect(buyerLT.checkDelegation(deal.sellerDelegation, { ...want, dealKey: deal.buyer.address })).rejects.toThrow(Refusal);
     // One for a price above its cap is refused.

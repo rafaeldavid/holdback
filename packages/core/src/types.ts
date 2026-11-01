@@ -1,4 +1,4 @@
-// Hand-written types for spec/schemas v0.7 (signed encoding 0.6, ADR-0023). Values reach these types only through the parsers in
+// Hand-written types for spec/schemas v0.8 (signed encoding 0.6, ADR-0023, ADR-0024). Values reach these types only through the parsers in
 // parse.ts, which validate against the schema files. Phase 1 narrows the commitment to
 // guaranteed_on_decision and maxSubmissions = 1 (ADR-0007).
 import type { TokenAmount } from './money/index.js';
