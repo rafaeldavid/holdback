@@ -37,6 +37,7 @@ import { ENVELOPE_SPEC } from './envelope-spec.js';
 import { startupGuards } from './guards.js';
 import { prepare, PrepareError, type PrepareContext } from './prepare.js';
 import { IdempotencyStore, fingerprint, type StoredResponse } from './idempotency.js';
+import { llmsTxt, openApiDocument } from './openapi/index.js';
 import type { Registry } from './registry.js';
 
 export const API_VERSION = 'v1';
@@ -446,6 +447,7 @@ export class Operator {
       const settlementTime = this.o.registry.now?.() ?? new Date(Math.floor(Date.now() / 1000) * 1000).toISOString().replace('.000Z', 'Z');
       return this.send(ctx, this.ok({ ...s, domain: { ...s.domain, chainId: Number(s.domain.chainId) }, apiBaseUrl: this.baseUrl, settlementTime }));
     }
+    if (method === 'GET' && ctx.url.pathname === '/llms.txt') return this.send(ctx, { status: 200, headers: { 'content-type': 'text/plain; charset=utf-8' }, body: llmsTxt(this.baseUrl) });
     if (s[0] !== 'v1') fail('not_found', `no route ${ctx.url.pathname}`);
     if (s[1] === 'ciphertext') return this.ciphertext(ctx);
     if (method === 'POST' && s[1] === 'prepare' && s.length === 3) return this.prepare(ctx, s[2]!);
@@ -625,6 +627,7 @@ export class Operator {
     const q = ctx.url.searchParams;
     const reg = this.o.registry;
     if (s.length === 2 && s[1] === 'status') return this.status();
+    if (s.length === 2 && s[1] === 'openapi.json') return openApiDocument(this.baseUrl) ?? fail('not_found', 'this build has no spec/openapi.json');
     if (s[1] === 'clubs' && s.length === 3) return reg.clubs.find((c) => c.id === s[2]) ?? fail('not_found', `no club ${s[2]}`);
     if (s[1] === 'clubs' && s.length === 5 && s[3] === 'members') {
       const m = reg.members.find((x) => x.clubId === s[2] && lc(x.member) === lc(s[4]!));

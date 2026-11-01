@@ -94,6 +94,7 @@ Every hard rule in `CLAUDE.md` is enforced by a check, not just by instruction. 
 | Pinned models | Registry loader rejects aliases (`panel.test.ts`, `pipeline.test.ts`, `registry-file.test.ts`; `error.unpinned-model-refused` fixture open) | T-009 |
 | No re-roll | Panel seed derived from (commitment, attempt); test | T-009 |
 | Schema contract | CI validates `spec/examples/` against schemas; CODEOWNERS-style gate on `spec/` | T-001 |
+| Operator answers match the contract | `pnpm validate:spec` fails when `spec/openapi.json` is stale against `spec/schemas` and `spec/openapi/paths.json`; `tests/contract/openapi.contract.test.ts` runs the HTTP flows against a sim world and checks every operator response (status, headers, body) against the document, and that every documented operation is exercised (added after its first run found the sim club serving a rulebook `version` that `club.schema.json` refuses) | T-015 |
 | Secrets stay out | `.claude/settings.json` denies reading `.env*`; gitleaks in CI | T-001 |
 | Neutrality | `neutrality.*` fixtures for every actor in `docs/neutrality.md` | T-010, then ongoing |
 | Generated fixtures are not hand-edited | Drift test in `tests/gen-demo-data.test.ts`; `node scripts/gen-demo-data.ts --check` | T-012 |
