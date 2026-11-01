@@ -292,3 +292,49 @@ describe('neutrality.operator-lies-in-prepare', { timeout: 30_000 }, () => {
     expect(commitmentIdOf((await seller.offer(request())).terms)).toMatch(/^0x/);
   });
 });
+
+// ADR-0023: the buyer computes the operator fee itself from the schedule both operators publish, signs the third
+// slot only for that amount, and refuses a fee above the schedule or to another address.
+describe('operator fee: the agent checks the fee slot against the published schedule', { timeout: 30_000 }, () => {
+  let feeWorld: SimWorld;
+  const accountIn = async (w: SimWorld) => {
+    const a = (await (await fetch(`${w.url}/accounts`, { method: 'POST' })).json()) as J;
+    return new Agent([...w.info.operators], a.privateKey, Buffer.from(a.encryptionSecretKey, 'base64url'));
+  };
+  beforeAll(async () => {
+    feeWorld = await startSimWorld({ env: {}, onError: () => {}, operatorFee: { bps: 1, min: '10000', max: null } });
+  });
+  afterAll(async () => feeWorld.close());
+
+  it('pays the fee the schedule gives, and refuses a higher fee, another payee or a missing or extra slot', async () => {
+    const [s, b] = [await accountIn(feeWorld), await accountIn(feeWorld)];
+    const schedule = await b.trusted('/.well-known/holdback.json', (x) => x.fees.operator);
+    expect(schedule).toMatchObject({ bps: 1, min: '10000', max: null, appliesAt: 'agree-and-fund', refundable: false });
+    const slateOf = feeWorld.info.adjudicators.map((a) => a.address);
+    const offer = await s.offer({ ...request(), seller: s.address, buyer: { address: b.address, encryptionPublicKey: b.encryptionPublicKey }, clubId: feeWorld.info.clubId, adjudicators: { primary: slateOf[0], fallback: slateOf[1], appeal: slateOf[2] } });
+    await b.waitFor(offer.id, ['AcceptedByAdjudicator']);
+    const nonces = { agreeNonce: freshNonce(), fundingNonce: freshNonce(), operatorFeeNonce: freshNonce() };
+    const prepared = await b.call('POST', '/v1/prepare/agree-and-fund', { commitmentId: offer.id, ...nonces });
+    const fee = { schedule, nonce: nonces.operatorFeeNonce };
+    const intent: Intent = { kind: 'agree-and-fund', terms: offer.terms, me: b.address, encryptionPublicKey: b.encryptionPublicKey, maxTotal: 27_000_000n, agreeNonce: nonces.agreeNonce, fundingNonce: nonces.fundingNonce, operatorFee: fee };
+    const at = Date.parse(feeWorld.chain.now());
+    const check = (p: J, i: Intent = intent) => verifyPrepared(p, i, b.address, SIMCHAIN_DOMAIN, at);
+    expect(check(prepared).toSign.map((t) => t.slot)).toEqual(['signature', 'fund.signature', 'operatorFee.signature']);
+    const edited = (edit: (q: J) => void) => {
+      const q = structuredClone(prepared);
+      edit(q);
+      return redigest(q);
+    };
+    expect(() => check(edited((q) => { q.sign[2].typedData.message.value = '10001'; q.submit.body.operatorFee.value = '10001'; }))).toThrow(/above the schedule/);
+    expect(() => check(edited((q) => { q.sign[2].typedData.message.to = s.address; q.submit.body.operatorFee.to = s.address; }))).toThrow(Refusal);
+    expect(() => check(edited((q) => { q.sign.pop(); delete q.submit.body.operatorFee; }))).toThrow(Refusal);
+    expect(() => check(prepared, { ...intent, operatorFee: undefined })).toThrow(/above the schedule/);
+    expect(() => check(prepared, { ...intent, maxTotal: 26_000_000n })).toThrow(/exceeds your limit/);
+    expect(() => check(prepared, { ...intent, operatorFee: { ...fee, schedule: { ...schedule, min: '5000000000' } } })).toThrow(Refusal);
+    // The whole flow through Agent.agreeAndFund: it reads the schedule from both operators itself.
+    const before = BigInt((await b.call('GET', `/v1/balances/${b.address}`)).amount);
+    expect((await b.agreeAndFund(offer.terms, 27_000_000n)).escrowState).toBe('Held');
+    expect(before - BigInt((await b.call('GET', `/v1/balances/${b.address}`)).amount)).toBe(26_010_000n);
+    expect(feeWorld.chain.log().filter((e) => e.type === 'fee.operator')).toHaveLength(1);
+  });
+});

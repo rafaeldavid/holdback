@@ -94,11 +94,21 @@ export class Agent {
     delete terms.signatures;
     return { id, terms, state: await this.signAndSubmit(prepared, intent) };
   }
-  /** Buyer: agree to the terms it was sent and hold price plus fee, with nonces it picked itself. */
+  /**
+   * The relaying operator's fee schedule (ADR-0023), as every configured operator serves it, or null when they
+   * publish none. They must agree: the public demo's two nodes are one operator with one schedule.
+   */
+  operatorFeeSchedule = (): Promise<J | null> => this.trusted('/.well-known/holdback.json', (x) => x.fees?.operator ?? null);
+  /**
+   * Buyer: agree to the terms it was sent and hold price plus fee, with nonces it picked itself. When the operators
+   * publish a fee, the agent computes it from that schedule and pays it with the agreement; maxTotal covers it too.
+   */
   async agreeAndFund(terms: J, maxTotal: bigint): Promise<J> {
+    const schedule = await this.operatorFeeSchedule();
     const nonces = { agreeNonce: freshNonce(), fundingNonce: freshNonce() };
-    const prepared = await this.call('POST', '/v1/prepare/agree-and-fund', { commitmentId: commitmentIdOf(terms), ...nonces });
-    return this.signAndSubmit(prepared, { kind: 'agree-and-fund', terms, me: this.address, encryptionPublicKey: this.encryptionPublicKey, maxTotal, ...nonces });
+    const feeNonce = freshNonce();
+    const prepared = await this.call('POST', '/v1/prepare/agree-and-fund', { commitmentId: commitmentIdOf(terms), ...nonces, ...(schedule ? { operatorFeeNonce: feeNonce } : {}) });
+    return this.signAndSubmit(prepared, { kind: 'agree-and-fund', terms, me: this.address, encryptionPublicKey: this.encryptionPublicKey, maxTotal, ...nonces, ...(schedule ? { operatorFee: { schedule, nonce: feeNonce } } : {}) });
   }
   async waitFor(id: Hex, states: string[], timeoutMs = 20_000): Promise<{ escrowState: string; deadlines: Record<string, string> }> {
     for (const end = Date.now() + timeoutMs; Date.now() < end; await new Promise((r) => setTimeout(r, 100))) {
