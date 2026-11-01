@@ -1,0 +1,36 @@
+
+# --- Isolated development environment (added 2026-11-01) ---
+# Append to your existing .env (keeps the keys already there):
+#   cat config/keys-dev-env.template >> .env
+# Give each token the narrowest scope that works, so a mistake by an agent cannot reach the rest of your accounts.
+# In the new environment (Claude Code cloud or an exe.dev VM), set these as that environment's secrets.
+
+# GitHub: a fine-grained personal access token for ONE repository.
+# github.com/settings/personal-access-tokens/new → Resource owner: rafaeldavid → Only select repositories: holdback
+# Repository permissions: Contents read/write, Pull requests read/write, Actions read, Workflows read/write, Metadata read.
+# Expiry: 90 days. The gh CLI and git read GH_TOKEN.
+GH_TOKEN=
+
+# Cloudflare: an API token limited to this account and the ’crow resources (instead of your full login).
+# dash.cloudflare.com/profile/api-tokens → Create token → Custom token
+# Permissions: Account · Workers Scripts · Edit; Account · Workers KV Storage · Edit; Account · Account Settings · Read.
+# Account resources: Include · Rafaeldf2@gmail.com's Account only. Optional: client IP filtering to the new machine's IP.
+# wrangler reads both variables below.
+CLOUDFLARE_API_TOKEN=
+CLOUDFLARE_ACCOUNT_ID=eb8b88391c380106b33970809c7ae949
+
+# here.now: publishes npc.here.now/escrow. Create a key at here.now (dashboard → API keys); the publish script reads this.
+HERENOW_API_KEY=
+
+# Model keys for the live judges are already above (HOLDBACK_ANTHROPIC_API_KEY, HOLDBACK_OPENAI_COMPATIBLE_*).
+# Set a monthly spend limit for each in the Anthropic console and the DeepSeek platform as well as the code's daily cap.
+
+# Only if the new environment runs Claude Code with an API key instead of signing in to your Claude account:
+# console.anthropic.com → API keys; set a workspace spend limit. Use a different key from the judges' key.
+# ANTHROPIC_API_KEY=
+
+# Commit identity in the new environment (not secret).
+GIT_AUTHOR_NAME=rafa
+GIT_AUTHOR_EMAIL=rafaeldf2@gmail.com
+GIT_COMMITTER_NAME=rafa
+GIT_COMMITTER_EMAIL=rafaeldf2@gmail.com
