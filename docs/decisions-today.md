@@ -53,6 +53,14 @@ Phase 1 runs on SimChain, an in-process simulation of the escrow rules, so this 
 
 **Recommendation:** defer until Phase 2, and choose on account-abstraction and paymaster fit.
 
+**Updated 2026-11-01 by Rafa: the target settlement chain is Ethereum mainnet.** Chosen for neutrality and reliability: no single sequencer or operator can censor or delay a deal there. What this means in practice:
+
+- **No real money yet (hard rule unchanged).** Phase 2 builds and tests the contracts on a local chain, then on Sepolia, Ethereum's public testnet, with test ETH and a test token. A mainnet deployment is a separate gate for Rafa, after an audit and legal advice.
+- **Costs to design around.** Mainnet gas makes every settlement cost real money, which hurts small agent deals. The Phase 2 design should minimise on-chain steps per deal (one funding and one settlement transaction on the happy path), and record the gas per deal in the evidence so the fee (D33) can be checked against it. Rollups stay an option to add later for small deals; the contract stays chain-agnostic.
+- **Revisit on evidence.** If measured gas makes typical deals uneconomic, bring this back with numbers.
+
+**To evaluate later: Prividium.** A private, Ethereum-anchored chain run by a permissioned set of operators. The question is whether ’crow's operators could run it as a consortium that cannot themselves see the transactions on their own chain, which would give private deals (T-207) without trusting the operators. To evaluate: what the operators can see, how neutrality holds when the operator set is permissioned (who admits operators, whether a party can force inclusion or exit to Ethereum), and how USDC and settlement finality work there. Backlog row under Privacy.
+
 **Update 2026-10-31:** Matter Labs Prividium was evaluated and not adopted. It is a single-operator permissioned chain whose operator can gate access, stop the sequencer, block forced inclusion and read everything (ADR-0004). A fifth criterion now applies: anyone can read the public skeleton and submit a signed message without an admin. A club-chosen permissioned chain is in the backlog.
 
 ## D5. Liveness default when no adjudicator decides (ADR-0007)

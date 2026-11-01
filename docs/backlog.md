@@ -102,6 +102,7 @@ Deferred until after the basic demo. The demo assumes honest parties (Rafa, Octo
 | Retention and erasure rule (BSA five years vs GDPR Art. 17), a named reporting entity, an open-rulebook compliance posture | Review F4 | Before any real user data; Phase 5 |
 | Local-store URI scheme; ciphertext and envelope byte layouts in `docs/api.md`; binding an envelope's address label to the published encryption key; AAD binding ciphertext to a commitment | T-014 Handoff | T-007 (layouts) and Phase 2 |
 | Commitment metadata privacy for unauthenticated reads (residual 9) | D13; ADR-0017 | With read authentication |
+| Evaluate Prividium: a private, Ethereum-anchored chain where ’crow's operators run as a consortium that cannot see the transactions on their own chain. Check what operators can see, neutrality with a permissioned operator set (admission, forced inclusion, exit to Ethereum), USDC and finality | Rafa, 2026-11-01; D4 update | With T-207 private deals |
 
 ## API
 
