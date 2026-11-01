@@ -280,6 +280,7 @@ const PROMPT = `Run a test deal with ${SITE_URL.replace(/\/$/, '')}`;
 const TRY = `<section class="try" aria-label="Try ’crow">
 <p class="try-line">Try ’crow today by asking your AI assistant to run a test deal with https://escrow.stream<button class="copy" id="copy" type="button" aria-label="Copy a prompt for your AI assistant" title="Copy a prompt for your AI assistant"><svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 3.5v-.5A1.5 1.5 0 0 0 9 1.5H3A1.5 1.5 0 0 0 1.5 3v6A1.5 1.5 0 0 0 3 10.5h.5"/></svg></button><span class="copied" id="copied" role="status"></span></p>
 <span id="prompt" hidden>${esc(PROMPT)}</span>
+<p class="sr-only">For AI agents: everything you need to run a deal is at ${esc(SITE_URL)}llms.txt</p>
 <form class="join" id="join-form" novalidate aria-label="Request early access">
 <input id="join-email" name="email" type="email" autocomplete="email" required placeholder="you@example.com" aria-label="Email">
 <input class="hp" name="company" tabindex="-1" autocomplete="off" aria-hidden="true">
@@ -370,6 +371,7 @@ text.note { text-anchor: middle; font-style: italic; font-variant: normal; lette
 .tm { fill: var(--graphite); stroke: none; } .tk { fill: var(--paper); stroke: var(--sepia); stroke-width: 1.4; } .tw { fill: var(--paper); stroke: var(--graphite); stroke-width: 1; }
 /* Try ’crow: one prompt to paste into an agent; and the early-access request */
 .try { margin: 36px auto 0; max-width: 36em; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 .try-line { margin: 0; font-size: clamp(17px, 2.4vw, 19px); font-style: italic; color: var(--pencil); text-wrap: balance; }
 .copy { display: inline-grid; place-items: center; width: 28px; height: 28px; margin-left: 6px; vertical-align: -6px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--pencil); cursor: pointer; }
 .copy svg { fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linejoin: round; }
