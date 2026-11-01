@@ -15,8 +15,13 @@ export const LIVE_KEY_ENV: Readonly<Record<RegistryProvider, string>> = {
 export const OPENAI_COMPATIBLE_BASE_URL_ENV = 'HOLDBACK_OPENAI_COMPATIBLE_BASE_URL';
 /** Every variable live judging needs, in the order a refusal names them. */
 export const LIVE_ENV: readonly string[] = [LIVE_KEY_ENV.anthropic, LIVE_KEY_ENV['openai-compatible'], OPENAI_COMPATIBLE_BASE_URL_ENV];
-/** The output-token cap per live judge call: a request asking for more is lowered to it. */
-export const LIVE_MAX_OUTPUT_TOKENS = 2048;
+/**
+ * The output-token cap per live judge call, reasoning or thinking tokens included: the provider's max_tokens. It
+ * replaces the request's maxOutputTokens (the pipeline's 2,048-token verdict budget), because reasoning models
+ * spend tokens before the verdict: at 2,048, deepseek-flash used the whole budget reasoning and returned no text
+ * (measured, T-028). The verdict itself stays bounded by the schema and MAX_OUTPUT_CHARS.
+ */
+export const LIVE_MAX_OUTPUT_TOKENS = 8192;
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 
 type Env = Readonly<Record<string, string | undefined>>;
@@ -31,7 +36,7 @@ export interface JudgeUsage {
 }
 
 export interface LiveOptions {
-  /** Output-token cap per call. Default LIVE_MAX_OUTPUT_TOKENS. */
+  /** Output-token cap per call, sent as max_tokens. Default LIVE_MAX_OUTPUT_TOKENS. */
   maxOutputTokens?: number;
   /** Called once per answered call with the provider's token counts. */
   onUsage?: (usage: JudgeUsage) => void;
@@ -68,7 +73,7 @@ async function post(
   return r.text === undefined || r.text === '' ? { kind: 'error', transport: false, detail: 'no text in the response' } : { kind: 'ok', text: r.text };
 }
 
-const cap = (o: LiveOptions, r: JudgeRequest) => Math.min(r.maxOutputTokens, o.maxOutputTokens ?? LIVE_MAX_OUTPUT_TOKENS);
+const cap = (o: LiveOptions) => o.maxOutputTokens ?? LIVE_MAX_OUTPUT_TOKENS;
 const report = (o: LiveOptions, provider: RegistryProvider, model: string) => (inputTokens: number, outputTokens: number) => o.onUsage?.({ provider, model, inputTokens, outputTokens });
 
 // Current Claude models accept only the default sampling parameters (a temperature of 0 is a 400), so none is
@@ -79,7 +84,7 @@ const anthropic = (key: string, o: LiveOptions): JudgeProvider => ({
       o,
       ANTHROPIC_URL,
       { 'x-api-key': key, 'anthropic-version': '2023-06-01' },
-      { model: providerModelId(r.model), system: r.system, messages: [{ role: 'user', content: r.user }], max_tokens: cap(o, r), output_config: { effort: 'low' } },
+      { model: providerModelId(r.model), system: r.system, messages: [{ role: 'user', content: r.user }], max_tokens: cap(o), output_config: { effort: 'low' } },
       (j) => {
         const b = j as { content?: Array<{ type?: string; text?: string }>; usage?: { input_tokens?: unknown; output_tokens?: unknown } } | undefined;
         return { text: b?.content?.filter((c) => c.type === 'text').map((c) => c.text ?? '').join(''), usage: [count(b?.usage?.input_tokens), count(b?.usage?.output_tokens)] };
@@ -88,13 +93,18 @@ const anthropic = (key: string, o: LiveOptions): JudgeProvider => ({
     ),
 });
 
+// DeepSeek's models reason by default, and on a 60k-token deliverable deepseek-v4-pro spent the whole 8,192-token
+// cap reasoning and returned no verdict (measured, T-028). For api.deepseek.com, thinking is turned off, as
+// Anthropic's effort is set low; other OpenAI-compatible hosts get no extra parameter.
+const extraFor = (baseUrl: string): Record<string, unknown> => (new URL(baseUrl).host === 'api.deepseek.com' ? { thinking: { type: 'disabled' } } : {});
+
 const openaiCompatible = (key: string, baseUrl: string, o: LiveOptions): JudgeProvider => ({
   complete: (r: JudgeRequest) =>
     post(
       o,
       `${baseUrl.replace(/\/$/, '')}/chat/completions`,
       { authorization: `Bearer ${key}` },
-      { model: providerModelId(r.model), messages: [{ role: 'system', content: r.system }, { role: 'user', content: r.user }], temperature: r.temperature, max_tokens: cap(o, r) },
+      { model: providerModelId(r.model), messages: [{ role: 'system', content: r.system }, { role: 'user', content: r.user }], temperature: r.temperature, max_tokens: cap(o), ...extraFor(baseUrl) },
       (j) => {
         const b = j as { choices?: Array<{ message?: { content?: string } }>; usage?: { prompt_tokens?: unknown; completion_tokens?: unknown } } | undefined;
         return { text: b?.choices?.[0]?.message?.content, usage: [count(b?.usage?.prompt_tokens), count(b?.usage?.completion_tokens)] };

@@ -124,16 +124,26 @@ describe('live request shape (stubbed fetch)', () => {
     expect(b['temperature']).toBe(0);
     expect(b['max_tokens']).toBe(LIVE_MAX_OUTPUT_TOKENS);
     expect(b).not.toHaveProperty('tools');
+    expect(b).not.toHaveProperty('thinking');
     expect(usage[0]).toEqual({ provider: 'openai-compatible', model: 'deepseek-flash@2026-11-01', inputTokens: 110, outputTokens: 40 });
+  });
+
+  it('turns DeepSeek thinking off on api.deepseek.com only', async () => {
+    const { calls, fetch } = capture();
+    const p = liveProvider('openai-compatible', { ...env, [OPENAI_COMPATIBLE_BASE_URL_ENV]: 'https://api.deepseek.com' }, { fetch });
+    if (!p.ok) throw new Error(p.error);
+    await p.value.complete(req({ provider: 'openai-compatible', model: 'deepseek-v4-pro@2026-11-01' }));
+    expect(calls[0]!.url).toBe('https://api.deepseek.com/chat/completions');
+    expect(calls[0]!.body['thinking']).toEqual({ type: 'disabled' });
   });
 
   it('liveJudges routes by provider and applies the timeout', async () => {
     const { calls, fetch } = capture();
     const r = liveJudges(env, { fetch, timeoutMs: 1000 });
     if (!r.ok) throw new Error(r.error);
-    await r.value.complete(req({ model: 'claude-haiku-5-5@2026-10-07' }));
+    await r.value.complete(req({ model: 'claude-opus-5-5@2026-09-21' }));
     const res = await r.value.complete(req({ provider: 'openai-compatible', model: 'deepseek-v4-pro@2026-11-01' }));
-    expect(calls.map((c) => c.body['model'])).toEqual(['claude-haiku-5-5', 'deepseek-v4-pro']);
+    expect(calls.map((c) => c.body['model'])).toEqual(['claude-opus-5-5', 'deepseek-v4-pro']);
     expect(res.kind === 'ok' && typeof res.latencyMs).toBe('number');
   });
 });
