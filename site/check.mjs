@@ -3,8 +3,9 @@
 //   node site/check.mjs
 //
 // 1. site/index.html is what site/build.mjs renders from site/llms.txt (one source).
-// 2. Placeholders: {{OP1}} and {{OP2}} appear exactly once, in the Configure block; {{REPO}} once; no others.
-//    A filled build leaves none, no editor note, and no local address.
+// 2. Placeholders: {{OP1}} and {{OP2}} appear exactly once, in the Configure block; no others.
+//    A filled build leaves none, no editor note, and no local address. If a publish build exists in
+//    reports/site-out/, it is checked the same way.
 // 3. Every link in index.html is absolute https, an in-page anchor that exists, or a path under /escrow/ that
 //    names a file in site/.
 // 4. Content agrees with the repository: the EIP-712 types and domain with examples/verify.ts, the envelope test
@@ -34,17 +35,22 @@ expect(html === page(md), 'site/index.html is stale: run node site/build.mjs');
 const configure = md.slice(md.indexOf('## Configure'), md.indexOf('## ', md.indexOf('## Configure') + 3));
 expect(count(md, '{{OP1}}') === 1 && configure.includes('OP1={{OP1}}'), '{{OP1}} must appear once in llms.txt, as OP1={{OP1}} under Configure');
 expect(count(md, '{{OP2}}') === 1 && configure.includes('OP2={{OP2}}'), '{{OP2}} must appear once in llms.txt, as OP2={{OP2}} under Configure');
-expect(count(md, '{{REPO}}') === 1, '{{REPO}} must appear once in llms.txt');
-expect((md.match(/\{\{[^}]*\}\}/g) ?? []).every((p) => ['{{OP1}}', '{{OP2}}', '{{REPO}}'].includes(p)), 'llms.txt has an unknown {{placeholder}}');
+expect((md.match(/\{\{[^}]*\}\}/g) ?? []).every((p) => ['{{OP1}}', '{{OP2}}'].includes(p)), 'llms.txt has an unknown {{placeholder}}');
+expect(md.includes('https://github.com/rafaeldavid/holdback'), 'llms.txt links the public repo (optional reading)');
 expect(count(html, '{{OP1}}') === 1 && count(html, '{{OP2}}') === 1, 'index.html must carry {{OP1}} and {{OP2}} once each');
 expect(!/%%|CONFIRM/.test(html) && !/^%% /m.test(strip(md)), 'an editor note reached index.html');
 expect(!/127\.0\.0\.1|localhost/.test(md + html), 'a local address is in the site');
-const sample = { op1: 'https://op1.example.workers.dev', op2: 'https://op2.example.workers.dev', repo: 'https://example.com/holdback' };
+const sample = { op1: 'https://op1.example.workers.dev', op2: 'https://op2.example.workers.dev' };
 const unconfirmed = md.split('\n').filter((l) => !l.startsWith('%% CONFIRM')).join('\n');
-for (const opts of [sample, { ...sample, repo: undefined }]) {
-  const txt = filled(unconfirmed, opts), out = txt + page(txt);
-  expect(!/\{\{|%%/.test(out), `a filled build${opts.repo ? '' : ' without --repo'} leaves a placeholder or note`);
-  expect(txt.includes(`OP1=${sample.op1}`) && txt.includes(`OP2=${sample.op2}`), 'a filled build does not set OP1 and OP2');
+const sampleTxt = filled(unconfirmed, sample);
+expect(!/\{\{|%%/.test(sampleTxt + page(sampleTxt)), 'a filled build leaves a placeholder or note');
+expect(sampleTxt.includes(`OP1=${sample.op1}`) && sampleTxt.includes(`OP2=${sample.op2}`), 'a filled build does not set OP1 and OP2');
+if (existsSync(here('../reports/site-out/llms.txt'))) {
+  const outTxt = read('../reports/site-out/llms.txt'), outHtml = read('../reports/site-out/index.html');
+  expect(outHtml === page(outTxt), 'reports/site-out/index.html is not the page of reports/site-out/llms.txt');
+  expect(!/\{\{|%%|127\.0\.0\.1|localhost/.test(outTxt + outHtml), 'reports/site-out has a placeholder, editor note or local address');
+  expect(/^OP1=https:\/\/[^\s/]+$/m.test(outTxt) && /^OP2=https:\/\/[^\s/]+$/m.test(outTxt), 'reports/site-out/llms.txt does not set OP1 and OP2 to https origins');
+  expect(outTxt === filled(md, { op1: /^OP1=(.+)$/m.exec(outTxt)?.[1], op2: /^OP2=(.+)$/m.exec(outTxt)?.[1] }), 'reports/site-out is stale against site/llms.txt');
 }
 let refused = false;
 try {

@@ -100,7 +100,9 @@ try {
   if (bal.token !== 'tUSD' || !/^[0-9]+$/.test(bal.amount) || bal.amount === '0') fail(`balance ${JSON.stringify(bal)}`);
   const listed = await call('GET', `${api}/v1/adjudicators`);
   if (!Array.isArray(listed.items) || !listed.items.length) fail('GET /v1/adjudicators lists no items');
-  const adjAddresses = simUrl ? (await call('GET', `${simUrl}/`)).adjudicators.map((a) => a.address.toLowerCase()) : Array(3).fill(listed.items[0].address.toLowerCase());
+  const byRole = (await call('GET', `${simUrl ?? OP1}/`)).adjudicators;
+  const adjAddresses = ['primary', 'fallback', 'appeal'].map((role) => byRole.find((a) => a.role === role)?.address.toLowerCase() ?? fail(`GET / lists no ${role} adjudicator`));
+  for (const a of adjAddresses) if (!listed.items.some((x) => x.address.toLowerCase() === a)) fail(`adjudicator ${a} is not in GET /v1/adjudicators`);
   log(`2 discovery: domain pinned, club ${clubId}, buyer holds ${bal.amount} tUSD base units, ${listed.items.length} adjudicator(s) listed`);
 
   // ---- 3. what we bind to -------------------------------------------------------------------------------
@@ -167,9 +169,13 @@ try {
   const deliverable = { kind: 'dataset', description: 'customers.csv, one row per customer', format: 'text/csv' };
   const price = { token: 'tUSD', amount: '25000000' };
   const offerNonce = nonce();
+  // The docs' timing (60-second windows, the demo club's minimum); the local sim's club requires 300.
+  const w = simUrl ? 300 : 60;
+  const timing = { judgeWithinSec: w, fallbackWithinSec: w, appealWindowSec: w, appealDecideSec: w };
+  if (!simUrl) same(JSON.parse(/^ {2}"timing": (\{.*\})$/m.exec(docs)?.[1] ?? 'null'), timing, 'the timing in the offer example');
   const offerReq = {
     nonce: offerNonce, template: 'checks-only', clubId, seller: seller.address, buyer: { address: buyer.address, encryptionPublicKey: buyer.encPub },
-    adjudicators: { primary: adjAddresses[0], fallback: adjAddresses[1], appeal: adjAddresses[2] }, price, deliverable, checks,
+    adjudicators: { primary: adjAddresses[0], fallback: adjAddresses[1], appeal: adjAddresses[2] }, price, deliverable, checks, timing,
   };
   const offer = await call('POST', `${api}/v1/prepare/offer`, offerReq);
   if (offer.submit.path !== '/v1/commitments' || offer.sign[0]?.slot !== 'signatures.seller') fail('offer slot or path');
@@ -179,7 +185,7 @@ try {
     schemaVersion: '0.6', clubId, rulebookHash: club.rulebookHash, buyer: buyer.address, seller: seller.address,
     deliverableHash: jcsHash(deliverable), acceptanceHash: jcsHash({ deterministicChecks: checks, rubric: { criteria: [], passThreshold: 0 } }), price,
     adjudication: { adjudicator: adjAddresses[0], fallbackAdjudicator: adjAddresses[1], appealAdjudicator: adjAddresses[2], policyId: reg.policy.id, fee: reg.fee.min, registryHash: reg.registry.hash, policyHash: reg.policyHash },
-    timing: { offerExpiresAt: createdAt + 900, fundBy: createdAt + 1800, deliverBy: createdAt + 86400, judgeBy: createdAt + 86400 + 300, fallbackBy: createdAt + 86400 + 600, appealWindowSec: 300, appealDecideSec: 300, maxSubmissions: 1, disputeBy: 0, disputeJudgeSec: 0, disputeFallbackSec: 0 },
+    timing: { offerExpiresAt: createdAt + 900, fundBy: createdAt + 1800, deliverBy: createdAt + 86400, judgeBy: createdAt + 86400 + w, fallbackBy: createdAt + 86400 + 2 * w, appealWindowSec: w, appealDecideSec: w, maxSubmissions: 1, disputeBy: 0, disputeJudgeSec: 0, disputeFallbackSec: 0 },
     settlement: { mode: 'guaranteed_on_decision', token: 'tUSD' }, remedy: { onReject: 'full_refund' }, disclosure: { level: 'public' },
     buyerEncryptionPublicKey: buyer.encPub, nonce: offerNonce, createdAt,
   };
@@ -188,7 +194,7 @@ try {
   const offered = await signAndSubmit(offer, seller, [{ slot: 'signatures.seller', primaryType: 'CommitmentTerms', message: termsMsg, near: ['createdAt'] }], now);
   if (offered.escrowState !== 'Offered') fail(`offer answered ${offered.escrowState}`);
   let state;
-  for (let i = 0; i < 100 && (state = await call('GET', `${api}/v1/commitments/${id}`)).escrowState !== 'AcceptedByAdjudicator'; i++) await wait(100);
+  for (let i = 0; i < 150 && (state = await call('GET', `${api}/v1/commitments/${id}`)).escrowState !== 'AcceptedByAdjudicator'; i++) await wait(200);
   if (state.escrowState !== 'AcceptedByAdjudicator') fail(`never AcceptedByAdjudicator (${state.escrowState})`);
   log(`5 offer: CommitmentTerms rebuilt from intent, id = struct hash ${id.slice(0, 10)}…, Offered then AcceptedByAdjudicator`);
 
@@ -239,7 +245,7 @@ try {
   log(`7 deliver: recipients cross-checked, ciphertext stored, four envelopes, Delivery rebuilt, answered ${delivered.escrowState}`);
 
   // ---- 8. result ----------------------------------------------------------------------------------------
-  for (let i = 0; i < 100 && !['Released', 'Refunded'].includes((state = await call('GET', `${api}/v1/commitments/${id}`)).escrowState); i++) await wait(100);
+  for (let i = 0; i < 150 && !['Released', 'Refunded'].includes((state = await call('GET', `${api}/v1/commitments/${id}`)).escrowState); i++) await wait(200);
   if (state.escrowState !== 'Released') fail(`expected Released, got ${state.escrowState}`);
   if (state.finalAt !== null || typeof state.deadlines?.appealBy !== 'string') fail(`finalAt ${state.finalAt}, appealBy ${state.deadlines?.appealBy}`);
   const judgment = await call('GET', `${api}/v1/commitments/${id}/judgment`);
@@ -258,6 +264,13 @@ try {
   const plain = Buffer.from(await webcrypto.subtle.decrypt({ name: 'AES-GCM', iv: fetched.slice(0, 12) }, dec, fetched.slice(12)));
   if (sha(plain) !== d.plaintextSha256 || !plain.equals(plaintext)) fail('the decrypted work');
   log(`8 result: Released, finalAt null until ${state.deadlines.appealBy}, judgment accept with panel.ran false, buyer opened the work`);
+  if (!simUrl) {
+    // Live: the commitment turns final on its own once the appeal window closes.
+    const until = Date.parse(state.deadlines.appealBy) + 60_000;
+    while ((state = await call('GET', `${api}/v1/commitments/${id}`)).finalAt === null && Date.now() < until) await wait(5000);
+    if (state.finalAt === null) fail(`not final a minute after appealBy ${state.deadlines.appealBy}`);
+    log(`8 final: finalAt ${state.finalAt}, escrowState ${state.escrowState}`);
+  }
   console.log(`walkthrough PASS (${simUrl ? 'in-process sim; /accounts stood in for the faucet' : `live ${OP1} and ${OP2}`})`);
 } catch (e) {
   console.error(`walkthrough FAIL: ${e.message}`);

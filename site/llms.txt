@@ -75,22 +75,28 @@ curl -s $OP1/.well-known/holdback.json
 
 It returns `apiBaseUrl`, the operator's `domain`, its `receiptSigner` and `settlementTime` (the settlement layer's clock). Requests go to `apiBaseUrl` plus the path. If `domain` is not the one you pinned, stop.
 
-Fund and admit each address once from the faucet. It sends a fixed amount of test tUSD and admits the address to the demo club, so it may offer and agree.
+Fund and admit each address from the faucet. It grants 1,000 test tUSD and a mandate in club `demo-club` (buyer and seller roles, 30 days), so the address may offer and agree. Once per address per hour, and up to 10 addresses per client per hour; more answers 429 with `Retry-After`.
 
-%% CONFIRM after T-026: the faucet route, request and response below are written to T-026's plan; check them against the deployed API.
 ```sh
 curl -s -X POST $OP1/v1/faucet -H 'content-type: application/json' -H "Idempotency-Key: $(uuidgen)" \
   -d '{"address": "0x<your address>"}'
 ```
 
 ```json
-{ "address": "0x…", "balance": { "token": "tUSD", "amount": "…" }, "clubId": "…" }
+{
+  "address": "0x…",
+  "clubId": "demo-club",
+  "granted": { "token": "tUSD", "amount": "1000000000" },
+  "balance": { "token": "tUSD", "amount": "1000000000" },
+  "mandate": { "…": "…", "mandateHash": "0x…" },
+  "nextGrantAfter": "…",
+  "notice": "TEST TOKENS ONLY …"
+}
 ```
 
-Keep `clubId`: it is the club you deal in. Check a balance at any time with `GET /v1/balances/<address>`, which returns `{"token": "tUSD", "amount": "…"}`.
+Keep `clubId`: it is the club you deal in. The mandate is signed by the demo club's own test principal, which the demo holds. Check a balance at any time with `GET /v1/balances/<address>`, which returns `{"token": "tUSD", "amount": "…"}`.
 
-Find the adjudicator. `GET /v1/adjudicators` lists the registered ones; the demo has one, which you name as primary, fallback and appeal adjudicator.
-%% CONFIRM after T-026: one adjudicator in all three roles, and its listing at GET /v1/adjudicators.
+Find the adjudicators. `GET $OP1/` lists the demo's three by role (`primary`, `fallback`, `appeal`), with the club, the token and notes; `GET /v1/adjudicators` lists them too. Name them in those roles.
 
 ## 3. Read what you bind to, from both operators
 
@@ -141,13 +147,14 @@ curl -s $OP1/v1/prepare/offer -H 'content-type: application/json' -d '{
   "clubId": "<clubId>",
   "seller": "0x<seller>",
   "buyer": { "address": "0x<buyer>", "encryptionPublicKey": "<buyer encryption public key>" },
-  "adjudicators": { "primary": "0x<adj>", "fallback": "0x<adj>", "appeal": "0x<adj>" },
+  "adjudicators": { "primary": "0x<primary>", "fallback": "0x<fallback>", "appeal": "0x<appeal>" },
   "price": { "token": "tUSD", "amount": "25000000" },
   "deliverable": { "kind": "dataset", "description": "customers.csv, one row per customer", "format": "text/csv" },
   "checks": [
     { "id": "cols", "type": "csv_columns_exact", "required": true, "columns": ["customer_id", "email"] },
     { "id": "rows", "type": "row_count_range", "required": true, "min": 3, "max": 3 }
-  ]
+  ],
+  "timing": { "judgeWithinSec": 60, "fallbackWithinSec": 60, "appealWindowSec": 60, "appealDecideSec": 60 }
 }'
 ```
 
@@ -157,7 +164,7 @@ One slot, `signatures.seller`, primary type `CommitmentTerms`; it submits to `/v
 - `adjudication`: your three adjudicators; `policyId` is `policy.id`, and `policyHash`, `registryHash` (`registry.hash`) and `fee` (`fee.min`) come from the registration you read. `rulebookHash` is the club's.
 - `deliverableHash` = keccak256(canonical JSON of your `deliverable`).
 - `acceptanceHash` = keccak256(canonical JSON of `{"deterministicChecks": <your checks>, "rubric": {"criteria": [], "passThreshold": 0}}`).
-- `createdAt` near settlement time. `timing`: `offerExpiresAt` = createdAt + 900 s, `fundBy` = createdAt + 1800 s, `deliverBy` = createdAt + 86400 s, `judgeBy` = deliverBy + 300 s, `fallbackBy` = judgeBy + 300 s, `appealWindowSec` 300, `appealDecideSec` 300, `maxSubmissions` 1, and `disputeBy`, `disputeJudgeSec`, `disputeFallbackSec` 0. These are the defaults; pass `"timing"` with any of `offerExpiresInSec`, `fundWithinSec`, `deliverWithinSec`, `judgeWithinSec`, `fallbackWithinSec`, `appealWindowSec`, `appealDecideSec` to choose others (the club sets minimums).
+- `createdAt` near settlement time. `timing`: `offerExpiresAt` = createdAt + 900 s, `fundBy` = createdAt + 1800 s, `deliverBy` = createdAt + 86400 s, `judgeBy` = deliverBy + `judgeWithinSec`, `fallbackBy` = judgeBy + `fallbackWithinSec`, `appealWindowSec` and `appealDecideSec` as you sent them, `maxSubmissions` 1, and `disputeBy`, `disputeJudgeSec`, `disputeFallbackSec` 0. Windows you leave out take the defaults: `offerExpiresInSec` 900, `fundWithinSec` 1800, `deliverWithinSec` 86400, and 300 for each of the other four. Any whole number of seconds is yours to choose; the demo club refuses judge, fallback and appeal windows under 60 seconds. With the 60-second windows above, a deal is final about a minute after the decision.
 - `settlement` is `{"mode": "guaranteed_on_decision", "token": "tUSD"}`, `remedy` `{"onReject": "full_refund"}`, `disclosure` `{"level": "public"}`.
 - `submit.body.id` is the commitment ID: the EIP-712 struct hash (hashStruct, no domain) of this `CommitmentTerms` message. viem `hashStruct`, ethers `TypedDataEncoder.hashStruct`.
 
@@ -190,7 +197,7 @@ Submit both signatures in the one body to `/v1/commitments/<id>/agree`. The answ
 
 The work is encrypted before it leaves you. No operator sees the plaintext or the key.
 
-**Recipients**, in this order: the primary, fallback and appeal adjudicators, then the buyer. Take each adjudicator's key from its registration as both operators serve it, and the buyer's key from the terms you signed. `GET /v1/commitments/<id>/recipients` lists them too; use it only as a cross-check and stop if it differs. With one adjudicator in all three roles, its key appears three times: seal one envelope for each entry.
+**Recipients**, in this order: the primary, fallback and appeal adjudicators, then the buyer. Take each adjudicator's key from its registration as both operators serve it, and the buyer's key from the terms you signed. `GET /v1/commitments/<id>/recipients` lists them too; use it only as a cross-check and stop if it differs. Seal one envelope for each entry, even if one adjudicator holds two roles.
 
 **Content.** A fresh 32-byte content key and a fresh 12-byte IV. Ciphertext = `iv || AES-256-GCM(plaintext) || tag (16 bytes)`, no associated data. Upload the bytes:
 
@@ -241,7 +248,7 @@ curl -s $OP1/v1/commitments/<id>/judgment        # deterministic: one result per
 curl -s "$OP1/v1/commitments/<id>/events?limit=200"
 ```
 
-`Released` means the seller is paid. It is final at `finalAt`, which stays `null` until the appeal window closes at `deadlines.appealBy` (5 minutes after the decision, with the default window). Nobody needs to act for that.
+`Released` means the seller is paid. It is final at `finalAt`, which stays `null` until the appeal window closes at `deadlines.appealBy` (`appealWindowSec` after the decision: a minute with the timing above). Nobody needs to act for that.
 
 **Buyer: open the work.**
 
@@ -309,15 +316,16 @@ Schema 0.6. Pin these. The domain type is the standard `EIP712Domain` (name, ver
 
 - **Test tokens only.** tUSD is worth nothing, and no real money can enter.
 - **One simulated settlement layer.** Both operator nodes serve the same in-memory ledger, so reading from two of them shows less than it would on independent nodes. Independent nodes need testnet contracts, which come later.
-- **One basic adjudicator.** Its deterministic checks are real. A deal with a rubric gets a scripted panel, not a model: no model runs, and the judgment record says so. Use `checks-only`.
+- **Basic test adjudicators.** The demo runs three. Their deterministic checks are real. A deal with a rubric gets a scripted panel, not a model: no model runs, and the judgment record says so. Use `checks-only`.
 - **State may reset.** Keep your own copy of the terms you signed.
 - **Happy path only.** Appeals, timeouts, early accept and settlement by agreement exist in the protocol but are not covered here.
 - Every request and response is public. Do not put anything secret in a deal.
 
-For the curious: the source is at {{REPO}}. You do not need it to run a deal.
+For the curious: the source is at https://github.com/rafaeldavid/holdback. You do not need it to run a deal.
 
 ## Endpoints used here
 
+- `GET /`: the club, the adjudicators by role, the token and notes
 - `GET /.well-known/holdback.json`: discovery and settlement time
 - `GET /v1/openapi.json`: the whole API as OpenAPI 3.1
 - `POST /v1/faucet`: test tUSD and club admission

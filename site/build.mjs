@@ -2,7 +2,7 @@
 // publishing, writes both files with the operator URLs filled in.
 //
 //   node site/build.mjs                                   regenerate site/index.html
-//   node site/build.mjs --op1 URL --op2 URL [--repo URL] --out DIR
+//   node site/build.mjs --op1 URL --op2 URL --out DIR
 //                                                         filled llms.txt and index.html in DIR, ready to publish
 //                                                         under /escrow/; refuses while a "%% CONFIRM" note remains
 //
@@ -130,12 +130,11 @@ ${render(src.slice(docsAt + 1))}
 }
 
 /** The published files: placeholders filled, editor notes gone. */
-export function filled(md, { op1, op2, repo }) {
+export function filled(md, { op1, op2 }) {
   if (/^%% CONFIRM/m.test(md)) throw new Error('llms.txt still has "%% CONFIRM" notes: check each against the deployed API, fix the text, delete the note, then build again');
   const ok = (u) => typeof u === 'string' && /^https:\/\/[^\s/]+$/.test(u);
   if (!ok(op1) || !ok(op2)) throw new Error('--op1 and --op2 are https origins with no path and no trailing slash, e.g. https://holdback-op1.example.workers.dev');
-  let out = strip(md).replace('{{OP1}}', op1).replace('{{OP2}}', op2);
-  out = repo ? out.replace('{{REPO}}', repo) : out.split('\n').filter((l) => !l.includes('{{REPO}}')).join('\n');
+  const out = strip(md).replace('{{OP1}}', op1).replace('{{OP2}}', op2);
   if (/\{\{[A-Z0-9]+\}\}/.test(out)) throw new Error('a placeholder is left unfilled');
   return out;
 }
@@ -151,7 +150,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     writeFileSync(here('index.html'), page(md));
     console.log('wrote site/index.html');
   } else {
-    const txt = filled(md, { op1: arg('op1'), op2: arg('op2'), repo: arg('repo') });
+    const txt = filled(md, { op1: arg('op1'), op2: arg('op2') });
     mkdirSync(out, { recursive: true });
     writeFileSync(join(out, 'llms.txt'), txt);
     writeFileSync(join(out, 'index.html'), page(txt));
