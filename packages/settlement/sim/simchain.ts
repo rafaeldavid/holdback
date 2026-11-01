@@ -67,7 +67,8 @@ export interface Genesis {
 export type JournalEntry =
   | { op: 'submit'; submission: Submission; options: SubmitOptions }
   | { op: 'advance'; seconds: number }
-  | { op: 'faucet'; address: Address; amount: string };
+  | { op: 'faucet'; address: Address; amount: string }
+  | { op: 'admit'; mandate: Mandate };
 
 /** Mainnet chain IDs SimChain refuses to sign under (hard rule: no real money). */
 const MAINNETS = new Set([1, 10, 56, 137, 324, 8453, 42161, 43114, 59144, 534352]);
@@ -291,6 +292,25 @@ export class SimChain implements Settlement {
     this.entries.push({ op: 'faucet', address, amount: amount.toString() });
   }
 
+  /**
+   * Test only (T-026, the public demo's faucet): adds a principal-signed mandate after genesis, as genesis
+   * mandates are, and journals it so a replay has the same agents. Phase 1 has no run-time registration on a
+   * real settlement layer (docs/backlog.md). Returns a problem when the club is unknown or the signature does
+   * not recover to the principal; a later mandate for the same agent and club replaces the earlier one.
+   */
+  async admit(mandate: Mandate): Promise<Problem | null> {
+    if (!this.genesis.clubs.some((c) => c.id === mandate.clubId)) return problem('not_found', `no club ${mandate.clubId}`);
+    if (!(await verifyMessage(this.domain, { ...mandate, type: 'Mandate' }, mandate.principal))) return problem('invalid_signature', `the mandate for ${mandate.agent} is not signed by ${mandate.principal}`);
+    this.mandates.set(`${lc(mandate.agent)}|${mandate.clubId}`, structuredClone(mandate));
+    this.entries.push({ op: 'admit', mandate: structuredClone(mandate) });
+    return null;
+  }
+
+  /** Every mandate the chain checks scope against: genesis mandates and admitted ones. */
+  agentMandates(): Mandate[] {
+    return structuredClone([...this.mandates.values()]);
+  }
+
   /** The sim beacon's value for a round, or null until the clock reaches it (ADR-0018). */
   beacon(round: number): Hex32 | null {
     if (!Number.isSafeInteger(round) || round < 0 || round > Math.floor(this.clockMs / 1000)) return null;
@@ -326,8 +346,14 @@ export class SimChain implements Settlement {
     return [...this.w.log];
   }
 
-  journal(): JournalEntry[] {
-    return structuredClone(this.entries);
+  /** The journal from entry `from` on (default: all), for persisting only what is new. */
+  journal(from = 0): JournalEntry[] {
+    return structuredClone(this.entries.slice(from));
+  }
+
+  /** How many journal entries there are. */
+  journalLength(): number {
+    return this.entries.length;
   }
 
   /** A hash over every store a submission can change: ledger, commitments, nonces, reservations, spend, idempotency, log head. */
@@ -365,7 +391,10 @@ export class SimChain implements Settlement {
     for (const [i, e] of journal.entries()) {
       if (e.op === 'advance') chain.advance(e.seconds);
       else if (e.op === 'faucet') chain.faucet(e.address, BigInt(e.amount));
-      else {
+      else if (e.op === 'admit') {
+        const p = await chain.admit(e.mandate);
+        if (p) throw new Error(`replay entry ${i} (admit) was refused: ${p.type}: ${p.detail}`);
+      } else {
         const r = await chain.submit(e.submission, e.options);
         if (!r.ok) throw new Error(`replay entry ${i} (${e.submission.kind}) was refused: ${r.problem.type}: ${r.problem.detail}`);
       }
