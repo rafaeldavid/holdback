@@ -6,6 +6,7 @@ import { seal, wrapKeyForRecipients } from '@holdback/core/crypto';
 import { hashTypedData } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { testAccount } from './accounts.js';
 import type { Prepared } from './prepare.js';
 import { startSimWorld, type SimInfo, type SimWorld } from './sim-world.js';
 
@@ -268,5 +269,71 @@ describe('sim world test controls', () => {
     } finally {
       await fetch(`${world.url}/adjudicators/primary`, { method: 'POST', body: JSON.stringify({ silent: false }) });
     }
+  });
+});
+
+// A multi-party world (tools/sim, T-021) must not hand one party another's keys (sim batch 1, F1).
+describe('a sim world that keeps secrets (publishSecrets: false)', () => {
+  let priv: SimWorld;
+  beforeAll(async () => {
+    priv = await startSimWorld({ accounts: ['party-a', 'party-b'], spareAccounts: 3, publishSecrets: false, env: {}, onError: () => {} });
+  });
+  afterAll(() => priv?.close());
+
+  const secretsOf = (a: { privateKey: string; encryptionSecretKey: string }) => [a.privateKey, a.privateKey.slice(2), a.encryptionSecretKey];
+  const hit = async (method: 'GET' | 'POST', path: string, body?: string) => {
+    const res = await fetch(`${priv.url}${path}`, { method, ...(body === undefined ? {} : { body }) });
+    return { status: res.status, text: await res.text() };
+  };
+
+  it('the default world (pnpm sim) still lists its accounts with keys on GET /', async () => {
+    const served = (await (await fetch(`${world.url}/`)).json()) as SimInfo;
+    expect(served.accounts.find((a) => a.label === 'buyer-1')!.privateKey).toBe(acct('buyer-1').privateKey);
+  });
+
+  it('serves no secret key on any route: GET /, /clock, /accounts reads, controls and errors', async () => {
+    const named = priv.info.accounts;
+    expect(named).toHaveLength(2);
+    const forbidden = named.flatMap(secretsOf);
+    const responses = [
+      await hit('GET', '/'),
+      await hit('GET', '/clock'),
+      await hit('GET', '/accounts'),
+      await hit('GET', '/accounts/0'),
+      await hit('POST', '/advance', '{"seconds": -1}'),
+      await hit('POST', '/advance', '{"seconds": 0}'),
+      await hit('POST', '/adjudicators/appeal', '{"silent": "x"}'),
+      await hit('GET', '/nope'),
+      await hit('POST', '/', '{}'),
+    ];
+    for (const r of responses) for (const s of forbidden) expect(r.text, `${r.status} ${r.text.slice(0, 80)}`).not.toContain(s);
+    const served = JSON.parse(responses[0]!.text) as { accounts: Array<Record<string, unknown>>; notes: string[] };
+    expect(served.accounts.map((a) => a['address'])).toEqual(named.map((a) => a.address));
+    for (const a of served.accounts) expect(Object.keys(a).sort()).toEqual(['address', 'balance', 'encryptionPublicKey', 'label']);
+    expect(served.notes.join(' ')).toMatch(/not published/);
+  });
+
+  it('derives no key from a public label: a party\'s label does not give its key', () => {
+    for (const a of priv.info.accounts) {
+      expect(testAccount(a.label).address).not.toBe(a.address);
+      expect(testAccount(a.label).encryptionPublicKey).not.toBe(a.encryptionPublicKey);
+    }
+  });
+
+  it('POST /accounts hands a fresh account with its keys to the caller only, and never lists another\'s', async () => {
+    const first = await hit('POST', '/accounts');
+    const second = await hit('POST', '/accounts');
+    expect(first.status).toBe(200);
+    const x = JSON.parse(first.text) as { address: string; privateKey: string; encryptionSecretKey: string; label: string };
+    const y = JSON.parse(second.text) as typeof x;
+    expect(x.privateKey).toMatch(/^0x[0-9a-f]{64}$/);
+    expect(privateKeyToAccount(x.privateKey as `0x${string}`).address.toLowerCase()).toBe(x.address);
+    expect(x.address).not.toBe(y.address);
+    expect(testAccount(x.label).address).not.toBe(x.address); // spare labels give no key either
+    for (const s of [...secretsOf(x), ...priv.info.accounts.flatMap(secretsOf)]) expect(second.text).not.toContain(s);
+    const after = await hit('GET', '/');
+    for (const s of [...secretsOf(x), ...secretsOf(y)]) expect(after.text).not.toContain(s);
+    const funded = (await (await fetch(`${priv.info.operators[0]}/v1/balances/${x.address}`)).json()) as { amount: string };
+    expect(funded.amount).toBe('10000000000');
   });
 });
