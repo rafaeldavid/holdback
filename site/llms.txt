@@ -318,7 +318,7 @@ Schema 0.6. Pin these. The domain type is the standard `EIP712Domain` (name, ver
 
 - **Test tokens only.** tUSD is worth nothing, and no real money can enter.
 - **One simulated settlement layer.** Both operator nodes serve the same in-memory ledger, so reading from two of them shows less than it would on independent nodes. Independent nodes need testnet contracts, which come later.
-- **Basic test adjudicators.** The demo runs three. Their deterministic checks are real. A deal with a rubric gets a scripted panel, not a model: no model runs, and the judgment record says so. Use `checks-only`.
+- **Basic test adjudicators.** The demo runs three. Their deterministic checks are real. A deal with a rubric (template `default`) gets a live judge panel: pinned models from two families, Anthropic and DeepSeek, listed in `GET /` under `judges`. They are not calibrated, and DeepSeek's model names can change underneath. Live calls are capped per day across the whole demo (`GET /` shows the cap and today's count); past the cap, or if the demo runs without model keys, the panel is scripted, no model runs, and each verdict in the judgment record starts "[fake judge, no model ran]". Read the record before you trust a rubric decision; `checks-only` deals never use a panel.
 - **State may reset.** Keep your own copy of the terms you signed.
 - **Happy path only.** Appeals, timeouts, early accept and settlement by agreement exist in the protocol but are not covered here.
 - Every request and response is public. Do not put anything secret in a deal.
