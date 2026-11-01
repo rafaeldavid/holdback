@@ -5,7 +5,7 @@
 - **Depends on:** T-020
 - **Paths this task may touch:** `examples/verify.ts`, `examples/sign.ts`, `examples/agent.ts`, `examples/*.test.ts`, `apps/operator/src/prepare.ts` (check text only), `fixtures/scenarios/` (new `attack.` fixture and snapshot), `packages/testkit/` (only if the fixture needs a new step), `docs/api.md`, `docs/quickstart.md`, `docs/backlog.md` (rows)
 - **Human gate:** no
-- **Status:** review
+- **Status:** done
 - **Agent/session:** implementer subagent, branch `t-024-early-accept-envelope`
 
 ## Intent
