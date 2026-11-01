@@ -273,10 +273,9 @@ ${GPU(320, 0, 'adjudicator')}
 // the crow-early-access Worker (apps/early-access), which keeps only the address, the time and the page.
 // One line: the instructions live in llms.txt ("Try it"), not in the prompt.
 const PROMPT = `Read ${SITE_URL}llms.txt and run a test deal with ’crow.`;
-const TRY = `<section class="try" aria-labelledby="try-h">
-<h2 id="try-h">Try ’crow</h2>
-<div class="prompt"><p id="prompt">${esc(PROMPT)}</p><button class="btn" id="copy" type="button">Copy prompt</button></div>
-<div class="cta"><button class="btn primary" id="join-open" type="button">Request early access</button></div>
+const TRY = `<section class="try" aria-label="Try ’crow">
+<div class="cta"><button class="btn primary" id="copy" type="button">Try ’crow</button><button class="btn" id="join-open" type="button">Request early access</button></div>
+<p class="copied" id="copied" role="status" hidden>Prompt copied: <span id="prompt">“${esc(PROMPT)}”</span></p>
 </section>`;
 const JOIN = `<dialog id="join" aria-labelledby="join-h">
 <form id="join-form" novalidate>
@@ -291,11 +290,13 @@ const JOIN = `<dialog id="join" aria-labelledby="join-h">
 </dialog>
 <script>
 (function () {
-  var copy = document.getElementById('copy'), text = document.getElementById('prompt').textContent;
+  // Try ’crow: copy the one-line prompt and say so on one line below the buttons
+  var copy = document.getElementById('copy'), line = document.getElementById('copied'), prompt = document.getElementById('prompt');
+  var text = prompt.textContent.replace(/^\\u201c|\\u201d$/g, '');
   copy.addEventListener('click', function () {
-    var done = function () { copy.textContent = 'Copied'; setTimeout(function () { copy.textContent = 'Copy prompt'; }, 2000); };
-    var select = function () { var r = document.createRange(); r.selectNodeContents(document.getElementById('prompt')); var s = getSelection(); s.removeAllRanges(); s.addRange(r); copy.textContent = 'Selected: press copy'; };
-    if (navigator.clipboard) navigator.clipboard.writeText(text).then(done, select); else select();
+    var show = function (lead) { line.firstChild.textContent = lead; line.hidden = false; };
+    var select = function () { show('Copy this prompt: '); var r = document.createRange(); r.selectNodeContents(prompt); var s = getSelection(); s.removeAllRanges(); s.addRange(r); };
+    if (navigator.clipboard) navigator.clipboard.writeText(text).then(function () { show('Prompt copied: '); }, select); else select();
   });
   var dlg = document.getElementById('join'), form = document.getElementById('join-form'), msg = document.getElementById('join-msg'), send = document.getElementById('join-send');
   document.getElementById('join-open').addEventListener('click', function () { msg.textContent = ''; if (dlg.showModal) dlg.showModal(); else dlg.setAttribute('open', ''); document.getElementById('join-email').focus(); });
@@ -374,15 +375,13 @@ text.note { text-anchor: middle; font-style: italic; font-variant: normal; lette
 .gpu.off { opacity: .3; } .gpu.off rect { stroke-dasharray: 2 3; }
 .tm { fill: var(--graphite); stroke: none; } .tk { fill: var(--paper); stroke: var(--sepia); stroke-width: 1.4; } .tw { fill: var(--paper); stroke: var(--graphite); stroke-width: 1; }
 /* Try ’crow: one prompt to paste into an agent; and the early-access request */
-.try { margin: 44px auto 0; max-width: 36em; }
-.try h2 { font-weight: 500; font-size: 15px; font-variant: small-caps; letter-spacing: 0.12em; color: var(--pencil); margin: 0 0 12px; }
-.prompt { position: relative; text-align: left; background: #f2eee4; border: 1px solid #e2ddd2; border-radius: 8px; padding: 16px 18px 52px; }
-.prompt p { margin: 0; font: 13.5px/1.6 ui-monospace, "SF Mono", Menlo, monospace; color: var(--graphite); white-space: pre-wrap; overflow-wrap: anywhere; }
+.try { margin: 36px auto 0; max-width: 36em; }
+.copied { margin: 16px 0 0; font-size: 16px; font-style: italic; color: var(--pencil); overflow-wrap: anywhere; }
+.copied span { font-style: normal; color: var(--graphite); }
 .btn { font: 16px var(--serif); color: var(--graphite); background: transparent; border: 1px solid var(--graphite); border-radius: 999px; padding: 8px 18px; cursor: pointer; }
 .btn:hover { background: #efe9dc; } .btn:focus-visible, input:focus-visible { outline: 2px solid var(--sepia); outline-offset: 2px; }
 .btn.primary { background: var(--graphite); color: var(--paper); } .btn.primary:hover { background: #45423d; }
-.prompt .btn { position: absolute; right: 12px; bottom: 12px; font-size: 14px; padding: 5px 14px; }
-.cta { margin-top: 22px; }
+.cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
 dialog { box-sizing: border-box; border: 1px solid #d8d2c4; border-radius: 12px; padding: 28px; width: min(420px, calc(100% - 32px)); background: var(--paper); color: var(--graphite); font-family: var(--serif); text-align: left; box-shadow: 0 20px 60px rgba(47, 45, 42, .18); }
 dialog::backdrop { background: rgba(47, 45, 42, .28); }
 dialog h3 { font-weight: 500; font-size: 26px; margin: 0 0 6px; }
