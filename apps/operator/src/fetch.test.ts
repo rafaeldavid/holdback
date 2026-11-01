@@ -34,8 +34,9 @@ describe('fetchHandler', () => {
     expect(r.headers.get('request-id')).toMatch(/^[0-9a-f-]{36}$/);
     const body = (await r.json()) as Record<string, unknown>;
     expect(body['apiBaseUrl']).toBe(BASE);
-    const { apiBaseUrl: _a, settlementTime: _s, notes: _n, ...status } = body;
-    expect(parseOperatorStatus({ ...status, domain: { ...(status['domain'] as object), chainId: '31337' } }).ok).toBe(true);
+    const status = { ...body, domain: { ...(body['domain'] as object), chainId: '31337' } };
+    for (const k of ['apiBaseUrl', 'settlementTime', 'notes']) delete (status as Record<string, unknown>)[k];
+    expect(parseOperatorStatus(status).ok).toBe(true);
     expect(logs.at(-1)).toMatchObject({ method: 'GET', path: '/.well-known/holdback.json', status: 200 });
   });
 
