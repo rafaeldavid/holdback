@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.7/messages.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.8/messages.schema.json",
   "title": "Signed protocol messages (EIP-712)",
   "description": "Every state-changing message other than Delivery and Appeal. Each carries its EIP-712 domain implicitly: name Holdback, version 0.6, chainId, verifyingContract (ADR-0016).",
   "oneOf": [
@@ -42,6 +42,15 @@
     },
     {
       "$ref": "#/$defs/TransferAuthorization"
+    },
+    {
+      "$ref": "#/$defs/ReadToken"
+    },
+    {
+      "$ref": "#/$defs/Delegation"
+    },
+    {
+      "$ref": "#/$defs/KeyRegistration"
     }
   ],
   "$defs": {
@@ -807,6 +816,131 @@
           "$ref": "common.schema.json#/$defs/Signature"
         },
         "sellerSignature": {
+          "$ref": "common.schema.json#/$defs/Signature"
+        }
+      }
+    },
+    "ReadToken": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Authenticates a private read (ADR-0024 §3), sent as `Authorization: Holdback-ReadToken <base64url of this JSON>`. Signed by a party (its per-deal key) or an involved adjudicator. audience, when present, is the operator's receipt-signer address, so another operator refuses the token. A zero commitmentId scopes list reads to the viewer's deals. The viewer picks the expiry (D31). Changes no state.",
+      "required": [
+        "type",
+        "viewer",
+        "commitmentId",
+        "nonce",
+        "expiresAt",
+        "signature"
+      ],
+      "properties": {
+        "type": {
+          "const": "ReadToken"
+        },
+        "viewer": {
+          "$ref": "common.schema.json#/$defs/Address"
+        },
+        "commitmentId": {
+          "$ref": "common.schema.json#/$defs/Hex32"
+        },
+        "audience": {
+          "$ref": "common.schema.json#/$defs/Address"
+        },
+        "nonce": {
+          "$ref": "common.schema.json#/$defs/Hex32"
+        },
+        "expiresAt": {
+          "$ref": "common.schema.json#/$defs/Timestamp"
+        },
+        "signature": {
+          "$ref": "common.schema.json#/$defs/Signature"
+        }
+      }
+    },
+    "Delegation": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "A per-deal key certificate (ADR-0024 §7), signed by the agent's long-term key: dealKey signs this one deal and dealEncryptionKey receives its envelopes, within scope, for principal in clubId. The seller sends it to the primary with the offer and both parties exchange theirs before agree; the counterparty and the adjudicator check it, settlement does not. Revealing it ties one deal to its principal (evidence, D26). Changes no state.",
+      "required": [
+        "type",
+        "principal",
+        "agent",
+        "dealKey",
+        "dealEncryptionKey",
+        "clubId",
+        "scope",
+        "nonce",
+        "expiresAt",
+        "signature"
+      ],
+      "properties": {
+        "type": {
+          "const": "Delegation"
+        },
+        "principal": {
+          "$ref": "common.schema.json#/$defs/Address"
+        },
+        "agent": {
+          "$ref": "common.schema.json#/$defs/Address",
+          "description": "The long-term agent key that signs this certificate, as named in the principal's mandate"
+        },
+        "dealKey": {
+          "$ref": "common.schema.json#/$defs/Address",
+          "description": "The one-time signing address that appears as buyer or seller in the terms"
+        },
+        "dealEncryptionKey": {
+          "$ref": "common.schema.json#/$defs/Base64Url",
+          "description": "The one-time x25519 key: buyerEncryptionPublicKey or deliverable.sellerEncryptionPublicKey in the terms"
+        },
+        "clubId": {
+          "$ref": "common.schema.json#/$defs/ClubId"
+        },
+        "scope": {
+          "$ref": "common.schema.json#/$defs/Scope"
+        },
+        "nonce": {
+          "$ref": "common.schema.json#/$defs/Hex32"
+        },
+        "expiresAt": {
+          "$ref": "common.schema.json#/$defs/Timestamp"
+        },
+        "signature": {
+          "$ref": "common.schema.json#/$defs/Signature"
+        }
+      }
+    },
+    "KeyRegistration": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "An adjudicator's self-signed encryption key (ADR-0024 §6), served by at least two operators and later anchored on chain. Rotation is a new registration with a new keyId; old secrets are kept until open deals are final. Changes no state.",
+      "required": [
+        "type",
+        "adjudicator",
+        "encryptionPublicKey",
+        "keyId",
+        "nonce",
+        "expiresAt",
+        "signature"
+      ],
+      "properties": {
+        "type": {
+          "const": "KeyRegistration"
+        },
+        "adjudicator": {
+          "$ref": "common.schema.json#/$defs/Address"
+        },
+        "encryptionPublicKey": {
+          "$ref": "common.schema.json#/$defs/Base64Url"
+        },
+        "keyId": {
+          "$ref": "common.schema.json#/$defs/Ident"
+        },
+        "nonce": {
+          "$ref": "common.schema.json#/$defs/Hex32"
+        },
+        "expiresAt": {
+          "$ref": "common.schema.json#/$defs/Timestamp"
+        },
+        "signature": {
           "$ref": "common.schema.json#/$defs/Signature"
         }
       }

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.7/commitment.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.8/commitment.schema.json",
   "title": "Commitment (terms + EIP-712 signatures)",
   "type": "object",
   "required": [
@@ -10,8 +10,6 @@
     "rulebookHash",
     "buyer",
     "seller",
-    "deliverable",
-    "acceptance",
     "price",
     "adjudication",
     "timing",
@@ -24,6 +22,57 @@
     "signatures"
   ],
   "additionalProperties": false,
+  "description": "Two wire forms with one ID (ADR-0024): at disclosure level public the bodies travel in the clear as deliverable and acceptance; at private and judgment they travel only as privateTerms ciphertext, whose hashes are the same deliverableHash and acceptanceHash, so operators never see them. A party that opens privateTerms holds the plaintext form of the same commitment.",
+  "if": {
+    "type": "object",
+    "required": [
+      "disclosure"
+    ],
+    "properties": {
+      "disclosure": {
+        "type": "object",
+        "required": [
+          "level"
+        ],
+        "properties": {
+          "level": {
+            "const": "public"
+          }
+        }
+      }
+    }
+  },
+  "then": {
+    "type": "object",
+    "required": [
+      "deliverable",
+      "acceptance"
+    ],
+    "properties": {
+      "deliverable": {},
+      "acceptance": {}
+    },
+    "not": {
+      "type": "object",
+      "required": [
+        "privateTerms"
+      ],
+      "properties": {
+        "privateTerms": {}
+      }
+    }
+  },
+  "else": {
+    "type": "object",
+    "required": [
+      "privateTerms"
+    ],
+    "properties": {
+      "privateTerms": {},
+      "deliverable": false,
+      "acceptance": false
+    }
+  },
   "properties": {
     "schemaVersion": {
       "const": "0.6"
@@ -94,6 +143,20 @@
               }
             }
           }
+        },
+        "salt": {
+          "$ref": "common.schema.json#/$defs/Hex32",
+          "description": "Random 32 bytes so nobody can confirm a guessable body against deliverableHash (ADR-0024 §2)"
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 4000,
+          "x-holdback-untrusted": true,
+          "description": "Free text the seller adds to the deliverable body; bound by the hash like the rest of it"
+        },
+        "sellerEncryptionPublicKey": {
+          "$ref": "common.schema.json#/$defs/Base64Url",
+          "description": "The seller's per-deal x25519 key (ADR-0024 §6), bound by deliverableHash; the buyer and primary verify it before signing"
         }
       }
     },
@@ -160,6 +223,10 @@
               "description": "Weight of the sealed checks, in basis points (at most 3000)"
             }
           }
+        },
+        "salt": {
+          "$ref": "common.schema.json#/$defs/Hex32",
+          "description": "Random 32 bytes so nobody can confirm a guessable body (a template rubric) against acceptanceHash (ADR-0024 §2)"
         }
       }
     },
@@ -335,8 +402,8 @@
       }
     },
     "privateTerms": {
-      "$ref": "common.schema.json#/$defs/PrivateBody",
-      "description": "Reserved for private and judgment levels; refused in Phase 1"
+      "$ref": "common.schema.json#/$defs/PrivateTerms",
+      "description": "The deliverable and acceptance bodies as ciphertext (ADR-0024 §2): required at private and judgment, refused at public. Outside the ID, like the signatures; the ID binds the hashes."
     }
   },
   "$defs": {

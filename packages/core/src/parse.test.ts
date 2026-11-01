@@ -4,7 +4,7 @@ import fc from 'fast-check';
 import { getAddress } from 'viem';
 import { rulebookHash } from './canonical.js';
 import { commitmentId, holdbackDomain, messageDigest, termsDigest, termsOf, typedDataOf, type UnsignedMessage } from './eip712.js';
-import { parseAdjudicator, parseClub, parseCommitment, parseCommitmentState, parseDelivery, parseJudgment, parseMandate, parseMessage, parsers } from './parse.js';
+import { parseAdjudicator, parseAnyCommitment, parseClub, parseCommitment, parseCommitmentState, parseDelivery, parseJudgment, parseMandate, parseMessage, parsers } from './parse.js';
 import { offer } from './state.js';
 import { validateTiming } from './timing.js';
 import type { Commitment, Rulebook } from './types.js';
@@ -79,19 +79,39 @@ describe('boundary parsers', () => {
   });
 
   it.each([
-    ['a private disclosure level', (c: Record<string, unknown>) => (c['disclosure'] = { level: 'private' }), 'public only'],
-    ['privateTerms', (c: Record<string, unknown>) => (c['privateTerms'] = { hash: `0x${'21'.repeat(32)}`, envelopes: [{ recipient: c['buyer'], scheme: 'x25519-xsalsa20poly1305', ciphertext: 'a2V5' }] }), 'privateTerms'],
-  ] as const)('refuses %s in Phase 1 (ADR-0020)', (_label, change, detail) => {
+    ['plaintext bodies at private', (c: Record<string, unknown>) => (c['disclosure'] = { level: 'private' })],
+    ['privateTerms at public', (c: Record<string, unknown>) => (c['privateTerms'] = example('commitment.private.example.json')['privateTerms'])],
+  ] as const)('refuses %s: the body form follows the level (ADR-0024)', (_label, change) => {
     const c = example('commitment.example.json');
     change(c);
+    expect(parseAnyCommitment(c).ok).toBe(false);
+  });
+
+  it('parses the sealed form with parseAnyCommitment, and parseCommitment asks for the plaintext (ADR-0024)', () => {
+    const c = example('commitment.private.example.json');
+    expect(parseAnyCommitment(c).ok).toBe(true);
     const r = parseCommitment(c);
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error.detail).toContain(detail);
+    if (!r.ok) expect(r.error.detail).toContain('open privateTerms');
+  });
+
+  it('refuses a body key that unlocks at a beacon round until the time-lock slice (ADR-0024 §5)', () => {
+    const c = example('commitment.private.example.json');
+    const env = (c['privateTerms'] as { acceptance: { envelopes: Array<Record<string, unknown>> } }).acceptance.envelopes;
+    env[0]!['unlock'] = { kind: 'beacon-round', round: 9 };
+    const r = parseAnyCommitment(c);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.detail).toContain('none only');
+  });
+
+  it('admits a pseudonymous identity mode in a rulebook (ADR-0024 §7)', () => {
+    const c = example('club.example.json');
+    (c['rulebook'] as Record<string, unknown>)['identityModes'] = ['long-term', 'pseudonymous'];
+    expect(parseClub(c).ok).toBe(true);
   });
 
   it.each([
     ['randomness', { source: 'drand-quicknet', chainHash: `0x${'52'.repeat(32)}` }, 'sim only'],
-    ['identityModes', ['long-term', 'pseudonymous'], 'long-term only'],
     ['mutualSettlement', { allowed: true, adjudicatorFeeShareAfterDeliveryBps: 5000, payoutsTo: 'any' }, 'must be 0 in Phase 1'],
   ] as const)('refuses rulebook %s beyond Phase 1', (field, value, detail) => {
     const c = example('club.example.json');
@@ -130,13 +150,15 @@ describe('boundary parsers', () => {
     if (!r.ok) expect(r.error.detail).toContain('one token');
   });
 
-  it.each(['private', 'judgment'])('refuses a Publish to %s in Phase 1 (ADR-0020)', (level) => {
+  it('refuses a Publish to private, which raises nothing, and admits one to judgment (ADR-0024)', () => {
     const p = example('messages.publish.example.json');
     expect(parseMessage(p).ok).toBe(true);
-    p['level'] = level;
+    p['level'] = 'judgment';
+    expect(parseMessage(p).ok).toBe(true);
+    p['level'] = 'private';
     const r = parseMessage(p);
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error.detail).toContain('public only');
+    if (!r.ok) expect(r.error.detail).toContain('raises the level');
   });
 
   it('refuses a delivery key that unlocks at a beacon round in Phase 1 (ADR-0020)', () => {

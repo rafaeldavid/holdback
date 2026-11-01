@@ -1,4 +1,4 @@
-// Hand-written types for spec/schemas v0.7 (signed encoding 0.6, ADR-0023). Values reach these types only through the parsers in
+// Hand-written types for spec/schemas v0.8 (signed encoding 0.6, ADR-0023, ADR-0024). Values reach these types only through the parsers in
 // parse.ts, which validate against the schema files. Phase 1 narrows the commitment to
 // guaranteed_on_decision and maxSubmissions = 1 (ADR-0007).
 import type { TokenAmount } from './money/index.js';
@@ -43,6 +43,23 @@ export interface EncryptedKey {
 export interface PrivateBody {
   hash: Hex32;
   envelopes: EncryptedKey[];
+}
+
+/**
+ * One encrypted terms body (ADR-0024 §2): AES-256-GCM of the body's RFC 8785 JSON under its own key, with AAD =
+ * commitment ID || part name. `hash` is canonicalKeccak of the body, the value the terms bind.
+ */
+export interface PrivatePart {
+  hash: Hex32;
+  /** iv (12) || ciphertext || tag (16), base64url. */
+  ciphertext: Base64Url;
+  envelopes: EncryptedKey[];
+}
+
+/** The two terms bodies as ciphertext, under separate keys (ADR-0024 §2). */
+export interface PrivateTerms {
+  deliverable: PrivatePart;
+  acceptance: PrivatePart;
 }
 export type PartyRole = 'buyer' | 'seller';
 export type MimeType = 'text/csv' | 'application/json' | 'text/plain' | 'text/markdown';
@@ -98,6 +115,11 @@ export interface Deliverable {
   description: string;
   format: MimeType;
   inputs?: ContentRef[];
+  /** ADR-0024: random 32 bytes, so a guessable body cannot be confirmed against its hash. */
+  salt?: Hex32;
+  notes?: string;
+  /** ADR-0024 §6: the seller's per-deal x25519 key, bound by deliverableHash. */
+  sellerEncryptionPublicKey?: Base64Url;
 }
 
 export interface AcceptanceSpec {
@@ -105,6 +127,8 @@ export interface AcceptanceSpec {
   /** passThreshold is in hundredths of a rubric point (300 = 3.00). */
   rubric: { criteria: Criterion[]; passThreshold: number };
   sealedChecks?: { count: number; commitment: Hex32; weightBps: Bps };
+  /** ADR-0024: random 32 bytes, so a template rubric cannot be confirmed against its hash. */
+  salt?: Hex32;
 }
 
 export interface Adjudication {
@@ -148,8 +172,8 @@ export interface CommitmentTerms {
   /** Phase 1: guaranteed_on_decision only (ADR-0007). */
   settlement: { mode: 'guaranteed_on_decision'; token: string };
   remedy: { onReject: 'full_refund' };
-  /** Phase 1: public only (ADR-0020). */
-  disclosure: { level: 'public' };
+  /** ADR-0020, ADR-0024: private is the recipe's default; at private and judgment the bodies travel sealed. */
+  disclosure: { level: DisclosureLevel };
   buyerEncryptionPublicKey: Base64Url;
   nonce: Hex32;
   createdAt: Timestamp;
@@ -160,6 +184,16 @@ export interface Commitment extends CommitmentTerms {
   signatures: { seller: Signature; buyer?: Signature };
   adjudicatorAcceptance?: AdjudicatorAcceptance;
 }
+
+/**
+ * The wire form at private and judgment (ADR-0024): the terms with the two bodies replaced by privateTerms. Its ID
+ * equals the plaintext form's, because the struct binds only the bodies' hashes.
+ */
+export type SealedCommitmentTerms = Omit<CommitmentTerms, 'deliverable' | 'acceptance'> & { privateTerms: PrivateTerms };
+export type SealedCommitment = SealedCommitmentTerms & Pick<Commitment, 'id' | 'signatures' | 'adjudicatorAcceptance'>;
+/** Either form: what settlement and operators handle. Settlement needs only the hashes. */
+export type AnyCommitmentTerms = CommitmentTerms | SealedCommitmentTerms;
+export type AnyCommitment = Commitment | SealedCommitment;
 
 // messages.schema.json
 interface MessageBase {
@@ -298,6 +332,57 @@ export interface MemberRevocation extends MessageBase {
   operator: Address;
 }
 
+/** ADR-0024 §3: authenticates a private read. audience is the operator's receipt signer; a zero commitmentId scopes list reads. */
+export interface ReadToken extends MessageBase {
+  type: 'ReadToken';
+  viewer: Address;
+  commitmentId: Hex32;
+  audience?: Address;
+}
+
+/** ADR-0024 §7: the long-term agent key certifies one per-deal signing key and one per-deal encryption key. */
+export interface Delegation extends MessageBase {
+  type: 'Delegation';
+  principal: Address;
+  agent: Address;
+  dealKey: Address;
+  dealEncryptionKey: Base64Url;
+  clubId: string;
+  scope: Scope;
+}
+
+/** ADR-0024 §6: an adjudicator's self-signed encryption key. */
+export interface KeyRegistration extends MessageBase {
+  type: 'KeyRegistration';
+  adjudicator: Address;
+  encryptionPublicKey: Base64Url;
+  keyId: string;
+}
+
+/** Messages that authenticate or certify and change no settlement state (ADR-0024). */
+export type CredentialMessage = ReadToken | Delegation | KeyRegistration;
+
+/** disclosure.schema.json: keys posted to publish a private deal's bodies (ADR-0024 §3). */
+export interface DisclosureBody {
+  commitmentId: Hex32;
+  publish?: Publish;
+  keys: { acceptanceKey?: Base64Url; deliverableKey?: Base64Url; recordKeys?: Array<{ recordHash: Hex32; key: Base64Url }> };
+}
+
+/** projection.schema.json: what anyone may read about a private deal (ADR-0024 §3, §8). */
+export interface SettlementProjection {
+  commitmentId: Hex32;
+  disclosure: { level: DisclosureLevel };
+  buyer: Address;
+  seller: Address;
+  price: TokenAmount;
+  adjudication: Pick<Adjudication, 'adjudicator' | 'fallbackAdjudicator' | 'appealAdjudicator' | 'fee'>;
+  timing: Timing;
+  settlement: CommitmentTerms['settlement'];
+  hashes: { deliverableHash: Hex32; acceptanceHash: Hex32; rulebookHash: Hex32; registryHash: Hex32; policyHash: Hex32 };
+  disclosed?: { deliverable?: Deliverable; acceptance?: AcceptanceSpec };
+}
+
 export type SignedMessage =
   | Offer
   | Agree
@@ -354,7 +439,7 @@ export interface Publish {
 export type CoSignedMessage = MutualSettlement | Publish;
 
 /** Everything messages.schema.json admits. */
-export type Message = SignedMessage | CoSignedMessage;
+export type Message = SignedMessage | CoSignedMessage | CredentialMessage;
 
 // delivery.schema.json
 export interface Delivery {

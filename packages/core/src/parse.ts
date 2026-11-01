@@ -11,11 +11,15 @@ import { err, ok, type Result } from './result.js';
 import type {
   AdjudicatorRegistration,
   AgentRegistration,
+  AnyCommitment,
   Appeal,
   Club,
   Commitment,
   CommitmentStateView,
   Delivery,
+  DisclosureBody,
+  SealedCommitment,
+  SettlementProjection,
   EncryptedKey,
   JudgeVerdict,
   Judgment,
@@ -127,7 +131,7 @@ function parserFor<T>(name: string, signed: boolean, extra?: (value: T) => strin
   };
 }
 
-function commitmentRules(c: Commitment): string | undefined {
+function commitmentRules(c: AnyCommitment): string | undefined {
   // The schema admits both modes and up to three submissions; Phase 1 admits only these (ADR-0007).
   const mode: string = c.settlement.mode;
   const max: number = c.timing.maxSubmissions;
@@ -138,10 +142,10 @@ function commitmentRules(c: Commitment): string | undefined {
     if (c.timing[key] > UINT32_MAX) return `timing.${key} ${c.timing[key]} exceeds ${UINT32_MAX}`;
   }
   if (!(Date.parse(c.createdAt) < Date.parse(c.timing.offerExpiresAt))) return 'createdAt must be before timing.offerExpiresAt';
-  // ADR-0020: Phase 1 commitments are public; private bodies arrive with Phase 2 reads.
-  const level: string = c.disclosure.level;
-  if (level !== 'public') return `disclosure.level ${level} is not supported in Phase 1 (public only)`;
-  if ('privateTerms' in c) return 'privateTerms is not supported in Phase 1';
+  // ADR-0024: private and judgment carry the bodies as privateTerms (the schema requires the form per level). Body keys
+  // that unlock at a beacon round wait for the time-lock slice, as delivery keys do.
+  const sealed = (c as Partial<SealedCommitment>).privateTerms;
+  if (sealed) return unlockRule([...sealed.deliverable.envelopes, ...sealed.acceptance.envelopes]);
   return undefined;
 }
 
@@ -154,8 +158,7 @@ function unlockRule(keys: readonly EncryptedKey[] | undefined): string | undefin
 function clubRules(c: Club): string | undefined {
   const source: string = c.rulebook.randomness.source;
   if (source !== 'sim') return `rulebook.randomness.source ${source} is not supported in Phase 1 (sim only)`;
-  const other = c.rulebook.identityModes.find((m) => m !== 'long-term');
-  if (other) return `rulebook.identityModes ${other} is not supported in Phase 1 (long-term only)`;
+  // ADR-0024 §7: pseudonymous (per-deal keys with a Delegation certificate) is admitted from schema v0.8.
   // ADR-0019: the kill fee to the sitting adjudicator is a later option; Phase 1 pays none.
   const share = c.rulebook.mutualSettlement.adjudicatorFeeShareAfterDeliveryBps;
   if (share !== 0) return `rulebook.mutualSettlement.adjudicatorFeeShareAfterDeliveryBps ${share} must be 0 in Phase 1`;
@@ -167,8 +170,8 @@ function messageRules(m: Message): string | undefined {
   // value is signed as uint256; one canonical decimal form per amount.
   // ADR-0018: Phase 1 admits only the SimChain beacon, which is a settlement-layer fact, not a proof.
   if (m.type === 'Decision' && m.beacon && m.beacon.source !== 'sim') return `beacon source ${m.beacon.source} is not supported in Phase 1 (sim only)`;
-  // ADR-0020: Phase 1 commitments are public, so the only level a Publish can name is public.
-  if (m.type === 'Publish' && m.level !== 'public') return `Publish level ${m.level} is not supported in Phase 1 (public only)`;
+  // ADR-0024: a Publish may name judgment or public; raising only is checked against the current level by its reader.
+  if (m.type === 'Publish' && m.level === 'private') return 'a Publish raises the level, so it names judgment or public';
   if (m.type === 'Decision' || m.type === 'Dispute') {
     const timed = unlockRule(m.encryptedKeys);
     if (timed) return timed;
@@ -203,7 +206,16 @@ export const parseAgent = parserFor<AgentRegistration>('agent', true);
 export const parseAppeal = parserFor<Appeal>('appeal', true);
 export const parseClub = parserFor<Club>('club', false, clubRules);
 export const parseCommitmentState = parserFor<CommitmentStateView>('commitment-state', false);
-export const parseCommitment = parserFor<Commitment>('commitment', true, commitmentRules);
+/** Either wire form (ADR-0024): plaintext bodies at public, privateTerms at private and judgment. */
+export const parseAnyCommitment = parserFor<AnyCommitment>('commitment', true, commitmentRules);
+/** The plaintext form only: refuses a sealed commitment, for callers that read the bodies. */
+export const parseCommitment: Parser<Commitment> = (json) => {
+  const r = parseAnyCommitment(json);
+  if (r.ok && 'privateTerms' in r.value) return err(problem('invalid_terms', 'commitment: this reader needs the plaintext bodies; open privateTerms first (ADR-0024)'));
+  return r as Result<Commitment, Problem>;
+};
+export const parseDisclosure = parserFor<DisclosureBody>('disclosure', true);
+export const parseProjection = parserFor<SettlementProjection>('projection', false);
 export const parseDelivery = parserFor<Delivery>('delivery', true, (d) => unlockRule(d.encryptedKeys));
 export const parseEvent = parserFor<SettlementEvent>('event', false);
 export const parseJudgeVerdict = parserFor<JudgeVerdict>('judge-verdict', false);
@@ -224,8 +236,10 @@ export const parsers = {
   appeal: parseAppeal,
   club: parseClub,
   'commitment-state': parseCommitmentState,
-  commitment: parseCommitment,
+  commitment: parseAnyCommitment,
   delivery: parseDelivery,
+  disclosure: parseDisclosure,
+  projection: parseProjection,
   event: parseEvent,
   'judge-verdict': parseJudgeVerdict,
   judgment: parseJudgment,

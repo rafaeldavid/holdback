@@ -1,0 +1,84 @@
+{
+  "schemaVersion": "0.6",
+  "id": "0x2b4e8f1c7d9a3b5e6f0a1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f",
+  "clubId": "data-services-v1",
+  "rulebookHash": "0xb70959b8b5a5a9d365df7471120396553ed1bc0bff83059e4862e6d11b36a556",
+  "buyer": "0x7a1c2e9d4b3f5a6c8e0d1b2a3c4d5e6f7a8b9c0d",
+  "seller": "0x3e5f7a9b1c2d4e6f8a0b1c3d5e7f9a1b3c5d7e9f",
+  "price": {
+    "token": "tUSD",
+    "amount": "2000000000"
+  },
+  "adjudication": {
+    "adjudicator": "0x5d10fecab9242e66cb134b77309a3566ed75e3dd",
+    "fallbackAdjudicator": "0xf9e6283d068ff7016653ab6d36a7fab0294f4b8a",
+    "appealAdjudicator": "0xc372bd536a0f63fe9fde6bca1db179ce93612520",
+    "policyId": "bench-a/p1",
+    "policyHash": "0x04221c401f162ef3a3c07c9d97024f3a13eb30f262b0c088ee6f63fa2c893dbb",
+    "fee": {
+      "token": "tUSD",
+      "amount": "50000000"
+    },
+    "registryHash": "0x54bdcd5545af7f0a1d42fa9adad89dc6f5d20ea8c0e16b270d2160b78b16007a"
+  },
+  "timing": {
+    "offerExpiresAt": "2026-11-01T10:15:00Z",
+    "fundBy": "2026-11-01T10:30:00Z",
+    "deliverBy": "2026-11-02T10:00:00Z",
+    "judgeBy": "2026-11-02T10:02:00Z",
+    "fallbackBy": "2026-11-02T10:04:00Z",
+    "appealWindowSec": 300,
+    "appealDecideSec": 300,
+    "maxSubmissions": 1
+  },
+  "settlement": {
+    "mode": "guaranteed_on_decision",
+    "token": "tUSD"
+  },
+  "remedy": {
+    "onReject": "full_refund"
+  },
+  "disclosure": {
+    "level": "private"
+  },
+  "buyerEncryptionPublicKey": "Zm9yLWlsbHVzdHJhdGlvbi1hLWJ1eWVyLWRlYWwta2V5",
+  "nonce": "0x41d2a6f0b3c5e7a9d1f3b5c7e9a1c3e5f7b9d1a3c5e7f9b1d3a5c7e9f1b3d5a7",
+  "createdAt": "2026-11-01T10:00:00Z",
+  "privateTerms": {
+    "deliverable": {
+      "hash": "0x8c1f3a5b7d9e1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b7d9f1a",
+      "ciphertext": "aWxsdXN0cmF0aXZlLWl2LWNpcGhlcnRleHQtYW5kLXRhZw",
+      "envelopes": [
+        {
+          "recipient": "0x7a1c2e9d4b3f5a6c8e0d1b2a3c4d5e6f7a8b9c0d",
+          "scheme": "x25519-xsalsa20poly1305",
+          "ciphertext": "ZW52ZWxvcGUtZm9yLXRoZS1idXllcg"
+        },
+        {
+          "recipient": "0x5d10fecab9242e66cb134b77309a3566ed75e3dd",
+          "scheme": "x25519-xsalsa20poly1305",
+          "ciphertext": "ZW52ZWxvcGUtZm9yLXRoZS1wcmltYXJ5"
+        }
+      ]
+    },
+    "acceptance": {
+      "hash": "0x9d2e4b6c8f0a2b4d6e8f0c2e4a6b8d0f2c4e6a8b0d2f4c6e8a0b2d4f6c8e0a2b",
+      "ciphertext": "YW5vdGhlci1pdi1jaXBoZXJ0ZXh0LWFuZC10YWc",
+      "envelopes": [
+        {
+          "recipient": "0x7a1c2e9d4b3f5a6c8e0d1b2a3c4d5e6f7a8b9c0d",
+          "scheme": "x25519-xsalsa20poly1305",
+          "ciphertext": "YWNjZXB0YW5jZS1lbnZlbG9wZS1idXllcg"
+        },
+        {
+          "recipient": "0x5d10fecab9242e66cb134b77309a3566ed75e3dd",
+          "scheme": "x25519-xsalsa20poly1305",
+          "ciphertext": "YWNjZXB0YW5jZS1lbnZlbG9wZS1wcmltYXJ5"
+        }
+      ]
+    }
+  },
+  "signatures": {
+    "seller": "0x0cb0f52b4f2d3ef4feeb0b6ddcee49c3294c43b35e9802fef4003b31ae2e20841f794cb8649f6dd7f62a67581674671a9abc8576bdcc967c92528136df095e03a4"
+  }
+}

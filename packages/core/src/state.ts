@@ -11,7 +11,7 @@
 //   refuses an unparseable event time outright.
 import { encodePacked, keccak256 } from 'viem';
 import { rulebookHash } from './canonical.js';
-import { commitmentId, deliveryHash, termsOf } from './eip712.js';
+import { commitmentId, deliveryHash, isSealed, termsOf } from './eip712.js';
 import { add, gte, tokenAmount, type MoneyError } from './money/index.js';
 import { mutualSettlementProblem } from './mutual.js';
 import { problem, type Problem, type ProblemType } from './problem.js';
@@ -20,10 +20,11 @@ import { addSeconds, validateTiming } from './timing.js';
 import type {
   AdjudicatorAcceptance,
   Agree,
+  AnyCommitment,
+  AnyCommitmentTerms,
   Appeal,
-  Commitment,
-  CommitmentTerms,
   Decision,
+  DisclosureLevel,
   Delivery,
   EarlyAccept,
   FundingAuthorization,
@@ -69,7 +70,8 @@ export type RefundVia =
 
 interface Base {
   id: Hex32;
-  terms: CommitmentTerms;
+  /** At private and judgment the sealed form: settlement reads money, deadlines and hashes only (ADR-0024). */
+  terms: AnyCommitmentTerms;
 }
 
 interface Funded extends Base {
@@ -99,9 +101,13 @@ export interface BeaconFact {
   value: Hex32;
 }
 
+/** Disclosure levels in order: a rulebook's disclosureMin is a floor, and a Publish only raises (ADR-0020). */
+export const LEVEL_RANK: Readonly<Record<DisclosureLevel, number>> = { private: 0, judgment: 1, public: 2 };
+
 /** Offer: the seller's signed terms, plus the facts the guards need. */
 export interface OfferInput {
-  commitment: Commitment;
+  /** Either wire form: settlement needs only the bodies' hashes (ADR-0024). */
+  commitment: AnyCommitment;
   at: Timestamp;
   sellerScope: Scope;
   /** The rulebook registered under terms.rulebookHash, or null when none is. */
@@ -173,8 +179,10 @@ export function offer(input: OfferInput): R<Extract<EscrowState, { kind: 'Offere
   // Phase 1 limits hold here too, not only in the parser, for callers that build terms in code.
   const mode: string = terms.settlement.mode;
   if (mode !== 'guaranteed_on_decision') return fail('invalid_terms', `settlement.mode ${mode} is not supported in Phase 1 (guaranteed_on_decision only)`);
-  const level: string = terms.disclosure.level;
-  if (level !== 'public') return fail('invalid_terms', `disclosure.level ${level} is not supported in Phase 1 (public only)`);
+  // ADR-0024: any level at or above the rulebook's floor; the body form must match the level.
+  const level = terms.disclosure.level;
+  if (LEVEL_RANK[level] < LEVEL_RANK[rulebook.disclosureMin]) return fail('invalid_terms', `disclosure.level ${level} is below the rulebook minimum ${rulebook.disclosureMin}`);
+  if ((level === 'public') === isSealed(terms)) return fail('invalid_terms', level === 'public' ? 'a public commitment carries its bodies in the clear, not privateTerms' : `a ${level} commitment carries its bodies only as privateTerms`);
 
   const timing = validateTiming(terms.timing, rulebook);
   if (!timing.ok) return timing;
@@ -365,7 +373,7 @@ function escalationDecision(s: Extract<EscrowState, { kind: 'Escalated' }>, m: D
 
 export interface AppealContext {
   id: Hex32;
-  terms: CommitmentTerms;
+  terms: AnyCommitmentTerms;
   firstOutcome: 'accept' | 'reject';
 }
 

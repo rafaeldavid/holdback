@@ -4,6 +4,7 @@ export * from './fee.js';
 export * from './money/index.js';
 export * from './mutual.js';
 export * from './parse.js';
+export * from './private.js';
 export * from './problem.js';
 export * from './result.js';
 export * from './state.js';

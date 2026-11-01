@@ -4,7 +4,23 @@
 import nacl from 'tweetnacl';
 import type { Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { commitmentIdOf, configuredDomain, freshNonce, jcs, jcsHash, openOwnEnvelope, verifyPrepared, type Domain, type EnvelopeMaterial, type Intent } from './verify.ts';
+import {
+  commitmentIdOf,
+  configuredDomain,
+  freshNonce,
+  jcs,
+  jcsHash,
+  openOwnEnvelope,
+  openPrivateTerms,
+  privateOfferTerms,
+  sealPrivateTerms,
+  typedOf,
+  verifyDelegation,
+  verifyPrepared,
+  type Domain,
+  type EnvelopeMaterial,
+  type Intent,
+} from './verify.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 const b64 = (b: Uint8Array) => Buffer.from(b).toString('base64url');
@@ -28,8 +44,8 @@ export class Agent {
   get address() {
     return this.account.address.toLowerCase();
   }
-  async call<T = J>(method: 'GET' | 'POST', path: string, body?: unknown, api = this.operators[0]): Promise<T> {
-    const headers: Record<string, string> = { 'content-type': body instanceof Uint8Array ? 'application/octet-stream' : 'application/json' };
+  async call<T = J>(method: 'GET' | 'POST', path: string, body?: unknown, api = this.operators[0], extra: Record<string, string> = {}): Promise<T> {
+    const headers: Record<string, string> = { 'content-type': body instanceof Uint8Array ? 'application/octet-stream' : 'application/json', ...extra };
     if (method === 'POST' && !path.startsWith('/v1/prepare/')) headers['idempotency-key'] = crypto.randomUUID();
     const res = await fetch(`${api}${path}`, { method, headers, ...(body === undefined ? {} : { body: body instanceof Uint8Array ? body : JSON.stringify(body) }) });
     const out = (await res.json()) as J;
@@ -157,7 +173,8 @@ export class Agent {
       return { recipient: r.address, scheme: 'x25519-xsalsa20poly1305', ciphertext: b64(new Uint8Array([...eph.publicKey, ...nonce, ...box])) };
     });
     const intent: Intent = { kind: 'delivery', terms, ciphertext: { uri: stored.uri, sha256: stored.id, bytes: ciphertext.length }, plaintextSha256: await sha(plaintext), encryptedKeys };
-    const prepared = await this.call('POST', '/v1/prepare/delivery', { commitmentId: id, ciphertext: intent.ciphertext, plaintextSha256: intent.plaintextSha256, encryptedKeys });
+    // plaintextMime from your own terms: at private and judgment the operator cannot read the deliverable's format.
+    const prepared = await this.call('POST', '/v1/prepare/delivery', { commitmentId: id, ciphertext: intent.ciphertext, plaintextSha256: intent.plaintextSha256, plaintextMime: terms.deliverable.format, encryptedKeys });
     return { prepared, intent };
   }
   /**
@@ -197,6 +214,99 @@ export class Agent {
     const plain = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: ct.slice(0, 12) }, aes, ct.slice(12)));
     if ((await sha(plain)) !== d.plaintextSha256 || (await sha(ct)) !== d.ciphertext.sha256) throw new Error('hash mismatch');
     return new TextDecoder().decode(plain);
+  }
+
+  // ---- Private deals (ADR-0024): per-deal keys, read tokens, the client-side recipe ----------------------------
+
+  /**
+   * A one-time signing key and x25519 key for one deal, and the Delegation this long-term key signs for them
+   * (ADR-0024 §7). Use the returned agent for everything in that deal; send the certificate to the counterparty
+   * before agree, and to the primary with the offer. Random keys, not derived ones: one xpub would link every deal.
+   * Funding the deal key from your treasury links the two on chain (residual 11); fund it how you choose.
+   */
+  async dealKeys(clubId: string, role: 'buyer' | 'seller', cap: { token: string; amount: string }, ttlSec = 7 * 86_400): Promise<{ deal: Agent; delegation: J }> {
+    const deal = new Agent(this.operators, `0x${Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('hex')}`, crypto.getRandomValues(new Uint8Array(32)), this.domain);
+    const mandates = (await this.trusted(`/v1/agents/${this.address}`, (x) => x.mandates)) as J[];
+    const mandate = mandates.find((m) => m.clubId === clubId) ?? (() => { throw new Error(`no mandate for ${this.address} in ${clubId}`); })();
+    const unsigned = {
+      type: 'Delegation', principal: mandate.principal.toLowerCase(), agent: this.address, dealKey: deal.address, dealEncryptionKey: deal.encryptionPublicKey, clubId,
+      scope: { roles: [role], maxPerCommitment: cap, maxDaily: cap, expiresAt: mandate.scope.expiresAt }, nonce: freshNonce(),
+      expiresAt: new Date(Math.floor((await this.settlementNow()) / 1000) * 1000 + ttlSec * 1000).toISOString().replace('.000Z', 'Z'),
+    };
+    return { deal, delegation: { ...unsigned, signature: await this.account.signTypedData(typedOf('Delegation', unsigned, this.domain)) } };
+  }
+
+  /**
+   * Checks a counterparty's Delegation before you sign with it (ADR-0024 §7, D32): the certificate itself
+   * (verify.ts verifyDelegation), then the certifying agent's mandate from its principal in this club, as every
+   * operator serves it, allowing the role and the price. Settlement does not run this check; you do.
+   */
+  async checkDelegation(d: J, want: { dealKey: string; dealEncryptionKey?: string; clubId: string; role: 'buyer' | 'seller'; price: J }): Promise<void> {
+    await verifyDelegation(d, { ...want, nowMs: await this.settlementNow() }, this.domain);
+    const mandates = (await this.trusted(`/v1/agents/${d.agent}`, (x) => x.mandates)) as J[];
+    const m = mandates.find((x) => x.clubId === want.clubId && x.principal.toLowerCase() === String(d.principal).toLowerCase());
+    if (!m) throw new Error(`the certifying agent ${d.agent} holds no mandate from ${d.principal} in ${want.clubId}`);
+    if (!m.scope.roles.includes(want.role) || m.scope.maxPerCommitment.token !== want.price.token || BigInt(m.scope.maxPerCommitment.amount) < BigInt(want.price.amount)) throw new Error("the certifying agent's mandate does not cover this role and price");
+  }
+
+  /** The operator's receipt signer, from its own discovery document: the audience a ReadToken for it names. */
+  async operatorAddress(api = this.operators[0]!): Promise<string> {
+    return ((await (await fetch(`${api}/.well-known/holdback.json`)).json()) as J).receiptSigner.toLowerCase();
+  }
+
+  /**
+   * An Authorization header with a ReadToken for one commitment at one operator (ADR-0024 §3). The audience binds it
+   * to that operator, so it cannot be replayed at another; you pick the expiry (D31).
+   */
+  async readToken(id: Hex, api = this.operators[0]!, ttlSec = 300): Promise<string> {
+    const unsigned = { type: 'ReadToken', viewer: this.address, commitmentId: id, audience: await this.operatorAddress(api), nonce: freshNonce(), expiresAt: new Date(Math.floor((await this.settlementNow()) / 1000) * 1000 + ttlSec * 1000).toISOString().replace('.000Z', 'Z') };
+    const signature = await this.account.signTypedData(typedOf('ReadToken', unsigned, this.domain));
+    return `Holdback-ReadToken ${Buffer.from(JSON.stringify({ ...unsigned, signature })).toString('base64url')}`;
+  }
+
+  /** A private read: GET with this agent's ReadToken for that operator. */
+  async readPrivate<T = J>(path: string, id: Hex, api = this.operators[0]!): Promise<T> {
+    return this.call<T>('GET', path, undefined, api, { authorization: await this.readToken(id, api) });
+  }
+
+  /**
+   * Seller, with its per-deal agent: a private offer from the recipe, with no operator prepare (ADR-0024 §4). The
+   * agent reads the rulebook hash, the primary's registration and settlement time from every operator, picks its own
+   * nonce and salts, builds the terms, seals both bodies to the buyer's per-deal key and the primary's registered key,
+   * signs and submits ciphertext. The operator never sees the bodies. Keep `keys`: they are what you disclose later.
+   */
+  async offerPrivate(given: Omit<Parameters<typeof privateOfferTerms>[0], 'rulebookHash' | 'registration' | 'createdAt' | 'nonce' | 'salts' | 'seller' | 'sellerEncryptionPublicKey'>): Promise<{ id: Hex; terms: J; sealed: J; keys: { deliverable: Uint8Array; acceptance: Uint8Array }; state: J }> {
+    const registration = await this.registration(given.adjudicators.primary);
+    const createdAt = new Date(Math.floor((await this.settlementNow()) / 1000) * 1000).toISOString().replace('.000Z', 'Z');
+    const terms = privateOfferTerms({
+      ...given, rulebookHash: await this.rulebookHash(given.clubId), registration, createdAt, seller: this.address, sellerEncryptionPublicKey: this.encryptionPublicKey,
+      nonce: freshNonce().toLowerCase() as Hex, salts: { deliverable: freshNonce().toLowerCase() as Hex, acceptance: freshNonce().toLowerCase() as Hex },
+    });
+    const readers = [{ address: terms.buyer, encryptionPublicKey: terms.buyerEncryptionPublicKey }, { address: terms.adjudication.adjudicator, encryptionPublicKey: registration.encryptionPublicKey }];
+    const { sealed, id, keys } = await sealPrivateTerms(terms, readers);
+    const signature = await this.account.signTypedData(typedOf('CommitmentTerms', terms, this.domain));
+    const state = await this.call('POST', '/v1/commitments', { ...sealed, id, signatures: { seller: signature } });
+    return { id, terms, sealed, keys, state };
+  }
+
+  /**
+   * Buyer (or the primary), with its per-deal agent: the sealed terms as every operator serves them to this agent's
+   * ReadToken, opened with this agent's key and checked against the hashes the commitment binds (D32).
+   */
+  async openTerms(id: Hex): Promise<J> {
+    const answers = await Promise.all(this.sources().map((api) => this.readPrivate(`/v1/commitments/${id}/terms`, id, api)));
+    if (new Set(answers.map((a) => jcs(a))).size !== 1) throw new Error(`operators disagree on the terms of ${id}; do not proceed`);
+    return openPrivateTerms(answers[0], id, this.address, this.encryptionSecretKey);
+  }
+
+  /** This party's signature over a Publish both parties sign (ADR-0020); raising only. */
+  async signPublish(m: { commitmentId: Hex; level: 'judgment' | 'public'; nonce: Hex; expiresAt: string }): Promise<Hex> {
+    return this.account.signTypedData(typedOf('Publish', { type: 'Publish', ...m }, this.domain));
+  }
+
+  /** Posts disclosure keys (with the co-signed Publish that raises the level, if any) to every configured operator. */
+  async disclose(id: Hex, body: { publish?: J; keys: { acceptanceKey?: string; deliverableKey?: string } }): Promise<J[]> {
+    return Promise.all(this.sources().map((api) => this.call('POST', `/v1/commitments/${id}/disclosure`, { commitmentId: id, ...body }, api)));
   }
 }
 

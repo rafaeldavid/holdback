@@ -7,16 +7,29 @@ import { randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import {
+  bodyKey,
   canonicalKeccak,
   holdbackDomain,
+  isSealed,
+  LEVEL_RANK,
+  openPart,
   operatorFeeDue,
+  parseAnyCommitment,
   parseAppeal,
-  parseCommitment,
   parseDelivery,
+  parseDisclosure,
   parseMessage,
   problem,
+  projectionOf,
   signMessage,
+  verifyCoSigned,
+  type AcceptanceSpec,
   type Address,
+  type AnyCommitment,
+  type AnyCommitmentTerms,
+  type Deliverable,
+  type DisclosureLevel,
+  type SettlementProjection,
   type CommitmentStateView,
   type Hex32,
   type OperatorFeeSchedule,
@@ -32,18 +45,19 @@ import { commitmentIdOf, operationOf, previewSubmission, submissionKeys, submiss
 import type { PolicyContext, RelayPolicy } from './policy.js';
 import type { DryRunSubmission, Settlement, SubmitResult } from '@holdback/settlement';
 import { privateKeyToAccount } from 'viem/accounts';
-import type { CommitmentTerms, Sha256, Signature, Timestamp, TokenAmount } from '@holdback/core';
-import { sha256 } from '@holdback/core/crypto';
+import type { Sha256, Signature, Timestamp, TokenAmount } from '@holdback/core';
+import { CryptoError, sha256 } from '@holdback/core/crypto';
 import { MAX_CIPHERTEXT_BYTES, type CiphertextStore } from '@holdback/core/store';
 import { ENVELOPE_SPEC } from './envelope-spec.js';
 import { startupGuards } from './guards.js';
 import { amountText, operatorFeeText, prepare, PrepareError, type PrepareContext } from './prepare.js';
 import { IdempotencyStore, fingerprint, type StoredResponse } from './idempotency.js';
+import { readerOf, type Reader } from './read-auth.js';
 import { llmsTxt, openApiDocument } from './openapi/index.js';
 import type { Registry } from './registry.js';
 
 export const API_VERSION = 'v1';
-export const SCHEMA_VERSION = '0.7';
+export const SCHEMA_VERSION = '0.8';
 const MAX_BODY_BYTES = 1_048_576;
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
@@ -217,7 +231,7 @@ function parsed<T>(r: Result<T, Problem>): T {
 function checkShape(op: Operation): void {
   switch (op.kind) {
     case 'offer':
-      parsed(parseCommitment(op.commitment));
+      parsed(parseAnyCommitment(op.commitment));
       return;
     case 'acceptance':
       message(op.message, 'AdjudicatorAcceptance');
@@ -228,7 +242,7 @@ function checkShape(op: Operation): void {
       if (op.operatorFee) message(op.operatorFee, 'TransferAuthorization');
       return;
     case 'hold':
-      parsed(parseCommitment(op.commitment));
+      parsed(parseAnyCommitment(op.commitment));
       message(op.acceptance, 'AdjudicatorAcceptance');
       message(op.agree, 'Agree');
       message(op.funding, 'FundingAuthorization');
@@ -297,7 +311,18 @@ interface Indexed {
   buyer: string;
   seller: string;
   adjudicators: string[];
+  /** The level the terms signed (ADR-0020); a verified Publish raises it in `disclosures`. */
+  level: DisclosureLevel;
   events: SettlementEvent[];
+}
+
+/**
+ * ADR-0024 §3: what this node has verified for publication of a private deal: the level a co-signed Publish raised
+ * it to, and the bodies whose keys decrypted to their bound hashes. Held per node; each node checks for itself.
+ */
+interface Published {
+  level: DisclosureLevel;
+  disclosed: NonNullable<SettlementProjection['disclosed']>;
 }
 
 interface Ctx {
@@ -326,6 +351,7 @@ export class Operator {
   private readonly signer;
   private readonly idempotency = new IdempotencyStore();
   private readonly index = new Map<Hex32, Indexed>();
+  private readonly disclosures = new Map<Hex32, Published>();
   private readonly receipts = new Map<Hex32, Map<number, Receipt>>();
   private readonly windows = new Map<string, { start: number; count: number }>();
   private readonly streams = new Set<ServerResponse>();
@@ -369,9 +395,9 @@ export class Operator {
         if (!e.commitmentId) continue;
         let entry = this.index.get(e.commitmentId);
         if (e.type === 'commitment.offered') {
-          const t = e.payload['terms'] as { buyer: string; seller: string; adjudication: { adjudicator: string; fallbackAdjudicator: string; appealAdjudicator: string } };
+          const t = e.payload['terms'] as AnyCommitmentTerms;
           const a = t.adjudication;
-          entry = { offeredSeq: e.seq, buyer: lc(t.buyer), seller: lc(t.seller), adjudicators: [a.adjudicator, a.fallbackAdjudicator, a.appealAdjudicator].map(lc), events: [] };
+          entry = { offeredSeq: e.seq, buyer: lc(t.buyer), seller: lc(t.seller), adjudicators: [a.adjudicator, a.fallbackAdjudicator, a.appealAdjudicator].map(lc), level: t.disclosure.level, events: [] };
           this.index.set(e.commitmentId, entry);
         }
         entry?.events.push(e);
@@ -504,6 +530,12 @@ export class Operator {
       this.throttle(`w:${this.client(ctx)}`, this.o.rateLimit?.writes ?? 0);
       return this.idempotent(ctx, raw, () => this.faucet(raw));
     }
+    const s = ctx.segments;
+    if (s.length === 4 && s[1] === 'commitments' && s[3] === 'disclosure') {
+      if (dryRun) fail('invalid_terms', 'disclosure has no dry run');
+      this.throttle(`w:${this.client(ctx)}`, this.o.rateLimit?.writes ?? 0);
+      return this.idempotent(ctx, raw, () => this.disclose(s[2]!, raw));
+    }
     const parsedOp = operationOf(ctx.segments, raw);
     if (!parsedOp.ok) fail(parsedOp.error.type, parsedOp.error.detail);
     const op = (parsedOp as Extract<typeof parsedOp, { ok: true }>).value;
@@ -603,6 +635,93 @@ export class Operator {
     return this.ok(ok.state, { 'holdback-dry-run': 'true', 'holdback-signature-check': ok.signatureCheck });
   }
 
+  /**
+   * POST /v1/commitments/{id}/disclosure (ADR-0024 §3): publishes a private deal's bodies at this node. A co-signed
+   * Publish raises the level (raise only); each key must decrypt its part to the hash the terms bind before this node
+   * serves the plaintext. At judgment only the acceptance is served, at public both. Nothing changes on a refusal.
+   */
+  private async disclose(id: string, raw: unknown): Promise<StoredResponse> {
+    const body = parsed(parseDisclosure(raw));
+    if (!isHex32(id) || body.commitmentId !== id) fail('invalid_terms', 'commitmentId must be the commitment in the path');
+    const c = (await this.prepareContext().commitment(id as Hex32)) ?? fail('not_found', `no commitment ${id}`);
+    if (!isSealed(c!)) fail('invalid_terms', 'this commitment is public: its bodies are already served in the clear');
+    const sealed = c as unknown as Extract<AnyCommitment, { privateTerms: unknown }>;
+    const current = this.disclosures.get(sealed.id) ?? { level: sealed.disclosure.level, disclosed: {} };
+    let level = current.level;
+    const p = body.publish;
+    if (p) {
+      if (p.commitmentId !== sealed.id) fail('invalid_terms', 'the Publish names another commitment');
+      if (LEVEL_RANK[p.level] < LEVEL_RANK[level]) fail('invalid_state', `the level is already ${level}; a Publish only raises it`);
+      if (!(Date.parse(this.settlementNow()) < Date.parse(p.expiresAt))) fail('deadline_passed', `the Publish expired at ${p.expiresAt}`);
+      if (!(await verifyCoSigned(this.domain, p, sealed.buyer, sealed.seller))) fail('invalid_signature', 'the Publish is not signed by both the buyer and the seller of these terms');
+      level = p.level;
+    }
+    if (body.keys.recordKeys?.length) fail('invalid_terms', 'recordKeys are reserved: sealed judgment records arrive in a later slice of T-207');
+    const disclosed = { ...current.disclosed };
+    const open = async (name: 'deliverable' | 'acceptance', key: string): Promise<unknown> => {
+      try {
+        return await openPart(sealed.privateTerms[name], sealed.id, name, bodyKey(key));
+      } catch (e) {
+        if (e instanceof CryptoError) return fail('invalid_terms', `the ${name}Key does not open the ${name} to the ${name}Hash the terms bind`);
+        throw e;
+      }
+    };
+    if (body.keys.acceptanceKey !== undefined) {
+      if (LEVEL_RANK[level] < LEVEL_RANK.judgment) fail('invalid_state', 'at level private no body is published; post the keys with a co-signed Publish to judgment or public');
+      disclosed.acceptance = (await open('acceptance', body.keys.acceptanceKey)) as AcceptanceSpec;
+    }
+    if (body.keys.deliverableKey !== undefined) {
+      if (level !== 'public') fail('invalid_state', `at level ${level} only the acceptance is published; a co-signed Publish to public discloses the deliverable`);
+      disclosed.deliverable = (await open('deliverable', body.keys.deliverableKey)) as Deliverable;
+    }
+    this.disclosures.set(sealed.id, { level, disclosed });
+    return this.ok(this.projection(sealed));
+  }
+
+  /** The projection anyone may read, with the level and bodies this node verified for publication. */
+  private projection(c: AnyCommitment): SettlementProjection {
+    const pub = this.disclosures.get(c.id);
+    const p = projectionOf(c, pub?.disclosed);
+    return pub ? { ...p, disclosure: { level: pub.level } } : p;
+  }
+
+  /** The level a reader is held to: the signed level, or the one a verified Publish raised it to at this node. */
+  private levelOf(id: Hex32, signed: DisclosureLevel): DisclosureLevel {
+    return this.disclosures.get(id)?.level ?? signed;
+  }
+
+  private settlementNow(): Timestamp {
+    return this.o.registry.now?.() ?? (new Date(Math.floor(this.now() / 1000) * 1000).toISOString().replace('.000Z', 'Z') as Timestamp);
+  }
+
+  /**
+   * Who reads a commitment (ADR-0024 §3): anonymous without an Authorization header, else a party or involved
+   * adjudicator with a valid ReadToken; any other token is answered 401 unauthorized.
+   */
+  private async readerFor(ctx: Ctx, c: AnyCommitment): Promise<Reader> {
+    const header = ctx.req.headers['authorization'];
+    const a = c.adjudication;
+    const r = await readerOf(typeof header === 'string' ? header : undefined, {
+      domain: this.domain,
+      operator: this.signer,
+      now: this.settlementNow(),
+      commitmentId: c.id,
+      parties: { buyer: c.buyer, seller: c.seller, adjudicator: a.adjudicator, fallbackAdjudicator: a.fallbackAdjudicator, appealAdjudicator: a.appealAdjudicator },
+      state: await this.o.settlement.state(c.id),
+    });
+    if (!r.ok) fail(r.problem.type, r.problem.detail);
+    return (r as Extract<typeof r, { ok: true }>).reader;
+  }
+
+  /** An event as an outsider reads it: a private deal's offer shows the settlement projection, not the sealed terms. */
+  private projectEvent(e: SettlementEvent): SettlementEvent {
+    if (e.type !== 'commitment.offered' || !e.commitmentId) return e;
+    const p = e.payload as unknown as { termsHash: Hex32; terms: AnyCommitmentTerms; sellerSignature: Signature };
+    if (!isSealed(p.terms)) return e;
+    const c = { ...p.terms, id: e.commitmentId, signatures: { seller: p.sellerSignature } } as AnyCommitment;
+    return { ...e, payload: { termsHash: p.termsHash, projection: this.projection(c) } as unknown as SettlementEvent['payload'] };
+  }
+
   private async faucet(raw: unknown): Promise<StoredResponse> {
     const faucet = this.o.registry.faucet;
     if (!faucet) fail('not_found', 'this settlement target has no faucet');
@@ -640,8 +759,8 @@ export class Operator {
       commitment: async (id) => {
         const offered = (await eventsOf(id)).find((e) => e.type === 'commitment.offered');
         if (!offered) return undefined;
-        const p = offered.payload as unknown as { terms: CommitmentTerms; sellerSignature: Signature };
-        return { ...p.terms, id, signatures: { seller: p.sellerSignature } };
+        const p = offered.payload as unknown as { terms: AnyCommitmentTerms; sellerSignature: Signature };
+        return { ...p.terms, id, signatures: { seller: p.sellerSignature } } as AnyCommitment;
       },
       delivery: async (id) => (await eventsOf(id)).filter((e) => e.type === 'delivery.submitted').at(-1)?.payload as { deliveryHash: Hex32; attempt: number } | undefined,
       attempt: async (id) => (await this.o.settlement.state(id))?.attempt ?? 1,
@@ -727,7 +846,12 @@ export class Operator {
       const entry = this.index.get(id as Hex32);
       if (!entry) fail('not_found', `no commitment ${id}`);
       if (s.length === 3) return (await this.o.settlement.state(id as Hex32)) ?? fail('not_found', `no commitment ${id}`);
-      if (s.length === 4 && s[3] === 'events') return paginate(entry!.events, (e) => e.seq, q);
+      // ADR-0024 §3: a sealed deal's terms, full events and judgment record go to a party or involved adjudicator with
+      // a ReadToken; everyone else reads the settlement projection (and 401 for a record of a still-private deal).
+      const terms = (await this.prepareContext().commitment(id as Hex32))!;
+      const reader = isSealed(terms) ? await this.readerFor(ctx, terms) : ({ kind: 'party' } as const);
+      const outsider = reader.kind === 'anonymous';
+      if (s.length === 4 && s[3] === 'events') return paginate(outsider ? entry!.events.map((e) => this.projectEvent(e)) : entry!.events, (e) => e.seq, q);
       if (s.length === 4 && s[3] === 'receipts') {
         // Sign a receipt for every event of the commitment this node has indexed (ADR-0017: relayed or indexed).
         for (const e of entry!.events) if (!this.receipts.get(id as Hex32)?.has(e.seq)) await this.receiptFor(e);
@@ -735,8 +859,11 @@ export class Operator {
       }
       if (s.length === 4 && s[3] === 'recipients') return this.recipients(id as Hex32);
       // The terms as the seller signed them (commitment.schema.json): the commitment.offered event's terms, id and seller signature.
-      if (s.length === 4 && s[3] === 'terms') return (await this.prepareContext().commitment(id as Hex32)) ?? fail('not_found', `no commitment ${id}`);
+      if (s.length === 4 && s[3] === 'terms') return outsider ? this.projection(terms) : terms;
       if (s.length === 4 && s[3] === 'judgment') {
+        if (outsider && this.levelOf(terms.id, terms.disclosure.level) === 'private') {
+          fail('unauthorized', 'this deal is private: its judgment record is served to a party or an involved adjudicator with a ReadToken (Authorization: Holdback-ReadToken)');
+        }
         return reg.judgment?.(id as Hex32) ?? fail('not_found', `no judgment record for ${id} on this operator`);
       }
       if (s.length === 4 && s[3] === 'key') {
@@ -817,7 +944,8 @@ export class Operator {
     res.on('close', () => this.streams.delete(res));
     while (this.streams.has(res)) {
       for await (const e of this.o.settlement.events(next)) {
-        res.write(`id: ${e.seq}\nevent: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`);
+        // The stream is unauthenticated: a private deal's offer appears as its settlement projection (ADR-0024 §3).
+        res.write(`id: ${e.seq}\nevent: ${e.type}\ndata: ${JSON.stringify(this.projectEvent(e))}\n\n`);
         next = e.seq + 1;
       }
       await new Promise((r) => setTimeout(r, SSE_POLL_MS));

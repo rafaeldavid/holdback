@@ -70,8 +70,9 @@ export const SIM_RULEBOOK: Rulebook = {
   panelPolicyMin: { panelSize: 3, appealPanelSize: 5, minFamilies: 2 },
   appealFee: tusd('25000000'),
   mutualSettlement: { allowed: true, adjudicatorFeeShareAfterDeliveryBps: 0, payoutsTo: 'parties' },
-  disclosureMin: 'public',
-  identityModes: ['long-term'],
+  // ADR-0024: private deals with per-deal keys are admitted; private is the recipe's default level.
+  disclosureMin: 'private',
+  identityModes: ['long-term', 'pseudonymous'],
   firstLossShareMinBps: 1000,
   bondNoticePeriodMinSec: 600,
   randomness: { source: 'sim' },

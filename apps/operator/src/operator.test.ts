@@ -144,13 +144,13 @@ describe('headers and problems', () => {
   it('sets Request-Id and Holdback-Schema-Version on every response and repeats the ID in a problem instance', async () => {
     const ok = await get('/v1/status');
     expect(ok.headers.get('request-id')).toMatch(/^[0-9a-f-]{36}$/);
-    expect(ok.headers.get('holdback-schema-version')).toBe('0.7');
+    expect(ok.headers.get('holdback-schema-version')).toBe('0.8');
     const missing = await get(`/v1/commitments/${hex32('ee')}`);
     expect(missing.status).toBe(404);
     const p = await json(missing);
     expect(p).toMatchObject({ type: 'not_found', status: 404, title: 'not_found' });
     expect(p['instance']).toBe(`urn:holdback:request:${missing.headers.get('request-id')}`);
-    expect(missing.headers.get('holdback-schema-version')).toBe('0.7');
+    expect(missing.headers.get('holdback-schema-version')).toBe('0.8');
     expect((await get('/v1/nothing')).status).toBe(404);
   });
 
@@ -243,7 +243,7 @@ describe('reads', () => {
     const s = await json(await get('/v1/status'));
     const parsed = parseOperatorStatus(s);
     expect(parsed.ok ? null : parsed.error).toBeNull();
-    expect(s).toMatchObject({ operatorId: 'op-1', settlement: { kind: 'sim' }, domain: { name: 'Holdback', version: '0.6', chainId: '31337' }, apiVersion: 'v1', schemaVersion: '0.7' });
+    expect(s).toMatchObject({ operatorId: 'op-1', settlement: { kind: 'sim' }, domain: { name: 'Holdback', version: '0.6', chainId: '31337' }, apiVersion: 'v1', schemaVersion: '0.8' });
   });
 
   it('GET /v1/commitments/{id} serves the read model with settledAt and finalAt', async () => {

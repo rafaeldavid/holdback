@@ -342,6 +342,28 @@ describe('HTTP contract: every operator response matches spec/openapi.json', () 
     expect((await http('POST', `${api}/v1/commitments/${lapsed.id}/triggers/expire-offer`, {}, key('expire'))).status).toBe(200);
     expect((await http('POST', `${api}/v1/commitments/${r.id}/triggers/reclaim`, {}, key('reclaim'))).body.escrowState).toBe('Refunded');
 
+    // 8b. A private deal (ADR-0024): offered sealed under per-deal keys. Anyone reads the projection; a token from
+    // someone who is not a party is 401; a co-signed Publish to judgment discloses the acceptance.
+    const [pb, ps] = [await sim.fresh(), await sim.fresh()];
+    const pPrice = { token: 'tUSD', amount: '5000000' };
+    const { deal: pBuyer } = await pb.dealKeys(sim.info.clubId, 'buyer', pPrice);
+    const { deal: pSeller } = await ps.dealKeys(sim.info.clubId, 'seller', pPrice);
+    const po = await pSeller.offerPrivate({
+      clubId: sim.info.clubId,
+      buyer: { address: pBuyer.address, encryptionPublicKey: pBuyer.encryptionPublicKey },
+      adjudicators: { primary: primary!, fallback: fallback!, appeal: appeal! },
+      price: pPrice,
+      deliverable: { kind: 'dataset', description: 'a private dataset', format: 'text/csv' },
+      acceptance: { deterministicChecks: [{ id: 'cols', type: 'csv_columns_exact', required: true, columns: ['id'] }], rubric: { criteria: [], passThreshold: 0 } },
+    });
+    expect((await http('GET', `${api}/v1/commitments/${po.id}/terms`)).body.hashes.acceptanceHash).toMatch(/^0x/);
+    const stranger = await http('GET', `${api}/v1/commitments/${po.id}/terms`, undefined, { authorization: await pb.readToken(po.id, api) });
+    expect([stranger.status, stranger.body.type]).toEqual([401, 'unauthorized']);
+    const pm = { commitmentId: po.id, level: 'judgment' as const, nonce: `0x${'7e'.repeat(32)}` as const, expiresAt: new Date(Math.floor((await pSeller.settlementNow()) / 1000) * 1000 + 3_600_000).toISOString().replace('.000Z', 'Z') };
+    const publish = { type: 'Publish', ...pm, buyerSignature: await pBuyer.signPublish(pm), sellerSignature: await pSeller.signPublish(pm) };
+    const disclosed = await http('POST', `${api}/v1/commitments/${po.id}/disclosure`, { commitmentId: po.id, publish, keys: { acceptanceKey: Buffer.from(po.keys.acceptance).toString('base64url') } }, key('disclose'));
+    expect(disclosed.body.disclosed.acceptance.deterministicChecks[0].columns).toEqual(['id']);
+
     // 9. The event stream: headers, and the first event against the Event schema.
     const ctl = new AbortController();
     const stream = await fetch(`${api}/v1/events?from=0`, { signal: ctl.signal });
@@ -367,7 +389,7 @@ describe('HTTP contract: every operator response matches spec/openapi.json', () 
     expect(exchanges.filter((x) => /no (such )?route/i.test(x.body?.toString('utf8') ?? '')).map((x) => `${x.method} ${x.url.pathname}`)).toEqual([]);
     expect(OPERATIONS.map((o) => o.operationId).filter((id) => !ok.has(id)).sort()).toEqual(['getClubMember', 'submitAdjudicatorAcceptance', 'submitDecision', 'submitFunding', 'submitHold']);
     const statuses = [...new Set(results.map((x) => x.status))].sort();
-    expect(statuses).toEqual([200, 400, 402, 403, 404, 409, 429]);
+    expect(statuses).toEqual([200, 400, 401, 402, 403, 404, 409, 429]);
     console.log(`contract: ${exchanges.length} exchanges, ${hit.size}/${OPERATIONS.length} operations, ${ok.size} with a 2xx, statuses ${statuses.join(' ')}`);
   }, 120_000);
 

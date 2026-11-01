@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.7/page.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.8/page.schema.json",
   "title": "Page of a collection (ADR-0017)",
   "description": "Every collection endpoint returns this envelope, ordered by event sequence, newest first. Item shapes are given per endpoint in docs/api.md.",
   "type": "object",
