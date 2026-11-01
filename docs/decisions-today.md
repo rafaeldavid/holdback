@@ -483,3 +483,21 @@ What it means:
 - **F2 (early accept with a misdirected buyer envelope).** No settlement change. An early accept is the buyer's own acceptance: before signing it, the buyer opens its envelope and checks the plaintext hash, and the reference verifier does this (T-024). Settlement keeps refusing appeals after an early accept. ADR-0012's "missing or wrong key is an appeal ground" now covers judged outcomes only (amended). The `todo.` fixture from T-024 becomes a plain `attack.` fixture recording this behaviour as intended.
 - **Simplicity.** Agent-side helpers stay small: plain checks the buyer or seller can read, not mechanisms that try to stop an agent from bypassing its own verifier.
 - Research pass for F2 stopped once Rafa decided; options compared in the batch 1 review were adjudicator re-seal on early accept, a wrong-key-only appeal, and this one.
+
+## D33. Operator fee: 1 bp of the price, minimum 0.01 tUSD, paid by the buyer with the funded agreement, outside the contracts
+
+**Proposed 2026-11-01 from a research pass, for Rafa to confirm or overrule.** Rafa set the direction (fees at the API level, not a protocol fee in the contracts; a rulebook fee on chain is a possible later step), proposed 0.01% of settled volume, and asked for cost-plus to be weighed. The pass measured what a deal costs ’crow: about $0.001 of infrastructure, about $0.01 to $0.10 of model calls when judged (more on appeal), and $5 a month fixed (inferred from Cloudflare, Anthropic and DeepSeek list prices and the code's prompt sizes).
+
+| Option | Effect |
+| --- | --- |
+| A. Volume % only (1 bp) | Market floor; below cost under about 10 tUSD; unrelated to what the operator does |
+| B. Cost-plus per deal, judgment or call | Honest, but a flat cent never funds fixed costs without volume; per-call payment needs a rail and fights idempotency |
+| C. Hybrid max(0.01 tUSD, 1 bp) (proposed) | The floor covers the per-deal cost about 10 times; the percentage shares value on large deals; the same shape as Stripe, escrow.com and Lightning routing |
+
+- **Mechanism (needs ADR-0023 and schema v0.7).** A third signed slot in `prepare/agree-and-fund`: a transfer authorization from the buyer to the relaying operator's published fee address, executed as a plain token transfer, never through the escrow, and posted as a `fee.operator` event. An unpaid relay gets 402 `payment_required`; direct submission and other operators ignore it, so no operator can stop a deal (a `neutrality.` fixture shows it).
+- **Who pays, when.** The buyer, at funding; earned at relay, never refunded. Reads, prepare, the faucet, the seller's deliveries and direct submission are free. Model cost stays in the adjudication fee (ADR-0014), which should become cost-plus with a capital charge on the bond for large deals.
+- **Shown up front.** In discovery and status (`fees`), `llms.txt`, the prepare check text, and the operator's receipt.
+- **Rollout.** Ship with the fee published at 0, then 1 bp / 0.01 tUSD on both demo nodes, measured for a week. No cap now; a cap, a seller-side fee, per-call payment and an on-chain rulebook fee go to the backlog.
+- **Regulatory flags (not legal advice).** ’crow never holds funds and the fee never touches held funds, which reads more like software than an intermediary's cut; state escrow and money-transmitter rules vary; counsel before any real money.
+
+Full report with sources: the research pass of 2026-11-01 (comparable take rates: Stripe, escrow.com, x402 facilitator, Uniswap, Lightning).
