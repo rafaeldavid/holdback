@@ -8,7 +8,7 @@
     "license": {
       "name": "Unlicensed prototype; no real money"
     },
-    "x-holdback-schema-version": "0.7"
+    "x-holdback-schema-version": "0.8"
   },
   "servers": [
     {
@@ -1234,19 +1234,29 @@
           "commitments"
         ],
         "summary": "Read the signed terms",
-        "description": "The commitment as the seller signed and offered it: the terms, `id` and `signatures.seller` (`commitment.schema.json`), from the `commitment.offered` event. Compare it with the offer you were sent before you agree: the price, `buyerEncryptionPublicKey`, the adjudicators, the checks. It is this operator's copy: recompute `id` as the struct hash of the terms, recover the seller's signature yourself, and read it from at least two operators.",
+        "description": "The commitment as the seller signed and offered it: the terms, `id` and `signatures.seller` (`commitment.schema.json`), from the `commitment.offered` event. Compare it with the offer you were sent before you agree: the price, `buyerEncryptionPublicKey`, the adjudicators, the checks. It is this operator's copy: recompute `id` as the struct hash of the terms, recover the seller's signature yourself, and read it from at least two operators.\n\n**Private and judgment deals (ADR-0024).** With a valid `Authorization: Holdback-ReadToken` from a party or an involved adjudicator: the sealed commitment, whose bodies are `privateTerms` ciphertext you open with your own key. Without one: the settlement projection (`projection.schema.json`), plus any body published through `discloseCommitment`. Any other token: 401 `unauthorized`.",
         "parameters": [
           {
             "$ref": "#/components/parameters/CommitmentId"
+          },
+          {
+            "$ref": "#/components/parameters/ReadToken"
           }
         ],
         "responses": {
           "200": {
-            "description": "The signed commitment",
+            "description": "The signed commitment, or for a reader without a token on a private deal the settlement projection",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Commitment"
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/Commitment"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Projection"
+                    }
+                  ]
                 }
               }
             },
@@ -1258,6 +1268,9 @@
                 "$ref": "#/components/headers/SchemaVersion"
               }
             }
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem401"
           },
           "404": {
             "$ref": "#/components/responses/Problem404"
@@ -1866,10 +1879,13 @@
           "commitments"
         ],
         "summary": "List a commitment's events",
-        "description": "A page of this commitment's events from the hash-chained log, newest first, each with its sequence number, time and hash. A `delivery.submitted` event carries the ciphertext URI and `plaintextSha256` a buyer needs to open the work.",
+        "description": "A page of this commitment's events from the hash-chained log, newest first, each with its sequence number, time and hash. A `delivery.submitted` event carries the ciphertext URI and `plaintextSha256` a buyer needs to open the work. On a private or judgment deal without a ReadToken, the `commitment.offered` payload is `{termsHash, projection}` instead of the sealed terms (ADR-0024); the event keeps its hash, which only a reader of the full event can recompute.",
         "parameters": [
           {
             "$ref": "#/components/parameters/CommitmentId"
+          },
+          {
+            "$ref": "#/components/parameters/ReadToken"
           },
           {
             "$ref": "#/components/parameters/Cursor"
@@ -1900,6 +1916,9 @@
           "400": {
             "$ref": "#/components/responses/Problem400"
           },
+          "401": {
+            "$ref": "#/components/responses/Problem401"
+          },
           "404": {
             "$ref": "#/components/responses/Problem404"
           },
@@ -1919,10 +1938,13 @@
           "commitments"
         ],
         "summary": "Read the latest judgment record",
-        "description": "The latest judgment record an adjudicator published for the commitment. Records from fake judges are marked: every panel model ID starts `placeholder-`, and every rationale and evidence string starts `[fake judge, no model ran]`. 404 when this operator holds no record.",
+        "description": "The latest judgment record an adjudicator published for the commitment. Records from fake judges are marked: every panel model ID starts `placeholder-`, and every rationale and evidence string starts `[fake judge, no model ran]`. 404 when this operator holds no record. A deal still at level `private` serves its record only with a ReadToken from a party or an involved adjudicator; otherwise 401 `unauthorized` (ADR-0024).",
         "parameters": [
           {
             "$ref": "#/components/parameters/CommitmentId"
+          },
+          {
+            "$ref": "#/components/parameters/ReadToken"
           }
         ],
         "responses": {
@@ -1944,8 +1966,80 @@
               }
             }
           },
+          "401": {
+            "$ref": "#/components/responses/Problem401"
+          },
           "404": {
             "$ref": "#/components/responses/Problem404"
+          },
+          "429": {
+            "$ref": "#/components/responses/Problem429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem500"
+          }
+        }
+      }
+    },
+    "/v1/commitments/{commitmentId}/disclosure": {
+      "post": {
+        "operationId": "discloseCommitment",
+        "tags": [
+          "commitments"
+        ],
+        "summary": "Publish a private deal's bodies",
+        "description": "ADR-0024 §3. Posts body keys (`disclosure.schema.json`), with the co-signed `Publish` that raises the level, or later by either party once the level allows the part. This operator checks the Publish signatures (raise only), decrypts each part with its key and checks it against the hash the terms bind before serving it in the projection: at `judgment` the acceptance only, at `public` both bodies. Each operator checks for itself, so post to every operator you use. `recordKeys` is reserved. Returns the projection as this operator now serves it.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CommitmentId"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Disclosure"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The settlement projection with the bodies now published",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Projection"
+                }
+              }
+            },
+            "headers": {
+              "Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              },
+              "Holdback-Schema-Version": {
+                "$ref": "#/components/headers/SchemaVersion"
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem401"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem404"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem409"
+          },
+          "413": {
+            "$ref": "#/components/responses/Problem413"
           },
           "429": {
             "$ref": "#/components/responses/Problem429"
@@ -2252,6 +2346,16 @@
           ]
         }
       },
+      "ReadToken": {
+        "name": "Authorization",
+        "in": "header",
+        "required": false,
+        "description": "ADR-0024 §3: `Holdback-ReadToken <base64url of the JSON of a signed ReadToken>` (messages.schema.json `ReadToken`), signed by a party (its per-deal key) or an involved adjudicator, naming this commitment, unexpired, and with `audience` (when present) equal to this operator's `receiptSigner`. Absent: you read as anyone does. A token that fails any check: 401 `unauthorized`.",
+        "schema": {
+          "type": "string",
+          "pattern": "^Holdback-ReadToken [A-Za-z0-9_-]{1,8192}$"
+        }
+      },
       "Cursor": {
         "name": "cursor",
         "in": "query",
@@ -2379,7 +2483,7 @@
         }
       },
       "Problem401": {
-        "description": "A signature does not verify: invalid_signature (unauthorized is reserved for Phase 2 private reads)",
+        "description": "A signature does not verify: invalid_signature; or a private read's ReadToken fails a check (wrong signer, not a party or involved adjudicator, expired, another commitment, another operator's audience): unauthorized (ADR-0024)",
         "content": {
           "application/problem+json": {
             "schema": {
@@ -3775,8 +3879,6 @@
           "rulebookHash",
           "buyer",
           "seller",
-          "deliverable",
-          "acceptance",
           "price",
           "adjudication",
           "timing",
@@ -3789,6 +3891,57 @@
           "signatures"
         ],
         "additionalProperties": false,
+        "description": "Two wire forms with one ID (ADR-0024): at disclosure level public the bodies travel in the clear as deliverable and acceptance; at private and judgment they travel only as privateTerms ciphertext, whose hashes are the same deliverableHash and acceptanceHash, so operators never see them. A party that opens privateTerms holds the plaintext form of the same commitment.",
+        "if": {
+          "type": "object",
+          "required": [
+            "disclosure"
+          ],
+          "properties": {
+            "disclosure": {
+              "type": "object",
+              "required": [
+                "level"
+              ],
+              "properties": {
+                "level": {
+                  "const": "public"
+                }
+              }
+            }
+          }
+        },
+        "then": {
+          "type": "object",
+          "required": [
+            "deliverable",
+            "acceptance"
+          ],
+          "properties": {
+            "deliverable": {},
+            "acceptance": {}
+          },
+          "not": {
+            "type": "object",
+            "required": [
+              "privateTerms"
+            ],
+            "properties": {
+              "privateTerms": {}
+            }
+          }
+        },
+        "else": {
+          "type": "object",
+          "required": [
+            "privateTerms"
+          ],
+          "properties": {
+            "privateTerms": {},
+            "deliverable": false,
+            "acceptance": false
+          }
+        },
         "properties": {
           "schemaVersion": {
             "const": "0.6"
@@ -3859,6 +4012,20 @@
                     }
                   }
                 }
+              },
+              "salt": {
+                "$ref": "#/components/schemas/Hex32",
+                "description": "Random 32 bytes so nobody can confirm a guessable body against deliverableHash (ADR-0024 §2)"
+              },
+              "notes": {
+                "type": "string",
+                "maxLength": 4000,
+                "x-holdback-untrusted": true,
+                "description": "Free text the seller adds to the deliverable body; bound by the hash like the rest of it"
+              },
+              "sellerEncryptionPublicKey": {
+                "$ref": "#/components/schemas/Base64Url",
+                "description": "The seller's per-deal x25519 key (ADR-0024 §6), bound by deliverableHash; the buyer and primary verify it before signing"
               }
             }
           },
@@ -3925,6 +4092,10 @@
                     "description": "Weight of the sealed checks, in basis points (at most 3000)"
                   }
                 }
+              },
+              "salt": {
+                "$ref": "#/components/schemas/Hex32",
+                "description": "Random 32 bytes so nobody can confirm a guessable body (a template rubric) against acceptanceHash (ADR-0024 §2)"
               }
             }
           },
@@ -4100,8 +4271,8 @@
             }
           },
           "privateTerms": {
-            "$ref": "#/components/schemas/PrivateBody",
-            "description": "Reserved for private and judgment levels; refused in Phase 1"
+            "$ref": "#/components/schemas/PrivateTerms",
+            "description": "The deliverable and acceptance bodies as ciphertext (ADR-0024 §2): required at private and judgment, refused at public. Outside the ID, like the signatures; the ID binds the hashes."
           }
         },
         "allOf": [
@@ -4284,7 +4455,8 @@
           "judgment",
           "public"
         ],
-        "description": "Who may read a commitment's terms and records (ADR-0020). Phase 1 admits public only."
+        "description": "Who may read a commitment's terms and records (ADR-0020). Default private (ADR-0024): the recipe and SDK choose it unless the parties pick another. At private and judgment the terms bodies travel as privateTerms ciphertext.",
+        "default": "private"
       },
       "KeyUnlock": {
         "type": "object",
@@ -4379,6 +4551,51 @@
             "items": {
               "$ref": "#/components/schemas/EncryptedKey"
             }
+          }
+        }
+      },
+      "PrivatePart": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "hash",
+          "ciphertext",
+          "envelopes"
+        ],
+        "description": "One encrypted terms body (ADR-0024 §2). The plaintext is the RFC 8785 JSON of the body (UTF-8) and hash is its keccak256, the value the terms bind as deliverableHash or acceptanceHash. Encrypted with AES-256-GCM under its own 32-byte key with AAD = the commitment ID (32 bytes) followed by the part name (\"deliverable\" or \"acceptance\", UTF-8); ciphertext is iv (12 bytes) || ciphertext || tag (16 bytes), base64url. Each envelope seals that key (x25519-xsalsa20poly1305) to one reader.",
+        "properties": {
+          "hash": {
+            "$ref": "#/components/schemas/Hex32"
+          },
+          "ciphertext": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "maxLength": 1400000
+          },
+          "envelopes": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 16,
+            "items": {
+              "$ref": "#/components/schemas/EncryptedKey"
+            }
+          }
+        }
+      },
+      "PrivateTerms": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "deliverable",
+          "acceptance"
+        ],
+        "description": "The two terms bodies as ciphertext, under separate keys so that judgment-level publication can disclose the acceptance while the deliverable stays private (ADR-0024 §2). Sealed to the buyer and the primary adjudicator at offer.",
+        "properties": {
+          "deliverable": {
+            "$ref": "#/components/schemas/PrivatePart"
+          },
+          "acceptance": {
+            "$ref": "#/components/schemas/PrivatePart"
           }
         }
       },
@@ -4539,6 +4756,64 @@
           },
           "signature": {
             "$ref": "#/components/schemas/Signature"
+          }
+        }
+      },
+      "BodyKey": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9_-]{43}$",
+        "description": "A 32-byte AES-256-GCM key, base64url without padding"
+      },
+      "Disclosure": {
+        "title": "Disclosure keys (POST /v1/commitments/{id}/disclosure)",
+        "description": "Publication of a private deal's bodies (ADR-0024 §3). Publish is unchanged and carries no key; the keys travel here. Posted with the co-signed Publish that raises the level, or later by either party once the level allows the part. The operator decrypts each part with its key and checks it against the hash the terms bind before it serves the plaintext; at judgment it serves the acceptance only, at public both bodies.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "commitmentId",
+          "keys"
+        ],
+        "properties": {
+          "commitmentId": {
+            "$ref": "#/components/schemas/Hex32"
+          },
+          "publish": {
+            "$ref": "#/components/schemas/Publish",
+            "description": "The co-signed Publish raising the level; absent when the level already allows the keys posted"
+          },
+          "keys": {
+            "type": "object",
+            "additionalProperties": false,
+            "minProperties": 1,
+            "properties": {
+              "acceptanceKey": {
+                "$ref": "#/components/schemas/BodyKey"
+              },
+              "deliverableKey": {
+                "$ref": "#/components/schemas/BodyKey"
+              },
+              "recordKeys": {
+                "type": "array",
+                "maxItems": 16,
+                "description": "Keys of sealed judgment records, by record hash. Reserved: records are sealed in a later slice of T-207",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "recordHash",
+                    "key"
+                  ],
+                  "properties": {
+                    "recordHash": {
+                      "$ref": "#/components/schemas/Hex32"
+                    },
+                    "key": {
+                      "$ref": "#/components/schemas/BodyKey"
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       },
@@ -6069,6 +6344,131 @@
           }
         }
       },
+      "ReadToken": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Authenticates a private read (ADR-0024 §3), sent as `Authorization: Holdback-ReadToken <base64url of this JSON>`. Signed by a party (its per-deal key) or an involved adjudicator. audience, when present, is the operator's receipt-signer address, so another operator refuses the token. A zero commitmentId scopes list reads to the viewer's deals. The viewer picks the expiry (D31). Changes no state.",
+        "required": [
+          "type",
+          "viewer",
+          "commitmentId",
+          "nonce",
+          "expiresAt",
+          "signature"
+        ],
+        "properties": {
+          "type": {
+            "const": "ReadToken"
+          },
+          "viewer": {
+            "$ref": "#/components/schemas/Address"
+          },
+          "commitmentId": {
+            "$ref": "#/components/schemas/Hex32"
+          },
+          "audience": {
+            "$ref": "#/components/schemas/Address"
+          },
+          "nonce": {
+            "$ref": "#/components/schemas/Hex32"
+          },
+          "expiresAt": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "signature": {
+            "$ref": "#/components/schemas/Signature"
+          }
+        }
+      },
+      "Delegation": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "A per-deal key certificate (ADR-0024 §7), signed by the agent's long-term key: dealKey signs this one deal and dealEncryptionKey receives its envelopes, within scope, for principal in clubId. The seller sends it to the primary with the offer and both parties exchange theirs before agree; the counterparty and the adjudicator check it, settlement does not. Revealing it ties one deal to its principal (evidence, D26). Changes no state.",
+        "required": [
+          "type",
+          "principal",
+          "agent",
+          "dealKey",
+          "dealEncryptionKey",
+          "clubId",
+          "scope",
+          "nonce",
+          "expiresAt",
+          "signature"
+        ],
+        "properties": {
+          "type": {
+            "const": "Delegation"
+          },
+          "principal": {
+            "$ref": "#/components/schemas/Address"
+          },
+          "agent": {
+            "$ref": "#/components/schemas/Address",
+            "description": "The long-term agent key that signs this certificate, as named in the principal's mandate"
+          },
+          "dealKey": {
+            "$ref": "#/components/schemas/Address",
+            "description": "The one-time signing address that appears as buyer or seller in the terms"
+          },
+          "dealEncryptionKey": {
+            "$ref": "#/components/schemas/Base64Url",
+            "description": "The one-time x25519 key: buyerEncryptionPublicKey or deliverable.sellerEncryptionPublicKey in the terms"
+          },
+          "clubId": {
+            "$ref": "#/components/schemas/ClubId"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          },
+          "nonce": {
+            "$ref": "#/components/schemas/Hex32"
+          },
+          "expiresAt": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "signature": {
+            "$ref": "#/components/schemas/Signature"
+          }
+        }
+      },
+      "KeyRegistration": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "An adjudicator's self-signed encryption key (ADR-0024 §6), served by at least two operators and later anchored on chain. Rotation is a new registration with a new keyId; old secrets are kept until open deals are final. Changes no state.",
+        "required": [
+          "type",
+          "adjudicator",
+          "encryptionPublicKey",
+          "keyId",
+          "nonce",
+          "expiresAt",
+          "signature"
+        ],
+        "properties": {
+          "type": {
+            "const": "KeyRegistration"
+          },
+          "adjudicator": {
+            "$ref": "#/components/schemas/Address"
+          },
+          "encryptionPublicKey": {
+            "$ref": "#/components/schemas/Base64Url"
+          },
+          "keyId": {
+            "$ref": "#/components/schemas/Ident"
+          },
+          "nonce": {
+            "$ref": "#/components/schemas/Hex32"
+          },
+          "expiresAt": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "signature": {
+            "$ref": "#/components/schemas/Signature"
+          }
+        }
+      },
       "Messages": {
         "title": "Signed protocol messages (EIP-712)",
         "description": "Every state-changing message other than Delivery and Appeal. Each carries its EIP-712 domain implicitly: name Holdback, version 0.6, chainId, verifyingContract (ADR-0016).",
@@ -6111,6 +6511,15 @@
           },
           {
             "$ref": "#/components/schemas/TransferAuthorization"
+          },
+          {
+            "$ref": "#/components/schemas/ReadToken"
+          },
+          {
+            "$ref": "#/components/schemas/Delegation"
+          },
+          {
+            "$ref": "#/components/schemas/KeyRegistration"
           }
         ]
       },
@@ -6328,6 +6737,119 @@
                 "description": "End of the data"
               }
             ]
+          }
+        }
+      },
+      "Projection": {
+        "title": "Settlement projection (what anyone may read about a private deal)",
+        "description": "GET /v1/commitments/{id}/terms without a ReadToken at disclosure level private or judgment (ADR-0024 §3, §8): the fields settlement enforces in the clear and hashes of the rest, enough to check coverage and trigger any timeout. With per-deal keys the addresses name no long-term identity. disclosed carries a body only once its key was published and checked against its hash.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "commitmentId",
+          "disclosure",
+          "buyer",
+          "seller",
+          "price",
+          "adjudication",
+          "timing",
+          "settlement",
+          "hashes"
+        ],
+        "properties": {
+          "commitmentId": {
+            "$ref": "#/components/schemas/Hex32"
+          },
+          "disclosure": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "level"
+            ],
+            "properties": {
+              "level": {
+                "$ref": "#/components/schemas/DisclosureLevel"
+              }
+            }
+          },
+          "buyer": {
+            "$ref": "#/components/schemas/Address"
+          },
+          "seller": {
+            "$ref": "#/components/schemas/Address"
+          },
+          "price": {
+            "$ref": "#/components/schemas/TokenAmount"
+          },
+          "adjudication": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "adjudicator",
+              "fallbackAdjudicator",
+              "appealAdjudicator",
+              "fee"
+            ],
+            "properties": {
+              "adjudicator": {
+                "$ref": "#/components/schemas/Address"
+              },
+              "fallbackAdjudicator": {
+                "$ref": "#/components/schemas/Address"
+              },
+              "appealAdjudicator": {
+                "$ref": "#/components/schemas/Address"
+              },
+              "fee": {
+                "$ref": "#/components/schemas/TokenAmount"
+              }
+            }
+          },
+          "timing": {
+            "$ref": "#/components/schemas/Commitment/properties/timing"
+          },
+          "settlement": {
+            "$ref": "#/components/schemas/Commitment/properties/settlement"
+          },
+          "hashes": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "deliverableHash",
+              "acceptanceHash",
+              "rulebookHash",
+              "registryHash",
+              "policyHash"
+            ],
+            "properties": {
+              "deliverableHash": {
+                "$ref": "#/components/schemas/Hex32"
+              },
+              "acceptanceHash": {
+                "$ref": "#/components/schemas/Hex32"
+              },
+              "rulebookHash": {
+                "$ref": "#/components/schemas/Hex32"
+              },
+              "registryHash": {
+                "$ref": "#/components/schemas/Hex32"
+              },
+              "policyHash": {
+                "$ref": "#/components/schemas/Hex32"
+              }
+            }
+          },
+          "disclosed": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "deliverable": {
+                "$ref": "#/components/schemas/Commitment/properties/deliverable"
+              },
+              "acceptance": {
+                "$ref": "#/components/schemas/Commitment/properties/acceptance"
+              }
+            }
           }
         }
       },
@@ -7612,10 +8134,30 @@
           "buyer",
           "adjudicators",
           "clubId",
-          "price",
-          "deliverable"
+          "price"
         ],
+        "description": "Plaintext mode needs `deliverable`. Hash-only mode (ADR-0024 §4, `hashOnly: true`) takes `deliverableHash`, `acceptanceHash`, `nonce` and `createdAt` instead of any body, template, checks or rubric.",
         "properties": {
+          "hashOnly": {
+            "type": "boolean",
+            "description": "ADR-0024 §4: the operator never sees the bodies. You built the terms with the client-side recipe (docs/api.md); this answer is a cross-check of your own typed data. The body comes back without privateTerms, which you add"
+          },
+          "deliverableHash": {
+            "$ref": "#/components/schemas/Hex32",
+            "description": "Hash-only: keccak256 of the RFC 8785 JSON of the deliverable body"
+          },
+          "acceptanceHash": {
+            "$ref": "#/components/schemas/Hex32",
+            "description": "Hash-only: keccak256 of the RFC 8785 JSON of the acceptance body"
+          },
+          "disclosure": {
+            "enum": [
+              "private",
+              "judgment"
+            ],
+            "default": "private",
+            "description": "Hash-only: the level to sign. Plaintext mode signs public"
+          },
           "template": {
             "enum": [
               "default",

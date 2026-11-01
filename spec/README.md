@@ -7,12 +7,12 @@ The JSON Schemas in `schemas/` (draft 2020-12) are the API contract. Change them
 
 The examples are illustrative. Their hashes and signatures are placeholders and will not verify cryptographically. The model IDs in the judgment example are placeholders, to be replaced with pinned IDs from `config/judges.yaml`.
 
-Validation as of October 30, 2026 (measured): all 22 examples pass under Ajv 8 (2020-12, strict mode). The schemas also reject three bad inputs:
+Validation as of November 1, 2026 (measured, `pnpm validate:spec`): all 32 examples pass under Ajv 8 (2020-12, strict mode). The schemas also reject three bad inputs:
 - a fractional amount;
 - a model ID containing "latest";
 - an extra field in a judge verdict.
 
-The `$id` URLs (`https://holdback.dev/schemas/v0.7/…`) are namespaces for resolving `$ref` between files. They are not hosted. Replace the domain if the project gets one.
+The `$id` URLs (`https://holdback.dev/schemas/v0.8/…`) are namespaces for resolving `$ref` between files. They are not hosted. Replace the domain if the project gets one.
 
 ## Annotations
 
@@ -20,6 +20,20 @@ The `$id` URLs (`https://holdback.dev/schemas/v0.7/…`) are namespaces for reso
 - **Every free-text string is marked or constrained.** A string with no `date-time` format, pattern, enum or const must carry the marker. URIs count as free text: they are marked and capped at 2048 characters. Identifiers instead get a pattern: club IDs, token IDs, and `Ident` for judge, provider, family, model and version labels. `tests/spec.test.ts` lints this, with an empty allowlist.
 
 ## Changelog
+
+- **v0.8 (2026-11-01, D34, ADR-0024), additive:** every `$id`, the `Holdback-Schema-Version` header and the OpenAPI `x-holdback-schema-version` move to 0.8. No existing typed-data struct changes, so the EIP-712 domain version and `commitment.schemaVersion` stay 0.6. A sealed commitment and its plaintext form have the same ID, because the struct binds only the bodies' hashes.
+  - **Private terms:** `privateTerms` is now `{deliverable, acceptance}`, each a `PrivatePart {hash, ciphertext, envelopes}` (common.schema.json `PrivatePart`, `PrivateTerms`). Each part is AES-256-GCM of the body's RFC 8785 JSON under its own key, with AAD = commitment ID ‖ part name. The commitment schema requires the bodies in the clear at `public` and only `privateTerms` at `private` and `judgment`. Body keys that unlock at a beacon round are still refused.
+  - **Bodies:** `deliverable` gains optional `salt`, `notes` and `sellerEncryptionPublicKey` (the seller's per-deal key, bound by the hash); `acceptance` gains optional `salt`. `DisclosureLevel` defaults to `private`.
+  - **Messages (new EIP-712 types):**
+    - `ReadToken {viewer, commitmentId, audience?, nonce, expiresAt}`, encoded with a `hasAudience` flag;
+    - `Delegation {principal, agent, dealKey, dealEncryptionKey, clubId, scope, nonce, expiresAt}`, signed by the long-term agent key;
+    - `KeyRegistration {adjudicator, encryptionPublicKey, keyId, nonce, expiresAt}`.
+
+    None changes settlement state. A `Publish` may name `judgment` or `public`.
+  - **New schemas:** `disclosure.schema.json` (body keys posted with a co-signed Publish; `recordKeys` reserved) and `projection.schema.json` (the settlement projection served to readers without a token).
+  - **Problems:** `unauthorized` (401) is in use for private reads.
+  - **Rulebook:** `identityModes` may list `pseudonymous`.
+  - **Deferred:** `EncryptedKey.keyId` would change a signed struct.
 
 - **v0.7 (2026-11-01, D33, ADR-0023), additive:** every `$id`, the `Holdback-Schema-Version` header and the OpenAPI `x-holdback-schema-version` move to 0.7. The signed encoding does not change, so the EIP-712 domain version and `commitment.schemaVersion` stay 0.6: from now on they move only when an existing typed-data struct or the terms encoding changes.
   - **Operator fee:** messages add `TransferAuthorization` (`scheme`, `purpose: operator_fee`, `commitmentId`, `from`, `to`, `value`, `token`, `validAfter`, `validBefore`, `nonce`, `expiresAt`), a new EIP-712 type, sent in the agree body as `operatorFee`. `operator-status` gains optional `fees.operator` (`to`, `token`, `bps`, `min`, `max` or `null`, `appliesAt: agree-and-fund`, `refundable: false`). Events add `fee.operator` (`from`, `to`, `amount`, `postings`). The operator API adds the problem type `payment_required` (402).
