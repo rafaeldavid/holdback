@@ -47,33 +47,25 @@ function signedTimestamp(s: string): boolean {
 // Two Ajv instances: one where date-time means a signable timestamp (for everything an agent signs),
 // one with the schema's ordinary date-time (event log, read model, judgment record, registrations).
 // allErrors stays off: input is untrusted, and the first error is enough to refuse it.
-// Each schema compiles on its first use, not at import: a Cloudflare Worker that bundles core must start within
-// its startup CPU limit, and compiling every schema twice at import exceeded it once schema v0.7 grew (T-029).
-type Validator = ReturnType<InstanceType<typeof Ajv2020.default>['compile']>;
-function instance(signed: boolean): (name: string) => Validator | undefined {
-  let ajv: InstanceType<typeof Ajv2020.default> | undefined;
-  const ids = new Map(schemas.map(({ name, schema }) => [name, schema.$id]));
-  return (name) => {
-    if (!ajv) {
-      // ajv and ajv-formats are CommonJS; under NodeNext their default export arrives as `.default`.
-      ajv = new Ajv2020.default({ strict: true, allErrors: false });
-      // ADR-0017 §9: marks party-authored strings for consumers; it changes no validation.
-      ajv.addKeyword({ keyword: UNTRUSTED, schemaType: 'boolean' });
-      if (signed) {
-        addFormats.default(ajv, ['uri']);
-        ajv.addFormat('date-time', signedTimestamp);
-      } else {
-        addFormats.default(ajv);
-      }
-      for (const { schema } of schemas) ajv.addSchema(schema);
-    }
-    const id = ids.get(name);
-    return id === undefined ? undefined : ajv.getSchema(id);
-  };
+function compile(signed: boolean): Map<string, ReturnType<InstanceType<typeof Ajv2020.default>['compile']>> {
+  // ajv and ajv-formats are CommonJS; under NodeNext their default export arrives as `.default`.
+  const ajv = new Ajv2020.default({ strict: true, allErrors: false });
+  // ADR-0017 §9: marks party-authored strings for consumers; it changes no validation.
+  ajv.addKeyword({ keyword: UNTRUSTED, schemaType: 'boolean' });
+  if (signed) {
+    addFormats.default(ajv, ['uri']);
+    ajv.addFormat('date-time', signedTimestamp);
+  } else {
+    addFormats.default(ajv);
+  }
+  for (const { schema } of schemas) ajv.addSchema(schema);
+  const validators = new Map<string, ReturnType<typeof ajv.compile>>();
+  for (const { name, schema } of schemas) validators.set(name, ajv.getSchema(schema.$id)!);
+  return validators;
 }
 
-const signedValidators = instance(true);
-const plainValidators = instance(false);
+const signedValidators = compile(true);
+const plainValidators = compile(false);
 
 const UINT32_MAX = 2 ** 32 - 1;
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
@@ -112,10 +104,9 @@ function walk(value: unknown, signed: boolean, path = ''): string | undefined {
 type Parser<T> = (json: unknown) => Result<T, Problem>;
 
 function parserFor<T>(name: string, signed: boolean, extra?: (value: T) => string | undefined): Parser<T> {
-  if (!schemas.some((s) => s.name === name)) throw new Error(`spec/schemas/${name}.schema.json not found`);
-  let compiled: Validator | undefined;
+  const validate = (signed ? signedValidators : plainValidators).get(name);
+  if (!validate) throw new Error(`spec/schemas/${name}.schema.json not found`);
   return (json) => {
-    const validate = (compiled ??= (signed ? signedValidators : plainValidators)(name)!);
     // Validate and return a private copy, so the caller cannot change the value after it was checked.
     let copy: unknown;
     try {
