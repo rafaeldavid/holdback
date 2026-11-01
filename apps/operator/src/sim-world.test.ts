@@ -286,9 +286,11 @@ describe('a sim world that keeps secrets (publishSecrets: false)', () => {
     return { status: res.status, text: await res.text() };
   };
 
-  it('the default world (pnpm sim) still lists its accounts with keys on GET /', async () => {
+  it('the default world (pnpm sim) still lists its accounts with keys on GET /, and keeps its public labels', async () => {
     const served = (await (await fetch(`${world.url}/`)).json()) as SimInfo;
     expect(served.accounts.find((a) => a.label === 'buyer-1')!.privateKey).toBe(acct('buyer-1').privateKey);
+    expect(world.keySecret).toBeNull();
+    expect(world.published.adjudicators[0]!.address).toBe(testAccount('sim-adjudicator-a').address);
   });
 
   it('serves no secret key on any route: GET /, /clock, /accounts reads, controls and errors', async () => {
@@ -317,6 +319,54 @@ describe('a sim world that keeps secrets (publishSecrets: false)', () => {
     for (const a of priv.info.accounts) {
       expect(testAccount(a.label).address).not.toBe(a.address);
       expect(testAccount(a.label).encryptionPublicKey).not.toBe(a.encryptionPublicKey);
+    }
+  });
+
+  // PR 57 review: every key in the world, not only the parties', must be out of reach of a public label.
+  const ROLE_LABELS = { primary: 'sim-adjudicator-a', fallback: 'sim-adjudicator-b', appeal: 'sim-adjudicator-c' } as const;
+  const OTHER_LABELS = [...Object.values(ROLE_LABELS), 'sim-operator-1', 'sim-operator-2', 'sim-club-operator'];
+  const hex = (b: Uint8Array) => Buffer.from(b).toString('hex');
+  const b64u = (b: Uint8Array) => Buffer.from(b).toString('base64url');
+  /** Every secret of the world: its key secret, and the keys of the adjudicators, operators, club operator and principals. */
+  const worldSecrets = () => {
+    const s = priv.keySecret!;
+    const keys = [...OTHER_LABELS, ...priv.info.accounts.map((a) => `${a.label}/principal`)].map((l) => testAccount(`${l}/${s}`));
+    return [s, ...keys.flatMap((k) => [k.privateKey, k.privateKey.slice(2), hex(k.encryptionSecretKey), b64u(k.encryptionSecretKey)])];
+  };
+
+  it('derives no adjudicator, operator, club operator or principal key from its public label', async () => {
+    expect(priv.keySecret).toMatch(/^[0-9a-f]{64}$/);
+    for (const a of priv.published.adjudicators) {
+      expect(testAccount(ROLE_LABELS[a.role]).address, a.role).not.toBe(a.address);
+      expect(testAccount(`${ROLE_LABELS[a.role]}/${priv.keySecret}`).address, a.role).toBe(a.address);
+    }
+    priv.operators.forEach((o, i) => expect(o.operator.receiptSigner).not.toBe(testAccount(`sim-operator-${i + 1}`).address));
+    const club = (await (await fetch(`${priv.info.operators[0]}/v1/clubs/${priv.info.clubId}`)).json()) as { operator: string };
+    expect(club.operator).not.toBe(testAccount('sim-club-operator').address);
+    expect(club.operator).toBe(testAccount(`sim-club-operator/${priv.keySecret}`).address);
+    for (const a of priv.info.accounts) {
+      const agent = (await (await fetch(`${priv.info.operators[0]}/v1/agents/${a.address}`)).json()) as { mandates: Array<{ principal: string }> };
+      expect(agent.mandates[0]!.principal).not.toBe(testAccount(`${a.label}/principal`).address);
+    }
+  });
+
+  it('serves no world secret on any sim route or operator read (adjudicator, operator, club, principal keys, the key secret)', async () => {
+    const forbidden = worldSecrets();
+    const op = priv.info.operators[0]!;
+    const urls: Array<[string, string, string?]> = [
+      ...['/', '/clock', '/accounts', '/nope'].map((p) => ['GET', `${priv.url}${p}`] as [string, string]),
+      ['POST', `${priv.url}/accounts`],
+      ['POST', `${priv.url}/advance`, '{"seconds": "x"}'],
+      ['POST', `${priv.url}/adjudicators/primary`, '{}'],
+      ['GET', `${op}/.well-known/holdback.json`],
+      ['GET', `${op}/v1/status`],
+      ['GET', `${op}/v1/clubs/${priv.info.clubId}`],
+      ['GET', `${op}/v1/adjudicators`],
+      ...priv.info.accounts.map((a) => ['GET', `${op}/v1/agents/${a.address}`] as [string, string]),
+    ];
+    for (const [method, url, body] of urls) {
+      const text = await (await fetch(url, { method, ...(body === undefined ? {} : { body }) })).text();
+      for (const s of forbidden) expect(text, `${method} ${url}`).not.toContain(s);
     }
   });
 

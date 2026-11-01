@@ -128,7 +128,16 @@ describe('catalogue, briefs and mail', () => {
 
   it('the sim service serves no party\'s secret on any route (sim batch 1, F1)', async () => {
     const f = a.file;
-    const secrets = Object.values(f.parties).flatMap((p) => [p.privateKey, p.privateKey.slice(2), p.encryptionSecretKey]);
+    const w = a.world;
+    // The parties' keys, and (PR 57 review) every other key in the world and the secret they derive from.
+    const labels = ['sim-adjudicator-a', 'sim-adjudicator-b', 'sim-adjudicator-c', 'sim-operator-1', 'sim-operator-2', 'sim-club-operator', ...w.info.accounts.map((x) => `${x.label}/principal`)];
+    const keyStrings = (k: { privateKey: string; encryptionSecretKey: Uint8Array }) => [k.privateKey, k.privateKey.slice(2), Buffer.from(k.encryptionSecretKey).toString('hex'), Buffer.from(k.encryptionSecretKey).toString('base64url')];
+    expect(w.keySecret).toMatch(/^[0-9a-f]{64}$/);
+    const secrets = [
+      ...Object.values(f.parties).flatMap((p) => [p.privateKey, p.privateKey.slice(2), p.encryptionSecretKey]),
+      ...labels.flatMap((l) => keyStrings(w.keysOf(l))),
+      w.keySecret!,
+    ];
     const routes: Array<[string, string, string?]> = [
       ['GET', '/'],
       ['GET', '/clock'],
@@ -138,12 +147,18 @@ describe('catalogue, briefs and mail', () => {
       ['POST', '/adjudicators/primary', '{}'],
       ['GET', '/world.json'],
       ['DELETE', '/'],
-    ];
-    for (const [method, path, body] of routes) {
-      const res = await fetch(`${f.sim}${path}`, { method, ...(body === undefined ? {} : { body }) });
-      const text = await res.text();
-      for (const secret of secrets) expect(text, `${method} ${path}`).not.toContain(secret);
+    ].map(([m, p, b]) => [m!, `${f.sim}${p}`, b] as [string, string, string?]);
+    for (const o of f.operators) {
+      routes.push(['GET', `${o}/.well-known/holdback.json`], ['GET', `${o}/v1/clubs/${f.clubId}`]);
+      for (const p of Object.values(f.parties)) routes.push(['GET', `${o}/v1/agents/${p.address}`]); // the mandate read
     }
+    for (const [method, url, body] of routes) {
+      const res = await fetch(url, { method, ...(body === undefined ? {} : { body }) });
+      const text = await res.text();
+      for (const secret of secrets) expect(text, `${method} ${url}`).not.toContain(secret);
+    }
+    // The adjudicators the parties name hold keys from the world secret (sim-world.test.ts shows the bare labels give other addresses).
+    expect(f.adjudicators.map((x) => x.address)).toEqual(['sim-adjudicator-a', 'sim-adjudicator-b', 'sim-adjudicator-c'].map((l) => w.keysOf(l).address));
     // The parties' keys are not the public test-account keys of their names either.
     const served = (await (await fetch(`${f.sim}/`)).json()) as { accounts: Array<{ address: string; privateKey?: string }> };
     expect(served.accounts.map((x) => x.address).sort()).toEqual(Object.values(f.parties).map((p) => p.address).sort());
@@ -171,6 +186,8 @@ describe('catalogue, briefs and mail', () => {
     expect(printed['body']).toBeUndefined();
     expect(readMessage(root, 'buyer-1', {})).toBeNull();
     send(root, { from: 'seller-1', to: 'buyer-1', subject: 'plain', body: 'hi' });
+    // PR 57 review: a write that fails leaves the message unread, so it is not lost.
+    expect(() => readMessage(root, 'buyer-1', { out: join(out, 'not-a-dir', 'x.json') })).toThrow();
     expect(JSON.parse(readMessage(root, 'buyer-1', {})!)).toMatchObject({ subject: 'plain', body: 'hi' });
   });
 });

@@ -14,7 +14,7 @@ import { MemoryCiphertextStore } from '@holdback/core/store';
 import { FAIL_MARKER, testAdjudicator, type TestAdjudicator } from '@holdback/adjudicator';
 import type { FakeScript } from '@holdback/judgment';
 import { mandateFor, SIM_CHAIN_ID, SIM_RULEBOOK, simClub, SimChain, TOKEN, wideScope, type Genesis } from '@holdback/settlement/sim';
-import { testAccount } from './accounts.js';
+import { testAccount, type TestAccount } from './accounts.js';
 import { simRegistry } from './registry.js';
 import { startOperator, type RunningOperator } from './server.js';
 import { TUSD } from './units.js';
@@ -67,8 +67,9 @@ export interface SimWorldOptions {
   /**
    * Whether the sim service's public routes (GET / and the rest) list the accounts' signing and encryption
    * secret keys. Default true: in one developer's `pnpm sim` every account is theirs, and the keys derive from
-   * public labels. Set it false when several parties share the world (tools/sim): keys then derive from each
-   * label plus a random per-world secret, GET / lists addresses and public keys only, and an account's keys
+   * public labels. Set it false when several parties share the world (tools/sim): every key in the world
+   * (accounts, adjudicators, operator signers, the club operator) then derives from its label plus a random
+   * per-world secret, GET / lists addresses and public keys only, and an account's keys
    * reach only the caller of the POST /accounts that hands it out. `SimWorld.info` holds every key either way.
    */
   publishSecrets?: boolean;
@@ -96,6 +97,13 @@ export interface SimWorld {
   info: SimInfo;
   /** Exactly what GET <sim>/ serves. */
   published: SimPublicInfo;
+  /**
+   * The per-world secret every key derives from with its label (testAccount(`${label}/${keySecret}`)), or null
+   * when publishSecrets is on and keys derive from public labels. In-process only; never served.
+   */
+  keySecret: string | null;
+  /** The keys this world gives a label (an account, `<label>/principal`, `sim-adjudicator-a`, `sim-operator-1`, `sim-club-operator`). In-process only. */
+  keysOf(label: string): TestAccount;
   chain: SimChain;
   operators: readonly RunningOperator[];
   adjudicators: Record<SimRole, TestAdjudicator>;
@@ -138,23 +146,24 @@ export async function startSimWorld(options: SimWorldOptions = {}): Promise<SimW
   let offsetMs = 0;
   const start = wholeSecond(Date.now());
 
-  // Party keys: from the public label alone when they are published anyway; otherwise from the label and a
-  // secret this process never serves, so knowing a party's label (or the run id) gives nobody its key.
+  // Every key in the world (parties, spares, principals, adjudicators, operators, the club operator): from the
+  // public label alone when keys are published anyway; otherwise from the label and a secret this process
+  // never serves, so knowing a label (or the run id) gives nobody a key.
   const keySecret = publishSecrets ? null : randomBytes(32).toString('hex');
-  const partyAccount = (label: string) => (keySecret ? { ...testAccount(`${label}/${keySecret}`), label } : testAccount(label));
+  const worldAccount = (label: string) => (keySecret ? { ...testAccount(`${label}/${keySecret}`), label } : testAccount(label));
 
   // Genesis: the club, a mandate per account (both roles, a year), balances and bonds.
-  const club = simClub(testAccount('sim-club-operator').address, SIM_RULEBOOK, SIM_CLUB_ID);
+  const club = simClub(worldAccount('sim-club-operator').address, SIM_RULEBOOK, SIM_CLUB_ID);
   const expires = wholeSecond(Date.parse(start) + 365 * 86_400_000);
-  const named = labels.map(partyAccount);
+  const named = labels.map(worldAccount);
   // Spares are labelled by the run's start time, so a restarted sim hands out accounts nobody has used.
-  const spares = Array.from({ length: options.spareAccounts ?? 32 }, (_, i) => partyAccount(`sim/${start}/agent-${i + 1}`));
+  const spares = Array.from({ length: options.spareAccounts ?? 32 }, (_, i) => worldAccount(`sim/${start}/agent-${i + 1}`));
   const accounts = [...named, ...spares];
   let nextSpare = 0;
-  const adjKeys = ADJUDICATORS.map((a) => ({ ...a, keys: testAccount(a.label) }));
+  const adjKeys = ADJUDICATORS.map((a) => ({ ...a, keys: worldAccount(a.label) }));
   const mandates = [];
   for (const a of accounts) {
-    const p = partyAccount(`${a.label}/principal`);
+    const p = worldAccount(`${a.label}/principal`);
     mandates.push(await mandateFor({ name: p.label, key: p.privateKey, address: p.address }, a.address, club.id, wideScope(['buyer', 'seller'], expires), start));
   }
   const genesis: Genesis = {
@@ -191,7 +200,7 @@ export async function startSimWorld(options: SimWorldOptions = {}): Promise<SimW
         settlement: chain,
         registry: { ...simRegistry(chain), registration, judgment: (id) => latest.get(id) ?? null },
         store,
-        signerKey: testAccount(`sim-operator-${i + 1}`).privateKey,
+        signerKey: worldAccount(`sim-operator-${i + 1}`).privateKey,
         operatorId: `op-${i + 1}`,
         env: options.env ?? process.env,
         host,
@@ -328,6 +337,8 @@ export async function startSimWorld(options: SimWorldOptions = {}): Promise<SimW
     url,
     info,
     published,
+    keySecret,
+    keysOf: worldAccount,
     chain,
     operators,
     adjudicators,
