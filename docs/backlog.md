@@ -105,11 +105,19 @@ Deferred until after the basic demo. The demo assumes honest parties (Rafa, Octo
 
 | Item | Source | When it matters |
 | --- | --- | --- |
-| Read authentication (`ReadToken`), private judgment records, time-locked key release, pseudonymous identity mode | ADR-0020 | Phase 2 |
+| ~~Read authentication (`ReadToken`), pseudonymous identity mode~~ done in T-207 stage 2a (ADR-0024). Remaining: private judgment records and time-locked key release, below | ADR-0020 | Phase 2 |
+| Adjudicator opens `privateTerms` with its registered key, verifies both body hashes before `AdjudicatorAcceptance` (D32), checks the seller's `Delegation`, and judges from the opened bodies. Today the sim primary accepts sealed offers unread, and would fail at decision time, so a private sim deal settles only by early accept or mutual settlement | T-207 2a handoff; ADR-0024 §5 | Next T-207 slice (adjudicator lane) |
+| Sealed judgment records: a fresh key per record sealed to buyer and seller (D26) and to the appeal adjudicator on escalation; `recordKeys` in the disclosure body (reserved, refused today) | ADR-0024 §2–3 | With the adjudicator slice |
+| Fallback and appeal body envelopes: either party adds envelopes time-locked to the beacon round at `judgeBy` or `appealBy` (union rule); `escalate` and appeals carry body envelopes for the appeal adjudicator. Body keys with a `beacon-round` unlock are refused until then | ADR-0024 §5; ADR-0020 | With tlock (ADR-0018) |
+| Settlement records `Publish` (raise only) so every operator learns the level from the settlement layer; today each operator verifies the co-signed Publish posted to it | ADR-0024 §3; T-006 | T-202 (contract) and SimChain |
+| On-chain settlement view in calldata (hashes for club, policy, level, buyer key), one stored word per deal, ERC-8183 events; ciphertext never in calldata | ADR-0024 §8 | T-202/T-205 |
+| Adjudicator `KeyRegistration` served by two operators and anchored on chain (ERC-6538 candidate: check it has no owner); `EncryptedKey.keyId` for rotation (changes a signed struct, so it moves the domain) | ADR-0024 §6 | T-202, then a domain-version decision |
+| List reads scoped by a ReadToken with a zero `commitmentId` (the viewer's deals only); `?party=` stays public over per-deal addresses | ADR-0024 §3 | Next T-207 slice |
+| The demo viewer holds both parties' keys so the audience still sees a private deal; redeploy the public demo on schema 0.8 | ADR-0024 Consequences | Rafa's deploy gate |
 | Amount privacy: confidential tokens as a rulebook token option; a privacy chain weighed under D4 | D16; ADR-0020 | Phase 2 chain choice |
 | Retention and erasure rule (BSA five years vs GDPR Art. 17), a named reporting entity, an open-rulebook compliance posture | Review F4 | Before any real user data; Phase 5 |
 | Local-store URI scheme; ciphertext and envelope byte layouts in `docs/api.md`; binding an envelope's address label to the published encryption key; AAD binding ciphertext to a commitment | T-014 Handoff | T-007 (layouts) and Phase 2 |
-| Commitment metadata privacy for unauthenticated reads (residual 9) | D13; ADR-0017 | With read authentication |
+| ~~Commitment metadata privacy for unauthenticated reads (residual 9)~~ narrowed to the settlement projection in T-207 stage 2a (ADR-0024) | D13; ADR-0017 | Done for private and judgment deals |
 | Evaluate Prividium for private deals: the single-use fragment architecture below | Rafa, 2026-11-01; D4 update | With T-207 private deals |
 
 ## Exploration: a single-use Prividium fragment per escrow
@@ -191,7 +199,7 @@ Proposed by Rafa on 2026-11-01. To explore with T-207 (private deals), after the
 | A non-JSON 200 response crashes `submit` (body read as state); treat it as an operator failure and fail over | T-007 review | Before untrusted third-party operators |
 | `GET .../receipts` re-signs receipts per read, and the receipt cache is unbounded | T-007 review | With operator persistence |
 | The `dropResponses` test hook is part of production `OperatorOptions`; move it behind a test-only wrapper | T-007 review | Before an operator binary ships |
-| `/v1/events` streams every event unfiltered; revisit when private disclosure levels exist | T-007 review; ADR-0020 | Phase 2 privacy |
+| `/v1/events` streams every event; since T-207 2a a private deal's offer appears as its projection. A projected event keeps the full event's hash, which an outsider cannot recompute; an authenticated stream is not built | T-007 review; ADR-0020; ADR-0024 | Next T-207 slice |
 
 ## Principal recourse
 
