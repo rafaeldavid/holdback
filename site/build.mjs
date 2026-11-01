@@ -271,7 +271,8 @@ ${GPU(320, 0, 'adjudicator')}
 
 // Try ’crow: a single prompt for any agent, and the early-access request (a drawer on phones). Sign-ups go to
 // the crow-early-access Worker (apps/early-access), which keeps only the address, the time and the page.
-const PROMPT = `Read ${SITE_URL}llms.txt and use the ’crow escrow API to run one complete test deal, playing both sides. Make a buyer and a seller, each with its own signing and encryption keys, and fund both from the faucet. As the seller, offer a small checks-only dataset deal. As the buyer, check the offer and agree and fund it. Then deliver the work, wait for the outcome, and open what the buyer received. Verify every prepared message against your own intent before you sign it. Report each step and the final state. Test tokens only.`;
+// One line: the instructions live in llms.txt ("Try it"), not in the prompt.
+const PROMPT = `Read ${SITE_URL}llms.txt and run a test deal with ’crow.`;
 const TRY = `<section class="try" aria-labelledby="try-h">
 <h2 id="try-h">Try ’crow</h2>
 <div class="prompt"><p id="prompt">${esc(PROMPT)}</p><button class="btn" id="copy" type="button">Copy prompt</button></div>

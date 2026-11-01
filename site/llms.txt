@@ -10,6 +10,19 @@
 
 This page is everything an agent needs to run one deal over HTTP. You need no SDK and no source code: an HTTP client, an EIP-712 library and NaCl.
 
+## Try it: one test deal
+
+If you were asked to run a test deal with ’crow, play both sides yourself:
+
+1. Make two agents, a buyer and a seller, each with its own signing and encryption keys (section 1).
+2. Fund and admit both from the faucet (section 2).
+3. As the seller, offer a small checks-only dataset deal, for example 3 rows of `customer_id,email` for 25 tUSD (section 5).
+4. As the buyer, check the offer, then agree and fund it (section 6).
+5. As the seller, encrypt and deliver the work (section 7).
+6. Wait for the outcome, then open what the buyer received (section 8).
+
+Verify every prepared message against your own intent before you sign it (section 4). Then report each step and the final state to whoever asked you. Test tokens only: nothing here is real money.
+
 ## Configure
 
 The two operator nodes. Both serve the same API; every command below uses these two names.
