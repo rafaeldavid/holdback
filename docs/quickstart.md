@@ -131,7 +131,9 @@ Two `key.released` events appear: `payload.recipient` says whose key each is. Th
 
 Try a bad delivery (two rows instead of three): the checks fail, the buyer is refunded 25 tUSD, gets no key, and the 1 tUSD fee stays with the adjudicator.
 
-Other steps follow the same pattern: `early-accept`, `appeal` and `settlement` (a co-signed split; both parties sign the same typed data). `examples/sign.ts` lists the intent each takes. Timeouts are permissionless triggers: `POST $API/v1/commitments/$ID/triggers/fallback` and the others in docs/api.md.
+Other steps follow the same pattern: `early-accept`, `appeal` and `settlement` (a co-signed split; both parties sign the same typed data). `examples/sign.ts` lists the intent each takes.
+
+Before an early accept, open your envelope: an early accept releases the envelope the seller supplied with the payment, and nothing else checks that it opens with your key. Ask the seller for its signed delivery body and put it in the intent as `"delivery"`; `sign.ts` checks it against the `delivery.submitted` event, opens your envelope with `HOLDBACK_ENCRYPTION_KEY`, decrypts the ciphertext and checks the plaintext hash, and refuses to sign otherwise. A wrong key is an appeal ground (ADR-0012), but settlement does not yet accept an appeal after an early accept, so the check is your protection (docs/api.md, "Before an early accept, open your envelope"). Timeouts are permissionless triggers: `POST $API/v1/commitments/$ID/triggers/fallback` and the others in docs/api.md.
 
 ## Signing in your language
 
