@@ -92,7 +92,7 @@ node site/build.mjs && node site/check.mjs   # the site and its agent docs (site
 
 ## Start here (for a new session or agent)
 
-1. Read this file, then the latest `docs/log/` entry: its "Next steps (resume here)" list is the current work.
+1. Read this file, then the latest `docs/log/` entry (files are named by date, `YYYY-MM-DD.md`; take the newest): its "Next steps (resume here)" list is the current work. Check `gh pr list` for open PRs before starting a task that may already be in flight.
 2. `docs/plan.md` lists every task by phase; each task file in `docs/tasks/` has Intent, acceptance criteria, Evidence and a Handoff section that says how to resume.
 3. `docs/operations.md`: what is live (escrow.stream, the API, sign-ups), how to deploy, secrets handling, and the gates.
 4. Open decisions and their history: `docs/decisions-today.md` (D1 to D36) and `docs/decisions/` (ADRs).

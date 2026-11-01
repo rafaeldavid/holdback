@@ -26,7 +26,7 @@ All on Rafa's Cloudflare account (`CLOUDFLARE_ACCOUNT_ID` in `config/keys-dev-en
 
 ## Deploy
 
-Always build and check before deploying; deploy only what changed.
+Always build and check before deploying; deploy only what changed. Deploys run as whoever runs them: an agent with Rafa's go-ahead (or within an approved task), using wrangler's OAuth login on Rafa's Mac or `CLOUDFLARE_API_TOKEN` in an isolated environment. Wrangler is pinned to major version 4 (`npx wrangler@4`).
 
 ```sh
 # the site
