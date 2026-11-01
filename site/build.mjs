@@ -67,16 +67,27 @@ const GPU = (x, i, name) => `<g class="gpu" id="g${i}" transform="translate(${x}
 <rect x="-22" y="-22" width="44" height="44"/><rect x="-11" y="-11" width="22" height="22"/>
 <path d="M-14 -22v-6M-5 -22v-6M5 -22v-6M14 -22v-6M-14 22v6M-5 22v6M5 22v6M14 22v6M-22 -14h-6M-22 -5h-6M-22 5h-6M-22 14h-6M22 -14h6M22 -5h6M22 5h6M22 14h6"/>
 <text y="44">${name}</text></g>`;
+// an agent: a small line-drawn automaton head
+const AGENT = (x) => `<g class="agent" transform="translate(${x} 100)">
+<rect x="-22" y="-18" width="44" height="34" rx="7"/><rect x="-15" y="-11" width="30" height="16" rx="3"/>
+<circle cx="-7" cy="-3" r="2.6"/><circle cx="7" cy="-3" r="2.6"/><path d="M-5 10h10M0 -18v-8"/><circle cx="0" cy="-29" r="2.6"/>
+<path d="M-22 -6h-5v12h5M22 -6h5v12h-5M-12 16v6h24v-6"/></g>`;
+// the escrow: a strongbox with a combination dial
+const SAFE = `<g class="safe" transform="translate(320 100)">
+<rect x="-38" y="-32" width="76" height="62" rx="3"/><rect x="-32" y="-26" width="64" height="50" rx="2" class="inner"/>
+<circle cx="4" cy="-1" r="12"/><circle cx="4" cy="-1" r="3"/><path d="M4 -13v4M4 11v-4M-8 -1h4M16 -1h-4M-4.5 -9.5l2.8 2.8M12.5 7.5l-2.8 -2.8"/>
+<path d="M24 -10v18"/><path d="M-36 -18h-4v8h4M-36 6h-4v8h4M-30 30v5h10v-5M20 30v5h10v-5"/></g>`;
 const FIGURE = `<figure aria-label="Animated drawing: two agents, the escrow, an adjudicator and its bond capital, cycling through release, refund, default and appeal">
 <svg viewBox="0 0 640 380" role="img">
 <defs><filter id="pencil" x="-2%" y="-2%" width="104%" height="104%"><feTurbulence type="fractalNoise" baseFrequency="0.035" numOctaves="2" seed="3" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="2.2" xChannelSelector="R" yChannelSelector="G"/></filter></defs>
 <g filter="url(#pencil)">
 <g class="frame"><rect x="6" y="6" width="628" height="368"/><rect x="11" y="11" width="618" height="358" class="inner"/></g>
-<g class="ln"><path d="M136 100H260M380 100H504"/><path d="M320 130V182"/><path d="M320 300V258" stroke-dasharray="2 3"/></g>
-<g class="box"><rect x="36" y="72" width="100" height="56"/><rect x="504" y="72" width="100" height="56"/><rect x="260" y="70" width="120" height="60"/><rect x="263" y="73" width="114" height="54" class="inner"/><rect x="250" y="300" width="140" height="34"/></g>
+<g class="ln"><path d="M116 100H280M360 100H524"/><path d="M320 134V182"/><path d="M320 300V258" stroke-dasharray="2 3"/></g>
+${AGENT(86)}${AGENT(554)}${SAFE}
+<g class="box"><rect x="250" y="300" width="140" height="34"/></g>
 ${GPU(320, 0, 'adjudicator')}
 </g>
-<g class="lbl"><text x="86" y="104">buyer agent</text><text x="554" y="104">seller agent</text><text x="320" y="62">escrow</text><text x="320" y="321">bond capital</text></g>
+<g class="lbl"><text x="86" y="150">buyer agent</text><text x="554" y="150">seller agent</text><text x="320" y="58">escrow</text><text x="320" y="321">bond capital</text></g>
 <text x="320" y="38" class="note" id="note">Checks pass: the price to the seller, the key to the buyer, in one step.</text>
 <text x="24" y="358" class="cap k" id="sh">Plate I of IV</text><text x="616" y="358" class="cap" id="cap" style="text-anchor:end">Release</text>
 <g id="tokens"></g>
@@ -168,7 +179,8 @@ h1 { font-family: var(--serif); font-size: clamp(56px, 12vw, 96px); line-height:
 .intro { font-size: clamp(18px, 2.6vw, 20px); line-height: 1.55; color: var(--graphite); max-width: 34em; margin: 0 auto; text-wrap: pretty; }
 figure { margin: 56px auto 0; max-width: 640px; }
 svg { width: 100%; height: auto; display: block; }
-svg path, svg rect { fill: none; stroke: var(--pencil); stroke-width: 0.9; stroke-linecap: round; stroke-linejoin: round; }
+svg path, svg rect, .agent circle, .safe circle { fill: none; stroke: var(--pencil); stroke-width: 0.9; stroke-linecap: round; stroke-linejoin: round; }
+.safe .inner { stroke: var(--faint); stroke-width: 0.6; }
 .frame rect { stroke: var(--pencil); stroke-width: 0.8; } .frame .inner { stroke: var(--faint); stroke-width: 0.5; }
 .ln path { stroke: var(--faint); stroke-width: 0.7; }
 .box .inner { stroke: var(--faint); stroke-width: 0.5; }
