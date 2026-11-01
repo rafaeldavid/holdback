@@ -5,7 +5,7 @@
 - **Depends on:** T-020
 - **Paths this task may touch:** `tools/sim/` (new), `docs/testing.md`, root `package.json` scripts, `fixtures/scenarios/` (one promoted finding)
 - **Human gate:** no (no keys; Claude-family models only until Rafa provides other families' keys)
-- **Status:** review
+- **Status:** done
 - **Agent/session:** implementer subagent, 2026-10-31, branch `t-021-agent-sim`
 - **Re-scoped:** 2026-10-31 by D30 (API first: no MCP server) and because there are no model API keys in the repo. Model agents are Claude Code subagents of different sizes (Haiku, Sonnet, Opus, Fable) that the coordinator spawns; they call the local operator's HTTP API with curl and sign with `examples/verify.ts` and `examples/sign.ts`.
 
