@@ -13,6 +13,10 @@ demo/out/
 .herenow/
 tools/sim/runs/
 
+# Foundry (contracts/)
+contracts/out/
+contracts/cache/
+
 # Personal Claude Code settings
 .claude/settings.local.json
 .claude/worktrees/

@@ -1,0 +1,6 @@
+commerce-payments/=lib/commerce-payments/src/
+commerce-payments-test/=lib/commerce-payments/test/
+@openzeppelin/contracts/=lib/commerce-payments/lib/spend-permissions/lib/openzeppelin-contracts/contracts/
+forge-std/=lib/commerce-payments/lib/forge-std/src/
+solady/=lib/commerce-payments/lib/solady/src/
+permit2/=lib/commerce-payments/lib/permit2/src/
