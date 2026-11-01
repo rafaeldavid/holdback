@@ -7,6 +7,7 @@ import nacl from 'tweetnacl';
 import { generatePrivateKey } from 'viem/accounts';
 import { afterEach, describe, expect, it } from 'vitest';
 import { Agent } from '../../../examples/agent.ts';
+import { LIVE_REGISTRY_URI, liveRegistry, markerFake, placeholderRegistry } from '@holdback/adjudicator';
 import { MemoryStorage, PublicWorld, type PublicWorldOptions } from './index.js';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -137,6 +138,106 @@ describe('public mode', () => {
     expect(r.headers.get('holdback-notice')).toMatch(/scripted/);
     const c = await post(`${urls[0]}/v1/prepare/offer`, { template: 'checks-only' });
     expect(c.headers.get('holdback-notice')).toBeNull();
+  });
+});
+
+/** The code-fix job from tools/sim/catalogue.json: a rubric deal a judge panel decides. */
+async function rubricDeal(urls: string[], diff: string): Promise<{ id: string; state: J; buyer: Agent }> {
+  const index = (await (await fetch(`${urls[0]}/`)).json()) as J;
+  const buyer = freshAgent(urls);
+  const seller = freshAgent(urls);
+  for (const a of [buyer, seller]) await a.call('POST', '/v1/faucet', { address: a.address });
+  const [primary, fallback, appeal] = index.adjudicators.map((a: J) => a.address);
+  const offer = await seller.offer({
+    template: 'default',
+    clubId: index.clubId,
+    seller: seller.address,
+    buyer: { address: buyer.address, encryptionPublicKey: buyer.encryptionPublicKey },
+    adjudicators: { primary, fallback, appeal },
+    price: { token: 'tUSD', amount: '30000000' },
+    deliverable: { kind: 'other', description: 'Unified diff fixing the off-by-one in page()', format: 'text/plain' },
+    checks: [{ id: 'hidden', type: 'hidden_characters_max', required: true, max: { tag: 0, bidi: 0, total: 0 } }],
+    rubric: {
+      passThreshold: 300,
+      criteria: [
+        { id: 'fixes', description: 'The diff makes page() return exactly `size` items per full page.', weight: 70, anchors: { '0': 'Does not fix it', '2': 'Partly', '4': 'Fixes it' } },
+        { id: 'minimal', description: 'No unrelated changes.', weight: 30, anchors: { '0': 'Rewrites everything', '2': 'Some noise', '4': 'Minimal' } },
+      ],
+    },
+    timing: { judgeWithinSec: 2, fallbackWithinSec: 2, appealWindowSec: 2, appealDecideSec: 2 },
+  });
+  await buyer.waitFor(offer.id, ['AcceptedByAdjudicator']);
+  await buyer.agreeAndFund(offer.terms, 40_000_000n);
+  await seller.deliver(offer.terms, new TextEncoder().encode(diff));
+  const state = await buyer.waitFor(offer.id, ['Released', 'Refunded']);
+  return { id: offer.id, state, buyer };
+}
+
+const DIFF = '--- a/page.js\n+++ b/page.js\n@@ -1 +1 @@\n-function page(items, n, size) { return items.slice(n * size, n * size + size - 1); }\n+function page(items, n, size) { return items.slice(n * size, n * size + size); }\n';
+
+describe('live judges (T-028), with a stand-in for the models', () => {
+  /** markerFake stands in for the live provider: unmarked verdicts, as a model's would be. Counts calls. */
+  const standIn = () => {
+    const inner = markerFake();
+    const calls: string[] = [];
+    return { calls, provider: { complete: (r: Parameters<typeof inner.complete>[0]) => (calls.push(r.model), inner.complete(r)) } };
+  };
+
+  it('says so in GET /, the notes and the offer notice, and binds the live registry', async () => {
+    const { provider } = standIn();
+    const { urls } = await serve({ judgeProvider: provider, liveCallsPerDay: 7 });
+    const index = (await (await fetch(`${urls[0]}/`)).json()) as J;
+    expect(index.judges).toMatchObject({ panel: 'live', registry: { uri: LIVE_REGISTRY_URI, hash: liveRegistry().hash }, liveCallsPerDay: 7, liveCallsToday: 0 });
+    expect(index.judges.models).toEqual(liveRegistry().active.map((e) => e.model));
+    for (const a of index.adjudicators) expect(a.scriptedPanel).toBe(false);
+    const regs = (await (await fetch(`${urls[0]}/v1/adjudicators`)).json()) as J;
+    for (const r of regs.items ?? regs) expect(r.registry.hash).toBe(liveRegistry().hash);
+    const notes = ((await (await fetch(`${urls[0]}/.well-known/holdback.json`)).json()) as J).notes.join('\n');
+    expect(notes).toMatch(/live judge panel/i);
+    expect(notes).toMatch(/7 live judge calls a day/);
+    const r = await post(`${urls[0]}/v1/prepare/offer`, { template: 'default' });
+    expect(r.headers.get('holdback-notice')).toMatch(/live judge panel/);
+  });
+
+  it('judges a rubric deal live within the daily budget, then falls back to marked scripted judges', async () => {
+    const { calls, provider } = standIn();
+    const { urls } = await serve({ judgeProvider: provider, liveCallsPerDay: 5 });
+    const first = await rubricDeal(urls, DIFF);
+    expect(first.state.escrowState).toBe('Released');
+    expect(calls).toHaveLength(3);
+    const live = (await first.buyer.call('GET', `/v1/commitments/${first.id}/judgment`)) as J;
+    expect(live.panel.members).toHaveLength(3);
+    for (const m of live.panel.members) {
+      expect(liveRegistry().active.map((e) => e.model)).toContain(m.model);
+      expect(m.verdict.rationale).not.toMatch(/^\[fake judge, no model ran\]/);
+    }
+    expect(((await (await fetch(`${urls[0]}/`)).json()) as J).judges.liveCallsToday).toBe(3);
+
+    // Two calls left today: fewer than a panel needs, so the next panel is scripted and its record says so.
+    const second = await rubricDeal(urls, DIFF);
+    expect(second.state.escrowState).toBe('Released');
+    expect(calls).toHaveLength(3);
+    const scripted = (await second.buyer.call('GET', `/v1/commitments/${second.id}/judgment`)) as J;
+    for (const m of scripted.panel.members) expect(m.verdict.rationale).toMatch(/^\[fake judge, no model ran\]/);
+  }, 90_000);
+
+  it('keeps the count across a rebuild from storage', async () => {
+    const storage = new MemoryStorage();
+    const { provider } = standIn();
+    const a = await serve({ judgeProvider: provider, liveCallsPerDay: 5 }, storage);
+    await rubricDeal(a.urls, DIFF);
+    await a.close();
+    running.splice(running.indexOf(a), 1);
+    const b = await serve({ judgeProvider: provider, liveCallsPerDay: 5 }, storage);
+    expect(((await (await fetch(`${b.urls[0]}/`)).json()) as J).judges.liveCallsToday).toBe(3);
+  }, 90_000);
+
+  it('without keys the panel is scripted, and the env decides: all three variables or none', async () => {
+    const { urls } = await serve({ env: { HOLDBACK_ANTHROPIC_API_KEY: 'k' } });
+    const index = (await (await fetch(`${urls[0]}/`)).json()) as J;
+    expect(index.judges).toMatchObject({ panel: 'scripted', registry: { hash: placeholderRegistry().hash } });
+    expect(index.judges.missing).toEqual(['HOLDBACK_OPENAI_COMPATIBLE_API_KEY', 'HOLDBACK_OPENAI_COMPATIBLE_BASE_URL']);
+    expect(JSON.stringify(index)).not.toContain('"k"');
   });
 });
 

@@ -7,7 +7,7 @@ import { parseAdjudicator, type Address, type Hex32, type Rulebook, type Settlem
 import { policyHashOf } from '@holdback/adjudicator';
 import type { LoadedRegistry } from '@holdback/judgment';
 import type { TermsTemplate } from '@holdback/testkit';
-import { demoRegistry, type Listing } from './bench.js';
+import { demoRegistry, liveJudgesInUse, type Listing } from './bench.js';
 import { resolveJudges, ROLE_PLAY, type AdjudicatorRole, type BenchProfile } from './cast.js';
 import { TUSD } from './units.js';
 
@@ -157,8 +157,8 @@ export function proposeSlate(listings: readonly Listing[], c: RuleContext): Adju
   return { slate: chosen as Slate, considered, rules: rulesInWords(c) };
 }
 
-/** A pinned model ID: dated, never an alias such as "latest". */
-const PINNED = /-\d{8}$/;
+/** A pinned model ID: dated (-YYYYMMDD, or @YYYY-MM-DD as config/judges-live.yaml pins), never an alias such as "latest". */
+const PINNED = /(?:-\d{8}|@\d{4}-\d{2}-\d{2})$/;
 
 /** Tide-7's review of each proposed bench against its own policy. */
 export function reviewSlate(proposal: AdjudicatorProposal, listings: readonly Listing[], price: bigint, policy: Required<SellerAdjudicatorPolicy>): SellerReview {
@@ -286,7 +286,10 @@ export function profileViews(listings: readonly Listing[], proposal: Adjudicator
         selected: role ?? 'declined',
         ...(role === undefined && considered?.reasons.length ? { declinedBecause: considered.reasons } : {}),
         ...(sellerChecks(l.address) ? { sellerChecks: sellerChecks(l.address)! } : {}),
-        judges: resolveJudges(l.profile, registry),
+        // Live (T-028): every bench seats the live registry; the profiles' placeholder judges are not in it.
+        judges: liveJudgesInUse()
+          ? registry.active.map((e) => ({ id: e.id, model: e.model, family: e.family, effort: e.provider === 'anthropic' ? 'live; effort low' : 'live; provider default' }))
+          : resolveJudges(l.profile, registry),
         harness: l.profile.harness,
         terms: {
           fee: amount(feeOf(l)),

@@ -28,6 +28,17 @@ import { DOMAIN, REPO_ROOT, TUSD, type DemoWorld } from './world.js';
 export const REGISTRY_FILE = join(REPO_ROOT, 'config/judges.yaml');
 export const REGISTRY_URI = 'file:///config/judges.yaml';
 
+/**
+ * Live judges (T-028, `pnpm demo --live`): while set, every bench seats this registry and calls this provider
+ * (already routed and timeout-wrapped), and per-beat fake scripts are ignored. Unset, the demo is scripted.
+ */
+let liveJudging: { registry: LoadedRegistry; registryUri: string; provider: JudgeProvider } | undefined;
+export function useLiveJudges(live: { registry: LoadedRegistry; registryUri: string; provider: JudgeProvider } | undefined): void {
+  liveJudging = live;
+}
+export const liveJudgesInUse = (): boolean => liveJudging !== undefined;
+const registryUri = () => liveJudging?.registryUri ?? REGISTRY_URI;
+
 export interface JudgeReport {
   commitmentId: Hex32;
   outcome: DecisionOutcome;
@@ -189,7 +200,7 @@ export function publishSwiftline(directory: BenchDirectory, keys: AgentKeys): vo
       encryptionPublicKey: keys.encryptionPublicKey,
       affiliations: [],
       policy,
-      registry: { hash: demoRegistry().hash, uri: REGISTRY_URI },
+      registry: { hash: demoRegistry().hash, uri: registryUri() },
       policyHash: policyHashOf(policy),
       fee: { min: { token: 'tUSD', amount: SWIFTLINE_FEE.toString() } },
       status: 'active',
@@ -201,6 +212,7 @@ export function publishSwiftline(directory: BenchDirectory, keys: AgentKeys): vo
 
 let registryCache: LoadedRegistry | undefined;
 export function demoRegistry(): LoadedRegistry {
+  if (liveJudging) return liveJudging.registry;
   if (!registryCache) {
     const r = loadRegistryFile(REGISTRY_FILE);
     if (!r.ok) throw new Error(`config/judges.yaml: ${r.error.detail}`);
@@ -227,7 +239,7 @@ export class ServiceBench implements AdjudicatorSeam {
     this.policy = defaultPolicy(`${agent.name}/p1`);
     this.policyHash = policyHashOf(this.policy);
     this.registryHash = registry.hash;
-    const inner = options.provider ?? fakeProvider(options.judges ?? {});
+    const inner = liveJudging?.provider ?? options.provider ?? fakeProvider(options.judges ?? {});
     this.service = new Adjudicator({
       address: agent.address,
       // The registration carries the display name (cast.ts); the policy ID keeps the label.
@@ -238,7 +250,7 @@ export class ServiceBench implements AdjudicatorSeam {
       seedSecret: keccak256(stringToBytes(`${agent.signingKey}/seed-secret`)),
       policy: this.policy,
       registry,
-      registryUri: REGISTRY_URI,
+      registryUri: registryUri(),
       fee: { min: { token: 'tUSD', amount: (50n * TUSD).toString() } as AdjudicatorRegistration['fee']['min'] },
       domain: DOMAIN,
       provider: {

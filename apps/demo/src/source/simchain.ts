@@ -17,7 +17,7 @@ import {
   type Negotiation,
   type NegotiationStep,
 } from '@holdback/demo/agents/beats.js';
-import { clearJudgingTimes, takeJudgingTime, type JudgingTime } from '@holdback/demo/agents/bench.js';
+import { clearJudgingTimes, liveJudgesInUse, takeJudgingTime, type JudgingTime } from '@holdback/demo/agents/bench.js';
 import type { JudgeRequest } from '@holdback/judgment';
 import { createDemoWorld, type ActorName, type DemoWorld, type DemoWorldOptions } from '@holdback/demo/agents/world.js';
 import { judgePromptView, verdictView } from '../transcript/judge.js';
@@ -29,6 +29,9 @@ import type { AdjudicatorProfile, Amount, BalanceRow, BeatTranscript, CastKey, D
 
 export const SIMCHAIN_NOTE =
   "measured on SimChain in this run: scripted agents over the operator API; the adjudicator service with scripted judges, seated from config/judges.yaml's pinned placeholder model IDs. Times are wall-clock milliseconds on this machine.";
+/** `pnpm demo --live` (T-028): the same run, with every bench's panel calling real models. */
+export const SIMCHAIN_LIVE_NOTE =
+  'measured on SimChain in this run: scripted agents over the operator API; the adjudicator service with live judges, pinned models from two families (Anthropic, DeepSeek) seated from config/judges-live.yaml and called during this run. Times are wall-clock milliseconds on this machine, model calls included.';
 
 /** Each job runs on its own world (T-019): beats 1 to 4 are one job on seed 7; beat n's job uses seed 7 + n. */
 export const seedOf = (beat: number): number => (beat <= 4 ? 7 : 7 + beat);
@@ -535,7 +538,7 @@ class Narrator {
       ? [
           ['reading the delivery and fetching its ciphertext', j.fetchedAt],
           ['decrypting, checks and screen', j.panel.startedAt],
-          [`panel of ${seats} scripted judges`, j.panel.endedAt],
+          [`panel of ${seats} ${liveJudgesInUse() ? 'live' : 'scripted'} judges`, j.panel.endedAt],
           ['aggregating and publishing the signed record', j.publishedAt],
           ['signing and submitting the decision', decisionMs],
         ]
@@ -634,8 +637,8 @@ class Narrator {
         model: seat.model,
         family: seat.family,
         inputHash: seat.inputHash,
-        // The SimChain source runs config/judges.yaml's fake providers only (ServiceBench's default).
-        scripted: true,
+        // Fake providers (ServiceBench's default) unless `pnpm demo --live` set live judges.
+        scripted: !liveJudgesInUse(),
         prompt: judgePromptView(request.system, request.user),
         ...(seat.verdict ? { verdict: verdictView(seat.verdict) } : {}),
       });
@@ -662,7 +665,7 @@ function profileOf(v: ProfileView, who: CastKey | undefined): AdjudicatorProfile
     { label: 'Appeal window', value: `${t.appealWindowSec} s (terms file)` },
     { label: 'Bond', value: `${formatAmount(t.bond)} on SimChain; ${formatAmount(t.freeBond)} free` },
   ];
-  if (t.registryHash) terms.push({ label: 'Registry', value: `${t.registryHash.slice(0, 10)}… (config/judges.yaml)` });
+  if (t.registryHash) terms.push({ label: 'Registry', value: `${t.registryHash.slice(0, 10)}… (${liveJudgesInUse() ? 'config/judges-live.yaml' : 'config/judges.yaml'})` });
   return {
     ...(who ? { who } : {}),
     name: plain(v.name),
@@ -684,8 +687,19 @@ const NOTE_EXTRA: Readonly<Record<number, string>> = {
   7: ' op-1 refuses through its relay policy hook and op-2 is stopped, both on this run; SimChain time jumps to judgeBy while Clearfield stays silent, so the wall-clock times do not include that wait.',
 };
 
+/** Live mode (T-028): what differs from the scripted wording. Beat 6's appeal verdicts are the models' own. */
+const LIVE_SUMMARY: Readonly<Record<number, string>> = {
+  3: "Deterministic checks pass; the panel seed is revealed; three pinned judges from two families (live models) give their verdicts; one judge's prompt and verdict are shown; Clearfield decides.",
+  6: "A delivery hides a base64 instruction telling the judges to pass it: Clearfield's screen flags it, so its panel cannot accept and it escalates to Atrium, whose five live judges decide under the flagged-appeal rule (accept only unanimously with no injection suspected). A second delivery hides tag characters aimed at Ledger itself under an empty rubric: it is accepted, the screen report records it, and Ledger's SDK strips the payload before Ledger reads the file.",
+};
+const LIVE_NOTE_EXTRA: Readonly<Record<number, string>> = {
+  6: " In the first delivery Atrium's five appeal judges are live models; nothing is scripted for them. The second delivery is a separate commitment on its own world; its times start where the first job's end.",
+};
+
 const transcript = (beat: number, run: Run, events: DemoEvent[]): BeatTranscript => {
-  const meta = BEAT_META[beat]!;
+  const live = liveJudgesInUse();
+  const meta = { ...BEAT_META[beat]!, ...(live && LIVE_SUMMARY[beat] ? { summary: LIVE_SUMMARY[beat] } : {}) };
+  const extra = (live ? LIVE_NOTE_EXTRA[beat] : undefined) ?? NOTE_EXTRA[beat] ?? '';
   const who = new Map(ACTORS.map(([name, key]) => [lc(run.world.addressOf(name)), key]));
   // The profiles belong to beat 1, where the agents choose.
   const adjudicators = run.choice && beat === 1 ? { adjudicators: run.choice.profiles.map((v) => profileOf(v, who.get(lc(v.address)))) } : {};
@@ -696,8 +710,8 @@ const transcript = (beat: number, run: Run, events: DemoEvent[]): BeatTranscript
     title: meta.title,
     summary: meta.summary,
     litmus: meta.litmus,
-    mode: 'scripted',
-    source: { kind: 'simchain', note: `${SIMCHAIN_NOTE}${NOTE_EXTRA[beat] ?? ''}` },
+    mode: live ? 'live' : 'scripted',
+    source: { kind: 'simchain', note: `${live ? SIMCHAIN_LIVE_NOTE : SIMCHAIN_NOTE}${extra}` },
     commitmentId: run.commitment.id as Hex32,
     events,
   };
