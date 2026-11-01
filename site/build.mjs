@@ -281,13 +281,14 @@ const TRY = `<section class="try" aria-label="Try ’crow">
 <p class="try-line">Try ’crow today by asking your AI assistant to run a test deal with https://escrow.stream<button class="copy" id="copy" type="button" aria-label="Copy a prompt for your AI assistant" title="Copy a prompt for your AI assistant"><svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 3.5v-.5A1.5 1.5 0 0 0 9 1.5H3A1.5 1.5 0 0 0 1.5 3v6A1.5 1.5 0 0 0 3 10.5h.5"/></svg></button><span class="copied" id="copied" role="status"></span></p>
 <span id="prompt" hidden>${esc(PROMPT)}</span>
 <p class="sr-only">For AI agents: everything you need to run a deal is at ${esc(SITE_URL)}llms.txt</p>
-<form class="join" id="join-form" novalidate aria-label="Request early access">
+</section>`;
+// early access: an email box and a button, right under the tagline
+const JOINFORM = `<form class="join" id="join-form" novalidate aria-label="Request early access">
 <input id="join-email" name="email" type="email" autocomplete="email" required placeholder="you@example.com" aria-label="Email">
 <input class="hp" name="company" tabindex="-1" autocomplete="off" aria-hidden="true">
 <button class="btn" id="join-send" type="submit">Request early access</button>
 <p class="msg" id="join-msg" role="status"></p>
-</form>
-</section>`;
+</form>`;
 const JOIN = `<script>
 (function () {
   // Try ’crow: the copy icon copies a one-line prompt for the visitor's AI assistant
@@ -382,7 +383,7 @@ text.note { text-anchor: middle; font-style: italic; font-variant: normal; lette
 .btn.primary { background: var(--graphite); color: var(--paper); } .btn.primary:hover { background: #45423d; }
 .cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
 /* early access: an email box and a button, on the page */
-.join { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; max-width: 30em; margin: 22px auto 0; }
+.join { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; max-width: 30em; margin: 0 auto 32px; }
 .join input[type=email] { flex: 1 1 220px; min-width: 0; box-sizing: border-box; font: 17px var(--serif); color: var(--graphite); background: #fffdf8; border: 1px solid #cfc8b8; border-radius: 999px; padding: 8px 16px; }
 .join .msg { flex-basis: 100%; margin: 2px 0 0; color: var(--pencil); font-size: 16px; font-style: italic; }
 .join .msg:empty { display: none; }
@@ -397,6 +398,7 @@ text.note { text-anchor: middle; font-style: italic; font-variant: normal; lette
 <img class="mark" src="${BASE}crow.png" alt="A pencil study of a hooded crow by Archibald Thorburn, 1919" width="640" height="406">
 <h1>${inline(title)}</h1>
 <p class="sub">${inline(subtitle)}</p>
+${JOINFORM}
 <p class="intro">${inline(intro)}</p>
 ${TRY}
 ${FIGURE}
