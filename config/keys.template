@@ -1,0 +1,19 @@
+# Template for your local secrets. Copy it to .env at the repo root and fill in the values there:
+#   cp config/keys.template .env
+# .env is git-ignored. Never commit, paste or share it. Commands that need keys load it with Node's
+# --env-file, so the code still only reads environment variables, and Claude Code never reads the file.
+
+# --- Live judges (two model families) ---
+# Anthropic: https://console.anthropic.com/settings/keys
+HOLDBACK_ANTHROPIC_API_KEY=
+
+# DeepSeek, through the OpenAI-compatible provider: https://platform.deepseek.com/api_keys
+HOLDBACK_OPENAI_COMPATIBLE_API_KEY=
+HOLDBACK_OPENAI_COMPATIBLE_BASE_URL=https://api.deepseek.com
+
+# --- Phase 2 only: testnet deployer (leave empty for now) ---
+# A fresh wallet used only on a testnet, funded from a free testnet faucet. Never a wallet holding real
+# funds; the services refuse mainnet chain IDs (CLAUDE.md, hard rules).
+# TESTNET_DEPLOYER_PRIVATE_KEY=
+# CHAIN_RPC_URL=
+# CHAIN_ID=
