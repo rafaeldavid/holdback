@@ -57,7 +57,7 @@ export function simActor(name: string, label = 'sim'): SimActor {
 }
 
 export const SIM_RULEBOOK: Rulebook = {
-  version: '1.0-sim',
+  version: '1.0', // club.schema.json: major.minor only (T-015's contract test caught '1.0-sim')
   open: true,
   minWindowsSec: { judge: 120, fallback: 120, appealWindow: 300, appealDecide: 300 },
   windowCoverageRatioBps: 2000,
