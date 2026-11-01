@@ -60,6 +60,30 @@ contract HoldbackRulesTest is SpikeBase {
         rules.fund(t, sig);
     }
 
+    /// Q7: CPP's ERC-3009 collector fixes validAfter = 0, validBefore = preApprovalExpiry and value = maxAmount.
+    /// A buyer signature with Holdback's FundingAuthorization.validAfter (non-zero) does not verify.
+    function test_fund_erc3009WithNonZeroValidAfter_isRejected() public {
+        HoldbackRules.Terms memory t = _terms(ID);
+        AuthCaptureEscrow.PaymentInfo memory pi = rules.paymentInfoFor(t);
+        pi.payer = address(0);
+        bytes32 nonce = escrow.getHash(pi);
+        bytes32 structHash = keccak256(
+            abi.encode(
+                RECEIVE_WITH_AUTHORIZATION_TYPEHASH,
+                buyer,
+                address(collector),
+                uint256(PRICE),
+                block.timestamp - 1, // a FundingAuthorization-style validAfter
+                uint256(t.fundBy),
+                nonce
+            )
+        );
+        bytes memory sig =
+            _sign(BUYER_PK, keccak256(abi.encodePacked("\x19\x01", usdc.DOMAIN_SEPARATOR(), structHash)));
+        vm.expectRevert("MockERC3009: invalid signature");
+        rules.fund(t, sig);
+    }
+
     function test_fund_replayReverts() public {
         HoldbackRules.Terms memory t = _terms(ID);
         bytes memory sig = _signFunding(rules.paymentInfoFor(t), BUYER_PK);
@@ -180,6 +204,7 @@ contract HoldbackRulesTest is SpikeBase {
         bytes memory rejectSig = _decisionSig(t, false, ADJ_PK);
         vm.expectRevert(abi.encodeWithSelector(HoldbackRules.WrongStage.selector, HoldbackRules.Stage.Settled));
         rules.decide(t, false, rejectSig);
+        vm.warp(t.decideBy);
         vm.expectRevert(abi.encodeWithSelector(HoldbackRules.WrongStage.selector, HoldbackRules.Stage.Settled));
         rules.timeout(t);
     }
@@ -263,8 +288,9 @@ contract HoldbackRulesTest is SpikeBase {
         vm.warp(t.holdExpiry); // the accept was signed but never relayed in time
         vm.expectRevert(); // CPP: AfterAuthorizationExpiry
         rules.decide(t, true, acceptSig);
+        AuthCaptureEscrow.PaymentInfo memory pi = rules.paymentInfoFor(t);
         vm.prank(buyer);
-        escrow.reclaim(rules.paymentInfoFor(t));
+        escrow.reclaim(pi);
         assertEq(usdc.balanceOf(buyer), 1_000_000_000);
     }
 

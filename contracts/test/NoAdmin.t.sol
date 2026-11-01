@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
+import {HoldbackRules} from "../src/HoldbackRules.sol";
 import {SpikeBase} from "./SpikeBase.sol";
 
 /// Hard rule "No admin keys": HoldbackRules exposes exactly the selectors below and nothing else, has no
@@ -11,7 +12,8 @@ contract NoAdminTest is SpikeBase {
     string internal constant T = "(bytes32,address,address,address,address,uint120,uint120,uint48,uint48,uint48)";
 
     function _allowed() internal pure returns (string[] memory s) {
-        s = new string[](12);
+        s = new string[](13);
+        s[12] = "TERMS_TYPEHASH()";
         s[0] = "COLLECTOR()";
         s[1] = "ESCROW()";
         s[2] = string.concat("decide(", T, ",bool,bytes)");
@@ -69,8 +71,12 @@ contract NoAdminTest is SpikeBase {
         }
     }
 
-    function test_rulesContractNeverHoldsFunds() public view {
-        // Custody stays in CPP's TokenStore; the rules contract has no balance to sweep.
+    function test_rulesContractNeverHoldsFunds() public {
+        // Custody stays in CPP's TokenStore; the rules contract has no balance to sweep, during or after a deal.
+        HoldbackRules.Terms memory t = _terms(keccak256("c"));
+        _fund(t);
+        assertEq(usdc.balanceOf(address(rules)), 0);
+        rules.decide(t, false, _decisionSig(t, false, ADJ_PK));
         assertEq(usdc.balanceOf(address(rules)), 0);
         assertEq(address(rules).balance, 0);
     }
