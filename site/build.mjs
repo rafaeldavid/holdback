@@ -60,9 +60,81 @@ export function render(md) {
 export const strip = (md) => md.split('\n').filter((l) => !l.startsWith('%% ')).join('\n');
 
 /**
- * index.html from llms.txt: only the tagline, as a title and a subtitle (Rafa, 2026-11-01: the page says
- * "escrow for agents" and a descriptive subtitle; every doc lives in llms.txt). Agents find the docs through
- * the <link rel="alternate"> in the head.
+ * One hairline drawing (Rafa, 2026-11-01): two agents, the escrow, three adjudicator GPUs and the bond
+ * capital behind them, cycling through four outcomes. Complete at rest (sheet 01 drawn); motion is extra.
+ */
+const GPU = (x, i, name) => `<g class="gpu" id="g${i}" transform="translate(${x} 214)">
+<rect x="-22" y="-22" width="44" height="44"/><rect x="-11" y="-11" width="22" height="22"/>
+<path d="M-14 -22v-6M-5 -22v-6M5 -22v-6M14 -22v-6M-14 22v6M-5 22v6M5 22v6M14 22v6M-22 -14h-6M-22 -5h-6M-22 5h-6M-22 14h-6M22 -14h6M22 -5h6M22 5h6M22 14h6"/>
+<text y="44">${name}</text></g>`;
+const FIGURE = `<figure aria-label="Animated drawing: two agents, the escrow, three adjudicators and their bond capital, cycling through release, refund, fallback and appeal">
+<svg viewBox="0 0 640 360" role="img">
+<g class="frame"><rect x="6" y="6" width="628" height="348"/><path d="M6 20h8M20 6v8M634 20h-8M620 6v8M6 340h8M20 354v-8M634 340h-8M620 354v-8"/></g>
+<g class="ln"><path d="M136 100H260M380 100H504"/><path d="M320 130V150M320 150H228V182M320 150V182M320 150H412V182"/><path d="M320 300V284M320 284H228V268M320 284V268M320 284H412V268" stroke-dasharray="2 3"/></g>
+<g class="tick"><path d="M136 96v8M260 96v8M380 96v8M504 96v8"/></g>
+<g class="box"><rect x="36" y="72" width="100" height="56"/><rect x="504" y="72" width="100" height="56"/><rect x="260" y="70" width="120" height="60"/><rect x="262" y="72" width="116" height="56" class="inner"/><rect x="250" y="300" width="140" height="34"/></g>
+<g class="lbl"><text x="86" y="104">BUYER AGENT</text><text x="554" y="104">SELLER AGENT</text><text x="320" y="62">ESCROW</text><text x="320" y="321">BOND CAPITAL</text></g>
+${GPU(228, 0, 'PRIMARY')}${GPU(320, 1, 'FALLBACK')}${GPU(412, 2, 'APPEAL')}
+<g class="tb"><path d="M440 300H634M440 300V354M520 300V354"/><text x="448" y="321" class="k">SHEET</text><text x="448" y="340" id="sh">01 / 04</text><text x="528" y="321" class="k">OUTCOME</text><text x="528" y="340" id="cap">RELEASE</text></g>
+<text x="20" y="40" class="note" id="note">CHECKS PASS · PRICE TO SELLER, KEY TO BUYER, IN ONE STEP</text>
+<g id="tokens"></g>
+</svg></figure>
+<script>
+(function () {
+  var P = { b: [86, 100], s: [554, 100], e: [320, 100], g0: [228, 214], g1: [320, 214], g2: [412, 214], k: [320, 317] };
+  var S = [
+    { cap: 'RELEASE', note: 'CHECKS PASS \\u00b7 PRICE TO SELLER, KEY TO BUYER, IN ONE STEP', on: 0, off: -1,
+      m: [['$', 'b', 'e', 0], ['w', 's', 'e', 700], ['w', 'e', 'g0', 1500], ['$', 'e', 's', 2900], ['k', 'e', 'b', 2900]] },
+    { cap: 'REFUND', note: 'A REQUIRED CHECK FAILS \\u00b7 THE PRICE GOES BACK TO THE BUYER', on: 0, off: -1,
+      m: [['$', 'b', 'e', 0], ['w', 's', 'e', 700], ['w', 'e', 'g0', 1500], ['$', 'e', 'b', 2900]] },
+    { cap: 'FALLBACK', note: 'PRIMARY SILENT PAST ITS DEADLINE \\u00b7 THE FALLBACK DECIDES', on: 1, off: 0,
+      m: [['$', 'b', 'e', 0], ['w', 's', 'e', 700], ['w', 'e', 'g1', 1700], ['$', 'e', 's', 3100], ['k', 'e', 'b', 3100]] },
+    { cap: 'APPEAL', note: 'APPEAL OVERTURNS THE DECISION \\u00b7 THE BOND PAYS THE WRONGED PARTY', on: 2, off: -1,
+      m: [['$', 'b', 'e', 0], ['w', 's', 'e', 700], ['w', 'e', 'g0', 1500], ['$', 'e', 's', 2600], ['w', 'b', 'g2', 3300], ['$', 'k', 'b', 4300]] }
+  ];
+  var NS = 'http://www.w3.org/2000/svg', T = document.getElementById('tokens');
+  var reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function mk(kind) {
+    var el = document.createElementNS(NS, kind === 'w' ? 'rect' : 'circle');
+    if (kind === 'w') { el.setAttribute('width', 8); el.setAttribute('height', 8); el.setAttribute('x', -4); el.setAttribute('y', -4); el.setAttribute('class', 'tw'); }
+    else { el.setAttribute('r', 4); el.setAttribute('class', kind === 'k' ? 'tk' : 'tm'); }
+    T.appendChild(el); return el;
+  }
+  function show(i) {
+    var s = S[i];
+    document.getElementById('sh').textContent = '0' + (i + 1) + ' / 04';
+    document.getElementById('cap').textContent = s.cap;
+    document.getElementById('note').textContent = s.note;
+    for (var g = 0; g < 3; g++) {
+      var c = document.getElementById('g' + g).classList;
+      c.toggle('on', g === s.on); c.toggle('off', g === s.off);
+    }
+    T.textContent = '';
+    var items = s.m.map(function (m) { return { kind: m[0], a: P[m[1]], b: P[m[2]], t0: m[3], el: mk(m[0]) }; });
+    if (reduce) { items.forEach(function (it) { it.el.setAttribute('transform', 'translate(' + it.b + ')'); }); return; }
+    var start = performance.now();
+    (function tick(now) {
+      var live = false;
+      items.forEach(function (it) {
+        var t = (now - start - it.t0) / 900;
+        if (t < 0) { it.el.style.opacity = 0; live = true; return; }
+        t = Math.min(1, t); var e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+        it.el.style.opacity = 1;
+        it.el.setAttribute('transform', 'translate(' + (it.a[0] + (it.b[0] - it.a[0]) * e) + ' ' + (it.a[1] + (it.b[1] - it.a[1]) * e) + ')');
+        if (t < 1) live = true;
+      });
+      if (live) requestAnimationFrame(tick);
+    })(start);
+  }
+  var i = 0; show(0);
+  if (!reduce) setInterval(function () { i = (i + 1) % S.length; show(i); }, 6000);
+})();
+</script>`;
+
+/**
+ * index.html from llms.txt: the tagline as a title and a subtitle, and the drawing (Rafa, 2026-11-01: the
+ * page says "escrow for agents" and a descriptive subtitle; every doc lives in llms.txt). Agents find the
+ * docs through the <link rel="alternate"> in the head.
  */
 export function page(md) {
   const tagline = /^> (.+)$/m.exec(strip(md))[1];
@@ -81,12 +153,26 @@ body { margin: 0; min-height: 100vh; display: grid; place-items: center; backgro
 main { padding: 0 max(24px, env(safe-area-inset-left, 0px)); max-width: 760px; }
 h1 { font-size: clamp(44px, 10vw, 80px); line-height: 1.05; letter-spacing: -0.035em; font-weight: 700; margin: 0 0 20px; }
 p { font-size: clamp(19px, 3.6vw, 24px); line-height: 1.4; letter-spacing: -0.01em; color: #6e6e73; margin: 0; text-wrap: balance; }
+figure { margin: 56px auto 0; max-width: 640px; }
+svg { width: 100%; height: auto; display: block; }
+svg * { vector-effect: non-scaling-stroke; }
+svg path, svg rect { fill: none; stroke: #1d1d1f; stroke-width: 0.75; }
+.frame rect, .frame path, .tick path, .ln path { stroke: #86868b; stroke-width: 0.5; }
+.box .inner { stroke: #c7c7cc; stroke-width: 0.5; }
+svg text { font: 500 8.5px ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: 0.12em; fill: #1d1d1f; text-anchor: middle; }
+.tb text { text-anchor: start; } .tb .k { fill: #86868b; font-size: 7px; }
+text.note { text-anchor: start; fill: #6e6e73; font-size: 8px; }
+.gpu { transition: opacity .4s; } .gpu text { font-size: 7.5px; fill: #6e6e73; }
+.gpu.on rect, .gpu.on path { stroke: #0066cc; stroke-width: 1.25; } .gpu.on text { fill: #0066cc; }
+.gpu.off { opacity: .28; } .gpu.off rect { stroke-dasharray: 2 3; }
+.tm { fill: #1d1d1f; stroke: none; } .tk { fill: #fff; stroke: #0066cc; stroke-width: 1.25; } .tw { fill: #fff; stroke: #1d1d1f; stroke-width: .9; }
 </style>
 </head>
 <body>
 <main>
 <h1>${inline(title)}</h1>
 <p>${inline(subtitle)}</p>
+${FIGURE}
 </main>
 </body>
 </html>
