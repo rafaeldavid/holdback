@@ -5,7 +5,7 @@
 - **Depends on:** T-026
 - **Paths this task may touch:** `config/judges.yaml`, `docs/decisions/registry-log.md`, `apps/adjudicator/src/` (provider wiring, budgets), `apps/demo/src/` (enable `--live`), `apps/demo-cloud/` (live panel when keys are present, budgets, a secrets script), root `package.json` scripts, `docs/api.md` ("Public demo" section), `docs/demo.md`, `docs/testing.md`, `site/llms.txt` (the honest-limits lines about scripted judges), `docs/backlog.md` (rows), `docs/tasks/T-028-live-adjudicator.md`
 - **Human gate:** Rafa added his Anthropic and DeepSeek keys to the git-ignored `.env` on 2026-11-01 and asked for live judging; setting them as Cloudflare secrets on the existing `holdback-op1` Worker is approved. Spending real money on model calls is approved at test scale only (a handful of judged deals).
-- **Status:** review
+- **Status:** done
 - **Agent/session:** implementer, branch `t-028-live-adjudicator`, 2026-11-01
 
 ## Intent
