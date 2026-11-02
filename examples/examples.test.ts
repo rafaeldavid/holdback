@@ -71,6 +71,7 @@ describe('examples', () => {
     const [primary, fallback, appeal] = world.info.adjudicators.map((a) => a.address);
     const request = {
       nonce: `0x${'5a'.repeat(32)}`, // the agent's own nonce
+      disclosure: 'public',
       template: 'checks-only',
       clubId: world.info.clubId,
       seller: acct('seller-2').address,

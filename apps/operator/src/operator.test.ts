@@ -148,7 +148,8 @@ describe('headers and problems', () => {
     const missing = await get(`/v1/commitments/${hex32('ee')}`);
     expect(missing.status).toBe(404);
     const p = await json(missing);
-    expect(p).toMatchObject({ type: 'not_found', status: 404, title: 'not_found' });
+    expect(p).toMatchObject({ type: 'not_found', status: 404, title: 'No such resource or route' });
+    expect(missing.headers.get('link')).toBe('<https://escrow.stream/problems/not_found>; rel="type"');
     expect(p['instance']).toBe(`urn:holdback:request:${missing.headers.get('request-id')}`);
     expect(missing.headers.get('holdback-schema-version')).toBe('0.8');
     expect((await get('/v1/nothing')).status).toBe(404);
@@ -289,15 +290,16 @@ describe('reads', () => {
   });
 
   it('funds an address from the SimChain faucet', async () => {
-    const r = await post('/v1/test/faucet', { address: w.cast.seller.address, amount: '5' }, { 'idempotency-key': 'f1' });
+    const r = await post('/v1/faucet', { address: w.cast.seller.address, amount: '5' }, { 'idempotency-key': 'f1' });
     expect(r.status).toBe(200);
-    expect(await json(r)).toEqual({ address: w.cast.seller.address, balance: { token: 'tUSD', amount: '1000000005' } });
+    expect(await json(r)).toEqual({ address: w.cast.seller.address, granted: { token: 'tUSD', amount: '5' }, balance: { token: 'tUSD', amount: '1000000005' } });
   });
 
-  it('answers the planned funding routes not_found (ADR-0026)', async () => {
+  it('answers the planned funding routes 501 not_implemented, with a link to ADR-0026 (D39)', async () => {
     const r = await post('/v1/funding/quote', { to: w.cast.buyer.address }, { 'idempotency-key': 'q1' });
-    expect(r.status).toBe(404);
-    expect(await json(r)).toMatchObject({ type: 'not_found' });
+    expect(r.status).toBe(501);
+    expect(await json(r)).toMatchObject({ type: 'not_implemented' });
+    expect(r.headers.get('link')).toMatch(/ADR-0026[^>]*>; rel="describedby"/);
   });
 
   it('streams events as server-sent events from a sequence number', async () => {
