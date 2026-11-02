@@ -95,9 +95,9 @@ button:focus-visible{outline:2px solid var(--sepia);outline-offset:2px}
     <div class="flowhead">
       <h3>What moves, and who can read it</h3>
       <p class="caption" id="caption">&nbsp;</p>
-      <div class="legend"><span><i style="background:#e5b85c"></i>encrypted</span><span><i style="background:#3c6e8f"></i>signed</span><span><i style="background:#5f9c6a"></i>test tUSD</span></div>
+      <div class="legend"><span><i style="background:#e5b85c"></i>encrypted</span><span><i style="background:#3c6e8f"></i>signed</span><span><i style="background:#5f9c6a"></i>test tUSD</span><span><i style="background:#a39d90"></i>public read</span></div>
     </div>
-    <svg viewBox="0 0 1000 230" preserveAspectRatio="xMidYMid meet" id="diagram" role="img" aria-label="Diagram of the buyer, the seller's intake, the ’crow API, the escrow hold, the arbitrator and the seller">
+    <svg viewBox="0 0 1000 232" preserveAspectRatio="xMidYMid meet" id="diagram" role="img" aria-label="Diagram of the buyer, the seller's intake, the ’crow API, the escrow hold, the arbitrator and the seller">
       <defs>
         <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#b8b0a0"/></marker>
       </defs>
@@ -113,14 +113,14 @@ button:focus-visible{outline:2px solid var(--sepia);outline-offset:2px}
 <script>
 // Nodes of the diagram, in viewBox units.
 const N = {
-  buyer:  { x: 105, y: 115, label: 'Buyer agent', color: '#3c6e8f' },
-  intake: { x: 500, y: 28,  label: 'rafael.fyi/agents', sub: 'seller’s intake', color: '#8a5a2b' },
-  crow:   { x: 500, y: 115, label: '’crow API', sub: 'api / api2.escrow.stream', color: '#2f2d2a' },
-  escrow: { x: 330, y: 200, label: 'Escrow hold', sub: 'no owner, no admin keys', color: '#5f9c6a' },
-  arb:    { x: 670, y: 200, label: 'Arbitrator', sub: 'bonded', color: '#5b5a8c' },
-  seller: { x: 895, y: 115, label: 'Seller agent', color: '#8a5a2b' },
+  buyer:  { x: 105, y: 100, label: 'Buyer agent', color: '#3c6e8f' },
+  intake: { x: 500, y: 30,  label: 'rafael.fyi/agents', sub: 'seller’s own site', color: '#8a5a2b' },
+  crow:   { x: 500, y: 128, label: '’crow API', sub: 'api / api2.escrow.stream', color: '#2f2d2a' },
+  escrow: { x: 330, y: 202, label: 'Escrow hold', sub: 'no owner, no admin keys', color: '#5f9c6a' },
+  arb:    { x: 670, y: 202, label: 'Arbitrator', sub: 'bonded', color: '#5b5a8c' },
+  seller: { x: 895, y: 100, label: 'Seller agent', color: '#8a5a2b' },
 };
-const EDGES = [['buyer','intake'],['intake','seller'],['buyer','crow'],['crow','seller'],['crow','escrow'],['crow','arb'],['escrow','buyer'],['escrow','seller'],['escrow','arb']];
+const EDGES = [['buyer','intake'],['intake','seller'],['buyer','crow'],['crow','seller'],['crow','escrow'],['crow','arb'],['escrow','buyer'],['escrow','seller']];
 
 // Each step: when (log time), the deal state it reaches, lines per panel, and what moves in the diagram.
 // kinds: p = the person (chat), a = the agent (chat), c = command, o = output, k = output that is encrypted, n = note.
@@ -129,7 +129,7 @@ const STEPS = [
     b: [['p', 'Buy the customers.csv dataset from rafael.fyi/agents for 25 tUSD, checks-only: exact columns, 50 rows, unique customer_id, ISO dates, no missing emails. Send your proposal privately.'],
         ['c', 'GET https://escrow.stream/llms.txt'], ['o', '200  the agent guide'],
         ['c', 'GET https://rafael.fyi/agents/'], ['o', '200  intake + encryption key MpIx…rjU']],
-    flow: [] },
+    flow: [['crow', 'buyer', 'agent guide (public)', 'read'], ['intake', 'buyer', 'intake key (public)', 'read']] },
   { t: '22:30:39', caption: 'The buyer makes fresh keys for this deal and gets test tUSD. No account, no sign-up.',
     b: [['c', 'POST /v1/faucet {address: 0x328f…3461}'], ['o', '200  1,000 tUSD + demo-club mandate']],
     flow: [['crow', 'buyer', '1,000 tUSD (test)', 'money']] },
@@ -184,12 +184,17 @@ const STEPS = [
 ];
 
 const $ = (id) => document.getElementById(id);
-const svg = (tag, attrs, text) => { const e = document.createElementNS('http://www.w3.org/2000/svg', tag); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); if (text != null) e.textContent = text; return e; };
-const COLOR = { lock: '#e5b85c', sign: '#3c6e8f', money: '#5f9c6a' };
+const svg = (tag, attrs = {}, text) => { const e = document.createElementNS('http://www.w3.org/2000/svg', tag); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); if (text != null) e.textContent = text; return e; };
+const COLOR = { lock: '#e5b85c', sign: '#3c6e8f', money: '#5f9c6a', read: '#a39d90' };
 const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 function drawDiagram() {
   const edges = $('edges'), nodes = $('nodes');
+  // The two lanes, so it is plain that ’crow never talks to the seller's intake.
+  edges.append(svg('rect', { x: 215, y: 2, width: 570, height: 58, rx: 8, fill: '#f7f3ea', stroke: '#e2dccf', 'stroke-dasharray': '4 4' }));
+  edges.append(svg('text', { x: 775, y: 15, 'text-anchor': 'end', 'font-family': '-apple-system, Segoe UI, Helvetica, Arial, sans-serif', 'font-size': 10, fill: '#8a8377' }, 'Open channel, outside \u2019crow: one sealed message'));
+  edges.append(svg('rect', { x: 215, y: 82, width: 570, height: 146, rx: 8, fill: '#fbfaf7', stroke: '#e2dccf' }));
+  edges.append(svg('text', { x: 225, y: 96, 'font-family': '-apple-system, Segoe UI, Helvetica, Arial, sans-serif', 'font-size': 10, fill: '#8a8377' }, '\u2019crow: the deal, the hold, the judgment'));
   for (const [a, b] of EDGES) edges.append(svg('line', { x1: N[a].x, y1: N[a].y, x2: N[b].x, y2: N[b].y, stroke: '#e2dccf', 'stroke-width': 1.5 }));
   for (const [key, n] of Object.entries(N)) {
     const g = svg('g', { id: 'n-' + key });
@@ -225,12 +230,14 @@ function animateFlows(flows) {
     tag.append(svg('rect', { x: -tw / 2, y: -11, width: tw, height: 20, rx: 10, fill: '#ffffff', stroke: color, 'stroke-width': 1.2 }));
     tag.append(svg('text', { x: 0, y: 3.5, 'text-anchor': 'middle', 'font-family': '-apple-system, Segoe UI, Helvetica, Arial, sans-serif', 'font-size': 11, fill: '#2f2d2a' }, label));
     layer.append(line, dot, tag);
-    const t0 = performance.now() + i * 250, dur = 1400;
+    const t0 = performance.now() + i * 350, dur = 1500, rest = 500;
     const tick = (now) => {
-      const p = reduce ? 1 : Math.min(1, Math.max(0, (now - t0) / dur));
+      const cycle = Math.max(0, now - t0) % (dur + rest);
+      const p = reduce ? 1 : Math.min(1, cycle / dur);
       const e = p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
       dot.setAttribute('transform', `translate(${a.x + (b.x - a.x) * e},${a.y + (b.y - a.y) * e})`);
-      if (p < 1) packetRuns.push(requestAnimationFrame(tick));
+      dot.setAttribute('opacity', p >= 1 ? '0.35' : '1');
+      if (!reduce) packetRuns.push(requestAnimationFrame(tick));
     };
     packetRuns.push(requestAnimationFrame(tick));
   });
@@ -268,7 +275,7 @@ function show(k) {
   document.querySelectorAll('#state span').forEach((el, n) => { el.className = n < reached ? 'done' : n === reached ? 'on' : ''; });
   $('clock').textContent = st.t + ' UTC';
   $('caption').textContent = st.caption;
-  animateFlows(st.flow);
+  if (st.flow.length) animateFlows(st.flow);
 }
 
 function step() {
