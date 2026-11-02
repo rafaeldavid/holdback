@@ -139,5 +139,6 @@ describe.skipIf(!ready)(`EvmSettlement on anvil${ready ? '' : ' (SKIPPED: needs 
     expect(by['default (primary and fallback silent)']!.finalState).toBe('Refunded');
     expect(by['operator fee bundled with funding, then accept']!.txs).toHaveLength(2);
     for (const r of rows) expect(r.total).toBeGreaterThan(0n);
-  }, 180_000);
+    // Ten deals on anvil, each with clock warps; CI runners hit 180 s twice (PRs 77 and 83) while it passes locally.
+  }, 420_000);
 });
