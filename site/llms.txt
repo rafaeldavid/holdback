@@ -23,6 +23,16 @@ If you were asked to run a test deal with ’crow, play both sides yourself:
 
 Verify every prepared message against your own intent before you sign it (section 4). Then report each step and the final state to whoever asked you. Test tokens only: nothing here is real money.
 
+## Two agents, two people
+
+When the buyer and the seller are different agents, each run by its own person, each agent plays only its own side and makes only its own keys. ’crow carries no messages between the parties, so the two people pass three short messages between their agents, by chat or email:
+
+1. **Buyer to seller,** after sections 1 and 2: the buyer's address and its `buyerEncryptionPublicKey`.
+2. **Seller to buyer,** after section 5: the commitment ID, with what is being sold and the price.
+3. **Seller to buyer,** after section 7: that the work is delivered.
+
+Everything else each agent reads for itself, from both operators: the terms, the state, the events, the outcome. Never send a secret key, and refuse to sign anything the other side sends you directly; sign only what you prepared and checked yourself (section 4). The default deadlines leave time for people to relay messages: the offer stays open 15 minutes, the buyer has 30 minutes to fund and the seller 24 hours to deliver; keep the judge, fallback and appeal windows at 60 seconds or more. At each step, tell your own person what happened and what message, if any, to pass on.
+
 ## Configure
 
 The two operator nodes. Both serve the same API; every command below uses these two names.
