@@ -12,7 +12,9 @@
 
 Prove, by stateful fuzzing against the Foundry contracts, the invariants SimChain already property-tests: no unit of token is created or destroyed, no escrow settles twice, nothing has an admin path. Handlers drive random interleavings of every submission and every timeout from random callers, so a guard that only holds on the happy path fails here. Run in CI.
 
-Restate this in your own words in this section before writing code.
+**In my words (T-203 agent, 2026-11-01).** T-202's unit tests show each guard on the path its author had in mind. This task asks whether the guards still hold when nobody is choosing the path: a handler calls every entry point of `HoldbackRules` and `HoldbackBonds` and every timeout, in random order, from random actors (parties, the three adjudicators, an operator, a stranger), with signatures from random keys, while time jumps onto, just before and just after every deadline. After every call, Foundry checks that tokens are conserved per token, CPP's token store holds exactly what the open commitments say, no commitment settles twice, bond books never go negative or double-count an encumbrance, every timeout fires exactly when due (for anyone), nothing moves without the right signature or a due timeout, and no admin path exists. Each invariant must be shown to catch a deliberate bug (a mutant in a scratch copy). CI runs `forge test` and the formal model's check, and the required `check` job waits for both.
+
+**Non-goals.** No contract change: HoldbackRules has 34 bytes of EIP-170 headroom, and a failing invariant is a T-202 finding, recorded in Handoff. Not the formal model (T-204), not SimChain differential tests (T-205, running in parallel in `packages/settlement/evm`), not external review (T-206). Local EVM only: no broadcasts, no `cast send`, no public RPC.
 
 ## Context
 
