@@ -281,6 +281,8 @@ What is not private yet: the work's ciphertext pointer and hashes, amounts, per-
 | POST | `/v1/agents/{address}/revoke` (planned: 404 today) | Principal-signed revocation | Agent (`revoked`) |
 | POST | `/v1/adjudicators` (planned: 404 today) | Adjudicator registration plus bond deposit | Adjudicator |
 | POST | `/v1/test/faucet` | `{address, amount}`; SimChain or testnet only | Balance |
+| POST | `/v1/funding/quote` (planned: 404 today; ADR-0026) | `{to, deliver: {token, amount}, source}`: what the hold needs and what the buyer pays with (another ERC-20, ETH, another chain, or fiat) | Routes from a separate funding service (swap, wrap, bridge or on-ramp), each with `provider`, `pay`, `deliver`, `expiresAt` |
+| POST | `/v1/funding/sessions` (planned: 404 today; ADR-0026) | `{quoteId}` | Session: `state` and `next` (calls for the buyer to sign, or a URL for a fiat payment). The service delivers the deal token to the buyer's address; it never holds escrowed funds or signs for the buyer, and direct funding always works without it |
 | GET | `/v1/clubs/{id}` | — | Club with its rulebook and `rulebookHash`, so a party can check the rulebook it signs under |
 | GET | `/v1/clubs/{id}/members/{principal}` | — | Member: admitted or revoked, with the signed admission |
 | GET | `/v1/agents/{address}` | — | Agent: scope, mandate hash, revoked or active |
