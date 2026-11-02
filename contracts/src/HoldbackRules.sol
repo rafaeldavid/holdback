@@ -6,6 +6,7 @@ import {EIP712} from "solady/utils/EIP712.sol";
 import {SignatureCheckerLib} from "solady/utils/SignatureCheckerLib.sol";
 
 import {HoldbackBonds} from "./HoldbackBonds.sol";
+import {IHoldbackBeacon} from "./IHoldbackBeacon.sol";
 import {HoldbackTypes as H, Money} from "./HoldbackTypes.sol";
 
 /// @title HoldbackRules
@@ -39,6 +40,7 @@ contract HoldbackRules is EIP712 {
         Overturned,
         Expired,
         Closed // nothing to appeal (early accept, reclaim, default, escalation decision, mutual settlement)
+
     }
 
     /// @notice One storage word per commitment.
@@ -74,9 +76,9 @@ contract HoldbackRules is EIP712 {
     /// @notice Added after the last moment a capture can happen (fallbackBy + appealDecideSec) to get CPP's
     ///         authorizationExpiry, after which only the buyer's own reclaim on CPP remains (ADR-0003).
     uint64 public immutable EXPIRY_MARGIN;
-    /// @notice Beacon round arithmetic (ADR-0018): round(t) = (t - BEACON_GENESIS) / BEACON_PERIOD.
-    uint64 public immutable BEACON_GENESIS;
-    uint64 public immutable BEACON_PERIOD;
+    /// @notice The beacon that fixes fallback and appeal panel seeds (ADR-0018, T-209): the drand quicknet verifier
+    ///         on shared chains, the sim beacon on anvil. Fixed at deploy; it also owns the round arithmetic.
+    IHoldbackBeacon public immutable BEACON;
 
     mapping(bytes32 commitmentId => Deal) internal _deals;
 
@@ -98,7 +100,12 @@ contract HoldbackRules is EIP712 {
     event FeePaid(bytes32 indexed id, address indexed adjudicator, uint256 amount);
     event Paid(bytes32 indexed id, address indexed to, uint256 amount);
     event Decided(
-        bytes32 indexed id, address indexed adjudicator, uint8 role, uint8 outcome, bytes32 judgmentRecordHash, bytes32 seed
+        bytes32 indexed id,
+        address indexed adjudicator,
+        uint8 role,
+        uint8 outcome,
+        bytes32 judgmentRecordHash,
+        bytes32 seed
     );
     /// @notice The buyer's sealed content key, emitted in the same transaction as the payment (ADR-0012).
     event KeyReleased(bytes32 indexed id, address indexed recipient, uint8 path, string scheme, string ciphertext);
@@ -126,16 +133,13 @@ contract HoldbackRules is EIP712 {
         address erc3009Collector,
         address permit2Collector,
         uint64 expiryMargin,
-        uint64 beaconGenesis,
-        uint64 beaconPeriod
+        IHoldbackBeacon beacon
     ) {
-        if (beaconPeriod == 0) revert Unrepresentable();
         ESCROW = escrow;
         ERC3009_COLLECTOR = erc3009Collector;
         PERMIT2_COLLECTOR = permit2Collector;
         EXPIRY_MARGIN = expiryMargin;
-        BEACON_GENESIS = beaconGenesis;
-        BEACON_PERIOD = beaconPeriod;
+        BEACON = beacon;
         BONDS = new HoldbackBonds();
     }
 
@@ -153,7 +157,11 @@ contract HoldbackRules is EIP712 {
 
     /// @dev The CPP PaymentInfo for a commitment: derived from the terms, nothing chosen later. Not exposed (EIP-170
     ///      size); clients derive it as ADR-0025 describes.
-    function _paymentInfo(H.Terms calldata t) internal view returns (AuthCaptureEscrow.PaymentInfo memory pi) {
+    function _paymentInfo(bytes32 id, H.Terms calldata t)
+        internal
+        view
+        returns (AuthCaptureEscrow.PaymentInfo memory pi)
+    {
         uint256 hold = t.price + t.fee;
         uint256 expiry = uint256(t.timing.fallbackBy) + t.timing.appealDecideSec + EXPIRY_MARGIN;
         if (hold > type(uint120).max || expiry > type(uint48).max || t.timing.fundBy > type(uint48).max) {
@@ -171,12 +179,8 @@ contract HoldbackRules is EIP712 {
             minFeeBps: 0,
             maxFeeBps: uint16(Money.ALL_BPS), // the fee rule is this contract's code, not CPP's bounds
             feeReceiver: address(0), // whichever adjudicator decides, chosen by this code
-            salt: uint256(H.commitmentId(t))
+            salt: uint256(id)
         });
-    }
-
-    function beaconRoundAt(uint256 t) public view returns (uint64) {
-        return t <= BEACON_GENESIS ? 0 : uint64((t - BEACON_GENESIS) / BEACON_PERIOD);
     }
 
     // ---------------------------------------------------------------- agree and fund (transaction 1)
@@ -199,7 +203,7 @@ contract HoldbackRules is EIP712 {
         _requireSigned(t.seller, id, sellerSignature);
         _requireSigned(t.adjudicator, H.acceptanceHash(id, t, acc), acc.signature);
         _requireSigned(t.buyer, H.agreeHash(id, t.buyer, ag), ag.signature);
-        AuthCaptureEscrow.PaymentInfo memory pi = _paymentInfo(t);
+        AuthCaptureEscrow.PaymentInfo memory pi = _paymentInfo(id, t);
 
         d.stage = Stage.Held;
         d.flags = F_PRIMARY;
@@ -228,12 +232,9 @@ contract HoldbackRules is EIP712 {
 
     /// @notice Anyone relays the adjudicator's signed decision. In `Held`, the decision carries the delivery it
     ///         judged (`dv`, `sellerSignature`); otherwise they are ignored.
-    function decide(
-        H.Terms calldata t,
-        H.Decision calldata m,
-        H.Delivery calldata dv,
-        bytes calldata sellerSignature
-    ) external {
+    function decide(H.Terms calldata t, H.Decision calldata m, H.Delivery calldata dv, bytes calldata sellerSignature)
+        external
+    {
         bytes32 id = H.commitmentId(t);
         Deal memory d = _deals[id];
         if (block.timestamp >= m.expiresAt) revert MessageExpired();
@@ -254,15 +255,15 @@ contract HoldbackRules is EIP712 {
         } else if (s == Stage.FallbackJudging) {
             role = H.ROLE_FALLBACK;
             deadline = t.timing.fallbackBy;
-            round = beaconRoundAt(t.timing.judgeBy);
+            round = BEACON.roundAt(t.timing.judgeBy);
         } else if (s == Stage.Escalated) {
             role = H.ROLE_APPEAL;
             deadline = uint256(d.t1) + t.timing.appealDecideSec;
-            round = beaconRoundAt(d.t1) + 1;
+            round = BEACON.roundAt(d.t1) + 1;
         } else if ((s == Stage.Released || s == Stage.Refunded) && d.appeal == AppealState.Open) {
             role = H.ROLE_APPEAL;
             deadline = uint256(d.t1) + t.timing.appealWindowSec + t.timing.appealDecideSec;
-            round = beaconRoundAt(d.t2) + 1;
+            round = BEACON.roundAt(d.t2) + 1;
         } else {
             revert WrongStage(s);
         }
@@ -273,12 +274,17 @@ contract HoldbackRules is EIP712 {
         if (role == H.ROLE_PRIMARY) {
             // The primary reveals the preimage of its seedCommitment.
             if (uint144(uint256(keccak256(abi.encodePacked(m.seed)))) != d.seedTag) revert BadSeed();
-        } else if (m.beaconRound != round || m.seed != H.panelSeed(id, role, m.attempt, m.beaconValue)) {
-            // The beacon value's BLS signature (drand quicknet, EIP-2537) is not verified yet: follow-up T-209.
+        } else if (
+            m.beaconRound != round || m.beaconValue != BEACON.beaconValue(m.beaconRound, m.beaconSignature)
+                || m.seed != H.panelSeed(id, role, m.attempt, m.beaconValue)
+        ) {
+            // The round is fixed by state; the beacon proves its value (BLS on drand quicknet); the seed follows.
+            // The signature bytes are the ones the adjudicator signed: decisionHash hashes m.beaconSignature.
             revert BadSeed();
         }
-        address adjudicator =
-            role == H.ROLE_PRIMARY ? t.adjudicator : role == H.ROLE_FALLBACK ? t.fallbackAdjudicator : t.appealAdjudicator;
+        address adjudicator = role == H.ROLE_PRIMARY
+            ? t.adjudicator
+            : role == H.ROLE_FALLBACK ? t.fallbackAdjudicator : t.appealAdjudicator;
         _requireSigned(adjudicator, H.decisionHash(id, adjudicator, t, m), m.signature);
         emit Decided(id, adjudicator, m.role, m.outcome, m.judgmentRecordHash, m.seed);
 
@@ -324,7 +330,7 @@ contract HoldbackRules is EIP712 {
     /// @dev guaranteed_on_decision: the money moves at the decision. Accept: price to the seller and the fee to the
     ///      decider. Reject: a fee-only capture to the decider, then void returns the price to the buyer (ADR-0003).
     function _settleDecision(bytes32 id, H.Terms calldata t, address adjudicator, H.Decision calldata m) internal {
-        AuthCaptureEscrow.PaymentInfo memory pi = _paymentInfo(t);
+        AuthCaptureEscrow.PaymentInfo memory pi = _paymentInfo(id, t);
         if (m.outcome == H.OUTCOME_ACCEPT) {
             if (bytes(m.keyCiphertext).length == 0) revert InvalidMessage(); // the two-sided hold needs the key
             _capture(pi, pi.maxAmount, t.fee, t.fee == 0 ? address(0) : adjudicator);
@@ -385,7 +391,7 @@ contract HoldbackRules is EIP712 {
         d.appeal = AppealState.Closed;
         d.flags = 0;
         _releaseBonds(t, flags);
-        AuthCaptureEscrow.PaymentInfo memory pi = _paymentInfo(t);
+        AuthCaptureEscrow.PaymentInfo memory pi = _paymentInfo(id, t);
         if (t.price > 0) _capture(pi, t.price, 0, address(0));
         if (t.fee > 0) _void(pi);
         emit JobCompleted(id, t.buyer, bytes32(0));
@@ -409,7 +415,9 @@ contract HoldbackRules is EIP712 {
             revert WrongStage(s);
         }
         if (block.timestamp >= m.expiresAt) revert MessageExpired();
-        if (!m.hasDelivery && (m.releaseKey || m.deliveryHash != bytes32(0) || s != Stage.Held)) revert InvalidMessage();
+        if (!m.hasDelivery && (m.releaseKey || m.deliveryHash != bytes32(0) || s != Stage.Held)) {
+            revert InvalidMessage();
+        }
         bytes32 tokenHash = H.tokenIdHash(t.token);
         bytes32 structHash = H.mutualHash(id, tokenHash, m);
         _requireSigned(t.buyer, structHash, m.buyerSignature);
@@ -430,7 +438,7 @@ contract HoldbackRules is EIP712 {
     }
 
     function _payOut(bytes32 id, H.Terms calldata t, H.Payout[] calldata payouts, Stage s) internal {
-        AuthCaptureEscrow.PaymentInfo memory pi = _paymentInfo(t);
+        AuthCaptureEscrow.PaymentInfo memory pi = _paymentInfo(id, t);
         uint256 total;
         uint256 toSeller;
         uint256 captured;
@@ -519,7 +527,7 @@ contract HoldbackRules is EIP712 {
         d.stage = Stage.FallbackJudging;
         d.t1 = uint40(block.timestamp);
         if (BONDS.tryEncumber(t.fallbackAdjudicator, t.token, t.price)) d.flags |= F_FALLBACK;
-        emit FallbackTriggered(id, beaconRoundAt(t.timing.judgeBy));
+        emit FallbackTriggered(id, BEACON.roundAt(t.timing.judgeBy));
     }
 
     /// @notice default and apply_default in one call (T-204 finding 2): the fallback missed fallbackBy, or the
@@ -571,7 +579,7 @@ contract HoldbackRules is EIP712 {
         d.appeal = AppealState.Closed;
         d.flags = 0;
         _releaseBonds(t, flags);
-        AuthCaptureEscrow.PaymentInfo memory pi = _paymentInfo(t);
+        AuthCaptureEscrow.PaymentInfo memory pi = _paymentInfo(id, t);
         _void(pi);
         emit Refunded(id, t.buyer, pi.maxAmount);
     }

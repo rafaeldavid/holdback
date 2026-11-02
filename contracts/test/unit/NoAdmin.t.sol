@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {Base} from "./Base.sol";
+import {DrandQuicknetBeacon} from "../../src/DrandQuicknetBeacon.sol";
 
 /// Hard rule "No admin keys". For HoldbackRules and HoldbackBonds:
 /// - the ABI is exactly the function-name allowlist below (a new public function is a visible diff here);
@@ -10,14 +11,14 @@ import {Base} from "./Base.sol";
 /// - the runtime bytecode has no SELFDESTRUCT and no DELEGATECALL at all.
 contract NoAdminTest is Base {
     function _rulesAllowed() internal pure returns (string[] memory s) {
-        s = new string[](27);
-        (s[0], s[1], s[2], s[3], s[4]) = ("BEACON_GENESIS", "BEACON_PERIOD", "BONDS", "ERC3009_COLLECTOR", "ESCROW");
-        (s[5], s[6], s[7], s[8], s[9]) = ("EXPIRY_MARGIN", "KEY_APPEAL", "KEY_DECISION", "KEY_EARLY_ACCEPT", "KEY_MUTUAL");
-        (s[10], s[11], s[12], s[13]) = ("MUTUAL_FEE_SHARE_BPS", "PERMIT2_COLLECTOR", "agreeAndFund", "beaconRoundAt");
-        (s[14], s[15], s[16], s[17]) = ("dealOf", "decide", "deliver", "earlyAccept");
-        (s[18], s[19], s[20], s[21]) = ("eip712Domain", "expireAppeal", "expireOffer", "fileAppeal");
-        (s[22], s[23], s[24], s[25], s[26]) =
-            ("mutualSettle", "reclaim", "triggerDefault", "triggerFallback", "typedDataHash");
+        s = new string[](25);
+        (s[0], s[1], s[2], s[3], s[4]) = ("BEACON", "BONDS", "ERC3009_COLLECTOR", "ESCROW", "EXPIRY_MARGIN");
+        (s[5], s[6], s[7], s[8], s[9]) =
+            ("KEY_APPEAL", "KEY_DECISION", "KEY_EARLY_ACCEPT", "KEY_MUTUAL", "agreeAndFund");
+        (s[10], s[11], s[12], s[13]) = ("MUTUAL_FEE_SHARE_BPS", "PERMIT2_COLLECTOR", "dealOf", "decide");
+        (s[14], s[15], s[16], s[17]) = ("deliver", "earlyAccept", "eip712Domain", "expireAppeal");
+        (s[18], s[19], s[20], s[21]) = ("expireOffer", "fileAppeal", "mutualSettle", "reclaim");
+        (s[22], s[23], s[24]) = ("triggerDefault", "triggerFallback", "typedDataHash");
     }
 
     function _bondsAllowed() internal pure returns (string[] memory s) {
@@ -32,7 +33,9 @@ contract NoAdminTest is Base {
         uint256 n;
         while (n < b.length && b[n] != "(") n++;
         bytes memory out = new bytes(n);
-        for (uint256 i; i < n; i++) out[i] = b[i];
+        for (uint256 i; i < n; i++) {
+            out[i] = b[i];
+        }
         return string(out);
     }
 
@@ -81,8 +84,8 @@ contract NoAdminTest is Base {
             "setRules(address)",
             "sweep(address,uint256)"
         ];
-        address[2] memory targets = [address(rules), address(bonds)];
-        for (uint256 j; j < 2; j++) {
+        address[4] memory targets = [address(rules), address(bonds), address(sim), address(new DrandQuicknetBeacon())];
+        for (uint256 j; j < 4; j++) {
             for (uint256 i; i < sigs.length; i++) {
                 (bool ok,) = targets[j].call(abi.encodeWithSignature(sigs[i]));
                 assertFalse(ok, sigs[i]);
@@ -103,9 +106,22 @@ contract NoAdminTest is Base {
         }
     }
 
-    function test_bytecode_noSelfdestructNoDelegatecall() public view {
+    function test_bytecode_noSelfdestructNoDelegatecall() public {
         _assertNoSelfdestructOrDelegatecall(address(rules));
         _assertNoSelfdestructOrDelegatecall(address(bonds));
+        _assertNoSelfdestructOrDelegatecall(address(sim));
+        _assertNoSelfdestructOrDelegatecall(address(new DrandQuicknetBeacon()));
+    }
+
+    /// T-209: the beacons have no admin surface either; the verifier's key, genesis and period are constants and the
+    /// sim seed is a constructor immutable.
+    function test_beacons_abiIsTheAllowlist() public view {
+        string[] memory d = new string[](5);
+        (d[0], d[1], d[2], d[3], d[4]) = ("GENESIS", "PERIOD", "beaconValue", "hashToG1", "roundAt");
+        _checkAbi("out/DrandQuicknetBeacon.sol/DrandQuicknetBeacon.json", d);
+        string[] memory m = new string[](3);
+        (m[0], m[1], m[2]) = ("SIM_SEED", "beaconValue", "roundAt");
+        _checkAbi("out/SimBeacon.sol/SimBeacon.json", m);
     }
 
     function test_rulesContractNeverHoldsFunds() public {

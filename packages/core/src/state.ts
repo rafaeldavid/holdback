@@ -10,6 +10,7 @@
 //   are false for an unparseable time, so a bad clock refuses instead of firing a timeout, and step
 //   refuses an unparseable event time outright.
 import { encodePacked, keccak256 } from 'viem';
+import { beaconRoundAt, SIM_BEACON } from './beacon.js';
 import { rulebookHash } from './canonical.js';
 import { commitmentId, deliveryHash, isSealed, termsOf } from './eip712.js';
 import { add, gte, tokenAmount, type MoneyError } from './money/index.js';
@@ -283,7 +284,8 @@ function deliver(s: Extract<EscrowState, { kind: 'Held' }>, e: Extract<EscrowEve
   return ok({ ...s, kind: 'Delivered', delivery: d });
 }
 
-const roundAt = (ts: Timestamp): number => Math.floor(ms(ts) / 1000);
+// The SimChain beacon's round at a timestamp, in drand's arithmetic (genesis 1 s, period 1 s: round(t) = t; T-209).
+const roundAt = (ts: Timestamp): number => beaconRoundAt(SIM_BEACON, Math.max(0, Math.floor(ms(ts) / 1000)));
 
 /**
  * The beacon round that fixes a fallback or appeal panel's seed (ADR-0018), or null when that role has no

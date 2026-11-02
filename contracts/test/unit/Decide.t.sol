@@ -205,6 +205,7 @@ contract DecideTest is Base {
         assertEq(_held(t), PRICE + FEE);
         assertEq(bonds.encumberedOf(adjudicator, address(usdc)), 0);
         assertEq(bonds.encumberedOf(appealAdj, address(usdc)), PRICE);
+        vm.warp(at + 1); // the appeal round is the first one after the escalation: wait for it
         H.Decision memory m = _beaconDecision(id, H.ROLE_APPEAL, H.OUTCOME_REJECT, at + 1);
         m = _signDecision(t, id, m, appealAdj, AP_PK);
         rules.decide(t, m, _noDelivery(), "");
@@ -216,6 +217,7 @@ contract DecideTest is Base {
 
     function test_escalated_appealAdjudicatorCannotEscalate() public {
         (H.Terms memory t, bytes32 id, uint64 at) = _escalated();
+        vm.warp(at + 1); // the appeal round is the first one after the escalation: wait for it
         H.Decision memory m = _beaconDecision(id, H.ROLE_APPEAL, H.OUTCOME_ESCALATE, at + 1);
         m = _signDecision(t, id, m, appealAdj, AP_PK);
         vm.expectRevert(HoldbackRules.InvalidMessage.selector);

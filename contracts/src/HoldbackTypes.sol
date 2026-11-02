@@ -99,7 +99,7 @@ library HoldbackTypes {
         bytes32 beaconSourceHash; // keccak256(beacon.source), keccak256("") when absent
         uint64 beaconRound;
         bytes32 beaconValue;
-        bytes32 beaconSignatureHash; // keccak256(beacon.signature), keccak256("") when absent
+        bytes beaconSignature; // beacon.signature (48 bytes on drand quicknet, empty when absent); hashed below
         bytes32 encryptedKeysHash;
         bytes32 nonce;
         uint64 expiresAt;
@@ -158,7 +158,8 @@ library HoldbackTypes {
 
     string internal constant TOKEN_AMOUNT_T = "TokenAmount(string token,uint256 amount)";
     string internal constant KEY_UNLOCK_T = "KeyUnlock(string kind,uint64 round)";
-    string internal constant ENCRYPTED_KEY_T = "EncryptedKey(address recipient,string scheme,string ciphertext,KeyUnlock unlock)";
+    string internal constant ENCRYPTED_KEY_T =
+        "EncryptedKey(address recipient,string scheme,string ciphertext,KeyUnlock unlock)";
     string internal constant ADJUDICATION_T =
         "Adjudication(address adjudicator,address fallbackAdjudicator,address appealAdjudicator,string policyId,TokenAmount fee,bytes32 registryHash,bytes32 policyHash)";
     string internal constant TIMING_T =
@@ -193,7 +194,8 @@ library HoldbackTypes {
     bytes32 internal constant EARLY_ACCEPT_TYPEHASH =
         keccak256("EarlyAccept(bytes32 commitmentId,address buyer,uint8 attempt,bytes32 nonce,uint64 expiresAt)");
     bytes32 internal constant SEALED_KEY_TYPEHASH = keccak256("SealedKey(string scheme,string ciphertext)");
-    bytes32 internal constant BEACON_TYPEHASH = keccak256("Beacon(string source,uint64 round,bytes32 value,bytes signature)");
+    bytes32 internal constant BEACON_TYPEHASH =
+        keccak256("Beacon(string source,uint64 round,bytes32 value,bytes signature)");
     bytes32 internal constant DECISION_TYPEHASH = keccak256(
         abi.encodePacked(
             "Decision(bytes32 commitmentId,uint8 attempt,address adjudicator,string role,string outcome,bytes32 seed,bytes32 policyHash,bytes32 registryHash,bytes32 judgmentRecordHash,SealedKey keyForBuyer,string appealGround,Beacon beacon,EncryptedKey[] encryptedKeys,bytes32 nonce,uint64 expiresAt)",
@@ -360,7 +362,7 @@ library HoldbackTypes {
         bytes32 sealedKey =
             keccak256(abi.encode(SEALED_KEY_TYPEHASH, keccak256(bytes(m.keyScheme)), keccak256(bytes(m.keyCiphertext))));
         bytes32 beacon = keccak256(
-            abi.encode(BEACON_TYPEHASH, m.beaconSourceHash, m.beaconRound, m.beaconValue, m.beaconSignatureHash)
+            abi.encode(BEACON_TYPEHASH, m.beaconSourceHash, m.beaconRound, m.beaconValue, keccak256(m.beaconSignature))
         );
         bytes memory head = abi.encode(
             DECISION_TYPEHASH,
@@ -386,7 +388,9 @@ library HoldbackTypes {
     {
         bytes32 who = a.appellant == 0 ? keccak256("buyer") : keccak256("seller");
         return keccak256(
-            abi.encode(APPEAL_TYPEHASH, id, who, appellant, a.groundsHash, tokenAmountHash(tokenHash, a.bond), a.filedAt)
+            abi.encode(
+                APPEAL_TYPEHASH, id, who, appellant, a.groundsHash, tokenAmountHash(tokenHash, a.bond), a.filedAt
+            )
         );
     }
 
@@ -394,9 +398,8 @@ library HoldbackTypes {
         uint256 n = m.payouts.length;
         bytes32[] memory items = new bytes32[](n);
         for (uint256 i; i < n; ++i) {
-            items[i] = keccak256(
-                abi.encode(PAYOUT_TYPEHASH, m.payouts[i].to, tokenAmountHash(tokenHash, m.payouts[i].amount))
-            );
+            items[i] =
+                keccak256(abi.encode(PAYOUT_TYPEHASH, m.payouts[i].to, tokenAmountHash(tokenHash, m.payouts[i].amount)));
         }
         return keccak256(
             abi.encode(

@@ -122,7 +122,6 @@ contract VectorsTest is Test {
         m.keyCiphertext = "c2VhbGVkLWtleS1mb3ItYnV5ZXI";
         m.appealGroundHash = keccak256("");
         m.beaconSourceHash = keccak256("");
-        m.beaconSignatureHash = keccak256("");
         m.encryptedKeysHash = keccak256("");
         m.nonce = 0x8c23bc960ccf68b0e04c82f1ed509ea8f25e46b2698e01a8d437da4979a6e96d;
         m.expiresAt = 1_793_527_320;
@@ -141,15 +140,25 @@ contract VectorsTest is Test {
             expiresAt: 1_793_355_300,
             signature: ""
         });
-        assertEq(_digest(hx.acceptance(ID, _terms(), a)), 0x0fd6449f787cea65465e8016cc7c4d7f13701ff039dea5eac41d3009d239a4d1);
+        assertEq(
+            _digest(hx.acceptance(ID, _terms(), a)), 0x0fd6449f787cea65465e8016cc7c4d7f13701ff039dea5eac41d3009d239a4d1
+        );
     }
 
     function test_agree_and_earlyAccept_matchCore() public view {
         address b = _terms().buyer;
-        H.Agree memory g = H.Agree({nonce: bytes32(uint256(0x11) * (type(uint256).max / 0xff)), expiresAt: 1_793_355_300, signature: ""});
+        H.Agree memory g = H.Agree({
+            nonce: bytes32(uint256(0x11) * (type(uint256).max / 0xff)),
+            expiresAt: 1_793_355_300,
+            signature: ""
+        });
         assertEq(_digest(hx.agree(ID, b, g)), 0xf441a84fe062951351481db68a645b1f798b79fe9d339558370763cfa1591a56);
-        H.EarlyAccept memory e =
-            H.EarlyAccept({attempt: 1, nonce: bytes32(uint256(0x22) * (type(uint256).max / 0xff)), expiresAt: 1_793_527_200, signature: ""});
+        H.EarlyAccept memory e = H.EarlyAccept({
+            attempt: 1,
+            nonce: bytes32(uint256(0x22) * (type(uint256).max / 0xff)),
+            expiresAt: 1_793_527_200,
+            signature: ""
+        });
         assertEq(_digest(hx.early(ID, b, e)), 0x35945fdc731b619d2fa2f43e8416fac7f67dacb33541c01c5d5204319f044637);
     }
 

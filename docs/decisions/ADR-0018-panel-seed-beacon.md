@@ -84,3 +84,41 @@ The fallback and appeal panels take their seed from a public randomness beacon, 
   - It closes threat T21: late panel selection by the fallback or appeal adjudicator.
   - No adjudicator or party knows a non-primary panel before its round.
   - Passes, and strengthens it.
+
+## Amendment: on-chain verification (T-209, 2026-11-02)
+
+**Verifier design.**
+- `contracts/src/DrandQuicknetBeacon.sol` is a separate contract with no owner, setter, proxy or `delegatecall`. The quicknet public key, genesis (1692803367) and period (3 s) are compile-time constants; another drand network would be another contract. [measured: NoAdmin suites cover it]
+- `beaconValue(round, signature)`:
+  1. decompresses the 48-byte G1 signature (ZCash flags; refuses infinity, x ≥ p, and an x with no curve point);
+  2. hashes sha256(round as 8 big-endian bytes) to G1 per RFC 9380 (`expand_message_xmd` with SHA-256, DST `BLS_SIG_BLS12381G1_XMD:SHA-256_SSWU_RO_NUL_`, two field elements, `MAP_FP_TO_G1` twice, `G1ADD`);
+  3. checks e(sig, −g2) · e(H(m), pk) = 1 with `PAIRING_CHECK`, which also refuses a point outside G1;
+  4. returns sha256(signature).
+- On a chain without EIP-2537 every proof is refused, never accepted: each precompile's output length is checked. [inferred from the code]
+- Checked against seven real quicknet rounds fetched from two relays (`fixtures/beacon/drand-quicknet.json`), and against @noble/curves for the hash to G1. [measured]
+- `HoldbackRules` takes `IHoldbackBeacon BEACON` as a constructor immutable. A fallback or appeal decision must name the round settlement state fixes, and `BEACON.beaconValue(round, beacon.signature)` must equal the signed `beaconValue`. The seed is then `panelSeed(id, role, attempt, beaconValue)`.
+- The signature bytes travel in the Decision calldata in place of their hash, and the contract hashes them into the EIP-712 `Beacon` struct, so a relayer cannot attach a proof the adjudicator did not sign. The EIP-712 type and `spec/schemas/` are unchanged.
+- The beacon also owns the round arithmetic (`roundAt`), so `BEACON_GENESIS`, `BEACON_PERIOD` and `beaconRoundAt` left the rules contract.
+
+**Round formula.** It is drand's everywhere: `round(t) = t < genesis ? 0 : floor((t - genesis) / period) + 1`, with round 1 at genesis.
+- It matched `public/latest` at fetch time. [measured]
+- The sim beacon uses genesis 1 s and period 1 s, which gives round(t) = t, the same value as SimChain's `floor(ms / 1000)`. No SimChain round or snapshot changes. [measured: `pnpm snap` unchanged]
+- `packages/core/src/beacon.ts` holds the formula with both clocks.
+- The rules contract's old `beaconRoundAt` omitted the `+ 1`. It was only ever deployed with genesis 0 and period 1, where that made no difference.
+
+**Sim verifier for local chains.**
+- `SimBeacon(simSeed)` returns `keccak256(simSeed ‖ round)` for an empty proof, only once the chain clock reaches the round.
+- Its constructor refuses any chain ID but 31337, so it cannot sit behind a rules contract on Sepolia or mainnet. The seed is fixed at deploy, with no setter.
+- The local EVM world redeploys `SimBeacon` and `HoldbackRules` for each settlement with the genesis `simSeed`. Every redeploy comes from the same snapshot with the same deployer nonce, so the addresses never change.
+- Tradeoff: on anvil anyone who knows the seed knows every value, so it is a deterministic stand-in, not public randomness. In exchange, the recorded fixtures need no network and no keys. Choosing the verifier is a deploy-time decision that cannot be changed afterwards. A shared chain must deploy `DrandQuicknetBeacon`.
+
+**Size and gas.**
+- `HoldbackRules` runtime is 24,051 bytes, 525 under EIP-170 (it was 24,542, 34 under). `_paymentInfo` now takes the commitment ID instead of recomputing it, which freed 957 bytes. [measured]
+- `DrandQuicknetBeacon` is about 3.3 kB. [measured]
+- A fallback `decide(accept)` costs 297,591 gas with drand verification, against 161,076 with the sim beacon (`forge test --match-contract GasPerDeal --isolate`). The verification adds about 136.5k, in line with the 140k this ADR guessed. [measured]
+- Fixing `_paymentInfo` cut about 11k gas from every path that builds a `PaymentInfo`. [measured]
+- A failing pairing precompile burns the gas it is given, so the verifier caps that call at 250k gas, which bounds what a bad proof costs its relayer.
+
+**Liveness note.** An appeal adjudicator can decide only once the first round after the escalation or appeal is published: up to 3 s on quicknet, 1 s on the sim. If `appealDecideSec` is shorter than that, the default path applies (§5). This is a backlog row, not a refusal (D31).
+
+**Still open.** The verifier is unaudited and needs review before Sepolia (backlog). The parse rule still admits only `sim` beacons until the adjudicator service fetches drand rounds (T-206).

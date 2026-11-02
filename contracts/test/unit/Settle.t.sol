@@ -162,7 +162,13 @@ contract AppealTest is Base {
     }
 
     function _appeal(H.Terms memory t, bytes32 id, uint256 pk) internal view returns (H.Appeal memory a) {
-        a = H.Appeal({appellant: 0, groundsHash: keccak256("fails check rows"), bond: 1_300_000, filedAt: uint64(block.timestamp), signature: ""});
+        a = H.Appeal({
+            appellant: 0,
+            groundsHash: keccak256("fails check rows"),
+            bond: 1_300_000,
+            filedAt: uint64(block.timestamp),
+            signature: ""
+        });
         a.signature = _sign(pk, hx.appeal(id, buyer, t.token, a));
     }
 
@@ -200,14 +206,13 @@ contract AppealTest is Base {
     function test_file_refusesAfterEarlyAccept_or_secondAppeal() public {
         (H.Terms memory t, bytes32 id,) = _filed();
         H.Appeal memory a = _appeal(t, id, BUYER_PK);
-        vm.expectRevert(
-            abi.encodeWithSelector(HoldbackRules.WrongAppealState.selector, HoldbackRules.AppealState.Open)
-        );
+        vm.expectRevert(abi.encodeWithSelector(HoldbackRules.WrongAppealState.selector, HoldbackRules.AppealState.Open));
         rules.fileAppeal(t, a);
     }
 
     function test_upheld_bondGoesToTheFirstAdjudicatorsBond() public {
         (H.Terms memory t, bytes32 id, uint64 openedAt) = _filed();
+        vm.warp(openedAt + 1); // the appeal round is the first one after openedAt: wait for it
         H.Decision memory m = _beaconDecision(id, H.ROLE_APPEAL, H.OUTCOME_ACCEPT, openedAt + 1);
         m = _signDecision(t, id, m, appealAdj, AP_PK);
         rules.decide(t, m, _noDelivery(), "");
@@ -219,6 +224,7 @@ contract AppealTest is Base {
     function test_overturned_bondBackToAppellant() public {
         (H.Terms memory t, bytes32 id, uint64 openedAt) = _filed();
         uint256 b0 = usdc.balanceOf(buyer);
+        vm.warp(openedAt + 1); // the appeal round is the first one after openedAt: wait for it
         H.Decision memory m = _beaconDecision(id, H.ROLE_APPEAL, H.OUTCOME_REJECT, openedAt + 1);
         m = _signDecision(t, id, m, appealAdj, AP_PK);
         rules.decide(t, m, _noDelivery(), "");
@@ -228,6 +234,7 @@ contract AppealTest is Base {
 
     function test_appealDecision_refusesAnotherSigner() public {
         (H.Terms memory t, bytes32 id, uint64 openedAt) = _filed();
+        vm.warp(openedAt + 1); // the appeal round is the first one after openedAt: wait for it
         H.Decision memory m = _beaconDecision(id, H.ROLE_APPEAL, H.OUTCOME_ACCEPT, openedAt + 1);
         m = _signDecision(t, id, m, appealAdj, ADJ_PK);
         vm.expectRevert(HoldbackRules.BadSignature.selector);
