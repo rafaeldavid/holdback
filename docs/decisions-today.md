@@ -588,7 +588,8 @@ Also: the funding signature on EVM is CPP's collector signature and token identi
 - **Feedback** is an operator service: two routes, an optional signed `Report`, bodies sealed like deliveries when they may carry deal details, the operator's own log line attached by Request-Id, deduplication, a status lifecycle; reports land in a private store first; filing public issues stays manual (review §8).
 - **Telemetry MVP:** about 14 aggregate metrics from what the operator already sees (per-route rate, errors and latency; problems by type; 429s; Durable Object quota usage; journal size; judge calls; the deal funnel by stage and time per stage; prepare-to-submit conversion; first-try success), and a 7-day request log without bodies, IPs or `Authorization` (review §9). Publishing any of it waits for Rafa.
 - **Schema v0.9** carries the protocol-level items together: ADR-0025's funding schemes and token addresses, `allowedTokens` optional (D38), `chainId` as a number in status, the MIME allowlist moving to adjudicator capability (D31, C8), the fee on receipts (C3) and the `not_implemented` problem type.
-- **Open for Rafa:** who holds the maintainers' key that feedback reports are sealed to; whether weekly aggregates are published (a status or stats page).
+- **Feedback key (Rafa, 2026-11-02):** a report is sealed to the operator's own encryption key, the one the operator publishes in discovery. Before submitting, the agent is told plainly that it is choosing to share the report, and any deal details in it, with that operator; sharing is the agent's choice (D35, D40), and a report with no deal details needs no sealing. No separate maintainers' key.
+- **Open for Rafa:** whether weekly aggregates are published (a status or stats page).
 
 ## D40. Privacy is each deal's choice; the tagline is "Escrow for AI Agents"
 
