@@ -5,7 +5,7 @@
 - **Depends on:** T-202 merged (contract ABI and its list of Phase 4 rules not yet on chain). T-203 green is wanted before the PR merges but does not block starting.
 - **Paths this task may touch:** `packages/settlement/evm/` (new), `packages/settlement/src/index.ts` (export only), `packages/settlement/sim/` (only to model `authorizationExpiry`, the backlog row from T-006), `packages/settlement/package.json`, `contracts/script/` (anvil deploy script only), `packages/testkit/src/runner.ts`, `packages/testkit/src/cli.ts`, `packages/testkit/src/pragma.ts` (lift the `--settlement` refusal for `local`), `scripts/verify.ts` (add `forge test` and `snap --settlement=local`), `reports/differential-local.md`, `docs/plan.md` (Scenario index "phase on contract" notes only), `docs/tasks/T-205-evm-settlement.md`
 - **Human gate:** none. Anvil only (chain id 31337). The adapter refuses chain id 1 and any other mainnet ID at startup (hard rule). `kind: 'testnet'` against Sepolia is not exercised here; it is T-206's gate.
-- **Status:** review
+- **Status:** done (PR 69)
 - **Agent/session:** implementer (Claude Opus 5.5), worktree branch `t-205-evm-settlement`, 2026-11-01/02
 
 ## Intent
