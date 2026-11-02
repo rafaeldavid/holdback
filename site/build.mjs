@@ -514,6 +514,9 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     writeFileSync(join(out, 'llms.txt'), txt);
     writeFileSync(join(out, 'index.html'), page(txt));
     for (const f of ['crow.png', 'favicon.png', 'agent.png', 'escrow.png', 'bond.png', 'og.png']) writeFileSync(join(out, f), readFileSync(here(f)));
+    // The visual walkthrough of a real two-agent deal, served at /visualdemo.
+    mkdirSync(join(out, 'visualdemo'), { recursive: true });
+    writeFileSync(join(out, 'visualdemo', 'index.html'), readFileSync(here('visualdemo/index.html')));
     const problems = await problemPages();
     mkdirSync(join(out, 'problems'), { recursive: true });
     for (const [path, html] of problems) writeFileSync(join(out, path), html);
