@@ -32,12 +32,14 @@ import {
   type SettlementEventType,
   type Sha256,
   type Timestamp,
+  type TokenAmount,
   type UnsignedMessage,
 } from '@holdback/core';
 import type { Submission, TimeoutKind } from '@holdback/settlement';
+import { EvmSettlement, type EvmWorld } from '@holdback/settlement/evm';
 import { account, SimChain, type Genesis } from '@holdback/settlement/sim';
 import { keccak256, stringToBytes, type Hex } from 'viem';
-import { privateKeyToAccount } from 'viem/accounts';
+import { privateKeyToAccount, sign as signDigest } from 'viem/accounts';
 import type { SimContext } from './context.js';
 import { loadClubFile, loadTermsFile, termsFromTemplate, type TermsTemplate } from './fixture-files.js';
 import type { AdjudicatorPolicy } from '@holdback/core';
@@ -208,8 +210,27 @@ const TIMEOUTS: Record<TimeoutStep, TimeoutKind> = {
 
 const wholeSecond = (ts: Timestamp): Timestamp => new Date(Math.floor(Date.parse(ts) / 1000) * 1000).toISOString().replace('.000Z', 'Z');
 
+/** Which settlement layer the fixture drives: SimChain in process, or the T-202 contracts on a local anvil (T-205). */
+export type DriverBackend = { kind: 'sim' } | { kind: 'local'; world: EvmWorld; judgments?: ReadonlyMap<string, JudgmentView> };
+
+/**
+ * Every `token` field equal to `from`, and every entry of `allowedTokens`, rewritten to `to`. On EVM settlement the
+ * token identifier is the ERC-20's lowercase address (ADR-0025), so the fixtures' tUSD becomes the deployed token.
+ */
+export function rebindToken<T>(value: T, from: string, to: string): T {
+  if (from === to) return value;
+  const walk = (x: unknown, key?: string): unknown => {
+    if (Array.isArray(x)) return x.map((v) => (key === 'allowedTokens' && v === from ? to : walk(v)));
+    if (x && typeof x === 'object') return Object.fromEntries(Object.entries(x).map(([k, v]) => [k, k === 'token' && v === from ? to : walk(v, k)]));
+    return x;
+  };
+  return walk(value) as T;
+}
+
 export class StubSettlement {
-  private readonly domain = holdbackDomain(SIM_CHAIN_ID);
+  private readonly domain;
+  /** The token identifier on this backend: tUSD on SimChain, the deployed ERC-20's address on EVM. */
+  private readonly token: string;
   private readonly keys = new Map<string, Hex>();
   private readonly actors: Actor[] = [];
   private readonly faucetTotal: bigint;
@@ -228,13 +249,15 @@ export class StubSettlement {
   private club: Club | null = null;
   private loadedClub = false;
   private template: TermsTemplate | null = null;
-  private chain: SimChain | null = null;
+  private chain: SimChain | EvmSettlement | null = null;
   private genesis: Genesis | null = null;
   /** Commitments by number (a step's `commitment:`, default 1). Steps act on the current one. */
   private readonly slots = new Map<number, Slot>();
   private current = 1;
   /** One judgment per commitment|role|attempt: a panel is never re-rolled. */
   private readonly judged = new Map<string, JudgmentView>();
+  /** The same judgments keyed by commitment number, role and attempt, which do not depend on the backend. */
+  private readonly judgedBySlot = new Map<string, JudgmentView>();
   private registryCache: LoadedRegistry | null = null;
   private stepNo = 0;
   private signerOverride: string | undefined;
@@ -250,7 +273,15 @@ export class StubSettlement {
     private readonly scenario: Scenario,
     private readonly judges: JudgeProvider,
     private readonly root: string,
+    private readonly backend: DriverBackend = { kind: 'sim' },
   ) {
+    if (backend.kind === 'local') {
+      this.domain = holdbackDomain(backend.world.chainId, backend.world.deployment.rules);
+      this.token = backend.world.deployment.token.toLowerCase();
+    } else {
+      this.domain = holdbackDomain(SIM_CHAIN_ID);
+      this.token = TOKEN;
+    }
     const { parties, adjudicators, operators } = scenario;
     const add = (name: string, role: ActorRole) => {
       const key = testKey(ctx.seed, name);
@@ -269,7 +300,7 @@ export class StubSettlement {
   }
 
   /** Genesis: faucet amounts become party balances, or junior bond for adjudicators; mandates for the parties. */
-  private async start(): Promise<SimChain> {
+  private async start(): Promise<SimChain | EvmSettlement> {
     const { scenario, ctx } = this;
     const at = wholeSecond(ctx.clock.now());
     const isAdjudicator = (name: string) => ['primary', 'fallback', 'appeal'].includes(this.actor(name).role);
@@ -281,7 +312,9 @@ export class StubSettlement {
       else balances[a] = amount;
     }
     const operator = privateKeyToAccount(testKey(ctx.seed, 'club-operator')).address;
-    const club: Club = this.club ?? { id: STUB_CLUB_ID, name: 'Stub club', operator, rulebook: STUB_RULEBOOK, rulebookHash: rulebookHash(STUB_RULEBOOK) };
+    const base: Club = this.club ?? { id: STUB_CLUB_ID, name: 'Stub club', operator, rulebook: STUB_RULEBOOK, rulebookHash: rulebookHash(STUB_RULEBOOK) };
+    const rulebook = rebindToken(base.rulebook, TOKEN, this.token);
+    const club: Club = this.token === TOKEN ? base : { ...base, rulebook, rulebookHash: rulebookHash(rulebook) };
     this.club = club;
     const mandates: Mandate[] = [];
     for (const name of [scenario.parties.buyer, scenario.parties.seller]) {
@@ -290,7 +323,7 @@ export class StubSettlement {
         principal: privateKeyToAccount(principalKey).address,
         agent: this.address(name),
         clubId: club.id,
-        scope: { roles: ['buyer', 'seller'], maxPerCommitment: MAX_SCOPE, maxDaily: MAX_SCOPE, expiresAt: plus(at, 365 * DAY) } as Scope,
+        scope: { roles: ['buyer', 'seller'], maxPerCommitment: this.money(MAX_SCOPE.amount), maxDaily: this.money(MAX_SCOPE.amount), expiresAt: plus(at, 365 * DAY) } as Scope,
         nonce: keccak256(stringToBytes(`mandate/${name}`)),
         issuedAt: at,
       };
@@ -302,14 +335,34 @@ export class StubSettlement {
       // The sim beacon seed is public and derived from the fixture seed (ADR-0018).
       simSeed: keccak256(stringToBytes(`holdback/sim-beacon/v0/${ctx.seed}`)),
       chainId: SIM_CHAIN_ID,
-      token: TOKEN,
+      token: this.token,
       clubs: [club],
       mandates,
       members: [],
       balances,
       bonds,
     };
+    if (this.backend.kind === 'local') return EvmSettlement.create(this.backend.world, this.genesis, this.actors.map((a) => a.address));
     return new SimChain(this.genesis);
+  }
+
+  /** An amount in this backend's token. */
+  private money(amount: string | bigint): TokenAmount {
+    return { ...tusd(amount), token: this.token };
+  }
+
+  private get evm(): EvmSettlement | null {
+    return this.chain instanceof EvmSettlement ? this.chain : null;
+  }
+
+  /**
+   * Who pays gas on EVM (the escape hatch, ADR-0005): the relaying operator's key, or for a direct call the acting
+   * agent's own key; a permissionless trigger with no named agent comes from an unrelated account.
+   */
+  private sender(actor: string, via: string): Hex | undefined {
+    if (this.backend.kind !== 'local') return undefined;
+    if (via !== 'direct') return this.keys.get(via);
+    return this.keys.get(actor) ?? this.keys.get(actor.split(' + ')[0]!) ?? testKey(this.ctx.seed, 'anyone');
   }
 
   async run(): Promise<StubRun> {
@@ -323,9 +376,9 @@ export class StubSettlement {
       this.club = loadClubFile(join(root, scenario.club));
       this.loadedClub = true;
     }
-    if (scenario.terms !== undefined && existsSync(join(root, scenario.terms))) this.template = loadTermsFile(join(root, scenario.terms));
+    if (scenario.terms !== undefined && existsSync(join(root, scenario.terms))) this.template = rebindToken(loadTermsFile(join(root, scenario.terms)), TOKEN, this.token);
     this.chain = await this.start();
-    this.balanceRows.push({ after: 'faucet', balances: this.snapshotBalances() });
+    this.balanceRows.push({ after: 'faucet', balances: await this.snapshotBalances() });
     for (const s of scenario.steps) {
       this.stepNo++;
       this.signerOverride = 'signer' in s ? s.signer : undefined;
@@ -394,8 +447,8 @@ export class StubSettlement {
       .filter((x): x is Hex32 => x !== null);
   }
 
-  private get sim(): SimChain {
-    if (!this.chain) throw new Error('SimChain not started');
+  private get sim(): SimChain | EvmSettlement {
+    if (!this.chain) throw new Error('settlement not started');
     return this.chain;
   }
 
@@ -437,8 +490,17 @@ export class StubSettlement {
   }
 
   /** Balances by actor name: own balance plus bond (junior and senior) for adjudicators, and the escrow. */
-  private snapshotBalances(): Record<string, bigint> {
-    const ledger = this.sim.ledger();
+  private async snapshotBalances(): Promise<Record<string, bigint>> {
+    const evm = this.evm;
+    if (evm) {
+      const h = await evm.holdings(this.actors.map((a) => a.address), this.ids());
+      const out: Record<string, bigint> = {};
+      for (const a of this.actors) out[a.name] = h.parties[a.address.toLowerCase()] ?? 0n;
+      out[ESCROW] = h.escrow;
+      out[APPEAL_HOLD] = h.appealHold;
+      return out;
+    }
+    const ledger = (this.sim as SimChain).ledger();
     const out: Record<string, bigint> = {};
     for (const a of this.actors) {
       out[a.name] = (ledger[account.party(a.address)] ?? 0n) + (ledger[account.junior(a.address)] ?? 0n) + (ledger[account.senior(a.address)] ?? 0n);
@@ -473,7 +535,8 @@ export class StubSettlement {
   /** Submits to SimChain at the scenario clock's time, or records the refusal. Returns true when it applied. */
   private async submit(actor: string, call: string, via: string, submission: Submission): Promise<boolean> {
     this.sim.advanceTo(this.ctx.clock.now());
-    const r = await this.sim.submit(submission, { via });
+    const sender = this.sender(actor, via);
+    const r = await this.sim.submit(submission, sender ? { via, sender } : { via });
     if (!r.ok) {
       this.refuse(actor, call, via, r.problem);
       return false;
@@ -612,7 +675,7 @@ export class StubSettlement {
           nonce: this.nonceFor(seller, 'terms'),
           createdAt: wholeSecond(now),
         })
-      : this.stubTerms(seller, now);
+      : rebindToken(this.stubTerms(seller, now), TOKEN, this.token);
     const signature = await signTerms(this.keyFor(seller), this.domain, terms);
     const id = commitmentIdOf(terms);
     if (await this.submit(seller, 'offer', via, { kind: 'offer', commitment: { ...terms, id, signatures: { seller: signature } } })) {
@@ -714,22 +777,43 @@ export class StubSettlement {
     this.row(buyer, 'agree', via, 'ok');
 
     const total = BigInt(c.terms.price.amount) + BigInt(c.terms.adjudication.fee.amount);
-    const funding = await this.sign(buyer, {
-      type: 'FundingAuthorization',
-      scheme: 'erc3009',
-      commitmentId: c.id,
-      from: buyerAddress,
-      value: total.toString(),
-      token: TOKEN,
-      validAfter: c.terms.createdAt,
-      validBefore: c.terms.timing.fundBy,
-      nonce: this.nonceFor(buyer, 'msg'),
-      expiresAt: c.terms.timing.fundBy,
-    } as const);
+    const evm = this.evm;
+    let funding;
+    if (evm) {
+      // ADR-0025 (Proposed): on EVM the buyer signs ERC-3009 ReceiveWithAuthorization to CPP's collector; the
+      // FundingAuthorization carries that signature and its values (nonce: the payer-agnostic PaymentInfo hash).
+      const f = await evm.fundingAuthorization(c.terms);
+      funding = {
+        type: 'FundingAuthorization',
+        scheme: 'erc3009',
+        commitmentId: c.id,
+        from: buyerAddress,
+        value: f.value.toString(),
+        token: this.token,
+        validAfter: f.validAfter,
+        validBefore: f.validBefore,
+        nonce: f.nonce,
+        expiresAt: c.terms.timing.fundBy,
+        signature: await signDigest({ hash: f.digest, privateKey: this.keyFor(buyer), to: 'hex' }),
+      } as const;
+    } else {
+      funding = await this.sign(buyer, {
+        type: 'FundingAuthorization',
+        scheme: 'erc3009',
+        commitmentId: c.id,
+        from: buyerAddress,
+        value: total.toString(),
+        token: TOKEN,
+        validAfter: c.terms.createdAt,
+        validBefore: c.terms.timing.fundBy,
+        nonce: this.nonceFor(buyer, 'msg'),
+        expiresAt: c.terms.timing.fundBy,
+      } as const);
+    }
     if (!(await this.submit(buyer, 'fund', via, { kind: 'fund', message: funding }))) return;
     this.receipt(via, 'fund');
     this.row(buyer, 'fund', via, 'ok');
-    this.balanceRows.push({ after: 'fund', balances: this.snapshotBalances() });
+    this.balanceRows.push({ after: 'fund', balances: await this.snapshotBalances() });
   }
 
   private async deliver(seller: string, via: string, file: string, stubBytes: boolean, attempt: number, buyerWrongKey = false): Promise<void> {
@@ -790,7 +874,17 @@ export class StubSettlement {
     if (role !== 'primary' && !beaconValue) return this.refuse(name, call, 'direct', problem('seed_mismatch', `beacon round ${round} is not published yet; no panel is drawn without it`));
     const seed = role === 'primary' ? this.seed : panelSeed(c.id, role, d.message.attempt, beaconValue!);
     const key = `${c.id}|${role}|${d.message.attempt}`;
+    const slotKey = `${this.current}|${role}|${d.message.attempt}`;
     let view = this.judged.get(key);
+    // EVM differential: judgment is off chain and settlement-independent, so the SimChain run's judgment for the same
+    // commitment, role and attempt is reused (the judge input hashes the commitment ID, which differs by token).
+    const reused = !view && this.backend.kind === 'local' ? this.backend.judgments?.get(slotKey) : undefined;
+    if (reused) {
+      view = reused;
+      this.judged.set(key, view);
+      this.judgedBySlot.set(slotKey, view);
+      this.judgments.push(view);
+    }
     if (!view) {
       const st = c.state;
       const firstOutcome =
@@ -818,6 +912,7 @@ export class StubSettlement {
       if (!judged.ok) return this.refuse(name, call, 'direct', judged.error);
       view = judged.value;
       this.judged.set(key, view);
+      this.judgedBySlot.set(slotKey, view);
       this.judgments.push(view);
     }
     const outcome = view.outcome;
@@ -848,7 +943,7 @@ export class StubSettlement {
     this.decision = decision;
     const next = this.state!;
     this.row(name, `${call}: ${outcome}`, 'direct', 'ok');
-    if (next.kind === 'Released' || next.kind === 'Refunded') this.balanceRows.push({ after: `decide: ${outcome}`, balances: this.snapshotBalances() });
+    if (next.kind === 'Released' || next.kind === 'Refunded') this.balanceRows.push({ after: `decide: ${outcome}`, balances: await this.snapshotBalances() });
   }
 
   /** The deadline a role's decision answers to: judgeBy, fallbackBy, or the appeal's appealDecideBy. */
@@ -882,7 +977,7 @@ export class StubSettlement {
     if (bypassed) this.outages.push({ step: this.stepNo, actor: bypassed, kind: 'timeout' });
     this.receipt(via, kind);
     this.row('anyone', kind, via, 'ok');
-    if (kind === 'apply_default_outcome' || kind === 'expire_appeal') this.balanceRows.push({ after: this.label(kind), balances: this.snapshotBalances() });
+    if (kind === 'apply_default_outcome' || kind === 'expire_appeal') this.balanceRows.push({ after: this.label(kind), balances: await this.snapshotBalances() });
   }
 
   private settle(who: string, via: string): void {
@@ -902,7 +997,7 @@ export class StubSettlement {
     this.outages.push({ step: this.stepNo, actor: this.scenario.parties.seller, kind: 'timeout', reclaim: true });
     this.receipt(via, 'reclaim');
     this.row(buyer, 'reclaim', via, 'ok');
-    this.balanceRows.push({ after: 'reclaim', balances: this.snapshotBalances() });
+    this.balanceRows.push({ after: 'reclaim', balances: await this.snapshotBalances() });
   }
 
   /** The buyer accepts the delivery before any decision: price to the seller, fee back, key to the buyer. */
@@ -922,7 +1017,7 @@ export class StubSettlement {
     if (!(await this.submit(buyer, call, via, { kind: 'early_accept', message }))) return;
     this.receipt(via, call);
     this.row(buyer, call, via, 'ok');
-    this.balanceRows.push({ after: this.label(call), balances: this.snapshotBalances() });
+    this.balanceRows.push({ after: this.label(call), balances: await this.snapshotBalances() });
   }
 
   /** A party appeals a first-instance decision with the rulebook's bond (or the step's) and the appeal fee. */
@@ -939,14 +1034,14 @@ export class StubSettlement {
       appellant: by,
       appellantAddress: this.address(who),
       grounds,
-      bond: tusd(bondOverride ?? required.toString()),
+      bond: this.money(bondOverride ?? required.toString()),
       filedAt: wholeSecond(this.ctx.clock.now()),
     };
     const signed = await this.sign(who, { ...body, type: 'Appeal' as const });
     if (!(await this.submit(who, call, via, { kind: 'appeal', appeal: { ...body, signature: signed.signature } }))) return;
     this.receipt(via, 'appeal');
     this.row(who, call, via, 'ok', undefined);
-    this.balanceRows.push({ after: this.label('appeal'), balances: this.snapshotBalances() });
+    this.balanceRows.push({ after: this.label('appeal'), balances: await this.snapshotBalances() });
   }
 
   /** ADR-0019, D23: both parties sign one settlement; the payouts split the price, the fee returns to the buyer. */
@@ -964,7 +1059,7 @@ export class StubSettlement {
       type: 'MutualSettlement' as const,
       commitmentId: c.id,
       deliveryHash: delivered ? deliveryHash(delivered) : null,
-      payouts: Object.entries(payouts).map(([name, amount]) => ({ to: this.address(name), amount: tusd(amount) })),
+      payouts: Object.entries(payouts).map(([name, amount]) => ({ to: this.address(name), amount: this.money(amount) })),
       releaseKey,
       nonce: this.ctx.rng.hex32(),
       expiresAt: plus(wholeSecond(this.ctx.clock.now()), DAY),
@@ -974,7 +1069,7 @@ export class StubSettlement {
     if (!(await this.submit(`${buyer} + ${seller}`, call, via, { kind: 'mutual_settle', message: { ...unsigned, buyerSignature, sellerSignature } }))) return;
     this.receipt(via, call);
     this.row(`${buyer} + ${seller}`, call, via, 'ok');
-    this.balanceRows.push({ after: this.label(call), balances: this.snapshotBalances() });
+    this.balanceRows.push({ after: this.label(call), balances: await this.snapshotBalances() });
   }
 
   /**
@@ -1034,27 +1129,38 @@ export class StubSettlement {
     }));
   }
 
-  /** Replays SimChain's journal from genesis; the replay must reproduce the same state digest. */
+  /**
+   * SimChain: replays the journal from genesis; the replay must reproduce the same state digest. EVM: rebuilds the
+   * on-chain events from the chain's own blocks and logs; they must equal the adapter's, and the log must link.
+   */
   private async replay(): Promise<{ ok: boolean; events: number }> {
-    const journal = this.sim.journal();
+    const evm = this.evm;
+    if (evm) {
+      const r = await evm.replayCheck();
+      return { ok: r.ok && SimChain.verifyLog(evm.log()), events: evm.transactions().length };
+    }
+    const sim = this.sim as SimChain;
+    const journal = sim.journal();
     const submits = journal.filter((e) => e.op === 'submit').length;
     try {
       const again = await SimChain.replay(this.genesis!, journal);
-      return { ok: again.digest() === this.sim.digest() && SimChain.verifyLog(this.sim.log()), events: submits };
+      return { ok: again.digest() === sim.digest() && SimChain.verifyLog(sim.log()), events: submits };
     } catch {
       return { ok: false, events: submits };
     }
   }
 
-  private invariants(replay: { ok: boolean }): Invariant[] {
+  private async invariants(replay: { ok: boolean }): Promise<Invariant[]> {
     this.current = 1;
     const st = this.state;
-    const ledger = this.sim.ledger();
     const many = this.ids().length > 1;
     const settledIds = this.ids().filter((id) => SETTLED_STATES.includes(this.sim.escrowState(id)!.kind));
+    const evm = this.evm;
+    let leftInSettled = 0n;
+    for (const id of settledIds) leftInSettled += evm ? await evm.heldFor(id) : ((this.sim as SimChain).ledger()[account.escrow(id)] ?? 0n);
     return checkInvariants({
-      ...(many ? { escrowOfSettled: { settled: settledIds.length > 0, amount: settledIds.reduce((a, id) => a + (ledger[account.escrow(id)] ?? 0n), 0n) } } : {}),
-      balances: this.snapshotBalances(),
+      ...(many ? { escrowOfSettled: { settled: settledIds.length > 0, amount: leftInSettled } } : {}),
+      balances: await this.snapshotBalances(),
       faucetTotal: this.faucetTotal,
       events: this.events(),
       finalState: st?.kind ?? null,
@@ -1086,13 +1192,23 @@ export class StubSettlement {
       events: this.events().map((e) => ({ seq: e.seq, step: e.step, type: e.type, hash: e.hash })),
       receipts: this.receipts,
       replay,
-      invariants: this.invariants(replay),
+      invariants: await this.invariants(replay),
       states: this.states,
       finalState: state?.kind ?? null,
       problems: this.problems,
       outages: this.outages,
       autoAccepted: state?.kind === 'Released' && state.via.kind === 'first_instance' && state.via.decision.outcome === 'accept',
-      balances: this.snapshotBalances(),
+      balances: await this.snapshotBalances(),
     };
+  }
+
+  /** Judgments by `commitmentNumber|role|attempt`, for a local run to reuse (see judge). */
+  judgmentsBySlot(): ReadonlyMap<string, JudgmentView> {
+    return new Map(this.judgedBySlot);
+  }
+
+  /** EVM only: the transactions this run mined, for gas per deal (D4). Empty on SimChain. */
+  transactions(): Array<{ call: string; gasUsed: bigint; from: string; via: string }> {
+    return this.evm?.transactions().map((t) => ({ call: t.call, gasUsed: t.gasUsed, from: t.from, via: t.via })) ?? [];
   }
 }
