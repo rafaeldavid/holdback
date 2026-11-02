@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     ".": { "types": "./dist/src/index.d.ts", "default": "./dist/src/index.js" },
-    "./sim": { "types": "./dist/sim/index.d.ts", "default": "./dist/sim/index.js" }
+    "./sim": { "types": "./dist/sim/index.d.ts", "default": "./dist/sim/index.js" },
+    "./evm": { "types": "./dist/evm/index.d.ts", "default": "./dist/evm/index.js" }
   },
   "scripts": {
     "build": "tsc -b"

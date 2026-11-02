@@ -12,9 +12,13 @@ const root = new URL('..', import.meta.url).pathname;
 const steps: Step[] = [
   { name: 'typecheck', command: ['pnpm', 'typecheck'] },
   { name: 'lint', command: ['pnpm', 'lint'] },
+  // Contracts first: forge test also builds contracts/out, which the EVM adapter's tests and snap:local deploy (T-205).
+  { name: 'forge', command: ['forge', 'test', '--root', 'contracts'] },
   { name: 'test', command: ['pnpm', 'test'] },
   { name: 'spec', command: ['pnpm', 'validate:spec'] },
   { name: 'snap', command: ['pnpm', 'snap'] },
+  // The same fixtures against HoldbackRules on anvil (127.0.0.1, chain id 31337); writes reports/differential-local.md.
+  { name: 'snap:local', command: ['pnpm', 'snap', '--settlement=local'] },
   { name: 'demo', command: ['pnpm', 'demo'] },
 ];
 

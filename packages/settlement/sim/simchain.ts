@@ -63,6 +63,18 @@ export interface Genesis {
   bonds: Record<Address, { junior: string; senior: string }>;
   /** Kept back from a funding balance check (architecture.md Fund guard); 0 on SimChain by default. */
   gasBuffer?: string;
+  /**
+   * CPP's authorizationExpiry margin after fallbackBy + appealDecideSec (ADR-0003, ADR-0025): no capture at or after
+   * the expiry. Default DEFAULT_EXPIRY_MARGIN_SEC, the local deployment's value; T-206 chooses the public one.
+   */
+  expiryMarginSec?: number;
+}
+
+export const DEFAULT_EXPIRY_MARGIN_SEC = 86_400;
+
+/** CPP's authorizationExpiry for a commitment: fallbackBy + appealDecideSec + margin (ADR-0003 "As built"). */
+export function authorizationExpiry(terms: AnyCommitmentTerms, marginSec: number = DEFAULT_EXPIRY_MARGIN_SEC): Timestamp {
+  return iso(Date.parse(terms.timing.fallbackBy) + (terms.timing.appealDecideSec + marginSec) * 1000);
 }
 
 export type JournalEntry =
@@ -589,6 +601,16 @@ export class SimChain implements Settlement {
     return this.genesis.members.some((m) => m.clubId === club.id && (lc(m.member) === lc(agent) || (principal !== undefined && lc(m.member) === lc(principal))));
   }
 
+  /**
+   * ADR-0003: on the contract, CPP refuses every capture at or after authorizationExpiry; only a refund (void) and the
+   * buyer's own reclaim remain. Decisions always land before it (their windows end by fallbackBy + appealDecideSec);
+   * an early accept and a mutual settlement have no stage deadline, so they are the paths this can refuse.
+   */
+  private beforeCaptureExpiry(terms: AnyCommitmentTerms, at: Timestamp, what: string): void {
+    const expiry = authorizationExpiry(terms, this.genesis.expiryMarginSec ?? DEFAULT_EXPIRY_MARGIN_SEC);
+    if (Date.parse(at) >= Date.parse(expiry)) refuse('deadline_passed', `${what}, and no payment can be captured at or after authorizationExpiry ${expiry}; only a refund remains`);
+  }
+
   private stepped(state: EscrowState, e: EscrowEvent): EscrowState {
     const r = step(state, e);
     return r.ok ? r.value : refuse(r.error.type, r.error.detail);
@@ -733,6 +755,7 @@ export class SimChain implements Settlement {
         const m = s.message;
         const rec = this.recOf(tx, m.commitmentId);
         tx.useNonce(`${lc(m.buyer)}:${m.nonce}`);
+        this.beforeCaptureExpiry(rec.state.terms, at, 'an early accept pays the seller');
         const next = this.stepped(rec.state, { type: 'early_accept', at, message: m });
         this.setState(tx, m.commitmentId, next);
         const { price, adjudication, seller, buyer } = next.terms;
@@ -902,6 +925,9 @@ export class SimChain implements Settlement {
     // so a posting can never take more than the price out of escrow.
     const payouts = next.payouts.map((p) => ({ to: p.to, amount: BigInt(p.amount.amount) }));
     if (payouts.some((p) => p.amount <= 0n) || payouts.reduce((a, p) => a + p.amount, 0n) !== BigInt(price.amount)) refuse('invalid_terms', 'payouts must be positive and sum to the price');
+    // A payout to anyone but the buyer is a capture; returning everything to the buyer is not (CPP void).
+    const shareBps = BigInt(rec.club.rulebook.mutualSettlement.adjudicatorFeeShareAfterDeliveryBps);
+    if (payouts.some((p) => lc(p.to) !== lc(buyer)) || (shareBps > 0n && BigInt(adjudication.fee.amount) > 0n)) this.beforeCaptureExpiry(next.terms, tx.at, 'this settlement pays someone other than the buyer');
     const postings: Posting[] = [];
     const escrow = account.escrow(id);
     for (const p of payouts) tx.post(escrow, account.party(p.to), p.amount, 'agreed payout', postings);
