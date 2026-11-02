@@ -13,6 +13,11 @@ describe('design map', () => {
     expect(['next', 'active']).toContain(first.status);
   });
 
+  it('reads a task status by its leading keyword, so a note after it does not hide "done"', () => {
+    const t010 = data.tasks.find((t: { id: string }) => t.id === 'T-010');
+    expect(t010.status).toBe('done');
+  });
+
   it('reads every decision with a known status', () => {
     expect(data.decisions.length).toBeGreaterThanOrEqual(9);
     for (const d of data.decisions) expect(['decided', 'deferred', 'open']).toContain(d.status);

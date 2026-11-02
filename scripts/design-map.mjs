@@ -86,8 +86,8 @@ export function tasks() {
       title: head?.[2] ?? file,
       lane: field('Lane'),
       phase: Number(field('Phase').match(/\d+/)?.[0] ?? -1),
-      // A status may carry a note in parentheses: "in progress (first slice merged)".
-      status: field('Status').toLowerCase().replace(/\s*\(.*$/, ''),
+      // A status may carry a note: "in progress (first slice merged)", "done for Phase 1 (…)". The leading keyword counts.
+      status: field('Status').toLowerCase().match(/^(done|in progress|review|todo|blocked)\b/)?.[1] ?? field('Status').toLowerCase().replace(/\s*\(.*$/, ''),
       dependsOn: [...dependsText.matchAll(/T-\d{3}/g)].map((m) => m[0]),
       dependsOnAll: /^all\b/i.test(dependsText),
     };
