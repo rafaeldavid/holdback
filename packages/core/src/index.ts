@@ -1,3 +1,4 @@
+export * from './beacon.js';
 export * from './canonical.js';
 export * from './eip712.js';
 export * from './fee.js';
