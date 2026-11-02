@@ -15,6 +15,7 @@ Turn the coordinator's repeated steps into commands and scripts (`docs/reviews/2
 ## Acceptance criteria
 
 - [ ] Each command file states its trigger, steps and stop conditions, and respects the gates (deploys follow `docs/operations.md`; repository settings, publishing and real money stay Rafa's).
+- [ ] `/merge-pr` uses GitHub auto-merge (enabled on the repository 2026-11-02, with branch deletion after merge) under three rules it enforces: arm it only after the reviewer's PASS; never on a PR from a fork; never on a PR that touches `.github/` (such a PR could rewrite the `check` job; it is reviewed and merged by hand). The ruleset requires `check` and `gitleaks`.
 - [ ] Helper scripts (`scripts/brief.mjs`, `scripts/task-done.mjs`, `scripts/decision.mjs`, `scripts/log-skeleton.mjs`) with tests where they compute anything.
 - [ ] Hooks configured in `.claude/settings.json` and proven to fire (per the update-config procedure), or documented as needing a new session.
 - [ ] Used once each on real work in this repo (Evidence lists the PR or run).
