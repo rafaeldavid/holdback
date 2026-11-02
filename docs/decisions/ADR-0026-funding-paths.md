@@ -76,7 +76,8 @@ Everything that converts into the settlement token at the buyer's address (fiat 
 - **Schema:** `club.allowedTokens` optional, `minItems: 1` when present; next additive bump (v0.9 with ADR-0025's schemes, or the following one). Domain and `commitment.schemaVersion` stay 0.6 (ADR-0023's rule; inferred: no signed struct changes).
 - **Follow-ups, not tasks yet:** deploy Permit2 in `EvmWorld` and run a WETH deal through `method = 1` (fixture `fund.weth-via-permit2`); map `TokenCollectionFailed` to a problem type and show a fee-on-transfer token refused at funding (`fund.fee-on-transfer-refused`); advisory token warnings in prepare (backlog, D31); the `/v1/funding/*` stub (coordinator); `neutrality.onramp-refuses` when the service exists.
 - **Residuals:** residual 1 (freezable or pausable tokens) now covers any token the parties pick; residual 11 (funding linkability) is unchanged; PRD assumption 7 stays untested until a ramp is wired.
-- **What this does not decide:** which ramps, swaps or bridges to integrate, their fees, KYC flow, or whether ’crow runs the service itself. That is the deferred decision, with a research pass first.
+- **Ramp identity (Rafa, 2026-11-02):** the agent's owner does the identity check, not the agent. The owner either picks a ramp from a listed set or opens an account with a ramp of its own choosing, under its own identity, separate from the agent; the agent then spends from that account. The protocol and the funding service never hold the owner's identity (D35).
+- **What this does not decide:** which ramps, swaps or bridges to integrate, their fees, or whether ’crow runs the service itself. That is the deferred decision, with a research pass first.
 
 ## Litmus tests
 
