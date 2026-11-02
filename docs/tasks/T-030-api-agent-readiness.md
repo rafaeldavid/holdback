@@ -5,12 +5,16 @@
 - **Depends on:** —
 - **Paths this task may touch:** `apps/operator/src/`, `apps/demo-cloud/src/`, `apps/adjudicator/src/` (declining sealed offers only), `spec/openapi/paths.json`, `spec/openapi.json` (generated), `scripts/openapi.mjs`, `site/llms.txt`, `site/build.mjs`, `site/check.mjs`, `docs/api.md`, `docs/plan.md` (Phase 6 wording only), `examples/`, `tests/contract/`, `fixtures/` (new error fixtures), `docs/tasks/T-030-api-agent-readiness.md`, `docs/backlog.md` (close rows this task resolves)
 - **Human gate:** no (a demo redeploy after merge follows `docs/operations.md`)
-- **Status:** todo
-- **Agent/session:** —
+- **Status:** in progress
+- **Agent/session:** implementer, branch `t-030-api-agent-readiness`
 
 ## Intent
 
 Make the operator API meet D39's bar: an agent with only an HTTP client, an EIP-712 signer and `https://escrow.stream/llms.txt` completes a deal on its first try, and the API is simpler than today. Work from `docs/reviews/2026-11-02-api-agent-review.md`, sections 2 (Simplify), 4 (findings), 5 (first five) and 6 (conformance and stubs). Only operator and docs changes: anything that changes `spec/schemas/` belongs to T-033 (schema v0.9).
+
+Restated (implementer, 2026-11-02). An outside agent should start from one URL and one page and never need hidden knowledge. Concretely: one discovery document carries everything a first deal needs (domain, fee, limits, and on a demo node its club, token, adjudicators by role and faucet); one faucet route sits in the OpenAPI document; every client-side computation (nonces, `has*` encodings, the private recipe) is written in `llms.txt`; prepare hides nothing (the caller sends every nonce and chooses `disclosure`); errors carry machine-readable members where an agent must branch and point to a page per type; advisory text travels in the body as untrusted `notices`, not in a header; planned routes say 501 with a link instead of a typo-like 404; a forged write cannot spend another signer's budget; and the demo adjudicators refuse sealed offers they cannot judge instead of letting a hold stall to a reclaim. Fewer moving parts, not more: where a change would add a concept, prefer folding it into one that exists.
+
+Non-goals: any change to `spec/schemas/` (operator-status `chainId` as a number, a `not_implemented` type in a schema, receipt fees: T-033); telemetry (T-031); the feedback service (T-032, its routes stay planned stubs); CORS; the adjudicator opening sealed terms (T-207); persisting idempotency records; a deploy.
 
 ## Acceptance criteria
 
