@@ -215,8 +215,10 @@ export function paymentInfo(t: TermsView, rules: Address, commitmentId: Hex32, e
 }
 
 /** AuthCaptureEscrow.getHash with payer zeroed: the ERC-3009 and Permit2 nonce (payer-agnostic). */
-export function payerAgnosticHash(pi: PaymentInfo, chainId: number, escrow: Address): Hex32 {
-  const p = { ...pi, payer: `0x${'00'.repeat(20)}` as Address };
+export const payerAgnosticHash = (pi: PaymentInfo, chainId: number, escrow: Address): Hex32 => paymentHash({ ...pi, payer: `0x${'00'.repeat(20)}` as Address }, chainId, escrow);
+
+/** AuthCaptureEscrow.getHash: the key of CPP's paymentState. */
+export function paymentHash(p: PaymentInfo, chainId: number, escrow: Address): Hex32 {
   const inner = keccak256(
     encodeAbiParameters(PAYMENT_INFO_FIELDS, [PAYMENT_INFO_TYPEHASH, p.operator, p.payer, p.receiver, p.token, p.maxAmount, p.preApprovalExpiry, p.authorizationExpiry, p.refundExpiry, p.minFeeBps, p.maxFeeBps, p.feeReceiver, p.salt]),
   );

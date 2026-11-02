@@ -61,6 +61,7 @@ import {
   NO_DELIVERY,
   NO_KEY,
   operatorFeeNonce,
+  paymentHash,
   paymentInfo,
   payerAgnosticHash,
   receiveDigest,
@@ -316,6 +317,16 @@ export class EvmSettlement implements Settlement {
     return { parties, escrow: await this.tokenBalance(store), appealHold };
   }
 
+  /** What CPP still holds for one commitment (capturable amount); 0 for an unknown or never-funded one. */
+  async heldFor(id: Hex32): Promise<bigint> {
+    const book = this.books.get(id);
+    if (!book) return 0n;
+    const pi = paymentInfo(termsView(book.state.terms), this.world.deployment.rules, id, EXPIRY_MARGIN);
+    const hash = paymentHash(pi, this.world.chainId, this.world.deployment.escrow);
+    const s = await this.read<readonly [boolean, bigint, bigint]>(this.world.deployment.escrow, this.world.abis.escrow, 'paymentState', [hash]);
+    return BigInt(s[1]);
+  }
+
   async state(id: Hex32): Promise<CommitmentStateView | null> {
     const b = this.books.get(id);
     return b ? this.view(id, b) : null;
@@ -502,7 +513,8 @@ export class EvmSettlement implements Settlement {
         await this.check(s.message, s.message.buyer, 'Agree');
         return this.agree(s.message, via, dryRun).id;
       case 'fund':
-        await this.check(s.message, s.message.from, 'FundingAuthorization (on EVM: the ERC-3009 signature is checked by the token)');
+        // On EVM the signature is the ERC-3009 one (ADR-0025); the token checks it inside agreeAndFund.
+        if (dryRun) return s.message.commitmentId;
         return this.fund(s.message, null, options, at);
       case 'agree_and_fund': {
         if (s.agree.commitmentId !== s.funding.commitmentId) refuse('invalid_terms', 'agreement and funding name different commitments');

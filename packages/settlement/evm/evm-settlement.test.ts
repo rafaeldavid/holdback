@@ -4,9 +4,10 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { authorizationExpiry } from '../sim/simchain.js';
 import { measure, must, newSettlement, PATHS } from './gas.js';
 import { EvmDeal } from './testing.js';
-import { anvilAvailable, EvmWorld } from './world.js';
+import { anvilAvailable, EvmWorld, EXPIRY_MARGIN } from './world.js';
 
 const root = join(import.meta.dirname, '..', '..', '..');
 const ready = anvilAvailable() && existsSync(join(root, 'contracts', 'out', 'HoldbackRules.sol', 'HoldbackRules.json'));
@@ -98,6 +99,29 @@ describe.skipIf(!ready)(`EvmSettlement on anvil${ready ? '' : ' (SKIPPED: needs 
     expect(await chain.tokenBalance(cast.buyer.address)).toBe(100_000_000_000n - 2_050_000_000n - 1_000_000n);
     expect(chain.escrowState(d.id)?.kind).toBe('Held');
     expect(chain.log().map((e) => e.type).slice(-2)).toEqual(['fee.operator', 'hold.funded']);
+  }, 60_000);
+
+  it('agrees with SimChain on authorizationExpiry: no capture from fallbackBy + appealDecideSec + margin on', async () => {
+    const expiryOf = (d: EvmDeal) => authorizationExpiry(d.terms, Number(EXPIRY_MARGIN));
+    const before = await newSettlement(world);
+    const a = new EvmDeal(before.chain, before.cast, before.club, 'expiry-before');
+    for (const s of [a.offer(), a.accept(), a.agreeAndFund(), a.deliver()]) await must(before.chain, before.cast, s);
+    before.chain.advanceTo(new Date(Date.parse(expiryOf(a)) - 1000).toISOString());
+    expect((await before.chain.submit(await a.earlyAccept(), { sender: before.cast.buyer.key })).ok).toBe(true);
+
+    const at = await newSettlement(world);
+    const b = new EvmDeal(at.chain, at.cast, at.club, 'expiry-at');
+    for (const s of [b.offer(), b.accept(), b.agreeAndFund(), b.deliver()]) await must(at.chain, at.cast, s);
+    at.chain.advanceTo(expiryOf(b));
+    const early = await at.chain.submit(await b.earlyAccept(), { sender: at.cast.buyer.key });
+    expect(early.ok ? 'ok' : early.problem.type).toBe('deadline_passed');
+    expect(early.ok ? '' : early.problem.detail).toMatch(/AfterAuthorizationExpiry/);
+    const paysSeller = await at.chain.submit(await b.mutual(1_000_000_000n, false), { sender: at.cast.buyer.key });
+    expect(paysSeller.ok ? 'ok' : paysSeller.problem.type).toBe('deadline_passed');
+    // Returning everything to the buyer is a void, which CPP allows after expiry.
+    const refund = await at.chain.submit(await b.mutual(0n, false), { sender: at.cast.buyer.key });
+    expect(refund.ok).toBe(true);
+    expect(await at.chain.tokenBalance(at.cast.buyer.address)).toBe(100_000_000_000n);
   }, 60_000);
 
   it('gas per deal: every path settles, with its transaction count (D4)', async () => {

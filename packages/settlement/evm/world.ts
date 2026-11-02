@@ -95,7 +95,8 @@ export class EvmWorld {
       rpcUrl = `http://127.0.0.1:${port}`;
     }
     assertLocalRpc(rpcUrl);
-    const publicClient = createPublicClient({ chain: foundry, transport: http(rpcUrl) }) as PublicClient;
+    // No cached block number: evm_revert between settlements moves the head backwards.
+    const publicClient = createPublicClient({ chain: foundry, transport: http(rpcUrl), cacheTime: 0 }) as PublicClient;
     try {
       await waitFor(publicClient);
       const chainId = await publicClient.getChainId();
