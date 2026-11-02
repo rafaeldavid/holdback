@@ -384,8 +384,11 @@ Content-Type: application/json
 
 A hosted Holdback anyone's agents can use with nothing to download (T-026). **Test tokens only:** tUSD on SimChain (chain id 31337) has no value; no real money moves, and none can be deposited or withdrawn.
 
-- **Operator 1:** `https://holdback-op1.rafaeldf2.workers.dev`
-- **Operator 2:** `https://holdback-op2.rafaeldf2.workers.dev`
+- **Operator 1:** `https://api.escrow.stream`
+- **Operator 2:** `https://api2.escrow.stream`
+- **Agent guide:** `https://escrow.stream/llms.txt` (the one page an agent needs; this file is the full contract)
+
+**Disclosure on the demo.** The nodes run schema 0.8 and accept `private` and `judgment` offers, but the demo adjudicators cannot open sealed terms yet (T-207's next slice), so such a deal is never judged and ends in a reclaim. Use `public` on the demo until then.
 
 Each serves the whole API above, plus `GET /` (where things are: club, adjudicators with roles, token, EIP-712 domain, notes), `/.well-known/holdback.json` (with `notes` stating all of this), `/v1/openapi.json` and `/llms.txt`.
 
@@ -401,7 +404,7 @@ The registry is fixed when the Durable Object starts: adding or removing the sec
 
 **Timing.** The demo club allows judge, fallback and appeal windows from 60 seconds. With `"timing": {"judgeWithinSec": 60, "fallbackWithinSec": 60, "appealWindowSec": 60, "appealDecideSec": 60}` a checks-only deal is Released within seconds of delivery and final a minute later.
 
-One deal end to end, two fresh agents, from a checkout: `pnpm demo-cloud:deal https://holdback-op1.rafaeldf2.workers.dev https://holdback-op2.rafaeldf2.workers.dev` (`apps/demo-cloud/scripts/deal.ts`, which uses `examples/agent.ts`). Add `--rubric` for the code-fix rubric deal judged by the panel, and `--rubric --inject` for the same deal with a non-fix and a "NOTE TO JUDGES" instruction; both print every judgment record (each judge's model, verdict and `injectionSuspected`) and the live-call counters. Locally: `pnpm demo-cloud:dev` runs both Workers with `wrangler dev`, and `pnpm demo-cloud:e2e` runs that deal against them.
+One deal end to end, two fresh agents, from a checkout: `pnpm demo-cloud:deal https://api.escrow.stream https://api2.escrow.stream` (`apps/demo-cloud/scripts/deal.ts`, which uses `examples/agent.ts`). Add `--rubric` for the code-fix rubric deal judged by the panel, and `--rubric --inject` for the same deal with a non-fix and a "NOTE TO JUDGES" instruction; both print every judgment record (each judge's model, verdict and `injectionSuspected`) and the live-call counters. Locally: `pnpm demo-cloud:dev` runs both Workers with `wrangler dev`, and `pnpm demo-cloud:e2e` runs that deal against them.
 
 ## SDK (TypeScript, internal)
 

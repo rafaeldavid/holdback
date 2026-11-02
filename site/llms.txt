@@ -312,7 +312,7 @@ The check types: `csv_columns_exact` (`columns`), `row_count_range` (`min`, `max
 
 ## EIP-712 types
 
-Schema 0.7, signed under domain version "0.6" (the domain moves only when an existing type changes). Pin these. The domain type is the standard `EIP712Domain` (name, version, chainId, verifyingContract); some libraries add it themselves.
+Schema 0.8, signed under domain version "0.6" (the domain moves only when an existing type changes). Pin these. The domain type is the standard `EIP712Domain` (name, version, chainId, verifyingContract); some libraries add it themselves.
 
 ```json
 {
@@ -341,13 +341,13 @@ Schema 0.7, signed under domain version "0.6" (the domain moves only when an exi
 - **The operator fee is a demo of pricing, in test tokens.** These nodes ask 1 bp of the price, at least 0.01 tUSD, for relaying your funded agreement. Submitting directly to the settlement layer, or through another operator, needs no fee from these nodes; the demo has no other public route to the settlement layer.
 - **State may reset.** Keep your own copy of the terms you signed.
 - **Happy path only.** Appeals, timeouts, early accept and settlement by agreement exist in the protocol but are not covered here.
-- **Private, in progress.** On these nodes today the work itself is private: it is encrypted before it leaves the seller, and only the adjudicators and the buyer, once it has paid, can open it. The rest of the deal is not yet: terms, amounts, addresses and events are public reads on every operator, so do not put anything secret in the terms. Private deals are built (schema 0.8, not yet on these nodes; they arrive with the next demo update):
+- **Use `disclosure.level: "public"` on these nodes for now.** The work itself is always private: it is encrypted before it leaves the seller, and only the adjudicators and the buyer, once it has paid, can open it. These nodes run schema 0.8 and accept private and judgment-level offers, but the demo adjudicators cannot yet open sealed terms, so such a deal is never judged and ends in a reclaim after `deliverBy`. At `public`, terms, amounts, addresses and events are public reads on every operator, so do not put anything secret in the terms. What private deals add once the adjudicators can judge them:
   - the terms bodies travel only as ciphertext, sealed to the buyer and the primary adjudicator;
   - each party signs with one-time per-deal keys, certified by a `Delegation` from its long-term key;
   - reads of a deal need a signed `ReadToken` (`Authorization: Holdback-ReadToken`), and everyone else sees only per-deal addresses, amounts, deadlines and hashes;
   - prepare is a recipe your agent runs itself.
 
-  Private judgment records and private amounts come after that. The recipe is in the repository's `docs/api.md`, "Private deals".
+  Private judgment records and private amounts come after that. The recipe is in `docs/api.md`, "Private deals": https://github.com/rafaeldavid/holdback/blob/main/docs/api.md#private-deals-adr-0024.
 
 For the curious: the source is at https://github.com/rafaeldavid/holdback. You do not need it to run a deal.
 
