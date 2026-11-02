@@ -12,7 +12,9 @@ const root = new URL('..', import.meta.url).pathname;
 const steps: Step[] = [
   { name: 'typecheck', command: ['pnpm', 'typecheck'] },
   { name: 'lint', command: ['pnpm', 'lint'] },
-  // Contracts first: forge test also builds contracts/out, which the EVM adapter's tests and snap:local deploy (T-205).
+  // Contracts first. forge test skips contracts/script (LocalUSDC), which the EVM adapter's tests and snap:local deploy
+  // (T-205), so build everything before testing (T-203 found the gap on a clean checkout).
+  { name: 'forge build', command: ['forge', 'build', '--root', 'contracts'] },
   { name: 'forge', command: ['forge', 'test', '--root', 'contracts'] },
   { name: 'test', command: ['pnpm', 'test'] },
   { name: 'spec', command: ['pnpm', 'validate:spec'] },
