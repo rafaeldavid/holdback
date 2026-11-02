@@ -80,7 +80,8 @@ jobs:
         run: |
           set -o pipefail
           pnpm vitest run packages/settlement/evm packages/testkit/src/runner.test.ts --reporter=verbose | tee anvil-tests.log
-          if grep -q "SKIPPED" anvil-tests.log; then echo "anvil tests skipped: Foundry or contracts/out missing" >&2; exit 1; fi
+          # Any skipped test fails the job, whatever its name: vitest's summary prints "N skipped".
+          if grep -Eq "[0-9]+ skipped" anvil-tests.log; then echo "anvil tests skipped: Foundry or contracts/out missing" >&2; exit 1; fi
 
   # T-204's model check, when formal/check.sh exists. Pull requests run the safety config and the broken
   # variants (each must still bite); push to main also runs the seven liveness configs.

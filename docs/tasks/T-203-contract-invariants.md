@@ -5,7 +5,7 @@
 - **Depends on:** T-202's external interface (function signatures and events merged; handlers can be written against it while T-202 finishes its internals). The full campaign runs against T-202 as merged.
 - **Paths this task may touch:** `contracts/test/invariant/`, `contracts/test/fuzz/`, `contracts/test/handlers/`, `.github/workflows/ci.yml` (add a `contracts` job running `forge test`, and a `formal` job that runs `formal/check.sh` only when that file exists, so T-204 needs no CI edit; change nothing else in the file), `docs/team.md` (the "No admin keys" row of Rules and checks only), `docs/tasks/T-203-contract-invariants.md`
 - **Human gate:** none. Local chain only; no public network.
-- **Status:** review
+- **Status:** done (PR 70, 2026-11-02)
 - **Agent/session:** implementer (T-203 worktree agent), 2026-11-01 to 2026-11-02
 
 ## Intent
@@ -148,14 +148,14 @@ Both cases pass, which confirms the behaviour. It is written up in Handoff and i
 
 **Finding for T-202 (not fixed; contract code is out of scope).** After the buyer's own CPP `reclaim`, the rules contract cannot close the commitment. `reclaim` (from Held) and `triggerDefault` (from FallbackJudging or Escalated) both call `void`, which reverts with `ZeroAuthorization`. The stage stays open and the reservation flags stay set, so the primary's bond (and the fallback's, once it was reserved) is encumbered for good and cannot be withdrawn.
 - No money is lost: the buyer has the hold back.
-- Any adjudicator can avoid it by calling the timeout itself in the window between the deadline and `authorizationExpiry`, which lasts at least `EXPIRY_MARGIN`.
+- The window to avoid it runs from the timeout's deadline to `authorizationExpiry` (`fallbackBy + appealDecideSec + EXPIRY_MARGIN`). It lasts at least `EXPIRY_MARGIN` only with ordered timing and a timely escalation; with D31 any-order timing (`deliverBy` after `authorizationExpiry`, or an escalation later than `fallbackBy + EXPIRY_MARGIN`) it can be zero, and nobody can prevent the encumbrance (measured for Held in the PR 70 review). Until a fix lands, an adjudicator protects itself by declining such terms before it signs its acceptance (D32), and a larger `EXPIRY_MARGIN` does not help.
 - Shown by a scratch test (two cases, Held and FallbackJudging; Evidence) and recorded as a row in `docs/backlog.md` under Settlement layer.
 - A fix needs bytes the contract lacks: skip `void` when capturable is zero, or add a permissionless close.
 
 **Outside this task's paths.**
 - `docs/backlog.md` (one row, at the coordinator's request: "other findings to backlog rows").
 - The merge of main (T-205) brought no conflicts.
-- **For the T-205 lane (`scripts/verify.ts`, not touched here).** `pnpm verify`'s forge step is `forge test --root contracts`, which does not build `contracts/script/` (LocalUSDC, LocalMulticall3). On a clean checkout the anvil tests and `snap:local` would then fail with "no artifact". It passes on machines where `forge build` already ran. Suggested fix: add `forge build --root contracts` to that step. CI already does this in the `contracts` job.
+- **Done in PR 74:** ~~For the T-205 lane (`scripts/verify.ts`, not touched here).~~ `pnpm verify`'s forge step is `forge test --root contracts`, which does not build `contracts/script/` (LocalUSDC, LocalMulticall3). On a clean checkout the anvil tests and `snap:local` would then fail with "no artifact". It passes on machines where `forge build` already ran. Suggested fix: add `forge build --root contracts` to that step. CI already does this in the `contracts` job.
 
 **Proposed Rules-and-checks row (not added: `docs/team.md` is limited to the No-admin row for this task).** "Invariant handlers are not vacuous: every handler action has a scripted smoke test that must succeed, and rare corruptions are keyed to non-zero seed values." Check: `contracts/test/invariant/HandlerSmoke.t.sol`. Repeated failure it would have caught: a T-203 campaign where corruptions keyed to zero sabotaged most decisions and mutual settlements, while every invariant still passed.
 
