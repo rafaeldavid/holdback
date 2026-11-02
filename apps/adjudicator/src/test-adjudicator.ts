@@ -90,6 +90,8 @@ export interface TestAdjudicatorOptions {
    * timeout; the caller labels anything scripted it routes to.
    */
   provider?: JudgeProvider;
+  /** Accept sealed offers without reading them (AdjudicatorConfig.acceptSealedUnread). Default false: decline. */
+  acceptSealedUnread?: boolean;
 }
 
 export interface TestAdjudicator {
@@ -117,6 +119,7 @@ export function testAdjudicator(o: TestAdjudicatorOptions): TestAdjudicator {
     domain: o.domain,
     provider: o.provider ?? markedFake(markerFake(o.judges ?? {})),
     settlement: new SettlementAdapter({ chain: o.chain, store: o.store, registration: o.registration }),
+    ...(o.acceptSealedUnread ? { acceptSealedUnread: true } : {}),
   });
   return { address, service, registration: () => service.registration(), runOnce: () => service.runOnce() };
 }
