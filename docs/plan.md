@@ -131,9 +131,10 @@ Goal: fiat enters and leaves through ramps; the demo runs on a public testnet wi
 | `neutrality.operator-refuses` | 7 | 1 |
 | `neutrality.operator-offline` | — | 1 |
 | `neutrality.adjudicator-offline` | 7 | 1 |
-| `neutrality.adjudicator-and-fallback-offline` | — | 1 |
+| `neutrality.adjudicator-and-fallback-offline` | — | 1 on SimChain; 4 on contract (default compensation from bonds) |
 | `neutrality.appeal-adjudicator-offline` | — | 1 |
-| `neutrality.appeal-adjudicator-offline-after-escalation` | 6 | 1 |
+| `neutrality.appeal-adjudicator-offline-after-escalation` | 6 | 1 on SimChain; 4 on contract (default compensation from bonds) |
+| `honest-seller-survives-judge-noise-on-appeal` | — | 1 on SimChain; 4 on contract (appeal fee and bond rate) |
 | `neutrality.maintainers-change-registry` | — | 1 |
 | `attack.adjudicator-self-dealing` | — | 1 |
 | `appeal-bad-key-release` | — | 1 |
@@ -166,3 +167,5 @@ Goal: fiat enters and leaves through ramps; the demo runs on a public testnet wi
 | `early-accept-releases-key` | — | 1 |
 | `todo.milestone-delivery` | — | records gap |
 | `work-for-work` | 9 | 6, if T-003 is positive |
+
+Phase on contract (T-205): every fixture without a "on contract" note runs on the contract from Phase 2 (`pnpm snap --settlement=local`). The three marked 4 are the printed exclusion list in `packages/testkit/src/runner.ts` (`LOCAL_EXCLUSIONS`). The per-fixture differences are in `reports/differential-local.md`.

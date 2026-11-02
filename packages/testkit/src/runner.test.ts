@@ -2,7 +2,8 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, write
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { main, runScenario } from './runner.js';
+import { anvilAvailable } from '@holdback/settlement/evm';
+import { diffLines, LOCAL_EXCLUSIONS, main, runScenario } from './runner.js';
 
 const repo = new URL('../../../', import.meta.url).pathname;
 const exampleExpect = () => readFileSync(join(repo, 'fixtures/scenarios/_example.expect.md'), 'utf8');
@@ -231,13 +232,37 @@ describe('pnpm snap', () => {
     expect((await snap(sandbox(), '--update')).text).toMatch(/--update needs a fixture name/);
   });
 
-  it('refuses the local and testnet settlements until Phase 2', async () => {
-    for (const s of ['local', 'testnet']) {
-      const r = await snap(sandbox(), `--settlement=${s}`);
-      expect(r.code).toBe(2);
-      expect(r.text).toMatch(/Phase 2/);
+  it('refuses the testnet settlement (T-206 gate)', async () => {
+    const r = await snap(sandbox(), '--settlement=testnet');
+    expect(r.code).toBe(2);
+    expect(r.text).toMatch(/T-206/);
+  });
+
+  it('names every fixture kept on SimChain until Phase 4, each with a reason', () => {
+    expect(Object.keys(LOCAL_EXCLUSIONS).length).toBeGreaterThan(0);
+    for (const [name, reason] of Object.entries(LOCAL_EXCLUSIONS)) {
+      expect(existsSync(join(repo, 'fixtures/scenarios', `${name}.scenario.yaml`))).toBe(true);
+      expect(reason).toMatch(/Phase 4/);
     }
   });
+
+  it('diffs normalised transcripts line by line', () => {
+    expect(diffLines(['a', 'b', 'c'], ['a', 'x', 'c'])).toEqual(['- b', '+ x']);
+    expect(diffLines(['a'], ['a'])).toEqual([]);
+  });
+
+  const anvil = anvilAvailable() && existsSync(join(repo, 'contracts/out/HoldbackRules.sol/HoldbackRules.json'));
+  it.skipIf(!anvil)(`runs a fixture on the contract and compares it with SimChain${anvil ? '' : ' (SKIPPED: needs anvil and forge build)'}`, async () => {
+    const root = sandbox();
+    const r = await main(['--settlement=local', '_example'], { root, contractsRoot: repo, out: () => undefined });
+    expect(r).toBe(0);
+    const out: string[] = [];
+    await main(['--settlement=local', '_example'], { root, contractsRoot: repo, out: (l) => out.push(l) });
+    const text = out.join('\n');
+    expect(text).toMatch(/pass {2}_example on the contract/);
+    expect(text).toMatch(/excluded until Phase 4/);
+    expect(text).toMatch(/gas \d/);
+  }, 120_000);
 
   it('refuses unknown flags and bad flag values', async () => {
     expect((await snap(sandbox(), '--colour')).code).toBe(2);
