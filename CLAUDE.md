@@ -95,7 +95,7 @@ node site/build.mjs && node site/check.mjs   # the site and its agent docs (site
 1. Read this file, then the latest `docs/log/` entry (files are named by date, `YYYY-MM-DD.md`; take the newest): its "Next steps (resume here)" list is the current work. Check `gh pr list` for open PRs before starting a task that may already be in flight.
 2. `docs/plan.md` lists every task by phase; each task file in `docs/tasks/` has Intent, acceptance criteria, Evidence and a Handoff section that says how to resume.
 3. `docs/operations.md`: what is live (escrow.stream, the API, sign-ups), how to deploy, secrets handling, and the gates.
-4. Open decisions and their history: `docs/decisions-today.md` (D1 to D39) and `docs/decisions/` (ADRs).
+4. Open decisions and their history: `docs/decisions-today.md` (D1 to D40) and `docs/decisions/` (ADRs).
 
 ## Working as a team of agents
 
@@ -112,9 +112,9 @@ node site/build.mjs && node site/check.mjs   # the site and its agent docs (site
 
 ## Map
 
-`docs/decisions-today.md` records decisions D1 to D39 (decided October 30, 2026; D4 deferred to Phase 2), and `docs/reviews/` the reviews behind them. Read both first. `docs/backlog.md` holds work deferred until after the basic demo.
+`docs/decisions-today.md` records decisions D1 to D40 (decided October 30, 2026; D4 deferred to Phase 2), and `docs/reviews/` the reviews behind them. Read both first. `docs/backlog.md` holds work deferred until after the basic demo.
 
-The other docs: `PRD.md`, `neutrality.md`, `architecture.md`, `judgment-and-defenses.md`, `api.md`, `demo.md`, `testing.md`, `team.md`, `plan.md`, `decisions/`, `tasks/`. Research is in `docs/research/`; open it only when a decision needs it. `docs/operations.md` covers the live demo and deploys. Brand work is in `brand/`: the product is ’crow ("escrow" with the "es" unsaid), "Private Escrow for AI Agents", at escrow.stream; its mark is Archibald Thorburn's 1919 hooded crow (public domain); Holdback stays the protocol's working name and EIP-712 domain.
+The other docs: `PRD.md`, `neutrality.md`, `architecture.md`, `judgment-and-defenses.md`, `api.md`, `demo.md`, `testing.md`, `team.md`, `plan.md`, `decisions/`, `tasks/`. Research is in `docs/research/`; open it only when a decision needs it. `docs/operations.md` covers the live demo and deploys. Brand work is in `brand/`: the product is ’crow ("escrow" with the "es" unsaid), "Escrow for AI Agents" (D40: privacy is each deal's choice), at escrow.stream; its mark is Archibald Thorburn's 1919 hooded crow (public domain); Holdback stays the protocol's working name and EIP-712 domain.
 
 ## Vocabulary
 
