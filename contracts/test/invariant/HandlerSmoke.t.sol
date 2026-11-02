@@ -17,8 +17,10 @@ contract HandlerSmokeTest is Test {
     // seed bits: [0..1] pick mode (1 = stage-aware), so 1 picks the first matching commitment from index 0.
     uint256 internal constant PICK = 1;
     // An ordered-timing usdc offer: price and fee from bits 8.. and 40.., roles primary/fallback/appeal = 2/3/4.
+    // Bit 148 gives a 16 s appealDecideSec (T-209: the appeal adjudicator must outlast the wait for its beacon round;
+    // with a 1 s window the round after an escalation is never available in time and the default path applies).
     uint256 internal constant OFFER = (uint256(26_000_000) << 8) | (uint256(500_000) << 40) | (uint256(1) << 76)
-        | (uint256(2) << 80) | (uint256(1) << 88);
+        | (uint256(2) << 80) | (uint256(1) << 88) | (uint256(1) << 148);
 
     function setUp() public {
         h = new RulesHandler();
@@ -45,6 +47,7 @@ contract HandlerSmokeTest is Test {
         h.decide(PICK, 6, 0, H.OUTCOME_ACCEPT);
         assertEq(uint8(_stage()), uint8(HoldbackRules.Stage.Released));
         h.fileAppeal(PICK, 1, 0, 0);
+        _warpTo(block.timestamp + 1); // T-209: the appeal round is the first one after the appeal; wait for it
         h.decide(PICK, 6, 0, H.OUTCOME_REJECT);
         assertEq(uint8(rules.dealOf(h.dealId(0)).appeal), uint8(HoldbackRules.AppealState.Overturned));
         assertEq(h.closings(h.dealId(0)), 1);
@@ -64,6 +67,7 @@ contract HandlerSmokeTest is Test {
         h.deliver(PICK, 0, 0);
         h.decide(PICK, 0, 0, H.OUTCOME_ESCALATE);
         assertEq(uint8(_stage()), uint8(HoldbackRules.Stage.Escalated));
+        _warpTo(block.timestamp + 1); // T-209: wait for the first round after the escalation
         h.decide(PICK, 0, 0, H.OUTCOME_ACCEPT);
         assertEq(uint8(_stage()), uint8(HoldbackRules.Stage.Released));
     }

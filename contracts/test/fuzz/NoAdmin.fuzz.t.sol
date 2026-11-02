@@ -2,12 +2,14 @@
 pragma solidity ^0.8.28;
 
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
+import {DrandQuicknetBeacon} from "../../src/DrandQuicknetBeacon.sol";
 import {Base} from "../unit/Base.sol";
 
 /// @title NoAdminFuzzTest
 /// @notice T-203, hard rule "No admin keys" and the contract review checklist in docs/neutrality.md, over every
 ///         contract the settlement deploys: HoldbackRules, HoldbackBonds, CPP AuthCaptureEscrow, both collectors,
-///         the TokenStore implementation and the rules contract's TokenStore clone.
+///         the TokenStore implementation, the rules contract's TokenStore clone, and (T-209) both beacons: the
+///         drand quicknet verifier and the local-chain sim beacon.
 ///         - Each ABI is exactly a reviewed allowlist (a new external function is a visible diff here).
 ///         - No ABI has a forbidden admin function, a fallback or a receive.
 ///         - Fuzzed: any selector outside a contract's ABI reverts, with any calldata and any caller.
@@ -18,8 +20,9 @@ contract NoAdminFuzzTest is Base {
     string internal constant PI =
         "(address,address,address,address,uint120,uint48,uint48,uint48,uint16,uint16,address,uint256)";
 
-    address[7] internal targets;
-    string[7] internal artifacts;
+    address[9] internal targets;
+    string[9] internal artifacts;
+    uint256 internal constant CLONE = 6;
     mapping(address => mapping(bytes4 => bool)) internal inAbi;
 
     function setUp() public override {
@@ -37,7 +40,9 @@ contract NoAdminFuzzTest is Base {
             address(collector3009),
             address(collectorPermit2),
             escrow.tokenStoreImplementation(),
-            store
+            store,
+            address(new DrandQuicknetBeacon()),
+            address(sim)
         ];
         artifacts = [
             "out/HoldbackRules.sol/HoldbackRules.json",
@@ -46,7 +51,9 @@ contract NoAdminFuzzTest is Base {
             "out/ERC3009PaymentCollector.sol/ERC3009PaymentCollector.json",
             "out/Permit2PaymentCollector.sol/Permit2PaymentCollector.json",
             "out/TokenStore.sol/TokenStore.json",
-            "out/TokenStore.sol/TokenStore.json" // the clone answers with the implementation's ABI
+            "out/TokenStore.sol/TokenStore.json", // the clone answers with the implementation's ABI
+            "out/DrandQuicknetBeacon.sol/DrandQuicknetBeacon.json",
+            "out/SimBeacon.sol/SimBeacon.json"
         ];
         for (uint256 i; i < targets.length; i++) {
             string[] memory sigs = vm.parseJsonKeys(vm.readFile(artifacts[i]), ".methodIdentifiers");
@@ -60,34 +67,32 @@ contract NoAdminFuzzTest is Base {
 
     function _allowlist(uint256 i) internal pure returns (string[] memory s) {
         if (i == 0) {
-            s = new string[](27);
-            s[0] = "BEACON_GENESIS()";
-            s[1] = "BEACON_PERIOD()";
-            s[2] = "BONDS()";
-            s[3] = "ERC3009_COLLECTOR()";
-            s[4] = "ESCROW()";
-            s[5] = "EXPIRY_MARGIN()";
-            s[6] = "KEY_APPEAL()";
-            s[7] = "KEY_DECISION()";
-            s[8] = "KEY_EARLY_ACCEPT()";
-            s[9] = "KEY_MUTUAL()";
-            s[10] = "MUTUAL_FEE_SHARE_BPS()";
-            s[11] = "PERMIT2_COLLECTOR()";
-            s[12] = "agreeAndFund(";
-            s[13] = "beaconRoundAt(uint256)";
-            s[14] = "dealOf(bytes32)";
-            s[15] = "decide(";
-            s[16] = "deliver(";
-            s[17] = "earlyAccept(";
-            s[18] = "eip712Domain()";
-            s[19] = "expireAppeal(";
-            s[20] = "expireOffer(";
-            s[21] = "fileAppeal(";
-            s[22] = "mutualSettle(";
-            s[23] = "reclaim(";
-            s[24] = "triggerDefault(";
-            s[25] = "triggerFallback(";
-            s[26] = "typedDataHash(bytes32)";
+            s = new string[](25);
+            s[0] = "BEACON()";
+            s[1] = "BONDS()";
+            s[2] = "ERC3009_COLLECTOR()";
+            s[3] = "ESCROW()";
+            s[4] = "EXPIRY_MARGIN()";
+            s[5] = "KEY_APPEAL()";
+            s[6] = "KEY_DECISION()";
+            s[7] = "KEY_EARLY_ACCEPT()";
+            s[8] = "KEY_MUTUAL()";
+            s[9] = "MUTUAL_FEE_SHARE_BPS()";
+            s[10] = "PERMIT2_COLLECTOR()";
+            s[11] = "agreeAndFund(";
+            s[12] = "dealOf(bytes32)";
+            s[13] = "decide(";
+            s[14] = "deliver(";
+            s[15] = "earlyAccept(";
+            s[16] = "eip712Domain()";
+            s[17] = "expireAppeal(";
+            s[18] = "expireOffer(";
+            s[19] = "fileAppeal(";
+            s[20] = "mutualSettle(";
+            s[21] = "reclaim(";
+            s[22] = "triggerDefault(";
+            s[23] = "triggerFallback(";
+            s[24] = "typedDataHash(bytes32)";
         } else if (i == 1) {
             s = new string[](12);
             s[0] = "RULES()";
@@ -122,10 +127,22 @@ contract NoAdminFuzzTest is Base {
             s[2] = "collectorType()";
             s[3] = "multicall3()";
             if (i == 4) s[4] = "permit2()";
-        } else {
+        } else if (i == 5 || i == 6) {
             s = new string[](2);
             s[0] = "authCaptureEscrow()";
             s[1] = "sendTokens(address,address,uint256)";
+        } else if (i == 7) {
+            s = new string[](5);
+            s[0] = "GENESIS()";
+            s[1] = "PERIOD()";
+            s[2] = "beaconValue(uint64,bytes)";
+            s[3] = "hashToG1(bytes32)";
+            s[4] = "roundAt(uint256)";
+        } else {
+            s = new string[](3);
+            s[0] = "SIM_SEED()";
+            s[1] = "beaconValue(uint64,bytes)";
+            s[2] = "roundAt(uint256)";
         }
     }
 
@@ -149,7 +166,8 @@ contract NoAdminFuzzTest is Base {
     }
 
     function test_everyAbi_isItsReviewedAllowlist() public view {
-        for (uint256 i; i < 6; i++) {
+        for (uint256 i; i < targets.length; i++) {
+            if (i == CLONE) continue;
             string memory json = vm.readFile(artifacts[i]);
             string[] memory sigs = vm.parseJsonKeys(json, ".methodIdentifiers");
             string[] memory list = _allowlist(i);
@@ -243,14 +261,14 @@ contract NoAdminFuzzTest is Base {
     }
 
     function test_bytecode_noSelfdestruct_delegatecallOnlyInTheFixedClone() public view {
-        for (uint256 i; i < 6; i++) {
-            _opcodes(targets[i], false);
+        for (uint256 i; i < targets.length; i++) {
+            if (i != CLONE) _opcodes(targets[i], false);
         }
         address impl = escrow.tokenStoreImplementation();
         // Solady LibClone.cloneDeterministic: its 44-byte minimal proxy (an EIP-1167 variant) with the
         // implementation address fixed in the code; nothing can change where it delegates.
         bytes memory proxy = abi.encodePacked(hex"3d3d3d3d363d3d37363d73", impl, hex"5af43d3d93803e602a57fd5bf3");
-        assertEq(targets[6].code, proxy, "TokenStore clone is not the fixed minimal proxy");
-        _opcodes(targets[6], true);
+        assertEq(targets[CLONE].code, proxy, "TokenStore clone is not the fixed minimal proxy");
+        _opcodes(targets[CLONE], true);
     }
 }

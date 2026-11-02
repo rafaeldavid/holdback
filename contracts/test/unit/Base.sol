@@ -13,6 +13,7 @@ import {DeployPermit2} from "permit2/../test/utils/DeployPermit2.sol";
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
 import {HoldbackBonds} from "../../src/HoldbackBonds.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
+import {SimBeacon} from "../../src/SimBeacon.sol";
 
 /// Exposes the library's struct hashes (calldata-only) to tests.
 contract TypesHarness {
@@ -40,7 +41,11 @@ contract TypesHarness {
         return H.encryptedKeyHash(r, k);
     }
 
-    function decision(bytes32 i, address a, H.Terms calldata t, H.Decision calldata m) external pure returns (bytes32) {
+    function decision(bytes32 i, address a, H.Terms calldata t, H.Decision calldata m)
+        external
+        pure
+        returns (bytes32)
+    {
         return H.decisionHash(i, a, t, m);
     }
 
@@ -58,7 +63,7 @@ contract TypesHarness {
 }
 
 /// Shared fixture: CPP v1.1.0 (vendored, unmodified), both collectors, Permit2, a mock USDC with ERC-3009, and
-/// HoldbackRules with its bond vault. Local EVM only (chain id 31337); no RPC.
+/// HoldbackRules with its bond vault and the sim beacon (T-209: the drand verifier has its own suites). Local EVM only (chain id 31337); no RPC.
 abstract contract Base is Test, DeployPermit2 {
     bytes32 internal constant RECEIVE_WITH_AUTHORIZATION_TYPEHASH =
         0xd099cc98ef71107a616c4f0f941f04c322d8e254fe26b3c6668db87aae413de8;
@@ -74,6 +79,7 @@ abstract contract Base is Test, DeployPermit2 {
     Permit2PaymentCollector internal collectorPermit2;
     address internal permit2;
     MockERC3009Token internal usdc;
+    SimBeacon internal sim;
     HoldbackRules internal rules;
     HoldbackBonds internal bonds;
     TypesHarness internal hx;
@@ -95,7 +101,7 @@ abstract contract Base is Test, DeployPermit2 {
     uint256 internal constant FEE = 500_000; // 0.50 tUSD adjudication fee
     uint256 internal constant BOND = 1_000_000_000;
     bytes32 internal constant SEED = keccak256("primary seed");
-    bytes32 internal constant BEACON = keccak256("beacon value");
+    bytes32 internal constant SIM_SEED = keccak256("sim seed");
     string internal constant KEY_SCHEME = "x25519-xsalsa20poly1305";
     string internal constant KEY_CT = "c2VhbGVkLWtleS1mb3ItYnV5ZXI";
 
@@ -109,7 +115,8 @@ abstract contract Base is Test, DeployPermit2 {
         collector3009 = new ERC3009PaymentCollector(address(escrow), MULTICALL3);
         collectorPermit2 = new Permit2PaymentCollector(address(escrow), permit2, MULTICALL3);
         usdc = new MockERC3009Token("Mock USDC", "mUSDC", 6);
-        rules = new HoldbackRules(escrow, address(collector3009), address(collectorPermit2), MARGIN, 0, 1);
+        sim = new SimBeacon(SIM_SEED);
+        rules = new HoldbackRules(escrow, address(collector3009), address(collectorPermit2), MARGIN, sim);
         bonds = rules.BONDS();
         hx = new TypesHarness();
 
@@ -264,7 +271,9 @@ abstract contract Base is Test, DeployPermit2 {
 
     function _fund(H.Terms memory t) internal returns (bytes32 id) {
         vm.prank(relayer);
-        id = rules.agreeAndFund(t, _sellerSig(t, SELLER_PK), _acceptance(t, ADJ_PK), _agree(t, BUYER_PK), _erc3009(t, BUYER_PK));
+        id = rules.agreeAndFund(
+            t, _sellerSig(t, SELLER_PK), _acceptance(t, ADJ_PK), _agree(t, BUYER_PK), _erc3009(t, BUYER_PK)
+        );
     }
 
     function _funded() internal returns (H.Terms memory t, bytes32 id) {
@@ -324,23 +333,29 @@ abstract contract Base is Test, DeployPermit2 {
         }
         m.appealGroundHash = keccak256("");
         m.beaconSourceHash = keccak256("");
-        m.beaconSignatureHash = keccak256("");
         m.encryptedKeysHash = keccak256("");
         m.nonce = keccak256("decision");
         m.expiresAt = type(uint64).max;
     }
 
-    /// A fallback or appeal decision seeded from the beacon round the settlement state fixes (ADR-0018).
+    /// The sim beacon's value for a round: keccak256(simSeed ‖ round) (ADR-0018 §3).
+    function _simValue(uint64 round) internal pure returns (bytes32) {
+        return keccak256(abi.encodePacked(SIM_SEED, round));
+    }
+
+    /// A fallback or appeal decision seeded from the beacon round the settlement state fixes (ADR-0018). The sim
+    /// beacon refuses a round the chain clock has not reached, so a caller deciding right after an escalation or an
+    /// appeal warps past the round first, as a decider waits for drand's next round.
     function _beaconDecision(bytes32 id, uint8 role, uint8 outcome, uint64 round)
         internal
         view
         returns (H.Decision memory m)
     {
         m = _decision(role, outcome);
-        m.beaconSourceHash = keccak256("drand-quicknet");
+        m.beaconSourceHash = keccak256("sim");
         m.beaconRound = round;
-        m.beaconValue = BEACON;
-        m.seed = hx.panelSeed(id, role, m.attempt, BEACON);
+        m.beaconValue = _simValue(round);
+        m.seed = hx.panelSeed(id, role, m.attempt, m.beaconValue);
     }
 
     function _signDecision(H.Terms memory t, bytes32 id, H.Decision memory m, address who, uint256 pk)

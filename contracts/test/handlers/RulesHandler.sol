@@ -367,13 +367,13 @@ contract RulesHandler is Base {
         uint64 round;
         if (d.stage == HoldbackRules.Stage.FallbackJudging) {
             role = H.ROLE_FALLBACK;
-            round = rules.beaconRoundAt(t.timing.judgeBy);
+            round = rules.BEACON().roundAt(t.timing.judgeBy);
         } else if (d.stage == HoldbackRules.Stage.Escalated) {
             role = H.ROLE_APPEAL;
-            round = rules.beaconRoundAt(d.t1) + 1;
+            round = rules.BEACON().roundAt(d.t1) + 1;
         } else if (d.stage == HoldbackRules.Stage.Released || d.stage == HoldbackRules.Stage.Refunded) {
             role = H.ROLE_APPEAL;
-            round = rules.beaconRoundAt(d.t2) + 1;
+            round = rules.BEACON().roundAt(d.t2) + 1;
         }
         uint8 outcome = uint8(outcomeSeed % 3);
         H.Decision memory m =

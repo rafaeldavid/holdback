@@ -2,7 +2,9 @@
 pragma solidity ^0.8.28;
 
 import {console} from "forge-std/console.sol";
+import {HoldbackRules} from "../../src/HoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
+import {DrandQuicknetBeacon} from "../../src/DrandQuicknetBeacon.sol";
 import {Base} from "./Base.sol";
 
 /// Gas per deal (D4; ADR-0024 §8 asked T-202 to measure). Run with
@@ -10,8 +12,27 @@ import {Base} from "./Base.sol";
 /// (21000 intrinsic gas, calldata and cold access included). "Steady" = a warm-up deal already created the
 /// operator's TokenStore clone and every recipient already holds the token.
 contract GasPerDealTest is Base {
+    /// The drand quicknet round for the Base terms' judgeBy (fixtures/beacon/drand-quicknet.json).
+    uint64 internal constant FALLBACK_ROUND = 32_456_478;
+    bytes internal constant FALLBACK_SIG =
+        hex"b528568aa3bcf0f15bd15391bfd424012dfa4efae8a9b335e3c7aa98871a9108220ac137cf5626cc732db3e1a2e5cdc6";
+
+    /// T-209: the drand variant of this suite redeploys the rules contract behind the quicknet verifier.
+    function _drand() internal pure virtual returns (bool) {
+        return false;
+    }
+
     function setUp() public override {
         super.setUp();
+        if (_drand()) {
+            rules = new HoldbackRules(
+                escrow, address(collector3009), address(collectorPermit2), MARGIN, new DrandQuicknetBeacon()
+            );
+            bonds = rules.BONDS();
+            _bond(adjudicator, BOND);
+            _bond(fallbackAdj, BOND);
+            _bond(appealAdj, BOND);
+        }
         (H.Terms memory t, bytes32 id) = _funded();
         (H.Delivery memory d,) = _delivery();
         rules.decide(t, _primary(t, id, H.OUTCOME_ACCEPT), d, _deliverySig(id, d, SELLER_PK));
@@ -97,6 +118,29 @@ contract GasPerDealTest is Base {
         _log("mutual settlement (half each, before delivery)", f, vm.lastCallGas().gasTotalUsed);
     }
 
+    /// A fallback decision: the seed comes from the beacon round at judgeBy (sim value, or a verified drand round).
+    function test_gas_fallbackDecision() public {
+        (H.Terms memory t, bytes32 id,) = _fundMeasured();
+        (H.Delivery memory d,) = _delivery();
+        rules.deliver(t, d, _deliverySig(id, d, SELLER_PK));
+        vm.warp(t.timing.judgeBy);
+        rules.triggerFallback(t);
+        H.Decision memory m = _beaconDecision(id, H.ROLE_FALLBACK, H.OUTCOME_ACCEPT, uint64(t.timing.judgeBy));
+        if (_drand()) {
+            m.beaconSourceHash = keccak256("drand-quicknet");
+            m.beaconRound = FALLBACK_ROUND;
+            m.beaconSignature = FALLBACK_SIG;
+            m.beaconValue = sha256(FALLBACK_SIG);
+            m.seed = hx.panelSeed(id, H.ROLE_FALLBACK, m.attempt, m.beaconValue);
+        }
+        m = _signDecision(t, id, m, fallbackAdj, FB_PK);
+        rules.decide(t, m, _noDelivery(), "");
+        console.log(
+            _drand() ? "fallback decide(accept), drand verified" : "fallback decide(accept), sim beacon",
+            vm.lastCallGas().gasTotalUsed
+        );
+    }
+
     function test_gas_default() public {
         (H.Terms memory t, bytes32 id,) = _fundMeasured();
         (H.Delivery memory d,) = _delivery();
@@ -107,5 +151,13 @@ contract GasPerDealTest is Base {
         vm.warp(t.timing.fallbackBy);
         rules.triggerDefault(t);
         console.log("triggerDefault (default + apply in one call)", vm.lastCallGas().gasTotalUsed);
+    }
+}
+
+/// T-209: the same measurements with the rules contract behind the drand quicknet verifier (the shared-chain
+/// deployment). Only fallback and appeal decisions call the verifier; the other paths should match the sim suite.
+contract GasPerDealDrandTest is GasPerDealTest {
+    function _drand() internal pure override returns (bool) {
+        return true;
     }
 }
