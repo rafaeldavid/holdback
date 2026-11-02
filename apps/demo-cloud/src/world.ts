@@ -121,6 +121,8 @@ export class PublicWorld {
     /** Offers an adjudicator declined, with its reason, for the state read's notices. In memory: every pass declines again. */
     private readonly declined: Map<Hex32, string>,
     persisted: number,
+    /** Each node's public address (OPERATOR_URLS), when configured. */
+    private readonly publicUrls: readonly string[] = [],
   ) {
     this.persisted = persisted;
     this.lastActive = this.now();
@@ -200,6 +202,7 @@ export class PublicWorld {
     const adjudicators = {} as Record<Role, TestAdjudicator>;
     const declined = new Map<Hex32, string>();
     const operators: Operator[] = [];
+    const publicUrls = String(o.env?.OPERATOR_URLS ?? '').split(',').map((u) => u.trim().replace(/\/+$/, '')).filter((u) => /^https:\/\//.test(u));
     // D39: the one discovery document carries what GET / used to list.
     const demo = async (): Promise<DemoFacts> => {
       const today = await panel.budget.used();
@@ -208,7 +211,7 @@ export class PublicWorld {
         token: { id: TOKEN, decimals: 6 },
         adjudicators: ADJUDICATORS.map((a) => ({ role: a.role, address: adjudicators[a.role].address, name: nameOf(a, panel.live) })),
         faucet: { path: '/v1/faucet', grant: { token: TOKEN, amount: faucetAmount.toString() } as TokenAmount, perAddressEverySec: faucetWindowSec, perClientPerWindow: faucetPerClient },
-        operators: operators.map((op) => op.baseUrl).filter(Boolean),
+        operators: publicUrls.length ? publicUrls : operators.map((op) => op.baseUrl).filter(Boolean),
         minWindowSec: m,
         // Who judges rubric deals (T-028): the registry every adjudicator here binds, and today's live budget (UTC).
         judges: {
@@ -291,7 +294,7 @@ export class PublicWorld {
       adjudicators[a.role] = adj;
     }
     const keys = [principal, key('demo-club-operator'), ...adjKeys.map((a) => a.keys), key('demo-operator-1'), key('demo-operator-2')];
-    return new PublicWorld(o, secret, chain, keys, operators, adjudicators, panel, declined, journal.length);
+    return new PublicWorld(o, secret, chain, keys, operators, adjudicators, panel, declined, journal.length, publicUrls);
   }
 
   /** Every secret this world holds, for the test that no route serves one. In-process only. */
@@ -353,7 +356,8 @@ export class PublicWorld {
   async fetch(request: Request, via: Via): Promise<Response> {
     this.tick();
     const op = this.operators[via.node]!;
-    op.baseUrl = via.origin.replace(/\/+$/, '');
+    // The public address when configured (OPERATOR_URLS), so one odd request (another port, http) cannot change it.
+    op.baseUrl = this.publicUrls[via.node] ?? via.origin.replace(/\/+$/, '');
     const response = await this.handlers[via.node]!(request, via.client);
     if (request.method === 'POST') this.lastActive = this.now();
     await this.persist();
