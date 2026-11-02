@@ -117,7 +117,10 @@ Both cases pass, which confirms the behaviour. It is written up in Handoff and i
 **Anvil tests (T-205) will run in CI.** Locally, after `forge build` and `pnpm build`, `pnpm vitest run packages/settlement/evm packages/testkit/src/runner.test.ts --reporter=verbose` passes 78 tests in 4 files with no `SKIPPED`. That includes `EvmSettlement on anvil` (7 tests) and "runs a fixture on the contract and compares it with SimChain". [measured] The CI `contracts` job runs exactly this with Foundry v1.0.0 installed, and fails on any `SKIPPED`.
 - The first CI run (PR 70, run 41399624315) showed the suites no longer skip: they ran on the runner. But they failed, with `no artifact contracts/out/LocalUSDC.sol/LocalUSDC.json`. [measured]
 - Cause: on a clean checkout, `forge test` does not compile `contracts/script/`. Reproduced locally with `forge clean && forge test`: `out/LocalUSDC.sol` is absent, and appears after `forge build`. [measured]
-- The job now runs `forge build` after `forge test`. The rerun's result is in the PR checks.
+- The job now runs `forge build` after `forge test`. In the rerun (run 41400578251), every check passed: `contracts`, `formal`, the four test shards, static, gitleaks and the required `check`. [measured]
+  - The `contracts` job ran 135 forge tests in 18 suites with 0 skipped, including all 8 invariants at 256 runs.
+  - The anvil step passed 78 vitest tests in 4 files with **0 skipped**, including "runs a fixture on the contract and compares it with SimChain".
+  - The anvil tests (T-205) no longer skip in CI. [measured]
 
 **`pnpm verify`.** It passes all eight steps: typecheck, lint, forge (which includes this task's suites since the T-205 merge), test, spec, snap, snap:local and demo. Report: `reports/verify-t-203-contract-invariants.md`. It was run after the task file moved to `review`, so the design-map test saw this status. [measured]
 
