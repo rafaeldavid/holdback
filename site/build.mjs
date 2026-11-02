@@ -425,6 +425,69 @@ ${JOIN}
 `;
 }
 
+/**
+ * One page per problem type at /problems/<type> (D39, review F4), from the operator's table
+ * (apps/operator/src/problems.ts), so the `Link: <https://escrow.stream/problems/<type>>; rel="type"` on every
+ * problem resolves. Static assets serve problems/<type>.html at /problems/<type> (html_handling auto-trailing-slash).
+ */
+export async function problemPages() {
+  const { PROBLEMS, PROBLEM_BASE } = await import(here('../apps/operator/src/problems.ts'));
+  const shell = (title, body) => `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${esc(title)}</title>
+<link rel="icon" type="image/png" href="${BASE}favicon.png">
+<link rel="alternate" type="text/plain" title="Agent docs (llms.txt)" href="${BASE}llms.txt">
+<style>
+:root { color-scheme: light; --paper: #faf7f0; --graphite: #2f2d2a; --pencil: #57534c; --sepia: #8a6237; }
+body { margin: 0; background: var(--paper); color: var(--graphite); font: 18px/1.55 "EB Garamond", Garamond, "Times New Roman", serif; }
+main { max-width: 680px; margin: 0 auto; padding: 8vh 24px 64px; }
+code { font: 15px ui-monospace, "SF Mono", Menlo, monospace; }
+a { color: var(--sepia); }
+.status { color: var(--pencil); }
+</style>
+</head>
+<body>
+<main>
+${body}
+</main>
+</body>
+</html>
+`;
+  const pages = new Map();
+  const entries = Object.entries(PROBLEMS);
+  for (const [type, p] of entries) {
+    pages.set(
+      `problems/${type}.html`,
+      shell(
+        `${type}: ${p.title}`,
+        [
+          `<p class="status">’crow API problem type · HTTP ${p.status}</p>`,
+          `<h1><code>${esc(type)}</code></h1>`,
+          `<p><strong>${inline(p.title)}.</strong></p>`,
+          `<p>What to do: ${inline(p.next)}</p>`,
+          `<p>Every problem is RFC 9457 <code>application/problem+json</code>: <code>type</code>, <code>title</code>, <code>status</code>, <code>detail</code>, <code>instance</code> (<code>urn:holdback:request:&lt;Request-Id&gt;</code>), and typed members where an agent branches: <code>state</code> and <code>needs</code> (invalid_state), <code>field</code> (invalid_terms), <code>fee</code> (payment_required), <code>retryAfterSec</code> (rate_limited). Branch on those, never on <code>detail</code>. The <code>Link: &lt;${esc(PROBLEM_BASE)}${esc(type)}&gt;; rel="type"</code> header points here.</p>`,
+          `<p><a href="${BASE}problems/">All problem types</a> · <a href="${BASE}llms.txt">The agent guide</a></p>`,
+        ].join('\n'),
+      ),
+    );
+  }
+  pages.set(
+    'problems/index.html',
+    shell(
+      '’crow API problem types',
+      [
+        '<h1>Problem types</h1>',
+        `<p>Each <code>type</code> an operator answers, with its HTTP status. See <a href="${BASE}llms.txt">the agent guide</a>, Conventions.</p>`,
+        `<ul>${entries.map(([type, p]) => `<li><a href="${BASE}problems/${type}"><code>${esc(type)}</code></a> (${p.status}): ${inline(p.title)}</li>`).join('')}</ul>`,
+      ].join('\n'),
+    ),
+  );
+  return pages;
+}
+
 /** The published files: placeholders filled, editor notes gone. */
 export function filled(md, { op1, op2 }) {
   if (/^%% CONFIRM/m.test(md)) throw new Error('llms.txt still has "%% CONFIRM" notes: check each against the deployed API, fix the text, delete the note, then build again');
@@ -451,6 +514,9 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     writeFileSync(join(out, 'llms.txt'), txt);
     writeFileSync(join(out, 'index.html'), page(txt));
     for (const f of ['crow.png', 'favicon.png', 'agent.png', 'escrow.png', 'bond.png', 'og.png']) writeFileSync(join(out, f), readFileSync(here(f)));
-    console.log(`wrote ${join(out, 'llms.txt')} and ${join(out, 'index.html')}: publish both under ${SITE_URL}`);
+    const problems = await problemPages();
+    mkdirSync(join(out, 'problems'), { recursive: true });
+    for (const [path, html] of problems) writeFileSync(join(out, path), html);
+    console.log(`wrote ${join(out, 'llms.txt')}, ${join(out, 'index.html')} and ${problems.size} problem pages: publish them under ${SITE_URL}`);
   }
 }

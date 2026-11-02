@@ -100,8 +100,9 @@ try {
   if (bal.token !== 'tUSD' || !/^[0-9]+$/.test(bal.amount) || bal.amount === '0') fail(`balance ${JSON.stringify(bal)}`);
   const listed = await call('GET', `${api}/v1/adjudicators`);
   if (!Array.isArray(listed.items) || !listed.items.length) fail('GET /v1/adjudicators lists no items');
-  const byRole = (await call('GET', `${simUrl ?? OP1}/`)).adjudicators;
-  const adjAddresses = ['primary', 'fallback', 'appeal'].map((role) => byRole.find((a) => a.role === role)?.address.toLowerCase() ?? fail(`GET / lists no ${role} adjudicator`));
+  // The deployed demo lists them by role in discovery's demo object (T-030); a local sim in its own GET /.
+  const byRole = simUrl ? (await call('GET', `${simUrl}/`)).adjudicators : (await call('GET', `${OP1}/.well-known/holdback.json`)).demo?.adjudicators ?? [];
+  const adjAddresses = ['primary', 'fallback', 'appeal'].map((role) => byRole.find((a) => a.role === role)?.address.toLowerCase() ?? fail(`discovery lists no ${role} adjudicator`));
   for (const a of adjAddresses) if (!listed.items.some((x) => x.address.toLowerCase() === a)) fail(`adjudicator ${a} is not in GET /v1/adjudicators`);
   log(`2 discovery: domain pinned, club ${clubId}, buyer holds ${bal.amount} tUSD base units, ${listed.items.length} adjudicator(s) listed`);
 
@@ -174,7 +175,7 @@ try {
   const timing = { judgeWithinSec: w, fallbackWithinSec: w, appealWindowSec: w, appealDecideSec: w };
   if (!simUrl) same(JSON.parse(/^ {2}"timing": (\{.*\})$/m.exec(docs)?.[1] ?? 'null'), timing, 'the timing in the offer example');
   const offerReq = {
-    nonce: offerNonce, template: 'checks-only', clubId, seller: seller.address, buyer: { address: buyer.address, encryptionPublicKey: buyer.encPub },
+    nonce: offerNonce, disclosure: 'public', template: 'checks-only', clubId, seller: seller.address, buyer: { address: buyer.address, encryptionPublicKey: buyer.encPub },
     adjudicators: { primary: adjAddresses[0], fallback: adjAddresses[1], appeal: adjAddresses[2] }, price, deliverable, checks, timing,
   };
   const offer = await call('POST', `${api}/v1/prepare/offer`, offerReq);

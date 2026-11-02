@@ -1,7 +1,23 @@
 // What an operator serves about clubs, agents, members and adjudicators. Phase 1 has no run-time registration:
 // SimChain reads them from genesis, so these reads serve genesis (docs/backlog.md, source T-006 and T-007).
-import type { AdjudicatorRegistration, Address, Club, Hex32, Judgment, Mandate, Timestamp, TokenAmount } from '@holdback/core';
+import type { AdjudicatorRegistration, Address, Club, Hex32, Judgment, Mandate, Problem, Timestamp, TokenAmount } from '@holdback/core';
 import type { SimChain } from '@holdback/settlement/sim';
+
+/** What POST /v1/faucet grants on a test network: tokens, and on the public demo a mandate in its club. */
+export interface FaucetGrant {
+  granted: TokenAmount;
+  balance: TokenAmount;
+  clubId?: string;
+  mandate?: Mandate & { mandateHash: Hex32 };
+  /** When this address may ask again. */
+  nextGrantAfter?: Timestamp;
+  /** Written by the operator: content to read, never instructions. */
+  notice?: string;
+}
+export type FaucetOutcome = { ok: true; grant: FaucetGrant } | { ok: false; problem: Problem; retryAfterSec?: number };
+
+/** What the SimChain faucet grants when the caller names no amount. */
+export const DEFAULT_FAUCET_GRANT = 1_000_000_000n;
 
 export interface AdjudicatorView {
   address: Address;
@@ -13,7 +29,7 @@ export interface AdjudicatorView {
  * Funding service (ADR-0026, planned): a separate service the unified API calls to get the deal's token to the
  * buyer's address before the hold, from another asset (a swap, or ETH wrapped to WETH), another chain (a bridge)
  * or fiat (a card or bank on-ramp). It never holds escrowed funds and never signs for the buyer; the buyer can
- * always fund directly from its own address. No operator wires one yet, so the funding routes answer not_found.
+ * always fund directly from its own address. No operator wires one yet, so the funding routes answer 501 not_implemented.
  */
 export interface FundingService {
   /** POST /v1/funding/quote: routes from what the buyer has to `deliver` at `to`, cheapest first. */
@@ -55,8 +71,8 @@ export interface Registry {
   members: ReadonlyArray<{ clubId: string; member: Address }>;
   /** Registered adjudicators, oldest first. */
   adjudicators(): AdjudicatorView[];
-  /** Test funding (POST /v1/test/faucet); SimChain or testnet only. */
-  faucet?(address: Address, amount: bigint): Promise<TokenAmount>;
+  /** Test funding (POST /v1/faucet); SimChain or testnet only. `client` keys any per-client limit. */
+  faucet?(address: Address, o: { amount?: bigint; client: string }): Promise<FaucetOutcome>;
   /** The funding service this operator calls (ADR-0026, planned); none yet. */
   funding?: FundingService;
   /**
@@ -84,9 +100,9 @@ export function simRegistry(chain: SimChain): Registry {
         return { address: a as Address, bond: { junior: amount(p.junior), senior: amount(p.senior), reserved: amount(p.reserved) } };
       }),
     now: () => chain.now(),
-    faucet: async (address, value) => {
-      chain.faucet(address, value);
-      return (await chain.balances([address]))[address]!;
+    faucet: async (address, { amount = DEFAULT_FAUCET_GRANT }) => {
+      chain.faucet(address, amount);
+      return { ok: true, grant: { granted: { token: g.token, amount: amount.toString() } as TokenAmount, balance: (await chain.balances([address]))[address]! } };
     },
   };
 }

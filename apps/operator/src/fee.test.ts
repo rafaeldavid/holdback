@@ -47,7 +47,8 @@ async function signed(p: Prepared): Promise<J> {
 const withoutParts = (b: J): J => Object.fromEntries(Object.entries(b).filter(([k]) => k !== 'fund' && k !== 'operatorFee'));
 
 async function prepared(base: string, deal: Deal): Promise<Prepared> {
-  const r = await call(base, 'POST', '/v1/prepare/agree-and-fund', { commitmentId: deal.id });
+  const n = () => `0x${Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('hex')}`;
+  const r = await call(base, 'POST', '/v1/prepare/agree-and-fund', { commitmentId: deal.id, agreeNonce: n(), fundingNonce: n(), operatorFeeNonce: n() });
   expect(r.status).toBe(200);
   return r.body as unknown as Prepared;
 }

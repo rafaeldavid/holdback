@@ -88,6 +88,9 @@ describe('catalogue, briefs and mail', () => {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           ...job.terms,
+          // T-030 (D39): prepare takes the caller's nonce and disclosure level; it derives neither.
+          nonce: `0x${Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('hex')}`,
+          disclosure: 'public',
           clubId: f.clubId,
           seller: f.parties['seller-1']!.address,
           buyer: { address: f.parties['buyer-1']!.address, encryptionPublicKey: f.parties['buyer-1']!.encryptionPublicKey },

@@ -10,8 +10,10 @@
 //    names a file in site/.
 // 4. Content agrees with the repository: the EIP-712 types and domain with examples/verify.ts, the envelope test
 //    vectors, the worked checks example and every route with docs/api.md.
+// 5. Problem pages (D39): one page per problem type the operator answers, with its status and title.
+// 6. The agent guide spells out every encoding an agent computes (D39): no knowledge hides in examples/.
 import { existsSync, readFileSync } from 'node:fs';
-import { BASE, filled, page, SITE_URL, strip } from './build.mjs';
+import { BASE, filled, page, problemPages, SITE_URL, strip } from './build.mjs';
 
 const here = (p) => new URL(p, import.meta.url);
 const read = (p) => readFileSync(here(p), 'utf8');
@@ -90,9 +92,28 @@ const apiRoutes = apiMd.replace(/\{[a-zA-Z]+\}/g, '{x}');
 for (const r of routes) {
   const kind = /^\/v1\/prepare\/([a-z-]+)$/.exec(r)?.[1];
   if (kind) expect(apiMd.includes('/v1/prepare/{kind}') && apiMd.includes(`| \`${kind}\` |`), `prepare kind ${kind} is not in docs/api.md`);
-  else if (r !== '/v1/faucet') expect(apiRoutes.includes(r), `route ${r} is not in docs/api.md`);
+  else expect(apiRoutes.includes(r), `route ${r} is not in docs/api.md`);
 }
 for (const r of ['/terms', '/recipients', '/events', '/judgment', '/key?recipient=']) expect(apiMd.includes(`/v1/commitments/{id}${r}`), `route /v1/commitments/{id}${r} is not in docs/api.md`);
+
+// 5. Problem pages.
+const { PROBLEMS, PROBLEM_BASE } = await import(here('../apps/operator/src/problems.ts'));
+const problems = await problemPages();
+expect(PROBLEM_BASE === `${SITE_URL}problems/`, `problem pages live at ${SITE_URL}problems/, the operator links ${PROBLEM_BASE}`);
+expect(problems.has('problems/index.html'), 'no problems/index.html');
+for (const [type, p] of Object.entries(PROBLEMS)) {
+  const html = problems.get(`problems/${type}.html`);
+  expect(html !== undefined && html.includes(`HTTP ${p.status}`) && html.includes(`<code>${type}</code>`), `no page for problem type ${type}`);
+}
+expect(md.includes(PROBLEM_BASE) && apiMd.includes(PROBLEM_BASE), 'llms.txt and docs/api.md must say where problem types are documented');
+if (existsSync(here('../reports/site-out/llms.txt'))) for (const path of problems.keys()) expect(existsSync(here(`../reports/site-out/${path}`)), `reports/site-out/${path} is missing: build with --out again`);
+
+// 6. Encodings: every client-side computation is on the page.
+const encodings = md.slice(md.indexOf('## Encodings'), md.indexOf('## ', md.indexOf('## Encodings') + 3));
+for (const fact of ['hasDelivery', 'hasAudience', 'hasCategories', '{"kind": "", "round": 0}','hashStruct("CommitmentTerms"', 'hashStruct("Delivery"', 'Nonces', '3600 seconds', '`attempt`']) expect(encodings.includes(fact), `llms.txt "Encodings" no longer says ${fact}`);
+for (const t of ['EarlyAccept', 'MutualSettlement', 'Appeal', 'ReadToken', 'Delegation', 'Publish']) expect(t in types, `the EIP-712 types in llms.txt lack ${t}`);
+expect(/"disclosure": "public"/.test(md) && /"operatorFeeNonce"/.test(md), 'llms.txt offer and agree requests must send disclosure and every nonce');
+expect(!/Holdback-Notice|GET \$OP1\/` lists|examples\/verify\.ts/.test(md), 'llms.txt still points at a header, GET / list or example file that is gone');
 
 if (failures.length) {
   for (const f of failures) console.error(`FAIL ${f}`);

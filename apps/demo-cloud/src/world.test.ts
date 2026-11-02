@@ -111,8 +111,9 @@ describe('public mode', () => {
     for (const body of bodies) for (const s of secrets) expect(body.toLowerCase().includes(s.toLowerCase().replace(/^0x/, ''))).toBe(false);
   });
 
-  it('states what the demo is in discovery notes, llms.txt and GET /', async () => {
+  it('states what the demo is in one discovery document, also served at GET /, and in llms.txt', async () => {
     const { urls } = await serve();
+    for (const u of urls) await fetch(`${u}/v1/status`); // a node learns its public origin from its first request
     for (const u of urls) {
       const d = (await (await fetch(`${u}/.well-known/holdback.json`)).json()) as J;
       expect(d.apiBaseUrl).toBe(u);
@@ -122,28 +123,89 @@ describe('public mode', () => {
       expect(notes).toMatch(/one shared simulated settlement layer/i);
       expect(notes).toMatch(/POST \/v1\/faucet/);
       expect(notes).toMatch(/scripted/i);
-      expect(await (await fetch(`${u}/llms.txt`)).text()).toMatch(/POST \/v1\/faucet/);
+      expect(d.limits).toEqual({ reads: { limit: 1200, windowSec: 60, per: 'client' }, writes: { limit: 120, windowSec: 60, per: 'signer' }, idempotency: { replays: 'success-only', retention: 'process' } });
+      expect(d.demo).toMatchObject({ clubId: 'demo-club', operators: urls, token: { id: 'tUSD', decimals: 6 }, minWindowSec: 2, faucet: { path: '/v1/faucet', grant: { token: 'tUSD', amount: '1000000000' }, perAddressEverySec: 3600, perClientPerWindow: 10 } });
+      expect(d.demo.adjudicators.map((a: J) => a.role)).toEqual(['primary', 'fallback', 'appeal']);
+      const root = (await (await fetch(`${u}/`)).json()) as J;
+      expect(Object.keys(root).sort()).toEqual(Object.keys(d).sort());
+      expect(root.demo.adjudicators).toEqual(d.demo.adjudicators);
+      const llms = await (await fetch(`${u}/llms.txt`)).text();
+      expect(llms).toMatch(/POST \/v1\/faucet/);
+      expect(llms).toContain('https://escrow.stream/llms.txt');
     }
-    const index = (await (await fetch(`${urls[1]}/`)).json()) as J;
-    expect(index).toMatchObject({ clubId: 'demo-club', operators: urls, token: { symbol: 'tUSD', decimals: 6 } });
-    expect(index.adjudicators.map((a: J) => a.role)).toEqual(['primary', 'fallback', 'appeal']);
     // The two nodes sign receipts with different keys.
     const signers = await Promise.all(urls.map(async (u) => ((await (await fetch(`${u}/v1/status`)).json()) as J).receiptSigner));
     expect(new Set(signers).size).toBe(2);
   });
 
-  it('labels a rubric offer as judged by a scripted panel', async () => {
+  it('notes in the body which panel judges a rubric offer; a checks-only offer gets no notice', async () => {
     const { urls } = await serve();
-    const r = await post(`${urls[0]}/v1/prepare/offer`, { template: 'default' });
-    expect(r.headers.get('holdback-notice')).toMatch(/scripted/);
-    const c = await post(`${urls[0]}/v1/prepare/offer`, { template: 'checks-only' });
-    expect(c.headers.get('holdback-notice')).toBeNull();
+    const d = await discovery(urls);
+    const [seller, buyer] = [freshAgent(urls), freshAgent(urls)];
+    const r = (await (await post(`${urls[0]}/v1/prepare/offer`, offerRequest(d, seller, buyer, RUBRIC_OFFER))).json()) as J;
+    expect(r.notices).toEqual([expect.stringMatching(/scripted/)]);
+    const c = (await (await post(`${urls[0]}/v1/prepare/offer`, offerRequest(d, seller, buyer))).json()) as J;
+    expect(c.kind).toBe('offer');
+    expect(c.notices).toBeUndefined();
+  });
+
+  it('declines a private offer it cannot open, and says so before the offer and on the state read (F1)', async () => {
+    const { urls } = await serve();
+    const d = await discovery(urls);
+    const [seller, buyer] = [freshAgent(urls), freshAgent(urls)];
+    for (const a of [seller, buyer]) await a.call('POST', '/v1/faucet', { address: a.address });
+    const price = { token: 'tUSD', amount: '5000000' };
+    // Before anything is signed, a hash-only prepare says the demo adjudicators decline sealed offers.
+    const h = { ...offerRequest(d, seller, buyer), deliverable: undefined, checks: undefined, template: undefined, hashOnly: true, disclosure: 'private', deliverableHash: `0x${'11'.repeat(32)}`, acceptanceHash: `0x${'22'.repeat(32)}`, createdAt: new Date(Math.floor(Date.now() / 1000) * 1000).toISOString().replace('.000Z', 'Z') };
+    const prepared = (await (await post(`${urls[0]}/v1/prepare/offer`, h)).json()) as J;
+    expect(prepared.notices.join(' ')).toMatch(/decline/);
+    const { deal: dealBuyer } = await buyer.dealKeys(d.demo.clubId, 'buyer', price);
+    const { deal: dealSeller } = await seller.dealKeys(d.demo.clubId, 'seller', price);
+    const [primary, fallback, appeal] = d.demo.adjudicators.map((a: J) => a.address);
+    const offer = await dealSeller.offerPrivate({
+      clubId: d.demo.clubId,
+      buyer: { address: dealBuyer.address, encryptionPublicKey: dealBuyer.encryptionPublicKey },
+      adjudicators: { primary, fallback, appeal },
+      price,
+      deliverable: { kind: 'dataset', description: 'a private dataset', format: 'text/csv' },
+      acceptance: { deterministicChecks: [{ id: 'cols', type: 'csv_columns_exact', required: true, columns: ['id'] }], rubric: { criteria: [], passThreshold: 0 } },
+    });
+    expect(offer.state.notices.join(' ')).toMatch(/decline/);
+    let state: J;
+    for (const end = Date.now() + 10_000; Date.now() < end; await new Promise((r) => setTimeout(r, 100))) {
+      state = await seller.call('GET', `/v1/commitments/${offer.id}`);
+      if (state.notices?.some((n: string) => /declined/.test(n))) break;
+    }
+    expect(state.escrowState).toBe('Offered');
+    expect(state.notices.join(' ')).toMatch(/primary adjudicator declined this offer: .*sealed terms/);
   });
 });
 
+/** A rubric deal: a judge panel scores it. */
+const RUBRIC_OFFER = { template: 'default', rubric: { passThreshold: 300, criteria: [{ id: 'ok', description: 'Fine.', weight: 1, anchors: { '0': 'No', '2': 'Partly', '4': 'Yes' } }] } };
+/** The discovery document, as an agent with only a URL reads it. */
+const discovery = async (urls: string[]): Promise<J> => (await (await fetch(`${urls[0]}/.well-known/holdback.json`)).json()) as J;
+/** A checks-only offer request from the demo facts in discovery. */
+const offerRequest = (d: J, seller: Agent, buyer: Agent, extra: J = {}) => {
+  const [primary, fallback, appeal] = d.demo.adjudicators.map((a: J) => a.address);
+  return {
+    nonce: `0x${Buffer.from(nacl.randomBytes(32)).toString('hex')}`,
+    disclosure: 'public',
+    template: 'checks-only',
+    clubId: d.demo.clubId,
+    seller: seller.address,
+    buyer: { address: buyer.address, encryptionPublicKey: buyer.encryptionPublicKey },
+    adjudicators: { primary, fallback, appeal },
+    price: { token: 'tUSD', amount: '25000000' },
+    deliverable: { kind: 'dataset', description: 'customers.csv', format: 'text/csv' },
+    checks: [{ id: 'cols', type: 'csv_columns_exact', required: true, columns: ['customer_id', 'email'] }],
+    ...extra,
+  };
+};
+
 /** The code-fix job from tools/sim/catalogue.json: a rubric deal a judge panel decides. */
 async function rubricDeal(urls: string[], diff: string): Promise<{ id: string; state: J; buyer: Agent }> {
-  const index = (await (await fetch(`${urls[0]}/`)).json()) as J;
+  const index = ((await (await fetch(`${urls[0]}/`)).json()) as J).demo;
   const buyer = freshAgent(urls);
   const seller = freshAgent(urls);
   for (const a of [buyer, seller]) await a.call('POST', '/v1/faucet', { address: a.address });
@@ -186,17 +248,18 @@ describe('live judges (T-028), with a stand-in for the models', () => {
   it('says so in GET /, the notes and the offer notice, and binds the live registry', async () => {
     const { provider } = standIn();
     const { urls } = await serve({ judgeProvider: provider, liveCallsPerDay: 7 });
-    const index = (await (await fetch(`${urls[0]}/`)).json()) as J;
+    const index = ((await (await fetch(`${urls[0]}/`)).json()) as J).demo;
     expect(index.judges).toMatchObject({ panel: 'live', registry: { uri: LIVE_REGISTRY_URI, hash: liveRegistry().hash }, liveCallsPerDay: 7, liveCallsToday: 0 });
     expect(index.judges.models).toEqual(liveRegistry().active.map((e) => e.model));
-    for (const a of index.adjudicators) expect(a.scriptedPanel).toBe(false);
+    for (const a of index.adjudicators) expect(a.name).toMatch(/live panel/);
     const regs = (await (await fetch(`${urls[0]}/v1/adjudicators`)).json()) as J;
     for (const r of regs.items ?? regs) expect(r.registry.hash).toBe(liveRegistry().hash);
     const notes = ((await (await fetch(`${urls[0]}/.well-known/holdback.json`)).json()) as J).notes.join('\n');
     expect(notes).toMatch(/live judge panel/i);
     expect(notes).toMatch(/7 live judge calls a day/);
-    const r = await post(`${urls[0]}/v1/prepare/offer`, { template: 'default' });
-    expect(r.headers.get('holdback-notice')).toMatch(/live judge panel/);
+    const d = await discovery(urls);
+    const r = (await (await post(`${urls[0]}/v1/prepare/offer`, offerRequest(d, freshAgent(urls), freshAgent(urls), RUBRIC_OFFER))).json()) as J;
+    expect(r.notices).toEqual([expect.stringMatching(/live judge panel/)]);
   });
 
   it('judges a rubric deal live within the daily budget, then falls back to marked scripted judges', async () => {
@@ -211,7 +274,7 @@ describe('live judges (T-028), with a stand-in for the models', () => {
       expect(liveRegistry().active.map((e) => e.model)).toContain(m.model);
       expect(m.verdict.rationale).not.toMatch(/^\[fake judge, no model ran\]/);
     }
-    expect(((await (await fetch(`${urls[0]}/`)).json()) as J).judges.liveCallsToday).toBe(3);
+    expect(((await (await fetch(`${urls[0]}/`)).json()) as J).demo.judges.liveCallsToday).toBe(3);
 
     // Two calls left today: fewer than a panel needs, so the next panel is scripted and its record says so.
     const second = await rubricDeal(urls, DIFF);
@@ -229,12 +292,12 @@ describe('live judges (T-028), with a stand-in for the models', () => {
     await a.close();
     running.splice(running.indexOf(a), 1);
     const b = await serve({ judgeProvider: provider, liveCallsPerDay: 5 }, storage);
-    expect(((await (await fetch(`${b.urls[0]}/`)).json()) as J).judges.liveCallsToday).toBe(3);
+    expect(((await (await fetch(`${b.urls[0]}/`)).json()) as J).demo.judges.liveCallsToday).toBe(3);
   }, 90_000);
 
   it('without keys the panel is scripted, and the env decides: all three variables or none', async () => {
     const { urls } = await serve({ env: { HOLDBACK_ANTHROPIC_API_KEY: 'k' } });
-    const index = (await (await fetch(`${urls[0]}/`)).json()) as J;
+    const index = ((await (await fetch(`${urls[0]}/`)).json()) as J).demo;
     expect(index.judges).toMatchObject({ panel: 'scripted', registry: { hash: placeholderRegistry().hash } });
     expect(index.judges.missing).toEqual(['HOLDBACK_OPENAI_COMPATIBLE_API_KEY', 'HOLDBACK_OPENAI_COMPATIBLE_BASE_URL']);
     expect(JSON.stringify(index)).not.toContain('"k"');
@@ -246,7 +309,7 @@ describe('a checks-only deal between two fresh agents, over HTTP', () => {
     const storage = new MemoryStorage();
     const first = await serve({}, storage);
     const { urls } = first;
-    const index = (await (await fetch(`${urls[0]}/`)).json()) as J;
+    const index = ((await (await fetch(`${urls[0]}/`)).json()) as J).demo;
     const buyer = freshAgent(urls);
     const seller = freshAgent(urls);
     for (const a of [buyer, seller]) await a.call('POST', '/v1/faucet', { address: a.address });
@@ -283,7 +346,7 @@ describe('a checks-only deal between two fresh agents, over HTTP', () => {
     // A changed configuration does not change a world already created: its club keeps the windows it began with.
     const second = await serve({ minWindowSec: 99 }, storage);
     expect(second.world.digest()).toBe(digest);
-    expect(((await (await fetch(`${second.urls[0]}/`)).json()) as J).minWindowSec).toBe(2);
+    expect(((await (await fetch(`${second.urls[0]}/`)).json()) as J).demo.minWindowSec).toBe(2);
     const again = new Agent(second.urls, generatePrivateKey(), nacl.randomBytes(32));
     expect((await again.call('GET', `/v1/commitments/${offer.id}`)).escrowState).toBe('Released');
     expect((await again.call('GET', `/v1/commitments/${offer.id}/judgment`)).commitmentId).toBe(offer.id);
@@ -302,7 +365,8 @@ describe('operator fee from Worker variables (ADR-0023, T-029)', () => {
     expect(a).toEqual(b);
     expect(a).toMatchObject({ token: 'tUSD', bps: 1, min: '10000', max: null, appliesAt: 'agree-and-fund', refundable: false });
     const index = (await (await fetch(`${urls[0]}/`)).json()) as J;
-    expect(index.operatorFee).toEqual(a);
+    expect(index.fees.operator).toEqual(a);
+    expect(index.operatorFee).toBeUndefined(); // one name for the fee
     expect(index.notes.join(' ')).toMatch(/operator fee of 1 bp of the price, at least 0.01 tUSD/);
     expect(await (await fetch(`${urls[1]}/llms.txt`)).text()).toMatch(/not refunded/);
   });
@@ -310,7 +374,8 @@ describe('operator fee from Worker variables (ADR-0023, T-029)', () => {
   it('a 25 tUSD deal pays 0.01 tUSD to the operator; at 0 / 0 it pays nothing', async () => {
     for (const [env, paid] of [[D33, 10_000n], [{ OPERATOR_FEE_BPS: '0', OPERATOR_FEE_MIN: '0' }, 0n]] as const) {
       const { urls } = await serve({ env });
-      const index = (await (await fetch(`${urls[0]}/`)).json()) as J;
+      const d = (await (await fetch(`${urls[0]}/`)).json()) as J;
+      const index = d.demo;
       const buyer = freshAgent(urls);
       const seller = freshAgent(urls);
       for (const x of [buyer, seller]) await x.call('POST', '/v1/faucet', { address: x.address });
@@ -323,7 +388,7 @@ describe('operator fee from Worker variables (ADR-0023, T-029)', () => {
       await buyer.waitFor(offer.id, ['AcceptedByAdjudicator']);
       expect((await buyer.agreeAndFund(offer.terms, 30_000_000n)).escrowState).toBe('Held');
       expect(1_000_000_000n - BigInt((await buyer.call('GET', `/v1/balances/${buyer.address}`)).amount)).toBe(26_000_000n + paid);
-      expect((await buyer.call('GET', `/v1/balances/${index.operatorFee.to}`)).amount).toBe(paid.toString());
+      expect((await buyer.call('GET', `/v1/balances/${d.fees.operator.to}`)).amount).toBe(paid.toString());
     }
   }, 60_000);
 

@@ -95,7 +95,7 @@ async function privateDeal(level: 'private' | 'judgment' = 'private'): Promise<D
   expect(opened).toEqual(offer.terms);
   await buyerLT.checkDelegation(sellerDelegation, { dealKey: opened.seller, dealEncryptionKey: opened.deliverable.sellerEncryptionPublicKey, clubId, role: 'seller', price: opened.price });
   // Funding a per-deal key: here the test faucet; in practice your choice of source (residual 11).
-  await buyer.call('POST', '/v1/test/faucet', { address: buyer.address, amount: '20000000' });
+  await buyer.call('POST', '/v1/faucet', { address: buyer.address, amount: '20000000' });
   await buyer.waitFor(offer.id, ['AcceptedByAdjudicator']);
   const held = await buyer.agreeAndFund(opened, 10_000_000n);
   expect(held.escrowState).toBe('Held');

@@ -28,7 +28,11 @@ const started = Date.now();
 const log = (s: string) => console.log(`[${((Date.now() - started) / 1000).toFixed(1).padStart(6)}s] ${s}`);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-const getIndex = async () => (await (await fetch(`${urls[0]}/`)).json()) as J;
+// The one discovery document (T-030, D39): the demo's facts are its `demo` object, the fee is `fees.operator`.
+const getIndex = async () => {
+  const d = (await (await fetch(`${urls[0]}/.well-known/holdback.json`)).json()) as J;
+  return { ...d.demo, chainId: d.domain?.chainId, notice: d.notes?.[0], operatorFee: d.fees?.operator } as J;
+};
 const index = await getIndex();
 if (index.chainId !== 31337) throw new Error(`refusing: ${urls[0]} is not on SimChain (chain id 31337)`);
 log(`${index.notice}`);

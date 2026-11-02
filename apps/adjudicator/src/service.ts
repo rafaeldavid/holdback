@@ -10,6 +10,7 @@
 import {
   canonicalKeccak,
   err,
+  isSealed,
   ok,
   problem,
   signMessage,
@@ -53,6 +54,13 @@ export interface AdjudicatorConfig {
   provider: JudgeProvider;
   settlement: AdjudicatorSettlement;
   affiliations?: string[];
+  /**
+   * Accept private and judgment offers without opening their sealed terms (default false: decline them, D29, T-030).
+   * This service cannot open sealed terms yet (T-207), so an accepted sealed offer could never be judged and would
+   * fall to its default outcome. Only a local world that exercises private flows by early accept or mutual settlement
+   * (`pnpm sim`) turns it on.
+   */
+  acceptSealedUnread?: boolean;
 }
 
 export interface RunReport {
@@ -167,6 +175,11 @@ export class Adjudicator {
   async #accept(c: DecisionTask['commitment']): Promise<Result<AdjudicatorAcceptance, Problem>> {
     const { adjudication } = c;
     if (adjudication.adjudicator.toLowerCase() !== this.address) return err(problem('not_your_turn', 'not the primary adjudicator'));
+    // D29: an adjudicator declines terms it cannot run. Declining leaves the offer unaccepted, so no buyer funds a
+    // hold that would only reach its default outcome; the offer expires at offerExpiresAt.
+    if (isSealed(c) && !this.#cfg.acceptSealedUnread) {
+      return err(problem('adjudicator_unavailable', `${this.#cfg.name} cannot open sealed terms yet (ADR-0024, T-207): it declines private and judgment offers rather than accept a deal it could not judge; offer at disclosure public`));
+    }
     if (adjudication.policyHash !== policyHashOf(this.policy)) return err(problem('policy_mismatch', 'policy-hash-mismatch: the offer binds another policy'));
     if (adjudication.registryHash !== this.#cfg.registry.hash) return err(problem('registry_mismatch', 'the offer binds another registry'));
     const min = this.quote();

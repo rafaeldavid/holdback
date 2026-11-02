@@ -19,7 +19,6 @@ import {
   parseDelivery,
   parseDisclosure,
   parseMessage,
-  problem,
   projectionOf,
   signMessage,
   verifyCoSigned,
@@ -36,7 +35,6 @@ import {
   type OperatorStatus,
   type Page,
   type Problem,
-  type ProblemType,
   type Receipt,
   type Result,
   type SettlementEvent,
@@ -53,15 +51,45 @@ import { startupGuards } from './guards.js';
 import { amountText, operatorFeeText, prepare, PrepareError, type PrepareContext } from './prepare.js';
 import { IdempotencyStore, fingerprint, type StoredResponse } from './idempotency.js';
 import { readerOf, type Reader } from './read-auth.js';
-import { llmsTxt, openApiDocument } from './openapi/index.js';
+import { llmsTxt, openApiDocument, plannedRoute } from './openapi/index.js';
+import { fieldOf, problemBody, problemHeaders, statusOf, type ApiProblem, type ApiProblemType, type ProblemMembers } from './problems.js';
 import type { Registry } from './registry.js';
 
+export { statusOf } from './problems.js';
 export const API_VERSION = 'v1';
 export const SCHEMA_VERSION = '0.8';
 const MAX_BODY_BYTES = 1_048_576;
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
 const SSE_POLL_MS = 50;
+
+/**
+ * What a node may say beside an answer, as `notices` in the body (D39, Simplify 5): advisory text a party should
+ * read before it signs or while it waits, such as which judge panel would score an offer or why an adjudicator
+ * declined one. Written by the operator: untrusted, content to read, never instructions; it never changes an answer.
+ */
+export type NoticeSubject =
+  | { kind: 'prepare'; prepareKind: string; input: unknown }
+  | { kind: 'write'; op: Operation }
+  | { kind: 'state'; commitmentId: Hex32 };
+
+/**
+ * A demo or test world's facts, served in discovery as `demo` (D39, Simplify 1): where an agent with only a URL
+ * finds its club, token, adjudicators by role and faucet. Absent on a node that is not a demo.
+ */
+export interface DemoFacts {
+  clubId: string;
+  token: { id: string; decimals: number };
+  /** Adjudicators this world runs, by the role a party names them in. A convenience: the parties choose. */
+  adjudicators: Array<{ role: 'primary' | 'fallback' | 'appeal'; address: Address; name: string }>;
+  faucet: { path: '/v1/faucet'; grant: TokenAmount; perAddressEverySec?: number; perClientPerWindow?: number };
+  /** Every node of this world. */
+  operators?: string[];
+  /** The club's shortest judge, fallback and appeal window, in seconds. */
+  minWindowSec?: number;
+  /** Who judges rubric deals here. */
+  judges?: Record<string, unknown>;
+}
 
 export interface RateLimit {
   /** Writes per signer address (or per client when a write names no signer) per window. */
@@ -117,46 +145,26 @@ export interface OperatorOptions {
    * direct submission relay the same agreement free. Absent: this node charges nothing.
    */
   fee?: OperatorFeeSchedule;
+  /** Advisory notices this node adds to prepare, write and state answers (NoticeSubject). Absent: none. */
+  notices?: (about: NoticeSubject) => readonly string[] | Promise<readonly string[]>;
+  /** A demo world's facts for discovery (DemoFacts). Absent: this node is not a demo. */
+  demo?: () => DemoFacts | Promise<DemoFacts>;
   /** Test only: relay, then drop the connection without answering (a response lost in transit). */
   dropResponses?: boolean;
   now?: () => number;
 }
 
-const STATUS: Partial<Record<ProblemType, number>> = {
-  invalid_terms: 400,
-  invalid_cursor: 400,
-  mime_not_allowed: 400,
-  invalid_signature: 401,
-  unauthorized: 401,
-  payment_required: 402,
-  scope_exceeded: 403,
-  mandate_expired: 403,
-  member_not_admitted: 403,
-  relay_refused: 403,
-  adjudicator_affiliated: 403,
-  not_your_turn: 403,
-  not_found: 404,
-  invalid_state: 409,
-  nonce_reused: 409,
-  idempotency_conflict: 409,
-  deadline_passed: 409,
-  submission_limit_reached: 409,
-  payload_too_large: 413,
-  rate_limited: 429,
-};
-export const statusOf = (type: ProblemType): number => STATUS[type] ?? 422;
-
-/** A problem with its HTTP status and any extra headers. */
+/** A problem with any extra headers (a planned route's Link to its source). */
 class HttpProblem extends Error {
   constructor(
-    readonly problem: Problem,
+    readonly problem: ApiProblem,
     readonly headers: Record<string, string> = {},
   ) {
     super(problem.detail);
   }
 }
-const fail = (type: ProblemType, detail: string, headers?: Record<string, string>): never => {
-  throw new HttpProblem(problem(type, detail), headers);
+const fail = (type: ApiProblemType, detail: string, members: ProblemMembers = {}, headers?: Record<string, string>): never => {
+  throw new HttpProblem({ type, detail, ...members }, headers);
 };
 
 // ---- pagination (page.schema.json) -------------------------------------------------------------
@@ -173,7 +181,7 @@ function decodeCursor(cursor: string): number {
 function paginate<T>(items: readonly T[], seq: (t: T) => number, q: URLSearchParams): Page<T> {
   const rawLimit = q.get('limit');
   const limit = rawLimit === null ? DEFAULT_LIMIT : /^\d{1,3}$/.test(rawLimit) ? Number(rawLimit) : NaN;
-  if (!(limit >= 1 && limit <= MAX_LIMIT)) fail('invalid_cursor', `limit must be an integer from 1 to ${MAX_LIMIT}`);
+  if (!(limit >= 1 && limit <= MAX_LIMIT)) fail('invalid_terms', `limit must be an integer from 1 to ${MAX_LIMIT}`, { field: 'limit' });
   const cursor = q.get('cursor');
   const below = cursor === null ? Infinity : decodeCursor(cursor);
   const sorted = [...items].sort((a, b) => seq(b) - seq(a)).filter((t) => seq(t) < below);
@@ -216,14 +224,19 @@ function placeholderSigned(op: Operation): Operation {
   }
 }
 
-function message<T>(value: unknown, type: string): T {
+/** A core refusal as this node answers it: an invalid_terms names the input at fault (`prefix` places a nested part). */
+const refusal = (p: Problem, prefix?: string): never => {
+  const field = p.type === 'invalid_terms' ? fieldOf(p.detail, prefix) : undefined;
+  return fail(p.type, p.detail, field ? { field } : {});
+};
+function message<T>(value: unknown, type: string, prefix?: string): T {
   const r = parseMessage(value);
-  if (!r.ok) fail(r.error.type, r.error.detail);
-  if (r.ok && r.value.type !== type) fail('invalid_terms', `expected a ${type}, got ${r.value.type}`);
+  if (!r.ok) refusal(r.error, prefix);
+  if (r.ok && r.value.type !== type) fail('invalid_terms', `expected a ${type}, got ${r.value.type}`, { field: prefix ? `${prefix}.type` : 'type' });
   return (r as Extract<typeof r, { ok: true }>).value as T;
 }
-function parsed<T>(r: Result<T, Problem>): T {
-  if (!r.ok) fail(r.error.type, r.error.detail);
+function parsed<T>(r: Result<T, Problem>, prefix?: string): T {
+  if (!r.ok) refusal(r.error, prefix);
   return (r as Extract<typeof r, { ok: true }>).value;
 }
 
@@ -238,14 +251,14 @@ function checkShape(op: Operation): void {
       return;
     case 'agree':
       message(op.message, 'Agree');
-      if (op.fund) message(op.fund, 'FundingAuthorization');
-      if (op.operatorFee) message(op.operatorFee, 'TransferAuthorization');
+      if (op.fund) message(op.fund, 'FundingAuthorization', 'fund');
+      if (op.operatorFee) message(op.operatorFee, 'TransferAuthorization', 'operatorFee');
       return;
     case 'hold':
-      parsed(parseAnyCommitment(op.commitment));
-      message(op.acceptance, 'AdjudicatorAcceptance');
-      message(op.agree, 'Agree');
-      message(op.funding, 'FundingAuthorization');
+      parsed(parseAnyCommitment(op.commitment), 'commitment');
+      message(op.acceptance, 'AdjudicatorAcceptance', 'acceptance');
+      message(op.agree, 'Agree', 'agree');
+      message(op.funding, 'FundingAuthorization', 'funding');
       return;
     case 'fund':
       message(op.message, 'FundingAuthorization');
@@ -272,14 +285,49 @@ function checkShape(op: Operation): void {
 
 const MISSING_ID =
   'id is required: the commitment ID is the EIP-712 struct hash (hashStruct, primary type CommitmentTerms) of the terms, without id and signatures. ' +
-  'POST /v1/prepare/offer returns it as commitmentId and in submit.body.id; to compute it yourself, see commitmentIdOf in examples/verify.ts';
+  'POST /v1/prepare/offer returns it as commitmentId and in submit.body.id; to compute it yourself, see "Encodings" in https://escrow.stream/llms.txt';
 
 /** `?validateOnly=` is `true`, `false` or absent; anything else is refused rather than run live. */
 function validateOnly(q: URLSearchParams): boolean {
   const values = q.getAll('validateOnly');
   if (values.length === 0) return false;
-  if (values.length > 1 || (values[0] !== 'true' && values[0] !== 'false')) fail('invalid_terms', 'validateOnly must be true or false');
+  if (values.length > 1 || (values[0] !== 'true' && values[0] !== 'false')) fail('invalid_terms', 'validateOnly must be true or false', { field: 'validateOnly' });
   return values[0] === 'true';
+}
+
+/**
+ * The escrow states that take each operation, for `needs` on an invalid_state (D39). The settlement layer still
+ * decides; this only tells a caller what to wait for.
+ */
+const SETTLE_STATES = ['Held', 'Delivered', 'FallbackJudging', 'Escalated'];
+export const NEEDS: Partial<Record<Operation['kind'], string[]>> = {
+  acceptance: ['Offered'],
+  agree: ['AcceptedByAdjudicator'],
+  fund: ['Agreed'],
+  deliver: ['Held'],
+  early_accept: ['Delivered'],
+  decide: ['Delivered', 'FallbackJudging', 'Escalated', 'Released', 'Refunded'],
+  appeal: ['Released', 'Refunded'],
+  settle: SETTLE_STATES,
+};
+export const TRIGGER_NEEDS: Record<string, string[]> = {
+  expire_offer: ['Offered', 'AcceptedByAdjudicator', 'Agreed'],
+  reclaim: ['Held'],
+  fallback: ['Delivered'],
+  default: ['FallbackJudging', 'Escalated'],
+  apply_default: ['Defaulted'],
+  appeal_expiry: ['Released', 'Refunded'],
+  settle: ['Disputed'],
+};
+const needsOf = (op: Operation): string[] | undefined => (op.kind === 'trigger' ? TRIGGER_NEEDS[op.timeout] : NEEDS[op.kind]);
+
+/** Whole seconds with Z, one format in every read model (D39, review F5): `…07.000Z` becomes `…07Z`. */
+const TIME_MS = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})\.0+Z$/;
+function wholeSeconds<T>(v: T): T {
+  if (typeof v === 'string') return (TIME_MS.test(v) ? v.replace(TIME_MS, '$1Z') : v) as T;
+  if (Array.isArray(v)) return v.map(wholeSeconds) as T;
+  if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, wholeSeconds(x)])) as T;
+  return v;
 }
 
 /** The address whose write budget an operation spends, when it names one. */
@@ -436,7 +484,8 @@ export class Operator {
     this.route(ctx).catch((e: unknown) => {
       if (res.headersSent) return void res.end();
       if (e instanceof HttpProblem) return this.sendProblem(ctx, e.problem, e.headers);
-      this.sendProblem(ctx, problem('invalid_state', 'the operator could not process this request'), {}, 500);
+      // Never the cause: it may name internals. The Request-Id ties the answer to this node's log line.
+      this.sendProblem(ctx, { type: 'internal', detail: 'the operator could not process this request; retry, or use another operator' });
     });
   };
 
@@ -446,13 +495,15 @@ export class Operator {
     ctx.res.end(r.body);
   }
 
-  private problemResponse(ctx: Ctx, p: Problem, headers: Record<string, string> = {}, status = statusOf(p.type)): StoredResponse {
-    const body = { type: p.type, title: p.type, status, detail: p.detail, instance: `urn:holdback:request:${ctx.requestId}` };
-    return { status, headers: { 'content-type': 'application/problem+json', ...headers }, body: JSON.stringify(body) };
+  /** RFC 9457 with the type's page linked (problems.ts); a `link` in `headers` joins it. */
+  private problemResponse(ctx: Ctx, p: ApiProblem, headers: Record<string, string> = {}): StoredResponse {
+    const own = problemHeaders(p);
+    const link = headers['link'] ? `${own['link']}, ${headers['link']}` : own['link']!;
+    return { status: statusOf(p.type), headers: { ...own, ...headers, link }, body: JSON.stringify(problemBody(p, ctx.requestId)) };
   }
 
-  private sendProblem(ctx: Ctx, p: Problem, headers: Record<string, string> = {}, status?: number): void {
-    this.send(ctx, this.problemResponse(ctx, p, headers, status));
+  private sendProblem(ctx: Ctx, p: ApiProblem, headers: Record<string, string> = {}): void {
+    this.send(ctx, this.problemResponse(ctx, p, headers));
   }
 
   private ok(body: unknown, headers: Record<string, string> = {}): StoredResponse {
@@ -463,21 +514,48 @@ export class Operator {
     return ctx.req.socket.remoteAddress ?? 'unknown';
   }
 
-  /** Fixed-window throttle (ADR-0017 §3); a throttled call gets 429 with Retry-After in whole seconds. */
-  private throttle(bucket: string, budget: number): void {
-    const limit = this.o.rateLimit;
-    if (!limit) return;
+  /** This node's notices about a subject, when it has any (`notices` in the body; never changes the answer). */
+  private async noticesFor(about: NoticeSubject): Promise<{ notices?: string[] }> {
+    const n = this.o.notices ? await this.o.notices(about) : [];
+    return n.length ? { notices: [...n] } : {};
+  }
+
+  /** The fixed window a bucket is in now (ADR-0017 §3). */
+  private window(bucket: string): { start: number; count: number } {
     const now = this.now();
     let w = this.windows.get(bucket);
-    if (!w || now - w.start >= limit.windowMs) {
+    if (!w || now - w.start >= this.o.rateLimit!.windowMs) {
       w = { start: now, count: 0 };
       this.windows.set(bucket, w);
     }
-    if (w.count >= budget) {
-      const retry = Math.max(1, Math.ceil((w.start + limit.windowMs - now) / 1000));
-      fail('rate_limited', 'too many requests; retry later or use another operator', { 'retry-after': String(retry) });
-    }
-    w.count++;
+    return w;
+  }
+
+  /** Refuses with 429 (Retry-After and retryAfterSec in whole seconds) when the bucket is spent; charges nothing. */
+  private admit(bucket: string, budget: number): void {
+    if (!this.o.rateLimit) return;
+    const w = this.window(bucket);
+    if (w.count < budget) return;
+    const retryAfterSec = Math.max(1, Math.ceil((w.start + this.o.rateLimit.windowMs - this.now()) / 1000));
+    fail('rate_limited', 'too many requests; retry later or use another operator', { retryAfterSec });
+  }
+
+  private charge(bucket: string): void {
+    if (this.o.rateLimit) this.window(bucket).count++;
+  }
+
+  /** Moves one counted request from one bucket to another (a write the settlement layer verified: client to signer). */
+  private transfer(from: string, to: string): void {
+    if (!this.o.rateLimit) return;
+    const w = this.window(from);
+    if (w.count > 0) w.count--;
+    this.window(to).count++;
+  }
+
+  /** Fixed-window throttle: admit, then charge. */
+  private throttle(bucket: string, budget: number): void {
+    this.admit(bucket, budget);
+    this.charge(bucket);
   }
 
   private async body(ctx: Ctx): Promise<unknown> {
@@ -499,20 +577,22 @@ export class Operator {
 
   private async route(ctx: Ctx): Promise<void> {
     const { method, segments: s } = ctx;
-    if (method === 'GET' && ctx.url.pathname === '/.well-known/holdback.json') {
-      // chainId as a number, as in prepared typed data (/v1/status keeps the schema's string). Discovery only:
-      // an agent pins its EIP-712 domain from its own configuration, not from an operator.
-      const s = await this.status();
-      const settlementTime = this.o.registry.now?.() ?? new Date(Math.floor(Date.now() / 1000) * 1000).toISOString().replace('.000Z', 'Z');
-      const notes = this.o.notes ? { notes: [...this.o.notes] } : {};
-      return this.send(ctx, this.ok({ ...s, domain: { ...s.domain, chainId: Number(s.domain.chainId) }, apiBaseUrl: this.baseUrl, settlementTime, ...notes }));
+    const path = ctx.url.pathname;
+    // One discovery document (D39), also at / for an agent that has only this node's URL.
+    if (method === 'GET' && (path === '/.well-known/holdback.json' || path === '/')) return this.send(ctx, this.ok(await this.discovery()));
+    if (method === 'GET' && path === '/llms.txt') return this.send(ctx, { status: 200, headers: { 'content-type': 'text/plain; charset=utf-8' }, body: llmsTxt(this.baseUrl, this.o.notes) });
+    // A route a decision names but no build serves yet (x-holdback-planned): 501 and where it is specified (D39).
+    // Counted as a read of this client first, so planned routes are no way around the throttle.
+    const planned = plannedRoute(method, path);
+    if (planned) {
+      this.throttle(`r:${this.client(ctx)}`, this.o.rateLimit?.reads ?? 0);
+      fail('not_implemented', `${method} ${planned.path} is planned, not built: ${planned.note}`, {}, { link: `<${planned.source}>; rel="describedby"` });
     }
-    if (method === 'GET' && ctx.url.pathname === '/llms.txt') return this.send(ctx, { status: 200, headers: { 'content-type': 'text/plain; charset=utf-8' }, body: llmsTxt(this.baseUrl, this.o.notes) });
-    if (s[0] !== 'v1') fail('not_found', `no route ${ctx.url.pathname}`);
+    if (s[0] !== 'v1') fail('not_found', `no route ${path}`);
     if (s[1] === 'ciphertext') return this.ciphertext(ctx);
     if (method === 'POST' && s[1] === 'prepare' && s.length === 3) return this.prepare(ctx, s[2]!);
     if (method === 'POST') return this.write(ctx);
-    if (method !== 'GET') fail('not_found', `no route ${method} ${ctx.url.pathname}`);
+    if (method !== 'GET') fail('not_found', `no route ${method} ${path}`);
     this.throttle(`r:${this.client(ctx)}`, this.o.rateLimit?.reads ?? 0);
     if (s.length === 2 && s[1] === 'events') return this.stream(ctx);
     const body = await this.read(ctx);
@@ -523,32 +603,43 @@ export class Operator {
 
   // ---- writes ------------------------------------------------------------------------------------
 
+  /**
+   * Writes. ADR-0024 §1 (C4): every write is counted against its client at entry, in one synchronous step, so a
+   * concurrent burst cannot pass the check before any of it is counted. A fresh relay the settlement layer accepted
+   * (its signature verified) moves that count from the client to the signer. So a forged signature never spends
+   * another signer's budget, refusals, unsigned writes, dry runs and replays stay on the client, and a signer can
+   * overshoot its own budget only by concurrent writes within its clients' budgets.
+   */
   private async write(ctx: Ctx): Promise<void> {
+    const budget = this.o.rateLimit?.writes ?? 0;
+    const client = `w:${this.client(ctx)}`;
+    this.throttle(client, budget);
     const raw = await this.body(ctx);
     const dryRun = validateOnly(ctx.url.searchParams);
-    if (ctx.segments.join('/') === 'v1/test/faucet') {
-      this.throttle(`w:${this.client(ctx)}`, this.o.rateLimit?.writes ?? 0);
-      return this.idempotent(ctx, raw, () => this.faucet(raw));
-    }
     const s = ctx.segments;
+    if (s.join('/') === 'v1/faucet') return this.idempotent(ctx, raw, () => this.faucet(ctx, raw));
     if (s.length === 4 && s[1] === 'commitments' && s[3] === 'disclosure') {
-      if (dryRun) fail('invalid_terms', 'disclosure has no dry run');
-      this.throttle(`w:${this.client(ctx)}`, this.o.rateLimit?.writes ?? 0);
+      if (dryRun) fail('invalid_terms', 'disclosure has no dry run', { field: 'validateOnly' });
       return this.idempotent(ctx, raw, () => this.disclose(s[2]!, raw));
     }
-    const parsedOp = operationOf(ctx.segments, raw);
-    if (!parsedOp.ok) fail(parsedOp.error.type, parsedOp.error.detail);
+    const parsedOp = operationOf(s, raw);
+    if (!parsedOp.ok) refusal(parsedOp.error);
     const op = (parsedOp as Extract<typeof parsedOp, { ok: true }>).value;
-    if ((op.kind === 'offer' || op.kind === 'hold') && (op.commitment as { id?: unknown }).id === undefined) fail('invalid_terms', MISSING_ID);
-    // Shape first: the throttle reads the signer address, which only a checked body is sure to carry.
+    if ((op.kind === 'offer' || op.kind === 'hold') && (op.commitment as { id?: unknown }).id === undefined) fail('invalid_terms', MISSING_ID, { field: 'id' });
     checkShape(dryRun ? placeholderSigned(op) : op);
-    this.throttle(`w:${lc(signerOf(op) ?? this.client(ctx))}`, this.o.rateLimit?.writes ?? 0);
+    const signer = signerOf(op);
+    const signerBucket = signer ? `w:${lc(signer)}` : undefined;
+    if (signerBucket) this.admit(signerBucket, budget);
     // The policy sees a frozen copy: it can decline, never alter what this node relays.
-    const refusal = this.o.policy?.(deepFreeze(structuredClone(op)), await this.policyContext(op));
-    if (refusal) fail(refusal.type, refusal.detail);
+    const refused = this.o.policy?.(deepFreeze(structuredClone(op)), await this.policyContext(op));
+    if (refused) fail(refused.type, refused.detail);
     if (dryRun) return this.send(ctx, await this.dryRun(op));
     await this.chargeFee(op);
-    return this.idempotent(ctx, raw, () => this.relay(ctx, op));
+    return this.idempotent(ctx, raw, async () => {
+      const r = await this.relay(ctx, op);
+      if (r.status < 300 && signerBucket) this.transfer(client, signerBucket);
+      return r;
+    });
   }
 
   /**
@@ -570,7 +661,17 @@ export class Operator {
       'payment_required',
       `this operator relays a funded agreement for its operator fee of ${operatorFeeText(due, schedule)}, not refunded; this agree ${what}. ` +
         'Prepare it again with POST /v1/prepare/agree-and-fund and sign the operatorFee slot, or send the same signed agreement to another operator or directly to the settlement layer, where no fee of this operator applies',
+      { fee: { to: schedule.to, token: due.token, amount: due.amount } },
     );
+  }
+
+  /** A settlement-layer refusal as this node answers it: an invalid_state says the state now and what the call needs. */
+  private async refusalOf(op: Operation, p: Problem): Promise<ApiProblem> {
+    if (p.type !== 'invalid_state') return p.type === 'invalid_terms' ? { ...p, ...(fieldOf(p.detail) ? { field: fieldOf(p.detail)! } : {}) } : p;
+    const s = await this.o.settlement.state(commitmentIdOf(op)).catch(() => null);
+    if (!s) return p;
+    const needs = needsOf(op);
+    return { ...p, state: s.escrowState, ...(needs && !needs.includes(s.escrowState) ? { needs } : {}) };
   }
 
   /** The parties of the commitment an operation touches: from the operation, else from this node's index. */
@@ -589,7 +690,7 @@ export class Operator {
 
   private async idempotent(ctx: Ctx, raw: unknown, handler: (key: string) => Promise<StoredResponse>): Promise<void> {
     const key = ctx.req.headers['idempotency-key'];
-    if (typeof key !== 'string' || key.length < 1 || key.length > 255) fail('invalid_terms', 'mutating requests need an Idempotency-Key header (1 to 255 characters)');
+    if (typeof key !== 'string' || key.length < 1 || key.length > 255) fail('invalid_terms', 'mutating requests need an Idempotency-Key header (1 to 255 characters)', { field: 'Idempotency-Key' });
     const k = key as string;
     const outcome = await this.idempotency.run(k, fingerprint('POST', ctx.url.pathname, raw), async () => {
       try {
@@ -613,12 +714,12 @@ export class Operator {
     let last: Extract<SubmitResult, { ok: true }> | undefined;
     for (const [i, sub] of subs.entries()) {
       const r = await this.o.settlement.submit(sub, { idempotencyKey: keys[i]!, via: this.o.operatorId });
-      if (!r.ok) return this.problemResponse(ctx, r.problem);
+      if (!r.ok) return this.problemResponse(ctx, await this.refusalOf(op, r.problem));
       last = r;
     }
     const event = last!.events.at(-1);
     const receipt = event ? await this.receiptFor(event) : undefined;
-    return this.ok({ ...last!.state, ...(receipt ? { receipt } : {}) });
+    return this.ok({ ...wholeSeconds(last!.state), ...(receipt ? { receipt } : {}), ...(await this.noticesFor({ kind: 'write', op })) });
   }
 
   /** ADR-0017 §7: Settlement.validate, no idempotency record, no receipt, Holdback-Dry-Run: true. */
@@ -630,9 +731,9 @@ export class Operator {
     } catch {
       return fail('invalid_terms', 'the settlement layer could not read this message');
     }
-    if (!r.ok) fail(r.problem.type, r.problem.detail);
+    if (!r.ok) throw new HttpProblem(await this.refusalOf(op, r.problem));
     const ok = r as Extract<SubmitResult, { ok: true }>;
-    return this.ok(ok.state, { 'holdback-dry-run': 'true', 'holdback-signature-check': ok.signatureCheck });
+    return this.ok(wholeSeconds(ok.state), { 'holdback-dry-run': 'true', 'holdback-signature-check': ok.signatureCheck });
   }
 
   /**
@@ -642,7 +743,7 @@ export class Operator {
    */
   private async disclose(id: string, raw: unknown): Promise<StoredResponse> {
     const body = parsed(parseDisclosure(raw));
-    if (!isHex32(id) || body.commitmentId !== id) fail('invalid_terms', 'commitmentId must be the commitment in the path');
+    if (!isHex32(id) || body.commitmentId !== id) fail('invalid_terms', 'commitmentId must be the commitment in the path', { field: 'commitmentId' });
     const c = (await this.prepareContext().commitment(id as Hex32)) ?? fail('not_found', `no commitment ${id}`);
     if (!isSealed(c!)) fail('invalid_terms', 'this commitment is public: its bodies are already served in the clear');
     const sealed = c as unknown as Extract<AnyCommitment, { privateTerms: unknown }>;
@@ -722,13 +823,20 @@ export class Operator {
     return { ...e, payload: { termsHash: p.termsHash, projection: this.projection(c) } as unknown as SettlementEvent['payload'] };
   }
 
-  private async faucet(raw: unknown): Promise<StoredResponse> {
-    const faucet = this.o.registry.faucet;
-    if (!faucet) fail('not_found', 'this settlement target has no faucet');
-    const b = raw as { address?: string; amount?: string };
-    if (!isAddress(b.address) || typeof b.amount !== 'string' || !/^[1-9][0-9]{0,30}$/.test(b.amount)) fail('invalid_terms', 'the faucet takes {address, amount} with amount in base units as a decimal string');
-    const balance = await faucet!(b.address as Address, BigInt(b.amount!));
-    return this.ok({ address: b.address, balance });
+  /**
+   * POST /v1/faucet (test networks only; the one faucet, D39): test tokens for `address`, and whatever else this
+   * world grants with them (on the public demo, a mandate in its club). `amount` is optional; a node may grant a
+   * fixed amount instead, and `granted` says what it gave.
+   */
+  private async faucet(ctx: Ctx, raw: unknown): Promise<StoredResponse> {
+    const faucet = this.o.registry.faucet ?? fail('not_found', 'this node has no faucet: it does not serve a test network');
+    const b = (raw && typeof raw === 'object' ? raw : {}) as { address?: unknown; amount?: unknown };
+    if (!isAddress(b.address as string)) fail('invalid_terms', 'the faucet takes {"address": "0x<40 hex>"}: your own address; make your own keys', { field: 'address' });
+    if (b.amount !== undefined && (typeof b.amount !== 'string' || !/^[1-9][0-9]{0,30}$/.test(b.amount))) fail('invalid_terms', 'amount, when given, is base units as a decimal string', { field: 'amount' });
+    const address = lc(b.address as string) as Address;
+    const r = await faucet(address, { ...(typeof b.amount === 'string' ? { amount: BigInt(b.amount) } : {}), client: this.client(ctx) });
+    if (!r.ok) fail(r.problem.type, r.problem.detail, r.retryAfterSec !== undefined ? { retryAfterSec: r.retryAfterSec } : {});
+    return this.ok({ address, ...(r as Extract<typeof r, { ok: true }>).grant });
   }
 
   // ---- prepare, ciphertext -------------------------------------------------------------------------
@@ -737,12 +845,14 @@ export class Operator {
   private async prepare(ctx: Ctx, kind: string): Promise<void> {
     this.throttle(`r:${this.client(ctx)}`, this.o.rateLimit?.reads ?? 0);
     const input = await this.body(ctx);
+    let prepared;
     try {
-      return this.send(ctx, this.ok(await prepare(kind, this.prepareContext(), input)));
+      prepared = await prepare(kind, this.prepareContext(), input);
     } catch (e) {
-      if (e instanceof PrepareError) fail(e.problem.type, e.problem.detail);
+      if (e instanceof PrepareError) throw new HttpProblem(e.problem);
       throw e;
     }
+    return this.send(ctx, this.ok({ ...prepared, ...(await this.noticesFor({ kind: 'prepare', prepareKind: kind, input })) }));
   }
 
   private prepareContext(): PrepareContext {
@@ -845,7 +955,10 @@ export class Operator {
       await this.sync();
       const entry = this.index.get(id as Hex32);
       if (!entry) fail('not_found', `no commitment ${id}`);
-      if (s.length === 3) return (await this.o.settlement.state(id as Hex32)) ?? fail('not_found', `no commitment ${id}`);
+      if (s.length === 3) {
+        const state = (await this.o.settlement.state(id as Hex32)) ?? fail('not_found', `no commitment ${id}`);
+        return { ...wholeSeconds(state), ...(await this.noticesFor({ kind: 'state', commitmentId: id as Hex32 })) };
+      }
       // ADR-0024 §3: a sealed deal's terms, full events and judgment record go to a party or involved adjudicator with
       // a ReadToken; everyone else reads the settlement projection (and 401 for a record of a still-private deal).
       const terms = (await this.prepareContext().commitment(id as Hex32))!;
@@ -913,7 +1026,32 @@ export class Operator {
       if (view && (states.length === 0 || states.includes(view.escrowState))) rows.push({ seq: e.offeredSeq, view });
     }
     const page = paginate(rows, (r) => r.seq, q);
-    return { items: page.items.map((r) => r.view), nextCursor: page.nextCursor };
+    return { items: page.items.map((r) => wholeSeconds(r.view)), nextCursor: page.nextCursor };
+  }
+
+  /**
+   * The one discovery document (D39): /v1/status, with `chainId` a number as in prepared typed data, plus where to
+   * send requests, settlement-layer time, this node's limits and, on a demo, the demo's facts. Discovery says where,
+   * not what to trust: an agent pins its EIP-712 domain in its own configuration.
+   */
+  private async discovery(): Promise<Record<string, unknown>> {
+    const s = await this.status();
+    const r = this.o.rateLimit;
+    const windowSec = r ? Math.round(r.windowMs / 1000) : 0;
+    const limits = {
+      ...(r ? { reads: { limit: r.reads, windowSec, per: 'client' }, writes: { limit: r.writes, windowSec, per: 'signer' } } : {}),
+      // Refusals are not stored (a corrected call reuses its key); successes are kept until this node restarts.
+      idempotency: { replays: 'success-only', retention: 'process' },
+    };
+    return {
+      ...s,
+      domain: { ...s.domain, chainId: Number(s.domain.chainId) },
+      apiBaseUrl: this.baseUrl,
+      settlementTime: this.settlementNow(),
+      limits,
+      ...(this.o.demo ? { demo: await this.o.demo() } : {}),
+      ...(this.o.notes ? { notes: [...this.o.notes] } : {}),
+    };
   }
 
   async status(): Promise<OperatorStatus> {
@@ -936,7 +1074,7 @@ export class Operator {
   /** GET /v1/events?from=<seq>: server-sent events (event.schema.json), polling the settlement log. */
   private async stream(ctx: Ctx): Promise<void> {
     const from = ctx.url.searchParams.get('from') ?? '0';
-    if (!/^\d{1,15}$/.test(from)) fail('invalid_cursor', 'from must be a sequence number');
+    if (!/^\d{1,15}$/.test(from)) fail('invalid_terms', 'from must be a sequence number', { field: 'from' });
     let next = Number(from);
     const { res } = ctx;
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });

@@ -101,7 +101,8 @@ export class Agent {
   }
   /** Seller: an offer from a request, checked against the club and primary as every operator serves them. */
   async offer(given: J): Promise<{ id: Hex; terms: J; state: J }> {
-    const request = { nonce: freshNonce(), ...given }; // the agent picks its own nonce
+    // The agent picks its own nonce, and says the level: an offer prepared from plain bodies is public (D39).
+    const request = { nonce: freshNonce(), disclosure: 'public', ...given };
     const prepared = await this.call('POST', '/v1/prepare/offer', request);
     const intent: Intent = { kind: 'offer', request, registration: await this.registration(request.adjudicators.primary), rulebookHash: await this.rulebookHash(request.clubId) };
     const terms = { ...verifyPrepared(prepared, intent, this.address, this.domain, await this.settlementNow()).body };

@@ -22,7 +22,10 @@ const nodes = [
 const children = [];
 const ready = [];
 for (const n of nodes) {
-  const child = spawn('npx', ['-y', 'wrangler@4', 'dev', '-c', n.config, '--ip', '127.0.0.1', '--port', String(n.port), '--inspector-port', String(n.inspector), '--show-interactive-dev-session=false', ...n.vars], { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] });
+  // --local-upstream: without it wrangler dev hands the Worker the route's host (api.escrow.stream), so each node
+  // would publish production URLs (apiBaseUrl, ciphertext URIs, llms.txt links) while serving locally (T-030).
+  const local = ['--local-upstream', `127.0.0.1:${n.port}`, '--local-protocol', 'http'];
+  const child = spawn('npx', ['-y', 'wrangler@4', 'dev', '-c', n.config, '--ip', '127.0.0.1', '--port', String(n.port), '--inspector-port', String(n.inspector), ...local, '--show-interactive-dev-session=false', ...n.vars], { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] });
   children.push(child);
   ready.push(
     new Promise((resolve, reject) => {

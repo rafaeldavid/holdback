@@ -12,6 +12,7 @@ import { PROBLEM_TYPES } from '../../packages/core/src/problem.ts';
 import { testAccount } from '../../apps/operator/src/accounts.ts';
 import { simRegistry } from '../../apps/operator/src/registry.ts';
 import { startOperator, statusOf, SCHEMA_VERSION, type RunningOperator } from '../../apps/operator/src/server.ts';
+import { API_PROBLEM_TYPES } from '../../apps/operator/src/problems.ts';
 import { startSimWorld, type SimWorld } from '../../apps/operator/src/sim-world.ts';
 import { PREPARE_KINDS } from '../../apps/operator/src/prepare.ts';
 import { triggerPath } from '../../packages/sdk/src/operations.ts';
@@ -45,6 +46,9 @@ describe('spec/openapi.json, the document', () => {
     const documented = new Set(OPERATIONS.map((o) => norm(...(o.key.split(' ') as [string, string]))));
     expect([...documented].sort()).toEqual([...served].sort());
     expect(DOC['x-holdback-planned'].map((p: J) => norm(p.method, p.path)).sort()).toEqual([...planned].sort());
+    // D39: a planned route answers 501 not_implemented with a Link to its source, so each row names one.
+    for (const p of DOC['x-holdback-planned']) expect(p.source, p.path).toMatch(/^https:\/\/\S+$/);
+    expect(rows.filter((r) => r[3]).every((r) => /^ \(planned: 501 today; /.test(r[3]!))).toBe(true);
   });
 
   it("documents every route the operator's router names: a route added to server.ts or the SDK's write table without the document fails", () => {
@@ -67,18 +71,27 @@ describe('spec/openapi.json, the document', () => {
     expect(DOC.paths['/v1/commitments/{commitmentId}/triggers/{kind}'].post.parameters.find((p: J) => p.name === 'kind').schema.enum).toEqual(TIMEOUT_KINDS.map(triggerPath));
   });
 
-  it('gives every operation an operationId, summary, description and tag; prepare operations say verify before you sign', () => {
+  it('gives every operation an operationId, summary, a short description and a tag; prepare operations say verify before you sign', () => {
     const ids = OPERATIONS.map((o) => o.operationId);
     expect(new Set(ids).size).toBe(ids.length);
+    const groups = DOC.tags.map((t: J) => t.name).filter((n: string) => n !== 'core');
     for (const { key } of OPERATIONS) {
       const [method, path] = key.split(' ') as [string, string];
       const op = DOC.paths[path][method.toLowerCase()];
       expect(op.operationId, key).toMatch(/^[a-z][A-Za-z]+$/);
       expect(op.summary.length, key).toBeGreaterThan(5);
       expect(op.description.length, key).toBeGreaterThan(40);
-      expect(op.tags, key).toHaveLength(1);
+      // T-030 (review F7): tool generators cap descriptions near 300 characters; the long lists live in externalDocs.
+      expect(op.description.length, key).toBeLessThanOrEqual(300);
+      expect(groups, key).toContain(op.tags[0]);
+      expect(op.tags.slice(1), key).toEqual(op.tags.length > 1 ? ['core'] : []);
       if (path.startsWith('/v1/prepare/')) expect(op.description, key).toMatch(/\*\*Verify before you sign\.\*\*/);
     }
+    expect(DOC.externalDocs.url).toMatch(/^https:\/\//);
+    // The happy path, tagged `core` so a tool generator can load only these (D39).
+    const core = OPERATIONS.filter((o) => DOC.paths[o.key.split(' ')[1]!][o.key.split(' ')[0]!.toLowerCase()].tags.includes('core')).map((o) => o.operationId);
+    expect(core.sort()).toEqual(['fundFromFaucet', 'getAdjudicator', 'getCiphertext', 'getClub', 'getCommitment', 'getCommitmentTerms', 'getDiscovery', 'listCommitmentEvents', 'listReleasedKeys', 'prepareAgreeAndFund', 'prepareDelivery', 'prepareOffer', 'submitAgreement', 'submitDelivery', 'submitOffer', 'uploadCiphertext']);
+    expect(DOC.paths['/v1/faucet'].post.tags[0]).toBe('demo');
   });
 
   it('keeps x-holdback-untrusted on every party-authored field of spec/schemas', () => {
@@ -102,8 +115,9 @@ describe('spec/openapi.json, the document', () => {
   });
 
   it('describes each problem type under the status the operator answers it with', () => {
-    expect(DOC.components.schemas.Problem.properties.type.enum).toEqual([...PROBLEM_TYPES]);
-    for (const type of PROBLEM_TYPES) {
+    expect(DOC.components.schemas.Problem.properties.type.enum).toEqual([...API_PROBLEM_TYPES]);
+    expect(API_PROBLEM_TYPES).toEqual(expect.arrayContaining([...PROBLEM_TYPES]));
+    for (const type of API_PROBLEM_TYPES) {
       const response = DOC.components.responses[`Problem${statusOf(type)}`];
       expect(response?.description, `${type} -> ${statusOf(type)}`).toContain(type);
     }
@@ -113,7 +127,7 @@ describe('spec/openapi.json, the document', () => {
   it('adds no bound the operator does not have to negotiable values (D31)', () => {
     const timing = DOC.components.schemas.PrepareOfferInput.properties.timing.properties;
     for (const [k, s] of Object.entries<J>(timing)) expect(s, k).toEqual({ type: 'integer', minimum: 0 });
-    const offer = { seller: `0x${'1'.repeat(40)}`, buyer: { address: `0x${'2'.repeat(40)}`, encryptionPublicKey: 'pOCSkrZRwni5dyxWn1-puxPZBrRqtoyd-dwrRAn4ogk' }, adjudicators: { primary: `0x${'3'.repeat(40)}`, fallback: `0x${'4'.repeat(40)}`, appeal: `0x${'5'.repeat(40)}` }, clubId: 'sim-club', price: { token: 'tUSD', amount: '25000000' }, deliverable: { kind: 'dataset', description: 'x', format: 'text/csv' } };
+    const offer = { nonce: `0x${'9'.repeat(64)}`, disclosure: 'public', seller: `0x${'1'.repeat(40)}`, buyer: { address: `0x${'2'.repeat(40)}`, encryptionPublicKey: 'pOCSkrZRwni5dyxWn1-puxPZBrRqtoyd-dwrRAn4ogk' }, adjudicators: { primary: `0x${'3'.repeat(40)}`, fallback: `0x${'4'.repeat(40)}`, appeal: `0x${'5'.repeat(40)}` }, clubId: 'sim-club', price: { token: 'tUSD', amount: '25000000' }, deliverable: { kind: 'dataset', description: 'x', format: 'text/csv' } };
     const input = '/paths/~1v1~1prepare~1offer/post/requestBody/content/application~1json/schema';
     expect(checkValue(input, { ...offer, timing: { deliverWithinSec: 400 * 365 * 86_400, judgeWithinSec: 0 }, createdAt: '2020-01-01T00:00:00Z' })).toEqual([]);
   });
@@ -208,7 +222,10 @@ describe('HTTP contract: every operator response matches spec/openapi.json', () 
     const sim = await simAgents(world.url);
     const [api] = world.info.operators as [string];
     const [primary, fallback, appeal] = sim.info.adjudicators.map((a) => a.address);
+    const nonce = () => `0x${Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('hex')}`;
     const request = (seller: Agent, buyer: Agent, extraFields: J = {}) => ({
+      nonce: nonce(),
+      disclosure: 'public',
       template: 'checks-only',
       clubId: sim.info.clubId,
       seller: seller.address,
@@ -239,7 +256,8 @@ describe('HTTP contract: every operator response matches spec/openapi.json', () 
     expect({ ...served.body, servers: DOC.servers }).toEqual(DOC);
     const llms = await http('GET', `${api}/llms.txt`);
     expect(llms.body).toContain(`${api}/v1/openapi.json`);
-    expect(llms.body).toContain('docs/api.md');
+    expect(llms.body).toContain('https://escrow.stream/llms.txt');
+    expect(llms.body).toContain('https://raw.githubusercontent.com/rafaeldavid/holdback/main/docs/api.md');
 
     // 1. examples/buy-dataset: offer, agree and fund, encrypted delivery, release, the buyer opens the data.
     const a = await held();
@@ -269,7 +287,7 @@ describe('HTTP contract: every operator response matches spec/openapi.json', () 
     world.silence('primary', true);
     try {
       await c.seller.deliver(c.terms, new TextEncoder().encode(CSV));
-      const accepted = await signed(await c.buyer.call('POST', '/v1/prepare/early-accept', { commitmentId: c.id }), [c.buyer]);
+      const accepted = await signed(await c.buyer.call('POST', '/v1/prepare/early-accept', { commitmentId: c.id, nonce: nonce() }), [c.buyer]);
       expect((await c.buyer.call('POST', accepted.path, accepted.body)).escrowState).toBe('Released');
     } finally {
       world.silence('primary', false);
@@ -277,7 +295,7 @@ describe('HTTP contract: every operator response matches spec/openapi.json', () 
 
     // 4. Mutual settlement before delivery: both parties sign the same typed data.
     const d = await held();
-    const settled = await signed(await d.buyer.call('POST', '/v1/prepare/settlement', { commitmentId: d.id, toSellerBps: 3000 }), [d.buyer, d.seller]);
+    const settled = await signed(await d.buyer.call('POST', '/v1/prepare/settlement', { commitmentId: d.id, toSellerBps: 3000, nonce: nonce() }), [d.buyer, d.seller]);
     expect((await d.buyer.call('POST', settled.path, settled.body)).escrowState).toBe('Settled');
 
     // 5. Dry run of an unsigned offer, then idempotent replay and conflict on the faucet.
@@ -292,16 +310,18 @@ describe('HTTP contract: every operator response matches spec/openapi.json', () 
     const asReturned = await http('POST', `${api}/v1/commitments?validateOnly=true`, draft.submit.body);
     expect([asReturned.status, asReturned.headers.get('holdback-signature-check')]).toEqual([200, 'skipped']);
     const faucet = { address: e1.address, amount: '1000000' };
-    const once = await http('POST', `${api}/v1/test/faucet`, faucet, { 'idempotency-key': 't015-faucet' });
-    const again = await http('POST', `${api}/v1/test/faucet`, faucet, { 'idempotency-key': 't015-faucet' });
+    const once = await http('POST', `${api}/v1/faucet`, faucet, { 'idempotency-key': 't015-faucet' });
+    const again = await http('POST', `${api}/v1/faucet`, faucet, { 'idempotency-key': 't015-faucet' });
     expect([once.status, again.body]).toEqual([200, once.body]);
-    expect((await http('POST', `${api}/v1/test/faucet`, { ...faucet, amount: '2' }, { 'idempotency-key': 't015-faucet' })).body.type).toBe('idempotency_conflict');
+    expect((await http('POST', `${api}/v1/faucet`, { ...faucet, amount: '2' }, { 'idempotency-key': 't015-faucet' })).body.type).toBe('idempotency_conflict');
+    expect((await http('POST', `${api}/v1/faucet`, { address: e2.address }, { 'idempotency-key': 't015-faucet-default' })).body.granted.token).toBe('tUSD');
 
     // 6. Problems a caller can meet on each kind of route.
     const zero = `0x${'0'.repeat(64)}`;
     const key = (k: string) => ({ 'idempotency-key': `t015-${k}` });
     expect((await http('GET', `${api}/v1/commitments/${zero}`)).status).toBe(404);
-    expect((await http('GET', `${api}/v1/commitments?limit=999`)).body.type).toBe('invalid_cursor');
+    expect((await http('GET', `${api}/v1/commitments?limit=999`)).body).toMatchObject({ type: 'invalid_terms', field: 'limit' });
+    expect((await http('GET', `${api}/v1/commitments?cursor=@`)).body.type).toBe('invalid_cursor');
     expect((await http('GET', `${api}/v1/clubs/${sim.info.clubId}/members/${a.buyer.address}`)).status).toBe(404);
     expect((await http('GET', `${api}/v1/balances/not-an-address`)).status).toBe(400);
     expect((await http('GET', `${api}/v1/commitments/${a.id}/key`)).status).toBe(400);
@@ -326,13 +346,13 @@ describe('HTTP contract: every operator response matches spec/openapi.json', () 
     expect((await http('GET', `${feeNode.url}/v1/status`)).body.fees.operator.bps).toBe(1);
     const feeOffer = await e1.offer(request(e1, e2));
     await e2.waitFor(feeOffer.id, ['AcceptedByAdjudicator']);
-    const fp = (await http('POST', `${feeNode.url}/v1/prepare/agree-and-fund`, { commitmentId: feeOffer.id })).body;
+    const fp = (await http('POST', `${feeNode.url}/v1/prepare/agree-and-fund`, { commitmentId: feeOffer.id, agreeNonce: nonce(), fundingNonce: nonce(), operatorFeeNonce: nonce() })).body;
     expect(fp.sign.map((s: J) => s.slot)).toEqual(['signature', 'fund.signature', 'operatorFee.signature']);
     const paid = await signed(fp, [e2]);
     const { operatorFee, ...unpaid } = paid.body;
     expect(operatorFee.value).toBe('10000');
     const owed = await http('POST', `${feeNode.url}${paid.path}`, unpaid, key('unpaid'));
-    expect([owed.status, owed.body.type]).toEqual([402, 'payment_required']);
+    expect([owed.status, owed.body.type, owed.body.fee.amount]).toEqual([402, 'payment_required', '10000']);
     expect((await http('POST', `${feeNode.url}${paid.path}`, paid.body, key('paid'))).body.escrowState).toBe('Held');
 
     // 8. Triggers once deadlines pass: an offer nobody agreed to expires; a hold with no delivery is reclaimed.

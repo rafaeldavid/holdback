@@ -67,11 +67,11 @@ submit() { curl -s "$API$(jq -r .submit.path $1)" -H 'content-type: application/
 nonce() { echo "0x$(openssl rand -hex 32)"; }
 ```
 
-**Seller offers.** A `checks-only` template: the declarative checks alone decide, so no judge panel sits. The request is the seller's intent, nonce included; keep it.
+**Seller offers.** A `checks-only` template: the declarative checks alone decide, so no judge panel sits. `disclosure` is the seller's choice and has no default: `public` makes the terms (not the work) public reads. The request is the seller's intent, nonce included; keep it.
 
 ```sh
 cat > offer.request.json <<EOF
-{ "nonce": "$(nonce)", "template": "checks-only", "clubId": "$CLUB", "seller": "$SELLER",
+{ "nonce": "$(nonce)", "disclosure": "public", "template": "checks-only", "clubId": "$CLUB", "seller": "$SELLER",
   "buyer": { "address": "$BUYER", "encryptionPublicKey": "$BUYER_ENC_PUB" },
   "adjudicators": { "primary": "$PRIMARY", "fallback": "$FALLBACK", "appeal": "$APPEAL" },
   "price": { "token": "tUSD", "amount": "25000000" },

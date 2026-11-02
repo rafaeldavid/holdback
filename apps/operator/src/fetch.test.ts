@@ -35,7 +35,7 @@ describe('fetchHandler', () => {
     const body = (await r.json()) as Record<string, unknown>;
     expect(body['apiBaseUrl']).toBe(BASE);
     const status = { ...body, domain: { ...(body['domain'] as object), chainId: '31337' } };
-    for (const k of ['apiBaseUrl', 'settlementTime', 'notes']) delete (status as Record<string, unknown>)[k];
+    for (const k of ['apiBaseUrl', 'settlementTime', 'limits', 'demo', 'notes']) delete (status as Record<string, unknown>)[k];
     expect(parseOperatorStatus(status).ok).toBe(true);
     expect(logs.at(-1)).toMatchObject({ method: 'GET', path: '/.well-known/holdback.json', status: 200 });
   });

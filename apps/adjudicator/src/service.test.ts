@@ -132,6 +132,19 @@ describe('acceptance (commit)', () => {
       expect(report.declined).toHaveLength(1);
     }
   });
+
+  it('declines a private or judgment offer whose sealed terms it cannot open, and says why (T-030, F1, D29)', async () => {
+    const s = new TestSettlement();
+    const a = bench(A, 'bench-a', s);
+    const c = makeCommitment({ primary: A.address, fallback: B.address, appeal: C.address, policyHash: policyHashOf(a.adj.policy), registryHash: reg.hash, buyer: BUYER, seller: SELLER });
+    const { deliverable: _d, acceptance: _a, ...rest } = c; // eslint-disable-line @typescript-eslint/no-unused-vars
+    const part = (n: string) => ({ hash: `0x${n.repeat(32)}`, ciphertext: '', envelopes: [] });
+    s.offer({ ...rest, disclosure: { level: 'private' }, privateTerms: { deliverable: part('11'), acceptance: part('22') } } as unknown as typeof c);
+    const report = await a.adj.runOnce();
+    expect(s.state(c.id).kind).toBe('Offered');
+    expect(s.submitted).toEqual([]);
+    expect(report.declined).toEqual([{ commitmentId: c.id, reason: expect.stringMatching(/cannot open sealed terms/) }]);
+  });
 });
 
 describe('primary decision on the demo CSV (about 0.5 MB)', () => {

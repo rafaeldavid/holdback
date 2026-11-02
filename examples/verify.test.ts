@@ -65,6 +65,7 @@ const silence = (role: string, silent: boolean) => fetch(`${world.url}/adjudicat
 let deals = 0;
 const request = (over: J = {}) => ({
   nonce: freshNonce(),
+  disclosure: 'public',
   template: 'checks-only',
   clubId: world.info.clubId,
   seller: seller.address,
