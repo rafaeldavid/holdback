@@ -106,10 +106,13 @@ export function phases(allTasks) {
     const own = allTasks.filter((t) => t.phase === n);
     const done = own.length > 0 && own.every((t) => t.status === 'done');
     const active = own.some((t) => t.status === 'in progress' || t.status === 'review');
-    // every planned line of the phase ("- T-201 …", "- [x] T-013 …", "- D4 decided …"), for the roadmap
-    const items = [...body.matchAll(/^- (?:\[([ x])\] )?(.+)$/gm)]
-      .map((m) => ({ checked: m[1] === 'x', id: m[2].match(/^(T-\d+)/)?.[1] ?? null, text: m[2].replace(/^T-\d+\s*/, '').replace(/\s+/g, ' ').trim() }))
-      .filter((it) => it.id || /^(Decide|D\d+)/.test(it.text));
+    // every planned line of the phase ("- T-201 …", "- [x] T-013 …", "- D4 decided …"), for the roadmap; a phase with
+    // no task IDs yet (Phase 5 onward) shows all its lines, so later work is visible before it has task files
+    const plan = body.split('**Exit:**')[0];
+    const lines = [...plan.matchAll(/^- (?:\[([ x])\] )?(.+)$/gm)]
+      .map((m) => ({ checked: m[1] === 'x', id: m[2].match(/^(T-\d+)/)?.[1] ?? null, text: m[2].replace(/^T-\d+\s*/, '').replace(/\s+/g, ' ').trim() }));
+    const tasked = lines.some((it) => it.id);
+    const items = lines.filter((it) => !tasked || it.id || /^(Decide|D\d+)/.test(it.text));
     result.push({ n, title: parts[i + 1], goal, exit, items, tasks: own.map((t) => t.id), status: done ? 'done' : active ? 'active' : 'later' });
   }
   const next = result.find((p) => p.status !== 'done');

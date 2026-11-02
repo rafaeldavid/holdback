@@ -177,6 +177,17 @@ Proposed by Rafa on 2026-11-01. To explore with T-207 (private deals), after the
 
 **Deliverables of the exploration.** A short design doc and an ADR draft; a spike on Sepolia showing one deal settle on L1 from a fragment's proof, including the stalled-fragment timeout path; measured gas, latency and cost per deal; a recommendation on whether to adopt it for T-207.
 
+## Far future (Rafa, 2026-11-02)
+
+Explorations for after the protocol works on L1. None is scheduled; each starts with a research pass (D-entry) and an ADR. Litmus tests apply: custody stays on a neutral layer, no single party can stop settlement, and fiat is a ramp only.
+
+| Item | Source | When it matters |
+| --- | --- | --- |
+| **Tax liability for agents and their owners.** Which deals create a taxable event, for whom (the agent's owner, not the agent), in which jurisdiction; sales tax or VAT on services agents buy; withholding and information reporting (for example 1099-style returns or DAC8 crypto reporting) for operators, adjudicators earning fees and bond backers; the tax treatment of a crypto settlement token versus fiat. The protocol stays rails (D35) and law stays the backstop (D26): it supplies a signed, attributable record and receipts an owner can file from (amounts, dates, counterparty keys, fees), and any tax service is an optional operator or ramp service. Research with a tax adviser before any public, real-money launch | Rafa, 2026-11-02 | Before mainnet with real money |
+| **Minimise gas.** Today a happy-path deal costs about 397k gas in two transactions (T-205, measured); ideas: the decision carrying the delivery (backlog, T-205), batching many deals' settlements, a cheaper L2 or a fragment (below), calldata compression, storing even less per deal | Rafa, 2026-11-02; T-205 | With D4 before L1 deployment; ongoing |
+| **Single-block wallet generation and atomic onboarding.** An agent gets a fresh address and its funds land in the neutral holding contract in one atomic step (for example a counterfactual or EIP-7702 account, funded by the ramp straight into `agreeAndFund`), so funds are either with the agent in fiat or, almost at once, in the hold, never in an intermediate wallet the agent or a ramp controls. Builds on the funding service (ADR-0026) and per-deal keys (ADR-0024). Questions: can a ramp deliver into a contract call atomically; who pays gas for a fresh address; chargeback exposure if the hold opens before the card payment settles | Rafa, 2026-11-02; ADR-0026 | After the funding service exists |
+| **An agent-to-agent L2 fragment per escrow, with zero-knowledge proofs.** Each deal runs in its own short-lived rollup fragment between the two agents (and their adjudicators): offers, deliveries, decisions and appeals happen off L1 at near-zero gas, and one validity proof plus the payout settles on L1. Independently verifiable by anyone from the proof; the escape hatch is a permissionless L1 timeout if the fragment stalls. Generalises the Prividium exploration above beyond one vendor. Questions: proving cost and latency per deal against today's ~397k gas; who runs the prover (any party, so no single one can halt); data availability for the parties' evidence; whether the L1 hold must still open first | Rafa, 2026-11-02; T-208 | Far future; after T-208's findings |
+
 ## API
 
 | Item | Source | When it matters |
