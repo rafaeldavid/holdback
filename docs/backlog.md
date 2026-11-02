@@ -211,6 +211,8 @@ Explorations for after the protocol works on L1. None is scheduled; each starts 
 
 | Item | Source | When it matters |
 | --- | --- | --- |
+| `GET /v1/commitments?party=…` returns each party's whole tUSD balance under `balances`, beyond what the deal itself needs; at odds with minimal disclosure (D35). Return the deal's own amounts, or require a ReadToken for balances | Two-agent rehearsal 4, 2026-11-02 | Next API batch |
+| No signal reaches the seller when the buyer funds; it polls until both operators show `Held` (the planned webhooks route would carry it) | Two-agent rehearsal 4, 2026-11-02 | With webhooks |
 | `POST /v1/prepare/offer` accepts timing whose offer outlasts the funding window (`offerExpiresInSec` 3600 with the default `fundWithinSec` 1800) and answers 200; the submit then refuses it with 400 `invalid_terms` "offerExpiresAt < fundBy violated", without a `field` member. Prepare and dry run should refuse it with `field: "timing.fundWithinSec"` (D31: contradictory, not a cap) | Two-agent rehearsal, 2026-11-02 | Next API batch |
 | `demo.operators` in discovery differs by node: op-1 lists only itself, op-2 lists both | Two-agent rehearsal, 2026-11-02 | Next demo-cloud change |
 | Offer list items (`GET /v1/commitments?party=`) do not name the seller, so a buyer that found an offer itself reads `/terms` to check it | Two-agent rehearsal, 2026-11-02 | Next API batch |
