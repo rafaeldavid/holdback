@@ -9,90 +9,95 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500;600&display=swap">
 <style>
-/* Layout: three agent panels side by side (stacked on phones), controls above, the information-flow diagram below. */
+/* Layout: one laptop screen, no scrolling. A thin header row, three agent panels filling the middle, the flow diagram as a strip along the bottom. */
 :root{
   color-scheme:light;
   --paper:#faf7f0; --card:#ffffff; --ink:#2f2d2a; --pencil:#6b665d; --rule:#e2dccf;
-  --sepia:#8a6237; --term:#1e1d1b; --term-ink:#e9e4d8; --term-dim:#a39d90; --ok:#5f9c6a; --lock:#b5852c;
-  --buyer:#3c6e8f; --seller:#8a5a2b; --arb:#5b5a8c; --crow:#2f2d2a;
+  --sepia:#8a6237; --term:#1e1d1b; --term-ink:#e9e4d8; --term-dim:#a39d90; --ok:#5f9c6a;
+  --buyer:#3c6e8f; --seller:#8a5a2b; --arb:#5b5a8c;
   --display:"EB Garamond",Garamond,"Times New Roman",serif;
   --chat:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
   --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
 }
 *{box-sizing:border-box}
-body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.5 var(--chat)}
-.wrap{max-width:1280px;margin:0 auto;padding:24px max(16px,env(safe-area-inset-right,0px)) 48px max(16px,env(safe-area-inset-left,0px));display:flex;flex-direction:column;gap:18px}
-header{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px}
-h1{font:600 2rem/1.1 var(--display);margin:0}
+html,body{height:100%}
+body{margin:0;background:var(--paper);color:var(--ink);font:14px/1.45 var(--chat);overflow:hidden}
+.wrap{height:100vh;height:100dvh;max-width:1440px;margin:0 auto;padding:10px max(14px,env(safe-area-inset-right,0px)) 8px max(14px,env(safe-area-inset-left,0px));display:grid;grid-template-rows:auto minmax(0,1fr) minmax(170px,30vh);gap:8px}
+header{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px}
+h1{font:600 1.45rem/1 var(--display);margin:0;white-space:nowrap}
 h1 a{color:inherit;text-decoration:none}
-.sub{color:var(--pencil);margin:4px 0 0;font-size:.92rem;max-width:62ch}
-.controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
-button{font:500 .88rem var(--chat);padding:7px 14px;border-radius:999px;border:1px solid var(--ink);background:var(--card);color:var(--ink);cursor:pointer}
+.sub{color:var(--pencil);font-size:.78rem;flex:1 1 280px;min-width:0;margin:0}
+.controls{display:flex;gap:6px;align-items:center}
+button{font:500 .8rem var(--chat);padding:5px 12px;border-radius:999px;border:1px solid var(--ink);background:var(--card);color:var(--ink);cursor:pointer}
 button.primary{background:var(--ink);color:var(--paper)}
 button:focus-visible{outline:2px solid var(--sepia);outline-offset:2px}
-.state{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font:.8rem var(--mono);color:var(--pencil)}
-.state span{padding:3px 8px;border:1px solid var(--rule);border-radius:4px;background:var(--card)}
+.clock{font:.75rem var(--mono);color:var(--pencil);white-space:nowrap}
+.state{display:flex;flex-wrap:wrap;gap:4px;font:.7rem var(--mono);color:var(--pencil);flex-basis:100%}
+.state span{padding:2px 7px;border:1px solid var(--rule);border-radius:4px;background:var(--card)}
 .state span.on{border-color:var(--ink);color:var(--ink);font-weight:600}
 .state span.done{color:var(--ok);border-color:var(--ok)}
-.clock{font:.8rem var(--mono);color:var(--pencil);min-width:9ch}
-.panels{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
-.panel{background:var(--card);border:1px solid var(--rule);border-radius:8px;display:flex;flex-direction:column;min-width:0;height:520px}
-.panel>h2{margin:0;padding:12px 14px 10px;border-bottom:1px solid var(--rule);display:flex;flex-direction:column;gap:2px}
-.panel>h2 b{font:600 1.35rem/1.1 var(--display)}
-.panel>h2 small{font:.75rem var(--mono);color:var(--pencil);font-weight:400}
+.panels{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;min-height:0}
+.panel{background:var(--card);border:1px solid var(--rule);border-radius:8px;display:flex;flex-direction:column;min-width:0;min-height:0}
+.panel>h2{margin:0;padding:7px 12px 6px;border-bottom:1px solid var(--rule);display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.panel>h2 b{font:600 1.2rem/1 var(--display)}
+.panel>h2 small{font:.68rem var(--mono);color:var(--pencil);font-weight:400}
 .panel.buyer>h2 b{color:var(--buyer)} .panel.seller>h2 b{color:var(--seller)} .panel.arb>h2 b{color:var(--arb)}
-.log{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:10px;scroll-behavior:smooth}
-.msg{max-width:88%;padding:8px 11px;border-radius:14px;font:.9rem/1.4 var(--chat);white-space:pre-wrap}
+.log{flex:1;min-height:0;overflow-y:auto;padding:8px 10px;display:flex;flex-direction:column;gap:7px;scroll-behavior:smooth;scrollbar-width:thin}
+.msg{max-width:90%;padding:6px 10px;border-radius:12px;font:.82rem/1.35 var(--chat);white-space:pre-wrap}
 .msg.person{align-self:flex-end;background:#e7eef3;border-bottom-right-radius:4px}
 .msg.agent{align-self:flex-start;background:#f2eee5;border-bottom-left-radius:4px}
-.msg .who{display:block;font-size:.7rem;color:var(--pencil);margin-bottom:2px}
-.term{background:var(--term);color:var(--term-ink);border-radius:6px;padding:9px 11px;font:.76rem/1.5 var(--mono);white-space:pre-wrap;word-break:break-word}
+.msg .who{display:block;font-size:.64rem;color:var(--pencil);margin-bottom:1px}
+.term{background:var(--term);color:var(--term-ink);border-radius:6px;padding:6px 9px;font:.7rem/1.45 var(--mono);white-space:pre-wrap;word-break:break-word}
 .term .cmd{color:#fff} .term .cmd::before{content:"$ ";color:var(--term-dim)}
 .term .out{color:var(--term-dim)} .term .ok{color:#8fd19e} .term .lock{color:#e5b85c}
-.note{font:.8rem var(--chat);color:var(--pencil);border-left:2px solid var(--rule);padding-left:8px}
+.note{font:.75rem var(--chat);color:var(--pencil);border-left:2px solid var(--rule);padding-left:7px}
 .step-in{animation:rise .35s ease-out}
 @keyframes rise{from{opacity:.25;transform:translateY(4px)}to{opacity:1;transform:none}}
-.flow{background:var(--card);border:1px solid var(--rule);border-radius:8px;padding:12px 12px 6px}
-.flow h3{margin:0 0 4px;font:600 1.1rem var(--display)}
-.flow .caption{font:.85rem var(--chat);color:var(--pencil);min-height:1.4em;margin:0 0 6px}
-.flow svg{width:100%;height:auto;display:block}
-.legend{display:flex;flex-wrap:wrap;gap:14px;font:.78rem var(--chat);color:var(--pencil);padding:4px 2px}
-.legend i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;vertical-align:-1px}
-footer{font:.8rem var(--chat);color:var(--pencil)}
-footer a{color:var(--sepia)}
-@media (max-width:720px){.panels{grid-template-columns:1fr}.panel{height:340px}}
+.flow{background:var(--card);border:1px solid var(--rule);border-radius:8px;padding:6px 10px 4px;display:flex;flex-direction:column;min-height:0}
+.flowhead{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 14px}
+.flow h3{margin:0;font:600 1rem var(--display);white-space:nowrap}
+.caption{font:.8rem var(--chat);color:var(--ink);flex:1 1 300px;min-width:0;margin:0}
+.legend{display:flex;gap:10px;font:.68rem var(--chat);color:var(--pencil);white-space:nowrap}
+.legend i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:4px;vertical-align:-1px}
+.flow svg{flex:1;min-height:0;width:100%;display:block}
+@media (max-width:720px){
+  body{overflow:auto}
+  .wrap{height:auto;grid-template-rows:auto auto auto}
+  .panels{grid-template-columns:1fr}.panel{height:300px}
+  .flow svg{height:220px;flex:none}
+}
 @media (prefers-reduced-motion:reduce){.step-in{animation:none}.log{scroll-behavior:auto}}
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
-    <div>
-      <h1><a href="/">’crow</a> · a deal, step by step</h1>
-      <p class="sub">A real test deal on escrow.stream, replayed from its log (2 November 2026, test tokens). Michael's agent buys a dataset from Rafael's agent; an arbitrator checks the work. One sealed message opens the deal; everything else runs through the ’crow API.</p>
-    </div>
+    <h1><a href="/">’crow</a> · a deal, step by step</h1>
+    <p class="sub">A real test deal on escrow.stream, replayed from its log (2 Nov 2026, test tokens): Michael's agent buys a dataset from Rafael's agent; an arbitrator checks the work.</p>
     <div class="controls">
+      <span class="clock" id="clock">22:26:59 UTC</span>
       <button class="primary" id="play" type="button">Pause</button>
-      <button id="next" type="button">Next step</button>
+      <button id="next" type="button">Next</button>
       <button id="restart" type="button">Restart</button>
-      <span class="clock" id="clock">22:26:59</span>
+    </div>
+    <div class="state" id="state" aria-label="Deal state">
+      <span data-s="Request">Request</span><span data-s="Offered">Offered</span><span data-s="Accepted">Accepted by arbitrator</span><span data-s="Held">Held</span><span data-s="Delivered">Delivered</span><span data-s="Released">Released</span><span data-s="Final">Final</span>
     </div>
   </header>
 
-  <div class="state" id="state" aria-label="Deal state">
-    <span data-s="Request">Request</span><span data-s="Offered">Offered</span><span data-s="Accepted">Accepted by arbitrator</span><span data-s="Held">Held</span><span data-s="Delivered">Delivered</span><span data-s="Released">Released</span><span data-s="Final">Final</span>
-  </div>
-
-  <div class="panels">
+    <div class="panels">
     <section class="panel buyer" aria-label="Buyer"><h2><b>Buyer</b><small>Michael's agent · 0x328f…3461</small></h2><div class="log" id="log-b"></div></section>
     <section class="panel seller" aria-label="Seller"><h2><b>Seller</b><small>Rafael's agent · fresh key 0xd04c…94cf</small></h2><div class="log" id="log-s"></div></section>
     <section class="panel arb" aria-label="Arbitrator"><h2><b>Arbitrator</b><small>bonded adjudicator · 0xc068…e679</small></h2><div class="log" id="log-a"></div></section>
   </div>
 
   <section class="flow" aria-label="How information moves">
-    <h3>What moves, and who can read it</h3>
-    <p class="caption" id="caption">&nbsp;</p>
-    <svg viewBox="0 0 1000 300" id="diagram" role="img" aria-label="Diagram of the buyer, the seller's intake, the ’crow API, the escrow hold, the arbitrator and the seller">
+    <div class="flowhead">
+      <h3>What moves, and who can read it</h3>
+      <p class="caption" id="caption">&nbsp;</p>
+      <div class="legend"><span><i style="background:#e5b85c"></i>encrypted</span><span><i style="background:#3c6e8f"></i>signed</span><span><i style="background:#5f9c6a"></i>test tUSD</span></div>
+    </div>
+    <svg viewBox="0 0 1000 230" preserveAspectRatio="xMidYMid meet" id="diagram" role="img" aria-label="Diagram of the buyer, the seller's intake, the ’crow API, the escrow hold, the arbitrator and the seller">
       <defs>
         <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#b8b0a0"/></marker>
       </defs>
@@ -100,25 +105,20 @@ footer a{color:var(--sepia)}
       <g id="nodes"></g>
       <g id="packets"></g>
     </svg>
-    <div class="legend">
-      <span><i style="background:#e5b85c"></i>Encrypted: only the named party can open it</span>
-      <span><i style="background:#3c6e8f"></i>Signed message</span>
-      <span><i style="background:#5f9c6a"></i>Test money (tUSD)</span>
-    </div>
   </section>
 
-  <footer>Every line is from the real run: commitment <code>0xd0d4…76de</code>, released 1 second after delivery. Test tokens only; no real money. <a href="/llms.txt">The agent guide</a> · <a href="/">escrow.stream</a></footer>
+  
 </div>
 
 <script>
 // Nodes of the diagram, in viewBox units.
 const N = {
-  buyer:  { x: 110, y: 150, label: 'Buyer agent', color: '#3c6e8f' },
-  intake: { x: 500, y: 42,  label: 'rafael.fyi/agents', sub: 'seller’s intake', color: '#8a5a2b' },
-  crow:   { x: 500, y: 150, label: '’crow API', sub: 'api / api2.escrow.stream', color: '#2f2d2a' },
-  escrow: { x: 380, y: 258, label: 'Escrow hold', sub: 'no owner, no admin keys', color: '#5f9c6a' },
-  arb:    { x: 640, y: 258, label: 'Arbitrator', sub: 'bonded', color: '#5b5a8c' },
-  seller: { x: 890, y: 150, label: 'Seller agent', color: '#8a5a2b' },
+  buyer:  { x: 105, y: 115, label: 'Buyer agent', color: '#3c6e8f' },
+  intake: { x: 500, y: 28,  label: 'rafael.fyi/agents', sub: 'seller’s intake', color: '#8a5a2b' },
+  crow:   { x: 500, y: 115, label: '’crow API', sub: 'api / api2.escrow.stream', color: '#2f2d2a' },
+  escrow: { x: 330, y: 200, label: 'Escrow hold', sub: 'no owner, no admin keys', color: '#5f9c6a' },
+  arb:    { x: 670, y: 200, label: 'Arbitrator', sub: 'bonded', color: '#5b5a8c' },
+  seller: { x: 895, y: 115, label: 'Seller agent', color: '#8a5a2b' },
 };
 const EDGES = [['buyer','intake'],['intake','seller'],['buyer','crow'],['crow','seller'],['crow','escrow'],['crow','arb'],['escrow','buyer'],['escrow','seller'],['escrow','arb']];
 
@@ -219,7 +219,7 @@ function animateFlows(flows) {
     const dot = svg('g');
     dot.append(svg('circle', { r: 11, fill: color, stroke: '#ffffff', 'stroke-width': 2 }));
     if (kind === 'lock') dot.append(lockIcon(0, 1));
-    const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2 - 14 - i * 16;
+    const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2 - 12 - i * 22;
     const tw = Math.max(70, label.length * 6.3 + 16);
     const tag = svg('g', { transform: `translate(${mx},${my})` });
     tag.append(svg('rect', { x: -tw / 2, y: -11, width: tw, height: 20, rx: 10, fill: '#ffffff', stroke: color, 'stroke-width': 1.2 }));
