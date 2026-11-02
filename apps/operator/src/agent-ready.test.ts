@@ -162,6 +162,13 @@ describe('planned routes (D39)', () => {
     }
     expect((await http('GET', `${api}/v1/nothing-here`)).status).toBe(404);
   });
+
+  it('count as a read of the client, so they are no way around the throttle (PR 85 review)', async () => {
+    const handle = fetchHandler(throttled.operator);
+    const codes: number[] = [];
+    for (let i = 0; i < 101; i++) codes.push((await handle(new Request('http://op.invalid/v1/funding/quote', { method: 'POST', body: '{}' }), 'planned-reader')).status);
+    expect([codes.slice(0, 100).every((c) => c === 501), codes[100]]).toEqual([true, 429]);
+  });
 });
 
 describe('one faucet (Simplify 3)', () => {
@@ -270,5 +277,25 @@ describe('the write budget (C4, ADR-0024 §1)', () => {
     expect((await post('seller-b', '/v1/commitments', await genuine())).status).toBe(200);
     const third = await post('seller-c', '/v1/commitments', await genuine());
     expect([third.status, ((await third.json()) as J).retryAfterSec]).toEqual([429, expect.any(Number)]);
+  });
+
+  it('holds under a concurrent burst: a client is counted at entry, and a signer overshoots only within its clients\' budgets (PR 85 review)', async () => {
+    const handle = fetchHandler(throttled.operator);
+    const post = (client: string, body: unknown) =>
+      handle(new Request('http://op.invalid/v1/commitments', { method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': `t030-burst-${++keys}` }, body: JSON.stringify(body) }), client);
+    const statuses = async (rs: Promise<Response>[]) => (await Promise.all(rs)).map((r) => r.status).sort();
+    const offers = async (n: number, seller: string, buyer: string, key = acct(seller).privateKey, forge = false) =>
+      Promise.all(Array.from({ length: n }, async () => (await sign((await http('POST', `${api}/v1/prepare/offer`, offerInput(buyer, seller))).body as Prepared, key, forge)).submit.body));
+    // Twenty forged writes at once from one client with a budget of two: two reach the settlement layer.
+    const forged = await offers(20, 'seller-1', 'buyer-1', testAccount('burst-mallory').privateKey, true);
+    expect(await statuses(forged.map((b) => post('burst-mallory', b)))).toEqual([...Array(2).fill(401), ...Array(18).fill(429)]);
+    // Ten genuine writes at once by one signer from one client: the client's budget holds.
+    const one = await offers(10, 'seller-1', 'buyer-1');
+    expect(await statuses(one.map((b) => post('burst-one', b)))).toEqual([...Array(2).fill(200), ...Array(8).fill(429)]);
+    // Ten genuine writes at once by another signer from ten clients: each client spends one of its own two, the
+    // signer is then over its budget, and its next write is refused from any client.
+    const many = await offers(11, 'buyer-1', 'buyer-2');
+    expect(await statuses(many.slice(0, 10).map((b, i) => post(`burst-${i}`, b)))).toEqual(Array(10).fill(200));
+    expect((await post('burst-fresh', many[10])).status).toBe(429);
   });
 });

@@ -179,6 +179,28 @@ describe('examples', () => {
     }
   });
 
+  it('the quickstart request bodies are ones the operator takes, not only its paths (T-030 review)', async () => {
+    const doc = readFileSync(here('../docs/quickstart.md'), 'utf8');
+    // The offer: the heredoc as a newcomer's shell fills it, posted to prepare.
+    const heredoc = /cat > offer\.request\.json <<EOF\n([\s\S]*?)\nEOF/.exec(doc)?.[1];
+    expect(heredoc, 'the quickstart writes offer.request.json with a heredoc').toBeTruthy();
+    const acct = (l: string) => world.info.accounts.find((a) => a.label === l)!;
+    const [primary, fallback, appeal] = world.info.adjudicators.map((a) => a.address);
+    const vars: Record<string, string> = {
+      CLUB: world.info.clubId, SELLER: acct('seller-1').address, BUYER: acct('buyer-1').address, BUYER_ENC_PUB: acct('buyer-1').encryptionPublicKey,
+      PRIMARY: primary!, FALLBACK: fallback!, APPEAL: appeal!,
+    };
+    const filled = heredoc!.replace(/\$\(nonce\)/g, () => `0x${Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('hex')}`).replace(/\$([A-Z_]+)/g, (_, v: string) => vars[v] ?? `<unset ${v}>`);
+    expect(filled).not.toMatch(/<unset /);
+    const api = world.info.operators[0]!;
+    const offer = await fetch(`${api}/v1/prepare/offer`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: filled });
+    expect([offer.status, offer.status === 200 ? '' : await offer.text()]).toEqual([200, '']);
+    // The agreement: the jq object the quickstart builds names every field the API requires.
+    const keys = /'\{commitmentId: \$id, ([^}]+)\}' agree\.intent\.json > agree\.request\.json/.exec(doc)?.[1]?.split(',').map((k) => k.trim());
+    const spec = JSON.parse(readFileSync(here('../spec/openapi.json'), 'utf8'));
+    expect(['commitmentId', ...(keys ?? [])]).toEqual(expect.arrayContaining(spec.components.schemas.PrepareAgreeAndFundInput.required));
+  });
+
   it('every API path the quickstart curls is a route the operator serves', async () => {
     const doc = readFileSync(here('../docs/quickstart.md'), 'utf8');
     const paths = [...doc.matchAll(/\$API(\/v1\/[A-Za-z0-9/_.-]*|\/\.well-known\/holdback\.json)/g)].map((m) => m[1]!.replace(/\$\w+/g, ''));
