@@ -113,6 +113,7 @@ describe('public mode', () => {
 
   it('states what the demo is in one discovery document, also served at GET /, and in llms.txt', async () => {
     const { urls } = await serve();
+    for (const u of urls) await fetch(`${u}/v1/status`); // a node learns its public origin from its first request
     for (const u of urls) {
       const d = (await (await fetch(`${u}/.well-known/holdback.json`)).json()) as J;
       expect(d.apiBaseUrl).toBe(u);
@@ -141,7 +142,7 @@ describe('public mode', () => {
     const { urls } = await serve();
     const d = await discovery(urls);
     const [seller, buyer] = [freshAgent(urls), freshAgent(urls)];
-    const r = (await (await post(`${urls[0]}/v1/prepare/offer`, offerRequest(d, seller, buyer, { template: 'default' }))).json()) as J;
+    const r = (await (await post(`${urls[0]}/v1/prepare/offer`, offerRequest(d, seller, buyer, RUBRIC_OFFER))).json()) as J;
     expect(r.notices).toEqual([expect.stringMatching(/scripted/)]);
     const c = (await (await post(`${urls[0]}/v1/prepare/offer`, offerRequest(d, seller, buyer))).json()) as J;
     expect(c.kind).toBe('offer');
@@ -180,6 +181,8 @@ describe('public mode', () => {
   });
 });
 
+/** A rubric deal: a judge panel scores it. */
+const RUBRIC_OFFER = { template: 'default', rubric: { passThreshold: 300, criteria: [{ id: 'ok', description: 'Fine.', weight: 1, anchors: { '0': 'No', '2': 'Partly', '4': 'Yes' } }] } };
 /** The discovery document, as an agent with only a URL reads it. */
 const discovery = async (urls: string[]): Promise<J> => (await (await fetch(`${urls[0]}/.well-known/holdback.json`)).json()) as J;
 /** A checks-only offer request from the demo facts in discovery. */
@@ -255,7 +258,7 @@ describe('live judges (T-028), with a stand-in for the models', () => {
     expect(notes).toMatch(/live judge panel/i);
     expect(notes).toMatch(/7 live judge calls a day/);
     const d = await discovery(urls);
-    const r = (await (await post(`${urls[0]}/v1/prepare/offer`, offerRequest(d, freshAgent(urls), freshAgent(urls), { template: 'default' }))).json()) as J;
+    const r = (await (await post(`${urls[0]}/v1/prepare/offer`, offerRequest(d, freshAgent(urls), freshAgent(urls), RUBRIC_OFFER))).json()) as J;
     expect(r.notices).toEqual([expect.stringMatching(/live judge panel/)]);
   });
 

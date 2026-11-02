@@ -7,15 +7,19 @@
 //   mandates, the adjudicators, the two receipt signers) derives from a random per-world secret kept in
 //   storage and never served. Agents make their own keys;
 // - POST /v1/faucet funds and admits an address: a fixed amount of tUSD and a mandate in the demo club,
-//   once per address per window, and a few addresses per client per window;
+//   once per address per window, and a few addresses per client per window. The operators serve it (the one
+//   faucet, D39); this world supplies the grant;
+// - the discovery document (also at GET /) carries the demo's facts: club, token, adjudicators by role, faucet,
+//   judges (D39); notices in the body say which judge panel would score an offer and why an offer was declined;
+// - the adjudicators decline sealed (private or judgment) offers, which they cannot open yet (T-030, F1);
 // - the journal of what the chain accepted, the ciphertext and the judgment records are persisted, so the
 //   world is rebuilt by replay after the Durable Object is evicted.
 // No real money: SimChain (chain id 31337), the test token tUSD, and the operators' startup guards.
-import { canonicalKeccak, holdbackDomain, parseAdjudicator, type AdjudicatorRegistration, type Address, type Hex32, type Judgment, type Mandate, type OperatorFeeSchedule, type Sha256, type Timestamp } from '@holdback/core';
+import { canonicalKeccak, holdbackDomain, parseAdjudicator, problem, type AdjudicatorRegistration, type Address, type Hex32, type Judgment, type Mandate, type OperatorFeeSchedule, type Sha256, type Timestamp, type TokenAmount } from '@holdback/core';
 import { sha256 } from '@holdback/core/crypto';
 import { StoreError, type CiphertextStore } from '@holdback/core/store';
 import { testAdjudicator, type TestAdjudicator } from '@holdback/adjudicator';
-import { fetchHandler, fingerprint, IdempotencyStore, Operator, simRegistry, testAccount, type Registry, type StoredResponse, type TestAccount } from '@holdback/operator';
+import { fetchHandler, Operator, simRegistry, testAccount, type DemoFacts, type FaucetOutcome, type NoticeSubject, type Registry, type TestAccount } from '@holdback/operator';
 import { mandateFor, SIM_CHAIN_ID, SIM_RULEBOOK, simClub, SimChain, TOKEN, wideScope, type Genesis, type JournalEntry } from '@holdback/settlement/sim';
 import { panelConfig, type JudgeProvider, type PanelConfig } from './judges.js';
 import type { WorldStorage } from './storage.js';
@@ -73,10 +77,11 @@ const ACTIVE_FOR_MS = 15 * 60_000;
 const SCRIPTED_PANEL = 'scripted judge panel: no model runs in this demo, every panel verdict is a fake judge marked "[fake judge, no model ran]"; use template checks-only for real acceptance';
 const livePanel = (perDay: number) =>
   `live judge panel: pinned models from two families (Anthropic, DeepSeek; config/judges-live.yaml), at most ${perDay} live judge calls a day across this demo; past that, panels are scripted fake judges whose verdicts are marked "[fake judge, no model ran]"`;
+const SEALED =
+  'These demo adjudicators decline private and judgment offers: they cannot open sealed terms yet (T-207), so the offer would stay unaccepted and expire, and nobody could fund it. Offer at disclosure public on this demo; the work itself is encrypted either way.';
 
 const wholeSecond = (ms: number): Timestamp => new Date(Math.floor(ms / 1000) * 1000).toISOString().replace('.000Z', 'Z');
 const lc = (s: string) => s.toLowerCase();
-const isAddress = (s: unknown): s is Address => typeof s === 'string' && /^0x[0-9a-fA-F]{40}$/.test(s);
 const hex = (b: Uint8Array) => [...b].map((x) => x.toString(16).padStart(2, '0')).join('');
 const jkey = (i: number) => `j:${String(i).padStart(12, '0')}`;
 
@@ -100,8 +105,6 @@ class StorageCiphertextStore implements CiphertextStore {
 }
 
 export class PublicWorld {
-  private readonly idempotency = new IdempotencyStore();
-  private readonly perClient = new Map<string, { start: number; count: number }>();
   private persisted: number;
   private persisting: Promise<void> = Promise.resolve();
   private lastActive: number;
@@ -111,12 +114,12 @@ export class PublicWorld {
     private readonly o: PublicWorldOptions,
     private readonly secret: string,
     readonly chain: SimChain,
-    private readonly club: ReturnType<typeof simClub>,
-    private readonly principal: TestAccount,
     private readonly keys: TestAccount[],
     readonly operators: readonly Operator[],
     readonly adjudicators: Record<Role, TestAdjudicator>,
     private readonly panel: PanelConfig,
+    /** Offers an adjudicator declined, with its reason, for the state read's notices. In memory: every pass declines again. */
+    private readonly declined: Map<Hex32, string>,
     persisted: number,
   ) {
     this.persisted = persisted;
@@ -131,11 +134,12 @@ export class PublicWorld {
   /** Opens the world in `storage`: creates it on first use, otherwise replays its journal. */
   static async open(o: PublicWorldOptions): Promise<PublicWorld> {
     const { storage } = o;
+    const now = o.now ?? Date.now;
     // Fixed when the world is created: the journal replays only against the genesis it was written under, so
     // a later configuration change (MIN_WINDOW_SEC) applies to a fresh world, not to this one.
     let meta = await storage.get<{ secret: string; start: Timestamp; minWindowSec: number }>('meta');
     if (!meta) {
-      meta = { secret: hex(crypto.getRandomValues(new Uint8Array(32))), start: wholeSecond((o.now ?? Date.now)()), minWindowSec: o.minWindowSec ?? 60 };
+      meta = { secret: hex(crypto.getRandomValues(new Uint8Array(32))), start: wholeSecond(now()), minWindowSec: o.minWindowSec ?? 60 };
       await storage.put({ meta });
     }
     const secret = meta.secret;
@@ -164,7 +168,7 @@ export class PublicWorld {
     const store = new StorageCiphertextStore(storage);
     const records = new Map<Hex32, Judgment>(Array.from(await storage.list<Judgment>({ prefix: 'jr:' }), ([k, v]) => [k.slice(3) as Hex32, v]));
     // Live or scripted judges, fixed for this instance: the registry it binds depends on which (T-028).
-    const panel = panelConfig({ env: o.env, storage, now: o.now ?? Date.now, ...(o.judgeProvider ? { judgeProvider: o.judgeProvider } : {}), ...(o.liveCallsPerDay !== undefined ? { liveCallsPerDay: o.liveCallsPerDay } : {}) });
+    const panel = panelConfig({ env: o.env, storage, now, ...(o.judgeProvider ? { judgeProvider: o.judgeProvider } : {}), ...(o.liveCallsPerDay !== undefined ? { liveCallsPerDay: o.liveCallsPerDay } : {}) });
     const registrations = new Map<string, Omit<AdjudicatorRegistration, 'pool'>>();
     const registration = (address: Address): AdjudicatorRegistration | null => {
       const r = registrations.get(lc(address));
@@ -173,6 +177,9 @@ export class PublicWorld {
       const amount = (v: bigint) => ({ token: TOKEN, amount: v.toString() }) as AdjudicatorRegistration['fee']['min'];
       return { ...r, pool: { junior: amount(p.junior), senior: amount(p.senior), reserved: amount(p.reserved), terms: { ...POOL_TERMS } } } as AdjudicatorRegistration;
     };
+    const faucetAmount = o.faucetAmount ?? 1_000n * TUSD;
+    const faucetWindowSec = o.faucetWindowSec ?? 3600;
+    const faucetPerClient = o.faucetPerClient ?? 10;
     const base = simRegistry(chain);
     const registry: Registry = {
       chainId: base.chainId,
@@ -185,12 +192,55 @@ export class PublicWorld {
       now: () => chain.now(),
       registration,
       judgment: (id) => records.get(id) ?? null,
-      // No `faucet`: POST /v1/test/faucet (any amount) is not served here; POST /v1/faucet is.
+      // POST /v1/faucet: a fixed grant and a mandate in the demo club; `amount` is not honoured here.
+      faucet: grantFrom({ storage, chain, club, principal, amount: faucetAmount, windowSec: faucetWindowSec, perClient: faucetPerClient, now }),
     };
     // ADR-0023: one schedule for both nodes (one operator), paid to one world address; from Worker variables.
     const operatorFee = operatorFeeFromEnv(o.env, key('demo-operator-fees').address);
-    const operators = [0, 1].map(
-      (i) =>
+    const adjudicators = {} as Record<Role, TestAdjudicator>;
+    const declined = new Map<Hex32, string>();
+    const operators: Operator[] = [];
+    // D39: the one discovery document carries what GET / used to list.
+    const demo = async (): Promise<DemoFacts> => {
+      const today = await panel.budget.used();
+      return {
+        clubId: club.id,
+        token: { id: TOKEN, decimals: 6 },
+        adjudicators: ADJUDICATORS.map((a) => ({ role: a.role, address: adjudicators[a.role].address, name: nameOf(a, panel.live) })),
+        faucet: { path: '/v1/faucet', grant: { token: TOKEN, amount: faucetAmount.toString() } as TokenAmount, perAddressEverySec: faucetWindowSec, perClientPerWindow: faucetPerClient },
+        operators: operators.map((op) => op.baseUrl).filter(Boolean),
+        minWindowSec: m,
+        // Who judges rubric deals (T-028): the registry every adjudicator here binds, and today's live budget (UTC).
+        judges: {
+          panel: panel.live ? 'live' : 'scripted',
+          registry: { uri: panel.registryUri, hash: panel.registry.hash },
+          models: panel.registry.active.map((e) => e.model),
+          ...(panel.live
+            ? { liveCallsPerDay: panel.budget.perDay, liveCallsToday: today.calls, tokensToday: { input: today.inputTokens, output: today.outputTokens }, day: today.day }
+            : { missing: panel.missing }),
+        },
+      };
+    };
+    const panelText = () => (panel.live ? livePanel(panel.budget.perDay) : SCRIPTED_PANEL);
+    const notices = (about: NoticeSubject): string[] => {
+      if (about.kind === 'prepare' && about.prepareKind === 'offer') {
+        const i = (about.input ?? {}) as { template?: unknown; hashOnly?: unknown; disclosure?: unknown };
+        if (i.hashOnly === true || i.disclosure === 'private' || i.disclosure === 'judgment') return [SEALED];
+        return i.template === 'checks-only' ? [] : [panelText()];
+      }
+      if (about.kind === 'write' && about.op.kind === 'offer') {
+        const c = about.op.commitment as { privateTerms?: unknown; acceptance?: { rubric?: { criteria?: unknown[] } } };
+        if (c.privateTerms !== undefined) return [SEALED];
+        return (c.acceptance?.rubric?.criteria?.length ?? 0) > 0 ? [panelText()] : [];
+      }
+      if (about.kind === 'state') {
+        const why = declined.get(about.commitmentId);
+        return why ? [`The primary adjudicator declined this offer: ${why}. It stays Offered until offerExpiresAt, and nobody can fund it.`] : [];
+      }
+      return [];
+    };
+    for (const i of [0, 1]) {
+      operators.push(
         new Operator({
           settlement: chain,
           registry,
@@ -200,12 +250,14 @@ export class PublicWorld {
           operatorId: `demo-op-${i + 1}`,
           env: o.env,
           rateLimit: o.rateLimit ?? { writes: 120, reads: 1200, windowMs: 60_000 },
-          notes: notesFor(club.id, m, o.faucetAmount ?? 1_000n * TUSD, o.faucetWindowSec ?? 3600, panel, operatorFee),
+          notes: notesFor(club.id, m, faucetAmount, faucetWindowSec, panel, operatorFee),
+          demo,
+          notices,
         }),
-    );
+      );
+    }
 
     const fee = { token: TOKEN, amount: TUSD.toString() } as AdjudicatorRegistration['fee']['min'];
-    const adjudicators = {} as Record<Role, TestAdjudicator>;
     for (const a of adjKeys) {
       const adj = testAdjudicator({
         name: nameOf(a, panel.live),
@@ -239,7 +291,7 @@ export class PublicWorld {
       adjudicators[a.role] = adj;
     }
     const keys = [principal, key('demo-club-operator'), ...adjKeys.map((a) => a.keys), key('demo-operator-1'), key('demo-operator-2')];
-    return new PublicWorld(o, secret, chain, club, principal, keys, operators, adjudicators, panel, journal.length);
+    return new PublicWorld(o, secret, chain, keys, operators, adjudicators, panel, declined, journal.length);
   }
 
   /** Every secret this world holds, for the test that no route serves one. In-process only. */
@@ -273,7 +325,7 @@ export class PublicWorld {
     return this.persisting;
   }
 
-  /** One adjudicator pass (the Durable Object alarm): accept offers, trigger fallbacks, decide. */
+  /** One adjudicator pass (the Durable Object alarm): accept or decline offers, trigger fallbacks, decide. */
   async work(): Promise<void> {
     this.tick();
     const { panel } = this;
@@ -286,6 +338,7 @@ export class PublicWorld {
           panel.allowLive = (await panel.budget.remaining()) >= (role === 'appeal' ? policy.appealPanelSize : policy.panelSize);
         }
         const r = await a.runOnce();
+        for (const d of r.declined) this.declined.set(d.commitmentId, d.reason);
         if (r.accepted.length + r.decided.length + r.triggered.length > 0) this.lastActive = this.now();
       } catch (e) {
         this.o.onError?.(e as Error);
@@ -301,140 +354,61 @@ export class PublicWorld {
     this.tick();
     const op = this.operators[via.node]!;
     op.baseUrl = via.origin.replace(/\/+$/, '');
-    const url = new URL(request.url);
-    let response: Response;
-    if (request.method === 'GET' && url.pathname === '/') response = json(200, await this.index(via));
-    else if (url.pathname === '/v1/faucet' && request.method === 'POST') response = await this.faucet(request, via);
-    else {
-      const notice = request.method === 'POST' ? await this.judgedByPanel(request.clone(), url.pathname) : false;
-      response = await this.handlers[via.node]!(request, via.client);
-      if (notice) {
-        response = new Response(response.body, response);
-        response.headers.set('holdback-notice', this.panel.live ? livePanel(this.panel.budget.perDay) : SCRIPTED_PANEL);
-      }
-    }
+    const response = await this.handlers[via.node]!(request, via.client);
     if (request.method === 'POST') this.lastActive = this.now();
     await this.persist();
     return response;
   }
+}
 
-  /** A prepared or submitted offer that a judge panel would score: its response says whether the panel is live. */
-  private async judgedByPanel(request: Request, path: string): Promise<boolean> {
-    if (path !== '/v1/prepare/offer' && path !== '/v1/commitments') return false;
-    try {
-      const b = (await request.json()) as { template?: unknown; acceptance?: { rubric?: { criteria?: unknown[] } } };
-      return path === '/v1/prepare/offer' ? b.template !== 'checks-only' : (b.acceptance?.rubric?.criteria?.length ?? 0) > 0;
-    } catch {
-      return false;
-    }
-  }
+/**
+ * The demo faucet's grant (T-026): a fixed amount of tUSD and a mandate in the demo club, signed by the club's own
+ * test principal, once per address per window (persisted) and a few addresses per client per window (in memory).
+ */
+function grantFrom(w: {
+  storage: WorldStorage;
+  chain: SimChain;
+  club: ReturnType<typeof simClub>;
+  principal: TestAccount;
+  amount: bigint;
+  windowSec: number;
+  perClient: number;
+  now: () => number;
+}): NonNullable<Registry['faucet']> {
+  const perClient = new Map<string, { start: number; count: number }>();
+  return async (address, { client }): Promise<FaucetOutcome> => {
+    const now = w.now();
+    const windowMs = w.windowSec * 1000;
+    const retryAfterSec = (at: number) => Math.max(1, Math.ceil((at - now) / 1000));
+    const last = await w.storage.get<number>(`fa:${address}`);
+    if (last !== undefined && now - last < windowMs) return { ok: false, problem: problem('rate_limited', `${address} was funded in the last ${w.windowSec} seconds; one grant per address per window`), retryAfterSec: retryAfterSec(last + windowMs) };
+    let c = perClient.get(client);
+    if (!c || now - c.start >= windowMs) perClient.set(client, (c = { start: now, count: 0 }));
+    if (c.count >= w.perClient) return { ok: false, problem: problem('rate_limited', 'too many faucet grants from this client; retry later'), retryAfterSec: retryAfterSec(c.start + windowMs) };
+    c.count++;
 
-  /** GET /: where things are, for an agent that has only a URL. */
-  private async index(via: Via): Promise<Record<string, unknown>> {
-    const domain = holdbackDomain(SIM_CHAIN_ID);
-    const p = this.panel;
-    const today = await p.budget.used();
-    return {
-      kind: 'holdback-public-demo',
-      notice: 'Public demo. TEST TOKENS ONLY (tUSD on SimChain, chain id 31337); no real money.',
-      operators: this.operators.map((o) => o.baseUrl).filter(Boolean),
-      thisNode: via.origin,
-      discovery: '/.well-known/holdback.json',
-      openapi: '/v1/openapi.json',
-      llms: '/llms.txt',
-      faucet: { method: 'POST', path: '/v1/faucet', body: { address: '<your address>' }, headers: { 'Idempotency-Key': '<any unique string>' } },
-      chainId: SIM_CHAIN_ID,
-      domain: { name: 'Holdback', version: domain.version, chainId: SIM_CHAIN_ID, verifyingContract: domain.verifyingContract },
-      clubId: this.club.id,
-      /** The club's shortest judge, fallback and appeal window, in seconds. */
-      minWindowSec: this.o.minWindowSec ?? 60,
-      token: { symbol: 'tUSD', decimals: 6 },
-      adjudicators: ADJUDICATORS.map((a) => ({ role: a.role, name: nameOf(a, p.live), address: this.adjudicators[a.role].address, scriptedPanel: !p.live })),
-      /** Who judges rubric deals (T-028): the registry every adjudicator here binds, and today's live budget (UTC). */
-      judges: {
-        panel: p.live ? 'live' : 'scripted',
-        registry: { uri: p.registryUri, hash: p.registry.hash },
-        models: p.registry.active.map((e) => e.model),
-        ...(p.live
-          ? { liveCallsPerDay: p.budget.perDay, liveCallsToday: today.calls, tokensToday: { input: today.inputTokens, output: today.outputTokens }, day: today.day }
-          : { missing: p.missing }),
-      },
-      /** ADR-0023: what these nodes charge for relaying a funded agreement; absent when nothing. */
-      ...(this.operatorFee ? { operatorFee: this.operatorFee } : {}),
-      notes: notesFor(this.club.id, this.o.minWindowSec ?? 60, this.o.faucetAmount ?? 1_000n * TUSD, this.o.faucetWindowSec ?? 3600, p, this.operatorFee),
-    };
-  }
-
-  private get operatorFee(): OperatorFeeSchedule | undefined {
-    return this.operators[0]?.feeSchedule;
-  }
-
-  // ---- the faucet -------------------------------------------------------------------------------
-
-  private async faucet(request: Request, via: Via): Promise<Response> {
-    const instance = `urn:holdback:request:${crypto.randomUUID()}`;
-    const fail = (status: number, type: string, detail: string, headers: Record<string, string> = {}): StoredResponse => ({
-      status,
-      headers: { 'content-type': 'application/problem+json', ...headers },
-      body: JSON.stringify({ type, title: type, status, detail, instance }),
-    });
-    const send = (r: StoredResponse) => new Response(r.body, { status: r.status, headers: r.headers });
-    const key = request.headers.get('idempotency-key');
-    if (!key || key.length > 255) return send(fail(400, 'invalid_terms', 'mutating requests need an Idempotency-Key header (1 to 255 characters)'));
-    let body: unknown;
-    try {
-      body = JSON.parse((await request.text()) || '{}');
-    } catch {
-      return send(fail(400, 'invalid_terms', 'the body is not JSON'));
-    }
-    const address = (body as { address?: unknown } | null)?.address;
-    if (!isAddress(address)) return send(fail(400, 'invalid_terms', 'the faucet takes {"address": "0x<40 hex>"}: your own address; make your own keys'));
-    const outcome = await this.idempotency.run(key, fingerprint('POST', '/v1/faucet', body), () => this.grant(lc(address) as Address, via, fail));
-    if (outcome.kind === 'conflict') return send(fail(409, 'idempotency_conflict', `Idempotency-Key ${key} was used with another request`));
-    return send(outcome.response);
-  }
-
-  private async grant(address: Address, via: Via, fail: (status: number, type: string, detail: string, headers?: Record<string, string>) => StoredResponse): Promise<StoredResponse> {
-    const now = this.now();
-    const windowMs = (this.o.faucetWindowSec ?? 3600) * 1000;
-    const retry = (at: number) => ({ 'retry-after': String(Math.max(1, Math.ceil((at - now) / 1000))) });
-    const last = await this.o.storage.get<number>(`fa:${address}`);
-    if (last !== undefined && now - last < windowMs) return fail(429, 'rate_limited', `${address} was funded in the last ${windowMs / 1000} seconds; one grant per address per window`, retry(last + windowMs));
-    let w = this.perClient.get(via.client);
-    if (!w || now - w.start >= windowMs) this.perClient.set(via.client, (w = { start: now, count: 0 }));
-    if (w.count >= (this.o.faucetPerClient ?? 10)) return fail(429, 'rate_limited', 'too many faucet grants from this client; retry later', retry(w.start + windowMs));
-    w.count++;
-
-    let mandate: Mandate | undefined = this.chain.agentMandates().find((m) => lc(m.agent) === address && m.clubId === this.club.id);
+    let mandate: Mandate | undefined = w.chain.agentMandates().find((x) => lc(x.agent) === address && x.clubId === w.club.id);
     if (!mandate) {
       const issuedAt = wholeSecond(now);
       const expires = wholeSecond(now + 30 * 86_400_000);
-      mandate = await mandateFor({ name: `${this.principal.label}`, key: this.principal.privateKey, address: this.principal.address }, address, this.club.id, wideScope(['buyer', 'seller'], expires), issuedAt);
-      const p = await this.chain.admit(mandate);
-      if (p) return fail(422, p.type, p.detail);
+      mandate = await mandateFor({ name: `${w.principal.label}`, key: w.principal.privateKey, address: w.principal.address }, address, w.club.id, wideScope(['buyer', 'seller'], expires), issuedAt);
+      const p = await w.chain.admit(mandate);
+      if (p) return { ok: false, problem: p };
     }
-    const amount = this.o.faucetAmount ?? 1_000n * TUSD;
-    this.chain.faucet(address, amount);
-    await this.o.storage.put({ [`fa:${address}`]: now });
-    const balance = (await this.chain.balances([address]))[address]!;
+    w.chain.faucet(address, w.amount);
+    await w.storage.put({ [`fa:${address}`]: now });
     return {
-      status: 200,
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        address,
-        clubId: this.club.id,
-        granted: { token: TOKEN, amount: amount.toString() },
-        balance,
-        mandate: { ...mandate, mandateHash: canonicalKeccak(mandate) },
+      ok: true,
+      grant: {
+        clubId: w.club.id,
+        granted: { token: TOKEN, amount: w.amount.toString() } as TokenAmount,
+        balance: (await w.chain.balances([address]))[address]!,
+        mandate: { ...mandate, mandateHash: canonicalKeccak(mandate) as Hex32 },
         nextGrantAfter: wholeSecond(now + windowMs),
-        notice: 'TEST TOKENS ONLY: tUSD on SimChain has no value. The mandate is signed by the demo club\'s own test principal, held by this demo.',
-      }),
+        notice: "TEST TOKENS ONLY: tUSD on SimChain has no value. The mandate is signed by the demo club's own test principal, held by this demo.",
+      },
     };
-  }
-}
-
-function json(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+  };
 }
 
 const DECIMAL = /^(0|[1-9][0-9]{0,77})$/;
@@ -477,14 +451,15 @@ export function notesFor(
     : undefined;
   const whole = (faucetAmount / TUSD).toString();
   const judges = panel?.live
-    ? `Adjudicators: three test adjudicators run by this demo (GET / or GET /v1/adjudicators). Deterministic checks are real. Rubric deals get a live judge panel: pinned models from two families, Anthropic and DeepSeek (${panel.registry.active.map((e) => e.model).join(', ')}; registry config/judges-live.yaml, not calibrated). At most ${panel.budget.perDay} live judge calls a day across this demo (UTC; GET / shows today's count); past that, panels are scripted fake judges whose verdicts start "[fake judge, no model ran]". DeepSeek's model names are provider aliases that can change underneath.`
-    : 'Adjudicators: three test adjudicators run by this demo (GET / or GET /v1/adjudicators). Deterministic checks are real. Judge panels are scripted fake judges (no model runs; verdicts start "[fake judge, no model ran]"), so use template "checks-only" for real acceptance.';
+    ? `Adjudicators: three test adjudicators run by this demo, listed by role under demo.adjudicators in this discovery document. Deterministic checks are real. Rubric deals get a live judge panel: pinned models from two families, Anthropic and DeepSeek (${panel.registry.active.map((e) => e.model).join(', ')}; registry config/judges-live.yaml, not calibrated). At most ${panel.budget.perDay} live judge calls a day across this demo (UTC; demo.judges shows today's count); past that, panels are scripted fake judges whose verdicts start "[fake judge, no model ran]". DeepSeek's model names are provider aliases that can change underneath.`
+    : 'Adjudicators: three test adjudicators run by this demo, listed by role under demo.adjudicators in this discovery document. Deterministic checks are real. Judge panels are scripted fake judges (no model runs; verdicts start "[fake judge, no model ran]"), so use template "checks-only" for real acceptance.';
   return [
     'Public demo node. TEST TOKENS ONLY: tUSD on SimChain (chain id 31337) has no value; no real money moves, and none can be deposited or withdrawn.',
     'Both demo operator nodes serve one shared simulated settlement layer (SimChain) held in one Cloudflare Durable Object. Each node signs receipts with its own key, but they are not independent operators: independent nodes need testnet contracts (Phase 2).',
     `Get test tokens: POST /v1/faucet {"address": "0x..."} with an Idempotency-Key header grants ${whole} tUSD and a mandate in club ${clubId}, once per address per ${faucetWindowSec} seconds. Make your own keys: no route here ever returns a secret key.`,
     `The faucet mandate is signed by the demo club's own test principal, which this demo holds; it lets your address act as buyer or seller in ${clubId}.`,
     judges,
+    'Disclosure: offer at "public" on these nodes. The demo adjudicators cannot open sealed terms yet, so they decline private and judgment offers, which then expire unaccepted. The work itself is encrypted at every level.',
     `Settlement time is the wall clock. Club ${clubId} allows windows from ${minWindowSec} seconds: timing {"judgeWithinSec": ${minWindowSec}, "fallbackWithinSec": ${minWindowSec}, "appealWindowSec": ${minWindowSec}, "appealDecideSec": ${minWindowSec}} completes a deal in a few minutes.`,
     ...(feeNote ? [feeNote] : []),
     'State is journaled and replayed after a restart, but this is a demo: it may be reset at any time.',
