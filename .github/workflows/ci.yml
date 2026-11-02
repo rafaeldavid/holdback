@@ -49,17 +49,81 @@ jobs:
       - run: pnpm build
       - run: pnpm test --shard=${{ matrix.shard }}/4
 
-  # The one status to require: it fails unless the static job and every test shard succeeded.
+  # T-203: the Foundry suites (unit, fuzz, and the handler-based invariants at 256 runs x depth 100), then
+  # the vitest suites that need anvil and contracts/out (T-205), which the test shards skip for lack of
+  # Foundry. Local EVM only (chain id 31337, anvil on 127.0.0.1); no public RPC endpoint is configured.
+  contracts:
+    name: contracts (forge test, anvil tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.0.0
+      - name: forge test
+        working-directory: contracts
+        run: forge test
+      # forge test does not compile contracts/script/, where the anvil tests' LocalUSDC and LocalMulticall3 live.
+      - name: forge build
+        working-directory: contracts
+        run: forge build
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: anvil tests (must not skip)
+        run: |
+          set -o pipefail
+          pnpm vitest run packages/settlement/evm packages/testkit/src/runner.test.ts --reporter=verbose | tee anvil-tests.log
+          # Any skipped test fails the job, whatever its name: vitest's summary prints "N skipped".
+          if grep -Eq "[0-9]+ skipped" anvil-tests.log; then echo "anvil tests skipped: Foundry or contracts/out missing" >&2; exit 1; fi
+
+  # T-204's model check, when formal/check.sh exists. Pull requests run the safety config and the broken
+  # variants (each must still bite); push to main also runs the seven liveness configs.
+  formal:
+    name: formal (TLC)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        if: hashFiles('formal/check.sh') != ''
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: actions/cache@v4
+        if: hashFiles('formal/check.sh') != ''
+        with:
+          path: formal/.tools
+          key: formal-tools-${{ hashFiles('formal/check.sh') }}
+      - name: model check
+        run: |
+          if [ ! -f formal/check.sh ]; then echo "no formal/check.sh: nothing to check"; exit 0; fi
+          if [ "${{ github.event_name }}" = pull_request ]; then
+            bash formal/check.sh safety
+            bash formal/check.sh broken/
+          else
+            bash formal/check.sh
+          fi
+
+  # The one status to require: it fails unless the static job, every test shard, the contracts job and the
+  # formal job succeeded.
   check:
-    needs: [static, test]
+    needs: [static, test, contracts, formal]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: all jobs passed
         run: |
-          echo "static=${{ needs.static.result }} test=${{ needs.test.result }}"
+          echo "static=${{ needs.static.result }} test=${{ needs.test.result }} contracts=${{ needs.contracts.result }} formal=${{ needs.formal.result }}"
           test "${{ needs.static.result }}" = success
           test "${{ needs.test.result }}" = success
+          test "${{ needs.contracts.result }}" = success
+          test "${{ needs.formal.result }}" = success
 
   gitleaks:
     runs-on: ubuntu-latest
