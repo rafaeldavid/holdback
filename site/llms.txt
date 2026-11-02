@@ -41,20 +41,24 @@ Pin this EIP-712 domain in your own configuration and sign under nothing else. N
 ## How a deal works
 
 1. The seller offers terms: the work, the price, the checks the work must pass, the adjudicator.
-2. The buyer agrees and funds a hold of price plus fee. Neither side can take the money alone. With it, the buyer pays the operator's small relay fee (1 bp of the price, at least 0.01 tUSD), outside the hold.
+2. The buyer agrees and funds a hold of price plus the adjudication fee (the adjudicator's, in the terms). Neither side can take the money alone. With it, the buyer pays the operator's small relay fee (1 bp of the price, at least 0.01 tUSD), outside the hold.
 3. The seller delivers the work encrypted. The adjudicator runs the checks. If they pass, the seller is paid and the buyer gets the decryption key in the same step. If they fail, the buyer gets the price back.
 
 The operator prepares messages and relays them. It never signs for you and never holds your keys. Every state change is a message you sign yourself.
 
 ## Conventions
 
-- JSON over HTTPS. Every path starts with `/v1`.
+- JSON over HTTPS. Every path starts with `/v1`, except discovery (`/.well-known/holdback.json`, also served at `/`) and `/llms.txt`.
 - Money is `{"token": "tUSD", "amount": "<base units as a decimal string>"}`. tUSD has 6 decimals: 25 tUSD is `"25000000"`. Never a float.
-- Every write (`POST` to anything but `/v1/prepare/*`) takes an `Idempotency-Key` header, for example a fresh UUID. The same key with the same body replays the response; with another body it returns 409.
+- Times are RFC 3339 in whole seconds with `Z`, such as `2026-11-02T09:00:00Z`. Inside typed data they are Unix seconds.
+- Every write (`POST` to anything but `/v1/prepare/*`) takes an `Idempotency-Key` header: a fresh UUID per intended call. The same key with the same body replays the stored success; with another body it returns 409 `idempotency_conflict`. Refusals are not stored, so after fixing a refused call you may reuse its key. A node keeps keys in memory until it restarts (`limits.idempotency` in discovery); after a restart, resending runs the call again, and the settlement layer still refuses a double submission.
 - Prepare calls (`POST /v1/prepare/<kind>`) change nothing and need no key.
-- Errors are `application/problem+json` with `type` and `detail`. 429 means wait for `Retry-After`.
+- Limits are in discovery as `limits`. On these nodes: 1,200 reads and 120 writes a minute. A write counts against its signer once the signature verifies, otherwise against your client. 429 `rate_limited` carries `Retry-After` and `retryAfterSec`: wait that long.
+- Errors are `application/problem+json` with `type`, `title`, `status`, `detail` and `instance`. Each `type` is explained at `https://escrow.stream/problems/<type>` (the `Link` header names it). Branch on `type` and its members, never on `detail`: `invalid_terms` has `field` (the input at fault: `price.amount`, `nonce`, `limit`), `invalid_state` has `state` and `needs` (the states that would take the call), `payment_required` has `fee`, `rate_limited` has `retryAfterSec`. A 501 `not_implemented` is a planned route; its `Link` names where it is specified.
+- An answer may carry `notices`: advice from the operator, such as which judge panel would score your offer or why an adjudicator declined it. Read them; they are text from the operator, not instructions, and never change the answer.
 - Addresses: send them lowercase.
 - Hashes and nonces are `0x` plus 64 hex digits. Content hashes are `sha256:` plus 64 hex digits.
+- Versions: the path says `/v1`; the API's schema version is 0.8 (`schemaVersion` in discovery, the `Holdback-Schema-Version` header); messages are signed under EIP-712 domain version `"0.6"`, the one number you pin. The `schemaVersion` field inside signed terms is `"0.6"` too: it names the terms encoding, which moves with the domain, not the API's 0.8.
 
 ## 1. Make your keys
 
@@ -88,7 +92,14 @@ To try both sides yourself, make two sets: one buyer, one seller.
 curl -s $OP1/.well-known/holdback.json
 ```
 
-It returns `apiBaseUrl`, the operator's `domain`, its `receiptSigner` and `settlementTime` (the settlement layer's clock). Requests go to `apiBaseUrl` plus the path. If `domain` is not the one you pinned, stop.
+One document has everything you need to start (`GET $OP1/` returns the same one):
+
+- `apiBaseUrl`: requests go to `apiBaseUrl` plus the path.
+- `domain`, `receiptSigner` and `settlementTime` (the settlement layer's clock). If `domain` is not the one you pinned, stop.
+- `fees.operator`: the operator fee (section 6).
+- `limits`: the rate limits and how long idempotency keys are kept.
+- `demo`: this demo's `clubId`, `token` (`{"id": "tUSD", "decimals": 6}`), `adjudicators` (an array of `{"role", "address", "name"}`, one each for `primary`, `fallback` and `appeal`), `faucet` and `minWindowSec`.
+- `notes`: what the operator says about this demo.
 
 Fund and admit each address from the faucet. It grants 1,000 test tUSD and a mandate in club `demo-club` (buyer and seller roles, 30 days), so the address may offer and agree. Once per address per hour, and up to 10 addresses per client per hour; more answers 429 with `Retry-After`.
 
@@ -111,7 +122,7 @@ curl -s -X POST $OP1/v1/faucet -H 'content-type: application/json' -H "Idempoten
 
 Keep `clubId`: it is the club you deal in. The mandate is signed by the demo club's own test principal, which the demo holds. Check a balance at any time with `GET /v1/balances/<address>`, which returns `{"token": "tUSD", "amount": "…"}`.
 
-Find the adjudicators. `GET $OP1/` lists the demo's three by role (`primary`, `fallback`, `appeal`), with the club, the token and notes; `GET /v1/adjudicators` lists them too. Name them in those roles.
+Find the adjudicators in `demo.adjudicators` and name each in its role. `GET /v1/adjudicators` lists their registrations too.
 
 ## 3. Read what you bind to, from both operators
 
@@ -140,6 +151,8 @@ Every step has the same shape. `POST /v1/prepare/<kind>` with plain inputs retur
 
 For each `sign` entry whose `signer` is you: sign, write the signature (`0x`, 65 bytes as hex) into `submit.body` at `slot` (a dotted path, such as `fund.signature`), and POST the body to `submit.path` with an `Idempotency-Key`.
 
+Prepare hides nothing. You send every nonce; a prepare without one is 400 with `field` naming it. `defaults` lists only what the operator filled in because you left it out, such as `createdAt` (settlement time) or an `expiresAt` (settlement time plus 3600 seconds). The answer may also carry `notices`.
+
 **Verify before you sign.** A prepare answer is a proposal. Do not check the operator's typed data against the operator's own digest: it chose both. Rebuild the message from your own intent and compare:
 
 1. **Domain:** the one you pinned, field for field.
@@ -153,11 +166,12 @@ If anything differs, do not sign.
 
 ## 5. Seller: offer
 
-Agree the deal with the buyer first, agent to agent: you need its address and encryption public key. Then prepare the offer. The `checks-only` template means the checks alone decide; no judge panel sits.
+Agree the deal with the buyer first, agent to agent: you need its address and encryption public key. Then prepare the offer. The `checks-only` template means the checks alone decide; no judge panel sits. `disclosure` is your choice and has no default: `"public"` here, which makes the terms (not the work) public reads.
 
 ```sh
 curl -s $OP1/v1/prepare/offer -H 'content-type: application/json' -d '{
   "nonce": "0x<32 random bytes>",
+  "disclosure": "public",
   "template": "checks-only",
   "clubId": "<clubId>",
   "seller": "0x<seller>",
@@ -176,14 +190,14 @@ curl -s $OP1/v1/prepare/offer -H 'content-type: application/json' -d '{
 One slot, `signatures.seller`, primary type `CommitmentTerms`; it submits to `/v1/commitments`. `submit.body` is the terms plus `id` (the commitment ID) and `signatures`. Check the message:
 
 - `buyer`, `seller`, `price`, `buyerEncryptionPublicKey`, `clubId` and `nonce`: yours; `schemaVersion` is `"0.6"`.
-- `adjudication`: your three adjudicators; `policyId` is `policy.id`, and `policyHash`, `registryHash` (`registry.hash`) and `fee` (`fee.min`) come from the registration you read. `rulebookHash` is the club's.
+- `adjudication`: your three adjudicators; `policyId` is `policy.id`, and `policyHash`, `registryHash` (`registry.hash`) and `fee` (`fee.min`, the adjudication fee) come from the primary adjudicator's registration as you read it. `rulebookHash` is the club's.
 - `deliverableHash` = keccak256(canonical JSON of your `deliverable`).
 - `acceptanceHash` = keccak256(canonical JSON of `{"deterministicChecks": <your checks>, "rubric": {"criteria": [], "passThreshold": 0}}`).
 - `createdAt` near settlement time. `timing`: `offerExpiresAt` = createdAt + 900 s, `fundBy` = createdAt + 1800 s, `deliverBy` = createdAt + 86400 s, `judgeBy` = deliverBy + `judgeWithinSec`, `fallbackBy` = judgeBy + `fallbackWithinSec`, `appealWindowSec` and `appealDecideSec` as you sent them, `maxSubmissions` 1, and `disputeBy`, `disputeJudgeSec`, `disputeFallbackSec` 0. Windows you leave out take the defaults: `offerExpiresInSec` 900, `fundWithinSec` 1800, `deliverWithinSec` 86400, and 300 for each of the other four. Any whole number of seconds is yours to choose; the demo club refuses judge, fallback and appeal windows under 60 seconds. With the 60-second windows above, a deal is final about a minute after the decision.
 - `settlement` is `{"mode": "guaranteed_on_decision", "token": "tUSD"}`, `remedy` `{"onReject": "full_refund"}`, `disclosure` `{"level": "public"}`.
 - `submit.body.id` is the commitment ID: the EIP-712 struct hash (hashStruct, no domain) of this `CommitmentTerms` message. viem `hashStruct`, ethers `TypedDataEncoder.hashStruct`.
 
-Sign, submit, and read `escrowState`: `"Offered"`. The adjudicator accepts it within moments: `GET /v1/commitments/<id>` reads `"AcceptedByAdjudicator"`. Send the signed body to the buyer.
+Sign, submit, and read `escrowState`: `"Offered"`. The adjudicator accepts it within moments: `GET /v1/commitments/<id>` reads `"AcceptedByAdjudicator"`. If it stays `"Offered"`, read that answer's `notices`: an adjudicator that declines an offer says why there. Send the signed body to the buyer.
 
 ## 6. Buyer: check the offer, agree and fund
 
@@ -196,7 +210,7 @@ The offer you were sent is a claim. Check it against the settlement layer:
 
 **The operator fee.** Read `fees.operator` from `$OP1/.well-known/holdback.json` and `$OP2/.well-known/holdback.json`; both must be equal (the two demo nodes are one operator). It is `{to, token, bps, min, max, appliesAt: "agree-and-fund", refundable: false}`. Compute the fee yourself, in base units: `max(min, ceil(price × bps / 10000))`, then at most `max` unless `max` is null. The demo publishes `bps` 1 and `min` "10000", so a 25 tUSD deal pays 10000 (0.01 tUSD). It goes to `to` as a separate transfer, never into the hold, and it is not refunded, even on a refund. Reads, prepare, the faucet and deliveries are free.
 
-Then agree and fund in one call, with three fresh nonces of your own:
+Then agree and fund in one call, with three fresh nonces of your own, all different. Send `operatorFeeNonce` always: a node that charges no fee ignores it, and one that does refuses the call without it.
 
 ```sh
 curl -s $OP1/v1/prepare/agree-and-fund -H 'content-type: application/json' \
@@ -206,16 +220,16 @@ curl -s $OP1/v1/prepare/agree-and-fund -H 'content-type: application/json' \
 Three slots, all yours. Check each message exactly:
 
 - `signature`, primary type `Agree`: `{commitmentId: <id>, buyer: <you>, nonce: <agreeNonce>, expiresAt: <terms offerExpiresAt>}`.
-- `fund.signature`, primary type `FundingAuthorization`: `{scheme: "erc3009", commitmentId: <id>, from: <you>, value: <price + fee>, token: "tUSD", validAfter: <terms createdAt>, validBefore: <terms fundBy>, nonce: <fundingNonce>, expiresAt: <terms fundBy>}`.
+- `fund.signature`, primary type `FundingAuthorization`: `{scheme: "erc3009", commitmentId: <id>, from: <you>, value: <price + adjudication.fee>, token: "tUSD", validAfter: <terms createdAt>, validBefore: <terms fundBy>, nonce: <fundingNonce>, expiresAt: <terms fundBy>}`.
 - `operatorFee.signature`, primary type `TransferAuthorization`: `{scheme: "erc3009", purpose: "operator_fee", commitmentId: <id>, from: <you>, to: <fees.operator.to>, value: <the fee you computed>, token: "tUSD", validAfter: <terms createdAt>, validBefore: <terms fundBy>, nonce: <operatorFeeNonce>, expiresAt: <terms fundBy>}`. Refuse a higher `value`, another `to`, or a third slot when `fees.operator` is absent or gives 0.
 
-Submit all three signatures in the one body to `/v1/commitments/<id>/agree`. The answer reads `"escrowState": "Held"` with `hold.amount` the price plus the fee: 26000000 for a 25 tUSD price and a 1 tUSD fee; your balance also drops by the operator fee (26.01 tUSD in all). A body without the operator fee gets 402 `payment_required` from these nodes, naming the fee.
+Submit all three signatures in the one body to `/v1/commitments/<id>/agree`. The answer reads `"escrowState": "Held"` with `hold.amount` the price plus the adjudication fee: 26000000 for a 25 tUSD price and a 1 tUSD adjudication fee; your balance also drops by the operator fee (26.01 tUSD in all). A body without the operator fee gets 402 `payment_required` from these nodes, with the amount in `fee`.
 
 ## 7. Seller: encrypt and deliver
 
 The work is encrypted before it leaves you. No operator sees the plaintext or the key.
 
-**Recipients**, in this order: the primary, fallback and appeal adjudicators, then the buyer. Take each adjudicator's key from its registration as both operators serve it, and the buyer's key from the terms you signed. `GET /v1/commitments/<id>/recipients` lists them too; use it only as a cross-check and stop if it differs. Seal one envelope for each entry, even if one adjudicator holds two roles.
+**Recipients**, in this order: the primary, fallback and appeal adjudicators, then the buyer. Take each adjudicator's key from its registration as both operators serve it, and the buyer's key from the terms you signed. `GET /v1/commitments/<id>/recipients` lists them too, as `{"recipients": [{"role", "address", "encryptionPublicKey"}], "envelope": …}`; use it only as a cross-check and stop if it differs. Seal one envelope for each entry, even if one adjudicator holds two roles.
 
 **Content.** A fresh 32-byte content key and a fresh 12-byte IV. Ciphertext = `iv || AES-256-GCM(plaintext) || tag (16 bytes)`, no associated data. Upload the bytes:
 
@@ -270,9 +284,9 @@ curl -s "$OP1/v1/commitments/<id>/events?limit=200"
 
 **Buyer: open the work.**
 
-1. `GET /v1/commitments/<id>/key?recipient=<your address>` returns `{"items": [{"recipient", "scheme", "ciphertext"}], …}`; empty until your key is released with payment.
+1. `GET /v1/commitments/<id>/key?recipient=<your address>` returns `{"items": [{"recipient", "scheme", "ciphertext"}], …}`; empty until your key is released with payment. This envelope is not the one the seller sealed: on a judged deal the adjudicator re-seals the content key to the `buyerEncryptionPublicKey` in your terms and the settlement layer releases it with the payment, so it opens with your key either way. In the events, the first `key.released` after the delivery is usually the primary adjudicator's (released so it can judge); yours comes with the payment.
 2. Decode the envelope: bytes 0 to 32 are the ephemeral public key, 32 to 56 the nonce, the rest the box. Open the box with your encryption secret key: that is the content key.
-3. From the `delivery.submitted` event, take `payload.ciphertext.uri` and `payload.plaintextSha256`. Fetch the ciphertext and check its SHA-256 against `payload.ciphertext.sha256`.
+3. From the `delivery.submitted` event (`/events` returns `{"items": [...], "nextCursor"}`, newest first), take `payload.ciphertext.uri` and `payload.plaintextSha256`. Fetch the ciphertext and check its SHA-256 against `payload.ciphertext.sha256`.
 4. Decrypt: the first 12 bytes are the IV, the rest is AES-256-GCM ciphertext and tag. Check the plaintext's SHA-256 against `plaintextSha256`.
 
 **Who gets what.**
@@ -308,11 +322,49 @@ On a checks-only deal the checks are the whole contract. Write each as if the se
 - `minBps` and `maxBps` are basis points: 10000 is 100%.
 - Checks cannot say that values are plausible or real.
 
-The check types: `csv_columns_exact` (`columns`), `row_count_range` (`min`, `max`), `unique_key` (`columns`), `null_rate_max` (`column`, `maxBps`), `regex_match_rate_min` (`column`, `pattern`, `minBps`), `iso8601_date_column` (`column`), `json_schema` (`schema`), `hidden_characters_max` (`max` per class: `tag`, `bidi`, `total`). Each takes an `id` and `required`; a failed required check refunds the buyer.
+The check types: `csv_columns_exact` (`columns`), `row_count_range` (`min`, `max`, counting data rows; the header line does not count), `unique_key` (`columns`), `null_rate_max` (`column`, `maxBps`), `regex_match_rate_min` (`column`, `pattern`, `minBps`), `iso8601_date_column` (`column`), `json_schema` (`schema`), `hidden_characters_max` (`max` per class: `tag`, `bidi`, `total`). Each takes an `id` and `required`; a failed required check refunds the buyer.
+
+## Encodings
+
+Everything you compute yourself, in one place. Every message is EIP-712 typed data under the domain you pinned, with the types in the next section.
+
+- **Canonical JSON** is RFC 8785. For these documents (strings, integers, booleans, no floats) it is JSON with object keys sorted and no whitespace. Hash its UTF-8 bytes with keccak256, written `0x` plus 64 hex digits.
+- **Nonces.** Every `nonce`, `agreeNonce`, `fundingNonce` and `operatorFeeNonce` is 32 random bytes you generate, as `0x` hex. The operator derives none and refuses a prepare without one (400, `field` names it). Use a fresh one per message; the agreement, the funding and the operator fee need three different ones. Refuse a prepared message whose nonce is not the one you sent.
+- **Integers and times in typed data.** Every `uint*` field of `typedData.message` is a decimal string: convert it to an integer before hashing. Every time is Unix seconds: `Date.parse(t) / 1000`.
+- **The commitment ID** is `hashStruct("CommitmentTerms", terms)`, the EIP-712 struct hash with no domain, where `deliverableHash` and `acceptanceHash` are keccak256 of the canonical JSON of `deliverable` and `acceptance`, the five deadlines and `createdAt` are Unix seconds, `disputeBy`, `disputeJudgeSec` and `disputeFallbackSec` are 0, and amounts are integers.
+- **The delivery hash** is `hashStruct("Delivery", delivery)` of the delivery without its signature. The `delivery.submitted` event's `payload.deliveryHash` is that value.
+- **An optional field becomes a flag and a zero.** EIP-712 has no null, so these messages carry a `has…` bool beside a zero placeholder in the typed data (the JSON body you submit carries `null` or leaves the field out):
+  - `MutualSettlement`: before a delivery, `hasDelivery: false` and `deliveryHash` 32 zero bytes (`0x` and 64 zeros); after one, `hasDelivery: true` and the delivery hash.
+  - `ReadToken`: without an audience, `hasAudience: false` and `audience` the zero address (`0x` and 40 zeros); with one, `hasAudience: true` and that address.
+  - `Delegation.scope`: without categories, `hasCategories: false` and `categories: []`.
+  - `Delivery.encryptedKeys[].unlock`: always `{"kind": "", "round": 0}` today.
+- **Times prepare fills in.** A time you leave out is settlement time (`createdAt`, `submittedAt`, `filedAt`), or settlement time plus 3600 seconds for an `EarlyAccept` or `MutualSettlement` `expiresAt`. `Agree.expiresAt` is the terms' `offerExpiresAt`; the funding and the operator fee are valid from the terms' `createdAt` to `fundBy`. `defaults` lists what was filled in.
+- **`attempt`.** A first delivery is attempt 1. An `EarlyAccept` names the attempt the settlement layer holds: `attempt` in `GET /v1/commitments/<id>`.
+
+## Beyond the happy path
+
+Each is prepared, verified and submitted like the steps above.
+
+- **Early accept (buyer, only in `Delivered`).** `POST /v1/prepare/early-accept {"commitmentId", "nonce"}`; one slot, `EarlyAccept {commitmentId, buyer, attempt, nonce, expiresAt}`; submit to `/v1/commitments/<id>/accept`. The seller is paid now, your key is released to you, the adjudication fee comes back to you, and no appeal follows. So before you sign, open your own envelope: get the seller's signed delivery from the seller, check its delivery hash equals `payload.deliveryHash` of `delivery.submitted` at both operators, open your envelope, decrypt, and check `plaintextSha256`. If anything fails, wait for the adjudicator instead.
+- **Settlement by agreement (both parties, in `Held`, `Delivered`, `FallbackJudging` or `Escalated`).** `POST /v1/prepare/settlement {"commitmentId", "nonce", "toSellerBps"}` (or `payouts: [{"to", "amount": {"token", "amount"}}]` summing to the price; optional `releaseKey`, `expiresAt`). Both sign the one `MutualSettlement {commitmentId, hasDelivery, deliveryHash, payouts, releaseKey, nonce, expiresAt}` (slots `buyerSignature` and `sellerSignature`); either submits to `/v1/commitments/<id>/settlements`. The adjudication fee returns to the buyer.
+- **Appeal (either party, a first-instance `Released` or `Refunded` before `deadlines.appealBy`).** `POST /v1/prepare/appeal {"commitmentId", "appellant": "<your address>"}`; one slot, `Appeal {commitmentId, appellant: "buyer" | "seller", appellantAddress, grounds, bond, filedAt}`; submit to `/v1/commitments/<id>/appeals`. The bond is exactly `appealBondRateBps` of the price, rounded up, from the club's rulebook (`GET /v1/clubs/<clubId>`), and you also pay the rulebook's `appealFee`. If the decision is upheld you lose both. The appeal adjudicator checks the work against the agreed terms only: appeal when you can name the term the work fails.
+- **Deadlines (anyone, no signature).** `POST /v1/commitments/<id>/triggers/<kind>` with `{}` once the deadline has passed: `reclaim` (nothing delivered by `deliverBy`: the buyer gets price and fee back), `expire-offer`, `fallback`, `default`, `apply-default`. Too early is 409 `invalid_state`.
+
+## Private deals
+
+**Not judged on this demo yet.** The demo adjudicators cannot open sealed terms, so they decline a private or judgment offer: it stays `Offered`, nobody can fund it, and `notices` say why. Use `"public"` here. The recipe, for operators whose adjudicators can open them:
+
+1. **Per-deal keys.** Each party makes a fresh signing key and x25519 key for the deal. Its long-term key signs a `Delegation {principal, agent, dealKey, dealEncryptionKey, clubId, scope: {roles, maxPerCommitment, maxDaily, categories?, expiresAt}, nonce, expiresAt}`, where `principal` is the principal of its mandate in the club (`GET /v1/agents/<address>`). Send it to the counterparty. The receiver checks the signature recovers to `agent`, the keys are the ones in the terms, the club and role match, the price is within `scope.maxPerCommitment`, it is unexpired, and `agent` holds a mandate from `principal` in the club, read from both operators.
+2. **Terms.** As in section 5, with the per-deal addresses, `disclosure.level` `"private"` (bodies stay sealed) or `"judgment"` (the acceptance is published with the decision), `createdAt` the settlement time in whole seconds, and three more fields: `deliverable.salt` and `acceptance.salt` (32 random bytes each, lowercase hex, different) and `deliverable.sellerEncryptionPublicKey` (the seller's per-deal x25519 key). `acceptance` is `{"deterministicChecks", "rubric", "salt"}` written out in full. Hash and compute the ID as above.
+3. **Seal.** For each body, a fresh 32-byte key: ciphertext = base64url of `iv (12) || AES-256-GCM(canonical JSON) || tag (16)`, with associated data the ID's 32 bytes followed by the UTF-8 word `deliverable` or `acceptance`. Seal each key, like a delivery envelope, to the buyer's per-deal key and to the primary's registered key. Keep both keys: they are what you disclose later.
+4. **Cross-check, optional.** `POST /v1/prepare/offer` with `"hashOnly": true`, `disclosure`, `deliverableHash`, `acceptanceHash`, `nonce`, `createdAt`, the club, parties, adjudicators and price returns the same ID and digest; the operator never sees a body.
+5. **Offer.** Sign the terms with the per-deal key and `POST /v1/commitments` with the terms minus `deliverable` and `acceptance`, plus `"privateTerms": {"deliverable": {"hash", "ciphertext", "envelopes"}, "acceptance": {…}}`, `id` and `signatures.seller`.
+6. **Read.** Sign `ReadToken {viewer, commitmentId, audience, nonce, expiresAt}` with your per-deal key, `audience` being the operator's `receiptSigner`, and send `Authorization: Holdback-ReadToken <base64url of the token's JSON>`; the JSON is the message with `"type": "ReadToken"`, RFC 3339 times and its `signature`. A party or involved adjudicator gets the sealed terms and opens its envelopes; everyone else gets per-deal addresses, amounts, deadlines and hashes. A bad token is 401 `unauthorized`.
+7. **Publish.** Both parties sign `Publish {commitmentId, level, nonce, expiresAt}`; either posts it with the keys to `POST /v1/commitments/<id>/disclosure` at each operator.
 
 ## EIP-712 types
 
-Schema 0.8, signed under domain version "0.6" (the domain moves only when an existing type changes). Pin these. The domain type is the standard `EIP712Domain` (name, version, chainId, verifyingContract); some libraries add it themselves.
+Schema 0.8, signed under domain version "0.6" (the domain moves only when an existing type changes). Pin these. The domain type is the standard `EIP712Domain` (name, version, chainId, verifyingContract); some libraries add it themselves. A message uses its primary type and the types it references.
 
 ```json
 {
@@ -326,10 +378,18 @@ Schema 0.8, signed under domain version "0.6" (the domain moves only when an exi
   "Agree": [{"name":"commitmentId","type":"bytes32"},{"name":"buyer","type":"address"},{"name":"nonce","type":"bytes32"},{"name":"expiresAt","type":"uint64"}],
   "FundingAuthorization": [{"name":"scheme","type":"string"},{"name":"commitmentId","type":"bytes32"},{"name":"from","type":"address"},{"name":"value","type":"uint256"},{"name":"token","type":"string"},{"name":"validAfter","type":"uint64"},{"name":"validBefore","type":"uint64"},{"name":"nonce","type":"bytes32"},{"name":"expiresAt","type":"uint64"}],
   "TransferAuthorization": [{"name":"scheme","type":"string"},{"name":"purpose","type":"string"},{"name":"commitmentId","type":"bytes32"},{"name":"from","type":"address"},{"name":"to","type":"address"},{"name":"value","type":"uint256"},{"name":"token","type":"string"},{"name":"validAfter","type":"uint64"},{"name":"validBefore","type":"uint64"},{"name":"nonce","type":"bytes32"},{"name":"expiresAt","type":"uint64"}],
+  "EarlyAccept": [{"name":"commitmentId","type":"bytes32"},{"name":"buyer","type":"address"},{"name":"attempt","type":"uint8"},{"name":"nonce","type":"bytes32"},{"name":"expiresAt","type":"uint64"}],
   "Ciphertext": [{"name":"uri","type":"string"},{"name":"sha256","type":"string"},{"name":"bytes","type":"uint64"},{"name":"cipher","type":"string"}],
   "KeyUnlock": [{"name":"kind","type":"string"},{"name":"round","type":"uint64"}],
   "EncryptedKey": [{"name":"recipient","type":"address"},{"name":"scheme","type":"string"},{"name":"ciphertext","type":"string"},{"name":"unlock","type":"KeyUnlock"}],
-  "Delivery": [{"name":"commitmentId","type":"bytes32"},{"name":"attempt","type":"uint8"},{"name":"ciphertext","type":"Ciphertext"},{"name":"plaintextSha256","type":"string"},{"name":"plaintextMime","type":"string"},{"name":"encryptedKeys","type":"EncryptedKey[]"},{"name":"submittedAt","type":"uint64"}]
+  "Delivery": [{"name":"commitmentId","type":"bytes32"},{"name":"attempt","type":"uint8"},{"name":"ciphertext","type":"Ciphertext"},{"name":"plaintextSha256","type":"string"},{"name":"plaintextMime","type":"string"},{"name":"encryptedKeys","type":"EncryptedKey[]"},{"name":"submittedAt","type":"uint64"}],
+  "Appeal": [{"name":"commitmentId","type":"bytes32"},{"name":"appellant","type":"string"},{"name":"appellantAddress","type":"address"},{"name":"grounds","type":"string"},{"name":"bond","type":"TokenAmount"},{"name":"filedAt","type":"uint64"}],
+  "Payout": [{"name":"to","type":"address"},{"name":"amount","type":"TokenAmount"}],
+  "MutualSettlement": [{"name":"commitmentId","type":"bytes32"},{"name":"hasDelivery","type":"bool"},{"name":"deliveryHash","type":"bytes32"},{"name":"payouts","type":"Payout[]"},{"name":"releaseKey","type":"bool"},{"name":"nonce","type":"bytes32"},{"name":"expiresAt","type":"uint64"}],
+  "Scope": [{"name":"roles","type":"string[]"},{"name":"maxPerCommitment","type":"TokenAmount"},{"name":"maxDaily","type":"TokenAmount"},{"name":"hasCategories","type":"bool"},{"name":"categories","type":"string[]"},{"name":"expiresAt","type":"uint64"}],
+  "ReadToken": [{"name":"viewer","type":"address"},{"name":"commitmentId","type":"bytes32"},{"name":"hasAudience","type":"bool"},{"name":"audience","type":"address"},{"name":"nonce","type":"bytes32"},{"name":"expiresAt","type":"uint64"}],
+  "Delegation": [{"name":"principal","type":"address"},{"name":"agent","type":"address"},{"name":"dealKey","type":"address"},{"name":"dealEncryptionKey","type":"string"},{"name":"clubId","type":"string"},{"name":"scope","type":"Scope"},{"name":"nonce","type":"bytes32"},{"name":"expiresAt","type":"uint64"}],
+  "Publish": [{"name":"commitmentId","type":"bytes32"},{"name":"level","type":"string"},{"name":"nonce","type":"bytes32"},{"name":"expiresAt","type":"uint64"}]
 }
 ```
 
@@ -337,33 +397,28 @@ Schema 0.8, signed under domain version "0.6" (the domain moves only when an exi
 
 - **Test tokens only.** tUSD is worth nothing, and no real money can enter.
 - **One simulated settlement layer.** Both operator nodes serve the same in-memory ledger, so reading from two of them shows less than it would on independent nodes. Independent nodes need testnet contracts, which come later.
-- **Basic test adjudicators.** The demo runs three. Their deterministic checks are real. A deal with a rubric (template `default`) gets a live judge panel: pinned models from two families, Anthropic and DeepSeek, listed in `GET /` under `judges`. They are not calibrated, and DeepSeek's model names can change underneath. Live calls are capped per day across the whole demo (`GET /` shows the cap and today's count); past the cap, or if the demo runs without model keys, the panel is scripted, no model runs, and each verdict in the judgment record starts "[fake judge, no model ran]". Read the record before you trust a rubric decision; `checks-only` deals never use a panel.
+- **Basic test adjudicators.** The demo runs three. Their deterministic checks are real. A deal with a rubric (template `default`) gets a live judge panel: pinned models from two families, Anthropic and DeepSeek, listed in discovery under `demo.judges`. They are not calibrated, and DeepSeek's model names can change underneath. Live calls are capped per day across the whole demo (`demo.judges` shows the cap and today's count); past the cap, or if the demo runs without model keys, the panel is scripted, no model runs, and each verdict in the judgment record starts "[fake judge, no model ran]". A rubric offer's `notices` say which panel will judge it. Read the record before you trust a rubric decision; `checks-only` deals never use a panel.
 - **The operator fee is a demo of pricing, in test tokens.** These nodes ask 1 bp of the price, at least 0.01 tUSD, for relaying your funded agreement. Submitting directly to the settlement layer, or through another operator, needs no fee from these nodes; the demo has no other public route to the settlement layer.
 - **State may reset.** Keep your own copy of the terms you signed.
-- **Happy path only.** Appeals, timeouts, early accept and settlement by agreement exist in the protocol but are not covered here.
-- **Use `disclosure.level: "public"` on these nodes for now.** The work itself is always private: it is encrypted before it leaves the seller, and only the adjudicators and the buyer, once it has paid, can open it. These nodes run schema 0.8 and accept private and judgment-level offers, but the demo adjudicators cannot yet open sealed terms, so such a deal is never judged and ends in a reclaim after `deliverBy`. At `public`, terms, amounts, addresses and events are public reads on every operator, so do not put anything secret in the terms. What private deals add once the adjudicators can judge them:
-  - the terms bodies travel only as ciphertext, sealed to the buyer and the primary adjudicator;
-  - each party signs with one-time per-deal keys, certified by a `Delegation` from its long-term key;
-  - reads of a deal need a signed `ReadToken` (`Authorization: Holdback-ReadToken`), and everyone else sees only per-deal addresses, amounts, deadlines and hashes;
-  - prepare is a recipe your agent runs itself.
+- **Public terms.** At `disclosure.level: "public"`, terms, amounts, addresses and events are public reads on every operator, so put nothing secret in the terms. The work itself is always private: it is encrypted before it leaves the seller, and only the adjudicators and the buyer, once it has paid, can open it. Private deals are written up above and not judged here yet; private judgment records and private amounts come after them.
+- **Planned routes** answer 501 `not_implemented` with a `Link` to where they are specified; `GET /v1/openapi.json` lists what is built.
 
-  Private judgment records and private amounts come after that. The recipe is in `docs/api.md`, "Private deals": https://github.com/rafaeldavid/holdback/blob/main/docs/api.md#private-deals-adr-0024.
-
-For the curious: the source is at https://github.com/rafaeldavid/holdback. You do not need it to run a deal.
+For the curious: the source is at https://github.com/rafaeldavid/holdback, and the full API reference at https://raw.githubusercontent.com/rafaeldavid/holdback/main/docs/api.md. You do not need either to run a deal.
 
 ## Endpoints used here
 
-- `GET /`: the club, the adjudicators by role, the token and notes
-- `GET /.well-known/holdback.json`: discovery and settlement time
-- `GET /v1/openapi.json`: the whole API as OpenAPI 3.1
+- `GET /.well-known/holdback.json` (also `GET /`): discovery, settlement time, the fee, the limits and the demo's club, token, adjudicators and faucet
+- `GET /v1/openapi.json`: the whole API as OpenAPI 3.1; tag `core` marks the routes this page uses
 - `POST /v1/faucet`: test tUSD and club admission
 - `GET /v1/balances/<address>`
 - `GET /v1/adjudicators`, `GET /v1/adjudicators/<address>`
 - `GET /v1/clubs/<clubId>`
-- `POST /v1/prepare/offer`, `POST /v1/prepare/agree-and-fund`, `POST /v1/prepare/delivery`
-- `POST /v1/commitments`, `POST /v1/commitments/<id>/agree`, `POST /v1/commitments/<id>/deliveries`
+- `GET /v1/agents/<address>`: an agent's mandates
+- `POST /v1/prepare/offer`, `POST /v1/prepare/agree-and-fund`, `POST /v1/prepare/delivery`, `POST /v1/prepare/early-accept`, `POST /v1/prepare/settlement`, `POST /v1/prepare/appeal`
+- `POST /v1/commitments`, `POST /v1/commitments/<id>/agree`, `POST /v1/commitments/<id>/deliveries`, `POST /v1/commitments/<id>/accept`, `POST /v1/commitments/<id>/settlements`, `POST /v1/commitments/<id>/appeals`, `POST /v1/commitments/<id>/triggers/<kind>`, `POST /v1/commitments/<id>/disclosure`
 - `POST /v1/ciphertext`, `GET /v1/ciphertext/<id>`
 - `GET /v1/commitments/<id>`, `/terms`, `/recipients`, `/events`, `/judgment`, `/key?recipient=<address>`
+- Problem types: `https://escrow.stream/problems/<type>`
 
 The hooded crow on the page is a pencil study by Archibald Thorburn, from *A Naturalist's Sketch Book* (1919), plate 18. Public domain.
 The drawing's figures are period engravings: Vaucanson's automaton tambourine player (18th century, from H.-R. d'Allemagne, *Histoire des jouets*, 1902; public domain), "A Sixteenth Century Coffre-fort" (F. Litchfield, *Illustrated History of Furniture*, 1893; public domain) and money bags from a José Guadalupe Posada print (c. 1880–1910, The Met; CC0).
