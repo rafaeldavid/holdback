@@ -64,10 +64,10 @@ function ints(types: Record<string, Array<{ name: string; type: string }>>, type
   if (types[type]) return Object.fromEntries(types[type]!.map((f) => [f.name, ints(types, f.type, (v as Record<string, unknown>)[f.name])]));
   return /^u?int\d*$/.test(type) ? BigInt(v as string) : v;
 }
-/** Signs the slots whose signer is `key`'s address (a contract test: no verification). */
-async function sign(p: Prepared, key: `0x${string}`): Promise<Prepared> {
+/** Signs the slots whose signer is `key`'s address, or every slot when forging (a contract test: no verification). */
+async function sign(p: Prepared, key: `0x${string}`, forge = false): Promise<Prepared> {
   const account = privateKeyToAccount(key);
-  for (const s of p.sign.filter((x) => x.signer.toLowerCase() === account.address.toLowerCase())) {
+  for (const s of p.sign.filter((x) => forge || x.signer.toLowerCase() === account.address.toLowerCase())) {
     const typed = { ...s.typedData, message: ints(s.typedData.types, s.typedData.primaryType, s.typedData.message) } as Parameters<typeof hashTypedData>[0];
     const path = s.slot.split('.');
     const parent = path.slice(0, -1).reduce<Record<string, unknown>>((o, k) => o[k] as Record<string, unknown>, p.submit.body);
@@ -122,7 +122,8 @@ describe('problems an agent can act on (F4)', () => {
     const p = (await http('POST', `${api}/v1/prepare/offer`, offerInput())).body as Prepared;
     const bad = { ...p.submit.body, price: { token: 'tUSD', amount: '25.5' } };
     expect((await http('POST', `${api}/v1/commitments`, bad)).body).toMatchObject({ type: 'invalid_terms', field: 'price.amount' });
-    expect((await http('POST', `${api}/v1/commitments`, p.submit.body, { 'idempotency-key': '' })).body).toMatchObject({ type: 'invalid_terms', field: 'Idempotency-Key' });
+    const signed = (await sign(p, acct('seller-1').privateKey)).submit.body;
+    expect((await http('POST', `${api}/v1/commitments`, signed, { 'idempotency-key': '' })).body).toMatchObject({ type: 'invalid_terms', field: 'Idempotency-Key' });
   });
 
   it('says the state and what the call needs on invalid_state, from prepare and from the settlement layer', async () => {
@@ -238,12 +239,14 @@ describe('one timestamp format (Simplify 8, F5)', () => {
 
 describe('notices in the body (Simplify 5)', () => {
   it('adds a node\'s notices to prepare, write and state answers', async () => {
-    const p = (await http('POST', `${noticing.url}/v1/prepare/offer`, offerInput())).body as Prepared & { notices: string[] };
-    expect(p.notices).toEqual(['notice for prepare']);
+    const p = (await http('POST', `${api}/v1/prepare/offer`, offerInput())).body as Prepared & { notices?: string[] };
+    expect(p.notices).toBeUndefined(); // the sim nodes have nothing to say
     const w = await http('POST', `${noticing.url}${p.submit.path}`, (await sign(p, acct('seller-1').privateKey)).submit.body);
     expect([w.body.escrowState, w.body.notices]).toEqual(['Offered', ['notice for write']]);
     expect((await http('GET', `${noticing.url}/v1/commitments/${p.commitmentId}`)).body.notices).toEqual(['notice for state']);
     expect((await http('GET', `${api}/v1/commitments/${p.commitmentId}`)).body.notices).toBeUndefined();
+    const af = (await http('POST', `${noticing.url}/v1/prepare/agree-and-fund`, { commitmentId: p.commitmentId, agreeNonce: nonce(), fundingNonce: nonce() })).body;
+    expect(af.notices).toEqual(['notice for prepare']);
   });
 });
 
@@ -254,8 +257,9 @@ describe('the write budget (C4, ADR-0024 §1)', () => {
       handle(new Request(`http://op.invalid${path}`, { method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': key }, body: JSON.stringify(body) }), client);
     const prep = async () => (await http('POST', `${api}/v1/prepare/offer`, offerInput('buyer-2', 'seller-2'))).body as Prepared;
     // Mallory signs offers naming seller-2 with her own key: refused, and her client runs out after two.
-    const forged = async () => (await sign(await prep(), testAccount('mallory').privateKey)).submit.body;
-    expect((await post('mallory', '/v1/commitments', await forged())).status).toBe(401);
+    const forged = async () => (await sign(await prep(), testAccount('mallory').privateKey, true)).submit.body;
+    const first = await post('mallory', '/v1/commitments', await forged());
+    expect([first.status, await first.text()]).toEqual([401, expect.stringContaining('invalid_signature')]);
     expect((await post('mallory', '/v1/commitments', await forged())).status).toBe(401);
     expect((await post('mallory', '/v1/commitments', await forged())).status).toBe(429);
     // seller-2's own budget is untouched: two verified writes from two clients, then the third is refused.

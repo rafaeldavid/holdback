@@ -3,9 +3,9 @@
 // with the signature slot(s) named. The operator never signs and never holds a party key: the agent checks the
 // typed data (the response says which fields matter), signs it with any EIP-712 library, puts the signature in
 // the named slot and POSTs the body to the write route the response names. The typed data is a pure function of
-// the inputs and of the defaults the response states (nonce, times), so an agent can recompute it.
+// the inputs and of the defaults the response states (times only), so an agent can recompute it. Prepare hides
+// nothing (D39): the caller sends every nonce and chooses the disclosure level; the operator derives neither.
 import {
-  canonicalJson,
   parseCommitment,
   commitmentId,
   isSealed,
@@ -14,7 +14,6 @@ import {
   mulBps,
   operatorFeeDue,
   operatorFeeRule,
-  problem,
   splitBps,
   termsDigest,
   typedDataOf,
@@ -34,13 +33,12 @@ import {
   type MimeType,
   type OperatorFeeSchedule,
   type Payout,
-  type Problem,
   type Sha256,
   type Timestamp,
   type TokenAmount,
   type UnsignedMessage,
 } from '@holdback/core';
-import { keccak256, stringToBytes } from 'viem';
+import type { ApiProblem } from './problems.js';
 import { checksOnlyTerms, completeTerms, defaultTerms, type AdjudicatorSlate, type RelativeTiming, type TermsDraft } from './terms.js';
 import { formatTusd } from './units.js';
 
@@ -67,8 +65,10 @@ export interface Prepared {
   submit: { method: 'POST'; path: string; body: Record<string, unknown> };
   /** Verify before you sign: the facts in this message, in words. */
   check: string[];
-  /** Defaults the operator filled in (nonce, times), so a caller can pass them back and get the same bytes. */
+  /** What the operator filled in because the caller left it out (times, releaseKey; never a nonce), to pass back for the same bytes. */
   defaults: Record<string, unknown>;
+  /** Advisory notices from this node (untrusted text): what to know before signing. Absent when there are none. */
+  notices?: string[];
 }
 
 /** What preparing needs from the operator's view of the settlement layer. Reads only. */
@@ -94,13 +94,17 @@ export function operatorFeeText(fee: TokenAmount, s: OperatorFeeSchedule): strin
 }
 
 export class PrepareError extends Error {
-  constructor(readonly problem: Problem) {
+  constructor(readonly problem: ApiProblem) {
     super(problem.detail);
   }
 }
-function bad(detail: string): never {
-  throw new PrepareError(problem('invalid_terms', detail));
+/** 400 invalid_terms naming the input at fault (a dotted path into the request body). */
+function bad(detail: string, field?: string): never {
+  throw new PrepareError({ type: 'invalid_terms', detail, ...(field ? { field } : {}) });
 }
+const notFound = (detail: string): never => {
+  throw new PrepareError({ type: 'not_found', detail });
+};
 
 // ---- typed data ------------------------------------------------------------------------------------
 
@@ -149,12 +153,6 @@ const lc = (a: string) => a.toLowerCase();
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const isAddress = (v: unknown): v is Address => typeof v === 'string' && /^0x[0-9a-fA-F]{40}$/.test(v);
 const isHex32 = (v: unknown): v is Hex32 => typeof v === 'string' && /^0x[0-9a-fA-F]{64}$/.test(v);
-/** A default nonce: keccak256 of the whole message without its nonce. Same message, same nonce. */
-const nonceOf = (message: Record<string, unknown>): Hex32 => {
-  const rest = { ...message };
-  delete rest['nonce'];
-  return keccak256(stringToBytes(`holdback/prepare/v1/${canonicalJson(rest)}`)) as Hex32;
-};
 const ZERO_NONCE: Hex32 = `0x${'0'.repeat(64)}`;
 const RFC3339 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
 const TIMING_KEYS: ReadonlyArray<keyof RelativeTiming> = ['offerExpiresInSec', 'fundWithinSec', 'deliverWithinSec', 'judgeWithinSec', 'fallbackWithinSec', 'appealWindowSec', 'appealDecideSec'];
@@ -167,11 +165,11 @@ const TIMING_KEYS: ReadonlyArray<keyof RelativeTiming> = ['offerExpiresInSec', '
  */
 function timingIn(v: unknown): Partial<RelativeTiming> | undefined {
   if (v === undefined) return undefined;
-  if (!isObj(v)) bad(`timing is an object of whole-second windows: ${TIMING_KEYS.join(', ')}`);
+  if (!isObj(v)) bad(`timing is an object of whole-second windows: ${TIMING_KEYS.join(', ')}`, 'timing');
   const out: Partial<RelativeTiming> = {};
   for (const [k, x] of Object.entries(v as Record<string, unknown>)) {
-    if (!(TIMING_KEYS as readonly string[]).includes(k)) bad(`timing.${k} is not a known window (${TIMING_KEYS.join(', ')})`);
-    if (!Number.isSafeInteger(x) || (x as number) < 0) bad(`timing.${k} must be a non-negative whole number of seconds`);
+    if (!(TIMING_KEYS as readonly string[]).includes(k)) bad(`timing.${k} is not a known window (${TIMING_KEYS.join(', ')})`, `timing.${k}`);
+    if (!Number.isSafeInteger(x) || (x as number) < 0) bad(`timing.${k} must be a non-negative whole number of seconds`, `timing.${k}`);
     out[k as keyof RelativeTiming] = x as number;
   }
   return out;
@@ -183,7 +181,7 @@ function representable(build: () => CommitmentTerms): CommitmentTerms {
   try {
     terms = build();
   } catch (e) {
-    return bad(`the windows give a deadline that cannot be represented as a timestamp (${(e as Error).message})`);
+    return bad(`the windows give a deadline that cannot be represented as a timestamp (${(e as Error).message})`, 'timing');
   }
   const r = parseCommitment({ ...terms, id: ZERO_NONCE, signatures: { seller: `0x${'0'.repeat(130)}` } });
   if (!r.ok) bad(`these terms are not a valid commitment: ${r.error.detail}`);
@@ -194,26 +192,26 @@ export const amountText = (a: TokenAmount) => (a.token === 'tUSD' ? formatTusd(a
 function timestamp(v: unknown, name: string): Timestamp | undefined {
   if (v === undefined) return undefined;
   // RFC 3339 (the schemas' date-time) has four-digit years, so that is the representable range.
-  if (typeof v !== 'string' || !RFC3339.test(v) || !Number.isFinite(Date.parse(v))) bad(`${name} must be an RFC 3339 timestamp, e.g. 2026-11-01T09:00:00Z`);
+  if (typeof v !== 'string' || !RFC3339.test(v) || !Number.isFinite(Date.parse(v))) bad(`${name} must be an RFC 3339 timestamp, e.g. 2026-11-01T09:00:00Z`, name);
   return wholeSecond(v as Timestamp);
 }
-function nonceIn(v: unknown, name: string): Hex32 | undefined {
-  if (v === undefined) return undefined;
-  if (!isHex32(v)) bad(`${name} must be 32 bytes of hex`);
+/** A nonce is always the caller's own: 32 random bytes it generated and will check in the typed data (D39). */
+function nonceIn(v: unknown, name: string): Hex32 {
+  if (v === undefined) bad(`${name} is required: generate 32 random bytes yourself, send them as 0x-prefixed hex, and refuse a message with any other`, name);
+  if (!isHex32(v)) bad(`${name} must be 32 bytes of hex (0x and 64 hex digits)`, name);
   return v as Hex32;
 }
 function amountIn(v: unknown, name: string): TokenAmount {
   if (!isObj(v) || typeof v['token'] !== 'string' || typeof v['amount'] !== 'string' || !/^(0|[1-9]\d{0,77})$/.test(v['amount'])) {
-    return bad(`${name} must be {"token": "tUSD", "amount": "<base units as a decimal string>"}; tUSD has 6 decimals, so 25 tUSD is "25000000"`);
+    return bad(`${name} must be {"token": "tUSD", "amount": "<base units as a decimal string>"}; tUSD has 6 decimals, so 25 tUSD is "25000000"`, name);
   }
   return { token: v['token'], amount: v['amount'] } as TokenAmount;
 }
 
 async function commitmentIn(ctx: PrepareContext, input: Record<string, unknown>): Promise<AnyCommitment> {
-  if (!isHex32(input['commitmentId'])) bad('commitmentId is required');
+  if (!isHex32(input['commitmentId'])) bad('commitmentId is required', 'commitmentId');
   const c = await ctx.commitment(input['commitmentId'] as Hex32);
-  if (!c) throw new PrepareError(problem('not_found', `no commitment ${String(input['commitmentId'])}`));
-  return c;
+  return c ?? notFound(`no commitment ${String(input['commitmentId'])}`);
 }
 
 // ---- each kind -------------------------------------------------------------------------------------
@@ -227,13 +225,13 @@ const PLACEHOLDER_BODY = { deliverable: { kind: 'other', description: 'hash-only
  * whose hashes are these). nonce and createdAt are required: the agent encrypted under the commitment ID already.
  */
 async function hashOnlyOffer(ctx: PrepareContext, input: Record<string, unknown>): Promise<Prepared> {
-  for (const k of ['deliverable', 'acceptance', 'checks', 'rubric', 'template']) if (input[k] !== undefined) bad(`a hash-only offer takes deliverableHash and acceptanceHash, not ${k}: the operator never sees a body`);
-  if (!isHex32(input['deliverableHash']) || !isHex32(input['acceptanceHash'])) bad('deliverableHash and acceptanceHash are keccak256 of the RFC 8785 JSON of each body (docs/api.md, the client-side recipe)');
-  const level = (input['disclosure'] ?? 'private') as DisclosureLevel;
-  if (level !== 'private' && level !== 'judgment') bad('disclosure is "private" (the default) or "judgment"; a public offer carries its bodies in the clear');
-  const nonce = nonceIn(input['nonce'], 'nonce') ?? bad('nonce is required for a hash-only offer: you encrypted the bodies under the commitment ID');
-  const createdAt = timestamp(input['createdAt'], 'createdAt') ?? bad('createdAt is required for a hash-only offer: you encrypted the bodies under the commitment ID');
-  const plain = await offer(ctx, { ...input, hashOnly: undefined, deliverableHash: undefined, acceptanceHash: undefined, disclosure: undefined, template: 'checks-only', deliverable: PLACEHOLDER_BODY.deliverable, checks: [PLACEHOLDER_BODY.check], nonce, createdAt });
+  for (const k of ['deliverable', 'acceptance', 'checks', 'rubric', 'template']) if (input[k] !== undefined) bad(`a hash-only offer takes deliverableHash and acceptanceHash, not ${k}: the operator never sees a body`, k);
+  for (const k of ['deliverableHash', 'acceptanceHash']) if (!isHex32(input[k])) bad('deliverableHash and acceptanceHash are keccak256 of the RFC 8785 JSON of each body (docs/api.md, the client-side recipe)', k);
+  const level = input['disclosure'] as DisclosureLevel;
+  if (level !== 'private' && level !== 'judgment') bad('a hash-only offer signs disclosure "private" (the bodies stay sealed to the parties and the adjudicators) or "judgment" (the acceptance is published with the decision); a public offer is prepared from the plain bodies instead', 'disclosure');
+  const nonce = nonceIn(input['nonce'], 'nonce');
+  const createdAt = timestamp(input['createdAt'], 'createdAt') ?? bad('createdAt is required for a hash-only offer: you encrypted the bodies under the commitment ID', 'createdAt');
+  const plain = await offer(ctx, { ...input, hashOnly: undefined, deliverableHash: undefined, acceptanceHash: undefined, disclosure: 'public', template: 'checks-only', deliverable: PLACEHOLDER_BODY.deliverable, checks: [PLACEHOLDER_BODY.check], nonce, createdAt });
   const body = plain.submit.body as unknown as CommitmentTerms;
   const { deliverable: _d, acceptance: _a, id: _i, signatures: _s, ...rest } = body as CommitmentTerms & { id: unknown; signatures: unknown }; // eslint-disable-line @typescript-eslint/no-unused-vars
   const part = (hash: Hex32) => ({ hash, ciphertext: '', envelopes: [] as EncryptedKey[] });
@@ -246,30 +244,39 @@ async function hashOnlyOffer(ctx: PrepareContext, input: Record<string, unknown>
     sign: [{ slot: 'signatures.seller', signer: terms.seller, typedData: typedData(ctx.domain, 'CommitmentTerms', typedTermsOf(terms) as Record<string, unknown>), digest: termsDigest(ctx.domain, terms) }],
     submit: { method: 'POST', path: '/v1/commitments', body: { ...wire, id, signatures: { seller: null } } },
     check: [
-      ...plain.check.filter((c) => !c.startsWith('deliverableHash')),
+      ...plain.check.filter((c) => !c.startsWith('deliverableHash') && !c.startsWith('disclosure.level')),
       `disclosure.level ${level}: add privateTerms {deliverable, acceptance} to submit.body, each {hash, ciphertext, envelopes} with the hashes you sent (${String(input['deliverableHash'])}, ${String(input['acceptanceHash'])}); the operator never saw the bodies`,
       'compare digest with your own: the client-side recipe needs no operator, this answer is a cross-check',
     ],
-    defaults: { nonce, createdAt },
+    defaults: {},
   };
 }
 
 async function offer(ctx: PrepareContext, input: Record<string, unknown>): Promise<Prepared> {
   if (input['hashOnly'] === true) return hashOnlyOffer(ctx, input);
+  // D39, C9: the level is the caller's choice, never a default. From plain bodies the operator can only prepare public.
+  if (input['disclosure'] !== 'public') {
+    bad(
+      input['disclosure'] === undefined
+        ? 'disclosure is required: "public" (the terms bodies travel in the clear and every operator serves them), or "private" or "judgment" built with the client-side recipe and prepared with hashOnly: true (the operator never sees the bodies)'
+        : `disclosure ${JSON.stringify(input['disclosure'])} cannot be prepared from plain bodies: send "public", or build a private or judgment offer with the client-side recipe and prepare it with hashOnly: true`,
+      'disclosure',
+    );
+  }
   const template = input['template'] ?? 'default';
-  if (template !== 'default' && template !== 'checks-only') bad('template is "default" (checks, then a judge panel on the rubric) or "checks-only"');
-  if (!isAddress(input['seller'])) bad('seller (your address) is required');
+  if (template !== 'default' && template !== 'checks-only') bad('template is "default" (checks, then a judge panel on the rubric) or "checks-only"', 'template');
+  if (!isAddress(input['seller'])) bad('seller (your address) is required', 'seller');
   const buyer = input['buyer'];
-  if (!isObj(buyer) || !isAddress(buyer['address']) || typeof buyer['encryptionPublicKey'] !== 'string') bad('buyer is {"address", "encryptionPublicKey"}, as the buyer gave them to you');
+  if (!isObj(buyer) || !isAddress(buyer['address']) || typeof buyer['encryptionPublicKey'] !== 'string') bad('buyer is {"address", "encryptionPublicKey"}, as the buyer gave them to you', 'buyer');
   const adj = input['adjudicators'];
-  if (!isObj(adj) || !isAddress(adj['primary']) || !isAddress(adj['fallback']) || !isAddress(adj['appeal'])) bad('adjudicators is {"primary", "fallback", "appeal"} addresses (GET /v1/adjudicators)');
-  if (typeof input['clubId'] !== 'string') bad('clubId is required (GET /v1/clubs/{id})');
-  const club = ctx.club(input['clubId'] as string) ?? bad(`no club ${String(input['clubId'])}`);
-  if (!isObj(input['deliverable'])) bad('deliverable is {"kind", "description", "format"}');
+  if (!isObj(adj) || !isAddress(adj['primary']) || !isAddress(adj['fallback']) || !isAddress(adj['appeal'])) bad('adjudicators is {"primary", "fallback", "appeal"} addresses (GET /v1/adjudicators)', 'adjudicators');
+  if (typeof input['clubId'] !== 'string') bad('clubId is required (GET /v1/clubs/{id})', 'clubId');
+  const club = ctx.club(input['clubId'] as string) ?? bad(`no club ${String(input['clubId'])}`, 'clubId');
+  if (!isObj(input['deliverable'])) bad('deliverable is {"kind", "description", "format"}', 'deliverable');
+  const nonce = nonceIn(input['nonce'], 'nonce');
   const slate = adj as unknown as AdjudicatorSlate;
-  const primary = ctx.registration(slate.primary);
-  if (!primary) throw new PrepareError(problem('not_found', `the primary adjudicator ${slate.primary} has no published registration`));
-  for (const role of ['fallback', 'appeal'] as const) if (!ctx.registration(slate[role])) throw new PrepareError(problem('not_found', `the ${role} adjudicator ${slate[role]} has no published registration`));
+  const primary = ctx.registration(slate.primary) ?? notFound(`the primary adjudicator ${slate.primary} has no published registration`);
+  for (const role of ['fallback', 'appeal'] as const) if (!ctx.registration(slate[role])) notFound(`the ${role} adjudicator ${slate[role]} has no published registration`);
   const base = {
     clubId: club.id,
     buyer: { address: lc(buyer!['address'] as string) as Address, encryptionPublicKey: buyer!['encryptionPublicKey'] as string },
@@ -288,7 +295,8 @@ async function offer(ctx: PrepareContext, input: Record<string, unknown>): Promi
   } catch (e) {
     return bad((e as Error).message);
   }
-  const createdAt = timestamp(input['createdAt'], 'createdAt') ?? ctx.now();
+  const givenCreatedAt = timestamp(input['createdAt'], 'createdAt');
+  const createdAt = givenCreatedAt ?? ctx.now();
   const resolved = {
     seller: lc(input['seller'] as string) as Address,
     rulebookHash: club.rulebookHash,
@@ -298,7 +306,6 @@ async function offer(ctx: PrepareContext, input: Record<string, unknown>): Promi
     fee: primary.fee.min,
     createdAt,
   };
-  const nonce = nonceIn(input['nonce'], 'nonce') ?? nonceOf(representable(() => completeTerms(draft, { ...resolved, nonce: ZERO_NONCE })) as unknown as Record<string, unknown>);
   const terms: CommitmentTerms = representable(() => completeTerms(draft, { ...resolved, nonce }));
   const id = commitmentId(terms);
   const total = BigInt(terms.price.amount) + BigInt(terms.adjudication.fee.amount);
@@ -314,8 +321,9 @@ async function offer(ctx: PrepareContext, input: Record<string, unknown>): Promi
       `policy ${terms.adjudication.policyId}, policyHash ${terms.adjudication.policyHash} = keccak256(JCS(policy)) of the primary's registration; registryHash ${terms.adjudication.registryHash}`,
       `deliverableHash and acceptanceHash in the typed data are keccak256 of the RFC 8785 JSON of submit.body.deliverable and submit.body.acceptance`,
       `deliver by ${terms.timing.deliverBy}; offer expires ${terms.timing.offerExpiresAt}`,
+      'disclosure.level public: the terms bodies (deliverable, checks, rubric) are public reads at every operator; the work itself stays encrypted',
     ],
-    defaults: { nonce, createdAt },
+    defaults: givenCreatedAt ? {} : { createdAt },
   };
 }
 
@@ -334,8 +342,8 @@ async function agreeAndFund(ctx: PrepareContext, input: Record<string, unknown>)
     validBefore: c.timing.fundBy,
     expiresAt: c.timing.fundBy,
   } as const;
-  const agreeNonce = nonceIn(input['agreeNonce'], 'agreeNonce') ?? nonceOf(agreeBody);
-  const fundingNonce = nonceIn(input['fundingNonce'], 'fundingNonce') ?? nonceOf(fundingBody);
+  const agreeNonce = nonceIn(input['agreeNonce'], 'agreeNonce');
+  const fundingNonce = nonceIn(input['fundingNonce'], 'fundingNonce');
   const agree = { ...agreeBody, nonce: agreeNonce };
   const funding = { ...fundingBody, nonce: fundingNonce };
   // ADR-0023: this node's fee, a third signature, only when it asks for more than zero.
@@ -357,8 +365,8 @@ async function agreeAndFund(ctx: PrepareContext, input: Record<string, unknown>)
           expiresAt: c.timing.fundBy,
         } as const)
       : undefined;
-  const operatorFeeNonce = feeBody ? (nonceIn(input['operatorFeeNonce'], 'operatorFeeNonce') ?? nonceOf(feeBody)) : undefined;
-  const fee = feeBody ? { ...feeBody, nonce: operatorFeeNonce! } : undefined;
+  // Sent always is fine: a node that charges nothing ignores it. A node that charges needs it (fees.operator in discovery).
+  const fee = feeBody ? { ...feeBody, nonce: nonceIn(input['operatorFeeNonce'], 'operatorFeeNonce') } : undefined;
   return {
     kind: 'agree-and-fund',
     commitmentId: c.id,
@@ -384,29 +392,30 @@ async function agreeAndFund(ctx: PrepareContext, input: Record<string, unknown>)
       `adjudicators: primary ${c.adjudication.adjudicator}, fallback ${c.adjudication.fallbackAdjudicator}, appeal ${c.adjudication.appealAdjudicator}`,
       'the primary adjudicator must have accepted the offer first (escrowState AcceptedByAdjudicator)',
     ],
-    defaults: { agreeNonce, fundingNonce, ...(operatorFeeNonce ? { operatorFeeNonce } : {}) },
+    defaults: {},
   };
 }
 
 async function delivery(ctx: PrepareContext, input: Record<string, unknown>): Promise<Prepared> {
   const c = await commitmentIn(ctx, input);
   const ct = input['ciphertext'];
-  if (!isObj(ct) || typeof ct['uri'] !== 'string' || typeof ct['sha256'] !== 'string' || !Number.isSafeInteger(ct['bytes'])) bad('ciphertext is {"uri", "sha256", "bytes"} as POST /v1/ciphertext answered');
-  if (typeof input['plaintextSha256'] !== 'string') bad('plaintextSha256 ("sha256:<hex>" of the plaintext) is required');
+  if (!isObj(ct) || typeof ct['uri'] !== 'string' || typeof ct['sha256'] !== 'string' || !Number.isSafeInteger(ct['bytes'])) bad('ciphertext is {"uri", "sha256", "bytes"} as POST /v1/ciphertext answered', 'ciphertext');
+  if (typeof input['plaintextSha256'] !== 'string') bad('plaintextSha256 ("sha256:<hex>" of the plaintext) is required', 'plaintextSha256');
   const keys = input['encryptedKeys'];
-  if (!Array.isArray(keys)) bad('encryptedKeys is one envelope per recipient (GET /v1/commitments/{id}/recipients)');
+  if (!Array.isArray(keys)) bad('encryptedKeys is one envelope per recipient (GET /v1/commitments/{id}/recipients)', 'encryptedKeys');
   const need = [c.adjudication.adjudicator, c.adjudication.fallbackAdjudicator, c.adjudication.appealAdjudicator, c.buyer].map(lc);
   const have = (keys as EncryptedKey[]).map((k) => lc(String(k?.recipient)));
   const missing = need.filter((a) => !have.includes(a));
-  if (missing.length) bad(`encryptedKeys has no envelope for ${missing.join(', ')}; seal the content key to every recipient GET /v1/commitments/${c.id}/recipients lists`);
-  const submittedAt = timestamp(input['submittedAt'], 'submittedAt') ?? ctx.now();
+  if (missing.length) bad(`encryptedKeys has no envelope for ${missing.join(', ')}; seal the content key to every recipient GET /v1/commitments/${c.id}/recipients lists`, 'encryptedKeys');
+  const givenAt = timestamp(input['submittedAt'], 'submittedAt');
+  const submittedAt = givenAt ?? ctx.now();
   const body = {
     commitmentId: c.id,
     attempt: Number.isSafeInteger(input['attempt']) ? (input['attempt'] as number) : 1,
     ciphertext: { uri: ct!['uri'] as string, sha256: ct!['sha256'] as Sha256, bytes: ct!['bytes'] as number, cipher: 'aes-256-gcm' as const },
     plaintextSha256: input['plaintextSha256'] as Sha256,
     // A sealed deal's format is in its ciphertext body, which this operator cannot read (ADR-0024): the seller names it.
-    plaintextMime: (input['plaintextMime'] ?? (isSealed(c) ? bad('plaintextMime is required for a private or judgment deal: the operator cannot read the deliverable format') : c.deliverable.format)) as MimeType,
+    plaintextMime: (input['plaintextMime'] ?? (isSealed(c) ? bad('plaintextMime is required for a private or judgment deal: the operator cannot read the deliverable format', 'plaintextMime') : c.deliverable.format)) as MimeType,
     encryptedKeys: (keys as EncryptedKey[]).map((k) => ({ recipient: k.recipient, scheme: k.scheme, ciphertext: k.ciphertext })),
     submittedAt,
   };
@@ -421,15 +430,16 @@ async function delivery(ctx: PrepareContext, input: Record<string, unknown>): Pr
       `envelopes for ${need.join(', ')}: the buyer's sealed to buyerEncryptionPublicKey ${c.buyerEncryptionPublicKey} from the terms you signed, not a key from this operator`,
       "each adjudicator's envelope sealed to the encryption key in its registration as a source you trust gives it (a second operator, or the adjudicator itself), not only this operator's /recipients",
     ],
-    defaults: { submittedAt },
+    defaults: givenAt ? {} : { submittedAt },
   };
 }
 
 async function earlyAccept(ctx: PrepareContext, input: Record<string, unknown>): Promise<Prepared> {
   const c = await commitmentIn(ctx, input);
-  const expiresAt = timestamp(input['expiresAt'], 'expiresAt') ?? plus(ctx.now(), 3600);
+  const nonce = nonceIn(input['nonce'], 'nonce');
+  const givenExpiry = timestamp(input['expiresAt'], 'expiresAt');
+  const expiresAt = givenExpiry ?? plus(ctx.now(), 3600);
   const body = { type: 'EarlyAccept', commitmentId: c.id, buyer: c.buyer, attempt: await ctx.attempt(c.id), expiresAt } as const;
-  const nonce = nonceIn(input['nonce'], 'nonce') ?? nonceOf(body);
   const m = { ...body, nonce };
   return {
     kind: 'early-accept',
@@ -442,19 +452,20 @@ async function earlyAccept(ctx: PrepareContext, input: Record<string, unknown>):
       'open your envelope first: get the signed delivery from the seller, check it is the one the settlement layer holds (its deliveryHash in delivery.submitted, as at least two operators serve it), open your envelope with your own key, decrypt the ciphertext and check the plaintext hash; the envelope the seller supplied is what an early accept releases, and nothing else checks it',
       'no appeal follows an early accept (D32): if your envelope does not open, do not accept early; an adjudicator\'s decision re-seals the key to your terms key',
     ],
-    defaults: { nonce, expiresAt },
+    defaults: givenExpiry ? {} : { expiresAt },
   };
 }
 
 async function appeal(ctx: PrepareContext, input: Record<string, unknown>): Promise<Prepared> {
   const c = await commitmentIn(ctx, input);
-  if (!isAddress(input['appellant'])) bad('appellant (your address) is required');
+  if (!isAddress(input['appellant'])) bad('appellant (your address) is required', 'appellant');
   const who = lc(input['appellant'] as string);
-  const appellant: 'buyer' | 'seller' = who === lc(c.buyer) ? 'buyer' : who === lc(c.seller) ? 'seller' : bad(`${who} is neither party to ${c.id}`);
+  const appellant: 'buyer' | 'seller' = who === lc(c.buyer) ? 'buyer' : who === lc(c.seller) ? 'seller' : bad(`${who} is neither party to ${c.id}`, 'appellant');
   const rulebook = ctx.club(c.clubId)?.rulebook ?? bad(`no club ${c.clubId}`);
   const bond = mulBps(c.price, BigInt(rulebook.appealBondRateBps), 'ceil');
   if (!bond.ok) return bad('cannot compute the appeal bond');
-  const filedAt = timestamp(input['filedAt'], 'filedAt') ?? ctx.now();
+  const givenAt = timestamp(input['filedAt'], 'filedAt');
+  const filedAt = givenAt ?? ctx.now();
   const body = { commitmentId: c.id, appellant, appellantAddress: who as Address, grounds: typeof input['grounds'] === 'string' ? input['grounds'] : 'wrong-outcome', bond: bond.value, filedAt };
   const fee = rulebook.appealFee;
   return {
@@ -466,22 +477,23 @@ async function appeal(ctx: PrepareContext, input: Record<string, unknown>): Prom
       `you appeal as the ${appellant}`,
       `you post a bond of ${amountText(bond.value)} (${rulebook.appealBondRateBps} bps of the price, rounded up) and a fee of ${amountText(fee)}, ${amountText({ token: fee.token, amount: (BigInt(bond.value.amount) + BigInt(fee.amount)).toString() } as TokenAmount)} in all, from your balance; you lose the bond if the decision is upheld`,
     ],
-    defaults: { filedAt },
+    defaults: givenAt ? {} : { filedAt },
   };
 }
 
 async function settlement(ctx: PrepareContext, input: Record<string, unknown>): Promise<Prepared> {
   const c = await commitmentIn(ctx, input);
+  const nonce = nonceIn(input['nonce'], 'nonce');
   let payouts: Payout[];
   if (input['payouts'] !== undefined) {
-    if (!Array.isArray(input['payouts'])) bad('payouts is a list of {"to", "amount"}');
+    if (!Array.isArray(input['payouts'])) bad('payouts is a list of {"to", "amount"}', 'payouts');
     payouts = (input['payouts'] as unknown[]).map((p, i) => {
-      if (!isObj(p) || !isAddress(p['to'])) return bad(`payouts[${i}].to must be an address`);
-      return { to: p['to'] as Address, amount: amountIn(p['amount'], `payouts[${i}].amount`) };
+      if (!isObj(p) || !isAddress(p['to'])) return bad(`payouts[${i}].to must be an address`, `payouts.${i}.to`);
+      return { to: p['to'] as Address, amount: amountIn(p['amount'], `payouts.${i}.amount`) };
     });
   } else {
     const bps = input['toSellerBps'];
-    if (!Number.isSafeInteger(bps) || (bps as number) < 0 || (bps as number) > 10_000) bad('give payouts, or toSellerBps (0 to 10000): the seller gets that share of the price, the buyer the rest');
+    if (!Number.isSafeInteger(bps) || (bps as number) < 0 || (bps as number) > 10_000) bad('give payouts, or toSellerBps (0 to 10000): the seller gets that share of the price, the buyer the rest', 'toSellerBps');
     const split = splitBps(c.price, BigInt(bps as number));
     if (!split.ok) return bad('cannot split the price');
     payouts = [
@@ -490,10 +502,11 @@ async function settlement(ctx: PrepareContext, input: Record<string, unknown>): 
     ].filter((p) => p.amount.amount !== '0');
   }
   const delivered = await ctx.delivery(c.id);
-  const expiresAt = timestamp(input['expiresAt'], 'expiresAt') ?? plus(ctx.now(), 3600);
-  const releaseKey = typeof input['releaseKey'] === 'boolean' ? input['releaseKey'] : delivered !== undefined;
+  const givenExpiry = timestamp(input['expiresAt'], 'expiresAt');
+  const expiresAt = givenExpiry ?? plus(ctx.now(), 3600);
+  const givenRelease = typeof input['releaseKey'] === 'boolean';
+  const releaseKey = givenRelease ? (input['releaseKey'] as boolean) : delivered !== undefined;
   const body = { type: 'MutualSettlement', commitmentId: c.id, deliveryHash: delivered?.deliveryHash ?? null, payouts, releaseKey, expiresAt } as const;
-  const nonce = nonceIn(input['nonce'], 'nonce') ?? nonceOf(body);
   const m = { ...body, nonce };
   const signed = forMessage(ctx.domain, m);
   return {
@@ -510,7 +523,7 @@ async function settlement(ctx: PrepareContext, input: Record<string, unknown>): 
       releaseKey ? 'the buyer receives the content key' : 'the content key is not released',
       'both parties sign the identical typed data; either may submit once both signatures are in',
     ],
-    defaults: { nonce, expiresAt, releaseKey },
+    defaults: { ...(givenExpiry ? {} : { expiresAt }), ...(givenRelease ? {} : { releaseKey }) },
   };
 }
 
@@ -528,13 +541,14 @@ const PREPARERS: Record<PrepareKind, (ctx: PrepareContext, input: Record<string,
  * the settlement layer refuses (sim batch 1, F5), so prepare answers 409 invalid_state with the state it saw.
  * The settlement layer still decides: a state can change between prepare and submit.
  */
-const STATE_GATES: Partial<Record<PrepareKind, { needs: string; open(s: CommitmentStateView): boolean }>> = {
-  'early-accept': { needs: 'early-accept needs Delivered (a delivery no adjudicator has decided yet)', open: (s) => s.escrowState === 'Delivered' },
+const STATE_GATES: Partial<Record<PrepareKind, { needs: string; states: string[]; open(s: CommitmentStateView): boolean }>> = {
+  'early-accept': { needs: 'early-accept needs Delivered (a delivery no adjudicator has decided yet)', states: ['Delivered'], open: (s) => s.escrowState === 'Delivered' },
   appeal: {
     needs: 'an appeal needs a first-instance decision (Released or Refunded) whose appeal window is open and unused; escalated decisions are final',
+    states: ['Released', 'Refunded'],
     open: (s) => (s.escrowState === 'Released' || s.escrowState === 'Refunded') && s.appealState === 'none' && !s.finalAt,
   },
-  settlement: { needs: 'a settlement needs Held, Delivered, FallbackJudging or Escalated', open: (s) => ['Held', 'Delivered', 'FallbackJudging', 'Escalated'].includes(s.escrowState) },
+  settlement: { needs: 'a settlement needs Held, Delivered, FallbackJudging or Escalated', states: ['Held', 'Delivered', 'FallbackJudging', 'Escalated'], open: (s) => ['Held', 'Delivered', 'FallbackJudging', 'Escalated'].includes(s.escrowState) },
 };
 
 async function stateGate(kind: PrepareKind, ctx: PrepareContext, input: Record<string, unknown>): Promise<void> {
@@ -543,11 +557,13 @@ async function stateGate(kind: PrepareKind, ctx: PrepareContext, input: Record<s
   const s = await ctx.state(input['commitmentId'] as Hex32);
   if (!s || gate.open(s)) return;
   const why = s.finalAt ? `, final since ${s.finalAt}` : s.appealState !== 'none' ? `, appeal ${s.appealState}` : '';
-  throw new PrepareError(problem('invalid_state', `commitment ${s.commitmentId} is ${s.escrowState}${why}; ${gate.needs}`));
+  // `needs` only when the escrow state is what refuses (an appeal can also be closed by its window or a past appeal).
+  const needs = gate.states.includes(s.escrowState) ? {} : { needs: gate.states };
+  throw new PrepareError({ type: 'invalid_state', detail: `commitment ${s.commitmentId} is ${s.escrowState}${why}; ${gate.needs}`, state: s.escrowState, ...needs });
 }
 
 export function prepare(kind: string, ctx: PrepareContext, input: unknown): Promise<Prepared> {
-  if (!(PREPARE_KINDS as readonly string[]).includes(kind)) throw new PrepareError(problem('not_found', `nothing to prepare for ${kind}; kinds: ${PREPARE_KINDS.join(', ')}`));
+  if (!(PREPARE_KINDS as readonly string[]).includes(kind)) notFound(`nothing to prepare for ${kind}; kinds: ${PREPARE_KINDS.join(', ')}`);
   if (!isObj(input)) bad('the body must be a JSON object');
   const run = async () => {
     await stateGate(kind as PrepareKind, ctx, input as Record<string, unknown>);

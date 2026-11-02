@@ -292,7 +292,7 @@ describe('reads', () => {
   it('funds an address from the SimChain faucet', async () => {
     const r = await post('/v1/faucet', { address: w.cast.seller.address, amount: '5' }, { 'idempotency-key': 'f1' });
     expect(r.status).toBe(200);
-    expect(await json(r)).toEqual({ address: w.cast.seller.address, granted: { token: 'tUSD', amount: '5' }, balance: { token: 'tUSD', amount: '1000000005' } });
+    expect(await json(r)).toEqual({ address: w.cast.seller.address.toLowerCase(), granted: { token: 'tUSD', amount: '5' }, balance: { token: 'tUSD', amount: '1000000005' } });
   });
 
   it('answers the planned funding routes 501 not_implemented, with a link to ADR-0026 (D39)', async () => {

@@ -15,8 +15,8 @@ import { FAIL_MARKER, testAdjudicator, type TestAdjudicator } from '@holdback/ad
 import type { FakeScript } from '@holdback/judgment';
 import { mandateFor, SIM_CHAIN_ID, SIM_RULEBOOK, simClub, SimChain, TOKEN, wideScope, type Genesis } from '@holdback/settlement/sim';
 import { testAccount, type TestAccount } from './accounts.js';
-import { simRegistry } from './registry.js';
-import { startOperator, type RunningOperator } from './server.js';
+import { DEFAULT_FAUCET_GRANT, simRegistry } from './registry.js';
+import { startOperator, type DemoFacts, type RunningOperator } from './server.js';
 import { TUSD } from './units.js';
 
 export type SimRole = 'primary' | 'fallback' | 'appeal';
@@ -203,6 +203,16 @@ export async function startSimWorld(options: SimWorldOptions = {}): Promise<SimW
   const operatorFee = of
     ? { fee: { to: of.to ?? worldAccount('sim-operator-fees').address, token: TOKEN, bps: of.bps, min: of.min, max: of.max, appliesAt: 'agree-and-fund' as const, refundable: false as const } }
     : {};
+  // Discovery's demo facts (D39): the club, the token, the adjudicators by role and the faucet, where an agent with
+  // only an operator URL finds them. Filled in once the adjudicators below exist.
+  const adjudicators = {} as Record<SimRole, TestAdjudicator>;
+  const demo = (): DemoFacts => ({
+    clubId: club.id,
+    token: { id: TOKEN, decimals: 6 },
+    adjudicators: ADJUDICATORS.filter((a) => adjudicators[a.role]).map((a) => ({ role: a.role, address: adjudicators[a.role].address, name: a.name })),
+    faucet: { path: '/v1/faucet', grant: { token: TOKEN, amount: DEFAULT_FAUCET_GRANT.toString() } as DemoFacts['faucet']['grant'] },
+    operators: operators.map((o) => o.url),
+  });
   for (const [i, port] of (options.operatorPorts ?? [0, 0]).entries()) {
     operators.push(
       await startOperator({
@@ -210,6 +220,7 @@ export async function startSimWorld(options: SimWorldOptions = {}): Promise<SimW
         registry: { ...simRegistry(chain), registration, judgment: (id) => latest.get(id) ?? null },
         store,
         ...operatorFee,
+        demo,
         signerKey: worldAccount(`sim-operator-${i + 1}`).privateKey,
         operatorId: `op-${i + 1}`,
         env: options.env ?? process.env,
@@ -220,7 +231,6 @@ export async function startSimWorld(options: SimWorldOptions = {}): Promise<SimW
   }
   const storeRoots = operators.map((o) => `${o.url}/v1/ciphertext/`);
 
-  const adjudicators = {} as Record<SimRole, TestAdjudicator>;
   for (const a of adjKeys) {
     const adj = testAdjudicator({
       name: a.name,
@@ -244,6 +254,9 @@ export async function startSimWorld(options: SimWorldOptions = {}): Promise<SimW
       domain: holdbackDomain(SIM_CHAIN_ID),
       fee,
       ...(options.judges?.[a.role] ? { judges: options.judges[a.role]! } : {}),
+      // A local world exercises private flows by early accept or mutual settlement (T-207), so its primary accepts
+      // sealed offers it cannot read. The public demo's adjudicators decline them instead (T-030).
+      acceptSealedUnread: true,
     });
     registrations.set(adj.address, { ...adj.registration(), poolTermsHash: canonicalKeccak(POOL_TERMS), status: 'active' });
     const parsed = parseAdjudicator(registration(adj.address));
