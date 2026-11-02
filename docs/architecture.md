@@ -23,7 +23,7 @@ flowchart LR
     ESC[Escrow + rules]
     REG[Club, agent, adjudicator registries]
   end
-  RAMP[On-ramps / off-ramps: Stripe test, cards, stablecoin]
+  RAMP[Funding service, planned: swaps, ETH wrap, bridges, card and bank on-ramps]
   BA -- signed messages --> API
   SA -- signed messages --> API
   BA -. escape hatch: direct submit .-> ESC
@@ -31,7 +31,8 @@ flowchart LR
   ESC --> IDX --> API
   PIPE --> PANEL
   PIPE -- signed decision --> ESC
-  RAMP -- funds in/out --> ESC
+  API -. /v1/funding .-> RAMP
+  RAMP -- deal token to the buyer's address --> BA
 ```
 
 **Settlement layer.** Escrow plus rules, with no owner. In Phase 1 it is **SimChain**: an in-process, deterministic implementation of the same rules. From Phase 2 it is an EVM contract on a local chain and then a testnet (ADR-0003, ADR-0004). One `Settlement` interface covers both, and the scenario fixtures run against each (differential testing).
@@ -43,6 +44,8 @@ flowchart LR
 **Adjudicator.** Runs the judgment pipeline, posts a bond in the registry and signs decisions. Each commitment names a primary, a fallback and an appeal adjudicator.
 
 **Ramps.** Convert fiat to the settlement token and back. They act only before funds are held and after they are released.
+
+**Funding service (planned, ADR-0026).** A separate service the unified API calls through `/v1/funding/*`, so a buyer agent can fund from whatever it holds: another ERC-20 (a swap), ETH (wrapped to WETH), another chain (a bridge) or fiat (a card or bank on-ramp). It delivers the deal's token to the buyer's address, and the buyer then funds the hold as usual. It never holds escrowed funds or signs for the buyer, and a buyer that already holds the token skips it. Today the routes answer 404 and the typed interface is `FundingService` in `apps/operator/src/registry.ts`. The deal's token is any ERC-20 the parties name in the terms, with ETH as WETH; ERC-3009 tokens fund with one signature, others through Permit2. A club may narrow this with `allowedTokens`.
 
 ## Domain objects
 
