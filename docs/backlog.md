@@ -141,6 +141,10 @@ Deferred until after the basic demo. The demo assumes honest parties (Rafa, Octo
 
 Proposed by Rafa on 2026-11-01. To explore with T-207 (private deals), after the Phase 2 contracts exist on Sepolia. Not a decision: a research and spike task.
 
+**Sources (Rafa, 2026-11-02).** Matter Labs' local Prividium stack, https://github.com/matter-labs/local-prividium (Docker Compose: Prividium API with permissions and protected RPC, admin and user panels, Keycloak, PostgreSQL, a zkSync OS sequencer, an Anvil L1, block explorer, webhooks, metrics; images from a private quay.io registry, credentials `PRIVIDIUM_DOCKER_USERNAME` / `PRIVIDIUM_DOCKER_PASSWORD` in `.env`, login with `pnpm prividium:login`), and an institutional demo with an intraday repo flow, https://github.com/JackHamer09/prividium-institutional-demo#intraday-repo.
+
+**Bias to simplicity (Rafa, 2026-11-02).** The goal is an elegant, simple, unified API over a hard protocol. Adopt a fragment only if agents still see the same API and the protocol gets simpler or strictly more private for the cost; a stack that adds an identity provider, databases or a permissioned sequencer to every deal fails that bar unless it can be hidden entirely behind the operator API and removed without changing the protocol.
+
 **The idea.** Each escrow runs inside its own short-lived private instance built from shared Prividium architecture, whose only participants are the two parties and their named adjudicators. The deal's content, negotiation and judgment happen there, unseen by operators or anyone else. The assets never leave Ethereum mainnet: they sit in the L1 escrow contract, which releases or refunds as a byproduct of the fragment's proven outcome. When the deal is final, the fragment is retired.
 
 **Proposed architecture.**
