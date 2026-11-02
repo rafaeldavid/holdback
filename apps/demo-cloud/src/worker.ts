@@ -32,8 +32,11 @@ export interface Env {
   [name: string]: unknown;
 }
 
-/** The one world both Workers serve. Bump the name to start a fresh world. */
-const WORLD_NAME = 'holdback-public-demo-v1';
+/**
+ * The one world both Workers serve. Bump the name to start a fresh world: a schema change can make the stored
+ * journal unreplayable (v0.8's rulebook hash refused v0.7's offers), and the old world's storage stays for a rollback.
+ */
+const WORLD_NAME = 'holdback-public-demo-v0.8';
 const NODE = 'x-holdback-node';
 const ORIGIN = 'x-holdback-origin';
 const CLIENT = 'x-holdback-client';
