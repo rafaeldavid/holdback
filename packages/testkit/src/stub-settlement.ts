@@ -1208,7 +1208,9 @@ export class StubSettlement {
   }
 
   /** EVM only: the transactions this run mined, for gas per deal (D4). Empty on SimChain. */
-  transactions(): Array<{ call: string; gasUsed: bigint; from: string; via: string }> {
-    return this.evm?.transactions().map((t) => ({ call: t.call, gasUsed: t.gasUsed, from: t.from, via: t.via })) ?? [];
+  transactions(): Array<{ call: string; gasUsed: bigint; from: string; sentBy: string; via: string }> {
+    const anyone = privateKeyToAccount(testKey(this.ctx.seed, 'anyone')).address.toLowerCase();
+    const nameOf = (a: string) => this.actors.find((x) => x.address.toLowerCase() === a.toLowerCase())?.name ?? (a.toLowerCase() === anyone ? 'an unrelated account' : a);
+    return this.evm?.transactions().map((t) => ({ call: t.call, gasUsed: t.gasUsed, from: t.from, sentBy: nameOf(t.from), via: t.via })) ?? [];
   }
 }

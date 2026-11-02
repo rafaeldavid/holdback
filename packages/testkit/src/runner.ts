@@ -40,8 +40,8 @@ export interface ScenarioRun {
   states: string[];
   /** Comparable lines for the differential report (empty for a todo. fixture that recorded a run error). */
   transcript: string[];
-  /** EVM only: mined transactions with gas (D4). */
-  transactions: Array<{ call: string; gasUsed: bigint; from: string; via: string }>;
+  /** EVM only: mined transactions with gas (D4) and who sent them (the escape hatch, ADR-0005). */
+  transactions: Array<{ call: string; gasUsed: bigint; from: string; sentBy: string; via: string }>;
 }
 
 /** A refusal the user must act on: printed as-is, exit code 2. */
@@ -305,7 +305,7 @@ async function mainLocal(names: readonly string[], all: readonly string[], full:
       }
       const diff = diffLines(sim.transcript, local.transcript);
       const gas = local.transactions.reduce((a, t) => a + t.gasUsed, 0n);
-      const row: DifferentialRow = { name, pass: local.outcome.pass, reasons: local.outcome.reasons, diff, gas, txs: local.transactions.length, label: local.outcome.label };
+      const row: DifferentialRow = { name, pass: local.outcome.pass, reasons: local.outcome.reasons, diff, gas, txs: local.transactions, label: local.outcome.label };
       report.push(row);
       const note = `gas ${gas.toLocaleString('en-US')} over ${local.transactions.length} tx; ${diff.length ? `${diff.length} transcript lines differ from SimChain` : 'transcript identical to SimChain'}`;
       if (!local.outcome.pass) {
@@ -332,7 +332,7 @@ async function mainLocal(names: readonly string[], all: readonly string[], full:
 export type DifferentialRow =
   | { name: string; excluded: string }
   | { name: string; error: string }
-  | { name: string; pass: boolean; reasons: string[]; diff: string[]; gas: bigint; txs: number; label: string };
+  | { name: string; pass: boolean; reasons: string[]; diff: string[]; gas: bigint; txs: ScenarioRun['transactions']; label: string };
 
 /** reports/differential-local.md: per fixture, the result on the contract, gas, and the transcript lines that differ. */
 export function renderDifferential(rows: readonly DifferentialRow[]): string {
@@ -355,7 +355,7 @@ export function renderDifferential(rows: readonly DifferentialRow[]): string {
         ? `| \`${r.name}\` | excluded until Phase 4 | | | |`
         : 'error' in r
           ? `| \`${r.name}\` | error | | | |`
-          : `| \`${r.name}\` | ${r.pass ? 'pass' : 'FAIL'}${r.label === 'todo' ? ' (todo)' : ''} | ${r.txs} | ${r.gas.toLocaleString('en-US')} | ${r.diff.length} |`,
+          : `| \`${r.name}\` | ${r.pass ? 'pass' : 'FAIL'}${r.label === 'todo' ? ' (todo)' : ''} | ${r.txs.length} | ${r.gas.toLocaleString('en-US')} | ${r.diff.length} |`,
     ),
     '',
   ];
@@ -365,6 +365,11 @@ export function renderDifferential(rows: readonly DifferentialRow[]): string {
     else if ('error' in r) out.push(`Error: ${r.error}`, '');
     else {
       if (!r.pass) out.push(`Fails on the contract: ${r.reasons.join('; ')}`, '');
+      if (r.txs.length) {
+        out.push('| Transaction | Relayed via | Sent by (pays gas) | Gas |', '| --- | --- | --- | --- |');
+        for (const t of r.txs) out.push(`| ${t.call} | ${t.via} | ${t.sentBy} | ${t.gasUsed.toLocaleString('en-US')} |`);
+        out.push('');
+      }
       out.push(...(r.diff.length ? ['```diff', ...r.diff, '```'] : ['Identical.']), '');
     }
   }
