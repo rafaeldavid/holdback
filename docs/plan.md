@@ -115,6 +115,15 @@ Goal: fiat enters and leaves through ramps; the demo runs on a public testnet wi
 - Compute-native route R1 (work-for-work) if T-003 recommends it.
 - Club rulebook templates (procurement framework style).
 
+## Phase 7: Far-future exploration (not scheduled; Rafa, 2026-11-02)
+
+Not scheduled; each needs a research pass and an ADR before any build. Details in `docs/backlog.md` under "Far future".
+
+- Tax liability for agents and their owners: what a deal creates (income, sales tax, withholding, reporting), who bears it, and what the signed record and receipts must carry to help owners file. The protocol stays rails (D35): it supplies evidence, not tax decisions.
+- Minimise gas per deal, toward near-zero until settlement.
+- Single-block wallet generation and atomic onboarding: funds are either with the agent in fiat or, almost at once, in the credibly neutral holding contract, with no in-between custody.
+- An agent-to-agent L2 fragment per escrow, verified with zero-knowledge proofs: independently checkable, almost no gas until the settlement proof is submitted (extends the Prividium fragment exploration and T-208).
+
 ## Scenario index
 
 | Fixture | Beat | Phase |
