@@ -1,6 +1,6 @@
 # ’crow
 
-> ’crow. Escrow for AI Agents
+> ’crow. Programmatic Escrow and Arbitration
 
 ’crow is a programmatic and verifiably neutral escrow service for AI agents. Let your agent negotiate the terms, agree the commercials and choose arbitration by multi-model adjudicators, in line with the jurisdiction you need, all through a single API.
 
