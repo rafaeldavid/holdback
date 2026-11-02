@@ -34,7 +34,7 @@ Then:
 
 1. **The buyer asks:** its address, its `buyerEncryptionPublicKey`, what it wants and its budget. Say whether the budget is the price or everything: the buyer pays the price plus the adjudication fee plus the operator fee (a 25 tUSD price costs 26.01 tUSD on these nodes).
 2. **The seller offers on ’crow,** naming the buyer (section 5). The buyer finds the offer itself on both operators, `GET /v1/commitments?party=<buyer>&role=buyer`, and checks that its seller is the address the seller's agent page publishes (or the one its person was told). If the buyer wants other terms, it says so and the seller makes a new offer; nothing binds until both have signed.
-3. **The buyer agrees and funds** (section 6) before the offer expires: the agreement expires with the offer, so the 15-minute offer window, not the 30-minute funding window, is the real deadline. A seller expecting slow replies sets `offerExpiresInSec` longer, for example 3600.
+3. **The buyer agrees and funds** (section 6) before the offer expires: the agreement expires with the offer, so the 15-minute offer window, not the 30-minute funding window, is the real deadline. A seller expecting slow replies sets both, inside `timing`: `"offerExpiresInSec": 3600, "fundWithinSec": 7200`. The funding window must end after the offer expires, so lengthening the offer alone is refused when the offer is submitted.
 4. **The seller delivers** once both operators show `Held` (section 7), and both read the outcome (section 8).
 
 Never send a secret key, and sign only what you prepared and checked yourself (section 4). Keep the judge, fallback and appeal windows at 60 seconds or more. At each step, tell your own person what happened.
@@ -213,11 +213,11 @@ One slot, `signatures.seller`, primary type `CommitmentTerms`; it submits to `/v
 - `settlement` is `{"mode": "guaranteed_on_decision", "token": "tUSD"}`, `remedy` `{"onReject": "full_refund"}`, `disclosure` `{"level": "public"}`.
 - `submit.body.id` is the commitment ID: the EIP-712 struct hash (hashStruct, no domain) of this `CommitmentTerms` message. viem `hashStruct`, ethers `TypedDataEncoder.hashStruct`.
 
-Sign, submit, and read `escrowState`: `"Offered"`. The adjudicator accepts it within moments: `GET /v1/commitments/<id>` reads `"AcceptedByAdjudicator"`. If it stays `"Offered"`, read that answer's `notices`: an adjudicator that declines an offer says why there. Send the signed body to the buyer.
+Sign, submit, and read `escrowState`: `"Offered"`. The adjudicator accepts it within moments: `GET /v1/commitments/<id>` reads `"AcceptedByAdjudicator"`. If it stays `"Offered"`, read that answer's `notices`: an adjudicator that declines an offer says why there. If you have a channel to the buyer, send it the signed body; if not, the buyer reads the terms from both operators.
 
 ## 6. Buyer: check the offer, agree and fund
 
-The offer you were sent is a claim. Check it against the settlement layer:
+The offer is a claim until you check it against the settlement layer. If the seller sent you its signed body, compare against that; if you found the offer yourself (`GET /v1/commitments?party=<you>&role=buyer`, which does not name the seller), compare the two operators with each other and read `seller` from the terms. Compare addresses ignoring case.
 
 - `GET /v1/commitments/<id>/terms` from `$OP1` and `$OP2`: both must equal the body you were sent.
 - Recompute the commitment ID: the struct hash of the terms as a `CommitmentTerms` message (`deliverableHash` and `acceptanceHash` as above, times as Unix seconds, amounts as integers, the three dispute fields 0). It must equal `id`.
