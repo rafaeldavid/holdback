@@ -206,7 +206,7 @@ export class EvmSettlement implements Settlement {
    * appeal bonds. Setup is test-only (anvil impersonation) and never counts toward gas per deal.
    */
   static async create(world: EvmWorld, genesis: Genesis, gasFor: readonly Address[] = []): Promise<EvmSettlement> {
-    await world.fresh();
+    await world.fresh(genesis.simSeed);
     const s = new EvmSettlement(world, genesis);
     for (const m of genesis.mandates) {
       if (!(await verifyMessage(s.domain, { ...m, type: 'Mandate' }, m.principal))) throw new Error(`the mandate for ${m.agent} is not signed by ${m.principal}`);
@@ -259,7 +259,7 @@ export class EvmSettlement implements Settlement {
     if (target > this.clockMs) this.clockMs = target;
   }
 
-  /** The sim beacon (same values as SimChain's); the contract checks the round, not the BLS signature (T-209). */
+  /** The sim beacon (same values as SimChain's); the rules contract asks the deployed SimBeacon for the same value. */
   beacon(round: number): Hex32 | null {
     if (!Number.isSafeInteger(round) || round < 0 || round > Math.floor(this.clockMs / 1000)) return null;
     return keccak256(encodePacked(['bytes32', 'uint64'], [this.genesis.simSeed, BigInt(round)]));

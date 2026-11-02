@@ -1,0 +1,36 @@
+{
+  "description": "drand quicknet test vectors for T-209 (beacon verification in the rules contract). Fetched 2026-11-02 from two public relays, which returned identical rounds; each round was also verified off chain with @noble/curves 1.9.1 (bls12-381, G1 hashToCurve with the DST below) and randomness = sha256(signature) recomputed.",
+  "chainHash": "52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971",
+  "info": {
+    "source": "https://api.drand.sh/52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971/info",
+    "publicKey": "83cf0f2896adee7eb8b5f01fcad3912212c437e0073e911fb90022d3e760183c8c4b450b6a0a6c3ac6a5776a2d1064510d1fec758c921cc22b0e17e63aaf4bcb5ed66304de9cf809bd274ca73bab4af5a6e9c76a4bc09e76eae8991ef5ece45a",
+    "period": 3,
+    "genesisTime": 1692803367,
+    "schemeID": "bls-unchained-g1-rfc9380",
+    "groupHash": "f477d5c89f21a17c863a7f937c6a6d15859414d2be09cd448d4279af331c5d3e",
+    "beaconID": "quicknet"
+  },
+  "dst": "BLS_SIG_BLS12381G1_XMD:SHA-256_SSWU_RO_NUL_",
+  "message": "sha256(round as 8 big-endian bytes)",
+  "relays": [
+    "https://api.drand.sh/52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971/public/<round>",
+    "https://drand.cloudflare.com/52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971/public/<round>"
+  ],
+  "roundFormula": {
+    "rule": "round(t) = t < genesis ? 0 : floor((t - genesis) / period) + 1",
+    "check": "At unix time 1793604284 (2026-11-02) api.drand.sh/public/latest returned round 33600306; the formula gives 33600306."
+  },
+  "rounds": [
+    { "round": 1, "signature": "b55e7cb2d5c613ee0b2e28d6750aabbb78c39dcc96bd9d38c2c2e12198df95571de8e8e402a0cc48871c7089a2b3af4b", "randomness": "1466a6cd24e327188770752f6134001c64d6efcc590ccc26b721611ad96f165a" },
+    { "round": 2, "signature": "b6b6a585449b66eb12e875b64fcbab3799861a00e4dbf092d99e969a5eac57dd3f798acf61e705fe4f093db926626807", "randomness": "5782d6987841c654515a0e72b2d1ebb4e741234042c37cb19608ae50d93fb60c" },
+    { "round": 1000, "signature": "b44679b9a59af2ec876b1a6b1ad52ea9b1615fc3982b19576350f93447cb1125e342b73a8dd2bacbe47e4b6b63ed5e39", "randomness": "fe290beca10872ef2fb164d2aa4442de4566183ec51c56ff3cd603d930e54fdd" },
+    { "round": 12345678, "signature": "b0a199d51b7c29117d2155c4fc2322dbacd9d1e1f11da5b5c0e4e19947e4aaf634970e85eceef450681d27baa3a03f20", "randomness": "47175ae9652cb6704c2b509e5d2aa03b609e67039251ff1e162282136c515bf0" },
+    { "round": 20000000, "signature": "96892582a33552a7b67ba44ef09c3ccd535bbebe760c93ecf45be8958d0c0f06390c6d19d7bf492eb806af7eef6b125c", "randomness": "f39c98df5525968e6622e0c63edb3d1f9c5607cf780db78abdded36e4b3dba95" },
+    { "round": 32398879, "signature": "8692364a570f4638daa28f489f6ab6c3a3daafc5e80b5fa203f54969b9d104cd2342539a141574dadf291fd1af2df219", "randomness": "cc44c7b6a69f0cc3a74a432f0606011d8856754ca524faffff30741baa0a5f6f", "note": "the appeal round after an escalation at 1790000000 (the forge Base clock)" },
+    { "round": 32456478, "signature": "b528568aa3bcf0f15bd15391bfd424012dfa4efae8a9b335e3c7aa98871a9108220ac137cf5626cc732db3e1a2e5cdc6", "randomness": "6e43305f170a9857d0fffa0446668d13dd5907d9eff9f8cee6a3d9774b8a8bad", "note": "the fallback round for judgeBy 1790172800 (the forge Base terms)" }
+  ],
+  "hashToG1": {
+    "description": "RFC 9380 hash_to_curve outputs (EIP-2537 encoding: x then y, 64 bytes each) computed by @noble/curves, to cross-check the on-chain hashToG1.",
+    "1": "0000000000000000000000000000000015d3fa4eeea6c775ee329d2805948d00b920e5167e48d9ea5bfa41616ddec9d87b6ad2dd22805e4f2f68cb596ebe5c31000000000000000000000000000000000afbf46f98dc28479c595e3ceb8c8ee75827b16ea4e61528a5d1aae611f2733da88559db63b2fd2d46283b23f4cc3593"
+  }
+}

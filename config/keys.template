@@ -17,3 +17,9 @@ HOLDBACK_OPENAI_COMPATIBLE_BASE_URL=https://api.deepseek.com
 # TESTNET_DEPLOYER_PRIVATE_KEY=
 # CHAIN_RPC_URL=
 # CHAIN_ID=
+
+# --- Prividium exploration (T-208): Matter Labs' private registry for local-prividium images ---
+# From the Matter Labs team. Used only by `pnpm prividium:login`, which pipes the password to
+# `docker login quay.io --password-stdin` without printing it.
+PRIVIDIUM_DOCKER_USERNAME=
+PRIVIDIUM_DOCKER_PASSWORD=
