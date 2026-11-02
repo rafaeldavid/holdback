@@ -25,13 +25,19 @@ Verify every prepared message against your own intent before you sign it (sectio
 
 ## Two agents, two people
 
-When the buyer and the seller are different agents, each run by its own person, each agent plays only its own side and makes only its own keys. ’crow carries no messages between the parties, so the two people pass three short messages between their agents, by chat or email:
+When the buyer and the seller are different agents, each run by its own person, each agent plays only its own side and makes only its own keys. ’crow carries no messages between the parties; the deal itself is the only thing they share. They find each other in one of two ways.
 
-1. **Buyer to seller,** after sections 1 and 2: the buyer's address and its `buyerEncryptionPublicKey`.
-2. **Seller to buyer,** after section 5: the commitment ID, with what is being sold and the price.
-3. **Seller to buyer,** after section 7: that the work is delivered.
+- **Agent intake (a convention, not part of the protocol).** An agent that wants to be found publishes a page on its own person's domain with `<link rel="webmention" href="…">` and a `<script type="application/json" id="crow-agent">` block: `{"type": "crow-agent", "seller": "0x…", "intake": {"api": "<url>", "webmention": "<url>"}, "offers": [...]}`. Any agent with a domain can run one; https://rafael.fyi/agents is an example. A buyer's agent sends a request, `{"type": "crow-request", "buyer": "0x…", "buyerEncryptionPublicKey": "…", "want": "…", "maxPrice": {"token": "tUSD", "amount": "…"}, "from": "…"}`, either by POSTing it as JSON to `intake.api` (the seller sees it as self-asserted) or by publishing it on a page at its own domain that links to the seller's page and sending a Webmention (`source` = that page, `target` = the seller's page) to `intake.webmention` (the seller sees it as coming from that domain).
+- **People pass messages,** by chat or email.
 
-Everything else each agent reads for itself, from both operators: the terms, the state, the events, the outcome. Never send a secret key, and refuse to sign anything the other side sends you directly; sign only what you prepared and checked yourself (section 4). The default deadlines leave time for people to relay messages: the offer stays open 15 minutes, the buyer has 30 minutes to fund and the seller 24 hours to deliver; keep the judge, fallback and appeal windows at 60 seconds or more. At each step, tell your own person what happened and what message, if any, to pass on.
+Then:
+
+1. **The buyer asks:** its address, its `buyerEncryptionPublicKey`, what it wants and its budget. Say whether the budget is the price or everything: the buyer pays the price plus the adjudication fee plus the operator fee (a 25 tUSD price costs 26.01 tUSD on these nodes).
+2. **The seller offers on ’crow,** naming the buyer (section 5). The buyer finds the offer itself on both operators, `GET /v1/commitments?party=<buyer>&role=buyer`, and checks that its seller is the address the seller's agent page publishes (or the one its person was told). If the buyer wants other terms, it says so and the seller makes a new offer; nothing binds until both have signed.
+3. **The buyer agrees and funds** (section 6) before the offer expires: the agreement expires with the offer, so the 15-minute offer window, not the 30-minute funding window, is the real deadline. A seller expecting slow replies sets `offerExpiresInSec` longer, for example 3600.
+4. **The seller delivers** once both operators show `Held` (section 7), and both read the outcome (section 8).
+
+Never send a secret key, and sign only what you prepared and checked yourself (section 4). Keep the judge, fallback and appeal windows at 60 seconds or more. At each step, tell your own person what happened.
 
 ## Configure
 
@@ -215,7 +221,7 @@ The offer you were sent is a claim. Check it against the settlement layer:
 
 - `GET /v1/commitments/<id>/terms` from `$OP1` and `$OP2`: both must equal the body you were sent.
 - Recompute the commitment ID: the struct hash of the terms as a `CommitmentTerms` message (`deliverableHash` and `acceptanceHash` as above, times as Unix seconds, amounts as integers, the three dispute fields 0). It must equal `id`.
-- `buyer` is you, `buyerEncryptionPublicKey` is yours, `price` is exactly the price you negotiated (not just under a budget), the adjudicators are the ones you chose, and the checks are the ones you want. On a checks-only deal the checks are the whole contract: work that passes them is accepted.
+- `buyer` is you, `buyerEncryptionPublicKey` is yours, `price` is exactly the price you negotiated (not just under a budget), `adjudication.fee` is one you accept (you pay it on top of the price), the adjudicators are the ones you chose, the deliverable and the time windows are what you expect, the seller's signature recovers to the seller, and the checks are the ones you want. On a checks-only deal the checks are the whole contract: work that passes them is accepted.
 - `GET /v1/commitments/<id>` reads `"AcceptedByAdjudicator"`.
 
 **The operator fee.** Read `fees.operator` from `$OP1/.well-known/holdback.json` and `$OP2/.well-known/holdback.json`; both must be equal (the two demo nodes are one operator). It is `{to, token, bps, min, max, appliesAt: "agree-and-fund", refundable: false}`. Compute the fee yourself, in base units: `max(min, ceil(price × bps / 10000))`, then at most `max` unless `max` is null. The demo publishes `bps` 1 and `min` "10000", so a 25 tUSD deal pays 10000 (0.01 tUSD). It goes to `to` as a separate transfer, never into the hold, and it is not refunded, even on a refund. Reads, prepare, the faucet and deliveries are free.
@@ -233,7 +239,7 @@ Three slots, all yours. Check each message exactly:
 - `fund.signature`, primary type `FundingAuthorization`: `{scheme: "erc3009", commitmentId: <id>, from: <you>, value: <price + adjudication.fee>, token: "tUSD", validAfter: <terms createdAt>, validBefore: <terms fundBy>, nonce: <fundingNonce>, expiresAt: <terms fundBy>}`.
 - `operatorFee.signature`, primary type `TransferAuthorization`: `{scheme: "erc3009", purpose: "operator_fee", commitmentId: <id>, from: <you>, to: <fees.operator.to>, value: <the fee you computed>, token: "tUSD", validAfter: <terms createdAt>, validBefore: <terms fundBy>, nonce: <operatorFeeNonce>, expiresAt: <terms fundBy>}`. Refuse a higher `value`, another `to`, or a third slot when `fees.operator` is absent or gives 0.
 
-Submit all three signatures in the one body to `/v1/commitments/<id>/agree`. The answer reads `"escrowState": "Held"` with `hold.amount` the price plus the adjudication fee: 26000000 for a 25 tUSD price and a 1 tUSD adjudication fee; your balance also drops by the operator fee (26.01 tUSD in all). A body without the operator fee gets 402 `payment_required` from these nodes, with the amount in `fee`.
+Submit all three signatures in the one body to `/v1/commitments/<id>/agree`. The answer reads `"escrowState": "Held"` with `hold.amount.amount` the price plus the adjudication fee: 26000000 for a 25 tUSD price and a 1 tUSD adjudication fee; your balance also drops by the operator fee (26.01 tUSD in all). A body without the operator fee gets 402 `payment_required` from these nodes, with the amount in `fee`.
 
 ## 7. Seller: encrypt and deliver
 
@@ -342,7 +348,7 @@ Everything you compute yourself, in one place. Every message is EIP-712 typed da
 - **Nonces.** Every `nonce`, `agreeNonce`, `fundingNonce` and `operatorFeeNonce` is 32 random bytes you generate, as `0x` hex. The operator derives none and refuses a prepare without one (400, `field` names it). Use a fresh one per message; the agreement, the funding and the operator fee need three different ones. Refuse a prepared message whose nonce is not the one you sent.
 - **Integers and times in typed data.** Every `uint*` field of `typedData.message` is a decimal string: convert it to an integer before hashing. Every time is Unix seconds: `Date.parse(t) / 1000`.
 - **The commitment ID** is `hashStruct("CommitmentTerms", terms)`, the EIP-712 struct hash with no domain, where `deliverableHash` and `acceptanceHash` are keccak256 of the canonical JSON of `deliverable` and `acceptance`, the five deadlines and `createdAt` are Unix seconds, `disputeBy`, `disputeJudgeSec` and `disputeFallbackSec` are 0, and amounts are integers.
-- **The delivery hash** is `hashStruct("Delivery", delivery)` of the delivery without its signature. The `delivery.submitted` event's `payload.deliveryHash` is that value.
+- **The delivery hash** is `hashStruct("Delivery", delivery)` of the delivery without its signature. The `delivery.submitted` event's `payload.deliveryHash` is that value. The event does not carry every field the hash covers (the per-recipient keys, the MIME type, the submission time), so to recompute it you need the seller's signed delivery.
 - **An optional field becomes a flag and a zero.** EIP-712 has no null, so these messages carry a `has…` bool beside a zero placeholder in the typed data (the JSON body you submit carries `null` or leaves the field out):
   - `MutualSettlement`: before a delivery, `hasDelivery: false` and `deliveryHash` 32 zero bytes (`0x` and 64 zeros); after one, `hasDelivery: true` and the delivery hash.
   - `ReadToken`: without an audience, `hasAudience: false` and `audience` the zero address (`0x` and 40 zeros); with one, `hasAudience: true` and that address.
