@@ -45,6 +45,8 @@ npx wrangler@4 deploy --config apps/early-access/wrangler.jsonc
 npx wrangler@4 kv key list --binding EMAILS --config apps/early-access/wrangler.jsonc --remote
 ```
 
+**A schema bump resets the public world.** The World replays its journal on start, and a journal written under an older schema may not replay (2026-11-02: v0.8 refused v0.7's offers with `rulebook_unknown`, and the nodes kept serving the old version). Before deploying a schema bump, change `WORLD_NAME` in `apps/demo-cloud/src/worker.ts`; the old world's storage stays, so a `wrangler rollback` of both Workers brings it back. Check `schemaVersion` in `/v1/status` after the deploy, and `npx wrangler@4 tail holdback-op1 --format json` if it is wrong.
+
 Workers rules learned the hard way (T-029): compile schemas at startup, not lazily inside a request (Cloudflare forbids it and the node returns error 1101); a failed Durable Object alarm must be re-armed. Deploy only from a branch that has merged main, or a deploy can drop the custom domains.
 
 ## Gates (ask Rafa first)
