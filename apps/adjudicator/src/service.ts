@@ -10,6 +10,7 @@
 import {
   canonicalKeccak,
   err,
+  isSealed,
   ok,
   problem,
   signMessage,
@@ -176,7 +177,7 @@ export class Adjudicator {
     if (adjudication.adjudicator.toLowerCase() !== this.address) return err(problem('not_your_turn', 'not the primary adjudicator'));
     // D29: an adjudicator declines terms it cannot run. Declining leaves the offer unaccepted, so no buyer funds a
     // hold that would only reach its default outcome; the offer expires at offerExpiresAt.
-    if ('privateTerms' in c && !this.#cfg.acceptSealedUnread) {
+    if (isSealed(c) && !this.#cfg.acceptSealedUnread) {
       return err(problem('adjudicator_unavailable', `${this.#cfg.name} cannot open sealed terms yet (ADR-0024, T-207): it declines private and judgment offers rather than accept a deal it could not judge; offer at disclosure public`));
     }
     if (adjudication.policyHash !== policyHashOf(this.policy)) return err(problem('policy_mismatch', 'policy-hash-mismatch: the offer binds another policy'));

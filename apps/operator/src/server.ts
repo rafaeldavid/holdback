@@ -300,7 +300,7 @@ function validateOnly(q: URLSearchParams): boolean {
  * decides; this only tells a caller what to wait for.
  */
 const SETTLE_STATES = ['Held', 'Delivered', 'FallbackJudging', 'Escalated'];
-const NEEDS: Partial<Record<Operation['kind'], string[]>> = {
+export const NEEDS: Partial<Record<Operation['kind'], string[]>> = {
   acceptance: ['Offered'],
   agree: ['AcceptedByAdjudicator'],
   fund: ['Agreed'],
@@ -310,7 +310,7 @@ const NEEDS: Partial<Record<Operation['kind'], string[]>> = {
   appeal: ['Released', 'Refunded'],
   settle: SETTLE_STATES,
 };
-const TRIGGER_NEEDS: Record<string, string[]> = {
+export const TRIGGER_NEEDS: Record<string, string[]> = {
   expire_offer: ['Offered', 'AcceptedByAdjudicator', 'Agreed'],
   reclaim: ['Held'],
   fallback: ['Delivered'],
@@ -544,6 +544,14 @@ export class Operator {
     if (this.o.rateLimit) this.window(bucket).count++;
   }
 
+  /** Moves one counted request from one bucket to another (a write the settlement layer verified: client to signer). */
+  private transfer(from: string, to: string): void {
+    if (!this.o.rateLimit) return;
+    const w = this.window(from);
+    if (w.count > 0) w.count--;
+    this.window(to).count++;
+  }
+
   /** Fixed-window throttle: admit, then charge. */
   private throttle(bucket: string, budget: number): void {
     this.admit(bucket, budget);
@@ -574,8 +582,12 @@ export class Operator {
     if (method === 'GET' && (path === '/.well-known/holdback.json' || path === '/')) return this.send(ctx, this.ok(await this.discovery()));
     if (method === 'GET' && path === '/llms.txt') return this.send(ctx, { status: 200, headers: { 'content-type': 'text/plain; charset=utf-8' }, body: llmsTxt(this.baseUrl, this.o.notes) });
     // A route a decision names but no build serves yet (x-holdback-planned): 501 and where it is specified (D39).
+    // Counted as a read of this client first, so planned routes are no way around the throttle.
     const planned = plannedRoute(method, path);
-    if (planned) fail('not_implemented', `${method} ${planned.path} is planned, not built: ${planned.note}`, {}, { link: `<${planned.source}>; rel="describedby"` });
+    if (planned) {
+      this.throttle(`r:${this.client(ctx)}`, this.o.rateLimit?.reads ?? 0);
+      fail('not_implemented', `${method} ${planned.path} is planned, not built: ${planned.note}`, {}, { link: `<${planned.source}>; rel="describedby"` });
+    }
     if (s[0] !== 'v1') fail('not_found', `no route ${path}`);
     if (s[1] === 'ciphertext') return this.ciphertext(ctx);
     if (method === 'POST' && s[1] === 'prepare' && s.length === 3) return this.prepare(ctx, s[2]!);
@@ -592,45 +604,42 @@ export class Operator {
   // ---- writes ------------------------------------------------------------------------------------
 
   /**
-   * Writes. ADR-0024 §1 (C4): a signer's write budget is charged only once the settlement layer has verified its
-   * signature, that is for a fresh relay it accepted. Every other write (unsigned routes, refusals, dry runs and
-   * replays) is charged to the client, so a forged signature can never spend another signer's budget.
+   * Writes. ADR-0024 §1 (C4): every write is counted against its client at entry, in one synchronous step, so a
+   * concurrent burst cannot pass the check before any of it is counted. A fresh relay the settlement layer accepted
+   * (its signature verified) moves that count from the client to the signer. So a forged signature never spends
+   * another signer's budget, refusals, unsigned writes, dry runs and replays stay on the client, and a signer can
+   * overshoot its own budget only by concurrent writes within its clients' budgets.
    */
   private async write(ctx: Ctx): Promise<void> {
     const budget = this.o.rateLimit?.writes ?? 0;
     const client = `w:${this.client(ctx)}`;
-    this.admit(client, budget);
-    let charged = client;
-    try {
-      const raw = await this.body(ctx);
-      const dryRun = validateOnly(ctx.url.searchParams);
-      const s = ctx.segments;
-      if (s.join('/') === 'v1/faucet') return await this.idempotent(ctx, raw, () => this.faucet(ctx, raw));
-      if (s.length === 4 && s[1] === 'commitments' && s[3] === 'disclosure') {
-        if (dryRun) fail('invalid_terms', 'disclosure has no dry run', { field: 'validateOnly' });
-        return await this.idempotent(ctx, raw, () => this.disclose(s[2]!, raw));
-      }
-      const parsedOp = operationOf(s, raw);
-      if (!parsedOp.ok) refusal(parsedOp.error);
-      const op = (parsedOp as Extract<typeof parsedOp, { ok: true }>).value;
-      if ((op.kind === 'offer' || op.kind === 'hold') && (op.commitment as { id?: unknown }).id === undefined) fail('invalid_terms', MISSING_ID, { field: 'id' });
-      checkShape(dryRun ? placeholderSigned(op) : op);
-      const signer = signerOf(op);
-      const signerBucket = signer ? `w:${lc(signer)}` : undefined;
-      if (signerBucket) this.admit(signerBucket, budget);
-      // The policy sees a frozen copy: it can decline, never alter what this node relays.
-      const refused = this.o.policy?.(deepFreeze(structuredClone(op)), await this.policyContext(op));
-      if (refused) fail(refused.type, refused.detail);
-      if (dryRun) return this.send(ctx, await this.dryRun(op));
-      await this.chargeFee(op);
-      return await this.idempotent(ctx, raw, async () => {
-        const r = await this.relay(ctx, op);
-        if (r.status < 300 && signerBucket) charged = signerBucket;
-        return r;
-      });
-    } finally {
-      this.charge(charged);
+    this.throttle(client, budget);
+    const raw = await this.body(ctx);
+    const dryRun = validateOnly(ctx.url.searchParams);
+    const s = ctx.segments;
+    if (s.join('/') === 'v1/faucet') return this.idempotent(ctx, raw, () => this.faucet(ctx, raw));
+    if (s.length === 4 && s[1] === 'commitments' && s[3] === 'disclosure') {
+      if (dryRun) fail('invalid_terms', 'disclosure has no dry run', { field: 'validateOnly' });
+      return this.idempotent(ctx, raw, () => this.disclose(s[2]!, raw));
     }
+    const parsedOp = operationOf(s, raw);
+    if (!parsedOp.ok) refusal(parsedOp.error);
+    const op = (parsedOp as Extract<typeof parsedOp, { ok: true }>).value;
+    if ((op.kind === 'offer' || op.kind === 'hold') && (op.commitment as { id?: unknown }).id === undefined) fail('invalid_terms', MISSING_ID, { field: 'id' });
+    checkShape(dryRun ? placeholderSigned(op) : op);
+    const signer = signerOf(op);
+    const signerBucket = signer ? `w:${lc(signer)}` : undefined;
+    if (signerBucket) this.admit(signerBucket, budget);
+    // The policy sees a frozen copy: it can decline, never alter what this node relays.
+    const refused = this.o.policy?.(deepFreeze(structuredClone(op)), await this.policyContext(op));
+    if (refused) fail(refused.type, refused.detail);
+    if (dryRun) return this.send(ctx, await this.dryRun(op));
+    await this.chargeFee(op);
+    return this.idempotent(ctx, raw, async () => {
+      const r = await this.relay(ctx, op);
+      if (r.status < 300 && signerBucket) this.transfer(client, signerBucket);
+      return r;
+    });
   }
 
   /**
