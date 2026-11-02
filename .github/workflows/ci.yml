@@ -65,6 +65,10 @@ jobs:
       - name: forge test
         working-directory: contracts
         run: forge test
+      # forge test does not compile contracts/script/, where the anvil tests' LocalUSDC and LocalMulticall3 live.
+      - name: forge build
+        working-directory: contracts
+        run: forge build
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:

@@ -114,7 +114,10 @@ Both cases pass, which confirms the behaviour. It is written up in Handoff and i
 - `formal/check.sh broken/`: all six broken variants bite.
 - Locally the first run fetched the pinned JRE, because `/usr/bin/java` is the macOS stub. CI installs Temurin 21 with `setup-java`.
 
-**Anvil tests (T-205) will run in CI.** Locally, after `forge build` and `pnpm build`, `pnpm vitest run packages/settlement/evm packages/testkit/src/runner.test.ts --reporter=verbose` passes 78 tests in 4 files with no `SKIPPED`. That includes `EvmSettlement on anvil` (7 tests) and "runs a fixture on the contract and compares it with SimChain". [measured] The CI `contracts` job runs exactly this after `forge test` with Foundry v1.0.0 installed, and fails on any `SKIPPED`, so these suites can no longer skip silently in CI. [inferred: not yet observed on a GitHub runner; see the PR's checks]
+**Anvil tests (T-205) will run in CI.** Locally, after `forge build` and `pnpm build`, `pnpm vitest run packages/settlement/evm packages/testkit/src/runner.test.ts --reporter=verbose` passes 78 tests in 4 files with no `SKIPPED`. That includes `EvmSettlement on anvil` (7 tests) and "runs a fixture on the contract and compares it with SimChain". [measured] The CI `contracts` job runs exactly this with Foundry v1.0.0 installed, and fails on any `SKIPPED`.
+- The first CI run (PR 70, run 41399624315) showed the suites no longer skip: they ran on the runner. But they failed, with `no artifact contracts/out/LocalUSDC.sol/LocalUSDC.json`. [measured]
+- Cause: on a clean checkout, `forge test` does not compile `contracts/script/`. Reproduced locally with `forge clean && forge test`: `out/LocalUSDC.sol` is absent, and appears after `forge build`. [measured]
+- The job now runs `forge build` after `forge test`. The rerun's result is in the PR checks.
 
 **`pnpm verify`.** It passes all eight steps: typecheck, lint, forge (which includes this task's suites since the T-205 merge), test, spec, snap, snap:local and demo. Report: `reports/verify-t-203-contract-invariants.md`. It was run after the task file moved to `review`, so the design-map test saw this status. [measured]
 
@@ -149,6 +152,7 @@ Both cases pass, which confirms the behaviour. It is written up in Handoff and i
 **Outside this task's paths.**
 - `docs/backlog.md` (one row, at the coordinator's request: "other findings to backlog rows").
 - The merge of main (T-205) brought no conflicts.
+- **For the T-205 lane (`scripts/verify.ts`, not touched here).** `pnpm verify`'s forge step is `forge test --root contracts`, which does not build `contracts/script/` (LocalUSDC, LocalMulticall3). On a clean checkout the anvil tests and `snap:local` would then fail with "no artifact". It passes on machines where `forge build` already ran. Suggested fix: add `forge build --root contracts` to that step. CI already does this in the `contracts` job.
 
 **Proposed Rules-and-checks row (not added: `docs/team.md` is limited to the No-admin row for this task).** "Invariant handlers are not vacuous: every handler action has a scripted smoke test that must succeed, and rare corruptions are keyed to non-zero seed values." Check: `contracts/test/invariant/HandlerSmoke.t.sol`. Repeated failure it would have caught: a T-203 campaign where corruptions keyed to zero sabotaged most decisions and mutual settlements, while every invariant still passed.
 
