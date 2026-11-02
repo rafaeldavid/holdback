@@ -34,7 +34,9 @@
     { "method": "POST", "path": "/v1/commitments/{commitmentId}/disputes", "note": "Dispute, optimistic mode (Phase 4)." },
     { "method": "POST", "path": "/v1/adjudicators/{address}/quote", "note": "Fee quote for draft terms." },
     { "method": "POST", "path": "/v1/webhooks", "note": "Webhook registration with operator-signed payloads." },
-    { "method": "GET", "path": "/v1/audit/verify", "note": "Hash-chain verification report." }
+    { "method": "GET", "path": "/v1/audit/verify", "note": "Hash-chain verification report." },
+    { "method": "POST", "path": "/v1/funding/quote", "note": "Funding routes from a separate funding service: swap, ETH wrap, bridge or on-ramp (ADR-0026)." },
+    { "method": "POST", "path": "/v1/funding/sessions", "note": "Start a quoted funding route; the buyer signs or pays what it names (ADR-0026)." }
   ],
   "paths": {
     "/.well-known/holdback.json": {

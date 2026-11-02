@@ -9,6 +9,44 @@ export interface AdjudicatorView {
   bond: { junior: TokenAmount; senior: TokenAmount; reserved: TokenAmount };
 }
 
+/**
+ * Funding service (ADR-0026, planned): a separate service the unified API calls to get the deal's token to the
+ * buyer's address before the hold, from another asset (a swap, or ETH wrapped to WETH), another chain (a bridge)
+ * or fiat (a card or bank on-ramp). It never holds escrowed funds and never signs for the buyer; the buyer can
+ * always fund directly from its own address. No operator wires one yet, so the funding routes answer not_found.
+ */
+export interface FundingService {
+  /** POST /v1/funding/quote: routes from what the buyer has to `deliver` at `to`, cheapest first. */
+  quote(request: FundingRequest): Promise<FundingQuote[]>;
+  /** POST /v1/funding/sessions: start a quoted route; the buyer signs or pays what `next` names. */
+  start(quoteId: string): Promise<FundingSession>;
+}
+
+export interface FundingRequest {
+  /** The buyer's address, which receives the token. */
+  to: Address;
+  /** What the hold needs: the deal's token (any ERC-20; WETH for ETH) and price + fee in base units. */
+  deliver: TokenAmount;
+  /** What the buyer pays with. */
+  source: { kind: 'token'; token: string; chainId: number } | { kind: 'eth'; chainId: number } | { kind: 'fiat'; currency: string };
+}
+
+export interface FundingQuote {
+  id: string;
+  /** Who moves the funds, e.g. a swap router, a bridge or an on-ramp. */
+  provider: string;
+  pay: { asset: string; amount: string };
+  deliver: TokenAmount;
+  expiresAt: Timestamp;
+}
+
+export interface FundingSession {
+  id: string;
+  state: 'awaiting_buyer' | 'pending' | 'delivered' | 'failed';
+  /** What the buyer does next: calls to sign and submit, or a URL for a fiat payment. */
+  next?: { kind: 'sign'; calls: unknown[] } | { kind: 'redirect'; url: string };
+}
+
 export interface Registry {
   /** The chain ID agents sign under (EIP-712 domain). */
   chainId: number;
@@ -19,6 +57,8 @@ export interface Registry {
   adjudicators(): AdjudicatorView[];
   /** Test funding (POST /v1/test/faucet); SimChain or testnet only. */
   faucet?(address: Address, amount: bigint): Promise<TokenAmount>;
+  /** The funding service this operator calls (ADR-0026, planned); none yet. */
+  funding?: FundingService;
   /**
    * An adjudicator's published registration (adjudicator.schema.json), served beside its bond by
    * GET /v1/adjudicators/{address}. Off the settlement layer in Phase 1; readers check it before binding it.

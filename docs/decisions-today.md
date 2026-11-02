@@ -1,6 +1,6 @@
 # Decisions to make today
 
-Status: D1–D9 decided October 30, 2026, after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`); the options are kept as the record. D10 to D24 decided October 30 and 31, 2026, each after an independent research pass. D25 to D36 decided October 31 and November 1, 2026 (Rafa's principles and research-backed choices; D4 was updated on November 1 to target Ethereum mainnet via Sepolia). None are open; newer entries are appended at the end. Owner: Rafa. Each decision has options, a recommendation and the ADR it settles. Phase 1 (the demo) can start once D1, D2 and D6 are settled. Phase 2 needs D3 and D4.
+Status: D1–D9 decided October 30, 2026, after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`); the options are kept as the record. D10 to D24 decided October 30 and 31, 2026, each after an independent research pass. D25 to D36 decided October 31 and November 1, 2026, D37 and D38 on November 1 and 2 (Rafa's principles and research-backed choices; D4 was updated on November 1 to target Ethereum mainnet via Sepolia). None are open; newer entries are appended at the end. Owner: Rafa. Each decision has options, a recommendation and the ADR it settles. Phase 1 (the demo) can start once D1, D2 and D6 are settled. Phase 2 needs D3 and D4.
 
 ## D1. Adopt the neutrality litmus test as the top constraint (ADR-0001)
 
@@ -562,3 +562,15 @@ Also: the funding signature on EVM is CPP's collector signature and token identi
 | --- | --- |
 | Contract executes `transferWithAuthorization` | Atomic, but fee code and operator knowledge in neutral custody code; no size headroom (EIP-170) |
 | Stateless bundling (chosen) | Atomic per transaction, zero contract code; a mempool observer can split the fee off, gaining nothing |
+
+## D38. Funding paths: any ERC-20, WETH or ETH; ramps as a deferred separate service (ADR-0026)
+
+**Decided 2026-11-02 from Rafa's direction** ("simply accept any ERC20 or wETH or ETH"; "a separate service we call via our unified API"; "for later", a stub only), after a research pass (repository facts measured; provider facts from memory, to be checked before the service is built).
+
+- The deal's token is any ERC-20 the parties name (D31). `rulebook.allowedTokens` becomes optional and only narrows; the schema change rides with ADR-0025's v0.9 follow-up. Until then the demo club lists tUSD.
+- ERC-3009 tokens (USDC) fund with one relayed signature; every other ERC-20, WETH included, through Permit2 after the buyer's one-time approval.
+- Native ETH is accepted by wrapping: the deal is denominated in WETH; the buyer wraps and the seller may unwrap, each with its own call. No contract change (an ETH collector or native custody were rejected: more custody code, no EIP-170 headroom).
+- Fee-on-transfer and rebasing tokens are advisory warnings in prepare, never refusals; CPP already reverts a short transfer at funding.
+- Fiat on-ramps, swaps and bridges are one separate funding service any operator may run, exposed by the unified API as `/v1/funding/quote` and `/v1/funding/sessions`, never a settlement dependency. It delivers the deal token to the buyer's address, never holds escrowed funds and never signs for the buyer; direct funding from the buyer's own address always remains (`neutrality.onramp-refuses`). Stub only today; the routes answer 404.
+- Ramp identity (Rafa, 2026-11-02): the agent's owner passes the ramp's identity check, choosing a listed ramp or opening its own account under its own, separate identity; the agent spends from it.
+- Public demo (Rafa, 2026-11-02): a Stripe test-mode ramp is enough; who runs the service (’crow or operator-chosen third parties) is open either way.

@@ -294,6 +294,12 @@ describe('reads', () => {
     expect(await json(r)).toEqual({ address: w.cast.seller.address, balance: { token: 'tUSD', amount: '1000000005' } });
   });
 
+  it('answers the planned funding routes not_found (ADR-0026)', async () => {
+    const r = await post('/v1/funding/quote', { to: w.cast.buyer.address }, { 'idempotency-key': 'q1' });
+    expect(r.status).toBe(404);
+    expect(await json(r)).toMatchObject({ type: 'not_found' });
+  });
+
   it('streams events as server-sent events from a sequence number', async () => {
     await held();
     const controller = new AbortController();
