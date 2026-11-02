@@ -127,7 +127,7 @@ describe('spec/openapi.json, the document', () => {
   it('adds no bound the operator does not have to negotiable values (D31)', () => {
     const timing = DOC.components.schemas.PrepareOfferInput.properties.timing.properties;
     for (const [k, s] of Object.entries<J>(timing)) expect(s, k).toEqual({ type: 'integer', minimum: 0 });
-    const offer = { seller: `0x${'1'.repeat(40)}`, buyer: { address: `0x${'2'.repeat(40)}`, encryptionPublicKey: 'pOCSkrZRwni5dyxWn1-puxPZBrRqtoyd-dwrRAn4ogk' }, adjudicators: { primary: `0x${'3'.repeat(40)}`, fallback: `0x${'4'.repeat(40)}`, appeal: `0x${'5'.repeat(40)}` }, clubId: 'sim-club', price: { token: 'tUSD', amount: '25000000' }, deliverable: { kind: 'dataset', description: 'x', format: 'text/csv' } };
+    const offer = { nonce: `0x${'9'.repeat(64)}`, disclosure: 'public', seller: `0x${'1'.repeat(40)}`, buyer: { address: `0x${'2'.repeat(40)}`, encryptionPublicKey: 'pOCSkrZRwni5dyxWn1-puxPZBrRqtoyd-dwrRAn4ogk' }, adjudicators: { primary: `0x${'3'.repeat(40)}`, fallback: `0x${'4'.repeat(40)}`, appeal: `0x${'5'.repeat(40)}` }, clubId: 'sim-club', price: { token: 'tUSD', amount: '25000000' }, deliverable: { kind: 'dataset', description: 'x', format: 'text/csv' } };
     const input = '/paths/~1v1~1prepare~1offer/post/requestBody/content/application~1json/schema';
     expect(checkValue(input, { ...offer, timing: { deliverWithinSec: 400 * 365 * 86_400, judgeWithinSec: 0 }, createdAt: '2020-01-01T00:00:00Z' })).toEqual([]);
   });

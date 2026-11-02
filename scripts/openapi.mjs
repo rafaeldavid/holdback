@@ -13,7 +13,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import Ajv2020 from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
-import { PROBLEM_TYPES } from '../packages/core/src/problem.ts';
+import { API_PROBLEM_TYPES } from '../apps/operator/src/problems.ts';
 
 const root = new URL('..', import.meta.url).pathname;
 export const OPENAPI_FILE = join(root, 'spec/openapi.json');
@@ -86,7 +86,8 @@ export function buildOpenApi() {
     if (base !== undefined && !specSchemas[base]) throw new Error(`${name} extends ${base}, which is not a spec schema`);
     schemas[name] = base === undefined ? schema : { ...merge(specSchemas[base], schema) };
   }
-  schemas.Problem = merge(schemas.Problem, { properties: { type: { enum: [...PROBLEM_TYPES] } } });
+  // The operator's problem table (apps/operator/src/problems.ts): core's types plus internal and not_implemented.
+  schemas.Problem = merge(schemas.Problem, { properties: { type: { enum: [...API_PROBLEM_TYPES] } } });
 
   const common = { 'Request-Id': { $ref: '#/components/headers/RequestId' }, 'Holdback-Schema-Version': { $ref: '#/components/headers/SchemaVersion' } };
   const outPaths = {};
@@ -109,6 +110,7 @@ export function buildOpenApi() {
   const doc = {
     openapi: paths.openapi,
     info: { ...paths.info, 'x-holdback-schema-version': version },
+    externalDocs: paths.externalDocs,
     servers: paths.servers,
     tags: paths.tags,
     paths: outPaths,

@@ -165,7 +165,7 @@ describe('examples', () => {
     }
   });
 
-  it('docs/api.md marks exactly the unbuilt routes as planned', async () => {
+  it('docs/api.md marks exactly the unbuilt routes as planned, and those answer 501 (D39)', async () => {
     const api = world.info.operators[0]!;
     const rows = [...readFileSync(here('../docs/api.md'), 'utf8').matchAll(/^\| (GET|POST) \| `([^`]+)`( \(planned[^)]*\))? \|/gm)];
     expect(rows.length).toBeGreaterThan(30);
@@ -173,8 +173,9 @@ describe('examples', () => {
       const path = raw!.split('?')[0]!.replace(/\{id\}/g, `0x${'0'.repeat(64)}`).replace(/\{(address|principal)\}/g, `0x${'0'.repeat(40)}`).replace(/\{kind\}/g, 'offer');
       if (path.includes('{') || path === '/v1/events') continue; // the event stream never ends a response
       const res = await fetch(`${api}${path}`, { method: method!, headers: { 'content-type': 'application/json' }, ...(method === 'POST' ? { body: '{}' } : {}) });
-      const unrouted = /no (such )?route/.test((await res.text()).toLowerCase());
-      expect(unrouted, `${method} ${raw}`).toBe(Boolean(planned));
+      const body = (await res.text()).toLowerCase();
+      expect(/no (such )?route/.test(body), `${method} ${raw} is routed`).toBe(false);
+      expect(res.status === 501 && body.includes('not_implemented'), `${method} ${raw}: ${res.status}`).toBe(Boolean(planned));
     }
   });
 
