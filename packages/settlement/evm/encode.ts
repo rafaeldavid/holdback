@@ -25,7 +25,6 @@ const str = (s: string): Hex32 => keccak256(stringToBytes(s));
 const struct = (primaryType: string, data: Encoded): Hex32 => hashStruct({ primaryType, types: eip712Types, data } as Parameters<typeof hashStruct>[0]);
 const enc = <T extends Encoded = Encoded>(m: Parameters<typeof typedDataOf>[0]): T => typedDataOf(m).message as T;
 /** keccak256 of an EIP-712 `bytes` value. */
-const bytesHash = (b: Hex | undefined): Hex32 => keccak256(b ?? '0x');
 
 export const ROLE = { primary: 0, fallback: 1, appeal: 2 } as const;
 export const OUTCOME = { accept: 0, reject: 1, escalate: 2 } as const;
@@ -132,7 +131,8 @@ export function decisionView(m: Decision) {
     beaconSourceHash: str(e.beacon.source),
     beaconRound: e.beacon.round,
     beaconValue: e.beacon.value,
-    beaconSignatureHash: bytesHash(e.beacon.signature),
+    // T-209: the proof bytes themselves; the contract hashes them into the Decision and asks its beacon to verify.
+    beaconSignature: e.beacon.signature,
     encryptedKeysHash: keysHash(m.encryptedKeys ?? []),
     nonce: m.nonce,
     expiresAt: e.expiresAt,
