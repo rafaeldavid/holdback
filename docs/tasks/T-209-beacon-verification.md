@@ -5,7 +5,7 @@
 - **Depends on:** T-202 (rules contract), T-203 (invariants, Foundry in CI), T-205 (EVM settlement adapter)
 - **Paths this task may touch:** `contracts/src/`, `contracts/test/`, `contracts/script/`, `contracts/foundry.toml`, `contracts/.gas-snapshot`, `packages/settlement/evm/`, `packages/core/src/` (beacon helpers and the parse rule only), `fixtures/` (new beacon fixtures and vectors), `docs/decisions/ADR-0018-panel-seed-beacon.md` (an amendment section), `docs/tasks/T-209-beacon-verification.md`, `docs/backlog.md` (close the beacon row, add findings)
 - **Human gate:** no
-- **Status:** review
+- **Status:** done (PR 77, 2026-11-02)
 - **Agent/session:** implementer (Claude Code), branch `t-209-beacon-verification`
 
 ## Intent
@@ -133,7 +133,8 @@ Fallback `decide(accept)` (`forge test --match-contract GasPerDeal --isolate -vv
 
 ## Handoff
 
-- **State:** done, in review. PR open against `main`; not merged.
+- **State:** done; PR 77 merged after review (2026-11-02). The review found no defect in the verifier, the rules check, the `_paymentInfo` refactor or the round change (measured: noble cross-check of hash-to-G1 and all seven vectors, 168 forge tests, 2200 vitest).
+- **For T-206 (from the PR 77 review):** confirm `rules.BEACON().codehash` is the `DrandQuicknetBeacon` runtime on any chain but 31337, in the deploy script and in the agent-side domain check (backlog row); run the cross-family review of the verifier listed in the backlog before Sepolia. `docs/team.md`'s No-admin row now names both beacons.
 - **Out-of-list file:** `reports/differential-local.md` is a tracked artifact that `pnpm verify` regenerates. Its gas column changed and is committed with the adapter change.
 - **Follow-ups (backlog rows added):**
   - an external review of `DrandQuicknetBeacon` before Sepolia;
