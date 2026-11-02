@@ -73,6 +73,14 @@ Non-goals: any change to `spec/schemas/` (operator-status `chainId` as a number,
   - Demo-world tests: discovery with demo facts at `/` and the well-known path, notices in the body, a private offer declined and the reason on the state read.
   - Contract test additions: planned rows carry sources; descriptions at most 300 characters; the `core` set; the `demo` tag; the Problem enum from the operator table.
 - **Measured: `pnpm verify` PASS** at `4be506b` (2026-11-02T13:09Z), every step: typecheck, lint, forge build, forge, test, spec, snap, snap:local (anvil) and demo. No snapshot diffs. An earlier run failed in forge build (nested submodule clones over the network), snap:local (needs forge's artifacts) and one vitest worker start timeout, all while the session stalled; the rerun passed without code changes.
+- **Measured: PR 85 review fixes.**
+  - Concurrent burst on a node with a write budget of 2. Before the fix (review's measurement): 20 concurrent forged writes from one client gave 20×401, and 10 concurrent genuine writes by one signer from 10 clients gave 10×200. Now (`agent-ready.test.ts`, "holds under a concurrent burst"):
+    - 20 forged from one client: 2×401, 18×429;
+    - 10 genuine by one signer from one client: 2×200, 8×429;
+    - 10 genuine by one signer from 10 clients: 10×200, each within its client's budget, and that signer's next write from a fresh client is 429.
+  - Planned routes count as reads: on a node allowing 100 reads, 100×501 then 429.
+  - The quickstart's offer heredoc, filled as a shell fills it, now prepares (200) on a sim node. Its agree request names every field `PrepareAgreeAndFundInput` requires (`examples.test.ts`). Before the fix the test failed with 400 `invalid_terms`, `field: "disclosure"`.
+  - `fieldOf` is pinned against core's real refusal text, and the `needs` tables against the read model's states and `TIMEOUT_KINDS` (`problems.test.ts`).
 - **Inferred:** a deployed node behaves like the local Worker run, which uses the same bundle (embedded `spec/openapi.json`, `node:fs` shim).
 - **Not done:** no deploy.
 
@@ -86,7 +94,10 @@ Non-goals: any change to `spec/schemas/` (operator-status `chainId` as a number,
 - **Notices come from a single operator hook** (`notices(subject)` for prepare, write and state). The demo world uses it for the panel notice, the sealed-offer warning and the declined reason. The declined reasons live in memory: every adjudicator pass declines again, so they are rebuilt after a restart.
 - **`defaults` lists only what the operator filled in** (times, `releaseKey`), not every value echoed back. This is stricter than before and consistent with "prepare hides nothing".
 - **`operatorFeeNonce` is required only where a fee applies, and accepted always.** The guide tells agents to send it always.
-- **C4: a signer is charged only for a fresh relay the settlement layer accepted.** Everything else (refusals, unsigned writes, dry runs, replays) charges the client, and both buckets are checked before relaying. A replay does not charge the signer, so replaying an observed request cannot spend its budget. A verified signer that rotates addresses still gets fresh budgets; the backlog row is narrowed to that.
+- **C4, revised after the PR 85 review.** Every write is counted against its client at entry, in one synchronous step, so a concurrent burst cannot pass the check before any of it is counted. A fresh relay the settlement layer accepted (its signature verified) moves that count from the client to the signer. The signer bucket is checked before relaying but not reserved: reserving it would let a forger hold a victim's slots for the length of a relay. So a signer can overshoot its own budget only by concurrent writes, each within its client's budget.
+  - Refusals, unsigned writes, dry runs and replays stay on the client. Replaying an observed request cannot spend the signer's budget.
+  - Planned routes are counted as reads of the client before their 501.
+  - A verified signer that rotates addresses still gets fresh budgets; the backlog row is narrowed to that.
 - **Declining sealed offers is the adjudicator service's default** (`acceptSealedUnread` false). The demo uses the default. `pnpm sim` opts in to accepting them unread, so `examples/private.test.ts` keeps its early-accept flow. Accepting terms an adjudicator cannot judge only ends in a default that its bond pays for.
 - **Timestamps are normalized at the operator boundary** (state reads, lists, write and dry-run answers), never in events or terms, which are hashed or signed. Core and SimChain still mix formats internally; the backlog row is narrowed.
 - **Every integer in prepared typed data is a decimal string, `uint8` included.** This is the fresh agent's finding: one rule instead of a type-dependent one.
@@ -96,6 +107,7 @@ Non-goals: any change to `spec/schemas/` (operator-status `chainId` as a number,
 - **Status: review.** Not deployed. A demo redeploy after merge follows `docs/operations.md`. There is no schema bump, so the `WORLD_NAME` reset is not needed. Rebuild the site with `--out` so the 32 problem pages ship with it.
 - **Lane exceptions; a reviewer should confirm them:**
   - `tools/sim/world.test.ts`: two fields (`nonce`, `disclosure`) in its prepare call, which the new required inputs need.
+  - `docs/quickstart.md`: `"disclosure": "public"` in the offer request (PR 85 review). `examples.test.ts` now checks the quickstart's request bodies, not only its paths.
   - `apps/demo-cloud/scripts/dev.mjs`: the local-upstream fix the task brief asked for.
   - `apps/demo-cloud/scripts/deal.ts`: reads discovery now that `GET /` is the discovery document.
   - `site/walkthrough.mjs`: sends `disclosure` and reads adjudicators from discovery. It still handles only two agree-and-fund slots, so against a node that charges a fee it stops at the third slot, as it did before this task.
