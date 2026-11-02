@@ -257,11 +257,11 @@ contract RulesHandler is Base {
         }
     }
 
-    /// Three times in four, first moves time (forward only) to one second before, exactly at, or one second after
+    /// Three times in eight, first moves time (forward only) to one second before, exactly at, or one second after
     /// the timeout's own deadline, so every boundary is tried with the call right after it.
     function _warpNear(uint256 deadline, uint256 seed) internal {
-        uint256 mode = (seed >> 8) % 4;
-        if (mode == 0) return;
+        uint256 mode = (seed >> 8) % 8;
+        if (mode == 0 || mode > 3) return;
         uint256 target = deadline + mode - 2;
         if (target > block.timestamp) vm.warp(target);
     }
