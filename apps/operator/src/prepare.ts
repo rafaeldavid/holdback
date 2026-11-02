@@ -128,8 +128,9 @@ export function typesFor(primaryType: string): TypedDataJson['types'] {
   return out;
 }
 
+/** One rule for agents: every integer in a typed-data message is a decimal string, uint8 included (T-030). */
 const jsonable = (v: unknown): unknown =>
-  typeof v === 'bigint' ? v.toString() : Array.isArray(v) ? v.map(jsonable) : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, jsonable(x)])) : v;
+  typeof v === 'bigint' || typeof v === 'number' ? v.toString() : Array.isArray(v) ? v.map(jsonable) : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, jsonable(x)])) : v;
 
 function typedData(domain: HoldbackDomain, primaryType: string, message: Record<string, unknown>): TypedDataJson {
   return {
@@ -385,7 +386,7 @@ async function agreeAndFund(ctx: PrepareContext, input: Record<string, unknown>)
       `you authorize ${amountText({ token: c.price.token, amount: total } as TokenAmount)}: price ${amountText(c.price)} plus fee ${amountText(c.adjudication.fee)}; the fee is kept on a refund`,
       ...(fee && due
         ? [
-            `you also pay this operator's operator fee of ${operatorFeeText(due, schedule!)}, the schedule in its /v1/status fees.operator; it is a separate transfer, never part of the hold, and not refunded, even on a refund. Another operator, or direct submission to the settlement layer, relays this agreement without it`,
+            `you also pay this operator's operator fee of ${operatorFeeText(due, schedule!)}, the schedule in its discovery document's fees.operator; it is a separate transfer, never part of the hold, and not refunded, even on a refund. Another operator, or direct submission to the settlement layer, relays this agreement without it`,
           ]
         : []),
       `the terms name buyerEncryptionPublicKey ${c.buyerEncryptionPublicKey}: the seller seals the work's key to it, so confirm you hold the secret key for it (this operator cannot know your key)`,

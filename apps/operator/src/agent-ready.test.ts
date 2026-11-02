@@ -195,6 +195,8 @@ describe('prepare hides nothing (Simplify 7, C9)', () => {
     expect((await http('POST', `${api}/v1/prepare/offer`, noNonce)).body).toMatchObject({ status: 400, field: 'nonce' });
     const p = (await http('POST', `${api}/v1/prepare/offer`, offerInput())).body as Prepared;
     expect(Object.keys(p.defaults)).toEqual(['createdAt']);
+    // One rule for integers in typed data: decimal strings, uint8 included (the fresh-agent run found uint8 as numbers).
+    expect((p.sign[0]!.typedData.message['timing'] as J).maxSubmissions).toBe('1');
     const id = await offered();
     expect((await http('POST', `${api}/v1/prepare/agree-and-fund`, { commitmentId: id, fundingNonce: nonce() })).body).toMatchObject({ status: 400, field: 'agreeNonce' });
     expect((await http('POST', `${api}/v1/prepare/agree-and-fund`, { commitmentId: id, agreeNonce: nonce() })).body).toMatchObject({ status: 400, field: 'fundingNonce' });
