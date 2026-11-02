@@ -257,6 +257,15 @@ contract RulesHandler is Base {
         }
     }
 
+    /// Three times in four, first moves time (forward only) to one second before, exactly at, or one second after
+    /// the timeout's own deadline, so every boundary is tried with the call right after it.
+    function _warpNear(uint256 deadline, uint256 seed) internal {
+        uint256 mode = (seed >> 8) % 4;
+        if (mode == 0) return;
+        uint256 target = deadline + mode - 2;
+        if (target > block.timestamp) vm.warp(target);
+    }
+
     function _off(uint256 seed, uint256 shift, uint256 lo, uint256 hi) internal pure returns (uint64) {
         return uint64(_bound((seed >> shift) & 0xffffffff, lo, hi));
     }
@@ -504,6 +513,8 @@ contract RulesHandler is Base {
         uint256 i = _pickFor(dealSeed, M_NONE);
         H.Terms memory t = _terms_[i];
         bytes32 id = _ids[i];
+        uint256 first = t.timing.offerExpiresAt < t.timing.fundBy ? t.timing.offerExpiresAt : t.timing.fundBy;
+        _warpNear(first, callerSeed);
         HoldbackRules.Stage before = rules.dealOf(id).stage;
         bool due = before == HoldbackRules.Stage.None
             && (block.timestamp >= t.timing.offerExpiresAt || block.timestamp >= t.timing.fundBy);
@@ -524,6 +535,7 @@ contract RulesHandler is Base {
         uint256 i = _pickFor(dealSeed, M_HELD);
         H.Terms memory t = _terms_[i];
         bytes32 id = _ids[i];
+        _warpNear(t.timing.deliverBy, callerSeed);
         HoldbackRules.Stage before = rules.dealOf(id).stage;
         bool due = before == HoldbackRules.Stage.Held && block.timestamp >= t.timing.deliverBy && !cppReclaimed[id];
         bool ok;
@@ -541,6 +553,7 @@ contract RulesHandler is Base {
         uint256 i = _pickFor(dealSeed, M_DELIVERED);
         H.Terms memory t = _terms_[i];
         bytes32 id = _ids[i];
+        _warpNear(t.timing.judgeBy, callerSeed);
         HoldbackRules.Stage before = rules.dealOf(id).stage;
         bool due = before == HoldbackRules.Stage.Delivered && block.timestamp >= t.timing.judgeBy;
         uint256 c0 = capturable(i);
@@ -561,6 +574,12 @@ contract RulesHandler is Base {
         H.Terms memory t = _terms_[i];
         bytes32 id = _ids[i];
         HoldbackRules.Deal memory d = rules.dealOf(id);
+        _warpNear(
+            d.stage == HoldbackRules.Stage.Escalated
+                ? uint256(d.t1) + t.timing.appealDecideSec
+                : uint256(t.timing.fallbackBy),
+            callerSeed
+        );
         bool due = !cppReclaimed[id]
             && (
                 (d.stage == HoldbackRules.Stage.FallbackJudging && block.timestamp >= t.timing.fallbackBy)
@@ -583,6 +602,9 @@ contract RulesHandler is Base {
         bytes32 id = _ids[i];
         HoldbackRules.Deal memory d = rules.dealOf(id);
         uint256 appealBy = uint256(d.t1) + t.timing.appealWindowSec;
+        _warpNear(
+            d.appeal == HoldbackRules.AppealState.Open ? appealBy + t.timing.appealDecideSec : appealBy, callerSeed
+        );
         bool due = (d.stage == HoldbackRules.Stage.Released || d.stage == HoldbackRules.Stage.Refunded)
             && (
                 (d.appeal == HoldbackRules.AppealState.None && block.timestamp >= appealBy)

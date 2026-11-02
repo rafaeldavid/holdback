@@ -49,10 +49,11 @@ jobs:
       - run: pnpm build
       - run: pnpm test --shard=${{ matrix.shard }}/4
 
-  # T-203: the Foundry suites (unit, fuzz, and the handler-based invariants at 256 runs x depth 100).
-  # Local EVM only (chain id 31337); no RPC endpoint is configured.
+  # T-203: the Foundry suites (unit, fuzz, and the handler-based invariants at 256 runs x depth 100), then
+  # the vitest suites that need anvil and contracts/out (T-205), which the test shards skip for lack of
+  # Foundry. Local EVM only (chain id 31337, anvil on 127.0.0.1); no public RPC endpoint is configured.
   contracts:
-    name: contracts (forge test)
+    name: contracts (forge test, anvil tests)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -64,6 +65,18 @@ jobs:
       - name: forge test
         working-directory: contracts
         run: forge test
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: anvil tests (must not skip)
+        run: |
+          set -o pipefail
+          pnpm vitest run packages/settlement/evm packages/testkit/src/runner.test.ts --reporter=verbose | tee anvil-tests.log
+          if grep -q "SKIPPED" anvil-tests.log; then echo "anvil tests skipped: Foundry or contracts/out missing" >&2; exit 1; fi
 
   # T-204's model check, when formal/check.sh exists. Pull requests run the safety config and the broken
   # variants (each must still bite); push to main also runs the seven liveness configs.
