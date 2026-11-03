@@ -1,9 +1,15 @@
 // Helpers both settlement adapters (sim/ and evm/) share. Not part of the package's API.
 import { problem, type Problem, type ProblemType } from '@holdback/core';
 
-/** A refused submission. The adapters throw it inside a transaction and return its problem from submit. */
+/**
+ * A refused submission. The adapters throw it inside a transaction and return its problem from submit. `revert` is the
+ * contract error's name when the refusal came from a contract.
+ */
 export class Refusal extends Error {
-  constructor(readonly problem: Problem) {
+  constructor(
+    readonly problem: Problem,
+    readonly revert?: string,
+  ) {
     super(problem.detail);
   }
 }

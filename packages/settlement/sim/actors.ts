@@ -22,6 +22,7 @@ import {
   type Delivery,
   type EncryptedKey,
   type Hex32,
+  type HoldbackDomain,
   type Mandate,
   type Rulebook,
   type Scope,
@@ -106,10 +107,10 @@ export function wideScope(roles: Scope['roles'], expiresAt: Timestamp): Scope {
   return { roles, maxPerCommitment: tusd('1000000000000000'), maxDaily: tusd('1000000000000000'), expiresAt };
 }
 
-/** A mandate from `principal` to `agent` in a club, signed by the principal. */
-export async function mandateFor(principal: SimActor, agent: Address, clubId: string, scope: Scope, issuedAt: Timestamp): Promise<Mandate> {
+/** A mandate from `principal` to `agent` in a club, signed by the principal (under SimChain's domain unless given one). */
+export async function mandateFor(principal: SimActor, agent: Address, clubId: string, scope: Scope, issuedAt: Timestamp, under: HoldbackDomain = domain): Promise<Mandate> {
   const body = { principal: principal.address, agent, clubId, scope, nonce: keccak256(stringToBytes(`${principal.name}/${agent}/${clubId}`)), issuedAt };
-  const { signature } = await sign(principal, { ...body, type: 'Mandate' as const });
+  const signature = await signMessage(principal.key, under, { ...body, type: 'Mandate' as const });
   return { ...body, signature };
 }
 
