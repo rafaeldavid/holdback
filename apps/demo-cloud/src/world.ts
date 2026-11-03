@@ -538,14 +538,13 @@ export class PublicWorld {
 
   /**
    * When the next adjudicator pass should run (ms since the epoch), or null when none is due. While `active()`: a
-   * second after settlement moved (2 s on a chain, ADR-0028 §5), twice as long after each pass in a row that changed
-   * nothing (up to a minute); every 2 s while a chain world's setup is left. And at the next fallback takeover's judgeBy,
-   * whether active or not: one alarm per takeover.
+   * second after settlement moved or a chain world's setup step went through (2 s on a chain, ADR-0028 §5), twice as
+   * long after each pass in a row that changed nothing or whose setup step failed (up to a minute). And at the next
+   * fallback takeover's judgeBy, whether active or not: one alarm per takeover.
    */
   nextPass(): number | null {
     if (!this.active()) return this.wake;
-    const first = this.live ? CHAIN_PASS_MS : PASS_MS;
-    const wait = this.ready() ? Math.min(first * 2 ** this.idlePasses, SLOWEST_PASS_MS) : CHAIN_PASS_MS;
+    const wait = Math.min((this.live ? CHAIN_PASS_MS : PASS_MS) * 2 ** this.idlePasses, SLOWEST_PASS_MS);
     return Math.min(this.now() + wait, this.wake ?? Infinity);
   }
 
@@ -656,13 +655,18 @@ export class PublicWorld {
     this.telemetry.invoked();
     this.tick();
     if (this.live) {
+      const setupLeft = !this.ready();
       try {
         await this.setup();
+        // Every setup step that does not throw takes the setup forward (verify, gas, a bond).
+        if (setupLeft) this.idlePasses = 0;
       } catch (e) {
+        // A failing step (an RPC down) backs off like a pass that changes nothing (T-057 review).
+        if (setupLeft) this.idlePasses++;
         this.o.onError?.(e as Error);
       }
       // The adjudicators wait for a verified chain and their own bonds: an acceptance without one is refused on chain.
-      if (!this.live.verified || this.live.bonded.size < ADJUDICATORS.length) return this.persist();
+      if (!this.ready()) return this.persist();
     }
     const { panel } = this;
     for (const [role, a] of Object.entries(this.adjudicators) as [Role, TestAdjudicator][]) {

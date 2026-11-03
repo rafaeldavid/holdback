@@ -66,7 +66,7 @@ describe.skipIf(!ready)(`the public world on a live chain (anvil for Sepolia)${r
   let anvil: EvmWorld;
   let deployment: DeploymentFile;
   const storage = new MemoryStorage();
-  const chainOf = () => new LiveChain({ deployment, rpcUrls: [anvil.rpcUrl], relayerKey: RELAYER, pollMs: 200, rebroadcastMs: 10_000, mintBatchMs: 200 });
+  const chainOf = (rpcUrl = anvil.rpcUrl) => new LiveChain({ deployment, rpcUrls: [rpcUrl], relayerKey: RELAYER, pollMs: 200, rebroadcastMs: 10_000, mintBatchMs: 200 });
   beforeAll(async () => {
     anvil = await EvmWorld.start(root, { blockTimeSec: 1, token: 'test-usdc' });
     const d = anvil.deployment;
@@ -133,6 +133,19 @@ describe.skipIf(!ready)(`the public world on a live chain (anvil for Sepolia)${r
     await again.work();
     expect(again.ready()).toBe(true);
     expect(again.nextPass()).toBeNull();
+
+    // Reopened with the RPC down: each failing setup step doubles the wait (4, 8, 16 s), not a retry every 2 s (T-057 review).
+    const down = await PublicWorld.open({ storage, env: ENV, live: { chain: chainOf('http://127.0.0.1:9') }, onError: () => {} });
+    const waits: number[] = [];
+    for (let i = 0; i < 3; i++) {
+      await down.work();
+      waits.push(down.nextPass()! - Date.now());
+    }
+    expect(down.ready()).toBe(false);
+    for (const [i, w] of waits.entries()) {
+      expect(w).toBeGreaterThan(4000 * 2 ** i - 500);
+      expect(w).toBeLessThanOrEqual(4000 * 2 ** i);
+    }
     expect(again.digest()).toBe(world.digest());
     const before = (world.chain as EvmSettlement).log();
     expect((again.chain as EvmSettlement).log()).toEqual(before);
