@@ -1,0 +1,271 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.28;
+
+import {Vm} from "forge-std/Vm.sol";
+import {AuthCaptureEscrow} from "commerce-payments/AuthCaptureEscrow.sol";
+import {HoldbackRules} from "../../src/HoldbackRules.sol";
+import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
+import {Base} from "../unit/Base.sol";
+
+/// A prepare target for the ERC-6492 envelope: runs a list of calls and records which succeeded. Every call is made
+/// with this contract as msg.sender, which is as strong as Multicall3 for a permissionless rules contract.
+contract PrepareProbe {
+    struct Step {
+        address target;
+        bytes data;
+    }
+
+    Step[] internal steps;
+    bool[] public ok;
+    bytes[] public ret;
+    // What the probe observed mid-funding.
+    uint8 public stageSeen;
+    bool public collectedSeen;
+    uint120 public capturableSeen;
+    uint256 public storeBalanceSeen;
+
+    function add(address target, bytes calldata data) external {
+        steps.push(Step(target, data));
+    }
+
+    function run() external {
+        delete ok;
+        delete ret;
+        for (uint256 i; i < steps.length; ++i) {
+            (bool s, bytes memory r) = steps[i].target.call(steps[i].data);
+            ok.push(s);
+            ret.push(r);
+        }
+    }
+
+    function snapshot(HoldbackRules rules, bytes32 id, AuthCaptureEscrow escrow, bytes32 piHash, address token)
+        external
+    {
+        stageSeen = uint8(rules.dealOf(id).stage);
+        (collectedSeen, capturableSeen,) = escrow.paymentState(piHash);
+        (, bytes memory b) =
+            token.staticcall(abi.encodeWithSignature("balanceOf(address)", escrow.getTokenStore(address(rules))));
+        storeBalanceSeen = abi.decode(b, (uint256));
+    }
+}
+
+/// Red-team cross-check of S7 and R3 (ERC-6492 prepare call during `agreeAndFund`) with the real Multicall3 runtime
+/// bytecode etched at the canonical address (code hash 0xd5c15df6…0891, fetched read-only from Ethereum Sepolia).
+///
+/// The ERC-6492 envelope `(prepareTarget, prepareData, innerSignature) ‖ magic` is not signed by anyone: the buyer
+/// signs only the inner ERC-3009 authorization, and `HoldbackRules` passes `f.signature` through untouched. So any
+/// relayer can attach an arbitrary call that runs with Multicall3 as sender, after the rules contract has written
+/// `Held` and encumbered the primary's bond, and after CPP has recorded the hold, but before any token has moved.
+contract Erc6492PrepareTest is Base {
+    bytes32 internal constant MAGIC = 0x6492649264926492649264926492649264926492649264926492649264926492;
+    bytes32 internal constant MULTICALL3_CODEHASH = 0xd5c15df687b16f2ff992fc8d767b4216323184a2bbc6ee2f9c398c318e770891;
+    bytes4 internal constant REENTRANCY = 0xab143c06; // Solady ReentrancyGuardTransient.Reentrancy()
+    bytes internal constant MULTICALL3_CODE =
+        hex"6080604052600436106100f35760003560e01c80634d2301cc1161008a578063a8b0574e11610059578063a8b0574e1461025a578063bce38bd714610275578063c3077fa914610288578063ee82ac5e1461029b57600080fd5b80634d2301cc146101ec57806372425d9d1461022157806382ad56cb1461023457806386d516e81461024757600080fd5b80633408e470116100c65780633408e47014610191578063399542e9146101a45780633e64a696146101c657806342cbb15c146101d957600080fd5b80630f28c97d146100f8578063174dea711461011a578063252dba421461013a57806327e86d6e1461015b575b600080fd5b34801561010457600080fd5b50425b6040519081526020015b60405180910390f35b61012d610128366004610a85565b6102ba565b6040516101119190610bbe565b61014d610148366004610a85565b6104ef565b604051610111929190610bd8565b34801561016757600080fd5b50437fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff0140610107565b34801561019d57600080fd5b5046610107565b6101b76101b2366004610c60565b610690565b60405161011193929190610cba565b3480156101d257600080fd5b5048610107565b3480156101e557600080fd5b5043610107565b3480156101f857600080fd5b50610107610207366004610ce2565b73ffffffffffffffffffffffffffffffffffffffff163190565b34801561022d57600080fd5b5044610107565b61012d610242366004610a85565b6106ab565b34801561025357600080fd5b5045610107565b34801561026657600080fd5b50604051418152602001610111565b61012d610283366004610c60565b61085a565b6101b7610296366004610a85565b610a1a565b3480156102a757600080fd5b506101076102b6366004610d18565b4090565b60606000828067ffffffffffffffff8111156102d8576102d8610d31565b60405190808252806020026020018201604052801561031e57816020015b6040805180820190915260008152606060208201528152602001906001900390816102f65790505b5092503660005b8281101561047757600085828151811061034157610341610d60565b6020026020010151905087878381811061035d5761035d610d60565b905060200281019061036f9190610d8f565b6040810135958601959093506103886020850185610ce2565b73ffffffffffffffffffffffffffffffffffffffff16816103ac6060870187610dcd565b6040516103ba929190610e32565b60006040518083038185875af1925050503d80600081146103f7576040519150601f19603f3d011682016040523d82523d6000602084013e6103fc565b606091505b50602080850191909152901515808452908501351761046d577f08c379a000000000000000000000000000000000000000000000000000000000600052602060045260176024527f4d756c746963616c6c333a2063616c6c206661696c656400000000000000000060445260846000fd5b5050600101610325565b508234146104e6576040517f08c379a000000000000000000000000000000000000000000000000000000000815260206004820152601a60248201527f4d756c746963616c6c333a2076616c7565206d69736d6174636800000000000060448201526064015b60405180910390fd5b50505092915050565b436060828067ffffffffffffffff81111561050c5761050c610d31565b60405190808252806020026020018201604052801561053f57816020015b606081526020019060019003908161052a5790505b5091503660005b8281101561068657600087878381811061056257610562610d60565b90506020028101906105749190610e42565b92506105836020840184610ce2565b73ffffffffffffffffffffffffffffffffffffffff166105a66020850185610dcd565b6040516105b4929190610e32565b6000604051808303816000865af19150503d80600081146105f1576040519150601f19603f3d011682016040523d82523d6000602084013e6105f6565b606091505b5086848151811061060957610609610d60565b602090810291909101015290508061067d576040517f08c379a000000000000000000000000000000000000000000000000000000000815260206004820152601760248201527f4d756c746963616c6c333a2063616c6c206661696c656400000000000000000060448201526064016104dd565b50600101610546565b5050509250929050565b43804060606106a086868661085a565b905093509350939050565b6060818067ffffffffffffffff8111156106c7576106c7610d31565b60405190808252806020026020018201604052801561070d57816020015b6040805180820190915260008152606060208201528152602001906001900390816106e55790505b5091503660005b828110156104e657600084828151811061073057610730610d60565b6020026020010151905086868381811061074c5761074c610d60565b905060200281019061075e9190610e76565b925061076d6020840184610ce2565b73ffffffffffffffffffffffffffffffffffffffff166107906040850185610dcd565b60405161079e929190610e32565b6000604051808303816000865af19150503d80600081146107db576040519150601f19603f3d011682016040523d82523d6000602084013e6107e0565b606091505b506020808401919091529015158083529084013517610851577f08c379a000000000000000000000000000000000000000000000000000000000600052602060045260176024527f4d756c746963616c6c333a2063616c6c206661696c656400000000000000000060445260646000fd5b50600101610714565b6060818067ffffffffffffffff81111561087657610876610d31565b6040519080825280602002602001820160405280156108bc57816020015b6040805180820190915260008152606060208201528152602001906001900390816108945790505b5091503660005b82811015610a105760008482815181106108df576108df610d60565b602002602001015190508686838181106108fb576108fb610d60565b905060200281019061090d9190610e42565b925061091c6020840184610ce2565b73ffffffffffffffffffffffffffffffffffffffff1661093f6020850185610dcd565b60405161094d929190610e32565b6000604051808303816000865af19150503d806000811461098a576040519150601f19603f3d011682016040523d82523d6000602084013e61098f565b606091505b506020830152151581528715610a07578051610a07576040517f08c379a000000000000000000000000000000000000000000000000000000000815260206004820152601760248201527f4d756c746963616c6c333a2063616c6c206661696c656400000000000000000060448201526064016104dd565b506001016108c3565b5050509392505050565b6000806060610a2b60018686610690565b919790965090945092505050565b60008083601f840112610a4b57600080fd5b50813567ffffffffffffffff811115610a6357600080fd5b6020830191508360208260051b8501011115610a7e57600080fd5b9250929050565b60008060208385031215610a9857600080fd5b823567ffffffffffffffff811115610aaf57600080fd5b610abb85828601610a39565b90969095509350505050565b6000815180845260005b81811015610aed57602081850181015186830182015201610ad1565b81811115610aff576000602083870101525b50601f017fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe0169290920160200192915050565b600082825180855260208086019550808260051b84010181860160005b84811015610bb1578583037fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe001895281518051151584528401516040858501819052610b9d81860183610ac7565b9a86019a9450505090830190600101610b4f565b5090979650505050505050565b602081526000610bd16020830184610b32565b9392505050565b600060408201848352602060408185015281855180845260608601915060608160051b870101935082870160005b82811015610c52577fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffa0888703018452610c40868351610ac7565b95509284019290840190600101610c06565b509398975050505050505050565b600080600060408486031215610c7557600080fd5b83358015158114610c8557600080fd5b9250602084013567ffffffffffffffff811115610ca157600080fd5b610cad86828701610a39565b9497909650939450505050565b838152826020820152606060408201526000610cd96060830184610b32565b95945050505050565b600060208284031215610cf457600080fd5b813573ffffffffffffffffffffffffffffffffffffffff81168114610bd157600080fd5b600060208284031215610d2a57600080fd5b5035919050565b7f4e487b7100000000000000000000000000000000000000000000000000000000600052604160045260246000fd5b7f4e487b7100000000000000000000000000000000000000000000000000000000600052603260045260246000fd5b600082357fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff81833603018112610dc357600080fd5b9190910192915050565b60008083357fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe1843603018112610e0257600080fd5b83018035915067ffffffffffffffff821115610e1d57600080fd5b602001915036819003821315610a7e57600080fd5b8183823760009101908152919050565b600082357fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffc1833603018112610dc357600080fd5b600082357fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffa1833603018112610dc357600080fdfea2646970667358221220bb2b5c71a328032f97c676ae39a1ec2148d3e5d6f73d95e9b17910152d61f16264736f6c634300080c0033";
+
+    PrepareProbe internal probe;
+
+    function setUp() public override {
+        super.setUp();
+        vm.etch(MULTICALL3, MULTICALL3_CODE);
+        assertEq(MULTICALL3.codehash, MULTICALL3_CODEHASH, "the etched code is the canonical Multicall3");
+        probe = new PrepareProbe();
+    }
+
+    function _wrap(address target, bytes memory data, bytes memory inner) internal pure returns (bytes memory) {
+        return abi.encodePacked(abi.encode(target, data, inner), MAGIC);
+    }
+
+    /// The buyer signs a plain ERC-3009 authorization; the relayer wraps it in an ERC-6492 envelope of its choice.
+    function _fundWrapped(H.Terms memory t, address target, bytes memory data) internal returns (bytes32 id) {
+        H.Funding memory f = _erc3009(t, BUYER_PK);
+        f.signature = _wrap(target, data, f.signature);
+        vm.prank(relayer);
+        id = rules.agreeAndFund(t, _sellerSig(t, SELLER_PK), _acceptance(t, ADJ_PK), _agree(t, BUYER_PK), f);
+    }
+
+    function _runProbe() internal pure returns (bytes memory) {
+        return abi.encodeCall(PrepareProbe.run, ());
+    }
+
+    // ------------------------------------------------------------ what the prepare call sees
+
+    /// Inside the prepare call the deal is `Held`, CPP already records the hold as collected and capturable, and the
+    /// token store holds nothing yet. The envelope needs no signature from the buyer.
+    function test_attack_relayerWrapsThePlainSignature_prepareCallSeesAHeldDealWithNoTokens() public {
+        H.Terms memory t = _terms();
+        bytes32 id = hx.id(t);
+        bytes32 piHash = escrow.getHash(_pi(t));
+        probe.add(address(probe), abi.encodeCall(PrepareProbe.snapshot, (rules, id, escrow, piHash, address(usdc))));
+
+        _fundWrapped(t, address(probe), _runProbe());
+
+        assertTrue(probe.ok(0), "the prepare call ran");
+        assertEq(probe.stageSeen(), uint8(HoldbackRules.Stage.Held), "rules: Held before any token moved");
+        assertTrue(probe.collectedSeen(), "CPP: hasCollectedPayment before any token moved");
+        assertEq(probe.capturableSeen(), uint120(PRICE + FEE), "CPP: capturable before any token moved");
+        assertEq(probe.storeBalanceSeen(), 0, "the token store was empty during the prepare call");
+        // The funding itself completed as if nothing had happened.
+        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Held));
+        assertEq(_held(t), PRICE + FEE);
+    }
+
+    // ------------------------------------------------------------ money paths are closed by CPP's guard
+
+    /// Every money path (early accept, mutual settlement, a primary accept, a reclaim-shaped timeout) reaches CPP,
+    /// whose transient guard is set for the whole `authorize`, so each one reverts with `Reentrancy()`; the funding
+    /// still completes because `tryAggregate(false, …)` swallows the failures.
+    function test_defense_prepareCallCannotReachAnyMoneyPath_fundingCompletes() public {
+        H.Terms memory t = _terms();
+        bytes32 id = hx.id(t);
+        (H.Delivery memory dv, H.KeyProof memory k) = _delivery();
+        bytes memory dSig = _deliverySig(id, dv, SELLER_PK);
+
+        // (1) early accept, carrying the delivery
+        H.EarlyAccept memory ea =
+            H.EarlyAccept({attempt: 1, nonce: keccak256("ea"), expiresAt: type(uint64).max, signature: ""});
+        ea.signature = _sign(BUYER_PK, hx.early(id, buyer, ea));
+        probe.add(address(rules), abi.encodeCall(HoldbackRules.earlyAccept, (t, ea, dv, dSig, k)));
+        // (2) a primary accept carrying the delivery
+        probe.add(
+            address(rules), abi.encodeCall(HoldbackRules.decide, (t, _primary(t, id, H.OUTCOME_ACCEPT), dv, dSig))
+        );
+        // (3) a mutual settlement in Held that pays everything to the buyer (void only)
+        H.Payout[] memory payouts = new H.Payout[](1);
+        payouts[0] = H.Payout({to: buyer, amount: PRICE});
+        H.Mutual memory mu = H.Mutual({
+            hasDelivery: false,
+            deliveryHash: bytes32(0),
+            payouts: payouts,
+            releaseKey: false,
+            nonce: keccak256("mu"),
+            expiresAt: type(uint64).max,
+            buyerSignature: "",
+            sellerSignature: ""
+        });
+        bytes32 muHash = hx.mutual(id, t.token, mu);
+        mu.buyerSignature = _sign(BUYER_PK, muHash);
+        mu.sellerSignature = _sign(SELLER_PK, muHash);
+        H.KeyProof memory none;
+        probe.add(address(rules), abi.encodeCall(HoldbackRules.mutualSettle, (t, mu, _noDelivery(), none)));
+        // (4) direct CPP calls from a stranger are refused by onlySender regardless
+        probe.add(address(escrow), abi.encodeCall(AuthCaptureEscrow.void, (_pi(t))));
+
+        _fundWrapped(t, address(probe), _runProbe());
+
+        for (uint256 i; i < 4; ++i) {
+            assertFalse(probe.ok(i), string.concat("step ", vm.toString(i), " must fail"));
+        }
+        assertEq(bytes4(probe.ret(0)), REENTRANCY, "early accept hit CPP's transient guard");
+        assertEq(bytes4(probe.ret(1)), REENTRANCY, "primary accept hit CPP's transient guard");
+        assertEq(bytes4(probe.ret(2)), REENTRANCY, "mutual settlement hit CPP's transient guard");
+        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Held));
+        assertEq(_held(t), PRICE + FEE);
+        assertEq(usdc.balanceOf(seller), 1_000_000_000, "the seller was not paid");
+        assertEq(bonds.encumberedOf(adjudicator, address(usdc)), PRICE);
+    }
+
+    /// Funding a second deal from inside the first's prepare call writes `Held` and encumbers the primary, then hits
+    /// the guard at `authorize`; the inner call reverts as a whole, so nothing of the second deal survives.
+    function test_defense_prepareCallFundingAnotherDeal_isRolledBackWhole() public {
+        H.Terms memory t1 = _terms();
+        H.Terms memory t2 = _terms();
+        bytes32 id2 = hx.id(t2);
+        probe.add(
+            address(rules),
+            abi.encodeCall(
+                HoldbackRules.agreeAndFund,
+                (t2, _sellerSig(t2, SELLER_PK), _acceptance(t2, ADJ_PK), _agree(t2, BUYER_PK), _erc3009(t2, BUYER_PK))
+            )
+        );
+        bytes32 id1 = _fundWrapped(t1, address(probe), _runProbe());
+
+        assertFalse(probe.ok(0));
+        assertEq(bytes4(probe.ret(0)), REENTRANCY);
+        assertEq(uint8(_stage(id1)), uint8(HoldbackRules.Stage.Held));
+        assertEq(uint8(_stage(id2)), uint8(HoldbackRules.Stage.None), "deal 2 left no state");
+        assertEq(bonds.encumberedOf(adjudicator, address(usdc)), PRICE, "only deal 1's bond is encumbered");
+        assertEq(_held(t1), PRICE + FEE);
+    }
+
+    // ------------------------------------------------------------ what the prepare call CAN do
+
+    /// The non-money transitions are reachable: a relayer holding the seller's delivery signature lands the deal in
+    /// `Delivered` inside the funding transaction. CPP logs `PaymentAuthorized` before it collects (ACE:252), so the
+    /// log order is JobFunded, PaymentAuthorized, JobSubmitted, then the token's AuthorizationUsed and Transfer:
+    /// an indexer sees the delivery before the buyer's tokens move.
+    function test_attack_prepareCallDeliversInsideTheFundingTransaction() public {
+        H.Terms memory t = _terms();
+        bytes32 id = hx.id(t);
+        (H.Delivery memory dv,) = _delivery();
+        bytes memory dSig = _deliverySig(id, dv, SELLER_PK);
+
+        vm.recordLogs();
+        _fundWrapped(t, address(rules), abi.encodeCall(HoldbackRules.deliver, (t, dv, dSig)));
+
+        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Delivered), "delivered inside agreeAndFund");
+        assertEq(_held(t), PRICE + FEE);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        uint256 submittedAt = type(uint256).max;
+        uint256 authorizedAt = type(uint256).max;
+        uint256 usedAt = type(uint256).max;
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].topics[0] == HoldbackRules.JobSubmitted.selector) submittedAt = i;
+            if (logs[i].topics[0] == AuthCaptureEscrow.PaymentAuthorized.selector) authorizedAt = i;
+            if (logs[i].topics[0] == keccak256("AuthorizationUsed(address,bytes32)")) usedAt = i;
+        }
+        assertLt(authorizedAt, submittedAt, "CPP logs the authorization before it collects");
+        assertLt(submittedAt, usedAt, "JobSubmitted was logged before the buyer's authorization was spent");
+    }
+
+    /// With D31 timing (judgeBy at or before the funding time, which the contract accepts), the prepare call takes
+    /// the deal from None to Escalated in one transaction: deliver, trigger the fallback, and relay the fallback's
+    /// signed escalation. The primary's bond is released before CPP has pulled a single token. The deal still
+    /// closes on its normal paths afterwards (here: default after appealDecideSec).
+    function test_attack_prepareCallWithD31Timing_fundsStraightIntoEscalated() public {
+        H.Terms memory t = _terms();
+        t.timing.judgeBy = uint64(block.timestamp); // triggerFallback is open at once (now >= judgeBy)
+        bytes32 id = hx.id(t);
+        (H.Delivery memory dv,) = _delivery();
+        bytes memory dSig = _deliverySig(id, dv, SELLER_PK);
+        // The fallback's round is roundAt(judgeBy) = now on the sim beacon, so its seed is computable right now.
+        H.Decision memory m = _beaconDecision(id, H.ROLE_FALLBACK, H.OUTCOME_ESCALATE, t.timing.judgeBy);
+        m = _signDecision(t, id, m, fallbackAdj, FB_PK);
+
+        probe.add(address(rules), abi.encodeCall(HoldbackRules.deliver, (t, dv, dSig)));
+        probe.add(address(rules), abi.encodeCall(HoldbackRules.triggerFallback, (t)));
+        probe.add(address(rules), abi.encodeCall(HoldbackRules.decide, (t, m, _noDelivery(), "")));
+
+        _fundWrapped(t, address(probe), _runProbe());
+
+        assertTrue(probe.ok(0) && probe.ok(1) && probe.ok(2), "deliver, triggerFallback and escalate all ran");
+        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Escalated), "Escalated at the end of agreeAndFund");
+        assertEq(_held(t), PRICE + FEE, "the hold was still collected");
+        assertEq(bonds.encumberedOf(adjudicator, address(usdc)), 0, "the primary's bond was released mid-funding");
+        assertEq(bonds.encumberedOf(fallbackAdj, address(usdc)), 0);
+        // Whether the escalation reserves the appeal adjudicator's bond is T-206 M-3's change, not this test's point.
+
+        // Liveness is intact: the escalation defaults after appealDecideSec and the buyer is refunded.
+        vm.warp(block.timestamp + t.timing.appealDecideSec);
+        uint256 b0 = usdc.balanceOf(buyer);
+        rules.triggerDefault(t);
+        assertEq(usdc.balanceOf(buyer), b0 + PRICE + FEE);
+        assertEq(bonds.encumberedOf(appealAdj, address(usdc)), 0);
+    }
+
+    /// Without the canonical Multicall3 code (the unit fixture's default, and PA-I4's local world), a wrapped
+    /// signature reverts outright, while a plain signature never touches Multicall3.
+    function test_defense_withoutMulticall3Code_onlyWrappedSignaturesRevert() public {
+        vm.etch(MULTICALL3, "");
+        H.Terms memory t = _terms();
+        H.Funding memory f = _erc3009(t, BUYER_PK);
+        bytes memory sellerSig = _sellerSig(t, SELLER_PK);
+        H.Acceptance memory acc = _acceptance(t, ADJ_PK);
+        H.Agree memory ag = _agree(t, BUYER_PK);
+        H.Funding memory wrapped = H.Funding({method: 0, signature: _wrap(address(probe), _runProbe(), f.signature)});
+        vm.expectRevert();
+        rules.agreeAndFund(t, sellerSig, acc, ag, wrapped);
+        bytes32 id = rules.agreeAndFund(t, sellerSig, acc, ag, f);
+        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Held));
+    }
+}
