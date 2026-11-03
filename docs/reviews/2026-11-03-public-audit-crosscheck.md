@@ -45,7 +45,7 @@ It complements the T-206 contract review (`docs/reviews/2026-11-03-contract-revi
 - **The drand verifier passes every BLS pitfall the audits name.** No audit of a Solidity drand verifier was found, so there is no earlier review of one to lean on. Two low gas findings, PA-L1 and PA-L2 (section 7).
 - **Out of scope.** The token issuer's blacklist and pause (section 5).
 - **Deploy checks are measured** (section 6.3): Sepolia's USDC, Permit2, Multicall3 and EIP-2537 precompiles match what the code expects. EIP-1153 is inferred.
-- **0xSplits.** Section 8 weighs whether its mechanics could replace some of our payout code. Any adoption needs an ADR and comes after the Sepolia deployment.
+- **0xSplits.** Adopt nothing in the settlement path (section 8). Nothing in Splits removes code from `HoldbackRules`. Its ideas fit only at the edges: an operator, adjudicator or seller may receive into a split with no protocol change. Any adoption would need an ADR and would come after the Sepolia deployment.
 
 ## 2. Audits consulted
 
