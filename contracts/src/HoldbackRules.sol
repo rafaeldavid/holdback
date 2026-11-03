@@ -231,7 +231,7 @@ contract HoldbackRules is EIP712 {
     // Decide
 
     /// @notice Anyone relays the adjudicator's signed decision. In `Held`, the decision carries the delivery it
-    ///         judged (`dv`, `sellerSignature`) and must land before deliverBy; otherwise they are ignored.
+    ///         judged (`dv`, `sellerSignature`), which must land before deliverBy. Outside `Held` they are ignored.
     function decide(H.Terms calldata t, H.Decision calldata m, H.Delivery calldata dv, bytes calldata sellerSignature)
         external
     {
