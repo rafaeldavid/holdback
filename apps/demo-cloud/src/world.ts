@@ -21,7 +21,8 @@ import { canonicalKeccak, holdbackDomain, parseAdjudicator, problem, type Adjudi
 import { sha256 } from '@holdback/core/crypto';
 import { StoreError, type CiphertextStore } from '@holdback/core/store';
 import { testAdjudicator, type TestAdjudicator } from '@holdback/adjudicator';
-import { fetchHandler, Operator, simRegistry, testAccount, type DemoFacts, type FaucetOutcome, type NoticeSubject, type Registry, type TestAccount } from '@holdback/operator';
+import { fetchHandler, Operator, simRegistry, testAccount, type DemoFacts, type FaucetOutcome, type FeedbackOptions, type FeedbackStore, type NoticeSubject, type Registry, type TestAccount } from '@holdback/operator';
+import { decodePublicKey } from '@holdback/core/crypto';
 import { mandateFor, SIM_CHAIN_ID, SIM_RULEBOOK, simClub, SimChain, TOKEN, wideScope, type Genesis, type JournalEntry } from '@holdback/settlement/sim';
 import { panelConfig, type JudgeProvider, type PanelConfig } from './judges.js';
 import type { WorldStorage } from './storage.js';
@@ -53,6 +54,11 @@ export interface PublicWorldOptions {
   judgeProvider?: JudgeProvider;
   /** Where telemetry's summary lines and warnings go. Default: the console, which Workers Logs keeps. */
   telemetryLog?: TelemetryOptions['log'];
+  /**
+   * The private report store behind /v1/feedback (T-032; the Worker binds Workers KV). Absent: the nodes take no
+   * reports. Sealed reports need FEEDBACK_ENCRYPTION_PUBLIC_KEY in `env`; its secret stays with the operator.
+   */
+  feedbackStore?: FeedbackStore;
   now?: () => number;
   onError?: (e: Error) => void;
 }
@@ -210,6 +216,7 @@ export class PublicWorld {
     };
     // ADR-0023: one schedule for both nodes (one operator), paid to one world address; from Worker variables.
     const operatorFee = operatorFeeFromEnv(o.env, key('demo-operator-fees').address);
+    const feedback = feedbackFrom(o, (id) => telemetry.lookup(id));
     const adjudicators = {} as Record<Role, TestAdjudicator>;
     const declined = new Map<Hex32, string>();
     const operators: Operator[] = [];
@@ -267,6 +274,7 @@ export class PublicWorld {
           notes: notesFor(club.id, m, faucetAmount, faucetWindowSec, panel, operatorFee),
           demo,
           notices,
+          ...(feedback ? { feedback } : {}),
           // The fields the request log keeps, picked here: the path and traceparent never reach telemetry.
           log: (e) =>
             telemetry.request({ requestId: e.requestId, at: Math.floor(now() / 1000), node: i === 1 ? 1 : 0, method: e.method, route: e.route, status: e.status, ...(e.problem ? { problem: e.problem } : {}), ms: e.ms }),
@@ -443,6 +451,17 @@ function grantFrom(w: {
       },
     };
   };
+}
+
+/**
+ * T-032: the nodes' report desk, when the Worker binds a store. Each report gets this world's log line for its
+ * requestId. FEEDBACK_ENCRYPTION_PUBLIC_KEY (x25519, base64url) turns on sealed reports; a malformed one refuses to start.
+ */
+function feedbackFrom(o: PublicWorldOptions, requestLog: NonNullable<FeedbackOptions['requestLog']>): FeedbackOptions | undefined {
+  if (!o.feedbackStore) return undefined;
+  const key = o.env['FEEDBACK_ENCRYPTION_PUBLIC_KEY'];
+  if (key) decodePublicKey(key);
+  return { store: o.feedbackStore, requestLog, ...(key ? { encryptionPublicKey: key } : {}) };
 }
 
 const DECIMAL = /^(0|[1-9][0-9]{0,77})$/;

@@ -316,6 +316,13 @@ describe('HTTP contract: every operator response matches spec/openapi.json', () 
     expect((await http('POST', `${api}/v1/faucet`, { ...faucet, amount: '2' }, { 'idempotency-key': 't015-faucet' })).body.type).toBe('idempotency_conflict');
     expect((await http('POST', `${api}/v1/faucet`, { address: e2.address }, { 'idempotency-key': 't015-faucet-default' })).body.granted.token).toBe('tUSD');
 
+    // 5b. A report (T-032): the dry run warns, then the report is filed and read back by its ID.
+    const report = { kind: 'docs', summary: 'the contract test files a report', detail: 'Filed by tests/contract.' };
+    expect((await http('POST', `${api}/v1/feedback?validateOnly=true`, report)).body.notices[0]).toMatch(/your choice to share it with operator/);
+    const filed = await http('POST', `${api}/v1/feedback`, report, { 'idempotency-key': 't015-feedback' });
+    expect([filed.status, filed.body.status]).toEqual([202, 'received']);
+    expect((await http('GET', `${api}/v1/feedback/${filed.body.id}`)).body).toMatchObject({ id: filed.body.id, status: 'received', replies: [] });
+
     // 6. Problems a caller can meet on each kind of route.
     const zero = `0x${'0'.repeat(64)}`;
     const key = (k: string) => ({ 'idempotency-key': `t015-${k}` });
@@ -409,7 +416,7 @@ describe('HTTP contract: every operator response matches spec/openapi.json', () 
     expect(exchanges.filter((x) => /no (such )?route/i.test(x.body?.toString('utf8') ?? '')).map((x) => `${x.method} ${x.url.pathname}`)).toEqual([]);
     expect(OPERATIONS.map((o) => o.operationId).filter((id) => !ok.has(id)).sort()).toEqual(['getClubMember', 'submitAdjudicatorAcceptance', 'submitDecision', 'submitFunding', 'submitHold']);
     const statuses = [...new Set(results.map((x) => x.status))].sort();
-    expect(statuses).toEqual([200, 400, 401, 402, 403, 404, 409, 429]);
+    expect(statuses).toEqual([200, 202, 400, 401, 402, 403, 404, 409, 429]);
     console.log(`contract: ${exchanges.length} exchanges, ${hit.size}/${OPERATIONS.length} operations, ${ok.size} with a 2xx, statuses ${statuses.join(' ')}`);
   }, 120_000);
 

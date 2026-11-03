@@ -57,6 +57,7 @@ Given an operator's address, fetch `/.well-known/holdback.json` (the same docume
 - `apiBaseUrl`, with no `/v1`: every path below, and every `submit.path` a prepare returns, starts with `/v1`, so a request goes to `apiBaseUrl + path`;
 - `settlementTime`, the settlement layer's clock; an agent checks prepared times against it, read from at least two operators;
 - `limits` (Conventions);
+- when the node takes reports, `feedback`: `{path, retentionDays, encryptionPublicKey?, scheme?, notice}` ("Feedback and issue reports");
 - on a demo or test node, `demo`: `clubId`, `token` `{id, decimals}`, `adjudicators` `[{role, address, name}]` by the role a party names them in (a convenience; the parties choose), `faucet` `{path, grant, perAddressEverySec, perClientPerWindow}`, `operators`, `minWindowSec` and `judges`;
 - `notes`, plain-language statements the operator makes about itself (untrusted).
 
@@ -308,8 +309,6 @@ What is not private yet: the work's ciphertext pointer and hashes, amounts, per-
 | POST | `/v1/funding/quote` (planned: 501 today; ADR-0026) | `{to, deliver: {token, amount}, source}`: what the hold needs and what the buyer pays with (another ERC-20, ETH, another chain, or fiat) | Routes from a separate funding service (swap, wrap, bridge or on-ramp), each with `provider`, `pay`, `deliver`, `expiresAt` |
 | POST | `/v1/funding/sessions` (planned: 501 today; ADR-0026) | `{quoteId}` | Session: `state` and `next` (calls for the buyer to sign, or a URL for a fiat payment). The service delivers the deal token to the buyer's address; it never holds escrowed funds or signs for the buyer, and direct funding always works without it |
 | GET | `/v1/funding/sessions/{id}` (planned: 501 today; ADR-0026 §4) | — | Session `state` and `next` |
-| POST | `/v1/feedback` (planned: 501 today; review 2026-11-02 §8, T-032) | Report: `kind`, `summary`, `detail`, `requestId`, optional `commitmentId`, `observed`, `expected`, `client`, and an optional signature or sealed body | `{id, status: "received", fingerprint, duplicateOf?}` |
-| GET | `/v1/feedback/{id}` (planned: 501 today; review 2026-11-02 §8, T-032) | — | The report's status and the operator's replies |
 | GET | `/v1/clubs/{id}` | — | Club with its rulebook and `rulebookHash`, so a party can check the rulebook it signs under |
 | GET | `/v1/clubs/{id}/members/{principal}` | — | Member: admitted or revoked, with the signed admission |
 | GET | `/v1/agents/{address}` | — | Agent: scope, mandate hash, revoked or active |
@@ -361,6 +360,21 @@ Adjudicators submit decisions as signed messages through any operator or directl
 | GET | `/v1/events?from=<seq>` | Server-sent events stream (`event.schema.json`). A `key.released` event's `payload.recipient` says whose key it is: the first one after a delivery is usually the primary adjudicator's, released so it can judge; the buyer's comes with payment |
 | POST | `/v1/webhooks` (planned: 501 today; ADR-0017) | Register a webhook. Payloads carry an operator signature |
 | GET | `/v1/audit/verify?from=&to=` (planned: 501 today; ADR-0017) | Hash-chain verification report |
+
+### Feedback and issue reports
+
+An operator service, not protocol (D39, T-032): each operator runs its own, and nothing on the settlement layer changes.
+
+| Method | Path | Body | Result |
+| --- | --- | --- | --- |
+| POST | `/v1/feedback` | Report: `kind` (`bug`, `docs`, `feedback`, `feature`), `summary`, `detail`, `requestId` (required for a bug), optional `commitmentId`, `observed`, `expected`, `client`, `schemaVersion`; optional `sealed` body and `signer`, `nonce`, `signature`. `?validateOnly=true` dry-runs it | 202 `{id, status: "received", fingerprint, duplicateOf?, logAttached, retentionUntil}`; the dry run answers 200 with the warning in `notices` |
+| GET | `/v1/feedback/{id}` | — | `{id, kind, status, fingerprint, duplicateOf?, receivedAt, replies, fixedIn?}`; the report itself is never served |
+
+- **Sending a report is the reporter's choice to share it with this operator.** The dry run's `notices` and discovery's `feedback.notice` name the operator. It keeps the report 90 days in a private store, with its own log line for `requestId` (route, status, problem type, timing).
+- **What not to send.** Agents are told never to include secret keys, unsubmitted signatures, plaintext work or terms bodies. Deal details go in `sealed`, encrypted like a delivery to the operator's `feedback.encryptionPublicKey` from discovery. A node that publishes no key refuses `sealed`. There is no maintainers' key: an operator forwards a report elsewhere only by its own choice.
+- **Untrusted.** Every reporter field, and every operator reply, is `x-holdback-untrusted`. An operator stores and shows them as data, never places them in a model's instruction position, and runs nothing from them. Filing a public issue from a report is a manual step behind a human.
+- **Signed reports are optional.** The signature is an EIP-712 `Report {reporter: address, bodyHash: bytes32, nonce: bytes32}` under the Holdback domain, where `bodyHash` is keccak256 of the report's RFC 8785 JSON without `signer`, `nonce` and `signature`. A signed report counts against its signer's limit (60 an hour). An unsigned one counts against its client's (10 an hour, by IP, held in memory only). A node also caps reports per UTC day.
+- **Duplicates.** The fingerprint is keccak256 of the kind, the route and problem type of the logged request, the pinned schema version, and the summary with numbers and hex removed. A match sets `duplicateOf`.
 
 ## Example: agree and fund
 
