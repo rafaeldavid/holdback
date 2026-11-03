@@ -22,7 +22,7 @@ Line numbers refer to `baac930`.
 | --- | --- | --- |
 | Checklist and code review | Claude Opus 5.5 (`claude-opus-5-5`) | The checklist in §3, the T-204 mapping, static analysis, the regression tests and the fixes |
 | Adversarial pass | Claude Fable 5.1 (`claude-fable-5-1`), red-teamer role, max effort | Briefed with the project context (`CLAUDE.md`, the control-point table, ADR-0003, -0012, -0016, -0018, -0019, -0022 and -0025, T-202's list of differences from SimChain, `state.ts`), but not with the first pass's findings. Its 24 proof-of-concept tests (17 attacks, 7 defenses) ran against `baac930` in its own worktree. They are not in the repo |
-| Public-audit cross-check | A separate Claude Opus 5.5 session (per its commit trailers), with a Claude Fable 5.1 red team | Compared the contracts, class by class, with published audits: Commerce Payments' six, Permit2, Solady, USDC/ERC-3009, Kleros, UMA, Reality.eth, Sablier, Superfluid, and BLS verifiers. In the contracts it found M-3, L-7, L-8, I-12 and I-13. Outside them it found PA-M2 (medium, the operator-fee bundle front-run in the EVM adapter, mitigation in PR #138 (open)). Its report and tests are in PR #137 |
+| Public-audit cross-check | A separate Claude Opus 5.5 session (per its commit trailers), with a Claude Fable 5.1 red team | Compared the contracts, class by class, with published audits: Commerce Payments' six, Permit2, Solady, USDC/ERC-3009, Kleros, UMA, Reality.eth, Sablier, Superfluid, and BLS verifiers. In the contracts it found M-3, L-7, L-8, I-12 and I-13. Outside them it found PA-M2 (medium, the operator-fee bundle front-run in the EVM adapter, mitigated in PR #138, merged). Its report and tests are in PR #137 |
 | Per-PR review | Claude Opus 5.5, reviewer role, briefed with the project context | Each fix PR and this report, until PASS |
 | Cross-family pass | not run | No non-Anthropic model is reachable from this environment; human gate for Rafa (§7) |
 
@@ -47,7 +47,7 @@ All passes are Anthropic models, so the task's "two model families" criterion is
 - **M-2:** a delivery landed after `deliverBy` could beat the buyer's reclaim (the hold).
 - **M-3:** a sham deal could lock a named fallback's or appeal adjudicator's bond, which that adjudicator never consented to (neutrality).
 
-The public-audit cross-check found no high or medium issue against our use of CPP, Permit2, Solady or USDC, and none in the drand verifier. Its one medium outside the contracts, PA-M2 (the operator-fee bundle front-run), is in the EVM adapter; its mitigation is in PR #138 (open) [measured by the cross-check; PR #137].
+The public-audit cross-check found no high or medium issue against our use of CPP, Permit2, Solady or USDC, and none in the drand verifier. Its one medium outside the contracts, PA-M2 (the operator-fee bundle front-run), is in the EVM adapter; its mitigation merged in PR #138 [measured by the cross-check; PR #137].
 
 **What blocks what.**
 - Rule for this review: low findings block mainnet, not the Sepolia testnet.
@@ -429,7 +429,7 @@ Gaps:
    - Rafa set the cross-check against public escrow audits as a gate, and it has reported (PR #137):
      - no high or medium finding against the contracts' use of their dependencies, or in the beacon;
      - M-3, now fixed;
-     - PA-M2, the operator-fee bundle front-run, which is outside `contracts/src`; its mitigation is in PR #138 (open).
+     - PA-M2, the operator-fee bundle front-run, which is outside `contracts/src`; its mitigation merged in PR #138.
    - What it deploys: the core set, with `DrandQuicknetBeacon` as the beacon (A7) and `EXPIRY_MARGIN` of 1 day (86,400 s). The token is chosen by the Sepolia demo session: its TestUSDC goes in with the core set if PR #138 is on `main` when the deploy runs (T-206 Decisions 7).
    - EIP-2537 is live on Sepolia [measured]: `MAP_FP_TO_G1` returns a G1 point for a field element, and malformed input gets `PrecompileError`.
    - Before the public demo relies on Sepolia: until T-211 lands, the reference adjudicator's overturn-to-accept appeals revert there (H-2).

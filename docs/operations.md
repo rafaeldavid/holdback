@@ -10,6 +10,7 @@ The public demo of Crow (the Holdback protocol). Test tokens only; nothing here 
 | https://api.escrow.stream | Operator node 1, home of the shared simulated settlement layer (a Durable Object), the faucet and the adjudicators | `apps/demo-cloud/` (wraps `apps/operator`, `packages/settlement/sim`, `apps/adjudicator`) | Worker `holdback-op1` (`apps/demo-cloud/wrangler.op1.jsonc`) |
 | https://api2.escrow.stream | Operator node 2, same world, own receipt key | same | Worker `holdback-op2` (`wrangler.op2.jsonc`) |
 | https://join.escrow.stream | Early-access email sign-ups (KV `EMAILS`: address, time, page; nothing else) | `apps/early-access/` | Worker `crow-early-access` |
+| Ethereum Sepolia (chain 11155111) | The reviewed settlement contracts and the tUSDC test token; not yet used by the live demo (T-213) | `contracts/src/` at `2342756`; addresses in `contracts/deployments/sepolia.json` | `contracts/script/deploy-sepolia.sh` (T-206), with a throwaway deployer key |
 | npc.here.now/escrow | Old address; a redirect to escrow.stream | `reports/redirect/` (not in git) | here.now; no further publishing needed |
 
 All on Rafa's Cloudflare account (its ID goes in `CLOUDFLARE_ACCOUNT_ID` in the git-ignored `.env`; template: `config/keys-dev-env.template`). The domain `escrow.stream` was bought on Cloudflare (`brand/domain.md`).
@@ -131,6 +132,32 @@ It never holds the reporter's IP or a header value. An IP lives only in the hour
 3. `pnpm demo-cloud:deploy`.
 
 Without the binding, `/v1/feedback` answers 404 `not_found` and discovery has no `feedback`. Without the key, the nodes take unsealed reports only.
+
+## Sepolia contracts (T-206)
+
+The reviewed settlement contracts are deployed on Ethereum Sepolia (chain ID 11155111), a public testnet whose coins are worthless. Addresses, transaction hashes, blocks, constructor arguments, the commit and the compiler settings are in `contracts/deployments/sepolia.json`. Read them from there, not from this page. The live demo still settles on SimChain until the cutover (T-213, behind the `SETTLEMENT` flag).
+
+- **What was deployed.**
+  - Commerce Payments' `AuthCaptureEscrow` with its ERC-3009 and Permit2 collectors.
+  - `DrandQuicknetBeacon`.
+  - `HoldbackRules`, with an expiry margin of 86,400 s. Its constructor creates `HoldbackBonds`.
+  - Permit2 and Multicall3 are the canonical contracts already on Sepolia, and the script checks their code hashes.
+  - None of these contracts has an owner, pause or upgrade path, so the deployer key has no power over them.
+- **Token.** `TestUSDC` ("Crow Test USDC", tUSDC, 6 decimals, EIP-712 version "1"; D42). It has USDC's ERC-3009 interface and anyone can mint it. It is not Circle's USDC.
+- **How.** `contracts/script/deploy-sepolia.sh <rpc-url> <keystore-file> <password-file>` runs one `forge create --broadcast` per contract, with no `forge script` and no `cast send`. It:
+  - refuses any chain except Sepolia;
+  - refuses a `contracts/src`, `lib`, build config or `script/TestUSDC.sol` that differs from the commit;
+  - checks that each transaction succeeded, came from the deployer, and carried this build's creation code with its encoded constructor arguments;
+  - checks every wiring getter, in the rules contract, the bond vault and both collectors;
+  - checks that the beacon's code hash matches the compiled `DrandQuicknetBeacon`;
+  - checks that the beacon verifies drand round 1000, and refuses a signature outside G1 or another round's signature with `InvalidSignature`;
+  - checks the token's EIP-712 domain;
+  - writes the JSON.
+- **Check it.** `contracts/script/deploy-sepolia.sh --check <rpc-url>` deploys nothing and is read-only. It runs the same checks from the recorded addresses and the checkout's build. It ties each address to the transaction that created it, and the bond vault to the rules contract's first CREATE. Then it fails unless the record it derives equals `contracts/deployments/sepolia.json`. Run it from a checkout whose build inputs equal the recorded commit's. Every check fails closed: an RPC error is a failure, never a pass.
+- **Rehearse first** on a fork: `anvil --fork-url <sepolia-rpc> --fork-block-number <a recent block> --hardfork prague`. Without `--hardfork prague` the fork lacks EIP-2537 and the beacon check fails.
+- **The deployer.** A throwaway key, whose address is in the JSON. It sits in an encrypted Foundry keystore at `~/.foundry/keystores/`, outside the repository, with its password in a 0600 file next to it. It only pays gas. Never print the key or the password, and never put either in `.env*`.
+- **Not verified on Etherscan.** No Etherscan API key is in the environment. The JSON records the commit and compiler settings, so anyone can rebuild and compare the bytecode.
+- **Redeploying.** A contract fix ships as a new deployment that new deals opt into. Deals already open keep the contracts they started with. Deploying again, to Sepolia or anywhere else, is a gate (below).
 
 ## Costs
 

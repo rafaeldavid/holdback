@@ -29,3 +29,8 @@ bf986e1cc27afbfddaee4d970192c0ad019c5edf:spec/examples/event.example.json:generi
 # False positives: public EIP-712 digest pins (ReadToken, KeyRegistration) in the binding suite.
 332d789a1a1de1585194e491536b2985ec73b413:packages/core/src/eip712.binding.test.ts:generic-api-key:238
 332d789a1a1de1585194e491536b2985ec73b413:packages/core/src/eip712.binding.test.ts:generic-api-key:240
+# False positives: a public Sepolia contract address (Commerce Payments' TokenStore implementation, 0xE1E5…78d6),
+# keyed `tokenStoreImplementation`, in the T-206 deployment record and its two copies.
+c33af95c0d04d3ed1aad42ccd9bc578569d917e7:contracts/deployments/sepolia.json:generic-api-key:46
+c33af95c0d04d3ed1aad42ccd9bc578569d917e7:examples/deployments.ts:generic-api-key:77
+c33af95c0d04d3ed1aad42ccd9bc578569d917e7:site/try.mjs:generic-api-key:57
