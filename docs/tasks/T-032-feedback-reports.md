@@ -41,7 +41,12 @@ Let agents report bugs, docs problems and feedback through the API, and let the 
   | snap:local | `pnpm snap --settlement=local` | pass | 46998 ms |
   | demo | `pnpm demo` | pass | 16477 ms |
 
-  The one `test` failure is the 5 s timeout of `packages/testkit/src/judgment.test.ts` "draws the same panel…", as on T-031's run; it is the load-sensitive test in `docs/backlog.md`, in a package this branch does not touch. No snapshot diffs.
+  `test` had two failures; the report's 15-line tail showed only the second, so I missed the first until CI ran.
+  - `apps/operator/src/agent-ready.test.ts` expected at least 19 planned routes, and this branch serves two of them now. That was a real regression of this change; the second commit sets the floor to 17 and checks that no feedback route is still planned. All 169 operator tests pass after it (measured).
+  - The 5 s timeout of `packages/testkit/src/judgment.test.ts`, as on T-031's run: the load-sensitive test in `docs/backlog.md`, in a package this branch does not touch.
+
+  No snapshot diffs.
+- **Measured: the Workers runtime.** `MIN_WINDOW_SEC=5 pnpm demo-cloud:e2e` builds both Workers, runs them in `wrangler dev` (workerd, with the World Durable Object) and plays a checks-only deal. Result: Released, final at 8.4 s, exit 0, and no exception in the output. Telemetry runs on every request there. Feedback stays off, because no KV binding exists locally.
 - **Measured: `apps/operator/src/feedback.test.ts`, 8 tests:**
   - the dry run's notice names `op-fb` and its receipt signer and stores nothing, and discovery serves `feedback` with the key and the same notice;
   - a report gets 202 with the attached log line, a rephrased report of the same problem gets `duplicateOf`, `GET` serves the status and replies but not the report, and an unknown ID is 404;
