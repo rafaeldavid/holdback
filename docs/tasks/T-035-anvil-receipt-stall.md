@@ -5,7 +5,7 @@
 - **Depends on:** —
 - **Paths this task may touch:** `packages/settlement/evm/`, `packages/testkit/src/` (timeouts only), `apps/demo/agents/` (timeouts only), `vitest.config.*` (testTimeout only), `docs/tasks/T-035-anvil-receipt-stall.md`, `docs/backlog.md` (close the flaky-timeout rows)
 - **Human gate:** no
-- **Status:** review (PR 158)
+- **Status:** done (PR 158)
 - **Agent/session:** Claude Code side session of the 2026-11-03 docs-log session, branch `t-035-anvil-receipt-stall`
 
 ## Intent
@@ -17,7 +17,7 @@ The gas-per-deal anvil test normally takes about 10.5 s but stalled to 180 s on 
 - [x] Diagnosis confirmed or refuted with evidence (a reproduction loop, logs, or viem source). (PR 158; confirmed, with one race inferred; Evidence below.)
 - [x] The receipt wait cannot stall (for example: poll `getTransactionReceipt` on an interval, or use anvil's synchronous receipt); the gas test split by path so one slow path is visible; the 420 s bump reverted to a tight bound. (PR 158.)
 - [x] The testkit judgment and demo determinism timeouts under load (backlog rows) fixed or given a justified `testTimeout`; a global `testTimeout` of about 30 s where tests share a default. (PR 113, commit `89ad1b9`; Evidence below.)
-- [ ] 50 consecutive local runs of the gas test without a stall (measured), `pnpm verify` and CI pass.
+- [x] 50 consecutive local runs of the gas test without a stall (measured), `pnpm verify` and CI pass. (PR 158; Evidence below.)
 
 ## Evidence
 
@@ -46,20 +46,25 @@ The fix:
 - **Measured:** `receipt.test.ts` (own anvil world, 2 s deadline) covers three cases: a transaction mined below the head the wait first saw, a wait left running across `evm_revert`, and a transaction anvil never mines. On `main`'s `world.ts` and `evm-settlement.ts`, the second and third hang until vitest's 30 s timeout and the guard flags both files; the first needs `EvmWorld.receipt`, and its scenario on viem's wait timed out at 15 s (repro D). On this branch all 4 pass in 5.0 s.
 - **Measured:** the gas test is 12 tests: one per path pinning its calls and final state, each under the 30 s default, plus one that the table covers every path in `PATHS`. The 420 s limit is gone.
 - **Measured:** 50 consecutive local runs of CI's anvil command (`pnpm vitest run packages/settlement/evm packages/testkit/src/runner.test.ts`) at commit `3d1e118` all passed: 89 of 89 tests each, 8.46 to 10.66 s per run, no stall.
+- **Measured:** the `contracts` job passed 7 times on PR 158, 89 of 89 anvil tests each, with the anvil step at 9.5 to 14.9 s:
+  - jobs 126148464982 (`3d1e118`), 126148907914 (`7152884`) and 126156948750 (`c7ff457`);
+  - job 126162670876 (`c8d0e84`), then three re-runs of it: 126167645147, 126185950279 and 126205099552.
+  - In job 126156948750 no settlement test took over 1 s. Before the fix, a healthy run had two at 4.2 s.
+  - Most of each job's time was the recursive checkout, 5 to 48 min (PR 159).
 
-`pnpm verify` on the branch (measured, `reports/verify-t-035-anvil-receipt-stall.md`; no snapshot diffs against HEAD):
+`pnpm verify` at commit `c8d0e84`, no uncommitted changes (measured, `reports/verify-t-035-anvil-receipt-stall.md`). No snapshot diffs against HEAD; `pnpm test` ran 2,260 passed and 3 skipped:
 
 | Step | Command | Status | Time |
 | --- | --- | --- | --- |
-| typecheck | `pnpm typecheck` | pass | 267 ms |
-| lint | `pnpm lint` | pass | 3709 ms |
-| forge build | `forge build --root contracts` | pass | 1190 ms |
-| forge | `forge test --root contracts` | pass | 16683 ms |
-| test | `pnpm test` | pass | 57078 ms |
-| spec | `pnpm validate:spec` | pass | 539 ms |
-| snap | `pnpm snap` | pass | 8542 ms |
-| snap:local | `pnpm snap --settlement=local` | pass | 13333 ms |
-| demo | `pnpm demo` | pass | 4239 ms |
+| typecheck | `pnpm typecheck` | pass | 223 ms |
+| lint | `pnpm lint` | pass | 3266 ms |
+| forge build | `forge build --root contracts` | pass | 958 ms |
+| forge | `forge test --root contracts` | pass | 14004 ms |
+| test | `pnpm test` | pass | 33020 ms |
+| spec | `pnpm validate:spec` | pass | 509 ms |
+| snap | `pnpm snap` | pass | 7959 ms |
+| snap:local | `pnpm snap --settlement=local` | pass | 12689 ms |
+| demo | `pnpm demo` | pass | 4017 ms |
 
 ## Decisions
 

@@ -74,7 +74,7 @@ Goal: the same scenario fixtures pass against an EVM contract on a local chain. 
 - [x] T-032 Feedback and issue reports, first slice (D39): `POST /v1/feedback`, `GET /v1/feedback/{id}`, a private store and a triage routine. After T-030.
 - [ ] T-033 Schema v0.9 (ADR-0025, D38, D39): CPP funding schemes and token addresses, `allowedTokens` optional, `chainId` a number, `not_implemented`, the fee on receipts, the MIME allowlist moved to adjudicator capability.
 - [ ] T-034 Faster CI and local verify (`docs/reviews/2026-11-02-dev-velocity.md`): cache the contracts build, job-level path filters with `check` and `gitleaks` still reporting, TLC only when the model changes, `pnpm verify --affected`, done derived from merges.
-- [ ] T-035 Fix the anvil gas-per-deal receipt stall at its root; sane test timeouts.
+- [x] T-035 (PR 158) Fix the anvil gas-per-deal receipt stall at its root; sane test timeouts. The anvil world polls receipts with a deadline instead of viem's block-watching wait; the checkout slowdown is PR 159.
 - [ ] T-036 Coordinator commands: `/merge-pr`, `/start-task`, `/deploy-demo`, `/deploy-site`, `/review-pr`, `/record-decision`, `/daily-log`, a session brief and two hooks.
 - [x] T-037 (PR 114) One-approval test deal: the homepage prompt in a vanilla Claude Code asks for one approval, then a deal runs end to end. `examples/try.ts` plays both sides against the live demo with the HTTP-only agent; `site/build.mjs` bundles it to `https://escrow.stream/try.mjs`; one pinned, sha256-checked command heads `llms.txt` "Try it" and shows on the homepage.
 - [x] T-038 Public docs cleanup: README leads with Crow, Apache-2.0 license, statuses and fixture indexes match the repo, no personal details (PR 110).
