@@ -1,7 +1,7 @@
 # T-043: Feedback requests at deal milestones, for agents that opt in
 
 - **Lane:** api
-- **Phase:** 9
+- **Phase:** 10
 - **Depends on:** T-032 (`POST /v1/feedback`, merged in PR 121); T-033 merged, so this change takes the next schema version after v0.9; T-041 (free-text answers go to the quarantine); T-042 (the signal rules this task extends)
 - **Paths this task may touch:** `docs/decisions/ADR-00nn-feedback-requests.md` (new, next free number), `docs/decisions-today.md` (architect, through `/record-decision` from T-036, or by hand if T-036 has not merged), `scripts/ops/signals.mjs` and `tests/agent-ops/signals.test.ts` (the two feedback rules only), `apps/demo-cloud/scripts/feedback.ts` (the answer fields in T-041's `export`), `spec/schemas/` (the `feedbackRequest` object and the version bump), `spec/examples/`, `spec/openapi/paths.json`, `spec/openapi.json` (generated), `apps/operator/src/`, `apps/demo-cloud/` (config only), `docs/api.md`, `site/llms.txt`, `tests/contract/`, `docs/tasks/T-043-milestone-feedback-requests.md`
 - **Human gate:** no for the code. Yes for redeploying the public demo with it (a deploy).

@@ -1,7 +1,7 @@
 # T-049: CI cost and flake control for parallel lanes
 
 - **Lane:** infra
-- **Phase:** 9
+- **Phase:** 10
 - **Depends on:** T-034, T-035 and T-036 merged; T-048 (the tick pauses a lane)
 - **Paths this task may touch:** `docs/testing.md` (the Known flakes section), `scripts/ci/flakes.mjs` (new), `scripts/ci/rerun-guard.mjs` (new), `tests/flakes.test.ts` (new), `.claude/commands/merge-pr.md` (the retry step reads `scripts/ci/flakes.mjs`), `scripts/ops/tick.mjs` and `tests/agent-ops/tick.test.ts` (the lane pause only; after T-048), `agent-ops/gates.md` (CI cost and flake control; after T-046), `docs/tasks/T-049-ci-cost-flakes.md`
 - **Human gate:** no

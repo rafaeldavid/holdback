@@ -1,7 +1,7 @@
 # T-046: Red-team and cross-family reviews at milestones
 
 - **Lane:** infra
-- **Phase:** 9
+- **Phase:** 10
 - **Depends on:** T-045
 - **Paths this task may touch:** `scripts/ops/milestone.mjs` (new), `scripts/ops/review-agreement.mjs` (new), `scripts/ops/canary.mjs` (new), `agent-ops/commands/milestone-review.md` (new, inert until T-050), `agent-ops/commands/red-team-pr.md` (new, inert until T-050), `tests/agent-ops/milestone.test.ts` (new), `agent-ops/gates.md` (the State column; after T-045), `docs/tasks/T-046-milestone-reviews.md`
 - **Human gate:** yes for live runs with DeepSeek or GPT keys: the phase-exit red team and the measured canary recall. Rafa gives one session capped keys and approves the spend, as for T-028 (T-039 step 15). No for building with scripted providers. The external audit before mainnet stays Rafa's (D4).
@@ -27,7 +27,7 @@ Run the reviews in `agent-ops/gates.md` that go beyond one PR's `xreview`, so Cl
 
 ## Context
 
-- `agent-ops/gates.md` ("Cross-family adversarial reviews": the milestone table, the disagreement rules, the four controls on correlated error). `agent-ops/ops.yaml` (`milestones`, `disagreement`, `review_theater`). PR 112, not merged yet.
+- `agent-ops/gates.md` ("Cross-family adversarial reviews": the milestone table, the disagreement rules, the four controls on correlated error). `agent-ops/ops.yaml` (`milestones`, `disagreement`, `review_theater`).
 - T-206 ran its passes with Anthropic models only, because no other provider's key was reachable from a session (PR 128). The live runs here therefore need Rafa's keys.
 
 ## Acceptance criteria

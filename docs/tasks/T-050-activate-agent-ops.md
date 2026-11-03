@@ -1,7 +1,7 @@
 # T-050: Activate agent ops, one step at a time, on Rafa's go-ahead
 
 - **Lane:** infra
-- **Phase:** 9
+- **Phase:** 10
 - **Depends on:** T-039 to T-049 merged
 - **Paths this task may touch:** `agent-ops/STATUS`, `agent-ops/ops.yaml` (`status`, `wip`), `agent-ops/workflows/` and `.github/workflows/` (moving `xreview.yml`, the guardrails and footer steps, the tick's triggers), `.claude/settings.json` (the deny additions), `scripts/dev-env/managed-settings.json` and `scripts/dev-env/home-templates/` (the deny additions and the shell-guard and budget-stop hooks, for the VM), `.claude/commands/` (moved in from `agent-ops/commands/`; `start-task.md` and `review-pr.md` pointed at `brief.mjs`), `.claude/agents/reviewer.md` and `.claude/agents/verifier.md` (tools only), `scripts/ci/guardrails.mjs` (warn to enforce), `tests/agent-ops-inactive.test.ts`, `docs/team.md`, `CLAUDE.md` ("Working as a team of agents"), `docs/decisions/ADR-0010-agent-team-workflow.md` (an amendment), `docs/decisions-today.md` (architect, through `/record-decision`), `docs/testing.md`, `docs/tasks/T-050-activate-agent-ops.md`
 - **Human gate:** **yes, at every step.** Each step changes the pipeline's own rules or reaches outside the repository. Before a step runs, Rafa's go-ahead for it is written in the Handoff section with the date and his words. Approval of one step does not cover the next.
@@ -12,7 +12,7 @@
 
 Switch the pipeline on in stages, each one reversible, so that one lane proves its output is verifiable before three lanes run (`docs/team.md`, principle 1).
 
-- Input: every Phase 9 task merged, and the isolated environment from T-039 passing its smoke test on option B (the agents' own identity).
+- Input: every Phase 10 task merged, and the isolated environment from T-039 passing its smoke test on option B (the agents' own identity).
 - Output: `agent-ops/STATUS` reads `active`, the repository variable `AGENT_OPS` is `on`, and `docs/team.md` points to `agent-ops/` as the process.
 - Rollback, at any step: Rafa sets `AGENT_OPS` to `off`, and the tick fails closed. Then he reverts that step's PR.
 

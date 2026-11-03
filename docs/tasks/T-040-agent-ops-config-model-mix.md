@@ -1,8 +1,8 @@
 # T-040: Agent-ops config loader and the model mix
 
 - **Lane:** infra
-- **Phase:** 9
-- **Depends on:** PR 112 merged (the `agent-ops/` design on main); Rafa starts Phase 9
+- **Phase:** 10
+- **Depends on:** Rafa starts Phase 10. The `agent-ops/` design is on main (PR 112).
 - **Paths this task may touch:** `scripts/ops/config.mjs` (new), `tests/agent-ops/config.test.ts` (new), `tests/agent-ops-inactive.test.ts` (new), `agent-ops/ops.yaml` (`models`, `roles`, and the `feedback_requests` rates), `agent-ops/teams.md`, `agent-ops/pipeline.md` (the rate table only), `package.json` and `pnpm-lock.yaml` (`yaml` as a root dev dependency), `docs/decisions-today.md` (architect, through `/record-decision`: the GPT fallback pin), `docs/tasks/T-040-agent-ops-config-model-mix.md`
 - **Human gate:** no
 - **Status:** todo
@@ -10,7 +10,7 @@
 
 ## Intent
 
-Make `agent-ops/ops.yaml` the one place every later Phase 9 script reads its models, roles, tiers, limits and budgets from, and prove that the pipeline stays inert while `agent-ops/STATUS` reads `inactive`.
+Make `agent-ops/ops.yaml` the one place every later Phase 10 script reads its models, roles, tiers, limits and budgets from, and prove that the pipeline stays inert while `agent-ops/STATUS` reads `inactive`.
 
 - Input: `agent-ops/ops.yaml` and `agent-ops/teams.md` from PR 112.
 - Output: a loader that parses and validates the file, a pinned model for every role, and a test that fails if anything starts running the pipeline before activation.

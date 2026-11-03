@@ -1,7 +1,7 @@
 # T-042: The usage-telemetry lane: signal rules that open records without a model
 
 - **Lane:** infra (reads the api lane's aggregates)
-- **Phase:** 9
+- **Phase:** 10
 - **Depends on:** T-041 (the record writer and the shared intake folder); T-052 (the day-line export in `CROW_TELEMETRY_DIR`); T-055 for the optional `cost-signals.json`. T-031's aggregates merged in PR 118.
 - **Paths this task may touch:** `scripts/ops/signals.mjs` (new), `scripts/ops/send-records.mjs` (new, only if the telemetry directory is on the laptop), `tests/agent-ops/signals.test.ts` (new), `agent-ops/ops.yaml` (`telemetry` thresholds only), `agent-ops/pipeline.md` (Usage telemetry section), `docs/tasks/T-042-telemetry-lane.md`
 - **Human gate:** yes for two things only: turning on Cloudflare Web Analytics for escrow.stream, and any account a social reader needs. No for the rules and the API, onchain and cost sources.
@@ -28,7 +28,7 @@ Let usage, not only opinions, open work: a rule over aggregates writes a `Triage
 
 ## Context
 
-- `agent-ops/pipeline.md` "Usage telemetry": each source's owner, cadence, rule and retention. `agent-ops/ops.yaml` `telemetry`. PR 112, not merged yet.
+- `agent-ops/pipeline.md` "Usage telemetry": each source's owner, cadence, rule and retention. `agent-ops/ops.yaml` `telemetry`.
 - `docs/costs.md` (PR 141): what the agent-ops phase may read, in `CROW_TELEMETRY_DIR`, and what it may never read, the cost directory.
 - D35, D39, D40, ADR-0024 §1: aggregates only, no deal content, no identities. Threat P11.
 - `docs/tasks/T-031-telemetry-mvp.md`: the hour and day line formats.

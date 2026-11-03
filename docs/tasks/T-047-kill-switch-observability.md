@@ -1,7 +1,7 @@
 # T-047: The kill switch and observability
 
 - **Lane:** infra
-- **Phase:** 9
+- **Phase:** 10
 - **Depends on:** T-040; T-045 (the verdicts the footer lists); T-046 (the recall and agreement data the daily figures use); T-036 merged (`/daily-log`)
 - **Paths this task may touch:** `scripts/ops/switch.mjs` (new), `scripts/ops/stop.mjs` (new), `scripts/ops/alarms.mjs` (new), `scripts/ops/footer.mjs` (new), `scripts/ops/figures.mjs` (new), `scripts/ops/budget.mjs` (new), `agent-ops/hooks/` (new, inert until T-050), `agent-ops/schemas/tick-metrics.schema.json` (new), `agent-ops/README.md` (Kill switch and Observability sections), `tests/agent-ops/switch.test.ts` (new), `tests/agent-ops/observability.test.ts` (new), `docs/tasks/T-047-kill-switch-observability.md`
 - **Human gate:** no to build. Running `stop.mjs` for real deletes remote branches and cancels auto-merges, so it is Rafa's action. On Claude Code cloud the proxy refuses branch deletions, so `stop.mjs` runs from option B or from Rafa's laptop.

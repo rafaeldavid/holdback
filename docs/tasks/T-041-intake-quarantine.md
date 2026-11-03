@@ -1,7 +1,7 @@
 # T-041: Intake, the quarantine and triage: tickets, agent feedback and CI signals become tasks
 
 - **Lane:** infra
-- **Phase:** 9
+- **Phase:** 10
 - **Depends on:** T-040. T-032's feedback route merged in PR 121.
 - **Paths this task may touch:** `scripts/ops/intake.mjs` (new), `scripts/ops/quarantine.mjs` (new), `scripts/ops/read-raw.mjs` (new), `agent-ops/prompts/triager.md` (new), `agent-ops/commands/triage.md` (new, inert until T-050), `apps/demo-cloud/scripts/feedback.ts` (a new `export` command only), `docs/decisions-today.md` (architect, through `/record-decision`: the D39 triage question), `agent-ops/schemas/` (only if a test shows a schema bug), `agent-ops/pipeline.md` (Inputs section), `tests/agent-ops/intake.test.ts` (new), `tests/agent-ops/quarantine.test.ts` (new), `docs/tasks/T-041-intake-quarantine.md`
 - **Human gate:** yes for two things only. The first feedback export reads the operator's KV store with the Cloudflare token, so a deploy session runs it on Rafa's go-ahead. Any change to the agent-facing feedback notice is a publication. No for the rest. A live triager run spends from the capped `crow-agents` key (T-039); scripted runs need no key.
@@ -24,7 +24,7 @@ Turn outside text into data the pipeline can act on, without letting that text i
 
 ## Context
 
-- `agent-ops/pipeline.md` (stages 0 and 1, Inputs, Quarantine, Records), `agent-ops/gates.md` (P1, P11). PR 112, not merged yet.
+- `agent-ops/pipeline.md` (stages 0 and 1, Inputs, Quarantine, Records), `agent-ops/gates.md` (P1, P11).
 - `docs/judgment-and-defenses.md` threats T1 to T3; `packages/judgment/src/normalize.ts` (reuse, read-only); the judges' spotlighting with random delimiters and a canary.
 - `fixtures/scenarios/attack.*`: the injection payloads the product already defends against.
 - T-032 and D39:

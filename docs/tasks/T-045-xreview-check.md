@@ -1,7 +1,7 @@
 # T-045: The cross-family review check (`xreview`)
 
 - **Lane:** infra (reuses the judgment lane's provider client, read-only)
-- **Phase:** 9
+- **Phase:** 10
 - **Depends on:** T-040 (pinned second-family models); T-044 (tiers)
 - **Paths this task may touch:** `agent-ops/schemas/review-verdict.schema.json` (hardened), `scripts/ops/xreview.mjs` (new), `agent-ops/prompts/xreview.md` (new), `agent-ops/workflows/xreview.yml` (new, inert), `tests/agent-ops/xreview.test.ts` (new), `agent-ops/gates.md` (the State column and the three preconditions; after T-044), `docs/tasks/T-045-xreview-check.md`
 - **Human gate:** yes for the `--live` runs only. Rafa gives one session a capped DeepSeek key and approves the spend, as for T-028 (T-039 step 15). No for building with the scripted provider. Putting the key in a GitHub Environment and making `xreview` a required check are Rafa's (T-050, step 2).

@@ -1,7 +1,7 @@
 # T-044: Security gates: risk tiers, guardrails, the shell guard and the deny list
 
 - **Lane:** infra
-- **Phase:** 9
+- **Phase:** 10
 - **Depends on:** T-034 merged (`scripts/ci/affected.mjs` and the `changes` job); T-040 (the tier table in `ops.yaml`); T-036 merged (its pre-commit gitleaks hook covers P4's local half)
 - **Paths this task may touch:** `scripts/ci/guardrails.mjs` (new), `scripts/ci/tiers.mjs` (new), `scripts/hooks/bash-guard.sh` (new), `.github/CODEOWNERS` (exists; add the tier 3 paths), `agent-ops/settings.deny.json` (new: the proposed deny additions), `agent-ops/workflows/ci.yml` (new, inert: the proposed `ci.yml` with the trusted checkout, which T-050 moves in), `agent-ops/ops.yaml` (`tiers`, `guardrails`, `deny_additions`; after T-040), `agent-ops/gates.md` (the tier table and the State column), `tests/agent-ops/guardrails.test.ts` (new), `tests/agent-ops/bash-guard.test.ts` (new), `docs/team.md` (Rules and checks rows), `docs/tasks/T-044-security-gates.md`
 - **Human gate:** no. The two settings that enforce tier 3 (a separate identity for the agents and a required code-owner review) are Rafa's, in T-039 and T-050.

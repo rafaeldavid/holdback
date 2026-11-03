@@ -1,8 +1,8 @@
 # T-039: Isolated development environment for the agents
 
 - **Lane:** infra
-- **Phase:** 9
-- **Depends on:** nothing in the repository. Rafa can start part (a) before the rest of Phase 9, because the environment also ends the approval prompts on his laptop. Part (b) lands in two PRs, the one exception to "one task, one PR" in this phase. Steps 1 to 3 hold no secret, so agents build them first, anywhere; Rafa's VM setup runs them. Steps 4 to 7 follow his go-ahead.
+- **Phase:** 10
+- **Depends on:** nothing in the repository. Rafa can start part (a) before the rest of Phase 10, because the environment also ends the approval prompts on his laptop. Part (b) lands in two PRs, the one exception to "one task, one PR" in this phase. Steps 1 to 3 hold no secret, so agents build them first, anywhere; Rafa's VM setup runs them. Steps 4 to 7 follow his go-ahead.
 - **Paths this task may touch:** `scripts/dev-env/setup.sh` (new), `scripts/dev-env/vm-users.sh` (new), `scripts/dev-env/gh-app-token.mjs` (new), `scripts/dev-env/start-session.sh` (new: the launcher; it resets the role's home), `scripts/dev-env/gh-wrapper.sh` (new), `scripts/dev-env/managed-settings.json` and `scripts/dev-env/managed-CLAUDE.md` (new: the sources `vm-users.sh` installs under `/etc/claude-code/`), `scripts/dev-env/home-templates/` (new: one folder per role), `scripts/dev-env/smoke.mjs` (new), `tests/dev-env.test.ts` (new), `docs/dev-env.md` (new), `config/keys-dev-env.template`, `config/keys.template` (a pointer only), `.claude/settings.json` (the allow list only), `docs/operations.md` (Secrets; Working without permission prompts), `docs/tasks/T-039-isolated-dev-environment.md`
 - **Human gate:** **yes.** Part (a) creates accounts, tokens, spending caps and repository settings, all outside the repository. Agents never create a credential or read its value.
 - **Status:** todo
@@ -25,7 +25,7 @@ The same environment ends the approval prompts that stopped work on 2026-10-31, 
 
 ## Context
 
-- `agent-ops/pipeline.md` (Concurrency), and threats P4, P6 and P9 in `agent-ops/gates.md` (PR 112, not merged yet).
+- `agent-ops/pipeline.md` (Concurrency), and threats P4, P6 and P9 in `agent-ops/gates.md` (PR 112).
 - `docs/operations.md`: Secrets, Deploy, Gates, and Working without permission prompts.
 - `CLAUDE.md` hard rules: secrets come from environment variables only, never read or print `.env*`, no real money. The Stripe startup guard accepts only `sk_test_` keys.
 - Already in place (2026-11-03):

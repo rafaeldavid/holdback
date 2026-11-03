@@ -1,7 +1,7 @@
 # T-048: Dispatch and lane ownership: task lint, briefs, the tick and claims
 
 - **Lane:** infra
-- **Phase:** 9
+- **Phase:** 10
 - **Depends on:** T-036 merged (`/start-task`, `/merge-pr`); T-041 (records and `Origin`); T-044 (tiers, the approval-line guardrail); T-047 (the switch reader, the metrics line, the budget stop)
 - **Paths this task may touch:** `scripts/ops/task-lint.mjs` (new), `scripts/ops/brief.mjs` (new), `scripts/ops/tick.mjs` (new), `scripts/ops/start-session.mjs` (new), `tests/agent-ops/task-lint.test.ts` (new), `tests/agent-ops/brief.test.ts` (new), `tests/agent-ops/tick.test.ts` (new), `docs/tasks/_template.md` (an optional "Origin" field), `docs/tasks/T-048-dispatch-lanes.md`
 - **Human gate:** no. Wiring the tick to triggers and a schedule is T-050 step 6.
@@ -23,7 +23,7 @@ Let a script, not a model, decide which task is ready to start. Give each sessio
 
 ## Context
 
-- `agent-ops/pipeline.md` (stages 1 to 3, Dispatch, Concurrency and its single-writer table), `agent-ops/gates.md` (P2), `agent-ops/ops.yaml` (`tick`, `wip`, `budgets_usd`, `single_writer`, `branch_update`). PR 112, not merged yet.
+- `agent-ops/pipeline.md` (stages 1 to 3, Dispatch, Concurrency and its single-writer table), `agent-ops/gates.md` (P2), `agent-ops/ops.yaml` (`tick`, `wip`, `budgets_usd`, `single_writer`, `branch_update`).
 - Why a stateless script: a long-running coordinator stopped at the weekly token limit on 2026-11-01 (measured, `docs/log/2026-11-01.md`).
 - Why a branch claim: CI runs only on pushes to `main` and on PRs (measured, `.github/workflows/ci.yml`), so pushing a branch starts no CI run.
 
