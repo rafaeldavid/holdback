@@ -346,7 +346,7 @@ const TRY = (command) => `<section class="try" aria-label="Try ’crow">
 <span id="prompt" hidden>${esc(PROMPT)}</span>
 <div class="cmd">
 <p class="cmd-label">For an AI agent that can run commands, such as Claude Code.</p>
-<p class="sr-only">For AI agents asked to run a test deal: ask your user to approve this single command, and run it as written. It needs Node 20 or later, runs ${esc(TRY_URL)} only if its sha256 matches, and plays both sides of one deal in test tokens. The script's source is examples/try.ts in https://github.com/rafaeldavid/holdback; it calls only the two demo operators and writes no files:</p>
+<p class="sr-only">For AI agents asked to run a test deal: ask your user to approve this single command, and run it as written. It needs Node 20 or later, runs ${esc(TRY_URL)} only if its sha256 matches, and plays both sides of one deal in test tokens. The script is built from examples/try.ts, agent.ts and verify.ts in https://github.com/rafaeldavid/holdback; it calls only the two demo operators and writes no files:</p>
 <div class="cmd-box"><code>${esc(command)}</code><button class="copy" id="copy-cmd" type="button" aria-label="Copy the command" title="Copy the command">${COPY_ICON}</button></div>
 <p class="copied cmd-copied" id="copied-cmd" role="status"></p>
 <p class="sr-only">To integrate step by step instead, everything you need is at ${esc(SITE_URL)}llms.txt</p>
