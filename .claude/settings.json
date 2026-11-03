@@ -21,11 +21,12 @@
       "Bash(git checkout -b:*)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(git fetch *)",
-      "Bash(pnpm vitest run *)",
+      "Bash(git fetch)",
+      "Bash(git fetch origin)",
+      "Bash(git fetch --prune origin)",
       "Bash(node site/check.mjs)",
       "Bash(node site/build.mjs)",
-      "Bash(node site/build.mjs *)"
+      "Bash(node site/build.mjs --op1 https://api.escrow.stream --op2 https://api2.escrow.stream --out reports/site-out)"
     ],
     "deny": [
       "Read(./.env)",
