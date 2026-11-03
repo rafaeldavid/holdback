@@ -263,7 +263,7 @@ Each item gives a label and a disposition.
   - Disposition: out of scope by Rafa's ruling. The parties choose the token in their terms, and issuer freezes are parked for a roadmap module on assets.
 - **I-8. Phase 4 gaps** [inferred].
   - The contract has no overturn payout, no default compensation, no appeal-fee collection and no minimum appeal bond (T-202 difference 9).
-  - Disposition: Phase 4, and the clause in §1 is recorded as unmet.
+  - Disposition: Phase 4, and the clause in §1 is recorded as unmet; it blocks mainnet (§1, §8).
 - **I-9. Mutual payouts are not screened** [measured, adversarial pass, local].
   - A co-signed payout to the rules contract or to CPP's TokenStore strands those tokens. A payout to `address(0)` reverts the whole settlement, so nothing is lost.
   - Disposition: accepted. Both parties signed it (D31).
@@ -493,10 +493,11 @@ Gaps:
   - the hold questions on expiry and reclaim (L-6, M-1) and on the key (H-2);
   - the judgment questions on the delivery (L-1), on a message field the seed hashes (H-1), on the appeal slot and the payout (L-7, I-8), and on bond consent (M-3).
 
-  The primer also stated three properties the code deliberately lacks in Phase 2: an overturn payout from the bond, bonded appeal adjudicators, and the key only with payment, even in a mutual settlement. Those produced the I-8 high, the L-5 row and the mutual-key medium. So DeepSeek's agreement on those items was prompted, not independent. What it adds independently:
+  The primer also stated three properties the code deliberately lacks in Phase 2: an overturn payout from the bond, bonded appeal adjudicators, and the key only with payment, even in a mutual settlement. Those produced the I-8 high, the L-5 row and the mutual-key medium. So DeepSeek's agreement on those items was prompted, not independent. What it adds:
   - the verifier checklist;
-  - the decision-to-delivery binding;
+  - the decision-to-delivery binding, new to this review, though the delivery question invited it;
   - the absence of other findings in the code it read.
+- The PR 155 reviewer's forge probes are scratch tests, not in the repository (`reports/scratch/review-155/` in the T-206 worktree).
 - DeepSeek read the code; it did not run it.
 - The triage above is a reading of the code and the docs, except where marked measured.
 - `deepseek-v4-pro` is a provider alias with no dated snapshot (`config/judges-live.yaml`).
