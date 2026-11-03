@@ -163,6 +163,22 @@ describe('headers and problems', () => {
     expect(JSON.stringify(await r.json())).not.toContain('0af7651916cd43dd8448eb211c80319c');
   });
 
+  it('logs the route template and problem type, never an address or ID from the path', async () => {
+    const address = `0x${'ab'.repeat(20)}`;
+    for (const path of [`/v1/agents/${address}`, `/v1/commitments/${hex32('99')}/terms`, `/wp-admin/${address}`]) await (await get(path)).text();
+    await (await post('/v1/webhooks', {})).text();
+    const hold = requestOf(await holdOf(w.deal));
+    await (await post(hold.path, hold.body, { 'idempotency-key': 'k-route' })).text();
+    expect(logs.map((l) => [l.method, l.route, l.status, l.problem])).toEqual([
+      ['GET', '/v1/agents/{address}', 404, 'not_found'],
+      ['GET', '/v1/commitments/{commitmentId}/terms', 404, 'not_found'],
+      ['GET', 'unmatched', 404, 'not_found'],
+      ['POST', '/v1/webhooks', 501, 'not_implemented'],
+      ['POST', '/v1/holds', 200, undefined],
+    ]);
+    expect(JSON.stringify(logs.map((l) => l.route))).not.toMatch(/0x/);
+  });
+
   it('answers 429 rate_limited with Retry-After when a signer exceeds its write budget', async () => {
     const limited = await w.operator('op-limited', { rateLimit: { writes: 1, reads: 100, windowMs: 60_000 } });
     const t1 = await fetch(`${limited.url}/v1/commitments/${w.deal.id}/triggers/reclaim`, { method: 'POST', headers: { 'idempotency-key': 'a' }, body: '{}' });
