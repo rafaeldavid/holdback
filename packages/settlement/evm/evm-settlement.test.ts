@@ -130,23 +130,6 @@ describe.skipIf(!ready)(`EvmSettlement on anvil${ready ? '' : ' (SKIPPED: needs 
     expect(chain.log().map((e) => e.type).slice(-2)).toEqual(['fee.operator', 'hold.funded']);
   }, 60_000);
 
-  it('operator fee relayed alone ahead of the bundle on LocalUSDC: the hold funds, paid by an earlier transaction', async () => {
-    const { chain, cast, club } = await newSettlement(world);
-    const d = new EvmDeal(chain, cast, club, 'fee-front-run');
-    await must(chain, cast, d.offer());
-    await must(chain, cast, d.accept());
-    const s = await d.agreeAndFund({ operatorFee: { to: cast.operator.address, value: 1_000_000n } });
-    if (s.kind !== 'agree_and_fund' || !s.operatorFee) throw new Error('unreachable');
-    await frontRun(world, cast.stranger.key, s.operatorFee, s.operatorFee.to, s.operatorFee.signature, chain.now());
-    expect(await chain.tokenBalance(cast.operator.address)).toBe(1_000_000n);
-    // LocalUSDC logs AuthorizationUsed then Transfer, as USDC does, so the earlier payment is proved.
-    const r = await chain.submit(s, { via: 'op-1', sender: cast.operator.key });
-    expect(r.ok ? r.state.escrowState : r.problem.type).toBe('Held');
-    expect(chain.log().find((e) => e.type === 'fee.operator')?.payload).toMatchObject({ source: 'adapter', paid: 'by an earlier transaction' });
-    expect(await chain.tokenBalance(cast.operator.address)).toBe(1_000_000n);
-    expect(await chain.tokenBalance(cast.buyer.address)).toBe(100_000_000_000n - 2_050_000_000n - 1_000_000n);
-  }, 60_000);
-
   it('the buyer cancels the fee authorization before the relay: payment_required, not a free relay', async () => {
     const { chain, cast, club } = await newSettlement(world);
     const d = new EvmDeal(chain, cast, club, 'fee-cancelled');
@@ -264,6 +247,7 @@ describe.skipIf(!ready)(`EvmSettlement on anvil with tUSDC${ready ? '' : ' (SKIP
     const r = await chain.submit(s, { via: 'op-1', sender: cast.operator.key });
     expect(r.ok ? r.state.escrowState : r.problem.type).toBe('Held');
     expect(await chain.tokenBalance(cast.operator.address)).toBe(1_000_000n);
+    expect(await chain.tokenBalance(cast.buyer.address)).toBe(100_000_000_000n - 2_050_000_000n - 1_000_000n);
     expect(chain.log().find((e) => e.type === 'fee.operator')?.payload).toMatchObject({ source: 'adapter', paid: 'by an earlier transaction' });
   }, 60_000);
 

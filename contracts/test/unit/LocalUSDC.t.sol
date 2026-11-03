@@ -13,6 +13,7 @@ contract LocalUSDCTest is Test {
 
     LocalUSDC internal token;
     uint256 internal constant KEY = 0xA11CE;
+    uint256 internal constant STRANGER_KEY = 0x5742A;
     address internal alice;
     address internal constant BOB = address(0xB0B);
 
@@ -107,9 +108,9 @@ contract LocalUSDCTest is Test {
         bytes32 nonce = keccak256("fee");
         bytes memory transferSig = _sign(token.TRANSFER_WITH_AUTHORIZATION_TYPEHASH(), BOB, 1e6, nonce);
         bytes memory cancel = _cancel(KEY, nonce);
-        bytes memory byBob = _cancel(0xB0B, nonce);
+        bytes memory byStranger = _cancel(STRANGER_KEY, nonce);
         vm.expectRevert(bytes("LocalUSDC: invalid signature"));
-        token.cancelAuthorization(alice, nonce, byBob);
+        token.cancelAuthorization(alice, nonce, byStranger);
         vm.expectEmit(address(token));
         emit AuthorizationCanceled(alice, nonce);
         vm.prank(address(0xDEAD)); // anyone may relay the authorizer's cancel
@@ -124,9 +125,17 @@ contract LocalUSDCTest is Test {
         assertEq(token.balanceOf(BOB), 0);
     }
 
-    function test_refuses_wrongSigner_expired_notYetValid() public {
+    function test_refuses_wrongSigner_alteredValue_expired_notYetValid() public {
         bytes32 nonce = keccak256("n");
         bytes memory sig = _sign(token.TRANSFER_WITH_AUTHORIZATION_TYPEHASH(), BOB, 1e6, nonce);
+        bytes memory byStranger = _signed(
+            STRANGER_KEY,
+            keccak256(
+                abi.encode(token.TRANSFER_WITH_AUTHORIZATION_TYPEHASH(), alice, BOB, 1e6, 0, block.timestamp + 60, nonce)
+            )
+        );
+        vm.expectRevert(bytes("LocalUSDC: invalid signature"));
+        token.transferWithAuthorization(alice, BOB, 1e6, 0, block.timestamp + 60, nonce, byStranger);
         vm.expectRevert(bytes("LocalUSDC: invalid signature"));
         token.transferWithAuthorization(alice, BOB, 2e6, 0, block.timestamp + 60, nonce, sig);
         vm.expectRevert(bytes("LocalUSDC: authorization is expired"));

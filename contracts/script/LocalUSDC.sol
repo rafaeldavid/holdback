@@ -9,8 +9,8 @@ import {SignatureCheckerLib} from "solady/utils/SignatureCheckerLib.sol";
 /// @notice Anvil only (T-205): USDC's ERC-3009 as Circle's FiatToken v2.2 has it (stablecoin-evm, v2/EIP3009.sol).
 ///         receiveWithAuthorization, transferWithAuthorization and cancelAuthorization share one nonce space, which
 ///         `authorizationState` reads, and each use or cancel is logged, so the operator fee's front-run defence
-///         (ADR-0023) can be tested against a cancel. The EIP-712 domain is CPP's MockERC3009Token's, which this
-///         replaces: "USD Coin", version "1". Anyone may mint; it guards no value and is never deployed off anvil.
+///         (ADR-0023) can be tested against a cancel. The EIP-712 domain is "USD Coin", version "1". Anyone may mint;
+///         it guards no value and is never deployed off anvil.
 contract LocalUSDC is ERC20, IERC3009 {
     /// keccak256("TransferWithAuthorization(address from,address to,uint256 value,uint256 validAfter,uint256 validBefore,bytes32 nonce)")
     bytes32 public constant TRANSFER_WITH_AUTHORIZATION_TYPEHASH =
@@ -52,7 +52,7 @@ contract LocalUSDC is ERC20, IERC3009 {
         return super.DOMAIN_SEPARATOR();
     }
 
-    /// @dev Precomputed, as the mock had it, so a signature check does not hash the name each time.
+    /// @dev Precomputed, so a signature check does not hash the name each time.
     function _constantNameHash() internal pure override returns (bytes32) {
         return keccak256("USD Coin");
     }

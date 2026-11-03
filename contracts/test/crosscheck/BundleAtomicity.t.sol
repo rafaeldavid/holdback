@@ -96,36 +96,19 @@ contract BundleAtomicityTest is Base {
     }
 
     /// PA-M2's proposed detection reads `authorizationState(buyer, feeNonce)`. LocalUSDC keeps FiatToken v2.2's one
-    /// nonce space, so a relayed fee reads as spent. But the buyer's `cancelAuthorization` sets the same flag with no
-    /// payment, so the node must confirm the transfer itself: the adapter reads the AuthorizationUsed log and the
-    /// Transfer after it (`feePaidEarlier` in packages/settlement/evm/evm-settlement.ts).
-    function test_attack_feeNonceSpent_authorizationStateSaysSpent_butSoDoesACancel() public {
-        LocalUSDC token = LocalUSDC(address(usdc));
+    /// nonce space, so a relayed fee reads as spent. A cancel sets the same flag with no payment (LocalUSDC.t.sol), so
+    /// the node must confirm the transfer itself: the adapter reads the AuthorizationUsed log and the Transfer after it
+    /// (`feePaidEarlier` in packages/settlement/evm/evm-settlement.ts).
+    function test_attack_feeNonceSpent_authorizationStateSaysSpent() public {
         H.Terms memory t = _terms();
         bytes32 id = hx.id(t);
         (bytes memory feeCall,,) = _legs(t, id);
         bytes32 nonce = keccak256(abi.encode(id, "operator_fee"));
-        assertFalse(token.authorizationState(buyer, nonce));
+        assertFalse(usdc.authorizationState(buyer, nonce));
         vm.prank(makeAddr("griefer"));
         (bool ok,) = address(usdc).call(feeCall);
         assertTrue(ok);
-        assertTrue(token.authorizationState(buyer, nonce), "the relayed fee spends the nonce authorizationState reads");
+        assertTrue(usdc.authorizationState(buyer, nonce), "the relayed fee spends the nonce authorizationState reads");
         assertEq(usdc.balanceOf(operatorFeeTo), OPERATOR_FEE);
-
-        // Another deal's fee nonce, cancelled by the buyer: the same flag, and nothing paid.
-        bytes32 cancelled = keccak256(abi.encode(keccak256("another deal"), "operator_fee"));
-        bytes32 digest = keccak256(
-            abi.encodePacked(
-                "\x19\x01",
-                usdc.DOMAIN_SEPARATOR(),
-                keccak256(abi.encode(token.CANCEL_AUTHORIZATION_TYPEHASH(), buyer, cancelled))
-            )
-        );
-        bytes memory cancel = _signRaw(BUYER_PK, digest);
-        uint256 balance = usdc.balanceOf(buyer);
-        vm.prank(buyer);
-        token.cancelAuthorization(buyer, cancelled, cancel);
-        assertTrue(token.authorizationState(buyer, cancelled), "a cancel sets the same flag");
-        assertEq(usdc.balanceOf(buyer), balance, "and pays nothing");
     }
 }
