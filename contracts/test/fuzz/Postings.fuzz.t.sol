@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
+import {HoldbackRules} from "../../src/HoldbackRules.sol";
 import {HoldbackTypes as H, Money} from "../../src/HoldbackTypes.sol";
 import {Base} from "../unit/Base.sol";
 
@@ -143,7 +144,7 @@ contract PostingsFuzzTest is Base {
         m.buyerSignature = _sign(BUYER_PK, h);
         m.sellerSignature = _sign(SELLER_PK, h);
         H.KeyProof memory none;
-        vm.expectRevert();
+        vm.expectRevert(HoldbackRules.InvalidMessage.selector);
         rules.mutualSettle(t, m, _noDelivery(), none);
         assertEq(_held(t), t.price + t.fee);
     }

@@ -52,7 +52,7 @@ The cleaned CSV hides an instruction in Unicode tag characters (U+E0000 block), 
 ## Receipts and log
 
 - Events 0–7. Chain head 0x2e39…32bb. Replay of 6 SimChain submissions from genesis matches the settlement state.
-- Receipts from op-1: 5 (rcpt-0001–rcpt-0005). Stub receipts are unsigned until T-007.
+- Receipts from op-1: 5 (rcpt-0001–rcpt-0005). The runner labels them without signing; the operator API signs real receipts.
 
 ## Invariants
 

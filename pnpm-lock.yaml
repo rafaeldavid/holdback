@@ -178,6 +178,9 @@ importers:
       eslint:
         specifier: ^10.13.0
         version: 10.13.0
+      rolldown:
+        specifier: 1.2.15
+        version: 1.2.15
       typescript:
         specifier: ~6.0.3
         version: 6.0.3
@@ -291,6 +294,9 @@ importers:
         specifier: ^2.57.13
         version: 2.57.13(typescript@6.0.3)
     devDependencies:
+      '@holdback/demo-cloud':
+        specifier: workspace:*
+        version: link:../apps/demo-cloud
       '@holdback/operator':
         specifier: workspace:*
         version: link:../apps/operator

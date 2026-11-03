@@ -15,7 +15,7 @@ import {Base} from "../unit/Base.sol";
 ///         - Fuzzed: any selector outside a contract's ABI reverts, with any calldata and any caller.
 ///         - No runtime bytecode has SELFDESTRUCT; only the TokenStore clone has DELEGATECALL, and it is the fixed
 ///           EIP-1167 minimal proxy to an implementation with no admin path (not an upgradeable proxy).
-///         `test/unit/NoAdmin.t.sol` (T-202) keeps the name-level allowlist for the two Holdback contracts.
+///         That the rules contract never holds funds is `invariant_noAdminPath` in RulesInvariants.t.sol.
 contract NoAdminFuzzTest is Base {
     string internal constant PI =
         "(address,address,address,address,uint120,uint48,uint48,uint48,uint16,uint16,address,uint256)";

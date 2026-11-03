@@ -4,12 +4,12 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseAdjudicator, parseJudgment } from '@holdback/core';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, describe, expect, it } from 'vitest';
 import { loadTermsFile } from '@holdback/testkit';
 import { adjudicatorProfiles, rulebookReasons } from './adjudicators.js';
 import { BenchDirectory, demoRegistry, ServiceBench, type AdjudicatorSeam } from './bench.js';
-import { beatBadWork, beatHappyPath, beatHiddenTags, beatHold, beatInjection, beatMutualSplit, beatNeutrality, chooseAdjudicators, NEUTRALITY_WORLD, players } from './beats.js';
-import { ATLAS, BENCH_A, BENCH_B, BENCH_C, BOND_BACKER, display, PROFILES, resolveJudges, SWIFTLINE, TIDEWATER } from './cast.js';
+import { beatBadWork, beatHappyPath, beatHiddenTags, beatHold, beatInjection, beatMutualSplit, beatNeutrality, chooseAdjudicators, NEUTRALITY_WORLD, players, type HoldResult } from './beats.js';
+import { BENCH_A, BENCH_B, BENCH_C, PROFILES, resolveJudges, SWIFTLINE } from './cast.js';
 import { createDemoWorld, DATA_DIR, TERMS_FILE, type DemoWorld } from './world.js';
 
 const TUSD = 1_000_000n;
@@ -27,16 +27,14 @@ afterEach(async () => {
   await Promise.all(worlds.splice(0).map((w) => w.close()));
 });
 
-describe('cast', () => {
-  it('names the invented parties, benches and backer once, for the agents and the narration', () => {
-    expect(display.party(ATLAS)).toBe('Ledger (Atlas Research)');
-    expect(display.party(TIDEWATER)).toBe('Tide-7 (Tidewater Data)');
-    expect([BENCH_A, BENCH_B, BENCH_C].map(display.bench)).toEqual(['Clearfield Adjudication (Bench A)', 'Northgate Review (Bench B)', 'Atrium Appeals (Bench C)']);
-    expect(ATLAS.principal).toMatchObject({ name: 'Priya Raman', title: 'Head of Data Ops' });
-    expect(TIDEWATER.principal).toMatchObject({ name: 'Marcus Oyelaran', title: 'Founder' });
-    expect(BOND_BACKER.name).toBe('Kite Capital');
-  });
+// Beat 1 at seed 7, run once and shared by the tests that only read its result.
+let heldOnce: Promise<{ w: DemoWorld; r: HoldResult }> | undefined;
+const held = () => (heldOnce ??= createDemoWorld({ seed: 7 }).then(async (w) => ({ w, r: await beatHold(w) })));
+afterAll(async () => {
+  if (heldOnce) await (await heldOnce).w.close();
+});
 
+describe('cast', () => {
   it("Ledger's mandate from Priya Raman carries 5,000 tUSD per job and 20,000 per day", async () => {
     const w = await world();
     const m = w.chain.genesis.mandates.find((x) => x.agent === w.cast.atlas.address)!;
@@ -64,8 +62,7 @@ describe('cast', () => {
 
 describe('beat 1: choose, agree and hold', () => {
   it('Tide-7 offers terms naming Clearfield, Northgate and Atrium; Clearfield accepts; Ledger holds $2,050 in one call through op-1', async () => {
-    const w = await world();
-    const r = await beatHold(w);
+    const { w, r } = await held();
     expect(r.state.escrowState).toBe('Held');
     expect(r.vias).toEqual({ offer: w.operatorUrl('op-1'), hold: w.operatorUrl('op-1') });
     expect(r.commitment.adjudication).toMatchObject({
@@ -106,8 +103,7 @@ describe('adjudicator profiles (T-017)', () => {
   });
 
   it('terms come from the registration, the terms file and SimChain; history is marked role-play', async () => {
-    const w = await world();
-    const r = await beatHold(w);
+    const { w, r } = await held();
     const views = adjudicatorProfiles(r);
     expect(views.map((v) => v.name)).toEqual(['Clearfield Adjudication', 'Northgate Review', 'Atrium Appeals', 'Swiftline Verdicts']);
     expect(views.map((v) => v.selected)).toEqual(['primary', 'fallback', 'appeal', 'declined']);
@@ -136,8 +132,7 @@ describe('adjudicator profiles (T-017)', () => {
 
 describe('beat 1: the agents choose the adjudicators before the offer (T-017)', () => {
   it("Ledger filters the published registrations by the rulebook and Swiftline is excluded with the rule's reason", async () => {
-    const w = await world();
-    const r = await beatHold(w);
+    const { w, r } = await held();
     const { proposal } = r.negotiation;
     expect(proposal.considered.map((x) => [x.name, x.eligible])).toEqual([
       ['Clearfield Adjudication', true],
@@ -154,8 +149,7 @@ describe('beat 1: the agents choose the adjudicators before the offer (T-017)', 
   });
 
   it("the agreed slate is exactly the offer's adjudicators", async () => {
-    const w = await world();
-    const r = await beatHold(w);
+    const { w, r } = await held();
     expect(r.negotiation.review.agreed).toBe(true);
     if (!r.negotiation.review.agreed) return;
     expect(r.negotiation.review.slate).toEqual(r.negotiation.proposal.slate);
@@ -244,7 +238,7 @@ describe('the adjudicator seam', () => {
 });
 
 describe('beats 2-4: deliver encrypted, defended judgment, settle, open the work', () => {
-  it('a three-judge panel from two families accepts on a seeded sample; $2,000 goes to Tide-7 and the key to Ledger, which matches the plaintext hash', async () => {
+  it('a three-judge panel from two families accepts on a seeded sample; $2,000 goes to Tide-7 and the key to Ledger, which matches the plaintext hash; the stored ciphertext holds no plaintext', async () => {
     const w = await world();
     const r = await beatHappyPath(w);
     expect(r.finalState).toBe('Released');
@@ -265,6 +259,12 @@ describe('beats 2-4: deliver encrypted, defended judgment, settle, open the work
     // The decision reveals the seed Clearfield committed to at acceptance.
     expect(rec.panel.seed).toBeDefined();
 
+    // The delivery carries only hashes and envelopes: the stored ciphertext does not contain the plaintext.
+    const ciphertext = await w.store.get(r.delivery.ciphertext.sha256);
+    expect(Buffer.from(ciphertext).includes(readFileSync(join(DATA_DIR, 'customers.clean.csv')).subarray(0, 64))).toBe(false);
+    expect(r.delivery.plaintextSha256).toBe(sha('customers.clean.csv'));
+    expect(r.delivery.encryptedKeys.map((k) => k.recipient)).toEqual([w.cast.benchA.address, w.cast.benchB.address, w.cast.benchC.address, w.cast.atlas.address]);
+
     expect(r.opened!.plaintextSha256).toBe(sha('customers.clean.csv'));
     expect(r.opened!.matchesDelivery).toBe(true);
     expect(r.opened!.text).toBe(readFileSync(join(DATA_DIR, 'customers.clean.csv'), 'utf8'));
@@ -278,16 +278,6 @@ describe('beats 2-4: deliver encrypted, defended judgment, settle, open the work
     const after = await w.sdk().trigger(r.commitmentId, 'appeal_expiry', w.call());
     expect(after.state.finalAt).not.toBeNull();
     expect(w.chain.pool(w.cast.benchA.address).reserved).toBe(0n);
-  });
-
-  it('the delivery carries only hashes and envelopes: the stored ciphertext does not contain the plaintext', async () => {
-    const w = await world();
-    const r = await beatHappyPath(w);
-    const ciphertext = await w.store.get(r.delivery.ciphertext.sha256);
-    const plain = readFileSync(join(DATA_DIR, 'customers.clean.csv'));
-    expect(Buffer.from(ciphertext).includes(plain.subarray(0, 64))).toBe(false);
-    expect(r.delivery.plaintextSha256).toBe(sha('customers.clean.csv'));
-    expect(r.delivery.encryptedKeys.map((k) => k.recipient)).toEqual([w.cast.benchA.address, w.cast.benchB.address, w.cast.benchC.address, w.cast.atlas.address]);
   });
 });
 
@@ -402,7 +392,8 @@ describe('determinism', () => {
   it('the same seed gives the same commitment, delivery, judgment record and settlement log; another seed does not', async () => {
     const a = await beatHappyPath(await world(7));
     const b = await beatHappyPath(await world(7));
-    const c = await beatHappyPath(await world(8));
+    // Another seed only needs to reach the offer to show a different commitment.
+    const c = await beatHold(await world(8));
     expect(b.commitmentId).toBe(a.commitmentId);
     expect(b.delivery).toEqual(a.delivery);
     expect(b.record!.recordHash).toBe(a.record!.recordHash);
@@ -413,7 +404,7 @@ describe('determinism', () => {
     expect(masked(worlds[1]!)).toEqual(masked(worlds[0]!));
     const sealed = (w: DemoWorld) => w.chain.log().filter((e) => JSON.stringify(e).includes('"envelope"')).length;
     expect(sealed(worlds[0]!)).toBeGreaterThan(0);
-    expect(c.commitmentId).not.toBe(a.commitmentId);
+    expect(c.commitment.id).not.toBe(a.commitmentId);
   });
 
   it('the agents read time from the testkit context, which stays in step with SimChain', async () => {

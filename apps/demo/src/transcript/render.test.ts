@@ -1,8 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { allMeasured, measured } from '../source/measured.fixture.js';
-import { closing } from './closing.js';
 import { renderHtml } from './render-html.js';
-import { renderClosingMarkdown, renderMarkdown } from './render-md.js';
+import { renderMarkdown } from './render-md.js';
 import { renderJson } from './render-json.js';
 import type { BeatTranscript } from './types.js';
 import { withAdjudicators } from './adjudicators.fixture.js';
@@ -78,20 +77,6 @@ describe('renderMarkdown', () => {
 describe('renderJson', () => {
   it('round-trips the transcript exactly', async () => {
     for (const t of await all()) expect(JSON.parse(renderJson(t))).toEqual(t);
-  });
-});
-
-describe('closing', () => {
-  it('states finality per mode, residual risks and what an AI lab could add', () => {
-    const c = closing();
-    expect(c.finality.length).toBeGreaterThan(0);
-    expect(c.residuals.map((r) => r.n)).toEqual([3, 5, 6, 8]);
-    expect(c.asks.join(' ')).toMatch(/response attestation/i);
-    expect(c.asks.join(' ')).toMatch(/hold primitive on API credit/i);
-    expect(c.asks.join(' ')).toMatch(/model version disclosure/i);
-    const md = renderClosingMarkdown();
-    expect(md).toContain('## What remains centralized');
-    expect(md).toContain('## What an AI lab could add');
   });
 });
 

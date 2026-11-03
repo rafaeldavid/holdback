@@ -17,8 +17,12 @@ const example = (name: string): any => structuredClone(loadSpec().examples.find(
 describe('spec/', () => {
   it('validates every example against the schema of the same name', () => {
     const results = validateExamples();
-    expect(results.length).toBeGreaterThanOrEqual(15);
     expect(results.filter((r: { ok: boolean }) => !r.ok)).toEqual([]);
+    const names = [
+      'page', 'operator-status', 'receipt', 'messages.dispute', 'messages.transfer', 'event.fee-operator', 'messages.mutual-settlement', 'event.offered',
+      'commitment-state.final', 'commitment.private', 'messages.read-token', 'messages.delegation', 'messages.key-registration', 'disclosure', 'projection',
+    ];
+    expect(results.map((r: { file: string }) => r.file)).toEqual(expect.arrayContaining(names.map((n) => `${n}.example.json`)));
   });
 
   it('rejects a fractional token amount', () => {
@@ -79,21 +83,8 @@ describe('spec/', () => {
     expect(validate(c)).toBe(false);
   });
 
-  it.each(['page', 'operator-status', 'receipt', 'messages.dispute'])('has a valid %s example', (name) => {
-    const r = validateExamples().find((x: { file: string }) => x.file === `${name}.example.json`);
-    expect(r).toBeDefined();
-    expect(r.ok).toBe(true);
-  });
-
   describe('operator fee (ADR-0023, D33)', () => {
     const schema = (name: string) => loadSpec().ajv.getSchema(`${V}/${name}.schema.json`);
-    it('has valid transfer, fee event and fee schedule examples', () => {
-      for (const name of ['messages.transfer', 'event.fee-operator', 'operator-status']) {
-        const r = validateExamples().find((x: { file: string }) => x.file === `${name}.example.json`);
-        expect(r?.ok, name).toBe(true);
-      }
-      expect(example('operator-status').fees.operator).toMatchObject({ bps: 1, min: '10000', max: null, appliesAt: 'agree-and-fund', refundable: false });
-    });
     it.each(['to', 'value', 'purpose', 'commitmentId', 'nonce', 'signature'])('requires a TransferAuthorization to carry %s', (field) => {
       const m = example('messages.transfer');
       expect(schema('messages')(m)).toBe(true);
@@ -109,6 +100,7 @@ describe('spec/', () => {
     });
     it('keeps fees optional in status and refuses a fractional bps, a float min or a refundable fee', () => {
       const s = example('operator-status');
+      expect(s.fees.operator).toMatchObject({ bps: 1, min: '10000', max: null, appliesAt: 'agree-and-fund', refundable: false });
       const bare = structuredClone(s);
       delete bare.fees;
       expect(schema('operator-status')(bare)).toBe(true);
@@ -120,9 +112,6 @@ describe('spec/', () => {
       const capped = structuredClone(s);
       capped.fees.operator.max = '100000000';
       expect(schema('operator-status')(capped)).toBe(true);
-    });
-    it('admits a fee.operator event', () => {
-      expect(schema('event')(example('event.fee-operator'))).toBe(true);
     });
   });
 
@@ -274,10 +263,6 @@ describe('spec/', () => {
 
   describe('mutual settlement (ADR-0019)', () => {
     const messages = () => loadSpec().ajv.getSchema(`${V}/messages.schema.json`);
-    it('has a valid co-signed example', () => {
-      const r = validateExamples().find((x: { file: string }) => x.file === 'messages.mutual-settlement.example.json');
-      expect(r?.ok).toBe(true);
-    });
     it.each(['payouts', 'buyerSignature', 'sellerSignature', 'releaseKey', 'deliveryHash'])('requires %s', (field) => {
       const m = example('messages.mutual-settlement');
       expect(messages()(m)).toBe(true);
@@ -452,11 +437,6 @@ describe('spec/', () => {
       expect(validate(e)).toBe(false);
       e.payload = { [field]: '0x' + '31'.repeat(32) };
       expect(validate(e)).toBe(true);
-    });
-
-    it('has a valid offered-event example carrying the terms hash', () => {
-      const r = validateExamples().find((x: { file: string }) => x.file === 'event.offered.example.json');
-      expect(r?.ok).toBe(true);
     });
 
     it('takes an optional private judgment record', () => {
@@ -717,11 +697,6 @@ describe('spec/', () => {
       expect(s.finalAt).toBeNull();
       expect(validate()(s)).toBe(true);
     });
-    it('has an example where finalAt is set', () => {
-      const s = example('commitment-state.final');
-      expect(typeof s.finalAt).toBe('string');
-      expect(validate()(s)).toBe(true);
-    });
     it.each(['settledAt', 'finalAt'])('lets %s be absent or null', (field) => {
       const s = example('commitment-state');
       s[field] = null;
@@ -744,14 +719,6 @@ describe('spec/', () => {
   // still stale; core pins EIP-712 vectors over the commitment example, so they move together (docs/backlog.md).
   describe('private deals, v0.8 (ADR-0024, D34)', () => {
     const schema = (name: string) => loadSpec().ajv.getSchema(`${V}/${name}.schema.json`);
-
-    it('has valid private commitment, read token, delegation, key registration, disclosure and projection examples', () => {
-      for (const name of ['commitment.private', 'messages.read-token', 'messages.delegation', 'messages.key-registration', 'disclosure', 'projection']) {
-        const r = validateExamples().find((x: { file: string }) => x.file === `${name}.example.json`);
-        expect(r, name).toBeDefined();
-        expect(r.ok, `${name}: ${r?.errors}`).toBe(true);
-      }
-    });
 
     it('keeps two keys: deliverable and acceptance are separate parts, each with ciphertext and envelopes', () => {
       const validate = schema('commitment');

@@ -5,7 +5,7 @@
 - **Depends on:** T-030 (problem types and routes settle first)
 - **Paths this task may touch:** `apps/demo-cloud/`, `apps/operator/src/` (a metrics hook only), `docs/operations.md`, `docs/tasks/T-031-telemetry-mvp.md`, `docs/backlog.md`
 - **Human gate:** no for collecting; yes for publishing any aggregate (a status or stats page)
-- **Status:** review
+- **Status:** done (PR 118)
 - **Agent/session:** implementer session, branch `t-031-telemetry`
 
 ## Intent
@@ -64,7 +64,7 @@ Give the operator the smallest set of numbers it needs to run the demo, debug ag
 
 ## Handoff
 
-- **Status: review.** Not deployed; the redeploy is Rafa's gate. From a branch that has merged main, `pnpm demo-cloud:deploy` deploys holdback-op1, then holdback-op2 (`docs/operations.md`, Deploy). There is no schema bump, so `WORLD_NAME` stays: the new keys (`rl:<hour>`, `tm:current`) start empty beside the journal.
+- **Status: merged (PR 118), not deployed;** the redeploy is Rafa's gate. From a branch that has merged main, `pnpm demo-cloud:deploy` deploys holdback-op1, then holdback-op2 (`docs/operations.md`, Deploy). There is no schema bump, so `WORLD_NAME` stays: the new keys (`rl:<hour>`, `tm:current`) start empty beside the journal.
 - **After the deploy, check:**
   1. Send one request. The dashboard's Observability view shows no invocation log for it; `wrangler tail` still shows it live. Send one GET about 15 minutes after the last POST: its line is kept (a later report finds it), and the next day line's `usage.wakes` does not rise because of it.
   2. After the next hour boundary with traffic, a `telemetry: "hour"` line appears.

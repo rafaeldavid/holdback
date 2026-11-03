@@ -16,7 +16,7 @@ const timing: Timing = {
 };
 
 describe('validateTiming', () => {
-  it('accepts the example timing and derives the latest appeal deadlines', () => {
+  it('accepts the example timing, whose windows sit exactly at the rulebook minimum, and derives the latest appeal deadlines', () => {
     expect(validateTiming(timing, { minWindowsSec })).toEqual({
       ok: true,
       value: { latestAppealBy: '2026-11-01T10:09:00.000Z', latestAppealDecideBy: '2026-11-01T10:14:00.000Z' },
@@ -46,10 +46,6 @@ describe('validateTiming', () => {
     const r = validateTiming({ ...timing, ...patch }, { minWindowsSec });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error.detail).toContain(rule);
-  });
-
-  it('accepts windows exactly at the rulebook minimum', () => {
-    expect(validateTiming(timing, { minWindowsSec }).ok).toBe(true);
   });
 
   it('reports every violation, not just the first', () => {
