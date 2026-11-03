@@ -38,7 +38,7 @@ Every step is **human**. About 30 minutes (guessed).
 1. Choose where it runs (the table above) and write the choice in Handoff.
 2. Check that `.env.costs` exists only in the dedicated clone (T-052, step 6). If you made it anywhere else, move it rather than copy it.
 3. Choose the alert channel: a desktop notification, an email to yourself, or a chat message through a bot you already use. Write it in Handoff, and put any token it needs in `.env.costs`.
-4. Approve the code as in T-052 (step 7): read what changed in `scripts/costs/`, `config/costs.template.json` and `config/model-prices.json` since your last approval, then run `node --env-file=.env.costs scripts/costs/approve.mjs`. Repeat whenever the routine says the code changed.
+4. Approve the code as in T-052 (step 7): read what changed in `scripts/costs/`, `config/costs.template.json` and `config/model-prices.json` since your last approval, then run `node scripts/costs/approve.mjs`, without the keys. Repeat whenever the routine says the code changed.
 5. Install the schedule. For option A: copy `config/costs.launchd.plist.template` to `/Users/<you>/Library/LaunchAgents/`, fill in the clone's full path and the full path of `node` (launchd's `PATH` does not include it, inferred), and run the `launchctl` command the template's header gives.
 6. After a week, confirm the test alert (agent step 4) reached you. From then on, a week without the "still running" message means the job did not start: check the plist and the `node` path.
 7. Optional: require code-owner review in the `main` ruleset, so the CODEOWNERS line in agent step 5 binds. That is a repository setting, so it is yours.

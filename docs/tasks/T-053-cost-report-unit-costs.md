@@ -30,7 +30,7 @@ Turn the collector's daily files into one page a month that answers three questi
 ## Agent steps
 
 1. **`config/model-prices.json`** (tracked: public list prices only; JSON, since `scripts/costs/` imports only `node:` modules, T-052). One entry per model the judges and the agents use: input, output, cache writes by lifetime and cache reads in micro-dollars per million tokens (integers); any multiplier for fast mode (`speed`) or a service tier; server tool use per request; DeepSeek's peak and off-peak hours; the source URL and the date read. The report flags any price older than 90 days and any usage field it has no price for.
-2. **`report.mjs`** renders the sections in `docs/costs.md`: each provider's month to date, forecast and budget; fixed costs; free-tier and included-usage headroom; unit costs; anomalies and unreadable sources. Each figure carries its basis: billed, estimated or entered by hand. Amounts in another currency (a DeepSeek balance in CNY) stay in that currency.
+2. **`report.mjs`** runs T-052's approval check first (`approved.mjs`), then renders the sections in `docs/costs.md`: each provider's month to date, forecast and budget; fixed costs; free-tier and included-usage headroom; unit costs; anomalies and unreadable sources. Each figure carries its basis: billed, estimated or entered by hand. Amounts in another currency (a DeepSeek balance in CNY) stay in that currency.
 3. **`units.mjs`**:
    - **Per demo deal:** gas from each deal's receipts (`gasUsed` × `effectiveGasPrice`), in Sepolia ETH and at the mainnet gas price and ETH price in `budgets.json`. Judges: an upper bound per live panel of three, the day's `liveJudges` tokens at the most expensive live model's prices, divided by the day's live calls, times three. Cloudflare: the month's usage-based cost over T-031's `final` deals. The operator fee earned beside it.
    - **Per merged PR:** the transcript tokens on the PR's branch, subagents included (T-052's `claude-code` source), at list price, labeled "laptop sessions only"; and the plan fee's share (the month's plan fee over the month's merged PRs). A branch with transcripts but no merged PR counts as unmerged work, shown as one total.
@@ -40,6 +40,7 @@ Turn the collector's daily files into one page a month that answers three questi
 ## Acceptance criteria
 
 - [ ] `pnpm vitest run tests/costs/report.test.ts` passes: a synthetic month of collector files renders the expected report; the unit costs match hand-computed values on the fixture; all arithmetic is integer or bigint (a test checks a sum that floats would get wrong).
+- [ ] A test shows `report.mjs` refuses, before reading any file in the cost directory, when a covered file changed since the approved commit.
 - [ ] A deal whose receipts are missing, or a PR whose branch has no transcripts, is listed as unknown, not as zero.
 - [ ] A month in which a source failed on some days says which days, and does not forecast from a partial series without saying so.
 - [ ] `config/model-prices.json` cites a URL and a date for every price, and the report shows the date of each price it used and names any usage field it could not price.
