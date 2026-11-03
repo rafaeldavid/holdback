@@ -12,7 +12,7 @@
 - **Would amend:**
   - ADR-0006 ("What is proven and what is disclosed");
   - ADR-0007 (encumbrance);
-  - ADR-0014 §4 (attestation as a priced option gets its shape);
+  - ADR-0014 §2a (the proof-miss penalty is paid from the junior tranche only, outside the usual loss order) and §4 (attestation as a priced option gets its shape);
   - ADR-0020 §5 (attestation kinds sit beside `providerPrivacy`, under a different name);
   - ADR-0020 §3 (the `judgment` level publishes typed fields; a co-signed `Publish` can add the judges' text);
   - ADR-0024 §2 (free text in the judgment record follows the work's key) and §8 (the settlement view carries the proof terms in the clear);
@@ -50,12 +50,12 @@ Measured unless marked.
 - **The rule, in the report and in the existing record alike.**
   - *Record part:* typed fields only, sealed to both parties (D26). The schema enforces it: closed enums and reason codes, integers, hashes, party-authored IDs, row-index arrays with `maxItems`, and `additionalProperties: false`, so no free text can sit in the clear. The fields:
     - each check's pass or fail and counts;
-    - the screen's `flagged`, its signal kinds and counts, and its fixed-label details;
+    - the screen's `flagged`, its signal kinds and counts, and its details as reason codes with typed parameters;
     - each seat's status, `overall`, `injectionSuspected`, scores, filter reason code, latency and attestation;
-    - the aggregation's counts, reasons and outcome.
+    - the aggregation's counts, outcome, and reasons as reason codes with typed parameters.
 
     D27 and D28 rest on these as typed, observable facts.
-  - *Work part:* every free-text field drawn from the work. That covers each seat's raw output (with any reasoning labeled `full` or `summary`), verdict evidence, injection evidence and rationale, check details, the reader's features, and the sample the judges saw.
+  - *Work part:* every free-text field drawn from the work. That covers each seat's raw output (with any reasoning labeled `full` or `summary`), verdict evidence, injection evidence and rationale, check details, and the reader's features. The sample the judges saw is not stored: it is the work itself, and anyone holding the plaintext recomputes it from the seed (`packages/judgment/src/sample.ts:1-11`).
   - *Key:* the work part is encrypted under a key derived from the work's content key (ADR-0012), so a party reads it exactly when it can read the work. The seller always can; the buyer once the key is released; a fallback or appeal adjudicator when it takes over. This needs no new key path (inferred).
 - **The report.** The adjudicator writes one per judgment, hashed into the signed record as `reportHash`. The verdict keeps its capped rationale, since the cap is a defense (T15). The rationale now sits in the work part.
 - **Sealed at every disclosure level.** The protocol never publishes the work part. At `judgment` and `public` the record shows scores and reason codes, not quotes. Parties who want the judges' text public co-sign a `Publish` whose `disclosure` body carries the work-part key (ADR-0024 §3). That key opens the judges' text, not the work, so a party choosing `judgment` for precedent keeps its choice (ADR-0015, D40). A party may also publish its own copy (D35). Backers get aggregates only (ADR-0020 §4).
@@ -100,9 +100,9 @@ Measured unless marked.
 ### 3. Proofs are post hoc; settlement stores their presence and waits for none
 
 - **The decision states the duty.** Each decision message carries `attestedSeatsSeated`: the number of attested seats the panel seated. It is 0 when no panel ran, as on a required-check reject or an empty-rubric accept. Anyone can recompute the panel from the revealed seed (ADR-0006). A false count is therefore an attributable lie in a signed message, and a ground for a "policy or panel violation" appeal.
-- **The bundle.** When `attestedSeatsSeated > 0`, the decider signs a `ProofBundle` (EIP-712) within `proofWindowSec`. It binds:
+- **The bundle.** Whenever `attestedSeatsSeated > 0`, the decider signs a `ProofBundle` (EIP-712) within `proofWindowSec`, even if every attested seat abstained. It binds:
   - the commitment ID, role, attempt and the decision's record hash, with a nonce and an expiry, so a root never carries to another decision;
-  - a root over each attested seat's `{inputHash, outputHash, evidence hash}`;
+  - a root with one leaf per seated attested seat: `{inputHash, outputHash, evidence hash}`, or an abstention leaf;
   - a sealed pointer.
 - **Presence, not content.** Anyone may submit the bundle to the settlement layer, which stores the root beside the commitment's state word (ADR-0024 §8), emits `proofs.posted`, and changes no commitment state. An operator that refuses to relay it is bypassed through the escape hatch (ADR-0005). Settlement reads no proof content: it stores a root, set only by the decider's signature.
 - **The terms it needs travel in the clear.** The settlement view (ADR-0024 §8) gains `proofWindowSec` and `proofMissPenalty`, since the contract sees only `policyHash`. This changes the view's EIP-712 struct and its version. The proof deadline runs on settlement's own clock, from when it applied the decision; the record's `decidedAt` is not read.
@@ -119,9 +119,10 @@ Measured unless marked.
 - **The timeout catches absence, not faking.** If `attestedSeatsSeated > 0` and no root is stored by the proof deadline, anyone may trigger the proof-miss timeout. It pays `proofMissPenalty` (P) to the party the decision went against.
   - No duty, and so no penalty, follows a decision with no attested seat seated, or an escalation, which went against no one.
   - This is a fact settlement checks from its own storage, at every instance. "The decider" is whoever signed the decision: the primary, the fallback, or the appeal adjudicator for its own decision.
+  - The timeout relies on an honest `attestedSeatsSeated`. A decider that signs a false 0 to dodge it has signed something anyone can disprove by recomputing the panel. In any appeal, the appeal adjudicator may find the count false, and P is then paid as if absent. No party can cause a false count, so paying on that finding rewards no one who gamed it.
 - **P comes only from the decider's junior tranche,** its own first-loss stake (ADR-0014 §2a), never from backers.
   - The parties choose P (D31), and a rulebook may cap it as a share of the price (ADR-0015).
-  - Each decider reserves P in its junior tranche whenever the bound registry has an attested entry: the first-instance decider at acceptance, and a fallback or appeal adjudicator when it takes the case (`error.coverage-exceeded`).
+  - Whenever `proofMissPenalty > 0`, each decider reserves P in its junior tranche: the first-instance decider at acceptance, and a fallback or appeal adjudicator when it takes the case (`error.coverage-exceeded`). An adjudicator that cannot reserve P cannot take the case, as with the coverage gate today (ADR-0007). A high P can therefore push a case to the default outcome at takeover, which the parties weigh when they set it (D32).
   - The reserve is held until the later of `appealDecideBy` and the proof deadline. A correlated outage across deals then draws only on reserves already held.
   - A decider and a colluding party can move only the decider's own stake.
 - **Everything else is evidence, never a payment.** This covers a root whose proofs fail, cannot be fetched or decrypted, or exceed the entry's caps; an attested seat that abstained or was served without its attestation; and a re-execution outside tolerance.
