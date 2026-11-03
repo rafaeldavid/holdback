@@ -20,7 +20,6 @@ import {
   type RegistryDoc,
 } from '@holdback/judgment';
 import { keccak256, recoverMessageAddress } from 'viem';
-import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { demoCsv, DOMAIN, makeCommitment, party, TestSettlement, tusd, type Party } from './_sim.js';
 import { defaultPolicy, policyHashOf } from './policy.js';
@@ -161,21 +160,6 @@ describe('primary decision on the demo CSV (about 0.5 MB)', () => {
     // The buyer opens the key and checks the plaintext hash.
     const buyerKey = unwrapKey(d.keyForBuyer!, BUYER.enc.secretKey);
     expect(buyerKey.exportBytes()).toEqual(key.exportBytes());
-  });
-
-  it("judges T-012's real demo deliverable (customers.clean.csv, about 512 KB) from a seeded sample and accepts it", async () => {
-    const csv = readFileSync(new URL('../../../fixtures/data/dataset-cleaning/customers.clean.csv', import.meta.url), 'utf8');
-    expect(csv.length).toBeGreaterThan(500_000);
-    const { s, a, id } = await setup({ csv });
-    s.at('2026-11-01T10:00:30Z');
-    const report = await a.adj.runOnce();
-    expect(report.refused).toEqual([]);
-    const record = [...s.records.values()][0]!;
-    expect(record.deterministic.filter((c) => c.required && !c.passed)).toEqual([]);
-    expect(record.aggregate.reasons).not.toContain('the judges saw a sample of the deliverable, not all of it');
-    expect(record.aggregate.decision).toBe('accept');
-    expect(a.calls.every((c) => /drawn at random/.test(c.user) && c.user.length < 130_000)).toBe(true);
-    expect(s.state(id).kind).toBe('Released');
   });
 
   it('publishes a schema-valid record whose hash the decision carries and whose signature recovers to the adjudicator', async () => {

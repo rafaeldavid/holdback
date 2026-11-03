@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import type { MimeType } from '@holdback/core';
 import type { JudgmentCheck as DeterministicCheck } from '../terms.js';
 import { describe, expect, it } from 'vitest';
@@ -212,11 +213,11 @@ describe('reference_row_match_min', () => {
 
 describe('validateCheck', () => {
   it('accepts every check in the example commitment', () => {
-    const checks: DeterministicCheck[] = [
-      { id: 'cols', type: 'csv_columns_exact', required: true, columns: ['a'] },
-      { id: 'rows', type: 'row_count_range', required: true, min: 9400, max: 9600 },
-      { id: 'emails', type: 'regex_match_rate_min', required: false, column: 'email', pattern: '^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$', minBps: 9700 },
-    ];
+    const example = JSON.parse(readFileSync(new URL('../../../../spec/examples/commitment.example.json', import.meta.url), 'utf8')) as {
+      acceptance: { deterministicChecks: DeterministicCheck[] };
+    };
+    const checks = example.acceptance.deterministicChecks;
+    expect(checks).not.toHaveLength(0);
     for (const c of checks) expect(validateCheck(c), c.id).toBeUndefined();
   });
 });
@@ -230,7 +231,7 @@ describe('null_rate_max: blank-looking and non-scalar cells are null', () => {
   it.each(['0', 'none', 'NA', 'a b', 'false'])('%j is a value in CSV', (cell) => {
     expect(one(nullCheck, col([cell])).passed).toBe(true);
   });
-  it.each([[{}], [[]], [false], [true]])('JSON %j is null', (value) => {
+  it.each([[{}], [[]], [false], [true], [' ']])('JSON %j is null', (value) => {
     expect(one({ ...nullCheck, column: 'v' }, json([{ v: value }])).passed).toBe(false);
   });
   it('compares by integer cross-multiplication at the boundary', () => {
