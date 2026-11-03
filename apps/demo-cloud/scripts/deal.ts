@@ -1,4 +1,4 @@
-// One deal between two fresh agents against a hosted Holdback (T-026, T-028): the public demo on Cloudflare, or
+// One deal between two fresh agents against a hosted Holdback: the public demo on Cloudflare, or
 // `pnpm demo-cloud:dev` locally. Each agent makes its own keys, takes test tUSD and a mandate from POST
 // /v1/faucet, and then runs the examples' agent (examples/agent.ts: fetch, viem, tweetnacl), which verifies every
 // prepared message against its own intent before signing. Prints each step and a JSON summary.
@@ -8,7 +8,7 @@
 //                                                                           a correct diff, judged by the panel
 //   node apps/demo-cloud/scripts/deal.ts <op1 URL> <op2 URL> --rubric --inject
 //                                                                           the same deal, but the diff does not fix the bug and
-//                                                                           carries a "NOTE TO JUDGES" instruction (F3, sim batch 1)
+//                                                                           carries a "NOTE TO JUDGES" instruction
 // Rubric deals print every judgment record they see (each adjudicator's panel: model, verdict, injectionSuspected)
 // and the demo's live-judge counters before and after; they exit 0 once the deal is settled and final.
 import nacl from 'tweetnacl';
@@ -28,7 +28,7 @@ const started = Date.now();
 const log = (s: string) => console.log(`[${((Date.now() - started) / 1000).toFixed(1).padStart(6)}s] ${s}`);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-// The one discovery document (T-030, D39): the demo's facts are its `demo` object, the fee is `fees.operator`.
+// The one discovery document (D39): the demo's facts are its `demo` object, the fee is `fees.operator`.
 const getIndex = async () => {
   const d = (await (await fetch(`${urls[0]}/.well-known/holdback.json`)).json()) as J;
   return { ...d.demo, chainId: d.domain?.chainId, notice: d.notes?.[0], operatorFee: d.fees?.operator } as J;

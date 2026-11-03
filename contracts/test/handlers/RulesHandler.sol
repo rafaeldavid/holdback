@@ -537,7 +537,7 @@ contract RulesHandler is Base {
         bytes32 id = _ids[i];
         _warpNear(t.timing.deliverBy, callerSeed);
         HoldbackRules.Stage before = rules.dealOf(id).stage;
-        bool due = before == HoldbackRules.Stage.Held && block.timestamp >= t.timing.deliverBy && !cppReclaimed[id];
+        bool due = before == HoldbackRules.Stage.Held && block.timestamp >= t.timing.deliverBy;
         bool ok;
         vm.prank(_caller(callerSeed));
         try rules.reclaim(t) {
@@ -580,11 +580,8 @@ contract RulesHandler is Base {
                 : uint256(t.timing.fallbackBy),
             callerSeed
         );
-        bool due = !cppReclaimed[id]
-            && (
-                (d.stage == HoldbackRules.Stage.FallbackJudging && block.timestamp >= t.timing.fallbackBy)
-                    || (d.stage == HoldbackRules.Stage.Escalated && block.timestamp >= uint256(d.t1) + t.timing.appealDecideSec)
-            );
+        bool due = (d.stage == HoldbackRules.Stage.FallbackJudging && block.timestamp >= t.timing.fallbackBy)
+            || (d.stage == HoldbackRules.Stage.Escalated && block.timestamp >= uint256(d.t1) + t.timing.appealDecideSec);
         bool ok;
         vm.prank(_caller(callerSeed));
         try rules.triggerDefault(t) {

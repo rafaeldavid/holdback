@@ -2,7 +2,7 @@
 // in seconds; POST /v1/prepare/offer (prepare.ts) completes it with what the operator reads: the club's rulebook hash, and the
 // primary adjudicator's policy ID, policy hash, registry hash and minimum fee from its published registration.
 // Nobody computes a hash by hand.
-import type { AcceptanceSpec, Address, CommitmentTerms, Deliverable, DeterministicCheck, Hex32, Timestamp, TokenAmount } from '@holdback/core';
+import { plusSeconds, type AcceptanceSpec, type Address, type CommitmentTerms, type Deliverable, type DeterministicCheck, type Hex32, type Timestamp, type TokenAmount } from '@holdback/core';
 import type { PartyIdentity } from './accounts.js';
 
 /** The three adjudicators the two parties chose, by address. */
@@ -99,15 +99,13 @@ export interface ResolvedTerms {
   createdAt: Timestamp;
 }
 
-const plus = (ts: Timestamp, seconds: number): Timestamp => new Date(Date.parse(ts) + seconds * 1000).toISOString().replace('.000Z', 'Z');
-
 /** The full commitment terms (commitment.schema.json without id and signatures). */
 export function completeTerms(d: TermsDraft, r: ResolvedTerms): CommitmentTerms {
   const ms = Date.parse(r.createdAt);
   if (!Number.isFinite(ms) || ms % 1000 !== 0) throw new RangeError(`createdAt ${r.createdAt} must be a whole-second timestamp`);
-  const createdAt = plus(r.createdAt, 0);
-  const deliverBy = plus(createdAt, d.timing.deliverWithinSec);
-  const judgeBy = plus(deliverBy, d.timing.judgeWithinSec);
+  const createdAt = plusSeconds(r.createdAt, 0);
+  const deliverBy = plusSeconds(createdAt, d.timing.deliverWithinSec);
+  const judgeBy = plusSeconds(deliverBy, d.timing.judgeWithinSec);
   return {
     schemaVersion: '0.6',
     clubId: d.clubId,
@@ -127,11 +125,11 @@ export function completeTerms(d: TermsDraft, r: ResolvedTerms): CommitmentTerms 
       policyHash: r.policyHash,
     },
     timing: {
-      offerExpiresAt: plus(createdAt, d.timing.offerExpiresInSec),
-      fundBy: plus(createdAt, d.timing.fundWithinSec),
+      offerExpiresAt: plusSeconds(createdAt, d.timing.offerExpiresInSec),
+      fundBy: plusSeconds(createdAt, d.timing.fundWithinSec),
       deliverBy,
       judgeBy,
-      fallbackBy: plus(judgeBy, d.timing.fallbackWithinSec),
+      fallbackBy: plusSeconds(judgeBy, d.timing.fallbackWithinSec),
       appealWindowSec: d.timing.appealWindowSec,
       appealDecideSec: d.timing.appealDecideSec,
       maxSubmissions: 1,

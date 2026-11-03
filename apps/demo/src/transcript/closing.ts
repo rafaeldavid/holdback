@@ -1,5 +1,5 @@
 // The closing section (docs/demo.md, "Closing slide"): finality per mode, what remains centralized
-// (four of docs/neutrality.md §Residual control points, condensed, T-019) and what an AI lab could add.
+// (four of docs/neutrality.md §Residual control points, condensed) and what an AI lab could add.
 
 export interface Closing {
   finality: string[];

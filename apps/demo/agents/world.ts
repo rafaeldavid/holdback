@@ -4,7 +4,7 @@
 // from one testkit context, so a seed replays the same commitments, deliveries and settlement log.
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { holdbackDomain, type Address, type Club, type EncryptedKey, type Hex32, type SettlementEvent, type Sha256, type Timestamp } from '@holdback/core';
+import { holdbackDomain, wholeSecond, type Address, type Club, type EncryptedKey, type Hex32, type SettlementEvent, type Sha256, type Timestamp } from '@holdback/core';
 import type { RandomSource } from '@holdback/core/crypto';
 import { MemoryCiphertextStore, type CiphertextStore } from '@holdback/core/store';
 import { refuseParties, simRegistry, startOperator, type RunningOperator } from '@holdback/operator';
@@ -48,7 +48,7 @@ export interface Cast {
   benchB: AgentKeys;
   /** Atrium Appeals (appeal). */
   benchC: AgentKeys;
-  /** Swiftline Verdicts: listed and bonded, declined by the rulebook at beat 1 (T-017). */
+  /** Swiftline Verdicts: listed and bonded, declined by the rulebook at beat 1. */
   swiftline: AgentKeys;
 }
 
@@ -113,12 +113,10 @@ export interface DemoWorld {
   close(): Promise<void>;
 }
 
-const wholeSecond = (ts: Timestamp): Timestamp => new Date(Math.floor(Date.parse(ts) / 1000) * 1000).toISOString().replace('.000Z', 'Z');
-
 export async function createDemoWorld(options: DemoWorldOptions = {}): Promise<DemoWorld> {
   const seed = options.seed ?? 7;
   const ctx = createContext({ seed, start: options.start ?? DEMO_START });
-  const start = wholeSecond(ctx.clock.now());
+  const start = wholeSecond(Date.parse(ctx.clock.now()));
   if (`${start.slice(0, -1)}.000Z` !== ctx.clock.now()) throw new RangeError(`start ${ctx.clock.now()} must be a whole second`);
   const cast: Cast = {
     atlas: agentKeys(seed, ATLAS.label),
@@ -221,7 +219,7 @@ export async function createDemoWorld(options: DemoWorldOptions = {}): Promise<D
     },
     sdk,
     call: () => ({ idempotencyKey: `demo-${seed}-${ctx.ids.next('call')}` }),
-    now: () => wholeSecond(ctx.clock.now()),
+    now: () => wholeSecond(Date.parse(ctx.clock.now())),
     advance: (seconds) => {
       ctx.clock.advanceSeconds(seconds);
       chain.advance(seconds);

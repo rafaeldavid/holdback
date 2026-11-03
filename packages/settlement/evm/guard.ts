@@ -1,4 +1,4 @@
-// Startup guards for the EVM settlement adapter (hard rule: no real money; T-205 runs on anvil only).
+// Startup guards for the EVM settlement adapter (hard rule: no real money; anvil only).
 
 /** Mainnet chain IDs the adapter refuses at startup: Ethereum, major L2s and sidechains. */
 export const MAINNET_CHAIN_IDS: readonly number[] = [1, 10, 25, 56, 100, 130, 137, 250, 324, 1101, 5000, 8453, 34443, 42161, 42170, 42220, 43114, 59144, 81457, 534352, 7777777];

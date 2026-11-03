@@ -132,7 +132,7 @@ contract RulesInvariants is Test {
     }
 
     /// Timeouts: a timeout never succeeds before its deadline, and always succeeds after it, for any caller,
-    /// when the stage allows (while CPP still holds the funds).
+    /// when the stage allows, including after the buyer reclaimed on CPP (T-206: the bonds must still be released).
     /// forge-config: default.invariant.runs = 256
     /// forge-config: default.invariant.depth = 100
     function invariant_timeoutsExactlyWhenDue() public view {

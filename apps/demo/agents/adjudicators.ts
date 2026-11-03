@@ -1,4 +1,4 @@
-// Choosing adjudicators before the offer (T-017). The buyer and seller name the primary, fallback and appeal
+// Choosing adjudicators before the offer. The buyer and seller name the primary, fallback and appeal
 // adjudicators in the terms they both sign (CLAUDE.md, Objective 1); this file holds the rules each agent
 // applies to the published registrations. Ledger (buyer) filters by the club rulebook and proposes a slate;
 // Tide-7 (seller) checks the slate against its own policy and agrees or refuses. The messages between them are
@@ -6,10 +6,10 @@
 import { parseAdjudicator, type Address, type Hex32, type Rulebook, type SettlementMode, type TokenAmount } from '@holdback/core';
 import { policyHashOf } from '@holdback/adjudicator';
 import type { LoadedRegistry } from '@holdback/judgment';
+import { formatTusd } from '@holdback/operator';
 import type { TermsTemplate } from '@holdback/testkit';
 import { demoRegistry, liveJudgesInUse, type Listing } from './bench.js';
 import { resolveJudges, ROLE_PLAY, type AdjudicatorRole, type BenchProfile } from './cast.js';
-import { TUSD } from './units.js';
 
 export interface Slate {
   primary: Address;
@@ -67,13 +67,6 @@ export interface SellerAdjudicatorPolicy {
   registry?: LoadedRegistry;
 }
 
-/** "25,000 tUSD", "0.5 tUSD": whole tUSD with thousands separators. Integer arithmetic only. */
-export function tusdText(base: bigint): string {
-  const whole = (base / TUSD).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-  const frac = base % TUSD;
-  return `${whole}${frac === 0n ? '' : `.${frac.toString().padStart(6, '0').replace(/0+$/, '')}`} tUSD`;
-}
-
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const int = (v: unknown): number | undefined => (typeof v === 'number' && Number.isInteger(v) ? v : undefined);
 const base = (v: unknown): bigint => (isObj(v) && typeof v.amount === 'string' && /^\d+$/.test(v.amount) ? BigInt(v.amount) : 0n);
@@ -105,7 +98,7 @@ export function rulesInWords(c: RuleContext): string[] {
   const m = c.rulebook.panelPolicyMin;
   return [
     `panels of at least ${m.panelSize} judges, appeal panels of at least ${m.appealPanelSize}, from at least ${m.minFamilies} model families (panelPolicyMin)`,
-    `free bond of at least ${tusdText(requiredFreeBond(c.rulebook, c.price, c.mode))} (${c.mode === 'guaranteed_on_decision' ? '100% of the price for guaranteed_on_decision' : `windowCoverageRatioBps ${c.rulebook.windowCoverageRatioBps}`})`,
+    `free bond of at least ${formatTusd(requiredFreeBond(c.rulebook, c.price, c.mode))} (${c.mode === 'guaranteed_on_decision' ? '100% of the price for guaranteed_on_decision' : `windowCoverageRatioBps ${c.rulebook.windowCoverageRatioBps}`})`,
     'an active registration that validates against adjudicator.schema.json',
   ];
 }
@@ -128,7 +121,7 @@ export function rulebookReasons(l: Listing, c: RuleContext): string[] {
     out.push(`appeal panel of ${appeal === undefined ? 'unstated size' : plural(appeal, 'judge')} (rulebook minimum ${m.appealPanelSize}, panelPolicyMin.appealPanelSize)`);
   const need = requiredFreeBond(c.rulebook, c.price, c.mode);
   const free = freeBond(l);
-  if (free < need) out.push(`free bond ${tusdText(free)} is below the ${tusdText(need)} this commitment needs`);
+  if (free < need) out.push(`free bond ${formatTusd(free)} is below the ${formatTusd(need)} this commitment needs`);
   if (l.document.status !== 'active') out.push(`status ${String(l.document.status)}, not active`);
   const parsed = parseAdjudicator(l.document);
   if (!parsed.ok) out.push('the registration does not validate against adjudicator.schema.json v0.6');
@@ -209,16 +202,14 @@ export function reviewSlate(proposal: AdjudicatorProposal, listings: readonly Li
     passed.push('policyHash matches its policy');
     const free = freeBond(l);
     if (free < need) {
-      refuse(`free bond ${tusdText(free)} is below the ${tusdText(need)} Tide-7 requires`);
+      refuse(`free bond ${formatTusd(free)} is below the ${formatTusd(need)} Tide-7 requires`);
       continue;
     }
-    passed.push(`free bond ${tusdText(free)} covers ${tusdText(need)}`);
+    passed.push(`free bond ${formatTusd(free)} covers ${formatTusd(need)}`);
     checks.push({ address, name, role, passed, freeBond: free });
   }
   return refusals.length ? { agreed: false, refusals } : { agreed: true, slate: { ...proposal.slate }, checks, policy: SELLER_POLICY_CHECKS, requiredFreeBond: need };
 }
-
-// ---- profiles for the viewer ------------------------------------------------------------------------------
 
 /** A bench's profile with its judges resolved and its terms read from the registration, terms and SimChain. */
 export interface ProfileView {
@@ -286,7 +277,7 @@ export function profileViews(listings: readonly Listing[], proposal: Adjudicator
         selected: role ?? 'declined',
         ...(role === undefined && considered?.reasons.length ? { declinedBecause: considered.reasons } : {}),
         ...(sellerChecks(l.address) ? { sellerChecks: sellerChecks(l.address)! } : {}),
-        // Live (T-028): every bench seats the live registry; the profiles' placeholder judges are not in it.
+        // Live: every bench seats the live registry; the profiles' placeholder judges are not in it.
         judges: liveJudgesInUse()
           ? registry.active.map((e) => ({ id: e.id, model: e.model, family: e.family, effort: e.provider === 'anthropic' ? 'live; effort low' : 'live; provider default' }))
           : resolveJudges(l.profile, registry),

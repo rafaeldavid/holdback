@@ -1,5 +1,5 @@
 // Stages 1, 2, 4 and 5 wired together over an intake result. Panel selection (which seats, criteria
-// order per judge, nonces derived from the seed) is T-009's: this module takes the seats it is given
+// order per judge, nonces derived from the seed) happens in panel.ts: this module takes the seats it is given
 // and refuses an unpinned, unregistered or single-family panel before any judge is called. Model
 // calls go through an injected provider; a request carries the model ID, the two prompt strings and
 // fixed sampling parameters, and nothing else (no tools, no secrets, no URLs to fetch).
@@ -23,7 +23,7 @@ export interface PanelSeat {
   model: string;
 }
 
-/** The judge registry the commitment binds (T-009 loads it and checks registryHash): model ID to family. */
+/** The judge registry the commitment binds (the adjudicator loads it and checks registryHash): model ID to family. */
 export type JudgeRegistry = ReadonlyMap<string, { family: string }>;
 
 export interface JudgeRequest {
@@ -41,7 +41,7 @@ export type JudgeResponse =
   | { kind: 'timeout' }
   | { kind: 'error'; transport: boolean; detail: string };
 
-/** Implemented by T-009 (Anthropic, OpenAI-compatible, recorded); tests use fakes. Enforces the judge timeout. */
+/** Implemented by providers/ and apps/adjudicator (live); tests use fakes. Enforces the judge timeout. */
 export interface JudgeProvider {
   complete(request: JudgeRequest): Promise<JudgeResponse>;
 }
@@ -61,7 +61,7 @@ export interface PipelineInput {
   /** Per-judge boundary and canary. */
   nonces: (seat: PanelSeat, index: number) => Nonces;
   /**
-   * Per-judge sampling seed (T-009: derived from the panel seed). With it, a CSV over the data budget
+   * Per-judge sampling seed (derived from the panel seed). With it, a CSV over the data budget
    * is judged from a seeded sample without escalating; without it, sampled data escalates.
    */
   sampleSeed?: (seat: PanelSeat, index: number) => Hex32;
@@ -79,7 +79,7 @@ export interface PipelineInput {
   maxOutputTokens?: number;
 }
 
-/** The parts of judgment.schema.json this stage produces (aggregate in the v0.5 shape). T-009 adds the rest. */
+/** The parts of judgment.schema.json this stage produces (aggregate in the v0.5 shape). The adjudicator service adds the rest. */
 export interface JudgmentDraft {
   intake: Judgment['intake'];
   deterministic: Judgment['deterministic'];
@@ -147,7 +147,7 @@ function labelledTerms(acceptance: JudgmentAcceptance, description: string): Arr
 const termsTexts = (acceptance: JudgmentAcceptance, description: string) => labelledTerms(acceptance, description).map(([, t]) => t);
 
 /**
- * Offer-time validation of the party-written terms that judges will read as instructions:
+ * Validation an agent can run on the party-written terms, which judges read as instructions, before it signs:
  * refuses hidden characters (tag, zero-width, bidi, variation selectors outside ordinary emoji
  * and script use) and mixed-script words. Returns the reasons; empty means acceptable.
  */

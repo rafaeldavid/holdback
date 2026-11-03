@@ -38,7 +38,7 @@ const b64 = (b) => Buffer.from(b).toString('base64url');
 const secs = (iso) => Date.parse(iso) / 1000;
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// ---- the operators ----------------------------------------------------------------------------------------
+// The operators
 let OP1 = process.env.OP1, OP2 = process.env.OP2, world = null, simUrl = null, api = '';
 if (!OP1 || !OP2) {
   const { startSimWorld } = await import(here('../apps/operator/dist/sim-world.js'));
@@ -65,7 +65,7 @@ const both = async (path) => {
 };
 
 try {
-  // ---- 1. keys ------------------------------------------------------------------------------------------
+  // 1. Keys
   const party = async (label) => {
     if (simUrl) {
       const a = await call('POST', `${simUrl}/accounts`);
@@ -81,7 +81,7 @@ try {
   }
   log('1 keys: a signing key and an encryption key per party');
 
-  // ---- 2. discovery, faucet, adjudicator ----------------------------------------------------------------
+  // 2. Discovery, faucet, adjudicator
   const wk = await call('GET', `${OP1}/.well-known/holdback.json`);
   for (const k of ['apiBaseUrl', 'domain', 'receiptSigner', 'settlementTime']) if (!(k in wk)) fail(`well-known has no ${k}`);
   same(wk.domain, DOMAIN, 'the pinned domain');
@@ -100,13 +100,13 @@ try {
   if (bal.token !== 'tUSD' || !/^[0-9]+$/.test(bal.amount) || bal.amount === '0') fail(`balance ${JSON.stringify(bal)}`);
   const listed = await call('GET', `${api}/v1/adjudicators`);
   if (!Array.isArray(listed.items) || !listed.items.length) fail('GET /v1/adjudicators lists no items');
-  // The deployed demo lists them by role in discovery's demo object (T-030); a local sim in its own GET /.
+  // The deployed demo lists them by role in discovery's demo object; a local sim in its own GET /.
   const byRole = simUrl ? (await call('GET', `${simUrl}/`)).adjudicators : (await call('GET', `${OP1}/.well-known/holdback.json`)).demo?.adjudicators ?? [];
   const adjAddresses = ['primary', 'fallback', 'appeal'].map((role) => byRole.find((a) => a.role === role)?.address.toLowerCase() ?? fail(`discovery lists no ${role} adjudicator`));
   for (const a of adjAddresses) if (!listed.items.some((x) => x.address.toLowerCase() === a)) fail(`adjudicator ${a} is not in GET /v1/adjudicators`);
   log(`2 discovery: domain pinned, club ${clubId}, buyer holds ${bal.amount} tUSD base units, ${listed.items.length} adjudicator(s) listed`);
 
-  // ---- 3. what we bind to -------------------------------------------------------------------------------
+  // 3. What we bind to
   const settlementNow = async () => {
     const t = await Promise.all([OP1, OP2].map(async (op) => Date.parse((await call('GET', `${op}/.well-known/holdback.json`)).settlementTime)));
     if (Math.abs(t[0] - t[1]) > 5000) fail('settlement times differ by more than 5 s');
@@ -123,7 +123,7 @@ try {
   if (jcsHash(club.rulebook) !== club.rulebookHash) fail('rulebookHash is not keccak256 of the canonical rulebook');
   log('3 bound: registrations and rulebook agree on both operators and hash as documented');
 
-  // ---- 4. the loop --------------------------------------------------------------------------------------
+  // 4. The loop
   const ints = (type, v) =>
     type.endsWith('[]') ? v.map((x) => ints(type.slice(0, -2), x)) : TYPES[type] ? Object.fromEntries(TYPES[type].map((f) => [f.name, ints(f.type, v[f.name])])) : /^u?int\d*$/.test(type) ? BigInt(v) : typeof v === 'string' && /^0x[0-9a-fA-F]+$/.test(v) ? v.toLowerCase() : v;
   const typesFor = (primary) => {
@@ -162,7 +162,7 @@ try {
     return write(prepared.submit.path, body);
   };
 
-  // ---- 5. offer -----------------------------------------------------------------------------------------
+  // 5. Offer
   const checks = [
     { id: 'cols', type: 'csv_columns_exact', required: true, columns: ['customer_id', 'email'] },
     { id: 'rows', type: 'row_count_range', required: true, min: 3, max: 3 },
@@ -199,7 +199,7 @@ try {
   if (state.escrowState !== 'AcceptedByAdjudicator') fail(`never AcceptedByAdjudicator (${state.escrowState})`);
   log(`5 offer: CommitmentTerms rebuilt from intent, id = struct hash ${id.slice(0, 10)}…, Offered then AcceptedByAdjudicator`);
 
-  // ---- 6. agree and fund --------------------------------------------------------------------------------
+  // 6. Agree and fund
   const signedOffer = await both(`/v1/commitments/${id}/terms`);
   if (signedOffer.id !== id || signedOffer.buyerEncryptionPublicKey !== buyer.encPub || jcs(signedOffer.price) !== jcs(price)) fail('the terms read back differ');
   const t = signedOffer;
@@ -219,7 +219,7 @@ try {
   if (held.escrowState !== 'Held' || held.hold?.amount?.amount !== total) fail(`agree answered ${JSON.stringify({ s: held.escrowState, h: held.hold })}`);
   log(`6 agree and fund: /terms agree on both operators, ID recomputed, Agree and FundingAuthorization rebuilt, Held ${total}`);
 
-  // ---- 7. deliver ---------------------------------------------------------------------------------------
+  // 7. Deliver
   const recipients = [...adjAddresses.map((a, i) => ({ address: a, encryptionPublicKey: regs[i].encryptionPublicKey })), { address: buyer.address, encryptionPublicKey: t.buyerEncryptionPublicKey }];
   const served = (await call('GET', `${api}/v1/commitments/${id}/recipients`)).recipients.map((r) => ({ address: r.address.toLowerCase(), encryptionPublicKey: r.encryptionPublicKey }));
   same(served, recipients, 'the /recipients cross-check');
@@ -245,7 +245,7 @@ try {
   }], now);
   log(`7 deliver: recipients cross-checked, ciphertext stored, four envelopes, Delivery rebuilt, answered ${delivered.escrowState}`);
 
-  // ---- 8. result ----------------------------------------------------------------------------------------
+  // 8. Result
   for (let i = 0; i < 150 && !['Released', 'Refunded'].includes((state = await call('GET', `${api}/v1/commitments/${id}`)).escrowState); i++) await wait(200);
   if (state.escrowState !== 'Released') fail(`expected Released, got ${state.escrowState}`);
   if (state.finalAt !== null || typeof state.deadlines?.appealBy !== 'string') fail(`finalAt ${state.finalAt}, appealBy ${state.deadlines?.appealBy}`);

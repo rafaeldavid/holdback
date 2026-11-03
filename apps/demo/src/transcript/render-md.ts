@@ -12,7 +12,7 @@ export const eventsOf = <K extends DemoEvent['kind']>(t: BeatTranscript, kind: K
 const sameRows = (a: Of<'balances'>, b: Of<'balances'>) => JSON.stringify(a.rows) === JSON.stringify(b.rows);
 
 /**
- * The balance snapshots worth a table (T-019): each one that differs from the snapshot before it, plus the first
+ * The balance snapshots worth a table: each one that differs from the snapshot before it, plus the first
  * as the starting point. A beat that moved no money gets none.
  */
 export function leanBalances(t: BeatTranscript): Of<'balances'>[] {
@@ -73,7 +73,7 @@ export function renderMarkdown(t: BeatTranscript): string {
   out.push('## Timeline', '', ...t.events.filter((e) => e.kind !== 'balances').map((e) => `- ${mdText(narrate(e))}`), '');
 
   if (t.adjudicators?.length) {
-    // Registration names and profile text are party text: escaped like every other line (T-017).
+    // Registration names and profile text are party text: escaped like every other line.
     out.push('## Adjudicators considered', '', 'Judges are pinned registry model IDs; effort is what each bench declares (scripted judges apply none). History is role-play, invented for this demo.', '');
     const rules = eventsOf(t, 'adjudicator-proposal')[0]?.rules ?? [];
     if (rules.length) out.push('Rules applied by the buyer (club rulebook):', '', ...rules.map((r) => `- ${mdText(r)}`), '');
