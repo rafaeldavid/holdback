@@ -3,6 +3,7 @@
 // which `pnpm verify` would show (it runs forge build first; see scripts/verify.ts).
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { encodeFunctionData, getAddress } from 'viem';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { authorizationExpiry } from '../sim/simchain.js';
 import { measure, must, newSettlement, PATHS } from './gas.js';
@@ -119,6 +120,25 @@ describe.skipIf(!ready)(`EvmSettlement on anvil${ready ? '' : ' (SKIPPED: needs 
     expect(await chain.tokenBalance(cast.buyer.address)).toBe(100_000_000_000n - 2_050_000_000n - 1_000_000n);
     expect(chain.escrowState(d.id)?.kind).toBe('Held');
     expect(chain.log().map((e) => e.type).slice(-2)).toEqual(['fee.operator', 'hold.funded']);
+  }, 60_000);
+
+  it('operator fee relayed alone ahead of the bundle: the hold still funds, and the fee is paid once', async () => {
+    const { chain, cast, club } = await newSettlement(world);
+    const d = new EvmDeal(chain, cast, club, 'fee-front-run');
+    await must(chain, cast, d.offer());
+    await must(chain, cast, d.accept());
+    const s = await d.agreeAndFund({ operatorFee: { to: cast.operator.address, value: 1_000_000n } });
+    if (s.kind !== 'agree_and_fund' || !s.operatorFee) throw new Error('unreachable');
+    // A mempool watcher sends the buyer's signed fee transfer by itself (transferWithAuthorization is permissionless).
+    const f = s.operatorFee;
+    const data = encodeFunctionData({ abi: world.abis.token, functionName: 'transferWithAuthorization', args: [getAddress(f.from), getAddress(f.to), BigInt(f.value), BigInt(Date.parse(f.validAfter) / 1000), BigInt(Date.parse(f.validBefore) / 1000), f.nonce, f.signature] });
+    expect((await world.send({ key: cast.stranger.key, to: world.deployment.token, data }, Date.parse(chain.now()) / 1000)).status).toBe('success');
+    const r = await chain.submit(s, { via: 'op-1', sender: cast.operator.key });
+    expect(r.ok ? r.state.escrowState : r.problem.type).toBe('Held');
+    expect(chain.transactions().map((t) => t.call)).toEqual(['agreeAndFund']);
+    expect(await chain.tokenBalance(cast.operator.address)).toBe(1_000_000n);
+    expect(await chain.tokenBalance(cast.buyer.address)).toBe(100_000_000_000n - 2_050_000_000n - 1_000_000n);
+    expect(chain.log().find((e) => e.type === 'fee.operator')?.payload).toMatchObject({ source: 'adapter', paid: 'by an earlier transaction' });
   }, 60_000);
 
   it('agrees with SimChain on authorizationExpiry: no capture from fallbackBy + appealDecideSec + margin on', async () => {

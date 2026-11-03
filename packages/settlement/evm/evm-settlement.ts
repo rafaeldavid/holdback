@@ -735,6 +735,8 @@ export class EvmSettlement implements Settlement {
       case 'deliver': {
         const d = s.delivery;
         const book = this.bookOf(d.commitmentId);
+        // As core refuses it: the contract's generic InvalidMessage would name the wrong problem.
+        if (d.attempt > book.state.terms.timing.maxSubmissions) refuse('submission_limit_reached', `attempt ${d.attempt} exceeds maxSubmissions ${book.state.terms.timing.maxSubmissions}`);
         const t = termsView(book.state.terms);
         await this.call(d.commitmentId, 'deliver', [t, deliveryView(d), d.signature], (at) => [{ type: 'deliver', at, delivery: d }], options, dryRun, book.state.terms.seller, { delivery: d });
         return d.commitmentId;
@@ -861,6 +863,13 @@ export class EvmSettlement implements Settlement {
       functionName: 'transferWithAuthorization',
       args: [getAddress(fee.from), getAddress(fee.to), BigInt(fee.value), BigInt(secs(fee.validAfter)), BigInt(secs(fee.validBefore)), fee.nonce, fee.signature],
     });
+    // ADR-0023 (EVM amendment): anyone may relay the fee transfer alone, ahead of the bundle. The fee has then reached
+    // this operator already, and the bundle would revert on the spent nonce, so the hold is funded on its own.
+    if (await this.nonceUsed(m.commitmentId, token, feeCall)) {
+      await this.call(m.commitmentId, 'agreeAndFund', args, mirror, options, false, m.from);
+      this.emit('fee.operator', m.commitmentId, m.from, options.via ?? 'direct', { source: 'adapter', from: lc(fee.from), to: lc(fee.to), amount: this.amount(BigInt(fee.value)), paid: 'by an earlier transaction' }, false);
+      return m.commitmentId;
+    }
     const fundCall = encodeFunctionData({ abi: this.world.abis.rules, functionName: 'agreeAndFund', args });
     const bundle = encodeFunctionData({
       abi: this.world.abis.multicall,
@@ -874,6 +883,16 @@ export class EvmSettlement implements Settlement {
     });
     await this.send(m.commitmentId, 'agreeAndFund', multicall, bundle, mirror, options, false, m.from, { operatorFee: { from: lc(fee.from), to: lc(fee.to), amount: this.amount(BigInt(fee.value)) } });
     return m.commitmentId;
+  }
+
+  /** True when the token refuses an ERC-3009 call because its nonce is already used. Any other answer is false. */
+  private async nonceUsed(id: Hex32, token: Address, data: Hex): Promise<boolean> {
+    try {
+      await this.world.simulate({ from: this.world.senderFor(id), to: token, data }, this.wall ? undefined : secs(this.now()));
+      return false;
+    } catch (e) {
+      return problemFromRevert(this.abi, revertData(e)).type === 'nonce_reused';
+    }
   }
 
   private async timeout(id: Hex32, timeout: TimeoutKind, options: EvmSubmitOptions, dryRun: boolean, at: Timestamp): Promise<Hex32> {
