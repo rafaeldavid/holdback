@@ -303,12 +303,15 @@ Every step is **agent** unless marked. Times are guessed.
    - installs `/opt/crow/deploy <tag> <sha>`, a root-owned wrapper whose source, `scripts/dev-env/deploy.sh`, is tier 3. The `deploy` user may run it, through sudo, as `cfdeploy`, the only user that can read the Cloudflare token. It does no deploy any other way: the token is out of its reach, so a deploy session cannot run wrangler around the check. The wrapper:
      - checks that `git rev-parse <tag>^{commit}` equals the SHA in Rafa's go-ahead;
      - clones that commit fresh into a new folder and runs `pnpm install --frozen-lockfile` there;
-     - deploys from that clone with `pnpm demo-cloud:deploy`, never from a working tree a session controls. The whole wrapper runs as `cfdeploy`, never as root, so the deploy code can reach the Cloudflare token, which it needs, and nothing else. The token goes only into the environment of the final wrangler step, never into `pnpm install` or the build, so a lifecycle script in the tagged commit never sees it.
+     - builds from that clone, never from a working tree a session controls, and with no token in the environment. It does not use `pnpm demo-cloud:deploy`: that script runs the build and `npx -y wrangler@4` as child processes that inherit its whole environment (`apps/demo-cloud/scripts/deploy.mjs`, measured), so the build would see the token.
+     - calls wrangler itself, once per wrangler config, in the order `deploy.mjs` uses (op1 first). It passes the token only in that call's environment, and uses the wrangler version pinned in `pnpm-lock.yaml`, never one `npx` fetches at deploy time. If no pinned wrangler exists yet, this task adds it as a dev dependency.
+
+     The whole wrapper runs as `cfdeploy`, never as root, so only the wrangler call can reach the Cloudflare token.
      - validates every argument, as the launcher does: a tag matching the deploy-tag pattern, a 40-character hex SHA, and a worker from a fixed list.
 
-     It also offers the few commands the runbook and T-041 need with the token, each validated the same way: `tail <worker>` and `feedback-export`. The check sits outside the tier 2 deploy code it protects (T-050 step 9).
+     It also offers the few commands the runbook, T-041 and the smoke test need with the token, each validated the same way: `tail <worker>`, `feedback-export` and `verify-token`. The check sits outside the tier 2 deploy code it protects (T-050 step 9).
    - creates `/home/minter/.config/crow/` with mode 700, so only `minter` can read the two App keys;
-   - creates `/srv/crow/intake/`, owned by `deploy`, with the group `crow-intake` that the builder slot users and `tick` belong to, mode 750 for the folder and 640 for its files. The deploy side writes the feedback export and the signal records there (T-041, T-042), and the build side reads them.
+   - creates `/srv/crow/intake/`. It is owned by `cfdeploy`, which writes the feedback export there through the wrapper (T-041). `deploy` belongs to a writer group so it can write the signal records (T-042). The builder slot users and `tick` belong to the read group `crow-intake`. Folders are mode 750 and files 640, and writers use a group-writable subfolder.
    - copies `gh-app-token.mjs` to `/opt/crow/`, owned by root and writable by no one else;
    - adds sudoers rules that let each role run exactly `/usr/bin/node /opt/crow/gh-app-token.mjs <role>`, as `minter`, with one of these argument lists and nothing else: `git get`, `git store`, `git erase`, `token` or `scopes`. git calls a credential helper with an extra verb, and a sudoers rule that lists arguments must match them exactly. `tick` may also run `rerun <run-id>`, and the script accepts digits only there. sudo's default `env_reset` keeps `NODE_OPTIONS` and similar variables out (inferred).
    - installs `/opt/crow/gh`, a root-owned wrapper that gets the role's token and runs `gh` with `GH_TOKEN` set in the child's environment only, so normal use never prints a token into a session.
@@ -379,7 +382,7 @@ Every step is **agent** unless marked. Times are guessed.
    - **No personal Claude login (B):** no `~/.claude/.credentials.json` for any role user (inferred path of Claude Code's login store on Linux), and no Remote Control process.
    - **No personal files:** no private key under `~/.ssh`, no `~/.aws`, no `~/.config/gcloud`, no `~/.npmrc`, and no `.env` at the repository root in a build session. All checked by existence only.
    - **Environment variable names:** they match the session type's list exactly. Any other name ending in `_KEY`, `_TOKEN` or `_SECRET` fails.
-   - **Deploy only:** Cloudflare's `GET /client/v4/user/tokens/verify` answers active.
+   - **Deploy only:** Cloudflare's `GET /client/v4/user/tokens/verify` answers active. On A it is called directly; on B through the wrapper's `verify-token`, since `deploy` holds no token.
    - **If set:** the Stripe key starts with `sk_test_`.
 
    A script never passes through Claude Code's permission layer, so the deny rules get a separate probe. In a live session, create `reports/scratch/.env.probe` holding no secret, ask the session to read it, and record that the read is refused.
@@ -398,7 +401,11 @@ Every step is **agent** unless marked. Times are guessed.
   - the setup script's checks;
   - `vm-users.sh`'s users, modes, managed settings, intake folder and sudoers rules, on a fixture root, with `visudo -c` accepting the rules and git's `get` call matching them;
   - the launcher, fed hostile arguments (`../etc`, names with spaces, an extra argument, a symlinked home, the roles `deploy`, `tick` and `minter`), refusing each one, and running `node` only after dropping to the slot user;
-  - the deploy wrapper, refusing a tag that points elsewhere;
+  - the deploy wrapper, refusing:
+    - a tag that points elsewhere;
+    - hostile arguments: a bad tag pattern, a SHA that is not 40 hex characters, a worker outside the list, an extra argument, and an unknown subcommand;
+
+    and running its build with no Cloudflare token in the environment;
   - the token minter on a throwaway key, including its refusal of other arguments;
   - the smoke test's parsing.
 - [ ] `node scripts/dev-env/smoke.mjs` passes in a build session and in a deploy session, and its report is pasted in Evidence (measured). The deny-rule probe is recorded too.
