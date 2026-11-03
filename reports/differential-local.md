@@ -6,7 +6,7 @@ through `EvmSettlement` on anvil (chain id 31337). Lines are the normalised tran
 `-` is SimChain only, `+` is the contract only. Explanations and the decision on each difference: T-205 Decisions
 (docs/tasks/T-205-evm-settlement.md). All values measured.
 
-Fixtures: 28; run on the contract: 25; passing on the contract: 24; identical transcripts: 6; excluded until Phase 4: 3; errors: 0.
+Fixtures: 28; run on the contract: 25; passing on the contract: 25; identical transcripts: 7; excluded until Phase 4: 3; errors: 0.
 
 | Fixture | On the contract | Transactions | Gas | Differing lines |
 | --- | --- | --- | --- | --- |
@@ -24,7 +24,7 @@ Fixtures: 28; run on the contract: 25; passing on the contract: 24; identical tr
 | `error.coverage-exceeded` | pass | 0 | 0 | 0 |
 | `error.early-accept-wrong-key-envelope` | pass | 3 | 514,911 | 2 |
 | `error.invalid-signature` | pass | 0 | 0 | 0 |
-| `error.submission-limit` | FAIL | 1 | 251,129 | 2 |
+| `error.submission-limit` | pass | 1 | 251,129 | 0 |
 | `happy-path` | pass | 3 | 517,731 | 2 |
 | `honest-seller-survives-judge-noise-on-appeal` | excluded until Phase 4 | | | |
 | `neutrality.adjudicator-and-fallback-offline` | excluded until Phase 4 | | | |
@@ -213,16 +213,11 @@ Identical.
 
 ## `error.submission-limit`
 
-Fails on the contract: expected the first refusal to be submission_limit_reached, got invalid_terms at step 4
-
 | Transaction | Relayed via | Sent by (pays gas) | Gas |
 | --- | --- | --- | --- |
 | agreeAndFund | op-1 | op-1 | 251,129 |
 
-```diff
-- step 4: tidewater-seller | deliver (attempt 2) | op-1 | submission_limit_reached | Held
-+ step 4: tidewater-seller | deliver (attempt 2) | op-1 | invalid_terms | Held
-```
+Identical.
 
 ## `happy-path`
 

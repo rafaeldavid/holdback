@@ -71,7 +71,7 @@ Review the Phase 2 contracts against the neutrality checklist, the hold invarian
   | M-2 | #127 | `test/unit/LateCarriedDelivery.t.sol` (7 tests); `invariant_timeoutsExactlyWhenDue` fails on `main` with "a delivery landed at or after deliverBy". | 4 |
   | M-3 | #135 | `test/unit/BondConsent.t.sol` (6 tests). Deleting the fallback's reservation fails two invariants (with the `decideFallback` action). | 4 |
 
-- **measured** `pnpm verify` on each fix branch: every step passes, including all forge tests and invariants, and there are no snapshot diffs. The exception is `pnpm snap --settlement=local`, which on `main` since PR 113 fails on `error.submission-limit` whether or not a T-206 change is applied (24 passed, 1 failed, 3 excluded). That failure is handed off below. First fix branch, at `baac930`:
+- **measured** `pnpm verify` on each fix branch: every step passes, including all forge tests and invariants, and there are no snapshot diffs. The exception is `pnpm snap --settlement=local`, which on `main` since PR 113 fails on `error.submission-limit` whether or not a T-206 change is applied (24 passed, 1 failed, 3 excluded). PR #139 fixed it in the settlement adapter. On this branch merged with `main` at `4b3a128`, it passes 25 of 25, with 3 excluded, and `reports/differential-local.md` is regenerated from that run. First fix branch, at `baac930`:
 
   | Step | Command | Status | Time |
   | --- | --- | --- | --- |
@@ -155,7 +155,7 @@ Append its findings to the review as a new section, with a disagreement table ag
 - **T-212** (settlement): the low findings, before mainnet.
 
 **Notes for other lanes.**
-- **Settlement and testkit.** `pnpm snap --settlement=local` fails on `main` since PR 113 promoted `error.submission-limit`. On the contract, an attempt-2 delivery is refused as `invalid_terms`, not `submission_limit_reached`. Map the contract's refusal, or exclude the fixture on the contract with a reason.
+- **Settlement and testkit.** Done in PR #139: the adapter now maps the contract's refusal of an attempt-2 delivery to `submission_limit_reached`, so `error.submission-limit` passes on the contract. CI still does not run `pnpm snap --settlement=local` (backlog, T-034).
 - **Sepolia demo.**
   - The cross-check found that the operator-fee bundle can be front-run (`packages/settlement/evm/evm-settlement.ts`). ADR-0023 already lists this residual and names its mitigation, relaying `agreeAndFund` alone, but the code lacked it. The demo session reports it fixed on its branch.
   - Until T-211 lands, the reference adjudicator's overturn-to-accept appeals revert on chain (H-2).

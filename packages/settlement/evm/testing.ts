@@ -213,11 +213,11 @@ export class EvmDeal {
     return { recipient, scheme: 'x25519-xsalsa20poly1305', ciphertext: b64url(canonicalKeccak({ contentKey: this.id, recipient })) };
   }
 
-  async deliver(): Promise<Submission> {
+  async deliver(attempt = 1): Promise<Submission> {
     const { adjudication, buyer } = this.terms;
     const body: Omit<Delivery, 'signature'> = {
       commitmentId: this.id,
-      attempt: 1,
+      attempt,
       ciphertext: { uri: `sim://blobs/${this.id.slice(2, 14)}`, sha256: `sha256:${'c'.repeat(64)}`, bytes: 100, cipher: 'aes-256-gcm' },
       plaintextSha256: `sha256:${'d'.repeat(64)}`,
       plaintextMime: 'text/csv',
