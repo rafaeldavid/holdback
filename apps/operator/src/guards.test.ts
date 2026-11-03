@@ -32,8 +32,15 @@ describe('startup guards: Stripe keys', () => {
 });
 
 describe('startup guards: chain IDs', () => {
-  it.each([...TEST_CHAIN_IDS])('starts on local or named testnet chain %i', (chainId) => {
+  // Anvil/Hardhat/SimChain, Ganache, Sepolia, Holesky, Base Sepolia, Arbitrum Sepolia, OP Sepolia, Polygon Amoy.
+  const TESTNETS = [31337, 1337, 11155111, 17000, 84532, 421614, 11155420, 80002];
+
+  it.each(TESTNETS)('starts on local or named testnet chain %i', (chainId) => {
     expect(() => startupGuards({ env: {}, chainId })).not.toThrow();
+  });
+
+  it('allowlists no chain beyond those testnets', () => {
+    expect([...TEST_CHAIN_IDS].filter((id) => !TESTNETS.includes(id))).toEqual([]);
   });
 
   it.each([1, 10, 56, 137, 8453, 42161, 43114])('refuses mainnet chain ID %i', (chainId) => {

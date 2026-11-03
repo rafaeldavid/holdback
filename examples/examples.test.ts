@@ -82,18 +82,8 @@ describe('examples', () => {
       checks: [{ id: 'cols', type: 'csv_columns_exact', required: true, columns: ['a'] }],
     };
     const prepared = await (await fetch(`${api}/v1/prepare/offer`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(request) })).json() as any; // eslint-disable-line @typescript-eslint/no-explicit-any
-    const dir = mkdtempSync(join(tmpdir(), 't020-sign-'));
-    writeFileSync(join(dir, 'intent.json'), JSON.stringify(request));
-    const sign = (p: unknown) =>
-      new Promise<{ code: number | null; out: string }>((resolve) => {
-        writeFileSync(join(dir, 'prepared.json'), JSON.stringify(p));
-        const env = { ...process.env, HOLDBACK_KEY: acct('seller-2').privateKey, HOLDBACK_OPERATORS: world.info.operators.join(',') };
-        const child = spawn(process.execPath, [here('./sign.ts'), join(dir, 'prepared.json'), join(dir, 'intent.json')], { env });
-        let out = '';
-        child.stdout.on('data', (d: Buffer) => (out += d.toString()));
-        child.stderr.on('data', (d: Buffer) => (out += d.toString()));
-        child.on('exit', (code) => resolve({ code, out }));
-      });
+    const env = { HOLDBACK_KEY: acct('seller-2').privateKey, HOLDBACK_OPERATORS: world.info.operators.join(',') };
+    const sign = (p: unknown) => signTs(p, request, env);
     // The review's attack: buyer, price, primary, chainId and verifyingContract edited, digest recomputed, extra slot.
     const edited = structuredClone(prepared);
     const m = edited.sign[0].typedData;
@@ -116,7 +106,7 @@ describe('examples', () => {
     // The quickstart's buyer diffs the mailed body against the operator's /terms (T-025): they are the same JSON.
     const signed = JSON.parse(ok.out) as { id: string };
     expect(await (await fetch(`${api}/v1/commitments/${signed.id}/terms`)).json()).toEqual(signed);
-  }, 30_000);
+  });
 
   it('sign.ts signs an early accept only with the seller-handed delivery, after opening the envelope (T-024, D32)', async () => {
     const fresh = async () => {
@@ -151,7 +141,7 @@ describe('examples', () => {
     } finally {
       world.silence('primary', false);
     }
-  }, 30_000);
+  });
 
   it('refuses an unknown example name', async () => {
     expect((await example(['nope'], world.url)).code).toBe(2);

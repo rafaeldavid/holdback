@@ -1,10 +1,10 @@
 // Neutrality (ADR-0001, ADR-0005, ADR-0017 §3): two operator nodes over one SimChain. Whatever an operator does
 // (refuse, go offline, throttle, drop a response after relaying), the SDK completes the commitment through the
 // other operator or straight to the settlement layer, and nothing is applied twice.
-import { problem } from '@holdback/core';
 import { Holdback } from '@holdback/sdk';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { asOperation, holdOf, world, type World } from './_world.js';
+import { refuseParties } from './policy.js';
 
 let w: World;
 beforeEach(async () => {
@@ -34,8 +34,8 @@ describe('two operators on one SimChain', () => {
     expect(s1.receiptSigner).not.toBe(s2.receiptSigner);
   });
 
-  it('neutrality.operator-refuses: op-1 refuses every relay, op-2 settles the deal', async () => {
-    const op1 = await w.operator('op-1', { policy: () => problem('invalid_state', 'this operator does not relay for you') });
+  it('neutrality.operator-refuses: op-1 refuses every relay for the seller, op-2 settles the deal', async () => {
+    const op1 = await w.operator('op-1', { policy: refuseParties([w.cast.seller.address]) });
     const op2 = await w.operator('op-2');
     const { vias, state } = await demoPath(new Holdback({ operators: [op1.url, op2.url] }));
     expect(vias).toEqual([op2.url, op2.url, op2.url]);
@@ -43,7 +43,7 @@ describe('two operators on one SimChain', () => {
   });
 
   it('neutrality.operator-offline: op-1 refuses and op-2 is offline, so the SDK submits directly and the deal settles', async () => {
-    const op1 = await w.operator('op-1', { policy: () => problem('invalid_state', 'refused') });
+    const op1 = await w.operator('op-1', { policy: refuseParties([w.cast.seller.address]) });
     const op2 = await w.operator('op-2');
     await op2.close();
     const { vias, state } = await demoPath(new Holdback({ operators: [op1.url, op2.url], settlement: w.chain, requestTimeoutMs: 500 }));
