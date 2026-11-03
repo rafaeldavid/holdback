@@ -47,7 +47,7 @@ All passes are Anthropic models, so the task's "two model families" criterion is
 - **M-2:** a delivery landed after `deliverBy` could beat the buyer's reclaim (the hold).
 - **M-3:** a sham deal could lock a named fallback's or appeal adjudicator's bond, which that adjudicator never consented to (neutrality).
 
-The public-audit cross-check found no high or medium issue against our use of CPP, Permit2, Solady or USDC, and none in the drand verifier. Its one medium outside the contracts, PA-M2 (the operator-fee bundle front-run), is in the EVM adapter and mitigation in PR #138 (open) [measured by the cross-check; PR #137].
+The public-audit cross-check found no high or medium issue against our use of CPP, Permit2, Solady or USDC, and none in the drand verifier. Its one medium outside the contracts, PA-M2 (the operator-fee bundle front-run), is in the EVM adapter; its mitigation is in PR #138 (open) [measured by the cross-check; PR #137].
 
 **What blocks what.**
 - Rule for this review: low findings block mainnet, not the Sepolia testnet.
@@ -429,7 +429,7 @@ Gaps:
    - Rafa set the cross-check against public escrow audits as a gate, and it has reported (PR #137):
      - no high or medium finding against the contracts' use of their dependencies, or in the beacon;
      - M-3, now fixed;
-     - PA-M2, the operator-fee bundle front-run, which is outside `contracts/src` and mitigation in PR #138 (open).
+     - PA-M2, the operator-fee bundle front-run, which is outside `contracts/src`; its mitigation is in PR #138 (open).
    - What it deploys: the core set, with `DrandQuicknetBeacon` as the beacon (A7) and `EXPIRY_MARGIN` of 1 day (86,400 s). The token is chosen by the Sepolia demo session: its TestUSDC goes in with the core set if PR #138 is on `main` when the deploy runs (T-206 Decisions 7).
    - EIP-2537 is live on Sepolia [measured]: `MAP_FP_TO_G1` returns a G1 point for a field element, and malformed input gets `PrecompileError`.
    - Before the public demo relies on Sepolia: until T-211 lands, the reference adjudicator's overturn-to-accept appeals revert there (H-2).
