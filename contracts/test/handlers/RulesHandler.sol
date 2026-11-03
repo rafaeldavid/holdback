@@ -45,6 +45,7 @@ contract RulesHandler is Base {
     mapping(bytes32 => uint256) public closings; // open -> Released | Refunded | Settled transitions
     mapping(bytes32 => bool) public everClosed;
     mapping(bytes32 => bool) public cppReclaimed; // the buyer's own CPP reclaim after authorizationExpiry
+    mapping(bytes32 => uint64) internal _deliverBy;
     uint256 public reopened; // a closed commitment seen in an open stage again
     uint256 public unauthorisedSuccess; // a call carrying a signature from the wrong key succeeded
     uint256 public unexpectedMovement; // a call that must not move held money moved it
@@ -243,6 +244,12 @@ contract RulesHandler is Base {
             reopened++;
             lastViolation = "a closed commitment reopened";
         }
+        // A delivery lands only before deliverBy, whichever call carries it (T-206 M-2); reclaim and mutual
+        // settlement leave the attempt at 0.
+        if (before == HoldbackRules.Stage.Held && rules.dealOf(id).attempt != 0 && block.timestamp >= _deliverBy[id]) {
+            timeoutMismatch++;
+            lastViolation = "a delivery landed at or after deliverBy";
+        }
     }
 
     function _noMove(string memory name, uint256 i, uint256 c0) internal {
@@ -308,6 +315,7 @@ contract RulesHandler is Base {
         bytes32 id = hx.id(t);
         _terms_.push(t);
         _ids.push(id);
+        _deliverBy[id] = t.timing.deliverBy;
         _rolePk[id] = r;
     }
 
