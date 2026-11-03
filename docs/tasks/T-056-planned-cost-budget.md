@@ -2,7 +2,7 @@
 
 - **Lane:** research
 - **Phase:** 10
-- **Depends on:** nothing to start. T-053's unit costs make the per-deal figures measured instead of estimated.
+- **Depends on:** nothing; it can start any time
 - **Paths this task may touch:** `docs/costs.md` (the "Planned" table), `docs/research/<date>-planned-costs.md` (new), `docs/tasks/T-056-planned-cost-budget.md`
 - **Human gate:** **yes** for quotes: contacting an auditor, a trademark attorney or a provider's sales team is outward-facing, so Rafa sends every request. The research itself needs no gate.
 - **Status:** todo
@@ -12,7 +12,7 @@
 
 Before each gate that brings a new cost (mainnet, the live on-ramp, the trademark), Rafa should know its size and its drivers, from sources rather than memory.
 
-- Inputs: the "Planned" rows of `docs/costs.md`; measured gas per deal (T-202, T-209, T-205); measured judge tokens (T-028); T-053's unit costs once they exist.
+- Inputs: the "Planned" rows of `docs/costs.md`; measured gas per deal (T-202, T-209, T-205); measured judge tokens (T-028); T-053's unit costs once they exist, which turn the per-deal figures from estimated into measured.
 - Outputs: a research note with a range per cost and its sources, updated "Planned" rows, and drafted quote requests for Rafa to send.
 - Non-goals: choosing an auditor or attorney (Rafa), any purchase, mainnet deployment.
 
