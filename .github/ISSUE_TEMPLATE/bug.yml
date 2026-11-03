@@ -1,0 +1,28 @@
+name: Bug
+description: Something does not work as documented. For security issues, use SECURITY.md instead.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Requests, commands or inputs, with test values only.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected
+    validations:
+      required: true
+  - type: input
+    id: where
+    attributes:
+      label: Commit or endpoint
+      description: For example a commit SHA, or api.escrow.stream /v1/...

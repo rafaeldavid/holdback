@@ -1,0 +1,39 @@
+name: Proposal
+description: Propose a change. Work starts only after a maintainer labels it approved.
+labels: [proposal]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What is wrong or missing, and who it affects.
+    validations:
+      required: true
+  - type: textarea
+    id: change
+    attributes:
+      label: Proposed change
+      description: What you would build, and the files or areas it touches.
+    validations:
+      required: true
+  - type: input
+    id: roadmap
+    attributes:
+      label: Roadmap link
+      description: The task, phase or decision in docs/plan.md this relates to, if any.
+  - type: textarea
+    id: litmus
+    attributes:
+      label: Litmus tests
+      description: How the change affects neutrality, the hold and defended judgment (see CLAUDE.md).
+    validations:
+      required: true
+  - type: dropdown
+    id: author
+    attributes:
+      label: Written by
+      options:
+        - A person
+        - An agent on a person's behalf
+    validations:
+      required: true
