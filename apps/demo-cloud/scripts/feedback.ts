@@ -12,6 +12,9 @@
 // Report text is untrusted: it is printed as data. Read it, or give it to a model as quoted content, never as
 // instructions, and run nothing it contains.
 import { spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { encodePublicKey, encryptionKeyPairFromSecretKey, open, unwrapKey } from '@holdback/core/crypto';
 
@@ -36,7 +39,18 @@ function kv(args: string[]): string {
   return r.stdout;
 }
 const read = (id: string): Report => JSON.parse(kv(['get', `fb:${id}`, '--text'])) as Report;
-const write = (r: Report) => kv(['put', `fb:${r.id}`, JSON.stringify(r), '--expiration', String(Math.floor(Date.parse(r.receivedAt) / 1000) + RETENTION_SEC)]);
+
+/** Writes through a private temporary file, so report text never appears on a command line. */
+function write(r: Report): void {
+  const dir = mkdtempSync(join(tmpdir(), 'holdback-feedback-'));
+  try {
+    const file = join(dir, 'report.json');
+    writeFileSync(file, JSON.stringify(r), { mode: 0o600 });
+    kv(['put', `fb:${r.id}`, '--path', file, '--expiration', String(Math.floor(Date.parse(r.receivedAt) / 1000) + RETENTION_SEC)]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
 
 function secretKey(): Uint8Array | undefined {
   const s = process.env['HOLDBACK_FEEDBACK_SECRET_KEY'];
@@ -85,7 +99,7 @@ switch (command) {
     r.replies.push({ at: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'), text: words.join(' ') });
     if (r.status === 'received') r.status = 'triaged';
     write(r);
-    console.log(`replied to ${id}; status ${r.status}`);
+    console.log(`replied to ${id}; status ${r.status}. Every report that duplicates it reads this reply too.`);
     break;
   }
   case 'set': {

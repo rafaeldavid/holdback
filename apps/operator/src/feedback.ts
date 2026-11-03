@@ -16,15 +16,25 @@ export const REPORT_STATUSES = ['received', 'triaged', 'fixed', 'wontfix', 'dupl
 export type ReportKind = (typeof REPORT_KINDS)[number];
 export type ReportStatus = (typeof REPORT_STATUSES)[number];
 
-/** The largest report body, as JSON. */
+/** The largest report body, in bytes on the wire. */
 export const MAX_REPORT_BYTES = 16_384;
 /** How long the store keeps a report. */
 export const RETENTION_DAYS = 90;
 const HOUR_MS = 3_600_000;
 const DAY_MS = 86_400_000;
 
-/** EIP-712: the optional signature over a report, under the Holdback domain the agent pins. */
-export const REPORT_TYPES = { Report: [{ name: 'reporter', type: 'address' }, { name: 'bodyHash', type: 'bytes32' }, { name: 'nonce', type: 'bytes32' }] } as const;
+/**
+ * EIP-712: the optional signature over a report, under the Holdback domain the agent pins. `operator` is the receipt
+ * signer of the node it is sent to, so a copy cannot be filed elsewhere in the reporter's name.
+ */
+export const REPORT_TYPES = {
+  Report: [
+    { name: 'reporter', type: 'address' },
+    { name: 'operator', type: 'address' },
+    { name: 'bodyHash', type: 'bytes32' },
+    { name: 'nonce', type: 'bytes32' },
+  ],
+} as const;
 
 export interface Report {
   kind: ReportKind;
@@ -106,9 +116,41 @@ const refuse = (type: ApiProblem['type'], detail: string, members: Omit<ApiProbl
 export interface FeedbackLimits {
   unsignedPerClientPerHour: number;
   signedPerSignerPerHour: number;
+  /** A report costs the store at most two writes, so 150 keep Workers KV's Free plan (1,000 writes a day, per account) clear. */
   perDay: number;
 }
-export const DEFAULT_FEEDBACK_LIMITS: FeedbackLimits = { unsignedPerClientPerHour: 10, signedPerSignerPerHour: 60, perDay: 200 };
+export const DEFAULT_FEEDBACK_LIMITS: FeedbackLimits = { unsignedPerClientPerHour: 10, signedPerSignerPerHour: 60, perDay: 150 };
+
+/**
+ * The limits' counters, in memory: one per operator, shared by its nodes, so two nodes over one store do not double
+ * them. A client IP stays here until the next report or status read after its hour, or until the process ends.
+ */
+export class ReportLimiter {
+  private readonly windows = new Map<string, { start: number; count: number }>();
+  private today = { day: '', count: 0 };
+
+  constructor(readonly limits: FeedbackLimits = DEFAULT_FEEDBACK_LIMITS) {}
+
+  /** Drops the windows whose hour has passed. */
+  sweep(now: number): void {
+    for (const [k, v] of this.windows) if (now - v.start >= HOUR_MS) this.windows.delete(k);
+  }
+
+  /** Refuses with 429 when the bucket or the day is spent; counts the report only when `charge`. */
+  admit(bucket: string, budget: number, what: string, now: number, charge: boolean): void {
+    this.sweep(now);
+    let w = this.windows.get(bucket);
+    if (!w) this.windows.set(bucket, (w = { start: now, count: 0 }));
+    if (w.count >= budget) refuse('rate_limited', `at most ${budget} ${what} an hour`, { retryAfterSec: Math.max(1, Math.ceil((w.start + HOUR_MS - now) / 1000)) });
+    const day = wholeSecond(now).slice(0, 10);
+    if (this.today.day !== day) this.today = { day, count: 0 };
+    if (this.today.count >= this.limits.perDay) refuse('rate_limited', 'this operator has taken its reports for today; retry tomorrow (UTC) or report to another operator', { retryAfterSec: Math.max(1, Math.ceil((Date.parse(`${day}T00:00:00Z`) + DAY_MS - now) / 1000)) });
+    if (charge) {
+      w.count++;
+      this.today.count++;
+    }
+  }
+}
 
 export interface FeedbackOptions {
   store: FeedbackStore;
@@ -116,7 +158,8 @@ export interface FeedbackOptions {
   encryptionPublicKey?: string;
   /** This node's log line for a Request-Id, when it keeps a request log. */
   requestLog?: (requestId: string) => Promise<LogLine | undefined>;
-  limits?: FeedbackLimits;
+  /** Counters shared by the operator's nodes. Default: one per node, with DEFAULT_FEEDBACK_LIMITS. */
+  limiter?: ReportLimiter;
 }
 
 export interface FeedbackContext {
@@ -132,20 +175,24 @@ export interface FeedbackContext {
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const HEX32 = /^0x[0-9a-f]{64}$/;
 const B64URL = /^[A-Za-z0-9_-]+$/;
+/** Half a surrogate pair: what cutting a string at a UTF-16 length can leave of an emoji. It cannot be hashed. */
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
 const wholeSecond = (ms: number) => new Date(Math.floor(ms / 1000) * 1000).toISOString().replace('.000Z', 'Z') as Timestamp;
 
+/** A bounded, non-blank, well-formed string, or a refusal naming `field`. */
+function bounded(v: unknown, field: string, max: number): string {
+  if (typeof v !== 'string' || v.trim() === '' || v.length > max) refuse('invalid_terms', `${field} is a non-empty string of at most ${max} characters`, { field });
+  if (LONE_SURROGATE.test(v as string)) refuse('invalid_terms', `${field} holds half a surrogate pair (a character cut in two); send well-formed Unicode`, { field });
+  return v as string;
+}
+
 /** The fields a report may carry, with their limits: everything a reporter writes is a bounded string. */
-function parse(raw: unknown): Report {
+export function parseReport(raw: unknown): Report {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) refuse('invalid_terms', 'a report is a JSON object');
   const r = raw as Record<string, unknown>;
   const allowed = new Set(['kind', 'summary', 'detail', 'requestId', 'commitmentId', 'observed', 'expected', 'client', 'schemaVersion', 'sealed', 'signer', 'nonce', 'signature']);
   for (const k of Object.keys(r)) if (!allowed.has(k)) refuse('invalid_terms', `a report has no field ${k}`, { field: k });
-  const text = (k: string, max: number, required = false): string | undefined => {
-    const v = r[k];
-    if (v === undefined && !required) return undefined;
-    if (typeof v !== 'string' || v.trim() === '' || v.length > max) refuse('invalid_terms', `${k} is ${required ? 'required: ' : ''}a non-empty string of at most ${max} characters`, { field: k });
-    return v as string;
-  };
+  const text = (k: string, max: number, required = false): string | undefined => (r[k] === undefined && !required ? undefined : bounded(r[k], k, max));
   if (!REPORT_KINDS.includes(r['kind'] as ReportKind)) refuse('invalid_terms', `kind is one of ${REPORT_KINDS.join(', ')}`, { field: 'kind' });
   const report: Report = { kind: r['kind'] as ReportKind, summary: text('summary', 200, true)! };
   const detail = text('detail', 4000);
@@ -169,12 +216,8 @@ function parse(raw: unknown): Report {
   if (r['client'] !== undefined) {
     const c = r['client'] as Record<string, unknown>;
     if (!c || typeof c !== 'object' || Array.isArray(c) || Object.keys(c).some((k) => !['name', 'version', 'model'].includes(k))) refuse('invalid_terms', 'client is {name, version?, model?}', { field: 'client' });
-    const part = (k: string, required = false) => {
-      if (c[k] === undefined && !required) return undefined;
-      if (typeof c[k] !== 'string' || c[k] === '' || (c[k] as string).length > 100) refuse('invalid_terms', `client.${k} is a string of at most 100 characters`, { field: `client.${k}` });
-      return c[k] as string;
-    };
-    report.client = { name: part('name', true)!, ...(part('version') ? { version: part('version')! } : {}), ...(part('model') ? { model: part('model')! } : {}) };
+    report.client = { name: bounded(c['name'], 'client.name', 100) };
+    for (const k of ['version', 'model'] as const) if (c[k] !== undefined) report.client[k] = bounded(c[k], `client.${k}`, 100);
   }
   if (r['sealed'] !== undefined) {
     const s = (r['sealed'] ?? {}) as Record<string, unknown>;
@@ -221,17 +264,15 @@ export function fingerprintOf(report: Report, log: LogLine | null): Hex32 {
   return canonicalKeccak({ kind: report.kind, route: log ? `${log.method} ${log.route}` : null, problem: log?.problem ?? null, schemaVersion: report.schemaVersion ?? null, summary }) as Hex32;
 }
 
-/** One operator node's report desk: parsing, the warning, abuse limits, the attached log line and the private store. */
+/** One operator node's report desk: the warning, abuse limits, the attached log line and the private store. */
 export class FeedbackDesk {
-  private readonly windows = new Map<string, { start: number; count: number }>();
-  private readonly limits: FeedbackLimits;
-  private today = { day: '', count: 0 };
+  private readonly limiter: ReportLimiter;
 
   constructor(
     private readonly o: FeedbackOptions,
     private readonly c: FeedbackContext,
   ) {
-    this.limits = o.limits ?? DEFAULT_FEEDBACK_LIMITS;
+    this.limiter = o.limiter ?? new ReportLimiter();
   }
 
   /** What the reporter is told before it sends: it chooses to share the report with this operator. */
@@ -252,16 +293,16 @@ export class FeedbackDesk {
     };
   }
 
-  /** The dry run: the report checked as it would be stored, nothing kept, and the warning as a notice. */
-  async check(raw: unknown, client: string): Promise<Record<string, unknown>> {
-    const { report, signer } = await this.admit(raw, client, false);
+  /** The dry run of a parsed report (parseReport): checked as it would be stored, nothing kept, the warning as a notice. */
+  async check(report: Report, client: string): Promise<Record<string, unknown>> {
+    const signer = await this.admit(report, client, false);
     const log = report.requestId ? ((await this.o.requestLog?.(report.requestId)) ?? null) : null;
     return { valid: true, kind: report.kind, ...(signer ? { signer } : {}), fingerprint: fingerprintOf(report, log), logAttached: log !== null, notices: [this.warning] };
   }
 
-  /** Files a report: 202 with its ID, status, fingerprint and the report it duplicates, if any. */
-  async submit(raw: unknown, client: string): Promise<Record<string, unknown>> {
-    const { report, signer } = await this.admit(raw, client, true);
+  /** Files a parsed report: 202 with its ID, status, fingerprint and the report it duplicates, if any. */
+  async submit(report: Report, client: string): Promise<Record<string, unknown>> {
+    const signer = await this.admit(report, client, true);
     const log = report.requestId ? ((await this.o.requestLog?.(report.requestId)) ?? null) : null;
     const fingerprint = fingerprintOf(report, log);
     const duplicateOf = await this.o.store.firstWith(fingerprint);
@@ -287,17 +328,19 @@ export class FeedbackDesk {
     return { id: stored.id, status: stored.status, fingerprint, ...(duplicateOf ? { duplicateOf } : {}), logAttached: log !== null, retentionUntil: wholeSecond(now + RETENTION_DAYS * DAY_MS) };
   }
 
-  /** GET /v1/feedback/{id}: the status and the operator's replies; the report itself stays private. */
+  /**
+   * GET /v1/feedback/{id}: the status and the operator's replies; the report itself stays private. A duplicate's ID
+   * reads the first report's replies, so a reply never quotes a report.
+   */
   async status(id: string): Promise<Record<string, unknown>> {
+    this.limiter.sweep(this.c.now());
     if (!UUID.test(id)) refuse('not_found', `no report ${id}`);
     const r = (await this.o.store.get(id)) ?? refuse('not_found', `no report ${id} on this operator (reports are kept ${RETENTION_DAYS} days)`);
-    return { id: r!.id, kind: r!.report.kind, status: r!.status, fingerprint: r!.fingerprint, ...(r!.duplicateOf ? { duplicateOf: r!.duplicateOf } : {}), receivedAt: r!.receivedAt, replies: r!.replies, ...(r!.fixedIn ? { fixedIn: r!.fixedIn } : {}) };
+    return { id: r.id, kind: r.report.kind, status: r.status, fingerprint: r.fingerprint, ...(r.duplicateOf ? { duplicateOf: r.duplicateOf } : {}), receivedAt: r.receivedAt, replies: r.replies, ...(r.fixedIn ? { fixedIn: r.fixedIn } : {}) };
   }
 
-  /** Parses, verifies a signature, and applies the limits (charging them only when `charge`). */
-  private async admit(raw: unknown, client: string, charge: boolean): Promise<{ report: Report; signer?: Address }> {
-    if (JSON.stringify(raw ?? null).length > MAX_REPORT_BYTES) refuse('payload_too_large', `a report is at most ${MAX_REPORT_BYTES} bytes of JSON`);
-    const report = parse(raw);
+  /** Verifies a signature and applies the limits (charging them only when `charge`); returns the verified signer. */
+  private async admit(report: Report, client: string, charge: boolean): Promise<Address | undefined> {
     if (report.sealed && !this.o.encryptionPublicKey) refuse('invalid_terms', 'this node publishes no feedback key, so it takes no sealed report; send it without deal details, or to another operator', { field: 'sealed' });
     let signer: Address | undefined;
     if (report.signature) {
@@ -306,27 +349,15 @@ export class FeedbackDesk {
         domain: { ...this.c.domain, chainId: BigInt(this.c.domain.chainId) },
         types: REPORT_TYPES,
         primaryType: 'Report',
-        message: { reporter: report.signer!, bodyHash: reportBodyHash(report), nonce: report.nonce! },
+        message: { reporter: report.signer!, operator: this.c.receiptSigner, bodyHash: reportBodyHash(report), nonce: report.nonce! },
         signature: report.signature,
       }).catch(() => false);
-      if (!ok) refuse('invalid_signature', 'the signature is not a Report {reporter, bodyHash, nonce} signed by signer under the Holdback domain');
+      if (!ok) refuse('invalid_signature', "the signature is not a Report {reporter, operator, bodyHash, nonce} signed by signer under the Holdback domain, with operator this node's receiptSigner");
       signer = report.signer;
     }
-    const now = this.c.now();
-    const bucket = signer ? `s:${signer}` : `c:${client}`;
-    const budget = signer ? this.limits.signedPerSignerPerHour : this.limits.unsignedPerClientPerHour;
-    // Client IPs live here only while their hour is open.
-    for (const [k, v] of this.windows) if (now - v.start >= HOUR_MS) this.windows.delete(k);
-    let w = this.windows.get(bucket);
-    if (!w || now - w.start >= HOUR_MS) this.windows.set(bucket, (w = { start: now, count: 0 }));
-    if (w.count >= budget) refuse('rate_limited', `at most ${budget} ${signer ? 'signed reports per signer' : 'unsigned reports per client'} an hour`, { retryAfterSec: Math.max(1, Math.ceil((w.start + HOUR_MS - now) / 1000)) });
-    const day = wholeSecond(now).slice(0, 10);
-    if (this.today.day !== day) this.today = { day, count: 0 };
-    if (this.today.count >= this.limits.perDay) refuse('rate_limited', 'this node has taken its reports for today; retry tomorrow (UTC) or report to another operator', { retryAfterSec: Math.max(1, Math.ceil((Date.parse(`${day}T00:00:00Z`) + DAY_MS - now) / 1000)) });
-    if (charge) {
-      w.count++;
-      this.today.count++;
-    }
-    return { report, ...(signer ? { signer } : {}) };
+    const l = this.limiter.limits;
+    if (signer) this.limiter.admit(`s:${signer}`, l.signedPerSignerPerHour, 'signed reports per signer', this.c.now(), charge);
+    else this.limiter.admit(`c:${client}`, l.unsignedPerClientPerHour, 'unsigned reports per client', this.c.now(), charge);
+    return signer;
   }
 }

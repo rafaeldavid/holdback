@@ -62,21 +62,35 @@ Let agents report bugs, docs problems and feedback through the API, and let the 
   - `KvFeedbackStore` writes `fb:` and `fp:` with a 7,776,000 s (90-day) TTL.
 - **Measured: `tests/contract`, 10 tests.** The dry run, the 202 and the status read validate against `spec/openapi.json`. `docs/api.md`'s rows match the document, with the two planned rows gone and no planned route left for feedback. `pnpm validate:spec` passes: 42 operations.
 - **Measured: the site check.** `node site/check.mjs` passes with the "Reporting a problem" section.
+- **The PR 121 review (ISSUES), and the fixes after it** (measured: `feedback.test.ts`, 9 tests):
+  1. The 16 KiB cap is enforced in bytes, before parsing. An over-cap body of three-byte characters gets 413, and deep nesting gets 400 `field: "client"`.
+  2. Lone surrogates are refused with their `field`, on the dry run too.
+  3. The rule that a reply is read by every duplicate's reporter is in the docs and the triage script.
+  4. Limits are shared by an operator's nodes (`ReportLimiter`): two nodes with a limit of 2 answer 202, 202, then 429. The daily cap is 150, within the Free plan's KV writes.
+  5. The IP-retention statement is corrected, and the limiter also sweeps on status reads.
+  6. `Report` is bound to the operator: a report signed for another receipt signer gets 401 `invalid_signature`.
+  7. The redundant `!` are removed, `sealed` is marked untrusted, the OpenAPI patterns match the server (non-blank, lowercase UUID), and the triage script writes through a private temporary file.
 - **Measured: the triage script offline.** `feedback.ts public-key` derives the x25519 public key from a test secret, and an unknown command prints usage and exits 2. The KV commands were not run: they need the namespace (Rafa's gate).
 
 ## Decisions
 
 - **The feedback key's secret never reaches the node.** D39 says reports are sealed to the operator's own key. Here the operator is the person who runs the node. The Worker holds only the public key (the var `FEEDBACK_ENCRYPTION_PUBLIC_KEY`, served in discovery); the secret stays in the operator's `.env`, and only the triage script opens sealed reports. So a sealed report is unreadable to Cloudflare and to the running Worker. The fingerprint uses only clear fields, and a sealed report carries `detail`, `observed` and `expected` inside `sealed`.
 - **`sealed` mirrors a delivery:** `{ciphertext, plaintextSha256, envelope}`, the AES-256-GCM layout and NaCl box envelope of `ENVELOPE_SPEC`, inline rather than in the ciphertext store. `@holdback/core/crypto`'s `seal`, `wrapKey`, `unwrapKey` and `open` build and open it, plaintext hash check included. There is a single recipient, the operator, so the envelope is one `SealedKey` with no `recipient`.
-- **The signature is an operator-level EIP-712 type, `Report {reporter, bodyHash, nonce}`,** verified with viem under the Holdback domain. It is defined in `apps/operator/src/feedback.ts`, not in `spec/schemas` or core's types: nothing on the settlement layer reads it, so no schema bump or ADR is needed. There is no `expiresAt`: a replayed signature only files the same report again, and that is grouped as a duplicate.
+- **The signature is an operator-level EIP-712 type, `Report {reporter, operator, bodyHash, nonce}`,** verified with viem under the Holdback domain.
+  - **Defined in the operator.** It lives in `apps/operator/src/feedback.ts`, not in `spec/schemas` or core's types: nothing on the settlement layer reads it, so no schema bump or ADR is needed.
+  - **Bound to the node.** `operator` is the receiving node's receipt signer, so whoever holds a copy cannot file it at another operator in the reporter's name (PR 121 review).
+  - **No expiry.** There is no `expiresAt`: a replay at the same node only files the same report again, and it is grouped as a duplicate.
 - **The dry run is the warning.** `POST /v1/feedback?validateOnly=true` checks the report as it would be stored, keeps nothing, and answers the warning as a notice naming the operator ID and receipt signer. Discovery's `feedback.notice` repeats it. There is no separate prepare route.
 - **`requestId` is required for a bug only.** Feedback and feature requests rarely have a failing call. `detail` is required unless `sealed` carries it.
 - **A duplicate stays `received` with `duplicateOf` set**, as the task's answer shape says. Status `duplicate` is the triager's call.
+- **`duplicateOf` shows a duplicate's reporter the first report's replies.** That is by design: one answer reaches everyone who met the problem. The rule that follows is in the triage routine and `docs/api.md`: a reply never quotes a report or a deal detail (PR 121 review).
 - **Limits:**
   - 10 unsigned reports per client IP an hour, and 60 signed per verified signer;
-  - 200 a UTC day per node, which keeps KV under its 1,000 writes a day on the Free plan;
-  - 16 KiB of JSON, plus per-field caps.
-  The hourly windows are in memory, and an expired window is dropped on the next report, so an IP is held at most an hour.
+  - 150 a UTC day per operator, at most 300 KV writes, against the Free plan's 1,000 a day per account (shared with early-access's sign-ups);
+  - 16 KiB on the wire, checked before `JSON.parse`, plus per-field caps and well-formed Unicode.
+
+  The counters (`ReportLimiter`) are in memory, and one operator's nodes share them. An IP is dropped at the next report or status read after its hour, or when the object restarts: not strictly within the hour, but never stored.
+- **The report is parsed before anything hashes it**, as a write is shape-checked before its idempotency fingerprint. A malformed or deeply nested body is a 400, not a 500 (PR 121 review).
 - **Reports are kept 90 days** (KV `expirationTtl`, review §8). `GET /v1/feedback/{id}` serves the status and replies only: the ID is the capability, and the report itself stays private.
 
 ## Handoff

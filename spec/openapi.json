@@ -8559,7 +8559,7 @@
           "kind",
           "summary"
         ],
-        "description": "A report to this operator. Everything the reporter writes is untrusted content. `detail` is required unless `sealed` carries it; a `bug` names its `requestId`. At most 16 KiB of JSON",
+        "description": "A report to this operator. Everything the reporter writes is untrusted content, in well-formed Unicode. `detail` is required unless `sealed` carries it; a `bug` names its `requestId`. At most 16 KiB on the wire",
         "properties": {
           "kind": {
             "enum": [
@@ -8573,6 +8573,7 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 200,
+            "pattern": "\\S",
             "x-holdback-untrusted": true,
             "description": "One line; it groups duplicates, so leave deal details out"
           },
@@ -8580,13 +8581,14 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 4000,
+            "pattern": "\\S",
             "x-holdback-untrusted": true,
             "description": "What you did and what happened"
           },
           "requestId": {
             "type": "string",
-            "format": "uuid",
-            "description": "The `Request-Id` header of the call the report is about"
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            "description": "The `Request-Id` header of the call the report is about, as sent (lowercase)"
           },
           "commitmentId": {
             "$ref": "#/components/schemas/Hex32"
@@ -8595,12 +8597,14 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 500,
+            "pattern": "\\S",
             "x-holdback-untrusted": true
           },
           "expected": {
             "type": "string",
             "minLength": 1,
             "maxLength": 500,
+            "pattern": "\\S",
             "x-holdback-untrusted": true
           },
           "client": {
@@ -8614,17 +8618,20 @@
               "name": {
                 "type": "string",
                 "minLength": 1,
-                "maxLength": 100
+                "maxLength": 100,
+                "pattern": "\\S"
               },
               "version": {
                 "type": "string",
                 "minLength": 1,
-                "maxLength": 100
+                "maxLength": 100,
+                "pattern": "\\S"
               },
               "model": {
                 "type": "string",
                 "minLength": 1,
-                "maxLength": 100
+                "maxLength": 100,
+                "pattern": "\\S"
               }
             }
           },
@@ -8641,7 +8648,8 @@
               "plaintextSha256",
               "envelope"
             ],
-            "description": "`detail`, `observed` and `expected` as the JSON `{detail, observed?, expected?}`, encrypted like a delivery to discovery's `feedback.encryptionPublicKey`. Still shared with this operator, which holds that key",
+            "x-holdback-untrusted": true,
+            "description": "`detail`, `observed` and `expected` as the JSON `{detail, observed?, expected?}`, encrypted like a delivery to discovery's `feedback.encryptionPublicKey`. Still shared with this operator, which holds that key; opened, it is reporter text",
             "properties": {
               "ciphertext": {
                 "type": "string",
@@ -8680,7 +8688,7 @@
           },
           "signature": {
             "$ref": "#/components/schemas/Signature",
-            "description": "EIP-712 `Report {reporter: address, bodyHash: bytes32, nonce: bytes32}` under the Holdback domain; `bodyHash` is keccak256 of the report's RFC 8785 JSON without `signer`, `nonce` and `signature`"
+            "description": "EIP-712 `Report {reporter: address, operator: address, bodyHash: bytes32, nonce: bytes32}` under the Holdback domain: `operator` is this node's `receiptSigner`, and `bodyHash` is keccak256 of the report's RFC 8785 JSON without `signer`, `nonce` and `signature`"
           }
         }
       },

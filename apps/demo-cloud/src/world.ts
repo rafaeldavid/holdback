@@ -21,7 +21,7 @@ import { canonicalKeccak, holdbackDomain, parseAdjudicator, problem, type Adjudi
 import { sha256 } from '@holdback/core/crypto';
 import { StoreError, type CiphertextStore } from '@holdback/core/store';
 import { testAdjudicator, type TestAdjudicator } from '@holdback/adjudicator';
-import { fetchHandler, Operator, simRegistry, testAccount, type DemoFacts, type FaucetOutcome, type FeedbackOptions, type FeedbackStore, type NoticeSubject, type Registry, type TestAccount } from '@holdback/operator';
+import { fetchHandler, Operator, ReportLimiter, simRegistry, testAccount, type DemoFacts, type FaucetOutcome, type FeedbackOptions, type FeedbackStore, type NoticeSubject, type Registry, type TestAccount } from '@holdback/operator';
 import { decodePublicKey } from '@holdback/core/crypto';
 import { mandateFor, SIM_CHAIN_ID, SIM_RULEBOOK, simClub, SimChain, TOKEN, wideScope, type Genesis, type JournalEntry } from '@holdback/settlement/sim';
 import { panelConfig, type JudgeProvider, type PanelConfig } from './judges.js';
@@ -470,7 +470,8 @@ function feedbackFrom(o: PublicWorldOptions, requestLog: NonNullable<FeedbackOpt
   if (!o.feedbackStore) return undefined;
   const key = o.env['FEEDBACK_ENCRYPTION_PUBLIC_KEY'];
   if (key) decodePublicKey(key);
-  return { store: o.feedbackStore, requestLog, ...(key ? { encryptionPublicKey: key } : {}) };
+  // One limiter for both nodes: they are one operator over one store.
+  return { store: o.feedbackStore, requestLog, limiter: new ReportLimiter(), ...(key ? { encryptionPublicKey: key } : {}) };
 }
 
 const DECIMAL = /^(0|[1-9][0-9]{0,77})$/;

@@ -47,7 +47,7 @@ import type { Sha256, Signature, Timestamp, TokenAmount } from '@holdback/core';
 import { CryptoError, sha256 } from '@holdback/core/crypto';
 import { MAX_CIPHERTEXT_BYTES, type CiphertextStore } from '@holdback/core/store';
 import { ENVELOPE_SPEC } from './envelope-spec.js';
-import { FeedbackDesk, FeedbackError, type FeedbackOptions } from './feedback.js';
+import { FeedbackDesk, FeedbackError, MAX_REPORT_BYTES, parseReport, type FeedbackOptions, type Report } from './feedback.js';
 import { startupGuards } from './guards.js';
 import { amountText, operatorFeeText, prepare, PrepareError, type PrepareContext } from './prepare.js';
 import { IdempotencyStore, fingerprint, type StoredResponse } from './idempotency.js';
@@ -595,12 +595,12 @@ export class Operator {
     this.charge(bucket);
   }
 
-  private async body(ctx: Ctx): Promise<unknown> {
+  private async body(ctx: Ctx, limit = MAX_BODY_BYTES): Promise<unknown> {
     const chunks: Buffer[] = [];
     let size = 0;
     for await (const chunk of ctx.req as AsyncIterable<Buffer>) {
       size += chunk.length;
-      if (size > MAX_BODY_BYTES) fail('payload_too_large', `request bodies are limited to ${MAX_BODY_BYTES} bytes`);
+      if (size > limit) fail('payload_too_large', `request bodies are limited to ${limit} bytes here`);
       chunks.push(chunk);
     }
     const text = Buffer.concat(chunks).toString('utf8');
@@ -967,13 +967,21 @@ export class Operator {
     };
     if (ctx.method === 'GET' && s.length === 3) {
       this.throttle(`r:${this.client(ctx)}`, this.o.rateLimit?.reads ?? 0);
-      return this.send(ctx, await answer(() => desk!.status(s[2]!)));
+      return this.send(ctx, await answer(() => desk.status(s[2]!)));
     }
     if (ctx.method !== 'POST' || s.length !== 2) fail('not_found', `no route ${ctx.method} ${ctx.url.pathname}`);
     this.throttle(`w:${this.client(ctx)}`, this.o.rateLimit?.writes ?? 0);
-    const raw = await this.body(ctx);
-    if (validateOnly(ctx.url.searchParams)) return this.send(ctx, await answer(() => desk!.check(raw, this.client(ctx))));
-    return this.idempotent(ctx, raw, () => answer(() => desk!.submit(raw, this.client(ctx)), 202));
+    // Size-capped on the wire and parsed before anything hashes it, as a write is shape-checked first.
+    const raw = await this.body(ctx, MAX_REPORT_BYTES);
+    let report: Report;
+    try {
+      report = parseReport(raw);
+    } catch (e) {
+      if (e instanceof FeedbackError) throw new HttpProblem(e.problem);
+      throw e;
+    }
+    if (validateOnly(ctx.url.searchParams)) return this.send(ctx, await answer(() => desk.check(report, this.client(ctx))));
+    return this.idempotent(ctx, report, () => answer(() => desk.submit(report, this.client(ctx)), 202));
   }
 
   // ---- reads -------------------------------------------------------------------------------------

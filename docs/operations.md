@@ -95,14 +95,16 @@ A stored report holds:
 - the verified signer, when it was signed;
 - what the node attached: its log line for `requestId` (route template, status, problem type, timing, node), the operator ID, the schema version, the settlement head and, with a `commitmentId`, that deal's public state.
 
-It never holds the reporter's IP or a header value. IPs live only in the desk's hourly limit windows, in memory.
+It never holds the reporter's IP or a header value. An IP lives only in the hourly limit windows, in memory, until the next report or status read after its hour, or until the object restarts.
+
+**Limits** are shared by the two nodes: 10 unsigned reports per IP an hour, 60 signed per signer, and 150 a UTC day, kept in memory, so a restart resets them. A report costs at most two KV writes, so a full day is at most 300 of the Free plan's 1,000 writes. That limit is per account, so it is shared with early-access's `EMAILS`.
 
 **The routine**, weekly, and after a deploy that fixed something. Run each step as `node --env-file=.env apps/demo-cloud/scripts/feedback.ts <step>`, with wrangler logged in:
 
 1. `list received`: new reports, oldest first, with their fingerprints.
 2. `show <id>`: one report. Sealed parts are opened with `HOLDBACK_FEEDBACK_SECRET_KEY`, which stays in `.env` and never reaches Cloudflare.
 3. Deduplicate. Reports of one problem (same kind, logged route and problem type, schema version and normalized summary) already carry `duplicateOf`. `set <id> duplicate <first id>` merges one by hand.
-4. Reply. `reply <id> <text>` appends a reply the reporter reads at `GET /v1/feedback/<id>`, and moves `received` to `triaged`. Say what changes, or what the agent should do.
+4. Reply. `reply <id> <text>` appends a reply the reporter reads at `GET /v1/feedback/<id>`, and moves `received` to `triaged`. Say what changes, or what the agent should do. Every reporter whose report duplicates this one reads the reply too, through `duplicateOf`. So never quote a report, a sealed part or a deal detail in a reply.
 5. Close. `set <id> fixed <commit or PR>` once the fix is deployed, or `set <id> wontfix` after a reply that says why.
 
 **Setting it up** (Rafa's gate, once):

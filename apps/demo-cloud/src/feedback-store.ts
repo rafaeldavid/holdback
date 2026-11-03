@@ -1,6 +1,6 @@
 // The demo operator's private report store (T-032): a Workers KV namespace bound as FEEDBACK on holdback-op1. Keys
 // `fb:<id>` hold a report, `fp:<fingerprint>` the first report with that fingerprint; both expire after the
-// retention period. Triage reads and replies with wrangler (apps/demo-cloud/scripts/feedback.mjs, docs/operations.md).
+// retention period. Triage reads and replies with wrangler (apps/demo-cloud/scripts/feedback.ts, docs/operations.md).
 import { RETENTION_DAYS, type FeedbackStore, type StoredReport } from '@holdback/operator';
 import type { Hex32 } from '@holdback/core';
 

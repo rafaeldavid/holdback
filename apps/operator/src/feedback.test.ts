@@ -4,7 +4,7 @@ import { canonicalKeccak, holdbackDomain, type Hex32 } from '@holdback/core';
 import { encodePublicKey, generateEncryptionKeyPair, open, seal, unwrapKey, wrapKey } from '@holdback/core/crypto';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { MemoryFeedbackStore, REPORT_TYPES, reportBodyHash, type LogLine, type Report } from './feedback.js';
+import { MemoryFeedbackStore, REPORT_TYPES, ReportLimiter, reportBodyHash, type LogLine, type Report } from './feedback.js';
 import { world, type World } from './_world.js';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -20,7 +20,7 @@ beforeEach(async () => {
   store = new MemoryFeedbackStore();
   lines.clear();
   const node = await w.operator('op-fb', {
-    feedback: { store, encryptionPublicKey: encodePublicKey(key.publicKey), requestLog: async (id) => lines.get(id), limits: { unsignedPerClientPerHour: 3, signedPerSignerPerHour: 5, perDay: 100 } },
+    feedback: { store, encryptionPublicKey: encodePublicKey(key.publicKey), requestLog: async (id) => lines.get(id), limiter: new ReportLimiter({ unsignedPerClientPerHour: 3, signedPerSignerPerHour: 5, perDay: 100 }) },
   });
   base = node.url;
 });
@@ -74,22 +74,28 @@ describe('POST /v1/feedback', () => {
     expect(store.reports.size).toBe(1);
   });
 
-  it('verifies a signed report and counts it against its signer; a wrong signature is refused', async () => {
+  it('verifies a signed report for this operator and counts it against its signer; a changed or re-addressed one is refused', async () => {
     const account = privateKeyToAccount(generatePrivateKey());
-    const sign = async (report: Report) => {
+    const operator = (await json(await fetch(`${base}/v1/status`))).receiptSigner as `0x${string}`;
+    const sign = async (report: Report, to = operator) => {
       const nonce = canonicalKeccak({ n: crypto.randomUUID() }) as Hex32;
       const domain = holdbackDomain(31337);
-      const signature = await account.signTypedData({ domain: { ...domain, chainId: BigInt(domain.chainId) }, types: REPORT_TYPES, primaryType: 'Report', message: { reporter: account.address, bodyHash: reportBodyHash(report), nonce } });
+      const message = { reporter: account.address, operator: to, bodyHash: reportBodyHash(report), nonce };
+      const signature = await account.signTypedData({ domain: { ...domain, chainId: BigInt(domain.chainId) }, types: REPORT_TYPES, primaryType: 'Report', message });
       return { ...report, signer: account.address.toLowerCase() as `0x${string}`, nonce, signature };
     };
     // More signed reports than the unsigned limit of 3: the signer's own budget of 5 applies.
-    for (let i = 0; i < 5; i++) expect((await post(await sign(bug({ summary: `report ${i} about agree` })))).status).toBe(202);
-    const sixth = await post(await sign(bug()));
-    expect([sixth.status, (await json(sixth)).type]).toEqual([429, 'rate_limited']);
-    expect([...store.reports.values()].every((r) => r.signer === account.address.toLowerCase())).toBe(true);
+    for (let i = 0; i < 4; i++) expect((await post(await sign(bug({ summary: `report ${i} about agree` })))).status).toBe(202);
     const forged = { ...(await sign(bug())), summary: 'changed after signing' };
     const r = await post(forged);
     expect([r.status, (await json(r)).type]).toEqual([401, 'invalid_signature']);
+    // Signed for another operator: a copy cannot be filed here in the reporter's name.
+    const elsewhere = await post(await sign(bug(), `0x${'11'.repeat(20)}`));
+    expect((await json(elsewhere)).type).toBe('invalid_signature');
+    expect((await post(await sign(bug()))).status).toBe(202);
+    const sixth = await post(await sign(bug()));
+    expect([sixth.status, (await json(sixth)).type]).toEqual([429, 'rate_limited']);
+    expect([...store.reports.values()].every((x) => x.signer === account.address.toLowerCase())).toBe(true);
   });
 
   it('takes a sealed report built like a delivery; only the feedback key opens it', async () => {
@@ -118,7 +124,23 @@ describe('POST /v1/feedback', () => {
     expect(await field({ ...bug(), summary: 'x'.repeat(201) })).toBe('summary');
     expect(await field({ ...bug(), requestId: undefined })).toBe('requestId');
     expect(await field({ ...bug(), extra: 1 })).toBe('extra');
-    expect((await post({ ...bug(), detail: 'x'.repeat(4000), observed: 'y'.repeat(500), expected: 'z'.repeat(500), client: { name: 'n'.repeat(100) }, padding: 'p'.repeat(12_000) })).status).toBe(413);
+    // Half an emoji, as a cut at 200 UTF-16 characters can leave: refused with its field, on the dry run too.
+    expect(await field({ ...bug(), summary: `cut here \uD83D` })).toBe('summary');
+    expect((await json(await post({ ...bug(), detail: `cut \uDE00 there` }, null, '?validateOnly=true'))).field).toBe('detail');
+    // The cap is bytes on the wire: every field within its length in characters, three bytes each, is over 16 KiB.
+    const euros = (n: number) => '€'.repeat(n);
+    const wide = { ...bug(), summary: euros(200), detail: euros(4000), observed: euros(500), expected: euros(500), client: { name: euros(100), version: euros(100), model: euros(100) } };
+    expect((await post(wide)).status).toBe(413);
+    // Deep nesting is refused as malformed, never hashed.
+    const deep = await post({ ...bug(), client: JSON.parse(`${'['.repeat(5000)}${']'.repeat(5000)}`) });
+    expect([deep.status, (await json(deep)).field]).toEqual([400, 'client']);
+  });
+
+  it("shares one limiter across an operator's nodes", async () => {
+    const shared = { store: new MemoryFeedbackStore(), limiter: new ReportLimiter({ unsignedPerClientPerHour: 2, signedPerSignerPerHour: 5, perDay: 100 }) };
+    const [a, b] = [await w.operator('op-a', { feedback: shared }), await w.operator('op-b', { feedback: shared })];
+    const send = (url: string) => fetch(`${url}/v1/feedback`, { method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': crypto.randomUUID() }, body: JSON.stringify(bug()) });
+    expect([(await send(a.url)).status, (await send(b.url)).status, (await send(a.url)).status]).toEqual([202, 202, 429]);
   });
 
   it('keeps report text as data, and stores no header value or client address', async () => {

@@ -859,28 +859,29 @@
         "type": "object",
         "additionalProperties": false,
         "required": ["kind", "summary"],
-        "description": "A report to this operator. Everything the reporter writes is untrusted content. `detail` is required unless `sealed` carries it; a `bug` names its `requestId`. At most 16 KiB of JSON",
+        "description": "A report to this operator. Everything the reporter writes is untrusted content, in well-formed Unicode. `detail` is required unless `sealed` carries it; a `bug` names its `requestId`. At most 16 KiB on the wire",
         "properties": {
           "kind": { "enum": ["bug", "docs", "feedback", "feature"] },
-          "summary": { "type": "string", "minLength": 1, "maxLength": 200, "x-holdback-untrusted": true, "description": "One line; it groups duplicates, so leave deal details out" },
-          "detail": { "type": "string", "minLength": 1, "maxLength": 4000, "x-holdback-untrusted": true, "description": "What you did and what happened" },
-          "requestId": { "type": "string", "format": "uuid", "description": "The `Request-Id` header of the call the report is about" },
+          "summary": { "type": "string", "minLength": 1, "maxLength": 200, "pattern": "\\S", "x-holdback-untrusted": true, "description": "One line; it groups duplicates, so leave deal details out" },
+          "detail": { "type": "string", "minLength": 1, "maxLength": 4000, "pattern": "\\S", "x-holdback-untrusted": true, "description": "What you did and what happened" },
+          "requestId": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", "description": "The `Request-Id` header of the call the report is about, as sent (lowercase)" },
           "commitmentId": { "$ref": "#/components/schemas/Hex32" },
-          "observed": { "type": "string", "minLength": 1, "maxLength": 500, "x-holdback-untrusted": true },
-          "expected": { "type": "string", "minLength": 1, "maxLength": 500, "x-holdback-untrusted": true },
+          "observed": { "type": "string", "minLength": 1, "maxLength": 500, "pattern": "\\S", "x-holdback-untrusted": true },
+          "expected": { "type": "string", "minLength": 1, "maxLength": 500, "pattern": "\\S", "x-holdback-untrusted": true },
           "client": {
             "type": "object",
             "additionalProperties": false,
             "required": ["name"],
             "x-holdback-untrusted": true,
-            "properties": { "name": { "type": "string", "minLength": 1, "maxLength": 100 }, "version": { "type": "string", "minLength": 1, "maxLength": 100 }, "model": { "type": "string", "minLength": 1, "maxLength": 100 } }
+            "properties": { "name": { "type": "string", "minLength": 1, "maxLength": 100, "pattern": "\\S" }, "version": { "type": "string", "minLength": 1, "maxLength": 100, "pattern": "\\S" }, "model": { "type": "string", "minLength": 1, "maxLength": 100, "pattern": "\\S" } }
           },
           "schemaVersion": { "type": "string", "pattern": "^[0-9]{1,3}\\.[0-9]{1,3}$", "description": "The schema version your agent pinned" },
           "sealed": {
             "type": "object",
             "additionalProperties": false,
             "required": ["ciphertext", "plaintextSha256", "envelope"],
-            "description": "`detail`, `observed` and `expected` as the JSON `{detail, observed?, expected?}`, encrypted like a delivery to discovery's `feedback.encryptionPublicKey`. Still shared with this operator, which holds that key",
+            "x-holdback-untrusted": true,
+            "description": "`detail`, `observed` and `expected` as the JSON `{detail, observed?, expected?}`, encrypted like a delivery to discovery's `feedback.encryptionPublicKey`. Still shared with this operator, which holds that key; opened, it is reporter text",
             "properties": {
               "ciphertext": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$", "maxLength": 12000, "description": "base64url of iv (12) || AES-256-GCM ciphertext || tag (16)" },
               "plaintextSha256": { "$ref": "#/components/schemas/Sha256" },
@@ -894,7 +895,7 @@
           },
           "signer": { "$ref": "#/components/schemas/Address", "description": "Optional, with `nonce` and `signature`: who signs the report" },
           "nonce": { "$ref": "#/components/schemas/Hex32" },
-          "signature": { "$ref": "#/components/schemas/Signature", "description": "EIP-712 `Report {reporter: address, bodyHash: bytes32, nonce: bytes32}` under the Holdback domain; `bodyHash` is keccak256 of the report's RFC 8785 JSON without `signer`, `nonce` and `signature`" }
+          "signature": { "$ref": "#/components/schemas/Signature", "description": "EIP-712 `Report {reporter: address, operator: address, bodyHash: bytes32, nonce: bytes32}` under the Holdback domain: `operator` is this node's `receiptSigner`, and `bodyHash` is keccak256 of the report's RFC 8785 JSON without `signer`, `nonce` and `signature`" }
         }
       },
       "ReportCheck": {
