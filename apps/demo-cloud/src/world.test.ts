@@ -90,6 +90,14 @@ describe('public mode', () => {
     expect((await post(`${urls[0]}/v1/faucet`, { address: freshAgent(urls).address })).status).toBe(400);
   });
 
+  it('grants once when two requests for one address arrive together', async () => {
+    const { urls } = await serve();
+    const a = freshAgent(urls);
+    const both = await Promise.all([post(`${urls[0]}/v1/faucet`, { address: a.address }, 'k-race-1'), post(`${urls[1]}/v1/faucet`, { address: a.address }, 'k-race-2')]);
+    expect(both.map((r) => r.status).sort()).toEqual([200, 429]);
+    expect(((await (await fetch(`${urls[0]}/v1/balances/${a.address}`)).json()) as J).amount).toBe('1000000000');
+  });
+
   it('has no clock or adjudicator controls and no arbitrary-amount faucet', async () => {
     const { urls } = await serve();
     for (const path of ['/advance', '/accounts', '/adjudicators/primary', '/v1/test/faucet']) {

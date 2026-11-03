@@ -66,6 +66,8 @@ export interface FundingSession {
 export interface Registry {
   /** The chain ID agents sign under (EIP-712 domain). */
   chainId: number;
+  /** The EIP-712 domain's verifyingContract: the rules contract on a chain. Absent: SimChain's. */
+  verifyingContract?: Address;
   clubs: readonly Club[];
   mandates: readonly Mandate[];
   members: ReadonlyArray<{ clubId: string; member: Address }>;

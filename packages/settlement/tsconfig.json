@@ -1,6 +1,6 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": { "rootDir": ".", "outDir": "dist", "types": ["node"] },
-  "include": ["src", "sim", "evm"],
+  "include": ["src", "sim", "evm", "evm/abis.json"],
   "references": [{ "path": "../core" }]
 }
