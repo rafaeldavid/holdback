@@ -112,8 +112,11 @@ Review the Phase 2 contracts against the neutrality checklist, the hold invarian
 - **measured** Sepolia deployment, 2026-11-03, from `main` at `2342756` (`contracts/script/deploy-sepolia.sh`, recorded in `contracts/deployments/sepolia.json`):
   - The run was rehearsed first on an anvil fork of Sepolia (`--hardfork prague`). The fork gave the same addresses, because the deployer's nonce was 0.
   - Blocks 12,055,938 to 12,055,943. All six transactions have status 1.
-  - Runtime sizes on chain match the build: `HoldbackRules` 23,986 bytes, `HoldbackBonds` 2,395, `DrandQuicknetBeacon` 3,269.
-  - Wiring read back: `ESCROW`, `BEACON`, `BONDS`, both collectors, `EXPIRY_MARGIN` 86,400, and `BONDS.RULES`.
+  - Every creation transaction came from the deployer and its input is the compiled creation code at `2342756` plus the ABI-encoded constructor arguments, for all six contracts (`checks.creationCodeMatchesBuild`). The PR 150 reviewer measured this first; the script now checks it. Runtime sizes on chain also match `forge build --sizes`: `HoldbackRules` 23,986 bytes, `HoldbackBonds` 2,395, `DrandQuicknetBeacon` 3,269.
+  - Wiring read back:
+    - in the rules contract: `ESCROW`, `ERC3009_COLLECTOR`, `PERMIT2_COLLECTOR`, `BEACON`, `BONDS` and `EXPIRY_MARGIN` 86,400;
+    - `BONDS.RULES`;
+    - in each collector: `authCaptureEscrow`, `multicall3`, and, for the Permit2 collector, `permit2`.
   - The beacon:
     - its code hash equals the runtime its compiled creation code returns (`0x7ff8…d3cc`);
     - it verifies drand round 1000;
@@ -121,6 +124,10 @@ Review the Phase 2 contracts against the neutrality checklist, the hold invarian
   - tUSDC: "Crow Test USDC", 6 decimals, and its `DOMAIN_SEPARATOR` matches name and version "1" on chain 11155111.
   - Gas: 75,443,236 in total. The core set alone took 69,764,050, against 9,890,820 on a plain anvil chain, about 7.05 times as much. The excess is about 1,340 to 1,380 gas per byte of deployed code [inferred from the per-contract figures: `HoldbackRules` with `HoldbackBonds`, the beacon, the ERC-3009 collector]. Sepolia appears to price new code and state higher than anvil 1.0's Prague schedule [guessed], so per-deal gas on Sepolia may differ from the local table (to measure in T-213).
   - Cost: about 0.000075 ETH at roughly 0.001 gwei. The deployer holds 0.1074 ETH at nonce 6.
+  - `deploy-sepolia.sh --check` against Sepolia re-derives the whole record from the chain and the build, and it equals the committed file.
+    - It fails closed. A one-character tamper in the record fails, and so do a bad RPC URL and a simulated RPC failure on a receipt, on a transaction read, and on a refusal check.
+    - The hardened deploy path was rehearsed in full on a fresh Prague fork: its record passes `--check` there.
+    - The first version of the script, used for the real run, could have recorded some values unchecked if an RPC call failed mid-run. The PR 150 reviewer found this: bash 3.2 ignores a failure inside `$(...)`. The real run's values are all confirmed by `--check`.
   - `pnpm verify` on the deploy branch (`reports/verify-t-206-sepolia-deploy.md`): PASS, with no snapshot diffs. Typecheck, lint, forge build, forge, test, spec, snap, snap:local (25 of 25) and demo all pass. The first run failed `examples/deployments.test.ts` until the pinned copy matched the file (Handoff, Notes for other lanes). `node site/check.mjs`: PASS. CI's gitleaks flagged the public TokenStore address, keyed `tokenStoreImplementation`, in the record and its two copies. All three are recorded in `.gitleaksignore` as reviewed false positives, following the file's practice.
 - **inferred** No non-Anthropic model key is exposed by name in the environment: only `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL`. `.env*` files were not read.
 
@@ -142,8 +149,13 @@ Review the Phase 2 contracts against the neutrality checklist, the hold invarian
      - `forge create --broadcast` per contract (no `forge script`, no `cast send`);
      - the core set, with the token chosen by the Sepolia demo session (Rafa: "For the first wave of the service, lets assume USDC only"). That session's TestUSDC is deployed with the core set if its PR (#138) is on `main` when the deploy runs; otherwise that session deploys it.
    - **Second-hand.** The approval reached this session through the coordinating session; nothing in the repo is from Rafa directly. Rafa confirms it on the deploy PR.
-   - **Added by Rafa:** a cross-check of the custom contracts against public audit work ("You should find public audits of escrow related contracts such that any custom smart-contract we are deploying has been reviewed against public audit work"). It reported two mediums and nothing high. M-3 is in the contract and fixed (#135). PA-M2 is in the EVM adapter, outside `contracts/src`; its mitigation is in PR #138 (open). It found no high or medium issue in our use of the audited dependencies, or in the beacon.
-   - **PA-M2 does not gate the contract deploy.** It lives in the relayer, not in any deployed contract. The Sepolia demo stays behind its flag until #138, which carries the mitigation, merges.
+   - **Added by Rafa:** a cross-check of the custom contracts against public audit work ("You should find public audits of escrow related contracts such that any custom smart-contract we are deploying has been reviewed against public audit work"). It reported two mediums and nothing high. M-3 is in the contract and fixed (#135). PA-M2 is in the EVM adapter, outside `contracts/src`; its mitigation is in PR #138 (merged). It found no high or medium issue in our use of the audited dependencies, or in the beacon.
+   - **PA-M2 does not gate the contract deploy.** It lives in the relayer, not in any deployed contract. Its mitigation merged with #138, and the Sepolia demo stays behind its flag until the T-213 cutover.
+   - **Gates still open when the testnet deploy ran** (found by the PR 150 reviewer). The deploy went ahead under Rafa's approval with them open:
+     - The drand verifier's external review by another model family. The backlog and ADR-0018 §"Still open" asked for it "before Sepolia". The public-audit cross-check (#137) found nothing in the beacon, but it was an Anthropic session.
+     - The six `neutrality.*` fixtures still marked planned in `docs/neutrality.md`. That page and `docs/team.md` call each one a gap to close "before any public-chain deployment".
+     - **Why it went ahead:** the coins are worthless, the live demo does not use these contracts yet, and no fallback or appeal panel draws a drand seed on Sepolia until the cutover. A flaw found later costs a new beacon and rules deployment that new deals opt into, and nothing on this deployment is worth stealing.
+     - **Now they gate:** the T-213 cutover, for any fallback or appeal on chain, and mainnet. The backlog row's "When" is moved. Rafa confirms or overrules this on PR 150, together with the second-hand approval and the keystore exception above.
    - **`EXPIRY_MARGIN`** is 1 day (review §7).
 8. **Adversarial reviews carry the project context** (Rafa: "For adversarial reviews, you should use the project context, not use completely anon agents without context"). The Fable pass was briefed with `CLAUDE.md`, the ADRs, T-202's difference list and the reference state machine. Every per-PR reviewer read the project docs. Independence meant withholding the first pass's findings, not the context.
 9. **USDC issuer freezes are out of scope.** Rafa: "this is not an issue, buyer and seller agree to use USDC in the terms of their own contract … park it for later in a roadmap module about assets". Review I-7 records this.
@@ -154,7 +166,8 @@ Review the Phase 2 contracts against the neutrality checklist, the hold invarian
 - The review is written.
 - All five fix PRs are merged (#120, #122, #125, #127, #135), each after its reviewer returned PASS and CI was green.
 - The cross-family pass and Rafa's read are open.
-- Deployed on Sepolia after the merges (Evidence; Decisions 7). The addresses are in `contracts/deployments/sepolia.json`, recorded in its own PR. Rafa still has to confirm the second-hand approval on that PR.
+- Deployed on Sepolia after the merges (Evidence; Decisions 7). The addresses are in `contracts/deployments/sepolia.json`, recorded in PR 150. On that PR Rafa confirms the second-hand approval, the keystore exception, and the two gates that were still open (Decisions 7).
+- Suggested for Rafa: a deny rule for `~/.foundry/keystores/**` in `.claude/settings.json` and a row in the Rules and checks table. Today nothing enforces the keystore exception the way the `.env*` deny rule enforces the secrets rule. The stakes are low, because the key pays test gas only. Agents do not edit `.claude/settings.json`.
 
 **For Rafa: the cross-family review (gate).** Run a reviewer from another model family, for example an OpenAI or Google model, with the brief below and without the review document:
 
@@ -172,7 +185,7 @@ Append its findings to the review as a new section, with a disagreement table ag
 - **Sepolia demo.**
   - The cross-check found that the operator-fee bundle can be front-run (`packages/settlement/evm/evm-settlement.ts`). ADR-0023 already lists this residual and names its mitigation, relaying `agreeAndFund` alone, but the code lacked it. The demo session reports it fixed on its branch.
   - Until T-211 lands, the reference adjudicator's overturn-to-accept appeals revert on chain (H-2).
-  - **Crossed into T-213's lane with the deploy, and why.** `examples/deployments.test.ts` (PR #138) fails once `contracts/deployments/sepolia.json` exists, unless `examples/deployments.ts` pins an identical copy. So the deploy PR also carries that copy, with the `DeploymentFile` type widened to the file's extra fields, and `site/try.mjs` and `site/index.html` rebuilt with `node site/build.mjs`, because the bundle includes `examples/verify.ts`. The demo session was told before the change. The site is not deployed: that is still a gate. The try agent now also knows the Sepolia pin. The live demo still settles on SimChain.
+  - **Crossed into T-213's lane with the deploy, and why.** `examples/deployments.test.ts` (PR #138) fails once `contracts/deployments/sepolia.json` exists, unless `examples/deployments.ts` pins an identical copy. So the deploy PR also carries that copy, with the `DeploymentFile` type widened to the file's extra fields, and `site/try.mjs` and `site/index.html` rebuilt with `node site/build.mjs`, because the bundle includes `examples/verify.ts`. It also adds three reviewed false positives to `.gitleaksignore`, which is root config. Merge PR 150 with a merge commit, not a squash or a rebase, because the fingerprints are pinned to `c33af95`. The demo session was told before the change. The site is not deployed: that is still a gate. The try agent now also knows the Sepolia pin. The live demo still settles on SimChain.
   - Sepolia charged about seven times anvil's deploy gas (Evidence). Check the relayer's gas limits against the real chain, not the local table.
 - **T-203.** The fix PRs edited T-203's harness (`contracts/test/handlers/RulesHandler.sol`, `contracts/test/invariant/RulesInvariants.t.sol`, `contracts/test/fuzz/NoAdmin.fuzz.t.sol`):
   - #122 removed the exemption for CPP-reclaimed holds that T-203 Decisions 4 described.

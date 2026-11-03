@@ -145,12 +145,15 @@ The reviewed settlement contracts are deployed on Ethereum Sepolia (chain ID 111
   - None of these contracts has an owner, pause or upgrade path, so the deployer key has no power over them.
 - **Token.** `TestUSDC` ("Crow Test USDC", tUSDC, 6 decimals, EIP-712 version "1"; D42). It has USDC's ERC-3009 interface and anyone can mint it. It is not Circle's USDC.
 - **How.** `contracts/script/deploy-sepolia.sh <rpc-url> <keystore-file> <password-file>` runs one `forge create --broadcast` per contract, with no `forge script` and no `cast send`. It:
-  - refuses any chain except Sepolia, and refuses a dirty `contracts/src`, `lib` or build config;
-  - checks the wiring;
+  - refuses any chain except Sepolia;
+  - refuses a `contracts/src`, `lib`, build config or `script/TestUSDC.sol` that differs from the commit;
+  - checks that each transaction succeeded, came from the deployer, and carried this build's creation code with its encoded constructor arguments;
+  - checks every wiring getter, in the rules contract, the bond vault and both collectors;
   - checks that the beacon's code hash matches the compiled `DrandQuicknetBeacon`;
-  - checks that the beacon verifies drand round 1000, and refuses a signature outside G1 or another round's signature;
+  - checks that the beacon verifies drand round 1000, and refuses a signature outside G1 or another round's signature with `InvalidSignature`;
   - checks the token's EIP-712 domain;
   - writes the JSON.
+- **Check it.** `contracts/script/deploy-sepolia.sh --check <rpc-url>` deploys nothing and is read-only. It runs the same checks from the recorded addresses and the checkout's build, then fails unless the record it derives equals `contracts/deployments/sepolia.json`. Run it from a checkout whose build inputs equal the recorded commit's. Every check fails closed: an RPC error is a failure, never a pass.
 - **Rehearse first** on a fork: `anvil --fork-url <sepolia-rpc> --fork-block-number <a recent block> --hardfork prague`. Without `--hardfork prague` the fork lacks EIP-2537 and the beacon check fails.
 - **The deployer.** A throwaway key, whose address is in the JSON. It sits in an encrypted Foundry keystore at `~/.foundry/keystores/`, outside the repository, with its password in a 0600 file next to it. It only pays gas. Never print the key or the password, and never put either in `.env*`.
 - **Not verified on Etherscan.** No Etherscan API key is in the environment. The JSON records the commit and compiler settings, so anyone can rebuild and compare the bytecode.
