@@ -57,7 +57,7 @@ Demo beats 1-4. Tidewater offers the $2,000 customers.csv cleaning job naming Be
 ## Receipts and log
 
 - Events 0–8. Chain head 0xbefa…f426. Replay of 6 SimChain submissions from genesis matches the settlement state.
-- Receipts from op-1: 6 (rcpt-0001–rcpt-0006). Stub receipts are unsigned until T-007.
+- Receipts from op-1: 6 (rcpt-0001–rcpt-0006). The runner labels them without signing; the operator API signs real receipts.
 
 ## Invariants
 

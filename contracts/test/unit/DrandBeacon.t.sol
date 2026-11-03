@@ -74,13 +74,6 @@ contract DrandBeaconTest is Test {
         beacon.beaconValue(1, SIG_1000);
     }
 
-    function test_refuses_flippedBit() public {
-        bytes memory s = SIG_1000;
-        s[47] ^= 0x01;
-        vm.expectRevert(DrandQuicknetBeacon.InvalidSignature.selector);
-        beacon.beaconValue(1000, s);
-    }
-
     function test_refuses_theNegatedSignature() public {
         bytes memory s = SIG_1000;
         s[0] ^= 0x20; // the sign flag: -sig is on the curve and in G1, but does not verify

@@ -7,6 +7,7 @@ import {
   eip712Types,
   holdbackDomain,
   messageDigest,
+  messageTypes,
   SIMCHAIN_VERIFYING_CONTRACT,
   termsDigest,
   typedDataOf,
@@ -122,6 +123,33 @@ export const fixtures: Record<string, UnsignedMessage> = {
     nonce: h('10'),
     issuedAt: '2026-10-01T00:00:00Z',
   },
+  TransferAuthorization: {
+    type: 'TransferAuthorization',
+    scheme: 'erc3009',
+    purpose: 'operator_fee',
+    commitmentId: h('01'),
+    from: B,
+    to: C,
+    value: '200000',
+    token: 'tUSD',
+    validAfter: '2026-10-30T10:00:00Z',
+    validBefore: '2026-10-30T10:30:00Z',
+    nonce: h('19'),
+    expiresAt: at,
+  },
+  ReadToken: { type: 'ReadToken', viewer: B, commitmentId: h('01'), audience: C, nonce: h('1a'), expiresAt: at },
+  Delegation: {
+    type: 'Delegation',
+    principal: B,
+    agent: A,
+    dealKey: C,
+    dealEncryptionKey: 'a2V5NQ',
+    clubId: 'data-services-v1',
+    scope: { roles: ['seller'], maxPerCommitment: tusd('5000000000'), maxDaily: tusd('9000000000'), categories: ['data'], expiresAt: '2027-01-01T00:00:00Z' },
+    nonce: h('1b'),
+    expiresAt: at,
+  },
+  KeyRegistration: { type: 'KeyRegistration', adjudicator: C, encryptionPublicKey: 'a2V5Ng', keyId: 'bench-a/2026-11', nonce: h('1c'), expiresAt: at },
 };
 
 export const terms: CommitmentTerms = {
@@ -174,6 +202,11 @@ const encodeTypePins: Record<string, string> = {
     'Delivery(bytes32 commitmentId,uint8 attempt,Ciphertext ciphertext,string plaintextSha256,string plaintextMime,EncryptedKey[] encryptedKeys,uint64 submittedAt)Ciphertext(string uri,string sha256,uint64 bytes,string cipher)EncryptedKey(address recipient,string scheme,string ciphertext,KeyUnlock unlock)KeyUnlock(string kind,uint64 round)',
   Appeal: `Appeal(bytes32 commitmentId,string appellant,address appellantAddress,string grounds,TokenAmount bond,uint64 filedAt)${TOKEN}`,
   Mandate: `Mandate(address principal,address agent,string clubId,Scope scope,bytes32 nonce,uint64 issuedAt)Scope(string[] roles,TokenAmount maxPerCommitment,TokenAmount maxDaily,bool hasCategories,string[] categories,uint64 expiresAt)${TOKEN}`,
+  TransferAuthorization:
+    'TransferAuthorization(string scheme,string purpose,bytes32 commitmentId,address from,address to,uint256 value,string token,uint64 validAfter,uint64 validBefore,bytes32 nonce,uint64 expiresAt)',
+  ReadToken: 'ReadToken(address viewer,bytes32 commitmentId,bool hasAudience,address audience,bytes32 nonce,uint64 expiresAt)',
+  Delegation: `Delegation(address principal,address agent,address dealKey,string dealEncryptionKey,string clubId,Scope scope,bytes32 nonce,uint64 expiresAt)Scope(string[] roles,TokenAmount maxPerCommitment,TokenAmount maxDaily,bool hasCategories,string[] categories,uint64 expiresAt)${TOKEN}`,
+  KeyRegistration: 'KeyRegistration(address adjudicator,string encryptionPublicKey,string keyId,bytes32 nonce,uint64 expiresAt)',
   CommitmentTerms:
     'CommitmentTerms(string schemaVersion,string clubId,bytes32 rulebookHash,address buyer,address seller,bytes32 deliverableHash,bytes32 acceptanceHash,TokenAmount price,Adjudication adjudication,Timing timing,Settlement settlement,Remedy remedy,Disclosure disclosure,string buyerEncryptionPublicKey,bytes32 nonce,uint64 createdAt)' +
     'Adjudication(address adjudicator,address fallbackAdjudicator,address appealAdjudicator,string policyId,TokenAmount fee,bytes32 registryHash,bytes32 policyHash)' +
@@ -201,6 +234,10 @@ const digestPins: Record<string, Hex> = {
   Delivery: '0x1e78504be610bba1912938d2702966c9017940080ef99151c153953eaa85415d',
   Appeal: '0x53756af3b2e9a4652147aca18d8bc38ed160582557b369b88abbb1b6b028fab2',
   Mandate: '0xa5a6a54ee851f75067ccc68bda24d7c0bfb2a07d7d59e9c2f547f26c47485810',
+  TransferAuthorization: '0xb2e8984c0ce76dbd7fea8509adc39ef2e768ad76d0c2c131ebbea2aab8552e30',
+  ReadToken: '0x3814babd5a49153ba050993c0594bd639b2489601462786db8020e491589f2ca',
+  Delegation: '0xe840edc31600e705579a98925d4a09959e74c8bbd798b75ee8e246f9997a63ec',
+  KeyRegistration: '0xd2bf594edb8e7f6ae5b2e1a9082e4cd90d109fa136a8024da4a28ebfbf6a276a',
   CommitmentTerms: '0xd98b1700753aec82b1ecc322fbd3f07bb83c6abe4f0bb1a94022b22732662092',
 };
 
@@ -273,8 +310,9 @@ function setPath(obj: unknown, path: string[], v: Leaf): void {
 const names = Object.keys(fixtures);
 
 describe('EIP-712 bindings', () => {
-  it('has a fixture for every primary message type', () => {
-    expect(names.sort()).toEqual(Object.keys(encodeTypePins).filter((n) => n !== 'CommitmentTerms').sort());
+  it('has a fixture and an encodeType pin for every message type', () => {
+    expect([...names].sort()).toEqual(Object.keys(messageTypes).sort());
+    expect(Object.keys(encodeTypePins).sort()).toEqual([...Object.keys(messageTypes), 'CommitmentTerms'].sort());
   });
 
   it.each(Object.entries(encodeTypePins))('pins the encodeType of %s', (name, pinned) => {

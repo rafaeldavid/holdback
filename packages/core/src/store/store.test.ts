@@ -148,12 +148,13 @@ describe('LocalCiphertextStore', () => {
   it('keeps the requested id out of error messages', async () => {
     const store = new LocalCiphertextStore(root);
     for (const id of ['sha256:SECRETSECRET', ABC_ID]) {
-      try {
-        await store.get(id as Sha256);
-      } catch (e) {
-        expect((e as Error).message).not.toContain('SECRETSECRET');
-        expect((e as Error).message).not.toContain(root);
-      }
+      const e = await store.get(id as Sha256).then(
+        () => undefined,
+        (err: unknown) => err,
+      );
+      expect(e).toBeInstanceOf(StoreError);
+      expect((e as Error).message).not.toContain('SECRETSECRET');
+      expect((e as Error).message).not.toContain(root);
     }
   });
 });

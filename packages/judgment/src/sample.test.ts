@@ -42,10 +42,8 @@ describe('seeded sampling of a large CSV', () => {
   it('keeps the header, the first and last rows, and stays within the budget', () => {
     const rows = csv.split('\n');
     expect(lines[0]).toBe(HEADER);
-    expect(SAMPLE_HEAD).toBe(20);
-    expect(SAMPLE_TAIL).toBe(20);
-    expect(lines.slice(1, 21)).toEqual(rows.slice(1, 21));
-    expect(lines.slice(-20)).toEqual(rows.slice(-20));
+    expect(lines.slice(1, 1 + SAMPLE_HEAD)).toEqual(rows.slice(1, 1 + SAMPLE_HEAD));
+    expect(lines.slice(-SAMPLE_TAIL)).toEqual(rows.slice(-SAMPLE_TAIL));
     expect(lines.join('\n').length).toBeLessThanOrEqual(100_000);
     expect(lines.length).toBeGreaterThan(1000);
   });

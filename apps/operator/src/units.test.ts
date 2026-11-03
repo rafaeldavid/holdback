@@ -1,12 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { formatTusd, TUSD, TUSD_DECIMALS, tusd } from './units.js';
+import { formatTusd, TUSD, tusd } from './units.js';
 
 describe('tUSD units', () => {
-  it('has 6 decimals', () => {
-    expect(TUSD_DECIMALS).toBe(6);
-    expect(TUSD).toBe(1_000_000n);
-  });
-
   it('parses whole and fractional tUSD into base units, as a decimal string', () => {
     expect(tusd('2000')).toEqual({ token: 'tUSD', amount: '2000000000' });
     expect(tusd('0.5')).toEqual({ token: 'tUSD', amount: '500000' });

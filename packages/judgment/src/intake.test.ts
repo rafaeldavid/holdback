@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ADJUDICATOR, CONTENT_KEY, delivery, fakeUnwrap, GOOD_CSV, seal, utf8 } from './_helpers.js';
+import { ADJUDICATOR, delivery, fakeUnwrap, GOOD_CSV, seal, utf8 } from './_helpers.js';
 import { intake, MAX_PLAINTEXT_BYTES } from './intake.js';
 import { normalizeText } from './normalize.js';
 import { UntrustedData } from './untrusted.js';
@@ -143,7 +143,6 @@ describe('intake', () => {
   });
 
   it('uses the escrowed key, not any other', async () => {
-    expect(CONTENT_KEY.length).toBe(32);
     const seen: string[] = [];
     const pt = utf8(GOOD_CSV);
     const ct = seal(pt);

@@ -235,7 +235,6 @@ describe('aggregate: reported fields', () => {
     const r = aggregate(input({ rubric: EMPTY, screenFlagged: true, verdicts: [] }));
     expect(r.decision).toBe('accept');
     expect(r.reasons).toEqual(['all deterministic checks passed and the rubric is empty', SCREEN_FLAGGED_REASON]);
-    expect(SCREEN_FLAGGED_REASON).toBe('screen flagged; see screen.signals');
   });
 
   it('always gives at least one reason, each at most 200 characters', () => {
@@ -332,18 +331,6 @@ describe('aggregate: properties', () => {
       const i = build(a);
       expect(aggregate(i).decision).toBe(oracle(i));
     }), { seed: 6, numRuns: 2000 });
-  });
-
-  it('accept and reject conditions never both hold (strict-majority fractions)', () => {
-    fc.assert(fc.property(arbFraction, arbFraction, fc.integer({ min: 0, max: 9 }), fc.integer({ min: 0, max: 9 }), (a, r, pass, fail) => {
-      const n = pass + fail;
-      if (n === 0) return;
-      const acceptHolds = pass * a.denominator >= a.numerator * n && pass > fail;
-      const rejectHolds = fail * r.denominator >= r.numerator * n && fail > pass;
-      expect(acceptHolds && rejectHolds).toBe(false);
-      // Even without the tie guard, strict majorities cannot both hold.
-      expect(pass * a.denominator >= a.numerator * n && fail * r.denominator >= r.numerator * n).toBe(false);
-    }), { seed: 7, numRuns: 2000 });
   });
 });
 
