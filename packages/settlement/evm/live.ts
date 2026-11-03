@@ -96,7 +96,13 @@ const LOCAL = /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?(\/|$)/;
 const GWEI = 1_000_000_000n;
 const MIN_TIP = GWEI / 10n;
 const MAX_TIP = 2n * GWEI;
-const GAS_CAP = 1_500_000n;
+/**
+ * The most gas this node sends a call with, after the 25 % pad. Measured on Sepolia (2026-11-03, eth_simulateV1): the
+ * funding bundle 938,547, a decision 521,658, a bond deposit 244,975; new state costs about 3.5 times Prague's there.
+ */
+export const GAS_CAP = 3_000_000n;
+/** Faucet mints per Multicall3 call: a mint to a new holder is about 120,000 gas on Sepolia, so six stay well inside the cap. */
+const MINT_BATCH_MAX = 6;
 
 /** A deal lane's key: keccak256(secret ‖ "holdback/relayer-lane/<i>"). Rafa funds the funding lane; it tops these up. */
 export function laneKey(relayerKey: Hex, i: number): Hex {
@@ -240,8 +246,10 @@ export class LiveChain implements EvmChain {
   }
 
   private async flushMints(): Promise<void> {
-    const batch = this.mints.splice(0);
+    const batch = this.mints.splice(0, MINT_BATCH_MAX);
     if (batch.length === 0) return;
+    // The rest go in the next call, queued behind this one on the funding lane.
+    if (this.mints.length > 0) setTimeout(() => void this.flushMints(), 0);
     try {
       const { token, multicall } = this.deployment;
       const call = (b: (typeof batch)[number]) => encodeFunctionData({ abi: this.abis.token, functionName: 'mint', args: [b.to, b.amount] });

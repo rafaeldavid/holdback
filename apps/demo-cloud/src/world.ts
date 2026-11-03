@@ -252,7 +252,9 @@ export class PublicWorld {
     // What people read: tUSD on SimChain; on a chain the deployment's symbol (tUSDC, D42), never the address.
     const symbol = o.live ? o.live.chain.token.symbol : TOKEN;
     const chainId = o.live ? o.live.chain.chainId : SIM_CHAIN_ID;
-    const domain: HoldbackDomain = o.live ? holdbackDomain(chainId, o.live.chain.deployment.rules) : holdbackDomain(SIM_CHAIN_ID);
+    // Addresses are served lowercase, as llms.txt pins them; the EIP-712 hash is the same either way.
+    const rules = o.live ? (lc(o.live.chain.deployment.rules) as Address) : undefined;
+    const domain: HoldbackDomain = rules ? holdbackDomain(chainId, rules) : holdbackDomain(SIM_CHAIN_ID);
     const rulebook = rebindToken({ ...SIM_RULEBOOK, minWindowsSec: { judge: m, fallback: m, appealWindow: m, appealDecide: m } }, TOKEN, token);
     const club = simClub(key('demo-club-operator').address, rulebook, DEMO_CLUB_ID);
     const principal = key('demo-club-principal');
@@ -306,7 +308,7 @@ export class PublicWorld {
     const tokenAmount = (v: bigint): TokenAmount => ({ token, amount: v.toString() }) as TokenAmount;
     const registry: Registry = {
       chainId,
-      ...(o.live ? { verifyingContract: o.live.chain.deployment.rules } : {}),
+      ...(rules ? { verifyingContract: rules } : {}),
       clubs: [club],
       get mandates() {
         return chain.agentMandates();
@@ -760,7 +762,7 @@ export function operatorFeeFromEnv(env: Readonly<Record<string, string | undefin
   if (bps === undefined || !/^(0|[1-9][0-9]{0,4})$/.test(bps) || Number(bps) > 10_000) throw new Error(`OPERATOR_FEE_BPS must be whole basis points from 0 to 10000, got ${JSON.stringify(bps)}`);
   if (min === undefined || !DECIMAL.test(min)) throw new Error(`OPERATOR_FEE_MIN must be base units as a decimal string (0.01 tUSD is "10000"), got ${JSON.stringify(min)}`);
   if (max !== undefined && max !== '' && !DECIMAL.test(max)) throw new Error(`OPERATOR_FEE_MAX must be base units as a decimal string, or unset, got ${JSON.stringify(max)}`);
-  if (gas !== undefined && !DECIMAL.test(gas)) throw new Error(`OPERATOR_FEE_GAS must be base units as a decimal string (1.50 tUSDC is "1500000"), got ${JSON.stringify(gas)}`);
+  if (gas !== undefined && !DECIMAL.test(gas)) throw new Error(`OPERATOR_FEE_GAS must be base units as a decimal string (4.70 tUSDC is "4700000"), got ${JSON.stringify(gas)}`);
   // D33 as amended 2026-11-03: on a chain the minimum is the relay minimum plus the per-deal gas quote, so the fee
   // max(min, bps of the price) never falls below the gas these nodes pay, and clients compute it as before.
   const floor = gas === undefined ? min : (BigInt(min) + BigInt(gas)).toString();
@@ -788,7 +790,7 @@ export function notesFor(
   const amount = (base: string) => tokenText(base, symbol);
   const gas = chain?.gas && chain.gas !== '0' ? chain.gas : undefined;
   // D33 as amended 2026-11-03: the minimum carries the gas these nodes pay for a deal's transactions.
-  const gasText = gas && fee ? ` That minimum is ${amount(gas)} for the gas these nodes pay for a deal's transactions on Sepolia (about 500,000 gas at 1 gwei, priced at this demo's fixed, fictional rate of 3,000 ${symbol} per test ETH) plus ${amount((BigInt(fee.min) - BigInt(gas)).toString())} for relaying; the quote is fixed per deal, whether the deal needs fewer transactions or more.` : '';
+  const gasText = gas && fee ? ` That minimum is ${amount(gas)} for the gas these nodes pay for a deal's transactions on Sepolia (about 1.56 million gas, measured, at Sepolia's 1 gwei median tip, priced at this demo's fixed, fictional rate of 3,000 ${symbol} per test ETH) plus ${amount((BigInt(fee.min) - BigInt(gas)).toString())} for relaying; the quote is fixed per deal, whether the deal needs fewer transactions or more.` : '';
   const feeNote = fee
     ? fee.bps === 0 && fee.min === '0'
       ? `Operator fee: published at 0 (fees.operator in /v1/status): these nodes relay a funded agreement free for now. When it is switched on, POST /v1/prepare/agree-and-fund adds a third signature (slot operatorFee.signature), paid to ${fee.to}, outside the hold and not refunded.`

@@ -8,7 +8,8 @@ import { createServer, type Server } from 'node:http';
 import { createServer as createNetServer, type AddressInfo } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { privateKeyToAccount } from 'viem/accounts';
-import { EvmSettlement, LiveChain, type DeploymentFile } from '@holdback/settlement/live';
+import { createPublicClient, http, toHex, type Hex } from 'viem';
+import { EvmSettlement, GAS_CAP, LiveChain, type DeploymentFile } from '@holdback/settlement/live';
 import { anvilAvailable, EvmWorld } from '@holdback/settlement/evm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { MemoryStorage, PublicWorld } from './index.js';
@@ -17,8 +18,8 @@ const root = fileURLToPath(new URL('../../../', import.meta.url));
 const ready = anvilAvailable() && existsSync(`${root}contracts/out/HoldbackRules.sol/HoldbackRules.json`);
 /** anvil's second well-known dev key (public; guards no value): the relayer's funding lane here. */
 const RELAYER = '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d';
-/** The demo's fee: 1 bp, minimum 0.01 tUSDC plus the 1.50 tUSDC gas quote a chain world adds (D33 as amended). */
-const ENV = { OPERATOR_FEE_BPS: '1', OPERATOR_FEE_MIN: '10000', OPERATOR_FEE_GAS: '1500000' };
+/** The demo's fee: 1 bp, minimum 0.01 tUSDC plus the 4.70 tUSDC gas quote a chain world adds (D33 as amended). */
+const ENV = { OPERATOR_FEE_BPS: '1', OPERATOR_FEE_MIN: '10000', OPERATOR_FEE_GAS: '4700000' };
 
 async function serve(world: PublicWorld): Promise<{ urls: [string, string]; close(): Promise<void> }> {
   const server: Server = createServer(async (req, res) => {
@@ -52,9 +53,9 @@ async function serve(world: PublicWorld): Promise<{ urls: [string, string]; clos
   };
 }
 
-function runTry(env: Record<string, string>): Promise<{ code: number | null; out: string }> {
+function runTry(env: Record<string, string>, script = 'examples/try.ts'): Promise<{ code: number | null; out: string }> {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [`${root}examples/try.ts`], { env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(process.execPath, [`${root}${script}`], { env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';
     child.stdout.on('data', (d) => (out += String(d)));
     child.stderr.on('data', (d) => (out += String(d)));
@@ -101,8 +102,8 @@ describe.skipIf(!ready)(`the public world on a live chain (anvil for Sepolia)${r
       const run = await runTry({ HOLDBACK_OPERATORS: demo.urls.join(','), HOLDBACK_DEPLOYMENT: JSON.stringify(deployment) });
       expect(run.out).toMatch(/^done\s+commitment 0x[0-9a-f]{64} Released$/m);
       expect(run.code).toBe(0);
-      // The buyer pays the gas in the operator fee: 1.51 tUSDC on a 25 tUSDC deal.
-      expect(run.out).toMatch(/^fund +Held: 26 tUSDC held \(25 price \+ 1 adjudication fee\), operator fee 1\.51 tUSDC$/m);
+      // The buyer pays the gas in the operator fee: 4.71 tUSDC on a 25 tUSDC deal.
+      expect(run.out).toMatch(/^fund +Held: 26 tUSDC held \(25 price \+ 1 adjudication fee\), operator fee 4\.71 tUSDC$/m);
       // The funding (with the operator fee in the same transaction), the delivery and the release: three transactions.
       const chainLines = run.out.split('\n').filter((l) => l.startsWith('chain'));
       expect(chainLines.map((l) => l.split(/\s+/)[1])).toEqual(['funded', 'delivered', 'decided']);
@@ -143,7 +144,9 @@ describe.skipIf(!ready)(`the public world on a live chain (anvil for Sepolia)${r
 
 // The same deal against the deployed Sepolia contracts, forked locally by anvil (chain id 11155111, the real
 // HoldbackRules, CPP, tUSDC and drand verifier), with a test relayer funded on the fork only. Needs network: it runs
-// when SEPOLIA_FORK_RPC names a Sepolia RPC and contracts/deployments/sepolia.json exists.
+// when SEPOLIA_FORK_RPC names a Sepolia RPC and contracts/deployments/sepolia.json exists. anvil prices gas by Prague,
+// and Sepolia charges new state about 3.5 times that (measured 2026-11-03), so every transaction the fork mined is
+// replayed through eth_simulateV1 on the real chain (nothing is sent) and must fit under the relayer's gas cap.
 const forkRpc = process.env['SEPOLIA_FORK_RPC'];
 const deploymentFile = `${root}contracts/deployments/sepolia.json`;
 const forkReady = anvilAvailable() && !!forkRpc && existsSync(deploymentFile);
@@ -151,6 +154,7 @@ const forkReady = anvilAvailable() && !!forkRpc && existsSync(deploymentFile);
 describe.skipIf(!forkReady)(`the public world on a Sepolia fork${forkReady ? '' : ' (SKIPPED: needs SEPOLIA_FORK_RPC and contracts/deployments/sepolia.json)'}`, () => {
   let anvil: ChildProcess;
   let rpc: string;
+  let forkBlock: bigint;
   const deployment = forkReady ? (JSON.parse(readFileSync(deploymentFile, 'utf8')) as DeploymentFile) : (undefined as never);
   beforeAll(async () => {
     const port = await new Promise<number>((resolve) => {
@@ -159,10 +163,12 @@ describe.skipIf(!forkReady)(`the public world on a Sepolia fork${forkReady ? '' 
         s.close(() => resolve(p));
       });
     });
-    anvil = spawn('anvil', ['--fork-url', forkRpc!, '--host', '127.0.0.1', '--port', String(port), '--block-time', '2', '--silent'], { stdio: 'ignore' });
+    // Prague, as Sepolia runs: the drand verifier needs EIP-2537's BLS precompiles (T-206, measured).
+    anvil = spawn('anvil', ['--fork-url', forkRpc!, '--hardfork', 'prague', '--host', '127.0.0.1', '--port', String(port), '--block-time', '2', '--silent'], { stdio: 'ignore' });
     rpc = `http://127.0.0.1:${port}`;
     const call = (method: string, params: unknown[]) => fetch(rpc, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) }).then((r) => r.json() as Promise<{ result?: unknown }>);
     for (let i = 0; i < 100 && !(await call('eth_chainId', []).catch(() => ({}))).result; i++) await new Promise((r) => setTimeout(r, 200));
+    forkBlock = BigInt((await call('eth_blockNumber', [])).result as string);
     // The fork's copy of the test relayer gets test ETH; nothing touches the real chain.
     await call('anvil_setBalance', [privateKeyToAccount(RELAYER).address, '0x8ac7230489e80000']);
   }, 60_000);
@@ -170,7 +176,7 @@ describe.skipIf(!forkReady)(`the public world on a Sepolia fork${forkReady ? '' 
     anvil?.kill();
   });
 
-  it('runs try.ts to Released on the deployed contracts', async () => {
+  it('runs try.ts, then site/walkthrough.mjs following llms.txt literally, to Released on the deployed contracts', async () => {
     const chain = new LiveChain({ deployment, rpcUrls: [rpc], relayerKey: RELAYER, pollMs: 300, rebroadcastMs: 20_000, mintBatchMs: 300 });
     await chain.verify();
     const world = await PublicWorld.open({ storage: new MemoryStorage(), env: ENV, live: { chain } });
@@ -181,8 +187,25 @@ describe.skipIf(!forkReady)(`the public world on a Sepolia fork${forkReady ? '' 
       const run = await runTry({ HOLDBACK_OPERATORS: demo.urls.join(','), HOLDBACK_DEPLOYMENT: JSON.stringify(deployment) });
       expect(run.out).toMatch(/^done\s+commitment 0x[0-9a-f]{64} Released$/m);
       expect(run.out.split('\n').filter((l) => l.startsWith('chain')).map((l) => l.split(/\s+/)[1])).toEqual(['funded', 'delivered', 'decided']);
+      // The page's own walkthrough: every message built from site/llms.txt alone, under the domain and deployment it pins.
+      const walk = await runTry({ OP1: demo.urls[0], OP2: demo.urls[1] }, 'site/walkthrough.mjs');
+      expect(walk.out).toMatch(/^walkthrough PASS/m);
+      expect(walk.code).toBe(0);
     } finally {
       await demo.close();
     }
-  }, 300_000);
+
+    // Setup, faucet, funding, delivery and decision, in the order the fork mined them, on Sepolia's own gas rules.
+    const fork = createPublicClient({ transport: http(rpc) });
+    const txs: { from: Hex; to: Hex; input: Hex; value: bigint }[] = [];
+    for (let b = forkBlock + 1n, latest = await fork.getBlockNumber(); b <= latest; b++) txs.push(...(await fork.getBlock({ blockNumber: b, includeTransactions: true })).transactions.map((t) => ({ from: t.from, to: t.to!, input: t.input, value: t.value })));
+    const stateOverrides = Object.fromEntries([...new Set(txs.map((t) => t.from.toLowerCase()))].map((a) => [a, { balance: toHex(10n ** 20n) }]));
+    const now = Math.floor(Date.now() / 1000);
+    const blockStateCalls = txs.map((t, i) => ({ ...(i === 0 ? { stateOverrides } : {}), blockOverrides: { time: toHex(now + 12 * (i + 1)) }, calls: [{ from: t.from, to: t.to, data: t.input, value: toHex(t.value) }] }));
+    const sim = (await (await fetch(forkRpc!, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_simulateV1', params: [{ blockStateCalls, validation: false }, 'latest'] }) })).json()) as { result: { calls: { status: string; gasUsed: string }[] }[] };
+    const gas = sim.result.map((b) => b.calls[0]!);
+    expect(gas.map((c) => c.status)).toEqual(txs.map(() => '0x1'));
+    for (const c of gas) expect((BigInt(c.gasUsed) * 5n) / 4n).toBeLessThanOrEqual(GAS_CAP);
+    console.log(`Sepolia gas per transaction (eth_simulateV1): ${gas.map((c) => BigInt(c.gasUsed)).join(', ')}`);
+  }, 600_000);
 });
