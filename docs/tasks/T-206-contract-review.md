@@ -44,7 +44,7 @@ Review the Phase 2 contracts against the neutrality checklist, the hold invarian
 - [ ] Two reviews from two model families, each run without seeing the other's output, recorded in `docs/reviews/2026-11-03-contract-review.md` with the model IDs used; disagreements listed. Not met: the independent passes ran, but all are Anthropic models (`claude-opus-5-5`, `claude-fable-5-1`). The cross-family pass is a human gate (Handoff).
 - [x] Each high, medium and low finding is labelled measured, inferred or guessed, with a severity, and has a fix PR, a follow-up task (T-210, T-211, T-212) or a written acceptance (L-3). Each informational item has a label and a disposition.
 - [x] The model-to-contract correspondence from T-204 checked. Every model action maps to a contract function, and the gaps are findings (review §5).
-- [ ] Rafa has read the review (recorded here with date). Only then, and only if he approves in writing in this file: a Sepolia deployment whose verified bytecode matches the reviewed commit, addresses in `deployments/sepolia.json`, and one happy-path deal run on Sepolia with its gas recorded (measured). The approval came first, by Rafa's choice (Decisions 7). The deployment is recorded in its own PR; the happy-path deal belongs to the Sepolia demo session.
+- [ ] Rafa has read the review (recorded here with date). Only then, and only if he approves in writing in this file: a Sepolia deployment whose verified bytecode matches the reviewed commit, addresses in `contracts/deployments/sepolia.json`, and one happy-path deal run on Sepolia with its gas recorded (measured). The approval came first, by Rafa's choice (Decisions 7). The deployment is recorded in its own PR; the happy-path deal belongs to the Sepolia demo session.
 
 ## Out of scope
 
@@ -93,12 +93,16 @@ Review the Phase 2 contracts against the neutrality checklist, the hold invarian
   | #120's branch on `main` (`7425c19`) | 24,046 |
   | #125's branch (`7cca926`, with #120 and #122) | 24,517 |
   | #127's branch (`9b3d7f2`, with #120 and #122) | 24,429 |
-  | #135's first commit (on `53b924d`, before #125 and #127) | 23,880 |
+  | #135's first commit `f685f09` (on `53b924d`, before #125 and #127) | 23,880 |
   | `main` at `7c48650` (#120, #122, #125, #127) | 24,536 (40 under) |
   | `main` at `cc834fc`, with all five fixes | 23,986 (590 under) |
 
   `HoldbackBonds` is 2,395 bytes and `DrandQuicknetBeacon` 3,269.
-- **measured** The public-audit cross-check found no high or medium issue against our use of CPP, Permit2, Solady or USDC, and none in the drand verifier. It found M-3 and two beacon lows (review I-12, I-13).
+- **measured by the cross-check (PR #137)** No high or medium issue against our use of CPP, Permit2, Solady or USDC, and none in the drand verifier. It found two mediums:
+  - M-3, in the contract, fixed in #135;
+  - PA-M2, the front-runnable operator-fee bundle. That one is outside `contracts/src` (`packages/settlement/evm/evm-settlement.ts`), and its mitigation is in PR #138.
+
+  It also found the lows L-7 and L-8 and two beacon lows (review I-12, I-13).
 - **measured** Sepolia facts, read-only RPC:
   - chain ID 11155111;
   - base fee 17 wei, priority fee 2 wei;
@@ -119,11 +123,13 @@ Review the Phase 2 contracts against the neutrality checklist, the hold invarian
    - **Gates set with it:**
      - the high and medium fixes merged, with `forge test` green on `main`;
      - Sepolia only, with the deploy refusing any other chain ID;
-     - a fresh throwaway deployer key in an encrypted keystore, never printed;
+     - a fresh throwaway deployer key, never printed. The coordinating session asked for an encrypted Foundry keystore with its password in a 0600 file, both in a git-ignored path and never in `.env*`. That departs from this task's human-gate line ("a deployer key from an environment variable") and from `CLAUDE.md`'s environment-variable rule for secrets, and is recorded here as an exception.
+       - The keystore and password file are in the main checkout's git-ignored `reports/sepolia/`, outside every worktree.
+       - The key has no authority on chain: the contracts have no admin keys, so it pays gas and nothing else.
      - `forge create --broadcast` per contract (no `forge script`, no `cast send`);
-     - the core set: Rafa said "For the first wave of the service, lets assume USDC only". The Sepolia demo session picks the token: its TestUSDC is deployed with the core set if its PR is on `main` by then, and otherwise by that session.
+     - the core set, with the token chosen by the Sepolia demo session (Rafa: "For the first wave of the service, lets assume USDC only"). That session's TestUSDC is deployed with the core set if its PR (#138) is on `main` when the deploy runs; otherwise that session deploys it.
    - **Second-hand.** The approval reached this session through the coordinating session; nothing in the repo is from Rafa directly. Rafa confirms it on the deploy PR.
-   - **Added by Rafa:** a cross-check of the custom contracts against public audit work ("You should find public audits of escrow related contracts such that any custom smart-contract we are deploying has been reviewed against public audit work"). It reported with no high or medium finding beyond M-3, which is fixed.
+   - **Added by Rafa:** a cross-check of the custom contracts against public audit work ("You should find public audits of escrow related contracts such that any custom smart-contract we are deploying has been reviewed against public audit work"). It reported two mediums and nothing high. M-3 is in the contract and fixed (#135). PA-M2 is in the EVM adapter, outside `contracts/src`, and mitigated in PR #138. It found no high or medium issue in our use of the audited dependencies, or in the beacon.
    - **`EXPIRY_MARGIN`** is 1 day (review §7).
 8. **Adversarial reviews carry the project context** (Rafa: "For adversarial reviews, you should use the project context, not use completely anon agents without context"). The Fable pass was briefed with `CLAUDE.md`, the ADRs, T-202's difference list and the reference state machine. Every per-PR reviewer read the project docs. Independence meant withholding the first pass's findings, not the context.
 9. **USDC issuer freezes are out of scope.** Rafa: "this is not an issue, buyer and seller agree to use USDC in the terms of their own contract … park it for later in a roadmap module about assets". Review I-7 records this.
