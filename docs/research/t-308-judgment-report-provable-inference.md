@@ -1,16 +1,25 @@
 # Judgment report, provable inference and auto-tuning (T-308 research pass)
 
 - **Date:** 2026-11-03. **Status:** research; feeds ADR-0027 (Proposed). No code, schema or fixture changed.
-- **Method:** a Fable max-effort pass read Anthropic's FlashProve post, technical report and repository (v0.16.0), provider docs, the TEE.fail paper site, the comparison literature and this repository. The lead session re-read the FlashProve README and `docs/what-is-not-hidden.md` through `gh api` to check the load-bearing claims. Labels: **measured** (read in a primary source or the repo, cited), **inferred** (reasoned from measured facts), **guessed**. All web sources accessed 2026-11-03.
+- **Method:** a Fable max-effort pass read Anthropic's FlashProve post, technical report and repository (v0.16.0), provider docs, the TEE.fail paper site, the comparison literature and this repository. The lead session re-read the FlashProve README and `docs/what-is-not-hidden.md` through `gh api` to check the load-bearing claims. The PR 115 reviews followed: the `reviewer` role (Opus 5.5) re-checked 23 repo citations and the FlashProve claims, and a red team (Sonnet 5.5) attacked the remedies. Their corrections are folded in and marked. Labels: **measured** (read in a primary source or the repo, cited), **inferred** (reasoned from measured facts), **guessed**. All web sources accessed 2026-11-03.
 - **Question** (`docs/backlog.md`, the T-308 row under Judgment defenses): can the adjudicator (1) report its whole judgment, (2) prove the pinned models produced it, as in FlashProve, and (3) tune itself from outcomes, without breaking the three litmus tests?
 
 ## Answer in brief
 
 1. **FlashProve cannot prove a ’crow judge today.** It proves one model (Llama 4 Maverick's text transformer) in a 1,024-token window that holds the prompt and the reply together, greedy decoding only, and it is an unmaintained, unaudited research artifact. A judge's fixed prompt template alone takes over 40% of that window, and its data can be 25 times the window.
-2. **Adopt the shape now and the prover later.** Each registry seat gets an attestation kind; the policy names how many attested seats the parties want (default 0); proofs are post hoc, sealed, and never gate settlement; a missing proof is the adjudicator's fault, never the buyer's burden.
+2. **Adopt the shape now and the prover later.**
+   - Each registry seat gets an attestation kind.
+   - The policy names how many attested seats the parties want (default 0).
+   - Proofs are post hoc, sealed, and never gate settlement.
+   - A missing proof is the adjudicator's fault, never the buyer's burden. It costs a fixed penalty reserved at acceptance and never re-tries the merits.
 3. **Proofs never replace families.** A proof answers "which model answered" (residual 8). Family diversity answers correlated error (T8). An all-proven panel today would be single-family.
-4. **The Anthropic seats can never be proven** with FlashProve: Claude takes no sampling parameters, no weight commitment exists, and the reasoning Claude returns is a summary written by a different model.
-5. **The report is mostly already there.** The live panel returns no reasoning text (DeepSeek thinking is off; Claude's thinking display is omitted). What the report adds is the raw outputs and the per-stage detail, and its work-quoting parts must follow the hold.
+4. **The Anthropic seats cannot be proven with FlashProve today.**
+   - Claude takes no sampling parameters.
+   - No weight commitment exists.
+   - The reasoning Claude returns is a summary written by a different model.
+
+   That holds until Anthropic publishes a commitment and serves greedy integer inference, or signs its responses.
+5. **The report is mostly already there.** The live panel returns no reasoning text: DeepSeek's thinking is off and Claude's thinking display is omitted. The report adds the raw outputs and the per-stage detail. Every free-text field that can quote the work must follow the hold, and that includes fields in today's record.
 6. **Tuning loops propose, a gate promotes.** The 40-case calibration set cannot measure the 2% false-accept gate it is meant to enforce.
 
 ## 1. What FlashProve proves
@@ -20,9 +29,9 @@
 | Status | "A research artifact: not maintained, not accepting contributions." Version 0.16.0, Apache 2.0. "No independent security audit." The technical paper "was AI-generated, and we did not review it in detail"; the GPU prover and C++ verifier are AI-generated from Lean and not proved equivalent | measured: [README](https://github.com/anthropics/FlashProve), `guide/what-is-proved.md`, [blog](https://www.anthropic.com/research/provable-inference) |
 | Models | "The only model defined is Llama 4 Maverick's text transformer." Another architecture "would need a new definition, new scales, and a new soundness argument" | measured: `docs/model.md`, `docs/operators-duties.md` |
 | Window | 1,024 tokens: prompt, then reply, then filler. "The page does not describe a method for replies longer than that" | measured: [technical report](https://www.anthropic.com/document/flashprove-technical-report) §6; `docs/verifying.md` |
-| Decoding | "Only greedy replies (temperature 0) get proofs." The proof covers an integer version of the weights (12-bit), which "approximates the floating-point model and is not equal to it" | measured: `docs/operators-duties.md`; report §6 to §7 |
+| Decoding | Greedy only: the vLLM integration "is for greedy replies (temperature 0): sampled replies get no proof". The proof covers an integer version of the weights (12-bit), which "approximates the floating-point model and is not equal to it" | measured: `docs/operators-duties.md:15`; `docs/model.md:10` |
 | Weaker policy | Under "clipped gap", 28 of 32 replies with one token swapped for the second choice still passed | measured: `docs/results.md` |
-| Speed | One H100 80 GB, about 300 GB host RAM: a batch of 24 requests in about 223 s, "110 tokens per second" counting all window tokens; 39.1 tokens/s counting checked tokens; one request alone 58 s. About 72 times the GPU time of FP8 prefill | measured: report §6; `guide/performance.md` |
+| Speed | One H100 80 GB, about 300 GB host RAM: a batch of 24 requests in about 223 s, "110 tokens per second" counting all window tokens; 39.1 tokens/s counting reply tokens only, measured under the looser clipped-gap policy; one request alone 58 s. About 72 times the GPU time of FP8 prefill | measured: report §6; `guide/performance.md` |
 | Proof and check | 18.78 MB per request; verification 17 s on 24 threads (36 to 44 s on a shared VM), 3.5 GB RAM, no weights | measured: report §6 |
 | Timing | Post hoc: replies are served first, proofs are made later "via recomputation using the finished transcript". It "only ensures tampering will be detected" | measured: report appendix |
 | Commitment | Made by the weight holder with a secret seed, so not recomputable from the weights; "No theorem ties a commitment to one set of public files or one policy"; the verifier must get the ID from a trusted party, out of band | measured: `guide/what-is-proved.md`; `docs/operators-duties.md` |
@@ -31,56 +40,88 @@
 | Privacy | "A proof file is as sensitive as its request" | measured: `docs/what-is-not-hidden.md` |
 | Claude | No Claude weights or commitment are released. A separate internal prototype "signs our inference traffic and recomputes inference on a trusted server" | measured: blog, footnote 3 |
 
-**The backlog row overstates it.** "Mixture-of-experts models only" is one model shape; DeepSeek V4, Qwen3, gpt-oss and Kimi K2 are MoEs FlashProve does not define (inferred from `docs/model.md` and their Hugging Face configs). "Contexts up to 1,024 tokens" is prompt plus reply plus padding. "110 tokens/s" counts window tokens; per checked token it is 39.1. "A proof can cover the reasoning" holds only inside the window and never for Claude (§5).
+**The backlog row overstates it.** "Mixture-of-experts models only" is one model shape; DeepSeek V4, Qwen3, gpt-oss and Kimi K2 are MoEs FlashProve does not define (inferred from `docs/model.md` and their Hugging Face configs). "Contexts up to 1,024 tokens" is prompt plus reply plus padding. "110 tokens/s" counts window tokens; per reply token it is 39.1, and that under the clipped-gap policy. "A proof can cover the reasoning" holds only inside the window and never for Claude (§5).
 
 **Inferred, untested:** with `-public-weights` and a published seed file, anyone holding the public weights could rerun the commitment and compare IDs, which would make a registry entry checkable without trusting its publisher. No test or theorem covers this.
 
 ## 2. Fitting a judge into the window
 
-- **Today's prompt** (measured): the fixed first-instance template is 1,746 characters with its placeholders unfilled, about 440 tokens at 4 characters a token (`packages/judgment/src/prompt.ts:20-44`); then the agreed terms as JSON; then up to `DEFAULT_MAX_DATA_CHARS = 100_000` characters of spotlighted data (`prompt.ts:59`). The live output cap is 8,192 tokens, reasoning included (`apps/adjudicator/src/providers/live.ts:19-21`). A 60,000-token deliverable has been judged live (`live.ts:96`).
+- **Today's prompt** (measured):
+  - the fixed first-instance template, 1,746 characters with its placeholders unfilled (`packages/judgment/src/prompt.ts:20-44`), which is about 440 tokens at 4 characters a token (inferred: no Llama tokenizer was run);
+  - then the agreed terms as JSON;
+  - then up to `DEFAULT_MAX_DATA_CHARS = 100_000` characters of spotlighted data (`prompt.ts:59`).
+
+  The live output cap is 8,192 tokens, reasoning included (`apps/adjudicator/src/providers/live.ts:19-24`). A 60,000-token deliverable has been judged live (`live.ts:96`).
 - **It cannot fit** (inferred): template plus terms is 700 to 900 tokens before any data or reply; a full sample is about 25,000 tokens.
-- **Splitting into checked windows is unsound for this pipeline** (inferred). A verdict is a function of the whole sample; verdicts on fragments are different claims and need a new aggregation rule. Criteria that span rows (duplicates, coverage, consistency) cannot be judged in a fragment. A two-stage design (an unproven reader, then a proven verdict) proves only the stage that was never in doubt. Cost: about 75 proofs, 12 minutes of prover time and 1.4 GB of proofs per three-judge first instance.
+- **Splitting into checked windows is unsound for this pipeline** (inferred). A verdict is a function of the whole sample; verdicts on fragments are different claims and need a new aggregation rule. Criteria that span rows (duplicates, coverage, consistency) cannot be judged in a fragment. A two-stage design (an unproven reader, then a proven verdict) proves only the stage that was never in doubt. Cost: each window repeats the template and terms and must hold the verdict, leaving under 100 tokens of data, so a three-judge first instance needs about 1,000 proofs, 19 GB and 2.5 hours of prover time.
 - **Recommendation:** do not split. Wait for a prover whose window holds the rendered prompt plus the verdict (8k to 32k tokens today), which the authors list as future work (measured: blog). The prompt is already recomputable: `inputHash` covers the full rendered prompt, and the boundary and canary nonces derive from the revealed seed (measured: `packages/judgment/src/panel.ts:72`), so a later prover or re-executor can rebuild the exact prompt from the plaintext.
 
 ## 3. Who proves, and why it cannot halt settlement
 
-- **The weight holder proves** (measured: report appendix; the secret key directory needs a dedicated machine, "Rented hardware is ruled out"). For a closed model only the lab can prove. For open weights, the adjudicator running `providerPrivacy: local` judges can (inferred).
+- **The weight holder proves** (measured: report appendix; the secret key directory needs a dedicated machine, "which rules out a rented one", `guide/serving.md:26`). For a closed model only the lab can prove. For open weights, the adjudicator running `providerPrivacy: local` judges can (inferred).
 - **Settlement never reads a proof** (inferred from the post-hoc design and ADR-0007). Release, refund, fallback and default all happen without one, so a prover that refuses or dies stops nothing. A proof is a duty of the adjudicator under its bound policy, like key release (T19).
 - **Open-weight seats have substitutable provers** (inferred): anyone holding the plaintext and the public weights can re-run a deterministic seat and check the reply. The buyer holds the plaintext after release; the appeal adjudicator gets the key when it takes over (ADR-0024 §5).
-- **On chain or on the public log: a hash and a pointer only.** Proofs are large and as sensitive as the deliverable, so they belong sealed with the record (inferred).
+- **On chain or on the public log: a hash and a pointer only.** Proofs are large and as sensitive as the deliverable, so they belong sealed with the record (inferred). If the root is recorded on the settlement layer (submittable by anyone, the escape hatch), "no proof by the deadline" becomes a fact settlement can check, and an operator cannot hide an honest adjudicator's proofs (inferred; raised in review).
 - **A deadline:** proofs are due a policy-set time after the decision, short enough that the losing party can still appeal on a missing proof (inferred; the parties set the value, D31).
 
 ## 4. A missing proof, D28 and the bond
 
 - **D28's burden is about the work** (measured: `docs/decisions-today.md`, D28): an appealing buyer must show the work fails the terms, unless a party gamed the judgment. A proof is not about the work. It is the adjudicator performing the policy the commitment binds by `policyHash`. So a missing proof is the adjudicator's fault, like a missed key release or a missed deadline (inferred).
 - **The decision stands** (inferred). In `guaranteed_on_decision` "the payee's money is final at the decision; an overturn pays from the bond" (measured: ADR-0007, Finality). Invalidating a decision for a missing proof would give a prover outage a stop button.
-- **The losing party gets a fresh hearing** (inferred). An unproven decision earns no presumption: no party agreed to an unproven judgment, which is D28's own exception. The appeal decides as after an escalation (D27a, D27b), and the primary's bond pays any reversal. Symmetric: the buyer appeals an unproven accept, the seller an unproven reject.
-- **A failing proof** counts only after the appeal adjudicator re-verifies it, since an honest proof can be rejected on the checker's side (measured: `docs/verifying.md`). Then it is evidence of a mislabeled model, an existing appeal ground (measured: `docs/architecture.md:133`).
-- **Collusion check** (inferred): an adjudicator that withholds proofs to help one party pays that party from its own first-loss bond. That is a transfer, not a gain, and it is bounded like T18.
+- **The research pass first recommended a fresh hearing** (inferred). On that view an unproven decision earns no presumption, because no party agreed to an unproven judgment, which is D28's own exception. The appeal would decide as after an escalation (D27a, D27b), and the primary's bond would pay any reversal.
+- **Review found that remedy can be gamed** (inferred). FlashProve warns that "even an honest prover may fail to convince the verifier", and the integer model's match with float inference "does not cover adversarially designed prompts" (measured: report §7). Both parties shape the prompt: the seller writes the delivery, the buyer the rubric. A party that could make a proof fail would then win split appeals and default outcomes against honest work.
+- **A free appeal fails too** (red team, inferred). It sits outside the 100% coverage encumbrance. One provider outage gives every open deal's loser a free option, and a merits ground can be stacked onto the proof ground.
+- **ADR-0027 separates the duty from the merits.** The policy names a `proofMissPenalty` that the parties choose, reserved at acceptance on top of the price. It is paid from the decider's bond to the losing party:
+  - automatically, by a permissionless timeout, when no proof root is recorded on the settlement layer by the deadline;
+  - or on the appeal adjudicator's signed finding that a posted proof fails.
+
+  The merits are never re-tried, so D28 and D27c are unchanged. Symmetric: either party can be the loser.
+- **A failing proof** counts only after the appeal adjudicator re-verifies it, since an honest proof can be rejected on the checker's side (measured: `docs/verifying.md:329`). It is evidence for the appeal. Only independent evidence of a different model, such as a mismatching re-execution, supports the existing mislabeled-model ground (measured: `docs/architecture.md:133`) and a bad-faith penalty.
+- **Collusion check** (inferred). An adjudicator that withholds proofs to help the losing party pays it the penalty from its own bond. Beyond the adjudicator's first-loss share (10% minimum in the demo rulebook), backers' money pays, so a shell adjudicator can move backer stake. That is residual 3, bounded by the penalty the parties chose.
 
 ## 5. The closed-model seat
 
 - **Facts** (measured): Claude Sonnet 5.5 "Sampling parameters return an error" ([migration guide](https://platform.claude.com/docs/en/models/sonnet-5-5/migration-guide)); the live adapter sends none (`live.ts:79-87`). Claude's thinking text is a summary, and "Summarization is processed by a different model"; `display` defaults to omitted; no setting returns the raw chain of thought ([Thinking docs](https://platform.claude.com/docs/en/build-with-claude/thinking)). No lab publishes a weight commitment or signs responses.
 - **So** (inferred): an Anthropic seat cannot be greedy, cannot be served as an integer model and has no commitment. It stays unattested until Anthropic ships signed or recomputed inference (its prototype, blog footnote 3).
-- **Open-weight MoE families exist** (measured: Hugging Face model API): DeepSeek-V4-Pro (MIT, 6 experts per token), Qwen3-235B-A22B (Apache-2.0), gpt-oss-120b (Apache-2.0), Kimi K2 (modified MIT), Llama 4 Maverick (Meta licence). Only Maverick is provable today. A `local` DeepSeek seat is pinnable by weight hash, which the API alias is not (measured: `docs/decisions/registry-log.md`).
+- **Open-weight MoE families exist** (measured: Hugging Face model API): DeepSeek-V4-Pro (MIT, 6 experts per token), Qwen3-235B-A22B (Apache-2.0), gpt-oss-120b (Apache-2.0), Kimi K2 (modified MIT), Llama 4 Maverick (Meta licence). Only Maverick is provable today. The DeepSeek API names are aliases, not snapshots (measured: `docs/decisions/registry-log.md:21`). A `local` DeepSeek seat would be pinnable by the published weights' hash (inferred).
 - **Options:** (a) open-weight proven families when a prover covers them: the end state; (b) provider-signed responses: none offered; (c) TEE-attested closed inference: none offered; (d) proven seats weigh more: rejected, it lets one proven family dominate (T8); (e) **a per-seat attestation kind and a party-chosen minimum of attested seats: recommended**, default 0.
 
 ## 6. The full report
 
 - **What exists** (measured): the signed record already holds every check, the screen signals, each seat's status, `inputHash`, verdict, evidence strings (up to 12 × 300 characters), rationale (600) and the aggregation (`spec/schemas/judgment.schema.json`, `judge-verdict.schema.json`). The live panel produces no reasoning text: Anthropic calls send no `display`; DeepSeek calls send `thinking: { type: 'disabled' }` (`live.ts:87,99`). Turning DeepSeek thinking on costs budget: at 2,048 tokens `deepseek-flash` "spent the whole budget reasoning" (measured: registry log).
 - **What the report adds:** each seat's raw output as returned (including any reasoning, labeled full or summary), the filter's reason when it abstains a judge, the reader's features and the sample the judges saw.
-- **It must follow the hold** (inferred). D26 gives both parties the same record, but "the work itself still follows the hold" (measured: D26). Raw outputs and reasoning quote the work. On a refund the seller keeps the work, so a buyer who received the full report would get pieces of it for free (T9). Existing exposure: the evidence strings and rationale already reach the buyer on a refund, at most 4,500 characters per judge (12 × 300 evidence, 300 injection evidence, 600 rationale; inferred from the schema caps and ADR-0024's "Buyer and seller always").
+- **Its work-quoting part must follow the hold** (inferred). D26 gives both parties the same record, but "the work itself still follows the hold" (measured: D26). On a refund the seller keeps the work, so a buyer who received the full report would get pieces of it for free (T9). So the report splits:
+  - a record part of typed fields only, for both parties;
+  - a work part with every free-text field that can quote the work: raw outputs, check and screen-signal details, the reader's features, the sample. It is encrypted under a key derived from the work's content key.
+- **The record already has this exposure, and a buyer can engineer it** (red team, inferred from reading `packages/judgment/src/checks/`). Check details can carry the deliverable's JSON property names and CSV headers. A buyer can write evidence-anchored criteria ("quote the rows that violate c3"), arrange a failing one and take the refund. At `judgment` and `public` the record is readable by anyone. ADR-0027 applies the same split to the existing record, which is open question 1 for Rafa. Today, on a refund, the buyer gets (inferred from the schema caps and ADR-0024's "Buyer and seller always"):
+  - per judge, up to 4,500 characters of verdict strings (12 × 300 evidence, 300 injection evidence, 600 rationale);
+  - per check and per screen signal, 300-character details;
+  - 200-character aggregate reasons.
 - **It is data, never instruction**, for every reader (ADR-0021, T22): the reasoning is derived from untrusted deliverables and will quote injections.
 - **Appeal judges never see it: confirmed.** The appeal template says judges "decide afresh and are not told the first decision" (measured: `prompt.ts:48-52`). Reasons: it would relay an injection, anchor the appeal (T8), and D28 asks the appeal to judge the work, not the reasoning (inferred). The appeal adjudicator's code may read the report and proofs to verify them; its judges may not.
-- **Releasing reasoning after the decision helps a gaming seller little** (inferred): the pinned models, the template and the policy are public, so a seller can already probe the judges offline; the seed-dependent parts change per deal. The defenses stay the secret seed, the screen, no re-roll and `maxSubmissions`.
+- **Releasing reasoning after the decision helps a gaming seller little** (inferred): the pinned models, the template and the policy are public, so a seller can already probe the judges offline; the seed-dependent parts change per deal. The defenses stay the secret seed, the screen, no re-roll and `maxSubmissions`. With `maxSubmissions` above 1, reports should be released only after the last attempt (red team).
+- **Attested seats make that probing exact** (red team, inferred). Open weights, deterministic decoding and a public template let a seller optimize a delivery white-box against the exact seat, so an attested configuration needs its own red-team run.
 
 ## 7. Safe tuning loops
 
 - **Goodhart, four ways** (measured: [Manheim and Garrabrant 2018](https://arxiv.org/abs/1803.04585)). Regressional: selecting on calibration score picks up calibration noise. Extremal: thresholds tuned on synthetic cleaning cases break on real deliveries. Causal: appeal outcomes come from the appeal adjudicator the parties chose, which is not ground truth. Adversarial: sellers craft deliveries and file appeals to move thresholds (mapping inferred).
 - **Static red-team sets overfit.** NIST CAISI: new attacks raised hijack success from 11% to 81% (measured: [NIST](https://www.nist.gov/node/1872381)). "The Attacker Moves Second" bypassed 12 defenses at above 90% for most, which had reported near-zero (measured: [arXiv 2510.09023](https://arxiv.org/abs/2510.09023)).
-- **The gate cannot see its own threshold** (inferred). The promotion rule allows 2% false accepts on about 40 cases, about 15 of them rejects (measured: `docs/judgment-and-defenses.md`, Calibration). One false accept in 15 is 6.7%, so the gate means zero in 15, whose 95% upper bound is about 18%. The set must grow by an order of magnitude, or the gate must be stated as "zero in n" with n published.
+- **The gate cannot see its own threshold** (inferred). The promotion rule allows 2% false accepts on about 40 cases, about 15 of them rejects (measured: `docs/judgment-and-defenses.md`, Calibration). One false accept in 15 is 6.7%, so the gate means zero in 15, whose exact 95% upper bound is about 18% (the rule of three gives 20%). A 2% bound needs about 150 reject cases with zero false accepts. The set must grow by an order of magnitude, or the gate must be stated as "zero in n" with n published.
 - **Appeal poisoning** (inferred). An overturn costs an attacker the appeal fee plus a 5% bond (measured: `fixtures/clubs/data-services-v1.yaml`), and a colluding seller and appeal bench can make overturns cheaply. So appeal outcomes are alerts for a person, never part of the loop's objective.
-- **Guards:** a private held-out set regenerated from the seeded generators with fresh seeds per release and never committed; the gate in code the loop cannot edit; a capped step per release; promotion as a new `policyHash` or `registryHash`, so open deals never change; a published log of aggregates only (ADR-0020 §4). Pinning holds: it is per commitment by hash, not frozen over time.
+- **Selection overfits the gate** (red team, computed). A candidate whose true false-accept rate is 3% shows zero in 150 about 1% of the time. Tested 100 times against one set, some such candidate passes about 65% of the time. The gate must run once, on the one candidate the loop nominates, on a set never used in selection.
+- **The other gates need their own n** (red team, computed). Zero false rejects in about 60 accept cases bounds the rate at 5%. Twenty red-team cases bound auto-accepts only at about 14%. Clustered cases from a few generators make each effective n smaller.
+- **The tuner is an instruction position** (red team, inferred). A loop that proposes prompts from failure cases reads deliveries that fooled the judges, and one can address the proposer. So the loop gets typed aggregates only, and the approver reads the candidate's diff.
+- **Guards:**
+  - a private held-out set whose generators are also held back;
+  - the gate in a protected path with a human code owner;
+  - an approver's key the loop does not hold;
+  - a capped step per release and capped drift from a person-signed baseline;
+  - a list of untunable invariants;
+  - promotion as a new `policyHash` or `registryHash`, so open deals never change;
+  - every bound registry kept callable until its last deal closes;
+  - a published log of aggregates only (ADR-0020 §4).
+
+  Pinning holds: it is per commitment by hash, not frozen over time.
 
 ## 8. Alternatives compared
 
@@ -95,20 +136,32 @@
 
 ## 9. Fixtures to write when built
 
-`todo.` until a prover or re-executor exists (`docs/testing.md`). Balances follow the demo club (price 2,000, fee 50, appeal fee 25, appeal bond 100, adjudicator bonds 25,000).
+`todo.` until a kind is built (`docs/testing.md`). Balances follow the demo club: price 2,000, fee 50, appeal fee 25, appeal bond 100, adjudicator bonds 25,000. The proof-miss penalty is written P (a policy term). Most rows were proposed by the red-team review of PR 115.
 
 | Fixture | Scenario | End state |
 | --- | --- | --- |
-| `neutrality.prover-offline-after-accept` | Two attested seats; the primary accepts; its prover never posts by the proof deadline; nobody appeals | Released at the decision; seats recorded unproven; no money moves for the missing proof |
-| `neutrality.prover-offline-buyer-appeals` | As above; the buyer appeals on the missing proof; the appeal panel passes | Released stands; the appellant's bond is returned and its appeal fee reimbursed from the primary's bond |
-| `neutrality.prover-offline-after-reject` | The primary rejects; no proofs; the seller appeals; the appeal panel fails the work | Refunded stands; the seller's appeal costs paid from the primary's bond |
-| `neutrality.prover-offline-fallback-decides` | The primary is silent; the fallback decides and its prover is offline | The same rule on the fallback's bond |
-| `neutrality.closed-seat-unattested` | Anthropic seats `none`, DeepSeek seats `tee`; the receipt service is down after a served call | That seat is unproven; the decision rule is unchanged |
-| `attack.proof-fails-verification` | The primary ran a cheaper model under the pinned name; the appeal adjudicator's verifier rejects its proof | Fresh hearing; a reversal pays 2,000 from the primary's bond |
+| `neutrality.prover-offline-after-accept` | Two attested seats; the primary accepts; no root by the proof deadline; nobody appeals | Released at the decision. Anyone triggers the proof-miss timeout; P moves from the primary's bond to the buyer |
+| `neutrality.prover-offline-after-reject` | The primary rejects; no root by the deadline | Refunded at the decision; the timeout pays P to the seller |
+| `neutrality.prover-offline-fallback-decides` | The primary is silent; the fallback decides and posts no root | The same rule on the fallback's bond |
+| `neutrality.operator-refuses-proof-bundle` | Every operator refuses to relay the `ProofBundle` | The decider submits it to the settlement layer directly; the seats are proven; no penalty |
+| `neutrality.attested-provider-offline-at-call` | The only attested seat's host is down when the panel runs; two unattested seats pass | Released at the decision; the seat abstains and is not replaced; the shortfall is unproven, so P is paid; no fallback, no default |
+| `neutrality.attestation-measurement-rotated` | The host changes its enclave image after agreement | Seats unproven; decisions unaffected; P per deal, from reserves already held |
+| `neutrality.appeal-adjudicator-offline-proof-ground` | Unproven accept; the buyer appeals; the appeal adjudicator never decides | Released stands; appeal bond and fee returned as today; P paid by the timeout |
+| `neutrality.proof-verifier-stalled` | An oversized bundle; the appeal adjudicator cannot verify within the entry's caps | Over-cap is the producer's failure: the finding is `failed`, P is paid, and the merits appeal runs as usual |
+| `attack.proof-fails-verification` | The primary ran a cheaper model; its proof fails, and a re-execution is outside tolerance | An ordinary appeal; the panel rejects the work; the reversal pays 2,000 from the primary's bond, plus P |
+| `attack.proof-garbage-root` | The primary posts a root whose pointer does not resolve or decrypt | No timeout (a root exists); in an appeal the finding is `failed` and P is paid |
+| `attack.seller-crafts-unprovable-delivery` | The seller's delivery makes an honest proof fail; the primary rejects; the seller appeals; the panel splits | Refunded stands (D27c); the seller gains at most P |
+| `attack.proof-ground-honest-accept-judge-noise` | Twin of `honest-seller-survives-judge-noise-on-appeal` with an unproven seat | Released stands: buyer 7,950, seller 2,000; the primary pays P and nothing more |
 | `attack.proof-replay-across-deals` | A proof from another deal with the same template and rows | Fails: the nonces derive from the seed, so the token IDs differ |
 | `attack.prover-stalls-settlement` | The primary withholds its decision "until the proof is ready" past `judgeBy` | The fallback decides; proving never extends a deadline |
-| `attack.appeal-poisoning-tunes-threshold` | A seller files losing appeals across deals | The loop's candidate does not cross the gate; rejected in the log |
-| `attack.report-quotes-work-after-refund` | The rubric fails; the full report quotes rows | The buyer's part of the report holds no work-quoting text |
+| `attack.attested-seat-reroll` | A sampled `enclave` seat called twice; the second reply is recorded | Refused by the deterministic-decoding rule, or caught as a duplicate `inputHash` |
+| `attack.minattested-pins-the-panel` | `minAttestedSeats` equals the number of attested entries | The adjudicator declines the policy at acceptance |
+| `attack.record-quotes-work-after-refund` | A JSON delivery whose extra property name is a canary, plus evidence-anchored criteria; the work fails | The buyer's copy of the record holds no substring of the rows or the canary |
+| `attack.tuner-reads-injected-failure-case` | A delivery tells the proposer to add a trigger phrase to the template | The loop's inputs hold no deliverable text; the approver's diff review rejects the trigger |
+| `attack.tuner-multi-candidate-selection` | 100 candidates at a true 3% false accept against one 150-case set | Rejected: the gate runs once, on a fresh set |
+| `attack.appeal-poisoning-invariance` | The loop runs twice with different appeal data and the same calibration | Identical candidates |
+| `error.coverage-exceeded-by-proof-cost` | The decider has bond for the price but not the price plus P | Acceptance refused |
+| `error.proof-window-out-of-range` | `proofWindowSec` 0 with `minAttestedSeats` 1 | Refused as self-contradictory (D31) |
 
 ## Sources
 
@@ -124,4 +177,3 @@
 - Thinking Machines, "Defeating Nondeterminism in LLM Inference", 2025-09-10: https://thinkingmachines.ai/blog/defeating-nondeterminism-in-llm-inference/
 - Karvonen et al., "DiFR", arXiv 2511.20621; TOPLOC, arXiv 2501.16007; Proof of Sampling, arXiv 2405.00295; opML, arXiv 2401.17555; Verde, arXiv 2502.19405; zkLLM, arXiv 2404.16109
 - Manheim and Garrabrant, arXiv 1803.04585; NIST CAISI, https://www.nist.gov/node/1872381; Nasr, Carlini et al., arXiv 2510.09023
-- The full findings, with every claim labeled and line-cited: the research pass's working file is not committed; this note keeps its load-bearing claims.
