@@ -5,7 +5,7 @@
 - **Depends on:** —
 - **Paths this task may touch:** `apps/operator/src/`, `apps/demo-cloud/src/`, `apps/adjudicator/src/` (declining sealed offers only), `spec/openapi/paths.json`, `spec/openapi.json` (generated), `scripts/openapi.mjs`, `site/llms.txt`, `site/build.mjs`, `site/check.mjs`, `docs/api.md`, `docs/plan.md` (Phase 6 wording only), `examples/`, `tests/contract/`, `fixtures/` (new error fixtures), `docs/tasks/T-030-api-agent-readiness.md`, `docs/backlog.md` (close rows this task resolves)
 - **Human gate:** no (a demo redeploy after merge follows `docs/operations.md`)
-- **Status:** review
+- **Status:** done (PR 85)
 - **Agent/session:** implementer, branch `t-030-api-agent-readiness`
 
 ## Intent

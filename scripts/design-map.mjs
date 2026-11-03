@@ -101,7 +101,7 @@ export function phases(allTasks) {
   for (let i = 1; i < parts.length; i += 3) {
     const n = Number(parts[i]);
     const body = parts[i + 2];
-    const goal = body.match(/^Goal: (.+)$/m)?.[1] ?? '';
+    const goal = (body.match(/^Goal: (.+)$/m)?.[1] ?? '').replace(/^./, (c) => c.toUpperCase());
     const exit = bullets(section(body, '**Exit:**'));
     const own = allTasks.filter((t) => t.phase === n);
     const done = own.length > 0 && own.every((t) => t.status === 'done');
@@ -110,7 +110,7 @@ export function phases(allTasks) {
     // no task IDs yet (Phase 5 onward) shows all its lines, so later work is visible before it has task files
     const plan = body.split('**Exit:**')[0];
     const lines = [...plan.matchAll(/^- (?:\[([ x])\] )?(.+)$/gm)]
-      .map((m) => ({ checked: m[1] === 'x', id: m[2].match(/^(T-\d+)/)?.[1] ?? null, text: m[2].replace(/^T-\d+\s*/, '').replace(/\s+/g, ' ').trim() }));
+      .map((m) => ({ checked: m[1] === 'x', id: m[2].match(/^(T-\d+[a-z]?)\b/)?.[1] ?? null, text: m[2].replace(/^T-\d+[a-z]?\b\s*/, '').replace(/\s+/g, ' ').trim() }));
     const tasked = lines.some((it) => it.id);
     const items = lines.filter((it) => !tasked || it.id || /^(Decide|D\d+)/.test(it.text));
     result.push({ n, title: parts[i + 1], goal, exit, items, tasks: own.map((t) => t.id), status: done ? 'done' : active ? 'active' : 'later' });
