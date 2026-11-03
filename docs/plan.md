@@ -53,7 +53,7 @@ Scope after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-inte
 
 **Exit:**
 - Demo success criteria met (`docs/demo.md`). *Met, with one criterion partly met and moved to T-016b (2026-11-01).*
-- Scenarios pass in CI. *Met: the 31 scenarios plus `_example` pass on main.*
+- Scenarios pass in CI. *Met: the 27 scenarios plus `_example` pass on main (2026-11-03).*
 - Hold p95 ≤ 250 ms on SimChain (measured). *Met: 8.27 ms per hold over 1,000 holds (T-006).*
 - Rafa has walked through the demo. *Met: Rafa walked through it on 2026-11-01 with a guided walkthrough (a local report, not in git). Phase 1 is done.*
 
@@ -135,14 +135,14 @@ Goal: not scheduled (Rafa, 2026-11-02); each item needs a research pass and an A
 
 ## Scenario index
 
-Status (2026-11-03, measured against `fixtures/scenarios/` and `pnpm snap`): **exists** is a fixture file that passes; **todo** is a `todo.` fixture that records a known gap and passes as a todo; **planned** has no file yet. The 31 fixtures on disk are 25 that exist plus 6 todo. Fixtures run on SimChain; Phase 2 also runs them on the contract (below).
+Status (2026-11-03, measured against `fixtures/scenarios/` and `pnpm snap`): **exists** is a fixture file that passes; **todo** is a `todo.` fixture that records a known gap and passes as a todo; **planned** has no file yet. The 27 fixtures on disk are 26 that exist plus 1 todo. Fixtures run on SimChain; Phase 2 also runs them on the contract (below).
 
 | Fixture | Beat | Phase | Status |
 | --- | --- | --- | --- |
 | `happy-path` | 1–4 | 1 | exists |
 | `bad-work-row-drop` | 5 | 1 | exists |
-| `todo.bad-work-panel-reject` | 5 | 1 | todo (needs real data; becomes `bad-work-panel-reject`) |
-| `todo.attack.injection-plain` | 6 | 1 | todo (needs real data; becomes `attack.injection-plain`) |
+| `bad-work-panel-reject` | 5 | 1 | planned (needs real data) |
+| `attack.injection-plain` | 6 | 1 | planned (needs real data) |
 | `attack.injection-encoded-base64` | 6 | 1 | exists |
 | `attack.injection-encoded-unicode-tags` | 6 | 1 | exists |
 | `attack.injection-filter-abstain-appeal-default` | 6 | 1 | exists |
@@ -163,8 +163,6 @@ Status (2026-11-03, measured against `fixtures/scenarios/` and `pnpm snap`): **e
 | `neutrality.maintainers-change-registry` | 3 | 1 | planned (T-016b: real registry and policy hashes) |
 | `attack.adjudicator-self-dealing` | 8 | 1 | exists |
 | `appeal-bad-key-release` | 8 | 1 | planned (T-016b) |
-| `todo.adjudicator-leaks-plaintext` | — | records residual 6 | todo |
-| `todo.principal-no-recourse` | — | records residual 12 | todo |
 | `neutrality.club-revokes-mid-flight` | 7 | 1 | planned (needs run-time revocation; SimChain reads members from genesis) |
 | `neutrality.buyer-silent` | 7 | 1 | exists |
 | `neutrality.seller-withholds-delivery` | 2 | 1 | exists (the planned `reclaim-no-delivery`) |
@@ -181,7 +179,7 @@ Status (2026-11-03, measured against `fixtures/scenarios/` and `pnpm snap`): **e
 | `error.invalid-signature` | 1 | 1 | exists |
 | `error.idempotency-conflict` | 1 | 1 | planned (T-016b; covered today by `apps/operator` idempotency tests) |
 | `error.concurrent-overdraft` | 1 | 1 | exists |
-| `todo.submission-limit` | 5 | 1 | todo (becomes `error.submission-limit`) |
+| `error.submission-limit` | 5 | 1 | exists |
 | `error.coverage-exceeded` | 7 | 1 | exists |
 | `error.early-accept-wrong-key-envelope` | — | 1 | exists |
 | `error.unpinned-model-refused` | 3 | 1 | planned (T-016b; covered today by registry loader tests) |
