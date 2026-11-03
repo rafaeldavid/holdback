@@ -434,7 +434,9 @@ export class PublicWorld {
     const seen = this.seq;
     for await (const e of this.chain.events(this.seq)) {
       this.seq = e.seq + 1;
-      if (e.type === 'commitment.offered' && e.commitmentId) this.commitments.add(e.commitmentId);
+      // Any event brings its commitment back: a look may drop one by the wall clock while a submission stamped
+      // before the deadline is still landing (T-039 review).
+      if (e.commitmentId) this.commitments.add(e.commitmentId);
     }
     const ours = new Set(Object.values(this.adjudicators).map((a) => lc(a.address)));
     const now = this.now();

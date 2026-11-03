@@ -74,11 +74,13 @@ export class World {
     const next = world.nextPass();
     if (next === null) return;
     // An alarm whose handler threw stays set, overdue, while the runtime backs off its retries; a request then
-    // re-arms it rather than wait (measured: adjudicators idle for minutes after one failed version). An alarm set
-    // after the next pass (a slow cadence, then a write brings new work) is brought forward.
+    // re-arms it a second out rather than wait (measured: adjudicators idle for minutes after one failed version),
+    // never later, even when the next pass due is a takeover hours away. An alarm set after the next pass (a slow
+    // cadence, then a write brings new work) is brought forward.
     const at = await this.state.storage.getAlarm();
-    if (at === null || at > next || at < Date.now() - 5000) {
-      await this.state.storage.setAlarm(next);
+    const overdue = at !== null && at < Date.now() - 5000;
+    if (at === null || at > next || overdue) {
+      await this.state.storage.setAlarm(overdue ? Math.min(next, Date.now() + 1000) : next);
       world.telemetry.alarmSet();
     }
   }

@@ -421,6 +421,32 @@ describe('adjudicator passes (T-039)', () => {
     t += 15 * 60_000;
     expect([stuck.active(), stuck.nextPass()]).toEqual([false, Date.parse(deadlines['judgeBy']!)]);
   });
+
+  it('a deal that moves as its deadline passes stays scheduled: a read and a delivery straddle deliverBy (T-039 review)', async () => {
+    let t = Math.ceil(Date.now() / 1000) * 1000;
+    const { world, urls } = await serve({ now: () => t }, new MemoryStorage(), undefined, { passes: false });
+    const d = await discovery(urls);
+    const [seller, buyer] = [freshAgent(urls), freshAgent(urls)];
+    for (const a of [seller, buyer]) await a.call('POST', '/v1/faucet', { address: a.address });
+    const timing = { offerExpiresInSec: 30, fundWithinSec: 45, deliverWithinSec: 60, judgeWithinSec: 600, fallbackWithinSec: 600, appealWindowSec: 60, appealDecideSec: 60 };
+    const offer = await seller.offer(offerRequest(d, seller, buyer, { timing }));
+    await world.work();
+    await buyer.agreeAndFund(offer.terms, 30_000_000n);
+    const deliverBy = Date.parse(offer.terms.timing.deliverBy);
+    t = deliverBy - 500;
+    const { prepared, intent } = await seller.prepareDelivery(offer.terms, new TextEncoder().encode('customer_id,email\n1,ada@example.com\n'));
+    const { path, body } = await seller.sign(prepared, intent);
+    // Both start, and stamp the settlement clock, before deliverBy; the read's look runs after it and drops the
+    // Held deal, then the delivery lands, stamped in time.
+    const via = { node: 0 as const, origin: urls[0], client: 'test' };
+    const read = world.fetch(new Request(`${urls[0]}/v1/status`), via);
+    const delivery = world.fetch(new Request(`${urls[0]}${path}`, { method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': 'k-race' }, body: JSON.stringify(body) }), via);
+    t = deliverBy + 100;
+    await read;
+    expect((await delivery).ok).toBe(true);
+    expect((await world.chain.state(offer.id))?.escrowState).toBe('Delivered');
+    expect(world.active()).toBe(true);
+  });
 });
 
 describe('telemetry (T-031)', () => {

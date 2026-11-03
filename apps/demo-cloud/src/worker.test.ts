@@ -120,6 +120,23 @@ describe('the adjudicator alarm (T-039)', () => {
     expect(Date.parse(takeover.at) - Date.parse(deadlines.judgeBy)).toBeLessThanOrEqual(1000);
   });
 
+  it('an overdue alarm (its handler threw) is retried within a second, not moved to a later takeover', async () => {
+    const dep = deploy();
+    const { seller, buyer, offer } = await offered();
+    await dep.fire(Date.now() + 2000);
+    await buyer.agreeAndFund(offer.terms, 30_000_000n);
+    await seller.deliver(offer.terms, CSV);
+    dep.restart(LIVE);
+    // The primary refuses on every pass; 15 minutes on, only the takeover a day away stays scheduled.
+    await dep.fire(Date.now() + 20 * MINUTE);
+    const { deadlines } = await buyer.call('GET', `/v1/commitments/${offer.id}`);
+    expect(dep.alarm.at).toBe(Date.parse(deadlines.judgeBy));
+    // A handler that throws leaves its alarm set, overdue, while the runtime backs off; the next request re-arms it.
+    dep.alarm.at = Date.now() - 10_000;
+    await buyer.call('GET', `/v1/commitments/${offer.id}`);
+    expect(dep.alarm.at).toBe(Date.now() + 1000);
+  });
+
   it('a restart mid-deal resumes on the next request, and a restart with nothing due arms nothing', async () => {
     const dep = deploy();
     const { state } = await offered();
