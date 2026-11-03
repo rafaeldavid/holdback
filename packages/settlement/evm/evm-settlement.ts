@@ -1078,9 +1078,10 @@ export class EvmSettlement implements Settlement {
         this.emit(type, id, actor, via, { recipient: envelope.recipient, envelope, path: KEY_PATHS[a.path] ?? String(a.path), ...tx }, true, blockAt);
       } else if (type === 'bond.slashed' && log) {
         // SimChain's payFromBond: the adjudicator's own bond is the junior tranche; backers (senior) are Phase 4.
+        // event.schema.json's BondMovement is closed, so this payload carries no chain fields; the appeal.decided
+        // event just before it names the same transaction.
         const a = log.args as { adjudicator: Address; amount: bigint };
-        const payload = { adjudicator: getAddress(a.adjudicator), junior: this.amount(a.amount), senior: this.amount(0n), reason: 'overturn' };
-        this.emit(type, id, 'anyone', via, { ...payload, ...tx }, true, blockAt);
+        this.emit(type, id, 'anyone', via, { adjudicator: getAddress(a.adjudicator), junior: this.amount(a.amount), senior: this.amount(0n), reason: 'overturn' }, true, blockAt);
       } else {
         this.emit(type, id, actor, via, { ...this.payloadOf(type, before, after, ctx), ...tx }, true, blockAt);
       }

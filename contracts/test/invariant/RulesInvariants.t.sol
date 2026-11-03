@@ -152,7 +152,8 @@ contract RulesInvariants is Test {
     }
 
     /// Appeals are backed by the bond (formal model DecideAppeal, T-206 I-8): an overturn pays the wronged party the
-    /// price from the first decider's bond; an upheld appeal moves only the forfeited appeal bond into that bond.
+    /// price from the first decider's bond; an upheld appeal moves only the forfeited appeal bond into that bond. Only
+    /// the party the decision went against files an appeal (T-206 L-7).
     /// forge-config: default.invariant.runs = 256
     /// forge-config: default.invariant.depth = 100
     function invariant_overturnPaysFromTheBond() public view {

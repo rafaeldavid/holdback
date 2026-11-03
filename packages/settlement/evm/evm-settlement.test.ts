@@ -214,7 +214,8 @@ describe.skipIf(!ready)(`EvmSettlement on anvil${ready ? '' : ' (SKIPPED: needs 
     expect(log.slice(decided).map((e) => e.type)).toEqual(['appeal.decided', 'bond.slashed']);
     const slashed = log[decided + 1]!;
     expect(slashed.actor).toBe('anyone');
-    expect(slashed.payload).toMatchObject({ adjudicator: cast.primary.address, junior: { amount: '2000000000' }, senior: { amount: '0' }, reason: 'overturn', tx: log[decided]!.payload['tx'] });
+    // Exactly SimChain's payload: event.schema.json's BondMovement is closed, so no chain fields ride on it.
+    expect(slashed.payload).toEqual({ adjudicator: cast.primary.address, junior: { token: expect.any(String), amount: '2000000000' }, senior: { token: expect.any(String), amount: '0' }, reason: 'overturn' });
     expect(await chain.replayCheck()).toMatchObject({ ok: true });
   }, 120_000);
 
