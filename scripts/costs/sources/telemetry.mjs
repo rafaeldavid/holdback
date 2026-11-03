@@ -19,7 +19,7 @@ const DAY = /^\d{4}-\d{2}-\d{2}$/;
  * day facts). Only these are copied, so a log record that wraps the line with request headers or other metadata
  * never reaches CROW_TELEMETRY_DIR, which agents may read.
  */
-const DAY_FIELDS = ['telemetry', 'day', 'routes', 'throttled', 'usage', 'journalEntries', 'liveJudges', 'deals', 'outcomes', 'conversion', 'signers', 'dropped'];
+const DAY_FIELDS = ['telemetry', 'day', 'requests', 'routes', 'throttled', 'usage', 'facts', 'journalEntries', 'liveJudges', 'deals', 'outcomes', 'conversion', 'signers'];
 
 const isDayLine = (v) => v && typeof v === 'object' && !Array.isArray(v) && v.telemetry === 'day' && typeof v.day === 'string' && DAY.test(v.day);
 const pick = (v) => Object.fromEntries(DAY_FIELDS.filter((k) => Object.hasOwn(v, k)).map((k) => [k, v[k]]));

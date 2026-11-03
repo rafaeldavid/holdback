@@ -263,6 +263,12 @@ describe('claude-code transcripts', () => {
       ].join('\n'),
       '-work-holdback/s1/subagents/agent-a.jsonl': entry({ requestId: 'r5', cwd: `${here}/.claude/worktrees/t-052-x`, message: { model: 'example-sonnet', usage: usage(40, 4) } }),
       '-work-other/s2.jsonl': entry({ requestId: 'r6', cwd: '/work/other-repo', message: { model: 'example-opus', usage: usage(5000, 500) } }),
+      // A session that starts elsewhere and moves into the repository: only its entries here count.
+      '-work-elsewhere/s3.jsonl': [
+        JSON.stringify({ type: 'user', cwd: '/work/elsewhere', message: { content: 'start' } }),
+        entry({ requestId: 'r7', cwd: '/work/elsewhere', message: { model: 'example-sonnet', usage: usage(7000, 700) } }),
+        entry({ requestId: 'r8', message: { model: 'example-sonnet', usage: usage(60, 6) } }),
+      ].join('\n'),
     });
     const r = await runSource(claudeCode, baseCtx({ cloneRoot: clone, claudeProjectsDir: projects, membership }));
     expect(r.status).toEqual({ source: 'claude-code', ok: true, note: claudeCode.note });
@@ -270,7 +276,7 @@ describe('claude-code transcripts', () => {
     expect(q('example-opus', 'input_tokens')).toBe('105');
     expect(q('example-opus', 'output_tokens')).toBe('11');
     expect(q('example-opus', 'cache_write_5m_input_tokens')).toBe('6');
-    expect(q('example-sonnet', 'input_tokens')).toBe('40');
+    expect(q('example-sonnet', 'input_tokens')).toBe('100');
     expect(r.lines.some((l: { product: string }) => l.product.includes('synthetic'))).toBe(false);
     expect(r.files[0].data.rows.map((d: { branch: string; model: string }) => [d.branch, d.model])).toEqual([
       ['t-052-x', 'example-opus'],
@@ -278,6 +284,7 @@ describe('claude-code transcripts', () => {
     ]);
     expect(JSON.stringify(r)).not.toContain('SECRET-LOOKING');
     expect(JSON.stringify(r)).not.toContain('other-repo');
+    expect(JSON.stringify(r)).not.toContain('7000');
   });
 
   it('counts an unreadable transcript in the note instead of skipping it silently', async () => {
@@ -312,7 +319,7 @@ describe('claude-code transcripts', () => {
 });
 
 describe('telemetry export', () => {
-  const day = { telemetry: 'day', day: '2026-11-02', usage: { requests: { used: 900, limit: 100000, percent: 0 }, rowsRead: { used: 5, limit: 1, percent: 0 }, rowsWritten: { used: 7, limit: 1, percent: 0 } }, liveJudges: { day: '2026-11-02', calls: 3, inputTokens: 2968, outputTokens: 540 } };
+  const day = { telemetry: 'day', day: '2026-11-02', requests: 1200, usage: { requests: { used: 900, limit: 100000, percent: 0 }, rowsRead: { used: 5, limit: 1, percent: 0 }, rowsWritten: { used: 7, limit: 1, percent: 0 } }, liveJudges: { day: '2026-11-02', calls: 3, inputTokens: 2968, outputTokens: 540 } };
 
   it('finds day lines in any JSON shape, writes one file a day, and reports usage with no amount', async () => {
     const dir = temp('crow-telemetry-');
@@ -335,7 +342,7 @@ describe('telemetry export', () => {
     writeFileSync(join(dir, 'inbox', 'a.json'), JSON.stringify([wrapped, { telemetry: 'day', day: ['2026-11-05'] }]));
     const r = await runSource(telemetry, baseCtx({ telemetryDir: dir }));
     expect(r.files).toHaveLength(1);
-    expect(Object.keys(r.files[0].data).sort()).toEqual(['day', 'liveJudges', 'telemetry', 'usage']);
+    expect(Object.keys(r.files[0].data).sort()).toEqual(['day', 'liveJudges', 'requests', 'telemetry', 'usage']);
     expect(JSON.stringify(r)).not.toContain('FAKE-READ-TOKEN');
     const empty = await runSource(telemetry, baseCtx({ telemetryDir: temp('crow-telemetry-') }));
     expect(empty.status.note).toMatch(/no inbox yet/);

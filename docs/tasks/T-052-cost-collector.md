@@ -3,7 +3,7 @@
 - **Lane:** infra
 - **Phase:** 9
 - **Depends on:** T-051 step 1 (the Anthropic organization check), for the Anthropic source only; T-213 (Sepolia settlement) live, with `SETTLEMENT` set to `sepolia`, for the Sepolia source only. The rest can be built before any credential exists.
-- **Paths this task may touch:** `scripts/costs/collect.mjs` (new, the launcher), `scripts/costs/run.mjs` (new), `scripts/costs/money.mjs` (new), `scripts/costs/dir.mjs` (new), `scripts/costs/approved.mjs` (new), `scripts/costs/approve.mjs` (new), `.gitignore` (the line `/.costs-approved`), `scripts/costs/sources/*.mjs` (new, one per source), `tests/costs/collect.test.ts` (new), `tests/costs/fixtures/` (new, synthetic responses only), `config/costs.template.json` (new), `config/keys-costs.template` (new), `docs/costs.md`, `docs/tasks/T-052-cost-collector.md`. No `package.json` script: run through pnpm, a `package.json` hook would run outside the approval check (review, 2026-11-03).
+- **Paths this task may touch:** `scripts/costs/collect.mjs` (new, the launcher), `scripts/costs/run.mjs` (new), `scripts/costs/money.mjs` (new), `scripts/costs/dir.mjs` (new), `scripts/costs/approved.mjs` (new), `scripts/costs/approve.mjs` (new), `.gitignore` (the line `/.costs-approved`), `scripts/costs/sources/*.mjs` (new, one per source), `tests/costs/collect.test.ts` (new), `tests/costs/fixtures/` (new, synthetic responses only), `config/costs.template.json` (new), `config/keys-costs.template` (new), `docs/costs.md`, `docs/tasks/T-052-cost-collector.md`, and the command lines of T-053, T-054 and T-055 (the launcher pattern; review, 2026-11-03). No `package.json` script: run through pnpm, a `package.json` hook would run outside the approval check (review, 2026-11-03).
 - **Human gate:** **yes** for the credentials and the dedicated clone: Rafa creates them. **No** for the build: tests use synthetic fixtures and no network.
 - **Status:** review (built; done once Rafa's first run is recorded in Evidence)
 - **Agent/session:** infra cost-monitoring session, branch `t-052-cost-collector`
@@ -48,7 +48,7 @@ Every step is **human**. About 40 minutes (guessed).
    - `github`: `GET /users/{username}/settings/billing/usage` for the month. Confirm the path, parameters and token permission against GitHub's reference before coding (a probe on 2026-11-03 answered 503, measured).
    - `deepseek`: `GET /user/balance`.
    - `sepolia`: `eth_getBalance` on a public RPC for the funding lane, which discovery names, and the demo adjudicators, which discovery lists, and for the deal lanes and the deployer, whose public addresses come from `sepolia.addresses` in `budgets.json`. No address is hard-coded; if discovery stops naming the funding lane, the source says so in its note. A deal lane that reads under 0.01 Sepolia ETH is read again two minutes later, and both reads are recorded, because the world tops lanes up at most once a minute (T-054's relayer rule needs both).
-   - `claude-code`: the local transcripts under `~/.claude/projects/`, including each session's `subagents/` folder, kept when the transcript's first `cwd` is in a checkout of this repository (a removed folder judged by its nearest existing parent). Per day, session, git branch and model: input and output tokens, cache writes split by lifetime, cache reads, `speed`, `service_tier` and server tool use counts, from each response's `usage`. Read only those fields, never message content. Count each response once, at the highest value of each field: entries that share a `requestId` repeat its usage, and an early repeat can carry fewer output tokens (measured). Label the source "laptop sessions only", and count unreadable transcripts in its note.
+   - `claude-code`: the local transcripts under `~/.claude/projects/`, including each session's `subagents/` folder, kept when the entry's own `cwd` or its transcript's first `cwd` is in a checkout of this repository (a removed folder judged by its nearest existing parent). Per day, session, git branch and model: input and output tokens, cache writes split by lifetime, cache reads, `speed`, `service_tier` and server tool use counts, from each response's `usage`. Read only those fields, never message content. Count each response once, at the highest value of each field: entries that share a `requestId` repeat its usage, and an early repeat can carry fewer output tokens (measured). Label the source "laptop sessions only", and count unreadable transcripts in its note.
    - `telemetry`: T-031's `telemetry: "day"` lines, written to `CROW_TELEMETRY_DIR` with only the day line's own fields, the export T-042 reads. Decide and record how to read them without a new secret: the Workers Observability query API with the Cloudflare token (to check: endpoint and permission), or a Workers Logs export Rafa saves.
 6. **`collect.mjs`**, the launcher, then **`run.mjs`**, which runs every source whose credential is set, with a timeout each. A failing source writes `{source, ok: false, error}` with the error's type and status, never the response body or a header, and the others still run. It writes only in the two directories.
 7. **`config/costs.template.json`**: the accounts list (no values), the budget and threshold keys T-053 and T-054 read, with empty values. Rafa's copy is `budgets.json` in the cost directory.
@@ -77,7 +77,7 @@ Every step is **human**. About 40 minutes (guessed).
   - Anthropic's pagination and grouping by key;
   - a failing source next to working ones, and a source with no credential;
   - a second read of a low deal lane, with a fake clock, and a note when discovery stops naming the funding lane;
-  - transcripts: each response counted once at its highest values, subagents kept, a session followed into a subfolder, other repositories dropped, message content never read, an unreadable file counted;
+  - transcripts: each response counted once at its highest values, subagents kept, a session followed into a subfolder, a session that starts elsewhere counted only for its entries here, other repositories dropped, message content never read, an unreadable file counted;
   - day lines found in nested and JSON-encoded logs, with only their own fields copied;
   - refusal before any request without an approval, after a change, with an untracked file, a `.gitattributes`, a symlink, or a tracked record;
   - the real launcher run in a temporary clone: a changed module never runs, not even its top level, and `.env.costs` loads only after the check;
@@ -87,24 +87,24 @@ Every step is **human**. About 40 minutes (guessed).
   - money refusing numbers, malformed strings and huge exponents;
   - only `.mjs` files that import `node:` modules or each other, with no dynamic or indirect loading.
 - **Lint (measured):** `eslint scripts/costs tests/costs` is clean.
-- **`pnpm verify` (measured, 2026-11-03, `reports/verify-t-052-cost-collector.md`; tree equal to this branch's second commit except this Evidence text): PASS, no snapshot diffs against HEAD; `pnpm test` ran 2,245 tests in 102 files, all passing (3 skipped).**
+- **`pnpm verify` (measured, 2026-11-03, `reports/verify-t-052-cost-collector.md`; tree equal to this branch's third commit except this Evidence text): PASS, no snapshot diffs against HEAD; `pnpm test` ran 2,245 tests in 102 files, all passing (3 skipped).**
 
   | Step | Command | Status | Time |
   | --- | --- | --- | --- |
-  | typecheck | `pnpm typecheck` | pass | 222 ms |
-  | lint | `pnpm lint` | pass | 3667 ms |
-  | forge build | `forge build --root contracts` | pass | 935 ms |
-  | forge | `forge test --root contracts` | pass | 15585 ms |
-  | test | `pnpm test` | pass | 55382 ms |
-  | spec | `pnpm validate:spec` | pass | 557 ms |
-  | snap | `pnpm snap` | pass | 8376 ms |
-  | snap:local | `pnpm snap --settlement=local` | pass | 15193 ms |
-  | demo | `pnpm demo` | pass | 4082 ms |
+  | typecheck | `pnpm typecheck` | pass | 233 ms |
+  | lint | `pnpm lint` | pass | 3208 ms |
+  | forge build | `forge build --root contracts` | pass | 829 ms |
+  | forge | `forge test --root contracts` | pass | 16369 ms |
+  | test | `pnpm test` | pass | 53875 ms |
+  | spec | `pnpm validate:spec` | pass | 506 ms |
+  | snap | `pnpm snap` | pass | 8169 ms |
+  | snap:local | `pnpm snap --settlement=local` | pass | 14970 ms |
+  | demo | `pnpm demo` | pass | 3984 ms |
 
   The first run on this branch failed only `forge build`: its output was the first-time clone of `contracts/lib` submodules into this worktree, and a standalone `forge build` then passed.
 - **Smoke run of the keyless sources against real data (measured, 2026-11-03; statuses and counts only, no figure printed or kept):**
   - `sepolia` read 4 balances (the funding lane and three adjudicators, from live discovery and the public RPC) in 0.4 s.
-  - `claude-code` read this month's laptop transcripts in 4 s: 21 lines across 5 models, and 152 rows by day, session, branch and model.
+  - `claude-code` read this month's laptop transcripts in 4 s: 21 lines across 5 models, and 174 rows by day, session, branch and model.
   - `node scripts/costs/collect.mjs` in this worktree, which has no approval record, refuses with exit 1.
 - **Credentialed sources (not measured):** written against the vendors' documented response shapes (read 2026-11-03), and tested only on fixtures shaped like them. Rafa's first run is the first real call.
 - **Rafa's first run:** pending. Record here which sources read and which failed, with no amount.
@@ -121,7 +121,7 @@ Every step is **human**. About 40 minutes (guessed).
 - **The approval covers `.gitattributes` and refuses symlinks**, because the first can hide a change from `git diff` and the second can point at a file the approval does not cover.
 - **`cloudflare-billing` sends no date range.** The API returns the current billing period when none is given (API reference, read 2026-11-03), and a range must include the billing anchor day, which the collector does not know.
 - **`anthropic`** groups tokens by workspace, model and key (T-054 needs keys), and sends no `ending_at`, which is optional.
-- **Transcripts belong to this repository by their first working directory**, and a removed folder is judged by its nearest existing parent (review: about 2% of requests were dropped by the per-entry test). A repeated response counts at its highest value of each field.
+- **An entry counts when its own working directory or its transcript's first one is in this repository**, and a removed folder is judged by its nearest existing parent. The review measured November: the per-entry test alone kept 12,999 requests, the first-directory test alone 11,337, and either test 13,017. A repeated response counts at its highest value of each field.
 - **Day lines are copied field by field**, only T-031's own top-level fields, so a log record that wraps one with request headers leaks nothing into `CROW_TELEMETRY_DIR`.
 - **Usage lines carry no amount yet.** Tokens and requests have `basis: "estimated"` and `amount: null` until T-053's price table prices them.
 - **Anthropic** uses the legacy `cost_report` and `usage_report/messages` endpoints, which Anthropic still supports; the newer analytics endpoints were not read.

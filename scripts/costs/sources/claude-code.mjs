@@ -3,9 +3,10 @@
 // transcript here. A response's usage is repeated on every entry that shares its requestId, and the repeats can
 // differ: an early entry may carry fewer output tokens than the last (measured 2026-11-03: a few groups a month in
 // this repository). So each request counts once, at the highest value of each field.
-// A transcript belongs to this repository when its first working directory does, so a session that later moves
-// into a submodule or a scratch folder still counts. Only usage, model, sessionId, gitBranch, cwd, timestamp and
-// requestId are read; message content never is.
+// An entry counts when its own working directory is in this repository, or when its transcript's first one is: a
+// session that starts here and moves into a submodule or a scratch folder still counts, and so does one that
+// starts elsewhere and moves in. Only usage, model, sessionId, gitBranch, cwd, timestamp and requestId are read;
+// message content never is.
 import { createReadStream, existsSync, readdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -111,6 +112,7 @@ async function readTranscript(file, period) {
     }
     entries.push({
       key,
+      cwd: typeof entry.cwd === 'string' ? entry.cwd : null,
       day,
       model,
       branch: typeof entry.gitBranch === 'string' ? entry.gitBranch : '',
@@ -141,8 +143,9 @@ export async function collect(ctx) {
       unreadable += 1;
       continue;
     }
-    if (!member(read.firstCwd)) continue;
+    const startedHere = member(read.firstCwd);
     for (const e of read.entries) {
+      if (!startedHere && !member(e.cwd)) continue;
       const seen = requests.get(e.key);
       if (!seen) {
         requests.set(e.key, e);
