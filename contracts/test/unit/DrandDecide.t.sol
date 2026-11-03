@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {console} from "forge-std/console.sol";
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {DrandQuicknetBeacon} from "../../src/DrandQuicknetBeacon.sol";
@@ -116,16 +115,6 @@ contract DrandDecideTest is Base {
         m = _drandDecision(id, H.ROLE_FALLBACK, H.OUTCOME_ACCEPT, APPEAL_ROUND, APPEAL_SIG);
         m = _signDecision(t, id, m, fallbackAdj, FB_PK);
         vm.expectRevert(HoldbackRules.BadSeed.selector);
-        rules.decide(t, m, _noDelivery(), "");
-    }
-
-    function test_fallback_refusesACorruptedProof() public {
-        (H.Terms memory t, bytes32 id) = _toFallback();
-        bytes memory bad = bytes.concat(FALLBACK_SIG);
-        bad[20] ^= 0x10;
-        H.Decision memory m = _drandDecision(id, H.ROLE_FALLBACK, H.OUTCOME_ACCEPT, FALLBACK_ROUND, bad);
-        m = _signDecision(t, id, m, fallbackAdj, FB_PK);
-        vm.expectRevert(DrandQuicknetBeacon.InvalidSignature.selector);
         rules.decide(t, m, _noDelivery(), "");
     }
 

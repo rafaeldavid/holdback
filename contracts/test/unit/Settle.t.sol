@@ -203,7 +203,7 @@ contract AppealTest is Base {
         rules.fileAppeal(t, a);
     }
 
-    function test_file_refusesAfterEarlyAccept_or_secondAppeal() public {
+    function test_file_refusesASecondAppeal() public {
         (H.Terms memory t, bytes32 id,) = _filed();
         H.Appeal memory a = _appeal(t, id, BUYER_PK);
         vm.expectRevert(abi.encodeWithSelector(HoldbackRules.WrongAppealState.selector, HoldbackRules.AppealState.Open));
