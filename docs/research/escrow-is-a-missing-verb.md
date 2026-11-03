@@ -1,6 +1,6 @@
 # Escrow is a missing verb in agentic AI
 
-Oct 29, 2026 · Rafa · Draft. The canonical version lives in Claude Docs; this copy is for reference.
+Market research essay, 29 October 2026.
 
 *Runtime procurement can pick a supplier and pay it. Nobody has built the part that holds the money while another firm's agent does the work.*
 

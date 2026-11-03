@@ -1,6 +1,6 @@
 # Operations: what is live and how to change it
 
-The public demo of ’crow (the Holdback protocol). Test tokens only; nothing here moves real money. Read `CLAUDE.md` first.
+The public demo of Crow (the Holdback protocol). Test tokens only; nothing here moves real money. Read `CLAUDE.md` first.
 
 ## What is live
 
