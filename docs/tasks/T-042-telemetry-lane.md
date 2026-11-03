@@ -40,7 +40,7 @@ Let usage, not only opinions, open work: a rule over aggregates writes a `Triage
   - when the directory is on the VM, the `deploy` user writes them to `/srv/crow/intake/`;
   - when it is on Rafa's laptop, this task adds `scripts/ops/send-records.mjs`, which copies the records, and only the records, over `ssh` to `/srv/crow/intake/`. Rafa adds it to his own daily routine; T-055 does not do it.
 
-  The records carry no figures, so either way the figures stay off the build side.
+  The records carry no figures, so either way the figures stay off the build side. Records sent from the laptop are only as trusted as the session that sends them. If the laptop coordinator still accepts other sessions' messages (T-039 step 9), `intake.mjs` treats its records as untrusted input and quarantines them.
 - [ ] Every rule in the pipeline's telemetry table is a named signal in `signals.mjs`, with its threshold read from `ops.yaml` (D31: parameters, not constants). Ratio thresholds are integers in basis points (hard rule: no floats).
 - [ ] A cost rule named in `cost-signals.json` opens an `incident` record that carries the rule's name only.
 - [ ] `pnpm vitest run tests/agent-ops/signals.test.ts` shows each rule firing on a fixture series that crosses its threshold, and staying silent on one that does not.

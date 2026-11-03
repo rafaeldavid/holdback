@@ -3,7 +3,7 @@
 - **Lane:** infra
 - **Phase:** 10
 - **Depends on:** T-034 merged (`scripts/ci/affected.mjs` and the `changes` job); T-040 (the tier table in `ops.yaml`); T-036 merged (its pre-commit gitleaks hook covers P4's local half)
-- **Paths this task may touch:** `scripts/ci/guardrails.mjs` (new), `scripts/ci/tiers.mjs` (new), `scripts/hooks/bash-guard.sh` (new), `.github/CODEOWNERS` (exists; add the tier 3 paths), `agent-ops/settings.deny.json` (new: the proposed deny additions), `agent-ops/workflows/ci.yml` (new, inert: the proposed `ci.yml` with the trusted checkout, which T-050 moves in), `agent-ops/ops.yaml` (`tiers`, `guardrails`, `deny_additions`; after T-040), `agent-ops/gates.md` (the tier table and the State column), `tests/agent-ops/guardrails.test.ts` (new), `tests/agent-ops/bash-guard.test.ts` (new), `docs/team.md` (Rules and checks rows), `docs/tasks/T-044-security-gates.md`
+- **Paths this task may touch:** `scripts/ci/guardrails.mjs` (new), `scripts/ci/tiers.mjs` (new), `scripts/hooks/bash-guard.sh` (new), `.github/CODEOWNERS` (exists; add the tier 3 paths), `agent-ops/settings.deny.json` (new: the proposed deny additions), `agent-ops/workflows/ci.yml` (new, inert: the proposed `ci.yml` with the trusted checkout, which T-050 moves in), `agent-ops/workflows/approval.yml` (new, inert), `agent-ops/ops.yaml` (`tiers`, `guardrails`, `deny_additions`; after T-040), `agent-ops/gates.md` (the tier table and the State column), `tests/agent-ops/guardrails.test.ts` (new), `tests/agent-ops/bash-guard.test.ts` (new), `docs/team.md` (Rules and checks rows), `docs/tasks/T-044-security-gates.md`
 - **Human gate:** no. The two settings that enforce tier 3 (a separate identity for the agents and a required code-owner review) are Rafa's, in T-039 and T-050.
 - **Status:** todo
 - **Agent/session:** —
@@ -62,13 +62,18 @@ Build the automated checks behind threats P4 to P7 and P12 so that a pull reques
   - reads the PR's file list, reviews and timeline from the API.
 
   `gates` runs `guardrails.mjs` and `tiers.mjs`, and `changes` runs `affected.mjs`; `check` needs both. Otherwise a test in the PR could rewrite the gate scripts, their dependencies or the tool cache on the same runner before they run, or one tier 1 PR could delete an attack fixture together with the rule that flags it. A test reads the proposed file and checks that `gates` and `changes` each have a single checkout with `ref: main`, no `cache:` and no step that runs PR code.
-- [ ] The `gates` job also checks who wrote and who approved. It fails `check` unless:
-  - the PR's author is `crow-agents[bot]` or `rafaeldavid`;
-  - the approving review on the head commit is by `crow-review[bot]` or `rafaeldavid`;
-  - the approver is not the author.
+- [ ] The checks about reviews live in their own status, `approval`, never in `check`.
+  - **Why separate:** `check` sits in the `main` ruleset, which nobody can bypass, and review starts only once CI passes. A review check inside `check` would deadlock every PR. It would also block Rafa's merge through his bypass of `required-review` when no reviewer can run.
+  - **Where it runs:** this task writes a small workflow, `agent-ops/workflows/approval.yml`, which T-050 step 5 moves in. It runs on `pull_request` and `pull_request_review`, checks out only `main`, runs no PR code, and reads reviews from the API. An approval therefore re-runs only this check, not the whole CI.
+  - **Who requires it:** the `required-review` ruleset (T-050 step 2), whose bypass is Rafa's.
+  - **What it checks depends on the author:**
+    - **`crow-agents[bot]` or `dependabot[bot]`:** the approving review on the head commit must be by `crow-review[bot]` or `rafaeldavid`. Without this, `crow-agents` could approve a PR that `crow-review` opened. Dependabot's changes are to tier 3 manifests, so Rafa reviews them anyway.
+    - **`rafaeldavid`:** nothing beyond the rulesets. GitHub never lets him approve his own PR, and his bypass is his decision. So a PR he authors passes `approval` with no review, and when no reviewer can run, he is never locked out.
+    - **Anyone else:** it fails.
+  - **A PR that guardrails raised to tier 3** also needs an approving review by Rafa on its head commit, unless he authored it. That holds even when none of its paths is in CODEOWNERS: a task file, an ADR's Status line or an attack fixture is not a tier 3 path, so code-owner review alone would not stop it.
 
-  Without this, `crow-agents` could approve a PR that `crow-review` opened. Tested with a fake reviews API.
-- [ ] A PR that guardrails raises to tier 3 needs Rafa's approval even when none of its paths is in CODEOWNERS. A task file, an ADR's Status line or an attack fixture is not a tier 3 path, so code-owner review alone would not stop it. In enforce mode, guardrails fails `check` on a raised PR until an approving review by Rafa exists on the PR's head commit, read from the reviews API. T-050 step 5 adds a `pull_request_review` trigger, so his approval re-runs the check. Tested with a fake reviews API: no review, a review on an older commit, and a review on the head.
+  Tested with a fake reviews API: no review, a review on an older commit, a review by the author, a review on the head, and a PR Rafa authored.
+- [ ] Guardrails read a PR's allowed paths from its task file on `main`, never from the PR. A PR that widens its own task's paths would otherwise pass its own scope check.
 - [ ] `bash-guard.sh` reads the tool input JSON on stdin and exits 2 with a one-line reason for each pattern in `isolation.bash_guard_blocks` (`cd` outside the root, heredoc and redirect writes, `sed -i`, interpreter one-liners, command substitution, `xargs`, `eval`, `find -exec`, `/private/tmp`, `~/`, polling loops), and exits 0 for the literal commands in `CLAUDE.md`'s verify list. `pnpm vitest run tests/agent-ops/bash-guard.test.ts` covers both sets. The hook is not wired into `.claude/settings.json` here.
 - [ ] `agent-ops/settings.deny.json` lists the P6 additions in settings syntax, for T-050 to install in T-039's managed settings and each role's home template:
   - `gh api:*` wholesale, with a read-only wrapper for the GET calls agents need. Narrower patterns miss `-X PUT`, `--method=PUT`, and the implicit POST of `-f key=value`.
