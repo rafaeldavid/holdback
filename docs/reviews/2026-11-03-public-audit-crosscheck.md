@@ -232,9 +232,9 @@ Results:
 | # | Class | Seen in | Result | Evidence |
 | --- | --- | --- | --- | --- |
 | B1 | Bond accounting drift, double release | Kleros v2 H-01, M-02; UMA bridge H01 | pass | `invariant_encumberedNotDoubleCounted`, `invariant_bondsNeverNegative` (T-206 H2) [measured] |
-| B2 | Locking a third party's collateral without its consent | Trustless Work B06 (the resolver should consent); ADR-0016's own context | **fail** | PA-M1 [measured] |
+| B2 | Locking a third party's collateral without its consent | Trustless Work B06 (the resolver should consent); ADR-0016's own context | fixed | PA-M1 [measured at `43479c7`]; T-206 M-3, PR #135 (merged) |
 | B3 | Zero or missing bond | UMA bridge M05; UMA Asserter L5; Kleros v2 M-08 | open | T-206 L-3 |
-| B4 | An uncovered decider still decides | — | open | T-206 L-5. PA-M1's fix closes it for the fallback |
+| B4 | An uncovered decider still decides | — | fixed for the fallback; open for the appeal adjudicator | T-206 L-5. PR #135 makes the fallback reserve its bond to decide; the appeal adjudicator's part is T-212 item 5 |
 | B5 | Role capture (evaluator is the client, buyer-chosen arbiter) | ERC-8183 posts 103 and 384; CodeHawks Escrow | n/a by design | The parties choose and sign the adjudicators (D31, D32), and every stage has a timed exit |
 | B6 | The caller chooses the fee address | Trustless Work A01 | pass | T-206 H11 |
 | B7 | The winning party takes the single appeal slot | Kleros v2 M-08 (appeal funding per side); UMA (only the disputer bonds) | **fail** | PA-L3 [measured] |
@@ -330,10 +330,13 @@ Results:
   - `test_naiveBundle_feeLegFrontRun_revertsEveryRetry_fundingAloneWorks`, with control `test_bundle_fundsAndPaysTheFee`, pins the on-chain property: once the fee nonce is spent, the bundle reverts on every retry, and funding alone still works.
   - Measured with `LocalUSDC` and `LocalMulticall3`; inferred for Sepolia USDC, whose `transferWithAuthorization` has the same open caller.
   - These tests keep passing after the fix, because the fix is in the adapter.
-- **Fix,** in the Sepolia demo lane, PR #138. Its test "operator fee relayed alone ahead of the bundle: the hold still funds, and the fee is paid once" is in `evm-settlement.test.ts`. The fix: before bundling, read USDC `authorizationState(buyer, feeNonce)`.
-  - If the nonce is spent by an `AuthorizationUsed` event (not `AuthorizationCanceled`), the fee is paid, so relay `agreeAndFund` alone.
-  - The event check is necessary, not optional. FiatToken sets the same state, and reverts the same way, for an authorization the buyer cancelled. A detection by state or revert alone lets a buyer who cancels first get the relay free. That is low: the node loses its fee, and the buyer could have submitted directly for free. Flagged to the demo lane against PR #138 [measured on the local token, inferred for FiatToken].
-  - `LocalUSDC.authorizationState` reads only the `receiveWithAuthorization` map, so after a front-run it reports the fee nonce as unspent. `test_attack_feeNonceSpent_butLocalUsdcAuthorizationStateSaysUnspent` pins this [measured]. A local test of the detection needs that mock fixed first.
+- **Fix,** in the Sepolia demo lane, PR #138.
+  - **What it does:** the adapter simulates the fee `transferWithAuthorization`, and on a `nonce_reused` revert relays `agreeAndFund` alone and records the fee as paid. It reads neither state nor events. Its test, "operator fee relayed alone ahead of the bundle: the hold still funds, and the fee is paid once", is in `evm-settlement.test.ts`.
+  - **The gap:** FiatToken reverts the same way, and sets the same `authorizationState`, for an authorization the buyer cancelled. A detection by revert or state alone therefore lets a buyer who cancels first get the relay free.
+    - Confirm payment by the `AuthorizationUsed` event for (buyer, fee nonce), or by the fee recipient's balance change.
+    - Low: the node loses its fee, and the buyer could have submitted directly for free.
+    - Flagged to the demo lane [inferred for FiatToken].
+  - **Local mocks:** `LocalUSDC.authorizationState` reads only the `receiveWithAuthorization` map, so after a front-run it reports the fee nonce as unspent. `test_attack_feeNonceSpent_butLocalUsdcAuthorizationStateSaysUnspent` pins this [measured]. PR #138's new `TestUSDC` shares one nonce map, so the used case is testable there. Neither mock has `cancelAuthorization`, so the cancel race has no regression test yet.
   - Sending the fee leg as its own transaction first would re-create the non-atomic design ADR-0023 rejected.
   - A `receiveWithAuthorization` fee works only if the relaying account is itself the fee recipient (a smart-account batch).
 
