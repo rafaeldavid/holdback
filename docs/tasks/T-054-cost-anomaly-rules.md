@@ -2,7 +2,7 @@
 
 - **Lane:** infra
 - **Phase:** 9
-- **Depends on:** T-052 (the collector's daily files, which hold the trailing series every rule reads); T-213 (Sepolia settlement, PR 138) deployed, for the relayer rule and the CPU guard only
+- **Depends on:** T-052 (the collector's daily files, which hold the trailing series every rule reads); T-213 (Sepolia settlement) live, with `SETTLEMENT` set to `sepolia`, for the relayer rule and the CPU guard only
 - **Paths this task may touch:** `scripts/costs/rules.mjs` (new), `tests/costs/rules.test.ts` (new), `tests/costs/fixtures/` (synthetic only), `config/costs.template.json` (threshold keys), `apps/demo-cloud/wrangler.op1.jsonc`, `apps/demo-cloud/wrangler.op2.jsonc`, `apps/early-access/wrangler.jsonc` (a `limits` block only), `docs/costs.md` (the rules table), `docs/tasks/T-054-cost-anomaly-rules.md`
 - **Human gate:** no to build the rules or propose the limits. **Yes** to deploy the CPU limits: a redeploy of the Workers is Rafa's.
 - **Status:** todo
@@ -19,7 +19,7 @@ Catch in a day what a monthly bill would show in a month: a runaway agent, a spe
 ## Context
 
 - `docs/costs.md`, "Anomaly rules": the eight rules and their starting thresholds (guessed).
-- PR 138's world (`apps/demo-cloud/src/world.ts`, measured there): a deal lane below 0.01 Sepolia ETH gets 0.03 from the funding lane; a lane that cannot pay answers `relay_refused`. So the funding lane is the one to watch.
+- The Sepolia world (`apps/demo-cloud/src/world.ts`, measured): a deal lane below 0.01 Sepolia ETH gets 0.03 from the funding lane; a lane that cannot pay answers `relay_refused`. So the funding lane is the one to watch.
 - Cloudflare's CPU limit per invocation, set with wrangler's `limits` or in the dashboard, "to prevent accidental runaway bills or denial-of-wallet attacks" (documented, read 2026-11-03). It does not cap Durable Object requests, duration or rows, the demo's main cost drivers (inferred).
 - The World Durable Object runs CSV checks, signing, NaCl and live judge calls, so a limit set from a quiet week can break a heavy deal.
 

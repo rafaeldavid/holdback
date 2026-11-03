@@ -2,7 +2,7 @@
 
 - **Lane:** infra
 - **Phase:** 9
-- **Depends on:** T-051 step 1 (the Anthropic organization check), for the Anthropic source only; T-213 (Sepolia settlement, PR 138) deployed, for the Sepolia source only. The rest can be built before any credential exists.
+- **Depends on:** T-051 step 1 (the Anthropic organization check), for the Anthropic source only; T-213 (Sepolia settlement) live, with `SETTLEMENT` set to `sepolia`, for the Sepolia source only. The rest can be built before any credential exists.
 - **Paths this task may touch:** `scripts/costs/collect.mjs` (new), `scripts/costs/money.mjs` (new), `scripts/costs/dir.mjs` (new), `scripts/costs/sources/*.mjs` (new, one per source), `tests/costs/collect.test.ts` (new), `tests/costs/fixtures/` (new, synthetic responses only), `config/costs.template.json` (new), `config/keys-costs.template` (new), `package.json` (a `costs:collect` script), `docs/costs.md`, `docs/tasks/T-052-cost-collector.md`
 - **Human gate:** **yes** for the credentials and the dedicated clone: Rafa creates them. **No** for the build: tests use synthetic fixtures and no network.
 - **Status:** todo

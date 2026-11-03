@@ -19,8 +19,8 @@ Before each gate that brings a new cost (mainnet, the live on-ramp, the trademar
 ## Context
 
 - `docs/costs.md`, "Planned": today's rows and their labels.
-- `docs/backlog.md`: the gas rows (Settlement layer) and the drand verifier review; D33 as amended on 2026-11-03 (PR 138): the operator recovers gas through its fee.
-- D7 and D42 (PR 138): the Stripe test-mode on-ramp and USDC first.
+- `docs/backlog.md`: the gas rows (Settlement layer) and the drand verifier review; D33 as amended on 2026-11-03: the operator recovers gas through its fee.
+- D7 and D42: the Stripe test-mode on-ramp and USDC first.
 
 ## Agent steps
 

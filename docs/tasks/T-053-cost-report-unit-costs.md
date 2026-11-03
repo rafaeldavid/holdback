@@ -2,7 +2,7 @@
 
 - **Lane:** infra
 - **Phase:** 9
-- **Depends on:** T-052 (the collector's output); T-213 (Sepolia settlement, PR 138) deployed, for the gas per deal only
+- **Depends on:** T-052 (the collector's output); T-213 (Sepolia settlement) live, with `SETTLEMENT` set to `sepolia`, for the gas per deal only
 - **Paths this task may touch:** `scripts/costs/report.mjs` (new), `scripts/costs/units.mjs` (new), `config/model-prices.json` (new), `tests/costs/report.test.ts` (new), `tests/costs/fixtures/` (synthetic only), `package.json` (a `costs:report` script), `docs/costs.md` (the report and unit-cost sections), `docs/tasks/T-053-cost-report-unit-costs.md`
 - **Human gate:** no. Rafa sets his budgets in `budgets.json` in the cost directory, outside git, which needs no approval.
 - **Status:** todo
@@ -20,7 +20,7 @@ Turn the collector's daily files into one page a month that answers three questi
 
 - `docs/costs.md`, "The monthly report" and "Unit costs": the sections and the definitions this task implements.
 - T-031's day lines: `deals` (the funnel, including `final`) and `liveJudges` (calls and tokens, with no model split: `apps/demo-cloud/src/judges.ts`, measured).
-- D33 as amended on 2026-11-03 (PR 138): the operator recovers gas through its fee; the report shows whether it does.
+- D33 as amended on 2026-11-03: the operator recovers gas through its fee; the report shows whether it does.
 
 ## Rafa's steps
 
