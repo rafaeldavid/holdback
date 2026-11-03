@@ -36,6 +36,8 @@ const FLUSH_EVERY_MS = 60_000;
 /** Lines kept per hour, so one hour's bucket stays well under the 2 MB value limit. */
 const MAX_LINES_PER_HOUR = 6_000;
 const USAGE_KEY = 'tm:current';
+/** Any other method a caller sends is logged as OTHER: the method is caller text, and it names a summary key. */
+const METHODS = new Set(['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']);
 
 interface Usage extends Record<Quota, number> {
   day: string;
@@ -191,10 +193,11 @@ export class Telemetry {
     };
   }
 
-  /** Logs one request: these fields only, whatever else the caller holds. */
+  /** Logs one request: these fields only, whatever else the caller holds, and a method from a fixed set. */
   request(l: RequestLine): void {
     const h = this.bucket();
-    const line: RequestLine = { requestId: l.requestId, at: l.at, node: l.node, method: l.method, route: l.route, status: l.status, ...(l.problem ? { problem: l.problem } : {}), ms: l.ms };
+    const method = METHODS.has(l.method) ? l.method : 'OTHER';
+    const line: RequestLine = { requestId: l.requestId, at: l.at, node: l.node, method, route: l.route, status: l.status, ...(l.problem ? { problem: l.problem } : {}), ms: l.ms };
     if (h.lines.length < MAX_LINES_PER_HOUR) h.lines.push(line);
     else h.dropped++;
     this.unflushedLines++;
@@ -214,7 +217,7 @@ export class Telemetry {
     return undefined;
   }
 
-  /** Milliseconds until log lines are due to be flushed, or null when none are waiting (the Durable Object's alarm). */
+  /** Milliseconds until log lines are due to be flushed, or null when none are waiting. */
   flushDueInMs(): number | null {
     return this.unflushedLines > 0 ? Math.max(0, this.lastFlush + FLUSH_EVERY_MS - this.o.now()) : null;
   }
@@ -244,7 +247,9 @@ export class Telemetry {
     for (const u of days) {
       const lines = [...(await this.storage.list<Hour>({ prefix: `rl:${u.day}` })).values()].flatMap((h) => h.lines);
       const from = Date.parse(`${u.day}T00:00:00Z`);
-      this.log('info', { telemetry: 'day', day: u.day, ...summarize(lines), usage: this.usageView(u), ...(facts ? await facts(u.day, { from, to: from + DAY_MS }) : {}) });
+      // A failure in the settlement-side facts still writes the line: the day is closed only once.
+      const settlement = facts ? await facts(u.day, { from, to: from + DAY_MS }).catch(() => ({ facts: 'unavailable' })) : {};
+      this.log('info', { telemetry: 'day', day: u.day, ...summarize(lines), usage: this.usageView(u), ...settlement });
     }
     if (hours.length > 0) await this.prune();
   }
@@ -334,9 +339,10 @@ export interface Finality {
 
 /**
  * The deal funnel in a window, from settlement events and each deal's finality only: deals reaching each stage, the
- * median seconds from the stage before, outcomes, and signers as counts. Active: parties that signed in the window.
- * Fresh: parties whose first signed event is in it. First deal completed: fresh parties whose first deal has settled
- * and is final, so far. No address leaves this function.
+ * median seconds from the stage before, outcomes, and signers as counts. Decided: a judgment or an early accept.
+ * Final: settled and past every appeal (an expired offer is an outcome, not final). Active: parties that signed in
+ * the window. Fresh: parties whose first signed event is in it. First deal completed: fresh parties whose first deal
+ * has settled and is final, so far. No address leaves this function.
  */
 export function dealFacts(events: readonly SettlementEvent[], finality: (id: string) => Finality | undefined, { from, to }: Window) {
   const inWindow = (t: number) => t >= from && t < to;
@@ -348,12 +354,13 @@ export function dealFacts(events: readonly SettlementEvent[], finality: (id: str
     if (!e.commitmentId) continue;
     const t = Date.parse(e.at);
     if (e.type === 'commitment.offered') {
-      const terms = e.payload['terms'] as { buyer: string; seller: string };
+      const terms = e.payload['terms'] as { buyer?: string; seller?: string } | undefined;
+      if (!terms?.buyer || !terms.seller) continue;
       deals.set(e.commitmentId, { parties: [terms.buyer.toLowerCase(), terms.seller.toLowerCase()], at: {} });
     }
     const deal = deals.get(e.commitmentId);
     if (!deal) continue;
-    const stage = STAGE_OF[e.type];
+    const stage = e.type === 'settlement.released' && e.payload['via'] === 'early_accept' ? 'decided' : STAGE_OF[e.type];
     if (stage && deal.at[stage] === undefined) deal.at[stage] = t;
     const outcome = OUTCOME_OF[e.type];
     if (outcome && inWindow(t)) outcomes[outcome] = (outcomes[outcome] ?? 0) + 1;
@@ -364,8 +371,8 @@ export function dealFacts(events: readonly SettlementEvent[], finality: (id: str
   }
   const reached = Object.fromEntries(STAGES.map((s) => [s, { deals: 0, gaps: [] as number[] }])) as Record<Stage, { deals: number; gaps: number[] }>;
   for (const [id, deal] of deals) {
-    const finalAt = finality(id)?.finalAt;
-    if (finalAt) deal.at.final = Date.parse(finalAt);
+    const f = finality(id);
+    if (f?.settledAt && f.finalAt) deal.at.final = Date.parse(f.finalAt);
     let previous: number | undefined;
     for (const s of STAGES) {
       const t = deal.at[s];

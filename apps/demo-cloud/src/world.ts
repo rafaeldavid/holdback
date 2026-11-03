@@ -378,7 +378,16 @@ export class PublicWorld {
     }
     await panel.budget.flush();
     await this.persist();
-    await this.telemetry.maybeFlush(this.facts);
+    await this.flushTelemetry(false);
+  }
+
+  /** Flushes telemetry (when due, unless `force`). A failure is reported, never answered in place of a response. */
+  async flushTelemetry(force = true): Promise<void> {
+    try {
+      await (force ? this.telemetry.flush(this.facts) : this.telemetry.maybeFlush(this.facts));
+    } catch (e) {
+      this.o.onError?.(e as Error);
+    }
   }
 
   async fetch(request: Request, via: Via): Promise<Response> {
@@ -390,7 +399,7 @@ export class PublicWorld {
     const response = await this.handlers[via.node]!(request, via.client);
     if (request.method === 'POST') this.lastActive = this.now();
     await this.persist();
-    await this.telemetry.maybeFlush(this.facts);
+    await this.flushTelemetry(false);
     return response;
   }
 }

@@ -387,6 +387,8 @@ describe('telemetry (T-031)', () => {
     await terms.text();
     const faucet = await fetch(`${urls[1]}/v1/faucet`, { method: 'POST', headers: { ...canaries, 'content-type': 'application/json' }, body: JSON.stringify({ address: buyer.address, canary: 'canary-body' }) });
     await faucet.text();
+    const stray = await fetch(`${urls[0]}/wp-admin/${seller.address}?canary=canary-query`, { headers: canaries });
+    await stray.text();
 
     // The next UTC day: the world closes the hours and the day it saw.
     offset = Date.parse(new Date(Date.now() + 86_400_000).toISOString().slice(0, 10)) + 60_000 - Date.now();
@@ -402,11 +404,17 @@ describe('telemetry (T-031)', () => {
     // The log finds each request by its Request-Id, as the node that answered it.
     expect(await world.telemetry.lookup(terms.headers.get('request-id')!)).toMatchObject({ node: 0, method: 'GET', route: '/v1/commitments/{commitmentId}/terms', status: 200 });
     expect(await world.telemetry.lookup(faucet.headers.get('request-id')!)).toMatchObject({ node: 1, route: '/v1/faucet', status: 429, problem: 'rate_limited' });
+    expect(await world.telemetry.lookup(stray.headers.get('request-id')!)).toMatchObject({ route: 'unmatched', status: 404 });
 
     // Nothing a request carried, and no address or deal ID, reaches the log lines, the stored log or the usage.
     const kept = JSON.stringify([lines, [...(await storage.list({ prefix: 'rl:' })).values()], await storage.get('tm:current')]).toLowerCase();
     for (const secret of [...Object.values(canaries), 'c0ffeec0ffee', 'canary-query', 'canary-body', ip, buyer.address, seller.address, offer.id]) expect(kept).not.toContain(secret.toLowerCase());
     expect(kept).not.toMatch(/0x[0-9a-f]{40}/);
+    // And no header, query or body value, nor the IP, lands anywhere in the world's storage.
+    const everything = await storage.list({ prefix: '' });
+    expect(new Set([...everything.keys()].map((k) => k.split(':')[0]))).toEqual(new Set(['meta', 'j', 'fa', 'ct', 'jr', 'rl', 'tm']));
+    const stored = JSON.stringify([...everything.values()], (_k, v) => (v instanceof Uint8Array ? undefined : v)).toLowerCase();
+    for (const secret of [...Object.values(canaries), 'c0ffeec0ffee', 'canary-query', 'canary-body', ip]) expect(stored).not.toContain(secret.toLowerCase());
   }, 60_000);
 });
 
