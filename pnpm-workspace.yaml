@@ -4,6 +4,7 @@ packages:
   - examples
   - tools/sim
 
-# GHSA-g3hv-75wg-m249: minimatch below 11.0.1, reached only through ESLint (development).
+# GHSA-g3hv-75wg-m249: minimatch below 11.0.1, reached only through ESLint (development). This forces
+# minimatch 11 on dependents that ask for ^10; remove it once ESLint and typescript-eslint depend on 11.
 overrides:
   minimatch@<11.0.1: 11.0.1
