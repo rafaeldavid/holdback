@@ -583,7 +583,8 @@ export class PublicWorld {
     this.tick();
     const op = this.operators[via.node]!;
     // The public address when configured (OPERATOR_URLS), so one odd request (another port, http) cannot change it.
-    op.baseUrl = this.publicUrls[via.node] ?? via.origin.replace(/\/+$/, '');
+    // A URL origin has no path, so it never ends in a slash.
+    op.baseUrl = this.publicUrls[via.node] ?? via.origin;
     const response = await this.handlers[via.node]!(request, via.client);
     if (request.method === 'POST') this.lastActive = this.now();
     await this.persist();
