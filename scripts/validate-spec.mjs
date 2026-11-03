@@ -6,7 +6,7 @@ for (const r of results) console.log(`${r.ok ? 'ok  ' : 'FAIL'} ${r.file}${r.ok 
 const failed = results.filter((r) => !r.ok).length;
 console.log(`${results.length - failed}/${results.length} examples valid`);
 
-// T-015: spec/openapi.json is fresh, its references resolve, and every schema in it compiles under Ajv strict.
+// spec/openapi.json is fresh, its references resolve, and every schema in it compiles under Ajv strict.
 const openapi = checkOpenApiDocument();
 console.log(`${openapi.ok ? 'ok  ' : 'FAIL'} spec/openapi.json${openapi.ok ? ` (${openapi.summary})` : `\n     ${openapi.errors.join('\n     ')}`}`);
 

@@ -21,6 +21,15 @@ export function instant(ts: Timestamp): number | undefined {
 
 export const addSeconds = (ts: Timestamp, seconds: number): Timestamp => new Date(Date.parse(ts) + seconds * 1000).toISOString();
 
+/** RFC 3339 for `ms`, without the `.000` fraction on a whole second: the form signed messages carry. */
+export const toTimestamp = (ms: number): Timestamp => new Date(ms).toISOString().replace('.000Z', 'Z');
+
+/** `ts` moved by `seconds`, in toTimestamp's form (addSeconds keeps the `.000`). */
+export const plusSeconds = (ts: Timestamp, seconds: number): Timestamp => toTimestamp(Date.parse(ts) + seconds * 1000);
+
+/** `ms` rounded down to a whole second, in toTimestamp's form. */
+export const wholeSecond = (ms: number): Timestamp => toTimestamp(Math.floor(ms / 1000) * 1000);
+
 const ORDER = ['offerExpiresAt', 'fundBy', 'deliverBy', 'judgeBy', 'fallbackBy'] as const;
 
 export function validateTiming(timing: Timing, rulebook: Pick<Rulebook, 'minWindowsSec'>): Result<TimingBounds, Problem> {

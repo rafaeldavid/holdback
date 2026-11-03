@@ -106,8 +106,6 @@ export class Holdback {
     this.fetch = options.fetch ?? globalThis.fetch.bind(globalThis);
   }
 
-  // ---- transport -----------------------------------------------------------------------------------
-
   private async request(base: string, method: 'GET' | 'POST', path: string, body?: unknown, headers: Record<string, string> = {}): Promise<Attempt<{ body: unknown; headers: Headers }>> {
     let res: Response;
     try {
@@ -157,8 +155,6 @@ export class Holdback {
     }
     return { ok: false, ...last };
   }
-
-  // ---- writes --------------------------------------------------------------------------------------
 
   /** Relays a signed operation, failing over across operators and then to direct submission. */
   async submit(op: Operation, options: SubmitCallOptions = {}): Promise<Submitted> {
@@ -226,8 +222,6 @@ export class Holdback {
   /** A co-signed MutualSettlement (ADR-0019, D23); preview it unsigned with preview({ kind: 'settle', ... }). */
   settle = (message: Extract<Operation, { kind: 'settle' }>['message'], o?: SubmitCallOptions) => this.submit({ kind: 'settle', message }, o);
   trigger = (commitmentId: Hex32, timeout: Extract<Operation, { kind: 'trigger' }>['timeout'], o?: SubmitCallOptions) => this.submit({ kind: 'trigger', commitmentId, timeout }, o);
-
-  // ---- reads ---------------------------------------------------------------------------------------
 
   private async read<T>(path: string): Promise<T> {
     const r = await this.failover(async (base) => {

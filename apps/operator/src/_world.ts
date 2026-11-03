@@ -6,8 +6,6 @@ import type { Operation } from '@holdback/sdk';
 import { simRegistry, startOperator, type OperatorOptions, type RunningOperator } from './index.js';
 
 export const START = '2026-11-01T09:00:00Z';
-export const PRICE = 2_000_000_000n;
-export const FEE = 50_000_000n;
 export const BOND = 25_000_000_000n;
 
 export interface World {

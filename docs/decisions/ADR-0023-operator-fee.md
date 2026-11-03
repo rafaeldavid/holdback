@@ -2,7 +2,7 @@
 
 - **Status:** Accepted, 2026-11-01 (D33, confirmed by Rafa: "Confirm D33")
 - **Date:** 2026-11-01
-- **Raised by:** Rafa: fees at the API level, not a protocol fee in the contracts; 0.01% of settled volume, with cost-plus weighed. The research pass of 2026-11-01 behind D33 (`docs/decisions-today.md`) measured what a deal costs ’crow and compared take rates.
+- **Raised by:** Rafa: fees at the API level, not a protocol fee in the contracts; 0.01% of settled volume, with cost-plus weighed. The research pass of 2026-11-01 behind D33 (`docs/decisions-today.md`) measured what a deal costs Crow and compared take rates.
 - **Changes:** schema v0.7 (additive), `packages/core` (types, EIP-712, fee rule, problem type), `packages/settlement` (interface and SimChain), `packages/sdk` (the agree operation carries the fee), `apps/operator` (prepare, 402, status), `apps/demo-cloud` (schedule from variables), `examples/` (the agent checks the fee), T-029.
 
 ## Context
@@ -17,7 +17,7 @@
 
 ### The rule
 
-`fee = max(min, ceil(price × bps / 10000))`, then `min(fee, max)` when the operator publishes a `max`, in base units of the price token (ADR-0022 rule 1: a requirement rounds up). The price is the commitment's `price`, without the adjudication fee. A schedule in another token than the price charges nothing. ’crow's demo nodes publish `bps: 1`, `min: "10000"` (0.01 tUSD), `max: null`.
+`fee = max(min, ceil(price × bps / 10000))`, then `min(fee, max)` when the operator publishes a `max`, in base units of the price token (ADR-0022 rule 1: a requirement rounds up). The price is the commitment's `price`, without the adjudication fee. A schedule in another token than the price charges nothing. Crow's demo nodes publish `bps: 1`, `min: "10000"` (0.01 tUSD), `max: null`.
 
 ### The mechanism
 
@@ -58,7 +58,7 @@ The operator's Idempotency-Key replays the stored answer; the settlement layer's
 
 - **A buyer can avoid the fee** by agreeing and funding in two calls, by the one-shot hold, or by submitting directly. That is the intended escape for direct submission; the first two are backlog rows, since the protocol does not need to close them for neutrality.
 - **Mixed operators.** The example agent requires the schedule to be identical at its two operators (true for the demo's two nodes, one operator). An agent using independent operators reads the relay's schedule from it and decides itself (backlog).
-- **Regulatory** (not legal advice): the fee never touches held funds and ’crow holds nothing, which reads more like software than an intermediary's cut; state escrow and money-transmitter rules vary; counsel before any real money (D33).
+- **Regulatory** (not legal advice): the fee never touches held funds and Crow holds nothing, which reads more like software than an intermediary's cut; state escrow and money-transmitter rules vary; counsel before any real money (D33).
 
 ## Litmus tests
 
@@ -73,5 +73,14 @@ On the EVM settlement layer, step 3 of the mechanism ("executed by the settlemen
 - **The transfer** is the price token's own ERC-3009 `transferWithAuthorization(from = buyer, to = fees.operator.to, value, validAfter, validBefore = fundBy, nonce = keccak256(abi.encode(commitmentId, "operator_fee")), signature)`, signed by the buyer under the token's domain. The nonce binds the fee to one commitment and makes it payable once.
 - **Atomicity** comes from bundling, not from the contract: the relaying operator sends one transaction that calls the token's `transferWithAuthorization` and then `HoldbackRules.agreeAndFund`, through any stateless batcher (Multicall3 `aggregate3` with `allowFailure = false`, or the operator's own account batching). Both apply or neither does, and the value never passes through CPP's hold or the rules contract.
 - **Why not in the contract:** the contract would have to know operators and verify a second token signature on every funding; bundling keeps the fee entirely at the API level (ADR-0023's direction) and costs nothing for deals without a fee. The contract stays under the EIP-170 size limit with no room to spare (T-202, measured).
-- **Residual (inferred, not tested in T-202):** anyone who sees the bundle in the mempool can submit the `transferWithAuthorization` alone first. The buyer then pays the fee it signed, the bundle reverts, and the operator relays `agreeAndFund` alone; the attacker gains nothing. T-205 tests the bundle on anvil.
+- **Residual (inferred, not tested in T-202):** anyone who sees the bundle in the mempool can submit the `transferWithAuthorization` alone first. The buyer then pays the fee it signed, the bundle reverts, and the operator relays `agreeAndFund` alone; the attacker gains nothing. T-205 tests the bundle on anvil. **Implemented 2026-11-03 (T-213):** the adapter checks the fee authorization before it bundles and, when the token refuses it as used, sends `agreeAndFund` alone only if the earlier payment is proved: the token's `AuthorizationUsed(buyer, nonce)` log followed by the token's own `Transfer` of at least the fee from the buyer to `fees.operator.to`. A spent nonce alone proves nothing, since USDC also spends it for an authorization the buyer cancelled (`cancelAuthorization`); without that proof the node answers `payment_required`, and the agreement stays valid for another operator or a direct call. The public-audit cross-check had shown the bundle reverting on every retry without this, and the cancel path after it (`packages/settlement/evm/evm-settlement.test.ts`, the front-run tests, measured on anvil). The other split, a watcher copying the fund leg alone, funds the deal without the fee; ADR-0028 §11 stages it with direct transactions.
 - **The Holdback `TransferAuthorization` message** stays the API-level record the operator checks; on EVM its `signature` is the ERC-3009 one (ADR-0025's pattern for funding). The schema change goes with ADR-0025's follow-up.
+
+## Amendment: gas is part of the fee (2026-11-03, D33 amended by Rafa)
+
+Rafa: "Gas should be part of the cost of using the API etc." On a chain, the relaying operator pays the gas for every transaction it relays, so agents never need ETH, and it recovers that gas through this fee.
+
+- **How it is quoted.** The schedule keeps its shape (`bps`, `min`, `max`). On a chain, `min` is the relay minimum plus a per-deal gas quote in the deal's token, so `max(min, ceil(price × bps / 10000))` never falls below the gas the operator pays and agents compute the fee as before. The quote is an operator parameter (`OPERATOR_FEE_GAS` on the demo, D31), not a cap. Discovery's notes, the prepare check text and `llms.txt` state the split. Schema v0.9 (T-033) may give the gas part its own member.
+- **The demo's numbers.** About 500,000 gas for the three transactions of a deal (funding with this fee, delivery, decision; T-209's measured gas) at 1 gwei, priced at a fixed and fictional 3,000 tUSDC per test ETH: 1.50 tUSDC. With the relay minimum of 0.01 tUSDC, the Sepolia demo publishes 1 bp with a minimum of 1.51 tUSDC. SimChain pays no gas and keeps 0.01.
+- **Unused or extra gas.** The quote is fixed per deal and not refunded. A deal that needs fewer transactions leaves the operator the difference; one that needs more (a fallback, an appeal, a timeout someone relays) costs it the difference.
+- **Other paths, unchanged.** A party that submits directly to the settlement layer pays its own gas and no fee to this operator; another operator charges its own schedule. The fee never enters the hold, and the operator still relays without authoring.

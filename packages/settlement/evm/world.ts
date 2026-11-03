@@ -1,8 +1,8 @@
-// The local EVM world for kind 'local' (T-205): an anvil process on 127.0.0.1 (chain id 31337), the T-202 contracts
+// The local EVM world for kind 'local': an anvil process on 127.0.0.1 (chain id 31337), the Holdback contracts
 // deployed from `contracts/out` (run `forge build` first), and a snapshot each fresh settlement reverts to.
 // Deployment: LocalUSDC (anvil-only test token with ERC-3009), CPP AuthCaptureEscrow v1.1.0 and both collectors,
 // LocalMulticall3 (aggregate3, for the operator-fee bundle), then SimBeacon and HoldbackRules (which deploys
-// HoldbackBonds). T-209: the rules contract's beacon is a constructor immutable and the sim beacon's seed is fixed at
+// HoldbackBonds). The rules contract's beacon is a constructor immutable and the sim beacon's seed is fixed at
 // its deploy, so each fresh settlement reverts to the snapshot taken before those two and redeploys them with its
 // genesis simSeed. The deployer's nonce is the same every time, so the rules and bonds addresses never change.
 // Permit2 is not deployed: the Permit2 collector points at an address with no code, so only ERC-3009 funding runs.
@@ -10,17 +10,20 @@ import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
-import { createPublicClient, createWalletClient, http, type Abi, type Address, type Hex, type PublicClient, type WalletClient } from 'viem';
+import { createPublicClient, createWalletClient, http, toHex, type Abi, type Address, type Hex, type PublicClient, type WalletClient } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { foundry } from 'viem/chains';
+import type { Abis, Deployment, EvmChain, Mined } from './chain.js';
 import { assertLocalRpc, assertSafeChain } from './guard.js';
+
+export type { Abis, Deployment } from './chain.js';
 
 export const LOCAL_CHAIN_ID = 31337;
 /** anvil's first well-known dev key (public; guards no value). Deploys the contracts and relays for 'anyone'. */
 export const ANVIL_DEPLOYER_KEY: Hex = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
 /** The chain starts here so any scenario clock after it can be mined at its own second. */
 const ANVIL_GENESIS_TIME = 1_700_000_000;
-/** CPP authorizationExpiry margin after fallbackBy + appealDecideSec (ADR-0025; same as the T-202 tests). */
+/** CPP authorizationExpiry margin after fallbackBy + appealDecideSec (ADR-0025; same as the contract tests). */
 export const EXPIRY_MARGIN = 86_400n;
 
 export interface Artifact {
@@ -34,29 +37,6 @@ export function artifact(root: string, file: string, name: string): Artifact {
   if (!existsSync(path)) throw new Error(`no artifact ${path}: run \`forge build\` in contracts/ first`);
   const json = JSON.parse(readFileSync(path, 'utf8')) as { abi: Abi; bytecode: { object: Hex } };
   return { abi: json.abi, bytecode: json.bytecode.object };
-}
-
-export interface Deployment {
-  token: Address;
-  escrow: Address;
-  erc3009Collector: Address;
-  permit2Collector: Address;
-  multicall: Address;
-  rules: Address;
-  bonds: Address;
-  /** The SimBeacon behind the rules contract (T-209; a shared chain would use the drand quicknet verifier). */
-  beacon: Address;
-  /** The first block after deployment; logs before it are setup. */
-  fromBlock: bigint;
-}
-
-export interface Abis {
-  rules: Abi;
-  bonds: Abi;
-  token: Abi;
-  escrow: Abi;
-  multicall: Abi;
-  collector: Abi;
 }
 
 async function freePort(): Promise<number> {
@@ -76,11 +56,17 @@ export function anvilAvailable(): boolean {
   return spawnSync('anvil', ['--version'], { encoding: 'utf8' }).status === 0;
 }
 
-/** The sim seed the world's first rules deployment uses; each settlement redeploys with its own (T-209). */
+/** The sim seed the world's first rules deployment uses; each settlement redeploys with its own. */
 const BOOT_SIM_SEED: Hex = `0x${'00'.repeat(32)}`;
 
-export class EvmWorld {
+/** The gas limit of every anvil transaction: the scenario never runs out, and receipts measure what was used. */
+const TX_GAS = 3_000_000n;
+
+export class EvmWorld implements EvmChain {
   readonly chainId = LOCAL_CHAIN_ID;
+  readonly clock = 'scenario' as const;
+  readonly relayer: Address = privateKeyToAccount(ANVIL_DEPLOYER_KEY).address;
+  readonly expiryMargin = EXPIRY_MARGIN;
   private snapshotId: Hex | null = null;
 
   private constructor(
@@ -88,17 +74,25 @@ export class EvmWorld {
     readonly publicClient: PublicClient,
     readonly deployment: Deployment,
     readonly abis: Abis,
+    /** The token's EIP-712 name and version: LocalUSDC's "USD Coin" (CPP's mock), or TestUSDC's "Crow Test USDC". */
+    readonly tokenDomain: { name: string; version: string },
     private readonly proc: ChildProcess | null,
     private readonly deployRules: (simSeed: Hex) => Promise<RulesDeployment>,
   ) {}
 
-  /** Starts anvil on a free localhost port and deploys. `root` is the repository root (for contracts/out). */
-  static async start(root: string, options: { rpcUrl?: string } = {}): Promise<EvmWorld> {
+  /**
+   * Starts anvil on a free localhost port and deploys. `root` is the repository root (for contracts/out).
+   * `blockTimeSec`: mine a block every so many seconds at wall-clock time instead of one per transaction at the
+   * scenario's second, so anvil stands in for a testnet (a LiveChain over `rpcUrl`, ADR-0028). `token`: LocalUSDC
+   * (the fixtures') or TestUSDC (the Sepolia demo's tUSDC, D42).
+   */
+  static async start(root: string, options: { rpcUrl?: string; blockTimeSec?: number; token?: 'local-usdc' | 'test-usdc' } = {}): Promise<EvmWorld> {
     let proc: ChildProcess | null = null;
     let rpcUrl = options.rpcUrl;
     if (!rpcUrl) {
       const port = await freePort();
-      proc = spawn('anvil', ['--chain-id', String(LOCAL_CHAIN_ID), '--host', '127.0.0.1', '--port', String(port), '--timestamp', String(ANVIL_GENESIS_TIME), '--hardfork', 'prague', '--silent'], {
+      const clock = options.blockTimeSec ? ['--block-time', String(options.blockTimeSec)] : ['--timestamp', String(ANVIL_GENESIS_TIME)];
+      proc = spawn('anvil', ['--chain-id', String(LOCAL_CHAIN_ID), '--host', '127.0.0.1', '--port', String(port), ...clock, '--hardfork', 'prague', '--silent'], {
         stdio: 'ignore',
       });
       rpcUrl = `http://127.0.0.1:${port}`;
@@ -111,11 +105,13 @@ export class EvmWorld {
       const chainId = await publicClient.getChainId();
       assertSafeChain(chainId);
       if (chainId !== LOCAL_CHAIN_ID) throw new RangeError(`kind local expects anvil chain id ${LOCAL_CHAIN_ID}, got ${chainId}`);
-      const { base, abis, deployRules } = await deploy(root, rpcUrl, publicClient);
+      const testUsdc = options.token === 'test-usdc';
+      const { base, abis, deployRules } = await deploy(root, rpcUrl, publicClient, testUsdc ? ['TestUSDC.sol', 'TestUSDC'] : ['LocalUSDC.sol', 'LocalUSDC']);
       // Snapshot before the beacon and the rules contract, then deploy them once to learn their addresses.
       const snapshotId = await publicClient.request({ method: 'evm_snapshot' as never, params: [] as never }) as Hex;
       const rules = await deployRules(BOOT_SIM_SEED);
-      const world = new EvmWorld(rpcUrl, publicClient, { ...base, ...rules }, abis, proc, deployRules);
+      const tokenDomain = testUsdc ? { name: 'Crow Test USDC', version: '1' } : { name: 'USD Coin', version: '1' };
+      const world = new EvmWorld(rpcUrl, publicClient, { ...base, ...rules }, abis, tokenDomain, proc, deployRules);
       world.snapshotId = snapshotId;
       return world;
     } catch (e) {
@@ -147,6 +143,26 @@ export class EvmWorld {
     return createWalletClient({ account: privateKeyToAccount(key), chain: foundry, transport: http(this.rpcUrl) });
   }
 
+  senderFor(): Address {
+    return this.relayer;
+  }
+
+  /** Simulates on the pending block, mined at the scenario second `at`. */
+  async simulate(tx: { from: Address; to: Address; data: Hex }, at?: number): Promise<void> {
+    if (at !== undefined) await this.rpc('evm_setNextBlockTimestamp', [at]);
+    await this.rpc('eth_call', [{ ...tx, gas: toHex(TX_GAS) }, 'pending']);
+  }
+
+  /** Mines the transaction at the scenario second `at`, from `key` or the deployer. */
+  async send(tx: { key?: Hex; to: Address; data: Hex; value?: bigint }, at?: number): Promise<Mined> {
+    if (at !== undefined) await this.rpc('evm_setNextBlockTimestamp', [at]);
+    const wallet = this.wallet(tx.key ?? ANVIL_DEPLOYER_KEY);
+    const hash = await wallet.sendTransaction({ account: wallet.account!, chain: wallet.chain, to: tx.to, data: tx.data, gas: TX_GAS, ...(tx.value ? { value: tx.value } : {}) });
+    const r = await this.publicClient.waitForTransactionReceipt({ hash });
+    const timestamp = at ?? Number((await this.publicClient.getBlock({ blockNumber: r.blockNumber })).timestamp);
+    return { hash, from: wallet.account!.address, status: r.status, gasUsed: r.gasUsed, blockNumber: r.blockNumber, timestamp, logs: r.logs };
+  }
+
   async stop(): Promise<void> {
     if (!this.proc) return;
     const p = this.proc;
@@ -176,6 +192,7 @@ async function deploy(
   root: string,
   rpcUrl: string,
   client: PublicClient,
+  tokenArtifact: [file: string, name: string],
 ): Promise<{ base: Omit<Deployment, keyof RulesDeployment>; abis: Abis; deployRules: (simSeed: Hex) => Promise<RulesDeployment> }> {
   const wallet = createWalletClient({ account: privateKeyToAccount(ANVIL_DEPLOYER_KEY), chain: foundry, transport: http(rpcUrl) });
   const one = async (a: Artifact, args: unknown[] = []): Promise<Address> => {
@@ -184,7 +201,7 @@ async function deploy(
     if (r.status !== 'success' || !r.contractAddress) throw new Error(`deployment failed: ${hash}`);
     return r.contractAddress;
   };
-  const token = artifact(root, 'LocalUSDC.sol', 'LocalUSDC');
+  const token = artifact(root, ...tokenArtifact);
   const escrowA = artifact(root, 'AuthCaptureEscrow.sol', 'AuthCaptureEscrow');
   const c3009 = artifact(root, 'ERC3009PaymentCollector.sol', 'ERC3009PaymentCollector');
   const cPermit2 = artifact(root, 'Permit2PaymentCollector.sol', 'Permit2PaymentCollector');
@@ -199,7 +216,7 @@ async function deploy(
   const erc3009Collector = await one(c3009, [escrow, multicall]);
   const permit2Collector = await one(cPermit2, [escrow, '0x000000000022D473030F116dDEE9F6B43aC78BA3', multicall]);
   // The sim beacon: value(round) = keccak256(simSeed ‖ round), round(t) = t (drand's formula with genesis 1 s and
-  // period 1 s, equal to SimChain's floor(ms / 1000)) (ADR-0018, T-209). Fixed at deploy; no setter.
+  // period 1 s, equal to SimChain's floor(ms / 1000)) (ADR-0018). Fixed at deploy; no setter.
   const deployRules = async (simSeed: Hex): Promise<RulesDeployment> => {
     const beacon = await one(beaconA, [simSeed]);
     const rules = await one(rulesA, [escrow, erc3009Collector, permit2Collector, EXPIRY_MARGIN, beacon]);

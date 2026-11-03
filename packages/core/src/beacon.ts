@@ -1,4 +1,4 @@
-// Beacon round arithmetic (ADR-0018, T-209). One formula for every beacon, drand's: no round before genesis,
+// Beacon round arithmetic (ADR-0018). One formula for every beacon, drand's: no round before genesis,
 // round 1 at genesis, then one round per period. The rules contract's beacons (contracts/src/SimBeacon.sol and
 // DrandQuicknetBeacon.sol) use the same formula, so SimChain, the EVM adapter and the contract agree on every round.
 

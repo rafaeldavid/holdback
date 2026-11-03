@@ -1,6 +1,6 @@
 # Operations: what is live and how to change it
 
-The public demo of ’crow (the Holdback protocol). Test tokens only; nothing here moves real money. Read `CLAUDE.md` first.
+The public demo of Crow (the Holdback protocol). Test tokens only; nothing here moves real money. Read `CLAUDE.md` first.
 
 ## What is live
 
@@ -22,6 +22,7 @@ All on Rafa's Cloudflare account (its ID goes in `CLOUDFLARE_ACCOUNT_ID` in the 
 
 - Local secrets live in the git-ignored `.env` at the repo root (templates: `config/keys.template`, `config/keys-dev-env.template`). **Never read, print or copy `.env`** (hard rule; a permission rule also blocks it). Commands that need keys load it with Node's `--env-file`.
 - Model keys reach Cloudflare only through `pnpm demo-cloud:secrets` (builds the JSON in memory, pipes it to `wrangler secret bulk`; nothing printed or written).
+- **The Sepolia relayer key** (D41, ADR-0028) is the Worker secret `SEPOLIA_RELAYER_KEY` on holdback-op1, made by `node apps/demo-cloud/scripts/relayer.mjs`: it generates a fresh key in memory, pipes it to `wrangler secret bulk` and prints only the public addresses. It is a Sepolia-only gas payer with no role in any contract, and it refuses to replace an existing key (`--replace` overrides; the old lanes' Sepolia ETH would be stranded). Set 2026-11-03; its funding lane is `0x601137a8DE7E195E1426f57C053aFa49B20Ef555` (Rafa funds this one), and the world tops up its three deal lanes from it: `0x5e7F1a8C06f357e8E321Ba33A3fFb0b4a0fd3243`, `0xDB940F8613aceE33465f62400395262126791879`, `0xbDd9f277360A6243446A57Ab59ACf8c488a95a1B`. Optional secret `SEPOLIA_RPC_URLS` (comma-separated keyed URLs, tried before the public ones); optional variable `SEPOLIA_MAX_FEE_GWEI` (default 20).
 - `wrangler` uses Rafa's OAuth login on his Mac, or `CLOUDFLARE_API_TOKEN` (scoped to Workers and KV) in an isolated environment.
 
 ## Deploy
@@ -48,6 +49,22 @@ npx wrangler@4 kv key list --binding EMAILS --config apps/early-access/wrangler.
 **A schema bump resets the public world.** The World replays its journal on start, and a journal written under an older schema may not replay (2026-11-02: v0.8 refused v0.7's offers with `rulebook_unknown`, and the nodes kept serving the old version). Before deploying a schema bump, change `WORLD_NAME` in `apps/demo-cloud/src/worker.ts`; the old world's storage stays, so a `wrangler rollback` of both Workers brings it back. Check `schemaVersion` in `/v1/status` after the deploy, and `npx wrangler@4 tail holdback-op1 --format json` if it is wrong.
 
 Workers rules learned the hard way (T-029): compile schemas at startup, not lazily inside a request (Cloudflare forbids it and the node returns error 1101); a failed Durable Object alarm must be re-armed. Deploy only from a branch that has merged main, or a deploy can drop the custom domains.
+
+## Settlement: SimChain or Sepolia (D41, ADR-0028)
+
+Each operator Worker has a variable `SETTLEMENT`, `sim` or `sepolia`, in its wrangler file. It picks the world the Worker forwards to: `holdback-public-demo-2026-11-02` (SimChain) or `holdback-public-demo-sepolia-2026-11-03` (Sepolia), in `apps/demo-cloud/src/worker.ts`. The two worlds never share storage. A world records its settlement when it is created and keeps it; the Durable Object always runs holdback-op1's code and environment, so the Sepolia secrets live on holdback-op1 whichever Worker a request came through.
+
+**What the Sepolia world needs before any Worker flips:** `contracts/deployments/sepolia.json` on main (T-206; the build embeds it), its copy in `examples/deployments.ts`, the relayer secret on holdback-op1 (above), and Sepolia ETH on the funding lane. On its first passes the world tops up the deal lanes, then bonds each demo adjudicator (25,000 tUSDC, minted, approved and deposited from its own key); `notices` on a state read say so until the bonds are in place.
+
+**Cutover** (Rafa approved it on 2026-11-03):
+
+1. Deploy holdback-op1's code with `SETTLEMENT` still `sim`: `pnpm -C apps/demo-cloud build`, then `npx wrangler@4 deploy -c apps/demo-cloud/wrangler.op1.jsonc --var SETTLEMENT:sim`. The SimChain demo keeps running.
+2. Deploy holdback-op2 with `SETTLEMENT` `sepolia`. Smoke test against op2's two origins: `HOLDBACK_OPERATORS=https://api2.escrow.stream,https://holdback-op2.<account>.workers.dev node examples/try.ts`; it must end Released with three Sepolia transaction links.
+3. Deploy holdback-op1 with `SETTLEMENT` `sepolia`, then the site (the Sepolia `llms.txt` and `try.mjs`), and run the one command from the homepage.
+
+**Rollback:** set `SETTLEMENT` back to `sim` on both wrangler files and run `pnpm demo-cloud:deploy`, then deploy the previous site build (`npx wrangler@4 rollback` on `crow-site`). The SimChain world resumes where it stopped; the Sepolia world's storage and its deals on chain stay, and a later flip back serves them again.
+
+**Watching it:** `/v1/status` reports `settlement: {kind: "chain", chainId: "11155111"}` and the domain's `verifyingContract`; discovery's notes name the contracts, the funding lane and the explorer. Relayer balances are public on Etherscan. When a lane runs out of gas, writes on it answer `relay_refused` (the signed message stays valid elsewhere) and the faucet stops minting; top up the funding lane. Each money step waits for a block, so a test deal takes about a minute; a write that waits more than three minutes for its receipt answers 500, and if its transaction lands later the operators' view of that deal stays behind the chain (the log sync that fixes this is staged in ADR-0028 §11; the chain, not the view, holds the money).
 
 ## Telemetry (T-031)
 

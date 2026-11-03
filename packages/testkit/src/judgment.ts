@@ -1,13 +1,13 @@
-// The runner's judgment: @holdback/judgment's real pipeline (T-008) on a panel drawn from config/judges.yaml
-// by T-009's seeded selection. Intake, deterministic checks, the screen, the panel and aggregation are the
+// The runner's judgment: @holdback/judgment's real pipeline on a panel drawn from config/judges.yaml
+// by the seeded selection. Intake, deterministic checks, the screen, the panel and aggregation are the
 // library's; only the model calls are replaced, by recorded or fake verdicts (JudgeProvider in recorded.ts).
 //
 // The panel follows the adjudicator service (apps/adjudicator service.ts): panelSize seats over minFamilies
 // for the primary and fallback, appealPanelSize over minFamiliesAppeal (capped by the families the registry
 // has) for the appeal adjudicator, under the appeal template. A panel is never re-rolled: the caller keeps
 // one judgment per (commitment, role, attempt).
-import { createHash } from 'node:crypto';
 import { canonicalKeccak, err, ok, problem, type AdjudicatorPolicy, type Address, type CommitmentTerms, type Delivery, type DecisionOutcome, type Hex32, type Problem, type Result, type Sha256 } from '@holdback/core';
+import { sha256 } from '@holdback/core/crypto';
 import {
   APPEAL_PROMPT_TEMPLATE_HASH,
   intake,
@@ -99,8 +99,6 @@ export interface RunJudgmentInput {
   /** For an appeal of a first-instance decision: the decision the appeal panel reviews. */
   firstOutcome?: 'accept' | 'reject';
 }
-
-const sha256 = (b: Uint8Array): Sha256 => `sha256:${createHash('sha256').update(b).digest('hex')}`;
 
 /** Intake failures that are the seller's fault: rejected with no panel (apps/adjudicator mapIntakeError). */
 const SELLER_FAULTS: readonly IntakeErrorCode[] = ['mime_not_allowed', 'mime_mismatch', 'payload_too_large', 'decrypt_failed', 'plaintext_hash_mismatch', 'not_utf8'];

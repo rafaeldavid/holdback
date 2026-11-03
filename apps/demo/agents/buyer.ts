@@ -3,7 +3,7 @@
 // or neither), waits for the outcome, and
 // opens the work with its own key, checking the plaintext against the hash the seller signed. It can also
 // propose and submit a co-signed mutual settlement (ADR-0019, D23).
-import { signMessage, splitBps, type Commitment, type CommitmentStateView, type Hex32, type Sha256, type Signature } from '@holdback/core';
+import { plusSeconds, signMessage, splitBps, type Commitment, type CommitmentStateView, type Hex32, type Sha256, type Signature } from '@holdback/core';
 import { sha256 } from '@holdback/core/crypto';
 import { decryptDeliverable, type Decrypted, type Holdback, type Submitted } from '@holdback/sdk';
 import type { TermsTemplate } from '@holdback/testkit';
@@ -27,8 +27,6 @@ export interface OpenedWork {
 
 export const ATLAS_BUDGET = 2_050_000_000n;
 
-const plus = (ts: string, seconds: number) => new Date(Date.parse(ts) + seconds * 1000).toISOString().replace('.000Z', 'Z');
-
 export class AtlasAgent {
   private readonly hb: Holdback;
 
@@ -42,7 +40,7 @@ export class AtlasAgent {
   }
 
   /**
-   * Before any offer (T-017): reads the published registrations, keeps those the club rulebook allows for this
+   * Before any offer: reads the published registrations, keeps those the club rulebook allows for this
    * price and settlement mode, and proposes a primary, fallback and appeal adjudicator to the seller.
    */
   proposeAdjudicators(listings: readonly Listing[], terms: TermsTemplate): AdjudicatorProposal {
@@ -114,7 +112,7 @@ export class AtlasAgent {
       ].filter((p) => p.amount.amount !== '0'),
       releaseKey: true,
       nonce: this.world.ctx.rng.hex32(),
-      expiresAt: plus(this.world.now(), 3600),
+      expiresAt: plusSeconds(this.world.now(), 3600),
     };
     return { body, buyerSignature: await signMessage(this.keys.signingKey, DOMAIN, body), toSeller: BigInt(split.value.share.amount) };
   }

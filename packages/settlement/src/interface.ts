@@ -1,5 +1,5 @@
 // The settlement layer as the operator API and SDK see it (docs/architecture.md, Settlement interface).
-// SimChain implements it in process for Phase 1; the Phase 2 EVM implementation keeps the same shape.
+// SimChain implements it in process; EvmSettlement (evm/) implements it on a local chain with the same shape.
 // Every state change arrives as a message a party or adjudicator signed, or as a permissionless trigger.
 // The settlement layer never authors a party's message.
 import type {
@@ -55,8 +55,6 @@ export type Submission =
   | { kind: 'appeal'; appeal: Appeal }
   | { kind: 'mutual_settle'; message: MutualSettlement }
   | { kind: 'trigger'; commitmentId: Hex32; timeout: TimeoutKind };
-
-export type SubmissionKind = Submission['kind'];
 
 type Unsigned<T> = T extends { signature: Signature } ? Omit<T, 'signature'> & { signature?: Signature } : T;
 

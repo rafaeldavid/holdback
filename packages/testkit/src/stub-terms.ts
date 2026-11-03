@@ -1,17 +1,12 @@
 // Built-in stand-ins for the club rulebook and commitment terms, used when a scenario names no club or
 // terms file (or names one that is absent); the snapshot says which.
-import { tokenAmount, type AcceptanceSpec, type Deliverable, type Rulebook, type TokenAmount } from '@holdback/core';
+import type { AcceptanceSpec, Deliverable, Rulebook } from '@holdback/core';
+import { tusd } from '@holdback/settlement/sim';
 
 export const TOKEN = 'tUSD';
 export const TOKEN_DECIMALS = 6;
 /** Local dev chain ID (Anvil/Hardhat). Never a mainnet ID. */
 export const SIM_CHAIN_ID = 31337;
-
-export function tusd(amount: string | bigint): TokenAmount {
-  const r = tokenAmount(TOKEN, amount);
-  if (!r.ok) throw new RangeError(`invalid ${TOKEN} amount ${String(amount)}: ${r.error.kind}`);
-  return r.value;
-}
 
 export const STUB_CLUB_ID = 'data-services-v1';
 
@@ -65,5 +60,5 @@ export const STUB_ACCEPTANCE: AcceptanceSpec = {
   },
 };
 
-// The panel, policy and registry are no longer stubs: judges-config.ts loads config/judges.yaml and the
-// adjudicator policy, and judgment.ts runs @holdback/judgment (T-016).
+// The panel, policy and registry come from judges-config.ts (config/judges.yaml and the adjudicator policy);
+// judgment.ts runs @holdback/judgment.

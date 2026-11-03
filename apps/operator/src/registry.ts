@@ -1,5 +1,5 @@
 // What an operator serves about clubs, agents, members and adjudicators. Phase 1 has no run-time registration:
-// SimChain reads them from genesis, so these reads serve genesis (docs/backlog.md, source T-006 and T-007).
+// SimChain reads them from genesis, so these reads serve genesis (docs/backlog.md).
 import type { AdjudicatorRegistration, Address, Club, Hex32, Judgment, Mandate, Problem, Timestamp, TokenAmount } from '@holdback/core';
 import type { SimChain } from '@holdback/settlement/sim';
 
@@ -66,6 +66,8 @@ export interface FundingSession {
 export interface Registry {
   /** The chain ID agents sign under (EIP-712 domain). */
   chainId: number;
+  /** The EIP-712 domain's verifyingContract: the rules contract on a chain. Absent: SimChain's. */
+  verifyingContract?: Address;
   clubs: readonly Club[];
   mandates: readonly Mandate[];
   members: ReadonlyArray<{ clubId: string; member: Address }>;

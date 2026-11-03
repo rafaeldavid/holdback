@@ -8,15 +8,18 @@ import {
   commitmentIdOf,
   configuredDomain,
   freshNonce,
+  fundingNonceOf,
   jcs,
   jcsHash,
   openOwnEnvelope,
+  operatorFeeNonceOf,
   openPrivateTerms,
   privateOfferTerms,
   sealPrivateTerms,
   typedOf,
   verifyDelegation,
   verifyPrepared,
+  type ChainPin,
   type Domain,
   type EnvelopeMaterial,
   type Intent,
@@ -34,12 +37,15 @@ export class Agent {
   readonly encryptionSecretKey: Uint8Array;
   readonly encryptionPublicKey: string;
   readonly domain: Domain;
-  constructor(operators: string[], privateKey: Hex, encryptionSecretKey: Uint8Array, domain: Domain = configuredDomain()) {
+  /** On a chain: what the buyer funds through, pinned with the domain (verify.ts knownPins). */
+  readonly chain: ChainPin | undefined;
+  constructor(operators: string[], privateKey: Hex, encryptionSecretKey: Uint8Array, domain: Domain = configuredDomain(), chain?: ChainPin) {
     this.operators = operators;
     this.account = privateKeyToAccount(privateKey);
     this.encryptionSecretKey = encryptionSecretKey;
     this.encryptionPublicKey = b64(nacl.box.keyPair.fromSecretKey(encryptionSecretKey).publicKey);
     this.domain = domain;
+    this.chain = chain;
   }
   get address() {
     return this.account.address.toLowerCase();
@@ -122,10 +128,13 @@ export class Agent {
    */
   async agreeAndFund(terms: J, maxTotal: bigint): Promise<J> {
     const schedule = await this.operatorFeeSchedule();
-    const nonces = { agreeNonce: freshNonce(), fundingNonce: freshNonce() };
-    const feeNonce = freshNonce();
-    const prepared = await this.call('POST', '/v1/prepare/agree-and-fund', { commitmentId: commitmentIdOf(terms), ...nonces, ...(schedule ? { operatorFeeNonce: feeNonce } : {}) });
-    return this.signAndSubmit(prepared, { kind: 'agree-and-fund', terms, me: this.address, encryptionPublicKey: this.encryptionPublicKey, maxTotal, ...nonces, ...(schedule ? { operatorFee: { schedule, nonce: feeNonce } } : {}) });
+    const id = commitmentIdOf(terms);
+    // On a chain the token's ERC-3009 nonces are fixed by the terms (ADR-0025); on SimChain the agent picks them.
+    const c = this.chain;
+    const nonces = { agreeNonce: freshNonce(), fundingNonce: c ? fundingNonceOf(terms, id, c) : freshNonce() };
+    const feeNonce = c ? operatorFeeNonceOf(id) : freshNonce();
+    const prepared = await this.call('POST', '/v1/prepare/agree-and-fund', { commitmentId: id, ...nonces, ...(schedule ? { operatorFeeNonce: feeNonce } : {}) });
+    return this.signAndSubmit(prepared, { kind: 'agree-and-fund', terms, me: this.address, encryptionPublicKey: this.encryptionPublicKey, maxTotal, ...nonces, ...(schedule ? { operatorFee: { schedule, nonce: feeNonce } } : {}), ...(c ? { chain: c } : {}) });
   }
   async waitFor(id: Hex, states: string[], timeoutMs = 20_000): Promise<{ escrowState: string; deadlines: Record<string, string> }> {
     for (const end = Date.now() + timeoutMs; Date.now() < end; await new Promise((r) => setTimeout(r, 100))) {
@@ -217,7 +226,7 @@ export class Agent {
     return new TextDecoder().decode(plain);
   }
 
-  // ---- Private deals (ADR-0024): per-deal keys, read tokens, the client-side recipe ----------------------------
+  // Private deals (ADR-0024): per-deal keys, read tokens, the client-side recipe
 
   /**
    * A one-time signing key and x25519 key for one deal, and the Delegation this long-term key signs for them

@@ -77,8 +77,9 @@ Goal: the same scenario fixtures pass against an EVM contract on a local chain. 
 - [ ] T-035 Fix the anvil gas-per-deal receipt stall at its root; sane test timeouts.
 - [ ] T-036 Coordinator commands: `/merge-pr`, `/start-task`, `/deploy-demo`, `/deploy-site`, `/review-pr`, `/record-decision`, `/daily-log`, a session brief and two hooks.
 - [x] T-037 (PR 114) One-approval test deal: the homepage prompt in a vanilla Claude Code asks for one approval, then a deal runs end to end. `examples/try.ts` plays both sides against the live demo with the HTTP-only agent; `site/build.mjs` bundles it to `https://escrow.stream/try.mjs`; one pinned, sha256-checked command heads `llms.txt` "Try it" and shows on the homepage.
-- [x] T-038 Public docs cleanup: README leads with ’crow, Apache-2.0 license, statuses and fixture indexes match the repo, no personal details (PR 110).
+- [x] T-038 Public docs cleanup: README leads with Crow, Apache-2.0 license, statuses and fixture indexes match the repo, no personal details (PR 110).
 - [x] T-209 (PR 77) Beacon verification in `HoldbackRules` (BLS check of the drand value for fallback and appeal panel seeds, ADR-0018), split out of T-202. ADR-0025's schema follow-up (EVM funding signature and token identifiers) moved to T-033.
+- [ ] T-213 (in progress) The public demo settles on Sepolia (D41, ADR-0028): the EVM adapter on a live testnet with relayer lanes, a `SETTLEMENT` flag per Worker, the world's storage without replay, the adjudicators' bonds on chain, ERC-3009 funding in prepare and `examples/verify.ts`; then the cutover after T-206 deploys.
 - D4 decided (2026-11-01): target Ethereum mainnet; build and test on a local chain, then Sepolia. Mainnet deployment is a separate gate for Rafa after an audit. Record gas per deal in the evidence.
 
 ## Phase 3: Judgment hardening
@@ -93,6 +94,7 @@ Goal: judgment metrics measured against the PRD targets. Defenses complete.
 - T-306 Fee quotes from measured error rates; quote endpoint.
 - [x] T-307 Live demo mode (`pnpm demo --live`) with two or three model families. Done by T-028 (PR 62): two families, Anthropic and DeepSeek.
 - T-308 (later; research pass and ADR-0027, Proposed, 2026-11-03; Rafa, 2026-11-03) The adjudicator reports its whole judgment end to end (each check, each judge's full reasoning, the aggregation) with provable inference (zkSNARK proofs bound to a commitment to each judge's weights, as in Anthropic's FlashProve) that the pinned models produced it, and auto-tunes its judgment parameters from measured outcomes in a continuous loop, shipping each change only as a new registry version or policy bound in new commitments. Detail and limits in `docs/backlog.md` under "Judgment defenses".
+- T-309 (later, with T-308; research; Rafa, 2026-11-03) Evaluate Airbender, an open-source RISC-V zkVM with a GPU prover, as the proving backend for ADR-0027. Can it prove judge-model inference at a cost that compares with FlashProve's? Does it fit the deterministic stages first: the checks, the screen's heuristics and aggregation? The task also covers on-chain verification on a local chain, pinning, the prover fixtures, and licence and maturity. Task file `docs/tasks/T-309-airbender-proving.md`.
 
 ## Phase 4: Adjudicator economics on the settlement layer
 
@@ -109,12 +111,18 @@ Goal: bonds, coverage, appeals, fallback and default outcomes run on the contrac
 Goal: fiat enters and leaves through ramps; the demo runs on a public testnet with two independent operator nodes.
 
 - Stablecoin direct funding (test token).
+- [ ] **Next:** T-214 USD to USDC on-ramp in test mode (D42): the first wave's one funding path, a Stripe crypto on-ramp or Coinbase Onramp sandbox behind the funding service (ADR-0026), test keys from the environment only.
 - Stripe test-mode on-ramp: a card payment mints test tokens to the buyer (D7). A simulated off-ramp.
 - Testnet deployment (D4) and gas sponsorship or paymaster for agents.
 - Operator node packaging (container), so a second party can run op-2.
 - Neutrality beat 7 on testnet.
 
 ## Phase 6: Interop and native compute
+
+**Assets (parked, Rafa, 2026-11-03: "park it for later in a roadmap module about assets").** After the USDC-only first wave (D42):
+
+- Other ERC-20 tokens, ETH and WETH, and dynamically extending which assets an escrow can hold (ADR-0026, D38).
+- Token-issuer controls (for example a USDC freeze or blacklist of a party or fee receiver) and their effect on payouts and refunds; parked, because parties choose the token in their signed terms (D28, D32) (Rafa, 2026-11-03).
 
 - Later, on demand only (Rafa, 2026-11-02; D39): an SDK or an MCP server. Agents integrate from the HTTP API and `llms.txt`.
 - A2A extension carrying the commitment object and receipts.

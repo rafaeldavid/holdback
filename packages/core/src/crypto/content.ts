@@ -9,7 +9,6 @@ import { CryptoError } from './errors.js';
 import { isSha256, sha256 } from './hash.js';
 import { draw, systemRandom, type RandomSource } from './random.js';
 
-export const CONTENT_CIPHER = 'aes-256-gcm' as const;
 export const CONTENT_KEY_BYTES = 32;
 /** delivery.schema.json ciphertext.bytes maximum. */
 export const MAX_CIPHERTEXT_BYTES = 10_485_760;

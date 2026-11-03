@@ -12,7 +12,7 @@ import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 /// @dev Token identifiers on EVM settlement are the token's lowercase 0x-hex address (ADR-0025, Proposed): the
 ///      contract hashes `LibString.toHexString(token)` wherever the struct has a TokenAmount or settlement token.
 library HoldbackTypes {
-    // ---------------------------------------------------------------- calldata shapes
+    // Calldata shapes
 
     struct Timing {
         uint64 offerExpiresAt;
@@ -154,7 +154,7 @@ library HoldbackTypes {
     uint8 internal constant OUTCOME_REJECT = 1;
     uint8 internal constant OUTCOME_ESCALATE = 2;
 
-    // ---------------------------------------------------------------- type hashes (eip712.ts)
+    // Type hashes (eip712.ts)
 
     string internal constant TOKEN_AMOUNT_T = "TokenAmount(string token,uint256 amount)";
     string internal constant KEY_UNLOCK_T = "KeyUnlock(string kind,uint64 round)";
@@ -232,7 +232,7 @@ library HoldbackTypes {
     bytes32 internal constant GUARANTEED_HASH = keccak256("guaranteed_on_decision");
     bytes32 internal constant EMPTY_HASH = keccak256("");
 
-    // ---------------------------------------------------------------- struct hashes
+    // Struct hashes
 
     /// @notice keccak256 of the token identifier string: the lowercase 0x-hex address (ADR-0025, Proposed).
     function tokenIdHash(address token) internal pure returns (bytes32) {

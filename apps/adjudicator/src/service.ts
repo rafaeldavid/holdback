@@ -1,4 +1,4 @@
-// The adjudicator service (T-009): accepts offers with a seed commitment, watches for cases it must
+// The adjudicator service: accepts offers with a seed commitment, watches for cases it must
 // decide, opens the work with the key it is entitled to, runs the judgment pipeline on a panel drawn
 // from the seed for its role, publishes a signed judgment record and signs the Decision.
 //
@@ -55,7 +55,7 @@ export interface AdjudicatorConfig {
   settlement: AdjudicatorSettlement;
   affiliations?: string[];
   /**
-   * Accept private and judgment offers without opening their sealed terms (default false: decline them, D29, T-030).
+   * Accept private and judgment offers without opening their sealed terms (default false: decline them, D29).
    * This service cannot open sealed terms yet (T-207), so an accepted sealed offer could never be judged and would
    * fall to its default outcome. Only a local world that exercises private flows by early accept or mutual settlement
    * (`pnpm sim`) turns it on.
@@ -417,7 +417,7 @@ export class Adjudicator {
 }
 
 /**
- * Intake failures (T-008 Handoff). The seller's faults reject without a panel. Everything else is
+ * Intake failures. The seller's faults reject without a panel. Everything else is
  * refused before any record is published: a key this adjudicator cannot open (the fallback takes over
  * at judgeBy, or the default applies) and a stored ciphertext that does not match the delivery (the
  * store, not the seller, may be at fault; retried).

@@ -1,5 +1,4 @@
-// Test helper: transcripts measured on SimChain, run once per test file and shared by its tests. Replaces the
-// scripted stand-in the renderer and narration tests used as a fast fixture (T-018 deleted it).
+// Test helper: transcripts measured on SimChain, run once per test file and shared by its tests.
 import type { BeatTranscript, EventSource } from '../transcript/types.js';
 import { simchainSource } from './simchain.js';
 

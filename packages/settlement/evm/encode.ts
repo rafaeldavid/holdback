@@ -29,6 +29,20 @@ const enc = <T extends Encoded = Encoded>(m: Parameters<typeof typedDataOf>[0]):
 export const ROLE = { primary: 0, fallback: 1, appeal: 2 } as const;
 export const OUTCOME = { accept: 0, reject: 1, escalate: 2 } as const;
 
+/**
+ * A copy of `value` with every `token` field equal to `from`, and every `allowedTokens` entry, set to `to`: SimChain's
+ * tUSD rebound to a deployed token's address (ADR-0025) in a rulebook, terms, scopes or amounts.
+ */
+export function rebindToken<T>(value: T, from: string, to: string): T {
+  if (from === to) return value;
+  const walk = (x: unknown, key?: string): unknown => {
+    if (Array.isArray(x)) return x.map((v) => (key === 'allowedTokens' && v === from ? to : walk(v)));
+    if (x && typeof x === 'object') return Object.fromEntries(Object.entries(x).map(([k, v]) => [k, k === 'token' && v === from ? to : walk(v, k)]));
+    return x;
+  };
+  return walk(value) as T;
+}
+
 /** The ERC-20 a terms object names: its token identifier must be the lowercase 0x-hex address (ADR-0025). */
 export function tokenAddressOf(t: AnyCommitmentTerms): Address {
   const token = t.price.token;
@@ -131,7 +145,7 @@ export function decisionView(m: Decision) {
     beaconSourceHash: str(e.beacon.source),
     beaconRound: e.beacon.round,
     beaconValue: e.beacon.value,
-    // T-209: the proof bytes themselves; the contract hashes them into the Decision and asks its beacon to verify.
+    // The proof bytes themselves; the contract hashes them into the Decision and asks its beacon to verify.
     beaconSignature: e.beacon.signature,
     encryptedKeysHash: keysHash(m.encryptedKeys ?? []),
     nonce: m.nonce,
@@ -159,7 +173,7 @@ export function mutualView(m: MutualSettlement) {
   };
 }
 
-// ---- CPP (ADR-0025) -----------------------------------------------------------------------------
+// CPP (ADR-0025)
 
 const PAYMENT_INFO_TYPEHASH = str(
   'PaymentInfo(address operator,address payer,address receiver,address token,uint120 maxAmount,uint48 preApprovalExpiry,uint48 authorizationExpiry,uint48 refundExpiry,uint16 minFeeBps,uint16 maxFeeBps,address feeReceiver,uint256 salt)',

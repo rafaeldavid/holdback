@@ -1,4 +1,4 @@
-// One judge's prompt and verdict for the transcript (T-019). The prompt quotes the agreed terms and a sample of
+// One judge's prompt and verdict for the transcript. The prompt quotes the agreed terms and a sample of
 // the deliverable, and the verdict is model output over both: untrusted. Every line is made plain here (no
 // controls, bidi or tag characters); the renderers escape again per surface and keep it inside fences or <pre>.
 import type { JudgeVerdict } from '@holdback/core';

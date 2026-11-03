@@ -1,10 +1,9 @@
 // The fixture driver: turns scenario steps into the signed messages each actor would send and submits them
-// to SimChain (T-006), which verifies every signature, runs @holdback/core's `step`, and owns the ledger,
-// bond pools and the hash-chained event log. Signing keys are derived from the fixture seed and actor name.
-// The class keeps its T-005 name. A scenario's club and terms files are loaded when they exist
-// (fixture-files.ts); otherwise the built-in stub rulebook and terms stand in. The policy and registry hashes
-// and the judgment panel are still the stub's until T-009.
-import { createHash } from 'node:crypto';
+// to SimChain, which verifies every signature, runs @holdback/core's `step`, and owns the ledger, bond pools
+// and the hash-chained event log (or to the contracts on a local anvil; see DriverBackend). Signing keys are
+// derived from the fixture seed and actor name. A scenario's club and terms files are loaded when they exist
+// (fixture-files.ts); otherwise the built-in rulebook and terms in stub-terms.ts apply. The registry
+// (config/judges.yaml) and the policy come from judges-config.ts; judgment.ts draws the panel.
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
@@ -14,10 +13,12 @@ import {
   deliveryHash,
   holdbackDomain,
   panelSeed,
+  policyHash,
   problem,
   rulebookHash,
   signMessage,
   signTerms,
+  wholeSecond,
   type Address,
   type Club,
   type CommitmentTerms,
@@ -30,21 +31,21 @@ import {
   type Problem,
   type Scope,
   type SettlementEventType,
-  type Sha256,
   type Timestamp,
   type TokenAmount,
   type UnsignedMessage,
 } from '@holdback/core';
+import { sha256 } from '@holdback/core/crypto';
 import type { Submission, TimeoutKind } from '@holdback/settlement';
-import { EvmSettlement, type EvmWorld } from '@holdback/settlement/evm';
-import { account, SimChain, type Genesis } from '@holdback/settlement/sim';
+import { EvmSettlement, rebindToken, type EvmWorld } from '@holdback/settlement/evm';
+import { account, b64url, SimChain, tusd, type Genesis } from '@holdback/settlement/sim';
 import { keccak256, stringToBytes, type Hex } from 'viem';
 import { privateKeyToAccount, sign as signDigest } from 'viem/accounts';
 import type { SimContext } from './context.js';
 import { loadClubFile, loadTermsFile, termsFromTemplate, type TermsTemplate } from './fixture-files.js';
 import type { AdjudicatorPolicy } from '@holdback/core';
 import type { LoadedRegistry } from '@holdback/judgment';
-import { loadJudgeRegistry, policyHashOf, runnerPolicy } from './judges-config.js';
+import { loadJudgeRegistry, runnerPolicy } from './judges-config.js';
 import { runJudgment, type JudgmentView } from './judgment.js';
 import type { Outage, StepProblem } from './prefix.js';
 import type { JudgeProvider } from './recorded.js';
@@ -59,7 +60,6 @@ import {
   STUB_PRICE,
   STUB_RULEBOOK,
   TOKEN,
-  tusd,
 } from './stub-terms.js';
 
 export type ActorRole = 'buyer' | 'seller' | 'primary' | 'fallback' | 'appeal' | 'operator';
@@ -187,8 +187,6 @@ export function checkInvariants(v: LedgerView): Invariant[] {
 const DAY = 86_400;
 const MAX_SCOPE = tusd('1000000000000000');
 
-const sha256 = (bytes: Uint8Array | string): Sha256 => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
-const b64url = (hex: Hex32 | string): string => Buffer.from(hex.replace(/^0x/, ''), 'hex').toString('base64url');
 const plus = (ts: Timestamp, seconds: number): Timestamp => new Date(Date.parse(ts) + seconds * 1000).toISOString();
 
 type Signed<T extends UnsignedMessage> = T & { signature: Hex };
@@ -208,24 +206,8 @@ const TIMEOUTS: Record<TimeoutStep, TimeoutKind> = {
   expire_appeal: 'appeal_expiry',
 };
 
-const wholeSecond = (ts: Timestamp): Timestamp => new Date(Math.floor(Date.parse(ts) / 1000) * 1000).toISOString().replace('.000Z', 'Z');
-
-/** Which settlement layer the fixture drives: SimChain in process, or the T-202 contracts on a local anvil (T-205). */
+/** Which settlement layer the fixture drives: SimChain in process, or the Holdback contracts on a local anvil. */
 export type DriverBackend = { kind: 'sim' } | { kind: 'local'; world: EvmWorld; judgments?: ReadonlyMap<string, JudgmentView> };
-
-/**
- * Every `token` field equal to `from`, and every entry of `allowedTokens`, rewritten to `to`. On EVM settlement the
- * token identifier is the ERC-20's lowercase address (ADR-0025), so the fixtures' tUSD becomes the deployed token.
- */
-export function rebindToken<T>(value: T, from: string, to: string): T {
-  if (from === to) return value;
-  const walk = (x: unknown, key?: string): unknown => {
-    if (Array.isArray(x)) return x.map((v) => (key === 'allowedTokens' && v === from ? to : walk(v)));
-    if (x && typeof x === 'object') return Object.fromEntries(Object.entries(x).map(([k, v]) => [k, k === 'token' && v === from ? to : walk(v, k)]));
-    return x;
-  };
-  return walk(value) as T;
-}
 
 export class StubSettlement {
   private readonly domain;
@@ -302,7 +284,7 @@ export class StubSettlement {
   /** Genesis: faucet amounts become party balances, or junior bond for adjudicators; mandates for the parties. */
   private async start(): Promise<SimChain | EvmSettlement> {
     const { scenario, ctx } = this;
-    const at = wholeSecond(ctx.clock.now());
+    const at = wholeSecond(Date.parse(ctx.clock.now()));
     const isAdjudicator = (name: string) => ['primary', 'fallback', 'appeal'].includes(this.actor(name).role);
     const balances: Record<Address, string> = {};
     const bonds: Record<Address, { junior: string; senior: string }> = {};
@@ -398,7 +380,7 @@ export class StubSettlement {
     return this.result();
   }
 
-  // ---- helpers -------------------------------------------------------------------------------
+  // Helpers
 
   private get slot(): Slot {
     let s = this.slots.get(this.current);
@@ -555,7 +537,7 @@ export class StubSettlement {
     return { terms: this.terms, id: this.id, state };
   }
 
-  // ---- steps ---------------------------------------------------------------------------------
+  // Steps
 
   /** Who acts in a step, and through which operator, for the outage gate. */
   private actingParty(s: Step): { actor: string; via: string } | null {
@@ -670,10 +652,10 @@ export class StubSettlement {
           fallbackAdjudicator: this.address(adjudicators.fallback),
           appealAdjudicator: this.address(adjudicators.appeal),
           registryHash: this.registry.hash,
-          policyHash: policyHashOf(runnerPolicy(this.template.adjudication.policyId)),
+          policyHash: policyHash(runnerPolicy(this.template.adjudication.policyId)),
           buyerEncryptionPublicKey: b64url(this.ctx.rng.hex32()),
           nonce: this.nonceFor(seller, 'terms'),
-          createdAt: wholeSecond(now),
+          createdAt: wholeSecond(Date.parse(now)),
         })
       : rebindToken(this.stubTerms(seller, now), TOKEN, this.token);
     const signature = await signTerms(this.keyFor(seller), this.domain, terms);
@@ -706,7 +688,7 @@ export class StubSettlement {
         policyId: `${adjudicators.primary}/p1`,
         fee: STUB_FEE,
         registryHash: this.registry.hash,
-        policyHash: policyHashOf(runnerPolicy(`${adjudicators.primary}/p1`)),
+        policyHash: policyHash(runnerPolicy(`${adjudicators.primary}/p1`)),
       },
       timing: {
         offerExpiresAt: plus(now, 900),
@@ -837,7 +819,7 @@ export class StubSettlement {
     const body: Omit<Delivery, 'signature'> = {
       commitmentId: c.id,
       attempt,
-      ciphertext: { uri: `sim://blobs/${this.ctx.ids.next('blob')}`, sha256: sha256(`ciphertext:${plaintextSha256}`), bytes: plaintext.length + 16, cipher: 'aes-256-gcm' },
+      ciphertext: { uri: `sim://blobs/${this.ctx.ids.next('blob')}`, sha256: sha256(Buffer.from(`ciphertext:${plaintextSha256}`)), bytes: plaintext.length + 16, cipher: 'aes-256-gcm' },
       plaintextSha256,
       plaintextMime: c.terms.deliverable.format,
       // A wrong-key buyer envelope names the buyer but seals to another key: it can never open to the content key.
@@ -1035,7 +1017,7 @@ export class StubSettlement {
       appellantAddress: this.address(who),
       grounds,
       bond: this.money(bondOverride ?? required.toString()),
-      filedAt: wholeSecond(this.ctx.clock.now()),
+      filedAt: wholeSecond(Date.parse(this.ctx.clock.now())),
     };
     const signed = await this.sign(who, { ...body, type: 'Appeal' as const });
     if (!(await this.submit(who, call, via, { kind: 'appeal', appeal: { ...body, signature: signed.signature } }))) return;
@@ -1062,7 +1044,7 @@ export class StubSettlement {
       payouts: Object.entries(payouts).map(([name, amount]) => ({ to: this.address(name), amount: this.money(amount) })),
       releaseKey,
       nonce: this.ctx.rng.hex32(),
-      expiresAt: plus(wholeSecond(this.ctx.clock.now()), DAY),
+      expiresAt: plus(wholeSecond(Date.parse(this.ctx.clock.now())), DAY),
     };
     const buyerSignature = await signMessage(this.keyFor(buyer), this.domain, unsigned);
     const sellerSignature = await signMessage(this.keyFor(seller), this.domain, unsigned);
@@ -1116,7 +1098,7 @@ export class StubSettlement {
     this.row(buyer, call, via, 'hash matches');
   }
 
-  // ---- results -------------------------------------------------------------------------------
+  // Results
 
   private events(): Array<LedgerEvent & { prevHash: Hex32 }> {
     return this.sim.log().map((e) => ({

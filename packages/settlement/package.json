@@ -6,7 +6,8 @@
   "exports": {
     ".": { "types": "./dist/src/index.d.ts", "default": "./dist/src/index.js" },
     "./sim": { "types": "./dist/sim/index.d.ts", "default": "./dist/sim/index.js" },
-    "./evm": { "types": "./dist/evm/index.d.ts", "default": "./dist/evm/index.js" }
+    "./evm": { "types": "./dist/evm/index.d.ts", "default": "./dist/evm/index.js" },
+    "./live": { "types": "./dist/evm/live-entry.d.ts", "default": "./dist/evm/live-entry.js" }
   },
   "scripts": {
     "build": "tsc -b"

@@ -6,6 +6,7 @@ import {
   commitmentId,
   deliveryHash,
   panelSeed,
+  plusSeconds,
   rulebookHash,
   signMessage,
   signTerms,
@@ -24,6 +25,7 @@ import {
 } from '@holdback/core';
 import { keccak256, stringToBytes, type Hex } from 'viem';
 import { privateKeyToAccount, sign } from 'viem/accounts';
+import { b64url } from '../sim/actors.js';
 import type { Genesis } from '../sim/simchain.js';
 import type { Submission, TimeoutKind } from '../src/interface.js';
 import type { EvmSettlement } from './evm-settlement.js';
@@ -49,9 +51,6 @@ export const evmCast = () => ({
   stranger: testActor('anyone'),
 });
 export type EvmCast = ReturnType<typeof evmCast>;
-
-const plus = (ts: Timestamp, s: number): Timestamp => new Date(Date.parse(ts) + s * 1000).toISOString().replace('.000Z', 'Z');
-const b64url = (hex: string) => Buffer.from(hex.replace(/^0x/, ''), 'hex').toString('base64url');
 
 export function evmRulebook(token: string): Rulebook {
   const amt = (amount: string) => ({ token, amount }) as TokenAmount;
@@ -87,7 +86,7 @@ export async function evmGenesis(o: { cast: EvmCast; token: string; chainId: num
   const mandates: Mandate[] = [];
   for (const who of [o.cast.buyer, o.cast.seller]) {
     const principal = testActor(`${who.name}-principal`);
-    const body = { principal: principal.address, agent: who.address, clubId: club.id, scope: { roles: ['buyer', 'seller'], maxPerCommitment: big, maxDaily: big, expiresAt: plus(o.start, 365 * 86400) }, nonce: keccak256(stringToBytes(`mandate/${who.name}`)), issuedAt: o.start } as Omit<Mandate, 'signature'>;
+    const body = { principal: principal.address, agent: who.address, clubId: club.id, scope: { roles: ['buyer', 'seller'], maxPerCommitment: big, maxDaily: big, expiresAt: plusSeconds(o.start, 365 * 86400) }, nonce: keccak256(stringToBytes(`mandate/${who.name}`)), issuedAt: o.start } as Omit<Mandate, 'signature'>;
     mandates.push({ ...body, signature: await signMessage(principal.key, domain, { ...body, type: 'Mandate' } as UnsignedMessage) } as Mandate);
   }
   const bond = { junior: o.bond.toString(), senior: '0' };
@@ -142,7 +141,7 @@ export class EvmDeal {
         registryHash: canonicalKeccak({ registry: 'evm' }),
         policyHash: canonicalKeccak({ policy: 'evm' }),
       },
-      timing: { offerExpiresAt: plus(now, 900), fundBy: plus(now, 1800), deliverBy: plus(now, 3600), judgeBy: plus(now, 4200), fallbackBy: plus(now, 4800), appealWindowSec: 300, appealDecideSec: 300, maxSubmissions: 1 },
+      timing: { offerExpiresAt: plusSeconds(now, 900), fundBy: plusSeconds(now, 1800), deliverBy: plusSeconds(now, 3600), judgeBy: plusSeconds(now, 4200), fallbackBy: plusSeconds(now, 4800), appealWindowSec: 300, appealDecideSec: 300, maxSubmissions: 1 },
       settlement: { mode: 'guaranteed_on_decision', token: chain.token },
       remedy: { onReject: 'full_refund' },
       disclosure: { level: 'public' },
@@ -214,11 +213,11 @@ export class EvmDeal {
     return { recipient, scheme: 'x25519-xsalsa20poly1305', ciphertext: b64url(canonicalKeccak({ contentKey: this.id, recipient })) };
   }
 
-  async deliver(): Promise<Submission> {
+  async deliver(attempt = 1): Promise<Submission> {
     const { adjudication, buyer } = this.terms;
     const body: Omit<Delivery, 'signature'> = {
       commitmentId: this.id,
-      attempt: 1,
+      attempt,
       ciphertext: { uri: `sim://blobs/${this.id.slice(2, 14)}`, sha256: `sha256:${'c'.repeat(64)}`, bytes: 100, cipher: 'aes-256-gcm' },
       plaintextSha256: `sha256:${'d'.repeat(64)}`,
       plaintextMime: 'text/csv',
@@ -231,7 +230,7 @@ export class EvmDeal {
   }
 
   async earlyAccept(): Promise<Submission> {
-    return { kind: 'early_accept', message: await this.sign(this.cast.buyer, { type: 'EarlyAccept', commitmentId: this.id, buyer: this.cast.buyer.address, attempt: 1, nonce: this.nonce(), expiresAt: plus(this.chain.now(), 86400) } as const) };
+    return { kind: 'early_accept', message: await this.sign(this.cast.buyer, { type: 'EarlyAccept', commitmentId: this.id, buyer: this.cast.buyer.address, attempt: 1, nonce: this.nonce(), expiresAt: plusSeconds(this.chain.now(), 86400) } as const) };
   }
 
   async decide(role: 'primary' | 'fallback' | 'appeal', outcome: Decision['outcome'], round?: number): Promise<Submission> {
@@ -250,7 +249,7 @@ export class EvmDeal {
       registryHash: this.terms.adjudication.registryHash,
       judgmentRecordHash: keccak256(stringToBytes(`record/${this.id}/${role}/${outcome}`)),
       nonce: this.nonce(),
-      expiresAt: plus(this.chain.now(), 86400),
+      expiresAt: plusSeconds(this.chain.now(), 86400),
       ...(round !== undefined ? { beacon: { source: 'sim' as const, round, value: value! } } : {}),
       ...(outcome === 'accept' ? { keyForBuyer: { scheme: 'x25519-xsalsa20poly1305' as const, ciphertext: this.envelope(this.terms.buyer).ciphertext } } : {}),
       ...(outcome === 'escalate' ? { encryptedKeys: [this.envelope(this.terms.adjudication.appealAdjudicator)] } : {}),
@@ -271,7 +270,7 @@ export class EvmDeal {
       { to: this.terms.seller, amount: { token: this.chain.token, amount: toSeller.toString() } as TokenAmount },
       { to: this.terms.buyer, amount: { token: this.chain.token, amount: (price - toSeller).toString() } as TokenAmount },
     ].filter((p) => p.amount.amount !== '0');
-    const body = { type: 'MutualSettlement' as const, commitmentId: this.id, deliveryHash: this.delivery ? deliveryHash(this.delivery) : null, payouts, releaseKey, nonce: this.nonce(), expiresAt: plus(this.chain.now(), 86400) };
+    const body = { type: 'MutualSettlement' as const, commitmentId: this.id, deliveryHash: this.delivery ? deliveryHash(this.delivery) : null, payouts, releaseKey, nonce: this.nonce(), expiresAt: plusSeconds(this.chain.now(), 86400) };
     const buyerSignature = await signMessage(this.cast.buyer.key, this.chain.domain, body);
     const sellerSignature = await signMessage(this.cast.seller.key, this.chain.domain, body);
     return { kind: 'mutual_settle', message: { ...body, buyerSignature, sellerSignature } };
