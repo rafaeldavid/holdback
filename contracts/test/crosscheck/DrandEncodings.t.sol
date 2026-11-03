@@ -21,32 +21,48 @@ contract DrandEncodingsTest is Test {
         beacon = new DrandQuicknetBeacon();
     }
 
+    /// The beacon's cap on PAIRING_CHECK. A failing precompile burns all the gas it was given, so a refusal that costs
+    /// more than this came from the pairing; one far below it came from decompression, before any precompile.
+    uint256 internal constant PAIRING_GAS = 250_000;
+
     function _refused(bytes memory s) internal {
         vm.expectRevert(DrandQuicknetBeacon.InvalidSignature.selector);
         beacon.beaconValue(1000, s);
     }
 
-    function test_defense_validSignaturePlusAnOrder3Point_refused() public {
-        assertEq(SIG_1000_PLUS_TORSION.length, 48);
-        _refused(SIG_1000_PLUS_TORSION);
+    function _refusedGas(bytes memory s) internal returns (uint256 used) {
+        uint256 g = gasleft();
+        try beacon.beaconValue(1000, s) returns (bytes32) {
+            fail();
+        } catch (bytes memory err) {
+            used = g - gasleft();
+            assertTrue(bytes4(err) == DrandQuicknetBeacon.InvalidSignature.selector);
+        }
     }
 
-    function test_defense_order3Points_refused() public {
+    function test_defense_validSignaturePlusAnOrder3Point_refusedByThePairing() public {
+        assertEq(SIG_1000_PLUS_TORSION.length, 48);
+        assertGt(_refusedGas(SIG_1000_PLUS_TORSION), PAIRING_GAS);
+    }
+
+    function test_defense_order3Points_refusedByThePairing() public {
         bytes memory zero = new bytes(48);
         zero[0] = 0x80; // (0, 2)
-        _refused(zero);
+        assertGt(_refusedGas(zero), PAIRING_GAS);
         zero[0] = 0xa0; // (0, -2)
-        _refused(zero);
+        assertGt(_refusedGas(zero), PAIRING_GAS);
     }
 
-    function test_defense_xAboveP_refused() public {
-        _refused(hex"9a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaac"); // p + 1
+    function test_defense_xAboveP_refusedBeforeAnyPrecompile() public {
+        bytes memory pPlus1 =
+            hex"9a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaac";
+        assertLt(_refusedGas(pPlus1), 100_000);
         bytes memory max = new bytes(48);
         for (uint256 i; i < 48; ++i) {
             max[i] = 0xff;
         }
         max[0] = 0x9f; // 2^381 - 1
-        _refused(max);
+        assertLt(_refusedGas(max), 100_000);
     }
 
     /// The top three bits of byte 0 are the flags; of the eight values on SIG_1000's x, only the published one verifies.

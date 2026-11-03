@@ -12,7 +12,9 @@ import {Base} from "../unit/Base.sol";
 /// receiveWithAuthorization, which requires the caller to be the payee, is the fix). The CPP collector uses
 /// receiveWithAuthorization for the hold. The operator-fee bundle (ADR-0023, packages/settlement/evm/evm-settlement.ts)
 /// calls transferWithAuthorization through Multicall3, with allowFailure false on both legs, and the fee nonce is fixed
-/// per commitment, keccak256(abi.encode(commitmentId, "operator_fee")).
+/// per commitment, keccak256(abi.encode(commitmentId, "operator_fee")). These tests pin the on-chain property any relayer
+/// must work around: once the fee nonce is spent, the bundle reverts on every retry and funding alone still works. The
+/// relayer's own fix and its test live in the settlement adapter.
 contract OperatorFeeFrontRunTest is Base {
     bytes32 internal constant TRANSFER_WITH_AUTHORIZATION_TYPEHASH =
         0x7c7c6cdb67a18743f49ec6fa9b35f50d52ed05cbed4cc592e13b44501c1a2267;
@@ -59,7 +61,7 @@ contract OperatorFeeFrontRunTest is Base {
         bundle = abi.encodeCall(LocalMulticall3.aggregate3, (calls));
     }
 
-    function test_defense_bundleFundsAndPaysTheFee() public {
+    function test_bundle_fundsAndPaysTheFee() public {
         H.Terms memory t = _terms();
         bytes32 id = hx.id(t);
         (, bytes memory bundle) = _bundle(t, id);
@@ -73,7 +75,7 @@ contract OperatorFeeFrontRunTest is Base {
     /// Anyone who sees the bundle in the mempool submits the fee leg alone. The fee is paid as the buyer signed, but the
     /// bundle reverts, now and on every retry, because the nonce is spent and cannot change for this commitment. The
     /// deal funds only through a submission without the fee leg (another operator or direct submission, ADR-0005).
-    function test_attack_frontRunFeeLeg_bundleRevertsForever_feePaid_dealUnfunded() public {
+    function test_naiveBundle_feeLegFrontRun_revertsEveryRetry_fundingAloneWorks() public {
         H.Terms memory t = _terms();
         bytes32 id = hx.id(t);
         (bytes memory feeCall, bytes memory bundle) = _bundle(t, id);
