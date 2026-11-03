@@ -564,10 +564,10 @@ New in `contracts/test/crosscheck/`; `test_attack_*` passes while the weakness e
 ```
 cd contracts
 forge test --match-path 'test/crosscheck/*'   # 26 passed
-forge test                                    # 204 passed, with main merged at eac8287
+forge test                                    # 209 passed, with main merged at 7b05ec4
 ```
 
-Measured on this branch after merging `main` (which includes T-206's #120, #122, #125, #127 and #135): the full suite passes.
+Measured on this branch after merging `main` (which includes T-206's #120, #122, #125, #127 and #135, and the Sepolia settlement #138): the full suite passes.
 
 ## 10. Not covered
 
