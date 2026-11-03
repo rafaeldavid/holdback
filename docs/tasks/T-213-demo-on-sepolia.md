@@ -42,22 +42,22 @@ Non-goals: independent operator nodes (one Durable Object still serves both name
 
 Labels: measured, inferred, guessed.
 
-- **`pnpm verify` (measured, commit `ea1d128`, 2026-11-03): PASS** (`reports/verify-claude-demo-sepolia-settlement-81a855.md`). No snapshot diffs against HEAD. vitest 2,208 passed and 3 skipped: the Sepolia-fork test, which needs `SEPOLIA_FORK_RPC` and the deployment file, and two conditional skips that predate this task (inferred from the skip conditions). forge: 162 tests in 21 suites, TestUSDC's 5 included.
+- **`pnpm verify` (measured, 2026-11-03, after merging main with T-206's #125, #127 and #135, the review fixes on top): PASS** (`reports/verify-claude-demo-sepolia-settlement-81a855.md`). No snapshot diffs against HEAD. vitest 2,214 passed and 3 skipped: the Sepolia-fork test, which needs `SEPOLIA_FORK_RPC` and the deployment file, and two conditional skips that predate this task (inferred from the skip conditions). forge: 183 tests in 24 suites, TestUSDC's 5 and the NoAdmin suite with tUSDC included. `abis.json` regenerated for #135 (`HoldbackBonds.tryEncumber` removed).
 
   | Step | Command | Status | Time |
   | --- | --- | --- | --- |
-  | typecheck | `pnpm typecheck` | pass | 327 ms |
-  | lint | `pnpm lint` | pass | 5791 ms |
-  | forge build | `forge build --root contracts` | pass | 1090 ms |
-  | forge | `forge test --root contracts` | pass | 13327 ms |
-  | test | `pnpm test` | pass | 50197 ms |
-  | spec | `pnpm validate:spec` | pass | 553 ms |
-  | snap | `pnpm snap` | pass | 8624 ms |
-  | snap:local | `pnpm snap --settlement=local` | pass | 15480 ms |
-  | demo | `pnpm demo` | pass | 4071 ms |
+  | typecheck | `pnpm typecheck` | pass | 350 ms |
+  | lint | `pnpm lint` | pass | 3583 ms |
+  | forge build | `forge build --root contracts` | pass | 1005 ms |
+  | forge | `forge test --root contracts` | pass | 19645 ms |
+  | test | `pnpm test` | pass | 50449 ms |
+  | spec | `pnpm validate:spec` | pass | 590 ms |
+  | snap | `pnpm snap` | pass | 8818 ms |
+  | snap:local | `pnpm snap --settlement=local` | pass | 16324 ms |
+  | demo | `pnpm demo` | pass | 4373 ms |
 
 - **Differential (measured, anvil).** `pnpm snap --settlement=local`: 25 passed, 0 failed, 3 excluded until Phase 4 (PR 113 removed four fixtures); every transcript is identical to SimChain's (`reports/differential-local.md`). Before this task 6 of 29 were; the other 23 differed only in the adjudicators' `key.released` events, which the adapter now releases off chain as SimChain does. `error.submission-limit` (renamed from `todo.` by PR 113) now gets SimChain's `submission_limit_reached` on the contract too.
-- **Fee front-run (measured, anvil).** A stranger relays the buyer's fee transfer alone; the agreement still funds with `agreeAndFund` alone, and the operator is paid once (`evm-settlement.test.ts`).
+- **Fee front-run (measured, anvil).** On tUSDC a stranger relays the buyer's fee transfer alone; the agreement still funds with `agreeAndFund` alone, and the operator is paid once (`evm-settlement.test.ts`).
 - **TestUSDC (measured, forge).** 5 tests: metadata and domain separator, one use per nonce, payee-only receive, refusals, no Permit2 allowance.
 - **Gas in the fee (measured, anvil).** The live test runs with `OPERATOR_FEE_GAS` 1500000: `try.ts` pays a 1.51 tUSDC operator fee on a 25 tUSDC deal.
 - **Typed data (measured, anvil).** The funding and operator-fee typed data an operator prepares hash to the digests the token checks against its own `DOMAIN_SEPARATOR` (`packages/settlement/evm/evm-settlement.test.ts`).
@@ -65,7 +65,8 @@ Labels: measured, inferred, guessed.
 - **Bundle (measured).** `wrangler deploy --dry-run` for holdback-op1: 2,385 KiB, 455 KiB gzipped.
 - **Review (measured, 2026-11-03).** The `reviewer` role returned ISSUES (12). All are fixed in the second commit set: replays kept with each book so a retry after a restart replays (hard rule: idempotency); `commitment.agreed` announced only once the funding is mined, and a failed funding takes back only its own agreement; `relay_refused` from the lanes; the gas cap checked on the padded estimate; the deployment's `EXPIRY_MARGIN` checked against the contract; the relayer's lane keys in the secret sweep; tUSDC in the NoAdmin suite; the doc counts and scope above.
 - **Red team (measured, 2026-11-03).** The `red-teamer` role found two defects, each proved with a test it ran, and passed the relayer, signing, settlement-kind, read-cost and secret surfaces. (1) High: on a live chain, a funding that failed while another deal moved spliced that deal's events out of the shared log. Fixed by the deferred announcement above; `packages/settlement/evm/wall.test.ts` fails on the first commit and passes now. (2) Low to medium: two faucet requests for one address arriving together both granted, minting and paying gas twice on Sepolia. Fixed with in-memory reservations in the Durable Object; `world.test.ts` "grants once when two requests for one address arrive together".
-- **New tests (measured, anvil and no-chain).** `relay_refused` changes nothing and the same agreement funds after; on tUSDC a fee relayed ahead of the bundle reads "paid by an earlier transaction", and a fee nonce the buyer spent paying someone else is refused `payment_required` with nothing held, while the funding alone still works; on LocalUSDC, which logs no `AuthorizationUsed`, the payload says `unverified`; a retry after a restart replays and the same key with another body is `idempotency_conflict`.
+- **Public-audit cross-check (2026-11-03).** A cancelled USDC authorization spends the fee nonce as a payment does, so the adapter now takes only the `AuthorizationUsed` log and the transfer as proof; without the log the node answers `payment_required` (tUSDC has no `cancelAuthorization`, so no local test can cancel; inferred from the code path, which the "spent paying someone else" test exercises). The fund leg copied alone is staged with direct transactions (ADR-0028 §11).
+- **New tests (measured, anvil and no-chain).** `relay_refused` changes nothing and the same agreement funds after; on tUSDC a fee relayed ahead of the bundle reads "paid by an earlier transaction", and a fee nonce the buyer spent paying someone else is refused `payment_required` with nothing held, while the funding alone still works; on LocalUSDC, which logs `AuthorizationUsed` for `receiveWithAuthorization` only, the earlier payment cannot be proved and the node answers `payment_required`; a retry after a restart replays and the same key with another body is `idempotency_conflict`.
 
 ## Decisions
 

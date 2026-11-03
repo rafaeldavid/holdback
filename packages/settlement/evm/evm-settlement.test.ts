@@ -124,7 +124,7 @@ describe.skipIf(!ready)(`EvmSettlement on anvil${ready ? '' : ' (SKIPPED: needs 
     expect(chain.log().map((e) => e.type).slice(-2)).toEqual(['fee.operator', 'hold.funded']);
   }, 60_000);
 
-  it('operator fee relayed alone ahead of the bundle: the hold still funds, and the fee is paid once', async () => {
+  it('operator fee relayed alone ahead of the bundle on LocalUSDC: the payment cannot be proved, so this node declines', async () => {
     const { chain, cast, club } = await newSettlement(world);
     const d = new EvmDeal(chain, cast, club, 'fee-front-run');
     await must(chain, cast, d.offer());
@@ -132,13 +132,15 @@ describe.skipIf(!ready)(`EvmSettlement on anvil${ready ? '' : ' (SKIPPED: needs 
     const s = await d.agreeAndFund({ operatorFee: { to: cast.operator.address, value: 1_000_000n } });
     if (s.kind !== 'agree_and_fund' || !s.operatorFee) throw new Error('unreachable');
     await frontRun(world, cast.stranger.key, s.operatorFee, s.operatorFee.to, s.operatorFee.signature, chain.now());
-    const r = await chain.submit(s, { via: 'op-1', sender: cast.operator.key });
-    expect(r.ok ? r.state.escrowState : r.problem.type).toBe('Held');
-    expect(chain.transactions().map((t) => t.call)).toEqual(['agreeAndFund']);
     expect(await chain.tokenBalance(cast.operator.address)).toBe(1_000_000n);
+    // LocalUSDC logs AuthorizationUsed for receiveWithAuthorization only, and a spent nonce alone proves nothing (USDC
+    // also spends it on a cancel): payment_required. tUSDC, below, logs it and funds.
+    const r = await chain.submit(s, { via: 'op-1', sender: cast.operator.key });
+    expect(r.ok ? 'ok' : r.problem.type).toBe('payment_required');
+    expect(chain.escrowState(d.id)?.kind).toBe('AcceptedByAdjudicator');
+    const funded = await chain.submit({ kind: 'agree_and_fund', agree: s.agree, funding: s.funding }, { via: 'op-2', sender: cast.operator.key });
+    expect(funded.ok ? funded.state.escrowState : funded.problem.type).toBe('Held');
     expect(await chain.tokenBalance(cast.buyer.address)).toBe(100_000_000_000n - 2_050_000_000n - 1_000_000n);
-    // LocalUSDC logs no AuthorizationUsed, so the adapter cannot tell who the earlier transfer paid.
-    expect(chain.log().find((e) => e.type === 'fee.operator')?.payload).toMatchObject({ source: 'adapter', paid: 'unverified' });
   }, 60_000);
 
   it('a relay the lanes refuse is relay_refused, changes nothing, and the same agreement can be sent again', async () => {

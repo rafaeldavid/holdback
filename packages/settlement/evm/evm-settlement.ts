@@ -889,7 +889,7 @@ export class EvmSettlement implements Settlement {
     });
     // ADR-0023 (EVM amendment): anyone may relay the fee transfer alone, ahead of the bundle, and the bundle would then
     // revert on the spent nonce. When the transfer that spent it paid this operator, the hold is funded on its own;
-    // when it did not (the buyer spent its own nonce elsewhere), this operator is not paid and declines to relay.
+    // when it did not (the buyer spent its nonce elsewhere, or on USDC cancelled it), this operator declines to relay.
     if (await this.nonceUsed(m.commitmentId, token, feeCall)) {
       const paid = await this.feePaidEarlier(fee, terms.createdAt);
       if (paid === false) refuse('payment_required', 'the operator fee authorization for this commitment was used without paying this operator; relay the agreement through another operator or submit it directly to the settlement layer');
@@ -914,26 +914,24 @@ export class EvmSettlement implements Settlement {
 
   /**
    * Whether the transaction that spent the fee's nonce paid this operator: the token's AuthorizationUsed(buyer, nonce)
-   * log, in a transaction that also moved at least the fee from the buyer to the fee address. Null when the payment
-   * cannot be checked: the token logs no AuthorizationUsed for it (LocalUSDC on anvil), or the RPC cannot say.
+   * log, in a transaction that also moved at least the fee from the buyer to the fee address. A spent nonce alone
+   * proves nothing: USDC also spends it for an authorization the buyer cancelled, so without that log the answer is
+   * false. Null only when the token logs no AuthorizationUsed at all (LocalUSDC on anvil). An RPC failure throws, and
+   * the agreement is taken back for a retry.
    */
   private async feePaidEarlier(fee: TransferAuthorization, since: Timestamp): Promise<boolean | null> {
     const event = this.world.abis.token.find((x): x is AbiEvent => x.type === 'event' && x.name === 'AuthorizationUsed');
     if (!event) return null;
     const client = this.world.publicClient;
     const { token, fromBlock } = this.world.deployment;
-    try {
-      const latest = await client.getBlockNumber();
-      // On a live chain, only the blocks since the terms were made (about 12 s each), within one RPC range.
-      const span = BigInt(Math.min(50_000, Math.ceil((Date.parse(this.now()) - Date.parse(since)) / 12_000) + 50));
-      const from = this.wall && latest - span > fromBlock ? latest - span : fromBlock;
-      const used = await client.getLogs({ address: token, event, args: { authorizer: getAddress(fee.from), nonce: fee.nonce }, fromBlock: from, toBlock: latest });
-      if (used.length === 0) return null;
-      const receipt = await client.getTransactionReceipt({ hash: used[0]!.transactionHash! });
-      return this.decode(receipt.logs).some((l) => l.eventName === 'Transfer' && lc(String(l.args['from'])) === lc(fee.from) && lc(String(l.args['to'])) === lc(fee.to) && BigInt(String(l.args['amount'] ?? l.args['value'] ?? 0)) >= BigInt(fee.value));
-    } catch {
-      return null;
-    }
+    const latest = await client.getBlockNumber();
+    // On a live chain, only the blocks since the terms were made (about 12 s each), within one RPC range.
+    const span = BigInt(Math.min(50_000, Math.ceil((Date.parse(this.now()) - Date.parse(since)) / 12_000) + 50));
+    const from = this.wall && latest - span > fromBlock ? latest - span : fromBlock;
+    const used = await client.getLogs({ address: token, event, args: { authorizer: getAddress(fee.from), nonce: fee.nonce }, fromBlock: from, toBlock: latest });
+    if (used.length === 0) return false;
+    const receipt = await client.getTransactionReceipt({ hash: used[0]!.transactionHash! });
+    return this.decode(receipt.logs).some((l) => l.eventName === 'Transfer' && lc(String(l.args['from'])) === lc(fee.from) && lc(String(l.args['to'])) === lc(fee.to) && BigInt(String(l.args['amount'] ?? l.args['value'] ?? 0)) >= BigInt(fee.value));
   }
 
   /** True when the token refuses an ERC-3009 call because its nonce is already used. Any other answer is false. */
