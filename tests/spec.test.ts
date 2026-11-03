@@ -100,6 +100,7 @@ describe('spec/', () => {
     });
     it('keeps fees optional in status and refuses a fractional bps, a float min or a refundable fee', () => {
       const s = example('operator-status');
+      expect(s.fees.operator).toMatchObject({ bps: 1, min: '10000', max: null, appliesAt: 'agree-and-fund', refundable: false });
       const bare = structuredClone(s);
       delete bare.fees;
       expect(schema('operator-status')(bare)).toBe(true);
