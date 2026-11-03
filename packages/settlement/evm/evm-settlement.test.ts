@@ -200,6 +200,24 @@ describe.skipIf(!ready)(`EvmSettlement on anvil${ready ? '' : ' (SKIPPED: needs 
     expect(await at.chain.tokenBalance(at.cast.buyer.address)).toBe(100_000_000_000n);
   }, 60_000);
 
+  it('an overturned accept pays the buyer the price from the primary’s bond, as SimChain reports it (T-206 I-8)', async () => {
+    const { chain, cast, club } = await newSettlement(world);
+    const [b0, s0, p0] = [await chain.tokenBalance(cast.buyer.address), await chain.tokenBalance(cast.seller.address), await chain.bondOf(cast.primary.address)];
+    const id = await PATHS['party appeal (accept, buyer appeals, overturned)']!(chain, cast, club);
+    expect((await chain.stage(id)).appeal).toBe(3); // HoldbackRules.AppealState.Overturned
+    // The buyer paid price + fee, got its appeal bond back and the price from the bond: it is down only the fee.
+    expect(b0 - (await chain.tokenBalance(cast.buyer.address))).toBe(50_000_000n);
+    expect((await chain.tokenBalance(cast.seller.address)) - s0).toBe(2_000_000_000n);
+    expect(p0 - (await chain.bondOf(cast.primary.address))).toBe(2_000_000_000n);
+    const log = chain.log();
+    const decided = log.findIndex((e) => e.type === 'appeal.decided');
+    expect(log.slice(decided).map((e) => e.type)).toEqual(['appeal.decided', 'bond.slashed']);
+    const slashed = log[decided + 1]!;
+    expect(slashed.actor).toBe('anyone');
+    expect(slashed.payload).toMatchObject({ adjudicator: cast.primary.address, junior: { amount: '2000000000' }, senior: { amount: '0' }, reason: 'overturn', tx: log[decided]!.payload['tx'] });
+    expect(await chain.replayCheck()).toMatchObject({ ok: true });
+  }, 120_000);
+
   it('gas per deal: every path settles, with its transaction count (D4)', async () => {
     const rows = await measure(world);
     const by = Object.fromEntries(rows.map((r) => [r.path, r]));
@@ -209,7 +227,8 @@ describe.skipIf(!ready)(`EvmSettlement on anvil${ready ? '' : ' (SKIPPED: needs 
     expect(by['reclaim (nothing delivered)']!.finalState).toBe('Refunded');
     expect(by['early accept (delivery carried)']!.finalState).toBe('Released');
     expect(by['mutual settlement (70/30, before delivery)']!.finalState).toBe('Settled');
-    expect(by['party appeal (reject, buyer appeals, upheld)']!.finalState).toBe('Refunded');
+    expect(by['party appeal (reject, seller appeals, upheld)']!.finalState).toBe('Refunded');
+    expect(by['party appeal (accept, buyer appeals, overturned)']!.finalState).toBe('Released');
     expect(by['escalation, then the appeal adjudicator decides']!.finalState).toBe('Released');
     expect(by['fallback (primary silent, fallback accepts)']!.finalState).toBe('Released');
     expect(by['default (primary and fallback silent)']!.finalState).toBe('Refunded');

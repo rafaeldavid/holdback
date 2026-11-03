@@ -393,6 +393,10 @@ export function stepAppeal(a: AppealState, e: AppealEvent, ctx: AppealContext): 
       if (!sameAddress(p.appellantAddress, p.appellant === 'buyer' ? terms.buyer : terms.seller)) {
         return fail('invalid_signature', `appellant address is not the ${p.appellant}`);
       }
+      // T-206 L-7: only the party the decision went against appeals. Outcomes are binary, and the one slot taken by
+      // the favoured party would shut out the party with something to win.
+      const against = ctx.firstOutcome === 'accept' ? 'buyer' : 'seller';
+      if (p.appellant !== against) return fail('invalid_terms', `the decision went against the ${against}, so only the ${against} may appeal`);
       for (const [what, paid, required] of [
         ['appeal bond', p.bond, e.requiredBond],
         ['appeal fee', e.feePaid, e.requiredFee],
