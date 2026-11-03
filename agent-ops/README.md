@@ -88,7 +88,7 @@ Rafa approves each step, because each one reaches outside the repository or chan
 3. **Faster CI.** Merge T-034, T-035 and T-036, and create the known flakes list in `docs/testing.md`.
 4. **Tool limits.** Remove Write and Edit from the reviewer and the verifier, and add the P6 deny list to `.claude/settings.json`.
 5. **Quarantine tests.** Wire the schemas into the triage harness, run every `attack.*` payload through triage as a test, and add `tests/agent-ops-inactive.test.ts`.
-6. **Telemetry and feedback.** Enable T-031, T-032 with milestone feedback requests (after their ADR), web analytics and a public-source social reader, each with the owner and retention in [pipeline.md](pipeline.md).
+6. **Telemetry and feedback.** Deploy T-031 and T-032, which are merged. Build the milestone feedback requests in T-043 after its ADR. Enable web analytics and a public-source social reader. [pipeline.md](pipeline.md) lists each source's owner and retention.
 7. **Shadow week.** Run the tick with `--dry-run` for a week while Rafa starts tasks by hand. Compare the architect's task files with hand-written ones, and calibrate the telemetry thresholds.
 8. **One lane.** Run one lane until 10 pull requests merge without a revert (threshold guessed), then run three lanes with the cross-family gates. This follows principle 1 of `docs/team.md`: verification before parallelism.
 9. **Switch on.** Set `STATUS` to `active` and `AGENT_OPS` to `on`.

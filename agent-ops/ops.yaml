@@ -65,7 +65,7 @@ telemetry:                    # Telemetry holds aggregates only (D35, D39, D40).
                      "an event sequence the state machine forbids: P0 security"]
       retention: { events: public, aggregates_days: 90 }
 
-feedback_requests:            # The operator asks opted-in agents for feedback at deal milestones. This extends T-032 and needs an ADR and a version bump.
+feedback_requests:            # The operator asks opted-in agents for feedback at deal milestones. Task T-043 builds this on T-032's route, with an ADR and a version bump.
   opt_in: { header: "Prefer: feedback-requests=on", default: off, decided_by: the agent's owner, stored_state: none }
   sampling: { method: "hash(signer key, deal ID, milestone) compared with the rate", max_per_deal_and_milestone: 1 }   # The rates are guesses.
   milestones:
@@ -196,7 +196,7 @@ activation:                   # Rafa approves each step.
   - T-034, T-035, T-036 merged; Known flakes list in docs/testing.md
   - reviewer and verifier lose Write and Edit; deny_additions in .claude/settings.json
   - schemas wired into the harness; attack.* payloads fed to triage; tests/agent-ops-inactive.test.ts
-  - telemetry and feedback: T-031, T-032 with milestone feedback requests (after their ADR), Web Analytics, a public-source social reader
+  - telemetry and feedback: deploy T-031 and T-032 (both merged), build T-043 after its ADR, enable Web Analytics and a public-source social reader
   - "shadow week: tick --dry-run; Rafa dispatches by hand; thresholds calibrated"
   - one lane until 10 merged PRs with no revert, then 3   # The threshold is a guess.
   - "STATUS: active; AGENT_OPS: on"

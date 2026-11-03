@@ -190,7 +190,7 @@ footer{font-size:13px;color:var(--pencil);border-top:1px solid var(--line);paddi
       <ol id="tick" aria-label="Event log"></ol>
       <div id="stats"></div>
     </div>
-    <div class="cap">The animation simulates a run. The task IDs are real and the outcomes are invented. Stop new work pauses dispatch, and running tasks finish.</div>
+    <div class="cap">The animation simulates a run. Existing tasks keep their real IDs, new tasks get IDs from T-901 up, and all outcomes are invented. Stop new work pauses dispatch, and running tasks finish.</div>
   </div>
   <div class="col">
     <ol class="steps">
@@ -260,7 +260,7 @@ footer{font-size:13px;color:var(--pencil);border-top:1px solid var(--line);paddi
       <li>The operator decides whether to ask by hashing the signer key, the deal ID and the milestone, and comparing the result with the rate. The hash makes the decision repeatable without stored state, so the operator asks at most once per deal and milestone.</li>
       <li>The D39 rules apply to answers. The operator tells the agent that it is sharing the answer with this operator, and the agent seals any comment that can contain deal details to the operator's key.</li>
       <li>A record opens when a milestone's average ease rating falls below 3 over a week, or when more than 30% of a milestone's answers say the docs did not answer the question. The rates and thresholds are guesses.</li>
-      <li>The <code>feedbackRequest</code> field and the <code>Prefer</code> header change the API contract, so they require an ADR and a schema version bump. The work extends T-032.</li>
+      <li>The <code>feedbackRequest</code> field and the <code>Prefer</code> header change the API contract, so they require an ADR and a schema version bump. Task T-043 builds them on the feedback route from T-032.</li>
     </ul></div>
   </details>
 </section>
@@ -285,7 +285,7 @@ footer{font-size:13px;color:var(--pencil);border-top:1px solid var(--line);paddi
         <tr><td>API</td><td>API lane</td><td>Hourly counts, daily rules</td><td>A problem type's share doubles, first-try success drops 10 points, the operator returns an <code>internal</code> 500, the operator serves a deprecation notice after its date, or one feedback fingerprint appears 3 times.</td><td>Request log 7 days (T-031). Aggregates 90 days.</td></tr>
         <tr><td>Onchain</td><td>Settlement lane</td><td>Daily</td><td>Timeouts or appeals double, gas per deal exceeds the 395,831 baseline (T-202) by 10%, or a forbidden event sequence appears.</td><td>Aggregates 90 days</td></tr>
       </tbody></table>
-      <p class="small muted" style="margin-top:12px">The thresholds are starting guesses, and the shadow week calibrates them. T-031 and T-032 are not built. Web analytics and the social reader each need Rafa's approval.</p></div>
+      <p class="small muted" style="margin-top:12px">The thresholds are starting guesses, and the shadow week calibrates them. T-031 and T-032 are merged but not deployed, and task T-043 builds the feedback requests. Web analytics and the social reader each need Rafa's approval.</p></div>
   </details>
 </section>
 
@@ -450,7 +450,7 @@ footer{font-size:13px;color:var(--pencil);border-top:1px solid var(--line);paddi
     <li><b>Faster CI.</b> Merge T-034, T-035 and T-036, and create the known flakes list.</li>
     <li><b>Tool limits.</b> Remove write access from the reviewer and the verifier, and add the extra deny list.</li>
     <li><b>Quarantine tests.</b> Wire in the schemas, and run every known attack payload through triage as a test.</li>
-    <li><b>Telemetry and feedback.</b> Enable API metrics (T-031), the feedback route with milestone requests (T-032, after its ADR), web analytics and a public social reader.</li>
+    <li><b>Telemetry and feedback.</b> Deploy the API metrics (T-031) and the feedback route (T-032). Build the milestone feedback requests (T-043) after its ADR. Enable web analytics and a public social reader.</li>
     <li><b>Shadow week.</b> Run the tick in dry-run mode for a week while Rafa starts tasks by hand. Compare the two, and tune the telemetry thresholds.</li>
     <li><b>One lane.</b> Run one task at a time until 10 pull requests merge without a revert (threshold guessed), then move to three lanes.</li>
     <li><b>Switch on.</b> Set <code>STATUS</code> to active and <code>AGENT_OPS</code> to on.</li>
@@ -584,17 +584,17 @@ const D = {move:800, tri:700, arc:900, build:2600, fix:1500, ver:700, ciRow:380,
 const author = tier => tier === 2 ? 'Opus 5.5' : 'Sonnet 5.5';
 const reviewerOf = m => m === 'Opus 5.5' ? 'Fable 5.1' : 'Opus 5.5';
 const SCRIPT = [
-  {at:0,    id:'T-032',   src:2, lane:'api',        tier:1},
+  {at:0,    id:'T-043',   src:2, lane:'api',        tier:2},
   {at:1200, id:'T-035',   src:2, lane:'settlement', tier:2, rt:1, review:[{k:'xr', note:'the receipt poll has no upper bound'}]},
-  {at:2400, id:'#87',     src:0, tier:0, route:'close', note:'as a duplicate of T-032'},
+  {at:2400, id:'#87',     src:0, tier:0, route:'close', note:'as a duplicate of T-043'},
   {at:3600, id:'T-034',   src:2, lane:'infra',      tier:3},
   {at:4800, id:'T-209',   src:2, lane:'settlement', tier:2, rt:1},
-  {at:6000, id:'fb·3f9a', src:1, lane:'api',        tier:1, becomes:'T-037'},
+  {at:6000, id:'fb·3f9a', src:1, lane:'api',        tier:1, becomes:'T-901'},
   {at:7200, id:'T-033',   src:2, lane:'core',       tier:2, ci:[{k:'guardrails', note:'the schema changed without a decision record'}]},
-  {at:8400, id:'main ✗',  src:4, lane:'test',       tier:1, becomes:'T-038', note:'A flaky test needs a fix.'},
-  {at:9600, id:'web·sig', src:3, lane:'demo',       tier:1, becomes:'T-039', note:'Conversion from the docs to a first API call fell 30%.'},
+  {at:8400, id:'main ✗',  src:4, lane:'test',       tier:1, becomes:'T-902', note:'A flaky test needs a fix.'},
+  {at:9600, id:'web·sig', src:3, lane:'demo',       tier:1, becomes:'T-903', note:'Conversion from the docs to a first API call fell 30%.'},
   {at:10800,id:'social',  src:3, tier:0, route:'close', note:'as spam'},
-  {at:12000,id:'fb·ease', src:1, lane:'api',        tier:1, becomes:'T-040', note:'The average ease rating for funding fell below 3.'},
+  {at:12000,id:'fb·ease', src:1, lane:'api',        tier:1, becomes:'T-904', note:'The average ease rating for funding fell below 3.'},
 ];
 const who = (t, k) => k === 'rv' ? t.rev : k === 'xr' ? 'DeepSeek' : 'the Fable red team';
 const cap1 = s => s.charAt(0).toUpperCase() + s.slice(1);
@@ -705,7 +705,7 @@ requestAnimationFrame(frame);
 const CG = {cols:[16, 296, 576, 856, 1136], w:250, y0:58, step:50, h:30, heads:['intake', 'triage and dispatch', 'build and verify', 'checks', 'merge and observe']};
 const N = [
   ['issue', 0,0, 'gh issues · label:intake',        'exists',   'Issues are untrusted. Only the quarantine reads them. The repository has none today (measured).'],
-  ['fb',    0,1, 'POST /v1/feedback',               'T-032',    'The operator keeps reports in a private store. Only a fingerprint enters the public repository (D35, D39). For agents that opt in, responses at deal milestones carry a feedbackRequest that the agent answers here.'],
+  ['fb',    0,1, 'POST /v1/feedback',               'exists',   'T-032 built this route (merged in PR 121, not deployed). The operator keeps reports in a private store, and only a fingerprint enters the public repository (D35, D39). Task T-043 adds feedback requests at deal milestones for agents that opt in.'],
   ['plan',  0,2, 'docs/plan.md · backlog.md',       'exists',   'The architect creates tasks from the plan at the start of each phase.'],
   ['dec',   0,3, 'docs/decisions-today.md',         'exists',   'Each decision that creates work names its task.'],
   ['rev',   0,4, 'docs/reviews/*',                  'exists',   'Each "Next steps" item in a review becomes one task.'],

@@ -28,7 +28,7 @@ Four input lanes feed triage.
 | Lane | Source | Trust | Handling |
 | --- | --- | --- | --- |
 | Tickets | GitHub issues labeled `intake`, and pull request comments. The repository is public and has no issues today (measured). | Untrusted | The quarantine reads them. |
-| Agent feedback | Reports sent to `POST /v1/feedback` under D39, stored in the operator's private store. Agents send reports on their own, and agents that opt in also answer feedback requests at deal milestones (see Requested feedback below). T-032 builds the route. | Untrusted. Reports can contain deal details. | The quarantine reads free text. Ratings become telemetry aggregates. The task cites `feedback:<fingerprint>` and never quotes the report. |
+| Agent feedback | Reports sent to `POST /v1/feedback` under D39, stored in the operator's private store. Agents send reports on their own, and agents that opt in also answer feedback requests at deal milestones (see Requested feedback below). T-032 built the route (merged in PR 121, not deployed). | Untrusted. Reports can contain deal details. | The quarantine reads free text. Ratings become telemetry aggregates. The task cites `feedback:<fingerprint>` and never quotes the report. |
 | Roadmap | `docs/plan.md`, `docs/backlog.md`, `docs/decisions-today.md`, `docs/decisions/`, and the "Next steps" lists in `docs/reviews/*` | Trusted. Each reached `main` through a reviewed pull request. | The architect reads them directly. |
 | Telemetry | The website, social posts, the API and the chain (see Usage telemetry below) | Aggregates are measurements. Social post text is untrusted. | Telemetry rules write records without a model. The quarantine reads social post text. |
 
@@ -67,7 +67,7 @@ The operator asks agents for feedback at key deal milestones. It asks only agent
 - **Answer.** The agent answers through `POST /v1/feedback` with the request ID. The D39 rules apply: the operator tells the agent that it is sharing the answer with this operator, and the agent seals any text that can contain deal details to the operator's key. An unanswered request expires and has no effect.
 - **Routing.** Ratings and yes-or-no answers become telemetry aggregates per milestone. Free text enters the quarantine as untrusted feedback.
 - **Rules that open a record.** A milestone's average ease rating falls below 3 over a week, or more than 30% of answers for a milestone say that the docs did not answer the question. Both thresholds are guesses.
-- **Contract.** The `feedbackRequest` field and the `Prefer` header change the API contract, so they require an ADR and a schema version bump (`CLAUDE.md`, hard rules). The work extends T-032, which builds the feedback route.
+- **Contract.** The `feedbackRequest` field and the `Prefer` header change the API contract, so they require an ADR and a schema version bump (`CLAUDE.md`, hard rules). Task T-043 (PR 131) builds this on the feedback route from T-032.
 
 ### Usage telemetry
 
@@ -85,7 +85,7 @@ Telemetry follows these rules:
 - It holds aggregates only. It holds no deal content, no identities, and nothing from a private deal beyond its public skeleton (D35, D39, D40, T-207).
 - The figures stay in a private store, either `reports/telemetry/` (git-ignored) or the operator's KV store. A task cites `telemetry:<signal>` and describes the symptom without figures. Rafa decides whether to publish any figure (D39).
 - The pipeline treats signals as data. It sends no aggregate, post text or feedback text to a non-Anthropic provider.
-- T-031 and T-032 are not built. Web analytics needs a Cloudflare setting and the social reader needs accounts, so both need Rafa's approval. The chain is a local chain until Sepolia (T-206).
+- T-031 (PR 118) and T-032 (PR 121) are merged but not deployed. Task T-043 (PR 131) builds the milestone feedback requests. Web analytics needs a Cloudflare setting and the social reader needs accounts, so both need Rafa's approval. The chain is a local chain until Sepolia (T-206).
 
 ### Records
 
