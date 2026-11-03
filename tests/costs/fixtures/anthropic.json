@@ -1,0 +1,34 @@
+{
+  "$comment": "Synthetic pages shaped like Anthropic's documented cost_report and usage_report/messages responses. No real figure.",
+  "costPage1": {
+    "data": [
+      { "starting_at": "2026-11-01T00:00:00Z", "ending_at": "2026-11-02T00:00:00Z", "results": [
+        { "amount": "123.78912", "currency": "USD", "description": "Example Model Usage - Input Tokens", "model": "example-model", "workspace_id": "wrkspc_example" },
+        { "amount": "10", "currency": "USD", "description": "Example Model Usage - Output Tokens", "model": "example-model", "workspace_id": null }
+      ] }
+    ],
+    "has_more": true,
+    "next_page": "page_two"
+  },
+  "costPage2": {
+    "data": [
+      { "starting_at": "2026-11-02T00:00:00Z", "ending_at": "2026-11-03T00:00:00Z", "results": [
+        { "amount": "0.21088", "currency": "USD", "description": "Example Model Usage - Input Tokens", "model": "example-model", "workspace_id": "wrkspc_example" }
+      ] }
+    ],
+    "has_more": false,
+    "next_page": null
+  },
+  "usage": {
+    "data": [
+      { "starting_at": "2026-11-01T00:00:00Z", "ending_at": "2026-11-02T00:00:00Z", "results": [
+        { "model": "example-model", "workspace_id": "wrkspc_example", "uncached_input_tokens": 1500, "output_tokens": 500, "cache_read_input_tokens": 200, "cache_creation": { "ephemeral_5m_input_tokens": 30, "ephemeral_1h_input_tokens": 0 }, "server_tool_use": { "web_search_requests": 2 } }
+      ] },
+      { "starting_at": "2026-11-02T00:00:00Z", "ending_at": "2026-11-03T00:00:00Z", "results": [
+        { "model": "example-model", "workspace_id": "wrkspc_example", "uncached_input_tokens": 500, "output_tokens": 100, "cache_read_input_tokens": 0, "cache_creation": { "ephemeral_5m_input_tokens": 0, "ephemeral_1h_input_tokens": 0 }, "server_tool_use": { "web_search_requests": 0 } }
+      ] }
+    ],
+    "has_more": false,
+    "next_page": null
+  }
+}

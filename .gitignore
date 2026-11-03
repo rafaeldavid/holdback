@@ -4,6 +4,8 @@ dist/
 coverage/
 .env
 .env.*
+# The cost collector's approval record (T-052): local to the dedicated clone, so no commit can supply it.
+/.costs-approved
 !.env.example
 /data/
 reports/

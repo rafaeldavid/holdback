@@ -74,6 +74,48 @@ A limit that stops spending also stops service. At an Anthropic or DeepSeek limi
 | Sepolia | None | Public addresses on a public RPC | — |
 | Claude Code | None | Local transcripts under `~/.claude/projects/` | — |
 
+### Running the collector (T-052)
+
+Only Rafa runs it, in the dedicated clone, with `.env.costs` (template: `config/keys-costs.template`):
+
+```sh
+node scripts/costs/approve.mjs                               # after reading the cost code; needs no keys
+node --env-file=.env.costs scripts/costs/collect.mjs         # or: pnpm costs:collect
+```
+
+It prints one status per source (`read`, `not configured` or `failed (<type> <status>)`) and the path it wrote, never a figure. The Sepolia and Claude Code sources need no credential, so a first run shows balances and tokens before any token exists.
+
+**Updating the clone.** Agents may merge to `main` without Rafa, and a check written in the repository cannot defend against a change to itself. So the clone moves forward only like this, with git, not with the repository's code:
+
+```sh
+git fetch origin
+git diff "$(cat .costs-approved)" origin/main -- scripts/costs config/costs.template.json config/model-prices.json
+git merge --ff-only origin/main                              # only after reading that diff
+node scripts/costs/approve.mjs
+```
+
+Every cost script that loads keys refuses to run while the cost code differs from the approved commit (`scripts/costs/approved.mjs`), which catches a pull nobody reviewed. T-055's daily routine compares before it fast-forwards, so it never runs unapproved code.
+
+**What it writes.** In `CROW_COSTS_DIR`: `<YYYY-MM-DD>.json` and the same content in `latest.json`, which the founders' control page reads, plus `claude-code-<YYYY-MM-DD>.json` with tokens per day, session, branch and model for T-053. In `CROW_TELEMETRY_DIR`: `day-<YYYY-MM-DD>.json`, one per T-031 day line found in `inbox/`.
+
+```json
+{
+  "date": "2026-11-03",
+  "lines": [{ "source": "cloudflare-billing", "product": "Workers Standard", "unit": "Requests", "quantity": "3000",
+              "amount": { "cents": "30", "currency": "USD" }, "basis": "billed", "periodFrom": "2026-11-01", "periodTo": "2026-11-02" }],
+  "sources": [{ "source": "deepseek", "ok": false, "error": { "type": "http", "status": 401 } },
+              { "source": "claude-code", "ok": true, "note": "laptop sessions only; …" }]
+}
+```
+
+- `quantity` and `amount.cents` are decimal strings with no exponent. Quantities are integers except where a provider reports fractions (Cloudflare's GB-months, CPU-time quantiles); cents can be fractional (Anthropic reports "123.78912").
+- `basis`: `billed` comes from a billing API; `balance` is a balance at the date; `estimated` is usage with no amount yet (tokens, requests), which T-053 prices.
+- `amount.currency` is the provider's: DeepSeek balances can be in CNY.
+- Sepolia lines are in `wei`, one per public address: the funding lane and the adjudicators from discovery, and the deal lanes and deployer listed in `budgets.json` (`sepolia.addresses`). A deal lane under the floor gets a second line, "(second read)", two minutes later.
+- Source ids: `cloudflare-billing`, `cloudflare-analytics`, `anthropic`, `github`, `deepseek`, `sepolia`, `claude-code`, `telemetry`. An error type is one of `not_configured`, `network`, `timeout`, `http`, `parse`, `shape`, `graphql`, `chain`, `unexpected`.
+
+**T-031's day lines.** Cloudflare's telemetry query API accepts only a Workers Observability *Write* permission, so the collector does not call it. Rafa saves the Workers Logs he wants read (a dashboard export, or `npx wrangler@4 tail holdback-op1 --format json` output) into `CROW_TELEMETRY_DIR/inbox/`; the collector finds the day lines in any JSON or JSON-lines shape.
+
 ### The monthly report (T-053)
 
 `<YYYY-MM>.md` in the cost directory holds:
