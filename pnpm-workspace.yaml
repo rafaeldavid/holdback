@@ -3,3 +3,7 @@ packages:
   - packages/*
   - examples
   - tools/sim
+
+# GHSA-g3hv-75wg-m249: minimatch below 11.0.1, reached only through ESLint (development).
+overrides:
+  minimatch@<11.0.1: 11.0.1
