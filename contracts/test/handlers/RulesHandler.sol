@@ -3,6 +3,7 @@ pragma solidity ^0.8.28;
 
 import {AuthCaptureEscrow} from "commerce-payments/AuthCaptureEscrow.sol";
 import {MockERC3009Token} from "commerce-payments-test/mocks/MockERC3009Token.sol";
+import {Vm} from "forge-std/Vm.sol";
 
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
 import {HoldbackBonds} from "../../src/HoldbackBonds.sol";
@@ -50,6 +51,7 @@ contract RulesHandler is Base {
     uint256 public strangerSuccess; // a direct call to CPP or the bond vault's rules-only functions succeeded
     uint256 public timeoutMismatch; // a timeout succeeded before its deadline, or was refused when due
     uint256 public withdrawMismatch; // a bond withdrawal of free funds refused, or of encumbered funds allowed
+    uint256 public keyWithoutPayment; // a KeyReleased on a deal that does not stand Released or Settled
     string public lastViolation;
 
     constructor() {
@@ -172,8 +174,8 @@ contract RulesHandler is Base {
     // ------------------------------------------------------------ helpers
 
     function _violations() internal view returns (uint256) {
-        return
-            reopened + unauthorisedSuccess + unexpectedMovement + strangerSuccess + timeoutMismatch + withdrawMismatch;
+        return reopened + unauthorisedSuccess + unexpectedMovement + strangerSuccess + timeoutMismatch
+            + withdrawMismatch + keyWithoutPayment;
     }
 
     /// Re-reverts a refused call so the metrics count it, unless the refusal itself was a violation.
@@ -381,6 +383,10 @@ contract RulesHandler is Base {
         // Rare corruptions use the value 15, not 0: the fuzzer favours small values.
         if ((outcomeSeed >> 8) % 16 == 15) m.role = uint8((outcomeSeed >> 12) % 3);
         if ((outcomeSeed >> 16) % 16 == 15) m.expiresAt = uint64(block.timestamp);
+        // An appeal over a refund carries no key (T-206 H-2), except rarely, so the refusal stays exercised.
+        if (d.stage == HoldbackRules.Stage.Refunded && (outcomeSeed >> 20) % 16 != 15) {
+            (m.keyScheme, m.keyCiphertext) = ("", "");
+        }
         uint256 good = _rolePk[id][role];
         uint256 k = _signer(signerSeed, good);
         m = _signDecision(t, id, m, vm.addr(good), k);
@@ -394,13 +400,29 @@ contract RulesHandler is Base {
             dsig = _deliverySig(id, dv, sk);
         }
         bool ok;
+        vm.recordLogs();
         vm.prank(_caller(callerSeed));
         try rules.decide(t, m, dv, dsig) {
             ok = true;
             _authorised("decide", k == good && sk == SELLER_PK);
         } catch {}
+        _keyOnlyWithPayment();
         _track(id, d.stage);
         _end(ok, v0);
+    }
+
+    /// The formal model's KeyOnlyWithPayment: every KeyReleased recorded since the last check leaves its deal
+    /// Released or Settled (recording stays on between decide calls, so other actions' logs are checked too).
+    function _keyOnlyWithPayment() internal {
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        for (uint256 i; i < logs.length; i++) {
+            if (logs[i].emitter != address(rules) || logs[i].topics[0] != HoldbackRules.KeyReleased.selector) continue;
+            HoldbackRules.Stage s = rules.dealOf(logs[i].topics[1]).stage;
+            if (s != HoldbackRules.Stage.Released && s != HoldbackRules.Stage.Settled) {
+                keyWithoutPayment++;
+                lastViolation = "released the buyer's key on a deal that is not Released or Settled";
+            }
+        }
     }
 
     function earlyAccept(uint256 dealSeed, uint256 callerSeed, uint256 signerSeed) external {

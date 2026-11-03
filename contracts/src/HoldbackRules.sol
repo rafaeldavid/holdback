@@ -270,6 +270,11 @@ contract HoldbackRules is EIP712 {
         if (m.role != role || m.outcome > (role == H.ROLE_APPEAL ? H.OUTCOME_REJECT : H.OUTCOME_ESCALATE)) {
             revert InvalidMessage();
         }
+        // ADR-0012 (formal model KeyOnlyWithPayment): the buyer's key travels only with an accept, and never on a deal
+        // that stands Refunded.
+        if (bytes(m.keyCiphertext).length > 0 && (m.outcome != H.OUTCOME_ACCEPT || s == Stage.Refunded)) {
+            revert InvalidMessage();
+        }
         if (block.timestamp >= deadline) revert DeadlinePassed();
         if (role == H.ROLE_PRIMARY) {
             // The primary reveals the preimage of its seedCommitment.
@@ -359,11 +364,7 @@ contract HoldbackRules is EIP712 {
         // the appellant; the overturn payout from the adjudicator's bond is Phase 4.
         BONDS.payAppealBond(id, t.token, upheld ? first : address(0));
         emit AppealClosed(id, d.appeal);
-        if (bytes(m.keyCiphertext).length > 0) {
-            // ADR-0012: the buyer's key goes only where the seller was paid, never to a refunded buyer.
-            if (!firstAccepted) revert InvalidMessage();
-            _releaseKey(id, t.buyer, KEY_APPEAL, m.keyScheme, m.keyCiphertext);
-        }
+        if (bytes(m.keyCiphertext).length > 0) _releaseKey(id, t.buyer, KEY_APPEAL, m.keyScheme, m.keyCiphertext);
     }
 
     // ---------------------------------------------------------------- early accept

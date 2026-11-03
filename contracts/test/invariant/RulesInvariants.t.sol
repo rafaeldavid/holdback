@@ -148,6 +148,14 @@ contract RulesInvariants is Test {
         assertEq(h.strangerSuccess(), 0, h.lastViolation());
     }
 
+    /// The buyer's key only with payment (formal model KeyOnlyWithPayment, ADR-0012): no decision releases it on a
+    /// deal that does not stand Released (T-206 H-2).
+    /// forge-config: default.invariant.runs = 256
+    /// forge-config: default.invariant.depth = 100
+    function invariant_keyOnlyWithPayment() public view {
+        assertEq(h.keyWithoutPayment(), 0, h.lastViolation());
+    }
+
     /// Nothing has an admin path: the deployed code never changes (no selfdestruct, no upgrade) and the rules
     /// contract never holds tokens or ether.
     /// forge-config: default.invariant.runs = 256
