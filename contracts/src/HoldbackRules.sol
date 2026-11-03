@@ -239,6 +239,8 @@ contract HoldbackRules is EIP712 {
         Deal memory d = _deals[id];
         if (block.timestamp >= m.expiresAt) revert MessageExpired();
         if (d.stage == Stage.Held) {
+            // A carried delivery lands now, so it meets deliverBy now, as `deliver` does; otherwise it races reclaim.
+            if (block.timestamp >= t.timing.deliverBy) revert DeadlinePassed();
             _acceptDelivery(id, t, _deals[id], dv, sellerSignature);
             d.stage = Stage.Delivered;
             d.attempt = dv.attempt;
