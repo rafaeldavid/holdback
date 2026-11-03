@@ -89,7 +89,7 @@ const ACTORS: readonly [ActorName, CastKey][] = [
 const BENCHES: readonly [ActorName, CastKey][] = ACTORS.slice(2);
 
 const lc = (s: string) => s.toLowerCase();
-const tusd = (v: bigint): Amount => ({ token: 'tUSD', amount: v.toString() });
+const tusdBase = (v: bigint): Amount => ({ token: 'tUSD', amount: v.toString() });
 
 interface Snapshot {
   ledger: Record<string, bigint>;
@@ -265,8 +265,8 @@ class Narrator {
     const order: CastKey[] = ['buyer', 'seller', 'escrow', 'benchA', 'benchB', 'benchC'];
     const rows: BalanceRow[] = order.map((k) => ({
       who: k,
-      amount: tusd(sums.get(k) ?? 0n),
-      ...(snap.reserved[k] === undefined ? {} : { reserved: tusd(snap.reserved[k]!) }),
+      amount: tusdBase(sums.get(k) ?? 0n),
+      ...(snap.reserved[k] === undefined ? {} : { reserved: tusdBase(snap.reserved[k]!) }),
     }));
     return { kind: 'balances', atMs, actor: 'chain', label, rows };
   }
@@ -349,7 +349,7 @@ class Narrator {
           this.push(1, { kind: 'acceptance', atMs: ms, actor: this.key(String(e.actor)), bondReserved: p.bondReserved as Amount, seedCommitment: String(p.seedCommitment) });
           break;
         case 'hold.funded':
-          this.push(1, { kind: 'hold', atMs: ms, actor: 'buyer', amount: (p.amount as Amount | null) ?? tusd(BigInt(c.price.amount) + BigInt(c.adjudication.fee.amount)), via: this.via(e) });
+          this.push(1, { kind: 'hold', atMs: ms, actor: 'buyer', amount: (p.amount as Amount | null) ?? tusdBase(BigInt(c.price.amount) + BigInt(c.adjudication.fee.amount)), via: this.via(e) });
           this.push(1, this.balances(ms, 'after hold', snap));
           break;
         case 'delivery.submitted': {
@@ -516,8 +516,8 @@ class Narrator {
       actor: 'seller',
       agreed: slate(review.slate),
       policy: review.policy.map(plain),
-      bondRequired: tusd(review.requiredFreeBond),
-      bonds: review.checks.map((c) => ({ who: this.key(c.address), free: tusd(c.freeBond) })),
+      bondRequired: tusdBase(review.requiredFreeBond),
+      bonds: review.checks.map((c) => ({ who: this.key(c.address), free: tusdBase(c.freeBond) })),
     });
   }
 
