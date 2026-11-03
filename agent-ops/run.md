@@ -1,4 +1,4 @@
-# Running it: CI, budgets, observability, kill switch, activation
+# Running it: dispatch, CI, observability, kill switch, activation
 
 Numbers labelled (m) measured, (i) inferred, (g) guessed. CI figures are from `docs/reviews/2026-11-02-dev-velocity.md` unless noted.
 
@@ -6,13 +6,13 @@ Numbers labelled (m) measured, (i) inferred, (g) guessed. CI figures are from `d
 
 `tick` is a stateless script: each run re-derives state from git and GitHub, then exits. It runs after every merge to `main` and every CI completion, with a 20-minute cron as the fallback for a missed event. Its runner is a Haiku 5.5 session told only to run the script and launch the sessions it prints; no model decides what is ready.
 
-1. Kill switch: both switches must read active, else exit.
+1. Kill switch: `AGENT_OPS` is `on` and `STATUS` is `active`, else exit.
 2. Ready: task files on `main` with `Status: todo` whose dependencies have merged PRs (done is derived from merges, dev-velocity §2.9).
 3. In flight: `t-*` branches on origin and open PRs.
-4. Capacity: the limits in `teams.md`, the daily budget, and any lane paused by a flake.
+4. Capacity: the limits in `teams.md`, the budgets in `pipeline.yaml`, and any lane paused by a flake.
 5. Claim and launch, with a brief built from the task file's fields only.
 
-A long-running coordinator was rejected: one stopped at the weekly token limit on 2026-11-01 (m, `docs/log/2026-11-01.md`), and it carries stale context between decisions.
+A long-running coordinator was rejected: it carries stale context between decisions, and a missed event strands its work.
 
 ## CI cost and flakes
 
@@ -21,7 +21,7 @@ A long-running coordinator was rejected: one stopped at the weekly token limit o
 | PR critical path | 4.5–6.5 min, any PR, docs included: the contracts job (151 s submodule checkout, 118 s via-IR compile) (m) | 1.5–2 min code, about 1 min docs |
 | push to `main` | 11.5–14.5 min, of which 684 s TLC liveness (m) | TLC only when `formal/**` changes |
 | flakes | gas-per-deal stall in 2 of 24 PR runs; one cost a 2 h 13 min wait (m) | root-caused, not timed out |
-| pace | 34 PRs merged 2026-11-02 to 2026-11-03 08:23 UTC (m, `gh`) | WIP caps bound load, not pace |
+| pace | 34 PRs merged 2026-11-02 to 2026-11-03 08:23 UTC (m, `gh`) | — |
 
 Rules:
 
@@ -34,16 +34,7 @@ Rules:
 
 ## Budgets
 
-Parameters, not limits on what agents may negotiate (D31). Initial values (g; nothing in the repo meters tokens yet):
-
-| Class | Sessions | USD per task |
-| --- | --- | --- |
-| R0 | 1 | 5 |
-| R1 | 2 | 25 |
-| R2 | 3 + reviews | 80 |
-| R3 | 2 + reviews | 40 |
-
-Daily cap USD 300; cross-family calls 30 a day. Over budget: the session stops with a handoff and the task returns to the planner. The tick refuses to launch past the daily cap.
+Per-class USD caps and a daily cap, in `pipeline.yaml` (guessed; nothing in the repo meters tokens yet). Over budget: the session stops with a handoff and the task returns to the planner. The tick refuses to launch past the daily cap.
 
 ## Observability
 
@@ -52,7 +43,7 @@ Daily cap USD 300; cross-family calls 30 a day. Over budget: the session stops w
 - **Daily**, the daily-log job writes the measured summary into `docs/log/<date>.md`: lead time, first-pass PASS rate, CI pass rate, reruns, cross-family block and abstention rates, disagreements, hours waiting on a human gate, spend.
 - **Design map** gains an Ops panel from the same data (`/map`).
 
-Alarms (stop-dispatch until Rafa clears): `main` red for 30 min; cross-family block rate above 50% in a day; spend at the daily cap; any gitleaks hit on a bot branch.
+Alarms stop dispatch while their condition holds, and the daily log reports them: `main` red for 30 min; cross-family block rate above 50% in a day; spend at the daily cap; a gitleaks hit on a bot branch.
 
 ## Kill switch
 
@@ -66,18 +57,17 @@ Fail-closed: a switch that cannot be read is off.
 
 The authoritative switch is outside the repo (the variable and the token), because a switch inside it is writable by the agents it stops. `agent-ops/STATUS` must also say `active`; changing it is an R3 PR. Both must hold.
 
-Known gap: a session in bypass mode does not re-check the switch mid-task. `halt` depends on stopping sessions and on token revocation; worst case is one more push.
-
 ## Activation
 
 Not active. In order, each a separate decision:
 
 1. Isolated environment with the scoped tokens in `config/keys-dev-env.template` (waiting on Rafa since 2026-11-01, m). Nothing runs on Rafa's Mac.
-2. A bot GitHub identity; `allow_auto_merge` on.
+2. A bot GitHub identity; CODEOWNERS for every R3 path, code-owner review required, the bot not an owner (P5). Auto-merge and branch deletion on merge are already on (m).
 3. T-034, T-035, T-036 merged; a known-flakes list in `docs/testing.md`.
-4. Reviewer and verifier definitions lose Write and Edit; the P6 deny list in `.claude/settings.json`.
-5. The two schemas, the triage harness and a test feeding every `attack.*` payload to triage (no URL, no instruction-shaped field, canary absent).
-6. The cross-family harness on the existing provider adapter, with its own spend limit.
-7. Shadow week: the tick runs with `--dry-run` and prints what it would launch; Rafa dispatches by hand; planner task files are compared with hand-written ones.
-8. One lane, WIP 1. Then WIP 3 with cross-family gates.
-9. Rafa sets `STATUS` to `active` and `AGENT_OPS` to `on`.
+4. Agent permissions: reviewer and verifier lose Write, Edit, push and `gh` mutations; the P6 deny list; `gh pr merge` for the lander only.
+5. The triage harness with both schemas and a test feeding every `attack.*` payload to triage (record valid or dropped, canary absent). The feedback notice names the triage model provider (a site change: Rafa's gate, D35).
+6. The cross-family harness on the existing provider adapter, with its own spend limit; a pinned GPT-family model for phase exits.
+7. A cross-family review of this design, aimed at who can merge R3 and every path from intake or diff text to a session with Bash.
+8. Shadow week: the tick runs with `--dry-run` and prints what it would launch; Rafa dispatches by hand; planner task files are compared with hand-written ones.
+9. One lane at WIP 1, then WIP 3 with cross-family gates.
+10. Rafa sets `STATUS` to `active` and `AGENT_OPS` to `on`.

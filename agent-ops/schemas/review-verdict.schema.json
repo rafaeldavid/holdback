@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "agent-ops/review-verdict.schema.json",
   "title": "ReviewVerdict",
-  "description": "A tool-less cross-family reviewer's output on one diff. Output that does not match is an abstention.",
+  "description": "A tool-less cross-family reviewer's output on one diff. Free text is short ASCII without slashes, brackets or backticks; reproduce names a repo file, never a command. Output that does not match is an abstention.",
   "type": "object",
   "additionalProperties": false,
   "required": ["reviewer", "diffSha", "verdict", "findings"],
@@ -26,14 +26,19 @@
         "additionalProperties": false,
         "required": ["path", "severity", "litmus", "claim", "reproduce"],
         "properties": {
-          "path": { "type": "string", "pattern": "^[A-Za-z0-9_./-]{1,200}$" },
+          "path": { "$ref": "#/$defs/repoPath" },
           "line": { "type": "integer", "minimum": 1 },
           "severity": { "enum": ["blocking", "major", "minor"] },
           "litmus": { "enum": ["neutrality", "hold", "judgment", "hard-rule", "none"] },
-          "claim": { "type": "string", "maxLength": 300 },
-          "reproduce": { "type": "string", "maxLength": 300 }
+          "claim": { "type": "string", "maxLength": 300, "pattern": "^(?!.*:[^ ])[A-Za-z0-9 .,;:'\"()?!%+=_#&-]*$" },
+          "reproduce": { "$ref": "#/$defs/repoPath" }
         }
       }
     }
+  },
+  "if": { "properties": { "verdict": { "const": "PASS" } } },
+  "then": { "properties": { "findings": { "type": "array", "items": { "type": "object", "properties": { "severity": { "not": { "const": "blocking" } } } } } } },
+  "$defs": {
+    "repoPath": { "type": "string", "pattern": "^(?!/)(?!.*\\.\\.)(?!(.*/)?\\.env)[A-Za-z0-9_./-]{1,200}$" }
   }
 }

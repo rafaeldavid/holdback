@@ -1,8 +1,8 @@
 # agent-ops: continuous development by parallel agent teams
 
-**Status: NOT ACTIVE.** Design only (`STATUS` says `inactive`). Nothing here is wired into `.claude/`, `.github/`, CI or a schedule. Drafted on 2026-11-03 by Opus 5.5 and Fable 5.1 independently, then reconciled (`decisions.md`).
+**Status: NOT ACTIVE.** Design only (`STATUS` says `inactive`). Nothing here is wired into `.claude/`, `.github/`, CI or a schedule. Drafted on 2026-11-03 by Opus 5.5 and Fable 5.1 independently, then reconciled and reviewed (`decisions.md`).
 
-The pipeline judges code the way ’crow judges deliverables (ADR-0006): deterministic checks first (CI), then pinned models from at least two families, then escalation to a human (Rafa, as the appeal adjudicator). Untrusted text never reaches an instruction position. No review is re-run because of its verdict.
+The pipeline judges code the way ’crow judges deliverables (ADR-0006): deterministic checks first (CI), then pinned models from at least two families, then escalation to a human (Rafa, as the appeal adjudicator). Untrusted text never reaches an instruction position.
 
 ```mermaid
 flowchart LR
@@ -19,7 +19,7 @@ flowchart LR
   CI --> RV[review: Opus]
   RV -- R2, R3 --> X[cross-family: DeepSeek, no tools]
   RV -- R2 --> RT[red team: Fable max]
-  RV & X & RT --> L{land}
+  RV & X & RT --> L{land: class from final diff}
   L -- R0..R2 --> M[auto-merge]
   L -- R3 --> H[Rafa merges]
   M --> O[log, map, metrics] --> P
@@ -27,24 +27,24 @@ flowchart LR
 
 ## Risk class decides the team
 
-Computed from the diff's paths, highest wins; an agent cannot lower its own review by labelling.
+Computed from the final diff's paths at landing, highest wins; an agent cannot lower its own review by labelling.
 
-| Class | Paths | Extra reviews | Merge |
+| Class | Paths | Extra reviews | Merge after review PASS and CI |
 | --- | --- | --- | --- |
-| R0 docs | `docs/`, `site/`, `brand/`, root `*.md` | none | auto after Opus PASS |
+| R0 docs | `docs/` (except R3 files), `site/`, `brand/`, root `*.md` | none | auto |
 | R1 code | anything not listed elsewhere | verifier | auto |
-| R2 litmus | `contracts/`, `packages/{core,settlement,judgment}/`, `apps/adjudicator/`, `spec/`, `config/judges*.yaml`, `pnpm-lock.yaml` | fixtures first, Opus implements, cross-family, red team | auto after every family PASSes |
-| R3 pipeline | `.github/`, `.claude/`, `agent-ops/`, `CLAUDE.md`, `AGENTS.md`, `.gitleaksignore` | cross-family | Rafa only |
+| R2 litmus | `contracts/`, `packages/{core,settlement,judgment}/`, `apps/{adjudicator,operator}/`, `spec/`, `config/judges*.yaml`, `pnpm-lock.yaml` | fixtures first, Opus implements, cross-family, red team | auto when every family PASSes |
+| R3 pipeline and gates | `.github/`, `.claude/`, `agent-ops/`, `CLAUDE.md`, `AGENTS.md`, `.gitleaksignore`, `docs/team.md`, `docs/testing.md`, `package.json`, `eslint.config.js`, `vitest.config.ts`, `scripts/verify.ts`, `scripts/ci/` | cross-family | Rafa only |
 
 ## Files
 
 | File | Holds |
 | --- | --- |
-| `pipeline.yaml` | the machine-readable sketch: stages, models, WIP, classes, gates, kill switch |
+| `pipeline.yaml` | the machine-readable sketch: stages, models, WIP, classes, budgets, gates, kill switch |
 | `teams.md` | roles, model mix, effort, tools, concurrency |
-| `gates.md` | trust boundary, threats to the pipeline, cross-family milestones, human gates |
-| `run.md` | CI cost and flakes, budgets, observability, kill switch, activation |
-| `decisions.md` | where Opus and Fable disagreed, and what was chosen |
+| `gates.md` | trust boundary, threats to the pipeline, landing checks, cross-family milestones, human gates |
+| `run.md` | dispatch, CI cost and flakes, observability, kill switch, activation |
+| `decisions.md` | where Opus and Fable disagreed, what review changed, open risks |
 | `schemas/` | the two data contracts between stages: `TriageRecord`, `ReviewVerdict` |
 
 ## Invariants

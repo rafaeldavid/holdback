@@ -17,9 +17,9 @@ kill_switch:
     - file: { path: agent-ops/STATUS, first_line: active }
   levels: [stop-dispatch, halt, revoke]
 
-classes:                      # computed from the diff; highest wins
-  R3: [.github/, .claude/, agent-ops/, CLAUDE.md, AGENTS.md, .gitleaksignore]
-  R2: [contracts/, packages/core/, packages/settlement/, packages/judgment/, apps/adjudicator/, spec/, config/judges.yaml, config/judges-live.yaml, pnpm-lock.yaml]
+classes:                      # computed from the final diff at landing; highest wins
+  R3: [.github/, .claude/, agent-ops/, CLAUDE.md, AGENTS.md, .gitleaksignore, docs/team.md, docs/testing.md, package.json, eslint.config.js, vitest.config.ts, scripts/verify.ts, scripts/ci/]
+  R2: [contracts/, packages/core/, packages/settlement/, packages/judgment/, apps/adjudicator/, apps/operator/, spec/, config/judges.yaml, config/judges-live.yaml, pnpm-lock.yaml]
   R0: [docs/, site/, brand/, "/*.md"]   # root markdown only; *.expect.md snapshots are code
   R1: "*"                     # default: an unknown path is code
 
@@ -30,7 +30,7 @@ xfam_calls_per_day: 30
 
 stages:
   - id: intake
-    run: script               # gh issues export, feedback export, CI signals; no model
+    run: script               # gh issues export, unsealed feedback export, CI signals; no model
     out: reports/agent-ops/intake/        # quarantined
   - id: triage
     model: haiku
@@ -50,7 +50,7 @@ stages:
     run: tick                 # stateless; on merge, on CI completion, cron 20m fallback
     runner: haiku
     claim: push origin t-<id>-<slug>
-    claim_ttl_hours: 24
+    claim_ttl_hours: 24       # only the tick deletes a stale claim
   - id: build
     role: implementer
     model: { R0: sonnet, R1: sonnet, R2: opus, R3: sonnet }
@@ -61,7 +61,7 @@ stages:
     role: verifier
     model: sonnet
     effort: low
-    tools: [Read, Grep, Glob, Bash]
+    tools: [Read, Grep, Glob, Bash]       # no Write, Edit, push or gh mutations
     when: [R1, R2, R3]
   - id: ci
     required: [check, gitleaks]
@@ -70,7 +70,7 @@ stages:
     role: reviewer
     model: opus
     effort: high
-    tools: [Read, Grep, Glob, Bash]       # no Write, no Edit
+    tools: [Read, Grep, Glob, Bash]       # no Write, Edit, push or gh mutations; read-only token
     blocks: true
   - id: xfam
     model: deepseek           # + gpt at phase exit
@@ -84,14 +84,20 @@ stages:
     role: red-teamer
     model: fable
     effort: max
-    when: [packages/judgment/, packages/settlement/, contracts/, apps/operator/, phase_exit]
+    when: [R2, phase_exit]
     blocks: true
   - id: land
-    role: lander
+    role: lander              # the only role allowed gh pr merge
     model: haiku
     effort: low
     auto_merge: [R0, R1, R2]
-    never_auto: [R3, fork]
+    refuse_auto_if:
+      - required_review_missing_on_diff_sha
+      - computed_class_above_task_paths_class
+      - intake_derived_and_class_in_R2_R3_without_rafa
+      - adr_status_set_to_accepted
+      - class_R3
+      - fork
     merge: merge_commit
 
 human_gates: [deploy, repo_settings, secrets, publish_or_send, real_keys_or_money, force_push, adr_accept, r3_merge, activation]
