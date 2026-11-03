@@ -5,7 +5,7 @@
 - **Depends on:** T-202, T-203 and T-205 merged; T-204 merged, or its model-to-contract mapping listed as an open item.
 - **Paths this task may touch:** `docs/reviews/2026-11-03-contract-review.md` (new), `docs/neutrality.md` ("How neutrality is tested", the contract review checklist only), `contracts/deployments/sepolia.json` (new, only after Rafa approves a deployment; under `contracts/` because the operators load it from there), `docs/tasks/T-206-contract-review.md`.
   - Extended by the coordinating session (Decisions 1):
-    - the five fix PRs' paths in `contracts/`, with `reports/differential-local.md` and `contracts/.gas-snapshot` regenerated once here, and the differential report again after merging #139;
+    - the five fix PRs' paths in `contracts/`, with `reports/differential-local.md` and `contracts/.gas-snapshot` regenerated once here (the differential report now matches `main`'s, which PR #138 regenerated on the fixed contracts);
     - the follow-up records: `docs/tasks/T-210…T-212`, `docs/plan.md`, `docs/backlog.md`, and D37 in `docs/decisions-today.md`;
     - in `docs/tasks/T-202-escrow-rules-contract.md`, the lines on carried deliveries and bond reservations (the bonds row, Decision 1, Decision 4, differences 5 and 8) and the new difference 16;
     - the amendment section of `docs/decisions/ADR-0016-phase1-contract.md`;
@@ -71,7 +71,7 @@ Review the Phase 2 contracts against the neutrality checklist, the hold invarian
   | M-2 | #127 | `test/unit/LateCarriedDelivery.t.sol` (7 tests); `invariant_timeoutsExactlyWhenDue` fails on `main` with "a delivery landed at or after deliverBy". | 4 |
   | M-3 | #135 | `test/unit/BondConsent.t.sol` (6 tests). Deleting the fallback's reservation fails two invariants (with the `decideFallback` action). | 4 |
 
-- **measured** `pnpm verify` on each fix branch: every step passes, including all forge tests and invariants, and there are no snapshot diffs. The exception is `pnpm snap --settlement=local`, which failed on `main` from PR 113 until PR #139 on `error.submission-limit`, whether or not a T-206 change was applied (24 passed, 1 failed, 3 excluded). PR #139 fixed it in the settlement adapter. On this branch merged with `main` at `4b3a128`, it passes 25 of 25, with 3 excluded, and `reports/differential-local.md` is regenerated from that run. First fix branch, at `baac930`:
+- **measured** `pnpm verify` on each fix branch: every step passes, including all forge tests and invariants, and there are no snapshot diffs. The exception is `pnpm snap --settlement=local`, which failed on `main` from PR 113 until PR #139 on `error.submission-limit`, whether or not a T-206 change was applied (24 passed, 1 failed, 3 excluded). PR #139 fixed it in the settlement adapter. On this branch merged with `main` at `3877f57`, it passes 25 of 25, with 25 transcripts identical to SimChain and 3 excluded. The report it writes is byte-identical to `main`'s. First fix branch, at `baac930`:
 
   | Step | Command | Status | Time |
   | --- | --- | --- | --- |
@@ -172,5 +172,5 @@ Append its findings to the review as a new section, with a disagreement table ag
   - I-4 (EIP-7702 accounts) belongs in the agent docs.
 
 **After the fix PRs merge.**
-- Regenerate `reports/differential-local.md` (`pnpm snap --settlement=local`) and `contracts/.gas-snapshot` (`forge snapshot`) once, in this PR. Done, and the differential report again after merging #139.
+- Regenerate `reports/differential-local.md` (`pnpm snap --settlement=local`) and `contracts/.gas-snapshot` (`forge snapshot`) once, in this PR. Done; after the merges of #139 and #138 the differential report equals `main`'s.
 - Record the final `HoldbackRules` size in Evidence.
