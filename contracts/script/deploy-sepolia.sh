@@ -86,14 +86,17 @@ refuses() {
   esac
 }
 
-# mined <tx>: the transaction succeeded and the deployer sent it; prints its block number.
+# mined <tx> <address>: the transaction succeeded, the deployer sent it, and it created <address>; prints its block.
 mined() {
-  local receipt status from block
+  local receipt status from created want block
   receipt="$(cast receipt "$1" --json --rpc-url "$RPC")" || fail "no receipt for $1"
   status="$(jq -er .status <<<"$receipt")" || fail "no status for $1"
   [ "$status" = 0x1 ] || fail "transaction $1 failed"
   from="$(jq -er .from <<<"$receipt" | tr '[:upper:]' '[:lower:]')" || fail "no sender for $1"
   [ "$from" = "$DEPLOYER_LOWER" ] || fail "transaction $1 was sent by $from, not the deployer"
+  created="$(jq -er .contractAddress <<<"$receipt" | tr '[:upper:]' '[:lower:]')" || fail "transaction $1 created no contract"
+  want="$(tr '[:upper:]' '[:lower:]' <<<"$2")" || fail "bad address $2"
+  [ "$created" = "$want" ] || fail "transaction $1 created $created, not $2"
   block="$(jq -er .blockNumber <<<"$receipt")" || fail "no block for $1"
   cast to-dec "$block" || fail "bad block number for $1"
 }
@@ -194,11 +197,11 @@ else
 fi
 
 # Each transaction succeeded, came from the deployer, and carried this build's creation code and arguments.
-ESCROW_BLOCK="$(mined "$ESCROW_TX")"
-C3009_BLOCK="$(mined "$C3009_TX")"
-CP2_BLOCK="$(mined "$CP2_TX")"
-BEACON_BLOCK="$(mined "$BEACON_TX")"
-RULES_BLOCK="$(mined "$RULES_TX")"
+ESCROW_BLOCK="$(mined "$ESCROW_TX" "$ESCROW")"
+C3009_BLOCK="$(mined "$C3009_TX" "$C3009")"
+CP2_BLOCK="$(mined "$CP2_TX" "$CP2")"
+BEACON_BLOCK="$(mined "$BEACON_TX" "$BEACON")"
+RULES_BLOCK="$(mined "$RULES_TX" "$RULES")"
 creation_matches "$ESCROW_ID" "$ESCROW_TX"
 creation_matches "$C3009_ID" "$C3009_TX" 'constructor(address,address)' "$ESCROW" "$MULTICALL3"
 creation_matches "$CP2_ID" "$CP2_TX" 'constructor(address,address,address)' "$ESCROW" "$PERMIT2" "$MULTICALL3"
@@ -208,6 +211,10 @@ creation_matches "$RULES_ID" "$RULES_TX" 'constructor(address,address,address,ui
 
 # The deployment is wired as the review assumed.
 BONDS="$(call "$RULES" 'BONDS()(address)')"
+# HoldbackRules creates the bond vault in its constructor, its first CREATE, so the vault is at nonce 1 of the rules
+# contract: a lookalike rules contract could name any vault, but not this address.
+BONDS_DERIVED="$(cast compute-address "$RULES" --nonce 1)"
+[ "${BONDS_DERIVED##* }" = "$BONDS" ] || fail "bonds $BONDS is not the vault the rules contract created (${BONDS_DERIVED##* })"
 TOKEN_STORE_IMPL="$(call "$ESCROW" 'tokenStoreImplementation()(address)')"
 expect "rules ESCROW" "$ESCROW" call "$RULES" 'ESCROW()(address)'
 expect "rules ERC3009_COLLECTOR" "$C3009" call "$RULES" 'ERC3009_COLLECTOR()(address)'
@@ -236,7 +243,7 @@ refuses "another round's signature" "$BEACON" 'beaconValue(uint64,bytes)(bytes32
 
 TOKEN_JSON=null
 if [ -n "$TOKEN" ]; then
-  TOKEN_BLOCK="$(mined "$TOKEN_TX")"
+  TOKEN_BLOCK="$(mined "$TOKEN_TX" "$TOKEN")"
   creation_matches "$TOKEN_ID" "$TOKEN_TX"
   TOKEN_NAME="$(call "$TOKEN" 'name()(string)')"
   TOKEN_SYMBOL="$(call "$TOKEN" 'symbol()(string)')"
