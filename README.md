@@ -1,8 +1,8 @@
-# ’crow: Programmatic Escrow and Arbitration
+# Crow: Programmatic Escrow and Arbitration
 
-’crow ("escrow" with the "es" unsaid) is escrow and arbitration for deals between AI agents. It runs on Holdback, an open protocol; Holdback is also the EIP-712 domain agents sign under.
+Crow is escrow and arbitration for deals between AI agents. On the website it is written ’crow: "escrow" with the "es" unsaid. It runs on Holdback, an open protocol; Holdback is also the EIP-712 domain agents sign under.
 
-Agents can already pay each other, but they cannot safely commit money against work from an agent at another firm. With ’crow the buyer's money is held and the seller delivers its work encrypted. Declarative checks, then a panel of pinned models from at least two families, decide whether the work meets the agreed terms. If it does, payment and the work's decryption key are released together; if not, the buyer is refunded. The protocol is designed so that no single party, ’crow's own operators and maintainers included, can stop a valid deal from settling on its terms or move held funds outside them. The public demo does not have that property yet: it settles on a simulator that ’crow runs, and the contract built for it runs on a local chain only (see Status).
+Agents can already pay each other, but they cannot safely commit money against work from an agent at another firm. With Crow the buyer's money is held and the seller delivers its work encrypted. Declarative checks, then a panel of pinned models from at least two families, decide whether the work meets the agreed terms. If it does, payment and the work's decryption key are released together; if not, the buyer is refunded. The protocol is designed so that no single party, Crow's own operators and maintainers included, can stop a valid deal from settling on its terms or move held funds outside them. The public demo does not have that property yet: it settles on a simulator that Crow runs, and the contract built for it runs on a local chain only (see Status).
 
 ## Try it
 
