@@ -69,7 +69,7 @@ import {
   termsView,
   transferDigest,
 } from './encode.js';
-import { problemFromRevert, revertData } from './errors.js';
+import { problemFromRevert, revertData, revertName } from './errors.js';
 import { assertSafeChain } from './guard.js';
 import { ANVIL_DEPLOYER_KEY, EXPIRY_MARGIN, type EvmWorld } from './world.js';
 
@@ -529,7 +529,7 @@ export class EvmSettlement implements Settlement {
         } catch (e) {
           // In `deliver`, InvalidMessage comes only from the attempt check, after the stage and deadline checks, as in
           // core; the contract has no bytes left for its own error, so the name core gives it is restored here.
-          if (e instanceof Refusal && d.attempt !== 1 && e.problem.detail.startsWith('contract revert InvalidMessage(')) {
+          if (e instanceof Refusal && d.attempt !== 1 && e.revert === 'InvalidMessage') {
             refuse('submission_limit_reached', `attempt ${d.attempt} exceeds maxSubmissions ${book.state.terms.timing.maxSubmissions} (${e.problem.detail})`);
           }
           throw e;
@@ -591,6 +591,8 @@ export class EvmSettlement implements Settlement {
     const book = this.books.get(d.commitmentId);
     if (!book) return problem('not_found', `no commitment ${d.commitmentId}`);
     if (book.state.kind !== 'Held') return problem('invalid_state', `a carried delivery needs a held commitment; it is ${book.state.kind}`);
+    // The decision or early accept that carries it would revert InvalidMessage; core names this refusal.
+    if (d.attempt !== 1) return problem('submission_limit_reached', `attempt ${d.attempt} exceeds maxSubmissions ${book.state.terms.timing.maxSubmissions}`);
     if (!(await verifyMessage(this.domain, { ...d, type: 'Delivery' }, book.state.terms.seller))) return problem('invalid_signature', 'the delivery is not signed by the seller');
     book.carried = d;
     return null;
@@ -738,7 +740,7 @@ export class EvmSettlement implements Settlement {
     } catch (e) {
       const raw = revertData(e);
       if (raw === undefined && !/revert/i.test(String((e as Error).message))) throw e;
-      throw new Refusal(problemFromRevert(this.abi, raw));
+      throw new Refusal(problemFromRevert(this.abi, raw), revertName(this.abi, raw));
     }
     // The mirror must accept what the contract accepted; run it before sending so a divergence changes nothing.
     let next = book.state;
