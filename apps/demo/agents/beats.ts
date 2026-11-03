@@ -1,7 +1,7 @@
 // The demo beats the scripted agents drive (docs/demo.md, Beats). Each beat runs alone on a fresh world and
-// returns what the transcript needs (T-013 narrates it): the commitment, the delivery's public facts, the
+// returns what the transcript needs: the commitment, the delivery's public facts, the
 // outcome, Bench A's signed judgment record, what Atlas opened and which operator relayed each call. Bench A,
-// B and C are T-009's adjudicator service on the world's SimChain with fake judges. Numbers come from SimChain.
+// B and C are the adjudicator service on the world's SimChain with fake judges. Numbers come from SimChain.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Commitment, CommitmentStateView, DecisionOutcome, Delivery, EscrowStateKind, Hex32, Judgment, Payout } from '@holdback/core';
@@ -33,7 +33,7 @@ export interface PlayerOptions {
   judges?: FakeScript;
   /** Per-bench scripts, overriding `judges` for that bench only (beat 6a scripts Atrium's appeal panel). */
   benchJudges?: Partial<Record<'benchA' | 'benchB' | 'benchC', FakeScript>>;
-  /** Tide-7's own adjudicator policy (T-017). */
+  /** Tide-7's own adjudicator policy. */
   seller?: SellerAdjudicatorPolicy;
 }
 
@@ -72,7 +72,7 @@ export interface Negotiation {
 export type NegotiationStep = 'proposed' | 'reviewed';
 
 /**
- * Beat 1, before the offer (T-017): Ledger reads the posted registrations, filters by the club rulebook and
+ * Beat 1, before the offer: Ledger reads the posted registrations, filters by the club rulebook and
  * proposes a slate; Tide-7 checks it against its own policy and agrees or refuses. Agent-to-agent messages:
  * nothing is signed or submitted. `observe` is called after each step (the transcript times them).
  */
@@ -263,12 +263,6 @@ export async function beatInjection(world: DemoWorld, options: PlayerOptions = {
 /** Seconds SimChain advances so a beacon round fixed at the current time is published. */
 const BEACON_WAIT_SEC = 5;
 
-/**
- * Beat 7 (neutrality, D25): op-1 refuses to relay anything for Tide-7's commitment, through its own relay
- * policy; the SDKs fail over to op-2. Then op-2 goes offline, and Tide-7's delivery goes straight to SimChain.
- * Clearfield stays silent past judgeBy; Ledger triggers the fallback (anyone may); Northgate decides with the
- * beacon seed and the key released to it only now. The club operator signs nothing in this flow.
- */
 /** A write call by its operator path, in the narration's words. */
 function callName(path: string): string {
   if (path === '/v1/commitments') return 'the offer';
@@ -279,6 +273,12 @@ function callName(path: string): string {
 /** The world beat 7 runs on: op-1's relay policy refuses Tide-7's commitments. */
 export const NEUTRALITY_WORLD: DemoWorldOptions = { refusals: { 'op-1': ['tidewater'] } };
 
+/**
+ * Beat 7 (neutrality, D25): op-1 refuses to relay anything for Tide-7's commitment, through its own relay
+ * policy; the SDKs fail over to op-2. Then op-2 goes offline, and Tide-7's delivery goes straight to SimChain.
+ * Clearfield stays silent past judgeBy; Ledger triggers the fallback (anyone may); Northgate decides with the
+ * beacon seed and the key released to it only now. The club operator signs nothing in this flow.
+ */
 export async function beatNeutrality(world: DemoWorld, options: PlayerOptions = {}): Promise<JobResult> {
   const refusing = 'op-1';
   const p = players(world, options);

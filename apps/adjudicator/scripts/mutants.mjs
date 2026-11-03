@@ -1,4 +1,4 @@
-// Mutation sweep for the adjudicator service (T-009): break one rule at a time, run the adjudicator
+// Mutation sweep for the adjudicator service: break one rule at a time, run the adjudicator
 // tests, and require that some test fails. Restores every file, even on error.
 // Usage (from the repo root): node apps/adjudicator/scripts/mutants.mjs [filter]
 import { spawnSync } from 'node:child_process';

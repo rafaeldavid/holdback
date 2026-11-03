@@ -3,6 +3,7 @@ pragma solidity ^0.8.28;
 
 import {AuthCaptureEscrow} from "commerce-payments/AuthCaptureEscrow.sol";
 import {MockERC3009Token} from "commerce-payments-test/mocks/MockERC3009Token.sol";
+import {Vm} from "forge-std/Vm.sol";
 
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
 import {HoldbackBonds} from "../../src/HoldbackBonds.sol";
@@ -44,12 +45,14 @@ contract RulesHandler is Base {
     mapping(bytes32 => uint256) public closings; // open -> Released | Refunded | Settled transitions
     mapping(bytes32 => bool) public everClosed;
     mapping(bytes32 => bool) public cppReclaimed; // the buyer's own CPP reclaim after authorizationExpiry
+    mapping(bytes32 => uint64) internal _deliverBy;
     uint256 public reopened; // a closed commitment seen in an open stage again
     uint256 public unauthorisedSuccess; // a call carrying a signature from the wrong key succeeded
     uint256 public unexpectedMovement; // a call that must not move held money moved it
     uint256 public strangerSuccess; // a direct call to CPP or the bond vault's rules-only functions succeeded
     uint256 public timeoutMismatch; // a timeout succeeded before its deadline, or was refused when due
     uint256 public withdrawMismatch; // a bond withdrawal of free funds refused, or of encumbered funds allowed
+    uint256 public keyWithoutPayment; // a KeyReleased on a deal that does not stand Released or Settled
     string public lastViolation;
 
     constructor() {
@@ -157,7 +160,6 @@ contract RulesHandler is Base {
             uint8 f = rules.dealOf(_ids[i]).flags;
             if (f & 1 != 0 && t.adjudicator == adj) sum += t.price;
             if (f & 2 != 0 && t.fallbackAdjudicator == adj) sum += t.price;
-            if (f & 4 != 0 && t.appealAdjudicator == adj) sum += t.price;
         }
     }
 
@@ -172,8 +174,8 @@ contract RulesHandler is Base {
     // ------------------------------------------------------------ helpers
 
     function _violations() internal view returns (uint256) {
-        return
-            reopened + unauthorisedSuccess + unexpectedMovement + strangerSuccess + timeoutMismatch + withdrawMismatch;
+        return reopened + unauthorisedSuccess + unexpectedMovement + strangerSuccess + timeoutMismatch
+            + withdrawMismatch + keyWithoutPayment;
     }
 
     /// Re-reverts a refused call so the metrics count it, unless the refusal itself was a violation.
@@ -241,6 +243,12 @@ contract RulesHandler is Base {
             reopened++;
             lastViolation = "a closed commitment reopened";
         }
+        // A delivery lands only before deliverBy, whichever call carries it (T-206 M-2); reclaim and mutual
+        // settlement leave the attempt at 0.
+        if (before == HoldbackRules.Stage.Held && rules.dealOf(id).attempt != 0 && block.timestamp >= _deliverBy[id]) {
+            timeoutMismatch++;
+            lastViolation = "a delivery landed at or after deliverBy";
+        }
     }
 
     function _noMove(string memory name, uint256 i, uint256 c0) internal {
@@ -306,6 +314,7 @@ contract RulesHandler is Base {
         bytes32 id = hx.id(t);
         _terms_.push(t);
         _ids.push(id);
+        _deliverBy[id] = t.timing.deliverBy;
         _rolePk[id] = r;
     }
 
@@ -381,6 +390,10 @@ contract RulesHandler is Base {
         // Rare corruptions use the value 15, not 0: the fuzzer favours small values.
         if ((outcomeSeed >> 8) % 16 == 15) m.role = uint8((outcomeSeed >> 12) % 3);
         if ((outcomeSeed >> 16) % 16 == 15) m.expiresAt = uint64(block.timestamp);
+        // An appeal over a refund carries no key (T-206 H-2), except rarely, so the refusal stays exercised.
+        if (d.stage == HoldbackRules.Stage.Refunded && (outcomeSeed >> 20) % 16 != 15) {
+            (m.keyScheme, m.keyCiphertext) = ("", "");
+        }
         uint256 good = _rolePk[id][role];
         uint256 k = _signer(signerSeed, good);
         m = _signDecision(t, id, m, vm.addr(good), k);
@@ -394,13 +407,87 @@ contract RulesHandler is Base {
             dsig = _deliverySig(id, dv, sk);
         }
         bool ok;
+        vm.recordLogs();
         vm.prank(_caller(callerSeed));
         try rules.decide(t, m, dv, dsig) {
             ok = true;
             _authorised("decide", k == good && sk == SELLER_PK);
         } catch {}
+        _keyOnlyWithPayment();
         _track(id, d.stage);
         _end(ok, v0);
+    }
+
+    /// Decides an open appeal with the right key and round, outcome and key presence independent, so the key rule
+    /// (T-206 H-2) is reached on every outcome; `decide` rarely builds this sequence.
+    function decideAppeal(uint256 dealSeed, uint256 callerSeed, uint256 outcomeSeed) external {
+        uint256 v0 = _violations();
+        uint256 i = _pickFor(dealSeed, A_OPEN);
+        H.Terms memory t = _terms_[i];
+        bytes32 id = _ids[i];
+        HoldbackRules.Deal memory d = rules.dealOf(id);
+        uint64 round = rules.BEACON().roundAt(d.t2) + 1;
+        if (block.timestamp < round) vm.warp(round);
+        H.Decision memory m = _beaconDecision(id, H.ROLE_APPEAL, uint8(outcomeSeed % 2), round);
+        (m.keyScheme, m.keyCiphertext) = (outcomeSeed >> 1) % 2 == 0 ? (KEY_SCHEME, KEY_CT) : ("", "");
+        uint256 pk = _rolePk[id][H.ROLE_APPEAL];
+        m = _signDecision(t, id, m, vm.addr(pk), pk);
+        bool ok;
+        vm.recordLogs();
+        vm.prank(_caller(callerSeed));
+        try rules.decide(t, m, _noDelivery(), "") {
+            ok = true;
+        } catch {}
+        _keyOnlyWithPayment();
+        _track(id, d.stage);
+        _end(ok, v0);
+    }
+
+    /// Drives a funded deal to the fallback (posting the delivery and triggering the takeover if needed) and has the
+    /// fallback decide with its key and the judgeBy round, any outcome, so the fallback's own reservation (T-206 M-3)
+    /// is exercised; the separate actions rarely line up inside the fallback's window.
+    function decideFallback(uint256 dealSeed, uint256 callerSeed, uint256 outcomeSeed) external {
+        uint256 v0 = _violations();
+        uint256 i = _pickFor(dealSeed, M_HELD | M_DELIVERED | M_FALLBACK);
+        H.Terms memory t = _terms_[i];
+        bytes32 id = _ids[i];
+        HoldbackRules.Stage before = rules.dealOf(id).stage;
+        if (before == HoldbackRules.Stage.Held) {
+            (H.Delivery memory dv,) = _delivery();
+            try rules.deliver(t, dv, _deliverySig(id, dv, SELLER_PK)) {} catch {}
+            _track(id, before); // the delivery's own deadline check, before the warp below
+            before = rules.dealOf(id).stage;
+        }
+        if (rules.dealOf(id).stage == HoldbackRules.Stage.Delivered) {
+            if (block.timestamp < t.timing.judgeBy) vm.warp(t.timing.judgeBy);
+            try rules.triggerFallback(t) {} catch {}
+        }
+        H.Decision memory m = _beaconDecision(id, H.ROLE_FALLBACK, uint8(outcomeSeed % 3), t.timing.judgeBy);
+        uint256 pk = _rolePk[id][H.ROLE_FALLBACK];
+        m = _signDecision(t, id, m, vm.addr(pk), pk);
+        bool ok;
+        vm.recordLogs();
+        vm.prank(_caller(callerSeed));
+        try rules.decide(t, m, _noDelivery(), "") {
+            ok = true;
+        } catch {}
+        _keyOnlyWithPayment();
+        _track(id, before);
+        _end(ok, v0);
+    }
+
+    /// The formal model's KeyOnlyWithPayment: every KeyReleased the checked call emitted leaves its deal Released or
+    /// Settled. Each action that can release a key records its own call (vm.recordLogs clears what came before).
+    function _keyOnlyWithPayment() internal {
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        for (uint256 i; i < logs.length; i++) {
+            if (logs[i].emitter != address(rules) || logs[i].topics[0] != HoldbackRules.KeyReleased.selector) continue;
+            HoldbackRules.Stage s = rules.dealOf(logs[i].topics[1]).stage;
+            if (s != HoldbackRules.Stage.Released && s != HoldbackRules.Stage.Settled) {
+                keyWithoutPayment++;
+                lastViolation = "released the buyer's key on a deal that is not Released or Settled";
+            }
+        }
     }
 
     function earlyAccept(uint256 dealSeed, uint256 callerSeed, uint256 signerSeed) external {
@@ -416,11 +503,13 @@ contract RulesHandler is Base {
         bytes memory dsig = _deliverySig(id, dv, sk);
         HoldbackRules.Stage before = rules.dealOf(id).stage;
         bool ok;
+        vm.recordLogs();
         vm.prank(_caller(callerSeed));
         try rules.earlyAccept(t, m, dv, dsig, kp) {
             ok = true;
             _authorised("earlyAccept", bk == BUYER_PK && sk == SELLER_PK);
         } catch {}
+        _keyOnlyWithPayment();
         _track(id, before);
         _end(ok, v0);
     }
@@ -441,11 +530,13 @@ contract RulesHandler is Base {
         H.KeyProof memory none;
         if (m.releaseKey) none = kp;
         bool ok;
+        vm.recordLogs();
         vm.prank(_caller(callerSeed));
         try rules.mutualSettle(t, m, dv, none) {
             ok = true;
             _authorised("mutualSettle", bk == BUYER_PK && sk == SELLER_PK);
         } catch {}
+        _keyOnlyWithPayment();
         _track(id, before);
         _end(ok, v0);
     }
@@ -537,7 +628,7 @@ contract RulesHandler is Base {
         bytes32 id = _ids[i];
         _warpNear(t.timing.deliverBy, callerSeed);
         HoldbackRules.Stage before = rules.dealOf(id).stage;
-        bool due = before == HoldbackRules.Stage.Held && block.timestamp >= t.timing.deliverBy && !cppReclaimed[id];
+        bool due = before == HoldbackRules.Stage.Held && block.timestamp >= t.timing.deliverBy;
         bool ok;
         vm.prank(_caller(callerSeed));
         try rules.reclaim(t) {
@@ -580,11 +671,8 @@ contract RulesHandler is Base {
                 : uint256(t.timing.fallbackBy),
             callerSeed
         );
-        bool due = !cppReclaimed[id]
-            && (
-                (d.stage == HoldbackRules.Stage.FallbackJudging && block.timestamp >= t.timing.fallbackBy)
-                    || (d.stage == HoldbackRules.Stage.Escalated && block.timestamp >= uint256(d.t1) + t.timing.appealDecideSec)
-            );
+        bool due = (d.stage == HoldbackRules.Stage.FallbackJudging && block.timestamp >= t.timing.fallbackBy)
+            || (d.stage == HoldbackRules.Stage.Escalated && block.timestamp >= uint256(d.t1) + t.timing.appealDecideSec);
         bool ok;
         vm.prank(_caller(callerSeed));
         try rules.triggerDefault(t) {
@@ -664,7 +752,7 @@ contract RulesHandler is Base {
     }
 
     /// Any actor calling CPP's operator functions on a Holdback hold (capture, void, refund) or the bond vault's
-    /// rules-only functions (encumber, tryEncumber, release, takeAppealBond, payAppealBond) must fail.
+    /// rules-only functions (encumber, release, takeAppealBond, payAppealBond) must fail.
     function stranger(uint256 callerSeed, uint256 which, uint256 amount) external {
         uint256 v0 = _violations();
         address caller = _caller(callerSeed);
@@ -674,7 +762,7 @@ contract RulesHandler is Base {
         bytes memory data;
         address target = address(bonds);
         amount = _bound(amount, 0, 10_000_000);
-        uint256 w = which % 8;
+        uint256 w = which % 7;
         if (w < 3) {
             uint256 i = _pick(which >> 24);
             id = _ids[i];
@@ -686,9 +774,8 @@ contract RulesHandler is Base {
         } else {
             if (_ids.length > 0) id = _ids[(which >> 24) % _ids.length];
             if (w == 3) data = abi.encodeCall(HoldbackBonds.encumber, (adj, token, amount));
-            else if (w == 4) data = abi.encodeCall(HoldbackBonds.tryEncumber, (adj, token, amount));
-            else if (w == 5) data = abi.encodeCall(HoldbackBonds.release, (adj, token, amount));
-            else if (w == 6) data = abi.encodeCall(HoldbackBonds.takeAppealBond, (id, caller, token, amount));
+            else if (w == 4) data = abi.encodeCall(HoldbackBonds.release, (adj, token, amount));
+            else if (w == 5) data = abi.encodeCall(HoldbackBonds.takeAppealBond, (id, caller, token, amount));
             else data = abi.encodeCall(HoldbackBonds.payAppealBond, (id, token, caller));
         }
         vm.prank(caller);

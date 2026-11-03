@@ -113,7 +113,7 @@ function signed(t: BeatTranscript): string {
 
 const SELECTED: Readonly<Record<AdjudicatorProfile['selected'], string>> = { primary: 'chosen as primary', fallback: 'chosen as fallback', appeal: 'chosen as appeal', declined: 'considered and declined' };
 
-/** One collapsed profile per adjudicator the agents considered (T-017). Registration and profile text is escaped. */
+/** One collapsed profile per adjudicator the agents considered. Registration and profile text is escaped. */
 function profiles(t: BeatTranscript): string {
   if (!t.adjudicators?.length) return '';
   const one = (a: AdjudicatorProfile) =>
@@ -144,7 +144,7 @@ function profiles(t: BeatTranscript): string {
 /** Prompt or verdict lines inside <pre>: each made plain, then escaped. */
 const preLines = (lines: readonly string[]) => lines.map(esc).join('\n');
 
-/** One judge's prompt and verdict, collapsed like the signed message (T-019). Every line is untrusted. */
+/** One judge's prompt and verdict, collapsed like the signed message. Every line is untrusted. */
 function judgePrompts(t: BeatTranscript): string {
   return eventsOf(t, 'judge-prompt')
     .map((j) => {

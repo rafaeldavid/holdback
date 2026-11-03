@@ -12,9 +12,7 @@ import {
   problem,
   step,
   termsOf,
-  tokenAmount,
   verifyMessage,
-  type TokenAmount,
   err,
   type AdjudicatorAcceptance,
   type AdjudicatorRegistration,
@@ -32,6 +30,7 @@ import {
   type Timestamp,
 } from '@holdback/core';
 import { encodePublicKey, encryptionKeyPairFromSecretKey, seal, wrapKeyForRecipients, type ContentKey, type EncryptionKeyPair } from '@holdback/core/crypto';
+import { tusd } from '@holdback/settlement/sim';
 import { readFileSync } from 'node:fs';
 import { privateKeyToAccount } from 'viem/accounts';
 import type { AdjudicatorSettlement, DecisionTask, OfferTask } from './settlement-port.js';
@@ -41,11 +40,7 @@ export const DOMAIN = holdbackDomain(31337);
 export const SIM_SEED: Hex32 = `0x${'5e'.repeat(32)}`;
 export const T0 = '2026-11-01T09:00:00Z';
 
-export function tusd(amount: string | bigint): TokenAmount {
-  const r = tokenAmount('tUSD', amount);
-  if (!r.ok) throw new Error('bad amount');
-  return r.value;
-}
+export { tusd };
 
 export interface Party {
   key: `0x${string}`;

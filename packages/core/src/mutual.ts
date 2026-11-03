@@ -1,6 +1,6 @@
 // D23 amends ADR-0019: a co-signed mutual settlement pays the held price to any addresses both parties
 // sign for, in any split that sums to the price. These checks need the terms and the rulebook, so they
-// sit beside the parser rather than in it. T-006 applies them before any posting.
+// sit beside the parser rather than in it. The settlement layer applies them before any posting.
 import { tokenAmount } from './money/index.js';
 import type { CommitmentTerms, MutualSettlement, Rulebook } from './types.js';
 

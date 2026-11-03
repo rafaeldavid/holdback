@@ -1,6 +1,8 @@
 // holdback-op2: operator node 2 of the public demo (T-026). It serves the same World Durable Object as
-// holdback-op1 (bound by script name), with its own receipt key: one shared simulated settlement layer.
-// The operator fee variables live in wrangler.op1.jsonc: the Durable Object reads holdback-op1's environment.
+// holdback-op1 (bound by script name), with its own receipt key: one shared settlement layer.
+// The operator fee variables and the Sepolia secrets live with holdback-op1: the Durable Object reads op1's
+// environment. SETTLEMENT (`sim` or `sepolia`, D41) picks the world this Worker forwards to.
+// No invocation logs, as on holdback-op1: they would record each request's headers (D39).
 {
   "name": "holdback-op2",
   "main": "dist/worker.js",
@@ -9,9 +11,9 @@
   "workers_dev": true,
   "routes": [{ "pattern": "api2.escrow.stream", "custom_domain": true }],
   "preview_urls": false,
-  "vars": { "OPERATOR_URLS": "https://api.escrow.stream,https://api2.escrow.stream", "NODE_INDEX": "1" },
+  "vars": { "OPERATOR_URLS": "https://api.escrow.stream,https://api2.escrow.stream", "NODE_INDEX": "1", "SETTLEMENT": "sim" },
   "durable_objects": { "bindings": [{ "name": "WORLD", "class_name": "World", "script_name": "holdback-op1" }] },
   "alias": { "node:fs": "./worker/fs-shim.js" },
   "define": { "import.meta.url": "\"file:///holdback/bundle/a/b/worker.js\"" },
-  "observability": { "enabled": true }
+  "observability": { "enabled": true, "logs": { "invocation_logs": false } }
 }

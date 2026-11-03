@@ -327,7 +327,7 @@ export function screen(input: ScreenInput): ScreenResult {
 
 /**
  * Screens party-written terms (description, criteria, anchors). They sit in the judges' system
- * prompt, so hidden characters in them are refused at offer time (validateTerms) and flagged here.
+ * prompt, so hidden characters in them are flagged here (validateTerms offers the same check to an agent before it signs).
  */
 export function screenTerms(texts: readonly string[]): Signal[] {
   const out = new Signals();
@@ -342,7 +342,7 @@ export function screenTerms(texts: readonly string[]): Signal[] {
   return out.list;
 }
 
-/** Offer-time validation of party-written text. Returns reasons to refuse; empty means acceptable. */
+/** Validation an agent can run on party-written text before it signs. Returns reasons to refuse; empty means acceptable. */
 export function validateTermsText(texts: ReadonlyArray<readonly [string, string]>): string[] {
   const reasons: string[] = [];
   for (const [where, t] of texts) {

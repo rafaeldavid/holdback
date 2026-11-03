@@ -1,9 +1,15 @@
 // holdback-op1: operator node 1 of the public demo, and home of the World Durable Object (T-026).
-// workers.dev only, test tokens only (SimChain, chain id 31337). No secrets: wrangler's own login deploys it,
-// and every key the world holds is generated inside the Durable Object.
+// Test tokens only: SimChain (chain id 31337), or Ethereum Sepolia (11155111) when SETTLEMENT is "sepolia"
+// (D41, ADR-0028). Every key the world holds is generated inside the Durable Object, except the Sepolia relayer's,
+// the Worker secret SEPOLIA_RELAYER_KEY (apps/demo-cloud/scripts/relayer.mjs); the live-judge keys are secrets too.
+// SETTLEMENT picks the world this Worker forwards to, `sim` or `sepolia`; flip it on both files to cut over or back.
 // The operator fee (ADR-0023, D33) is read from these variables by the World Durable Object, so it applies to
 // both nodes: OPERATOR_FEE_BPS (basis points), OPERATOR_FEE_MIN (base units; 0.01 tUSD is "10000"), and an
-// optional OPERATOR_FEE_MAX. Remove both to publish no fee; "0" and "0" publish it at zero.
+// optional OPERATOR_FEE_MAX. Remove both to publish no fee; "0" and "0" publish it at zero. OPERATOR_FEE_GAS (base
+// units) is the per-deal gas quote a chain world adds to the minimum (D33 as amended 2026-11-03): 1.50 tUSDC is
+// about 500,000 gas at 1 gwei at the demo's fixed, fictional rate of 3,000 tUSDC per test ETH. SimChain ignores it.
+// Workers Logs keeps console lines (errors, and the World's telemetry lines, T-031) but no invocation logs: those
+// record each request's headers, which carry Authorization and the caller's IP (D39).
 {
   "name": "holdback-op1",
   "main": "dist/worker.js",
@@ -12,10 +18,10 @@
   "workers_dev": true,
   "routes": [{ "pattern": "api.escrow.stream", "custom_domain": true }],
   "preview_urls": false,
-  "vars": { "OPERATOR_URLS": "https://api.escrow.stream,https://api2.escrow.stream", "NODE_INDEX": "0", "MIN_WINDOW_SEC": "60", "OPERATOR_FEE_BPS": "1", "OPERATOR_FEE_MIN": "10000" },
+  "vars": { "OPERATOR_URLS": "https://api.escrow.stream,https://api2.escrow.stream", "NODE_INDEX": "0", "SETTLEMENT": "sim", "MIN_WINDOW_SEC": "60", "OPERATOR_FEE_BPS": "1", "OPERATOR_FEE_MIN": "10000", "OPERATOR_FEE_GAS": "1500000" },
   "durable_objects": { "bindings": [{ "name": "WORLD", "class_name": "World" }] },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["World"] }],
   "alias": { "node:fs": "./worker/fs-shim.js" },
   "define": { "import.meta.url": "\"file:///holdback/bundle/a/b/worker.js\"" },
-  "observability": { "enabled": true }
+  "observability": { "enabled": true, "logs": { "invocation_logs": false } }
 }

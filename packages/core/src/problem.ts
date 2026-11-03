@@ -31,7 +31,7 @@ export const PROBLEM_TYPES = [
   'relay_refused',
   // ADR-0023: this operator relays a funded agreement only with its published fee; free elsewhere (402)
   'payment_required',
-  // Reserved for Phase 2 reads of private records (ADR-0020)
+  // A read without a valid ReadToken (ADR-0024 §3)
   'unauthorized',
 ] as const;
 

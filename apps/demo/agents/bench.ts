@@ -1,6 +1,6 @@
 // The adjudicators as the demo agents see them. The parties name a primary, fallback and appeal adjudicator
 // in the terms; the primary finds the offer on the settlement layer and accepts it with a seed commitment, and
-// after delivery it decides. `AdjudicatorSeam` is that narrow interface; `ServiceBench` is T-009's adjudicator
+// after delivery it decides. `AdjudicatorSeam` is that narrow interface; `ServiceBench` is the adjudicator
 // service (apps/adjudicator) running on the world's SimChain through its settlement adapter, with fake judges
 // (no models, no keys) drawn from config/judges.yaml's pinned placeholder registry.
 import {
@@ -29,7 +29,7 @@ export const REGISTRY_FILE = join(REPO_ROOT, 'config/judges.yaml');
 export const REGISTRY_URI = 'file:///config/judges.yaml';
 
 /**
- * Live judges (T-028, `pnpm demo --live`): while set, every bench seats this registry and calls this provider
+ * Live judges (`pnpm demo --live`): while set, every bench seats this registry and calls this provider
  * (already routed and timeout-wrapped), and per-beat fake scripts are ignored. Unset, the demo is scripted.
  */
 let liveJudging: { registry: LoadedRegistry; registryUri: string; provider: JudgeProvider } | undefined;
@@ -48,7 +48,7 @@ export interface JudgeReport {
   requests: JudgeRequest[];
   /** Adjudicators submit to the settlement layer themselves. */
   via: 'direct';
-  /** Wall-clock marks of the run that decided (T-019); seams other than ServiceBench may omit them. */
+  /** Wall-clock marks of the run that decided; seams other than ServiceBench may omit them. */
   timing?: JudgingTime;
 }
 
@@ -69,7 +69,7 @@ export interface JudgingTime {
 const judgingTimes = new Map<Hex32, JudgingTime>();
 
 /**
- * Takes (reads and forgets) the last judging run's marks for a commitment, for the demo's timeline (T-019).
+ * Takes (reads and forgets) the last judging run's marks for a commitment, for the demo's timeline.
  * Kept here because JobResult does not carry the JudgeReport.
  */
 export function takeJudgingTime(commitmentId: Hex32): JudgingTime | undefined {
@@ -99,7 +99,7 @@ export interface AdjudicatorSeam {
 export const POOL_TERMS = { capitalChargeRateBps: 0, capitalChargeToPoolRateBps: 0, firstLossShareBps: 10000, noticePeriodSec: 691200 } as const;
 
 /**
- * A published registration as a reader finds it (T-017): the document the bench posted, untrusted and not
+ * A published registration as a reader finds it: the document the bench posted, untrusted and not
  * yet validated, with the bond pool replaced by what SimChain holds now, and the profile posted beside it.
  */
 export interface Listing {
@@ -115,7 +115,7 @@ export class BenchDirectory {
   /** Everything posted, valid or not, in posting order: what agents read when they choose adjudicators. */
   private readonly posted = new Map<string, { document: Record<string, unknown>; profile?: BenchProfile }>();
   readonly adapter: SettlementAdapter;
-  /** performance.now() at the last ciphertext fetch and record publication through this directory (T-019). */
+  /** performance.now() at the last ciphertext fetch and record publication through this directory. */
   readonly marks: { fetchedAt?: number; publishedAt?: number } = {};
 
   constructor(readonly world: DemoWorld) {

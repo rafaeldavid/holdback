@@ -1,10 +1,10 @@
 // The judge registry and adjudicator policy the runner binds into every commitment it drives.
-// The registry is config/judges.yaml, the same file the adjudicator service (T-009) loads, so snapshots
+// The registry is config/judges.yaml, the same file the adjudicator service loads, so snapshots
 // show its pinned model IDs. The policy mirrors the adjudicator service's defaults (apps/adjudicator
 // policy.ts): panel of three over two families, appeal panel of five over three, this build's templates.
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { canonicalKeccak, type AdjudicatorPolicy, type Hex32 } from '@holdback/core';
+import type { AdjudicatorPolicy } from '@holdback/core';
 import { AGGREGATION_VERSION, APPEAL_PROMPT_TEMPLATE_HASH, loadRegistry, PROMPT_TEMPLATE_HASH, SCREEN_VERSION, type LoadedRegistry } from '@holdback/judgment';
 import { parse } from 'yaml';
 
@@ -52,5 +52,3 @@ export function runnerPolicy(id: string): AdjudicatorPolicy {
     disclosureMin: 'public',
   };
 }
-
-export const policyHashOf = (policy: AdjudicatorPolicy): Hex32 => canonicalKeccak(policy);

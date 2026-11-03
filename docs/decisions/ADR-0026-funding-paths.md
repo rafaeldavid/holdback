@@ -1,5 +1,6 @@
 # ADR-0026: Funding paths: any ERC-20, WETH or ETH; ramps, swaps and bridges as a deferred service
 
+- **Note (2026-11-03):** first wave narrowed to USDC by D42; other assets later.
 - **Status:** Accepted for parts 1 and 2, 2026-11-02 (Rafa's direction, D38). Part 3 (the funding service) is **deferred, stub only**: the `FundingService` interface in `apps/operator/src/registry.ts` and `/v1/funding/*` routes that answer 404 `not_found`, listed as planned in `docs/api.md` and under `x-holdback-planned` in `spec/openapi.json`, the API's convention for unbuilt routes. The external provider facts in this ADR are from memory (no web pass) and must be checked before part 3 is built.
 - **Date:** 2026-11-02
 - **Raised by:** Rafa, 2026-11-02: "The API needs to be able to call a funding path to the L1 directly, so agents can work in either native crypto if they have funds there, or in fiat (assuming they have access to a credit card etc.). So the API probably needs to solve for that funding bridge, and to fund asset agreement." Then: "This would be a separate service we call via our unified API." Then: "for now we should simply accept any ERC20 or wETH", refined to "accept any ERC20 or wETH or ETH." Then: this is for later; stub only.
@@ -52,7 +53,7 @@ The signed `FundingAuthorization` keeps ADR-0025's two scheme values; no new mes
 
 ### 4. The funding service: deferred, stub only
 
-Everything that converts into the settlement token at the buyer's address (fiat on-ramp, swap, bridge) is **one separate service, not a protocol component and not part of the operator node.** Any operator may run or integrate one; the unified ’crow API exposes it; agents may ignore it and fund from their own address.
+Everything that converts into the settlement token at the buyer's address (fiat on-ramp, swap, bridge) is **one separate service, not a protocol component and not part of the operator node.** Any operator may run or integrate one; the unified Crow API exposes it; agents may ignore it and fund from their own address.
 
 - **Boundary.** Its own deployable (proposed path `apps/funding/`, with any shared types in `packages/funding/`; not created now). The operator routes to it; the settlement layer never knows it exists.
 - **May:** quote routes (direct, swap into the token, bridge from another chain, fiat through a named ramp) with amounts as base-unit decimal strings and rates as integers (ADR-0022); prepare the swap or bridge calls the buyer signs; open a ramp session that delivers the settlement token to the buyer's address **before** the hold; report the session's state.
@@ -77,7 +78,7 @@ Everything that converts into the settlement token at the buyer's address (fiat 
 - **Follow-ups, not tasks yet:** deploy Permit2 in `EvmWorld` and run a WETH deal through `method = 1` (fixture `fund.weth-via-permit2`); map `TokenCollectionFailed` to a problem type and show a fee-on-transfer token refused at funding (`fund.fee-on-transfer-refused`); advisory token warnings in prepare (backlog, D31); the `/v1/funding/*` stub (coordinator); `neutrality.onramp-refuses` when the service exists.
 - **Residuals:** residual 1 (freezable or pausable tokens) now covers any token the parties pick; residual 11 (funding linkability) is unchanged; PRD assumption 7 stays untested until a ramp is wired.
 - **Ramp identity (Rafa, 2026-11-02):** the agent's owner does the identity check, not the agent. The owner either picks a ramp from a listed set or opens an account with a ramp of its own choosing, under its own identity, separate from the agent; the agent then spends from that account. The protocol and the funding service never hold the owner's identity (D35).
-- **Public demo (Rafa, 2026-11-02):** either ’crow's own service or third-party ramps chosen by operators is acceptable; for the public demo a Stripe test-mode ramp (`sk_test_` only, Sepolia) is enough.
+- **Public demo (Rafa, 2026-11-02):** either Crow's own service or third-party ramps chosen by operators is acceptable; for the public demo a Stripe test-mode ramp (`sk_test_` only, Sepolia) is enough.
 - **What this does not decide:** which ramps, swaps or bridges to integrate beyond that, or their fees. That is the deferred decision, with a research pass first.
 
 ## Litmus tests
