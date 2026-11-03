@@ -49,7 +49,7 @@ The fix:
 - **Measured:** the `contracts` job passed 7 times on PR 158, 89 of 89 anvil tests each, with the anvil step at 9.5 to 14.9 s:
   - jobs 126148464982 (`3d1e118`), 126148907914 (`7152884`) and 126156948750 (`c7ff457`);
   - job 126162670876 (`c8d0e84`), then three re-runs of it: 126167645147, 126185950279 and 126205099552.
-  - In job 126156948750 no settlement test took over 1 s. Before the fix, a healthy run had two at 4.2 s.
+  - In job 126156948750 the slowest `evm-settlement.test.ts` test took 627 ms. Before the fix, a healthy run had two at 4.2 s. The two receipt deadline tests take 2 s by design.
   - Most of each job's time was the recursive checkout, 5 to 48 min (PR 159).
 
 `pnpm verify` at commit `c8d0e84`, no uncommitted changes (measured, `reports/verify-t-035-anvil-receipt-stall.md`). No snapshot diffs against HEAD; `pnpm test` ran 2,260 passed and 3 skipped:
