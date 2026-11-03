@@ -58,6 +58,16 @@ contract BondConsentTest is Base {
         rules.triggerFallback(t);
     }
 
+    /// The fallback withdrew its whole bond before the takeover, so it has no cover when it takes the case.
+    function _toUncoveredFallback() internal returns (H.Terms memory t, bytes32 id) {
+        (t, id) = _funded();
+        _deliver(t, id);
+        vm.prank(fallbackAdj);
+        bonds.withdraw(address(usdc), BOND);
+        vm.warp(t.timing.judgeBy);
+        rules.triggerFallback(t);
+    }
+
     function _fallbackDecision(H.Terms memory t, bytes32 id, uint8 outcome) internal view returns (H.Decision memory) {
         H.Decision memory m = _beaconDecision(id, H.ROLE_FALLBACK, outcome, t.timing.judgeBy);
         return _signDecision(t, id, m, fallbackAdj, FB_PK);
@@ -76,9 +86,7 @@ contract BondConsentTest is Base {
 
     /// ADR-0016 §1: a fallback that lacks coverage when it takes the case cannot decide; the deal defaults.
     function test_uncoveredFallback_cannotDecide_dealDefaults() public {
-        (H.Terms memory t, bytes32 id) = _toFallback();
-        vm.prank(fallbackAdj);
-        bonds.withdraw(address(usdc), BOND);
+        (H.Terms memory t, bytes32 id) = _toUncoveredFallback();
         H.Decision memory m = _fallbackDecision(t, id, H.OUTCOME_ACCEPT);
         vm.expectRevert(abi.encodeWithSelector(HoldbackBonds.InsufficientFreeBond.selector, 0, PRICE));
         rules.decide(t, m, _noDelivery(), "");
@@ -91,11 +99,27 @@ contract BondConsentTest is Base {
 
     /// An escalation moves no money, so an uncovered fallback may still hand the case to the appeal adjudicator.
     function test_uncoveredFallback_mayEscalate() public {
-        (H.Terms memory t, bytes32 id) = _toFallback();
-        vm.prank(fallbackAdj);
-        bonds.withdraw(address(usdc), BOND);
+        (H.Terms memory t, bytes32 id) = _toUncoveredFallback();
         rules.decide(t, _fallbackDecision(t, id, H.OUTCOME_ESCALATE), _noDelivery(), "");
         assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Escalated));
         assertEq(bonds.encumberedOf(adjudicator, address(usdc)), 0);
+    }
+
+    /// One address as primary and fallback, its bond fully booked by this deal: the release and the fallback's own
+    /// reservation net to one reservation.
+    function test_samePrimaryAndFallback_fullyBooked_decidesWithOneReservation() public {
+        H.Terms memory t = _terms();
+        t.fallbackAdjudicator = adjudicator;
+        t.price = BOND;
+        usdc.mint(buyer, BOND);
+        bytes32 id = _fund(t);
+        _deliver(t, id);
+        assertEq(bonds.freeOf(adjudicator, address(usdc)), 0);
+        vm.warp(t.timing.judgeBy);
+        rules.triggerFallback(t);
+        H.Decision memory m = _beaconDecision(id, H.ROLE_FALLBACK, H.OUTCOME_REJECT, t.timing.judgeBy);
+        rules.decide(t, _signDecision(t, id, m, adjudicator, ADJ_PK), _noDelivery(), "");
+        assertEq(bonds.encumberedOf(adjudicator, address(usdc)), BOND);
+        assertEq(uint8(rules.dealOf(id).flags), 2 | 8, "F_FALLBACK | F_BY_FALLBACK");
     }
 }

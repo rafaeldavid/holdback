@@ -443,6 +443,39 @@ contract RulesHandler is Base {
         _end(ok, v0);
     }
 
+    /// Drives a funded deal to the fallback (posting the delivery and triggering the takeover if needed) and has the
+    /// fallback decide with its key and the judgeBy round, any outcome, so the fallback's own reservation (T-206 M-3)
+    /// is exercised; the separate actions rarely line up inside the fallback's window.
+    function decideFallback(uint256 dealSeed, uint256 callerSeed, uint256 outcomeSeed) external {
+        uint256 v0 = _violations();
+        uint256 i = _pickFor(dealSeed, M_HELD | M_DELIVERED | M_FALLBACK);
+        H.Terms memory t = _terms_[i];
+        bytes32 id = _ids[i];
+        HoldbackRules.Stage before = rules.dealOf(id).stage;
+        if (before == HoldbackRules.Stage.Held) {
+            (H.Delivery memory dv,) = _delivery();
+            try rules.deliver(t, dv, _deliverySig(id, dv, SELLER_PK)) {} catch {}
+            _track(id, before); // the delivery's own deadline check, before the warp below
+            before = rules.dealOf(id).stage;
+        }
+        if (rules.dealOf(id).stage == HoldbackRules.Stage.Delivered) {
+            if (block.timestamp < t.timing.judgeBy) vm.warp(t.timing.judgeBy);
+            try rules.triggerFallback(t) {} catch {}
+        }
+        H.Decision memory m = _beaconDecision(id, H.ROLE_FALLBACK, uint8(outcomeSeed % 3), t.timing.judgeBy);
+        uint256 pk = _rolePk[id][H.ROLE_FALLBACK];
+        m = _signDecision(t, id, m, vm.addr(pk), pk);
+        bool ok;
+        vm.recordLogs();
+        vm.prank(_caller(callerSeed));
+        try rules.decide(t, m, _noDelivery(), "") {
+            ok = true;
+        } catch {}
+        _keyOnlyWithPayment();
+        _track(id, before);
+        _end(ok, v0);
+    }
+
     /// The formal model's KeyOnlyWithPayment: every KeyReleased the checked call emitted leaves its deal Released or
     /// Settled. Each action that can release a key records its own call (vm.recordLogs clears what came before).
     function _keyOnlyWithPayment() internal {
