@@ -1,5 +1,5 @@
-// EvmSettlement: the Settlement interface over the T-202 contracts (HoldbackRules, HoldbackBonds, CPP) on a local
-// anvil chain (T-205). Agents see amounts, states and receipts, never chain mechanics.
+// EvmSettlement: the Settlement interface over the Holdback contracts (HoldbackRules, HoldbackBonds, CPP) on a local
+// anvil chain. Agents see amounts, states and receipts, never chain mechanics.
 //
 // What is on chain and what is not (T-202 Decisions, rule 1):
 // - The contract has no Offered, AcceptedByAdjudicator or Agreed stage. Offer, adjudicator acceptance and Agree are
@@ -19,6 +19,7 @@ import {
   problem,
   step,
   termsOf,
+  toTimestamp,
   verifyMessage,
   verifyMutualSettlement,
   verifyTerms,
@@ -36,7 +37,6 @@ import {
   type Hex32,
   type Mandate,
   type Problem,
-  type ProblemType,
   type Scope,
   type SettlementEvent,
   type SettlementEventType,
@@ -49,6 +49,7 @@ import { decodeEventLog, decodeFunctionData, encodeFunctionData, encodePacked, g
 import { privateKeyToAccount } from 'viem/accounts';
 import type { Genesis } from '../sim/simchain.js';
 import type { DryRunSubmission, Settlement, Submission, SubmitOptions, SubmitResult, TimeoutKind } from '../src/interface.js';
+import { Refusal, refuse, toJson } from '../src/util.js';
 import {
   acceptanceView,
   agreeView,
@@ -103,23 +104,12 @@ interface Book {
   updatedAt: Timestamp;
 }
 
-class Refusal extends Error {
-  constructor(readonly problem: Problem) {
-    super(problem.detail);
-  }
-}
-const refuse = (type: ProblemType, detail: string): never => {
-  throw new Refusal(problem(type, detail));
-};
-
 const GENESIS_HASH: Hex32 = `0x${'00'.repeat(32)}`;
 const UINT256_MAX = (2n ** 256n - 1n).toString();
 const ALL_BPS = 10000n;
 const TX_GAS = 3_000_000n;
 const lc = (a: string) => a.toLowerCase();
-const iso = (ms: number): Timestamp => new Date(ms).toISOString().replace('.000Z', 'Z');
 const secs = (ts: Timestamp) => Math.floor(Date.parse(ts) / 1000);
-const toJson = (v: unknown): unknown => JSON.parse(JSON.stringify(v, (_k, x: unknown) => (typeof x === 'bigint' ? x.toString() : x)));
 
 /** On-chain Stage enum (HoldbackRules.Stage) as core kinds; None is any pre-funding kind. */
 const STAGES = ['None', 'Held', 'Delivered', 'FallbackJudging', 'Escalated', 'Released', 'Refunded', 'Settled', 'Expired'] as const;
@@ -243,10 +233,10 @@ export class EvmSettlement implements Settlement {
     for (const a of parties) await send(a, token, encodeFunctionData({ abi: world.abis.token, functionName: 'approve', args: [bonds, 2n ** 256n - 1n] }));
   }
 
-  // ---- clock and beacon ---------------------------------------------------------------------------
+  // Clock and beacon
 
   now(): Timestamp {
-    return iso(this.clockMs);
+    return toTimestamp(this.clockMs);
   }
 
   advance(seconds: number): void {
@@ -265,7 +255,7 @@ export class EvmSettlement implements Settlement {
     return keccak256(encodePacked(['bytes32', 'uint64'], [this.genesis.simSeed, BigInt(round)]));
   }
 
-  // ---- reads ----------------------------------------------------------------------------------------
+  // Reads
 
   escrowState(id: Hex32): EscrowState | null {
     return this.books.get(id)?.state ?? null;
@@ -346,7 +336,7 @@ export class EvmSettlement implements Settlement {
     return (this.books.get(id)?.released ?? []).filter((k) => lc(k.recipient) === lc(recipient));
   }
 
-  // ---- funding digests (ADR-0025) -------------------------------------------------------------------
+  // Funding digests (ADR-0025)
 
   private async separator(): Promise<Hex32> {
     this.domainSeparator ??= await this.read<Hex32>(this.world.deployment.token, this.world.abis.token, 'DOMAIN_SEPARATOR', []);
@@ -374,7 +364,7 @@ export class EvmSettlement implements Settlement {
     return { digest, nonce };
   }
 
-  // ---- submission -----------------------------------------------------------------------------------
+  // Submission
 
   submit(submission: Submission, options: EvmSubmitOptions = {}): Promise<SubmitResult> {
     return this.enqueue(() => this.process(submission, options, false));
@@ -472,7 +462,7 @@ export class EvmSettlement implements Settlement {
     const at = this.now();
     const via = options.via ?? 'direct';
     switch (s.kind) {
-      // ---- pre-funding: signatures collected by the adapter, checked on chain at agreeAndFund --------------
+      // Pre-funding: signatures collected by the adapter, checked on chain at agreeAndFund
       case 'offer': {
         const c = s.commitment;
         const t = termsOf(c);
@@ -529,7 +519,7 @@ export class EvmSettlement implements Settlement {
           throw e;
         }
       }
-      // ---- on chain --------------------------------------------------------------------------------------
+      // On chain
       case 'deliver': {
         const d = s.delivery;
         const book = this.bookOf(d.commitmentId);
@@ -691,7 +681,7 @@ export class EvmSettlement implements Settlement {
         await this.call(id, 'triggerFallback', [t], [{ type: 'trigger_fallback', at }], options, dryRun, 'anyone');
         return id;
       case 'default':
-        // One call on chain (T-204 finding 2): default and apply-default, price + fee back to the buyer.
+        // One call on chain: default and apply-default, price + fee back to the buyer.
         await this.call(id, 'triggerDefault', [t], [{ type: 'trigger_default', at }, { type: 'apply_default_outcome', at }], options, dryRun, 'anyone');
         return id;
       case 'apply_default': {
@@ -818,7 +808,7 @@ export class EvmSettlement implements Settlement {
     return ok ? { ok, events: rebuilt.length } : { ok, events: rebuilt.length, detail: `chain: ${rebuilt.join(',')} / adapter: ${recorded.join(',')}` };
   }
 
-  // ---- read model (as SimChain's view) --------------------------------------------------------------
+  // Read model (as SimChain's view)
 
   private async view(id: Hex32, rec: Book): Promise<CommitmentStateView> {
     const s = rec.state;

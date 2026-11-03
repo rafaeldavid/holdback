@@ -131,7 +131,7 @@ export async function checkRun(input: CheckInput): Promise<CheckResult> {
   const domain = holdbackDomain(audit.chainId);
   const token = audit.token;
 
-  // ---- 1. log integrity ------------------------------------------------------------------------------
+  // 1. Log integrity
   let prev: string = ZERO_HASH;
   let lastAt = -Infinity;
   for (const [i, e] of audit.log.entries()) {
@@ -144,7 +144,7 @@ export async function checkRun(input: CheckInput): Promise<CheckResult> {
     prev = hash;
   }
 
-  // ---- 2. replay from genesis ------------------------------------------------------------------------
+  // 2. Replay from genesis
   const ledger = new Map<string, bigint>();
   const add = (k: string, n: bigint) => ledger.set(k, (ledger.get(k) ?? 0n) + n);
   let minted = 0n;
@@ -515,7 +515,7 @@ export async function checkRun(input: CheckInput): Promise<CheckResult> {
     if (c.owedOverturn) v['within-terms'].push(`commitment ${short(id)}: the appeal overturned the decision but no bond paid the wronged party`);
   }
 
-  // ---- 3. conservation -------------------------------------------------------------------------------
+  // 3. Conservation
   const sum = (xs: Iterable<bigint>) => [...xs].reduce((a, b) => a + b, 0n);
   const chainLedger = new Map(Object.entries(audit.ledger).map(([k, n]) => [k, BigInt(n)]));
   const ledgerTotal = sum(chainLedger.values());
@@ -528,7 +528,7 @@ export async function checkRun(input: CheckInput): Promise<CheckResult> {
     if (held < 0n) v.conservation.push(`account ${k} is negative: ${held}`);
   }
 
-  // ---- 4. terminal or explained (replayed state), and 5. records match -------------------------------
+  // 4. Terminal or explained (replayed state), and 5. records match
   const now = ms(audit.now);
   const commitments: CommitmentSummary[] = [];
   for (const [id, c] of ctxs) {
@@ -579,7 +579,7 @@ export async function checkRun(input: CheckInput): Promise<CheckResult> {
     }
   }
 
-  // ---- party reports: findings only ------------------------------------------------------------------
+  // Party reports: findings only
   const claims = new Map<string, Array<{ party: string; state: string }>>();
   for (const rep of input.reports ?? []) {
     for (const cl of rep.commitments) {

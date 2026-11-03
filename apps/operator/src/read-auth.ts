@@ -5,8 +5,6 @@
 import { isAddressEqual } from 'viem';
 import { parseReadTokenHeader, problem, verifyMessage, type Address, type CommitmentStateView, type Hex32, type HoldbackDomain, type Problem, type ReadToken, type Timestamp } from '@holdback/core';
 
-export const ZERO_COMMITMENT: Hex32 = `0x${'0'.repeat(64)}`;
-
 export interface DealParties {
   buyer: Address;
   seller: Address;

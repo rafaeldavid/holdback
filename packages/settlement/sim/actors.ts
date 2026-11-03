@@ -8,6 +8,7 @@ import {
   deliveryHash,
   holdbackDomain,
   panelSeed,
+  plusSeconds,
   rulebookHash,
   signMessage,
   signTerms,
@@ -57,7 +58,7 @@ export function simActor(name: string, label = 'sim'): SimActor {
 }
 
 export const SIM_RULEBOOK: Rulebook = {
-  version: '1.0', // club.schema.json: major.minor only (T-015's contract test caught '1.0-sim')
+  version: '1.0', // club.schema.json: major.minor only
   open: true,
   minWindowsSec: { judge: 120, fallback: 120, appealWindow: 300, appealDecide: 300 },
   windowCoverageRatioBps: 2000,
@@ -98,8 +99,8 @@ export async function sign<T extends UnsignedMessage>(actor: SimActor, message: 
   return { ...message, signature: await signMessage(actor.key, domain, message) };
 }
 
-const plus = (ts: Timestamp, seconds: number): Timestamp => new Date(Date.parse(ts) + seconds * 1000).toISOString().replace('.000Z', 'Z');
-const b64url = (hex: string): string => Buffer.from(hex.replace(/^0x/, ''), 'hex').toString('base64url');
+/** Hex bytes as unpadded base64url, the wire form of encryption keys and key envelopes. */
+export const b64url = (hex: string): string => Buffer.from(hex.replace(/^0x/, ''), 'hex').toString('base64url');
 
 export function wideScope(roles: Scope['roles'], expiresAt: Timestamp): Scope {
   return { roles, maxPerCommitment: tusd('1000000000000000'), maxDaily: tusd('1000000000000000'), expiresAt };
@@ -186,11 +187,11 @@ export class Deal {
         policyHash: canonicalKeccak({ policy: 'sim' }),
       },
       timing: {
-        offerExpiresAt: plus(now, 900),
-        fundBy: plus(now, 1800),
-        deliverBy: plus(now, 3600),
-        judgeBy: plus(now, 4200),
-        fallbackBy: plus(now, 4800),
+        offerExpiresAt: plusSeconds(now, 900),
+        fundBy: plusSeconds(now, 1800),
+        deliverBy: plusSeconds(now, 3600),
+        judgeBy: plusSeconds(now, 4200),
+        fallbackBy: plusSeconds(now, 4800),
         appealWindowSec: 300,
         appealDecideSec: 300,
         maxSubmissions: 1,
@@ -211,7 +212,7 @@ export class Deal {
   }
 
   private far(): Timestamp {
-    return plus(this.chain.now(), 30 * 86_400);
+    return plusSeconds(this.chain.now(), 30 * 86_400);
   }
 
   async offer(): Promise<Submission> {
@@ -409,7 +410,7 @@ export interface GenesisOptions {
 
 /** Genesis for a cast: mandates for buyer and seller from their principals, balances and bonds. */
 export async function simGenesis(o: GenesisOptions): Promise<import('./simchain.js').Genesis> {
-  const expires = plus(o.start, 365 * 86_400);
+  const expires = plusSeconds(o.start, 365 * 86_400);
   const clubs = [o.club, ...(o.extraClubs ?? [])];
   const mandates: Mandate[] = [];
   for (const club of clubs) {

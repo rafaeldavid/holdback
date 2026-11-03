@@ -2,7 +2,7 @@
 pragma solidity ^0.8.28;
 
 /// @title IHoldbackBeacon
-/// @notice The public randomness a fallback or appeal panel seed comes from (ADR-0018, T-209). The rules contract
+/// @notice The public randomness a fallback or appeal panel seed comes from (ADR-0018). The rules contract
 ///         fixes the round from settlement state and asks the beacon for the value that round proves; the decider
 ///         never chooses it. A deployment names its beacon once, in the rules contract's constructor.
 interface IHoldbackBeacon {

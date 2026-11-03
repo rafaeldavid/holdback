@@ -52,7 +52,7 @@ function signedTimestamp(s: string): boolean {
 // one with the schema's ordinary date-time (event log, read model, judgment record, registrations).
 // allErrors stays off: input is untrusted, and the first error is enough to refuse it.
 // Everything compiles at import, on purpose: a Cloudflare Worker may generate code only at startup, never in a
-// request (T-029 measured "Code generation from strings disallowed" when compiling lazily). To keep that startup
+// request (measured: "Code generation from strings disallowed" when compiling lazily). To keep that startup
 // within the Worker's CPU limit, the schemas are not re-validated against the 2020-12 meta-schema here (which
 // compiled the large meta-schema once per instance); `pnpm validate:spec` checks them, in strict mode, in CI.
 function compile(signed: boolean): Map<string, ReturnType<InstanceType<typeof Ajv2020.default>['compile']>> {

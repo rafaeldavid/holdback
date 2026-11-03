@@ -1,4 +1,4 @@
-// SimChain: the in-process settlement layer for Phase 1 (T-006). It owns the facts core's pure `step` cannot
+// SimChain: the in-process settlement layer. It owns the facts core's pure `step` cannot
 // know (balances, bond pools and their reserved counter, nonces, mandates, clubs, the clock and the beacon),
 // verifies every signature against them, runs `step`, and applies the postings and events of a submission
 // atomically, or not at all. `validate` is the same code path with the commit left out (ADR-0017 §7).
@@ -23,6 +23,7 @@ import {
   splitBps,
   step,
   termsOf,
+  toTimestamp,
   verifyMessage,
   verifyMutualSettlement,
   verifyTerms,
@@ -37,7 +38,6 @@ import {
   type Hex32,
   type Mandate,
   type Problem,
-  type ProblemType,
   type Scope,
   type SettlementEvent,
   type SettlementEventType,
@@ -47,6 +47,7 @@ import {
 } from '@holdback/core';
 import { encodePacked, keccak256 } from 'viem';
 import type { DryRunSubmission, Settlement, Submission, SubmitOptions, SubmitResult, TimeoutKind } from '../src/interface.js';
+import { Refusal, refuse, toJson } from '../src/util.js';
 
 export interface Genesis {
   start: Timestamp;
@@ -74,7 +75,7 @@ export const DEFAULT_EXPIRY_MARGIN_SEC = 86_400;
 
 /** CPP's authorizationExpiry for a commitment: fallbackBy + appealDecideSec + margin (ADR-0003 "As built"). */
 export function authorizationExpiry(terms: AnyCommitmentTerms, marginSec: number = DEFAULT_EXPIRY_MARGIN_SEC): Timestamp {
-  return iso(Date.parse(terms.timing.fallbackBy) + (terms.timing.appealDecideSec + marginSec) * 1000);
+  return toTimestamp(Date.parse(terms.timing.fallbackBy) + (terms.timing.appealDecideSec + marginSec) * 1000);
 }
 
 export type JournalEntry =
@@ -107,17 +108,7 @@ interface Rec {
 
 type Posting = { from: string; to: string; amount: TokenAmount; why: string };
 
-class Refusal extends Error {
-  constructor(readonly problem: Problem) {
-    super(problem.detail);
-  }
-}
-const refuse = (type: ProblemType, detail: string): never => {
-  throw new Refusal(problem(type, detail));
-};
-
 const lc = (a: string): string => a.toLowerCase();
-const iso = (msTime: number): Timestamp => new Date(msTime).toISOString().replace('.000Z', 'Z');
 const min = (a: bigint, b: bigint): bigint => (a < b ? a : b);
 /**
  * Copies only the signed fields of a key envelope (EIP-712 EncryptedKey). A relayer can add fields the
@@ -132,7 +123,6 @@ const signedEnvelope = (k: EncryptedKey): EncryptedKey => ({
 });
 /** A SealedKey (scheme and ciphertext signed) addressed to the recipient the terms name. */
 const sealedFor = (recipient: Address, k: { scheme: EncryptedKey['scheme']; ciphertext: EncryptedKey['ciphertext'] }): EncryptedKey => ({ recipient, scheme: k.scheme, ciphertext: k.ciphertext });
-const toJson = (v: unknown): unknown => JSON.parse(JSON.stringify(v, (_k, x: unknown) => (typeof x === 'bigint' ? x.toString() : x)));
 
 /** The world's mutable stores. A Tx reads through to them and writes to its own overlay. */
 interface Stores {
@@ -283,10 +273,10 @@ export class SimChain implements Settlement {
     this.mintedTotal += amount;
   }
 
-  // ---- clock, beacon, faucet --------------------------------------------------------------------
+  // Clock, beacon, faucet
 
   now(): Timestamp {
-    return iso(this.clockMs);
+    return toTimestamp(this.clockMs);
   }
 
   advance(seconds: number): void {
@@ -307,7 +297,7 @@ export class SimChain implements Settlement {
   }
 
   /**
-   * Test only (T-026, the public demo's faucet): adds a principal-signed mandate after genesis, as genesis
+   * Test only (the public demo's faucet): adds a principal-signed mandate after genesis, as genesis
    * mandates are, and journals it so a replay has the same agents. Phase 1 has no run-time registration on a
    * real settlement layer (docs/backlog.md). Returns a problem when the club is unknown or the signature does
    * not recover to the principal; a later mandate for the same agent and club replaces the earlier one.
@@ -331,7 +321,7 @@ export class SimChain implements Settlement {
     return keccak256(encodePacked(['bytes32', 'uint64'], [this.genesis.simSeed, BigInt(round)]));
   }
 
-  // ---- reads ------------------------------------------------------------------------------------
+  // Reads
 
   escrowState(id: Hex32): EscrowState | null {
     return this.w.recs.get(id)?.state ?? null;
@@ -433,7 +423,7 @@ export class SimChain implements Settlement {
     return (this.w.recs.get(id)?.released ?? []).filter((k) => lc(k.recipient) === lc(recipient));
   }
 
-  // ---- submission ---------------------------------------------------------------------------------
+  // Submission
 
   submit(submission: Submission, options: SubmitOptions = {}): Promise<SubmitResult> {
     return this.enqueue(() => this.process(submission, options, false));
@@ -498,7 +488,7 @@ export class SimChain implements Settlement {
     if (delta !== 0n) throw new Error(`SimChain bug: a submission changed the token total by ${delta}`);
   }
 
-  // ---- signatures --------------------------------------------------------------------------------
+  // Signatures
 
   private async verifySignatures(s: Submission, dryRun: boolean): Promise<'verified' | 'skipped' | 'none'> {
     if (s.kind === 'trigger') return 'none';
@@ -571,7 +561,7 @@ export class SimChain implements Settlement {
     }
   }
 
-  // ---- the rules ---------------------------------------------------------------------------------
+  // The rules
 
   /**
    * The scope settlement checks for a party: its mandate's. A per-deal key (ADR-0024 §7) has no mandate; in a private
@@ -683,7 +673,7 @@ export class SimChain implements Settlement {
     tx.setRec(id, { ...tx.rec(id)!, state });
   }
 
-  private beaconFact(tx: Tx, state: EscrowState, role: 'primary' | 'fallback' | 'appeal'): BeaconFact | null {
+  private beaconFact(state: EscrowState, role: 'primary' | 'fallback' | 'appeal'): BeaconFact | null {
     if (role === 'primary') return null;
     const round = beaconRoundFor(state, role);
     const value = round === null ? null : this.beacon(round);
@@ -849,7 +839,7 @@ export class SimChain implements Settlement {
     const rec = this.recOf(tx, id);
     const prev = rec.state;
     tx.useNonce(`${lc(m.adjudicator)}:${m.nonce}`);
-    const beacon = this.beaconFact(tx, prev, m.role);
+    const beacon = this.beaconFact(prev, m.role);
     const next = this.stepped(prev, { type: 'decide', at: tx.at, message: m, beacon });
     const { terms } = next;
     const { price, adjudication, buyer, seller } = terms;
@@ -1015,7 +1005,7 @@ export class SimChain implements Settlement {
     return id;
   }
 
-  // ---- read model ---------------------------------------------------------------------------------
+  // Read model
 
   private view(id: Hex32, rec: Rec, bal: (account: string) => bigint): CommitmentStateView {
     const s = rec.state;

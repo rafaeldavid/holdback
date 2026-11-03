@@ -149,7 +149,7 @@ export function projectionOf(c: AnyCommitment, disclosed?: SettlementProjection[
   };
 }
 
-// ---- ReadToken header (ADR-0024 §3) ---------------------------------------------------------------------
+// ReadToken header (ADR-0024 §3)
 
 export const READ_TOKEN_SCHEME = 'Holdback-ReadToken';
 
@@ -172,7 +172,7 @@ export function parseReadTokenHeader(header: string): Result<ReadToken, Problem>
   return ok(r.value);
 }
 
-// ---- Delegation check (ADR-0024 §7) ----------------------------------------------------------------------
+// Delegation check (ADR-0024 §7)
 
 export interface DelegationExpectation {
   /** The per-deal address that appears as buyer or seller in the terms. */

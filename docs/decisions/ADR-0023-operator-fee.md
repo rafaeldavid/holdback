@@ -2,7 +2,7 @@
 
 - **Status:** Accepted, 2026-11-01 (D33, confirmed by Rafa: "Confirm D33")
 - **Date:** 2026-11-01
-- **Raised by:** Rafa: fees at the API level, not a protocol fee in the contracts; 0.01% of settled volume, with cost-plus weighed. The research pass of 2026-11-01 behind D33 (`docs/decisions-today.md`) measured what a deal costs ’crow and compared take rates.
+- **Raised by:** Rafa: fees at the API level, not a protocol fee in the contracts; 0.01% of settled volume, with cost-plus weighed. The research pass of 2026-11-01 behind D33 (`docs/decisions-today.md`) measured what a deal costs Crow and compared take rates.
 - **Changes:** schema v0.7 (additive), `packages/core` (types, EIP-712, fee rule, problem type), `packages/settlement` (interface and SimChain), `packages/sdk` (the agree operation carries the fee), `apps/operator` (prepare, 402, status), `apps/demo-cloud` (schedule from variables), `examples/` (the agent checks the fee), T-029.
 
 ## Context
@@ -17,7 +17,7 @@
 
 ### The rule
 
-`fee = max(min, ceil(price × bps / 10000))`, then `min(fee, max)` when the operator publishes a `max`, in base units of the price token (ADR-0022 rule 1: a requirement rounds up). The price is the commitment's `price`, without the adjudication fee. A schedule in another token than the price charges nothing. ’crow's demo nodes publish `bps: 1`, `min: "10000"` (0.01 tUSD), `max: null`.
+`fee = max(min, ceil(price × bps / 10000))`, then `min(fee, max)` when the operator publishes a `max`, in base units of the price token (ADR-0022 rule 1: a requirement rounds up). The price is the commitment's `price`, without the adjudication fee. A schedule in another token than the price charges nothing. Crow's demo nodes publish `bps: 1`, `min: "10000"` (0.01 tUSD), `max: null`.
 
 ### The mechanism
 
@@ -58,7 +58,7 @@ The operator's Idempotency-Key replays the stored answer; the settlement layer's
 
 - **A buyer can avoid the fee** by agreeing and funding in two calls, by the one-shot hold, or by submitting directly. That is the intended escape for direct submission; the first two are backlog rows, since the protocol does not need to close them for neutrality.
 - **Mixed operators.** The example agent requires the schedule to be identical at its two operators (true for the demo's two nodes, one operator). An agent using independent operators reads the relay's schedule from it and decides itself (backlog).
-- **Regulatory** (not legal advice): the fee never touches held funds and ’crow holds nothing, which reads more like software than an intermediary's cut; state escrow and money-transmitter rules vary; counsel before any real money (D33).
+- **Regulatory** (not legal advice): the fee never touches held funds and Crow holds nothing, which reads more like software than an intermediary's cut; state escrow and money-transmitter rules vary; counsel before any real money (D33).
 
 ## Litmus tests
 

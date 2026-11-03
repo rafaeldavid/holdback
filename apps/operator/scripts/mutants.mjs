@@ -1,4 +1,4 @@
-// Mutation sweep for the idempotency and failover guards (T-007): break one guard at a time, run the operator
+// Mutation sweep for the idempotency and failover guards: break one guard at a time, run the operator
 // and SDK tests, and require that some test fails ("killed"). Restores every file, even on error.
 // Usage (from the repo root, after `pnpm typecheck`): node apps/operator/scripts/mutants.mjs [filter]
 import { spawnSync } from 'node:child_process';

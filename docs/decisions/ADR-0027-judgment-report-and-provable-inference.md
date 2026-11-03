@@ -88,7 +88,7 @@ Measured unless marked.
   - `proofWindowSec`;
   - `proofMissPenalty`.
 
-  A club may set a floor on `minAttestedSeats` (ADR-0015). ’crow's default panel stays as it is, all `none`.
+  A club may set a floor on `minAttestedSeats` (ADR-0015). Crow's default panel stays as it is, all `none`.
 - **Families come first.** Attestation never relaxes `minFamilies`, the cross-family accept rule or any other panel rule. A proof answers who answered (residual 8); families answer correlated error (T8).
 - **When the adjudicator declines a policy (D29):**
   - the registry cannot seat both minimums;
@@ -154,7 +154,7 @@ Measured unless marked.
 
 ### 6. Tuning ships as releases; a gate the loop cannot edit promotes
 
-- **Scope.** This section binds ’crow's own adjudicator. For any other adjudicator it is a practice to disclose in its policy log, which the parties weigh when they choose it (ADR-0015). The protocol cannot see an adjudicator's loop; it binds the result by hash.
+- **Scope.** This section binds Crow's own adjudicator. For any other adjudicator it is a practice to disclose in its policy log, which the parties weigh when they choose it (ADR-0015). The protocol cannot see an adjudicator's loop; it binds the result by hash.
 - **The loop proposes.** Candidates cover the model mix, thresholds, prompts, aggregation and sampling. The loop reads typed aggregates from calibration runs (T-301) and red-team results, never deliverable text: a delivery that fooled the judges could address a model in the loop, so the tuner is an instruction position like any other. It reads audits only under a rulebook that opts into them (ADR-0014, D35). There is no central tuner.
 - **Promotion is outside the loop.**
   - The gate runs once, on the one candidate the loop nominates, on a private held-out set never used in selection. Testing many candidates against one set would pass a bad one by chance.

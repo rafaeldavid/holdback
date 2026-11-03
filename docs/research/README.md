@@ -5,7 +5,7 @@ The research behind the design. Open these files only when a decision needs them
 | File | What it is | Caveats |
 | --- | --- | --- |
 | `agent-to-agent-commitments-report.md` | Full report, "Agents Commit for Principals, Not Peers" (October 29, 2026): how agents make commitments today, from triggers to escrow; a framework; a thesis; implications; 127 Chicago notes and a bibliography | Some figures come from AI-authored outlets or aggregators. Its assumptions section lists them |
-| `escrow-is-a-missing-verb.md` | The essay draft that motivates the product: clubs first, then bonded adjudicators | Reference copy; the canonical version is in Claude Docs |
+| `escrow-is-a-missing-verb.md` | Market research essay that motivates the product: clubs first, then bonded adjudicators | Market research, 29 October 2026 |
 | `escrow-options-2026-10.md` | Escrow routes an agent can call today, why none fits, and why Anthropic API credits cannot be escrow value | T-002 extends this into `prior-art.md` |
 | `prior-art.md` | Prior-art sweep (T-002, October 30, 2026): escrow and judgment for agent commitments, scored against the three litmus tests; the Commerce Payments Protocol answers for D3 | Supersedes the summary table in `escrow-options-2026-10.md` |
 | `compute-native.md` | Spike report (T-003): agreements funded by the user's own compute or API access, routes R1–R4; feeds ADR-0013 and D9 | Desk research |

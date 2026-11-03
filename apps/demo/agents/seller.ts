@@ -42,7 +42,7 @@ export class TidewaterAgent {
   }
 
   /**
-   * Checks the buyer's proposed adjudicators against Tide-7's own policy (T-017): each registration validates,
+   * Checks the buyer's proposed adjudicators against Tide-7's own policy: each registration validates,
    * names the registry Tide-7 trusts with every model pinned, binds the hash of its own policy, and holds free
    * bond of at least minFreeBondBps of the price. Agrees to exactly that slate, or refuses with reasons.
    */

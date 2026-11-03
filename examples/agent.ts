@@ -217,7 +217,7 @@ export class Agent {
     return new TextDecoder().decode(plain);
   }
 
-  // ---- Private deals (ADR-0024): per-deal keys, read tokens, the client-side recipe ----------------------------
+  // Private deals (ADR-0024): per-deal keys, read tokens, the client-side recipe
 
   /**
    * A one-time signing key and x25519 key for one deal, and the Delegation this long-term key signs for them

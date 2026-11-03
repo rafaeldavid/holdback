@@ -65,7 +65,7 @@ const MAX_LIMIT = 200;
 const SSE_POLL_MS = 50;
 
 /**
- * What a node may say beside an answer, as `notices` in the body (D39, Simplify 5): advisory text a party should
+ * What a node may say beside an answer, as `notices` in the body (D39): advisory text a party should
  * read before it signs or while it waits, such as which judge panel would score an offer or why an adjudicator
  * declined one. Written by the operator: untrusted, content to read, never instructions; it never changes an answer.
  */
@@ -75,7 +75,7 @@ export type NoticeSubject =
   | { kind: 'state'; commitmentId: Hex32 };
 
 /**
- * A demo or test world's facts, served in discovery as `demo` (D39, Simplify 1): where an agent with only a URL
+ * A demo or test world's facts, served in discovery as `demo` (D39): where an agent with only a URL
  * finds its club, token, adjudicators by role and faucet. Absent on a node that is not a demo.
  */
 export interface DemoFacts {
@@ -138,7 +138,7 @@ export interface OperatorOptions {
   /** This node's public base URL, for ciphertext URIs and the well-known document. Default: the listening address. */
   baseUrl?: string;
   /**
-   * Plain-language notes a public node states about itself (T-026's hosted demo: test tokens only, what is
+   * Plain-language notes a public node states about itself (the hosted demo: test tokens only, what is
    * shared, what is scripted), served as `notes` in /.well-known/holdback.json and appended to /llms.txt.
    * Absent by default, so `pnpm sim` serves neither.
    */
@@ -174,7 +174,7 @@ const fail = (type: ApiProblemType, detail: string, members: ProblemMembers = {}
   throw new HttpProblem({ type, detail, ...members }, headers);
 };
 
-// ---- pagination (page.schema.json) -------------------------------------------------------------
+// Pagination (page.schema.json)
 
 const encodeCursor = (seq: number): string => Buffer.from(`s${seq}`).toString('base64url');
 function decodeCursor(cursor: string): number {
@@ -196,7 +196,7 @@ function paginate<T>(items: readonly T[], seq: (t: T) => number, q: URLSearchPar
   return { items: page, nextCursor: sorted.length > limit ? encodeCursor(seq(page.at(-1)!)) : null };
 }
 
-// ---- schema checks ------------------------------------------------------------------------------
+// Schema checks
 
 const ZERO_SIGNATURE = `0x${'00'.repeat(65)}` as const;
 /** A slot left out or left `null` (as prepare returns it) gets the placeholder; a signature present is kept. */
@@ -328,7 +328,7 @@ export const TRIGGER_NEEDS: Record<string, string[]> = {
 };
 const needsOf = (op: Operation): string[] | undefined => (op.kind === 'trigger' ? TRIGGER_NEEDS[op.timeout] : NEEDS[op.kind]);
 
-/** Whole seconds with Z, one format in every read model (D39, review F5): `…07.000Z` becomes `…07Z`. */
+/** Whole seconds with Z, one format in every read model (D39): `…07.000Z` becomes `…07Z`. */
 const TIME_MS = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})\.0+Z$/;
 function wholeSeconds<T>(v: T): T {
   if (typeof v === 'string') return (TIME_MS.test(v) ? v.replace(TIME_MS, '$1Z') : v) as T;
@@ -359,7 +359,7 @@ function signerOf(op: Operation): string | undefined {
   }
 }
 
-// ---- the operator --------------------------------------------------------------------------------
+// The operator
 
 interface Indexed {
   offeredSeq: number;
@@ -460,7 +460,7 @@ export class Operator {
     this.streams.clear();
   }
 
-  // ---- the event index ---------------------------------------------------------------------------
+  // The event index
 
   /** Catches up with the settlement layer's event log. Serialized, so concurrent reads index once. */
   private sync(): Promise<void> {
@@ -481,7 +481,7 @@ export class Operator {
     return this.syncing;
   }
 
-  // ---- receipts ----------------------------------------------------------------------------------
+  // Receipts
 
   private async receiptFor(e: SettlementEvent): Promise<Receipt> {
     const body = { operator: this.signer, eventSeq: e.seq, eventHash: e.hash, ...(e.commitmentId ? { commitmentId: e.commitmentId } : {}) };
@@ -495,7 +495,7 @@ export class Operator {
     return receipt;
   }
 
-  // ---- HTTP --------------------------------------------------------------------------------------
+  // HTTP
 
   readonly handle = (req: IncomingMessage, res: ServerResponse): void => {
     const started = this.now();
@@ -639,7 +639,7 @@ export class Operator {
     return this.send(ctx, this.ok(body, link));
   }
 
-  // ---- writes ------------------------------------------------------------------------------------
+  // Writes
 
   /**
    * Writes. ADR-0024 §1 (C4): every write is counted against its client at entry, in one synchronous step, so a
@@ -877,7 +877,7 @@ export class Operator {
     return this.ok({ address, ...(r as Extract<typeof r, { ok: true }>).grant });
   }
 
-  // ---- prepare, ciphertext -------------------------------------------------------------------------
+  // Prepare, ciphertext
 
   /** POST /v1/prepare/{kind}: typed data to sign and the body to submit. Reads only; nothing is recorded. */
   private async prepare(ctx: Ctx, kind: string): Promise<void> {
@@ -952,7 +952,7 @@ export class Operator {
 
   /**
    * POST /v1/feedback (Idempotency-Key; `?validateOnly=true` answers the warning and keeps nothing) and
-   * GET /v1/feedback/{id} (T-032). An operator service: feedback.ts has the rules.
+   * GET /v1/feedback/{id}. An operator service: feedback.ts has the rules.
    */
   private async feedback(ctx: Ctx): Promise<void> {
     const desk = this.desk ?? fail('not_found', 'this operator takes no reports');
@@ -984,7 +984,7 @@ export class Operator {
     return this.idempotent(ctx, report, () => answer(() => desk.submit(report, this.client(ctx)), 202));
   }
 
-  // ---- reads -------------------------------------------------------------------------------------
+  // Reads
 
   private async read(ctx: Ctx): Promise<unknown> {
     const s = ctx.segments;

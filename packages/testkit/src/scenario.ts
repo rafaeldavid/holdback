@@ -64,8 +64,6 @@ export type Step = StepBody & { commitment?: number; tamper?: Tamper[] };
 /** A scenario drives at most this many commitments. */
 export const MAX_COMMITMENTS = 4;
 
-export type StepKind = Step['kind'];
-
 // `signer` names a different actor whose key signs the step's messages (an impersonation attempt);
 // the settlement must refuse it with invalid_signature.
 

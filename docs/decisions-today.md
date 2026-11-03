@@ -2,7 +2,7 @@
 
 Status: D1–D9 decided October 30, 2026, after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`); the options are kept as the record. D10 to D24 decided October 30 and 31, 2026, each after an independent research pass. D25 to D36 decided October 31 and November 1, 2026, D37 to D40 on November 1 and 2 (Rafa's principles and research-backed choices; D4 was updated on November 1 to target Ethereum mainnet via Sepolia). Newer entries are appended at the end. Owner: Rafa. Each decision has options, a recommendation and the ADR it settles.
 
-Still open (2026-11-03): whether weekly telemetry aggregates are published (D39); ADR-0025, Proposed, to be decided with schema v0.9 (T-033); ADR-0027, Proposed (T-308: judgment report, verifiable inference, tuning releases; four open questions, none needed before Phase 3); the ADR-0023 amendment on fee bundling, Proposed (D37); whether to park T-208, the Prividium fragment exploration (the research pass recommends parking; `docs/research/prividium-fragment.md`); and dispute clauses as selectable terms, deferred until after the demo (D29).
+Still open (2026-11-03): whether weekly telemetry aggregates are published (D39); ADR-0025, Proposed, to be decided with schema v0.9 (T-033); ADR-0027, Proposed (T-308: judgment report, verifiable inference, tuning releases; four open questions, none needed before Phase 3); the ADR-0023 amendment on fee bundling, Proposed (D37); and dispute clauses as selectable terms, deferred until after the demo (D29).
 
 ## D1. Adopt the neutrality litmus test as the top constraint (ADR-0001)
 
@@ -61,11 +61,13 @@ Phase 1 runs on SimChain, an in-process simulation of the escrow rules, so this 
 - **Costs to design around.** Mainnet gas makes every settlement cost real money, which hurts small agent deals. The Phase 2 design should minimise on-chain steps per deal (one funding and one settlement transaction on the happy path), and record the gas per deal in the evidence so the fee (D33) can be checked against it. Rollups stay an option to add later for small deals; the contract stays chain-agnostic.
 - **Revisit on evidence.** If measured gas makes typical deals uneconomic, bring this back with numbers.
 
-**To evaluate later: Prividium.** A private, Ethereum-anchored chain run by a permissioned set of operators. The question is whether ’crow's operators could run it as a consortium that cannot themselves see the transactions on their own chain, which would give private deals (T-207) without trusting the operators. To evaluate: what the operators can see, how neutrality holds when the operator set is permissioned (who admits operators, whether a party can force inclusion or exit to Ethereum), and how USDC and settlement finality work there. Backlog row under Privacy.
+**To evaluate later: Prividium.** A private, Ethereum-anchored chain run by a permissioned set of operators. The question is whether Crow's operators could run it as a consortium that cannot themselves see the transactions on their own chain, which would give private deals (T-207) without trusting the operators. To evaluate: what the operators can see, how neutrality holds when the operator set is permissioned (who admits operators, whether a party can force inclusion or exit to Ethereum), and how USDC and settlement finality work there. Backlog row under Privacy.
 
 **Update 2026-10-31 (earlier, as the settlement chain):** Matter Labs Prividium was evaluated and not adopted *as the chain that holds the money*. It is a single-operator permissioned chain whose operator can gate access, stop the sequencer, block forced inclusion and read everything (ADR-0004). A fifth criterion now applies: anyone can read the public skeleton and submit a signed message without an admin. A club-chosen permissioned chain is in the backlog.
 
 **How the two Prividium notes fit (2026-11-01):** the 2026-10-31 finding stands for Prividium as the chain that holds the money. The 2026-11-01 note asks a different question: whether a Prividium-style private instance can run a deal's private content while the assets stay in the Ethereum L1 escrow (the single-use fragment exploration, now in `docs/research/prividium-fragment.md`). That exploration must answer the 2026-10-31 objections directly: the fragment's operator must not be able to block settlement (the L1 timeout path works with the fragment offline) and must not be able to read the deal. Tracked as T-208, after T-206.
+
+**Parked 2026-11-03 (Rafa):** "Agree on parking prividium, you can add that to a diff roadmap phase on privacy end-to-end". T-208 moves, parked, into the roadmap's Privacy end to end phase (`docs/plan.md`).
 
 ## D5. Liveness default when no adjudicator decides (ADR-0007)
 
@@ -498,7 +500,7 @@ What it means:
 
 ## D33. Operator fee: 1 bp of the price, minimum 0.01 tUSD, paid by the buyer with the funded agreement, outside the contracts
 
-**Decided 2026-11-01: confirmed by Rafa ("Confirm D33") after a research pass.** Rafa set the direction (fees at the API level, not a protocol fee in the contracts; a rulebook fee on chain is a possible later step), proposed 0.01% of settled volume, and asked for cost-plus to be weighed. The pass measured what a deal costs ’crow: about $0.001 of infrastructure, about $0.01 to $0.10 of model calls when judged (more on appeal), and $5 a month fixed (inferred from Cloudflare, Anthropic and DeepSeek list prices and the code's prompt sizes).
+**Decided 2026-11-01: confirmed by Rafa ("Confirm D33") after a research pass.** Rafa set the direction (fees at the API level, not a protocol fee in the contracts; a rulebook fee on chain is a possible later step), proposed 0.01% of settled volume, and asked for cost-plus to be weighed. The pass measured what a deal costs Crow: about $0.001 of infrastructure, about $0.01 to $0.10 of model calls when judged (more on appeal), and $5 a month fixed (inferred from Cloudflare, Anthropic and DeepSeek list prices and the code's prompt sizes).
 
 | Option | Effect |
 | --- | --- |
@@ -510,7 +512,7 @@ What it means:
 - **Who pays, when.** The buyer, at funding; earned at relay, never refunded. Reads, prepare, the faucet, the seller's deliveries and direct submission are free. Model cost stays in the adjudication fee (ADR-0014), which should become cost-plus with a capital charge on the bond for large deals.
 - **Shown up front.** In discovery and status (`fees`), `llms.txt`, the prepare check text, and the operator's receipt.
 - **Rollout.** Ship with the fee published at 0, then 1 bp / 0.01 tUSD on both demo nodes, measured for a week. No cap now; a cap, a seller-side fee, per-call payment and an on-chain rulebook fee go to the backlog.
-- **Regulatory flags (not legal advice).** ’crow never holds funds and the fee never touches held funds, which reads more like software than an intermediary's cut; state escrow and money-transmitter rules vary; counsel before any real money.
+- **Regulatory flags (not legal advice).** Crow never holds funds and the fee never touches held funds, which reads more like software than an intermediary's cut; state escrow and money-transmitter rules vary; counsel before any real money.
 
 Full report with sources: the research pass of 2026-11-01 (comparable take rates: Stripe, escrow.com, x402 facilitator, Uniswap, Lightning).
 
@@ -541,9 +543,9 @@ Wording owed elsewhere if accepted: the scope hard rule in `CLAUDE.md` and the n
 - **Arbitration can be private.** Adjudicators may run judges through private inference: a provider that keeps no prompts or outputs, such as Venice, as an adjudicator option. Mandatory rules still hold: pinned model IDs, at least two families, no tools for judges, untrusted deliverables, the verdict schema. Backlog row under Judgment defenses.
 - **Shapes:** ADR-0024 (private deals) and T-207; the mailbox and identity may leave the protocol entirely.
 
-## D36. Parties may choose their judge panel; ’crow offers a default; OpenRouter as a provider
+## D36. Parties may choose their judge panel; Crow offers a default; OpenRouter as a provider
 
-**Decided 2026-11-01: proposed by Rafa and accepted by him ("Accept both").** Buyer and seller may name their own judge structure in the terms: models and families, seat count, pass threshold, private inference or not. The adjudicator runs it or declines (D29), and the terms bind it by hash as they already bind the policy and registry. ’crow's adjudicator offers its live panel (Anthropic and DeepSeek, two families) as the default for parties who do not choose. OpenRouter joins as an `openai-compatible` provider, so any model is reachable without a per-lab integration.
+**Decided 2026-11-01: proposed by Rafa and accepted by him ("Accept both").** Buyer and seller may name their own judge structure in the terms: models and families, seat count, pass threshold, private inference or not. The adjudicator runs it or declines (D29), and the terms bind it by hash as they already bind the policy and registry. Crow's adjudicator offers its live panel (Anthropic and DeepSeek, two families) as the default for parties who do not choose. OpenRouter joins as an `openai-compatible` provider, so any model is reachable without a per-lab integration.
 
 - **Mandatory rules still hold:** pinned exact model versions (pin OpenRouter's model slug and its upstream provider routing; no aliases), at least two families, judges with no tools, the injection screen, the verdict schema, and no re-roll after a verdict.
 - **Concentration risk:** one gateway in front of every model fails or misroutes for all of them at once, and sees plaintext unless zero-retention routing is used. So a panel needs two providers or one self-hosted seat (the ADR-0024 research rule), and OpenRouter is an option or second provider, not the only path.
@@ -575,7 +577,7 @@ Also: the funding signature on EVM is CPP's collector signature and token identi
 - Fee-on-transfer and rebasing tokens are advisory warnings in prepare, never refusals; CPP already reverts a short transfer at funding.
 - Fiat on-ramps, swaps and bridges are one separate funding service any operator may run, exposed by the unified API as `/v1/funding/quote` and `/v1/funding/sessions`, never a settlement dependency. It delivers the deal token to the buyer's address, never holds escrowed funds and never signs for the buyer; direct funding from the buyer's own address always remains (`neutrality.onramp-refuses`). Stub only today; the routes answer 404.
 - Ramp identity (Rafa, 2026-11-02): the agent's owner passes the ramp's identity check, choosing a listed ramp or opening its own account under its own, separate identity; the agent spends from it.
-- Public demo (Rafa, 2026-11-02): a Stripe test-mode ramp is enough; who runs the service (’crow or operator-chosen third parties) is open either way.
+- Public demo (Rafa, 2026-11-02): a Stripe test-mode ramp is enough; who runs the service (Crow or operator-chosen third parties) is open either way.
 
 ## D39. The API for agents: conventions from the 2026-11-02 review
 
@@ -595,6 +597,8 @@ Also: the funding signature on EVM is CPP's collector signature and token identi
   - *2026-11-03, Rafa:* deferred ("this doesn't seem like something we need to sort right now"). The T-031 aggregates stay internal to the operator, with no public page or endpoint; to be revisited after real usage (backlog).
 
 ## D40. Privacy is each deal's choice; the tagline is "Programmatic Escrow and Arbitration"
+
+**Updated 2026-11-03 (Rafa):** "Call it "Crow" for now as it's easier to read in docs, but the webpage uses the logomark ’crow". The README, `docs/` and `site/llms.txt` write Crow; the escrow.stream pages and the brand files keep ’crow. Holdback stays the protocol's name and EIP-712 domain. Trademark clearance with counsel is pending (Rafa, 2026-11-03: "Keep Crow, see attorney").
 
 **Updated 2026-11-02 (Rafa, PR 98):** the tagline is "Programmatic Escrow and Arbitration" ("’crow. Programmatic Escrow and Arbitration"), replacing "Escrow for AI Agents" below. The rest of D40 stands.
 
