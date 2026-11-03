@@ -114,6 +114,7 @@ Goal: fiat enters and leaves through ramps; the demo runs on a public testnet wi
 - [ ] **Next:** T-214 USD to USDC on-ramp in test mode (D42): the first wave's one funding path, a Stripe crypto on-ramp or Coinbase Onramp sandbox behind the funding service (ADR-0026), test keys from the environment only.
 - Stripe test-mode on-ramp: a card payment mints test tokens to the buyer (D7). A simulated off-ramp.
 - Testnet deployment (D4) and gas sponsorship or paymaster for agents.
+- [ ] T-215 Gas share on small deals. Measured on the Sepolia demo: the 1.51 tUSDC minimum fee (a 1.50 gas quote for about 500k gas at a fixed 1 gwei and a fictional 3,000 tUSDC/ETH, plus 0.01 relay) is about 6% of a 25 tUSDC deal (D33, ADR-0023). Before mainnet: quote gas from the live gas price instead of a fixed 1 gwei; credit or refund the unused part of the quote; set a published target share for small deals (proposed: under 1% at $25; Rafa decides); pull forward the cheapest wins from Phase 7 "Minimise gas" (batching settlements, the decision carrying the delivery) and weigh Phase 8's L2 or fragment options.
 - Operator node packaging (container), so a second party can run op-2.
 - Neutrality beat 7 on testnet.
 
