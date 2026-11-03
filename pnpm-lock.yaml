@@ -294,6 +294,9 @@ importers:
         specifier: ^2.57.13
         version: 2.57.13(typescript@6.0.3)
     devDependencies:
+      '@holdback/demo-cloud':
+        specifier: workspace:*
+        version: link:../apps/demo-cloud
       '@holdback/operator':
         specifier: workspace:*
         version: link:../apps/operator
