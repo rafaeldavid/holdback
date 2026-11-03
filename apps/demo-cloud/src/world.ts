@@ -15,7 +15,9 @@
 // - the journal of what the chain accepted, the ciphertext and the judgment records are persisted, so the
 //   world is rebuilt by replay after the Durable Object is evicted;
 // - minimal telemetry (telemetry.ts, T-031): a 7-day request log without bodies, header values, IPs or paths, the
-//   Durable Object's free-tier use with a warning, and hourly and daily summary lines in Workers Logs.
+//   Durable Object's free-tier use with a warning, and hourly and daily summary lines in Workers Logs;
+// - adjudicator passes run only while a case awaits these adjudicators (T-057): `nextPass` tells the Durable Object
+//   when to set its alarm, so an idle world, or one woken by a plain read, costs no alarm.
 // No real money: SimChain (chain id 31337), the test token tUSD, and the operators' startup guards.
 //
 // On Sepolia (D41, ADR-0028; option `live`), the same world settles on the HoldbackRules contracts through
@@ -24,7 +26,7 @@
 // adjudicators' envelopes) and the event log. It persists each commitment's book and the log in pages, so a restart
 // reads one row per commitment and one per 64 events, and replays nothing. The relayer key pays gas for what the
 // operators relay; the faucet mints test tUSDC on chain (D42); the three adjudicators keep their own bonds in HoldbackBonds.
-import { canonicalKeccak, holdbackDomain, parseAdjudicator, problem, wholeSecond, type AdjudicatorRegistration, type Address, type HoldbackDomain, type Hex32, type Judgment, type Mandate, type OperatorFeeSchedule, type Problem, type SettlementEvent, type Sha256, type Timestamp, type TokenAmount } from '@holdback/core';
+import { canonicalKeccak, holdbackDomain, parseAdjudicator, problem, wholeSecond, type AdjudicatorRegistration, type Address, type EscrowState, type HoldbackDomain, type Hex32, type Judgment, type Mandate, type OperatorFeeSchedule, type Problem, type SettlementEvent, type Sha256, type Timestamp, type TokenAmount } from '@holdback/core';
 import { sha256 } from '@holdback/core/crypto';
 import { StoreError, type CiphertextStore } from '@holdback/core/store';
 import { testAdjudicator, type TestAdjudicator } from '@holdback/adjudicator';
@@ -118,8 +120,18 @@ const nameOf = (a: { name: string }, live: boolean) => `${a.name} (test; real ch
 const POOL_TERMS = { capitalChargeRateBps: 0, capitalChargeToPoolRateBps: 0, firstLossShareBps: 10000, noticePeriodSec: 691200 } as const;
 /** Largest ciphertext this demo stores (a Durable Object value is at most 2 MiB). */
 export const DEMO_MAX_CIPHERTEXT_BYTES = 1_048_576;
-/** Work stays scheduled this long after the last write or adjudicator action. */
+/**
+ * Adjudicator passes stop this long after settlement last moved (a write or an adjudicator's action) or the world woke
+ * with work due, so a case no pass can finish (a refused delivery, an undecided panel) is not polled until its deadline.
+ */
 const ACTIVE_FOR_MS = 15 * 60_000;
+/**
+ * A pass runs this soon after settlement moves (CHAIN_PASS_MS on a chain, which also paces its setup); each pass in a
+ * row that changes nothing doubles the wait, up to SLOWEST_PASS_MS.
+ */
+const PASS_MS = 1000;
+const CHAIN_PASS_MS = 2000;
+const SLOWEST_PASS_MS = 60_000;
 const SCRIPTED_PANEL = 'scripted judge panel: no model runs in this demo, every panel verdict is a fake judge marked "[fake judge, no model ran]"; use template checks-only for real acceptance';
 const livePanel = (perDay: number) =>
   `live judge panel: pinned models from two families (Anthropic, DeepSeek; config/judges-live.yaml), at most ${perDay} live judge calls a day across this demo; past that, panels are scripted fake judges whose verdicts are marked "[fake judge, no model ran]"`;
@@ -193,10 +205,60 @@ class StorageCiphertextStore implements CiphertextStore {
   }
 }
 
+/**
+ * When this world's adjudicators act on a commitment: `now` for a step they can take now, judgeBy for a fallback
+ * takeover, nothing while it is a party's turn; null once no adjudicator can act on it again, so `look` drops it. The
+ * primary accepts an offer before offerExpiresAt and decides a delivery before judgeBy; the fallback takes over at
+ * judgeBy and decides before fallbackBy; the appeal adjudicator decides an escalation or an open appeal before
+ * appealDecideBy. Every other timeout (offer expiry, reclaim, default, appeal expiry) is a party's trigger.
+ */
+function workAt(s: EscrowState, ours: (address: string) => boolean, now: number): number[] | null {
+  const { adjudicator, fallbackAdjudicator, appealAdjudicator } = s.terms.adjudication;
+  const { offerExpiresAt, deliverBy, judgeBy, fallbackBy } = s.terms.timing;
+  const passed = (deadline: Timestamp) => now >= Date.parse(deadline);
+  switch (s.kind) {
+    case 'Offered':
+      return passed(offerExpiresAt) ? null : ours(adjudicator) ? [now] : [];
+    case 'AcceptedByAdjudicator':
+    case 'Agreed':
+    case 'Held':
+      // A delivery before deliverBy brings the adjudicators back.
+      return passed(deliverBy) ? null : [];
+    case 'Delivered':
+    case 'FallbackJudging': {
+      if (passed(fallbackBy)) return null;
+      const at = s.kind === 'Delivered' && ours(adjudicator) && !passed(judgeBy) ? [now] : [];
+      // Kept even while the primary can act now: the takeover must not wait on a slow cadence (T-057 review).
+      if (ours(fallbackAdjudicator)) at.push(s.kind === 'Delivered' ? Date.parse(judgeBy) : now);
+      return at;
+    }
+    case 'Escalated':
+      return passed(s.escalation.appealDecideBy) ? null : ours(appealAdjudicator) ? [now] : [];
+    case 'Released':
+    case 'Refunded': {
+      if (s.via.kind !== 'first_instance') return null;
+      const a = s.via.appeal;
+      if (a.kind === 'none') return passed(a.appealBy) ? null : [];
+      if (a.kind === 'open') return passed(a.appealDecideBy) ? null : ours(appealAdjudicator) ? [now] : [];
+      return null;
+    }
+    default:
+      return null;
+  }
+}
+
 export class PublicWorld {
   private persisted: number;
   private persisting: Promise<void> = Promise.resolve();
-  private lastActive: number;
+  private lastActive = -Infinity;
+  /** Adjudicator passes in a row that changed nothing. */
+  private idlePasses = 0;
+  /** Every commitment an adjudicator may still act on, from the event log read up to `seq`. */
+  private readonly commitments = new Set<Hex32>();
+  private seq = 0;
+  /** From the last look: whether the adjudicators have a step to take now, and the next fallback takeover (ms). */
+  private due = false;
+  private wake: number | null = null;
   private readonly handlers: Array<(r: Request, client?: string) => Promise<Response>>;
 
   private constructor(
@@ -218,7 +280,6 @@ export class PublicWorld {
     private readonly live?: LiveWorld,
   ) {
     this.persisted = persisted;
-    this.lastActive = this.now();
     this.handlers = operators.map((op) => fetchHandler(op));
   }
 
@@ -436,7 +497,13 @@ export class PublicWorld {
       adjudicators[a.role] = adj;
     }
     const keys = [principal, key('demo-club-operator'), ...adjKeys.map((a) => a.keys), key('demo-operator-1'), key('demo-operator-2')];
-    return new PublicWorld(o, telemetry, secret, chain, keys, operators, adjudicators, panel, declined, journalLength, publicUrls, live);
+    const world = new PublicWorld(o, telemetry, secret, chain, keys, operators, adjudicators, panel, declined, journalLength, publicUrls, live);
+    // A wake, from a plain read too, makes the world active only when its adjudicators have a step to take or a chain
+    // world's setup is left: a deal left mid-way resumes, an idle world arms no alarm. A takeover later on is
+    // scheduled whether or not it is active.
+    await world.look();
+    if (world.due || !world.ready()) world.stir();
+    return world;
   }
 
   /** A day's settlement-side facts for its telemetry line: the deal funnel and signer counts, the journal, live judging. */
@@ -465,19 +532,67 @@ export class PublicWorld {
     return (this.chain.log().at(-1)?.hash ?? `0x${'00'.repeat(32)}`) as Hex32;
   }
 
-  /** True while there may be adjudicator work: within 15 minutes of the last write or decision. */
+  /**
+   * True while adjudicator passes run: these adjudicators have a step to take now (or a chain world's setup is left),
+   * and settlement moved, or the world woke with that step to take, in the last 15 minutes.
+   */
   active(): boolean {
-    return this.now() - this.lastActive < ACTIVE_FOR_MS;
+    return (this.due || !this.ready()) && this.now() - this.lastActive < ACTIVE_FOR_MS;
   }
 
   /**
-   * How long until the next adjudicator pass. SimChain: every second. A chain world: 2 s while a deal is waiting on
-   * an adjudicator or a setup step is left, otherwise one block (ADR-0028 §5).
+   * When the next adjudicator pass should run (ms since the epoch), or null when none is due. While `active()`: a
+   * second after settlement moved or a chain world's setup step went through (2 s on a chain, ADR-0028 §5), twice as
+   * long after each pass in a row that changed nothing or whose setup step failed (up to a minute). And at the next
+   * fallback takeover's judgeBy, whether active or not: one alarm per takeover.
    */
-  nextPassMs(): number {
-    if (!this.live) return 1000;
-    if (this.live.bonded.size < ADJUDICATORS.length) return 2000;
-    return this.live.evm.awaitingAdjudicator() > 0 ? 2000 : 12_000;
+  nextPass(): number | null {
+    const wait = Math.min((this.live ? CHAIN_PASS_MS : PASS_MS) * 2 ** this.idlePasses, SLOWEST_PASS_MS);
+    // A takeover whose judgeBy passed since the last look gets a pass after the current wait: an alarm set in the past
+    // would fire at once, again and again while nothing rereads the state (T-057 review 4).
+    const wake = this.wake === null ? null : this.wake > this.now() ? this.wake : this.now() + wait;
+    if (!this.active()) return wake;
+    return Math.min(this.now() + wait, wake ?? Infinity);
+  }
+
+  /** Restarts the activity window and the one-second cadence. */
+  private stir(): void {
+    this.lastActive = this.now();
+    this.idlePasses = 0;
+  }
+
+  /**
+   * Rereads from settlement state whether the adjudicators have a step to take now (`due`) and when the next fallback
+   * takeover is (`wake`). Returns whether settlement moved since the last look: every accepted write and every
+   * adjudicator action is a settlement event.
+   */
+  private async look(): Promise<boolean> {
+    const seen = this.seq;
+    for await (const e of this.chain.events(this.seq)) {
+      this.seq = e.seq + 1;
+      // Any event brings its commitment back: a look may drop one by the wall clock while a submission stamped
+      // before the deadline is still landing (T-057 review).
+      if (e.commitmentId) this.commitments.add(e.commitmentId);
+    }
+    const ours = new Set(Object.values(this.adjudicators).map((a) => lc(a.address)));
+    const now = this.now();
+    this.due = false;
+    this.wake = null;
+    for (const id of this.commitments) {
+      const s = this.chain.escrowState(id);
+      const at = s ? workAt(s, (a) => ours.has(lc(a)), now) : null;
+      if (at === null) {
+        this.commitments.delete(id);
+        continue;
+      }
+      // A declined offer stays Offered until it expires; the pass that declined it has nothing more to do.
+      if (s!.kind === 'Offered' && this.declined.has(id)) continue;
+      for (const t of at) {
+        if (t <= now) this.due = true;
+        else if (this.wake === null || t < this.wake) this.wake = t;
+      }
+    }
+    return this.seq > seen;
   }
 
   private tick(): void {
@@ -547,13 +662,23 @@ export class PublicWorld {
     this.telemetry.invoked();
     this.tick();
     if (this.live) {
+      const setupLeft = !this.ready();
       try {
         await this.setup();
+        // Every setup step that does not throw takes the setup forward (verify, gas, a bond).
+        if (setupLeft) this.idlePasses = 0;
       } catch (e) {
+        // A failing step (an RPC down) backs off like a pass that changes nothing (T-057 review).
+        if (setupLeft) this.idlePasses++;
         this.o.onError?.(e as Error);
       }
       // The adjudicators wait for a verified chain and their own bonds: an acceptance without one is refused on chain.
-      if (!this.live.verified || this.live.bonded.size < ADJUDICATORS.length) return this.persist();
+      // The look still runs, so a takeover whose judgeBy passed meanwhile is due, not a stale wake (T-057 review 4).
+      if (!this.ready()) {
+        await this.persist();
+        await this.look();
+        return;
+      }
     }
     const { panel } = this;
     for (const [role, a] of Object.entries(this.adjudicators) as [Role, TestAdjudicator][]) {
@@ -566,7 +691,6 @@ export class PublicWorld {
         }
         const r = await a.runOnce();
         for (const d of r.declined) this.declined.set(d.commitmentId, d.reason);
-        if (r.accepted.length + r.decided.length + r.triggered.length > 0) this.lastActive = this.now();
       } catch (e) {
         this.o.onError?.(e as Error);
       } finally {
@@ -575,6 +699,8 @@ export class PublicWorld {
     }
     await panel.budget.flush();
     await this.persist();
+    if (await this.look()) this.stir();
+    else this.idlePasses++;
     await this.flushTelemetry(false);
   }
 
@@ -595,8 +721,8 @@ export class PublicWorld {
     // A URL origin has no path, so it never ends in a slash.
     op.baseUrl = this.publicUrls[via.node] ?? via.origin;
     const response = await this.handlers[via.node]!(request, via.client);
-    if (request.method === 'POST') this.lastActive = this.now();
     await this.persist();
+    if (await this.look()) this.stir();
     await this.flushTelemetry(false);
     return response;
   }

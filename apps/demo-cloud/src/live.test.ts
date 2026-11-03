@@ -67,7 +67,7 @@ describe.skipIf(!ready)(`the public world on a live chain (anvil for Sepolia)${r
   let anvil: EvmWorld;
   let deployment: DeploymentFile;
   const storage = new MemoryStorage();
-  const chainOf = () => new LiveChain({ deployment, rpcUrls: [anvil.rpcUrl], relayerKey: RELAYER, pollMs: 200, rebroadcastMs: 10_000, mintBatchMs: 200 });
+  const chainOf = (rpcUrl = anvil.rpcUrl) => new LiveChain({ deployment, rpcUrls: [rpcUrl], relayerKey: RELAYER, pollMs: 200, rebroadcastMs: 10_000, mintBatchMs: 200 });
   beforeAll(async () => {
     anvil = await EvmWorld.start(root, { blockTimeSec: 1, token: 'test-usdc' });
     const d = anvil.deployment;
@@ -128,8 +128,32 @@ describe.skipIf(!ready)(`the public world on a live chain (anvil for Sepolia)${r
     // reads no chain; the first pass verifies it, and the bonds recorded in storage are not sent again.
     const again = await PublicWorld.open({ storage, env: ENV, live: { chain: chainOf() } });
     expect(again.ready()).toBe(false);
+    // Setup left: a pass is due in 2 s (T-057). Once set up, the Released deal awaits no adjudicator: no pass is due.
+    expect(again.nextPass()! - Date.now()).toBeGreaterThan(1500);
+    expect(again.nextPass()! - Date.now()).toBeLessThanOrEqual(2000);
     await again.work();
     expect(again.ready()).toBe(true);
+    expect(again.nextPass()).toBeNull();
+
+    // Reopened with the RPC down: each failing setup step doubles the wait (4, 8, 16 s), not a retry every 2 s (T-057 review).
+    const down = await PublicWorld.open({ storage, env: ENV, live: { chain: chainOf('http://127.0.0.1:9') }, onError: () => {} });
+    const waits: number[] = [];
+    for (let i = 0; i < 3; i++) {
+      await down.work();
+      waits.push(down.nextPass()! - Date.now());
+    }
+    expect(down.ready()).toBe(false);
+    for (const [i, w] of waits.entries()) {
+      expect(w).toBeGreaterThan(4000 * 2 ** i - 500);
+      expect(w).toBeLessThanOrEqual(4000 * 2 ** i);
+    }
+    // A takeover wake whose judgeBy passed during the outage (set by hand: this storage holds no Delivered deal) never
+    // schedules a pass in the past, and a failing pass still rereads settlement state (T-057 review 4).
+    const inside = down as unknown as { wake: number | null };
+    inside.wake = Date.now() - 1000;
+    expect(down.nextPass()!).toBeGreaterThan(Date.now());
+    await down.work();
+    expect(inside.wake).toBeNull();
     expect(again.digest()).toBe(world.digest());
     const before = (world.chain as EvmSettlement).log();
     expect((again.chain as EvmSettlement).log()).toEqual(before);
@@ -167,11 +191,14 @@ describe.skipIf(!forkReady)(`the public world on a Sepolia fork${forkReady ? '' 
     anvil = spawn('anvil', ['--fork-url', forkRpc!, '--hardfork', 'prague', '--host', '127.0.0.1', '--port', String(port), '--block-time', '2', '--silent'], { stdio: 'ignore' });
     rpc = `http://127.0.0.1:${port}`;
     const call = (method: string, params: unknown[]) => fetch(rpc, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) }).then((r) => r.json() as Promise<{ result?: unknown }>);
-    for (let i = 0; i < 100 && !(await call('eth_chainId', []).catch(() => ({}))).result; i++) await new Promise((r) => setTimeout(r, 200));
-    forkBlock = BigInt((await call('eth_blockNumber', [])).result as string);
+    // anvil forks over the public RPC, which can take a while to answer.
+    for (let i = 0; i < 300 && !(await call('eth_chainId', []).catch(() => ({}))).result; i++) await new Promise((r) => setTimeout(r, 200));
+    const head = await call('eth_blockNumber', []).catch(() => ({ result: undefined }));
+    if (typeof head.result !== 'string') throw new Error(`anvil did not fork ${forkRpc} within 60 s`);
+    forkBlock = BigInt(head.result);
     // The fork's copy of the test relayer gets test ETH; nothing touches the real chain.
     await call('anvil_setBalance', [privateKeyToAccount(RELAYER).address, '0x8ac7230489e80000']);
-  }, 60_000);
+  }, 90_000);
   afterAll(() => {
     anvil?.kill();
   });

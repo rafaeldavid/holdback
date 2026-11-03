@@ -2,7 +2,7 @@
 
 Status: D1–D9 decided October 30, 2026, after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`); the options are kept as the record. D10 to D24 decided October 30 and 31, 2026, each after an independent research pass. D25 to D36 decided October 31 and November 1, 2026, D37 to D40 on November 1 and 2, D41 and D42 on November 3 (Rafa's principles and research-backed choices; D4 was updated on November 1 to target Ethereum mainnet via Sepolia). Newer entries are appended at the end. Owner: Rafa. Each decision has options, a recommendation and the ADR it settles.
 
-Still open (2026-11-03): whether weekly telemetry aggregates are published (D39); ADR-0025, Proposed, to be decided with schema v0.9 (T-033); ADR-0027, Proposed (T-308: judgment report, verifiable inference, tuning releases; four open questions, none needed before Phase 3); the ADR-0023 amendment on fee bundling, Proposed (D37); and dispute clauses as selectable terms, deferred until after the demo (D29).
+Still open (2026-11-03): ADR-0025, Proposed, to be decided with schema v0.9 (T-033); ADR-0027, Proposed (T-308: judgment report, verifiable inference, tuning releases; four open questions, none needed before Phase 3); the ADR-0023 amendment on fee bundling, Proposed (D37); and dispute clauses as selectable terms, deferred until after the demo (D29).
 
 ## D1. Adopt the neutrality litmus test as the top constraint (ADR-0001)
 
@@ -628,7 +628,7 @@ Also: the funding signature on EVM is CPP's collector signature and token identi
 - **What does not.** The API, the one-command test deal and its single approval, and the hard rules: the operators' relayer keys pay gas and relay signed messages, never author them; the keys are Sepolia-only Worker secrets. Gas is part of the operator fee (D33, amended the same day).
 - **Rollback.** A `SETTLEMENT` flag per Worker (`sim` or `sepolia`) picks the world; the SimChain world stays untouched, so setting the flag back is one deploy.
 - **Staged.** drand proofs for fallback and appeal decisions (until then a silent primary ends in the default outcome), direct transactions in the operators' view, an in-flight row per relayer lane, and the schema v0.9 items (T-033).
-- **Asks for Rafa (outside the repository).** Sepolia ETH for the relayer's funding lane: done (1.94 Sepolia ETH on 2026-11-03, measured by the coordinating session). Workers Paid: reportedly in place since the November 2 outage (not checked from here).
+- **Asks for Rafa (outside the repository).** Sepolia ETH for the relayer's funding lane: done (1.94 Sepolia ETH on 2026-11-03, measured by the coordinating session). Workers Paid: in place since 2026-11-02 (Rafa, 2026-11-03).
 
 | Option | Effect |
 | --- | --- |
