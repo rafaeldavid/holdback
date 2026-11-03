@@ -57,7 +57,7 @@ contract TimeoutsTest is Base {
         vm.prank(anyone);
         rules.triggerFallback(t);
         assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.FallbackJudging));
-        assertEq(bonds.encumberedOf(fallbackAdj, address(usdc)), PRICE);
+        assertEq(bonds.encumberedOf(fallbackAdj, address(usdc)), 0, "reserved only when the fallback decides");
     }
 
     function test_default_fromFallbackJudging_inOneCall() public {
@@ -168,8 +168,6 @@ contract BondsTest is Base {
     function test_onlyRulesEncumbers() public {
         vm.expectRevert(HoldbackBonds.NotRules.selector);
         bonds.encumber(adjudicator, address(usdc), 1);
-        vm.expectRevert(HoldbackBonds.NotRules.selector);
-        bonds.tryEncumber(adjudicator, address(usdc), 1);
         vm.expectRevert(HoldbackBonds.NotRules.selector);
         bonds.release(adjudicator, address(usdc), 0);
         vm.expectRevert(HoldbackBonds.NotRules.selector);

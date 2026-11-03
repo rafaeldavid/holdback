@@ -204,7 +204,7 @@ contract DecideTest is Base {
         assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Escalated));
         assertEq(_held(t), PRICE + FEE);
         assertEq(bonds.encumberedOf(adjudicator, address(usdc)), 0);
-        assertEq(bonds.encumberedOf(appealAdj, address(usdc)), PRICE);
+        assertEq(bonds.encumberedOf(appealAdj, address(usdc)), 0, "the appeal adjudicator signed nothing");
         vm.warp(at + 1); // the appeal round is the first one after the escalation: wait for it
         H.Decision memory m = _beaconDecision(id, H.ROLE_APPEAL, H.OUTCOME_REJECT, at + 1);
         m = _signDecision(t, id, m, appealAdj, AP_PK);

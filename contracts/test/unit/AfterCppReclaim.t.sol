@@ -69,18 +69,17 @@ contract AfterCppReclaimTest is Base {
         vm.warp(_expiry(t));
         _cppReclaim(t);
         rules.triggerFallback(t);
-        assertEq(bonds.encumberedOf(fallbackAdj, address(usdc)), PRICE);
+        assertEq(bonds.encumberedOf(adjudicator, address(usdc)), PRICE);
         rules.triggerDefault(t);
         assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Refunded));
         assertEq(bonds.encumberedOf(adjudicator, address(usdc)), 0);
         assertEq(bonds.encumberedOf(fallbackAdj, address(usdc)), 0);
     }
 
-    function test_escalated_defaultReleasesTheAppealBond() public {
+    function test_escalated_defaultClosesTheDeal() public {
         (H.Terms memory t, bytes32 id) = _escalated();
         vm.warp(_expiry(t));
         _cppReclaim(t);
-        assertEq(bonds.encumberedOf(appealAdj, address(usdc)), PRICE);
         vm.recordLogs();
         rules.triggerDefault(t);
         (uint256 n,) = _refunds();

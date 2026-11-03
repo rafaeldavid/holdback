@@ -33,7 +33,7 @@ contract RulesInvariants is Test {
         }
         codehash = [address(rules).codehash, address(bonds).codehash, address(escrow).codehash, tk[0].codehash];
 
-        bytes4[] memory s = new bytes4[](18);
+        bytes4[] memory s = new bytes4[](19);
         s[0] = RulesHandler.offer.selector;
         s[1] = RulesHandler.agreeAndFund.selector;
         s[2] = RulesHandler.deliver.selector;
@@ -52,6 +52,7 @@ contract RulesInvariants is Test {
         s[15] = RulesHandler.stranger.selector;
         s[16] = RulesHandler.warp.selector;
         s[17] = RulesHandler.decideAppeal.selector;
+        s[18] = RulesHandler.decideFallback.selector;
         targetContract(address(h));
         targetSelector(StdInvariant.FuzzSelector({addr: address(h), selectors: s}));
     }
