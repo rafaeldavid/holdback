@@ -390,7 +390,7 @@ describe('adjudicator passes (T-039)', () => {
     expect((await wake(storage)).active()).toBe(false);
   });
 
-  it('a pass that changes nothing doubles the wait, up to a minute, and passes stop 15 minutes after settlement moved', async () => {
+  it('a pass that changes nothing doubles the wait, up to a minute; 15 minutes after settlement moved only the takeover stays scheduled', async () => {
     const storage = new MemoryStorage();
     let t = Date.now();
     const now = () => t;
@@ -416,9 +416,10 @@ describe('adjudicator passes (T-039)', () => {
       waits.push(stuck.nextPass()! - t);
     }
     expect(waits).toEqual([2000, 4000, 8000, 16_000, 32_000, 60_000, 60_000, 60_000]);
-    expect((await stuck.chain.state(offer.id))?.escrowState).toBe('Delivered');
+    const { escrowState, deadlines } = (await stuck.chain.state(offer.id))!;
+    expect(escrowState).toBe('Delivered');
     t += 15 * 60_000;
-    expect([stuck.active(), stuck.nextPass()]).toEqual([false, null]);
+    expect([stuck.active(), stuck.nextPass()]).toEqual([false, Date.parse(deadlines['judgeBy']!)]);
   });
 });
 

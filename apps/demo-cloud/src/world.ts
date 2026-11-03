@@ -123,28 +123,42 @@ class StorageCiphertextStore implements CiphertextStore {
 }
 
 /**
- * When this world's adjudicators can next act on a commitment (ms; `now` when they can act now), or null. The primary
- * accepts an offer before offerExpiresAt and decides a delivery before judgeBy; the fallback takes over at judgeBy and
- * decides before fallbackBy; the appeal adjudicator decides an escalation or an open appeal before appealDecideBy.
- * Every other timeout (offer expiry, reclaim, default, appeal expiry) is a party's trigger, not an adjudicator's.
+ * When this world's adjudicators act on a commitment: `now` for a step they can take now, judgeBy for a fallback
+ * takeover, nothing while it is a party's turn; null once no adjudicator can act on it again, so `look` drops it. The
+ * primary accepts an offer before offerExpiresAt and decides a delivery before judgeBy; the fallback takes over at
+ * judgeBy and decides before fallbackBy; the appeal adjudicator decides an escalation or an open appeal before
+ * appealDecideBy. Every other timeout (offer expiry, reclaim, default, appeal expiry) is a party's trigger.
  */
-function workAt(s: EscrowState, ours: (address: string) => boolean, now: number): number | null {
+function workAt(s: EscrowState, ours: (address: string) => boolean, now: number): number[] | null {
   const { adjudicator, fallbackAdjudicator, appealAdjudicator } = s.terms.adjudication;
-  const { offerExpiresAt, judgeBy, fallbackBy } = s.terms.timing;
-  const before = (deadline: Timestamp) => now < Date.parse(deadline);
+  const { offerExpiresAt, deliverBy, judgeBy, fallbackBy } = s.terms.timing;
+  const passed = (deadline: Timestamp) => now >= Date.parse(deadline);
   switch (s.kind) {
     case 'Offered':
-      return ours(adjudicator) && before(offerExpiresAt) ? now : null;
+      return passed(offerExpiresAt) ? null : ours(adjudicator) ? [now] : [];
+    case 'AcceptedByAdjudicator':
+    case 'Agreed':
+    case 'Held':
+      // A delivery before deliverBy brings the adjudicators back.
+      return passed(deliverBy) ? null : [];
     case 'Delivered':
-      if (ours(adjudicator) && before(judgeBy)) return now;
-      return ours(fallbackAdjudicator) && before(fallbackBy) ? Date.parse(judgeBy) : null;
-    case 'FallbackJudging':
-      return ours(fallbackAdjudicator) && before(fallbackBy) ? now : null;
+    case 'FallbackJudging': {
+      if (passed(fallbackBy)) return null;
+      const at = s.kind === 'Delivered' && ours(adjudicator) && !passed(judgeBy) ? [now] : [];
+      // Kept even while the primary can act now: the takeover must not wait on a slow cadence (T-039 review).
+      if (ours(fallbackAdjudicator)) at.push(s.kind === 'Delivered' ? Date.parse(judgeBy) : now);
+      return at;
+    }
     case 'Escalated':
-      return ours(appealAdjudicator) && before(s.escalation.appealDecideBy) ? now : null;
+      return passed(s.escalation.appealDecideBy) ? null : ours(appealAdjudicator) ? [now] : [];
     case 'Released':
-    case 'Refunded':
-      return s.via.kind === 'first_instance' && s.via.appeal.kind === 'open' && ours(appealAdjudicator) && before(s.via.appeal.appealDecideBy) ? now : null;
+    case 'Refunded': {
+      if (s.via.kind !== 'first_instance') return null;
+      const a = s.via.appeal;
+      if (a.kind === 'none') return passed(a.appealBy) ? null : [];
+      if (a.kind === 'open') return passed(a.appealDecideBy) ? null : ours(appealAdjudicator) ? [now] : [];
+      return null;
+    }
     default:
       return null;
   }
@@ -156,11 +170,12 @@ export class PublicWorld {
   private lastActive = -Infinity;
   /** Adjudicator passes in a row that changed nothing. */
   private idlePasses = 0;
-  /** Every commitment offered, from the event log read up to `seq`. */
-  private readonly commitments: Hex32[] = [];
+  /** Every commitment an adjudicator may still act on, from the event log read up to `seq`. */
+  private readonly commitments = new Set<Hex32>();
   private seq = 0;
-  /** When the adjudicators next have work (ms; the time of the last look when they have it now), or null: from the last look. */
-  private due: number | null = null;
+  /** From the last look: whether the adjudicators have a step to take now, and the next fallback takeover (ms). */
+  private ready = false;
+  private wake: number | null = null;
   private readonly handlers: Array<(r: Request, client?: string) => Promise<Response>>;
 
   private constructor(
@@ -358,10 +373,10 @@ export class PublicWorld {
     }
     const keys = [principal, key('demo-club-operator'), ...adjKeys.map((a) => a.keys), key('demo-operator-1'), key('demo-operator-2')];
     const world = new PublicWorld(o, telemetry, secret, chain, keys, operators, adjudicators, panel, declined, journal.length, publicUrls);
-    // A wake, from a plain read too, makes the world active only when its adjudicators have work due within the
-    // window: a deal left mid-way resumes, an idle world arms no alarm.
+    // A wake, from a plain read too, makes the world active only when its adjudicators have a step to take: a deal
+    // left mid-way resumes, an idle world arms no alarm. A takeover later on is scheduled whether or not it is active.
     await world.look();
-    if (world.due !== null && world.due - world.now() < ACTIVE_FOR_MS) world.stir();
+    if (world.ready) world.stir();
     return world;
   }
 
@@ -387,21 +402,21 @@ export class PublicWorld {
   }
 
   /**
-   * True while an adjudicator pass is due: a case awaits these adjudicators, and settlement moved (or the world woke
-   * with that work due) in the last 15 minutes.
+   * True while adjudicator passes run: these adjudicators have a step to take now, and settlement moved (or the world
+   * woke with that step to take) in the last 15 minutes.
    */
   active(): boolean {
-    return this.due !== null && this.now() - this.lastActive < ACTIVE_FOR_MS;
+    return this.ready && this.now() - this.lastActive < ACTIVE_FOR_MS;
   }
 
   /**
-   * When the next adjudicator pass should run (ms since the epoch), or null while `active()` is false: a second after
-   * settlement moved, twice as long after each pass in a row that changed nothing (up to a minute), and a fallback
-   * takeover not before its judgeBy.
+   * When the next adjudicator pass should run (ms since the epoch), or null when none is due. While `active()`: a
+   * second after settlement moved, twice as long after each pass in a row that changed nothing (up to a minute). And
+   * at the next fallback takeover's judgeBy, whether active or not: one alarm per takeover.
    */
   nextPass(): number | null {
-    if (!this.active()) return null;
-    return Math.max(this.due!, this.now() + Math.min(PASS_MS * 2 ** this.idlePasses, SLOWEST_PASS_MS));
+    const soon = this.active() ? this.now() + Math.min(PASS_MS * 2 ** this.idlePasses, SLOWEST_PASS_MS) : null;
+    return soon === null || (this.wake !== null && this.wake < soon) ? this.wake : soon;
   }
 
   /** Restarts the activity window and the one-second cadence. */
@@ -411,26 +426,34 @@ export class PublicWorld {
   }
 
   /**
-   * Rereads from settlement state when the adjudicators next have work (`due`). Returns whether settlement moved since
-   * the last look: every accepted write and every adjudicator action is a settlement event.
+   * Rereads from settlement state whether the adjudicators have a step to take now (`ready`) and when the next fallback
+   * takeover is (`wake`). Returns whether settlement moved since the last look: every accepted write and every
+   * adjudicator action is a settlement event.
    */
   private async look(): Promise<boolean> {
     const seen = this.seq;
     for await (const e of this.chain.events(this.seq)) {
       this.seq = e.seq + 1;
-      if (e.type === 'commitment.offered' && e.commitmentId) this.commitments.push(e.commitmentId);
+      if (e.type === 'commitment.offered' && e.commitmentId) this.commitments.add(e.commitmentId);
     }
     const ours = new Set(Object.values(this.adjudicators).map((a) => lc(a.address)));
     const now = this.now();
-    let due: number | null = null;
+    this.ready = false;
+    this.wake = null;
     for (const id of this.commitments) {
       const s = this.chain.escrowState(id);
+      const at = s ? workAt(s, (a) => ours.has(lc(a)), now) : null;
+      if (at === null) {
+        this.commitments.delete(id);
+        continue;
+      }
       // A declined offer stays Offered until it expires; the pass that declined it has nothing more to do.
-      if (!s || (s.kind === 'Offered' && this.declined.has(id))) continue;
-      const at = workAt(s, (a) => ours.has(lc(a)), now);
-      if (at !== null && (due === null || at < due)) due = at;
+      if (s!.kind === 'Offered' && this.declined.has(id)) continue;
+      for (const t of at) {
+        if (t <= now) this.ready = true;
+        else if (this.wake === null || t < this.wake) this.wake = t;
+      }
     }
-    this.due = due;
     return this.seq > seen;
   }
 
