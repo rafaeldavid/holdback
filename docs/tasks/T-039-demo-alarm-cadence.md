@@ -42,7 +42,8 @@ The public demo World (one Durable Object on the Workers Free plan) spends its d
 
   Each old pass also journals a clock `advance` entry, so 15 minutes of activity cost about 1,800 rows written, not the 900 the backlog row estimated.
 - **Inferred, Cloudflare:** the Free tier allows 100,000 rows written and 100,000 requests a day. Before, about 55 activity windows a day (any read after an eviction, any POST) used up the rows written; a world kept active all day would need about 173,000. After, a read or a cold start with nothing open costs about one row, a deal about 18 rows and 35 requests, and a stuck case about 50 rows per 15-minute window. Not measured on Cloudflare until a deploy: read `usage` in the first day lines.
-- **Measured, tests:** `world.test.ts` (21 tests, including the rebuild test and the two new T-039 tests) and `worker.test.ts` (2 new) pass. `pnpm verify`: see the PR.
+- **Measured, tests:** `world.test.ts` (21 tests, including the rebuild test and the two new T-039 tests) and `worker.test.ts` (2 new) pass.
+- **Measured, `pnpm verify`** (`reports/verify-t-039-demo-alarm.md`, 2026-11-03, this branch's tree before commit): typecheck, lint, forge build, forge, test, spec, snap and demo pass. snap:local fails on one fixture, `error.submission-limit` (refused `invalid_terms` on the contract where SimChain refuses `submission_limit_reached`). That fixture was promoted from `todo.` on main in 7fd10a6 (PR 116). This branch touches nothing it runs, and CI does not run snap:local. The first verify run also failed forge build while cloning the contract submodules into this fresh worktree; the rerun passed.
 
 ## Decisions
 
