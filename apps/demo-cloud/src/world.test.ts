@@ -428,6 +428,9 @@ describe('adjudicator passes (T-057)', () => {
     expect(escrowState).toBe('Delivered');
     t += 15 * 60_000;
     expect([stuck.active(), stuck.nextPass()]).toEqual([false, Date.parse(deadlines['judgeBy']!)]);
+    // judgeBy passes before anything rereads the state: the takeover still gets a pass, after the current wait.
+    t = Date.parse(deadlines['judgeBy']!) + 1;
+    expect(stuck.nextPass()).toBe(t + 60_000);
   });
 
   it('a deal that moves as its deadline passes stays scheduled: a read and a delivery straddle deliverBy (T-057 review)', async () => {

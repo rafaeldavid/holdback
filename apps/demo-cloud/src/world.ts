@@ -543,10 +543,11 @@ export class PublicWorld {
    * fallback takeover's judgeBy, whether active or not: one alarm per takeover.
    */
   nextPass(): number | null {
-    // A wake that is not ahead is stale (a look counts a past takeover as due): an alarm set in the past fires at once.
-    const wake = this.wake !== null && this.wake > this.now() ? this.wake : null;
-    if (!this.active()) return wake;
     const wait = Math.min((this.live ? CHAIN_PASS_MS : PASS_MS) * 2 ** this.idlePasses, SLOWEST_PASS_MS);
+    // A takeover whose judgeBy passed since the last look gets a pass after the current wait: an alarm set in the past
+    // would fire at once, again and again while nothing rereads the state (T-057 review 4).
+    const wake = this.wake === null ? null : this.wake > this.now() ? this.wake : this.now() + wait;
+    if (!this.active()) return wake;
     return Math.min(this.now() + wait, wake ?? Infinity);
   }
 
