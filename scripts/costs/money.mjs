@@ -1,14 +1,29 @@
 // Exact decimal arithmetic for the cost collector (T-052). Hard rule: money never becomes a float.
 // Every amount and quantity is a decimal string; arithmetic runs on bigint at a shared scale.
 
-const DECIMAL = /^(-)?(\d+)(?:\.(\d+))?(?:[eE]([+-]?\d+))?$/;
+const DECIMAL = /^(-)?(\d+)(?:\.(\d+))?(?:[eE]([+-]?\d{1,3}))?$/;
+/** Bounds that keep every operation fast: no provider amount, balance or count comes near them. */
+const MAX_TEXT = 100;
+const MAX_EXPONENT = 100;
+
+/** A value that is not an exact decimal string; a source reports it as a parse error. */
+export class DecimalError extends TypeError {
+  constructor(message) {
+    super(message);
+    this.name = 'DecimalError';
+  }
+}
 
 /** Parses a decimal or exponent string into sign, digits and the power of ten that scales them. */
 function split(text) {
-  const m = DECIMAL.exec(String(text).trim());
-  if (!m) throw new TypeError('not a decimal number');
+  // A JavaScript number is refused: it may already have been rounded.
+  if (typeof text !== 'string' || text.length > MAX_TEXT) throw new DecimalError('not a decimal string');
+  const m = DECIMAL.exec(text);
+  if (!m) throw new DecimalError('not a decimal number');
   const [, minus, whole, frac = '', exp = '0'] = m;
-  return { negative: minus === '-', digits: `${whole}${frac}`, power: Number.parseInt(exp, 10) - frac.length };
+  const e = Number.parseInt(exp, 10);
+  if (Math.abs(e) > MAX_EXPONENT) throw new DecimalError('exponent out of range');
+  return { negative: minus === '-', digits: `${whole}${frac}`, power: e - frac.length };
 }
 
 /** Builds the canonical string for digits × 10^power: no exponent, no leading or trailing zeros. */
@@ -77,13 +92,13 @@ export function compareDecimals(a, b) {
 /** An integer string from a decimal string; refuses a fraction. */
 export function integerString(text) {
   const c = canonicalDecimal(text);
-  if (c.includes('.')) throw new TypeError('not an integer');
+  if (c.includes('.')) throw new DecimalError('not an integer');
   return c;
 }
 
 /** A hex quantity from JSON-RPC ("0x1bc16d674ec80000") as a decimal string. */
 export function hexToDecimal(hex) {
-  if (typeof hex !== 'string' || !/^0x[0-9a-fA-F]+$/.test(hex)) throw new TypeError('not a hex quantity');
+  if (typeof hex !== 'string' || !/^0x[0-9a-fA-F]{1,64}$/.test(hex)) throw new DecimalError('not a hex quantity');
   return BigInt(hex).toString();
 }
 
@@ -112,10 +127,10 @@ const DAY = /^\d{4}-\d{2}-\d{2}$/;
 export function makeLine({ source, product, unit, quantity, amount = null, basis, periodFrom, periodTo }) {
   if (typeof source !== 'string' || typeof product !== 'string' || typeof unit !== 'string') throw new TypeError('line needs source, product and unit');
   if (!BASES.has(basis)) throw new TypeError('line basis must be billed, estimated or balance');
-  if (!DAY.test(periodFrom) || !DAY.test(periodTo)) throw new TypeError('line period must be two dates');
+  if (typeof periodFrom !== 'string' || typeof periodTo !== 'string' || !DAY.test(periodFrom) || !DAY.test(periodTo)) throw new DecimalError('line period must be two dates');
   const out = { source, product, unit, quantity: canonicalDecimal(quantity), amount: null, basis, periodFrom, periodTo };
   if (amount !== null) {
-    if (typeof amount.currency !== 'string' || !/^[A-Z]{3}$/.test(amount.currency)) throw new TypeError('amount needs a currency code');
+    if (typeof amount.currency !== 'string' || !/^[A-Z]{3}$/.test(amount.currency)) throw new DecimalError('amount needs a currency code');
     out.amount = { cents: canonicalDecimal(amount.cents), currency: amount.currency };
   }
   return out;

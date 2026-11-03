@@ -55,7 +55,7 @@ export async function collect(ctx) {
   const cfg = { ...DEFAULTS, ...(ctx.config?.sepolia ?? {}) };
   const discovery = await getJson(ctx, cfg.discoveryUrl);
   const addresses = addressesFrom(discovery, Array.isArray(cfg.addresses) ? cfg.addresses : []);
-  if (addresses.length === 0) return [];
+  if (addresses.length === 0) return { lines: [], note: 'no address to read: discovery is not on Sepolia and budgets.json lists none' };
   if (hexToDecimal(await rpc(ctx, cfg.rpcUrl, 'eth_chainId', [])) !== SEPOLIA_CHAIN_ID) throw new SourceError('chain');
   const balance = async (a) => hexToDecimal(await rpc(ctx, cfg.rpcUrl, 'eth_getBalance', [a.address, 'latest']));
   const line = (product, wei) =>
@@ -72,5 +72,7 @@ export async function collect(ctx) {
     await ctx.sleep(Number(cfg.secondReadAfterMs));
     for (const a of low) lines.push(line(`Sepolia ${a.label} ${a.address} (second read)`, await balance(a)));
   }
-  return lines;
+  // Discovery names the funding lane only in prose; if that wording changes, say so rather than drop it quietly.
+  const noFunding = !addresses.some((a) => a.kind === 'funding-lane');
+  return { lines, note: noFunding ? 'no funding lane found in discovery; add it to sepolia.addresses in budgets.json with kind "funding-lane"' : undefined };
 }

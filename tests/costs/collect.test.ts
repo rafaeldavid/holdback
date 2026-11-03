@@ -1,7 +1,7 @@
 // T-052: the read-only cost collector. Synthetic fixtures only (tests/costs/fixtures), no network: every source
-// reads through a fake fetch, and git runs only on temporary repositories.
+// reads through a fake fetch, and git runs only on temporary repositories, with a stripped environment.
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
@@ -9,7 +9,7 @@ import { addDecimals, canonicalDecimal, dollarsToCents, parseJsonExact, shiftDec
 import { approve } from '../../scripts/costs/approve.mjs';
 import { ApprovalRefused, checkApproved } from '../../scripts/costs/approved.mjs';
 import { DirRefused, checkDir } from '../../scripts/costs/dir.mjs';
-import { collect, runSource } from '../../scripts/costs/collect.mjs';
+import { collect, runSource } from '../../scripts/costs/run.mjs';
 import * as anthropic from '../../scripts/costs/sources/anthropic.mjs';
 import * as claudeCode from '../../scripts/costs/sources/claude-code.mjs';
 import * as cloudflareAnalytics from '../../scripts/costs/sources/cloudflare-analytics.mjs';
@@ -20,11 +20,13 @@ import * as sepolia from '../../scripts/costs/sources/sepolia.mjs';
 import * as telemetry from '../../scripts/costs/sources/telemetry.mjs';
 
 const FIXTURES = join(dirname(new URL(import.meta.url).pathname), 'fixtures');
+const COSTS = resolve('scripts/costs');
 const fixture = (name: string) => readFileSync(join(FIXTURES, name), 'utf8');
 const json = (name: string) => JSON.parse(fixture(name));
 const ACCOUNT = '0123456789abcdef0123456789abcdef';
 const PERIOD = { from: '2026-11-01', to: '2026-11-03' };
 const NOW = new Date('2026-11-03T12:00:00Z');
+const BARE_ENV = { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: process.env.HOME ?? '/tmp' };
 
 type Route = (url: string, init: RequestInit) => { status?: number; body: string } | undefined;
 function fakeFetch(...routes: Route[]) {
@@ -50,7 +52,7 @@ const baseCtx = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
-// Temporary git repositories. Commits avoid the user's signing and identity settings.
+// Temporary git repositories. git runs with a bare environment and no signing or identity settings of the user's.
 const temps: string[] = [];
 afterAll(() => {
   for (const t of temps) rmSync(t, { recursive: true, force: true });
@@ -61,21 +63,30 @@ function temp(prefix: string) {
   return d;
 }
 function sh(cwd: string, ...args: string[]) {
-  const r = spawnSync('git', ['-c', 'user.name=test', '-c', 'user.email=test@example.com', '-c', 'commit.gpgsign=false', ...args], { cwd, encoding: 'utf8' });
+  const r = spawnSync('git', ['-c', 'user.name=test', '-c', 'user.email=test@example.com', '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', ...args], { cwd, encoding: 'utf8', env: BARE_ENV });
   if (r.status !== 0) throw new Error(`git ${args.join(' ')}: ${r.stderr}`);
   return r.stdout.trim();
 }
-function cloneRepo() {
+function cloneRepo(files: Record<string, string> = { 'scripts/costs/collect.mjs': '// stand-in\n' }) {
   const root = temp('crow-clone-');
   sh(root, 'init', '-q', '-b', 'main');
-  mkdirSync(join(root, 'scripts', 'costs'), { recursive: true });
-  writeFileSync(join(root, 'scripts', 'costs', 'collect.mjs'), '// stand-in\n');
+  for (const [path, text] of Object.entries(files)) {
+    mkdirSync(dirname(join(root, path)), { recursive: true });
+    writeFileSync(join(root, path), text);
+  }
   writeFileSync(join(root, 'config.txt'), 'not covered\n');
   sh(root, 'add', '.');
   sh(root, 'commit', '-q', '-m', 'init');
   sh(root, 'remote', 'add', 'origin', 'https://github.com/example/holdback.git');
   return root;
 }
+const listTree = (dir: string): string[] =>
+  existsSync(dir)
+    ? readdirSync(dir, { recursive: true, withFileTypes: true })
+        .filter((e) => e.isFile() && !join(e.parentPath, e.name).includes(`${dir}/.git/`))
+        .map((e) => relative(dir, join(e.parentPath, e.name)))
+        .sort()
+    : [];
 
 describe('money', () => {
   it('keeps decimals exact and never passes through a float', () => {
@@ -88,6 +99,13 @@ describe('money', () => {
     expect(addDecimals('0.1', '0.2')).toBe('0.3');
     expect(addDecimals('123.78912', '0.21088')).toBe('124');
     expect(parseJsonExact('{"a":0.1,"b":1e-7,"c":12345678901234567890}')).toEqual({ a: '0.1', b: '1e-7', c: '12345678901234567890' });
+  });
+
+  it('refuses a number, a malformed string and an exponent that would make the work slow', () => {
+    for (const bad of [0.1, '.5', '5.', '+5', ' 5', '1e-300000', '1e999999999', '1e101', '9'.repeat(101)]) {
+      expect(() => canonicalDecimal(bad as string)).toThrow(TypeError);
+    }
+    expect(() => addDecimals(0.1 as unknown as string, '0.2')).toThrow(TypeError);
   });
 });
 
@@ -116,7 +134,7 @@ describe('sources, on synthetic fixtures', () => {
     expect(r.lines.every((l: { amount: unknown; basis: string }) => l.amount === null && l.basis === 'estimated')).toBe(true);
   });
 
-  it('anthropic follows pages and sums cents strings exactly', async () => {
+  it('anthropic follows pages, sums cents strings exactly, and groups tokens by key', async () => {
     const a = json('anthropic.json');
     const fetch = fakeFetch((u) => {
       if (u.includes('/cost_report') && u.includes('page=page_two')) return { body: JSON.stringify(a.costPage2) };
@@ -129,11 +147,12 @@ describe('sources, on synthetic fixtures', () => {
     const input = r.lines.find((l: { product: string }) => l.product === 'Example Model Usage - Input Tokens [wrkspc_example]');
     expect(input.amount).toEqual({ cents: '124', currency: 'USD' });
     expect(r.lines.find((l: { product: string }) => l.product.endsWith('[Default workspace]')).amount.cents).toBe('10');
-    const tokens = (unit: string) => r.lines.find((l: { product: string; unit: string }) => l.product === 'example-model [wrkspc_example]' && l.unit === unit)?.quantity;
+    const tokens = (unit: string) => r.lines.find((l: { product: string; unit: string }) => l.product === 'example-model [wrkspc_example] [key apikey_example]' && l.unit === unit)?.quantity;
     expect(tokens('input_tokens')).toBe('2000');
     expect(tokens('output_tokens')).toBe('600');
     expect(tokens('cache_write_5m_input_tokens')).toBe('30');
     expect(fetch.calls[0].init.headers).toMatchObject({ 'anthropic-version': '2023-06-01' });
+    expect(fetch.calls.find((c) => c.url.includes('usage_report'))?.url).toContain('group_by%5B%5D=api_key_id');
   });
 
   it('github reads the login, then the month, and sums net amounts exactly', async () => {
@@ -155,23 +174,24 @@ describe('sources, on synthetic fixtures', () => {
     expect(r.lines[0]).toMatchObject({ product: 'Balance', amount: { cents: '11000', currency: 'CNY' }, basis: 'balance' });
   });
 
-  it('sepolia needs no credential, reads discovery and configured addresses, and reads a low deal lane twice', async () => {
-    const balances: Record<string, string[]> = {
-      '0x1111111111111111111111111111111111111111': ['0xde0b6b3a7640000'],
-      '0x2222222222222222222222222222222222222222': ['0x2386f26fc10000'],
-      '0x3333333333333333333333333333333333333333': ['0x0'],
-      '0x4444444444444444444444444444444444444444': ['0x5af3107a4000', '0x6a94d74f430000'],
-    };
-    const fetch = fakeFetch(
-      (u) => (u === 'https://api.escrow.stream/' ? { body: fixture('discovery.json') } : undefined),
+  const sepoliaFetch = (balances: Record<string, string[]>, discovery = fixture('discovery.json')) =>
+    fakeFetch(
+      (u) => (u === 'https://api.escrow.stream/' ? { body: discovery } : undefined),
       (u, init) => {
         if (u !== 'https://ethereum-sepolia-rpc.publicnode.com') return undefined;
         const req = JSON.parse(String(init.body));
         if (req.method === 'eth_chainId') return { body: '{"jsonrpc":"2.0","id":1,"result":"0xaa36a7"}' };
-        const result = balances[req.params[0]].shift();
-        return { body: JSON.stringify({ jsonrpc: '2.0', id: 1, result }) };
+        return { body: JSON.stringify({ jsonrpc: '2.0', id: 1, result: balances[req.params[0]].shift() }) };
       },
     );
+
+  it('sepolia needs no credential, reads discovery and configured addresses, and reads a low deal lane twice', async () => {
+    const fetch = sepoliaFetch({
+      '0x1111111111111111111111111111111111111111': ['0xde0b6b3a7640000'],
+      '0x2222222222222222222222222222222222222222': ['0x2386f26fc10000'],
+      '0x3333333333333333333333333333333333333333': ['0x0'],
+      '0x4444444444444444444444444444444444444444': ['0x5af3107a4000', '0x6a94d74f430000'],
+    });
     const sleep = vi.fn(async () => undefined);
     const config = { sepolia: { addresses: [{ label: 'deal lane 1', address: '0x4444444444444444444444444444444444444444', kind: 'deal-lane' }, { label: 'deployer', address: '', kind: 'deployer' }] } };
     const r = await runSource(sepolia, baseCtx({ fetch, sleep, config }));
@@ -185,6 +205,14 @@ describe('sources, on synthetic fixtures', () => {
       ['Sepolia deal lane 1 0x4444444444444444444444444444444444444444 (second read)', '30000000000000000'],
     ]);
     expect(r.lines.every((l: { unit: string; basis: string }) => l.unit === 'wei' && l.basis === 'balance')).toBe(true);
+  });
+
+  it('sepolia says so when discovery stops naming the funding lane', async () => {
+    const reworded = fixture('discovery.json').replace('funded from', 'paid by');
+    const fetch = sepoliaFetch({ '0x2222222222222222222222222222222222222222': ['0x1'], '0x3333333333333333333333333333333333333333': ['0x1'] }, reworded);
+    const r = await runSource(sepolia, baseCtx({ fetch }));
+    expect(r.status.ok).toBe(true);
+    expect(r.status.note).toMatch(/no funding lane found/);
   });
 
   it('a source without its credentials is "not configured", and a failing source leaves the others intact', async () => {
@@ -206,40 +234,45 @@ describe('sources, on synthetic fixtures', () => {
 });
 
 describe('claude-code transcripts', () => {
-  it('counts each response once, keeps subagents, drops other repositories, and never reads content', async () => {
-    const clone = cloneRepo();
+  const here = '/work/holdback';
+  const entry = (o: Record<string, unknown>) => JSON.stringify({ type: 'assistant', sessionId: 's1', gitBranch: 't-052-x', cwd: here, timestamp: '2026-11-02T10:00:00Z', ...o });
+  const usage = (input: number, output: number) => ({ input_tokens: input, output_tokens: output, cache_read_input_tokens: 7, cache_creation: { ephemeral_5m_input_tokens: 3, ephemeral_1h_input_tokens: 0 } });
+  const inPeriod = new Date('2026-11-02T12:00:00Z');
+  function project(files: Record<string, string>) {
     const projects = temp('crow-projects-');
-    const here = '/work/holdback';
-    const entry = (o: Record<string, unknown>) =>
-      JSON.stringify({ type: 'assistant', sessionId: 's1', gitBranch: 't-052-x', cwd: here, timestamp: '2026-11-02T10:00:00Z', ...o });
-    const usage = (input: number, output: number) => ({ input_tokens: input, output_tokens: output, cache_read_input_tokens: 7, cache_creation: { ephemeral_5m_input_tokens: 3, ephemeral_1h_input_tokens: 0 } });
-    const main = [
-      entry({ requestId: 'r1', message: { model: 'example-opus', usage: usage(100, 10), content: [{ type: 'text', text: 'sk-ant-api03-SECRET-LOOKING-VALUE' }] } }),
-      entry({ requestId: 'r1', message: { model: 'example-opus', usage: usage(100, 10), content: [{ type: 'tool_use', name: 'Bash' }] } }),
-      entry({ requestId: 'r2', cwd: '/work/other-repo', message: { model: 'example-opus', usage: usage(5000, 500) } }),
-      entry({ requestId: 'r3', message: { model: '<synthetic>', usage: usage(9, 9) } }),
-      entry({ requestId: 'r4', timestamp: '2026-10-31T23:00:00Z', message: { model: 'example-opus', usage: usage(9, 9) } }),
-      'not json at all "usage"',
-    ].join('\n');
-    const sub = entry({ requestId: 'r5', cwd: `${here}/.claude/worktrees/t-052-x`, message: { model: 'example-sonnet', usage: usage(40, 4) } });
-    mkdirSync(join(projects, '-work-holdback', 's1', 'subagents'), { recursive: true });
-    writeFileSync(join(projects, '-work-holdback', 's1.jsonl'), main);
-    writeFileSync(join(projects, '-work-holdback', 's1', 'subagents', 'agent-a.jsonl'), sub);
-    const inPeriod = new Date('2026-11-02T12:00:00Z');
-    utimesSync(join(projects, '-work-holdback', 's1.jsonl'), inPeriod, inPeriod);
-    utimesSync(join(projects, '-work-holdback', 's1', 'subagents', 'agent-a.jsonl'), inPeriod, inPeriod);
+    for (const [path, text] of Object.entries(files)) {
+      mkdirSync(dirname(join(projects, path)), { recursive: true });
+      writeFileSync(join(projects, path), text);
+      utimesSync(join(projects, path), inPeriod, inPeriod);
+    }
+    return projects;
+  }
+  const membership = (cwd: string) => cwd === here || cwd.startsWith(`${here}/.claude/worktrees/`);
 
-    const membership = (cwd: string) => cwd === here || cwd.startsWith(`${here}/.claude/worktrees/`);
+  it('counts each response once at its highest values, keeps subagents, follows the file, and never reads content', async () => {
+    const clone = cloneRepo();
+    const projects = project({
+      '-work-holdback/s1.jsonl': [
+        JSON.stringify({ type: 'user', cwd: here, message: { content: 'start' } }),
+        entry({ requestId: 'r1', message: { model: 'example-opus', usage: usage(100, 4), content: [{ type: 'text', text: 'sk-ant-api03-SECRET-LOOKING-VALUE' }] } }),
+        entry({ requestId: 'r1', message: { model: 'example-opus', usage: usage(100, 10), content: [{ type: 'tool_use', name: 'Bash' }] } }),
+        entry({ requestId: 'r2', cwd: `${here}/contracts/lib/a-submodule`, message: { model: 'example-opus', usage: usage(5, 1) } }),
+        entry({ requestId: 'r3', message: { model: '<synthetic>', usage: usage(9, 9) } }),
+        entry({ requestId: 'r4', timestamp: '2026-10-31T23:00:00Z', message: { model: 'example-opus', usage: usage(9, 9) } }),
+        'not json at all "usage"',
+      ].join('\n'),
+      '-work-holdback/s1/subagents/agent-a.jsonl': entry({ requestId: 'r5', cwd: `${here}/.claude/worktrees/t-052-x`, message: { model: 'example-sonnet', usage: usage(40, 4) } }),
+      '-work-other/s2.jsonl': entry({ requestId: 'r6', cwd: '/work/other-repo', message: { model: 'example-opus', usage: usage(5000, 500) } }),
+    });
     const r = await runSource(claudeCode, baseCtx({ cloneRoot: clone, claudeProjectsDir: projects, membership }));
     expect(r.status).toEqual({ source: 'claude-code', ok: true, note: claudeCode.note });
     const q = (model: string, unit: string) => r.lines.find((l: { product: string; unit: string }) => l.product === `Claude Code ${model}` && l.unit === unit)?.quantity;
-    expect(q('example-opus', 'input_tokens')).toBe('100');
-    expect(q('example-opus', 'output_tokens')).toBe('10');
-    expect(q('example-opus', 'cache_write_5m_input_tokens')).toBe('3');
+    expect(q('example-opus', 'input_tokens')).toBe('105');
+    expect(q('example-opus', 'output_tokens')).toBe('11');
+    expect(q('example-opus', 'cache_write_5m_input_tokens')).toBe('6');
     expect(q('example-sonnet', 'input_tokens')).toBe('40');
     expect(r.lines.some((l: { product: string }) => l.product.includes('synthetic'))).toBe(false);
-    const detail = r.files[0].data.rows;
-    expect(detail.map((d: { branch: string; model: string }) => [d.branch, d.model])).toEqual([
+    expect(r.files[0].data.rows.map((d: { branch: string; model: string }) => [d.branch, d.model])).toEqual([
       ['t-052-x', 'example-opus'],
       ['t-052-x', 'example-sonnet'],
     ]);
@@ -247,7 +280,20 @@ describe('claude-code transcripts', () => {
     expect(JSON.stringify(r)).not.toContain('other-repo');
   });
 
-  it('matches a checkout by its origin, and a deleted worktree by its parent', () => {
+  it('counts an unreadable transcript in the note instead of skipping it silently', async () => {
+    const clone = cloneRepo();
+    const projects = project({ '-work-holdback/ok.jsonl': entry({ requestId: 'a', message: { model: 'm', usage: usage(1, 1) } }), '-work-holdback/locked.jsonl': entry({ requestId: 'b', message: { model: 'm', usage: usage(1, 1) } }) });
+    chmodSync(join(projects, '-work-holdback/locked.jsonl'), 0o000);
+    try {
+      const r = await runSource(claudeCode, baseCtx({ cloneRoot: clone, claudeProjectsDir: projects, membership }));
+      expect(r.status.ok).toBe(true);
+      if (process.getuid?.() !== 0) expect(r.status.note).toMatch(/1 transcript file\(s\) could not be read/);
+    } finally {
+      chmodSync(join(projects, '-work-holdback/locked.jsonl'), 0o600);
+    }
+  });
+
+  it('matches a checkout by its origin, and a removed folder by its nearest existing parent', () => {
     const base = temp('crow-member-');
     const mine = join(base, 'holdback');
     const theirs = join(base, 'elsewhere');
@@ -259,16 +305,18 @@ describe('claude-code transcripts', () => {
     expect(member(mine)).toBe(true);
     expect(member(theirs)).toBe(false);
     expect(member(`${mine}/.claude/worktrees/deleted-long-ago`)).toBe(true);
+    expect(member(`${mine}/.worktrees/deleted-long-ago`)).toBe(true);
     expect(member(`${theirs}/.claude/worktrees/deleted-long-ago`)).toBe(false);
-    expect(member('/no/such/dir')).toBe(false);
+    expect(member('relative/path')).toBe(false);
   });
 });
 
 describe('telemetry export', () => {
+  const day = { telemetry: 'day', day: '2026-11-02', usage: { requests: { used: 900, limit: 100000, percent: 0 }, rowsRead: { used: 5, limit: 1, percent: 0 }, rowsWritten: { used: 7, limit: 1, percent: 0 } }, liveJudges: { day: '2026-11-02', calls: 3, inputTokens: 2968, outputTokens: 540 } };
+
   it('finds day lines in any JSON shape, writes one file a day, and reports usage with no amount', async () => {
     const dir = temp('crow-telemetry-');
     mkdirSync(join(dir, 'inbox'));
-    const day = { telemetry: 'day', day: '2026-11-02', usage: { requests: { used: 900, limit: 100000, percent: 0 }, rowsRead: { used: 5, limit: 1, percent: 0 }, rowsWritten: { used: 7, limit: 1, percent: 0 } }, liveJudges: { day: '2026-11-02', calls: 3, inputTokens: 2968, outputTokens: 540 } };
     const tail = JSON.stringify({ logs: [{ message: [JSON.stringify(day)], level: 'log' }] });
     writeFileSync(join(dir, 'inbox', 'tail.jsonl'), `${tail}\n{"telemetry":"hour","hour":"2026-11-02T10"}\n`);
     writeFileSync(join(dir, 'inbox', 'export.json'), JSON.stringify([{ $metadata: { message: 'x' }, source: { ...day, day: '2026-11-01' } }]));
@@ -279,12 +327,26 @@ describe('telemetry export', () => {
     expect(q('Live judges', 'input_tokens')).toBe('2968');
     expect(r.lines.every((l: { periodFrom: string }) => l.periodFrom === '2026-11-02')).toBe(true);
   });
+
+  it('copies only the day line\'s own fields, refuses a day that is not a string, and keeps paths out of the note', async () => {
+    const dir = temp('crow-telemetry-');
+    mkdirSync(join(dir, 'inbox'));
+    const wrapped = { ...day, $workers: { request: { headers: { authorization: 'Bearer FAKE-READ-TOKEN', 'cf-connecting-ip': '192.0.2.1' } } } };
+    writeFileSync(join(dir, 'inbox', 'a.json'), JSON.stringify([wrapped, { telemetry: 'day', day: ['2026-11-05'] }]));
+    const r = await runSource(telemetry, baseCtx({ telemetryDir: dir }));
+    expect(r.files).toHaveLength(1);
+    expect(Object.keys(r.files[0].data).sort()).toEqual(['day', 'liveJudges', 'telemetry', 'usage']);
+    expect(JSON.stringify(r)).not.toContain('FAKE-READ-TOKEN');
+    const empty = await runSource(telemetry, baseCtx({ telemetryDir: temp('crow-telemetry-') }));
+    expect(empty.status.note).toMatch(/no inbox yet/);
+    expect(empty.status.note).not.toContain('/');
+  });
 });
 
 describe('the collector end to end', () => {
   const dirsFor = () => ({ CROW_COSTS_DIR: join(temp('crow-costs-'), 'costs'), CROW_TELEMETRY_DIR: join(temp('crow-tel-'), 'telemetry') });
 
-  it('refuses before any request without an approval, with a tracked approval, and after a change', async () => {
+  it('refuses before any request without an approval, after a change, with an untracked file, a symlink or a tracked record', async () => {
     const root = cloneRepo();
     const fetch = fakeFetch();
     const run = () => collect({ cloneRoot: root, env: { ...dirsFor(), CROW_COSTS_DEEPSEEK_KEY: 'k' }, fetchImpl: fetch, now: NOW, sources: [deepseek], log: () => undefined });
@@ -296,30 +358,54 @@ describe('the collector end to end', () => {
     writeFileSync(join(root, 'scripts', 'costs', 'extra.mjs'), '// untracked\n');
     await expect(run()).rejects.toThrow(/scripts\/costs\/extra\.mjs/);
     rmSync(join(root, 'scripts', 'costs', 'extra.mjs'));
+    writeFileSync(join(root, '.gitattributes'), 'scripts/costs/** -diff\n');
+    await expect(run()).rejects.toThrow(/\.gitattributes/);
+    rmSync(join(root, '.gitattributes'));
     sh(root, 'add', '-f', '.costs-approved');
     await expect(run()).rejects.toThrow(/tracked by git/);
     expect(fetch.calls).toHaveLength(0);
     expect(() => checkApproved(root)).toThrow(ApprovalRefused);
+
+    const linked = cloneRepo();
+    symlinkSync('/etc/hosts', join(linked, 'scripts', 'costs', 'link.mjs'));
+    sh(linked, 'add', '.');
+    sh(linked, 'commit', '-q', '-m', 'a symlink');
+    expect(() => approve(linked)).toThrow(/symlinks/);
+    writeFileSync(join(linked, '.costs-approved'), `${sh(linked, 'rev-parse', 'HEAD')}\n`);
+    expect(() => checkApproved(linked)).toThrow(/symlinks.*link\.mjs/);
   });
 
-  it('writes latest.json and prints only statuses, with no credential value or response body anywhere', async () => {
+  it('writes only latest.json and the day file, prints only statuses, and leaks no credential or body on any error path', async () => {
     const root = cloneRepo();
     approve(root);
-    const env = { ...dirsFor(), CROW_COSTS_DEEPSEEK_KEY: 'sk-FAKE-SECRET-VALUE-123', CROW_COSTS_GITHUB_TOKEN: 'ghp-FAKE-SECRET-VALUE-456' };
-    const fetch = fakeFetch((u, init) => ({ status: 401, body: `{"error":"bad key ${JSON.stringify(init.headers)} at ${u} RESPONSE-BODY-TEXT"}` }));
+    const before = listTree(root);
+    const env = { ...dirsFor(), CROW_COSTS_DEEPSEEK_KEY: 'sk-FAKE-SECRET-VALUE-123', CROW_COSTS_GITHUB_TOKEN: 'ghp-FAKE-SECRET-VALUE-456', CROW_COSTS_CLOUDFLARE_TOKEN: 'cf-FAKE-SECRET-VALUE-789', CLOUDFLARE_ACCOUNT_ID: ACCOUNT, CROW_COSTS_ANTHROPIC_ADMIN_KEY: 'sk-ant-admin01-FAKE-SECRET' };
+    const echo = (u: string, init: RequestInit) => `${JSON.stringify(init.headers)} ${u} RESPONSE-BODY-TEXT`;
+    const fetch = async (u: string, init: RequestInit = {}) => {
+      if (u.includes('deepseek')) return new Response(`{"error":"${echo(u, init)}"}`, { status: 401 });
+      if (u.includes('github')) return new Response(`not json ${echo(u, init)}`, { status: 200 });
+      if (u.includes('billable-usage')) return new Response(JSON.stringify({ success: false, note: echo(u, init) }), { status: 200 });
+      if (u.includes('graphql')) throw new Error(`socket closed ${echo(u, init)}`);
+      return new Promise<Response>((_, reject) => init.signal?.addEventListener('abort', () => reject(new Error(`aborted ${echo(u, init)}`))));
+    };
     const printed: string[] = [];
     const log = vi.spyOn(console, 'log');
     const err = vi.spyOn(console, 'error');
-    const doc = await collect({ cloneRoot: root, env, fetchImpl: fetch, now: NOW, sources: [deepseek, github, cloudflareBilling], log: (l: string) => printed.push(l) });
-    expect(doc.sources).toEqual([
-      { source: 'deepseek', ok: false, error: { type: 'http', status: 401 } },
-      { source: 'github', ok: false, error: { type: 'http', status: 401 } },
-      { source: 'cloudflare-billing', ok: false, error: { type: 'not_configured', status: null } },
+    const doc = await collect({ cloneRoot: root, env, fetchImpl: fetch, now: NOW, timeoutMs: 200, sources: [deepseek, github, cloudflareBilling, cloudflareAnalytics, anthropic, telemetry], log: (l: string) => printed.push(l) });
+    expect(doc.sources.map((s: { source: string; error?: { type: string } }) => [s.source, s.error?.type ?? 'ok'])).toEqual([
+      ['deepseek', 'http'],
+      ['github', 'parse'],
+      ['cloudflare-billing', 'shape'],
+      ['cloudflare-analytics', 'network'],
+      ['anthropic', 'timeout'],
+      ['telemetry', 'ok'],
     ]);
-    expect(printed.slice(0, 3)).toEqual(['deepseek: failed (http 401)', 'github: failed (http 401)', 'cloudflare-billing: not configured']);
+    expect(printed.slice(0, 2)).toEqual(['deepseek: failed (http 401)', 'github: failed (parse)']);
     const latest = readFileSync(join(env.CROW_COSTS_DIR, 'latest.json'), 'utf8');
     expect(JSON.parse(latest)).toEqual(doc);
-    expect(readdirSync(env.CROW_COSTS_DIR).sort()).toEqual(['2026-11-03.json', 'latest.json']);
+    expect(listTree(env.CROW_COSTS_DIR)).toEqual(['2026-11-03.json', 'latest.json']);
+    expect(listTree(env.CROW_TELEMETRY_DIR)).toEqual([]);
+    expect(listTree(root)).toEqual(before);
     for (const text of [latest, printed.join('\n')]) {
       expect(text).not.toContain('FAKE-SECRET');
       expect(text).not.toContain('RESPONSE-BODY-TEXT');
@@ -330,7 +416,7 @@ describe('the collector end to end', () => {
     err.mockRestore();
   });
 
-  it('refuses a missing, relative, in-clone, unignored or linked-worktree directory', () => {
+  it('refuses a missing, relative, in-clone, in-checkout, in-git-directory or linked-worktree directory', () => {
     const root = cloneRepo();
     const other = cloneRepo();
     writeFileSync(join(other, '.gitignore'), 'ignored/\n');
@@ -342,39 +428,84 @@ describe('the collector end to end', () => {
     refuse(undefined, /not set/);
     refuse('reports/costs', /full path/);
     refuse(join(root, 'reports', 'costs'), /inside the clone/);
-    refuse(join(other, 'costs'), /not git-ignored/);
-    refuse(join(linked, 'ignored', 'costs'), /linked worktree/);
-    expect(checkDir('CROW_COSTS_DIR', join(other, 'ignored', 'costs'), root)).toBe(join(other, 'ignored', 'costs'));
+    refuse(join(other, 'costs'), /inside a git checkout/);
+    refuse(join(other, 'ignored', 'costs'), /inside a git checkout/);
+    refuse(join(other, '.git', 'costs', 'x'), /inside a git (directory|checkout)/);
+    refuse(join(linked, 'ignored', 'costs'), /inside a git checkout/);
+    const outside = join(temp('crow-outside-'), 'costs');
+    expect(checkDir('CROW_COSTS_DIR', outside, root)).toBe(outside);
     expect(() => checkDir('X', undefined, root)).toThrow(DirRefused);
   });
 });
 
-describe('what the collector may run and write', () => {
-  const COSTS = resolve('scripts/costs');
+describe('the launcher', () => {
+  it('runs the approval check before any other cost module loads, and loads the keys only after it', () => {
+    const stub = [
+      "import { writeFileSync } from 'node:fs';",
+      "writeFileSync(new URL('../../marker.txt', import.meta.url), `top-level ran, key=${process.env.CROW_COSTS_TEST ?? 'none'}`);",
+      'export const isRefusal = () => false;',
+      'export async function collect() {}',
+      '',
+    ].join('\n');
+    const root = cloneRepo({
+      'scripts/costs/collect.mjs': readFileSync(join(COSTS, 'collect.mjs'), 'utf8'),
+      'scripts/costs/approved.mjs': readFileSync(join(COSTS, 'approved.mjs'), 'utf8'),
+      'scripts/costs/run.mjs': stub,
+    });
+    writeFileSync(join(root, '.env.costs'), 'CROW_COSTS_TEST=loaded\n');
+    const launch = () => spawnSync(process.execPath, [join(root, 'scripts', 'costs', 'collect.mjs')], { cwd: root, encoding: 'utf8', env: BARE_ENV });
+    const marker = join(root, 'marker.txt');
 
-  it('imports only node: modules and its own files', () => {
-    const files: string[] = [];
-    const walk = (d: string) => {
-      for (const e of readdirSync(d, { withFileTypes: true })) {
-        if (e.isDirectory()) walk(join(d, e.name));
-        else if (e.name.endsWith('.mjs')) files.push(join(d, e.name));
-      }
-    };
-    walk(COSTS);
-    expect(files.length).toBeGreaterThanOrEqual(12);
+    let r = launch();
+    expect(r.status).toBe(1);
+    expect(r.stderr).toMatch(/refused: no \.costs-approved/);
+    expect(existsSync(marker)).toBe(false);
+
+    approve(root);
+    r = launch();
+    expect(r.status).toBe(0);
+    expect(readFileSync(marker, 'utf8')).toBe('top-level ran, key=loaded');
+    rmSync(marker);
+
+    writeFileSync(join(root, 'scripts', 'costs', 'run.mjs'), `${stub}// changed after approval\n`);
+    r = launch();
+    expect(r.status).toBe(1);
+    expect(r.stderr).toMatch(/refused: .*scripts\/costs\/run\.mjs/);
+    expect(existsSync(marker)).toBe(false);
+  });
+});
+
+describe('what the collector may run and write', () => {
+  it('holds only .mjs files that import node: modules and each other, with no dynamic or indirect loading', () => {
+    const files = readdirSync(COSTS, { recursive: true, withFileTypes: true }).filter((e) => !e.isDirectory()).map((e) => join(e.parentPath, e.name));
+    expect(files.length).toBeGreaterThanOrEqual(14);
     for (const f of files) {
+      const name = relative(COSTS, f);
+      expect(f.endsWith('.mjs'), `${name} is not a .mjs file`).toBe(true);
+      expect(realpathSync(f), `${name} is a link`).toBe(f);
       const text = readFileSync(f, 'utf8');
+      for (const banned of [/\brequire\s*\(/, /createRequire/, /['"]node:(module|vm|worker_threads)['"]/, /\bimport\s*\(\s*[^'"\s]/, /\beval\s*\(/, /new\s+Function\b/]) {
+        expect(text, `${name} matches ${banned}`).not.toMatch(banned);
+      }
       const specs = [...text.matchAll(/(?:^|\n)\s*(?:import|export)\s[^'";]*?from\s*['"]([^'"]+)['"]|import\s*\(\s*['"]([^'"]+)['"]\s*\)|(?:^|\n)\s*import\s*['"]([^'"]+)['"]/g)].map((m) => m[1] ?? m[2] ?? m[3]);
-      expect(text).not.toMatch(/\brequire\s*\(/);
       for (const s of specs) {
         if (s.startsWith('node:')) continue;
-        expect(s.startsWith('./') || s.startsWith('../'), `${relative(COSTS, f)} imports ${s}`).toBe(true);
-        expect(relative(COSTS, resolve(dirname(f), s)).startsWith('..'), `${relative(COSTS, f)} imports ${s}`).toBe(false);
+        expect(s.startsWith('./') || s.startsWith('../'), `${name} imports ${s}`).toBe(true);
+        const target = resolve(dirname(f), s);
+        expect(relative(COSTS, target).startsWith('..'), `${name} imports ${s}`).toBe(false);
+        expect(existsSync(target), `${name} imports a missing ${s}`).toBe(true);
       }
     }
   });
 
-  it('keeps the approval record out of git', () => {
+  it('keeps the launcher down to node: modules and the approval check', () => {
+    const text = readFileSync(join(COSTS, 'collect.mjs'), 'utf8');
+    const statics = [...text.matchAll(/(?:^|\n)import\s[^'";]*?from\s*['"]([^'"]+)['"]/g)].map((m) => m[1]);
+    expect(statics.filter((s) => !s.startsWith('node:'))).toEqual(['./approved.mjs']);
+  });
+
+  it('keeps the approval record out of git, and package.json has no cost script', () => {
     expect(spawnSync('git', ['check-ignore', '-q', '.costs-approved']).status).toBe(0);
+    expect(readFileSync('package.json', 'utf8')).not.toMatch(/costs/);
   });
 });

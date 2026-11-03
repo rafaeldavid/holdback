@@ -24,7 +24,7 @@ Turn the collector's daily files into one page a month that answers three questi
 
 ## Rafa's steps
 
-1. After a week of daily files, approve this task's changes as in T-052 (step 7), then run the first real report in the clone: `node --env-file=.env.costs scripts/costs/report.mjs`. It refuses until you approve. Tell the agent its section headings and any error, never a figure (human, 5 min).
+1. After a week of daily files, approve this task's changes as in T-052 (step 7), then run the first real report in the clone: `node scripts/costs/report.mjs` (a launcher like T-052's `collect.mjs`: it checks the approval, then loads `.env.costs`). It refuses until you approve. Tell the agent its section headings and any error, never a figure (human, 5 min).
 2. Read it and set your budgets, and the mainnet gas and ETH prices to show, in `budgets.json` in the cost directory (human, 15 min, guessed).
 
 ## Agent steps

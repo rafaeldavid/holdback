@@ -8,8 +8,11 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-/** The cost code the approval covers. A path that does not exist yet (model-prices.json before T-053) is fine. */
-export const COVERED = ['scripts/costs', 'config/costs.template.json', 'config/model-prices.json'];
+/**
+ * The cost code the approval covers. A path that does not exist yet (model-prices.json before T-053) is fine.
+ * `.gitattributes` is covered because it can change what `git diff` shows a reviewer.
+ */
+export const COVERED = ['scripts/costs', 'config/costs.template.json', 'config/model-prices.json', '.gitattributes'];
 export const APPROVAL_FILE = '.costs-approved';
 
 /** Git runs with this environment only, so no hook or helper it starts can see a billing variable. */
@@ -42,10 +45,16 @@ export class ApprovalRefused extends Error {
 
 /** Cost files that differ from `commit`, or exist untracked. */
 export function changedSince(root, commit) {
-  const diff = git(['diff', '--name-only', commit, '--', ...COVERED], root);
+  const diff = git(['diff', '--no-ext-diff', '--no-textconv', '--name-only', commit, '--', ...COVERED], root);
   if (diff.status !== 0) throw new ApprovalRefused('git could not compare the cost code with the approved commit');
   const untracked = git(['ls-files', '--others', '--', ...COVERED], root);
   return [...diff.stdout.split('\n'), ...untracked.stdout.split('\n')].filter(Boolean);
+}
+
+/** Tracked symlinks under the covered paths: an approved link would let its target change unseen. */
+export function symlinksIn(root) {
+  const staged = git(['ls-files', '-s', '--', ...COVERED], root);
+  return staged.stdout.split('\n').filter((l) => l.startsWith('120000 ')).map((l) => l.split('\t')[1]);
 }
 
 /** Throws ApprovalRefused unless the cost code at `root` is the approved commit's. Returns that commit. */
@@ -58,6 +67,8 @@ export function checkApproved(root) {
   const commit = readFileSync(file, 'utf8').trim();
   if (!/^[0-9a-f]{40}$/.test(commit)) throw new ApprovalRefused(`${APPROVAL_FILE} does not hold a commit`);
   if (git(['cat-file', '-e', `${commit}^{commit}`], root).status !== 0) throw new ApprovalRefused('the approved commit is not in this clone');
+  const links = symlinksIn(root);
+  if (links.length) throw new ApprovalRefused('the cost code holds symlinks, whose targets the approval cannot cover', links);
   const changed = changedSince(root, commit);
   if (changed.length) throw new ApprovalRefused('the cost code changed since the approved commit; review it, then run node scripts/costs/approve.mjs', changed);
   return commit;

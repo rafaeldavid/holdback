@@ -14,6 +14,16 @@ export const credentials = [];
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 
+/**
+ * The top-level fields of T-031's day line (apps/demo-cloud/src/telemetry.ts, `telemetry: 'day'` and the World's
+ * day facts). Only these are copied, so a log record that wraps the line with request headers or other metadata
+ * never reaches CROW_TELEMETRY_DIR, which agents may read.
+ */
+const DAY_FIELDS = ['telemetry', 'day', 'routes', 'throttled', 'usage', 'journalEntries', 'liveJudges', 'deals', 'outcomes', 'conversion', 'signers', 'dropped'];
+
+const isDayLine = (v) => v && typeof v === 'object' && !Array.isArray(v) && v.telemetry === 'day' && typeof v.day === 'string' && DAY.test(v.day);
+const pick = (v) => Object.fromEntries(DAY_FIELDS.filter((k) => Object.hasOwn(v, k)).map((k) => [k, v[k]]));
+
 /** Every `{ telemetry: "day", day }` object inside a parsed value, including inside JSON-encoded strings. */
 export function findDayLines(value, out = [], depth = 0) {
   if (depth > 12 || value === null || value === undefined) return out;
@@ -28,7 +38,7 @@ export function findDayLines(value, out = [], depth = 0) {
   } else if (Array.isArray(value)) {
     for (const v of value) findDayLines(v, out, depth + 1);
   } else if (typeof value === 'object') {
-    if (value.telemetry === 'day' && DAY.test(String(value.day ?? ''))) out.push(value);
+    if (isDayLine(value)) out.push(pick(value));
     else for (const v of Object.values(value)) findDayLines(v, out, depth + 1);
   }
   return out;
@@ -54,7 +64,7 @@ export async function collect(ctx) {
   try {
     names = readdirSync(inbox).filter((n) => /\.(json|jsonl|ndjson|txt|log)$/.test(n)).sort();
   } catch {
-    return { lines: [], files: [], note: `no inbox yet: save Workers Logs exports in ${inbox}` };
+    return { lines: [], files: [], note: 'no inbox yet: save Workers Logs exports in the inbox folder of CROW_TELEMETRY_DIR' };
   }
   const byDay = new Map();
   for (const name of names) {

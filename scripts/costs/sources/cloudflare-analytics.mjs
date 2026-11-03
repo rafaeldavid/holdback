@@ -46,7 +46,7 @@ export async function collect(ctx) {
     lines.push(line(`Worker ${name}`, 'requests', w?.sum?.requests ?? '0'));
     lines.push(line(`Worker ${name}`, 'errors', w?.sum?.errors ?? '0'));
     lines.push(line(`Worker ${name}`, 'subrequests', w?.sum?.subrequests ?? '0'));
-    if (w?.quantiles?.cpuTimeP99 !== undefined) lines.push(line(`Worker ${name}`, 'cpu-time-p99-microseconds', canonicalDecimal(w.quantiles.cpuTimeP99)));
+    if (w?.quantiles?.cpuTimeP99 != null) lines.push(line(`Worker ${name}`, 'cpu-time-p99-microseconds', canonicalDecimal(w.quantiles.cpuTimeP99)));
   }
   if (Array.isArray(acct.durableObjects)) {
     lines.push(line('Durable Objects', 'requests', addDecimals(...acct.durableObjects.map((g) => g?.sum?.requests ?? '0'))));

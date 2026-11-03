@@ -13,7 +13,7 @@
 Run the collector, the report and the rules once a day without anyone remembering to, keep the billing credentials outside every agent session, run only code Rafa approved with them, and tell Rafa when a rule fires or a run fails.
 
 - Inputs: T-052's collector and dedicated clone, T-053's report, T-054's rules.
-- Outputs: one command, `node --env-file=.env.costs scripts/costs/daily.mjs`, scheduled in the dedicated clone; alerts at the top of the day's file; one message on Rafa's chosen channel when a rule fires or a run fails; `cost-signals.json` in `CROW_TELEMETRY_DIR`, holding the date, each source's status and the names of the rules that fired, never a figure.
+- Outputs: one command, `node scripts/costs/daily.mjs`, scheduled in the dedicated clone; alerts at the top of the day's file; one message on Rafa's chosen channel when a rule fires or a run fails; `cost-signals.json` in `CROW_TELEMETRY_DIR`, holding the date, each source's status and the names of the rules that fired, never a figure.
 - Non-goals: a dashboard, publishing any figure, the agent-ops phase's alarms (T-047).
 
 ## Context
@@ -45,7 +45,7 @@ Every step is **human**. About 30 minutes (guessed).
 
 ## Agent steps
 
-1. **`daily.mjs`**, importing only `node:` modules (T-052):
+1. **`daily.mjs`**, a launcher like T-052's `collect.mjs`: it imports only `node:` modules and `approved.mjs` until the check passes, then loads `.env.costs` and the rest:
    1. Fast-forward the clone to `origin/main` (`git pull --ff-only`), running `git` with an environment stripped of every variable from `.env.costs`, so no git hook can see a billing key.
    2. Run T-052's approval check (`approved.mjs`), which refuses when the cost scripts or their config differ from the commit in `.costs-approved`, and says which files changed.
    3. Collect, report, rules.
@@ -54,7 +54,7 @@ Every step is **human**. About 30 minutes (guessed).
 3. **`cost-signals.json`**: write it each run to `CROW_TELEMETRY_DIR`, and document its shape in `docs/costs.md`: the date, each source's status, the names of the rules that fired. No figure.
 4. **A test alert**: a `--test-alert` flag sends one message saying it is a test, so Rafa can check the channel without a threshold change.
 5. **CODEOWNERS**: add `/scripts/costs/ @rafaeldavid`, beside the existing human-gate lines.
-6. **The launchd template**, with the schedule, the working directory, the absolute `node` path as a placeholder, `node --env-file=.env.costs scripts/costs/daily.mjs`, and logs in the cost directory.
+6. **The launchd template**, with the schedule, the working directory, the absolute `node` path as a placeholder, `node scripts/costs/daily.mjs`, and logs in the cost directory.
 
 ## Acceptance criteria
 

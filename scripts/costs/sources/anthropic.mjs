@@ -11,10 +11,6 @@ export const credentials = ['CROW_COSTS_ANTHROPIC_ADMIN_KEY'];
 const BASE = 'https://api.anthropic.com/v1/organizations';
 const MAX_PAGES = 20;
 
-function nextDay(day) {
-  return new Date(Date.parse(`${day}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
-}
-
 async function pages(ctx, path, params) {
   const headers = { 'x-api-key': ctx.env.CROW_COSTS_ANTHROPIC_ADMIN_KEY, 'anthropic-version': '2023-06-01' };
   const buckets = [];
@@ -34,7 +30,8 @@ async function pages(ctx, path, params) {
 const workspace = (w) => w ?? 'Default workspace';
 
 export async function collect(ctx) {
-  const range = [['starting_at', `${ctx.period.from}T00:00:00Z`], ['ending_at', `${nextDay(ctx.period.to)}T00:00:00Z`], ['bucket_width', '1d'], ['limit', '31']];
+  // No ending_at: it is optional, and the report then runs to now.
+  const range = [['starting_at', `${ctx.period.from}T00:00:00Z`], ['bucket_width', '1d'], ['limit', '31']];
   const line = (product, unit, quantity, amount, basis) =>
     makeLine({ source: id, product, unit, quantity, amount, basis, periodFrom: ctx.period.from, periodTo: ctx.period.to });
 
@@ -57,10 +54,11 @@ export async function collect(ctx) {
     const key = JSON.stringify([product, unit]);
     tokens.set(key, { product, unit, quantity: addDecimals(tokens.get(key)?.quantity ?? '0', n) });
   };
-  for (const bucket of await pages(ctx, 'usage_report/messages', [...range, ['group_by[]', 'workspace_id'], ['group_by[]', 'model']])) {
+  // Grouped by key too, so T-054 can see a key that did not appear last month.
+  for (const bucket of await pages(ctx, 'usage_report/messages', [...range, ['group_by[]', 'workspace_id'], ['group_by[]', 'model'], ['group_by[]', 'api_key_id']])) {
     expectShape(Array.isArray(bucket?.results));
     for (const r of bucket.results) {
-      const product = `${r.model ?? 'unknown model'} [${workspace(r.workspace_id)}]`;
+      const product = `${r.model ?? 'unknown model'} [${workspace(r.workspace_id)}] [key ${r.api_key_id ?? 'Console'}]`;
       add(product, 'input_tokens', r.uncached_input_tokens);
       add(product, 'output_tokens', r.output_tokens);
       add(product, 'cache_read_input_tokens', r.cache_read_input_tokens);

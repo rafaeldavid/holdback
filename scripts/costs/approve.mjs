@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-// Records the clone's current commit as the approved cost code (T-052, step 7). It needs no variable, so run it
-// without --env-file: `node scripts/costs/approve.mjs`. Read the cost code first; docs/costs.md says how.
+// Records the clone's current commit as the approved cost code (T-052, step 7). It needs no variable and loads
+// none: `node scripts/costs/approve.mjs`. Read the cost code first; docs/costs.md says how.
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { APPROVAL_FILE, COVERED, ApprovalRefused, changedSince, cloneRootOf, git } from './approved.mjs';
+import { APPROVAL_FILE, COVERED, ApprovalRefused, changedSince, cloneRootOf, git, symlinksIn } from './approved.mjs';
 
 /** Approves HEAD at `root`. Refuses uncommitted cost code, so the record names exactly what was read. */
 export function approve(root) {
@@ -13,6 +13,8 @@ export function approve(root) {
   if (git(['ls-files', '--error-unmatch', '--', APPROVAL_FILE], root).status === 0) {
     throw new ApprovalRefused(`${APPROVAL_FILE} is tracked by git; remove it from the index first`);
   }
+  const links = symlinksIn(root);
+  if (links.length) throw new ApprovalRefused('the cost code holds symlinks, which cannot be approved', links);
   const uncommitted = changedSince(root, 'HEAD');
   if (uncommitted.length) throw new ApprovalRefused('the cost code has uncommitted changes; approve only committed code', uncommitted);
   const file = join(root, APPROVAL_FILE);

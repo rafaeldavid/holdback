@@ -56,8 +56,8 @@ A limit that stops spending also stops service. At an Anthropic or DeepSeek limi
 
 ### Where credentials and figures live
 
-- Billing credentials stay in one file, `.env.costs`, at the root of a dedicated clone of the repository on a machine Rafa controls (T-052), loaded with Node's `--env-file`. No agent works in that clone or runs anything with that file: every step that needs it is Rafa's, and he passes on only results without a billing figure. A separate file keeps the Admin key away from the scripts that load `.env` (`pnpm demo`, `pnpm demo-cloud:secrets`, the feedback routine). `.gitignore` covers `.env.*`, and the permission deny list blocks reading it, but not a Bash command that loads it, so the file never sits in a checkout where agents work. Never in a build or deploy session, a Worker or GitHub Actions: the repository is public, so its workflow logs are public too.
-- The dedicated clone only fast-forwards to `origin/main`, and every cost script that loads billing keys refuses to run when `scripts/costs/` or its config changed since the commit Rafa last approved, a git-ignored record kept beside `.env.costs` (T-052). Git runs without the billing variables in its environment, so a hook cannot see them. Agents may merge to `main` after CI and review, so this keeps agent-merged code from running with the Admin key unseen. The scripts import only Node's built-in modules, so no package from the lockfile runs with it either.
+- Billing credentials stay in one file, `.env.costs`, at the root of a dedicated clone of the repository on a machine Rafa controls (T-052), loaded by the collector's launcher only after the approval check. No agent works in that clone or runs anything with that file: every step that needs it is Rafa's, and he passes on only results without a billing figure. A separate file keeps the Admin key away from the scripts that load `.env` (`pnpm demo`, `pnpm demo-cloud:secrets`, the feedback routine). `.gitignore` covers `.env.*`, and the permission deny list blocks reading it, but not a Bash command that loads it, so the file never sits in a checkout where agents work. Never in a build or deploy session, a Worker or GitHub Actions: the repository is public, so its workflow logs are public too.
+- The dedicated clone only fast-forwards to `origin/main` after Rafa reads the diff. Every cost script that loads billing keys is a launcher: it imports only Node's built-in modules and the approval check, refuses to go on when `scripts/costs/`, its config or `.gitattributes` changed since the commit Rafa last approved (a git-ignored record beside `.env.costs`), and only then loads the keys and the rest of the code (T-052). Git runs with an allowlisted environment, so a hook cannot see a key. Agents may merge to `main` after CI and review, so this keeps agent-merged code from running with the Admin key unseen. The scripts run with `node`, never `pnpm`, so no `package.json` hook or package from the lockfile runs either.
 - The Anthropic Admin key is the most sensitive key here. It has no read-only scope, so it can create and revoke keys and workspaces. If the Console organization can grant a narrower key later, switch to it.
 - Reports, budgets, thresholds and the account register go in one cost directory: `CROW_COSTS_DIR`, a full path Rafa chooses outside the clone and outside every checkout, for example `/Users/<you>/crow-data/costs`. Agents never write there: they draft, and Rafa saves. No figure from it goes into a commit, a PR, an issue, the design map, the daily log or a PR footer.
 - What the agent-ops phase may read goes in a separate directory, `CROW_TELEMETRY_DIR`, for example `/Users/<you>/crow-data/telemetry`: T-031's day lines and `cost-signals.json`, which holds rule names and no figure. Reading it never gives access to the clone or the cost directory.
@@ -76,11 +76,11 @@ A limit that stops spending also stops service. At an Anthropic or DeepSeek limi
 
 ### Running the collector (T-052)
 
-Only Rafa runs it, in the dedicated clone, with `.env.costs` (template: `config/keys-costs.template`):
+Only Rafa runs it, in the dedicated clone, with `.env.costs` at the clone's root (template: `config/keys-costs.template`). Run it with `node`, never `pnpm` (a `package.json` hook would run outside the approval check), and without `--env-file`: the launcher loads `.env.costs` itself, after the check.
 
 ```sh
-node scripts/costs/approve.mjs                               # after reading the cost code; needs no keys
-node --env-file=.env.costs scripts/costs/collect.mjs         # or: pnpm costs:collect
+node scripts/costs/approve.mjs                               # after reading the cost code; loads no keys
+node scripts/costs/collect.mjs
 ```
 
 It prints one status per source (`read`, `not configured` or `failed (<type> <status>)`) and the path it wrote, never a figure. The Sepolia and Claude Code sources need no credential, so a first run shows balances and tokens before any token exists.
@@ -89,12 +89,12 @@ It prints one status per source (`read`, `not configured` or `failed (<type> <st
 
 ```sh
 git fetch origin
-git diff "$(cat .costs-approved)" origin/main -- scripts/costs config/costs.template.json config/model-prices.json
+git diff --text --no-textconv --no-ext-diff "$(cat .costs-approved)" origin/main -- scripts/costs config/costs.template.json config/model-prices.json .gitattributes
 git merge --ff-only origin/main                              # only after reading that diff
 node scripts/costs/approve.mjs
 ```
 
-Every cost script that loads keys refuses to run while the cost code differs from the approved commit (`scripts/costs/approved.mjs`), which catches a pull nobody reviewed. T-055's daily routine compares before it fast-forwards, so it never runs unapproved code.
+The flags keep a committed `.gitattributes` or a configured diff tool from hiding a change. Every cost script that loads keys refuses to run while the cost code differs from the approved commit or holds a symlink (`scripts/costs/approved.mjs`), which catches a pull nobody reviewed; the launcher runs that check before any other cost module loads. T-055's daily routine compares before it fast-forwards, so it never runs unapproved code.
 
 **What it writes.** In `CROW_COSTS_DIR`: `<YYYY-MM-DD>.json` and the same content in `latest.json`, which the founders' control page reads, plus `claude-code-<YYYY-MM-DD>.json` with tokens per day, session, branch and model for T-053. In `CROW_TELEMETRY_DIR`: `day-<YYYY-MM-DD>.json`, one per T-031 day line found in `inbox/`.
 
