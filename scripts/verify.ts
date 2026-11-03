@@ -24,7 +24,7 @@ const steps: Step[] = [
   { name: 'demo', command: ['pnpm', 'demo'] },
 ];
 
-// Placeholder scripts (scripts/placeholder.mjs) print this marker; they never count as passing.
+// A command that prints this marker is a placeholder; it never counts as passing.
 const PLACEHOLDER = 'not implemented yet';
 
 function git(args: string[]): string {

@@ -683,7 +683,7 @@ export class SimChain implements Settlement {
     tx.setRec(id, { ...tx.rec(id)!, state });
   }
 
-  private beaconFact(tx: Tx, state: EscrowState, role: 'primary' | 'fallback' | 'appeal'): BeaconFact | null {
+  private beaconFact(state: EscrowState, role: 'primary' | 'fallback' | 'appeal'): BeaconFact | null {
     if (role === 'primary') return null;
     const round = beaconRoundFor(state, role);
     const value = round === null ? null : this.beacon(round);
@@ -849,7 +849,7 @@ export class SimChain implements Settlement {
     const rec = this.recOf(tx, id);
     const prev = rec.state;
     tx.useNonce(`${lc(m.adjudicator)}:${m.nonce}`);
-    const beacon = this.beaconFact(tx, prev, m.role);
+    const beacon = this.beaconFact(prev, m.role);
     const next = this.stepped(prev, { type: 'decide', at: tx.at, message: m, beacon });
     const { terms } = next;
     const { price, adjudication, buyer, seller } = terms;

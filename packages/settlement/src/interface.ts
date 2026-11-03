@@ -56,8 +56,6 @@ export type Submission =
   | { kind: 'mutual_settle'; message: MutualSettlement }
   | { kind: 'trigger'; commitmentId: Hex32; timeout: TimeoutKind };
 
-export type SubmissionKind = Submission['kind'];
-
 type Unsigned<T> = T extends { signature: Signature } ? Omit<T, 'signature'> & { signature?: Signature } : T;
 
 /**

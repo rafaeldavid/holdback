@@ -6,7 +6,6 @@ import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AdjudicatorRegistration, Address, Hex32, HoldbackDomain, TokenAmount } from '@holdback/core';
-import { encodePublicKey, encryptionKeyPairFromSecretKey } from '@holdback/core/crypto';
 import { fakeProvider, type FakeScript, type JudgeProvider, type LoadedRegistry } from '@holdback/judgment';
 import { keccak256, stringToBytes, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
@@ -123,6 +122,3 @@ export function testAdjudicator(o: TestAdjudicatorOptions): TestAdjudicator {
   });
   return { address, service, registration: () => service.registration(), runOnce: () => service.runOnce() };
 }
-
-/** The encryption public key for a secret key, as a registration publishes it. */
-export const encryptionPublicKeyOf = (secretKey: Uint8Array) => encodePublicKey(encryptionKeyPairFromSecretKey(secretKey).publicKey);

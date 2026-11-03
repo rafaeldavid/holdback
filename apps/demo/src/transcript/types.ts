@@ -192,8 +192,6 @@ export type DemoEvent =
   | (At & { kind: 'balances'; actor: CastKey; label: string; rows: BalanceRow[] })
   | (At & { kind: 'signed'; actor: CastKey; messageType: string; signer: string; body: { [key: string]: Json }; signature: string });
 
-export type EventKind = DemoEvent['kind'];
-
 /** Where a beat's numbers come from. */
 export interface TranscriptSource {
   /** 'mixed': SimChain events plus stand-in events, each stand-in event marked `standIn`. */
@@ -210,8 +208,8 @@ export interface BeatTranscript {
   summary: string;
   /** The litmus test this beat shows. */
   litmus: string;
-  /** scripted: fake judges; recorded: replayed model recordings; live: models called in this run. */
-  mode: 'scripted' | 'recorded' | 'live';
+  /** scripted: fake judges; live: models called in this run. */
+  mode: 'scripted' | 'live';
   source: TranscriptSource;
   commitmentId?: string;
   events: DemoEvent[];

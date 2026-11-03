@@ -9,12 +9,6 @@ import type { AdjudicatorRole, Hex32, RandomnessSource as RandomnessSourceKind, 
 
 export { panelSeed } from '@holdback/core';
 
-export interface BeaconRound {
-  source: RandomnessSourceKind;
-  round: number;
-  value: Hex32;
-}
-
 /** Reads beacon rounds. `value` is null until the round is published; there is no substitute source. */
 export interface RandomnessSource {
   readonly kind: RandomnessSourceKind;

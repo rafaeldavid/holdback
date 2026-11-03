@@ -1,9 +1,8 @@
 // Judgment inputs in the schema v0.5 shapes (D17, D18; ADR-0021, ADR-0022), as aliases of core's
 // types. Judgment needs only these parts of the commitment and the adjudicator policy.
-import type { AcceptanceSpec, AdjudicatorPolicy, Bps, Criterion, DeterministicCheck, Fraction, HiddenCharacterMax } from '@holdback/core';
+import type { AcceptanceSpec, AdjudicatorPolicy, Bps, Criterion, DeterministicCheck, Fraction } from '@holdback/core';
 
 export type { Bps, Fraction };
-export type HiddenCharacterLimits = HiddenCharacterMax;
 export type JudgmentCheck = DeterministicCheck;
 export type JudgmentCriterion = Criterion;
 /** passThreshold in hundredths (0..400); criterion weights are integers 1..10000. */
