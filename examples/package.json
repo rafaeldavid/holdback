@@ -11,6 +11,7 @@
     "viem": "^2.57.13"
   },
   "devDependencies": {
+    "@holdback/demo-cloud": "workspace:*",
     "@holdback/operator": "workspace:*"
   }
 }
