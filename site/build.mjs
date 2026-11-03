@@ -554,7 +554,7 @@ export function filled(md, { op1, op2, command = tryCommand() }) {
   const ok = (u) => typeof u === 'string' && /^https:\/\/[^\s/]+$/.test(u);
   if (!ok(op1) || !ok(op2)) throw new Error('--op1 and --op2 are https origins with no path and no trailing slash, e.g. https://holdback-op1.example.workers.dev');
   const out = strip(md).replace('{{OP1}}', op1).replace('{{OP2}}', op2).replace('{{TRY_COMMAND}}', () => command);
-  if (/\{\{[A-Z0-9]+\}\}/.test(out)) throw new Error('a placeholder is left unfilled');
+  if (/\{\{[A-Z0-9_]+\}\}/.test(out)) throw new Error('a placeholder is left unfilled');
   return out;
 }
 
