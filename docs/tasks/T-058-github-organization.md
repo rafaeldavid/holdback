@@ -4,10 +4,10 @@
 - **Phase:** 9
 - **Depends on:** nothing in the repository. It starts after a working mainnet prototype (Rafa, 2026-11-03: "lets add this to the roadmap for later, once we have working mainnet prototype"). Mainnet itself needs an audit and Rafa's written approval (`docs/operations.md`, Gates).
 - **Paths this task may touch:**
-  - before the transfer: `.github/workflows/ci.yml` (the `gitleaks` job only);
-  - links, after it: `README.md`, `CONTRIBUTING.md`, `site/build.mjs`, `site/check.mjs`, `site/llms.txt` and the generated `site/index.html`, `spec/openapi/paths.json` and the generated `spec/openapi.json`, `apps/operator/src/openapi/index.ts` (`API_REFERENCE` only), `tests/contract/openapi.contract.test.ts` (the asserted URL only), `tools/design-map/template.html`, `agent-ops/flow.html`, living documents in `docs/`;
+  - before the transfer: `.github/workflows/ci.yml` (the `gitleaks` job only), `.gitleaksignore` (new, reviewed false positives only);
+  - links, after it: `README.md`, `CONTRIBUTING.md`, `examples/try.ts` (its source comment, which does not reach the bundle), `site/build.mjs` (the page's links, not `tryBanner`), `site/check.mjs`, `site/llms.txt` and the generated `site/index.html`, `spec/openapi/paths.json` and the generated `spec/openapi.json`, `apps/operator/src/openapi/index.ts` (`API_REFERENCE` only), `tests/contract/openapi.contract.test.ts` (the asserted URL only), `tools/design-map/template.html`, `agent-ops/flow.html`, living documents in `docs/`;
   - `config/keys-dev-env.template` (the token's resource owner), `.github/CODEOWNERS`, `docs/operations.md` (where the repositories live), `docs/tasks/T-058-github-organization.md`.
-  - Left as written: `prompts/`, `docs/log/`, `docs/reviews/`, task Evidence, and the source comment in `examples/try.ts` (changing it would change the pinned sha256 of `site/try.mjs` for no gain).
+  - Left as written: `prompts/`, `docs/log/`, `docs/reviews/`, task Evidence, and `tryBanner` in `site/build.mjs` with the `site/try.mjs` it generates. The banner is the only old path inside the bundle (line 2), and changing it would change the sha256 pinned in the homepage command and `llms.txt`; the old path redirects.
 - **Human gate:** **yes.** Creating the organization, its settings, the DNS record, transferring repositories, granting access and redeploying are all outside the repository. Rafa does the organization steps himself; agents run the transfer and access steps only on his go-ahead, given in chat and recorded in Handoff with the date.
 - **Status:** todo
 - **Agent/session:** —
@@ -59,7 +59,10 @@ Every step is **human**. About 1 hour, plus up to 72 hours for DNS (guessed; the
 
 ## Agent steps
 
-1. **Before the transfer, in its own PR (infra), with no go-ahead needed** (1 hour). Replace `gitleaks/gitleaks-action@v2` with the gitleaks CLI at a pinned release, checked against its published sha256, in a job still named `gitleaks`, so the required check's name and its scan of the full history stay the same. Coordinate with PR 109 if it is still open, since it pins the CI actions. CI must pass on that PR.
+1. **Before the transfer, in its own PR (infra), with no go-ahead needed** (1 hour). Replace `gitleaks/gitleaks-action@v2` with the gitleaks CLI at a pinned release, checked against its published sha256, in a job still named `gitleaks`, so the required check's name stays the same.
+   - Find out which commits the action scans on a push and on a PR (it is said to scan only the event's commits, inferred: read its source to confirm), make the CLI job scan the same range, and state that range in the workflow.
+   - Run the CLI once over the full history in that PR, and record any reviewed false positives in `.gitleaksignore`, so no old commit can fail a later run.
+   - Coordinate with PR 109 if it is still open, since it pins the CI actions. CI must pass on that PR.
 2. **Record what exists** (15 min), in `reports/scratch/t-058-before.json`: the `holdback` rulesets with their rules (`gh api repos/rafaeldavid/holdback/rulesets` and each ruleset by ID), `security_and_analysis`, Actions secret and variable names (never values), webhooks and deploy keys (IDs and URLs only), environments. The same for the private repository, where they exist.
 3. **Transfer** (10 min). `gh api -X POST repos/rafaeldavid/holdback/transfer -f new_owner=<organization>`, then the same for the private repository. Never create a repository with either name under `rafaeldavid` afterwards: it would delete the redirects.
 4. **Check what moved** (30 min), against the record from step 2, and record each result in Evidence:
@@ -69,7 +72,7 @@ Every step is **human**. About 1 hour, plus up to 72 hours for DNS (guessed; the
    - redirects: `curl -sI` on `https://github.com/rafaeldavid/holdback`, on `https://raw.githubusercontent.com/rafaeldavid/holdback/main/docs/api.md` (the live nodes' `API_REFERENCE` until the redeploy), and on `https://api.github.com/repos/rafaeldavid/holdback`;
    - a CI run on a trivial PR passes every required check, `gitleaks` included.
 5. **Teams and roles** (10 min). Create `maintainers` (Rafa; admin on both repositories) and `contributors`. Give the contributor named in the go-ahead triage on `holdback` and write on the private repository, through `contributors` if team roles allow triage, otherwise directly. They need 2FA on before joining.
-6. **Links** (1 hour), in a PR after the transfer: replace `github.com/rafaeldavid/holdback` and `raw.githubusercontent.com/rafaeldavid/holdback` with the organization's paths in the files listed under Paths, the contract test's asserted URL included. Regenerate `spec/openapi.json` (`pnpm openapi`) rather than editing it; the change is to links in descriptions, not the contract. Rebuild and check the site (`node site/build.mjs`, `node site/check.mjs`). Point `config/keys-dev-env.template` at the organization as the token's resource owner. Consider `@<organization>/maintainers` in `.github/CODEOWNERS`. Tell Rafa the operators and the site need a redeploy (his step 6).
+6. **Links** (1 hour), in a PR after the transfer: replace `github.com/rafaeldavid/holdback` and `raw.githubusercontent.com/rafaeldavid/holdback` with the organization's paths in the files listed under Paths, the contract test's asserted URL included. Regenerate `spec/openapi.json` (`pnpm openapi`) rather than editing it; the change is to links in descriptions, not the contract. Rebuild and check the site (`node site/build.mjs`, `node site/check.mjs`), and confirm `site/try.mjs` did not change. Point `config/keys-dev-env.template` at the organization as the token's resource owner. Consider `@<organization>/maintainers` in `.github/CODEOWNERS`. Tell Rafa the operators and the site need a redeploy (his step 6).
 7. **Remotes** (5 min): `git remote set-url origin https://github.com/<organization>/holdback.git` in the main checkout (its worktrees share the setting). Tell the contributor to update the upstream of their fork. The cost clone is Rafa's (his step 6).
 
 ## Acceptance criteria
@@ -79,7 +82,7 @@ Every step is **human**. About 1 hour, plus up to 72 hours for DNS (guessed; the
 - [ ] Rafa confirms the organization settings in Handoff: 2FA required, no base permission, no repository creation by members, the token policy set, and the domain verified or noted as unavailable.
 - [ ] The `holdback` `main` ruleset and security settings match the record from agent step 2 (measured with the API, diff in Evidence).
 - [ ] The contributor has triage on `holdback` and write on the private repository (measured with `gh api repos/<organization>/<repository>/collaborators/<login>/permission`; Evidence records the result, not the login).
-- [ ] `git grep 'rafaeldavid/holdback'` finds only the files left as written under Paths; `pnpm openapi`, `node site/build.mjs` and `node site/check.mjs` leave a clean tree; CI passes on the links PR; after Rafa's redeploy, the live `/llms.txt` names the organization's path (measured).
+- [ ] `git grep 'rafaeldavid/holdback'` finds only the files and lines left as written under Paths, and the sha256 of `site/try.mjs` is unchanged; `pnpm openapi`, `node site/build.mjs` and `node site/check.mjs` leave a clean tree; CI passes on the links PR; after Rafa's redeploy, the live `/llms.txt` names the organization's path (measured).
 
 ## Out of scope
 
