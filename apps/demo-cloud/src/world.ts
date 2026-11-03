@@ -543,9 +543,11 @@ export class PublicWorld {
    * fallback takeover's judgeBy, whether active or not: one alarm per takeover.
    */
   nextPass(): number | null {
-    if (!this.active()) return this.wake;
+    // A wake that is not ahead is stale (a look counts a past takeover as due): an alarm set in the past fires at once.
+    const wake = this.wake !== null && this.wake > this.now() ? this.wake : null;
+    if (!this.active()) return wake;
     const wait = Math.min((this.live ? CHAIN_PASS_MS : PASS_MS) * 2 ** this.idlePasses, SLOWEST_PASS_MS);
-    return Math.min(this.now() + wait, this.wake ?? Infinity);
+    return Math.min(this.now() + wait, wake ?? Infinity);
   }
 
   /** Restarts the activity window and the one-second cadence. */
@@ -666,7 +668,12 @@ export class PublicWorld {
         this.o.onError?.(e as Error);
       }
       // The adjudicators wait for a verified chain and their own bonds: an acceptance without one is refused on chain.
-      if (!this.ready()) return this.persist();
+      // The look still runs, so a takeover whose judgeBy passed meanwhile is due, not a stale wake (T-057 review 4).
+      if (!this.ready()) {
+        await this.persist();
+        await this.look();
+        return;
+      }
     }
     const { panel } = this;
     for (const [role, a] of Object.entries(this.adjudicators) as [Role, TestAdjudicator][]) {

@@ -146,6 +146,13 @@ describe.skipIf(!ready)(`the public world on a live chain (anvil for Sepolia)${r
       expect(w).toBeGreaterThan(4000 * 2 ** i - 500);
       expect(w).toBeLessThanOrEqual(4000 * 2 ** i);
     }
+    // A takeover wake whose judgeBy passed during the outage (set by hand: this storage holds no Delivered deal) never
+    // schedules a pass in the past, and a failing pass still rereads settlement state (T-057 review 4).
+    const inside = down as unknown as { wake: number | null };
+    inside.wake = Date.now() - 1000;
+    expect(down.nextPass()!).toBeGreaterThan(Date.now());
+    await down.work();
+    expect(inside.wake).toBeNull();
     expect(again.digest()).toBe(world.digest());
     const before = (world.chain as EvmSettlement).log();
     expect((again.chain as EvmSettlement).log()).toEqual(before);
