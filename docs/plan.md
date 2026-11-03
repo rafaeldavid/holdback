@@ -1,6 +1,6 @@
 # Plan
 
-Iterative. Demo first, then harden one layer per phase. Each phase ends with evidence, a plan update and ADRs closed or deferred. Phases 0 to 2 and Phase 9 have task files in `docs/tasks/` (T-016b does not yet), and Phases 3 and 5 have one each (T-309, T-214). The architect writes later phases' task files at the start of each phase.
+Iterative. Demo first, then harden one layer per phase. Each phase ends with evidence, a plan update and ADRs closed or deferred. Phases 0 to 2, 9 and 10 have task files in `docs/tasks/` (T-016b does not yet), and Phases 3 and 5 have one each (T-309, T-214). The architect writes later phases' task files at the start of each phase.
 
 **Releases:** v0.1 = Phases 0–3 · v0.2 = Phases 4–5 · v0.3 = Phase 6.
 
@@ -175,6 +175,30 @@ Appended after Phase 8, like it, so no phase number moves (Rafa, 2026-11-03). It
 - Every account in `docs/costs.md` that can spend has a cap or an alert, and every account has its renewal date, in the register (T-051, confirmed by Rafa).
 - A month's report exists with each provider read by API or marked as entered by hand, and unit costs per demo deal and per merged PR (measured).
 - Each anomaly rule fired on test data, and one test alert reached Rafa on his channel (measured).
+
+## Phase 10: Agent operations
+
+Goal: agent teams develop Crow continuously from tickets, agent feedback, the roadmap and usage telemetry, in an isolated environment with scoped credentials, under automated checks and cross-family review.
+
+**Not active.** The design is in `agent-ops/` (PR 112), and `agent-ops/STATUS` reads `inactive`. No Phase 10 task starts until Rafa starts the phase. The pipeline runs only after T-050, which needs Rafa's go-ahead at each step. Appended after Phase 9, so no phase number moves. Tasks are listed in dependency order; each is one PR, except T-039's agent part, which is two.
+
+- T-039 Isolated development environment: Rafa's checklist and the agents' scripts (infra; human gate). The checklist covers a VM or a Claude Code cloud environment, scoped tokens, spend caps and 2FA. The VM gets the agents' own GitHub Apps: a builder identity with no Workflows permission, and a separate reviewer identity. The scripts cover setup, one Unix user per role, key custody, a smoke test and prompt-free permissions.
+- T-040 Agent-ops config loader and the model mix: `ops.yaml` validated, models pinned, rates in basis points, the GPT fallback chosen, the inert-pipeline test (infra).
+- T-041 Intake, the quarantine and triage: tickets, agent feedback and CI signals become `TriageRecord`s through a triager with no tools, then tasks through the architect (infra; human gate for the first feedback export).
+- T-042 The usage-telemetry lane: signal rules over T-052's day-line export, T-055's cost signals, and the website and onchain aggregates open records without a model (infra; human gate for Web Analytics and a social reader).
+- T-043 Feedback requests at deal milestones for agents that opt in: an ADR, a schema version bump and two signal rules (api).
+- T-044 Security gates: risk tiers with the gate-defining files in tier 3, guardrails (approval lines, ADR acceptance, Rafa's review on a raised PR), the shell guard, the proposed deny list, CODEOWNERS; none wired before activation (infra).
+- T-045 The cross-family review check `xreview`: DeepSeek reviews tier 2 and 3 diffs blind, posted as a status that holds only under three stated preconditions (infra; human gate for live runs).
+- T-046 Red-team and cross-family reviews at milestones: per-PR red team on tier 2, phase exits, ADRs, schema and judge-list changes, deploys; agreement and canary metrics (infra; human gate for live runs).
+- T-047 The kill switch and observability: fail-closed switches, stop, alarms, the PR footer, per-tick metrics, the budget stop, daily pipeline figures (infra).
+- T-048 Dispatch and lane ownership: task lint, briefs from task fields only, the stateless tick, branch claims, single writers (infra).
+- T-049 CI cost and flake control for parallel lanes: the Known flakes list with expiry, one retry, lane pause; links T-034 to T-036 (infra).
+- T-050 Activation, one reversible step at a time, each on Rafa's go-ahead (infra; human gate): review keys in an Environment, a required review by the reviewer's App, a tier 3 ruleset, tool limits, enforcement from a trusted checkout, triggers, a shadow week, one lane, then three.
+
+**Exit:**
+- `agent-ops/STATUS` reads `active` and the repository variable `AGENT_OPS` is `on`, both set by Rafa (T-050).
+- One lane merged 10 PRs without a revert, then three lanes ran with the cross-family gates (measured in the daily log).
+- No agent session can read a credential for Rafa's personal accounts (T-039 smoke test, measured).
 
 ## Scenario index
 
