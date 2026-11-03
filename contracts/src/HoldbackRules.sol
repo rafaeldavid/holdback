@@ -55,8 +55,7 @@ contract HoldbackRules is EIP712 {
     }
 
     uint8 internal constant F_PRIMARY = 1; // primary bond encumbered for this commitment
-    uint8 internal constant F_FALLBACK = 2;
-    uint8 internal constant F_APPEAL = 4;
+    uint8 internal constant F_FALLBACK = 2; // the fallback's bond, reserved by its own decision
     uint8 internal constant F_BY_FALLBACK = 8; // the first-instance decision came from the fallback
 
     // Key release paths (ADR-0012).
@@ -303,18 +302,20 @@ contract HoldbackRules is EIP712 {
         bool primary = m.role == H.ROLE_PRIMARY;
         if (m.appealGroundHash != H.EMPTY_HASH) revert InvalidMessage();
         if (m.outcome == H.OUTCOME_ESCALATE) {
-            // No money moves. Reservations move to the appeal adjudicator (all or nothing; partial cover is F5).
+            // No money moves. Nothing is reserved for the appeal adjudicator, who signed nothing for this deal
+            // (ADR-0016 §1: a sham commitment cannot lock a bond the adjudicator never reserved).
             _releaseBonds(t, d.flags);
-            d.flags = BONDS.tryEncumber(t.appealAdjudicator, t.token, t.price) ? F_APPEAL : 0;
+            d.flags = 0;
             d.stage = Stage.Escalated;
             d.t1 = uint40(block.timestamp);
             _deals[id] = d;
             return;
         }
-        // The decider's bond stays encumbered until the appeal closes; the other first-instance bond is released.
-        uint8 keep = primary ? F_PRIMARY : F_FALLBACK;
-        _releaseBonds(t, d.flags & ~keep);
-        d.flags = (d.flags & keep) | (primary ? 0 : F_BY_FALLBACK);
+        // The decider's bond stays encumbered until the appeal closes; the primary's is released if the fallback
+        // decides. The fallback reserves its own bond by deciding: uncovered, it cannot, and the deal defaults.
+        _releaseBonds(t, primary ? 0 : d.flags);
+        if (!primary) BONDS.encumber(t.fallbackAdjudicator, t.token, t.price);
+        d.flags = primary ? F_PRIMARY : F_FALLBACK | F_BY_FALLBACK;
         d.stage = m.outcome == H.OUTCOME_ACCEPT ? Stage.Released : Stage.Refunded;
         d.appeal = AppealState.None;
         d.t1 = uint40(block.timestamp);
@@ -530,7 +531,6 @@ contract HoldbackRules is EIP712 {
         if (block.timestamp < t.timing.judgeBy) revert TooEarly();
         d.stage = Stage.FallbackJudging;
         d.t1 = uint40(block.timestamp);
-        if (BONDS.tryEncumber(t.fallbackAdjudicator, t.token, t.price)) d.flags |= F_FALLBACK;
         emit FallbackTriggered(id, BEACON.roundAt(t.timing.judgeBy));
     }
 
@@ -635,7 +635,6 @@ contract HoldbackRules is EIP712 {
     function _releaseBonds(H.Terms calldata t, uint8 flags) internal {
         if (flags & F_PRIMARY != 0) BONDS.release(t.adjudicator, t.token, t.price);
         if (flags & F_FALLBACK != 0) BONDS.release(t.fallbackAdjudicator, t.token, t.price);
-        if (flags & F_APPEAL != 0) BONDS.release(t.appealAdjudicator, t.token, t.price);
     }
 
     function _requireSigned(address signer, bytes32 structHash, bytes calldata signature) internal view {

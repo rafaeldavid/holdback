@@ -157,7 +157,6 @@ contract RulesHandler is Base {
             uint8 f = rules.dealOf(_ids[i]).flags;
             if (f & 1 != 0 && t.adjudicator == adj) sum += t.price;
             if (f & 2 != 0 && t.fallbackAdjudicator == adj) sum += t.price;
-            if (f & 4 != 0 && t.appealAdjudicator == adj) sum += t.price;
         }
     }
 
@@ -661,7 +660,7 @@ contract RulesHandler is Base {
     }
 
     /// Any actor calling CPP's operator functions on a Holdback hold (capture, void, refund) or the bond vault's
-    /// rules-only functions (encumber, tryEncumber, release, takeAppealBond, payAppealBond) must fail.
+    /// rules-only functions (encumber, release, takeAppealBond, payAppealBond) must fail.
     function stranger(uint256 callerSeed, uint256 which, uint256 amount) external {
         uint256 v0 = _violations();
         address caller = _caller(callerSeed);
@@ -671,7 +670,7 @@ contract RulesHandler is Base {
         bytes memory data;
         address target = address(bonds);
         amount = _bound(amount, 0, 10_000_000);
-        uint256 w = which % 8;
+        uint256 w = which % 7;
         if (w < 3) {
             uint256 i = _pick(which >> 24);
             id = _ids[i];
@@ -683,9 +682,8 @@ contract RulesHandler is Base {
         } else {
             if (_ids.length > 0) id = _ids[(which >> 24) % _ids.length];
             if (w == 3) data = abi.encodeCall(HoldbackBonds.encumber, (adj, token, amount));
-            else if (w == 4) data = abi.encodeCall(HoldbackBonds.tryEncumber, (adj, token, amount));
-            else if (w == 5) data = abi.encodeCall(HoldbackBonds.release, (adj, token, amount));
-            else if (w == 6) data = abi.encodeCall(HoldbackBonds.takeAppealBond, (id, caller, token, amount));
+            else if (w == 4) data = abi.encodeCall(HoldbackBonds.release, (adj, token, amount));
+            else if (w == 5) data = abi.encodeCall(HoldbackBonds.takeAppealBond, (id, caller, token, amount));
             else data = abi.encodeCall(HoldbackBonds.payAppealBond, (id, token, caller));
         }
         vm.prank(caller);
