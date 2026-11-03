@@ -61,6 +61,7 @@ export const SEPOLIA: DeploymentFile | null = {
     block: 12055943,
   },
   checks: {
+    creationCodeMatchesBuild: true,
     permit2CodeHash: '0x96d9f5c3f0fb0423426b7f970186235b7347027f4e5c19c40c412b7d97fc3751',
     multicallCodeHash: '0xd5c15df687b16f2ff992fc8d767b4216323184a2bbc6ee2f9c398c318e770891',
     beaconCodeHash: '0x7ff87f8365d5c7ae3ed184771df2a51e5818c2270e61e97241a3acb93d71d3cc',

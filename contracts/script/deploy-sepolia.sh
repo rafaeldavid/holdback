@@ -1,16 +1,19 @@
 #!/usr/bin/env bash
 # Deploys the reviewed Holdback settlement contracts to Ethereum Sepolia, one `forge create --broadcast` per contract
 # (no `forge script`, no `cast send`), checks the deployment, and writes contracts/deployments/sepolia.json.
+# With --check it deploys nothing: it re-derives the record from the chain and this checkout's build, read-only, and
+# fails unless the result equals contracts/deployments/sepolia.json.
 #
 # Refuses any chain but Sepolia (11155111): no real money, and no mainnet at any point (hard rule; D4). The deployer
 # is a throwaway key with no authority on chain (the contracts have no admin keys); it pays gas and nothing else.
 #
 # Usage: contracts/script/deploy-sepolia.sh <rpc-url> <keystore-file> <password-file>
+#        contracts/script/deploy-sepolia.sh --check <rpc-url>
+#
+# Every check fails closed. Bash ignores a failure inside `$(...)` used as an argument or inside `[ ]`, and inside a
+# function running in `$(...)` (bash 3.2 has no inherit_errexit), so each substitution is a plain assignment or ends
+# in `|| fail`.
 set -euo pipefail
-
-RPC="$1"
-KEYSTORE="$2"
-PASSWORD_FILE="$3"
 
 SEPOLIA=11155111
 # foundry.toml pins chain_id 31337 for the local chain; every forge and cast call below signs for Sepolia instead.
@@ -25,103 +28,241 @@ EXPIRY_MARGIN=86400 # T-206 review §7: one day, the value the local EVM world a
 # drand quicknet round 1000, and the same signature plus an order-3 curve point outside G1 (T-206 audit cross-check).
 SIG_1000=0xb44679b9a59af2ec876b1a6b1ad52ea9b1615fc3982b19576350f93447cb1125e342b73a8dd2bacbe47e4b6b63ed5e39
 SIG_1000_PLUS_TORSION=0xabbaa2cd356c8b543308abe2c07d92facb092294f841b0c295786b635167aba148d4e2e86fedf3cf2c04c43b68a5aaee
+INVALID_SIGNATURE=0x8baa579f # DrandQuicknetBeacon's InvalidSignature()
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="$ROOT/deployments/sepolia.json"
+BUILD_INPUTS=(src lib foundry.toml remappings.txt script/TestUSDC.sol)
 
 fail() {
   echo "deploy-sepolia: $1" >&2
   exit 1
 }
 
-chain="$(cast chain-id --rpc-url "$RPC")"
-[ "$chain" = "$SEPOLIA" ] || fail "chain id $chain is not Sepolia ($SEPOLIA)"
-[ -z "$(git -C "$ROOT" status --porcelain -- src lib foundry.toml remappings.txt)" ] ||
-  fail "contracts/src, lib or the build config differ from the commit"
-# keccak256 of eth_getCode, the same value as EXTCODEHASH (`cast codehash` needs eth_getProof, which not every RPC serves).
-codehash() {
-  cast keccak "$(cast code "$1" --rpc-url "$RPC")"
-}
-[ "$(codehash "$PERMIT2")" = "$PERMIT2_CODEHASH" ] || fail "unexpected code at Permit2"
-[ "$(codehash "$MULTICALL3")" = "$MULTICALL3_CODEHASH" ] || fail "unexpected code at Multicall3"
+if [ "${1:-}" = --check ]; then
+  [ "$#" -eq 2 ] || fail "usage: deploy-sepolia.sh --check <rpc-url>"
+  MODE=check
+  RPC="$2"
+else
+  [ "$#" -eq 3 ] || fail "usage: deploy-sepolia.sh <rpc-url> <keystore-file> <password-file>"
+  MODE=deploy
+  RPC="$1"
+  KEYSTORE="$2"
+  PASSWORD_FILE="$3"
+fi
 
-# create <path:Contract> [constructor args...]: deploys and echoes "address tx block".
+# call <address> <signature(returns)> [args...]: the first return value, decoded, without annotations or quotes.
+call() {
+  local out
+  out="$(cast call "$@" --rpc-url "$RPC" --json)" || fail "call $2 on $1 failed"
+  out="$(jq -er '.[0]' <<<"$out")" || fail "call $2 on $1 returned nothing"
+  printf '%s\n' "$out"
+}
+
+# expect <what> <want> <command...>: the command succeeds and prints exactly <want>.
+expect() {
+  local what="$1" want="$2" got
+  shift 2
+  got="$("$@")" || fail "$what: the check could not run"
+  [ "$got" = "$want" ] || fail "$what is $got, expected $want"
+}
+
+# codehash <address>: keccak256 of eth_getCode, the same value as EXTCODEHASH (`cast codehash` needs eth_getProof,
+# which not every RPC serves).
+codehash() {
+  local code
+  code="$(cast code "$1" --rpc-url "$RPC")" || fail "reading the code at $1 failed"
+  cast keccak "$code" || fail "hashing the code at $1 failed"
+}
+
+# refuses <what> <address> <signature> [args...]: the call reverts with InvalidSignature(), not with anything else.
+refuses() {
+  local what="$1" out
+  shift
+  if out="$(cast call "$@" --rpc-url "$RPC" 2>&1)"; then fail "the beacon accepted $what"; fi
+  case "$out" in
+  *"$INVALID_SIGNATURE"*) ;;
+  *) fail "the beacon call with $what failed without InvalidSignature: $out" ;;
+  esac
+}
+
+# mined <tx>: the transaction succeeded and the deployer sent it; prints its block number.
+mined() {
+  local receipt status from block
+  receipt="$(cast receipt "$1" --json --rpc-url "$RPC")" || fail "no receipt for $1"
+  status="$(jq -er .status <<<"$receipt")" || fail "no status for $1"
+  [ "$status" = 0x1 ] || fail "transaction $1 failed"
+  from="$(jq -er .from <<<"$receipt" | tr '[:upper:]' '[:lower:]')" || fail "no sender for $1"
+  [ "$from" = "$DEPLOYER_LOWER" ] || fail "transaction $1 was sent by $from, not the deployer"
+  block="$(jq -er .blockNumber <<<"$receipt")" || fail "no block for $1"
+  cast to-dec "$block" || fail "bad block number for $1"
+}
+
+# creation_matches <path:Contract> <tx> [constructor-signature args...]: the transaction's input is this checkout's
+# compiled creation code followed by the ABI-encoded constructor arguments, so the deployed code is this commit's build.
+creation_matches() {
+  local id="$1" tx="$2" input code args=""
+  shift 2
+  input="$(cast tx "$tx" input --rpc-url "$RPC")" || fail "transaction $tx not found"
+  code="$(forge inspect --root "$ROOT" "$id" bytecode)" || fail "forge inspect $id failed"
+  if [ "$#" -gt 0 ]; then
+    args="$(cast abi-encode "$@")" || fail "encoding the constructor arguments of $id failed"
+    args="${args#0x}"
+  fi
+  [ "$input" = "$code$args" ] || fail "$id: the creation input differs from this build"
+}
+
+# field <jq path>: a value from the recorded deployment; missing or null fails.
+field() {
+  jq -er "$1" "$OUT" || fail "contracts/deployments/sepolia.json has no $1"
+}
+
+CHAIN="$(cast chain-id --rpc-url "$RPC")"
+[ "$CHAIN" = "$SEPOLIA" ] || fail "chain id $CHAIN is not Sepolia ($SEPOLIA)"
+
+# The build must be the recorded commit's: HEAD for a deployment, the record's commit for a check.
+if [ "$MODE" = deploy ]; then
+  COMMIT="$(git -C "$ROOT" rev-parse HEAD)"
+  DEPLOYER="$(cast wallet address --keystore "$KEYSTORE" --password-file "$PASSWORD_FILE")"
+else
+  COMMIT="$(field .commit)"
+  DEPLOYER="$(field .deployer)"
+fi
+DEPLOYER_LOWER="$(tr '[:upper:]' '[:lower:]' <<<"$DEPLOYER")"
+git -C "$ROOT" diff --quiet "$COMMIT" -- "${BUILD_INPUTS[@]}" || fail "contracts/src, lib, the build config or TestUSDC differ from $COMMIT"
+DIRTY="$(git -C "$ROOT" status --porcelain --untracked-files=all -- "${BUILD_INPUTS[@]}")"
+[ -z "$DIRTY" ] || fail "contracts/src, lib, the build config or TestUSDC have uncommitted changes"
+
+PERMIT2_GOT="$(codehash "$PERMIT2")"
+[ "$PERMIT2_GOT" = "$PERMIT2_CODEHASH" ] || fail "unexpected code at Permit2"
+MULTICALL3_GOT="$(codehash "$MULTICALL3")"
+[ "$MULTICALL3_GOT" = "$MULTICALL3_CODEHASH" ] || fail "unexpected code at Multicall3"
+
+# create <path:Contract> [constructor args...]: deploys and prints "address tx".
 create() {
-  local id="$1"
+  local id="$1" json address tx
   shift
   local args=(--root "$ROOT" --rpc-url "$RPC" --keystore "$KEYSTORE" --password-file "$PASSWORD_FILE" --broadcast --json)
-  local json
   if [ "$#" -gt 0 ]; then
-    json="$(forge create "$id" "${args[@]}" --constructor-args "$@")"
+    json="$(forge create "$id" "${args[@]}" --constructor-args "$@")" || fail "forge create $id failed"
   else
-    json="$(forge create "$id" "${args[@]}")"
+    json="$(forge create "$id" "${args[@]}")" || fail "forge create $id failed"
   fi
-  local address tx block
-  address="$(jq -r '.deployedTo' <<<"$json")"
-  tx="$(jq -r '.transactionHash' <<<"$json")"
-  block="$(cast receipt "$tx" blockNumber --rpc-url "$RPC")"
-  echo "$address $tx $block"
+  address="$(jq -er '.deployedTo' <<<"$json")" || fail "forge create $id reported no address"
+  tx="$(jq -er '.transactionHash' <<<"$json")" || fail "forge create $id reported no transaction"
+  echo "$address $tx"
 }
 
-read -r ESCROW ESCROW_TX ESCROW_BLOCK <<<"$(create lib/commerce-payments/src/AuthCaptureEscrow.sol:AuthCaptureEscrow)"
-read -r C3009 C3009_TX C3009_BLOCK <<<"$(create \
-  lib/commerce-payments/src/collectors/ERC3009PaymentCollector.sol:ERC3009PaymentCollector "$ESCROW" "$MULTICALL3")"
-read -r CP2 CP2_TX CP2_BLOCK <<<"$(create \
-  lib/commerce-payments/src/collectors/Permit2PaymentCollector.sol:Permit2PaymentCollector "$ESCROW" "$PERMIT2" "$MULTICALL3")"
-read -r BEACON BEACON_TX BEACON_BLOCK <<<"$(create src/DrandQuicknetBeacon.sol:DrandQuicknetBeacon)"
-read -r RULES RULES_TX RULES_BLOCK <<<"$(create src/HoldbackRules.sol:HoldbackRules \
-  "$ESCROW" "$C3009" "$CP2" "$EXPIRY_MARGIN" "$BEACON")"
-BONDS="$(cast call "$RULES" 'BONDS()(address)' --rpc-url "$RPC")"
-TOKEN_STORE_IMPL="$(cast call "$ESCROW" 'tokenStoreImplementation()(address)' --rpc-url "$RPC")"
+ESCROW_ID=lib/commerce-payments/src/AuthCaptureEscrow.sol:AuthCaptureEscrow
+C3009_ID=lib/commerce-payments/src/collectors/ERC3009PaymentCollector.sol:ERC3009PaymentCollector
+CP2_ID=lib/commerce-payments/src/collectors/Permit2PaymentCollector.sol:Permit2PaymentCollector
+BEACON_ID=src/DrandQuicknetBeacon.sol:DrandQuicknetBeacon
+RULES_ID=src/HoldbackRules.sol:HoldbackRules
+TOKEN_ID=script/TestUSDC.sol:TestUSDC
 
-# The demo's open-mint test token, when it is on this commit (Sepolia demo session). The escrow is token-agnostic:
-# the terms name the token, so the core set does not depend on it.
+if [ "$MODE" = deploy ]; then
+  OUT_LINE="$(create "$ESCROW_ID")"
+  read -r ESCROW ESCROW_TX <<<"$OUT_LINE"
+  OUT_LINE="$(create "$C3009_ID" "$ESCROW" "$MULTICALL3")"
+  read -r C3009 C3009_TX <<<"$OUT_LINE"
+  OUT_LINE="$(create "$CP2_ID" "$ESCROW" "$PERMIT2" "$MULTICALL3")"
+  read -r CP2 CP2_TX <<<"$OUT_LINE"
+  OUT_LINE="$(create "$BEACON_ID")"
+  read -r BEACON BEACON_TX <<<"$OUT_LINE"
+  OUT_LINE="$(create "$RULES_ID" "$ESCROW" "$C3009" "$CP2" "$EXPIRY_MARGIN" "$BEACON")"
+  read -r RULES RULES_TX <<<"$OUT_LINE"
+  # The demo's open-mint test token, when it is on this commit (Sepolia demo session). The escrow is token-agnostic:
+  # the terms name the token, so the core set does not depend on it.
+  TOKEN=""
+  if [ -f "$ROOT/script/TestUSDC.sol" ]; then
+    OUT_LINE="$(create "$TOKEN_ID")"
+    read -r TOKEN TOKEN_TX <<<"$OUT_LINE"
+  fi
+else
+  ESCROW="$(field .contracts.AuthCaptureEscrow.address)"
+  ESCROW_TX="$(field .contracts.AuthCaptureEscrow.tx)"
+  C3009="$(field .contracts.ERC3009PaymentCollector.address)"
+  C3009_TX="$(field .contracts.ERC3009PaymentCollector.tx)"
+  CP2="$(field .contracts.Permit2PaymentCollector.address)"
+  CP2_TX="$(field .contracts.Permit2PaymentCollector.tx)"
+  BEACON="$(field .contracts.DrandQuicknetBeacon.address)"
+  BEACON_TX="$(field .contracts.DrandQuicknetBeacon.tx)"
+  RULES="$(field .contracts.HoldbackRules.address)"
+  RULES_TX="$(field .contracts.HoldbackRules.tx)"
+  TOKEN="$(jq -r '.token.address // ""' "$OUT")"
+  [ -z "$TOKEN" ] || TOKEN_TX="$(field .token.tx)"
+fi
+
+# Each transaction succeeded, came from the deployer, and carried this build's creation code and arguments.
+ESCROW_BLOCK="$(mined "$ESCROW_TX")"
+C3009_BLOCK="$(mined "$C3009_TX")"
+CP2_BLOCK="$(mined "$CP2_TX")"
+BEACON_BLOCK="$(mined "$BEACON_TX")"
+RULES_BLOCK="$(mined "$RULES_TX")"
+creation_matches "$ESCROW_ID" "$ESCROW_TX"
+creation_matches "$C3009_ID" "$C3009_TX" 'constructor(address,address)' "$ESCROW" "$MULTICALL3"
+creation_matches "$CP2_ID" "$CP2_TX" 'constructor(address,address,address)' "$ESCROW" "$PERMIT2" "$MULTICALL3"
+creation_matches "$BEACON_ID" "$BEACON_TX"
+creation_matches "$RULES_ID" "$RULES_TX" 'constructor(address,address,address,uint64,address)' \
+  "$ESCROW" "$C3009" "$CP2" "$EXPIRY_MARGIN" "$BEACON"
+
+# The deployment is wired as the review assumed.
+BONDS="$(call "$RULES" 'BONDS()(address)')"
+TOKEN_STORE_IMPL="$(call "$ESCROW" 'tokenStoreImplementation()(address)')"
+expect "rules ESCROW" "$ESCROW" call "$RULES" 'ESCROW()(address)'
+expect "rules ERC3009_COLLECTOR" "$C3009" call "$RULES" 'ERC3009_COLLECTOR()(address)'
+expect "rules PERMIT2_COLLECTOR" "$CP2" call "$RULES" 'PERMIT2_COLLECTOR()(address)'
+expect "rules BEACON" "$BEACON" call "$RULES" 'BEACON()(address)'
+expect "rules EXPIRY_MARGIN" "$EXPIRY_MARGIN" call "$RULES" 'EXPIRY_MARGIN()(uint64)'
+expect "bonds RULES" "$RULES" call "$BONDS" 'RULES()(address)'
+expect "ERC-3009 collector escrow" "$ESCROW" call "$C3009" 'authCaptureEscrow()(address)'
+expect "ERC-3009 collector multicall3" "$MULTICALL3" call "$C3009" 'multicall3()(address)'
+expect "Permit2 collector escrow" "$ESCROW" call "$CP2" 'authCaptureEscrow()(address)'
+expect "Permit2 collector permit2" "$PERMIT2" call "$CP2" 'permit2()(address)'
+expect "Permit2 collector multicall3" "$MULTICALL3" call "$CP2" 'multicall3()(address)'
+
+# The beacon's runtime is deterministic (its one immutable is a constant), so an agent can check
+# rules.BEACON().codehash against this value before signing (backlog: which beacon a rules contract uses).
+BEACON_INIT="$(forge inspect --root "$ROOT" "$BEACON_ID" bytecode)"
+BEACON_RUNTIME="$(cast call --rpc-url "$RPC" --create "$BEACON_INIT")"
+BEACON_CODEHASH="$(cast keccak "$BEACON_RUNTIME")"
+BEACON_GOT="$(codehash "$BEACON")"
+[ "$BEACON_GOT" = "$BEACON_CODEHASH" ] || fail "beacon code differs from the compiled DrandQuicknetBeacon"
+# beaconValue reverts unless the BLS proof verifies, so a returned value is the proof check passing on this chain's
+# EIP-2537 precompiles.
+VALUE_1000="$(call "$BEACON" 'beaconValue(uint64,bytes)(bytes32)' 1000 "$SIG_1000")"
+refuses "a signature outside G1" "$BEACON" 'beaconValue(uint64,bytes)(bytes32)' 1000 "$SIG_1000_PLUS_TORSION"
+refuses "another round's signature" "$BEACON" 'beaconValue(uint64,bytes)(bytes32)' 1001 "$SIG_1000"
+
 TOKEN_JSON=null
-if [ -f "$ROOT/script/TestUSDC.sol" ]; then
-  read -r TOKEN TOKEN_TX TOKEN_BLOCK <<<"$(create script/TestUSDC.sol:TestUSDC)"
-  TOKEN_NAME="$(cast call "$TOKEN" 'name()(string)' --rpc-url "$RPC" | tr -d '"')"
+if [ -n "$TOKEN" ]; then
+  TOKEN_BLOCK="$(mined "$TOKEN_TX")"
+  creation_matches "$TOKEN_ID" "$TOKEN_TX"
+  TOKEN_NAME="$(call "$TOKEN" 'name()(string)')"
+  TOKEN_SYMBOL="$(call "$TOKEN" 'symbol()(string)')"
+  TOKEN_DECIMALS="$(call "$TOKEN" 'decimals()(uint8)')"
   # Agents sign ERC-3009 authorizations against this domain, so check it rather than assume Solady's version "1".
   DOMAIN_TYPEHASH="$(cast keccak 'EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)')"
-  TOKEN_DOMAIN="$(cast keccak "$(cast abi-encode 'f(bytes32,bytes32,bytes32,uint256,address)' \
-    "$DOMAIN_TYPEHASH" "$(cast keccak "$TOKEN_NAME")" "$(cast keccak 1)" "$SEPOLIA" "$TOKEN")")"
-  [ "$(cast call "$TOKEN" 'DOMAIN_SEPARATOR()(bytes32)' --rpc-url "$RPC")" = "$TOKEN_DOMAIN" ] ||
-    fail "token EIP-712 domain is not (name, version 1, Sepolia, address)"
+  NAME_HASH="$(cast keccak "$TOKEN_NAME")"
+  VERSION_HASH="$(cast keccak 1)"
+  DOMAIN_ENCODED="$(cast abi-encode 'f(bytes32,bytes32,bytes32,uint256,address)' \
+    "$DOMAIN_TYPEHASH" "$NAME_HASH" "$VERSION_HASH" "$SEPOLIA" "$TOKEN")"
+  TOKEN_DOMAIN="$(cast keccak "$DOMAIN_ENCODED")"
+  expect "token DOMAIN_SEPARATOR (name, version 1, Sepolia, address)" "$TOKEN_DOMAIN" \
+    call "$TOKEN" 'DOMAIN_SEPARATOR()(bytes32)'
   TOKEN_JSON="$(jq -n --arg address "$TOKEN" --arg tx "$TOKEN_TX" --argjson block "$TOKEN_BLOCK" \
-    --arg name "$TOKEN_NAME" --arg domainSeparator "$TOKEN_DOMAIN" \
-    --arg symbol "$(cast call "$TOKEN" 'symbol()(string)' --rpc-url "$RPC" | tr -d '"')" \
-    --argjson decimals "$(cast call "$TOKEN" 'decimals()(uint8)' --rpc-url "$RPC" | awk '{print $1}')" \
+    --arg name "$TOKEN_NAME" --arg symbol "$TOKEN_SYMBOL" --argjson decimals "$TOKEN_DECIMALS" \
+    --arg domainSeparator "$TOKEN_DOMAIN" \
     '{address: $address, name: $name, version: "1", symbol: $symbol, decimals: $decimals,
       domainSeparator: $domainSeparator, tx: $tx, block: $block}')"
 fi
 
-# The deployment is wired as the review assumed, and the beacon verifies on this chain's EIP-2537 precompiles.
-[ "$(cast call "$RULES" 'ESCROW()(address)' --rpc-url "$RPC")" = "$ESCROW" ] || fail "rules ESCROW mismatch"
-[ "$(cast call "$RULES" 'BEACON()(address)' --rpc-url "$RPC")" = "$BEACON" ] || fail "rules BEACON mismatch"
-[ "$(cast call "$RULES" 'EXPIRY_MARGIN()(uint64)' --rpc-url "$RPC" | awk '{print $1}')" = "$EXPIRY_MARGIN" ] || fail "margin mismatch"
-[ "$(cast call "$BONDS" 'RULES()(address)' --rpc-url "$RPC")" = "$RULES" ] || fail "bonds RULES mismatch"
-# beaconValue reverts unless the BLS proof verifies, so a returned value is the proof check passing on this chain.
-VALUE_1000="$(cast call "$BEACON" 'beaconValue(uint64,bytes)(bytes32)' 1000 "$SIG_1000" --rpc-url "$RPC")" ||
-  fail "beacon refused drand round 1000"
-if cast call "$BEACON" 'beaconValue(uint64,bytes)(bytes32)' 1000 "$SIG_1000_PLUS_TORSION" --rpc-url "$RPC" >/dev/null 2>&1; then
-  fail "beacon accepted a signature outside G1"
-fi
-if cast call "$BEACON" 'beaconValue(uint64,bytes)(bytes32)' 1001 "$SIG_1000" --rpc-url "$RPC" >/dev/null 2>&1; then
-  fail "beacon accepted another round's signature"
-fi
-# The beacon's runtime is deterministic (its one immutable is a constant), so an agent can check
-# rules.BEACON().codehash against this value before signing (backlog: which beacon a rules contract uses).
-BEACON_RUNTIME="$(cast call --rpc-url "$RPC" --create \
-  "$(forge inspect --root "$ROOT" src/DrandQuicknetBeacon.sol:DrandQuicknetBeacon bytecode)")"
-BEACON_CODEHASH="$(cast keccak "$BEACON_RUNTIME")"
-[ "$(codehash "$BEACON")" = "$BEACON_CODEHASH" ] ||
-  fail "beacon code differs from the compiled DrandQuicknetBeacon"
+SETTINGS_RAW="$(forge config --root "$ROOT" --json)"
+SETTINGS="$(jq -e '{solc: .solc, viaIR: .via_ir, optimizer: .optimizer, optimizerRuns: .optimizer_runs, evmVersion: .evm_version}' <<<"$SETTINGS_RAW")"
 
-SETTINGS="$(forge config --root "$ROOT" --json | jq '{solc: .solc, viaIR: .via_ir, optimizer: .optimizer, optimizerRuns: .optimizer_runs, evmVersion: .evm_version}')"
-
-mkdir -p "$(dirname "$OUT")"
-jq -n \
-  --arg commit "$(git -C "$ROOT" rev-parse HEAD)" \
-  --arg deployer "$(cast wallet address --keystore "$KEYSTORE" --password-file "$PASSWORD_FILE")" \
+RECORD="$(jq -n \
+  --arg commit "$COMMIT" \
+  --arg deployer "$DEPLOYER" \
   --argjson compiler "$SETTINGS" \
   --argjson fromBlock "$ESCROW_BLOCK" \
   --arg escrow "$ESCROW" --arg escrowTx "$ESCROW_TX" --argjson escrowBlock "$ESCROW_BLOCK" \
@@ -152,6 +293,7 @@ jq -n \
     expiryMarginSec: $expiryMarginSec,
     token: $token,
     checks: {
+      creationCodeMatchesBuild: true,
       permit2CodeHash: $permit2CodeHash,
       multicallCodeHash: $multicallCodeHash,
       beaconCodeHash: $beaconCodeHash,
@@ -169,5 +311,15 @@ jq -n \
         args: [$escrow, $c3009, $cp2, ($expiryMarginSec | tostring), $beacon]},
       HoldbackBonds: {address: $bonds, tx: $rulesTx, block: $rulesBlock, args: [], createdBy: "HoldbackRules constructor"}
     }
-  }' >"$OUT"
-echo "wrote $OUT"
+  }')"
+
+if [ "$MODE" = check ]; then
+  RECORDED="$(jq -S . "$OUT")"
+  DERIVED="$(jq -S . <<<"$RECORD")"
+  [ "$RECORDED" = "$DERIVED" ] || fail "contracts/deployments/sepolia.json differs from what the chain and this build give"
+  echo "deploy-sepolia: contracts/deployments/sepolia.json matches the chain and the build at $COMMIT"
+else
+  mkdir -p "$(dirname "$OUT")"
+  printf '%s\n' "$RECORD" >"$OUT"
+  echo "wrote $OUT"
+fi
