@@ -1,9 +1,9 @@
 // Stage 0, intake (docs/judgment-and-defenses.md): unwrap the escrowed content key, check the
 // ciphertext hash, decrypt, verify the plaintext hash, enforce the MIME allowlist and the 10 MB cap,
 // decode strict UTF-8 and normalize. Nothing here interprets the content.
-import { createHash } from 'node:crypto';
-import type { Address, Delivery, Judgment, MimeType, Sha256 } from '@holdback/core';
+import type { Address, Delivery, Judgment, MimeType } from '@holdback/core';
 import { err, ok, type Result } from '@holdback/core';
+import { sha256 } from '@holdback/core/crypto';
 import { normalizeText } from './normalize.js';
 import { UntrustedData } from './untrusted.js';
 
@@ -61,7 +61,6 @@ export interface Intaken {
   record: Judgment['intake'];
 }
 
-const sha256 = (bytes: Uint8Array): Sha256 => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
 const fail = (code: IntakeErrorCode, detail: string) => err<IntakeError>({ code, detail });
 
 /**

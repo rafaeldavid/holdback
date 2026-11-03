@@ -15,7 +15,7 @@
 // - the journal of what the chain accepted, the ciphertext and the judgment records are persisted, so the
 //   world is rebuilt by replay after the Durable Object is evicted.
 // No real money: SimChain (chain id 31337), the test token tUSD, and the operators' startup guards.
-import { canonicalKeccak, holdbackDomain, parseAdjudicator, problem, type AdjudicatorRegistration, type Address, type Hex32, type Judgment, type Mandate, type OperatorFeeSchedule, type Sha256, type Timestamp, type TokenAmount } from '@holdback/core';
+import { canonicalKeccak, holdbackDomain, parseAdjudicator, problem, wholeSecond, type AdjudicatorRegistration, type Address, type Hex32, type Judgment, type Mandate, type OperatorFeeSchedule, type Sha256, type Timestamp, type TokenAmount } from '@holdback/core';
 import { sha256 } from '@holdback/core/crypto';
 import { StoreError, type CiphertextStore } from '@holdback/core/store';
 import { testAdjudicator, type TestAdjudicator } from '@holdback/adjudicator';
@@ -80,7 +80,6 @@ const livePanel = (perDay: number) =>
 const SEALED =
   'These demo adjudicators decline private and judgment offers: they cannot open sealed terms yet (T-207), so the offer would stay unaccepted and expire, and nobody could fund it. Offer at disclosure public on this demo; the work itself is encrypted either way.';
 
-const wholeSecond = (ms: number): Timestamp => new Date(Math.floor(ms / 1000) * 1000).toISOString().replace('.000Z', 'Z');
 const lc = (s: string) => s.toLowerCase();
 const hex = (b: Uint8Array) => [...b].map((x) => x.toString(16).padStart(2, '0')).join('');
 const jkey = (i: number) => `j:${String(i).padStart(12, '0')}`;

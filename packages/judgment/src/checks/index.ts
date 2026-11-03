@@ -8,8 +8,8 @@
 // A check that cannot be evaluated (bad pattern, unsupported schema keyword, missing reference,
 // unknown type, hostile shape) fails closed. A check that runs out of the shared work budget is
 // inconclusive: it is recorded as not passed, and the pipeline escalates instead of rejecting.
-import { createHash } from 'node:crypto';
-import type { MimeType, Sha256 } from '@holdback/core';
+import type { MimeType } from '@holdback/core';
+import { sha256 } from '@holdback/core/crypto';
 import { countHidden, type HiddenCounts } from '../hidden.js';
 import { normalizeText } from '../normalize.js';
 import type { JudgmentCheck } from '../terms.js';
@@ -88,7 +88,6 @@ const bps = (b: number) => `${b} bps`;
 const isBps = (n: unknown) => typeof n === 'number' && Number.isSafeInteger(n) && n >= 0 && n <= 10_000;
 const isCount = (n: unknown) => typeof n === 'number' && Number.isSafeInteger(n) && n >= 0;
 const HIDDEN_KEYS = ['tag', 'bidi', 'variationSelector', 'otherIgnorable', 'total'] as const;
-const sha256 = (b: Uint8Array): Sha256 => `sha256:${createHash('sha256').update(b).digest('hex')}`;
 
 /** Static validation, usable at offer time. Returns a reason the check cannot be evaluated, or undefined. */
 export function validateCheck(check: JudgmentCheck): string | undefined {

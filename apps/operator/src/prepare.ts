@@ -7,6 +7,8 @@
 // nothing (D39): the caller sends every nonce and chooses the disclosure level; the operator derives neither.
 import {
   parseCommitment,
+  plusSeconds,
+  wholeSecond,
   commitmentId,
   isSealed,
   eip712Types,
@@ -148,8 +150,6 @@ const forMessage = (domain: HoldbackDomain, m: UnsignedMessage) => {
 
 // ---- helpers ---------------------------------------------------------------------------------------
 
-const plus = (ts: Timestamp, seconds: number): Timestamp => new Date(Date.parse(ts) + seconds * 1000).toISOString().replace('.000Z', 'Z');
-const wholeSecond = (ts: Timestamp): Timestamp => new Date(Math.floor(Date.parse(ts) / 1000) * 1000).toISOString().replace('.000Z', 'Z');
 const lc = (a: string) => a.toLowerCase();
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const isAddress = (v: unknown): v is Address => typeof v === 'string' && /^0x[0-9a-fA-F]{40}$/.test(v);
@@ -194,7 +194,7 @@ function timestamp(v: unknown, name: string): Timestamp | undefined {
   if (v === undefined) return undefined;
   // RFC 3339 (the schemas' date-time) has four-digit years, so that is the representable range.
   if (typeof v !== 'string' || !RFC3339.test(v) || !Number.isFinite(Date.parse(v))) bad(`${name} must be an RFC 3339 timestamp, e.g. 2026-11-01T09:00:00Z`, name);
-  return wholeSecond(v as Timestamp);
+  return wholeSecond(Date.parse(v as Timestamp));
 }
 /** A nonce is always the caller's own: 32 random bytes it generated and will check in the typed data (D39). */
 function nonceIn(v: unknown, name: string): Hex32 {
@@ -439,7 +439,7 @@ async function earlyAccept(ctx: PrepareContext, input: Record<string, unknown>):
   const c = await commitmentIn(ctx, input);
   const nonce = nonceIn(input['nonce'], 'nonce');
   const givenExpiry = timestamp(input['expiresAt'], 'expiresAt');
-  const expiresAt = givenExpiry ?? plus(ctx.now(), 3600);
+  const expiresAt = givenExpiry ?? plusSeconds(ctx.now(), 3600);
   const body = { type: 'EarlyAccept', commitmentId: c.id, buyer: c.buyer, attempt: await ctx.attempt(c.id), expiresAt } as const;
   const m = { ...body, nonce };
   return {
@@ -504,7 +504,7 @@ async function settlement(ctx: PrepareContext, input: Record<string, unknown>): 
   }
   const delivered = await ctx.delivery(c.id);
   const givenExpiry = timestamp(input['expiresAt'], 'expiresAt');
-  const expiresAt = givenExpiry ?? plus(ctx.now(), 3600);
+  const expiresAt = givenExpiry ?? plusSeconds(ctx.now(), 3600);
   const givenRelease = typeof input['releaseKey'] === 'boolean';
   const releaseKey = givenRelease ? (input['releaseKey'] as boolean) : delivered !== undefined;
   const body = { type: 'MutualSettlement', commitmentId: c.id, deliveryHash: delivered?.deliveryHash ?? null, payouts, releaseKey, expiresAt } as const;

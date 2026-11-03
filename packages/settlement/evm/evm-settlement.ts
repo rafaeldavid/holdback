@@ -19,6 +19,7 @@ import {
   problem,
   step,
   termsOf,
+  toTimestamp,
   verifyMessage,
   verifyMutualSettlement,
   verifyTerms,
@@ -36,7 +37,6 @@ import {
   type Hex32,
   type Mandate,
   type Problem,
-  type ProblemType,
   type Scope,
   type SettlementEvent,
   type SettlementEventType,
@@ -49,6 +49,7 @@ import { decodeEventLog, decodeFunctionData, encodeFunctionData, encodePacked, g
 import { privateKeyToAccount } from 'viem/accounts';
 import type { Genesis } from '../sim/simchain.js';
 import type { DryRunSubmission, Settlement, Submission, SubmitOptions, SubmitResult, TimeoutKind } from '../src/interface.js';
+import { Refusal, refuse, toJson } from '../src/util.js';
 import {
   acceptanceView,
   agreeView,
@@ -103,23 +104,12 @@ interface Book {
   updatedAt: Timestamp;
 }
 
-class Refusal extends Error {
-  constructor(readonly problem: Problem) {
-    super(problem.detail);
-  }
-}
-const refuse = (type: ProblemType, detail: string): never => {
-  throw new Refusal(problem(type, detail));
-};
-
 const GENESIS_HASH: Hex32 = `0x${'00'.repeat(32)}`;
 const UINT256_MAX = (2n ** 256n - 1n).toString();
 const ALL_BPS = 10000n;
 const TX_GAS = 3_000_000n;
 const lc = (a: string) => a.toLowerCase();
-const iso = (ms: number): Timestamp => new Date(ms).toISOString().replace('.000Z', 'Z');
 const secs = (ts: Timestamp) => Math.floor(Date.parse(ts) / 1000);
-const toJson = (v: unknown): unknown => JSON.parse(JSON.stringify(v, (_k, x: unknown) => (typeof x === 'bigint' ? x.toString() : x)));
 
 /** On-chain Stage enum (HoldbackRules.Stage) as core kinds; None is any pre-funding kind. */
 const STAGES = ['None', 'Held', 'Delivered', 'FallbackJudging', 'Escalated', 'Released', 'Refunded', 'Settled', 'Expired'] as const;
@@ -246,7 +236,7 @@ export class EvmSettlement implements Settlement {
   // ---- clock and beacon ---------------------------------------------------------------------------
 
   now(): Timestamp {
-    return iso(this.clockMs);
+    return toTimestamp(this.clockMs);
   }
 
   advance(seconds: number): void {

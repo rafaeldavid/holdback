@@ -4,7 +4,7 @@
 // policy.ts): panel of three over two families, appeal panel of five over three, this build's templates.
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { canonicalKeccak, type AdjudicatorPolicy, type Hex32 } from '@holdback/core';
+import type { AdjudicatorPolicy } from '@holdback/core';
 import { AGGREGATION_VERSION, APPEAL_PROMPT_TEMPLATE_HASH, loadRegistry, PROMPT_TEMPLATE_HASH, SCREEN_VERSION, type LoadedRegistry } from '@holdback/judgment';
 import { parse } from 'yaml';
 
@@ -52,5 +52,3 @@ export function runnerPolicy(id: string): AdjudicatorPolicy {
     disclosureMin: 'public',
   };
 }
-
-export const policyHashOf = (policy: AdjudicatorPolicy): Hex32 => canonicalKeccak(policy);

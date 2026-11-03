@@ -23,6 +23,7 @@ import {
   splitBps,
   step,
   termsOf,
+  toTimestamp,
   verifyMessage,
   verifyMutualSettlement,
   verifyTerms,
@@ -37,7 +38,6 @@ import {
   type Hex32,
   type Mandate,
   type Problem,
-  type ProblemType,
   type Scope,
   type SettlementEvent,
   type SettlementEventType,
@@ -47,6 +47,7 @@ import {
 } from '@holdback/core';
 import { encodePacked, keccak256 } from 'viem';
 import type { DryRunSubmission, Settlement, Submission, SubmitOptions, SubmitResult, TimeoutKind } from '../src/interface.js';
+import { Refusal, refuse, toJson } from '../src/util.js';
 
 export interface Genesis {
   start: Timestamp;
@@ -74,7 +75,7 @@ export const DEFAULT_EXPIRY_MARGIN_SEC = 86_400;
 
 /** CPP's authorizationExpiry for a commitment: fallbackBy + appealDecideSec + margin (ADR-0003 "As built"). */
 export function authorizationExpiry(terms: AnyCommitmentTerms, marginSec: number = DEFAULT_EXPIRY_MARGIN_SEC): Timestamp {
-  return iso(Date.parse(terms.timing.fallbackBy) + (terms.timing.appealDecideSec + marginSec) * 1000);
+  return toTimestamp(Date.parse(terms.timing.fallbackBy) + (terms.timing.appealDecideSec + marginSec) * 1000);
 }
 
 export type JournalEntry =
@@ -107,17 +108,7 @@ interface Rec {
 
 type Posting = { from: string; to: string; amount: TokenAmount; why: string };
 
-class Refusal extends Error {
-  constructor(readonly problem: Problem) {
-    super(problem.detail);
-  }
-}
-const refuse = (type: ProblemType, detail: string): never => {
-  throw new Refusal(problem(type, detail));
-};
-
 const lc = (a: string): string => a.toLowerCase();
-const iso = (msTime: number): Timestamp => new Date(msTime).toISOString().replace('.000Z', 'Z');
 const min = (a: bigint, b: bigint): bigint => (a < b ? a : b);
 /**
  * Copies only the signed fields of a key envelope (EIP-712 EncryptedKey). A relayer can add fields the
@@ -132,7 +123,6 @@ const signedEnvelope = (k: EncryptedKey): EncryptedKey => ({
 });
 /** A SealedKey (scheme and ciphertext signed) addressed to the recipient the terms name. */
 const sealedFor = (recipient: Address, k: { scheme: EncryptedKey['scheme']; ciphertext: EncryptedKey['ciphertext'] }): EncryptedKey => ({ recipient, scheme: k.scheme, ciphertext: k.ciphertext });
-const toJson = (v: unknown): unknown => JSON.parse(JSON.stringify(v, (_k, x: unknown) => (typeof x === 'bigint' ? x.toString() : x)));
 
 /** The world's mutable stores. A Tx reads through to them and writes to its own overlay. */
 interface Stores {
@@ -286,7 +276,7 @@ export class SimChain implements Settlement {
   // ---- clock, beacon, faucet --------------------------------------------------------------------
 
   now(): Timestamp {
-    return iso(this.clockMs);
+    return toTimestamp(this.clockMs);
   }
 
   advance(seconds: number): void {
