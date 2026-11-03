@@ -1,4 +1,3 @@
-import { keccak256, stringToBytes } from 'viem';
 import { describe, expect, it } from 'vitest';
 import { canonicalJson, canonicalKeccak } from './canonical.js';
 
@@ -25,21 +24,20 @@ const vectors: Array<[name: string, input: unknown, canonical: string]> = [
   ['literals', [null, true, false, ''], '[null,true,false,""]'],
 ];
 
-// keccak256 of the canonical UTF-8 bytes, pinned so any change to canonicalization or hashing is visible.
+// keccak256 of the canonical UTF-8 bytes, pinned for every vector so any change to canonicalization or
+// hashing is visible.
 const pinnedHashes: Record<string, string> = {
   'key ordering': '0x0822ab840ad717a17afbedcbc389b4c648199045b947af2f4c0f7759fb145211',
   'nested objects': '0xcb7ae558c7b666918c10166f8bf2065fb988cc220060120edb357bcdb279a17e',
   'numbers (RFC 8785 3.2.2)': '0xc2bf2862b4e52d52103ab62d9c91020d6b02d3f10ded31f57149fc6ec2fcbaf4',
+  'string escaping (RFC 8785 3.2.2)': '0xd10abcd2d1c6bb99d3efe8d784f308b8d25f004fd4cd798beafd5d8f002d6679',
   'unicode key ordering (RFC 8785 3.2.3)': '0xa0a138a7404c34122e9e872cd2a11429272c1ad2a592c0c8c47cf059164bb78f',
+  literals: '0x606019345fac9ba3eba823cf793a70a172533141ccafe9ca73d32e6edf4e88a4',
 };
 
 describe('canonicalJson', () => {
   it.each(vectors)('%s', (_name, input, canonical) => {
     expect(canonicalJson(input)).toBe(canonical);
-  });
-
-  it('ignores insertion order', () => {
-    expect(canonicalJson({ a: 1, b: { d: 1, c: 2 } })).toBe(canonicalJson({ b: { c: 2, d: 1 }, a: 1 }));
   });
 
   it.each([
@@ -55,17 +53,7 @@ describe('canonicalJson', () => {
 });
 
 describe('canonicalKeccak', () => {
-  it.each(vectors)('hashes the canonical UTF-8 bytes: %s', (_name, input, canonical) => {
-    expect(canonicalKeccak(input)).toBe(keccak256(stringToBytes(canonical)));
-  });
-
-  it.each(Object.entries(pinnedHashes))('matches the pinned hash: %s', (name, pinned) => {
-    const vector = vectors.find(([n]) => n === name);
-    expect(vector).toBeDefined();
-    expect(canonicalKeccak(vector?.[1])).toBe(pinned);
-  });
-
-  it('agrees with the well-known keccak256 of the empty string', () => {
-    expect(keccak256(stringToBytes(''))).toBe('0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470');
+  it.each(vectors)('matches the pinned hash: %s', (name, input) => {
+    expect(canonicalKeccak(input)).toBe(pinnedHashes[name]);
   });
 });

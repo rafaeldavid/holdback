@@ -126,7 +126,7 @@ export function renderSnapshot(scenario: Scenario, prefix: Prefix, run: StubRun,
   for (const r of run.receipts) byOperator.set(r.operator, [...(byOperator.get(r.operator) ?? []), r.id]);
   if (byOperator.size === 0) out.push('- No operator receipts.');
   for (const [op, ids] of [...byOperator].sort(([a], [b]) => (a < b ? -1 : 1))) {
-    out.push(`- Receipts from ${op}: ${ids.length} (${ids[0]}–${ids.at(-1)}). Stub receipts are unsigned until T-007.`);
+    out.push(`- Receipts from ${op}: ${ids.length} (${ids[0]}–${ids.at(-1)}). The runner labels them without signing; the operator API signs real receipts.`);
   }
   out.push('');
 

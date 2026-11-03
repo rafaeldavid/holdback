@@ -69,5 +69,8 @@ export default defineConfig({
   test: {
     include: ['tests/**/*.test.ts', 'packages/*/src/**/*.test.ts', 'packages/settlement/sim/**/*.test.ts', 'packages/settlement/evm/**/*.test.ts','apps/*/src/**/*.test.ts', 'apps/demo/agents/**/*.test.ts', 'examples/*.test.ts', 'tools/sim/*.test.ts'],
     sequence: { sequencer: BalancedSequencer },
+    // Whole-flow tests (demo beats, judged deals) take a few seconds alone and more under a full parallel
+    // run; the 5 s default timed them out locally. Tests that need longer still set their own (T-035).
+    testTimeout: 30_000,
   },
 });

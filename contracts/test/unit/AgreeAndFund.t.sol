@@ -134,7 +134,7 @@ contract AgreeAndFundTest is Base {
         H.Acceptance memory a = _acceptance(t, ADJ_PK);
         H.Agree memory g = _agree(t, BUYER_PK);
         H.Funding memory f = _erc3009(t, OTHER_PK);
-        vm.expectRevert();
+        vm.expectRevert(bytes("MockERC3009: invalid signature"));
         rules.agreeAndFund(t, s, a, g, f);
     }
 }

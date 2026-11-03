@@ -73,7 +73,7 @@ Red team of PR 52 (D27a), honest-seller case. The honest cleaned CSV is accepted
 ## Receipts and log
 
 - Events 0–12. Chain head 0x5c8d…6e9e. Replay of 8 SimChain submissions from genesis matches the settlement state.
-- Receipts from op-1: 6 (rcpt-0001–rcpt-0006). Stub receipts are unsigned until T-007.
+- Receipts from op-1: 6 (rcpt-0001–rcpt-0006). The runner labels them without signing; the operator API signs real receipts.
 
 ## Invariants
 

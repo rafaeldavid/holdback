@@ -257,7 +257,10 @@ describe('pipeline: transport behavior', () => {
 });
 
 describe('pipeline: refusals before any judge is called', () => {
-  it.each(['claude-latest', 'gpt-LATEST', 'Latest', 'gemini-4-pro-latest-001'])('refuses the unpinned model id %s', async (model) => {
+  it.each([
+    'claude-latest', 'gpt-LATEST', 'Latest', 'gemini-4-pro-latest-001',
+    'gpt-4o', 'claude-sonnet-4-0', 'gemini-pro', 'o3-chat-preview', 'claude-l\u{430}test', 'current', 'default',
+  ])('refuses the unpinned model id %s', async (model) => {
     const f = allPass();
     const { result } = await run({ provider: f.provider, seats: [{ ...SEATS[0]!, model }, SEATS[1]!, SEATS[2]!] });
     expect(result.ok).toBe(false);
@@ -379,7 +382,7 @@ describe('pipeline: red-team round fixes', () => {
     expect(result.value.aggregate.decision).toBe('escalate');
     expect(result.value.deterministic[0]!.detail).toMatch(/budget/);
     expect(f.calls).toHaveLength(0);
-  }, 30_000);
+  });
 
   it('runs checks on the text as delivered, not the normalized text', async () => {
     const { result } = await run({

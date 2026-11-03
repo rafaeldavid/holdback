@@ -64,8 +64,8 @@ Outages:
 ## Receipts and log
 
 - Events 0–10. Chain head 0xb2fd…cfd1. Replay of 8 SimChain submissions from genesis matches the settlement state.
-- Receipts from op-1: 5 (rcpt-0001–rcpt-0005). Stub receipts are unsigned until T-007.
-- Receipts from op-2: 2 (rcpt-0006–rcpt-0007). Stub receipts are unsigned until T-007.
+- Receipts from op-1: 5 (rcpt-0001–rcpt-0005). The runner labels them without signing; the operator API signs real receipts.
+- Receipts from op-2: 2 (rcpt-0006–rcpt-0007). The runner labels them without signing; the operator API signs real receipts.
 
 ## Invariants
 

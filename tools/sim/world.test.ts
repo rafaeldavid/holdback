@@ -1,6 +1,6 @@
 // sim:world gives each run its own world on free ports, so parallel runs never share state; sim:check then
 // reads that world over HTTP. This drives a scripted pair from examples/ against one of two worlds started
-// side by side, checks it end to end, and shows the check failing on a mutated ledger.
+// side by side and checks it end to end (check.test.ts shows the check failing on a mutated ledger).
 import { spawn } from 'node:child_process';
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -65,16 +65,6 @@ describe('sim:world', () => {
     const result = await checkRun(input);
     expect(result.invariants.filter((i) => !i.ok), JSON.stringify(result.invariants, null, 2)).toEqual([]);
     expect(result.commitments).toHaveLength(1);
-
-    // The same run with one unit moved from the buyer to the seller off the record.
-    const mutated = structuredClone(auditA);
-    const buyer = Object.keys(input.audit.genesis.balances).find((k) => mutated.ledger[k] && BigInt(mutated.ledger[k]!) < 10_000_000_000n)!;
-    mutated.ledger[buyer] = (BigInt(mutated.ledger[buyer]!) - 1n).toString();
-    const seller = Object.keys(mutated.ledger).find((k) => k.startsWith('0x') && BigInt(mutated.ledger[k]!) > 10_000_000_000n)!;
-    mutated.ledger[seller] = (BigInt(mutated.ledger[seller]!) + 1n).toString();
-    const bad = await checkRun({ ...input, audit: mutated });
-    expect(bad.ok).toBe(false);
-    expect(bad.invariants.find((i) => i.id === 'conservation')!.ok).toBe(false);
   }, 60_000);
 });
 

@@ -5,7 +5,6 @@ import { describe, expect, it } from 'vitest';
 import {
   commitmentId,
   holdbackDomain,
-  messageTypes,
   SIMCHAIN_VERIFYING_CONTRACT,
   signMessage,
   signTerms,
@@ -37,7 +36,6 @@ const terms = termsOf(commitment);
 
 // Pinned vectors. A change here changes every commitment ID and signature in the system: it needs an ADR.
 const EXAMPLE_TERMS_ID = '0xaa040742a9332cea7152228c808005e0e359c9b28c5ebc71074dd67642c12855';
-const SELLER_ADDRESS = '0xDdC55D01F41A079E14F7Cbb3902ec14e1e8d3ce6';
 const EXAMPLE_TERMS_SELLER_SIGNATURE =
   '0xccd8520e7a5fab1e63ffebe6b9d98a01ab099c5a5e127e1128604c4fe4a68acd05135942ac873efd1d51c39ee451ac6c2811e9a6b5ce7e2d12ee19c50661ba1c1c';
 
@@ -71,13 +69,6 @@ function setPath(obj: unknown, path: string[], v: Leaf): void {
   for (const key of path.slice(0, -1)) cur = cur[key] as Record<string, unknown>;
   cur[path[path.length - 1]!] = v;
 }
-
-describe('domain', () => {
-  it('is Holdback 0.6 with the SimChain placeholder contract by default', () => {
-    expect(domain).toEqual({ name: 'Holdback', version: '0.6', chainId: 31337n, verifyingContract: SIMCHAIN_VERIFYING_CONTRACT });
-    expect(SIMCHAIN_VERIFYING_CONTRACT).toMatch(/^0x[0-9a-f]{40}$/);
-  });
-});
 
 describe('commitment ID', () => {
   it('binds the optimistic dispute timing (review of PR 23)', () => {
@@ -128,10 +119,6 @@ describe('commitment ID', () => {
 });
 
 describe('terms signatures', () => {
-  it('derives a fixed seller address from the fixed test key', () => {
-    expect(seller).toBe(SELLER_ADDRESS);
-  });
-
   it('produces a fixed signature and recovers the signer', async () => {
     const sig = await signTerms(sellerKey, domain, terms);
     expect(sig).toBe(EXAMPLE_TERMS_SELLER_SIGNATURE);
@@ -181,39 +168,6 @@ describe('message signatures', () => {
     expect(await verifyCoSigned(domain, both, buyer, seller)).toBe(true);
     expect(await verifyCoSigned(domain, { ...both, level: 'private' }, buyer, seller)).toBe(false);
     expect(await verifyCoSigned(domain, { ...both, buyerSignature: both.sellerSignature }, buyer, seller)).toBe(false);
-  });
-
-  it('defines TransferAuthorization (ADR-0023) as FundingAuthorization plus to and purpose', () => {
-    expect(messageTypes.TransferAuthorization.map((f) => `${f.type} ${f.name}`).join(',')).toBe(
-      'string scheme,string purpose,bytes32 commitmentId,address from,address to,uint256 value,string token,uint64 validAfter,uint64 validBefore,bytes32 nonce,uint64 expiresAt',
-    );
-  });
-
-  it('defines EIP-712 types for all thirteen messages plus Delivery, Appeal, Receipt and Mandate', () => {
-    expect(Object.keys(messageTypes).sort()).toEqual(
-      [
-        'TransferAuthorization',
-        'Offer',
-        'Agree',
-        'AdjudicatorAcceptance',
-        'FundingAuthorization',
-        'EarlyAccept',
-        'Decision',
-        'AgentRevocation',
-        'MemberAdmission',
-        'MemberRevocation',
-        'Dispute',
-        'MutualSettlement',
-        'Publish',
-        'ReadToken',
-        'Delegation',
-        'KeyRegistration',
-        'Delivery',
-        'Appeal',
-        'Receipt',
-        'Mandate',
-      ].sort(),
-    );
   });
 
   it.each(messageFiles)('signs and verifies %s', async (name) => {

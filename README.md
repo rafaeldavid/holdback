@@ -78,7 +78,7 @@ As of 2026-11-03:
 
 - **Phase 1, done (2026-11-01).** The walking skeleton on SimChain, the narrated demo, the HTTP API on two operator nodes, and the public demo at escrow.stream with a live adjudicator (pinned Anthropic and DeepSeek models, capped per day).
 - **Phase 2, settlement on EVM: in progress.** Merged: the rules contract on `AuthCaptureEscrow` (T-202), invariant and fuzz suites (T-203), the TLA+ model (T-204), EVM settlement with the SimChain differential (T-205), on-chain verification of the drand beacon (T-209), and the first slice of private deals, schema v0.8 (T-207). Next: the contract review (T-206), then Sepolia. The target chain is Ethereum mainnet, which waits for an audit (D4).
-- **Measured.** A happy-path deal with the operator fee bundled into funding (the fee the demo charges) costs 440,005 gas in two transactions on a local chain (T-209). On 2026-11-03, `pnpm snap` passed all 31 scenarios in `fixtures/scenarios/` (25 fixtures plus 6 `todo.` records of known gaps) and `forge test` passed 168 contract tests.
+- **Measured.** A happy-path deal with the operator fee bundled into funding (the fee the demo charges) costs 440,005 gas in two transactions on a local chain (T-209). On 2026-11-03, `pnpm snap` passed all 27 scenarios in `fixtures/scenarios/` (26 fixtures plus 1 `todo.` record of a known gap) and `forge test` passed 143 contract tests.
 - **Limits.** "Honest limits" in https://escrow.stream/llms.txt: test tokens only, both public nodes share one simulated settlement layer, and the judges are not calibrated.
 
 `docs/plan.md` lists every task by phase; `docs/log/` has the latest "Next steps".
