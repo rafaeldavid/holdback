@@ -33,7 +33,7 @@ contract RulesInvariants is Test {
         }
         codehash = [address(rules).codehash, address(bonds).codehash, address(escrow).codehash, tk[0].codehash];
 
-        bytes4[] memory s = new bytes4[](17);
+        bytes4[] memory s = new bytes4[](18);
         s[0] = RulesHandler.offer.selector;
         s[1] = RulesHandler.agreeAndFund.selector;
         s[2] = RulesHandler.deliver.selector;
@@ -51,6 +51,7 @@ contract RulesInvariants is Test {
         s[14] = RulesHandler.cppReclaim.selector;
         s[15] = RulesHandler.stranger.selector;
         s[16] = RulesHandler.warp.selector;
+        s[17] = RulesHandler.decideAppeal.selector;
         targetContract(address(h));
         targetSelector(StdInvariant.FuzzSelector({addr: address(h), selectors: s}));
     }
@@ -132,7 +133,8 @@ contract RulesInvariants is Test {
     }
 
     /// Timeouts: a timeout never succeeds before its deadline, and always succeeds after it, for any caller,
-    /// when the stage allows, including after the buyer reclaimed on CPP (T-206: the bonds must still be released).
+    /// when the stage allows, including after the buyer reclaimed on CPP (T-206: the bonds must still be released);
+    /// and no delivery lands at or after deliverBy, whichever call carries it.
     /// forge-config: default.invariant.runs = 256
     /// forge-config: default.invariant.depth = 100
     function invariant_timeoutsExactlyWhenDue() public view {
@@ -146,6 +148,14 @@ contract RulesInvariants is Test {
     function invariant_noMovementWithoutAuthority() public view {
         assertEq(h.unauthorisedSuccess(), 0, h.lastViolation());
         assertEq(h.strangerSuccess(), 0, h.lastViolation());
+    }
+
+    /// The buyer's key only with payment (formal model KeyOnlyWithPayment, ADR-0012): no decision releases it on a
+    /// deal that does not stand Released (T-206 H-2).
+    /// forge-config: default.invariant.runs = 256
+    /// forge-config: default.invariant.depth = 100
+    function invariant_keyOnlyWithPayment() public view {
+        assertEq(h.keyWithoutPayment(), 0, h.lastViolation());
     }
 
     /// Nothing has an admin path: the deployed code never changes (no selfdestruct, no upgrade) and the rules
