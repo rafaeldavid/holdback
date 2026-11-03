@@ -70,7 +70,7 @@ Demo beat 6a (T-018). The deliverable, customers.clean.injection-base64.csv, pas
 ## Receipts and log
 
 - Events 0–9. Chain head 0x540b…42cd. Replay of 7 SimChain submissions from genesis matches the settlement state.
-- Receipts from op-1: 5 (rcpt-0001–rcpt-0005). Stub receipts are unsigned until T-007.
+- Receipts from op-1: 5 (rcpt-0001–rcpt-0005). The runner labels them without signing; the operator API signs real receipts.
 
 ## Invariants
 
