@@ -1,0 +1,30 @@
+# Read-only billing credentials for the cost collector (T-052; docs/costs.md, "Read-only credentials").
+# Create .env.costs from this file ONLY at the root of the dedicated clone, where no agent works, and keep no other
+# copy:   cp config/keys-costs.template .env.costs
+# .env.* is git-ignored, and agents never read it. Run the collector as `node scripts/costs/collect.mjs`, never with
+# --env-file or pnpm: it loads this file itself, after the approval check. Every credential below is optional: a
+# source whose credential is missing is reported as "not configured", and the Sepolia and Claude Code sources need none.
+
+# Cloudflare: a custom token "crow-costs-read" with Account · Billing · Read and Account · Account Analytics · Read,
+# on this account only. https://dash.cloudflare.com/profile/api-tokens
+CROW_COSTS_CLOUDFLARE_TOKEN=
+# The account ID, from the dashboard's account home page (32 hex characters).
+CLOUDFLARE_ACCOUNT_ID=
+
+# Anthropic: an Admin key "crow-costs-read" (organization admins only; full access, no read-only scope).
+# https://platform.claude.com/settings/admin-keys
+CROW_COSTS_ANTHROPIC_ADMIN_KEY=
+
+# GitHub: a fine-grained token "crow-costs-read", no repository access, user permission Plan: Read.
+# https://github.com/settings/personal-access-tokens/new
+CROW_COSTS_GITHUB_TOKEN=
+
+# DeepSeek: a key "crow-costs-read" (it can spend like any key; the prepaid balance stays the cap).
+# https://platform.deepseek.com/api_keys
+CROW_COSTS_DEEPSEEK_KEY=
+
+# Required: two full paths outside the clone and outside every git checkout or git directory (Node does not expand ~).
+# Billing figures, budgets.json and the account register:
+CROW_COSTS_DIR=
+# What the agent-ops phase may read (T-031's day lines; no figure). Save Workers Logs exports in its inbox/ folder:
+CROW_TELEMETRY_DIR=
