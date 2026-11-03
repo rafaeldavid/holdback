@@ -651,3 +651,18 @@ Also: the funding signature on EVM is CPP's collector signature and token identi
 | USDC only, USD to USDC on-ramp (chosen) | One unit end to end; other assets later in an Assets module |
 | Sepolia demo on Circle's USDC | The real token, but a hand-filled treasury and an issuer that can freeze a hold |
 | Sepolia demo on tUSDC (chosen) | Unlimited faucet, no admin, same interface; not the real token, stated plainly |
+
+## D43. An overturn pays from the bond on chain now, and only the losing party appeals
+
+**Decided 2026-11-03 by Rafa,** who asked to "fix the contracts to address" the contract review's two high findings (`docs/reviews/2026-11-03-contract-review.md` §8). This entry covers the first: I-8, no overturn payout. It moves from Phase 4 into T-212 (item 9), together with the appeal-slot fix it depends on (L-7, item 7). The second high, binding decisions to the delivery, is T-212 item 3 and gets its own entry. Rafa may overrule any line.
+
+- **The overturn payout.** When a party appeal overturns the first decision, the first-instance decider's bond pays the wronged party the price: the buyer after an overturned accept, the seller after an overturned reject. That bond has been encumbered for exactly the price since its decision (guaranteed mode, ADR-0007), so the payout always has cover. The appeal bond goes back to the appellant. SimChain (`payFromBond`) and the formal model's `DecideAppeal` already did this; the contract now matches them. The rules-only `HoldbackBonds.slash` makes the payment, and the adapter reports its `BondSlashed` event as SimChain's `bond.slashed`.
+- **Only the losing party appeals (L-7).** That is the buyer after an accept and the seller after a reject; the other party's appeal is refused (`InvalidMessage` on chain, `invalid_terms` in core). Outcomes are binary, so the favoured party has nothing to appeal for. With one slot per deal, its free appeal would shut the losing party out and so block the payout.
+- **Still Phase 4:** the appeal fee, a minimum appeal bond, default compensation from bonds, backers and coverage ratios. A zero-bond appeal by the losing party still extends the decider's bond lock by `appealDecideSec` (L-3).
+- **The live demo** keeps the deployed contracts until a redeploy, which is gated on Rafa. On Sepolia, fallback and appeal adjudicators also cannot prove their drand seed yet, so no appeal decides there.
+
+| Option | Effect |
+| --- | --- |
+| Keep the payout in Phase 4 | Appeals move no money on chain; litmus test 3's "appeals are backed by the bond" stays unmet and blocks mainnet |
+| Pay from the first decider's bond now, only the losing party appeals (chosen) | Matches SimChain and the formal model; +258 bytes, 332 under EIP-170 |
+| Pay now, one appeal slot per party | Same payout, more state and code; a favoured party's appeal has nothing to win |

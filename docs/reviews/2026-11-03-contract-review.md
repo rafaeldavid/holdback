@@ -52,7 +52,7 @@ The public-audit cross-check found no high or medium issue against our use of CP
 **What blocks what.**
 - Rule for this review: low findings block mainnet, not the Sepolia testnet.
 - The cross-family review is done (DeepSeek, §8) and found no new high or medium. Rafa's read still gates calling Phase 2 done (§7).
-- "Appeals are backed by the adjudicator's bond" is **not met on chain until Phase 4**. No on-chain path pays anyone from an adjudicator's bond; an appeal moves only the appellant's bond (I-8). As an unmet mandatory clause, I-8 blocks mainnet (§8).
+- "Appeals are backed by the adjudicator's bond" was **not met on chain**: no on-chain path paid anyone from an adjudicator's bond, and an appeal moved only the appellant's bond (I-8). As an unmet mandatory clause, I-8 blocked mainnet (§8). **Update (D43, T-212):** an overturn now pays the wronged party the price from the first decider's bond, and only the losing party may appeal (L-7). The clause is met for party appeals; the rest of I-8 (default compensation, the appeal fee, a minimum appeal bond) stays Phase 4.
 
 ## 2. Findings
 
@@ -69,7 +69,7 @@ The public-audit cross-check found no high or medium issue against our use of CP
 | L-4 | low | The seed commitment is checked on 144 bits, reusably | judgment | inferred | T-212 item 2 |
 | L-5 | low | Uncovered fallback and appeal adjudicators still decide | judgment | measured | the fallback's part fixed by M-3; the appeal adjudicator's in T-212 item 5 |
 | L-6 | low | `authorizationExpiry` ignores `judgeBy` | hold | measured | T-212 item 4 |
-| L-7 | low | The party a decision favoured can take the only appeal slot | judgment | measured | T-212 item 7 |
+| L-7 | low | The party a decision favoured can take the only appeal slot | judgment | measured | fixed with the overturn payout (D43, T-212 item 7) |
 | L-8 | low | A `judgeBy` already past at funding makes the fallback's seed public before the terms are signed | judgment | measured | T-212 item 8 |
 | I-1 to I-13 | info | Each labelled and disposed of in §2.3 | | | |
 
@@ -207,7 +207,7 @@ Proofs marked "adversarial pass" are among the 24 tests in that pass's local wor
 
 - **Where:** `HoldbackRules.sol:304, 529`. Takeover recorded `tryEncumber`'s failure, and `decide` never consulted it. A party appeal encumbers nothing on the appeal adjudicator.
 - **Conflict:** ADR-0016 §1 says "if either lacks coverage then, the case goes to the default outcome". T-202 Decision 4 and `HoldbackBonds.sol:81` built "if it is free, else nothing", and the role still decided.
-- **Severity:** the adversarial pass rated it medium; it stays low here, because no on-chain path pays from any bond yet (I-8).
+- **Severity:** the adversarial pass rated it medium; it stays low here, because no on-chain path pays from any bond yet (I-8). Since D43 an overturn pays from the first decider's bond, but still never from the appeal adjudicator's, so this stays low.
 - **Proof:** `test_attack_fallback_decides_with_no_bond_at_stake` [measured, local].
 - **Status:**
   - The fallback's part is fixed by M-3: its own decision must encumber its bond.
@@ -226,6 +226,7 @@ Proofs marked "adversarial pass" are among the 24 tests in that pass's local wor
 - **Scenario:** the party the decision went for files a free appeal first. The losing party's appeal then reverts with `WrongAppealState(Open)`, and the decision stands. It is low today, because an appeal moves only the appellant's bond. It becomes medium once Phase 4 pays from bonds.
 - **Proof:** the cross-check's `AppealSlot.t.sol`, 3 tests [measured by the cross-check; PR #137].
 - **Follow-up:** T-212. Admit only the party the decision went against, or give each party its own slot.
+- **Status:** fixed with the overturn payout (D43), which raised it to medium. `fileAppeal` admits only the party the decision went against, and core refuses the other party's appeal too. `AppealSlot.t.sol` now pins the refusal; what is left is L-3's lock extension by the losing party's zero-bond appeal.
 
 #### L-8. A `judgeBy` already past at funding makes the fallback's seed public before the terms are signed (cross-check, PA-L4)
 
@@ -264,6 +265,7 @@ Each item gives a label and a disposition.
 - **I-8. Phase 4 gaps** [inferred].
   - The contract has no overturn payout, no default compensation, no appeal-fee collection and no minimum appeal bond (T-202 difference 9).
   - Disposition: Phase 4, and the clause in §1 is recorded as unmet; it blocks mainnet (§1, §8).
+  - **Update (D43):** the overturn payout is built (`_appealDecision`, `HoldbackBonds.slash`; `OverturnPayout.t.sol` and `invariant_overturnPaysFromTheBond`), so the §1 clause is met for party appeals. Default compensation, the appeal fee and a minimum appeal bond stay Phase 4.
 - **I-9. Mutual payouts are not screened** [measured, adversarial pass, local].
   - A co-signed payout to the rules contract or to CPP's TokenStore strands those tokens. A payout to `address(0)` reverts the whole settlement, so nothing is lost.
   - Disposition: accepted. Both parties signed it (D31).
@@ -400,7 +402,7 @@ Every action in `Next` of `formal/Holdback.tla` maps to a contract function [inf
 Gaps:
 - The model has no CPP reclaim by the buyer. That is the transition behind M-1, so the model's liveness result did not cover it.
 - The model's `DecideAppeal` releases no key, and the contract did (H-2). After the fix, `KeyOnlyWithPayment` also holds in the contract, and an invariant checks it.
-- The model's `DecideAppeal` pays the wronged party from the bond; the contract does not yet (I-8).
+- The model's `DecideAppeal` pays the wronged party from the bond; the contract did not (I-8) until D43, and now does.
 - The model has no bond coverage. After M-3 the contract reserves the fallback's bond only when the fallback decides, and an uncovered fallback cannot decide. That matches ADR-0016 §1, which the model does not encode (L-5).
 - `formal/README.md` lists the contract column as TBD (I-11).
 
@@ -465,7 +467,7 @@ Gaps:
 
 | DeepSeek item | Its severity | Triage | Recorded as |
 | --- | --- | --- | --- |
-| An overturning appeal does not pay the wronged party from the first adjudicator's bond (`HoldbackRules.sol` `_appealDecision`) | high | True, and known; nothing worse [measured: an overturned accept, an overturned reject and an overturned fallback accept each end with CPP at 0, no bond encumbered and nothing stuck]. The wronged party simply gets nothing. The code says "the overturn payout from the adjudicator's bond is Phase 4" | I-8 (T-202 difference 9; the §1 clause recorded as unmet). It blocks mainnet (below) |
+| An overturning appeal does not pay the wronged party from the first adjudicator's bond (`HoldbackRules.sol` `_appealDecision`) | high | True, and known; nothing worse [measured: an overturned accept, an overturned reject and an overturned fallback accept each end with CPP at 0, no bond encumbered and nothing stuck]. The wronged party simply gets nothing. The code says "the overturn payout from the adjudicator's bond is Phase 4" | I-8 (T-202 difference 9; the §1 clause recorded as unmet). It blocks mainnet (below). Since fixed (D43) |
 | A decision is not bound to the delivery: `decisionHash` names the attempt, not the delivery hash | high | True in mechanism. On chain only the seller can pair a decision with another delivery [measured: in `Held` a carried delivery signed by anyone but the seller reverts, and in `Delivered` the carried delivery is ignored]. Money is unaffected. But the off-chain record does not close the gap: the judgment record carries no delivery hash (`judgment.schema.json`), and `encryptedKeysHash` is the escalation envelope, not the delivery's keys. An adjudicator handed an unsigned body by an operator would sign a decision that a relayer could settle against the seller's real delivery [inferred]. So the adjudicator must check the seller's signature on what it judges | Low, extending L-1 to decisions. T-212 item 3 now covers both, with the judgment record's delivery hash in the same schema decision. The adjudicator's check goes to T-211 and T-213 (T-206 Handoff) |
 | The primary chooses its own seed through its seed commitment | medium | Real and tracked, but deferred rather than settled. ADR-0018 lists mixing the beacon into the primary's seed under "Not adopted" as a later decision, bounded by calibration and appeal. Until Phase 4 an overturning appeal moves no money (I-8, measured above), so on chain the bound is calibration and the parties' choice of primary. This row and the I-8 row each rely on the other | ADR-0018 (Not adopted); backlog row on the colluding primary (before open clubs) |
 | `authorizationExpiry` does not bound every capture deadline | medium | Two items. (a) `judgeBy` after `fallbackBy` is L-6. (b) An early-accept or mutual `expiresAt` past `authorizationExpiry` can happen even with ordered deadlines. That is by design (T-202 difference 15), and T-212 item 4 does not touch it. Both are bounded [measured: a late early accept reverts, the buyer reclaims on CPP, and the fallback and default calls close the deal] | (a) L-6, T-212 item 4. (b) T-202 difference 15, no change |
@@ -483,7 +485,7 @@ Gaps:
 
 | Item | DeepSeek | This review | Kept |
 | --- | --- | --- | --- |
-| No overturn payout | High: it breaks "appeals are backed by the bond" | A documented Phase 4 gap, filed as informational | I-8, and it **blocks mainnet**. It is an unmet clause of litmus test 3, a mandatory rule, so the rule that informational items do not block mainnet does not apply to it. Rafa may raise its severity |
+| No overturn payout | High: it breaks "appeals are backed by the bond" | A documented Phase 4 gap, filed as informational | I-8, and it **blocks mainnet**. It is an unmet clause of litmus test 3, a mandatory rule, so the rule that informational items do not block mainnet does not apply to it. Rafa may raise its severity. Since fixed (D43) |
 | Decision not bound to the delivery | High | Low: on chain it needs seller equivocation, and money is unaffected | Low, with L-1, plus the adjudicator's signature check (T-211, T-213) |
 | The primary chooses its seed | Medium | Deferred (ADR-0018, Not adopted) | ADR-0018 and the backlog row; on chain until Phase 4, bounded only by calibration and the parties' choice of primary |
 | The expiry bound | Medium | Low (a) and by design (b) | L-6; T-202 difference 15 |
