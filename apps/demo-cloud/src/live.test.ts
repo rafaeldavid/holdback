@@ -127,7 +127,7 @@ describe.skipIf(!ready)(`the public world on a live chain (anvil for Sepolia)${r
     // reads no chain; the first pass verifies it, and the bonds recorded in storage are not sent again.
     const again = await PublicWorld.open({ storage, env: ENV, live: { chain: chainOf() } });
     expect(again.ready()).toBe(false);
-    // Setup left: a pass is due in 2 s (T-039). Once set up, the Released deal awaits no adjudicator: no pass is due.
+    // Setup left: a pass is due in 2 s (T-057). Once set up, the Released deal awaits no adjudicator: no pass is due.
     expect(again.nextPass()! - Date.now()).toBeGreaterThan(1500);
     expect(again.nextPass()! - Date.now()).toBeLessThanOrEqual(2000);
     await again.work();

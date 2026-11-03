@@ -16,7 +16,7 @@
 //   world is rebuilt by replay after the Durable Object is evicted;
 // - minimal telemetry (telemetry.ts, T-031): a 7-day request log without bodies, header values, IPs or paths, the
 //   Durable Object's free-tier use with a warning, and hourly and daily summary lines in Workers Logs;
-// - adjudicator passes run only while a case awaits these adjudicators (T-039): `nextPass` tells the Durable Object
+// - adjudicator passes run only while a case awaits these adjudicators (T-057): `nextPass` tells the Durable Object
 //   when to set its alarm, so an idle world, or one woken by a plain read, costs no alarm.
 // No real money: SimChain (chain id 31337), the test token tUSD, and the operators' startup guards.
 //
@@ -228,7 +228,7 @@ function workAt(s: EscrowState, ours: (address: string) => boolean, now: number)
     case 'FallbackJudging': {
       if (passed(fallbackBy)) return null;
       const at = s.kind === 'Delivered' && ours(adjudicator) && !passed(judgeBy) ? [now] : [];
-      // Kept even while the primary can act now: the takeover must not wait on a slow cadence (T-039 review).
+      // Kept even while the primary can act now: the takeover must not wait on a slow cadence (T-057 review).
       if (ours(fallbackAdjudicator)) at.push(s.kind === 'Delivered' ? Date.parse(judgeBy) : now);
       return at;
     }
@@ -565,7 +565,7 @@ export class PublicWorld {
     for await (const e of this.chain.events(this.seq)) {
       this.seq = e.seq + 1;
       // Any event brings its commitment back: a look may drop one by the wall clock while a submission stamped
-      // before the deadline is still landing (T-039 review).
+      // before the deadline is still landing (T-057 review).
       if (e.commitmentId) this.commitments.add(e.commitmentId);
     }
     const ours = new Set(Object.values(this.adjudicators).map((a) => lc(a.address)));

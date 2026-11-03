@@ -1,4 +1,4 @@
-// T-039: the World Durable Object (worker.ts) in Node, behind both Workers. A fake Durable Object state over memory
+// T-057: the World Durable Object (worker.ts) in Node, behind both Workers. A fake Durable Object state over memory
 // storage holds the alarm in a field the test fires, on a fake clock. Cloudflare bills each setAlarm as a row written
 // and each alarm as a request, so the alarm is what an idle world must not cost.
 import nacl from 'tweetnacl';
@@ -74,7 +74,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('the adjudicator alarm (T-039)', () => {
+describe('the adjudicator alarm (T-057)', () => {
   it('reads and faucet grants arm no alarm; a deal arms one per adjudicator step, and none after it', async () => {
     const dep = deploy();
     const { seller, buyer, offer, state } = await offered();

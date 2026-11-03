@@ -367,7 +367,7 @@ describe('a checks-only deal between two fresh agents, over HTTP', () => {
   }, 60_000);
 });
 
-describe('adjudicator passes (T-039)', () => {
+describe('adjudicator passes (T-057)', () => {
   /** A new world over the same storage, as after an eviction, woken by a plain read. */
   const wake = async (storage: MemoryStorage, options: Partial<PublicWorldOptions> = {}) => {
     const world = await PublicWorld.open({ storage, env: {}, minWindowSec: 2, ...options });
@@ -430,7 +430,7 @@ describe('adjudicator passes (T-039)', () => {
     expect([stuck.active(), stuck.nextPass()]).toEqual([false, Date.parse(deadlines['judgeBy']!)]);
   });
 
-  it('a deal that moves as its deadline passes stays scheduled: a read and a delivery straddle deliverBy (T-039 review)', async () => {
+  it('a deal that moves as its deadline passes stays scheduled: a read and a delivery straddle deliverBy (T-057 review)', async () => {
     let t = Math.ceil(Date.now() / 1000) * 1000;
     const { world, urls } = await serve({ now: () => t }, new MemoryStorage(), undefined, { passes: false });
     const d = await discovery(urls);

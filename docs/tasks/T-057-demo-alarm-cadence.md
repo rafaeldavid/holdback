@@ -1,12 +1,12 @@
-# T-039: The demo's adjudicator alarm runs only while a case awaits an adjudicator
+# T-057: The demo's adjudicator alarm runs only while a case awaits an adjudicator
 
 - **Lane:** demo
 - **Phase:** 2
 - **Depends on:** T-031 (telemetry counts the alarm)
-- **Paths this task may touch:** `apps/demo-cloud/src/`, `docs/backlog.md`, `docs/operations.md`, `docs/plan.md`, `docs/tasks/T-039-demo-alarm-cadence.md`, and an amendment note in `docs/decisions/ADR-0028-demo-settles-on-sepolia.md` §5 (after the Sepolia merge)
+- **Paths this task may touch:** `apps/demo-cloud/src/`, `docs/backlog.md`, `docs/operations.md`, `docs/plan.md`, `docs/tasks/T-057-demo-alarm-cadence.md`, and an amendment note in `docs/decisions/ADR-0028-demo-settles-on-sepolia.md` §5 (after the Sepolia merge)
 - **Human gate:** no (the deploy that ships it is Rafa's)
 - **Status:** done (PR 136)
-- **Agent/session:** side session from the T-031 follow-ups, branch `t-039-demo-alarm`
+- **Agent/session:** side session from the T-031 follow-ups, branch `t-039-demo-alarm` (opened as T-039, renumbered: PR 131 holds T-039 to T-050)
 
 ## Intent
 
@@ -32,17 +32,17 @@ The public demo World (one Durable Object on the Workers Free plan) spends its d
   | Scenario | Code | DO requests | Alarms | setAlarm | Rows written |
   | --- | --- | --- | --- | --- | --- |
   | Cold start from one read, idle world, then 15 min | main | 901 | 900 | 901 | 1,817 |
-  | | T-039 | 1 | 0 | 0 | 1 |
+  | | T-057 | 1 | 0 | 0 | 1 |
   | One faucet grant on a warm idle world, then 15 min | main | 901 | 900 | 901 | 1,820 |
-  | | T-039 | 1 | 0 | 0 | 6 |
+  | | T-057 | 1 | 0 | 0 | 6 |
   | A whole checks-only deal (2 faucet grants, offer, agree-and-fund, deliver), then 15 min | main | 936 | 903 | 903 | 1,837 |
-  | | T-039 | 35 | 2 | 2 | 18 |
+  | | T-057 | 35 | 2 | 2 | 18 |
   | A delivery the primary refuses on every pass, first 15 min | main | 901 | 900 | 900 | 1,815 |
-  | | T-039 | 20 | 19 | 19 | 53 |
+  | | T-057 | 20 | 19 | 19 | 53 |
 
   Rerun after the review fixes; the first run differed by one row in two cells (when the telemetry flush fell). Each old pass also journals a clock `advance` entry, so 15 minutes of activity cost about 1,800 rows written, not the 900 the backlog row estimated. The harness fakes `Date` only, so the log-flush timer never fires in it: on Cloudflare a request that leaves log lines waiting adds one flush a minute later (the reviewer measured 1 row in the request and 4 once the timer fired, with timers faked too). Main's numbers already include their flushes, made on its passes.
 - **Inferred, Cloudflare:** the Free tier allows 100,000 rows written and 100,000 requests a day. Before, about 55 activity windows a day (any read after an eviction, any POST) used up the rows written; a world kept active all day would need about 173,000. After, a read or a cold start with nothing open costs about 4 rows with its log flush, a deal about 18 rows and 35 requests, and a stuck case about 50 rows per 15-minute window. Not measured on Cloudflare until a deploy: read `usage` in the first day lines.
-- **Measured, tests:** `world.test.ts` (20 tests, 3 of them new for T-039, including the rebuild test) and `worker.test.ts` (4 new) pass, with all 33 demo-cloud tests. Each review fix's test fails on the commit before it: the takeover test (no takeover by judgeBy + 5 s), the straddled-deadline test (the delivered deal not active), and the overdue-alarm test (re-armed at judgeBy, a day out).
+- **Measured, tests:** `world.test.ts` (20 tests, 3 of them new for T-057, including the rebuild test) and `worker.test.ts` (4 new) pass, with all 33 demo-cloud tests. Each review fix's test fails on the commit before it: the takeover test (no takeover by judgeBy + 5 s), the straddled-deadline test (the delivered deal not active), and the overdue-alarm test (re-armed at judgeBy, a day out).
 - **Measured, `pnpm verify`** (`reports/verify-t-039-demo-alarm.md`, 2026-11-03, this branch's tree before commit): typecheck, lint, forge build, forge, test, spec, snap and demo pass. snap:local fails on one fixture, `error.submission-limit` (refused `invalid_terms` on the contract where SimChain refuses `submission_limit_reached`). That fixture was promoted from `todo.` on main in 7fd10a6 (PR 116). This branch touches nothing it runs, and CI does not run snap:local. The first verify run also failed forge build while cloning the contract submodules into this fresh worktree; the rerun passed.
 
 ## Decisions
