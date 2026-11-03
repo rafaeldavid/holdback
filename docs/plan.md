@@ -125,7 +125,7 @@ Goal: fiat enters and leaves through ramps; the demo runs on a public testnet wi
 
 ## Phase 7: Far-future exploration
 
-Not scheduled (Rafa, 2026-11-02); each needs a research pass and an ADR before any build. Details in `docs/backlog.md` under "Far future".
+Goal: not scheduled (Rafa, 2026-11-02); each item needs a research pass and an ADR before any build. Details in `docs/backlog.md` under "Far future".
 
 - Tax liability for agents and their owners: what a deal creates (income, sales tax, withholding, reporting), who bears it, and what the signed record and receipts must carry to help owners file. The protocol stays rails (D35): it supplies evidence, not tax decisions.
 - Minimise gas per deal, toward near-zero until settlement.
