@@ -34,7 +34,7 @@ Turn outside text into data the pipeline can act on, without letting that text i
 
 ## Acceptance criteria
 
-- [ ] `feedback.ts export` writes a JSON Lines file of unsealed reports. It never opens a sealed field, and never writes a signer key or an IP. It runs where the KV access is: a deploy session, or Rafa's laptop. On option B, it writes to `/srv/crow/intake/` (created by T-039's `vm-users.sh`), which the `builder` and `tick` users can read. Tested on a fixture store.
+- [ ] `feedback.ts export` writes a JSON Lines file of unsealed reports. It never opens a sealed field, and never writes a signer key or an IP. It runs where the KV access is: on Rafa's laptop, or on option B through the deploy wrapper's `feedback-export` command (T-039). The deploy session itself holds no Cloudflare token. On option B, it writes to `/srv/crow/intake/` (created by T-039's `vm-users.sh`), which the `builder` and `tick` users can read. Tested on a fixture store.
   - Until the D39 decision below allows more, the export holds only ID, kind, fingerprint, status and date. The limit is in the export, not only in `intake.mjs`, because anything a build session reads goes to Anthropic with the session.
   - Once allowed, it adds summary, observed, expected and request ID.
 - [ ] Decide, after a research pass, whether the clear text of a report may go to the operator's own triage model (Anthropic) under D39. The architect records it with `/record-decision` (T-036), or by hand if T-036 has not merged. If the answer needs new wording in the agent-facing notice (`site/llms.txt`, `docs/api.md`), that change goes to Rafa as a publication.

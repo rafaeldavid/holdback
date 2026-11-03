@@ -303,9 +303,10 @@ Every step is **agent** unless marked. Times are guessed.
    - installs `/opt/crow/deploy <tag> <sha>`, a root-owned wrapper whose source, `scripts/dev-env/deploy.sh`, is tier 3. The `deploy` user may run it, through sudo, as `cfdeploy`, the only user that can read the Cloudflare token. It does no deploy any other way: the token is out of its reach, so a deploy session cannot run wrangler around the check. The wrapper:
      - checks that `git rev-parse <tag>^{commit}` equals the SHA in Rafa's go-ahead;
      - clones that commit fresh into a new folder and runs `pnpm install --frozen-lockfile` there;
-     - deploys from that clone with `pnpm demo-cloud:deploy`, never from a working tree a session controls. The whole wrapper runs as `cfdeploy`, never as root, so the deploy code can reach the Cloudflare token, which it needs, and nothing else.
+     - deploys from that clone with `pnpm demo-cloud:deploy`, never from a working tree a session controls. The whole wrapper runs as `cfdeploy`, never as root, so the deploy code can reach the Cloudflare token, which it needs, and nothing else. The token goes only into the environment of the final wrangler step, never into `pnpm install` or the build, so a lifecycle script in the tagged commit never sees it.
+     - validates every argument, as the launcher does: a tag matching the deploy-tag pattern, a 40-character hex SHA, and a worker from a fixed list.
 
-     It also offers the read-only commands the runbook uses, such as `tail <worker>`. The check sits outside the tier 2 deploy code it protects (T-050 step 9).
+     It also offers the few commands the runbook and T-041 need with the token, each validated the same way: `tail <worker>` and `feedback-export`. The check sits outside the tier 2 deploy code it protects (T-050 step 9).
    - creates `/home/minter/.config/crow/` with mode 700, so only `minter` can read the two App keys;
    - creates `/srv/crow/intake/`, owned by `deploy`, with the group `crow-intake` that the builder slot users and `tick` belong to, mode 750 for the folder and 640 for its files. The deploy side writes the feedback export and the signal records there (T-041, T-042), and the build side reads them.
    - copies `gh-app-token.mjs` to `/opt/crow/`, owned by root and writable by no one else;
