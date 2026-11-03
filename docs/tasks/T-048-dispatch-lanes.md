@@ -18,7 +18,7 @@ Let a script, not a model, decide which task is ready to start. Give each sessio
   - claims, as pushed `t-<id>-<slug>` branches;
   - briefs;
   - one metrics line per run.
-- **Where the tick runs:** decide it here and record the reason. The design proposes a stateless script on option B, run by a Haiku session or a plain process under the `tick` user. It resets the role's home with `/opt/crow/reset-home` (T-039), then starts each session as that role's user, with `claude -p`, in its own worktree. On option A it cannot delete stale claims, because the proxy refuses branch deletions.
+- **Where the tick runs:** a plain process under the `tick` user on option B, with no model. The design also allowed a Haiku session, but a model reading PR titles and bodies that builders write could be steered. The tick starts a session only through T-039's root-owned launcher, `/opt/crow/start-session <role> <task-id>`, which resets the role's home and builds the brief itself from `main`. The tick passes no prompt. On option A it cannot delete stale claims, because the proxy refuses branch deletions.
 - Non-goals: running on triggers (T-050), a long-running coordinator.
 
 ## Context
@@ -50,11 +50,11 @@ Let a script, not a model, decide which task is ready to start. Give each sessio
 - [ ] `--dry-run` is the default. It prints the plan and writes the metrics line, and pushes nothing.
 - [ ] A claim is a pushed branch whose first commit sets the task's Status to `in progress`. A rejected push means another session holds the task. A claim with no push for 24 hours is reported for release: the dry run lists it, and a real run on option B deletes the branch and reopens the task.
 - [ ] A task with `Origin: untrusted` waits until its file carries Rafa's approval line. Until T-050 step 10, that holds whatever the task's tier; after it, only for tier 2 and tier 3.
-  - The tick checks the line itself, not only its presence. Through the API, it finds the PR that merged the commit adding the line. It accepts the line only if that PR has an approving review by Rafa on its head commit, or the commit is verified and authored by `rafaeldavid`.
+  - The tick checks the line itself, not only its presence. Through the API, it finds the PR that merged the commit adding the line. It accepts the line only if that PR has an approving review by Rafa on its head commit. A commit authored as `rafaeldavid` does not count: any session holding his login can make one (T-039 step 9).
   - PRs from forks are never dispatched.
   - A task that fails review three times is marked `needs-human`.
 - [ ] The lander merges a PR only once `crow-review` has approved its head commit (T-039), and T-050's `main` ruleset requires the same. A builder session cannot stand in for the reviewer.
-- [ ] `start-session.mjs` starts one session for a planned task, in its own worktree, with the brief and the model. Shown with a dry run that prints the command.
+- [ ] `start-session.mjs` is the tick's side of T-039's launcher. It calls `/opt/crow/start-session <role> <task-id>` for a planned task, and passes nothing else: no prompt, no brief, no model. The launcher picks the model with `modelFor`, builds the brief and opens the session's worktree. Shown with a dry run that prints the call.
 - [ ] `pnpm verify` passes. A dry run on the real repository's state is pasted in Evidence (measured).
 
 ## Out of scope

@@ -3,7 +3,7 @@
 - **Lane:** infra
 - **Phase:** 9
 - **Depends on:** nothing in the repository. Rafa can start part (a) before the rest of Phase 9, because the environment also ends the approval prompts on his laptop. Part (b) lands in two PRs, the one exception to "one task, one PR" in this phase. Steps 1 to 3 hold no secret, so agents build them first, anywhere; Rafa's VM setup runs them. Steps 4 to 7 follow his go-ahead.
-- **Paths this task may touch:** `scripts/dev-env/setup.sh` (new), `scripts/dev-env/vm-users.sh` (new), `scripts/dev-env/gh-app-token.mjs` (new), `scripts/dev-env/reset-home.sh` (new), `scripts/dev-env/gh-wrapper.sh` (new), `scripts/dev-env/managed-settings.json` and `scripts/dev-env/managed-CLAUDE.md` (new: the sources `vm-users.sh` installs under `/etc/claude-code/`), `scripts/dev-env/smoke.mjs` (new), `tests/dev-env.test.ts` (new), `docs/dev-env.md` (new), `config/keys-dev-env.template`, `config/keys.template` (a pointer only), `.claude/settings.json` (the allow list only), `docs/operations.md` (Secrets; Working without permission prompts), `docs/tasks/T-039-isolated-dev-environment.md`
+- **Paths this task may touch:** `scripts/dev-env/setup.sh` (new), `scripts/dev-env/vm-users.sh` (new), `scripts/dev-env/gh-app-token.mjs` (new), `scripts/dev-env/start-session.sh` (new: the launcher; it resets the role's home), `scripts/dev-env/gh-wrapper.sh` (new), `scripts/dev-env/managed-settings.json` and `scripts/dev-env/managed-CLAUDE.md` (new: the sources `vm-users.sh` installs under `/etc/claude-code/`), `scripts/dev-env/home-templates/` (new: one folder per role), `scripts/dev-env/smoke.mjs` (new), `tests/dev-env.test.ts` (new), `docs/dev-env.md` (new), `config/keys-dev-env.template`, `config/keys.template` (a pointer only), `.claude/settings.json` (the allow list only), `docs/operations.md` (Secrets; Working without permission prompts), `docs/tasks/T-039-isolated-dev-environment.md`
 - **Human gate:** **yes.** Part (a) creates accounts, tokens, spending caps and repository settings, all outside the repository. Agents never create a credential or read its value.
 - **Status:** todo
 - **Agent/session:** —
@@ -55,7 +55,7 @@ Two keys are exceptions:
 - the `crow-agents` Anthropic key, which lasts 30 days and can be read where exe.dev cannot inject it; its workspace's monthly limit caps it;
 - the 90-day `crow-deploy` Cloudflare token, which only deploy sessions hold, on Rafa's go-ahead.
 
-A is a sound quick start for build sessions before activation. A third option, Claude Code's self-hosted environments, is for Team and Enterprise plans only (documented).
+A is a sound quick start for build sessions before activation, and it ends there. From T-050 step 2, every PR needs `crow-review`'s approval, which only B can give. On A, sessions also act as Rafa, so the branch rulesets and the author and approver checks do not apply to them. A third option, Claude Code's self-hosted environments, is for Team and Enterprise plans only (documented).
 
 ## Two kinds of session
 
@@ -128,7 +128,7 @@ Every step is **human**. Times are guessed; faucet waits are extra. The steps ar
       - Workflows: **No access.** With write access, a branch push could add an `on: push` workflow that posts `check`, `gitleaks` or `xreview` as passing and reads repository secrets.
       - Commit statuses, Secrets, Environments and Administration: No access.
    2. **`crow-review`**, for the reviewer only. Its repository permissions:
-      - Contents: Read-only.
+      - Contents: Read and write. GitHub counts a required approval only from an account with write access (documented). The `t-branches` and `agent-branches` rulesets in step 4 keep this app from pushing to any branch.
       - Pull requests: Read and write, to submit reviews.
       - Everything else: No access.
 
@@ -139,11 +139,19 @@ Every step is **human**. Times are guessed; faucet waits are extra. The steps ar
    - [both] At https://github.com/rafaeldavid/holdback/settings/rules, open `main` and confirm its Bypass list is empty (measured empty on 2026-11-02). Your own bypass, for tier 3 PRs, goes in a separate ruleset at T-050, so `check` and `gitleaks` stay required for everyone.
    - [B] Create a branch ruleset, `agent-branches`, so the agents can create and push only their `t-*` claim branches. Without it, `crow-agents` could push to one of your own branches while your PR on it waits to merge.
      - Enforcement: Active.
-     - Target branches: Include all branches; Exclude by pattern `main` and `t-*`.
+     - Target branches: Include all branches; Exclude by pattern `main`, `t-*` and `dependabot/**`. Dependabot security updates are on (measured), and they need their own branches.
      - Rules: Restrict creations, Restrict updates, Restrict deletions.
      - Bypass list: Repository admin, Always allow, so your own branches keep working.
 
      On A, sessions push as you and bypass this ruleset, so it protects nothing there.
+   - [B] Create a branch ruleset, `t-branches`, so that only `crow-agents` writes claim branches, and `crow-review` cannot.
+     - Target branches: Include by pattern `t-*`.
+     - Rules: Restrict creations, Restrict updates, Restrict deletions.
+     - Bypass list: `crow-agents` (the app) and Repository admin, Always allow.
+   - [B] Create a tag ruleset, `tags`, because both Apps' Contents write also covers tags. From T-050 on, deploys run from a tag you create, so no agent may move one.
+     - Target tags: Include all tags.
+     - Rules: Restrict creations, Restrict updates, Restrict deletions.
+     - Bypass list: Repository admin, Always allow.
 
 5. **Create the capped Anthropic workspace and key** (10 min) [B; A only for a live triager run]. Go to https://platform.claude.com/settings/workspaces (console.anthropic.com redirects there).
    1. Choose Create workspace and name it `crow-agents`.
@@ -185,9 +193,9 @@ Every step is **human**. Times are guessed; faucet waits are extra. The steps ar
 
    Build sessions move to the environment once the smoke test passes. Write the decision in Handoff.
 
-   The coordinator session on your laptop runs in bypass mode, holds your admin `gh` login and wrangler's login, and accepts messages from other sessions (`.claude/settings.local.json`, measured). A deny rule is not a security boundary (Claude Code docs), so two changes are worth considering:
-   - give the coordinator a `GH_TOKEN` of its own: a fine-grained token on your account, limited to `holdback`, with no Administration, Secrets or Variables permission. Keep the admin login for your own shell.
-   - review whether it should accept other sessions' messages.
+   The coordinator session on your laptop runs in bypass mode, holds your admin `gh` login and wrangler's login, and accepts messages from other sessions (`.claude/settings.local.json`, measured). So anything that session does on GitHub carries your name. It can approve a PR as you, or make a commit through the API that GitHub shows as yours. The tier 3 review, the raised-tier rule and the approval lines in task files all count either as your decision (inferred). A deny rule is not a security boundary (Claude Code docs). Make these two changes before build sessions start, unless you decide otherwise and write why in Handoff:
+   - give the coordinator a `GH_TOKEN` of its own: a fine-grained token on your account, limited to `holdback`, with Pull requests read-only and no Administration, Secrets or Variables permission. Keep your admin login for your own shell, where approvals happen.
+   - turn off other sessions' messages to it.
 
    Record your choice in Handoff.
 
@@ -262,13 +270,27 @@ Every step is **agent** unless marked. Times are guessed.
    It stops at the first failure with a non-zero exit, so a broken install never starts a half-ready session. A cloud session also fails when its setup script does not exit 0 (documented). The laptop-only workarounds (`TMPDIR` and the Foundry and pnpm stores under `reports/`) are not needed here, so it sets none.
 
 2. **`scripts/dev-env/vm-users.sh`** [B] (4 hours). It runs once as root and holds no secret. It:
-   - creates one user per role: `builder`, `reviewer`, `verifier`, `tick` and `deploy`. It also creates `minter`, and `runner`, which has no sudo rule, no key and no group, and runs code from a PR. Each user's home is mode 700. The users that run Claude Code join the group `crow-claude`, which can read `/etc/crow/anthropic.env`.
-   - writes Claude Code's managed settings, `/etc/claude-code/managed-settings.json` (the deny rules and hooks) and `/etc/claude-code/CLAUDE.md`, owned by root (documented paths). No user or project file can override them, so code that runs in one session cannot plant instructions or hooks for later sessions through `~/.claude/`.
-   - installs `/opt/crow/reset-home`, a root-owned helper that `tick` may run through sudo. It recreates a role's home from a root-owned template before each session (T-048's `start-session.mjs` calls it).
+   - creates one user per role: `builder`, `reviewer`, `verifier`, `tick` and `deploy`.
+   - creates `minter`.
+   - creates `runner`, which has no key, no group and no sudo rule of its own, and runs code from a PR.
+     - **Its own clone, per session:** `runner` clones the public repository into `/srv/crow/runner/<session>/` and checks out the PR's head there itself, with no token. No role user can read that tree, and no Claude Code session ever opens it as a project, so its `.claude/` and `CLAUDE.md` never load. The reviewer reads only `runner`'s output, exit status, and the files that a root-owned script copies out to a read-only folder.
+     - **Nothing survives a session:** the launcher below kills every `runner` process (`pkill -KILL -u runner`) and wipes `/srv/crow/runner/` before each session. A daemon left by one PR's tests therefore cannot tamper with the next.
+   - adds a sudoers rule that lets `reviewer` and `verifier` run any command as `runner`. That is safe because `runner` holds nothing.
+   - makes each user's home mode 700. The users that run Claude Code join the group `crow-claude`, which can read `/etc/crow/anthropic.env`.
+   - writes Claude Code's managed settings, `/etc/claude-code/managed-settings.json` and `/etc/claude-code/CLAUDE.md`, owned by root (documented paths). Managed settings outrank the same keys elsewhere. That alone would still let hooks, MCP servers and allow rules load from project and user files. So the file also sets `allowManagedHooksOnly`, `allowManagedMcpServersOnly` and `allowManagedPermissionRulesOnly` (documented). Without them, a hook in a PR branch's `.claude/settings.json` would run as whichever user opened that checkout.
+   - holds, in the managed settings, the deny rules and no hooks before activation. T-050 step 4 adds the shell-guard and budget-stop hooks.
+   - writes each role's home template, `scripts/dev-env/home-templates/<role>/`, which holds that role's own deny rules.
+   - installs `/opt/crow/start-session`, a root-owned launcher, and it is the only way one user starts a session as another. The sudoers file lists it for `tick` once per role, `/opt/crow/start-session builder *` and so on. The launcher:
+     - takes exactly two arguments: a role from a fixed list, and a task ID matching `T-[0-9]{3}`. It refuses anything else.
+     - kills the role's processes and every `runner` process, and wipes `/srv/crow/runner/`.
+     - rebuilds the role's home from its root-owned template in a temporary folder, then moves it into place. It never runs `rm -rf` on a path built from input, and uses `set -euo pipefail` with no shell interpolation.
+     - builds the brief itself, with `brief.mjs` from a root-owned clone of `main` and the task file on `main`, then starts `claude -p` as the role.
+
+     `tick` never passes a prompt, so nobody who holds the tick can tell a reviewer session what to approve. The tick is a plain process with no model (T-048).
    - creates `/home/minter/.config/crow/` with mode 700, so only `minter` can read the two App keys;
    - creates `/srv/crow/intake/`, owned by `deploy`, with the group `crow-intake` that `builder` and `tick` belong to, mode 750 for the folder and 640 for its files. The deploy side writes the feedback export and the signal records there (T-041, T-042), and the build side reads them.
-   - copies `gh-app-token.mjs`, and the flake-list check it uses, to `/opt/crow/`, owned by root and writable by no one else;
-   - adds sudoers rules that let each role run exactly `/usr/bin/node /opt/crow/gh-app-token.mjs <role>`, as `minter`, with one of these argument lists and nothing else: `git get`, `git store`, `git erase`, `token` or `scopes`. git calls a credential helper with an extra verb, and a sudoers rule that lists arguments must match them exactly. `tick` may also run `rerun <run-id>`. sudo's default `env_reset` keeps `NODE_OPTIONS` and similar variables out (inferred).
+   - copies `gh-app-token.mjs` to `/opt/crow/`, owned by root and writable by no one else;
+   - adds sudoers rules that let each role run exactly `/usr/bin/node /opt/crow/gh-app-token.mjs <role>`, as `minter`, with one of these argument lists and nothing else: `git get`, `git store`, `git erase`, `token` or `scopes`. git calls a credential helper with an extra verb, and a sudoers rule that lists arguments must match them exactly. `tick` may also run `rerun <run-id>`, and the script accepts digits only there. sudo's default `env_reset` keeps `NODE_OPTIONS` and similar variables out (inferred).
    - installs `/opt/crow/gh`, a root-owned wrapper that gets the role's token and runs `gh` with `GH_TOKEN` set in the child's environment only, so normal use never prints a token into a session.
 
    Re-running it updates the copies; only someone with root can do that.
@@ -286,7 +308,7 @@ Every step is **agent** unless marked. Times are guessed.
    - `git get` answers git's credential-helper protocol, and `git store` and `git erase` do nothing;
    - `token` prints the token for `/opt/crow/gh`;
    - `scopes` prints the role's permissions without a token, for the smoke test;
-   - `rerun <run-id>` (`tick` only) reruns a run's failed jobs with an Actions-write token it never hands out, only if every failure is a listed, unexpired flake rerun once at most (T-049).
+   - `rerun <run-id>` (`tick` only) reruns a run's failed jobs with an Actions-write token it never hands out, only if every failure is a listed, unexpired flake rerun once at most (T-049). It reads the Known flakes list from `docs/testing.md` on `main` through the API, never from a checkout a role user can edit.
 
    It refuses any other argument, never prints or copies a key, and writes nothing to disk. A session that runs the git helper by hand can still read its own one-hour, role-narrowed token: the wrapper keeps tokens out of normal output, but it is not a boundary. Tests use throwaway keys.
 
@@ -304,11 +326,12 @@ Every step is **agent** unless marked. Times are guessed.
    - Correct the console URL (platform.claude.com).
    - Say that a fine-grained token cannot write as a collaborator.
    - Set the commit identity on B to the App's bot: `crow-agents[bot]` and `<bot-id>+crow-agents[bot]@users.noreply.github.com`. The bot ID comes from `gh api /users/crow-agents%5Bbot%5D`. On A, it stays Rafa's noreply address.
-   - Drop "Workflows read/write" from the fine-grained token's permission list. The template asks for it today, and Rafa should not provision from it before this step lands.
    - Give `config/keys.template` a one-line pointer.
 
 6. **Permission settings that avoid prompts** (1 hour).
-   - On B, each session runs as its role's user, which is not root, with `claude --dangerously-skip-permissions`. Code from a PR that the reviewer or the verifier runs, such as `pnpm verify`, runs as `runner` (`sudo -u runner`), which holds no token, no key and no sudo rule. Code under review therefore cannot mint the reviewer's token and approve itself.
+   - On B, each session runs as its role's user, which is not root, with `claude --dangerously-skip-permissions`.
+   - Reviewer and verifier sessions start in a trusted checkout of `main`, with the PR's diff given as data, so the PR's own `CLAUDE.md` and `.claude/` never load as instructions or settings.
+   - Code from a PR that they run, such as `pnpm verify`, runs as `runner` in its own clone under `/srv/crow/runner/<session>/` (`sudo -u runner`). `runner` holds no token and no key. Code under review therefore cannot mint the reviewer's token and approve itself, and cannot rewrite the tree the reviewer reads.
    - On A, sessions use Auto mode where offered, otherwise Accept edits. `.claude/settings.local.json` does not apply in cloud sessions (documented), so the allow list in `.claude/settings.json` keeps every command in `CLAUDE.md`'s verify list.
    - The deny rules (`.env*`, force pushes, `forge script`, `cast send`) stay everywhere, and they still bind in bypass mode (documented).
    - Laptop sessions keep the rules in `docs/operations.md`.
@@ -324,7 +347,11 @@ Every step is **agent** unless marked. Times are guessed.
      - a minted token expires within one hour;
      - `runner` has no sudo rule and cannot read `/etc/crow/anthropic.env`;
      - no role can read another role's home;
-     - `/etc/claude-code/` is owned by root.
+     - `/etc/claude-code/` is owned by root, and its managed settings set `allowManagedHooksOnly` and `allowManagedMcpServersOnly`;
+    - a session opened in a checkout whose `.claude/settings.json` adds a hook does not run that hook;
+    - `reviewer` can run a command as `runner`. `runner` cannot read any role's home, and no role can read `/srv/crow/runner/`;
+    - `tick` can run nothing as another role except `/opt/crow/start-session <role> <task-id>`, and the launcher refuses a bad role, a bad task ID or an extra argument;
+    - no `runner` process survives the start of the next session.
    - **No personal Claude login (B):** no `~/.claude/.credentials.json` for any role user (inferred path of Claude Code's login store on Linux), and no Remote Control process.
    - **No personal files:** no private key under `~/.ssh`, no `~/.aws`, no `~/.config/gcloud`, no `~/.npmrc`, and no `.env` at the repository root in a build session. All checked by existence only.
    - **Environment variable names:** they match the session type's list exactly. Any other name ending in `_KEY`, `_TOKEN` or `_SECRET` fails.
@@ -346,6 +373,7 @@ Every step is **agent** unless marked. Times are guessed.
 - [ ] `pnpm vitest run tests/dev-env.test.ts` passes, with no network, covering:
   - the setup script's checks;
   - `vm-users.sh`'s users, modes, managed settings, intake folder and sudoers rules, on a fixture root, with `visudo -c` accepting the rules and git's `get` call matching them;
+  - the launcher, fed hostile arguments (`../etc`, names with spaces, an extra argument, a symlinked home), refusing each one;
   - the token minter on a throwaway key, including its refusal of other arguments;
   - the smoke test's parsing.
 - [ ] `node scripts/dev-env/smoke.mjs` passes in a build session and in a deploy session, and its report is pasted in Evidence (measured). The deny-rule probe is recorded too.

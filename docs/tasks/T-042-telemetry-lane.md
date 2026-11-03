@@ -3,7 +3,7 @@
 - **Lane:** infra (reads the api lane's aggregates)
 - **Phase:** 9
 - **Depends on:** T-041 (the record writer and the shared intake folder); T-052 (the day-line export in `CROW_TELEMETRY_DIR`); T-055 for the optional `cost-signals.json`. T-031's aggregates merged in PR 118.
-- **Paths this task may touch:** `scripts/ops/signals.mjs` (new), `tests/agent-ops/signals.test.ts` (new), `agent-ops/ops.yaml` (`telemetry` thresholds only), `agent-ops/pipeline.md` (Usage telemetry section), `docs/tasks/T-042-telemetry-lane.md`
+- **Paths this task may touch:** `scripts/ops/signals.mjs` (new), `scripts/ops/send-records.mjs` (new, only if the telemetry directory is on the laptop), `tests/agent-ops/signals.test.ts` (new), `agent-ops/ops.yaml` (`telemetry` thresholds only), `agent-ops/pipeline.md` (Usage telemetry section), `docs/tasks/T-042-telemetry-lane.md`
 - **Human gate:** yes for two things only: turning on Cloudflare Web Analytics for escrow.stream, and any account a social reader needs. No for the rules and the API, onchain and cost sources.
 - **Status:** todo
 - **Agent/session:** —
@@ -36,7 +36,11 @@ Let usage, not only opinions, open work: a rule over aggregates writes a `Triage
 
 ## Acceptance criteria
 
-- [ ] Decide and record where `signals.mjs` runs: beside `CROW_TELEMETRY_DIR`, which T-052 places. Also record how its records reach the build side: on option B, written to `/srv/crow/intake/` by the `deploy` user when the directory is on the VM, or copied there by T-055's daily routine when it is on Rafa's laptop. The records carry no figures, so either path keeps the figures off the build side.
+- [ ] Decide and record where `signals.mjs` runs: beside `CROW_TELEMETRY_DIR`, which T-052 places. Also record how its records reach the build side on option B:
+  - when the directory is on the VM, the `deploy` user writes them to `/srv/crow/intake/`;
+  - when it is on Rafa's laptop, this task adds `scripts/ops/send-records.mjs`, which copies the records, and only the records, over `ssh` to `/srv/crow/intake/`. Rafa adds it to his own daily routine; T-055 does not do it.
+
+  The records carry no figures, so either way the figures stay off the build side.
 - [ ] Every rule in the pipeline's telemetry table is a named signal in `signals.mjs`, with its threshold read from `ops.yaml` (D31: parameters, not constants). Ratio thresholds are integers in basis points (hard rule: no floats).
 - [ ] A cost rule named in `cost-signals.json` opens an `incident` record that carries the rule's name only.
 - [ ] `pnpm vitest run tests/agent-ops/signals.test.ts` shows each rule firing on a fixture series that crosses its threshold, and staying silent on one that does not.

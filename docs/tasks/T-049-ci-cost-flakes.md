@@ -31,7 +31,9 @@ This task adds only what T-034 to T-036 do not already cover. Already covered, n
 - [ ] `/merge-pr` reruns a failed test once only if it is listed and not expired; a second failure counts as real; an unlisted failure is never rerun. Shown on recorded logs.
 - [ ] The rule binds outside `/merge-pr` too, in two places:
   - **The minter.** The agents' tokens are narrowed to Actions read (T-039 step 3), so on option B a rerun goes through `minter`'s `rerun <run-id>`. That command applies this list before it uses an Actions-write token it never hands out.
-  - **CI.** A guard script, `scripts/ci/rerun-guard.mjs`, covers reruns started by anyone else, and by every session on option A. It reads `github.run_attempt`. On an attempt above 1, it passes only if every failure in the earlier attempts is a listed, unexpired flake, and only once per flake. T-050 step 5 adds it to `check`. Each rerun is also recorded in the tick's metrics line, so a deleted run log still leaves a trace. Tested on recorded run histories.
+  - **CI.** A guard script, `scripts/ci/rerun-guard.mjs`, covers reruns started by anyone else, and by every session on option A. It reads `github.run_attempt`.
+
+  Both decide whether a failure is a listed flake from vitest's JSON report (test name and file), not from free-text log lines. A PR's tests could print a line that looks like a listed flake. The PR controls its own tests anyway, so this guards against mistakes more than attacks. On an attempt above 1, it passes only if every failure in the earlier attempts is a listed, unexpired flake, and only once per flake. T-050 step 5 adds it to `check`. Each rerun is also recorded in the tick's metrics line, so a deleted run log still leaves a trace. Tested on recorded run histories.
 - [ ] A listed flake that fails more than twice in a day opens a P1 `flake` record (through T-041's CI-signal writer) and pauses dispatch in its lane until the record closes. Tested with the tick's fake state.
 - [ ] Evidence records the measured PR critical path and queue time after T-034, which sets whether `wip.implementers` can rise from three to five.
 

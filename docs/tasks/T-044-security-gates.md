@@ -56,11 +56,18 @@ Build the automated checks behind threats P4 to P7 and P12 so that a pull reques
     - an ADR whose Status changes to Accepted. Rafa accepts ADRs (`.claude/agents/architect.md`), and without this rule a tier 2 PR could do it automatically.
 
   It runs locally and in tests only until T-050 step 5 adds it to the `check` job.
-- [ ] A PR must never run its own copy of the gates. This task writes the proposed `ci.yml` at `agent-ops/workflows/ci.yml`, and T-050 step 5 moves it in. Rafa pushes that move, since the agents have no Workflows permission. The proposed file differs from today's in two ways:
-  - `guardrails.mjs`, `tiers.mjs` and `affected.mjs` run from a second checkout of `main` (`actions/checkout` with `ref: main` and `path: trusted`, dependencies installed there), never from the PR's checkout;
-  - the `changes` job uses that trusted copy too.
+- [ ] A PR must never run its own copy of the gates, nor share a runner with them. This task writes the proposed `ci.yml` at `agent-ops/workflows/ci.yml`, and T-050 step 5 moves it in. Rafa pushes that move, since the agents have no Workflows permission. The proposed file adds two jobs, `gates` and `changes`. Each of them:
+  - checks out only `main`, once;
+  - installs nothing from the PR, runs none of the PR's files, and uses no cache, since a PR run can save a poisoned cache under `main`'s key;
+  - reads the PR's file list, reviews and timeline from the API.
 
-  Otherwise one tier 1 PR could edit a gate and pass it in the same run. For example, it could delete an attack fixture and the rule that flags the deletion. A test reads the patch and checks that no gate script runs from the PR's path.
+  `gates` runs `guardrails.mjs` and `tiers.mjs`, and `changes` runs `affected.mjs`; `check` needs both. Otherwise a test in the PR could rewrite the gate scripts, their dependencies or the tool cache on the same runner before they run, or one tier 1 PR could delete an attack fixture together with the rule that flags it. A test reads the proposed file and checks that `gates` and `changes` each have a single checkout with `ref: main`, no `cache:` and no step that runs PR code.
+- [ ] The `gates` job also checks who wrote and who approved. It fails `check` unless:
+  - the PR's author is `crow-agents[bot]` or `rafaeldavid`;
+  - the approving review on the head commit is by `crow-review[bot]` or `rafaeldavid`;
+  - the approver is not the author.
+
+  Without this, `crow-agents` could approve a PR that `crow-review` opened. Tested with a fake reviews API.
 - [ ] A PR that guardrails raises to tier 3 needs Rafa's approval even when none of its paths is in CODEOWNERS. A task file, an ADR's Status line or an attack fixture is not a tier 3 path, so code-owner review alone would not stop it. In enforce mode, guardrails fails `check` on a raised PR until an approving review by Rafa exists on the PR's head commit, read from the reviews API. T-050 step 5 adds a `pull_request_review` trigger, so his approval re-runs the check. Tested with a fake reviews API: no review, a review on an older commit, and a review on the head.
 - [ ] `bash-guard.sh` reads the tool input JSON on stdin and exits 2 with a one-line reason for each pattern in `isolation.bash_guard_blocks` (`cd` outside the root, heredoc and redirect writes, `sed -i`, interpreter one-liners, command substitution, `xargs`, `eval`, `find -exec`, `/private/tmp`, `~/`, polling loops), and exits 0 for the literal commands in `CLAUDE.md`'s verify list. `pnpm vitest run tests/agent-ops/bash-guard.test.ts` covers both sets. The hook is not wired into `.claude/settings.json` here.
 - [ ] `agent-ops/settings.deny.json` lists the P6 additions in settings syntax, for T-050 to install in T-039's managed settings and each role's home template:
