@@ -18,7 +18,7 @@ Non-goals: more families, calibration, the registry promotion process, testnet c
 
 ## Secrets (read this first)
 
-- Keys are in `/Users/rafa/Documents/escrow/.env` (git-ignored). **Never read, print, cat, grep, copy or log that file or any key value.** Load it only with Node's `--env-file` / `--env-file-if-exists` in the commands that need it (`node --env-file=.env …`, or a package script that does so). Errors must name the variable, never print its value.
+- Keys are in `.env` at the repository root (git-ignored). **Never read, print, cat, grep, copy or log that file or any key value.** Load it only with Node's `--env-file` / `--env-file-if-exists` in the commands that need it (`node --env-file=.env …`, or a package script that does so). Errors must name the variable, never print its value.
 - Variables: `HOLDBACK_ANTHROPIC_API_KEY`, `HOLDBACK_OPENAI_COMPATIBLE_API_KEY`, `HOLDBACK_OPENAI_COMPATIBLE_BASE_URL` (DeepSeek).
 - Cloudflare: push only these three to `holdback-op1` with `wrangler secret bulk` from a script that builds the JSON in memory from `process.env` (loaded by `--env-file`) and pipes it on stdin. Nothing written to disk, nothing printed.
 
@@ -54,7 +54,7 @@ Non-goals: more families, calibration, the registry promotion process, testnet c
 - **Tests first (measured).** The new provider and registry tests failed (6 failures: missing exports, error responses) before `live.ts` changed; the cloud live tests failed once on a wrong assertion (markerFake's own "fake judge: pass" rationale), fixed in the test; the CLI live test failed on the seller's `-YYYYMMDD` pin rule before it accepted `@YYYY-MM-DD`.
 - **Tests (measured).** `apps/adjudicator/src/providers/providers.test.ts`: request shape per provider against a stubbed fetch (provider model ID, no sampling parameters for Claude, effort low, DeepSeek thinking off on api.deepseek.com only, output cap, usage reported, no tools), refusals name each missing variable and never a value. `registry-file.test.ts`: the live registry loads, every ID dated, five active over exactly claude and deepseek. `apps/demo-cloud/src/world.test.ts`: live panel stated in `GET /`, notes and the offer notice; a rubric deal judged live (3 calls) and the next one, with 2 calls left, scripted and marked; the count survives a rebuild from storage; without all three variables the panel is scripted, `GET /` names the missing two and shows no value. `apps/demo/src/cli.test.ts`: `--live` without keys names each variable, never a value; with a stand-in provider writes `Mode: live` transcripts with live-registry model IDs and resets afterwards; only `bin.ts` reads the environment, and only for `--live`.
 - **`pnpm verify` without keys (measured).** All six steps pass: typecheck, lint, test (79 files, 2,086 tests), spec (24/24), snap (32, no diffs), demo (scripted). Report: `reports/verify-t-028-live-adjudicator.md`.
-- **Secrets (measured).** The `.env` was never read by the agent: keys reached processes only through `node --env-file=/Users/rafa/Documents/escrow/.env`; no command printed a value; `secrets.mjs` builds the JSON in memory and pipes it to `wrangler secret bulk`.
+- **Secrets (measured).** The `.env` was never read by the agent: keys reached processes only through `node --env-file=.env` (the repository root's); no command printed a value; `secrets.mjs` builds the JSON in memory and pipes it to `wrangler secret bulk`.
 
 ## Decisions
 
