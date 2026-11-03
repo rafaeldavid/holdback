@@ -88,6 +88,7 @@ describe('the anvil world', () => {
     const dir = import.meta.dirname;
     const sources = readdirSync(dir).filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts'));
     expect(sources).toContain('world.ts');
-    expect(sources.filter((f) => /\.waitForTransactionReceipt\(/.test(readFileSync(join(dir, f), 'utf8')))).toEqual([]);
+    // A call, as a client method or as viem/actions' function; the name in a comment is fine.
+    expect(sources.filter((f) => /waitForTransactionReceipt\s*\(/.test(readFileSync(join(dir, f), 'utf8')))).toEqual([]);
   });
 });

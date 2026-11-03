@@ -66,6 +66,8 @@ const TX_GAS = 3_000_000n;
 const RECEIPT_POLL_MS = 25;
 /** How long a receipt wait may take before it fails: well inside a test's timeout, so the failure names the hash. */
 const RECEIPT_TIMEOUT_MS = 10_000;
+/** With `blockTimeSec`, a receipt may wait for this many blocks before the wait fails. */
+const RECEIPT_TIMEOUT_BLOCKS = 3;
 
 export class EvmWorld implements EvmChain {
   readonly chainId = LOCAL_CHAIN_ID;
@@ -91,7 +93,7 @@ export class EvmWorld implements EvmChain {
    * `blockTimeSec`: mine a block every so many seconds at wall-clock time instead of one per transaction at the
    * scenario's second, so anvil stands in for a testnet (a LiveChain over `rpcUrl`, ADR-0028). `token`: LocalUSDC
    * (the fixtures') or TestUSDC (the Sepolia demo's tUSDC, D42). `receiptTimeoutMs`: how long a send waits for its
-   * receipt before it throws (10 s).
+   * receipt before it throws (10 s, or three blocks if `blockTimeSec` makes that longer).
    */
   static async start(root: string, options: { rpcUrl?: string; blockTimeSec?: number; token?: 'local-usdc' | 'test-usdc'; receiptTimeoutMs?: number } = {}): Promise<EvmWorld> {
     let proc: ChildProcess | null = null;
@@ -107,7 +109,7 @@ export class EvmWorld implements EvmChain {
     assertLocalRpc(rpcUrl);
     // No cached block number: evm_revert between settlements moves the head backwards.
     const publicClient = createPublicClient({ chain: foundry, transport: http(rpcUrl), cacheTime: 0 }) as PublicClient;
-    const receiptTimeoutMs = options.receiptTimeoutMs ?? RECEIPT_TIMEOUT_MS;
+    const receiptTimeoutMs = options.receiptTimeoutMs ?? Math.max(RECEIPT_TIMEOUT_MS, RECEIPT_TIMEOUT_BLOCKS * 1000 * (options.blockTimeSec ?? 0));
     try {
       await waitFor(publicClient);
       const chainId = await publicClient.getChainId();
