@@ -76,7 +76,7 @@ Otherwise stop and report ISSUES with the excerpt.
 When `check` and `gitleaks` are green: `gh pr merge <n> --merge --delete-branch`.
 Then `node scripts/task-done.mjs T-xxx --pr <n>` (commit on `chore/task-status`, fold
 into the day's log PR), remove the branch's worktree, `git worktree prune`,
-`pnpm map`, republish the map to https://claude.ai/artifact/4nAPcSGQz6nL5mb8AuDhd2.
+`pnpm map`, then republish the map to its private link (`/map`).
 Report run id, reruns, merge SHA and map version, labeled measured.
 ```
 

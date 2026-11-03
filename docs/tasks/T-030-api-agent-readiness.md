@@ -104,7 +104,7 @@ Non-goals: any change to `spec/schemas/` (operator-status `chainId` as a number,
 
 ## Handoff
 
-- **Status: review.** Not deployed. A demo redeploy after merge follows `docs/operations.md`. There is no schema bump, so the `WORLD_NAME` reset is not needed. Rebuild the site with `--out` so the 32 problem pages ship with it.
+- **Merged in PR 85 (2026-11-02).** A demo redeploy follows `docs/operations.md`. There is no schema bump, so the `WORLD_NAME` reset is not needed. Rebuild the site with `--out` so the 32 problem pages ship with it.
 - **Lane exceptions; a reviewer should confirm them:**
   - `tools/sim/world.test.ts`: two fields (`nonce`, `disclosure`) in its prepare call, which the new required inputs need.
   - `docs/quickstart.md`: `"disclosure": "public"` in the offer request (PR 85 review). `examples.test.ts` now checks the quickstart's request bodies, not only its paths.
@@ -121,5 +121,4 @@ Non-goals: any change to `spec/schemas/` (operator-status `chainId` as a number,
 - **To the core or settlement lane:** emit whole-second timestamps in core and SimChain, so the operator's normalization can go.
 - **To T-207 (adjudicator slice):** when the service can open `privateTerms`, accept sealed offers it can open. Keep declining the ones it cannot (a missing envelope, or a body that does not hash to its bound hash). Then drop the demo notices that say sealed offers are declined.
 - **To T-032:** the feedback routes are planned rows (`POST /v1/feedback`, `GET /v1/feedback/{feedbackId}`). They answer 501 until built; remove them from `x-holdback-planned` when routed.
-- **After PR 83 merges:** merge main and keep its tagline and intro lines in `site/llms.txt`, then run `node site/build.mjs` (it regenerates `site/index.html`) and `node site/check.mjs`. This branch does not touch those first lines.
 - **Proposed check, for `docs/team.md` Rules and checks (another lane, so not added here):** "every computation the agent guide describes is exercised by a fresh-agent run before a release". This task's run found nine gaps that every repository test missed. `site/walkthrough.mjs` is the scripted half of that check.

@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 // @ts-expect-error -- plain ESM helper without type declarations
 import { build, collect } from '../scripts/design-map.mjs';
@@ -13,6 +14,12 @@ describe('design map', () => {
     expect(['next', 'active']).toContain(first.status);
   });
 
+  it('reads a plan line with a lettered task ID as one ID', () => {
+    const items = data.phases.flatMap((p: { items: { id: string | null; text: string }[] }) => p.items);
+    const t016b = items.find((it: { id: string | null }) => it.id === 'T-016b');
+    expect(t016b.text).toMatch(/^Testkit/);
+  });
+
   it('reads a task status by its leading keyword, so a note after it does not hide "done"', () => {
     const t010 = data.tasks.find((t: { id: string }) => t.id === 'T-010');
     expect(t010.status).toBe('done');
@@ -21,6 +28,15 @@ describe('design map', () => {
   it('reads every decision with a known status', () => {
     expect(data.decisions.length).toBeGreaterThanOrEqual(9);
     for (const d of data.decisions) expect(['decided', 'deferred', 'open']).toContain(d.status);
+  });
+
+  it('reads every bold "Decided" lead as decided, whatever punctuation closes it', () => {
+    const text = readFileSync(new URL('../docs/decisions-today.md', import.meta.url), 'utf8');
+    const sections = text.split(/^## (D\d+)\. /m);
+    for (let i = 1; i < sections.length; i += 2) {
+      if (!/\*\*Decided /.test(sections[i + 1])) continue;
+      expect(data.decisions.find((d: { id: string }) => d.id === sections[i]).status).not.toBe('open');
+    }
   });
 
   it('names the chosen option for every decided decision instead of a bare letter', () => {
