@@ -3,7 +3,7 @@
 - **Lane:** infra
 - **Phase:** 9
 - **Depends on:** nothing. It can start today, before the rest of Phase 9 and before the agent-ops phase.
-- **Paths this task may touch:** `docs/costs.md` (the "Tier today" column, with no amount), `docs/tasks/T-051-cost-guards.md`; outside git, the register `register.md` in the directory Rafa names for it, which becomes `CROW_COSTS_DIR` in T-052
+- **Paths this task may touch:** `docs/costs.md` (the "Tier today" column, with no amount), `docs/tasks/T-051-cost-guards.md`; outside git, nothing: Rafa saves the register himself
 - **Human gate:** **yes.** Every step changes a billing setting in one of Rafa's accounts. Agents never open a billing page, create a credential or read one.
 - **Status:** todo
 - **Agent/session:** —
@@ -51,20 +51,20 @@ Every step is **human**. Times and suggested amounts are guesses; pick your own.
    4. Public-repository Actions on standard runners are free and are not metered (documented), so a $0 budget should not stop CI (inferred). Check that the next CI run on any PR starts and passes.
 7. **Sepolia: the balances and addresses** (5 min). The funding lane's balance is the cap on every lane: the Sepolia world tops a deal lane up from it when the lane drops below 0.01 Sepolia ETH, and a lane that cannot pay answers `relay_refused`. Note the public addresses and balances, with the date, of the funding lane (named in the demo's discovery, `GET https://api.escrow.stream/`), the deal lanes (printed by `node apps/demo-cloud/scripts/relayer.mjs` when it made them), and the deployer. Read balances at https://sepolia.etherscan.io.
 8. **Flat-price accounts** (5 min). Check the plan and renewal date of here.now (https://here.now) and 1Password. If here.now only serves the old redirect, the free plan is enough (inferred).
-9. **The register** (10 min). Record, for each account: the plan or tier, the renewal date, the cap or alert you set and its value, the expiry of any token or key, the public Sepolia addresses, and the date. Choose its directory: an absolute path outside every checkout where agents work, for example `reports/costs/` inside the dedicated clone (T-052, step 1, which you can do now). It becomes `CROW_COSTS_DIR`. Either tell an agent the values and the directory in chat, and it writes `register.md` there, or write it yourself. Nothing in it reaches the repository.
+9. **The register** (10 min). Record, for each account: the plan or tier, the renewal date, the cap or alert you set and its value, the expiry of any token or key, the public Sepolia addresses, and the date. Save it as `register.md` in a directory outside every checkout, for example `/Users/<you>/crow-data/costs`; it becomes `CROW_COSTS_DIR` in T-052. An agent can draft the table in chat from the values you give it; you save it. Nothing in it reaches the repository.
 
 About 1 hour 30 minutes in all (guessed).
 
 ## Agent steps
 
-1. Write the register from Rafa's values when he gives them in chat: `register.md` in the directory he names, never a worktree's `reports/` (it goes when the worktree does), one row per account in `docs/costs.md`, with the columns from step 9. If that directory is inside a git checkout, check that `git check-ignore` prints its path; never commit it.
+1. Draft the register in chat from Rafa's values: one row per account in `docs/costs.md`, with the columns from step 9. Rafa saves it; agents never write in the cost directory (`docs/costs.md`, "Where credentials and figures live").
 2. Update `docs/costs.md`, "Tier today", with facts that carry no amount and that Rafa agrees to make public: for example "Workers Paid (confirmed 2026-11-…)". The plan of a personal account, a balance or a limit stays out.
 3. Fill Evidence and Handoff, and flip Status to done once Rafa confirms every step.
 
 ## Acceptance criteria
 
 - [ ] Steps 1 to 9 are each ticked in Handoff with a date, or marked skipped with a reason (human).
-- [ ] The register has one row per account in the inventory, outside every worktree, and git-ignored if it sits in a checkout (measured).
+- [ ] The register has one row per account in the inventory and sits outside every checkout (Rafa confirms).
 - [ ] The rubric deal in step 2.5 showed no scripted verdict, and the Console showed the new key in use (measured).
 - [ ] The first CI run after step 6 started and passed (measured).
 - [ ] No amount, balance, account ID or plan of a personal account appears in a tracked file (checked by reading the diff).

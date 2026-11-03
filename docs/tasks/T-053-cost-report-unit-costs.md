@@ -24,7 +24,8 @@ Turn the collector's daily files into one page a month that answers three questi
 
 ## Rafa's steps
 
-1. Read the first real report (agent step 4) and set your budgets and the mainnet gas and ETH prices to show in `budgets.json` (human, 15 min, guessed).
+1. After a week of daily files, run the first real report in the clone: `node --env-file=.env.costs scripts/costs/report.mjs`. Tell the agent its section headings and any error, never a figure (human, 5 min).
+2. Read it and set your budgets, and the mainnet gas and ETH prices to show, in `budgets.json` in the cost directory (human, 15 min, guessed).
 
 ## Agent steps
 
@@ -34,7 +35,7 @@ Turn the collector's daily files into one page a month that answers three questi
    - **Per demo deal:** gas from each deal's receipts (`gasUsed` × `effectiveGasPrice`), in Sepolia ETH and at the mainnet gas price and ETH price in `budgets.json`. Judges: an upper bound per live panel of three, the day's `liveJudges` tokens at the most expensive live model's prices, divided by the day's live calls, times three. Cloudflare: the month's usage-based cost over T-031's `final` deals. The operator fee earned beside it.
    - **Per merged PR:** the transcript tokens on the PR's branch, subagents included (T-052's `claude-code` source), at list price, labeled "laptop sessions only"; and the plan fee's share (the month's plan fee over the month's merged PRs). A branch with transcripts but no merged PR counts as unmerged work, shown as one total.
    - **Per task:** merged PRs grouped by the task ID in the branch name (`t-<id>-…`, case-insensitive); other branches group as "no task".
-4. **The first real report.** Run it on Rafa's machine after a week of daily files, and tell Rafa it is there.
+4. **The first real report** is Rafa's to run (his step 1), since it needs `.env.costs`. Fix anything his headings or errors show.
 
 ## Acceptance criteria
 

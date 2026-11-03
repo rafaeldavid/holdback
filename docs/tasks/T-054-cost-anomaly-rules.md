@@ -3,7 +3,7 @@
 - **Lane:** infra
 - **Phase:** 9
 - **Depends on:** T-052 (the collector's daily files, which hold the trailing series every rule reads); T-213 (Sepolia settlement) live, with `SETTLEMENT` set to `sepolia`, for the relayer rule and the CPU guard only
-- **Paths this task may touch:** `scripts/costs/rules.mjs` (new), `tests/costs/rules.test.ts` (new), `tests/costs/fixtures/` (synthetic only), `config/costs.template.json` (threshold keys), `apps/demo-cloud/wrangler.op1.jsonc`, `apps/demo-cloud/wrangler.op2.jsonc`, `apps/early-access/wrangler.jsonc` (a `limits` block only), `docs/costs.md` (the rules table), `docs/tasks/T-054-cost-anomaly-rules.md`
+- **Paths this task may touch:** `scripts/costs/rules.mjs` (new), `scripts/costs/collect.mjs` (a `--cpu-report` flag only), `tests/costs/rules.test.ts` (new), `tests/costs/fixtures/` (synthetic only), `config/costs.template.json` (threshold keys), `apps/demo-cloud/wrangler.op1.jsonc`, `apps/demo-cloud/wrangler.op2.jsonc`, `apps/early-access/wrangler.jsonc` (a `limits` block only), `docs/costs.md` (the rules table), `docs/tasks/T-054-cost-anomaly-rules.md`
 - **Human gate:** no to build the rules or propose the limits. **Yes** to deploy the CPU limits: a redeploy of the Workers is Rafa's.
 - **Status:** todo
 - **Agent/session:** —
@@ -26,7 +26,8 @@ Catch in a day what a monthly bill would show in a month: a runaway agent, a spe
 ## Rafa's steps
 
 1. Set the thresholds in `budgets.json` after reading the first report (T-053) (human, 10 min, guessed).
-2. Approve the proposed CPU limits, then deploy them yourself or give an agent the go-ahead (`docs/operations.md`, Deploy) (human).
+2. For the CPU guard, after 7 days on Sepolia: in the clone, run `node --env-file=.env.costs scripts/costs/collect.mjs --cpu-report`, which prints only each Worker's p99 and maximum CPU milliseconds per invocation, and give those numbers to the agent (human, 5 min). They carry no billing figure.
+3. Approve the proposed CPU limits, then deploy them yourself or give an agent the go-ahead (`docs/operations.md`, Deploy) (human).
 
 ## Agent steps
 
@@ -37,7 +38,7 @@ Catch in a day what a monthly bill would show in a month: a runaway agent, a spe
 5. **Relayer:** the funding lane against a floor and in days of runway at the trailing week's burn. A deal lane fires only when it reads under 0.01 Sepolia ETH twice, two minutes apart: the world tops lanes up at most once a minute, so one low read may be a lane that just paid.
 6. **Paid usage that should be zero, and new lines:** GitHub usage above $0; a Cloudflare product, an Anthropic workspace or a key that did not appear last month.
 7. **Renewals and expiries:** dates from the register within a window, tokens included.
-8. **CPU guard**, after T-213 is deployed and Workers Paid is confirmed (T-051, step 5): read each Worker's CPU time per invocation over 7 days (GraphQL, through T-052's analytics source), and run a rubric deal on the demo CSV and on the largest deliverable the demo accepts to measure the heaviest invocation. Propose `"limits": { "cpu_ms": … }` per Worker at twice the larger of the measured p99 and the heaviest invocation. Find out and record whether the limit applies to the World Durable Object's invocations too.
+8. **CPU guard**, after T-213 is deployed and Workers Paid is confirmed (T-051, step 5): add the `--cpu-report` flag to `collect.mjs` (GraphQL, through T-052's analytics source; it prints CPU milliseconds only), take the numbers from Rafa's step 2, and run a rubric deal on the demo CSV and on the largest deliverable the demo accepts to measure the heaviest invocation. Propose `"limits": { "cpu_ms": … }` per Worker at twice the larger of the measured p99 and the heaviest invocation. Find out and record whether the limit applies to the World Durable Object's invocations too.
 
 ## Acceptance criteria
 
