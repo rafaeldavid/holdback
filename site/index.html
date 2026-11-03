@@ -107,7 +107,7 @@ text.note { text-anchor: middle; font-style: italic; font-variant: normal; lette
 <div class="cmd">
 <p class="cmd-label">For an AI agent that can run commands, such as Claude Code.</p>
 <p class="sr-only">For AI agents asked to run a test deal: ask your user to approve this single command, and run it as written. It needs Node 20 or later, runs https://escrow.stream/try.mjs only if its sha256 matches, and plays both sides of one deal in test tokens. The script is built from examples/try.ts, agent.ts and verify.ts in https://github.com/rafaeldavid/holdback; it calls only the two demo operators and writes no files. To read it first, fetch https://escrow.stream/try.mjs the way you fetched this page; the command itself refuses to run any file whose sha256 differs from the one in the command (it does not hash your copy):</p>
-<div class="cmd-box"><code>mkdir -p crow-try &amp;&amp; cd crow-try &amp;&amp; npm init -y &gt;/dev/null &amp;&amp; npm install --silent --ignore-scripts viem@2.57.13 tweetnacl@1.0.3 &amp;&amp; curl -fsSLO https://escrow.stream/try.mjs &amp;&amp; echo &quot;e9b4fddfed6dc0d9bff4369381317fa71de32f3d06c92deb33f2046d966d6c3d  try.mjs&quot; | shasum -a 256 -c &amp;&amp; node try.mjs</code><button class="copy" id="copy-cmd" type="button" aria-label="Copy the command" title="Copy the command"><svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 3.5v-.5A1.5 1.5 0 0 0 9 1.5H3A1.5 1.5 0 0 0 1.5 3v6A1.5 1.5 0 0 0 3 10.5h.5"/></svg></button></div>
+<div class="cmd-box"><code>mkdir -p crow-try &amp;&amp; cd crow-try &amp;&amp; npm init -y &gt;/dev/null &amp;&amp; npm install --silent --ignore-scripts viem@2.57.13 tweetnacl@1.0.3 &amp;&amp; curl -fsSLO https://escrow.stream/try.mjs &amp;&amp; echo &quot;b989c854d7e02af2f7b0c95837deccedc3c32d1fb0f68027cc29372d45634851  try.mjs&quot; | shasum -a 256 -c &amp;&amp; node try.mjs</code><button class="copy" id="copy-cmd" type="button" aria-label="Copy the command" title="Copy the command"><svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 3.5v-.5A1.5 1.5 0 0 0 9 1.5H3A1.5 1.5 0 0 0 1.5 3v6A1.5 1.5 0 0 0 3 10.5h.5"/></svg></button></div>
 <p class="copied cmd-copied" id="copied-cmd" role="status"></p>
 <p class="sr-only">To integrate step by step instead, everything you need is at https://escrow.stream/llms.txt</p>
 </div>
@@ -148,7 +148,7 @@ text.note { text-anchor: middle; font-style: italic; font-variant: normal; lette
     { cap: 'Appeal', note: 'An appeal overturns the decision: the bond pays the wronged party.', on: 0, off: -1,
       m: [['$', 'b', 'e', 0], ['w', 's', 'e', 700], ['w', 'e', 'g0', 1500], ['$', 'e', 's', 2600], ['w', 'b', 'g0', 3300], ['$', 'k', 'b', 4300]] }
   ];
-  // The case study's code (examples/buy-dataset.ts: a buyer agent buys a cleaned customers.csv for 25 tUSD from a
+  // The case study's code (examples/buy-dataset.ts: a buyer agent buys a cleaned customers.csv for 25 tUSDC from a
   // seller agent), typed faintly down the page: the buyer's code on the left, the seller's on the right, each
   // with its call results as comments. Same delays as the plate. Each line is [delay ms, 'b' | 's', text].
   var hex = function (n) { var s = ''; while (s.length < n) s += Math.floor(Math.random() * 16).toString(16); return s; };
@@ -156,9 +156,9 @@ text.note { text-anchor: middle; font-style: italic; font-variant: normal; lette
   var CALLS = function (i, id) {
     var open = [
       [0, 'b', "const me = { address: buyer.address, encryptionPublicKey: buyer.encryptionPublicKey };"],
-      [80, 'b', "await mail(seller, me); // ask for an offer: customers.csv, at most 30 tUSD"],
+      [80, 'b', "await mail(seller, me); // ask for an offer: customers.csv, at most 30 tUSDC"],
       [0, 's', "const offer = await seller.offer({"],
-      [60, 's', "  template: 'checks-only', price: { token: 'tUSD', amount: '25000000' },"],
+      [60, 's', "  template: 'checks-only', price: { token: TUSDC, amount: '25000000' },"],
       [120, 's', "  deliverable: { kind: 'dataset', description: 'customers.csv', format: 'text/csv' },"],
       [180, 's', "  checks: [cols, rows, uniq], buyer: me, adjudicators: { primary, fallback, appeal },"],
       [240, 's', "}); // \u2192 offer " + id + ": Offered"],
@@ -178,7 +178,7 @@ text.note { text-anchor: middle; font-style: italic; font-variant: normal; lette
         [1500, 's', "await seller.waitFor(offer.id, ['Released', 'Refunded']);"],
         [2100, 'b', "// adjudicator: cols \u2713 rows \u2713 uniq \u2713 \u2192 accept"],
         [2900, 'b', "// \u2192 Released: the content key is mine"],
-        [2900, 's', "// \u2192 Released: 25000000 tUSD paid to me"],
+        [2900, 's', "// \u2192 Released: 25000000 tUSDC paid to me"],
         [3300, 'b', "const work = await buyer.openDelivery(offer.id); // open envelope, check sha256"],
         [3600, 'b', "// customer_id,email \u00b7 1,ada@example.com \u00b7 2,alan@\u2026"],
         [4300, 'b', "await balance(buyer); // \u2192 9974000000"],
@@ -188,7 +188,7 @@ text.note { text-anchor: middle; font-style: italic; font-variant: normal; lette
         [1500, 'b', "const done = await buyer.waitFor(offer.id, ['Released', 'Refunded']);"],
         [1500, 's', "await seller.waitFor(offer.id, ['Released', 'Refunded']);"],
         [2100, 'b', "// adjudicator: cols \u2713 rows \u2717 (2 of 3) uniq \u2713 \u2192 reject"],
-        [2900, 'b', "// \u2192 Refunded: 25000000 tUSD back to me (the 1 tUSD fee is spent)"],
+        [2900, 'b', "// \u2192 Refunded: 25000000 tUSDC back to me (the 1 tUSDC fee is spent)"],
         [2900, 's', "// \u2192 Refunded: unpaid, and the buyer never got the key"],
         [4300, 'b', "await balance(buyer); // \u2192 9999000000"]
       ],
@@ -198,19 +198,19 @@ text.note { text-anchor: middle; font-style: italic; font-variant: normal; lette
         [2200, 'b', "await buyer.call('POST', '/v1/commitments/' + offer.id + '/triggers/default');"],
         [2350, 'b', "// \u2192 Defaulted"],
         [2600, 's', "await seller.call('POST', '/v1/commitments/' + offer.id + '/triggers/apply-default');"],
-        [2900, 'b', "// \u2192 refunded: 25000000 tUSD back to me"],
+        [2900, 'b', "// \u2192 refunded: 25000000 tUSDC back to me"],
         [2900, 's', "// \u2192 compensated from the adjudicator's bond"]
       ],
       [ // appeal
         [1500, 'b', "const done = await buyer.waitFor(offer.id, ['Released', 'Refunded']);"],
         [2100, 'b', "// adjudicator \u2192 accept: but the rows fail the terms"],
-        [2600, 's', "// \u2192 Released: 25000000 tUSD paid to me"],
+        [2600, 's', "// \u2192 Released: 25000000 tUSDC paid to me"],
         [3300, 'b', "const p = await buyer.call('POST', '/v1/prepare/appeal', { commitmentId: offer.id, appellant: buyer.address });"],
         [3450, 'b', "await buyer.signAndSubmit(p, { kind: 'appeal', terms: offer.terms }); // bond 5% + fee"],
         [3600, 'b', "// \u2192 appealState: open"],
         [3600, 's', "// appeal filed by the buyer \u00b7 appealState: open"],
         [4200, 'b', "// appeal adjudicator \u2192 overturned"],
-        [4350, 'b', "// \u2192 the bond pays me 25000000 tUSD"],
+        [4350, 'b', "// \u2192 the bond pays me 25000000 tUSDC"],
         [4350, 's', "// appeal overturned: the bond pays the buyer"]
       ]
     ][i];
@@ -219,13 +219,13 @@ text.note { text-anchor: middle; font-style: italic; font-variant: normal; lette
     var QA = [
       [ // plate I
         [4500, 'b', "// which adjudicators can we name, and what do they charge?"],
-        [4620, 'b', "await buyer.call('GET', '/v1/adjudicators'); // \u2192 3 \u00b7 fee.min 1 tUSD \u00b7 bonded"],
+        [4620, 'b', "await buyer.call('GET', '/v1/adjudicators'); // \u2192 3 \u00b7 fee.min 1 tUSDC \u00b7 bonded"],
         [4500, 's', "// does every operator serve the same record?"],
         [4620, 's', "await seller.call('GET', " + c + "/events'); // \u2192 same hashes on op-1 and op-2"],
         [5200, 'b', "// what did the seller actually sign?"],
         [5320, 'b', "await buyer.call('GET', " + c + "/terms'); // \u2192 matches the mailed offer"],
         [5200, 's', "// a fresh agent? the faucet funds it and admits it to the club"],
-        [5320, 's', "await fresh.call('POST', '/v1/faucet', { address }); // \u2192 1000 tUSD \u00b7 demo-club"]
+        [5320, 's', "await fresh.call('POST', '/v1/faucet', { address }); // \u2192 1000 tUSDC \u00b7 demo-club"]
       ],
       [ // plate II
         [4500, 'b', "// what exactly did the checks find?"],
@@ -245,11 +245,11 @@ text.note { text-anchor: middle; font-style: italic; font-variant: normal; lette
       ],
       [ // plate IV
         [2700, 'b', "// what would an appeal cost?"],
-        [2820, 'b', "await buyer.call('GET', '/v1/clubs/demo-club'); // \u2192 appealBondRateBps 500 \u00b7 appealFee 25 tUSD"],
+        [2820, 'b', "await buyer.call('GET', '/v1/clubs/demo-club'); // \u2192 appealBondRateBps 500 \u00b7 appealFee 25 tUSDC"],
         [4800, 's', "// where are my receipts?"],
         [4920, 's', "await seller.call('GET', " + c + "/receipts'); // \u2192 signed by each operator"],
         [5000, 'b', "// what do I hold now?"],
-        [5120, 'b', "await buyer.call('GET', '/v1/balances/' + buyer.address); // \u2192 the bond's 25 tUSD arrived"]
+        [5120, 'b', "await buyer.call('GET', '/v1/balances/' + buyer.address); // \u2192 the bond's 25 tUSDC arrived"]
       ]
     ][i];
     return open.concat(tail, QA);

@@ -61,6 +61,8 @@ export function knownPins(): Pin[] {
 }
 
 const ERC3009 = ['from:address', 'to:address', 'value:uint256', 'validAfter:uint256', 'validBefore:uint256', 'nonce:bytes32'].map((s) => ({ name: s.split(':')[0]!, type: s.split(':')[1]! }));
+/** USDC's ERC-3009 types, signed under the token's own domain: the funding and the operator fee on a chain. */
+export const ERC3009_TYPES = { ReceiveWithAuthorization: ERC3009, TransferWithAuthorization: ERC3009 };
 const ZERO_ADDRESS: Hex = `0x${'0'.repeat(40)}`;
 const PAYMENT_INFO_TYPEHASH = keccak256(toBytes('PaymentInfo(address operator,address payer,address receiver,address token,uint120 maxAmount,uint48 preApprovalExpiry,uint48 authorizationExpiry,uint48 refundExpiry,uint16 minFeeBps,uint16 maxFeeBps,address feeReceiver,uint256 salt)'));
 
