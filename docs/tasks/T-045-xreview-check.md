@@ -3,7 +3,7 @@
 - **Lane:** infra (reuses the judgment lane's provider client, read-only)
 - **Phase:** 9
 - **Depends on:** T-040 (pinned second-family models); T-044 (tiers)
-- **Paths this task may touch:** `scripts/ops/xreview.mjs` (new), `agent-ops/prompts/xreview.md` (new), `agent-ops/workflows/xreview.yml` (new, inert), `tests/agent-ops/xreview.test.ts` (new), `agent-ops/gates.md` (the State column and the three preconditions; after T-044), `docs/tasks/T-045-xreview-check.md`
+- **Paths this task may touch:** `agent-ops/schemas/review-verdict.schema.json` (hardened), `scripts/ops/xreview.mjs` (new), `agent-ops/prompts/xreview.md` (new), `agent-ops/workflows/xreview.yml` (new, inert), `tests/agent-ops/xreview.test.ts` (new), `agent-ops/gates.md` (the State column and the three preconditions; after T-044), `docs/tasks/T-045-xreview-check.md`
 - **Human gate:** yes for the `--live` runs only. Rafa gives one session a capped DeepSeek key and approves the spend, as for T-028 (T-039 step 15). No for building with the scripted provider. Putting the key in a GitHub Environment and making `xreview` a required check are Rafa's (T-050, step 2).
 - **Status:** todo
 - **Agent/session:** —
@@ -30,7 +30,16 @@ The status is unforgeable only under three preconditions:
 
 ## Acceptance criteria
 
-- [ ] `xreview.mjs <pr>` builds the request from the diff as data between random delimiters with a canary token, sends it with no tools through `live.ts`, and accepts the answer only if it matches the schema; anything else is an abstention, which counts as ISSUES.
+- [ ] The `ReviewVerdict` schema is hardened, so that a non-Anthropic model's output can never become a command. In PR 112, `claim` and `reproduce` are free text, and the verifier runs the reproduction. Under Ajv 2020-12 strict, the hardened schema refuses each bypass sample:
+  - `reproduce` is a repository path that must exist at the diff's SHA (checked by `xreview.mjs`), never a command;
+  - `claim` is ASCII with no `/`, no `scheme:`, no `www.`, no brackets and no backticks;
+  - `path` and `reproduce` cannot start with `/` or contain `..` or `.env`;
+  - a PASS cannot carry a blocking finding;
+  - ISSUES needs at least one finding;
+  - the `litmus` enum keeps PR 112's `security` value.
+
+  PR 108's tested version (commit `3956390` on the local branch `claude/agent-ops-design-46b9a8`, which rejects 20 bypass samples) is the starting point, and its samples become this task's tests.
+- [ ] `xreview.mjs <pr>` builds the request from the diff as data between random delimiters with a canary token, sends it with no tools through `live.ts`, and accepts the answer only if it matches the schema. Anything else is an abstention, which counts as ISSUES.
 - [ ] A finding blocks only if it names a path and line, the rule or litmus test it breaks, and a reproduction; other findings are written as suggestions for intake.
 - [ ] The same diff SHA always returns its first verdict (cached by SHA); a new review needs a new diff. Tested.
 - [ ] A diff goes to DeepSeek only after the PR head's `gitleaks` check has passed, so a leaked secret never reaches a third party. Until then, the status reads pending.

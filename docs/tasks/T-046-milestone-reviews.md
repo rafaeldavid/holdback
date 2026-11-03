@@ -37,7 +37,7 @@ Run the reviews in `agent-ops/gates.md` that go beyond one PR's `xreview`, so Cl
 - [ ] `agent-ops/commands/milestone-review.md` runs the phase-exit red team. Fable 5.1, DeepSeek and the pinned GPT model each run every `attack.*` and `neutrality.*` fixture and propose new attacks as fixture drafts in a PR. The phase cannot be marked done while a blocking finding is open.
 - [ ] An ADR critique from DeepSeek is attached to the ADR as an advisory section for Rafa. A pre-deploy review covers the diff since the last deploy.
 - [ ] Disagreements follow the design's rules, each tested on a scripted case:
-  - the verifier runs the reproduction once;
+  - the verifier runs the reproduction once, and only through the repository's own runners (`pnpm vitest run <path>`, or `pnpm snap <name>` for a fixture), with the path from T-045's hardened schema. It never runs a finding's text as a shell command;
   - a reproduced finding blocks;
   - an unreproduced one becomes a backlog row;
   - two refuted findings from one family, or two abstentions, on one PR go to Rafa;

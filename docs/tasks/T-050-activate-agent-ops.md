@@ -42,6 +42,8 @@ The agents have no Workflows permission (T-039 step 3), so every change to `.git
   4. Create a second ruleset, `tier3-review`, targeting `main`. It turns on "Require a pull request before merging" with "Require review from Code Owners". Its bypass list holds the Repository admin role in "For pull requests only" mode, so Rafa's own tier 3 PRs can merge. On a personal repository the admin role is Rafa alone, and `crow-agents` has Write, not admin (inferred, as are the option names).
 
   The `main` ruleset keeps no bypass, so `check`, `gitleaks` and `xreview` stay required for everyone.
+
+  Before turning on code-owner review, Rafa decides whether CODEOWNERS keeps its three tier 2 entries (`spec/`, `docs/decisions/`, `contracts/`). If they stay, every PR on those paths waits for his review too (T-044).
 - **Done when:** `xreview` reports on a test PR. A tier 3 PR from `crow-agents` waits for Rafa's review. A tier 3 PR of Rafa's merges with `check` green.
 
 ### 3. Faster CI
