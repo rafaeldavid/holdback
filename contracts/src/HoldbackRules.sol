@@ -274,6 +274,11 @@ contract HoldbackRules is EIP712 {
         ) {
             revert InvalidMessage();
         }
+        // ADR-0012 (formal model KeyOnlyWithPayment): the buyer's key travels only with an accept, and never on a deal
+        // that stands Refunded.
+        if (bytes(m.keyCiphertext).length > 0 && (m.outcome != H.OUTCOME_ACCEPT || s == Stage.Refunded)) {
+            revert InvalidMessage();
+        }
         if (block.timestamp >= deadline) revert DeadlinePassed();
         if (role == H.ROLE_PRIMARY) {
             // The primary reveals the preimage of its seedCommitment.
