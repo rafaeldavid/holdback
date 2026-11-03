@@ -560,6 +560,8 @@ Wording owed elsewhere if accepted: the scope hard rule in `CLAUDE.md` and the n
 
 Also: the funding signature on EVM is CPP's collector signature and token identifiers are lowercase addresses (ADR-0025, Proposed; schema change after PR 67); default and apply-default are one call (T-204 finding 2); beacon BLS verification (EIP-2537) is split out to a follow-up (backlog), the round and seed derivation are checked now.
 
+**Amended 2026-11-03 (T-206 review, M-2; Rafa may overrule).** Point 1's carried delivery now has to land before `deliverBy`. Before, a carried delivery accepted after the deadline raced the buyer's reclaim, so the buyer's deadline did not bind. Now `decide` refuses it, as `deliver` and SimChain already do (PR #127). A seller whose judge may outlast `deliverBy` posts `deliver`. An early accept may still carry a late delivery, because the buyer is waiving its own deadline. The research pass was the T-206 adversarial review (Fable, max effort), and both review passes agree (`docs/reviews/2026-11-03-contract-review.md`).
+
 | Option (question 2) | Effect |
 | --- | --- |
 | Contract executes `transferWithAuthorization` | Atomic, but fee code and operator knowledge in neutral custody code; no size headroom (EIP-170) |

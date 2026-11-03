@@ -1,0 +1,37 @@
+# T-212: Contract hardening from the T-206 review (low findings)
+
+- **Lane:** settlement
+- **Phase:** 2
+- **Depends on:** the T-206 fix PRs merged
+- **Paths this task may touch:** `contracts/src/`, `contracts/test/`, `packages/settlement/evm/encode.ts` and `packages/settlement/sim/simchain.ts` (only for item 4), `docs/decisions/ADR-0016-phase1-contract.md` (item 5, through an amendment), `docs/tasks/T-212-contract-hardening.md`
+- **Human gate:** no
+- **Status:** todo
+- **Agent/session:** —
+
+## Intent
+
+The low findings of `docs/reviews/2026-11-03-contract-review.md` that need code or an ADR line, done before any public-chain deployment. Each item lands with a regression test that fails before it. Budget bytes first: `HoldbackRules` is near EIP-170 (review I-3). Item 6 frees bytes and should go first.
+
+1. **L-2.** `HoldbackBonds.deposit` and `takeAppealBond` credit the measured balance delta, as CPP does, so a fee-on-transfer token cannot make the vault short.
+2. **L-4.** The primary's seed tag binds the commitment (`uint144(keccak256(abi.encode(seedCommitment, id)))`, checked the same way at decide), so a 144-bit collision cannot be reused across deals.
+3. **L-1.** Decide whether `EarlyAccept` names the delivery hash (a schema change: ADR, version bump, core and contract together) or record the acceptance. The money is safe today under D32; the record is not.
+4. **L-6.** Either derive `authorizationExpiry` from `max(judgeBy, fallbackBy) + appealDecideSec + EXPIRY_MARGIN`, or refuse at funding a `judgeBy` after `fallbackBy` as self-contradictory (D31 allows that refusal). Either way, mirror it in `encode.ts` and SimChain's `authorizationExpiry`.
+5. **L-5.** Reconcile ADR-0016 §1 ("if either lacks coverage then, the case goes to the default outcome") with D37 point 4 (an uncovered fallback or appeal adjudicator still decides). Do it before Phase 4 attaches payouts to coverage.
+6. **I-2.** Drop the dead fee-share branch in `_payOut` (`MUTUAL_FEE_SHARE_BPS` is a constant 0), or move the rate into the terms when it stops being 0.
+
+## Acceptance criteria
+
+- [ ] Items 1, 2 and 6 merged, each with a regression test that fails before it.
+- [ ] Items 3, 4 and 5 decided, each recorded in `docs/decisions-today.md` or an ADR, and built if the decision is to build.
+- [ ] `HoldbackRules` stays under EIP-170, with the headroom recorded.
+- [ ] `pnpm verify` green.
+
+## Out of scope
+
+- Phase 4 economics (overturn payouts, default compensation, coverage ratios).
+
+## Evidence
+
+## Decisions
+
+## Handoff
