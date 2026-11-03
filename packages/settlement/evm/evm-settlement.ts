@@ -924,11 +924,10 @@ export class EvmSettlement implements Settlement {
   /**
    * Whether the transaction that spent the fee's nonce paid this operator: the token's AuthorizationUsed(buyer, nonce)
    * log, then the token's own Transfer of at least the fee from the buyer to the fee address, as the next log (the order
-   * TestUSDC and USDC's FiatTokenV2 emit them). A Transfer from another contract, or another one in the same
-   * transaction, is not the payment. A spent nonce alone
-   * proves nothing: USDC also spends it for an authorization the buyer cancelled, so without that log the answer is
-   * false. Null only when the token logs no AuthorizationUsed at all (LocalUSDC on anvil). An RPC failure throws, and
-   * the agreement is taken back for a retry.
+   * LocalUSDC, TestUSDC and USDC's FiatTokenV2 emit them). A Transfer from another contract, or another one in the same
+   * transaction, is not the payment. A spent nonce alone proves nothing: USDC (and LocalUSDC) also spends it for an
+   * authorization the buyer cancelled, so without that log the answer is false. Null only when the token's ABI has no
+   * AuthorizationUsed event. An RPC failure throws, and the agreement is taken back for a retry.
    */
   private async feePaidEarlier(fee: TransferAuthorization, since: Timestamp): Promise<boolean | null> {
     const event = this.world.abis.token.find((x): x is AbiEvent => x.type === 'event' && x.name === 'AuthorizationUsed');
