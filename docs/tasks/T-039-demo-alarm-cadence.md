@@ -5,7 +5,7 @@
 - **Depends on:** T-031 (telemetry counts the alarm)
 - **Paths this task may touch:** `apps/demo-cloud/src/`, `docs/backlog.md`, `docs/operations.md`, `docs/plan.md`, `docs/tasks/T-039-demo-alarm-cadence.md`
 - **Human gate:** no (the deploy that ships it is Rafa's)
-- **Status:** review
+- **Status:** done (PR 136)
 - **Agent/session:** side session from the T-031 follow-ups, branch `t-039-demo-alarm`
 
 ## Intent
@@ -57,4 +57,4 @@ The public demo World (one Durable Object on the Workers Free plan) spends its d
 
 ## Handoff
 
-Done in the PR. Left (backlog, Public demo): a stuck case still costs about 20 passes per window; an offer declined for a passing reason (no unencumbered bond) waits for a pass run for other work or a restart; journal replay on wake. After the deploy (Rafa), read the first day lines' `usage` to confirm on Cloudflare.
+Done in PR 136: the reviewer subagent returned ISSUES twice (seven findings in all, each fixed with a test) and then PASS. Left (backlog, Public demo): a stuck case still costs about 20 passes per window; an offer declined for a passing reason (no unencumbered bond) waits for a pass run for other work or a restart; journal replay on wake. After the deploy (Rafa), read the first day lines' `usage` to confirm on Cloudflare.
