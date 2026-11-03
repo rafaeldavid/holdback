@@ -58,6 +58,16 @@ export function problemFromRevert(abi: Abi, data: Hex | undefined): Problem {
   return problem(BY_NAME[name] ?? 'invalid_state', detail);
 }
 
+/** The contract error's name in revert data, if the ABI knows it. */
+export function revertName(abi: Abi, data: Hex | undefined): string | undefined {
+  if (!data || data === '0x') return undefined;
+  try {
+    return decodeErrorResult({ abi, data }).errorName;
+  } catch {
+    return undefined;
+  }
+}
+
 /** The revert data inside a viem or JSON-RPC error, wherever the client put it. */
 export function revertData(e: unknown): Hex | undefined {
   const seen = new Set<unknown>();

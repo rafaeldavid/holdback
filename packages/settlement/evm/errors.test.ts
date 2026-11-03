@@ -1,6 +1,6 @@
 import { encodeErrorResult, parseAbi } from 'viem';
 import { describe, expect, it } from 'vitest';
-import { problemFromRevert, revertData } from './errors.js';
+import { problemFromRevert, revertData, revertName } from './errors.js';
 
 const abi = parseAbi([
   'error WrongStage(uint8 current)',
@@ -40,6 +40,13 @@ describe('contract reverts as SimChain problem types', () => {
   it('never throws on unknown data', () => {
     expect(problemFromRevert(abi, '0xdeadbeef').type).toBe('invalid_state');
     expect(problemFromRevert(abi, undefined).type).toBe('invalid_state');
+    expect(revertName(abi, '0xdeadbeef')).toBeUndefined();
+    expect(revertName(abi, undefined)).toBeUndefined();
+  });
+
+  it('names the contract error', () => {
+    expect(revertName(abi, data('InvalidMessage'))).toBe('InvalidMessage');
+    expect(revertName(abi, data('WrongStage', [1]))).toBe('WrongStage');
   });
 
   it('finds revert data nested in a client error', () => {

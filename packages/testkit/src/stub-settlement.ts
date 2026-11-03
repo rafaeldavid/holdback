@@ -37,7 +37,7 @@ import {
 } from '@holdback/core';
 import { sha256 } from '@holdback/core/crypto';
 import type { Submission, TimeoutKind } from '@holdback/settlement';
-import { EvmSettlement, type EvmWorld } from '@holdback/settlement/evm';
+import { EvmSettlement, rebindToken, type EvmWorld } from '@holdback/settlement/evm';
 import { account, b64url, SimChain, tusd, type Genesis } from '@holdback/settlement/sim';
 import { keccak256, stringToBytes, type Hex } from 'viem';
 import { privateKeyToAccount, sign as signDigest } from 'viem/accounts';
@@ -208,20 +208,6 @@ const TIMEOUTS: Record<TimeoutStep, TimeoutKind> = {
 
 /** Which settlement layer the fixture drives: SimChain in process, or the Holdback contracts on a local anvil. */
 export type DriverBackend = { kind: 'sim' } | { kind: 'local'; world: EvmWorld; judgments?: ReadonlyMap<string, JudgmentView> };
-
-/**
- * Every `token` field equal to `from`, and every entry of `allowedTokens`, rewritten to `to`. On EVM settlement the
- * token identifier is the ERC-20's lowercase address (ADR-0025), so the fixtures' tUSD becomes the deployed token.
- */
-export function rebindToken<T>(value: T, from: string, to: string): T {
-  if (from === to) return value;
-  const walk = (x: unknown, key?: string): unknown => {
-    if (Array.isArray(x)) return x.map((v) => (key === 'allowedTokens' && v === from ? to : walk(v)));
-    if (x && typeof x === 'object') return Object.fromEntries(Object.entries(x).map(([k, v]) => [k, k === 'token' && v === from ? to : walk(v, k)]));
-    return x;
-  };
-  return walk(value) as T;
-}
 
 export class StubSettlement {
   private readonly domain;
