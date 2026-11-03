@@ -86,7 +86,6 @@ If Rafa wants measured rather than sourced evidence once `.env` holds the regist
 - Is the goal privacy from ’crow's operators (ADR-0024 B gives it with no infrastructure) or an Ethereum-anchored private evidence ledger (which Prividium's selective-disclosure storage proofs give)? If the latter, is it worth a sequencer actor over signed hashes in calldata (D26)?
 - Would an adjudicator-run instance be acceptable as the only neutral reading, and does it beat the adjudicator holding the sealed record (ADR-0024 §2)?
 - Is a licensed, private-registry vendor acceptable in any protocol component, against the far-future generic fragment?
-- Does the team's Matter Labs relationship matter for the demo audience, and if so, is the club-chosen settlement residual the right place for it?
 - Close T-208 as parked with this document, folding the open questions into the far-future row?
 
 ## 7. Answers from public docs (2026-11-02)

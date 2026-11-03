@@ -7,8 +7,8 @@ Reflects decisions D1–D40 (`docs/decisions-today.md`), ADR-0001 to ADR-0026, a
 ```mermaid
 flowchart LR
   subgraph Agents
-    BA["Buyer agent (HTTP client + EIP-712 signer)"]
-    SA["Seller agent (HTTP client + EIP-712 signer)"]
+    BA["Buyer agent (HTTP client + EIP-712 signer + NaCl)"]
+    SA["Seller agent (HTTP client + EIP-712 signer + NaCl)"]
   end
   subgraph Operators["Operator nodes (permissionless, interchangeable)"]
     API[REST API]

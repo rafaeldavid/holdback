@@ -53,7 +53,7 @@ Scope after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-inte
 
 **Exit:**
 - Demo success criteria met (`docs/demo.md`). *Met, with one criterion partly met and moved to T-016b (2026-11-01).*
-- Scenarios pass in CI. *Met: 32 fixtures pass on main.*
+- Scenarios pass in CI. *Met: the 31 scenarios plus `_example` pass on main.*
 - Hold p95 ≤ 250 ms on SimChain (measured). *Met: 8.27 ms per hold over 1,000 holds (T-006).*
 - Rafa has walked through the demo. *Met: Rafa walked through it on 2026-11-01 with a guided walkthrough (a local report, not in git). Phase 1 is done.*
 
@@ -140,10 +140,10 @@ Status (2026-11-03, measured against `fixtures/scenarios/` and `pnpm snap`): **e
 | --- | --- | --- | --- |
 | `happy-path` | 1–4 | 1 | exists |
 | `bad-work-row-drop` | 5 | 1 | exists |
-| `todo.bad-work-panel-reject` | — | 1 | todo (needs real data; becomes `bad-work-panel-reject`) |
-| `todo.attack.injection-plain` | — | 1 | todo (needs real data; becomes `attack.injection-plain`) |
+| `todo.bad-work-panel-reject` | 5 | 1 | todo (needs real data; becomes `bad-work-panel-reject`) |
+| `todo.attack.injection-plain` | 6 | 1 | todo (needs real data; becomes `attack.injection-plain`) |
 | `attack.injection-encoded-base64` | 6 | 1 | exists |
-| `attack.injection-encoded-unicode-tags` | — | 1 | exists |
+| `attack.injection-encoded-unicode-tags` | 6 | 1 | exists |
 | `attack.injection-filter-abstain-appeal-default` | 6 | 1 | exists |
 | `attack.injection-splits-appeal-to-default` | 6 | 1 | exists |
 | `attack.injection-steers-appeal-supermajority` | 6 | 1 | exists |
@@ -155,17 +155,17 @@ Status (2026-11-03, measured against `fixtures/scenarios/` and `pnpm snap`): **e
 | `neutrality.operator-refuses` | 7 | 1 | exists |
 | `neutrality.operator-offline` | 7 | 1 | exists |
 | `neutrality.adjudicator-offline` | 7 | 1 | exists |
-| `neutrality.adjudicator-and-fallback-offline` | — | 1 on SimChain; 4 on contract (default compensation from bonds) | exists |
-| `neutrality.appeal-adjudicator-offline` | — | 1 | planned (T-016b: party-appeal step) |
+| `neutrality.adjudicator-and-fallback-offline` | 7 | 1 on SimChain; 4 on contract (default compensation from bonds) | exists |
+| `neutrality.appeal-adjudicator-offline` | 7 | 1 | planned (T-016b: party-appeal step) |
 | `neutrality.appeal-adjudicator-offline-after-escalation` | 6 | 1 on SimChain; 4 on contract (default compensation from bonds) | exists |
 | `honest-seller-survives-judge-noise-on-appeal` | — | 1 on SimChain; 4 on contract (appeal fee and bond rate) | exists |
-| `neutrality.maintainers-change-registry` | — | 1 | planned (T-016b: real registry and policy hashes) |
-| `attack.adjudicator-self-dealing` | — | 1 | exists |
-| `appeal-bad-key-release` | — | 1 | planned (T-016b) |
+| `neutrality.maintainers-change-registry` | 3 | 1 | planned (T-016b: real registry and policy hashes) |
+| `attack.adjudicator-self-dealing` | 8 | 1 | exists |
+| `appeal-bad-key-release` | 8 | 1 | planned (T-016b) |
 | `todo.adjudicator-leaks-plaintext` | — | records residual 6 | todo |
 | `todo.principal-no-recourse` | — | records residual 12 | todo |
 | `neutrality.club-revokes-mid-flight` | 7 | 1 | planned (needs run-time revocation; SimChain reads members from genesis) |
-| `neutrality.buyer-silent` | — | 1 | exists |
+| `neutrality.buyer-silent` | 7 | 1 | exists |
 | `neutrality.seller-withholds-delivery` | 2 | 1 | exists (the planned `reclaim-no-delivery`) |
 | `todo.provider-outage` | 7 | 1 | todo (becomes `neutrality.provider-outage`) |
 | `neutrality.beacon-relay-refuses` | — | 2 | planned (ADR-0018) |

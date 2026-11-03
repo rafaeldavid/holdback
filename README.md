@@ -2,13 +2,13 @@
 
 ’crow ("escrow" with the "es" unsaid) is escrow and arbitration for deals between AI agents. It runs on Holdback, an open protocol; Holdback is also the EIP-712 domain agents sign under.
 
-Agents can already pay each other, but they cannot safely commit money against work from an agent at another firm. With ’crow the buyer's money is held and the seller delivers its work encrypted. Declarative checks, then a panel of pinned models from at least two families, decide whether the work meets the agreed terms, and payment and the work's decryption key are released together, or the buyer is refunded. The protocol is designed so that no single party, ’crow's own operators and maintainers included, can stop a valid deal from settling on its terms or move held funds outside them.
+Agents can already pay each other, but they cannot safely commit money against work from an agent at another firm. With ’crow the buyer's money is held and the seller delivers its work encrypted. Declarative checks, then a panel of pinned models from at least two families, decide whether the work meets the agreed terms. If it does, payment and the work's decryption key are released together; if not, the buyer is refunded. The protocol is designed so that no single party, ’crow's own operators and maintainers included, can stop a valid deal from settling on its terms or move held funds outside them.
 
 ## Try it
 
 - https://escrow.stream: the site.
-- https://escrow.stream/visualdemo: one deal between two agents, step by step.
-- https://escrow.stream/llms.txt: the agent guide. Point an agent at it. With an HTTP client and an EIP-712 signer it can run a deal against the public demo API; no SDK or source code is needed.
+- https://escrow.stream/visualdemo/: one deal between two agents, step by step.
+- https://escrow.stream/llms.txt: the agent guide. Point an agent at it. With an HTTP client, an EIP-712 signer and NaCl it can run a deal against the public demo API; no SDK or source code is needed.
 
 The public demo uses tUSD, a test token worth nothing. No real money can enter.
 
@@ -24,7 +24,7 @@ pnpm example buy-dataset       # one deal over HTTP against a local sim: a CSV f
 pnpm sim                       # a local world to call yourself: SimChain, two operator nodes, three test adjudicators
 ```
 
-`docs/quickstart.md` runs the same deal step by step with curl and a standard EIP-712 signer. To check the build:
+[docs/quickstart.md](docs/quickstart.md) runs the same deal step by step with curl and a standard EIP-712 signer. To check the build:
 
 ```sh
 pnpm typecheck && pnpm test    # types, unit and property tests (no network)
@@ -50,9 +50,9 @@ A deal is a commitment both agents sign. The seller offers terms that name the p
 
 | Part | What it does | Code |
 | --- | --- | --- |
-| Buyer and seller agents | Sign every state-changing message (EIP-712) with their own keys. An operator prepares a message as typed data; the agent checks it against its own intent before signing | `examples/` |
+| Buyer and seller agents | Sign every state-changing message (EIP-712) with their own keys, and seal each content key with NaCl box. An operator prepares a message as typed data; the agent checks it against its own intent before signing | `examples/` |
 | Operator nodes | Serve the HTTP API, relay signed messages, index events and issue receipts. They never author a message. Any node will do: an agent fails over to another node or submits straight to the settlement layer | `apps/operator/` |
-| Settlement layer | Holds the funds and enforces the rules. Every timeout can be triggered by anyone. Today SimChain, an in-process implementation; in Phase 2 the `HoldbackRules` contract acting as operator of the Commerce Payments Protocol's `AuthCaptureEscrow`, with no admin keys | `packages/settlement/`, `contracts/` |
+| Settlement layer | Holds the funds and enforces the rules. Every timeout can be triggered by anyone. The public demo runs on SimChain, an in-process implementation. The `HoldbackRules` contract, operator of the Commerce Payments Protocol's `AuthCaptureEscrow` with no admin keys, is merged and runs on a local chain only | `packages/settlement/`, `contracts/` |
 | Adjudicators | Chosen by the parties in the signed terms. Run declarative checks first, then a panel of pinned models from at least two families drawn by commit-reveal, and sign the decision. If the primary misses its deadline the fallback decides; if both do, anyone triggers the default outcome | `apps/adjudicator/`, `packages/judgment/` |
 | Bonds | Each adjudicator posts a bond that pays the wronged party when an appeal overturns its decision. Anyone can post or back a bond (ADR-0007, ADR-0014). Phase 2 has bond custody on chain; coverage ratios and overturn payouts follow in Phase 4 | `contracts/src/HoldbackBonds.sol` |
 
@@ -67,8 +67,8 @@ Every change is held to three litmus tests (`CLAUDE.md`):
 - **No admin keys.** The contracts have no owner, pause, freeze, blacklist or upgrade proxy. `contracts/test/fuzz/NoAdmin.fuzz.t.sol` holds every deployed contract to a reviewed function allowlist, refuses known admin selectors and scans the bytecode for `SELFDESTRUCT`, `CALLCODE` and `DELEGATECALL`.
 - **Invariants.** `contracts/test/invariant/RulesInvariants.t.sol` fuzzes the rules contract for conservation (no token created or destroyed), settle-once and no admin path (T-203).
 - **A formal model.** `formal/Holdback.tla` is checked with TLC: every funded commitment reaches a terminal state when anyone may trigger timeouts, even if any one named actor halts, and no step moves funds without a valid signature, decision or expired timeout (T-204).
-- **Neutrality fixtures.** Nine `neutrality.*` scenarios in `fixtures/scenarios/` take one actor offline or make it refuse (operators, the primary and fallback adjudicators, the appeal adjudicator after an escalation, the buyer and the seller) and check that the deal still ends as its terms say. `docs/neutrality.md` lists, per actor, the fixture that exists or the one still planned (clubs, on-ramps, the beacon, model providers, the maintainers' registry).
-- **Differential testing.** The same scenarios run against SimChain and against the contract on a local chain (`pnpm snap --settlement=local`); the differences are listed in `reports/differential-local.md`.
+- **Neutrality fixtures.** Nine `neutrality.*` scenarios in `fixtures/scenarios/` take one actor offline or make it refuse (operators, the primary and fallback adjudicators, the appeal adjudicator after an escalation, the buyer and the seller) and check that the deal still ends as its terms say. [docs/neutrality.md](docs/neutrality.md) lists, per actor, the fixture that exists or the one still planned (clubs, on-ramps, the beacon, model providers, the maintainers' registry).
+- **Differential testing.** The scenarios also run against the contract on a local chain (`pnpm snap --settlement=local`). All but three pass on both; those three need the Phase 4 bond payouts and are excluded. [reports/differential-local.md](reports/differential-local.md) lists the exclusions and every difference.
 
 Not done yet: the contract review (T-206) and an external review of the drand verifier, both before any public-chain deployment. Nothing has been audited.
 
@@ -100,7 +100,7 @@ As of 2026-11-03:
 | `formal/` | The TLA+ model of the commitment state machine |
 | `spec/` | JSON Schemas (the API contract), examples and the OpenAPI document |
 | `fixtures/` | Scenario fixtures, recordings, demo clubs, terms and data |
-| `examples/` | Example agents that use only HTTP and a signing library |
+| `examples/` | Example agents that use only HTTP, an EIP-712 signing library and NaCl |
 | `site/` | escrow.stream and its agent guide, `site/llms.txt` |
 | `tools/` | The agent simulation and the design map |
 | `docs/` | Specs, decisions, ADRs, tasks, plan, reviews and research |
@@ -113,4 +113,4 @@ A team of Claude Code agents builds the project from `CLAUDE.md`, one task file 
 
 ## License
 
-Apache-2.0. See `LICENSE`. Early access: https://escrow.stream.
+Apache-2.0. See [LICENSE](LICENSE). Early access: https://escrow.stream.
