@@ -28,7 +28,6 @@
     "demo-cloud:deploy": "node apps/demo-cloud/scripts/deploy.mjs",
     "demo-cloud:deal": "node apps/demo-cloud/scripts/deal.ts",
     "demo-cloud:secrets": "node --env-file-if-exists=.env apps/demo-cloud/scripts/secrets.mjs",
-    "prividium:login": "node --env-file-if-exists=.env scripts/prividium-login.mjs",
     "verify": "node scripts/verify.ts",
     "map": "node scripts/design-map.mjs"
   },
