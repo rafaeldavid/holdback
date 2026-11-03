@@ -11,7 +11,7 @@
    - Each registry seat gets an attestation kind.
    - The policy names how many attested seats the parties want (default 0).
    - Proofs are post hoc, sealed, and never gate settlement.
-   - A missing proof is the adjudicator's fault, never the buyer's burden. It costs a fixed penalty reserved at acceptance and never re-tries the merits.
+   - A missing proof is the adjudicator's fault, never the buyer's burden. Plain absence costs a fixed penalty from the adjudicator's own stake; every other proof problem is evidence; the merits are never re-tried.
 3. **Proofs never replace families.** A proof answers "which model answered" (residual 8). Family diversity answers correlated error (T8). An all-proven panel today would be single-family.
 4. **The Anthropic seats cannot be proven with FlashProve today.**
    - Claude takes no sampling parameters.
@@ -26,7 +26,8 @@
 
 | Property | What the source says | Label |
 | --- | --- | --- |
-| Status | "A research artifact: not maintained, not accepting contributions." Version 0.16.0, Apache 2.0. "No independent security audit." The technical paper "was AI-generated, and we did not review it in detail"; the GPU prover and C++ verifier are AI-generated from Lean and not proved equivalent | measured: [README](https://github.com/anthropics/FlashProve), `guide/what-is-proved.md`, [blog](https://www.anthropic.com/research/provable-inference) |
+| Status | "A research artifact: not maintained, not accepting contributions." Version 0.16.0, Apache 2.0. "No independent security audit" | measured: [README](https://github.com/anthropics/FlashProve), `guide/what-is-proved.md` |
+| Authorship | The technical paper "was AI-generated, and we did not review it in detail"; the GPU prover and C++ verifier are AI-generated from Lean and not proved equivalent | measured: [technical report](https://www.anthropic.com/document/flashprove-technical-report) §7 |
 | Models | "The only model defined is Llama 4 Maverick's text transformer." Another architecture "would need a new definition, new scales, and a new soundness argument" | measured: `docs/model.md`, `docs/operators-duties.md` |
 | Window | 1,024 tokens: prompt, then reply, then filler. "The page does not describe a method for replies longer than that" | measured: [technical report](https://www.anthropic.com/document/flashprove-technical-report) §6; `docs/verifying.md` |
 | Decoding | Greedy only: the vLLM integration "is for greedy replies (temperature 0): sampled replies get no proof". The proof covers an integer version of the weights (12-bit), which "approximates the floating-point model and is not equal to it" | measured: `docs/operators-duties.md:15`; `docs/model.md:10` |
@@ -62,7 +63,7 @@
 - **Settlement never reads a proof** (inferred from the post-hoc design and ADR-0007). Release, refund, fallback and default all happen without one, so a prover that refuses or dies stops nothing. A proof is a duty of the adjudicator under its bound policy, like key release (T19).
 - **Open-weight seats have substitutable provers** (inferred): anyone holding the plaintext and the public weights can re-run a deterministic seat and check the reply. The buyer holds the plaintext after release; the appeal adjudicator gets the key when it takes over (ADR-0024 §5).
 - **On chain or on the public log: a hash and a pointer only.** Proofs are large and as sensitive as the deliverable, so they belong sealed with the record (inferred). If the root is recorded on the settlement layer (submittable by anyone, the escape hatch), "no proof by the deadline" becomes a fact settlement can check, and an operator cannot hide an honest adjudicator's proofs (inferred; raised in review).
-- **A deadline:** proofs are due a policy-set time after the decision, short enough that the losing party can still appeal on a missing proof (inferred; the parties set the value, D31).
+- **A deadline:** proofs are due a policy-set time after the decision, counted on settlement's own clock. The parties set the value (D31), and an adjudicator declines a window its prover cannot meet (inferred).
 
 ## 4. A missing proof, D28 and the bond
 
@@ -71,13 +72,12 @@
 - **The research pass first recommended a fresh hearing** (inferred). On that view an unproven decision earns no presumption, because no party agreed to an unproven judgment, which is D28's own exception. The appeal would decide as after an escalation (D27a, D27b), and the primary's bond would pay any reversal.
 - **Review found that remedy can be gamed** (inferred). FlashProve warns that "even an honest prover may fail to convince the verifier", and the integer model's match with float inference "does not cover adversarially designed prompts" (measured: report §7). Both parties shape the prompt: the seller writes the delivery, the buyer the rubric. A party that could make a proof fail would then win split appeals and default outcomes against honest work.
 - **A free appeal fails too** (red team, inferred). It sits outside the 100% coverage encumbrance. One provider outage gives every open deal's loser a free option, and a merits ground can be stacked onto the proof ground.
-- **ADR-0027 separates the duty from the merits.** The policy names a `proofMissPenalty` that the parties choose, reserved at acceptance on top of the price. It is paid from the decider's bond to the losing party:
-  - automatically, by a permissionless timeout, when no proof root is recorded on the settlement layer by the deadline;
-  - or on the appeal adjudicator's signed finding that a posted proof fails.
-
-  The merits are never re-tried, so D28 and D27c are unchanged. Symmetric: either party can be the loser.
-- **A failing proof** counts only after the appeal adjudicator re-verifies it, since an honest proof can be rejected on the checker's side (measured: `docs/verifying.md:329`). It is evidence for the appeal. Only independent evidence of a different model, such as a mismatching re-execution, supports the existing mislabeled-model ground (measured: `docs/architecture.md:133`) and a bad-faith penalty.
-- **Collusion check** (inferred). An adjudicator that withholds proofs to help the losing party pays it the penalty from its own bond. Beyond the adjudicator's first-loss share (10% minimum in the demo rulebook), backers' money pays, so a shell adjudicator can move backer stake. That is residual 3, bounded by the penalty the parties chose.
+- **ADR-0027 separates the duty from the merits, and pays only on plain absence** (after two review rounds).
+  - Each decision states how many attested seats it seated (`attestedSeatsSeated`, recomputable from the seed). If that is above 0 and no proof root is stored on the settlement layer by the deadline, anyone may trigger a timeout. It pays a party-chosen `proofMissPenalty` to the losing party, from the decider's own junior tranche.
+  - Nothing else pays: a failing proof, an abstained attested seat, a rotated measurement, a re-execution outside tolerance. Each is evidence for an ordinary appeal, for the mislabeled-model ground and for a court.
+  - The merits are never re-tried, so D28 and D27c are unchanged.
+- **Why not pay on a failing proof** (red team round 2, inferred). A seller can make a judge abstain with one injected URL (the existing `attack.injection-filter-abstain-appeal-default`). A seller can also craft a delivery an honest prover cannot prove. Paying on either rewards the party that caused it. The timeout therefore catches absence, not faking. A root that does not verify is a signed, attributable claim, which is evidence.
+- **Why only the junior tranche** (red team round 2, inferred). From the whole bond, a shell adjudicator with a 10% first-loss share and a colluding party could sign a penalty ten times its stake. They would then move backers' money on a timer, with no panel and no appeal adjudicator. From the junior tranche, they move only the adjudicator's own stake. A rulebook may also cap the penalty.
 
 ## 5. The closed-model seat
 
@@ -92,11 +92,12 @@
 - **What the report adds:** each seat's raw output as returned (including any reasoning, labeled full or summary), the filter's reason when it abstains a judge, the reader's features and the sample the judges saw.
 - **Its work-quoting part must follow the hold** (inferred). D26 gives both parties the same record, but "the work itself still follows the hold" (measured: D26). On a refund the seller keeps the work, so a buyer who received the full report would get pieces of it for free (T9). So the report splits:
   - a record part of typed fields only, for both parties;
-  - a work part with every free-text field that can quote the work: raw outputs, check and screen-signal details, the reader's features, the sample. It is encrypted under a key derived from the work's content key.
+  - a work part with every free-text field that can quote the work: raw outputs, verdict strings, check details, the reader's features, the sample. It is encrypted under a key derived from the work's content key.
+
+  Screen-signal details and aggregate reasons carry fixed labels, IDs and counts, and stay in the record part (measured: `packages/judgment/src/screen.ts:3`, "Signal details never quote the deliverable"; reviewer round 2).
 - **The record already has this exposure, and a buyer can engineer it** (red team, inferred from reading `packages/judgment/src/checks/`). Check details can carry the deliverable's JSON property names and CSV headers. A buyer can write evidence-anchored criteria ("quote the rows that violate c3"), arrange a failing one and take the refund. At `judgment` and `public` the record is readable by anyone. ADR-0027 applies the same split to the existing record, which is open question 1 for Rafa. Today, on a refund, the buyer gets (inferred from the schema caps and ADR-0024's "Buyer and seller always"):
   - per judge, up to 4,500 characters of verdict strings (12 × 300 evidence, 300 injection evidence, 600 rationale);
-  - per check and per screen signal, 300-character details;
-  - 200-character aggregate reasons.
+  - per check, a 300-character detail.
 - **It is data, never instruction**, for every reader (ADR-0021, T22): the reasoning is derived from untrusted deliverables and will quote injections.
 - **Appeal judges never see it: confirmed.** The appeal template says judges "decide afresh and are not told the first decision" (measured: `prompt.ts:48-52`). Reasons: it would relay an injection, anchor the appeal (T8), and D28 asks the appeal to judge the work, not the reasoning (inferred). The appeal adjudicator's code may read the report and proofs to verify them; its judges may not.
 - **Releasing reasoning after the decision helps a gaming seller little** (inferred): the pinned models, the template and the policy are public, so a seller can already probe the judges offline; the seed-dependent parts change per deal. The defenses stay the secret seed, the screen, no re-roll and `maxSubmissions`. With `maxSubmissions` above 1, reports should be released only after the last attempt (red team).
@@ -136,23 +137,26 @@
 
 ## 9. Fixtures to write when built
 
-`todo.` until a kind is built (`docs/testing.md`). Balances follow the demo club: price 2,000, fee 50, appeal fee 25, appeal bond 100, adjudicator bonds 25,000. The proof-miss penalty is written P (a policy term). Most rows were proposed by the red-team review of PR 115.
+`todo.` until a kind is built (`docs/testing.md`). Balances follow the demo club: price 2,000, fee 50, appeal fee 25, appeal bond 100, adjudicator bonds 25,000. The proof-miss penalty is written P (a policy term, paid from the decider's junior tranche). Most rows were proposed by the two red-team rounds on PR 115.
 
 | Fixture | Scenario | End state |
 | --- | --- | --- |
-| `neutrality.prover-offline-after-accept` | Two attested seats; the primary accepts; no root by the proof deadline; nobody appeals | Released at the decision. Anyone triggers the proof-miss timeout; P moves from the primary's bond to the buyer |
-| `neutrality.prover-offline-after-reject` | The primary rejects; no root by the deadline | Refunded at the decision; the timeout pays P to the seller |
-| `neutrality.prover-offline-fallback-decides` | The primary is silent; the fallback decides and posts no root | The same rule on the fallback's bond |
-| `neutrality.operator-refuses-proof-bundle` | Every operator refuses to relay the `ProofBundle` | The decider submits it to the settlement layer directly; the seats are proven; no penalty |
-| `neutrality.attested-provider-offline-at-call` | The only attested seat's host is down when the panel runs; two unattested seats pass | Released at the decision; the seat abstains and is not replaced; the shortfall is unproven, so P is paid; no fallback, no default |
-| `neutrality.attestation-measurement-rotated` | The host changes its enclave image after agreement | Seats unproven; decisions unaffected; P per deal, from reserves already held |
-| `neutrality.appeal-adjudicator-offline-proof-ground` | Unproven accept; the buyer appeals; the appeal adjudicator never decides | Released stands; appeal bond and fee returned as today; P paid by the timeout |
-| `neutrality.proof-verifier-stalled` | An oversized bundle; the appeal adjudicator cannot verify within the entry's caps | Over-cap is the producer's failure: the finding is `failed`, P is paid, and the merits appeal runs as usual |
-| `attack.proof-fails-verification` | The primary ran a cheaper model; its proof fails, and a re-execution is outside tolerance | An ordinary appeal; the panel rejects the work; the reversal pays 2,000 from the primary's bond, plus P |
-| `attack.proof-garbage-root` | The primary posts a root whose pointer does not resolve or decrypt | No timeout (a root exists); in an appeal the finding is `failed` and P is paid |
-| `attack.seller-crafts-unprovable-delivery` | The seller's delivery makes an honest proof fail; the primary rejects; the seller appeals; the panel splits | Refunded stands (D27c); the seller gains at most P |
-| `attack.proof-ground-honest-accept-judge-noise` | Twin of `honest-seller-survives-judge-noise-on-appeal` with an unproven seat | Released stands: buyer 7,950, seller 2,000; the primary pays P and nothing more |
-| `attack.proof-replay-across-deals` | A proof from another deal with the same template and rows | Fails: the nonces derive from the seed, so the token IDs differ |
+| `neutrality.prover-offline-after-accept` | Two attested seats seated; the primary accepts; no root by the proof deadline; nobody appeals | Released at the decision. Anyone triggers the proof-miss timeout; P moves from the primary's junior tranche to the buyer |
+| `neutrality.prover-offline-after-reject` | The primary rejects after a panel; no root by the deadline | Refunded at the decision; the timeout pays P to the seller |
+| `neutrality.prover-offline-fallback-decides` | The primary is silent; the fallback decides and posts no root | The same rule on the fallback's junior tranche, reserved when it took the case |
+| `neutrality.operator-refuses-proof-bundle` | Every operator refuses to relay the `ProofBundle` | The decider submits it to the settlement layer directly; the root is stored; no penalty |
+| `neutrality.attested-provider-offline-at-call` | The only attested seat's host is down when the panel runs; two unattested seats pass | Released at the decision; the seat abstains and is not replaced; recorded as evidence; no penalty, no fallback, no default |
+| `neutrality.attestation-measurement-rotated` | The host changes its enclave image after agreement | Seats recorded unattested; decisions unaffected; no penalty |
+| `neutrality.proof-verifier-stalled` | An oversized bundle; the appeal adjudicator cannot verify within the entry's caps | Recorded as evidence with the verifier's transcript hash; the merits appeal runs as usual; no penalty |
+| `attack.proof-fails-verification` | The primary ran a cheaper model; its proof fails, and a re-execution is outside tolerance | An ordinary appeal on the mislabeled-model ground; the panel rejects the work; the reversal pays 2,000 from the primary's bond |
+| `attack.proof-garbage-root-evades-timeout` | The decider posts a random root | No timeout; the root is a signed claim that does not verify, which is evidence; the appeal is the only remedy |
+| `attack.proof-miss-on-short-circuit-reject` | `minAttestedSeats` 1, P 500; a required check fails; no panel | Refunded; `attestedSeatsSeated` is 0, so no penalty moves; the primary keeps 25,050 |
+| `attack.proof-miss-penalty-drains-senior` | Pool 25,000, of which 2,500 is junior; P 20,000; no root | Acceptance refused, since P cannot be reserved in the junior tranche or exceeds the rulebook cap; backers untouched |
+| `attack.proof-miss-reserve-released-early` | `proofWindowSec` runs past `appealDecideBy` | The reserve is held to the proof deadline, and the timeout pays in full |
+| `attack.seller-induces-attested-abstention` | An injected URL makes the attested seat abstain by filter; the other seats fail the work | Refunded; no penalty to the seller |
+| `attack.seller-crafts-unprovable-delivery` | The seller's delivery makes an honest proof fail; the primary rejects; the seller appeals; the panel splits | Refunded stands (D27c); the seller forfeits its bond 100 and fee 25; no penalty |
+| `attack.proof-ground-honest-accept-judge-noise` | Twin of `honest-seller-survives-judge-noise-on-appeal`, with no root posted | Released stands: buyer 7,950 plus P, seller 2,000; the primary pays P from its junior tranche and nothing more |
+| `attack.proof-replay-across-deals` | A bundle from another deal | Rejected: the bundle binds the commitment ID, role, attempt and record hash, and the nonces derive from the seed |
 | `attack.prover-stalls-settlement` | The primary withholds its decision "until the proof is ready" past `judgeBy` | The fallback decides; proving never extends a deadline |
 | `attack.attested-seat-reroll` | A sampled `enclave` seat called twice; the second reply is recorded | Refused by the deterministic-decoding rule, or caught as a duplicate `inputHash` |
 | `attack.minattested-pins-the-panel` | `minAttestedSeats` equals the number of attested entries | The adjudicator declines the policy at acceptance |
@@ -160,8 +164,8 @@
 | `attack.tuner-reads-injected-failure-case` | A delivery tells the proposer to add a trigger phrase to the template | The loop's inputs hold no deliverable text; the approver's diff review rejects the trigger |
 | `attack.tuner-multi-candidate-selection` | 100 candidates at a true 3% false accept against one 150-case set | Rejected: the gate runs once, on a fresh set |
 | `attack.appeal-poisoning-invariance` | The loop runs twice with different appeal data and the same calibration | Identical candidates |
-| `error.coverage-exceeded-by-proof-cost` | The decider has bond for the price but not the price plus P | Acceptance refused |
-| `error.proof-window-out-of-range` | `proofWindowSec` 0 with `minAttestedSeats` 1 | Refused as self-contradictory (D31) |
+| `error.coverage-exceeded-by-proof-cost` | The decider's unencumbered junior tranche is below P | Acceptance refused |
+| `error.proof-window-shorter-than-prover-latency` | `proofWindowSec` 1 with a large P | The adjudicator declines at acceptance (D29); the operator warned at prepare; nothing held |
 
 ## Sources
 
