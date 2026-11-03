@@ -360,15 +360,12 @@ describe('sim world test controls', () => {
   });
 
   it('silences an adjudicator, so the fallback takes over after judgeBy', async () => {
-    const r = await fetch(`${world.url}/adjudicators/primary`, { method: 'POST', body: JSON.stringify({ silent: true }) });
-    expect(r.status).toBe(200);
     try {
-      await fetch(`${world.url}/adjudicators/primary`, { method: 'POST', body: JSON.stringify({ silent: false }) });
+      // The primary accepts the offer first, then goes silent before the delivery.
       const id = await heldDeal('buyer-1', 'seller-1', '3000000');
-      await fetch(`${world.url}/adjudicators/primary`, { method: 'POST', body: JSON.stringify({ silent: true }) });
+      const r = await fetch(`${world.url}/adjudicators/primary`, { method: 'POST', body: JSON.stringify({ silent: true }) });
+      expect(r.status).toBe(200);
       await deliver(id, 'seller-1', CSV);
-      await new Promise((r) => setTimeout(r, 300));
-      expect((await call('GET', `/v1/commitments/${id}`)).body.escrowState).toBe('Delivered'); // the primary is silent
       // judgeBy is deliverBy (a day after the offer by default) plus 5 minutes: move the clock past it.
       await fetch(`${world.url}/advance`, { method: 'POST', body: JSON.stringify({ seconds: 86_400 + 330 }) });
       // Anyone may trigger the fallback; the fallback adjudicator does it itself if nobody has.

@@ -1,14 +1,16 @@
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { LIVE_ENV, liveRegistry, markerFake } from '@holdback/adjudicator';
 import { main, parseArgs } from './cli.js';
+import { measuredSource } from './source/measured.fixture.js';
 
 let out: string;
 let logs: string[];
 let errs: string[];
-const io = () => ({ outDir: out, log: (s: string) => void logs.push(s), error: (s: string) => void errs.push(s) });
+/** Scripted runs share one memoized SimChain run per beat; `fresh` runs the beats again (the live switch needs it). */
+const io = (fresh = false) => ({ outDir: out, ...(fresh ? {} : { source: measuredSource() }), log: (s: string) => void logs.push(s), error: (s: string) => void errs.push(s) });
 
 beforeEach(() => {
   out = mkdtempSync(join(tmpdir(), 't013-demo-'));
@@ -49,20 +51,18 @@ describe('pnpm demo', () => {
     const seven = readFileSync(join(out, 'beat-7.md'), 'utf8');
     expect(seven).toContain('measured on SimChain');
     for (const b of [1, 2, 3, 4, 5, 6, 7, 10]) expect(readFileSync(join(out, `beat-${b}.md`), 'utf8')).not.toMatch(/stand-in/i);
-    expect(logs.join('\n')).toMatch(/first transcript after \d+ ms/);
-  }, 60_000);
-
-  it('prints the narration to stdout', async () => {
-    await main(['--beat', '7'], io());
+    // The narration goes to stdout too.
     const printed = logs.join('\n');
     expect(printed).toContain('Beat 7');
     expect(printed).toMatch(/op-1/);
-  });
+    expect(printed).toMatch(/first transcript after \d+ ms/);
+  }, 60_000);
 
-  it('--beat 4 writes only beat 4, plus the viewer and closing', async () => {
+  it('--beat 4 creates a missing output directory and writes only beat 4, plus the viewer and closing', async () => {
+    rmSync(out, { recursive: true, force: true });
     expect(await main(['--beat', '4'], io())).toBe(0);
     expect(readdirSync(out).sort()).toEqual(['beat-4.json', 'beat-4.md', 'closing.md', 'index.html']);
-  }, 30_000);
+  });
 
   it('--beat with a beat that has no runner exits 2 and writes nothing', async () => {
     expect(await main(['--beat', '9'], io())).toBe(2);
@@ -87,7 +87,7 @@ describe('pnpm demo', () => {
   it('--live with the keys runs the beats with the live registry, labelled live, with model IDs', async () => {
     // markerFake stands in for the models (no network); the CLI treats it as the live provider.
     const env = Object.fromEntries(LIVE_ENV.map((v) => [v, v.endsWith('URL') ? 'https://api.example.test' : 'k']));
-    expect(await main(['--live', '--beat', '3'], { ...io(), env, liveProvider: markerFake() })).toBe(0);
+    expect(await main(['--live', '--beat', '3'], { ...io(true), env, liveProvider: markerFake() })).toBe(0);
     const t = JSON.parse(readFileSync(join(out, 'beat-3.json'), 'utf8'));
     expect(t.mode).toBe('live');
     expect(t.source.note).toMatch(/live judges/);
@@ -100,7 +100,7 @@ describe('pnpm demo', () => {
     expect(md).toMatch(/claude-|deepseek-/);
     expect(logs.join('\n')).toMatch(/live judge calls: \d+/i);
     // The switch is off again afterwards: a scripted run is scripted.
-    expect(await main(['--beat', '3'], io())).toBe(0);
+    expect(await main(['--beat', '3'], io(true))).toBe(0);
     expect(JSON.parse(readFileSync(join(out, 'beat-3.json'), 'utf8')).mode).toBe('scripted');
   }, 60_000);
 
@@ -108,12 +108,6 @@ describe('pnpm demo', () => {
     expect(await main(['--fast'], io())).toBe(2);
     expect(errs.join('\n')).toMatch(/usage/i);
   });
-
-  it('creates the output directory when missing', async () => {
-    rmSync(out, { recursive: true, force: true });
-    expect(await main(['--beat', '1'], io())).toBe(0);
-    expect(existsSync(join(out, 'index.html'))).toBe(true);
-  }, 30_000);
 });
 
 describe('secrets', () => {

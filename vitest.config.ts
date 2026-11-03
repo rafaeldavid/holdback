@@ -29,6 +29,7 @@ const COST: Record<string, number> = {
   'tools/sim/check.test.ts': 10, // estimated by the PR 55 review, not yet measured in CI
   'examples/verify.test.ts': 20,
   'examples/early-accept.test.ts': 20, // T-024, measured locally at about 2 s; not yet measured in CI
+  'examples/try.test.ts': 80, // T-037, measured locally at about 8 s (two deals in child processes); not yet measured in CI
   'tests/gen-demo-data.test.ts': 18,
   'packages/settlement/sim/simchain.test.ts': 18,
   'apps/demo/src/transcript/untrusted.test.ts': 13,
@@ -68,5 +69,8 @@ export default defineConfig({
   test: {
     include: ['tests/**/*.test.ts', 'packages/*/src/**/*.test.ts', 'packages/settlement/sim/**/*.test.ts', 'packages/settlement/evm/**/*.test.ts','apps/*/src/**/*.test.ts', 'apps/demo/agents/**/*.test.ts', 'examples/*.test.ts', 'tools/sim/*.test.ts'],
     sequence: { sequencer: BalancedSequencer },
+    // Whole-flow tests (demo beats, judged deals) take a few seconds alone and more under a full parallel
+    // run; the 5 s default timed them out locally. Tests that need longer still set their own (T-035).
+    testTimeout: 30_000,
   },
 });

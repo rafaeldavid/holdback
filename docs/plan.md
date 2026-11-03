@@ -53,7 +53,7 @@ Scope after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-inte
 
 **Exit:**
 - Demo success criteria met (`docs/demo.md`). *Met, with one criterion partly met and moved to T-016b (2026-11-01).*
-- Scenarios pass in CI. *Met: the 31 scenarios plus `_example` pass on main.*
+- Scenarios pass in CI. *Met: the 27 scenarios plus `_example` pass on main (2026-11-03).*
 - Hold p95 ≤ 250 ms on SimChain (measured). *Met: 8.27 ms per hold over 1,000 holds (T-006).*
 - Rafa has walked through the demo. *Met: Rafa walked through it on 2026-11-01 with a guided walkthrough (a local report, not in git). Phase 1 is done.*
 
@@ -77,6 +77,7 @@ Goal: the same scenario fixtures pass against an EVM contract on a local chain. 
 - [ ] T-034 Faster CI and local verify (`docs/reviews/2026-11-02-dev-velocity.md`): cache the contracts build, job-level path filters with `check` and `gitleaks` still reporting, TLC only when the model changes, `pnpm verify --affected`, done derived from merges.
 - [ ] T-035 Fix the anvil gas-per-deal receipt stall at its root; sane test timeouts.
 - [ ] T-036 Coordinator commands: `/merge-pr`, `/start-task`, `/deploy-demo`, `/deploy-site`, `/review-pr`, `/record-decision`, `/daily-log`, a session brief and two hooks.
+- [x] T-037 (PR 114) One-approval test deal: the homepage prompt in a vanilla Claude Code asks for one approval, then a deal runs end to end. `examples/try.ts` plays both sides against the live demo with the HTTP-only agent; `site/build.mjs` bundles it to `https://escrow.stream/try.mjs`; one pinned, sha256-checked command heads `llms.txt` "Try it" and shows on the homepage.
 - [x] T-038 Public docs cleanup: README leads with ’crow, Apache-2.0 license, statuses and fixture indexes match the repo, no personal details (PR 110).
 - [x] T-209 (PR 77) Beacon verification in `HoldbackRules` (BLS check of the drand value for fallback and appeal panel seeds, ADR-0018), split out of T-202. ADR-0025's schema follow-up (EVM funding signature and token identifiers) moved to T-033.
 - [ ] T-208 Exploration: a single-use Prividium fragment per escrow, assets kept in the L1 escrow; must answer D4's 2026-10-31 objections (no fragment operator can block settlement or read the deal). Research pass done (PRs 79, 81, 82; `docs/research/prividium-fragment.md`, which also holds the original proposal): recommends parking it, pending Rafa. No task file yet.
@@ -135,14 +136,14 @@ Goal: not scheduled (Rafa, 2026-11-02); each item needs a research pass and an A
 
 ## Scenario index
 
-Status (2026-11-03, measured against `fixtures/scenarios/` and `pnpm snap`): **exists** is a fixture file that passes; **todo** is a `todo.` fixture that records a known gap and passes as a todo; **planned** has no file yet. The 31 fixtures on disk are 25 that exist plus 6 todo. Fixtures run on SimChain; Phase 2 also runs them on the contract (below).
+Status (2026-11-03, measured against `fixtures/scenarios/` and `pnpm snap`): **exists** is a fixture file that passes; **todo** is a `todo.` fixture that records a known gap and passes as a todo; **planned** has no file yet. The 27 fixtures on disk are 26 that exist plus 1 todo. Fixtures run on SimChain; Phase 2 also runs them on the contract (below).
 
 | Fixture | Beat | Phase | Status |
 | --- | --- | --- | --- |
 | `happy-path` | 1–4 | 1 | exists |
 | `bad-work-row-drop` | 5 | 1 | exists |
-| `todo.bad-work-panel-reject` | 5 | 1 | todo (needs real data; becomes `bad-work-panel-reject`) |
-| `todo.attack.injection-plain` | 6 | 1 | todo (needs real data; becomes `attack.injection-plain`) |
+| `bad-work-panel-reject` | 5 | 1 | planned (needs real data) |
+| `attack.injection-plain` | 6 | 1 | planned (needs real data) |
 | `attack.injection-encoded-base64` | 6 | 1 | exists |
 | `attack.injection-encoded-unicode-tags` | 6 | 1 | exists |
 | `attack.injection-filter-abstain-appeal-default` | 6 | 1 | exists |
@@ -163,8 +164,6 @@ Status (2026-11-03, measured against `fixtures/scenarios/` and `pnpm snap`): **e
 | `neutrality.maintainers-change-registry` | 3 | 1 | planned (T-016b: real registry and policy hashes) |
 | `attack.adjudicator-self-dealing` | 8 | 1 | exists |
 | `appeal-bad-key-release` | 8 | 1 | planned (T-016b) |
-| `todo.adjudicator-leaks-plaintext` | — | records residual 6 | todo |
-| `todo.principal-no-recourse` | — | records residual 12 | todo |
 | `neutrality.club-revokes-mid-flight` | 7 | 1 | planned (needs run-time revocation; SimChain reads members from genesis) |
 | `neutrality.buyer-silent` | 7 | 1 | exists |
 | `neutrality.seller-withholds-delivery` | 2 | 1 | exists (the planned `reclaim-no-delivery`) |
@@ -181,7 +180,7 @@ Status (2026-11-03, measured against `fixtures/scenarios/` and `pnpm snap`): **e
 | `error.invalid-signature` | 1 | 1 | exists |
 | `error.idempotency-conflict` | 1 | 1 | planned (T-016b; covered today by `apps/operator` idempotency tests) |
 | `error.concurrent-overdraft` | 1 | 1 | exists |
-| `todo.submission-limit` | 5 | 1 | todo (becomes `error.submission-limit`) |
+| `error.submission-limit` | 5 | 1 | exists |
 | `error.coverage-exceeded` | 7 | 1 | exists |
 | `error.early-accept-wrong-key-envelope` | — | 1 | exists |
 | `error.unpinned-model-refused` | 3 | 1 | planned (T-016b; covered today by registry loader tests) |

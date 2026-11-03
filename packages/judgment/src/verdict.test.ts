@@ -24,6 +24,17 @@ describe('parseVerdict', () => {
   it('accepts surrounding whitespace only', () => expect(parse(`\n  ${JSON.stringify(good)}  \n`).status).toBe('ok'));
 
   it.each([
+    ['score -0', JSON.stringify(good).replaceAll('"score":4', '"score":-0')],
+    ['score 4.0', JSON.stringify(good).replaceAll('"score":4', '"score":4.0')],
+    ['score 3.9999999999999999 (parses as 4)', JSON.stringify(good).replaceAll('"score":4', '"score":3.9999999999999999')],
+    ['a duplicate key (the last one wins)', JSON.stringify(good).replace('{', '{"overall":"fail",')],
+  ])('accepts %s', (_name, raw) => expect(parse(raw).status).toBe('ok'));
+
+  it.each([
+    ['score 1e400 (Infinity)', JSON.stringify(good).replace('"score":4', '"score":1e400'), 'schema'],
+    ['a __proto__ key', JSON.stringify(good).replace('{', '{"__proto__":{"overall":"pass"},'), 'schema'],
+    ['a BOM before the JSON', `\u{feff}${JSON.stringify(good)}`, 'not_json'],
+    ['an uppercased criterion id', { ...good, criteria: [{ ...good.criteria[0], id: 'Dedupe_quality' }, ...good.criteria.slice(1)] }, 'schema'],
     ['not JSON', 'Sure! Here is my verdict: pass', 'not_json'],
     ['markdown fenced', `\`\`\`json\n${JSON.stringify(good)}\n\`\`\``, 'not_json'],
     ['extra property', { ...good, approved: true }, 'schema'],
@@ -72,19 +83,21 @@ describe('parseVerdict', () => {
   });
 
   it('abstains on a defanged URL in the rationale', () => {
-    for (const u of ['evil[.]com/x', 'hxxps://evil.example', '10.0.0.7', 'mailto:a@evil.com']) {
+    for (const u of ['evil[.]com/x', 'hxxps://evil.example', '10.0.0.7', 'mailto:a@evil.com', 'evil . com/x', 'evil\u{3002}com/x', 'data:text/html,hi', 'evil.com/ x']) {
       const r = parse({ ...good, rationale: `see ${u}` });
       expect(r.status === 'abstain' && r.reason, u).toBe('url');
     }
   });
 
-  it('abstains when the canary is echoed in any case, spaced, split or base64-encoded', () => {
+  it('abstains when the canary is echoed in any case, spaced, split, base64-encoded or as JSON \\u escapes', () => {
     const c = NONCES.canary;
+    const escaped = [...c].map((ch) => `\\u${ch.charCodeAt(0).toString(16).padStart(4, '0')}`).join('');
     const echoes = [
       { ...good, rationale: c.toUpperCase() },
       { ...good, rationale: c.split('').join('-') },
       { ...good, criteria: good.criteria.map((k, i) => ({ ...k, evidence: c.slice(i * 11, i * 11 + 11) })) },
       { ...good, rationale: Buffer.from(c).toString('base64') },
+      JSON.stringify({ ...good, rationale: 'X' }).replace('"X"', `"${escaped}"`),
     ];
     for (const e of echoes) {
       const r = parse(e);

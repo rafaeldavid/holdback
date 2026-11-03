@@ -54,7 +54,7 @@ The scenario index's neutrality.provider-outage row, recorded as a known gap. Th
 ## Receipts and log
 
 - Events 0–7. Chain head 0x7fd9…4b60. Replay of 6 SimChain submissions from genesis matches the settlement state.
-- Receipts from op-1: 5 (rcpt-0001–rcpt-0005). Stub receipts are unsigned until T-007.
+- Receipts from op-1: 5 (rcpt-0001–rcpt-0005). The runner labels them without signing; the operator API signs real receipts.
 
 ## Invariants
 

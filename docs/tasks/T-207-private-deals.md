@@ -72,6 +72,7 @@ Stage 2a (off-chain), merged with main at 1044b00.
 - **Measured:** `pnpm vitest run packages/core`: all pass (822), including `private.test.ts` (12). It shows the same commitment ID and signature for the plaintext and sealed forms; no canary in the sealed form; the buyer and primary open it and an outsider cannot; the acceptance key does not open the deliverable; AAD stops swapped parts and other IDs; a wrong hash is refused; the projection carries no body, club, buyer key or ciphertext; the ReadToken audience is bound (another audience fails verification); Delegation and KeyRegistration verify.
 - **Measured:** `pnpm vitest run apps/operator/src/read-auth.test.ts`: 6/6. Anonymous without a header. Buyer, seller and primary admitted; an outsider refused; fallback refused until FallbackJudging. `error.read-token-audience`: a token for op A is refused at op B. `error.read-token-expired`, a token for another commitment, a forged signature and a malformed header are all refused.
 - **Not covered here:** judgment-record privacy. The canaries never reached an adjudicator's reasons because no adjudicator judged a private deal (early accept); records stay plaintext at the adjudicator until the adjudicator slice. The operator only gates `/judgment` behind a token.
+- **Not covered here:** operator logs (the acceptance criterion on `attack.operator-reads-private-deal`). `examples/private.test.ts` scans the operators' in-memory state and the SimChain log only; its `logs` array was always empty, and PR 113 dropped it.
 
 ## Decisions
 

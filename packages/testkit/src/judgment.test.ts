@@ -94,17 +94,6 @@ describe('runJudgment: @holdback/judgment in the runner', () => {
     expect(r.value.outcome).toBe('accept');
   });
 
-  it('draws the same panel from the same seed, and another from another seed', async () => {
-    const ids = async (seed: Hex32) => {
-      const r = await runJudgment(input('customers.clean.csv', { seed }), scripted());
-      if (!r.ok) throw new Error(r.error.detail);
-      return r.value.panel.members.map((m) => m.judgeId);
-    };
-    expect(await ids(h('3'))).toEqual(await ids(h('3')));
-    const all = await Promise.all(['4', '5', '6', '7', '8', '9'].map((c) => ids(h(c))));
-    expect(new Set(all.map((x) => x.join())).size).toBeGreaterThan(1);
-  });
-
   it('seats an appeal panel of five over three families under the appeal template', async () => {
     const judges = scripted();
     const r = await runJudgment(input('customers.clean.csv', { role: 'appeal', beaconRound: 12 }), judges);

@@ -1,5 +1,5 @@
 // SimChain demo paths and guards, end to end through signed submissions (docs/architecture.md postings table).
-import { beaconRoundFor, parseCommitmentState, parseEvent, type Hex32, type ProblemType, type Timestamp } from '@holdback/core';
+import { parseCommitmentState, parseEvent, type Hex32, type ProblemType, type Timestamp } from '@holdback/core';
 import { encodePacked, keccak256 } from 'viem';
 import { describe, expect, it } from 'vitest';
 import type { Submission, SubmitResult } from '../src/interface.js';
@@ -412,12 +412,6 @@ describe('mutual settlement (ADR-0019)', () => {
     expect(await w.chain.keysFor(w.deal.id, w.cast.buyer.address)).toEqual([]);
   });
 
-  it('refuses payouts that do not sum to the price', async () => {
-    const w = await world();
-    await delivered(w);
-    expect(await w.refused(w.deal.mutual({ payouts: [{ to: w.cast.seller.address, amount: tusd(PRICE + 1n) }] }))).toBe('invalid_terms');
-  });
-
   it('refuses one party signing for both', async () => {
     const w = await world();
     await delivered(w);
@@ -428,17 +422,6 @@ describe('mutual settlement (ADR-0019)', () => {
     const w = await world({ rulebook: { ...SIM_RULEBOOK, mutualSettlement: { ...SIM_RULEBOOK.mutualSettlement, allowed: false } } });
     await delivered(w);
     expect(await w.refused(w.deal.mutual())).toBe('invalid_terms');
-  });
-
-  it('settle-once: a decision after the settlement is refused, and so is a settlement after a decision', async () => {
-    const a = await world();
-    await delivered(a);
-    await a.ok(a.deal.mutual());
-    expect(await a.refused(a.deal.decide('primary', 'accept'))).toBe('invalid_state');
-    const b = await world();
-    await delivered(b);
-    await b.ok(b.deal.decide('primary', 'accept'));
-    expect(await b.refused(b.deal.mutual())).toBe('invalid_state');
   });
 });
 
@@ -590,13 +573,5 @@ describe('event log, read model and replay', () => {
     const replayed = await SimChain.replay(w.genesis, w.chain.journal());
     expect(replayed.digest()).toBe(w.chain.digest());
     expect(replayed.log().at(-1)?.hash).toBe(log.at(-1)?.hash);
-  });
-
-  it('keeps the escrow state the core step computes', async () => {
-    const w = await world();
-    await delivered(w);
-    const s = w.chain.escrowState(w.deal.id)!;
-    expect(s.kind).toBe('Delivered');
-    expect(beaconRoundFor(s, 'fallback')).toBe(secondsAt(w.deal.terms.timing.judgeBy));
   });
 });

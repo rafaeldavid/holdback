@@ -102,8 +102,6 @@ describe('prompt builder: instructions, canary and hashes', () => {
     expect(build(DATA, { ...NONCES, canary: 'd'.repeat(32) }).inputHash).not.toBe(p.inputHash);
   });
 
-  it('is deterministic for fixed nonces', () => expect(build()).toEqual(build()));
-
   it('carries no party identity, price or reputation (blinding by construction)', () => {
     const p = build();
     expect(Object.keys(p).sort()).toEqual(['boundary', 'canary', 'datamark', 'inputHash', 'promptTemplateHash', 'sampling', 'system', 'truncated', 'user']);

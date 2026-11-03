@@ -113,7 +113,7 @@ async function held(over: J = {}): Promise<{ id: Hex; terms: J }> {
   return offer;
 }
 
-describe('neutrality.operator-lies-in-prepare', { timeout: 30_000 }, () => {
+describe('neutrality.operator-lies-in-prepare', () => {
   it('offer: signs the honest one, refuses every edited copy', async () => {
     const req = request();
     const honestOffer = await seller.call('POST', '/v1/prepare/offer', req);
@@ -296,7 +296,7 @@ describe('neutrality.operator-lies-in-prepare', { timeout: 30_000 }, () => {
 
 // ADR-0023: the buyer computes the operator fee itself from the schedule both operators publish, signs the third
 // slot only for that amount, and refuses a fee above the schedule or to another address.
-describe('operator fee: the agent checks the fee slot against the published schedule', { timeout: 30_000 }, () => {
+describe('operator fee: the agent checks the fee slot against the published schedule', () => {
   let feeWorld: SimWorld;
   const accountIn = async (w: SimWorld) => {
     const a = (await (await fetch(`${w.url}/accounts`, { method: 'POST' })).json()) as J;
