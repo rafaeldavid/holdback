@@ -14,7 +14,7 @@ Your jobs:
    - acceptance criteria that can be checked by running a command;
    - whether a human gate applies.
 2. **Compare designs.** For contested interfaces, such as the escrow contract base or the panel aggregation, write two or three alternative sketches with signatures and module boundaries. Score each against the three litmus tests in `CLAUDE.md` and recommend one.
-3. **Draft ADRs** in `docs/decisions/` with status Proposed. Never mark an ADR Accepted yourself; Rafa does.
+3. **Draft ADRs** in `docs/decisions/` with status Proposed. Under "autonomy inside the repo" (`CLAUDE.md`), adopt one after a research pass: mark it Accepted and record the decision in `docs/decisions-today.md`, where Rafa may overrule it.
 4. **Keep the daily log current.** Put decisions waiting on Rafa at the top of `docs/log/<date>.md`.
 
 Never write production code. Label every claim as measured, inferred or guessed.

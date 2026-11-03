@@ -1,6 +1,8 @@
 # Brand and messaging
 
-Working drafts for how Holdback looks and talks. Nothing here is final, and nothing here is published.
+> **Status (2026-11-03).** The product is ’crow, "Programmatic Escrow and Arbitration", live at https://escrow.stream. Its mark is Archibald Thorburn's 1919 hooded crow (public domain). The mule (`mascot.md`, `mule.svg`) and the comparison in `explorations.md` predate that choice and are kept as history. Holdback is the protocol's working name and its EIP-712 domain.
+
+Drafts for how ’crow looks and talks. The published copy is `site/llms.txt` and `site/index.html`.
 
 | File | What it holds |
 | --- | --- |

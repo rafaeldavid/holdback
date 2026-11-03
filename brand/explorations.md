@@ -1,5 +1,7 @@
 # Mascot explorations: mule, donkey, crow
 
+> **Status (2026-11-03): decided.** The crow was chosen: the product is ’crow, at escrow.stream (`brand/README.md`). This comparison is kept as history.
+
 Draft, 2026-10-31. Rafa asked to explore a donkey, and a crow tied to the word escrow ("yscrow"). The mule (`mascot.md`) is the current pick; this file compares the three.
 
 ## At a glance

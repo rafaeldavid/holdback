@@ -1,5 +1,7 @@
 # The mule
 
+> **Status (2026-11-03): superseded.** The brand is ’crow, with Thorburn's 1919 hooded crow as its mark (`brand/README.md`). This file is kept as history.
+
 Rafa's choice (2026-10-31): the mascot is a mule, as in *carries the load*.
 
 ## Why a mule fits
