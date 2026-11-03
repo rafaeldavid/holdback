@@ -55,7 +55,7 @@ export function decisions() {
   const result = [];
   for (let i = 1; i < parts.length; i += 3) {
     const [id, heading, body] = [parts[i], parts[i + 1], parts[i + 2]];
-    const decided = body.match(/\*\*Decided [^*]*:\*\*\s*(.+)/);
+    const decided = body.match(/\*\*Decided [^*]*\*\*\s*(.+)/);
     const open = body.match(/\*\*Open\.\*\*\s*(.+)/);
     const adr = heading.match(/ADR-\d{4}/g) ?? [];
     let status = 'open';
