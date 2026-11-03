@@ -7,7 +7,9 @@
 
 # GitHub: a fine-grained personal access token for ONE repository.
 # github.com/settings/personal-access-tokens/new → Resource owner: rafaeldavid → Only select repositories: holdback
-# Repository permissions: Contents read/write, Pull requests read/write, Actions read, Workflows read/write, Metadata read.
+# Repository permissions: Contents read/write, Pull requests read/write, Actions read, Metadata read.
+# No Workflows permission: with it, a branch push could add a workflow that posts required checks as passing.
+# This token acts as you. docs/tasks/T-039-isolated-dev-environment.md describes the agents' own GitHub Apps.
 # Expiry: 90 days. The gh CLI and git read GH_TOKEN.
 GH_TOKEN=
 

@@ -20,12 +20,15 @@ export function tusd(whole: string | bigint): TokenAmount {
   return { token: 'tUSD', amount: base.toString() } as TokenAmount;
 }
 
-/** "25,000 tUSD", "0.5 tUSD": base units as whole tUSD with thousands separators. Integer arithmetic only. */
-export function formatTusd(base: bigint | string): string {
+/**
+ * "25,000 tUSD", "0.5 tUSD": base units as whole tUSD with thousands separators. Integer arithmetic only. Another
+ * 6-decimal token reads the same with its own symbol ("4.71 tUSDC").
+ */
+export function formatTusd(base: bigint | string, symbol = 'tUSD'): string {
   const v = BigInt(base);
   const sign = v < 0n ? '-' : '';
   const abs = v < 0n ? -v : v;
   const whole = (abs / TUSD).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   const frac = abs % TUSD;
-  return `${sign}${whole}${frac === 0n ? '' : `.${frac.toString().padStart(TUSD_DECIMALS, '0').replace(/0+$/, '')}`} tUSD`;
+  return `${sign}${whole}${frac === 0n ? '' : `.${frac.toString().padStart(TUSD_DECIMALS, '0').replace(/0+$/, '')}`} ${symbol}`;
 }

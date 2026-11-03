@@ -82,10 +82,16 @@ for (const [, url] of html.matchAll(/(?:href|src)="([^"]*)"/g)) {
 }
 
 // 4. Content.
-const { TYPES, SIMCHAIN_DOMAIN } = await import(here('../examples/verify.ts'));
+const { TYPES, ERC3009_TYPES, knownPins } = await import(here('../examples/verify.ts'));
+// The page settles on Sepolia (D41): its domain and deployment are the Sepolia pin the examples sign for.
+const sepolia = knownPins().find((p) => p.domain.chainId === 11155111);
+expect(sepolia !== undefined, 'examples/deployments.ts pins no Sepolia deployment');
+const deployment = Object.fromEntries(Object.entries(sepolia?.chain ?? {}).filter(([k]) => k !== 'explorer'));
 const types = jsonBlock(md, '## EIP-712 types');
 expect(JSON.stringify(Object.fromEntries(Object.keys(types).map((k) => [k, TYPES[k]]))) === JSON.stringify(types), 'the EIP-712 types differ from examples/verify.ts');
-expect(JSON.stringify(jsonBlock(md, 'Pin this EIP-712 domain')) === JSON.stringify(SIMCHAIN_DOMAIN), 'the pinned domain differs from examples/verify.ts');
+expect(JSON.stringify(jsonBlock(md, 'Pin this EIP-712 domain')) === JSON.stringify(sepolia?.domain), 'the pinned domain differs from the Sepolia pin in examples/verify.ts');
+expect(JSON.stringify(jsonBlock(md, 'Pin this deployment too')) === JSON.stringify(deployment), 'the pinned deployment differs from the Sepolia pin in examples/verify.ts');
+expect(JSON.stringify(jsonBlock(md, "USDC's ERC-3009 types")) === JSON.stringify(ERC3009_TYPES), 'the ERC-3009 types differ from examples/verify.ts');
 const vectors = (src) => [...src.slice(src.indexOf('| recipient secret key')).matchAll(/^\| ([^|]+) \| (.+) \|$/gm)].slice(0, 11).map((m) => `${m[1].trim()}=${m[2].trim()}`);
 expect(vectors(md).length === 11 && JSON.stringify(vectors(md)) === JSON.stringify(vectors(apiMd)), 'the envelope test vectors differ from docs/api.md');
 expect(JSON.stringify(jsonBlock(md, '## Writing checks that protect a buyer')) === JSON.stringify(jsonBlock(apiMd, 'A worked example for a customer list')), 'the worked checks example differs from docs/api.md');

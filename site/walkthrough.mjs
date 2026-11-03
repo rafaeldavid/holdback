@@ -1,18 +1,18 @@
 // Runs one checks-only deal by following site/llms.txt literally, with no Holdback code: plain fetch, viem and
-// tweetnacl, its own EIP-712 types (parsed from llms.txt itself) and its own message builders. If the docs are
-// wrong about a field, an encoding or a shape, this fails where they are wrong.
+// tweetnacl, its own EIP-712 types, domain and deployment (parsed from llms.txt itself) and its own message builders,
+// the ERC-3009 funding and operator fee included. If the docs are wrong about a field, an encoding or a shape, this
+// fails where they are wrong.
 //
-//   node site/walkthrough.mjs                    in-process sim (apps/operator, built); POST <sim>/accounts stands
-//                                                in for the faucet, since a local sim has none
 //   OP1=https://… OP2=https://… node site/walkthrough.mjs
-//                                                the deployed demo: fresh keys, funded by POST /v1/faucet
 //
-// Exits 0 with a one-line summary per step, or 1 at the first difference.
+// The page pins Sepolia (D41), so the operators must settle there: the deployed demo, or a world on a Sepolia fork
+// (apps/demo-cloud/src/live.test.ts runs it so). Fresh keys, funded by POST /v1/faucet. Exits 0 with a one-line
+// summary per step, or 1 at the first difference.
 import { readFileSync } from 'node:fs';
 import { createHash, randomBytes, randomUUID, webcrypto } from 'node:crypto';
 
 const here = (p) => new URL(p, import.meta.url);
-const { hashStruct, hashTypedData, keccak256, toBytes } = await import(here('../examples/node_modules/viem/_esm/index.js'));
+const { encodeAbiParameters, hashStruct, hashTypedData, keccak256, parseAbiParameters, toBytes } = await import(here('../examples/node_modules/viem/_esm/index.js'));
 const { generatePrivateKey, privateKeyToAccount } = await import(here('../examples/node_modules/viem/_esm/accounts/index.js'));
 const nacl = (await import(here('../examples/node_modules/tweetnacl/nacl-fast.js'))).default;
 
@@ -24,6 +24,8 @@ const block = (after) => {
 };
 const TYPES = block('## EIP-712 types');
 const DOMAIN = block('Pin this EIP-712 domain');
+const DEPLOYMENT = block('Pin this deployment too');
+const ERC3009_TYPES = block("USDC's ERC-3009 types");
 
 const log = (s) => console.log(`ok  ${s}`);
 const fail = (s) => {
@@ -39,12 +41,11 @@ const secs = (iso) => Date.parse(iso) / 1000;
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // The operators
-let OP1 = process.env.OP1, OP2 = process.env.OP2, world = null, simUrl = null, api = '';
+const { OP1, OP2 } = process.env;
+let api = '';
 if (!OP1 || !OP2) {
-  const { startSimWorld } = await import(here('../apps/operator/dist/sim-world.js'));
-  world = await startSimWorld({ port: 0, operatorPorts: [0, 0], publishSecrets: false, onError: () => {} });
-  [OP1, OP2] = world.operators.map((o) => o.url);
-  simUrl = world.url;
+  console.error('walkthrough: set OP1 and OP2 to two operators that settle where llms.txt pins (Sepolia)');
+  process.exit(1);
 }
 const call = async (method, url, body, headers = {}) => {
   const isBytes = body instanceof Uint8Array;
@@ -66,13 +67,7 @@ const both = async (path) => {
 
 try {
   // 1. Keys
-  const party = async (label) => {
-    if (simUrl) {
-      const a = await call('POST', `${simUrl}/accounts`);
-      return { label, account: privateKeyToAccount(a.privateKey), enc: nacl.box.keyPair.fromSecretKey(Buffer.from(a.encryptionSecretKey, 'base64url')) };
-    }
-    return { label, account: privateKeyToAccount(generatePrivateKey()), enc: nacl.box.keyPair() };
-  };
+  const party = async (label) => ({ label, account: privateKeyToAccount(generatePrivateKey()), enc: nacl.box.keyPair() });
   const seller = await party('seller'), buyer = await party('buyer');
   for (const p of [seller, buyer]) {
     p.address = p.account.address.toLowerCase();
@@ -86,25 +81,24 @@ try {
   for (const k of ['apiBaseUrl', 'domain', 'receiptSigner', 'settlementTime']) if (!(k in wk)) fail(`well-known has no ${k}`);
   same(wk.domain, DOMAIN, 'the pinned domain');
   api = wk.apiBaseUrl.replace(/\/+$/, '');
+  // The token is named by its address: discovery's demo.token.id, the token of the pinned deployment.
+  const token = wk.demo?.token?.id;
+  if (token !== DEPLOYMENT.tokenDomain.verifyingContract || wk.demo.token.decimals !== 6) fail(`demo.token ${JSON.stringify(wk.demo?.token)} is not the pinned token`);
   let clubId;
-  if (simUrl) {
-    clubId = (await call('GET', `${simUrl}/`)).clubId;
-  } else {
-    for (const p of [seller, buyer]) {
-      const f = await write('/v1/faucet', { address: p.address });
-      if (!f.clubId || !f.balance?.amount) fail(`faucet response ${JSON.stringify(f)} has no clubId or balance`);
-      clubId = f.clubId;
-    }
+  for (const p of [seller, buyer]) {
+    const f = await write('/v1/faucet', { address: p.address });
+    if (!f.clubId || f.granted?.token !== token || !f.balance?.amount) fail(`faucet response ${JSON.stringify(f)} has no clubId, grant or balance`);
+    clubId = f.clubId;
   }
   const bal = await call('GET', `${api}/v1/balances/${buyer.address}`);
-  if (bal.token !== 'tUSD' || !/^[0-9]+$/.test(bal.amount) || bal.amount === '0') fail(`balance ${JSON.stringify(bal)}`);
+  if (bal.token !== token || !/^[0-9]+$/.test(bal.amount) || bal.amount === '0') fail(`balance ${JSON.stringify(bal)}`);
   const listed = await call('GET', `${api}/v1/adjudicators`);
   if (!Array.isArray(listed.items) || !listed.items.length) fail('GET /v1/adjudicators lists no items');
-  // The deployed demo lists them by role in discovery's demo object; a local sim in its own GET /.
-  const byRole = simUrl ? (await call('GET', `${simUrl}/`)).adjudicators : (await call('GET', `${OP1}/.well-known/holdback.json`)).demo?.adjudicators ?? [];
+  // Discovery's demo object lists them by role.
+  const byRole = wk.demo?.adjudicators ?? [];
   const adjAddresses = ['primary', 'fallback', 'appeal'].map((role) => byRole.find((a) => a.role === role)?.address.toLowerCase() ?? fail(`discovery lists no ${role} adjudicator`));
   for (const a of adjAddresses) if (!listed.items.some((x) => x.address.toLowerCase() === a)) fail(`adjudicator ${a} is not in GET /v1/adjudicators`);
-  log(`2 discovery: domain pinned, club ${clubId}, buyer holds ${bal.amount} tUSD base units, ${listed.items.length} adjudicator(s) listed`);
+  log(`2 discovery: domain and token pinned, club ${clubId}, buyer holds ${bal.amount} base units of ${token}, ${listed.items.length} adjudicator(s) listed`);
 
   // 3. What we bind to
   const settlementNow = async () => {
@@ -124,8 +118,9 @@ try {
   log('3 bound: registrations and rulebook agree on both operators and hash as documented');
 
   // 4. The loop
-  const ints = (type, v) =>
-    type.endsWith('[]') ? v.map((x) => ints(type.slice(0, -2), x)) : TYPES[type] ? Object.fromEntries(TYPES[type].map((f) => [f.name, ints(f.type, v[f.name])])) : /^u?int\d*$/.test(type) ? BigInt(v) : typeof v === 'string' && /^0x[0-9a-fA-F]+$/.test(v) ? v.toLowerCase() : v;
+  // Integers become BigInt; every other value, addresses and hashes included, is compared exactly as served.
+  const ints = (type, v, T = TYPES) =>
+    type.endsWith('[]') ? v.map((x) => ints(type.slice(0, -2), x, T)) : T[type] ? Object.fromEntries(T[type].map((f) => [f.name, ints(f.type, v[f.name], T)])) : /^u?int\d*$/.test(type) ? BigInt(v) : v;
   const typesFor = (primary) => {
     const out = {}, visit = (t) => {
       const base = t.replace(/\[\]$/, '');
@@ -136,24 +131,29 @@ try {
     visit(primary);
     return out;
   };
-  /** Verify a prepared answer against our own messages; sign our typed data into the body; submit. */
+  /**
+   * Verify a prepared answer against our own messages; sign our typed data into the body; submit. A message signed
+   * under the token's domain (the ERC-3009 funding and fee) names it in `erc3009`.
+   */
   const signAndSubmit = async (prepared, me, mine, now) => {
     if (prepared.sign.length !== mine.length) fail(`expected ${mine.length} slot(s), got ${prepared.sign.length}`);
     const body = structuredClone(prepared.submit.body);
     for (const [i, want] of mine.entries()) {
       const got = prepared.sign[i];
       if (got.slot !== want.slot || got.typedData.primaryType !== want.primaryType || got.signer.toLowerCase() !== me.address) fail(`slot ${i} is ${got.slot}/${got.typedData.primaryType}`);
-      same(got.typedData.domain, DOMAIN, 'the typed-data domain');
+      const domain = want.erc3009 ? DEPLOYMENT.tokenDomain : DOMAIN;
+      const T = want.erc3009 ? { [want.primaryType]: ERC3009_TYPES[want.primaryType] } : TYPES;
+      same(got.typedData.domain, domain, `the ${want.primaryType} domain`);
       const theirTypes = { ...got.typedData.types };
       delete theirTypes.EIP712Domain;
-      same(theirTypes, typesFor(want.primaryType), `the ${want.primaryType} types`);
-      const message = ints(want.primaryType, want.message);
-      same(ints(want.primaryType, got.typedData.message), message, `the ${want.primaryType} message`);
+      same(theirTypes, want.erc3009 ? T : typesFor(want.primaryType), `the ${want.primaryType} types`);
+      const message = ints(want.primaryType, want.message, T);
+      same(ints(want.primaryType, got.typedData.message, T), message, `the ${want.primaryType} message`);
       for (const k of want.near ?? []) {
         const d = Number(message[k]) * 1000 - now;
         if (d < -600_000 || d > 60_000) fail(`${k} is not near settlement time`);
       }
-      const typed = { domain: DOMAIN, types: typesFor(want.primaryType), primaryType: want.primaryType, message };
+      const typed = { domain, types: want.erc3009 ? T : typesFor(want.primaryType), primaryType: want.primaryType, message };
       if (hashTypedData(typed) !== got.digest) fail(`our ${want.primaryType} digest differs from the operator's`);
       const sig = await me.account.signTypedData(typed);
       const keys = want.slot.split('.');
@@ -168,12 +168,12 @@ try {
     { id: 'rows', type: 'row_count_range', required: true, min: 3, max: 3 },
   ];
   const deliverable = { kind: 'dataset', description: 'customers.csv, one row per customer', format: 'text/csv' };
-  const price = { token: 'tUSD', amount: '25000000' };
+  const price = { token, amount: '25000000' };
   const offerNonce = nonce();
-  // The docs' timing (60-second windows, the demo club's minimum); the local sim's club requires 300.
-  const w = simUrl ? 300 : 60;
+  // The docs' timing: 60-second windows, the demo club's minimum.
+  const w = 60;
   const timing = { judgeWithinSec: w, fallbackWithinSec: w, appealWindowSec: w, appealDecideSec: w };
-  if (!simUrl) same(JSON.parse(/^ {2}"timing": (\{.*\})$/m.exec(docs)?.[1] ?? 'null'), timing, 'the timing in the offer example');
+  same(JSON.parse(/^ {2}"timing": (\{.*\})$/m.exec(docs)?.[1] ?? 'null'), timing, 'the timing in the offer example');
   const offerReq = {
     nonce: offerNonce, disclosure: 'public', template: 'checks-only', clubId, seller: seller.address, buyer: { address: buyer.address, encryptionPublicKey: buyer.encPub },
     adjudicators: { primary: adjAddresses[0], fallback: adjAddresses[1], appeal: adjAddresses[2] }, price, deliverable, checks, timing,
@@ -187,7 +187,7 @@ try {
     deliverableHash: jcsHash(deliverable), acceptanceHash: jcsHash({ deterministicChecks: checks, rubric: { criteria: [], passThreshold: 0 } }), price,
     adjudication: { adjudicator: adjAddresses[0], fallbackAdjudicator: adjAddresses[1], appealAdjudicator: adjAddresses[2], policyId: reg.policy.id, fee: reg.fee.min, registryHash: reg.registry.hash, policyHash: reg.policyHash },
     timing: { offerExpiresAt: createdAt + 900, fundBy: createdAt + 1800, deliverBy: createdAt + 86400, judgeBy: createdAt + 86400 + w, fallbackBy: createdAt + 86400 + 2 * w, appealWindowSec: w, appealDecideSec: w, maxSubmissions: 1, disputeBy: 0, disputeJudgeSec: 0, disputeFallbackSec: 0 },
-    settlement: { mode: 'guaranteed_on_decision', token: 'tUSD' }, remedy: { onReject: 'full_refund' }, disclosure: { level: 'public' },
+    settlement: { mode: 'guaranteed_on_decision', token }, remedy: { onReject: 'full_refund' }, disclosure: { level: 'public' },
     buyerEncryptionPublicKey: buyer.encPub, nonce: offerNonce, createdAt,
   };
   const id = hashStruct({ types: TYPES, primaryType: 'CommitmentTerms', data: ints('CommitmentTerms', termsMsg) });
@@ -208,16 +208,37 @@ try {
     data: ints('CommitmentTerms', { ...t, deliverableHash: jcsHash(t.deliverable), acceptanceHash: jcsHash(t.acceptance), createdAt: secs(t.createdAt), timing: { ...Object.fromEntries(['offerExpiresAt', 'fundBy', 'deliverBy', 'judgeBy', 'fallbackBy'].map((k) => [k, secs(t.timing[k])])), appealWindowSec: t.timing.appealWindowSec, appealDecideSec: t.timing.appealDecideSec, maxSubmissions: t.timing.maxSubmissions, disputeBy: 0, disputeJudgeSec: 0, disputeFallbackSec: 0 } }),
   });
   if (recomputed !== id) fail('the commitment ID recomputed from /terms differs');
-  const agreeNonce = nonce(), fundingNonce = nonce();
-  const agree = await call('POST', `${api}/v1/prepare/agree-and-fund`, { commitmentId: id, agreeNonce, fundingNonce });
+  // The operator fee, as section 6 computes it, from both operators' discovery.
+  const fees = await Promise.all([OP1, OP2].map(async (op) => (await call('GET', `${op}/.well-known/holdback.json`)).fees?.operator));
+  same(fees[0], fees[1], 'fees.operator on the two operators');
+  const s = fees[0];
+  if (!s || s.token !== token || s.appliesAt !== 'agree-and-fund' || s.refundable !== false) fail(`fees.operator ${JSON.stringify(s)}`);
+  const byBps = (BigInt(price.amount) * BigInt(s.bps) + 9_999n) / 10_000n;
+  let fee = byBps > BigInt(s.min) ? byBps : BigInt(s.min);
+  if (s.max !== null && fee > BigInt(s.max)) fee = BigInt(s.max);
+  // The two ERC-3009 nonces, as "Encodings" computes them from the terms and the pinned deployment.
   const total = (BigInt(price.amount) + BigInt(t.adjudication.fee.amount)).toString();
+  const expiry = secs(t.timing.fallbackBy) + t.timing.appealDecideSec + DEPLOYMENT.expiryMarginSec;
+  const ZERO = `0x${'0'.repeat(40)}`;
+  const PAYMENT_INFO = keccak256(toBytes('PaymentInfo(address operator,address payer,address receiver,address token,uint120 maxAmount,uint48 preApprovalExpiry,uint48 authorizationExpiry,uint48 refundExpiry,uint16 minFeeBps,uint16 maxFeeBps,address feeReceiver,uint256 salt)'));
+  const inner = keccak256(encodeAbiParameters(parseAbiParameters('bytes32, address, address, address, address, uint120, uint48, uint48, uint48, uint16, uint16, address, uint256'), [PAYMENT_INFO, DEPLOYMENT.rules, ZERO, t.seller, token, BigInt(total), secs(t.timing.fundBy), expiry, expiry, 0, 10_000, ZERO, BigInt(id)]));
+  const fundingNonce = keccak256(encodeAbiParameters(parseAbiParameters('uint256, address, bytes32'), [BigInt(DEPLOYMENT.tokenDomain.chainId), DEPLOYMENT.escrow, inner]));
+  const operatorFeeNonce = keccak256(encodeAbiParameters(parseAbiParameters('bytes32, string'), [id, 'operator_fee']));
+  const agreeNonce = nonce();
+  const agree = await call('POST', `${api}/v1/prepare/agree-and-fund`, { commitmentId: id, agreeNonce, fundingNonce, operatorFeeNonce });
+  const fundBy = secs(t.timing.fundBy);
+  // submit.body carries the same values, with RFC 3339 times and validAfter the epoch.
+  const epoch = '1970-01-01T00:00:00Z';
+  same(agree.submit.body.fund, { type: 'FundingAuthorization', scheme: 'erc3009', commitmentId: id, from: buyer.address, value: total, token, validAfter: epoch, validBefore: t.timing.fundBy, nonce: fundingNonce, expiresAt: t.timing.fundBy, signature: null }, 'submit.body.fund');
+  same(agree.submit.body.operatorFee, { type: 'TransferAuthorization', scheme: 'erc3009', purpose: 'operator_fee', commitmentId: id, from: buyer.address, to: s.to, value: fee.toString(), token, validAfter: epoch, validBefore: t.timing.fundBy, nonce: operatorFeeNonce, expiresAt: t.timing.fundBy, signature: null }, 'submit.body.operatorFee');
   now = await settlementNow();
   const held = await signAndSubmit(agree, buyer, [
     { slot: 'signature', primaryType: 'Agree', message: { commitmentId: id, buyer: buyer.address, nonce: agreeNonce, expiresAt: secs(t.timing.offerExpiresAt) } },
-    { slot: 'fund.signature', primaryType: 'FundingAuthorization', message: { scheme: 'erc3009', commitmentId: id, from: buyer.address, value: total, token: 'tUSD', validAfter: secs(t.createdAt), validBefore: secs(t.timing.fundBy), nonce: fundingNonce, expiresAt: secs(t.timing.fundBy) } },
+    { slot: 'fund.signature', primaryType: 'ReceiveWithAuthorization', erc3009: true, message: { from: buyer.address, to: DEPLOYMENT.collector, value: total, validAfter: 0, validBefore: fundBy, nonce: fundingNonce } },
+    { slot: 'operatorFee.signature', primaryType: 'TransferWithAuthorization', erc3009: true, message: { from: buyer.address, to: s.to, value: fee.toString(), validAfter: 0, validBefore: fundBy, nonce: operatorFeeNonce } },
   ], now);
   if (held.escrowState !== 'Held' || held.hold?.amount?.amount !== total) fail(`agree answered ${JSON.stringify({ s: held.escrowState, h: held.hold })}`);
-  log(`6 agree and fund: /terms agree on both operators, ID recomputed, Agree and FundingAuthorization rebuilt, Held ${total}`);
+  log(`6 agree and fund: /terms agree on both operators, ID recomputed, Agree, ReceiveWithAuthorization and TransferWithAuthorization rebuilt with the nonces from Encodings, fee ${fee}, Held ${total}`);
 
   // 7. Deliver
   const recipients = [...adjAddresses.map((a, i) => ({ address: a, encryptionPublicKey: regs[i].encryptionPublicKey })), { address: buyer.address, encryptionPublicKey: t.buyerEncryptionPublicKey }];
@@ -264,18 +285,17 @@ try {
   const dec = await webcrypto.subtle.importKey('raw', opened, 'AES-GCM', false, ['decrypt']);
   const plain = Buffer.from(await webcrypto.subtle.decrypt({ name: 'AES-GCM', iv: fetched.slice(0, 12) }, dec, fetched.slice(12)));
   if (sha(plain) !== d.plaintextSha256 || !plain.equals(plaintext)) fail('the decrypted work');
-  log(`8 result: Released, finalAt null until ${state.deadlines.appealBy}, judgment accept with panel.ran false, buyer opened the work`);
-  if (!simUrl) {
-    // Live: the commitment turns final on its own once the appeal window closes.
-    const until = Date.parse(state.deadlines.appealBy) + 60_000;
-    while ((state = await call('GET', `${api}/v1/commitments/${id}`)).finalAt === null && Date.now() < until) await wait(5000);
-    if (state.finalAt === null) fail(`not final a minute after appealBy ${state.deadlines.appealBy}`);
-    log(`8 final: finalAt ${state.finalAt}, escrowState ${state.escrowState}`);
-  }
-  console.log(`walkthrough PASS (${simUrl ? 'in-process sim; /accounts stood in for the faucet' : `live ${OP1} and ${OP2}`})`);
+  // Section 8: the events that came from the chain name their transaction.
+  const txs = events.filter((e) => ['hold.funded', 'delivery.submitted', 'settlement.released'].includes(e.type)).map((e) => e.payload?.tx);
+  if (txs.length !== 3 || !txs.every((x) => /^0x[0-9a-f]{64}$/.test(x ?? ''))) fail(`the funding, delivery and release events carry no payload.tx: ${JSON.stringify(txs)}`);
+  log(`8 result: Released, finalAt null until ${state.deadlines.appealBy}, judgment accept with panel.ran false, buyer opened the work, three transactions named`);
+  // The commitment turns final on its own once the appeal window closes.
+  const until = Date.parse(state.deadlines.appealBy) + 60_000;
+  while ((state = await call('GET', `${api}/v1/commitments/${id}`)).finalAt === null && Date.now() < until) await wait(5000);
+  if (state.finalAt === null) fail(`not final a minute after appealBy ${state.deadlines.appealBy}`);
+  log(`8 final: finalAt ${state.finalAt}, escrowState ${state.escrowState}`);
+  console.log(`walkthrough PASS (${OP1} and ${OP2})`);
 } catch (e) {
   console.error(`walkthrough FAIL: ${e.message}`);
   process.exitCode = 1;
-} finally {
-  await world?.close();
 }
