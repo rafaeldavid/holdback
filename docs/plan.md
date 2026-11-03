@@ -92,6 +92,7 @@ Goal: judgment metrics measured against the PRD targets. Defenses complete.
 - T-305 Registry promotion workflow and registry log; regression on model-ID change.
 - T-306 Fee quotes from measured error rates; quote endpoint.
 - T-307 Live demo mode (`pnpm demo --live`) with two or three model families.
+- Later, not yet a task (Rafa, 2026-11-03): the adjudicator reports its whole judgment end to end (each check, each judge's full reasoning, the aggregation), with verifiable inference showing the pinned models produced it; and it tunes its judgment parameters from measured outcomes, released only as new registry versions. Details and limits in `docs/backlog.md` under "Judgment defenses".
 
 ## Phase 4: Adjudicator economics on the settlement layer
 
