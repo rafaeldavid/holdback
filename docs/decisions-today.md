@@ -592,6 +592,7 @@ Also: the funding signature on EVM is CPP's collector signature and token identi
 - **Schema v0.9** carries the protocol-level items together: ADR-0025's funding schemes and token addresses, `allowedTokens` optional (D38), `chainId` as a number in status, the MIME allowlist moving to adjudicator capability (D31, C8), the fee on receipts (C3) and the `not_implemented` problem type.
 - **Feedback key (Rafa, 2026-11-02):** a report is sealed to the operator's own encryption key, the one the operator publishes in discovery. Before submitting, the agent is told plainly that it is choosing to share the report, and any deal details in it, with that operator; sharing is the agent's choice (D35, D40), and a report with no deal details needs no sealing. No separate maintainers' key.
 - **Open for Rafa:** whether weekly aggregates are published (a status or stats page).
+  - *2026-11-03, Rafa:* deferred ("this doesn't seem like something we need to sort right now"). The T-031 aggregates stay internal to the operator, with no public page or endpoint; to be revisited after real usage (backlog).
 
 ## D40. Privacy is each deal's choice; the tagline is "Programmatic Escrow and Arbitration"
 
