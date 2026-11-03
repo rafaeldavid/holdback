@@ -597,7 +597,7 @@ Also: the funding signature on EVM is CPP's collector signature and token identi
 
 ## D40. Privacy is each deal's choice; the tagline is "Programmatic Escrow and Arbitration"
 
-**Updated 2026-11-03 (Rafa):** "Call it "Crow" for now as it's easier to read in docs, but the webpage uses the logomark ’crow". The README, `docs/` and `site/llms.txt` write Crow; the escrow.stream pages and the brand files keep ’crow. Holdback stays the protocol's name and EIP-712 domain.
+**Updated 2026-11-03 (Rafa):** "Call it "Crow" for now as it's easier to read in docs, but the webpage uses the logomark ’crow". The README, `docs/` and `site/llms.txt` write Crow; the escrow.stream pages and the brand files keep ’crow. Holdback stays the protocol's name and EIP-712 domain. Trademark clearance with counsel is pending (Rafa, 2026-11-03: "Keep Crow, see attorney").
 
 **Updated 2026-11-02 (Rafa, PR 98):** the tagline is "Programmatic Escrow and Arbitration" ("’crow. Programmatic Escrow and Arbitration"), replacing "Escrow for AI Agents" below. The rest of D40 stands.
 
