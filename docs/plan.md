@@ -147,19 +147,19 @@ Appended after Phase 7 so no phase number or release moves. The number orders th
 
 ## Phase 10: Infrastructure management
 
-Goal: Rafa sees what building and running Crow costs across every provider, every account has a cap or an alert, and a runaway is caught within a day.
+Goal: Rafa sees what building and running Crow costs across every provider, every account that can spend has a cap or an alert, and a runaway is caught within a day.
 
-Appended after Phase 9, like it, so no phase number moves (Rafa, 2026-11-03). It needs nothing from Phases 3 to 9: T-051 can start today. The inventory of cost sources and the monitoring design are in `docs/costs.md`. Billing figures stay out of the repository: reports, budgets and the account register live in the git-ignored `reports/costs/`, and billing credentials stay on Rafa's machine. Tasks are listed in dependency order; each is one PR.
+Appended after Phase 9, like it, so no phase number moves (Rafa, 2026-11-03). It needs nothing from Phases 3 to 9: T-051 can start today. The inventory of cost sources and the monitoring design are in `docs/costs.md`. Billing figures stay out of the repository: reports, budgets and the account register live in a git-ignored cost directory, and billing credentials stay outside agent sessions, on a machine Rafa controls. Tasks are listed in dependency order; each is one PR.
 
 - T-051 Cost guards on every account: Rafa's checklist of spend limits, budgets and alerts, in order and with links, and a private account register (infra; human gate).
-- T-052 The read-only cost collector: one source module per billing or usage API, plus the local Claude Code transcripts, T-031's day lines and the Sepolia balances, writing `reports/costs/<date>.json` (infra; human gate for the read-only credentials).
+- T-052 The read-only cost collector: one source module per billing or usage API, plus the local Claude Code transcripts, T-031's day lines (exported once, for T-042 too) and the Sepolia balances, writing a dated file in the cost directory (infra; human gate for the read-only credentials).
 - T-053 The monthly cost report and unit costs: each provider against its budget, cost per demo deal, per merged PR and per task (infra).
-- T-054 Anomaly rules and the CPU guard: a runaway agent, a spend spike, a cap or quota near, a relayer low on gas, paid usage that should be zero, a renewal due; CPU limits per Worker from measured use (infra; human gate to deploy the limits).
-- T-055 The daily routine on Rafa's machine and the channel that carries an alert to him; its `latest.json` feeds Phase 9's telemetry lane (T-042) and daily figures (T-047) (infra; human gate).
+- T-054 Anomaly rules and the CPU guard: a runaway agent, a spend spike, a cap or quota near, the relayer's funding lane running dry, paid usage that should be zero, a renewal or token expiry due; CPU limits per Worker from measured use (infra; human gate to deploy the limits).
+- T-055 The daily routine, run from a dedicated clone on a machine Rafa controls, and the channel that carries an alert to him; its `latest.json` holds rule names and no figure, for Phase 9's telemetry lane (T-042) (infra; human gate).
 - T-056 A budget for the planned costs: Stripe's live fees, the trademark, the external audit, mainnet gas and judges at volume (research; human gate for quotes).
 
 **Exit:**
-- Every account in `docs/costs.md` has a cap or an alert, recorded in the register (T-051, confirmed by Rafa).
+- Every account in `docs/costs.md` that can spend has a cap or an alert, and every account has its renewal date, in the register (T-051, confirmed by Rafa).
 - A month's report exists with each provider read by API or marked as entered by hand, and unit costs per demo deal and per merged PR (measured).
 - Each anomaly rule fired on test data, and one test alert reached Rafa on his channel (measured).
 

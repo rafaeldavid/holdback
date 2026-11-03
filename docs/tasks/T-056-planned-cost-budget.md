@@ -16,6 +16,12 @@ Before each gate that brings a new cost (mainnet, the live on-ramp, the trademar
 - Outputs: a research note with a range per cost and its sources, updated "Planned" rows, and drafted quote requests for Rafa to send.
 - Non-goals: choosing an auditor or attorney (Rafa), any purchase, mainnet deployment.
 
+## Context
+
+- `docs/costs.md`, "Planned": today's rows and their labels.
+- `docs/backlog.md`: the gas rows (Settlement layer) and the drand verifier review; D33 as amended on 2026-11-03 (PR 138): the operator recovers gas through its fee.
+- D7 and D42 (PR 138): the Stripe test-mode on-ramp and USDC first.
+
 ## Agent steps
 
 1. **Mainnet gas per deal.** From measured gas (about 375k gas for a happy path in two transactions, 440k with the fee bundled; `docs/backlog.md`), the cost per deal at a range of gas prices and ETH prices, and the operator fee that recovers it (D33 as amended). Mark the inputs measured and the prices as of their date.
