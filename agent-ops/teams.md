@@ -6,10 +6,11 @@ Roles are the existing `.claude/agents/` definitions plus three new ones (triage
 | --- | --- | --- | --- | --- |
 | triager (new) | Haiku 5.5 | low | none; JSON out | reads the most dangerous text, so it gets no tools and a schema; high volume, low value per item |
 | architect (planner) | Opus 5.5; Fable for contested decisions | high; Fable max | Read, Grep, Glob, Write, Edit | task files and ADRs are where errors compound; no Bash, so it runs nothing |
-| implementer, R0, R1, R3 | Sonnet 5.5 | medium | repo allowlist | fixtures, snapshots and the OpenAPI contract test catch these lanes' errors |
+| implementer, R0 and R1 | Sonnet 5.5 | medium | repo allowlist | fixtures, snapshots and the OpenAPI contract test catch these lanes' errors |
+| implementer, R3 | Sonnet 5.5 | medium | repo allowlist | Rafa reviews and merges every R3 PR |
 | implementer, R2 | Opus 5.5 | high | repo allowlist | EIP-712 types, aggregation, invariants: errors only reasoning catches; a rework cycle (CI plus a cross-family call) costs more than the price gap (inferred) |
 | fixture-author | Sonnet 5.5 | medium | `fixtures/` only | on R2 it writes failing fixtures before the implementer starts: tests and code from different sessions |
-| verifier | Sonnet 5.5 | low | Read, Grep, Glob, Bash; no Write, Edit, push or `gh` mutations | marks each claim confirmed, unconfirmed or contradicted; a false "confirmed" defeats the stage, so not Haiku |
+| verifier | Sonnet 5.5 | low | Read, Grep, Glob, Bash; no Write, Edit, push or `gh` mutations; read-only token | marks each claim confirmed, unconfirmed or contradicted; a false "confirmed" defeats the stage, so not Haiku |
 | reviewer | Opus 5.5 | high, never below the implementer's | Read, Grep, Glob, Bash; no Write, Edit, push or `gh` mutations; read-only token | fresh session, never the implementer's; reproduces the evidence. Today's reviewer and verifier definitions grant Write and Edit (measured) |
 | red-teamer | Fable 5.1 | max | Read, Grep, Glob, Write, Edit, Bash | adversarial work gets the strongest model; writes `attack.*` and `neutrality.*` fixtures, never weakens one |
 | cross-family reviewer (new) | DeepSeek V4 Pro; a GPT-family model at phase exits | provider max | none; `ReviewVerdict` out | a second family breaks correlated blind spots (threat T8). The repo already calls DeepSeek through its OpenAI-compatible provider (`config/judges-live.yaml`, measured) |

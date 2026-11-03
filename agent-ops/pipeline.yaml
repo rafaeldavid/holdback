@@ -18,8 +18,8 @@ kill_switch:
   levels: [stop-dispatch, halt, revoke]
 
 classes:                      # computed from the final diff at landing; highest wins
-  R3: [.github/, .claude/, agent-ops/, CLAUDE.md, AGENTS.md, .gitleaksignore, docs/team.md, docs/testing.md, package.json, eslint.config.js, vitest.config.ts, scripts/verify.ts, scripts/ci/]
-  R2: [contracts/, packages/core/, packages/settlement/, packages/judgment/, apps/adjudicator/, apps/operator/, spec/, config/judges.yaml, config/judges-live.yaml, pnpm-lock.yaml]
+  R3: [.github/, .claude/, agent-ops/, CLAUDE.md, AGENTS.md, .gitleaksignore, docs/team.md, docs/testing.md, package.json, eslint.config.js, vitest.config.ts, scripts/verify.ts, scripts/validate-spec.mjs, scripts/ci/]   # scripts/ci/ arrives with T-034
+  R2: [contracts/, packages/core/, packages/settlement/, packages/judgment/, packages/testkit/, apps/adjudicator/, apps/operator/, spec/, config/judges.yaml, config/judges-live.yaml, pnpm-lock.yaml]
   R0: [docs/, site/, brand/, "/*.md"]   # root markdown only; *.expect.md snapshots are code
   R1: "*"                     # default: an unknown path is code
 
@@ -61,7 +61,7 @@ stages:
     role: verifier
     model: sonnet
     effort: low
-    tools: [Read, Grep, Glob, Bash]       # no Write, Edit, push or gh mutations
+    tools: [Read, Grep, Glob, Bash]       # no Write, Edit, push or gh mutations; read-only token
     when: [R1, R2, R3]
   - id: ci
     required: [check, gitleaks]

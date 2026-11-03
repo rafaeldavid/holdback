@@ -32,14 +32,7 @@ Taken from one side only: Fable's one-shot raw reader, reviewer without Write or
 
 ## What review changed
 
-The `reviewer` agent (Opus 5.5, same family as both authors) returned ISSUES. Fixed:
-
-- R3 had no enforcement: it now gets CODEOWNERS with code-owner review, and the lander is the only role that can merge (P5).
-- Files that define gates were in auto-merge classes: `docs/team.md`, `docs/testing.md`, `package.json`, the lint, test and verify configs, and `scripts/ci/` move to R3, and `apps/operator/` (which holds the `sk_test` refusal) moves to R2. `docs/tasks/` stays R0, because the work a task triggers is gated by its own diff's class.
-- The lander recomputes the class on the final diff and refuses a scope mismatch, an intake-derived R2 or R3 diff, and an ADR flipped to Accepted.
-- Schema text fields were bypassable (fullwidth, bare domains, `javascript:`, `../.env`). They are now ASCII without slashes or schemes, `reproduce` is a repo path, and a PASS cannot carry a blocking finding.
-- Reviewer and verifier lose push and `gh` mutations, since Bash alone can write. Sealed feedback is out of scope: the pipeline holds no operator key.
-- The red team now runs on every R2 PR. Corrected facts: 30 calls a day is the demo's own cap, and auto-merge and branch deletion are already on.
+The `reviewer` agent (Opus 5.5, the authors' own family) returned ISSUES twice; every item is fixed in place. The largest: R3 had no enforcing check (now P5), gate-defining files sat in auto-merge classes, and the schemas' text fields were bypassable. One item was declined: `docs/tasks/` stays R0, because the work a task triggers is gated by its own diff's class.
 
 ## Open risks
 

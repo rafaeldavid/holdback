@@ -17,7 +17,7 @@ The hard rule "deliverables are untrusted" applies to the pipeline's own inputs.
 
 1. Normalize with `packages/judgment/src/normalize.ts`: strip U+E0000–E007F and zero-width characters, NFKC.
 2. Haiku 5.5, no tools, input spotlighted between random delimiters, a canary token in the prompt.
-3. Output must match `schemas/triage-record.schema.json` (Ajv, strict). Fields are enums, ids, repo paths without `..` or `.env`, and short model-written ASCII text without `/`, brackets, backticks or `scheme:`, so no links, markup or copied text. Invalid output is dropped and counted.
+3. Output must match `schemas/triage-record.schema.json` (Ajv, strict). Fields are enums, ids, repo paths without `..` or `.env`, and short model-written ASCII text with no `/`, `scheme:`, `www.`, square or angle brackets, or backticks: no URLs with a scheme, no markup, no copied text. Invalid output is dropped and counted.
 4. The planner reads records, never raw text. An implementer whose task needs the original runs a one-shot reader that prints it once, fenced, capped at 4 KB, under an "untrusted data" banner. Raw text never enters a task file, brief, PR body or handoff.
 5. A task derived from untrusted intake waits for Rafa before entering the queue if its paths are R2 or R3. That is the longest injection path: issue → record → task file → agent with write tools.
 
@@ -29,7 +29,7 @@ The hard rule "deliverables are untrusted" applies to the pipeline's own inputs.
 | P2 | Second-order injection through a task file, PR body or handoff | briefs built from template fields only; agent-written text fenced for the next agent |
 | P3 | A malicious diff or finding instructs its reader | diffs passed as data; the cross-family reviewer has no tools; the reviewer and verifier cannot write, push or mutate through `gh`; `ReviewVerdict.reproduce` is a repo path, never a command; fork PRs never dispatched |
 | P4 | Secret exfiltration | env-only secrets; `.env*` reads denied (measured); gitleaks required in CI (measured) and pre-commit (T-036); implementers hold no model, Cloudflare or chain keys and have no web tools |
-| P5 | An agent merges its own gate change | R3 paths get CODEOWNERS with Rafa as owner and code-owner review required, the bot is not an owner, and only the lander may run `gh pr merge`. Today CODEOWNERS covers only `spec/`, `docs/decisions/` and `contracts/`, and code-owner review is off (measured). Rafa's own R3 PRs then need a ruleset bypass for his account |
+| P5 | An agent merges its own gate change | R3 paths get CODEOWNERS with Rafa as owner and code-owner review required, the bot is not an owner, and only the lander may run `gh pr merge`. Today CODEOWNERS covers only `spec/`, `docs/decisions/` and `contracts/`, and code-owner review is off (measured). Rafa's own R3 PRs then need a ruleset bypass for his account, so no agent ever holds his credentials |
 | P6 | Escalation through tools | deny mutating `gh api`, `gh repo edit`, `gh secret`, `gh ruleset`, `gh pr merge --admin`, `wrangler`; deny every push form that rewrites or deletes a ref (`--force*`, `+ref`, `:ref`, `--delete`, `--mirror`). Today's prefix denies catch only `--force` and `-f` (measured) |
 | P7 | Supply chain | `--frozen-lockfile` (measured); `pnpm-lock.yaml` is R2 and `package.json` is R3; dependency bumps are their own tasks |
 | P8 | Runaway cost or loops | per-class budgets and a daily cap enforced by the tick; the no-polling hook (T-036) |
@@ -56,7 +56,7 @@ The lander recomputes the class from the final diff and refuses auto-merge when:
 | M4 phase exit | a `docs/plan.md` phase is claimed done | Fable red team + DeepSeek + a GPT-family model over every `attack.*` and `neutrality.*` fixture, plus new attacks | the exit claim |
 | M5 pre-deploy | Rafa's go-ahead for a deploy | DeepSeek over the diff since the last deploy | nothing; the deploy is already gated |
 
-**Mechanics.** The cross-family call goes through the judgment package's OpenAI-compatible provider with a judge's defenses: spotlighted diff, no tools, canary, output validated against `schemas/review-verdict.schema.json` (a PASS cannot carry a blocking finding). Schema failure is an abstention, which counts as no review; two abstentions park the PR for Rafa.
+**Mechanics.** The cross-family call goes through the judgment package's OpenAI-compatible provider with a judge's defenses: spotlighted diff, no tools, canary, output validated against `schemas/review-verdict.schema.json` (a PASS cannot carry a blocking finding; ISSUES needs one), and every `path` and `reproduce` must exist at the diff's SHA. Failure is an abstention, which counts as no review; two abstentions park the PR for Rafa.
 
 **Disagreement.** With two families there is no majority, so the asymmetry favours not merging:
 

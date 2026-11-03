@@ -33,8 +33,8 @@ Computed from the final diff's paths at landing, highest wins; an agent cannot l
 | --- | --- | --- | --- |
 | R0 docs | `docs/` (except R3 files), `site/`, `brand/`, root `*.md` | none | auto |
 | R1 code | anything not listed elsewhere | verifier | auto |
-| R2 litmus | `contracts/`, `packages/{core,settlement,judgment}/`, `apps/{adjudicator,operator}/`, `spec/`, `config/judges*.yaml`, `pnpm-lock.yaml` | fixtures first, Opus implements, cross-family, red team | auto when every family PASSes |
-| R3 pipeline and gates | `.github/`, `.claude/`, `agent-ops/`, `CLAUDE.md`, `AGENTS.md`, `.gitleaksignore`, `docs/team.md`, `docs/testing.md`, `package.json`, `eslint.config.js`, `vitest.config.ts`, `scripts/verify.ts`, `scripts/ci/` | cross-family | Rafa only |
+| R2 litmus | `contracts/`, `packages/{core,settlement,judgment,testkit}/`, `apps/{adjudicator,operator}/`, `spec/`, `config/judges*.yaml`, `pnpm-lock.yaml` | fixtures first, Opus implements, cross-family, red team | auto when every family PASSes |
+| R3 pipeline and gates | `.github/`, `.claude/`, `agent-ops/`, `CLAUDE.md`, `AGENTS.md`, `.gitleaksignore`, `docs/team.md`, `docs/testing.md`, `package.json`, `eslint.config.js`, `vitest.config.ts`, `scripts/verify.ts`, `scripts/validate-spec.mjs`, `scripts/ci/` (T-034) | cross-family | Rafa only |
 
 ## Files
 

@@ -21,7 +21,6 @@ A long-running coordinator was rejected: it carries stale context between decisi
 | PR critical path | 4.5–6.5 min, any PR, docs included: the contracts job (151 s submodule checkout, 118 s via-IR compile) (m) | 1.5–2 min code, about 1 min docs |
 | push to `main` | 11.5–14.5 min, of which 684 s TLC liveness (m) | TLC only when `formal/**` changes |
 | flakes | gas-per-deal stall in 2 of 24 PR runs; one cost a 2 h 13 min wait (m) | root-caused, not timed out |
-| pace | 34 PRs merged 2026-11-02 to 2026-11-03 08:23 UTC (m, `gh`) | — |
 
 Rules:
 
@@ -61,8 +60,8 @@ The authoritative switch is outside the repo (the variable and the token), becau
 
 Not active. In order, each a separate decision:
 
-1. Isolated environment with the scoped tokens in `config/keys-dev-env.template` (waiting on Rafa since 2026-11-01, m). Nothing runs on Rafa's Mac.
-2. A bot GitHub identity; CODEOWNERS for every R3 path, code-owner review required, the bot not an owner (P5). Auto-merge and branch deletion on merge are already on (m).
+1. Isolated environment with the scoped tokens in `config/keys-dev-env.template` (waiting on Rafa since 2026-11-01, m). Nothing runs on Rafa's Mac, and no agent holds his credentials.
+2. A bot GitHub identity; code-owner review required, with CODEOWNERS listing only the R3 paths and the bot not an owner (P5). Today's entries for `spec/`, `contracts/` and `docs/decisions/` would make those paths Rafa-merged too; Rafa decides whether they stay. Auto-merge and branch deletion on merge are already on (m).
 3. T-034, T-035, T-036 merged; a known-flakes list in `docs/testing.md`.
 4. Agent permissions: reviewer and verifier lose Write, Edit, push and `gh` mutations; the P6 deny list; `gh pr merge` for the lander only.
 5. The triage harness with both schemas and a test feeding every `attack.*` payload to triage (record valid or dropped, canary absent). The feedback notice names the triage model provider (a site change: Rafa's gate, D35).
