@@ -39,8 +39,6 @@ describe('fixtures/clubs/data-services-v1.yaml', () => {
     expect(club.rulebookHash).toBe(example.rulebookHash);
     expect(club.id).toBe('data-services-v1');
     expect(club.rulebook).toEqual(example.rulebook);
-    expect(club.rulebook.mutualSettlement.payoutsTo).toBe('any');
-    expect(club.rulebook.maxSubmissions).toBe(1);
     expect(club.rulebookHash).toBe(rulebookHash(example.rulebook));
     expect(club.rulebookHash).toBe('0x140edd090559cb7dd3950b3a8b755b9cca7b81a37d11359738e1b9df7d0d971e');
   });

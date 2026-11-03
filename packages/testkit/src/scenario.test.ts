@@ -62,6 +62,7 @@ steps: []
     expect(() => parseScenario(errorFixture('steps: []\n'), 'error.t')).toThrow(/expect\.problem/);
     expect(() => parseScenario(errorFixture('steps: []\nexpect: { problem: { type: invalid_state } }\n'), 'error.t')).toThrow(/step/);
     expect(parseScenario(errorFixture('steps: []\nexpect: { problem: { type: invalid_state, step: 1 } }\n'), 'error.t').expect.problem).toEqual({ type: 'invalid_state', step: 1 });
+    expect(() => parseScenario(errorFixture('steps: []\nexpect: { problem: { type: oops, step: 1 } }\n'), 'error.t')).toThrow(/oops/);
   });
 
   it('requires neutrality. fixtures to name a declared failing actor', () => {
@@ -117,18 +118,9 @@ steps:
     expect(() => parseScenario(minimal('faucet: { stranger: "1" }\nsteps: []\n'), 't')).toThrow(/stranger/);
   });
 
-  it('accepts only terminal states in expect_terminal, like expect.terminal', () => {
+  it('accepts expect_terminal as a shorthand for expect.terminal, and only terminal states in either', () => {
+    expect(parseScenario(minimal('steps: []\nexpect_terminal: Refunded\n'), 't').expect).toEqual({ terminal: 'Refunded' });
     expect(() => parseScenario(minimal('steps: []\nexpect_terminal: Held\n'), 't')).toThrow(/Held/);
     expect(() => parseScenario(minimal('steps: []\nexpect: { terminal: Held }\n'), 't')).toThrow(/Held/);
-  });
-
-  it('accepts expect_terminal as a shorthand (docs/testing.md example)', () => {
-    expect(parseScenario(minimal('steps: []\nexpect_terminal: Refunded\n'), 't').expect).toEqual({ terminal: 'Refunded' });
-  });
-
-  it('reads an expected problem for error fixtures', () => {
-    const s = parseScenario(minimal('steps: []\nexpect: { problem: { step: 2, type: deadline_passed } }\n').replace('name: t', 'name: error.t'), 'error.t');
-    expect(s.expect.problem).toEqual({ step: 2, type: 'deadline_passed' });
-    expect(() => parseScenario(minimal('steps: []\nexpect: { problem: { type: oops, step: 1 } }\n'), 't')).toThrow(/oops/);
   });
 });
