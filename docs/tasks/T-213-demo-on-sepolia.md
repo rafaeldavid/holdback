@@ -42,7 +42,24 @@ Non-goals: independent operator nodes (one Durable Object still serves both name
 
 Labels: measured, inferred, guessed.
 
-- **Differential (measured, anvil).** `pnpm snap --settlement=local`: 29 passed, 0 failed, 3 excluded until Phase 4; all 29 transcripts identical to SimChain's (`reports/differential-local.md`). Before this task 6 were identical; the other 23 differed only in the adjudicators' `key.released` events, which the adapter now releases off chain as SimChain does.
+- **`pnpm verify` (measured, commit `ea1d128`, 2026-11-03): PASS** (`reports/verify-claude-demo-sepolia-settlement-81a855.md`). No snapshot diffs against HEAD. vitest 2,208 passed and 3 skipped: the Sepolia-fork test, which needs `SEPOLIA_FORK_RPC` and the deployment file, and two conditional skips that predate this task (inferred from the skip conditions). forge: 162 tests in 21 suites, TestUSDC's 5 included.
+
+  | Step | Command | Status | Time |
+  | --- | --- | --- | --- |
+  | typecheck | `pnpm typecheck` | pass | 327 ms |
+  | lint | `pnpm lint` | pass | 5791 ms |
+  | forge build | `forge build --root contracts` | pass | 1090 ms |
+  | forge | `forge test --root contracts` | pass | 13327 ms |
+  | test | `pnpm test` | pass | 50197 ms |
+  | spec | `pnpm validate:spec` | pass | 553 ms |
+  | snap | `pnpm snap` | pass | 8624 ms |
+  | snap:local | `pnpm snap --settlement=local` | pass | 15480 ms |
+  | demo | `pnpm demo` | pass | 4071 ms |
+
+- **Differential (measured, anvil).** `pnpm snap --settlement=local`: 25 passed, 0 failed, 3 excluded until Phase 4 (PR 113 removed four fixtures); every transcript is identical to SimChain's (`reports/differential-local.md`). Before this task 6 of 29 were; the other 23 differed only in the adjudicators' `key.released` events, which the adapter now releases off chain as SimChain does. `error.submission-limit` (renamed from `todo.` by PR 113) now gets SimChain's `submission_limit_reached` on the contract too.
+- **Fee front-run (measured, anvil).** A stranger relays the buyer's fee transfer alone; the agreement still funds with `agreeAndFund` alone, and the operator is paid once (`evm-settlement.test.ts`).
+- **TestUSDC (measured, forge).** 5 tests: metadata and domain separator, one use per nonce, payee-only receive, refusals, no Permit2 allowance.
+- **Gas in the fee (measured, anvil).** The live test runs with `OPERATOR_FEE_GAS` 1500000: `try.ts` pays a 1.51 tUSDC operator fee on a 25 tUSDC deal.
 - **Typed data (measured, anvil).** The funding and operator-fee typed data an operator prepares hash to the digests the token checks against its own `DOMAIN_SEPARATOR` (`packages/settlement/evm/evm-settlement.test.ts`).
 - **End to end on a live-chain stand-in (measured, anvil `--block-time 1`).** `apps/demo-cloud/src/live.test.ts`: the world bonds its three adjudicators on chain, `examples/try.ts` runs in its own process against two origins and reaches Released; its `chain` lines name three transactions (funded, delivered, decided); `dealOf` reads Released and CPP holds nothing for the deal; the world reopens from the same storage with an identical event log and digest.
 - **Bundle (measured).** `wrangler deploy --dry-run` for holdback-op1: 2,385 KiB, 455 KiB gzipped.
