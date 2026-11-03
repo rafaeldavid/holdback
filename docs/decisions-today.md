@@ -626,7 +626,7 @@ Also: the funding signature on EVM is CPP's collector signature and token identi
 - **What does not.** The API, the one-command test deal and its single approval, and the hard rules: the operators' relayer keys pay gas and relay signed messages, never author them; the keys are Sepolia-only Worker secrets. Gas is part of the operator fee (D33, amended the same day).
 - **Rollback.** A `SETTLEMENT` flag per Worker (`sim` or `sepolia`) picks the world; the SimChain world stays untouched, so setting the flag back is one deploy.
 - **Staged.** drand proofs for fallback and appeal decisions (until then a silent primary ends in the default outcome), direct transactions in the operators' view, an in-flight row per relayer lane, and the schema v0.9 items (T-033).
-- **Asks for Rafa (outside the repository).** Sepolia ETH for the relayer's funding lane: done (1.94 Sepolia ETH on 2026-11-03, measured by the coordinating session). Workers Paid: reportedly in place since the November 2 outage (not checked from here).
+- **Asks for Rafa (outside the repository).** Sepolia ETH for the relayer's funding lane: done (1.94 Sepolia ETH on 2026-11-03, measured by the coordinating session). Workers Paid: in place since 2026-11-02 (Rafa, 2026-11-03).
 
 | Option | Effect |
 | --- | --- |
