@@ -132,6 +132,10 @@ It never holds the reporter's IP or a header value. An IP lives only in the hour
 
 Without the binding, `/v1/feedback` answers 404 `not_found` and discovery has no `feedback`. Without the key, the nodes take unsealed reports only.
 
+## Costs
+
+What each account costs, what caps or alerts it, and where to read its usage read-only: `docs/costs.md` (Phase 9, T-051 to T-056). Billing figures, budgets and the account register stay in a cost directory outside every checkout where agents work (`CROW_COSTS_DIR`); billing credentials stay in `.env.costs` in a dedicated clone on a machine Rafa controls, never in an agent session, a Worker or GitHub Actions.
+
 ## Gates (ask Rafa first)
 
 Anything outside the repository: a new public deployment target, Sepolia or any public chain, mainnet (never without an audit and his written approval), real keys or money, force pushes or history rewrites (also blocked by the permission deny list), repository settings, publishing or sending anything to other people.
