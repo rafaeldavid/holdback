@@ -10,7 +10,7 @@ import {IHoldbackBeacon} from "./IHoldbackBeacon.sol";
 import {HoldbackTypes as H, Money} from "./HoldbackTypes.sol";
 
 /// @title HoldbackRules
-/// @notice The Holdback rules contract (T-202): the on-chain form of SimChain's escrow rules for
+/// @notice The Holdback rules contract: the on-chain form of SimChain's escrow rules for
 ///         `guaranteed_on_decision`, operating Commerce Payments' AuthCaptureEscrow v1.1.0 (ADR-0003, option A).
 ///         Buyer funds sit in CPP's per-operator TokenStore; this contract moves them only on
 ///         (a) the deciding adjudicator's signed decision, (b) the buyer's signed early accept, (c) a settlement both
@@ -19,7 +19,7 @@ import {HoldbackTypes as H, Money} from "./HoldbackTypes.sol";
 ///      in calldata, recomputes the commitment ID from it, and stores one word per commitment. Offer, adjudicator
 ///      acceptance and agreement are signatures checked at `agreeAndFund`; nothing is stored before funding.
 contract HoldbackRules is EIP712 {
-    // ---------------------------------------------------------------- state
+    // State
 
     enum Stage {
         None,
@@ -76,13 +76,13 @@ contract HoldbackRules is EIP712 {
     /// @notice Added after the last moment a capture can happen (fallbackBy + appealDecideSec) to get CPP's
     ///         authorizationExpiry, after which only the buyer's own reclaim on CPP remains (ADR-0003).
     uint64 public immutable EXPIRY_MARGIN;
-    /// @notice The beacon that fixes fallback and appeal panel seeds (ADR-0018, T-209): the drand quicknet verifier
+    /// @notice The beacon that fixes fallback and appeal panel seeds (ADR-0018): the drand quicknet verifier
     ///         on shared chains, the sim beacon on anvil. Fixed at deploy; it also owns the round arithmetic.
     IHoldbackBeacon public immutable BEACON;
 
     mapping(bytes32 commitmentId => Deal) internal _deals;
 
-    // ---------------------------------------------------------------- events
+    // Events
 
     // ERC-8183-shaped (draft names; job ID = commitment ID).
     event JobCreated(
@@ -115,7 +115,7 @@ contract HoldbackRules is EIP712 {
     event AppealClosed(bytes32 indexed id, AppealState verdict);
     event MutuallySettled(bytes32 indexed id, bool keyReleased);
 
-    // ---------------------------------------------------------------- errors
+    // Errors
 
     error WrongStage(Stage current);
     error WrongAppealState(AppealState current);
@@ -143,7 +143,7 @@ contract HoldbackRules is EIP712 {
         BONDS = new HoldbackBonds();
     }
 
-    // ---------------------------------------------------------------- views
+    // Views
 
     function dealOf(bytes32 id) external view returns (Deal memory) {
         return _deals[id];
@@ -183,7 +183,7 @@ contract HoldbackRules is EIP712 {
         });
     }
 
-    // ---------------------------------------------------------------- agree and fund (transaction 1)
+    // Agree and fund (transaction 1)
 
     /// @notice Verifies the seller's signature over the terms, the primary's acceptance and the buyer's Agree, then
     ///         moves price + fee from the buyer into CPP's hold with the buyer's collector signature.
@@ -215,7 +215,7 @@ contract HoldbackRules is EIP712 {
         ESCROW.authorize(pi, pi.maxAmount, f.method == 0 ? ERC3009_COLLECTOR : PERMIT2_COLLECTOR, f.signature);
     }
 
-    // ---------------------------------------------------------------- deliver
+    // Deliver
 
     /// @notice Anyone posts the seller-signed delivery before deliverBy, which stops a reclaim. Optional on the happy
     ///         path: a decision or early accept may carry the delivery instead (D4: two transactions).
@@ -228,7 +228,7 @@ contract HoldbackRules is EIP712 {
         d.stage = Stage.Delivered;
     }
 
-    // ---------------------------------------------------------------- decide
+    // Decide
 
     /// @notice Anyone relays the adjudicator's signed decision. In `Held`, the decision carries the delivery it
     ///         judged (`dv`, `sellerSignature`); otherwise they are ignored.
@@ -362,7 +362,7 @@ contract HoldbackRules is EIP712 {
         if (bytes(m.keyCiphertext).length > 0) _releaseKey(id, t.buyer, KEY_APPEAL, m.keyScheme, m.keyCiphertext);
     }
 
-    // ---------------------------------------------------------------- early accept
+    // Early accept
 
     /// @notice Anyone relays the buyer's signed early accept: the price to the seller, the fee back to the buyer
     ///         (no adjudicator judged), and the buyer's envelope from the seller-signed delivery in the same
@@ -400,7 +400,7 @@ contract HoldbackRules is EIP712 {
         _releaseKey(id, t.buyer, KEY_EARLY_ACCEPT, k.scheme, k.ciphertext);
     }
 
-    // ---------------------------------------------------------------- mutual settlement
+    // Mutual settlement
 
     /// @notice A settlement both parties signed closes a funded, undecided commitment (ADR-0019, D23): the payouts
     ///         split the price; the fee goes back to the buyer (fee share 0 bps). With `releaseKey`, the buyer's
@@ -477,7 +477,7 @@ contract HoldbackRules is EIP712 {
         }
     }
 
-    // ---------------------------------------------------------------- appeal
+    // Appeal
 
     /// @notice Anyone relays a party's signed appeal against a first-instance decision before appealBy. The bond
     ///         is pulled from the appellant (ERC-20 allowance to BONDS) and held until the appeal closes.
@@ -496,7 +496,7 @@ contract HoldbackRules is EIP712 {
         emit AppealFiled(id, appellant, a.bond);
     }
 
-    // ---------------------------------------------------------------- timeouts (TimeoutKind), anyone may call
+    // Timeouts (TimeoutKind), anyone may call
 
     /// @notice expire_offer: after offerExpiresAt or fundBy nothing can fund the commitment; this records it.
     function expireOffer(H.Terms calldata t) external {
@@ -530,7 +530,7 @@ contract HoldbackRules is EIP712 {
         emit FallbackTriggered(id, BEACON.roundAt(t.timing.judgeBy));
     }
 
-    /// @notice default and apply_default in one call (T-204 finding 2): the fallback missed fallbackBy, or the
+    /// @notice default and apply_default in one call: the fallback missed fallbackBy, or the
     ///         appeal adjudicator missed appealDecideBy after an escalation; price + fee back to the buyer. Seller
     ///         compensation from bonds is Phase 4.
     function triggerDefault(H.Terms calldata t) external {
@@ -571,7 +571,7 @@ contract HoldbackRules is EIP712 {
         emit AppealClosed(id, AppealState.Expired);
     }
 
-    // ---------------------------------------------------------------- internals
+    // Internals
 
     function _refundAll(bytes32 id, H.Terms calldata t, Deal storage d) internal {
         uint8 flags = d.flags;

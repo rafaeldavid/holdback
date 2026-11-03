@@ -4,7 +4,7 @@ pragma solidity ^0.8.28;
 import {IHoldbackBeacon} from "./IHoldbackBeacon.sol";
 
 /// @title SimBeacon
-/// @notice The SimChain beacon on a local chain (ADR-0018 §3, T-209 amendment): value(round) = keccak256(simSeed ‖
+/// @notice The SimChain beacon on a local chain (ADR-0018 §3): value(round) = keccak256(simSeed ‖
 ///         round), one round per second, round(t) = t (drand's formula with genesis 1 s and period 1 s, which equals
 ///         SimChain's floor(ms / 1000)). A round is available only once the chain clock reaches it, as on SimChain.
 /// @dev Local chains only: the constructor refuses any chain ID but anvil's 31337, so a sim beacon can never sit

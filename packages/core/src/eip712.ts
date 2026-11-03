@@ -247,7 +247,6 @@ export type SignableMessage =
   | (Mandate & { type: 'Mandate' });
 /** MutualSettlement and Publish carry a buyer and a seller signature over the identical struct (ADR-0019, ADR-0020). */
 export type UnsignedCoSigned = DistributiveOmit<CoSignedMessage, 'buyerSignature' | 'sellerSignature'>;
-export type UnsignedMutualSettlement = Omit<MutualSettlement, 'buyerSignature' | 'sellerSignature'>;
 export type UnsignedMessage = DistributiveOmit<SignableMessage, 'signature'> | UnsignedCoSigned;
 
 type Encoded = Record<string, unknown>;

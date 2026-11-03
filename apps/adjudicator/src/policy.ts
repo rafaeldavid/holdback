@@ -1,10 +1,11 @@
 // The adjudicator policy the commitment binds (ADR-0006): panel parameters, the SHA-256 of the
 // first-instance and appeal templates, the aggregation rule and screen versions. policyHash is the
 // keccak256 of its RFC 8785 canonical JSON. A case whose bound policy this build cannot honor is refused.
-import { canonicalKeccak, err, ok, problem, type AdjudicatorPolicy, type Hex32, type Problem, type Result } from '@holdback/core';
+import { err, ok, policyHash, problem, type AdjudicatorPolicy, type Hex32, type Problem, type Result } from '@holdback/core';
 import { AGGREGATION_VERSION, APPEAL_PROMPT_TEMPLATE_HASH, PROMPT_TEMPLATE_HASH, SCREEN_VERSION } from '@holdback/judgment';
 
-export const policyHashOf = (policy: AdjudicatorPolicy): Hex32 => canonicalKeccak(policy);
+/** Core's policyHash, typed to an adjudicator policy. */
+export const policyHashOf: (policy: AdjudicatorPolicy) => Hex32 = policyHash;
 
 /** The defaults in docs/judgment-and-defenses.md (Panel policy), with this build's template hashes. */
 export function defaultPolicy(id: string, over: Partial<AdjudicatorPolicy> = {}): AdjudicatorPolicy {

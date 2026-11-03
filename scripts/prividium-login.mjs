@@ -1,4 +1,4 @@
-// `pnpm prividium:login`: logs Docker in to quay.io for Matter Labs' local-prividium images (T-208).
+// `pnpm prividium:login`: logs Docker in to quay.io for Matter Labs' local-prividium images.
 // Reads PRIVIDIUM_DOCKER_USERNAME and PRIVIDIUM_DOCKER_PASSWORD from the environment (the script is run with
 // --env-file-if-exists=.env) and pipes the password to `docker login --password-stdin`; it never prints it.
 import { spawnSync } from 'node:child_process';

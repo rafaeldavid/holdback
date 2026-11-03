@@ -1,4 +1,4 @@
-// The SimChain event source: runs T-012's beats (apps/demo/agents/beats.ts) on a fresh demo world each and
+// The SimChain event source: runs the beats (apps/demo/agents/beats.ts) on a fresh demo world each and
 // turns the settlement log, ledger and Bench A's signed judgment record into transcript events.
 // Times are measured: the world's SimChain is wrapped so each settlement event is stamped with the wall-clock
 // milliseconds since the job's first call, and the ledger is snapshotted with it. Observation only: the wrapper
@@ -29,11 +29,11 @@ import type { AdjudicatorProfile, Amount, BalanceRow, BeatTranscript, CastKey, D
 
 export const SIMCHAIN_NOTE =
   "measured on SimChain in this run: scripted agents over the operator API; the adjudicator service with scripted judges, seated from config/judges.yaml's pinned placeholder model IDs. Times are wall-clock milliseconds on this machine.";
-/** `pnpm demo --live` (T-028): the same run, with every bench's panel calling real models. */
+/** `pnpm demo --live`: the same run, with every bench's panel calling real models. */
 export const SIMCHAIN_LIVE_NOTE =
   'measured on SimChain in this run: scripted agents over the operator API; the adjudicator service with live judges, pinned models from two families (Anthropic, DeepSeek) seated from config/judges-live.yaml and called during this run. Times are wall-clock milliseconds on this machine, model calls included.';
 
-/** Each job runs on its own world (T-019): beats 1 to 4 are one job on seed 7; beat n's job uses seed 7 + n. */
+/** Each job runs on its own world: beats 1 to 4 are one job on seed 7; beat n's job uses seed 7 + n. */
 export const seedOf = (beat: number): number => (beat <= 4 ? 7 : 7 + beat);
 export interface BeatMeta {
   title: string;
@@ -89,7 +89,7 @@ const ACTORS: readonly [ActorName, CastKey][] = [
 const BENCHES: readonly [ActorName, CastKey][] = ACTORS.slice(2);
 
 const lc = (s: string) => s.toLowerCase();
-const tusd = (v: bigint): Amount => ({ token: 'tUSD', amount: v.toString() });
+const tusdBase = (v: bigint): Amount => ({ token: 'tUSD', amount: v.toString() });
 
 interface Snapshot {
   ledger: Record<string, bigint>;
@@ -155,7 +155,7 @@ interface Run {
   events: SettlementEvent[];
   /** Beat 1: how the agents chose the adjudicators, and the profiles they read. */
   choice?: { negotiation: Negotiation; profiles: ProfileView[] };
-  /** The adjudicator service's marks for the decision, when one was made (T-019). */
+  /** The adjudicator service's marks for the decision, when one was made. */
   judging?: JudgingTime;
   /** D26: both parties' copies of the record, compared after the job. */
   shared: DemoEvent;
@@ -214,7 +214,7 @@ async function compareRecords(world: DemoWorld, id: Hex32, published: readonly J
 }
 
 /**
- * Beats 1 to 4 as one job on one world (T-019): the negotiation (each step stamped by the observer), offer,
+ * Beats 1 to 4 as one job on one world: the negotiation (each step stamped by the observer), offer,
  * acceptance and hold, then the honest delivery, the primary's judgment, settlement and Ledger opening the work.
  * It is beatHappyPath with the negotiation observer, so beat 1's hold is the hold beats 2 to 4 continue.
  */
@@ -265,8 +265,8 @@ class Narrator {
     const order: CastKey[] = ['buyer', 'seller', 'escrow', 'benchA', 'benchB', 'benchC'];
     const rows: BalanceRow[] = order.map((k) => ({
       who: k,
-      amount: tusd(sums.get(k) ?? 0n),
-      ...(snap.reserved[k] === undefined ? {} : { reserved: tusd(snap.reserved[k]!) }),
+      amount: tusdBase(sums.get(k) ?? 0n),
+      ...(snap.reserved[k] === undefined ? {} : { reserved: tusdBase(snap.reserved[k]!) }),
     }));
     return { kind: 'balances', atMs, actor: 'chain', label, rows };
   }
@@ -349,7 +349,7 @@ class Narrator {
           this.push(1, { kind: 'acceptance', atMs: ms, actor: this.key(String(e.actor)), bondReserved: p.bondReserved as Amount, seedCommitment: String(p.seedCommitment) });
           break;
         case 'hold.funded':
-          this.push(1, { kind: 'hold', atMs: ms, actor: 'buyer', amount: (p.amount as Amount | null) ?? tusd(BigInt(c.price.amount) + BigInt(c.adjudication.fee.amount)), via: this.via(e) });
+          this.push(1, { kind: 'hold', atMs: ms, actor: 'buyer', amount: (p.amount as Amount | null) ?? tusdBase(BigInt(c.price.amount) + BigInt(c.adjudication.fee.amount)), via: this.via(e) });
           this.push(1, this.balances(ms, 'after hold', snap));
           break;
         case 'delivery.submitted': {
@@ -404,7 +404,7 @@ class Narrator {
           // escalation, then the appeal), so each decision reads its own report.
           const report = result?.reports?.find((r) => r.record.recordHash === p.recordHash);
           const decidedRecord = report?.record ?? this.recordFor(String(p.recordHash)) ?? record;
-          // Judging sub-steps are stamped from the adjudicator service's own marks (T-019), kept between the
+          // Judging sub-steps are stamped from the adjudicator service's own marks, kept between the
           // previous settlement event and the decision.
           const j = report?.timing ?? this.run.judging;
           const clamp = (mark: number | undefined) => (mark === undefined ? ms : Math.min(ms, Math.max(prevMs, recorder.at(mark))));
@@ -490,7 +490,7 @@ class Narrator {
   }
 
   /**
-   * The two off-chain steps before the offer (T-017). Registration names and reasons are party text, so they are
+   * The two off-chain steps before the offer. Registration names and reasons are party text, so they are
    * made plain at ingestion; the renderers escape again per surface.
    */
   private negotiation(n: Negotiation): void {
@@ -516,8 +516,8 @@ class Narrator {
       actor: 'seller',
       agreed: slate(review.slate),
       policy: review.policy.map(plain),
-      bondRequired: tusd(review.requiredFreeBond),
-      bonds: review.checks.map((c) => ({ who: this.key(c.address), free: tusd(c.freeBond) })),
+      bondRequired: tusdBase(review.requiredFreeBond),
+      bonds: review.checks.map((c) => ({ who: this.key(c.address), free: tusdBase(c.freeBond) })),
     });
   }
 
@@ -529,7 +529,7 @@ class Narrator {
   }
 
   /**
-   * Where the judging time went (T-019), from the service's marks: each part is the gap between two clamped,
+   * Where the judging time went, from the service's marks: each part is the gap between two clamped,
    * rounded stamps, so the parts add up to `judgingMs`. A part whose marks are missing is left out.
    */
   private judgingTiming(j: JudgingTime, decisionMs: number, afterDeliveryMs: number, clamp: (mark: number | undefined) => number, record: Judgment | undefined): JudgingTiming {
@@ -623,7 +623,7 @@ class Narrator {
       judges,
       outcome: r.aggregate.decision,
     });
-    // One judge's prompt and verdict per panel (T-019): seat 1, matched to the request this decision's service sent
+    // One judge's prompt and verdict per panel: seat 1, matched to the request this decision's service sent
     // it. Both are untrusted (terms, deliverable sample, model output): made plain line by line here, escaped
     // again per surface.
     const seat = r.panel.members[0];
@@ -687,7 +687,7 @@ const NOTE_EXTRA: Readonly<Record<number, string>> = {
   7: ' op-1 refuses through its relay policy hook and op-2 is stopped, both on this run; SimChain time jumps to judgeBy while Clearfield stays silent, so the wall-clock times do not include that wait.',
 };
 
-/** Live mode (T-028): what differs from the scripted wording. Beat 6's appeal verdicts are the models' own. */
+/** Live mode: what differs from the scripted wording. Beat 6's appeal verdicts are the models' own. */
 const LIVE_SUMMARY: Readonly<Record<number, string>> = {
   3: "Deterministic checks pass; the panel seed is revealed; three pinned judges from two families (live models) give their verdicts; one judge's prompt and verdict are shown; Clearfield decides.",
   6: "A delivery hides a base64 instruction telling the judges to pass it: Clearfield's screen flags it, so its panel cannot accept and it escalates to Atrium, whose five live judges decide under the flagged-appeal rule (accept only unanimously with no injection suspected). A second delivery hides tag characters aimed at Ledger itself under an empty rubric: it is accepted, the screen report records it, and Ledger's SDK strips the payload before Ledger reads the file.",

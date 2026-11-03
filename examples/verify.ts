@@ -279,7 +279,7 @@ export type Opened = { commitmentId: Hex; attempt: number; deliveryHash: Hex; pl
 const sha256Of = async (b: Uint8Array) => `sha256:${Buffer.from(await crypto.subtle.digest('SHA-256', new Uint8Array(b))).toString('hex')}`;
 
 /**
- * Opens the buyer's own envelope before an early accept (T-024, D32). The settlement layer cannot check
+ * Opens the buyer's own envelope before an early accept (D32). The settlement layer cannot check
  * that the seller sealed the buyer's envelope to the buyer's key, and an early accept releases exactly that
  * envelope with the payment. So, with your own key: the handed delivery must be the one the settlement layer
  * holds, your one envelope must open, the ciphertext must match its signed hash and decrypt, and the plaintext
@@ -315,7 +315,7 @@ export async function openOwnEnvelope(x: EnvelopeMaterial): Promise<Opened> {
   return { commitmentId: id, attempt: d.attempt, deliveryHash: hash, plaintextSha256: got, plaintext: plaintext! };
 }
 
-// ---- Private deals (ADR-0024): the client-side prepare recipe, the two-part encrypted terms, Delegation checks ----
+// Private deals (ADR-0024): the client-side prepare recipe, the two-part encrypted terms, Delegation checks
 
 const SALT = /^0x[0-9a-f]{64}$/;
 const whole = (ts: J) => typeof ts === 'string' && Number.isFinite(Date.parse(ts)) && Date.parse(ts) % 1000 === 0;

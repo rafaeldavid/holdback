@@ -10,6 +10,7 @@ import {
   commitmentId,
   parseClub,
   parseCommitment,
+  plusSeconds,
   rulebookHash,
   type AcceptanceSpec,
   type Address,
@@ -108,16 +109,14 @@ export function parseClubYaml(source: string, file: string): Club {
 
 export const loadClubFile = (path: string): Club => parseClubYaml(readFileSync(path, 'utf8'), basename(path));
 
-const plus = (ts: Timestamp, seconds: number): Timestamp => new Date(Date.parse(ts) + seconds * 1000).toISOString().replace('.000Z', 'Z');
-
 /** Fills a template in. Throws when the club is not the one the template names. */
 export function termsFromTemplate(t: TermsTemplate, p: TermsParams): CommitmentTerms {
   if (p.club.id !== t.clubId) throw new ScenarioError(`terms name clubId ${t.clubId}, but the club supplied is ${p.club.id}`);
   const ms = Date.parse(p.createdAt);
   if (!Number.isFinite(ms) || ms % 1000 !== 0) throw new ScenarioError(`createdAt ${p.createdAt} must be a whole-second timestamp`);
-  const createdAt = plus(p.createdAt, 0);
-  const deliverBy = plus(createdAt, t.timing.deliverWithinSec);
-  const judgeBy = plus(deliverBy, t.timing.judgeWithinSec);
+  const createdAt = plusSeconds(p.createdAt, 0);
+  const deliverBy = plusSeconds(createdAt, t.timing.deliverWithinSec);
+  const judgeBy = plusSeconds(deliverBy, t.timing.judgeWithinSec);
   return {
     schemaVersion: t.schemaVersion,
     clubId: t.clubId,
@@ -137,11 +136,11 @@ export function termsFromTemplate(t: TermsTemplate, p: TermsParams): CommitmentT
       policyHash: p.policyHash,
     },
     timing: {
-      offerExpiresAt: plus(createdAt, t.timing.offerExpiresInSec),
-      fundBy: plus(createdAt, t.timing.fundWithinSec),
+      offerExpiresAt: plusSeconds(createdAt, t.timing.offerExpiresInSec),
+      fundBy: plusSeconds(createdAt, t.timing.fundWithinSec),
       deliverBy,
       judgeBy,
-      fallbackBy: plus(judgeBy, t.timing.fallbackWithinSec),
+      fallbackBy: plusSeconds(judgeBy, t.timing.fallbackWithinSec),
       appealWindowSec: t.timing.appealWindowSec,
       appealDecideSec: t.timing.appealDecideSec,
       maxSubmissions: t.timing.maxSubmissions,

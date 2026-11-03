@@ -9,7 +9,7 @@
 import { randomBytes } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { canonicalKeccak, holdbackDomain, parseAdjudicator, type AdjudicatorRegistration, type Address, type Hex32, type Judgment, type Timestamp } from '@holdback/core';
+import { canonicalKeccak, holdbackDomain, parseAdjudicator, wholeSecond, type AdjudicatorRegistration, type Address, type Hex32, type Judgment, type Timestamp } from '@holdback/core';
 import { MemoryCiphertextStore } from '@holdback/core/store';
 import { FAIL_MARKER, testAdjudicator, type TestAdjudicator } from '@holdback/adjudicator';
 import type { FakeScript } from '@holdback/judgment';
@@ -130,7 +130,6 @@ const ADJUDICATORS: ReadonlyArray<{ role: SimRole; label: string; name: string }
 /** Bond pool terms the test adjudicators publish (adjudicator.schema.json). */
 const POOL_TERMS = { capitalChargeRateBps: 0, capitalChargeToPoolRateBps: 0, firstLossShareBps: 10000, noticePeriodSec: 691200 } as const;
 
-const wholeSecond = (ms: number): Timestamp => new Date(Math.floor(ms / 1000) * 1000).toISOString().replace('.000Z', 'Z');
 const lc = (a: string) => a.toLowerCase();
 
 async function listen(server: Server, port: number, host: string): Promise<string> {
@@ -259,7 +258,7 @@ export async function startSimWorld(options: SimWorldOptions = {}): Promise<SimW
       fee,
       ...(options.judges?.[a.role] ? { judges: options.judges[a.role]! } : {}),
       // A local world exercises private flows by early accept or mutual settlement (T-207), so its primary accepts
-      // sealed offers it cannot read. The public demo's adjudicators decline them instead (T-030).
+      // sealed offers it cannot read. The public demo's adjudicators decline them instead.
       acceptSealedUnread: true,
     });
     registrations.set(adj.address, { ...adj.registration(), poolTermsHash: canonicalKeccak(POOL_TERMS), status: 'active' });

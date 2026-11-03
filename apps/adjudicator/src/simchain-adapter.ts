@@ -1,4 +1,4 @@
-// The adapter from T-006's settlement layer (packages/settlement) to the adjudicator's port. It reads the
+// The adapter from the settlement layer (packages/settlement) to the adjudicator's port. It reads the
 // event log for commitments, the escrow state for what is due, and `keysFor` for the envelopes this
 // adjudicator may open (ADR-0020), and it submits acceptances and decisions as Submissions. The ciphertext
 // store, the record store and the adjudicator registry are not part of the Settlement interface, so the
@@ -30,7 +30,7 @@ import type { RandomnessSource } from './randomness.js';
 
 /**
  * The Settlement interface plus the reads SimChain offers beyond it: the clock, the beacon, the full escrow
- * state and an adjudicator's bond pool. A Phase 2 chain adapter supplies the same reads from the chain.
+ * state and an adjudicator's bond pool. An EVM adapter would supply the same reads from the chain.
  */
 export interface SettlementReads extends Settlement {
   now(): Timestamp;
@@ -39,7 +39,7 @@ export interface SettlementReads extends Settlement {
   pool(adjudicator: Address): { junior: bigint; senior: bigint; reserved: bigint };
 }
 
-/** Content-addressed blobs and records; off the settlement layer (T-007 or T-014 own the real ones). */
+/** Content-addressed blobs and records, off the settlement layer. */
 export interface ContentStore {
   ciphertext(uri: string): Promise<Uint8Array>;
   publishRecord(record: Judgment): Promise<string>;

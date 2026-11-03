@@ -1,11 +1,10 @@
-// The demo's invented cast (docs/demo.md, Cast), shared by the agents, their tests and T-013's narration.
+// The demo's invented cast (docs/demo.md, Cast), shared by the agents, their tests and the narration.
 // Display names and labels only: the protocol sees addresses, and every name here is fictional. `label` is the
 // key-derivation label in keys.ts, so renaming a display name never changes a key, address or hash.
 import { TUSD } from './units.js';
 
 export interface PartyCast {
   label: string;
-  /** The agent's display name. */
   agent: string;
   org: string;
   role: 'buyer' | 'seller';
@@ -49,7 +48,7 @@ export const SWIFTLINE = { label: 'swiftline', name: 'Swiftline Verdicts' } as c
 export type AdjudicatorRole = 'primary' | 'fallback' | 'appeal';
 
 /**
- * What a bench publishes beside its registration (T-017): display data the v0.6 registration cannot carry
+ * What a bench publishes beside its registration: display data the v0.6 registration cannot carry
  * (docs/backlog.md). Judges are registry judge IDs from config/judges.yaml, resolved to pinned model IDs by
  * `resolveJudges`; nothing here invents a model ID. `effort` is the reasoning setting the bench declares per
  * judge; the demo runs scripted (fake) judges, so no effort is applied. `history` is invented.
@@ -69,7 +68,7 @@ export interface BenchProfile {
 /** How the transcript labels invented history. */
 export const ROLE_PLAY = 'Role-play: invented for this demo, not a real firm or record.';
 
-/** The harness T-009's adjudicator service runs for every bench (docs/judgment-and-defenses.md). */
+/** The harness the adjudicator service runs for every bench (docs/judgment-and-defenses.md). */
 const SERVICE_HARNESS = [
   'Sealed sandbox: judges get no tools, no network access and no secrets.',
   'Deterministic checks run first; a failed required check decides without a panel.',

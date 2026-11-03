@@ -6,7 +6,6 @@ import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AdjudicatorRegistration, Address, Hex32, HoldbackDomain, TokenAmount } from '@holdback/core';
-import { encodePublicKey, encryptionKeyPairFromSecretKey } from '@holdback/core/crypto';
 import { fakeProvider, type FakeScript, type JudgeProvider, type LoadedRegistry } from '@holdback/judgment';
 import { keccak256, stringToBytes, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
@@ -63,7 +62,7 @@ function repoRegistry(file: string): LoadedRegistry {
 export const placeholderRegistry = (): LoadedRegistry => repoRegistry('config/judges.yaml');
 
 export const LIVE_REGISTRY_URI = 'file:///config/judges-live.yaml';
-/** config/judges-live.yaml (T-028): real pinned models from two families, which live judges can call. */
+/** config/judges-live.yaml: real pinned models from two families, which live judges can call. */
 export const liveRegistry = (): LoadedRegistry => repoRegistry('config/judges-live.yaml');
 
 export interface TestAdjudicatorOptions {
@@ -86,7 +85,7 @@ export interface TestAdjudicatorOptions {
   /** Where `registry` is published. Default file:///config/judges.yaml. */
   registryUri?: string;
   /**
-   * Replaces the marked fake judges (T-028: a live panel). Already routed by provider and wrapped in the judge
+   * Replaces the marked fake judges (a live panel). Already routed by provider and wrapped in the judge
    * timeout; the caller labels anything scripted it routes to.
    */
   provider?: JudgeProvider;
@@ -123,6 +122,3 @@ export function testAdjudicator(o: TestAdjudicatorOptions): TestAdjudicator {
   });
   return { address, service, registration: () => service.registration(), runOnce: () => service.runOnce() };
 }
-
-/** The encryption public key for a secret key, as a registration publishes it. */
-export const encryptionPublicKeyOf = (secretKey: Uint8Array) => encodePublicKey(encryptionKeyPairFromSecretKey(secretKey).publicKey);
