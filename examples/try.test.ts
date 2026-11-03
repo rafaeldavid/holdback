@@ -124,8 +124,8 @@ describe('try.ts (T-037)', () => {
   it('the homepage and llms.txt carry the one command, with the sha256 of site/try.mjs and the lockfile versions', async () => {
     const { tryCommand, page, filled, pins } = await import(here('../site/build.mjs'));
     const sha = createHash('sha256').update(readFileSync(here('../site/try.mjs'))).digest('hex');
-    const lock = readFileSync(here('../pnpm-lock.yaml'), 'utf8');
-    const v = (name: string) => new RegExp(`\\n  examples:\\n[\\s\\S]*?\\n      ${name}:\\n        specifier: [^\\n]+\\n        version: ([0-9.]+)`).exec(lock)?.[1];
+    // The pins are the versions this test ran the deal with: what pnpm installed for examples/.
+    const v = (name: string) => (JSON.parse(readFileSync(here(`./node_modules/${name}/package.json`), 'utf8')) as { version: string }).version;
     expect(pins()).toEqual({ viem: v('viem'), tweetnacl: v('tweetnacl') });
     const command = tryCommand();
     expect(command).toBe(`mkdir -p crow-try && cd crow-try && npm init -y >/dev/null && npm install --silent viem@${v('viem')} tweetnacl@${v('tweetnacl')} && curl -fsSLO https://escrow.stream/try.mjs && echo "${sha}  try.mjs" | shasum -a 256 -c && node try.mjs`);

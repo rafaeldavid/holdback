@@ -66,6 +66,7 @@ async function until(agent: Agent, id: Hex, states: string[], timeoutMs: number)
 async function main() {
   const started = Date.now();
   console.log(`’crow test deal on ${OPERATORS.join(' and ')}: test tUSD only, nothing here is real money`);
+  if (!globalThis.crypto?.subtle || typeof fetch !== 'function') throw new Error(`this needs Node 20 or later (Web Crypto and fetch); this is Node ${process.versions.node}`);
 
   step = 'keys';
   const fresh = () => new Agent(OPERATORS, generatePrivateKey(), nacl.randomBytes(32));
