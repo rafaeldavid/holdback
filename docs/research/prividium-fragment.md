@@ -1,6 +1,8 @@
 # Prividium as a single-use fragment per escrow (T-208 research pass)
 
-- **Date:** 2026-11-02. **Status:** research, no decision; feeds a D4 update and the T-208 recommendation.
+**Parked (Rafa, 2026-11-03).** T-208 is parked, as §5 recommends ("Agree on parking prividium"). It is listed in `docs/plan.md` under Phase 8 (Privacy end to end), next to the zero-knowledge fragment that keeps the idea without the vendor. There is no task file; the probe in §5 and the questions in §7.12 stay here for whoever reopens it.
+
+- **Date:** 2026-11-02. **Status:** research; T-208 parked on 2026-11-03 (note above).
 - **Method:** read-only. Both repos were read through `gh api` (compose files, seed SQL, contracts, SDK); nothing was cloned or run. Matter Labs' public docs are cited by URL. Labels: **measured** (read in the repos' files), **sourced** (a cited page), **inferred**, **guessed**.
 - **Question** (the appendix at the end of this file, first written as a `docs/backlog.md` section): can each deal run in its own short-lived Prividium instance, unseen by operators, with the money staying in the L1 escrow? D4 (2026-11-01) requires the fragment's operator to be unable to block settlement and unable to read the deal.
 
