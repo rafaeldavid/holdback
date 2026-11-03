@@ -1,10 +1,9 @@
-// Display names for narration. The parties, benches, backer and club come from T-012's shared cast
+// Display names for narration. The parties, benches, backer and club come from the shared cast
 // (apps/demo/agents/cast.ts); only the infrastructure and the observer, which that file does not name, are here.
 import { ATLAS, BENCH_A, BENCH_B, BENCH_C, BOND_BACKER, CLUB_NAME, TIDEWATER } from '@holdback/demo/agents/cast.js';
 import type { CastKey } from './types.js';
 
 export interface CastMember {
-  /** The name narration uses. */
   name: string;
   /** The firm behind it, or the bench letter. */
   org?: string;

@@ -1,6 +1,6 @@
 // Recorded judges: verdicts replayed from fixtures/recordings/<scenario>/<role>/<judgeId>.json.
 // The role (primary, fallback, appeal) is part of the key, so a primary panel and an appeal panel in one
-// scenario can seat the same judge and still give different verdicts (T-016).
+// scenario can seat the same judge and still give different verdicts.
 // A recording is bound to the pinned model ID, the prompt template hash, the rubric hash and the hash
 // of the exact judge input. If any of them changes, the verdict no longer answers the question being
 // asked, so the provider throws instead of replaying it (docs/testing.md, Recorded judges).
@@ -10,7 +10,7 @@ import { parseJudgeVerdict, type Hex32, type JudgeVerdict } from '@holdback/core
 import { APPEAL_PROMPT_TEMPLATE_HASH } from '@holdback/judgment';
 
 export const RECORDING_FORMAT = 'holdback.recording/v1';
-/** The T-005 format: no role, filed under <scenario>/<judgeId>.json. Read only by the migration. */
+/** The first format: no role, filed under <scenario>/<judgeId>.json. Read only by the migration. */
 export const RECORDING_FORMAT_V0 = 'holdback.recording/v0';
 
 export type JudgeRole = 'primary' | 'fallback' | 'appeal';
@@ -226,7 +226,7 @@ export interface Migrated {
 }
 
 /**
- * Moves T-005 recordings (<scenario>/<judgeId>.json, format v0) to <scenario>/<role>/<judgeId>.json (v1).
+ * Moves v0 recordings (<scenario>/<judgeId>.json) to <scenario>/<role>/<judgeId>.json (v1).
  * A v0 recording names no role: one bound to the appeal template becomes an appeal recording, any other a
  * primary one. Nothing else in the file changes, so a recording that was stale stays stale, and a fallback
  * recording filed as primary fails loudly (missing) on its next run instead of replaying. Idempotent.

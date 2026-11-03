@@ -284,7 +284,7 @@ function deliver(s: Extract<EscrowState, { kind: 'Held' }>, e: Extract<EscrowEve
   return ok({ ...s, kind: 'Delivered', delivery: d });
 }
 
-// The SimChain beacon's round at a timestamp, in drand's arithmetic (genesis 1 s, period 1 s: round(t) = t; T-209).
+// The SimChain beacon's round at a timestamp, in drand's arithmetic (genesis 1 s, period 1 s: round(t) = t).
 const roundAt = (ts: Timestamp): number => beaconRoundAt(SIM_BEACON, Math.max(0, Math.floor(ms(ts) / 1000)));
 
 /**

@@ -1,4 +1,4 @@
-// The public demo on Cloudflare (T-026): two Workers, holdback-op1 and holdback-op2, each an operator node in
+// The public demo on Cloudflare: two Workers, holdback-op1 and holdback-op2, each an operator node in
 // front of one Durable Object, World, that holds the whole public world (world.ts). holdback-op1 defines the
 // Durable Object; holdback-op2 binds to it by script name. Each Worker forwards a request with which node it
 // is, its own origin and the caller's IP; the Durable Object answers as that node, signing receipts with that
@@ -71,7 +71,7 @@ export class World {
   private async schedule(world: PublicWorld, delayMs: number): Promise<void> {
     if (!world.active()) return this.flushLater(world);
     // An alarm whose handler threw stays set, overdue, while the runtime backs off its retries; a request then
-    // re-arms it rather than wait (T-029 measured adjudicators idle for minutes after one failed version).
+    // re-arms it rather than wait (measured: adjudicators idle for minutes after one failed version).
     const at = await this.state.storage.getAlarm();
     if (at === null || at < Date.now() - 5000) {
       await this.state.storage.setAlarm(Date.now() + delayMs);

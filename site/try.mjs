@@ -706,7 +706,7 @@ const deliveryHashOf = (d) => hashStruct({
 });
 const sha256Of = async (b) => `sha256:${Buffer.from(await crypto.subtle.digest("SHA-256", new Uint8Array(b))).toString("hex")}`;
 /**
-* Opens the buyer's own envelope before an early accept (T-024, D32). The settlement layer cannot check
+* Opens the buyer's own envelope before an early accept (D32). The settlement layer cannot check
 * that the seller sealed the buyer's envelope to the buyer's key, and an early accept releases exactly that
 * envelope with the payment. So, with your own key: the handed delivery must be the one the settlement layer
 * holds, your one envelope must open, the ciphertext must match its signed hash and decrypt, and the plaintext

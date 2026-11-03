@@ -37,8 +37,6 @@ export type Operation =
   | { kind: 'settle'; message: MutualSettlement }
   | { kind: 'trigger'; commitmentId: Hex32; timeout: TimeoutKind };
 
-export type OperationKind = Operation['kind'];
-
 /** Trigger kinds as they appear in a path: `expire-offer`, `appeal-expiry`, ... */
 export const triggerPath = (t: TimeoutKind): string => t.replace(/_/g, '-');
 

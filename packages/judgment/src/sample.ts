@@ -1,4 +1,4 @@
-// Seeded, recomputable sampling of a large CSV for the panel (T-009; T-008 Handoff item 1).
+// Seeded, recomputable sampling of a large CSV for the panel.
 //
 // A deliverable over the prompt's data budget is shown to each judge as:
 //   - the header record;

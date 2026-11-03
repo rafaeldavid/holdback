@@ -4,7 +4,7 @@ pragma solidity ^0.8.28;
 import {IHoldbackBeacon} from "./IHoldbackBeacon.sol";
 
 /// @title DrandQuicknetBeacon
-/// @notice Verifies a drand quicknet round on chain (ADR-0018 §4, T-209). Quicknet (chain hash
+/// @notice Verifies a drand quicknet round on chain (ADR-0018 §4). Quicknet (chain hash
 ///         52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971) uses the scheme
 ///         `bls-unchained-g1-rfc9380`: the signature of round r is a BLS12-381 G1 point (48 bytes compressed) over
 ///         the message sha256(r as 8 big-endian bytes), hashed to G1 per RFC 9380 with the DST below; the group

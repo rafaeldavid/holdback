@@ -2,7 +2,7 @@
 (***************************************************************************)
 (* The commitment state machine of packages/core/src/state.ts, in          *)
 (* guaranteed_on_decision mode (the only Phase 1 mode), as a spec that the  *)
-(* rules contract (T-202) and SimChain are checked against (T-206).         *)
+(* rules contract and SimChain are checked against.                         *)
 (*                                                                          *)
 (* Actors: buyer, seller, primary / fallback / appeal adjudicators, an      *)
 (* operator node, the randomness beacon, and "anyone" (the permissionless  *)

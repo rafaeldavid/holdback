@@ -95,13 +95,13 @@ const MUTANTS = [
   ["intake", "MIME allowlist off", "intake.ts", "if (!ALLOWED_MIME.includes(mime))", "if (false)"],
   ["intake", "agreed format not bound at intake", "intake.ts", "if (input.format !== undefined && mime !== input.format) return fail", "if (false) return fail"],
   ["intake", "agreed format not bound in the pipeline", "pipeline.ts", "if (input.deliverable.format !== undefined && input.deliverable.format !== input.intake.mime)", "if (false)"],
-  // T-009: seeded sampling. Run against the sampling and pipeline tests only (6th element).
+  // Seeded sampling. Run against the sampling and pipeline tests only (6th element).
   ["seeded sampling", "seeded sample never used", "prompt.ts", "const seeded = records ? sampleCsv(records, max, input.sample!.seed) : null;", "const seeded = null as ReturnType<typeof sampleCsv>;", SAMPLING_TESTS],
   ["seeded sampling", "random rows ignore the seed", "sample.ts", "const j = i + seededIndex(seed, SAMPLE_VERSION, i, middle.length - i);", "const j = i + seededIndex(`0x${'00'.repeat(32)}`, SAMPLE_VERSION, i, middle.length - i);", SAMPLING_TESTS],
   ["seeded sampling", "no head rows", "sample.ts", "export const SAMPLE_HEAD = 20;", "export const SAMPLE_HEAD = 0;", SAMPLING_TESTS],
   ["seeded sampling", "no tail rows", "sample.ts", "export const SAMPLE_TAIL = 20;", "export const SAMPLE_TAIL = 0;", SAMPLING_TESTS],
   ["seeded sampling", "skips rows that do not fit (short-row bias)", "sample.ts", "if (!take(middle[i]!)) break;", "if (!take(middle[i]!)) continue;", SAMPLING_TESTS],
-  ["seeded sampling", "oversize record sampled around (review item 2)", "sample.ts", "  for (let k = 0; k < records.length; k++) if (cost(k) * MIN_SAMPLED_ROWS > maxChars) return null;\n", "", SAMPLING_TESTS],
+  ["seeded sampling", "oversize record sampled around", "sample.ts", "  for (let k = 0; k < records.length; k++) if (cost(k) * MIN_SAMPLED_ROWS > maxChars) return null;\n", "", SAMPLING_TESTS],
   ["seeded sampling", "per-record cap off by one", "sample.ts", "if (cost(k) * MIN_SAMPLED_ROWS > maxChars) return null;", "if (cost(k) * MIN_SAMPLED_ROWS >= maxChars) return null;", SAMPLING_TESTS],
   ["seeded sampling", "rows not in file order", "sample.ts", "const order = [...chosen].sort((a, b) => a - b);", "const order = [...chosen];", SAMPLING_TESTS],
   ["seeded sampling", "quotes ignored when splitting records", "sample.ts", "if (c === 34) quoted = !quoted;", "if (false) quoted = !quoted;", SAMPLING_TESTS],
@@ -110,7 +110,7 @@ const MUTANTS = [
   ["seeded sampling", "non-CSV row-sampled", "prompt.ts", "truncated && input.sample?.mime === 'text/csv' ? csvRecords(text) : null", "truncated && input.sample ? csvRecords(text) : null", SAMPLING_TESTS],
   ["seeded sampling", "seeded sample still escalates", "pipeline.ts", "if (rs.some((r) => r.strided)) escalate.push(", "if (rs.some((r) => r.strided || r.member.status === 'ok')) escalate.push(", SAMPLING_TESTS],
   ["seeded sampling", "sample seed not passed to the prompt", "pipeline.ts", "...(input.sampleSeed ? { sample:", "...(false ? { sample:", SAMPLING_TESTS],
-  // T-009: seat selection and registry.
+  // Seat selection and registry.
   ["seat selection", "no shuffle", "panel.ts", "    const j = i + seededIndex(key, label, i, out.length - i);", "    const j = i;", PANEL_TESTS],
   ["seat selection", "commitment ID not in the key", "panel.ts", "keccak256(concat([toBytes(seed), toBytes(commitmentId)]))", "keccak256(concat([toBytes(seed)]))", PANEL_TESTS],
   ["seat selection", "family minimum not reserved", "panel.ts", "    if (distinctAfter + seatsLeftAfter < minFamilies) continue;\n", "", PANEL_TESTS],

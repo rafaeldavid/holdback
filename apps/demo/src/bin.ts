@@ -1,5 +1,5 @@
 // Entry point for `pnpm demo`. Output goes to demo/out at the repository root. The environment reaches main()
-// for --live only (T-028; the package script loads the git-ignored .env with --env-file-if-exists).
+// for --live only (the package script loads the git-ignored .env with --env-file-if-exists).
 import { fileURLToPath } from 'node:url';
 import { main } from './cli.js';
 

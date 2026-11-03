@@ -1,4 +1,4 @@
-// `pnpm demo-cloud:secrets` (T-028): sets the three live-judge variables as Worker secrets on holdback-op1, the
+// `pnpm demo-cloud:secrets`: sets the three live-judge variables as Worker secrets on holdback-op1, the
 // Worker whose Durable Object runs the adjudicators. The values come from this process's environment, loaded by
 // Node's --env-file-if-exists from the git-ignored .env at the repository root (or --env-file=<path>); the JSON
 // is built in memory and piped to `wrangler secret bulk` on stdin. Nothing is written to disk and no value is

@@ -1,5 +1,5 @@
 // `pnpm openapi`: builds spec/openapi.json (OpenAPI 3.1) from spec/schemas and the hand-written paths file
-// spec/openapi/paths.json (ADR-0017 §11, T-015). No body schema is written twice:
+// spec/openapi/paths.json (ADR-0017 §11). No body schema is written twice:
 // - every spec schema becomes components.schemas.<PascalCase file name> and every $defs entry
 //   components.schemas.<def name>, with each $ref rewritten to a local #/components/schemas/... pointer;
 // - a paths-file schema with `x-holdback-extends: <Name>` is that schema deep-merged with the paths file's

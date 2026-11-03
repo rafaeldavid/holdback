@@ -5,8 +5,6 @@ import { createHash } from 'node:crypto';
 import { canonicalJson, type Hex32 } from '@holdback/core';
 import type { JudgeProvider, JudgeRequest, JudgeResponse } from '../pipeline.js';
 
-export const JUDGE_RECORDING_FORMAT = 'holdback.judge-recording/v1';
-
 export interface JudgeRecording {
   judgeId: string;
   model: string;

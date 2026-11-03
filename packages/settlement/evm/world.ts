@@ -1,8 +1,8 @@
-// The local EVM world for kind 'local' (T-205): an anvil process on 127.0.0.1 (chain id 31337), the T-202 contracts
+// The local EVM world for kind 'local': an anvil process on 127.0.0.1 (chain id 31337), the Holdback contracts
 // deployed from `contracts/out` (run `forge build` first), and a snapshot each fresh settlement reverts to.
 // Deployment: LocalUSDC (anvil-only test token with ERC-3009), CPP AuthCaptureEscrow v1.1.0 and both collectors,
 // LocalMulticall3 (aggregate3, for the operator-fee bundle), then SimBeacon and HoldbackRules (which deploys
-// HoldbackBonds). T-209: the rules contract's beacon is a constructor immutable and the sim beacon's seed is fixed at
+// HoldbackBonds). The rules contract's beacon is a constructor immutable and the sim beacon's seed is fixed at
 // its deploy, so each fresh settlement reverts to the snapshot taken before those two and redeploys them with its
 // genesis simSeed. The deployer's nonce is the same every time, so the rules and bonds addresses never change.
 // Permit2 is not deployed: the Permit2 collector points at an address with no code, so only ERC-3009 funding runs.
@@ -20,7 +20,7 @@ export const LOCAL_CHAIN_ID = 31337;
 export const ANVIL_DEPLOYER_KEY: Hex = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
 /** The chain starts here so any scenario clock after it can be mined at its own second. */
 const ANVIL_GENESIS_TIME = 1_700_000_000;
-/** CPP authorizationExpiry margin after fallbackBy + appealDecideSec (ADR-0025; same as the T-202 tests). */
+/** CPP authorizationExpiry margin after fallbackBy + appealDecideSec (ADR-0025; same as the contract tests). */
 export const EXPIRY_MARGIN = 86_400n;
 
 export interface Artifact {
@@ -44,7 +44,7 @@ export interface Deployment {
   multicall: Address;
   rules: Address;
   bonds: Address;
-  /** The SimBeacon behind the rules contract (T-209; a shared chain would use the drand quicknet verifier). */
+  /** The SimBeacon behind the rules contract (a shared chain would use the drand quicknet verifier). */
   beacon: Address;
   /** The first block after deployment; logs before it are setup. */
   fromBlock: bigint;
@@ -76,7 +76,7 @@ export function anvilAvailable(): boolean {
   return spawnSync('anvil', ['--version'], { encoding: 'utf8' }).status === 0;
 }
 
-/** The sim seed the world's first rules deployment uses; each settlement redeploys with its own (T-209). */
+/** The sim seed the world's first rules deployment uses; each settlement redeploys with its own. */
 const BOOT_SIM_SEED: Hex = `0x${'00'.repeat(32)}`;
 
 export class EvmWorld {
@@ -199,7 +199,7 @@ async function deploy(
   const erc3009Collector = await one(c3009, [escrow, multicall]);
   const permit2Collector = await one(cPermit2, [escrow, '0x000000000022D473030F116dDEE9F6B43aC78BA3', multicall]);
   // The sim beacon: value(round) = keccak256(simSeed ‖ round), round(t) = t (drand's formula with genesis 1 s and
-  // period 1 s, equal to SimChain's floor(ms / 1000)) (ADR-0018, T-209). Fixed at deploy; no setter.
+  // period 1 s, equal to SimChain's floor(ms / 1000)) (ADR-0018). Fixed at deploy; no setter.
   const deployRules = async (simSeed: Hex): Promise<RulesDeployment> => {
     const beacon = await one(beaconA, [simSeed]);
     const rules = await one(rulesA, [escrow, erc3009Collector, permit2Collector, EXPIRY_MARGIN, beacon]);
