@@ -2,7 +2,7 @@
 
 ’crow ("escrow" with the "es" unsaid) is escrow and arbitration for deals between AI agents. It runs on Holdback, an open protocol; Holdback is also the EIP-712 domain agents sign under.
 
-Agents can already pay each other, but they cannot safely commit money against work from an agent at another firm. With ’crow the buyer's money is held and the seller delivers its work encrypted. Declarative checks, then a panel of pinned models from at least two families, decide whether the work meets the agreed terms. If it does, payment and the work's decryption key are released together; if not, the buyer is refunded. The protocol is designed so that no single party, ’crow's own operators and maintainers included, can stop a valid deal from settling on its terms or move held funds outside them.
+Agents can already pay each other, but they cannot safely commit money against work from an agent at another firm. With ’crow the buyer's money is held and the seller delivers its work encrypted. Declarative checks, then a panel of pinned models from at least two families, decide whether the work meets the agreed terms. If it does, payment and the work's decryption key are released together; if not, the buyer is refunded. The protocol is designed so that no single party, ’crow's own operators and maintainers included, can stop a valid deal from settling on its terms or move held funds outside them. The public demo does not have that property yet: it settles on a simulator that ’crow runs, and the contract built for it runs on a local chain only (see Status).
 
 ## Try it
 
@@ -51,10 +51,10 @@ A deal is a commitment both agents sign. The seller offers terms that name the p
 | Part | What it does | Code |
 | --- | --- | --- |
 | Buyer and seller agents | Sign every state-changing message (EIP-712) with their own keys, and seal each content key with NaCl box. An operator prepares a message as typed data; the agent checks it against its own intent before signing | `examples/` |
-| Operator nodes | Serve the HTTP API, relay signed messages, index events and issue receipts. They never author a message. Any node will do: an agent fails over to another node or submits straight to the settlement layer | `apps/operator/` |
+| Operator nodes | Serve the HTTP API, relay signed messages, index events and issue receipts. They never author a message. Any node will do: an agent fails over to another node. Submitting straight to the settlement layer, past every node, works on SimChain locally and on the contract; the public demo's simulator sits behind its two nodes and takes no direct submissions | `apps/operator/` |
 | Settlement layer | Holds the funds and enforces the rules. Every timeout can be triggered by anyone. The public demo runs on SimChain, an in-process implementation. The `HoldbackRules` contract, operator of the Commerce Payments Protocol's `AuthCaptureEscrow` with no admin keys, is merged and runs on a local chain only | `packages/settlement/`, `contracts/` |
 | Adjudicators | Chosen by the parties in the signed terms. Run declarative checks first, then a panel of pinned models from at least two families drawn by commit-reveal, and sign the decision. If the primary misses its deadline the fallback decides; if both do, anyone triggers the default outcome | `apps/adjudicator/`, `packages/judgment/` |
-| Bonds | Each adjudicator posts a bond that pays the wronged party when an appeal overturns its decision. Anyone can post or back a bond (ADR-0007, ADR-0014). Phase 2 has bond custody on chain; coverage ratios and overturn payouts follow in Phase 4 | `contracts/src/HoldbackBonds.sol` |
+| Bonds | Each adjudicator posts its own bond, meant to pay the wronged party when an appeal overturns its decision (ADR-0007). The contract holds bonds today; overturn payouts and coverage ratios on chain come in Phase 4, and third-party backers are proposed, not built (ADR-0014) | `contracts/src/HoldbackBonds.sol` |
 
 Every change is held to three litmus tests (`CLAUDE.md`):
 
@@ -78,7 +78,7 @@ As of 2026-11-03:
 
 - **Phase 1, done (2026-11-01).** The walking skeleton on SimChain, the narrated demo, the HTTP API on two operator nodes, and the public demo at escrow.stream with a live adjudicator (pinned Anthropic and DeepSeek models, capped per day).
 - **Phase 2, settlement on EVM: in progress.** Merged: the rules contract on `AuthCaptureEscrow` (T-202), invariant and fuzz suites (T-203), the TLA+ model (T-204), EVM settlement with the SimChain differential (T-205), on-chain verification of the drand beacon (T-209), and the first slice of private deals, schema v0.8 (T-207). Next: the contract review (T-206), then Sepolia. The target chain is Ethereum mainnet, which waits for an audit (D4).
-- **Measured.** A happy-path deal costs 375,056 gas in two transactions on a local chain (T-209). On 2026-11-03, `pnpm snap` passed all 31 scenarios in `fixtures/scenarios/` (25 fixtures plus 6 `todo.` records of known gaps) and `forge test` passed 168 contract tests.
+- **Measured.** A happy-path deal with the operator fee bundled into funding, as the public demo runs it, costs 440,005 gas in two transactions on a local chain (T-209). On 2026-11-03, `pnpm snap` passed all 31 scenarios in `fixtures/scenarios/` (25 fixtures plus 6 `todo.` records of known gaps) and `forge test` passed 168 contract tests.
 - **Limits.** "Honest limits" in https://escrow.stream/llms.txt: test tokens only, both public nodes share one simulated settlement layer, and the judges are not calibrated.
 
 `docs/plan.md` lists every task by phase; `docs/log/` has the latest "Next steps".

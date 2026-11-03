@@ -6,7 +6,7 @@ First and foremost, Holdback is a protocol, not a service. It has three properti
 
 1. **Any two agents choose their own adjudicator.** The buyer and seller name the primary, fallback and appeal adjudicators in the commitment they both sign. No one assigns them.
 2. **Any capital holder can join the bonding.** Anyone can post or back an adjudicator's bond and earn for the capital at risk (ADR-0007; backers proposed in ADR-0014).
-3. **Access is by API.** Any operator node serves the HTTP API, and agents can also submit signed messages directly to the settlement layer. No single API provider is required (ADR-0005). No SDK or MCP server is offered; one may follow later, on demand (D30, D39).
+3. **Access is by API.** Any operator node serves the REST API and SDK, and agents can also submit signed messages directly to the settlement layer. No single API provider is required (ADR-0005).
 
 The prototype builds machine-speed escrow on that protocol. One agent opens a commitment with another, then:
 
@@ -15,15 +15,15 @@ The prototype builds machine-speed escrow on that protocol. One agent opens a co
 3. a judgment pipeline decides acceptance;
 4. the funds are released or refunded.
 
-Any blockchain stays behind the API. Agents see amounts, states and receipts, not chain mechanics.
+Any blockchain stays behind the API and SDK. Agents see amounts, states and receipts, not chain mechanics.
 
-**Current priority (2026-11-03):** Phase 2 hardening (settlement on EVM, no admin keys) while the public demo at escrow.stream stays honest and working. The demo-first walking skeleton for an AI lab researching agentic commerce (`docs/demo.md`) shipped in Phase 1; harden one layer at a time (`docs/plan.md`).
+**First product priority:** a simple demo that conveys the experience to an AI lab researching agentic commerce (`docs/demo.md`). Build the walking skeleton end to end first, then harden one layer at a time (`docs/plan.md`).
 
 ## Litmus tests
 
 Every design and code change must pass all three.
 
-1. **Neutrality** (ADR-0001). No single party can stop a valid commitment from settling according to its terms, or move held funds outside those terms. That covers operator nodes, the rules contract, adjudicators, club operators, on-ramps, model providers and Holdback's own maintainers. Each such actor has a `neutrality.*` fixture, or a planned one, showing the transaction still completes when that actor refuses or goes offline; `docs/neutrality.md` says which exist.
+1. **Neutrality** (ADR-0001). No single party can stop a valid commitment from settling according to its terms, or move held funds outside those terms. That covers operator nodes, the rules contract, adjudicators, club operators, on-ramps, model providers and Holdback's own maintainers. Each such actor has a `neutrality.*` fixture showing the transaction still completes when that actor refuses or goes offline. See `docs/neutrality.md`.
 2. **The hold** (ADR-0002). Funds are locked so neither party can take them alone. Holds have an expiry and idempotent operations, and cannot be double spent. Fiat and card rails are funding and payout adapters only. Custody stays on the neutral settlement layer.
 3. **Defended multi-model judgment** (ADR-0006).
    - Declarative deterministic checks run first.
@@ -112,10 +112,10 @@ node site/build.mjs && node site/check.mjs   # the site and its agent docs (site
 
 ## Map
 
-`docs/decisions-today.md` records decisions D1 to D40 (decided October 30 to November 2, 2026; D4 decided November 1), and `docs/reviews/` the reviews behind them. Read both first. `docs/backlog.md` holds work deferred until after the basic demo.
+`docs/decisions-today.md` records decisions D1 to D40 (decided October 30, 2026; D4 deferred to Phase 2), and `docs/reviews/` the reviews behind them. Read both first. `docs/backlog.md` holds work deferred until after the basic demo.
 
 The other docs: `PRD.md`, `neutrality.md`, `architecture.md`, `judgment-and-defenses.md`, `api.md`, `demo.md`, `testing.md`, `team.md`, `plan.md`, `decisions/`, `tasks/`. Research is in `docs/research/`; open it only when a decision needs it. `docs/operations.md` covers the live demo and deploys. Brand work is in `brand/`: the product is ’crow ("escrow" with the "es" unsaid), "Programmatic Escrow and Arbitration" (Rafa, 2026-11-02; D40: privacy is each deal's choice), at escrow.stream; its mark is Archibald Thorburn's 1919 hooded crow (public domain); Holdback stays the protocol's working name and EIP-712 domain.
 
 ## Vocabulary
 
-club, rulebook, member, agent, mandate, commitment (offered → agreed), hold, delivery, acceptance, deterministic check, rubric criterion, sealed check, screen, panel, judge, verdict, judgment, escalation, appeal, adjudicator, bond, fallback adjudicator, default outcome, operator node, rules contract, escape hatch, rail, on-ramp, off-ramp, SimChain, receipt. Definitions are in `docs/architecture.md` under Glossary. On the site, arbitration and arbitrator mean adjudication and adjudicator.
+club, rulebook, member, agent, mandate, commitment (offered → agreed), hold, delivery, acceptance, deterministic check, rubric criterion, sealed check, screen, panel, judge, verdict, judgment, escalation, appeal, adjudicator, bond, fallback adjudicator, default outcome, operator node, rules contract, escape hatch, rail, on-ramp, off-ramp, SimChain, receipt. Definitions are in `docs/architecture.md` under Glossary.

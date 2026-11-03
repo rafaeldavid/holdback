@@ -59,7 +59,7 @@ Accepted for the prototype and tracked here:
 
 ## How neutrality is tested
 
-- `neutrality.*` scenario fixtures (see `docs/testing.md`): each one takes one actor offline or makes it refuse, and asserts that the commitment still reaches a terms-compliant end state with the expected balances. Nine exist; the control-point table marks the planned ones.
+- `neutrality.*` scenario fixtures (see `docs/testing.md`): each one takes one actor offline or makes it refuse, and asserts that the commitment still reaches a terms-compliant end state with the expected balances. Nine exist; the control-point table marks the planned ones. Litmus test 1 in `CLAUDE.md` requires a fixture per actor, so each planned one is a gap that must be closed before any public-chain deployment.
 - A formal model of the state machine (`formal/Holdback.tla`, T-204) checks two properties with TLC:
   - **Liveness:** every funded commitment reaches Released, Refunded or Defaulted under fairness of "anyone may trigger timeouts", even when any single named actor halts.
   - **Safety:** no transition moves funds without a valid signature, decision or timeout.
