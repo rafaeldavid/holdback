@@ -93,6 +93,7 @@ Goal: judgment metrics measured against the PRD targets. Defenses complete.
 - T-306 Fee quotes from measured error rates; quote endpoint.
 - [x] T-307 Live demo mode (`pnpm demo --live`) with two or three model families. Done by T-028 (PR 62): two families, Anthropic and DeepSeek.
 - T-308 (later; research pass and ADR-0027, Proposed, 2026-11-03; Rafa, 2026-11-03) The adjudicator reports its whole judgment end to end (each check, each judge's full reasoning, the aggregation) with provable inference (zkSNARK proofs bound to a commitment to each judge's weights, as in Anthropic's FlashProve) that the pinned models produced it, and auto-tunes its judgment parameters from measured outcomes in a continuous loop, shipping each change only as a new registry version or policy bound in new commitments. Detail and limits in `docs/backlog.md` under "Judgment defenses".
+- T-309 (later, with T-308; research; Rafa, 2026-11-03) Evaluate Airbender, an open-source RISC-V zkVM with a GPU prover, as the proving backend for ADR-0027. Two questions: proving judge-model inference, measured against FlashProve's figures, and the likelier near-term fit, proving the deterministic checks, screen and aggregation. Also on-chain verification cost, pinning, a prover-offline fixture, and licence and maturity. Task file `docs/tasks/T-309-airbender-proving.md`.
 
 ## Phase 4: Adjudicator economics on the settlement layer
 
