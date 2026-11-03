@@ -1,5 +1,5 @@
-// EvmSettlement: the Settlement interface over the T-202 contracts (HoldbackRules, HoldbackBonds, CPP) on a local
-// anvil chain (T-205). Agents see amounts, states and receipts, never chain mechanics.
+// EvmSettlement: the Settlement interface over the Holdback contracts (HoldbackRules, HoldbackBonds, CPP) on a local
+// anvil chain. Agents see amounts, states and receipts, never chain mechanics.
 //
 // What is on chain and what is not (T-202 Decisions, rule 1):
 // - The contract has no Offered, AcceptedByAdjudicator or Agreed stage. Offer, adjudicator acceptance and Agree are
@@ -233,7 +233,7 @@ export class EvmSettlement implements Settlement {
     for (const a of parties) await send(a, token, encodeFunctionData({ abi: world.abis.token, functionName: 'approve', args: [bonds, 2n ** 256n - 1n] }));
   }
 
-  // ---- clock and beacon ---------------------------------------------------------------------------
+  // Clock and beacon
 
   now(): Timestamp {
     return toTimestamp(this.clockMs);
@@ -255,7 +255,7 @@ export class EvmSettlement implements Settlement {
     return keccak256(encodePacked(['bytes32', 'uint64'], [this.genesis.simSeed, BigInt(round)]));
   }
 
-  // ---- reads ----------------------------------------------------------------------------------------
+  // Reads
 
   escrowState(id: Hex32): EscrowState | null {
     return this.books.get(id)?.state ?? null;
@@ -336,7 +336,7 @@ export class EvmSettlement implements Settlement {
     return (this.books.get(id)?.released ?? []).filter((k) => lc(k.recipient) === lc(recipient));
   }
 
-  // ---- funding digests (ADR-0025) -------------------------------------------------------------------
+  // Funding digests (ADR-0025)
 
   private async separator(): Promise<Hex32> {
     this.domainSeparator ??= await this.read<Hex32>(this.world.deployment.token, this.world.abis.token, 'DOMAIN_SEPARATOR', []);
@@ -364,7 +364,7 @@ export class EvmSettlement implements Settlement {
     return { digest, nonce };
   }
 
-  // ---- submission -----------------------------------------------------------------------------------
+  // Submission
 
   submit(submission: Submission, options: EvmSubmitOptions = {}): Promise<SubmitResult> {
     return this.enqueue(() => this.process(submission, options, false));
@@ -462,7 +462,7 @@ export class EvmSettlement implements Settlement {
     const at = this.now();
     const via = options.via ?? 'direct';
     switch (s.kind) {
-      // ---- pre-funding: signatures collected by the adapter, checked on chain at agreeAndFund --------------
+      // Pre-funding: signatures collected by the adapter, checked on chain at agreeAndFund
       case 'offer': {
         const c = s.commitment;
         const t = termsOf(c);
@@ -519,7 +519,7 @@ export class EvmSettlement implements Settlement {
           throw e;
         }
       }
-      // ---- on chain --------------------------------------------------------------------------------------
+      // On chain
       case 'deliver': {
         const d = s.delivery;
         const book = this.bookOf(d.commitmentId);
@@ -681,7 +681,7 @@ export class EvmSettlement implements Settlement {
         await this.call(id, 'triggerFallback', [t], [{ type: 'trigger_fallback', at }], options, dryRun, 'anyone');
         return id;
       case 'default':
-        // One call on chain (T-204 finding 2): default and apply-default, price + fee back to the buyer.
+        // One call on chain: default and apply-default, price + fee back to the buyer.
         await this.call(id, 'triggerDefault', [t], [{ type: 'trigger_default', at }, { type: 'apply_default_outcome', at }], options, dryRun, 'anyone');
         return id;
       case 'apply_default': {
@@ -808,7 +808,7 @@ export class EvmSettlement implements Settlement {
     return ok ? { ok, events: rebuilt.length } : { ok, events: rebuilt.length, detail: `chain: ${rebuilt.join(',')} / adapter: ${recorded.join(',')}` };
   }
 
-  // ---- read model (as SimChain's view) --------------------------------------------------------------
+  // Read model (as SimChain's view)
 
   private async view(id: Hex32, rec: Book): Promise<CommitmentStateView> {
     const s = rec.state;

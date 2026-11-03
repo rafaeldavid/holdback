@@ -1,4 +1,4 @@
-// SimChain: the in-process settlement layer for Phase 1 (T-006). It owns the facts core's pure `step` cannot
+// SimChain: the in-process settlement layer. It owns the facts core's pure `step` cannot
 // know (balances, bond pools and their reserved counter, nonces, mandates, clubs, the clock and the beacon),
 // verifies every signature against them, runs `step`, and applies the postings and events of a submission
 // atomically, or not at all. `validate` is the same code path with the commit left out (ADR-0017 §7).
@@ -273,7 +273,7 @@ export class SimChain implements Settlement {
     this.mintedTotal += amount;
   }
 
-  // ---- clock, beacon, faucet --------------------------------------------------------------------
+  // Clock, beacon, faucet
 
   now(): Timestamp {
     return toTimestamp(this.clockMs);
@@ -297,7 +297,7 @@ export class SimChain implements Settlement {
   }
 
   /**
-   * Test only (T-026, the public demo's faucet): adds a principal-signed mandate after genesis, as genesis
+   * Test only (the public demo's faucet): adds a principal-signed mandate after genesis, as genesis
    * mandates are, and journals it so a replay has the same agents. Phase 1 has no run-time registration on a
    * real settlement layer (docs/backlog.md). Returns a problem when the club is unknown or the signature does
    * not recover to the principal; a later mandate for the same agent and club replaces the earlier one.
@@ -321,7 +321,7 @@ export class SimChain implements Settlement {
     return keccak256(encodePacked(['bytes32', 'uint64'], [this.genesis.simSeed, BigInt(round)]));
   }
 
-  // ---- reads ------------------------------------------------------------------------------------
+  // Reads
 
   escrowState(id: Hex32): EscrowState | null {
     return this.w.recs.get(id)?.state ?? null;
@@ -423,7 +423,7 @@ export class SimChain implements Settlement {
     return (this.w.recs.get(id)?.released ?? []).filter((k) => lc(k.recipient) === lc(recipient));
   }
 
-  // ---- submission ---------------------------------------------------------------------------------
+  // Submission
 
   submit(submission: Submission, options: SubmitOptions = {}): Promise<SubmitResult> {
     return this.enqueue(() => this.process(submission, options, false));
@@ -488,7 +488,7 @@ export class SimChain implements Settlement {
     if (delta !== 0n) throw new Error(`SimChain bug: a submission changed the token total by ${delta}`);
   }
 
-  // ---- signatures --------------------------------------------------------------------------------
+  // Signatures
 
   private async verifySignatures(s: Submission, dryRun: boolean): Promise<'verified' | 'skipped' | 'none'> {
     if (s.kind === 'trigger') return 'none';
@@ -561,7 +561,7 @@ export class SimChain implements Settlement {
     }
   }
 
-  // ---- the rules ---------------------------------------------------------------------------------
+  // The rules
 
   /**
    * The scope settlement checks for a party: its mandate's. A per-deal key (ADR-0024 §7) has no mandate; in a private
@@ -1005,7 +1005,7 @@ export class SimChain implements Settlement {
     return id;
   }
 
-  // ---- read model ---------------------------------------------------------------------------------
+  // Read model
 
   private view(id: Hex32, rec: Rec, bal: (account: string) => bigint): CommitmentStateView {
     const s = rec.state;

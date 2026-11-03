@@ -1,4 +1,4 @@
-// The public demo world (T-026): one SimChain, two operator nodes over it, three test adjudicators and a
+// The public demo world: one SimChain, two operator nodes over it, three test adjudicators and a
 // faucet, in one place so a Cloudflare Durable Object can hold it (worker.ts) and a Node test can run it.
 //
 // Public mode, as against `pnpm sim` (apps/operator/src/sim-world.ts), which is unchanged:
@@ -11,7 +11,7 @@
 //   faucet, D39); this world supplies the grant;
 // - the discovery document (also at GET /) carries the demo's facts: club, token, adjudicators by role, faucet,
 //   judges (D39); notices in the body say which judge panel would score an offer and why an offer was declined;
-// - the adjudicators decline sealed (private or judgment) offers, which they cannot open yet (T-030, F1);
+// - the adjudicators decline sealed (private or judgment) offers, which they cannot open yet;
 // - the journal of what the chain accepted, the ciphertext and the judgment records are persisted, so the
 //   world is rebuilt by replay after the Durable Object is evicted.
 // No real money: SimChain (chain id 31337), the test token tUSD, and the operators' startup guards.
@@ -41,7 +41,7 @@ export interface PublicWorldOptions {
   /** Per-client operator throttle. Default 120 writes and 1,200 reads a minute. */
   rateLimit?: { writes: number; reads: number; windowMs: number };
   /**
-   * Live judge calls a day across the demo (T-028). Default LIVE_JUDGE_CALLS_PER_DAY from `env`, else 30.
+   * Live judge calls a day across the demo. Default LIVE_JUDGE_CALLS_PER_DAY from `env`, else 30.
    * Live judging needs HOLDBACK_ANTHROPIC_API_KEY, HOLDBACK_OPENAI_COMPATIBLE_API_KEY and
    * HOLDBACK_OPENAI_COMPATIBLE_BASE_URL in `env` (Worker secrets); without them the panel is scripted.
    */
@@ -168,7 +168,7 @@ export class PublicWorld {
 
     const store = new StorageCiphertextStore(storage);
     const records = new Map<Hex32, Judgment>(Array.from(await storage.list<Judgment>({ prefix: 'jr:' }), ([k, v]) => [k.slice(3) as Hex32, v]));
-    // Live or scripted judges, fixed for this instance: the registry it binds depends on which (T-028).
+    // Live or scripted judges, fixed for this instance: the registry it binds depends on which.
     const panel = panelConfig({ env: o.env, storage, now, ...(o.judgeProvider ? { judgeProvider: o.judgeProvider } : {}), ...(o.liveCallsPerDay !== undefined ? { liveCallsPerDay: o.liveCallsPerDay } : {}) });
     const registrations = new Map<string, Omit<AdjudicatorRegistration, 'pool'>>();
     const registration = (address: Address): AdjudicatorRegistration | null => {
@@ -212,7 +212,7 @@ export class PublicWorld {
         faucet: { path: '/v1/faucet', grant: { token: TOKEN, amount: faucetAmount.toString() } as TokenAmount, perAddressEverySec: faucetWindowSec, perClientPerWindow: faucetPerClient },
         operators: publicUrls.length ? publicUrls : operators.map((op) => op.baseUrl).filter(Boolean),
         minWindowSec: m,
-        // Who judges rubric deals (T-028): the registry every adjudicator here binds, and today's live budget (UTC).
+        // Who judges rubric deals: the registry every adjudicator here binds, and today's live budget (UTC).
         judges: {
           panel: panel.live ? 'live' : 'scripted',
           registry: { uri: panel.registryUri, hash: panel.registry.hash },
@@ -365,7 +365,7 @@ export class PublicWorld {
 }
 
 /**
- * The demo faucet's grant (T-026): a fixed amount of tUSD and a mandate in the demo club, signed by the club's own
+ * The demo faucet's grant: a fixed amount of tUSD and a mandate in the demo club, signed by the club's own
  * test principal, once per address per window (persisted) and a few addresses per client per window (in memory).
  */
 function grantFrom(w: {
@@ -417,7 +417,7 @@ function grantFrom(w: {
 const DECIMAL = /^(0|[1-9][0-9]{0,77})$/;
 
 /**
- * ADR-0023, T-029: the demo's operator fee from Worker variables. OPERATOR_FEE_BPS (integer basis points, 0 to
+ * ADR-0023: the demo's operator fee from Worker variables. OPERATOR_FEE_BPS (integer basis points, 0 to
  * 10000) and OPERATOR_FEE_MIN (base units) publish a schedule, OPERATOR_FEE_MAX (base units) caps it; with neither
  * of the first two, the nodes charge nothing and publish no schedule. A malformed value refuses to start.
  */

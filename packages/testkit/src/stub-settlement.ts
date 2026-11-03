@@ -1,9 +1,9 @@
 // The fixture driver: turns scenario steps into the signed messages each actor would send and submits them
-// to SimChain (T-006), which verifies every signature, runs @holdback/core's `step`, and owns the ledger,
-// bond pools and the hash-chained event log. Signing keys are derived from the fixture seed and actor name.
-// The class keeps its T-005 name. A scenario's club and terms files are loaded when they exist
-// (fixture-files.ts); otherwise the built-in stub rulebook and terms stand in. The policy and registry hashes
-// and the judgment panel are still the stub's until T-009.
+// to SimChain, which verifies every signature, runs @holdback/core's `step`, and owns the ledger, bond pools
+// and the hash-chained event log (or to the contracts on a local anvil; see DriverBackend). Signing keys are
+// derived from the fixture seed and actor name. A scenario's club and terms files are loaded when they exist
+// (fixture-files.ts); otherwise the built-in rulebook and terms in stub-terms.ts apply. The registry
+// (config/judges.yaml) and the policy come from judges-config.ts; judgment.ts draws the panel.
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
@@ -206,7 +206,7 @@ const TIMEOUTS: Record<TimeoutStep, TimeoutKind> = {
   expire_appeal: 'appeal_expiry',
 };
 
-/** Which settlement layer the fixture drives: SimChain in process, or the T-202 contracts on a local anvil (T-205). */
+/** Which settlement layer the fixture drives: SimChain in process, or the Holdback contracts on a local anvil. */
 export type DriverBackend = { kind: 'sim' } | { kind: 'local'; world: EvmWorld; judgments?: ReadonlyMap<string, JudgmentView> };
 
 /**
@@ -394,7 +394,7 @@ export class StubSettlement {
     return this.result();
   }
 
-  // ---- helpers -------------------------------------------------------------------------------
+  // Helpers
 
   private get slot(): Slot {
     let s = this.slots.get(this.current);
@@ -551,7 +551,7 @@ export class StubSettlement {
     return { terms: this.terms, id: this.id, state };
   }
 
-  // ---- steps ---------------------------------------------------------------------------------
+  // Steps
 
   /** Who acts in a step, and through which operator, for the outage gate. */
   private actingParty(s: Step): { actor: string; via: string } | null {
@@ -1112,7 +1112,7 @@ export class StubSettlement {
     this.row(buyer, call, via, 'hash matches');
   }
 
-  // ---- results -------------------------------------------------------------------------------
+  // Results
 
   private events(): Array<LedgerEvent & { prevHash: Hex32 }> {
     return this.sim.log().map((e) => ({

@@ -131,7 +131,7 @@ export function decisionView(m: Decision) {
     beaconSourceHash: str(e.beacon.source),
     beaconRound: e.beacon.round,
     beaconValue: e.beacon.value,
-    // T-209: the proof bytes themselves; the contract hashes them into the Decision and asks its beacon to verify.
+    // The proof bytes themselves; the contract hashes them into the Decision and asks its beacon to verify.
     beaconSignature: e.beacon.signature,
     encryptedKeysHash: keysHash(m.encryptedKeys ?? []),
     nonce: m.nonce,
@@ -159,7 +159,7 @@ export function mutualView(m: MutualSettlement) {
   };
 }
 
-// ---- CPP (ADR-0025) -----------------------------------------------------------------------------
+// CPP (ADR-0025)
 
 const PAYMENT_INFO_TYPEHASH = str(
   'PaymentInfo(address operator,address payer,address receiver,address token,uint120 maxAmount,uint48 preApprovalExpiry,uint48 authorizationExpiry,uint48 refundExpiry,uint16 minFeeBps,uint16 maxFeeBps,address feeReceiver,uint256 salt)',

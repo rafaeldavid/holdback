@@ -1,4 +1,4 @@
-// The public demo's judge panel (T-028): live pinned models from two families when the three model variables are
+// The public demo's judge panel: live pinned models from two families when the three model variables are
 // set as Worker secrets, within a daily cap on live judge calls; scripted fake judges otherwise. The cap is the
 // spending limit for the public faucet: past it, panels are scripted for the rest of the UTC day, and their
 // verdicts carry the fake-judge mark, so a record never passes scripted output for a model's.

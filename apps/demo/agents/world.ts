@@ -48,7 +48,7 @@ export interface Cast {
   benchB: AgentKeys;
   /** Atrium Appeals (appeal). */
   benchC: AgentKeys;
-  /** Swiftline Verdicts: listed and bonded, declined by the rulebook at beat 1 (T-017). */
+  /** Swiftline Verdicts: listed and bonded, declined by the rulebook at beat 1. */
   swiftline: AgentKeys;
 }
 

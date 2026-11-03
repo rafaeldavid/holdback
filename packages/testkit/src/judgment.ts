@@ -1,5 +1,5 @@
-// The runner's judgment: @holdback/judgment's real pipeline (T-008) on a panel drawn from config/judges.yaml
-// by T-009's seeded selection. Intake, deterministic checks, the screen, the panel and aggregation are the
+// The runner's judgment: @holdback/judgment's real pipeline on a panel drawn from config/judges.yaml
+// by the seeded selection. Intake, deterministic checks, the screen, the panel and aggregation are the
 // library's; only the model calls are replaced, by recorded or fake verdicts (JudgeProvider in recorded.ts).
 //
 // The panel follows the adjudicator service (apps/adjudicator service.ts): panelSize seats over minFamilies

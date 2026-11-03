@@ -40,7 +40,7 @@ export class AtlasAgent {
   }
 
   /**
-   * Before any offer (T-017): reads the published registrations, keeps those the club rulebook allows for this
+   * Before any offer: reads the published registrations, keeps those the club rulebook allows for this
    * price and settlement mode, and proposes a primary, fallback and appeal adjudicator to the seller.
    */
   proposeAdjudicators(listings: readonly Listing[], terms: TermsTemplate): AdjudicatorProposal {

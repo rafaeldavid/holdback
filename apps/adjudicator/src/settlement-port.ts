@@ -1,5 +1,5 @@
 // The slice of the settlement layer the adjudicator service needs. simchain-adapter.ts implements it on
-// T-006's Settlement (packages/settlement/src/interface.ts) plus SimChain's reads; _sim.ts implements it
+// the Settlement (packages/settlement/src/interface.ts) plus SimChain's reads; _sim.ts implements it
 // for unit tests that inject failures.
 import type {
   AdjudicatorAcceptance,

@@ -60,5 +60,5 @@ export const STUB_ACCEPTANCE: AcceptanceSpec = {
   },
 };
 
-// The panel, policy and registry are no longer stubs: judges-config.ts loads config/judges.yaml and the
-// adjudicator policy, and judgment.ts runs @holdback/judgment (T-016).
+// The panel, policy and registry come from judges-config.ts (config/judges.yaml and the adjudicator policy);
+// judgment.ts runs @holdback/judgment.

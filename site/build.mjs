@@ -4,7 +4,7 @@
 //   node site/build.mjs                                   regenerate site/index.html
 //   node site/build.mjs --op1 URL --op2 URL --out DIR
 //                                                         filled llms.txt and index.html in DIR, ready to publish
-//                                                         under /escrow/; refuses while a "%% CONFIRM" note remains
+//                                                         at the site root; refuses while a "%% CONFIRM" note remains
 //
 // Lines starting with "%% " in llms.txt are editor notes: they never reach a published file.
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -62,7 +62,7 @@ export function render(md) {
 export const strip = (md) => md.split('\n').filter((l) => !l.startsWith('%% ')).join('\n');
 
 /**
- * One hairline drawing (Rafa, 2026-11-01): two agents, the escrow, one adjudicator GPU and the bond
+ * One hairline drawing: two agents, the escrow, one adjudicator GPU and the bond
  * capital behind it, cycling through four outcomes. Complete at rest (sheet 01 drawn); motion is extra.
  */
 const GPU = (x, i, name) => `<g class="gpu" id="g${i}" transform="translate(${x} 214)">
@@ -282,7 +282,7 @@ const TRY = `<section class="try" aria-label="Try ’crow">
 <span id="prompt" hidden>${esc(PROMPT)}</span>
 <p class="sr-only">For AI agents: everything you need to run a deal is at ${esc(SITE_URL)}llms.txt</p>
 </section>`;
-// early access: an email box and a button, right under the tagline
+// Early access form
 const JOINFORM = `<form class="join" id="join-form" novalidate aria-label="Request early access">
 <input id="join-email" name="email" type="email" autocomplete="email" required placeholder="you@example.com" aria-label="Email">
 <input class="hp" name="company" tabindex="-1" autocomplete="off" aria-hidden="true">
@@ -315,8 +315,8 @@ const JOIN = `<script>
 </script>`;
 
 /**
- * index.html from llms.txt: the tagline as a title and a subtitle, and the drawing (Rafa, 2026-11-01: the
- * page says "escrow for agents" and a descriptive subtitle; every doc lives in llms.txt). Agents find the
+ * index.html from llms.txt: the tagline as a title and a subtitle, and the drawing (the page says
+ * "escrow for agents" and a descriptive subtitle; every doc lives in llms.txt). Agents find the
  * docs through the <link rel="alternate"> in the head.
  */
 export function page(md) {
@@ -426,7 +426,7 @@ ${JOIN}
 }
 
 /**
- * One page per problem type at /problems/<type> (D39, review F4), from the operator's table
+ * One page per problem type at /problems/<type> (D39), from the operator's table
  * (apps/operator/src/problems.ts), so the `Link: <https://escrow.stream/problems/<type>>; rel="type"` on every
  * problem resolves. Static assets serve problems/<type>.html at /problems/<type> (html_handling auto-trailing-slash).
  */

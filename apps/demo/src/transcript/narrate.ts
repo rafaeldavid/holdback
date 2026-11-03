@@ -174,7 +174,7 @@ export function header(t: BeatTranscript): string[] {
   return [MODE_LINE[t.mode], `Source: ${t.source.note}`, `Shows: ${t.litmus}.`, UNITS_LINE].map(plain);
 }
 
-/** What several transcripts share, printed once above them (T-019): the most common mode and source note. */
+/** What several transcripts share, printed once above them: the most common mode and source note. */
 export interface SharedHeader {
   mode: BeatTranscript['mode'];
   note: string;

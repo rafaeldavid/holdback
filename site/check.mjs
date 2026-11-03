@@ -1,4 +1,4 @@
-// Checks the site before it is published (T-027). Exits 1 on the first group with a failure.
+// Checks the site before it is published. Exits 1 on the first group with a failure.
 //
 //   node site/check.mjs
 //
@@ -6,8 +6,8 @@
 // 2. Placeholders: {{OP1}} and {{OP2}} appear exactly once, in the Configure block; no others.
 //    A filled build leaves none, no editor note, and no local address. If a publish build exists in
 //    reports/site-out/, it is checked the same way.
-// 3. Every link in index.html is absolute https, an in-page anchor that exists, or a path under /escrow/ that
-//    names a file in site/.
+// 3. Every link in index.html is absolute https, an in-page anchor that exists, or a site-root path that names
+//    a file in site/.
 // 4. Content agrees with the repository: the EIP-712 types and domain with examples/verify.ts, the envelope test
 //    vectors, the worked checks example and every route with docs/api.md.
 // 5. Problem pages (D39): one page per problem type the operator answers, with its status and title.

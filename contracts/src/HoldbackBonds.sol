@@ -4,7 +4,7 @@ pragma solidity ^0.8.28;
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 /// @title HoldbackBonds
-/// @notice Phase 2 bond custody primitives (T-202): an adjudicator deposits its own bond, the rules contract
+/// @notice Phase 2 bond custody primitives: an adjudicator deposits its own bond, the rules contract
 ///         encumbers and releases it per commitment, and the adjudicator withdraws only what is unencumbered.
 ///         Appeal bonds are held per commitment until the appeal closes.
 /// @dev No owner, pause or upgrade path. The only privileged caller is RULES, the HoldbackRules contract that
@@ -47,8 +47,6 @@ contract HoldbackBonds {
         _;
     }
 
-    // ---------------------------------------------------------------- adjudicators
-
     /// @notice Adds to the caller's own bond. A deposit for someone else (a backer) is Phase 4.
     function deposit(address token, uint256 amount) external {
         bondOf[msg.sender][token] += amount;
@@ -68,8 +66,6 @@ contract HoldbackBonds {
     function freeOf(address adjudicator, address token) public view returns (uint256) {
         return bondOf[adjudicator][token] - encumberedOf[adjudicator][token];
     }
-
-    // ---------------------------------------------------------------- rules contract only
 
     function encumber(address adjudicator, address token, uint256 amount) external onlyRules {
         uint256 free = freeOf(adjudicator, token);

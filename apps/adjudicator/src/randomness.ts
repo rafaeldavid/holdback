@@ -1,7 +1,8 @@
 // Panel seeds for the decider's role (ADR-0018) and the RandomnessSource the service reads rounds
-// through. Phase 1 has the SimChain beacon only; drand quicknet comes with Phase 2.
+// through. The service reads the SimChain beacon; the drand quicknet verifier lives on chain
+// (contracts/src/DrandQuicknetBeacon.sol).
 //
-// `panelSeed` is core's (T-006). `roundFor` computes core's `beaconRoundFor` from the time the port
+// `panelSeed` is core's. `roundFor` computes core's `beaconRoundFor` from the time the port
 // reports, since the service sees tasks, not escrow states; `simBeacon` is the SimChain beacon for the
 // unit-test settlement. randomness.test.ts pins both against core and SimChain.
 import { concat, keccak256, numberToBytes, toBytes } from 'viem';

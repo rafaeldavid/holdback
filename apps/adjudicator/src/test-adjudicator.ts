@@ -62,7 +62,7 @@ function repoRegistry(file: string): LoadedRegistry {
 export const placeholderRegistry = (): LoadedRegistry => repoRegistry('config/judges.yaml');
 
 export const LIVE_REGISTRY_URI = 'file:///config/judges-live.yaml';
-/** config/judges-live.yaml (T-028): real pinned models from two families, which live judges can call. */
+/** config/judges-live.yaml: real pinned models from two families, which live judges can call. */
 export const liveRegistry = (): LoadedRegistry => repoRegistry('config/judges-live.yaml');
 
 export interface TestAdjudicatorOptions {
@@ -85,7 +85,7 @@ export interface TestAdjudicatorOptions {
   /** Where `registry` is published. Default file:///config/judges.yaml. */
   registryUri?: string;
   /**
-   * Replaces the marked fake judges (T-028: a live panel). Already routed by provider and wrapped in the judge
+   * Replaces the marked fake judges (a live panel). Already routed by provider and wrapped in the judge
    * timeout; the caller labels anything scripted it routes to.
    */
   provider?: JudgeProvider;

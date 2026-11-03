@@ -1,4 +1,4 @@
-// A small beat-1 fixture for render and untrusted-text tests (T-017): the proposal and agreement steps and four
+// A small beat-1 fixture for render and untrusted-text tests: the proposal and agreement steps and four
 // adjudicator profiles. `name` replaces the declined listing's name, so a test can make it hostile. Not a test
 // file itself; the real beat-1 transcript is checked in source/simchain.test.ts.
 import type { AdjudicatorProfile, BeatTranscript, DemoEvent } from './types.js';

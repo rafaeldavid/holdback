@@ -108,7 +108,7 @@ const notFound = (detail: string): never => {
   throw new PrepareError({ type: 'not_found', detail });
 };
 
-// ---- typed data ------------------------------------------------------------------------------------
+// Typed data
 
 const DOMAIN_TYPE = [
   { name: 'name', type: 'string' },
@@ -130,7 +130,7 @@ export function typesFor(primaryType: string): TypedDataJson['types'] {
   return out;
 }
 
-/** One rule for agents: every integer in a typed-data message is a decimal string, uint8 included (T-030). */
+/** One rule for agents: every integer in a typed-data message is a decimal string, uint8 included. */
 const jsonable = (v: unknown): unknown =>
   typeof v === 'bigint' || typeof v === 'number' ? v.toString() : Array.isArray(v) ? v.map(jsonable) : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, jsonable(x)])) : v;
 
@@ -148,7 +148,7 @@ const forMessage = (domain: HoldbackDomain, m: UnsignedMessage) => {
   return { typedData: typedData(domain, t.primaryType, t.message as Record<string, unknown>), digest: messageDigest(domain, m) };
 };
 
-// ---- helpers ---------------------------------------------------------------------------------------
+// Helpers
 
 const lc = (a: string) => a.toLowerCase();
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -215,7 +215,7 @@ async function commitmentIn(ctx: PrepareContext, input: Record<string, unknown>)
   return c ?? notFound(`no commitment ${String(input['commitmentId'])}`);
 }
 
-// ---- each kind -------------------------------------------------------------------------------------
+// Each kind
 
 const PLACEHOLDER_BODY = { deliverable: { kind: 'other', description: 'hash-only', format: 'text/plain' }, check: { id: 'hash-only', type: 'row_count_range', required: true, min: 0, max: 0 } } as const;
 

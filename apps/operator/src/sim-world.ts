@@ -254,7 +254,7 @@ export async function startSimWorld(options: SimWorldOptions = {}): Promise<SimW
       fee,
       ...(options.judges?.[a.role] ? { judges: options.judges[a.role]! } : {}),
       // A local world exercises private flows by early accept or mutual settlement (T-207), so its primary accepts
-      // sealed offers it cannot read. The public demo's adjudicators decline them instead (T-030).
+      // sealed offers it cannot read. The public demo's adjudicators decline them instead.
       acceptSealedUnread: true,
     });
     registrations.set(adj.address, { ...adj.registration(), poolTermsHash: canonicalKeccak(POOL_TERMS), status: 'active' });

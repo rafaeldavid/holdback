@@ -1,4 +1,4 @@
-// Choosing adjudicators before the offer (T-017). The buyer and seller name the primary, fallback and appeal
+// Choosing adjudicators before the offer. The buyer and seller name the primary, fallback and appeal
 // adjudicators in the terms they both sign (CLAUDE.md, Objective 1); this file holds the rules each agent
 // applies to the published registrations. Ledger (buyer) filters by the club rulebook and proposes a slate;
 // Tide-7 (seller) checks the slate against its own policy and agrees or refuses. The messages between them are
@@ -211,8 +211,6 @@ export function reviewSlate(proposal: AdjudicatorProposal, listings: readonly Li
   return refusals.length ? { agreed: false, refusals } : { agreed: true, slate: { ...proposal.slate }, checks, policy: SELLER_POLICY_CHECKS, requiredFreeBond: need };
 }
 
-// ---- profiles for the viewer ------------------------------------------------------------------------------
-
 /** A bench's profile with its judges resolved and its terms read from the registration, terms and SimChain. */
 export interface ProfileView {
   address: Address;
@@ -279,7 +277,7 @@ export function profileViews(listings: readonly Listing[], proposal: Adjudicator
         selected: role ?? 'declined',
         ...(role === undefined && considered?.reasons.length ? { declinedBecause: considered.reasons } : {}),
         ...(sellerChecks(l.address) ? { sellerChecks: sellerChecks(l.address)! } : {}),
-        // Live (T-028): every bench seats the live registry; the profiles' placeholder judges are not in it.
+        // Live: every bench seats the live registry; the profiles' placeholder judges are not in it.
         judges: liveJudgesInUse()
           ? registry.active.map((e) => ({ id: e.id, model: e.model, family: e.family, effort: e.provider === 'anthropic' ? 'live; effort low' : 'live; provider default' }))
           : resolveJudges(l.profile, registry),

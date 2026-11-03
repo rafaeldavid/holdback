@@ -8,12 +8,12 @@ import { normalizeText } from './normalize.js';
 import { UntrustedData } from './untrusted.js';
 
 export const MAX_PLAINTEXT_BYTES = 10 * 1024 * 1024;
-/** AES-256-GCM adds a 12-byte IV and a 16-byte tag in the provisional layout. */
+/** AES-256-GCM adds a 12-byte IV and a 16-byte tag in the content layout (core crypto/content.ts). */
 export const MAX_CIPHERTEXT_BYTES = MAX_PLAINTEXT_BYTES + 28;
 export const ALLOWED_MIME: readonly MimeType[] = ['text/csv', 'application/json', 'text/plain', 'text/markdown'];
 
 export type Envelope = Delivery['encryptedKeys'][number];
-/** Unwraps the content key escrowed to this adjudicator (x25519-xsalsa20poly1305; implemented in T-014). */
+/** Unwraps the content key escrowed to this adjudicator (x25519-xsalsa20poly1305). */
 export type KeyUnwrapper = (envelope: Envelope) => Promise<Uint8Array>;
 /** Decrypts the ciphertext with the content key. Throws on authentication failure. */
 export type ContentOpener = (ciphertext: Uint8Array, key: Uint8Array) => Promise<Uint8Array>;
@@ -63,10 +63,7 @@ export interface Intaken {
 
 const fail = (code: IntakeErrorCode, detail: string) => err<IntakeError>({ code, detail });
 
-/**
- * AES-256-GCM through Web Crypto, layout iv(12) || ciphertext || tag(16).
- * Provisional: T-014 owns the envelope format and should replace this default.
- */
+/** The default opener: AES-256-GCM through Web Crypto, layout iv(12) || ciphertext || tag(16), as in core's crypto/content.ts. */
 export const openAes256Gcm: ContentOpener = async (ciphertext, key) => {
   if (key.length !== 32) throw new Error('content key must be 32 bytes');
   if (ciphertext.length < 28) throw new Error('ciphertext too short');

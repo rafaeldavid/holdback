@@ -22,7 +22,7 @@ export interface Fraction {
 }
 export type SettlementMode = 'guaranteed_on_decision' | 'settle_after_window' | 'optimistic';
 export type RandomnessSource = 'sim' | 'drand-quicknet' | 'prevrandao';
-/** ADR-0020. Phase 1 admits public only. */
+/** ADR-0020, ADR-0024: the level the terms sign; the rulebook's disclosureMin is its floor. */
 export type DisclosureLevel = 'private' | 'judgment' | 'public';
 export type IdentityMode = 'long-term' | 'pseudonymous';
 
@@ -398,7 +398,7 @@ export type SignedMessage =
 
 /**
  * Buyer and seller close a commitment by agreement (ADR-0019, amended by D23). Both sign the identical
- * struct, so it carries two signatures instead of MessageBase's one. Settlement behavior is T-006.
+ * struct, so it carries two signatures instead of MessageBase's one.
  */
 /** D23: `parties` limits payouts to the buyer and the seller; `any` admits any address both sign for. */
 export type PayoutsTo = 'parties' | 'any';
@@ -424,7 +424,7 @@ export interface MutualSettlement {
   sellerSignature: Signature;
 }
 
-/** Buyer and seller raise the disclosure level by agreement (ADR-0020); raising only is checked by settlement (T-006). */
+/** Buyer and seller raise the disclosure level by agreement (ADR-0020); raising only is checked by settlement. */
 export interface Publish {
   type: 'Publish';
   commitmentId: Hex32;
@@ -509,7 +509,7 @@ export interface Rulebook {
   /** ADR-0019. */
   mutualSettlement: { allowed: boolean; adjudicatorFeeShareAfterDeliveryBps: number; payoutsTo: PayoutsTo };
   disclosureMin: DisclosureLevel;
-  /** Phase 1: long-term only (ADR-0020). */
+  /** Long-term keys, and pseudonymous per-deal keys with a Delegation (ADR-0024 §7). */
   identityModes: IdentityMode[];
   firstLossShareMinBps: Bps;
   bondNoticePeriodMinSec: number;

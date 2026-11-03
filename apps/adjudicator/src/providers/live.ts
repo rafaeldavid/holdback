@@ -1,4 +1,4 @@
-// Live judge providers: Anthropic Messages and OpenAI-compatible chat completions (T-009, T-028). Keys come from
+// Live judge providers: Anthropic Messages and OpenAI-compatible chat completions. Keys come from
 // environment variables only, and a provider refuses to exist without one; a refusal names the variable, never
 // a value. Requests carry the provider's model ID, the two prompt strings and an output cap; never tools, never
 // URLs to fetch. Not exercised against a network in tests or CI: a stubbed fetch checks the request shape, and
@@ -19,7 +19,7 @@ export const LIVE_ENV: readonly string[] = [LIVE_KEY_ENV.anthropic, LIVE_KEY_ENV
  * The output-token cap per live judge call, reasoning or thinking tokens included: the provider's max_tokens. It
  * replaces the request's maxOutputTokens (the pipeline's 2,048-token verdict budget), because reasoning models
  * spend tokens before the verdict: at 2,048, deepseek-flash used the whole budget reasoning and returned no text
- * (measured, T-028). The verdict itself stays bounded by the schema and MAX_OUTPUT_CHARS.
+ * (measured). The verdict itself stays bounded by the schema and MAX_OUTPUT_CHARS.
  */
 export const LIVE_MAX_OUTPUT_TOKENS = 8192;
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
@@ -94,7 +94,7 @@ const anthropic = (key: string, o: LiveOptions): JudgeProvider => ({
 });
 
 // DeepSeek's models reason by default, and on a 60k-token deliverable deepseek-v4-pro spent the whole 8,192-token
-// cap reasoning and returned no verdict (measured, T-028). For api.deepseek.com, thinking is turned off, as
+// cap reasoning and returned no verdict (measured). For api.deepseek.com, thinking is turned off, as
 // Anthropic's effort is set low; other OpenAI-compatible hosts get no extra parameter.
 const extraFor = (baseUrl: string): Record<string, unknown> => (new URL(baseUrl).host === 'api.deepseek.com' ? { thinking: { type: 'disabled' } } : {});
 

@@ -1,8 +1,8 @@
-// The transcript interface between a beat runner and the narration, renderers and viewer (T-013).
-// A beat runner (T-012's SimChain runner, or the scripted stand-in) produces a BeatTranscript; everything
+// The transcript interface between a beat runner and the narration, renderers and viewer.
+// The SimChain beat runner produces a BeatTranscript; everything
 // downstream reads only this. Money is a token amount in base units as a decimal string; times are whole
 // milliseconds since the job's first call. Deliverable content appears in one place only: the 'judge-prompt'
-// event (T-019), an excerpt of one judge's prompt and its verdict, made plain line by line at ingestion and escaped
+// event, an excerpt of one judge's prompt and its verdict, made plain line by line at ingestion and escaped
 // again by every renderer. Everything else is hashes, sizes and counts.
 
 /** Who appears in the demo. Display names live in cast.ts. */
@@ -72,7 +72,7 @@ export interface SlateKeys {
   appeal: CastKey;
 }
 
-/** One registration the buyer read before proposing (T-017). `name` is the registration's own text: untrusted. */
+/** One registration the buyer read before proposing. `name` is the registration's own text: untrusted. */
 export interface ConsideredAdjudicator {
   name: string;
   who?: CastKey;
@@ -81,7 +81,7 @@ export interface ConsideredAdjudicator {
   reasons: string[];
 }
 
-/** A bench's profile for the viewer (T-017). Effort, harness, roles and history are display data, not protocol. */
+/** A bench's profile for the viewer. Effort, harness, roles and history are display data, not protocol. */
 export interface AdjudicatorProfile {
   who?: CastKey;
   name: string;
@@ -118,7 +118,7 @@ export interface PromptView {
   user: { head: string[]; omitted: number; tail: string[]; lines: number };
 }
 
-/** How long judging took, measured by the adjudicator service's run (T-019). */
+/** How long judging took, measured by the adjudicator service's run. */
 export interface JudgingTiming {
   /** From the delivery's stamp to the decision's. */
   afterDeliveryMs: number;
@@ -213,7 +213,7 @@ export interface BeatTranscript {
   source: TranscriptSource;
   commitmentId?: string;
   events: DemoEvent[];
-  /** Beat 1: every adjudicator the agents considered, with its profile (T-017). */
+  /** Beat 1: every adjudicator the agents considered, with its profile. */
   adjudicators?: AdjudicatorProfile[];
 }
 
