@@ -48,7 +48,7 @@ Phase 1 runs on SimChain, an in-process simulation of the escrow rules, so this 
 | Option | Notes |
 | --- | --- |
 | Base Sepolia | CPP origin chain; Coinbase agent tooling |
-| ZKsync Sepolia | Native account abstraction and paymasters suit gasless agent accounts. This is your team's stack: decide whether that helps or reads as a conflict. |
+| ZKsync Sepolia | Native account abstraction and paymasters suit gasless agent accounts |
 | Defer until Phase 2 | Decide after the D3 spike, based on paymaster and account-abstraction needs |
 
 **Recommendation:** defer until Phase 2, and choose on account-abstraction and paymaster fit.

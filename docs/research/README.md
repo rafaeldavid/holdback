@@ -10,7 +10,7 @@ The research behind the design. Open these files only when a decision needs them
 | `escrow-evolution-model.html` | Interactive step-through model: human escrow → 2025–2026 mechanisms → five speculative futures; includes the full report | Open in a browser; self-contained apart from Google Fonts |
 | `engineering-practices-sources.md` | Sources for the agent-team and testing setup (Minsky, Lauren Tan's pstack, React Compiler fixtures) | X posts not retrieved; secondary summaries |
 | `notes/` | Seven raw research notes: protocols, fiat payments, crypto-native, deployed cases, experiments and precedents, theory and law, trust and failures | Working notes with per-claim sources and gaps sections |
-| `sources/stripe-place-a-hold-2026-10.md` | Stripe docs page on authorization holds, provided by Rafa | Copy as of October 30, 2026 |
+| Stripe, "Place a hold on a payment method", https://docs.stripe.com/payments/place-a-hold-on-a-payment-method (external; read October 30, 2026) | How long a card authorization can be held before capture. As read: about 7 days for customer-initiated payments, 4 days 18 hours for Visa merchant-initiated ones; uncaptured funds are released when the hold expires. Cited by D2 and `escrow-options-2026-10.md` | Stripe's figures change; check the live page |
 
 To be added by Phase 0 tasks:
 - `prior-art.md` (T-002);

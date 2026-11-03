@@ -2,7 +2,7 @@
 
 - **Status:** Accepted, 2026-10-30 (D13), as the trimmed Phase 1 subset in this document. Schema v0.5 is applied in a follow-up PR.
 - **Date:** 2026-10-30
-- **Raised by:** scoring `docs/api.md` against Rafa's agent readiness test ("The Agent Readiness Test for Enterprise Operations Software", https://rafael.fyi/blyg/t/71jexkhsyr9e7c70vadqkz5ba6/). It shapes T-006, T-007 and the new T-015.
+- **Raised by:** scoring `docs/api.md` against Rafa's agent readiness test ("The Agent Readiness Test for Enterprise Operations Software", an article by Rafa). It shapes T-006, T-007 and the new T-015.
 - **Amended after review:** an independent assessment of the first draft found five problems:
   - a signed dry run leaked a live authorization;
   - the contract test could not pass on placeholder signatures;

@@ -12,7 +12,7 @@ The public demo of ’crow (the Holdback protocol). Test tokens only; nothing he
 | https://join.escrow.stream | Early-access email sign-ups (KV `EMAILS`: address, time, page; nothing else) | `apps/early-access/` | Worker `crow-early-access` |
 | npc.here.now/escrow | Old address; a redirect to escrow.stream | `reports/redirect/` (not in git) | here.now; no further publishing needed |
 
-All on Rafa's Cloudflare account (`CLOUDFLARE_ACCOUNT_ID` in `config/keys-dev-env.template`). The domain `escrow.stream` was bought on Cloudflare (`brand/domain.md`).
+All on Rafa's Cloudflare account (its ID goes in `CLOUDFLARE_ACCOUNT_ID` in the git-ignored `.env`; template: `config/keys-dev-env.template`). The domain `escrow.stream` was bought on Cloudflare (`brand/domain.md`).
 
 **Demo settings** (in `apps/demo-cloud/wrangler.op1.jsonc` vars): minimum window 60 s; operator fee 1 bp, minimum 0.01 tUSD (D33, ADR-0023). Live judges: Anthropic and DeepSeek, pinned in `config/judges-live.yaml`, capped at 30 calls a day (`LIVE_JUDGE_CALLS_PER_DAY`); past the cap, or without keys, panels are scripted and every verdict says so.
 

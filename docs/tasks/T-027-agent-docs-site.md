@@ -1,11 +1,11 @@
-# T-027: The site at npc.here.now/escrow: tagline and agent docs
+# T-027: The site at npc.here.now/escrow: tagline and agent docs (moved to escrow.stream, 2026-11-01)
 
 - **Lane:** demo + docs
 - **Phase:** 1 (public demo)
 - **Depends on:** T-025 (docs content); T-026 (live URLs, filled in at the end)
 - **Paths this task may touch:** `site/` (new: `index.html`, `llms.txt`, `agents.md` or equivalent), `docs/tasks/T-027-agent-docs-site.md`
 - **Human gate:** publishing is done by the coordinator (Rafa approved the location on 2026-11-01)
-- **Status:** done (PR 60; published 2026-11-01 at https://npc.here.now/escrow/, here.now site `mighty-canvas-c3tc`)
+- **Status:** done (PR 60; published 2026-11-01 at npc.here.now/escrow, moved to https://escrow.stream the same day; the old address redirects)
 - **Agent/session:** implementer, branch `t-027-agent-docs-site`
 
 ## Intent
@@ -51,7 +51,7 @@ Non-goals: publishing or hosting (coordinator); filling the live operator URLs (
 - **Measured:** `pnpm verify` PASS (typecheck, lint, test, spec, snap, demo): `reports/verify-t-027-agent-docs-site.md`.
 - **Measured:** the page was viewed in the browser pane at desktop width and at 375 px. At 375 px, scrollWidth equals clientWidth (375), so there is no horizontal page scroll. Code blocks and tables scroll inside their own boxes.
 - **Inferred:** check.mjs fails on a stale page or a moved placeholder (from the code paths; no mutation run was recorded).
-- **Measured (live, 2026-11-01, after T-026 merged at a2a3c2e):** `OP1=https://holdback-op1.rafaeldf2.workers.dev OP2=https://holdback-op2.rafaeldf2.workers.dev node site/walkthrough.mjs` printed `walkthrough PASS (live …)`. It used two fresh self-made addresses, each funded once by `POST /v1/faucet`, so 2 grants. The run reached club `demo-club` and a 1,000 tUSD balance. Adjudicators came by role from `GET /`. The offer used the docs' 60-second windows, and every message the walkthrough built matched the operator's typed data and digest. The deal went `Held 26000000`, then `Released`, then final at `finalAt` 2026-11-01T12:16:13Z (equal to `appealBy`, one minute after the decision) with nobody acting. Commitment `0x176c0de2…`.
+- **Measured (live, 2026-11-01, after T-026 merged at a2a3c2e):** `OP1=https://holdback-op1.<account>.workers.dev OP2=https://holdback-op2.<account>.workers.dev node site/walkthrough.mjs` printed `walkthrough PASS (live …)`. It used two fresh self-made addresses, each funded once by `POST /v1/faucet`, so 2 grants. The run reached club `demo-club` and a 1,000 tUSD balance. Adjudicators came by role from `GET /`. The offer used the docs' 60-second windows, and every message the walkthrough built matched the operator's typed data and digest. The deal went `Held 26000000`, then `Released`, then final at `finalAt` 2026-11-01T12:16:13Z (equal to `appealBy`, one minute after the decision) with nobody acting. Commitment `0x176c0de2…`.
 - **Measured:** the faucet response shape (`address`, `clubId`, `granted`, `balance`, `mandate` with `mandateHash`, `nextGrantAfter`, `notice`) was read from `apps/demo-cloud/src/world.ts`. The three adjudicator roles were read from live `GET /`. The demo club's 60-second minimum was read from `docs/api.md` "Public demo" and from the live `minWindowSec`.
 - **Measured:** `reports/site-out/` holds the publish build (live origins filled; no placeholder or editor note), and `node site/check.mjs` passes against it. `reports/` is git-ignored, so the build is not in the PR.
 
@@ -71,7 +71,7 @@ Done after T-026 landed: the CONFIRM notes are resolved and deleted, the live wa
 
 For the coordinator:
 
-1. Publish `reports/site-out/index.html` and `reports/site-out/llms.txt` to npc.here.now/escrow/. To rebuild, run `node site/build.mjs --op1 https://holdback-op1.rafaeldf2.workers.dev --op2 https://holdback-op2.rafaeldf2.workers.dev --out reports/site-out`, then `node site/check.mjs`. Do not publish `site/` directly: its `llms.txt` holds the `{{OP1}}`/`{{OP2}}` placeholders.
+1. Publish `reports/site-out/index.html` and `reports/site-out/llms.txt` to npc.here.now/escrow/. To rebuild, run `node site/build.mjs --op1 https://holdback-op1.<account>.workers.dev --op2 https://holdback-op2.<account>.workers.dev --out reports/site-out`, then `node site/check.mjs`. Do not publish `site/` directly: its `llms.txt` holds the `{{OP1}}`/`{{OP2}}` placeholders.
 2. Re-measure after any change to the live API: `OP1=… OP2=… node site/walkthrough.mjs`. It uses 2 faucet grants and takes about a minute and a half, because it waits for `finalAt`.
 
 Cross-lane follow-up (outside this task's paths): `site/check.mjs` is not yet run by CI. Add a root script (for example `"site:check": "node site/check.mjs"`) and a `scripts/verify.ts` step, or move it to `tests/site.test.ts`. `site/walkthrough.mjs` needs a built `apps/operator` (`pnpm build`) in its local mode.
