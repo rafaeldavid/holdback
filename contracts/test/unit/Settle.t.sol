@@ -221,6 +221,7 @@ contract AppealTest is Base {
         assertEq(bonds.encumberedOf(adjudicator, address(usdc)), 0);
     }
 
+    /// The appeal bond comes back, and the primary's bond pays the price (T-206 I-8; OverturnPayout.t.sol).
     function test_overturned_bondBackToAppellant() public {
         (H.Terms memory t, bytes32 id, uint64 openedAt) = _filed();
         uint256 b0 = usdc.balanceOf(buyer);
@@ -229,7 +230,8 @@ contract AppealTest is Base {
         m = _signDecision(t, id, m, appealAdj, AP_PK);
         rules.decide(t, m, _noDelivery(), "");
         assertEq(uint8(rules.dealOf(id).appeal), uint8(HoldbackRules.AppealState.Overturned));
-        assertEq(usdc.balanceOf(buyer), b0 + 1_300_000);
+        assertEq(usdc.balanceOf(buyer), b0 + 1_300_000 + PRICE);
+        assertEq(bonds.bondOf(adjudicator, address(usdc)), BOND - PRICE);
     }
 
     function test_appealDecision_refusesAnotherSigner() public {

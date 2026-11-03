@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {AuthCaptureEscrow} from "commerce-payments/AuthCaptureEscrow.sol";
 import {MockERC3009Token} from "commerce-payments-test/mocks/MockERC3009Token.sol";
 import {Vm} from "forge-std/Vm.sol";
@@ -53,6 +54,7 @@ contract RulesHandler is Base {
     uint256 public timeoutMismatch; // a timeout succeeded before its deadline, or was refused when due
     uint256 public withdrawMismatch; // a bond withdrawal of free funds refused, or of encumbered funds allowed
     uint256 public keyWithoutPayment; // a KeyReleased on a deal that does not stand Released or Settled
+    uint256 public overturnMispaid; // an appeal decision paid from a bond other than as its verdict requires (T-206 I-8)
     string public lastViolation;
 
     constructor() {
@@ -175,7 +177,7 @@ contract RulesHandler is Base {
 
     function _violations() internal view returns (uint256) {
         return reopened + unauthorisedSuccess + unexpectedMovement + strangerSuccess + timeoutMismatch
-            + withdrawMismatch + keyWithoutPayment;
+            + withdrawMismatch + keyWithoutPayment + overturnMispaid;
     }
 
     /// Re-reverts a refused call so the metrics count it, unless the refusal itself was a violation.
@@ -432,15 +434,45 @@ contract RulesHandler is Base {
         (m.keyScheme, m.keyCiphertext) = (outcomeSeed >> 1) % 2 == 0 ? (KEY_SCHEME, KEY_CT) : ("", "");
         uint256 pk = _rolePk[id][H.ROLE_APPEAL];
         m = _signDecision(t, id, m, vm.addr(pk), pk);
+        // The first decider's bond and the party the decision went against, before the appeal decision.
+        address first = d.flags & 8 != 0 ? t.fallbackAdjudicator : t.adjudicator;
+        address wronged = d.stage == HoldbackRules.Stage.Released ? buyer : seller;
+        uint256 bond0 = bonds.bondOf(first, t.token);
+        uint256 bal0 = IERC20(t.token).balanceOf(wronged);
+        (, uint96 appealBond) = bonds.appealBondOf(id);
         bool ok;
         vm.recordLogs();
         vm.prank(_caller(callerSeed));
         try rules.decide(t, m, _noDelivery(), "") {
             ok = true;
+            _overturnPaid(t, id, first, wronged, bond0, bal0, appealBond);
         } catch {}
         _keyOnlyWithPayment();
         _track(id, d.stage);
         _end(ok, v0);
+    }
+
+    /// An overturn pays the wronged party (the only party that may appeal, L-7) the price from the first decider's
+    /// bond and returns its appeal bond; an upheld appeal adds the forfeited appeal bond to that bond instead.
+    function _overturnPaid(
+        H.Terms memory t,
+        bytes32 id,
+        address first,
+        address wronged,
+        uint256 bond0,
+        uint256 bal0,
+        uint96 appealBond
+    ) internal {
+        bool overturned = rules.dealOf(id).appeal == HoldbackRules.AppealState.Overturned;
+        uint256 bond = bonds.bondOf(first, t.token);
+        uint256 bal = IERC20(t.token).balanceOf(wronged);
+        bool paid = overturned
+            ? bond0 - bond == t.price && bal - bal0 == t.price + appealBond
+            : bond - bond0 == appealBond && bal == bal0;
+        if (!paid) {
+            overturnMispaid++;
+            lastViolation = "an appeal decision did not pay the wronged party from the first decider's bond";
+        }
     }
 
     /// Drives a funded deal to the fallback (posting the delivery and triggering the takeover if needed) and has the
@@ -752,7 +784,7 @@ contract RulesHandler is Base {
     }
 
     /// Any actor calling CPP's operator functions on a Holdback hold (capture, void, refund) or the bond vault's
-    /// rules-only functions (encumber, release, takeAppealBond, payAppealBond) must fail.
+    /// rules-only functions (encumber, release, takeAppealBond, payAppealBond, slash) must fail.
     function stranger(uint256 callerSeed, uint256 which, uint256 amount) external {
         uint256 v0 = _violations();
         address caller = _caller(callerSeed);
@@ -762,7 +794,7 @@ contract RulesHandler is Base {
         bytes memory data;
         address target = address(bonds);
         amount = _bound(amount, 0, 10_000_000);
-        uint256 w = which % 7;
+        uint256 w = which % 8;
         if (w < 3) {
             uint256 i = _pick(which >> 24);
             id = _ids[i];
@@ -776,7 +808,8 @@ contract RulesHandler is Base {
             if (w == 3) data = abi.encodeCall(HoldbackBonds.encumber, (adj, token, amount));
             else if (w == 4) data = abi.encodeCall(HoldbackBonds.release, (adj, token, amount));
             else if (w == 5) data = abi.encodeCall(HoldbackBonds.takeAppealBond, (id, caller, token, amount));
-            else data = abi.encodeCall(HoldbackBonds.payAppealBond, (id, token, caller));
+            else if (w == 6) data = abi.encodeCall(HoldbackBonds.payAppealBond, (id, token, caller));
+            else data = abi.encodeCall(HoldbackBonds.slash, (id, adj, token, amount, caller));
         }
         vm.prank(caller);
         (bool ok,) = target.call(data);
