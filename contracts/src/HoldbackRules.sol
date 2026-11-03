@@ -218,12 +218,12 @@ contract HoldbackRules is EIP712 {
     // Deliver
 
     /// @notice Anyone posts the seller-signed delivery before deliverBy, which stops a reclaim. Optional on the happy
-    ///         path: a decision or early accept may carry the delivery instead (D4: two transactions).
+    ///         path: a decision or early accept may carry the delivery instead, also before deliverBy (D4: two
+    ///         transactions).
     function deliver(H.Terms calldata t, H.Delivery calldata dv, bytes calldata sellerSignature) external {
         bytes32 id = H.commitmentId(t);
         Deal storage d = _deals[id];
         if (d.stage != Stage.Held) revert WrongStage(d.stage);
-        if (block.timestamp >= t.timing.deliverBy) revert DeadlinePassed();
         _acceptDelivery(id, t, d, dv, sellerSignature);
         d.stage = Stage.Delivered;
     }
@@ -231,7 +231,7 @@ contract HoldbackRules is EIP712 {
     // Decide
 
     /// @notice Anyone relays the adjudicator's signed decision. In `Held`, the decision carries the delivery it
-    ///         judged (`dv`, `sellerSignature`); otherwise they are ignored.
+    ///         judged (`dv`, `sellerSignature`), which must land before deliverBy. Outside `Held` they are ignored.
     function decide(H.Terms calldata t, H.Decision calldata m, H.Delivery calldata dv, bytes calldata sellerSignature)
         external
     {
@@ -594,7 +594,9 @@ contract HoldbackRules is EIP712 {
         emit Refunded(id, t.buyer, pi.maxAmount);
     }
 
-    /// @dev Verifies the seller-signed delivery for attempt 1 (core: maxSubmissions is 1 in Phases 1 and 2).
+    /// @dev Verifies the seller-signed delivery for attempt 1 (core: maxSubmissions is 1 in Phases 1 and 2). Whichever
+    ///      call lands it (deliver, or a decision or early accept that carries it), it must land before deliverBy, as
+    ///      in SimChain; otherwise it races the reclaim.
     function _acceptDelivery(
         bytes32 id,
         H.Terms calldata t,
@@ -602,6 +604,7 @@ contract HoldbackRules is EIP712 {
         H.Delivery calldata dv,
         bytes calldata sellerSignature
     ) internal {
+        if (block.timestamp >= t.timing.deliverBy) revert DeadlinePassed();
         if (dv.attempt != 1) revert InvalidMessage();
         bytes32 dh = H.deliveryHash(id, dv);
         _requireSigned(t.seller, dh, sellerSignature);
