@@ -200,7 +200,13 @@ function representable(build: () => CommitmentTerms): CommitmentTerms {
   if (!r.ok) bad(`these terms are not a valid commitment: ${r.error.detail}`);
   return terms;
 }
-export const amountText = (a: TokenAmount) => (a.token === 'tUSD' ? formatTusd(a.amount) : `${a.amount} base units of ${a.token}`);
+/** Symbols for 6-decimal tokens other than tUSD, by lowercase identifier: a chain world names its token (tUSDC). */
+const NAMED = new Map<string, string>([['tusd', 'tUSD']]);
+export const nameToken = (id: string, symbol: string): void => void NAMED.set(id.toLowerCase(), symbol);
+export const amountText = (a: TokenAmount) => {
+  const symbol = NAMED.get(a.token.toLowerCase());
+  return symbol ? formatTusd(a.amount, symbol) : `${a.amount} base units of ${a.token}`;
+};
 
 function timestamp(v: unknown, name: string): Timestamp | undefined {
   if (v === undefined) return undefined;
@@ -222,7 +228,7 @@ function fixedNonceIn(v: unknown, want: Hex32, name: string): Hex32 {
 }
 function amountIn(v: unknown, name: string): TokenAmount {
   if (!isObj(v) || typeof v['token'] !== 'string' || typeof v['amount'] !== 'string' || !/^(0|[1-9]\d{0,77})$/.test(v['amount'])) {
-    return bad(`${name} must be {"token": "tUSD", "amount": "<base units as a decimal string>"}; tUSD has 6 decimals, so 25 tUSD is "25000000"`, name);
+    return bad(`${name} must be {"token": "<the token identifier>", "amount": "<base units as a decimal string>"}: the identifier is discovery's demo.token.id on these nodes (tUSD on SimChain, the token's lowercase address on a chain), and with 6 decimals 25 is "25000000"`, name);
   }
   return { token: v['token'], amount: v['amount'] } as TokenAmount;
 }

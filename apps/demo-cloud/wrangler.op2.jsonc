@@ -11,7 +11,7 @@
   "workers_dev": true,
   "routes": [{ "pattern": "api2.escrow.stream", "custom_domain": true }],
   "preview_urls": false,
-  "vars": { "OPERATOR_URLS": "https://api.escrow.stream,https://api2.escrow.stream", "NODE_INDEX": "1", "SETTLEMENT": "sim" },
+  "vars": { "OPERATOR_URLS": "https://api.escrow.stream,https://api2.escrow.stream", "NODE_INDEX": "1", "SETTLEMENT": "sepolia" },
   "durable_objects": { "bindings": [{ "name": "WORLD", "class_name": "World", "script_name": "holdback-op1" }] },
   "alias": { "node:fs": "./worker/fs-shim.js" },
   "define": { "import.meta.url": "\"file:///holdback/bundle/a/b/worker.js\"" },
