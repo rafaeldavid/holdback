@@ -1,26 +1,26 @@
-# agent-ops in machine-readable form. NOT ACTIVE: nothing reads this file.
+# This file specifies agent ops in machine-readable form. The pipeline is not active, and nothing reads this file.
 version: 0
 status: inactive
 
-switches:                     # fail closed: unreadable or different means off
+switches:                     # The switches fail closed. The tick treats an unreadable or different value as off.
   require_all:
-    - { repo_variable: AGENT_OPS, equals: "on" }        # authoritative; outside the repo; only Rafa sets it
-    - { file: agent-ops/STATUS, first_line: active }    # a tier 3 PR
-  halt_file: reports/agent-ops/HALT                     # if it exists, nothing is dispatched; anyone may create it
+    - { repo_variable: AGENT_OPS, equals: "on" }        # This repository setting is authoritative. Only Rafa can set it.
+    - { file: agent-ops/STATUS, first_line: active }    # Changing this file requires a tier 3 pull request.
+  halt_file: reports/agent-ops/HALT                     # Anyone can create this file. While it exists, the tick starts no tasks.
 
-models:                       # pinned; a change is a tier 3 PR
+models:                       # The IDs are pinned. A model change requires a tier 3 pull request.
   fable: claude-fable-5-1
   opus: claude-opus-5-5
   sonnet: claude-sonnet-5-5
   haiku: claude-haiku-5-5
   second_family:
-    transport: apps/adjudicator/src/providers/live.ts   # the judges' OpenAI-compatible provider
-    primary: { family: deepseek, model: deepseek-v4-pro }   # an alias, not a snapshot; record the date of each call
-    fallback: { family: gpt, model: null }                  # pinned at activation; also seated at phase exits
+    transport: apps/adjudicator/src/providers/live.ts   # The judges use this OpenAI-compatible client.
+    primary: { family: deepseek, model: deepseek-v4-pro }   # DeepSeek publishes an alias, not a snapshot. Each review records the call date.
+    fallback: { family: gpt, model: null }                  # Activation pins this model. It also reviews at phase exits.
 
 intake:
   lanes:
-    tickets:   { sources: [github_issue, pr_comment], trust: untrusted, path: quarantine }   # repo public; 0 issues (measured)
+    tickets:   { sources: [github_issue, pr_comment], trust: untrusted, path: quarantine }   # The repository is public and has no issues (measured).
     feedback:  { sources: [feedback], where: "POST /v1/feedback (T-032)", trust: untrusted, path: quarantine, repo_copy: fingerprint_only }
     roadmap:   { sources: [docs/plan.md, docs/backlog.md, docs/decisions-today.md, docs/decisions/, "docs/reviews/*#Next steps"], trust: trusted, path: architect }
     telemetry: { sources: [web, social, api, onchain], trust: { aggregates: measured, social_text: untrusted }, path: signal_rules }
@@ -31,10 +31,10 @@ intake:
     out: schemas/triage-record.schema.json
     on_invalid: drop_and_count
     raw_text: { never_in: [task file, brief, PR body, handoff], reader: one_shot, cap_kb: 4 }
-  untrusted_to_tier_2_or_3: rafa   # the longest injection path waits for a human
+  untrusted_to_tier_2_or_3: rafa   # Rafa approves these tasks, because they form the longest injection path.
 
-telemetry:                    # aggregates only (D35, D39, D40); thresholds guessed, calibrated in the shadow week
-  store: [reports/telemetry/, operator KV]   # private; figures never enter the public repo; publishing waits for Rafa (D39)
+telemetry:                    # Telemetry holds aggregates only (D35, D39, D40). The thresholds are guesses that the shadow week calibrates.
+  store: [reports/telemetry/, operator KV]   # Both stores are private. Figures never enter the public repository, and Rafa decides on publication (D39).
   to_non_anthropic_providers: none
   sources:
     web:
@@ -46,7 +46,7 @@ telemetry:                    # aggregates only (D35, D39, D40); thresholds gues
       retention_days: 90
     social:
       signal: public mentions and replies about ’crow and escrow.stream, public sources only
-      owner: rafa             # a reply is publishing
+      owner: rafa             # Rafa owns this source because a reply is a publication.
       cadence: weekly
       opens_record: ["the same bug or docs confusion in 2 or more independent posts", "any security claim, to Rafa at once"]
       retention: { counts_and_fingerprints_days: 90, post_text: never_stored }
@@ -65,6 +65,19 @@ telemetry:                    # aggregates only (D35, D39, D40); thresholds gues
                      "an event sequence the state machine forbids: P0 security"]
       retention: { events: public, aggregates_days: 90 }
 
+feedback_requests:            # The operator asks opted-in agents for feedback at deal milestones. This extends T-032 and needs an ADR and a version bump.
+  opt_in: { header: "Prefer: feedback-requests=on", default: off, decided_by: the agent's owner, stored_state: none }
+  sampling: { method: "hash(signer key, deal ID, milestone) compared with the rate", max_per_deal_and_milestone: 1 }   # The rates are guesses.
+  milestones:
+    - { at: offer or agreement prepared, when: before signing, rate: 0.10 }
+    - { at: [agreed, funded, delivered, judged], when: after the stage completes, rate: 0.10 }
+    - { at: settled, when: after settlement, rate: 1.0 }
+    - { at: appeal filed, when: after the appeal, rate: 1.0 }
+    - { at: error response, when: with the problem response, rate: 0.25, per: problem type }
+  request: { field: feedbackRequest, expires_hours: 24, questions: [ease rating 1 to 5, docs answered the question (yes or no), optional free text], deal_content: none }
+  answer: { route: "POST /v1/feedback", rules: D39, ratings: telemetry aggregates, free_text: quarantine }
+  opens_record: ["a milestone's average ease rating falls below 3 over a week", "more than 30% of a milestone's answers say the docs did not answer"]   # The thresholds are guesses.
+
 record:
   schema: schemas/triage-record.schema.json
   kinds: [bug, docs, feature, feedback, friction, deprecation, incident, flake, security, spam]
@@ -77,7 +90,7 @@ roles:
   implementer:    { model: sonnet, on_tier_2: opus, writes: [task paths] }
   fixture-author: { model: sonnet, first_on: tier_2, writes: [fixtures/scenarios/] }
   verifier:       { model: sonnet, tools: [Read, Bash, Edit Evidence only] }
-  reviewer:       { model: not_author, sonnet_work: opus, opus_work: fable, tools: [Read, Bash] }   # no Write, no Edit
+  reviewer:       { model: not_author, sonnet_work: opus, opus_work: fable, tools: [Read, Bash] }   # The reviewer has no Write or Edit access.
   xreviewer:      { model: second_family, tools: [], out: ReviewVerdict }
   red-teamer:     { model: fable, effort: max, plus: second_family_at_milestones }
   tick_runner:    { model: haiku, runs: scripts/ops/tick.mjs, decides: nothing }
@@ -103,7 +116,7 @@ tick:
                paths disjoint from open PRs and claims, wip and daily budget have room]
 
 wip: { implementers: 3, after_T-034: 5, per_lane: 1, prs_in_ci: 2, xfam_in_flight: 1, xfam_calls_per_day: 30, full_verify_per_machine: 1, sessions: 5 }
-budgets_usd: { tier_0: 5, tier_1: 25, tier_2: 80, tier_3: 40, daily: 300 }   # guessed
+budgets_usd: { tier_0: 5, tier_1: 25, tier_2: 80, tier_3: 40, daily: 300 }   # These values are guesses.
 
 isolation:
   preferred: sandboxed cloud or VM session per task, own clone, scoped tokens
@@ -119,8 +132,8 @@ single_writer:
 generated: [spec/openapi.json, reports/design-map.html]
 branch_update: merge main in; never rebase
 
-tiers:                        # a PR takes the highest tier among its paths; an unmatched path is tier 1
-  0: { paths: ["docs/**", "brand/**", "/*.md"], except: ["docs/decisions/**", CLAUDE.md, AGENTS.md], merge: auto }   # *.expect.md snapshots are code
+tiers:                        # A pull request takes the highest tier among its paths. A path that matches no rule is tier 1.
+  0: { paths: ["docs/**", "brand/**", "/*.md"], except: ["docs/decisions/**", CLAUDE.md, AGENTS.md], merge: auto }   # Snapshot files (*.expect.md) count as code.
   1: { paths: ["**"], adds: [verifier], merge: auto }
   2: { paths: ["contracts/**", "packages/settlement/**", "packages/judgment/**", "packages/core/**", "spec/**", "apps/adjudicator/**", "apps/operator/src/**",
                "config/judges*.yaml", "formal/**", "docs/decisions/**", pnpm-lock.yaml],
@@ -129,7 +142,7 @@ tiers:                        # a PR takes the highest tier among its paths; an 
        adds: [xreviewer], merge: rafa, enforce: [fleet GitHub App identity, code-owner review on tier 3] }
   outside: { actions: [deploy, keys, money, repo settings, publish, force push], merge: rafa }
 
-guardrails:                   # scripts/ci/guardrails.mjs, inside check
+guardrails:                   # scripts/ci/guardrails.mjs runs inside the check job.
   fail: [path outside task paths, "spec/schemas change without ADR and version bump"]
   raise_to_tier_3: ["deleted or edited attack.* or neutrality.* fixture", raised timeout, new admin selector]
 deny_additions: [wrangler, gh api --method, gh repo edit, gh secret, gh ruleset, gh pr merge --admin, git push to main]
@@ -156,14 +169,14 @@ milestones:
   - { at: mainnet,               reviewers: [external audit], effect: rafa }
 
 xreview_ci:
-  event: pull_request_target  # script from main; the diff comes from the API; no PR code runs
+  event: pull_request_target  # The script comes from main and the diff comes from the API. No code from the pull request runs.
   same_repo_only: true
-  always_reports: true        # passes at once below tier 2
+  always_reports: true        # The check passes immediately for tiers 0 and 1.
   out: schemas/review-verdict.schema.json
 
 review_theater:
-  agreement: { log: reports/review-agreement.jsonl, flag: "agreement with self-assessment > 95% over 20 PRs" }   # guessed
-  canaries: { cadence: monthly, metric: recall per family }                                                   # guessed
+  agreement: { log: reports/review-agreement.jsonl, flag: "agreement with self-assessment > 95% over 20 PRs" }   # The threshold is a guess.
+  canaries: { cadence: monthly, metric: recall per family }                                                   # The cadence is a guess.
 
 kill_switch:
   pause: { how: [create halt_file, "AGENT_OPS != on", alarm], who: [anyone, rafa, automatic] }
@@ -174,18 +187,18 @@ kill_switch:
 observability:
   per_pr_footer: [model per role, sessions, reruns, verdict per family, tier, budget used]
   per_tick: reports/agent-ops/metrics.jsonl
-  daily: docs/log/        # pipeline metrics only; product telemetry figures stay private (D39)
+  daily: docs/log/        # The log holds pipeline figures only. Product telemetry stays private (D39).
   alarms_pause_dispatch: [main red 30 min, cross-family block rate over 50% in a day, spend at daily cap, gitleaks hit on an agent branch]
 
-activation:                   # each step is Rafa's
+activation:                   # Rafa approves each step.
   - sandboxed environment with scoped tokens; GitHub App identity; nothing on Rafa's Mac
   - spend-capped DeepSeek key as an Actions secret; xreview required; code-owner review on tier 3
   - T-034, T-035, T-036 merged; Known flakes list in docs/testing.md
   - reviewer and verifier lose Write and Edit; deny_additions in .claude/settings.json
   - schemas wired into the harness; attack.* payloads fed to triage; tests/agent-ops-inactive.test.ts
-  - telemetry sources: T-031, T-032, Web Analytics, a public-source social reader
+  - telemetry and feedback: T-031, T-032 with milestone feedback requests (after their ADR), Web Analytics, a public-source social reader
   - "shadow week: tick --dry-run; Rafa dispatches by hand; thresholds calibrated"
-  - one lane until 10 merged PRs with no revert, then 3   # threshold guessed
+  - one lane until 10 merged PRs with no revert, then 3   # The threshold is a guess.
   - "STATUS: active; AGENT_OPS: on"
 
 proposed_not_built: [scripts/ops/intake.mjs, scripts/ops/signals.mjs, scripts/ops/task-lint.mjs, scripts/ops/tick.mjs, scripts/ops/xreview.mjs,
