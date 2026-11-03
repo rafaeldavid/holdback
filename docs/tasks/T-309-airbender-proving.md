@@ -4,7 +4,9 @@
 - **Phase:** 3 (later, with T-308)
 - **Depends on:** ADR-0027 (Proposed) and its research note `docs/research/t-308-judgment-report-provable-inference.md`
 - **Paths this task may touch:** `docs/research/t-309-airbender-proving.md` (new), `docs/tasks/T-309-airbender-proving.md`, `docs/backlog.md` (the T-308 row only), `reports/scratch/t-309/` (spike code and logs, not committed). Any spike code worth keeping goes in a follow-up task.
-- **Human gate:** no for desk research and runs on local hardware. Renting a GPU or any other paid compute waits for Rafa (real money, outside the repository).
+- **Human gate:** no for desk research, local CPU runs and a local chain (anvil); yes for paid compute and for any public-network transaction.
+  - Renting a GPU or any other paid compute waits for Rafa (real money, outside the repository). The local machine is Apple silicon, and the GPU prover appears to need CUDA (inferred), so every GPU figure needs this gate.
+  - So does any transaction on a public network, Sepolia included: a funded key and a deploy both reach outside the repository (CLAUDE.md).
 - **Status:** todo
 - **Agent/session:** —
 
@@ -20,11 +22,14 @@ Find out whether Airbender can serve as the proving backend for ADR-0027's attes
 
 - **Raised by** Rafa, 2026-11-03, after Anthropic's provable-inference post: investigate Airbender for proving inference.
 - **What Airbender is** (measured, 2026-11-03, `github.com/matter-labs/zksync-airbender`):
-  - "RISC-V compilation and proving tools": RISC-V circuits, a simulator, witness generation, proof creation and verification;
-  - docs on GPU acceleration;
-  - dual-licensed Apache-2.0 or MIT;
-  - one audit report in `audits/` (August 2025);
-  - releases tagged up to `v0.5.2` (2025-12-19), with `dev-v0.8.x` tags.
+  - the repository description is "RISC-V prover system for ZKsync OS";
+  - the README lists RISC-V circuits, a simulator, and witness generation, proof creation and verification;
+  - it has docs on GPU acceleration;
+  - it is dual-licensed, Apache-2.0 or MIT;
+  - `audits/` holds one audit report (August 2025);
+  - the tags run to `v0.6.0-rc.2` (2026-08-13), beside `dev-v0.8.x` tags;
+  - the last commit on `main` is from 2026-04-23.
+- **The SNARK wrapper** for on-chain verification is a separate repository, `github.com/matter-labs/zkos-wrapper` (MIT): it "takes the zkos proof (in json format), and returns the snark proof" (measured, its README).
 
   Everything else about it here is a question, not a fact.
 - **ADR-0027:**
@@ -36,9 +41,9 @@ Find out whether Airbender can serve as the proving backend for ADR-0027's attes
   - about 110 window tokens per second on one H100 (39.1 reply tokens per second under the looser policy);
   - 18.78 MB per proof, verified in 17 s on 24 CPU threads;
   - one model shape and a 1,024-token window;
-  - not maintained.
-- **The deterministic stages** are intake, deterministic checks, screen and aggregation (`docs/judgment-and-defenses.md`, stages 0 to 2 and 5). They are TypeScript today (`packages/judgment/src/`). Aggregation is pinned by version (`agg-3`) and table-tested.
-- **Neutrality:** a prover is an actor in `docs/neutrality.md`. ADR-0027 proposes its control-point row and fixtures, such as `neutrality.prover-offline-after-accept` and `neutrality.operator-refuses-proof-bundle`.
+  - not maintained, with "no independent security audit". That audit is the bar ADR-0027 §5 sets.
+- **The deterministic stages** are intake, the deterministic checks, the screen's heuristics (screen v0) and aggregation (`docs/judgment-and-defenses.md`, stages 0, 1, 2 and 5). They are TypeScript today (`packages/judgment/src/`). Aggregation is pinned by version (`agg-3`) and table-tested. The screen's planned classifier model call (T-303; `screen.ts:2-3`) is model inference, so it belongs under question 1.
+- **Neutrality:** ADR-0027 proposes a prover row for `docs/neutrality.md`, which has none yet. Its Consequences name the prover fixtures, such as `neutrality.prover-offline-after-accept` and `neutrality.operator-refuses-proof-bundle`.
 
 ## Questions
 
@@ -49,19 +54,23 @@ Find out whether Airbender can serve as the proving backend for ADR-0027's attes
    - whether the result scales to a judge-sized model or only to a toy.
 
    State the extrapolation as inferred, never as measured.
-2. **The deterministic stages.** The likelier near-term fit: prove checks, screen and aggregation, which are cheap and deterministic, so the judgment record carries proofs for everything except model inference. Answer:
+2. **The deterministic stages.** The likelier near-term fit: prove the checks, the screen's heuristics and aggregation, which are cheap and deterministic, so the judgment record carries proofs for everything except model inference. Answer:
+   - what a proof adds over re-running the code. The party a decision goes against already holds the plaintext and can re-run the stages itself (ADR-0027 §3, §5 `reproducible`; D32 prefers the simpler fix);
+   - whether the proofs hide the witness (zero knowledge). If they do not, a proof cannot avoid revealing the plaintext;
+   - where such a proof would live, since ADR-0027 §2 defines `zk` per judge seat only: in the record, in the `ProofBundle`, or as a new stage-level kind;
    - what porting to a RISC-V guest costs (Rust, or another language Airbender supports), and how the guest stays equivalent to the TypeScript (the same table-driven tests, a differential test);
    - proving cost per judgment on one real fixture, for example `happy-path` or a 10 MB CSV at the size cap;
    - how such a proof would bind to `policyHash`, `aggregationVersion`, the checks in the terms, and the plaintext hash, without revealing the plaintext.
-3. **On-chain verification.** Can an Airbender proof be verified by a contract on a local chain or Sepolia?
-   - What does one verification cost in gas, and is there a wrapping step (a final SNARK) with its own setup or trust assumptions?
+3. **On-chain verification.** Can an Airbender proof be verified by a contract on a local chain (anvil)? No transaction goes to any public network without Rafa (see the gate).
+   - What does one verification cost in gas?
+   - What does the wrapping step (`zkos-wrapper`) need: a trusted setup or a structured reference string and where it comes from, and its memory and hardware?
    - How does that compare with off-chain verification, FlashProve's model?
    - ADR-0027 stores only a root on chain, so say whether on-chain verification would add anything the timeout or an appeal needs.
 4. **Pinning and neutrality.**
    - How to pin a prover version, the guest program and the verifier: a reproducible build and a verification key hash a registry entry or policy could carry.
    - Who can produce a proof: anyone holding the plaintext, or only the adjudicator.
-   - Name the `neutrality.*` fixture for a prover that refuses or goes offline, consistent with ADR-0027 §4.
-5. **Licence and maturity.** Licence terms; release cadence and stability (the mixed `v0.5` and `dev-v0.8` tags); the audit's scope and findings; maintenance status; supported hardware.
+   - Which of ADR-0027's prover fixtures an Airbender prover needs, and whether an on-chain verifier adds a new one (for example a verifier contract that is never deployed, or is deployed in a different version).
+5. **Licence and maturity**, for Airbender and for `zkos-wrapper`: licence terms; release cadence and stability (the `v0.6.0-rc`, `v0.5` and `dev-v0.8` tags, and the last commit date); each audit's scope and findings; maintenance status; supported hardware.
 
 ## Acceptance criteria
 
@@ -92,3 +101,5 @@ Choices made inside this task. Escalate anything that changes architecture, a co
 ## Handoff
 
 What is done, what is not, how to resume, and the open questions that remain.
+
+If the recommendation changes ADR-0027, the amendment is a follow-up: an ADR change recorded in `docs/decisions-today.md`, which Rafa can overrule.
