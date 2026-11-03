@@ -51,7 +51,7 @@ import { startupGuards } from './guards.js';
 import { amountText, operatorFeeText, prepare, PrepareError, type PrepareContext } from './prepare.js';
 import { IdempotencyStore, fingerprint, type StoredResponse } from './idempotency.js';
 import { readerOf, type Reader } from './read-auth.js';
-import { llmsTxt, openApiDocument, plannedRoute } from './openapi/index.js';
+import { llmsTxt, openApiDocument, plannedRoute, routeOf } from './openapi/index.js';
 import { fieldOf, problemBody, problemHeaders, statusOf, type ApiProblem, type ApiProblemType, type ProblemMembers } from './problems.js';
 import type { Registry } from './registry.js';
 
@@ -103,7 +103,11 @@ export interface LogEntry {
   requestId: string;
   method: string;
   path: string;
+  /** The route template the request matched (openapi/index.ts routeOf): the path without its addresses and IDs. */
+  route: string;
   status: number;
+  /** The problem type of the answer, when it was one. */
+  problem?: ApiProblemType;
   ms: number;
   /** W3C trace context, logged as received; it never enters a signed message, receipt or event. */
   traceparent?: string;
@@ -380,6 +384,8 @@ interface Ctx {
   segments: string[];
   req: IncomingMessage;
   res: ServerResponse;
+  /** The problem type answered, for the log line. */
+  problem?: ApiProblemType;
 }
 
 const lc = (s: string) => s.toLowerCase();
@@ -479,7 +485,16 @@ export class Operator {
     res.setHeader('Holdback-Schema-Version', SCHEMA_VERSION);
     res.on('finish', () => {
       const tp = req.headers['traceparent'];
-      this.o.log?.({ requestId, method: ctx.method, path: url.pathname, status: res.statusCode, ms: this.now() - started, ...(typeof tp === 'string' ? { traceparent: tp } : {}) });
+      this.o.log?.({
+        requestId,
+        method: ctx.method,
+        path: url.pathname,
+        route: routeOf(ctx.method, url.pathname),
+        status: res.statusCode,
+        ...(ctx.problem ? { problem: ctx.problem } : {}),
+        ms: this.now() - started,
+        ...(typeof tp === 'string' ? { traceparent: tp } : {}),
+      });
     });
     this.route(ctx).catch((e: unknown) => {
       if (res.headersSent) return void res.end();
@@ -497,6 +512,7 @@ export class Operator {
 
   /** RFC 9457 with the type's page linked (problems.ts); a `link` in `headers` joins it. */
   private problemResponse(ctx: Ctx, p: ApiProblem, headers: Record<string, string> = {}): StoredResponse {
+    ctx.problem = p.type;
     const own = problemHeaders(p);
     const link = headers['link'] ? `${own['link']}, ${headers['link']}` : own['link']!;
     return { status: statusOf(p.type), headers: { ...own, ...headers, link }, body: JSON.stringify(problemBody(p, ctx.requestId)) };
