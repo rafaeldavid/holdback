@@ -7,7 +7,7 @@ This review does three things:
 - it turns their findings into vulnerability classes and checks each class against our code (section 3);
 - it ranks what is new (section 4).
 
-It complements the T-206 contract review (`docs/reviews/2026-11-03-contract-review.md`, PR #128) and cites that review's findings by ID (H-1 to L-6, I-1 to I-11) instead of repeating them.
+It complements the T-206 contract review (`docs/reviews/2026-11-03-contract-review.md`, in PR #128, not yet merged) and cites that review's findings by ID (H-1 to L-6, I-1 to I-11) instead of repeating them.
 
 **Scope.**
 - The code under review is `contracts/src/` at `main` `43479c7`:
@@ -18,13 +18,13 @@ It complements the T-206 contract review (`docs/reviews/2026-11-03-contract-revi
 
   `SimBeacon` runs on anvil only.
 - How `HoldbackRules` drives Commerce Payments' (CPP) `AuthCaptureEscrow` v1.1.0, vendored at `6b0a5ef3`, with its ERC-3009 and Permit2 collectors and Multicall3.
-- The open T-206 fix PRs (#120, #125, #127) were read but not merged here.
-- First wave: USDC only (D42).
+- T-206's fix PRs (#120, #122, #125, #127) were read. They merged to `main` while this review ran, and the cross-check tests pass on the merged code (section 9).
+- First wave: USDC only (D42, recorded in PR #138, not yet merged).
 
 **Method.**
 - Five research passes read the primary sources: audit firms' report repositories, project audit folders and contest reports. Each pass fetched every URL it cites, and anything it could not open is marked unverified.
 - Each class was then checked against the code with file:line evidence.
-- 4 new Foundry tests in `contracts/test/crosscheck/`, and 3 more moved to T-206's fix PR (section 9).
+- 8 new Foundry tests in `contracts/test/crosscheck/`, and 3 more handed to T-206's fix PR (section 9).
 - Read-only RPC checks against Ethereum Sepolia and mainnet. No deployment, key or transaction was used.
 
 **Labels.** **Measured**: a test, a tool run, or text read in the source. **Inferred**: from reading code. **Guessed**: plausible, not checked. Line numbers refer to `43479c7`; `ACE` is `contracts/lib/commerce-payments/src/AuthCaptureEscrow.sol`.
@@ -32,14 +32,14 @@ It complements the T-206 contract review (`docs/reviews/2026-11-03-contract-revi
 ## 1. Verdict
 
 - **Dependencies.** None of the published audits of CPP v1.1.0, Permit2, Solady or USDC shows a problem with how Crow uses them [measured from the reports, inferred for our usage].
-  - The one CPP change made after the 2025 audits, PR #90 (absolute `feeAmount`), has its own Cantina audit of exactly `6b0a5ef3`. That report reached CPP's repository after our pin, so it is not in our vendored copy.
-- **Two new medium findings. Neither moves or loses funds.**
-  - **PA-M1.** A sham deal can lock a fallback's or appeal adjudicator's bond without its signature, contrary to ADR-0016 §1. T-206 is fixing it as M-3, before the deployment.
-  - **PA-M2.** The operator-fee bundle can be front-run so that a deal never funds through that node. ADR-0023 expected this residual, but its stated mitigation is not built. The fix belongs to the Sepolia demo lane.
+  - The one substantive CPP code change after the 2025 audits, PR #90 (absolute `feeAmount`), has its own Cantina audit of exactly `6b0a5ef3`. That report reached CPP's repository after our pin, so it is not in our vendored copy. PR 71's contract renames are the only other change no audit covered.
+- **Two new medium findings. Neither moves held funds or bonds.**
+  - **PA-M1.** A sham deal can lock a fallback's or appeal adjudicator's bond without its signature, contrary to ADR-0016 §1. T-206 fixes it as M-3 in PR #135, before the deployment.
+  - **PA-M2.** The operator-fee bundle can be front-run so that a deal never funds through that node, while the buyer's operator fee is still paid. ADR-0023 expected this residual, but its stated mitigation was not built. The Sepolia demo lane builds it in PR #138.
 - **No new high finding.**
-- **The drand verifier passes every BLS pitfall the audits name.** No audit of any Solidity drand verifier exists, so ours would be the first reviewed one. Two low gas findings, PA-L1 and PA-L2 (section 7).
+- **The drand verifier passes every BLS pitfall the audits name.** No audit of a Solidity drand verifier was found, so there is no earlier review of one to lean on. Two low gas findings, PA-L1 and PA-L2 (section 7).
 - **Out of scope.** The token issuer's blacklist and pause (section 5).
-- **Deploy checks are measured** (section 6.3): Sepolia's USDC, Permit2 and Multicall3 match what the code expects.
+- **Deploy checks are measured** (section 6.3): Sepolia's USDC, Permit2, Multicall3 and EIP-2537 precompiles match what the code expects. EIP-1153 is inferred.
 - **0xSplits.** Section 8 weighs whether its mechanics could replace some of our payout code. Any adoption needs an ADR and comes after the Sepolia deployment.
 
 ## 2. Audits consulted
@@ -65,7 +65,11 @@ It complements the T-206 contract review (`docs/reviews/2026-11-03-contract-revi
 | USDC FiatToken v2.2 | Halborn, per Circle | blog, 9 Nov 2023 | [Circle blog](https://www.circle.com/blog/announcing-usdc-v2-2) | **Report not located (unverified).** Token behaviour was read in [stablecoin-evm](https://github.com/circlefin/stablecoin-evm) instead |
 | Multicall3 | none: unaudited per its README | n/a | [mds1/multicall3](https://github.com/mds1/multicall3) | The README also says the deployer key is compromised (PA-I2) |
 
-Solady is vendored at 0.1.1 (`5ea5d9f`), and every audited commit above is its ancestor. Its 130 later commits are not covered by any audit [measured]. Permit2 source is at `cc56ad0`, a descendant of the last audited commit, and the signature files are unchanged since [measured].
+Solady is vendored at 0.1.1 (`5ea5d9f`), and every audited commit above is its ancestor. Its 130 later commits are not covered by any audit [measured].
+
+Permit2 source is at `cc56ad0`, a descendant of the last audited commit [measured]:
+- `SignatureVerification.sol` and `PermitHash.sol` are unchanged since;
+- `SignatureTransfer.sol` and `EIP712.sol` changed in imports and interfaces only.
 
 ### 2.2 Escrow, arbitration and bonds
 
@@ -143,7 +147,13 @@ Further unverified sources are in the research notes:
 
 ## 3. Class-by-class results
 
-**pass**: the class does not apply, with evidence. **fail**: a finding in section 4. **open**: a T-206 finding still to fix. **n/a**: not applicable to USDC or to our configuration.
+Results:
+- **pass**: the class does not apply, with evidence.
+- **fail**: a finding in section 4.
+- **fixed**: a T-206 finding whose fix PR has merged to `main` (#120, #122 and #127 since `43479c7`).
+- **open**: a T-206 finding still to fix.
+- **info**: an informational item in section 4.3.
+- **n/a**: not applicable to USDC or to our configuration.
 
 ### 3.1 Signatures and replay
 
@@ -164,7 +174,7 @@ Further unverified sources are in the research notes:
 | # | Class | Seen in | Result | Evidence |
 | --- | --- | --- | --- | --- |
 | F1 | `transferWithAuthorization` front-run, on the hold | EIP-3009 security considerations; Maple 3S-Sy-L02 | pass | The collector calls `receiveWithAuthorization` (`ERC3009PaymentCollector.sol:42`), whose payee must be the caller. Its nonce is the payer-agnostic PaymentInfo hash (`:48`), and only `HoldbackRules` can call `authorize`. A copied transaction funds the identical deal, and the original reverts with `WrongStage` (`HoldbackRules.sol:199`) [measured code, inferred effect] |
-| F2 | The same, on the operator-fee bundle | same | **fail** | PA-M2 [measured] |
+| F2 | The same, on the operator-fee bundle | same | **fail** | PA-M2 [measured on local mocks] |
 | F3 | Permit2 scope and nonce; old Permit2 versions | ABDK CVF-35; CPP ProtoSec 3 remark | pass | The spender is `msg.sender` (`permit2/src/libraries/PermitHash.sol:62`), and the nonce comes from the payment hash (`Permit2PaymentCollector.sol:46`). Sepolia's Permit2 is mainnet's (section 6.3) [measured] |
 | F4 | A relayer swaps fields nobody signed | Maple 3S-Sy-L01; Trustless Work A05; ERC-8183 PR 7 | pass | Every term is in the commitment ID. The unsigned `f.method` is refused (T-206 S8) [measured there] |
 | F5 | Counterfactual (undeployed) smart-wallet buyer | — | info | PA-I5 |
@@ -246,8 +256,8 @@ Further unverified sources are in the research notes:
 
 | ID | Severity | Finding | Litmus test | Label | Status |
 | --- | --- | --- | --- | --- | --- |
-| PA-M1 | medium | A sham deal locks a fallback's or appeal adjudicator's bond without its signature | neutrality (ADR-0016 §1) | measured | T-206 is fixing it as M-3, before the deployment |
-| PA-M2 | medium | Front-running the operator-fee bundle stops funding through that node | neutrality (liveness) | measured | ADR-0023 residual; mitigation not built; passed to the Sepolia demo lane |
+| PA-M1 | medium | A sham deal locks a fallback's or appeal adjudicator's bond without its signature | neutrality (ADR-0016 §1) | measured | T-206 M-3, PR #135 (open), before the deployment |
+| PA-M2 | medium | Front-running the operator-fee bundle stops funding through that node | neutrality (liveness) | measured on local mocks; inferred for Sepolia USDC | ADR-0023 residual; the adapter fix is in PR #138 (open) |
 | PA-L1 | low | The beacon's pairing gas cap is fixed forever | judgment (fallback seeds) | inferred | Only for chains other than Ethereum; section 7 |
 | PA-L2 | low | Fusaka raised the beacon's gas cost; ADR-0018's figures are stale | none (cost) | measured | Update after the Sepolia smoke test; section 7 |
 | PA-I1 to PA-I9 | info | Sections 4.3 and 7 | | | |
@@ -268,15 +278,17 @@ Further unverified sources are in the research notes:
   3. The primary stays silent and anyone triggers the fallback, or the primary escalates.
 - **Effect:**
   - The victim's free bond drops to 0. It cannot withdraw, and `agreeAndFund` naming it as primary reverts with `InsufficientFreeBond`.
-  - The cost is 2 × price of the attacker's own capital: the hold plus its primary bond. That is nearly free on Sepolia with faucet USDC, so the demo's adjudicators can be taken offline.
+  - The cost is the attacker's own capital: through the fallback, 2 × price (the hold plus its primary bond); through an escalation, only the hold, because the escalation releases the primary's bond (`HoldbackRules.sol:303`). That is nearly free on Sepolia with faucet USDC, so the demo's adjudicators can be taken offline.
   - The attacker can release everything with a mutual settlement whenever it likes.
   - The victim escapes only by signing decisions on a deal it never accepted. As fallback it can escalate, which moves the lock to the appeal adjudicator.
   - No funds move or are lost.
-- **Proof** [measured], committed at `ac7e5a1` and moving to T-206's M-3 PR:
+- **Proof** [measured], in `contracts/test/crosscheck/BondGriefing.t.sol` at `ac7e5a1`:
   - `test_attack_shamDeal_triggerFallbackLocksTheNamedFallbacksBond`;
   - `test_attack_shamEscalation_locksTheNamedAppealAdjudicatorsBond`;
   - `test_defense_fallbackEscapesByEscalating_lockMovesToTheAppealAdjudicator`.
-- **Fix** (T-206 M-3):
+
+  PR #135 carries them as regression tests in `contracts/test/unit/BondConsent.t.sol`, flipped and renamed (`test_shamDeal_triggerFallbackReservesNothing`, `test_shamEscalation_reservesNothingForTheAppealAdjudicator`).
+- **Fix** (T-206 M-3, PR #135):
   - `triggerFallback` reserves nothing.
   - The fallback's own accept or reject reserves its bond with `encumber`, so an uncovered fallback cannot decide and the deal defaults at `fallbackBy`, as ADR-0016 says. This also closes T-206 L-5 for the fallback.
   - An escalation no longer reserves the appeal adjudicator's bond. Its decision is final and settles in the same transaction, so a reservation protects no one until Phase 4.
@@ -292,11 +304,15 @@ Further unverified sources are in the research notes:
 - **Attack:** a mempool watcher submits the fee leg alone.
   - The fee is paid exactly as the buyer signed it.
   - The bundle reverts on the spent nonce, and so does every retry, because the nonce cannot change for this commitment.
-  - The node then answers 402 to an agree without the fee, so the buyer has paid and can fund only through another node or by direct submission. That route still works (ADR-0005).
+  - The node then answers 402 to an agree without the fee, so the buyer has paid the fee and received no relay.
+  - Another node that charges a fee fails the same way, because the fee nonce is the same on every node (`evm-settlement.ts:658`) [inferred]. The buyer can fund only through a node that relays without a fee, or by direct submission (ADR-0005), which still works.
   - The griefer gains nothing and pays only gas.
-- **Already known:** ADR-0023's EVM amendment lists this residual and says "the operator relays `agreeAndFund` alone". Nothing implements that.
-- **Proof:** `test_attack_frontRunFeeLeg_bundleRevertsForever_feePaid_dealUnfunded`, with control `test_defense_bundleFundsAndPaysTheFee` (`contracts/test/crosscheck/OperatorFeeFrontRun.t.sol`) [measured].
-- **Fix** (Sepolia demo lane, not the contract): before bundling, read USDC `authorizationState(buyer, feeNonce)`.
+- **Already known:** ADR-0023's EVM amendment lists this residual and says "the operator relays `agreeAndFund` alone". On `43479c7` nothing implements that.
+- **Proof** (`contracts/test/crosscheck/OperatorFeeFrontRun.t.sol`):
+  - `test_naiveBundle_feeLegFrontRun_revertsEveryRetry_fundingAloneWorks`, with control `test_bundle_fundsAndPaysTheFee`, pins the on-chain property: once the fee nonce is spent, the bundle reverts on every retry, and funding alone still works.
+  - Measured with `LocalUSDC` and `LocalMulticall3`; inferred for Sepolia USDC, whose `transferWithAuthorization` has the same open caller.
+  - These tests keep passing after the fix, because the fix is in the adapter.
+- **Fix,** in the Sepolia demo lane, PR #138. Its test "operator fee relayed alone ahead of the bundle: the hold still funds, and the fee is paid once" is in `evm-settlement.test.ts`. The fix: before bundling, read USDC `authorizationState(buyer, feeNonce)`.
   - If the nonce is spent by an `AuthorizationUsed` event (not `AuthorizationCanceled`), the fee is paid, so relay `agreeAndFund` alone.
   - Alternatively, send the fee leg as its own transaction first.
   - A `receiveWithAuthorization` fee works only if the relaying account is itself the fee recipient (a smart-account batch).
@@ -319,7 +335,7 @@ Further unverified sources are in the research notes:
 - **PA-I5. An undeployed smart-wallet buyer cannot fund.** `agreeAndFund` checks the buyer's Agree with Solady (no ERC-6492) at `HoldbackRules.sol:205`, before the collector could deploy the wallet. Buyers deploy first; the agent docs should say so [inferred].
 - **PA-I6. Indexers.** The commitment ID is domain-free (ADR-0016), so a watcher keys on chain ID, rules address and ID, not on `jobId` alone. CPP v1.1.0 changed `PaymentCaptured`'s topic0 (Cantina PR 90 3.1.3) [measured].
 - **PA-I7. Relayers.** Never route `HoldbackBonds.deposit`, `withdraw` or an approval through Multicall3. The vault would credit Multicall3, and anyone could then withdraw that credit [inferred].
-- **PA-I8. Vendor the PR 90 audit.** Moving the CPP pin to `9436713` or later picks up the Cantina PR 90 report and the corrected `docs/Fees.md`. `src/` is byte-identical [measured].
+- **PA-I8. Vendor the PR 90 audit.** Moving the CPP pin to `ff84ce2` (PR #93) or later picks up the Cantina PR 90 report and the corrected `docs/Fees.md` (`9436713`). `src/` is byte-identical [measured].
 
 ## 5. Out of scope (Rafa, 2026-11-03)
 
@@ -359,11 +375,12 @@ No tests were kept for it.
 | USDC | proxy `0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238`, implementation `0xDa317C1d3E835dD5F1BE459006471aCAA1289068` | The implementation's code contains `0x88b7ab63`, the bytes-signature `receiveWithAuthorization` that CPP's ERC-3009 collector calls. Etherscan names it FiatTokenV2_2 |
 | Permit2 | `0x000000000022D473030F116dDEE9F6B43aC78BA3` | 9,152 bytes, identical to mainnet's except 2 immutables: the cached chain ID (`0xaa36a7` vs `1`) and the domain separator |
 | Multicall3 | `0xcA11bde05977b3631167028862bE2a173976CA11` | Runtime code hash `0xd5c15df6…0891`, equal to mainnet's |
-| Precompiles | EIP-1153 (CPP's transient guard), EIP-2537 (the beacon) | Sepolia activated Dencun and Pectra [inferred from public fork history, not re-checked] |
+| EIP-2537 precompiles (the beacon) | `0x0b`, `0x0f`, `0x10` | Live: MAP_FP_TO_G1 answered, and a round-1000 proof verified by `eth_call` with a state override, against a public Sepolia node (section 7) [measured] |
+| EIP-1153 (CPP's transient guard) | n/a | Sepolia activated Dencun [inferred from public fork history; not checked] |
 
 ## 7. DrandQuicknetBeacon against BLS work
 
-**Bottom line.** The beacon passes every pitfall the audits and the EIP-2537 test suite name. It would be the first reviewed Solidity verifier of drand quicknet, so ADR-0018's pre-mainnet review stays open. Two gas findings are low.
+**Bottom line.** The beacon passes every pitfall the audits and the EIP-2537 test suite name. No earlier review of a Solidity drand quicknet verifier was found, so ADR-0018's pre-mainnet review stays open. Two gas findings are low.
 
 The research pass measured its checks in three ways:
 - on the compiled bytecode, on a Prague anvil, a Cancun anvil and a public Sepolia node, with read-only calls and state overrides;
@@ -372,15 +389,15 @@ The research pass measured its checks in three ways:
 
 | # | Pitfall (source) | Result | Evidence |
 | --- | --- | --- | --- |
-| D1 | Two encodings of one signature, giving two seeds (randomness is `sha256` of the bytes) | pass | The flags must be compressed and not infinity (`DrandQuicknetBeacon.sol:123`), and x must be below p (`:124-126`). y is derived, so the only freedom is the sign bit, which gives P or -P, and -P fails the pairing. On all 7 fixture rounds exactly one encoding verifies [measured]. `test_defense_onlyThePublishedFlagsVerify` [measured] |
-| D2 | A point outside G1 (NCC ETHF002-007/-019; Kudelski O-01; EEST `p1_not_in_subgroup`) | pass, by the precompile | The pairing refuses it (`:84-85`). `test_defense_validSignaturePlusAnOrder3Point_refused` (round 1000's signature plus the order-3 point (0, 2): on the curve, outside G1) and `test_defense_order3Points_refused` [measured]. This depends on clients implementing EIP-2537's subgroup check, which EEST tests (PA-I9) |
+| D1 | Two encodings of one signature, giving two seeds (randomness is `sha256` of the bytes) | pass | The flags must be compressed and not infinity (`DrandQuicknetBeacon.sol:123`), and x must be below p (`:124-126`). y is derived, so the only freedom is the sign bit, which gives P or -P, and -P fails the pairing. On all 7 fixture rounds exactly one encoding verifies [measured]. `test_defense_onlyThePublishedFlagsVerify`, beside the existing `test_refuses_theNegatedSignature` [measured] |
+| D2 | A point outside G1 (NCC ETHF002-007/-019; Kudelski O-01; EEST `p1_not_in_subgroup`) | pass, by the precompile | The pairing refuses it (`:84-85`), as the existing `test_refuses_aCurvePointOutsideG1` (x = 4) shows. New tests, each of which asserts the refusal cost more than the 250k pairing cap, so the pairing, not decompression, refused it [measured]:<br>• `test_defense_validSignaturePlusAnOrder3Point_refusedByThePairing` (round 1000's signature plus the order-3 point (0, 2): on the curve, outside G1);<br>• `test_defense_order3Points_refusedByThePairing`.<br>This depends on clients implementing EIP-2537's subgroup check, which EEST tests (PA-I9) |
 | D3 | Infinity as a signature | pass | The infinity flag is refused at `:123`; existing `test_refuses_malformedEncodings` [measured] |
-| D4 | Non-canonical x (x ≥ p) | pass | `:126`. `test_defense_xAboveP_refused` (x = p + 1 and 2^381 − 1) plus the existing x = p test [measured] |
+| D4 | Non-canonical x (x ≥ p) | pass | `:126`. `test_defense_xAboveP_refusedBeforeAnyPrecompile` (x = p + 1 and 2^381 − 1, each refused for under 100k gas) plus the existing x = p test [measured] |
 | D5 | DST and `expand_message_xmd` (RFC 9380 §5.3.1); drand's 2023 DST change | pass | `:23-25, :102-111`. Matches noble on 200 messages, and the repo's `test_hashToG1_matchesTheReferenceImplementation` passes [measured] |
 | D6 | Cofactor clearing: the sum of two MAP outputs | pass | MAP_FP_TO_G1 clears the cofactor; clearing is linear, so `G1ADD` of the two outputs equals RFC 9380's order (`:93-96`) [measured against noble] |
 | D7 | MAP input at or above p | pass | `_reduce` returns a value below p (`:114-116`) [measured] |
 | D8 | Precompile missing on the chain (an empty call "succeeds") | pass | Every output length is checked (`:85, :158`). A valid proof reverts on a Cancun anvil [measured] |
-| D9 | A failing precompile burns all forwarded gas | pass, with PA-L1 | The pairing is capped at 250,000 gas (`:65, :84`). A `sig + T` proof costs about 305k gas in total, whatever the transaction's limit. MAP, G1ADD and MODEXP cannot fail on any input the contract builds [measured] |
+| D9 | A failing precompile burns all forwarded gas | pass, with PA-L1 | The pairing is capped at 250,000 gas (`:65, :84`). A `sig + T` proof costs about 305k gas in total, whatever the transaction's limit [measured]. MAP, G1ADD and MODEXP cannot fail on any input the contract builds, because their inputs are reduced or fixed-size [inferred] |
 | D10 | Rogue-key attack; key in G2 | n/a, pass | One fixed group key. The constant is in G2 and compresses to drand's published key [measured] |
 | D11 | Round arithmetic, genesis and period | pass | `GENESIS` and `PERIOD` equal drand's `info`, and `roundAt` matches a live round. `roundAt` wraps only above 5.5e19, which the rules contract cannot pass, since its timing fields are uint64 and `t1`/`t2` are uint40 [measured] |
 
@@ -420,7 +437,7 @@ Any adoption is a contract change that needs an ADR, and it comes after the Sepo
 - **Gas.**
 - **Dependency risk.** Splits is GPL-3.0-or-later. Calling its deployed contracts is fine; copying its code into this MIT repository is not. Only v2.0 is audited, the v2.1 and v2.2 changes are not, and Splits' bounty excludes Sepolia.
 - **CPP's shape.** One receiver per payment, fixed when the buyer signs at funding, plus one fee receiver chosen per capture.
-- **EIP-170.** `HoldbackRules` is under 100 bytes from the limit (T-206 I-3).
+- **EIP-170.** `HoldbackRules` has little headroom: 161 bytes under the limit at `43479c7` [measured, `forge build --sizes`], varying with each fix (T-206 I-3).
 
 ### 8.1 How Splits works
 
@@ -441,13 +458,13 @@ Both have code there [measured by RPC].
 
 ### 8.2 Recommendation per function
 
-| Function | Options weighed | Recommendation | What it would remove or add |
-| --- | --- | --- | --- |
-| **Mutual-settlement payouts** (`mutualSettle` and `_payOut`, `HoldbackRules.sol:408-478`) | (a) A per-deal immutable split as CPP's `receiver`. (b) A split owned by the rules contract and updated at settlement. (c) Copy the pattern | **Keep ours.** (a) cannot work: the receiver is fixed in the buyer's funding signature, while the split's address depends on payouts negotiated later. (b) adds a split per deal for a rare path, plus an `execCalls` and pause surface on the receiver, and a push split's all-or-nothing transfers. (c) has nothing to copy: CPP's all-fee capture is already a one-call exact split, and exact amounts that sum to the price avoid the pro-rata rounding class (P1) | (b) would remove about 18 lines (`:445-462`) and add a factory call in `agreeAndFund`, an update and a distribute: more bytes, and about 100k or more gas per deal [guessed]. A `Payout.to` may already be a Splits wallet, with no change |
-| **Adjudication fee to the decider** (`_settleDecision`, `:332-347`) | A split of seller and adjudicator as the receiver | **Keep ours.** CPP's capture already pays the seller and the fee receiver in one call, and the decider (primary, fallback or appeal) is not known at funding | Would remove two lines and add a split, a call and a transfer. An adjudicator may route its own fees into a split it owns, for example to share them with Phase 4 backers, with no protocol code. Its bond deposits through that wallet's `execCalls` |
-| **Operator fee** (the relayer's Multicall3 bundle, ADR-0023) | `fees.operator.to` as a Splits wallet | **No code change.** An operator that shares relay revenue can publish a split address as `to`; the bundle is unchanged. Record that in ADR-0023 or `docs/operations.md`. This does not touch PA-M2 | none |
-| **Appeal-bond refund** (`HoldbackBonds.payAppealBond`, `:105-116`) | (a) Credit the appellant in Splits' ERC-6909 warehouse (pull). (b) A pull credit inside our vault | **Keep the push for now.** For USDC, a refund push fails only on issuer action, which is out of scope, so pull buys no liveness today. If the assets module admits tokens with hooks, use (b), not the warehouse: credit `bondOf[appellant][token]` and let the existing `withdraw` pay it. That is about 3 lines in `HoldbackBonds`, with no `HoldbackRules` bytes and no dependency | (a) adds an approval, a deposit, an immutable and a third custodian (with the H-01 incentive class around it), and a second transaction for the appellant |
-| **Adjudicator bonds** (`deposit`, `withdraw`, `encumber`, `release`) | The warehouse as the bond vault | **Keep ours.** The warehouse has no "encumbered" state and keys balances by depositor, so it cannot express free against reserved bond. Our vault is already pull-on-withdraw and keyless | Adds calls, removes nothing. For Phase 4 backers (ADR-0014), ERC-6909 share accounting is worth listing as an option, as a standard, not as Splits' contracts |
+| Function | Options weighed | Decision | Why | What it would remove or add |
+| --- | --- | --- | --- | --- |
+| **Mutual-settlement payouts** (`mutualSettle` and `_payOut`, `HoldbackRules.sol:408-478`) | (a) A per-deal immutable split as CPP's `receiver`. (b) A split owned by the rules contract and updated at settlement. (c) Copy the pattern | **Keep ours** | (a) cannot work: the receiver is fixed in the buyer's funding signature, while the split's address depends on payouts negotiated later. (b) adds a split per deal for a rare path, plus an `execCalls` and pause surface on the receiver, and a push split's all-or-nothing transfers. (c) has nothing to copy: CPP's all-fee capture is already a one-call exact split, and exact amounts that sum to the price avoid the pro-rata rounding class (P1) | (b) would remove about 18 lines (`:445-462`) and add a factory call in `agreeAndFund`, an update and a distribute: more bytes, and about 100k or more gas per deal [guessed]. A `Payout.to` may already be a Splits wallet, with no change |
+| **Adjudication fee to the decider** (`_settleDecision`, `:332-347`) | A split of seller and adjudicator as the receiver | **Keep ours** | CPP's capture already pays the seller and the fee receiver in one call, and the decider (primary, fallback or appeal) is not known at funding | Would remove two lines and add a split, a call and a transfer. An adjudicator may route its own fees into a split it owns (for example, to share them with Phase 4 backers) with no protocol code; its bond then deposits through that wallet's `execCalls` |
+| **Operator fee** (the relayer's Multicall3 bundle, ADR-0023) | `fees.operator.to` as a Splits wallet | **Adopt at the edge** (no Holdback code) | An operator that shares relay revenue can publish a split address as `to`, and the bundle is unchanged. Record that in ADR-0023 or `docs/operations.md`. This does not touch PA-M2 | none |
+| **Appeal-bond refund** (`HoldbackBonds.payAppealBond`, `:105-116`) | (a) Credit the appellant in Splits' ERC-6909 warehouse (pull). (b) A pull ledger inside our vault | **Keep ours now; adapt the pattern (b) later if needed** | For USDC, a refund push fails only on issuer action, which is out of scope, so pull buys no liveness today. If the assets module admits tokens with transfer hooks, use (b), not the warehouse. (b) is a separate `claimable[appellant][token]` with a `claim()`: about 10 lines in `HoldbackBonds`, no `HoldbackRules` bytes, no dependency. Crediting `bondOf` instead would be shorter but would mix party refunds into the adjudicator-bond ledger and its events | (a) adds an approval, a deposit, an immutable and a third custodian (with Splits v2 H-01's incentive class around it), and a second transaction for the appellant |
+| **Adjudicator bonds** (`deposit`, `withdraw`, `encumber`, `release`) | The warehouse as the bond vault | **Keep ours** | The warehouse has no "encumbered" state and keys balances by depositor, so it cannot express free against reserved bond. Our vault is already pull-on-withdraw and keyless | Adds calls, removes nothing. For Phase 4 backers (ADR-0014), ERC-6909 share accounting is worth listing as an option: the standard, not Splits' contracts |
 
 **Summary.** Nothing in Splits removes bytes from `HoldbackRules`; every adoption inside the settlement path adds a contract, a call or a custodian. Where Splits' ideas fit, they fit at the edges with no protocol change:
 - an operator, adjudicator or seller may receive into a split;
@@ -461,10 +478,10 @@ New in `contracts/test/crosscheck/`; `test_attack_*` passes while the weakness e
 
 | File | Tests | Class |
 | --- | --- | --- |
-| `OperatorFeeFrontRun.t.sol` | `test_attack_frontRunFeeLeg_bundleRevertsForever_feePaid_dealUnfunded`, `test_defense_bundleFundsAndPaysTheFee` | F2, PA-M2 |
+| `OperatorFeeFrontRun.t.sol` | `test_naiveBundle_feeLegFrontRun_revertsEveryRetry_fundingAloneWorks`, `test_bundle_fundsAndPaysTheFee`. These pin the on-chain property the adapter works around; the adapter's own regression test is in PR #138 | F2, PA-M2 |
 | `TokenAndDomain.t.sol` | `test_defense_depositInATokenWithNoCode_reverts`, `test_defense_signaturesFromAnotherChainId_refused` | T2, S1 |
-| `DrandEncodings.t.sol` | `test_defense_validSignaturePlusAnOrder3Point_refused`, `test_defense_order3Points_refused`, `test_defense_xAboveP_refused`, `test_defense_onlyThePublishedFlagsVerify` | D1, D2, D4 |
-| `BondGriefing.t.sol` (at `ac7e5a1`; moving to T-206's M-3 PR) | the three PA-M1 tests | B2, PA-M1 |
+| `DrandEncodings.t.sol` | `test_defense_validSignaturePlusAnOrder3Point_refusedByThePairing`, `test_defense_order3Points_refusedByThePairing`, `test_defense_xAboveP_refusedBeforeAnyPrecompile`, `test_defense_onlyThePublishedFlagsVerify` | D1, D2, D4 |
+| `BondGriefing.t.sol` (at `ac7e5a1`; carried, flipped, by PR #135 as `BondConsent.t.sol`) | the three PA-M1 tests | B2, PA-M1 |
 
 ```
 cd contracts
