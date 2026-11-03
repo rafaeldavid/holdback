@@ -1,7 +1,7 @@
 # T-053: The monthly cost report and unit costs
 
 - **Lane:** infra
-- **Phase:** 10
+- **Phase:** 9
 - **Depends on:** T-052 (the collector's output); T-213 (Sepolia settlement, PR 138) deployed, for the gas per deal only
 - **Paths this task may touch:** `scripts/costs/report.mjs` (new), `scripts/costs/units.mjs` (new), `config/model-prices.json` (new), `tests/costs/report.test.ts` (new), `tests/costs/fixtures/` (synthetic only), `package.json` (a `costs:report` script), `docs/costs.md` (the report and unit-cost sections), `docs/tasks/T-053-cost-report-unit-costs.md`
 - **Human gate:** no. Rafa sets his budgets in `budgets.json` in the cost directory, outside git, which needs no approval.

@@ -1,7 +1,7 @@
 # T-056: A budget for the planned costs
 
 - **Lane:** research
-- **Phase:** 10
+- **Phase:** 9
 - **Depends on:** nothing; it can start any time
 - **Paths this task may touch:** `docs/costs.md` (the "Planned" table), `docs/research/<date>-planned-costs.md` (new), `docs/tasks/T-056-planned-cost-budget.md`
 - **Human gate:** **yes** for quotes: contacting an auditor, a trademark attorney or a provider's sales team is outward-facing, so Rafa sends every request. The research itself needs no gate.

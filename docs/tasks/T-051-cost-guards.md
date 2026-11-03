@@ -1,8 +1,8 @@
 # T-051: Cost guards on every account
 
 - **Lane:** infra
-- **Phase:** 10
-- **Depends on:** nothing. It can start today, before the rest of Phase 10 and before Phase 9.
+- **Phase:** 9
+- **Depends on:** nothing. It can start today, before the rest of Phase 9 and before the agent-ops phase.
 - **Paths this task may touch:** `docs/costs.md` (the "Tier today" column, with no amount), `docs/tasks/T-051-cost-guards.md`; outside git, the register `register.md` in the directory Rafa names for it, which becomes `CROW_COSTS_DIR` in T-052
 - **Human gate:** **yes.** Every step changes a billing setting in one of Rafa's accounts. Agents never open a billing page, create a credential or read one.
 - **Status:** todo
@@ -38,7 +38,7 @@ Every step is **human**. Times and suggested amounts are guesses; pick your own.
    4. At https://platform.claude.com/settings/keys, create a key in `crow-judges`. Put it in `.env` as `HOLDBACK_ANTHROPIC_API_KEY` and run `pnpm demo-cloud:secrets`, which pipes it to the Workers without printing it (`docs/operations.md`, Secrets).
    5. Check that the new key is in use before deleting the old one. The World Durable Object reads its secrets when it starts (`apps/demo-cloud/scripts/secrets.mjs`), so a deal right after step 4 may still run on the old key. Run `node apps/demo-cloud/scripts/deal.ts https://api.escrow.stream https://api2.escrow.stream --rubric`, check that no verdict it prints carries "[fake judge, no model ran]" (scripted seats keep the model IDs once the daily budget is spent), and check in the Console that the new key shows recent use. Then delete the old key.
 3. **Claude plan: the extra-usage limit** (5 min). At https://claude.ai/settings/usage, check your plan and whether extra usage is on. If it is, set its monthly spend limit (documented). If Claude Code ever runs on an API key instead, it gets its own workspace and limit (T-039, step 7).
-4. **DeepSeek: a small prepaid balance** (5 min). DeepSeek offers no spend limit (documented: none found), so the balance is the cap; an empty balance errors the DeepSeek seats as a limit does the Claude seats (inferred). At https://platform.deepseek.com, read the balance and its currency, and keep it small, for example $10. Make sure no automatic top-up is set. Top up by hand at https://platform.deepseek.com/top_up. Phase 9's review keys share this balance unless they live in a second account (T-039, step 7).
+4. **DeepSeek: a small prepaid balance** (5 min). DeepSeek offers no spend limit (documented: none found), so the balance is the cap; an empty balance errors the DeepSeek seats as a limit does the Claude seats (inferred). At https://platform.deepseek.com, read the balance and its currency, and keep it small, for example $10. Make sure no automatic top-up is set. Top up by hand at https://platform.deepseek.com/top_up. The agent-ops phase's review keys share this balance unless they live in a second account (T-039, step 7).
 5. **Cloudflare: plan, budget alerts and usage notifications** (15 min).
    1. Confirm the plan under Workers & Pages, Plans. D41 records Workers Paid since 2026-11-02 as reported, not checked.
    2. Under Manage Account, Billing, Billable Usage, choose Create budget alert. Make two: $10 and $25. Cloudflare creates a $10 one by default on eligible accounts that have none (documented, Cloudflare changelog 2026-06-15). These email you once when usage-based spend crosses the amount, the day after; they never stop anything, and the $5 plan fee is not counted (documented).

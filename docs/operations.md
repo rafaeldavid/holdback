@@ -117,7 +117,7 @@ Without the binding, `/v1/feedback` answers 404 `not_found` and discovery has no
 
 ## Costs
 
-What each account costs, what caps or alerts it, and where to read its usage read-only: `docs/costs.md` (Phase 10, T-051 to T-056). Billing figures, budgets and the account register stay in a cost directory outside every checkout where agents work (`CROW_COSTS_DIR`); billing credentials stay in `.env.costs` in a dedicated clone on a machine Rafa controls, never in an agent session, a Worker or GitHub Actions.
+What each account costs, what caps or alerts it, and where to read its usage read-only: `docs/costs.md` (Phase 9, T-051 to T-056). Billing figures, budgets and the account register stay in a cost directory outside every checkout where agents work (`CROW_COSTS_DIR`); billing credentials stay in `.env.costs` in a dedicated clone on a machine Rafa controls, never in an agent session, a Worker or GitHub Actions.
 
 ## Gates (ask Rafa first)
 

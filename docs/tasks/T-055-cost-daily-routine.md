@@ -1,7 +1,7 @@
 # T-055: The daily cost routine and how an alert reaches Rafa
 
 - **Lane:** infra
-- **Phase:** 10
+- **Phase:** 9
 - **Depends on:** T-052, T-053, T-054
 - **Paths this task may touch:** `scripts/costs/daily.mjs` (new), `config/costs.launchd.plist.template` (new), `tests/costs/daily.test.ts` (new), `package.json` (a `costs:daily` script), `.github/CODEOWNERS` (one line for `scripts/costs/`), `docs/costs.md` (a "Running it" section and the `cost-signals.json` shape), `docs/operations.md` (the Costs pointer), `docs/tasks/T-055-cost-daily-routine.md`
 - **Human gate:** **yes.** Rafa chooses where the routine runs and installs it on his machine, approves each change to the cost scripts before it runs with his keys, and chooses the channel that carries an alert to him. A message sent to him is outward-facing.
@@ -14,13 +14,13 @@ Run the collector, the report and the rules once a day without anyone rememberin
 
 - Inputs: T-052's collector and dedicated clone, T-053's report, T-054's rules.
 - Outputs: one command, `node --env-file=.env.costs scripts/costs/daily.mjs`, scheduled in the dedicated clone; alerts at the top of the day's file; one message on Rafa's chosen channel when a rule fires or a run fails; `cost-signals.json` in `CROW_TELEMETRY_DIR`, holding the date, each source's status and the names of the rules that fired, never a figure.
-- Non-goals: a dashboard, publishing any figure, Phase 9's alarms (T-047).
+- Non-goals: a dashboard, publishing any figure, the agent-ops phase's alarms (T-047).
 
 ## Context
 
 - `docs/costs.md`, "Where credentials and figures live" and "What this feeds".
 - CLAUDE.md, autonomy rule: agents may merge to `main` after CI and review without Rafa. So fast-forwarding to `main` alone does not mean Rafa saw the code that runs with the Admin key.
-- T-044 (Phase 9) proposes CODEOWNERS and risk tiers; this task adds one line for `scripts/costs/`.
+- T-044 (the agent-ops phase) proposes CODEOWNERS and risk tiers; this task adds one line for `scripts/costs/`.
 
 ## Where it runs
 
@@ -66,7 +66,7 @@ Every step is **human**. About 30 minutes (guessed).
 
 ## Out of scope
 
-- A dashboard or status page; publishing figures (D39); automatic stops; editing Phase 9's task files; the ruleset change in Rafa's step 7.
+- A dashboard or status page; publishing figures (D39); automatic stops; editing the agent-ops phase's task files; the ruleset change in Rafa's step 7.
 
 ## Evidence
 
@@ -74,4 +74,4 @@ Every step is **human**. About 30 minutes (guessed).
 
 ## Handoff
 
-- For Phase 9 (outside this task's paths): T-042 can name `cost-signals.json` in `CROW_TELEMETRY_DIR` as a source of spend signals, and T-047 should record that its spend figure comes from the pipeline's own token tallies, not from this routine.
+- For the agent-ops phase (outside this task's paths): T-042 can name `cost-signals.json` in `CROW_TELEMETRY_DIR` as a source of spend signals, and T-047 should record that its spend figure comes from the pipeline's own token tallies, not from this routine.

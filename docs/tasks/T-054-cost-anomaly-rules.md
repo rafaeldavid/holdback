@@ -1,7 +1,7 @@
 # T-054: Anomaly rules and the CPU guard
 
 - **Lane:** infra
-- **Phase:** 10
+- **Phase:** 9
 - **Depends on:** T-052 (the collector's daily files, which hold the trailing series every rule reads); T-213 (Sepolia settlement, PR 138) deployed, for the relayer rule and the CPU guard only
 - **Paths this task may touch:** `scripts/costs/rules.mjs` (new), `tests/costs/rules.test.ts` (new), `tests/costs/fixtures/` (synthetic only), `config/costs.template.json` (threshold keys), `apps/demo-cloud/wrangler.op1.jsonc`, `apps/demo-cloud/wrangler.op2.jsonc`, `apps/early-access/wrangler.jsonc` (a `limits` block only), `docs/costs.md` (the rules table), `docs/tasks/T-054-cost-anomaly-rules.md`
 - **Human gate:** no to build the rules or propose the limits. **Yes** to deploy the CPU limits: a redeploy of the Workers is Rafa's.
@@ -14,7 +14,7 @@ Catch in a day what a monthly bill would show in a month: a runaway agent, a spe
 
 - Inputs: the collector's daily files (T-052), the thresholds in `budgets.json`, the register (T-051).
 - Outputs: `rules.mjs`, which returns the rules that fired with their evidence; a proposed `limits.cpu_ms` per Worker.
-- Non-goals: delivering alerts to Rafa (T-055), stopping anything automatically, Phase 9's pipeline alarms (T-047).
+- Non-goals: delivering alerts to Rafa (T-055), stopping anything automatically, the agent-ops phase's pipeline alarms (T-047).
 
 ## Context
 

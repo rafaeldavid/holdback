@@ -1,7 +1,7 @@
 # T-052: The read-only cost collector
 
 - **Lane:** infra
-- **Phase:** 10
+- **Phase:** 9
 - **Depends on:** T-051 step 1 (the Anthropic organization check), for the Anthropic source only; T-213 (Sepolia settlement, PR 138) deployed, for the Sepolia source only. The rest can be built before any credential exists.
 - **Paths this task may touch:** `scripts/costs/collect.mjs` (new), `scripts/costs/money.mjs` (new), `scripts/costs/dir.mjs` (new), `scripts/costs/sources/*.mjs` (new, one per source), `tests/costs/collect.test.ts` (new), `tests/costs/fixtures/` (new, synthetic responses only), `config/costs.template.json` (new), `config/keys-costs.template` (new), `package.json` (a `costs:collect` script), `docs/costs.md`, `docs/tasks/T-052-cost-collector.md`
 - **Human gate:** **yes** for the credentials and the dedicated clone: Rafa creates them. **No** for the build: tests use synthetic fixtures and no network.
@@ -21,7 +21,7 @@ One command reads what every provider says Crow used and cost, with credentials 
 - `docs/costs.md`: the inventory, the read-only credentials table, "Where credentials and figures live".
 - Hard rules: secrets come from environment variables only, and agents never read `.env` or `.env.costs`; money is a decimal string, never a float.
 - `docs/operations.md` (Telemetry): T-031's day lines and the GraphQL datasets.
-- T-042 (Phase 9, PR 131): reads T-031's aggregates "from a private export". This task builds that export once, so the logs have one reader.
+- T-042 (the agent-ops phase, PR 131): reads T-031's aggregates "from a private export". This task builds that export once, so the logs have one reader.
 
 ## Rafa's steps
 
@@ -71,7 +71,7 @@ Every step is **human**. About 40 minutes (guessed).
 
 ## Decisions
 
-- One reader of T-031's day lines: this task exports them for both the cost collector and T-042, so Phase 9 does not build a second reader (review of the Phase 10 PR, 2026-11-03).
-- Billing figures and what Phase 9 may read live in separate directories, so pointing T-042 at its directory never exposes a figure.
+- One reader of T-031's day lines: this task exports them for both the cost collector and T-042, so the agent-ops phase does not build a second reader (review of this phase's PR, 2026-11-03).
+- Billing figures and what the agent-ops phase may read live in separate directories, so pointing T-042 at its directory never exposes a figure.
 
 ## Handoff
