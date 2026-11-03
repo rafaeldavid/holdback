@@ -155,7 +155,7 @@ Appended after Phase 9, like it, so no phase number moves (Rafa, 2026-11-03). It
 - T-052 The read-only cost collector: one source module per billing or usage API, plus the local Claude Code transcripts, T-031's day lines (exported once, for T-042 too) and the Sepolia balances, writing a dated file in the cost directory (infra; human gate for the read-only credentials).
 - T-053 The monthly cost report and unit costs: each provider against its budget, cost per demo deal, per merged PR and per task (infra).
 - T-054 Anomaly rules and the CPU guard: a runaway agent, a spend spike, a cap or quota near, the relayer's funding lane running dry, paid usage that should be zero, a renewal or token expiry due; CPU limits per Worker from measured use (infra; human gate to deploy the limits).
-- T-055 The daily routine, run from a dedicated clone on a machine Rafa controls, and the channel that carries an alert to him; its `latest.json` holds rule names and no figure, for Phase 9's telemetry lane (T-042) (infra; human gate).
+- T-055 The daily routine, run from a dedicated clone on a machine Rafa controls with code he approved, and the channel that tells him when a rule fires or a run fails; its `cost-signals.json` holds rule names and no figure, for Phase 9's telemetry lane (T-042) (infra; human gate).
 - T-056 A budget for the planned costs: Stripe's live fees, the trademark, the external audit, mainnet gas and judges at volume (research; human gate for quotes).
 
 **Exit:**

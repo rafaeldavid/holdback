@@ -35,7 +35,7 @@ Before each gate that brings a new cost (mainnet, the live on-ramp, the trademar
 ## Rafa's steps
 
 1. Read the research note and decide which quotes to request (human).
-2. Send the drafted requests yourself and record the answers in `reports/costs/register.md` (human).
+2. Send the drafted requests yourself and record the answers in the register in the cost directory (`CROW_COSTS_DIR`, T-052) (human).
 
 ## Acceptance criteria
 
