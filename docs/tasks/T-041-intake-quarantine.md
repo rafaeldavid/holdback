@@ -34,14 +34,17 @@ Turn outside text into data the pipeline can act on, without letting that text i
 
 ## Acceptance criteria
 
-- [ ] `feedback.ts export` writes a JSON Lines file of unsealed reports. It never opens a sealed field, and never writes a signer key or an IP. It runs where the KV access is: a deploy session, or Rafa's laptop. On option B, it writes to `/srv/crow/intake/` (created by T-039's `vm-users.sh`), which the `agent` user can read. Tested on a fixture store.
+- [ ] `feedback.ts export` writes a JSON Lines file of unsealed reports. It never opens a sealed field, and never writes a signer key or an IP. It runs where the KV access is: a deploy session, or Rafa's laptop. On option B, it writes to `/srv/crow/intake/` (created by T-039's `vm-users.sh`), which the `builder` and `tick` users can read. Tested on a fixture store.
   - Until the D39 decision below allows more, the export holds only ID, kind, fingerprint, status and date. The limit is in the export, not only in `intake.mjs`, because anything a build session reads goes to Anthropic with the session.
   - Once allowed, it adds summary, observed, expected and request ID.
 - [ ] Decide, after a research pass, whether the clear text of a report may go to the operator's own triage model (Anthropic) under D39. The architect records it with `/record-decision` (T-036), or by hand if T-036 has not merged. If the answer needs new wording in the agent-facing notice (`site/llms.txt`, `docs/api.md`), that change goes to Rafa as a publication.
-- [ ] `intake.mjs` collects issues labeled `intake` and PR comments through `gh api` REST, reads the feedback export, deduplicates by fingerprint, and writes CI-signal records without a model. A fake `gh` and a fixture export drive `pnpm vitest run tests/agent-ops/intake.test.ts`, with no network.
+- [ ] Who can feed intake: the repository is public, so anyone can open an issue or comment on a PR.
+  - Only issues labeled `intake` count. The agents' App has Issues read only, so only Rafa can add the label, and he decides which stranger's issue becomes a ticket.
+  - PR comments count only from authors whose `author_association` is `OWNER` or `COLLABORATOR`, or from the two agent Apps.
+- [ ] `intake.mjs` collects those issues and comments through `gh api` REST, reads the feedback export, deduplicates by fingerprint, and writes CI-signal records without a model. A fake `gh` and a fixture export drive `pnpm vitest run tests/agent-ops/intake.test.ts`, with no network.
 - [ ] `quarantine.mjs` normalizes the text, places it between random delimiters with a canary token, sends it to the triager with no tools, and keeps the output only if it matches the schema under Ajv 2020-12 strict. Invalid output is dropped and counted in `reports/agent-ops/intake/dropped.jsonl` (counts and reasons, no text).
 - [ ] A test runs every `attack.*` payload under `fixtures/` through the quarantine with a scripted hostile triager. The triager tries URLs, handles, markup, copied text and the canary in its fields, and every attempt is dropped or stripped. No record contains a run of 40 or more characters copied from the raw text (checked on every test record).
-- [ ] `read-raw.mjs <sourceRef>` prints the original text once, fenced, capped at 4 KB, and logs that it was read. No other script writes raw text to a task file, brief, PR body or handoff.
+- [ ] `read-raw.mjs <sourceRef>` gives the original text once, fenced, capped at 4 KB, and logs that it was read. It never feeds a session that can write. It runs in a session with no tools that answers a question about the text as a schema record, and the implementer gets only that record. No script writes raw text to a task file, brief, PR body or handoff.
 - [ ] A security record is never written to a public place. The script prints only "security record for Rafa" and its fingerprint.
 - [ ] `agent-ops/commands/triage.md` is the architect's stage 1, inert until T-050 moves it into `.claude/commands/`. It works as follows:
   - The architect reads records only, never raw text.

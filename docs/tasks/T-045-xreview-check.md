@@ -44,9 +44,11 @@ The status is unforgeable only under three preconditions:
 - [ ] The same diff SHA always returns its first verdict (cached by SHA); a new review needs a new diff. Tested.
 - [ ] A diff goes to DeepSeek only after the PR head's `gitleaks` check has passed, so a leaked secret never reaches a third party. Until then, the status reads pending. The workflow also runs on `workflow_run` when the CI workflow completes, which also runs from `main`. So the review starts once gitleaks has passed, and a required check never stays pending.
 - [ ] Each verdict appends one line to `reports/review-agreement.jsonl`: the family, the model, the diff SHA, each finding's severity and, once known, its outcome. T-046 reads it.
+- [ ] The tier comes from the full list of changed files. `xreview.mjs` paginates `GET /pulls/{n}/files` and compares the count with the PR's `changed_files`; a mismatch, or the compare API's 300-file truncation, counts as tier 3.
+- [ ] A changed base cannot carry an old verdict. The workflow also runs on the `edited` activity type, because a base change is an edit and does not fire `synchronize` (documented). `xreview.mjs` posts success only when the PR's base is `main`, and it computes the diff against that base at run time. Otherwise an agent could get a docs-only verdict on a PR into a side branch, then retarget it at `main` with a tier 2 change underneath.
 - [ ] Tiers 0 and 1 get a passing status at once. When DeepSeek fails, the GPT fallback reviews; when both fail, the status fails with "needs Rafa".
 - [ ] `agent-ops/workflows/xreview.yml` lives outside `.github/workflows/`, so it cannot run; T-050 moves it. A test reads the file and checks each of these properties:
-  - it runs on `pull_request_target` and on `workflow_run` of the CI workflow, for same-repository branches only;
+  - it runs on `pull_request_target` (types `opened`, `synchronize`, `reopened` and `edited`) and on `workflow_run` of the CI workflow, for same-repository branches only;
   - it checks out the base branch only and reads the diff from the API;
   - it takes its keys from the `xreview` Environment;
   - it has `contents: read`, `pull-requests: read`, `checks: read` and `statuses: write`, and nothing else;

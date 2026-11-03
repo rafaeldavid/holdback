@@ -3,7 +3,7 @@
 - **Lane:** infra
 - **Phase:** 9
 - **Depends on:** T-034 merged (`scripts/ci/affected.mjs` and the `changes` job); T-040 (the tier table in `ops.yaml`); T-036 merged (its pre-commit gitleaks hook covers P4's local half)
-- **Paths this task may touch:** `scripts/ci/guardrails.mjs` (new), `scripts/ci/tiers.mjs` (new), `scripts/hooks/bash-guard.sh` (new), `.github/CODEOWNERS` (exists; add the tier 3 paths), `agent-ops/settings.deny.json` (new: the proposed deny additions), `agent-ops/ops.yaml` (`tiers`, `guardrails`, `deny_additions`; after T-040), `agent-ops/gates.md` (the tier table and the State column), `tests/agent-ops/guardrails.test.ts` (new), `tests/agent-ops/bash-guard.test.ts` (new), `docs/team.md` (Rules and checks rows), `docs/tasks/T-044-security-gates.md`
+- **Paths this task may touch:** `scripts/ci/guardrails.mjs` (new), `scripts/ci/tiers.mjs` (new), `scripts/hooks/bash-guard.sh` (new), `.github/CODEOWNERS` (exists; add the tier 3 paths), `agent-ops/settings.deny.json` (new: the proposed deny additions), `agent-ops/workflows/ci.yml` (new, inert: the proposed `ci.yml` with the trusted checkout, which T-050 moves in), `agent-ops/ops.yaml` (`tiers`, `guardrails`, `deny_additions`; after T-040), `agent-ops/gates.md` (the tier table and the State column), `tests/agent-ops/guardrails.test.ts` (new), `tests/agent-ops/bash-guard.test.ts` (new), `docs/team.md` (Rules and checks rows), `docs/tasks/T-044-security-gates.md`
 - **Human gate:** no. The two settings that enforce tier 3 (a separate identity for the agents and a required code-owner review) are Rafa's, in T-039 and T-050.
 - **Status:** todo
 - **Agent/session:** —
@@ -33,15 +33,17 @@ Build the automated checks behind threats P4 to P7 and P12 so that a pull reques
 ## Acceptance criteria
 
 - [ ] `tiers.mjs` maps a list of paths to a tier from `ops.yaml`. A PR takes its highest path's tier, an unmatched path is tier 1, and `*.expect.md` counts as code. One test case per row of the tier table.
-- [ ] The tier table in `ops.yaml` and `gates.md` adds the files that define the gates:
-  - **Tier 3:**
-    - `scripts/ci/affected.mjs`, which decides which CI jobs run;
-    - `scripts/ci/guardrails.mjs`, `scripts/ci/tiers.mjs` and `scripts/ci/flakes.mjs`;
-    - `docs/testing.md`, whose Known flakes list authorizes reruns;
-    - `docs/team.md`, which holds the Rules and checks;
-    - `eslint.config.js`, `vitest.config.ts`, `scripts/verify.ts` and `scripts/validate-spec.mjs`;
-    - `package.json` when its `scripts` change (other `package.json` changes are tier 2, with the lockfile).
-  - **At least tier 2:** `packages/testkit/`, which runs `pnpm snap`.
+- [ ] The tier table in `ops.yaml` and `gates.md` adds the files that define the gates, and the code that holds secrets at run time:
+  - **Tier 3.** These files decide what runs, what passes, or who is reviewed. Each would otherwise be tier 1 and auto-merge:
+    - the pipeline's own code: `scripts/ci/**` (including `affected.mjs`, `guardrails.mjs`, `tiers.mjs`, `flakes.mjs`), `scripts/ops/**`, `scripts/hooks/**` and `scripts/dev-env/**`;
+    - the build and test configuration: `package.json`, `pnpm-workspace.yaml`, `.npmrc`, `tsconfig*.json`, `vitest.config.*`, `eslint.config.*`, `scripts/verify.ts` and `scripts/validate-spec.mjs`;
+    - the gitleaks configuration, `gitleaks.toml` and `.gitleaks.toml`, which gitleaks-action loads from the root (documented);
+    - `docs/testing.md`, whose Known flakes list authorizes reruns, and `docs/team.md`, which holds the Rules and checks.
+  - **At least tier 2:**
+    - `packages/testkit/`, which runs `pnpm snap`;
+    - the code a deploy or export session runs with secrets: `apps/demo-cloud/**`, `apps/site/**`, `apps/early-access/**` and `site/build.mjs`. A tier 1 change there could serve or log a Worker secret at the next deploy.
+
+  More tier 3 paths mean more PRs that wait for Rafa. The cost is accepted, because each of these files can switch a gate off.
 - [ ] `guardrails.mjs <pr or diff>` reports these findings, each shown on a fixture diff:
   - **Fails the PR:**
     - a changed path outside the task's listed paths;
@@ -51,17 +53,26 @@ Build the automated checks behind threats P4 to P7 and P12 so that a pull reques
     - a raised test timeout;
     - a new admin selector;
     - a task file that gains or edits an approval line from Rafa or its `Origin` field. Task files are tier 0, so without this rule any agent could write Rafa's approval itself;
-    - an ADR whose Status changes to Accepted. Rafa accepts ADRs (`.claude/agents/architect.md`), and without this rule a tier 2 PR could do it automatically;
-    - a `package.json` change to `scripts`.
-  It runs locally and in tests only. T-050 step 5 adds it to the `check` job.
+    - an ADR whose Status changes to Accepted. Rafa accepts ADRs (`.claude/agents/architect.md`), and without this rule a tier 2 PR could do it automatically.
+
+  It runs locally and in tests only until T-050 step 5 adds it to the `check` job.
+- [ ] A PR must never run its own copy of the gates. This task writes the proposed `ci.yml` at `agent-ops/workflows/ci.yml`, and T-050 step 5 moves it in. Rafa pushes that move, since the agents have no Workflows permission. The proposed file differs from today's in two ways:
+  - `guardrails.mjs`, `tiers.mjs` and `affected.mjs` run from a second checkout of `main` (`actions/checkout` with `ref: main` and `path: trusted`, dependencies installed there), never from the PR's checkout;
+  - the `changes` job uses that trusted copy too.
+
+  Otherwise one tier 1 PR could edit a gate and pass it in the same run. For example, it could delete an attack fixture and the rule that flags the deletion. A test reads the patch and checks that no gate script runs from the PR's path.
 - [ ] A PR that guardrails raises to tier 3 needs Rafa's approval even when none of its paths is in CODEOWNERS. A task file, an ADR's Status line or an attack fixture is not a tier 3 path, so code-owner review alone would not stop it. In enforce mode, guardrails fails `check` on a raised PR until an approving review by Rafa exists on the PR's head commit, read from the reviews API. T-050 step 5 adds a `pull_request_review` trigger, so his approval re-runs the check. Tested with a fake reviews API: no review, a review on an older commit, and a review on the head.
 - [ ] `bash-guard.sh` reads the tool input JSON on stdin and exits 2 with a one-line reason for each pattern in `isolation.bash_guard_blocks` (`cd` outside the root, heredoc and redirect writes, `sed -i`, interpreter one-liners, command substitution, `xargs`, `eval`, `find -exec`, `/private/tmp`, `~/`, polling loops), and exits 0 for the literal commands in `CLAUDE.md`'s verify list. `pnpm vitest run tests/agent-ops/bash-guard.test.ts` covers both sets. The hook is not wired into `.claude/settings.json` here.
-- [ ] `agent-ops/settings.deny.json` lists the P6 additions in `.claude/settings.json` syntax, ready for T-050 to merge in:
-  - `wrangler`, `gh api --method`, `gh repo edit`, `gh secret`, `gh ruleset`, `gh pr merge --admin`, and pushes to `main`;
+- [ ] `agent-ops/settings.deny.json` lists the P6 additions in settings syntax, for T-050 to install in T-039's managed settings and each role's home template:
+  - `gh api:*` wholesale, with a read-only wrapper for the GET calls agents need. Narrower patterns miss `-X PUT`, `--method=PUT`, and the implicit POST of `-f key=value`.
+  - `gh auth token:*`, `gh repo edit`, `gh secret`, `gh ruleset`, `gh variable`, and `gh pr merge` for every role but `tick`;
+  - `wrangler`, `npx wrangler:*` and `pnpm demo-cloud:*` for build roles;
+  - pushes to `main`;
   - every `git push` form that rewrites or deletes a ref, beyond today's `--force` and `-f` prefixes: a `+ref` refspec, a `:ref` refspec, `--delete` and `-d`, `--mirror`, `--force-with-lease` and `--force-if-includes`. Without these, an agent could delete or rewrite another agent's `t-*` claim.
 
-  `bash-guard.sh` refuses the same forms, with a test for each. It says that denying `gh api --method` also blocks opening PRs through REST, which is how Claude Code cloud sessions must do it. So the deny list fits option B only, where `gh pr create` works with the App's token.
+  `bash-guard.sh` refuses the same forms, with a test for each. The file says plainly that a deny rule is not a security boundary (Claude Code docs). The boundary is each role's narrowed token and Unix user (T-039); the deny list only catches honest mistakes. It also says the list fits option B only: on A, opening a PR needs `gh api` POST.
 - [ ] `.github/CODEOWNERS` names Rafa for every tier 3 path. It changes nothing until the `tier3-review` ruleset requires code-owner review (T-050). The file's three existing tier 2 entries (`spec/`, `docs/decisions/`, `contracts/`) would then need Rafa's review too. T-050 step 2 asks him whether they stay; this task leaves them as they are and records the question in Handoff.
+- [ ] A test checks that every tier 3 path in `ops.yaml` has a matching CODEOWNERS line, and that the file parses. A syntax error silently drops the owners after it (documented).
 - [ ] `docs/team.md` Rules and checks gains a row for each new check, marked "not wired until T-050". `pnpm verify` and CI pass.
 
 ## Out of scope
