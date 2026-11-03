@@ -132,7 +132,7 @@ expect(bundle.includes(`npm install viem@${viem} tweetnacl@${tweetnacl}`), 'the 
 const filledTry = sampleTxt.slice(sampleTxt.indexOf('## Try it'));
 expect(filledTry.split('\n').find((l) => l.startsWith('mkdir ')) === command, 'a filled llms.txt does not carry the current try command at the top of "Try it"');
 const escaped = command.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
-expect(html.includes(`<code>${escaped}</code>`) && /<p class="sr-only">For AI agents[^<]*<code>/.test(html), "index.html's agent line does not carry the current try command");
+expect(html.includes(`<div class="cmd-box"><code>${escaped}</code>`) && /<p class="sr-only">For AI agents[^<]*<\/p>\s*<div class="cmd-box"><code>/.test(html), "index.html does not show the current try command under the agent line");
 
 if (failures.length) {
   for (const f of failures) console.error(`FAIL ${f}`);

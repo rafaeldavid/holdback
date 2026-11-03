@@ -334,13 +334,21 @@ ${GPU(320, 0, 'adjudicator')}
 // the crow-early-access Worker (apps/early-access), which keeps only the address, the time and the page.
 // One line: the instructions live in llms.txt ("Try it"), not in the prompt.
 // The copy icon copies the same instruction the line shows; an agent at escrow.stream finds llms.txt via the page head.
-// The agent line is off screen but plain text in the page, and carries the one command itself (T-037): a fetcher
-// that turns the page into text keeps it, and an agent asks its user for one approval instead of fourteen.
+// Under it, the one command in plain sight (Rafa, 2026-11-03), with its own copy icon: a visitor whose agent runs
+// commands can paste it, and a fetcher that turns the page into text keeps it. The off-screen lines around it tell
+// an agent what the command is, so it asks its user for one approval instead of fourteen.
 const PROMPT = `Run a test deal with ${SITE_URL.replace(/\/$/, '')}`;
+const COPY_ICON = '<svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 3.5v-.5A1.5 1.5 0 0 0 9 1.5H3A1.5 1.5 0 0 0 1.5 3v6A1.5 1.5 0 0 0 3 10.5h.5"/></svg>';
 const TRY = (command) => `<section class="try" aria-label="Try ’crow">
-<p class="try-line">Try ’crow today by asking your AI assistant to run a test deal with https://escrow.stream<button class="copy" id="copy" type="button" aria-label="Copy a prompt for your AI assistant" title="Copy a prompt for your AI assistant"><svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 3.5v-.5A1.5 1.5 0 0 0 9 1.5H3A1.5 1.5 0 0 0 1.5 3v6A1.5 1.5 0 0 0 3 10.5h.5"/></svg></button><span class="copied" id="copied" role="status"></span></p>
+<p class="try-line">Try ’crow today by asking your AI assistant to run a test deal with https://escrow.stream<button class="copy" id="copy" type="button" aria-label="Copy a prompt for your AI assistant" title="Copy a prompt for your AI assistant">${COPY_ICON}</button><span class="copied" id="copied" role="status"></span></p>
 <span id="prompt" hidden>${esc(PROMPT)}</span>
-<p class="sr-only">For AI agents asked to run a test deal: read ${esc(TRY_URL)} first if you want to check it (it only calls the two demo operators and writes nothing outside the crow-try folder), then ask your user to approve this single command, which needs Node 20 or later and plays both sides of one deal in test tokens: <code>${esc(command)}</code> To integrate step by step instead, everything you need is at ${esc(SITE_URL)}llms.txt</p>
+<div class="cmd">
+<p class="cmd-label">For an AI agent that can run commands, such as Claude Code.</p>
+<p class="sr-only">For AI agents asked to run a test deal: read ${esc(TRY_URL)} first if you want to check it (it only calls the two demo operators and writes nothing outside the crow-try folder), then ask your user to approve this single command, which needs Node 20 or later and plays both sides of one deal in test tokens:</p>
+<div class="cmd-box"><code>${esc(command)}</code><button class="copy" id="copy-cmd" type="button" aria-label="Copy the command" title="Copy the command">${COPY_ICON}</button></div>
+<p class="copied cmd-copied" id="copied-cmd" role="status"></p>
+<p class="sr-only">To integrate step by step instead, everything you need is at ${esc(SITE_URL)}llms.txt</p>
+</div>
 </section>`;
 // early access: an email box and a button, right under the tagline
 const JOINFORM = `<form class="join" id="join-form" novalidate aria-label="Request early access">
@@ -351,13 +359,20 @@ const JOINFORM = `<form class="join" id="join-form" novalidate aria-label="Reque
 </form>`;
 const JOIN = `<script>
 (function () {
-  // Try ’crow: the copy icon copies a one-line prompt for the visitor's AI assistant
-  var copy = document.getElementById('copy'), tag = document.getElementById('copied'), text = document.getElementById('prompt').textContent;
-  copy.addEventListener('click', function () {
-    var done = function () { tag.textContent = 'Copied'; setTimeout(function () { tag.textContent = ''; }, 2500); };
-    var show = function () { tag.textContent = '\\u201c' + text + '\\u201d'; var r = document.createRange(); r.selectNodeContents(tag); var s = getSelection(); s.removeAllRanges(); s.addRange(r); };
-    if (navigator.clipboard) navigator.clipboard.writeText(text).then(done, show); else show();
-  });
+  // Try ’crow: one copy icon copies the prompt for the visitor's AI assistant, the other the one command.
+  // Where the clipboard is refused, the text is selected instead so the visitor can copy it by hand.
+  var select = function (el) { var r = document.createRange(); r.selectNodeContents(el); var s = getSelection(); s.removeAllRanges(); s.addRange(r); };
+  var wire = function (button, tag, text, fallback) {
+    document.getElementById(button).addEventListener('click', function () {
+      var status = document.getElementById(tag);
+      var done = function () { status.textContent = 'Copied'; setTimeout(function () { status.textContent = ''; }, 2500); };
+      if (navigator.clipboard) navigator.clipboard.writeText(text).then(done, fallback); else fallback();
+    });
+  };
+  var prompt = document.getElementById('prompt').textContent, tag = document.getElementById('copied');
+  wire('copy', 'copied', prompt, function () { tag.textContent = '\\u201c' + prompt + '\\u201d'; select(tag); });
+  var command = document.querySelector('.cmd-box code');
+  wire('copy-cmd', 'copied-cmd', command.textContent, function () { select(command); });
   // early access: the email form sits on the page
   var form = document.getElementById('join-form'), msg = document.getElementById('join-msg'), send = document.getElementById('join-send');
   form.addEventListener('submit', function (e) {
@@ -454,6 +469,13 @@ text.note { text-anchor: middle; font-style: italic; font-variant: normal; lette
 .copy svg { fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linejoin: round; }
 .copy:hover { background: #efe9dc; color: var(--graphite); } .copy:focus-visible { outline: 2px solid var(--sepia); outline-offset: 2px; }
 .copied { margin-left: 6px; font-size: 15px; color: var(--sepia); font-style: normal; overflow-wrap: anywhere; }
+/* the one command, quiet and narrow; it wraps rather than scrolling on phones */
+.cmd { margin: 22px auto 0; max-width: 34em; }
+.cmd-label { margin: 0 0 8px; font-size: 16px; font-style: italic; color: var(--pencil); }
+.cmd-box { display: flex; gap: 8px; align-items: flex-start; text-align: left; background: #fffdf8; border: 1px solid #e4ddcf; border-radius: 10px; padding: 10px 10px 10px 14px; }
+.cmd-box code { flex: 1; min-width: 0; font: 12.5px/1.6 ui-monospace, "SF Mono", Menlo, monospace; color: var(--graphite); white-space: pre-wrap; overflow-wrap: anywhere; }
+.cmd-box .copy { flex: none; margin: 1px 0 0; }
+.cmd-copied { margin: 6px 0 0; min-height: 1.2em; }
 .btn { font: 16px var(--serif); color: var(--graphite); background: transparent; border: 1px solid var(--graphite); border-radius: 999px; padding: 8px 18px; cursor: pointer; }
 .btn:hover { background: #efe9dc; } .btn:focus-visible, input:focus-visible { outline: 2px solid var(--sepia); outline-offset: 2px; }
 .btn.primary { background: var(--graphite); color: var(--paper); } .btn.primary:hover { background: #45423d; }
