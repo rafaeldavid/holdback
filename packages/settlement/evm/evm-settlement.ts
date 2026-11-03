@@ -524,7 +524,16 @@ export class EvmSettlement implements Settlement {
         const d = s.delivery;
         const book = this.bookOf(d.commitmentId);
         const t = termsView(book.state.terms);
-        await this.call(d.commitmentId, 'deliver', [t, deliveryView(d), d.signature], [{ type: 'deliver', at, delivery: d }], options, dryRun, book.state.terms.seller);
+        try {
+          await this.call(d.commitmentId, 'deliver', [t, deliveryView(d), d.signature], [{ type: 'deliver', at, delivery: d }], options, dryRun, book.state.terms.seller);
+        } catch (e) {
+          // In `deliver`, InvalidMessage comes only from the attempt check, after the stage and deadline checks, as in
+          // core; the contract has no bytes left for its own error, so the name core gives it is restored here.
+          if (e instanceof Refusal && d.attempt !== 1 && e.problem.detail.startsWith('contract revert InvalidMessage(')) {
+            refuse('submission_limit_reached', `attempt ${d.attempt} exceeds maxSubmissions ${book.state.terms.timing.maxSubmissions} (${e.problem.detail})`);
+          }
+          throw e;
+        }
         if (!dryRun) book.delivery = d;
         return d.commitmentId;
       }
