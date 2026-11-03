@@ -6,7 +6,7 @@
 
 ## Answer in brief
 
-1. **FlashProve cannot prove a ’crow judge today.** It proves one model (Llama 4 Maverick's text transformer) in a 1,024-token window that holds the prompt and the reply together, greedy decoding only, and it is an unmaintained, unaudited research artifact. A judge's fixed prompt template alone takes over 40% of that window, and its data can be 25 times the window.
+1. **FlashProve cannot prove a Crow judge today.** It proves one model (Llama 4 Maverick's text transformer) in a 1,024-token window that holds the prompt and the reply together, greedy decoding only, and it is an unmaintained, unaudited research artifact. A judge's fixed prompt template alone takes over 40% of that window, and its data can be 25 times the window.
 2. **Adopt the shape now and the prover later.**
    - Each registry seat gets an attestation kind.
    - The policy names how many attested seats the parties want (default 0).
@@ -132,7 +132,7 @@
 | TEE attestation with signed receipts | A measured stack on attested hardware produced this output; the model only if the weights hash is in the measurement | Intel, AMD or NVIDIA keys and the host's physical custody. [TEE.fail](https://tee.fail/): a sub-$1,000 DDR5 interposer forged TDX quotes; NVIDIA GPU attestation is not bound to the CVM and can be relayed (measured) | Near inference cost. Offered for open weights by Venice, Phala, NEAR AI (measured: their docs) | None offered | A priced option (ADR-0014 §4) with the TEE.fail caveat (ADR-0020 §5) |
 | Provider-signed responses | The provider asserts model, input and output | The provider | Negligible | Would cover them; none offered. [IETF receipts draft](https://datatracker.ietf.org/doc/draft-chueayen-attestation-receipts/) says it does not prove the model ran (measured) | Turns residual 8 into "the lab lied", which is court-grade evidence (D26) |
 | Re-execution by a plaintext holder | The pinned open weights on this engine reproduce these tokens | An equivalent engine. Batch-invariant kernels gave 1,000 of 1,000 identical temperature-0 completions ([Thinking Machines](https://thinkingmachines.ai/blog/defeating-nondeterminism-in-llm-inference/)); Token-DiFR detects 4-bit quantization at AUC above 0.999 within 300 tokens ([arXiv 2511.20621](https://arxiv.org/abs/2511.20621)) (measured) | One forward pass per check; 1.6 to 2× engine slowdown for determinism | None | **The practical interim for `local` seats.** Anyone with the plaintext can check; fits D32 |
-| Optimistic fraud proofs (opML, Verde) | Correct unless challenged, if one re-executor is honest ([arXiv 2502.19405](https://arxiv.org/abs/2502.19405)) | A referee and bit-reproducible operators | Low; a challenge window | None | A new actor and deadline; ’crow's appeal already is the optimistic layer |
+| Optimistic fraud proofs (opML, Verde) | Correct unless challenged, if one re-executor is honest ([arXiv 2502.19405](https://arxiv.org/abs/2502.19405)) | A referee and bit-reproducible operators | Low; a challenge window | None | A new actor and deadline; Crow's appeal already is the optimistic layer |
 | Sampling proofs (TOPLOC, PoSP) | TOPLOC: activation fingerprints, 258 bytes per 32 tokens, empirical ([arXiv 2501.16007](https://arxiv.org/abs/2501.16007)) | A reference run; PoSP needs staked validators | Small | None | TOPLOC is a cheap fingerprint a `local` seat can publish |
 
 ## 9. Fixtures to write when built

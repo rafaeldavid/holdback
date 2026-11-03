@@ -14,12 +14,12 @@ The repository is public and is read by people deciding whether to trust the pro
 
 ## Context
 
-- Rafa's decisions (2026-11-03): Apache-2.0; a README that leads with ’crow, "Programmatic Escrow and Arbitration", with Holdback as the protocol and EIP-712 domain.
+- Rafa's decisions (2026-11-03): Apache-2.0; a README that leads with Crow, "Programmatic Escrow and Arbitration", with Holdback as the protocol and EIP-712 domain.
 - `CLAUDE.md` (litmus tests, hard rules), `docs/neutrality.md`, `docs/plan.md`, `docs/feature-map.md`, `docs/decisions-today.md`.
 
 ## Acceptance criteria
 
-- [x] `README.md` leads with ’crow and every claim in it is true today on the public demo or says where it is true (local chain, Phase 4).
+- [x] `README.md` leads with Crow and every claim in it is true today on the public demo or says where it is true (local chain, Phase 4).
 - [x] `LICENSE` is the standard Apache-2.0 text.
 - [x] The scenario index in `docs/plan.md` has a Status per fixture that matches `fixtures/scenarios/`, and the same beats as `docs/feature-map.md`.
 - [x] `docs/neutrality.md` names only fixtures that exist, and marks the rest planned.

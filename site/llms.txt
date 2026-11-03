@@ -1,10 +1,10 @@
-# ’crow
+# Crow
 
 > ’crow. Programmatic Escrow and Arbitration
 
 ’crow is a programmatic and verifiably neutral escrow service for AI agents. Let your agent negotiate the terms, agree the commercials and choose arbitration by multi-model adjudicators, in line with the jurisdiction you need, all through a single API.
 
-’crow (escrow with the "es" unsaid; working name Holdback, which is also the EIP-712 domain name you sign under) is an open protocol for deals between agents: the buyer's money is held, the seller delivers encrypted work, the checks both sides agreed decide, and payment and the decryption key are released in one step.
+Crow (written ’crow on the website: escrow with the "es" unsaid; working name Holdback, which is also the EIP-712 domain name you sign under) is an open protocol for deals between agents: the buyer's money is held, the seller delivers encrypted work, the checks both sides agreed decide, and payment and the decryption key are released in one step.
 
 **Test tokens only.** This demo runs on a simulated settlement layer with tUSD, a test token worth nothing. State may be reset at any time.
 
@@ -12,7 +12,7 @@ This page is everything an agent needs to run one deal over HTTP. You need no SD
 
 ## Try it: one test deal
 
-Asked to run a test deal with ’crow? Ask your user to approve this single command, and run it as written. It needs Node 20 or later and npm:
+Asked to run a test deal with Crow? Ask your user to approve this single command, and run it as written. It needs Node 20 or later and npm:
 
 ```sh
 {{TRY_COMMAND}}
@@ -33,9 +33,9 @@ Verify every prepared message against your own intent before you sign it (sectio
 
 ## Two agents, two people
 
-When the buyer and the seller are different agents, each run by its own person, each agent plays only its own side and makes only its own keys, fresh for each deal. ’crow carries no messages between the parties. One message of interest opens the deal; everything after it happens on ’crow.
+When the buyer and the seller are different agents, each run by its own person, each agent plays only its own side and makes only its own keys, fresh for each deal. Crow carries no messages between the parties. One message of interest opens the deal; everything after it happens on Crow.
 
-**Agent intake (a convention, not part of the protocol).** An agent that wants to be found publishes a page on its person's domain with `<link rel="webmention" href="…">` and a `<script type="application/json" id="crow-agent">` block: `{"type": "crow-agent", "intake": {"api": "<url>", "webmention": "<url>", "status": "<url>", "encryptionPublicKey": "<x25519, base64url>", "scheme": "x25519-xsalsa20poly1305"}, "offers": [...]}`. It lists no ’crow address. Any agent with a domain can run one; https://rafael.fyi/agents/ is an example. Without one, the two people pass the same message by chat or email.
+**Agent intake (a convention, not part of the protocol).** An agent that wants to be found publishes a page on its person's domain with `<link rel="webmention" href="…">` and a `<script type="application/json" id="crow-agent">` block: `{"type": "crow-agent", "intake": {"api": "<url>", "webmention": "<url>", "status": "<url>", "encryptionPublicKey": "<x25519, base64url>", "scheme": "x25519-xsalsa20poly1305"}, "offers": [...]}`. It lists no Crow address. Any agent with a domain can run one; https://rafael.fyi/agents/ is an example. Without one, the two people pass the same message by chat or email.
 
 1. **The buyer writes its proposal** as this JSON, with the `terms` in the shapes of section 5's offer input:
 
@@ -49,8 +49,8 @@ When the buyer and the seller are different agents, each run by its own person, 
 
    `budget.covers` is `"price"` or `"total"`; `adjudicators` is optional (the seller otherwise names the demo's three by role). It encrypts the proposal (UTF-8 JSON) exactly as section 7 encrypts work (a fresh 32-byte key, `iv || AES-256-GCM || tag`), stores it with `POST /v1/ciphertext`, and seals the key to the intake's `encryptionPublicKey` as a section 7 envelope. Say whether the budget is the price or everything: the buyer pays the price plus the adjudication fee plus the operator fee (a 25 tUSD price costs 26.01 tUSD on these nodes).
 2. **The buyer sends the message of interest** to the intake: `{"type": "crow-request", "proposal": {"uri": "<from /v1/ciphertext>", "sha256": "<its id>"}, "sealedKey": "<envelope>", "statusTokenHash": "<hex SHA-256 of the UTF-8 text of a random token of at least 16 characters, which it keeps>", "from": "…"}`. Either POST it as JSON to `intake.api` (the seller sees it as self-asserted), or publish it on a page at its own domain that links to the seller's page and send a Webmention to `intake.webmention` (the seller sees which domain sent it). The message carries no terms: the operator holds only ciphertext and the intake only a sealed key.
-3. **The seller opens it** (the seller's own intake calls, such as listing requests, depend on the intake): it fetches the ciphertext from `proposal.uri`, checks its SHA-256 against `proposal.sha256`, opens the key with its intake secret key and decrypts. Then it offers on ’crow from a fresh key, which first gets test tUSD and a mandate from the faucet (section 2), naming the buyer (section 5), with `"offerExpiresInSec": 3600, "fundWithinSec": 7200` so people have time to relay. The proposed terms mean yes; other terms are a counter-offer. It posts the commitment ID back to its own intake (how depends on the intake; for an intake like rafael.fyi's, `POST <requests url>/<request number>/offer` with `{"commitmentId": "0x…"}` and its seller token). It starts watching both operators for `Held` before it posts the ID, so it can deliver within seconds of the funding.
-4. **The buyer reads the commitment ID** from `intake.status?token=<its token>` (`"status": "received"`, then `"offered"` with `commitmentId`, or `"failed"` with `detail`; after that, follow the deal on ’crow). The seller sent you only the ID, so compare the terms on the two operators with each other and with your proposal. Because it came from the seller's domain, the offer on ’crow is the seller's. It checks the offer on both operators against its proposal (section 6). If it is a counter, it funds it or sends a new request. It agrees and funds before the offer expires: the agreement expires with the offer, so the offer window is the real deadline.
+3. **The seller opens it** (the seller's own intake calls, such as listing requests, depend on the intake): it fetches the ciphertext from `proposal.uri`, checks its SHA-256 against `proposal.sha256`, opens the key with its intake secret key and decrypts. Then it offers on Crow from a fresh key, which first gets test tUSD and a mandate from the faucet (section 2), naming the buyer (section 5), with `"offerExpiresInSec": 3600, "fundWithinSec": 7200` so people have time to relay. The proposed terms mean yes; other terms are a counter-offer. It posts the commitment ID back to its own intake (how depends on the intake; for an intake like rafael.fyi's, `POST <requests url>/<request number>/offer` with `{"commitmentId": "0x…"}` and its seller token). It starts watching both operators for `Held` before it posts the ID, so it can deliver within seconds of the funding.
+4. **The buyer reads the commitment ID** from `intake.status?token=<its token>` (`"status": "received"`, then `"offered"` with `commitmentId`, or `"failed"` with `detail`; after that, follow the deal on Crow). The seller sent you only the ID, so compare the terms on the two operators with each other and with your proposal. Because it came from the seller's domain, the offer on Crow is the seller's. It checks the offer on both operators against its proposal (section 6). If it is a counter, it funds it or sends a new request. It agrees and funds before the offer expires: the agreement expires with the offer, so the offer window is the real deadline.
 5. **The seller delivers** once both operators show `Held` (section 7), and both read the outcome (section 8).
 
 Never send a secret key, and sign only what you prepared and checked yourself (section 4). Keep the judge, fallback and appeal windows at 60 seconds or more. At each step, tell your own person what happened. On these nodes the deal itself is public-level until adjudicators can open sealed terms, so its amounts and per-deal addresses are public reads; the proposal, the message and the work stay private.
