@@ -76,9 +76,9 @@ section{display:grid;gap:20px;scroll-margin-top:64px}
 .road .st.done{color:var(--done);border-color:var(--done)}
 .road .st.active{color:var(--accent);border-color:var(--accent)}
 .road .ph.current{border-color:var(--accent)}
-.road summary{cursor:pointer;display:flex;gap:10px;align-items:baseline}
-.road summary h3{margin:0}
-.road details[open] summary{margin-bottom:8px}
+.road summary{display:flex;gap:10px;align-items:baseline}
+.road summary::before{content:"▸";color:var(--muted)}
+.road details[open] summary::before{content:"▾"}
 @media (max-width:640px){.road li{grid-template-columns:52px minmax(0,1fr)}.road li .st{grid-column:2;justify-self:start}}
 /* phase ladder */
 .ladder{list-style:none;margin:0;padding:0;display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);border:1px solid var(--line);border-radius:8px;background:var(--surface);overflow:hidden}
@@ -443,7 +443,7 @@ footer{font-size:12.5px;color:var(--muted);border-top:1px solid var(--line);padd
     return '<div class="lane"><h3>'+l[1]+' <span class="count">'+rows.length+'</span></h3><div>'+rows.map(function(id){
       var t=byId[id], waits=deps[id].filter(function(d){return byId[d].status!=='done'});
       var after=l[0]==='blocked'?(byId[id].dependsOnAll?'after all others':'after '+waits.join(', ')):esc(String(t.lane||'').split(/\s*[(;,]/)[0]);
-      return '<div class="task"><span class="id">'+id+'</span><span>'+md(t.title)+'</span><span class="after">'+after+'</span></div>';
+      return '<div class="task"><span class="id">'+id+'</span><span>'+md(t.title)+'</span><span class="after" title="'+after+'">'+after+'</span></div>';
     }).join('')+'</div></div>';
   }).join('');
 

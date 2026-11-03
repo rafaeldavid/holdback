@@ -101,7 +101,7 @@ export function phases(allTasks) {
   for (let i = 1; i < parts.length; i += 3) {
     const n = Number(parts[i]);
     const body = parts[i + 2];
-    const goal = (body.match(/^Goal: (.+)$/m)?.[1] ?? '').replace(/^./, (c) => c.toUpperCase());
+    const goal = capitalize(body.match(/^Goal: (.+)$/m)?.[1] ?? '');
     const exit = bullets(section(body, '**Exit:**'));
     const own = allTasks.filter((t) => t.phase === n);
     const done = own.length > 0 && own.every((t) => t.status === 'done');

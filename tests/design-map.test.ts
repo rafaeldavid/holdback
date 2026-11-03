@@ -13,6 +13,12 @@ describe('design map', () => {
     expect(['next', 'active']).toContain(first.status);
   });
 
+  it('reads a plan line with a lettered task ID as one ID', () => {
+    const items = data.phases.flatMap((p: { items: { id: string | null; text: string }[] }) => p.items);
+    const t016b = items.find((it: { id: string | null }) => it.id === 'T-016b');
+    expect(t016b.text).toMatch(/^Testkit/);
+  });
+
   it('reads a task status by its leading keyword, so a note after it does not hide "done"', () => {
     const t010 = data.tasks.find((t: { id: string }) => t.id === 'T-010');
     expect(t010.status).toBe('done');
