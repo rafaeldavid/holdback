@@ -1,6 +1,6 @@
 # Plan
 
-Iterative. Demo first, then harden one layer per phase. Each phase ends with evidence, a plan update and ADRs closed or deferred. Phases 0 to 2 have task files in `docs/tasks/` (T-016b does not yet). The architect writes later phases' task files at the start of each phase.
+Iterative. Demo first, then harden one layer per phase. Each phase ends with evidence, a plan update and ADRs closed or deferred. Phases 0 to 2, 9 and 10 have task files in `docs/tasks/` (T-016b does not yet), and Phases 3 and 5 have one each (T-309, T-214). The architect writes later phases' task files at the start of each phase.
 
 **Releases:** v0.1 = Phases 0–3 · v0.2 = Phases 4–5 · v0.3 = Phase 6.
 
@@ -78,6 +78,7 @@ Goal: the same scenario fixtures pass against an EVM contract on a local chain. 
 - [ ] T-036 Coordinator commands: `/merge-pr`, `/start-task`, `/deploy-demo`, `/deploy-site`, `/review-pr`, `/record-decision`, `/daily-log`, a session brief and two hooks.
 - [x] T-037 (PR 114) One-approval test deal: the homepage prompt in a vanilla Claude Code asks for one approval, then a deal runs end to end. `examples/try.ts` plays both sides against the live demo with the HTTP-only agent; `site/build.mjs` bundles it to `https://escrow.stream/try.mjs`; one pinned, sha256-checked command heads `llms.txt` "Try it" and shows on the homepage.
 - [x] T-038 Public docs cleanup: README leads with Crow, Apache-2.0 license, statuses and fixture indexes match the repo, no personal details (PR 110).
+- [x] T-057 (PR 136) Demo adjudicator alarm only while a case awaits an adjudicator: no alarm for reads, cold starts or faucet grants; a slower cadence for a case no pass can finish; a fallback takeover armed at judgeBy (T-031's two backlog rows).
 - [x] T-209 (PR 77) Beacon verification in `HoldbackRules` (BLS check of the drand value for fallback and appeal panel seeds, ADR-0018), split out of T-202. ADR-0025's schema follow-up (EVM funding signature and token identifiers) moved to T-033.
 - [ ] T-210 Mirror T-206's appeal fixes in core and SimChain (H-1, H-2; M-3 recorded until Phase 4): bind every decision's attempt (H-1), and refuse an appeal key on a refunded deal (H-2).
 - [ ] T-211 The reference adjudicator never seals the key for a refunded buyer (T-206 H-2), and declines fallback and appeal tasks outside its policy (T-206 M-3).
@@ -117,6 +118,7 @@ Goal: fiat enters and leaves through ramps; the demo runs on a public testnet wi
 - [ ] **Next:** T-214 USD to USDC on-ramp in test mode (D42): the first wave's one funding path, a Stripe crypto on-ramp or Coinbase Onramp sandbox behind the funding service (ADR-0026), test keys from the environment only.
 - Stripe test-mode on-ramp: a card payment mints test tokens to the buyer (D7). A simulated off-ramp.
 - Testnet deployment (D4) and gas sponsorship or paymaster for agents.
+- [ ] T-215 Gas share on small deals. Measured on anvil with the Sepolia demo's parameters (T-213): the 1.51 tUSDC minimum fee (a 1.50 gas quote for about 500k gas at a fixed 1 gwei and a fictional 3,000 tUSDC/ETH, plus 0.01 relay) is about 6% of a 25 tUSDC deal (D33, ADR-0023). Before mainnet: quote gas from live gas and token prices; credit or refund the unused part of the quote (an ADR-0023 amendment and a schema bump); set a published target share for small deals (proposed: under 1% at $25; Rafa decides); take the cheapest wins (the decision carrying the delivery by default, with the seller still free to post `deliver` (D37); relayer batching) and weigh Phase 7's "Minimise gas" and Phase 8's L2 or fragment options.
 - Operator node packaging (container), so a second party can run op-2.
 - Neutrality beat 7 on testnet.
 
@@ -154,6 +156,49 @@ Appended after Phase 7 so no phase number or release moves. The number orders th
 - Unlinkable funding and private amounts (residual 11, `docs/neutrality.md`): a per-deal key funded from a known treasury is linked to it on chain, unless the funds come from a shielded pool or a fresh on-ramp account. That stays the agent's choice, never a protocol dependency (ADR-0024); the work is guidance for agents that want it and a check that such a deal settles unchanged. Amounts are public on chain in Phase 2 (D34); hiding them is one of D40's privacy-capable pieces (D16).
 - Prividium fragment per escrow (T-208), parked (Rafa, 2026-11-03): a single-use Prividium fragment per escrow, with the assets kept in the L1 escrow. The research pass (PRs 79, 81, 82) found that the fragment's operator reads every deal and can halt it, and that one chain per escrow is not a supported shape, so it does not meet D4's 2026-10-31 bar. Findings, the optional probe and the questions for Matter Labs: `docs/research/prividium-fragment.md`. No task file.
 - An agent-to-agent L2 fragment per escrow, verified with zero-knowledge proofs: independently checkable, almost no gas until the settlement proof is submitted. It keeps T-208's idea without the vendor, since any party may prove. Moved from Phase 7; needs a research pass and an ADR. Details in `docs/backlog.md` under "Far future".
+
+## Phase 9: Infrastructure management
+
+Goal: Rafa sees what building and running Crow costs across every provider, every account that can spend has a cap or an alert, and a runaway is caught within a day.
+
+Appended after Phase 8, like it, so no phase number moves (Rafa, 2026-11-03). It needs nothing from Phases 3 to 8 or from the agent-ops phase: T-051 can start today. The inventory of cost sources and the monitoring design are in `docs/costs.md`. Billing figures stay out of the repository: reports, budgets and the account register live in a git-ignored cost directory, and billing credentials stay outside agent sessions, on a machine Rafa controls. Tasks are listed in dependency order; each is one PR.
+
+- T-051 Cost guards on every account: Rafa's checklist of spend limits, budgets and alerts, in order and with links, and a private account register (infra; human gate).
+- T-052 The read-only cost collector: one source module per billing or usage API, plus the local Claude Code transcripts, T-031's day lines (exported once, for T-042 too) and the Sepolia balances, writing a dated file in the cost directory (infra; human gate for the read-only credentials).
+- T-053 The monthly cost report and unit costs: each provider against its budget, cost per demo deal, per merged PR and per task (infra).
+- T-054 Anomaly rules and the CPU guard: a runaway agent, a spend spike, a cap or quota near, the relayer's funding lane running dry, paid usage that should be zero, a renewal or token expiry due; CPU limits per Worker from measured use (infra; human gate to deploy the limits).
+- T-055 The daily routine, run from a dedicated clone on a machine Rafa controls with code he approved, and the channel that tells him when a rule fires or a run fails; its `cost-signals.json` holds rule names and no figure, for the agent-ops phase's telemetry lane (T-042) (infra; human gate).
+- T-056 A budget for the planned costs: Stripe's live fees, the trademark, the external audit, mainnet gas and judges at volume (research; human gate for quotes).
+- T-058 (later: after a working mainnet prototype; Rafa, 2026-11-03) Move `holdback` and the founders' private repository into a GitHub organization: Rafa creates a free organization with 2FA required and no default access; agents first replace the gitleaks action, which needs a license on organizations, then on his go-ahead transfer the repositories, check that protections, security settings and CI survived, set teams and roles (triage for outside contributors), and update links and remotes (infra; human gate). Not part of this phase's exit, though the design map shows Phase 9 open until it is done.
+
+**Exit:**
+- Every account in `docs/costs.md` that can spend has a cap or an alert, and every account has its renewal date, in the register (T-051, confirmed by Rafa).
+- A month's report exists with each provider read by API or marked as entered by hand, and unit costs per demo deal and per merged PR (measured).
+- Each anomaly rule fired on test data, and one test alert reached Rafa on his channel (measured).
+
+## Phase 10: Agent operations
+
+Goal: agent teams develop Crow continuously from tickets, agent feedback, the roadmap and usage telemetry, in an isolated environment with scoped credentials, under automated checks and cross-family review.
+
+**Not active.** The design is in `agent-ops/` (PR 112), and `agent-ops/STATUS` reads `inactive`. No Phase 10 task starts until Rafa starts the phase. The pipeline runs only after T-050, which needs Rafa's go-ahead at each step. Appended after Phase 9, so no phase number moves. Tasks are listed in dependency order; each is one PR, except T-039's agent part, which is two.
+
+- T-039 Isolated development environment: Rafa's checklist and the agents' scripts (infra; human gate). The checklist covers a VM or a Claude Code cloud environment, scoped tokens, spend caps and 2FA. The VM gets the agents' own GitHub Apps: a builder identity with no Workflows permission, and a separate reviewer identity. The scripts cover setup, one Unix user per role, key custody, a smoke test and prompt-free permissions.
+- T-040 Agent-ops config loader and the model mix: `ops.yaml` validated, models pinned, rates in basis points, the GPT fallback chosen, the inert-pipeline test (infra).
+- T-041 Intake, the quarantine and triage: tickets, agent feedback and CI signals become `TriageRecord`s through a triager with no tools, then tasks through the architect (infra; human gate for the first feedback export).
+- T-042 The usage-telemetry lane: signal rules over T-052's day-line export, T-055's cost signals, and the website and onchain aggregates open records without a model (infra; human gate for Web Analytics and a social reader).
+- T-043 Feedback requests at deal milestones for agents that opt in: an ADR, a schema version bump and two signal rules (api).
+- T-044 Security gates: risk tiers with the gate-defining files in tier 3, guardrails (approval lines, ADR acceptance, Rafa's review on a raised PR), the shell guard, the proposed deny list, CODEOWNERS; none wired before activation (infra).
+- T-045 The cross-family review check `xreview`: DeepSeek reviews tier 2 and 3 diffs blind, posted as a status that holds only under three stated preconditions (infra; human gate for live runs).
+- T-046 Red-team and cross-family reviews at milestones: per-PR red team on tier 2, phase exits, ADRs, schema and judge-list changes, deploys; agreement and canary metrics (infra; human gate for live runs).
+- T-047 The kill switch and observability: fail-closed switches, stop, alarms, the PR footer, per-tick metrics, the budget stop, daily pipeline figures (infra).
+- T-048 Dispatch and lane ownership: task lint, briefs from task fields only, the stateless tick, branch claims, single writers (infra).
+- T-049 CI cost and flake control for parallel lanes: the Known flakes list with expiry, one retry, lane pause; links T-034 to T-036 (infra).
+- T-050 Activation, one reversible step at a time, each on Rafa's go-ahead (infra; human gate): review keys in an Environment, a required review by the reviewer's App, a tier 3 ruleset, tool limits, enforcement from a trusted checkout, triggers, a shadow week, one lane, then three.
+
+**Exit:**
+- `agent-ops/STATUS` reads `active` and the repository variable `AGENT_OPS` is `on`, both set by Rafa (T-050).
+- One lane merged 10 PRs without a revert, then three lanes ran with the cross-family gates (measured in the daily log).
+- No agent session can read a credential for Rafa's personal accounts (T-039 smoke test, measured).
 
 ## Scenario index
 

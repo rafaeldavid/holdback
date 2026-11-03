@@ -22,8 +22,11 @@ interface Running {
 const running: Running[] = [];
 afterEach(async () => void (await Promise.all(running.splice(0).map((r) => r.close()))));
 
-/** Serves a world as two nodes: http://127.0.0.1:<port> is node 0, http://localhost:<port> node 1. */
-async function serve(options: Partial<PublicWorldOptions> = {}, storage = new MemoryStorage(), client?: string): Promise<Running> {
+/**
+ * Serves a world as two nodes: http://127.0.0.1:<port> is node 0, http://localhost:<port> node 1. Adjudicator passes run
+ * every 100 ms, or only when the test calls `world.work()` with `passes: false`.
+ */
+async function serve(options: Partial<PublicWorldOptions> = {}, storage = new MemoryStorage(), client?: string, { passes = true } = {}): Promise<Running> {
   const world = await PublicWorld.open({ storage, env: {}, minWindowSec: 2, ...options });
   const server: Server = createServer(async (req, res) => {
     const host = req.headers.host ?? '';
@@ -38,7 +41,7 @@ async function serve(options: Partial<PublicWorldOptions> = {}, storage = new Me
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const port = (server.address() as AddressInfo).port;
-  let ticking = true;
+  let ticking = passes;
   const loop = (async () => {
     while (ticking) {
       await world.work();
@@ -362,6 +365,99 @@ describe('a checks-only deal between two fresh agents, over HTTP', () => {
     expect((await again.call('GET', `/v1/commitments/${offer.id}/judgment`)).commitmentId).toBe(offer.id);
     expect((await again.call('GET', `/v1/balances/${seller.address}`)).amount).toBe('1025000000');
   }, 60_000);
+});
+
+describe('adjudicator passes (T-057)', () => {
+  /** A new world over the same storage, as after an eviction, woken by a plain read. */
+  const wake = async (storage: MemoryStorage, options: Partial<PublicWorldOptions> = {}) => {
+    const world = await PublicWorld.open({ storage, env: {}, minWindowSec: 2, ...options });
+    await world.fetch(new Request('http://127.0.0.1/v1/status'), { node: 0, origin: 'http://127.0.0.1', client: 'test' });
+    return world;
+  };
+
+  it('a world rebuilt from storage is active after a read only while its adjudicators have work', async () => {
+    const storage = new MemoryStorage();
+    const first = await serve({}, storage, undefined, { passes: false });
+    const d = await discovery(first.urls);
+    const [seller, buyer] = [freshAgent(first.urls), freshAgent(first.urls)];
+    for (const a of [seller, buyer]) await a.call('POST', '/v1/faucet', { address: a.address });
+    // A faucet grant moves no deal: nothing awaits the adjudicators.
+    expect(first.world.active()).toBe(false);
+    const offer = await seller.offer(offerRequest(d, seller, buyer));
+    expect(first.world.active()).toBe(true);
+    await first.close();
+    running.splice(running.indexOf(first), 1);
+
+    // Evicted with the offer pending: the rebuilt world is active and its primary accepts.
+    const second = await wake(storage);
+    expect(second.active()).toBe(true);
+    await second.work();
+    expect((await second.chain.state(offer.id))?.escrowState).toBe('AcceptedByAdjudicator');
+    // The accepted deal waits on its buyer, not on an adjudicator: no pass is due, before or after a rebuild.
+    expect([second.active(), second.nextPass()]).toEqual([false, null]);
+    expect((await wake(storage)).active()).toBe(false);
+  });
+
+  it('a pass that changes nothing doubles the wait, up to a minute; 15 minutes after settlement moved only the takeover stays scheduled', async () => {
+    const storage = new MemoryStorage();
+    let t = Date.now();
+    const now = () => t;
+    const first = await serve({ now }, storage, undefined, { passes: false });
+    const d = await discovery(first.urls);
+    const [seller, buyer] = [freshAgent(first.urls), freshAgent(first.urls)];
+    for (const a of [seller, buyer]) await a.call('POST', '/v1/faucet', { address: a.address });
+    const timing = { judgeWithinSec: 7200, fallbackWithinSec: 7200, appealWindowSec: 2, appealDecideSec: 2 };
+    const offer = await seller.offer(offerRequest(d, seller, buyer, { timing }));
+    await first.world.work();
+    await buyer.agreeAndFund(offer.terms, 30_000_000n);
+    await seller.deliver(offer.terms, new TextEncoder().encode('customer_id,email\n1,ada@example.com\n'));
+    await first.close();
+    running.splice(running.indexOf(first), 1);
+
+    // Restarted with live judges, the primary refuses the delivery (registry_mismatch, docs/backlog.md) on every
+    // pass until judgeBy, two hours away: a case no pass can finish.
+    const stuck = await wake(storage, { now, judgeProvider: markerFake() });
+    expect(stuck.nextPass()).toBe(t + 1000);
+    const waits: number[] = [];
+    for (let i = 0; i < 8; i++) {
+      await stuck.work();
+      waits.push(stuck.nextPass()! - t);
+    }
+    expect(waits).toEqual([2000, 4000, 8000, 16_000, 32_000, 60_000, 60_000, 60_000]);
+    const { escrowState, deadlines } = (await stuck.chain.state(offer.id))!;
+    expect(escrowState).toBe('Delivered');
+    t += 15 * 60_000;
+    expect([stuck.active(), stuck.nextPass()]).toEqual([false, Date.parse(deadlines['judgeBy']!)]);
+    // judgeBy passes before anything rereads the state: the takeover still gets a pass, after the current wait.
+    t = Date.parse(deadlines['judgeBy']!) + 1;
+    expect(stuck.nextPass()).toBe(t + 60_000);
+  });
+
+  it('a deal that moves as its deadline passes stays scheduled: a read and a delivery straddle deliverBy (T-057 review)', async () => {
+    let t = Math.ceil(Date.now() / 1000) * 1000;
+    const { world, urls } = await serve({ now: () => t }, new MemoryStorage(), undefined, { passes: false });
+    const d = await discovery(urls);
+    const [seller, buyer] = [freshAgent(urls), freshAgent(urls)];
+    for (const a of [seller, buyer]) await a.call('POST', '/v1/faucet', { address: a.address });
+    const timing = { offerExpiresInSec: 30, fundWithinSec: 45, deliverWithinSec: 60, judgeWithinSec: 600, fallbackWithinSec: 600, appealWindowSec: 60, appealDecideSec: 60 };
+    const offer = await seller.offer(offerRequest(d, seller, buyer, { timing }));
+    await world.work();
+    await buyer.agreeAndFund(offer.terms, 30_000_000n);
+    const deliverBy = Date.parse(offer.terms.timing.deliverBy);
+    t = deliverBy - 500;
+    const { prepared, intent } = await seller.prepareDelivery(offer.terms, new TextEncoder().encode('customer_id,email\n1,ada@example.com\n'));
+    const { path, body } = await seller.sign(prepared, intent);
+    // Both start, and stamp the settlement clock, before deliverBy; the read's look runs after it and drops the
+    // Held deal, then the delivery lands, stamped in time.
+    const via = { node: 0 as const, origin: urls[0], client: 'test' };
+    const read = world.fetch(new Request(`${urls[0]}/v1/status`), via);
+    const delivery = world.fetch(new Request(`${urls[0]}${path}`, { method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': 'k-race' }, body: JSON.stringify(body) }), via);
+    t = deliverBy + 100;
+    await read;
+    expect((await delivery).ok).toBe(true);
+    expect((await world.chain.state(offer.id))?.escrowState).toBe('Delivered');
+    expect(world.active()).toBe(true);
+  });
 });
 
 describe('telemetry (T-031)', () => {

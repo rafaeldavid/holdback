@@ -1,0 +1,762 @@
+<title>’crow Agent Ops</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;1,400&display=swap">
+<style>
+/* Layout: one centered reading column (720px) for prose; figures break out to 1240px and scroll inside their plate on phones. Light only, ’crow brand (escrow.stream). */
+:root{
+  color-scheme:light;
+  --paper:#faf7f0; --card:#fffdf8; --white:#ffffff; --wash:#f1ece1; --line:#e4dccc; --rule:#cfc5b2;
+  --graphite:#2f2d2a; --pencil:#57534c; --faint:#8f897e; --sepia:#8a6237; --sepia-soft:#f3e9da;
+  --ok:#3d7650; --ok-soft:#e4efe6; --bad:#a3412f; --bad-soft:#f6e4df; --wait:#93640f; --wait-soft:#f6ecd6;
+  --t0:#8f897e; --t1:#4d6b8a; --t2:#8a6237; --t3:#7b5079; --plan-soft:#e7edf3;
+  --serif:"EB Garamond",Garamond,"Times New Roman",serif;
+  --sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--graphite);font-family:var(--sans);font-size:17px;line-height:1.6;-webkit-font-smoothing:antialiased}
+.page{padding-left:max(20px,env(safe-area-inset-left,0px));padding-right:max(20px,env(safe-area-inset-right,0px));padding-block:64px 96px}
+.col{max-width:720px;margin-left:auto;margin-right:auto}
+.wide{max-width:1240px;margin-left:auto;margin-right:auto}
+header{text-align:center;max-width:780px;margin:0 auto 80px}
+.eyebrow{display:flex;flex-wrap:wrap;gap:10px 14px;justify-content:center;align-items:center;font-size:14px;color:var(--pencil)}
+.brand{font-family:var(--serif);font-size:20px;color:var(--graphite)}
+.pill{font-size:12px;font-weight:600;letter-spacing:.02em;padding:3px 11px;border-radius:999px;background:var(--wait-soft);color:var(--wait);border:1px solid #e6d3a6}
+h1{font-family:var(--serif);font-weight:500;font-size:clamp(38px,6vw,58px);line-height:1.06;letter-spacing:-.01em;margin:20px 0;text-wrap:balance}
+.lede{font-size:20px;line-height:1.5;color:var(--pencil);max-width:640px;margin:0 auto;text-wrap:pretty}
+section{margin-bottom:96px}
+h2{font-family:var(--serif);font-weight:500;font-size:34px;line-height:1.15;margin:0 0 10px;text-wrap:balance}
+h3{font-size:17px;font-weight:600;line-height:1.35;margin:0 0 4px}
+.lead{font-size:18px;line-height:1.55;color:var(--pencil);margin:0 0 28px;text-wrap:pretty}
+p{margin:0 0 14px}
+.muted{color:var(--pencil)}
+.small{font-size:14px}
+code{font-family:var(--mono);font-size:.84em;background:var(--wash);padding:1px 5px;border-radius:5px}
+a{color:var(--sepia)}
+b,strong{font-weight:600}
+.grid4{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:22px 24px}
+.card h3{font-family:var(--serif);font-weight:500;font-size:22px;margin-bottom:6px}
+.card p{color:var(--pencil);margin:0}
+.group{background:var(--card);border:1px solid var(--line);border-radius:18px;overflow:hidden}
+.item{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 14px;padding:16px 20px;border-top:1px solid var(--line)}
+.item:first-child{border-top:0}
+.item .mark{grid-row:span 2;padding-top:5px}
+.item p{margin:0;color:var(--pencil);font-size:16px}
+.dot{display:inline-block;width:11px;height:11px;border-radius:50%}
+.d0{background:var(--t0)}.d1{background:var(--t1)}.d2{background:var(--t2)}.d3{background:var(--t3)}
+.tag{font-size:12px;font-weight:600;padding:1px 8px;border-radius:999px;margin-left:8px;vertical-align:2px;white-space:nowrap}
+.tag.trusted{background:var(--ok-soft);color:var(--ok)} .tag.untrusted{background:var(--bad-soft);color:var(--bad)} .tag.measured{background:var(--plan-soft);color:var(--t1)}
+.steps{list-style:none;padding:0;margin:28px 0 0;display:grid;gap:4px}
+.steps li{display:grid;grid-template-columns:36px minmax(0,1fr);gap:14px;padding:12px 0;border-top:1px solid var(--line)}
+.steps li:first-child{border-top:0}
+.steps .n{font-family:var(--serif);font-size:24px;line-height:1.1;color:var(--sepia);text-align:right}
+.steps p{margin:0;color:var(--pencil)}
+.callout{background:var(--sepia-soft);border-radius:18px;padding:20px 24px;margin-top:20px}
+.callout p{margin:0;color:var(--graphite)}
+ol.plain{margin:0;padding-left:1.3em;display:grid;gap:10px}
+ol.plain li::marker{color:var(--sepia);font-weight:600}
+ul.plain{margin:0;padding-left:1.1em;display:grid;gap:8px}
+details{border-top:1px solid var(--line);margin-top:28px}
+details + details{margin-top:0}
+summary{cursor:pointer;list-style:none;padding:15px 0;font-size:15px;font-weight:600;color:var(--sepia);display:flex;align-items:center;gap:12px}
+summary::-webkit-details-marker{display:none}
+summary::before{content:"";flex:none;width:7px;height:7px;border-right:1.6px solid currentColor;border-bottom:1.6px solid currentColor;transform:rotate(-45deg);transition:transform .2s}
+details[open] summary::before{transform:rotate(45deg)}
+summary:focus-visible,.btn:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--sepia);outline-offset:3px;border-radius:6px}
+.dbody{padding:0 0 22px;font-size:15px}
+.tw{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:14px;line-height:1.45}
+th{font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--pencil);text-align:left;border-bottom:1px solid var(--rule);padding:8px 14px 8px 0;white-space:nowrap}
+td{border-bottom:1px solid var(--line);padding:9px 14px 9px 0;vertical-align:top}
+pre{font-family:var(--mono);font-size:12.5px;line-height:1.55;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;overflow-x:auto;margin:0}
+.nums{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr));gap:16px;margin-bottom:24px}
+.num{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:18px 20px}
+.num b{display:block;font-family:var(--serif);font-weight:500;font-size:32px;line-height:1.1;font-variant-numeric:tabular-nums}
+.num span{font-size:14px;color:var(--pencil)}
+dl.gloss{display:grid;grid-template-columns:minmax(0,160px) minmax(0,1fr);gap:12px 20px;margin:0}
+dl.gloss dt{font-weight:600}
+dl.gloss dd{margin:0;color:var(--pencil)}
+@media (max-width:560px){dl.gloss{grid-template-columns:minmax(0,1fr)} dl.gloss dd{margin-bottom:8px}}
+.plate{background:var(--card);border:1px solid var(--line);border-radius:20px;overflow:hidden}
+.bar{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;padding:14px 18px;border-bottom:1px solid var(--line)}
+.bar .grow{flex:1 1 auto}
+.btn{font:600 13px var(--sans);border:1px solid var(--rule);background:var(--white);color:var(--graphite);border-radius:999px;padding:6px 14px;cursor:pointer}
+.btn:hover{border-color:var(--faint)}
+.seg{display:inline-flex;background:var(--wash);border-radius:999px;padding:3px;gap:2px}
+.seg .btn{border:0;background:transparent;padding:5px 12px}
+.seg .btn[aria-pressed="true"]{background:var(--white);box-shadow:0 1px 3px rgba(47,45,42,.15)}
+#halt[aria-pressed="true"]{background:var(--bad-soft);border-color:var(--bad);color:var(--bad)}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:13px;color:var(--pencil)}
+.legend span{display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
+.sw{width:22px;height:12px;border-radius:3px;display:inline-block;border:1.5px solid var(--rule);background:var(--white)}
+.sw.plan{border-style:dashed;border-color:var(--t1);background:var(--plan-soft)}
+.sw.prop{border-style:dashed;border-color:var(--sepia);background:var(--sepia-soft)}
+.scroll{overflow-x:auto}
+.plate svg{display:block;width:100%;min-width:1060px;height:auto}
+.foot{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 18px;padding:12px 18px;border-top:1px solid var(--line);align-items:start}
+@media (max-width:640px){.foot{grid-template-columns:minmax(0,1fr)}}
+#tick{list-style:none;margin:0;padding:0;font:13px/1.6 var(--sans);height:calc(7 * 1.6em);overflow:hidden;min-width:0;color:var(--graphite)}
+#tick time{color:var(--faint);margin-right:8px;font:12px var(--mono);font-variant-numeric:tabular-nums}
+#tick b{font-weight:600;margin-right:6px}
+#tick .bad{color:var(--bad)} #tick .wait{color:var(--wait)}
+#stats{font-size:13px;color:var(--pencil);font-variant-numeric:tabular-nums;white-space:nowrap}
+.cap{font-size:14px;color:var(--pencil);padding:14px 18px;border-top:1px solid var(--line)}
+#cgcap{min-height:3.4em;color:var(--graphite)}
+.st-chip{font-size:12px;font-weight:600;padding:1px 8px;border-radius:999px;margin:0 8px;background:var(--wash);color:var(--pencil)}
+.st-chip.plan{background:var(--plan-soft);color:var(--t1)} .st-chip.prop{background:var(--sepia-soft);color:var(--sepia)}
+footer{font-size:13px;color:var(--pencil);border-top:1px solid var(--line);padding-top:18px}
+/* SVG */
+.hd{font-family:var(--serif);font-size:14px;font-variant:small-caps;letter-spacing:.06em;fill:var(--pencil)}
+.box{fill:var(--white);stroke:var(--line);stroke-width:1.1}
+.box.on{stroke:var(--sepia);stroke-width:1.8}
+.box.halted{stroke:var(--bad);stroke-width:1.8}
+.ttl{font:600 12px var(--sans);fill:var(--graphite)}
+.sub{font:11px var(--sans);fill:var(--pencil)}
+.note{font:11px var(--sans);fill:var(--pencil)}
+.haltTxt{font:700 11px var(--sans);fill:var(--bad);letter-spacing:.06em}
+.edge{fill:none;stroke:var(--rule);stroke-width:1.2}
+.edge.back{stroke:var(--bad);stroke-dasharray:4 4;opacity:.6}
+.edge.loop{stroke-dasharray:4 4}
+.ah{fill:var(--rule)} .ahb{fill:var(--bad)}
+.track{stroke:var(--line);stroke-width:2;stroke-dasharray:2 4}
+.chipr{fill:var(--wash)}
+.row rect{fill:var(--wash)}
+.row.run rect{fill:var(--sepia-soft)} .row.ok rect{fill:var(--ok-soft)} .row.bad rect{fill:var(--bad-soft)} .row.wait rect{fill:var(--wait-soft)}
+.rl{font:500 11px var(--sans);fill:var(--graphite)}
+.rm{font:10px var(--sans);fill:var(--pencil)}
+.rs{font:600 10px var(--sans);text-anchor:end;fill:var(--pencil)}
+.row.run .rs{fill:var(--sepia)} .row.ok .rs{fill:var(--ok)} .row.bad .rs{fill:var(--bad)} .row.wait .rs{fill:var(--wait)}
+.tok circle{stroke:var(--white);stroke-width:2}
+.tok text{font:600 10px var(--sans);fill:var(--graphite);text-anchor:middle;paint-order:stroke;stroke:var(--white);stroke-width:3px;stroke-linejoin:round}
+.t0{fill:var(--t0)}.t1{fill:var(--t1)}.t2{fill:var(--t2)}.t3{fill:var(--t3)}
+.ghost{fill:none;stroke:var(--faint);stroke-width:1.5}
+.cg .n rect{fill:var(--white);stroke:var(--rule);stroke-width:1.2}
+.cg .n.plan rect{fill:var(--plan-soft);stroke:var(--t1);stroke-dasharray:4 3}
+.cg .n.prop rect{fill:var(--sepia-soft);stroke:var(--sepia);stroke-dasharray:4 3}
+.cg .n text{font:10px var(--mono);fill:var(--graphite)}
+.cg .n{cursor:pointer}
+.cg .e{fill:none;stroke:var(--rule);stroke-width:1.2}
+.cg.hov .n{opacity:.35} .cg.hov .e{opacity:.15}
+.cg.hov .n.hl{opacity:1} .cg.hov .e.hl{opacity:1;stroke:var(--sepia);stroke-width:1.6}
+.cg .n.hl rect{stroke-width:2}
+</style>
+
+<div class="page">
+
+<header>
+  <div class="eyebrow"><span class="brand">’crow</span><span>agent-ops</span><span class="pill">Design only, not active</span></div>
+  <h1>Continuous development with parallel AI agents</h1>
+  <p class="lede">Agent ops is a pipeline that lets AI agents change the ’crow codebase continuously. It takes work from four sources, turns each item into a task, runs up to three tasks in parallel, and checks every change with automated tests and with models from two AI companies before it merges. One source is feedback that the operator requests from agents at key deal milestones. The pipeline is not active. Rafa activates it in nine steps.</p>
+</header>
+
+<section class="col" aria-labelledby="h-min">
+  <h2 id="h-min">Summary</h2>
+  <div class="grid4">
+    <div class="card"><h3>What it does</h3><p>Agent ops turns tickets, agent feedback, the roadmap and usage data into small tasks. Agents build the tasks in parallel. The pipeline merges each change after it passes its checks.</p></div>
+    <div class="card"><h3>Why it exists</h3><p>Agents merged 40 pull requests in two days (measured). Coordination and review now limit throughput, not code generation.</p></div>
+    <div class="card"><h3>How it stays safe</h3><p>Automated checks run before any model review. A model from a second AI company reviews every critical change. Rafa controls deploys, keys, money, repository settings and changes to the pipeline itself.</p></div>
+    <div class="card"><h3>What Rafa decides</h3><p>Rafa decides when to activate the pipeline. Activation has nine steps, listed under <a href="#h-start">Activation</a>.</p></div>
+  </div>
+</section>
+
+<section class="wide" aria-labelledby="h-flow">
+  <div class="col">
+    <h2 id="h-flow">Pipeline</h2>
+    <p class="lead">Every change goes through the same nine stages. Each dot in the animation is a task, and its color shows the task's risk tier.</p>
+  </div>
+  <div class="plate">
+    <div class="bar">
+      <button class="btn" id="play" type="button" aria-pressed="false">Pause</button>
+      <span class="seg" role="group" aria-label="Speed">
+        <button class="btn" type="button" data-speed="0.5" aria-pressed="false">0.5×</button>
+        <button class="btn" type="button" data-speed="1" aria-pressed="true">1×</button>
+        <button class="btn" type="button" data-speed="2" aria-pressed="false">2×</button>
+      </span>
+      <button class="btn" id="halt" type="button" aria-pressed="false">Stop new work</button>
+      <span class="grow"></span>
+      <span class="legend"><span><i class="dot d0"></i>Incoming</span><span><i class="dot d1"></i>Code</span><span><i class="dot d2"></i>Critical</span><span><i class="dot d3"></i>Control</span></span>
+    </div>
+    <div class="scroll"><svg id="f1" viewBox="0 0 1342 440" role="img" aria-label="Pipeline: four input lanes and CI signals feed a triager, an architect and the tick, then three build lanes, a verifier, automated checks, review and merge, with a loop back to intake. Work items move through it.">
+      <defs>
+        <marker id="ah" viewBox="0 0 6 6" refX="5.5" refY="3" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L6,3 L0,6 z" class="ah"/></marker>
+        <marker id="ahb" viewBox="0 0 6 6" refX="5.5" refY="3" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L6,3 L0,6 z" class="ahb"/></marker>
+      </defs>
+      <g id="f1e"></g><g id="f1b"></g><g id="f1t"></g>
+    </svg></div>
+    <div class="foot">
+      <ol id="tick" aria-label="Event log"></ol>
+      <div id="stats"></div>
+    </div>
+    <div class="cap">The animation simulates a run. Existing tasks keep their real IDs, new tasks get IDs from T-901 up, and all outcomes are invented. Stop new work pauses dispatch, and running tasks finish.</div>
+  </div>
+  <div class="col">
+    <ol class="steps">
+      <li><span class="n">0</span><div><h3>Intake</h3><p>The pipeline collects work from tickets, agent feedback, the roadmap and usage telemetry. It quarantines text from outside sources: a model reads that text as data and never follows it as instructions.</p></div></li>
+      <li><span class="n">1</span><div><h3>Triage</h3><p>Triage decides what happens to each item. The item becomes a task, a backlog row or a decision, or triage closes it. A small model fills in a fixed form for each item, and the architect writes the task from that form.</p></div></li>
+      <li><span class="n">2</span><div><h3>Dispatch</h3><p>A script called the tick starts each ready task. A task is ready when its dependencies have merged and no other task touches its files. No model makes this decision.</p></div></li>
+      <li><span class="n">3</span><div><h3>Build</h3><p>An implementer agent writes the tests first and then the code, in its own copy of the repository. Each task runs in a lane. A lane covers one area of the code and holds one task at a time.</p></div></li>
+      <li><span class="n">4</span><div><h3>Verify</h3><p>A verifier reruns the tests and compares every claim in the pull request with the actual output.</p></div></li>
+      <li><span class="n">5</span><div><h3>Checks</h3><p>CI runs the test suite, a secret scanner and a guardrail. The guardrail fails any change that touches files outside its task.</p></div></li>
+      <li><span class="n">6</span><div><h3>Review</h3><p>A model other than the author reviews the change. For critical changes, a model from a second AI company and a red team also review it.</p></div></li>
+      <li><span class="n">7</span><div><h3>Merge</h3><p>GitHub merges lower-risk changes automatically after every review passes. Rafa merges changes to the pipeline.</p></div></li>
+      <li><span class="n">8</span><div><h3>Feed back</h3><p>Each merge updates the daily log and the design map. Review findings outside the task's scope become new intake items.</p></div></li>
+    </ol>
+  </div>
+</section>
+
+<section class="col" aria-labelledby="h-in">
+  <h2 id="h-in">Inputs</h2>
+  <p class="lead">Four input lanes feed triage. The pipeline trusts each source according to who can write to it.</p>
+  <div class="group">
+    <div class="item"><span class="mark"><i class="dot d0"></i></span><h3>Tickets <span class="tag untrusted">untrusted</span></h3><p>GitHub issues and comments. Anyone can open an issue, so the pipeline never treats one as instructions. The repository has no issues today (measured).</p></div>
+    <div class="item"><span class="mark"><i class="dot d0"></i></span><h3>Agent feedback <span class="tag untrusted">untrusted</span></h3><p>Reports that agents send to the API under decision D39, including answers to the feedback requests described below. A report can mention deals, so only a fingerprint of each report enters the public repository.</p></div>
+    <div class="item"><span class="mark"><i class="dot d0"></i></span><h3>Roadmap <span class="tag trusted">trusted</span></h3><p>The plan, backlog, decisions and reviews in the repository. Each one reached the main branch through a reviewed pull request.</p></div>
+    <div class="item"><span class="mark"><i class="dot d0"></i></span><h3>Usage telemetry <span class="tag measured">aggregates</span></h3><p>Aggregate usage of the website, the API and the settlement contract, plus public posts about ’crow. The next section describes it.</p></div>
+  </div>
+  <div class="callout"><h3>Quarantine</h3><p>The quarantine cleans outside text and passes it to a model with no tools. That model can only fill in a fixed form, the TriageRecord. It cannot run commands, follow links or copy the text forward. The architect reads only the form. Rafa approves any task from outside input that touches critical code.</p></div>
+  <details>
+    <summary>Quarantine steps</summary>
+    <div class="dbody"><ol class="plain">
+      <li>The quarantine normalizes the text with <code>packages/judgment/src/normalize.ts</code>, the same code that protects the product's judges.</li>
+      <li>The triager (Haiku 5.5, no tools) reads the text between random delimiters. Its prompt contains a canary token.</li>
+      <li>The triager's output must match <code>agent-ops/schemas/triage-record.schema.json</code>, which allows enums, IDs and short summaries and rejects URLs, handles and copied text. The quarantine drops and counts any output that fails the schema.</li>
+      <li>Raw text never enters a task file, brief, pull request or handoff. An implementer that needs the original text reads it once, fenced and capped at 4 KB.</li>
+    </ol></div>
+  </details>
+  <details>
+    <summary>Example TriageRecord</summary>
+    <div class="dbody"><pre>{
+  "source": "api",
+  "sourceRef": "sig-problem-share",
+  "signal": "api.problem_share_2x",
+  "kind": "friction",
+  "lane": "api",
+  "severity": "P2",
+  "route": "task",
+  "fingerprint": "9f1c2a7be04d33aa",
+  "summary": "Problem type share doubled against its 7-day baseline",
+  "needsRaw": false,
+  "needsHuman": false
+}</pre></div>
+  </details>
+</section>
+
+<section class="col" aria-labelledby="h-ask">
+  <h2 id="h-ask">Requested feedback</h2>
+  <p class="lead">The operator asks agents for feedback at key deal milestones. It asks only agents whose owners opt in, and the default is off.</p>
+  <div class="group">
+    <div class="item"><span class="mark"><i class="dot d1"></i></span><h3>Opt-in</h3><p>The agent's owner decides whether to opt in. The agent sends that choice as the header <code>Prefer: feedback-requests=on</code>. Without the header, the operator never asks, and it stores no opt-in state.</p></div>
+    <div class="item"><span class="mark"><i class="dot d1"></i></span><h3>Before a milestone</h3><p>The prepare response for an offer or an agreement asks for feedback before the agent signs, in 10% of cases.</p></div>
+    <div class="item"><span class="mark"><i class="dot d1"></i></span><h3>After a milestone</h3><p>The response that completes a deal stage asks for feedback. It asks after every settlement and every appeal, and after 10% of the other stages.</p></div>
+    <div class="item"><span class="mark"><i class="dot d1"></i></span><h3>On errors</h3><p>A problem response asks for feedback in 25% of cases for each problem type, so the operator learns why agents fail.</p></div>
+  </div>
+  <div class="callout"><h3>Request and answer</h3><p>Each request asks three fixed questions: an ease rating from 1 to 5, whether the docs answered the agent's question, and an optional comment. The request carries no deal content and expires after 24 hours. The agent answers through <code>POST /v1/feedback</code>. Ratings become telemetry, and comments enter the quarantine.</p></div>
+  <details>
+    <summary>Sampling, rules and contract</summary>
+    <div class="dbody"><ul class="plain">
+      <li>The operator decides whether to ask by hashing the signer key, the deal ID and the milestone, and comparing the result with the rate. The hash makes the decision repeatable without stored state, so the operator asks at most once per deal and milestone.</li>
+      <li>The D39 rules apply to answers. The operator tells the agent that it is sharing the answer with this operator, and the agent seals any comment that can contain deal details to the operator's key.</li>
+      <li>A record opens when a milestone's average ease rating falls below 3 over a week, or when more than 30% of a milestone's answers say the docs did not answer the question. The rates and thresholds are guesses.</li>
+      <li>The <code>feedbackRequest</code> field and the <code>Prefer</code> header change the API contract, so they require an ADR and a schema version bump. Task T-043 builds them on the feedback route from T-032.</li>
+    </ul></div>
+  </details>
+</section>
+
+<section class="col" aria-labelledby="h-tel">
+  <h2 id="h-tel">Usage telemetry</h2>
+  <p class="lead">Telemetry shows where agents fail, so the pipeline can prioritize fixes. It collects counts and never tracks individuals.</p>
+  <div class="group">
+    <div class="item"><span class="mark"><i class="dot d0"></i></span><h3>Website</h3><p>The pipeline counts visits and the funnel from the homepage to the agent docs (<code>llms.txt</code>) to a first API call. It counts each stage separately and uses no cookies. A 30% drop at any stage opens a ticket.</p></div>
+    <div class="item"><span class="mark"><i class="dot d0"></i></span><h3>Social</h3><p>The pipeline reads public posts about ’crow. Two independent posts about the same bug open a ticket. Rafa receives any security claim directly and handles all replies, because a reply is a publication.</p></div>
+    <div class="item"><span class="mark"><i class="dot d0"></i></span><h3>API</h3><p>The pipeline tracks error rates, error types, first-try success and deprecation notices. A doubling of one error type or a fall in first-try success opens a ticket.</p></div>
+    <div class="item"><span class="mark"><i class="dot d0"></i></span><h3>Onchain</h3><p>The pipeline counts public settlement events: deals, timeouts, appeals and gas per deal. An event sequence that the contract forbids opens a top-priority security ticket.</p></div>
+  </div>
+  <div class="callout"><h3>Privacy</h3><p>Telemetry holds aggregates only. It holds no deal content, no identities, and nothing from a private deal beyond its public skeleton. The figures stay in a private store because the repository is public. Rafa decides whether to publish any figure (D35, D39, D40).</p></div>
+  <details>
+    <summary>Owners, cadence, rules and retention</summary>
+    <div class="dbody tw"><table>
+      <thead><tr><th>Source</th><th>Owner</th><th>Cadence</th><th>Opens a record when</th><th>Retention</th></tr></thead>
+      <tbody>
+        <tr><td>Website</td><td>Demo lane</td><td>Daily</td><td>A stage-to-stage conversion falls 30% below its 4-week median.</td><td>90 days</td></tr>
+        <tr><td>Social</td><td>Rafa</td><td>Weekly</td><td>Two or more independent posts report the same bug, or any post makes a security claim.</td><td>Counts for 90 days. Post text is not stored.</td></tr>
+        <tr><td>API</td><td>API lane</td><td>Hourly counts, daily rules</td><td>A problem type's share doubles, first-try success drops 10 points, the operator returns an <code>internal</code> 500, the operator serves a deprecation notice after its date, or one feedback fingerprint appears 3 times.</td><td>Request log 7 days (T-031). Aggregates 90 days.</td></tr>
+        <tr><td>Onchain</td><td>Settlement lane</td><td>Daily</td><td>Timeouts or appeals double, gas per deal exceeds the 395,831 baseline (T-202) by 10%, or a forbidden event sequence appears.</td><td>Aggregates 90 days</td></tr>
+      </tbody></table>
+      <p class="small muted" style="margin-top:12px">The thresholds are starting guesses, and the shadow week calibrates them. T-031 and T-032 are merged but not deployed, and task T-043 builds the feedback requests. Web analytics and the social reader each need Rafa's approval.</p></div>
+  </details>
+</section>
+
+<section class="col" aria-labelledby="h-tier">
+  <h2 id="h-tier">Risk tiers</h2>
+  <p class="lead">The files a change touches set its tier. A higher tier requires more review. An agent cannot change the tier of its own change.</p>
+  <div class="group">
+    <div class="item"><span class="mark"><i class="dot d0"></i></span><h3>Tier 0: Docs</h3><p>Documentation and brand files. The change needs CI and one reviewer, then merges automatically.</p></div>
+    <div class="item"><span class="mark"><i class="dot d1"></i></span><h3>Tier 1: Code</h3><p>Most application code. The change also needs the verifier, then merges automatically.</p></div>
+    <div class="item"><span class="mark"><i class="dot d2"></i></span><h3>Tier 2: Critical</h3><p>Code that holds money, judges work or defines the API contract. A separate agent writes the tests first. The change merges automatically only after reviewers from both AI companies approve it.</p></div>
+    <div class="item"><span class="mark"><i class="dot d3"></i></span><h3>Tier 3: Control</h3><p>The pipeline's own rules: CI, agent instructions and the agent-ops folder. Rafa merges these changes.</p></div>
+  </div>
+  <div class="callout"><h3>Current gap</h3><p>Agents act through Rafa's GitHub account, and the repository requires no approvals (measured). The tier 3 rule is therefore a convention. A separate bot identity and a required owner review on tier 3 paths would enforce it.</p></div>
+  <details>
+    <summary>Paths in each tier</summary>
+    <div class="dbody tw"><table>
+      <thead><tr><th>Tier</th><th>Paths</th></tr></thead>
+      <tbody>
+        <tr><td>0</td><td><code>docs/**</code> except <code>docs/decisions/</code>, <code>brand/**</code>, and root <code>*.md</code> except <code>CLAUDE.md</code> and <code>AGENTS.md</code></td></tr>
+        <tr><td>1</td><td>Every path that no other rule matches</td></tr>
+        <tr><td>2</td><td><code>contracts</code>, <code>packages/core</code>, <code>packages/settlement</code>, <code>packages/judgment</code>, <code>spec</code>, <code>apps/adjudicator</code>, <code>apps/operator/src</code>, <code>config/judges*.yaml</code>, <code>formal</code>, <code>docs/decisions</code>, <code>pnpm-lock.yaml</code></td></tr>
+        <tr><td>3</td><td><code>.github</code>, <code>.claude</code>, <code>agent-ops</code>, <code>CLAUDE.md</code>, <code>AGENTS.md</code>, <code>.gitleaksignore</code>, and any change that <code>guardrails.mjs</code> flags: an edited attack or neutrality fixture, a raised timeout or a new admin function</td></tr>
+      </tbody></table>
+      <p class="small muted" style="margin-top:12px">A pull request takes the highest tier among its files. One path table, <code>scripts/ci/affected.mjs</code> (T-034), serves CI and local checks.</p></div>
+  </details>
+</section>
+
+<section class="col" aria-labelledby="h-x">
+  <h2 id="h-x">Cross-family review</h2>
+  <p class="lead">Models from one company share blind spots. The pipeline therefore sends critical changes to DeepSeek, a model from another company, for a second review. The ’crow judge panel mixes model families for the same reason.</p>
+  <div class="group">
+    <div class="item"><span class="mark"><i class="dot d2"></i></span><h3>Scope</h3><p>DeepSeek reviews every tier 2 and tier 3 change, schema version changes, changes to the judge model list, and the end of each project phase. For decision records and deploys, its review is advisory, because Rafa makes those decisions.</p></div>
+    <div class="item"><span class="mark"><i class="dot d2"></i></span><h3>Blocking findings</h3><p>A finding blocks a merge only if it names the file and line, the rule it breaks and a way to reproduce the failure. The pipeline logs other findings as suggestions.</p></div>
+    <div class="item"><span class="mark"><i class="dot d2"></i></span><h3>Disagreements</h3><p>The verifier runs the reproduction once. If the failure reproduces, the implementer fixes it. If it does not, the finding goes to the backlog. The pipeline never takes a vote and never reruns a reviewer to get a different verdict.</p></div>
+    <div class="item"><span class="mark"><i class="dot d2"></i></span><h3>CI enforcement</h3><p>Every agent uses the same GitHub account, so any agent could post an approval comment. The review therefore runs as a CI workflow from the main branch, and agents cannot forge its status.</p></div>
+  </div>
+  <details>
+    <summary>Milestones</summary>
+    <div class="dbody tw"><table>
+      <thead><tr><th>Milestone</th><th>Reviewers</th><th>Effect</th></tr></thead>
+      <tbody>
+        <tr><td>Tier 2 change</td><td>A model other than the author, and DeepSeek</td><td>Blocks the merge</td></tr>
+        <tr><td>Tier 3 change</td><td>Fable 5.1 and DeepSeek</td><td>Blocks the merge. Rafa merges.</td></tr>
+        <tr><td>Schema version change</td><td>Opus 5.5 and DeepSeek</td><td>Blocks the merge</td></tr>
+        <tr><td>Judge model list change</td><td>Fable 5.1 and DeepSeek</td><td>Blocks the merge</td></tr>
+        <tr><td>Decision record (ADR)</td><td>DeepSeek</td><td>Advisory. Rafa decides.</td></tr>
+        <tr><td>End of a phase</td><td>Red teams from Fable 5.1, DeepSeek and a GPT-family model</td><td>Blocks the phase from closing</td></tr>
+        <tr><td>Before a deploy</td><td>DeepSeek, on all changes since the last deploy</td><td>Advisory. Rafa decides.</td></tr>
+        <tr><td>Mainnet</td><td>An external audit</td><td>Rafa decides.</td></tr>
+      </tbody></table></div>
+  </details>
+  <details>
+    <summary>Abstentions, escalation and outages</summary>
+    <div class="dbody"><ul class="plain">
+      <li>A reviewer's answer must match <code>agent-ops/schemas/review-verdict.schema.json</code>. The pipeline counts an answer that fails the schema as an abstention, and an abstention counts against the merge.</li>
+      <li>Two abstentions, or two refuted findings from the same company on one pull request, escalate the pull request to Rafa.</li>
+      <li>If DeepSeek is unavailable, a GPT-family model reviews. If both are unavailable, Rafa decides. No single provider can block or pass a merge.</li>
+      <li>The second reviewer receives the diff, the acceptance criteria and the core rules. It does not receive the author's self-assessment.</li>
+      <li>The pipeline flags a model family that agrees with authors more than 95% of the time over 20 pull requests. Each month it plants known bugs and records which ones each family finds (thresholds guessed).</li>
+      <li>The review uses the judges' existing client, <code>apps/adjudicator/src/providers/live.ts</code>, with no tools. The workflow runs on <code>pull_request_target</code> from main and does not run code from the pull request.</li>
+    </ul></div>
+  </details>
+</section>
+
+<section class="col" aria-labelledby="h-team">
+  <h2 id="h-team">Roles and models</h2>
+  <p class="lead">Each role uses the smallest model that does the job reliably. Small models do mechanical work, and large models do judgment work.</p>
+  <div class="group">
+    <div class="item"><span class="mark"><i class="dot d2"></i></span><h3>Plan: Fable 5.1</h3><p>The architect turns triage records into task files and drafts decision records. Errors at this stage affect all later work, so the architect uses the strongest model.</p></div>
+    <div class="item"><span class="mark"><i class="dot d1"></i></span><h3>Build: Sonnet 5.5, or Opus 5.5 for tier 2</h3><p>Implementers write tests first and then code. For tier 2 changes, a separate fixture-author writes failing tests before the implementer starts.</p></div>
+    <div class="item"><span class="mark"><i class="dot d3"></i></span><h3>Check: Sonnet, Opus, Fable and DeepSeek</h3><p>The verifier uses Sonnet 5.5. The reviewer uses Opus 5.5 for code that Sonnet wrote and Fable 5.1 for code that Opus wrote. DeepSeek provides the second family, and Fable 5.1 runs the red team.</p></div>
+    <div class="item"><span class="mark"><i class="dot d0"></i></span><h3>Run: Haiku 5.5</h3><p>Haiku runs the triager, the tick, the lander that arms merges, and the daily log. A script or a fixed form checks each of their outputs.</p></div>
+  </div>
+  <p class="small muted" style="margin-top:16px">Haiku does not review code. In two live judge runs, its answers exceeded the 300-character limit (measured, <code>config/judges-live.yaml</code>).</p>
+  <details>
+    <summary>Tools, limits and budgets</summary>
+    <div class="dbody tw"><table>
+      <thead><tr><th>Role</th><th>Model</th><th>Tools</th><th>Writes</th></tr></thead>
+      <tbody>
+        <tr><td>Triager</td><td>Haiku 5.5</td><td>None</td><td><code>TriageRecord</code></td></tr>
+        <tr><td>Architect</td><td>Fable 5.1</td><td>Read, Write</td><td><code>docs/tasks/</code>, <code>docs/decisions/</code>, plan, backlog</td></tr>
+        <tr><td>Implementer</td><td>Sonnet 5.5, or Opus 5.5 for tier 2</td><td>All, inside its sandbox</td><td>Its task's paths</td></tr>
+        <tr><td>Fixture-author</td><td>Sonnet 5.5</td><td>Read, Write, Bash</td><td><code>fixtures/scenarios/</code></td></tr>
+        <tr><td>Verifier</td><td>Sonnet 5.5</td><td>Read, Bash, and Edit for the Evidence section only</td><td>The task's Evidence section</td></tr>
+        <tr><td>Reviewer</td><td>Opus 5.5 or Fable 5.1</td><td>Read, Bash</td><td>Review comments</td></tr>
+        <tr><td>Second family</td><td>DeepSeek v4-pro, with a GPT-family fallback</td><td>None</td><td>A CI status</td></tr>
+        <tr><td>Red team</td><td>Fable 5.1 at max effort</td><td>Read, Write, Bash</td><td>Attack and neutrality fixtures</td></tr>
+        <tr><td>Tick runner, lander, daily log</td><td>Haiku 5.5</td><td>Scripts</td><td>Claims, merges, <code>docs/log/</code></td></tr>
+      </tbody></table>
+      <p class="small muted" style="margin-top:12px">Limits: three implementers with one per lane, two pull requests in CI, one full test run per machine, and 30 second-family calls a day. Budgets per task: USD 5 for tier 0, 25 for tier 1, 80 for tier 2 and 40 for tier 3, with a daily cap of USD 300 (guessed).</p></div>
+  </details>
+</section>
+
+<section class="col" aria-labelledby="h-risk">
+  <h2 id="h-risk">Threats</h2>
+  <p class="lead">The pipeline is an attack surface. These are the five main threats and their controls.</p>
+  <div class="group">
+    <div class="item"><span class="mark"><i class="dot d3"></i></span><h3>Instructions hidden in outside text</h3><p>An issue, post or feedback report tries to steer an agent. The quarantine contains the text, and Rafa approves any resulting task that touches critical code.</p></div>
+    <div class="item"><span class="mark"><i class="dot d3"></i></span><h3>An agent weakens a check</h3><p>A change deletes a security test or raises a timeout. The guardrail raises the change to tier 3, so only Rafa can merge it.</p></div>
+    <div class="item"><span class="mark"><i class="dot d3"></i></span><h3>A secret leaks</h3><p>A secret scanner checks every change. Build agents hold no deploy, model or chain keys.</p></div>
+    <div class="item"><span class="mark"><i class="dot d3"></i></span><h3>Costs run away</h3><p>The tick enforces per-task budgets, a daily cap and limits on parallel work.</p></div>
+    <div class="item"><span class="mark"><i class="dot d3"></i></span><h3>Agents collide</h3><p>Each task owns its files. The guardrail fails any change outside them.</p></div>
+  </div>
+  <details>
+    <summary>Full threat table</summary>
+    <div class="dbody tw"><table>
+      <thead><tr><th>#</th><th>Threat</th><th>Control</th></tr></thead>
+      <tbody>
+        <tr><td>P1</td><td>An issue, feedback report or post injects instructions.</td><td>The quarantine reads it. Rafa approves outside input that leads to tier 2 or tier 3 work.</td></tr>
+        <tr><td>P2</td><td>A task file, pull request body or handoff carries injected text to the next agent.</td><td>The pipeline builds briefs from task fields only and fences agent-written text.</td></tr>
+        <tr><td>P3</td><td>A diff instructs its own reviewer.</td><td>The reviewer reads the diff as data, has no tools and must answer in the schema. The pipeline never dispatches fork pull requests.</td></tr>
+        <tr><td>P4</td><td>A secret leaks.</td><td><code>gitleaks</code> runs on every pull request (exists). A pre-commit scan follows in T-036. Settings deny reads of <code>.env*</code> (exists).</td></tr>
+        <tr><td>P5</td><td>An agent weakens a check.</td><td><code>guardrails.mjs</code> raises the change to tier 3. <code>/snap</code> requires a justification for each snapshot change.</td></tr>
+        <tr><td>P6</td><td>An agent escalates through its tools.</td><td>Settings deny <code>wrangler</code>, mutating <code>gh api</code> calls, <code>gh secret</code>, <code>gh ruleset</code>, admin merges and pushes to main.</td></tr>
+        <tr><td>P7</td><td>A dependency is compromised.</td><td>Installs use the frozen lockfile (exists). The lockfile is tier 2.</td></tr>
+        <tr><td>P8</td><td>Costs or loops run away.</td><td>The tick enforces budgets, a daily cap and parallel-work limits. A hook blocks polling loops (T-036).</td></tr>
+        <tr><td>P9</td><td>Work is unattributable, or an agent merges a control change.</td><td>A bot identity and a required owner review on tier 3.</td></tr>
+        <tr><td>P10</td><td>Claude models share a blind spot.</td><td>A second model family reviews critical changes.</td></tr>
+        <tr><td>P11</td><td>Telemetry leaks deal data or identities.</td><td>Telemetry stores aggregates in a private store and sends nothing to other providers.</td></tr>
+        <tr><td>P12</td><td>A change exceeds its scope, or two tasks collide.</td><td>The guardrail checks scope, and task lint checks file overlap.</td></tr>
+      </tbody></table></div>
+  </details>
+</section>
+
+<section class="col" aria-labelledby="h-ci">
+  <h2 id="h-ci">CI speed and cost</h2>
+  <p class="lead">Parallel agents need fast and reliable checks. Today every pull request waits several minutes for checks, including documentation changes.</p>
+  <div class="nums">
+    <div class="num"><b>4.5–6.5 min</b><span>Check time for every pull request, docs included (measured)</span></div>
+    <div class="num"><b>2 of 24</b><span>Pull request runs in which a test stalled (measured)</span></div>
+    <div class="num"><b>3 → 5</b><span>Parallel lanes before and after the CI fix (inferred)</span></div>
+  </div>
+  <p>Three tasks fix this before activation. T-034 caches the contract build and skips checks that a change cannot affect. T-035 fixes the stalling test at its root. T-036 adds commands that merge without manual polling and rerun a known flaky test once.</p>
+  <details>
+    <summary>Flake rules</summary>
+    <div class="dbody"><ul class="plain">
+      <li>CI reruns a failed test once, and only if the test is on the known flakes list in <code>docs/testing.md</code>. A second failure counts as real. The list does not exist yet (measured).</li>
+      <li>Each list entry names its fix task and expires after 14 days. A listed flake that fails more than twice in a day pauses its lane.</li>
+      <li>A timeout detects a hang. Raising a timeout never counts as a fix.</li>
+      <li>Each machine runs one full <code>pnpm verify</code> at a time, because two parallel runs push tests past their timeouts (measured).</li>
+    </ul></div>
+  </details>
+</section>
+
+<section class="col" aria-labelledby="h-stop">
+  <h2 id="h-stop">Kill switch</h2>
+  <p class="lead">One action stops the pipeline. The switches fail closed: if the tick cannot read a switch, it treats the switch as off.</p>
+  <div class="group">
+    <div class="item"><span class="mark"><i class="dot d0"></i></span><h3>Pause</h3><p>Anyone can create a <code>HALT</code> file, and Rafa can turn off the <code>AGENT_OPS</code> setting. The tick then starts no new tasks, and running tasks finish their current step. Alarms pause the pipeline automatically when main stays broken for 30 minutes, when spending reaches the cap, or when the scanner finds a secret.</p></div>
+    <div class="item"><span class="mark"><i class="dot d2"></i></span><h3>Stop</h3><p>Rafa runs one script. It stops every session, cancels every pending auto-merge and releases every claim.</p></div>
+    <div class="item"><span class="mark"><i class="dot d3"></i></span><h3>Sever</h3><p>Rafa revokes the agents' GitHub identity and sets every model spend cap to zero.</p></div>
+  </div>
+  <p class="small muted" style="margin-top:16px">The main switch is a repository setting outside the code, so agents cannot change it. A running session does not recheck the switch, so one more push can land after a stop.</p>
+</section>
+
+<section class="col" aria-labelledby="h-start">
+  <h2 id="h-start">Activation</h2>
+  <p class="lead">Rafa approves each step, because each one reaches outside the repository or changes the pipeline's rules.</p>
+  <ol class="plain">
+    <li><b>Sandbox.</b> Set up a separate environment with narrowly scoped keys and a bot identity for the agents. Nothing runs on Rafa's laptop.</li>
+    <li><b>Review keys and settings.</b> Add a spend-capped DeepSeek key, make the cross-family check required, and require owner review on tier 3.</li>
+    <li><b>Faster CI.</b> Merge T-034, T-035 and T-036, and create the known flakes list.</li>
+    <li><b>Tool limits.</b> Remove write access from the reviewer and the verifier, and add the extra deny list.</li>
+    <li><b>Quarantine tests.</b> Wire in the schemas, and run every known attack payload through triage as a test.</li>
+    <li><b>Telemetry and feedback.</b> Deploy the API metrics (T-031) and the feedback route (T-032). Build the milestone feedback requests (T-043) after its ADR. Enable web analytics and a public social reader.</li>
+    <li><b>Shadow week.</b> Run the tick in dry-run mode for a week while Rafa starts tasks by hand. Compare the two, and tune the telemetry thresholds.</li>
+    <li><b>One lane.</b> Run one task at a time until 10 pull requests merge without a revert (threshold guessed), then move to three lanes.</li>
+    <li><b>Switch on.</b> Set <code>STATUS</code> to active and <code>AGENT_OPS</code> to on.</li>
+  </ol>
+</section>
+
+<section class="wide" aria-labelledby="h-code">
+  <div class="col">
+    <h2 id="h-code">Code paths</h2>
+    <p class="lead">The graph shows the files behind each stage. Some files exist, some are planned in a task, and some are proposed in this design. Hover over or tab to a file to see its role.</p>
+  </div>
+  <div class="plate">
+    <div class="bar"><span class="legend"><span><i class="sw"></i>Exists</span><span><i class="sw plan"></i>Planned in a task</span><span><i class="sw prop"></i>Proposed here</span></span></div>
+    <div class="scroll"><svg id="f2" class="cg" viewBox="0 0 1402 352" role="img" aria-label="Files that implement each stage and how they connect."><defs>
+      <marker id="ah2" viewBox="0 0 6 6" refX="5.5" refY="3" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L6,3 L0,6 z" class="ah"/></marker>
+    </defs><g id="f2e"></g><g id="f2n"></g></svg></div>
+    <div class="cap" id="cgcap" aria-live="polite">Hover over or tab to a file.</div>
+  </div>
+</section>
+
+<section class="col" aria-labelledby="h-made">
+  <h2 id="h-made">Design history</h2>
+  <p class="lead">Three independent drafts produced this design: one by Opus 5.5, one by Fable 5.1, and an earlier attempt in PR 108.</p>
+  <p>All three drafts agree on these points. Agents run in sandboxes. A second AI family reviews with no tools. A script decides readiness, and the work queue lives in git. The pipeline starts with three lanes and never auto-merges its own changes. A test settles disagreements, not a vote.</p>
+  <details>
+    <summary>Points of disagreement</summary>
+    <div class="dbody tw"><table>
+      <thead><tr><th>Question</th><th>Opus 5.5</th><th>Fable 5.1</th><th>PR 108</th><th>Decision</th></tr></thead>
+      <tbody>
+        <tr><td>Triage model</td><td>Haiku</td><td>Sonnet</td><td>Haiku with no tools and a form</td><td>PR 108. The missing tools and the form contain the model.</td></tr>
+        <tr><td>Coordinator</td><td>Opus</td><td>Sonnet</td><td>A stateless script</td><td>PR 108. A long-running coordinator hit the token limit on 2026-11-01.</td></tr>
+        <tr><td>Reviewer</td><td>Opus for all code</td><td>One tier above the author</td><td>Opus in a fresh session</td><td>The reviewer is never the author's model.</td></tr>
+        <tr><td>Tier 2 author</td><td>Opus</td><td>Fable</td><td>Opus after tests</td><td>Opus, after a separate agent writes the tests.</td></tr>
+        <tr><td>Task claim</td><td>An idle lane</td><td>A draft pull request</td><td>A pushed branch</td><td>PR 108. A branch push starts no CI run.</td></tr>
+        <tr><td>Main switch</td><td>A status line</td><td>A repository setting</td><td>A setting plus <code>STATUS</code></td><td>PR 108.</td></tr>
+        <tr><td>Second-family channel</td><td>A CI status</td><td>A comment</td><td>Not specified</td><td>Opus. Agents can forge comments.</td></tr>
+        <tr><td>Decision records</td><td>Blocking</td><td>Blocking</td><td>Advisory</td><td>PR 108. Rafa decides them.</td></tr>
+        <tr><td>Tier 3 enforcement</td><td>Bot identity and owner review</td><td>Advisory owner file</td><td>Bot identity</td><td>Opus. The repository requires no approvals today.</td></tr>
+      </tbody></table>
+      <p class="small muted" style="margin-top:12px"><code>agent-ops/reconcile.md</code> records the full reasoning.</p></div>
+  </details>
+</section>
+
+<section class="col" aria-labelledby="h-gloss">
+  <h2 id="h-gloss">Glossary</h2>
+  <dl class="gloss">
+    <dt>Lane</dt><dd>An area of the code, such as settlement or the API. One agent works in a lane at a time, so agents never edit the same files.</dd>
+    <dt>Tier</dt><dd>The risk level of a change, from 0 (docs) to 3 (pipeline rules). The files a change touches set its tier.</dd>
+    <dt>Triage</dt><dd>The stage that turns each incoming item into a task, a backlog row or a decision, or closes it.</dd>
+    <dt>TriageRecord</dt><dd>The fixed form that triage fills in. Later stages see only this form.</dd>
+    <dt>Quarantine</dt><dd>The handling of outside text. The pipeline cleans the text and gives it to a model with no tools, which fills in the form.</dd>
+    <dt>Tick</dt><dd>The script that starts ready tasks. It runs after each merge and keeps no state between runs.</dd>
+    <dt>Feedback request</dt><dd>Three fixed questions that the operator adds to a response at a deal milestone, for agents whose owners opt in.</dd>
+    <dt>Claim</dt><dd>A task branch pushed to GitHub. It marks the task as taken.</dd>
+    <dt>CI</dt><dd>The automated checks that GitHub runs on each pull request.</dd>
+    <dt>Second family</dt><dd>A model from another AI company. DeepSeek is the primary, and a GPT-family model is the fallback.</dd>
+    <dt>Red team</dt><dd>An agent that tries to break a change and writes a test for each attack.</dd>
+    <dt>Shadow week</dt><dd>A week in which the tick only prints what it would do while Rafa starts tasks by hand.</dd>
+    <dt>Kill switch</dt><dd>The three ways to stop the pipeline: pause, stop and sever.</dd>
+  </dl>
+</section>
+
+<footer class="col">Source: <code>agent-ops/</code> in rafaeldavid/holdback, 2026-11-03. Labels mark each figure as measured, inferred or guessed. Status: not active.</footer>
+</div>
+
+<script>
+(() => {
+const NS = 'http://www.w3.org/2000/svg';
+function E(tag, attrs, parent, text){ const n = document.createElementNS(NS, tag); for (const k in attrs) n.setAttribute(k, attrs[k]); if (text != null) n.textContent = text; if (parent) parent.appendChild(n); return n; }
+
+/* ---------- Fig 1: layout ---------- */
+const EL = document.getElementById('f1e'), BL = document.getElementById('f1b'), TL = document.getElementById('f1t');
+const B = {
+  tri: {x:170, y:150, w:104, h:80,  t:'Triager',   s:'Haiku 5.5'},
+  arc: {x:300, y:150, w:104, h:80,  t:'Architect', s:'Fable 5.1'},
+  rdy: {x:430, y:150, w:112, h:80,  t:'Tick',      s:'Script'},
+  ver: {x:744, y:150, w:96,  h:80,  t:'Verifier',  s:'Sonnet 5.5'},
+  ci:  {x:866, y:112, w:140, h:160, t:'Checks',    s:'CI'},
+  rev: {x:1032,y:100, w:150, h:184, t:'Review',    s:'Other models'},
+  mrg: {x:1208,y:126, w:118, h:140, t:'Merge',     s:'GitHub or Rafa'},
+};
+const SRC = [['Tickets','GitHub issues',60,40],['Feedback','From agents',106,40],['Roadmap','Plan, decisions',152,40],['Telemetry','Aggregates',198,92],['CI signals','Build failures',296,40]];
+const SRCNAME = ['tickets', 'agent feedback', 'the roadmap', 'telemetry', 'CI'];
+const srcC = i => SRC[i][2] + SRC[i][3] / 2;
+const LANE = {x:568, w:150, h:56, ys:[96,164,232]};
+const CIROWS = ['guardrails','tests','secrets'];
+const CILABEL = {guardrails:'Guardrails', tests:'Tests', secrets:'Secret scan'};
+const REVROWS = [['rv','Reviewer','Opus or Fable'],['xr','Second family','DeepSeek'],['rt','Red team','Fable 5.1']];
+const MRGROWS = [['auto','Automatic'],['rafa','Rafa']];
+const cx = b => b.x + b.w / 2;
+const dock = k => [cx(B[k]), B[k].y + B[k].h - 16];
+const slotIn = s => [LANE.x + 14, LANE.ys[s] + 44];
+const slotOut = s => [LANE.x + LANE.w - 14, LANE.ys[s] + 44];
+const qpos = k => [448 + 38 * (k % 3), 254 + 30 * Math.floor(k / 3)];
+const HEADS = [[80,'inputs'],[222,'0 intake'],[352,'1 triage'],[486,'2 dispatch'],[643,'3 build'],[792,'4 verify'],[936,'5 checks'],[1107,'6 review'],[1267,'7 merge']];
+const NOTES = [[80,'The triager reads','outside text as data.'],[222,'It fills in a form','and has no tools.'],[352,'It writes the task','from the form only.'],[486,'It starts tasks','that are ready.'],[643,'Each lane runs one task.','Three lanes run at once.'],[792,'It checks each claim','against test output.'],[936,'A change outside its','task’s files fails.'],[1107,'A finding needs a','reproduction to block.'],[1267,'Rafa merges changes','to the pipeline.']];
+
+function edge(d, cls, mk){ return E('path', {d, class: 'edge ' + (cls || ''), 'marker-end': 'url(#' + (mk || 'ah') + ')'}, EL); }
+SRC.forEach((_, i) => { const y = srcC(i); edge(`M144 ${y} C157 ${y} 157 190 170 190`); });
+edge('M274 190 H300'); edge('M404 190 H430');
+LANE.ys.forEach(y0 => { const y = y0 + 28; edge(`M542 190 C555 190 555 ${y} 568 ${y}`); edge(`M718 ${y} C731 ${y} 731 190 744 190`); });
+edge('M840 190 H866'); edge('M1006 190 H1032'); edge('M1182 190 H1208');
+edge('M1107 100 C1107 44 643 44 643 92', 'back', 'ahb');
+E('text', {x:875, y:50, class:'note', 'text-anchor':'middle'}, EL, 'A failed check or review sends the task back to its lane.');
+edge('M1267 266 V404 H10 V80 H14', 'loop');
+E('text', {x:640, y:424, class:'note', 'text-anchor':'middle'}, EL, 'Stage 8: each merge updates the daily log and the design map, and new findings return to intake.');
+HEADS.forEach(([x, t]) => E('text', {x, y:26, class:'hd', 'text-anchor':'middle'}, EL, t));
+NOTES.forEach(([x, a, b]) => { E('text', {x, y:362, class:'note', 'text-anchor':'middle'}, EL, a); E('text', {x, y:376, class:'note', 'text-anchor':'middle'}, EL, b); });
+
+SRC.forEach(([n, s, y, h]) => { E('rect', {x:16, y, width:128, height:h, rx:6, class:'box'}, BL); E('text', {x:26, y:y + 17, class:'ttl'}, BL, n); E('text', {x:26, y:y + 31, class:'sub'}, BL, s); });
+['Web', 'Social', 'API', 'Onchain'].forEach((c, k) => { const x = 24 + 58 * (k % 2), y = SRC[3][2] + 40 + 24 * Math.floor(k / 2);
+  E('rect', {x, y, width:54, height:20, rx:4, class:'chipr'}, BL); E('text', {x:x + 27, y:y + 14, class:'rm', 'text-anchor':'middle'}, BL, c); });
+const BOX = {};
+for (const k in B){ const b = B[k]; BOX[k] = E('rect', {x:b.x, y:b.y, width:b.w, height:b.h, rx:6, class:'box'}, BL); E('text', {x:b.x + 12, y:b.y + 22, class:'ttl'}, BL, b.t); E('text', {x:b.x + 12, y:b.y + 38, class:'sub'}, BL, b.s); }
+const haltTxt = E('text', {x:B.rdy.x + B.rdy.w - 10, y:B.rdy.y + 22, class:'haltTxt', 'text-anchor':'end', visibility:'hidden'}, BL, 'HALT');
+const ROW = {};
+function mkRow(id, x, y, w, h, a, b){ const g = E('g', {class:'row'}, BL); E('rect', {x, y, width:w, height:h, rx:5}, g);
+  let m = null;
+  if (b){ E('text', {x:x + 8, y:y + 13, class:'rl'}, g, a); m = E('text', {x:x + 8, y:y + 25, class:'rm'}, g, b); }
+  else E('text', {x:x + 8, y:y + h / 2 + 4, class:'rl'}, g, a);
+  ROW[id] = {g, m, st: E('text', {x:x + w - 6, y:y + h / 2 + 4, class:'rs'}, g, ''), stamp:0}; }
+CIROWS.forEach((k, r) => mkRow('ci-' + k, B.ci.x + 8, B.ci.y + 48 + r * 28, B.ci.w - 16, 24, CILABEL[k]));
+REVROWS.forEach(([k, a, b], r) => mkRow('rv-' + k, B.rev.x + 8, B.rev.y + 48 + r * 34, B.rev.w - 16, 30, a, b));
+MRGROWS.forEach(([k, a], r) => mkRow('m-' + k, B.mrg.x + 8, B.mrg.y + 48 + r * 30, B.mrg.w - 16, 26, a));
+const SLOT = LANE.ys.map((y, i) => { const r = E('rect', {x:LANE.x, y, width:LANE.w, height:LANE.h, rx:6, class:'box'}, BL);
+  const a = E('text', {x:LANE.x + 12, y:y + 20, class:'ttl'}, BL, 'Lane ' + (i + 1) + ': idle'); const b = E('text', {x:LANE.x + LANE.w - 12, y:y + 20, class:'sub', 'text-anchor':'end'}, BL, '');
+  E('line', {x1:LANE.x + 14, y1:y + 44, x2:LANE.x + LANE.w - 14, y2:y + 44, class:'track'}, BL); return {r, a, b}; });
+
+/* ---------- Fig 1: simulation (sim clock, so pause and speed are exact) ---------- */
+const D = {move:800, tri:700, arc:900, build:2600, fix:1500, ver:700, ciRow:380, rev:1300, auto:700, gate:3400, q:400};
+const author = tier => tier === 2 ? 'Opus 5.5' : 'Sonnet 5.5';
+const reviewerOf = m => m === 'Opus 5.5' ? 'Fable 5.1' : 'Opus 5.5';
+const SCRIPT = [
+  {at:0,    id:'T-043',   src:2, lane:'api',        tier:2},
+  {at:1200, id:'T-035',   src:2, lane:'settlement', tier:2, rt:1, review:[{k:'xr', note:'the receipt poll has no upper bound'}]},
+  {at:2400, id:'#87',     src:0, tier:0, route:'close', note:'as a duplicate of T-043'},
+  {at:3600, id:'T-034',   src:2, lane:'infra',      tier:3},
+  {at:4800, id:'T-209',   src:2, lane:'settlement', tier:2, rt:1},
+  {at:6000, id:'fb·3f9a', src:1, lane:'api',        tier:1, becomes:'T-901'},
+  {at:7200, id:'T-033',   src:2, lane:'core',       tier:2, ci:[{k:'guardrails', note:'the schema changed without a decision record'}]},
+  {at:8400, id:'main ✗',  src:4, lane:'test',       tier:1, becomes:'T-902', note:'A flaky test needs a fix.'},
+  {at:9600, id:'web·sig', src:3, lane:'demo',       tier:1, becomes:'T-903', note:'Conversion from the docs to a first API call fell 30%.'},
+  {at:10800,id:'social',  src:3, tier:0, route:'close', note:'as spam'},
+  {at:12000,id:'fb·ease', src:1, lane:'api',        tier:1, becomes:'T-904', note:'The average ease rating for funding fell below 3.'},
+];
+const who = (t, k) => k === 'rv' ? t.rev : k === 'xr' ? 'DeepSeek' : 'the Fable red team';
+const cap1 = s => s.charAt(0).toUpperCase() + s.slice(1);
+const list = a => a.length > 1 ? a.slice(0, -1).join(', ') + ' and ' + a[a.length - 1] : a[0];
+let S;
+const tick = document.getElementById('tick'), stats = document.getElementById('stats');
+
+function fresh(keepT){ return {t:keepT || 0, c0:keepT || 0, si:0, toks:[], ghosts:[], jobs:[], queue:[], slots:[null,null,null], busy:new Set(), merged:0, halt:S ? S.halt : false, play:S ? S.play : true, speed:S ? S.speed : 1, stamp:S ? S.stamp : 0, restartAt:0}; }
+function clock(){ const s = Math.floor(S.t / 1000); return String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0'); }
+function log(t, msg, cls){ const li = document.createElement('li'); if (cls) li.className = cls;
+  const tm = document.createElement('time'); tm.textContent = clock(); li.appendChild(tm);
+  if (t){ const b = document.createElement('b'); b.textContent = t.id; b.style.color = 'var(--t' + t.tier + ')'; li.appendChild(b); }
+  li.appendChild(document.createTextNode(msg)); tick.prepend(li); while (tick.children.length > 6) tick.lastChild.remove(); }
+function later(ms, fn){ S.jobs.push({at:S.t + ms, fn}); }
+function setRow(id, cls, txt, ms){ const r = ROW[id]; const st = ++S.stamp; r.stamp = st; r.g.setAttribute('class', 'row ' + cls); r.st.textContent = txt;
+  later(ms, () => { if (r.stamp === st){ r.g.setAttribute('class', 'row'); r.st.textContent = ''; } }); }
+function go(t, pts, dur, then){ t.at = null; t.wake = null; t.pts = [[t.x, t.y], ...pts]; t.t0 = S.t; t.dur = dur; t.then = then || null; }
+function hold(t, at, ms, then){ t.at = at; t.pts = null; t.wake = S.t + ms; t.then = then; }
+function along(pts, f){ let L = 0; const seg = []; for (let i = 1; i < pts.length; i++){ const l = Math.hypot(pts[i][0] - pts[i-1][0], pts[i][1] - pts[i-1][1]); seg.push(l); L += l; }
+  let d = f * L; for (let i = 1; i < pts.length; i++){ const l = seg[i-1]; if (d <= l || i === pts.length - 1){ const g = l ? Math.min(1, d / l) : 1; return [pts[i-1][0] + (pts[i][0] - pts[i-1][0]) * g, pts[i-1][1] + (pts[i][1] - pts[i-1][1]) * g]; } d -= l; } return pts[pts.length - 1]; }
+const ease = p => p < .5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
+function fire(t){ const f = t.then; t.then = null; if (f) f(); }
+function upd(t){ if (t.pts){ const p = Math.min(1, (S.t - t.t0) / t.dur); [t.x, t.y] = along(t.pts, ease(p)); if (p >= 1){ t.pts = null; fire(t); } }
+  else if (t.wake != null && S.t >= t.wake){ t.wake = null; fire(t); } }
+function fade(t){ t.fade = S.t; t.at = null; }
+function rename(t, id){ t.id = id; t.tx.textContent = id; }
+
+function spawn(it){ const g = E('g', {class:'tok'}, TL); E('circle', {r:7, class:'t' + it.tier}, g); const tx = E('text', {y:-11}, g, it.id);
+  const t = Object.assign({}, it, {g, tx, round:1, review:(it.review || []).slice(), ci:(it.ci || []).slice(), model:author(it.tier)}); t.rev = reviewerOf(t.model);
+  t.x = 144; t.y = srcC(it.src); S.toks.push(t); log(t, 'A new item arrives from ' + SRCNAME[it.src] + '.');
+  go(t, [dock('tri')], D.move, () => atTri(t)); }
+function atTri(t){ hold(t, 'tri', D.tri, () => {
+  if (t.route === 'close'){ log(t, 'Triage closes the item ' + t.note + '.'); fade(t); return; }
+  log(t, `Triage makes the item a tier ${t.tier} task in the ${t.lane} lane.` + (t.note ? ' ' + t.note : ''));
+  go(t, [dock('arc')], D.move, () => atArc(t)); }); }
+function atArc(t){ hold(t, 'arc', D.arc, () => {
+  if (t.becomes){ const o = t.id; rename(t, t.becomes); log(t, 'The architect writes this task from item ' + o + '.'); } else log(t, 'The architect writes the task file.');
+  S.queue.push(t); relayQ(); }); }
+function relayQ(){ S.queue.forEach((t, k) => go(t, [qpos(k)], D.q, null)); }
+function dispatch(){ if (S.halt) return;
+  for (let k = 0; k < S.queue.length; k++){ const t = S.queue[k]; const free = S.slots.indexOf(null);
+    if (free < 0){ if (!t.capLog){ log(t, 'The task waits because all three lanes are busy.', 'wait'); t.capLog = 1; } continue; }
+    if (S.busy.has(t.lane)){ if (!t.laneLog){ log(t, `The task waits because the ${t.lane} lane is busy.`, 'wait'); t.laneLog = 1; } continue; }
+    S.queue.splice(k--, 1); S.slots[free] = t; S.busy.add(t.lane); t.slot = free; paintSlot(free);
+    log(t, `The tick starts the task in lane ${free + 1} with ${t.model}.`); go(t, [slotIn(free)], D.move, () => build(t)); relayQ(); } }
+function paintSlot(s){ const t = S.slots[s], o = SLOT[s]; o.a.textContent = t ? t.lane : 'Lane ' + (s + 1) + ': idle'; o.b.textContent = t ? t.model : ''; o.a.style.fill = t ? '' : 'var(--faint)'; o.r.classList.toggle('on', !!t); }
+function build(t){ go(t, [slotOut(t.slot)], t.round === 1 ? D.build : D.fix, () => {
+  log(t, t.round === 1 ? 'The implementer opens a pull request, and the tests pass.' : `The implementer pushes a fix (round ${t.round}).`);
+  go(t, [dock('ver')], D.move, () => atVer(t)); }); }
+function back(t){ t.round++; go(t, [[t.x, 58], [LANE.x + LANE.w / 2, 58], slotIn(t.slot)], D.move * 1.8, () => build(t)); }
+function atVer(t){ hold(t, 'ver', D.ver, () => { log(t, 'The verifier confirms the claims against the test report.'); go(t, [dock('ci')], D.move, () => atCI(t, 0)); }); }
+function atCI(t, r){
+  if (r === CIROWS.length){ log(t, 'All CI checks pass.'); go(t, [dock('rev')], D.move, () => atRev(t)); return; }
+  const k = CIROWS[r]; setRow('ci-' + k, 'run', '…', 2000);
+  hold(t, 'ci', D.ciRow, () => { const f = t.ci[0];
+    if (f && f.k === k){ t.ci.shift(); setRow('ci-' + k, 'bad', 'Fail', 1800); log(t, `The ${CILABEL[k].toLowerCase()} check fails because ${f.note}. The task returns to its lane.`, 'bad'); back(t); return; }
+    setRow('ci-' + k, 'ok', 'Pass', 1600); atCI(t, r + 1); }); }
+function atRev(t){ const rows = ['rv']; if (t.tier >= 2) rows.push('xr'); if (t.rt) rows.push('rt');
+  ROW['rv-rv'].m.textContent = t.rev;
+  rows.forEach(k => setRow('rv-' + k, 'run', '…', D.rev + 400));
+  hold(t, 'rev', D.rev, () => { const f = t.review[0];
+    if (f){ t.review.shift(); rows.forEach(k => setRow('rv-' + k, k === f.k ? 'bad' : 'ok', k === f.k ? 'Issue' : 'Pass', 2200));
+      log(t, `${cap1(who(t, f.k))} reports that ${f.note}. The verifier reproduces it, and the task returns to its lane.`, 'bad'); back(t); return; }
+    rows.forEach(k => setRow('rv-' + k, 'ok', 'Pass', 1600));
+    log(t, cap1(list(rows.map(k => who(t, k)))) + (rows.length > 1 ? ' approve' : ' approves') + ' the change.');
+    go(t, [dock('mrg')], D.move, () => atMrg(t)); }); }
+function atMrg(t){
+  if (t.tier === 3){ setRow('m-rafa', 'wait', 'Wait', D.gate + 300); log(t, 'The change is tier 3, so it waits for Rafa.', 'wait');
+    hold(t, 'mrg', D.gate, () => { setRow('m-rafa', 'ok', 'Done', 1500); log(t, 'Rafa merges the change.'); finish(t); }); }
+  else { setRow('m-auto', 'ok', 'Done', 1500); hold(t, 'mrg', D.auto, () => { log(t, 'GitHub merges the change automatically.'); finish(t); }); } }
+function finish(t){ S.slots[t.slot] = null; S.busy.delete(t.lane); paintSlot(t.slot); S.merged++; fade(t);
+  const el = E('circle', {r:4, class:'ghost'}, TL); S.ghosts.push({el, pts:[[1267, 266], [1267, 404], [10, 404], [10, 80], [16, 80]], t0:S.t, dur:2600}); }
+function restart(){ S.toks.forEach(t => t.g.remove()); S.ghosts.forEach(g => g.el.remove()); S = fresh(S.t); [0, 1, 2].forEach(paintSlot); log(null, 'The simulation restarts.'); }
+
+function step(){
+  while (S.si < SCRIPT.length && S.t - S.c0 >= SCRIPT[S.si].at) spawn(SCRIPT[S.si++]);
+  S.toks.slice().forEach(upd);
+  const due = S.jobs.filter(j => j.at <= S.t); S.jobs = S.jobs.filter(j => j.at > S.t); due.forEach(j => j.fn());
+  dispatch();
+  S.toks = S.toks.filter(t => { if (t.fade != null && S.t - t.fade > 600){ t.g.remove(); return false; } return true; });
+  S.ghosts = S.ghosts.filter(g => { const p = (S.t - g.t0) / g.dur; if (p >= 1){ g.el.remove(); return false; } const [x, y] = along(g.pts, p); g.el.setAttribute('cx', x); g.el.setAttribute('cy', y); return true; });
+  if (S.si >= SCRIPT.length && !S.toks.some(t => t.fade == null) && !S.restartAt) S.restartAt = S.t + 3500;
+  if (S.restartAt && S.t >= S.restartAt) restart();
+}
+function render(){
+  const on = new Set(S.toks.filter(t => t.at).map(t => t.at)); if (S.queue.length) on.add('rdy');
+  for (const k in BOX) BOX[k].setAttribute('class', 'box' + (k === 'rdy' && S.halt ? ' halted' : on.has(k) ? ' on' : ''));
+  haltTxt.setAttribute('visibility', S.halt ? 'visible' : 'hidden');
+  S.toks.forEach(t => { t.g.setAttribute('transform', `translate(${t.x.toFixed(1)},${t.y.toFixed(1)})`); if (t.fade != null) t.g.style.opacity = Math.max(0, 1 - (S.t - t.fade) / 600); });
+  stats.textContent = `${S.slots.filter(Boolean).length} of 3 lanes in use, ${S.queue.length} waiting, ${S.merged} merged`;
+}
+
+S = fresh(0);
+const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+for (let i = 0; i < 520; i++){ S.t += 20; step(); }
+if (reduce) S.play = false;
+const playBtn = document.getElementById('play'), haltBtn = document.getElementById('halt');
+function paintPlay(){ playBtn.textContent = S.play ? 'Pause' : 'Play'; playBtn.setAttribute('aria-pressed', String(!S.play)); }
+playBtn.addEventListener('click', () => { S.play = !S.play; paintPlay(); });
+haltBtn.addEventListener('click', () => { S.halt = !S.halt; haltBtn.setAttribute('aria-pressed', String(S.halt)); log(null, S.halt ? 'HALT is on. The tick starts no new tasks, and running tasks finish.' : 'HALT is off. The tick starts new tasks again.', S.halt ? 'bad' : ''); });
+document.querySelectorAll('[data-speed]').forEach(b => b.addEventListener('click', () => { S.speed = +b.dataset.speed; document.querySelectorAll('[data-speed]').forEach(x => x.setAttribute('aria-pressed', String(x === b))); }));
+paintPlay(); render();
+let last = performance.now();
+function frame(now){ const dt = Math.min(100, now - last); last = now; if (S.play){ S.t += dt * S.speed; step(); } render(); requestAnimationFrame(frame); }
+requestAnimationFrame(frame);
+
+/* ---------- Fig 2: code paths ---------- */
+const CG = {cols:[16, 296, 576, 856, 1136], w:250, y0:58, step:50, h:30, heads:['intake', 'triage and dispatch', 'build and verify', 'checks', 'merge and observe']};
+const N = [
+  ['issue', 0,0, 'gh issues · label:intake',        'exists',   'Issues are untrusted. Only the quarantine reads them. The repository has none today (measured).'],
+  ['fb',    0,1, 'POST /v1/feedback',               'exists',   'T-032 built this route (merged in PR 121, not deployed). The operator keeps reports in a private store, and only a fingerprint enters the public repository (D35, D39). Task T-043 adds feedback requests at deal milestones for agents that opt in.'],
+  ['plan',  0,2, 'docs/plan.md · backlog.md',       'exists',   'The architect creates tasks from the plan at the start of each phase.'],
+  ['dec',   0,3, 'docs/decisions-today.md',         'exists',   'Each decision that creates work names its task.'],
+  ['rev',   0,4, 'docs/reviews/*',                  'exists',   'Each "Next steps" item in a review becomes one task.'],
+  ['sig',   0,5, 'scripts/ops/signals.mjs',         'proposed', 'The script applies telemetry rules to private aggregates from the website, social posts, the API (T-031) and the chain. A rule that fires writes a TriageRecord without a model.'],
+  ['intake',1,0, 'scripts/ops/intake.mjs',          'proposed', 'The quarantine normalizes outside text and passes it to the Haiku triager, which has no tools. The script drops and counts any output that fails schemas/triage-record.schema.json.'],
+  ['arch',  1,1, '.claude/agents/architect.md',     'exists',   'The architect uses Fable 5.1. Task lint checks that the paths exist, that they overlap no open pull request, and that each criterion names a command.'],
+  ['task',  1,2, 'docs/tasks/T-xxx-<slug>.md',      'exists',   'The task file is the unit of work. Any session can resume from the file and its branch.'],
+  ['ready', 1,3, 'scripts/ops/tick.mjs',            'proposed', 'The tick keeps no state. It recomputes readiness from git and GitHub after each merge, each CI run and every 20 minutes, and claims a task by pushing its branch.'],
+  ['start', 1,4, '/start-task',                     'T-036',    'The command builds the agent brief from the task file’s fields.'],
+  ['sw',    1,5, 'AGENT_OPS · STATUS · HALT',       'proposed', 'The tick starts work only if the AGENT_OPS setting is on and agent-ops/STATUS says active. A HALT file pauses it.'],
+  ['guard', 2,0, 'scripts/hooks/bash-guard.sh',     'proposed', 'The hook turns shell commands that trigger approval prompts into errors that the agent can read and fix.'],
+  ['impl',  2,1, '.claude/agents/implementer.md',   'exists',   'The implementer uses Sonnet 5.5, or Opus 5.5 for tier 2. It writes tests first. A different model reviews its work.'],
+  ['verify',2,2, 'scripts/verify.ts',               'exists',   'The script runs every check by default. T-034 adds an --affected mode.'],
+  ['report',2,3, 'reports/verify-<branch>.md',      'exists',   'The verifier compares the pull request’s claims with this report.'],
+  ['aff',   2,4, 'scripts/ci/affected.mjs',         'T-034',    'One path table drives CI jobs, local checks and tiers.'],
+  ['grd',   3,0, 'scripts/ci/guardrails.mjs',       'proposed', 'The guardrail fails a change outside its task’s files and a schema change without a decision record. It raises a weakened test, a raised timeout or a new admin function to tier 3.'],
+  ['ci',    3,1, '.github/workflows/ci.yml',        'exists',   'The workflow runs the tests and the secret scanner. Both must pass before any merge.'],
+  ['xwf',   3,2, '.github/workflows/xreview.yml',   'proposed', 'The workflow runs from main on pull_request_target. It reads the diff through the API and runs no code from the pull request.'],
+  ['xr',    3,3, 'scripts/ops/xreview.mjs',         'proposed', 'The script sends the diff to DeepSeek and validates the answer against schemas/review-verdict.schema.json. An invalid answer counts against the merge. The limit is 30 calls a day.'],
+  ['prov',  3,4, 'apps/adjudicator/src/providers/live.ts', 'exists', 'The product’s live judges already use this client to call DeepSeek.'],
+  ['stop',  4,0, 'scripts/ops/stop.mjs',            'proposed', 'The script stops every session and cancels pending auto-merges.'],
+  ['rule',  4,1, 'ruleset: main',                   'exists',   'The ruleset requires the tests and the secret scan. Activation adds the cross-family check and owner review on tier 3.'],
+  ['merge', 4,2, '/merge-pr',                       'T-036',    'The Haiku lander runs this command. It arms auto-merge after every review passes and never arms it for tier 3 or forks.'],
+  ['map',   4,3, 'scripts/design-map.mjs',          'exists',   'The script marks a task done from its merge commit (T-034).'],
+  ['log',   4,4, 'docs/log/YYYY-MM-DD.md',          'exists',   'The Haiku daily-log job is the only writer. The log holds pipeline figures only; product telemetry stays private.'],
+  ['ledger',4,5, 'reports/agent-ops/ledger.jsonl',  'proposed', 'The ledger records one line per stage with the model, tokens, cost and result.'],
+];
+const ED = [['issue','intake'],['fb','intake'],['plan','intake'],['dec','intake'],['rev','intake'],['sig','intake'],['intake','arch'],['arch','task'],['task','ready'],['ready','start'],['sw','ready'],['start','impl'],
+  ['guard','impl'],['impl','verify'],['verify','report'],['aff','verify'],['impl','ci'],['aff','ci'],['grd','ci'],['xwf','xr'],['xr','prov'],['ci','rule'],['xwf','rule'],
+  ['stop','merge'],['rule','merge'],['merge','map'],['merge','log'],['merge','ledger']];
+const f2 = document.getElementById('f2'), F2E = document.getElementById('f2e'), F2N = document.getElementById('f2n'), cap = document.getElementById('cgcap');
+const P = {}; N.forEach(([id, c, r, p, s, n]) => { P[id] = {id, c, r, p, s, n, x:CG.cols[c], y:CG.y0 + r * CG.step}; });
+CG.heads.forEach((h, c) => E('text', {x:CG.cols[c], y:32, class:'hd'}, F2E, h));
+const busK = {};
+const EP = ED.map(([a, b]) => { const s = P[a], t = P[b], h = CG.h, my = n => n.y + h / 2; let d;
+  if (s.c === t.c){
+    if (Math.abs(s.r - t.r) === 1){ const x = s.x + 22; d = t.r > s.r ? `M${x} ${s.y + h} V${t.y}` : `M${x} ${s.y} V${t.y + h}`; }
+    else { const k = busK[s.c] = (busK[s.c] || 0) + 1; const o = 4 + 4 * k; d = `M${s.x} ${my(s)} H${s.x - o} V${my(t)} H${t.x}`; }
+  } else if (s.r === t.r) d = `M${s.x + CG.w} ${my(s)} H${t.x}`;
+  else { const gx = s.x + CG.w + 8; d = `M${s.x + CG.w} ${my(s)} H${gx} V${my(t)} H${t.x}`; }
+  return {a, b, el:E('path', {d, class:'e', 'marker-end':'url(#ah2)'}, F2E)}; });
+const NEL = {};
+N.forEach(([id]) => { const n = P[id]; const cls = n.s === 'exists' ? '' : n.s === 'proposed' ? ' prop' : ' plan';
+  const g = E('g', {class:'n' + cls, tabindex:'0', role:'button', 'aria-label':n.p}, F2N);
+  E('rect', {x:n.x, y:n.y, width:CG.w, height:CG.h, rx:5}, g); E('text', {x:n.x + 10, y:n.y + 19}, g, n.p); NEL[id] = g;
+  const show = () => { f2.classList.add('hov'); Object.values(NEL).forEach(e => e.classList.remove('hl')); EP.forEach(e => e.el.classList.remove('hl'));
+    g.classList.add('hl'); EP.forEach(e => { if (e.a === id || e.b === id){ e.el.classList.add('hl'); NEL[e.a].classList.add('hl'); NEL[e.b].classList.add('hl'); } });
+    cap.replaceChildren(); const c = document.createElement('code'); c.textContent = n.p; const chip = document.createElement('span');
+    chip.className = 'st-chip' + (n.s === 'exists' ? '' : n.s === 'proposed' ? ' prop' : ' plan'); chip.textContent = n.s === 'exists' ? 'Exists' : n.s === 'proposed' ? 'Proposed' : 'Planned in ' + n.s;
+    cap.append(c, chip, document.createTextNode(n.n)); };
+  const hide = () => { f2.classList.remove('hov'); };
+  g.addEventListener('pointerenter', show); g.addEventListener('focus', show); g.addEventListener('pointerleave', hide); g.addEventListener('blur', hide); g.addEventListener('click', show); });
+})();
+</script>
