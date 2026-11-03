@@ -146,3 +146,11 @@ Schema version: v0.4.
   - The seed, policy and registry are checked on the settlement layer, not only by the adjudicator.
   - Panel composition is enforceable through a bonded appeal ground.
   - Adjudicators publish their registry and policy hashes before parties choose them.
+
+## Amendment: the fallback reserves its bond by deciding (T-206 M-3, 2026-11-03)
+
+§1's "their bond is reserved only when they take a case" now has a precise meaning in the rules contract. A case is taken when the adjudicator decides it, not when someone triggers the takeover. Anyone may trigger `triggerFallback`, and a primary's escalation is the primary's act, so neither reserves a bond the named adjudicator never consented to (PR #135).
+- **The fallback.** Its own accept or reject encumbers its bond, held until the appeal closes. An uncovered fallback therefore cannot decide, and the case goes to the default outcome at `fallbackBy`, as §1 says. An escalation moves no money and needs no cover.
+- **The appeal adjudicator.** After an escalation or on a party appeal, it reserves nothing. Its decision settles in the same transaction, and no on-chain path pays from its bond before Phase 4. Whether it needs free cover to decide is open (T-212 item 5).
+- **Phase 4.** ADR-0007's compensation from a silent fallback's or appeal adjudicator's bond has no reservation to draw on, because a silent adjudicator never consented. Phase 4 needs a consent step for it (backlog).
+- **Why.** Before the fix, a sham deal that named any bonded adjudicator, with windows set a century out (D31), could lock that adjudicator's free bond. Found by the T-206 public-audit cross-check.

@@ -28,7 +28,7 @@ The repository is public and is read by people deciding whether to trust the pro
 
 ## Out of scope
 
-- GitHub repository settings, the site wording ("verifiably neutral", "jurisdiction"), backlog triage, `prompts/`.
+- GitHub repository settings, backlog triage, `prompts/`. The site wording stays as written (Rafa, 2026-11-03: "homepage wording is what we're building").
 
 ## Evidence
 
