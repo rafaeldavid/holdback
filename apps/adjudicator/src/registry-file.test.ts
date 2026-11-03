@@ -9,13 +9,12 @@ const LIVE_PATH = new URL('../../../config/judges-live.yaml', import.meta.url).p
 describe('config/judges.yaml', () => {
   const r = loadRegistryFile(PATH);
   it('loads, with pinned IDs only, and hashes the parsed document', () => {
-    expect(r.ok ? 'ok' : r.error.detail).toBe('ok');
-    if (!r.ok) return;
+    if (!r.ok) throw new Error(r.error.detail);
     expect(r.value.hash).toBe(canonicalKeccak(r.value.doc));
     for (const e of r.value.doc.judges) expect(e.model).not.toMatch(/latest/i);
   });
   it('can seat the appeal panel: five active judges over three families', () => {
-    if (!r.ok) return;
+    if (!r.ok) throw new Error(r.error.detail);
     expect(r.value.active.length).toBeGreaterThanOrEqual(5);
     expect(new Set(r.value.active.map((e) => e.family)).size).toBeGreaterThanOrEqual(3);
   });
@@ -33,8 +32,7 @@ describe('config/judges.yaml', () => {
 describe('config/judges-live.yaml (T-028)', () => {
   const r = loadRegistryFile(LIVE_PATH);
   it('loads with pinned, dated IDs and no placeholders', () => {
-    expect(r.ok ? 'ok' : r.error.detail).toBe('ok');
-    if (!r.ok) return;
+    if (!r.ok) throw new Error(r.error.detail);
     for (const e of r.value.doc.judges) {
       expect(e.model).toMatch(/@\d{4}-\d{2}-\d{2}$/);
       expect(e.model).not.toMatch(/placeholder|latest/i);
@@ -42,7 +40,7 @@ describe('config/judges-live.yaml (T-028)', () => {
     expect(liveRegistry().hash).toBe(r.value.hash);
   });
   it('seats a first-instance panel and a five-judge appeal panel from the two live families', () => {
-    if (!r.ok) return;
+    if (!r.ok) throw new Error(r.error.detail);
     expect(r.value.active.length).toBeGreaterThanOrEqual(5);
     expect(new Set(r.value.active.map((e) => e.family))).toEqual(new Set(['claude', 'deepseek']));
     expect(new Set(r.value.active.map((e) => e.provider))).toEqual(new Set(['anthropic', 'openai-compatible']));

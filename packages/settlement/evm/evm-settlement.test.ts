@@ -21,9 +21,9 @@ describe.skipIf(!ready)(`EvmSettlement on anvil${ready ? '' : ' (SKIPPED: needs 
     await world?.stop();
   });
 
-  it('talks to localhost only, on chain id 31337', () => {
+  it('talks to localhost only, on chain id 31337', async () => {
     expect(new URL(world.rpcUrl).hostname).toBe('127.0.0.1');
-    expect(world.chainId).toBe(31337);
+    expect(await world.publicClient.getChainId()).toBe(31337);
   });
 
   it('happy path: Released, price to the seller, fee to the primary, the buyer key in the paying transaction', async () => {

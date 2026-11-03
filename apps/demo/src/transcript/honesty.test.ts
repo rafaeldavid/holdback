@@ -38,15 +38,12 @@ const judgeEvent = (): DemoEvent => ({
 });
 
 describe('honest labels (T-019)', () => {
-  it('scripted mode says the judges are scripted and never claims recorded verdicts', () => {
+  it('scripted mode says the judges are scripted, never claims recorded verdicts and never names task IDs', () => {
     const h = header(beat(3, [])).join('\n');
     expect(h).toMatch(/Mode: scripted/);
     expect(h).toMatch(/no model was called/);
     expect(h).not.toMatch(/recorded/i);
-  });
-
-  it('a source note never names task IDs', () => {
-    expect(header(beat(3, [])).join('\n')).not.toMatch(/\bT-\d+/);
+    expect(h).not.toMatch(/\bT-\d+/);
   });
 
   it('the viewer prints the shared header once and only what differs per beat', () => {
@@ -143,12 +140,19 @@ describe('lean balances (T-019)', () => {
 });
 
 describe('closing (T-019)', () => {
-  it('lists the four residuals an AI lab asks about, numbered as in docs/neutrality.md', () => {
+  it('states finality, lists the four residuals an AI lab asks about (numbered as in docs/neutrality.md) and what a lab could add', () => {
     const c = closing();
+    expect(c.finality.length).toBeGreaterThan(0);
     expect(c.residuals.map((r) => r.n)).toEqual([3, 5, 6, 8]);
     expect(c.residuals.map((r) => r.title)).toEqual(['Collusion', 'Legal process', 'Adjudicator plaintext access', 'Self-reported model identity']);
-    expect(renderClosingMarkdown()).toMatch(/docs\/neutrality\.md/);
-    expect(renderClosingMarkdown()).toMatch(/12 residual control points/);
+    expect(c.asks.join(' ')).toMatch(/response attestation/i);
+    expect(c.asks.join(' ')).toMatch(/hold primitive on API credit/i);
+    expect(c.asks.join(' ')).toMatch(/model version disclosure/i);
+    const md = renderClosingMarkdown();
+    expect(md).toContain('## What remains centralized');
+    expect(md).toContain('## What an AI lab could add');
+    expect(md).toMatch(/docs\/neutrality\.md/);
+    expect(md).toMatch(/12 residual control points/);
     expect(renderHtml([beat(1, [])])).toMatch(/docs\/neutrality\.md/);
   });
 });

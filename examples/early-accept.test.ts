@@ -80,7 +80,7 @@ async function material(terms: J, delivery: J): Promise<EnvelopeMaterial> {
   return buyer.envelopeMaterial(terms, delivery);
 }
 
-describe('early accept opens the buyer envelope first (T-024)', { timeout: 30_000 }, () => {
+describe('early accept opens the buyer envelope first (T-024)', () => {
   it('the right key passes; the accept is signed and the buyer already holds the work', async () => {
     const { id, terms } = await held();
     await silence('primary', true);

@@ -342,7 +342,7 @@ export function screenTerms(texts: readonly string[]): Signal[] {
   return out.list;
 }
 
-/** Offer-time validation of party-written text. Returns reasons to refuse; empty means acceptable. */
+/** Validation an agent can run on party-written text before it signs. Returns reasons to refuse; empty means acceptable. */
 export function validateTermsText(texts: ReadonlyArray<readonly [string, string]>): string[] {
   const reasons: string[] = [];
   for (const [where, t] of texts) {

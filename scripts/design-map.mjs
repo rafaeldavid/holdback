@@ -55,7 +55,7 @@ export function decisions() {
   const result = [];
   for (let i = 1; i < parts.length; i += 3) {
     const [id, heading, body] = [parts[i], parts[i + 1], parts[i + 2]];
-    const decided = body.match(/\*\*Decided [^*]*:\*\*\s*(.+)/);
+    const decided = body.match(/\*\*Decided [^*]*\*\*\s*(.+)/);
     const open = body.match(/\*\*Open\.\*\*\s*(.+)/);
     const adr = heading.match(/ADR-\d{4}/g) ?? [];
     let status = 'open';
@@ -101,7 +101,7 @@ export function phases(allTasks) {
   for (let i = 1; i < parts.length; i += 3) {
     const n = Number(parts[i]);
     const body = parts[i + 2];
-    const goal = (body.match(/^Goal: (.+)$/m)?.[1] ?? '').replace(/^./, (c) => c.toUpperCase());
+    const goal = capitalize(body.match(/^Goal: (.+)$/m)?.[1] ?? '');
     const exit = bullets(section(body, '**Exit:**'));
     const own = allTasks.filter((t) => t.phase === n);
     const done = own.length > 0 && own.every((t) => t.status === 'done');

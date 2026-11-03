@@ -1,0 +1,28 @@
+# @settlement sim @judges recorded @mode guaranteed_on_decision @seed 79
+name: error.submission-limit
+description: >-
+  The club allows one submission (maxSubmissions = 1). Tidewater's first delivery from Held carries
+  attempt 2, so SimChain refuses it with submission_limit_reached and the hold stays Held. A second
+  delivery after a first one is refused earlier, with invalid_state, because a Delivered commitment
+  takes no delivery.
+club: fixtures/clubs/data-services-v1.yaml
+terms: fixtures/terms/clean-customers-2000.yaml
+parties:
+  buyer: atlas-buyer
+  seller: tidewater-seller
+adjudicators:
+  primary: bench-a
+  fallback: bench-b
+  appeal: bench-c
+operators: [op-1, op-2]
+faucet:
+  atlas-buyer: "10000000000"
+  bench-a: "25000000000"
+  bench-b: "25000000000"
+  bench-c: "25000000000"
+steps:
+  - offer:              { by: seller, via: op-1 }
+  - adjudicator_accept: { via: op-1 }
+  - agree_and_fund:     { by: buyer, via: op-1 }
+  - deliver:            { by: seller, via: op-1, file: data/dataset-cleaning/customers.clean.csv, attempt: 2 }
+expect: { problem: { step: 4, type: submission_limit_reached } }

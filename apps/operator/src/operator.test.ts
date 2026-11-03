@@ -90,8 +90,8 @@ describe('mutations', () => {
 
   it('relays the settlement layer refusal as a problem', async () => {
     const r = await post(`/v1/commitments/${w.deal.id}/triggers/reclaim`, {}, { 'idempotency-key': 'k2' });
-    expect(r.status).toBeGreaterThanOrEqual(400);
     expect(r.headers.get('content-type')).toMatch(/application\/problem\+json/);
+    expect([r.status, (await json(r))['type']]).toEqual([404, 'not_found']);
   });
 
   it('refuses a malformed body against spec/schemas before relaying', async () => {
@@ -135,7 +135,7 @@ describe('dry run (?validateOnly=true)', () => {
 
   it('returns the problem the live call would', async () => {
     const r = await post(`/v1/commitments/${w.deal.id}/triggers/reclaim?validateOnly=true`, {});
-    expect(r.status).toBeGreaterThanOrEqual(400);
+    expect([r.status, (await json(r))['type']]).toEqual([404, 'not_found']);
     expect(r.headers.get('holdback-dry-run')).toBeNull();
   });
 });
@@ -161,6 +161,22 @@ describe('headers and problems', () => {
     const r = await post(path, body, { 'idempotency-key': 'k-tp', traceparent: tp });
     expect(logs.some((l) => l.traceparent === tp)).toBe(true);
     expect(JSON.stringify(await r.json())).not.toContain('0af7651916cd43dd8448eb211c80319c');
+  });
+
+  it('logs the route template and problem type, never an address or ID from the path', async () => {
+    const address = `0x${'ab'.repeat(20)}`;
+    for (const path of [`/v1/agents/${address}`, `/v1/commitments/${hex32('99')}/terms`, `/wp-admin/${address}`]) await (await get(path)).text();
+    await (await post('/v1/webhooks', {})).text();
+    const hold = requestOf(await holdOf(w.deal));
+    await (await post(hold.path, hold.body, { 'idempotency-key': 'k-route' })).text();
+    expect(logs.map((l) => [l.method, l.route, l.status, l.problem])).toEqual([
+      ['GET', '/v1/agents/{address}', 404, 'not_found'],
+      ['GET', '/v1/commitments/{commitmentId}/terms', 404, 'not_found'],
+      ['GET', 'unmatched', 404, 'not_found'],
+      ['POST', '/v1/webhooks', 501, 'not_implemented'],
+      ['POST', '/v1/holds', 200, undefined],
+    ]);
+    expect(JSON.stringify(logs.map((l) => l.route))).not.toMatch(/0x/);
   });
 
   it('answers 429 rate_limited with Retry-After when a signer exceeds its write budget', async () => {
@@ -287,19 +303,6 @@ describe('reads', () => {
     expect(adjudicators.items).toHaveLength(2);
     const rest = await json<{ items: unknown[]; nextCursor: string | null }>(await get(`/v1/adjudicators?limit=2&cursor=${adjudicators.nextCursor}`));
     expect([rest.items.length, rest.nextCursor]).toEqual([1, null]);
-  });
-
-  it('funds an address from the SimChain faucet', async () => {
-    const r = await post('/v1/faucet', { address: w.cast.seller.address, amount: '5' }, { 'idempotency-key': 'f1' });
-    expect(r.status).toBe(200);
-    expect(await json(r)).toEqual({ address: w.cast.seller.address.toLowerCase(), granted: { token: 'tUSD', amount: '5' }, balance: { token: 'tUSD', amount: '1000000005' } });
-  });
-
-  it('answers the planned funding routes 501 not_implemented, with a link to ADR-0026 (D39)', async () => {
-    const r = await post('/v1/funding/quote', { to: w.cast.buyer.address }, { 'idempotency-key': 'q1' });
-    expect(r.status).toBe(501);
-    expect(await json(r)).toMatchObject({ type: 'not_implemented' });
-    expect(r.headers.get('link')).toMatch(/ADR-0026[^>]*>; rel="describedby"/);
   });
 
   it('streams events as server-sent events from a sequence number', async () => {

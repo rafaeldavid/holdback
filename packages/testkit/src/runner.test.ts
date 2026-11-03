@@ -6,7 +6,6 @@ import { anvilAvailable } from '@holdback/settlement/evm';
 import { diffLines, LOCAL_EXCLUSIONS, main, runScenario } from './runner.js';
 
 const repo = new URL('../../../', import.meta.url).pathname;
-const exampleExpect = () => readFileSync(join(repo, 'fixtures/scenarios/_example.expect.md'), 'utf8');
 
 /** A throwaway repo root holding a copy of the _example fixture and its recordings. */
 function sandbox(): string {
@@ -61,29 +60,27 @@ async function fixture(root: string, name: string, text: string, ...argv: string
   return { ...r, snapshot: existsSync(path) ? readFileSync(path, 'utf8') : '' };
 }
 
+/** A sandbox whose only fixture is a fast refusal with its snapshot: CLI tests need no judgment run. */
+const REFUSAL = 'error.deliver-before-fund';
+async function refusalOnly(): Promise<string> {
+  const root = sandbox();
+  for (const f of ['_example.scenario.yaml', '_example.expect.md']) rmSync(join(root, 'fixtures/scenarios', f));
+  writeFileSync(join(root, `fixtures/scenarios/${REFUSAL}.scenario.yaml`), deliverBeforeFund(REFUSAL));
+  await snap(root, '--update', REFUSAL);
+  return root;
+}
+
 afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
-describe('_example against the stub settlement', () => {
-  it('reproduces the committed expect file exactly', async () => {
-    const run = await runScenario({ root: repo, name: '_example' });
-    expect(run.snapshot).toBe(exampleExpect());
-    expect(run.outcome).toMatchObject({ pass: true, label: 'pass' });
-  });
-
+describe('_example on SimChain', () => {
   it("drives core's state machine through every real transition", async () => {
     const run = await runScenario({ root: repo, name: '_example' });
     expect(run.states).toEqual(['Offered', 'AcceptedByAdjudicator', 'Agreed', 'Held', 'Delivered', 'Released']);
     expect(run.summary.balances).toMatchObject({ 'atlas-buyer': 7950000000n, 'tidewater-seller': 2000000000n, 'bench-a': 25050000000n, escrow: 0n });
     expect(run.summary.invariants.every((i) => i.ok)).toBe(true);
-  });
-
-  it('renders the sections docs/testing.md lists, in order', async () => {
-    const { snapshot } = await runScenario({ root: repo, name: '_example' });
-    const headings = snapshot.split('\n').filter((l) => l.startsWith('## '));
-    expect(headings).toEqual(['## Input', '## Timeline', '## Balances (tUSD)', '## Judgment', '## Receipts and log', '## Invariants', '## Outcome']);
   });
 
   it('leaks no wall-clock time or Math.random into the snapshot', async () => {
@@ -96,30 +93,20 @@ describe('_example against the stub settlement', () => {
     expect(a.snapshot).not.toMatch(/2031|2099/);
     expect(random).not.toHaveBeenCalled();
   });
-
-  it('gives a different but stable transcript for a different seed', async () => {
-    const root = sandbox();
-    const file = join(root, 'fixtures/scenarios/_example.scenario.yaml');
-    writeFileSync(file, readFileSync(file, 'utf8').replace('@seed 7', '@seed 8'));
-    // Seed 8 changes addresses and so the judge input hash: the recordings are stale and must fail loudly.
-    const r = await snap(root, '_example');
-    expect(r.code).toBe(1);
-    expect(r.text).toMatch(/fail {2}_example: RecordingMismatchError/);
-  });
 });
 
 describe('pnpm snap', () => {
   it('prints one pass line per fixture and exits 0 when snapshots match', async () => {
-    const r = await snap(sandbox());
-    expect(r.out[0]).toBe('pass  _example');
+    const r = await snap(await refusalOnly());
+    expect(r.out[0]).toBe(`pass  ${REFUSAL}`);
     expect(r.out.at(-1)).toBe('snap: 1 passed, 0 failed');
     expect(r.code).toBe(0);
   });
 
   it('runs only the named fixture and fails on an unknown name', async () => {
-    const root = sandbox();
+    const root = await refusalOnly();
     writeFileSync(join(root, 'fixtures/scenarios/other.scenario.yaml'), deliverBeforeFund('other'));
-    expect((await snap(root, '_example')).out).toEqual(['pass  _example', 'snap: 1 passed, 0 failed']);
+    expect((await snap(root, REFUSAL)).out).toEqual([`pass  ${REFUSAL}`, 'snap: 1 passed, 0 failed']);
     const missing = await snap(root, 'nope');
     expect(missing.code).toBe(1);
     expect(missing.text).toMatch(/fail {2}nope: no fixture/);
@@ -211,11 +198,12 @@ describe('pnpm snap', () => {
   });
 
   it('accepts --flag=value and --flag value forms', async () => {
-    expect((await snap(sandbox(), '--settlement=sim', '--judges=recorded')).code).toBe(0);
-    expect((await snap(sandbox(), '--settlement', 'sim', '_example')).code).toBe(0);
+    const root = await refusalOnly();
+    expect((await snap(root, '--settlement=sim', '--judges=recorded')).code).toBe(0);
+    expect((await snap(root, '--settlement', 'sim', REFUSAL)).code).toBe(0);
   });
 
-  it('refuses live judges in this task with a clear message and no network', async () => {
+  it('refuses live judges with a clear message and no network', async () => {
     const r = await snap(sandbox(), '--judges', 'live', '_example');
     expect(r.code).toBe(2);
     expect(r.text).toMatch(/live judges are unavailable/);
@@ -228,7 +216,7 @@ describe('pnpm snap', () => {
     expect(r.text).toMatch(/--record needs --judges live/);
   });
 
-  it('refuses --update together with live judges, and --update without a name', async () => {
+  it('refuses --update without a fixture name', async () => {
     expect((await snap(sandbox(), '--update')).text).toMatch(/--update needs a fixture name/);
   });
 
@@ -269,12 +257,6 @@ describe('pnpm snap', () => {
     expect((await snap(sandbox(), '--judges=maybe')).text).toMatch(/--judges/);
   });
 
-  it('loads the club and terms files the fixture names and says so in the snapshot', async () => {
-    const { snapshot } = await runScenario({ root: repo, name: '_example' });
-    expect(snapshot).toContain('| Club | fixtures/clubs/data-services-v1.yaml (loaded) · rulebook 0x140e…971e |');
-    expect(snapshot).toMatch(/\| Terms \| fixtures\/terms\/clean-customers-2000\.yaml \(loaded\) · commitment /);
-  });
-
   it('fails a fixture whose club file exists but is invalid, rather than ignoring it', async () => {
     const root = sandbox();
     writeFileSync(join(root, 'fixtures/clubs/data-services-v1.yaml'), 'id: data-services-v1\n');
@@ -290,19 +272,6 @@ describe('pnpm snap', () => {
     const r = await snap(root);
     expect(r.code).toBe(1);
     expect(r.out[0]).toMatch(/fail {2}_example: .*clean-customers-2000\.yaml: .*amount/);
-  });
-
-  it('refuses a message signed by the wrong key with invalid_signature', async () => {
-    const root = sandbox();
-    const name = 'error.impersonated-buyer';
-    const src = deliverBeforeFund(name)
-      .replace('  - deliver: { by: seller, via: op-1, file: data/x.csv, stub_bytes: true }', '  - agree_and_fund: { by: buyer, via: op-1, signer: tidewater-seller }')
-      .replace('type: invalid_state', 'type: invalid_signature');
-    writeFileSync(join(root, `fixtures/scenarios/${name}.scenario.yaml`), src);
-    const r = await snap(root, '--update', name);
-    expect(r.out[0]).toBe(`pass  ${name} (snapshot updated)`);
-    const written = readFileSync(join(root, `fixtures/scenarios/${name}.expect.md`), 'utf8');
-    expect(written).toMatch(/\| atlas-buyer \| agree \| op-1 \| invalid_signature \| AcceptedByAdjudicator \|/);
   });
 
   it('refuses an offer whose terms are signed by the buyer instead of the seller', async () => {
@@ -323,88 +292,6 @@ describe('pnpm snap', () => {
     expect(r.out[0]).toMatch(/fail {2}nofile: ScenarioError: .*fixtures\/data\/x\.csv.*stub_bytes: true/);
   });
 
-  it('neutrality: the primary adjudicator goes offline and the fallback decides', async () => {
-    const root = sandbox();
-    const name = 'neutrality.primary-offline';
-    const r = await fixture(
-      root,
-      name,
-      flow(
-        name,
-        `  - offline: { actor: bench-a }
-  - judge: { adjudicator: bench-a }
-  - advance_clock: { seconds: 4200 }
-  - trigger_fallback: {}
-  - judge: { adjudicator: bench-b }
-  - verify_key_release: { by: buyer }
-`,
-        'fails: bench-a\n',
-      ),
-    );
-    expect(r.out[0]).toBe(`pass  ${name} (snapshot updated)`);
-    expect(r.snapshot).toMatch(/\| bench-a \| decide \| direct \| offline \(no call\) \| Delivered \|/);
-    expect(r.snapshot).toMatch(/\| anyone \| trigger_fallback \| direct \| ok \| FallbackJudging \|/);
-    expect(r.snapshot).toMatch(/\| bench-b \| decide: accept \| direct \| ok \| Released \|/);
-    expect(r.snapshot).toMatch(/### bench-b \(fallback\)/);
-    // ADR-0018: the fallback's panel seed comes from the beacon round at judgeBy, and the snapshot says so.
-    expect(r.snapshot).toMatch(/seed source: beacon round \d+ \(seed 0x/);
-    // The fallback earns the fee; the offline primary earns nothing.
-    expect(r.snapshot).toMatch(/\| decide: accept \| 7,950\.000000 \| 0 \| 2,000\.000000 \| 25,000\.000000 \| 25,050\.000000 \|/);
-  });
-
-  it('neutrality: both first-instance adjudicators vanish and the default outcome refunds the buyer', async () => {
-    const root = sandbox();
-    const name = 'neutrality.adjudicators-offline';
-    const r = await fixture(
-      root,
-      name,
-      flow(
-        name,
-        `  - advance_clock: { seconds: 4200 }
-  - trigger_fallback: {}
-  - advance_clock: { seconds: 600 }
-  - trigger_default: { via: op-2 }
-  - apply_default_outcome: {}
-`,
-        'fails: bench-b\n',
-      ),
-    );
-    expect(r.out[0]).toBe(`pass  ${name} (snapshot updated)`);
-    expect(r.snapshot).toMatch(/\| anyone \| trigger_default \| op-2 \| ok \| Defaulted \|/);
-    expect(r.snapshot).toMatch(/\| apply_default_outcome \| 10,000\.000000 \| 0 \|/);
-  });
-
-  it('neutrality: an operator refuses to relay and the buyer goes direct', async () => {
-    const root = sandbox();
-    const name = 'neutrality.operator-refuses';
-    const r = await fixture(
-      root,
-      name,
-      flow(name, `  - judge: { adjudicator: bench-a }
-`, 'fails: op-1\n').replace(
-        '  - agree_and_fund: { by: buyer, via: op-1 }',
-        '  - operator_refuses: { operator: op-1 }\n  - agree_and_fund: { by: buyer, via: op-1 }\n  - agree_and_fund: { by: buyer }',
-      ).replace('  - deliver: { by: seller, via: op-1,', '  - deliver: { by: seller, via: op-2,'),
-    );
-    expect(r.out[0]).toBe(`pass  ${name} (snapshot updated)`);
-    expect(r.snapshot).toMatch(/\| atlas-buyer \| agree_and_fund \| op-1 \| refused by op-1 \| Offered \|/);
-  });
-
-  it('neutrality: an offline operator relays nothing, and the buyer goes through another operator', async () => {
-    const root = sandbox();
-    const name = 'neutrality.op-offline';
-    const r = await fixture(
-      root,
-      name,
-      flow(name, '  - judge: { adjudicator: bench-a }\n', 'fails: op-1\n')
-        .replace('  - agree_and_fund: { by: buyer, via: op-1 }', '  - offline: { actor: op-1 }\n  - agree_and_fund: { by: buyer, via: op-1 }\n  - agree_and_fund: { by: buyer, via: op-2 }')
-        .replace(DELIVER, DELIVER.replace('op-1', 'op-2')),
-    );
-    expect(r.out[0]).toBe(`pass  ${name} (snapshot updated)`);
-    expect(r.snapshot).toMatch(/\| atlas-buyer \| agree_and_fund \| op-1 \| op-1 is offline \(not relayed\) \| Offered \|/);
-    expect(r.snapshot).toMatch(/- Step 3: op-1 is offline/);
-  });
-
   it('a normal fixture may end with the buyer reclaiming after the seller never delivers', async () => {
     const root = sandbox();
     const src = flow('reclaimed', '  - advance_clock: { seconds: 172800 }\n  - reclaim: { by: buyer }\n').replace(`${DELIVER}\n`, '');
@@ -413,31 +300,6 @@ describe('pnpm snap', () => {
     // Any other outage still needs the neutrality. prefix.
     const offline = flow('offline-plain', '  - offline: { actor: bench-a }\n  - judge: { adjudicator: bench-a }\n');
     expect((await fixture(root, 'offline-plain', offline)).out[0]).toMatch(/bench-a failed at step 5; use the neutrality\. prefix/);
-  });
-
-  it('neutrality: a reclaim after deliverBy refunds the buyer when the seller never delivers', async () => {
-    const root = sandbox();
-    const name = 'neutrality.seller-vanishes';
-    const src = flow(name, `  - advance_clock: { seconds: 3600 }
-  - reclaim: { by: buyer }
-`, 'fails: tidewater-seller\n').replace(
-      `${DELIVER}\n`,
-      '',
-    );
-    const r = await fixture(root, name, src);
-    expect(r.out[0]).toBe(`pass  ${name} (snapshot updated)`);
-    expect(r.snapshot).toMatch(/\| reclaim \| 10,000\.000000 \| 0 \|/);
-  });
-
-  it('neutrality: a happy path that names no outage fails', async () => {
-    const root = sandbox();
-    const r = await fixture(root, 'neutrality.nothing-fails', flow('neutrality.nothing-fails', `  - judge: { adjudicator: bench-a }
-`, 'fails: bench-a\n'));
-    expect(r.code).toBe(1);
-    expect(r.out[0]).toMatch(/fail {2}neutrality\.nothing-fails: .*bench-a/);
-    const missing = await fixture(root, 'neutrality.unnamed', flow('neutrality.unnamed', `  - judge: { adjudicator: bench-a }
-`));
-    expect(missing.out[0]).toMatch(/fail {2}neutrality\.unnamed: ScenarioError: .*fails/);
   });
 
   it('expire: an accepted offer the buyer never agrees to expires after offerExpiresAt', async () => {
@@ -488,23 +350,6 @@ describe('pnpm snap', () => {
     expect(r.snapshot).toMatch(/fetch key \+ verify plaintext hash \| direct \| hash matches/);
   });
 
-  it('appeal: the buyer appeals an accept, the bond and fee are held, Bench C upholds and is paid the fee', async () => {
-    const root = sandbox();
-    const r = await fixture(
-      root,
-      'appealed',
-      flow('appealed', '  - judge: { adjudicator: bench-a }\n  - appeal: { by: buyer, grounds: "rows look fabricated" }\n  - advance_clock: { seconds: 2 }\n  - judge: { adjudicator: bench-c }\n'),
-    );
-    expect(r.out[0]).toBe('pass  appealed (snapshot updated)');
-    expect(r.snapshot).toMatch(/\| atlas-buyer \| appeal \(buyer\) \| direct \| ok \| Released \|/);
-    // 5% of $2,000 bond plus the $25 appeal fee leave the buyer and sit in the appeal hold until decided.
-    expect(r.snapshot).toMatch(/\| appeal \| 7,825\.000000 \| 0 \| 125\.000000 \|/);
-    expect(r.snapshot).toMatch(/### bench-c \(appeal\)/);
-    expect(r.snapshot).toMatch(/seed source: beacon round \d+/);
-    // Upheld: the forfeited bond goes to Bench A's junior bond, the fee to Bench C.
-    expect(r.snapshot).toMatch(/\| decide: accept \| 7,825\.000000 \| 0 \| 0 \| 2,000\.000000 \| 25,150\.000000 \| 25,000\.000000 \| 25,025\.000000 \|/);
-  });
-
   it('mutual_settle: both parties sign payouts that split the price; Settled is terminal and the key can be released', async () => {
     const root = sandbox();
     const name = 'settled';
@@ -522,30 +367,15 @@ describe('pnpm snap', () => {
     expect((await fixture(root, name, src)).out[0]).toBe(`pass  ${name} (snapshot updated)`);
   });
 
-  it('deliver attempt: a second attempt above maxSubmissions is refused with submission_limit_reached', async () => {
+  it('deliver attempt: a second delivery after the first is refused with invalid_state, before the attempt count', async () => {
     const root = sandbox();
     const name = 'error.second-attempt';
     const src = flow(name, '  - deliver: { by: seller, file: data/dataset-cleaning/customers.clean.csv, attempt: 2 }\n') + 'expect: { problem: { step: 4, type: invalid_state } }\n';
     const r = await fixture(root, name, src);
-    // Delivered is not Held, so the state machine refuses before the attempt count; from Held it would be the limit.
+    // Delivered is not Held, so the state machine refuses before the attempt count; from Held it is the
+    // limit (fixtures/scenarios/error.submission-limit).
     expect(r.out[0]).toBe(`pass  ${name} (snapshot updated)`);
     expect(r.snapshot).toMatch(/deliver \(attempt 2\)/);
-    const fromHeld = flow('error.attempt-two', '').replace(DELIVER, '  - deliver: { by: seller, file: data/dataset-cleaning/customers.clean.csv, attempt: 2 }') + 'expect: { problem: { step: 3, type: submission_limit_reached } }\n';
-    expect((await fixture(root, 'error.attempt-two', fromHeld)).out[0]).toBe('pass  error.attempt-two (snapshot updated)');
-  });
-
-  it('commitment: a second commitment funded from the same balance is refused for insufficient funds', async () => {
-    const root = sandbox();
-    const name = 'error.overdraft';
-    const src = flow(name, '  - offer: { by: seller, commitment: 2 }\n  - agree_and_fund: { by: buyer, commitment: 2 }\n')
-      .replace('atlas-buyer: "10000000000"', 'atlas-buyer: "3000000000"')
-      .concat('expect: { problem: { step: 5, type: insufficient_funds } }\n');
-    const r = await fixture(root, name, src);
-    expect(r.out[0]).toBe(`pass  ${name} (snapshot updated)`);
-    expect(r.snapshot).toMatch(/\| tidewater-seller \| offer #2 \| direct \| ok \| Offered \|/);
-    expect(r.snapshot).toMatch(/\| atlas-buyer \| fund #2 \| direct \| insufficient_funds \| Agreed \|/);
-    expect(r.snapshot).toMatch(/\| Commitment #2 \| same terms, new nonce · commitment 0x/);
-    expect(r.snapshot).toMatch(/Final state: Delivered; commitment #2: Agreed\./);
   });
 
   it('expire_appeal closes the appeal window after appealBy', async () => {

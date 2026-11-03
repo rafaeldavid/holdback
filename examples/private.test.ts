@@ -191,10 +191,8 @@ describe('private deals over HTTP (ADR-0024, T-207 stage 2a)', () => {
     expect(leaks(sealed)).toEqual([]);
   });
 
-  it('attack.operator-reads-private-deal: no canary in the operators\' state or logs, or the settlement log, and settlement still checks every signature', async () => {
-    const logs: unknown[] = [];
-    const scanned = [world.operators.map((o) => o.operator), world.chain, logs];
-    expect(leaks(scanned)).toEqual([]);
+  it('attack.operator-reads-private-deal: no canary in the operators\' state or the settlement log, and settlement still checks every signature', async () => {
+    expect(leaks([world.operators.map((o) => o.operator), world.chain])).toEqual([]);
     // The sealed offer is still verified by settlement: a wrong signature is refused.
     const sealed = await deal.buyer.readPrivate(`/v1/commitments/${deal.id}/terms`, deal.id);
     const { id: _id, signatures: _s, ...rest } = sealed; // eslint-disable-line @typescript-eslint/no-unused-vars

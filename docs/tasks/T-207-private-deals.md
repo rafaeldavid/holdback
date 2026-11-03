@@ -5,7 +5,7 @@
 - **Depends on:** stage 1 (ADR) on nothing; it can start now. Stage 2's off-chain parts (read authentication, private records, ciphertext terms, mailbox) depend on stage 1 only. Stage 2's on-chain parts (what the contract emits, amount privacy) depend on T-202 and T-205. The Prividium fragment spike needs a Sepolia deployment (T-206) and is a separate task.
 - **Paths this task may touch:** stage 1: `docs/decisions/ADR-0024-private-deals.md` (new, Proposed), `docs/decisions-today.md` (a new D entry), `docs/research/` (the research pass). Stage 2: `spec/schemas/`, `spec/examples/`, `spec/openapi/`, `spec/README.md`, `packages/core/`, `packages/sdk/`, `apps/operator/`, `examples/`, `fixtures/scenarios/` (new `attack.` and `neutrality.` privacy fixtures), `docs/api.md`, `docs/neutrality.md` (residual 9), `docs/backlog.md` (Privacy rows closed or moved). Not `contracts/` or `packages/settlement/evm/`: on-chain changes go to T-202 and T-205 owners through Handoff.
 - **Human gate:** none for the repository work. Updating the live public demo (Cloudflare) or the site is a deploy and waits for Rafa. Local chain and Sepolia only; no mainnet.
-- **Status:** in progress (stage 2a in review)
+- **Status:** in progress (stage 2a merged in PR 67, 2026-11-01; next: the adjudicator slice)
 - **Agent/session:** implementer, branch `t-207-private-deals-2a`
 
 ## Intent
@@ -18,7 +18,7 @@ Restated (stage 2a, off-chain only): a private deal's two terms bodies travel on
 
 - ADR-0020 (public skeleton, private body, record key, disclosure levels `private` / `judgment` / `public`, `ReadToken {viewer, commitmentId, expiresAt, nonce}`, pseudonymous identity mode, amounts public on EVM in Phase 2); ADR-0012 (content key envelopes); ADR-0018 (beacon; tlock shares its trust); ADR-0017 and D13 (agent-ready API, residual 9); D16.
 - ADR-0023 ("Versions": the EIP-712 domain version and `commitment.schemaVersion` move only when an existing struct or the terms encoding changes; moving `privateTerms` into use may change the terms encoding, so check).
-- `docs/plan.md` T-207 entry (the open questions below); `docs/backlog.md` Privacy rows and "Exploration: a single-use Prividium fragment per escrow"; D4 (both the 2026-10-31 evaluation, which did not adopt Prividium, and Rafa's 2026-11-01 note to evaluate a per-escrow fragment).
+- `docs/plan.md` T-207 entry (the open questions below); `docs/backlog.md` Privacy rows and the Prividium fragment proposal (now in `docs/research/prividium-fragment.md`); D4 (both the 2026-10-31 evaluation, which did not adopt Prividium, and Rafa's 2026-11-01 note to evaluate a per-escrow fragment).
 - `spec/README.md` (`unauthorized` reserved for Phase 2 reads); `docs/backlog.md` operator row "`/v1/events` streams every event unfiltered".
 
 ## Stage 1: ADR (research pass first, per the decision process)
@@ -72,6 +72,7 @@ Stage 2a (off-chain), merged with main at 1044b00.
 - **Measured:** `pnpm vitest run packages/core`: all pass (822), including `private.test.ts` (12). It shows the same commitment ID and signature for the plaintext and sealed forms; no canary in the sealed form; the buyer and primary open it and an outsider cannot; the acceptance key does not open the deliverable; AAD stops swapped parts and other IDs; a wrong hash is refused; the projection carries no body, club, buyer key or ciphertext; the ReadToken audience is bound (another audience fails verification); Delegation and KeyRegistration verify.
 - **Measured:** `pnpm vitest run apps/operator/src/read-auth.test.ts`: 6/6. Anonymous without a header. Buyer, seller and primary admitted; an outsider refused; fallback refused until FallbackJudging. `error.read-token-audience`: a token for op A is refused at op B. `error.read-token-expired`, a token for another commitment, a forged signature and a malformed header are all refused.
 - **Not covered here:** judgment-record privacy. The canaries never reached an adjudicator's reasons because no adjudicator judged a private deal (early accept); records stay plaintext at the adjudicator until the adjudicator slice. The operator only gates `/judgment` behind a token.
+- **Not covered here:** operator logs (the acceptance criterion on `attack.operator-reads-private-deal`). `examples/private.test.ts` scans the operators' in-memory state and the SimChain log only; its `logs` array was always empty, and PR 113 dropped it.
 
 ## Decisions
 
@@ -88,7 +89,7 @@ Stage 2a (off-chain), merged with main at 1044b00.
 
 ## Handoff
 
-Stage 2a is complete and in review (PR 67). Next slices, each a backlog row under Privacy in `docs/backlog.md`:
+Stage 2a is merged (PR 67). Next slices, each a backlog row under Privacy in `docs/backlog.md`:
 - **Adjudicator lane (`apps/adjudicator`):** open `privateTerms` with the primary's key and verify the hashes before `AdjudicatorAcceptance`; judge from the opened bodies; seal judgment records to both parties. Today the sim primary accepts sealed offers without reading them, and would fail at decision time.
 - **Settlement:** record `Publish` on SimChain and the contract (T-202).
 - **On-chain:** the settlement view in calldata, events, and the ERC-6538 registry (T-202/T-205).

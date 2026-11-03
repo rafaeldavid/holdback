@@ -4,6 +4,7 @@
 // is, its own origin and the caller's IP; the Durable Object answers as that node, signing receipts with that
 // node's key. Both nodes share one simulated settlement layer, and the notes they serve say so.
 import { PublicWorld, type Via } from './world.js';
+import { KvFeedbackStore, type KvNamespace } from './feedback-store.js';
 import type { WorldStorage } from './storage.js';
 
 // The few Workers runtime types used here, declared locally so the package needs no Workers type package.
@@ -29,6 +30,8 @@ export interface Env {
   NODE_INDEX: string;
   /** The demo club's minimum window in seconds (default 60). */
   MIN_WINDOW_SEC?: string;
+  /** The private report store (T-032), a KV namespace bound on holdback-op1. Absent: the nodes take no reports. */
+  FEEDBACK?: KvNamespace;
   [name: string]: unknown;
 }
 
@@ -45,6 +48,7 @@ const strings = (env: Env): Record<string, string> => Object.fromEntries(Object.
 
 export class World {
   private world: Promise<PublicWorld> | undefined;
+  private flushTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(
     private readonly state: DurableObjectState,
@@ -57,18 +61,35 @@ export class World {
         storage: this.state.storage,
         env: strings(this.env),
         ...(this.env.MIN_WINDOW_SEC ? { minWindowSec: Number(this.env.MIN_WINDOW_SEC) } : {}),
-        onError: (e) => console.error(`demo adjudicator: ${e.message}`),
+        ...(this.env.FEEDBACK ? { feedbackStore: new KvFeedbackStore(this.env.FEEDBACK) } : {}),
+        onError: (e) => console.error(`demo world: ${e.message}`),
       }),
     );
     return this.world;
   }
 
   private async schedule(world: PublicWorld, delayMs: number): Promise<void> {
-    if (!world.active()) return;
+    if (!world.active()) return this.flushLater(world);
     // An alarm whose handler threw stays set, overdue, while the runtime backs off its retries; a request then
     // re-arms it rather than wait (measured: adjudicators idle for minutes after one failed version).
     const at = await this.state.storage.getAlarm();
-    if (at === null || at < Date.now() - 5000) await this.state.storage.setAlarm(Date.now() + delayMs);
+    if (at === null || at < Date.now() - 5000) {
+      await this.state.storage.setAlarm(Date.now() + delayMs);
+      world.telemetry.alarmSet();
+    }
+  }
+
+  /**
+   * An idle world flushes its waiting log lines on a timer, not an alarm: a pending timer keeps this instance in
+   * memory until the flush and costs no row, where an alarm could wake a fresh instance with the lines already gone.
+   */
+  private flushLater(world: PublicWorld): void {
+    const due = world.telemetry.flushDueInMs();
+    if (due === null || this.flushTimer) return;
+    this.flushTimer = setTimeout(() => {
+      this.flushTimer = undefined;
+      void world.flushTelemetry();
+    }, due);
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -81,7 +102,7 @@ export class World {
     return response;
   }
 
-  /** Adjudicators look for work about once a second while the world is active. */
+  /** Adjudicators look for work about once a second while the world is active; telemetry flushes on the same pass. */
   async alarm(): Promise<void> {
     const world = await this.open();
     await world.work();

@@ -1,14 +1,14 @@
 # Architecture v0.1
 
-Reflects decisions D1–D9 (`docs/decisions-today.md`) and the Phase 0 reviews in `docs/reviews/`. Open gaps for Phase 1 are listed in `docs/reviews/2026-10-30-phase0-readiness.md`.
+Reflects ADR-0001 to ADR-0026 and the reviews in `docs/reviews/`. Decisions D1 to D40 are in `docs/decisions-today.md`; this page has not been revised for each of the later ones.
 
 ## Shape of the system
 
 ```mermaid
 flowchart LR
   subgraph Agents
-    BA[Buyer agent + SDK]
-    SA[Seller agent + SDK]
+    BA["Buyer agent (HTTP client + EIP-712 signer + NaCl)"]
+    SA["Seller agent (HTTP client + EIP-712 signer + NaCl)"]
   end
   subgraph Operators["Operator nodes (permissionless, interchangeable)"]
     API[REST API]
@@ -259,7 +259,7 @@ interface Settlement {
 }
 ```
 
-The REST API and SDK call only this interface. Chain details stay in the `local` and `testnet` implementations.
+The operator API and the internal client call only this interface. Chain details stay in the `local` and `testnet` implementations.
 
 ## Identity and signing
 
@@ -294,7 +294,7 @@ packages/
   core/            types from schemas, state machine, EIP-712 types, money
   settlement/      Settlement interface; sim/ (SimChain); evm/ (contract client, Phase 2)
   judgment/        intake, checks, screen, providers, panel, aggregation
-  sdk/             agent SDK with operator failover + direct submit
+  sdk/             internal client for the demo and tests: operator failover + direct submit (not published; D30)
   testkit/         snap runner, deterministic clock/RNG, recorded providers, fixture helpers
 contracts/         Foundry project (Phase 2)
 spec/              JSON Schemas (contract) + examples

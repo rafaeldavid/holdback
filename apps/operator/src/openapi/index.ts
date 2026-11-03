@@ -33,18 +33,31 @@ export interface PlannedRoute {
 }
 
 let planned: Array<PlannedRoute & { match: RegExp }> | undefined;
+let served: Array<{ method: string; path: string; match: RegExp }> | undefined;
+
+/** A path template as a pattern: each path parameter matches one segment. */
+const templatePattern = (path: string): RegExp => new RegExp(`^${path.replace(/[.*+?^$()|[\]\\]/g, '\\$&').replace(/\\?\{[^}]+\\?\}/g, '[^/]+')}$`);
 
 /**
  * The planned route a request names, from the document's `x-holdback-planned` (the one source of truth, D39), or
  * undefined. Path parameters match one segment. Planned and served routes are disjoint (the contract test checks).
  */
 export function plannedRoute(method: string, pathname: string): PlannedRoute | undefined {
-  planned ??= ((load()?.['x-holdback-planned'] ?? []) as PlannedRoute[]).map((p) => ({
-    ...p,
-    match: new RegExp(`^${p.path.replace(/[.*+?^$()|[\]\\]/g, '\\$&').replace(/\\?\{[^}]+\\?\}/g, '[^/]+')}$`),
-  }));
+  planned ??= ((load()?.['x-holdback-planned'] ?? []) as PlannedRoute[]).map((p) => ({ ...p, match: templatePattern(p.path) }));
   const hit = planned.find((p) => p.method === method && p.match.test(pathname));
   return hit ? { method: hit.method, path: hit.path, note: hit.note, source: hit.source } : undefined;
+}
+
+/**
+ * The route template a request matched (`/v1/agents/{address}`), served or planned, for logs and metrics (T-031):
+ * never the path itself, which carries addresses and IDs. `/` is discovery; anything else is `unmatched`.
+ */
+export function routeOf(method: string, pathname: string): string {
+  served ??= Object.entries((load()?.['paths'] ?? {}) as Record<string, Record<string, unknown>>).flatMap(([path, ops]) =>
+    Object.keys(ops).map((m) => ({ method: m.toUpperCase(), path, match: templatePattern(path) })),
+  );
+  if (pathname === '/') return '/';
+  return served.find((r) => r.method === method && r.match.test(pathname))?.path ?? plannedRoute(method, pathname)?.path ?? 'unmatched';
 }
 
 export const AGENT_GUIDE = 'https://escrow.stream/llms.txt';

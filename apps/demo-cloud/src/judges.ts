@@ -40,6 +40,12 @@ export class JudgeBudget {
     return { ...(await this.load()) };
   }
 
+  /** A day's live calls and tokens: today's as counted so far, another day's from storage. */
+  async on(day: string): Promise<Day> {
+    if (this.today?.day === day) return { ...this.today };
+    return (await this.storage.get<Day>(`lj:${day}`)) ?? { day, calls: 0, inputTokens: 0, outputTokens: 0 };
+  }
+
   async remaining(): Promise<number> {
     return Math.max(0, this.perDay - (await this.load()).calls);
   }

@@ -12,8 +12,10 @@
 //    vectors, the worked checks example and every route with docs/api.md.
 // 5. Problem pages (D39): one page per problem type the operator answers, with its status and title.
 // 6. The agent guide spells out every encoding an agent computes (D39): no knowledge hides in examples/.
+// 7. try.mjs: site/try.mjs is the current bundle of examples/try.ts, importing only viem and tweetnacl;
+//    the one command (pinned versions, its sha256) heads "Try it" in a filled llms.txt and sits in the page.
 import { existsSync, readFileSync } from 'node:fs';
-import { BASE, filled, page, problemPages, SITE_URL, strip } from './build.mjs';
+import { BASE, filled, page, pins, problemPages, SITE_URL, strip, tryBundle, tryCommand, TRY_URL } from './build.mjs';
 
 const here = (p) => new URL(p, import.meta.url);
 const read = (p) => readFileSync(here(p), 'utf8');
@@ -37,7 +39,9 @@ expect(html === page(md), 'site/index.html is stale: run node site/build.mjs');
 const configure = md.slice(md.indexOf('## Configure'), md.indexOf('## ', md.indexOf('## Configure') + 3));
 expect(count(md, '{{OP1}}') === 1 && configure.includes('OP1={{OP1}}'), '{{OP1}} must appear once in llms.txt, as OP1={{OP1}} under Configure');
 expect(count(md, '{{OP2}}') === 1 && configure.includes('OP2={{OP2}}'), '{{OP2}} must appear once in llms.txt, as OP2={{OP2}} under Configure');
-expect((md.match(/\{\{[^}]*\}\}/g) ?? []).every((p) => ['{{OP1}}', '{{OP2}}'].includes(p)), 'llms.txt has an unknown {{placeholder}}');
+const tryIt = md.slice(md.indexOf('## Try it'), md.indexOf('\n## ', md.indexOf('## Try it') + 3));
+expect(count(md, '{{TRY_COMMAND}}') === 1 && tryIt.includes('```sh\n{{TRY_COMMAND}}\n```') && tryIt.indexOf('{{TRY_COMMAND}}') < tryIt.indexOf('\n1. '), '{{TRY_COMMAND}} must appear once in llms.txt, in an sh block at the top of "Try it", before the step-by-step list');
+expect((md.match(/\{\{[^}]*\}\}/g) ?? []).every((p) => ['{{OP1}}', '{{OP2}}', '{{TRY_COMMAND}}'].includes(p)), 'llms.txt has an unknown {{placeholder}}');
 expect(md.includes('https://github.com/rafaeldavid/holdback'), 'llms.txt links the public repo (optional reading)');
 expect(!/\{\{/.test(html) && /<img class="mark"[^>]*>\s*<h1>[^<]+<\/h1>\s*<p class="sub">[^<]+<\/p>\s*<form class="join"[\s\S]*?<\/form>\s*<p class="intro">[^<]+<\/p>\s*<section class="try"[\s\S]*<\/section>\s*<figure[^>]*>[\s\S]*<\/script>\s*<\/main>/.test(html), 'index.html must be the title, the subtitle, early access, the intro, Try ’crow and the drawing');
 expect(!/%%|CONFIRM/.test(html) && !/^%% /m.test(strip(md)), 'an editor note reached index.html');
@@ -53,6 +57,7 @@ if (existsSync(here('../reports/site-out/llms.txt'))) {
   expect(!/\{\{|%%|127\.0\.0\.1|localhost/.test(outTxt + outHtml), 'reports/site-out has a placeholder, editor note or local address');
   expect(/^OP1=https:\/\/[^\s/]+$/m.test(outTxt) && /^OP2=https:\/\/[^\s/]+$/m.test(outTxt), 'reports/site-out/llms.txt does not set OP1 and OP2 to https origins');
   expect(outTxt === filled(md, { op1: /^OP1=(.+)$/m.exec(outTxt)?.[1], op2: /^OP2=(.+)$/m.exec(outTxt)?.[1] }), 'reports/site-out is stale against site/llms.txt');
+  expect(existsSync(here('../reports/site-out/try.mjs')) && read('../reports/site-out/try.mjs') === read('try.mjs'), 'reports/site-out/try.mjs is missing or differs from site/try.mjs: build with --out again');
 }
 let refused = false;
 try {
@@ -115,8 +120,22 @@ for (const t of ['EarlyAccept', 'MutualSettlement', 'Appeal', 'ReadToken', 'Dele
 expect(/"disclosure": "public"/.test(md) && /"operatorFeeNonce"/.test(md), 'llms.txt offer and agree requests must send disclosure and every nonce');
 expect(!/Holdback-Notice|GET \$OP1\/` lists|examples\/verify\.ts/.test(md), 'llms.txt still points at a header, GET / list or example file that is gone');
 
+// 7. try.mjs and the one command.
+const bundle = read('try.mjs');
+expect(bundle === (await tryBundle()), 'site/try.mjs is stale against examples/: run node site/build.mjs');
+const imports = [...bundle.matchAll(/^import .* from "([^"]+)";$/gm)].map((m) => m[1]).sort();
+expect(JSON.stringify(imports) === JSON.stringify(['tweetnacl', 'viem', 'viem/accounts']) && !/@holdback\/|\bimport\(/.test(bundle), 'site/try.mjs must import only viem, viem/accounts and tweetnacl');
+const { viem, tweetnacl } = pins();
+const command = tryCommand();
+expect(command.includes(` viem@${viem} tweetnacl@${tweetnacl} `) && command.includes(`curl -fsSLO ${TRY_URL} `), 'the try command does not pin the lockfile versions or fetch try.mjs from the site');
+expect(bundle.includes(`npm install viem@${viem} tweetnacl@${tweetnacl}`), 'the try.mjs banner names other versions than the command');
+const filledTry = sampleTxt.slice(sampleTxt.indexOf('## Try it'));
+expect(filledTry.split('\n').find((l) => l.startsWith('mkdir ')) === command, 'a filled llms.txt does not carry the current try command at the top of "Try it"');
+const escaped = command.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
+expect(html.includes(`<div class="cmd-box"><code>${escaped}</code>`) && /<p class="sr-only">For AI agents[^<]*<\/p>\s*<div class="cmd-box"><code>/.test(html), "index.html does not show the current try command under the agent line");
+
 if (failures.length) {
   for (const f of failures) console.error(`FAIL ${f}`);
   process.exit(1);
 }
-console.log(`site check PASS: one source, placeholders in place, links resolve under ${BASE}, content agrees with docs/api.md and examples/verify.ts`);
+console.log(`site check PASS: one source, placeholders in place, links resolve under ${BASE}, content agrees with docs/api.md and examples/verify.ts, try.mjs current and its command in place`);

@@ -47,11 +47,12 @@ import type { Sha256, Signature, Timestamp, TokenAmount } from '@holdback/core';
 import { CryptoError, sha256 } from '@holdback/core/crypto';
 import { MAX_CIPHERTEXT_BYTES, type CiphertextStore } from '@holdback/core/store';
 import { ENVELOPE_SPEC } from './envelope-spec.js';
+import { FeedbackDesk, FeedbackError, MAX_REPORT_BYTES, parseReport, type FeedbackOptions, type Report } from './feedback.js';
 import { startupGuards } from './guards.js';
 import { amountText, operatorFeeText, prepare, PrepareError, type PrepareContext } from './prepare.js';
 import { IdempotencyStore, fingerprint, type StoredResponse } from './idempotency.js';
 import { readerOf, type Reader } from './read-auth.js';
-import { llmsTxt, openApiDocument, plannedRoute } from './openapi/index.js';
+import { llmsTxt, openApiDocument, plannedRoute, routeOf } from './openapi/index.js';
 import { fieldOf, problemBody, problemHeaders, statusOf, type ApiProblem, type ApiProblemType, type ProblemMembers } from './problems.js';
 import type { Registry } from './registry.js';
 
@@ -103,7 +104,11 @@ export interface LogEntry {
   requestId: string;
   method: string;
   path: string;
+  /** The route template the request matched (openapi/index.ts routeOf): the path without its addresses and IDs. */
+  route: string;
   status: number;
+  /** The problem type of the answer, when it was one. */
+  problem?: ApiProblemType;
   ms: number;
   /** W3C trace context, logged as received; it never enters a signed message, receipt or event. */
   traceparent?: string;
@@ -149,6 +154,8 @@ export interface OperatorOptions {
   notices?: (about: NoticeSubject) => readonly string[] | Promise<readonly string[]>;
   /** A demo world's facts for discovery (DemoFacts). Absent: this node is not a demo. */
   demo?: () => DemoFacts | Promise<DemoFacts>;
+  /** Feedback and issue reports at /v1/feedback (T-032, feedback.ts), an operator service. Absent: those routes answer not_found. */
+  feedback?: FeedbackOptions;
   /** Test only: relay, then drop the connection without answering (a response lost in transit). */
   dropResponses?: boolean;
   now?: () => number;
@@ -380,6 +387,8 @@ interface Ctx {
   segments: string[];
   req: IncomingMessage;
   res: ServerResponse;
+  /** The problem type answered, for the log line. */
+  problem?: ApiProblemType;
 }
 
 const lc = (s: string) => s.toLowerCase();
@@ -406,6 +415,7 @@ export class Operator {
   private head = -1;
   private syncing: Promise<void> = Promise.resolve();
   private readonly now: () => number;
+  private readonly desk: FeedbackDesk | undefined;
   /** Public base URL (no trailing slash); startOperator sets it to the listening address when not given. */
   baseUrl: string;
 
@@ -416,6 +426,23 @@ export class Operator {
     this.domain = holdbackDomain(o.registry.chainId);
     this.signer = privateKeyToAccount(o.signerKey).address;
     this.now = o.now ?? Date.now;
+    this.desk = o.feedback
+      ? new FeedbackDesk(o.feedback, {
+          operatorId: o.operatorId,
+          receiptSigner: this.signer,
+          domain: this.domain,
+          schemaVersion: SCHEMA_VERSION,
+          now: this.now,
+          eventSeq: async () => {
+            await this.sync();
+            return Math.max(this.head, 0);
+          },
+          commitment: async (id) => {
+            const s = await o.settlement.state(id);
+            return s ? { escrowState: s.escrowState, lastEventSeq: s.lastEventSeq } : null;
+          },
+        })
+      : undefined;
   }
 
   get receiptSigner(): Address {
@@ -479,7 +506,16 @@ export class Operator {
     res.setHeader('Holdback-Schema-Version', SCHEMA_VERSION);
     res.on('finish', () => {
       const tp = req.headers['traceparent'];
-      this.o.log?.({ requestId, method: ctx.method, path: url.pathname, status: res.statusCode, ms: this.now() - started, ...(typeof tp === 'string' ? { traceparent: tp } : {}) });
+      this.o.log?.({
+        requestId,
+        method: ctx.method,
+        path: url.pathname,
+        route: routeOf(ctx.method, url.pathname),
+        status: res.statusCode,
+        ...(ctx.problem ? { problem: ctx.problem } : {}),
+        ms: this.now() - started,
+        ...(typeof tp === 'string' ? { traceparent: tp } : {}),
+      });
     });
     this.route(ctx).catch((e: unknown) => {
       if (res.headersSent) return void res.end();
@@ -497,6 +533,7 @@ export class Operator {
 
   /** RFC 9457 with the type's page linked (problems.ts); a `link` in `headers` joins it. */
   private problemResponse(ctx: Ctx, p: ApiProblem, headers: Record<string, string> = {}): StoredResponse {
+    ctx.problem = p.type;
     const own = problemHeaders(p);
     const link = headers['link'] ? `${own['link']}, ${headers['link']}` : own['link']!;
     return { status: statusOf(p.type), headers: { ...own, ...headers, link }, body: JSON.stringify(problemBody(p, ctx.requestId)) };
@@ -558,12 +595,12 @@ export class Operator {
     this.charge(bucket);
   }
 
-  private async body(ctx: Ctx): Promise<unknown> {
+  private async body(ctx: Ctx, limit = MAX_BODY_BYTES): Promise<unknown> {
     const chunks: Buffer[] = [];
     let size = 0;
     for await (const chunk of ctx.req as AsyncIterable<Buffer>) {
       size += chunk.length;
-      if (size > MAX_BODY_BYTES) fail('payload_too_large', `request bodies are limited to ${MAX_BODY_BYTES} bytes`);
+      if (size > limit) fail('payload_too_large', `request bodies are limited to ${limit} bytes here`);
       chunks.push(chunk);
     }
     const text = Buffer.concat(chunks).toString('utf8');
@@ -590,6 +627,7 @@ export class Operator {
     }
     if (s[0] !== 'v1') fail('not_found', `no route ${path}`);
     if (s[1] === 'ciphertext') return this.ciphertext(ctx);
+    if (s[1] === 'feedback') return this.feedback(ctx);
     if (method === 'POST' && s[1] === 'prepare' && s.length === 3) return this.prepare(ctx, s[2]!);
     if (method === 'POST') return this.write(ctx);
     if (method !== 'GET') fail('not_found', `no route ${method} ${path}`);
@@ -912,6 +950,40 @@ export class Operator {
     });
   }
 
+  /**
+   * POST /v1/feedback (Idempotency-Key; `?validateOnly=true` answers the warning and keeps nothing) and
+   * GET /v1/feedback/{id}. An operator service: feedback.ts has the rules.
+   */
+  private async feedback(ctx: Ctx): Promise<void> {
+    const desk = this.desk ?? fail('not_found', 'this operator takes no reports');
+    const s = ctx.segments;
+    const answer = async (f: () => Promise<Record<string, unknown>>, status = 200): Promise<StoredResponse> => {
+      try {
+        return { ...this.ok(await f()), status };
+      } catch (e) {
+        if (e instanceof FeedbackError) throw new HttpProblem(e.problem);
+        throw e;
+      }
+    };
+    if (ctx.method === 'GET' && s.length === 3) {
+      this.throttle(`r:${this.client(ctx)}`, this.o.rateLimit?.reads ?? 0);
+      return this.send(ctx, await answer(() => desk.status(s[2]!)));
+    }
+    if (ctx.method !== 'POST' || s.length !== 2) fail('not_found', `no route ${ctx.method} ${ctx.url.pathname}`);
+    this.throttle(`w:${this.client(ctx)}`, this.o.rateLimit?.writes ?? 0);
+    // Size-capped on the wire and parsed before anything hashes it, as a write is shape-checked first.
+    const raw = await this.body(ctx, MAX_REPORT_BYTES);
+    let report: Report;
+    try {
+      report = parseReport(raw);
+    } catch (e) {
+      if (e instanceof FeedbackError) throw new HttpProblem(e.problem);
+      throw e;
+    }
+    if (validateOnly(ctx.url.searchParams)) return this.send(ctx, await answer(() => desk.check(report, this.client(ctx))));
+    return this.idempotent(ctx, report, () => answer(() => desk.submit(report, this.client(ctx)), 202));
+  }
+
   // Reads
 
   private async read(ctx: Ctx): Promise<unknown> {
@@ -1049,6 +1121,7 @@ export class Operator {
       apiBaseUrl: this.baseUrl,
       settlementTime: this.settlementNow(),
       limits,
+      ...(this.desk ? { feedback: this.desk.discovery() } : {}),
       ...(this.o.demo ? { demo: await this.o.demo() } : {}),
       ...(this.o.notes ? { notes: [...this.o.notes] } : {}),
     };

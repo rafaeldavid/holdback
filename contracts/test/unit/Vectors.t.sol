@@ -72,8 +72,15 @@ contract VectorsTest is Test {
         assertEq(hx.id(_terms()), ID);
     }
 
-    function test_termsDigest_matchesCore() public pure {
-        assertEq(_digest(ID), 0xf393ca6e59126ddd4141513250445bcfcf3c358f52f9a5a4f8b0cab9460a4ee8);
+    /// The rules contract, deployed at the vectors' verifying address, signs under core's domain: its digest of the
+    /// commitment ID is core's terms digest, and `_digest` (used by the vectors below) builds the same domain.
+    function test_termsDigest_matchesCore() public {
+        vm.chainId(31337);
+        bytes memory args = abi.encode(address(0), address(0), address(0), uint64(0), address(0));
+        deployCodeTo("HoldbackRules.sol:HoldbackRules", args, VERIFYING);
+        bytes32 core = 0xf393ca6e59126ddd4141513250445bcfcf3c358f52f9a5a4f8b0cab9460a4ee8;
+        assertEq(HoldbackRules(VERIFYING).typedDataHash(ID), core);
+        assertEq(_digest(ID), core);
     }
 
     function test_delivery_matchesCore() public view {

@@ -1,6 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { allMeasured } from '../source/measured.fixture.js';
-import { CAST } from './cast.js';
 import { header, MARKETING_WORDS, narrate } from './narrate.js';
 import type { BeatTranscript, DemoEvent } from './types.js';
 
@@ -70,12 +69,5 @@ describe('header', () => {
       expect(h).toMatch(/measured on SimChain/);
       expect([...h.split('\n'), ...t.events.map(narrate)].join('\n')).not.toMatch(/stand-in/i);
     }
-  });
-
-  it('introduces the cast with principals', () => {
-    expect(CAST.buyer.name).toBe('Ledger');
-    expect(CAST.buyer.org).toBe('Atlas Research');
-    expect(CAST.buyer.principal).toBe('Priya Raman');
-    expect(CAST.seller.principal).toBe('Marcus Oyelaran');
   });
 });

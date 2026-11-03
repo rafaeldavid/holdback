@@ -181,13 +181,13 @@ describe('Retry-After (ADR-0017 §3)', () => {
     expect(r.via).toBe('direct');
   });
 
-  it('treats a missing or malformed Retry-After as no wait beyond the cap', async () => {
+  it('waits the cap, once, on a malformed Retry-After', async () => {
     const waits: number[] = [];
     const a = await stub(throttled('soon'));
     const good = await stub((_r, _b, res) => json(res, 200, view('Refunded')));
     const hb = new Holdback({ operators: [a, good], sleep: async (ms) => void waits.push(ms) });
     await hb.submit(trigger);
-    expect(waits.every((w) => w <= 2000)).toBe(true);
+    expect(waits).toEqual([2000]);
   });
 });
 

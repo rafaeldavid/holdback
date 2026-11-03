@@ -13,16 +13,20 @@
 //   judges (D39); notices in the body say which judge panel would score an offer and why an offer was declined;
 // - the adjudicators decline sealed (private or judgment) offers, which they cannot open yet;
 // - the journal of what the chain accepted, the ciphertext and the judgment records are persisted, so the
-//   world is rebuilt by replay after the Durable Object is evicted.
+//   world is rebuilt by replay after the Durable Object is evicted;
+// - minimal telemetry (telemetry.ts, T-031): a 7-day request log without bodies, header values, IPs or paths, the
+//   Durable Object's free-tier use with a warning, and hourly and daily summary lines in Workers Logs.
 // No real money: SimChain (chain id 31337), the test token tUSD, and the operators' startup guards.
 import { canonicalKeccak, holdbackDomain, parseAdjudicator, problem, wholeSecond, type AdjudicatorRegistration, type Address, type Hex32, type Judgment, type Mandate, type OperatorFeeSchedule, type Sha256, type Timestamp, type TokenAmount } from '@holdback/core';
 import { sha256 } from '@holdback/core/crypto';
 import { StoreError, type CiphertextStore } from '@holdback/core/store';
 import { testAdjudicator, type TestAdjudicator } from '@holdback/adjudicator';
-import { fetchHandler, Operator, simRegistry, testAccount, type DemoFacts, type FaucetOutcome, type NoticeSubject, type Registry, type TestAccount } from '@holdback/operator';
+import { fetchHandler, Operator, ReportLimiter, simRegistry, testAccount, type DemoFacts, type FaucetOutcome, type FeedbackOptions, type FeedbackStore, type NoticeSubject, type Registry, type TestAccount } from '@holdback/operator';
+import { decodePublicKey } from '@holdback/core/crypto';
 import { mandateFor, SIM_CHAIN_ID, SIM_RULEBOOK, simClub, SimChain, TOKEN, wideScope, type Genesis, type JournalEntry } from '@holdback/settlement/sim';
 import { panelConfig, type JudgeProvider, type PanelConfig } from './judges.js';
 import type { WorldStorage } from './storage.js';
+import { dealFacts, Telemetry, type DayFacts, type TelemetryOptions } from './telemetry.js';
 
 export type Role = 'primary' | 'fallback' | 'appeal';
 
@@ -48,6 +52,13 @@ export interface PublicWorldOptions {
   liveCallsPerDay?: number;
   /** Stands in for the live models (tests): the world runs as if the keys were set. */
   judgeProvider?: JudgeProvider;
+  /** Where telemetry's summary lines and warnings go. Default: the console, which Workers Logs keeps. */
+  telemetryLog?: TelemetryOptions['log'];
+  /**
+   * The private report store behind /v1/feedback (T-032; the Worker binds Workers KV). Absent: the nodes take no
+   * reports. Sealed reports need FEEDBACK_ENCRYPTION_PUBLIC_KEY in `env`; its secret stays with the operator.
+   */
+  feedbackStore?: FeedbackStore;
   now?: () => number;
   onError?: (e: Error) => void;
 }
@@ -111,6 +122,8 @@ export class PublicWorld {
 
   private constructor(
     private readonly o: PublicWorldOptions,
+    /** Counts the world's storage use and keeps the request log; worker.ts tells it about alarms. */
+    readonly telemetry: Telemetry,
     private readonly secret: string,
     readonly chain: SimChain,
     private readonly keys: TestAccount[],
@@ -134,8 +147,11 @@ export class PublicWorld {
 
   /** Opens the world in `storage`: creates it on first use, otherwise replays its journal. */
   static async open(o: PublicWorldOptions): Promise<PublicWorld> {
-    const { storage } = o;
     const now = o.now ?? Date.now;
+    const telemetry = await Telemetry.open({ storage: o.storage, now, ...(o.telemetryLog ? { log: o.telemetryLog } : {}) });
+    // Every storage call below is counted against the free tier.
+    const { storage } = telemetry;
+    const replayed = telemetry.wake();
     // Fixed when the world is created: the journal replays only against the genesis it was written under, so
     // a later configuration change (MIN_WINDOW_SEC) applies to a fresh world, not to this one.
     let meta = await storage.get<{ secret: string; start: Timestamp; minWindowSec: number }>('meta');
@@ -168,6 +184,7 @@ export class PublicWorld {
 
     const store = new StorageCiphertextStore(storage);
     const records = new Map<Hex32, Judgment>(Array.from(await storage.list<Judgment>({ prefix: 'jr:' }), ([k, v]) => [k.slice(3) as Hex32, v]));
+    replayed();
     // Live or scripted judges, fixed for this instance: the registry it binds depends on which.
     const panel = panelConfig({ env: o.env, storage, now, ...(o.judgeProvider ? { judgeProvider: o.judgeProvider } : {}), ...(o.liveCallsPerDay !== undefined ? { liveCallsPerDay: o.liveCallsPerDay } : {}) });
     const registrations = new Map<string, Omit<AdjudicatorRegistration, 'pool'>>();
@@ -198,6 +215,7 @@ export class PublicWorld {
     };
     // ADR-0023: one schedule for both nodes (one operator), paid to one world address; from Worker variables.
     const operatorFee = operatorFeeFromEnv(o.env, key('demo-operator-fees').address);
+    const feedback = feedbackFrom(o, (id) => telemetry.lookup(id));
     const adjudicators = {} as Record<Role, TestAdjudicator>;
     const declined = new Map<Hex32, string>();
     const operators: Operator[] = [];
@@ -255,6 +273,10 @@ export class PublicWorld {
           notes: notesFor(club.id, m, faucetAmount, faucetWindowSec, panel, operatorFee),
           demo,
           notices,
+          ...(feedback ? { feedback } : {}),
+          // The fields the request log keeps, picked here: the path and traceparent never reach telemetry.
+          log: (e) =>
+            telemetry.request({ requestId: e.requestId, at: Math.floor(now() / 1000), node: i === 1 ? 1 : 0, method: e.method, route: e.route, status: e.status, ...(e.problem ? { problem: e.problem } : {}), ms: e.ms }),
         }),
       );
     }
@@ -293,8 +315,20 @@ export class PublicWorld {
       adjudicators[a.role] = adj;
     }
     const keys = [principal, key('demo-club-operator'), ...adjKeys.map((a) => a.keys), key('demo-operator-1'), key('demo-operator-2')];
-    return new PublicWorld(o, secret, chain, keys, operators, adjudicators, panel, declined, journal.length, publicUrls);
+    return new PublicWorld(o, telemetry, secret, chain, keys, operators, adjudicators, panel, declined, journal.length, publicUrls);
   }
+
+  /** A day's settlement-side facts for its telemetry line: the deal funnel and signer counts, the journal, live judging. */
+  private readonly facts: DayFacts = async (day, window) => {
+    const log = this.chain.log();
+    const ids = [...new Set(log.flatMap((e) => (e.type === 'commitment.offered' && e.commitmentId ? [e.commitmentId] : [])))];
+    const views = new Map(await Promise.all(ids.map(async (id) => [id, await this.chain.state(id)] as const)));
+    const finality = (id: string) => {
+      const v = views.get(id as Hex32);
+      return v ? { settledAt: v.settledAt ?? null, finalAt: v.finalAt ?? null } : undefined;
+    };
+    return { ...dealFacts(log, finality, window), journalEntries: this.chain.journalLength(), liveJudges: await this.panel.budget.on(day) };
+  };
 
   /** Every secret this world holds, for the test that no route serves one. In-process only. */
   secretsForTest(): string[] {
@@ -320,7 +354,7 @@ export class PublicWorld {
       const fresh = this.chain.journal(this.persisted);
       for (let i = 0; i < fresh.length; i += 100) {
         const batch = fresh.slice(i, i + 100);
-        await this.o.storage.put(Object.fromEntries(batch.map((e, j) => [jkey(this.persisted + i + j), e])));
+        await this.telemetry.storage.put(Object.fromEntries(batch.map((e, j) => [jkey(this.persisted + i + j), e])));
       }
       this.persisted += fresh.length;
     });
@@ -329,6 +363,7 @@ export class PublicWorld {
 
   /** One adjudicator pass (the Durable Object alarm): accept or decline offers, trigger fallbacks, decide. */
   async work(): Promise<void> {
+    this.telemetry.invoked();
     this.tick();
     const { panel } = this;
     for (const [role, a] of Object.entries(this.adjudicators) as [Role, TestAdjudicator][]) {
@@ -350,9 +385,20 @@ export class PublicWorld {
     }
     await panel.budget.flush();
     await this.persist();
+    await this.flushTelemetry(false);
+  }
+
+  /** Flushes telemetry (when due, unless `force`). A failure is reported, never answered in place of a response. */
+  async flushTelemetry(force = true): Promise<void> {
+    try {
+      await (force ? this.telemetry.flush(this.facts) : this.telemetry.maybeFlush(this.facts));
+    } catch (e) {
+      this.o.onError?.(e as Error);
+    }
   }
 
   async fetch(request: Request, via: Via): Promise<Response> {
+    this.telemetry.invoked();
     this.tick();
     const op = this.operators[via.node]!;
     // The public address when configured (OPERATOR_URLS), so one odd request (another port, http) cannot change it.
@@ -360,6 +406,7 @@ export class PublicWorld {
     const response = await this.handlers[via.node]!(request, via.client);
     if (request.method === 'POST') this.lastActive = this.now();
     await this.persist();
+    await this.flushTelemetry(false);
     return response;
   }
 }
@@ -414,6 +461,18 @@ function grantFrom(w: {
   };
 }
 
+/**
+ * T-032: the nodes' report desk, when the Worker binds a store. Each report gets this world's log line for its
+ * requestId. FEEDBACK_ENCRYPTION_PUBLIC_KEY (x25519, base64url) turns on sealed reports; a malformed one refuses to start.
+ */
+function feedbackFrom(o: PublicWorldOptions, requestLog: NonNullable<FeedbackOptions['requestLog']>): FeedbackOptions | undefined {
+  if (!o.feedbackStore) return undefined;
+  const key = o.env['FEEDBACK_ENCRYPTION_PUBLIC_KEY'];
+  if (key) decodePublicKey(key);
+  // One limiter for both nodes: they are one operator over one store.
+  return { store: o.feedbackStore, requestLog, limiter: new ReportLimiter(), ...(key ? { encryptionPublicKey: key } : {}) };
+}
+
 const DECIMAL = /^(0|[1-9][0-9]{0,77})$/;
 
 /**
@@ -465,6 +524,7 @@ export function notesFor(
     'Disclosure: offer at "public" on these nodes. The demo adjudicators cannot open sealed terms yet, so they decline private and judgment offers, which then expire unaccepted. The work itself is encrypted at every level.',
     `Settlement time is the wall clock. Club ${clubId} allows windows from ${minWindowSec} seconds: timing {"judgeWithinSec": ${minWindowSec}, "fallbackWithinSec": ${minWindowSec}, "appealWindowSec": ${minWindowSec}, "appealDecideSec": ${minWindowSec}} completes a deal in a few minutes.`,
     ...(feeNote ? [feeNote] : []),
+    'Request log: these nodes keep one line per request for seven days (Request-Id, time, node, method, route template, status, problem type, timing), never a body, a header value, an IP address, or the addresses and IDs in the path. Quote the Request-Id of a failed request when you report it.',
     'State is journaled and replayed after a restart, but this is a demo: it may be reset at any time.',
   ];
 }

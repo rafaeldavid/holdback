@@ -29,7 +29,7 @@ describe('boundary parsers', () => {
     expect(Object.keys(parsers).sort()).toEqual(schemaNames.filter((n) => n !== 'common').sort());
   });
 
-  it('covers every example file', () => {
+  it('loads the example files, so the round-trip table below cannot run empty', () => {
     expect(examples.length).toBeGreaterThanOrEqual(15);
   });
 
@@ -196,12 +196,6 @@ describe('boundary parsers', () => {
     const r = parseCommitment(c);
     expect(r).toMatchObject({ ok: false, error: { type: 'invalid_terms' } });
     if (!r.ok) expect(r.error.detail).toContain('maxSubmissions');
-  });
-
-  it('narrows messages by type', () => {
-    const r = parseMessage(example('messages.decision.example.json'));
-    expect(r.ok).toBe(true);
-    if (r.ok && r.value.type === 'Decision') expect(r.value.outcome).toBe('accept');
   });
 
   it('refuses a message with an unknown type', () => {

@@ -26,3 +26,6 @@ bf986e1cc27afbfddaee4d970192c0ad019c5edf:docs/research/sources/stripe-place-a-ho
 0e3052496fd42c6083bcce85c382c72d594b24a0:contracts/test/unit/Base.sol:generic-api-key:100
 # False positive: a public example address (keyReleasedTo) in a spec example.
 bf986e1cc27afbfddaee4d970192c0ad019c5edf:spec/examples/event.example.json:generic-api-key:14
+# False positives: public EIP-712 digest pins (ReadToken, KeyRegistration) in the binding suite.
+332d789a1a1de1585194e491536b2985ec73b413:packages/core/src/eip712.binding.test.ts:generic-api-key:238
+332d789a1a1de1585194e491536b2985ec73b413:packages/core/src/eip712.binding.test.ts:generic-api-key:240

@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {AuthCaptureEscrow} from "commerce-payments/AuthCaptureEscrow.sol";
+import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {HoldbackRules} from "../../src/HoldbackRules.sol";
 import {HoldbackBonds} from "../../src/HoldbackBonds.sol";
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
@@ -185,7 +186,7 @@ contract BondsTest is Base {
     }
 
     function test_deposit_refusesWithoutTheTokens() public {
-        vm.expectRevert();
+        vm.expectRevert(SafeTransferLib.TransferFromFailed.selector);
         bonds.deposit(address(usdc), 5);
     }
 }
