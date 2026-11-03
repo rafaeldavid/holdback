@@ -13,7 +13,7 @@
 Run the collector, the report and the rules once a day without anyone remembering to, keep the billing credentials outside every agent session, run only code Rafa approved with them, and tell Rafa when a rule fires or a run fails.
 
 - Inputs: T-052's collector and dedicated clone, T-053's report, T-054's rules.
-- Outputs: one command, `node --env-file=.env.costs scripts/costs/daily.mjs`, scheduled in the dedicated clone; alerts at the top of the day's file; one message on Rafa's chosen channel when a rule fires or a run fails; `cost-signals.json` in `CROW_TELEMETRY_DIR`, holding the date, each source's status and the names of the rules that fired, never a figure.
+- Outputs: one command, `node scripts/costs/daily.mjs`, scheduled in the dedicated clone; alerts at the top of the day's file; one message on Rafa's chosen channel when a rule fires or a run fails; `cost-signals.json` in `CROW_TELEMETRY_DIR`, holding the date, each source's status and the names of the rules that fired, never a figure.
 - Non-goals: a dashboard, publishing any figure, the agent-ops phase's alarms (T-047).
 
 ## Context
@@ -45,20 +45,20 @@ Every step is **human**. About 30 minutes (guessed).
 
 ## Agent steps
 
-1. **`daily.mjs`**, importing only `node:` modules (T-052):
-   1. Fast-forward the clone to `origin/main` (`git pull --ff-only`), running `git` with an environment stripped of every variable from `.env.costs`, so no git hook can see a billing key.
-   2. Run T-052's approval check (`approved.mjs`), which refuses when the cost scripts or their config differ from the commit in `.costs-approved`, and says which files changed.
+1. **`daily.mjs`**, a launcher like T-052's `collect.mjs`: it imports only `node:` modules and `approved.mjs` until the check passes, then loads `.env.costs` and the rest:
+   1. Run T-052's approval check (`approved.mjs`) on the code already in the clone, which refuses when the cost scripts or their config differ from the commit in `.costs-approved`, and says which files changed.
+   2. Fetch `origin`, then compare: `git diff --name-only HEAD origin/main -- <the covered paths>`. Fast-forward (`git merge --ff-only origin/main`) only when that is empty. Otherwise keep running the approved commit and send "an update to the cost code is waiting for your approval", once a day, naming the files. So the clone never moves forward to cost code Rafa has not read, the launcher and the check included, which no check can cover (`docs/costs.md`, "Running the collector"). Git runs with the allowlisted environment, so no hook can see a billing key.
    3. Collect, report, rules.
    4. Write the alerts first in the day's file; record each run's start, end, outcome and sources read in `runs.jsonl` in the cost directory.
 2. **Messages.** One message a day when any rule fired: the rule names and where to read the details, never a figure unless the channel is marked private to Rafa. One message for any run that fails or refuses, naming the step (fast-forward, approval, collect, report, rules), with no figure. One short "still running" message on the first run of each week, with how many of the last 7 days ran, so a job that never starts is noticed by its silence. A missed day shows in the next run's file.
 3. **`cost-signals.json`**: write it each run to `CROW_TELEMETRY_DIR`, and document its shape in `docs/costs.md`: the date, each source's status, the names of the rules that fired. No figure.
 4. **A test alert**: a `--test-alert` flag sends one message saying it is a test, so Rafa can check the channel without a threshold change.
 5. **CODEOWNERS**: add `/scripts/costs/ @rafaeldavid`, beside the existing human-gate lines.
-6. **The launchd template**, with the schedule, the working directory, the absolute `node` path as a placeholder, `node --env-file=.env.costs scripts/costs/daily.mjs`, and logs in the cost directory.
+6. **The launchd template**, with the schedule, the working directory, the absolute `node` path as a placeholder, `node scripts/costs/daily.mjs`, and logs in the cost directory.
 
 ## Acceptance criteria
 
-- [ ] `pnpm vitest run tests/costs/daily.test.ts` passes: the order fast-forward, approval check, collect, report, rules; one message on a day with a fired rule and none on a quiet day (a fake channel); one message naming the step when the fast-forward fails, when the approval check refuses, and when a step throws; the "still running" message on the week's first run, with the count of days run; `git` started with no variable from `.env.costs` in its environment; a missed day shown in the next run.
+- [ ] `pnpm vitest run tests/costs/daily.test.ts` passes: the order approval check, fetch and compare, fast-forward only when the cost code is unchanged (otherwise no fast-forward and one "update waiting for approval" message), collect, report, rules; one message on a day with a fired rule and none on a quiet day (a fake channel); one message naming the step when the fast-forward fails, when the approval check refuses, and when a step throws; the "still running" message on the week's first run, with the count of days run; `git` started with no variable from `.env.costs` in its environment; a missed day shown in the next run.
 - [ ] A test shows a message holds rule names only, unless the channel is marked private, and that `cost-signals.json` holds no amount.
 - [ ] Seven daily files exist on Rafa's machine after a week (measured: a count, no figures).
 - [ ] The test alert reached Rafa on his channel (human, recorded in Evidence).

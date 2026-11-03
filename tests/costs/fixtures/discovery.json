@@ -1,0 +1,14 @@
+{
+  "$comment": "Synthetic, shaped like the demo's discovery document on Sepolia. Addresses are made up.",
+  "settlement": { "kind": "chain", "chainId": "11155111" },
+  "notes": [
+    "Public demo node. TEST TOKENS ONLY.",
+    "These nodes pay the gas from their own relayer keys (funded from 0x1111111111111111111111111111111111111111); agents never need ETH."
+  ],
+  "demo": {
+    "adjudicators": [
+      { "role": "primary", "address": "0x2222222222222222222222222222222222222222", "name": "Example A" },
+      { "role": "fallback", "address": "0x3333333333333333333333333333333333333333", "name": "Example B" }
+    ]
+  }
+}

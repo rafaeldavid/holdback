@@ -24,9 +24,9 @@ Line numbers refer to `baac930`.
 | Adversarial pass | Claude Fable 5.1 (`claude-fable-5-1`), red-teamer role, max effort | Briefed with the project context (`CLAUDE.md`, the control-point table, ADR-0003, -0012, -0016, -0018, -0019, -0022 and -0025, T-202's list of differences from SimChain, `state.ts`), but not with the first pass's findings. Its 24 proof-of-concept tests (17 attacks, 7 defenses) ran against `baac930` in its own worktree. They are not in the repo |
 | Public-audit cross-check | A separate Claude Opus 5.5 session (per its commit trailers), with a Claude Fable 5.1 red team | Compared the contracts, class by class, with published audits: Commerce Payments' six, Permit2, Solady, USDC/ERC-3009, Kleros, UMA, Reality.eth, Sablier, Superfluid, and BLS verifiers. In the contracts it found M-3, L-7, L-8, I-12 and I-13. Outside them it found PA-M2 (medium, the operator-fee bundle front-run in the EVM adapter, mitigated in PR #138, merged). Its report and tests are in PR #137 |
 | Per-PR review | Claude Opus 5.5, reviewer role, briefed with the project context | Each fix PR and this report, until PASS |
-| Cross-family pass | not run | No non-Anthropic model is reachable from this environment; human gate for Rafa (§7) |
+| Cross-family pass | DeepSeek `deepseek-v4-pro` (reasoning on) | Five narrow parts at `2342756`, each with a project primer and only the code it needs. No review text or finding ID reached it, but its questions pointed at known findings (§8 Limits). Its answers are verbatim in `2026-11-03-contract-review-deepseek.md` |
 
-All passes are Anthropic models, so the task's "two model families" criterion is **not met** yet.
+With the DeepSeek pass, the task's "two model families" criterion is met, Anthropic and DeepSeek [inferred]. The model DeepSeek served was `deepseek-v4-pro` [measured]. §8 Limits says where its agreement was prompted.
 
 **Baseline.**
 - `forge test`: 168 tests pass at `baac930`; 143 on `main` after PR 113 removed redundant tests [measured].
@@ -51,8 +51,8 @@ The public-audit cross-check found no high or medium issue against our use of CP
 
 **What blocks what.**
 - Rule for this review: low findings block mainnet, not the Sepolia testnet.
-- The cross-family review blocks calling Phase 2 done (§7).
-- "Appeals are backed by the adjudicator's bond" is **not met on chain until Phase 4**. No on-chain path pays anyone from an adjudicator's bond; an appeal moves only the appellant's bond (I-8).
+- The cross-family review is done (DeepSeek, §8) and found no new high or medium. Rafa's read still gates calling Phase 2 done (§7).
+- "Appeals are backed by the adjudicator's bond" is **not met on chain until Phase 4**. No on-chain path pays anyone from an adjudicator's bond; an appeal moves only the appellant's bond (I-8). As an unmet mandatory clause, I-8 blocks mainnet (§8).
 
 ## 2. Findings
 
@@ -63,7 +63,7 @@ The public-audit cross-check found no high or medium issue against our use of CP
 | M-1 | medium | A buyer's CPP reclaim strands every encumbered bond | neutrality, hold | measured | fixed, PR #122 (merged) |
 | M-2 | medium | A delivery landed after `deliverBy` beats the reclaim | hold | measured | fixed, PR #127 (merged) |
 | M-3 | medium | A sham deal locks a named fallback's or appeal adjudicator's bond | neutrality | measured | fixed, PR #135 (merged); reference adjudicator residual in T-211 |
-| L-1 | low | An early accept names an attempt, not a delivery | hold (record) | measured | T-212 item 3 |
+| L-1 | low | An early accept, and a decision (§8), names an attempt, not a delivery | hold (record) | measured | T-212 item 3; the adjudicator's check in T-211 and T-213 |
 | L-2 | low | The bond vault credits nominal amounts | neutrality | inferred | T-212 item 1 |
 | L-3 | low | A zero-bond appeal is accepted | judgment | measured | accepted until Phase 4 |
 | L-4 | low | The seed commitment is checked on 144 bits, reusably | judgment | inferred | T-212 item 2 |
@@ -181,7 +181,8 @@ Proofs marked "adversarial pass" are among the 24 tests in that pass's local wor
 - **Impact:** money and work are unaffected under D32. The buyer opened its envelope from the handed body before signing, so it already holds the content key.
 - **Advice:** a buyer should keep `EarlyAccept.expiresAt` short.
 - **Proof:** adversarial pass, `test_attack_early_accept_paired_with_another_signed_delivery_after_onchain_deliver` [measured, local].
-- **Follow-up:** T-212.
+- **Decisions too** (cross-family pass, §8): `Decision` also names the attempt, not the delivery, and the judgment record carries no delivery hash. A decision about one seller-signed delivery can be settled with another. An adjudicator that judged a body the seller never signed would not notice, so the adjudicator checks the seller's signature on what it judges.
+- **Follow-up:** T-212 item 3, for both messages and the judgment record's delivery hash; T-211 and T-213 for the adjudicator's check.
 
 #### L-2. The bond vault credits nominal amounts (first pass)
 
@@ -262,7 +263,7 @@ Each item gives a label and a disposition.
   - Disposition: out of scope by Rafa's ruling. The parties choose the token in their terms, and issuer freezes are parked for a roadmap module on assets.
 - **I-8. Phase 4 gaps** [inferred].
   - The contract has no overturn payout, no default compensation, no appeal-fee collection and no minimum appeal bond (T-202 difference 9).
-  - Disposition: Phase 4, and the clause in §1 is recorded as unmet.
+  - Disposition: Phase 4, and the clause in §1 is recorded as unmet; it blocks mainnet (§1, §8).
 - **I-9. Mutual payouts are not screened** [measured, adversarial pass, local].
   - A co-signed payout to the rules contract or to CPP's TokenStore strands those tokens. A payout to `address(0)` reverts the whole settlement, so nothing is lost.
   - Disposition: accepted. Both parties signed it (D31).
@@ -418,12 +419,9 @@ Gaps:
 
 ## 7. Open items for Rafa
 
-1. **Cross-family review (gate, not done).**
-   - Only Anthropic models were reachable: the environment exposes no other provider's key by name, and `.env*` files were not read.
-   - To close the "two model families" criterion, a reviewer from another family (an OpenAI or Google model, for example) reviews `contracts/src/` at `baac930` and the five fix PRs, without this document. The brief is in T-206's Handoff.
-   - Its findings are appended here, with the disagreements, before Phase 2 is called done.
+1. **Cross-family review: done (§8).** Rafa asked for it on DeepSeek ("Can you use the deepseek API token to do the review? You'll have to prompt it with full context of the project"). It found no new high or medium.
 2. **Read this review** (task gate 1).
-3. **Sepolia (approved; deploy pending).**
+3. **Sepolia (approved; deployed, PR #150).**
    - Rafa approved a Sepolia deployment (T-206 Decisions 7).
    - It runs once the five fixes are merged with `forge test` green on `main`.
    - Rafa set the cross-check against public escrow audits as a gate, and it has reported (PR #137):
@@ -433,3 +431,74 @@ Gaps:
    - What it deploys: the core set, with `DrandQuicknetBeacon` as the beacon (A7) and `EXPIRY_MARGIN` of 1 day (86,400 s). The token is chosen by the Sepolia demo session: its TestUSDC goes in with the core set if PR #138 is on `main` when the deploy runs (T-206 Decisions 7).
    - EIP-2537 is live on Sepolia [measured]: `MAP_FP_TO_G1` returns a G1 point for a field element, and malformed input gets `PrecompileError`.
    - Before the public demo relies on Sepolia: until T-211 lands, the reference adjudicator's overturn-to-accept appeals revert there (H-2).
+
+## 8. Cross-family pass (DeepSeek)
+
+**Who and how.**
+- DeepSeek `deepseek-v4-pro`, reasoning on, reviewed `contracts/src/` at `2342756`, the commit deployed on Sepolia, on 2026-11-03.
+- It was called through the project's OpenAI-compatible key, loaded with `node --env-file`; the file itself was not read.
+- No review text and no finding ID reached it [measured: a grep of its prompts]. It was not blind to the findings, though (Limits).
+- Its answers are verbatim in [`2026-11-03-contract-review-deepseek.md`](2026-11-03-contract-review-deepseek.md). The model's own labels are kept; it could not run code.
+- Three earlier runs returned no review text [measured: `finish: length`, empty answer]:
+  - the whole project, about 72K tokens, with a 32K output budget;
+  - the same with 64K;
+  - a beacon-only run, 27.7K prompt tokens with 64K.
+
+  Each spent its whole output on reasoning. A fourth connection dropped mid-stream.
+- The pass that answered ran in five narrow parts. Each had a one-page project primer, one question set and only the code it needs:
+  - the beacon's point handling;
+  - the beacon's hash to curve, pairing and failures;
+  - the hold;
+  - judgment and bonds;
+  - signed messages.
+
+  All five finished normally, taking 225 to 399 s each [measured: `finish: stop`].
+
+**Result.** DeepSeek's claims were checked against the code and this review [inferred unless marked]. The PR 155 reviewer then probed the overturn, late-accept and carried-delivery paths in forge [measured, scratch tests].
+- No new high or medium.
+- Of DeepSeek's two highs:
+  - one is I-8;
+  - the other, the decision-to-delivery binding, is new and triaged low, extending L-1.
+- Its two mediums are an ADR-0018 deferral and, in part, L-6.
+- The rest are known, deliberate or informational.
+- On the drand verifier it passed all fifteen checklist items, the open gate from the PR 77 review (backlog). Its one caveat was that the public key could not be checked from the code, and the Sepolia deploy closes that. It also flagged one unreachable non-canonical case.
+
+| DeepSeek item | Its severity | Triage | Recorded as |
+| --- | --- | --- | --- |
+| An overturning appeal does not pay the wronged party from the first adjudicator's bond (`HoldbackRules.sol` `_appealDecision`) | high | True, and known; nothing worse [measured: an overturned accept, an overturned reject and an overturned fallback accept each end with CPP at 0, no bond encumbered and nothing stuck]. The wronged party simply gets nothing. The code says "the overturn payout from the adjudicator's bond is Phase 4" | I-8 (T-202 difference 9; the §1 clause recorded as unmet). It blocks mainnet (below) |
+| A decision is not bound to the delivery: `decisionHash` names the attempt, not the delivery hash | high | True in mechanism. On chain only the seller can pair a decision with another delivery [measured: in `Held` a carried delivery signed by anyone but the seller reverts, and in `Delivered` the carried delivery is ignored]. Money is unaffected. But the off-chain record does not close the gap: the judgment record carries no delivery hash (`judgment.schema.json`), and `encryptedKeysHash` is the escalation envelope, not the delivery's keys. An adjudicator handed an unsigned body by an operator would sign a decision that a relayer could settle against the seller's real delivery [inferred]. So the adjudicator must check the seller's signature on what it judges | Low, extending L-1 to decisions. T-212 item 3 now covers both, with the judgment record's delivery hash in the same schema decision. The adjudicator's check goes to T-211 and T-213 (T-206 Handoff) |
+| The primary chooses its own seed through its seed commitment | medium | Real and tracked, but deferred rather than settled. ADR-0018 lists mixing the beacon into the primary's seed under "Not adopted" as a later decision, bounded by calibration and appeal. Until Phase 4 an overturning appeal moves no money (I-8, measured above), so on chain the bound is calibration and the parties' choice of primary. This row and the I-8 row each rely on the other | ADR-0018 (Not adopted); backlog row on the colluding primary (before open clubs) |
+| `authorizationExpiry` does not bound every capture deadline | medium | Two items. (a) `judgeBy` after `fallbackBy` is L-6. (b) An early-accept or mutual `expiresAt` past `authorizationExpiry` can happen even with ordered deadlines. That is by design (T-202 difference 15), and T-212 item 4 does not touch it. Both are bounded [measured: a late early accept reverts, the buyer reclaims on CPP, and the fallback and default calls close the deal] | (a) L-6, T-212 item 4. (b) T-202 difference 15, no change |
+| `mutualSettle` can release the key with nothing paid to the seller | medium/info | Deliberate. The seller co-signs the payouts and `releaseKey` (ADR-0012; ADR-0019; `KeyOnlyWithPayment` in the formal model sets no payout condition). DeepSeek's medium followed the primer's wording, "the key is released only with payment to the seller" | No change |
+| A direct escrow reclaim leaves the rules contract's state stale | low/info | Fixed. `_refundAll` closes a deal whose hold the buyer reclaimed | M-1 (#122) |
+| A token callback during `takeAppealBond` can re-enter before the appellant's bond arrives | low | Net zero, as DeepSeek also says. A re-entrant `expireAppeal` is impossible, because filing needs `now < appealBy` and expiring needs `now ≥ appealBy + appealDecideSec`. A re-entrant `decide` needs the next round already public (I-5). Even then, either the outer `transferFrom` completes or the transaction reverts. It needs a callback token the parties chose | Informational; the review's token class (L-2) |
+| Appeal and escalation adjudicators can act unbonded | low/medium | True, and known | L-5 (T-212 item 5) |
+| A zero-bond appeal takes the only slot | low | True, and known | L-3, L-7 |
+| A y = 0 root with the sign bit set gives y = p, a non-canonical point | info | Unreachable [measured by script: the group order h·r is odd, and −4 is not a cube mod p, so x³ + 4 = 0 has no root] | No change |
+| The quicknet public key cannot be checked from the code alone | info | Checked [measured]. The deploy verified drand round 1000 on Sepolia with this key, using the real fixture signature (`drand-quicknet.json`), and `sepolia.json` records its published randomness. The tests use seven real rounds | No change |
+| The escalation and appeal rounds follow the escalating or appealing transaction's timestamp | info | Known. With 12-second slots against drand's 3-second period, the next round may already be public when the transaction is built | I-5 (accepted for Sepolia) |
+| Terms are signed over the raw commitment ID; there is no zero-signer check | info | Safe today, as DeepSeek says. The ID is the `CommitmentTerms` struct hash, and Solady rejects a recovered zero address | No change |
+
+**Where DeepSeek and this review disagree on severity.**
+
+| Item | DeepSeek | This review | Kept |
+| --- | --- | --- | --- |
+| No overturn payout | High: it breaks "appeals are backed by the bond" | A documented Phase 4 gap, filed as informational | I-8, and it **blocks mainnet**. It is an unmet clause of litmus test 3, a mandatory rule, so the rule that informational items do not block mainnet does not apply to it. Rafa may raise its severity |
+| Decision not bound to the delivery | High | Low: on chain it needs seller equivocation, and money is unaffected | Low, with L-1, plus the adjudicator's signature check (T-211, T-213) |
+| The primary chooses its seed | Medium | Deferred (ADR-0018, Not adopted) | ADR-0018 and the backlog row; on chain until Phase 4, bounded only by calibration and the parties' choice of primary |
+| The expiry bound | Medium | Low (a) and by design (b) | L-6; T-202 difference 15 |
+
+**Limits.**
+- **Not blind.** The question sets were written by the session that held these findings, and most of them point at known items:
+  - the hold questions on expiry and reclaim (L-6, M-1) and on the key (H-2);
+  - the judgment questions on the delivery (L-1), on a message field the seed hashes (H-1), on the appeal slot and the payout (L-7, I-8), and on bond consent (M-3).
+
+  The primer also stated three properties the code deliberately lacks in Phase 2: an overturn payout from the bond, bonded appeal adjudicators, and the key only with payment, even in a mutual settlement. Those produced the I-8 high, the L-5 row and the mutual-key medium. So DeepSeek's agreement on those items was prompted, not independent. What it adds:
+  - the verifier checklist;
+  - the decision-to-delivery binding, new to this review, though the delivery question invited it;
+  - the absence of other findings in the code it read.
+- The PR 155 reviewer's forge probes are scratch tests, not in the repository (`reports/scratch/review-155/` in the T-206 worktree).
+- DeepSeek read the code; it did not run it.
+- The triage above is a reading of the code and the docs, except where marked measured.
+- `deepseek-v4-pro` is a provider alias with no dated snapshot (`config/judges-live.yaml`).
+- The pass checked the verifier's logic. It did not check that geth, reth and revm agree on `MAP_FP_TO_G1`'s cofactor clearing, beyond the round verified on Sepolia's RPC.
