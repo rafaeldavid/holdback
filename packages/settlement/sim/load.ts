@@ -1,4 +1,4 @@
-// `pnpm load` (T-006): SimChain under load.
+// `pnpm load`: SimChain under load.
 // 1. 1,000 holds: offer, adjudicator acceptance and a one-shot agree_and_fund each; reports p50 and p95
 //    latency per submission (messages are signed before timing starts, so the numbers are SimChain's:
 //    signature recovery, step, postings and events).

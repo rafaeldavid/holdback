@@ -1,6 +1,6 @@
 // pnpm demo [--beat n] [--live] [--out dir]
 // Runs the beats, prints the narration, and writes demo/out/beat-<n>.md, beat-<n>.json, closing.md and
-// index.html. Scripted judges by default, with no keys. --live (T-028) seats config/judges-live.yaml and calls
+// index.html. Scripted judges by default, with no keys. --live seats config/judges-live.yaml and calls
 // the models, given HOLDBACK_ANTHROPIC_API_KEY, HOLDBACK_OPENAI_COMPATIBLE_API_KEY and
 // HOLDBACK_OPENAI_COMPATIBLE_BASE_URL in `io.env` (bin.ts passes the environment for --live only); without them it
 // refuses and names what is missing. Values are never printed.
@@ -134,7 +134,7 @@ async function run(args: Args, io: Io, now: () => number, started: number): Prom
     firstMs ??= Math.round(now() - started);
     transcripts.push(t);
     // Terminal: every line is plain (no escape sequences, bidi or tag characters, no embedded line breaks).
-    // The first beat's mode, source and units print once; later beats print only what differs (T-019).
+    // The first beat's mode, source and units print once; later beats print only what differs.
     shared ??= sharedHeader([t]);
     if (transcripts.length === 1) for (const line of shared.lines) io.log(plain(line));
     io.log(`\nBeat ${t.beat}: ${plain(t.title)}`);

@@ -8,4 +8,6 @@ export * from './server.js';
 export * from './sim-world.js';
 export * from './prepare.js';
 export * from './envelope-spec.js';
+export { formatTusd } from './units.js';
+export * from './feedback.js';
 export { API_PROBLEM_TYPES, PROBLEM_BASE, PROBLEMS, type ApiProblem, type ApiProblemType, type ProblemDoc, type ProblemMembers } from './problems.js';

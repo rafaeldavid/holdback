@@ -40,6 +40,3 @@ export function sumAmounts(amounts: readonly Amount[]): Amount {
   }
   return { token, amount: total.toString() };
 }
-
-/** Whole tUSD to base units, for writing fixtures by hand. */
-export const tusd = (whole: bigint): Amount => ({ token: 'tUSD', amount: (whole * 10n ** 6n).toString() });

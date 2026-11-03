@@ -69,7 +69,7 @@ export interface Nonces {
 
 export interface PromptInput {
   spec: { description: string };
-  /** In the order this judge should see them (T-009 shuffles per judge with the seed). */
+  /** In the order this judge should see them (panel.ts shuffles per judge with the seed). */
   criteria: readonly JudgmentCriterion[];
   data: UntrustedData;
   nonces: Nonces;

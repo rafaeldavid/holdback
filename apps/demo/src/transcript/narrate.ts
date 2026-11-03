@@ -1,6 +1,5 @@
 // Narration (docs/demo.md §Narration rules): every line states what happened and the number behind it
-// (amount, milliseconds, model ID, hash prefix). Plain statements only. Scripted mode says the judges are fake;
-// "recorded" is kept for replayed model recordings only (T-019).
+// (amount, milliseconds, model ID, hash prefix). Plain statements only. Scripted mode says the judges are fake.
 import { CAST, labelOf, nameOf } from './cast.js';
 import { formatAmount } from './money.js';
 import type { BeatTranscript, CastKey, CheckResult, DemoEvent, Via } from './types.js';
@@ -166,7 +165,6 @@ export function narrate(e: DemoEvent): string {
 
 const MODE_LINE: Readonly<Record<BeatTranscript['mode'], string>> = {
   scripted: 'Mode: scripted. Judges are fake providers that return verdicts written in advance (pass, unless the beat says it scripted a fail): no model was called in this run.',
-  recorded: 'Mode: recorded. Judge outputs are replayed model recordings: no model was called in this run.',
   live: 'Mode: live. Judges were called with pinned model IDs during this run.',
 };
 const UNITS_LINE = "Amounts are in tUSD, a test token on SimChain (1 tUSD stands for $1). Times are milliseconds since the job's first call.";
@@ -176,7 +174,7 @@ export function header(t: BeatTranscript): string[] {
   return [MODE_LINE[t.mode], `Source: ${t.source.note}`, `Shows: ${t.litmus}.`, UNITS_LINE].map(plain);
 }
 
-/** What several transcripts share, printed once above them (T-019): the most common mode and source note. */
+/** What several transcripts share, printed once above them: the most common mode and source note. */
 export interface SharedHeader {
   mode: BeatTranscript['mode'];
   note: string;

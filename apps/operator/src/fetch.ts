@@ -1,5 +1,5 @@
 // A fetch-style entry for the operator (Request -> Response), for runtimes without node:http servers such as
-// Cloudflare Workers (T-026). It runs the same Operator.handle that startOperator serves: the adapter carries
+// Cloudflare Workers. It runs the same Operator.handle that startOperator serves: the adapter carries
 // the request in as the few IncomingMessage fields the handler reads and streams its response back out, so a
 // Worker node and a `pnpm sim` node answer alike. Behaviour is unchanged for node:http callers.
 import { Buffer } from 'node:buffer';

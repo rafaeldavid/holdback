@@ -1,9 +1,9 @@
-// A small beat-1 fixture for render and untrusted-text tests (T-017): the proposal and agreement steps and four
+// A small beat-1 fixture for render and untrusted-text tests: the proposal and agreement steps and four
 // adjudicator profiles. `name` replaces the declined listing's name, so a test can make it hostile. Not a test
 // file itself; the real beat-1 transcript is checked in source/simchain.test.ts.
 import type { AdjudicatorProfile, BeatTranscript, DemoEvent } from './types.js';
 
-const tusd = (whole: bigint) => ({ token: 'tUSD', amount: (whole * 1_000_000n).toString() });
+const tusdWhole = (whole: bigint) => ({ token: 'tUSD', amount: (whole * 1_000_000n).toString() });
 
 function profile(name: string, selected: AdjudicatorProfile['selected'], who?: AdjudicatorProfile['who']): AdjudicatorProfile {
   return {
@@ -32,7 +32,7 @@ export function withAdjudicators(t: BeatTranscript, name = 'Swiftline Verdicts')
       atMs: 0,
       actor: 'buyer',
       registrations: 4,
-      rules: ['panels of at least 3 judges from at least 2 model families (panelPolicyMin)', `free bond of at least ${tusd(2000n).amount} base units`],
+      rules: ['panels of at least 3 judges from at least 2 model families (panelPolicyMin)', `free bond of at least ${tusdWhole(2000n).amount} base units`],
       considered: [
         { name: 'Clearfield Adjudication', who: 'benchA', eligible: true, reasons: [] },
         { name, eligible: false, reasons: [`${name}: 1 model family (rulebook minimum 2, panelPolicyMin.minFamilies)`, 'appeal panel of 1 judge (rulebook minimum 5, panelPolicyMin.appealPanelSize)'] },
@@ -45,8 +45,8 @@ export function withAdjudicators(t: BeatTranscript, name = 'Swiftline Verdicts')
       actor: 'seller',
       agreed: { primary: 'benchA', fallback: 'benchB', appeal: 'benchC' },
       policy: ['valid registration', 'policy hash matches its policy'],
-      bondRequired: tusd(2000n),
-      bonds: (['benchA', 'benchB', 'benchC'] as const).map((who) => ({ who, free: tusd(25_000n) })),
+      bondRequired: tusdWhole(2000n),
+      bonds: (['benchA', 'benchB', 'benchC'] as const).map((who) => ({ who, free: tusdWhole(25_000n) })),
     },
   ];
   return {

@@ -1,4 +1,4 @@
-// The public demo world (T-026): one SimChain, two operator nodes over it, three test adjudicators and a
+// The public demo world: one SimChain, two operator nodes over it, three test adjudicators and a
 // faucet, in one place so a Cloudflare Durable Object can hold it (worker.ts) and a Node test can run it.
 //
 // Public mode, as against `pnpm sim` (apps/operator/src/sim-world.ts), which is unchanged:
@@ -11,17 +11,18 @@
 //   faucet, D39); this world supplies the grant;
 // - the discovery document (also at GET /) carries the demo's facts: club, token, adjudicators by role, faucet,
 //   judges (D39); notices in the body say which judge panel would score an offer and why an offer was declined;
-// - the adjudicators decline sealed (private or judgment) offers, which they cannot open yet (T-030, F1);
+// - the adjudicators decline sealed (private or judgment) offers, which they cannot open yet;
 // - the journal of what the chain accepted, the ciphertext and the judgment records are persisted, so the
 //   world is rebuilt by replay after the Durable Object is evicted;
 // - minimal telemetry (telemetry.ts, T-031): a 7-day request log without bodies, header values, IPs or paths, the
 //   Durable Object's free-tier use with a warning, and hourly and daily summary lines in Workers Logs.
 // No real money: SimChain (chain id 31337), the test token tUSD, and the operators' startup guards.
-import { canonicalKeccak, holdbackDomain, parseAdjudicator, problem, type AdjudicatorRegistration, type Address, type Hex32, type Judgment, type Mandate, type OperatorFeeSchedule, type Sha256, type Timestamp, type TokenAmount } from '@holdback/core';
+import { canonicalKeccak, holdbackDomain, parseAdjudicator, problem, wholeSecond, type AdjudicatorRegistration, type Address, type Hex32, type Judgment, type Mandate, type OperatorFeeSchedule, type Sha256, type Timestamp, type TokenAmount } from '@holdback/core';
 import { sha256 } from '@holdback/core/crypto';
 import { StoreError, type CiphertextStore } from '@holdback/core/store';
 import { testAdjudicator, type TestAdjudicator } from '@holdback/adjudicator';
-import { fetchHandler, Operator, simRegistry, testAccount, type DemoFacts, type FaucetOutcome, type NoticeSubject, type Registry, type TestAccount } from '@holdback/operator';
+import { fetchHandler, Operator, ReportLimiter, simRegistry, testAccount, type DemoFacts, type FaucetOutcome, type FeedbackOptions, type FeedbackStore, type NoticeSubject, type Registry, type TestAccount } from '@holdback/operator';
+import { decodePublicKey } from '@holdback/core/crypto';
 import { mandateFor, SIM_CHAIN_ID, SIM_RULEBOOK, simClub, SimChain, TOKEN, wideScope, type Genesis, type JournalEntry } from '@holdback/settlement/sim';
 import { panelConfig, type JudgeProvider, type PanelConfig } from './judges.js';
 import type { WorldStorage } from './storage.js';
@@ -44,7 +45,7 @@ export interface PublicWorldOptions {
   /** Per-client operator throttle. Default 120 writes and 1,200 reads a minute. */
   rateLimit?: { writes: number; reads: number; windowMs: number };
   /**
-   * Live judge calls a day across the demo (T-028). Default LIVE_JUDGE_CALLS_PER_DAY from `env`, else 30.
+   * Live judge calls a day across the demo. Default LIVE_JUDGE_CALLS_PER_DAY from `env`, else 30.
    * Live judging needs HOLDBACK_ANTHROPIC_API_KEY, HOLDBACK_OPENAI_COMPATIBLE_API_KEY and
    * HOLDBACK_OPENAI_COMPATIBLE_BASE_URL in `env` (Worker secrets); without them the panel is scripted.
    */
@@ -53,6 +54,11 @@ export interface PublicWorldOptions {
   judgeProvider?: JudgeProvider;
   /** Where telemetry's summary lines and warnings go. Default: the console, which Workers Logs keeps. */
   telemetryLog?: TelemetryOptions['log'];
+  /**
+   * The private report store behind /v1/feedback (T-032; the Worker binds Workers KV). Absent: the nodes take no
+   * reports. Sealed reports need FEEDBACK_ENCRYPTION_PUBLIC_KEY in `env`; its secret stays with the operator.
+   */
+  feedbackStore?: FeedbackStore;
   now?: () => number;
   onError?: (e: Error) => void;
 }
@@ -85,7 +91,6 @@ const livePanel = (perDay: number) =>
 const SEALED =
   'These demo adjudicators decline private and judgment offers: they cannot open sealed terms yet (T-207), so the offer would stay unaccepted and expire, and nobody could fund it. Offer at disclosure public on this demo; the work itself is encrypted either way.';
 
-const wholeSecond = (ms: number): Timestamp => new Date(Math.floor(ms / 1000) * 1000).toISOString().replace('.000Z', 'Z');
 const lc = (s: string) => s.toLowerCase();
 const hex = (b: Uint8Array) => [...b].map((x) => x.toString(16).padStart(2, '0')).join('');
 const jkey = (i: number) => `j:${String(i).padStart(12, '0')}`;
@@ -180,7 +185,7 @@ export class PublicWorld {
     const store = new StorageCiphertextStore(storage);
     const records = new Map<Hex32, Judgment>(Array.from(await storage.list<Judgment>({ prefix: 'jr:' }), ([k, v]) => [k.slice(3) as Hex32, v]));
     replayed();
-    // Live or scripted judges, fixed for this instance: the registry it binds depends on which (T-028).
+    // Live or scripted judges, fixed for this instance: the registry it binds depends on which.
     const panel = panelConfig({ env: o.env, storage, now, ...(o.judgeProvider ? { judgeProvider: o.judgeProvider } : {}), ...(o.liveCallsPerDay !== undefined ? { liveCallsPerDay: o.liveCallsPerDay } : {}) });
     const registrations = new Map<string, Omit<AdjudicatorRegistration, 'pool'>>();
     const registration = (address: Address): AdjudicatorRegistration | null => {
@@ -210,6 +215,7 @@ export class PublicWorld {
     };
     // ADR-0023: one schedule for both nodes (one operator), paid to one world address; from Worker variables.
     const operatorFee = operatorFeeFromEnv(o.env, key('demo-operator-fees').address);
+    const feedback = feedbackFrom(o, (id) => telemetry.lookup(id));
     const adjudicators = {} as Record<Role, TestAdjudicator>;
     const declined = new Map<Hex32, string>();
     const operators: Operator[] = [];
@@ -224,7 +230,7 @@ export class PublicWorld {
         faucet: { path: '/v1/faucet', grant: { token: TOKEN, amount: faucetAmount.toString() } as TokenAmount, perAddressEverySec: faucetWindowSec, perClientPerWindow: faucetPerClient },
         operators: publicUrls.length ? publicUrls : operators.map((op) => op.baseUrl).filter(Boolean),
         minWindowSec: m,
-        // Who judges rubric deals (T-028): the registry every adjudicator here binds, and today's live budget (UTC).
+        // Who judges rubric deals: the registry every adjudicator here binds, and today's live budget (UTC).
         judges: {
           panel: panel.live ? 'live' : 'scripted',
           registry: { uri: panel.registryUri, hash: panel.registry.hash },
@@ -267,6 +273,7 @@ export class PublicWorld {
           notes: notesFor(club.id, m, faucetAmount, faucetWindowSec, panel, operatorFee),
           demo,
           notices,
+          ...(feedback ? { feedback } : {}),
           // The fields the request log keeps, picked here: the path and traceparent never reach telemetry.
           log: (e) =>
             telemetry.request({ requestId: e.requestId, at: Math.floor(now() / 1000), node: i === 1 ? 1 : 0, method: e.method, route: e.route, status: e.status, ...(e.problem ? { problem: e.problem } : {}), ms: e.ms }),
@@ -405,7 +412,7 @@ export class PublicWorld {
 }
 
 /**
- * The demo faucet's grant (T-026): a fixed amount of tUSD and a mandate in the demo club, signed by the club's own
+ * The demo faucet's grant: a fixed amount of tUSD and a mandate in the demo club, signed by the club's own
  * test principal, once per address per window (persisted) and a few addresses per client per window (in memory).
  */
 function grantFrom(w: {
@@ -454,10 +461,22 @@ function grantFrom(w: {
   };
 }
 
+/**
+ * T-032: the nodes' report desk, when the Worker binds a store. Each report gets this world's log line for its
+ * requestId. FEEDBACK_ENCRYPTION_PUBLIC_KEY (x25519, base64url) turns on sealed reports; a malformed one refuses to start.
+ */
+function feedbackFrom(o: PublicWorldOptions, requestLog: NonNullable<FeedbackOptions['requestLog']>): FeedbackOptions | undefined {
+  if (!o.feedbackStore) return undefined;
+  const key = o.env['FEEDBACK_ENCRYPTION_PUBLIC_KEY'];
+  if (key) decodePublicKey(key);
+  // One limiter for both nodes: they are one operator over one store.
+  return { store: o.feedbackStore, requestLog, limiter: new ReportLimiter(), ...(key ? { encryptionPublicKey: key } : {}) };
+}
+
 const DECIMAL = /^(0|[1-9][0-9]{0,77})$/;
 
 /**
- * ADR-0023, T-029: the demo's operator fee from Worker variables. OPERATOR_FEE_BPS (integer basis points, 0 to
+ * ADR-0023: the demo's operator fee from Worker variables. OPERATOR_FEE_BPS (integer basis points, 0 to
  * 10000) and OPERATOR_FEE_MIN (base units) publish a schedule, OPERATOR_FEE_MAX (base units) caps it; with neither
  * of the first two, the nodes charge nothing and publish no schedule. A malformed value refuses to start.
  */

@@ -8,6 +8,8 @@ import { generatePrivateKey } from 'viem/accounts';
 import { afterEach, describe, expect, it } from 'vitest';
 import { Agent } from '../../../examples/agent.ts';
 import { LIVE_REGISTRY_URI, liveRegistry, markerFake, placeholderRegistry } from '@holdback/adjudicator';
+import { encodePublicKey, generateEncryptionKeyPair } from '@holdback/core/crypto';
+import { MemoryFeedbackStore } from '@holdback/operator';
 import { MemoryStorage, PublicWorld, type PublicWorldOptions } from './index.js';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -416,6 +418,29 @@ describe('telemetry (T-031)', () => {
     const stored = JSON.stringify([...everything.values()], (_k, v) => (v instanceof Uint8Array ? undefined : v)).toLowerCase();
     for (const secret of [...Object.values(canaries), 'c0ffeec0ffee', 'canary-query', 'canary-body', ip]) expect(stored).not.toContain(secret.toLowerCase());
   }, 60_000);
+});
+
+describe('feedback (T-032)', () => {
+  it("attaches the node's own log line for the failing request, and publishes the feedback key", async () => {
+    const store = new MemoryFeedbackStore();
+    const key = encodePublicKey(generateEncryptionKeyPair().publicKey);
+    const { urls } = await serve({ feedbackStore: store, env: { FEEDBACK_ENCRYPTION_PUBLIC_KEY: key } });
+    const failed = await fetch(`${urls[1]}/v1/agents/0x${'ab'.repeat(20)}`);
+    await failed.text();
+    const requestId = failed.headers.get('request-id')!;
+    const report = { kind: 'bug', summary: 'my agent is not found', detail: 'GET after the faucet', requestId };
+    const filed = (await (await post(`${urls[0]}/v1/feedback`, report, 'k-report')).json()) as J;
+    expect(filed).toMatchObject({ status: 'received', logAttached: true });
+    expect(store.reports.get(filed.id)!.attached.log).toMatchObject({ requestId, node: 1, method: 'GET', route: '/v1/agents/{address}', status: 404, problem: 'not_found' });
+    expect(JSON.stringify(store.reports.get(filed.id))).not.toContain('ab'.repeat(20));
+    expect((await discovery(urls)).feedback).toMatchObject({ path: '/v1/feedback', encryptionPublicKey: key });
+  });
+
+  it('refuses to start with a malformed feedback key, and takes no reports without a store', async () => {
+    await expect(PublicWorld.open({ storage: new MemoryStorage(), env: { FEEDBACK_ENCRYPTION_PUBLIC_KEY: 'not-a-key' }, feedbackStore: new MemoryFeedbackStore() })).rejects.toThrow();
+    const { urls } = await serve();
+    expect((await post(`${urls[0]}/v1/feedback`, { kind: 'docs', summary: 's', detail: 'd' }, 'k')).status).toBe(404);
+  });
 });
 
 describe('operator fee from Worker variables (ADR-0023, T-029)', () => {

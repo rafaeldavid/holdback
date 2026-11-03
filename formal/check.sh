@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Model-check the commitment state machine (T-204, docs/neutrality.md "How neutrality is tested").
+# Model-check the commitment state machine (docs/neutrality.md "How neutrality is tested").
 #
 # Exits 0 iff
 #   - every formal/*.cfg passes (TLC finds no violation), and
