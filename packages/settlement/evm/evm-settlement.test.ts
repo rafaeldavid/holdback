@@ -82,6 +82,12 @@ describe.skipIf(!ready)(`EvmSettlement on anvil${ready ? '' : ' (SKIPPED: needs 
     // A reclaim before deliverBy, and a decision with nothing delivered.
     const early = await chain.submit(d.trigger('reclaim'), { sender: cast.stranger.key });
     expect(early.ok ? 'ok' : early.problem.type).toBe('invalid_state');
+    // A second submission: the contract reverts InvalidMessage, which core names submission_limit_reached.
+    const second = await chain.submit(await d.deliver(2), { sender: cast.seller.key });
+    expect(second.ok ? 'ok' : second.problem.type).toBe('submission_limit_reached');
+    const carried = await d.deliver(2);
+    expect(carried.kind === 'deliver' ? (await chain.carryDelivery(carried.delivery))?.type : carried.kind).toBe('submission_limit_reached');
+    expect(chain.escrowState(d.id)?.kind).toBe('Held');
     // Settle twice.
     await must(chain, cast, d.deliver());
     await must(chain, cast, d.decide('primary', 'accept'));
