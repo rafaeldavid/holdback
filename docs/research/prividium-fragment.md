@@ -2,7 +2,7 @@
 
 - **Date:** 2026-11-02. **Status:** research, no decision; feeds a D4 update and the T-208 recommendation.
 - **Method:** read-only. Both repos were read through `gh api` (compose files, seed SQL, contracts, SDK); nothing was cloned or run. Matter Labs' public docs are cited by URL. Labels: **measured** (read in the repos' files), **sourced** (a cited page), **inferred**, **guessed**.
-- **Question** (`docs/backlog.md`, "Exploration: a single-use Prividium fragment per escrow"): can each deal run in its own short-lived Prividium instance, unseen by operators, with the money staying in the L1 escrow? D4 (2026-11-01) requires the fragment's operator to be unable to block settlement and unable to read the deal.
+- **Question** (the appendix at the end of this file, first written as a `docs/backlog.md` section): can each deal run in its own short-lived Prividium instance, unseen by operators, with the money staying in the L1 escrow? D4 (2026-11-01) requires the fragment's operator to be unable to block settlement and unable to read the deal.
 
 ## 1. What Prividium is, component by component
 
@@ -209,3 +209,59 @@ Not available: OIDC client-credentials (OIDC is human login); tenants and servic
 - https://www.zksync.io/media/private-atomic-dvp-on-ethereum (talk transcript, 2026-07-21); https://www.zksync.io/zksync-connect (marketing); https://zksync.io/airbender (marketing)
 - https://theblock.co/news/ecosystems/2026-09-08-zksync-developer-matter-labs-open-sources-prividium-permissioning-engine-bundesbank-tests-platform-413814 (2026-09-08)
 - https://quay.io/api/v1/repository/matterlabs_enterprise/prividium-permissions-api/tag/ (401 Unauthorized on 2026-11-02; image architectures not inspectable)
+
+## Appendix: the original proposal (moved from `docs/backlog.md`, 2026-11-03)
+
+This was the backlog section "Exploration: a single-use Prividium fragment per escrow". It is kept here as written, as the question this research pass answers, with its references to this file adjusted; the backlog now links here.
+
+Proposed by Rafa on 2026-11-01. To explore with T-207 (private deals), after the Phase 2 contracts exist on Sepolia. Not a decision: a research and spike task.
+
+**Sources (Rafa, 2026-11-02).** Matter Labs' local Prividium stack, https://github.com/matter-labs/local-prividium (Docker Compose: Prividium API with permissions and protected RPC, admin and user panels, Keycloak, PostgreSQL, a zkSync OS sequencer, an Anvil L1, block explorer, webhooks, metrics; images from a private quay.io registry, credentials `PRIVIDIUM_DOCKER_USERNAME` / `PRIVIDIUM_DOCKER_PASSWORD` in `.env`, login with `pnpm prividium:login`), and an institutional demo with an intraday repo flow, https://github.com/JackHamer09/prividium-institutional-demo#intraday-repo.
+
+**Research pass (2026-11-02): recommend park, pending Rafa.** This document: Prividium is a single-operator permissioned validium; its admin can read the whole chain, bypass permission checks, halt the sequencer and withhold data, so it is private from outsiders but not from its operator (fails D4's 2026-11-01 requirement and ADR-0001 unless the L1 timeout carries every deal). One chain per escrow is not a supported shape (no chain-creation API; per-batch L1 verification would cost more than today's whole deal). The realistic shape is a shared chain with per-deal permissions, which is ADR-0004's club-chosen chain. No shape keeps the agent API identical while making the protocol simpler or more private. An optional half-day local probe and its pass/fail criteria are in §5; Docker is not on Rafa's Mac, and a cloud-environment check is under way.
+
+**Candidate shape B (Rafa, 2026-11-02): one ’crow-operated Prividium, RBAC per escrow, multisig admin, admin keys burned later.** ’crow runs one shared Prividium; each new escrow gets roles for exactly its buyer, seller and named adjudicators; a multisig holds the admin role; the operator only sets up what each escrow needs; once it works, the admin keys are burned. What it would take to pass the litmus tests:
+- **Assets stay in the L1 escrow** and every L1 timeout works without the Prividium, so the chain is a private execution and evidence venue, never custody (ADR-0002, ADR-0001: a halted sequencer must not stop settlement).
+- **Per-escrow permissions derived from the signed terms by code**, not granted by an admin API call: otherwise burning the admin keys also freezes onboarding of new escrows. Open question for Matter Labs: can permissions be governed by an on-chain contract?
+- **Burning the admin role is not burning the operator.** The sequencer and prover keys (commit, prove, execute on L1) stay with whoever runs the chain, and the sequencer executes every transaction in the clear, so ’crow would still read every deal and could halt or censor, against D34 (the operator does not read the deal) unless deal payloads stay encrypted end to end as in ADR-0024, which removes most of Prividium's benefit. Open questions: can the chain run with no `full_read_access` role, with the admin role removed, and with sequencing outside ’crow?
+- **The multisig's signers must be independent of ’crow** (ADR-0001 counts Holdback's own maintainers as one party).
+- **Simplicity:** agents must see the same API, and removing the Prividium must not change the protocol (the bar above).
+What it would add over ADR-0024 on L1: amounts, addresses and timing hidden from the public. The local probe in §5 tests exactly these points (per-escrow permissioning, admin removal, what the operator can read).
+
+**Bias to simplicity (Rafa, 2026-11-02).** The goal is an elegant, simple, unified API over a hard protocol. Adopt a fragment only if agents still see the same API and the protocol gets simpler or strictly more private for the cost; a stack that adds an identity provider, databases or a permissioned sequencer to every deal fails that bar unless it can be hidden entirely behind the operator API and removed without changing the protocol.
+
+**The idea.** Each escrow runs inside its own short-lived private instance built from shared Prividium architecture, whose only participants are the two parties and their named adjudicators. The deal's content, negotiation and judgment happen there, unseen by operators or anyone else. The assets never leave Ethereum mainnet: they sit in the L1 escrow contract, which releases or refunds as a byproduct of the fragment's proven outcome. When the deal is final, the fragment is retired.
+
+**Proposed architecture.**
+
+| Layer | Where | What it holds or does |
+| --- | --- | --- |
+| Assets | Ethereum mainnet: the escrow rules contract (Phase 2, no admin keys) | USDC or any asset, locked at funding. Releases or refunds only on a valid proof of the fragment's outcome, or on a permissionless timeout trigger (reclaim, default) |
+| Deal | One Prividium fragment per escrow | The terms, messages, deliveries and the judgment record; participants are the buyer, the seller and the adjudicators named in the terms; operators relay, but cannot read |
+| Shared infrastructure | Prividium (shared prover, sequencing and data services) | Instantiates fragments on demand, proves each fragment's final state to L1, and keeps per-fragment state isolated |
+| Bridge of outcome, not of assets | The L1 contract verifies the fragment's proof | Only the outcome (release, refund, split, default) and a commitment to the private record cross to L1 |
+
+**Lifecycle.**
+
+1. **Open:** the parties agree the terms. The L1 contract records the commitment hash, the hold and the deadlines, and a fragment is created with only the named participants.
+2. **Run:** offers, delivery, the adjudicator's private judgment and any appeal happen inside the fragment.
+3. **Settle:** the fragment proves its final state. The L1 contract verifies the proof and moves the assets once: release, refund or the agreed split.
+4. **Fall back:** if the fragment stalls past a deadline, anyone can trigger the L1 timeout path (reclaim or default) without the fragment. No sequencer or operator can block settlement.
+5. **Retire:** the fragment closes. Each party keeps the signed private record, and L1 keeps the commitment to it (D26 evidence).
+
+**What it must show to pass the litmus tests.**
+
+- **Neutrality:** no fragment operator, sequencer or prover can stop a valid deal or move held funds outside the terms. The L1 timeout path works with the fragment offline (a `neutrality.` fixture).
+- **The hold:** funds stay locked in the L1 contract, which has no admin keys, and move once.
+- **Defended judgment:** the panel runs inside the fragment with the same defenses, and the proof binds the judgment record hash.
+
+**Questions to answer.**
+
+- Which proof the L1 contract verifies, and the gas cost per deal on mainnet (with D33's fee in mind).
+- What stays public on L1: the funding and payout transfers show amounts and addresses unless the token is confidential. That needs its own answer (confidential tokens, or a shielded pool).
+- Who sequences each fragment (a party, the adjudicator or a neutral prover), and how either party forces the outcome or a default to L1 if it stalls.
+- Spin-up time and cost per fragment, against deal size, and how many fragments the shared infrastructure can run at once.
+- Data availability: where the private record lives after retirement, and how each party and a court can verify it later.
+- Whether Prividium supports ephemeral, per-escrow participant sets today, or what it would take.
+
+**Deliverables of the exploration.** A short design doc and an ADR draft; a spike on Sepolia showing one deal settle on L1 from a fragment's proof, including the stalled-fragment timeout path; measured gas, latency and cost per deal; a recommendation on whether to adopt it for T-207.

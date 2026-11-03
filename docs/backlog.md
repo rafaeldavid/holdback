@@ -8,14 +8,12 @@ Deferred until after the basic demo. The demo assumes honest parties (Rafa, Octo
 | --- | --- | --- |
 | Funding service behind `/v1/funding/quote` and `/v1/funding/sessions`: swaps from another ERC-20, ETH wrapped to WETH, bridges (e.g. CCTP), and card or bank on-ramps (a Stripe test-mode ramp first), delivering the deal token to the buyer's address before the hold. Stub only today: the `FundingService` interface and routes that answer 404. Smaller follow-ups from the same ADR: `allowedTokens` optional in v0.9 (with ADR-0025), Permit2 and a WETH fixture on anvil, map CPP's `TokenCollectionFailed` to a problem type, advisory token warnings in prepare | Rafa, 2026-11-02; ADR-0026, D38 | After Phase 2; supersedes the Phase 5 Stripe on-ramp line in `docs/plan.md` when built |
 | Club-chosen permissioned settlement chain (for example Matter Labs Prividium), with a signed residual "the club's chain operator can halt settlement" | ADR-0004 evaluation, 2026-10-31 | A regulated club asks to run its own chain (Phase 5 or later); needs its own ADR |
-| ~~Model `authorizationExpiry` in SimChain and differential-test it against the Phase 2 contract~~ Done in T-205: SimChain refuses an early accept or a seller-paying mutual settlement at or after `fallbackBy + appealDecideSec + expiryMarginSec`, and the anvil test shows the contract refusing the same call at the same second | T-006 | Done (T-205) |
 | Agent registration, `AgentRevocation` and signed `MemberAdmission` at run time; SimChain reads mandates and members from genesis only | T-006 | T-007, when operators register agents live; with D22 revocation |
 | Persistence: SimChain is in memory; the journal replays it, but nothing writes it to disk | T-006 | T-007, when an operator restarts |
 | Release a reservation when `appealBy` passes with no appeal, without waiting for the appeal-expiry trigger (the coverage gate counts it as encumbered until someone triggers) | T-006 | When adjudicators run many concurrent commitments |
 | `Dispute` must carry envelopes for all three adjudicators: no Phase 1 state accepts a `Dispute`, so SimChain has no guard yet | T-006; ADR-0020 | Phase 4, optimistic mode |
 | `termsHash` and `recordHash` on every event: the schema requires them on offered, agreed and decided events and forbids extra fields on settled and bond payloads | T-006; ADR-0020 | Next schema bump |
 | Idempotency records keep successful results only; a refused call with the same key can be retried | T-006 | T-007, if clients expect refusals replayed |
-| ~~Beacon verification on chain: check the drand quicknet BLS signature of the fallback and appeal beacon value with EIP-2537 (ADR-0018 §4); pin drand's round formula~~ Done in T-209: `DrandQuicknetBeacon` verifies the round (RFC 9380 hash to G1, pairing against the quicknet key), `HoldbackRules` takes the beacon as a constructor immutable and requires value = sha256(signature) for fallback and appeal decisions; round 1 at genesis everywhere (ADR-0018 amendment) | T-202 (split out) | Done |
 | The drand verifier is unaudited (RFC 9380 hash to G1 and point decompression written for T-209, checked against seven real quicknet rounds and @noble/curves); it needs an external review before Sepolia or mainnet, as ADR-0018 §4 asked of the reference verifier. The PR 77 review asks a reviewer from another model family to check: decompression edge cases (flags, x = 0, y at exactly (p−1)/2, the carry when adding 4), that EIP-2537's `MAP_FP_TO_G1` cofactor clearing matches RFC 9380's `h_eff` on geth, reth and revm, and that the failing-pairing gas and precompile addresses are the same on Sepolia and mainnet | T-209 | Before T-206's Sepolia deployment |
 | Nothing checks which beacon a deployed rules contract uses: the constructor takes any `IHoldbackBeacon`, and `SimBeacon`'s chain-31337 guard stops only that bytecode. A rules contract over a lookalike beacon (for example one returning `keccak256(proof)`) would let the fallback or appeal adjudicator choose the seed again (litmus test 3). The parties' signatures bind the rules address, which fixes `BEACON` for good, so the check belongs before signing: the deploy script and the agent's domain check ("operator proposes, agent verifies") confirm `rules.BEACON().codehash` equals the `DrandQuicknetBeacon` runtime (deterministic) on any chain but 31337; spell it out in `llms.txt`. A constructor check is the alternative, at a cost in bytes from the 525 left | PR 77 review (T-209) | T-206, before Sepolia |
 | Flaky timeouts under load: `packages/testkit/src/judgment.test.ts` ("draws the same panel…", 6.5 s against the 5 s limit) and `apps/demo/agents/agents.test.ts` ("determinism") time out when `forge test` runs at the same time; both pass alone and in CI. Reproduced on main (PR 77 review) | T-209 | Raise those tests' timeouts or run forge after vitest in `pnpm verify` |
@@ -128,7 +126,6 @@ Deferred until after the basic demo. The demo assumes honest parties (Rafa, Octo
 
 | Item | Source | When it matters |
 | --- | --- | --- |
-| ~~Read authentication (`ReadToken`), pseudonymous identity mode~~ done in T-207 stage 2a (ADR-0024). Remaining: private judgment records and time-locked key release, below | ADR-0020 | Phase 2 |
 | Adjudicator opens `privateTerms` with its registered key, verifies both body hashes before `AdjudicatorAcceptance` (D32), checks the seller's `Delegation`, and judges from the opened bodies. Today the sim primary accepts sealed offers unread, and would fail at decision time, so a private sim deal settles only by early accept or mutual settlement | T-207 2a handoff; ADR-0024 §5 | Next T-207 slice (adjudicator lane) |
 | Sealed judgment records: a fresh key per record sealed to buyer and seller (D26) and to the appeal adjudicator on escalation; `recordKeys` in the disclosure body (reserved, refused today) | ADR-0024 §2–3 | With the adjudicator slice |
 | Fallback and appeal body envelopes: either party adds envelopes time-locked to the beacon round at `judgeBy` or `appealBy` (union rule); `escalate` and appeals carry body envelopes for the appeal adjudicator. Body keys with a `beacon-round` unlock are refused until then | ADR-0024 §5; ADR-0020 | With tlock (ADR-0018) |
@@ -140,62 +137,7 @@ Deferred until after the basic demo. The demo assumes honest parties (Rafa, Octo
 | Amount privacy: confidential tokens as a rulebook token option; a privacy chain weighed under D4 | D16; ADR-0020 | Phase 2 chain choice |
 | Retention and erasure rule (BSA five years vs GDPR Art. 17), a named reporting entity, an open-rulebook compliance posture | Review F4 | Before any real user data; Phase 5 |
 | Local-store URI scheme; ciphertext and envelope byte layouts in `docs/api.md`; binding an envelope's address label to the published encryption key; AAD binding ciphertext to a commitment | T-014 Handoff | T-007 (layouts) and Phase 2 |
-| ~~Commitment metadata privacy for unauthenticated reads (residual 9)~~ narrowed to the settlement projection in T-207 stage 2a (ADR-0024) | D13; ADR-0017 | Done for private and judgment deals |
-| Evaluate Prividium for private deals: the single-use fragment architecture below | Rafa, 2026-11-01; D4 update | With T-207 private deals |
-
-## Exploration: a single-use Prividium fragment per escrow
-
-Proposed by Rafa on 2026-11-01. To explore with T-207 (private deals), after the Phase 2 contracts exist on Sepolia. Not a decision: a research and spike task.
-
-**Sources (Rafa, 2026-11-02).** Matter Labs' local Prividium stack, https://github.com/matter-labs/local-prividium (Docker Compose: Prividium API with permissions and protected RPC, admin and user panels, Keycloak, PostgreSQL, a zkSync OS sequencer, an Anvil L1, block explorer, webhooks, metrics; images from a private quay.io registry, credentials `PRIVIDIUM_DOCKER_USERNAME` / `PRIVIDIUM_DOCKER_PASSWORD` in `.env`, login with `pnpm prividium:login`), and an institutional demo with an intraday repo flow, https://github.com/JackHamer09/prividium-institutional-demo#intraday-repo.
-
-**Research pass (2026-11-02): recommend park, pending Rafa.** `docs/research/prividium-fragment.md`: Prividium is a single-operator permissioned validium; its admin can read the whole chain, bypass permission checks, halt the sequencer and withhold data, so it is private from outsiders but not from its operator (fails D4's 2026-11-01 requirement and ADR-0001 unless the L1 timeout carries every deal). One chain per escrow is not a supported shape (no chain-creation API; per-batch L1 verification would cost more than today's whole deal). The realistic shape is a shared chain with per-deal permissions, which is ADR-0004's club-chosen chain. No shape keeps the agent API identical while making the protocol simpler or more private. An optional half-day local probe and its pass/fail criteria are in the memo; Docker is not on Rafa's Mac, and a cloud-environment check is under way.
-
-**Candidate shape B (Rafa, 2026-11-02): one ’crow-operated Prividium, RBAC per escrow, multisig admin, admin keys burned later.** ’crow runs one shared Prividium; each new escrow gets roles for exactly its buyer, seller and named adjudicators; a multisig holds the admin role; the operator only sets up what each escrow needs; once it works, the admin keys are burned. What it would take to pass the litmus tests:
-- **Assets stay in the L1 escrow** and every L1 timeout works without the Prividium, so the chain is a private execution and evidence venue, never custody (ADR-0002, ADR-0001: a halted sequencer must not stop settlement).
-- **Per-escrow permissions derived from the signed terms by code**, not granted by an admin API call: otherwise burning the admin keys also freezes onboarding of new escrows. Open question for Matter Labs: can permissions be governed by an on-chain contract?
-- **Burning the admin role is not burning the operator.** The sequencer and prover keys (commit, prove, execute on L1) stay with whoever runs the chain, and the sequencer executes every transaction in the clear, so ’crow would still read every deal and could halt or censor, against D34 (the operator does not read the deal) unless deal payloads stay encrypted end to end as in ADR-0024, which removes most of Prividium's benefit. Open questions: can the chain run with no `full_read_access` role, with the admin role removed, and with sequencing outside ’crow?
-- **The multisig's signers must be independent of ’crow** (ADR-0001 counts Holdback's own maintainers as one party).
-- **Simplicity:** agents must see the same API, and removing the Prividium must not change the protocol (the bar above).
-What it would add over ADR-0024 on L1: amounts, addresses and timing hidden from the public. The local probe in the memo tests exactly these points (per-escrow permissioning, admin removal, what the operator can read).
-
-**Bias to simplicity (Rafa, 2026-11-02).** The goal is an elegant, simple, unified API over a hard protocol. Adopt a fragment only if agents still see the same API and the protocol gets simpler or strictly more private for the cost; a stack that adds an identity provider, databases or a permissioned sequencer to every deal fails that bar unless it can be hidden entirely behind the operator API and removed without changing the protocol.
-
-**The idea.** Each escrow runs inside its own short-lived private instance built from shared Prividium architecture, whose only participants are the two parties and their named adjudicators. The deal's content, negotiation and judgment happen there, unseen by operators or anyone else. The assets never leave Ethereum mainnet: they sit in the L1 escrow contract, which releases or refunds as a byproduct of the fragment's proven outcome. When the deal is final, the fragment is retired.
-
-**Proposed architecture.**
-
-| Layer | Where | What it holds or does |
-| --- | --- | --- |
-| Assets | Ethereum mainnet: the escrow rules contract (Phase 2, no admin keys) | USDC or any asset, locked at funding. Releases or refunds only on a valid proof of the fragment's outcome, or on a permissionless timeout trigger (reclaim, default) |
-| Deal | One Prividium fragment per escrow | The terms, messages, deliveries and the judgment record; participants are the buyer, the seller and the adjudicators named in the terms; operators relay, but cannot read |
-| Shared infrastructure | Prividium (shared prover, sequencing and data services) | Instantiates fragments on demand, proves each fragment's final state to L1, and keeps per-fragment state isolated |
-| Bridge of outcome, not of assets | The L1 contract verifies the fragment's proof | Only the outcome (release, refund, split, default) and a commitment to the private record cross to L1 |
-
-**Lifecycle.**
-
-1. **Open:** the parties agree the terms. The L1 contract records the commitment hash, the hold and the deadlines, and a fragment is created with only the named participants.
-2. **Run:** offers, delivery, the adjudicator's private judgment and any appeal happen inside the fragment.
-3. **Settle:** the fragment proves its final state. The L1 contract verifies the proof and moves the assets once: release, refund or the agreed split.
-4. **Fall back:** if the fragment stalls past a deadline, anyone can trigger the L1 timeout path (reclaim or default) without the fragment. No sequencer or operator can block settlement.
-5. **Retire:** the fragment closes. Each party keeps the signed private record, and L1 keeps the commitment to it (D26 evidence).
-
-**What it must show to pass the litmus tests.**
-
-- **Neutrality:** no fragment operator, sequencer or prover can stop a valid deal or move held funds outside the terms. The L1 timeout path works with the fragment offline (a `neutrality.` fixture).
-- **The hold:** funds stay locked in the L1 contract, which has no admin keys, and move once.
-- **Defended judgment:** the panel runs inside the fragment with the same defenses, and the proof binds the judgment record hash.
-
-**Questions to answer.**
-
-- Which proof the L1 contract verifies, and the gas cost per deal on mainnet (with D33's fee in mind).
-- What stays public on L1: the funding and payout transfers show amounts and addresses unless the token is confidential. That needs its own answer (confidential tokens, or a shielded pool).
-- Who sequences each fragment (a party, the adjudicator or a neutral prover), and how either party forces the outcome or a default to L1 if it stalls.
-- Spin-up time and cost per fragment, against deal size, and how many fragments the shared infrastructure can run at once.
-- Data availability: where the private record lives after retirement, and how each party and a court can verify it later.
-- Whether Prividium supports ephemeral, per-escrow participant sets today, or what it would take.
-
-**Deliverables of the exploration.** A short design doc and an ADR draft; a spike on Sepolia showing one deal settle on L1 from a fragment's proof, including the stalled-fragment timeout path; measured gas, latency and cost per deal; a recommendation on whether to adopt it for T-207.
+| Evaluate Prividium for private deals: a single-use fragment per escrow, or one ’crow-operated Prividium with per-escrow roles (T-208). The proposal, the research pass and its recommendation to park, pending Rafa, are in `docs/research/prividium-fragment.md` | Rafa, 2026-11-01 and 2026-11-02; D4 update | After T-206, if Rafa does not park it |
 
 ## Far future (Rafa, 2026-11-02)
 
@@ -206,7 +148,7 @@ Explorations for after the protocol works on L1. None is scheduled; each starts 
 | **Tax liability for agents and their owners.** Which deals create a taxable event, for whom (the agent's owner, not the agent), in which jurisdiction; sales tax or VAT on services agents buy; withholding and information reporting (for example 1099-style returns or DAC8 crypto reporting) for operators, adjudicators earning fees and bond backers; the tax treatment of a crypto settlement token versus fiat. The protocol stays rails (D35) and law stays the backstop (D26): it supplies a signed, attributable record and receipts an owner can file from (amounts, dates, counterparty keys, fees), and any tax service is an optional operator or ramp service. Research with a tax adviser before any public, real-money launch | Rafa, 2026-11-02 | Before mainnet with real money |
 | **Minimise gas.** Today a happy-path deal costs about 397k gas in two transactions (T-205, measured); ideas: the decision carrying the delivery (backlog, T-205), batching many deals' settlements, a cheaper L2 or a fragment (below), calldata compression, storing even less per deal | Rafa, 2026-11-02; T-205 | With D4 before L1 deployment; ongoing |
 | **Single-block wallet generation and atomic onboarding.** An agent gets a fresh address and its funds land in the neutral holding contract in one atomic step (for example a counterfactual or EIP-7702 account, funded by the ramp straight into `agreeAndFund`), so funds are either with the agent in fiat or, almost at once, in the hold, never in an intermediate wallet the agent or a ramp controls. Builds on the funding service (ADR-0026) and per-deal keys (ADR-0024). Questions: can a ramp deliver into a contract call atomically; who pays gas for a fresh address; chargeback exposure if the hold opens before the card payment settles | Rafa, 2026-11-02; ADR-0026 | After the funding service exists |
-| **An agent-to-agent L2 fragment per escrow, with zero-knowledge proofs.** Each deal runs in its own short-lived rollup fragment between the two agents (and their adjudicators): offers, deliveries, decisions and appeals happen off L1 at near-zero gas, and one validity proof plus the payout settles on L1. Independently verifiable by anyone from the proof; the escape hatch is a permissionless L1 timeout if the fragment stalls. Generalises the Prividium exploration above beyond one vendor. Questions: proving cost and latency per deal against today's ~397k gas; who runs the prover (any party, so no single one can halt); data availability for the parties' evidence; whether the L1 hold must still open first | Rafa, 2026-11-02; T-208 | Far future; after T-208's findings |
+| **An agent-to-agent L2 fragment per escrow, with zero-knowledge proofs.** Each deal runs in its own short-lived rollup fragment between the two agents (and their adjudicators): offers, deliveries, decisions and appeals happen off L1 at near-zero gas, and one validity proof plus the payout settles on L1. Independently verifiable by anyone from the proof; the escape hatch is a permissionless L1 timeout if the fragment stalls. Generalises the Prividium exploration (`docs/research/prividium-fragment.md`) beyond one vendor. Questions: proving cost and latency per deal against today's ~397k gas; who runs the prover (any party, so no single one can halt); data availability for the parties' evidence; whether the L1 hold must still open first | Rafa, 2026-11-02; T-208 | Far future; after T-208's findings |
 
 ## API
 
@@ -236,11 +178,9 @@ Explorations for after the protocol works on L1. None is scheduled; each starts 
 | More list filters (`club`, `appealState`, dates) | ADR-0017 | When the viewer or MCP needs them |
 | Run-time `POST /v1/clubs`, `/members`, `/agents`, `/adjudicators` and revocations; the operator serves genesis reads only | T-007 | With the T-006 registration item; D22 revocation |
 | `GET /v1/commitments/{id}/key` takes `?recipient=` with no buyer-signed request; envelopes are encrypted to the recipient and already public in `key.released` events | T-007 | Phase 2 read authentication |
-| ~~`GET /v1/commitments/{id}/judgment`, `POST /v1/adjudicators/{address}/quote`, `POST /v1/webhooks`, `GET /v1/audit/verify`, `/publish`, `/disputes`: not served (404)~~ The judgment record is served (T-009); the rest are planned routes that answer 501 `not_implemented` with a `Link` to their source, read from `x-holdback-planned` (T-030, D39) | T-007 | Done (T-030) |
 | Chain-mode `202 pending` with `submissionId`; the operator answers synchronously as on SimChain | T-007 | Phase 2 (T-202) |
 | Operator state is in memory: idempotency records, receipts, rate-limit windows and the event index are lost on restart (SimChain replay rebuilds the index, not the records) | T-007 | When an operator restarts mid-demo; Phase 5 operators |
 | Operator stores successful responses only; a refused call can be retried under its key, matching SimChain | T-007 | If clients expect refusals replayed |
-| ~~Rate limiting is a fixed window per signer address as named in the body; it does not verify the signature first, so a caller can spend another signer's budget~~ Done in T-030: every write is counted against its client at entry, and the count moves to the signer only for a fresh relay the settlement layer accepted (its signature verified); refusals, unsigned writes, dry runs and replays stay on the client (ADR-0024 §1, C4) | T-007 | Done (T-030) |
 | `/v1/events` SSE polls the settlement log every 50 ms and ignores `Last-Event-ID`; no backpressure | T-007 | Phase 2, chain event subscription |
 | An operator binary (CLI entry that reads `HOLDBACK_*` env and genesis); today operators start in process through `startOperator` | T-007 | T-013 if the demo runs operators as processes |
 | `neutrality.operator-*` and `error.dry-run-has-no-effects` as `.scenario.yaml` fixtures; today they are vitest cases in `apps/operator/src/neutrality.test.ts` and `operator.test.ts` | T-007 | When testkit drives HTTP operators |
@@ -306,7 +246,6 @@ The hosted demo is the happy path only (Rafa, 2026-11-01); these edge cases are 
 
 | Item | Source | When it matters |
 | --- | --- | --- |
-| ~~`POST /v1/faucet` and `GET /` are served by the demo Worker, not the operator router, so they are not in `spec/openapi.json`; describe them there (a demo-only tag) or in a separate demo document~~ Done in T-030: the operator serves the one faucet (`fundFromFaucet`, tag `demo`) and `GET /` is the discovery document, whose `demo` object carries the club, token, adjudicators by role and faucet | T-026 | Done (T-030) |
 | Faucet abuse: per-client limits are in memory (reset when the Durable Object restarts) and keyed by IP; per-address limits persist. No proof of work or captcha; total supply is unbounded test tokens | T-026 | If the demo is spammed |
 | Journal growth: every request that moves the clock adds an `advance` entry, and replay on wake re-verifies every signature; snapshot the chain (or compact clock entries) when the journal grows | T-026 | After a few thousand requests, or when wake time nears the CPU limit |
 | A configuration change (`MIN_WINDOW_SEC`) applies only to a fresh world (the window is pinned in the world's stored meta); a reset is renaming `WORLD_NAME` in `worker.ts` and redeploying. No admin route resets or migrates a world | T-026 | When the demo club's rules need to change |

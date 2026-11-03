@@ -16,7 +16,7 @@ All on Rafa's Cloudflare account (its ID goes in `CLOUDFLARE_ACCOUNT_ID` in the 
 
 **Demo settings** (in `apps/demo-cloud/wrangler.op1.jsonc` vars): minimum window 60 s; operator fee 1 bp, minimum 0.01 tUSD (D33, ADR-0023). Live judges: Anthropic and DeepSeek, pinned in `config/judges-live.yaml`, capped at 30 calls a day (`LIVE_JUDGE_CALLS_PER_DAY`); past the cap, or without keys, panels are scripted and every verdict says so.
 
-**Schema:** the code on main is schema v0.8 (private deals, ADR-0024). The live demo still runs v0.7 until the next redeploy; `site/llms.txt` says so.
+**Schema:** the code on main and the live demo both run schema v0.8 (private deals, ADR-0024); `/v1/status` reports `schemaVersion` (redeployed in PRs 76 and 90).
 
 ## Secrets
 
