@@ -297,13 +297,13 @@ Every step is **agent** unless marked. Times are guessed.
      - takes exactly two arguments: a role, which must be `builder`, `reviewer` or `verifier`, and a task ID matching `T-[0-9]{3}`. It refuses anything else. Above all it refuses `deploy`, `tick` and `minter`: deploy sessions are started by Rafa over `ssh`, never by the tick.
      - picks a free slot for the role itself. It kills that slot user's processes and its runner's, and wipes that runner's folder.
      - rebuilds the slot user's home from its role's root-owned template in a temporary folder, then moves it into place. It never runs `rm -rf` on a path built from input, and uses `set -euo pipefail` with no shell interpolation.
-     - fetches `main` into a root-owned clone itself, never through `tick`. It builds the brief with `brief.mjs` from that clone and the task file on `main`, then starts `claude -p` as the slot user.
+     - fetches `main` into a root-owned clone itself, never through `tick`. It drops to the slot user before it runs any `node`: as that user, it builds the brief with `brief.mjs` from the clone and the task file on `main`, then starts `claude -p`. The launcher's root part only manages users, processes and files. Repository code and its dependencies come from `pnpm-lock.yaml`, which is tier 2, so running them as root would let one bad dependency read both App keys.
 
      `tick` never passes a prompt, so nobody who holds the tick can tell a reviewer session what to approve. The tick is a plain process with no model (T-048).
    - installs `/opt/crow/deploy <tag> <sha>`, a root-owned wrapper whose source, `scripts/dev-env/deploy.sh`, is tier 3. The `deploy` user may run it, through sudo, as `cfdeploy`, the only user that can read the Cloudflare token. It does no deploy any other way: the token is out of its reach, so a deploy session cannot run wrangler around the check. The wrapper:
      - checks that `git rev-parse <tag>^{commit}` equals the SHA in Rafa's go-ahead;
      - clones that commit fresh into a new folder and runs `pnpm install --frozen-lockfile` there;
-     - deploys from that clone with `pnpm demo-cloud:deploy`, never from a working tree a session controls.
+     - deploys from that clone with `pnpm demo-cloud:deploy`, never from a working tree a session controls. The whole wrapper runs as `cfdeploy`, never as root, so the deploy code can reach the Cloudflare token, which it needs, and nothing else.
 
      It also offers the read-only commands the runbook uses, such as `tail <worker>`. The check sits outside the tier 2 deploy code it protects (T-050 step 9).
    - creates `/home/minter/.config/crow/` with mode 700, so only `minter` can read the two App keys;
@@ -371,7 +371,8 @@ Every step is **agent** unless marked. Times are guessed.
     - `reviewer-1` can run a command as `runner-reviewer-1`, and as no other runner. No runner can read any role's home, and no role user can read `/srv/crow/runner/`;
     - a symlink planted in a runner's clone, pointing at an App key, is not followed when the reviewer reads results;
     - `tick` can run nothing as another user except `/opt/crow/start-session <role> <task-id>`. The launcher refuses `deploy`, `tick`, `minter`, a bad task ID and an extra argument;
-    - `deploy` cannot read the Cloudflare token. It can run `/opt/crow/deploy` as `cfdeploy`, and the wrapper refuses a tag whose commit differs from the given SHA;
+    - `deploy` cannot read the Cloudflare token. It can run `/opt/crow/deploy` as `cfdeploy`, and the wrapper refuses a tag whose commit differs from the given SHA. A deploy session that follows a wrangler step from a doc therefore fails for lack of a token;
+    - no repository script and no `node` or `pnpm` process runs as root, during a launch or a deploy;
     - starting a session in one slot leaves another slot's runner processes running, and no runner process of its own slot survives;
     - an approval by `crow-review` on a test PR counts toward the required review, which shows that the token's narrowing to Contents read does not cancel the App's write access (inferred until measured).
    - **No personal Claude login (B):** no `~/.claude/.credentials.json` for any role user (inferred path of Claude Code's login store on Linux), and no Remote Control process.
@@ -395,7 +396,7 @@ Every step is **agent** unless marked. Times are guessed.
 - [ ] `pnpm vitest run tests/dev-env.test.ts` passes, with no network, covering:
   - the setup script's checks;
   - `vm-users.sh`'s users, modes, managed settings, intake folder and sudoers rules, on a fixture root, with `visudo -c` accepting the rules and git's `get` call matching them;
-  - the launcher, fed hostile arguments (`../etc`, names with spaces, an extra argument, a symlinked home, the roles `deploy`, `tick` and `minter`), refusing each one;
+  - the launcher, fed hostile arguments (`../etc`, names with spaces, an extra argument, a symlinked home, the roles `deploy`, `tick` and `minter`), refusing each one, and running `node` only after dropping to the slot user;
   - the deploy wrapper, refusing a tag that points elsewhere;
   - the token minter on a throwaway key, including its refusal of other arguments;
   - the smoke test's parsing.
