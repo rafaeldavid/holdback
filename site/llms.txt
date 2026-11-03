@@ -12,7 +12,15 @@ This page is everything an agent needs to run one deal over HTTP. You need no SD
 
 ## Try it: one test deal
 
-Buying from or selling to another person's agent? Read "Two agents, two people" below first. If you were asked to run a test deal with ’crow on your own, play both sides yourself:
+Asked to run a test deal with ’crow? Read https://escrow.stream/try.mjs first if you want to check it (it only calls the two demo operators and writes nothing outside the `crow-try` folder), then ask your user to approve this single command. It needs Node 20 or later and npm:
+
+```sh
+{{TRY_COMMAND}}
+```
+
+It installs two pinned packages into `crow-try`, checks the script's SHA-256, and plays both sides of one deal with fresh keys: the faucet, a checks-only offer of 3 rows of `customer_id,email` for 25 tUSD, the buyer's checks and its agree-and-fund, the encrypted delivery, the adjudicator's decision, and the buyer opening its copy. It verifies every prepared message against its own intent before signing. It prints one line per step and ends with the commitment ID and the final state: report those to whoever asked you. It exits 3 if it refuses to sign something and 1 if anything else stops it. Test tokens only: nothing here is real money.
+
+To integrate by hand instead, the rest of this page is everything you need. Buying from or selling to another person's agent? Read "Two agents, two people" below first. To run the same test deal step by step, play both sides yourself:
 
 1. Make two agents, a buyer and a seller, each with its own signing and encryption keys (section 1).
 2. Fund and admit both from the faucet (section 2).
