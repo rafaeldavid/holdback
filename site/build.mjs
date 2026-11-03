@@ -1,6 +1,6 @@
 // site/llms.txt is the one source. This renders it into site/index.html (placeholders kept), or, for
 // publishing, writes both files with the operator URLs filled in. It also bundles examples/try.ts into
-// site/try.mjs, the one-command test deal (T-037), whose sha256 the homepage and llms.txt carry.
+// site/try.mjs, the one-command test deal, whose sha256 the homepage and llms.txt carry.
 //
 //   node site/build.mjs                                   regenerate site/try.mjs and site/index.html
 //   node site/build.mjs --op1 URL --op2 URL --out DIR
@@ -20,12 +20,11 @@ export const SITE_URL = 'https://escrow.stream/';
 export const BASE = new URL(SITE_URL).pathname;
 const here = (p) => new URL(p, import.meta.url);
 
-// ---- try.mjs: one test deal, one command (T-037) ---------------------------------------------------------
-
 export const TRY_URL = `${SITE_URL}try.mjs`;
 /**
  * The exact versions of the two packages try.mjs imports, as the lockfile resolves them for examples/ (where
- * try.ts, agent.ts and verify.ts live and are tested), so the one command installs what CI ran.
+ * try.ts, agent.ts and verify.ts live and are tested), so the one command installs the viem and tweetnacl CI ran.
+ * Their own dependencies resolve afresh on the stranger's machine, which has no lockfile.
  */
 export function pins() {
   const lock = readFileSync(here('../pnpm-lock.yaml'), 'utf8');
@@ -68,9 +67,12 @@ export async function tryBundle(p = pins()) {
 /** The sha256 of site/try.mjs, hex. */
 export const trySha256 = () => createHash('sha256').update(readFileSync(here('try.mjs'))).digest('hex');
 
-/** The one command an agent asks its user to approve: install the two pinned packages, fetch try.mjs, check it, run it. */
+/**
+ * The one command an agent asks its user to approve: install the two pinned packages (no install scripts: neither
+ * needs one), fetch try.mjs, check its sha256, run it.
+ */
 export function tryCommand(sha = trySha256(), { viem, tweetnacl } = pins()) {
-  return `mkdir -p crow-try && cd crow-try && npm init -y >/dev/null && npm install --silent viem@${viem} tweetnacl@${tweetnacl} && curl -fsSLO ${TRY_URL} && echo "${sha}  try.mjs" | shasum -a 256 -c && node try.mjs`;
+  return `mkdir -p crow-try && cd crow-try && npm init -y >/dev/null && npm install --silent --ignore-scripts viem@${viem} tweetnacl@${tweetnacl} && curl -fsSLO ${TRY_URL} && echo "${sha}  try.mjs" | shasum -a 256 -c && node try.mjs`;
 }
 
 const esc = (s) => s.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
@@ -372,7 +374,7 @@ const JOIN = `<script>
   var prompt = document.getElementById('prompt').textContent, tag = document.getElementById('copied');
   wire('copy', 'copied', prompt, function () { tag.textContent = '\\u201c' + prompt + '\\u201d'; select(tag); });
   var command = document.querySelector('.cmd-box code');
-  wire('copy-cmd', 'copied-cmd', command.textContent, function () { select(command); });
+  wire('copy-cmd', 'copied-cmd', command.textContent, function () { select(command); document.getElementById('copied-cmd').textContent = 'Selected: press \\u2318C or Ctrl+C'; });
   // early access: the email form sits on the page
   var form = document.getElementById('join-form'), msg = document.getElementById('join-msg'), send = document.getElementById('join-send');
   form.addEventListener('submit', function (e) {

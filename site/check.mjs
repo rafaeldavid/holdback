@@ -12,7 +12,7 @@
 //    vectors, the worked checks example and every route with docs/api.md.
 // 5. Problem pages (D39): one page per problem type the operator answers, with its status and title.
 // 6. The agent guide spells out every encoding an agent computes (D39): no knowledge hides in examples/.
-// 7. try.mjs (T-037): site/try.mjs is the current bundle of examples/try.ts, importing only viem and tweetnacl;
+// 7. try.mjs: site/try.mjs is the current bundle of examples/try.ts, importing only viem and tweetnacl;
 //    the one command (pinned versions, its sha256) heads "Try it" in a filled llms.txt and sits in the page.
 import { existsSync, readFileSync } from 'node:fs';
 import { BASE, filled, page, pins, problemPages, SITE_URL, strip, tryBundle, tryCommand, TRY_URL } from './build.mjs';

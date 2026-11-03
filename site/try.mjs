@@ -1606,6 +1606,8 @@ async function main() {
 	say(`${done.escrowState}: ${decided}`);
 	if (done.escrowState !== "Released") throw new Error(`the deal ended ${done.escrowState}, not Released`);
 	step = "open";
+	const recorded = await buyer.trusted(`/v1/commitments/${id}/events?limit=200`, (x) => x.items.find((e) => e.type === "delivery.submitted")?.payload?.ciphertext?.uri ?? null);
+	if (recorded !== delivery.ciphertext.uri) throw new Error(`the operators record the delivery at ${recorded}, not at ${delivery.ciphertext.uri} where the seller stored it`);
 	const opened = await buyer.openDelivery(id);
 	if (opened !== CSV) throw new Error("the buyer opened something other than what the seller delivered");
 	const rows = opened.trimEnd().split("\n").slice(1);

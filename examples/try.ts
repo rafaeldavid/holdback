@@ -1,4 +1,4 @@
-// One test deal on the ’crow demo, both sides played here with fresh keys (T-037). Test tUSD only: nothing here
+// One test deal on the ’crow demo, both sides played here with fresh keys. Test tUSD only: nothing here
 // is real money. The faucet funds a buyer and a seller; the seller offers 3 rows of customer_id,email for 25 tUSD
 // under three declarative checks; the buyer checks the offer on both operators, then agrees and funds; the seller
 // encrypts and delivers; the adjudicator's checks decide; the buyer opens its copy. Every message an operator
@@ -147,6 +147,9 @@ async function main() {
   if (done.escrowState !== 'Released') throw new Error(`the deal ended ${done.escrowState}, not Released`);
 
   step = 'open'; // the buyer: its released envelope opens the content key; the hashes the seller signed are checked
+  // The ciphertext is fetched from the URI the delivery event records: every operator must record the seller's.
+  const recorded = await buyer.trusted(`/v1/commitments/${id}/events?limit=200`, (x) => x.items.find((e: J) => e.type === 'delivery.submitted')?.payload?.ciphertext?.uri ?? null);
+  if (recorded !== delivery.ciphertext.uri) throw new Error(`the operators record the delivery at ${recorded}, not at ${delivery.ciphertext.uri} where the seller stored it`);
   const opened = await buyer.openDelivery(id);
   if (opened !== CSV) throw new Error('the buyer opened something other than what the seller delivered');
   const rows = opened.trimEnd().split('\n').slice(1);
