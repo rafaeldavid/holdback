@@ -2,7 +2,7 @@
 
 Status: D1–D9 decided October 30, 2026, after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`); the options are kept as the record. D10 to D24 decided October 30 and 31, 2026, each after an independent research pass. D25 to D36 decided October 31 and November 1, 2026, D37 to D40 on November 1 and 2 (Rafa's principles and research-backed choices; D4 was updated on November 1 to target Ethereum mainnet via Sepolia). Newer entries are appended at the end. Owner: Rafa. Each decision has options, a recommendation and the ADR it settles.
 
-Still open (2026-11-03): whether weekly telemetry aggregates are published (D39); ADR-0025, Proposed, to be decided with schema v0.9 (T-033); the ADR-0023 amendment on fee bundling, Proposed (D37); whether to park T-208, the Prividium fragment exploration (the research pass recommends parking; `docs/research/prividium-fragment.md`); and dispute clauses as selectable terms, deferred until after the demo (D29).
+Still open (2026-11-03): whether weekly telemetry aggregates are published (D39); ADR-0025, Proposed, to be decided with schema v0.9 (T-033); the ADR-0023 amendment on fee bundling, Proposed (D37); and dispute clauses as selectable terms, deferred until after the demo (D29).
 
 ## D1. Adopt the neutrality litmus test as the top constraint (ADR-0001)
 
@@ -66,6 +66,8 @@ Phase 1 runs on SimChain, an in-process simulation of the escrow rules, so this 
 **Update 2026-10-31 (earlier, as the settlement chain):** Matter Labs Prividium was evaluated and not adopted *as the chain that holds the money*. It is a single-operator permissioned chain whose operator can gate access, stop the sequencer, block forced inclusion and read everything (ADR-0004). A fifth criterion now applies: anyone can read the public skeleton and submit a signed message without an admin. A club-chosen permissioned chain is in the backlog.
 
 **How the two Prividium notes fit (2026-11-01):** the 2026-10-31 finding stands for Prividium as the chain that holds the money. The 2026-11-01 note asks a different question: whether a Prividium-style private instance can run a deal's private content while the assets stay in the Ethereum L1 escrow (the single-use fragment exploration, now in `docs/research/prividium-fragment.md`). That exploration must answer the 2026-10-31 objections directly: the fragment's operator must not be able to block settlement (the L1 timeout path works with the fragment offline) and must not be able to read the deal. Tracked as T-208, after T-206.
+
+**Parked 2026-11-03 (Rafa):** "Agree on parking prividium, you can add that to a diff roadmap phase on privacy end-to-end". T-208 moves, parked, into the roadmap's Privacy end to end phase (`docs/plan.md`).
 
 ## D5. Liveness default when no adjudicator decides (ADR-0007)
 
