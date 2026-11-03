@@ -267,7 +267,11 @@ contract HoldbackRules is EIP712 {
         } else {
             revert WrongStage(s);
         }
-        if (m.role != role || m.outcome > (role == H.ROLE_APPEAL ? H.OUTCOME_REJECT : H.OUTCOME_ESCALATE)) {
+        // Every role judges the delivered attempt; panelSeed hashes it, so a free attempt would be a free seed.
+        if (
+            m.role != role || m.attempt != d.attempt
+                || m.outcome > (role == H.ROLE_APPEAL ? H.OUTCOME_REJECT : H.OUTCOME_ESCALATE)
+        ) {
             revert InvalidMessage();
         }
         if (block.timestamp >= deadline) revert DeadlinePassed();
@@ -297,7 +301,7 @@ contract HoldbackRules is EIP712 {
         internal
     {
         bool primary = m.role == H.ROLE_PRIMARY;
-        if (m.attempt != d.attempt || m.appealGroundHash != H.EMPTY_HASH) revert InvalidMessage();
+        if (m.appealGroundHash != H.EMPTY_HASH) revert InvalidMessage();
         if (m.outcome == H.OUTCOME_ESCALATE) {
             // No money moves. Reservations move to the appeal adjudicator (all or nothing; partial cover is F5).
             _releaseBonds(t, d.flags);
