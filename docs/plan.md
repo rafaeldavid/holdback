@@ -1,6 +1,6 @@
 # Plan
 
-Iterative. Demo first, then harden one layer per phase. Each phase ends with evidence, a plan update and ADRs closed or deferred. Phases 0 to 2 and Phase 9 have task files in `docs/tasks/` (T-016b does not yet). The architect writes later phases' task files at the start of each phase.
+Iterative. Demo first, then harden one layer per phase. Each phase ends with evidence, a plan update and ADRs closed or deferred. Phases 0 to 2 and Phase 9 have task files in `docs/tasks/` (T-016b does not yet), and Phases 3 and 5 have one each (T-309, T-214). The architect writes later phases' task files at the start of each phase.
 
 **Releases:** v0.1 = Phases 0–3 · v0.2 = Phases 4–5 · v0.3 = Phase 6.
 

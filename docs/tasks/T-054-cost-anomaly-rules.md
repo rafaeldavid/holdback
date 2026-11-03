@@ -26,7 +26,7 @@ Catch in a day what a monthly bill would show in a month: a runaway agent, a spe
 ## Rafa's steps
 
 1. Set the thresholds in `budgets.json` after reading the first report (T-053) (human, 10 min, guessed).
-2. For the CPU guard, after 7 days on Sepolia: in the clone, run `node --env-file=.env.costs scripts/costs/collect.mjs --cpu-report`, which prints only each Worker's p99 and maximum CPU milliseconds per invocation, and give those numbers to the agent (human, 5 min). They carry no billing figure.
+2. For the CPU guard, after 7 days on Sepolia: approve this task's changes as in T-052 (step 7), then, in the clone, run `node --env-file=.env.costs scripts/costs/collect.mjs --cpu-report`, which prints only each Worker's p99 and maximum CPU milliseconds per invocation, and give those numbers to the agent (human, 5 min). They carry no billing figure.
 3. Approve the proposed CPU limits, then deploy them yourself or give an agent the go-ahead (`docs/operations.md`, Deploy) (human).
 
 ## Agent steps
