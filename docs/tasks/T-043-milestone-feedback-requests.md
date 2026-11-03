@@ -2,8 +2,8 @@
 
 - **Lane:** api
 - **Phase:** 9
-- **Depends on:** T-032 (`POST /v1/feedback`, merged in PR 121); T-033 merged, so this change takes the next schema version after v0.9; T-041 (free-text answers go to the quarantine)
-- **Paths this task may touch:** `docs/decisions/ADR-00nn-feedback-requests.md` (new, next free number), `docs/decisions-today.md`, `spec/schemas/` (the `feedbackRequest` object and the version bump), `spec/examples/`, `spec/openapi/paths.json`, `spec/openapi.json` (generated), `apps/operator/src/`, `apps/demo-cloud/` (config only), `docs/api.md`, `site/llms.txt`, `tests/contract/`, `docs/tasks/T-043-milestone-feedback-requests.md`
+- **Depends on:** T-032 (`POST /v1/feedback`, merged in PR 121); T-033 merged, so this change takes the next schema version after v0.9; T-041 (free-text answers go to the quarantine); T-042 (the signal rules this task extends)
+- **Paths this task may touch:** `docs/decisions/ADR-00nn-feedback-requests.md` (new, next free number), `docs/decisions-today.md` (architect, through `/record-decision`), `scripts/ops/signals.mjs` and `tests/agent-ops/signals.test.ts` (the two feedback rules only), `spec/schemas/` (the `feedbackRequest` object and the version bump), `spec/examples/`, `spec/openapi/paths.json`, `spec/openapi.json` (generated), `apps/operator/src/`, `apps/demo-cloud/` (config only), `docs/api.md`, `site/llms.txt`, `tests/contract/`, `docs/tasks/T-043-milestone-feedback-requests.md`
 - **Human gate:** no for the code. Yes for redeploying the public demo with it (a deploy).
 - **Status:** todo
 - **Agent/session:** —
@@ -29,7 +29,8 @@ Ask agents a few fixed questions at the moments that matter (before they sign, a
 - [ ] The operator decides whether to ask by hashing the signer key, the deal ID and the milestone and comparing the result with a rate in basis points from config (design rates: 1,000 for prepare and stage milestones, 10,000 for settlement and appeals, 2,500 per problem type). The same inputs always give the same answer, so the operator asks at most once per deal and milestone; shown by a property test.
 - [ ] The request carries no deal content (a test compares its fields with the schema's closed list).
 - [ ] An answer to an expired or unknown request ID is refused with a problem type, and an unanswered request has no effect.
-- [ ] Ratings and yes-or-no answers become per-milestone aggregates for T-042's rules; free text goes to T-041's quarantine export, never into an aggregate.
+- [ ] Ratings and yes-or-no answers become per-milestone aggregates; free text goes to T-041's feedback export and quarantine, never into an aggregate.
+- [ ] `signals.mjs` gains the design's two feedback rules, with thresholds from `ops.yaml`: a milestone's average ease rating falls below 3 over a week, or more than 3,000 basis points of a milestone's answers say the docs did not answer the question. Each is shown firing and silent on fixture series.
 - [ ] `docs/api.md` and `site/llms.txt` describe the opt-in in one paragraph; `node site/build.mjs && node site/check.mjs` passes.
 
 ## Out of scope

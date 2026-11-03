@@ -2,9 +2,9 @@
 
 - **Lane:** infra
 - **Phase:** 9
-- **Depends on:** T-040
-- **Paths this task may touch:** `scripts/ops/switch.mjs` (new), `scripts/ops/stop.mjs` (new), `scripts/ops/alarms.mjs` (new), `scripts/ops/footer.mjs` (new), `scripts/ops/figures.mjs` (new), `agent-ops/schemas/tick-metrics.schema.json` (new), `agent-ops/README.md` (Kill switch and Observability sections), `tests/agent-ops/switch.test.ts` (new), `tests/agent-ops/observability.test.ts` (new), `docs/tasks/T-047-kill-switch-observability.md`
-- **Human gate:** no to build. Running `stop.mjs` for real deletes remote branches and cancels auto-merges, so it is Rafa's action.
+- **Depends on:** T-040; T-045 (the verdicts the footer lists); T-046 (the recall and agreement data the daily figures use); T-036 merged (`/daily-log`)
+- **Paths this task may touch:** `scripts/ops/switch.mjs` (new), `scripts/ops/stop.mjs` (new), `scripts/ops/alarms.mjs` (new), `scripts/ops/footer.mjs` (new), `scripts/ops/figures.mjs` (new), `scripts/ops/budget.mjs` (new), `agent-ops/hooks/` (new, inert until T-050), `agent-ops/schemas/tick-metrics.schema.json` (new), `agent-ops/README.md` (Kill switch and Observability sections), `tests/agent-ops/switch.test.ts` (new), `tests/agent-ops/observability.test.ts` (new), `docs/tasks/T-047-kill-switch-observability.md`
+- **Human gate:** no to build. Running `stop.mjs` for real deletes remote branches and cancels auto-merges, so it is Rafa's action. On Claude Code cloud the proxy refuses branch deletions, so `stop.mjs` runs from option B or from Rafa's laptop.
 - **Status:** todo
 - **Agent/session:** —
 
@@ -27,7 +27,8 @@ Make the pipeline easy to stop and easy to watch before anything can start it.
 - [ ] Decide and record where a pause lives. `reports/agent-ops/HALT` is local to one clone, but sessions run in separate sandboxes, so the pause needs a place every session and every alarm can reach and only Rafa can clear (for example an open issue with a reserved label). Recorded in Decisions with the reason.
 - [ ] `stop.mjs` defaults to a dry run that lists the claims, auto-merges and sessions it would stop; it acts only with `--confirm`, and `agent-ops/README.md` says that Rafa runs it.
 - [ ] `alarms.mjs` opens an alarm for each of the four conditions: `main` red for 30 minutes, more than half the day's cross-family reviews blocking, spend at the daily cap, a gitleaks hit on an agent branch. Each is shown firing on fixture data.
-- [ ] `footer.mjs` builds and checks the PR footer: the model per role, sessions, reruns, each family's verdict, the tier and the budget used. A PR without a complete footer fails the check.
+- [ ] `footer.mjs` builds and checks the PR footer: the model per role, sessions, reruns, each family's verdict, the tier and the budget used. Run on a PR without a complete footer, it exits non-zero (tested). It joins CI only at T-050 step 5.
+- [ ] A session that exceeds its tier's budget from `ops.yaml` stops and writes a handoff. Decide the mechanism (for example a hook that reads the session's cost and ends it), build it, and show it stopping a scripted session.
 - [ ] `tick-metrics.schema.json` defines the per-tick line in `reports/agent-ops/metrics.jsonl`: tasks ready, claimed, started and refused, with a reason for each refusal.
 - [ ] `figures.mjs` computes the daily pipeline figures (lead time, first-pass approval rate, CI pass rate and reruns, cross-family block, abstention and agreement rates, canary recall, hours waiting on Rafa, spend) for `/daily-log` (T-036). It reads no product telemetry. Decide and record the spend source (session cost reports, or a provider usage API read with a key that build sessions never hold).
 
