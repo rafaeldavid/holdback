@@ -569,6 +569,16 @@ Also: the funding signature on EVM is CPP's collector signature and token identi
 | Contract executes `transferWithAuthorization` | Atomic, but fee code and operator knowledge in neutral custody code; no size headroom (EIP-170) |
 | Stateless bundling (chosen) | Atomic per transaction, zero contract code; a mempool observer can split the fee off, gaining nothing |
 
+**Amended 2026-11-03 (T-206 review, M-2 and M-3; Rafa may overrule).**
+- **Point 1 (M-2):** a delivery now lands only before `deliverBy`, whichever call carries it: `deliver`, a decision, or an early accept (PR #127).
+  - Before, a carried delivery that landed after the deadline raced the buyer's reclaim, so the buyer's deadline did not bind.
+  - Core, the EVM adapter and the formal model already refused it.
+  - A seller whose judge may outlast `deliverBy` posts `deliver`. A buyer who wants late work settles for it with the seller.
+- **Point 4 (M-3):** nothing reserves a fallback's or appeal adjudicator's bond at takeover or escalation (PR #135).
+  - The fallback reserves its own bond by deciding, and an uncovered fallback cannot decide, as ADR-0016 §1 says.
+  - Before, a sham deal could lock any named adjudicator's bond.
+- **Research pass:** the T-206 adversarial review (Fable, max effort) and the public-audit cross-check; the review passes agree. See `docs/reviews/2026-11-03-contract-review.md`.
+
 ## D38. Funding paths: any ERC-20, WETH or ETH; ramps as a deferred separate service (ADR-0026)
 
 *Note (2026-11-03): first wave narrowed to USDC by D42; other assets later.*
