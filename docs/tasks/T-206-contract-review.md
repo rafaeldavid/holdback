@@ -3,12 +3,14 @@
 - **Lane:** settlement (reviewer role; reviews, does not edit contract code)
 - **Phase:** 2
 - **Depends on:** T-202, T-203 and T-205 merged; T-204 merged, or its model-to-contract mapping listed as an open item.
-- **Paths this task may touch:** `docs/reviews/2026-11-03-contract-review.md` (new), `docs/neutrality.md` ("How neutrality is tested", the contract review checklist only), `deployments/sepolia.json` (new, only after Rafa approves a deployment), `docs/tasks/T-206-contract-review.md`.
+- **Paths this task may touch:** `docs/reviews/2026-11-03-contract-review.md` (new), `docs/neutrality.md` ("How neutrality is tested", the contract review checklist only), `contracts/deployments/sepolia.json` (new, only after Rafa approves a deployment; under `contracts/` because the operators load it from there), `docs/tasks/T-206-contract-review.md`.
   - Extended by the coordinating session (Decisions 1):
     - the five fix PRs' paths in `contracts/`, with `reports/differential-local.md` and `contracts/.gas-snapshot` regenerated once here;
-    - the follow-up records: `docs/tasks/T-210…T-212`, `docs/plan.md`, `docs/backlog.md`, D37 in `docs/decisions-today.md`, and the carried-delivery lines of `docs/tasks/T-202-escrow-rules-contract.md`;
+    - the follow-up records: `docs/tasks/T-210…T-212`, `docs/plan.md`, `docs/backlog.md`, and D37 in `docs/decisions-today.md`;
+    - in `docs/tasks/T-202-escrow-rules-contract.md`, the lines on carried deliveries and bond reservations (the bonds row, Decision 1, Decision 4, differences 5 and 8) and the new difference 16;
+    - the amendment section of `docs/decisions/ADR-0016-phase1-contract.md`;
     - the two control-point rows of `docs/neutrality.md` that name this checklist;
-    - for the deployment, `contracts/script/deploy-sepolia.sh`, `contracts/deployments/sepolia.json` and a section of `docs/operations.md`.
+    - for the deployment, `contracts/script/deploy-sepolia.sh` and a section of `docs/operations.md`.
 - **Human gate:** **yes.** (1) Rafa reads the review before Phase 2 is called done. (2) Any Sepolia deployment needs Rafa's explicit approval written in this file first: test ETH and a test token only, a deployer key from an environment variable, never printed. No mainnet, at any point; a mainnet deployment is a separate gate after an external audit and legal advice (D4).
 - **Status:** review. Open: the cross-family pass and Rafa's read. The Sepolia deploy is approved (Decisions 7) and recorded in its own PR.
 - **Agent/session:** a Claude Opus 5.5 session in worktree `t-206-contract-review-d83e9c`, 2026-11-03, with:
@@ -65,7 +67,7 @@ Review the Phase 2 contracts against the neutrality checklist, the hold invarian
   | --- | --- | --- | --- |
   | H-1 | #120 | `test/unit/AppealAttempt.t.sol` (7 tests). Limiting the check to the appeal role fails 3 more. | 2 |
   | M-1 | #122 | `test/unit/AfterCppReclaim.t.sol` (7 tests). An always-skip mutant fails 2; `invariant_timeoutsExactlyWhenDue` fails on `main`. | 5 |
-  | H-2 | #125 | `test/unit/AppealKey.t.sol` (7 tests); `invariant_keyOnlyWithPayment` fails on `main` with the targeted `decideAppeal` action. | 6 |
+  | H-2 | #125 | `test/unit/AppealKey.t.sol` (7 tests). `invariant_keyOnlyWithPayment`, with the targeted `decideAppeal` action, fails on `main` for some seeds (for example `--fuzz-seed 2`). | 6 |
   | M-2 | #127 | `test/unit/LateCarriedDelivery.t.sol` (7 tests); `invariant_timeoutsExactlyWhenDue` fails on `main` with "a delivery landed at or after deliverBy". | 4 |
   | M-3 | #135 | `test/unit/BondConsent.t.sol` (6 tests). Deleting the fallback's reservation fails two invariants (with the `decideFallback` action). | 4 |
 
@@ -88,10 +90,11 @@ Review the Phase 2 contracts against the neutrality checklist, the hold invarian
   | Build | Bytes |
   | --- | --- |
   | `baac930` | 24,051 |
-  | `main` + #120 | 24,046 |
-  | `main` + #120 + #122 + #125 | 24,517 |
-  | `main` + #127 | 24,429 |
-  | `main` + #135 | 23,880 |
+  | #120's branch on `main` (`7425c19`) | 24,046 |
+  | #125's branch (`7cca926`, with #120 and #122) | 24,517 |
+  | #127's branch (`9b3d7f2`, with #120 and #122) | 24,429 |
+  | #135's first commit (on `53b924d`, before #125 and #127) | 23,880 |
+  | `main` at `7c48650` (#120, #122, #125, #127) | 24,536 (40 under) |
   | `main` at `cc834fc`, with all five fixes | 23,986 (590 under) |
 
   `HoldbackBonds` is 2,395 bytes and `DrandQuicknetBeacon` 3,269.
@@ -118,7 +121,8 @@ Review the Phase 2 contracts against the neutrality checklist, the hold invarian
      - Sepolia only, with the deploy refusing any other chain ID;
      - a fresh throwaway deployer key in an encrypted keystore, never printed;
      - `forge create --broadcast` per contract (no `forge script`, no `cast send`);
-     - the core set without a token: Rafa said "For the first wave of the service, lets assume USDC only".
+     - the core set: Rafa said "For the first wave of the service, lets assume USDC only". The Sepolia demo session picks the token: its TestUSDC is deployed with the core set if its PR is on `main` by then, and otherwise by that session.
+   - **Second-hand.** The approval reached this session through the coordinating session; nothing in the repo is from Rafa directly. Rafa confirms it on the deploy PR.
    - **Added by Rafa:** a cross-check of the custom contracts against public audit work ("You should find public audits of escrow related contracts such that any custom smart-contract we are deploying has been reviewed against public audit work"). It reported with no high or medium finding beyond M-3, which is fixed.
    - **`EXPIRY_MARGIN`** is 1 day (review §7).
 8. **Adversarial reviews carry the project context** (Rafa: "For adversarial reviews, you should use the project context, not use completely anon agents without context"). The Fable pass was briefed with `CLAUDE.md`, the ADRs, T-202's difference list and the reference state machine. Every per-PR reviewer read the project docs. Independence meant withholding the first pass's findings, not the context.
@@ -155,7 +159,10 @@ Append its findings to the review as a new section, with a disagreement table ag
   - #135 added the `decideFallback` action and removed `tryEncumber` from the allowlist.
   - Successful appeal decisions remain rare in a campaign (a T-203 follow-up). The unit tests catch each regression.
 - **`formal/`.** The README's contract column can take review §5. The model has no CPP reclaim action and no bond coverage.
-- **Docs and the agent guide.** I-1 (on chain, the fallback needs a posted delivery) belongs in `docs/neutrality.md`'s Adjudicator row. I-4 (EIP-7702 accounts) belongs in the agent docs.
+- **Docs and the agent guide.**
+  - I-1 (on chain, the fallback needs a posted delivery) belongs in `docs/neutrality.md`'s Adjudicator row.
+  - That row and the Appeal adjudicator row say a silent adjudicator's bond compensates the seller on default. They should add "Phase 4; needs a consent step (backlog: Consent for default compensation)", since after M-3 a silent adjudicator holds no reservation.
+  - I-4 (EIP-7702 accounts) belongs in the agent docs.
 
 **After the fix PRs merge.**
 - Regenerate `reports/differential-local.md` (`pnpm snap --settlement=local`) and `contracts/.gas-snapshot` (`forge snapshot`) once, in this PR.

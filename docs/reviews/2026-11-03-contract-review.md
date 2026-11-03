@@ -22,7 +22,7 @@ Line numbers refer to `baac930`.
 | --- | --- | --- |
 | Checklist and code review | Claude Opus 5.5 (`claude-opus-5-5`) | The checklist in §3, the T-204 mapping, static analysis, the regression tests and the fixes |
 | Adversarial pass | Claude Fable 5.1 (`claude-fable-5-1`), red-teamer role, max effort | Briefed with the project context (`CLAUDE.md`, the control-point table, ADR-0003, -0012, -0016, -0018, -0019, -0022 and -0025, T-202's list of differences from SimChain, `state.ts`), but not with the first pass's findings. Its 24 proof-of-concept tests (17 attacks, 7 defenses) ran against `baac930` in its own worktree. They are not in the repo |
-| Public-audit cross-check | A separate Claude session | Compared the contracts, class by class, with published audits: Commerce Payments' six, Permit2, Solady, USDC/ERC-3009, Kleros, UMA, Reality.eth, Sablier, Superfluid, and BLS verifiers. It found M-3. Its report lands in its own PR |
+| Public-audit cross-check | A separate Claude session (Anthropic; its model ID is recorded in PR #137) | Compared the contracts, class by class, with published audits: Commerce Payments' six, Permit2, Solady, USDC/ERC-3009, Kleros, UMA, Reality.eth, Sablier, Superfluid, and BLS verifiers. It found M-3, L-7, L-8, I-12 and I-13; its report and tests are in PR #137 |
 | Per-PR review | Claude Opus 5.5, reviewer role, briefed with the project context | Each fix PR and this report, until PASS |
 | Cross-family pass | not run | No non-Anthropic model is reachable from this environment; human gate for Rafa (§7) |
 
@@ -38,7 +38,7 @@ All passes are Anthropic models, so the task's "two model families" criterion is
 - The no-admin rule holds without exception: no owner, role, pause, freeze, blacklist or proxy; no `SELFDESTRUCT`, `CALLCODE` or Holdback `DELEGATECALL`; every parameter immutable or constant; every timeout open to anyone [measured].
 - Signatures are domain-separated, byte-compatible with core, and bound to the commitment and the role [measured].
 - The stage machine refuses every replay [measured].
-- Every money path writes the stage before its first call to CPP or a token. The deal word is sometimes written after a call to the bond vault, which makes no external call (H4) [inferred].
+- Every money path writes the stage before its first call to CPP or a token. The deal word is sometimes written after a call to the bond vault, but only after `release` or `encumber`, which make no external call (H4) [inferred].
 
 **What broke a litmus test.** Five findings, each fixed in its own PR with regression tests that fail on `main`. H-1 and H-2 each have a part outside the contract, in core's state machine and the reference adjudicator (T-210, T-211).
 - **H-1:** the appeal adjudicator could choose its panel seed through the unchecked `attempt` (defended judgment).
@@ -47,9 +47,9 @@ All passes are Anthropic models, so the task's "two model families" criterion is
 - **M-2:** a delivery landed after `deliverBy` could beat the buyer's reclaim (the hold).
 - **M-3:** a sham deal could lock a named fallback's or appeal adjudicator's bond, which that adjudicator never consented to (neutrality).
 
-The public-audit cross-check found no high or medium issue against our use of CPP, Permit2, Solady or USDC, and none in the drand verifier.
+The public-audit cross-check found no high or medium issue against our use of CPP, Permit2, Solady or USDC, and none in the drand verifier [measured by the cross-check; PR #137].
 
-**What blocks deployment.**
+**What blocks what.**
 - Rule for this review: low findings block mainnet, not the Sepolia testnet.
 - The cross-family review blocks calling Phase 2 done (§7).
 - "Appeals are backed by the adjudicator's bond" is **not met on chain until Phase 4**. No on-chain path pays anyone from an adjudicator's bond; an appeal moves only the appellant's bond (I-8).
@@ -109,7 +109,7 @@ Proofs marked "adversarial pass" are among the 24 tests in that pass's local wor
   This breaks ADR-0012 ("on rejection or reclaim, the key is never released to the buyer") and the formal model's `KeyOnlyWithPayment` (`formal/Holdback.tla:463-465`).
 - **Proof:**
   - `test/unit/AppealKey.t.sol`: 7 tests, 6 of which fail on `main` [measured]. The failures are the key-carrying refusals (overturned reject, upheld reject, overturned accept, first-instance reject, escalated reject) and the recovery test. Only `test_upheldAccept_releasesTheKey`, ADR-0012's wrong-key ground after an accept, passes on both.
-  - `invariant_keyOnlyWithPayment`, which reaches the path through the handler's `decideAppeal` action, fails on `main` [measured].
+  - `invariant_keyOnlyWithPayment` reaches the path through the handler's `decideAppeal` action. It fails on `main` for some seeds, for example `--fuzz-seed 2`, and passes for others; the unit tests above are the reproducible proof [measured].
   - The adversarial pass's `test_attack_overturned_reject_releases_key_without_paying_seller` shows the seller's balance unchanged and the decider's bond released [measured, local].
 - **Fix:** one rule in `decide`, before any effect: a decision carries the buyer's key only with an accept, and never on a deal that stands `Refunded`; otherwise `InvalidMessage`. The refused appeal stays open. The same verdict, re-signed without the key, settles it; if nobody re-signs, `expireAppeal` closes it [measured].
 - **Limit:** the key travels in the decision's calldata and through operators. The refusal keeps the settlement rule and record honest, but cannot stop a signed key from reaching the buyer.
@@ -157,7 +157,7 @@ Proofs marked "adversarial pass" are among the 24 tests in that pass's local wor
   2. It names a bonded victim as fallback or appeal adjudicator, sets the price to the victim's free bond, and sets every window a century out (D31).
   3. The primary stays silent, and anyone triggers the fallback; or the primary escalates.
   4. The victim's free bond drops to zero. It cannot withdraw, and it cannot be funded as a primary on new deals.
-  5. The attacker locks twice the price of its own capital and can release everything at will with a mutual settlement.
+  5. The attacker ties up about twice the price of its own capital: the hold, plus its primary's bond until the takeover. It can release everything at will with a mutual settlement.
 
   On Sepolia, with faucet tokens, this takes the demo's adjudicator offline at no cost. ADR-0016 §1 says "Sham commitments cannot lock a bond the adjudicator never reserved".
 - **Proof** [measured]:
@@ -223,15 +223,15 @@ Proofs marked "adversarial pass" are among the 24 tests in that pass's local wor
 
 - **Where:** `HoldbackRules.sol:484-497`. `fileAppeal` takes one appeal per commitment from either party, and a zero bond needs no allowance (L-3).
 - **Scenario:** the party the decision went for files a free appeal first. The losing party's appeal then reverts with `WrongAppealState(Open)`, and the decision stands. It is low today, because an appeal moves only the appellant's bond. It becomes medium once Phase 4 pays from bonds.
-- **Proof:** the cross-check's `AppealSlot.t.sol`, 3 tests [measured, local].
+- **Proof:** the cross-check's `AppealSlot.t.sol`, 3 tests [measured by the cross-check; PR #137].
 - **Follow-up:** T-212. Admit only the party the decision went against, or give each party its own slot.
 
 #### L-8. A `judgeBy` already past at funding makes the fallback's seed public before the terms are signed (cross-check, PA-L4)
 
 - **Where:** `HoldbackRules.sol:200` and `:255-258`. `agreeAndFund` checks only `offerExpiresAt` and `fundBy`, and the fallback's round is `roundAt(judgeBy)`.
-- **Scenario:** with `judgeBy` at or before funding (D31 allows it), that round is already published. The fallback panel's seed is then a function of the terms alone, so whoever writes them can grind the nonce for the panel it wants, and a silent, colluding primary hands the case to that panel. The reference path refuses this shape (`timing.ts` requires `fundBy < judgeBy`), so it takes a buyer who signs such terms directly.
-- **Proof:** the cross-check's `KnownSeedFallback.t.sol`, 3 tests [measured, local].
-- **Follow-up:** T-212. Refuse at funding when `block.timestamp >= judgeBy`; D31 allows that as self-contradictory. The same check removes the D31 shape behind L-6 for the primary.
+- **Scenario:** with `judgeBy` at or before funding (D31 allows it), that round is already published. The primary can never decide, so the case goes to the fallback, with a seed the terms' author picked by grinding the nonce. The reference path refuses this shape (`timing.ts` requires `fundBy < judgeBy`), so it takes a buyer who signs such terms directly.
+- **Proof:** the cross-check's `KnownSeedFallback.t.sol`, 3 tests [measured by the cross-check; PR #137].
+- **Follow-up:** T-212. Refuse at funding when `block.timestamp >= judgeBy`; D31 allows that as self-contradictory.
 
 #### Informational
 
@@ -272,10 +272,10 @@ Each item gives a label and a disposition.
   - The canonical EIP text and the type of `jobId` were not checked. Disposition: backlog row, before Sepolia relies on ERC-8183 indexers.
 - **I-11. The formal README's contract column still reads TBD** (`formal/README.md:84-102`) [measured].
   - Disposition: §5 gives the mapping; T-206's Handoff hands the README edit to the `formal/` lane.
-- **I-12. `PAIRING_GAS` is fixed forever** (`DrandQuicknetBeacon.sol:65`) [inferred; cross-check PA-L1].
+- **I-12. `PAIRING_GAS` is fixed forever** (`DrandQuicknetBeacon.sol:65`) [inferred; cross-check PA-L1, PR #137].
   - 250k is ample on Ethereum, where two pairs cost 102,900. It matters only on a chain that reprices EIP-2537.
   - Disposition: accepted. Another chain gets another beacon contract.
-- **I-13. Beacon verification costs more on Sepolia than ADR-0018 says** [measured by the cross-check, `eth_estimateGas`; PA-L2].
+- **I-13. Beacon verification costs more on Sepolia than ADR-0018 says** [measured by the cross-check, `eth_estimateGas`; PA-L2, PR #137].
   - Fusaka's MODEXP repricing raised `beaconValue` to about 213k gas, from about 159k on Prague.
   - Disposition: a fallback or appeal decision on Sepolia costs more than T-209 measured. Re-measure it on the deployment.
 
@@ -332,7 +332,7 @@ Each item is answered **pass**, **fail** or **n/a**, with the line at `baac930` 
 | T2 | Each timeout is refused before its deadline and allowed from it, complementary to the deciding call | pass | `<`/`>=` pairs at `deliverBy`, `judgeBy`, `fallbackBy` and both appeal windows; boundary warps in `RulesHandler._warpNear` [measured]. M-2 was the one pair that was not complementary |
 | T3 | Every entry point can be relayed | pass | The only `msg.sender` reads are the adjudicator's own `deposit` and `withdraw`, and the vault's `onlyRules` guard [inferred]; the suites relay through an unrelated address [measured] |
 | T4 | A halted primary, fallback, appeal adjudicator, buyer or seller does not stop settlement | pass, with I-1 | Fallback at `judgeBy`, default at `fallbackBy` or after the escalation window, appeal expiry, reclaim at `deliverBy`, each in `unit/Timeouts.t.sol` [measured]. A silent primary on a deal with no posted delivery ends in reclaim, not fallback (I-1) |
-| T5 | The beacon cannot choose a seed; an unprovable round leads to fallback or default | pass after H-1 | The round is fixed by state (`:255-266`), the value proven by BLS (`DrandQuicknetBeacon.sol:79-87`), the seed recomputed (`:277-284`); `unit/DrandDecide.t.sol`, `unit/DrandBeacon.t.sol` [measured]; the cross-check's encoding tests: one 48-byte encoding verifies per round |
+| T5 | The beacon cannot choose a seed; an unprovable round leads to fallback or default | pass after H-1 | The round is fixed by state (`:255-266`), the value proven by BLS (`DrandQuicknetBeacon.sol:79-87`), the seed recomputed (`:277-284`); `unit/DrandDecide.t.sol`, `unit/DrandBeacon.t.sol` [measured]; the cross-check's encoding tests show one 48-byte encoding verifies per round [measured by the cross-check; PR #137] |
 | T6 | No bond is encumbered without its adjudicator's own signature (acceptance) or decision | fail, now fixed | M-3, PR #135: `test/unit/BondConsent.t.sol` |
 
 ### ADR conformance
@@ -341,7 +341,7 @@ Each item is answered **pass**, **fail** or **n/a**, with the line at `baac930` 
 | --- | --- | --- | --- |
 | D1 | ADR-0003: the rules contract is CPP's operator; `feeReceiver = 0`; a fee-only capture then `void` on reject | pass | `:170-183`, `:341-342`; `test_reject_feeOnlyCaptureThenVoid` [measured] |
 | D2 | ADR-0012: the two-sided hold | pass after H-2 | H7, H8 |
-| D3 | ADR-0016 §1: an uncovered fallback or appeal adjudicator leads to default | fail | L-5 (the ADR's text against T-202 Decision 4) |
+| D3 | ADR-0016 §1: an uncovered fallback or appeal adjudicator leads to default | fail at `baac930`; the fallback's part fixed | M-3, PR #135 (ADR-0016 amended); the appeal adjudicator's part open (L-5, T-212 item 5) |
 | D4 | ADR-0018: no field the decider controls changes the seed; rounds fixed by state | pass after H-1 | H-1; I-5 |
 | D5 | ADR-0022: integer rates, named rounding | pass | H10 |
 
