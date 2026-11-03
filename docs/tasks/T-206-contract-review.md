@@ -78,7 +78,7 @@ Review the Phase 2 contracts against the neutrality checklist, the hold invarian
   | #125 alone | 24,094 |
   | #127 alone | 24,077 |
 
-  The combined size is recorded after the merges.
+  All four merged onto `main` (`baf0fca`) in a local dry run: 24,479 bytes, 97 under the limit, and 166 forge tests pass. The only merge conflict is `reports/differential-local.md`.
 - **inferred** No non-Anthropic model key is exposed by name in the environment (only `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL`; `.env*` not read), so no cross-family pass could run here.
 - **guessed beyond the names** The ERC-8183 event names match the draft's list (review I-10).
 

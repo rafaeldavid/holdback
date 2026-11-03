@@ -195,7 +195,7 @@ H-1 and H-2 each have a half outside the contract, in core's state machine and i
   | #125 alone | 24,094 |
   | #127 alone | 24,077 |
 
-  The combined size is in T-206's Evidence. The next feature needs room; I-2 is the first saving.
+  With all four merged onto `main` locally, the contract is 24,479 bytes, 97 under the limit, and all 166 tests pass [measured]. The next feature needs room first; I-2 is the first saving.
 - **I-4. EIP-7702 accounts.** Solady sends every address with code to ERC-1271 (`SignatureCheckerLib.sol:90-120`). So an EIP-7702-delegated EOA can sign only if its delegate implements `isValidSignature` for the EOA's key [inferred]. Worth a line in the agent docs.
 - **I-5. Appeal rounds follow `block.timestamp`** (both passes) [guessed]. An escalation or a filing fixes the next beacon round from its block's timestamp. On a chain whose block producer can lag timestamps, or with 12-second slots against drand's 3-second period, the round "strictly after" may already be public when the transaction is built. This is part of the D4 chain choice.
 - **I-6. `EXPIRY_MARGIN` has no lower bound** (`:141`). Every capturing deadline ends by `fallbackBy + appealDecideSec` when deadlines are ordered, and after M-1 the margin no longer protects bonds. What it still does is ADR-0003's forced-inclusion allowance (§7).
