@@ -6,14 +6,15 @@ import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {LocalMulticall3} from "../../script/LocalMulticall3.sol";
 import {LocalUSDC} from "../../script/LocalUSDC.sol";
 import {Base} from "../unit/Base.sol";
+import {MockERC3009Token} from "commerce-payments-test/mocks/MockERC3009Token.sol";
 
 /// Red-team cross-check of PA-M2's framing and fix. The operator-fee bundle (ADR-0023 EVM amendment) is atomic only
 /// in the sense that both legs land together when it lands. Each leg is independently valid, so either can be
 /// copied out of the mempool:
 /// - the fee leg alone (PA-M2): the fee is paid, the deal is not funded through that node;
 /// - the fund leg alone (not in the review): the deal is funded, the fee is not paid, and the node can still
-///   submit the fee leg on its own until fundBy. On real USDC the buyer can race it with `cancelAuthorization`,
-///   which LocalUSDC does not model, and which also makes `authorizationState` an unsafe "fee was paid" signal.
+///   submit the fee leg on its own until fundBy. The buyer can race it with `cancelAuthorization` (USDC, and
+///   LocalUSDC as FiatToken v2.2), which also makes `authorizationState` an unsafe "fee was paid" signal.
 contract BundleAtomicityTest is Base {
     bytes32 internal constant TRANSFER_WITH_AUTHORIZATION_TYPEHASH =
         0x7c7c6cdb67a18743f49ec6fa9b35f50d52ed05cbed4cc592e13b44501c1a2267;
@@ -24,7 +25,7 @@ contract BundleAtomicityTest is Base {
 
     function setUp() public override {
         super.setUp();
-        usdc = new LocalUSDC();
+        usdc = MockERC3009Token(address(new LocalUSDC())); // Base's handle; LocalUSDC has the mock's interface
         usdc.mint(buyer, 1_000_000_000);
         _bond(adjudicator, BOND);
         mc = new LocalMulticall3();
@@ -94,28 +95,37 @@ contract BundleAtomicityTest is Base {
         assertFalse(ok, "the fee authorization expires at fundBy");
     }
 
-    /// PA-M2's proposed detection reads `authorizationState(buyer, feeNonce)`. On FiatTokenV2 that flag is also set
-    /// by the buyer's `cancelAuthorization` with no payment, so the node must confirm the transfer itself. And the
-    /// local token cannot exercise the detection at all: LocalUSDC keeps transferWithAuthorization nonces in its own
-    /// private map, which `authorizationState` (inherited from the receive-with-authorization mock) never reads.
-    function test_attack_feeNonceSpent_butLocalUsdcAuthorizationStateSaysUnspent() public {
+    /// PA-M2's proposed detection reads `authorizationState(buyer, feeNonce)`. LocalUSDC keeps FiatToken v2.2's one
+    /// nonce space, so a relayed fee reads as spent. But the buyer's `cancelAuthorization` sets the same flag with no
+    /// payment, so the node must confirm the transfer itself: the adapter reads the AuthorizationUsed log and the
+    /// Transfer after it (`feePaidEarlier` in packages/settlement/evm/evm-settlement.ts).
+    function test_attack_feeNonceSpent_authorizationStateSaysSpent_butSoDoesACancel() public {
+        LocalUSDC token = LocalUSDC(address(usdc));
         H.Terms memory t = _terms();
         bytes32 id = hx.id(t);
         (bytes memory feeCall,,) = _legs(t, id);
         bytes32 nonce = keccak256(abi.encode(id, "operator_fee"));
-        (, bytes memory before) =
-            address(usdc).staticcall(abi.encodeWithSignature("authorizationState(address,bytes32)", buyer, nonce));
+        assertFalse(token.authorizationState(buyer, nonce));
         vm.prank(makeAddr("griefer"));
         (bool ok,) = address(usdc).call(feeCall);
         assertTrue(ok);
-        (, bytes memory after_) =
-            address(usdc).staticcall(abi.encodeWithSignature("authorizationState(address,bytes32)", buyer, nonce));
-        // LocalUSDC tracks transferWithAuthorization nonces in a private mapping that `authorizationState` does not
-        // read (it reads the receive-with-authorization map), so the detection the review proposes cannot even be
-        // exercised against the local token.
-        assertEq(abi.decode(before, (bool)), false);
-        assertEq(
-            abi.decode(after_, (bool)), false, "LocalUSDC.authorizationState does not see transferWithAuthorization"
+        assertTrue(token.authorizationState(buyer, nonce), "the relayed fee spends the nonce authorizationState reads");
+        assertEq(usdc.balanceOf(operatorFeeTo), OPERATOR_FEE);
+
+        // Another deal's fee nonce, cancelled by the buyer: the same flag, and nothing paid.
+        bytes32 cancelled = keccak256(abi.encode(keccak256("another deal"), "operator_fee"));
+        bytes32 digest = keccak256(
+            abi.encodePacked(
+                "\x19\x01",
+                usdc.DOMAIN_SEPARATOR(),
+                keccak256(abi.encode(token.CANCEL_AUTHORIZATION_TYPEHASH(), buyer, cancelled))
+            )
         );
+        bytes memory cancel = _signRaw(BUYER_PK, digest);
+        uint256 balance = usdc.balanceOf(buyer);
+        vm.prank(buyer);
+        token.cancelAuthorization(buyer, cancelled, cancel);
+        assertTrue(token.authorizationState(buyer, cancelled), "a cancel sets the same flag");
+        assertEq(usdc.balanceOf(buyer), balance, "and pays nothing");
     }
 }

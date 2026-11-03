@@ -337,6 +337,7 @@ Results:
     - Low: the node loses its fee, and the buyer could have submitted directly for free.
     - Flagged to the demo lane [inferred for FiatToken].
   - **Local mocks:** `LocalUSDC.authorizationState` reads only the `receiveWithAuthorization` map, so after a front-run it reports the fee nonce as unspent. `test_attack_feeNonceSpent_butLocalUsdcAuthorizationStateSaysUnspent` pins this [measured]. PR #138's new `TestUSDC` shares one nonce map, so the used case is testable there. Neither mock has `cancelAuthorization`, so the cancel race has no regression test yet.
+    - **Since fixed (2026-11-03, contracts-lane follow-up):** `LocalUSDC` now has FiatToken v2.2's ERC-3009 nonces: one space for receive, transfer and `cancelAuthorization`, with `AuthorizationUsed` and `AuthorizationCanceled` logged. The test above is flipped to `test_attack_feeNonceSpent_authorizationStateSaysSpent_butSoDoesACancel`: the relayed fee reads as spent, and so does a cancelled nonce with nothing paid [measured]. The cancel race now has an anvil regression test in `evm-settlement.test.ts`: a buyer who cancels the fee authorization before the relay gets `payment_required` [measured; it fails with the adapter's check disabled].
   - Sending the fee leg as its own transaction first would re-create the non-atomic design ADR-0023 rejected.
   - A `receiveWithAuthorization` fee works only if the relaying account is itself the fee recipient (a smart-account batch).
 
@@ -558,7 +559,7 @@ New in `contracts/test/crosscheck/`; `test_attack_*` passes while the weakness e
 | `Erc1271Replay.t.sol` (red-team) | 3 tests: funding signatures and Agree do not replay across one owner's wallets | S5 |
 | `AppealSlot.t.sol` (red-team) | 3 tests | B7, PA-L3 |
 | `KnownSeedFallback.t.sol` (red-team) | 3 tests | M10, PA-L4 |
-| `BundleAtomicity.t.sol` (red-team) | 2 tests: the fund leg copied alone; `LocalUSDC`'s nonce maps | PA-I10, PA-M2 |
+| `BundleAtomicity.t.sol` (red-team) | 2 tests: the fund leg copied alone; `authorizationState` reads a cancel as a spend (flipped from `LocalUSDC`'s old split nonce maps) | PA-I10, PA-M2 |
 | `BondGriefing.t.sol` (at `ac7e5a1`; carried, flipped, by PR #135 as `BondConsent.t.sol`) | the three PA-M1 tests | B2, PA-M1 |
 
 ```
