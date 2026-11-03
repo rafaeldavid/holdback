@@ -72,10 +72,10 @@ The operator nodes keep only what they already see (ADR-0024 §1, D39), in the W
 
 - **Request log:** one line per request: Request-Id, time, node, method, route template, status, problem type, milliseconds. Never a body, a header value, an IP address, or the path (it carries addresses and IDs). Kept in World storage under `rl:<UTC hour>` for seven days, then deleted. `world.telemetry.lookup(requestId)` finds a line; the nodes' notes tell agents to quote the Request-Id.
 - **Summary lines:** a `telemetry: "hour"` line when each hour ends and a `telemetry: "day"` line when each UTC day ends, written with `console.log` by the World. The World flushes at most once a minute, and an idle instance flushes waiting log lines on a timer. A line is written at the first flush after its hour ends, so a quiet hour's line can come late, at the next wake.
-- **Quota warnings:** an `alert: "durable-object-quota"` line (`console.warn`) when today's use passes 80% and again at 95% of a Free-tier daily limit.
+- **Quota warnings:** an `alert: "durable-object-quota"` line (`console.warn`) when today's use passes 80% and again at 95% of a Free-tier daily limit. The account is on Workers Paid, where use past those numbers is billed rather than refused, so on this account the line is a cost signal (see "Durable Object use" below).
 - **No invocation logs:** both wrangler files set `observability.logs.invocation_logs` to false, because Cloudflare's invocation logs record every request's headers, which carry `Authorization` (ReadTokens) and the caller's IP. Console lines and uncaught exceptions are still kept. `wrangler tail` still shows live requests, headers included, and stores nothing.
 
-Read the lines in the dashboard: Workers & Pages, then holdback-op1, then Observability (or Durable Objects, then the World namespace, then Observability), and filter on `telemetry` or `alert`. Live: `npx wrangler@4 tail holdback-op1 --format json`. Workers Logs keeps them 3 days on the Free plan, 7 on Paid.
+Read the lines in the dashboard: Workers & Pages, then holdback-op1, then Observability (or Durable Objects, then the World namespace, then Observability), and filter on `telemetry` or `alert`. Live: `npx wrangler@4 tail holdback-op1 --format json`. Workers Logs keeps them 7 days on Workers Paid.
 
 | # | Metric | Field (hour and day lines unless noted) |
 | --- | --- | --- |
@@ -84,7 +84,7 @@ Read the lines in the dashboard: Workers & Pages, then holdback-op1, then Observ
 | 3 | Latency per route | `routes[…].p50Ms`, `p95Ms` |
 | 4 | Problems by type | `routes[…].problems` |
 | 5 | 429s by bucket | `throttled.read`, `write`, `faucet` |
-| 6 | Durable Object use against the Free tier | `usage.requests`, `rowsRead`, `rowsWritten` as `{used, limit, percent}` (day); `usageToday` (hour) |
+| 6 | Durable Object use against the Free-tier daily limits (a cost signal on Workers Paid) | `usage.requests`, `rowsRead`, `rowsWritten` as `{used, limit, percent}` (day); `usageToday` (hour) |
 | 7 | Journal size and replay cost | `journalEntries` (day); `usage.wakes`, `replayRowsRead`, `replayMs` |
 | 8 | Live judge calls and tokens | `liveJudges` (day); today's count is also in discovery, `demo.judges` |
 | 9 | Deal funnel | `deals.offered`, `funded`, `delivered`, `decided` (a judgment or an early accept), `final` (settled and past every appeal; an expired offer counts under `outcomes`): `.deals`, deals reaching the stage that day (day) |
@@ -96,10 +96,10 @@ Read the lines in the dashboard: Workers & Pages, then holdback-op1, then Observ
 
 Funnel and signer numbers come from settlement events and each deal's finality only; no address leaves the computation.
 
-**Before the Durable Object quota runs out.** The Free tier allows 100,000 Durable Object requests, 5,000,000 SQLite rows read and 100,000 rows written per UTC day, account-wide; past a limit, that kind of operation fails until 00:00 UTC (Cloudflare pricing, read 2026-11-03). The World counts its own use: every key a `get`, `list`, `put` or `delete` touches and every `setAlarm` as one row, as Cloudflare bills them. Internal rows are not counted, so the estimate is a lower bound.
+**Durable Object use.** The account is on Workers Paid (since 2026-11-02, per Rafa). Each month that includes 1 million Durable Object requests (alarm invocations count), 400,000 GB-s of duration, 25 billion SQLite rows read and 50 million rows written, account-wide; use past that is billed (about $0.15 per million requests, $0.001 per million rows read, $1.00 per million rows written), not refused (Cloudflare pricing, read 2026-11-03). The World still measures its use against the Free tier's daily limits (100,000 requests, 5,000,000 rows read, 100,000 rows written), which no longer stop anything; they are a convenient daily yardstick. It counts every key a `get`, `list`, `put` or `delete` touches and every `setAlarm` as one row, as Cloudflare bills them. Internal rows are not counted, so the estimate is a lower bound.
 
 - Daily while the demo is in use: search Workers Logs for `durable-object-quota`, and compare with the authoritative numbers in the dashboard (Storage & databases, then Durable Objects: account usage; the World namespace's Metrics tab), or the GraphQL Analytics API datasets `durableObjectsInvocationsAdaptiveGroups`, `durableObjectsPeriodicGroups` and `durableObjectsStorageGroups`.
-- Near a limit: read the day line's `usage`. The adjudicator alarm likely dominates rows written and requests (inferred): it is one `setAlarm`, one row written, and one alarm invocation, one request, every second while the world is active. Rows read are mostly cold starts (`replayRowsRead`: each wake lists the whole journal). Wait for the reset, or reset the world (`WORLD_NAME`). Moving to Workers Paid is billing, so it is Rafa's call.
+- Near a limit: read the day line's `usage`. The adjudicator alarm likely dominates rows written and requests (inferred): it is one `setAlarm`, one row written, and one alarm invocation, one request, every second while the world is active. Rows read are mostly cold starts (`replayRowsRead`: each wake lists the whole journal). A sustained climb is a cost question, not an outage: compare with the month's included use in the dashboard, and reset the world (`WORLD_NAME`) if its journal is what drives it. Billing changes stay Rafa's call.
 
 ## Feedback triage (T-032)
 
@@ -114,7 +114,7 @@ A stored report holds:
 
 It never holds the reporter's IP or a header value. An IP lives only in the hourly limit windows, in memory, until the next report or status read after its hour, or until the object restarts.
 
-**Limits** are shared by the two nodes: 10 unsigned reports per IP an hour, 60 signed per signer, and 150 a UTC day, kept in memory, so a restart resets them. A report costs at most two KV writes, so a full day is at most 300 of the Free plan's 1,000 writes. That limit is per account, so it is shared with early-access's `EMAILS`.
+**Limits** are shared by the two nodes: 10 unsigned reports per IP an hour, 60 signed per signer, and 150 a UTC day, kept in memory, so a restart resets them. A report costs at most two KV writes, so a full day is at most 300 writes, against Workers Paid's 1 million included a month (then about $5 per million). That allowance is per account, so it is shared with early-access's `EMAILS`.
 
 **The routine**, weekly, and after a deploy that fixed something. Run each step as `node --env-file=.env apps/demo-cloud/scripts/feedback.ts <step>`, with wrangler logged in:
 
