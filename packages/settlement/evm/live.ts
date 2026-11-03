@@ -129,6 +129,7 @@ export class LiveChain implements EvmChain {
   private readonly queues = new Map<string, Promise<unknown>>();
   /** simulate's gas estimate, reused by the send that follows it. */
   private readonly estimates = new Map<string, bigint>();
+  private verified: Promise<void> | undefined;
   private fees: { at: number; base: bigint; tip: bigint } | null = null;
   private readonly blockTimes = new Map<bigint, number>();
   private mints: Array<{ to: Address; amount: bigint; resolve: (m: Mined) => void; reject: (e: unknown) => void }> = [];
@@ -177,8 +178,19 @@ export class LiveChain implements EvmChain {
     return this.account(lane).address;
   }
 
-  /** Checks that the RPC serves the deployment's chain and that the rules contract is there. Reads only. */
-  async verify(): Promise<void> {
+  /**
+   * Checks that the RPC serves the deployment's chain and that the rules contract is the one in the file. Reads only,
+   * once: every send waits for it, so nothing is sent to a chain that has not passed.
+   */
+  verify(): Promise<void> {
+    this.verified ??= this.check().catch((e: unknown) => {
+      this.verified = undefined;
+      throw e;
+    });
+    return this.verified;
+  }
+
+  private async check(): Promise<void> {
     const id = await this.publicClient.getChainId();
     if (id !== this.chainId) throw new RangeError(`the RPC serves chain id ${id}, not the deployment's ${this.chainId}`);
     const code = await this.publicClient.getCode({ address: this.deployment.rules });
@@ -262,6 +274,7 @@ export class LiveChain implements EvmChain {
   }
 
   private async sendNow(account: PrivateKeyAccount, to: Address, data: Hex, value: bigint): Promise<Mined> {
+    await this.verify();
     const from = account.address;
     const k = `${lc(from)}|${lc(to)}|${data}`;
     const estimate = this.estimates.get(k) ?? (await this.publicClient.estimateGas({ account: from, to, data, value }));

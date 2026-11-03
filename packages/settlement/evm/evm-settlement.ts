@@ -892,7 +892,7 @@ export class EvmSettlement implements Settlement {
     // when it did not (the buyer spent its nonce elsewhere, or on USDC cancelled it), this operator declines to relay.
     if (await this.nonceUsed(m.commitmentId, token, feeCall)) {
       const paid = await this.feePaidEarlier(fee, terms.createdAt);
-      if (paid === false) refuse('payment_required', 'the operator fee authorization for this commitment was used without paying this operator; relay the agreement through another operator or submit it directly to the settlement layer');
+      if (paid === false) refuse('payment_required', 'the operator fee authorization for this commitment was used, and this node sees no payment to this operator from it (a public RPC can lag a few seconds behind; retry); or relay the agreement through another operator or submit it directly to the settlement layer');
       await this.call(m.commitmentId, 'agreeAndFund', args, mirror, options, false, m.from, ctx);
       this.emit('fee.operator', m.commitmentId, m.from, options.via ?? 'direct', { source: 'adapter', from: lc(fee.from), to: lc(fee.to), amount: this.amount(BigInt(fee.value)), paid: paid ? 'by an earlier transaction' : 'unverified' }, false);
       return m.commitmentId;
@@ -914,7 +914,9 @@ export class EvmSettlement implements Settlement {
 
   /**
    * Whether the transaction that spent the fee's nonce paid this operator: the token's AuthorizationUsed(buyer, nonce)
-   * log, in a transaction that also moved at least the fee from the buyer to the fee address. A spent nonce alone
+   * log, then the token's own Transfer of at least the fee from the buyer to the fee address, as the next log (the order
+   * TestUSDC and USDC's FiatTokenV2 emit them). A Transfer from another contract, or another one in the same
+   * transaction, is not the payment. A spent nonce alone
    * proves nothing: USDC also spends it for an authorization the buyer cancelled, so without that log the answer is
    * false. Null only when the token logs no AuthorizationUsed at all (LocalUSDC on anvil). An RPC failure throws, and
    * the agreement is taken back for a retry.
@@ -926,12 +928,16 @@ export class EvmSettlement implements Settlement {
     const { token, fromBlock } = this.world.deployment;
     const latest = await client.getBlockNumber();
     // On a live chain, only the blocks since the terms were made (about 12 s each), within one RPC range.
-    const span = BigInt(Math.min(50_000, Math.ceil((Date.parse(this.now()) - Date.parse(since)) / 12_000) + 50));
+    const span = BigInt(Math.min(50_000, Math.ceil(Math.max(0, Date.parse(this.now()) - Date.parse(since)) / 12_000) + 50));
     const from = this.wall && latest - span > fromBlock ? latest - span : fromBlock;
     const used = await client.getLogs({ address: token, event, args: { authorizer: getAddress(fee.from), nonce: fee.nonce }, fromBlock: from, toBlock: latest });
-    if (used.length === 0) return false;
-    const receipt = await client.getTransactionReceipt({ hash: used[0]!.transactionHash! });
-    return this.decode(receipt.logs).some((l) => l.eventName === 'Transfer' && lc(String(l.args['from'])) === lc(fee.from) && lc(String(l.args['to'])) === lc(fee.to) && BigInt(String(l.args['amount'] ?? l.args['value'] ?? 0)) >= BigInt(fee.value));
+    const at = used[0];
+    if (!at) return false;
+    const receipt = await client.getTransactionReceipt({ hash: at.transactionHash! });
+    const next = receipt.logs.find((l) => l.logIndex === at.logIndex! + 1);
+    if (!next || lc(next.address) !== lc(token)) return false;
+    const [paid] = this.decode([next]);
+    return paid?.eventName === 'Transfer' && lc(String(paid.args['from'])) === lc(fee.from) && lc(String(paid.args['to'])) === lc(fee.to) && BigInt(String(paid.args['amount'] ?? paid.args['value'] ?? 0)) >= BigInt(fee.value);
   }
 
   /** True when the token refuses an ERC-3009 call because its nonce is already used. Any other answer is false. */

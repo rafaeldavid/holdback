@@ -259,4 +259,27 @@ describe.skipIf(!ready)(`EvmSettlement on anvil with tUSDC${ready ? '' : ' (SKIP
     const funded = await chain.submit({ kind: 'agree_and_fund', agree: s.agree, funding: s.funding }, { via: 'op-2', sender: cast.operator.key });
     expect(funded.ok ? funded.state.escrowState : funded.problem.type).toBe('Held');
   }, 60_000);
+
+  it("another transfer to this operator in the same transaction is not the fee nonce's payment", async () => {
+    const { chain, cast, club } = await newSettlement(world);
+    const d = new EvmDeal(chain, cast, club, 'tusdc-fee-elsewhere-batched');
+    await must(chain, cast, d.offer());
+    await must(chain, cast, d.accept());
+    const s = await d.agreeAndFund({ operatorFee: { to: cast.operator.address, value: 1_000_000n } });
+    if (s.kind !== 'agree_and_fund' || !s.operatorFee) throw new Error('unreachable');
+    const f = s.operatorFee;
+    // One transaction: the fee nonce pays the buyer's friend, and another authorization pays the operator the same.
+    const twa = async (id: `0x${string}`, to: `0x${string}`) => {
+      const a = await chain.operatorFeeAuthorization(id, cast.buyer.address, to, 1_000_000n, f.validAfter, f.validBefore);
+      const signature = await sign({ hash: a.digest, privateKey: cast.buyer.key, to: 'hex' });
+      return encodeFunctionData({ abi: world.abis.token, functionName: 'transferWithAuthorization', args: [getAddress(cast.buyer.address), getAddress(to), 1_000_000n, 0n, BigInt(Date.parse(f.validBefore) / 1000), a.nonce, signature] });
+    };
+    const calls = [await twa(d.id, cast.stranger.address), await twa(`0x${'22'.repeat(32)}`, cast.operator.address)].map((callData) => ({ target: world.deployment.token, allowFailure: false, callData }));
+    const data = encodeFunctionData({ abi: world.abis.multicall, functionName: 'aggregate3', args: [calls] });
+    expect((await world.send({ key: cast.stranger.key, to: world.deployment.multicall, data }, Date.parse(chain.now()) / 1000)).status).toBe('success');
+    expect(await chain.tokenBalance(cast.operator.address)).toBe(1_000_000n);
+    const r = await chain.submit(s, { via: 'op-1', sender: cast.operator.key });
+    expect(r.ok ? 'ok' : r.problem.type).toBe('payment_required');
+    expect(chain.escrowState(d.id)?.kind).toBe('AcceptedByAdjudicator');
+  }, 60_000);
 });
