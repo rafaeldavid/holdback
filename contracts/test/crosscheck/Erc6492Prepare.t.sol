@@ -243,7 +243,7 @@ contract Erc6492PrepareTest is Base {
         assertEq(_held(t), PRICE + FEE, "the hold was still collected");
         assertEq(bonds.encumberedOf(adjudicator, address(usdc)), 0, "the primary's bond was released mid-funding");
         assertEq(bonds.encumberedOf(fallbackAdj, address(usdc)), 0);
-        assertEq(bonds.encumberedOf(appealAdj, address(usdc)), PRICE, "the appeal adjudicator's bond was taken (main)");
+        // Whether the escalation reserves the appeal adjudicator's bond is T-206 M-3's change, not this test's point.
 
         // Liveness is intact: the escalation defaults after appealDecideSec and the buyer is refunded.
         vm.warp(block.timestamp + t.timing.appealDecideSec);

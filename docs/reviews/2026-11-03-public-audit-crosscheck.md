@@ -10,7 +10,7 @@ This review does three things:
 It complements the T-206 contract review (`docs/reviews/2026-11-03-contract-review.md`, in PR #128, not yet merged) and cites that review's findings by ID (H-1 to L-6, I-1 to I-11) instead of repeating them.
 
 **Scope.**
-- The code under review is `contracts/src/` at `43479c7` (this branch's merge-base with `main`):
+- The code under review is `contracts/src/` at `main` `43479c7`, the merge base when the review was written:
   - `HoldbackRules`;
   - `HoldbackBonds`;
   - `HoldbackTypes`, with `Money`;
@@ -18,7 +18,7 @@ It complements the T-206 contract review (`docs/reviews/2026-11-03-contract-revi
 
   `SimBeacon` runs on anvil only.
 - How `HoldbackRules` drives Commerce Payments' (CPP) `AuthCaptureEscrow` v1.1.0, vendored at `6b0a5ef3`, with its ERC-3009 and Permit2 collectors and Multicall3.
-- T-206's fix PRs (#120, #122, #125, #127) were read. They merged to `main` while this review ran, and the cross-check tests pass on the merged code (section 9).
+- T-206's fix PRs were read: #122 was already in `43479c7`; #120, #125 and #127 merged to `main` while this review ran. The cross-check tests pass on the merged code (section 9).
 - First wave: USDC only (D42, recorded in PR #138, not yet merged).
 - Judge-side classes (prompt injection, Unicode smuggling) do not apply: the contracts handle hashes and signatures, never content.
 
@@ -36,7 +36,7 @@ It complements the T-206 contract review (`docs/reviews/2026-11-03-contract-revi
 - **Dependencies.** None of the published audits of CPP v1.1.0, Permit2, Solady or USDC shows a problem with how Crow uses them [measured from the reports, inferred for our usage].
   - The one substantive CPP code change after the 2025 audits, PR #90 (absolute `feeAmount`), has its own Cantina audit of exactly `6b0a5ef3`. That report reached CPP's repository after our pin, so it is not in our vendored copy. PR 71's contract renames are the only other change no audit covered.
 - **Two new medium findings. Neither moves held funds or bonds.**
-  - **PA-M1.** A sham deal can lock a fallback's or appeal adjudicator's bond without its signature, contrary to ADR-0016 §1. T-206 fixes it as M-3 in PR #135, before the deployment.
+  - **PA-M1.** A sham deal can lock a fallback's or appeal adjudicator's bond without its signature, contrary to ADR-0016 §1. Fixed by T-206 as M-3 in PR #135, merged before the deployment.
   - **PA-M2.** The operator-fee bundle can be front-run so that a deal never funds through that node, while the buyer's operator fee is still paid. ADR-0023 expected this residual, but its stated mitigation was not built. The Sepolia demo lane builds it in PR #138.
 - **No new high finding.**
 - **Two new contract lows, found by the red-team pass:**
@@ -155,7 +155,7 @@ Further unverified sources are in the research notes:
 Results:
 - **pass**: the class does not apply, with evidence.
 - **fail**: a finding in section 4.
-- **fixed**: a T-206 finding whose fix PR has merged to `main` (#120, #122 and #127 since `43479c7`).
+- **fixed**: a T-206 finding whose fix PR has merged to `main` (#122 before `43479c7`; #120, #125 and #127 after).
 - **open**: a T-206 finding still to fix.
 - **info**: an informational item in section 4.4.
 - **n/a**: not applicable to USDC or to our configuration.
@@ -265,12 +265,12 @@ Results:
 
 | ID | Severity | Finding | Litmus test | Label | Status |
 | --- | --- | --- | --- | --- | --- |
-| PA-M1 | medium | A sham deal locks a fallback's or appeal adjudicator's bond without its signature | neutrality (ADR-0016 §1) | measured | T-206 M-3, PR #135 (open), before the deployment |
+| PA-M1 | medium | A sham deal locks a fallback's or appeal adjudicator's bond without its signature | neutrality (ADR-0016 §1) | measured | fixed: T-206 M-3, PR #135 (merged) |
 | PA-M2 | medium | Front-running the operator-fee bundle stops funding through that node | neutrality (liveness) | measured on local mocks; inferred for Sepolia USDC | ADR-0023 residual; the adapter fix is in PR #138 (open) |
 | PA-L1 | low | The beacon's pairing gas cap is fixed forever | judgment (fallback seeds) | inferred | Only for chains other than Ethereum; section 7 |
 | PA-L2 | low | Fusaka raised the beacon's gas cost; ADR-0018's figures are stale | none (cost) | measured in the research pass | Update after the Sepolia smoke test; section 7 |
-| PA-L3 | low now; medium once Phase 4 pays from bonds | The winning party takes the single appeal slot for free | judgment (appeals) | measured | Sent to T-206; section 4.3 |
-| PA-L4 | low | A `judgeBy` before funding makes the fallback seed known and grindable | judgment (commit-reveal) | measured | Sent to T-206; section 4.3 |
+| PA-L3 | low now; medium once Phase 4 pays from bonds | The winning party takes the single appeal slot for free | judgment (appeals) | measured | T-206 L-7 (PR #128), T-212 item 7; section 4.3 |
+| PA-L4 | low | A `judgeBy` before funding makes the fallback seed known and grindable | judgment (commit-reveal) | measured | T-206 L-8 (PR #128), T-212 item 8; section 4.3 |
 | PA-I1 to PA-I10 | info | Sections 4.4 and 7 | | | |
 
 **Severity disagreement.** The red-team pass rates PA-M2 low: the fee goes where the buyer signed it, and the commitment still settles by direct submission. The reviewer and this review keep it medium, because the demo's main funding path breaks for anyone a griefer targets until the fix lands.
@@ -454,7 +454,7 @@ The research pass measured its checks in three ways:
 - against noble-curves, with 6,000 decoder cases and no disagreement;
 - by reading the code.
 
-Those runs are "measured in the research pass": their scripts are in the session scratchpad and are not committed. Everything else marked measured below is a committed test.
+Those runs are "measured in the research pass": their scripts are in the session scratchpad and are not committed. In the table below, D1, D2, D3 and D4 cite committed tests. D5's 200 noble messages, D6's check against noble, D8's Cancun anvil run, D10's G2 check, PA-L2's gas figures and PA-I9's two-client check are research-pass measurements.
 
 | # | Pitfall (source) | Result | Evidence |
 | --- | --- | --- | --- |
