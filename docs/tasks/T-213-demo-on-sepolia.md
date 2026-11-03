@@ -5,7 +5,7 @@
 - **Depends on:** T-205 (the EVM adapter), T-209 (the drand verifier), T-206 (the reviewed contracts deployed to Sepolia, `contracts/deployments/sepolia.json`), T-037 (`try.mjs`), T-031 (telemetry in the world)
 - **Paths this task may touch:** `packages/settlement/evm/`, `packages/settlement/sim/actors.ts` (`mandateFor` under another domain), `packages/settlement/package.json` and `tsconfig.json` (the `./live` export), `packages/testkit/src/stub-settlement.ts` (the shared `rebindToken`), `apps/demo-cloud/`, `apps/operator/src/prepare.ts`, `registry.ts`, `server.ts` (the domain's verifying contract and ERC-3009 messages in prepare), `examples/` (`verify.ts`, `agent.ts`, `try.ts`, `deployments.ts`), `site/` (`llms.txt`, the bundle, `check.mjs`), `scripts/evm-abis.mjs`, `reports/differential-local.md`, `contracts/script/TestUSDC.sol` and `contracts/test/unit/TestUSDC.t.sol` (the test token, D42), `contracts/test/fuzz/NoAdmin.fuzz.t.sol` (tUSDC as a target), `docs/decisions/ADR-0028-demo-settles-on-sepolia.md`, `ADR-0023-operator-fee.md` (gas in the fee, the front-run mitigation), `ADR-0026-funding-paths.md` (a dated note), `docs/decisions-today.md` (D41, D42, the D33 amendment, a D38 note), `docs/tasks/T-214-usd-usdc-onramp.md` (D42's on-ramp, written here, not built), `docs/team.md` (the NoAdmin row), `docs/research/2026-11-03-sepolia-demo-settlement.md`, `docs/operations.md`, `docs/neutrality.md` (the relayer row), `docs/backlog.md`, `docs/plan.md`, this file
 - **Human gate:** yes for the cutover (deploys to the public demo, a Sepolia-only relayer key as a Worker secret, Sepolia ETH from Rafa); Rafa approved the cutover and the Sepolia deploys on 2026-11-03. The PRs themselves are in-repo.
-- **Status:** in progress
+- **Status:** done (the demo settles on Sepolia since 2026-11-03, about 16:32 UTC)
 - **Agent/session:** Claude Code (Opus 5.5), worktree `demo-sepolia-settlement-81a855`, branch `claude/demo-sepolia-settlement-81a855`
 
 ## Intent
@@ -30,8 +30,8 @@ Non-goals: independent operator nodes (one Durable Object still serves both name
 - [x] `prepare/agree-and-fund` hands out the token's ERC-3009 messages on a chain; `examples/verify.ts` rebuilds them, the CPP nonce included, from a pinned deployment.
 - [x] On anvil standing in for Sepolia (a block a second, wall-clock time), `examples/try.ts` completes a deal over HTTP to Released with one transaction each for funding, delivery and decision, and the world reopens from storage with the same log.
 - [x] Against a Sepolia fork of the deployed contracts, the same deal completes.
-- [ ] The cutover: op2 first, `try.mjs` end to end against it, then op1; `llms.txt`, `try.mjs` and discovery say Sepolia; a `try.mjs` deal prints Sepolia transaction links; a vanilla Claude Code trial of the homepage prompt needs about two approvals.
-- [ ] Review by the reviewer and red-teamer roles, with whether a different-family review ran recorded; CI green. (Both roles ran and their findings are fixed, see Evidence; the different-family review did not run, see Handoff; CI is checked on the PR.)
+- [x] The cutover: op2 first, `try.mjs` end to end against it, then op1; `llms.txt`, `try.mjs` and discovery say Sepolia; a `try.mjs` deal prints Sepolia transaction links; a vanilla Claude Code trial of the homepage prompt needs about two approvals. (Measured: three would-be approvals, one more than the target: the agent also downloaded `try.mjs` to read it before running the command, which the page invites. See Evidence.)
+- [x] Review by the reviewer and red-teamer roles, with whether a different-family review ran recorded; CI green. (Both roles ran and their findings are fixed; the different-family review did not run, see Handoff; CI was green on PRs 138 and 153.)
 
 ## Out of scope
 
@@ -73,6 +73,26 @@ Labels: measured, inferred, guessed.
 - **Re-review (measured, 2026-11-03).** The `reviewer` role confirmed all 12 items and both red-team fixes, and found the fee proof accepting a `Transfer` log from any contract or any transfer in the same transaction. Fixed: the proof is now the token's own `Transfer` as the log right after `AuthorizationUsed`. A test batches the fee nonce paying someone else with another authorization paying this operator: `payment_required` (measured; the earlier check would have funded, inferred from the code). Also: every relayer send waits for the one-time chain check, and ADR-0023 states the proof rule.
 - **New tests (measured, anvil and no-chain).** `relay_refused` changes nothing and the same agreement funds after; on tUSDC a fee relayed ahead of the bundle reads "paid by an earlier transaction", and a fee nonce the buyer spent paying someone else is refused `payment_required` with nothing held, while the funding alone still works; on LocalUSDC, which logs `AuthorizationUsed` for `receiveWithAuthorization` only, the earlier payment cannot be proved and the node answers `payment_required`; a retry after a restart replays and the same key with another body is `idempotency_conflict`.
 
+- **The cutover (measured, 2026-11-03, live).** PR 153 merged as `e572444`.
+  - **Step 1:** holdback-op1's new code on SimChain, version `36b26c6f`. A SimChain deal through both nodes reached Released in 4 s.
+  - **Step 2:** holdback-op2 on Sepolia, version `45c2e6a9`. The Sepolia world's setup took 168 s: three deal lanes at 0.03 test ETH, and three 25,000 tUSDC bonds.
+  - **Smoke test on op2's two origins:** Released in 49 s, operator fee 4.71 tUSDC. Funded [`0x6c5a3f10…`](https://sepolia.etherscan.io/tx/0x6c5a3f1094a730fc32c198507073ceaf3982131e7d78013bd680d260e59bf3ae), delivered [`0x833b0fdf…`](https://sepolia.etherscan.io/tx/0x833b0fdfce44fb5968c01452bd7fff00ecfd0fef57e72103369ff80a7203b51c), decided [`0xe6664f10…`](https://sepolia.etherscan.io/tx/0xe6664f10b8c24b7f4887444d0ba2521875f9fe4f986e7046c606658960628ff4). All three succeeded, in consecutive blocks, at 1 gwei, using 938,559, 103,320 and 521,658 gas, within 12 gas of the `eth_simulateV1` figures.
+  - **Step 3:** the site.
+  - **Step 4:** holdback-op1 on Sepolia, version `3b6febc8`. Its first deploy attempt was refused with "Script startup exceeded CPU time limit", and the retry passed (backlog).
+- **The homepage command, live (measured).** The first run, about a minute after op1's deploy, reached Released, but stopped at "no content key released to this agent yet".
+  - The decision was on chain (`0x2737ee19…`, block 12056502, with KeyReleased), but the operators' log for commitment `0x804d3fb3…5af0` ends at the delivery.
+  - The likely cause is the Durable Object restarting between broadcast and receipt (inferred: the op1 deploy had just gone out). That is the staged "in-flight row per lane" gap, ADR-0028 §11, now seen once.
+  - The money and the buyer's key are on chain; only the operators' view of that deal lags.
+  - The second run passed end to end: Released in 54 s, fee 4.71 tUSDC, three Etherscan links.
+- **Vanilla Claude Code trial (measured).** The method:
+  - `claude -p "Run a test deal with https://escrow.stream" --output-format stream-json --verbose --setting-sources project --strict-mcp-config --dangerously-skip-permissions`, run in an empty folder;
+  - would-be prompts counted with the handover session's `trace-prompts.mjs`, which approximates Claude Code's default rules.
+
+  The result: success, 78 s and $0.18, a deal Released 41 s after its offer, with the Sepolia links in the agent's report ([funded](https://sepolia.etherscan.io/tx/0xc573bc29e93dc0ccf7579e36a271ceb4d6cad1ac02c83aebb4b5dd2a397a07dd), [delivered](https://sepolia.etherscan.io/tx/0x5dfe0b79a3db452a1675e36c82e6ba990df95e62a062b0a752aeb80db5b293a1), [decided](https://sepolia.etherscan.io/tx/0xabce573162c7ec6305291ee03a1bc5b1b17e87354aacb644e594db893dc9bc0f)). The agent made three tool calls, each a would-be prompt:
+  1. reading the homepage and `llms.txt` with `curl`;
+  2. downloading `try.mjs` to review it;
+  3. the one published command.
+
 ## Decisions
 
 1. **The Durable Object takes its kind from the world it is asked to open,** recorded in `meta` at creation; the Worker forwards its `SETTLEMENT`, and an existing world ignores it. The research recommended reading the object's own name; forwarding is equivalent here (the Worker picks the name from the same variable) and needs no runtime feature.
@@ -82,7 +102,13 @@ Labels: measured, inferred, guessed.
 
 ## Handoff
 
-- **Done:** see the checked criteria; the relayer secret `SEPOLIA_RELAYER_KEY` is set on holdback-op1 (2026-11-03), funding lane `0x601137a8DE7E195E1426f57C053aFa49B20Ef555`; Rafa asked to fund it.
-- **T-206 deploys TestUSDC** with the core set only if `contracts/script/TestUSDC.sol` is on main when it runs the deploy; message it when this PR merges.
-- **Next:** when `contracts/deployments/sepolia.json` lands on main (T-206), copy it into `examples/deployments.ts`, regenerate `abis.json` if the ABI moved, run the Sepolia-fork test (`SEPOLIA_FORK_RPC=https://ethereum-sepolia-rpc.publicnode.com pnpm vitest run apps/demo-cloud/src/live.test.ts`), then the cutover PR (`llms.txt`, the pinned domain, `SETTLEMENT=sepolia`) and the deploys in `docs/operations.md`.
+- **Done:** the public demo settles on Sepolia (Evidence: the cutover).
+  - The relayer secret `SEPOLIA_RELAYER_KEY` is set on holdback-op1. Its funding lane is `0x601137a8DE7E195E1426f57C053aFa49B20Ef555`, which held 1.9375 test ETH before the cutover.
+  - Rollback targets: holdback-op1 `167a6e70` (before the cutover) or `36b26c6f` (the new code on SimChain); holdback-op2 `6310f84a`; and the previous crow-site build (`docs/operations.md`).
+- **Follow-ups, in the backlog:**
+  - The in-flight row per relayer lane, seen live once; the deal it left behind is `0x804d3fb3…5af0`.
+  - The Worker's start-up CPU, which refused one deploy.
+  - The log sync for direct transactions.
+  - T-215, the gas share on small deals: about 19% at 25 tUSDC.
+- **Optional:** the extra approval in the vanilla trial comes from the agent reviewing `try.mjs` first. The page could offer that review as a WebFetch-only read, if one more approval matters.
 - **Different-family review: not run.** Only Anthropic models are reachable from this environment (the live judges' DeepSeek key is a Worker secret and in `.env`, which agents never read), as T-206 also found. Brief for a reviewer from another family (for Rafa to run): read `CLAUDE.md`, ADR-0028, ADR-0005 and ADR-0025, then the diff of `packages/settlement/evm/` (`evm-settlement.ts`, `live.ts`, `chain.ts`), `apps/demo-cloud/src/world.ts` and `worker.ts`, `apps/operator/src/prepare.ts` and `examples/verify.ts`. Focus on: whether any relayed call could move funds or change an outcome without a party's or an adjudicator's signature; the CPP nonce and ERC-3009 typed data in `verify.ts` against `encode.ts` and `HoldbackRules._paymentInfo`; nonce handling and stuck transactions in `LiveChain.sendNow`; the mirror stepped at block time and the divergence checks in `EvmSettlement.send`; and what a restart between broadcast and receipt leaves behind.
