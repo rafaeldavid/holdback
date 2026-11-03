@@ -67,7 +67,7 @@ Review the Phase 2 contracts against the neutrality checklist, the hold invarian
   | M-1 | #122 | `test/unit/AfterCppReclaim.t.sol` (7 tests). An always-skip mutant fails 2; `invariant_timeoutsExactlyWhenDue` fails on `main`. | 5 |
   | H-2 | #125 | `test/unit/AppealKey.t.sol` (7 tests); `invariant_keyOnlyWithPayment` fails on `main` with the targeted `decideAppeal` action. | 6 |
   | M-2 | #127 | `test/unit/LateCarriedDelivery.t.sol` (7 tests); `invariant_timeoutsExactlyWhenDue` fails on `main` with "a delivery landed at or after deliverBy". | 4 |
-  | M-3 | #135 | `test/unit/BondConsent.t.sol` (5 tests) | 4 |
+  | M-3 | #135 | `test/unit/BondConsent.t.sol` (6 tests). Deleting the fallback's reservation fails two invariants (with the `decideFallback` action). | 4 |
 
 - **measured** `pnpm verify` on each fix branch: every step passes, including all forge tests and invariants, and there are no snapshot diffs. The exception is `pnpm snap --settlement=local`, which on `main` since PR 113 fails on `error.submission-limit` whether or not a T-206 change is applied (24 passed, 1 failed, 3 excluded). That failure is handed off below. First fix branch, at `baac930`:
 
@@ -92,8 +92,9 @@ Review the Phase 2 contracts against the neutrality checklist, the hold invarian
   | `main` + #120 + #122 + #125 | 24,517 |
   | `main` + #127 | 24,429 |
   | `main` + #135 | 23,880 |
+  | `main` at `cc834fc`, with all five fixes | 23,986 (590 under) |
 
-  The final size after all merges is recorded at merge.
+  `HoldbackBonds` is 2,395 bytes and `DrandQuicknetBeacon` 3,269.
 - **measured** The public-audit cross-check found no high or medium issue against our use of CPP, Permit2, Solady or USDC, and none in the drand verifier. It found M-3 and two beacon lows (review I-12, I-13).
 - **measured** Sepolia facts, read-only RPC:
   - chain ID 11155111;
@@ -127,7 +128,7 @@ Review the Phase 2 contracts against the neutrality checklist, the hold invarian
 
 **State.**
 - The review is written.
-- Five fix PRs: #120 and #122 are merged; #125, #127 and #135 merge after their reviewers return PASS and CI is green.
+- All five fix PRs are merged (#120, #122, #125, #127, #135), each after its reviewer returned PASS and CI was green.
 - The cross-family pass and Rafa's read are open.
 - The Sepolia deploy follows the merges, in its own PR (Decisions 7).
 

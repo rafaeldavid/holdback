@@ -59,10 +59,10 @@ The public-audit cross-check found no high or medium issue against our use of CP
 | ID | Severity | Finding | Litmus test | Label | Status |
 | --- | --- | --- | --- | --- | --- |
 | H-1 | high | The appeal adjudicator chooses its panel seed through `attempt` | judgment | measured | fixed, PR #120 (merged); core in T-210 |
-| H-2 | high | A decision can release the key to a refunded buyer | hold | measured | fixed in the contract, PR #125; reference adjudicator in T-211, SimChain in T-210 |
+| H-2 | high | A decision can release the key to a refunded buyer | hold | measured | fixed in the contract, PR #125 (merged); reference adjudicator in T-211, SimChain in T-210 |
 | M-1 | medium | A buyer's CPP reclaim strands every encumbered bond | neutrality, hold | measured | fixed, PR #122 (merged) |
-| M-2 | medium | A delivery landed after `deliverBy` beats the reclaim | hold | measured | fixed, PR #127 |
-| M-3 | medium | A sham deal locks a named fallback's or appeal adjudicator's bond | neutrality | measured | fixed, PR #135 |
+| M-2 | medium | A delivery landed after `deliverBy` beats the reclaim | hold | measured | fixed, PR #127 (merged) |
+| M-3 | medium | A sham deal locks a named fallback's or appeal adjudicator's bond | neutrality | measured | fixed, PR #135 (merged); reference adjudicator residual in T-211 |
 | L-1 | low | An early accept names an attempt, not a delivery | hold (record) | measured | T-212 item 3 |
 | L-2 | low | The bond vault credits nominal amounts | neutrality | inferred | T-212 item 1 |
 | L-3 | low | A zero-bond appeal is accepted | judgment | measured | accepted until Phase 4 |
@@ -245,8 +245,8 @@ Each item gives a label and a disposition.
   - `MUTUAL_FEE_SHARE_BPS` is a constant 0 (`:70`), so the fee-share capture in `_payOut` (`:464-471`) never runs.
   - Its bytes sit in a contract near the EIP-170 limit. Disposition: T-212 item 6.
 - **I-3. EIP-170 headroom** [measured, `forge build --sizes`].
-  - `HoldbackRules` runtime was 24,051 bytes at `baac930`; the size with all four fixes is in T-206's Evidence.
-  - Disposition: T-212 item 6 frees bytes first.
+  - `HoldbackRules` runtime was 24,051 bytes at `baac930`. With all five fixes on `main` (`cc834fc`) it is 23,986 bytes, 590 under the limit; M-3 freed the room H-2 and M-2 took.
+  - Disposition: record the headroom with each T-212 change.
 - **I-4. EIP-7702 accounts** [inferred].
   - Solady sends every address with code to ERC-1271 (`SignatureCheckerLib.sol:90-120`). So a 7702-delegated EOA can sign only if its delegate implements `isValidSignature` for the EOA's key.
   - Disposition: a line in the agent docs (T-206 Handoff).
@@ -420,7 +420,7 @@ Gaps:
 
 1. **Cross-family review (gate, not done).**
    - Only Anthropic models were reachable: the environment exposes no other provider's key by name, and `.env*` files were not read.
-   - To close the "two model families" criterion, a reviewer from another family (an OpenAI or Google model, for example) reviews `contracts/src/` at `baac930` and the four fix PRs, without this document. The brief is in T-206's Handoff.
+   - To close the "two model families" criterion, a reviewer from another family (an OpenAI or Google model, for example) reviews `contracts/src/` at `baac930` and the five fix PRs, without this document. The brief is in T-206's Handoff.
    - Its findings are appended here, with the disagreements, before Phase 2 is called done.
 2. **Read this review** (task gate 1).
 3. **Sepolia (approved; deploy pending).**
