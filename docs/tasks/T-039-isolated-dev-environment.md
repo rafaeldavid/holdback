@@ -71,7 +71,8 @@ On A, the two sets are two environments. On B, each role gets its own Unix user,
 - `tick`: the tick and the lander;
 - `deploy`;
 - `minter`, which holds the two GitHub App keys and hands each role a one-hour token narrowed to what that role may do;
-- `runner-1` to `runner-N`, one per session slot (N is `wip.sessions` in `ops.yaml`, five today). These hold nothing and run code from a PR.
+- one runner per reviewer and verifier slot user (`runner-reviewer-1`, `runner-verifier-1` and so on). These hold nothing and run code from a PR.
+- `cfdeploy`, which holds the Cloudflare token. Only the deploy wrapper runs as it.
 
 The builder, reviewer and verifier roles get one user per slot (`builder-1` and so on, part (b) step 2), so parallel lanes never share a user.
 
@@ -82,7 +83,7 @@ The builder, reviewer and verifier roles get one user per slot (`builder-1` and 
 | GitHub App private keys, `crow-agents` and `crow-review` (B) | — (one-hour tokens through `minter`, narrowed per role; only `reviewer` gets `crow-review`) | — (the same) | — | — | backup in his password manager |
 | Rafa's GitHub login, 2FA and recovery codes | — | — | — | — | yes |
 | Anthropic `crow-agents` key, capped (Claude Code on B; live triager runs) | yes (B) | yes (B) | — | — | — |
-| Cloudflare API token `crow-deploy` | — | yes | — | — | — |
+| Cloudflare API token `crow-deploy` | — | yes on A; on B only through `/opt/crow/deploy`, which runs as `cfdeploy` | — | — | — |
 | Cloudflare login (account owner) | — | — | — | — | yes |
 | Live judges' keys (Anthropic, DeepSeek; moved to the capped `crow-judges` workspace by T-051 step 2) | — | — | — | yes, today | yes, in `.env` |
 | Cross-family review keys (DeepSeek, GPT), capped | only the one session Rafa approves for a live test run (T-045, T-046) | — | an Environment limited to `main`, at T-050 | — | — |
@@ -167,7 +168,7 @@ Every step is **human**. Times are guessed; faucet waits are extra. The steps ar
 6. **Set up the VM** (45 min) [B]. Part (b) steps 1 to 3 must be merged first.
    1. Create a VM with at least 4 vCPU and 8 GB, named `crow`. On exe.dev: `ssh exe.dev` to register, then create it in the web UI or with `ssh exe.dev new`, choosing the name and size as https://exe.dev/docs describes.
    2. On the VM, run `git clone https://github.com/rafaeldavid/holdback.git`, then `sudo bash holdback/scripts/dev-env/vm-users.sh`. It holds no secret. It creates:
-      - the role users, `minter`, and `runner-1` to `runner-N`, with their folders;
+      - the slot and role users, `minter`, `cfdeploy` and the runners, with their folders;
       - the intake folder `/srv/crow/intake/`;
       - the root-owned launcher, `/opt/crow/start-session`;
       - the root-owned Claude Code managed settings;
@@ -240,7 +241,7 @@ Every step is **human**. Times are guessed; faucet waits are extra. The steps ar
 
 14. **Store the deploy secrets** (10 min).
     - [A] Create a second environment, `crow-deploy`. Use the build network list plus `api.cloudflare.com`, `ethereum-sepolia-rpc.publicnode.com`, `sepolia.gateway.tenderly.co` and `api.etherscan.io`. Add environment variables `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` and, if made, `ETHERSCAN_API_KEY`. Anyone who uses the environment can read them, and only you do.
-    - [B] Write the same variables to a file on your Mac and send it: `ssh <vm> 'sudo -u deploy sh -c "umask 077; cat > /home/deploy/.config/crow/env"' < <that file>`. Then delete the file.
+    - [B] Write the same variables to a file on your Mac and send it to the `cfdeploy` user, not to `deploy`: `ssh <vm> 'sudo -u cfdeploy sh -c "umask 077; cat > /home/cfdeploy/.config/crow/env"' < <that file>`. Then delete the file. A deploy session then reaches the token only through the wrapper, so it cannot run wrangler around the tag check.
 
     The Sepolia deployer stays on your laptop (T-206). A later deploy that moves off the laptop gets a new deployer key in the deploy environment, never a copy of the keystore.
 
@@ -276,17 +277,17 @@ Every step is **agent** unless marked. Times are guessed.
 
 2. **`scripts/dev-env/vm-users.sh`** [B] (4 hours). It runs once as root and holds no secret. It:
    - creates one user per session slot, so parallel lanes never share a user or kill each other's work:
-     - `builder-1` to `builder-K`, `reviewer-1` to `reviewer-K` and `verifier-1` to `verifier-K`, where K is the largest `wip.implementers` planned (three);
+     - `builder-1` to `builder-K`, `reviewer-1` to `reviewer-K` and `verifier-1` to `verifier-K`, where K is the largest `wip.implementers` planned (five, `after_T-034` in `ops.yaml`);
      - one `tick` and one `deploy`.
 
      "Role user" below means any of these.
-   - creates `minter`.
-   - creates `runner-1` to `runner-N`, one per session slot. They have no key, no group and no sudo rule of their own, and run code from a PR.
-     - **Its own clone, per session:** a slot's runner clones the public repository into `/srv/crow/runner/<slot>/` and checks out the PR's head there itself, with no token. No role user can read that tree, and no Claude Code session ever opens it as a project, so its `.claude/` and `CLAUDE.md` never load.
-     - **How the reviewer reads results:** only through `runner`'s own permissions. It runs `sudo -u runner-<n> cat <file>` into a file it owns, and reads the command's output and exit status. No root process copies anything out of a runner's tree, because a root copy could follow a symlink that PR code planted there and copy an App key into reach.
-     - **Nothing survives a session:** the launcher below kills its slot's runner processes and wipes that slot's folder before each session. A daemon left by one PR's tests cannot tamper with the next, and sessions in other slots are untouched.
+   - creates `minter`, and `cfdeploy`, whose home holds the Cloudflare token with mode 700.
+   - creates one runner for each reviewer and verifier slot user: `runner-reviewer-1` to `runner-reviewer-K` and `runner-verifier-1` to `runner-verifier-K`. They have no key, no group and no sudo rule of their own, and run code from a PR. A reviewer and a verifier never share a runner, even in the same slot.
+     - **Its own clone, per session:** each runner clones the public repository into its own folder, `/srv/crow/runner/<runner>/`, and checks out the PR's head there itself, with no token. No role user can read that tree, and no Claude Code session ever opens it as a project, so its `.claude/` and `CLAUDE.md` never load.
+     - **How the reviewer reads results:** only through `runner`'s own permissions. It runs `sudo -u <its runner> cat <file>` into a file it owns, and reads the command's output and exit status. No root process copies anything out of a runner's tree, because a root copy could follow a symlink that PR code planted there and copy an App key into reach.
+     - **Nothing survives a session:** before each session, the launcher below kills the processes of the runner that belongs to the session's user, and wipes that runner's folder. A daemon left by one PR's tests cannot tamper with the next, and every other session is untouched.
      - **Its own temporary folder:** each runner gets a `TMPDIR` under its own folder, and no local socket of the tick's is reachable from it.
-   - adds a sudoers rule that lets each slot's `reviewer-<n>` and `verifier-<n>` run any command as `runner-<n>`. That is safe because a runner holds nothing.
+   - adds a sudoers rule that lets each `reviewer-<n>` run any command as `runner-reviewer-<n>`, and each `verifier-<n>` as `runner-verifier-<n>`. That is safe because a runner holds nothing.
    - makes each user's home mode 700. The users that run Claude Code join the group `crow-claude`, which can read `/etc/crow/anthropic.env`.
    - writes Claude Code's managed settings, `/etc/claude-code/managed-settings.json` and `/etc/claude-code/CLAUDE.md`, owned by root (documented paths). Managed settings outrank the same keys elsewhere, but alone they would still let hooks and MCP servers load from project and user files. So the file also sets `allowManagedHooksOnly` and `allowManagedMcpServersOnly` (documented). Without them, a hook in a PR branch's `.claude/settings.json` would run as whichever user opened that checkout.
      - It does not set `allowManagedPermissionRulesOnly`. That flag would make the managed file the only source of permission rules, so the role templates' deny rules would never load. In bypass mode allow rules have no effect anyway (documented), so the flag would remove protection and add none.
@@ -294,12 +295,17 @@ Every step is **agent** unless marked. Times are guessed.
    - writes each role's home template, `scripts/dev-env/home-templates/<role>/`, which holds that role's own deny rules.
    - installs `/opt/crow/start-session`, a root-owned launcher. It is the only way one user starts a session as another. The sudoers file lists it for `tick` once per role. The launcher:
      - takes exactly two arguments: a role, which must be `builder`, `reviewer` or `verifier`, and a task ID matching `T-[0-9]{3}`. It refuses anything else. Above all it refuses `deploy`, `tick` and `minter`: deploy sessions are started by Rafa over `ssh`, never by the tick.
-     - picks a free slot itself. It kills that slot's role and runner processes, and wipes that slot's runner folder.
+     - picks a free slot for the role itself. It kills that slot user's processes and its runner's, and wipes that runner's folder.
      - rebuilds the slot user's home from its role's root-owned template in a temporary folder, then moves it into place. It never runs `rm -rf` on a path built from input, and uses `set -euo pipefail` with no shell interpolation.
      - fetches `main` into a root-owned clone itself, never through `tick`. It builds the brief with `brief.mjs` from that clone and the task file on `main`, then starts `claude -p` as the slot user.
 
      `tick` never passes a prompt, so nobody who holds the tick can tell a reviewer session what to approve. The tick is a plain process with no model (T-048).
-   - installs `/opt/crow/deploy <tag> <sha>`, a root-owned wrapper and the only deploy command the `deploy` user runs. Its source, `scripts/dev-env/deploy.sh`, is tier 3. It checks that `git rev-parse <tag>^{commit}` equals the SHA in Rafa's go-ahead before it calls `pnpm demo-cloud:deploy`. The check therefore sits outside the tier 2 deploy code it protects (T-050 step 9).
+   - installs `/opt/crow/deploy <tag> <sha>`, a root-owned wrapper whose source, `scripts/dev-env/deploy.sh`, is tier 3. The `deploy` user may run it, through sudo, as `cfdeploy`, the only user that can read the Cloudflare token. It does no deploy any other way: the token is out of its reach, so a deploy session cannot run wrangler around the check. The wrapper:
+     - checks that `git rev-parse <tag>^{commit}` equals the SHA in Rafa's go-ahead;
+     - clones that commit fresh into a new folder and runs `pnpm install --frozen-lockfile` there;
+     - deploys from that clone with `pnpm demo-cloud:deploy`, never from a working tree a session controls.
+
+     It also offers the read-only commands the runbook uses, such as `tail <worker>`. The check sits outside the tier 2 deploy code it protects (T-050 step 9).
    - creates `/home/minter/.config/crow/` with mode 700, so only `minter` can read the two App keys;
    - creates `/srv/crow/intake/`, owned by `deploy`, with the group `crow-intake` that the builder slot users and `tick` belong to, mode 750 for the folder and 640 for its files. The deploy side writes the feedback export and the signal records there (T-041, T-042), and the build side reads them.
    - copies `gh-app-token.mjs` to `/opt/crow/`, owned by root and writable by no one else;
@@ -344,7 +350,7 @@ Every step is **agent** unless marked. Times are guessed.
 6. **Permission settings that avoid prompts** (1 hour).
    - On B, each session runs as its role's user, which is not root, with `claude --dangerously-skip-permissions`.
    - Reviewer and verifier sessions start in a trusted checkout of `main`, with the PR's diff given as data, so the PR's own `CLAUDE.md` and `.claude/` never load as instructions or settings.
-   - Code from a PR that they run, such as `pnpm verify`, runs as the slot's runner in its own clone under `/srv/crow/runner/<slot>/` (`sudo -u runner-<n>`). A runner holds no token and no key. Code under review therefore cannot mint the reviewer's token and approve itself, and cannot rewrite the tree the reviewer reads.
+   - Code from a PR that they run, such as `pnpm verify`, runs as the session user's own runner, in that runner's clone under `/srv/crow/runner/` (`sudo -u runner-reviewer-<n>`, for example). A runner holds no token and no key. Code under review therefore cannot mint the reviewer's token and approve itself, and cannot rewrite the tree the reviewer reads.
    - On A, sessions use Auto mode where offered, otherwise Accept edits. `.claude/settings.local.json` does not apply in cloud sessions (documented), so the allow list in `.claude/settings.json` keeps every command in `CLAUDE.md`'s verify list.
    - The deny rules (`.env*`, force pushes, `forge script`, `cast send`) stay everywhere, and they still bind in bypass mode (documented).
    - Laptop sessions keep the rules in `docs/operations.md`.
@@ -362,10 +368,10 @@ Every step is **agent** unless marked. Times are guessed.
      - no role can read another role's home;
      - `/etc/claude-code/` is owned by root, and its managed settings set `allowManagedHooksOnly` and `allowManagedMcpServersOnly`;
     - a session opened in a checkout whose `.claude/settings.json` adds a hook does not run that hook;
-    - `reviewer-1` can run a command as `runner-1`, and as no other runner. No runner can read any role's home, and no role user can read `/srv/crow/runner/`;
+    - `reviewer-1` can run a command as `runner-reviewer-1`, and as no other runner. No runner can read any role's home, and no role user can read `/srv/crow/runner/`;
     - a symlink planted in a runner's clone, pointing at an App key, is not followed when the reviewer reads results;
     - `tick` can run nothing as another user except `/opt/crow/start-session <role> <task-id>`. The launcher refuses `deploy`, `tick`, `minter`, a bad task ID and an extra argument;
-    - `deploy` can run `/opt/crow/deploy` and refuses a tag whose commit differs from the given SHA;
+    - `deploy` cannot read the Cloudflare token. It can run `/opt/crow/deploy` as `cfdeploy`, and the wrapper refuses a tag whose commit differs from the given SHA;
     - starting a session in one slot leaves another slot's runner processes running, and no runner process of its own slot survives;
     - an approval by `crow-review` on a test PR counts toward the required review, which shows that the token's narrowing to Contents read does not cancel the App's write access (inferred until measured).
    - **No personal Claude login (B):** no `~/.claude/.credentials.json` for any role user (inferred path of Claude Code's login store on Linux), and no Remote Control process.
