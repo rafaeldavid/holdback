@@ -58,7 +58,7 @@ Measured unless marked.
   - *Work part:* every free-text field drawn from the work. That covers each seat's raw output (with any reasoning labeled `full` or `summary`), verdict evidence, injection evidence and rationale, check details, and the reader's features. The sample the judges saw is not stored: it is the work itself, and anyone holding the plaintext recomputes it from the seed (`packages/judgment/src/sample.ts:1-11`).
   - *Key:* the work part is encrypted under a key derived from the work's content key (ADR-0012), so a party reads it exactly when it can read the work. The seller always can; the buyer once the key is released; a fallback or appeal adjudicator when it takes over. This needs no new key path (inferred).
 - **The report.** The adjudicator writes one per judgment, hashed into the signed record as `reportHash`. The verdict keeps its capped rationale, since the cap is a defense (T15). The rationale now sits in the work part.
-- **Sealed at every disclosure level.** The protocol never publishes the work part. At `judgment` and `public` the record shows scores and reason codes, not quotes. Parties who want the judges' text public co-sign a `Publish` whose `disclosure` body carries the work-part key (ADR-0024 §3). That key opens the judges' text, not the work, so a party choosing `judgment` for precedent keeps its choice (ADR-0015, D40). A party may also publish its own copy (D35). Backers get aggregates only (ADR-0020 §4).
+- **Sealed at every disclosure level.** The protocol never publishes the work part. At `judgment` and `public` the record shows scores and reason codes, not quotes. Parties who want the judges' text public co-sign a `Publish` whose `disclosure` body carries the work-part key (ADR-0024 §3). That key opens the judges' text, which quotes parts of the work, but not the whole work. A party choosing `judgment` for precedent keeps its choice, and publishing those quotes is the parties' joint act (ADR-0015, D40). A party may also publish its own copy (D35). Backers get aggregates only (ADR-0020 §4).
 - **Report timing.** With `maxSubmissions` above 1 (Phase 4), the adjudicator releases reports after the commitment's last decision, so a seller cannot read attempt one's judges before attempt two.
 - **A missing or undecryptable report** is an ordinary appeal ground, like a missing or wrong key (T19), with no penalty attached.
 - **Data, never instruction**, for every reader, like the screen report (ADR-0021, T22): every text field is `x-holdback-untrusted`. No model reads the report.
@@ -104,26 +104,28 @@ Measured unless marked.
   - the commitment ID, role, attempt and the decision's record hash, with a nonce and an expiry, so a root never carries to another decision;
   - a root with one leaf per seated attested seat: `{inputHash, outputHash, evidence hash}`, or an abstention leaf;
   - a sealed pointer.
-- **Presence, not content.** Anyone may submit the bundle to the settlement layer, which stores the root beside the commitment's state word (ADR-0024 §8), emits `proofs.posted`, and changes no commitment state. An operator that refuses to relay it is bypassed through the escape hatch (ADR-0005). Settlement reads no proof content: it stores a root, set only by the decider's signature.
-- **The terms it needs travel in the clear.** The settlement view (ADR-0024 §8) gains `proofWindowSec` and `proofMissPenalty`, since the contract sees only `policyHash`. This changes the view's EIP-712 struct and its version. The proof deadline runs on settlement's own clock, from when it applied the decision; the record's `decidedAt` is not read.
+- **Presence, not content.** Anyone may submit the bundle to the settlement layer, which stores the root beside the commitment's state word (ADR-0024 §8), one slot per decision role (first instance, fallback, appeal), emits `proofs.posted`, and changes no commitment state. A later decider cannot rely on an earlier decider's root. An operator that refuses to relay it is bypassed through the escape hatch (ADR-0005). Settlement reads no proof content: it stores a root, set only by the decider's signature.
+- **The terms it needs travel in the clear.** The settlement view (ADR-0024 §8) gains `proofWindowSec` and `proofMissPenalty`, since the contract sees only `policyHash`. This changes the view's EIP-712 struct and its version. The proof deadline runs on settlement's own clock, from when it applied the decision; the record's `decidedAt` is not read. A root stored at or before the deadline counts, and the timeout opens strictly after it, so a bundle and a trigger in the same block resolve for the bundle.
 - **The proofs** travel sealed with the work part, because a proof is as sensitive as its request.
 - **Settlement waits for no proof.** Release, refund, fallback and default happen as today. Proving never extends a deadline (`attack.prover-stalls-settlement`).
 - **A proof or re-execution never produces a new verdict.** A mismatch is evidence, and the appeal panel judges afresh. Nothing is re-rolled.
 - **Who can check.** The party a decision goes against always holds the plaintext: after an accept, the buyer has the key; after a reject, the seller has the work. So the party that cares can check before it appeals (D32).
 - **Verifiers run sandboxed,** with no keys and no network. Each registry entry caps proof size and verification time. Any finding about a proof carries the hash of the verifier's transcript, so it is evidence (D26).
-- **Proof windows are the parties' to set (D31).** Settlement can process any value, 0 included. An adjudicator declines terms its prover cannot meet within its stated proving time plus an inclusion margin (D29, D32). The operator warns (advisory) when the window ends after the appeal window or leaves no time for forced inclusion (residual 2).
+- **Proof windows are the parties' to set (D31).** Settlement can process any value, 0 included. An adjudicator declines terms its prover cannot meet within its stated proving time plus an inclusion margin, and windows longer than it will hold a reserve for (D29, D32). The operator warns (advisory) when the window ends after the appeal window or leaves no time for forced inclusion (residual 2).
 
 ### 4. A missing proof costs a fixed amount from the decider's own stake; nothing else moves money
 
 - **The duty and the merits are separate.** A missing proof does not show the work is bad, so a missed duty earns a bounded, priced payment and the outcome is never re-tried. D28 and D27c are unchanged.
 - **The timeout catches absence, not faking.** If `attestedSeatsSeated > 0` and no root is stored by the proof deadline, anyone may trigger the proof-miss timeout. It pays `proofMissPenalty` (P) to the party the decision went against.
-  - No duty, and so no penalty, follows a decision with no attested seat seated, or an escalation, which went against no one.
+  - No duty, and so no penalty, follows a decision with no attested seat seated, or an escalation, which went against no one. A decider with a dead prover could escalate to avoid P, at the parties' cost in time. That is recorded and counts against its public record, and it is bounded like any escalation (ADR-0007).
   - This is a fact settlement checks from its own storage, at every instance. "The decider" is whoever signed the decision: the primary, the fallback, or the appeal adjudicator for its own decision.
   - The timeout relies on an honest `attestedSeatsSeated`. A decider that signs a false 0 to dodge it has signed something anyone can disprove by recomputing the panel. In any appeal, the appeal adjudicator may find the count false, and P is then paid as if absent. No party can cause a false count, so paying on that finding rewards no one who gamed it.
 - **P comes only from the decider's junior tranche,** its own first-loss stake (ADR-0014 §2a), never from backers.
   - The parties choose P (D31), and a rulebook may cap it as a share of the price (ADR-0015).
-  - Whenever `proofMissPenalty > 0`, each decider reserves P in its junior tranche: the first-instance decider at acceptance, and a fallback or appeal adjudicator when it takes the case (`error.coverage-exceeded`). An adjudicator that cannot reserve P cannot take the case, as with the coverage gate today (ADR-0007). A high P can therefore push a case to the default outcome at takeover, which the parties weigh when they set it (D32).
-  - The reserve is held until the later of `appealDecideBy` and the proof deadline. A correlated outage across deals then draws only on reserves already held.
+  - Whenever `proofMissPenalty > 0`, each decider reserves P in a separate `reservedJunior` counter: the first-instance decider at acceptance, and a fallback or appeal adjudicator when it takes the case. The gate adds `junior - reservedJunior >= P` to the price rule (`error.coverage-exceeded`).
+  - The reserve is ring-fenced: price payouts do not draw reserved junior, so senior takes price losses earlier by at most the open reserves, which pool terms disclose to backers (ADR-0014 §2a). The alternative, paying `min(P, junior)` best-effort, keeps the loss order but leaves P unenforceable once junior runs out.
+  - A rulebook cap on P at the first-loss share of the price keeps that shift within what backers already accept per deal (inferred). An adjudicator that cannot reserve P cannot take the case, as with the coverage gate today (ADR-0007). A high P can therefore push a case to the default outcome at takeover, which the parties weigh when they set it (D32).
+  - The reserve is held until the later of `appealDecideBy` and the proof deadline. It is released at once when the decider's deadline passes without its decision, when it escalates, or when its decision seats no attested seat. A correlated outage across deals then draws only on reserves already held.
   - A decider and a colluding party can move only the decider's own stake.
 - **Everything else is evidence, never a payment.** This covers a root whose proofs fail, cannot be fetched or decrypted, or exceed the entry's caps; an attested seat that abstained or was served without its attestation; and a re-execution outside tolerance.
   - Each is recorded and counts against the adjudicator's public record (ADR-0014 §1).
@@ -190,6 +192,7 @@ Measured unless marked.
 
 ## Consequences
 
+- **Residual 9 grows slightly:** `proofWindowSec`, `proofMissPenalty`, `attestedSeatsSeated` and the proof roots join the public skeleton.
 - **Residual 8 narrows for attested seats and is unchanged for `none` seats**, including the default panel. A posted root that does not verify is caught only by evidence, not by settlement: the timeout catches absence, not faking.
 - **`docs/neutrality.md` gains a prover row:**
   - **Can:** post or withhold proofs.
@@ -209,6 +212,10 @@ Measured unless marked.
   - `attack.proof-miss-on-short-circuit-reject`;
   - `attack.proof-miss-penalty-drains-senior`;
   - `attack.proof-miss-reserve-released-early`;
+  - `attack.junior-reserve-consumed-by-overturn`;
+  - `attack.false-attested-count`;
+  - `attack.second-decider-free-rides-first-root`;
+  - `attack.proof-miss-same-block-race`;
   - `attack.seller-induces-attested-abstention`;
   - `attack.proof-replay-across-deals`;
   - `attack.prover-stalls-settlement`;
