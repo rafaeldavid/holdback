@@ -10,37 +10,37 @@ Fixtures: 32; run on the contract: 29; passing on the contract: 29; identical tr
 
 | Fixture | On the contract | Transactions | Gas | Differing lines |
 | --- | --- | --- | --- | --- |
-| `_example` | pass | 3 | 517,469 | 2 |
+| `_example` | pass | 3 | 517,475 | 2 |
 | `attack.adjudicator-self-dealing` | pass | 1 | 65,515 | 0 |
-| `attack.forced-stride-appeal-default` | pass | 4 | 618,725 | 4 |
-| `attack.injection-encoded-base64` | pass | 4 | 618,665 | 4 |
-| `attack.injection-encoded-unicode-tags` | pass | 3 | 500,259 | 2 |
-| `attack.injection-filter-abstain-appeal-default` | pass | 4 | 618,653 | 4 |
-| `attack.injection-splits-appeal-to-default` | pass | 4 | 618,653 | 4 |
-| `attack.injection-steers-appeal-supermajority` | pass | 4 | 618,665 | 4 |
-| `attack.injection-steers-appeal-two-families` | pass | 4 | 618,665 | 4 |
-| `bad-work-row-drop` | pass | 3 | 500,235 | 2 |
+| `attack.forced-stride-appeal-default` | pass | 4 | 618,598 | 4 |
+| `attack.injection-encoded-base64` | pass | 4 | 618,538 | 4 |
+| `attack.injection-encoded-unicode-tags` | pass | 3 | 500,265 | 2 |
+| `attack.injection-filter-abstain-appeal-default` | pass | 4 | 618,526 | 4 |
+| `attack.injection-splits-appeal-to-default` | pass | 4 | 618,526 | 4 |
+| `attack.injection-steers-appeal-supermajority` | pass | 4 | 618,538 | 4 |
+| `attack.injection-steers-appeal-two-families` | pass | 4 | 618,538 | 4 |
+| `bad-work-row-drop` | pass | 3 | 500,241 | 2 |
 | `error.concurrent-overdraft` | pass | 1 | 246,381 | 0 |
 | `error.coverage-exceeded` | pass | 0 | 0 | 0 |
 | `error.early-accept-wrong-key-envelope` | pass | 3 | 515,107 | 2 |
 | `error.invalid-signature` | pass | 0 | 0 | 0 |
-| `happy-path` | pass | 3 | 517,469 | 2 |
+| `happy-path` | pass | 3 | 517,475 | 2 |
 | `honest-seller-survives-judge-noise-on-appeal` | excluded until Phase 4 | | | |
 | `neutrality.adjudicator-and-fallback-offline` | excluded until Phase 4 | | | |
 | `neutrality.adjudicator-never-accepts` | pass | 1 | 65,503 | 0 |
-| `neutrality.adjudicator-offline` | pass | 4 | 612,309 | 4 |
-| `neutrality.adjudicator-silent-before-judging` | pass | 4 | 612,285 | 4 |
+| `neutrality.adjudicator-offline` | pass | 4 | 612,312 | 4 |
+| `neutrality.adjudicator-silent-before-judging` | pass | 4 | 612,288 | 4 |
 | `neutrality.appeal-adjudicator-offline-after-escalation` | excluded until Phase 4 | | | |
-| `neutrality.buyer-silent` | pass | 3 | 517,541 | 2 |
-| `neutrality.operator-offline` | pass | 3 | 515,005 | 2 |
-| `neutrality.operator-refuses` | pass | 3 | 515,113 | 2 |
-| `neutrality.seller-withholds-delivery` | pass | 2 | 381,668 | 0 |
-| `panel-disagreement-escalates` | pass | 4 | 636,065 | 4 |
-| `todo.adjudicator-leaks-plaintext` | pass (todo) | 3 | 517,553 | 2 |
-| `todo.attack.injection-plain` | pass (todo) | 3 | 500,235 | 2 |
-| `todo.bad-work-panel-reject` | pass (todo) | 3 | 500,211 | 2 |
-| `todo.principal-no-recourse` | pass (todo) | 3 | 517,565 | 2 |
-| `todo.provider-outage` | pass (todo) | 3 | 419,432 | 4 |
+| `neutrality.buyer-silent` | pass | 3 | 517,547 | 2 |
+| `neutrality.operator-offline` | pass | 3 | 515,011 | 2 |
+| `neutrality.operator-refuses` | pass | 3 | 515,119 | 2 |
+| `neutrality.seller-withholds-delivery` | pass | 2 | 381,708 | 0 |
+| `panel-disagreement-escalates` | pass | 4 | 635,938 | 4 |
+| `todo.adjudicator-leaks-plaintext` | pass (todo) | 3 | 517,559 | 2 |
+| `todo.attack.injection-plain` | pass (todo) | 3 | 500,241 | 2 |
+| `todo.bad-work-panel-reject` | pass (todo) | 3 | 500,217 | 2 |
+| `todo.principal-no-recourse` | pass (todo) | 3 | 517,571 | 2 |
+| `todo.provider-outage` | pass (todo) | 3 | 419,442 | 4 |
 | `todo.submission-limit` | pass (todo) | 2 | 312,435 | 2 |
 
 ## `_example`
@@ -49,7 +49,7 @@ Fixtures: 32; run on the contract: 29; passing on the contract: 29; identical tr
 | --- | --- | --- | --- |
 | agreeAndFund | op-1 | op-1 | 251,169 |
 | deliver | op-1 | op-1 | 61,230 |
-| decide | direct | bench-a | 205,070 |
+| decide | direct | bench-a | 205,076 |
 
 ```diff
 - events step 3: delivery.submitted, key.released
@@ -70,8 +70,8 @@ Identical.
 | --- | --- | --- | --- |
 | agreeAndFund | op-1 | op-1 | 251,217 |
 | deliver | op-1 | op-1 | 61,266 |
-| decide | direct | bench-a | 106,961 |
-| decide | direct | bench-c | 199,281 |
+| decide | direct | bench-a | 106,971 |
+| decide | direct | bench-c | 199,144 |
 
 ```diff
 - events step 4: delivery.submitted, key.released
@@ -86,8 +86,8 @@ Identical.
 | --- | --- | --- | --- |
 | agreeAndFund | op-1 | op-1 | 251,217 |
 | deliver | op-1 | op-1 | 61,254 |
-| decide | direct | bench-a | 106,937 |
-| decide | direct | bench-c | 199,257 |
+| decide | direct | bench-a | 106,947 |
+| decide | direct | bench-c | 199,120 |
 
 ```diff
 - events step 4: delivery.submitted, key.released
@@ -102,7 +102,7 @@ Identical.
 | --- | --- | --- | --- |
 | agreeAndFund | op-1 | op-1 | 251,217 |
 | deliver | op-1 | op-1 | 61,266 |
-| decide | direct | bench-a | 187,776 |
+| decide | direct | bench-a | 187,782 |
 
 ```diff
 - events step 4: delivery.submitted, key.released
@@ -115,8 +115,8 @@ Identical.
 | --- | --- | --- | --- |
 | agreeAndFund | op-1 | op-1 | 251,217 |
 | deliver | op-1 | op-1 | 61,254 |
-| decide | direct | bench-a | 106,937 |
-| decide | direct | bench-c | 199,245 |
+| decide | direct | bench-a | 106,947 |
+| decide | direct | bench-c | 199,108 |
 
 ```diff
 - events step 4: delivery.submitted, key.released
@@ -131,8 +131,8 @@ Identical.
 | --- | --- | --- | --- |
 | agreeAndFund | op-1 | op-1 | 251,217 |
 | deliver | op-1 | op-1 | 61,254 |
-| decide | direct | bench-a | 106,937 |
-| decide | direct | bench-c | 199,245 |
+| decide | direct | bench-a | 106,947 |
+| decide | direct | bench-c | 199,108 |
 
 ```diff
 - events step 4: delivery.submitted, key.released
@@ -147,8 +147,8 @@ Identical.
 | --- | --- | --- | --- |
 | agreeAndFund | op-1 | op-1 | 251,217 |
 | deliver | op-1 | op-1 | 61,254 |
-| decide | direct | bench-a | 106,937 |
-| decide | direct | bench-c | 199,257 |
+| decide | direct | bench-a | 106,947 |
+| decide | direct | bench-c | 199,120 |
 
 ```diff
 - events step 4: delivery.submitted, key.released
@@ -163,8 +163,8 @@ Identical.
 | --- | --- | --- | --- |
 | agreeAndFund | op-1 | op-1 | 251,217 |
 | deliver | op-1 | op-1 | 61,254 |
-| decide | direct | bench-a | 106,937 |
-| decide | direct | bench-c | 199,257 |
+| decide | direct | bench-a | 106,947 |
+| decide | direct | bench-c | 199,120 |
 
 ```diff
 - events step 4: delivery.submitted, key.released
@@ -179,7 +179,7 @@ Identical.
 | --- | --- | --- | --- |
 | agreeAndFund | op-1 | op-1 | 251,205 |
 | deliver | op-1 | op-1 | 61,266 |
-| decide | direct | bench-a | 187,764 |
+| decide | direct | bench-a | 187,770 |
 
 ```diff
 - events step 4: delivery.submitted, key.released
@@ -221,7 +221,7 @@ Identical.
 | --- | --- | --- | --- |
 | agreeAndFund | op-1 | op-1 | 251,169 |
 | deliver | op-1 | op-1 | 61,230 |
-| decide | direct | bench-a | 205,070 |
+| decide | direct | bench-a | 205,076 |
 
 ```diff
 - events step 4: delivery.submitted, key.released
@@ -250,8 +250,8 @@ Identical.
 | --- | --- | --- | --- |
 | agreeAndFund | op-1 | op-1 | 251,205 |
 | deliver | op-1 | op-1 | 61,266 |
-| triggerFallback | op-2 | op-2 | 82,957 |
-| decide | direct | bench-b | 216,881 |
+| triggerFallback | op-2 | op-2 | 82,954 |
+| decide | direct | bench-b | 216,887 |
 
 ```diff
 - events step 4: delivery.submitted, key.released
@@ -266,8 +266,8 @@ Identical.
 | --- | --- | --- | --- |
 | agreeAndFund | op-1 | op-1 | 251,205 |
 | deliver | op-1 | op-1 | 61,254 |
-| triggerFallback | op-1 | op-1 | 82,945 |
-| decide | direct | bench-b | 216,881 |
+| triggerFallback | op-1 | op-1 | 82,942 |
+| decide | direct | bench-b | 216,887 |
 
 ```diff
 - events step 5: delivery.submitted, key.released
@@ -286,7 +286,7 @@ Excluded: Phase 4: seller compensation from the appeal adjudicator’s bond on d
 | --- | --- | --- | --- |
 | agreeAndFund | op-1 | op-1 | 251,181 |
 | deliver | op-1 | op-1 | 61,254 |
-| decide | direct | bench-a | 205,106 |
+| decide | direct | bench-a | 205,112 |
 
 ```diff
 - events step 5: delivery.submitted, key.released
@@ -299,7 +299,7 @@ Excluded: Phase 4: seller compensation from the appeal adjudicator’s bond on d
 | --- | --- | --- | --- |
 | agreeAndFund | op-2 | op-2 | 251,169 |
 | deliver | direct | tidewater-seller | 58,742 |
-| decide | direct | bench-a | 205,094 |
+| decide | direct | bench-a | 205,100 |
 
 ```diff
 - events step 6: delivery.submitted, key.released
@@ -312,7 +312,7 @@ Excluded: Phase 4: seller compensation from the appeal adjudicator’s bond on d
 | --- | --- | --- | --- |
 | agreeAndFund | op-2 | op-2 | 251,217 |
 | deliver | direct | tidewater-seller | 58,766 |
-| decide | direct | bench-a | 205,130 |
+| decide | direct | bench-a | 205,136 |
 
 ```diff
 - events step 7: delivery.submitted, key.released
@@ -324,7 +324,7 @@ Excluded: Phase 4: seller compensation from the appeal adjudicator’s bond on d
 | Transaction | Relayed via | Sent by (pays gas) | Gas |
 | --- | --- | --- | --- |
 | agreeAndFund | op-1 | op-1 | 251,205 |
-| reclaim | op-2 | op-2 | 130,463 |
+| reclaim | op-2 | op-2 | 130,503 |
 
 Identical.
 
@@ -334,8 +334,8 @@ Identical.
 | --- | --- | --- | --- |
 | agreeAndFund | op-1 | op-1 | 251,181 |
 | deliver | op-1 | op-1 | 61,266 |
-| decide | direct | bench-a | 106,949 |
-| decide | direct | bench-c | 216,669 |
+| decide | direct | bench-a | 106,959 |
+| decide | direct | bench-c | 216,532 |
 
 ```diff
 - events step 4: delivery.submitted, key.released
@@ -350,7 +350,7 @@ Identical.
 | --- | --- | --- | --- |
 | agreeAndFund | op-1 | op-1 | 251,205 |
 | deliver | op-1 | op-1 | 61,242 |
-| decide | direct | bench-a | 205,106 |
+| decide | direct | bench-a | 205,112 |
 
 ```diff
 - events step 4: delivery.submitted, key.released
@@ -363,7 +363,7 @@ Identical.
 | --- | --- | --- | --- |
 | agreeAndFund | op-1 | op-1 | 251,205 |
 | deliver | op-1 | op-1 | 61,266 |
-| decide | direct | bench-a | 187,764 |
+| decide | direct | bench-a | 187,770 |
 
 ```diff
 - events step 4: delivery.submitted, key.released
@@ -376,7 +376,7 @@ Identical.
 | --- | --- | --- | --- |
 | agreeAndFund | op-1 | op-1 | 251,181 |
 | deliver | op-1 | op-1 | 61,266 |
-| decide | direct | bench-a | 187,764 |
+| decide | direct | bench-a | 187,770 |
 
 ```diff
 - events step 4: delivery.submitted, key.released
@@ -389,7 +389,7 @@ Identical.
 | --- | --- | --- | --- |
 | agreeAndFund | op-1 | op-1 | 251,193 |
 | deliver | op-1 | op-1 | 61,254 |
-| decide | direct | bench-a | 205,118 |
+| decide | direct | bench-a | 205,124 |
 
 ```diff
 - events step 4: delivery.submitted, key.released
@@ -402,7 +402,7 @@ Identical.
 | --- | --- | --- | --- |
 | agreeAndFund | op-1 | op-1 | 251,217 |
 | deliver | op-1 | op-1 | 61,266 |
-| decide | direct | bench-a | 106,949 |
+| decide | direct | bench-a | 106,959 |
 
 ```diff
 - events step 4: delivery.submitted, key.released

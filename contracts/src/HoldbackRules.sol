@@ -584,6 +584,12 @@ contract HoldbackRules is EIP712 {
         d.flags = 0;
         _releaseBonds(t, flags);
         AuthCaptureEscrow.PaymentInfo memory pi = _paymentInfo(id, t);
+        // From authorizationExpiry the buyer may have reclaimed on CPP already (ADR-0003's backstop). The deal still
+        // closes here, so the bonds above are never stranded; there is just nothing left to void.
+        if (block.timestamp >= pi.authorizationExpiry) {
+            (, uint120 held,) = ESCROW.paymentState(ESCROW.getHash(pi));
+            if (held == 0) return;
+        }
         _void(pi);
         emit Refunded(id, t.buyer, pi.maxAmount);
     }

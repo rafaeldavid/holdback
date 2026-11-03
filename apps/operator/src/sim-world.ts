@@ -15,6 +15,7 @@ import { FAIL_MARKER, testAdjudicator, type TestAdjudicator } from '@holdback/ad
 import type { FakeScript } from '@holdback/judgment';
 import { mandateFor, SIM_CHAIN_ID, SIM_RULEBOOK, simClub, SimChain, TOKEN, wideScope, type Genesis } from '@holdback/settlement/sim';
 import { testAccount, type TestAccount } from './accounts.js';
+import { MemoryFeedbackStore, ReportLimiter } from './feedback.js';
 import { DEFAULT_FAUCET_GRANT, simRegistry } from './registry.js';
 import { startOperator, type DemoFacts, type RunningOperator } from './server.js';
 import { TUSD } from './units.js';
@@ -213,6 +214,8 @@ export async function startSimWorld(options: SimWorldOptions = {}): Promise<SimW
     faucet: { path: '/v1/faucet', grant: { token: TOKEN, amount: DEFAULT_FAUCET_GRANT.toString() } as DemoFacts['faucet']['grant'] },
     operators: operators.map((o) => o.url),
   });
+  // One report store, limiter and feedback key for the world's operator, as on the public demo (T-032).
+  const feedback = { store: new MemoryFeedbackStore(), limiter: new ReportLimiter(), encryptionPublicKey: worldAccount('sim-feedback').encryptionPublicKey };
   for (const [i, port] of (options.operatorPorts ?? [0, 0]).entries()) {
     operators.push(
       await startOperator({
@@ -221,6 +224,7 @@ export async function startSimWorld(options: SimWorldOptions = {}): Promise<SimW
         store,
         ...operatorFee,
         demo,
+        feedback,
         signerKey: worldAccount(`sim-operator-${i + 1}`).privateKey,
         operatorId: `op-${i + 1}`,
         env: options.env ?? process.env,
