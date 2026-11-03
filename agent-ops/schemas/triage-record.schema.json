@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "agent-ops/triage-record.schema.json",
+  "title": "TriageRecord",
+  "description": "The only thing a triager emits about an untrusted issue or feedback report. Enums, ids and short model-written text; no copied text, no URLs.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["source", "sourceRef", "kind", "lane", "severity", "fingerprint", "summary", "needsRaw", "needsHuman"],
+  "properties": {
+    "source": { "enum": ["github_issue", "pr_comment", "feedback", "ci_signal"] },
+    "sourceRef": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$" },
+    "kind": { "enum": ["bug", "docs", "feature", "feedback", "incident", "flake", "spam"] },
+    "lane": { "enum": ["infra", "research", "core", "test", "settlement", "api", "judgment", "demo", "unknown"] },
+    "severity": { "enum": ["P0", "P1", "P2", "P3"] },
+    "fingerprint": { "type": "string", "pattern": "^[0-9a-f]{16,64}$" },
+    "duplicateOf": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$" },
+    "requestId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$" },
+    "summary": { "$ref": "#/$defs/shortText", "type": "string", "maxLength": 200 },
+    "observed": { "$ref": "#/$defs/shortText" },
+    "expected": { "$ref": "#/$defs/shortText" },
+    "pathsGuess": {
+      "type": "array",
+      "maxItems": 5,
+      "items": { "type": "string", "pattern": "^[A-Za-z0-9_./-]{1,120}$" }
+    },
+    "needsRaw": { "type": "boolean" },
+    "needsHuman": { "type": "boolean" }
+  },
+  "$defs": {
+    "shortText": {
+      "type": "string",
+      "maxLength": 300,
+      "not": { "type": "string", "pattern": "([hH][tT][tT][pP][sS]?:|[wW][wW][wW]\\.|\\]\\(|<\\s*/?\\s*[A-Za-z])" }
+    }
+  }
+}

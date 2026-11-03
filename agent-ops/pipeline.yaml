@@ -1,0 +1,97 @@
+# agent-ops pipeline sketch. NOT ACTIVE: nothing reads this file.
+version: 0
+status: inactive
+
+models:                       # pinned; a change is an R3 PR
+  haiku: claude-haiku-5-5
+  sonnet: claude-sonnet-5-5
+  opus: claude-opus-5-5
+  fable: claude-fable-5-1
+  deepseek: deepseek-v4-pro   # provider alias, not a dated snapshot (config/judges-live.yaml)
+  gpt: null                   # pinned at activation; phase exits only
+
+kill_switch:
+  fail_closed: true
+  require_all:
+    - repo_variable: { name: AGENT_OPS, equals: "on" }   # authoritative, outside the repo
+    - file: { path: agent-ops/STATUS, first_line: active }
+  levels: [stop-dispatch, halt, revoke]
+
+classes:                      # computed from the diff; highest wins
+  R3: [.github/, .claude/, agent-ops/, CLAUDE.md, AGENTS.md, .gitleaksignore]
+  R2: [contracts/, packages/core/, packages/settlement/, packages/judgment/, apps/adjudicator/, spec/, config/judges.yaml, config/judges-live.yaml, pnpm-lock.yaml]
+  R0: [docs/, site/, brand/, "/*.md"]   # root markdown only; *.expect.md snapshots are code
+  R1: "*"                     # default: an unknown path is code
+
+wip: { implementers: 3, per_lane: 1, prs_in_ci: 2, xfam_in_flight: 1, full_verify_per_machine: 1, sessions: 5 }
+
+budgets_usd: { R0: 5, R1: 25, R2: 80, R3: 40, daily: 300 }   # guessed
+xfam_calls_per_day: 30
+
+stages:
+  - id: intake
+    run: script               # gh issues export, feedback export, CI signals; no model
+    out: reports/agent-ops/intake/        # quarantined
+  - id: triage
+    model: haiku
+    effort: low
+    tools: []
+    in: normalized text      # packages/judgment/src/normalize.ts
+    out: schemas/triage-record.schema.json
+    on_invalid: drop_and_count
+  - id: plan
+    role: architect
+    model: opus               # fable at max for contested decisions
+    effort: high
+    tools: [Read, Grep, Glob, Write, Edit]
+    out: docs/tasks/T-*.md via PR
+    gate: { intake_derived_and_class_in: [R2, R3], needs: rafa }
+  - id: dispatch
+    run: tick                 # stateless; on merge, on CI completion, cron 20m fallback
+    runner: haiku
+    claim: push origin t-<id>-<slug>
+    claim_ttl_hours: 24
+  - id: build
+    role: implementer
+    model: { R0: sonnet, R1: sonnet, R2: opus, R3: sonnet }
+    effort: { R0: medium, R1: medium, R2: high, R3: medium }
+    before: { R2: fixture-author }        # failing fixtures first, separate session
+    bounce_max: 2
+  - id: verify
+    role: verifier
+    model: sonnet
+    effort: low
+    tools: [Read, Grep, Glob, Bash]
+    when: [R1, R2, R3]
+  - id: ci
+    required: [check, gitleaks]
+    rerun: { max: 1, only: known_flakes }
+  - id: review
+    role: reviewer
+    model: opus
+    effort: high
+    tools: [Read, Grep, Glob, Bash]       # no Write, no Edit
+    blocks: true
+  - id: xfam
+    model: deepseek           # + gpt at phase exit
+    tools: []
+    when: [R2, R3, adr, phase_exit, pre_deploy]
+    out: schemas/review-verdict.schema.json
+    blocks: [R2, R3]          # advisory for adr and pre_deploy; blocks the claim at phase_exit
+    on_invalid: abstain       # two abstentions park the PR for rafa
+    disagreement: block_stands_until_fixed_or_counter_test
+  - id: redteam
+    role: red-teamer
+    model: fable
+    effort: max
+    when: [packages/judgment/, packages/settlement/, contracts/, apps/operator/, phase_exit]
+    blocks: true
+  - id: land
+    role: lander
+    model: haiku
+    effort: low
+    auto_merge: [R0, R1, R2]
+    never_auto: [R3, fork]
+    merge: merge_commit
+
+human_gates: [deploy, repo_settings, secrets, publish_or_send, real_keys_or_money, force_push, adr_accept, r3_merge, activation]
