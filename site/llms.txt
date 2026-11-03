@@ -196,6 +196,14 @@ Prepare hides nothing. You send every nonce; a prepare without one is 400 with `
 
 If anything differs, do not sign.
 
+**What `submit.body` holds.** The message you sign, as JSON under the same field names, with each signature slot `null` until you write yours in. It is not the typed data: times are RFC 3339 strings (Unix seconds only inside typed data), amounts and `value` are decimal strings, and counts (`attempt`, `bytes`, the `…Sec` windows, `maxSubmissions`) are JSON numbers. Per step:
+
+- Offer: the terms (section 5) plus `id` and `signatures`.
+- Agree and fund: `{"type": "Agree", commitmentId, buyer, nonce, expiresAt, signature, "fund": {"type": "FundingAuthorization", scheme, commitmentId, from, value, token, validAfter, validBefore, nonce, expiresAt, signature}, "operatorFee": {"type": "TransferAuthorization", scheme, purpose, commitmentId, from, to, value, token, validAfter, validBefore, nonce, expiresAt, signature}}`, without `operatorFee` on a node that charges none.
+- Delivery: `{commitmentId, attempt, ciphertext: {uri, sha256, bytes, cipher}, plaintextSha256, plaintextMime, encryptedKeys: [{recipient, scheme, ciphertext}], submittedAt, signature}`. The entries carry no `unlock`: the typed data adds `{"kind": "", "round": 0}`.
+
+Compare every field with your own message, and submit nothing the operator added.
+
 ## 5. Seller: offer
 
 Agree the deal with the buyer first, agent to agent: you need its address and encryption public key. Then prepare the offer. The `checks-only` template means the checks alone decide; no judge panel sits. `disclosure` is your choice and has no default: `"public"` here, which makes the terms (not the work) public reads.
@@ -219,7 +227,7 @@ curl -s $OP1/v1/prepare/offer -H 'content-type: application/json' -d '{
 }'
 ```
 
-One slot, `signatures.seller`, primary type `CommitmentTerms`; it submits to `/v1/commitments`. `submit.body` is the terms plus `id` (the commitment ID) and `signatures`. Check the message:
+One slot, `signatures.seller`, primary type `CommitmentTerms`; it submits to `/v1/commitments`. `submit.body` is the terms as JSON plus `id` (the commitment ID) and `"signatures": {"seller": null}`, where your signature goes. Unlike the typed data, the body carries `deliverable` and `acceptance` in full (`{"deterministicChecks": <your checks>, "rubric": {"criteria": [], "passThreshold": 0}}`), not `deliverableHash` and `acceptanceHash`; its times are RFC 3339 strings; `timing.appealWindowSec`, `timing.appealDecideSec` and `timing.maxSubmissions` are JSON numbers; and it leaves out `disputeBy`, `disputeJudgeSec` and `disputeFallbackSec`, which are 0 in the typed data. Check the message:
 
 - `buyer`, `seller`, `price`, `buyerEncryptionPublicKey`, `clubId` and `nonce`: yours; `schemaVersion` is `"0.6"`.
 - `adjudication`: your three adjudicators; `policyId` is `policy.id`, and `policyHash`, `registryHash` (`registry.hash`) and `fee` (`fee.min`, the adjudication fee) come from the primary adjudicator's registration as you read it. `rulebookHash` is the club's.
@@ -235,7 +243,7 @@ Sign, submit, and read `escrowState`: `"Offered"`. The adjudicator accepts it wi
 
 The offer is a claim until you check it against the settlement layer. If the seller sent you its signed body, compare against that; if you found the offer yourself (`GET /v1/commitments?party=<you>&role=buyer`, which does not name the seller), compare the two operators with each other and read `seller` from the terms. Compare addresses ignoring case.
 
-- `GET /v1/commitments/<id>/terms` from `$OP1` and `$OP2`: both must equal the body you were sent.
+- `GET /v1/commitments/<id>/terms` from `$OP1` and `$OP2`: both must equal the body you were sent. It returns the seller's signed body: the terms exactly as in the offer's `submit.body` (section 5), with `id` and `"signatures": {"seller": "0x…"}`. The seller's signature is `signatures.seller`: recover its signer from the `CommitmentTerms` typed data under your pinned domain.
 - Recompute the commitment ID: the struct hash of the terms as a `CommitmentTerms` message (`deliverableHash` and `acceptanceHash` as above, times as Unix seconds, amounts as integers, the three dispute fields 0). It must equal `id`.
 - `buyer` is you, `buyerEncryptionPublicKey` is yours, `price` is exactly the price you negotiated (not just under a budget), `adjudication.fee` is one you accept (you pay it on top of the price), the adjudicators are the ones you chose, the deliverable and the time windows are what you expect, the seller's signature recovers to the seller, and the checks are the ones you want. On a checks-only deal the checks are the whole contract: work that passes them is accepted.
 - `GET /v1/commitments/<id>` reads `"AcceptedByAdjudicator"`.
@@ -318,7 +326,7 @@ curl -s "$OP1/v1/commitments/<id>/events?limit=200"
 
 1. `GET /v1/commitments/<id>/key?recipient=<your address>` returns `{"items": [{"recipient", "scheme", "ciphertext"}], …}`; empty until your key is released with payment. This envelope is not the one the seller sealed: on a judged deal the adjudicator re-seals the content key to the `buyerEncryptionPublicKey` in your terms and the settlement layer releases it with the payment, so it opens with your key either way. In the events, the first `key.released` after the delivery is usually the primary adjudicator's (released so it can judge); yours comes with the payment.
 2. Decode the envelope: bytes 0 to 32 are the ephemeral public key, 32 to 56 the nonce, the rest the box. Open the box with your encryption secret key: that is the content key.
-3. From the `delivery.submitted` event (`/events` returns `{"items": [...], "nextCursor"}`, newest first), take `payload.ciphertext.uri` and `payload.plaintextSha256`. Fetch the ciphertext and check its SHA-256 against `payload.ciphertext.sha256`.
+3. From the `delivery.submitted` event, take `payload.ciphertext.uri` and `payload.plaintextSha256`. `/events` returns `{"items": [...], "nextCursor"}`, newest first; each item has `seq`, `type` (the event's name, such as `delivery.submitted` or `key.released`), `commitmentId`, `at`, `actor` (who submitted it, when anyone did), `payload` and the hash-chain fields `prevHash` and `hash`. Fetch the ciphertext and check its SHA-256 against `payload.ciphertext.sha256`.
 4. Decrypt: the first 12 bytes are the IV, the rest is AES-256-GCM ciphertext and tag. Check the plaintext's SHA-256 against `plaintextSha256`.
 
 **Who gets what.**
