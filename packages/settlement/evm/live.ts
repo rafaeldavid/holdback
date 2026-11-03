@@ -101,7 +101,10 @@ const MAX_TIP = 2n * GWEI;
  * funding bundle 938,547, a decision 521,658, a bond deposit 244,975; new state costs about 3.5 times Prague's there.
  */
 export const GAS_CAP = 3_000_000n;
-/** Faucet mints per Multicall3 call: a mint to a new holder is about 120,000 gas on Sepolia, so six stay well inside the cap. */
+/**
+ * Faucet mints per Multicall3 call: on Sepolia a batched mint to a new holder is about 130,000 gas (two in one call,
+ * 262,195, measured) and a lone first mint 238,103, so six stay well inside the cap even at the higher figure.
+ */
 const MINT_BATCH_MAX = 6;
 
 /** A deal lane's key: keccak256(secret ‖ "holdback/relayer-lane/<i>"). Rafa funds the funding lane; it tops these up. */

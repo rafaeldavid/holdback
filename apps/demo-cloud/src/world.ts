@@ -28,7 +28,7 @@ import { canonicalKeccak, holdbackDomain, parseAdjudicator, problem, wholeSecond
 import { sha256 } from '@holdback/core/crypto';
 import { StoreError, type CiphertextStore } from '@holdback/core/store';
 import { testAdjudicator, type TestAdjudicator } from '@holdback/adjudicator';
-import { fetchHandler, Operator, ReportLimiter, testAccount, type DemoFacts, type FaucetOutcome, type FeedbackOptions, type FeedbackStore, type NoticeSubject, type Registry, type TestAccount } from '@holdback/operator';
+import { fetchHandler, nameToken, Operator, ReportLimiter, testAccount, type DemoFacts, type FaucetOutcome, type FeedbackOptions, type FeedbackStore, type NoticeSubject, type Registry, type TestAccount } from '@holdback/operator';
 import { decodePublicKey } from '@holdback/core/crypto';
 import { ensureBond, EvmSettlement, rebindToken, RelayRefused, type Book, type LiveChain } from '@holdback/settlement/live';
 import { privateKeyToAccount } from 'viem/accounts';
@@ -132,12 +132,12 @@ const jkey = (i: number) => `j:${String(i).padStart(12, '0')}`;
 const SEPOLIA_EXPLORER = 'https://sepolia.etherscan.io';
 /** Each demo adjudicator's bond on a chain, as on SimChain: 25,000 tUSDC covers a thousand 25 tUSDC deals at once. */
 const DEFAULT_LIVE_BOND = 25_000n * TUSD;
-/** Test ETH for an adjudicator's own approve and deposit: 0.005 ETH, about 30 times what the two cost at a 1 gwei tip. */
+/** Test ETH for an adjudicator's own approve and deposit: 0.005 ETH, about 13 times what the two cost on Sepolia at a 1 gwei tip (372,709 gas, measured). */
 const DEFAULT_ADJUDICATOR_GAS = 5_000_000_000_000_000n;
-/** A deal lane below 0.01 test ETH gets 0.03 from the funding lane: about 50 test deals at a 1 gwei tip (research §12). */
+/** A deal lane below 0.01 test ETH gets 0.03 from the funding lane: about 19 test deals on Sepolia at a 1 gwei tip (1.56 million gas a deal, measured). */
 const LANE_FLOOR = 10_000_000_000_000_000n;
 const LANE_TOP_UP = 30_000_000_000_000_000n;
-/** Faucet mints a day on a chain: about 0.04 test ETH at a 1 gwei tip (research §5). */
+/** Faucet mints a day on a chain: about 0.08 to 0.14 test ETH on Sepolia at a 1 gwei tip (130,000 to 240,000 gas a mint, measured). */
 const FAUCET_MINTS_PER_DAY = 600;
 const BONDING = "The demo adjudicators' bonds are being put in place on Sepolia (a few blocks after this world started); the primary accepts offers once its bond is there.";
 
@@ -251,6 +251,8 @@ export class PublicWorld {
     const token = o.live ? lc(o.live.chain.deployment.token) : TOKEN;
     // What people read: tUSD on SimChain; on a chain the deployment's symbol (tUSDC, D42), never the address.
     const symbol = o.live ? o.live.chain.token.symbol : TOKEN;
+    // The operator's check lines and problems then read "4.71 tUSDC", not base units of an address.
+    if (o.live) nameToken(token, symbol);
     const chainId = o.live ? o.live.chain.chainId : SIM_CHAIN_ID;
     // Addresses are served lowercase, as llms.txt pins them; the EIP-712 hash is the same either way.
     const rules = o.live ? (lc(o.live.chain.deployment.rules) as Address) : undefined;
@@ -328,7 +330,7 @@ export class PublicWorld {
     // ADR-0023: one schedule for both nodes (one operator), paid to one world address; from Worker variables. On a
     // chain the minimum also carries the gas these nodes pay for a deal (D33, amended 2026-11-03).
     const gasQuote = o.live ? (o.env['OPERATOR_FEE_GAS'] ?? '0') : undefined;
-    const operatorFee = operatorFeeFromEnv(o.env, key('demo-operator-fees').address, token, gasQuote);
+    const operatorFee = operatorFeeFromEnv(o.env, lc(key('demo-operator-fees').address) as Address, token, gasQuote);
     const feedback = feedbackFrom(o, (id) => telemetry.lookup(id));
     const adjudicators = {} as Record<Role, TestAdjudicator>;
     const declined = new Map<Hex32, string>();

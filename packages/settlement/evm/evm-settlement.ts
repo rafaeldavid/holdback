@@ -536,9 +536,12 @@ export class EvmSettlement implements Settlement {
     return { digest: receiveDigest(await this.separator(), auth), nonce, value: pi.maxAmount, validAfter: '1970-01-01T00:00:00Z', validBefore: terms.timing.fundBy, to: getAddress(to) };
   }
 
-  /** The token's EIP-712 domain, which ERC-3009 authorizations are signed under. */
+  /**
+   * The token's EIP-712 domain, which ERC-3009 authorizations are signed under. Addresses in what an agent compares
+   * are lowercase, as llms.txt pins them; the hash is the same either way.
+   */
   tokenDomain(): Erc3009TypedData['domain'] {
-    return { ...this.world.tokenDomain, chainId: this.world.chainId, verifyingContract: getAddress(this.world.deployment.token) };
+    return { ...this.world.tokenDomain, chainId: this.world.chainId, verifyingContract: lc(this.world.deployment.token) as Address };
   }
 
   /**
@@ -549,14 +552,14 @@ export class EvmSettlement implements Settlement {
     const t = termsView(terms);
     const pi = paymentInfo(t, this.world.deployment.rules, commitmentIdOf(terms), this.world.expiryMargin);
     const nonce = payerAgnosticHash(pi, this.world.chainId, this.world.deployment.escrow);
-    const message = { from: t.buyer, to: getAddress(this.world.deployment.erc3009Collector), value: pi.maxAmount.toString(), validAfter: '0', validBefore: String(pi.preApprovalExpiry), nonce };
+    const message = { from: lc(t.buyer) as Address, to: lc(this.world.deployment.erc3009Collector) as Address, value: pi.maxAmount.toString(), validAfter: '0', validBefore: String(pi.preApprovalExpiry), nonce };
     return { ...erc3009Typed('ReceiveWithAuthorization', this.tokenDomain(), message), nonce, validAfter: '1970-01-01T00:00:00Z' };
   }
 
   /** The operator fee as typed data: TransferWithAuthorization under the token's domain, nonce bound to the commitment. */
   operatorFeeTypedData(o: { commitmentId: Hex32; from: Address; to: Address; value: string; validAfter: Timestamp; validBefore: Timestamp }): { typedData: Erc3009TypedData; digest: Hex32; nonce: Hex32 } {
     const nonce = operatorFeeNonce(o.commitmentId);
-    const message = { from: getAddress(o.from), to: getAddress(o.to), value: BigInt(o.value).toString(), validAfter: String(secs(o.validAfter)), validBefore: String(secs(o.validBefore)), nonce };
+    const message = { from: lc(o.from) as Address, to: lc(o.to) as Address, value: BigInt(o.value).toString(), validAfter: String(secs(o.validAfter)), validBefore: String(secs(o.validBefore)), nonce };
     return { ...erc3009Typed('TransferWithAuthorization', this.tokenDomain(), message), nonce };
   }
 

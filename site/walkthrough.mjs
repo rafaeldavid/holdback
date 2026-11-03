@@ -118,8 +118,9 @@ try {
   log('3 bound: registrations and rulebook agree on both operators and hash as documented');
 
   // 4. The loop
+  // Integers become BigInt; every other value, addresses and hashes included, is compared exactly as served.
   const ints = (type, v, T = TYPES) =>
-    type.endsWith('[]') ? v.map((x) => ints(type.slice(0, -2), x, T)) : T[type] ? Object.fromEntries(T[type].map((f) => [f.name, ints(f.type, v[f.name], T)])) : /^u?int\d*$/.test(type) ? BigInt(v) : typeof v === 'string' && /^0x[0-9a-fA-F]+$/.test(v) ? v.toLowerCase() : v;
+    type.endsWith('[]') ? v.map((x) => ints(type.slice(0, -2), x, T)) : T[type] ? Object.fromEntries(T[type].map((f) => [f.name, ints(f.type, v[f.name], T)])) : /^u?int\d*$/.test(type) ? BigInt(v) : v;
   const typesFor = (primary) => {
     const out = {}, visit = (t) => {
       const base = t.replace(/\[\]$/, '');
@@ -142,7 +143,7 @@ try {
       if (got.slot !== want.slot || got.typedData.primaryType !== want.primaryType || got.signer.toLowerCase() !== me.address) fail(`slot ${i} is ${got.slot}/${got.typedData.primaryType}`);
       const domain = want.erc3009 ? DEPLOYMENT.tokenDomain : DOMAIN;
       const T = want.erc3009 ? { [want.primaryType]: ERC3009_TYPES[want.primaryType] } : TYPES;
-      same({ ...got.typedData.domain, verifyingContract: got.typedData.domain.verifyingContract?.toLowerCase() }, domain, `the ${want.primaryType} domain`);
+      same(got.typedData.domain, domain, `the ${want.primaryType} domain`);
       const theirTypes = { ...got.typedData.types };
       delete theirTypes.EIP712Domain;
       same(theirTypes, want.erc3009 ? T : typesFor(want.primaryType), `the ${want.primaryType} types`);
