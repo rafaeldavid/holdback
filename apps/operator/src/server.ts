@@ -49,7 +49,7 @@ import { MAX_CIPHERTEXT_BYTES, type CiphertextStore } from '@holdback/core/store
 import { ENVELOPE_SPEC } from './envelope-spec.js';
 import { FeedbackDesk, FeedbackError, MAX_REPORT_BYTES, parseReport, type FeedbackOptions, type Report } from './feedback.js';
 import { startupGuards } from './guards.js';
-import { amountText, operatorFeeText, prepare, PrepareError, type PrepareContext } from './prepare.js';
+import { amountText, operatorFeeText, prepare, PrepareError, type Erc3009Signing, type PrepareContext } from './prepare.js';
 import { IdempotencyStore, fingerprint, type StoredResponse } from './idempotency.js';
 import { readerOf, type Reader } from './read-auth.js';
 import { llmsTxt, openApiDocument, plannedRoute, routeOf } from './openapi/index.js';
@@ -150,6 +150,8 @@ export interface OperatorOptions {
    * direct submission relay the same agreement free. Absent: this node charges nothing.
    */
   fee?: OperatorFeeSchedule;
+  /** On an EVM settlement layer: the ERC-3009 messages the buyer signs to fund and to pay the fee (ADR-0025). */
+  erc3009?: Erc3009Signing;
   /** Advisory notices this node adds to prepare, write and state answers (NoticeSubject). Absent: none. */
   notices?: (about: NoticeSubject) => readonly string[] | Promise<readonly string[]>;
   /** A demo world's facts for discovery (DemoFacts). Absent: this node is not a demo. */
@@ -423,7 +425,7 @@ export class Operator {
   constructor(private readonly o: OperatorOptions) {
     startupGuards({ env: o.env, chainId: o.registry.chainId });
     this.baseUrl = (o.baseUrl ?? '').replace(/\/+$/, '');
-    this.domain = holdbackDomain(o.registry.chainId);
+    this.domain = holdbackDomain(o.registry.chainId, o.registry.verifyingContract);
     this.signer = privateKeyToAccount(o.signerKey).address;
     this.now = o.now ?? Date.now;
     this.desk = o.feedback
@@ -914,6 +916,7 @@ export class Operator {
       attempt: async (id) => (await this.o.settlement.state(id))?.attempt ?? 1,
       state: (id) => this.o.settlement.state(id),
       ...(this.o.fee ? { operatorFee: this.o.fee } : {}),
+      ...(this.o.erc3009 ? { erc3009: this.o.erc3009 } : {}),
     };
   }
 

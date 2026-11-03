@@ -10,10 +10,13 @@ import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
-import { createPublicClient, createWalletClient, http, type Abi, type Address, type Hex, type PublicClient, type WalletClient } from 'viem';
+import { createPublicClient, createWalletClient, http, toHex, type Abi, type Address, type Hex, type PublicClient, type WalletClient } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { foundry } from 'viem/chains';
+import type { Abis, Deployment, EvmChain, Mined } from './chain.js';
 import { assertLocalRpc, assertSafeChain } from './guard.js';
+
+export type { Abis, Deployment } from './chain.js';
 
 export const LOCAL_CHAIN_ID = 31337;
 /** anvil's first well-known dev key (public; guards no value). Deploys the contracts and relays for 'anyone'. */
@@ -36,29 +39,6 @@ export function artifact(root: string, file: string, name: string): Artifact {
   return { abi: json.abi, bytecode: json.bytecode.object };
 }
 
-export interface Deployment {
-  token: Address;
-  escrow: Address;
-  erc3009Collector: Address;
-  permit2Collector: Address;
-  multicall: Address;
-  rules: Address;
-  bonds: Address;
-  /** The SimBeacon behind the rules contract (a shared chain would use the drand quicknet verifier). */
-  beacon: Address;
-  /** The first block after deployment; logs before it are setup. */
-  fromBlock: bigint;
-}
-
-export interface Abis {
-  rules: Abi;
-  bonds: Abi;
-  token: Abi;
-  escrow: Abi;
-  multicall: Abi;
-  collector: Abi;
-}
-
 async function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const s = createServer();
@@ -79,8 +59,16 @@ export function anvilAvailable(): boolean {
 /** The sim seed the world's first rules deployment uses; each settlement redeploys with its own. */
 const BOOT_SIM_SEED: Hex = `0x${'00'.repeat(32)}`;
 
-export class EvmWorld {
+/** The gas limit of every anvil transaction: the scenario never runs out, and receipts measure what was used. */
+const TX_GAS = 3_000_000n;
+
+export class EvmWorld implements EvmChain {
   readonly chainId = LOCAL_CHAIN_ID;
+  readonly clock = 'scenario' as const;
+  readonly relayer: Address = privateKeyToAccount(ANVIL_DEPLOYER_KEY).address;
+  readonly expiryMargin = EXPIRY_MARGIN;
+  /** LocalUSDC's: CPP's MockERC3009Token names it "USD Coin" and keeps solady's default version "1". */
+  readonly tokenDomain = { name: 'USD Coin', version: '1' };
   private snapshotId: Hex | null = null;
 
   private constructor(
@@ -93,12 +81,17 @@ export class EvmWorld {
   ) {}
 
   /** Starts anvil on a free localhost port and deploys. `root` is the repository root (for contracts/out). */
-  static async start(root: string, options: { rpcUrl?: string } = {}): Promise<EvmWorld> {
+  /**
+   * `blockTimeSec`: mine a block every so many seconds at wall-clock time instead of one per transaction at the
+   * scenario's second, so anvil stands in for a testnet (a LiveChain over `rpcUrl`, ADR-0028).
+   */
+  static async start(root: string, options: { rpcUrl?: string; blockTimeSec?: number } = {}): Promise<EvmWorld> {
     let proc: ChildProcess | null = null;
     let rpcUrl = options.rpcUrl;
     if (!rpcUrl) {
       const port = await freePort();
-      proc = spawn('anvil', ['--chain-id', String(LOCAL_CHAIN_ID), '--host', '127.0.0.1', '--port', String(port), '--timestamp', String(ANVIL_GENESIS_TIME), '--hardfork', 'prague', '--silent'], {
+      const clock = options.blockTimeSec ? ['--block-time', String(options.blockTimeSec)] : ['--timestamp', String(ANVIL_GENESIS_TIME)];
+      proc = spawn('anvil', ['--chain-id', String(LOCAL_CHAIN_ID), '--host', '127.0.0.1', '--port', String(port), ...clock, '--hardfork', 'prague', '--silent'], {
         stdio: 'ignore',
       });
       rpcUrl = `http://127.0.0.1:${port}`;
@@ -145,6 +138,26 @@ export class EvmWorld {
 
   wallet(key: Hex): WalletClient {
     return createWalletClient({ account: privateKeyToAccount(key), chain: foundry, transport: http(this.rpcUrl) });
+  }
+
+  senderFor(): Address {
+    return this.relayer;
+  }
+
+  /** Simulates on the pending block, mined at the scenario second `at`. */
+  async simulate(tx: { from: Address; to: Address; data: Hex }, at?: number): Promise<void> {
+    if (at !== undefined) await this.rpc('evm_setNextBlockTimestamp', [at]);
+    await this.rpc('eth_call', [{ ...tx, gas: toHex(TX_GAS) }, 'pending']);
+  }
+
+  /** Mines the transaction at the scenario second `at`, from `key` or the deployer. */
+  async send(tx: { key?: Hex; to: Address; data: Hex; value?: bigint }, at?: number): Promise<Mined> {
+    if (at !== undefined) await this.rpc('evm_setNextBlockTimestamp', [at]);
+    const wallet = this.wallet(tx.key ?? ANVIL_DEPLOYER_KEY);
+    const hash = await wallet.sendTransaction({ account: wallet.account!, chain: wallet.chain, to: tx.to, data: tx.data, gas: TX_GAS, ...(tx.value ? { value: tx.value } : {}) });
+    const r = await this.publicClient.waitForTransactionReceipt({ hash });
+    const timestamp = at ?? Number((await this.publicClient.getBlock({ blockNumber: r.blockNumber })).timestamp);
+    return { hash, from: wallet.account!.address, status: r.status, gasUsed: r.gasUsed, blockNumber: r.blockNumber, timestamp, logs: r.logs };
   }
 
   async stop(): Promise<void> {

@@ -37,13 +37,33 @@ describe.skipIf(!ready)(`EvmSettlement on anvil${ready ? '' : ' (SKIPPED: needs 
     const keys = await chain.keysFor(id, cast.buyer.address);
     expect(keys).toHaveLength(1);
     const types = chain.log().map((e) => e.type);
-    expect(types).toEqual(['commitment.offered', 'adjudicator.accepted', 'commitment.agreed', 'hold.funded', 'delivery.submitted', 'judgment.decided', 'settlement.released', 'key.released']);
+    // The primary's envelope is released off chain when the delivery lands (ADR-0020), as SimChain releases it.
+    expect(types).toEqual(['commitment.offered', 'adjudicator.accepted', 'commitment.agreed', 'hold.funded', 'delivery.submitted', 'key.released', 'judgment.decided', 'settlement.released', 'key.released']);
     const released = chain.log().find((e) => e.type === 'settlement.released')!;
-    const key = chain.log().find((e) => e.type === 'key.released')!;
-    expect(key.payload['tx']).toBe(released.payload['tx']);
+    const [toPrimary, toBuyer] = chain.log().filter((e) => e.type === 'key.released');
+    expect(toBuyer!.payload['tx']).toBe(released.payload['tx']);
+    expect(toPrimary!.payload).toMatchObject({ source: 'adapter', recipient: cast.primary.address, path: 'delivery' });
+    expect(await chain.keysFor(id, cast.primary.address)).toHaveLength(1);
+    // SimChain's payloads, so the operator and the adjudicators read either backend the same way.
+    const offered = chain.log().find((e) => e.type === 'commitment.offered')!;
+    expect((offered.payload['terms'] as { seller: string }).seller).toBe(cast.seller.address);
+    const delivered = chain.log().find((e) => e.type === 'delivery.submitted')!;
+    expect(delivered.payload).toMatchObject({ attempt: 1, ciphertext: { uri: expect.any(String) }, tx: expect.stringMatching(/^0x[0-9a-f]{64}$/) });
+    expect(chain.log().find((e) => e.type === 'judgment.decided')!.payload).toMatchObject({ role: 'primary', outcome: 'accept', seedSource: 'commit-reveal' });
     // Two transactions (D4).
     expect(chain.transactions().map((t) => t.call)).toEqual(['agreeAndFund', 'decide']);
     expect(await chain.replayCheck()).toMatchObject({ ok: true });
+  }, 60_000);
+
+  it('the funding and fee typed data an operator prepares hash to the digests the token checks (ADR-0025)', async () => {
+    const { chain, cast, club } = await newSettlement(world);
+    const d = new EvmDeal(chain, cast, club, 'typed');
+    const f = chain.fundingTypedData(d.terms);
+    expect(f.typedData.primaryType).toBe('ReceiveWithAuthorization');
+    expect(f.digest).toBe((await chain.fundingAuthorization(d.terms)).digest);
+    const o = { commitmentId: d.id, from: cast.buyer.address, to: cast.operator.address, value: '10000', validAfter: d.terms.createdAt, validBefore: d.terms.timing.fundBy };
+    const fee = chain.operatorFeeTypedData(o);
+    expect(fee.digest).toBe((await chain.operatorFeeAuthorization(d.id, o.from, o.to, 10000n, o.validAfter, o.validBefore)).digest);
   }, 60_000);
 
   it('refusals carry SimChain problem types and change nothing', async () => {

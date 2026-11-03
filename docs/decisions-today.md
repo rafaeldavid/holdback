@@ -1,6 +1,6 @@
-# Decisions D1–D40
+# Decisions D1–D41
 
-Status: D1–D9 decided October 30, 2026, after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`); the options are kept as the record. D10 to D24 decided October 30 and 31, 2026, each after an independent research pass. D25 to D36 decided October 31 and November 1, 2026, D37 to D40 on November 1 and 2 (Rafa's principles and research-backed choices; D4 was updated on November 1 to target Ethereum mainnet via Sepolia). Newer entries are appended at the end. Owner: Rafa. Each decision has options, a recommendation and the ADR it settles.
+Status: D1–D9 decided October 30, 2026, after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`); the options are kept as the record. D10 to D24 decided October 30 and 31, 2026, each after an independent research pass. D25 to D36 decided October 31 and November 1, 2026, D37 to D40 on November 1 and 2, D41 on November 3 (Rafa's principles and research-backed choices; D4 was updated on November 1 to target Ethereum mainnet via Sepolia). Newer entries are appended at the end. Owner: Rafa. Each decision has options, a recommendation and the ADR it settles.
 
 Still open (2026-11-03): whether weekly telemetry aggregates are published (D39); ADR-0025, Proposed, to be decided with schema v0.9 (T-033); ADR-0027, Proposed (T-308: judgment report, verifiable inference, tuning releases; four open questions, none needed before Phase 3); the ADR-0023 amendment on fee bundling, Proposed (D37); and dispute clauses as selectable terms, deferred until after the demo (D29).
 
@@ -603,3 +603,19 @@ Also: the funding signature on EVM is CPP's collector signature and token identi
 **Updated 2026-11-02 (Rafa, PR 98):** the tagline is "Programmatic Escrow and Arbitration" ("’crow. Programmatic Escrow and Arbitration"), replacing "Escrow for AI Agents" below. The rest of D40 stands.
 
 **Decided 2026-11-02 by Rafa.** The site's tagline drops "Private": "’crow. Escrow for AI Agents", and the intro reads "a programmatic and verifiably neutral escrow service for AI agents". The API lets each deal choose private or public according to the agents' preferences and needs (the signed `disclosure.level`: `private`, `judgment` or `public`, ADR-0020, ADR-0024), and more pieces become privacy-capable over time (sealed judgment records, private amounts, private settlement venues). This refines D34 and D39: the protocol offers privacy as an option the parties choose, with no level imposed by the operator, and the brand does not promise more privacy than the current build delivers.
+
+## D41. The public demo settles on Sepolia (ADR-0028)
+
+**Decided 2026-11-03 by Rafa** ("the public demo to settle on Sepolia"); the design is ADR-0028 (Proposed), after a research pass the same day (`docs/research/2026-11-03-sepolia-demo-settlement.md`). Rafa may overrule any line of the design.
+
+- **What changes for an agent.** The money in every demo deal sits in HoldbackRules and CPP's escrow on Ethereum Sepolia, checkable on Etherscan; each money step waits for a block, so a test deal takes about a minute instead of 4 s; the EIP-712 domain names chain 11155111 and the rules contract; the token identifier is the test token's address (ADR-0025); the buyer funds with the token's own ERC-3009 signature, which prepare hands out. Test tokens only: tUSD on Sepolia is open-mint and worth nothing.
+- **What does not.** The API, the one-command test deal and its single approval, and the hard rules: the operators' relayer keys pay gas and relay signed messages, never author them; the keys are Sepolia-only Worker secrets.
+- **Rollback.** A `SETTLEMENT` flag per Worker (`sim` or `sepolia`) picks the world; the SimChain world stays untouched, so setting the flag back is one deploy.
+- **Staged.** drand proofs for fallback and appeal decisions (until then a silent primary ends in the default outcome), direct transactions in the operators' view, an in-flight row per relayer lane, and the schema v0.9 items (T-033).
+- **Asks for Rafa (outside the repository).** Sepolia ETH for the relayer's funding lane (1.2 ETH; 0.25 to launch) and, recommended, Workers Paid ($5 a month) so a busy day fails soft.
+
+| Option | Effect |
+| --- | --- |
+| Keep SimChain | No change; the custody claim stays unverifiable from outside |
+| Sepolia, one Durable Object, relayer lanes (chosen) | Real custody on a public chain, same API, about a minute per deal; the two nodes stay one process |
+| Sepolia, one Durable Object per node | Independent indexes, but the pre-funding stages would need gossip between nodes; later |
