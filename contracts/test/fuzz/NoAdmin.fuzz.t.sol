@@ -97,7 +97,7 @@ contract NoAdminFuzzTest is Base {
             s[23] = "triggerFallback(";
             s[24] = "typedDataHash(bytes32)";
         } else if (i == 1) {
-            s = new string[](12);
+            s = new string[](11);
             s[0] = "RULES()";
             s[1] = "appealBondOf(bytes32)";
             s[2] = "bondOf(address,address)";
@@ -108,8 +108,7 @@ contract NoAdminFuzzTest is Base {
             s[7] = "payAppealBond(bytes32,address,address)";
             s[8] = "release(address,address,uint256)";
             s[9] = "takeAppealBond(bytes32,address,address,uint256)";
-            s[10] = "tryEncumber(address,address,uint256)";
-            s[11] = "withdraw(address,uint256)";
+            s[10] = "withdraw(address,uint256)";
         } else if (i == 2) {
             s = new string[](11);
             s[0] = "PAYMENT_INFO_TYPEHASH()";

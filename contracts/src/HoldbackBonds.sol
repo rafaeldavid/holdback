@@ -74,14 +74,6 @@ contract HoldbackBonds {
         emit BondEncumbered(adjudicator, token, amount);
     }
 
-    /// @notice Encumbers `amount` if it is free, else nothing (fallback and appeal takeover; partial cover is F5).
-    function tryEncumber(address adjudicator, address token, uint256 amount) external onlyRules returns (bool) {
-        if (freeOf(adjudicator, token) < amount) return false;
-        encumberedOf[adjudicator][token] += amount;
-        emit BondEncumbered(adjudicator, token, amount);
-        return true;
-    }
-
     function release(address adjudicator, address token, uint256 amount) external onlyRules {
         encumberedOf[adjudicator][token] -= amount;
         emit BondReleased(adjudicator, token, amount);
