@@ -6,15 +6,15 @@
 - **Paths this task may touch:** `README.md`, `LICENSE`, `docs/**` (not `docs/decisions/` beyond status lines and wording), `brand/*.md`, `config/*.template`, `.claude/agents/*.md` (wording only)
 - **Human gate:** no for the PR; repository settings (description, homepage, topics) are Rafa's
 - **Status:** done (PR 110)
-- **Agent/session:** docs agent, then the coordinating session for review fixes; branch `docs-pre-yc-cleanup`
+- **Agent/session:** docs agent, then the coordinating session for review fixes (PR 110)
 
 ## Intent
 
-The repository is public and is read by people deciding whether to trust the project. Make what it says match what is merged and on disk, lead with the product, give it a license, and keep personal details and third-party copies out of public files. Non-goals: no code, schema, contract or defense change; no change to the litmus tests or to Rafa's priorities in `CLAUDE.md`; no history rewrite.
+The repository is public and is read by people deciding whether to trust the project. Make what it says match what is merged and on disk, lead with the product, give it a license, and keep personal details and third-party copies out of public files. Non-goals: no code, schema, contract or defense change; no change to the litmus tests or to Rafa's priorities in `CLAUDE.md`.
 
 ## Context
 
-- Rafa's decisions (2026-11-03): Apache-2.0; a README that leads with ’crow, "Programmatic Escrow and Arbitration", with Holdback as the protocol and EIP-712 domain; no affiliation lines.
+- Rafa's decisions (2026-11-03): Apache-2.0; a README that leads with ’crow, "Programmatic Escrow and Arbitration", with Holdback as the protocol and EIP-712 domain.
 - `CLAUDE.md` (litmus tests, hard rules), `docs/neutrality.md`, `docs/plan.md`, `docs/feature-map.md`, `docs/decisions-today.md`.
 
 ## Acceptance criteria
@@ -28,7 +28,7 @@ The repository is public and is read by people deciding whether to trust the pro
 
 ## Out of scope
 
-- GitHub repository settings, a history rewrite, the site wording ("verifiably neutral", "jurisdiction"), backlog triage, `prompts/`.
+- GitHub repository settings, the site wording ("verifiably neutral", "jurisdiction"), backlog triage, `prompts/`.
 
 ## Evidence
 
@@ -44,5 +44,5 @@ The repository is public and is read by people deciding whether to trust the pro
 
 ## Handoff
 
-- For Rafa: `CLAUDE.md` still says the operator serves an "SDK" (D30 dropped the SDK) and "First product priority" names the Phase 1 demo; reword if you want.
+- For Rafa: `CLAUDE.md` still says the operator serves an "SDK" (D30 dropped the SDK), "First product priority" names the Phase 1 demo, and litmus test 1 (line 26) says each actor has a `neutrality.*` fixture while `docs/neutrality.md` lists eight as planned. Reword if you want.
 - A test that docs claim only fixtures that exist is proposed in `docs/team.md` (Rules and checks).
