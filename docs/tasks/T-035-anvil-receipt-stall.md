@@ -30,19 +30,22 @@ Criteria 1, 2 and 4, PR 158 (2026-11-03):
 
 The CI failures:
 - **Measured:** the `contracts` job failed 9 times on 2026-11-03, in runs 41642786150, 41654603377, 41655277538 (main), 41655736893, 41656792322, 41658582232, 41676033359 (main), 41677733191 and 41680864227. Every failure is in the anvil vitest step: the gas-per-deal test ends with viem's `WaitForTransactionReceiptTimeoutError` at 180 s. In 7 of the 9, 1 to 8 tests before it also failed at their 60 s limit; in 2 (jobs 125995441609 and 126056764354) the gas test failed alone. The forge suites passed every time.
-- **Measured:** a healthy run (job 126071932353) had the escape-hatch and operator-fee tests at 4,205 ms and 4,218 ms, against 100 to 474 ms for the rest. Each is one missed first check that recovered at viem's 4 s poll. Locally the gas test takes 1.6 s.
+- **Measured:** a healthy run (job 126071932353) had the escape-hatch and operator-fee tests at 4,205 ms and 4,218 ms, against 100 to 474 ms for the rest. Locally the gas test takes 1.6 s.
+- **Inferred:** each of those two is one missed first check that recovered at viem's 4 s poll. A single miss on viem's wait recovered at 4,006 ms in the review's control run.
 - **Measured:** the same stalled hash appears in two runs twice (`0xb42d…` in jobs 125995441609 and 125981449350, `0x3474…` in 125985406228 and 125940245907). The chain is deterministic, so a hash is a position in the run; the stalls hit some sends more than others.
 
 The diagnosis (viem 2.57.13, anvil 1.0.0). Repros B and D come from a scratch script that is not committed; they are the first two tests of `receipt.test.ts` run on viem's wait instead of `EvmWorld.receipt`:
 - **Confirmed, measured:** a receipt check made right after a send can miss, because anvil in automine mines a moment after it returns the hash: 9 of 1,000 sends missed on an idle 8-core machine.
 - **Confirmed, measured (viem source and repro D):** after a miss, `waitForTransactionReceipt` asks again only when `watchBlockNumber` sees a block above the one it first read. Anvil in automine mines none while the test waits. A single wait whose transaction landed at or below that first read timed out at its 15 s limit with the receipt on chain.
-- **Confirmed, measured (repro B):** every wait on one client shares that block-number poller (one observer id per client and interval), and vitest does not stop a test it timed out, so a stalled wait keeps the poller alive. After `evm_revert` the head is below it, and a later wait that misses joins it and hangs: viem timed out at 15 s with the receipt on chain. This is the cascade of 60 s failures.
+- **Confirmed, measured (repro B):** every wait on one client shares that block-number poller (one observer id per client and interval), and vitest does not stop a test it timed out, so a stalled wait keeps the poller alive. After `evm_revert` the head is below it. A later wait that misses its first check joins that poller and hangs as long as the head stays at or below the highest block the poller has seen: viem timed out at 15 s with the receipt on chain.
+- **Inferred from the logs:** this is the cascade of 60 s failures. A miss mid-cascade can still recover once the head climbs past the stale poller, as `escape hatch` did at 4,192 ms in job 126073821008.
 - **Inferred, not reproduced:** the first stall on CI is a miss whose first head read already counts the transaction's block while the lookup still sees it pending. Under load locally (12 busy threads, anvil `--threads 1`) 2 of 4,000 viem waits took a 4 s poll and none stalled. The fix re-checks on a timer, so it does not depend on which race fires.
 
 The fix:
-- **Measured:** `EvmWorld.receipt` polls `eth_getTransactionReceipt` every 25 ms and throws after `receiptTimeoutMs` (10 s by default). The error names the hash, whether anvil holds the transaction pending, automine and the pool. `send`, the deployments and `EvmSettlement`'s genesis setup use it; nothing in `packages/settlement/evm/` calls `.waitForTransactionReceipt(` (a test checks).
+- **Measured:** `EvmWorld.receipt` polls `eth_getTransactionReceipt` every 25 ms and throws after `receiptTimeoutMs`: 10 s by default, or three blocks when `blockTimeSec` makes that longer. The error names the hash, whether anvil holds the transaction pending, automine and the pool. `send`, the deployments and `EvmSettlement`'s genesis setup use it, and a test checks that nothing in `packages/settlement/evm/` calls `waitForTransactionReceipt`.
 - **Measured:** `receipt.test.ts` (own anvil world, 2 s deadline) covers three cases: a transaction mined below the head the wait first saw, a wait left running across `evm_revert`, and a transaction anvil never mines. On `main`'s `world.ts` and `evm-settlement.ts`, the second and third hang until vitest's 30 s timeout and the guard flags both files; the first needs `EvmWorld.receipt`, and its scenario on viem's wait timed out at 15 s (repro D). On this branch all 4 pass in 5.0 s.
 - **Measured:** the gas test is 12 tests: one per path pinning its calls and final state, each under the 30 s default, plus one that the table covers every path in `PATHS`. The 420 s limit is gone.
+- **Measured:** 50 consecutive local runs of CI's anvil command (`pnpm vitest run packages/settlement/evm packages/testkit/src/runner.test.ts`) at commit `3d1e118` all passed: 89 of 89 tests each, 8.46 to 10.66 s per run, no stall.
 
 `pnpm verify` on the branch (measured, `reports/verify-t-035-anvil-receipt-stall.md`; no snapshot diffs against HEAD):
 
@@ -62,9 +65,10 @@ The fix:
 
 - Poll the receipt instead of tuning viem's wait. A shorter `pollingInterval` still shares one block-number poller per client and still hangs after `evm_revert`; anvil `--no-mining` with an `evm_mine` per send would change the world every caller relies on.
 - The new tests assert no wall-clock time (`docs/team.md`, Rules and checks): on viem's wait they hang, and the 30 s test timeout is the hang detector.
-- No workflow change: the job's steps were not the cause.
+- No workflow change in this PR: the 9 failures were all the receipt stall. A second, separate slowdown is in PR 159 (`.github/`, for Rafa to merge). The job's `submodules: recursive` checkout cloned about 100 nested repositories and took 36 min 17 s on main at 18:51 UTC (job 126132743491, measured). PR 159 fetches only the six repositories the remappings use, and adds job and step timeouts.
 
 ## Handoff
 
-- If an anvil test fails with `anvil returned no receipt for 0x… within 10 s`, read the rest of the message: `pending` with automine on means anvil refused to mine it (fee or nonce), `unknown to anvil` means the pool dropped it (an `evm_revert` or a restart).
+- If an anvil test fails with `anvil returned no receipt for 0x… within 10 s`, read the rest of the message. `pending` with automine on means anvil would not mine it (fee or nonce). `unknown to anvil` means it was dropped (`anvil_dropAllTransactions` or a restart). `evm_revert` keeps pending transactions (measured in the review), so a transaction left pending can mine after `fresh()`.
 - `LiveChain` (testnets) has its own receipt loop and is unchanged.
+- For the docs lane: add a row to `docs/team.md` Rules and checks, outside this task's paths. Rule: "anvil receipt waits poll by hash, never through viem's `waitForTransactionReceipt`". Check: the guard in `packages/settlement/evm/receipt.test.ts`.
