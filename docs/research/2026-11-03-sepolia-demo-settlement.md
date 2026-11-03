@@ -358,6 +358,20 @@ Replace the "One simulated settlement layer" bullet of `site/llms.txt` "Honest l
 - **Confirmations.** States are reported at inclusion; the block that moved the money is final about 15 minutes later (`chain.finality`). State may reset; keep your copy of the terms.
 - **Sepolia's lifetime** is set by the Ethereum Foundation, not by this demo; the deployment addresses and chain are published in discovery and will change when the testnet does.
 
+## Addendum: the Sepolia token after D42 (USDC only)
+
+Rafa decided later the same day that the first wave is USDC only (D42). Two candidates for the demo, compared by the implementing session with read-only calls to publicnode Sepolia (`reports/scratch/usdc-probe.mjs`):
+
+| Fact | Circle's Sepolia USDC | Our own test USDC (tUSDC) |
+| --- | --- | --- |
+| Address | `0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238` (measured: 1,798 bytes of proxy code) | Deployed with the core set (`contracts/script/TestUSDC.sol`) |
+| EIP-712 domain | name "USDC", version "2", 6 decimals (measured) | name "Crow Test USDC", version "1", symbol tUSDC, 6 decimals |
+| ERC-3009 | `transferWithAuthorization` and `receiveWithAuthorization` with a bytes signature both present (measured: each reverts on its own signature check, not "no such function") | The same two, one nonce space, `authorizationState` (forge tests) |
+| Admin | An owner, a master minter, a pauser and a blacklister (measured: each returns an address) | None: no owner, pause, freeze, blacklist or upgrade |
+| Minting for the faucet | Only through Circle's faucet: a person, a CAPTCHA and a rate limit (guessed limits; Rafa's to drive), so the demo needs a treasury refilled by hand | Open mint: the relayer mints each grant |
+
+**Recommendation: tUSDC on the demo.** Every try.ts run needs about 27 test dollars per buyer, and a hand-filled treasury would run dry; an issuer that can blacklist an address could freeze a demo hold, the one thing the demo exists to show cannot happen. tUSDC keeps USDC's interface, so the switch to Circle's USDC (when the on-ramp lands, T-214, or on mainnet) is the token address and its domain in the deployment file. It must be named as a test token everywhere (tUSDC, "Crow Test USDC"), never as plain USDC.
+
 ## Cutover plan and the work by lane
 
 Order matters because each step is testable on its own.

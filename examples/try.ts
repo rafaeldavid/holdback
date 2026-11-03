@@ -1,5 +1,6 @@
-// One test deal on the ’crow demo, both sides played here with fresh keys. Test tUSD only: nothing here
-// is real money. The faucet funds a buyer and a seller; the seller offers 3 rows of customer_id,email for 25 tUSD
+// One test deal on the ’crow demo, both sides played here with fresh keys. Test tokens only (tUSD on SimChain,
+// tUSDC on Sepolia): nothing here is real money. The faucet funds a buyer and a seller; the seller offers 3 rows of
+// customer_id,email for 25 test dollars
 // under three declarative checks; the buyer checks the offer on both operators, then agrees and funds; the seller
 // encrypts and delivers; the adjudicator's checks decide; the buyer opens its copy. Every message an operator
 // prepares is rebuilt from this script's own intent and checked before it is signed (verify.ts).
@@ -40,7 +41,9 @@ const units = (base: string | bigint) => {
   const frac = (v % 1_000_000n).toString().padStart(6, '0').replace(/0+$/, '');
   return `${v / 1_000_000n}${frac ? `.${frac}` : ''}`;
 };
-const tusd = (base: string | bigint) => `${units(base)} tUSD`;
+/** The test token's symbol, from the settlement layer this script pins: tUSD on SimChain, tUSDC on Sepolia. */
+let symbol = 'tUSD';
+const tusd = (base: string | bigint) => `${units(base)} ${symbol}`;
 /** JSON with every 0x-hex string lowercased: addresses compare ignoring case. */
 const lowerHex = (v: J): J => JSON.parse(JSON.stringify(v), (_k, x) => (typeof x === 'string' && /^0x[0-9a-fA-F]+$/.test(x) ? x.toLowerCase() : x));
 const same = (a: J, b: J) => jcs(lowerHex(a)) === jcs(lowerHex(b));
@@ -65,7 +68,7 @@ async function until(agent: Agent, id: Hex, states: string[], timeoutMs: number)
 
 async function main() {
   const started = Date.now();
-  console.log(`’crow test deal on ${OPERATORS.join(' and ')}: test tUSD only, nothing here is real money`);
+  console.log(`’crow test deal on ${OPERATORS.join(' and ')}: test tokens only, nothing here is real money`);
   if (!globalThis.crypto?.subtle || typeof fetch !== 'function') throw new Error(`this needs Node 20 or later (Web Crypto and fetch); this is Node ${process.versions.node}`);
 
   step = 'keys';
@@ -77,7 +80,8 @@ async function main() {
   const pin = pins.find((p) => same(p.domain, found.domain));
   if (!pin) throw new Refusal(`refusing to sign: the operators serve EIP-712 domain ${jcs(found.domain)}, not one pinned here (${pins.map((p) => jcs(p.domain)).join(' or ')})`);
   const PRICE = { token: pin.token.id, amount: PRICE_UNITS };
-  if (found.token !== PRICE.token || !found.clubId) throw new Error(`these operators run no tUSD demo (discovery has no demo.clubId or demo.token ${PRICE.token})`);
+  symbol = pin.token.symbol;
+  if (found.token !== PRICE.token || !found.clubId) throw new Error(`these operators run no ${symbol} demo (discovery has no demo.clubId or demo.token ${PRICE.token})`);
   const fresh = () => new Agent(OPERATORS, generatePrivateKey(), nacl.randomBytes(32), pin.domain, pin.chain);
   const buyer = fresh();
   const seller = fresh();
@@ -132,7 +136,7 @@ async function main() {
   const hold = BigInt(PRICE.amount) + fee;
   const held = await buyer.agreeAndFund(terms, hold + operatorFee);
   if (held.escrowState !== 'Held' || held.hold?.amount?.amount !== hold.toString()) throw new Error(`expected Held with ${hold} base units, got ${held.escrowState} ${jcs(held.hold?.amount ?? null)}`);
-  say(`Held: ${units(hold)} tUSD held (${units(PRICE.amount)} price + ${units(fee)} adjudication fee), operator fee ${operatorFee ? tusd(operatorFee) : 'none'}`);
+  say(`Held: ${tusd(hold)} held (${units(PRICE.amount)} price + ${units(fee)} adjudication fee), operator fee ${operatorFee ? tusd(operatorFee) : 'none'}`);
 
   step = 'deliver'; // the seller: once every operator shows Held, encrypt, upload, seal the key, sign the delivery
   await until(seller, id, ['Held'], 60_000);

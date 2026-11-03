@@ -67,8 +67,6 @@ export class EvmWorld implements EvmChain {
   readonly clock = 'scenario' as const;
   readonly relayer: Address = privateKeyToAccount(ANVIL_DEPLOYER_KEY).address;
   readonly expiryMargin = EXPIRY_MARGIN;
-  /** LocalUSDC's: CPP's MockERC3009Token names it "USD Coin" and keeps solady's default version "1". */
-  readonly tokenDomain = { name: 'USD Coin', version: '1' };
   private snapshotId: Hex | null = null;
 
   private constructor(
@@ -76,16 +74,19 @@ export class EvmWorld implements EvmChain {
     readonly publicClient: PublicClient,
     readonly deployment: Deployment,
     readonly abis: Abis,
+    /** The token's EIP-712 name and version: LocalUSDC's "USD Coin" (CPP's mock), or TestUSDC's "Crow Test USDC". */
+    readonly tokenDomain: { name: string; version: string },
     private readonly proc: ChildProcess | null,
     private readonly deployRules: (simSeed: Hex) => Promise<RulesDeployment>,
   ) {}
 
-  /** Starts anvil on a free localhost port and deploys. `root` is the repository root (for contracts/out). */
   /**
+   * Starts anvil on a free localhost port and deploys. `root` is the repository root (for contracts/out).
    * `blockTimeSec`: mine a block every so many seconds at wall-clock time instead of one per transaction at the
-   * scenario's second, so anvil stands in for a testnet (a LiveChain over `rpcUrl`, ADR-0028).
+   * scenario's second, so anvil stands in for a testnet (a LiveChain over `rpcUrl`, ADR-0028). `token`: LocalUSDC
+   * (the fixtures') or TestUSDC (the Sepolia demo's tUSDC, D42).
    */
-  static async start(root: string, options: { rpcUrl?: string; blockTimeSec?: number } = {}): Promise<EvmWorld> {
+  static async start(root: string, options: { rpcUrl?: string; blockTimeSec?: number; token?: 'local-usdc' | 'test-usdc' } = {}): Promise<EvmWorld> {
     let proc: ChildProcess | null = null;
     let rpcUrl = options.rpcUrl;
     if (!rpcUrl) {
@@ -104,11 +105,13 @@ export class EvmWorld implements EvmChain {
       const chainId = await publicClient.getChainId();
       assertSafeChain(chainId);
       if (chainId !== LOCAL_CHAIN_ID) throw new RangeError(`kind local expects anvil chain id ${LOCAL_CHAIN_ID}, got ${chainId}`);
-      const { base, abis, deployRules } = await deploy(root, rpcUrl, publicClient);
+      const testUsdc = options.token === 'test-usdc';
+      const { base, abis, deployRules } = await deploy(root, rpcUrl, publicClient, testUsdc ? ['TestUSDC.sol', 'TestUSDC'] : ['LocalUSDC.sol', 'LocalUSDC']);
       // Snapshot before the beacon and the rules contract, then deploy them once to learn their addresses.
       const snapshotId = await publicClient.request({ method: 'evm_snapshot' as never, params: [] as never }) as Hex;
       const rules = await deployRules(BOOT_SIM_SEED);
-      const world = new EvmWorld(rpcUrl, publicClient, { ...base, ...rules }, abis, proc, deployRules);
+      const tokenDomain = testUsdc ? { name: 'Crow Test USDC', version: '1' } : { name: 'USD Coin', version: '1' };
+      const world = new EvmWorld(rpcUrl, publicClient, { ...base, ...rules }, abis, tokenDomain, proc, deployRules);
       world.snapshotId = snapshotId;
       return world;
     } catch (e) {
@@ -189,6 +192,7 @@ async function deploy(
   root: string,
   rpcUrl: string,
   client: PublicClient,
+  tokenArtifact: [file: string, name: string],
 ): Promise<{ base: Omit<Deployment, keyof RulesDeployment>; abis: Abis; deployRules: (simSeed: Hex) => Promise<RulesDeployment> }> {
   const wallet = createWalletClient({ account: privateKeyToAccount(ANVIL_DEPLOYER_KEY), chain: foundry, transport: http(rpcUrl) });
   const one = async (a: Artifact, args: unknown[] = []): Promise<Address> => {
@@ -197,7 +201,7 @@ async function deploy(
     if (r.status !== 'success' || !r.contractAddress) throw new Error(`deployment failed: ${hash}`);
     return r.contractAddress;
   };
-  const token = artifact(root, 'LocalUSDC.sol', 'LocalUSDC');
+  const token = artifact(root, ...tokenArtifact);
   const escrowA = artifact(root, 'AuthCaptureEscrow.sol', 'AuthCaptureEscrow');
   const c3009 = artifact(root, 'ERC3009PaymentCollector.sol', 'ERC3009PaymentCollector');
   const cPermit2 = artifact(root, 'Permit2PaymentCollector.sol', 'Permit2PaymentCollector');

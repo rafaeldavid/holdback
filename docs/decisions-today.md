@@ -1,6 +1,6 @@
-# Decisions D1–D41
+# Decisions D1–D42
 
-Status: D1–D9 decided October 30, 2026, after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`); the options are kept as the record. D10 to D24 decided October 30 and 31, 2026, each after an independent research pass. D25 to D36 decided October 31 and November 1, 2026, D37 to D40 on November 1 and 2, D41 on November 3 (Rafa's principles and research-backed choices; D4 was updated on November 1 to target Ethereum mainnet via Sepolia). Newer entries are appended at the end. Owner: Rafa. Each decision has options, a recommendation and the ADR it settles.
+Status: D1–D9 decided October 30, 2026, after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`); the options are kept as the record. D10 to D24 decided October 30 and 31, 2026, each after an independent research pass. D25 to D36 decided October 31 and November 1, 2026, D37 to D40 on November 1 and 2, D41 and D42 on November 3 (Rafa's principles and research-backed choices; D4 was updated on November 1 to target Ethereum mainnet via Sepolia). Newer entries are appended at the end. Owner: Rafa. Each decision has options, a recommendation and the ADR it settles.
 
 Still open (2026-11-03): whether weekly telemetry aggregates are published (D39); ADR-0025, Proposed, to be decided with schema v0.9 (T-033); ADR-0027, Proposed (T-308: judgment report, verifiable inference, tuning releases; four open questions, none needed before Phase 3); the ADR-0023 amendment on fee bundling, Proposed (D37); and dispute clauses as selectable terms, deferred until after the demo (D29).
 
@@ -500,6 +500,8 @@ What it means:
 
 ## D33. Operator fee: 1 bp of the price, minimum 0.01 tUSD, paid by the buyer with the funded agreement, outside the contracts
 
+**Amended 2026-11-03 by Rafa: "Gas should be part of the cost of using the API etc."** Agents never need ETH: the relaying operator pays the gas and recovers it through its fee, quoted in the deal's token (USDC, D42). On a chain, the published minimum is the relay minimum plus a per-deal gas quote, so the fee, `max(min, ceil(price × bps / 10000))`, never falls below the gas the operator pays, and agents compute it exactly as before. On the Sepolia demo the gas quote is 1.50 tUSDC: about 500,000 gas for a deal's three transactions (funding with the fee, delivery, decision; T-209's measured figures) at 1 gwei, at a fixed and fictional rate of 3,000 tUSDC per test ETH, stated as such wherever the fee is shown. So the demo publishes 1 bp with a minimum of 1.51 tUSDC. The quote is fixed per deal and not refunded: a deal that needs fewer transactions (a reclaim) leaves the operator the difference; one that needs more (a fallback, an appeal) costs it the difference. A party that submits directly to the contract pays its own gas and no fee to this operator, and another operator charges its own schedule (ADR-0005, unchanged). The quote is a parameter (`OPERATOR_FEE_GAS`, D31), never a cap. Schema v0.9 (T-033) may show the gas part as its own member of `fees.operator`; until then discovery's notes and `llms.txt` state the split. The fee still never enters the hold. ADR-0023 has the amendment.
+
 **Decided 2026-11-01: confirmed by Rafa ("Confirm D33") after a research pass.** Rafa set the direction (fees at the API level, not a protocol fee in the contracts; a rulebook fee on chain is a possible later step), proposed 0.01% of settled volume, and asked for cost-plus to be weighed. The pass measured what a deal costs Crow: about $0.001 of infrastructure, about $0.01 to $0.10 of model calls when judged (more on appeal), and $5 a month fixed (inferred from Cloudflare, Anthropic and DeepSeek list prices and the code's prompt sizes).
 
 | Option | Effect |
@@ -569,6 +571,8 @@ Also: the funding signature on EVM is CPP's collector signature and token identi
 
 ## D38. Funding paths: any ERC-20, WETH or ETH; ramps as a deferred separate service (ADR-0026)
 
+*Note (2026-11-03): first wave narrowed to USDC by D42; other assets later.*
+
 **Decided 2026-11-02 from Rafa's direction** ("simply accept any ERC20 or wETH or ETH"; "a separate service we call via our unified API"; "for later", a stub only), after a research pass (repository facts measured; provider facts from memory, to be checked before the service is built).
 
 - The deal's token is any ERC-20 the parties name (D31). `rulebook.allowedTokens` becomes optional and only narrows; the schema change rides with ADR-0025's v0.9 follow-up. Until then the demo club lists tUSD.
@@ -608,14 +612,30 @@ Also: the funding signature on EVM is CPP's collector signature and token identi
 
 **Decided 2026-11-03 by Rafa** ("the public demo to settle on Sepolia"); the design is ADR-0028 (Proposed), after a research pass the same day (`docs/research/2026-11-03-sepolia-demo-settlement.md`). Rafa may overrule any line of the design.
 
-- **What changes for an agent.** The money in every demo deal sits in HoldbackRules and CPP's escrow on Ethereum Sepolia, checkable on Etherscan; each money step waits for a block, so a test deal takes about a minute instead of 4 s; the EIP-712 domain names chain 11155111 and the rules contract; the token identifier is the test token's address (ADR-0025); the buyer funds with the token's own ERC-3009 signature, which prepare hands out. Test tokens only: tUSD on Sepolia is open-mint and worth nothing.
-- **What does not.** The API, the one-command test deal and its single approval, and the hard rules: the operators' relayer keys pay gas and relay signed messages, never author them; the keys are Sepolia-only Worker secrets.
+- **What changes for an agent.** The money in every demo deal sits in HoldbackRules and CPP's escrow on Ethereum Sepolia, checkable on Etherscan; each money step waits for a block, so a test deal takes about a minute instead of 4 s; the EIP-712 domain names chain 11155111 and the rules contract; the token identifier is the test token's address (ADR-0025); the buyer funds with the token's own ERC-3009 signature, which prepare hands out. Test tokens only: the deal token is tUSDC (D42), open-mint and worth nothing.
+- **What does not.** The API, the one-command test deal and its single approval, and the hard rules: the operators' relayer keys pay gas and relay signed messages, never author them; the keys are Sepolia-only Worker secrets. Gas is part of the operator fee (D33, amended the same day).
 - **Rollback.** A `SETTLEMENT` flag per Worker (`sim` or `sepolia`) picks the world; the SimChain world stays untouched, so setting the flag back is one deploy.
 - **Staged.** drand proofs for fallback and appeal decisions (until then a silent primary ends in the default outcome), direct transactions in the operators' view, an in-flight row per relayer lane, and the schema v0.9 items (T-033).
-- **Asks for Rafa (outside the repository).** Sepolia ETH for the relayer's funding lane (1.2 ETH; 0.25 to launch) and, recommended, Workers Paid ($5 a month) so a busy day fails soft.
+- **Asks for Rafa (outside the repository).** Sepolia ETH for the relayer's funding lane: done (1.94 Sepolia ETH on 2026-11-03, measured by the coordinating session). Workers Paid: reportedly in place since the November 2 outage (not checked from here).
 
 | Option | Effect |
 | --- | --- |
 | Keep SimChain | No change; the custody claim stays unverifiable from outside |
 | Sepolia, one Durable Object, relayer lanes (chosen) | Real custody on a public chain, same API, about a minute per deal; the two nodes stay one process |
 | Sepolia, one Durable Object per node | Independent indexes, but the pre-funding stages would need gossip between nodes; later |
+
+## D42. The first wave is USDC only, funded through a USD to USDC on-ramp
+
+**Decided 2026-11-03 by Rafa:** "For the first wave of the service, lets assume USDC only, and USD to USDC onboarding rail." Then: "Then push ERC20, ETH and dynamic extension of asset in escrow to later in the roadmap"; "park it for later in a roadmap module about assets". His reason: "This prevents the complexity of asset conversion during onboarding." One asset end to end (USD in, USDC held, USDC paid out) means no swaps, quotes or price risk at onboarding or at settlement, and fees and gas are quoted in the unit the deal uses.
+
+- **The service accepts USDC only.** The operators' token allowlist and the demo club's rulebook narrow to USDC; clubs may narrow (ADR-0015). The protocol and the contracts stay token-agnostic (D31): the signed terms already name the token.
+- **Funding is a USD to USDC on-ramp,** the funding service of ADR-0026 narrowed to one path. Test mode only (a Stripe key must be `sk_test_…`; keys from the environment only). It is the next item in Phase 5 (`docs/tasks/T-214-usd-usdc-onramp.md`), not part of the Sepolia cutover.
+- **D38's "any ERC-20, WETH or ETH" is deferred** to an Assets module later in the roadmap (`docs/plan.md`, Phase 6), with dynamically extending which assets an escrow can hold.
+- **The Sepolia demo's token is Crow Test USDC (tUSDC),** our own open-mint test token with USDC's ERC-3009 interface (`contracts/script/TestUSDC.sol`), not Circle's Sepolia USDC. Measured on Sepolia: Circle's USDC (`0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238`) is an upgradeable proxy with an owner, a master minter, a pauser and a blacklister, and has both ERC-3009 entry points; only Circle's faucet can mint it, behind a CAPTCHA and a rate limit, so every demo grant would come from a treasury Rafa refills by hand, and a blacklist could freeze a demo hold. tUSDC has no admin, the faucet mints it, and it keeps USDC's interface, so moving to Circle's USDC (with the on-ramp, or on mainnet) is a token address and domain change. It is named and labelled as a test token everywhere, never as plain "USDC". SimChain keeps tUSD.
+
+| Option | Effect |
+| --- | --- |
+| Any ERC-20, WETH or ETH now (D38) | Conversion at onboarding and settlement; fees in several units |
+| USDC only, USD to USDC on-ramp (chosen) | One unit end to end; other assets later in an Assets module |
+| Sepolia demo on Circle's USDC | The real token, but a hand-filled treasury and an issuer that can freeze a hold |
+| Sepolia demo on tUSDC (chosen) | Unlimited faucet, no admin, same interface; not the real token, stated plainly |

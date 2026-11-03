@@ -9,7 +9,7 @@ const root = join(import.meta.dirname, '..', '..', '..');
 const SOURCES: Record<string, [string, string]> = {
   rules: ['HoldbackRules.sol', 'HoldbackRules'],
   bonds: ['HoldbackBonds.sol', 'HoldbackBonds'],
-  token: ['LocalUSDC.sol', 'LocalUSDC'],
+  token: ['TestUSDC.sol', 'TestUSDC'],
   escrow: ['AuthCaptureEscrow.sol', 'AuthCaptureEscrow'],
   multicall: ['LocalMulticall3.sol', 'LocalMulticall3'],
   collector: ['ERC3009PaymentCollector.sol', 'ERC3009PaymentCollector'],

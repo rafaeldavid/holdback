@@ -17,7 +17,8 @@ const root = fileURLToPath(new URL('../../../', import.meta.url));
 const ready = anvilAvailable() && existsSync(`${root}contracts/out/HoldbackRules.sol/HoldbackRules.json`);
 /** anvil's second well-known dev key (public; guards no value): the relayer's funding lane here. */
 const RELAYER = '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d';
-const ENV = { OPERATOR_FEE_BPS: '1', OPERATOR_FEE_MIN: '10000' };
+/** The demo's fee: 1 bp, minimum 0.01 tUSDC plus the 1.50 tUSDC gas quote a chain world adds (D33 as amended). */
+const ENV = { OPERATOR_FEE_BPS: '1', OPERATOR_FEE_MIN: '10000', OPERATOR_FEE_GAS: '1500000' };
 
 async function serve(world: PublicWorld): Promise<{ urls: [string, string]; close(): Promise<void> }> {
   const server: Server = createServer(async (req, res) => {
@@ -67,12 +68,12 @@ describe.skipIf(!ready)(`the public world on a live chain (anvil for Sepolia)${r
   const storage = new MemoryStorage();
   const chainOf = () => new LiveChain({ deployment, rpcUrls: [anvil.rpcUrl], relayerKey: RELAYER, pollMs: 200, rebroadcastMs: 10_000, mintBatchMs: 200 });
   beforeAll(async () => {
-    anvil = await EvmWorld.start(root, { blockTimeSec: 1 });
+    anvil = await EvmWorld.start(root, { blockTimeSec: 1, token: 'test-usdc' });
     const d = anvil.deployment;
     deployment = {
       chainId: anvil.chainId,
       fromBlock: Number(d.fromBlock),
-      token: { address: d.token, name: anvil.tokenDomain.name, version: anvil.tokenDomain.version, symbol: 'tUSD', decimals: 6 },
+      token: { address: d.token, name: anvil.tokenDomain.name, version: anvil.tokenDomain.version, symbol: 'tUSDC', decimals: 6 },
       escrow: d.escrow,
       erc3009Collector: d.erc3009Collector,
       permit2Collector: d.permit2Collector,
@@ -100,6 +101,8 @@ describe.skipIf(!ready)(`the public world on a live chain (anvil for Sepolia)${r
       const run = await runTry({ HOLDBACK_OPERATORS: demo.urls.join(','), HOLDBACK_DEPLOYMENT: JSON.stringify(deployment) });
       expect(run.out).toMatch(/^done\s+commitment 0x[0-9a-f]{64} Released$/m);
       expect(run.code).toBe(0);
+      // The buyer pays the gas in the operator fee: 1.51 tUSDC on a 25 tUSDC deal.
+      expect(run.out).toMatch(/^fund +Held: 26 tUSDC held \(25 price \+ 1 adjudication fee\), operator fee 1\.51 tUSDC$/m);
       // The funding (with the operator fee in the same transaction), the delivery and the release: three transactions.
       const chainLines = run.out.split('\n').filter((l) => l.startsWith('chain'));
       expect(chainLines.map((l) => l.split(/\s+/)[1])).toEqual(['funded', 'delivered', 'decided']);

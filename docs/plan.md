@@ -110,12 +110,18 @@ Goal: bonds, coverage, appeals, fallback and default outcomes run on the contrac
 Goal: fiat enters and leaves through ramps; the demo runs on a public testnet with two independent operator nodes.
 
 - Stablecoin direct funding (test token).
+- [ ] **Next:** T-214 USD to USDC on-ramp in test mode (D42): the first wave's one funding path, a Stripe crypto on-ramp or Coinbase Onramp sandbox behind the funding service (ADR-0026), test keys from the environment only.
 - Stripe test-mode on-ramp: a card payment mints test tokens to the buyer (D7). A simulated off-ramp.
 - Testnet deployment (D4) and gas sponsorship or paymaster for agents.
 - Operator node packaging (container), so a second party can run op-2.
 - Neutrality beat 7 on testnet.
 
 ## Phase 6: Interop and native compute
+
+**Assets (parked, Rafa, 2026-11-03: "park it for later in a roadmap module about assets").** After the USDC-only first wave (D42):
+
+- Other ERC-20 tokens, ETH and WETH, and dynamically extending which assets an escrow can hold (ADR-0026, D38).
+- Token-issuer controls (for example a USDC freeze or blacklist of a party or fee receiver) and their effect on payouts and refunds; parked, because parties choose the token in their signed terms (D28, D32) (Rafa, 2026-11-03).
 
 - Later, on demand only (Rafa, 2026-11-02; D39): an SDK or an MCP server. Agents integrate from the HTTP API and `llms.txt`.
 - A2A extension carrying the commitment object and receipts.

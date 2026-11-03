@@ -249,6 +249,8 @@ export class PublicWorld {
     o = { ...o, minWindowSec: m };
     // On a chain the token identifier is the test token's address (ADR-0025); the rulebook is SimChain's otherwise.
     const token = o.live ? lc(o.live.chain.deployment.token) : TOKEN;
+    // What people read: tUSD on SimChain; on a chain the deployment's symbol (tUSDC, D42), never the address.
+    const symbol = o.live ? o.live.chain.token.symbol : TOKEN;
     const chainId = o.live ? o.live.chain.chainId : SIM_CHAIN_ID;
     const domain: HoldbackDomain = o.live ? holdbackDomain(chainId, o.live.chain.deployment.rules) : holdbackDomain(SIM_CHAIN_ID);
     const rulebook = rebindToken({ ...SIM_RULEBOOK, minWindowsSec: { judge: m, fallback: m, appealWindow: m, appealDecide: m } }, TOKEN, token);
@@ -319,10 +321,12 @@ export class PublicWorld {
       registration,
       judgment: (id) => records.get(id) ?? null,
       // POST /v1/faucet: a fixed grant and a mandate in the demo club; `amount` is not honoured here.
-      faucet: grantFrom({ storage, ledger, club, principal, domain, token, amount: faucetAmount, windowSec: faucetWindowSec, perClient: faucetPerClient, now, ...(live ? { live } : {}) }),
+      faucet: grantFrom({ storage, ledger, club, principal, domain, token, symbol, amount: faucetAmount, windowSec: faucetWindowSec, perClient: faucetPerClient, now, ...(live ? { live } : {}) }),
     };
-    // ADR-0023: one schedule for both nodes (one operator), paid to one world address; from Worker variables.
-    const operatorFee = operatorFeeFromEnv(o.env, key('demo-operator-fees').address, token);
+    // ADR-0023: one schedule for both nodes (one operator), paid to one world address; from Worker variables. On a
+    // chain the minimum also carries the gas these nodes pay for a deal (D33, amended 2026-11-03).
+    const gasQuote = o.live ? (o.env['OPERATOR_FEE_GAS'] ?? '0') : undefined;
+    const operatorFee = operatorFeeFromEnv(o.env, key('demo-operator-fees').address, token, gasQuote);
     const feedback = feedbackFrom(o, (id) => telemetry.lookup(id));
     const adjudicators = {} as Record<Role, TestAdjudicator>;
     const declined = new Map<Hex32, string>();
@@ -369,7 +373,7 @@ export class PublicWorld {
       }
       return [];
     };
-    const chainFacts = o.live ? { chainId, rules: o.live.chain.deployment.rules, token, funding: o.live.chain.funding, explorer: o.live.explorer ?? SEPOLIA_EXPLORER } : undefined;
+    const chainFacts = o.live ? { chainId, rules: o.live.chain.deployment.rules, token, symbol, funding: o.live.chain.funding, explorer: o.live.explorer ?? SEPOLIA_EXPLORER, gas: gasQuote } : undefined;
     const evm = chain instanceof EvmSettlement ? chain : undefined;
     for (const i of [0, 1]) {
       operators.push(
@@ -640,6 +644,7 @@ function grantFrom(w: {
   principal: TestAccount;
   domain: HoldbackDomain;
   token: string;
+  symbol: string;
   amount: bigint;
   windowSec: number;
   perClient: number;
@@ -673,7 +678,7 @@ function grantFrom(w: {
     if (!w.live || held < w.amount) {
       const day = `fm:${new Date(now).toISOString().slice(0, 10)}`;
       const minted = (await w.storage.get<number>(day)) ?? 0;
-      if (minted >= mintsPerDay) return { ok: false, problem: problem('rate_limited', `the faucet's ${mintsPerDay} mints for today (UTC) are spent; tUSD on this chain is open-mint, so you can also mint it yourself`), retryAfterSec: retryAfterSec(Date.parse(`${day.slice(3)}T00:00:00Z`) + 86_400_000) };
+      if (minted >= mintsPerDay) return { ok: false, problem: problem('rate_limited', `the faucet's ${mintsPerDay} mints for today (UTC) are spent; ${w.symbol} on this chain is open-mint, so you can also mint it yourself`), retryAfterSec: retryAfterSec(Date.parse(`${day.slice(3)}T00:00:00Z`) + 86_400_000) };
       // Counted before the mint, so a grant racing it cannot mint twice; a failed mint gives the address its turn back.
       await w.storage.put({ [`fa:${address}`]: now, ...(w.live ? { [day]: minted + 1 } : {}) });
       try {
@@ -695,7 +700,7 @@ function grantFrom(w: {
         mandate: { ...mandate, mandateHash: canonicalKeccak(mandate) as Hex32 },
         nextGrantAfter: wholeSecond(now + windowMs),
         notice: w.live
-          ? `TEST TOKENS ONLY: tUSD on Sepolia is an open-mint test token with no value${tx ? `; minted in ${tx}` : '; this address already held the grant, so nothing was minted'}. The mandate is signed by the demo club's own test principal, held by this demo.`
+          ? `TEST TOKENS ONLY: ${w.symbol} on Sepolia is an open-mint test token with no value, not Circle's USDC${tx ? `; minted in ${tx}` : '; this address already held the grant, so nothing was minted'}. The mandate is signed by the demo club's own test principal, held by this demo.`
           : "TEST TOKENS ONLY: tUSD on SimChain has no value. The mandate is signed by the demo club's own test principal, held by this demo.",
       },
     };
@@ -721,7 +726,7 @@ const DECIMAL = /^(0|[1-9][0-9]{0,77})$/;
  * 10000) and OPERATOR_FEE_MIN (base units) publish a schedule, OPERATOR_FEE_MAX (base units) caps it; with neither
  * of the first two, the nodes charge nothing and publish no schedule. A malformed value refuses to start.
  */
-export function operatorFeeFromEnv(env: Readonly<Record<string, string | undefined>>, to: Address, token: string = TOKEN): OperatorFeeSchedule | undefined {
+export function operatorFeeFromEnv(env: Readonly<Record<string, string | undefined>>, to: Address, token: string = TOKEN, gas?: string): OperatorFeeSchedule | undefined {
   const bps = env['OPERATOR_FEE_BPS'];
   const min = env['OPERATOR_FEE_MIN'];
   const max = env['OPERATOR_FEE_MAX'];
@@ -729,13 +734,17 @@ export function operatorFeeFromEnv(env: Readonly<Record<string, string | undefin
   if (bps === undefined || !/^(0|[1-9][0-9]{0,4})$/.test(bps) || Number(bps) > 10_000) throw new Error(`OPERATOR_FEE_BPS must be whole basis points from 0 to 10000, got ${JSON.stringify(bps)}`);
   if (min === undefined || !DECIMAL.test(min)) throw new Error(`OPERATOR_FEE_MIN must be base units as a decimal string (0.01 tUSD is "10000"), got ${JSON.stringify(min)}`);
   if (max !== undefined && max !== '' && !DECIMAL.test(max)) throw new Error(`OPERATOR_FEE_MAX must be base units as a decimal string, or unset, got ${JSON.stringify(max)}`);
-  return { to, token, bps: Number(bps), min, max: max === undefined || max === '' ? null : max, appliesAt: 'agree-and-fund', refundable: false };
+  if (gas !== undefined && !DECIMAL.test(gas)) throw new Error(`OPERATOR_FEE_GAS must be base units as a decimal string (1.50 tUSDC is "1500000"), got ${JSON.stringify(gas)}`);
+  // D33 as amended 2026-11-03: on a chain the minimum is the relay minimum plus the per-deal gas quote, so the fee
+  // max(min, bps of the price) never falls below the gas these nodes pay, and clients compute it as before.
+  const floor = gas === undefined ? min : (BigInt(min) + BigInt(gas)).toString();
+  return { to, token, bps: Number(bps), min: floor, max: max === undefined || max === '' ? null : max, appliesAt: 'agree-and-fund', refundable: false };
 }
 
-const tusdText = (base: string): string => {
+const tokenText = (base: string, symbol: string): string => {
   const v = BigInt(base);
   const frac = (v % TUSD).toString().padStart(6, '0').replace(/0+$/, '');
-  return `${v / TUSD}${frac ? `.${frac}` : ''} tUSD`;
+  return `${v / TUSD}${frac ? `.${frac}` : ''} ${symbol}`;
 };
 
 /** What each node states about itself in discovery and llms.txt. */
@@ -746,13 +755,18 @@ export function notesFor(
   faucetWindowSec: number,
   panel?: Pick<PanelConfig, 'live' | 'registry' | 'budget'>,
   fee?: OperatorFeeSchedule,
-  /** A chain world's facts (D41): its chain, contracts, the relayer's funding lane and the explorer. */
-  chain?: { chainId: number; rules: string; token: string; funding: string; explorer: string },
+  /** A chain world's facts (D41): its chain, contracts and token, the relayer's funding lane, the explorer, the gas quote. */
+  chain?: { chainId: number; rules: string; token: string; symbol: string; funding: string; explorer: string; gas?: string | undefined },
 ): string[] {
+  const symbol = chain?.symbol ?? TOKEN;
+  const amount = (base: string) => tokenText(base, symbol);
+  const gas = chain?.gas && chain.gas !== '0' ? chain.gas : undefined;
+  // D33 as amended 2026-11-03: the minimum carries the gas these nodes pay for a deal's transactions.
+  const gasText = gas && fee ? ` That minimum is ${amount(gas)} for the gas these nodes pay for a deal's transactions on Sepolia (about 500,000 gas at 1 gwei, priced at this demo's fixed, fictional rate of 3,000 ${symbol} per test ETH) plus ${amount((BigInt(fee.min) - BigInt(gas)).toString())} for relaying; the quote is fixed per deal, whether the deal needs fewer transactions or more.` : '';
   const feeNote = fee
     ? fee.bps === 0 && fee.min === '0'
       ? `Operator fee: published at 0 (fees.operator in /v1/status): these nodes relay a funded agreement free for now. When it is switched on, POST /v1/prepare/agree-and-fund adds a third signature (slot operatorFee.signature), paid to ${fee.to}, outside the hold and not refunded.`
-      : `Operator fee: these nodes charge an operator fee of ${fee.bps} bp of the price, at least ${tusdText(fee.min)}${fee.max === null ? '' : `, at most ${tusdText(fee.max)}`}, rounded up, paid by the buyer to ${fee.to} with the funded agreement: POST /v1/prepare/agree-and-fund returns a third signature (slot operatorFee.signature). It is a separate transfer, never part of the hold, and not refunded. A funded agree without it gets 402 payment_required; reads, prepare, the faucet, deliveries and direct submission to the settlement layer are free (ADR-0023).`
+      : `Operator fee: these nodes charge an operator fee of ${fee.bps} bp of the price, at least ${amount(fee.min)}${fee.max === null ? '' : `, at most ${amount(fee.max)}`}, rounded up, paid by the buyer to ${fee.to} with the funded agreement: POST /v1/prepare/agree-and-fund returns a third signature (slot operatorFee.signature). It is a separate transfer, never part of the hold, and not refunded. A funded agree without it gets 402 payment_required; reads, prepare, the faucet, deliveries and direct submission to the settlement layer are free (ADR-0023).${gasText}${gas ? ' Submitting directly to the contract, you pay your own gas and no fee to these nodes.' : ''}`
     : undefined;
   const whole = (faucetAmount / TUSD).toString();
   const judges = panel?.live
@@ -760,7 +774,7 @@ export function notesFor(
     : 'Adjudicators: three test adjudicators run by this demo, listed by role under demo.adjudicators in this discovery document. Deterministic checks are real. Judge panels are scripted fake judges (no model runs; verdicts start "[fake judge, no model ran]"), so use template "checks-only" for real acceptance.';
   const settlement = chain
     ? [
-        `Public demo node. TEST TOKENS ONLY: deals settle on Ethereum Sepolia (chain id ${chain.chainId}) in tUSD (${chain.token}), an open-mint test token with no value; no real money moves, and none can be deposited or withdrawn.`,
+        `Public demo node. TEST TOKENS ONLY: deals settle on Ethereum Sepolia (chain id ${chain.chainId}) in ${symbol}, Crow Test USDC (${chain.token}): an open-mint test token with USDC's interface and no value, not Circle's USDC. No real money moves, and none can be deposited or withdrawn.`,
         `The money in every funded deal is held by the HoldbackRules contract ${chain.rules} through Coinbase Commerce Payments' AuthCaptureEscrow: check it at ${chain.explorer}/address/${chain.rules}. Events of on-chain steps carry the transaction hash in payload.tx (${chain.explorer}/tx/<hash>).`,
         `Each money step waits for a Sepolia block (about 12 s), so a test deal takes about a minute. A write answers once its transaction is in a block, before the block is final (about 15 minutes). These nodes pay the gas from their own relayer keys (funded from ${chain.funding}); they relay the messages you sign and never sign for you.`,
         'Both demo operator nodes are one program in one Cloudflare Durable Object behind two addresses: reading both catches a lying front end, not a lying index. The offer, the adjudicator acceptance and the agreement stay off chain until agreeAndFund checks all three on chain.',
@@ -771,7 +785,7 @@ export function notesFor(
       ];
   return [
     ...settlement,
-    `Get test tokens: POST /v1/faucet {"address": "0x..."} with an Idempotency-Key header grants ${whole} tUSD and a mandate in club ${clubId}, once per address per ${faucetWindowSec} seconds. Make your own keys: no route here ever returns a secret key.`,
+    `Get test tokens: POST /v1/faucet {"address": "0x..."} with an Idempotency-Key header grants ${whole} ${symbol} and a mandate in club ${clubId}, once per address per ${faucetWindowSec} seconds. Make your own keys: no route here ever returns a secret key.`,
     `The faucet mandate is signed by the demo club's own test principal, which this demo holds; it lets your address act as buyer or seller in ${clubId}.`,
     judges,
     'Disclosure: offer at "public" on these nodes. The demo adjudicators cannot open sealed terms yet, so they decline private and judgment offers, which then expire unaccepted. The work itself is encrypted at every level.',
