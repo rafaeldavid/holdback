@@ -29,9 +29,9 @@ Find out whether Airbender can serve as the proving backend for ADR-0027's attes
   - `audits/` holds one audit report (August 2025);
   - the tags run to `v0.6.0-rc.2` (2026-08-13), beside `dev-v0.8.x` tags;
   - the last commit on `main` is from 2026-04-23.
-- **The SNARK wrapper** for on-chain verification is a separate repository, `github.com/matter-labs/zkos-wrapper` (MIT): it "takes the zkos proof (in json format), and returns the snark proof" (measured, its README).
+- **The SNARK wrapper** for on-chain verification is a separate repository, `github.com/matter-labs/zkos-wrapper` (MIT): it "takes the zkos proof (in json format), and returns the snark proof" (measured, its README). Airbender's `docs/end_to_end.md` says that step "works only if you have over 150GB of RAM" (line 63), and that its example uses "'fake' CRS - for production use cases, you should pass `--trusted-setup-file`" (line 84) (measured, 2026-11-03).
 
-  Everything else about it here is a question, not a fact.
+  Everything else here about Airbender and the wrapper is a question, not a fact.
 - **ADR-0027:**
   - §2: attestation kinds, of which `zk` is a proof bound to a weight commitment;
   - §3: proofs are post hoc and stored as a root;
@@ -63,7 +63,7 @@ Find out whether Airbender can serve as the proving backend for ADR-0027's attes
    - how such a proof would bind to `policyHash`, `aggregationVersion`, the checks in the terms, and the plaintext hash, without revealing the plaintext.
 3. **On-chain verification.** Can an Airbender proof be verified by a contract on a local chain (anvil)? No transaction goes to any public network without Rafa (see the gate).
    - What does one verification cost in gas?
-   - What does the wrapping step (`zkos-wrapper`) need: a trusted setup or a structured reference string and where it comes from, and its memory and hardware?
+   - What does the wrapping step (`zkos-wrapper`) need for production? Which trusted-setup file it takes and who produced it (the example uses a "fake" CRS), and whether its 150 GB memory floor puts it beyond the parties that would need to re-prove.
    - How does that compare with off-chain verification, FlashProve's model?
    - ADR-0027 stores only a root on chain, so say whether on-chain verification would add anything the timeout or an appeal needs.
 4. **Pinning and neutrality.**
