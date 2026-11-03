@@ -147,7 +147,12 @@ Append its findings to the review as a new section, with a disagreement table ag
 - **Sepolia demo.**
   - The cross-check found that the operator-fee bundle can be front-run (`packages/settlement/evm/evm-settlement.ts`). ADR-0023 already lists this residual and names its mitigation, relaying `agreeAndFund` alone, but the code lacked it. The demo session reports it fixed on its branch.
   - Until T-211 lands, the reference adjudicator's overturn-to-accept appeals revert on chain (H-2).
-- **T-203.** Decisions 4 described the handler's exemption for CPP-reclaimed holds. PR #122 removed it.
+- **T-203.** The fix PRs edited T-203's harness (`contracts/test/handlers/RulesHandler.sol`, `contracts/test/invariant/RulesInvariants.t.sol`, `contracts/test/fuzz/NoAdmin.fuzz.t.sol`):
+  - #122 removed the exemption for CPP-reclaimed holds that T-203 Decisions 4 described.
+  - #125 added `invariant_keyOnlyWithPayment` and the `decideAppeal` action.
+  - #127 added the late-delivery check.
+  - #135 added the `decideFallback` action and removed `tryEncumber` from the allowlist.
+  - Successful appeal decisions remain rare in a campaign (a T-203 follow-up). The unit tests catch each regression.
 - **`formal/`.** The README's contract column can take review §5. The model has no CPP reclaim action and no bond coverage.
 - **Docs and the agent guide.** I-1 (on chain, the fallback needs a posted delivery) belongs in `docs/neutrality.md`'s Adjudicator row. I-4 (EIP-7702 accounts) belongs in the agent docs.
 

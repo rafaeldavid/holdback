@@ -71,7 +71,7 @@ Build the Holdback rules contract: the on-chain version of SimChain's escrow rul
 | `mutualSettle` | any split with a key; before delivery | sum ≠ price; one signature only; second settle |
 | `fileAppeal` | bond held | wrong signer; after `appealBy`; second appeal |
 | `expireOffer`, `reclaim`, `triggerFallback`, `triggerDefault`, `expireAppeal` | called by an arbitrary address after the deadline | before the deadline; wrong stage or a second call |
-| Bonds: `deposit`, `withdraw`, `encumber`, `tryEncumber`, `release`, `takeAppealBond`, `payAppealBond` | deposit; withdraw what is free; the rules-only calls through the flows above | deposit without tokens; withdraw encumbered funds; every rules-only call from another address |
+| Bonds: `deposit`, `withdraw`, `encumber`, `release`, `takeAppealBond`, `payAppealBond` (`tryEncumber` removed by T-206 M-3) | deposit; withdraw what is free; the rules-only calls through the flows above | deposit without tokens; withdraw encumbered funds; every rules-only call from another address |
 
 [measured]
 

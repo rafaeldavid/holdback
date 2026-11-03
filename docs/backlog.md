@@ -41,6 +41,7 @@ Deferred until after the basic demo. The demo assumes honest parties (Rafa, Octo
 | Kill fee for a sitting adjudicator on mutual settlement (`adjudicatorFeeShareAfterDeliveryBps` above 0) | ADR-0019; D21 | When adjudicators report lost panel cost on settlements |
 | Fee refund on a wrongful-reject overturn where the appeal decision also releases the key | D21 | Phase 4, with finality work |
 | Default compensation shortfall: bonds reserved only on takeover may not cover compensation; fixture `todo.default-bond-shortfall` | Escrow-theory review F5 | Phase 3 hardening |
+| Consent for default compensation. Since T-206 M-3 (PR #135), the contract reserves a fallback's bond only when it decides, and an appeal adjudicator's never. A silent fallback or appeal adjudicator therefore holds no reservation, and ADR-0007's compensation from its bond needs a consent step, such as a signed takeover or an acceptance covering all three roles. SimChain still reserves at takeover (T-210) | T-206 M-3 review | Phase 4, before default compensation is built |
 | Default compensation split between primary and fallback as a rulebook term (SimChain splits it evenly: the fallback pays half rounded down, the primary the rest) | T-006 | When a club wants another split |
 | Segregation statements: per-pool and per-commitment statements and invariants (segregation is by accounting, not by account) | Review F6 | Phase 4 backers; any audit |
 | Surety claim list and penal sum stated explicitly | Review F9 | Phase 4 backers |

@@ -80,7 +80,7 @@ Goal: the same scenario fixtures pass against an EVM contract on a local chain. 
 - [x] T-038 Public docs cleanup: README leads with Crow, Apache-2.0 license, statuses and fixture indexes match the repo, no personal details (PR 110).
 - [x] T-209 (PR 77) Beacon verification in `HoldbackRules` (BLS check of the drand value for fallback and appeal panel seeds, ADR-0018), split out of T-202. ADR-0025's schema follow-up (EVM funding signature and token identifiers) moved to T-033.
 - [ ] T-210 Mirror T-206's appeal fixes in core and SimChain: bind every decision's attempt (H-1), and refuse an appeal key on a refunded deal (H-2).
-- [ ] T-211 The reference adjudicator never seals the key for a refunded buyer (T-206 H-2).
+- [ ] T-211 The reference adjudicator never seals the key for a refunded buyer (T-206 H-2), and declines fallback and appeal tasks outside its policy (T-206 M-3).
 - [ ] T-212 Contract hardening from T-206's low findings, before mainnet: bond vault deltas, the seed tag bound to the commitment, expiry from every deadline, the appeal adjudicator's coverage, and the early-accept delivery binding.
 - D4 decided (2026-11-01): target Ethereum mainnet; build and test on a local chain, then Sepolia. Mainnet deployment is a separate gate for Rafa after an audit. Record gas per deal in the evidence.
 

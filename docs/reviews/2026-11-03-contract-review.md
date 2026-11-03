@@ -158,12 +158,16 @@ Proofs marked "adversarial pass" are among the 24 tests in that pass's local wor
   5. The attacker locks twice the price of its own capital and can release everything at will with a mutual settlement.
 
   On Sepolia, with faucet tokens, this takes the demo's adjudicator offline at no cost. ADR-0016 §1 says "Sham commitments cannot lock a bond the adjudicator never reserved".
-- **Proof:** `test/unit/BondConsent.t.sol`, 5 tests ported from the cross-check's cases. 4 of them fail on `main` [measured].
+- **Proof** [measured]:
+  - `test/unit/BondConsent.t.sol` has 6 tests, ported from the cross-check's cases and extended; 4 of them fail on `main`.
+  - A new handler action, `decideFallback`, lets the invariants reach the fallback's own decision. With it, deleting the fallback's reservation fails `invariant_encumberedNotDoubleCounted`. Before the action, no campaign reached that path.
 - **Fix:**
   - Nothing is reserved at takeover or escalation.
-  - The fallback's own accept or reject encumbers its bond. An uncovered fallback therefore cannot decide, and the deal defaults at `fallbackBy`, as ADR-0016 §1 says. This closes L-5 for the fallback.
+  - The fallback's own accept or reject encumbers its bond. An uncovered fallback therefore cannot decide, and the deal defaults at `fallbackBy`, as ADR-0016 §1 says (amended accordingly). This closes L-5 for the fallback.
   - An escalation moves no money, so it needs no cover.
   - `HoldbackBonds.tryEncumber` and the appeal flag are gone, and `HoldbackRules` shrinks by about 500 bytes [measured].
+- **Residual (T-211).** Deciding is consent, and the reference adjudicator decides every takeover automatically, without reading the deal's windows. A sham deal with a century-long appeal window therefore still locks that adjudicator's bond once the service decides it. T-211 makes the service decline fallback and appeal tasks outside its policy (D29) and check its free bond before signing.
+- **Phase 4 tradeoff.** ADR-0007's compensation from a silent fallback's or appeal adjudicator's bond has no reservation to draw on, because a silent adjudicator never consented. This is recorded in the backlog ("Consent for default compensation") and in ADR-0016's amendment.
 
 ### 2.3 Low and informational
 

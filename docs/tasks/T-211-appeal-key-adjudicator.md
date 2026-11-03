@@ -1,4 +1,4 @@
-# T-211: The reference adjudicator never seals the key for a refunded buyer
+# T-211: The reference adjudicator never seals the key for a refunded buyer, and declines sham takeovers
 
 - **Lane:** judgment
 - **Phase:** 2
@@ -16,9 +16,14 @@ Never attach `keyForBuyer` to an appeal whose first outcome was reject. Write it
 
 Prerequisite for appeals on the Sepolia demo (the contract refuses the key-carrying overturn, PR #125) and for Phase 4's overturn payout.
 
+**Second item, from T-206 M-3 (PR #135).** In the contract, a fallback reserves its bond by deciding, and a decider's bond stays reserved until its appeal window closes. The service triggers every takeover that is due and decides every task (`service.ts:155-170`), and `#preflight` never reads the deal's windows or fee. So a sham deal that names Crow's fallback, with an `appealWindowSec` a century long, would still lock Crow's bond once the service decided it.
+- Decline fallback and appeal tasks whose `appealWindowSec`, `appealDecideSec` or fee fall outside the adjudicator's own published policy (D29: adjudicators may decline clauses they won't run).
+- Check `freeOf` before signing.
+
 ## Acceptance criteria
 
 - [ ] A test: a party appeal over a rejection that the panel overturns signs an accept with no `keyForBuyer`; a party appeal over an accept (the missing-or-wrong-key ground) still carries it; first-instance and escalation accepts still carry it; a reject never carries it.
+- [ ] A test: a fallback or appeal task whose windows or fee fall outside the adjudicator's policy is declined, and so is one the adjudicator lacks free bond for. A task inside the policy is still decided.
 - [ ] `pnpm verify` green.
 
 ## Out of scope
