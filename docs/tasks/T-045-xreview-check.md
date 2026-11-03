@@ -38,15 +38,15 @@ The status is unforgeable only under three preconditions:
   - ISSUES needs at least one finding;
   - the `litmus` enum keeps PR 112's `security` value.
 
-  PR 108's tested version (commit `3956390` on the local branch `claude/agent-ops-design-46b9a8`, which rejects 20 bypass samples) is the starting point, and its samples become this task's tests.
+  PR 108's tested version is the starting point, and its 20 bypass samples become this task's tests. Read it with `git fetch origin pull/108/head`, then `git show 3956390:agent-ops/schemas/review-verdict.schema.json`.
 - [ ] `xreview.mjs <pr>` builds the request from the diff as data between random delimiters with a canary token, sends it with no tools through `live.ts`, and accepts the answer only if it matches the schema. Anything else is an abstention, which counts as ISSUES.
 - [ ] A finding blocks only if it names a path and line, the rule or litmus test it breaks, and a reproduction; other findings are written as suggestions for intake.
 - [ ] The same diff SHA always returns its first verdict (cached by SHA); a new review needs a new diff. Tested.
-- [ ] A diff goes to DeepSeek only after the PR head's `gitleaks` check has passed, so a leaked secret never reaches a third party. Until then, the status reads pending.
+- [ ] A diff goes to DeepSeek only after the PR head's `gitleaks` check has passed, so a leaked secret never reaches a third party. Until then, the status reads pending. The workflow also runs on `workflow_run` when the CI workflow completes, which also runs from `main`. So the review starts once gitleaks has passed, and a required check never stays pending.
 - [ ] Each verdict appends one line to `reports/review-agreement.jsonl`: the family, the model, the diff SHA, each finding's severity and, once known, its outcome. T-046 reads it.
 - [ ] Tiers 0 and 1 get a passing status at once. When DeepSeek fails, the GPT fallback reviews; when both fail, the status fails with "needs Rafa".
 - [ ] `agent-ops/workflows/xreview.yml` lives outside `.github/workflows/`, so it cannot run; T-050 moves it. A test reads the file and checks each of these properties:
-  - it runs on `pull_request_target`, for same-repository branches only;
+  - it runs on `pull_request_target` and on `workflow_run` of the CI workflow, for same-repository branches only;
   - it checks out the base branch only and reads the diff from the API;
   - it takes its keys from the `xreview` Environment;
   - it has `contents: read`, `pull-requests: read`, `checks: read` and `statuses: write`, and nothing else;

@@ -2,7 +2,7 @@
 
 - **Lane:** infra
 - **Phase:** 9
-- **Depends on:** nothing in the repository. Rafa can start part (a) before the rest of Phase 9, because the environment also ends the approval prompts on his laptop. Part (b) steps 1 to 3 hold no secret, so agents can build them anywhere; Rafa's VM steps run them.
+- **Depends on:** nothing in the repository. Rafa can start part (a) before the rest of Phase 9, because the environment also ends the approval prompts on his laptop. Part (b) lands in two PRs, the one exception to "one task, one PR" in this phase. Steps 1 to 3 hold no secret, so agents build them first, anywhere; Rafa's VM setup runs them. Steps 4 to 7 follow his go-ahead.
 - **Paths this task may touch:** `scripts/dev-env/setup.sh` (new), `scripts/dev-env/vm-users.sh` (new), `scripts/dev-env/gh-app-token.mjs` (new), `scripts/dev-env/smoke.mjs` (new), `tests/dev-env.test.ts` (new), `docs/dev-env.md` (new), `config/keys-dev-env.template`, `config/keys.template` (a pointer only), `.claude/settings.json` (the allow list only), `docs/operations.md` (Secrets; Working without permission prompts), `docs/tasks/T-039-isolated-dev-environment.md`
 - **Human gate:** **yes.** Part (a) creates accounts, tokens, spending caps and repository settings, all outside the repository. Agents never create a credential or read its value.
 - **Status:** todo
@@ -49,7 +49,11 @@ The same environment ends the approval prompts that stopped work on 2026-10-31, 
 
 1. no approval prompts;
 2. GitHub tells the agents' work from Rafa's, which tier 3 review and threat P9 need;
-3. no agent can read a key that outlives one hour.
+3. no agent can read a GitHub credential that outlives one hour.
+
+Two keys are exceptions:
+- the `crow-agents` Anthropic key, which lasts 30 days and can be read where exe.dev cannot inject it; its workspace's monthly limit caps it;
+- the 90-day `crow-deploy` Cloudflare token, which only deploy sessions hold, on Rafa's go-ahead.
 
 A is a sound quick start for build sessions before activation. A third option, Claude Code's self-hosted environments, is for Team and Enterprise plans only (documented).
 
@@ -133,11 +137,11 @@ Every step is **human**. Times are guessed; faucet waits are extra. The steps ar
    At the limit, the API refuses requests and sessions stop: that is the cap working. Keep the organization's monthly limit (T-051 step 1) at or above the sum of the workspace limits, `crow-judges` and `crow-agents`, or the organization limit binds first.
 
 6. **Set up the VM** (45 min) [B]. Part (b) steps 1 to 3 must be merged first.
-   1. Create a VM with at least 4 vCPU and 8 GB. On exe.dev: `ssh exe.dev` to register, then `ssh exe.dev new --name crow`, with the size per https://exe.dev/docs.
+   1. Create a VM with at least 4 vCPU and 8 GB, named `crow`. On exe.dev: `ssh exe.dev` to register, then create it in the web UI or with `ssh exe.dev new`, choosing the name and size as https://exe.dev/docs describes.
    2. On the VM, run `git clone https://github.com/rafaeldavid/holdback.git`, then `sudo bash holdback/scripts/dev-env/vm-users.sh`. It creates the `agent`, `deploy` and `minter` users, their folders, the minter rule and the root-owned copy of the token script. It holds no secret.
-   3. Paste the App key. On your Mac, run `pbcopy < ~/Downloads/<the-key>.pem`. On the VM, run `sudo -u minter sh -c 'umask 077; cat > /home/minter/.config/crow/app.pem'`, paste, and press Ctrl-D. Then delete the downloaded file.
+   3. Send the App key straight from your Mac, so it never sits in a clipboard or a terminal's scrollback: `ssh <vm> 'sudo -u minter sh -c "umask 077; cat > /home/minter/.config/crow/app.pem"' < ~/Downloads/<the-key>.pem`. This assumes the VM's default user has sudo without a password (inferred for exe.dev). Then delete the downloaded file.
    4. Run `sudo -u minter sh -c 'umask 077; cat > /home/minter/.config/crow/app.env'`, type `APP_ID=<id>` and `INSTALLATION_ID=<id>` on two lines, and press Ctrl-D.
-   5. Give Claude Code its key. If exe.dev's Integrations can inject it at the network edge (https://exe.dev/docs/integrations; whether Claude Code works that way is inferred), use that. Otherwise run `sudo -u agent sh -c 'umask 077; cat > /home/agent/.config/crow/env'`, type `ANTHROPIC_API_KEY=<the crow-agents key>`, and press Ctrl-D. The agent can then read this key; the workspace limit bounds the loss.
+   5. Give Claude Code its key. If exe.dev's Integrations can inject it at the network edge (https://exe.dev/docs/integrations; whether Claude Code works that way is inferred), use that. Otherwise, write a one-line file `ANTHROPIC_API_KEY=<the crow-agents key>` on your Mac and send it the same way: `ssh <vm> 'sudo -u agent sh -c "umask 077; cat > /home/agent/.config/crow/env"' < <that file>`. Then delete the file. The agent can read this key; the workspace limit bounds the loss.
    6. Do not run `/login` and do not turn on Remote Control on the VM.
 
 7. **Create the build environment** (15 min) [A]. At https://claude.ai/code, open the environment selector under the message box and choose New environment.
@@ -196,7 +200,7 @@ Every step is **human**. Times are guessed; faucet waits are extra. The steps ar
 
 14. **Store the deploy secrets** (10 min).
     - [A] Create a second environment, `crow-deploy`. Use the build network list plus `api.cloudflare.com`, `ethereum-sepolia-rpc.publicnode.com`, `sepolia.gateway.tenderly.co` and `api.etherscan.io`. Add environment variables `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` and, if made, `ETHERSCAN_API_KEY`. Anyone who uses the environment can read them, and only you do.
-    - [B] Run `sudo -u deploy sh -c 'umask 077; cat > /home/deploy/.config/crow/env'`, type the same variables, and press Ctrl-D.
+    - [B] Write the same variables to a file on your Mac and send it: `ssh <vm> 'sudo -u deploy sh -c "umask 077; cat > /home/deploy/.config/crow/env"' < <that file>`. Then delete the file.
 
     The Sepolia deployer stays on your laptop (T-206). A later deploy that moves off the laptop gets a new deployer key in the deploy environment, never a copy of the keystore.
 
@@ -233,13 +237,14 @@ Every step is **agent** unless marked. Times are guessed.
 2. **`scripts/dev-env/vm-users.sh`** [B] (2 hours). It runs once as root and holds no secret. It:
    - creates `agent`, `deploy` and `minter`;
    - creates `/home/minter/.config/crow/` with mode 700, so only `minter` can read it;
+   - creates `/srv/crow/intake/`, owned by `deploy`, with the group `crow-intake` that `agent` belongs to, mode 750 for the folder and 640 for its files. The deploy side writes the feedback export and the signal records there (T-041, T-042), and the build side reads them;
    - creates each user's `~/.config/crow/` and makes `agent`'s and `deploy`'s login shells load their `env` file;
    - copies `gh-app-token.mjs` to `/opt/crow/`, owned by root and not writable by others;
-   - adds a sudoers rule letting `agent` and `deploy` run exactly `/usr/bin/node /opt/crow/gh-app-token.mjs git` or `… token` as `minter`, and nothing else. sudo's default `env_reset` keeps `NODE_OPTIONS` and similar variables out (inferred).
+   - adds a sudoers rule letting `agent` and `deploy` run, as `minter`, exactly `/usr/bin/node /opt/crow/gh-app-token.mjs` with one of these argument lists, and nothing else: `git get`, `git store`, `git erase` (git calls a credential helper with an extra verb, and a sudoers rule that lists arguments must match them exactly), or `token`. sudo's default `env_reset` keeps `NODE_OPTIONS` and similar variables out (inferred).
 
    Re-running it updates the copy; only someone with root can do that.
 
-3. **`scripts/dev-env/gh-app-token.mjs`** [B] (2 hours). Run as `minter`, it mints an installation token narrowed to `holdback` and to the App's permissions, valid for one hour (documented lifetime). With `git` it answers git's credential-helper protocol; with `token` it prints the token for a `gh` wrapper. It refuses any other argument, never prints or copies the key, and writes nothing to disk. Tests use a throwaway key.
+3. **`scripts/dev-env/gh-app-token.mjs`** [B] (2 hours). Run as `minter`, it mints an installation token narrowed to `holdback` and to the App's permissions, valid for one hour (documented lifetime). With `git get` it answers git's credential-helper protocol; `git store` and `git erase` do nothing; with `token` it prints the token for a `gh` wrapper. It refuses any other argument, never prints or copies the key, and writes nothing to disk. Tests use a throwaway key.
 
 4. **`docs/dev-env.md`** (1 hour). It covers:
    - how to start a build and a deploy session on A and on B;
@@ -287,7 +292,7 @@ Every step is **agent** unless marked. Times are guessed.
 - [ ] Rafa's steps 1 to 10 are done, each ticked in Handoff with the date (human). Steps 11 to 14 follow before the first deploy from the environment.
 - [ ] `pnpm vitest run tests/dev-env.test.ts` passes, with no network, covering:
   - the setup script's checks;
-  - `vm-users.sh`'s modes and sudoers rule, on a fixture root;
+  - `vm-users.sh`'s users, modes, intake folder and sudoers rule, on a fixture root, with `visudo -c` accepting the rule and git's `get` call matching it;
   - the token minter on a throwaway key, including its refusal of other arguments;
   - the smoke test's parsing.
 - [ ] `node scripts/dev-env/smoke.mjs` passes in a build session and in a deploy session, and its report is pasted in Evidence (measured). The deny-rule probe is recorded too.

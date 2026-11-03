@@ -38,7 +38,7 @@ Let a script, not a model, decide which task is ready to start. Give each sessio
   - Text that an agent wrote (Handoff, Evidence, review findings) enters a brief only inside a fenced block marked as data.
   - It never carries a PR body or comment.
   - The model comes from `modelFor` (T-040).
-  - A verifier's brief tells it to add the `Agent-Role: verifier` trailer (T-044).
+  - A verifier's brief says it returns verdicts as text and writes no file. The implementer's brief says to add those verdicts to Evidence as a quoted block naming the verifier's session.
 - [ ] For a tier 2 task, the tick first starts the fixture-author, and starts the implementer only after the failing tests are committed on the claim branch.
 - [ ] `tick.mjs` rebuilds its state from git and GitHub on each run, and exits. It starts a task only when all of these hold, with a refusal test for each, run against a fake git and GitHub state:
   - the switches are on;

@@ -36,7 +36,7 @@ Make `agent-ops/ops.yaml` the one place every later Phase 9 script reads its mod
 
   `pnpm vitest run tests/agent-ops/config.test.ts` covers each refusal.
 - [ ] The feedback-request rates in `ops.yaml` and `pipeline.md` become basis points: `rate_bps: 1000`, `10000` and `2500`.
-- [ ] The GPT-family fallback is pinned to a dated model ID after a research pass. The architect records it with `/record-decision`, and `models.second_family.fallback.model` is no longer `null`.
+- [ ] The GPT-family fallback is pinned to a dated model ID after a research pass. The architect records it with `/record-decision` (T-036), or by hand if T-036 has not merged, and `models.second_family.fallback.model` is no longer `null`.
 - [ ] `config.mjs` exports `modelFor(role, { tier, authorModel })`, which returns the pinned ID `teams.md` gives the role, and never the author's model:
   - Opus for tier 2 implementers;
   - Opus to review Sonnet's work;

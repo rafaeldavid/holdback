@@ -39,7 +39,7 @@ The agents have no Workflows permission (T-039 step 3), so every change to `.git
   1. Under Settings, then Environments, create `xreview`, with Deployment branches set to Selected branches: `main`. Add the capped DeepSeek and GPT keys there, not as repository secrets.
   2. Push and merge the PR that moves `xreview.yml` into `.github/workflows/`.
   3. In the `main` ruleset, require the `xreview` check.
-  4. Create a second ruleset, `tier3-review`, targeting `main`. It turns on "Require a pull request before merging" with "Require review from Code Owners". Its bypass list holds the Repository admin role in "For pull requests only" mode, so Rafa's own tier 3 PRs can merge. On a personal repository the admin role is Rafa alone, and `crow-agents` has Write, not admin (inferred, as are the option names).
+  4. Create a second ruleset, `tier3-review`, targeting `main`. It turns on "Require a pull request before merging" with "Require review from Code Owners", "Dismiss stale pull request approvals when new commits are pushed" and "Require approval of the most recent reviewable push". Without the last two, an agent could push more commits after Rafa approves, and auto-merge would land them. The `main` ruleset keeps approvals after new commits today (measured). Its bypass list holds the Repository admin role in "For pull requests only" mode, so Rafa's own tier 3 PRs can merge. On a personal repository the admin role is Rafa alone, and `crow-agents` has Write, not admin (inferred, as are the option names).
 
   The `main` ruleset keeps no bypass, so `check`, `gitleaks` and `xreview` stay required for everyone.
 
@@ -56,8 +56,7 @@ The agents have no Workflows permission (T-039 step 3), so every change to `.git
 - **Who:** an agent writes the PR; Rafa merges it (tier 3).
 - **Time:** 15 min to review.
 - **What:**
-  - Remove Write and Edit from the reviewer.
-  - The verifier keeps Edit, and T-044's verifier-commit guardrail fails a verifier commit that changes anything but the task's Evidence section. The design lists both "verifier loses Edit" and "Edit for Evidence only"; this resolves it.
+  - Remove Write and Edit from the reviewer and the verifier, as the design's README asks. The verifier returns its verdicts as text. The implementer adds them to Evidence as a quoted block naming the verifier's session. `teams.md` also lists "Edit for the Evidence section only", which no permission can scope to one section, and a self-reported commit marker would not bind a verifier that leaves it off; this resolves both.
   - Merge `agent-ops/settings.deny.json` into `.claude/settings.json`.
   - Wire `scripts/hooks/bash-guard.sh` as a PreToolUse hook.
 - **Done when:** a new session shows the hook firing on `sed -i` and the deny list refusing `wrangler`.
@@ -66,7 +65,7 @@ The agents have no Workflows permission (T-039 step 3), so every change to `.git
 - **Who:** Rafa pushes the workflow PR; an agent writes it.
 - **Time:** 10 min to review.
 - **What:**
-  - Add the guardrails step to the `check` job in enforce mode, and the footer check from T-047.
+  - Add the guardrails step to the `check` job in enforce mode, and the footer check from T-047. Add a `pull_request_review` trigger, so that Rafa's approval of a raised PR re-runs the check (T-044). Add T-049's rerun guard to `check`.
   - Move `agent-ops/commands/*.md` (triage, milestone review, PR red team) into `.claude/commands/`, and wire T-047's budget-stop hook from `agent-ops/hooks/` in `.claude/settings.json`.
   - Point `/start-task` and `/review-pr` at `scripts/ops/brief.mjs` and `modelFor`.
   - Run the quarantine tests in CI.
@@ -77,8 +76,8 @@ The agents have no Workflows permission (T-039 step 3), so every change to `.git
 - **Who:** Rafa approves; an agent writes the PR or the schedule.
 - **Time:** 20 min.
 - **What:**
-  - Wire the tick where T-048 decided it runs: on each merge to `main`, on each CI completion, and on a 20-minute schedule.
-  - Wire the daily-log job, the alarms, and the telemetry and feedback exports (T-041, T-042), each with `--dry-run` until step 9.
+  - Wire the tick where T-048 decided it runs: on each merge to `main`, on each CI completion, and on a 20-minute schedule. The tick, the daily-log job and the alarms run with `--dry-run` until step 9.
+  - Wire T-041's feedback export and T-042's signal rules for real, where T-042 recorded they run. They write only private files and records, and the shadow week needs their data to calibrate on.
 
   A schedule is standing configuration, so it needs Rafa's go-ahead.
 - **Done when:** one dry run of each appears in `reports/agent-ops/metrics.jsonl` or the day's log.

@@ -36,6 +36,7 @@ Let usage, not only opinions, open work: a rule over aggregates writes a `Triage
 
 ## Acceptance criteria
 
+- [ ] Decide and record where `signals.mjs` runs: beside `CROW_TELEMETRY_DIR`, which T-052 places. Also record how its records reach the build side: on option B, written to `/srv/crow/intake/` by the `deploy` user when the directory is on the VM, or copied there by T-055's daily routine when it is on Rafa's laptop. The records carry no figures, so either path keeps the figures off the build side.
 - [ ] Every rule in the pipeline's telemetry table is a named signal in `signals.mjs`, with its threshold read from `ops.yaml` (D31: parameters, not constants). Ratio thresholds are integers in basis points (hard rule: no floats).
 - [ ] A cost rule named in `cost-signals.json` opens an `incident` record that carries the rule's name only.
 - [ ] `pnpm vitest run tests/agent-ops/signals.test.ts` shows each rule firing on a fixture series that crosses its threshold, and staying silent on one that does not.

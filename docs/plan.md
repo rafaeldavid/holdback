@@ -156,14 +156,14 @@ Appended after Phase 7 so no phase number or release moves. The number orders th
 
 Goal: agent teams develop Crow continuously from tickets, agent feedback, the roadmap and usage telemetry, in an isolated environment with scoped credentials, under automated checks and cross-family review.
 
-**Not active.** The design is in `agent-ops/`, in PR 112, which has not merged yet. No Phase 9 task starts until Rafa starts the phase. The pipeline runs only after T-050, which needs Rafa's go-ahead at each step. Appended after Phase 8, like it, so no phase number moves. Tasks are listed in dependency order; each is one PR.
+**Not active.** The design is in `agent-ops/`, in PR 112, which has not merged yet. No Phase 9 task starts until Rafa starts the phase. The pipeline runs only after T-050, which needs Rafa's go-ahead at each step. Appended after Phase 8, like it, so no phase number moves. Tasks are listed in dependency order; each is one PR, except T-039's agent part, which is two.
 
 - T-039 Isolated development environment: Rafa's checklist and the agents' scripts (infra; human gate). The checklist covers a VM with the agents' own GitHub App (no Workflows permission) or a Claude Code cloud environment, scoped tokens, spend caps and 2FA. The scripts cover setup, key custody, a smoke test and prompt-free permissions.
 - T-040 Agent-ops config loader and the model mix: `ops.yaml` validated, models pinned, rates in basis points, the GPT fallback chosen, the inert-pipeline test (infra).
 - T-041 Intake, the quarantine and triage: tickets, agent feedback and CI signals become `TriageRecord`s through a triager with no tools, then tasks through the architect (infra; human gate for the first feedback export).
 - T-042 The usage-telemetry lane: signal rules over T-052's day-line export, T-055's cost signals, and the website and onchain aggregates open records without a model (infra; human gate for Web Analytics and a social reader).
 - T-043 Feedback requests at deal milestones for agents that opt in: an ADR, a schema version bump and two signal rules (api).
-- T-044 Security gates: risk tiers, guardrails (including approval lines and verifier commits), the shell guard, the proposed deny list, CODEOWNERS; none wired before activation (infra).
+- T-044 Security gates: risk tiers with the gate-defining files in tier 3, guardrails (approval lines, ADR acceptance, Rafa's review on a raised PR), the shell guard, the proposed deny list, CODEOWNERS; none wired before activation (infra).
 - T-045 The cross-family review check `xreview`: DeepSeek reviews tier 2 and 3 diffs blind, posted as a status that holds only under three stated preconditions (infra; human gate for live runs).
 - T-046 Red-team and cross-family reviews at milestones: per-PR red team on tier 2, phase exits, ADRs, schema and judge-list changes, deploys; agreement and canary metrics (infra; human gate for live runs).
 - T-047 The kill switch and observability: fail-closed switches, stop, alarms, the PR footer, per-tick metrics, the budget stop, daily pipeline figures (infra).

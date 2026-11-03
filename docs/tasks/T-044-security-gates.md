@@ -21,7 +21,7 @@ Build the automated checks behind threats P4 to P7 and P12 so that a pull reques
 - `agent-ops/gates.md` (Risk tiers; Threats and controls P4 to P7, P12), `agent-ops/pipeline.md` (Concurrency: the shell guard's patterns), `agent-ops/ops.yaml` (`tiers`, `guardrails`, `deny_additions`, `isolation.bash_guard_blocks`).
 - `docs/reviews/2026-11-02-dev-velocity.md` §2.2: never add `paths:` to `on.pull_request`, and keep `check` and `gitleaks` reporting.
 - PR 112's README rule: nothing in `.github/` reads `agent-ops/` before activation. So guardrails reach CI only at T-050 step 5, and T-040's inert-pipeline test enforces that.
-- PR 108's three review rounds (branch `claude/agent-ops-design-46b9a8`, local only, commit `3956390`) found gaps that PR 112 does not cover:
+- PR 108's three review rounds found gaps that PR 112 does not cover (read them with `git fetch origin pull/108/head`; head `35a8921`, its parent `3956390`):
   - files that define the gates sit in tier 0 or 1, so they would auto-merge;
   - today's CODEOWNERS entries become binding once code-owner review is required;
   - the force-push deny rules match by prefix only;
@@ -53,9 +53,8 @@ Build the automated checks behind threats P4 to P7 and P12 so that a pull reques
     - a task file that gains or edits an approval line from Rafa or its `Origin` field. Task files are tier 0, so without this rule any agent could write Rafa's approval itself;
     - an ADR whose Status changes to Accepted. Rafa accepts ADRs (`.claude/agents/architect.md`), and without this rule a tier 2 PR could do it automatically;
     - a `package.json` change to `scripts`.
-  - **Fails the commit:** a commit with the trailer `Agent-Role: verifier` that changes anything but its task's Evidence section. The verifier's brief (T-048) adds the trailer.
-
   It runs locally and in tests only. T-050 step 5 adds it to the `check` job.
+- [ ] A PR that guardrails raises to tier 3 needs Rafa's approval even when none of its paths is in CODEOWNERS. A task file, an ADR's Status line or an attack fixture is not a tier 3 path, so code-owner review alone would not stop it. In enforce mode, guardrails fails `check` on a raised PR until an approving review by Rafa exists on the PR's head commit, read from the reviews API. T-050 step 5 adds a `pull_request_review` trigger, so his approval re-runs the check. Tested with a fake reviews API: no review, a review on an older commit, and a review on the head.
 - [ ] `bash-guard.sh` reads the tool input JSON on stdin and exits 2 with a one-line reason for each pattern in `isolation.bash_guard_blocks` (`cd` outside the root, heredoc and redirect writes, `sed -i`, interpreter one-liners, command substitution, `xargs`, `eval`, `find -exec`, `/private/tmp`, `~/`, polling loops), and exits 0 for the literal commands in `CLAUDE.md`'s verify list. `pnpm vitest run tests/agent-ops/bash-guard.test.ts` covers both sets. The hook is not wired into `.claude/settings.json` here.
 - [ ] `agent-ops/settings.deny.json` lists the P6 additions in `.claude/settings.json` syntax, ready for T-050 to merge in:
   - `wrangler`, `gh api --method`, `gh repo edit`, `gh secret`, `gh ruleset`, `gh pr merge --admin`, and pushes to `main`;
