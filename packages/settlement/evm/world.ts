@@ -10,7 +10,7 @@ import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
-import { createPublicClient, createWalletClient, http, toHex, type Abi, type Address, type Hex, type PublicClient, type WalletClient } from 'viem';
+import { createPublicClient, createWalletClient, http, toHex, TransactionReceiptNotFoundError, type Abi, type Address, type Hex, type PublicClient, type TransactionReceipt, type WalletClient } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { foundry } from 'viem/chains';
 import type { Abis, Deployment, EvmChain, Mined } from './chain.js';
@@ -62,6 +62,11 @@ const BOOT_SIM_SEED: Hex = `0x${'00'.repeat(32)}`;
 /** The gas limit of every anvil transaction: the scenario never runs out, and receipts measure what was used. */
 const TX_GAS = 3_000_000n;
 
+/** How often a receipt wait asks again. Anvil in automine has the receipt a few milliseconds after the send. */
+const RECEIPT_POLL_MS = 25;
+/** How long a receipt wait may take before it fails: well inside a test's timeout, so the failure names the hash. */
+const RECEIPT_TIMEOUT_MS = 10_000;
+
 export class EvmWorld implements EvmChain {
   readonly chainId = LOCAL_CHAIN_ID;
   readonly clock = 'scenario' as const;
@@ -78,15 +83,17 @@ export class EvmWorld implements EvmChain {
     readonly tokenDomain: { name: string; version: string },
     private readonly proc: ChildProcess | null,
     private readonly deployRules: (simSeed: Hex) => Promise<RulesDeployment>,
+    private readonly receiptTimeoutMs: number,
   ) {}
 
   /**
    * Starts anvil on a free localhost port and deploys. `root` is the repository root (for contracts/out).
    * `blockTimeSec`: mine a block every so many seconds at wall-clock time instead of one per transaction at the
    * scenario's second, so anvil stands in for a testnet (a LiveChain over `rpcUrl`, ADR-0028). `token`: LocalUSDC
-   * (the fixtures') or TestUSDC (the Sepolia demo's tUSDC, D42).
+   * (the fixtures') or TestUSDC (the Sepolia demo's tUSDC, D42). `receiptTimeoutMs`: how long a send waits for its
+   * receipt before it throws (10 s).
    */
-  static async start(root: string, options: { rpcUrl?: string; blockTimeSec?: number; token?: 'local-usdc' | 'test-usdc' } = {}): Promise<EvmWorld> {
+  static async start(root: string, options: { rpcUrl?: string; blockTimeSec?: number; token?: 'local-usdc' | 'test-usdc'; receiptTimeoutMs?: number } = {}): Promise<EvmWorld> {
     let proc: ChildProcess | null = null;
     let rpcUrl = options.rpcUrl;
     if (!rpcUrl) {
@@ -100,18 +107,19 @@ export class EvmWorld implements EvmChain {
     assertLocalRpc(rpcUrl);
     // No cached block number: evm_revert between settlements moves the head backwards.
     const publicClient = createPublicClient({ chain: foundry, transport: http(rpcUrl), cacheTime: 0 }) as PublicClient;
+    const receiptTimeoutMs = options.receiptTimeoutMs ?? RECEIPT_TIMEOUT_MS;
     try {
       await waitFor(publicClient);
       const chainId = await publicClient.getChainId();
       assertSafeChain(chainId);
       if (chainId !== LOCAL_CHAIN_ID) throw new RangeError(`kind local expects anvil chain id ${LOCAL_CHAIN_ID}, got ${chainId}`);
       const testUsdc = options.token === 'test-usdc';
-      const { base, abis, deployRules } = await deploy(root, rpcUrl, publicClient, testUsdc ? ['TestUSDC.sol', 'TestUSDC'] : ['LocalUSDC.sol', 'LocalUSDC']);
+      const { base, abis, deployRules } = await deploy(root, rpcUrl, publicClient, testUsdc ? ['TestUSDC.sol', 'TestUSDC'] : ['LocalUSDC.sol', 'LocalUSDC'], receiptTimeoutMs);
       // Snapshot before the beacon and the rules contract, then deploy them once to learn their addresses.
       const snapshotId = await publicClient.request({ method: 'evm_snapshot' as never, params: [] as never }) as Hex;
       const rules = await deployRules(BOOT_SIM_SEED);
       const tokenDomain = testUsdc ? { name: 'Crow Test USDC', version: '1' } : { name: 'USD Coin', version: '1' };
-      const world = new EvmWorld(rpcUrl, publicClient, { ...base, ...rules }, abis, tokenDomain, proc, deployRules);
+      const world = new EvmWorld(rpcUrl, publicClient, { ...base, ...rules }, abis, tokenDomain, proc, deployRules, receiptTimeoutMs);
       world.snapshotId = snapshotId;
       return world;
     } catch (e) {
@@ -158,9 +166,14 @@ export class EvmWorld implements EvmChain {
     if (at !== undefined) await this.rpc('evm_setNextBlockTimestamp', [at]);
     const wallet = this.wallet(tx.key ?? ANVIL_DEPLOYER_KEY);
     const hash = await wallet.sendTransaction({ account: wallet.account!, chain: wallet.chain, to: tx.to, data: tx.data, gas: TX_GAS, ...(tx.value ? { value: tx.value } : {}) });
-    const r = await this.publicClient.waitForTransactionReceipt({ hash });
+    const r = await this.receipt(hash);
     const timestamp = at ?? Number((await this.publicClient.getBlock({ blockNumber: r.blockNumber })).timestamp);
     return { hash, from: wallet.account!.address, status: r.status, gasUsed: r.gasUsed, blockNumber: r.blockNumber, timestamp, logs: r.logs };
+  }
+
+  /** The receipt of `hash` once anvil has it; throws, naming the hash and what anvil knows of it, after the deadline. */
+  receipt(hash: Hex): Promise<TransactionReceipt> {
+    return receiptOf(this.publicClient, hash, this.receiptTimeoutMs);
   }
 
   async stop(): Promise<void> {
@@ -186,6 +199,34 @@ async function waitFor(client: PublicClient): Promise<void> {
   throw new Error('anvil did not start within 10 s');
 }
 
+/**
+ * Polls eth_getTransactionReceipt until the receipt is there (T-035). Not viem's waitForTransactionReceipt: after a
+ * missed first check it asks again only when a block-number poller shared by every wait on the client sees a higher
+ * block. Anvil in automine mines no block while a test waits, and evm_revert moves the head below a poller another
+ * wait left running, so one missed check slept until viem's 180 s timeout and stalled the tests after it.
+ */
+async function receiptOf(client: PublicClient, hash: Hex, timeoutMs: number): Promise<TransactionReceipt> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const r = await client.getTransactionReceipt({ hash }).catch((e: unknown) => {
+      if (e instanceof TransactionReceiptNotFoundError) return null;
+      throw e;
+    });
+    if (r) return r;
+    if (Date.now() >= deadline) throw new Error(`anvil returned no receipt for ${hash} within ${timeoutMs / 1000} s: ${await unmined(client, hash)}`);
+    await new Promise((resolve) => setTimeout(resolve, RECEIPT_POLL_MS));
+  }
+}
+
+/** What anvil knows of a transaction that has no receipt, for the error. */
+async function unmined(client: PublicClient, hash: Hex): Promise<string> {
+  const ask = (method: string): Promise<unknown> => (client.request({ method: method as never, params: [] as never }) as Promise<unknown>).catch(() => undefined);
+  const tx = await client.getTransaction({ hash }).catch(() => null);
+  const state = !tx ? 'unknown to anvil' : tx.blockNumber === null ? 'pending' : `in block ${tx.blockNumber}`;
+  const automine = await ask('anvil_getAutomine');
+  return `the transaction is ${state}; automine ${automine === true ? 'on' : automine === false ? 'off' : 'unknown'}; txpool ${JSON.stringify((await ask('txpool_status')) ?? 'unknown')}`;
+}
+
 type RulesDeployment = Pick<Deployment, 'rules' | 'bonds' | 'beacon' | 'fromBlock'>;
 
 async function deploy(
@@ -193,11 +234,12 @@ async function deploy(
   rpcUrl: string,
   client: PublicClient,
   tokenArtifact: [file: string, name: string],
+  receiptTimeoutMs: number,
 ): Promise<{ base: Omit<Deployment, keyof RulesDeployment>; abis: Abis; deployRules: (simSeed: Hex) => Promise<RulesDeployment> }> {
   const wallet = createWalletClient({ account: privateKeyToAccount(ANVIL_DEPLOYER_KEY), chain: foundry, transport: http(rpcUrl) });
   const one = async (a: Artifact, args: unknown[] = []): Promise<Address> => {
     const hash = await wallet.deployContract({ abi: a.abi, bytecode: a.bytecode, args } as Parameters<typeof wallet.deployContract>[0]);
-    const r = await client.waitForTransactionReceipt({ hash });
+    const r = await receiptOf(client, hash, receiptTimeoutMs);
     if (r.status !== 'success' || !r.contractAddress) throw new Error(`deployment failed: ${hash}`);
     return r.contractAddress;
   };
