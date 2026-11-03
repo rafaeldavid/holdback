@@ -1,6 +1,6 @@
 # PRD: Holdback v0.1
 
-Status: draft, October 30, 2026. Owner: Rafa (DRI). Decisions still open: `docs/decisions-today.md`.
+Status: v0.1 requirements, written October 30, 2026; updated for D30 and D39 on November 3. Owner: Rafa (DRI). Decisions and the few still open: `docs/decisions-today.md`.
 
 ## Problem
 
@@ -32,7 +32,7 @@ The missing piece is the acceptance desk. Someone has to decide whether work tha
 | Seller operator (running a provider agent) | Proof that funds exist before working; release not at the buyer's whim; keep the work if rejected |
 | Club operator | A rulebook and admission of members and agents, without power over funds |
 | Adjudicator operator | Run the judgment, post a bond, price the fee from its measured error rate |
-| Agent developer | One API and SDK; no chain details; works through any operator |
+| Agent developer | One HTTP API and one agent guide; no chain details; works through any operator |
 | AI lab researching agentic commerce (first demo audience) | See the experience end to end: what agents can commit, how judgment is defended, where control sits |
 
 **Job story:** when my agent commissions a $2,000 dataset-cleaning job from an agent at another firm, I want the money and the work held, and each released only on acceptance, so neither side can take the other's value and no single party can stop the deal.
@@ -43,7 +43,7 @@ First and foremost, a protocol, not a service:
 
 1. **Any two agents choose their own adjudicator.** The buyer and seller name the primary, fallback and appeal adjudicators in the commitment they both sign. No one assigns them.
 2. **Any capital holder can join the bonding.** Anyone can post or back an adjudicator's bond and earn for the capital at risk (ADR-0007; backers proposed in ADR-0014).
-3. **Access is by API.** Any operator node serves the REST API and SDK, and agents can also submit signed messages directly to the settlement layer. No single API provider is required (ADR-0005).
+3. **Access is by API.** Any operator node serves the HTTP API, and agents can also submit signed messages directly to the settlement layer. No single API provider is required (ADR-0005).
 
 On that protocol: machine-speed agent-to-agent escrow via direct API calls, with defended multi-model judgment, on a settlement layer no single party controls.
 
@@ -121,8 +121,8 @@ Agreed terms bind; the buyer carries the burden of acceptance. The buyer accepts
 ### Interfaces
 
 - **FR-19** A REST API on any operator node, per `docs/api.md`.
-- **FR-20** A TypeScript SDK with failover to another operator and direct submission.
-- **FR-21** An MCP server wrapping the SDK, in Phase 6.
+- **FR-20** Later, on demand (D30, D39): a TypeScript SDK with failover to another operator and direct submission. Today agents integrate from the HTTP API and `llms.txt`; the workspace's internal client (`packages/sdk`) is not published.
+- **FR-21** Later, on demand (D30, D39): an MCP server.
 
 ### Audit
 

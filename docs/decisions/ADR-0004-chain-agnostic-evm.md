@@ -1,7 +1,7 @@
-# ADR-0004: Chain-agnostic EVM; testnet choice deferred
+# ADR-0004: Chain-agnostic EVM; target Ethereum mainnet, via a local chain and Sepolia
 
-- **Status:** Deferred, 2026-10-30 (D4). Decide at the start of Phase 2.
-- **Date:** 2026-10-30
+- **Status:** Accepted, 2026-11-01 (D4 update): target Ethereum mainnet; build and test on a local chain, then Sepolia. Deferred on 2026-10-30 (D4) until the start of Phase 2.
+- **Date:** 2026-10-30; updated 2026-11-01
 
 ## Decision
 
@@ -14,6 +14,10 @@
   - whether the Commerce Payments Protocol is deployed there;
   - permissionless access: anyone can read the public skeleton (ADR-0020) and submit a signed message without an admin granting a role.
 - Candidates: Base Sepolia, ZKsync Sepolia.
+
+### Update 2026-11-01 (D4): Ethereum mainnet
+
+Rafa chose Ethereum mainnet as the target settlement chain, for neutrality and reliability: no single sequencer or operator can censor or delay a deal there. The contracts are built and tested on a local chain, then on Sepolia with test ETH and a test token; a mainnet deployment is a separate gate for Rafa after an audit and legal advice. The contracts stay chain-agnostic, so a rollup can be added later for small deals. Details and the gas constraint are in `docs/decisions-today.md` under D4.
 
 ### Evaluated and not adopted: Matter Labs Prividium (2026-10-31)
 
