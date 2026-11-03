@@ -5,7 +5,7 @@
 - **Depends on:** T-030 (the planned rows and 501 convention)
 - **Paths this task may touch:** `apps/demo-cloud/`, `apps/operator/src/`, `spec/openapi/paths.json`, `spec/openapi.json` (generated), `docs/api.md`, `site/llms.txt`, `tests/contract/`, `docs/operations.md`, `docs/tasks/T-032-feedback-reports.md`
 - **Human gate:** no for the private store; yes for filing public issues
-- **Status:** review
+- **Status:** done (PR 121)
 - **Agent/session:** implementer session, branch `t-032-feedback` (stacked on `t-031-telemetry`, PR 118)
 
 ## Intent
@@ -95,7 +95,7 @@ Let agents report bugs, docs problems and feedback through the API, and let the 
 
 ## Handoff
 
-- **Status: review.** Stacked on T-031 (PR 118) for the request-log lookup; rebase on main once that merges. Not deployed.
+- **Status: merged (PR 121, after T-031's PR 118), not deployed.**
 - **Deploy (Rafa's gate), in one go** (`docs/operations.md`, Feedback triage, "Setting it up"):
   1. Create the `FEEDBACK` KV namespace and add its binding to `wrangler.op1.jsonc`.
   2. Optionally generate the feedback key into `.env` and set `FEEDBACK_ENCRYPTION_PUBLIC_KEY`.
@@ -105,4 +105,8 @@ Let agents report bugs, docs problems and feedback through the API, and let the 
 - **After the deploy:** POST a dry run, then a docs report, and read it back with `GET /v1/feedback/<id>`. Then `node --env-file=.env apps/demo-cloud/scripts/feedback.ts list` shows it with `logAttached` true.
 - **`pnpm sim`** takes reports into memory with a feedback key derived from the label `sim-feedback`. It keeps no request log, so `logAttached` is false there.
 - **Lane:** within the listed paths. `apps/operator/src/sim-world.ts` gains the in-memory desk the contract test exercises.
-- **Later (backlog candidates, not filed):** a honeypot field (review §8); forwarding a report to another party with the reporter's consent; a `needs-info` status.
+- **Later (backlog candidates, not filed):**
+  - a honeypot field (review §8);
+  - forwarding a report to another party with the reporter's consent;
+  - a `needs-info` status;
+  - the shared body reader stops mid-upload on 413. In the PR 121 review, the next request from the same client got `ECONNRESET` after about 6 s (measured; also at 1.1 MiB on `/v1/commitments`, so it predates this task), and the 16 KiB cap makes it easier to hit. Drain the body, or answer with `Connection: close`.

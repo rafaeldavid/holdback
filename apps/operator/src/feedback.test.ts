@@ -131,9 +131,10 @@ describe('POST /v1/feedback', () => {
     const euros = (n: number) => '€'.repeat(n);
     const wide = { ...bug(), summary: euros(200), detail: euros(4000), observed: euros(500), expected: euros(500), client: { name: euros(100), version: euros(100), model: euros(100) } };
     expect((await post(wide)).status).toBe(413);
-    // Deep nesting is refused as malformed, never hashed.
-    const deep = await post({ ...bug(), client: JSON.parse(`${'['.repeat(5000)}${']'.repeat(5000)}`) });
-    expect([deep.status, (await json(deep)).field]).toEqual([400, 'client']);
+    // Deep nesting, sent as text (building it as a value would overflow this test's own stack): refused, never hashed.
+    const nested = `{"kind":"docs","summary":"s","detail":"d","client":${'['.repeat(5000)}${']'.repeat(5000)}}`;
+    const deep = await fetch(`${base}/v1/feedback`, { method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': 'k-deep' }, body: nested });
+    expect([deep.status, (await json(deep)).type]).toEqual([400, 'invalid_terms']);
   });
 
   it("shares one limiter across an operator's nodes", async () => {

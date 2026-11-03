@@ -859,7 +859,7 @@
         "type": "object",
         "additionalProperties": false,
         "required": ["kind", "summary"],
-        "description": "A report to this operator. Everything the reporter writes is untrusted content, in well-formed Unicode. `detail` is required unless `sealed` carries it; a `bug` names its `requestId`. At most 16 KiB on the wire",
+        "description": "A report to this operator. Everything the reporter writes is untrusted content, in well-formed Unicode; the operator counts lengths in UTF-16 code units, as JavaScript does, so an emoji counts two. `detail` is required unless `sealed` carries it; a `bug` names its `requestId`. At most 16 KiB on the wire",
         "properties": {
           "kind": { "enum": ["bug", "docs", "feedback", "feature"] },
           "summary": { "type": "string", "minLength": 1, "maxLength": 200, "pattern": "\\S", "x-holdback-untrusted": true, "description": "One line; it groups duplicates, so leave deal details out" },
