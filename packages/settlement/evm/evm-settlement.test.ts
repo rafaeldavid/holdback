@@ -3,7 +3,7 @@
 // which `pnpm verify` would show (it runs forge build first; see scripts/verify.ts).
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { encodeFunctionData, getAddress } from 'viem';
+import { encodeFunctionData, getAddress, hashTypedData } from 'viem';
 import { sign } from 'viem/accounts';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { authorizationExpiry } from '../sim/simchain.js';
@@ -130,23 +130,30 @@ describe.skipIf(!ready)(`EvmSettlement on anvil${ready ? '' : ' (SKIPPED: needs 
     expect(chain.log().map((e) => e.type).slice(-2)).toEqual(['fee.operator', 'hold.funded']);
   }, 60_000);
 
-  it('operator fee relayed alone ahead of the bundle on LocalUSDC: the payment cannot be proved, so this node declines', async () => {
+  it('the buyer cancels the fee authorization before the relay: payment_required, not a free relay', async () => {
     const { chain, cast, club } = await newSettlement(world);
-    const d = new EvmDeal(chain, cast, club, 'fee-front-run');
+    const d = new EvmDeal(chain, cast, club, 'fee-cancelled');
     await must(chain, cast, d.offer());
     await must(chain, cast, d.accept());
     const s = await d.agreeAndFund({ operatorFee: { to: cast.operator.address, value: 1_000_000n } });
     if (s.kind !== 'agree_and_fund' || !s.operatorFee) throw new Error('unreachable');
-    await frontRun(world, cast.stranger.key, s.operatorFee, s.operatorFee.to, s.operatorFee.signature, chain.now());
-    expect(await chain.tokenBalance(cast.operator.address)).toBe(1_000_000n);
-    // LocalUSDC logs AuthorizationUsed for receiveWithAuthorization only, and a spent nonce alone proves nothing (USDC
-    // also spends it on a cancel): payment_required. tUSDC, below, logs it and funds.
+    // USDC's cancelAuthorization spends the fee nonce and moves nothing; authorizationState then reads true.
+    const buyer = getAddress(cast.buyer.address);
+    const nonce = s.operatorFee.nonce;
+    const hash = hashTypedData({ domain: chain.tokenDomain(), types: { CancelAuthorization: [{ name: 'authorizer', type: 'address' }, { name: 'nonce', type: 'bytes32' }] }, primaryType: 'CancelAuthorization', message: { authorizer: buyer, nonce } });
+    const cancel = encodeFunctionData({ abi: world.abis.token, functionName: 'cancelAuthorization', args: [buyer, nonce, await sign({ hash, privateKey: cast.buyer.key, to: 'hex' })] });
+    expect((await world.send({ key: cast.buyer.key, to: world.deployment.token, data: cancel }, Date.parse(chain.now()) / 1000)).status).toBe('success');
+    expect(await world.publicClient.readContract({ address: world.deployment.token, abi: world.abis.token, functionName: 'authorizationState', args: [buyer, nonce] })).toBe(true);
     const r = await chain.submit(s, { via: 'op-1', sender: cast.operator.key });
     expect(r.ok ? 'ok' : r.problem.type).toBe('payment_required');
     expect(chain.escrowState(d.id)?.kind).toBe('AcceptedByAdjudicator');
+    expect(chain.transactions()).toHaveLength(0);
+    expect(await chain.tokenBalance(cast.operator.address)).toBe(0n);
+    expect(chain.log().map((e) => e.type)).not.toContain('commitment.agreed');
+    // Another operator, or the buyer directly, can still fund the hold without this operator's fee.
     const funded = await chain.submit({ kind: 'agree_and_fund', agree: s.agree, funding: s.funding }, { via: 'op-2', sender: cast.operator.key });
     expect(funded.ok ? funded.state.escrowState : funded.problem.type).toBe('Held');
-    expect(await chain.tokenBalance(cast.buyer.address)).toBe(100_000_000_000n - 2_050_000_000n - 1_000_000n);
+    expect(await chain.tokenBalance(cast.buyer.address)).toBe(100_000_000_000n - 2_050_000_000n);
   }, 60_000);
 
   it('a relay the lanes refuse is relay_refused, changes nothing, and the same agreement can be sent again', async () => {
@@ -240,6 +247,7 @@ describe.skipIf(!ready)(`EvmSettlement on anvil with tUSDC${ready ? '' : ' (SKIP
     const r = await chain.submit(s, { via: 'op-1', sender: cast.operator.key });
     expect(r.ok ? r.state.escrowState : r.problem.type).toBe('Held');
     expect(await chain.tokenBalance(cast.operator.address)).toBe(1_000_000n);
+    expect(await chain.tokenBalance(cast.buyer.address)).toBe(100_000_000_000n - 2_050_000_000n - 1_000_000n);
     expect(chain.log().find((e) => e.type === 'fee.operator')?.payload).toMatchObject({ source: 'adapter', paid: 'by an earlier transaction' });
   }, 60_000);
 
