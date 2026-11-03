@@ -109,6 +109,19 @@ Review the Phase 2 contracts against the neutrality checklist, the hold invarian
   - Permit2 and Multicall3 deployed, with code hashes pinned in the deploy script;
   - EIP-2537 live: `MAP_FP_TO_G1` returns a G1 point;
   - deployer `0x1A4435488eaF1A37d2327d44Fe67e97d83203B64` funded with 0.1075 ETH.
+- **measured** Sepolia deployment, 2026-11-03, from `main` at `2342756` (`contracts/script/deploy-sepolia.sh`, recorded in `contracts/deployments/sepolia.json`):
+  - The run was rehearsed first on an anvil fork of Sepolia (`--hardfork prague`). The fork gave the same addresses, because the deployer's nonce was 0.
+  - Blocks 12,055,938 to 12,055,943. All six transactions have status 1.
+  - Runtime sizes on chain match the build: `HoldbackRules` 23,986 bytes, `HoldbackBonds` 2,395, `DrandQuicknetBeacon` 3,269.
+  - Wiring read back: `ESCROW`, `BEACON`, `BONDS`, both collectors, `EXPIRY_MARGIN` 86,400, and `BONDS.RULES`.
+  - The beacon:
+    - its code hash equals the runtime its compiled creation code returns (`0x7ff8…d3cc`);
+    - it verifies drand round 1000;
+    - it refuses the same signature plus a torsion point, and refuses round 1001.
+  - tUSDC: "Crow Test USDC", 6 decimals, and its `DOMAIN_SEPARATOR` matches name and version "1" on chain 11155111.
+  - Gas: 75,443,236 in total. The core set alone took 69,764,050, against 9,890,820 on a plain anvil chain, about 7.05 times as much. The excess is about 1,340 to 1,380 gas per byte of deployed code [inferred from the per-contract figures: `HoldbackRules` with `HoldbackBonds`, the beacon, the ERC-3009 collector]. Sepolia appears to price new code and state higher than anvil 1.0's Prague schedule [guessed], so per-deal gas on Sepolia may differ from the local table (to measure in T-213).
+  - Cost: about 0.000075 ETH at roughly 0.001 gwei. The deployer holds 0.1074 ETH at nonce 6.
+  - `pnpm verify` on the deploy branch (`reports/verify-t-206-sepolia-deploy.md`): PASS, with no snapshot diffs. Typecheck, lint, forge build, forge, test, spec, snap, snap:local (25 of 25) and demo all pass. The first run failed `examples/deployments.test.ts` until the pinned copy matched the file (Handoff, Notes for other lanes). `node site/check.mjs`: PASS.
 - **inferred** No non-Anthropic model key is exposed by name in the environment: only `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL`. `.env*` files were not read.
 
 ## Decisions
@@ -141,7 +154,7 @@ Review the Phase 2 contracts against the neutrality checklist, the hold invarian
 - The review is written.
 - All five fix PRs are merged (#120, #122, #125, #127, #135), each after its reviewer returned PASS and CI was green.
 - The cross-family pass and Rafa's read are open.
-- The Sepolia deploy follows the merges, in its own PR (Decisions 7).
+- Deployed on Sepolia after the merges (Evidence; Decisions 7). The addresses are in `contracts/deployments/sepolia.json`, recorded in its own PR. Rafa still has to confirm the second-hand approval on that PR.
 
 **For Rafa: the cross-family review (gate).** Run a reviewer from another model family, for example an OpenAI or Google model, with the brief below and without the review document:
 
@@ -159,6 +172,8 @@ Append its findings to the review as a new section, with a disagreement table ag
 - **Sepolia demo.**
   - The cross-check found that the operator-fee bundle can be front-run (`packages/settlement/evm/evm-settlement.ts`). ADR-0023 already lists this residual and names its mitigation, relaying `agreeAndFund` alone, but the code lacked it. The demo session reports it fixed on its branch.
   - Until T-211 lands, the reference adjudicator's overturn-to-accept appeals revert on chain (H-2).
+  - **Crossed into T-213's lane with the deploy, and why.** `examples/deployments.test.ts` (PR #138) fails once `contracts/deployments/sepolia.json` exists, unless `examples/deployments.ts` pins an identical copy. So the deploy PR also carries that copy, with the `DeploymentFile` type widened to the file's extra fields, and `site/try.mjs` and `site/index.html` rebuilt with `node site/build.mjs`, because the bundle includes `examples/verify.ts`. The demo session was told before the change. The site is not deployed: that is still a gate. The try agent now also knows the Sepolia pin. The live demo still settles on SimChain.
+  - Sepolia charged about seven times anvil's deploy gas (Evidence). Check the relayer's gas limits against the real chain, not the local table.
 - **T-203.** The fix PRs edited T-203's harness (`contracts/test/handlers/RulesHandler.sol`, `contracts/test/invariant/RulesInvariants.t.sol`, `contracts/test/fuzz/NoAdmin.fuzz.t.sol`):
   - #122 removed the exemption for CPP-reclaimed holds that T-203 Decisions 4 described.
   - #125 added `invariant_keyOnlyWithPayment` and the `decideAppeal` action.
