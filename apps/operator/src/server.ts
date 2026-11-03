@@ -391,7 +391,7 @@ interface Ctx {
   problem?: ApiProblemType;
 }
 
-const lc =(s: string) => s.toLowerCase();
+const lc = (s: string) => s.toLowerCase();
 
 function deepFreeze<T>(v: T): T {
   if (v && typeof v === 'object' && !Object.isFrozen(v)) {
