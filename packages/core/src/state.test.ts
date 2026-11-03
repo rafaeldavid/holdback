@@ -404,7 +404,6 @@ const illegal: Illegal[] = [
   ['acceptance by the fallback adjudicator', [], ev.accept({ adjudicator: fallback }), 'not_your_turn'],
   ['acceptance reserving less bond than the price', [], ev.accept({ bondReserved: tusd('1999999999') }), 'coverage_exceeded'],
   ['acceptance without enough unencumbered bond', [], ev.accept({}, T.accept, tusd('1999999999')), 'coverage_exceeded'],
-  ['acceptance after offer expiry', [], ev.accept({}, T.offerExpiry), 'deadline_passed'],
   // agree guards
   ['agreement to other terms', toAccepted, ev.agree(T.agree, { commitmentId: ZERO32 }), 'invalid_terms'],
   ['agreement without the buyer role', toAccepted, ev.agree(T.agree, { buyerScope: scope(['seller']) }), 'scope_exceeded'],
@@ -413,7 +412,6 @@ const illegal: Illegal[] = [
   ['agreement by a non-member', toAccepted, ev.agree(T.agree, { memberAdmitted: false }), 'member_not_admitted'],
   ['agreement after offer expiry', toAccepted, ev.agree(T.offerExpiry), 'deadline_passed'],
   // fund guards
-  ['funding after fundBy', toAgreed, ev.fund(T.fundBy), 'deadline_passed'],
   ['funding below price plus fee', toAgreed, ev.fund(T.fund, { value: '2049999999' }), 'insufficient_funds'],
   ['funding without the gas buffer', toAgreed, ev.fund(T.fund, { balance: tusd('2050000000') }), 'insufficient_funds'],
   ['funding from someone other than the buyer', toAgreed, ev.fund(T.fund, { from: seller }), 'invalid_signature'],

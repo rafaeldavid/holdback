@@ -144,14 +144,8 @@ describe('seal (AES-256-GCM through Web Crypto)', () => {
 });
 
 describe('ContentKey', () => {
-  it('accepts exactly 32 bytes', () => {
-    expect(() => ContentKey.fromBytes(new Uint8Array(31))).toThrow(CryptoError);
-    expect(() => ContentKey.fromBytes(new Uint8Array(33))).toThrow(CryptoError);
-    try {
-      ContentKey.fromBytes(new Uint8Array(31));
-    } catch (e) {
-      expect((e as CryptoError).code).toBe('invalid_key');
-    }
+  it('accepts exactly 32 bytes', async () => {
+    for (const n of [31, 33]) expect(await codeOf((async () => ContentKey.fromBytes(new Uint8Array(n)))())).toBe('invalid_key');
   });
 
   it('never prints its bytes through inspect, JSON, string coercion or a sealed result', async () => {
