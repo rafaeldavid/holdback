@@ -29,7 +29,7 @@ Goal: before mainnet, a small deal's gas share is known in gas units, quoted fro
 - [ ] The unused part of a quote is credited or refunded, so a reclaim or a deal that needs fewer transactions does not leave the difference with the operator. This reverses D33's "not refunded" and `refundable: false` in `operator-status.schema.json`, so it starts with an ADR-0023 amendment and a schema version bump (or rides T-033). It covers a deal whose later transactions another operator or the party itself submits (ADR-0005).
 - [ ] A published target share for small deals, decided by Rafa (proposed: under 1% of a $25 deal), recorded under D33.
 - [ ] Gas units per deal measured on each path (anvil and Sepolia), and the share at $25, $100 and $2,000 computed at stated gas prices and ETH rates, in Evidence, labeled measured, inferred or guessed.
-- [ ] The cheapest wins taken and measured: the demo always uses the decision that carries the delivery (D37, two transactions, 440,005 gas with the fee bundled, T-209); batching many deals' settlements by the relayer (for example one Multicall) before any contract change; Phase 7's other "Minimise gas" ideas and Phase 8's L2 or fragment options weighed against the target with numbers.
+- [ ] The cheapest wins taken and measured: the demo uses the decision that carries the delivery by default, when the decision can land before `deliverBy`, while the seller may still post `deliver` to stop a reclaim (D37; two transactions, 440,005 gas with the fee bundled, T-209); batching many deals' settlements by the relayer (for example one Multicall) before any contract change; Phase 7's other "Minimise gas" ideas and Phase 8's L2 or fragment options weighed against the target with numbers.
 
 ## Out of scope
 
