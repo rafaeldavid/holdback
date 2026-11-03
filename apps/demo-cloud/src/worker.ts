@@ -68,27 +68,32 @@ export class World {
     return this.world;
   }
 
-  private async schedule(world: PublicWorld, delayMs: number): Promise<void> {
-    if (!world.active()) return this.flushLater(world);
+  /** Sets the alarm for the next adjudicator pass, if one is due (each setAlarm is billed as a row written). */
+  private async schedule(world: PublicWorld): Promise<void> {
+    this.flushLater(world);
+    const next = world.nextPass();
+    if (next === null) return;
     // An alarm whose handler threw stays set, overdue, while the runtime backs off its retries; a request then
-    // re-arms it rather than wait (measured: adjudicators idle for minutes after one failed version).
+    // re-arms it rather than wait (measured: adjudicators idle for minutes after one failed version). An alarm set
+    // after the next pass (a slow cadence, then a write brings new work) is brought forward.
     const at = await this.state.storage.getAlarm();
-    if (at === null || at < Date.now() - 5000) {
-      await this.state.storage.setAlarm(Date.now() + delayMs);
+    if (at === null || at > next || at < Date.now() - 5000) {
+      await this.state.storage.setAlarm(next);
       world.telemetry.alarmSet();
     }
   }
 
   /**
-   * An idle world flushes its waiting log lines on a timer, not an alarm: a pending timer keeps this instance in
-   * memory until the flush and costs no row, where an alarm could wake a fresh instance with the lines already gone.
+   * Waiting log lines flush on a timer, not an alarm: a pending timer keeps this instance in memory until the flush and
+   * costs no row, where an alarm could wake a fresh instance with the lines already gone. Passes can be a minute or
+   * more apart, so the timer runs whether or not one is due; it skips when a pass has flushed the lines meanwhile.
    */
   private flushLater(world: PublicWorld): void {
     const due = world.telemetry.flushDueInMs();
     if (due === null || this.flushTimer) return;
     this.flushTimer = setTimeout(() => {
       this.flushTimer = undefined;
-      void world.flushTelemetry();
+      if (world.telemetry.flushDueInMs() !== null) void world.flushTelemetry();
     }, due);
   }
 
@@ -98,15 +103,15 @@ export class World {
     const headers = new Headers(request.headers);
     for (const h of [NODE, ORIGIN, CLIENT]) headers.delete(h);
     const response = await world.fetch(new Request(request, { headers }), via);
-    await this.schedule(world, 500);
+    await this.schedule(world);
     return response;
   }
 
-  /** Adjudicators look for work about once a second while the world is active; telemetry flushes on the same pass. */
+  /** One adjudicator pass, then the next alarm if a case still awaits the adjudicators; telemetry flushes on the same pass. */
   async alarm(): Promise<void> {
     const world = await this.open();
     await world.work();
-    await this.schedule(world, 1000);
+    await this.schedule(world);
   }
 }
 
