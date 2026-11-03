@@ -10,13 +10,13 @@
 
 ## Intent
 
-The low findings of `docs/reviews/2026-11-03-contract-review.md` that need code or an ADR line, done before any public-chain deployment. Each item lands with a regression test that fails before it. Budget bytes first: `HoldbackRules` is near EIP-170 (review I-3). Item 6 frees bytes and should go first.
+This task covers the low findings of `docs/reviews/2026-11-03-contract-review.md` that need code or an ADR line. They block mainnet, not the Sepolia testnet (T-206 Decisions 6). Each item lands with a regression test that fails before it. Record the EIP-170 headroom with each change (review I-3).
 
-1. **L-2.** `HoldbackBonds.deposit` and `takeAppealBond` credit the measured balance delta, as CPP does, so a fee-on-transfer token cannot make the vault short.
+1. **L-2.** `HoldbackBonds.deposit` and `takeAppealBond` refuse a transfer whose measured balance delta differs from the amount, as CPP's collection does. This stops a fee-on-transfer token from making the vault short.
 2. **L-4.** The primary's seed tag binds the commitment (`uint144(keccak256(abi.encode(seedCommitment, id)))`, checked the same way at decide), so a 144-bit collision cannot be reused across deals.
 3. **L-1.** Decide whether `EarlyAccept` names the delivery hash (a schema change: ADR, version bump, core and contract together) or record the acceptance. The money is safe today under D32; the record is not.
 4. **L-6.** Either derive `authorizationExpiry` from `max(judgeBy, fallbackBy) + appealDecideSec + EXPIRY_MARGIN`, or refuse at funding a `judgeBy` after `fallbackBy` as self-contradictory (D31 allows that refusal). Either way, mirror it in `encode.ts` and SimChain's `authorizationExpiry`.
-5. **L-5.** Reconcile ADR-0016 §1 ("if either lacks coverage then, the case goes to the default outcome") with D37 point 4 (an uncovered fallback or appeal adjudicator still decides). Do it before Phase 4 attaches payouts to coverage.
+5. **L-5.** Since M-3 (PR #135), the fallback reserves its bond by deciding, so an uncovered fallback cannot decide. That leaves the appeal adjudicator. Decide whether its decision after an escalation, or on a party appeal, needs free cover, per ADR-0016 §1 ("if either lacks coverage then, the case goes to the default outcome"). Then record the rule in ADR-0016 before Phase 4 attaches payouts to coverage.
 6. **I-2.** Drop the dead fee-share branch in `_payOut` (`MUTUAL_FEE_SHARE_BPS` is a constant 0), or move the rate into the terms when it stops being 0.
 
 ## Acceptance criteria

@@ -13,12 +13,12 @@
 The contract now refuses two appeal decisions that the reference state machine still accepts (review `docs/reviews/2026-11-03-contract-review.md`, H-1 and H-2). Make core and SimChain refuse them too, so Phase 1 settlement, the live demo and the differential test agree with the contract.
 
 1. **H-1.** `escalationDecision` and `stepAppeal` (`decide`) in `state.ts` do not compare `m.attempt` with the delivery's attempt, and `beaconSeed` hashes it, so an appeal adjudicator can pick one of 256 seeds. Compare it, as `firstInstance` does.
-2. **H-2.** `simchain.ts:881` releases `keyForBuyer` on a party-appeal decision whatever the first outcome. Refuse (`invalid_terms`) an appeal decision that carries a key on a deal that does not stand `Released`.
+2. **H-2.** `simchain.ts:881` releases `keyForBuyer` on a party-appeal decision whatever the first outcome, and a reject that carries a key is accepted. Apply the contract's rule (`HoldbackRules.decide`, PR #125): a decision carries the buyer's key only with an accept, and never on a deal that stands `Refunded`. Refuse anything else with `invalid_terms`.
 
 ## Acceptance criteria
 
 - [ ] `state.test.ts`: an escalation decision and a party-appeal decision with another attempt and its matching beacon seed are refused; the same with the delivery's attempt is accepted.
-- [ ] `simchain.test.ts`: an overturned rejection whose decision carries `keyForBuyer` is refused, with no `key.released`; after an accept the appeal may still carry it.
+- [ ] `simchain.test.ts`: an overturned rejection whose decision carries `keyForBuyer` is refused, with no `key.released`, and so is any reject that carries one. After an accept, the appeal may still carry it.
 - [ ] One `error.` fixture for each refusal, passing on SimChain and on the contract (`pnpm snap --settlement=local`).
 - [ ] `pnpm verify` green.
 

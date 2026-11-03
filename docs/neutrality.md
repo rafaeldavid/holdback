@@ -68,7 +68,8 @@ Accepted for the prototype and tracked here:
   - no `SELFDESTRUCT`, `CALLCODE` or Holdback `DELEGATECALL` in the bytecode, and no `receive` or `fallback`;
   - every timeout is callable by anyone, refused before its deadline and allowed from it;
   - no function moves held funds or bonds without a signature, a decision or an expired timeout;
-  - settle-once: every money path leaves the funded stages before its first external call;
+  - no bond is encumbered without its adjudicator's own acceptance or decision;
+  - settle-once: every money path leaves the funded stages before its first call to CPP or a token (the bond vault makes no external call);
   - the buyer's key is released in the same transaction as the capture, and never on reject or reclaim;
   - `authorizationExpiry` falls after the last possible capture (ADR-0003), and every bond is still released after the buyer's own reclaim on CPP;
   - every agreed deadline binds every path that acts on it;

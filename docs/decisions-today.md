@@ -562,12 +562,20 @@ Wording owed elsewhere if accepted: the scope hard rule in `CLAUDE.md` and the n
 
 Also: the funding signature on EVM is CPP's collector signature and token identifiers are lowercase addresses (ADR-0025, Proposed; schema change after PR 67); default and apply-default are one call (T-204 finding 2); beacon BLS verification (EIP-2537) is split out to a follow-up (backlog), the round and seed derivation are checked now.
 
-**Amended 2026-11-03 (T-206 review, M-2; Rafa may overrule).** Point 1's carried delivery now has to land before `deliverBy`. Before, a carried delivery accepted after the deadline raced the buyer's reclaim, so the buyer's deadline did not bind. Now `decide` refuses it, as `deliver` and SimChain already do (PR #127). A seller whose judge may outlast `deliverBy` posts `deliver`. An early accept may still carry a late delivery, because the buyer is waiving its own deadline. The research pass was the T-206 adversarial review (Fable, max effort), and both review passes agree (`docs/reviews/2026-11-03-contract-review.md`).
-
 | Option (question 2) | Effect |
 | --- | --- |
 | Contract executes `transferWithAuthorization` | Atomic, but fee code and operator knowledge in neutral custody code; no size headroom (EIP-170) |
 | Stateless bundling (chosen) | Atomic per transaction, zero contract code; a mempool observer can split the fee off, gaining nothing |
+
+**Amended 2026-11-03 (T-206 review, M-2 and M-3; Rafa may overrule).**
+- **Point 1 (M-2):** a delivery now lands only before `deliverBy`, whichever call carries it: `deliver`, a decision, or an early accept (PR #127).
+  - Before, a carried delivery that landed after the deadline raced the buyer's reclaim, so the buyer's deadline did not bind.
+  - Core, the EVM adapter and the formal model already refused it.
+  - A seller whose judge may outlast `deliverBy` posts `deliver`. A buyer who wants late work settles for it with the seller.
+- **Point 4 (M-3):** nothing reserves a fallback's or appeal adjudicator's bond at takeover or escalation (PR #135).
+  - The fallback reserves its own bond by deciding, and an uncovered fallback cannot decide, as ADR-0016 §1 says.
+  - Before, a sham deal could lock any named adjudicator's bond.
+- **Research pass:** the T-206 adversarial review (Fable, max effort) and the public-audit cross-check; the review passes agree. See `docs/reviews/2026-11-03-contract-review.md`.
 
 ## D38. Funding paths: any ERC-20, WETH or ETH; ramps as a deferred separate service (ADR-0026)
 

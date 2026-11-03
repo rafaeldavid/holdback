@@ -128,7 +128,7 @@ Recorded as D37 in `docs/decisions-today.md`.
    - The seller's offer, the primary's acceptance and the buyer's Agree are signatures checked in `agreeAndFund`, which also funds through CPP.
    - `decide` may carry the seller-signed delivery when the deal is still `Held`. That makes the happy path agree-and-fund plus decide.
    - The seller can still post `deliver` before `deliverBy`, which moves the deal to `Delivered` and blocks `reclaim`.
-   - A delivery that rides on a decision or an early accept is accepted only while nobody has reclaimed. So a seller who waits until after `deliverBy` without posting races the buyer's reclaim. That is the seller's choice, per D32.
+   - A delivery that rides on a decision or an early accept is accepted only while nobody has reclaimed. So a seller who waits until after `deliverBy` without posting races the buyer's reclaim. That is the seller's choice, per D32. *Amended by T-206 M-2 (PR #127): a carried delivery must land before `deliverBy`, like a posted one, so the race is gone.*
 2. **Operator fee on EVM: stateless bundling, no contract code.**
    - A batcher (Multicall3 or account batching) runs the token's `transferWithAuthorization` from the buyer to the operator, then `agreeAndFund`, in one transaction.
    - Its nonce is `keccak256(abi.encode(commitmentId, "operator_fee"))`.
@@ -142,7 +142,7 @@ Recorded as D37 in `docs/decisions-today.md`.
 4. **Bonds in Phase 2: custody primitives only** (`HoldbackBonds`).
    - **Deposit** goes to the caller's own bond.
    - **Funding** encumbers 100% of the price on the primary, rounded up per ADR-0022 rule 1. An adjudicator without that much free bond cannot be funded.
-   - **Fallback takeover and escalation** encumber the price if it is free, else nothing; partial cover is backlog F5. A flag in the deal word records it.
+   - **Fallback takeover and escalation** encumber the price if it is free, else nothing; partial cover is backlog F5. A flag in the deal word records it. *Amended by T-206 M-3 (PR #135): nothing is reserved at takeover or escalation. The fallback's own decision encumbers its bond, so an uncovered fallback cannot decide.*
    - **On a first-instance decision**, the decider's bond stays encumbered until the appeal closes, and the other reservations are released.
    - **Withdraw** takes only the free part.
    - **The appeal bond** is pulled with an ERC-20 allowance to `HoldbackBonds`. If upheld, it goes to the first adjudicator's bond; if overturned or expired, back to the appellant.
@@ -169,12 +169,12 @@ Recorded as D37 in `docs/decisions-today.md`.
 3. **Off-chain-only checks.** Mandates and scope, daily caps, club membership, rulebook checks (allowed tokens and modes, `validateTiming`, `maxSubmissions` beyond attempt 1) and the gas buffer are not on chain. Under ADR-0024 §7 and D32, the counterparty and the adjudicator check them.
 4. **Funding uses CPP collector signatures** (ADR-0025), not a Holdback-domain `FundingAuthorization`.
 5. **Deliveries.**
-   - A decision or early accept may carry the delivery while `Held`, including after `deliverBy` if nobody reclaimed.
+   - A decision or early accept may carry the delivery while `Held`, but only before `deliverBy` (amended by T-206 M-2, PR #127).
    - The contract does not check that the delivery holds envelopes for all three adjudicators and the buyer. It never holds envelopes, except the buyer key proven at release.
    - Escalate does not have to carry the appeal adjudicator's envelope.
 6. **Early accept is allowed from `Held`** (delivery carried).
 7. **Seeds and the beacon.** The fallback and appeal beacon value is not verified (BLS deferred). The round arithmetic is `(t - genesis) / period`, set at deployment; SimChain uses `floor(ms / 1000)`.
-8. **Reservations at takeover are all or nothing** (SimChain reserves up to what is free).
+8. **Reservations at takeover are all or nothing** (SimChain reserves up to what is free). *Since T-206 M-3 (PR #135), the contract reserves nothing at takeover. The fallback's decision encumbers its bond, and an uncovered fallback cannot decide.*
 9. **Default** is one call with no bond compensation. There are no overturn payouts. The appeal fee is not collected, and the appeal bond amount is not checked against the rulebook rate.
 10. **Mutual settlement.**
     - The rulebook's `allowed` and `payoutsTo` are not checked, and the fee share is fixed at 0 bps (the Phase 1 default).
@@ -185,6 +185,7 @@ Recorded as D37 in `docs/decisions-today.md`.
 13. **`settle` has no function** (Phase 4).
 14. **Event names and shapes** differ (ERC-8183-shaped plus Holdback events); the adapter maps them.
 15. **After `authorizationExpiry`, every capture reverts in CPP;** only `void` paths and the buyer's CPP `reclaim` work.
+16. **Until T-210 lands,** the contract refuses three things that SimChain accepts: an appeal decision that names another attempt (T-206 H-1); a decision that carries the buyer's key unless it is an accept on a deal that is not Refunded (H-2); and a decision from an uncovered fallback (M-3).
 
 ## Handoff
 
