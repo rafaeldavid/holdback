@@ -20,7 +20,12 @@
       "Bash(git worktree:*)",
       "Bash(git checkout -b:*)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(git fetch *)",
+      "Bash(pnpm vitest run *)",
+      "Bash(node site/check.mjs)",
+      "Bash(node site/build.mjs)",
+      "Bash(node site/build.mjs *)"
     ],
     "deny": [
       "Read(./.env)",
