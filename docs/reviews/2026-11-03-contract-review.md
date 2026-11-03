@@ -24,9 +24,9 @@ Line numbers refer to `baac930`.
 | Adversarial pass | Claude Fable 5.1 (`claude-fable-5-1`), red-teamer role, max effort | Briefed with the project context (`CLAUDE.md`, the control-point table, ADR-0003, -0012, -0016, -0018, -0019, -0022 and -0025, T-202's list of differences from SimChain, `state.ts`), but not with the first pass's findings. Its 24 proof-of-concept tests (17 attacks, 7 defenses) ran against `baac930` in its own worktree. They are not in the repo |
 | Public-audit cross-check | A separate Claude Opus 5.5 session (per its commit trailers), with a Claude Fable 5.1 red team | Compared the contracts, class by class, with published audits: Commerce Payments' six, Permit2, Solady, USDC/ERC-3009, Kleros, UMA, Reality.eth, Sablier, Superfluid, and BLS verifiers. In the contracts it found M-3, L-7, L-8, I-12 and I-13. Outside them it found PA-M2 (medium, the operator-fee bundle front-run in the EVM adapter, mitigated in PR #138, merged). Its report and tests are in PR #137 |
 | Per-PR review | Claude Opus 5.5, reviewer role, briefed with the project context | Each fix PR and this report, until PASS |
-| Cross-family pass | DeepSeek `deepseek-v4-pro` (reasoning on) | Five narrow parts at `2342756`, each with a project primer and only the code it needs, without this document or any finding (§8; verbatim answers in `2026-11-03-contract-review-deepseek.md`) |
+| Cross-family pass | DeepSeek `deepseek-v4-pro` (reasoning on) | Five narrow parts at `2342756`, each with a project primer and only the code it needs. No review text or finding ID reached it, but its questions pointed at known findings (§8 Limits). Its answers are verbatim in `2026-11-03-contract-review-deepseek.md` |
 
-With the DeepSeek pass, the task's "two model families" criterion is met: Anthropic and DeepSeek [measured: the model DeepSeek served was `deepseek-v4-pro`].
+With the DeepSeek pass, the task's "two model families" criterion is met, Anthropic and DeepSeek [inferred]. The model DeepSeek served was `deepseek-v4-pro` [measured]. §8 Limits says where its agreement was prompted.
 
 **Baseline.**
 - `forge test`: 168 tests pass at `baac930`; 143 on `main` after PR 113 removed redundant tests [measured].
@@ -52,7 +52,7 @@ The public-audit cross-check found no high or medium issue against our use of CP
 **What blocks what.**
 - Rule for this review: low findings block mainnet, not the Sepolia testnet.
 - The cross-family review is done (DeepSeek, §8) and found no new high or medium. Rafa's read still gates calling Phase 2 done (§7).
-- "Appeals are backed by the adjudicator's bond" is **not met on chain until Phase 4**. No on-chain path pays anyone from an adjudicator's bond; an appeal moves only the appellant's bond (I-8).
+- "Appeals are backed by the adjudicator's bond" is **not met on chain until Phase 4**. No on-chain path pays anyone from an adjudicator's bond; an appeal moves only the appellant's bond (I-8). As an unmet mandatory clause, I-8 blocks mainnet (§8).
 
 ## 2. Findings
 
@@ -63,7 +63,7 @@ The public-audit cross-check found no high or medium issue against our use of CP
 | M-1 | medium | A buyer's CPP reclaim strands every encumbered bond | neutrality, hold | measured | fixed, PR #122 (merged) |
 | M-2 | medium | A delivery landed after `deliverBy` beats the reclaim | hold | measured | fixed, PR #127 (merged) |
 | M-3 | medium | A sham deal locks a named fallback's or appeal adjudicator's bond | neutrality | measured | fixed, PR #135 (merged); reference adjudicator residual in T-211 |
-| L-1 | low | An early accept names an attempt, not a delivery | hold (record) | measured | T-212 item 3 |
+| L-1 | low | An early accept, and a decision (§8), names an attempt, not a delivery | hold (record) | measured | T-212 item 3; the adjudicator's check in T-211 and T-213 |
 | L-2 | low | The bond vault credits nominal amounts | neutrality | inferred | T-212 item 1 |
 | L-3 | low | A zero-bond appeal is accepted | judgment | measured | accepted until Phase 4 |
 | L-4 | low | The seed commitment is checked on 144 bits, reusably | judgment | inferred | T-212 item 2 |
@@ -181,7 +181,8 @@ Proofs marked "adversarial pass" are among the 24 tests in that pass's local wor
 - **Impact:** money and work are unaffected under D32. The buyer opened its envelope from the handed body before signing, so it already holds the content key.
 - **Advice:** a buyer should keep `EarlyAccept.expiresAt` short.
 - **Proof:** adversarial pass, `test_attack_early_accept_paired_with_another_signed_delivery_after_onchain_deliver` [measured, local].
-- **Follow-up:** T-212.
+- **Decisions too** (cross-family pass, §8): `Decision` also names the attempt, not the delivery, and the judgment record carries no delivery hash. A decision about one seller-signed delivery can be settled with another. An adjudicator that judged a body the seller never signed would not notice, so the adjudicator checks the seller's signature on what it judges.
+- **Follow-up:** T-212 item 3, for both messages and the judgment record's delivery hash; T-211 and T-213 for the adjudicator's check.
 
 #### L-2. The bond vault credits nominal amounts (first pass)
 
@@ -436,9 +437,14 @@ Gaps:
 **Who and how.**
 - DeepSeek `deepseek-v4-pro`, reasoning on, reviewed `contracts/src/` at `2342756`, the commit deployed on Sepolia, on 2026-11-03.
 - It was called through the project's OpenAI-compatible key, loaded with `node --env-file`; the file itself was not read.
-- It saw no Anthropic pass: not this document, nor any finding.
+- No review text and no finding ID reached it [measured: a grep of its prompts]. It was not blind to the findings, though (Limits).
 - Its answers are verbatim in [`2026-11-03-contract-review-deepseek.md`](2026-11-03-contract-review-deepseek.md). The model's own labels are kept; it could not run code.
-- Two first attempts sent the whole project, about 72K tokens. Both spent the full output budget reasoning (32K, then 64K tokens) and returned no review text [measured: `finish: length`].
+- Three earlier runs returned no review text [measured: `finish: length`, empty answer]:
+  - the whole project, about 72K tokens, with a 32K output budget;
+  - the same with 64K;
+  - a beacon-only run, 27.7K prompt tokens with 64K.
+
+  Each spent its whole output on reasoning. A fourth connection dropped mid-stream.
 - The pass that answered ran in five narrow parts. Each had a one-page project primer, one question set and only the code it needs:
   - the beacon's point handling;
   - the beacon's hash to curve, pairing and failures;
@@ -448,39 +454,49 @@ Gaps:
 
   All five finished normally, taking 225 to 399 s each [measured: `finish: stop`].
 
-**Result.** DeepSeek's claims were checked against the code and this review [inferred unless marked]:
+**Result.** DeepSeek's claims were checked against the code and this review [inferred unless marked]. The PR 155 reviewer then probed the overturn, late-accept and carried-delivery paths in forge [measured, scratch tests].
 - No new high or medium.
-- Its two highs and two mediums are items already recorded here or accepted in an ADR, with a higher severity.
-- One low extends L-1.
-- The rest are informational.
+- Of DeepSeek's two highs:
+  - one is I-8;
+  - the other, the decision-to-delivery binding, is new and triaged low, extending L-1.
+- Its two mediums are an ADR-0018 deferral and, in part, L-6.
+- The rest are known, deliberate or informational.
 - On the drand verifier it passed all fifteen checklist items, the open gate from the PR 77 review (backlog). Its one caveat was that the public key could not be checked from the code, and the Sepolia deploy closes that. It also flagged one unreachable non-canonical case.
 
 | DeepSeek item | Its severity | Triage | Recorded as |
 | --- | --- | --- | --- |
-| An overturning appeal does not pay the wronged party from the first adjudicator's bond (`HoldbackRules.sol` `_appealDecision`) | high | True, and known. The code says so: "the overturn payout from the adjudicator's bond is Phase 4" | I-8 (T-202 difference 9; the §1 clause recorded as unmet). Severity disagreement below |
-| A decision is not bound to the delivery: `decisionHash` names the attempt, not the delivery hash | high | True in mechanism, low in effect. Only a seller who signed two deliveries for the same attempt can pair a decision about one with the other, because no delivery hash is stored (T-202 decision 3). Money is unaffected. The released key is the one the adjudicator sealed for the delivery it judged, and `judgmentRecordHash` names that delivery off chain | Extends L-1 from the early accept to decisions; T-212 item 3 now covers both |
-| The primary chooses its own seed through its seed commitment | medium | True, and accepted on purpose. ADR-0018 weighed mixing the beacon into the primary's seed and kept commit-reveal, noting that calibration and appeal bound the residual. The parties choose the primary | ADR-0018 (Alternatives); no change |
-| `authorizationExpiry` does not bound every capture deadline (`judgeBy` against `fallbackBy`; the early-accept and mutual `expiresAt`) | medium | True, and known. A late capture reverts and the buyer reclaims, so the loss is bounded | L-6 (T-212 item 4) |
-| `mutualSettle` can release the key with nothing paid to the seller | medium/info | Deliberate. The seller co-signs the payouts and `releaseKey` (ADR-0012) | No change |
+| An overturning appeal does not pay the wronged party from the first adjudicator's bond (`HoldbackRules.sol` `_appealDecision`) | high | True, and known; nothing worse [measured: an overturned accept, an overturned reject and an overturned fallback accept each end with CPP at 0, no bond encumbered and nothing stuck]. The wronged party simply gets nothing. The code says "the overturn payout from the adjudicator's bond is Phase 4" | I-8 (T-202 difference 9; the §1 clause recorded as unmet). It blocks mainnet (below) |
+| A decision is not bound to the delivery: `decisionHash` names the attempt, not the delivery hash | high | True in mechanism. On chain only the seller can pair a decision with another delivery [measured: in `Held` a carried delivery signed by anyone but the seller reverts, and in `Delivered` the carried delivery is ignored]. Money is unaffected. But the off-chain record does not close the gap: the judgment record carries no delivery hash (`judgment.schema.json`), and `encryptedKeysHash` is the escalation envelope, not the delivery's keys. An adjudicator handed an unsigned body by an operator would sign a decision that a relayer could settle against the seller's real delivery [inferred]. So the adjudicator must check the seller's signature on what it judges | Low, extending L-1 to decisions. T-212 item 3 now covers both, with the judgment record's delivery hash in the same schema decision. The adjudicator's check goes to T-211 and T-213 (T-206 Handoff) |
+| The primary chooses its own seed through its seed commitment | medium | Real and tracked, but deferred rather than settled. ADR-0018 lists mixing the beacon into the primary's seed under "Not adopted" as a later decision, bounded by calibration and appeal. Until Phase 4 an overturning appeal moves no money (I-8, measured above), so on chain the bound is calibration and the parties' choice of primary. This row and the I-8 row each rely on the other | ADR-0018 (Not adopted); backlog row on the colluding primary (before open clubs) |
+| `authorizationExpiry` does not bound every capture deadline | medium | Two items. (a) `judgeBy` after `fallbackBy` is L-6. (b) An early-accept or mutual `expiresAt` past `authorizationExpiry` can happen even with ordered deadlines. That is by design (T-202 difference 15), and T-212 item 4 does not touch it. Both are bounded [measured: a late early accept reverts, the buyer reclaims on CPP, and the fallback and default calls close the deal] | (a) L-6, T-212 item 4. (b) T-202 difference 15, no change |
+| `mutualSettle` can release the key with nothing paid to the seller | medium/info | Deliberate. The seller co-signs the payouts and `releaseKey` (ADR-0012; ADR-0019; `KeyOnlyWithPayment` in the formal model sets no payout condition). DeepSeek's medium followed the primer's wording, "the key is released only with payment to the seller" | No change |
 | A direct escrow reclaim leaves the rules contract's state stale | low/info | Fixed. `_refundAll` closes a deal whose hold the buyer reclaimed | M-1 (#122) |
-| A token callback during `takeAppealBond` can re-enter before the appellant's bond arrives | low | Net zero, as DeepSeek also says. The vault pays out and is then paid in, all in one transaction or not at all. It needs a callback token the parties chose | Informational; the review's token class (L-2) |
+| A token callback during `takeAppealBond` can re-enter before the appellant's bond arrives | low | Net zero, as DeepSeek also says. A re-entrant `expireAppeal` is impossible, because filing needs `now < appealBy` and expiring needs `now ≥ appealBy + appealDecideSec`. A re-entrant `decide` needs the next round already public (I-5). Even then, either the outer `transferFrom` completes or the transaction reverts. It needs a callback token the parties chose | Informational; the review's token class (L-2) |
 | Appeal and escalation adjudicators can act unbonded | low/medium | True, and known | L-5 (T-212 item 5) |
 | A zero-bond appeal takes the only slot | low | True, and known | L-3, L-7 |
-| A y = 0 root with the sign bit set gives y = p, a non-canonical point | info | Unreachable. BLS12-381 G1 over F_p has odd order (an odd cofactor times the prime r), so no point has y = 0 | No change |
-| The quicknet public key cannot be checked from the code alone | info | Checked: the deploy verified drand round 1000 on Sepolia with this key [measured], and the tests use seven real rounds | No change |
-| The escalation and appeal rounds follow the escalating or appealing transaction's timestamp | info | Deliberate. The round is the next one after that block, so its value is unknown when the transaction is sent (ADR-0018) | No change |
+| A y = 0 root with the sign bit set gives y = p, a non-canonical point | info | Unreachable [measured by script: the group order h·r is odd, and −4 is not a cube mod p, so x³ + 4 = 0 has no root] | No change |
+| The quicknet public key cannot be checked from the code alone | info | Checked [measured]. The deploy verified drand round 1000 on Sepolia with this key, using the real fixture signature (`drand-quicknet.json`), and `sepolia.json` records its published randomness. The tests use seven real rounds | No change |
+| The escalation and appeal rounds follow the escalating or appealing transaction's timestamp | info | Known. With 12-second slots against drand's 3-second period, the next round may already be public when the transaction is built | I-5 (accepted for Sepolia) |
 | Terms are signed over the raw commitment ID; there is no zero-signer check | info | Safe today, as DeepSeek says. The ID is the `CommitmentTerms` struct hash, and Solady rejects a recovered zero address | No change |
 
 **Where DeepSeek and this review disagree on severity.**
 
 | Item | DeepSeek | This review | Kept |
 | --- | --- | --- | --- |
-| No overturn payout | High: it breaks "appeals are backed by the bond" | Informational, as a documented Phase 4 gap | I-8. The gap stays recorded as an unmet clause of litmus test 3 until Phase 4. Rafa may raise it |
-| Decision not bound to the delivery | High | Low, since it needs seller equivocation and money is unaffected | Low, with L-1 |
-| The primary chooses its seed | Medium | Accepted residual (ADR-0018) | ADR-0018 |
-| The expiry bound | Medium | Low | L-6 |
+| No overturn payout | High: it breaks "appeals are backed by the bond" | A documented Phase 4 gap, filed as informational | I-8, and it **blocks mainnet**. It is an unmet clause of litmus test 3, a mandatory rule, so the rule that informational items do not block mainnet does not apply to it. Rafa may raise its severity |
+| Decision not bound to the delivery | High | Low: on chain it needs seller equivocation, and money is unaffected | Low, with L-1, plus the adjudicator's signature check (T-211, T-213) |
+| The primary chooses its seed | Medium | Deferred (ADR-0018, Not adopted) | ADR-0018 and the backlog row; on chain until Phase 4, bounded only by calibration and the parties' choice of primary |
+| The expiry bound | Medium | Low (a) and by design (b) | L-6; T-202 difference 15 |
 
 **Limits.**
+- **Not blind.** The question sets were written by the session that held these findings, and most of them point at known items:
+  - the hold questions on expiry and reclaim (L-6, M-1) and on the key (H-2);
+  - the judgment questions on the delivery (L-1), on a message field the seed hashes (H-1), on the appeal slot and the payout (L-7, I-8), and on bond consent (M-3).
+
+  The primer also stated three properties the code deliberately lacks in Phase 2: an overturn payout from the bond, bonded appeal adjudicators, and the key only with payment, even in a mutual settlement. Those produced the I-8 high, the L-5 row and the mutual-key medium. So DeepSeek's agreement on those items was prompted, not independent. What it adds independently:
+  - the verifier checklist;
+  - the decision-to-delivery binding;
+  - the absence of other findings in the code it read.
 - DeepSeek read the code; it did not run it.
 - The triage above is a reading of the code and the docs, except where marked measured.
 - `deepseek-v4-pro` is a provider alias with no dated snapshot (`config/judges-live.yaml`).

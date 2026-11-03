@@ -10,7 +10,8 @@
     - in `docs/tasks/T-202-escrow-rules-contract.md`, the lines on carried deliveries and bond reservations (the bonds row, Decision 1, Decision 4, differences 5 and 8) and the new difference 16;
     - the amendment section of `docs/decisions/ADR-0016-phase1-contract.md`;
     - the two control-point rows of `docs/neutrality.md` that name this checklist;
-    - for the deployment, `contracts/script/deploy-sepolia.sh` and a section of `docs/operations.md`.
+    - for the deployment, `contracts/script/deploy-sepolia.sh` and a section of `docs/operations.md`;
+    - for the cross-family pass, `docs/reviews/2026-11-03-contract-review-deepseek.md` (new, DeepSeek's answers verbatim).
 - **Human gate:** **yes.** (1) Rafa reads the review before Phase 2 is called done. (2) Any Sepolia deployment needs Rafa's explicit approval written in this file first: test ETH and a test token only, a deployer key from an environment variable, never printed. No mainnet, at any point; a mainnet deployment is a separate gate after an external audit and legal advice (D4).
 - **Status:** review. Open: Rafa's read, and his confirmation on PR 150 (Decisions 7). The cross-family pass is done (DeepSeek, review §8), and the Sepolia deploy is done (PR 150).
 - **Agent/session:** a Claude Opus 5.5 session in worktree `t-206-contract-review-d83e9c`, 2026-11-03, with:
@@ -41,7 +42,7 @@ Review the Phase 2 contracts against the neutrality checklist, the hold invarian
 
 - [x] The checklist in `docs/neutrality.md` is expanded into checkable items, and each item is answered with a file and line or a test name (review §3). The items: no owner, pause, freeze, blacklist, upgrade proxy, `selfdestruct` or mutable `delegatecall`; every timeout callable by anyone; no function moves held funds without a signature, decision or expired timeout; settle-once; key release in the same transaction as capture; expiry margin per ADR-0003.
 - [x] Static analysis run with Slither 0.11.6 and Aderyn 0.6.8. Every high and medium finding is accepted with a reason, since none is a defect (review §4; counts below).
-- [x] Two reviews from two model families, each run without seeing the other's output, recorded in `docs/reviews/2026-11-03-contract-review.md` with the model IDs used; disagreements listed. Anthropic (`claude-opus-5-5`, `claude-fable-5-1`) and DeepSeek (`deepseek-v4-pro`, review §8; its answers verbatim in `2026-11-03-contract-review-deepseek.md`). The DeepSeek pass saw neither the review nor any finding.
+- [x] Two reviews from two model families, each run without seeing the other's output, recorded in `docs/reviews/2026-11-03-contract-review.md` with the model IDs used; disagreements listed. Anthropic (`claude-opus-5-5`, `claude-fable-5-1`) and DeepSeek (`deepseek-v4-pro`, review §8; its answers verbatim in `2026-11-03-contract-review-deepseek.md`). No review text or finding ID reached DeepSeek. But its question sets were written by the session that held the findings and point at several of them, so its agreement on those is prompted (review §8, Limits). Ticked on that basis; Rafa may want a further open-ended pass (Handoff).
 - [x] Each high, medium and low finding is labelled measured, inferred or guessed, with a severity, and has a fix PR, a follow-up task (T-210, T-211, T-212) or a written acceptance (L-3). Each informational item has a label and a disposition.
 - [x] The model-to-contract correspondence from T-204 checked. Every model action maps to a contract function, and the gaps are findings (review §5).
 - [ ] Rafa has read the review (recorded here with date). Only then, and only if he approves in writing in this file: a Sepolia deployment whose verified bytecode matches the reviewed commit, addresses in `contracts/deployments/sepolia.json`, and one happy-path deal run on Sepolia with its gas recorded (measured). The approval came first, by Rafa's choice (Decisions 7). The deployment is recorded in its own PR; the happy-path deal belongs to the Sepolia demo session.
@@ -133,9 +134,10 @@ Review the Phase 2 contracts against the neutrality checklist, the hold invarian
 - **measured** The cross-family pass, on Rafa's request ("Can you use the deepseek API token to do the review? You'll have to prompt it with full context of the project"), on 2026-11-03:
   - The key: the project's `HOLDBACK_OPENAI_COMPATIBLE_API_KEY` reached DeepSeek through `node --env-file`. The `.env` file was neither read nor printed. The script refuses any host but `api.deepseek.com`.
   - The model served was `deepseek-v4-pro`.
-  - Two whole-project attempts spent the full output on reasoning (32K, then 64K tokens; `finish: length`). A third stream dropped.
+  - Three runs spent their whole output on reasoning and returned nothing (`finish: length`): the whole project with 32K, the same with 64K, and a beacon-only run with 64K. A fourth stream dropped.
   - The pass that answered ran in five narrow parts (`finish: stop`, 225 to 399 s each).
-  - Result (review §8): no new high or medium. Its two highs are I-8, a known Phase 4 gap, and an extension of L-1 to decisions, which is low. On the drand verifier, all fifteen checklist items pass.
+  - Result (review §8): no new high or medium. One high is I-8, a known Phase 4 gap that now explicitly blocks mainnet. The other is new and triaged low: decisions, like early accepts, name the attempt and not the delivery (L-1). On the drand verifier, all fifteen checklist items pass.
+  - The PR 155 reviewer probed the overturn, late-accept and carried-delivery paths in forge (scratch tests), and found the triage's downgrades hold. It corrected one reason: the judgment record does not name the delivery.
   - The triage is labelled inferred, except where §8 says measured.
 
 ## Decisions
@@ -185,7 +187,7 @@ Append its findings to the review as a new section, with a disagreement table ag
 
 **Follow-up tasks.**
 - **T-210** (core, SimChain): mirror H-1 and H-2.
-- **T-211** (judgment): the reference adjudicator never seals the key for a refunded buyer. This is a prerequisite for appeals on the Sepolia demo.
+- **T-211** (judgment): the reference adjudicator never seals the key for a refunded buyer. This is a prerequisite for appeals on the Sepolia demo. Also from the cross-family pass (review §8, L-1): the adjudicator verifies the seller's signature on the delivery it judges. On chain neither a decision nor the judgment record binds the delivery, so a decision about an unsigned body could be settled against the seller's real delivery.
 - **T-212** (settlement): the low findings, before mainnet.
 
 **Notes for other lanes.**
@@ -193,6 +195,8 @@ Append its findings to the review as a new section, with a disagreement table ag
 - **Sepolia demo.**
   - The cross-check found that the operator-fee bundle can be front-run (`packages/settlement/evm/evm-settlement.ts`). ADR-0023 already lists this residual and names its mitigation, relaying `agreeAndFund` alone, but the code lacked it. The demo session reports it fixed on its branch.
   - Until T-211 lands, the reference adjudicator's overturn-to-accept appeals revert on chain (H-2).
+  - The EVM adjudicator path (T-213) must judge only a delivery whose seller signature it has checked, as SimChain's adapter does by reading the stored delivery. Nothing on EVM stores the body (review §8, L-1).
+- **ADR-0018** (outside T-206's paths): its "Still open" line still says the verifier needs review before Sepolia. The cross-family pass has now covered the logic (review §8); the ADR's owner should update the line.
   - **Crossed into T-213's lane with the deploy, and why.** `examples/deployments.test.ts` (PR #138) fails once `contracts/deployments/sepolia.json` exists, unless `examples/deployments.ts` pins an identical copy. So the deploy PR also carries that copy, with the `DeploymentFile` type widened to the file's extra fields, and `site/try.mjs` and `site/index.html` rebuilt with `node site/build.mjs`, because the bundle includes `examples/verify.ts`. It also adds three reviewed false positives to `.gitleaksignore`, which is root config. Merge PR 150 with a merge commit, not a squash or a rebase, because the fingerprints are pinned to `c33af95`. The demo session was told before the change. The site is not deployed: that is still a gate. The try agent now also knows the Sepolia pin. The live demo still settles on SimChain.
   - Sepolia charged about seven times anvil's deploy gas (Evidence). Check the relayer's gas limits against the real chain, not the local table.
 - **T-203.** The fix PRs edited T-203's harness (`contracts/test/handlers/RulesHandler.sol`, `contracts/test/invariant/RulesInvariants.t.sol`, `contracts/test/fuzz/NoAdmin.fuzz.t.sol`):

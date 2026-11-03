@@ -1,6 +1,6 @@
 # Cross-family pass: DeepSeek's answers, verbatim (T-206)
 
-DeepSeek `deepseek-v4-pro` reviewed `contracts/src/` at `2342756`, the commit deployed on Sepolia, on 2026-11-03. It worked in five narrow parts. Each part had the same project primer, one question set, and only the code that part needs, with numbered lines. It saw no Anthropic review: not `2026-11-03-contract-review.md`, nor any finding. The triage of these answers against the code and the earlier passes is in `2026-11-03-contract-review.md` §8. Below are DeepSeek's own words, unedited. Its labels are its own; it could not run code.
+DeepSeek `deepseek-v4-pro` reviewed `contracts/src/` at `2342756`, the commit deployed on Sepolia, on 2026-11-03. It worked in five narrow parts. Each part had the same project primer, one question set, and only the code that part needs, with numbered lines. No review text and no finding ID reached it. But the questions were written by the session that held the findings, and several of them point at known items, so its agreement on those is prompted (review §8, Limits). The triage of these answers against the code and the earlier passes is in `2026-11-03-contract-review.md` §8. Below are DeepSeek's own words, unedited. Its labels are its own; it could not run code.
 
 The primer every part received:
 
