@@ -29,6 +29,20 @@ const enc = <T extends Encoded = Encoded>(m: Parameters<typeof typedDataOf>[0]):
 export const ROLE = { primary: 0, fallback: 1, appeal: 2 } as const;
 export const OUTCOME = { accept: 0, reject: 1, escalate: 2 } as const;
 
+/**
+ * A copy of `value` with every `token` field equal to `from`, and every `allowedTokens` entry, set to `to`: SimChain's
+ * tUSD rebound to a deployed token's address (ADR-0025) in a rulebook, terms, scopes or amounts.
+ */
+export function rebindToken<T>(value: T, from: string, to: string): T {
+  if (from === to) return value;
+  const walk = (x: unknown, key?: string): unknown => {
+    if (Array.isArray(x)) return x.map((v) => (key === 'allowedTokens' && v === from ? to : walk(v)));
+    if (x && typeof x === 'object') return Object.fromEntries(Object.entries(x).map(([k, v]) => [k, k === 'token' && v === from ? to : walk(v, k)]));
+    return x;
+  };
+  return walk(value) as T;
+}
+
 /** The ERC-20 a terms object names: its token identifier must be the lowercase 0x-hex address (ADR-0025). */
 export function tokenAddressOf(t: AnyCommitmentTerms): Address {
   const token = t.price.token;

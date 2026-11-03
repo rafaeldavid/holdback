@@ -55,8 +55,7 @@ contract HoldbackRules is EIP712 {
     }
 
     uint8 internal constant F_PRIMARY = 1; // primary bond encumbered for this commitment
-    uint8 internal constant F_FALLBACK = 2;
-    uint8 internal constant F_APPEAL = 4;
+    uint8 internal constant F_FALLBACK = 2; // the fallback's bond, reserved by its own decision
     uint8 internal constant F_BY_FALLBACK = 8; // the first-instance decision came from the fallback
 
     // Key release paths (ADR-0012).
@@ -218,12 +217,12 @@ contract HoldbackRules is EIP712 {
     // Deliver
 
     /// @notice Anyone posts the seller-signed delivery before deliverBy, which stops a reclaim. Optional on the happy
-    ///         path: a decision or early accept may carry the delivery instead (D4: two transactions).
+    ///         path: a decision or early accept may carry the delivery instead, also before deliverBy (D4: two
+    ///         transactions).
     function deliver(H.Terms calldata t, H.Delivery calldata dv, bytes calldata sellerSignature) external {
         bytes32 id = H.commitmentId(t);
         Deal storage d = _deals[id];
         if (d.stage != Stage.Held) revert WrongStage(d.stage);
-        if (block.timestamp >= t.timing.deliverBy) revert DeadlinePassed();
         _acceptDelivery(id, t, d, dv, sellerSignature);
         d.stage = Stage.Delivered;
     }
@@ -231,7 +230,7 @@ contract HoldbackRules is EIP712 {
     // Decide
 
     /// @notice Anyone relays the adjudicator's signed decision. In `Held`, the decision carries the delivery it
-    ///         judged (`dv`, `sellerSignature`); otherwise they are ignored.
+    ///         judged (`dv`, `sellerSignature`), which must land before deliverBy. Outside `Held` they are ignored.
     function decide(H.Terms calldata t, H.Decision calldata m, H.Delivery calldata dv, bytes calldata sellerSignature)
         external
     {
@@ -274,6 +273,11 @@ contract HoldbackRules is EIP712 {
         ) {
             revert InvalidMessage();
         }
+        // ADR-0012 (formal model KeyOnlyWithPayment): the buyer's key travels only with an accept, and never on a deal
+        // that stands Refunded.
+        if (bytes(m.keyCiphertext).length > 0 && (m.outcome != H.OUTCOME_ACCEPT || s == Stage.Refunded)) {
+            revert InvalidMessage();
+        }
         if (block.timestamp >= deadline) revert DeadlinePassed();
         if (role == H.ROLE_PRIMARY) {
             // The primary reveals the preimage of its seedCommitment.
@@ -303,18 +307,20 @@ contract HoldbackRules is EIP712 {
         bool primary = m.role == H.ROLE_PRIMARY;
         if (m.appealGroundHash != H.EMPTY_HASH) revert InvalidMessage();
         if (m.outcome == H.OUTCOME_ESCALATE) {
-            // No money moves. Reservations move to the appeal adjudicator (all or nothing; partial cover is F5).
+            // No money moves. Nothing is reserved for the appeal adjudicator, who signed nothing for this deal
+            // (ADR-0016 §1: a sham commitment cannot lock a bond the adjudicator never reserved).
             _releaseBonds(t, d.flags);
-            d.flags = BONDS.tryEncumber(t.appealAdjudicator, t.token, t.price) ? F_APPEAL : 0;
+            d.flags = 0;
             d.stage = Stage.Escalated;
             d.t1 = uint40(block.timestamp);
             _deals[id] = d;
             return;
         }
-        // The decider's bond stays encumbered until the appeal closes; the other first-instance bond is released.
-        uint8 keep = primary ? F_PRIMARY : F_FALLBACK;
-        _releaseBonds(t, d.flags & ~keep);
-        d.flags = (d.flags & keep) | (primary ? 0 : F_BY_FALLBACK);
+        // The decider's bond stays encumbered until the appeal closes; the primary's is released if the fallback
+        // decides. The fallback reserves its own bond by deciding: uncovered, it cannot, and the deal defaults.
+        _releaseBonds(t, primary ? 0 : d.flags);
+        if (!primary) BONDS.encumber(t.fallbackAdjudicator, t.token, t.price);
+        d.flags = primary ? F_PRIMARY : F_FALLBACK | F_BY_FALLBACK;
         d.stage = m.outcome == H.OUTCOME_ACCEPT ? Stage.Released : Stage.Refunded;
         d.appeal = AppealState.None;
         d.t1 = uint40(block.timestamp);
@@ -530,7 +536,6 @@ contract HoldbackRules is EIP712 {
         if (block.timestamp < t.timing.judgeBy) revert TooEarly();
         d.stage = Stage.FallbackJudging;
         d.t1 = uint40(block.timestamp);
-        if (BONDS.tryEncumber(t.fallbackAdjudicator, t.token, t.price)) d.flags |= F_FALLBACK;
         emit FallbackTriggered(id, BEACON.roundAt(t.timing.judgeBy));
     }
 
@@ -594,7 +599,9 @@ contract HoldbackRules is EIP712 {
         emit Refunded(id, t.buyer, pi.maxAmount);
     }
 
-    /// @dev Verifies the seller-signed delivery for attempt 1 (core: maxSubmissions is 1 in Phases 1 and 2).
+    /// @dev Verifies the seller-signed delivery for attempt 1 (core: maxSubmissions is 1 in Phases 1 and 2). Whichever
+    ///      call lands it (deliver, or a decision or early accept that carries it), it must land before deliverBy, as
+    ///      in SimChain; otherwise it races the reclaim.
     function _acceptDelivery(
         bytes32 id,
         H.Terms calldata t,
@@ -602,6 +609,7 @@ contract HoldbackRules is EIP712 {
         H.Delivery calldata dv,
         bytes calldata sellerSignature
     ) internal {
+        if (block.timestamp >= t.timing.deliverBy) revert DeadlinePassed();
         if (dv.attempt != 1) revert InvalidMessage();
         bytes32 dh = H.deliveryHash(id, dv);
         _requireSigned(t.seller, dh, sellerSignature);
@@ -635,7 +643,6 @@ contract HoldbackRules is EIP712 {
     function _releaseBonds(H.Terms calldata t, uint8 flags) internal {
         if (flags & F_PRIMARY != 0) BONDS.release(t.adjudicator, t.token, t.price);
         if (flags & F_FALLBACK != 0) BONDS.release(t.fallbackAdjudicator, t.token, t.price);
-        if (flags & F_APPEAL != 0) BONDS.release(t.appealAdjudicator, t.token, t.price);
     }
 
     function _requireSigned(address signer, bytes32 structHash, bytes calldata signature) internal view {

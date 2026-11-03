@@ -3,7 +3,7 @@
 - **Lane:** demo
 - **Phase:** 2
 - **Depends on:** T-031 (telemetry counts the alarm)
-- **Paths this task may touch:** `apps/demo-cloud/src/`, `docs/backlog.md`, `docs/operations.md`, `docs/plan.md`, `docs/tasks/T-039-demo-alarm-cadence.md`
+- **Paths this task may touch:** `apps/demo-cloud/src/`, `docs/backlog.md`, `docs/operations.md`, `docs/plan.md`, `docs/tasks/T-039-demo-alarm-cadence.md`, and an amendment note in `docs/decisions/ADR-0028-demo-settles-on-sepolia.md` §5 (after the Sepolia merge)
 - **Human gate:** no (the deploy that ships it is Rafa's)
 - **Status:** done (PR 136)
 - **Agent/session:** side session from the T-031 follow-ups, branch `t-039-demo-alarm`
@@ -54,6 +54,7 @@ The public demo World (one Durable Object on the Workers Free plan) spends its d
 - Review (PR 136) finding 1: a fallback takeover is a wake point of its own, kept even while the primary can act now, and it arms an alarm at judgeBy whether or not the world is active. Before the fix a ready case hid it behind the slow cadence, up to a minute late, and late enough to reach fallbackBy.
 - Review finding 5: `look` drops a commitment once no adjudicator can act on it again (its last adjudicator deadline passed, or it settled), so a request reads only open deals. Second review: the drop uses the wall clock, and a submission started before the deadline can still land after a concurrent look dropped the deal, so any settlement event brings its commitment back into the scan.
 - Second review: an overdue alarm (its handler threw) is re-armed a second out, never later; before, an inactive world could push the retry out to a takeover hours away.
+- Merged with the Sepolia world (PR 138, D41, ADR-0028), which had `nextPassMs()`: 1 s on SimChain; on a chain, 2 s while setup is left or `awaitingAdjudicator() > 0`, else 12 s, all within the 15-minute window. `nextPass()` replaces it. A chain world's books change only through what its own nodes relay (EvmSettlement reads no chain logs), so `look()` serves both settlements, and idle 12 s polling found nothing new. Kept from the chain branch: a 2 s first pass after settlement moves, and passes every 2 s while setup (bonds, lane gas) is left. Those setup passes are also bounded by the window, so a broken RPC cannot drive alarms all day; a world opening with setup left starts the window. ADR-0028 §5 carries an amendment note. `live.test.ts` asserts the setup cadence and that a set-up world with only a Released deal has no pass due.
 
 ## Handoff
 

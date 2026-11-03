@@ -1,5 +1,6 @@
 # ADR-0026: Funding paths: any ERC-20, WETH or ETH; ramps, swaps and bridges as a deferred service
 
+- **Note (2026-11-03):** first wave narrowed to USDC by D42; other assets later.
 - **Status:** Accepted for parts 1 and 2, 2026-11-02 (Rafa's direction, D38). Part 3 (the funding service) is **deferred, stub only**: the `FundingService` interface in `apps/operator/src/registry.ts` and `/v1/funding/*` routes that answer 404 `not_found`, listed as planned in `docs/api.md` and under `x-holdback-planned` in `spec/openapi.json`, the API's convention for unbuilt routes. The external provider facts in this ADR are from memory (no web pass) and must be checked before part 3 is built.
 - **Date:** 2026-11-02
 - **Raised by:** Rafa, 2026-11-02: "The API needs to be able to call a funding path to the L1 directly, so agents can work in either native crypto if they have funds there, or in fiat (assuming they have access to a credit card etc.). So the API probably needs to solve for that funding bridge, and to fund asset agreement." Then: "This would be a separate service we call via our unified API." Then: "for now we should simply accept any ERC20 or wETH", refined to "accept any ERC20 or wETH or ETH." Then: this is for later; stub only.
