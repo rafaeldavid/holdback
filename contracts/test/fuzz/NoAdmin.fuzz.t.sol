@@ -3,13 +3,14 @@ pragma solidity ^0.8.28;
 
 import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {DrandQuicknetBeacon} from "../../src/DrandQuicknetBeacon.sol";
+import {TestUSDC} from "../../script/TestUSDC.sol";
 import {Base} from "../unit/Base.sol";
 
 /// @title NoAdminFuzzTest
 /// @notice T-203, hard rule "No admin keys" and the contract review checklist in docs/neutrality.md, over every
 ///         contract the settlement deploys: HoldbackRules, HoldbackBonds, CPP AuthCaptureEscrow, both collectors,
-///         the TokenStore implementation, the rules contract's TokenStore clone, and (T-209) both beacons: the
-///         drand quicknet verifier and the local-chain sim beacon.
+///         the TokenStore implementation, the rules contract's TokenStore clone, (T-209) both beacons: the
+///         drand quicknet verifier and the local-chain sim beacon, and (T-213) the Sepolia demo's test token, tUSDC.
 ///         - Each ABI is exactly a reviewed allowlist (a new external function is a visible diff here).
 ///         - No ABI has a forbidden admin function, a fallback or a receive.
 ///         - Fuzzed: any selector outside a contract's ABI reverts, with any calldata and any caller.
@@ -20,8 +21,8 @@ contract NoAdminFuzzTest is Base {
     string internal constant PI =
         "(address,address,address,address,uint120,uint48,uint48,uint48,uint16,uint16,address,uint256)";
 
-    address[9] internal targets;
-    string[9] internal artifacts;
+    address[10] internal targets;
+    string[10] internal artifacts;
     uint256 internal constant CLONE = 6;
     mapping(address => mapping(bytes4 => bool)) internal inAbi;
 
@@ -42,7 +43,8 @@ contract NoAdminFuzzTest is Base {
             escrow.tokenStoreImplementation(),
             store,
             address(new DrandQuicknetBeacon()),
-            address(sim)
+            address(sim),
+            address(new TestUSDC())
         ];
         artifacts = [
             "out/HoldbackRules.sol/HoldbackRules.json",
@@ -53,7 +55,8 @@ contract NoAdminFuzzTest is Base {
             "out/TokenStore.sol/TokenStore.json",
             "out/TokenStore.sol/TokenStore.json", // the clone answers with the implementation's ABI
             "out/DrandQuicknetBeacon.sol/DrandQuicknetBeacon.json",
-            "out/SimBeacon.sol/SimBeacon.json"
+            "out/SimBeacon.sol/SimBeacon.json",
+            "out/TestUSDC.sol/TestUSDC.json"
         ];
         for (uint256 i; i < targets.length; i++) {
             string[] memory sigs = vm.parseJsonKeys(vm.readFile(artifacts[i]), ".methodIdentifiers");
@@ -138,11 +141,32 @@ contract NoAdminFuzzTest is Base {
             s[2] = "beaconValue(uint64,bytes)";
             s[3] = "hashToG1(bytes32)";
             s[4] = "roundAt(uint256)";
-        } else {
+        } else if (i == 8) {
             s = new string[](3);
             s[0] = "SIM_SEED()";
             s[1] = "beaconValue(uint64,bytes)";
             s[2] = "roundAt(uint256)";
+        } else {
+            // tUSDC: an ERC-20 with permit, open mint and USDC's ERC-3009 pair; nothing else.
+            s = new string[](18);
+            s[0] = "DOMAIN_SEPARATOR()";
+            s[1] = "RECEIVE_WITH_AUTHORIZATION_TYPEHASH()";
+            s[2] = "TRANSFER_WITH_AUTHORIZATION_TYPEHASH()";
+            s[3] = "allowance(address,address)";
+            s[4] = "approve(address,uint256)";
+            s[5] = "authorizationState(address,bytes32)";
+            s[6] = "balanceOf(address)";
+            s[7] = "decimals()";
+            s[8] = "mint(address,uint256)";
+            s[9] = "name()";
+            s[10] = "nonces(address)";
+            s[11] = "permit(address,address,uint256,uint256,uint8,bytes32,bytes32)";
+            s[12] = "receiveWithAuthorization(address,address,uint256,uint256,uint256,bytes32,bytes)";
+            s[13] = "symbol()";
+            s[14] = "totalSupply()";
+            s[15] = "transfer(address,uint256)";
+            s[16] = "transferFrom(address,address,uint256)";
+            s[17] = "transferWithAuthorization(address,address,uint256,uint256,uint256,bytes32,bytes)";
         }
     }
 
@@ -243,13 +267,25 @@ contract NoAdminFuzzTest is Base {
 
     // ------------------------------------------------------------ forbidden opcodes
 
-    /// Walks the runtime bytecode opcode by opcode, skipping PUSH data and the CBOR metadata trailer when present.
+    /// keccak256("Transfer(address,address,uint256)"). via-IR stores this constant of Solady's ERC20 as a data
+    /// section after the final INVALID of tUSDC's code and loads it with CODECOPY: data, not opcodes.
+    bytes32 internal constant TRANSFER_TOPIC = 0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef;
+
+    /// Walks the runtime bytecode opcode by opcode, skipping PUSH data, the CBOR metadata trailer when present, and
+    /// a trailing data section that is exactly the Transfer topic after an INVALID.
     function _opcodes(address target, bool allowDelegatecall) internal view {
         bytes memory code = target.code;
         uint256 end = code.length;
         if (end > 2) {
             uint256 metaLen = (uint256(uint8(code[end - 2])) << 8) | uint8(code[end - 1]);
             if (metaLen + 2 <= end && metaLen > 0 && uint8(code[end - metaLen - 2]) == 0xa2) end -= metaLen + 2;
+        }
+        if (end > 33 && uint8(code[end - 33]) == 0xfe) {
+            bytes32 tail;
+            assembly {
+                tail := mload(add(add(code, 0x20), sub(end, 32)))
+            }
+            if (tail == TRANSFER_TOPIC) end -= 32;
         }
         for (uint256 i; i < end; i++) {
             uint8 op = uint8(code[i]);

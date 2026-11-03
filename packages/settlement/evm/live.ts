@@ -28,7 +28,7 @@ import {
 } from 'viem';
 import { privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts';
 import abisJson from './abis.json' with { type: 'json' };
-import type { Abis, Deployment, EvmChain, Mined } from './chain.js';
+import { RelayRefused, type Abis, type Deployment, type EvmChain, type Mined } from './chain.js';
 import { assertSafeChain } from './guard.js';
 
 /** contracts/deployments/<network>.json, as the testnet deployment writes it (T-206). */
@@ -73,9 +73,6 @@ export function deploymentOf(f: DeploymentFile): Deployment {
     fromBlock: BigInt(f.fromBlock),
   };
 }
-
-/** The operator declines to relay (D27, ADR-0005): the signed message stays valid for another operator or a direct call. */
-export class RelayRefused extends Error {}
 
 export interface LiveChainOptions {
   deployment: DeploymentFile;
@@ -122,6 +119,7 @@ export class LiveChain implements EvmChain {
   readonly expiryMargin: bigint;
   /** The funding lane, then the deal lanes. */
   readonly lanes: readonly PrivateKeyAccount[];
+  private readonly keys: readonly Hex[];
   private readonly maxFee: bigint;
   private readonly pollMs: number;
   private readonly rebroadcastMs: number;
@@ -146,7 +144,8 @@ export class LiveChain implements EvmChain {
     this.token = o.deployment.token;
     this.tokenDomain = { name: o.deployment.token.name, version: o.deployment.token.version };
     this.expiryMargin = BigInt(o.deployment.expiryMarginSec ?? 86_400);
-    this.lanes = [privateKeyToAccount(o.relayerKey), ...Array.from({ length: DEAL_LANES }, (_, i) => privateKeyToAccount(laneKey(o.relayerKey, i + 1)))];
+    this.keys = [o.relayerKey, ...Array.from({ length: DEAL_LANES }, (_, i) => laneKey(o.relayerKey, i + 1))];
+    this.lanes = this.keys.map((k) => privateKeyToAccount(k));
     this.maxFee = parseGwei(String(o.maxFeeGwei ?? 20));
     this.pollMs = o.pollMs ?? 2000;
     this.rebroadcastMs = o.rebroadcastMs ?? 36_000;
@@ -157,6 +156,11 @@ export class LiveChain implements EvmChain {
       { rank: false, retryCount: 2, retryDelay: 150 },
     );
     this.publicClient = createPublicClient({ transport, cacheTime: 1000 }) as PublicClient;
+  }
+
+  /** The lane keys, for the test that no route serves one. In-process only. */
+  secretsForTest(): readonly Hex[] {
+    return this.keys;
   }
 
   /** The funding lane: the address Rafa funds with Sepolia ETH. */
@@ -179,11 +183,16 @@ export class LiveChain implements EvmChain {
     if (id !== this.chainId) throw new RangeError(`the RPC serves chain id ${id}, not the deployment's ${this.chainId}`);
     const code = await this.publicClient.getCode({ address: this.deployment.rules });
     if (!code || code === '0x') throw new RangeError(`no contract at the rules address ${this.deployment.rules} on chain ${id}`);
+    // Every funding nonce hashes the margin: a deployment file that disagrees with the contract signs for nothing.
+    const margin = (await this.publicClient.readContract({ address: this.deployment.rules, abi: this.abis.rules, functionName: 'EXPIRY_MARGIN' })) as bigint;
+    if (BigInt(margin) !== this.expiryMargin) throw new RangeError(`the rules contract's EXPIRY_MARGIN is ${margin}, the deployment file says ${this.expiryMargin}`);
   }
 
   /** eth_estimateGas: a revert throws with its data, as eth_call would; the estimate is kept for the send. */
   async simulate(tx: { from: Address; to: Address; data: Hex }): Promise<void> {
     const gas = await this.publicClient.estimateGas({ account: tx.from, to: tx.to, data: tx.data });
+    // Dry runs never send, so their estimates are dropped wholesale now and then rather than one by one.
+    if (this.estimates.size > 256) this.estimates.clear();
     this.estimates.set(`${lc(tx.from)}|${lc(tx.to)}|${tx.data}`, gas);
   }
 
@@ -257,7 +266,9 @@ export class LiveChain implements EvmChain {
     const k = `${lc(from)}|${lc(to)}|${data}`;
     const estimate = this.estimates.get(k) ?? (await this.publicClient.estimateGas({ account: from, to, data, value }));
     this.estimates.delete(k);
-    const gas = (estimate * 5n) / 4n > GAS_CAP ? GAS_CAP : (estimate * 5n) / 4n;
+    // Sent with less gas than it needs, a call would run out on chain and spend the gas for nothing.
+    if ((estimate * 5n) / 4n > GAS_CAP) throw new RelayRefused(`the call needs about ${estimate} gas, above this node's cap of ${GAS_CAP}`);
+    const gas = (estimate * 5n) / 4n;
     const nonce = this.nonces.get(lc(from)) ?? (await this.publicClient.getTransactionCount({ address: from, blockTag: 'pending' }));
     let fee = await this.feesNow();
     const sign = (f: { max: bigint; tip: bigint }) => account.signTransaction({ chainId: this.chainId, type: 'eip1559', to, data, value, gas, nonce, maxFeePerGas: f.max, maxPriorityFeePerGas: f.tip });
@@ -281,11 +292,17 @@ export class LiveChain implements EvmChain {
         if (now - start > this.timeoutMs) throw new Error(`a transaction from ${from} (nonce ${nonce}) was not mined within ${Math.round(this.timeoutMs / 1000)} s: ${hashes.join(', ')}`);
         if (now - checkpoint > this.rebroadcastMs) {
           checkpoint = now;
-          if (hashes.length < 2 && now - start > 2 * this.rebroadcastMs) {
-            // Replace at the same nonce with fees up by a quarter (nodes require at least a tenth).
-            fee = { max: (fee.max * 5n) / 4n, tip: (fee.tip * 5n) / 4n };
-            raw = await sign(fee);
-            hashes.push(await this.broadcast(raw, from));
+          if (hashes.length < 2 && now - start > 2 * this.rebroadcastMs && fee.max < this.maxFee) {
+            // Replace at the same nonce with fees up by a quarter (nodes require at least a tenth), within the cap.
+            // If the first one was mined meanwhile, the node refuses the replacement; the loop then finds its receipt.
+            const max = (fee.max * 5n) / 4n > this.maxFee ? this.maxFee : (fee.max * 5n) / 4n;
+            fee = { max, tip: (fee.tip * 5n) / 4n > max ? max : (fee.tip * 5n) / 4n };
+            const replacement = await sign(fee);
+            const hash = await this.broadcast(replacement, from).catch(() => null);
+            if (hash) {
+              raw = replacement;
+              hashes.push(hash);
+            }
           } else {
             await this.broadcast(raw, from).catch(() => undefined);
           }

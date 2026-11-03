@@ -23,7 +23,7 @@
 // on; the world keeps what the chain does not (the signed offer, acceptance and agreement before funding, the
 // adjudicators' envelopes) and the event log. It persists each commitment's book and the log in pages, so a restart
 // reads one row per commitment and one per 64 events, and replays nothing. The relayer key pays gas for what the
-// operators relay; the faucet mints test tUSD on chain; the three adjudicators keep their own bonds in HoldbackBonds.
+// operators relay; the faucet mints test tUSDC on chain (D42); the three adjudicators keep their own bonds in HoldbackBonds.
 import { canonicalKeccak, holdbackDomain, parseAdjudicator, problem, wholeSecond, type AdjudicatorRegistration, type Address, type HoldbackDomain, type Hex32, type Judgment, type Mandate, type OperatorFeeSchedule, type Problem, type SettlementEvent, type Sha256, type Timestamp, type TokenAmount } from '@holdback/core';
 import { sha256 } from '@holdback/core/crypto';
 import { StoreError, type CiphertextStore } from '@holdback/core/store';
@@ -77,9 +77,9 @@ export interface PublicWorldOptions {
 /** The live chain a world settles on, and the demo adjudicators' standing on it. */
 export interface LiveSettlement {
   chain: LiveChain;
-  /** The bond each demo adjudicator keeps in HoldbackBonds, in base units. Default 1,000,000 tUSD. */
+  /** The bond each demo adjudicator keeps in HoldbackBonds, in base units. Default 25,000 tUSDC. */
   bond?: bigint;
-  /** Test ETH each demo adjudicator keeps for its own approve and deposit. Default 0.003 ETH. */
+  /** Test ETH each demo adjudicator keeps for its own approve and deposit. Default 0.005 ETH. */
   adjudicatorGas?: bigint;
   /** The block explorer for transaction links in the notes. Default Sepolia Etherscan. */
   explorer?: string;
@@ -130,7 +130,7 @@ const lc = (s: string) => s.toLowerCase();
 const hex = (b: Uint8Array) => [...b].map((x) => x.toString(16).padStart(2, '0')).join('');
 const jkey = (i: number) => `j:${String(i).padStart(12, '0')}`;
 const SEPOLIA_EXPLORER = 'https://sepolia.etherscan.io';
-/** Each demo adjudicator's bond on a chain, as on SimChain: 25,000 tUSD covers a thousand 25 tUSD deals at once. */
+/** Each demo adjudicator's bond on a chain, as on SimChain: 25,000 tUSDC covers a thousand 25 tUSDC deals at once. */
 const DEFAULT_LIVE_BOND = 25_000n * TUSD;
 /** Test ETH for an adjudicator's own approve and deposit: 0.005 ETH, about 30 times what the two cost at a 1 gwei tip. */
 const DEFAULT_ADJUDICATOR_GAS = 5_000_000_000_000_000n;
@@ -279,7 +279,7 @@ export class PublicWorld {
       // No chain call here: opening runs inside blockConcurrencyWhile (30 s), so the first pass reads the bonds.
       const evm = await EvmSettlement.restore(o.live.chain, genesis, { books, events: events.all(), mandates: mandates.all() }, now);
       chain = evm;
-      live = { settlement: o.live, evm, events, mandates, bonded: new Set(meta.bonded ?? []), adjudicatorKeys: adjKeys.map((a) => a.keys.privateKey), meta, pools: 0 };
+      live = { settlement: o.live, evm, events, mandates, bonded: new Set(meta.bonded ?? []), adjudicatorKeys: adjKeys.map((a) => a.keys.privateKey), meta, pools: 0, verified: false };
     } else {
       const journal = [...(await storage.list<JournalEntry>({ prefix: 'j:' })).values()];
       chain = await SimChain.replay(genesis, journal);
@@ -452,7 +452,7 @@ export class PublicWorld {
 
   /** Every secret this world holds, for the test that no route serves one. In-process only. */
   secretsForTest(): string[] {
-    return [this.secret, ...this.keys.flatMap((k) => [k.privateKey, hex(k.encryptionSecretKey)])];
+    return [this.secret, ...this.keys.flatMap((k) => [k.privateKey, hex(k.encryptionSecretKey)]), ...(this.live?.settlement.chain.secretsForTest() ?? [])];
   }
 
   /** SimChain's state digest; on a chain, the head of the event log's hash chain. */
@@ -512,7 +512,12 @@ export class PublicWorld {
     const l = this.live!;
     const chain = l.settlement.chain;
     const addresses = l.adjudicatorKeys.map((k) => privateKeyToAccount(k).address);
-    if (l.pools === 0) await l.evm.refreshPools(addresses);
+    if (!l.verified) {
+      // Before anything is sent: the RPC serves the deployment's chain, and the contract is the one in the file.
+      await chain.verify();
+      l.verified = true;
+      await l.evm.refreshPools(addresses);
+    }
     // Once a minute (and first): the deal lanes' gas, then the bonds' standing. A pass that sent ETH ends there.
     if (this.now() - l.pools > 60_000) {
       l.pools = this.now();
@@ -530,7 +535,7 @@ export class PublicWorld {
 
   /** True once a chain world's setup is done (every adjudicator bonded); a SimChain world always is. */
   ready(): boolean {
-    return !this.live || this.live.bonded.size === ADJUDICATORS.length;
+    return !this.live || (this.live.verified && this.live.bonded.size === ADJUDICATORS.length);
   }
 
   /** One adjudicator pass (the Durable Object alarm): accept or decline offers, trigger fallbacks, decide. */
@@ -543,8 +548,8 @@ export class PublicWorld {
       } catch (e) {
         this.o.onError?.(e as Error);
       }
-      // The adjudicators wait for their own bonds: an acceptance without one is refused on chain.
-      if (this.live.bonded.size < ADJUDICATORS.length) return this.persist();
+      // The adjudicators wait for a verified chain and their own bonds: an acceptance without one is refused on chain.
+      if (!this.live.verified || this.live.bonded.size < ADJUDICATORS.length) return this.persist();
     }
     const { panel } = this;
     for (const [role, a] of Object.entries(this.adjudicators) as [Role, TestAdjudicator][]) {
@@ -603,6 +608,8 @@ interface LiveWorld {
   bonded: Set<string>;
   adjudicatorKeys: `0x${string}`[];
   meta: Meta;
+  /** Whether this instance checked the RPC's chain and the rules contract against the deployment file. */
+  verified: boolean;
   /** When the pools and lanes were last checked (ms). */
   pools: number;
 }
@@ -636,7 +643,9 @@ function ledgerOf(chain: SimChain | EvmSettlement, live: LiveChain | undefined):
  * The demo faucet's grant: a fixed amount of tUSD and a mandate in the demo club, signed by the club's own
  * test principal, once per address per window (persisted) and a few addresses per client per window (in memory).
  * On a chain (ADR-0028 §6) the grant is a mint the funding lane sends, answered after its receipt, skipped when the
- * address already holds the grant, and capped per day.
+ * address already holds the grant, and capped per day. One Durable Object serves the world, so the grants in
+ * progress and the day's count are held in memory: two requests that race for one address get one grant, and two
+ * mints racing the cap read and raise one number.
  */
 function grantFrom(w: {
   storage: WorldStorage;
@@ -653,7 +662,8 @@ function grantFrom(w: {
   live?: LiveWorld;
 }): NonNullable<Registry['faucet']> {
   const perClient = new Map<string, { start: number; count: number }>();
-  const mintsPerDay = w.live?.settlement.chain ? FAUCET_MINTS_PER_DAY : Infinity;
+  const granting = new Set<string>();
+  let today = { day: '', minted: 0 };
   return async (address, { client }): Promise<FaucetOutcome> => {
     const now = w.now();
     const windowMs = w.windowSec * 1000;
@@ -663,8 +673,17 @@ function grantFrom(w: {
     let c = perClient.get(client);
     if (!c || now - c.start >= windowMs) perClient.set(client, (c = { start: now, count: 0 }));
     if (c.count >= w.perClient) return { ok: false, problem: problem('rate_limited', 'too many faucet grants from this client; retry later'), retryAfterSec: retryAfterSec(c.start + windowMs) };
+    if (granting.has(address)) return { ok: false, problem: problem('rate_limited', `a grant to ${address} is in progress; one grant per address per window`), retryAfterSec: retryAfterSec(now + 15_000) };
     c.count++;
+    granting.add(address);
+    try {
+      return await grant(address, now, windowMs, retryAfterSec);
+    } finally {
+      granting.delete(address);
+    }
+  };
 
+  async function grant(address: Address, now: number, windowMs: number, retryAfterSec: (at: number) => number): Promise<FaucetOutcome> {
     let mandate: Mandate | undefined = w.ledger.agentMandates().find((x) => lc(x.agent) === address && x.clubId === w.club.id);
     if (!mandate) {
       const issuedAt = wholeSecond(now);
@@ -678,10 +697,16 @@ function grantFrom(w: {
     const held = BigInt((await w.ledger.balances([address]))[address]?.amount ?? '0');
     if (!w.live || held < w.amount) {
       const day = `fm:${new Date(now).toISOString().slice(0, 10)}`;
-      const minted = (await w.storage.get<number>(day)) ?? 0;
-      if (minted >= mintsPerDay) return { ok: false, problem: problem('rate_limited', `the faucet's ${mintsPerDay} mints for today (UTC) are spent; ${w.symbol} on this chain is open-mint, so you can also mint it yourself`), retryAfterSec: retryAfterSec(Date.parse(`${day.slice(3)}T00:00:00Z`) + 86_400_000) };
+      if (w.live) {
+        if (today.day !== day) {
+          const stored = (await w.storage.get<number>(day)) ?? 0;
+          if (today.day !== day) today = { day, minted: stored };
+        }
+        if (today.minted >= FAUCET_MINTS_PER_DAY) return { ok: false, problem: problem('rate_limited', `the faucet's ${FAUCET_MINTS_PER_DAY} mints for today (UTC) are spent; ${w.symbol} on this chain is open-mint, so you can also mint it yourself`), retryAfterSec: retryAfterSec(Date.parse(`${day.slice(3)}T00:00:00Z`) + 86_400_000) };
+        today.minted++;
+      }
       // Counted before the mint, so a grant racing it cannot mint twice; a failed mint gives the address its turn back.
-      await w.storage.put({ [`fa:${address}`]: now, ...(w.live ? { [day]: minted + 1 } : {}) });
+      await w.storage.put({ [`fa:${address}`]: now, ...(w.live ? { [day]: today.minted } : {}) });
       try {
         tx = (await w.ledger.grant(address, w.amount)).tx;
       } catch (e) {
@@ -705,7 +730,7 @@ function grantFrom(w: {
           : "TEST TOKENS ONLY: tUSD on SimChain has no value. The mandate is signed by the demo club's own test principal, held by this demo.",
       },
     };
-  };
+  }
 }
 
 /**

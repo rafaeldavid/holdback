@@ -58,12 +58,12 @@ import {
   type TokenAmount,
   type TransferAuthorization,
 } from '@holdback/core';
-import { decodeEventLog, decodeFunctionData, encodeFunctionData, encodePacked, getAddress, hashTypedData, keccak256, toHex, type Abi, type Hex, type Log } from 'viem';
+import { decodeEventLog, decodeFunctionData, encodeFunctionData, encodePacked, getAddress, hashTypedData, keccak256, toHex, type Abi, type AbiEvent, type Hex, type Log } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import type { Genesis } from '../sim/simchain.js';
 import type { DryRunSubmission, Settlement, Submission, SubmitOptions, SubmitResult, TimeoutKind } from '../src/interface.js';
 import { Refusal, refuse, toJson } from '../src/util.js';
-import type { EvmChain, Mined } from './chain.js';
+import { RelayRefused, type EvmChain, type Mined } from './chain.js';
 import {
   acceptanceView,
   agreeView,
@@ -120,6 +120,8 @@ export interface Book {
   nonces: string[];
   /** The buyer's daily-spend key this commitment counted against, and the amount. */
   spent?: { day: string; amount: string };
+  /** Successful submissions by idempotency key: the body hash and the answer, replayed for the same key and body. */
+  replays?: Record<string, { body: Hex32; result: Extract<SubmitResult, { ok: true }> }>;
   appealClosedAt?: Timestamp;
   lastEventSeq: number;
   updatedAt: Timestamp;
@@ -201,6 +203,8 @@ interface CallContext {
   decision?: Decision;
   appeal?: Appeal;
   operatorFee?: { from: string; to: string; amount: TokenAmount };
+  /** Runs once the call is in a block, before its events. */
+  mined?: () => void;
 }
 
 /** A decision's `decidedBy` payload, as SimChain writes it. */
@@ -285,6 +289,7 @@ export class EvmSettlement implements Settlement {
     for (const [id, b] of saved.books) {
       s.books.set(id, structuredClone(b) as Book);
       for (const n of b.nonces) s.nonces.add(n);
+      for (const [key, r] of Object.entries(b.replays ?? {})) s.idempotency.set(key, r);
       if (b.spent) s.spent.set(b.spent.day, (s.spent.get(b.spent.day) ?? 0n) + BigInt(b.spent.amount));
     }
     for (const e of saved.events) {
@@ -608,7 +613,9 @@ export class EvmSettlement implements Settlement {
       throw e;
     }
     const book = this.books.get(id)!;
-    const events = this.log_.slice(before);
+    // On a live chain other commitments' calls run while this one waits for its block: only this commitment's events
+    // are this submission's.
+    const events = this.log_.slice(before).filter((e) => e.commitmentId === id);
     if (events.length) {
       book.lastEventSeq = events.at(-1)!.seq;
       book.updatedAt = this.now();
@@ -617,7 +624,12 @@ export class EvmSettlement implements Settlement {
     const state = await this.view(id, book);
     const signatureCheck = s.kind === 'trigger' ? 'none' : 'verified';
     const result: Extract<SubmitResult, { ok: true }> = { ok: true, commitmentId: id, state, events, replayed: false, dryRun, signatureCheck };
-    if (key !== undefined) this.idempotency.set(key, { body, result: structuredClone(result) });
+    if (key !== undefined) {
+      this.idempotency.set(key, { body, result: structuredClone(result) });
+      // Kept with the book, so a retry after a restart still replays the first answer (hard rule: idempotency).
+      book.replays = { ...book.replays, [key]: { body, result: structuredClone(result) } };
+      this.dirty.add(id);
+    }
     return result;
   }
 
@@ -708,7 +720,8 @@ export class EvmSettlement implements Settlement {
         this.useNonce(book, `${lc(m.adjudicator)}:${m.nonce}`, false);
         book.state = next;
         book.acceptance = m;
-        this.emit('adjudicator.accepted', m.commitmentId, m.adjudicator, via, { source: 'adapter', seedCommitment: m.seedCommitment, bondRequired: required.value, freeBond: this.amount(free) }, false);
+        // The signed acceptance in full: agreeAndFund needs it, so anyone holding the terms can fund without an operator.
+        this.emit('adjudicator.accepted', m.commitmentId, m.adjudicator, via, { source: 'adapter', seedCommitment: m.seedCommitment, bondRequired: required.value, freeBond: this.amount(free), acceptance: m }, false);
         return m.commitmentId;
       }
       case 'agree':
@@ -722,10 +735,10 @@ export class EvmSettlement implements Settlement {
         if (s.agree.commitmentId !== s.funding.commitmentId) refuse('invalid_terms', 'agreement and funding name different commitments');
         if (s.operatorFee && s.operatorFee.commitmentId !== s.agree.commitmentId) refuse('invalid_terms', 'the operator fee names another commitment');
         await this.check(s.agree, s.agree.buyer, 'Agree');
-        const { undo } = this.agree(s.agree, via, dryRun);
+        const { announce, undo } = this.agree(s.agree, via, dryRun, true);
         if (dryRun) return s.agree.commitmentId;
         try {
-          return await this.fund(s.funding, s.operatorFee ?? null, options);
+          return await this.fund(s.funding, s.operatorFee ?? null, options, announce);
         } catch (e) {
           undo();
           throw e;
@@ -803,7 +816,12 @@ export class EvmSettlement implements Settlement {
     return book.state.kind === 'Held' ? book.carried : undefined;
   }
 
-  private agree(m: Agree, via: string, dryRun: boolean): { id: Hex32; undo: () => void } {
+  /**
+   * Records the buyer's agreement. With `deferred` (agree and fund in one step), its event waits for the funding's
+   * block (`announce`) and `undo` takes back only this commitment's own changes: other commitments emit events and
+   * spend while this one waits on a live chain, so nothing shared is rolled back to a snapshot.
+   */
+  private agree(m: Agree, via: string, dryRun: boolean, deferred = false): { id: Hex32; announce: () => void; undo: () => void } {
     const book = this.bookOf(m.commitmentId);
     const { terms } = book.state;
     const nonce = `${lc(m.buyer)}:${m.nonce}`;
@@ -812,31 +830,36 @@ export class EvmSettlement implements Settlement {
     const day = `${lc(terms.buyer)}|${this.now().slice(0, 10)}`;
     const spent = this.spent.get(day) ?? 0n;
     const next = this.stepped(book.state, { type: 'agree', at: this.now(), message: m, buyerScope, spentToday: this.amount(spent), memberAdmitted: this.isMember(book.club, terms.buyer, terms) });
-    if (dryRun) return { id: m.commitmentId, undo: () => undefined };
+    const none = () => undefined;
+    if (dryRun) return { id: m.commitmentId, announce: none, undo: none };
     const prev = book.state;
-    const seq = this.log_.length;
+    const price = BigInt(terms.price.amount);
     this.useNonce(book, nonce, false);
     book.state = next;
     book.agree = m;
     book.spent = { day, amount: terms.price.amount };
-    this.spent.set(day, spent + BigInt(terms.price.amount));
-    this.emit('commitment.agreed', m.commitmentId, m.buyer, via, { source: 'adapter', termsHash: m.commitmentId }, false);
+    this.spent.set(day, spent + price);
+    const announce = () => this.emit('commitment.agreed', m.commitmentId, m.buyer, via, { source: 'adapter', termsHash: m.commitmentId }, false);
+    if (!deferred) announce();
     return {
       id: m.commitmentId,
+      announce,
       undo: () => {
         book.state = prev;
         delete book.agree;
         delete book.spent;
         this.nonces.delete(nonce);
         book.nonces = book.nonces.filter((n) => n !== nonce);
-        this.spent.set(day, spent);
-        this.log_.splice(seq);
+        this.spent.set(day, (this.spent.get(day) ?? price) - price);
       },
     };
   }
 
-  /** Transaction 1 (D4): agreeAndFund, or the operator-fee bundle (ADR-0023): fee transfer + agreeAndFund, atomic. */
-  private async fund(m: Extract<Submission, { kind: 'fund' }>['message'], fee: TransferAuthorization | null, options: EvmSubmitOptions): Promise<Hex32> {
+  /**
+   * Transaction 1 (D4): agreeAndFund, or the operator-fee bundle (ADR-0023): fee transfer + agreeAndFund, atomic.
+   * `mined` runs once the funding is in a block, before its events (the agreement's own event, when deferred).
+   */
+  private async fund(m: Extract<Submission, { kind: 'fund' }>['message'], fee: TransferAuthorization | null, options: EvmSubmitOptions, mined?: () => void): Promise<Hex32> {
     const book = this.bookOf(m.commitmentId);
     if (book.state.kind !== 'Agreed' || !book.acceptance || !book.agree) return refuse(book.state.kind === 'Offered' ? 'acceptance_missing' : 'invalid_state', `funding needs an agreed commitment; it is ${book.state.kind}`);
     const terms = book.state.terms;
@@ -849,8 +872,9 @@ export class EvmSettlement implements Settlement {
     const balance = await this.tokenBalance(terms.buyer, true);
     const args = [t, book.sellerSignature, acceptanceView(book.acceptance), agreeView(book.agree), { method: 0, signature: m.signature }];
     const mirror = (at: Timestamp): EscrowEvent[] => [{ type: 'fund', at, message: m, buyerScope, balance: this.amount(balance), gasBuffer: this.amount(0n) }];
+    const ctx: CallContext = mined ? { mined } : {};
     if (!fee) {
-      await this.call(m.commitmentId, 'agreeAndFund', args, mirror, options, false, m.from);
+      await this.call(m.commitmentId, 'agreeAndFund', args, mirror, options, false, m.from, ctx);
       return m.commitmentId;
     }
     if (lc(fee.from) !== lc(terms.buyer)) refuse('invalid_terms', `the operator fee must come from the buyer ${terms.buyer}`);
@@ -863,11 +887,14 @@ export class EvmSettlement implements Settlement {
       functionName: 'transferWithAuthorization',
       args: [getAddress(fee.from), getAddress(fee.to), BigInt(fee.value), BigInt(secs(fee.validAfter)), BigInt(secs(fee.validBefore)), fee.nonce, fee.signature],
     });
-    // ADR-0023 (EVM amendment): anyone may relay the fee transfer alone, ahead of the bundle. The fee has then reached
-    // this operator already, and the bundle would revert on the spent nonce, so the hold is funded on its own.
+    // ADR-0023 (EVM amendment): anyone may relay the fee transfer alone, ahead of the bundle, and the bundle would then
+    // revert on the spent nonce. When the transfer that spent it paid this operator, the hold is funded on its own;
+    // when it did not (the buyer spent its own nonce elsewhere), this operator is not paid and declines to relay.
     if (await this.nonceUsed(m.commitmentId, token, feeCall)) {
-      await this.call(m.commitmentId, 'agreeAndFund', args, mirror, options, false, m.from);
-      this.emit('fee.operator', m.commitmentId, m.from, options.via ?? 'direct', { source: 'adapter', from: lc(fee.from), to: lc(fee.to), amount: this.amount(BigInt(fee.value)), paid: 'by an earlier transaction' }, false);
+      const paid = await this.feePaidEarlier(fee, terms.createdAt);
+      if (paid === false) refuse('payment_required', 'the operator fee authorization for this commitment was used without paying this operator; relay the agreement through another operator or submit it directly to the settlement layer');
+      await this.call(m.commitmentId, 'agreeAndFund', args, mirror, options, false, m.from, ctx);
+      this.emit('fee.operator', m.commitmentId, m.from, options.via ?? 'direct', { source: 'adapter', from: lc(fee.from), to: lc(fee.to), amount: this.amount(BigInt(fee.value)), paid: paid ? 'by an earlier transaction' : 'unverified' }, false);
       return m.commitmentId;
     }
     const fundCall = encodeFunctionData({ abi: this.world.abis.rules, functionName: 'agreeAndFund', args });
@@ -881,8 +908,32 @@ export class EvmSettlement implements Settlement {
         ],
       ],
     });
-    await this.send(m.commitmentId, 'agreeAndFund', multicall, bundle, mirror, options, false, m.from, { operatorFee: { from: lc(fee.from), to: lc(fee.to), amount: this.amount(BigInt(fee.value)) } });
+    await this.send(m.commitmentId, 'agreeAndFund', multicall, bundle, mirror, options, false, m.from, { ...ctx, operatorFee: { from: lc(fee.from), to: lc(fee.to), amount: this.amount(BigInt(fee.value)) } });
     return m.commitmentId;
+  }
+
+  /**
+   * Whether the transaction that spent the fee's nonce paid this operator: the token's AuthorizationUsed(buyer, nonce)
+   * log, in a transaction that also moved at least the fee from the buyer to the fee address. Null when the payment
+   * cannot be checked: the token logs no AuthorizationUsed for it (LocalUSDC on anvil), or the RPC cannot say.
+   */
+  private async feePaidEarlier(fee: TransferAuthorization, since: Timestamp): Promise<boolean | null> {
+    const event = this.world.abis.token.find((x): x is AbiEvent => x.type === 'event' && x.name === 'AuthorizationUsed');
+    if (!event) return null;
+    const client = this.world.publicClient;
+    const { token, fromBlock } = this.world.deployment;
+    try {
+      const latest = await client.getBlockNumber();
+      // On a live chain, only the blocks since the terms were made (about 12 s each), within one RPC range.
+      const span = BigInt(Math.min(50_000, Math.ceil((Date.parse(this.now()) - Date.parse(since)) / 12_000) + 50));
+      const from = this.wall && latest - span > fromBlock ? latest - span : fromBlock;
+      const used = await client.getLogs({ address: token, event, args: { authorizer: getAddress(fee.from), nonce: fee.nonce }, fromBlock: from, toBlock: latest });
+      if (used.length === 0) return null;
+      const receipt = await client.getTransactionReceipt({ hash: used[0]!.transactionHash! });
+      return this.decode(receipt.logs).some((l) => l.eventName === 'Transfer' && lc(String(l.args['from'])) === lc(fee.from) && lc(String(l.args['to'])) === lc(fee.to) && BigInt(String(l.args['amount'] ?? l.args['value'] ?? 0)) >= BigInt(fee.value));
+    } catch {
+      return null;
+    }
   }
 
   /** True when the token refuses an ERC-3009 call because its nonce is already used. Any other answer is false. */
@@ -974,7 +1025,14 @@ export class EvmSettlement implements Settlement {
     const before = book.state;
     const next = this.mirrored(before, mirror(at), fn);
     if (dryRun) return;
-    const mined: Mined = await this.world.send({ ...(key ? { key } : { lane: id }), to, data }, this.wall ? undefined : time);
+    let mined: Mined;
+    try {
+      mined = await this.world.send({ ...(key ? { key } : { lane: id }), to, data }, this.wall ? undefined : time);
+    } catch (e) {
+      // The relayer declines (out of test ETH, gas above its cap): the signed message stays valid elsewhere (D27).
+      if (e instanceof RelayRefused) refuse('relay_refused', `this operator cannot relay it now: ${e.message}; submit the same signed message through another operator or directly to the settlement layer`);
+      throw e;
+    }
     if (mined.status !== 'success') {
       if (!this.wall) throw new Error(`${fn} reverted on chain after a passing simulation: ${mined.hash}`);
       // On a live chain the state or a deadline can move between the simulation and the block; only gas was spent.
@@ -991,6 +1049,7 @@ export class EvmSettlement implements Settlement {
     const via = options.via ?? 'direct';
     this.txs.push({ commitmentId: id, call: fn, hash: mined.hash, from: mined.from, via, gasUsed: mined.gasUsed, at: blockAt });
     const tx = { tx: mined.hash, block: mined.blockNumber, sender: lc(mined.from), gasUsed: mined.gasUsed };
+    ctx.mined?.();
     if (ctx.operatorFee) this.emit('fee.operator', id, actor, via, { ...ctx.operatorFee, ...tx }, true, blockAt);
     for (const { type, log } of eventTypesFor(fn, logs)) {
       if (type === 'key.released' && log) {

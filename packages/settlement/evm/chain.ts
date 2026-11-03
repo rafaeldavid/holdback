@@ -40,6 +40,9 @@ export interface Mined {
   logs: readonly Log[];
 }
 
+/** The operator declines to relay (D27, ADR-0005): the signed message stays valid for another operator or a direct call. */
+export class RelayRefused extends Error {}
+
 export interface EvmChain {
   readonly chainId: number;
   readonly deployment: Deployment;

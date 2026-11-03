@@ -54,7 +54,7 @@ Workers rules learned the hard way (T-029): compile schemas at startup, not lazi
 
 Each operator Worker has a variable `SETTLEMENT`, `sim` or `sepolia`, in its wrangler file. It picks the world the Worker forwards to: `holdback-public-demo-2026-11-02` (SimChain) or `holdback-public-demo-sepolia-2026-11-03` (Sepolia), in `apps/demo-cloud/src/worker.ts`. The two worlds never share storage. A world records its settlement when it is created and keeps it; the Durable Object always runs holdback-op1's code and environment, so the Sepolia secrets live on holdback-op1 whichever Worker a request came through.
 
-**What the Sepolia world needs before any Worker flips:** `contracts/deployments/sepolia.json` on main (T-206; the build embeds it), its copy in `examples/deployments.ts`, the relayer secret on holdback-op1 (above), and Sepolia ETH on the funding lane. On its first passes the world tops up the deal lanes, then bonds each demo adjudicator (25,000 tUSD, minted, approved and deposited from its own key); `notices` on a state read say so until the bonds are in place.
+**What the Sepolia world needs before any Worker flips:** `contracts/deployments/sepolia.json` on main (T-206; the build embeds it), its copy in `examples/deployments.ts`, the relayer secret on holdback-op1 (above), and Sepolia ETH on the funding lane. On its first passes the world tops up the deal lanes, then bonds each demo adjudicator (25,000 tUSDC, minted, approved and deposited from its own key); `notices` on a state read say so until the bonds are in place.
 
 **Cutover** (Rafa approved it on 2026-11-03):
 

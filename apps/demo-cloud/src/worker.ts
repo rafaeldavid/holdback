@@ -66,6 +66,16 @@ const SETTLEMENT = 'x-holdback-settlement';
 const strings = (env: Env): Record<string, string> => Object.fromEntries(Object.entries(env).filter((e): e is [string, string] => typeof e[1] === 'string'));
 const settlementOf = (v: unknown): Settlement => (v === 'sepolia' ? 'sepolia' : 'sim');
 
+/** A log line with each keyed RPC URL cut to its origin: viem's errors name the URL, and a keyed path is a secret. */
+function redact(message: string, env: Env): string {
+  let out = message;
+  for (const u of (env.SEPOLIA_RPC_URLS ?? '').split(',').map((s) => s.trim()).filter(Boolean)) {
+    const origin = URL.canParse(u) ? new URL(u).origin : 'a keyed RPC';
+    out = out.split(u).join(`${origin}/…`);
+  }
+  return out;
+}
+
 /** The Sepolia chain from holdback-op1's environment and the embedded deployment. Throws on a missing secret. */
 function sepolia(env: Env): LiveSettlement {
   const key = env.SEPOLIA_RELAYER_KEY;
@@ -101,7 +111,7 @@ export class World {
         ...(this.env.MIN_WINDOW_SEC ? { minWindowSec: Number(this.env.MIN_WINDOW_SEC) } : {}),
         ...(this.env.FEEDBACK ? { feedbackStore: new KvFeedbackStore(this.env.FEEDBACK) } : {}),
         ...(kind === 'sepolia' ? { live: sepolia(this.env) } : {}),
-        onError: (e) => console.error(`demo world: ${e.message}`),
+        onError: (e) => console.error(`demo world: ${redact(e.message, this.env)}`),
       });
     });
     // A failed open (a missing secret, say) is tried again on the next request instead of failing every one after.

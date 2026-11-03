@@ -4,8 +4,10 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { encodeFunctionData, getAddress } from 'viem';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { sign } from 'viem/accounts';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { authorizationExpiry } from '../sim/simchain.js';
+import { RelayRefused } from './chain.js';
 import { measure, must, newSettlement, PATHS } from './gas.js';
 import { EvmDeal } from './testing.js';
 import { anvilAvailable, EvmWorld, EXPIRY_MARGIN } from './world.js';
@@ -129,16 +131,35 @@ describe.skipIf(!ready)(`EvmSettlement on anvil${ready ? '' : ' (SKIPPED: needs 
     await must(chain, cast, d.accept());
     const s = await d.agreeAndFund({ operatorFee: { to: cast.operator.address, value: 1_000_000n } });
     if (s.kind !== 'agree_and_fund' || !s.operatorFee) throw new Error('unreachable');
-    // A mempool watcher sends the buyer's signed fee transfer by itself (transferWithAuthorization is permissionless).
-    const f = s.operatorFee;
-    const data = encodeFunctionData({ abi: world.abis.token, functionName: 'transferWithAuthorization', args: [getAddress(f.from), getAddress(f.to), BigInt(f.value), BigInt(Date.parse(f.validAfter) / 1000), BigInt(Date.parse(f.validBefore) / 1000), f.nonce, f.signature] });
-    expect((await world.send({ key: cast.stranger.key, to: world.deployment.token, data }, Date.parse(chain.now()) / 1000)).status).toBe('success');
+    await frontRun(world, cast.stranger.key, s.operatorFee, s.operatorFee.to, s.operatorFee.signature, chain.now());
     const r = await chain.submit(s, { via: 'op-1', sender: cast.operator.key });
     expect(r.ok ? r.state.escrowState : r.problem.type).toBe('Held');
     expect(chain.transactions().map((t) => t.call)).toEqual(['agreeAndFund']);
     expect(await chain.tokenBalance(cast.operator.address)).toBe(1_000_000n);
     expect(await chain.tokenBalance(cast.buyer.address)).toBe(100_000_000_000n - 2_050_000_000n - 1_000_000n);
-    expect(chain.log().find((e) => e.type === 'fee.operator')?.payload).toMatchObject({ source: 'adapter', paid: 'by an earlier transaction' });
+    // LocalUSDC logs no AuthorizationUsed, so the adapter cannot tell who the earlier transfer paid.
+    expect(chain.log().find((e) => e.type === 'fee.operator')?.payload).toMatchObject({ source: 'adapter', paid: 'unverified' });
+  }, 60_000);
+
+  it('a relay the lanes refuse is relay_refused, changes nothing, and the same agreement can be sent again', async () => {
+    const { chain, cast, club } = await newSettlement(world);
+    const d = new EvmDeal(chain, cast, club, 'relay-refused');
+    await must(chain, cast, d.offer());
+    await must(chain, cast, d.accept());
+    const s = await d.agreeAndFund();
+    const refused = vi.spyOn(world, 'send').mockRejectedValueOnce(new RelayRefused('the gas estimate is above the cap'));
+    try {
+      const r = await chain.submit(s, { via: 'op-1', sender: cast.operator.key });
+      expect(r.ok ? 'ok' : r.problem.type).toBe('relay_refused');
+    } finally {
+      refused.mockRestore();
+    }
+    expect(chain.escrowState(d.id)?.kind).toBe('AcceptedByAdjudicator');
+    expect(chain.log().map((e) => e.type)).not.toContain('commitment.agreed');
+    // The agreement's nonce and the buyer's daily spend were given back: the same signed messages fund.
+    const again = await chain.submit(s, { via: 'op-1', sender: cast.operator.key });
+    expect(again.ok ? again.state.escrowState : again.problem.type).toBe('Held');
+    expect(chain.log().filter((e) => e.type === 'commitment.agreed')).toHaveLength(1);
   }, 60_000);
 
   it('agrees with SimChain on authorizationExpiry: no capture from fallbackBy + appealDecideSec + margin on', async () => {
@@ -181,4 +202,59 @@ describe.skipIf(!ready)(`EvmSettlement on anvil${ready ? '' : ' (SKIPPED: needs 
     for (const r of rows) expect(r.total).toBeGreaterThan(0n);
     // Ten deals on anvil, each with clock warps; CI runners hit 180 s twice (PRs 77 and 83) while it passes locally.
   }, 420_000);
+});
+
+/** A mempool watcher sends the buyer's signed fee transfer by itself (transferWithAuthorization is permissionless). */
+async function frontRun(world: EvmWorld, key: `0x${string}`, f: { from: string; value: string; validAfter: string; validBefore: string; nonce: `0x${string}` }, to: string, signature: `0x${string}`, now: string): Promise<void> {
+  const data = encodeFunctionData({ abi: world.abis.token, functionName: 'transferWithAuthorization', args: [getAddress(f.from), getAddress(to), BigInt(f.value), BigInt(Date.parse(f.validAfter) / 1000), BigInt(Date.parse(f.validBefore) / 1000), f.nonce, signature] });
+  expect((await world.send({ key, to: world.deployment.token, data }, Date.parse(now) / 1000)).status).toBe('success');
+}
+
+// tUSDC, the Sepolia demo's token (D42), logs AuthorizationUsed, so the adapter can tell whether an earlier use of the
+// fee nonce paid this operator (ADR-0023).
+describe.skipIf(!ready)(`EvmSettlement on anvil with tUSDC${ready ? '' : ' (SKIPPED: needs anvil on PATH and forge build output in contracts/out)'}`, () => {
+  let world: EvmWorld;
+  beforeAll(async () => {
+    world = await EvmWorld.start(root, { token: 'test-usdc' });
+  }, 60_000);
+  afterAll(async () => {
+    await world?.stop();
+  });
+
+  it('the fee relayed alone ahead of the bundle paid this operator: the hold funds, paid by an earlier transaction', async () => {
+    const { chain, cast, club } = await newSettlement(world);
+    const d = new EvmDeal(chain, cast, club, 'tusdc-front-run');
+    await must(chain, cast, d.offer());
+    await must(chain, cast, d.accept());
+    const s = await d.agreeAndFund({ operatorFee: { to: cast.operator.address, value: 1_000_000n } });
+    if (s.kind !== 'agree_and_fund' || !s.operatorFee) throw new Error('unreachable');
+    await frontRun(world, cast.stranger.key, s.operatorFee, s.operatorFee.to, s.operatorFee.signature, chain.now());
+    const r = await chain.submit(s, { via: 'op-1', sender: cast.operator.key });
+    expect(r.ok ? r.state.escrowState : r.problem.type).toBe('Held');
+    expect(await chain.tokenBalance(cast.operator.address)).toBe(1_000_000n);
+    expect(chain.log().find((e) => e.type === 'fee.operator')?.payload).toMatchObject({ source: 'adapter', paid: 'by an earlier transaction' });
+  }, 60_000);
+
+  it('the buyer spent the fee nonce paying someone else: payment_required, nothing held, and the funding alone still works', async () => {
+    const { chain, cast, club } = await newSettlement(world);
+    const d = new EvmDeal(chain, cast, club, 'tusdc-fee-spent');
+    await must(chain, cast, d.offer());
+    await must(chain, cast, d.accept());
+    const s = await d.agreeAndFund({ operatorFee: { to: cast.operator.address, value: 1_000_000n } });
+    if (s.kind !== 'agree_and_fund' || !s.operatorFee) throw new Error('unreachable');
+    const f = s.operatorFee;
+    // The same nonce over a transfer to the buyer's friend: the fee nonce is used, and this operator is not paid.
+    const elsewhere = await chain.operatorFeeAuthorization(d.id, cast.buyer.address, cast.stranger.address, 1_000_000n, f.validAfter, f.validBefore);
+    expect(elsewhere.nonce).toBe(f.nonce);
+    await frontRun(world, cast.buyer.key, f, cast.stranger.address, await sign({ hash: elsewhere.digest, privateKey: cast.buyer.key, to: 'hex' }), chain.now());
+    const r = await chain.submit(s, { via: 'op-1', sender: cast.operator.key });
+    expect(r.ok ? 'ok' : r.problem.type).toBe('payment_required');
+    expect(chain.escrowState(d.id)?.kind).toBe('AcceptedByAdjudicator');
+    expect(chain.transactions()).toHaveLength(0);
+    expect(await chain.tokenBalance(cast.operator.address)).toBe(0n);
+    expect(chain.log().map((e) => e.type)).not.toContain('commitment.agreed');
+    // Another operator, or the buyer directly, can still fund the hold without this operator's fee.
+    const funded = await chain.submit({ kind: 'agree_and_fund', agree: s.agree, funding: s.funding }, { via: 'op-2', sender: cast.operator.key });
+    expect(funded.ok ? funded.state.escrowState : funded.problem.type).toBe('Held');
+  }, 60_000);
 });

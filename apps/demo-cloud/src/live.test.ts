@@ -113,12 +113,21 @@ describe.skipIf(!ready)(`the public world on a live chain (anvil for Sepolia)${r
       expect((await evm.stage(id as `0x${string}`)).stage).toBe('Released');
       // The money moved on chain: the seller holds the price, the hold is empty.
       expect(await evm.heldFor(id as `0x${string}`)).toBe(0n);
+      // No route serves a key the world holds, the relayer's lanes included.
+      const paths = ['/', '/.well-known/holdback.json', '/llms.txt', '/v1/status', '/v1/adjudicators', '/v1/commitments', `/v1/commitments/${id}`, `/v1/commitments/${id}/events?limit=200`, `/v1/commitments/${id}/terms`];
+      const bodies = await Promise.all(demo.urls.flatMap((u) => paths.map(async (p) => (await fetch(`${u}${p}`)).text())));
+      const secrets = world.secretsForTest().map((s) => s.toLowerCase().replace(/^0x/, ''));
+      expect(secrets).toContain(RELAYER.slice(2));
+      for (const body of [...bodies, run.out]) for (const s of secrets) expect(body.toLowerCase().includes(s)).toBe(false);
     } finally {
       await demo.close();
     }
 
-    // A restart (Durable Object eviction): the same storage opens without a replay and serves the same deal.
+    // A restart (Durable Object eviction): the same storage opens without a replay and serves the same deal. Opening
+    // reads no chain; the first pass verifies it, and the bonds recorded in storage are not sent again.
     const again = await PublicWorld.open({ storage, env: ENV, live: { chain: chainOf() } });
+    expect(again.ready()).toBe(false);
+    await again.work();
     expect(again.ready()).toBe(true);
     expect(again.digest()).toBe(world.digest());
     const before = (world.chain as EvmSettlement).log();
@@ -133,7 +142,7 @@ describe.skipIf(!ready)(`the public world on a live chain (anvil for Sepolia)${r
 });
 
 // The same deal against the deployed Sepolia contracts, forked locally by anvil (chain id 11155111, the real
-// HoldbackRules, CPP, tUSD and drand verifier), with a test relayer funded on the fork only. Needs network: it runs
+// HoldbackRules, CPP, tUSDC and drand verifier), with a test relayer funded on the fork only. Needs network: it runs
 // when SEPOLIA_FORK_RPC names a Sepolia RPC and contracts/deployments/sepolia.json exists.
 const forkRpc = process.env['SEPOLIA_FORK_RPC'];
 const deploymentFile = `${root}contracts/deployments/sepolia.json`;
