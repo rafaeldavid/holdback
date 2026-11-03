@@ -4,6 +4,8 @@
 // The operator fee (ADR-0023, D33) is read from these variables by the World Durable Object, so it applies to
 // both nodes: OPERATOR_FEE_BPS (basis points), OPERATOR_FEE_MIN (base units; 0.01 tUSD is "10000"), and an
 // optional OPERATOR_FEE_MAX. Remove both to publish no fee; "0" and "0" publish it at zero.
+// Workers Logs keeps console lines (errors, and the World's telemetry lines, T-031) but no invocation logs: those
+// record each request's headers, which carry Authorization and the caller's IP (D39).
 {
   "name": "holdback-op1",
   "main": "dist/worker.js",
@@ -17,5 +19,5 @@
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["World"] }],
   "alias": { "node:fs": "./worker/fs-shim.js" },
   "define": { "import.meta.url": "\"file:///holdback/bundle/a/b/worker.js\"" },
-  "observability": { "enabled": true }
+  "observability": { "enabled": true, "logs": { "invocation_logs": false } }
 }

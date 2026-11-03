@@ -64,11 +64,16 @@ export class World {
   }
 
   private async schedule(world: PublicWorld, delayMs: number): Promise<void> {
-    if (!world.active()) return;
+    // Adjudicators work while the world is active; otherwise only telemetry's unflushed log lines need a wake.
+    const due = world.active() ? delayMs : world.telemetry.flushDueInMs();
+    if (due === null) return;
     // An alarm whose handler threw stays set, overdue, while the runtime backs off its retries; a request then
     // re-arms it rather than wait (T-029 measured adjudicators idle for minutes after one failed version).
     const at = await this.state.storage.getAlarm();
-    if (at === null || at < Date.now() - 5000) await this.state.storage.setAlarm(Date.now() + delayMs);
+    if (at === null || at < Date.now() - 5000) {
+      await this.state.storage.setAlarm(Date.now() + due);
+      world.telemetry.alarmSet();
+    }
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -81,7 +86,7 @@ export class World {
     return response;
   }
 
-  /** Adjudicators look for work about once a second while the world is active. */
+  /** Adjudicators look for work about once a second while the world is active; telemetry flushes on the same pass. */
   async alarm(): Promise<void> {
     const world = await this.open();
     await world.work();

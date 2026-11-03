@@ -21,7 +21,7 @@ const running: Running[] = [];
 afterEach(async () => void (await Promise.all(running.splice(0).map((r) => r.close()))));
 
 /** Serves a world as two nodes: http://127.0.0.1:<port> is node 0, http://localhost:<port> node 1. */
-async function serve(options: Partial<PublicWorldOptions> = {}, storage = new MemoryStorage()): Promise<Running> {
+async function serve(options: Partial<PublicWorldOptions> = {}, storage = new MemoryStorage(), client?: string): Promise<Running> {
   const world = await PublicWorld.open({ storage, env: {}, minWindowSec: 2, ...options });
   const server: Server = createServer(async (req, res) => {
     const host = req.headers.host ?? '';
@@ -30,7 +30,7 @@ async function serve(options: Partial<PublicWorldOptions> = {}, storage = new Me
     for await (const c of req) chunks.push(c as Buffer);
     const body = ['GET', 'HEAD'].includes(req.method ?? 'GET') ? undefined : Buffer.concat(chunks);
     const headers = Object.fromEntries(Object.entries(req.headers).filter(([, v]) => typeof v === 'string')) as Record<string, string>;
-    const r = await world.fetch(new Request(`http://${host}${req.url}`, { method: req.method ?? 'GET', headers, ...(body ? { body } : {}) }), { node, origin: `http://${host}`, client: req.socket.remoteAddress ?? 'unknown' });
+    const r = await world.fetch(new Request(`http://${host}${req.url}`, { method: req.method ?? 'GET', headers, ...(body ? { body } : {}) }), { node, origin: `http://${host}`, client: client ?? req.socket.remoteAddress ?? 'unknown' });
     res.writeHead(r.status, Object.fromEntries(r.headers));
     res.end(Buffer.from(await r.arrayBuffer()));
   });
@@ -351,6 +351,62 @@ describe('a checks-only deal between two fresh agents, over HTTP', () => {
     expect((await again.call('GET', `/v1/commitments/${offer.id}`)).escrowState).toBe('Released');
     expect((await again.call('GET', `/v1/commitments/${offer.id}/judgment`)).commitmentId).toBe(offer.id);
     expect((await again.call('GET', `/v1/balances/${seller.address}`)).amount).toBe('1025000000');
+  }, 60_000);
+});
+
+describe('telemetry (T-031)', () => {
+  it('never receives a body, a header value, an IP or an address, and summarizes the day from settlement events', async () => {
+    const lines: J[] = [];
+    let offset = 0;
+    const storage = new MemoryStorage();
+    const ip = '203.0.113.77';
+    const { urls, world } = await serve({ now: () => Date.now() + offset, telemetryLog: (_level, line) => void lines.push(line) }, storage, ip);
+    const index = ((await (await fetch(`${urls[0]}/`)).json()) as J).demo;
+    const [buyer, seller] = [freshAgent(urls), freshAgent(urls)];
+    for (const a of [buyer, seller]) await a.call('POST', '/v1/faucet', { address: a.address });
+    const [primary, fallback, appeal] = index.adjudicators.map((a: J) => a.address);
+    const offer = await seller.offer({
+      template: 'checks-only',
+      clubId: index.clubId,
+      seller: seller.address,
+      buyer: { address: buyer.address, encryptionPublicKey: buyer.encryptionPublicKey },
+      adjudicators: { primary, fallback, appeal },
+      price: { token: 'tUSD', amount: '25000000' },
+      deliverable: { kind: 'dataset', description: 'customers.csv', format: 'text/csv' },
+      checks: [{ id: 'cols', type: 'csv_columns_exact', required: true, columns: ['customer_id', 'email'] }],
+      timing: { judgeWithinSec: 2, fallbackWithinSec: 2, appealWindowSec: 2, appealDecideSec: 2 },
+    });
+    await buyer.waitFor(offer.id, ['AcceptedByAdjudicator']);
+    await buyer.agreeAndFund(offer.terms, 30_000_000n);
+    await seller.deliver(offer.terms, new TextEncoder().encode('customer_id,email\n1,ada@example.com\n'));
+    await buyer.waitFor(offer.id, ['Released']);
+
+    // A value in every header, the query and the body, from a client whose IP is known.
+    const canaries = { authorization: 'Holdback-ReadToken canary-authorization', traceparent: '00-c0ffeec0ffeec0ffeec0ffeec0ffee00-c0ffeec0ffee0000-01', 'user-agent': 'canary-user-agent', 'x-canary': 'canary-header', 'idempotency-key': 'canary-idempotency-key' };
+    const terms = await fetch(`${urls[0]}/v1/commitments/${offer.id}/terms?canary=canary-query`, { headers: canaries });
+    await terms.text();
+    const faucet = await fetch(`${urls[1]}/v1/faucet`, { method: 'POST', headers: { ...canaries, 'content-type': 'application/json' }, body: JSON.stringify({ address: buyer.address, canary: 'canary-body' }) });
+    await faucet.text();
+
+    // The next UTC day: the world closes the hours and the day it saw.
+    offset = Date.parse(new Date(Date.now() + 86_400_000).toISOString().slice(0, 10)) + 60_000 - Date.now();
+    for (const end = Date.now() + 10_000; Date.now() < end && !lines.some((l) => l.telemetry === 'day'); ) await new Promise((r) => setTimeout(r, 100));
+    const day = lines.find((l) => l.telemetry === 'day');
+    expect(day.deals).toMatchObject({ offered: { deals: 1 }, funded: { deals: 1 }, delivered: { deals: 1 }, decided: { deals: 1 }, final: { deals: 1 } });
+    expect(day.outcomes.released).toBe(1);
+    expect(day.signers).toEqual({ active: 2, fresh: 2, firstDealCompleted: 2 });
+    expect(day.routes['POST /v1/faucet']).toMatchObject({ requests: 3, clientErrors: 1, problems: { rate_limited: 1 } });
+    expect(day.usage.requests.used).toBeGreaterThan(0);
+    expect(day.journalEntries).toBe(world.chain.journalLength());
+
+    // The log finds each request by its Request-Id, as the node that answered it.
+    expect(await world.telemetry.lookup(terms.headers.get('request-id')!)).toMatchObject({ node: 0, method: 'GET', route: '/v1/commitments/{commitmentId}/terms', status: 200 });
+    expect(await world.telemetry.lookup(faucet.headers.get('request-id')!)).toMatchObject({ node: 1, route: '/v1/faucet', status: 429, problem: 'rate_limited' });
+
+    // Nothing a request carried, and no address or deal ID, reaches the log lines, the stored log or the usage.
+    const kept = JSON.stringify([lines, [...(await storage.list({ prefix: 'rl:' })).values()], await storage.get('tm:current')]).toLowerCase();
+    for (const secret of [...Object.values(canaries), 'c0ffeec0ffee', 'canary-query', 'canary-body', ip, buyer.address, seller.address, offer.id]) expect(kept).not.toContain(secret.toLowerCase());
+    expect(kept).not.toMatch(/0x[0-9a-f]{40}/);
   }, 60_000);
 });
 
