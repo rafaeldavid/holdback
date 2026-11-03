@@ -161,7 +161,7 @@ Goal: agent teams develop Crow continuously from tickets, agent feedback, the ro
 - T-039 Isolated development environment: Rafa's checklist and the agents' scripts (infra; human gate). The checklist covers a VM with the agents' own GitHub App (no Workflows permission) or a Claude Code cloud environment, scoped tokens, spend caps and 2FA. The scripts cover setup, key custody, a smoke test and prompt-free permissions.
 - T-040 Agent-ops config loader and the model mix: `ops.yaml` validated, models pinned, rates in basis points, the GPT fallback chosen, the inert-pipeline test (infra).
 - T-041 Intake, the quarantine and triage: tickets, agent feedback and CI signals become `TriageRecord`s through a triager with no tools, then tasks through the architect (infra; human gate for the first feedback export).
-- T-042 The usage-telemetry lane: a telemetry export, then signal rules over the website, API and onchain aggregates open records without a model (infra; human gate for a token permission, Web Analytics and a social reader).
+- T-042 The usage-telemetry lane: signal rules over T-052's day-line export, T-055's cost signals, and the website and onchain aggregates open records without a model (infra; human gate for Web Analytics and a social reader).
 - T-043 Feedback requests at deal milestones for agents that opt in: an ADR, a schema version bump and two signal rules (api).
 - T-044 Security gates: risk tiers, guardrails (including approval lines and verifier commits), the shell guard, the proposed deny list, CODEOWNERS; none wired before activation (infra).
 - T-045 The cross-family review check `xreview`: DeepSeek reviews tier 2 and 3 diffs blind, posted as a status that holds only under three stated preconditions (infra; human gate for live runs).

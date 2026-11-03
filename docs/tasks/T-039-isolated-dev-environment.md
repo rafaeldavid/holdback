@@ -87,7 +87,9 @@ Every step is **human**. Times are guessed; faucet waits are extra. The steps ar
 
 ### Before build sessions start
 
-1. **Choose A or B** (10 min) [both]. Read the table above and write the choice in Handoff.
+1. **Confirm the Cloudflare plan, then choose A or B** (10 min) [both].
+   1. In the Cloudflare dashboard, under Workers & Pages, then Plans, confirm the account is on Workers Paid. Rafa said on 2026-11-03 that it should be, since 2026-11-02, so this checklist treats it as Paid. If it shows Free, write that in Handoff. It is the same check as T-051 step 5.1, so do it once.
+   2. Read the table above and write the choice of A or B in Handoff.
 
 2. **Harden your own GitHub account** (15 min) [both].
    - Two-factor authentication: https://github.com/settings/security, then Enable two-factor authentication. Keep the recovery codes in your password manager.
@@ -128,7 +130,7 @@ Every step is **human**. Times are guessed; faucet waits are extra. The steps ar
    3. Choose Add notification at 50% and at 80%.
    4. At https://platform.claude.com/settings/keys, choose Create key in `crow-agents`, with a 30-day or custom expiry.
 
-   At the limit, the API refuses requests and sessions stop: that is the cap working.
+   At the limit, the API refuses requests and sessions stop: that is the cap working. Keep the organization's monthly limit (T-051 step 1) at or above the sum of the workspace limits, `crow-judges` and `crow-agents`, or the organization limit binds first.
 
 6. **Set up the VM** (45 min) [B]. Part (b) steps 1 to 3 must be merged first.
    1. Create a VM with at least 4 vCPU and 8 GB. On exe.dev: `ssh exe.dev` to register, then `ssh exe.dev new --name crow`, with the size per https://exe.dev/docs.
@@ -177,9 +179,11 @@ Every step is **human**. Times are guessed; faucet waits are extra. The steps ar
     5. TTL: an end date 90 days out.
     6. Copy the token once, and the account ID from the account home page. Add the token to the sever list.
 
-12. **Cloudflare budget alerts: only on Workers Paid** (5 min) [both]. `docs/operations.md` describes the Free plan, and another session reported a move to Paid on 2026-11-02. Check under Workers & Pages, then Plans.
-    - On Paid: Manage Account, then Billing, then Billable Usage, then Create budget alert at USD 10 and USD 25. Alerts email you but never stop usage, and Workers Paid has no spend cap. The per-Worker CPU limit is the only brake.
-    - On Free: skip this step. The Free plan's daily limits are the cap.
+12. **Cost guards on the live accounts** (0 min here) [both]. The account is on Workers Paid (step 1), which has no spend cap. Two tasks already guard it, and this checklist does not repeat them:
+    - T-051 step 5 sets the Cloudflare budget alerts and usage notifications, and its other steps set the account-wide guards (Anthropic's organization limit, GitHub's $0 budgets, DeepSeek's balance).
+    - T-054 sets a CPU limit per Worker, the only brake on a runaway Worker's bill, from measured CPU time.
+
+    Do T-051 before the first deploy from the environment.
 
 13. **Fund the Sepolia accounts** (10 min, plus days of faucet waits) [both].
     - Send faucet ETH to the relayer's funding lane, `0x601137a8DE7E195E1426f57C053aFa49B20Ef555` (`docs/operations.md`), and to the T-206 deployer address. Faucets:
@@ -209,8 +213,7 @@ Every step is **human**. Times are guessed; faucet waits are extra. The steps ar
     - the Anthropic `crow-agents` limit and notifications;
     - the DeepSeek balance;
     - the OpenAI hard limit;
-    - Cloudflare budget alerts on Paid;
-    - GitHub: Actions are free for this public repository; keep the spending limit for paid features at USD 0 under https://github.com/settings/billing;
+    - the account-wide guards from T-051 (Cloudflare budget alerts, GitHub's $0 budgets, Anthropic's organization limit), and T-054's per-Worker CPU limits;
     - the VM's fixed price.
 
 ## Part (b): the agents' steps

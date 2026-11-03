@@ -30,7 +30,7 @@ Make the pipeline easy to stop and easy to watch before anything can start it.
 - [ ] `footer.mjs` builds and checks the PR footer: the model per role, sessions, reruns, each family's verdict, the tier and the budget used. Run on a PR without a complete footer, it exits non-zero (tested). It joins CI only at T-050 step 5.
 - [ ] A session that exceeds its tier's budget from `ops.yaml` stops and writes a handoff. Decide the mechanism (for example a hook that reads the session's cost and ends it), build it, and show it stopping a scripted session.
 - [ ] `tick-metrics.schema.json` defines the per-tick line in `reports/agent-ops/metrics.jsonl`: tasks ready, claimed, started and refused, with a reason for each refusal.
-- [ ] `figures.mjs` computes the daily pipeline figures (lead time, first-pass approval rate, CI pass rate and reruns, cross-family block, abstention and agreement rates, canary recall, hours waiting on Rafa, spend) for `/daily-log` (T-036). It reads no product telemetry. Decide and record the spend source (session cost reports, or a provider usage API read with a key that build sessions never hold).
+- [ ] `figures.mjs` computes the daily pipeline figures (lead time, first-pass approval rate, CI pass rate and reruns, cross-family block, abstention and agreement rates, canary recall, hours waiting on Rafa, spend) for `/daily-log` (T-036). It reads no product telemetry. Its spend figure comes from the pipeline's own token tallies (the usage each session and each `xreview` call reports), never from billing data. Its outputs, the daily log and the PR footer, are public, so no billing figure may reach them (`docs/costs.md`, PR 141).
 
 ## Out of scope
 
