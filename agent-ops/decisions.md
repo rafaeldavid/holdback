@@ -32,7 +32,7 @@ Taken from one side only: Fable's one-shot raw reader, reviewer without Write or
 
 ## What review changed
 
-The `reviewer` agent (Opus 5.5, the authors' own family) returned ISSUES twice; every item is fixed in place. The largest: R3 had no enforcing check (now P5), gate-defining files sat in auto-merge classes, and the schemas' text fields were bypassable. One item was declined: `docs/tasks/` stays R0, because the work a task triggers is gated by its own diff's class.
+The `reviewer` agent (Opus 5.5, the authors' own family) returned ISSUES twice; every item is fixed in place. The largest: R3 had no enforcing check (now P5), gate-defining files sat in auto-merge classes, and the schemas' text fields were bypassable. One item was declined: `docs/tasks/` stays R0, because the work a task triggers is gated by its own diff's class. `packages/testkit/` runs `pnpm snap` but is R2, not R3: it changes with most test-lane tasks, and R2 still blocks on two families.
 
 ## Open risks
 
