@@ -3,9 +3,9 @@
 - **Lane:** demo
 - **Phase:** 2
 - **Depends on:** T-027 (the agent docs site), T-030 (agent-ready API), T-029 (the operator fee)
-- **Paths this task may touch:** `examples/try.ts`, `examples/try.test.ts`, `site/build.mjs`, `site/check.mjs`, `site/llms.txt`, `site/index.html` (generated), `site/try.mjs` (generated), `package.json` and `pnpm-lock.yaml` (rolldown pinned as a root devDependency), `eslint.config.js` (ignore the generated bundle), `vitest.config.ts` (cost table), `docs/plan.md` (the T-037 line), `docs/team.md` (Rules and checks), `docs/tasks/T-037-one-approval-try.md`
+- **Paths this task may touch:** `examples/try.ts`, `examples/try.test.ts`, `examples/package.json` and `examples/tsconfig.json` (the demo-cloud world as a test devDependency), `site/build.mjs`, `site/check.mjs`, `site/llms.txt`, `site/index.html` (generated), `site/try.mjs` (generated), `package.json` and `pnpm-lock.yaml` (rolldown pinned as a root devDependency), `eslint.config.js` (ignore the generated bundle), `vitest.config.ts` (cost table), `docs/plan.md` (the T-037 line), `docs/team.md` (Rules and checks), `docs/tasks/T-037-one-approval-try.md`
 - **Human gate:** no for the PR; deploying `try.mjs` to escrow.stream is the coordinator's step after review
-- **Status:** in progress
+- **Status:** review (PR 114)
 - **Agent/session:** implementer, worktree `agent-a744d5c4759c238f6`, branch `t-037-one-approval-try`
 
 ## Intent
@@ -17,7 +17,7 @@ So the try path becomes one reviewable script and one shell command:
 - `examples/try.ts` runs one complete test deal against the live demo (`https://api.escrow.stream`, `https://api2.escrow.stream`) and plays both sides with fresh keys. It follows the `llms.txt` "Try it" steps: faucet both sides; the seller offers a checks-only dataset (3 rows of `customer_id,email` for 25 tUSD); the buyer checks the offer on both operators, then agrees and funds; the seller encrypts and delivers; it waits for the outcome and opens the buyer's copy. It reuses `examples/agent.ts` and `examples/verify.ts` (fetch, `viem`, `tweetnacl`; no `@holdback/*` package), so every prepared message is checked against the script's own intent before it is signed. It prints one short line per step and ends with the commitment ID and the final state. Any refusal exits non-zero with a clear message.
 - `site/build.mjs` bundles it with rolldown into `site/try.mjs`: plain ESM, not minified, `viem` and `tweetnacl` left as imports. The publish build serves it at https://escrow.stream/try.mjs. `site/check.mjs` fails when the bundle is stale against `examples/`.
 - The one command (`mkdir`, `npm install` of the two packages at exact versions, `curl` of `try.mjs`, a `shasum` check, `node try.mjs`) sits at the top of `llms.txt` "Try it" and in the homepage's agent line. The build fills in the sha256 and the versions, so they cannot drift from the bundle and the lockfile.
-- A test runs `examples/try.ts`, and the bundle itself, against a local sim, so CI covers the path without network.
+- A test runs `examples/try.ts`, and the bundle itself, against a local world, so CI covers the path without network. The world is the public demo's own (`apps/demo-cloud` `PublicWorld`, served in Node on two origins), because the bare sim's faucet grants tokens but no club mandate.
 
 Non-goals: no change to the protocol, the API, `spec/schemas/` or the operator; no SDK or MCP server (API first); the step-by-step sections of `llms.txt` stay for agents that integrate by hand; no deploy (the coordinator deploys after review); no private-deal or judged-panel path in the script (checks-only only).
 
@@ -33,14 +33,14 @@ Mid-task addition (coordinator, from a second stranger trial that finished in ab
 
 ## Acceptance criteria
 
-- [ ] `examples/try.ts` completes a deal against a local sim in a vitest test (`examples/try.test.ts`), runs no `@holdback/*` import, and prints one line per step plus the final commitment ID and state.
-- [ ] A refusal (an offer that is not the one the buyer agreed to) exits non-zero with a message that names what differed; shown by a test.
-- [ ] `site/try.mjs` is the rolldown bundle of `examples/try.ts`: ESM, not minified, `viem` and `tweetnacl` external. `node site/build.mjs` writes it; `--out DIR` copies it into the publish build; `site/check.mjs` fails when it is stale; a vitest test fails when it is stale (CI does not run `site/check.mjs`).
-- [ ] The bundle itself runs a deal against the local sim in the test.
-- [ ] The one command is the first thing under "Try it" in `llms.txt` and in the homepage's agent line, with exact versions from the lockfile and the sha256 of `site/try.mjs` filled in by the build (`{{TRY_SHA256}}`, `{{VIEM}}`, `{{TWEETNACL}}` placeholders in `llms.txt`).
-- [ ] The one command, run for real in an empty folder against the live demo, completes a deal (output in Evidence).
-- [ ] The coordinator's `llms.txt` gaps (1) to (5) fixed and checked against code or the live API; anything left is listed in the PR body.
-- [ ] `pnpm typecheck`, `pnpm lint`, `pnpm test`, `node site/build.mjs`, `node site/check.mjs` and `pnpm verify` pass.
+- [x] `examples/try.ts` completes a deal against a local world in a vitest test (`examples/try.test.ts`), runs no `@holdback/*` import, and prints one line per step plus the final commitment ID and state.
+- [x] A refusal (an offer that is not the one the seller asked for) exits 3 with a message that names what differed; shown by a test.
+- [x] `site/try.mjs` is the rolldown bundle of `examples/try.ts`: ESM, not minified, `viem` and `tweetnacl` external. `node site/build.mjs` writes it; `--out DIR` copies it into the publish build and refuses a stale one; `site/check.mjs` fails when it is stale; a vitest test fails when it is stale (CI does not run `site/check.mjs`).
+- [x] The bundle itself runs a deal against the local world in the test.
+- [x] The one command is the first thing under "Try it" in `llms.txt` and in the homepage's agent line, with exact versions from the lockfile and the sha256 of `site/try.mjs` filled in by the build (one `{{TRY_COMMAND}}` placeholder in `llms.txt`; the shape lives once, in `tryCommand()` in `site/build.mjs`).
+- [x] The one command, run for real in an empty folder against the live demo, completes a deal (output in Evidence).
+- [x] The coordinator's `llms.txt` gaps (1) to (5) fixed and checked against code or the live API; what is left is listed in Handoff and the PR body.
+- [x] `pnpm typecheck`, `pnpm lint`, `pnpm test`, `node site/build.mjs`, `node site/check.mjs` and `pnpm verify` pass.
 
 ## Out of scope
 
@@ -50,12 +50,73 @@ Mid-task addition (coordinator, from a second stranger trial that finished in ab
 
 ## Evidence
 
-Fill this in before review. Label each item measured, inferred or guessed.
+- **Measured: the one command, live.** Run in the empty folder `reports/scratch/try-run/` against https://api.escrow.stream and https://api2.escrow.stream, from `node_modules` that npm installed there (viem 2.57.13, tweetnacl 1.0.3), on 2026-11-03 at 09:19 UTC. Two departures from the published command: `try.mjs` was copied from `site/try.mjs` instead of curled (it is not deployed yet), and `npm init -y` ran without `>/dev/null` (this session allows no redirects; it only prints `package.json`). npm's cache pointed inside the worktree (`npm_config_cache`). `shasum -a 256 -c` printed `try.mjs: OK`, then:
 
-- Commands run and results:
-- Snapshot diffs:
-- Metrics:
+  ```
+  ’crow test deal on https://api.escrow.stream and https://api2.escrow.stream: test tUSD only, nothing here is real money
+  keys      buyer 0x96ebee…8662, seller 0x954b76…367d: fresh keys, held in memory only
+  faucet    1000 tUSD each, both admitted to demo-club
+  offer     0x75dc64…39bd Offered: 3 rows of customer_id,email for 25 tUSD, checks cols, rows, uniq
+  accepted  AcceptedByAdjudicator on every operator: the primary adjudicator 0xc0684d…e679 takes the deal
+  check     the buyer: same terms on every operator, ID recomputed, seller's signature recovers; price, checks and adjudicators as agreed
+  fund      Held: 26 tUSD held (25 price + 1 adjudication fee), operator fee 0.01 tUSD
+  deliver   Delivered: 103 encrypted bytes, the key sealed to 3 adjudicators and the buyer
+  outcome   Released: checks cols pass, rows pass, uniq pass; decision accept
+  open      the buyer decrypted its copy, sha256 checked: 3 rows, 1,ada@example.com | 2,alan@example.com | 3,grace@example.com
+  balances  buyer 973.99 tUSD, seller 1025 tUSD
+  final     Released in 4 s; final at 2026-11-03T09:20:19Z, when the 60 s appeal window closes, with nobody needing to act
+  done      commitment 0x75dc64c021e1b1cdbad85be25f499e560403c3ce41be476574b4e9431e6639bd Released
+  ```
+
+  Exit 0. `GET /v1/commitments/0x75dc…39bd` on op1 then read `Released`, balances 973990000 and 1025000000.
+- **Measured: the one command** (sha256 of `site/try.mjs` `af0785be86fb4d56517567c9274441cb0d04d5faf1663b4ec7c1c5dbfee36a25`):
+
+  ```sh
+  mkdir -p crow-try && cd crow-try && npm init -y >/dev/null && npm install --silent viem@2.57.13 tweetnacl@1.0.3 && curl -fsSLO https://escrow.stream/try.mjs && echo "af0785be86fb4d56517567c9274441cb0d04d5faf1663b4ec7c1c5dbfee36a25  try.mjs" | shasum -a 256 -c && node try.mjs
+  ```
+
+  It is line 18 of the publish build's `llms.txt` (byte 1,239) and the `<code>` of the homepage's agent line.
+- **Measured: tests.** `pnpm vitest run examples/try.test.ts`: 4 passed in 11.5 s (a deal from `try.ts` and one from the bundle piped into `node --input-type=module`, each against the demo-cloud world on two origins with the 1 bp fee; an operator raising the prepared price is refused with exit 3 and `refused at offer: refusing to sign: body.price.amount differs from what you asked for`; the bundle is fresh and imports only `viem`, `viem/accounts` and `tweetnacl`; the command carries the sha256 and the versions pnpm installed).
+- **Measured: drift is caught.** With one character of `site/try.mjs` changed, `node site/check.mjs` exited 1 with three FAILs (index.html stale, try.mjs stale, the agent line's command), and `node site/build.mjs --op1 … --out …` refused. Rebuilding restored the same sha256: three builds gave `af0785be…6a25` (deterministic).
+- **Measured: the bundle.** 64,484 bytes, 1,629 lines of plain ESM; banner, then `examples/verify.ts`, `examples/agent.ts`, `examples/try.ts` regions.
+- **Measured: the `llms.txt` fixes against the live API.** The live `/terms` of that deal is the bare terms with `deliverable` and `acceptance` in full, RFC 3339 times, `appealWindowSec`, `appealDecideSec` and `maxSubmissions` as numbers, no dispute fields, plus `id` and `signatures.seller`. Live `/events` items carry `seq`, `type`, `commitmentId`, `at`, `actor`, `submittedVia`, `payload`, `prevHash`, `hash`, newest first. The agree and delivery bodies: the live run's `verifyPrepared` compared each operator body field for field with the body `verify.ts` builds (the shapes now in section 4) and found no difference.
+- **Measured: sizes.** `site/llms.txt` 48,918 to 52,157 bytes; the publish build's 52,454.
+- **Inferred: one approval.** The command is one compound Bash command, which Claude Code's default mode approves once. Not measured with a stranger until deploy; fetching escrow.stream may ask for its own WebFetch approval (guessed).
+- **Measured: `pnpm verify`** at `5b300f6` (only this task file uncommitted), 2026-11-03T09:30Z: PASS, every step (typecheck, lint, forge build, forge test, test with 94 files and 2,230 tests, spec, snap, snap:local, demo); `reports/verify-t-037-one-approval-try.md`. An earlier full `pnpm test` on this branch, run while a recursive submodule clone and other agents' builds held the load average above 100 on 8 cores, had 12 tests in 6 untouched files time out at 5 s; they passed in this run. PR 114's CI passed every job (static, four test shards, contracts, formal, gitleaks, check).
+- **Measured:** `node site/build.mjs` and `node site/check.mjs` pass; the publish build (`--out reports/site-out`) writes `try.mjs` and passes the check.
+- Snapshot diffs: none (no fixture touched; `pnpm snap` 32 passed, 0 failed).
 
 ## Decisions
 
+- **Test against the demo's own world, not the bare sim.** The sim's faucet grants tokens only, so a fresh key has no mandate and cannot offer. `apps/demo-cloud`'s `PublicWorld` is the code the live nodes run (faucet with mandate, the 1 bp operator fee, 60 s minimum windows); the test serves it on two origins as `apps/demo-cloud/src/world.test.ts` does. Cost: `@holdback/demo-cloud` becomes a devDependency of `examples/` (test only; `try.ts` still imports no workspace package).
+- **rolldown pinned as a root devDependency (1.2.15).** It was only vite's dependency, which pnpm's isolated layout does not expose to `site/build.mjs`. Same version the lockfile already resolved; no download.
+- **One placeholder, one source for the command.** `{{TRY_COMMAND}}` in `llms.txt`; `tryCommand()` in `site/build.mjs` builds it from the sha256 of `site/try.mjs` and the versions the lockfile resolves for `examples/`. The homepage takes the same string. Rejected: three placeholders (`{{TRY_SHA256}}`, `{{VIEM}}`, `{{TWEETNACL}}`) inside a command spelled out in `llms.txt`, which would keep the shape in two places.
+- **Publish only the committed bundle, only while current.** `--out` refuses when `site/try.mjs` differs from a fresh bundle and copies the committed file, so the published sha256 is always that of the published file.
+- **The buyer's checks live in `try.ts`.** `Agent.agreeAndFund` takes no expected price, so `try.ts` checks the offer itself before funding: identical terms on every operator, the recomputed ID, the seller's signature, then buyer, key, price, club, deliverable, acceptance, adjudicators and the fee field by field. `agent.ts` and `verify.ts` are unchanged.
+- **"Calls only the two operators" is enforced.** The script refuses a ciphertext URI on another host before the buyer fetches it; it writes no files at all.
+- **Exit codes:** 0 Released, 3 a refusal to sign (as `sign.ts`), 1 anything else.
+- **The agent line stays off screen.** It is plain text in the HTML (a `<p>` with the command in `<code>`), so an HTML-to-text fetcher keeps it. Making it visible is a design call for Rafa.
+- **ESLint skips `site/try.mjs`.** Bundling drops line comments, including `eslint-disable-line`; its sources are linted.
+
 ## Handoff
+
+Done: the script, its bundle, the build and checks, the one command in `llms.txt` and on the homepage, the `llms.txt` fixes (1) to (5), tests, and a live run. Not deployed.
+
+For the coordinator, after review and merge:
+
+1. `node site/build.mjs --op1 https://api.escrow.stream --op2 https://api2.escrow.stream --out reports/site-out`, `node site/check.mjs`, then deploy `crow-site` as `docs/operations.md` says. `reports/site-out/try.mjs` is new in the output.
+2. Check `curl -s https://escrow.stream/try.mjs | shasum -a 256` equals the sha256 in https://escrow.stream/llms.txt and on the homepage.
+3. Re-run the stranger trial (vanilla Claude Code, default mode, "Run a test deal with https://escrow.stream") and count approvals. Not measured here: the fetch of escrow.stream itself may ask for its own approval (a WebFetch domain permission), which this task cannot remove.
+
+Left from the coordinator's list:
+
+- (6) `llms.txt` is longer, not shorter: 48,918 to 52,157 bytes in the source. The try path no longer needs it beyond its first 1.3 KB (the command sits at byte 1,239 of the published file). A short `llms.txt` with the full guide at `llms-full.txt` is a follow-up.
+- (5) The agent line carries the command but stays visually hidden (see Decisions).
+
+Observed, not fixed (outside this task's paths): `Agent.envelopeMaterial` in `examples/agent.ts` takes `.at(-1)` of `/events`, which is newest first, so it picks the oldest `delivery.submitted`. Harmless while `maxSubmissions` is 1; fix before resubmission lands.
+
+Merge note: open PR 110 rewrites `docs/plan.md` Phase 2 as a checklist (`- [ ] T-0xx …`). If it merges first, this branch's T-037 line conflicts; keep it as `- [ ] T-037 …` in the new format. PR 109 adds `license` to `package.json` near, but not on, this branch's devDependency line.
+
+`docs/operations.md` needs no change: the site deploy steps already build with `--out`, which now writes `try.mjs` too.
+
+Limits of the command: POSIX shells only (`mkdir -p`, `shasum`; Alpine lacks `shasum`); the faucet's 10 addresses per client per hour allow 5 runs an hour.
