@@ -411,8 +411,33 @@ contract RulesHandler is Base {
         _end(ok, v0);
     }
 
-    /// The formal model's KeyOnlyWithPayment: every KeyReleased recorded since the last check leaves its deal
-    /// Released or Settled (recording stays on between decide calls, so other actions' logs are checked too).
+    /// Decides an open appeal with the right key and round, outcome and key presence independent, so the key rule
+    /// (T-206 H-2) is reached on every outcome; `decide` rarely builds this sequence.
+    function decideAppeal(uint256 dealSeed, uint256 callerSeed, uint256 outcomeSeed) external {
+        uint256 v0 = _violations();
+        uint256 i = _pickFor(dealSeed, A_OPEN);
+        H.Terms memory t = _terms_[i];
+        bytes32 id = _ids[i];
+        HoldbackRules.Deal memory d = rules.dealOf(id);
+        uint64 round = rules.BEACON().roundAt(d.t2) + 1;
+        if (block.timestamp < round) vm.warp(round);
+        H.Decision memory m = _beaconDecision(id, H.ROLE_APPEAL, uint8(outcomeSeed % 2), round);
+        (m.keyScheme, m.keyCiphertext) = (outcomeSeed >> 1) % 2 == 0 ? (KEY_SCHEME, KEY_CT) : ("", "");
+        uint256 pk = _rolePk[id][H.ROLE_APPEAL];
+        m = _signDecision(t, id, m, vm.addr(pk), pk);
+        bool ok;
+        vm.recordLogs();
+        vm.prank(_caller(callerSeed));
+        try rules.decide(t, m, _noDelivery(), "") {
+            ok = true;
+        } catch {}
+        _keyOnlyWithPayment();
+        _track(id, d.stage);
+        _end(ok, v0);
+    }
+
+    /// The formal model's KeyOnlyWithPayment: every KeyReleased the checked call emitted leaves its deal Released or
+    /// Settled. Each action that can release a key records its own call (vm.recordLogs clears what came before).
     function _keyOnlyWithPayment() internal {
         Vm.Log[] memory logs = vm.getRecordedLogs();
         for (uint256 i; i < logs.length; i++) {
@@ -438,11 +463,13 @@ contract RulesHandler is Base {
         bytes memory dsig = _deliverySig(id, dv, sk);
         HoldbackRules.Stage before = rules.dealOf(id).stage;
         bool ok;
+        vm.recordLogs();
         vm.prank(_caller(callerSeed));
         try rules.earlyAccept(t, m, dv, dsig, kp) {
             ok = true;
             _authorised("earlyAccept", bk == BUYER_PK && sk == SELLER_PK);
         } catch {}
+        _keyOnlyWithPayment();
         _track(id, before);
         _end(ok, v0);
     }
@@ -463,11 +490,13 @@ contract RulesHandler is Base {
         H.KeyProof memory none;
         if (m.releaseKey) none = kp;
         bool ok;
+        vm.recordLogs();
         vm.prank(_caller(callerSeed));
         try rules.mutualSettle(t, m, dv, none) {
             ok = true;
             _authorised("mutualSettle", bk == BUYER_PK && sk == SELLER_PK);
         } catch {}
+        _keyOnlyWithPayment();
         _track(id, before);
         _end(ok, v0);
     }
