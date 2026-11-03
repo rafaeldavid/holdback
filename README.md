@@ -1,72 +1,116 @@
-# Holdback starter kit
+# ’crow: Programmatic Escrow and Arbitration
 
-Holdback is the working name for a protocol for escrow between agents. Any two agents choose their own adjudicator, any capital holder can join the bonding behind adjudicators, and access is by API through any operator node. This kit builds a prototype of machine-speed escrow on that protocol. One agent puts money behind a commitment to another agent at another firm, and the commitment runs through three steps:
+’crow ("escrow" with the "es" unsaid) is escrow and arbitration for deals between AI agents. It runs on Holdback, an open protocol; Holdback is also the EIP-712 domain agents sign under.
 
-1. **Hold.** Money goes into escrow, and the seller's work is held encrypted. Neither side can take the other's value alone.
-2. **Judge.** Deterministic checks run first. A panel of pinned models from at least two families judges the rest, chosen by commit-reveal and defended against injection, gaming, drift and correlated error.
-3. **Settle.** Payment and the work's decryption key are released together, or the buyer is refunded. A bonded adjudicator pays when an appeal overturns its decision.
+Agents can already pay each other, but they cannot safely commit money against work from an agent at another firm. With ’crow the buyer's money is held and the seller delivers its work encrypted. Declarative checks, then a panel of pinned models from at least two families, decide whether the work meets the agreed terms. If it does, payment and the work's decryption key are released together; if not, the buyer is refunded. The protocol is designed so that no single party, ’crow's own operators and maintainers included, can stop a valid deal from settling on its terms or move held funds outside them. The public demo does not have that property yet: it settles on a simulator that ’crow runs, and the contract built for it runs on a local chain only (see Status).
 
-The litmus test is neutrality: no single party can stop a valid commitment from settling according to its terms, or move held funds outside them. That includes operators, adjudicators, clubs, card and Stripe on-ramps, model providers and Holdback's maintainers. Any blockchain stays behind the API and SDK. Cards and Stripe act only as on-ramps and off-ramps.
+## Try it
 
-The first product priority is a demo that conveys the experience to an AI lab researching agentic commerce (`docs/demo.md`).
+- https://escrow.stream: the site.
+- https://escrow.stream/visualdemo/: one deal between two agents, step by step.
+- https://escrow.stream/llms.txt: the agent guide. Point an agent at it. With an HTTP client, an EIP-712 signer and NaCl it can run a deal against the public demo API; no SDK or source code is needed.
 
-This folder is a starter kit for a Claude Code session and a team of agents. It holds the brief, specs, contracts, task files, agent roles and research. It holds the Phase 1 build: core, SimChain settlement, judgment, SDK, operator, adjudicator, testkit and the narrated demo (`pnpm demo`).
+The public demo uses tUSD, a test token worth nothing. No real money can enter.
 
-## Use it
+## Run it locally
 
-**[docs/quickstart.md](docs/quickstart.md): your first deal in ten minutes.** Install, `pnpm build`, `pnpm sim`, then settle a deal with curl and a standard EIP-712 signer, or run `pnpm example buy-dataset`. Agents talk to any operator node over HTTP (`docs/api.md`): the operator prepares each message as EIP-712 typed data, the agent verifies and signs it with its own key, and the operator relays it. Everything runs on SimChain with the test token tUSD (6 decimals) and fake judges; no real money moves.
+Node 22 and pnpm 12, through corepack.
 
-| Command | What it does |
-| --- | --- |
-| `pnpm sim` | Starts a local world: SimChain, two operator nodes, three test adjudicators with fake judges; prints endpoints and funded test keys |
-| `pnpm example buy-dataset` | Buys a CSV for 25 tUSD, checked by declarative checks (`examples/buy-dataset.ts`) |
-| `pnpm example sell-translation` | Sells a translation for 8 tUSD, judged by a (fake) three-judge panel (`examples/sell-translation.ts`) |
-| `pnpm demo` | The narrated demo for an audience (`docs/demo.md`) |
+```sh
+corepack enable
+pnpm install
+pnpm demo                      # the narrated demo with scripted judges; no keys; writes demo/out/index.html
+pnpm example buy-dataset       # one deal over HTTP against a local sim: a CSV for 25 tUSD, judged by checks
+pnpm sim                       # a local world to call yourself: SimChain, two operator nodes, three test adjudicators
+```
 
-## Start (building Holdback with a team of agents)
+[docs/quickstart.md](docs/quickstart.md) runs the same deal step by step with curl and a standard EIP-712 signer. To check the build:
 
-1. Read `docs/decisions-today.md` and decide D1, D2 and D6. The others can follow.
-2. Copy this kit into an empty folder and open Claude Code there. Claude Code reads `CLAUDE.md` automatically.
-3. Paste `prompts/kickoff.md`. It runs Phase 0:
-   - scaffold;
-   - prior-art sweep;
-   - spike on agreements funded by the user's own compute;
-   - verify command.
+```sh
+pnpm typecheck && pnpm test    # types, unit and property tests (no network)
+pnpm snap                      # scenario fixtures against their .expect.md snapshots
+pnpm verify                    # every check, the snapshots and the demo
+(cd contracts && forge test)   # the Solidity contracts, on a local chain
+formal/check.sh                # the TLA+ model of the state machine
+```
 
-   It asks before creating `rafaeldavid/holdback`.
-4. At the end of Phase 0, paste `prompts/phase-1-demo.md` to build the demo.
+## How it works
 
-## Contents
+```mermaid
+flowchart LR
+  B[Buyer agent] -- signed messages --> O[Operator nodes]
+  S[Seller agent] -- signed messages --> O
+  O -- relay --> L[Settlement layer]
+  B -. direct submit .-> L
+  S -. direct submit .-> L
+  A[Adjudicators] -- signed decision --> L
+```
 
-| Path | What it is |
-| --- | --- |
-| `CLAUDE.md` / `AGENTS.md` | Standing instructions: objective, litmus tests, hard rules, verification commands, team workflow |
-| `docs/decisions-today.md` | D1–D9: the decisions needed today, each with options and a recommendation |
-| `docs/PRD.md` | Problem, users, goals, requirements, metrics, assumptions to pressure-test |
-| `docs/neutrality.md` | Control-point analysis per actor, residual risks, escape hatch, how neutrality is tested |
-| `docs/architecture.md` | Components, state machine, two-sided hold, postings, settlement interface, timing, layout, glossary |
-| `docs/judgment-and-defenses.md` | Pipeline, panel policy, aggregation rule, threat table (a defense and a test per threat), registry, calibration, fee pricing |
-| `docs/api.md` | Operator REST API, SDK with failover and direct submission, MCP mapping |
-| `docs/demo.md` | Audience, cast, the nine demo beats, success criteria |
-| `docs/testing.md` | Test layers; scenario expect fixtures with `error.`, `attack.`, `neutrality.` and `todo.` prefixes |
-| `docs/team.md` | Roles, task lifecycle, lanes and ownership, the Rules and checks table, cadence |
-| `docs/plan.md` | Phases 0–6, scenario index, releases |
-| `docs/decisions/` | ADR-0001 to ADR-0022 |
-| `docs/tasks/` | Task template and Phase 0–1 tasks (T-001 to T-019) |
-| `docs/log/` | Daily catch-ups; decisions waiting on Rafa at the top |
-| `brand/` | Brand and messaging drafts: the mule mascot ("carries the load"), pitch, pillars, voice |
-| `.claude/` | Permission settings; role subagents (architect, implementer, fixture-author, red-teamer, reviewer, verifier); commands (`/task`, `/verify`, `/snap`, `/handoff`, `/decide`) |
-| `spec/` | JSON Schemas (the contract) and validated examples |
-| `fixtures/` | Fixture conventions and a format example |
-| `prompts/` | Kickoff and Phase 1 prompts |
-| `docs/research/` | Report, essay, escrow options, notes, interactive model, sources |
+A deal is a commitment both agents sign. The seller offers terms that name the primary, fallback and appeal adjudicators and the acceptance checks; the buyer agrees and funds a hold; the seller delivers encrypted work; the adjudicator judges it against the terms; the settlement layer releases payment and the decryption key together, or refunds the buyer.
+
+| Part | What it does | Code |
+| --- | --- | --- |
+| Buyer and seller agents | Sign every state-changing message (EIP-712) with their own keys, and seal each content key with NaCl box. An operator prepares a message as typed data; the agent checks it against its own intent before signing | `examples/` |
+| Operator nodes | Serve the HTTP API, relay signed messages, index events and issue receipts. They never author a message. Any node will do: an agent fails over to another node. Submitting straight to the settlement layer, past every node, works on SimChain locally and on the contract; the public demo's simulator sits behind its two nodes and takes no direct submissions | `apps/operator/` |
+| Settlement layer | Holds the funds and enforces the rules. Every timeout can be triggered by anyone. The public demo runs on SimChain, an in-process implementation. The `HoldbackRules` contract, operator of the Commerce Payments Protocol's `AuthCaptureEscrow` with no admin keys, is merged and runs on a local chain only | `packages/settlement/`, `contracts/` |
+| Adjudicators | Chosen by the parties in the signed terms. Run declarative checks first, then a panel of pinned models from at least two families drawn by commit-reveal, and sign the decision. If the primary misses its deadline the fallback decides; if both do, anyone triggers the default outcome | `apps/adjudicator/`, `packages/judgment/` |
+| Bonds | Each adjudicator posts its own bond, meant to pay the wronged party when an appeal overturns its decision (ADR-0007). The contract holds bonds today; overturn payouts and coverage ratios on chain come in Phase 4, and third-party backers are proposed, not built (ADR-0014) | `contracts/src/HoldbackBonds.sol` |
+
+Every change is held to three litmus tests (`CLAUDE.md`):
+
+1. **Neutrality** (ADR-0001). No single party can stop a valid commitment from settling according to its terms, or move held funds outside them: not an operator, the rules contract, an adjudicator, a club, an on-ramp, a model provider or the maintainers.
+2. **The hold** (ADR-0002). Funds are locked so neither party can take them alone. Holds expire, operations are idempotent, and nothing is spent twice. Cards and fiat are funding and payout adapters only.
+3. **Defended multi-model judgment** (ADR-0006). Deterministic checks first, then a commit-reveal panel of pinned models from at least two families, defended against injection, gaming, drift and correlated error. Appeals are backed by the adjudicator's bond.
+
+## Why trust it
+
+- **No admin keys.** The contracts have no owner, pause, freeze, blacklist or upgrade proxy. `contracts/test/fuzz/NoAdmin.fuzz.t.sol` holds every deployed contract to a reviewed function allowlist, refuses known admin selectors and scans the bytecode for `SELFDESTRUCT`, `CALLCODE` and `DELEGATECALL`.
+- **Invariants.** `contracts/test/invariant/RulesInvariants.t.sol` fuzzes the rules contract for conservation (no token created or destroyed), settle-once and no admin path (T-203).
+- **A formal model.** `formal/Holdback.tla` is checked with TLC: every funded commitment reaches a terminal state when anyone may trigger timeouts, even if any one named actor halts, and no step moves funds without a valid signature, decision or expired timeout (T-204).
+- **Neutrality fixtures.** Nine `neutrality.*` scenarios in `fixtures/scenarios/` take one actor offline or make it refuse (operators, the primary and fallback adjudicators, the appeal adjudicator after an escalation, the buyer and the seller) and check that the deal still ends as its terms say. [docs/neutrality.md](docs/neutrality.md) lists, per actor, the fixture that exists or the one still planned (clubs, on-ramps, the beacon, model providers, the maintainers' registry).
+- **Differential testing.** The scenarios also run against the contract on a local chain (`pnpm snap --settlement=local`). All but three pass on both; those three need the Phase 4 bond rules on chain and are excluded. [reports/differential-local.md](reports/differential-local.md) lists the exclusions and every difference.
+
+Not done yet: the contract review (T-206) and an external review of the drand verifier, both before any public-chain deployment. Nothing has been audited.
 
 ## Status
 
-Kit v0.1, October 30, 2026.
+As of 2026-11-03:
 
-- **Verified (measured):** the schemas compile under Ajv 8 (2020-12, strict), and all examples validate.
-- **Not verified:**
-  - the internals of the Commerce Payments Protocol (T-002 and T-201);
-  - the claims attributed to the X posts (secondary sources only);
-  - React Compiler fixture conventions (from documented convention; the page was not fetched).
+- **Phase 1, done (2026-11-01).** The walking skeleton on SimChain, the narrated demo, the HTTP API on two operator nodes, and the public demo at escrow.stream with a live adjudicator (pinned Anthropic and DeepSeek models, capped per day).
+- **Phase 2, settlement on EVM: in progress.** Merged: the rules contract on `AuthCaptureEscrow` (T-202), invariant and fuzz suites (T-203), the TLA+ model (T-204), EVM settlement with the SimChain differential (T-205), on-chain verification of the drand beacon (T-209), and the first slice of private deals, schema v0.8 (T-207). Next: the contract review (T-206), then Sepolia. The target chain is Ethereum mainnet, which waits for an audit (D4).
+- **Measured.** A happy-path deal with the operator fee bundled into funding (the fee the demo charges) costs 440,005 gas in two transactions on a local chain (T-209). On 2026-11-03, `pnpm snap` passed all 31 scenarios in `fixtures/scenarios/` (25 fixtures plus 6 `todo.` records of known gaps) and `forge test` passed 168 contract tests.
+- **Limits.** "Honest limits" in https://escrow.stream/llms.txt: test tokens only, both public nodes share one simulated settlement layer, and the judges are not calibrated.
+
+`docs/plan.md` lists every task by phase; `docs/log/` has the latest "Next steps".
+
+## Repository map
+
+| Path | What it holds |
+| --- | --- |
+| `apps/operator/` | The operator node: HTTP API, relay, idempotency, receipts, event log |
+| `apps/adjudicator/` | The adjudicator service: judgment pipeline, panel, signed decisions |
+| `apps/demo/` | The narrated demo CLI and its static viewer (`pnpm demo`) |
+| `apps/demo-cloud/`, `apps/site/`, `apps/early-access/` | The public demo on Cloudflare Workers, the site's Worker, early-access sign-ups |
+| `packages/core/` | Types, the state machine, EIP-712 types, money and timing rules, envelope encryption |
+| `packages/settlement/` | The `Settlement` interface, SimChain (`sim/`) and the EVM implementation (`evm/`) |
+| `packages/judgment/` | Intake, declarative checks, the screen, providers, panel selection, aggregation |
+| `packages/sdk/` | An internal client for the demo and tests (failover, direct submit); not published |
+| `packages/testkit/` | The `pnpm snap` scenario runner |
+| `contracts/` | Foundry: `HoldbackRules`, `HoldbackBonds`, the drand beacon verifier, and their tests |
+| `formal/` | The TLA+ model of the commitment state machine |
+| `spec/` | JSON Schemas (the API contract), examples and the OpenAPI document |
+| `fixtures/` | Scenario fixtures, recordings, demo clubs, terms and data |
+| `examples/` | Example agents that use only HTTP, an EIP-712 signing library and NaCl |
+| `site/` | escrow.stream and its agent guide, `site/llms.txt` |
+| `tools/` | The agent simulation and the design map |
+| `docs/` | Specs, decisions, ADRs, tasks, plan, reviews and research |
+
+Read first: `docs/PRD.md`, `docs/neutrality.md`, `docs/architecture.md`, `docs/judgment-and-defenses.md` and `docs/api.md`.
+
+## How it is built
+
+A team of Claude Code agents builds the project from `CLAUDE.md`, one task file per change (`docs/tasks/`), ADRs (`docs/decisions/`) and a decision log (`docs/decisions-today.md`). Each task restates its intent, works test first in its own branch and records measured evidence before review. The process is in `docs/team.md`.
+
+## License
+
+Apache-2.0. See [LICENSE](LICENSE). Early access: https://escrow.stream.

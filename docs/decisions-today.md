@@ -1,6 +1,8 @@
-# Decisions to make today
+# Decisions D1–D40
 
-Status: D1–D9 decided October 30, 2026, after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`); the options are kept as the record. D10 to D24 decided October 30 and 31, 2026, each after an independent research pass. D25 to D36 decided October 31 and November 1, 2026, D37 to D40 on November 1 and 2 (Rafa's principles and research-backed choices; D4 was updated on November 1 to target Ethereum mainnet via Sepolia). None are open; newer entries are appended at the end. Owner: Rafa. Each decision has options, a recommendation and the ADR it settles. Phase 1 (the demo) can start once D1, D2 and D6 are settled. Phase 2 needs D3 and D4.
+Status: D1–D9 decided October 30, 2026, after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`); the options are kept as the record. D10 to D24 decided October 30 and 31, 2026, each after an independent research pass. D25 to D36 decided October 31 and November 1, 2026, D37 to D40 on November 1 and 2 (Rafa's principles and research-backed choices; D4 was updated on November 1 to target Ethereum mainnet via Sepolia). Newer entries are appended at the end. Owner: Rafa. Each decision has options, a recommendation and the ADR it settles.
+
+Still open (2026-11-03): whether weekly telemetry aggregates are published (D39); ADR-0025, Proposed, to be decided with schema v0.9 (T-033); the ADR-0023 amendment on fee bundling, Proposed (D37); whether to park T-208, the Prividium fragment exploration (the research pass recommends parking; `docs/research/prividium-fragment.md`); and dispute clauses as selectable terms, deferred until after the demo (D29).
 
 ## D1. Adopt the neutrality litmus test as the top constraint (ADR-0001)
 
@@ -48,7 +50,7 @@ Phase 1 runs on SimChain, an in-process simulation of the escrow rules, so this 
 | Option | Notes |
 | --- | --- |
 | Base Sepolia | CPP origin chain; Coinbase agent tooling |
-| ZKsync Sepolia | Native account abstraction and paymasters suit gasless agent accounts. This is your team's stack: decide whether that helps or reads as a conflict. |
+| ZKsync Sepolia | Native account abstraction and paymasters suit gasless agent accounts |
 | Defer until Phase 2 | Decide after the D3 spike, based on paymaster and account-abstraction needs |
 
 **Recommendation:** defer until Phase 2, and choose on account-abstraction and paymaster fit.
@@ -63,7 +65,7 @@ Phase 1 runs on SimChain, an in-process simulation of the escrow rules, so this 
 
 **Update 2026-10-31 (earlier, as the settlement chain):** Matter Labs Prividium was evaluated and not adopted *as the chain that holds the money*. It is a single-operator permissioned chain whose operator can gate access, stop the sequencer, block forced inclusion and read everything (ADR-0004). A fifth criterion now applies: anyone can read the public skeleton and submit a signed message without an admin. A club-chosen permissioned chain is in the backlog.
 
-**How the two Prividium notes fit (2026-11-01):** the 2026-10-31 finding stands for Prividium as the chain that holds the money. The 2026-11-01 note asks a different question: whether a Prividium-style private instance can run a deal's private content while the assets stay in the Ethereum L1 escrow (the single-use fragment exploration in the backlog). That exploration must answer the 2026-10-31 objections directly: the fragment's operator must not be able to block settlement (the L1 timeout path works with the fragment offline) and must not be able to read the deal. Tracked as T-208, after T-206.
+**How the two Prividium notes fit (2026-11-01):** the 2026-10-31 finding stands for Prividium as the chain that holds the money. The 2026-11-01 note asks a different question: whether a Prividium-style private instance can run a deal's private content while the assets stay in the Ethereum L1 escrow (the single-use fragment exploration, now in `docs/research/prividium-fragment.md`). That exploration must answer the 2026-10-31 objections directly: the fragment's operator must not be able to block settlement (the L1 timeout path works with the fragment offline) and must not be able to read the deal. Tracked as T-208, after T-206.
 
 ## D5. Liveness default when no adjudicator decides (ADR-0007)
 
@@ -591,6 +593,8 @@ Also: the funding signature on EVM is CPP's collector signature and token identi
 - **Feedback key (Rafa, 2026-11-02):** a report is sealed to the operator's own encryption key, the one the operator publishes in discovery. Before submitting, the agent is told plainly that it is choosing to share the report, and any deal details in it, with that operator; sharing is the agent's choice (D35, D40), and a report with no deal details needs no sealing. No separate maintainers' key.
 - **Open for Rafa:** whether weekly aggregates are published (a status or stats page).
 
-## D40. Privacy is each deal's choice; the tagline is "Escrow for AI Agents"
+## D40. Privacy is each deal's choice; the tagline is "Programmatic Escrow and Arbitration"
+
+**Updated 2026-11-02 (Rafa, PR 98):** the tagline is "Programmatic Escrow and Arbitration" ("’crow. Programmatic Escrow and Arbitration"), replacing "Escrow for AI Agents" below. The rest of D40 stands.
 
 **Decided 2026-11-02 by Rafa.** The site's tagline drops "Private": "’crow. Escrow for AI Agents", and the intro reads "a programmatic and verifiably neutral escrow service for AI agents". The API lets each deal choose private or public according to the agents' preferences and needs (the signed `disclosure.level`: `private`, `judgment` or `public`, ADR-0020, ADR-0024), and more pieces become privacy-capable over time (sealed judgment records, private amounts, private settlement venues). This refines D34 and D39: the protocol offers privacy as an option the parties choose, with no level imposed by the operator, and the brand does not promise more privacy than the current build delivers.
