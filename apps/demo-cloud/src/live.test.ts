@@ -66,7 +66,7 @@ describe.skipIf(!ready)(`the public world on a live chain (anvil for Sepolia)${r
   let anvil: EvmWorld;
   let deployment: DeploymentFile;
   const storage = new MemoryStorage();
-  const chainOf = () => new LiveChain({ deployment, rpcUrls: [anvil.rpcUrl], relayerKey: RELAYER, pollMs: 200, rebroadcastMs: 10_000, mintBatchMs: 200 });
+  const chainOf = (rpcUrl = anvil.rpcUrl) => new LiveChain({ deployment, rpcUrls: [rpcUrl], relayerKey: RELAYER, pollMs: 200, rebroadcastMs: 10_000, mintBatchMs: 200 });
   beforeAll(async () => {
     anvil = await EvmWorld.start(root, { blockTimeSec: 1, token: 'test-usdc' });
     const d = anvil.deployment;
@@ -127,8 +127,32 @@ describe.skipIf(!ready)(`the public world on a live chain (anvil for Sepolia)${r
     // reads no chain; the first pass verifies it, and the bonds recorded in storage are not sent again.
     const again = await PublicWorld.open({ storage, env: ENV, live: { chain: chainOf() } });
     expect(again.ready()).toBe(false);
+    // Setup left: a pass is due in 2 s (T-057). Once set up, the Released deal awaits no adjudicator: no pass is due.
+    expect(again.nextPass()! - Date.now()).toBeGreaterThan(1500);
+    expect(again.nextPass()! - Date.now()).toBeLessThanOrEqual(2000);
     await again.work();
     expect(again.ready()).toBe(true);
+    expect(again.nextPass()).toBeNull();
+
+    // Reopened with the RPC down: each failing setup step doubles the wait (4, 8, 16 s), not a retry every 2 s (T-057 review).
+    const down = await PublicWorld.open({ storage, env: ENV, live: { chain: chainOf('http://127.0.0.1:9') }, onError: () => {} });
+    const waits: number[] = [];
+    for (let i = 0; i < 3; i++) {
+      await down.work();
+      waits.push(down.nextPass()! - Date.now());
+    }
+    expect(down.ready()).toBe(false);
+    for (const [i, w] of waits.entries()) {
+      expect(w).toBeGreaterThan(4000 * 2 ** i - 500);
+      expect(w).toBeLessThanOrEqual(4000 * 2 ** i);
+    }
+    // A takeover wake whose judgeBy passed during the outage (set by hand: this storage holds no Delivered deal) never
+    // schedules a pass in the past, and a failing pass still rereads settlement state (T-057 review 4).
+    const inside = down as unknown as { wake: number | null };
+    inside.wake = Date.now() - 1000;
+    expect(down.nextPass()!).toBeGreaterThan(Date.now());
+    await down.work();
+    expect(inside.wake).toBeNull();
     expect(again.digest()).toBe(world.digest());
     const before = (world.chain as EvmSettlement).log();
     expect((again.chain as EvmSettlement).log()).toEqual(before);
