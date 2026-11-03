@@ -128,17 +128,22 @@ export const PATHS: Record<string, (chain: EvmSettlement, cast: EvmCast, club: A
   },
 };
 
+/** One path's row: a fresh settlement, a warm-up deal, then the path. */
+export async function measurePath(world: EvmWorld, path: string): Promise<PathGas> {
+  const run = PATHS[path];
+  if (!run) throw new RangeError(`no gas path named ${path}`);
+  const { chain, cast, club } = await newSettlement(world);
+  // Warm-up: the TokenStore clone and first-touch storage are paid once per operator, not per deal.
+  await PATHS['happy path (decision carries the delivery)']!(chain, cast, club);
+  const before = chain.transactions().length;
+  const id = await run(chain, cast, club);
+  const txs: TxRecord[] = chain.transactions().slice(before).filter((t) => t.commitmentId === id);
+  return { path, txs: txs.map((t) => ({ call: t.call, gasUsed: t.gasUsed })), total: txs.reduce((a, t) => a + t.gasUsed, 0n), finalState: chain.escrowState(id)!.kind };
+}
+
 export async function measure(world: EvmWorld): Promise<PathGas[]> {
   const out: PathGas[] = [];
-  for (const [path, run] of Object.entries(PATHS)) {
-    const { chain, cast, club } = await newSettlement(world);
-    // Warm-up: the TokenStore clone and first-touch storage are paid once per operator, not per deal.
-    await PATHS['happy path (decision carries the delivery)']!(chain, cast, club);
-    const before = chain.transactions().length;
-    const id = await run(chain, cast, club);
-    const txs: TxRecord[] = chain.transactions().slice(before).filter((t) => t.commitmentId === id);
-    out.push({ path, txs: txs.map((t) => ({ call: t.call, gasUsed: t.gasUsed })), total: txs.reduce((a, t) => a + t.gasUsed, 0n), finalState: chain.escrowState(id)!.kind });
-  }
+  for (const path of Object.keys(PATHS)) out.push(await measurePath(world, path));
   return out;
 }
 
