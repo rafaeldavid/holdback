@@ -359,7 +359,11 @@ contract HoldbackRules is EIP712 {
         // the appellant; the overturn payout from the adjudicator's bond is Phase 4.
         BONDS.payAppealBond(id, t.token, upheld ? first : address(0));
         emit AppealClosed(id, d.appeal);
-        if (bytes(m.keyCiphertext).length > 0) _releaseKey(id, t.buyer, KEY_APPEAL, m.keyScheme, m.keyCiphertext);
+        if (bytes(m.keyCiphertext).length > 0) {
+            // ADR-0012: the buyer's key goes only where the seller was paid, never to a refunded buyer.
+            if (!firstAccepted) revert InvalidMessage();
+            _releaseKey(id, t.buyer, KEY_APPEAL, m.keyScheme, m.keyCiphertext);
+        }
     }
 
     // ---------------------------------------------------------------- early accept
