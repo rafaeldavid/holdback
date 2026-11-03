@@ -69,6 +69,8 @@ The public-audit cross-check found no high or medium issue against our use of CP
 | L-4 | low | The seed commitment is checked on 144 bits, reusably | judgment | inferred | T-212 item 2 |
 | L-5 | low | Uncovered fallback and appeal adjudicators still decide | judgment | measured | the fallback's part fixed by M-3; the appeal adjudicator's in T-212 item 5 |
 | L-6 | low | `authorizationExpiry` ignores `judgeBy` | hold | measured | T-212 item 4 |
+| L-7 | low | The party a decision favoured can take the only appeal slot | judgment | measured | T-212 item 7 |
+| L-8 | low | A `judgeBy` already past at funding makes the fallback's seed public before the terms are signed | judgment | measured | T-212 item 8 |
 | I-1 to I-13 | info | Each labelled and disposed of in §2.3 | | | |
 
 Proofs marked "adversarial pass" are among the 24 tests in that pass's local worktree, measured against `baac930`. They are not in the repo; attack tests pass while the attack works.
@@ -216,6 +218,20 @@ Proofs marked "adversarial pass" are among the 24 tests in that pass's local wor
 - **Scenario:** the expiry is `fallbackBy + appealDecideSec + EXPIRY_MARGIN`. A `judgeBy` after it is representable under D31, though contradictory as a schedule, and then the primary's on-time decision cannot capture. M-1's fix keeps the bonds safe in that case.
 - **Proof:** `test_attack_d31_deadlines_after_expiry_strand_bonds_and_unpaid_seller` [measured, local].
 - **Follow-up:** T-212.
+
+#### L-7. The party a decision favoured can take the only appeal slot (cross-check, PA-L3)
+
+- **Where:** `HoldbackRules.sol:484-497`. `fileAppeal` takes one appeal per commitment from either party, and a zero bond needs no allowance (L-3).
+- **Scenario:** the party the decision went for files a free appeal first. The losing party's appeal then reverts with `WrongAppealState(Open)`, and the decision stands. It is low today, because an appeal moves only the appellant's bond. It becomes medium once Phase 4 pays from bonds.
+- **Proof:** the cross-check's `AppealSlot.t.sol`, 3 tests [measured, local].
+- **Follow-up:** T-212. Admit only the party the decision went against, or give each party its own slot.
+
+#### L-8. A `judgeBy` already past at funding makes the fallback's seed public before the terms are signed (cross-check, PA-L4)
+
+- **Where:** `HoldbackRules.sol:200` and `:255-258`. `agreeAndFund` checks only `offerExpiresAt` and `fundBy`, and the fallback's round is `roundAt(judgeBy)`.
+- **Scenario:** with `judgeBy` at or before funding (D31 allows it), that round is already published. The fallback panel's seed is then a function of the terms alone, so whoever writes them can grind the nonce for the panel it wants, and a silent, colluding primary hands the case to that panel. The reference path refuses this shape (`timing.ts` requires `fundBy < judgeBy`), so it takes a buyer who signs such terms directly.
+- **Proof:** the cross-check's `KnownSeedFallback.t.sol`, 3 tests [measured, local].
+- **Follow-up:** T-212. Refuse at funding when `block.timestamp >= judgeBy`; D31 allows that as self-contradictory. The same check removes the D31 shape behind L-6 for the primary.
 
 #### Informational
 

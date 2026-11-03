@@ -18,10 +18,12 @@ This task covers the low findings of `docs/reviews/2026-11-03-contract-review.md
 4. **L-6.** Either derive `authorizationExpiry` from `max(judgeBy, fallbackBy) + appealDecideSec + EXPIRY_MARGIN`, or refuse at funding a `judgeBy` after `fallbackBy` as self-contradictory (D31 allows that refusal). Either way, mirror it in `encode.ts` and SimChain's `authorizationExpiry`.
 5. **L-5.** Since M-3 (PR #135), the fallback reserves its bond by deciding, so an uncovered fallback cannot decide. That leaves the appeal adjudicator. Decide whether its decision after an escalation, or on a party appeal, needs free cover, per ADR-0016 §1 ("if either lacks coverage then, the case goes to the default outcome"). Then record the rule in ADR-0016 before Phase 4 attaches payouts to coverage.
 6. **I-2.** Drop the dead fee-share branch in `_payOut` (`MUTUAL_FEE_SHARE_BPS` is a constant 0), or move the rate into the terms when it stops being 0.
+7. **L-7.** `fileAppeal` admits only the party the decision went against, or gives each party its own slot. Then the favoured party cannot block the other's appeal with a free one. Port the cross-check's `AppealSlot.t.sol`.
+8. **L-8.** `agreeAndFund` refuses when `block.timestamp >= judgeBy`, so the fallback's beacon round cannot already be public when the terms are signed. Port the cross-check's `KnownSeedFallback.t.sol`.
 
 ## Acceptance criteria
 
-- [ ] Items 1, 2 and 6 merged, each with a regression test that fails before it.
+- [ ] Items 1, 2, 6, 7 and 8 merged, each with a regression test that fails before it.
 - [ ] Items 3, 4 and 5 decided, each recorded in `docs/decisions-today.md` or an ADR, and built if the decision is to build.
 - [ ] `HoldbackRules` stays under EIP-170, with the headroom recorded.
 - [ ] `pnpm verify` green.
