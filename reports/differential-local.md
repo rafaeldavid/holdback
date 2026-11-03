@@ -6,38 +6,38 @@ through `EvmSettlement` on anvil (chain id 31337). Lines are the normalised tran
 `-` is SimChain only, `+` is the contract only. Explanations and the decision on each difference: T-205 Decisions
 (docs/tasks/T-205-evm-settlement.md). All values measured.
 
-Fixtures: 28; run on the contract: 25; passing on the contract: 25; identical transcripts: 7; excluded until Phase 4: 3; errors: 0.
+Fixtures: 28; run on the contract: 25; passing on the contract: 25; identical transcripts: 25; excluded until Phase 4: 3; errors: 0.
 
 | Fixture | On the contract | Transactions | Gas | Differing lines |
 | --- | --- | --- | --- | --- |
-| `_example` | pass | 3 | 517,731 | 2 |
+| `_example` | pass | 3 | 517,731 | 0 |
 | `attack.adjudicator-self-dealing` | pass | 1 | 65,515 | 0 |
-| `attack.forced-stride-appeal-default` | pass | 4 | 585,278 | 4 |
-| `attack.injection-encoded-base64` | pass | 4 | 585,218 | 4 |
-| `attack.injection-encoded-unicode-tags` | pass | 3 | 500,358 | 2 |
-| `attack.injection-filter-abstain-appeal-default` | pass | 4 | 585,206 | 4 |
-| `attack.injection-splits-appeal-to-default` | pass | 4 | 585,206 | 4 |
-| `attack.injection-steers-appeal-supermajority` | pass | 4 | 585,218 | 4 |
-| `attack.injection-steers-appeal-two-families` | pass | 4 | 585,218 | 4 |
-| `bad-work-row-drop` | pass | 3 | 500,334 | 2 |
+| `attack.forced-stride-appeal-default` | pass | 4 | 585,278 | 0 |
+| `attack.injection-encoded-base64` | pass | 4 | 585,218 | 0 |
+| `attack.injection-encoded-unicode-tags` | pass | 3 | 500,358 | 0 |
+| `attack.injection-filter-abstain-appeal-default` | pass | 4 | 585,206 | 0 |
+| `attack.injection-splits-appeal-to-default` | pass | 4 | 585,206 | 0 |
+| `attack.injection-steers-appeal-supermajority` | pass | 4 | 585,218 | 0 |
+| `attack.injection-steers-appeal-two-families` | pass | 4 | 585,218 | 0 |
+| `bad-work-row-drop` | pass | 3 | 500,334 | 0 |
 | `error.concurrent-overdraft` | pass | 1 | 246,317 | 0 |
 | `error.coverage-exceeded` | pass | 0 | 0 | 0 |
-| `error.early-accept-wrong-key-envelope` | pass | 3 | 514,911 | 2 |
+| `error.early-accept-wrong-key-envelope` | pass | 3 | 514,911 | 0 |
 | `error.invalid-signature` | pass | 0 | 0 | 0 |
 | `error.submission-limit` | pass | 1 | 251,129 | 0 |
-| `happy-path` | pass | 3 | 517,731 | 2 |
+| `happy-path` | pass | 3 | 517,731 | 0 |
 | `honest-seller-survives-judge-noise-on-appeal` | excluded until Phase 4 | | | |
 | `neutrality.adjudicator-and-fallback-offline` | excluded until Phase 4 | | | |
 | `neutrality.adjudicator-never-accepts` | pass | 1 | 65,503 | 0 |
-| `neutrality.adjudicator-offline` | pass | 4 | 609,694 | 4 |
-| `neutrality.adjudicator-silent-before-judging` | pass | 4 | 609,670 | 4 |
+| `neutrality.adjudicator-offline` | pass | 4 | 609,694 | 0 |
+| `neutrality.adjudicator-silent-before-judging` | pass | 4 | 609,670 | 0 |
 | `neutrality.appeal-adjudicator-offline-after-escalation` | excluded until Phase 4 | | | |
-| `neutrality.buyer-silent` | pass | 3 | 517,803 | 2 |
-| `neutrality.operator-offline` | pass | 3 | 515,267 | 2 |
-| `neutrality.operator-refuses` | pass | 3 | 515,375 | 2 |
+| `neutrality.buyer-silent` | pass | 3 | 517,803 | 0 |
+| `neutrality.operator-offline` | pass | 3 | 515,267 | 0 |
+| `neutrality.operator-refuses` | pass | 3 | 515,375 | 0 |
 | `neutrality.seller-withholds-delivery` | pass | 2 | 381,512 | 0 |
-| `panel-disagreement-escalates` | pass | 4 | 602,781 | 4 |
-| `todo.provider-outage` | pass (todo) | 3 | 391,607 | 4 |
+| `panel-disagreement-escalates` | pass | 4 | 602,781 | 0 |
+| `todo.provider-outage` | pass (todo) | 3 | 391,607 | 0 |
 
 ## `_example`
 
@@ -47,10 +47,7 @@ Fixtures: 28; run on the contract: 25; passing on the contract: 25; identical tr
 | deliver | op-1 | op-1 | 61,193 |
 | decide | direct | bench-a | 205,433 |
 
-```diff
-- events step 3: delivery.submitted, key.released
-+ events step 3: delivery.submitted
-```
+Identical.
 
 ## `attack.adjudicator-self-dealing`
 
@@ -69,12 +66,7 @@ Identical.
 | decide | direct | bench-a | 79,237 |
 | decide | direct | bench-c | 193,659 |
 
-```diff
-- events step 4: delivery.submitted, key.released
-- events step 6: judgment.decided, key.released
-+ events step 4: delivery.submitted
-+ events step 6: judgment.decided
-```
+Identical.
 
 ## `attack.injection-encoded-base64`
 
@@ -85,12 +77,7 @@ Identical.
 | decide | direct | bench-a | 79,213 |
 | decide | direct | bench-c | 193,635 |
 
-```diff
-- events step 4: delivery.submitted, key.released
-- events step 6: judgment.decided, key.released
-+ events step 4: delivery.submitted
-+ events step 6: judgment.decided
-```
+Identical.
 
 ## `attack.injection-encoded-unicode-tags`
 
@@ -100,10 +87,7 @@ Identical.
 | deliver | op-1 | op-1 | 61,229 |
 | decide | direct | bench-a | 187,976 |
 
-```diff
-- events step 4: delivery.submitted, key.released
-+ events step 4: delivery.submitted
-```
+Identical.
 
 ## `attack.injection-filter-abstain-appeal-default`
 
@@ -114,12 +98,7 @@ Identical.
 | decide | direct | bench-a | 79,213 |
 | decide | direct | bench-c | 193,623 |
 
-```diff
-- events step 4: delivery.submitted, key.released
-- events step 6: judgment.decided, key.released
-+ events step 4: delivery.submitted
-+ events step 6: judgment.decided
-```
+Identical.
 
 ## `attack.injection-splits-appeal-to-default`
 
@@ -130,12 +109,7 @@ Identical.
 | decide | direct | bench-a | 79,213 |
 | decide | direct | bench-c | 193,623 |
 
-```diff
-- events step 4: delivery.submitted, key.released
-- events step 6: judgment.decided, key.released
-+ events step 4: delivery.submitted
-+ events step 6: judgment.decided
-```
+Identical.
 
 ## `attack.injection-steers-appeal-supermajority`
 
@@ -146,12 +120,7 @@ Identical.
 | decide | direct | bench-a | 79,213 |
 | decide | direct | bench-c | 193,635 |
 
-```diff
-- events step 4: delivery.submitted, key.released
-- events step 6: judgment.decided, key.released
-+ events step 4: delivery.submitted
-+ events step 6: judgment.decided
-```
+Identical.
 
 ## `attack.injection-steers-appeal-two-families`
 
@@ -162,12 +131,7 @@ Identical.
 | decide | direct | bench-a | 79,213 |
 | decide | direct | bench-c | 193,635 |
 
-```diff
-- events step 4: delivery.submitted, key.released
-- events step 6: judgment.decided, key.released
-+ events step 4: delivery.submitted
-+ events step 6: judgment.decided
-```
+Identical.
 
 ## `bad-work-row-drop`
 
@@ -177,10 +141,7 @@ Identical.
 | deliver | op-1 | op-1 | 61,229 |
 | decide | direct | bench-a | 187,964 |
 
-```diff
-- events step 4: delivery.submitted, key.released
-+ events step 4: delivery.submitted
-```
+Identical.
 
 ## `error.concurrent-overdraft`
 
@@ -202,10 +163,7 @@ Identical.
 | deliver | op-1 | op-1 | 61,229 |
 | earlyAccept | op-1 | op-1 | 202,517 |
 
-```diff
-- events step 4: delivery.submitted, key.released
-+ events step 4: delivery.submitted
-```
+Identical.
 
 ## `error.invalid-signature`
 
@@ -227,10 +185,7 @@ Identical.
 | deliver | op-1 | op-1 | 61,193 |
 | decide | direct | bench-a | 205,433 |
 
-```diff
-- events step 4: delivery.submitted, key.released
-+ events step 4: delivery.submitted
-```
+Identical.
 
 ## `honest-seller-survives-judge-noise-on-appeal`
 
@@ -257,12 +212,7 @@ Identical.
 | triggerFallback | op-2 | op-2 | 52,275 |
 | decide | direct | bench-b | 245,049 |
 
-```diff
-- events step 4: delivery.submitted, key.released
-- events step 8: fallback.triggered, key.released
-+ events step 4: delivery.submitted
-+ events step 8: fallback.triggered
-```
+Identical.
 
 ## `neutrality.adjudicator-silent-before-judging`
 
@@ -273,12 +223,7 @@ Identical.
 | triggerFallback | op-1 | op-1 | 52,263 |
 | decide | direct | bench-b | 245,049 |
 
-```diff
-- events step 5: delivery.submitted, key.released
-- events step 7: fallback.triggered, key.released
-+ events step 5: delivery.submitted
-+ events step 7: fallback.triggered
-```
+Identical.
 
 ## `neutrality.appeal-adjudicator-offline-after-escalation`
 
@@ -292,10 +237,7 @@ Excluded: Phase 4: seller compensation from the appeal adjudicator’s bond on d
 | deliver | op-1 | op-1 | 61,217 |
 | decide | direct | bench-a | 205,469 |
 
-```diff
-- events step 5: delivery.submitted, key.released
-+ events step 5: delivery.submitted
-```
+Identical.
 
 ## `neutrality.operator-offline`
 
@@ -305,10 +247,7 @@ Excluded: Phase 4: seller compensation from the appeal adjudicator’s bond on d
 | deliver | direct | tidewater-seller | 58,705 |
 | decide | direct | bench-a | 205,457 |
 
-```diff
-- events step 6: delivery.submitted, key.released
-+ events step 6: delivery.submitted
-```
+Identical.
 
 ## `neutrality.operator-refuses`
 
@@ -318,10 +257,7 @@ Excluded: Phase 4: seller compensation from the appeal adjudicator’s bond on d
 | deliver | direct | tidewater-seller | 58,729 |
 | decide | direct | bench-a | 205,493 |
 
-```diff
-- events step 7: delivery.submitted, key.released
-+ events step 7: delivery.submitted
-```
+Identical.
 
 ## `neutrality.seller-withholds-delivery`
 
@@ -341,12 +277,7 @@ Identical.
 | decide | direct | bench-a | 79,225 |
 | decide | direct | bench-c | 211,210 |
 
-```diff
-- events step 4: delivery.submitted, key.released
-- events step 6: judgment.decided, key.released
-+ events step 4: delivery.submitted
-+ events step 6: judgment.decided
-```
+Identical.
 
 ## `todo.provider-outage`
 
@@ -356,9 +287,4 @@ Identical.
 | deliver | op-1 | op-1 | 61,229 |
 | decide | direct | bench-a | 79,225 |
 
-```diff
-- events step 4: delivery.submitted, key.released
-- events step 6: judgment.decided, key.released
-+ events step 4: delivery.submitted
-+ events step 6: judgment.decided
-```
+Identical.

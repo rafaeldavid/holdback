@@ -88,6 +88,18 @@ export interface PrepareContext {
   state(id: Hex32): Promise<CommitmentStateView | null>;
   /** ADR-0023: this node's published fee schedule, if it charges one. */
   operatorFee?: OperatorFeeSchedule;
+  /** On an EVM settlement layer: what the buyer signs to fund and to pay the operator fee (ADR-0025). */
+  erc3009?: Erc3009Signing;
+}
+
+/**
+ * On an EVM settlement layer the buyer funds with an ERC-3009 ReceiveWithAuthorization to the escrow's collector, and
+ * pays the operator fee with a TransferWithAuthorization, both in the token's own EIP-712 domain, with nonces the
+ * terms fix (ADR-0025; ADR-0023 amendment). Absent: SimChain, where both are Holdback-domain messages.
+ */
+export interface Erc3009Signing {
+  funding(terms: AnyCommitmentTerms): { typedData: TypedDataJson; digest: Hex32; nonce: Hex32; validAfter: Timestamp };
+  operatorFee(o: { commitmentId: Hex32; from: Address; to: Address; value: string; validAfter: Timestamp; validBefore: Timestamp }): { typedData: TypedDataJson; digest: Hex32; nonce: Hex32 };
 }
 
 /** "0.2 tUSD to 0x…: 1 bp of the price rounded up, at least 0.01 tUSD", the fee as check text and 402 details say it. */
@@ -201,6 +213,12 @@ function nonceIn(v: unknown, name: string): Hex32 {
   if (v === undefined) bad(`${name} is required: generate 32 random bytes yourself, send them as 0x-prefixed hex, and refuse a message with any other`, name);
   if (!isHex32(v)) bad(`${name} must be 32 bytes of hex (0x and 64 hex digits)`, name);
   return v as Hex32;
+}
+/** A nonce the terms fix (ERC-3009 on EVM): optional, and when sent it must be that one. */
+function fixedNonceIn(v: unknown, want: Hex32, name: string): Hex32 {
+  if (v === undefined) return want;
+  if (!isHex32(v) || lc(v as string) !== lc(want)) bad(`${name} on this settlement layer is fixed by the terms: ${want}; send that, or leave ${name} out`, name);
+  return want;
 }
 function amountIn(v: unknown, name: string): TokenAmount {
   if (!isObj(v) || typeof v['token'] !== 'string' || typeof v['amount'] !== 'string' || !/^(0|[1-9]\d{0,77})$/.test(v['amount'])) {
@@ -332,6 +350,9 @@ async function agreeAndFund(ctx: PrepareContext, input: Record<string, unknown>)
   const c = await commitmentIn(ctx, input);
   const total = (BigInt(c.price.amount) + BigInt(c.adjudication.fee.amount)).toString();
   const agreeBody = { type: 'Agree', commitmentId: c.id, buyer: c.buyer, expiresAt: c.timing.offerExpiresAt } as const;
+  // On EVM the funding is the token's ERC-3009 authorization, valid from the epoch, nonce fixed by the terms (ADR-0025).
+  const evm = ctx.erc3009;
+  const funded = evm?.funding(c);
   const fundingBody = {
     type: 'FundingAuthorization',
     scheme: 'erc3009',
@@ -339,12 +360,12 @@ async function agreeAndFund(ctx: PrepareContext, input: Record<string, unknown>)
     from: c.buyer,
     value: total,
     token: c.price.token,
-    validAfter: c.createdAt,
+    validAfter: funded ? funded.validAfter : c.createdAt,
     validBefore: c.timing.fundBy,
     expiresAt: c.timing.fundBy,
   } as const;
   const agreeNonce = nonceIn(input['agreeNonce'], 'agreeNonce');
-  const fundingNonce = nonceIn(input['fundingNonce'], 'fundingNonce');
+  const fundingNonce = funded ? fixedNonceIn(input['fundingNonce'], funded.nonce, 'fundingNonce') : nonceIn(input['fundingNonce'], 'fundingNonce');
   const agree = { ...agreeBody, nonce: agreeNonce };
   const funding = { ...fundingBody, nonce: fundingNonce };
   // ADR-0023: this node's fee, a third signature, only when it asks for more than zero.
@@ -361,20 +382,27 @@ async function agreeAndFund(ctx: PrepareContext, input: Record<string, unknown>)
           to: schedule.to,
           value: due.amount,
           token: due.token,
-          validAfter: c.createdAt,
+          // On EVM from the epoch, as the funding: a simulation runs on a block that may predate createdAt (ADR-0028).
+          validAfter: funded ? funded.validAfter : c.createdAt,
           validBefore: c.timing.fundBy,
           expiresAt: c.timing.fundBy,
         } as const)
       : undefined;
   // Sent always is fine: a node that charges nothing ignores it. A node that charges needs it (fees.operator in discovery).
-  const fee = feeBody ? { ...feeBody, nonce: nonceIn(input['operatorFeeNonce'], 'operatorFeeNonce') } : undefined;
+  const feeSigned = feeBody && evm ? evm.operatorFee({ commitmentId: c.id, from: c.buyer, to: feeBody.to, value: feeBody.value, validAfter: feeBody.validAfter, validBefore: feeBody.validBefore }) : undefined;
+  const feeNonce = feeBody ? (feeSigned ? fixedNonceIn(input['operatorFeeNonce'], feeSigned.nonce, 'operatorFeeNonce') : nonceIn(input['operatorFeeNonce'], 'operatorFeeNonce')) : undefined;
+  const fee = feeBody ? { ...feeBody, nonce: feeNonce! } : undefined;
+  const fixed = {
+    ...(funded && input['fundingNonce'] === undefined ? { fundingNonce } : {}),
+    ...(feeSigned && input['operatorFeeNonce'] === undefined ? { operatorFeeNonce: feeNonce } : {}),
+  };
   return {
     kind: 'agree-and-fund',
     commitmentId: c.id,
     sign: [
       { slot: 'signature', signer: c.buyer, ...forMessage(ctx.domain, agree) },
-      { slot: 'fund.signature', signer: c.buyer, ...forMessage(ctx.domain, funding) },
-      ...(fee ? [{ slot: 'operatorFee.signature', signer: c.buyer, ...forMessage(ctx.domain, fee) }] : []),
+      { slot: 'fund.signature', signer: c.buyer, ...(funded ? { typedData: funded.typedData, digest: funded.digest } : forMessage(ctx.domain, funding)) },
+      ...(fee ? [{ slot: 'operatorFee.signature', signer: c.buyer, ...(feeSigned ? { typedData: feeSigned.typedData, digest: feeSigned.digest } : forMessage(ctx.domain, fee)) }] : []),
     ],
     submit: {
       method: 'POST',
@@ -392,8 +420,13 @@ async function agreeAndFund(ctx: PrepareContext, input: Record<string, unknown>)
       `the terms name buyerEncryptionPublicKey ${c.buyerEncryptionPublicKey}: the seller seals the work's key to it, so confirm you hold the secret key for it (this operator cannot know your key)`,
       `adjudicators: primary ${c.adjudication.adjudicator}, fallback ${c.adjudication.fallbackAdjudicator}, appeal ${c.adjudication.appealAdjudicator}`,
       'the primary adjudicator must have accepted the offer first (escrowState AcceptedByAdjudicator)',
+      ...(funded
+        ? [
+            `on this chain fund.signature is an ERC-3009 ReceiveWithAuthorization under the token's own EIP-712 domain (${funded.typedData.domain.name} ${funded.typedData.domain.version}, the token contract ${funded.typedData.domain.verifyingContract}): to the escrow's collector ${String(funded.typedData.message['to'])}, value price plus fee, valid from 0 until fundBy, nonce ${funding.nonce}, the payer-agnostic PaymentInfo hash of these terms, so it can fund this commitment only`,
+          ]
+        : []),
     ],
-    defaults: {},
+    defaults: fixed,
   };
 }
 
