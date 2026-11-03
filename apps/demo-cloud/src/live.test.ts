@@ -2,11 +2,12 @@
 // second at wall-clock time, the T-202 contracts deployed from contracts/out, LiveChain sending from relayer lanes
 // derived from one key. examples/try.ts runs a deal against it over HTTP in its own process, as against Sepolia,
 // with the deployment pinned through HOLDBACK_DEPLOYMENT. Needs `anvil` on PATH and `forge build` output.
-import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { spawn, type ChildProcess } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
-import type { AddressInfo } from 'node:net';
+import { createServer as createNetServer, type AddressInfo } from 'node:net';
 import { fileURLToPath } from 'node:url';
+import { privateKeyToAccount } from 'viem/accounts';
 import { EvmSettlement, LiveChain, type DeploymentFile } from '@holdback/settlement/live';
 import { anvilAvailable, EvmWorld } from '@holdback/settlement/evm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -126,4 +127,50 @@ describe.skipIf(!ready)(`the public world on a live chain (anvil for Sepolia)${r
     await PublicWorld.open({ storage: sim, env: {} });
     await expect(PublicWorld.open({ storage: sim, env: {}, live: { chain: chainOf() } })).rejects.toThrow(/settles on sim/);
   });
+});
+
+// The same deal against the deployed Sepolia contracts, forked locally by anvil (chain id 11155111, the real
+// HoldbackRules, CPP, tUSD and drand verifier), with a test relayer funded on the fork only. Needs network: it runs
+// when SEPOLIA_FORK_RPC names a Sepolia RPC and contracts/deployments/sepolia.json exists.
+const forkRpc = process.env['SEPOLIA_FORK_RPC'];
+const deploymentFile = `${root}contracts/deployments/sepolia.json`;
+const forkReady = anvilAvailable() && !!forkRpc && existsSync(deploymentFile);
+
+describe.skipIf(!forkReady)(`the public world on a Sepolia fork${forkReady ? '' : ' (SKIPPED: needs SEPOLIA_FORK_RPC and contracts/deployments/sepolia.json)'}`, () => {
+  let anvil: ChildProcess;
+  let rpc: string;
+  const deployment = forkReady ? (JSON.parse(readFileSync(deploymentFile, 'utf8')) as DeploymentFile) : (undefined as never);
+  beforeAll(async () => {
+    const port = await new Promise<number>((resolve) => {
+      const s = createNetServer().listen(0, '127.0.0.1', () => {
+        const p = (s.address() as AddressInfo).port;
+        s.close(() => resolve(p));
+      });
+    });
+    anvil = spawn('anvil', ['--fork-url', forkRpc!, '--host', '127.0.0.1', '--port', String(port), '--block-time', '2', '--silent'], { stdio: 'ignore' });
+    rpc = `http://127.0.0.1:${port}`;
+    const call = (method: string, params: unknown[]) => fetch(rpc, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) }).then((r) => r.json() as Promise<{ result?: unknown }>);
+    for (let i = 0; i < 100 && !(await call('eth_chainId', []).catch(() => ({}))).result; i++) await new Promise((r) => setTimeout(r, 200));
+    // The fork's copy of the test relayer gets test ETH; nothing touches the real chain.
+    await call('anvil_setBalance', [privateKeyToAccount(RELAYER).address, '0x8ac7230489e80000']);
+  }, 60_000);
+  afterAll(() => {
+    anvil?.kill();
+  });
+
+  it('runs try.ts to Released on the deployed contracts', async () => {
+    const chain = new LiveChain({ deployment, rpcUrls: [rpc], relayerKey: RELAYER, pollMs: 300, rebroadcastMs: 20_000, mintBatchMs: 300 });
+    await chain.verify();
+    const world = await PublicWorld.open({ storage: new MemoryStorage(), env: ENV, live: { chain } });
+    const demo = await serve(world);
+    try {
+      for (const end = Date.now() + 120_000; !world.ready() && Date.now() < end; ) await new Promise((r) => setTimeout(r, 500));
+      expect(world.ready()).toBe(true);
+      const run = await runTry({ HOLDBACK_OPERATORS: demo.urls.join(','), HOLDBACK_DEPLOYMENT: JSON.stringify(deployment) });
+      expect(run.out).toMatch(/^done\s+commitment 0x[0-9a-f]{64} Released$/m);
+      expect(run.out.split('\n').filter((l) => l.startsWith('chain')).map((l) => l.split(/\s+/)[1])).toEqual(['funded', 'delivered', 'decided']);
+    } finally {
+      await demo.close();
+    }
+  }, 300_000);
 });
