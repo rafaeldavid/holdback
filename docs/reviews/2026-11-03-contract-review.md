@@ -65,7 +65,7 @@ The public-audit cross-check found no high or medium issue against our use of CP
 | M-3 | medium | A sham deal locks a named fallback's or appeal adjudicator's bond | neutrality | measured | fixed, PR #135 (merged); reference adjudicator residual in T-211 |
 | L-1 | low | An early accept, and a decision (§8), names an attempt, not a delivery | hold (record) | measured | T-212 item 3; the adjudicator's check in T-211 and T-213 |
 | L-2 | low | The bond vault credits nominal amounts | neutrality | inferred | T-212 item 1 |
-| L-3 | low | A zero-bond appeal is accepted | judgment | measured | accepted until Phase 4 |
+| L-3 | low | A zero-bond appeal is accepted | judgment | measured | blocks mainnet since D43: with the overturn payout, a free appeal can win the price (a minimum appeal bond, T-212 Handoff) |
 | L-4 | low | The seed commitment is checked on 144 bits, reusably | judgment | inferred | T-212 item 2 |
 | L-5 | low, medium since D43 | Uncovered fallback and appeal adjudicators still decide | judgment | measured | the fallback's part fixed by M-3; the appeal adjudicator's in T-212 item 5, which now blocks mainnet |
 | L-6 | low | `authorizationExpiry` ignores `judgeBy` | hold | measured | T-212 item 4 |
