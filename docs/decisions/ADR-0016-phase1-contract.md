@@ -71,7 +71,8 @@ One new schema file, `messages.schema.json`, defines each EIP-712 message as a v
 The settlement layer refuses a decision unless:
 - its seed is the valid panel seed for the decider's role: the primary reveals the preimage of `seedCommitment`; the fallback and appeal adjudicators use the beacon seed (amended by ADR-0018, D14);
 - its `policyHash` and `registryHash` equal the commitment's;
-- it is signed by the adjudicator whose turn it is, before that adjudicator's deadline.
+- it is signed by the adjudicator whose turn it is, before that adjudicator's deadline;
+- its `deliveryHash` is the posted delivery's (amended by ADR-0029, D44, 2026-11-03): every role judges the body the seller posted, and a party appeal the body the first decision judged. The same holds for an early accept and for a mutual settlement after a delivery.
 
 Panel composition depends on the registry's contents, so the settlement layer does not check it. A wrong panel is an appeal ground, "policy or panel violation", alongside "missing or wrong key".
 
