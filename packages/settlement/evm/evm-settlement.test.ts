@@ -387,10 +387,10 @@ class Saved implements LaneStore {
   }
   async write(row: LaneRow): Promise<void> {
     this.writes++;
-    this.rows.set(`${row.lane}:${row.nonce}`, structuredClone(row));
+    this.rows.set(`${row.lane}:${row.from.toLowerCase()}:${row.nonce}`, structuredClone(row));
   }
   async remove(rows: readonly LaneRow[]): Promise<void> {
-    for (const r of rows) if (this.rows.delete(`${r.lane}:${r.nonce}`)) this.removes++;
+    for (const r of rows) if (this.rows.delete(`${r.lane}:${r.from.toLowerCase()}:${r.nonce}`)) this.removes++;
   }
   /** The world's persist: the books and events, then the rows their receipts applied. */
   async persist(s: EvmSettlement): Promise<void> {
@@ -534,4 +534,96 @@ describe.skipIf(!ready)(`relayed transactions a restart left in flight (T-219; a
     expect([saved.writes, f.copy.writes, g.copy.writes, h.copy.writes]).toEqual([1, 1, 1, 0]);
     expect(f.copy.removes + g.copy.removes + h.copy.removes).toBe(3);
   }, 120_000);
+
+  it("a persist while the answer is being read keeps the row, so a restart still replays the client's retry (review, 2026-11-04)", async () => {
+    const saved = new Saved();
+    const a = await open(saved);
+    const d = new EvmDeal(a, cast, club, 'release-before-replay');
+    for (const sub of [await d.offer(), await d.accept(), await d.agreeAndFund()]) expect((await a.submit(sub, { via: 'op-1' })).ok).toBe(true);
+    await saved.persist(a);
+    expect(saved.rows.size).toBe(0);
+    // The delivery's answer waits on the view's balance reads, after its receipt is applied. Meanwhile another request
+    // (or the pass) persists, and the Durable Object restarts before this request's own persist.
+    const deliver = await d.deliver();
+    const before = saved.writes;
+    let reached = () => {};
+    const atView = new Promise<void>((r) => (reached = r));
+    let proceed = () => {};
+    const gate = new Promise<void>((r) => (proceed = r));
+    const real = a.tokenBalance.bind(a);
+    vi.spyOn(a, 'tokenBalance').mockImplementation(async (who, fresh) => {
+      if (saved.writes > before) {
+        reached();
+        await gate;
+      }
+      return real(who, fresh);
+    });
+    const sending = a.submit(deliver, { idempotencyKey: 'k-view', via: 'op-1' });
+    await atView;
+    await saved.persist(a);
+    const restarted = saved.copy();
+    proceed();
+    expect(await sending).toMatchObject({ ok: true, replayed: false, state: { escrowState: 'Delivered' } });
+    // The row outlives that persist: its receipt's answer was not yet stored.
+    expect(restarted.rows.size).toBe(1);
+    const b = await open(restarted);
+    expect(await b.submit(deliver, { idempotencyKey: 'k-view', via: 'op-1' })).toMatchObject({ ok: true, replayed: true, state: { escrowState: 'Delivered' } });
+    // Without the restart, this request's own persist writes the answer, then deletes the row.
+    await saved.persist(a);
+    expect(saved.rows.size).toBe(0);
+    expect(Object.keys(saved.books.get(d.id)?.replays ?? {})).toContain('k-view');
+  }, 60_000);
+
+  it("after a restart, another body under an open row's Idempotency-Key is a conflict, whatever its commitment (red-team, 2026-11-04)", async () => {
+    const saved = new Saved();
+    const a = await open(saved);
+    const d = new EvmDeal(a, cast, club, 'key-inversion');
+    for (const sub of [await d.offer(), await d.accept()]) expect((await a.submit(sub, { via: 'op-1' })).ok).toBe(true);
+    await saved.persist(a);
+    const fund = await d.agreeAndFund();
+    const f = await interrupted(a, saved, fund, 'k-reused', 'op-1');
+    const b = await open(f.copy);
+    // Before the next pass lands the funding's row, the same key arrives with an offer for another deal.
+    const e = new EvmDeal(b, cast, club, 'key-inversion-other');
+    const other = await b.submit(await e.offer(), { idempotencyKey: 'k-reused', via: 'op-1' });
+    expect(other.ok ? 'ok' : other.problem.type).toBe('idempotency_conflict');
+    expect(b.escrowState(e.id)).toBeNull();
+    // The funding that mined keeps its key: the pass lands it, and the retry replays it.
+    expect(await b.recover()).toMatchObject({ applied: 1, failed: 0 });
+    expect(await b.submit(fund, { idempotencyKey: 'k-reused', via: 'op-1' })).toMatchObject({ ok: true, replayed: true, state: { escrowState: 'Held' } });
+  }, 60_000);
+
+  it('recovers the rows of different relayer lanes side by side: one slow lane does not hold up the others (review, 2026-11-04)', async () => {
+    const saved = new Saved();
+    const probe = chainOf();
+    const ids = [`0x${'00'.repeat(31)}01`, `0x${'00'.repeat(31)}02`] as Hex32[];
+    const [slow, quick] = ids.map((id, i): LaneRow => ({
+      lane: i + 2,
+      from: probe.senderFor(id),
+      nonce: 1_000,
+      hashes: [keccak256(stringToBytes(`t-219/side-by-side/${i}`))],
+      raw: '0x02',
+      sentAt: Date.now(),
+      note: { commitmentId: id, call: 'reclaim', via: 'op-1', submission: { kind: 'trigger', commitmentId: id, timeout: 'reclaim' } },
+    }));
+    expect(slow!.from).not.toBe(quick!.from);
+    await saved.write(slow!);
+    await saved.write(quick!);
+    const s = await open(saved);
+    const chain = s.world as LiveChain;
+    const started: number[] = [];
+    let proceed = () => {};
+    const gate = new Promise<void>((r) => (proceed = r));
+    // Neither transaction exists: the slow lane's receipt wait is held open by the test, the quick one gives up at once.
+    vi.spyOn(chain, 'resume').mockImplementation(async (row) => {
+      started.push(row.lane);
+      if (row.lane === slow!.lane) await gate;
+      return null;
+    });
+    const recovering = s.recover();
+    for (let i = 0; i < 100 && started.length < 2; i++) await new Promise((r) => setTimeout(r, 10));
+    expect(started.sort()).toEqual([slow!.lane, quick!.lane].sort());
+    proceed();
+    expect(await recovering).toMatchObject({ dropped: 2, failed: 0 });
+  });
 });

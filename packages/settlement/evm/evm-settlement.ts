@@ -108,8 +108,12 @@ export interface EvmSubmitOptions extends SubmitOptions {
   sender?: Hex;
 }
 
-/** Inside the adapter: the options and what the relayer lane's row keeps for the submission (T-219). */
-type Relay = EvmSubmitOptions & { note?: RelayNote };
+/**
+ * Inside the adapter: the options and what the relayer lane's row keeps for the submission (T-219). `landed` collects
+ * the hashes of the relayed transactions whose receipts this submission applied: `process` releases their rows only
+ * once the submission's answer is stored with its book (review, 2026-11-04).
+ */
+type Relay = EvmSubmitOptions & { note?: RelayNote; landed?: string[] };
 
 /** What `recover` did with the rows a restart left open, one count per row. */
 export interface RecoverReport {
@@ -628,9 +632,14 @@ export class EvmSettlement implements Settlement {
     return out;
   }
 
-  /** A relayed transaction's receipt is applied: its lane row may go with the next drain's writes (T-219). */
-  private done(hash: string): void {
-    if (this.world.release) this.relayed.push(lc(hash));
+  /**
+   * A relayed transaction's receipt is applied, and the answer a retry replays is stored: its lane row may go with the
+   * next drain's writes (T-219). With `options.landed` (a submission in `process`), the hash waits there until
+   * `process` has stored the answer.
+   */
+  private done(hash: string, options?: Relay): void {
+    if (options?.landed) options.landed.push(lc(hash));
+    else if (this.world.release) this.relayed.push(lc(hash));
   }
 
   // Funding digests (ADR-0025)
@@ -727,16 +736,30 @@ export class EvmSettlement implements Settlement {
     // mined result instead of meeting the state that transaction moved.
     if (!dryRun) for (const row of this.world.inFlight?.() ?? []) if (row.note && lc(row.note.commitmentId) === lc(lane)) await this.land(row);
     if (key !== undefined) {
+      const conflict = { ok: false, problem: problem('idempotency_conflict', `idempotency key ${key} was used with another body`) } as const;
+      // An open row's key is taken, for any commitment, until its pass lands it and records the answer (red-team,
+      // 2026-11-04). The same key and body name the same commitment, whose rows landed just above.
+      if ((this.world.inFlight?.() ?? []).some((r) => r.note?.idempotencyKey === key && r.note.body !== body)) return conflict;
       const seen = this.idempotency.get(key);
-      if (seen) return seen.body === body ? { ...structuredClone(seen.result), replayed: true } : { ok: false, problem: problem('idempotency_conflict', `idempotency key ${key} was used with another body`) };
+      if (seen) return seen.body === body ? { ...structuredClone(seen.result), replayed: true } : conflict;
     }
     const before = this.log_.length;
+    // The rows of the transactions this submission lands go once its answer is stored with the book, below.
+    const landed: string[] = [];
+    const release = () => {
+      for (const h of landed) this.done(h);
+    };
     let id: Hex32;
     try {
       const note: RelayNote = { commitmentId: lane, call: '', via: options.via ?? 'direct', submission: s, ...(key !== undefined ? { idempotencyKey: key, body } : {}) };
-      id = await this.apply(s, { ...options, note }, dryRun);
+      id = await this.apply(s, { ...options, note, landed }, dryRun);
     } catch (e) {
-      if (e instanceof Refusal) return { ok: false, problem: e.problem };
+      // A refusal after a receipt (a revert on chain) has no answer to replay. Any other error keeps the row: the sync
+      // or a restart lands that receipt with its answer.
+      if (e instanceof Refusal) {
+        release();
+        return { ok: false, problem: e.problem };
+      }
       throw e;
     }
     const book = this.books.get(id)!;
@@ -757,6 +780,7 @@ export class EvmSettlement implements Settlement {
       book.replays = { ...book.replays, [key]: { body, result: structuredClone(result) } };
       this.dirty.add(id);
     }
+    release();
     return result;
   }
 
@@ -1200,7 +1224,7 @@ export class EvmSettlement implements Settlement {
     }
     if (mined.status !== 'success') {
       if (!this.wall) throw new Error(`${fn} reverted on chain after a passing simulation: ${mined.hash}`);
-      this.done(mined.hash);
+      this.done(mined.hash, options);
       // On a live chain the state or a deadline can move between the simulation and the block; only gas was spent.
       refuse('invalid_state', `${fn} reverted on chain in ${mined.hash} after a passing simulation (the state or a deadline moved in between); nothing changed`);
     }
@@ -1220,7 +1244,7 @@ export class EvmSettlement implements Settlement {
     }
     this.record(id, book, fn, before, after, logs, mined, blockAt, options.via ?? 'direct', actor, ctx);
     this.relayedAt.set(id, this.log_.length);
-    this.done(mined.hash);
+    this.done(mined.hash, options);
   }
 
   /**
@@ -1549,19 +1573,26 @@ export class EvmSettlement implements Settlement {
   /**
    * Lands the transactions this node broadcast before a restart (T-219), each inside its commitment's lane: the row's
    * receipt (rebroadcast while it is not mined), then T-218's path with the relay's label and messages. The world calls
-   * it on its first pass after opening, before the sync and the adjudicators. Never throws: a row an RPC error left
-   * open counts as failed and waits for the next pass.
+   * it on its first pass after opening, before the sync and the adjudicators. The relayer lanes resolve side by side,
+   * each in nonce order, so a pass waits for its slowest lane, not for the sum of their receipt waits (review,
+   * 2026-11-04). Never throws: a row an RPC error left open counts as failed and waits for the next pass.
    */
   async recover(): Promise<RecoverReport> {
     const report: RecoverReport = { applied: 0, seen: 0, behind: 0, reverted: 0, dropped: 0, unknown: 0, failed: 0, errors: [] };
-    for (const row of this.world.inFlight?.() ?? []) {
-      try {
-        report[await this.enqueue(row.note?.commitmentId ?? '', () => this.land(row))]++;
-      } catch (e) {
-        report.failed++;
-        report.errors.push((e as Error).message);
-      }
-    }
+    const bySender = new Map<string, LaneRow[]>();
+    for (const row of this.world.inFlight?.() ?? []) bySender.set(lc(row.from), [...(bySender.get(lc(row.from)) ?? []), row]);
+    await Promise.all(
+      [...bySender.values()].map(async (rows) => {
+        for (const row of rows) {
+          try {
+            report[await this.enqueue(row.note?.commitmentId ?? '', () => this.land(row))]++;
+          } catch (e) {
+            report.failed++;
+            report.errors.push((e as Error).message);
+          }
+        }
+      }),
+    );
     return report;
   }
 
@@ -1586,6 +1617,8 @@ export class EvmSettlement implements Settlement {
       const from = this.log_.length;
       this.landFee(id, s.operatorFee, mined, note.via);
       await this.answer(id, book, note, this.log_.slice(from).filter((e) => e.commitmentId === id));
+      // After the answer, as `follow` does: the row goes only with the book that holds it.
+      this.done(mined.hash);
       return 'applied';
     }
     const t = parseTransaction(row.raw);
@@ -2124,15 +2157,17 @@ export class EvmSettlement implements Settlement {
       if (e instanceof RelayRefused) refuse('relay_refused', `this operator cannot relay the operator fee now: ${e.message}`);
       throw e;
     }
-    if (mined.status !== 'success') {
-      this.done(mined.hash);
-      refuse('invalid_state', `the operator fee transfer reverted on chain in ${mined.hash}; the deal is funded`);
-    }
+    // The row goes with process's answer (`landed`), after the books.
+    this.done(mined.hash, options);
+    if (mined.status !== 'success') refuse('invalid_state', `the operator fee transfer reverted on chain in ${mined.hash}; the deal is funded`);
     this.landFee(id, fee, mined, options.via ?? 'direct');
     return id;
   }
 
-  /** The operator fee sent alone is mined: its record and its event, relayed or recovered after a restart (T-219). */
+  /**
+   * The operator fee sent alone is mined: its record and its event, relayed or recovered after a restart (T-219). Its
+   * row stays: the caller marks it done once the answer is stored.
+   */
   private landFee(id: Hex32, fee: TransferAuthorization, mined: Pick<Mined, 'hash' | 'from' | 'blockNumber' | 'gasUsed' | 'timestamp'>, via: string): void {
     this.balanceCache.clear();
     const blockAt = toTimestamp(mined.timestamp * 1000);
@@ -2140,7 +2175,6 @@ export class EvmSettlement implements Settlement {
     this.txs.push({ commitmentId: id, call: 'transferWithAuthorization', hash: mined.hash, from: mined.from, via, gasUsed: mined.gasUsed, at: blockAt });
     this.emit('fee.operator', id, getAddress(fee.from), via, { from: lc(fee.from), to: lc(fee.to), amount: this.amount(BigInt(fee.value)), tx: mined.hash, block: mined.blockNumber, sender: lc(mined.from), gasUsed: mined.gasUsed }, true, blockAt);
     this.relayedAt.set(id, this.log_.length);
-    this.done(mined.hash);
   }
 
   // Read model (as SimChain's view)
