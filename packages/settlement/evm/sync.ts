@@ -8,7 +8,7 @@
 // - Fail closed: every read of a pass happens before anything is applied, so an RPC error applies nothing and moves no
 //   cursor. One transaction the adapter cannot rebuild puts its deal behind and moves the cursor on.
 // - The cursor keeps the block's hash beside its number, for the reorg check (backlog, "Sepolia: reorg check").
-import { decodeFunctionData, getAddress, parseAbi, type Address, type Hex } from 'viem';
+import { decodeFunctionData, getAddress, parseAbi, toFunctionSelector, type AbiFunction, type Address, type Hex, type RpcLog } from 'viem';
 import type { Hex32 } from '@holdback/core';
 import type { EvmChain } from './chain.js';
 import type { EvmSettlement, ObserveReport } from './evm-settlement.js';
@@ -21,6 +21,8 @@ export interface Cursor {
 
 /** The most blocks one eth_getLogs spans: publicnode's cap; Tenderly's gateway took 100,000 (research §4). */
 export const LOG_RANGE = 50_000n;
+/** Blocks each pass reads again below its cursor (about 36 s on Sepolia). */
+export const OVERLAP = 3n;
 
 /** A mined transaction with a rules-contract log, as the adapter applies it. Plain JSON: a book can hold it. */
 export interface ChainTx {
@@ -48,7 +50,7 @@ export interface SyncReport extends ObserveReport {
   /** The blocks read, inclusive. */
   from: string;
   to: string;
-  /** Rules-contract logs read, and the transactions they came from. */
+  /** Rules-contract logs in blocks past the old cursor, and every transaction the pass read (the overlap included). */
   logs: number;
   txs: number;
   /** JSON-RPC requests the pass made. */
@@ -66,35 +68,37 @@ const MULTICALL3 = parseAbi([
 ]);
 
 const lc = (a: string) => a.toLowerCase();
+/** How providers word a capped eth_getLogs ("query returned more than 10000 results", "block range is too wide"). */
+const LIMITED = /range|limit|too many|too large|too wide|exceed|more than|results|size/i;
 
 /**
- * The HoldbackRules calls a transaction makes, read from its calldata: the call itself when it targets the rules
- * contract, or each rules call inside a Multicall3 bundle. Null when the calldata goes through another contract
- * (a Safe, an ERC-4337 account): the adapter cannot read what that contract forwarded.
+ * The HoldbackRules calls a transaction ran, read from its calldata: the call itself when it targets the rules
+ * contract, or each rules call inside the deployment's Multicall3 when every call in the bundle must succeed. Null
+ * when the calldata does not say what ran: another contract forwarded the call (a Safe, an ERC-4337 account), a
+ * bundle call may have failed (`allowFailure`, `requireSuccess = false`), or a bundle calls a contract other than the
+ * rules contract and the token, which could call the rules contract itself (red-team 2026-11-04, finding 1).
  */
 export function rulesCalls(chain: Pick<EvmChain, 'deployment' | 'abis'>, tx: Pick<ChainTx, 'to' | 'input'>): RulesCall[] | null {
-  const rules = lc(chain.deployment.rules);
-  const decode = (data: Hex): RulesCall | null => {
-    try {
-      const d = decodeFunctionData({ abi: chain.abis.rules, data });
-      return { fn: d.functionName, args: d.args ?? [] };
-    } catch {
-      return null;
-    }
-  };
+  const { rules, multicall, token } = chain.deployment;
   if (!tx.to) return null;
-  if (lc(tx.to) === rules) {
-    const call = decode(tx.input);
+  if (lc(tx.to) === lc(rules)) {
+    const call = decodeRules(chain, tx.input);
     return call ? [call] : null;
   }
+  if (lc(tx.to) !== lc(multicall)) return null;
   try {
     const d = decodeFunctionData({ abi: MULTICALL3, data: tx.input });
     const args = d.args as readonly unknown[];
-    const inner = (d.functionName === 'tryAggregate' || d.functionName === 'tryBlockAndAggregate' ? args[1] : args[0]) as ReadonlyArray<{ target: Address; callData: Hex }>;
+    const tolerant = d.functionName === 'tryAggregate' || d.functionName === 'tryBlockAndAggregate';
+    if (tolerant && args[0] !== true) return null;
+    const inner = (tolerant ? args[1] : args[0]) as ReadonlyArray<{ target: Address; callData: Hex; allowFailure?: boolean }>;
     const calls: RulesCall[] = [];
     for (const c of inner) {
-      if (lc(c.target) !== rules) continue;
-      const call = decode(c.callData);
+      if (c.allowFailure) return null;
+      // The token's ERC-3009 transfer (the operators' fee leg) calls nothing back.
+      if (lc(c.target) === lc(token)) continue;
+      if (lc(c.target) !== lc(rules)) return null;
+      const call = decodeRules(chain, c.callData);
       if (!call) return null;
       calls.push(call);
     }
@@ -102,6 +106,63 @@ export function rulesCalls(chain: Pick<EvmChain, 'deployment' | 'abis'>, tx: Pic
   } catch {
     return null;
   }
+}
+
+/**
+ * The ERC-3009 transfers in a readable bundle (`rulesCalls` is not null): the operators' fee leg rides beside the
+ * funding (ADR-0023). Every call in such a bundle ran, so each transfer here moved its amount.
+ */
+export function feeLegs(chain: Pick<EvmChain, 'deployment' | 'abis'>, tx: Pick<ChainTx, 'to' | 'input'>): Array<{ from: Address; to: Address; value: bigint; nonce: Hex }> {
+  if (!tx.to || lc(tx.to) !== lc(chain.deployment.multicall) || !rulesCalls(chain, tx)) return [];
+  try {
+    const d = decodeFunctionData({ abi: MULTICALL3, data: tx.input });
+    const args = d.args as readonly unknown[];
+    const inner = (d.functionName === 'tryAggregate' || d.functionName === 'tryBlockAndAggregate' ? args[1] : args[0]) as ReadonlyArray<{ target: Address; callData: Hex }>;
+    const out: Array<{ from: Address; to: Address; value: bigint; nonce: Hex }> = [];
+    for (const c of inner) {
+      if (lc(c.target) !== lc(chain.deployment.token)) continue;
+      const t = decodeFunctionData({ abi: chain.abis.token, data: c.callData });
+      if (t.functionName !== 'transferWithAuthorization') continue;
+      const [from, to, value, , , nonce] = t.args as readonly [Address, Address, bigint, bigint, bigint, Hex];
+      out.push({ from, to, value, nonce });
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+function decodeRules(chain: Pick<EvmChain, 'abis'>, data: Hex): RulesCall | null {
+  try {
+    const d = decodeFunctionData({ abi: chain.abis.rules, data });
+    return { fn: d.functionName, args: d.args ?? [] };
+  } catch {
+    return null;
+  }
+}
+
+/** The state-changing rules functions a forwarded call may be: their selectors are what `embeddedCalls` looks for. */
+const STEPS = ['agreeAndFund', 'deliver', 'decide', 'earlyAccept', 'mutualSettle', 'fileAppeal', 'expireOffer', 'reclaim', 'triggerFallback', 'triggerDefault', 'expireAppeal'];
+
+/**
+ * Rules calls written verbatim somewhere in a transaction's calldata: what a simple forwarder, a Safe's
+ * `execTransaction` or an ERC-4337 account passes on. A candidate only: it may never have run. The adapter accepts one
+ * only when its terms match a book, its signatures verify and the receipt's logs show its effect.
+ */
+export function embeddedCalls(chain: Pick<EvmChain, 'abis'>, input: Hex): RulesCall[] {
+  const selectors = new Set(
+    chain.abis.rules
+      .filter((x): x is AbiFunction => x.type === 'function' && STEPS.includes(x.name))
+      .map((f) => toFunctionSelector(f).slice(2)),
+  );
+  const hex = input.slice(2).toLowerCase();
+  const out: RulesCall[] = [];
+  for (let i = 0; i + 8 <= hex.length; i += 2) {
+    if (!selectors.has(hex.slice(i, i + 8))) continue;
+    const call = decodeRules(chain, `0x${hex.slice(i)}`);
+    if (call) out.push(call);
+  }
+  return out;
 }
 
 /** The commitments a transaction's logs name: the first topic of every rules-contract log, in log order. */
@@ -140,19 +201,26 @@ class Reader {
    * The transactions with a rules-contract log in [from, to], in chain order, with the commitments each names. `id`
    * narrows the read to one commitment (its logs' first topic). Chunks of at most LOG_RANGE blocks.
    */
-  async logs(from: bigint, to: bigint, id?: Hex32): Promise<{ count: number; txs: Array<{ hash: Hex; ids: Hex32[] }> }> {
+  async logs(from: bigint, to: bigint, id?: Hex32, after = from - 1n): Promise<{ count: number; txs: Array<{ hash: Hex; block: bigint; ids: Hex32[] }> }> {
     const byTx = new Map<Hex, { order: [bigint, number]; logs: Array<{ address: Address; topics: Hex[] }> }>();
     let count = 0;
+    const read = async (start: bigint, end: bigint): Promise<RpcLog[]> => {
+      try {
+        return await this.range(start, end, id);
+      } catch (e) {
+        // A provider that caps a response's logs or blocks: halve the range. Anyone can make many logs cheaply (an
+        // expireOffer with made-up terms), so a busy range must not stop the view (red-team 2026-11-04, finding 4).
+        if (end <= start || !LIMITED.test(`${(e as Error).message} ${String((e as { details?: unknown }).details ?? '')}`)) throw e;
+        const mid = start + (end - start) / 2n;
+        return [...(await read(start, mid)), ...(await read(mid + 1n, end))];
+      }
+    };
     for (let start = from; start <= to; start += LOG_RANGE) {
       const end = start + LOG_RANGE - 1n < to ? start + LOG_RANGE - 1n : to;
-      this.rpc++;
-      const logs = await this.chain.publicClient.request({
-        method: 'eth_getLogs',
-        params: [{ address: this.chain.deployment.rules, fromBlock: `0x${start.toString(16)}`, toBlock: `0x${end.toString(16)}`, ...(id ? { topics: [null, id] } : {}) }],
-      });
+      const logs = await read(start, end);
       for (const l of logs) {
         if (l.removed) continue;
-        count++;
+        if (BigInt(l.blockNumber!) > after) count++;
         const hash = l.transactionHash as Hex;
         const entry = byTx.get(hash) ?? { order: [BigInt(l.blockNumber!), Number(l.transactionIndex)], logs: [] };
         entry.logs.push({ address: getAddress(l.address), topics: l.topics as Hex[] });
@@ -161,8 +229,17 @@ class Reader {
     }
     const txs = [...byTx.entries()]
       .sort(([, a], [, b]) => (a.order[0] === b.order[0] ? a.order[1] - b.order[1] : a.order[0] < b.order[0] ? -1 : 1))
-      .map(([hash, e]) => ({ hash, ids: idsOf(this.chain, e.logs) }));
+      .map(([hash, e]) => ({ hash, block: e.order[0], ids: idsOf(this.chain, e.logs) }));
     return { count, txs };
+  }
+
+  /** One eth_getLogs over [start, end], every rules-contract log or one commitment's. */
+  private range(start: bigint, end: bigint, id?: Hex32): Promise<RpcLog[]> {
+    this.rpc++;
+    return this.chain.publicClient.request({
+      method: 'eth_getLogs',
+      params: [{ address: this.chain.deployment.rules, fromBlock: `0x${start.toString(16)}`, toBlock: `0x${end.toString(16)}`, ...(id ? { topics: [null, id] } : {}) }],
+    });
   }
 
   /** A transaction, its receipt and its block's time. Only successful transactions leave logs. */
@@ -237,9 +314,12 @@ export class ChainSync {
     // A relay recorded after this mark may move a deal past the dealOf read below: observe does not check that deal.
     const mark = this.evm.eventCount();
     const head = await read.head();
-    const from = this.stored ? BigInt(this.stored.block) + 1n : chain.deployment.fromBlock;
-    if (from > head) return null;
-    const { count, txs } = await read.logs(from, head);
+    const last = this.stored ? BigInt(this.stored.block) : chain.deployment.fromBlock - 1n;
+    if (last >= head) return null;
+    // The last OVERLAP blocks again: a load-balanced RPC can answer from a node a block behind with no error. A
+    // transaction applies once, so the overlap costs only the read (review 2026-11-04, L2).
+    const from = last + 1n - OVERLAP > chain.deployment.fromBlock ? last + 1n - OVERLAP : chain.deployment.fromBlock;
+    const { count, txs } = await read.logs(from, head, undefined, last);
     const fetched: ChainTx[] = [];
     const touched = new Set<Hex32>();
     for (const t of txs) {
@@ -252,7 +332,7 @@ export class ChainSync {
     const { hash } = await read.block(head);
     const observed = await this.evm.observe(fetched, stages, mark);
     // Logs of commitments this node never saw are counted, not fetched (T-218: no book is invented).
-    const unknown = new Set(txs.flatMap((t) => t.ids.filter((id) => !this.evm.follows(id))));
+    const unknown = new Set(txs.filter((t) => t.block > last).flatMap((t) => t.ids.filter((id) => !this.evm.follows(id))));
     return {
       cursor: { block: head.toString(), hash },
       report: { ...observed, unknown: unknown.size, from: from.toString(), to: head.toString(), logs: count, txs: txs.length, rpc: read.rpc },

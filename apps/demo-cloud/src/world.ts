@@ -139,6 +139,8 @@ const SLOWEST_PASS_MS = 60_000;
  * an idle world writes no row a pass, and a restart rereads at most this many blocks (T-218).
  */
 const CURSOR_EVERY_BLOCKS = 300n;
+/** How often a pass reads the chain while every open deal has been quiet for a day (T-218). */
+const IDLE_SYNC_MS = 15 * 60_000;
 const SCRIPTED_PANEL = 'scripted judge panel: no model runs in this demo, every panel verdict is a fake judge marked "[fake judge, no model ran]"; use template checks-only for real acceptance';
 const livePanel = (perDay: number) =>
   `live judge panel: pinned models from two families (Anthropic, DeepSeek; config/judges-live.yaml), at most ${perDay} live judge calls a day across this demo; past that, panels are scripted fake judges whose verdicts are marked "[fake judge, no model ran]"`;
@@ -566,8 +568,10 @@ export class PublicWorld {
     // A takeover whose judgeBy passed since the last look gets a pass after the current wait: an alarm set in the past
     // would fire at once, again and again while nothing rereads the state (T-057 review 4).
     const wake = this.wake === null ? null : this.wake > this.now() ? this.wake : this.now() + wait;
-    // T-218: while any deal is open a pass reads the chain within a minute, so a direct call shows within one pass.
-    const sync = this.live && this.live.evm.openDeals() > 0 ? this.now() + wait : null;
+    // T-218: while a deal is open and recent, a pass reads the chain within a minute, so a direct call shows within one
+    // pass; an open deal quiet for a day is read every 15 minutes.
+    const open = this.live?.evm.openDeals();
+    const sync = !open ? null : open.recent > 0 ? this.now() + wait : open.idle > 0 ? this.now() + Math.max(wait, IDLE_SYNC_MS) : null;
     const at = Math.min(this.active() ? this.now() + wait : Infinity, wake ?? Infinity, sync ?? Infinity);
     return at === Infinity ? null : at;
   }
@@ -671,8 +675,8 @@ export class PublicWorld {
 
   /**
    * Reads the rules contract's logs since the cursor and applies what this node did not relay (T-218). The books and
-   * events are written first, then the cursor; an RPC or storage failure leaves the cursor where it was, so the next
-   * pass reads the same blocks again (a transaction applies once).
+   * events are written first, then the cursor. An RPC failure applies nothing and leaves the cursor where it was. A
+   * storage write that fails after `drain` is not retried (backlog, "drain before the writes succeed").
    */
   private async syncChain(): Promise<void> {
     const l = this.live!;

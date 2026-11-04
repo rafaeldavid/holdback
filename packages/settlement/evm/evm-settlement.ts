@@ -96,7 +96,7 @@ import {
 } from './encode.js';
 import { problemFromRevert, revertData, revertName } from './errors.js';
 import { assertSafeChain } from './guard.js';
-import { commitmentTxs, idsOf, rulesCalls, type ChainTx, type RulesCall } from './sync.js';
+import { commitmentTxs, embeddedCalls, feeLegs, idsOf, rulesCalls, type ChainTx, type RulesCall } from './sync.js';
 import type { EvmWorld } from './world.js';
 
 /** Submit options on EVM: who pays gas. A private key: the agent's own for 'direct'. Absent: the chain's relayer lane for the commitment. */
@@ -170,8 +170,11 @@ export interface ObserveReport {
   unknown: number;
 }
 
-/** A chain call rebuilt into the core mirror's steps, or why it cannot be yet. */
-type Rebuilt = { fn: string; steps: (at: Timestamp) => EscrowEvent[]; actor: Address | 'anyone'; ctx: CallContext } | { wait: string } | { fail: string };
+/**
+ * A chain call rebuilt into the core mirror's steps, or why it cannot be yet. `signed` checks the rebuilt messages'
+ * signatures, for a call read out of another contract's calldata, which may never have run as written.
+ */
+type Rebuilt = { fn: string; steps: (at: Timestamp) => EscrowEvent[]; actor: Address | 'anyone'; ctx: CallContext; signed: () => Promise<boolean>; settlement?: MutualSettlement } | { wait: string } | { fail: string };
 
 /** What a store must persist to rebuild a live settlement after a restart (`EvmSettlement.restore`). */
 export interface EvmSaved {
@@ -227,6 +230,8 @@ const ROLES = ['primary', 'fallback', 'appeal'] as const;
 const OUTCOMES = ['accept', 'reject', 'escalate'] as const;
 /** A deal stays open for the sync's cadence this long after its last deadline (T-218). */
 const OPEN_GRACE_MS = 3_600_000;
+/** A deal whose book moved this recently counts as recent for the sync's cadence. */
+const RECENT_MS = 86_400_000;
 
 export interface DecodedLog {
   address: Address;
@@ -784,7 +789,8 @@ export class EvmSettlement implements Settlement {
         this.useNonce(book, nonce, false);
         this.books.set(c.id, book);
         this.emit('commitment.offered', c.id, t.seller, via, { source: 'adapter', termsHash: c.id, terms: t, sellerSignature: c.signatures.seller }, false);
-        for (const tx of found?.txs ?? []) this.follow(c.id, tx, found!.stages.get(c.id));
+        for (const tx of found?.txs ?? []) await this.follow(c.id, tx, found!.stages.get(c.id));
+        if (found) this.relayedAt.set(c.id, this.log_.length);
         return c.id;
       }
       case 'adjudicator_accept': {
@@ -1148,7 +1154,8 @@ export class EvmSettlement implements Settlement {
     const blockAt = toTimestamp(mined.timestamp * 1000);
     const after = blockAt === at ? next : this.mirrored(before, mirror(blockAt), fn);
     const logs = this.decode(mined.logs);
-    book.state = after;
+    // The book moves in record, after these reads: a read that fails leaves it untouched, so the next pass applies the
+    // mined call as a missed receipt (review M2).
     const onChain = await this.stage(id);
     const expect = PRE_FUNDING.includes(after.kind) ? 'None' : after.kind;
     if (onChain.stage !== expect) throw new Error(`EVM/core divergence after ${fn}: the contract is ${onChain.stage}, core is ${after.kind}`);
@@ -1334,26 +1341,33 @@ export class EvmSettlement implements Settlement {
   }
 
   /**
-   * Deals whose stage may still change on chain within their terms: from the offer until fundBy, and once funded until
-   * an hour after the last deadline ahead of it (deliverBy, judgeBy, fallbackBy, the appeal windows). The world reads
-   * the chain at least once a minute while any is open (T-218).
+   * Deals whose stage a direct call may still change within their terms, for the world's cadence (T-218):
+   * - an offer until the earlier of offerExpiresAt and fundBy (after that nothing can fund it), and a funded deal until
+   *   an hour after the last deadline ahead of it (deliverBy, judgeBy, fallbackBy, the appeal windows);
+   * - `recent`: its book moved in the last day, or one of its deadlines is within an hour of now; the world reads the
+   *   chain at least once a minute while any is. `idle`: open but quiet, read every 15 minutes, so far-off deadlines
+   *   (D31 allows any) do not keep a world polling every minute (red-team 2026-11-04, finding 3).
+   * A timeout sent after the window shows at the next pass anything else starts.
    */
-  openDeals(): number {
+  openDeals(): { recent: number; idle: number } {
     const now = Date.parse(this.now());
-    let n = 0;
+    const out = { recent: 0, idle: 0 };
     for (const b of this.books.values()) {
       const s = b.state;
       if (s.kind === 'Expired' || s.kind === 'Settled' || this.finalAt(b) !== null) continue;
       const t = s.terms.timing;
-      const deadlines = PRE_FUNDING.includes(s.kind) ? [t.fundBy] : [t.deliverBy, t.judgeBy, t.fallbackBy];
-      if (s.kind === 'Escalated') deadlines.push(s.escalation.appealDecideBy);
+      const deadlines = PRE_FUNDING.includes(s.kind) ? [Math.min(Date.parse(t.offerExpiresAt), Date.parse(t.fundBy))] : [t.deliverBy, t.judgeBy, t.fallbackBy].map(Date.parse);
+      if (s.kind === 'Escalated') deadlines.push(Date.parse(s.escalation.appealDecideBy));
       if ((s.kind === 'Released' || s.kind === 'Refunded') && s.via.kind === 'first_instance') {
         const ap = s.via.appeal;
-        if (ap.kind === 'none' || ap.kind === 'open') deadlines.push(ap.appealDecideBy);
+        if (ap.kind === 'none' || ap.kind === 'open') deadlines.push(Date.parse(ap.appealDecideBy));
       }
-      if (now < Math.max(...deadlines.map((d) => Date.parse(d))) + OPEN_GRACE_MS) n++;
+      if (now >= Math.max(...deadlines) + OPEN_GRACE_MS) continue;
+      const near = deadlines.some((d) => Math.abs(now - d) < OPEN_GRACE_MS);
+      if (near || now - Date.parse(b.updatedAt) < RECENT_MS) out.recent++;
+      else out.idle++;
     }
-    return n;
+    return out;
   }
 
   /** The state read's notice for a deal the chain moved past this node's book (T-218), or null. */
@@ -1388,18 +1402,23 @@ export class EvmSettlement implements Settlement {
     }
     for (const [id, stage] of stages) {
       const book = this.books.get(id);
-      if (!book || book.behind || (this.relayedAt.get(id) ?? -1) >= mark) continue;
-      const expect = PRE_FUNDING.includes(book.state.kind) ? 'None' : book.state.kind;
-      if (stage.stage !== expect) {
-        this.fallBehind(id, book, { hash: last.get(id) ?? ('0x' as Hex) }, stage, `the contract holds this deal ${stage.stage}, while this node's book rebuilt it to ${book.state.kind}.`);
+      if (!book || book.behind || (this.relayedAt.get(id) ?? -1) > mark) continue;
+      const s = book.state;
+      const expect = PRE_FUNDING.includes(s.kind) ? 'None' : s.kind;
+      // The appeal state too: an appeal decision moves no stage (review and red-team 2026-11-04).
+      const appeal = (s.kind === 'Released' || s.kind === 'Refunded') && s.via.kind === 'first_instance' ? s.via.appeal.kind : null;
+      const chainAppeal = APPEAL_STATES[stage.appeal];
+      const appealDiffers = appeal !== null && stage.appeal !== 5 && chainAppeal !== appeal;
+      if (stage.stage !== expect || appealDiffers) {
+        this.fallBehind(id, book, { hash: last.get(id) ?? ('0x' as Hex) }, stage, `the contract holds this deal ${stage.stage} (appeal ${chainAppeal}), while this node's book rebuilt it to ${s.kind}${appeal ? ` (appeal ${appeal})` : ''}.`);
         report.behind++;
       }
     }
     return report;
   }
 
-  /** One transaction for one commitment, inside its lane. */
-  private follow(id: Hex32, tx: ChainTx, stage: { stage: string; appeal: number } | undefined, known?: Delivery): keyof Omit<ObserveReport, 'unknown'> {
+  /** One transaction for one commitment, inside its lane. Never throws for what the transaction holds: the deal falls behind. */
+  private async follow(id: Hex32, tx: ChainTx, stage: { stage: string; appeal: number } | undefined, known?: Delivery): Promise<keyof Omit<ObserveReport, 'unknown'>> {
     const book = this.books.get(id)!;
     if (this.applied(id, tx.hash)) return 'seen';
     this.seen(id, tx.hash, book);
@@ -1410,7 +1429,12 @@ export class EvmSettlement implements Settlement {
       this.custodyBehind(id, book, tx);
       return 'behind';
     }
-    return this.step(id, book, tx, stage, known);
+    try {
+      return await this.step(id, book, tx, stage, known);
+    } catch (e) {
+      // A value core cannot represent (an expiry past year 275760, review H2) or any other rebuild failure.
+      return this.fallBehind(id, book, tx, stage, `this node could not rebuild transaction ${tx.hash}: ${(e as Error).message}.`);
+    }
   }
 
   /**
@@ -1440,32 +1464,160 @@ export class EvmSettlement implements Settlement {
     this.dirty.add(id);
   }
 
-  /** Rebuilds a mined transaction's step for one commitment and records it as a relayed call is recorded. */
-  private step(id: Hex32, book: Book, tx: ChainTx, stage: { stage: string; appeal: number } | undefined, known?: Delivery): 'applied' | 'behind' {
-    const calls = rulesCalls(this.world, tx);
-    if (!calls) return this.fallBehind(id, book, tx, stage, `transaction ${tx.hash} called contract ${tx.to}, which forwarded a call to the rules contract; this node reads calls made to the rules contract or through Multicall3 only.`);
+  /**
+   * Rebuilds what a mined transaction did to one commitment and records it as a relayed call is recorded. Three ways,
+   * tried in order (review and red-team, 2026-11-04):
+   * - timeouts, from the logs alone: they carry no signed message, so any wrapper or bundle shape is followed;
+   * - the one rules call a readable transaction ran for this deal (`rulesCalls`: top level, or a bundle whose calls
+   *   all ran);
+   * - the one rules call written in another contract's calldata (`embeddedCalls`) whose signatures verify.
+   * Each rebuilt call must match the receipt's logs. Anything else puts the deal behind.
+   */
+  private async step(id: Hex32, book: Book, tx: ChainTx, stage: { stage: string; appeal: number } | undefined, known?: Delivery): Promise<'applied' | 'behind'> {
+    const logs = this.decode(tx.logs.filter((l) => l.topics[1] === id && [lc(this.world.deployment.rules), lc(this.world.deployment.bonds)].includes(lc(l.address))) as unknown as Log[]);
+    const timeouts = this.timeoutsFromLogs(book.state, logs);
+    if (timeouts) {
+      for (const t of timeouts) {
+        const r = this.applyRebuilt(id, book, tx, stage, { fn: t.fn, steps: t.steps, actor: 'anyone', ctx: {}, signed: async () => true }, t.logs);
+        if (r === 'behind') return r;
+      }
+      return 'applied';
+    }
     const view = termsView(book.state.terms);
-    const mine = calls.filter((c) => sameView(c.args[0], view));
-    if (mine.length !== 1) return this.fallBehind(id, book, tx, stage, `transaction ${tx.hash} made ${mine.length} calls for this deal; this node rebuilds one call per transaction.`);
-    const rebuilt = this.rebuild(id, book, mine[0]!, tx, known);
-    if ('wait' in rebuilt) return this.fallBehind(id, book, tx, stage, rebuilt.wait, [tx]);
-    if ('fail' in rebuilt) return this.fallBehind(id, book, tx, stage, rebuilt.fail);
+    const readable = rulesCalls(this.world, tx);
+    const seenCall = new Set<string>();
+    const candidates = (readable ?? embeddedCalls(this.world, tx.input)).filter((c) => {
+      const k = JSON.stringify(toJson(c));
+      if (!sameView(c.args[0], view) || seenCall.has(k)) return false;
+      seenCall.add(k);
+      return true;
+    });
+    if (readable && candidates.length !== 1) return this.fallBehind(id, book, tx, stage, `transaction ${tx.hash} made ${candidates.length} calls for this deal; this node rebuilds one signed call per transaction.`);
+    const accepted: Array<Exclude<Rebuilt, { wait: string } | { fail: string }>> = [];
+    let wait: string | null = null;
+    let why = readable ? '' : `transaction ${tx.hash} called contract ${tx.to}, and its calldata shows no call for this deal that its logs and signatures confirm.`;
+    for (const c of candidates) {
+      const r = this.rebuild(id, book, c, tx, known);
+      if ('wait' in r) wait ??= r.wait;
+      else if ('fail' in r) why = r.fail;
+      else {
+        const off = this.unconfirmed(r, logs, book.state.terms);
+        if (off) why = `transaction ${tx.hash}'s logs do not show the ${r.fn} this node read from its calldata: ${off}.`;
+        else if (!readable && !(await r.signed())) why = `the ${r.fn} written in transaction ${tx.hash}'s calldata does not carry valid signatures.`;
+        else accepted.push(r);
+      }
+    }
+    if (accepted.length === 1) {
+      const r = accepted[0]!;
+      // The operators' own fee leg rides in the same bundle (ADR-0023): a missed receipt still records it (review L4).
+      const fee = feeLegs(this.world, tx).find((f) => f.nonce === operatorFeeNonce(id));
+      if (fee) r.ctx = { ...r.ctx, operatorFee: { from: lc(fee.from), to: lc(fee.to), amount: this.amount(fee.value) } };
+      return this.applyRebuilt(id, book, tx, stage, r, logs);
+    }
+    if (accepted.length === 0 && wait && candidates.length === 1) return this.fallBehind(id, book, tx, stage, wait, [tx]);
+    return this.fallBehind(id, book, tx, stage, accepted.length > 1 ? `transaction ${tx.hash} carries ${accepted.length} calls for this deal that its logs confirm; this node cannot tell which ran.` : why);
+  }
+
+  /** Steps the mirror through one rebuilt call at the block's time and records it with its own logs. */
+  private applyRebuilt(id: Hex32, book: Book, tx: ChainTx, stage: { stage: string; appeal: number } | undefined, r: Exclude<Rebuilt, { wait: string } | { fail: string }>, logs: readonly DecodedLog[]): 'applied' | 'behind' {
     const before = book.state;
     const blockAt = toTimestamp(tx.timestamp * 1000);
     let after: EscrowState;
     try {
-      after = this.mirrored(before, rebuilt.steps(blockAt), rebuilt.fn);
+      after = this.mirrored(before, r.steps(blockAt), r.fn);
     } catch (e) {
       return this.fallBehind(id, book, tx, stage, `${(e as Error).message}.`);
     }
-    const logs = this.decode(tx.logs.filter((l) => l.topics[1] === id && [lc(this.world.deployment.rules), lc(this.world.deployment.bonds)].includes(lc(l.address))) as unknown as Log[]);
-    this.record(id, book, rebuilt.fn, before, after, logs, { hash: tx.hash, from: tx.from, blockNumber: BigInt(tx.block), gasUsed: BigInt(tx.gasUsed) }, blockAt, 'direct', rebuilt.actor, { ...rebuilt.ctx, synced: true });
-    if (rebuilt.fn === 'expireAppeal') book.appealClosedAt = appealClosedAt(before, blockAt);
+    this.record(id, book, r.fn, before, after, logs, { hash: tx.hash, from: tx.from, blockNumber: BigInt(tx.block), gasUsed: BigInt(tx.gasUsed) }, blockAt, 'direct', r.actor, { ...r.ctx, synced: true });
+    if (r.fn === 'expireAppeal') book.appealClosedAt = appealClosedAt(before, blockAt);
     const events = this.log_.filter((e) => e.commitmentId === id);
     book.lastEventSeq = events.at(-1)?.seq ?? book.lastEventSeq;
     book.updatedAt = this.now();
     this.dirty.add(id);
     return 'applied';
+  }
+
+  /**
+   * The timeouts a transaction ran for this deal, read from its rules-contract logs alone, in order; null when the logs
+   * show any other step. A timeout carries no signed message, so whatever forwarded or bundled it, the logs say it all.
+   */
+  private timeoutsFromLogs(state: EscrowState, logs: readonly DecodedLog[]): Array<{ fn: string; steps: (at: Timestamp) => EscrowEvent[]; logs: DecodedLog[] }> | null {
+    const rules = logs.filter((l) => lc(l.address) === lc(this.world.deployment.rules));
+    if (rules.length === 0) return null;
+    const out: Array<{ fn: string; steps: (at: Timestamp) => EscrowEvent[]; logs: DecodedLog[] }> = [];
+    let kind: EscrowStateKind = state.kind;
+    for (let i = 0; i < rules.length; i++) {
+      const l = rules[i]!;
+      const next = rules[i + 1];
+      if (l.eventName === 'FallbackTriggered') {
+        out.push({ fn: 'triggerFallback', steps: (at) => [{ type: 'trigger_fallback', at }], logs: [l] });
+        kind = 'FallbackJudging';
+      } else if (l.eventName === 'Defaulted') {
+        // _refundAll emits Refunded unless CPP's hold was already reclaimed after authorizationExpiry.
+        const refunded = next?.eventName === 'Refunded' ? [next] : [];
+        out.push({ fn: 'triggerDefault', steps: (at) => [{ type: 'trigger_default', at }, { type: 'apply_default_outcome', at }], logs: [l, ...refunded] });
+        i += refunded.length;
+        kind = 'Refunded';
+      } else if (kind === 'Held' && (l.eventName === 'JobExpired' || (l.eventName === 'Refunded' && next?.eventName === 'JobExpired'))) {
+        const pair = l.eventName === 'Refunded' ? [l, next!] : [l];
+        out.push({ fn: 'reclaim', steps: (at) => [{ type: 'reclaim', at }], logs: pair });
+        i += pair.length - 1;
+        kind = 'Refunded';
+      } else if (l.eventName === 'JobExpired' && PRE_FUNDING.includes(kind)) {
+        out.push({ fn: 'expireOffer', steps: (at) => [{ type: 'expire', at }], logs: [l] });
+        kind = 'Expired';
+      } else if (l.eventName === 'AppealClosed' && APPEAL_STATES[Number(l.args['verdict'])] === 'expired' && (kind === 'Released' || kind === 'Refunded')) {
+        out.push({ fn: 'expireAppeal', steps: (at) => [{ type: 'expire_appeal', at }], logs: [l] });
+      } else {
+        return null;
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Why a rebuilt call does not match its transaction's logs, or null when it does. The logs are what ran: a call read
+   * from calldata that never ran (a reverted bundle call, a decoy in a wrapper's calldata) does not match them.
+   */
+  private unconfirmed(r: Exclude<Rebuilt, { wait: string } | { fail: string }>, logs: readonly DecodedLog[], terms: AnyCommitmentTerms): string | null {
+    const has = (name: string) => logs.find((l) => l.eventName === name && lc(l.address) === lc(this.world.deployment.rules));
+    const same = (a: unknown, b: unknown) => lc(String(a)) === lc(String(b));
+    switch (r.fn) {
+      case 'agreeAndFund':
+        return has('JobFunded') ? null : 'no JobFunded';
+      case 'deliver':
+        return has('JobSubmitted') ? null : 'no JobSubmitted';
+      case 'decide': {
+        const d = has('Decided');
+        const m = r.ctx.decision!;
+        if (!d) return 'no Decided';
+        const a = d.args;
+        return same(a['adjudicator'], m.adjudicator) && Number(a['role']) === ROLES.indexOf(m.role) && Number(a['outcome']) === OUTCOMES.indexOf(m.outcome) && same(a['judgmentRecordHash'], m.judgmentRecordHash) && same(a['seed'], m.seed) ? null : 'its Decided names another decision';
+      }
+      case 'earlyAccept': {
+        const c = has('JobCompleted');
+        return c && !has('Decided') && same(c.args['evaluator'], terms.buyer) ? null : 'no early acceptance by the buyer';
+      }
+      case 'fileAppeal': {
+        const f = has('AppealFiled');
+        const p = r.ctx.appeal!;
+        return f && same(f.args['appellant'], p.appellantAddress) && BigInt(f.args['bond'] as bigint) === BigInt(p.bond.amount) ? null : 'no matching AppealFiled';
+      }
+      case 'mutualSettle': {
+        const s = has('MutuallySettled');
+        const m = r.settlement!;
+        if (!s || Boolean(s.args['keyReleased']) !== m.releaseKey) return 'no matching MutuallySettled';
+        // The payouts as the contract paid them: PaymentReleased to the seller, Paid to anyone but the buyer.
+        const toSeller = m.payouts.filter((p) => same(p.to, terms.seller)).reduce((n, p) => n + BigInt(p.amount.amount), 0n);
+        const released = logs.find((l) => l.eventName === 'PaymentReleased');
+        if ((released ? BigInt(released.args['amount'] as bigint) : 0n) !== toSeller) return 'its payout to the seller differs';
+        const paid = logs.filter((l) => l.eventName === 'Paid').map((l) => `${lc(String(l.args['to']))}:${String(l.args['amount'])}`).sort();
+        const others = m.payouts.filter((p) => !same(p.to, terms.seller) && !same(p.to, terms.buyer)).map((p) => `${lc(p.to)}:${p.amount.amount}`).sort();
+        return JSON.stringify(paid) === JSON.stringify(others) ? null : 'its other payouts differ';
+      }
+      default:
+        return null;
+    }
   }
 
   private fallBehind(id: Hex32, book: Book, tx: Pick<ChainTx, 'hash'> & Partial<ChainTx>, stage: { stage: string; appeal: number } | undefined, reason: string, waiting?: ChainTx[]): 'behind' {
@@ -1493,6 +1645,7 @@ export class EvmSettlement implements Settlement {
     const delivery = (): Delivery | null => [known, book.carried, book.delivery].find((d): d is Delivery => !!d && deliveryHash(d) === landed) ?? null;
     const unread = `the seller's delivery landed in transaction ${tx.hash} without passing through this node, and the contract keeps only its hash (${landed}), so this node holds no envelopes for the adjudicators.`;
     const carrying = (): Delivery | null | undefined => (s.kind === 'Held' ? delivery() : undefined);
+    const yes = async () => true;
     switch (call.fn) {
       case 'agreeAndFund': {
         if (!PRE_FUNDING.includes(s.kind)) return { fail: `a funding in transaction ${tx.hash} found this node's book ${s.kind}.` };
@@ -1532,16 +1685,18 @@ export class EvmSettlement implements Settlement {
           }
           book.acceptance = acceptance;
           book.agree = agree;
-          if (s.kind === 'Offered') this.emit('adjudicator.accepted', id, a.adjudicator, 'direct', { source: 'chain', seedCommitment: acceptance.seedCommitment, bondReserved: acceptance.bondReserved, acceptance }, false, ts(tx.timestamp));
+          if (s.kind === 'Offered') this.emit('adjudicator.accepted', id, a.adjudicator, 'direct', { source: 'chain', seedCommitment: acceptance.seedCommitment, bondRequired: acceptance.bondReserved, acceptance }, false, ts(tx.timestamp));
           if (s.kind !== 'Agreed') this.emit('commitment.agreed', id, terms.buyer, 'direct', { source: 'chain', termsHash: id }, false, ts(tx.timestamp));
         };
-        return { fn: call.fn, steps, actor: terms.buyer, ctx: { mined } };
+        const signed = async () => (await verifyMessage(this.domain, acceptance, a.adjudicator)) && (await verifyMessage(this.domain, agree, terms.buyer));
+        return { fn: call.fn, steps, actor: terms.buyer, ctx: { mined }, signed };
       }
       case 'deliver': {
         if (s.kind !== 'Held') return { fail: `a delivery in transaction ${tx.hash} found this node's book ${s.kind}.` };
         const d = delivery();
         if (!d) return { wait: unread };
-        return { fn: call.fn, steps: (at) => [{ type: 'deliver', at, delivery: d }], actor: terms.seller, ctx: { delivery: d } };
+        // The delivery is one this node checked against the seller's signature when it was posted or carried.
+        return { fn: call.fn, steps: (at) => [{ type: 'deliver', at, delivery: d }], actor: terms.seller, ctx: { delivery: d }, signed: yes };
       }
       case 'decide': {
         const carry = carrying();
@@ -1550,7 +1705,7 @@ export class EvmSettlement implements Settlement {
         if (typeof m === 'string') return { fail: m };
         const beacon = m.role === 'primary' || !m.beacon ? null : { round: m.beacon.round, value: m.beacon.value };
         const steps = (at: Timestamp): EscrowEvent[] => [...(carry ? [{ type: 'deliver' as const, at, delivery: carry }] : []), { type: 'decide', at, message: m, beacon }];
-        return { fn: call.fn, steps, actor: m.adjudicator, ctx: { decision: m, ...(carry ? { delivery: carry } : {}) } };
+        return { fn: call.fn, steps, actor: m.adjudicator, ctx: { decision: m, ...(carry ? { delivery: carry } : {}) }, signed: () => verifyMessage(this.domain, m, m.adjudicator) };
       }
       case 'earlyAccept': {
         const carry = carrying();
@@ -1558,7 +1713,7 @@ export class EvmSettlement implements Settlement {
         const v = args[1]!;
         const m: EarlyAccept = { type: 'EarlyAccept', commitmentId: id, buyer: terms.buyer, attempt: Number(v['attempt']), deliveryHash: hex(v['deliveryHash']), nonce: hex(v['nonce']), expiresAt: ts(v['expiresAt']), signature: v['signature'] as Hex };
         const steps = (at: Timestamp): EscrowEvent[] => [...(carry ? [{ type: 'deliver' as const, at, delivery: carry }] : []), { type: 'early_accept', at, message: m }];
-        return { fn: call.fn, steps, actor: terms.buyer, ctx: carry ? { delivery: carry } : {} };
+        return { fn: call.fn, steps, actor: terms.buyer, ctx: carry ? { delivery: carry } : {}, signed: () => verifyMessage(this.domain, m, terms.buyer) };
       }
       case 'fileAppeal': {
         const v = args[1]!;
@@ -1567,7 +1722,7 @@ export class EvmSettlement implements Settlement {
         const grounds = APPEAL_GROUNDS.find((g) => str(g) === v['groundsHash']) ?? `unread: filed directly; the contract keeps only the grounds' hash ${String(v['groundsHash'])}`;
         const p: Appeal = { commitmentId: id, appellant, appellantAddress: appellant === 'buyer' ? terms.buyer : terms.seller, grounds, bond: this.amount(BigInt(v['bond'] as bigint)), filedAt: ts(v['filedAt']), signature: v['signature'] as Hex };
         const zero = this.amount(0n);
-        return { fn: call.fn, steps: (at) => [{ type: 'file_appeal', at, appeal: p, requiredBond: p.bond, requiredFee: zero, feePaid: zero }], actor: p.appellantAddress, ctx: { appeal: p } };
+        return { fn: call.fn, steps: (at) => [{ type: 'file_appeal', at, appeal: p, requiredBond: p.bond, requiredFee: zero, feePaid: zero }], actor: p.appellantAddress, ctx: { appeal: p }, signed: () => verifyMessage(this.domain, { ...p, type: 'Appeal' } as SignableMessage, p.appellantAddress) };
       }
       case 'mutualSettle': {
         const v = args[1]!;
@@ -1582,18 +1737,18 @@ export class EvmSettlement implements Settlement {
           buyerSignature: v['buyerSignature'] as Hex,
           sellerSignature: v['sellerSignature'] as Hex,
         };
-        return { fn: call.fn, steps: (at) => [{ type: 'mutual_settle', at, message: m, rule: { allowed: true, payoutsTo: 'any' } }], actor: 'anyone', ctx: {} };
+        return { fn: call.fn, steps: (at) => [{ type: 'mutual_settle', at, message: m, rule: { allowed: true, payoutsTo: 'any' } }], actor: 'anyone', ctx: {}, signed: () => verifyMutualSettlement(this.domain, m, terms.buyer, terms.seller), settlement: m };
       }
       case 'expireOffer':
-        return { fn: call.fn, steps: (at) => [{ type: 'expire', at }], actor: 'anyone', ctx: {} };
+        return { fn: call.fn, steps: (at) => [{ type: 'expire', at }], actor: 'anyone', ctx: {}, signed: yes };
       case 'reclaim':
-        return { fn: call.fn, steps: (at) => [{ type: 'reclaim', at }], actor: 'anyone', ctx: {} };
+        return { fn: call.fn, steps: (at) => [{ type: 'reclaim', at }], actor: 'anyone', ctx: {}, signed: yes };
       case 'triggerFallback':
-        return { fn: call.fn, steps: (at) => [{ type: 'trigger_fallback', at }], actor: 'anyone', ctx: {} };
+        return { fn: call.fn, steps: (at) => [{ type: 'trigger_fallback', at }], actor: 'anyone', ctx: {}, signed: yes };
       case 'triggerDefault':
-        return { fn: call.fn, steps: (at) => [{ type: 'trigger_default', at }, { type: 'apply_default_outcome', at }], actor: 'anyone', ctx: {} };
+        return { fn: call.fn, steps: (at) => [{ type: 'trigger_default', at }, { type: 'apply_default_outcome', at }], actor: 'anyone', ctx: {}, signed: yes };
       case 'expireAppeal':
-        return { fn: call.fn, steps: (at) => [{ type: 'expire_appeal', at }], actor: 'anyone', ctx: {} };
+        return { fn: call.fn, steps: (at) => [{ type: 'expire_appeal', at }], actor: 'anyone', ctx: {}, signed: yes };
       default:
         return { fail: `transaction ${tx.hash} called ${call.fn}, which this node does not rebuild.` };
     }
@@ -1647,7 +1802,9 @@ export class EvmSettlement implements Settlement {
    */
   private async catchUp(id: Hex32, known?: Delivery): Promise<void> {
     const { txs, stages } = await commitmentTxs(this, id);
-    for (const tx of txs) this.follow(id, tx, stages.get(id), known);
+    for (const tx of txs) await this.follow(id, tx, stages.get(id), known);
+    // Outside a pass: a pass that read dealOf before this does not check the deal (review L1).
+    this.relayedAt.set(id, this.log_.length);
   }
 
   /**
@@ -1670,8 +1827,9 @@ export class EvmSettlement implements Settlement {
       // A later transaction may put the deal behind again; the rest then wait behind it.
       const again = book.behind as Behind | undefined;
       if (again) again.waiting?.push(tx);
-      else this.step(id, book, tx, stage, d);
+      else await this.step(id, book, tx, stage, d).catch((e: unknown) => this.fallBehind(id, book, tx, stage, `this node could not rebuild transaction ${tx.hash}: ${(e as Error).message}.`));
     }
+    this.relayedAt.set(id, this.log_.length);
     return id;
   }
 
@@ -1707,6 +1865,7 @@ export class EvmSettlement implements Settlement {
     const via = options.via ?? 'direct';
     this.txs.push({ commitmentId: id, call: 'transferWithAuthorization', hash: mined.hash, from: mined.from, via, gasUsed: mined.gasUsed, at: blockAt });
     this.emit('fee.operator', id, getAddress(fee.from), via, { from: lc(fee.from), to: lc(fee.to), amount: this.amount(BigInt(fee.value)), tx: mined.hash, block: mined.blockNumber, sender: lc(mined.from), gasUsed: mined.gasUsed }, true, blockAt);
+    this.relayedAt.set(id, this.log_.length);
     return id;
   }
 

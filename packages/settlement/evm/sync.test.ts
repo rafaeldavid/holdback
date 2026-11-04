@@ -6,7 +6,8 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseEvent, wholeSecond, type AdjudicatorAcceptance, type Address, type Club, type Decision, type SettlementEvent } from '@holdback/core';
-import { concat, encodeFunctionData, maxUint256, parseGwei, type Hex } from 'viem';
+import { concat, encodeFunctionData, keccak256, maxUint256, parseGwei, stringToBytes, type Hex } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
 import { foundry } from 'viem/chains';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Genesis } from '../sim/simchain.js';
@@ -26,6 +27,8 @@ const RELAYER: Hex = '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b
 const HASTY_RELAYER: Hex = '0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a';
 const lc = (a: string) => a.toLowerCase();
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/** 65 bytes no key signed. */
+const JUNK: Hex = `0x${'11'.repeat(65)}`;
 
 const schemaErrors = (log: readonly SettlementEvent[]): string[] =>
   log.flatMap((e) => {
@@ -89,6 +92,33 @@ describe('ChainSync reads', () => {
     expect(sync.cursor).toEqual({ block: '120100', hash: `0x${'11'.repeat(32)}` });
     // Nothing new: no read past the head, no report.
     expect(await sync.pass()).toBeNull();
+  });
+
+  it('reads the last three blocks again each pass, and counts only the logs past the cursor (review L2)', async () => {
+    const { evm, ranges } = stub({ head: 200n });
+    const sync = new ChainSync(evm, { block: '150', hash: `0x${'22'.repeat(32)}` });
+    expect(await sync.pass()).toMatchObject({ from: '148', to: '200' });
+    expect(ranges).toEqual([[148n, 200n]]);
+  });
+
+  it('halves a range the provider caps, and stops halving for an error that is not a cap (red-team 4)', async () => {
+    const { evm, ranges } = stub({
+      head: 100n + 40_000n,
+      logs: ([a, b]) => {
+        if (b - a + 1n > 10_000n) throw new Error('query returned more than 10000 results');
+        return [];
+      },
+    });
+    await new ChainSync(evm).pass();
+    expect(ranges.filter(([a, b]) => b - a + 1n <= 10_000n).reduce((n, [a, b]) => n + (b - a + 1n), 0n)).toBe(40_001n);
+    const down = stub({
+      head: 50_000n,
+      logs: () => {
+        throw new Error('fetch failed');
+      },
+    });
+    await expect(new ChainSync(down.evm).pass()).rejects.toThrow(/fetch failed/);
+    expect(down.ranges).toHaveLength(1);
   });
 
   it('fails closed: an RPC error after the logs applies nothing and moves no cursor', async () => {
@@ -189,15 +219,43 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     expect((await anvil.receipt(hash)).status).toBe('success');
     return { hash };
   }
-  let forwarder: Address | undefined;
-  /** A minimal forwarder, deployed once: it calls the address in the first 20 bytes of its calldata with the rest. */
-  async function forwarderAddress(): Promise<Address> {
-    if (forwarder) return forwarder;
+  const forwarders = new Map<string, Address>();
+  /**
+   * Minimal forwarders, deployed once each. 'plain' calls the address in the first 20 bytes of its calldata with the
+   * rest, so the rules call sits verbatim in the calldata. 'opaque' first subtracts 1 from the call's first byte, so the
+   * calldata never shows the call that runs.
+   */
+  async function forwarderAddress(kind: 'plain' | 'opaque' = 'plain'): Promise<Address> {
+    const hit = forwarders.get(kind);
+    if (hit) return hit;
+    const code: Hex =
+      kind === 'plain'
+        ? '0x601c8060095f395ff35f5f601436038060145f375f5f5f3560601c5af1601a575f5ffd5b00'
+        : '0x60278060095f395ff35f5f601436038060145f375f51600160f81b90035f525f5f5f3560601c5af16025575f5ffd5b00';
     const wallet = anvil.wallet(deployer.key);
-    const hash = await wallet.sendTransaction({ account: wallet.account!, chain: foundry, data: '0x601c8060095f395ff35f5f601436038060145f375f5f5f3560601c5af1601a575f5ffd5b00' });
-    forwarder = (await anvil.receipt(hash)).contractAddress! as Address;
-    return forwarder;
+    const hash = await wallet.sendTransaction({ account: wallet.account!, chain: foundry, data: code });
+    const address = (await anvil.receipt(hash)).contractAddress! as Address;
+    forwarders.set(kind, address);
+    return address;
   }
+  /** A rules call through a forwarder: the target, then the call (its first byte raised by 1 for the opaque one). */
+  async function forwarded(who: TestActor, fn: string, args: readonly unknown[], kind: 'plain' | 'opaque' = 'plain'): Promise<{ hash: Hex }> {
+    const call = encodeFunctionData({ abi: chain.abis.rules, functionName: fn, args });
+    const data = kind === 'plain' ? call : (`0x${(parseInt(call.slice(2, 4), 16) + 1).toString(16).padStart(2, '0')}${call.slice(4)}` as Hex);
+    const wallet = anvil.wallet(who.key);
+    const hash = await wallet.sendTransaction({ account: wallet.account!, chain: foundry, to: await forwarderAddress(kind), data: concat([chain.deployment.rules, data]), gas: 3_000_000n });
+    expect((await anvil.receipt(hash)).status).toBe('success');
+    return { hash };
+  }
+  /** Sends raw calldata from `who`'s wallet. */
+  async function raw(who: TestActor, to: Address, data: Hex): Promise<{ hash: Hex }> {
+    const wallet = anvil.wallet(who.key);
+    const hash = await wallet.sendTransaction({ account: wallet.account!, chain: foundry, to, data, gas: 5_000_000n });
+    expect((await anvil.receipt(hash)).status).toBe('success');
+    return { hash };
+  }
+  const rulesCall = (fn: string, args: readonly unknown[]) => encodeFunctionData({ abi: chain.abis.rules, functionName: fn, args });
+  const bundle = (calls: Array<{ target: Address; allowFailure: boolean; callData: Hex }>) => encodeFunctionData({ abi: chain.abis.multicall, functionName: 'aggregate3', args: [calls] });
   const decision = async (d: EvmDeal, role: 'primary' | 'fallback' | 'appeal', outcome: Decision['outcome'], round?: number) => ((await d.decide(role, outcome, round)) as { message: Decision }).message;
   const decideArgs = (d: EvmDeal, m: Decision) => [termsView(d.terms), decisionView(m), NO_DELIVERY, '0x'];
   const after = (s: EvmSettlement, id: string, seq: number) => s.log().filter((e) => e.commitmentId === id && e.seq >= seq);
@@ -238,7 +296,7 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
       ['hold.funded', 'direct'],
     ]);
     expect(events[1]!.payload).toMatchObject({ tx: mined.hash, sender: lc(cast.buyer.address), amount: { amount: '2050000000' } });
-    expect(s.openDeals()).toBe(1);
+    expect(s.openDeals()).toEqual({ recent: 1, idle: 0 });
     // The next pass applies nothing twice.
     expect((await sync.pass())?.applied ?? 0).toBe(0);
     expect(after(s, d.id, seq)).toHaveLength(2);
@@ -370,23 +428,38 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     expect((await s.state(d.id))!.escrowState).toBe('Refunded');
   }, 60_000);
 
-  it('a call forwarded by another contract serves dealOf with a notice, invents no step, and does not hold back the cursor or other deals', async () => {
+  it('a call forwarded by another contract is read from its calldata when its logs and signatures confirm it', async () => {
     const { s, sync } = await node();
-    const forwarder = await forwarderAddress();
+    const d = await funded('forwarded-plain', s, { deliver: true });
+    const seq = s.log().length;
+    const sent = await forwarded(cast.stranger, 'decide', decideArgs(d, await decision(d, 'primary', 'accept')));
+    expect(await sync.pass()).toMatchObject({ applied: 1, behind: 0 });
+    expect(await s.state(d.id)).toMatchObject({ escrowState: 'Released', appealState: 'none' });
+    expect(after(s, d.id, seq).map((e) => [e.type, e.submittedVia])).toEqual([
+      ['judgment.decided', 'direct'],
+      ['settlement.released', 'direct'],
+      ['key.released', 'direct'],
+    ]);
+    expect(after(s, d.id, seq)[0]!.payload['tx']).toBe(sent.hash);
+  }, 60_000);
+
+  it('a call another contract transforms serves dealOf with a notice, invents no step, and does not hold back the cursor or other deals', async () => {
+    const { s, sync } = await node();
+    const opaque = await forwarderAddress('opaque');
     const a = await funded('forwarded', s, { deliver: true });
     const b = await funded('beside-forwarded', s, { deliver: true });
     const seq = s.log().length;
-    const forwarded = await direct(cast.stranger, 'decide', decideArgs(a, await decision(a, 'primary', 'accept')), forwarder);
+    const sent = await forwarded(cast.stranger, 'decide', decideArgs(a, await decision(a, 'primary', 'accept')), 'opaque');
     await direct(cast.stranger, 'decide', decideArgs(b, await decision(b, 'primary', 'accept')));
     const report = await sync.pass();
     expect(report).toMatchObject({ applied: 1, behind: 1 });
     expect(sync.cursor!.block).toBe(report!.to);
     expect((await s.state(a.id))!.escrowState).toBe('Released');
     expect(s.escrowState(a.id)!.kind).toBe('Delivered');
-    expect(s.lag(a.id)!.toLowerCase()).toContain(`called contract ${lc(forwarder)}`);
-    expect(s.lag(a.id)).toContain(forwarded.hash);
+    expect(s.lag(a.id)!.toLowerCase()).toContain(`called contract ${lc(opaque)}`);
+    expect(s.lag(a.id)).toContain(sent.hash);
     // No step: only the buyer's key, which the transaction released on chain, so the buyer can still open the work.
-    expect(s.log().filter((e) => e.commitmentId === a.id && e.seq >= seq).map((e) => [e.type, e.payload['recipient'], e.payload['tx']])).toEqual([['key.released', cast.buyer.address, forwarded.hash]]);
+    expect(s.log().filter((e) => e.commitmentId === a.id && e.seq >= seq).map((e) => [e.type, e.payload['recipient'], e.payload['tx']])).toEqual([['key.released', cast.buyer.address, sent.hash]]);
     expect(await s.keysFor(a.id, cast.buyer.address)).toHaveLength(1);
     expect((await s.state(b.id))!.escrowState).toBe('Released');
     expect(s.lag(b.id)).toBeNull();
@@ -397,10 +470,15 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     const d = await funded('relayed-once', s, { deliver: true });
     await ok(s, await d.decide('primary', 'accept'));
     const log = s.log();
-    expect(await sync.pass()).toMatchObject({ applied: 0, behind: 0, txs: 3 });
+    // The overlap may also reread an earlier test's last blocks: at least this deal's three transactions.
+    const first = await sync.pass();
+    expect(first).toMatchObject({ applied: 0, behind: 0 });
+    expect(first!.txs).toBeGreaterThanOrEqual(3);
     expect(s.log()).toEqual(log);
     const again = await EvmSettlement.restore(chain, genesis, s.drain(), wall);
-    expect(await new ChainSync(again, cursor).pass()).toMatchObject({ applied: 0, behind: 0, txs: 3 });
+    const second = await new ChainSync(again, cursor).pass();
+    expect(second).toMatchObject({ applied: 0, behind: 0 });
+    expect(second!.txs).toBeGreaterThanOrEqual(3);
     expect(again.log()).toEqual(log);
   }, 60_000);
 
@@ -521,7 +599,7 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     await ok(s, await offered.offer());
     await ok(s, await offered.accept());
     const held = await funded('direct-reclaim', s);
-    expect(s.openDeals()).toBe(2);
+    expect(s.openDeals()).toEqual({ recent: 2, idle: 0 });
     await jump(3_601);
     await direct(cast.stranger, 'expireOffer', [termsView(offered.terms)]);
     await direct(cast.stranger, 'reclaim', [termsView(held.terms)]);
@@ -530,7 +608,7 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     expect(s.log().filter((e) => e.commitmentId === offered.id).at(-1)).toMatchObject({ type: 'offer.expired', submittedVia: 'direct', payload: { from: 'AcceptedByAdjudicator' } });
     expect((await s.state(held.id))!.escrowState).toBe('Refunded');
     expect(s.log().filter((e) => e.commitmentId === held.id).at(-1)).toMatchObject({ type: 'settlement.reclaimed', submittedVia: 'direct' });
-    expect(s.openDeals()).toBe(0);
+    expect(s.openDeals()).toEqual({ recent: 0, idle: 0 });
   }, 90_000);
 
   it('a takeover sent by a stranger hands the fallback its envelope with the contract round; a default and an appeal expiry close deals', async () => {
@@ -539,16 +617,19 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     const defaulted = await funded('direct-default', s, { deliver: true });
     const appealed = await funded('direct-appeal-expiry', s, { deliver: true });
     const forwardedTakeover = await funded('forwarded-fallback', s, { deliver: true });
-    const forwarder = await forwarderAddress();
+    const opaqueTakeover = await funded('opaque-fallback', s, { deliver: true });
     await ok(s, await appealed.decide('primary', 'accept'));
     await jump(4_201);
     for (const d of [takeover, defaulted]) await direct(cast.stranger, 'triggerFallback', [termsView(d.terms)]);
     await direct(cast.buyer, 'expireAppeal', [termsView(appealed.terms)]);
-    // A takeover through a contract this node cannot read still hands the fallback its envelope, from dealOf's stage.
-    await direct(cast.buyer, 'triggerFallback', [termsView(forwardedTakeover.terms)], forwarder);
-    expect(await sync.pass()).toMatchObject({ applied: 3, behind: 1 });
-    expect((await s.state(forwardedTakeover.id))!.escrowState).toBe('FallbackJudging');
-    expect(await s.keysFor(forwardedTakeover.id, cast.fallback.address)).toHaveLength(1);
+    // A takeover through any contract follows from its logs alone: a timeout carries no signed message.
+    await forwarded(cast.buyer, 'triggerFallback', [termsView(forwardedTakeover.terms)]);
+    await forwarded(cast.buyer, 'triggerFallback', [termsView(opaqueTakeover.terms)], 'opaque');
+    expect(await sync.pass()).toMatchObject({ applied: 5, behind: 0 });
+    for (const d of [forwardedTakeover, opaqueTakeover]) {
+      expect(s.escrowState(d.id)!.kind).toBe('FallbackJudging');
+      expect(await s.keysFor(d.id, cast.fallback.address)).toHaveLength(1);
+    }
     const judgeBy = (d: EvmDeal) => Math.floor(Date.parse(d.terms.timing.judgeBy) / 1000);
     for (const d of [takeover, defaulted]) {
       expect((await s.state(d.id))!.escrowState).toBe('FallbackJudging');
@@ -561,8 +642,9 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     // D20: final at appealBy, not when the stranger closed it.
     const decidedAt = s.log().find((e) => e.commitmentId === appealed.id && e.type === 'judgment.decided')!.at;
     expect(Date.parse(appealView_.finalAt!)).toBe(Date.parse(decidedAt) + 300_000);
-    // The fallback decides the first; the second runs out its window and anyone defaults it.
-    expect((await ok(s, await takeover.decide('fallback', 'accept', judgeBy(takeover)))).state.escrowState).toBe('Released');
+    // The fallback decides the first and both forwarded takeovers (review H1); the second runs out its window and anyone
+    // defaults it.
+    for (const d of [takeover, forwardedTakeover, opaqueTakeover]) expect((await ok(s, await d.decide('fallback', 'accept', judgeBy(d)))).state.escrowState).toBe('Released');
     await jump(700);
     await direct(cast.stranger, 'triggerDefault', [termsView(defaulted.terms)]);
     expect(await sync.pass()).toMatchObject({ applied: 1 });
@@ -574,7 +656,132 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     chained(s);
   }, 120_000);
 
-  it('neutrality.operator-refuses-on-chain: the operator refuses to relay after funding; the parties submit directly, the deal settles, and the view shows every step', async () => {
+  // Regressions from the review and the red-team pass on PR 185 (2026-11-04).
+
+  it('a reverted decoy beside the real call in a bundle is not a step: the view records the decision that ran (red-team 1)', async () => {
+    const { s, sync } = await node();
+    const d = await funded('decoy-early', s, { deliver: true });
+    const del = d.delivery!;
+    const real = await decision(d, 'primary', 'accept');
+    // An early accept the buyer never signed: the contract reverts it, and the bundle allows that.
+    const forged = { ...((await d.earlyAccept()) as { message: Parameters<typeof earlyAcceptView>[0] }).message, signature: JUNK };
+    const decoy = rulesCall('earlyAccept', [termsView(d.terms), earlyAcceptView(forged), deliveryView(del), del.signature, keyProof(del, d.terms.buyer) ?? NO_KEY]);
+    const { rules, multicall } = chain.deployment;
+    const seq = s.log().length;
+    await raw(cast.stranger, multicall, bundle([
+      { target: rules, allowFailure: true, callData: decoy },
+      { target: multicall, allowFailure: false, callData: bundle([{ target: rules, allowFailure: false, callData: rulesCall('decide', decideArgs(d, real)) }]) },
+    ]));
+    expect(await sync.pass()).toMatchObject({ applied: 1, behind: 0 });
+    const book = s.escrowState(d.id)!;
+    expect(book.kind === 'Released' ? book.via.kind : book.kind).toBe('first_instance');
+    expect((await s.state(d.id))!.deadlines['appealBy']).toBeDefined();
+    expect(after(s, d.id, seq).map((e) => e.type)).toEqual(['judgment.decided', 'settlement.released', 'key.released']);
+  }, 60_000);
+
+  it('a decoy settlement beside the real one: the view records the payouts the chain made (red-team 1)', async () => {
+    const { s, sync } = await node();
+    const d = await funded('decoy-mutual', s);
+    const real = ((await d.mutual(1_500_000_000n, false)) as { message: Parameters<typeof mutualView>[0] }).message;
+    const forged = { ...real, payouts: [{ to: d.terms.buyer, amount: d.terms.price }], buyerSignature: JUNK, sellerSignature: JUNK };
+    const { rules, multicall } = chain.deployment;
+    await raw(cast.buyer, multicall, bundle([
+      { target: rules, allowFailure: true, callData: rulesCall('mutualSettle', [termsView(d.terms), mutualView(forged), NO_DELIVERY, NO_KEY]) },
+      { target: multicall, allowFailure: false, callData: bundle([{ target: rules, allowFailure: false, callData: rulesCall('mutualSettle', [termsView(d.terms), mutualView(real), NO_DELIVERY, NO_KEY]) }]) },
+    ]));
+    expect(await sync.pass()).toMatchObject({ applied: 1, behind: 0 });
+    expect((await s.state(d.id))!.settled!.payouts.map((p) => [lc(p.to), p.amount.amount])).toEqual(real.payouts.map((p) => [lc(p.to), p.amount.amount]));
+  }, 60_000);
+
+  it('a forwarded copy of the seller delivery joins when the seller posts it, and the primary decides (red-team 2)', async () => {
+    const { s, sync } = await node();
+    const d = await funded('forwarded-deliver', s);
+    const sub = await d.deliver();
+    const sent = await forwarded(cast.stranger, 'deliver', [termsView(d.terms), deliveryView(d.delivery!), d.delivery!.signature]);
+    expect(await sync.pass()).toMatchObject({ behind: 1 });
+    expect(s.lag(d.id)).toContain('/deliveries');
+    const joined = await ok(s, sub);
+    expect(joined.events.map((e) => [e.type, e.payload['tx'] ?? null])).toEqual([
+      ['delivery.submitted', sent.hash],
+      ['key.released', null],
+    ]);
+    expect((await ok(s, await d.decide('primary', 'accept'))).state.escrowState).toBe('Released');
+  }, 60_000);
+
+  it('a bundle with the same takeover twice, one allowed to fail, follows from the logs (review H1)', async () => {
+    const { s, sync } = await node();
+    const d = await funded('takeover-twice', s, { deliver: true });
+    await jump(4_201);
+    const { rules, multicall } = chain.deployment;
+    const call = rulesCall('triggerFallback', [termsView(d.terms)]);
+    await raw(cast.stranger, multicall, bundle([
+      { target: rules, allowFailure: false, callData: call },
+      { target: rules, allowFailure: true, callData: call },
+    ]));
+    expect(await sync.pass()).toMatchObject({ applied: 1, behind: 0 });
+    expect(s.escrowState(d.id)!.kind).toBe('FallbackJudging');
+    const judgeBy = Math.floor(Date.parse(d.terms.timing.judgeBy) / 1000);
+    expect((await ok(s, await d.decide('fallback', 'reject', judgeBy))).state.escrowState).toBe('Refunded');
+  }, 60_000);
+
+  it('an agreement with an expiry core cannot represent puts its deal behind with a notice, and the pass goes on (review H2)', async () => {
+    const { s, sync } = await node();
+    const d = new EvmDeal(s, cast, club, 'huge-expiry');
+    const beside = await funded('beside-huge-expiry', s, { deliver: true });
+    await ok(s, await d.offer());
+    const accept = await d.accept();
+    await ok(s, accept);
+    const af = await d.agreeAndFund();
+    if (af.kind !== 'agree_and_fund' || accept.kind !== 'adjudicator_accept') throw new Error('unreachable');
+    const sellerSignature = s.log().find((e) => e.commitmentId === d.id && e.type === 'commitment.offered')!.payload['sellerSignature'] as Hex;
+    // The buyer signs an Agree that expires at 2^64 - 1 seconds, past what a timestamp holds; the contract takes it.
+    const nonce = keccak256(stringToBytes('huge-expiry/agree'));
+    const expiresAt = 2n ** 64n - 1n;
+    const signature = await privateKeyToAccount(cast.buyer.key).signTypedData({
+      domain: s.domain as Parameters<ReturnType<typeof privateKeyToAccount>['signTypedData']>[0]['domain'],
+      types: { Agree: [{ name: 'commitmentId', type: 'bytes32' }, { name: 'buyer', type: 'address' }, { name: 'nonce', type: 'bytes32' }, { name: 'expiresAt', type: 'uint64' }] },
+      primaryType: 'Agree',
+      message: { commitmentId: d.id, buyer: cast.buyer.address, nonce, expiresAt },
+    });
+    await raw(cast.buyer, chain.deployment.rules, rulesCall('agreeAndFund', [termsView(d.terms), sellerSignature, acceptanceView(accept.message), { nonce, expiresAt, signature }, { method: 0, signature: af.funding.signature }]));
+    await direct(cast.stranger, 'decide', decideArgs(beside, await decision(beside, 'primary', 'accept')));
+    expect(await sync.pass()).toMatchObject({ applied: 1, behind: 1 });
+    expect((await s.state(d.id))!.escrowState).toBe('Held');
+    expect(s.lag(d.id)).toMatch(/could not rebuild/);
+    expect((await s.state(beside.id))!.escrowState).toBe('Released');
+  }, 60_000);
+
+  it('a read that fails after a relay mined leaves the book untouched, and the next pass applies the call (review M2)', async () => {
+    let failDealOf = false;
+    const pc = chain.publicClient;
+    const flakyClient = new Proxy(pc, {
+      get(target, prop) {
+        if (prop === 'readContract') {
+          return async (args: { functionName: string }) => {
+            if (failDealOf && args.functionName === 'dealOf') {
+              failDealOf = false;
+              throw new Error('RPC down');
+            }
+            return (target.readContract as (a: unknown) => Promise<unknown>)(args);
+          };
+        }
+        const v = Reflect.get(target, prop);
+        return typeof v === 'function' ? v.bind(target) : v;
+      },
+    });
+    const flaky = Object.create(chain) as LiveChain;
+    Object.defineProperty(flaky, 'publicClient', { value: flakyClient });
+    const { s, sync } = await node(flaky);
+    const d = await funded('flaky-read', s, { deliver: true });
+    failDealOf = true;
+    await expect(s.submit(await d.decide('primary', 'accept'), { via: 'op-1' })).rejects.toThrow(/RPC down/);
+    expect(s.escrowState(d.id)!.kind).toBe('Delivered');
+    expect(await sync.pass()).toMatchObject({ applied: 1, behind: 0 });
+    expect((await s.state(d.id))!.escrowState).toBe('Released');
+    expect(s.log().filter((e) => e.commitmentId === d.id).map((e) => e.type).slice(-3)).toEqual(['judgment.decided', 'settlement.released', 'key.released']);
+  }, 60_000);
+
+  it('neutrality.operator-refuses-on-chain:the operator refuses to relay after funding; the parties submit directly, the deal settles, and the view shows every step', async () => {
     let refusing = false;
     // The same relayer lanes, but a chain that refuses every send once the deal is funded (D27).
     const operator = Object.assign(Object.create(chain) as LiveChain, {

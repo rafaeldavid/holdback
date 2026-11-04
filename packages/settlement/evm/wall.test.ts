@@ -86,6 +86,23 @@ describe('EvmSettlement on a wall-clock chain', () => {
     expect((await s.state(a.id))?.escrowState).toBe('AcceptedByAdjudicator');
   });
 
+  it('an open deal keeps the minute cadence while recent, and moves to the slow one after a quiet day (T-218, red-team 3)', async () => {
+    const chain = new HeldChain();
+    const { s, cast, club, genesis } = await settlement(chain);
+    const d = new EvmDeal(s, cast, club, 'far-off');
+    // D31 allows any deadline: this offer can be funded until 9998.
+    const far = '9998-01-01T00:00:00Z';
+    const terms = { ...d.terms, timing: { ...d.terms.timing, offerExpiresAt: far, fundBy: far } };
+    const start = new Date(WALL).toISOString().replace('.000Z', 'Z');
+    const book = { state: { kind: 'Offered' as const, id: d.id, terms, sellerSignature: '0x' as const }, club, sellerSignature: '0x' as const, held: [], released: [], nonces: [], lastEventSeq: 0, updatedAt: start };
+    const at = async (hours: number) => (await EvmSettlement.restore(chain, genesis, { books: [[d.id, book]], events: [], mandates: [] }, () => WALL + hours * 3_600_000)).openDeals();
+    expect(await at(2)).toEqual({ recent: 1, idle: 0 });
+    expect(await at(25)).toEqual({ recent: 0, idle: 1 });
+    // The demo's own offer expires after 15 minutes: an hour after that it is not open at all.
+    const own = { ...book, state: { ...book.state, terms: d.terms } };
+    expect((await EvmSettlement.restore(chain, genesis, { books: [[d.id, own]], events: [], mandates: [] }, () => WALL + 2 * 3_600_000)).openDeals()).toEqual({ recent: 0, idle: 0 });
+  });
+
   it('a retry after a restart replays the first answer; the same key with another body is a conflict', async () => {
     const chain = new HeldChain();
     const { s, cast, club, genesis } = await settlement(chain);
