@@ -13,7 +13,7 @@
     - for the deployment, `contracts/script/deploy-sepolia.sh` and a section of `docs/operations.md`;
     - for the cross-family pass, `docs/reviews/2026-11-03-contract-review-deepseek.md` (new, DeepSeek's answers verbatim).
 - **Human gate:** **yes.** (1) Rafa reads the review before Phase 2 is called done. (2) Any Sepolia deployment needs Rafa's explicit approval written in this file first: test ETH and a test token only, a deployer key from an environment variable, never printed. No mainnet, at any point; a mainnet deployment is a separate gate after an external audit and legal advice (D4).
-- **Status:** review. Open: Rafa's read, and his confirmation on PR 150 (Decisions 7). The cross-family pass is done (DeepSeek, review §8), and the Sepolia deploy is done (PR 150).
+- **Status:** review, benched (Rafa, 2026-11-04) until the first full EVM end-to-end test round: Rafa's read and his confirmation on PR 150 (Decisions 7) wait until then (`docs/backlog.md`, Benched). The cross-family pass is done (DeepSeek, review §8), and the Sepolia deploy is done (PR 150).
 - **Agent/session:** a Claude Opus 5.5 session in worktree `t-206-contract-review-d83e9c`, 2026-11-03, with:
   - a Claude Fable 5.1 red-teamer subagent;
   - a separate public-audit cross-check session;

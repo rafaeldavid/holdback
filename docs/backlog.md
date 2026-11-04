@@ -2,6 +2,15 @@
 
 Deferred until after the basic demo. The demo assumes honest parties (Rafa, October 30, 2026). Each item names its source and when it starts to matter. Agents add items here instead of building them early (`docs/team.md`).
 
+## Benched
+
+Work that is built or open but held back, with the event that brings it back.
+
+| Item | Source | Comes back |
+| --- | --- | --- |
+| The contribution rails for collaborators and their agents: `CONTRIBUTING.md`, the issue templates and `CODEOWNERS` (PR 151, labelled `benched`) | Rafa, 2026-11-04 | After the first full EVM end-to-end test round on Sepolia |
+| T-206's human gate: Rafa's read of the contract review, and his confirmations on PR 150 (the Sepolia approval, the keystore exception, the two open "before Sepolia" checks) | Rafa, 2026-11-04 | After the first full EVM end-to-end test round on Sepolia |
+
 ## Settlement layer
 
 | Item | Source | When it matters |
