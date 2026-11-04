@@ -6,6 +6,7 @@
 import {
   err,
   ok,
+  SIM_BEACON,
   type AdjudicatorAcceptance,
   type AdjudicatorRegistration,
   type Address,
@@ -28,8 +29,9 @@ import type { AdjudicatorSettlement, DecisionTask, OfferTask } from './settlemen
 import type { RandomnessSource } from './randomness.js';
 
 /**
- * The Settlement interface plus the reads SimChain offers beyond it: the clock, the beacon, the full escrow
- * state and an adjudicator's bond pool. An EVM adapter would supply the same reads from the chain.
+ * The Settlement interface plus the reads SimChain offers beyond it: the clock, the sim beacon, the full escrow
+ * state and an adjudicator's bond pool. An EVM adapter would supply the same reads from the chain. A commitment whose
+ * rulebook names drand-quicknet reads its rounds from the adapter's drand source instead (T-217).
  */
 export interface SettlementReads extends Settlement {
   now(): Timestamp;
@@ -52,6 +54,11 @@ export interface AdapterOptions {
   chain: SettlementReads;
   store: ContentStore;
   registration(address: Address): Promise<AdjudicatorRegistration | null>;
+  /**
+   * Where rounds come from for a commitment whose rulebook names drand-quicknet (drand.ts, T-217). Absent: such a
+   * commitment gets no source, so its fallback and appeal turns wait and the deal takes its default path.
+   */
+  drand?: RandomnessSource;
 }
 
 const APPEAL_GROUNDS: readonly AppealGround[] = ['wrong-outcome', 'missing-or-wrong-key', 'policy-or-panel-violation', 'mislabeled-model'];
@@ -59,15 +66,33 @@ const lc = (a: string): string => a.toLowerCase();
 const fromSubmit = (r: SubmitResult): Result<unknown, Problem> => (r.ok ? ok(r.state) : err(r.problem));
 
 export class SettlementAdapter implements AdjudicatorSettlement {
-  readonly randomness: RandomnessSource;
   readonly #o: AdapterOptions;
+  /** The settlement layer's own sim beacon. */
+  readonly #sim: RandomnessSource;
   /** Commitments seen in the event log. */
   readonly #commitments = new Map<Hex32, Commitment>();
   #seq = 0;
 
   constructor(o: AdapterOptions) {
+    if (o.drand && o.drand.kind !== 'drand-quicknet') throw new RangeError(`the drand option is a drand-quicknet source, not ${o.drand.kind}`);
     this.#o = o;
-    this.randomness = { kind: 'sim', value: async (round) => o.chain.beacon(round) };
+    this.#sim = {
+      kind: 'sim',
+      clock: SIM_BEACON,
+      value: async (round) => {
+        const value = o.chain.beacon(round);
+        return value ? { value } : null;
+      },
+    };
+  }
+
+  /** The source the commitment's rulebook names, which core keeps in the escrow state from the offer (T-217). */
+  randomness(c: Commitment): RandomnessSource | null {
+    const s = this.#o.chain.escrowState(c.id);
+    if (!s) return null;
+    // A state saved before the source was kept has none: every such commitment named sim.
+    const source = s.beaconSource ?? 'sim';
+    return source === 'sim' ? this.#sim : source === 'drand-quicknet' ? (this.#o.drand ?? null) : null;
   }
 
   now(): Timestamp {

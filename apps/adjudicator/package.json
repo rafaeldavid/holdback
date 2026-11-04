@@ -11,6 +11,7 @@
     "@holdback/core": "workspace:*",
     "@holdback/judgment": "workspace:*",
     "@holdback/settlement": "workspace:*",
+    "@noble/curves": "1.9.1",
     "viem": "^2.57.13",
     "yaml": "^2.9.1"
   }

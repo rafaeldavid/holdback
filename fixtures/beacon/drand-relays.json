@@ -1,0 +1,55 @@
+{
+  "description": "Recorded drand relay answers for T-217 (the adjudicator's drand-quicknet source). Fetched 2026-11-04 at about unix second 1793801949 from the four relays of research §7 with curl. A published round answers 200 with JSON; a future round answers 425 on the drand.sh relays and 404 on Cloudflare's; /public/0 answers the latest round, so the source never asks for round 0. The other chains' rounds are what a relay serving the wrong chain would return for the same round number.",
+  "chainHash": "52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971",
+  "relays": ["https://api2.drand.sh", "https://drand.cloudflare.com", "https://api.drand.sh", "https://api3.drand.sh"],
+  "published": {
+    "request": "/52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971/public/33666095",
+    "answers": {
+      "https://api2.drand.sh": { "status": 200, "contentType": "application/json", "body": "{\"round\":33666095,\"randomness\":\"1c4618d8d5d53cad1fc573e9dd7b3e33226efaca81a801d4ce6748a60fe82fca\",\"signature\":\"807b8a346707ef62777f7456edbee1ce3640ad766f6014a985885827c2aeae059275a81332dba43de4d75be034dbc5c4\"}" },
+      "https://drand.cloudflare.com": { "status": 200, "contentType": "application/json", "body": "{\"round\":33666095,\"signature\":\"807b8a346707ef62777f7456edbee1ce3640ad766f6014a985885827c2aeae059275a81332dba43de4d75be034dbc5c4\",\"randomness\":\"1c4618d8d5d53cad1fc573e9dd7b3e33226efaca81a801d4ce6748a60fe82fca\"}" },
+      "https://api.drand.sh": { "status": 200, "contentType": "application/json", "body": "{\"round\":33666095,\"randomness\":\"1c4618d8d5d53cad1fc573e9dd7b3e33226efaca81a801d4ce6748a60fe82fca\",\"signature\":\"807b8a346707ef62777f7456edbee1ce3640ad766f6014a985885827c2aeae059275a81332dba43de4d75be034dbc5c4\"}" },
+      "https://api3.drand.sh": { "status": 200, "contentType": "application/json", "body": "{\"round\":33666095,\"randomness\":\"1c4618d8d5d53cad1fc573e9dd7b3e33226efaca81a801d4ce6748a60fe82fca\",\"signature\":\"807b8a346707ef62777f7456edbee1ce3640ad766f6014a985885827c2aeae059275a81332dba43de4d75be034dbc5c4\"}" }
+    }
+  },
+  "future": {
+    "request": "/52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971/public/33667195",
+    "answers": {
+      "https://api2.drand.sh": { "status": 425, "contentType": "text/plain; charset=utf-8", "body": "Requested future beacon\n" },
+      "https://drand.cloudflare.com": { "status": 404, "contentType": "application/json", "body": "" },
+      "https://api.drand.sh": { "status": 425, "contentType": "text/plain; charset=utf-8", "body": "Requested future beacon\n" },
+      "https://api3.drand.sh": { "status": 425, "contentType": "text/plain; charset=utf-8", "body": "Requested future beacon\n" }
+    }
+  },
+  "roundZero": {
+    "request": "/52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971/public/0",
+    "note": "Asked a few seconds after the published request: both relays answered the latest round, not round 0.",
+    "answers": {
+      "https://api2.drand.sh": { "status": 200, "contentType": "application/json", "body": "{\"round\":33666202,\"randomness\":\"358426d173acee105f2a636ef7b969de82c6647ce08d3116543274abad437b29\",\"signature\":\"9941a81028933f44ceb61c77c76eca7c3d270cced3bb2233302217ae7d05adfa74f01d462048646e5d7dc0e2d62d6f10\"}" },
+      "https://drand.cloudflare.com": { "status": 200, "contentType": "application/json", "body": "{\"round\":33666202,\"signature\":\"9941a81028933f44ceb61c77c76eca7c3d270cced3bb2233302217ae7d05adfa74f01d462048646e5d7dc0e2d62d6f10\",\"randomness\":\"358426d173acee105f2a636ef7b969de82c6647ce08d3116543274abad437b29\"}" }
+    }
+  },
+  "serviceRounds": {
+    "note": "The rounds the adjudicator's unit tests fix (apps/adjudicator/src/_sim.ts clock, 2026-11-01): the fallback's round at judgeBy 10:02:00Z (unix 1793527320), the party appeal's round after a filing at 10:01:00Z (1793527260) and the appeal round after an escalation at 10:00:30Z (1793527230), each with the round after it; and the fallback's round at the SimChain test's judgeBy 10:10:00Z (1793527800). Fetched 2026-11-04 from api.drand.sh as /public/<round> bodies.",
+    "rounds": [
+      { "round": 33574812, "signature": "96ba95907e6052646af8bfc6eec08f161a46bda2308c3344fd77341a8a090127b31252f7df11e179a6e12b6e23923806", "randomness": "ba8d8f108f991cc7cf4c353df3c6cf0a535771363205638cce24e69d5f43d850" },
+      { "round": 33574652, "signature": "ac145a2e559d3d30d73f2ef376201e1170f8e7bb8be55d7e8cc61de42c082700182534f206e934685ab6ec55614ed9c9", "randomness": "9cd50830123a576fe275dcc804901278a3f66ebbf9b28d03331241381c449c92" },
+      { "round": 33574653, "signature": "b085afbbcad28c08255ffb1cdbaf8c7f69b5fcb8e108fb582df321716b4600d19864f0e27e6a91f8d8c404dcb7469097", "randomness": "258a1ec616aca5b89d4702a9774fdebf43081960e6a8ddf63e77871d00a444f3" },
+      { "round": 33574632, "signature": "b4d56f6920981d1c2f278c644738f51b242531fc69d967f9ef0769377c3b8dd4bd9480239f3e94c4f522203978e99fff", "randomness": "1108c370c99bcd5e553ce0e70a7369a9f172e0f6af631eafa7669350e7915f24" },
+      { "round": 33574633, "signature": "a383d4ec03b613ac142c17bb1ff8bfc9a5b24ae6232708727fdcf6100e7858c94e74f89ad762efb247bf9181a2a9fed0", "randomness": "271abfe797dd10ca1e622191fd42567c0c84b86dff6d7f2026b12f6d6905b240" },
+      { "round": 33574622, "signature": "996f9d80068a4c73eb1349748d749a4b1a48a4b8c8a0ee8eb296aae9febdebe39f6f769afb1549f9ad1a4825789b03ef", "randomness": "b684fbe2783d63b96d747f7ca36741f15c424b0de84858de4ee4f2f13acee207" },
+      { "round": 33574623, "signature": "87d23c16ba08c1ac2349be3aa293f00b423de330af5cc1354ad7c49be3de6041f45e166346f92d0e981778a68a9369f9", "randomness": "6228442b49e570fd6b626fe48dc4ca539c93be02d0cc342ed7a04ab51c87fe31" }
+    ]
+  },
+  "otherChains": {
+    "quicknet-t": {
+      "note": "drand's testnet quicknet: the same scheme (G1 signatures, 48 bytes) under another group key. https://pl-us.testnet.drand.sh/cc9c398442737cbd141526600919edd69f1d6f9b4adb67e4d912fbc64341a9a5/public/1000",
+      "chainHash": "cc9c398442737cbd141526600919edd69f1d6f9b4adb67e4d912fbc64341a9a5",
+      "body": "{\"round\":1000,\"randomness\":\"739ba6e75a6b8a9ae1e1fe408163f820d0584935b28d50bcd26339bfc48aca15\",\"signature\":\"95eefb5d443bb029594b17c83bc20aa5976997cb62cd07bd9f77e66089d49e02292d5f329fd0219daf11ff61ffafe6fe\"}"
+    },
+    "default": {
+      "note": "drand's default mainnet chain: chained, G2 signatures (96 bytes), 30 s period. https://api.drand.sh/8990e7a9aaed2ffed73dbd7092123d6f289930540d7651336225dc172e51b2ce/public/1000",
+      "chainHash": "8990e7a9aaed2ffed73dbd7092123d6f289930540d7651336225dc172e51b2ce",
+      "body": "{\"round\":1000,\"randomness\":\"a40d3e0e7e3c71f28b7da2fd339f47f0bcf10910309f5253d7c323ec8cea3212\",\"signature\":\"99bf96de133c3d3937293cfca10c8152b18ab2d034ccecf115658db324d2edc00a16a2044cd04a8a38e2a307e5ecff3511315be8d282079faf24098f283e0ed2c199663b334d2e84c55c032fe469b212c5c2087ebb83a5b25155c3283f5b79ac\",\"previous_signature\":\"af0d93299a363735fe847f5ea241442c65843dc1bd3a7b79646b3b10072e908bf034d35cd69d378e3341f139100cd4cd03030399864ef8803a5a4f5e64fccc20bbae36d1ca22a6ddc43d2630c41105e90598fab11e5c7456df3925d4b577b113\"}"
+    }
+  }
+}

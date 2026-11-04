@@ -36,6 +36,7 @@ import { encodePublicKey, encryptionKeyPairFromSecretKey, seal, wrapKeyForRecipi
 import { tusd } from '@holdback/settlement/sim';
 import { readFileSync } from 'node:fs';
 import { privateKeyToAccount } from 'viem/accounts';
+import { quicknetValue } from './drand.js';
 import type { AdjudicatorSettlement, DecisionTask, OfferTask } from './settlement-port.js';
 import { simBeacon, simRoundAt, type RandomnessSource } from './randomness.js';
 
@@ -44,6 +45,79 @@ export const SIM_SEED: Hex32 = `0x${'5e'.repeat(32)}`;
 export const T0 = '2026-11-01T09:00:00Z';
 
 export { tusd };
+
+// ---------------------------------------------------------------- a fake drand relay network (T-217)
+
+/** When fixtures/beacon/drand-relays.json was recorded: the relays' clock for its published and future rounds. */
+export const RELAYS_AT: Timestamp = '2026-11-04T14:19:09Z';
+
+interface RecordedRound {
+  round: number;
+  signature: string;
+  randomness: string;
+}
+const fixture = (file: string): unknown => JSON.parse(readFileSync(new URL(`../../../fixtures/beacon/${file}`, import.meta.url), 'utf8'));
+const relaysFile = fixture('drand-relays.json') as {
+  chainHash: string;
+  published: { answers: Record<string, { body: string }> };
+  roundZero: { answers: Record<string, { body: string }> };
+  serviceRounds: { rounds: RecordedRound[] };
+  otherChains: Record<string, { body: string }>;
+};
+/** Every recorded quicknet round: T-209's seven, the published round, the latest round and the tests' rounds. */
+const QUICKNET_ROUNDS = new Map<number, RecordedRound>(
+  [
+    ...(fixture('drand-quicknet.json') as { rounds: RecordedRound[] }).rounds,
+    JSON.parse(relaysFile.published.answers['https://api2.drand.sh']!.body) as RecordedRound,
+    JSON.parse(relaysFile.roundZero.answers['https://api2.drand.sh']!.body) as RecordedRound,
+    ...relaysFile.serviceRounds.rounds,
+  ].map((r) => [r.round, r]),
+);
+const LATEST = JSON.parse(relaysFile.roundZero.answers['https://api2.drand.sh']!.body) as RecordedRound;
+const OTHER_CHAIN = JSON.parse(relaysFile.otherChains['quicknet-t']!.body) as RecordedRound;
+
+/**
+ * How one relay answers: as the real relays did for a recorded round ('answer'), or 'not-yet' (425; Cloudflare 404),
+ * 'refuse' (500), 'stall' (until the caller aborts), 'throw' (no connection), 'bad-json', or a lie: 'tamper' (a flipped
+ * signature bit), 'other-round' (the latest round, as /public/0 answers), 'other-chain' (quicknet-t's round under the
+ * asked number), 'wrong-randomness' (the right signature beside a randomness field that is not its hash).
+ */
+export type RelayMode = 'answer' | 'not-yet' | 'refuse' | 'stall' | 'throw' | 'bad-json' | 'tamper' | 'other-round' | 'other-chain' | 'wrong-randomness';
+
+/**
+ * A fake drand relay network on recorded answers (fixtures/beacon/drand-relays.json): `fetch` serves
+ * `{relay}/{chain hash}/public/{round}`, an unrecorded round answers "not yet", and `modes` sets each relay's behaviour
+ * by origin (default 'answer'; change it between passes). `requests` lists every URL asked.
+ */
+export function fakeRelays(modes: Partial<Record<string, RelayMode>> = {}) {
+  const requests: string[] = [];
+  const statusFor = (origin: string): number => (origin === 'https://drand.cloudflare.com' ? 404 : 425);
+  const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+  const fetch = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+    const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
+    requests.push(url.href);
+    const mode = modes[url.origin] ?? 'answer';
+    const m = /^\/([0-9a-f]{64})\/public\/(\d+)$/.exec(url.pathname);
+    const rec = m && m[1] === relaysFile.chainHash ? QUICKNET_ROUNDS.get(Number(m[2])) : undefined;
+    if (mode === 'throw') throw new TypeError('fetch failed');
+    if (mode === 'stall') {
+      return new Promise((_resolve, reject) => {
+        const signal = init?.signal;
+        if (signal?.aborted) reject(signal.reason);
+        signal?.addEventListener('abort', () => reject(signal.reason));
+      });
+    }
+    if (mode === 'refuse') return new Response('internal error', { status: 500 });
+    if (mode === 'bad-json') return new Response('<html>busy</html>', { status: 200, headers: { 'content-type': 'text/html' } });
+    if (mode === 'not-yet' || !rec) return new Response(statusFor(url.origin) === 404 ? '' : 'Requested future beacon\n', { status: statusFor(url.origin) });
+    if (mode === 'tamper') return json({ round: rec.round, randomness: rec.randomness, signature: rec.signature.slice(0, 40) + (rec.signature[40] === '0' ? '1' : '0') + rec.signature.slice(41) });
+    if (mode === 'other-round') return json(LATEST.round === rec.round ? QUICKNET_ROUNDS.get(1000) : LATEST);
+    if (mode === 'other-chain') return json({ round: rec.round, randomness: OTHER_CHAIN.randomness, signature: OTHER_CHAIN.signature });
+    if (mode === 'wrong-randomness') return json({ round: rec.round, randomness: 'ff'.repeat(32), signature: rec.signature });
+    return json({ round: rec.round, randomness: rec.randomness, signature: rec.signature });
+  };
+  return { fetch: fetch as typeof globalThis.fetch, requests, modes, statusFor };
+}
 
 export interface Party {
   key: `0x${string}`;
@@ -129,15 +203,23 @@ export class TestSettlement implements AdjudicatorSettlement {
   failNextExpiries = 0;
   /** Free bond per adjudicator (lowercase address), as the contract's `freeOf` reads it. Unset: ample. */
   readonly bonds = new Map<string, bigint>();
-  readonly randomness: RandomnessSource = simBeacon(SIM_SEED, () => this.now());
+  readonly sim: RandomnessSource = simBeacon(SIM_SEED, () => this.now());
+  /** The drand-quicknet source the port hands out for a commitment whose rulebook names it (T-217); null: none. */
+  drand: RandomnessSource | null = null;
 
   now = (): Timestamp => new Date(this.clock).toISOString();
   at(ts: Timestamp) {
     this.clock = Date.parse(ts);
   }
 
-  offer(c: Commitment) {
-    this.cases.set(c.id, { commitment: c, state: { kind: 'Offered', id: c.id, terms: termsOf(c), sellerSignature: c.signatures.seller }, held: new Map() });
+  /** `beaconSource`: the randomness source of the commitment's club rulebook, which core keeps from the offer. */
+  offer(c: Commitment, beaconSource: EscrowState['beaconSource'] = 'sim') {
+    this.cases.set(c.id, { commitment: c, state: { kind: 'Offered', id: c.id, terms: termsOf(c), beaconSource, sellerSignature: c.signatures.seller }, held: new Map() });
+  }
+
+  randomness(c: Commitment): RandomnessSource | null {
+    const source = this.cases.get(c.id)?.state.beaconSource;
+    return source === 'sim' ? this.sim : source === 'drand-quicknet' ? this.drand : null;
   }
   private get(id: Hex32) {
     const c = this.cases.get(id);
@@ -155,7 +237,7 @@ export class TestSettlement implements AdjudicatorSettlement {
     const c = this.get(id);
     if (c.state.kind !== 'AcceptedByAdjudicator') throw new Error(`fund in ${c.state.kind}`);
     const amount = tusd(BigInt(c.state.terms.price.amount) + BigInt(c.state.terms.adjudication.fee.amount));
-    c.state = { kind: 'Held', id, terms: c.state.terms, acceptance: c.state.acceptance, hold: { amount, funding: {} as FundingAuthorization, heldAt: this.now() } };
+    c.state = { kind: 'Held', id, terms: c.state.terms, beaconSource: c.state.beaconSource, acceptance: c.state.acceptance, hold: { amount, funding: {} as FundingAuthorization, heldAt: this.now() } };
   }
 
   /**
@@ -309,13 +391,21 @@ export class TestSettlement implements AdjudicatorSettlement {
     return this.registrations.get(address.toLowerCase()) ?? null;
   }
 
-  /** The beacon fact core's step checks for fallback and appeal decisions (ADR-0018), as SimChain supplies it. */
+  /**
+   * The beacon fact core's step checks for fallback and appeal decisions (ADR-0018): the sim beacon's value, as SimChain
+   * supplies it; for drand-quicknet, the value of the decision's own proof when it proves the fixed round, as the rules
+   * contract's DrandQuicknetBeacon does (T-209).
+   */
   private async beaconFact(c: Case, m: Decision): Promise<BeaconFact | null | undefined> {
     if (m.role === 'primary') return undefined;
     const round = beaconRoundFor(c.state, m.role);
     if (round === null) return null;
-    const value = await this.randomness.value(round);
-    return value ? { round, value } : null;
+    if (c.state.beaconSource === 'drand-quicknet') {
+      const value = m.beacon?.signature && m.beacon.round === round ? await quicknetValue(round, m.beacon.signature) : null;
+      return value ? { round, value } : null;
+    }
+    const got = await this.sim.value(round);
+    return got ? { round, value: got.value } : null;
   }
 
   async submit(m: AdjudicatorAcceptance | Decision): Promise<Result<unknown, Problem>> {

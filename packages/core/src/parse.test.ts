@@ -58,15 +58,29 @@ describe('boundary parsers', () => {
     expect(parseCommitment(null).ok).toBe(false);
   });
 
-  it('accepts a SimChain beacon on a Decision and refuses other sources in Phase 1 (ADR-0018)', () => {
-    const d = example('messages.decision.example.json');
-    d['role'] = 'fallback';
-    d['beacon'] = { source: 'sim', round: 1200, value: `0x${'11'.repeat(32)}` };
-    expect(parseMessage(d).ok).toBe(true);
-    d['beacon'] = { source: 'drand-quicknet', round: 1200, value: `0x${'11'.repeat(32)}`, signature: `0x${'ab'.repeat(48)}` };
-    const r = parseMessage(d);
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error.detail).toContain('sim only');
+  // T-217: a chain's rules contract verifies a quicknet proof, so a Decision may carry one. Parse refuses only what no
+  // settlement could accept: an unknown verifier, a proof that is not a 48-byte G1 signature, a value it does not hash to.
+  describe('Decision beacons (ADR-0018, T-217)', () => {
+    // Round 1000 of quicknet: the fixture's real signature, and randomness = sha256(signature).
+    const round1000 = { signature: '0xb44679b9a59af2ec876b1a6b1ad52ea9b1615fc3982b19576350f93447cb1125e342b73a8dd2bacbe47e4b6b63ed5e39', value: '0xfe290beca10872ef2fb164d2aa4442de4566183ec51c56ff3cd603d930e54fdd' };
+    const withBeacon = (beacon: Record<string, unknown>) => ({ ...example('messages.decision.example.json'), role: 'fallback', beacon });
+
+    it('accepts a SimChain beacon and a drand quicknet round with its proof', () => {
+      expect(parseMessage(withBeacon({ source: 'sim', round: 1200, value: `0x${'11'.repeat(32)}` })).ok).toBe(true);
+      expect(parseMessage(withBeacon({ source: 'drand-quicknet', round: 1000, ...round1000 })).ok).toBe(true);
+    });
+
+    it.each([
+      ['a source with no verifier', { source: 'prevrandao', round: 1000, ...round1000 }, 'prevrandao'],
+      ['a value that is not sha256 of the signature', { source: 'drand-quicknet', round: 1000, signature: round1000.signature, value: `0x${'11'.repeat(32)}` }, 'sha256'],
+      ['a 96-byte signature (another drand chain)', { source: 'drand-quicknet', round: 1000, signature: `0x${'99'.repeat(96)}`, value: round1000.value }, '48-byte'],
+      ['a 47-byte signature', { source: 'drand-quicknet', round: 1000, signature: round1000.signature.slice(0, -2), value: round1000.value }, '48-byte'],
+      ['round 0, which drand never signs', { source: 'drand-quicknet', round: 0, ...round1000 }, 'round 0'],
+    ])('refuses %s', (_name, beacon, detail) => {
+      const r = parseMessage(withBeacon(beacon));
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.error.detail).toContain(detail);
+    });
   });
 
   it('refuses optimistic commitments in Phase 1 (ADR-0015 is built in Phase 4)', () => {
@@ -110,8 +124,15 @@ describe('boundary parsers', () => {
     expect(parseClub(c).ok).toBe(true);
   });
 
+  it('admits a rulebook that names drand quicknet by its chain hash (T-217)', () => {
+    const c = example('club.example.json');
+    (c['rulebook'] as Record<string, unknown>)['randomness'] = { source: 'drand-quicknet', chainHash: '0x52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971' };
+    expect(parseClub(c).ok).toBe(true);
+  });
+
   it.each([
-    ['randomness', { source: 'drand-quicknet', chainHash: `0x${'52'.repeat(32)}` }, 'sim only'],
+    ['randomness', { source: 'drand-quicknet', chainHash: `0x${'52'.repeat(32)}` }, 'quicknet chain hash'],
+    ['randomness', { source: 'prevrandao' }, 'prevrandao'],
     ['mutualSettlement', { allowed: true, adjudicatorFeeShareAfterDeliveryBps: 5000, payoutsTo: 'any' }, 'must be 0 in Phase 1'],
   ] as const)('refuses rulebook %s beyond Phase 1', (field, value, detail) => {
     const c = example('club.example.json');

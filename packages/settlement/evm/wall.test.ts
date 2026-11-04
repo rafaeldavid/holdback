@@ -95,7 +95,7 @@ describe('EvmSettlement on a wall-clock chain', () => {
     const far = '9998-01-01T00:00:00Z';
     const terms = { ...d.terms, timing: { ...d.terms.timing, offerExpiresAt: far, fundBy: far } };
     const start = new Date(WALL).toISOString().replace('.000Z', 'Z');
-    const accepted = { kind: 'AcceptedByAdjudicator' as const, id: d.id, terms, sellerSignature: '0x' as const, acceptance: {} as AdjudicatorAcceptance };
+    const accepted = { kind: 'AcceptedByAdjudicator' as const, id: d.id, terms, beaconSource: 'sim' as const, sellerSignature: '0x' as const, acceptance: {} as AdjudicatorAcceptance };
     const book = { state: accepted, club, sellerSignature: '0x' as const, held: [], released: [], nonces: [], lastEventSeq: 0, updatedAt: start };
     const at = async (hours: number, b: object = book) => (await EvmSettlement.restore(chain, genesis, { books: [[d.id, b as typeof book]], events: [], mandates: [] }, () => WALL + hours * 3_600_000)).openDeals();
     // An accepted offer is recent for an hour after it last moved, then idle while it can still be funded (red-team round 3).
@@ -103,7 +103,7 @@ describe('EvmSettlement on a wall-clock chain', () => {
     expect(await at(2)).toEqual({ recent: 0, idle: 1 });
     expect(await at(25)).toEqual({ recent: 0, idle: 1 });
     // An offer nobody accepted cannot be funded: posting offers alone keeps no cadence (red-team round 2, E).
-    expect(await at(2, { ...book, state: { kind: 'Offered', id: d.id, terms, sellerSignature: '0x' } })).toEqual({ recent: 0, idle: 0 });
+    expect(await at(2, { ...book, state: { kind: 'Offered', id: d.id, terms, beaconSource: 'sim', sellerSignature: '0x' } })).toEqual({ recent: 0, idle: 0 });
     // The demo's own offer expires after 15 minutes: an hour after that it is not open at all.
     const own = { ...book, state: { ...book.state, terms: d.terms } };
     expect((await EvmSettlement.restore(chain, genesis, { books: [[d.id, own]], events: [], mandates: [] }, () => WALL + 2 * 3_600_000)).openDeals()).toEqual({ recent: 0, idle: 0 });

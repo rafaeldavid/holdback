@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { keccak256, type Hex } from 'viem';
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
+import { DRAND_QUICKNET_CHAIN_HASH } from './beacon.js';
 import { rulebookHash } from './canonical.js';
 import { commitmentId, deliveryHash, termsOf } from './eip712.js';
 import type { TokenAmount } from './money/index.js';
@@ -237,10 +238,14 @@ function fill(s: EscrowState, e: EscrowEvent): EscrowEvent {
 }
 const stepF = (s: EscrowState, e: EscrowEvent) => step(s, fill(s, e));
 
-function run(events: EscrowEvent[]): EscrowState {
+function offered(): EscrowState {
   const start = offer(offerInput());
   if (!start.ok) throw new Error(`offer failed: ${start.error.detail}`);
-  let s: EscrowState = start.value;
+  return start.value;
+}
+
+function run(events: EscrowEvent[], from: EscrowState = offered()): EscrowState {
+  let s = from;
   for (const e of events) {
     const r = stepF(s, e);
     if (!r.ok) throw new Error(`setup step ${e.type} failed in ${s.kind}: ${r.error.type} ${r.error.detail}`);
@@ -661,6 +666,97 @@ describe('panel seed per role (ADR-0018)', () => {
   });
 });
 
+// T-217: a commitment counts its beacon rounds on the clock of the source its club rulebook names, so core agrees with
+// the rules contract's beacon (DrandQuicknetBeacon on Sepolia) on every round.
+describe('beacon rounds on the clock the rulebook names (ADR-0018 §6, T-217)', () => {
+  const drandRulebook: Rulebook = { ...rulebook, randomness: { source: 'drand-quicknet', chainHash: DRAND_QUICKNET_CHAIN_HASH } };
+  // DrandQuicknetBeacon.roundAt as the contract computes it, with the constants read from its source.
+  const sol = readFileSync(new URL('../../../contracts/src/DrandQuicknetBeacon.sol', import.meta.url), 'utf8');
+  const constant = (name: string) => BigInt(new RegExp(`uint256 public constant ${name} = (\\d+);`).exec(sol)![1]!);
+  const GENESIS = constant('GENESIS');
+  const PERIOD = constant('PERIOD');
+  const roundAt = (t: number): number => Number(BigInt(t) < GENESIS ? 0n : (BigInt(t) - GENESIS) / PERIOD + 1n);
+  const atSecond = (t: number): string => new Date(t * 1000).toISOString().replace('.000Z', 'Z');
+  const drandOffered = (): EscrowState => ({ ...offered(), beaconSource: 'drand-quicknet' });
+  const g = Number(GENESIS);
+
+  it('keeps the rulebook source from the offer, and refuses a source with no beacon clock', () => {
+    expect(offered().beaconSource).toBe('sim');
+    const drand = offer(offerInput(withRulebook(drandRulebook)));
+    expect(drand.ok && drand.value.beaconSource).toBe('drand-quicknet');
+    const r = offer(offerInput(withRulebook({ ...rulebook, randomness: { source: 'prevrandao' } })));
+    expect(r.ok ? 'ok' : r.error.type).toBe('invalid_terms');
+    if (!r.ok) expect(r.error.detail).toContain('prevrandao');
+  });
+
+  it.each<[string, EscrowEvent[]]>([
+    ['AcceptedByAdjudicator', toAccepted],
+    ['Agreed', toAgreed],
+    ['Held', toHeld],
+    ['Delivered', toDelivered],
+    ['FallbackJudging', toFallback],
+    ['Escalated', toEscalated],
+    ['Released by the primary', toReleased],
+    ['Refunded by the primary', toRefunded],
+    ['an open appeal', toAppealOpen],
+    ['an overturning appeal', [...toAppealOpen, ev.decide('appeal', 'reject', T.appealDecided)]],
+    ['an expired appeal', [...toReleased, ev.at('expire_appeal', far)]],
+    ['Released by the fallback', [...toFallback, ev.decide('fallback', 'accept', T.fallbackDecide)]],
+    ['Refunded after an escalation', [...toEscalated, ev.decide('appeal', 'reject', T.fallbackDecide)]],
+    ['Defaulted', toDefaulted],
+    ['Refunded by the default outcome', [...toDefaulted, ev.at('apply_default_outcome', T.fallbackBy)]],
+    ['Expired', [ev.at('expire', T.offerExpiry)]],
+    ['Settled', [...toHeld, ev.mutual(T.deliver)]],
+    ['Released by an early accept', [...toDelivered, ev.earlyAccept()]],
+    ['Refunded by a reclaim', [...toHeld, ev.at('reclaim', T.deliverBy)]],
+  ])('keeps the source through %s', (_name, path) => {
+    expect(run(path, drandOffered()).beaconSource).toBe('drand-quicknet');
+  });
+
+  it('counts the fallback and appeal rounds on the quicknet clock, and the sim rounds as before', () => {
+    expect(beaconRoundFor(run(toFallback, drandOffered()), 'fallback')).toBe(roundAt(secondsOf(T.judgeBy)));
+    expect(beaconRoundFor(run(toEscalated, drandOffered()), 'appeal')).toBe(roundAt(secondsOf(escalatedAt)) + 1);
+    expect(beaconRoundFor(run(toAppealOpen, drandOffered()), 'appeal')).toBe(roundAt(secondsOf(T.appealFiled)) + 1);
+    expect(beaconRoundFor(run(toFallback), 'fallback')).toBe(secondsOf(T.judgeBy));
+    // A state saved before T-217 has no source: it counts on the sim clock, as it did.
+    const { beaconSource: _, ...saved } = run(toFallback); // eslint-disable-line @typescript-eslint/no-unused-vars
+    expect(beaconRoundFor(saved as EscrowState, 'fallback')).toBe(secondsOf(T.judgeBy));
+  });
+
+  it.each([
+    ['the epoch', 0],
+    ['a second before genesis', g - 1],
+    ['genesis, round 1', g],
+    ['a second into round 1', g + 1],
+    ['the last second of round 1', g + 2],
+    ['exactly on round 2', g + 3],
+    ['exactly on round 33666095', g + (33_666_095 - 1) * 3],
+    ['a second before round 33666095', g + (33_666_095 - 1) * 3 - 1],
+  ])('agrees with DrandQuicknetBeacon.roundAt at %s', (_name, t) => {
+    const fallback = run(toFallback, drandOffered());
+    if (fallback.kind !== 'FallbackJudging') throw new Error('setup');
+    expect(beaconRoundFor({ ...fallback, terms: { ...fallback.terms, timing: { ...fallback.terms.timing, judgeBy: atSecond(t) } } }, 'fallback')).toBe(roundAt(t));
+    const escalated = run(toEscalated, drandOffered());
+    if (escalated.kind !== 'Escalated') throw new Error('setup');
+    expect(beaconRoundFor({ ...escalated, escalation: { ...escalated.escalation, at: atSecond(t) } }, 'appeal')).toBe(roundAt(t) + 1);
+    const filed = run(toAppealOpen, drandOffered());
+    if (filed.kind !== 'Released' || filed.via.kind !== 'first_instance' || filed.via.appeal.kind !== 'open') throw new Error('setup');
+    expect(beaconRoundFor({ ...filed, via: { ...filed.via, appeal: { ...filed.via.appeal, openedAt: atSecond(t) } } }, 'appeal')).toBe(roundAt(t) + 1);
+  });
+
+  it('settles a fallback decision seeded from the quicknet round, and refuses one seeded from the sim round', () => {
+    const s = run(toFallback, drandOffered());
+    const withRound = (round: number): EscrowEvent => {
+      const value = testBeacon(round);
+      return { type: 'decide', at: T.fallbackDecide, message: decision('fallback', 'accept', { seed: panelSeed(id, 'fallback', 1, value), beacon: { source: 'drand-quicknet', round, value, signature: `0x${'8f'.repeat(48)}` } }), beacon: { round, value } };
+    };
+    const ok = step(s, withRound(roundAt(secondsOf(T.judgeBy))));
+    expect(ok.ok ? ok.value.kind : ok.error.type).toBe('Released');
+    const sim = step(s, withRound(secondsOf(T.judgeBy)));
+    expect(sim.ok ? sim.value.kind : sim.error.type).toBe('seed_mismatch');
+  });
+});
+
 // ADR-0029: the read model's deliveryHash, exactly as commitment-state.schema.json describes it.
 describe('postedDeliveryHash', () => {
   it.each<[string, EscrowEvent[], Hex | undefined]>([
@@ -744,7 +840,7 @@ const SEED = 20261030;
 // Every message a parser accepts, in every reachable state, gives a state or a problem: never a throw.
 describe('step never throws on parsed input', () => {
   const states: EscrowEvent[][] = [[], toAccepted, toAgreed, toHeld, toDelivered, toFallback, toEscalated, toReleased, toAppealOpen, toDefaulted];
-  const built = states.map(run);
+  const built = states.map((path) => run(path));
   const anyValue = fc.oneof(
     fc.constant(NUDGE),
     fc.constant(NUDGE),
