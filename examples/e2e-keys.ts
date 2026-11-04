@@ -13,7 +13,7 @@
 //                                                                   (SEPOLIA_RPC_URL, else a public node)
 import { appendFileSync, existsSync, readFileSync, statSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { concat, createPublicClient, createWalletClient, formatEther, http, keccak256, parseEther, stringToHex, type Address, type Hex } from 'viem';
+import { BaseError, concat, createPublicClient, createWalletClient, formatEther, formatGwei, http, keccak256, parseEther, parseGwei, stringToHex, type Address, type Hex } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { sepolia } from 'viem/chains';
 
@@ -43,15 +43,30 @@ export const SEPOLIA_CHAIN_ID = 11155111;
  * (about 372,709 gas) and direct calls many times over at up to 20 gwei; the round needs about 0.2 in all (question 4).
  */
 export const TOPUP_TARGET = parseEther('0.04');
-/** What the master keeps for its own transfers' gas, in wei: 21,000 gas a transfer, at up to 20 gwei, five times over. */
+/** The fee cap, as the operators' funding lane has (`SEPOLIA_MAX_FEE_GWEI`, default 20): above it, a top-up waits. */
+export const MAX_FEE_PER_GAS = parseGwei('20');
+/**
+ * What the master keeps for its own transfers' gas, in wei. A transfer is 21,000 gas, 0.00042 Sepolia ETH at the 20
+ * gwei cap, so five transfers take 0.0021 and 0.01 covers them about 4.8 times.
+ */
 export const MASTER_RESERVE = parseEther('0.01');
-const PUBLIC_RPC = 'https://ethereum-sepolia-rpc.publicnode.com';
+/** The RPC: SEPOLIA_RPC_URL (it may carry a provider key, so it is never printed), else a public node. */
+const rpcUrl = () => process.env['SEPOLIA_RPC_URL'] || 'https://ethereum-sepolia-rpc.publicnode.com';
 
 export interface TopUp { role: Exclude<Role, 'master'>; address: Address; balance: bigint; send: bigint }
 
-/** Refuses any chain but Sepolia. */
+/** Refuses any chain but Sepolia: stricter than `assertSafeChain`'s mainnet list, which it would also satisfy. */
 export function assertSepolia(chainId: number): void {
   if (chainId !== SEPOLIA_CHAIN_ID) throw new RangeError(`refusing: chain ${chainId} is not Sepolia (${SEPOLIA_CHAIN_ID})`);
+}
+
+/**
+ * An error as one line safe to print: viem's short message, without the request details its long one carries, and
+ * every URL but an Etherscan link replaced, so a keyed RPC URL never reaches a transcript.
+ */
+export function printable(e: unknown): string {
+  const text = e instanceof BaseError ? e.shortMessage : e instanceof Error ? e.message : String(e);
+  return text.replace(/https?:\/\/(?!sepolia\.etherscan\.io\/)[^\s"'`]+/g, '<rpc url>');
 }
 
 /**
@@ -64,17 +79,25 @@ export function planTopUps(addresses: Record<Role, Address>, balances: Record<Ro
     .filter((t) => t.send > 0n);
   const total = plan.reduce((sum, t) => sum + t.send, 0n);
   if (total > 0n && total + MASTER_RESERVE > balances.master) {
-    throw new RangeError(`refusing: the master holds ${formatEther(balances.master)} Sepolia ETH; the top-ups need ${formatEther(total)} plus ${formatEther(MASTER_RESERVE)} for gas`);
+    throw new RangeError(`refusing: the master holds ${formatEther(balances.master)} Sepolia ETH; the top-ups need ${formatEther(total)} Sepolia ETH plus ${formatEther(MASTER_RESERVE)} Sepolia ETH for gas`);
   }
   return plan;
 }
 
-/** Reads every balance, plans, and (unless `dryRun`) sends each transfer from the master, waiting for its receipt. */
+/**
+ * Checks the chain before anything else, refuses while a transfer from the master is still pending or fees are above
+ * the cap, plans from the balances, and (unless `dryRun`) sends each transfer, printing its link before it waits.
+ */
 async function topUp(seed: string, dryRun: boolean): Promise<void> {
-  const transport = http(process.env['SEPOLIA_RPC_URL'] || PUBLIC_RPC);
+  const transport = http(rpcUrl());
   const client = createPublicClient({ chain: sepolia, transport });
   assertSepolia(await client.getChainId());
   const addresses = roundAddresses(seed);
+  // A transfer still in flight leaves its key looking empty at `latest`, and a rerun would send it again.
+  const [pending, mined] = await Promise.all(['pending', 'latest'].map((blockTag) => client.getTransactionCount({ address: addresses.master, blockTag: blockTag as 'pending' | 'latest' })));
+  if (pending !== mined) throw new Error(`refusing: ${pending! - mined!} transfer(s) from the master are still pending; run again once they are mined`);
+  const fees = await client.estimateFeesPerGas();
+  if (fees.maxFeePerGas > MAX_FEE_PER_GAS) throw new Error(`refusing: Sepolia fees are ${formatGwei(fees.maxFeePerGas)} gwei, above the ${formatGwei(MAX_FEE_PER_GAS)} gwei cap; run again later`);
   const balances = Object.fromEntries(await Promise.all(ROLES.map(async (r) => [r, await client.getBalance({ address: addresses[r] })]))) as Record<Role, bigint>;
   const plan = planTopUps(addresses, balances);
   console.log(`master ${addresses.master}: ${formatEther(balances.master)} Sepolia ETH`);
@@ -82,16 +105,23 @@ async function topUp(seed: string, dryRun: boolean): Promise<void> {
     console.log(`Every key holds at least ${formatEther(TOPUP_TARGET)} Sepolia ETH; nothing to send.`);
     return;
   }
-  for (const t of plan) console.log(`  ${t.role} ${t.address}: ${formatEther(t.balance)}, ${dryRun ? 'would send' : 'sending'} ${formatEther(t.send)}`);
+  for (const t of plan) console.log(`  ${t.role} ${t.address}: holds ${formatEther(t.balance)} Sepolia ETH, to send ${formatEther(t.send)} Sepolia ETH`);
   if (dryRun) return;
   const wallet = createWalletClient({ account: privateKeyToAccount(roundKey(seed, 'master')), chain: sepolia, transport });
   // One transfer at a time, each mined before the next, so the master's nonces never race.
+  let done = 0;
   for (const t of plan) {
-    const hash = await wallet.sendTransaction({ to: t.address, value: t.send });
-    const receipt = await client.waitForTransactionReceipt({ hash });
-    if (receipt.status !== 'success') throw new Error(`the transfer to ${t.role} reverted: https://sepolia.etherscan.io/tx/${hash}`);
-    console.log(`  ${t.role}: sent ${formatEther(t.send)}, https://sepolia.etherscan.io/tx/${hash}`);
+    try {
+      const hash = await wallet.sendTransaction({ to: t.address, value: t.send, maxFeePerGas: fees.maxFeePerGas, maxPriorityFeePerGas: fees.maxPriorityFeePerGas });
+      console.log(`  ${t.role}: sent ${formatEther(t.send)} Sepolia ETH, https://sepolia.etherscan.io/tx/${hash}`);
+      const receipt = await client.waitForTransactionReceipt({ hash });
+      if (receipt.status !== 'success') throw new Error(`the transfer to ${t.role} reverted: https://sepolia.etherscan.io/tx/${hash}`);
+      done++;
+    } catch (e) {
+      throw new Error(`${done} of ${plan.length} transfers mined, then: ${printable(e)}`);
+    }
   }
+  console.log(`${done} of ${plan.length} transfers mined.`);
 }
 
 function print(seed: string): void {
@@ -118,8 +148,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       try {
         await topUp(seed, file === '--dry-run');
       } catch (e) {
-        // A refusal or a failed transfer: say why, never the key that signed.
-        console.error(e instanceof Error ? e.message : String(e));
+        // A refusal or a failed transfer: say why, never the key that signed or the RPC URL.
+        console.error(printable(e));
         process.exit(1);
       }
     }

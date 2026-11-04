@@ -1,11 +1,13 @@
 // T-216: the round's keys. No network; the command runs as its own Node process on a temporary file, never on .env.
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
-import { MASTER_RESERVE, ROLES, SEED_VAR, SEPOLIA_CHAIN_ID, TOPUP_TARGET, assertSepolia, planTopUps, roundAddresses, roundKey, type Role } from './e2e-keys.ts';
+import { MASTER_RESERVE, ROLES, SEED_VAR, SEPOLIA_CHAIN_ID, TOPUP_TARGET, assertSepolia, planTopUps, printable, roundAddresses, roundKey, type Role } from './e2e-keys.ts';
 
 const cli = fileURLToPath(new URL('./e2e-keys.ts', import.meta.url));
 const dir = mkdtempSync(join(tmpdir(), 'e2e-keys-'));
@@ -125,4 +127,70 @@ describe('the top-up from the master', () => {
     expect(out.status).toBe(2);
     expect(out.stderr).toContain('topup [--dry-run]');
   });
+
+  it('prints errors without any URL but an Etherscan link', () => {
+    expect(printable(new Error('failed: https://eth-sepolia.g.alchemy.com/v2/KEY123 timed out'))).toBe('failed: <rpc url> timed out');
+    expect(printable(new Error('reverted: https://sepolia.etherscan.io/tx/0xab'))).toBe('reverted: https://sepolia.etherscan.io/tx/0xab');
+  });
+});
+
+/** A local JSON-RPC stand-in on 127.0.0.1: `answer` gives a method's result, or an HTTP status to fail with. */
+async function rpc(answer: (method: string, params: unknown[]) => { result: unknown } | { status: number }) {
+  const methods: string[] = [];
+  const server = createServer((req, res) => {
+    let body = '';
+    req.on('data', (chunk: Buffer) => (body += chunk.toString()));
+    req.on('end', () => {
+      const { id, method, params } = JSON.parse(body) as { id: number; method: string; params: unknown[] };
+      methods.push(method);
+      const a = answer(method, params);
+      if ('status' in a) res.writeHead(a.status).end();
+      else res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ jsonrpc: '2.0', id, result: a.result }));
+    });
+  });
+  await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
+  const close = () => new Promise<void>((done) => { server.closeAllConnections(); server.close(() => done()); });
+  // The path stands in for a provider key, which must never be printed.
+  return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/v2/PLANTED`, methods, close };
+}
+
+/** `node examples/e2e-keys.ts topup --dry-run` against `url`, without blocking the stand-in's event loop. */
+const dryRun = (url: string) =>
+  new Promise<{ status: number | null; stdout: string; stderr: string }>((done) => {
+    const child = spawn(process.execPath, [cli, 'topup', '--dry-run'], { env: { PATH: process.env['PATH'] ?? '', [SEED_VAR]: `0x${'11'.repeat(32)}`, SEPOLIA_RPC_URL: url } });
+    let stdout = '', stderr = '';
+    child.stdout.on('data', (d: Buffer) => (stdout += d.toString()));
+    child.stderr.on('data', (d: Buffer) => (stderr += d.toString()));
+    child.on('close', (status) => done({ status, stdout, stderr }));
+  });
+
+describe('the top-up against an RPC', () => {
+  it('checks the chain before any other call, and stops on another chain', async () => {
+    const node = await rpc((method) => (method === 'eth_chainId' ? { result: '0x1' } : { result: '0x0' }));
+    const out = await dryRun(node.url);
+    await node.close();
+    expect(out.status).toBe(1);
+    expect(out.stderr).toContain('not Sepolia');
+    expect(node.methods).toEqual(['eth_chainId']);
+  });
+
+  it('refuses while a transfer from the master is still pending, before reading any balance', async () => {
+    const node = await rpc((method, params) =>
+      method === 'eth_chainId' ? { result: '0xaa36a7' } : method === 'eth_getTransactionCount' ? { result: params[1] === 'pending' ? '0x5' : '0x4' } : { result: '0x0' });
+    const out = await dryRun(node.url);
+    await node.close();
+    expect(out.status).toBe(1);
+    expect(out.stderr).toContain('still pending');
+    expect(node.methods).not.toContain('eth_getBalance');
+    expect(node.methods).not.toContain('eth_sendRawTransaction');
+  });
+
+  it('never prints the RPC URL when the RPC fails', async () => {
+    const node = await rpc(() => ({ status: 429 }));
+    const out = await dryRun(node.url);
+    await node.close();
+    expect(out.status).toBe(1);
+    expect(out.stdout + out.stderr).not.toContain('PLANTED');
+    expect(out.stdout + out.stderr).not.toContain('127.0.0.1');
+  }, 20_000);
 });
