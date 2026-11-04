@@ -26,7 +26,7 @@ The goal: an RPC node that lags a relayed call's block can neither drop the call
 - [x] The block's time: a node that does not serve the receipt's block yet (viem's `BlockNotFoundError`) is asked again; a test on a LiveChain over anvil fails before the fix and passes after.
 - [x] An answer at the receipt's block that never matches the mirror is still a divergence: the relay throws after five tries and the book stays as it was.
 - [x] A read that keeps failing leaves the book untouched, and the next sync pass applies the call (T-218's M2 test, now failing every try).
-- [x] The retries stay bounded: no wait starts after 10 s, and on anvil (the scenario clock) no retry waits.
+- [x] The retries stay bounded: no read starts after a wait that would end past 10 s, and on anvil (the scenario clock) no retry waits.
 - [x] The backlog row is narrowed to what is left, and T-216's Evidence names this task and PR 200.
 - [x] `pnpm verify` passes, and the `reviewer` role has reviewed the PR (relayer code: operators relay and never author).
 
@@ -44,28 +44,29 @@ The goal: an RPC node that lags a relayed call's block can neither drop the call
   - The block-time test fails on main's `live.ts` with `BlockNotFoundError: Block at number "22" could not be found`.
   - With the fix, `packages/settlement/evm/`: 8 files, 99 tests pass.
 - **With T-219's draft** [measured]: a local merge with PR 195 ran `packages/settlement/evm/` and `apps/demo-cloud/src/lanes.test.ts`, 9 files and 105 tests, all passing (before the review's changes). `git merge-tree` shows no code conflict.
-- **Review** [measured]: the `reviewer` role returned ISSUES. This branch answers each finding: the block-time read (Medium), mismatched answers retried, a divergence test, the retry budget, the wording, this task file and the PR template.
-- **`pnpm verify`** on the branch with the review's changes, 2026-11-04 21:58 UTC: PASS, no snapshot diffs against HEAD, no placeholders [measured: `reports/verify-t-216-receipt-block-reads.md`]. `pnpm test` ran 117 files and 2,661 tests; 1 file and 4 tests were skipped, the suites that need `SEPOLIA_FORK_RPC` [inferred from their skip conditions].
+- **Review** [measured]: the `reviewer` role returned ISSUES twice. This branch answers each finding, the second time the read after the 10 s budget: the block-time read (Medium), mismatched answers retried, a divergence test, the retry budget, the wording, this task file and the PR template.
+- **`pnpm verify`** on the branch with both reviews' changes, 2026-11-04 22:07 UTC (`d30d98d` plus the read-budget fix, committed next with no other change): PASS, no snapshot diffs against HEAD, no placeholders [measured: `reports/verify-t-216-receipt-block-reads.md`]. `pnpm test` ran 117 files and 2,661 tests; 1 file and 4 tests were skipped, the suites that need `SEPOLIA_FORK_RPC` [inferred from their skip conditions].
 
   | Step | Command | Status | Time |
   | --- | --- | --- | --- |
-  | typecheck | `pnpm typecheck` | pass | 270 ms |
-  | lint | `pnpm lint` | pass | 4,031 ms |
-  | forge build | `forge build --root contracts` | pass | 1,255 ms |
-  | forge | `forge test --root contracts` | pass | 21,156 ms |
-  | test | `pnpm test` | pass | 158,032 ms |
-  | spec | `pnpm validate:spec` | pass | 1,768 ms |
-  | snap | `pnpm snap` | pass | 10,707 ms |
-  | snap:local | `pnpm snap --settlement=local` | pass | 20,839 ms |
-  | demo | `pnpm demo` | pass | 5,157 ms |
+  | typecheck | `pnpm typecheck` | pass | 5,181 ms |
+  | lint | `pnpm lint` | pass | 4,807 ms |
+  | forge build | `forge build --root contracts` | pass | 1,133 ms |
+  | forge | `forge test --root contracts` | pass | 16,517 ms |
+  | test | `pnpm test` | pass | 157,411 ms |
+  | spec | `pnpm validate:spec` | pass | 683 ms |
+  | snap | `pnpm snap` | pass | 10,035 ms |
+  | snap:local | `pnpm snap --settlement=local` | pass | 14,725 ms |
+  | demo | `pnpm demo` | pass | 4,077 ms |
 
 ## Decisions
 
 - **Retry the read, keep the M2 rule.** A read pinned to the receipt's block either answers the block's state or fails, so the adapter tries a failed or mismatched read again rather than trusting the receipt alone. A read that still fails leaves the book untouched (T-218's review M2), so a divergence is never recorded as a step.
+- **The block time waits in the relayer key's queue.** `blockTime` runs inside `LiveChain`'s send queue, so a node that lacks the block can delay the next send on that lane by up to 8 s (4 waits of 2 s, inferred). One lane serves one deal at a time (ADR-0028 §3), so this is accepted.
 - **Pin by block number, not by hash.** Reading by `blockHash` with `requireCanonical` would also catch a reorg. It needs `blockHash` on `Mined` in `chain.ts`, which T-219 is rewriting; the retry covers a one-block reorg in the common case (inferred). Revisit after T-219 merges.
 
 ## Handoff
 
-- **T-219:** this task changes `send` between the receipt and `record`, and `LiveChain.blockTime`. PR 195 merges with it with no conflict in code (`git merge-tree`, measured 2026-11-04). With T-219, a read that fails on every try leaves the lane row open, and the next pass applies the call as this node's relay (inferred from PR 195's `follow` and `noteOf`).
+- **T-219:** this task changes `send` between the receipt and `record`, and `LiveChain.blockTime`. PR 195 merges with it with no conflict in code (`git merge-tree`, measured 2026-11-04). With T-219, a read that fails on every try leaves the lane row open, and the next pass applies the call as this node's relay (inferred from PR 195's `follow` and `noteOf`). Whichever of PR 195 and this PR lands second reruns the EVM and lane tests on the merge, and narrows the backlog row's "The rest closes with T-219".
 - **T-220:** the deploy carries this fix; round 1 re-runs scenario 1 on it.
 - **Open for Rafa:** the reviewer recommends a second review from another model family: what the keyed and public Sepolia RPCs return for `eth_call` and `eth_getBlockByNumber` at a block they lack, and pinned reads across a one-block reorg.
