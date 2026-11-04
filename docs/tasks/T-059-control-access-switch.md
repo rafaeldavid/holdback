@@ -43,10 +43,14 @@ Move the founders' console from the passcode page at `escrow.stream/control` to 
 All 2026-11-04.
 
 - Access fronts `escrow.stream/control` and `/control/*`: each answers `302` to the team's sign-in (measured).
-- The console's code is in the founders' private repository, with 41 of 41 tests passing (measured, `node --test`, three test files). It covers the Access Worker, the redirect Worker, the three-job hourly workflow, the pushers and the key script.
+- The console's code is in the founders' private repository, with 42 of 42 tests passing (measured, `node --test`, three test files). It covers the Access Worker, the redirect Worker, the three-job hourly workflow, the pushers and the key script.
 - Red team, round 1: 1 High, 2 Medium and 12 Low findings. All are fixed or moved to Access settings in the runbook.
 - Red team, recheck: 2 High and 4 Low new findings, all fixed in code or in the runbook. One of the High findings affected the live passcode console.
 - Rafa rebuilt the passcode console; its check passed (measured). It was redeployed as `crow-control` version `5fc7e314`, serving the console alone and keeping no key in the browser.
+- That console then showed "No data" after the passcode (reported by Rafa).
+  - **Cause.** Since the red-team fix, the console's data sits in `<script type="application/json">` blocks. The passcode page re-created every script and copied only its text, so the blocks lost their type and id and ran as code (reproduced in Chromium headless shell: 0 data blocks, 2 syntax errors).
+  - **Fix.** The page now re-creates code scripts only, with their attributes. In Chromium the data loads, 3 data blocks stay intact, and the header, Strategy and 37 strips render (measured). The passcode check and a regression test hold the rule.
+  - **Live.** Rafa rebuilt, checked and redeployed as `crow-control` version `bf004e77`. He confirmed: "ok, https://escrow.stream/control is showing the data" (measured by Rafa).
 - Rafa added `control.escrow.stream` to the Crow Control Access application.
 - `control.escrow.stream` does not resolve yet (NXDOMAIN, measured): the console Worker's first deploy creates the record.
 
