@@ -18,6 +18,7 @@ import {
   keccak256,
   parseAbiParameters,
   toBytes,
+  TransactionReceiptNotFoundError,
   type Abi,
   type Address,
   type Hex,
@@ -26,7 +27,7 @@ import {
 import { privateKeyToAccount } from 'viem/accounts';
 import { foundry, sepolia } from 'viem/chains';
 import type { DeploymentFile } from './deployments.ts';
-import { jcsHash, TYPES } from './verify.ts';
+import { jcsHash, Refusal, TYPES } from './verify.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -40,9 +41,9 @@ const MAINNETS = [1, 10, 25, 56, 100, 130, 137, 250, 324, 1101, 5000, 8453, 3444
  * chain is not the one the agent pinned.
  */
 export function assertRoundChain(rpcChainId: number, pinnedChainId: number): void {
-  if (MAINNETS.includes(rpcChainId)) throw new RangeError(`refusing: chain ${rpcChainId} is a mainnet (hard rule: no real money)`);
-  if (rpcChainId !== SEPOLIA_CHAIN_ID && rpcChainId !== ANVIL_CHAIN_ID) throw new RangeError(`refusing: chain ${rpcChainId} is neither Sepolia (${SEPOLIA_CHAIN_ID}) nor anvil (${ANVIL_CHAIN_ID})`);
-  if (rpcChainId !== pinnedChainId) throw new RangeError(`refusing: the RPC serves chain ${rpcChainId}, but the pinned deployment is on chain ${pinnedChainId}`);
+  if (MAINNETS.includes(rpcChainId)) throw new Refusal(`refusing: chain ${rpcChainId} is a mainnet (hard rule: no real money)`);
+  if (rpcChainId !== SEPOLIA_CHAIN_ID && rpcChainId !== ANVIL_CHAIN_ID) throw new Refusal(`refusing: chain ${rpcChainId} is neither Sepolia (${SEPOLIA_CHAIN_ID}) nor anvil (${ANVIL_CHAIN_ID})`);
+  if (rpcChainId !== pinnedChainId) throw new Refusal(`refusing: the RPC serves chain ${rpcChainId}, but the pinned deployment is on chain ${pinnedChainId}`);
 }
 
 /** The contracts' ABIs as this repository builds them. */
@@ -235,12 +236,19 @@ export class RoundChain {
     return [];
   }
 
-  /** The block hash a transaction is in now, or null when no receipt is found: re-read for finality. */
+  /**
+   * The block hash a transaction is in now, or null when the chain has no receipt for it: re-read for finality. A
+   * network error or a rate limit is retried, then thrown, so it never reads as a reorg.
+   */
   async blockHashOf(tx: Hex): Promise<Hex | null> {
-    try {
-      return (await this.client.getTransactionReceipt({ hash: tx })).blockHash;
-    } catch {
-      return null;
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return (await this.client.getTransactionReceipt({ hash: tx })).blockHash;
+      } catch (e) {
+        if (e instanceof TransactionReceiptNotFoundError) return null;
+        if (attempt === 4) throw e;
+        await new Promise((r) => setTimeout(r, 2000 * attempt));
+      }
     }
   }
 
@@ -267,9 +275,19 @@ export class RoundChain {
     return this.transaction(hash);
   }
 
-  /** A timeout trigger sent directly: `reclaim`, `triggerFallback`, `triggerDefault`, `expireAppeal`, `expireOffer`. */
-  trigger(key: Hex, fn: 'reclaim' | 'triggerFallback' | 'triggerDefault' | 'expireAppeal' | 'expireOffer', terms: J): Promise<TxRecord> {
-    return this.send(key, 'rules', fn, [termsTuple(terms)]);
+  /**
+   * A timeout trigger sent directly: `reclaim`, `triggerFallback`, `triggerDefault`, `expireAppeal`, `expireOffer`.
+   * The contract judges the deadline by the latest block's time, which trails the wall by up to a block (12 s on
+   * Sepolia), so a `TooEarly` refusal is retried every 3 s for up to `timeoutMs`.
+   */
+  async trigger(key: Hex, fn: 'reclaim' | 'triggerFallback' | 'triggerDefault' | 'expireAppeal' | 'expireOffer', terms: J, timeoutMs = 120_000): Promise<TxRecord> {
+    for (const end = Date.now() + timeoutMs; ; await new Promise((r) => setTimeout(r, 3000))) {
+      try {
+        return await this.send(key, 'rules', fn, [termsTuple(terms)]);
+      } catch (e) {
+        if (!/TooEarly/.test(String((e as Error).message)) || Date.now() > end) throw e;
+      }
+    }
   }
 
   /** tUSDC is open-mint on Sepolia: a key with gas mints its own test tokens when the faucet is spent. */

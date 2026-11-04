@@ -6,6 +6,8 @@ import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { paymentHashOf } from './e2e-chain.ts';
+import { printable } from './e2e-keys.ts';
 import { freshNonce } from './verify.ts';
 import {
   buyerKeys,
@@ -19,7 +21,6 @@ import {
   logsOf,
   offer,
   openDeal,
-  refreshBefore,
   short,
   shortWindows,
   sleep,
@@ -64,6 +65,8 @@ const RUBRIC = {
   ],
 };
 const FRENCH = 'Les marchandises sont expédiées mardi. Le paiement est dû dans les 30 jours suivant la livraison.';
+/** What scenario 6's appellant holds before its deal: the price, both fees and the bond, with room (base units). */
+const APPELLANT_FLOAT = 100_000_000n;
 
 const here = (f: string) => fileURLToPath(new URL(f, import.meta.url));
 const lc = (a: string) => a.toLowerCase();
@@ -71,8 +74,9 @@ const lc = (a: string) => a.toLowerCase();
 /**
  * Stops the run as waiting unless every task in `tasks` is live: T-217 when the club's rulebook names the drand
  * quicknet beacon on a chain (the demo world's fallback and appeal adjudicators decide on a chain only with it;
- * SimChain's own beacon needs none), T-221 when the operators serve schema 0.10 or later, T-218 and T-219 when the
- * round is told T-220 has shipped them (`--t220`), since no API read shows either.
+ * SimChain's own beacon needs none), T-221 when the demo primary's served registration carries a signature (its
+ * second slice, the world's registration store), T-218 and T-219 when the round is told T-220 has shipped them
+ * (`--t220`), since no API read shows either.
  */
 async function requires(r: Run, tasks: string[]): Promise<void> {
   const missing: string[] = [];
@@ -122,7 +126,7 @@ async function expireAppeal(r: Run, deal: Deal, appealBy: string): Promise<void>
     await trigger(r, deal, 'appeal-expiry');
     r.check('appeal-expiry relayed through the API', true, 'accepted');
   } catch (e) {
-    const why = (e as Error).message;
+    const why = printable(e);
     if (/appeal state is expired|WrongAppealState\(4\)/.test(why)) {
       closedBy = 'someone else (the demo adjudicators expire their own appeals since T-211)';
     } else {
@@ -146,12 +150,32 @@ function settledChecks(r: Run, deal: Deal, stage: string): void {
   r.check('both operators serve the same state and event log', rec.operators?.agree === true, rec.operators?.views.map((v) => `${v.origin}: ${v.escrowState}, ${v.events} events`).join('; ') ?? 'no view');
   if (!r.round.chain || !rec.chain) return;
   r.check(`dealOf reads ${stage}`, rec.chain.stage === stage, `${rec.chain.stage}, appeal ${rec.chain.appeal}`);
-  r.check('CPP holds nothing for the deal', rec.chain.payment.capturable === '0', `capturable ${r.round.amount(rec.chain.payment.capturable)}, refundable ${r.round.amount(rec.chain.payment.refundable)}`);
+  cppCheck(r, deal);
   const to = lc(r.round.demo.feeSchedule?.to ?? '');
   const fees = logsOf(rec, 'Transfer').filter((l) => lc(l.args.from) === deal.buyer.address && lc(l.args.to) === to);
   if (deal.operatorFee !== undefined) {
     r.check('the operator fee is paid once', fees.length === 1 && BigInt(fees[0]!.args.amount) === deal.operatorFee, `${fees.length} transfer(s) from the buyer to the fee address ${short(to)}: ${fees.map((f) => r.round.amount(f.args.amount)).join(', ') || 'none'}`);
   }
+}
+
+/**
+ * CPP holds nothing for the deal: the funding authorized the payment key recomputed here from the terms (so the read
+ * below is this deal's, not an empty slot), and nothing is left to capture.
+ */
+function cppCheck(r: Run, deal: Deal, label = ''): void {
+  const { chain } = r.round;
+  const rec = deal.record;
+  if (!chain || !rec.chain) return;
+  const key = lc(paymentHashOf(deal.terms, deal.id, chain.deployment));
+  const authorized = logsOf(rec, 'PaymentAuthorized').some((l) => lc(l.args.paymentInfoHash) === key);
+  r.check(`${label}CPP holds nothing for the deal`, authorized && rec.chain.payment.capturable === '0', `${authorized ? 'the funding authorized' : 'no PaymentAuthorized log names'} payment ${short(key)}; capturable ${r.round.amount(rec.chain.payment.capturable)}, refundable ${r.round.amount(rec.chain.payment.refundable)}`);
+}
+
+/** A token transfer of exactly `amount` to `to` among the deal's transactions: a payout read from the chain's own logs. */
+function paidCheck(r: Run, deal: Deal, name: string, to: string, amount: bigint): void {
+  if (!r.round.chain) return;
+  const hits = logsOf(deal.record, 'Transfer').filter((l) => lc(l.args.to) === lc(to) && BigInt(l.args.amount) === amount);
+  r.check(name, hits.length === 1, `${hits.length} Transfer log(s) of ${r.round.amount(amount)} to ${short(to)}`);
 }
 
 /** The appeal-expiry transaction freed exactly the price from the primary's bond. */
@@ -180,7 +204,9 @@ async function homepage(r: Run): Promise<void> {
   for (const relay of [0, 1]) {
     const ops = [...round.operators.slice(relay), ...round.operators.slice(0, relay)];
     const out = await new Promise<{ code: number | null; out: string }>((resolve) => {
-      const child = spawn(process.execPath, ['--input-type=module', '-', ...(round.o.trySeller ? ['--seller', round.o.trySeller] : [])], { cwd: here('.'), env: { ...process.env, HOLDBACK_OPERATORS: ops.join(',') } });
+      // As a stranger runs it: only what try.mjs reads, never the rest of the environment (the round's secret among it).
+      const env = { PATH: process.env['PATH'] ?? '', HOLDBACK_OPERATORS: ops.join(','), ...(process.env['HOLDBACK_DEPLOYMENT'] ? { HOLDBACK_DEPLOYMENT: process.env['HOLDBACK_DEPLOYMENT'] } : {}) };
+      const child = spawn(process.execPath, ['--input-type=module', '-', ...(round.o.trySeller ? ['--seller', round.o.trySeller] : [])], { cwd: here('.'), env });
       let text = '';
       child.stdout.on('data', (d: Buffer) => (text += d.toString()));
       child.stderr.on('data', (d: Buffer) => (text += d.toString()));
@@ -188,7 +214,7 @@ async function homepage(r: Run): Promise<void> {
       child.stdin.end(bundle);
     });
     const done = /^done +commitment (0x[0-9a-f]{64}) (\w+)$/m.exec(out.out);
-    r.check(`the homepage command passes relayed by ${new URL(ops[0]!).origin}`, out.code === 0 && done?.[2] === 'Released', done ? `${short(done[1]!)} ${done[2]}, exit ${out.code}` : `exit ${out.code}: ${out.out.trim().split('\n').at(-1)}`);
+    r.check(`the homepage command passes relayed by ${new URL(ops[0]!).origin}`, out.code === 0 && done?.[2] === 'Released', done ? `${short(done[1]!)} ${done[2]}, exit ${out.code}` : `exit ${out.code}: ${printable(out.out.trim().split('\n').at(-1))}`);
     if (done) r.notes.push(`homepage command relayed by ${new URL(ops[0]!).origin}: ${done[1]} ${done[2]}`);
   }
 }
@@ -261,6 +287,7 @@ export const SCENARIOS: Scenario[] = [
       r.check('the seller is paid the price', delta(deal.record, seller) === price, `seller ${round.amount(delta(deal.record, seller))}`);
       r.check('the buyer pays the price, the adjudication fee and the operator fee', delta(deal.record, buyer) === -(price + fee + (deal.operatorFee ?? 0n)), `buyer ${round.amount(delta(deal.record, buyer))}`);
       settledChecks(r, deal, 'Released');
+      paidCheck(r, deal, 'the price reaches the seller on chain', seller, price);
       if (round.chain) {
         const keys = logsOf(deal.record, 'KeyReleased').filter((l) => lc(l.args.recipient) === buyer);
         r.check('the key reaches the buyer on chain', keys.length === 1, `${keys.length} KeyReleased log(s) to the buyer`);
@@ -293,6 +320,7 @@ export const SCENARIOS: Scenario[] = [
       r.check('the buyer gets the price back; the adjudication and operator fees are spent', delta(deal.record, buyer) === -(fee + (deal.operatorFee ?? 0n)), `buyer ${round.amount(delta(deal.record, buyer))}`);
       r.check('the seller is paid nothing', delta(deal.record, seller) === 0n, `seller ${round.amount(delta(deal.record, seller))}`);
       settledChecks(r, deal, 'Refunded');
+      paidCheck(r, deal, 'the price returns to the buyer on chain', buyer, BigInt(PRICE));
       if (round.chain) {
         const decide = deal.record.transactions.flatMap((t) => t.calls).find((c) => c.fn === 'decide');
         const named = lc(decide?.args?.[1]?.deliveryHash ?? '');
@@ -330,12 +358,13 @@ export const SCENARIOS: Scenario[] = [
           r.say(`reclaim sent directly by the buyer: ${round.chain!.link(tx.tx)} (${tx.gasUsed} gas)`);
         }
         // The operators follow a direct call only with T-218 (target: one sync pass, 60 s or less); until then the view lags.
-        if (via === 'api' || round.t220) await until(r, deal.buyer, deal.id, ['Refunded'], 120_000).catch((e) => r.note(`the operators' view: ${(e as Error).message}`));
+        if (via === 'api' || round.t220) await until(r, deal.buyer, deal.id, ['Refunded'], 120_000).catch((e) => r.note(`the operators' view: ${printable(e)}`));
         await finish(r, deal);
         r.check(`${via}: the buyer gets the price and the adjudication fee back`, delta(deal.record, buyer) === -(deal.operatorFee ?? 0n), `buyer ${round.amount(delta(deal.record, buyer))} (the operator fee is never refunded)`);
         if (round.chain && deal.record.chain) {
           r.check(`${via}: dealOf reads Refunded`, deal.record.chain.stage === 'Refunded', deal.record.chain.stage);
-          r.check(`${via}: CPP holds nothing for the deal`, deal.record.chain.payment.capturable === '0', `capturable ${round.amount(deal.record.chain.payment.capturable)}`);
+          cppCheck(r, deal, `${via}: `);
+          paidCheck(r, deal, `${via}: the price and the adjudication fee return to the buyer on chain`, buyer, BigInt(PRICE) + BigInt(deal.terms.adjudication.fee.amount));
           const primary = lc(deal.terms.adjudication.adjudicator);
           const freed = logsOf(deal.record, 'BondReleased').filter((l) => lc(l.args.adjudicator) === primary).reduce((s, l) => s + BigInt(l.args.amount), 0n);
           r.check(`${via}: the primary's bond is freed`, freed === BigInt(PRICE), `BondReleased ${round.amount(freed)}`);
@@ -387,11 +416,11 @@ export const SCENARIOS: Scenario[] = [
         { label: 'the seller appeals a correct reject', work: BAD_CSV, outcome: 'Refunded', appellant: 'seller', favoured: 'buyer' },
         { label: 'the buyer appeals a correct accept', work: CSV, outcome: 'Released', appellant: 'buyer', favoured: 'seller' },
       ] as const) {
+        // The appellant holds enough for the deal and its bond before the deal's starting balances are read.
+        await ensureFunds(r, shape.appellant, APPELLANT_FLOAT);
         const deal = await openDeal(r, { label: shape.label, template: 'checks-only', deliverable: DATASET, checks: CHECKS, price: PRICE, timing: windows }, [buyer, seller, primary]);
         await fund(r, deal);
         const bond = await appealBond(r, deal);
-        await ensureFunds(r, shape.appellant, bond);
-        await refreshBefore(r, deal, round.address(shape.appellant));
         if (round.chain) {
           const tx = await round.chain.approveBonds(round.key(shape.appellant), bond);
           deal.sent.push({ step: 'appeal bond approval', tx });
@@ -402,14 +431,21 @@ export const SCENARIOS: Scenario[] = [
         const done = await until(r, deal.buyer, deal.id, ['Released', 'Refunded', 'Escalated'], 300_000);
         r.check(`${shape.appellant}: the first decision is ${shape.outcome}`, done.escrowState === shape.outcome, done.escrowState);
         r.step = 'appeal';
-        const refused = await appeal(r, deal, shape.favoured).then(() => 'accepted', (e: Error) => e.message);
+        const refused = await appeal(r, deal, shape.favoured).then(() => 'accepted', (e: Error) => printable(e));
         r.check(`${shape.appellant}: the favoured party's appeal is refused`, /invalid_terms/.test(refused), refused);
         await appeal(r, deal, shape.appellant);
         r.say(`${shape.appellant} filed an appeal with a ${round.amount(bond)} bond`);
         const decided = await untilAppeal(r, deal, ['upheld', 'overturned'], 600_000);
         await finish(r, deal);
         r.check(`${shape.appellant}: the appeal is upheld and the first outcome stands`, decided.appealState === 'upheld' && decided.escrowState === shape.outcome, `${decided.escrowState}, appeal ${decided.appealState}`);
-        r.check(`${shape.appellant}: the appellant loses its bond`, delta(deal.record, round.address(shape.appellant)) <= -bond, `${shape.appellant} ${round.amount(delta(deal.record, round.address(shape.appellant)))}`);
+        // The seller appeals a refund it was not paid for; the buyer appeals a release it paid price and fees for. An
+        // upheld appellant loses its bond, and the rulebook's appeal fee where the settlement layer charges one: SimChain
+        // does; on the contract the fee is Phase 4 and absent (recorded, not passed).
+        const appealFee = round.chain ? 0n : BigInt((await deal.buyer.club(round.demo.clubId)).rulebook.appealFee?.amount ?? '0');
+        if (round.chain) deal.record.notes.push('No appeal fee on chain: Phase 4 economics, recorded, not passed (T-216 non-goals).');
+        const paidByBuyer = BigInt(PRICE) + BigInt(deal.terms.adjudication.fee.amount) + (deal.operatorFee ?? 0n);
+        const expected = -(bond + appealFee + (shape.appellant === 'seller' ? 0n : paidByBuyer));
+        r.check(`${shape.appellant}: the appellant loses its bond`, delta(deal.record, round.address(shape.appellant)) === expected, `${shape.appellant} ${round.amount(delta(deal.record, round.address(shape.appellant)))}, expected ${round.amount(expected)}`);
         if (round.chain) {
           const paid = logsOf(deal.record, 'AppealBondPaid');
           r.check(`${shape.appellant}: the bond goes to the first adjudicator's bond`, paid.length === 1 && lc(paid[0]!.args.to) === primary && paid[0]!.args.toBond === true && BigInt(paid[0]!.args.amount) === bond, paid.map((p) => `${r.round.amount(p.args.amount)} to ${short(p.args.to)}${p.args.toBond ? ' (bond)' : ''}`).join('; ') || 'no AppealBondPaid log');
@@ -425,8 +461,8 @@ export const SCENARIOS: Scenario[] = [
   waiting('8', 'The escape hatch: direct calls on API deals', ['T-218', 'T-217', 'T-221'], 'direct agreeAndFund (the acceptance from adjudicator.accepted, the ERC-3009 funding signature) and direct deliver, with the delivery then posted to an operator; a direct reclaim (3a covers the call); a direct triggerFallback over the round\'s silent primary; check submittedVia "direct" with the transaction on both operators within one pass'),
   waiting('9', 'Early accept before the primary decides (API)', ['T-221'], "the round's own silent primary; the buyer opens its envelope from the seller's signed delivery and accepts early (agent.earlyAccept); a later decision by the primary is refused"),
   {
-    id: '10',
-    title: 'Mutual settlement (API)',
+    id: '10a',
+    title: 'Mutual settlement before delivery (API)',
     waitsFor: [],
     async run(r) {
       const { round } = r;
@@ -457,9 +493,9 @@ export const SCENARIOS: Scenario[] = [
         r.check("the primary's bond is freed", freed === price, `BondReleased ${round.amount(freed)}`);
         r.check('no key is released (releaseKey false, nothing delivered)', logsOf(deal.record, 'KeyReleased').length === 0, `${logsOf(deal.record, 'KeyReleased').length} KeyReleased log(s)`);
       }
-      r.note("The second half of scenario 10, a settlement after delivery, needs the round's own silent primary (T-221) so it lands before a decision.");
     },
   },
+  waiting('10b', 'Mutual settlement after delivery (API)', ['T-221'], "the round's own silent primary, so the settlement lands before a decision; releaseKey true, and the key reaches the buyer"),
   waiting('11', 'A restart between broadcast and receipt (live holdback-op1 redeploy)', ['T-219'], "the driver pauses after a relayed broadcast and before its receipt; Rafa redeploys holdback-op1 with the same code at that moment; then check the step's events and the buyer's key are served"),
 ];
 

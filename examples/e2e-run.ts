@@ -10,7 +10,7 @@ import { recoverTypedDataAddress, type Hex } from 'viem';
 import { Agent } from './agent.ts';
 import { SEPOLIA, type DeploymentFile } from './deployments.ts';
 import { RoundChain, type TxRecord } from './e2e-chain.ts';
-import { roundEncryptionKey, roundKey, type Role } from './e2e-keys.ts';
+import { printable, roundEncryptionKey, roundKey, type Role } from './e2e-keys.ts';
 import { commitmentIdOf, jcs, knownPins, operatorFeeOf, Refusal, typedOf, type Pin } from './verify.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -229,11 +229,30 @@ export class Run {
   }
 }
 
+/**
+ * A read retried with backoff (1, 2, then 4 s) when the network, a rate limit or the operator fails it: a public
+ * node's 5xx or 429 must not stop a scenario with a deal open. Refusals are not retried.
+ */
+export async function retry<T>(read: () => Promise<T>): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await read();
+    } catch (e) {
+      const transient = e instanceof TypeError || e instanceof SyntaxError || /internal|rate_limited|unavailable|fetch failed|timed? ?out|ECONNRESET|50\d|429/i.test(String((e as Error).message));
+      if (!transient || attempt === 4) throw e;
+      await sleep(1000 * 2 ** (attempt - 1));
+    }
+  }
+}
+
+/** A GET to one operator, retried (`retry`). */
+export const get = (agent: Agent, path: string, api = agent.operators[0]): Promise<J> => retry(() => agent.call('GET', path, undefined, api));
+
 /** Polls every operator until each reports one of `states`; a stall names what each saw and their notices. */
 export async function until(run: Run, agent: Agent, id: Hex, states: string[], timeoutMs: number): Promise<J> {
   let seen: J[] = [];
   for (const end = Date.now() + timeoutMs; Date.now() < end; await sleep(1000)) {
-    seen = await Promise.all(agent.sources().map((api) => agent.call('GET', `/v1/commitments/${id}`, undefined, api)));
+    seen = await Promise.all(agent.sources().map((api) => get(agent, `/v1/commitments/${id}`, api)));
     if (seen.every((s) => states.includes(s.escrowState))) return seen[0];
   }
   const notices = [...new Set(seen.flatMap((s) => s.notices ?? []))];
@@ -243,7 +262,7 @@ export async function until(run: Run, agent: Agent, id: Hex, states: string[], t
 /** Waits until settlement time, as both operators report it, is past `iso` by `marginSec`. */
 export async function waitPast(run: Run, agent: Agent, iso: string, marginSec = 2): Promise<void> {
   const at = Date.parse(iso) + marginSec * 1000;
-  for (let now = await agent.settlementNow(); now < at; now = await agent.settlementNow()) await sleep(Math.min(5000, at - now));
+  for (let now = await retry(() => agent.settlementNow()); now < at; now = await retry(() => agent.settlementNow())) await sleep(Math.min(5000, at - now));
 }
 
 /**
@@ -265,7 +284,7 @@ export async function eventsOf(agent: Agent, id: Hex, api: string): Promise<J[]>
   const out: J[] = [];
   let cursor: string | null = null;
   do {
-    const page: J = await agent.call('GET', `/v1/commitments/${id}/events?limit=200${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`, undefined, api);
+    const page: J = await get(agent, `/v1/commitments/${id}/events?limit=200${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`, api);
     out.push(...page.items);
     cursor = page.nextCursor;
   } while (cursor);
@@ -279,7 +298,7 @@ export async function holdings(run: Run, addresses: readonly string[]): Promise<
   const reader = run.round.agent('master');
   const out: Record<string, Holding> = {};
   for (const a of addresses) {
-    const token = (await reader.trusted(`/v1/balances/${a}`, (x) => x.amount)) as string;
+    const token = (await retry(() => reader.trusted(`/v1/balances/${a}`, (x) => x.amount))) as string;
     const pool = await reader.trusted(`/v1/adjudicators/${a}`, (x) => x.pool ?? null).catch(() => null);
     const bond = BigInt(pool?.junior?.amount ?? '0');
     out[a.toLowerCase()] = { token, bond: bond.toString(), free: (bond - BigInt(pool?.reserved?.amount ?? '0')).toString() };
@@ -291,7 +310,7 @@ export async function holdings(run: Run, addresses: readonly string[]): Promise<
 export async function operatorView(run: Run, agent: Agent, id: Hex): Promise<NonNullable<DealRecord['operators']>> {
   const views = await Promise.all(
     agent.sources().map(async (api) => {
-      const [s, events] = await Promise.all([agent.call('GET', `/v1/commitments/${id}`, undefined, api), eventsOf(agent, id, api)]);
+      const [s, events] = await Promise.all([get(agent, `/v1/commitments/${id}`, api), eventsOf(agent, id, api)]);
       return { origin: new URL(api).origin, escrowState: s.escrowState, appealState: s.appealState, events: events.length, head: events.at(-1)?.hash ?? null };
     }),
   );
@@ -313,7 +332,7 @@ export async function ensureFunds(run: Run, role: Role, need: bigint): Promise<v
       const grant = await agent.call('POST', '/v1/faucet', { address: agent.address });
       run.say(`faucet: ${role} ${short(agent.address)} admitted to ${grant.clubId}, granted ${round.amount(grant.granted.amount)}`);
     } catch (e) {
-      run.say(`faucet: ${role} ${short(agent.address)} refused (${(e as Error).message})`);
+      run.say(`faucet: ${role} ${short(agent.address)} refused (${printable(e)})`);
     }
   }
   if (!(await member())) throw new Error(`${role} ${agent.address} holds no mandate in ${round.demo.clubId}, and the faucet did not admit it`);
@@ -432,7 +451,7 @@ export async function buyerOpens(run: Run, deal: Deal, expected: string): Promis
     const opened = await deal.buyer.openDelivery(deal.id);
     deal.record.buyerOpened = opened === expected;
   } catch (e) {
-    run.say(`the buyer could not open the work: ${(e as Error).message}`);
+    run.say(`the buyer could not open the work: ${printable(e)}`);
     deal.record.buyerOpened = false;
   }
   return deal.record.buyerOpened;
@@ -440,7 +459,7 @@ export async function buyerOpens(run: Run, deal: Deal, expected: string): Promis
 
 /** What each operator serves at the buyer's key read: the envelopes released to the buyer. */
 export async function buyerKeys(deal: Deal): Promise<number[]> {
-  return Promise.all(deal.buyer.sources().map(async (api) => (await deal.buyer.call('GET', `/v1/commitments/${deal.id}/key?recipient=${deal.buyer.address}`, undefined, api)).items.length));
+  return Promise.all(deal.buyer.sources().map(async (api) => (await get(deal.buyer, `/v1/commitments/${deal.id}/key?recipient=${deal.buyer.address}`, api)).items.length));
 }
 
 /**
@@ -473,6 +492,22 @@ export async function finish(run: Run, deal: Deal): Promise<void> {
   r.operators = await operatorView(run, reader, deal.id);
   run.say(`operators: ${r.operators.views.map((v) => `${v.origin} ${v.escrowState}, ${v.events} events`).join('; ')}; ${r.operators.agree ? 'they agree' : 'THEY DISAGREE'}`);
   r.balances.after = await holdings(run, Object.keys(r.balances.before));
+}
+
+/** The states in which a deal still holds the buyer's money. */
+const HOLDING = ['Agreed', 'Held', 'Delivered', 'FallbackJudging', 'Escalated'];
+
+/**
+ * The run's deals that still hold money, by the chain's stage (or the operators' state on SimChain). After a scenario
+ * stops, one of these would settle inside the next scenario's balance window, since every deal has the same parties.
+ */
+export async function openDeals(run: Run): Promise<Array<{ id: Hex; state: string }>> {
+  const open: Array<{ id: Hex; state: string }> = [];
+  for (const d of run.deals) {
+    const state = run.round.chain ? (await run.round.chain.deal(d.id)).stage : (await get(run.round.agent('master'), `/v1/commitments/${d.id}`)).escrowState;
+    if (HOLDING.includes(state)) open.push({ id: d.id, state });
+  }
+  return open;
 }
 
 /** Change in token balance of `address` across the deal, in base units. */

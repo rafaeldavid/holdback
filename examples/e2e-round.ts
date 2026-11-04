@@ -14,14 +14,15 @@
 // Environment: E2E_SEPOLIA_SEED (for run; e2e-keys.ts makes it), HOLDBACK_OPERATORS (default the demo's two nodes),
 // SEPOLIA_RPC_URL (default a public Sepolia node), HOLDBACK_DEPLOYMENT (a deployment file's JSON: anvil, in the tests).
 // --t220 says T-220 has deployed T-217, T-218, T-219 and T-221; no API read shows T-218 or T-219.
+import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { formatEther, type Hex } from 'viem';
 import { SEPOLIA, type DeploymentFile } from './deployments.ts';
 import { RoundChain } from './e2e-chain.ts';
-import { SEED_VAR } from './e2e-keys.ts';
-import { Round, Run, short, Waits } from './e2e-run.ts';
+import { printable, SEED_VAR } from './e2e-keys.ts';
+import { openDeals, Round, Run, short, Waits } from './e2e-run.ts';
 import { pick, SCENARIOS } from './e2e-scenarios.ts';
 import { Refusal } from './verify.ts';
 
@@ -31,6 +32,15 @@ const LIVE_OPERATORS = ['https://api.escrow.stream', 'https://api2.escrow.stream
 const PUBLIC_RPC = 'https://ethereum-sepolia-rpc.publicnode.com';
 /** The checkout's reports/e2e-round-1, from whatever folder the driver runs. */
 const OUT = process.env['E2E_OUT'] || fileURLToPath(new URL('../reports/e2e-round-1', import.meta.url));
+
+/** The checkout's commit, so each record names the driver that made it; "unknown" outside a git checkout. */
+const commit = (): string => {
+  try {
+    return execFileSync('git', ['rev-parse', 'HEAD'], { cwd: fileURLToPath(new URL('.', import.meta.url)), encoding: 'utf8' }).trim();
+  } catch {
+    return 'unknown';
+  }
+};
 
 const operators = () => (process.env['HOLDBACK_OPERATORS'] ? process.env['HOLDBACK_OPERATORS'].split(',') : LIVE_OPERATORS).map((s) => s.trim().replace(/\/+$/, '')).filter(Boolean);
 const rpcUrl = () => process.env['SEPOLIA_RPC_URL'] || PUBLIC_RPC;
@@ -63,7 +73,7 @@ function summary(results: J[], round: Round): string {
   const lines = [
     `# Round 1 run, ${new Date().toISOString().slice(0, 16)}Z`,
     '',
-    `Operators: ${round.status.map((s) => `${s.origin} (schema ${s.schemaVersion}, domain ${s.domain?.version})`).join(', ')}. Rules contract: ${round.chain?.deployment.rules ?? 'SimChain'} on chain ${round.pin.domain.chainId}.`,
+    `Operators: ${round.status.map((s) => `${s.origin} (schema ${s.schemaVersion}, domain ${s.domain?.version})`).join(', ')}. Rules contract: ${round.chain?.deployment.rules ?? 'SimChain'} on chain ${round.pin.domain.chainId}. Driver at commit \`${results[0]?.driverCommit ?? 'unknown'}\`.`,
     '',
     '| Scenario | Result | Checks | Deals | Transactions | Gas |',
     '| --- | --- | --- | --- | --- | --- |',
@@ -108,20 +118,26 @@ async function run(ids: string[], flags: { t220: boolean; homepage: boolean; rer
   }
   if (scenarios.some((s) => s.id === '1')) rerollGuard(round.chain?.deployment.rules ?? null, flags.rerunAfter);
   const folder = join(OUT, stamp());
+  const driverCommit = commit();
   mkdirSync(folder, { recursive: true });
   const results: J[] = [];
+  let blocked: string | undefined;
   for (const s of scenarios) {
     const r = new Run(round, s.id, s.title);
     console.log(`\n[${s.id}] ${s.title}`);
     if (s.id === '1' && flags.rerunAfter) r.notes.push(`re-run after: ${flags.rerunAfter}`);
     try {
+      if (blocked) throw new Error(`not run: ${blocked}`);
       await s.run(r);
     } catch (e) {
-      r.error = (e as Error).message;
+      r.error = printable(e);
       if (e instanceof Waits) r.waitsFor = e.tasks;
       console.log(`[${s.id}] ${e instanceof Waits ? 'waits' : 'stopped'} at ${r.step}: ${r.error}`);
+      // Every deal has the same buyer and seller: one still holding money would settle inside the next scenario's window.
+      const open = blocked || e instanceof Waits ? [] : await openDeals(r).catch(() => r.deals.map((d) => ({ id: d.id, state: 'unknown' })));
+      if (open.length) blocked = `${open.map((d) => `${d.id} is still ${d.state}`).join('; ')}; let it settle before running more scenarios`;
     }
-    const result = r.result();
+    const result = { driverCommit, ...r.result() };
     results.push(result);
     writeFileSync(join(folder, `${s.id}.json`), `${JSON.stringify(result, null, 2)}\n`);
     console.log(`[${s.id}] ${result.status.toUpperCase()}: ${result.checks.filter((c: J) => c.ok).length} of ${result.checks.length} checks held${result.deals.length ? `; ${result.deals.map((d: J) => d.id).join(', ')}` : ''}`);
@@ -143,15 +159,21 @@ async function finality(folder: string): Promise<number> {
   const chain = await RoundChain.open(rpcUrl(), deployment, records[0]?.deployment?.explorer ?? undefined);
   const rows: J[] = [];
   for (const r of records) for (const d of r.deals) for (const t of d.transactions) {
-    const now = await chain.blockHashOf(t.tx as Hex);
-    rows.push({ scenario: r.scenario, deal: d.id, tx: t.tx, block: t.block, recorded: t.blockHash, now, same: now === t.blockHash });
+    try {
+      const now = await chain.blockHashOf(t.tx as Hex);
+      rows.push({ scenario: r.scenario, deal: d.id, tx: t.tx, block: t.block, recorded: t.blockHash, now, same: now === t.blockHash });
+    } catch (e) {
+      rows.push({ scenario: r.scenario, deal: d.id, tx: t.tx, block: t.block, recorded: t.blockHash, unreadable: printable(e) });
+    }
   }
-  const changed = rows.filter((x) => !x.same);
+  const unreadable = rows.filter((x) => x.unreadable);
+  const changed = rows.filter((x) => !x.unreadable && !x.same);
   const head = await chain.client.getBlockNumber();
   writeFileSync(join(folder, 'finality.json'), `${JSON.stringify({ checkedAt: new Date().toISOString(), head: head.toString(), rows }, null, 2)}\n`);
-  console.log(`finality at block ${head}: ${rows.length} transactions re-read, ${rows.length - changed.length} in the same block, ${changed.length} changed`);
+  console.log(`finality at block ${head}: ${rows.length} transactions re-read, ${rows.length - changed.length - unreadable.length} in the same block, ${changed.length} changed, ${unreadable.length} unreadable`);
   for (const x of changed) console.log(`  REORG? scenario ${x.scenario}, ${x.tx}: block ${x.block} was ${x.recorded}, now ${x.now ?? 'no receipt'}`);
-  return changed.length ? 1 : 0;
+  for (const x of unreadable) console.log(`  could not read scenario ${x.scenario}, ${x.tx}: ${x.unreadable}; run finality again`);
+  return changed.length || unreadable.length ? 1 : 0;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
@@ -169,7 +191,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     }
   } catch (e) {
     // A refusal or a stop: say why, never a key.
-    console.error(`${e instanceof Refusal ? 'refused' : 'stopped'}: ${(e as Error).message}`);
+    console.error(`${e instanceof Refusal ? 'refused' : 'stopped'}: ${printable(e)}`);
     process.exitCode = e instanceof Refusal ? 3 : 1;
   }
 }
