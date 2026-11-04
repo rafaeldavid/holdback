@@ -814,3 +814,31 @@ Also: the funding signature on EVM is CPP's collector signature and token identi
 | ERC-3009 authorization into HoldbackBonds | Right for the adjudicator's bond, at T-212's redeploy; for appeals it costs a redeploy and HoldbackRules bytes for nothing the permit doesn't give |
 | EIP-7702 or an ERC-4337 paymaster | Wallet machinery in the agent's path and a third party in the write path; Phase 5 |
 | A zero appeal bond on the demo | Free appeals, a fresh world, and a protocol that misrepresents itself; mainnet needs a minimum bond anyway |
+
+## D49. One long-lived demo world; a new world only for a new rules contract
+
+**Decided 2026-11-04 by Rafa** ("Yes, keep the world"), when asked whether T-220 should keep today's Sepolia world or start a fresh one. His reason: "ideally we build the way to monitor the API so doubtful we want fresh worlds consistently". The findings come from a Fable max-effort research pass the same day (`docs/research/2026-11-04-one-world.md`); Rafa may overrule any line.
+
+- **T-220 keeps `holdback-public-demo-sepolia-2026-11-04`.** The demo club's rulebook changes in place to name drand quicknet, and the demo adjudicators keep their keys and their 25,000 tUSDC bonds.
+  - A stored deal keeps the rulebook it was offered under (`Book.club`) and moves on from its book (measured).
+  - An offer still bound to the old hash is refused with `rulebook_unknown`, which tells the agent to read the club again (measured).
+- **What changes in place:** rulebooks, additive schema versions (0.10 is one), Worker code, judge registries and fees. The Sepolia world replays nothing on open, so the rule "a schema bump resets the public world" in `docs/operations.md` was SimChain's, and it retires (measured).
+- **A new world only for a new rules contract,** or another chain. A redeploy changes the EIP-712 domain that every signature is checked under, and creates a new bond vault; the world refuses to open against another rules address (measured). One world over two contracts would put a settlement facade in the money path: days of work (inferred), not before mainnet.
+- **History when a world does change:**
+  - the chain holds every funded step;
+  - the old world's storage is never deleted, and a rollback serves it;
+  - `docs/operations.md` records the names, addresses, versions and the open deals' timeouts.
+  A read-only archive route for old worlds goes to the backlog until a redeploy is planned.
+- **The defaults for the research's open questions** (Rafa may overrule each):
+  1. a world key seed (`WORLD_SECRET`), so a new world keeps the demo adjudicators' addresses, becomes a small task before the next redeploy, not part of T-220;
+  2. the archive route stays in the backlog;
+  3. there is no grace window for offers bound to the old rulebook hash;
+  4. T-220 waits for T-219 and ships all four in one deploy, as Rafa chose for question 5 of T-216;
+  5. the 0.6 vault's 75,000 test tUSDC and the old addresses' Sepolia ETH (about 0.015) stay where they are.
+- **Litmus tests.** Unchanged. The world is the operators' view, and settlement is on chain. Keeping the world keeps the API's history of each deal, which is what monitoring needs.
+
+| Option | Effect |
+| --- | --- |
+| Keep the world; change the rulebook in place (chosen) | No new keys or bonds, and no break in history; old deals keep their rulebook; a stale offer gets 422 with the fix in the problem |
+| A fresh world per rulebook or schema change (T-220's draft) | Three new bonds (about 1.12 million gas and 0.015 Sepolia ETH); the API forgets every deal, its ciphertexts and its records; monitoring restarts |
+| One world over several rules contracts | Days of adapter and operator work in the money path, for a testnet demo |
