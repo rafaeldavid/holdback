@@ -4,7 +4,7 @@
 - **Phase:** 2
 - **Depends on:** T-209 (the drand verifier in `HoldbackRules`); T-210 merged first (this task edits `beaconRoundFor` in `packages/core/src/state.ts`, which T-210 changes); T-211 merged first (this task edits the beacon lines of `apps/adjudicator/src/service.ts`, which T-211 changes)
 - **Paths this task may touch:** `apps/adjudicator/src/drand.ts` (new) and its test; `apps/adjudicator/src/randomness.ts`, `simchain-adapter.ts`, `_sim.ts` (only if the sim settlement needs the per-source round), `index.ts` (the export), and their tests; `apps/adjudicator/src/service.ts` and `service.test.ts` (only the beacon round and value in `#preflight`); `apps/adjudicator/scripts/mutants.mjs` (mutants for the new source); `apps/adjudicator/package.json` and `pnpm-lock.yaml` (a pinned BLS library, if none is a dependency yet); `packages/core/src/beacon.ts`, `parse.ts` and `state.ts` (only `beaconRoundFor`, its round helper, and keeping the commitment's randomness source in the state), and their tests; `fixtures/beacon/` (more recorded rounds and relay answers); one new test file under `packages/settlement/evm/` (the fork test, below; no edits to existing files there, which T-218 owns); `docs/decisions/ADR-0018-panel-seed-beacon.md` (a dated note); `docs/backlog.md` (its two drand rows); `docs/plan.md` (this row); this file
-- **Human gate:** no. Switching the live demo's rulebook to drand is T-220's cutover.
+- **Human gate:** no. Switching the live demo's rulebook to drand is T-220's deploy.
 - **Status:** todo
 - **Agent/session:** —
 
@@ -37,17 +37,17 @@ The design is in the research pass, `docs/research/2026-11-03-sepolia-demo-settl
 - [ ] **Rounds per source.** Core's `beaconRoundFor` and the adjudicator's `roundFor` use the clock of the source the commitment's club rulebook names (`DRAND_QUICKNET` or `SIM_BEACON`). Suggested: keep that source in the state from the offer, so callers' signatures do not change. A test pins core's rounds for a `judgeBy` and for an escalation or filing time against `DrandQuicknetBeacon.roundAt`'s formula, at the boundaries (a time exactly on a round; a second before genesis). `pnpm snap` and `pnpm snap --settlement=local` pass with no snapshot diff.
 - [ ] **The parse rule** (`packages/core/src/parse.ts`) admits `drand-quicknet` for a rulebook and a Decision's beacon when the settlement is a chain whose rules contract verifies it; SimChain keeps `sim` only (T-209 decision 9). A Decision carries `beacon {source, round, value, signature}`, which the schema already has. If a schema change turns out to be needed, stop: it needs an ADR and a version bump.
 - [ ] **The adapter.** The adjudicator's settlement adapter (`simchain-adapter.ts`) reads rounds from the drand source when the commitment's rulebook names `drand-quicknet`, and from the settlement's sim beacon otherwise.
-- [ ] **On a Sepolia fork,** in a new opt-in test file like T-213's fork test (it needs `SEPOLIA_FORK_RPC` and the network): with the 0.7 contracts deployed on the fork over the deployed `DrandQuicknetBeacon`, `decide` accepts a fallback decision and a party-appeal decision that the service builds from live quicknet rounds. A decision built from a bad proof is refused by the service before any transaction.
+- [ ] **On a Sepolia fork,** in a new opt-in test file like T-213's fork test (it needs `SEPOLIA_FORK_RPC` and the network): on a fork of the 0.7 deployment (live since 2026-11-04, over the same `DrandQuicknetBeacon`), `decide` accepts a fallback decision and a party-appeal decision that the service builds from live quicknet rounds. A decision built from a bad proof is refused by the service before any transaction.
 - [ ] **Inside a Worker:** one relay request per decision, so one external subrequest, within the Durable Object pass's limits (research §8) [measured in the fork test, or inferred from the code path and labelled so].
 - [ ] **Docs.**
   - ADR-0018 gets a dated "as built" note: the source, the relay order, the local check.
   - The two drand rows in `docs/backlog.md` are closed or narrowed.
-  - The text `site/llms.txt` needs at the cutover (fallback and appeal now decide on Sepolia) goes in the Handoff, for T-220.
+  - The text `site/llms.txt` needs once this is live (fallback and appeal now decide on Sepolia) goes in the Handoff, for T-220.
 - [ ] **Review.** `reviewer` and `red-teamer`, each with project context (this changes a judgment defense: the seed of fallback and appeal panels). `pnpm verify` green.
 
 ## Out of scope
 
-- The Sepolia world's rulebook and the new world it needs: a rulebook change makes a fresh world, so it goes with T-220's cutover.
+- The Sepolia world's rulebook and the new world it needs: a rulebook change makes a fresh world, so it goes with T-220's deploy.
 - Mixing the beacon into the primary's seed (ADR-0018, not adopted).
 - Time-locked envelopes with tlock (Phase 8).
 - The anvil harness (`packages/settlement/evm/world.ts`), which keeps its sim beacon.

@@ -88,7 +88,7 @@ Goal: the same scenario fixtures pass against an EVM contract on a local chain. 
 - [ ] T-217 drand quicknet proofs for fallback and appeal decisions on Sepolia (ADR-0028 §11): the adjudicator's `drand-quicknet` source with a local BLS check and no substitute, rounds per source in core, and the parse rule for chain settlement. After T-210 and T-211, which change two of its files.
 - [ ] T-218 Direct contract calls in the operators' view (ADR-0028 §11): the world syncs HoldbackRules' logs from a stored cursor, so a step no operator relayed shows as `submittedVia: 'direct'`.
 - [ ] T-219 An in-flight row per relayer lane, written before the broadcast, so a restart between broadcast and receipt applies the node's own transaction (seen at the T-213 cutover). After T-218.
-- [ ] T-220 Redeploy the fixed contracts (PRs 160 and 161) on Sepolia (stage A), then cut the demo over to a fresh world with the drand rulebook (stage B, after T-217 to T-219). Each stage waits for Rafa's go-ahead.
+- [ ] T-220 Ship round 1's prerequisites to the live demo: one deploy of T-217 to T-219, with a fresh Sepolia world whose rulebook names drand, on Rafa's go-ahead. The fixed contracts (PRs 160 and 161) are already live: the T-206 session redeployed them and cut the demo over on 2026-11-04, with Rafa's go-ahead.
 - D4 decided (2026-11-01): target Ethereum mainnet; build and test on a local chain, then Sepolia. Mainnet deployment is a separate gate for Rafa after an audit. Record gas per deal in the evidence. The public testnet is Sepolia, where the demo settles since D41 (2026-11-03).
 
 ## Phase 3: Judgment hardening

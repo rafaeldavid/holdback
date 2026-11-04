@@ -4,7 +4,7 @@
 - **Phase:** 2
 - **Depends on:** T-213 (the Sepolia world)
 - **Paths this task may touch:** `packages/settlement/evm/evm-settlement.ts`, `sync.ts` (new), `chain.ts`, `live.ts` (only the log read), `world.ts` (the anvil harness's log read), `index.ts` (the export), and their tests (`evm-settlement.test.ts`, `wall.test.ts`, a new `sync.test.ts`); `apps/demo-cloud/src/world.ts`, `storage.ts`, and their tests (`world.test.ts`, `live.test.ts`); `docs/decisions/ADR-0028-demo-settles-on-sepolia.md` (a dated note in §11); `docs/neutrality.md` (only if a residual changes); `docs/backlog.md` (its row); `docs/plan.md` (this row); this file
-- **Human gate:** no. The live deploy is T-220's cutover.
+- **Human gate:** no. The live deploy is T-220's.
 - **Status:** todo
 - **Agent/session:** —
 
@@ -36,7 +36,7 @@ The design is in the research pass, `docs/research/2026-11-03-sepolia-demo-settl
 - [ ] **The fallback's round.** `fallback.triggered`'s `beaconRound` is the contract's, read from its `FallbackTriggered` log, so it stays right for any beacon (T-217 moves Sepolia to drand).
 - [ ] **Cadence and cost.** While any deal is open, a direct call shows in the view within one pass (target: 60 s or less) [measured on anvil]. While no deal is open, the sync adds no pass (T-057 unchanged). Rows read and written per pass are recorded with T-031's counters.
 - [ ] **Neutrality.** A named test, `neutrality.operator-refuses-on-chain`: the operators refuse to relay after funding; the parties submit directly; the deal settles; the view shows every step.
-- [ ] **Docs.** ADR-0028 §11 gets a dated "as built" note; the backlog row "Sepolia: direct transactions in the operators' view" is closed; the `llms.txt` text for the cutover is in the Handoff.
+- [ ] **Docs.** ADR-0028 §11 gets a dated "as built" note; the backlog row "Sepolia: direct transactions in the operators' view" is closed; the `llms.txt` text for T-220's deploy is in the Handoff.
 - [ ] **Review.** `reviewer` and `red-teamer`, each with project context (operator and settlement code, litmus test 1). `pnpm verify` green, including `pnpm snap --settlement=local` with transcripts identical to SimChain's.
 
 ## Out of scope
