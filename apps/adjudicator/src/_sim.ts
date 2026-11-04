@@ -250,7 +250,7 @@ export class TestSettlement implements AdjudicatorSettlement {
 
   async takeoversDue(adj: Hex32): Promise<Commitment[]> {
     return [...this.cases.values()]
-      .filter((c) => c.state.kind === 'Delivered' && c.commitment.adjudication.fallbackAdjudicator.toLowerCase() === adj.toLowerCase() && this.clock >= Date.parse(c.commitment.timing.judgeBy))
+      .filter((c) => c.state.kind === 'Delivered' && c.commitment.adjudication.fallbackAdjudicator.toLowerCase() === adj.toLowerCase() && this.clock >= Date.parse(c.commitment.timing.judgeBy) && this.clock < Date.parse(c.commitment.timing.fallbackBy))
       .map((c) => c.commitment);
   }
 
@@ -261,6 +261,23 @@ export class TestSettlement implements AdjudicatorSettlement {
   /** Like the contract, the harness reserves nothing for a fallback or appeal adjudicator before it decides. */
   async bondCover(adj: Hex32) {
     return this.bonds.get(adj.toLowerCase()) ?? 100_000_000_000n;
+  }
+
+  async appealExpiriesDue(adj: Hex32): Promise<Hex32[]> {
+    return [...this.cases.values()]
+      .filter(({ state: s }) => {
+        if ((s.kind !== 'Released' && s.kind !== 'Refunded') || s.via.kind !== 'first_instance' || s.via.decision.adjudicator.toLowerCase() !== adj.toLowerCase()) return false;
+        const a = s.via.appeal;
+        return (a.kind === 'none' && this.clock >= Date.parse(a.appealBy)) || (a.kind === 'open' && this.clock >= Date.parse(a.appealDecideBy));
+      })
+      .map((c) => c.commitment.id);
+  }
+
+  async expireAppeal(id: Hex32) {
+    const c = this.get(id);
+    const r = this.apply(c, { type: 'expire_appeal', at: this.now() });
+    if (r.ok) delete c.appealOpen;
+    return r;
   }
 
   async ciphertext(uri: string) {

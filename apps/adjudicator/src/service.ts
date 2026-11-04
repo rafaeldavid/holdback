@@ -7,8 +7,10 @@
 //   fixes (ADR-0018)); the key comes only from an envelope released on takeover (ADR-0020).
 // - No re-roll: a decision, once computed, is kept and resubmitted unchanged; the judges are never
 //   asked again for the same (commitment, role, attempt).
-// - Consent (T-211, D29): it declines an offer, or a fallback or appeal turn, whose appeal windows or fee are outside
-//   its terms, and a turn its free bond cannot back. The buyer's key travels only with an accept that pays the seller.
+// - Consent (T-211, D29): it declines an offer or a fallback turn whose appeal windows or fee are outside its terms, an
+//   appeal turn below its fee, and a fallback turn its free bond cannot back; it expires the appeals of its own
+//   decisions once due, which frees its bond. The buyer's key travels only with an accept, never on a deal that
+//   stands Refunded.
 import {
   canonicalKeccak,
   deliveryHash,
@@ -81,10 +83,10 @@ export interface AdjudicatorConfig {
    */
   trustedAdjudicators?: readonly Address[];
   /**
-   * The longest appeal windows it decides under, in any role (T-211, D29). A decider's bond stays reserved until the
-   * appeal closes, appealWindowSec and then appealDecideSec after it decides, and the deal sets both (D31). So a sham
-   * deal naming this service as fallback, with windows a century long, would lock its bond that long once it decided
-   * (T-206 M-3). Unset: DEFAULT_APPEAL_LIMITS.
+   * The longest appeal windows it accepts an offer or decides a takeover under (T-211, D29). A decider's bond stays
+   * reserved until the appeal closes, appealWindowSec and then appealDecideSec after it decides, and the deal sets both
+   * (D31). So a sham deal naming this service as fallback, with windows a century long, would lock its bond that long
+   * once it decided (T-206 M-3). Unset: DEFAULT_APPEAL_LIMITS.
    */
   appealLimits?: AppealLimits;
 }
@@ -92,6 +94,8 @@ export interface AdjudicatorConfig {
 export interface RunReport {
   accepted: Hex32[];
   declined: Array<{ commitmentId: Hex32; reason: string }>;
+  /** Its own decisions whose appeal it expired, freeing its bond (T-211). */
+  expired: Hex32[];
   triggered: Hex32[];
   decided: Array<{ commitmentId: Hex32; role: DecisionTask['role']; outcome: DecisionOutcome }>;
   /** Judged, record published, but no Decision: the appeal panel was inconclusive after an escalation. */
@@ -172,7 +176,12 @@ export class Adjudicator {
 
   async runOnce(): Promise<RunReport> {
     const port = this.#cfg.settlement;
-    const report: RunReport = { accepted: [], declined: [], triggered: [], decided: [], undecided: [], refused: [] };
+    const report: RunReport = { accepted: [], declined: [], expired: [], triggered: [], decided: [], undecided: [], refused: [] };
+    // T-211: its own decisions hold its bond until their appeal closes, and a sham deal's parties never close it. So it
+    // expires them itself once due, first, so the bond they free counts for what follows.
+    for (const id of await port.appealExpiriesDue(this.address)) {
+      if ((await port.expireAppeal(id)).ok) report.expired.push(id);
+    }
     for (const offer of await port.offers(this.address)) {
       const r = await this.#accept(offer.commitment);
       if (r.ok) report.accepted.push(offer.commitment.id);
@@ -180,7 +189,7 @@ export class Adjudicator {
     }
     for (const c of await port.takeoversDue(this.address)) {
       // T-211: it does not trigger a takeover it would decline. Anyone still may; the deal then defaults at fallbackBy.
-      const declined = await this.#declinesTurn(c);
+      const declined = await this.#turnProblem(c, 'fallback');
       if (declined) report.refused.push({ commitmentId: c.id, problem: declined });
       else if ((await port.triggerFallback(c.id)).ok) report.triggered.push(c.id);
     }
@@ -219,7 +228,7 @@ export class Adjudicator {
     }
     if (adjudication.policyHash !== policyHashOf(this.policy)) return err(problem('policy_mismatch', 'policy-hash-mismatch: the offer binds another policy'));
     if (adjudication.registryHash !== this.#cfg.registry.hash) return err(problem('registry_mismatch', 'the offer binds another registry'));
-    const terms = this.#termsProblem(c);
+    const terms = this.#windowsProblem(c) ?? this.#feeProblem(c);
     if (terms) return err(terms);
     const unsigned: Omit<AdjudicatorAcceptance, 'signature'> = {
       type: 'AdjudicatorAcceptance',
@@ -238,33 +247,46 @@ export class Adjudicator {
     return sent.ok ? ok(msg) : err(sent.error);
   }
 
-  /** D29: the windows and fee it runs a deal under, in any role (T-211). null: within them. */
-  #termsProblem(c: DecisionTask['commitment']): Problem | null {
+  /** D29 (T-211): a primary's or fallback's decision holds its bond until the appeal closes, and the deal sets how long. */
+  #windowsProblem(c: DecisionTask['commitment']): Problem | null {
     const limits = this.#cfg.appealLimits ?? DEFAULT_APPEAL_LIMITS;
     for (const [field, max] of [['appealWindowSec', limits.maxAppealWindowSec], ['appealDecideSec', limits.maxAppealDecideSec]] as const) {
       if (c.timing[field] > max) {
         return problem('invalid_terms', `${this.#cfg.name} decides only deals whose ${field} is at most ${max} s: a decider's bond stays reserved until the appeal closes, and this deal sets ${c.timing[field]} s (T-211, D29)`);
       }
     }
-    const min = this.quote();
-    const { fee } = c.adjudication;
-    if (fee.token !== min.token || BigInt(fee.amount) < BigInt(min.amount)) return problem('invalid_terms', `the fee ${fee.amount} ${fee.token} is below the quote ${min.amount} ${min.token}`);
     return null;
   }
 
-  /**
-   * T-211 (T-206 M-3): a fallback or appeal adjudicator signed nothing at agreement, so it consents when it decides,
-   * and then only to a deal within its terms that its free bond covers. The contract reserves a fallback's bond when it
-   * decides and refuses an uncovered one; litmus 3 backs an appeal with the bond too. null: it takes the turn.
-   */
-  async #declinesTurn(c: DecisionTask['commitment']): Promise<Problem | null> {
-    const terms = this.#termsProblem(c);
-    if (terms) return terms;
-    const cover = await this.#cfg.settlement.bondCover(this.address, c);
-    if (cover < BigInt(c.price.amount)) {
-      return problem('coverage_exceeded', `${this.#cfg.name} has ${cover} free bond for this deal and the price is ${c.price.amount} ${c.price.token}: its decision is backed by its bond, so it declines rather than sign one it cannot cover`);
-    }
+  #feeProblem(c: DecisionTask['commitment']): Problem | null {
+    const min = this.quote();
+    const { fee } = c.adjudication;
+    if (fee.token !== min.token) return problem('invalid_terms', `the fee is in ${fee.token}; the quote is ${min.amount} ${min.token}`);
+    if (BigInt(fee.amount) < BigInt(min.amount)) return problem('invalid_terms', `the fee ${fee.amount} ${fee.token} is below the quote ${min.amount} ${min.token}`);
     return null;
+  }
+
+  /** The contract reserves a fallback's bond when it decides and refuses an uncovered one (T-206 M-3). */
+  async #coverProblem(c: DecisionTask['commitment']): Promise<Problem | null> {
+    const cover = await this.#cfg.settlement.bondCover(this.address, c);
+    if (cover >= BigInt(c.price.amount)) return null;
+    return problem('coverage_exceeded', `${this.#cfg.name} has ${cover} free bond for this deal and the price is ${c.price.amount} ${c.price.token}: a fallback's decision is backed by its bond, so it declines rather than sign one it cannot cover`);
+  }
+
+  /**
+   * T-211 (T-206 M-3): a fallback or appeal adjudicator signed nothing at agreement, so it consents when it decides.
+   * - Fallback: its decision holds its bond until the appeal closes, so the windows, the fee and its cover.
+   * - Appeal: its decision is final, so no window follows it, and nothing on chain reserves its bond yet (L-5); only
+   *   the fee. Gating it on free bond would let the party that won drain that bond and so block the appeal.
+   * A deal it accepted as primary was checked when it signed the acceptance, so a later quote or limit does not renege
+   * on it. null: it takes the turn.
+   */
+  async #turnProblem(c: DecisionTask['commitment'], role: 'fallback' | 'appeal'): Promise<Problem | null> {
+    if (c.adjudication.adjudicator.toLowerCase() !== this.address) {
+      const terms = (role === 'fallback' ? this.#windowsProblem(c) : null) ?? this.#feeProblem(c);
+      if (terms) return terms;
+    }
+    return role === 'fallback' ? this.#coverProblem(c) : null;
   }
 
   /** The policy the commitment binds: this adjudicator's own, or the primary's published one. */
@@ -301,6 +323,11 @@ export class Adjudicator {
       // the record does not cover.
       return err(problem('invalid_state', `this adjudicator judged delivery ${judged.record.deliveryHash} for this commitment, role and attempt; the task now carries ${deliveryHash(task.delivery)}, and it never judges an attempt twice`));
     }
+    // T-211: the bond may have moved while the panel ran; read it again before publishing and signing (kept, no re-roll).
+    if (task.role === 'fallback') {
+      const short = await this.#coverProblem(task.commitment);
+      if (short) return err(short);
+    }
     if (!judged.published) {
       try {
         await this.#cfg.settlement.publishRecord(judged.record);
@@ -318,9 +345,9 @@ export class Adjudicator {
   async #preflight(task: DecisionTask): Promise<Result<Preflight, Problem>> {
     const { commitment, role, attempt } = task;
     const id = commitment.id;
-    // Read on every attempt, so a retry after judging checks the free bond again before it signs.
+    // Before any judge is called (T-211); the fallback's cover is read again before it signs.
     if (role !== 'primary') {
-      const declined = await this.#declinesTurn(commitment);
+      const declined = await this.#turnProblem(commitment, role);
       if (declined) return err(declined);
     }
     const policyR = await this.#boundPolicy(task);
@@ -476,10 +503,11 @@ export class Adjudicator {
       ...(pre.beacon ? { beacon: pre.beacon } : {}),
       ...(role === 'appeal' && task.appealGround ? { appealGround: task.appealGround } : {}),
     };
-    // ADR-0012 (T-206 H-2): the key travels only with an accept that pays the seller. A party appeal that overturns a
-    // reject pays the seller from the first decider's bond; the buyer was refunded, and a key in the signed decision would
-    // reach it through the calldata and the operators even though settlement refuses it. After an escalation firstOutcome
-    // is absent and the accept settles the price, so it keeps the key, which settlement requires.
+    // ADR-0012 (T-206 H-2): the buyer's key travels only with an accept, and never on a deal that stands Refunded. A
+    // party appeal that overturns a reject pays the seller from the first decider's bond, and the buyer keeps its refund;
+    // a key in the signed decision would reach it through the calldata and the operators even though settlement refuses
+    // it. After an escalation firstOutcome is absent and the accept releases the price, so it keeps the key, which
+    // settlement requires.
     if (outcome === 'accept' && judged.contentKey && task.firstOutcome !== 'reject') unsigned.keyForBuyer = wrapKey(judged.contentKey, pre.buyerKey);
     if (outcome === 'escalate' && judged.contentKey && pre.appealKey) {
       unsigned.encryptedKeys = wrapKeyForRecipients(judged.contentKey, [{ recipient: commitment.adjudication.appealAdjudicator, publicKey: pre.appealKey }]);

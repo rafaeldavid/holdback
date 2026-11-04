@@ -3,7 +3,7 @@
 // seller is paid and the buyer opens the key the decision released.
 import { commitmentId, holdbackDomain, parseJudgment, signTerms, type Address, type AdjudicatorRegistration, type Commitment, type CommitmentTerms, type Delivery, type Judgment } from '@holdback/core';
 import { encodePublicKey, encryptionKeyPairFromSecretKey, open, seal, unwrapKey, wrapKeyForRecipients, type EncryptionKeyPair } from '@holdback/core/crypto';
-import { fakeProvider, loadRegistry, type JudgeProvider, type JudgeRequest, type RegistryDoc } from '@holdback/judgment';
+import { fakeProvider, loadRegistry, type FakeScript, type JudgeProvider, type JudgeRequest, type RegistryDoc } from '@holdback/judgment';
 import { SIM_CHAIN_ID, SimChain, sign, simCast, simClub, simGenesis, tusd, type SimActor } from '@holdback/settlement/sim';
 import { readFileSync } from 'node:fs';
 import { keccak256, stringToBytes } from 'viem';
@@ -37,7 +37,7 @@ async function world(bonds = { primary: 10_000_000_000n, fallback: 10_000_000_00
       cast,
       club,
       start: START,
-      balances: { buyer: 10_000_000_000n },
+      balances: { buyer: 10_000_000_000n, seller: 1_000_000_000n },
       bonds,
     }),
   );
@@ -58,8 +58,9 @@ async function world(bonds = { primary: 10_000_000_000n, fallback: 10_000_000_00
     registration: async (a) => registrations.get(a.toLowerCase()) ?? null,
   });
   const calls: JudgeRequest[] = [];
-  const inner = fakeProvider({});
-  const provider: JudgeProvider = { complete: (r) => (calls.push(r), inner.complete(r)) };
+  /** What every judge answers from now on (default: pass). */
+  const judges: { script: FakeScript } = { script: {} };
+  const provider: JudgeProvider = { complete: (r) => (calls.push(r), fakeProvider(judges.script).complete(r)) };
   const bench = (actor: SimActor, n: number) => {
     const enc = encKeys(n);
     const adj = new Adjudicator({
@@ -114,7 +115,7 @@ async function world(bonds = { primary: 10_000_000_000n, fallback: 10_000_000_00
     createdAt: now,
   };
   const id = commitmentId(terms);
-  return { cast, chain, settlement, blobs, records, calls, primary, fallback, appeal, buyerEnc, terms, id };
+  return { cast, chain, settlement, blobs, records, calls, judges, primary, fallback, appeal, buyerEnc, terms, id };
 }
 
 const must = (r: { ok: boolean; problem?: { detail: string } }) => {
@@ -253,6 +254,89 @@ describe('the adjudicator service on the real SimChain (T-006)', () => {
     const report = await w.fallback.adj.runOnce();
     expect(report.refused).toEqual([]);
     expect(report.decided).toEqual([{ commitmentId: id, role: 'fallback', outcome: 'accept' }]);
+  });
+
+  // T-211 (T-206 H-2), through the real adapter, whose firstOutcome the key rule reads (review of PR #175).
+  it('a seller appeal that overturns a reject: the appeal pays the seller from the bond, and no key reaches the refunded buyer', async () => {
+    const w = await delivered();
+    const { chain, cast, terms, id } = w;
+    w.judges.script = Object.fromEntries(REGISTRY.judges.map((j) => [j.id, 'fail' as const]));
+    chain.advance(30);
+    expect((await w.primary.adj.runOnce()).decided).toEqual([{ commitmentId: id, role: 'primary', outcome: 'reject' }]);
+    chain.advance(10);
+    const body = { commitmentId: id, appellant: 'seller' as const, appellantAddress: cast.seller.address, grounds: 'wrong-outcome', bond: tusd('100000000'), filedAt: chain.now() };
+    const { signature } = await sign(cast.seller, { ...body, type: 'Appeal' as const });
+    must(await chain.submit({ kind: 'appeal', appeal: { ...body, signature } }));
+    w.judges.script = {};
+    chain.advance(5);
+    const sellerBefore = await sellerBalance(w);
+    expect((await w.appeal.adj.runOnce()).decided).toEqual([{ commitmentId: id, role: 'appeal', outcome: 'accept' }]);
+    const s = chain.escrowState(id)!;
+    expect(s.kind === 'Refunded' && s.via.kind === 'first_instance' && s.via.appeal.kind).toBe('overturned');
+    expect(s.kind === 'Refunded' && s.via.kind === 'first_instance' && s.via.appeal.kind === 'overturned' && s.via.appeal.decision.keyForBuyer).toBeUndefined();
+    expect(await chain.keysFor(id, cast.buyer.address as Address)).toEqual([]);
+    // The price from the primary's bond, and the appeal bond back.
+    expect((await sellerBalance(w)) - sellerBefore).toBe(BigInt(terms.price.amount) + 100_000_000n);
+  });
+
+  it('the accept after an escalation carries the key, and the buyer opens the work', async () => {
+    const w = await delivered();
+    const { chain, id } = w;
+    w.judges.script = { 'gpt-a': 'timeout', 'gpt-b': 'timeout', 'qwen-a': 'timeout', 'qwen-b': 'timeout' };
+    chain.advance(30);
+    expect((await w.primary.adj.runOnce()).decided).toEqual([{ commitmentId: id, role: 'primary', outcome: 'escalate' }]);
+    w.judges.script = {};
+    chain.advance(5);
+    const sellerBefore = await sellerBalance(w);
+    expect((await w.appeal.adj.runOnce()).decided).toEqual([{ commitmentId: id, role: 'appeal', outcome: 'accept' }]);
+    expect(chain.escrowState(id)?.kind).toBe('Released');
+    const [envelope] = await chain.keysFor(id, w.cast.buyer.address as Address);
+    expect(await open(w.sealed.ciphertext, unwrapKey(envelope!, w.buyerEnc.secretKey), w.sealed.plaintextSha256)).toEqual(new TextEncoder().encode(DEMO_CSV));
+    expect((await sellerBalance(w)) - sellerBefore).toBe(BigInt(w.terms.price.amount));
+  });
+
+  it('does not trigger a takeover once fallbackBy has passed', async () => {
+    const w = await delivered();
+    w.chain.advanceTo(w.terms.timing.fallbackBy);
+    expect(await w.fallback.adj.runOnce()).toMatchObject({ triggered: [], refused: [], decided: [] });
+  });
+
+  // Red team of PR #175, F3: nobody else closes a sham deal's appeal, so the service expires its own decisions' appeals.
+  it("expires the appeal of its own decision once appealBy passes, which releases SimChain's reservation", async () => {
+    const w = await delivered();
+    const { chain, cast, terms, id } = w;
+    chain.advanceTo(terms.timing.judgeBy);
+    expect((await w.fallback.adj.runOnce()).decided.map((d) => d.role)).toEqual(['fallback']);
+    expect(chain.pool(cast.fallback.address as Address).reserved).toBe(2_000_000_000n);
+    chain.advance(299);
+    // Not due yet: no trigger sent (on chain each one costs gas), not only one the settlement layer refuses.
+    expect(await w.settlement.appealExpiriesDue(cast.fallback.address)).toEqual([]);
+    expect((await w.fallback.adj.runOnce()).expired).toEqual([]);
+    chain.advance(1);
+    expect(await w.settlement.appealExpiriesDue(cast.fallback.address)).toEqual([id]);
+    expect((await w.primary.adj.runOnce()).expired).toEqual([]);
+    expect((await w.fallback.adj.runOnce()).expired).toEqual([id]);
+    expect(chain.pool(cast.fallback.address as Address).reserved).toBe(0n);
+  });
+
+  // Red team F4: SimChain reserves the fallback's bond at takeover and adds nothing at the decision, so only that counts.
+  describe("on SimChain: the deal's own reservations, and the free bond only before the takeover", () => {
+    const F = `0x${'f1'.repeat(20)}` as Address;
+    it.each([
+      ['before the takeover, the free bond the trigger reserves from', 'Delivered', 0n, 10_000_000_000n - 1_000_000_000n],
+      ['after the takeover reserved half the price, only that half, however much is free now', 'FallbackJudging', 1_000_000_000n, 1_000_000_000n],
+      ['after the takeover reserved the price', 'FallbackJudging', 2_000_000_000n, 2_000_000_000n],
+    ] as const)('%s', async (_name, kind, held, cover) => {
+      const { terms, id } = await world();
+      const c = { ...terms, id, signatures: { seller: '0x' } } as Commitment;
+      const sim = {
+        pool: () => ({ junior: 10_000_000_000n, senior: 0n, reserved: 1_000_000_000n + held }),
+        reservations: () => [{ commitmentId: `0x${'12'.repeat(32)}`, adjudicator: F, amount: 1_000_000_000n }, ...(held ? [{ commitmentId: id, adjudicator: F, amount: held }] : [])],
+        escrowState: () => ({ kind }),
+      } as unknown as SettlementReads;
+      const adapter = new SettlementAdapter({ chain: sim, store: { ciphertext: async () => new Uint8Array(), publishRecord: async () => '' }, registration: async () => null });
+      expect(await adapter.bondCover(F, c)).toBe(cover);
+    });
   });
 
   // The contract (ADR-0016 §1): freeOf, read fresh, plus the price while the deal still holds this adjudicator's bond. A
