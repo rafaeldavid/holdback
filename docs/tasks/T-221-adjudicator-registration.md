@@ -82,7 +82,7 @@ Its confidence is high on the direction, medium on the message shape (the ADR se
   - This plan's reading of his answer, which is new behaviour: today `prepare/offer` requires all three adjudicators. It will fill in Crow's three when an agent names none, and discovery will mark them as Crow's defaults.
   - `llms.txt` presents naming other adjudicators as advanced use of the protocol, which Crow neither recommends nor vouches for.
 - [ ] **A warning for an adjudicator without a bond.** `prepare/offer`, and the offer it relays, carry an advisory notice when a named adjudicator has no bond, or less free bond than the price. Advisory only, like the other sanity checks (D31): the parties may still choose it.
-- [ ] **The protocol refuses a selection the terms cannot pay** (Rafa: "reject adjudicator selection at protocol level if contract specifies bond payout but adjudicator has no bond").
+- [ ] **Operators refuse a selection the terms cannot pay; the protocol half comes later** (Rafa: "reject adjudicator selection at protocol level if contract specifies bond payout but adjudicator has no bond").
   - **The rule.** When the signed terms make an adjudicator's bond pay (in guaranteed mode, an overturned decision pays the price from the decider's bond, D43), naming an adjudicator that has no bond to pay it is refused.
   - **The primary: already enforced** [inferred from the research, §premises]. Core refuses its acceptance without unencumbered bond for the price (`packages/core/src/state.ts`), and `agreeAndFund` encumbers it on chain.
   - **The fallback: new.** Today its bond is reserved only when it decides (M-3), so a bondless fallback cannot decide and the deal defaults, but nothing refuses it at selection.
