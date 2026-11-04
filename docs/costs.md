@@ -83,7 +83,7 @@ node scripts/costs/approve.mjs                               # after reading the
 node scripts/costs/collect.mjs
 ```
 
-It prints one status per source (`read`, `not configured` or `failed (<type> <status>)`) and the path it wrote, never a figure. The Sepolia and Claude Code sources need no credential, so a first run shows balances and tokens before any token exists.
+It prints one status per source (`read`, `not configured` or `failed (<type> <status> <code>)`, where the status and the code appear only when they exist) and the path it wrote, never a figure. The Sepolia and Claude Code sources need no credential, so a first run shows balances and tokens before any token exists.
 
 **Updating the clone.** Agents may merge to `main` without Rafa, and a check written in the repository cannot defend against a change to itself. So the clone moves forward only like this, with git, not with the repository's code:
 
@@ -113,6 +113,9 @@ The flags keep a committed `.gitattributes` or a configured diff tool from hidin
 - `amount.currency` is the provider's: DeepSeek balances can be in CNY.
 - Sepolia lines are in `wei`, one per public address: the funding lane and the adjudicators from discovery, and the deal lanes and deployer listed in `budgets.json` (`sepolia.addresses`). A deal lane under the floor gets a second line, "(second read)", two minutes later.
 - Source ids: `cloudflare-billing`, `cloudflare-analytics`, `anthropic`, `github`, `deepseek`, `sepolia`, `claude-code`, `telemetry`. An error type is one of `not_configured`, `network`, `timeout`, `http`, `parse`, `shape`, `graphql`, `chain`, `unexpected`.
+- An error may carry a `code`, a word from a fixed list in `scripts/costs/sources/`, never a message or a body:
+  - `http`: the body's `error.type` when it is one of Anthropic's documented types (`http.mjs`). Example: `{ "type": "http", "status": 403, "code": "permission_error" }`.
+  - From `cloudflare-analytics`: the kind of Cloudflare's first GraphQL error, from its documented messages: `permission`, `query`, `time-range`, `limits`, `rate-limit`, `unavailable` or `other`. Then comes `:` and the dataset, when the error names one (`workers`, `durableObjects` or `storage`). The type is `graphql` on a 200 answer and `http` with the status otherwise. Examples: `{ "type": "graphql", "status": null, "code": "query:storage" }` and `{ "type": "http", "status": 403, "code": "permission" }`. `permission` points to the token's Account Analytics Read; `query` points to a query that no longer matches Cloudflare's schema.
 
 **T-031's day lines.** Cloudflare's telemetry query API accepts only a Workers Observability *Write* permission, so the collector does not call it. Rafa saves the Workers Logs he wants read (a dashboard export, or `npx wrangler@4 tail holdback-op1 --format json` output) into `CROW_TELEMETRY_DIR/inbox/`; the collector finds the day lines in any JSON or JSON-lines shape.
 
