@@ -50,11 +50,13 @@ Accepted for the prototype and tracked here:
 10. **Beacon unavailable for a whole window.** If no beacon round can be proven before a fallback or appeal deadline, that adjudicator cannot decide, and the case goes to the fallback or default outcome. Bounded by several independent relays and permanent rounds (ADR-0018). Planned fixture `todo.beacon-unavailable-whole-window`.
 11. **Funding linkability.** A funding transfer links the funding account to the commitment. With a pseudonymous one-time key (ADR-0020), that transfer can still link the commitment to the principal's treasury unless it comes from a shielded pool or a fresh on-ramp account. Per-deal keys with a `Delegation` (ADR-0024 §7) hide links inside Holdback's records, not the funding graph: a per-deal address funded from a known treasury is linked on chain. How to fund it is the agent's choice and outside the protocol.
 12. **No principal recourse after the agent signs.** The mandate is the principal's standing approval (ADR-0017). Revocation blocks new commitments only (FR-3). Loss on a live commitment is bounded by the scope caps (T13). There is no reversal after finality; recourse for an agent's in-mandate action lies between the principal and its agent provider, as on every payment rail today (D22).
-13. **A direct step the operators cannot read.** On a chain, the operators' view follows calls sent straight to the rules contract (T-218): timeouts from their logs whatever sent them, and signed steps from their calldata, at the top level, in a Multicall3 bundle or written in a forwarder's calldata. Two cases leave a deal behind:
-    - a step sent through a contract that transforms its calldata;
-    - two signed steps for one deal in one transaction.
+13. **A direct step the operators cannot read.** On a chain, the operators' view follows calls sent straight to the rules contract (T-218). Timeouts and deliveries follow from their logs, whatever sent them. Signed steps follow from their calldata: at the top level, in a Multicall3 bundle, or written in a forwarder's calldata with their signatures checked. Four cases leave a deal behind:
+    - a signed step sent through a contract that transforms its calldata. Anyone can do this with a copy of a signed step taken from the mempool;
+    - a signed step from a contract signer (ERC-1271, a Safe or a smart account) sent through its wallet, since this node checks plain-key signatures only;
+    - two signed steps for one deal in one transaction;
+    - a step core refuses although the contract took it (a divergence).
 
-    The deal's state read then shows the contract's stage with a notice, and envelopes still follow the chain's stage. But the operators' own adjudicators read their book and do not act on that deal. The funds stay under the contract's terms, and the parties and the adjudicators can still submit to the contract directly. Tracked in `docs/backlog.md`.
+    The deal's state read then shows the contract's stage with a notice. Envelopes still follow the chain's stage, and the buyer's key is served from the contract's log. But the operators' own adjudicators read their book and do not act on that deal, so it ends by its timeouts: the default refund, or the first decision standing when an appeal goes unheard. The funds stay under the contract's terms, and the parties and other adjudicators can still submit to the contract directly. Tracked in `docs/backlog.md`.
 
 ## Escape hatch requirements
 
