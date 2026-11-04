@@ -33,7 +33,7 @@ A change to one part of Crow often means another part must change too. This page
 | log | Daily log | `docs/log/` | |
 | map | Design map | `scripts/design-map.mjs`, `tools/design-map/`, `tests/design-map.test.ts` | The page `pnpm map` writes (git-ignored), and the claude.ai design map page, which `/map` republishes |
 | console | Founder console | | A private page built from the design map, the newest log, the task files, the radar's inputs and GitHub |
-| stack | Contract-stack page | | The claude.ai contract-stack page |
+| stack | Contract-stack page | `scripts/contract-stack.mjs`, `tools/contract-stack/`, `tests/contract-stack.test.ts` | escrow.stream/control/contracts (the founder console) |
 | costs | Costs and telemetry | `scripts/costs/`, `tests/costs/`, `docs/costs.md`, `config/costs.template.json`, `config/keys-costs.template`, `apps/demo-cloud/src/telemetry.ts`, `apps/demo-cloud/src/feedback-store.ts`, `apps/demo-cloud/scripts/feedback.ts` | The cost collector's daily output, kept outside the repository |
 
 ## Flows
@@ -46,7 +46,7 @@ A change to one part of Crow often means another part must change too. This page
 | contracts | examples | checked | Copy `contracts/deployments/sepolia.json` into `examples/deployments.ts` by hand. `examples/deployments.test.ts` (`pnpm test`) fails until they match. | An agent signs for the contracts that were deployed, and only those (T-213). |
 | contracts | workers | generated | `pnpm -C apps/demo-cloud build` embeds `contracts/deployments/sepolia.json` (`apps/demo-cloud/scripts/embed.mjs`). It takes effect at the next deploy, which waits for Rafa. | The chain world settles on the recorded addresses (`apps/demo-cloud/src/worker.ts`). |
 | contracts | api | manual | Update `docs/api.md`, and `spec/schemas/` if a message or a body changes. | Rafa, 2026-11-04: "if contracts are updated, then the API needs to be updated". The Sepolia cutover changed `docs/api.md` with the contracts (T-213). |
-| contracts | stack | manual | Republish the claude.ai contract-stack page. | It lists the Sepolia contracts, their addresses and who can move money (inferred from the page's description). |
+| contracts | stack | generated | `pnpm stack`, rebuilt and pushed by the founder console's job when `contracts/` changes. `scripts/contract-stack.mjs` reads `contracts/src/`, the live record `contracts/deployments/sepolia.json` and each kept earlier record, the review's findings (`docs/reviews/2026-11-03-contract-review.md`) and the local-chain gas in `reports/differential-local.md`; its `stackVersion()` is the latest commit that touched any of those inputs, and the job rebuilds only when it changes. | `tests/contract-stack.test.ts` checks that every contract, the live addresses and every finding reach the page. Rafa, 2026-11-04: the page updates when the contracts' source does, not every hour. |
 | contracts | ghdocs | manual | Update `README.md` (its intro and "Status") and `SECURITY.md` ("Scope"). | The README states where the demo settles and what is reviewed; `SECURITY.md` scopes `contracts/src/` and `contracts/deployments/`. |
 | contracts | console | generated | The console's build reads `contracts/deployments/sepolia.json` and `contracts/src/` for its radar. | |
 | settlement | workers | checked | `pnpm typecheck` and `pnpm test`: both apps import `@holdback/settlement`. | |
@@ -64,6 +64,7 @@ A change to one part of Crow often means another part must change too. This page
 | examples | homepage | checked | `site/index.html` shows the one command with the sha256 of `site/try.mjs`. `examples/try.test.ts` (`pnpm test`) and `node site/check.mjs` fail while either is stale; rebuild with `node site/build.mjs`. | `docs/team.md`, Rules and checks: "A published script is the code CI ran". |
 | agentdocs | homepage | checked | `node site/build.mjs` renders `site/index.html` from `site/llms.txt`. `examples/try.test.ts` (`pnpm test`) and `node site/check.mjs` fail while it is stale. | One source for the page and the agent guide (`site/check.mjs`, group 1). |
 | roadmap | map | generated | `pnpm map` reads the phases in `docs/plan.md` and each task file's status. | |
+| roadmap | stack | generated | `pnpm stack` reads `docs/tasks/T-212-contract-hardening.md`: an item marked "**Done**" shows its finding as fixed, and its "Gas on Sepolia" line gives the smoke deal's gas. | The hardening task is where a contract fix is recorded once it merges. |
 | decisions | roadmap | manual | Write a decision that changes scope, order or a phase into `docs/plan.md`, `docs/backlog.md` or the task files (inferred). | Rafa, 2026-11-04: a roadmap decision lives "only in the roadmap and crow-control". |
 | decisions | map | generated | `pnpm map` reads `docs/decisions-today.md` and each ADR's status. | `tests/design-map.test.ts` checks every decision has a known status. |
 | log | map | generated | `pnpm map` reads the newest log's "Waiting on Rafa". | |
@@ -72,7 +73,7 @@ A change to one part of Crow often means another part must change too. This page
 
 ## Two examples
 
-- **A contracts change** reaches the ABIs, the settlement adapters, the examples and the Workers, each checked by CI. By hand, it reaches the API contract, the contract-stack page and the GitHub docs. Through the API contract it reaches the agent docs and the quickstart by hand, and the homepage through checked flows. The design map and the console rebuild on their own.
+- **A contracts change** reaches the ABIs, the settlement adapters, the examples and the Workers, each checked by CI. By hand, it reaches the API contract and the GitHub docs. Through the API contract it reaches the agent docs and the quickstart by hand, and the homepage through checked flows. The design map and the console rebuild on their own, and the console rebuilds the contract-stack page when its inputs change; the claude.ai design map follows at the next `/map`.
 - **A roadmap decision** reaches only the roadmap (by hand), then the design map and the console, which rebuild.
 
 ## Not modeled yet
