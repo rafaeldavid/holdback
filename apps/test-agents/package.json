@@ -1,0 +1,17 @@
+{
+  "name": "@holdback/test-agents",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -b",
+    "deploy": "node scripts/deploy.mjs"
+  },
+  "dependencies": {
+    "tweetnacl": "^1.0.3",
+    "viem": "^2.57.13"
+  },
+  "devDependencies": {
+    "@holdback/demo-cloud": "workspace:*"
+  }
+}
