@@ -715,6 +715,9 @@ Also: the funding signature on EVM is CPP's collector signature and token identi
 - **Its own host.** The console moves to `control.escrow.stream`, after a red-team review found that sharing `escrow.stream` with the public site lets any script there read a signed-in founder's console ("Yes, own address").
 - **One application.** That host joins the existing Access application rather than a new one, so one audience covers both hosts until the old destinations are removed.
 - **Phase 11.** The rest of the switch moves to Phase 11, security hardening, as T-059 ("let's move this to security hardening phase"). Until then, the passcode console keeps serving `escrow.stream/control` behind Access, with the recheck's fixes: the console alone, and no key kept in the browser.
+- **Live the same evening.** Rafa went ahead with the switch on 2026-11-04, and the console now runs at `control.escrow.stream`.
+  - **GitHub sign-in only.** Access's own MFA check is off ("let's just leave with Github sign in"). The second factor is each founder's GitHub two-factor or passkey; the passkey line above becomes each founder's GitHub setting.
+  - **The old address removed.** `escrow.stream/control` answers `404` ("we can remove /control as we won't use it anymore"), not a redirect. The shared passcode retires with it.
 
 ## D46. Agents register their own adjudicators through the API; round 1 includes mutual settlement and overturns through the API
 
