@@ -5,8 +5,8 @@
 - **Depends on:** T-051 step 1 (the Anthropic organization check), for the Anthropic source only; T-213 (Sepolia settlement) live, with `SETTLEMENT` set to `sepolia`, for the Sepolia source only. The rest can be built before any credential exists.
 - **Paths this task may touch:** `scripts/costs/collect.mjs` (new, the launcher), `scripts/costs/run.mjs` (new), `scripts/costs/money.mjs` (new), `scripts/costs/dir.mjs` (new), `scripts/costs/approved.mjs` (new), `scripts/costs/approve.mjs` (new), `.gitignore` (the line `/.costs-approved`), `scripts/costs/sources/*.mjs` (new, one per source), `tests/costs/collect.test.ts` (new), `tests/costs/fixtures/` (new, synthetic responses only), `config/costs.template.json` (new), `config/keys-costs.template` (new), `docs/costs.md`, `docs/tasks/T-052-cost-collector.md`, and the command lines of T-053, T-054 and T-055 (the launcher pattern; review, 2026-11-03). No `package.json` script: run through pnpm, a `package.json` hook would run outside the approval check (review, 2026-11-03).
 - **Human gate:** **yes** for the credentials and the dedicated clone: Rafa creates them. **No** for the build: tests use synthetic fixtures and no network.
-- **Status:** review (built; done once Rafa's first run is recorded in Evidence)
-- **Agent/session:** infra cost-monitoring session, branch `t-052-cost-collector`
+- **Status:** done (Rafa's runs on 2026-11-04 are recorded in Evidence: all eight sources read after two credential fixes)
+- **Agent/session:** infra cost-monitoring session, branches `t-052-cost-collector` and `t-052-first-run`
 
 ## Intent
 
@@ -64,7 +64,7 @@ Every step is **human**. About 40 minutes (guessed).
 - [x] A test shows the collector refuses before any request when a covered file changed since the approved commit, when an untracked file, a `.gitattributes` or a symlink appears, when `.costs-approved` is missing, and when it is tracked; a test runs the launcher and shows a changed module never runs and the keys load only after the check; and `git check-ignore .costs-approved` prints the path (measured).
 - [x] The transcript source reads only `usage`, `model`, `sessionId`, `gitBranch`, `cwd`, `timestamp` and `requestId`, includes `subagents/`, and drops other repositories (a test with a transcript whose message content holds a secret-looking string, which never appears in the output, and one from another `cwd`, which is dropped).
 - [x] No fixture holds a real figure: fixtures are synthetic, and the PR says so.
-- [ ] Rafa ran it once in the dedicated clone; Evidence records which sources read and which failed, without any amount (measured).
+- [x] Rafa ran it once in the dedicated clone; Evidence records which sources read and which failed, without any amount (measured).
 
 ## Out of scope
 
@@ -106,8 +106,30 @@ Every step is **human**. About 40 minutes (guessed).
   - `sepolia` read 4 balances (the funding lane and three adjudicators, from live discovery and the public RPC) in 0.4 s.
   - `claude-code` read this month's laptop transcripts in 4 s: 21 lines across 5 models, and 174 rows by day, session, branch and model.
   - `node scripts/costs/collect.mjs` in this worktree, which has no approval record, refuses with exit 1.
-- **Credentialed sources (not measured):** written against the vendors' documented response shapes (read 2026-11-03), and tested only on fixtures shaped like them. Rafa's first run is the first real call.
-- **Rafa's first run:** pending. Record here which sources read and which failed, with no amount.
+- **Credentialed sources:** written against the vendors' documented response shapes (read 2026-11-03), and tested only on fixtures shaped like them. Rafa's first run was the first real call.
+- **Rafa's runs (measured by Rafa, 2026-11-04, in the dedicated clone at `7a6e42c`, whose cost code equals `main`'s; statuses only, no figure).** `approve.mjs` approved `7a6e42c` for `scripts/costs`, `config/costs.template.json`, `config/model-prices.json` and `.gitattributes`. The code did not change between runs:
+  1. **First run, 6 of 8.** Read: `cloudflare-billing`, `github`, `deepseek`, `sepolia`, `claude-code`, `telemetry`. Failed: `cloudflare-analytics: failed (graphql)` and `anthropic: failed (http 403)`. It wrote `latest.json` in `CROW_COSTS_DIR`.
+  2. **After adding Account · Account Analytics · Read to the Cloudflare token: the same two failures.** The edit had probably not taken effect yet (inferred).
+  3. **After replacing the Anthropic key, which got the 403, with an Admin key: 8 of 8 read.** No re-approval was needed.
+
+  So both failures were credentials, not code. Cloudflare had answered with GraphQL errors instead of data while the token lacked Account Analytics Read. Anthropic's 403 came from a key without admin rights.
+- **Richer error codes, added after the runs (measured, 2026-11-04):** `pnpm vitest run tests/costs/collect.test.ts`, 24 of 24 pass; `eslint scripts/costs tests/costs` is clean.
+  - Five GraphQL error responses shaped like Cloudflare's documented ones each give only a short word: `permission`, `query:storage`, `time-range:durableObjects`, `budget` and `other:workers`. None gives the message, the account tag or the body.
+  - An HTTP 403 whose body is shaped like Anthropic's gives `permission_error`. A body type that holds a key, capitals or spaces gives no code.
+  - Neither path has run against a real error yet.
+- **`pnpm verify` on branch `t-052-first-run` (measured, 2026-11-04, `reports/verify-t-052-first-run.md`):** PASS, with no snapshot diffs against HEAD. `pnpm test` ran 2,262 tests in 103 files, all passing (3 skipped).
+
+  | Step | Command | Status | Time |
+  | --- | --- | --- | --- |
+  | typecheck | `pnpm typecheck` | pass | 251 ms |
+  | lint | `pnpm lint` | pass | 3744 ms |
+  | forge build | `forge build --root contracts` | pass | 924 ms |
+  | forge | `forge test --root contracts` | pass | 18951 ms |
+  | test | `pnpm test` | pass | 47671 ms |
+  | spec | `pnpm validate:spec` | pass | 564 ms |
+  | snap | `pnpm snap` | pass | 8460 ms |
+  | snap:local | `pnpm snap --settlement=local` | pass | 12868 ms |
+  | demo | `pnpm demo` | pass | 3890 ms |
 
 ## Decisions
 
@@ -125,6 +147,12 @@ Every step is **human**. About 40 minutes (guessed).
 - **Day lines are copied field by field**, only T-031's own top-level fields, so a log record that wraps one with request headers leaks nothing into `CROW_TELEMETRY_DIR`.
 - **Usage lines carry no amount yet.** Tokens and requests have `basis: "estimated"` and `amount: null` until T-053's price table prices them.
 - **Anthropic** uses the legacy `cost_report` and `usage_report/messages` endpoints, which Anthropic still supports; the newer analytics endpoints were not read.
+- **An error carries one short word, `code`** (first run, 2026-11-04). After the first run, `graphql` alone could not tell a token without Account Analytics Read from a query Cloudflare's schema rejects, and `http 403` could not tell a permission error from other refusals. A failed source's `error` now has an optional `code` (`docs/costs.md`):
+  - for `graphql`, the first error's kind, taken from the messages on Cloudflare's errors page, plus the dataset its path names; Cloudflare's own `extensions.code` is used when no message matches;
+  - for `http`, the body's `error.type`.
+
+  A provider's word is kept only when it is a lowercase word of at most 40 letters and underscores (`safeWord`), which no key matches. The message and the body never reach the output, since they can name the account or echo a request.
+- **The query stays as it was.** Its `string` variables follow Cloudflare's Workers tutorial, and the third run read with them (measured).
 - **The approval check has a limit.** Code in the repository cannot check a change to itself (the launcher or `approved.mjs`), so the defense is the update procedure in `docs/costs.md` ("Running the collector"): fetch, read the diff with git, fast-forward, approve. T-055's routine compares before it fast-forwards. A reviewer from another model family is recommended for this design (review, 2026-11-03) and has not been run.
 
 ## Handoff
@@ -150,5 +178,9 @@ Every step is **human**. About 40 minutes (guessed).
 4. Optional: copy `config/costs.template.json` to `CROW_COSTS_DIR/budgets.json` and add the deal lanes' and deployer's public addresses.
 5. Read `scripts/costs/`, the config and `.gitattributes`, then run `node scripts/costs/approve.mjs` (it loads no keys).
 6. Run `node scripts/costs/collect.mjs`: with `node`, never `pnpm`, and without `--env-file`. Tell the agent which sources read and which failed, with no figure. Then the agent records it in Evidence and flips Status to done.
+
+**If a source fails again** (Rafa, human): update the clone as `docs/costs.md` describes ("Updating the clone"), so the status line names the error, for example `failed (http 403 permission_error)` or `failed (graphql permission)`. Report that line; it holds no figure. From the first run:
+- An Anthropic 403 means the key is not an Admin key (`sk-ant-admin01-…`, created at `platform.claude.com/settings/admin-keys`).
+- A Cloudflare `graphql` failure with billing still reading means the token lacks Account Analytics Read, or the edit has not taken effect yet.
 
 **Open:** T-053 prices the token lines; T-054 adds `--cpu-report`; T-055 schedules the run and sends alerts.

@@ -83,7 +83,7 @@ node scripts/costs/approve.mjs                               # after reading the
 node scripts/costs/collect.mjs
 ```
 
-It prints one status per source (`read`, `not configured` or `failed (<type> <status>)`) and the path it wrote, never a figure. The Sepolia and Claude Code sources need no credential, so a first run shows balances and tokens before any token exists.
+It prints one status per source (`read`, `not configured` or `failed (<type> <status> <code>)`, where the status and the code appear only when they exist) and the path it wrote, never a figure. The Sepolia and Claude Code sources need no credential, so a first run shows balances and tokens before any token exists.
 
 **Updating the clone.** Agents may merge to `main` without Rafa, and a check written in the repository cannot defend against a change to itself. So the clone moves forward only like this, with git, not with the repository's code:
 
@@ -113,6 +113,9 @@ The flags keep a committed `.gitattributes` or a configured diff tool from hidin
 - `amount.currency` is the provider's: DeepSeek balances can be in CNY.
 - Sepolia lines are in `wei`, one per public address: the funding lane and the adjudicators from discovery, and the deal lanes and deployer listed in `budgets.json` (`sepolia.addresses`). A deal lane under the floor gets a second line, "(second read)", two minutes later.
 - Source ids: `cloudflare-billing`, `cloudflare-analytics`, `anthropic`, `github`, `deepseek`, `sepolia`, `claude-code`, `telemetry`. An error type is one of `not_configured`, `network`, `timeout`, `http`, `parse`, `shape`, `graphql`, `chain`, `unexpected`.
+- An error may carry a `code`, one short word and never a message or a body:
+  - `http`: the `error.type` of the response body when it is a lowercase word of at most 40 letters and underscores, as Anthropic and DeepSeek send it. Example: `{ "type": "http", "status": 403, "code": "permission_error" }`.
+  - `graphql` from `cloudflare-analytics`: the kind of Cloudflare's first error, from its documented messages: `permission`, `query`, `time-range`, `limits`, `rate-limit` or `unavailable`. If no message matches, the code is Cloudflare's own `extensions.code` when that is such a word, or otherwise `other`. Then comes `:` and the dataset, when the error names one (`workers`, `durableObjects` or `storage`). Example: `{ "type": "graphql", "status": null, "code": "query:storage" }`. `permission` means the token lacks Account Analytics Read; `query` means the query no longer matches Cloudflare's schema.
 
 **T-031's day lines.** Cloudflare's telemetry query API accepts only a Workers Observability *Write* permission, so the collector does not call it. Rafa saves the Workers Logs he wants read (a dashboard export, or `npx wrangler@4 tail holdback-op1 --format json` output) into `CROW_TELEMETRY_DIR/inbox/`; the collector finds the day lines in any JSON or JSON-lines shape.
 

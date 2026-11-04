@@ -134,6 +134,29 @@ describe('sources, on synthetic fixtures', () => {
     expect(r.lines.every((l: { amount: unknown; basis: string }) => l.amount === null && l.basis === 'estimated')).toBe(true);
   });
 
+  it('cloudflare-analytics names a GraphQL error by a fixed word and its dataset, never by its message', async () => {
+    const errors = json('cloudflare-graphql-errors.json');
+    const expected: Record<string, string> = { permission: 'permission', query: 'query:storage', timeRange: 'time-range:durableObjects', budget: 'budget', unknown: 'other:workers' };
+    for (const [name, code] of Object.entries(expected)) {
+      const fetch = fakeFetch((u) => (u.endsWith('/graphql') ? { body: JSON.stringify(errors[name]) } : undefined));
+      const r = await runSource(cloudflareAnalytics, baseCtx({ env: cfEnv, fetch }));
+      expect(r.status).toEqual({ source: 'cloudflare-analytics', ok: false, error: { type: 'graphql', status: null, code } });
+      expect(JSON.stringify(r.status)).not.toMatch(/RESPONSE-BODY-TEXT|authorized|storedBytes|2678400|0123456789abcdef/);
+    }
+  });
+
+  it('an HTTP error keeps only the body error type, and only when it is a short lowercase word', async () => {
+    const env = { CROW_COSTS_ANTHROPIC_ADMIN_KEY: 'sk-ant-admin01-FAKE-SECRET' };
+    const failWith = async (body: string) => runSource(anthropic, baseCtx({ env, fetch: fakeFetch(() => ({ status: 403, body })) }));
+    const typed = await failWith('{"type":"error","error":{"type":"permission_error","message":"RESPONSE-BODY-TEXT sk-ant-admin01-FAKE-SECRET"},"request_id":"req_x"}');
+    expect(typed.status).toEqual({ source: 'anthropic', ok: false, error: { type: 'http', status: 403, code: 'permission_error' } });
+    for (const body of ['{"error":{"type":"sk-ant-admin01-FAKE-SECRET"}}', '{"error":{"type":"Permission Error RESPONSE-BODY-TEXT"}}', '{"error":"RESPONSE-BODY-TEXT"}', 'RESPONSE-BODY-TEXT']) {
+      const r = await failWith(body);
+      expect(r.status).toEqual({ source: 'anthropic', ok: false, error: { type: 'http', status: 403 } });
+    }
+    expect(JSON.stringify(typed.status)).not.toMatch(/RESPONSE-BODY-TEXT|FAKE-SECRET|req_x/);
+  });
+
   it('anthropic follows pages, sums cents strings exactly, and groups tokens by key', async () => {
     const a = json('anthropic.json');
     const fetch = fakeFetch((u) => {
