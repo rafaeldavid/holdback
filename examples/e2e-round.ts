@@ -21,8 +21,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { formatEther, type Hex } from 'viem';
 import { SEPOLIA, type DeploymentFile } from './deployments.ts';
 import { RoundChain } from './e2e-chain.ts';
-import { printable, SEED_VAR } from './e2e-keys.ts';
-import { openDeals, Round, Run, short, Waits } from './e2e-run.ts';
+import { SEED_VAR } from './e2e-keys.ts';
+import { openDeals, reason, Round, Run, short, Waits } from './e2e-run.ts';
 import { pick, SCENARIOS } from './e2e-scenarios.ts';
 import { Refusal } from './verify.ts';
 
@@ -130,11 +130,14 @@ async function run(ids: string[], flags: { t220: boolean; homepage: boolean; rer
       if (blocked) throw new Error(`not run: ${blocked}`);
       await s.run(r);
     } catch (e) {
-      r.error = printable(e);
+      r.error = reason(e);
       if (e instanceof Waits) r.waitsFor = e.tasks;
       console.log(`[${s.id}] ${e instanceof Waits ? 'waits' : 'stopped'} at ${r.step}: ${r.error}`);
-      // Every deal has the same buyer and seller: one still holding money would settle inside the next scenario's window.
-      const open = blocked || e instanceof Waits ? [] : await openDeals(r).catch(() => r.deals.map((d) => ({ id: d.id, state: 'unknown' })));
+    }
+    // Every deal has the same buyer and seller: one still holding money, after a stop or a failed check (an
+    // escalation, say), would settle inside the next scenario's balance window.
+    if (!blocked && r.deals.length) {
+      const open = await openDeals(r).catch(() => r.deals.map((d) => ({ id: d.id, state: 'unknown' })));
       if (open.length) blocked = `${open.map((d) => `${d.id} is still ${d.state}`).join('; ')}; let it settle before running more scenarios`;
     }
     const result = { driverCommit, ...r.result() };
@@ -163,7 +166,7 @@ async function finality(folder: string): Promise<number> {
       const now = await chain.blockHashOf(t.tx as Hex);
       rows.push({ scenario: r.scenario, deal: d.id, tx: t.tx, block: t.block, recorded: t.blockHash, now, same: now === t.blockHash });
     } catch (e) {
-      rows.push({ scenario: r.scenario, deal: d.id, tx: t.tx, block: t.block, recorded: t.blockHash, unreadable: printable(e) });
+      rows.push({ scenario: r.scenario, deal: d.id, tx: t.tx, block: t.block, recorded: t.blockHash, unreadable: reason(e) });
     }
   }
   const unreadable = rows.filter((x) => x.unreadable);
@@ -191,7 +194,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     }
   } catch (e) {
     // A refusal or a stop: say why, never a key.
-    console.error(`${e instanceof Refusal ? 'refused' : 'stopped'}: ${printable(e)}`);
+    console.error(`${e instanceof Refusal ? 'refused' : 'stopped'}: ${reason(e)}`);
     process.exitCode = e instanceof Refusal ? 3 : 1;
   }
 }

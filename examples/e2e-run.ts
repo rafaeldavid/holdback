@@ -6,7 +6,7 @@
 // Evidence per deal (T-216, How the round runs): the commitment ID; each transaction with its Etherscan link, gas and
 // block; dealOf's stage and CPP's payment state; the balances and bonds of every party before and after; the state
 // and event log from both operators, and whether they agree; whether the buyer could open the work.
-import { recoverTypedDataAddress, type Hex } from 'viem';
+import { BaseError, ContractFunctionRevertedError, recoverTypedDataAddress, type Hex } from 'viem';
 import { Agent } from './agent.ts';
 import { SEPOLIA, type DeploymentFile } from './deployments.ts';
 import { RoundChain, type TxRecord } from './e2e-chain.ts';
@@ -245,6 +245,16 @@ export async function retry<T>(read: () => Promise<T>): Promise<T> {
   }
 }
 
+/**
+ * An error as one line safe to print or save: `printable` (no URL but an Etherscan link), plus the contract's revert
+ * name when viem decoded one (`TooEarly`, `WrongStage`), so a failed direct call's record says why.
+ */
+export function reason(e: unknown): string {
+  const reverted = e instanceof BaseError ? (e.walk((x) => x instanceof ContractFunctionRevertedError) as ContractFunctionRevertedError | null) : null;
+  const name = reverted?.data?.errorName;
+  return `${printable(e)}${name ? ` (${name})` : ''}`;
+}
+
 /** A GET to one operator, retried (`retry`). */
 export const get = (agent: Agent, path: string, api = agent.operators[0]): Promise<J> => retry(() => agent.call('GET', path, undefined, api));
 
@@ -332,7 +342,7 @@ export async function ensureFunds(run: Run, role: Role, need: bigint): Promise<v
       const grant = await agent.call('POST', '/v1/faucet', { address: agent.address });
       run.say(`faucet: ${role} ${short(agent.address)} admitted to ${grant.clubId}, granted ${round.amount(grant.granted.amount)}`);
     } catch (e) {
-      run.say(`faucet: ${role} ${short(agent.address)} refused (${printable(e)})`);
+      run.say(`faucet: ${role} ${short(agent.address)} refused (${reason(e)})`);
     }
   }
   if (!(await member())) throw new Error(`${role} ${agent.address} holds no mandate in ${round.demo.clubId}, and the faucet did not admit it`);
@@ -451,7 +461,7 @@ export async function buyerOpens(run: Run, deal: Deal, expected: string): Promis
     const opened = await deal.buyer.openDelivery(deal.id);
     deal.record.buyerOpened = opened === expected;
   } catch (e) {
-    run.say(`the buyer could not open the work: ${printable(e)}`);
+    run.say(`the buyer could not open the work: ${reason(e)}`);
     deal.record.buyerOpened = false;
   }
   return deal.record.buyerOpened;

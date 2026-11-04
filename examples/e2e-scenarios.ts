@@ -7,7 +7,6 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { paymentHashOf } from './e2e-chain.ts';
-import { printable } from './e2e-keys.ts';
 import { freshNonce } from './verify.ts';
 import {
   buyerKeys,
@@ -18,9 +17,12 @@ import {
   eventsOf,
   finish,
   fund,
+  get,
   logsOf,
   offer,
   openDeal,
+  reason,
+  retry,
   short,
   shortWindows,
   sleep,
@@ -126,7 +128,7 @@ async function expireAppeal(r: Run, deal: Deal, appealBy: string): Promise<void>
     await trigger(r, deal, 'appeal-expiry');
     r.check('appeal-expiry relayed through the API', true, 'accepted');
   } catch (e) {
-    const why = printable(e);
+    const why = reason(e);
     if (/appeal state is expired|WrongAppealState\(4\)/.test(why)) {
       closedBy = 'someone else (the demo adjudicators expire their own appeals since T-211)';
     } else {
@@ -214,7 +216,7 @@ async function homepage(r: Run): Promise<void> {
       child.stdin.end(bundle);
     });
     const done = /^done +commitment (0x[0-9a-f]{64}) (\w+)$/m.exec(out.out);
-    r.check(`the homepage command passes relayed by ${new URL(ops[0]!).origin}`, out.code === 0 && done?.[2] === 'Released', done ? `${short(done[1]!)} ${done[2]}, exit ${out.code}` : `exit ${out.code}: ${printable(out.out.trim().split('\n').at(-1))}`);
+    r.check(`the homepage command passes relayed by ${new URL(ops[0]!).origin}`, out.code === 0 && done?.[2] === 'Released', done ? `${short(done[1]!)} ${done[2]}, exit ${out.code}` : `exit ${out.code}: ${reason(out.out.trim().split('\n').at(-1))}`);
     if (done) r.notes.push(`homepage command relayed by ${new URL(ops[0]!).origin}: ${done[1]} ${done[2]}`);
   }
 }
@@ -238,10 +240,10 @@ async function appealBond(r: Run, deal: Deal): Promise<bigint> {
 async function untilAppeal(r: Run, deal: Deal, states: string[], timeoutMs: number): Promise<J> {
   let seen: J[] = [];
   for (const end = Date.now() + timeoutMs; Date.now() < end; await sleep(1000)) {
-    seen = await Promise.all(deal.buyer.sources().map((api) => deal.buyer.call('GET', `/v1/commitments/${deal.id}`, undefined, api)));
+    seen = await Promise.all(deal.buyer.sources().map((api) => get(deal.buyer, `/v1/commitments/${deal.id}`, api)));
     if (seen.every((s) => states.includes(s.appealState))) return seen[0];
     const by = seen[0]?.deadlines?.appealDecideBy;
-    if (by && (await deal.buyer.settlementNow()) > Date.parse(by) + 30_000) throw new Error(`${short(deal.id)}: the appeal adjudicator did not decide by appealDecideBy ${by} (appeal ${seen.map((s) => s.appealState).join(' / ')})`);
+    if (by && (await retry(() => deal.buyer.settlementNow())) > Date.parse(by) + 30_000) throw new Error(`${short(deal.id)}: the appeal adjudicator did not decide by appealDecideBy ${by} (appeal ${seen.map((s) => s.appealState).join(' / ')})`);
   }
   throw new Error(`${short(deal.id)} appeal still ${seen.map((s) => s.appealState).join(' / ')} after ${timeoutMs / 1000} s, waiting for ${states.join(' or ')}`);
 }
@@ -358,7 +360,7 @@ export const SCENARIOS: Scenario[] = [
           r.say(`reclaim sent directly by the buyer: ${round.chain!.link(tx.tx)} (${tx.gasUsed} gas)`);
         }
         // The operators follow a direct call only with T-218 (target: one sync pass, 60 s or less); until then the view lags.
-        if (via === 'api' || round.t220) await until(r, deal.buyer, deal.id, ['Refunded'], 120_000).catch((e) => r.note(`the operators' view: ${printable(e)}`));
+        if (via === 'api' || round.t220) await until(r, deal.buyer, deal.id, ['Refunded'], 120_000).catch((e) => r.note(`the operators' view: ${reason(e)}`));
         await finish(r, deal);
         r.check(`${via}: the buyer gets the price and the adjudication fee back`, delta(deal.record, buyer) === -(deal.operatorFee ?? 0n), `buyer ${round.amount(delta(deal.record, buyer))} (the operator fee is never refunded)`);
         if (round.chain && deal.record.chain) {
@@ -431,7 +433,7 @@ export const SCENARIOS: Scenario[] = [
         const done = await until(r, deal.buyer, deal.id, ['Released', 'Refunded', 'Escalated'], 300_000);
         r.check(`${shape.appellant}: the first decision is ${shape.outcome}`, done.escrowState === shape.outcome, done.escrowState);
         r.step = 'appeal';
-        const refused = await appeal(r, deal, shape.favoured).then(() => 'accepted', (e: Error) => printable(e));
+        const refused = await appeal(r, deal, shape.favoured).then(() => 'accepted', (e: Error) => reason(e));
         r.check(`${shape.appellant}: the favoured party's appeal is refused`, /invalid_terms/.test(refused), refused);
         await appeal(r, deal, shape.appellant);
         r.say(`${shape.appellant} filed an appeal with a ${round.amount(bond)} bond`);
