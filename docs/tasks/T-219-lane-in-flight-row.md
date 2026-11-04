@@ -5,8 +5,8 @@
 - **Depends on:** T-218 merged first. This task edits `packages/settlement/evm/live.ts` and `evm-settlement.ts` after T-218's changes, and a recovered transaction is applied through T-218's log sync.
 - **Paths this task may touch:** `packages/settlement/evm/live.ts`, `chain.ts`, `evm-settlement.ts` (only telling this node's recovered relays from direct calls), and their tests (`live.test.ts`, `receipt.test.ts`, `evm-settlement.test.ts`); `apps/demo-cloud/src/lanes.ts` (new: the row store over the Durable Object's storage) and its test; `apps/demo-cloud/src/worker.ts` and `world.ts` (only to hand the store to `LiveChain`); `docs/decisions/ADR-0028-demo-settles-on-sepolia.md` (a dated note in §11); `docs/operations.md` (the "deploy while no deal is mid-step" warning); `docs/backlog.md` (its row); `docs/plan.md` (this row); this file
 - **Human gate:** no. The live deploy is T-220's.
-- **Status:** todo
-- **Agent/session:** —
+- **Status:** review
+- **Agent/session:** T-219 workflow session, 2026-11-04 (branch `t-219-lane-in-flight-row`, worktree `.worktrees/t-219`)
 
 ## Intent
 
@@ -16,6 +16,8 @@ Restated: before each broadcast, the lane writes one row with what it is sending
 
 The design is in the research pass, `docs/research/2026-11-03-sepolia-demo-settlement.md` §2 (the `lane:<n>` row) and ADR-0028 §11.
 
+As the implementing session understood it (2026-11-04): a deploy must not cost a deal step. The node writes down what it is about to broadcast before it broadcasts, and after a restart it finishes that broadcast as if nothing had happened. The log, the envelopes, the buyer's key, the lane's nonce and the client's retry all come out the same as an uninterrupted run. Non-goals: more than one transaction in flight per lane; rows for the funding lane (faucet mints, top-ups, bond setup); persisting the operator's own idempotency records; any change to what a direct call (T-218) is labelled.
+
 ## Context
 
 - ADR-0028 §3 (lanes, serial per lane, rebroadcast and fee bump), §11; `packages/settlement/evm/live.ts` (`sendNow`, `broadcast`, `nonces`).
@@ -24,22 +26,22 @@ The design is in the research pass, `docs/research/2026-11-03-sepolia-demo-settl
 
 ## Acceptance criteria
 
-- [ ] **The row.** Before each broadcast on a deal lane, the lane writes one row:
+- [x] **The row.** Before each broadcast on a deal lane, the lane writes one row:
   - the lane and the nonce;
   - every hash sent at that nonce (rebroadcasts and fee bumps);
   - the raw transaction;
   - the submission: the message, its `Idempotency-Key` and body hash, and what the adapter holds off chain for it (such as a delivery's envelopes).
 
   The row is removed only after its receipt has been applied.
-- [ ] **Recovery.** When the world opens, and on its next pass, each row is resolved:
+- [x] **Recovery.** When the world opens, and on its next pass, each row is resolved:
   - **mined:** applied once, as this node's relay, through T-218's path. Its events are labelled as a relay is, the adjudicators get their envelopes, and the buyer's key is served;
   - **pending:** the same raw transaction is rebroadcast; no other message is ever sent at that nonce;
   - **not found after the receipt timeout:** rebroadcast, then the existing give-up rule.
-- [ ] **The nonce.** After a restart a lane's nonce is the row's nonce plus one once that row is mined. It is never read from `pending` while a row is open.
-- [ ] **The client's retry.** A retry with the same `Idempotency-Key` and body as a recovered submission gets the mined result, not `invalid_state`. The same key with another body gets 409 (hard rule: idempotency).
-- [ ] **The cutover case, tested.** On anvil with `--block-time 1`, the world stops between broadcast and receipt for a funding, a delivery and a decision, then reopens from the same storage. Its log then matches an uninterrupted run's, and the buyer reads its key.
-- [ ] **Cost.** One row written and one deleted per transaction, and at most one row read per lane when the world opens [measured with T-031's counters].
-- [ ] **Docs.**
+- [x] **The nonce.** After a restart a lane's nonce is the row's nonce plus one once that row is mined. It is never read from `pending` while a row is open.
+- [x] **The client's retry.** A retry with the same `Idempotency-Key` and body as a recovered submission gets the mined result, not `invalid_state`. The same key with another body gets 409 (hard rule: idempotency).
+- [x] **The cutover case, tested.** On anvil with `--block-time 1`, the world stops between broadcast and receipt for a funding, a delivery and a decision, then reopens from the same storage. Its log then matches an uninterrupted run's, and the buyer reads its key.
+- [x] **Cost.** One row written and one deleted per transaction, and at most one row read per lane when the world opens [measured with T-031's counters].
+- [x] **Docs.**
   - `docs/operations.md`: the warning to deploy holdback-op1 only while no deal is mid-step is replaced by what the row now guarantees, or kept with the limit that remains.
   - ADR-0028 §11 gets a dated note, and the backlog row is closed.
 - [ ] **Review.** `reviewer` and `red-teamer`, each with project context (relayer code: the relayer relays and never authors). `pnpm verify` green.
@@ -52,8 +54,54 @@ The design is in the research pass, `docs/research/2026-11-03-sepolia-demo-settl
 
 ## Evidence
 
-Fill this in before review. Label each item measured, inferred or guessed.
+**`pnpm verify`** (measured, on `e065c3c` plus this change, 2026-11-04, `reports/verify-t-219-lane-in-flight-row.md`): PASS. typecheck, lint, forge build, forge test, `pnpm test` (112 files, 2,480 tests passed, 3 skipped), spec, snap, snap:local and demo all pass. Snapshot diffs against HEAD: none, and `reports/differential-local.md` is unchanged. The first run failed lint on two lines in the new tests (an unused import, a `let` that could be `const`); both were fixed before the second run.
+
+**Each acceptance criterion** (measured unless labelled; anvil stands in for Sepolia):
+
+| Criterion | Test | Result |
+| --- | --- | --- |
+| The row, written before the broadcast | `live.test.ts`, "writes the row before the broadcast…" | When the row was written, anvil's pool held no transaction. The row names lane 1, its sender, the nonce, `hashes: [keccak256(raw)]` and the note. It stays after the receipt and goes on `release` |
+| Every hash at the nonce | "a fee bump rewrites the row…" | The second write holds both hashes, and the pool still held only the first transaction when it was written. Same nonce, higher fee |
+| A refused broadcast | "a broadcast the node refuses removes its row" | Write, then remove; `relay_refused` for a lane with no test ETH |
+| Mined after a restart; the nonce | "after a restart, a mined row sets the lane nonce…" | The next send on the same lane took the row's nonce plus one; `getTransactionCount` was never called |
+| Pending after a restart | "a pending row is rebroadcast as it was…" | After anvil dropped it, the pool held the row's own hash again. A queued send on the same lane waited, so for 1 s nothing else went out at that nonce; the queued send took the next nonce |
+| Not found after the timeout | "a row not found after the receipt timeout…" | Rebroadcast once, given up after the 300 ms window, row removed; the next send read `pending` and reused the nonce |
+| Recovery as this node's relay, and the retry | `evm-settlement.test.ts`, "a funding, a delivery and a decision each land as the relay after a restart…" (22 s) | After each restart the deal's events equal, field for field, the ones the uninterrupted relay wrote (`toEqual`). The labels are `op-1`, with `commitment.agreed` from the adapter and the fee line. The primary got its envelope; the buyer's key is served. Retries answered `replayed: true` (funding: Held, delivery: Delivered); another body under the funding's key answered `idempotency_conflict`. With the row lookup disabled, the same test fails at the retry |
+| The cutover case | `lanes.test.ts`, "reopens from the same storage after each money step…" (32 s) | The world stopped after the broadcasts of `agreeAndFund`, `deliver` and `decide`. Each new world opened on a copy of the storage. try.ts ended Released, and "the buyer decrypted its copy, sha256 checked". The deal's log has the same shape (type, label, actor's role, source, key path, recipient's role) as an uninterrupted try.ts run. The retried funding and delivery requests got their mined results; the same funding request again answered 200, and another body under its key 409 `idempotency_conflict` |
+| Cost | `lanes.test.ts`, "keeps one row per lane and nonce…" (T-031's counters) and the cutover case | Opening with no row: 1 row read. A row written: 1 row written. A row deleted: 1 row written. Opening with two rows: 2 rows read. In the uninterrupted world: 3 lane rows written and 3 deleted for the deal's three transactions. Each restarted world read 1 lane row when it opened |
+
+- Run three times in a row, the cutover case passed each time (measured). The path that lands the row varies with timing: the new world's first pass, or a retried request for the same deal first. Each world landed its row once: the recoveries reported `applied: 1` or `seen: 1`, and none failed.
+- `pnpm vitest run packages/settlement/evm`: 8 files, 91 tests passed, including T-218's `sync.test.ts` and `wall.test.ts` unchanged (measured).
+- On Sepolia, a restart mid-step behaves the same (inferred). T-216's scenario 11 checks it live after T-220's deploy.
 
 ## Decisions
 
+Made by the T-219 session on 2026-11-04; Rafa can overrule any of them.
+
+1. **One row per transaction, keyed `lane:<lane>:<nonce>`.** The research named one row per lane (`lane:<n>`). With one key, the next transaction on a lane overwrites the previous row before the world has written the books that receipt changed, so a restart in that moment would lose it. With the nonce in the key, a lane normally has one open row; it has two only in that moment. Opening still lists `lane:` once.
+2. **The row goes after the books.** `EvmSettlement.drain` now also returns the relayed hashes whose receipts it applied (`relayed`). `PublicWorld.persist` deletes their rows last, after the books, events and mandates. A refused first broadcast and a given-up transaction delete their rows at once. A failed delete is not retried: the next restart reads the row, finds it applied and deletes it.
+3. **Where the recovery runs.** `EvmSettlement.recover` runs on the world's next pass, before the sync and the adjudicators. Any submission for the same deal also lands that deal's open rows first, so a retry that arrives before the pass replays the mined result. This puts more into `evm-settlement.ts` than labelling: the relayed messages stand in for the rebuilt ones in `rebuild` (matched by signature), `answer` records the Idempotency-Key, and `land` handles the fee sent alone. The fee alone leaves no rules-contract log, so the row is its only record.
+4. **Two small world changes beyond handing over the store.** `work()` calls `recoverLanes()` before `syncChain()`, and `persist()` releases the rows. Both sit in `apps/demo-cloud/src/world.ts`, a listed path. `worker.ts` is unchanged: the world attaches the store when it opens.
+5. **The deferred `commitment.agreed` carries the funding block's time.** It used to carry the wall clock at the receipt. A recovered relay can only know the block's time, so both now write the same event. On anvil the two times were already equal, and the snapshots are unchanged.
+6. **The recovery's timing.** A resumed row is rebroadcast at once when it is not mined. The give-up comes at the row's receipt timeout (180 s after its first broadcast), or one rebroadcast window (36 s) after the restart if that is later. The one fee bump waits two windows from the restart, so an old row is rebroadcast as it was, never replaced on the first look.
+7. **An RPC error after the broadcast keeps the row.** The transaction is out, so the lane waits for it: the next send on that lane resolves the row first. Before T-219 the lane read its nonce from `pending` at once.
+8. **A row whose deal has no book** (its offer was never written) is deleted once its receipt is found. If the offer is posted later, T-218's join applies the transaction, labelled `direct`.
+
 ## Handoff
+
+**State:** review, draft PR (stacked on PR 185, T-218). The `reviewer` and `red-teamer` passes are still to run; the workflow's review stage runs them.
+
+**What changed:**
+- `packages/settlement/evm/chain.ts`: `LaneRow`, `RelayNote`, and four optional `EvmChain` methods (`inFlight`, `rowOf`, `resume`, `release`). The anvil world (`world.ts`) implements none of them, so nothing changes there.
+- `packages/settlement/evm/live.ts`: `LaneStore`, `LiveChain.attach`, the row writes in `sendNow` and `bump`, and `resume`. The receipt loop is now one method, `fly`, shared by sends and resumes.
+- `packages/settlement/evm/evm-settlement.ts`: the note travels with each relayed call; `recover`, `land`, `answer`; the row lookup in `follow`; `drain().relayed`.
+- `apps/demo-cloud/src/lanes.ts` (new) and `world.ts`.
+
+**For T-220 (the deploy).** Nothing to configure: the rows live in the world's own storage under `lane:`, and there is no new secret or variable. A world deployed before T-219 has no rows, so there is nothing to migrate. After the deploy, `world.lastRecovery()` reports what the first pass after a restart did with the rows; it is null when none were open.
+
+**For T-216 (round 1, scenario 11, a restart mid-step).** Deploy holdback-op1 while a step is between its broadcast and its receipt (Sepolia's 12 s blocks leave a wide window). Expect the step in the operators' log labelled `demo-op-1` (or `direct` for the demo adjudicators' own decisions, as without a restart), the adjudicators' envelopes and the buyer's key served, and a client retry with the same Idempotency-Key answered 200 with the mined state. `apps/demo-cloud/src/lanes.test.ts` covers the same case offline.
+
+**Left as is:**
+- The funding lane keeps no rows (backlog row "the funding lane keeps no in-flight row").
+- The operator's own idempotency records stay in memory (backlog, T-026). A retry after a restart is answered by the settlement adapter's record, which is in the book.
+- T-218's test "a relayed transaction whose receipt the node never saw" (`sync.test.ts`) still expects `direct`: its chain has no lane store. It is outside this task's paths and stays as it is.
