@@ -146,7 +146,7 @@ abstract contract Base is Test, DeployPermit2 {
     function _terms() internal returns (H.Terms memory t) {
         uint64 now_ = uint64(block.timestamp);
         t = H.Terms({
-            schemaVersionHash: keccak256("0.6"),
+            schemaVersionHash: keccak256("0.7"),
             clubIdHash: keccak256("data-services-v1"),
             rulebookHash: keccak256("rulebook"),
             buyer: buyer,
@@ -294,7 +294,9 @@ abstract contract Base is Test, DeployPermit2 {
         k.index = 1;
     }
 
-    /// A delivery whose encryptedKeys hold the buyer's envelope (index 1) among others.
+    /// A delivery whose encryptedKeys hold the buyer's envelope (index 1) among others. Its fields are fixed (the
+    /// contract never reads submittedAt), so it hashes the same before and after a warp: a signature that names it
+    /// (ADR-0029) still names the posted delivery later.
     function _delivery() internal view returns (H.Delivery memory d, H.KeyProof memory k) {
         k = _buyerKey();
         k.keyHashes[1] = hx.key(buyer, k);
@@ -304,7 +306,7 @@ abstract contract Base is Test, DeployPermit2 {
             plaintextSha256Hash: keccak256("sha256:plain"),
             plaintextMimeHash: keccak256("text/csv"),
             encryptedKeysHash: keccak256(abi.encodePacked(k.keyHashes)),
-            submittedAt: uint64(block.timestamp)
+            submittedAt: 1_790_000_000
         });
     }
 
@@ -358,13 +360,37 @@ abstract contract Base is Test, DeployPermit2 {
         m.seed = hx.panelSeed(id, role, m.attempt, m.beaconValue);
     }
 
+    /// The delivery a signature names by default (ADR-0029): the posted one, or else `_delivery()`, the one a decision
+    /// or early accept in `Held` carries.
+    function _namedDelivery(bytes32 id) internal view returns (bytes32 dh) {
+        dh = rules.deliveryHashOf(id);
+        if (dh == bytes32(0)) {
+            (H.Delivery memory d,) = _delivery();
+            dh = hx.delivery(id, d);
+        }
+    }
+
+    /// Signs `m`; a decision that names no delivery names `_namedDelivery(id)`.
     function _signDecision(H.Terms memory t, bytes32 id, H.Decision memory m, address who, uint256 pk)
         internal
         view
         returns (H.Decision memory)
     {
+        if (m.deliveryHash == bytes32(0)) m.deliveryHash = _namedDelivery(id);
         m.signature = _sign(pk, hx.decision(id, who, t, m));
         return m;
+    }
+
+    /// The buyer's early accept for the delivery named by default (`_namedDelivery`).
+    function _early(H.Terms memory t, bytes32 id, uint256 pk) internal view returns (H.EarlyAccept memory m) {
+        m = H.EarlyAccept({
+            attempt: 1,
+            deliveryHash: _namedDelivery(id),
+            nonce: keccak256("early"),
+            expiresAt: type(uint64).max,
+            signature: ""
+        });
+        m.signature = _sign(pk, hx.early(id, t.buyer, m));
     }
 
     function _primary(H.Terms memory t, bytes32 id, uint8 outcome) internal view returns (H.Decision memory) {

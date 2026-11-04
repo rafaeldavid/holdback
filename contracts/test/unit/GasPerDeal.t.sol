@@ -119,8 +119,7 @@ contract GasPerDealTest is GasBase {
         (H.Terms memory t, bytes32 id) = _fundMeasured();
         (H.Delivery memory d, H.KeyProof memory k) = _delivery();
         bytes memory ds = _deliverySig(id, d, SELLER_PK);
-        H.EarlyAccept memory m = H.EarlyAccept({attempt: 1, nonce: 0, expiresAt: type(uint64).max, signature: ""});
-        m.signature = _sign(BUYER_PK, hx.early(id, buyer, m));
+        H.EarlyAccept memory m = _early(t, id, BUYER_PK);
         rules.earlyAccept(t, m, d, ds, k);
         _within("early accept (delivery carried, key released)", 190_000); // measured 148,052
     }
