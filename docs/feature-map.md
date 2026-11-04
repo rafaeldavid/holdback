@@ -14,4 +14,4 @@ Each demo beat (`docs/demo.md`) maps to the scenario fixtures that prove it and 
 | 8 Wrongful decision, paid by the bond (optional) | Bench A wrongly rejects; Bench C overturns; bond pays the seller | `attack.adjudicator-self-dealing` | `appeal-overturn-bond-pays-seller`, `appeal-overturn-bond-pays-buyer`, `appeal-bad-key-release` | settlement, adjudicator | T-006, T-009 |
 | 9 Work for work (optional) | Two deliverables swapped through two-sided holds | — | `work-for-work` | settlement, sdk | Phase 6, if T-003 recommends it |
 
-Every beat is narrated by `apps/demo` (T-012, T-013), and its transcript is the beat's `.expect.md` snapshot. `todo.milestone-delivery` (planned) records a known gap and belongs to no beat. `sdk` is the internal client the demo and tests use (D30), not a published SDK.
+Every beat is narrated by `apps/demo` (T-012, T-013), and its transcript is the beat's `.expect.md` snapshot. `todo.milestone-delivery` (planned) records a known gap and belongs to no beat. `sdk` is the internal SDK the operator, the demo and the tests use (D30); it is not published.

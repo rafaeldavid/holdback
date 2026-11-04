@@ -54,7 +54,7 @@ Accepted for the prototype and tracked here:
 ## Escape hatch requirements
 
 - Every state-changing message an agent signs must be valid when submitted by anyone, including the agent itself, straight to the settlement layer.
-- The internal client the demo and tests use (`packages/sdk`, not a published SDK; D30) has a direct-submit path, and the `neutrality.operator-*` fixtures test it.
+- The internal SDK the demo and tests use (`packages/sdk`, not published; D30) has a direct-submit path, and the `neutrality.operator-*` fixtures test it.
 - Operator APIs are conveniences, not gatekeepers: they add indexing, gas sponsorship and machine-speed responses, and nothing else.
 
 ## How neutrality is tested

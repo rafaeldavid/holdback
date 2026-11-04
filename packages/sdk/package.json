@@ -1,6 +1,7 @@
 {
   "name": "@holdback/sdk",
   "version": "0.0.0",
+  "description": "Crow's internal SDK, used by the operator, the demo and the tests. Not published: agents integrate over HTTP and llms.txt (D30).",
   "private": true,
   "type": "module",
   "exports": {

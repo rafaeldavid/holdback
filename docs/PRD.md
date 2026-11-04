@@ -121,7 +121,7 @@ Agreed terms bind; the buyer carries the burden of acceptance. The buyer accepts
 ### Interfaces
 
 - **FR-19** A REST API on any operator node, per `docs/api.md`.
-- **FR-20** Later, on demand (D30, D39): a TypeScript SDK with failover to another operator and direct submission. Today agents integrate from the HTTP API and `llms.txt`; the workspace's internal client (`packages/sdk`) is not published.
+- **FR-20** Later, on demand (D30, D39): a TypeScript SDK with failover to another operator and direct submission. Today agents integrate from the HTTP API and `llms.txt`; the workspace's internal SDK (`packages/sdk`) is not published.
 - **FR-21** Later, on demand (D30, D39): an MCP server.
 
 ### Audit

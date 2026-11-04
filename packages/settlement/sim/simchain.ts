@@ -842,6 +842,13 @@ export class SimChain implements Settlement {
     tx.useNonce(`${lc(m.adjudicator)}:${m.nonce}`);
     const beacon = this.beaconFact(prev, m.role);
     const next = this.stepped(prev, { type: 'decide', at: tx.at, message: m, beacon });
+    // As on chain, a key is a non-empty ciphertext: EIP-712 hashes an absent key and an empty one alike.
+    const keyed = (m.keyForBuyer?.ciphertext ?? '') !== '';
+    // ADR-0012 (formal model KeyOnlyWithPayment), as HoldbackRules.decide: the buyer's key travels only with an
+    // accept, and never on a deal that stands Refunded.
+    if (keyed && (m.outcome !== 'accept' || prev.kind === 'Refunded')) {
+      refuse('invalid_terms', prev.kind === 'Refunded' ? 'a decision on a refunded deal carries no key for the buyer' : `a ${m.outcome} decision carries no key for the buyer`);
+    }
     const { terms } = next;
     const { price, adjudication, buyer, seller } = terms;
     const seedSource = m.role === 'primary' ? { seedSource: 'commit-reveal' } : { seedSource: 'beacon', beaconRound: beacon?.round };
@@ -869,12 +876,12 @@ export class SimChain implements Settlement {
         this.payFromBond(tx, id, first, account.party(wronged), BigInt(price.amount), 'overturn', bondPostings);
       }
       this.releaseAll(tx, id);
-      if (m.keyForBuyer) this.releaseKey(tx, id, sealedFor(buyer, m.keyForBuyer), m.adjudicator, 'appeal decision');
+      if (keyed) this.releaseKey(tx, id, sealedFor(buyer, m.keyForBuyer!), m.adjudicator, 'appeal decision');
       return id;
     }
 
     // First instance or an escalated case: the decision moves the escrow (guaranteed_on_decision).
-    if (m.outcome === 'accept' && !m.keyForBuyer) refuse('invalid_terms', 'an accept must carry the content key for the buyer (two-sided hold)');
+    if (m.outcome === 'accept' && !keyed) refuse('invalid_terms', 'an accept must carry the content key for the buyer (two-sided hold)');
     if (m.outcome === 'escalate' && !(m.encryptedKeys ?? []).some((k) => lc(k.recipient) === lc(adjudication.appealAdjudicator))) {
       refuse('invalid_terms', 'an escalate decision must carry the appeal adjudicator content key (ADR-0020)');
     }

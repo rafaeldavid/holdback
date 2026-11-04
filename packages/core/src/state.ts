@@ -342,6 +342,11 @@ export function postedDeliveryHash(s: EscrowState): Hex32 | undefined {
   return undefined;
 }
 
+/** Every role judges the delivered attempt. panelSeed hashes it, so a free attempt would be a free seed (T-206 H-1). */
+function sameAttempt(m: Decision, delivered: number): R<true> {
+  return m.attempt === delivered ? ok(true) : fail('invalid_terms', `decision is for attempt ${m.attempt}, delivery is attempt ${delivered}`);
+}
+
 /** Checks shared by every decision (ADR-0016 §4), apart from the seed. */
 function decisionBindings(s: Base, m: Decision, at: Timestamp, adjudicator: string, deadline: Timestamp): R<true> {
   if (!sameAddress(m.adjudicator, adjudicator)) return fail('not_your_turn', `${m.adjudicator} is not the ${m.role} adjudicator`);
@@ -366,7 +371,8 @@ function firstInstance(s: Extract<EscrowState, { kind: 'Delivered' | 'FallbackJu
     role === 'primary' ? timing.judgeBy : timing.fallbackBy,
   );
   if (!bound.ok) return bound;
-  if (m.attempt !== s.delivery.attempt) return fail('invalid_terms', `decision is for attempt ${m.attempt}, delivery is attempt ${s.delivery.attempt}`);
+  const attempt = sameAttempt(m, s.delivery.attempt);
+  if (!attempt.ok) return attempt;
   const named = namesTheDelivery(m, s.delivery);
   if (!named.ok) return named;
   if (m.appealGround !== undefined) return fail('invalid_terms', 'appealGround belongs to appeal decisions only');
@@ -394,6 +400,8 @@ function escalationDecision(s: Extract<EscrowState, { kind: 'Escalated' }>, m: D
   if (m.role !== 'appeal') return fail('not_your_turn', "it is the appeal adjudicator's turn");
   const bound = decisionBindings(s, m, at, s.terms.adjudication.appealAdjudicator, s.escalation.appealDecideBy);
   if (!bound.ok) return bound;
+  const attempt = sameAttempt(m, s.delivery.attempt);
+  if (!attempt.ok) return attempt;
   const named = namesTheDelivery(m, s.delivery);
   if (!named.ok) return named;
   const seeded = beaconSeed(s, m, beacon);
@@ -410,6 +418,8 @@ export interface AppealContext {
   firstOutcome: 'accept' | 'reject';
   /** The delivery the first decision named: the appeal judges the same body (ADR-0029). */
   deliveryHash: Hex32;
+  /** That delivery's attempt, which the appeal decision names too. */
+  attempt: number;
 }
 
 export type AppealEvent = Extract<EscrowEvent, { type: 'file_appeal' | 'decide' | 'expire_appeal' }>;
@@ -446,6 +456,8 @@ export function stepAppeal(a: AppealState, e: AppealEvent, ctx: AppealContext): 
       if (m.role !== 'appeal') return fail('not_your_turn', "it is the appeal adjudicator's turn");
       const bound = decisionBindings(ctx, m, e.at, terms.adjudication.appealAdjudicator, a.appealDecideBy);
       if (!bound.ok) return bound;
+      const attempt = sameAttempt(m, ctx.attempt);
+      if (!attempt.ok) return attempt;
       const named = namesTheDelivery(m, ctx.deliveryHash);
       if (!named.ok) return named;
       if (m.outcome === 'escalate') return fail('invalid_terms', 'an appeal decision is accept or reject');
@@ -464,7 +476,13 @@ function settled(s: Extract<EscrowState, { kind: 'Released' | 'Refunded' }>, e: 
   if (s.via.kind !== 'first_instance') {
     return fail('invalid_state', s.via.kind === 'escalation' ? 'a decision reached through escalation is not appealable' : `nothing to appeal after ${s.via.kind}`);
   }
-  const ctx = { id: s.id, terms: s.terms, firstOutcome: s.kind === 'Released' ? ('accept' as const) : ('reject' as const), deliveryHash: s.via.decision.deliveryHash };
+  const ctx = {
+    id: s.id,
+    terms: s.terms,
+    firstOutcome: s.kind === 'Released' ? ('accept' as const) : ('reject' as const),
+    deliveryHash: s.via.decision.deliveryHash,
+    attempt: s.via.delivery.attempt,
+  };
   const next = stepAppeal(s.via.appeal, e as AppealEvent, ctx);
   if (next.ok && e.type === 'decide') {
     const seeded = beaconSeed(s, e.message, e.beacon);

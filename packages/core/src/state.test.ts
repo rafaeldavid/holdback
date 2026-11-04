@@ -623,6 +623,25 @@ describe('panel seed per role (ADR-0018)', () => {
     expect(r.ok ? r.value.kind : r.error.type).toBe(expected);
   });
 
+  // T-206 H-1: panelSeed hashes the attempt, so a free attempt would give every beacon role 256 valid seeds to pick from.
+  it.each<[string, EscrowEvent[], 'fallback' | 'appeal', string, number]>([
+    ['the fallback', toFallback, 'fallback', T.fallbackDecide, judgeByRound],
+    ['the appeal adjudicator after escalation', toEscalated, 'appeal', T.fallbackDecide, secondsOf(escalatedAt) + 1],
+    ['the appeal adjudicator on a party appeal', toAppealOpen, 'appeal', T.appealDecided, secondsOf(T.appealFiled) + 1],
+  ])('binds %s to the delivered attempt, even with the matching seed for another', (_name, path, role, at, round) => {
+    const s = run(path);
+    const value = testBeacon(round);
+    const onAttempt = (attempt: number) => step(s, { type: 'decide', at, message: decision(role, 'reject', { attempt, seed: panelSeed(id, role, attempt, value) }), beacon: { round, value } });
+    expect(onAttempt(1).ok).toBe(true);
+    const refused = new Set<string>();
+    for (let attempt = 0; attempt <= 255; attempt++) {
+      if (attempt === 1) continue;
+      const r = onAttempt(attempt);
+      refused.add(r.ok ? `ok: ${r.value.kind}` : r.error.type);
+    }
+    expect([...refused]).toEqual(['invalid_terms']);
+  });
+
   it('derives the seed from the commitment, role, attempt and beacon only, never from what the decider controls', () => {
     const s = run(toFallback);
     const value = testBeacon(judgeByRound);
