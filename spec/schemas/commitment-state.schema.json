@@ -52,7 +52,7 @@
     },
     "deliveryHash": {
       "$ref": "common.schema.json#/$defs/Hex32",
-      "description": "The posted delivery's EIP-712 struct hash, present from Delivered: the hash every decision and early accept must name (ADR-0029). Compare it at two operators before signing"
+      "description": "The posted delivery's EIP-712 struct hash: the hash every decision and early accept must name (ADR-0029). Present in Delivered, FallbackJudging and Escalated, and after a decision, an early accept or a mutual settlement that named it; absent before a delivery, in Defaulted and after a default outcome or a reclaim (no signature named it; the rules contract's deliveryHashOf still holds it on chain). Compare it at two operators before signing"
     },
     "hold": {
       "type": "object",

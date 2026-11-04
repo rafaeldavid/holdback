@@ -596,7 +596,10 @@ export interface CommitmentStateView {
   escrowState: EscrowStateKind;
   appealState: AppealStateKind;
   attempt: number;
-  /** ADR-0029: the posted delivery's hash, present from Delivered, so a buyer can cross-check two operators. */
+  /**
+   * ADR-0029: the posted delivery's hash, so a buyer can cross-check two operators. Present while the state holds the
+   * delivery and after a signature that named it; absent before a delivery, in Defaulted and after a default or reclaim.
+   */
   deliveryHash?: Hex32;
   hold?: { amount: TokenAmount; railRef: string };
   deadlines: Record<string, Timestamp>;

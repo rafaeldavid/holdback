@@ -7,7 +7,7 @@ import { commitmentId, deliveryHash, termsOf } from './eip712.js';
 import type { TokenAmount } from './money/index.js';
 import { parseAppeal, parseClub, parseCommitment, parseDelivery, parseMessage } from './parse.js';
 import { PROBLEM_TYPES, type ProblemType } from './problem.js';
-import { beaconRoundFor, offer, panelSeed, step, type EscrowEvent, type EscrowState, type OfferInput } from './state.js';
+import { beaconRoundFor, offer, panelSeed, postedDeliveryHash, step, type EscrowEvent, type EscrowState, type OfferInput } from './state.js';
 import type { AdjudicatorAcceptance, Agree, Appeal, Commitment, CommitmentTerms, Decision, Delivery, EarlyAccept, FundingAuthorization, MutualSettlement, Rulebook, Scope } from './types.js';
 
 function load(file: string): unknown {
@@ -639,6 +639,26 @@ describe('panel seed per role (ADR-0018)', () => {
       }),
       { numRuns: 100, seed: 20261031 },
     );
+  });
+});
+
+// ADR-0029: the read model's deliveryHash, exactly as commitment-state.schema.json describes it.
+describe('postedDeliveryHash', () => {
+  it.each<[string, EscrowEvent[], Hex | undefined]>([
+    ['Held, before a delivery', toHeld, undefined],
+    ['Delivered', toDelivered, DH],
+    ['FallbackJudging', toFallback, DH],
+    ['Escalated', toEscalated, DH],
+    ['Released by the primary', toReleased, DH],
+    ['an open appeal', toAppealOpen, DH],
+    ['Released by an early accept', [...toDelivered, ev.earlyAccept()], DH],
+    ['Settled after a delivery', [...toDelivered, ev.mutual(T.decide, { deliveryHash: DH })], DH],
+    ['Settled before a delivery', [...toHeld, ev.mutual(T.deliver)], undefined],
+    ['Defaulted', toDefaulted, undefined],
+    ['Refunded by the default outcome', [...toDefaulted, ev.at('apply_default_outcome', T.fallbackBy)], undefined],
+    ['Refunded by a reclaim', [...toHeld, ev.at('reclaim', T.deliverBy)], undefined],
+  ])('%s', (_name, path, expected) => {
+    expect(postedDeliveryHash(run(path))).toBe(expected);
   });
 });
 
