@@ -159,7 +159,7 @@ export interface Timing {
 
 /** Everything the commitment ID hashes: the commitment minus id, signatures and adjudicatorAcceptance (ADR-0016). */
 export interface CommitmentTerms {
-  schemaVersion: '0.6';
+  schemaVersion: '0.7';
   clubId: string;
   rulebookHash: Hex32;
   buyer: Address;
@@ -261,6 +261,8 @@ export interface EarlyAccept extends MessageBase {
   commitmentId: Hex32;
   buyer: Address;
   attempt: number;
+  /** ADR-0029: deliveryHash() of the delivery the buyer opened; settlement refuses any other. */
+  deliveryHash: Hex32;
 }
 
 export type AdjudicatorRole = 'primary' | 'fallback' | 'appeal';
@@ -276,6 +278,8 @@ export interface Decision extends MessageBase {
   type: 'Decision';
   commitmentId: Hex32;
   attempt: number;
+  /** ADR-0029: deliveryHash() of the delivery judged, the posted one; settlement refuses any other. */
+  deliveryHash: Hex32;
   adjudicator: Address;
   role: AdjudicatorRole;
   outcome: DecisionOutcome;
@@ -592,6 +596,8 @@ export interface CommitmentStateView {
   escrowState: EscrowStateKind;
   appealState: AppealStateKind;
   attempt: number;
+  /** ADR-0029: the posted delivery's hash, present from Delivered, so a buyer can cross-check two operators. */
+  deliveryHash?: Hex32;
   hold?: { amount: TokenAmount; railRef: string };
   deadlines: Record<string, Timestamp>;
   balances?: Record<Address, TokenAmount>;
@@ -690,6 +696,8 @@ export interface PanelMember {
 export interface Judgment {
   commitmentId: Hex32;
   attempt: number;
+  /** ADR-0029: deliveryHash() of the delivery judged; recordHash covers it. */
+  deliveryHash: Hex32;
   adjudicator: Address;
   role: AdjudicatorRole;
   intake: { plaintextHashVerified: boolean; mime: string; bytes: number; normalized: boolean };

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.8/commitment-state.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.9/commitment-state.schema.json",
   "title": "Commitment state (read model)",
   "type": "object",
   "required": [
@@ -49,6 +49,10 @@
       "type": "integer",
       "minimum": 0,
       "maximum": 3
+    },
+    "deliveryHash": {
+      "$ref": "common.schema.json#/$defs/Hex32",
+      "description": "The posted delivery's EIP-712 struct hash, present from Delivered: the hash every decision and early accept must name (ADR-0029). Compare it at two operators before signing"
     },
     "hold": {
       "type": "object",

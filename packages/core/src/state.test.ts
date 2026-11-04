@@ -101,10 +101,16 @@ const delivery = (over: Partial<Delivery> = {}): Delivery => ({
   ...over,
 });
 
+/** The posted delivery's hash, which every decision and early accept names (ADR-0029). */
+const DH = deliveryHash(delivery());
+/** The hash of another seller-signed attempt-1 delivery: a seller that equivocates. */
+const OTHER_DH = deliveryHash(delivery({ ciphertext: { uri: 'file:///store/y', sha256: `sha256:${'c'.repeat(64)}`, bytes: 100, cipher: 'aes-256-gcm' } }));
+
 const decision = (role: Decision['role'], outcome: Decision['outcome'], over: Partial<Decision> = {}): Decision => ({
   type: 'Decision',
   commitmentId: id,
   attempt: 1,
+  deliveryHash: DH,
   adjudicator: role === 'primary' ? primary : role === 'fallback' ? fallback : appealAdj,
   role,
   outcome,
@@ -177,7 +183,7 @@ const ev = {
   earlyAccept: (at = T.decide, by: Hex = buyer, over: Partial<EarlyAccept> = {}): EscrowEvent => ({
     type: 'early_accept',
     at,
-    message: { type: 'EarlyAccept', commitmentId: id, buyer: by, attempt: 1, nonce: ZERO32, expiresAt: far, signature: SIG, ...over },
+    message: { type: 'EarlyAccept', commitmentId: id, buyer: by, attempt: 1, deliveryHash: DH, nonce: ZERO32, expiresAt: far, signature: SIG, ...over },
   }),
   decide: (role: Decision['role'], outcome: Decision['outcome'], at: string, over: Partial<Decision> = {}): EscrowEvent => ({
     type: 'decide',
@@ -474,6 +480,12 @@ const illegal: Illegal[] = [
   ['early acceptance for another commitment', toDelivered, ev.earlyAccept(T.decide, buyer, { commitmentId: ZERO32 }), 'invalid_terms'],
   ['early acceptance of another attempt', toDelivered, ev.earlyAccept(T.decide, buyer, { attempt: 2 }), 'invalid_terms'],
   ['an expired early acceptance', toDelivered, ev.earlyAccept(T.decide, buyer, { expiresAt: T.deliver }), 'deadline_passed'],
+  // ADR-0029: every paying or judging signature names the posted delivery; a seller's second signed body never settles
+  ['early acceptance of another signed delivery', toDelivered, ev.earlyAccept(T.decide, buyer, { deliveryHash: OTHER_DH }), 'invalid_terms'],
+  ['a primary decision about another signed delivery', toDelivered, ev.decide('primary', 'accept', T.decide, { deliveryHash: OTHER_DH }), 'invalid_terms'],
+  ['a fallback decision about another signed delivery', toFallback, ev.decide('fallback', 'reject', T.fallbackDecide, { deliveryHash: OTHER_DH }), 'invalid_terms'],
+  ['an escalation decision about another signed delivery', toEscalated, ev.decide('appeal', 'accept', T.fallbackDecide, { deliveryHash: OTHER_DH }), 'invalid_terms'],
+  ['an appeal decision about another body than the first instance judged', toAppealOpen, ev.decide('appeal', 'reject', T.appealDecided, { deliveryHash: OTHER_DH }), 'invalid_terms'],
   ['a decision for another commitment', toDelivered, ev.decide('primary', 'accept', T.decide, { commitmentId: ZERO32 }), 'invalid_terms'],
   ['an appeal ground on a first-instance decision', toDelivered, ev.decide('primary', 'reject', T.decide, { appealGround: 'wrong-outcome' }), 'invalid_terms'],
   ['the appeal adjudicator signing as primary on an escalation', toEscalated, ev.decide('primary', 'accept', T.fallbackDecide, { adjudicator: appealAdj }), 'not_your_turn'],
@@ -628,7 +640,7 @@ describe('panel seed per role (ADR-0018)', () => {
 });
 
 describe('mutual settlement (ADR-0019, D23 payouts)', () => {
-  const dh = deliveryHash(delivery());
+  const dh = DH;
   const settledView = (s: EscrowState) => (s.kind === 'Settled' ? { payouts: s.payouts, keyReleased: s.keyReleased, settledAt: s.settledAt } : s.kind);
 
   it.each<[string, EscrowEvent[], EscrowEvent, { payouts: ReturnType<typeof split>; keyReleased: boolean }]>([

@@ -35,9 +35,9 @@ const commitment = parsed.value;
 const terms = termsOf(commitment);
 
 // Pinned vectors. A change here changes every commitment ID and signature in the system: it needs an ADR.
-const EXAMPLE_TERMS_ID = '0xaa040742a9332cea7152228c808005e0e359c9b28c5ebc71074dd67642c12855';
+const EXAMPLE_TERMS_ID = '0xa810f6f37f0e3184a03db60650490d9b4895a4ce565213c147fb538d0cc39ffb';
 const EXAMPLE_TERMS_SELLER_SIGNATURE =
-  '0xccd8520e7a5fab1e63ffebe6b9d98a01ab099c5a5e127e1128604c4fe4a68acd05135942ac873efd1d51c39ee451ac6c2811e9a6b5ce7e2d12ee19c50661ba1c1c';
+  '0xec205647d7103338e7ea7eea9c10f95a3be71a4582c590a4a84b3e97922c0157780b069dfc4c79618bcbc4a1b9bdd33cc650f51bb48a007a99a981d51ff6ed601b';
 
 // Distributes over unions, so removing `signature` from a SignedMessage keeps each variant.
 function without<T extends object, K extends keyof T>(obj: T, key: K): T extends unknown ? Omit<T, K> : never {
@@ -193,7 +193,7 @@ describe('message signatures', () => {
   const others: UnsignedMessage[] = [
     { type: 'Offer', commitmentId: id, seller, nonce, expiresAt },
     { type: 'Agree', commitmentId: id, buyer: commitment.buyer, nonce, expiresAt },
-    { type: 'EarlyAccept', commitmentId: id, buyer: commitment.buyer, attempt: 1, nonce, expiresAt },
+    { type: 'EarlyAccept', commitmentId: id, buyer: commitment.buyer, attempt: 1, deliveryHash: nonce, nonce, expiresAt },
     { type: 'AgentRevocation', agent: seller, principal: commitment.buyer, nonce, expiresAt },
     { type: 'MemberRevocation', clubId: 'data-services-v1', member: seller, operator: commitment.buyer, nonce, expiresAt },
     {
@@ -228,7 +228,7 @@ describe('message signatures', () => {
     const domainSeparator = keccak256(
       encodeAbiParameters(
         [{ type: 'bytes32' }, { type: 'bytes32' }, { type: 'bytes32' }, { type: 'uint256' }, { type: 'address' }],
-        [hashType('EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)'), hashType('Holdback'), hashType('0.6'), 31337n, SIMCHAIN_VERIFYING_CONTRACT],
+        [hashType('EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)'), hashType('Holdback'), hashType('0.7'), 31337n, SIMCHAIN_VERIFYING_CONTRACT],
       ),
     );
     const structHash = keccak256(

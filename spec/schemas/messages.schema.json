@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.8/messages.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.9/messages.schema.json",
   "title": "Signed protocol messages (EIP-712)",
-  "description": "Every state-changing message other than Delivery and Appeal. Each carries its EIP-712 domain implicitly: name Holdback, version 0.6, chainId, verifyingContract (ADR-0016).",
+  "description": "Every state-changing message other than Delivery and Appeal. Each carries its EIP-712 domain implicitly: name Holdback, version 0.7, chainId, verifyingContract (ADR-0016, ADR-0029).",
   "oneOf": [
     {
       "$ref": "#/$defs/Offer"
@@ -306,6 +306,7 @@
         "commitmentId",
         "buyer",
         "attempt",
+        "deliveryHash",
         "nonce",
         "expiresAt",
         "signature"
@@ -323,6 +324,10 @@
         "attempt": {
           "type": "integer",
           "minimum": 1
+        },
+        "deliveryHash": {
+          "$ref": "common.schema.json#/$defs/Hex32",
+          "description": "EIP-712 struct hash of the delivery the buyer opened, without its signature. Settlement refuses an early accept relayed with any other delivery (ADR-0029)"
         },
         "nonce": {
           "$ref": "common.schema.json#/$defs/Hex32"
@@ -343,6 +348,7 @@
         "type",
         "commitmentId",
         "attempt",
+        "deliveryHash",
         "adjudicator",
         "role",
         "outcome",
@@ -364,6 +370,10 @@
         "attempt": {
           "type": "integer",
           "minimum": 1
+        },
+        "deliveryHash": {
+          "$ref": "common.schema.json#/$defs/Hex32",
+          "description": "EIP-712 struct hash of the delivery judged, without its signature: the posted delivery. Settlement refuses a decision that names any other, at every role (ADR-0029)"
         },
         "adjudicator": {
           "$ref": "common.schema.json#/$defs/Address"
