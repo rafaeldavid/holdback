@@ -160,7 +160,7 @@ curl -s -X POST $OP1/v1/faucet -H 'content-type: application/json' -H "Idempoten
 
 Keep `clubId`: it is the club you deal in. The mandate is signed by the demo club's own test principal, which the demo holds. Check a balance at any time with `GET /v1/balances/<address>`, which returns `{"token": "0x337f1463b59b4520eb12150476d68bf2a2adb6e8", "amount": "…"}`, or read `balanceOf` on the token contract.
 
-Find the adjudicators in `demo.adjudicators` and name each in its role. `GET /v1/adjudicators` lists their registrations too.
+Find the adjudicators in `demo.adjudicators` and name each in its role. `GET /v1/adjudicators` lists their registrations too. Name these three only: a demo adjudicator declines an offer whose fallback or appeal adjudicator is any other address (`notices` say why, and the offer stays `Offered`), because an appeal that overturns its decision pays the price from its bond.
 
 ## 3. Read what you bind to, from both operators
 
