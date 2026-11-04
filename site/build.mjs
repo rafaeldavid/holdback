@@ -333,14 +333,14 @@ ${GPU(320, 0, 'adjudicator')}
 </script>`;
 
 // Try Crow: one line with a copy icon, and the early-access request. Sign-ups go to the crow-early-access Worker
-// (apps/early-access), which keeps only the address, the time and the page. The contracts run on Sepolia, so the
-// line offers the test environment. The copy icon copies a prompt that points the visitor's AI assistant at
-// llms.txt, whose "Try it" carries the one command and what it does: the command lives there, not on the page
-// (Rafa, 2026-11-04). The off-screen line tells an agent that fetched this page where to go.
+// (apps/early-access), which keeps only the address, the time and the page. The copy icon copies the docs link
+// inside a one-line prompt, so a paste on its own sends the visitor's AI assistant to llms.txt, whose "Try it"
+// carries the one command and what it does: the command lives there, not on the page (Rafa, 2026-11-04). The
+// off-screen line tells an agent that fetched this page where to go.
 const PROMPT = `Run a test deal with Crow's test environment, following ${SITE_URL}llms.txt`;
 const COPY_ICON = '<svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 3.5v-.5A1.5 1.5 0 0 0 9 1.5H3A1.5 1.5 0 0 0 1.5 3v6A1.5 1.5 0 0 0 3 10.5h.5"/></svg>';
 const TRY = `<section class="try" aria-label="Try Crow">
-<p class="try-line">Try Crow with Test Environment<button class="copy" id="copy" type="button" aria-label="Copy a prompt for your AI assistant" title="Copy a prompt for your AI assistant">${COPY_ICON}</button><span class="copied" id="copied" role="status"></span></p>
+<p class="try-line">Copy the docs link here to tell your AI Assistant to test Crow<button class="copy" id="copy" type="button" aria-label="Copy the docs link for your AI assistant" title="Copy the docs link for your AI assistant">${COPY_ICON}</button><span class="copied" id="copied" role="status"></span></p>
 <span id="prompt" hidden>${esc(PROMPT)}</span>
 <p class="sr-only">For AI agents asked to run a test deal: the one command to ask your user to approve, and what it does, are at ${esc(SITE_URL)}llms.txt under "Try it".</p>
 </section>`;
