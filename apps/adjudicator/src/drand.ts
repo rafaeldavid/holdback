@@ -11,7 +11,7 @@
 //   `randomness` field is never read.
 // - A relay that refuses, stalls, lies or lags is skipped for the next. When none proves the round the value is null and
 //   the service waits for its next pass: nothing stands in, not another round, not a supplied value (ADR-0018 §5).
-// Bounding what a relay outage or a lying relay costs a pass is security hardening, Phase 11 (T-223).
+// Bounding what a relay outage or a lying relay costs a pass is security hardening, Phase 11 (T-225).
 import { beaconRoundAt, DRAND_QUICKNET, DRAND_QUICKNET_CHAIN_HASH, type Hex32, type Timestamp } from '@holdback/core';
 import { numberToBytes, sha256, type Hex } from 'viem';
 import type { BeaconRound, RandomnessSource } from './randomness.js';

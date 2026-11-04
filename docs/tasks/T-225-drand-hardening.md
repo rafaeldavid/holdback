@@ -1,4 +1,4 @@
-# T-223: harden the drand quicknet path (T-217's review and red-team findings)
+# T-225: harden the drand quicknet path (T-217's review and red-team findings)
 
 - **Lane:** judgment (with core and contracts for item 1, and settlement for item 4)
 - **Phase:** 11, security hardening
@@ -12,7 +12,7 @@
 
 T-217 shipped the functional path: fallback and appeal adjudicators decide from proven drand quicknet rounds on Sepolia. Its review and red team (PR 186, 2026-11-04) found no Critical or High issue. Rafa moved the rest here: "we need something functional then add security issues to the security hardening phase" (2026-11-04).
 
-The reports and the tests that prove each finding are in Rafa's session notes, `/Users/rafa/Library/Application Support/Claude/side-session-notes/local_5d96f464-3e9f-488a-8cd3-964dda80e0bc/t223-drand-hardening/`: `redteam.md`, `review.md` and six test files. They were written against the T-217 branch before it was simplified, so some name options that branch dropped (`budgetMs`); adapt them as the fixes land.
+The reports and the tests that prove each finding are in Rafa's session notes, `/Users/rafa/Library/Application Support/Claude/side-session-notes/local_5d96f464-3e9f-488a-8cd3-964dda80e0bc/t225-drand-hardening/`: `redteam.md`, `review.md` and six test files. They were written against the T-217 branch before it was simplified, so some name options that branch dropped (`budgetMs`); adapt them as the fixes land.
 
 ## Acceptance criteria
 
