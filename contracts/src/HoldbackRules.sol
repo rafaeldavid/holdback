@@ -361,14 +361,16 @@ contract HoldbackRules is EIP712 {
         bool firstAccepted = d.stage == Stage.Released;
         bool upheld = (m.outcome == H.OUTCOME_ACCEPT) == firstAccepted;
         address first = d.flags & F_BY_FALLBACK != 0 ? t.fallbackAdjudicator : t.adjudicator;
-        _releaseBonds(t, d.flags);
+        // Only the first decider's bond is still encumbered: released if upheld, paid out below if overturned.
+        if (upheld) _releaseBonds(t, d.flags);
         d.flags &= F_BY_FALLBACK;
         d.appeal = upheld ? AppealState.Upheld : AppealState.Overturned;
         _deals[id] = d;
         // Upheld: the forfeited appeal bond goes to the first adjudicator's bond (ADR-0014 §2a). Overturned: back to
-        // the appellant; the overturn payout from the adjudicator's bond is Phase 4.
+        // the appellant, and the first adjudicator's bond pays the wronged party the price (guaranteed mode, ADR-0007).
         BONDS.payAppealBond(id, t.token, upheld ? first : address(0));
         emit AppealClosed(id, d.appeal);
+        if (!upheld) BONDS.slash(id, first, t.token, t.price, firstAccepted ? t.buyer : t.seller);
         if (bytes(m.keyCiphertext).length > 0) _releaseKey(id, t.buyer, KEY_APPEAL, m.keyScheme, m.keyCiphertext);
     }
 
@@ -497,7 +499,9 @@ contract HoldbackRules is EIP712 {
         if (d.stage != Stage.Released && d.stage != Stage.Refunded) revert WrongStage(d.stage);
         if (d.appeal != AppealState.None) revert WrongAppealState(d.appeal);
         if (block.timestamp >= uint256(d.t1) + t.timing.appealWindowSec) revert DeadlinePassed();
-        if (a.appellant > 1) revert InvalidMessage();
+        // Only the party the decision went against appeals (T-206 L-7): outcomes are binary, and one slot taken by
+        // the favoured party would shut out the party with something to win.
+        if (a.appellant != (d.stage == Stage.Released ? 0 : 1)) revert InvalidMessage();
         address appellant = a.appellant == 0 ? t.buyer : t.seller;
         _requireSigned(appellant, H.appealHash(id, appellant, H.tokenIdHash(t.token), a), a.signature);
         d.appeal = AppealState.Open;

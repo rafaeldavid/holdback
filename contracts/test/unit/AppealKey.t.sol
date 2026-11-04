@@ -68,7 +68,7 @@ contract AppealKeyTest is Base {
     }
 
     function test_upheldReject_refusesAKey() public {
-        (H.Terms memory t, bytes32 id, uint64 round) = _appealed(H.OUTCOME_REJECT, 0);
+        (H.Terms memory t, bytes32 id, uint64 round) = _appealed(H.OUTCOME_REJECT, 1);
         H.Decision memory m = _appealDecision(t, id, round, H.OUTCOME_REJECT, true);
         vm.expectRevert(HoldbackRules.InvalidMessage.selector);
         rules.decide(t, m, _noDelivery(), "");

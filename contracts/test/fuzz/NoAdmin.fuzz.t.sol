@@ -97,7 +97,7 @@ contract NoAdminFuzzTest is Base {
             s[23] = "triggerFallback(";
             s[24] = "typedDataHash(bytes32)";
         } else if (i == 1) {
-            s = new string[](11);
+            s = new string[](12);
             s[0] = "RULES()";
             s[1] = "appealBondOf(bytes32)";
             s[2] = "bondOf(address,address)";
@@ -107,8 +107,9 @@ contract NoAdminFuzzTest is Base {
             s[6] = "freeOf(address,address)";
             s[7] = "payAppealBond(bytes32,address,address)";
             s[8] = "release(address,address,uint256)";
-            s[9] = "takeAppealBond(bytes32,address,address,uint256)";
-            s[10] = "withdraw(address,uint256)";
+            s[9] = "slash(bytes32,address,address,uint256,address)"; // rules-only: the overturn payout (T-206 I-8)
+            s[10] = "takeAppealBond(bytes32,address,address,uint256)";
+            s[11] = "withdraw(address,uint256)";
         } else if (i == 2) {
             s = new string[](11);
             s[0] = "PAYMENT_INFO_TYPEHASH()";
