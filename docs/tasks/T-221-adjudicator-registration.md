@@ -16,7 +16,7 @@
   - settlement: one new test file under `packages/settlement/evm/` for the anvil end to end, with no edits to `evm-settlement.ts` (T-218's);
   - docs: `docs/decisions/ADR-0030-adjudicator-registration.md` (new), `docs/api.md`, `docs/neutrality.md`, `docs/backlog.md`, `docs/plan.md` (this row, and the named test's row in the scenario index), this file.
 - **Human gate:** no. The live deploy is T-220's.
-- **Status:** in progress (slice 1 in review)
+- **Status:** in progress (slice 1 merged)
 - **Agent/session:** Claude Code session on branch `t-221-registration-slice-1` (slice 1); slice 2 to come. The planning branch `t-221-adjudicator-registration` (PR 176) is a different branch.
 
 ## Intent
@@ -177,6 +177,7 @@ Fill this in before review. Label each item measured, inferred or guessed.
 - Test first: the 13 new cases (the replay budget, the Sybil bound, the high-s twin, the time spelling, the low-order key, the 32 KiB cap, an expired registration in prepare, the idempotent replay after a bond drop, the buyer's notice at agree, a hold's own reservation, stable pages, and core's `verifyRegistration`) failed before the fixes and pass after: `registrations.test.ts` and `eip712.registration.test.ts`, 39 of 39 [measured].
 - **Re-review of 6eea9b0:** the `reviewer` found its 9 findings fixed and 2 new Lows; the `red-teamer` found 12 of 15 fixed, 3 partly fixed, and 2 new Lows (both measured by them). The follow-up commit fixes all four Lows: the cap now holds escaped JSON, the primary's agree notice no longer depends on where a settlement layer reserves, registrations never move budget to the adjudicator (an older registration replayed in order had), and a failed bond read says "no bond check was made". It also rewrites other spellings to the canonical one instead of refusing them, and runs the fee check after the fallback check, inside the idempotent handler.
 - `pnpm verify` on 2026-11-04 at 16:42 UTC, on that follow-up: typecheck, lint, forge build, forge, test, spec, snap, snap:local and demo all pass; no snapshot diffs; `pnpm test` 2,471 passed, 3 skipped, in 109 files [measured].
+- **After merging main** (PRs 179, 182 and 183, at `bb79a64`): `site/try.mjs` rebuilt to the same bytes git merged, and `node site/check.mjs` passes [measured]. The first `pnpm verify` failed one test, `apps/demo-cloud/src/world.test.ts:361` (a reopened world's digest); it passed alone three times out of three, and the rerun at 16:49 UTC passed all 9 steps with `pnpm test` at 2,503 passed and 3 skipped, in 112 files, and no snapshot diffs [measured]. This branch changes nothing in `apps/demo-cloud`, so the first failure is load timing [inferred].
 - Not fixed here, by design: draining a default adjudicator's bond with long deals (a backlog row; the reference adjudicator's own limit, `service.ts`); D44's second path waits for slice 2's trust rule, which must land before or with the demo's store (Handoff).
 
 ## Decisions
@@ -216,6 +217,7 @@ Slice 1, adopted under "autonomy inside the repo" and recorded in ADR-0030 (Prop
    - `registry.pool`: live `bondOf` and `freeBond` reads through the EVM adapter's existing reads (cached per block), for any address, not the `pools` cache of the demo's three. No edit to `evm-settlement.ts`. Compare token addresses in lowercase (`freeBond` already does); a read that throws is treated as unknown (`liveBond` in `server.ts`).
    - The reference adjudicator's own lifetime limit (the backlog row on draining a default adjudicator's bond) can ride with the `service.ts` change in step 1.
    - `registry.defaultAdjudicators`: the three demo adjudicators by role.
+   - T-220 keeps today's Sepolia world (Rafa, 2026-11-04: "Yes, keep the world"; how a schema bump fits one world is pending D49), so the store must work on an existing world: it creates the `ar:` rows on the first open after the deploy, and each later open re-registers idempotently. Sign each demo adjudicator's registration with a fixed `issuedAt` and nonce (from the world's start, as `sim-world.ts` does), so a restart posts the same digest and `register()` answers `unchanged`. Do not change `WORLD_NAME` for schema 0.10.
    - The demo's three register at world open through `register()` with `signRegistration()` from their own keys, as `apps/operator/src/sim-world.ts` does; drop the in-memory `registrations` map and the `registration` closure; the adjudicator service's `registration()` port reads the store with the live pool.
    - `telemetry.ts`: count the `ar:` rows.
    - `world.test.ts`, `live.test.ts`: the store, the reload, and the live bond read.
