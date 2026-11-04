@@ -243,7 +243,7 @@ Fill this in before review. Label each item measured, inferred or guessed.
     T-212's smoke deal on this deployment measured fund 938,593, deliver 173,119 and decide 524,530 (its Handoff). The same calls on anvil cost far less (funding 283,271, deliver about 83,500, decide about 136,000); the gap is not explained yet.
   - **Found on Sepolia** (backlog row, Settlement layer): a relayed `deliver` landed on chain without either operator logging it. In deal `0xf0453986…`, the operators' relayer lane `0x5e7f1a8c…3243` sent `deliver` in [`0x64c5c757…caf1`](https://sepolia.etherscan.io/tx/0x64c5c757d4af4fd9b40850435eefffacdabe184835bad79b36282f7addd0caf1) (block 12,064,917), between its own `agreeAndFund` (block 12,064,916) and `decide` (block 12,064,918). Neither operator's log has the deal's `delivery.submitted` or the key release to the primary, yet the primary decided [measured: both operators' events and the chain logs, read with `RoundChain`]. Likely cause [inferred from `packages/settlement/evm/evm-settlement.ts`, `send`]: after the receipt, the adapter sets the book's state, then reads `dealOf` at the latest block through one of several RPCs (`worker.ts`, keyed and public). A node one block behind answers the old stage, the divergence check throws, and the step's events are never emitted, while the book already holds the delivery the primary then judges.
   - **Not reproduced on Sepolia:** the anvil-only 500 on `appeal-expiry` (both deals' expiries went through the API). The demo primary did not close either window itself before the round did.
-  - **Finality:** not yet re-read; Rafa runs `finality` on the folder above about 20 minutes after the run.
+  - **Finality: no reorg.** At 21:30 UTC, 172 blocks (about 34 minutes) after the run's last transaction, `finality` on the folder above re-read all 8 transactions at head block 12,065,104: 8 in the same block, 0 changed, 0 unreadable [measured: the T-216 coordinating session ran it, needing no secret, and `finality.json` in the folder records it].
   - Scenario 1 does not pass under the pass rule yet, and this run predates T-220's deploy; both scenarios run again on T-220's Worker versions.
 
 ## Decisions
@@ -281,10 +281,10 @@ Made by the driver session on 2026-11-04, inside the task's paths.
      node --env-file=/Users/rafa/Documents/escrow/.env /Users/rafa/Documents/escrow/examples/e2e-round.ts run 3a 3d 10a
      ```
 
-  3. About 20 minutes after the last run, the finality re-read of the folder the run printed:
+  3. About 20 minutes after the last run, the finality re-read of the folder the run printed. It reads only public chain data and needs no secret, so any session can run it:
 
      ```bash
-     node --env-file=/Users/rafa/Documents/escrow/.env /Users/rafa/Documents/escrow/examples/e2e-round.ts finality /Users/rafa/Documents/escrow/reports/e2e-round-1/<run folder>
+     node /Users/rafa/Documents/escrow/examples/e2e-round.ts finality /Users/rafa/Documents/escrow/reports/e2e-round-1/<run folder>
      ```
 
   Each run writes `reports/e2e-round-1/<UTC time>/summary.md` in the checkout and one JSON record per scenario: public data only. Paste the terminal output or `summary.md` to the T-216 session, which records the run as measured in the report (`docs/reviews/2026-11-04-evm-e2e-round-1.md`).
