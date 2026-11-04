@@ -10,16 +10,16 @@ The public demo of Crow (the Holdback protocol). Test tokens only; nothing here 
 | https://api.escrow.stream | Operator node 1, home of the World Durable Object (the faucet, the adjudicators and the operators' view), which settles on Ethereum Sepolia since 2026-11-03 (D41; SimChain on a rollback) | `apps/demo-cloud/` (wraps `apps/operator`, `packages/settlement/sim`, `apps/adjudicator`) | Worker `holdback-op1` (`apps/demo-cloud/wrangler.op1.jsonc`) |
 | https://api2.escrow.stream | Operator node 2, same world, own receipt key | same | Worker `holdback-op2` (`wrangler.op2.jsonc`) |
 | https://join.escrow.stream | Early-access email sign-ups (KV `EMAILS`: address, time, page; nothing else) | `apps/early-access/` | Worker `crow-early-access` |
-| Ethereum Sepolia (chain 11155111) | The reviewed settlement contracts and the tUSDC test token; not yet used by the live demo (T-213) | `contracts/src/` at `2342756`; addresses in `contracts/deployments/sepolia.json` | `contracts/script/deploy-sepolia.sh` (T-206), with a throwaway deployer key |
+| Ethereum Sepolia (chain 11155111) | The reviewed settlement contracts under EIP-712 domain 0.7 and their tUSDC test token, which the live demo settles on since 2026-11-04 (ADR-0029). The domain 0.6 deployment of 2026-11-03 still settles the deals opened on it | `contracts/src/` at `64be1f1`; addresses in `contracts/deployments/sepolia.json` (the 0.6 deployment, from `2342756`: `sepolia-2026-11-03-domain-0.6.json`) | `contracts/script/deploy-sepolia.sh` (T-206), with a throwaway deployer key |
 | npc.here.now/escrow | Old address; a redirect to escrow.stream | `reports/redirect/` (not in git) | here.now; no further publishing needed |
 
 All on Rafa's Cloudflare account (its ID goes in `CLOUDFLARE_ACCOUNT_ID` in the git-ignored `.env`; template: `config/keys-dev-env.template`). The domain `escrow.stream` was bought on Cloudflare (`brand/domain.md`).
 
 **Demo settings** (in `apps/demo-cloud/wrangler.op1.jsonc` vars): minimum window 60 s; operator fee 1 bp, minimum 0.01 tUSD (D33, ADR-0023). Live judges: Anthropic and DeepSeek, pinned in `config/judges-live.yaml`, capped at 30 calls a day (`LIVE_JUDGE_CALLS_PER_DAY`); past the cap, or without keys, panels are scripted and every verdict says so.
 
-**Schema:** the code on main runs schema v0.9 and signs under EIP-712 domain 0.7 (ADR-0029: decisions and early accepts name the delivery); the live demo still runs schema v0.8 under domain 0.6 against the 0.6 contracts on Sepolia. `/v1/status` reports `schemaVersion` and the domain.
+**Schema:** main and the live demo run schema v0.9 and sign under EIP-712 domain 0.7 (ADR-0029: decisions and early accepts name the delivery), against the 0.7 contracts on Sepolia (since 2026-11-04). `/v1/status` reports `schemaVersion` and the domain.
 
-> **Do not deploy the Workers or the site from main until the 0.7 contracts are on Sepolia** and `contracts/deployments/sepolia.json` (and its copy in `examples/deployments.ts`, and the pins in `site/llms.txt`) name them. The deployed `HoldbackRules` signs under domain 0.6, so a Worker built from main would see every `agreeAndFund` revert `BadSignature`, and the site would teach agents a domain the contract refuses. The Sepolia world refuses to start against a contract under another domain (`LiveChain.verify`, `domainMismatch`), but the SimChain world and the site have no such check. The redeploy steps are in `docs/tasks/T-212-contract-hardening.md` (Handoff, item 3) and ADR-0029 §8; the redeploy is gated on Rafa.
+> **A build and the contracts it settles on must share one EIP-712 domain.** A contract change that moves the domain ships as a new deployment: deploy it, update `contracts/deployments/sepolia.json` (and its copy in `examples/deployments.ts`, and the pins in `site/llms.txt`), and only then deploy the Workers and the site. The Sepolia world refuses to start against a contract under another domain (`LiveChain.verify`, `domainMismatch`); the SimChain world and the site have no such check. ADR-0029 §8 has the steps.
 
 ## Secrets
 
@@ -29,8 +29,6 @@ All on Rafa's Cloudflare account (its ID goes in `CLOUDFLARE_ACCOUNT_ID` in the 
 - `wrangler` uses Rafa's OAuth login on his Mac, or `CLOUDFLARE_API_TOKEN` (scoped to Workers and KV) in an isolated environment.
 
 ## Deploy
-
-**Until the 0.7 contracts are on Sepolia, deploy nothing from main** (see Schema above): main signs under domain 0.7 and the deployed contract under 0.6.
 
 Always build and check before deploying; deploy only what changed. Deploys run as whoever runs them: an agent with Rafa's go-ahead (or within an approved task), using wrangler's OAuth login on Rafa's Mac or `CLOUDFLARE_API_TOKEN` in an isolated environment. Wrangler is pinned to major version 4 (`npx wrangler@4`).
 
@@ -57,9 +55,9 @@ Workers rules learned the hard way (T-029): compile schemas at startup, not lazi
 
 ## Settlement: SimChain or Sepolia (D41, ADR-0028)
 
-Each operator Worker has a variable `SETTLEMENT`, `sim` or `sepolia`, in its wrangler file. It picks the world the Worker forwards to: `holdback-public-demo-2026-11-02` (SimChain) or `holdback-public-demo-sepolia-2026-11-03` (Sepolia), in `apps/demo-cloud/src/worker.ts`. The two worlds never share storage. A world records its settlement when it is created and keeps it; the Durable Object always runs holdback-op1's code and environment, so the Sepolia secrets live on holdback-op1 whichever Worker a request came through.
+Each operator Worker has a variable `SETTLEMENT`, `sim` or `sepolia`, in its wrangler file. It picks the world the Worker forwards to: `holdback-public-demo-2026-11-04` (SimChain) or `holdback-public-demo-sepolia-2026-11-04` (Sepolia), in `apps/demo-cloud/src/worker.ts`. Both names moved on 2026-11-04 with schema v0.9 and the 0.7 contracts; the earlier worlds (`holdback-public-demo-2026-11-02`, `holdback-public-demo-sepolia-2026-11-03`) keep their storage for a rollback of both Workers. The two worlds never share storage. A world records its settlement when it is created and keeps it; the Durable Object always runs holdback-op1's code and environment, so the Sepolia secrets live on holdback-op1 whichever Worker a request came through.
 
-**Domain 0.7 (ADR-0029):** a build from main needs the 0.7 contracts. Before any Worker or site deploy from main, the new `HoldbackRules` must be on Sepolia and `sepolia.json`, `examples/deployments.ts` and `site/llms.txt` must name it; a Sepolia world started against the 0.6 contract refuses to start ("the rules contract signs under EIP-712 domain "Holdback" 0.6, this build under "Holdback" 0.7").
+**Domain 0.7 (ADR-0029):** the 0.7 contracts are on Sepolia since 2026-11-04 and the build names them. A Sepolia world started against a contract under another domain refuses to start ("the rules contract signs under EIP-712 domain "Holdback" 0.6, this build under "Holdback" 0.7"). Deals opened on the 0.6 deployment finish on it: every timeout there is permissionless, and its addresses are in `contracts/deployments/sepolia-2026-11-03-domain-0.6.json`.
 
 **What the Sepolia world needs before any Worker flips:** `contracts/deployments/sepolia.json` on main (T-206; the build embeds it), its copy in `examples/deployments.ts`, the relayer secret on holdback-op1 (above), and Sepolia ETH on the funding lane. On its first passes the world tops up the deal lanes, then bonds each demo adjudicator (25,000 tUSDC, minted, approved and deposited from its own key); `notices` on a state read say so until the bonds are in place.
 
@@ -71,6 +69,8 @@ Each operator Worker has a variable `SETTLEMENT`, `sim` or `sepolia`, in its wra
 4. Deploy holdback-op1 with `SETTLEMENT` `sepolia`, and run the one command from the homepage. Steps 2 to 4 take a few minutes; that is the window in which the homepage command fails.
 
 **Rollback:** set `SETTLEMENT` back to `sim` on both wrangler files and run `pnpm demo-cloud:deploy`, then deploy the previous site build (`npx wrangler@4 rollback` on `crow-site`). The SimChain world resumes where it stopped; the Sepolia world's storage and its deals on chain stay, and a later flip back serves them again.
+
+**The 0.7 cutover, 2026-11-04, about 08:30 UTC** (Rafa approved it the same day; T-212 Handoff): the 0.7 contracts, then holdback-op1 `5d369b0e`, holdback-op2 `1f169857` and crow-site `87d3c54c`, all built from `t-212-sepolia-redeploy` (main at `64be1f1` plus the new record, the world names and the site pins). Both Workers deployed together (`pnpm demo-cloud:deploy`), since both already settled on Sepolia. To roll back to the 0.6 world: holdback-op1 `3b6febc8`, holdback-op2 `45c2e6a9` and crow-site `671481dc` (`npx wrangler@4 rollback <version> --name <worker>` for each); the 0.6 world's storage and its deals on chain stay.
 
 **Live since 2026-11-03, about 16:32 UTC** (T-213 Evidence): holdback-op1 `3b6febc8`, holdback-op2 `45c2e6a9`, and the Sepolia site. To roll back, the earlier versions are holdback-op1 `167a6e70` (before the cutover) or `36b26c6f` (the new code on SimChain), and holdback-op2 `6310f84a`. A deploy of holdback-op1 restarts the Durable Object: a transaction in flight at that moment lands on chain, but the operators' view misses it (seen once at the cutover; the in-flight row in the backlog fixes it). Deploy while no deal is mid-step. One holdback-op1 deploy was refused with "Script startup exceeded CPU time limit"; the retry passed (backlog).
 
@@ -144,7 +144,7 @@ Without the binding, `/v1/feedback` answers 404 `not_found` and discovery has no
 
 ## Sepolia contracts (T-206)
 
-The reviewed settlement contracts are deployed on Ethereum Sepolia (chain ID 11155111), a public testnet whose coins are worthless. Addresses, transaction hashes, blocks, constructor arguments, the commit and the compiler settings are in `contracts/deployments/sepolia.json`. Read them from there, not from this page. The live demo still settles on SimChain until the cutover (T-213, behind the `SETTLEMENT` flag).
+The reviewed settlement contracts are deployed on Ethereum Sepolia (chain ID 11155111), a public testnet whose coins are worthless. Addresses, transaction hashes, blocks, constructor arguments, the commit and the compiler settings are in `contracts/deployments/sepolia.json`. Read them from there, not from this page. The live demo settles on them (T-213, behind the `SETTLEMENT` flag).
 
 - **What was deployed.**
   - Commerce Payments' `AuthCaptureEscrow` with its ERC-3009 and Permit2 collectors.
@@ -167,7 +167,7 @@ The reviewed settlement contracts are deployed on Ethereum Sepolia (chain ID 111
 - **The deployer.** A throwaway key, whose address is in the JSON. It sits in an encrypted Foundry keystore at `~/.foundry/keystores/`, outside the repository, with its password in a 0600 file next to it. It only pays gas. Never print the key or the password, and never put either in `.env*`.
 - **Not verified on Etherscan.** No Etherscan API key is in the environment. The JSON records the commit and compiler settings, so anyone can rebuild and compare the bytecode.
 - **Redeploying.** A contract fix ships as a new deployment that new deals opt into. Deals already open keep the contracts they started with. Deploying again, to Sepolia or anywhere else, is a gate (below).
-- **The 0.7 redeploy (ADR-0029, pending Rafa).** The deployed contracts sign under EIP-712 domain 0.6; main signs under 0.7. Until the 0.7 contracts are deployed and `sepolia.json` names them, do not deploy the Workers or the site from main (Schema, above).
+- **The 0.7 redeploy (ADR-0029; Rafa approved it on 2026-11-04).** The whole stack was deployed again from `64be1f1` with the same script, after a rehearsal on a Sepolia fork, and `--check` passes against Sepolia [measured]. The rules contract signs under "Holdback" 0.7 [measured: `eip712Domain()`]. The throwaway deployer is the one of 2026-11-03. The 0.6 deployment's record moved to `contracts/deployments/sepolia-2026-11-03-domain-0.6.json`; check it with `deploy-sepolia.sh --check` from a checkout at `2342756`, after copying that file over `sepolia.json`.
 
 ## Costs
 
