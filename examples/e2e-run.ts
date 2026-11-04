@@ -191,6 +191,8 @@ export class Run {
   readonly checks: Check[] = [];
   readonly deals: DealRecord[] = [];
   readonly notes: string[] = [];
+  /** Longer output kept with the record, such as a homepage run's lines, with URLs removed (`reason`). */
+  readonly attachments: Record<string, string> = {};
   readonly startedAt = new Date().toISOString();
   error?: string;
   waitsFor: string[] = [];
@@ -224,7 +226,7 @@ export class Run {
       scenario: this.scenario, title: this.title, status, startedAt: this.startedAt, endedAt: new Date().toISOString(),
       ...(this.error ? { stoppedAt: this.step, error: this.error } : {}), waitsFor: this.waitsFor,
       deployment: this.round.chain ? { chainId: this.round.chain.deployment.chainId, rules: this.round.chain.deployment.rules, explorer: this.round.chain.explorer ?? null } : { chainId: this.round.pin.domain.chainId, rules: null, explorer: null },
-      domain: this.round.pin.domain, operators: this.round.status, checks: this.checks, deals: this.deals, notes: this.notes,
+      domain: this.round.pin.domain, operators: this.round.status, checks: this.checks, deals: this.deals, notes: this.notes, attachments: this.attachments,
     };
   }
 }
