@@ -19,6 +19,11 @@
 //   seller-signed delivery's envelopes and releases each adjudicator's at its turn, as SimChain does (ADR-0020):
 //   the primary at delivery, the fallback at takeover, the appeal adjudicator at escalation or a party appeal.
 //   The buyer's envelope is released on chain, in the paying transaction.
+// - Direct calls (T-218): a party may call the contract past every operator (ADR-0005). `observe` applies a mined
+//   transaction this node did not relay, rebuilt from its calldata, as the same mirror step and events with
+//   `submittedVia: 'direct'`; ChainSync (sync.ts) finds them in the rules contract's logs. A step it cannot rebuild
+//   (a direct delivery it holds no copy of, a call forwarded by another contract) puts the deal behind: the view
+//   serves dealOf's stage with a notice, and nothing is invented.
 import {
   beaconRoundFor,
   canonicalKeccak,
@@ -40,17 +45,22 @@ import {
   type Address,
   type AnyCommitmentTerms,
   type Appeal,
+  type AppealGround,
   type Club,
   type CommitmentStateView,
   type Decision,
   type Delivery,
+  type EarlyAccept,
   type EncryptedKey,
   type EscrowEvent,
   type EscrowState,
   type EscrowStateKind,
+  type FundingAuthorization,
   type Hex32,
   type Mandate,
+  type MutualSettlement,
   type Problem,
+  type RandomnessSource,
   type Scope,
   type SettlementEvent,
   type SettlementEventType,
@@ -59,7 +69,7 @@ import {
   type TokenAmount,
   type TransferAuthorization,
 } from '@holdback/core';
-import { decodeEventLog, decodeFunctionData, encodeFunctionData, encodePacked, getAddress, hashTypedData, keccak256, toHex, type Abi, type AbiEvent, type Hex, type Log } from 'viem';
+import { decodeEventLog, decodeFunctionData, encodeFunctionData, encodePacked, getAddress, hashTypedData, keccak256, stringToBytes, toHex, type Abi, type AbiEvent, type Hex, type Log } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import type { Genesis } from '../sim/simchain.js';
 import type { DryRunSubmission, Settlement, Submission, SubmitOptions, SubmitResult, TimeoutKind } from '../src/interface.js';
@@ -86,6 +96,7 @@ import {
 } from './encode.js';
 import { problemFromRevert, revertData, revertName } from './errors.js';
 import { assertSafeChain } from './guard.js';
+import { commitmentTxs, idsOf, rulesCalls, type ChainTx, type RulesCall } from './sync.js';
 import type { EvmWorld } from './world.js';
 
 /** Submit options on EVM: who pays gas. A private key: the agent's own for 'direct'. Absent: the chain's relayer lane for the commitment. */
@@ -126,7 +137,41 @@ export interface Book {
   appealClosedAt?: Timestamp;
   lastEventSeq: number;
   updatedAt: Timestamp;
+  /** Transactions applied to this book, relayed or read from the chain, lowercase (T-218): each applies once. */
+  chainTxs?: string[];
+  /** Set while the chain has moved this deal in a way the book cannot follow yet (T-218). */
+  behind?: Behind;
 }
+
+/** A deal the chain moved past its book (T-218). The view serves dealOf's stage with a notice and invents no step. */
+export interface Behind {
+  /** dealOf's stage (HoldbackRules.Stage name) and appeal state (its enum index), as last read. */
+  stage: string;
+  appeal: number;
+  /** The first transaction the book could not follow, and why. */
+  tx: Hex;
+  reason: string;
+  /**
+   * Present when only the seller-signed delivery is missing (the contract keeps its hash alone, T-205): the
+   * transactions from `tx` on, applied in order once a party posts that delivery.
+   */
+  waiting?: ChainTx[];
+}
+
+/** What `observe` did with the transactions it was given, per commitment they touch. */
+export interface ObserveReport {
+  /** Steps rebuilt and applied. */
+  applied: number;
+  /** Already applied (this node relayed them, or an earlier pass read them). */
+  seen: number;
+  /** Put a deal behind, or waited behind it. */
+  behind: number;
+  /** Named a commitment this node never saw (no book: counted and skipped). */
+  unknown: number;
+}
+
+/** A chain call rebuilt into the core mirror's steps, or why it cannot be yet. */
+type Rebuilt = { fn: string; steps: (at: Timestamp) => EscrowEvent[]; actor: Address | 'anyone'; ctx: CallContext } | { wait: string } | { fail: string };
 
 /** What a store must persist to rebuild a live settlement after a restart (`EvmSettlement.restore`). */
 export interface EvmSaved {
@@ -173,6 +218,15 @@ const LOG_TYPES: Record<string, Record<string, SettlementEventType>> = {
   expireAppeal: { AppealClosed: 'appeal.expired' },
 };
 const KEY_PATHS = ['decision', 'early_accept', 'mutual settlement', 'appeal decision'];
+/** keccak256 of a string, as the settlement view hashes strings (encode.ts). */
+const str = (s: string): Hex32 => keccak256(stringToBytes(s));
+/** The values a hashed field of a direct call may take, so the sync can read it back from its hash (T-218). */
+const APPEAL_GROUNDS: readonly AppealGround[] = ['wrong-outcome', 'missing-or-wrong-key', 'policy-or-panel-violation', 'mislabeled-model'];
+const BEACON_SOURCES: readonly RandomnessSource[] = ['sim', 'drand-quicknet', 'prevrandao'];
+const ROLES = ['primary', 'fallback', 'appeal'] as const;
+const OUTCOMES = ['accept', 'reject', 'escalate'] as const;
+/** A deal stays open for the sync's cadence this long after its last deadline (T-218). */
+const OPEN_GRACE_MS = 3_600_000;
 
 export interface DecodedLog {
   address: Address;
@@ -210,6 +264,8 @@ interface CallContext {
   operatorFee?: { from: string; to: string; amount: TokenAmount };
   /** Runs once the call is in a block, before its events. */
   mined?: () => void;
+  /** Read from the chain, not relayed (T-218): an escalation whose decision envelopes are only a hash hands over the delivery's. */
+  synced?: boolean;
 }
 
 /** A decision's `decidedBy` payload, as SimChain writes it. */
@@ -243,6 +299,10 @@ export class EvmSettlement implements Settlement {
   private dirty = new Set<Hex32>();
   private drained = 0;
   private admitted: Mandate[] = [];
+  /** Per commitment, the transactions applied to its book (T-218), from its `chainTxs` and the events' `tx`. */
+  private readonly appliedTxs = new Map<Hex32, Set<string>>();
+  /** Per commitment, the log length after this node last recorded a relayed call: a sync pass that read dealOf before it does not check that deal. */
+  private readonly relayedAt = new Map<Hex32, number>();
 
   private constructor(
     readonly world: EvmChain,
@@ -296,11 +356,16 @@ export class EvmSettlement implements Settlement {
       for (const n of b.nonces) s.nonces.add(n);
       for (const [key, r] of Object.entries(b.replays ?? {})) s.idempotency.set(key, r);
       if (b.spent) s.spent.set(b.spent.day, (s.spent.get(b.spent.day) ?? 0n) + BigInt(b.spent.amount));
+      for (const h of b.chainTxs ?? []) s.seen(id, h);
     }
     for (const e of saved.events) {
       if (e.seq !== s.log_.length) throw new Error(`saved event ${e.seq} is out of order (expected ${s.log_.length})`);
       s.log_.push(e);
-      if (typeof e.payload['tx'] === 'string') s.onChain.add(e.seq);
+      if (typeof e.payload['tx'] === 'string') {
+        s.onChain.add(e.seq);
+        // Books saved before T-218 have no chainTxs: their events name the transactions applied.
+        if (e.commitmentId) s.seen(e.commitmentId, e.payload['tx']);
+      }
     }
     s.drained = s.log_.length;
     return s;
@@ -390,8 +455,9 @@ export class EvmSettlement implements Settlement {
     return null;
   }
 
-  async stage(id: Hex32): Promise<{ stage: (typeof STAGES)[number]; appeal: number }> {
-    const d = (await this.world.publicClient.readContract({ address: this.world.deployment.rules, abi: this.world.abis.rules, functionName: 'dealOf', args: [id] })) as { stage: number; appeal: number };
+  /** dealOf's stage and appeal state, at the latest block or at `blockNumber`. */
+  async stage(id: Hex32, blockNumber?: bigint): Promise<{ stage: (typeof STAGES)[number]; appeal: number }> {
+    const d = (await this.world.publicClient.readContract({ address: this.world.deployment.rules, abi: this.world.abis.rules, functionName: 'dealOf', args: [id], ...(blockNumber !== undefined ? { blockNumber } : {}) })) as { stage: number; appeal: number };
     return { stage: STAGES[d.stage]!, appeal: d.appeal };
   }
 
@@ -593,7 +659,7 @@ export class EvmSettlement implements Settlement {
    * One call at a time per commitment. Anvil runs every call in one lane, so a scenario's order is the order of its
    * steps; on a live chain different commitments wait for their own receipts side by side.
    */
-  private enqueue(lane: string, f: () => Promise<SubmitResult>): Promise<SubmitResult> {
+  private enqueue<T>(lane: string, f: () => Promise<T>): Promise<T> {
     const key = this.wall ? lane : '';
     const prev = this.lanes.get(key) ?? Promise.resolve();
     const next = prev.then(f, f);
@@ -700,9 +766,16 @@ export class EvmSettlement implements Settlement {
         if (!(await verifyTerms(this.domain, t, c.signatures.seller, t.seller))) refuse('invalid_signature', 'the seller did not sign these terms');
         if (this.books.has(c.id)) refuse('invalid_state', `commitment ${c.id} was already offered`);
         const club = this.genesis.clubs.find((k) => k.id === t.clubId && k.rulebookHash === t.rulebookHash);
-        const sellerScope = this.scopeFor(t.seller, t.clubId, t, club);
+        // T-218: a deal funded on chain before anyone posted its offer here. The world joins the chain's state: the
+        // offer is checked as of its terms' createdAt (the contract checked the signatures and deadlines at funding,
+        // and this node's mandate checks are its policy for what it relays), then its transactions apply in order.
+        // A failed read offers as before: the deal is then most likely not on chain, and the sync's notice covers the rest.
+        const onChain = dryRun ? null : await this.stage(c.id).catch(() => null);
+        const joining = onChain !== null && STAGES.includes(onChain.stage) && onChain.stage !== 'None';
+        const found = joining ? await commitmentTxs(this, c.id) : null;
+        const sellerScope: Scope = joining ? { roles: ['seller'], maxPerCommitment: t.price, maxDaily: t.price, expiresAt: '9999-12-31T23:59:59Z' } : this.scopeFor(t.seller, t.clubId, t, club);
         const nonce = `${lc(t.seller)}:terms:${t.nonce}`;
-        const r = offer({ commitment: c, at, sellerScope, rulebook: club?.rulebook ?? null, nonceUsed: this.nonces.has(nonce) });
+        const r = offer({ commitment: c, at: joining ? t.createdAt : at, sellerScope, rulebook: club?.rulebook ?? null, nonceUsed: this.nonces.has(nonce) });
         if (!r.ok) return refuse(r.error.type, r.error.detail);
         // The contract can represent these terms only if the token is an address (ADR-0025).
         termsView(t);
@@ -711,6 +784,7 @@ export class EvmSettlement implements Settlement {
         this.useNonce(book, nonce, false);
         this.books.set(c.id, book);
         this.emit('commitment.offered', c.id, t.seller, via, { source: 'adapter', termsHash: c.id, terms: t, sellerSignature: c.signatures.seller }, false);
+        for (const tx of found?.txs ?? []) this.follow(c.id, tx, found!.stages.get(c.id));
         return c.id;
       }
       case 'adjudicator_accept': {
@@ -740,15 +814,24 @@ export class EvmSettlement implements Settlement {
         if (dryRun) return s.message.commitmentId;
         return this.fund(s.message, null, options);
       case 'agree_and_fund': {
-        if (s.agree.commitmentId !== s.funding.commitmentId) refuse('invalid_terms', 'agreement and funding name different commitments');
-        if (s.operatorFee && s.operatorFee.commitmentId !== s.agree.commitmentId) refuse('invalid_terms', 'the operator fee names another commitment');
+        const id = s.agree.commitmentId;
+        if (id !== s.funding.commitmentId) refuse('invalid_terms', 'agreement and funding name different commitments');
+        if (s.operatorFee && s.operatorFee.commitmentId !== id) refuse('invalid_terms', 'the operator fee names another commitment');
+        // T-218: this same signed funding already funded the deal, sent without the fee leg (a copy of the bundle's fund
+        // leg, ADR-0028 §11). The fee leg can still go alone until fundBy.
+        if (this.fundedBy(id, s.funding.signature)) return this.feeAlone(id, s, options, dryRun);
         await this.check(s.agree, s.agree.buyer, 'Agree');
         const { announce, undo } = this.agree(s.agree, via, dryRun, true);
-        if (dryRun) return s.agree.commitmentId;
+        if (dryRun) return id;
         try {
           return await this.fund(s.funding, s.operatorFee ?? null, options, announce);
         } catch (e) {
           undo();
+          // A copy of the fund leg landed first, and the bundle was refused or reverted: follow the chain, then the fee.
+          if (e instanceof Refusal && (await this.stage(id).catch(() => null))?.stage === 'Held') {
+            await this.catchUp(id);
+            if (this.fundedBy(id, s.funding.signature)) return this.feeAlone(id, s, options, false);
+          }
           throw e;
         }
       }
@@ -756,10 +839,18 @@ export class EvmSettlement implements Settlement {
       case 'deliver': {
         const d = s.delivery;
         const book = this.bookOf(d.commitmentId);
+        // T-218: the same delivery landed directly, and this node waits for it to follow the chain.
+        if (book.behind?.waiting) return this.join(book, d, dryRun);
         const t = termsView(book.state.terms);
         try {
           await this.call(d.commitmentId, 'deliver', [t, deliveryView(d), d.signature], (at) => [{ type: 'deliver', at, delivery: d }], options, dryRun, book.state.terms.seller, { delivery: d });
         } catch (e) {
+          // The delivery may have landed directly since this node last read the chain: follow it, with this copy.
+          if (e instanceof Refusal && e.revert === 'WrongStage' && !dryRun && book.state.kind === 'Held') {
+            await this.catchUp(d.commitmentId, d);
+            if (book.behind?.waiting) return this.join(book, d, false);
+            if (book.state.kind !== 'Held' && book.delivery && deliveryHash(book.delivery) === deliveryHash(d)) return d.commitmentId;
+          }
           // In `deliver`, InvalidMessage comes only from the attempt check, after the stage and deadline checks, as in
           // core; the contract has no bytes left for its own error, so the name core gives it is restored here.
           if (e instanceof Refusal && d.attempt !== 1 && e.revert === 'InvalidMessage') {
@@ -990,14 +1081,7 @@ export class EvmSettlement implements Settlement {
         return refuse('invalid_state', 'no default to apply');
       }
       case 'appeal_expiry': {
-        // D20: finality is the deadline that closed the window, not the moment someone triggered the expiry.
-        const s = book.state;
-        let closedAt: Timestamp = at;
-        if ((s.kind === 'Released' || s.kind === 'Refunded') && s.via.kind === 'first_instance') {
-          const a = s.via.appeal;
-          if (a.kind === 'none') closedAt = a.appealBy;
-          if (a.kind === 'open') closedAt = a.appealDecideBy;
-        }
+        const closedAt = appealClosedAt(book.state, at);
         await this.call(id, 'expireAppeal', [t], (at) => [{ type: 'expire_appeal', at }], options, dryRun, 'anyone');
         if (!dryRun) book.appealClosedAt = closedAt;
         return id;
@@ -1030,6 +1114,8 @@ export class EvmSettlement implements Settlement {
    */
   private async send(id: Hex32, fn: string, to: Address, data: Hex, mirror: (at: Timestamp) => EscrowEvent[], options: EvmSubmitOptions, dryRun: boolean, actor: Address | 'anyone', ctx: CallContext = {}): Promise<void> {
     const book = this.bookOf(id);
+    // The chain moved this deal past the book (T-218): the mirror cannot check a relay against it.
+    if (book.behind) refuse('invalid_state', this.lag(id)!);
     const key = options.sender;
     const from = key ? privateKeyToAccount(key).address : this.world.senderFor(id);
     const at = this.now();
@@ -1071,7 +1157,17 @@ export class EvmSettlement implements Settlement {
       const stored = await this.read<Hex32>(this.world.deployment.rules, this.world.abis.rules, 'deliveryHashOf', [id]);
       if (stored !== deliveryHash(ctx.delivery)) throw new Error(`EVM/core divergence after ${fn}: the contract stores delivery ${stored}, core holds ${deliveryHash(ctx.delivery)}`);
     }
-    const via = options.via ?? 'direct';
+    this.record(id, book, fn, before, after, logs, mined, blockAt, options.via ?? 'direct', actor, ctx);
+    this.relayedAt.set(id, this.log_.length);
+  }
+
+  /**
+   * A mined call's effect on its book, relayed or read from the chain: the mirror's new state, the transaction, the
+   * call's events at the block's time and the envelopes it hands to the next adjudicator.
+   */
+  private record(id: Hex32, book: Book, fn: string, before: EscrowState, after: EscrowState, logs: readonly DecodedLog[], mined: Pick<Mined, 'hash' | 'from' | 'blockNumber' | 'gasUsed'>, blockAt: Timestamp, via: string, actor: Address | 'anyone', ctx: CallContext): void {
+    book.state = after;
+    this.seen(id, mined.hash, book);
     this.txs.push({ commitmentId: id, call: fn, hash: mined.hash, from: mined.from, via, gasUsed: mined.gasUsed, at: blockAt });
     const tx = { tx: mined.hash, block: mined.blockNumber, sender: lc(mined.from), gasUsed: mined.gasUsed };
     ctx.mined?.();
@@ -1088,7 +1184,7 @@ export class EvmSettlement implements Settlement {
         const a = log.args as { adjudicator: Address; amount: bigint };
         this.emit(type, id, 'anyone', via, { adjudicator: getAddress(a.adjudicator), junior: this.amount(a.amount), senior: this.amount(0n), reason: 'overturn', ...tx }, true, blockAt);
       } else {
-        this.emit(type, id, actor, via, { ...this.payloadOf(type, before, after, ctx), ...tx }, true, blockAt);
+        this.emit(type, id, actor, via, { ...this.payloadOf(type, before, after, ctx, log), ...tx }, true, blockAt);
       }
       if (type === 'delivery.submitted' && ctx.delivery) this.landDelivery(book, ctx.delivery, id, actor, via, blockAt);
     }
@@ -1113,6 +1209,9 @@ export class EvmSettlement implements Settlement {
     if (fn === 'decide' && after.kind === 'Escalated' && before.kind !== 'Escalated' && ctx.decision) {
       const env = (ctx.decision.encryptedKeys ?? []).find((k) => lc(k.recipient) === lc(a.appealAdjudicator));
       if (env) this.release(book, id, signedEnvelope(env), ctx.decision.adjudicator, via, 'escalation', at);
+      // A direct escalation whose envelopes this node holds only as a hash (T-218): the seller's envelope for the
+      // appeal adjudicator opens the same content, so the appeal adjudicator can still decide (litmus test 1).
+      else if (ctx.synced) this.releaseHeld(book, id, a.appealAdjudicator, ctx.decision.adjudicator, via, 'escalation', at);
     }
   }
 
@@ -1127,7 +1226,7 @@ export class EvmSettlement implements Settlement {
   }
 
   /** A chain event's payload as SimChain writes it for the same step (without postings). */
-  private payloadOf(type: SettlementEventType, before: EscrowState, after: EscrowState, c: CallContext): Record<string, unknown> {
+  private payloadOf(type: SettlementEventType, before: EscrowState, after: EscrowState, c: CallContext, log: DecodedLog | null): Record<string, unknown> {
     switch (type) {
       case 'hold.funded':
         return { amount: 'hold' in after ? after.hold.amount : null };
@@ -1155,7 +1254,8 @@ export class EvmSettlement implements Settlement {
       case 'default.triggered':
         return { from: before.kind };
       case 'fallback.triggered':
-        return { beaconRound: beaconRoundFor(after, 'fallback') };
+        // The contract's round, from its FallbackTriggered log, so it stays right for any beacon (drand, T-217).
+        return { beaconRound: log ? Number(log.args['beaconRound']) : beaconRoundFor(after, 'fallback') };
       default:
         return {};
     }
@@ -1203,6 +1303,413 @@ export class EvmSettlement implements Settlement {
     return ok ? { ok, events: rebuilt.length } : { ok, events: rebuilt.length, detail: `chain: ${rebuilt.join(',')} / adapter: ${recorded.join(',')}` };
   }
 
+  // Direct calls (T-218): transactions this node did not relay, read from the chain
+
+  /** True when this node holds a book for the commitment (its offer was posted here). */
+  follows(id: Hex32): boolean {
+    return this.books.has(id);
+  }
+
+  /** True when `hash` was applied to the commitment's book, relayed by this node or read by an earlier pass. */
+  applied(id: Hex32, hash: string): boolean {
+    return this.appliedTxs.get(id)?.has(lc(hash)) ?? false;
+  }
+
+  /** How many events the log holds: a sync pass marks it before reading dealOf. */
+  eventCount(): number {
+    return this.log_.length;
+  }
+
+  /** Records `hash` as applied to the commitment; with `book`, also in the book's own row. */
+  private seen(id: Hex32, hash: string, book?: Book): void {
+    const h = lc(hash);
+    let set = this.appliedTxs.get(id);
+    if (!set) this.appliedTxs.set(id, (set = new Set()));
+    if (set.has(h) && !book) return;
+    set.add(h);
+    if (book && !(book.chainTxs ?? []).includes(h)) {
+      book.chainTxs = [...(book.chainTxs ?? []), h];
+      this.dirty.add(id);
+    }
+  }
+
+  /**
+   * Deals whose stage may still change on chain within their terms: from the offer until fundBy, and once funded until
+   * an hour after the last deadline ahead of it (deliverBy, judgeBy, fallbackBy, the appeal windows). The world reads
+   * the chain at least once a minute while any is open (T-218).
+   */
+  openDeals(): number {
+    const now = Date.parse(this.now());
+    let n = 0;
+    for (const b of this.books.values()) {
+      const s = b.state;
+      if (s.kind === 'Expired' || s.kind === 'Settled' || this.finalAt(b) !== null) continue;
+      const t = s.terms.timing;
+      const deadlines = PRE_FUNDING.includes(s.kind) ? [t.fundBy] : [t.deliverBy, t.judgeBy, t.fallbackBy];
+      if (s.kind === 'Escalated') deadlines.push(s.escalation.appealDecideBy);
+      if ((s.kind === 'Released' || s.kind === 'Refunded') && s.via.kind === 'first_instance') {
+        const ap = s.via.appeal;
+        if (ap.kind === 'none' || ap.kind === 'open') deadlines.push(ap.appealDecideBy);
+      }
+      if (now < Math.max(...deadlines.map((d) => Date.parse(d))) + OPEN_GRACE_MS) n++;
+    }
+    return n;
+  }
+
+  /** The state read's notice for a deal the chain moved past this node's book (T-218), or null. */
+  lag(id: Hex32): string | null {
+    const b = this.books.get(id)?.behind;
+    if (!b) return null;
+    const shown = `The state shown is the contract's (dealOf: ${b.stage}); this node's events stop before transaction ${b.tx}.`;
+    return b.waiting
+      ? `Behind the chain: ${b.reason} ${shown} The seller posts the same signed delivery to POST /v1/commitments/${id}/deliveries; this node then joins it to the deal with no second transaction, and the adjudicators get their envelopes.`
+      : `Behind the chain: ${b.reason} ${shown}`;
+  }
+
+  /**
+   * Applies mined transactions this node may not have relayed (ChainSync, T-218), in chain order: for each commitment
+   * a transaction's logs name and this node follows, the step rebuilt from its calldata, at the block's time, with
+   * `submittedVia: 'direct'`. A transaction already applied changes nothing. `stages`: dealOf for each deal touched,
+   * read at the pass's last block; a deal whose book then stands elsewhere, and that no relay moved since `mark` (the
+   * event count when the pass began), falls behind. Never throws for one transaction: it puts that deal behind.
+   */
+  async observe(txs: readonly ChainTx[], stages: ReadonlyMap<Hex32, { stage: string; appeal: number }>, mark = this.log_.length): Promise<ObserveReport> {
+    const report: ObserveReport = { applied: 0, seen: 0, behind: 0, unknown: 0 };
+    const last = new Map<Hex32, Hex>();
+    for (const tx of txs) {
+      for (const id of idsOf(this.world, tx.logs)) {
+        if (!this.books.has(id)) {
+          report.unknown++;
+          continue;
+        }
+        report[await this.enqueue(id, async () => this.follow(id, tx, stages.get(id)))]++;
+        last.set(id, tx.hash);
+      }
+    }
+    for (const [id, stage] of stages) {
+      const book = this.books.get(id);
+      if (!book || book.behind || (this.relayedAt.get(id) ?? -1) >= mark) continue;
+      const expect = PRE_FUNDING.includes(book.state.kind) ? 'None' : book.state.kind;
+      if (stage.stage !== expect) {
+        this.fallBehind(id, book, { hash: last.get(id) ?? ('0x' as Hex) }, stage, `the contract holds this deal ${stage.stage}, while this node's book rebuilt it to ${book.state.kind}.`);
+        report.behind++;
+      }
+    }
+    return report;
+  }
+
+  /** One transaction for one commitment, inside its lane. */
+  private follow(id: Hex32, tx: ChainTx, stage: { stage: string; appeal: number } | undefined, known?: Delivery): keyof Omit<ObserveReport, 'unknown'> {
+    const book = this.books.get(id)!;
+    if (this.applied(id, tx.hash)) return 'seen';
+    this.seen(id, tx.hash, book);
+    if (book.behind) {
+      if (stage) Object.assign(book.behind, stage);
+      book.behind.waiting?.push(tx);
+      this.dirty.add(id);
+      this.custodyBehind(id, book, tx);
+      return 'behind';
+    }
+    return this.step(id, book, tx, stage, known);
+  }
+
+  /**
+   * Envelopes for a deal the book cannot follow, from what the chain confirms (T-218): a key the transaction released
+   * on chain is served, and each adjudicator whose turn dealOf shows gets its envelope from the delivery, as a relayed
+   * takeover, escalation or appeal would hand it. A takeover forwarded by a contract this node cannot read must not
+   * strand the fallback, or the deal drifts into the default (litmus test 1).
+   */
+  private custodyBehind(id: Hex32, book: Book, tx?: ChainTx): void {
+    const behind = book.behind!;
+    const at = tx ? toTimestamp(tx.timestamp * 1000) : this.now();
+    const mine = (tx?.logs ?? []).filter((l) => l.topics[1] === id && lc(l.address) === lc(this.world.deployment.rules));
+    for (const l of this.decode(mine as unknown as Log[])) {
+      if (l.eventName !== 'KeyReleased') continue;
+      const a = l.args as { recipient: Address; path: number; scheme: string; ciphertext: string };
+      const envelope = { recipient: getAddress(a.recipient), scheme: a.scheme, ciphertext: a.ciphertext } as EncryptedKey;
+      if (book.released.some((k) => lc(k.recipient) === lc(envelope.recipient) && k.ciphertext === envelope.ciphertext)) continue;
+      book.released.push(envelope);
+      this.emit('key.released', id, 'anyone', 'direct', { recipient: envelope.recipient, envelope, path: KEY_PATHS[a.path] ?? String(a.path), tx: tx!.hash, block: tx!.block, sender: lc(tx!.from), gasUsed: tx!.gasUsed }, true, at);
+    }
+    const a = book.state.terms.adjudication;
+    const turns: Array<[Address, string]> = [];
+    if (behind.stage === 'FallbackJudging') turns.push([a.fallbackAdjudicator, 'fallback takeover']);
+    if (behind.stage === 'Escalated') turns.push([a.appealAdjudicator, 'escalation']);
+    if (APPEAL_STATES[behind.appeal] === 'open') turns.push([a.appealAdjudicator, 'appeal']);
+    for (const [recipient, path] of turns) if (!book.released.some((k) => lc(k.recipient) === lc(recipient))) this.releaseHeld(book, id, recipient, 'anyone', 'direct', path, at);
+    this.dirty.add(id);
+  }
+
+  /** Rebuilds a mined transaction's step for one commitment and records it as a relayed call is recorded. */
+  private step(id: Hex32, book: Book, tx: ChainTx, stage: { stage: string; appeal: number } | undefined, known?: Delivery): 'applied' | 'behind' {
+    const calls = rulesCalls(this.world, tx);
+    if (!calls) return this.fallBehind(id, book, tx, stage, `transaction ${tx.hash} called contract ${tx.to}, which forwarded a call to the rules contract; this node reads calls made to the rules contract or through Multicall3 only.`);
+    const view = termsView(book.state.terms);
+    const mine = calls.filter((c) => sameView(c.args[0], view));
+    if (mine.length !== 1) return this.fallBehind(id, book, tx, stage, `transaction ${tx.hash} made ${mine.length} calls for this deal; this node rebuilds one call per transaction.`);
+    const rebuilt = this.rebuild(id, book, mine[0]!, tx, known);
+    if ('wait' in rebuilt) return this.fallBehind(id, book, tx, stage, rebuilt.wait, [tx]);
+    if ('fail' in rebuilt) return this.fallBehind(id, book, tx, stage, rebuilt.fail);
+    const before = book.state;
+    const blockAt = toTimestamp(tx.timestamp * 1000);
+    let after: EscrowState;
+    try {
+      after = this.mirrored(before, rebuilt.steps(blockAt), rebuilt.fn);
+    } catch (e) {
+      return this.fallBehind(id, book, tx, stage, `${(e as Error).message}.`);
+    }
+    const logs = this.decode(tx.logs.filter((l) => l.topics[1] === id && [lc(this.world.deployment.rules), lc(this.world.deployment.bonds)].includes(lc(l.address))) as unknown as Log[]);
+    this.record(id, book, rebuilt.fn, before, after, logs, { hash: tx.hash, from: tx.from, blockNumber: BigInt(tx.block), gasUsed: BigInt(tx.gasUsed) }, blockAt, 'direct', rebuilt.actor, { ...rebuilt.ctx, synced: true });
+    if (rebuilt.fn === 'expireAppeal') book.appealClosedAt = appealClosedAt(before, blockAt);
+    const events = this.log_.filter((e) => e.commitmentId === id);
+    book.lastEventSeq = events.at(-1)?.seq ?? book.lastEventSeq;
+    book.updatedAt = this.now();
+    this.dirty.add(id);
+    return 'applied';
+  }
+
+  private fallBehind(id: Hex32, book: Book, tx: Pick<ChainTx, 'hash'> & Partial<ChainTx>, stage: { stage: string; appeal: number } | undefined, reason: string, waiting?: ChainTx[]): 'behind' {
+    book.behind = { stage: stage?.stage ?? 'unknown', appeal: stage?.appeal ?? 0, tx: tx.hash, reason, ...(waiting ? { waiting } : {}) };
+    this.dirty.add(id);
+    this.custodyBehind(id, book, tx.logs ? (tx as ChainTx) : undefined);
+    return 'behind';
+  }
+
+  /**
+   * A rules-contract call as the core mirror's steps. Fields the calldata carries in the clear are copied; fields it
+   * carries only as a hash are read back from what this node holds (the delivery, its envelopes) or from a fixed list
+   * (appeal grounds, beacon sources), checked against the hash. The seller's delivery is the one field only a party can
+   * supply: without it the call waits.
+   */
+  private rebuild(id: Hex32, book: Book, call: RulesCall, tx: ChainTx, known?: Delivery): Rebuilt {
+    const s = book.state;
+    const terms = s.terms;
+    const a = terms.adjudication;
+    const args = call.args as readonly Record<string, unknown>[];
+    const ts = (v: unknown) => toTimestamp(Number(v) * 1000);
+    const hex = (v: unknown) => v as Hex32;
+    // The delivery that landed with this call: the contract's JobSubmitted names its hash.
+    const landed = this.decode(tx.logs.filter((l) => l.topics[1] === id && lc(l.address) === lc(this.world.deployment.rules)) as unknown as Log[]).find((l) => l.eventName === 'JobSubmitted')?.args['deliverable'] as Hex32 | undefined;
+    const delivery = (): Delivery | null => [known, book.carried, book.delivery].find((d): d is Delivery => !!d && deliveryHash(d) === landed) ?? null;
+    const unread = `the seller's delivery landed in transaction ${tx.hash} without passing through this node, and the contract keeps only its hash (${landed}), so this node holds no envelopes for the adjudicators.`;
+    const carrying = (): Delivery | null | undefined => (s.kind === 'Held' ? delivery() : undefined);
+    switch (call.fn) {
+      case 'agreeAndFund': {
+        if (!PRE_FUNDING.includes(s.kind)) return { fail: `a funding in transaction ${tx.hash} found this node's book ${s.kind}.` };
+        const [, , acc, ag, f] = args as [unknown, unknown, Record<string, unknown>, Record<string, unknown>, Record<string, unknown>];
+        const acceptance: AdjudicatorAcceptance =
+          book.acceptance && lc(book.acceptance.signature) === lc(String(acc['signature']))
+            ? book.acceptance
+            : { type: 'AdjudicatorAcceptance', commitmentId: id, adjudicator: a.adjudicator, seedCommitment: hex(acc['seedCommitment']), policyHash: a.policyHash, registryHash: a.registryHash, fee: a.fee, bondReserved: this.amount(BigInt(acc['bondReserved'] as bigint)), nonce: hex(acc['nonce']), expiresAt: ts(acc['expiresAt']), signature: acc['signature'] as Hex };
+        const agree: Agree = book.agree && lc(book.agree.signature) === lc(String(ag['signature'])) ? book.agree : { type: 'Agree', commitmentId: id, buyer: terms.buyer, nonce: hex(ag['nonce']), expiresAt: ts(ag['expiresAt']), signature: ag['signature'] as Hex };
+        const typed = this.fundingTypedData(terms);
+        const funding: FundingAuthorization = {
+          type: 'FundingAuthorization',
+          scheme: Number(f['method']) === 1 ? 'permit2' : 'erc3009',
+          commitmentId: id,
+          from: terms.buyer,
+          value: typed.typedData.message['value']!,
+          token: this.token,
+          validAfter: typed.validAfter,
+          validBefore: terms.timing.fundBy,
+          nonce: typed.nonce,
+          expiresAt: terms.timing.fundBy,
+          signature: f['signature'] as Hex,
+        };
+        // The contract checked the three signatures; the mandate checks are this node's own policy for what it relays.
+        const wide: Scope = { roles: ['buyer', 'seller'], maxPerCommitment: terms.price, maxDaily: { token: terms.price.token, amount: UINT256_MAX } as TokenAmount, expiresAt: '9999-12-31T23:59:59Z' };
+        const zero = this.amount(0n);
+        const steps = (at: Timestamp): EscrowEvent[] => [
+          ...(s.kind === 'Offered' ? [{ type: 'adjudicator_accept' as const, at, message: acceptance, unencumberedBond: acceptance.bondReserved }] : []),
+          ...(s.kind !== 'Agreed' ? [{ type: 'agree' as const, at, message: agree, buyerScope: wide, spentToday: zero, memberAdmitted: true }] : []),
+          { type: 'fund', at, message: funding, buyerScope: wide, balance: this.amount(BigInt(funding.value)), gasBuffer: zero },
+        ];
+        const mined = () => {
+          for (const n of [`${lc(a.adjudicator)}:${acceptance.nonce}`, `${lc(terms.buyer)}:${agree.nonce}`]) {
+            if (this.nonces.has(n)) continue;
+            this.nonces.add(n);
+            book.nonces.push(n);
+          }
+          book.acceptance = acceptance;
+          book.agree = agree;
+          if (s.kind === 'Offered') this.emit('adjudicator.accepted', id, a.adjudicator, 'direct', { source: 'chain', seedCommitment: acceptance.seedCommitment, bondReserved: acceptance.bondReserved, acceptance }, false, ts(tx.timestamp));
+          if (s.kind !== 'Agreed') this.emit('commitment.agreed', id, terms.buyer, 'direct', { source: 'chain', termsHash: id }, false, ts(tx.timestamp));
+        };
+        return { fn: call.fn, steps, actor: terms.buyer, ctx: { mined } };
+      }
+      case 'deliver': {
+        if (s.kind !== 'Held') return { fail: `a delivery in transaction ${tx.hash} found this node's book ${s.kind}.` };
+        const d = delivery();
+        if (!d) return { wait: unread };
+        return { fn: call.fn, steps: (at) => [{ type: 'deliver', at, delivery: d }], actor: terms.seller, ctx: { delivery: d } };
+      }
+      case 'decide': {
+        const carry = carrying();
+        if (carry === null) return { wait: unread };
+        const m = this.decisionFrom(id, book, args[1]!);
+        if (typeof m === 'string') return { fail: m };
+        const beacon = m.role === 'primary' || !m.beacon ? null : { round: m.beacon.round, value: m.beacon.value };
+        const steps = (at: Timestamp): EscrowEvent[] => [...(carry ? [{ type: 'deliver' as const, at, delivery: carry }] : []), { type: 'decide', at, message: m, beacon }];
+        return { fn: call.fn, steps, actor: m.adjudicator, ctx: { decision: m, ...(carry ? { delivery: carry } : {}) } };
+      }
+      case 'earlyAccept': {
+        const carry = carrying();
+        if (carry === null) return { wait: unread };
+        const v = args[1]!;
+        const m: EarlyAccept = { type: 'EarlyAccept', commitmentId: id, buyer: terms.buyer, attempt: Number(v['attempt']), deliveryHash: hex(v['deliveryHash']), nonce: hex(v['nonce']), expiresAt: ts(v['expiresAt']), signature: v['signature'] as Hex };
+        const steps = (at: Timestamp): EscrowEvent[] => [...(carry ? [{ type: 'deliver' as const, at, delivery: carry }] : []), { type: 'early_accept', at, message: m }];
+        return { fn: call.fn, steps, actor: terms.buyer, ctx: carry ? { delivery: carry } : {} };
+      }
+      case 'fileAppeal': {
+        const v = args[1]!;
+        const appellant = Number(v['appellant']) === 0 ? 'buyer' : 'seller';
+        // Grounds are free text in the schema; this node's adjudicators read one of the four grounds (AppealGround).
+        const grounds = APPEAL_GROUNDS.find((g) => str(g) === v['groundsHash']) ?? `unread: filed directly; the contract keeps only the grounds' hash ${String(v['groundsHash'])}`;
+        const p: Appeal = { commitmentId: id, appellant, appellantAddress: appellant === 'buyer' ? terms.buyer : terms.seller, grounds, bond: this.amount(BigInt(v['bond'] as bigint)), filedAt: ts(v['filedAt']), signature: v['signature'] as Hex };
+        const zero = this.amount(0n);
+        return { fn: call.fn, steps: (at) => [{ type: 'file_appeal', at, appeal: p, requiredBond: p.bond, requiredFee: zero, feePaid: zero }], actor: p.appellantAddress, ctx: { appeal: p } };
+      }
+      case 'mutualSettle': {
+        const v = args[1]!;
+        const m: MutualSettlement = {
+          type: 'MutualSettlement',
+          commitmentId: id,
+          deliveryHash: v['hasDelivery'] ? hex(v['deliveryHash']) : null,
+          payouts: (v['payouts'] as Array<{ to: Address; amount: bigint }>).map((p) => ({ to: getAddress(p.to), amount: this.amount(BigInt(p.amount)) })),
+          releaseKey: Boolean(v['releaseKey']),
+          nonce: hex(v['nonce']),
+          expiresAt: ts(v['expiresAt']),
+          buyerSignature: v['buyerSignature'] as Hex,
+          sellerSignature: v['sellerSignature'] as Hex,
+        };
+        return { fn: call.fn, steps: (at) => [{ type: 'mutual_settle', at, message: m, rule: { allowed: true, payoutsTo: 'any' } }], actor: 'anyone', ctx: {} };
+      }
+      case 'expireOffer':
+        return { fn: call.fn, steps: (at) => [{ type: 'expire', at }], actor: 'anyone', ctx: {} };
+      case 'reclaim':
+        return { fn: call.fn, steps: (at) => [{ type: 'reclaim', at }], actor: 'anyone', ctx: {} };
+      case 'triggerFallback':
+        return { fn: call.fn, steps: (at) => [{ type: 'trigger_fallback', at }], actor: 'anyone', ctx: {} };
+      case 'triggerDefault':
+        return { fn: call.fn, steps: (at) => [{ type: 'trigger_default', at }, { type: 'apply_default_outcome', at }], actor: 'anyone', ctx: {} };
+      case 'expireAppeal':
+        return { fn: call.fn, steps: (at) => [{ type: 'expire_appeal', at }], actor: 'anyone', ctx: {} };
+      default:
+        return { fail: `transaction ${tx.hash} called ${call.fn}, which this node does not rebuild.` };
+    }
+  }
+
+  /** A Decision from its settlement view (decisionView): a string says which hashed field could not be read back. */
+  private decisionFrom(id: Hex32, book: Book, v: Record<string, unknown>): Decision | string {
+    const terms = book.state.terms;
+    const role = ROLES[Number(v['role'])];
+    const outcome = OUTCOMES[Number(v['outcome'])];
+    if (!role || !outcome) return `a decision names role ${String(v['role'])} and outcome ${String(v['outcome'])}, which core does not know.`;
+    const adjudicator = role === 'primary' ? terms.adjudication.adjudicator : role === 'fallback' ? terms.adjudication.fallbackAdjudicator : terms.adjudication.appealAdjudicator;
+    let beacon: Decision['beacon'];
+    if (v['beaconSourceHash'] !== str('')) {
+      const source = BEACON_SOURCES.find((x) => str(x) === v['beaconSourceHash']);
+      if (!source) return `a decision names a beacon source whose hash ${String(v['beaconSourceHash'])} is none this node knows.`;
+      const signature = v['beaconSignature'] as Hex;
+      beacon = { source, round: Number(v['beaconRound']), value: v['beaconValue'] as Hex32, ...(signature && signature !== '0x' ? { signature } : {}) };
+    }
+    const ground = APPEAL_GROUNDS.find((g) => str(g) === v['appealGroundHash']);
+    const m: Decision = {
+      type: 'Decision',
+      commitmentId: id,
+      attempt: Number(v['attempt']),
+      deliveryHash: v['deliveryHash'] as Hex32,
+      adjudicator,
+      role,
+      outcome,
+      seed: v['seed'] as Hex32,
+      policyHash: terms.adjudication.policyHash,
+      registryHash: terms.adjudication.registryHash,
+      judgmentRecordHash: v['judgmentRecordHash'] as Hex32,
+      nonce: v['nonce'] as Hex32,
+      expiresAt: toTimestamp(Number(v['expiresAt']) * 1000),
+      signature: v['signature'] as Hex,
+      ...(v['keyScheme'] ? { keyForBuyer: { scheme: v['keyScheme'] as 'x25519-xsalsa20poly1305', ciphertext: String(v['keyCiphertext']) } } : {}),
+      ...(ground ? { appealGround: ground } : {}),
+      ...(beacon ? { beacon } : {}),
+    };
+    // On escalate the decision carries the appeal adjudicator's envelope, as a hash on chain: the seller's own envelope
+    // for it is the usual one, and is kept when it hashes to the signed list.
+    const held = book.held.find((k) => lc(k.recipient) === lc(terms.adjudication.appealAdjudicator));
+    if (held && decisionView({ ...m, encryptedKeys: [held] }).encryptedKeysHash === v['encryptedKeysHash']) m.encryptedKeys = [held];
+    return m;
+  }
+
+  /**
+   * Applies this commitment's transactions that this node has not seen, from the deployment's first block (T-218): an
+   * offer posted after its deal was funded on chain, or a delivery posted after it landed directly. Inside the
+   * commitment's lane. Throws on an RPC error, having applied nothing.
+   */
+  private async catchUp(id: Hex32, known?: Delivery): Promise<void> {
+    const { txs, stages } = await commitmentTxs(this, id);
+    for (const tx of txs) this.follow(id, tx, stages.get(id), known);
+  }
+
+  /**
+   * The seller posts the delivery that landed on chain without this node (T-218): checked against the hash the
+   * contract keeps, then the waiting transactions apply in order, with no second relay. The adjudicators get their
+   * envelopes as if this node had relayed it.
+   */
+  private async join(book: Book, d: Delivery, dryRun: boolean): Promise<Hex32> {
+    const id = d.commitmentId;
+    const behind = book.behind!;
+    const waiting = behind.waiting!;
+    await this.check({ ...d, type: 'Delivery' }, book.state.terms.seller, 'Delivery');
+    const landed = this.decode(waiting[0]!.logs.filter((l) => l.topics[1] === id && lc(l.address) === lc(this.world.deployment.rules)) as unknown as Log[]).find((l) => l.eventName === 'JobSubmitted')?.args['deliverable'];
+    if (landed !== deliveryHash(d)) refuse('invalid_state', `the delivery that landed on chain for this deal is ${String(landed)}, not this one (${deliveryHash(d)})`);
+    if (dryRun) return id;
+    delete book.behind;
+    this.dirty.add(id);
+    const stage = { stage: behind.stage, appeal: behind.appeal };
+    for (const tx of waiting) {
+      // A later transaction may put the deal behind again; the rest then wait behind it.
+      const again = book.behind as Behind | undefined;
+      if (again) again.waiting?.push(tx);
+      else this.step(id, book, tx, stage, d);
+    }
+    return id;
+  }
+
+  /** True when the deal's hold came from this funding signature. */
+  private fundedBy(id: Hex32, signature: string): boolean {
+    const s = this.books.get(id)?.state;
+    return !!s && 'hold' in s && lc(s.hold.funding.signature) === lc(signature);
+  }
+
+  /**
+   * The operator-fee leg alone, after the same signed funding was sent without it (a copy of the bundle's fund leg,
+   * ADR-0028 §11): the buyer signed this fee for this commitment, valid until fundBy. Sends nothing when the submission
+   * carries no fee or its nonce is already spent.
+   */
+  private async feeAlone(id: Hex32, s: Extract<Submission, { kind: 'agree_and_fund' }>, options: EvmSubmitOptions, dryRun: boolean): Promise<Hex32> {
+    const fee = s.operatorFee;
+    if (!fee || dryRun) return id;
+    const book = this.bookOf(id);
+    if (lc(fee.from) !== lc(book.state.terms.buyer) || lc(fee.token) !== this.token || lc(fee.to) === lc(fee.from) || fee.nonce !== operatorFeeNonce(id)) refuse('invalid_terms', 'the operator fee must come from the buyer, in the price token, with the nonce bound to the commitment');
+    const { token } = this.world.deployment;
+    const data = encodeFunctionData({ abi: this.world.abis.token, functionName: 'transferWithAuthorization', args: [getAddress(fee.from), getAddress(fee.to), BigInt(fee.value), BigInt(secs(fee.validAfter)), BigInt(secs(fee.validBefore)), fee.nonce, fee.signature] });
+    if (await this.nonceUsed(id, token, data)) return id;
+    let mined: Mined;
+    try {
+      mined = await this.world.send({ ...(options.sender ? { key: options.sender } : { lane: id }), to: token, data }, this.wall ? undefined : secs(this.now()));
+    } catch (e) {
+      if (e instanceof RelayRefused) refuse('relay_refused', `this operator cannot relay the operator fee now: ${e.message}`);
+      throw e;
+    }
+    if (mined.status !== 'success') refuse('invalid_state', `the operator fee transfer reverted on chain in ${mined.hash}; the deal is funded`);
+    this.balanceCache.clear();
+    const blockAt = toTimestamp(mined.timestamp * 1000);
+    const via = options.via ?? 'direct';
+    this.txs.push({ commitmentId: id, call: 'transferWithAuthorization', hash: mined.hash, from: mined.from, via, gasUsed: mined.gasUsed, at: blockAt });
+    this.emit('fee.operator', id, getAddress(fee.from), via, { from: lc(fee.from), to: lc(fee.to), amount: this.amount(BigInt(fee.value)), tx: mined.hash, block: mined.blockNumber, sender: lc(mined.from), gasUsed: mined.gasUsed }, true, blockAt);
+    return id;
+  }
+
   // Read model (as SimChain's view)
 
   private async view(id: Hex32, rec: Book): Promise<CommitmentStateView> {
@@ -1241,6 +1748,12 @@ export class EvmSettlement implements Settlement {
       updatedAt: rec.updatedAt,
     };
     if (s.kind === 'Settled') view.settled = { payouts: s.payouts, keyReleased: s.keyReleased };
+    // Behind the chain (T-218): the contract's stage, with the notice `lag` gives; the rest is the book's last step.
+    const behind = rec.behind;
+    if (behind && behind.stage !== 'None' && (STAGES as readonly string[]).includes(behind.stage)) {
+      view.escrowState = behind.stage as EscrowStateKind;
+      view.appealState = APPEAL_STATES[behind.appeal] ?? 'none';
+    }
     return view;
   }
 
@@ -1295,6 +1808,28 @@ function erc3009Typed(primaryType: 'ReceiveWithAuthorization' | 'TransferWithAut
   const m = { ...message, value: BigInt(message['value']!), validAfter: BigInt(message['validAfter']!), validBefore: BigInt(message['validBefore']!) };
   const digest = hashTypedData({ domain, types: { [primaryType]: ERC3009_FIELDS }, primaryType, message: m } as Parameters<typeof hashTypedData>[0]);
   return { typedData, digest };
+}
+
+/** D20: an appeal expiry is final at the deadline that closed the window, not when someone triggered it. */
+function appealClosedAt(s: EscrowState, at: Timestamp): Timestamp {
+  if ((s.kind === 'Released' || s.kind === 'Refunded') && s.via.kind === 'first_instance') {
+    const a = s.via.appeal;
+    if (a.kind === 'none') return a.appealBy;
+    if (a.kind === 'open') return a.appealDecideBy;
+  }
+  return at;
+}
+
+/** Whether two settlement-view structs are equal: numbers by value, hex and addresses in any case, keys in any order. */
+function sameView(a: unknown, b: unknown): boolean {
+  const norm = (x: unknown): unknown => {
+    if (typeof x === 'bigint' || typeof x === 'number') return String(x);
+    if (typeof x === 'string') return x.toLowerCase();
+    if (Array.isArray(x)) return x.map(norm);
+    if (x && typeof x === 'object') return Object.fromEntries(Object.entries(x).sort(([k], [l]) => (k < l ? -1 : 1)).map(([k, v]) => [k, norm(v)]));
+    return x;
+  };
+  return JSON.stringify(norm(a)) === JSON.stringify(norm(b));
 }
 
 /** The commitment a submission touches, for its lane. */

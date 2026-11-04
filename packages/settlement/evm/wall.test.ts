@@ -22,6 +22,8 @@ class HeldChain implements EvmChain {
     readContract: async ({ functionName }: { functionName: string }) => {
       if (functionName === 'DOMAIN_SEPARATOR') return `0x${'11'.repeat(32)}`;
       if (['balanceOf', 'freeOf', 'bondOf'].includes(functionName)) return PLENTY;
+      // Nothing is on chain: every deal is before funding (T-218 reads it when an offer arrives).
+      if (functionName === 'dealOf') return { stage: 0, appeal: 0 };
       return 0n;
     },
   } as unknown as EvmChain['publicClient'];
