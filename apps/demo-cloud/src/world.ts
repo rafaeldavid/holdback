@@ -26,13 +26,15 @@
 // adjudicators' envelopes) and the event log. It persists each commitment's book and the log in pages, so a restart
 // reads one row per commitment and one per 64 events, and replays nothing. The relayer key pays gas for what the
 // operators relay; the faucet mints test tUSDC on chain (D42); the three adjudicators keep their own bonds in HoldbackBonds.
+// Each pass reads the rules contract's logs from a stored cursor (ChainSync, T-218), so a call a party sent straight
+// to the contract shows in the view too; a pass runs at least once a minute while any deal is open.
 import { canonicalKeccak, holdbackDomain, parseAdjudicator, problem, wholeSecond, type AdjudicatorRegistration, type Address, type EscrowState, type HoldbackDomain, type Hex32, type Judgment, type Mandate, type OperatorFeeSchedule, type Problem, type SettlementEvent, type Sha256, type Timestamp, type TokenAmount } from '@holdback/core';
 import { sha256 } from '@holdback/core/crypto';
 import { StoreError, type CiphertextStore } from '@holdback/core/store';
 import { testAdjudicator, type TestAdjudicator } from '@holdback/adjudicator';
 import { fetchHandler, nameToken, Operator, ReportLimiter, testAccount, type DemoFacts, type FaucetOutcome, type FeedbackOptions, type FeedbackStore, type NoticeSubject, type Registry, type TestAccount } from '@holdback/operator';
 import { decodePublicKey } from '@holdback/core/crypto';
-import { ensureBond, EvmSettlement, rebindToken, RelayRefused, type Book, type LiveChain } from '@holdback/settlement/live';
+import { ChainSync, ensureBond, EvmSettlement, rebindToken, RelayRefused, type Book, type Cursor, type LiveChain, type SyncReport } from '@holdback/settlement/live';
 import { privateKeyToAccount } from 'viem/accounts';
 import { mandateFor, SIM_CHAIN_ID, SIM_RULEBOOK, simClub, SimChain, TOKEN, wideScope, type Genesis, type JournalEntry } from '@holdback/settlement/sim';
 import { panelConfig, type JudgeProvider, type PanelConfig } from './judges.js';
@@ -132,6 +134,11 @@ const ACTIVE_FOR_MS = 15 * 60_000;
 const PASS_MS = 1000;
 const CHAIN_PASS_MS = 2000;
 const SLOWEST_PASS_MS = 60_000;
+/**
+ * The cursor row is written when a pass read a log, or once it is this many blocks behind (about an hour on Sepolia):
+ * an idle world writes no row a pass, and a restart rereads at most this many blocks (T-218).
+ */
+const CURSOR_EVERY_BLOCKS = 300n;
 const SCRIPTED_PANEL = 'scripted judge panel: no model runs in this demo, every panel verdict is a fake judge marked "[fake judge, no model ran]"; use template checks-only for real acceptance';
 const livePanel = (perDay: number) =>
   `live judge panel: pinned models from two families (Anthropic, DeepSeek; config/judges-live.yaml), at most ${perDay} live judge calls a day across this demo; past that, panels are scripted fake judges whose verdicts are marked "[fake judge, no model ran]"`;
@@ -341,10 +348,12 @@ export class PublicWorld {
       const books = [...(await storage.list<Book>({ prefix: 'b:' }))].map(([k, b]) => [k.slice(2) as Hex32, b] as const);
       const events = await PagedLog.load<SettlementEvent>(storage, 'e:');
       const mandates = await PagedLog.load<Mandate>(storage, 'mp:');
-      // No chain call here: opening runs inside blockConcurrencyWhile (30 s), so the first pass reads the bonds.
+      // No chain call here: opening runs inside blockConcurrencyWhile (30 s), so the first pass reads the bonds and the
+      // logs since the stored cursor; it comes within a pass's wait when a deal is open (`nextPass`).
       const evm = await EvmSettlement.restore(o.live.chain, genesis, { books, events: events.all(), mandates: mandates.all() }, now);
       chain = evm;
-      live = { settlement: o.live, evm, events, mandates, bonded: new Set(meta.bonded ?? []), adjudicatorKeys: adjKeys.map((a) => a.keys.privateKey), meta, pools: 0, verified: false };
+      const cursor = (await storage.get<Cursor>('cursor')) ?? null;
+      live = { settlement: o.live, evm, events, mandates, bonded: new Set(meta.bonded ?? []), adjudicatorKeys: adjKeys.map((a) => a.keys.privateKey), meta, pools: 0, verified: false, sync: new ChainSync(evm, cursor), cursor };
     } else {
       const journal = [...(await storage.list<JournalEntry>({ prefix: 'j:' })).values()];
       chain = await SimChain.replay(genesis, journal);
@@ -433,6 +442,9 @@ export class PublicWorld {
       if (about.kind === 'state') {
         const why = declined.get(about.commitmentId);
         if (why) return [`The primary adjudicator declined this offer: ${why}. It stays Offered until offerExpiresAt, and nobody can fund it.`];
+        // T-218: a deal the chain moved past this node's book (a direct delivery not yet posted, a forwarded call).
+        const behind = live?.evm.lag(about.commitmentId);
+        if (behind) return [behind];
         if (live && live.bonded.size < ADJUDICATORS.length) return [BONDING];
         return [];
       }
@@ -554,8 +566,10 @@ export class PublicWorld {
     // A takeover whose judgeBy passed since the last look gets a pass after the current wait: an alarm set in the past
     // would fire at once, again and again while nothing rereads the state (T-057 review 4).
     const wake = this.wake === null ? null : this.wake > this.now() ? this.wake : this.now() + wait;
-    if (!this.active()) return wake;
-    return Math.min(this.now() + wait, wake ?? Infinity);
+    // T-218: while any deal is open a pass reads the chain within a minute, so a direct call shows within one pass.
+    const sync = this.live && this.live.evm.openDeals() > 0 ? this.now() + wait : null;
+    const at = Math.min(this.active() ? this.now() + wait : Infinity, wake ?? Infinity, sync ?? Infinity);
+    return at === Infinity ? null : at;
   }
 
   /** Restarts the activity window and the one-second cadence. */
@@ -655,6 +669,33 @@ export class PublicWorld {
     await l.evm.refreshPools(addresses);
   }
 
+  /**
+   * Reads the rules contract's logs since the cursor and applies what this node did not relay (T-218). The books and
+   * events are written first, then the cursor; an RPC or storage failure leaves the cursor where it was, so the next
+   * pass reads the same blocks again (a transaction applies once).
+   */
+  private async syncChain(): Promise<void> {
+    const l = this.live!;
+    try {
+      const r = await l.sync.read();
+      if (!r) return;
+      await this.persist();
+      if (r.report.logs > 0 || !l.cursor || BigInt(r.cursor.block) - BigInt(l.cursor.block) >= CURSOR_EVERY_BLOCKS) {
+        await this.telemetry.storage.put({ cursor: r.cursor });
+        l.cursor = r.cursor;
+      }
+      l.sync.commit(r.cursor);
+      l.lastSync = r.report;
+    } catch (e) {
+      this.o.onError?.(e as Error);
+    }
+  }
+
+  /** What the last chain read found (T-218), for the tests and the counters; null before the first. */
+  lastSync(): SyncReport | null {
+    return this.live?.lastSync ?? null;
+  }
+
   /** True once a chain world's setup is done (every adjudicator bonded); a SimChain world always is. */
   ready(): boolean {
     return !this.live || (this.live.verified && this.live.bonded.size === ADJUDICATORS.length);
@@ -675,6 +716,8 @@ export class PublicWorld {
         if (setupLeft) this.idlePasses++;
         this.o.onError?.(e as Error);
       }
+      // Before the adjudicators, so they act on what was sent straight to the contract too (T-218).
+      if (this.live.verified) await this.syncChain();
       // The adjudicators wait for a verified chain and their own bonds: an acceptance without one is refused on chain.
       // The look still runs, so a takeover whose judgeBy passed meanwhile is due, not a stale wake (T-057 review 4).
       if (!this.ready()) {
@@ -745,6 +788,10 @@ interface LiveWorld {
   verified: boolean;
   /** When the pools and lanes were last checked (ms). */
   pools: number;
+  /** The reader of the rules contract's logs (T-218), and the cursor as last written to storage. */
+  sync: ChainSync;
+  cursor: Cursor | null;
+  lastSync?: SyncReport;
 }
 
 /** What the faucet needs from the settlement layer: mandates, and a grant of test tokens in process or on chain. */
