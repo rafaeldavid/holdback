@@ -1,6 +1,6 @@
 # Plan
 
-Iterative. Demo first, then harden one layer per phase. Each phase ends with evidence, a plan update and ADRs closed or deferred. Phases 0 to 2, 9 and 10 have task files in `docs/tasks/` (T-016b does not yet), and Phases 3 and 5 have one each (T-309, T-214). The architect writes later phases' task files at the start of each phase.
+Iterative. Demo first, then harden one layer per phase. Each phase ends with evidence, a plan update and ADRs closed or deferred. Phases 0 to 2, 9, 10 and 11 have task files in `docs/tasks/` (T-016b does not yet), and Phases 3 and 5 have one each (T-309, T-214). The architect writes later phases' task files at the start of each phase.
 
 **Releases:** v0.1 = Phases 0–3 · v0.2 = Phases 4–5 · v0.3 = Phase 6.
 
@@ -88,7 +88,8 @@ Goal: the same scenario fixtures pass against an EVM contract on a local chain. 
 - [ ] T-217 drand quicknet proofs for fallback and appeal decisions on Sepolia (ADR-0028 §11): the adjudicator's `drand-quicknet` source with a local BLS check and no substitute, rounds per source in core, and the parse rule for chain settlement. After T-210 and T-211, which change two of its files.
 - [ ] T-218 Direct contract calls in the operators' view (ADR-0028 §11): the world syncs HoldbackRules' logs from a stored cursor, so a step no operator relayed shows as `submittedVia: 'direct'`.
 - [ ] T-219 An in-flight row per relayer lane, written before the broadcast, so a restart between broadcast and receipt applies the node's own transaction (seen at the T-213 cutover). After T-218.
-- [ ] T-221 Adjudicator registration through the API (D46, ADR-0030 to come): a self-signed `AdjudicatorRegistration` at `POST /v1/adjudicators`, served with its signature and the bond read from chain, so any agent can bring its own adjudicator; the reference adjudicator's trust rule extends to the fallback role. Crow's three stay the defaults, and naming others is advanced use. Registrations are never removed and show when each was last used; an unbonded one is labelled and warned about, and a selection the terms cannot pay from a bond is refused (the contract half with the next redeploy). Round 1 uses it for overturned appeals and silent adjudicators. Schema 0.10, additive.
+- [ ] T-221 (in progress: slice 1, the ADR, schema 0.10, core and the operator routes, merged in PR 184; slice 2 waits for T-217 and T-219) Adjudicator registration through the API (D46, ADR-0030): a self-signed `AdjudicatorRegistration` at `POST /v1/adjudicators`, served with its signature and the bond read from chain, so any agent can bring its own adjudicator; the reference adjudicator's trust rule extends to the fallback role. Crow's three stay the defaults, and naming others is advanced use. Registrations are never removed and show when each was last used; an unbonded one is labelled and warned about, and a selection the terms cannot pay from a bond is refused (the contract half with the next redeploy). Round 1 uses it for overturned appeals and silent adjudicators. Schema 0.10, additive.
+- [ ] T-224 Appeal bonds by a relayed permit (D48): `prepare/appeal` returns an EIP-2612 `Permit` slot under the token's domain, and the operator relays `permit` and `fileAppeal` in one Multicall3 call. A visitor's agent then appeals with no Sepolia ETH of its own. No contract change; the same path on USDC. Round 1's scenarios 6 and 7 use it.
 - [ ] T-220 Ship round 1's prerequisites to the live demo: one deploy of T-217 to T-219 and T-221, with a fresh Sepolia world whose rulebook names drand, on Rafa's go-ahead. The fixed contracts (PRs 160 and 161) are already live: the T-206 session redeployed them and cut the demo over on 2026-11-04, with Rafa's go-ahead.
 - D4 decided: the target is Ethereum mainnet (2026-11-01), built and tested on a local chain, then on Sepolia, the public testnet the demo settles on since D41 (2026-11-03). Mainnet deployment is a separate gate for Rafa after an audit. Record gas per deal in the evidence.
 
@@ -125,6 +126,7 @@ Goal: fiat enters and leaves through ramps; the demo runs on a public testnet wi
 - Stripe test-mode on-ramp: a card payment mints test tokens to the buyer (D7). A simulated off-ramp.
 - Testnet deployment (D4) and gas sponsorship or paymaster for agents.
 - [ ] T-215 Gas share on small deals. *2026-11-04, on the 0.7 contracts (T-212's redeploy, measured from receipts):* a deal's three transactions take 1,636,242 gas (fund 938,593, deliver 173,119, decide 524,530), 4.9% more than below, for the delivery-hash slot; the 4.70 tUSDC quote was left as it is (it would round to 4.91 at the same fictional rate) for this task to replace. Measured on Sepolia (T-213, 2026-11-03, `eth_simulateV1` on the deployed contracts): a deal's three transactions take about 1.56 million gas (anvil had about 500k; Sepolia prices new state about 3.5 times higher), so the demo's minimum fee is 4.71 tUSDC (a 4.70 gas quote at the measured 1 gwei tip and a fictional 3,000 tUSDC/ETH, plus 0.01 relay), about 19% of a 25 tUSDC deal (D33, ADR-0023). Before mainnet: quote gas from live gas and token prices; credit or refund the unused part of the quote (an ADR-0023 amendment and a schema bump); set a published target share for small deals (proposed: under 1% at $25; Rafa decides); take the cheapest wins (the decision carrying the delivery by default, with the seller still free to post `deliver` (D37); relayer batching) and weigh Phase 7's "Minimise gas" and Phase 8's L2 or fragment options.
+- [x] T-222 (deployed 2026-11-04) Crow's standing test seller on the Sepolia test environment (D47): its own Worker at `escrow.stream/agents/test-seller`, a party that uses the public API like any agent, sells `try.mjs`'s dataset from one standing address, and refunds on request; `node try.mjs --seller <url>` plays only the buyer. The test buyer follows (backlog).
 - Operator node packaging (container), so a second party can run op-2.
 - Neutrality beat 7 on testnet.
 
@@ -205,6 +207,18 @@ Goal: agent teams develop Crow continuously from tickets, agent feedback, the ro
 - `agent-ops/STATUS` reads `active` and the repository variable `AGENT_OPS` is `on`, both set by Rafa (T-050).
 - One lane merged 10 PRs without a revert, then three lanes ran with the cross-family gates (measured in the daily log).
 - No agent session can read a credential for Rafa's personal accounts (T-039 smoke test, measured).
+
+## Phase 11: Security hardening
+
+Goal: the systems that run Crow, beyond the protocol, hold up against an attacker: the founders' console, the accounts and keys behind the demo, and the paths by which code reaches them.
+
+Appended after Phase 10, so no phase number moves (Rafa, 2026-11-04: "let's move this to security hardening phase"). Contract hardening stays in Phase 2 (T-212), judgment hardening in Phase 3, and the agent-ops security gates in Phase 10 (T-044). Tasks are listed in dependency order.
+
+- T-059 The founder console on its own host behind Access (D45): finish the move from the passcode console at `escrow.stream/control` to `control.escrow.stream` behind Cloudflare Access, with the hourly and daily pushes. The code, its tests and two red-team rounds are done; Rafa's setup steps and the deploys remain (infra; human gate).
+
+**Exit:**
+- Both founders open the console at `control.escrow.stream` through Access and see Costs and Keys, and the shared passcode is retired (T-059, confirmed by Rafa).
+- A red-team pass against the deployed console finds no High or Critical finding (measured).
 
 ## Scenario index
 
