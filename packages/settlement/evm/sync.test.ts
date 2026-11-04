@@ -756,15 +756,16 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     expect(await s.keysFor(d.id, cast.primary.address)).toHaveLength(1);
   }, 60_000);
 
-  it('a read that fails after a relay mined leaves the book untouched, and the next pass applies the call (review M2)', async () => {
+  it('a read that keeps failing after a relay mined leaves the book untouched, and the next pass applies the call (review M2)', async () => {
     let failDealOf = false;
+    let failed = 0;
     const pc = chain.publicClient;
     const flakyClient = new Proxy(pc, {
       get(target, prop) {
         if (prop === 'readContract') {
           return async (args: { functionName: string }) => {
             if (failDealOf && args.functionName === 'dealOf') {
-              failDealOf = false;
+              failed++;
               throw new Error('RPC down');
             }
             return (target.readContract as (a: unknown) => Promise<unknown>)(args);
@@ -780,6 +781,9 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     const d = await funded('flaky-read', s, { deliver: true });
     failDealOf = true;
     await expect(s.submit(await d.decide('primary', 'accept'), { via: 'op-1' })).rejects.toThrow(/RPC down/);
+    // The read at the receipt's block is tried five times (T-216 round 1) before the relay gives up on it.
+    expect(failed).toBe(5);
+    failDealOf = false;
     expect(s.escrowState(d.id)!.kind).toBe('Delivered');
     expect(await sync.pass()).toMatchObject({ applied: 1, behind: 0 });
     expect((await s.state(d.id))!.escrowState).toBe('Released');

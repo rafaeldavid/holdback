@@ -207,6 +207,46 @@ describe.skipIf(!ready)(`EvmSettlement on anvil${ready ? '' : ' (SKIPPED: needs 
     expect(chain.log().filter((e) => e.type === 'commitment.agreed')).toHaveLength(1);
   }, 60_000);
 
+  // Round 1's first live run (T-216, Medium): after a relayed delivery's receipt, an RPC node a block behind answered the
+  // read that checks it with the state before the delivery, and the step's events were never emitted. Here the node
+  // that answers one read lags the receipt by a block: at the latest block it answers the block before, and at the
+  // receipt's block it fails once, then catches up.
+  it.each(['dealOf', 'deliveryHashOf'])('a relayed delivery is logged when the node that answers %s after its receipt is a block behind', async (lagging) => {
+    const { chain, cast, club } = await newSettlement(world);
+    const d = new EvmDeal(chain, cast, club, `lagging-${lagging}`);
+    for (const s of [d.offer(), d.accept(), d.agreeAndFund()]) await must(chain, cast, s);
+    const client = world.publicClient as unknown as { readContract: (a: { functionName: string; blockNumber?: bigint }) => Promise<unknown> };
+    const read = client.readContract.bind(client);
+    const send = world.send.bind(world);
+    let head: bigint | null = null;
+    let pinned = 0;
+    const sends = vi.spyOn(world, 'send').mockImplementation(async (tx, at) => {
+      const mined = await send(tx, at);
+      head = mined.blockNumber - 1n;
+      return mined;
+    });
+    const reads = vi.spyOn(client, 'readContract').mockImplementation(async (a) => {
+      if (head === null || a.functionName !== lagging) return read(a);
+      if (a.blockNumber === undefined) return read({ ...a, blockNumber: head });
+      if (a.blockNumber > head && pinned++ === 0) throw new Error('header not found');
+      return read(a);
+    });
+    try {
+      const r = await chain.submit(await d.deliver(), { via: 'op-1', sender: cast.operator.key });
+      expect(r.ok ? r.events.map((e) => e.type) : r.problem.type).toEqual(['delivery.submitted', 'key.released']);
+    } finally {
+      sends.mockRestore();
+      reads.mockRestore();
+    }
+    // The first read at the receipt's block failed, and the retry answered.
+    expect(pinned).toBe(2);
+    chain.advance(1);
+    expect(chain.escrowState(d.id)?.kind).toBe('Delivered');
+    expect(await chain.keysFor(d.id, cast.primary.address)).toHaveLength(1);
+    await must(chain, cast, d.decide('primary', 'accept'));
+    expect((await chain.stage(d.id)).stage).toBe('Released');
+  }, 60_000);
+
   it('agrees with SimChain on authorizationExpiry: no capture from fallbackBy + appealDecideSec + margin on', async () => {
     const expiryOf = (d: EvmDeal) => authorizationExpiry(d.terms, Number(EXPIRY_MARGIN));
     const before = await newSettlement(world);
