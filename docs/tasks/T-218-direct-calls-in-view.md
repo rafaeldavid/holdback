@@ -3,7 +3,7 @@
 - **Lane:** settlement (with demo, for the world)
 - **Phase:** 2
 - **Depends on:** T-213 (the Sepolia world)
-- **Paths this task may touch:** `packages/settlement/evm/evm-settlement.ts`, `sync.ts` (new), `chain.ts`, `live.ts` (only the log read), `world.ts` (the anvil harness's log read), `index.ts` (the export), and their tests (`evm-settlement.test.ts`, `wall.test.ts`, a new `sync.test.ts`); `apps/demo-cloud/src/world.ts`, `storage.ts`, and their tests (`world.test.ts`, `live.test.ts`); `docs/decisions/ADR-0028-demo-settles-on-sepolia.md` (a dated note in §11); `docs/neutrality.md` (only if a residual changes); `docs/backlog.md` (its row); `docs/plan.md` (this row); this file
+- **Paths this task may touch:** `packages/settlement/evm/evm-settlement.ts`, `sync.ts` (new), `chain.ts`, `live.ts` (only the log read), `world.ts` (the anvil harness's log read), `index.ts` (the export), and their tests (`evm-settlement.test.ts`, `wall.test.ts`, a new `sync.test.ts`); `apps/demo-cloud/src/world.ts`, `storage.ts`, and their tests (`world.test.ts`, `live.test.ts`); `docs/decisions/ADR-0028-demo-settles-on-sepolia.md` (a dated note in §11); `docs/neutrality.md` (only if a residual changes); `docs/backlog.md` (its row); `docs/plan.md` (this row, and the named test's line under the scenario index); this file
 - **Human gate:** no. The live deploy is T-220's.
 - **Status:** todo
 - **Agent/session:** —
@@ -31,6 +31,11 @@ The design is in the research pass, `docs/research/2026-11-03-sepolia-demo-settl
   - **Covered on anvil** (a live-chain stand-in with `--block-time 1`), each sent from a party's or a stranger's own key: `agreeAndFund` with the acceptance the operators serve, `deliver`, `decide` sent by whoever holds the signed decision, `earlyAccept`, `fileAppeal`, `mutualSettle`, and each timeout: `expireOffer`, `reclaim`, `triggerFallback`, `triggerDefault` (default and apply-default in one transaction), `expireAppeal`.
   - A transaction this node relayed is applied once, not twice.
   - Both origins serve the same state and events, and the event hash chain stays append-only.
+- [ ] **A call made inside another contract.** When HoldbackRules is called from inside another contract, the top-level calldata targets that contract, not the rules contract. Examples: a Multicall3 bundle (the operators' own funding bundle is one), a Safe, or an ERC-4337 smart account.
+  - The sync decodes known wrappers (Multicall3).
+  - For anything else, it serves that deal's stage from `dealOf` with a notice, and invents no step.
+  - Either way the cursor still advances for every other deal: one transaction it cannot decode never stops the view. Only an RPC error holds the cursor back.
+  - Both cases are tested on anvil.
 - [ ] **The next adjudicator still gets its key.** Today the adapter hands an adjudicator its envelope only on its own send path (`custody` in `evm-settlement.ts`): the fallback at the takeover, the appeal adjudicator at an escalation or a filing. A direct `triggerFallback`, `fileAppeal` or escalating `decide` makes the same release, so the fallback or the appeal adjudicator can decide and the deal does not drift into the default (litmus test 1). Tested for each of the three.
 - [ ] **A commitment the operators never saw.** Its terms were never posted to an operator, so the world holds no book for it. The sync does not invent one. Decide and record what happens: proposed, the sync counts and skips it, and the world joins the chain's state once a party posts the signed offer (`POST /v1/commitments`).
 - [ ] **A direct delivery's envelopes.** The contract never holds the adjudicators' envelopes (T-205), so a direct `deliver` gives the world none. When the seller then posts the same signed delivery to an operator, the operator joins it to the book, with no second relay and no `invalid_state`. The adjudicators get their envelopes, and the primary decides. Without that post, the adjudicators cannot open the work; the sentence `llms.txt` needs for this goes in the Handoff, for T-220.
