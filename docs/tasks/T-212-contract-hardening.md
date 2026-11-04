@@ -5,7 +5,7 @@
 - **Depends on:** the T-206 fix PRs merged
 - **Paths this task may touch:** `contracts/src/`, `contracts/test/`, `packages/settlement/evm/encode.ts` and `packages/settlement/sim/simchain.ts` (only for item 4), `docs/decisions/ADR-0016-phase1-contract.md` (item 5, through an amendment), `docs/tasks/T-212-contract-hardening.md`. Added for items 7 and 9 (2026-11-03, D43, so every layer agrees on who may appeal and what an overturn reports): `packages/core/src/state.ts` and its test, `packages/settlement/evm/` (`evm-settlement.ts`, `gas.ts`, `abis.json`, tests), `apps/operator/src/prepare.ts` and `sim-world.test.ts`, `formal/Holdback.tla` (`FileAppeal`), and the docs that state who may appeal (`docs/api.md`, `docs/quickstart.md`, `docs/PRD.md`, `site/llms.txt`, `README.md`, ADR-0015 and ADR-0019 by amendment). Item 3's paths are in its own PR (ADR-0029).
 - **Human gate:** no
-- **Status:** in progress (items 7 and 9 in PR #160; item 3 in review, PR #161, which merges after #160)
+- **Status:** in progress. Items 3, 7 and 9 are merged (PR #160 at 1653745, PR #161 at 64be1f1); items 1, 2, 4, 5, 6 and 8 are open, and item 5 now blocks mainnet. The Sepolia redeploy (Handoff) waits for Rafa.
 - **Agent/session:** T-206's session (items 7 and 9); an implementer agent (item 3)
 
 ## Intent
@@ -97,5 +97,7 @@ Item 3 (branch `t-212-delivery-binding`; stacks on PR #160 and merges after it):
   4. Run ADR-0028 §7's idempotent setup so the three demo adjudicators deposit bonds in the new vault; their old bonds stay withdrawable as old deals close.
   5. Give the Sepolia world a new name and switch each Worker's `SETTLEMENT` and world name together; rollback is the old name and flag. Deals open on the old deployment finish there (every timeout is permissionless).
   6. Re-measure gas on the new deployment with `eth_estimateGas` and update the operator's gas quote (`OPERATOR_FEE_GAS`, D33; T-215): the new slot is about +22,000 gas on anvil and may be about +77,000 on Sepolia [inferred].
+  7. Check that each demo adjudicator's EIP-712 domain names the new rules contract (DeepSeek's PR #161 pass): its seller-signature check verifies against that domain, and core's default names SimChain's placeholder.
+  - T-033's items are schema and API only; none changes contract code. So the contracts can be deployed without waiting for T-033; only the Workers' switch and the `llms.txt` rewrite would ideally wait for it [inferred from T-033's Intent].
 - **Mutation evidence still to strengthen:** a mutant that stores no hash makes every decision after a delivery revert, which the unit tests catch but no invariant counts yet (a liveness counter in the handler would).
 - **Files outside T-212's original paths** (ADR-0029's list): `spec/`, `packages/core`, `packages/settlement`, `packages/testkit`, `apps/adjudicator`, `apps/operator`, `apps/demo`, `apps/demo-cloud`, `examples/`, `site/`, `fixtures/`, `tests/spec.test.ts`, `packages/judgment/src/pipeline.test.ts`, and the docs ADR-0029 amends.
