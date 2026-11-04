@@ -514,3 +514,9 @@ Gaps:
 | Medium: no appeal fee to the appeal adjudicator | I-8's remaining gap, Phase 4 |
 | Medium: an overturn from reject to accept cannot release the key | Deliberate: H-2 and ADR-0012 (no key on a deal that stands Refunded; the seller is paid from the bond, not the buyer's money). SimChain still releases it; T-210 mirrors H-2 there |
 | Payout recipient, source and once-only; bond accounting across role overlaps and price 0; the appeal restriction takes no legitimate appeal; adapter event order and schema | Pass. Its one caveat, `Money.requirement(price, 10000)` against `price`, is exact: `mulDivUp` with equal numerator and denominator [inferred from `HoldbackTypes.sol:431`] |
+
+**Follow-up pass on PR #161 (2026-11-04, D44, ADR-0029).** DeepSeek `deepseek-v4-pro` reviewed the delivery binding: the same primer, five open questions, `HoldbackRules.sol` and `HoldbackTypes.sol` in full, and excerpts of core's EIP-712 types and the reference adjudicator (`reports/scratch/deepseek/parts/binding.*` in the T-206 worktree; finish `stop`, 712 s) [measured]. No high or medium. It passed every path's binding to the stored hash, liveness (the timeouts never read it), the type strings against core, and both adjudicator checks. Its two info items:
+- The adjudicator's seller-signature check did not compare the delivery's commitment ID with the task's. Fixed in PR #161 (`#preflight` refuses another commitment's delivery, with a test).
+- The check is only as good as the adjudicator's configured EIP-712 domain, whose default names SimChain's placeholder contract. On Sepolia the domain must name the deployed rules contract: a check for the redeploy (T-212 Handoff).
+
+The PR #161 reviewer (Claude, project context) found the binding sound and raised six items, all fixed in the same PR, including a guard that stops a build from starting against a rules contract under another EIP-712 domain.
