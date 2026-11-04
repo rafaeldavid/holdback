@@ -141,9 +141,29 @@ Fill this in before review. Label each item measured, inferred or guessed.
   - `pnpm exec vitest run examples`: 46 passed. `eslint` and `tsc -b examples` are clean. `node site/check.mjs` passes [measured].
   - **The secret exists (2026-11-04).** Rafa ran `init` on his `.env`, and the round's master is `0x6D4cEa33dAf09Ba803238d46392162d41BDB029f` (https://sepolia.etherscan.io/address/0x6D4cEa33dAf09Ba803238d46392162d41BDB029f). Rafa funds it from faucets (the estimate was about 0.2 Sepolia ETH); the other five addresses are topped up from it [measured: his terminal's output].
   - **The master is funded:** 2.5 Sepolia ETH at block 12,061,679 on 2026-11-04 [measured: `eth_getBalance` through publicnode]. That is well above the 0.2 the round needs [guessed], so the round can run more than once without another top-up.
+- **The top-up (2026-11-04, Rafa: "The round-1 master tops these up" for buyer, seller and adjudicators).**
+  - Before it: buyer, seller and the three adjudicators each held 0 Sepolia ETH [measured: `eth_getBalance` through publicnode].
+  - `examples/e2e-keys.ts topup [--dry-run]` brings each of the five keys up to 0.04 Sepolia ETH from the master. It sends one transfer at a time and waits for each receipt. It refuses any chain but Sepolia, and it refuses, sending nothing, when the master cannot cover every transfer plus a 0.01 reserve for its own gas. It prints addresses, amounts and Etherscan links, never a key.
+  - `examples/e2e-keys.test.ts`: 11 passed [measured]. The new tests cover the plan for empty keys, the shortfall only, nothing to a key at or above the target, the refusal when the master is short, the Sepolia-only guard, and the CLI refusals before any network call. `eslint` is clean on both files [measured].
+  - A live dry run with a throwaway seed reached Sepolia, passed the chain check, read the balances and refused: "the master holds 0 Sepolia ETH; the top-ups need 0.2 plus 0.01 for gas" [measured].
+  - `pnpm verify` on branch `t-216-topup`, 2026-11-04 15:43 UTC: PASS, no snapshot diffs against HEAD [measured]. The first run failed `forge build` while the fresh worktree cloned the contract submodules; the rerun:
+
+    | Step | Status | Time |
+    | --- | --- | --- |
+    | typecheck | pass | 266 ms |
+    | lint | pass | 4,201 ms |
+    | forge build | pass | 748 ms |
+    | forge | pass | 18,284 ms |
+    | test | pass | 71,470 ms |
+    | spec | pass | 591 ms |
+    | snap | pass | 9,685 ms |
+    | snap:local | pass | 16,022 ms |
+    | demo | pass | 4,147 ms |
 
 ## Decisions
 
 ## Handoff
+
+- **The top-up:** Rafa runs `node --env-file-if-exists=.env examples/e2e-keys.ts topup --dry-run`, then the same without `--dry-run`. The driver can call it again before each scenario that needs a key's own gas; it sends nothing while every key holds at least 0.04.
 
 - When round 1 completes: unbench PR 151 and T-206's read (`docs/backlog.md`, Benched; `docs/log/2026-11-04.md`, Next steps item 3), and tell Rafa.

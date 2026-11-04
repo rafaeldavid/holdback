@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
-import { ROLES, SEED_VAR, roundAddresses, roundKey } from './e2e-keys.ts';
+import { MASTER_RESERVE, ROLES, SEED_VAR, SEPOLIA_CHAIN_ID, TOPUP_TARGET, assertSepolia, planTopUps, roundAddresses, roundKey, type Role } from './e2e-keys.ts';
 
 const cli = fileURLToPath(new URL('./e2e-keys.ts', import.meta.url));
 const dir = mkdtempSync(join(tmpdir(), 'e2e-keys-'));
@@ -88,5 +88,41 @@ describe('the round keys', () => {
     expectNoSecret(out, seed);
     expectNoSecret(loaded, seed);
     expect(run(['address']).status).toBe(1);
+  });
+});
+
+describe('the top-up from the master', () => {
+  const addresses = roundAddresses(`0x${'11'.repeat(32)}`);
+  const balances = (master: bigint, others: Partial<Record<Role, bigint>> = {}) =>
+    Object.fromEntries(ROLES.map((r) => [r, r === 'master' ? master : (others[r] ?? 0n)])) as Record<Role, bigint>;
+
+  it('brings every empty key up to the target, in role order, and never sends to the master', () => {
+    const plan = planTopUps(addresses, balances(2_500_000_000_000_000_000n));
+    expect(plan.map((t) => t.role)).toEqual(['buyer', 'seller', 'adjudicator-1', 'adjudicator-2', 'adjudicator-3']);
+    expect(plan.every((t) => t.send === TOPUP_TARGET && t.address === addresses[t.role])).toBe(true);
+  });
+
+  it('sends only the shortfall, and nothing to a key at or above the target', () => {
+    const plan = planTopUps(addresses, balances(2_500_000_000_000_000_000n, { buyer: TOPUP_TARGET, seller: TOPUP_TARGET + 1n, 'adjudicator-1': TOPUP_TARGET - 7n }));
+    expect(plan.map((t) => [t.role, t.send])).toEqual([['adjudicator-1', 7n], ['adjudicator-2', TOPUP_TARGET], ['adjudicator-3', TOPUP_TARGET]]);
+    expect(planTopUps(addresses, balances(0n, Object.fromEntries(ROLES.map((r) => [r, TOPUP_TARGET]))))).toEqual([]);
+  });
+
+  it('refuses, planning nothing, when the master cannot cover the top-ups and keep its reserve', () => {
+    const need = TOPUP_TARGET * 5n + MASTER_RESERVE;
+    expect(planTopUps(addresses, balances(need))).toHaveLength(5);
+    expect(() => planTopUps(addresses, balances(need - 1n))).toThrow(/refusing: the master holds/);
+  });
+
+  it('refuses every chain but Sepolia', () => {
+    expect(() => assertSepolia(SEPOLIA_CHAIN_ID)).not.toThrow();
+    for (const id of [1, 31337, 8453]) expect(() => assertSepolia(id)).toThrow(RangeError);
+  });
+
+  it('topup refuses without the secret and with an unknown argument, before any network call', () => {
+    expect(run(['topup']).status).toBe(1);
+    const out = run(['topup', '--send-all'], { [SEED_VAR]: `0x${'11'.repeat(32)}` });
+    expect(out.status).toBe(2);
+    expect(out.stderr).toContain('topup [--dry-run]');
   });
 });
