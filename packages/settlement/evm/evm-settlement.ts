@@ -207,9 +207,11 @@ const PRE_FUNDING: readonly EscrowStateKind[] = ['Offered', 'AcceptedByAdjudicat
 const BALANCE_TTL_MS = 4000;
 /**
  * The waits before each retry of a read pinned to a receipt's block (7.5 s in all, five tries): an RPC node that has
- * not seen the block yet fails the read, and each try walks the chain's RPC list again.
+ * not seen the block yet fails the read, and each try walks the chain's RPC list again. No wait starts past the budget,
+ * so RPCs that hang (8 s each, live.ts) do not hold the deal's lane for minutes.
  */
 const RECEIPT_READ_RETRY_MS = [500, 1_000, 2_000, 4_000];
+const RECEIPT_READ_BUDGET_MS = 10_000;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Contract event names as settlement event types, per call. Unlisted logs (CPP, bonds, token) map to nothing. */
@@ -482,14 +484,18 @@ export class EvmSettlement implements Settlement {
     return (await this.world.publicClient.readContract({ address, abi, functionName, args, ...(blockNumber !== undefined ? { blockNumber } : {}) })) as T;
   }
 
-  /** A read pinned to a mined block, tried again while it fails (RECEIPT_READ_RETRY_MS); the last failure is thrown. */
-  private async atReceipt<T>(read: () => Promise<T>): Promise<T> {
+  /**
+   * A read pinned to a mined block, until `settled` accepts its answer. On the chain that holds the receipt the answer
+   * is fixed, so a failure or another answer means the node lags or follows another fork: the read is tried again,
+   * after RECEIPT_READ_RETRY_MS on a live chain, within RECEIPT_READ_BUDGET_MS. Then the last answer or failure stands.
+   */
+  private async atReceipt<T>(read: () => Promise<T>, settled: (answer: T) => boolean): Promise<T> {
+    const deadline = Date.now() + RECEIPT_READ_BUDGET_MS;
     for (const ms of RECEIPT_READ_RETRY_MS) {
-      try {
-        return await read();
-      } catch {
-        await sleep(ms);
-      }
+      const answer = await read().then((value) => ({ value }), () => null);
+      if (answer && settled(answer.value)) return answer.value;
+      if (Date.now() + ms > deadline) break;
+      if (this.wall) await sleep(ms);
     }
     return read();
   }
@@ -1180,14 +1186,16 @@ export class EvmSettlement implements Settlement {
     const logs = this.decode(mined.logs);
     // The book moves in record, after these reads: a read that fails leaves it untouched, so the next pass applies the
     // mined call as a missed receipt (review M2). Both read at the receipt's block: at the latest block, an RPC node a
-    // block behind answered the state before this call, and the call's events were lost (T-216 round 1, 2026-11-04).
-    const onChain = await this.atReceipt(() => this.stage(id, mined.blockNumber));
+    // block behind can answer the state before this call, and the call's events are lost (the inferred cause of T-216
+    // round 1's lost delivery, 2026-11-04).
     const expect = PRE_FUNDING.includes(after.kind) ? 'None' : after.kind;
+    const onChain = await this.atReceipt(() => this.stage(id, mined.blockNumber), (s) => s.stage === expect);
     if (onChain.stage !== expect) throw new Error(`EVM/core divergence after ${fn}: the contract is ${onChain.stage}, core is ${after.kind}`);
     // ADR-0029: the delivery the contract stored is the one the mirror holds, since every later signature names it.
     if (ctx.delivery) {
-      const stored = await this.atReceipt(() => this.read<Hex32>(this.world.deployment.rules, this.world.abis.rules, 'deliveryHashOf', [id], mined.blockNumber));
-      if (stored !== deliveryHash(ctx.delivery)) throw new Error(`EVM/core divergence after ${fn}: the contract stores delivery ${stored}, core holds ${deliveryHash(ctx.delivery)}`);
+      const want = deliveryHash(ctx.delivery);
+      const stored = await this.atReceipt(() => this.read<Hex32>(this.world.deployment.rules, this.world.abis.rules, 'deliveryHashOf', [id], mined.blockNumber), (h) => h === want);
+      if (stored !== want) throw new Error(`EVM/core divergence after ${fn}: the contract stores delivery ${stored}, core holds ${want}`);
     }
     this.record(id, book, fn, before, after, logs, mined, blockAt, options.via ?? 'direct', actor, ctx);
     this.relayedAt.set(id, this.log_.length);
