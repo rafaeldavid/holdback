@@ -5,7 +5,7 @@
 - **Depends on:** T-213 (the Sepolia world)
 - **Paths this task may touch:** `packages/settlement/evm/evm-settlement.ts`, `sync.ts` (new), `chain.ts`, `live.ts` (only the log read), `world.ts` (the anvil harness's log read), `index.ts` (the export), and their tests (`evm-settlement.test.ts`, `wall.test.ts`, a new `sync.test.ts`); `apps/demo-cloud/src/world.ts`, `storage.ts`, and their tests (`world.test.ts`, `live.test.ts`); `docs/decisions/ADR-0028-demo-settles-on-sepolia.md` (a dated note in §11); `docs/neutrality.md` (only if a residual changes); `docs/backlog.md` (its row); `docs/plan.md` (this row, and the named test's line under the scenario index); this file
 - **Human gate:** no. The live deploy is T-220's.
-- **Status:** review
+- **Status:** done
 - **Agent/session:** T-218 session, branch `t-218-direct-calls` (2026-11-04)
 
 ## Intent
@@ -68,25 +68,25 @@ The design is in the research pass, `docs/research/2026-11-03-sepolia-demo-settl
 
 ## Evidence
 
-**`pnpm verify`** (measured, commit `5714fab` plus the docs in this PR, 2026-11-04, `reports/verify-t-218-direct-calls.md`): PASS.
+**`pnpm verify`** (measured, commit `cf2864d`, 2026-11-04, `reports/verify-t-218-direct-calls.md`): PASS.
 
 | Step | Command | Status | Time |
 | --- | --- | --- | --- |
-| typecheck | `pnpm typecheck` | pass | 606 ms |
-| lint | `pnpm lint` | pass | 16759 ms |
-| forge build | `forge build --root contracts` | pass | 5195 ms |
-| forge | `forge test --root contracts` | pass | 45991 ms |
-| test | `pnpm test` | pass | 98810 ms |
-| spec | `pnpm validate:spec` | pass | 824 ms |
-| snap | `pnpm snap` | pass | 11879 ms |
-| snap:local | `pnpm snap --settlement=local` | pass | 31442 ms |
-| demo | `pnpm demo` | pass | 6426 ms |
+| typecheck | `pnpm typecheck` | pass | 272 ms |
+| lint | `pnpm lint` | pass | 5001 ms |
+| forge build | `forge build --root contracts` | pass | 3981 ms |
+| forge | `forge test --root contracts` | pass | 25429 ms |
+| test | `pnpm test` | pass | 149339 ms |
+| spec | `pnpm validate:spec` | pass | 608 ms |
+| snap | `pnpm snap` | pass | 9996 ms |
+| snap:local | `pnpm snap --settlement=local` | pass | 16002 ms |
+| demo | `pnpm demo` | pass | 4615 ms |
 
 - Snapshot diffs against HEAD: none (measured). `snap:local` ran 28 fixtures on the contract, each with a transcript identical to SimChain's, and excluded 3 until Phase 4 (measured). `reports/differential-local.md` is unchanged.
-- `pnpm test`: 108 files, 2,428 tests passed, 3 skipped (measured).
+- `pnpm test`: 108 files, 2,447 tests passed, 3 skipped (measured).
 - The worktree's `contracts/lib/commerce-payments` was copied from a sibling worktree at the same commit (6b0a5ef). `forge build` warned that it could not clone the submodule, then compiled (measured). CI checks the submodule out itself.
 
-**Each acceptance criterion, on anvil standing in for Sepolia** (a block every second; `packages/settlement/evm/sync.test.ts`, 20 tests, 20 passed in 96.4 s, measured):
+**Each acceptance criterion, on anvil standing in for Sepolia** (a block every second; `packages/settlement/evm/sync.test.ts` and `wall.test.ts`, 41 tests, 41 passed in 150 s, measured). The first rows are the criteria; the regressions from the three review rounds follow the table.
 
 | Criterion | Test | Result |
 | --- | --- | --- |
@@ -103,9 +103,18 @@ The design is in the research pass, `docs/research/2026-11-03-sepolia-demo-settl
 | The copied fund leg | "the fund leg copied alone…", "…out of the mempool…" | Held with no `fee.operator`, then the fee relayed alone; in the race, the copy mined first and the node's bundle reverted in the same block, then the node followed the copy and relayed the fee |
 | `neutrality.operator-refuses-on-chain` | the named test | the relays answer `relay_refused`; the deal settles by direct calls; the log shows every step, with only the funding through the operator |
 
+**Regressions from the three review rounds** (each a test in `sync.test.ts` or `wall.test.ts`, all passing, measured):
+- A reverted decoy beside the real call in a bundle: the view records the decision that ran, with its appeal window. A decoy settlement: the view records the payouts the chain made.
+- A forwarded or opaque takeover, or one bundled twice: it follows from its logs, and the fallback decides. A forwarded copy of the seller's delivery waits, then joins.
+- Planted calls beside a copied step (a takeover, an offer expiry, a junk call): the copied step applies, and no planted step applies. Sixteen filler timeouts do not hide the real call. A junk call beside a carried delivery does not cancel the join.
+- An early accept hidden by a transforming contract with a planted takeover: the deal is behind, with no takeover and no fallback envelope, and the buyer's key is served.
+- Another account's transfer with the deal's fee nonce is not recorded as the operator fee. A missed fee bundle's receipt records the fee once.
+- An expiry of 2^64 − 1 s: the deal follows, and a direct delivery joins. A failed read after a relay mined leaves the book untouched, and the next pass applies the call.
+- 120 KB of selector padding: a pass with that transaction stays under 3 s. Range halving runs on a provider cap only, never on a rate limit. Unaccepted offers keep no cadence; accepted ones go idle after an hour.
+
 **Cadence and cost** (`apps/demo-cloud/src/live.test.ts`; 2 tests passed, 1 skipped, which needs `SEPOLIA_FORK_RPC`; measured):
 - After try.ts reached Released, the reopened world scheduled its next pass within 60 s while the deal was open.
-- A stranger's direct `expireAppeal` showed after one pass of 298 ms: `appealState: 'expired'`, the event with `submittedVia: 'direct'`, 6 RPC requests. That pass read 0 rows and wrote 3: the book, the event page and the cursor row.
+- A stranger's direct `expireAppeal` showed after one pass of 308 ms (298 ms in an earlier run): `appealState: 'expired'`, the event with `submittedVia: 'direct'`, 6 RPC requests. That pass read 0 rows and wrote 3: the book, the event page and the cursor row.
 - The idle pass after it read 0 rows and wrote 0. With the deal final, `nextPass()` is null: no deal open, no pass (T-057 unchanged).
 - On Sepolia a pass reads within one block of the call; the 60 s target holds while the RPC answers (inferred).
 
@@ -144,7 +153,7 @@ Made by the T-218 session on 2026-11-04; Rafa can overrule any of them.
 
 ## Handoff
 
-**State:** review, [PR 185](https://github.com/rafaeldavid/holdback/pull/185). Three rounds of `reviewer` and `red-teamer` passes ran on 2026-11-04. All findings sat in the view and relay layer; no funds moved outside the terms.
+**State:** done, merged in [PR 185](https://github.com/rafaeldavid/holdback/pull/185). Three rounds of `reviewer` and `red-teamer` passes ran on 2026-11-04. All findings sat in the view and relay layer; no funds moved outside the terms.
 - The reviewer's third check: PASS.
 - The red-teamer's third pass: the round-two fixes hold; its three new items (filler calls, a planted junk call beside a carried delivery, chained offer deadlines) are fixed with tests.
 - Every finding has a regression test in `sync.test.ts` or `wall.test.ts`, except what residual 13 and the two backlog rows below record.
