@@ -68,9 +68,9 @@ export interface AdjudicatorSettlement {
   /** The permissionless appeal expiry. */
   expireAppeal(commitmentId: Hex32): Promise<Result<unknown, Problem>>;
   /**
-   * The bond that would back this adjudicator's decision on the commitment now, in base units of the price token. The
-   * contract reserves a fallback's bond when it decides (T-206 M-3): its free bond (`freeOf`) plus what the commitment
-   * already holds on it. SimChain reserves it at takeover and adds nothing at the decision: what the commitment holds.
+   * The bond this adjudicator could put behind its decision on the commitment now, in base units of the price token:
+   * its free bond (the contract's `freeOf`) plus what the commitment already holds on it. The contract reserves a
+   * fallback's bond when it decides and refuses an uncovered one (T-206 M-3); SimChain reserves it at takeover.
    */
   bondCover(adjudicator: Hex32, commitment: Commitment): Promise<bigint>;
   ciphertext(uri: string): Promise<Uint8Array>;

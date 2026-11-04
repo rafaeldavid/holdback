@@ -319,13 +319,57 @@ describe('the adjudicator service on the real SimChain (T-006)', () => {
     expect(chain.pool(cast.fallback.address as Address).reserved).toBe(0n);
   });
 
-  // Red team F4: SimChain reserves the fallback's bond at takeover and adds nothing at the decision, so only that counts.
-  describe("on SimChain: the deal's own reservations, and the free bond only before the takeover", () => {
+  // Red team K5: an unfunded offer that the fallback accepts as primary reserves its bond on SimChain. Draining it at the
+  // takeover, so the takeover reserves nothing, must not let a party force the default once the bond is free again.
+  it('a fallback drained only at the takeover decides once its bond is free again', async () => {
+    const w = await delivered({ primary: 10_000_000_000n, fallback: 2_000_000_000n, appeal: 10_000_000_000n });
+    const { chain, cast, terms, id } = w;
+    const judgeBy = terms.timing.judgeBy;
+    const drain: CommitmentTerms = {
+      ...terms,
+      adjudication: { ...terms.adjudication, adjudicator: cast.fallback.address, fallbackAdjudicator: cast.primary.address, policyId: w.fallback.adj.policy.id, policyHash: policyHashOf(w.fallback.adj.policy) },
+      timing: { ...terms.timing, offerExpiresAt: plus(judgeBy, 60), fundBy: plus(judgeBy, 120), deliverBy: plus(judgeBy, 3600), judgeBy: plus(judgeBy, 4200), fallbackBy: plus(judgeBy, 4800) },
+      nonce: keccak256(stringToBytes('t211/drain')),
+      createdAt: chain.now(),
+    };
+    const drainId = commitmentId(drain);
+    must(await chain.submit({ kind: 'offer', commitment: { ...drain, id: drainId, signatures: { seller: await signTerms(cast.seller.key, DOMAIN, drain) } } }));
+    expect((await w.fallback.adj.runOnce()).accepted).toEqual([drainId]);
+    chain.advanceTo(judgeBy);
+    must(await chain.trigger(id, 'fallback')); // at the drained moment: SimChain reserves nothing for the fallback
+    chain.advanceTo(drain.timing.offerExpiresAt);
+    must(await chain.trigger(drainId, 'expire_offer'));
+    const sellerBefore = await sellerBalance(w);
+    expect((await w.fallback.adj.runOnce()).decided).toEqual([{ commitmentId: id, role: 'fallback', outcome: 'accept' }]);
+    expect((await sellerBalance(w)) - sellerBefore).toBe(BigInt(terms.price.amount));
+  });
+
+  it('lists an open appeal of its own decision as due only once appealDecideBy passes', async () => {
+    const w = await delivered();
+    const { chain, cast, id } = w;
+    chain.advance(30);
+    expect((await w.primary.adj.runOnce()).decided.map((d) => d.outcome)).toEqual(['accept']);
+    chain.advance(10);
+    const body = { commitmentId: id, appellant: 'buyer' as const, appellantAddress: cast.buyer.address, grounds: 'wrong-outcome', bond: tusd('100000000'), filedAt: chain.now() };
+    const { signature } = await sign(cast.buyer, { ...body, type: 'Appeal' as const });
+    must(await chain.submit({ kind: 'appeal', appeal: { ...body, signature } }));
+    const s = chain.escrowState(id)!;
+    const decideBy = s.kind === 'Released' && s.via.kind === 'first_instance' && s.via.appeal.kind === 'open' ? s.via.appeal.appealDecideBy : '';
+    chain.advanceTo(plus(decideBy, -1)); // the appeal adjudicator is silent
+    expect(await w.settlement.appealExpiriesDue(cast.primary.address)).toEqual([]);
+    chain.advanceTo(decideBy);
+    expect(await w.settlement.appealExpiriesDue(cast.primary.address)).toEqual([id]);
+    expect((await w.primary.adj.runOnce()).expired).toEqual([id]);
+  });
+
+  // The contract's test at the decision (free bond plus the deal's own hold), with SimChain's reservations as the hold.
+  // Counting only the reservation after the takeover would let a party force the default (red team K5, below).
+  describe("on SimChain: the free bond plus the deal's own reservations, counted once", () => {
     const F = `0x${'f1'.repeat(20)}` as Address;
     it.each([
-      ['before the takeover, the free bond the trigger reserves from', 'Delivered', 0n, 10_000_000_000n - 1_000_000_000n],
-      ['after the takeover reserved half the price, only that half, however much is free now', 'FallbackJudging', 1_000_000_000n, 1_000_000_000n],
-      ['after the takeover reserved the price', 'FallbackJudging', 2_000_000_000n, 2_000_000_000n],
+      ['before the takeover', 'Delivered', 0n, 9_000_000_000n],
+      ['after the takeover reserved half the price', 'FallbackJudging', 1_000_000_000n, 9_000_000_000n],
+      ['after the takeover reserved the price', 'FallbackJudging', 2_000_000_000n, 9_000_000_000n],
     ] as const)('%s', async (_name, kind, held, cover) => {
       const { terms, id } = await world();
       const c = { ...terms, id, signatures: { seller: '0x' } } as Commitment;

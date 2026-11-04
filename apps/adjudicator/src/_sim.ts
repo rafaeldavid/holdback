@@ -125,6 +125,8 @@ export class TestSettlement implements AdjudicatorSettlement {
   failNextDecisions = 0;
   /** Throw on the next N record publications (a transient store failure). */
   failNextPublishes = 0;
+  /** Throw on the next N appeal expiries (an unreachable settlement layer). */
+  failNextExpiries = 0;
   /** Free bond per adjudicator (lowercase address), as the contract's `freeOf` reads it. Unset: ample. */
   readonly bonds = new Map<string, bigint>();
   readonly randomness: RandomnessSource = simBeacon(SIM_SEED, () => this.now());
@@ -274,6 +276,10 @@ export class TestSettlement implements AdjudicatorSettlement {
   }
 
   async expireAppeal(id: Hex32) {
+    if (this.failNextExpiries > 0) {
+      this.failNextExpiries--;
+      throw new Error('settlement unreachable');
+    }
     const c = this.get(id);
     const r = this.apply(c, { type: 'expire_appeal', at: this.now() });
     if (r.ok) delete c.appealOpen;

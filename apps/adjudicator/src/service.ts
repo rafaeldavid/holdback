@@ -13,12 +13,14 @@
 //   stands Refunded.
 import {
   canonicalKeccak,
+  commitmentId,
   deliveryHash,
   err,
   isSealed,
   ok,
   problem,
   signMessage,
+  termsOf,
   verifyMessage,
   type AdjudicatorAcceptance,
   type AdjudicatorPolicy,
@@ -180,7 +182,11 @@ export class Adjudicator {
     // T-211: its own decisions hold its bond until their appeal closes, and a sham deal's parties never close it. So it
     // expires them itself once due, first, so the bond they free counts for what follows.
     for (const id of await port.appealExpiriesDue(this.address)) {
-      if ((await port.expireAppeal(id)).ok) report.expired.push(id);
+      try {
+        if ((await port.expireAppeal(id)).ok) report.expired.push(id);
+      } catch (e) {
+        report.refused.push({ commitmentId: id, problem: problem('adjudicator_unavailable', `appeal expiry failed (${String((e as Error).message).slice(0, 120)}); retrying on the next pass`) });
+      }
     }
     for (const offer of await port.offers(this.address)) {
       const r = await this.#accept(offer.commitment);
@@ -228,6 +234,7 @@ export class Adjudicator {
     }
     if (adjudication.policyHash !== policyHashOf(this.policy)) return err(problem('policy_mismatch', 'policy-hash-mismatch: the offer binds another policy'));
     if (adjudication.registryHash !== this.#cfg.registry.hash) return err(problem('registry_mismatch', 'the offer binds another registry'));
+    if (commitmentId(termsOf(c)) !== c.id) return err(problem('invalid_terms', `the offer's terms do not hash to commitment ${c.id}`));
     const terms = this.#windowsProblem(c) ?? this.#feeProblem(c);
     if (terms) return err(terms);
     const unsigned: Omit<AdjudicatorAcceptance, 'signature'> = {
@@ -278,11 +285,16 @@ export class Adjudicator {
    * - Fallback: its decision holds its bond until the appeal closes, so the windows, the fee and its cover.
    * - Appeal: its decision is final, so no window follows it, and nothing on chain reserves its bond yet (L-5); only
    *   the fee. Gating it on free bond would let the party that won drain that bond and so block the appeal.
-   * A deal it accepted as primary was checked when it signed the acceptance, so a later quote or limit does not renege
-   * on it. null: it takes the turn.
+   * A deal that names it in an earlier role was checked when it consented there (its acceptance as primary, its
+   * decision as fallback), so a later quote or limit does not renege on it; nor does the fee stop `feeExempt`, the
+   * missing-or-wrong-key ground after an accept, which runs no panel. null: it takes the turn.
    */
-  async #turnProblem(c: DecisionTask['commitment'], role: 'fallback' | 'appeal'): Promise<Problem | null> {
-    if (c.adjudication.adjudicator.toLowerCase() !== this.address) {
+  async #turnProblem(c: DecisionTask['commitment'], role: 'fallback' | 'appeal', feeExempt = false): Promise<Problem | null> {
+    // The checks read the terms the settlement port hands over, so they must be the deal's own: the ID hashes them.
+    if (commitmentId(termsOf(c)) !== c.id) return problem('invalid_terms', `the terms handed to ${this.#cfg.name} do not hash to commitment ${c.id}; refusing the turn`);
+    const { adjudicator: primary, fallbackAdjudicator } = c.adjudication;
+    const earlier = role === 'fallback' ? [primary] : [primary, fallbackAdjudicator];
+    if (!feeExempt && !earlier.some((a) => a.toLowerCase() === this.address)) {
       const terms = (role === 'fallback' ? this.#windowsProblem(c) : null) ?? this.#feeProblem(c);
       if (terms) return terms;
     }
@@ -324,7 +336,8 @@ export class Adjudicator {
       return err(problem('invalid_state', `this adjudicator judged delivery ${judged.record.deliveryHash} for this commitment, role and attempt; the task now carries ${deliveryHash(task.delivery)}, and it never judges an attempt twice`));
     }
     // T-211: the bond may have moved while the panel ran; read it again before publishing and signing (kept, no re-roll).
-    if (task.role === 'fallback') {
+    // An escalation reserves no bond on either chain, so it needs no cover.
+    if (task.role === 'fallback' && judged.outcome !== 'escalate') {
       const short = await this.#coverProblem(task.commitment);
       if (short) return err(short);
     }
@@ -347,7 +360,8 @@ export class Adjudicator {
     const id = commitment.id;
     // Before any judge is called (T-211); the fallback's cover is read again before it signs.
     if (role !== 'primary') {
-      const declined = await this.#turnProblem(commitment, role);
+      const rerelease = role === 'appeal' && task.appealGround === 'missing-or-wrong-key' && task.firstOutcome === 'accept';
+      const declined = await this.#turnProblem(commitment, role, rerelease);
       if (declined) return err(declined);
     }
     const policyR = await this.#boundPolicy(task);

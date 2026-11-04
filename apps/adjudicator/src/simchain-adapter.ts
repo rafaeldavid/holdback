@@ -159,11 +159,14 @@ export class SettlementAdapter implements AdjudicatorSettlement {
   }
 
   /**
-   * The contract, which `freeBond` (its `freeOf`) marks: `freeOf`, plus the price while the commitment still holds this
-   * adjudicator's bond (ADR-0016 §1): as primary in Delivered and FallbackJudging, since a fallback's decision releases
-   * the primary's reservation before it encumbers its own, and as the first decider while its appeal is open.
-   * SimChain: the commitment's own reservations on this adjudicator (at acceptance and takeover), since it reserves
-   * nothing more when the fallback decides; before the takeover, also the free bond the takeover would reserve from.
+   * The contract's test at the decision, on both chains: the free bond plus what the commitment already holds on this
+   * adjudicator.
+   * - The contract, which `freeBond` (its `freeOf`) marks: plus the price while the commitment still holds this
+   *   adjudicator's bond (ADR-0016 §1), as primary in Delivered and FallbackJudging, since a fallback's decision releases
+   *   the primary's reservation before it encumbers its own, and as the first decider while its appeal is open.
+   * - SimChain: plus the commitment's own reservations on it (at acceptance and takeover). SimChain adds nothing when the
+   *   fallback decides, so a decision covered by free bond can be under-reserved there (T-210 item 3). Counting only the
+   *   reservation would be worse: a party could drain the bond at the takeover and so force the default (red team K5).
    */
   async bondCover(adjudicator: Hex32, c: Commitment): Promise<bigint> {
     const { chain } = this.#o;
@@ -174,7 +177,7 @@ export class SettlementAdapter implements AdjudicatorSettlement {
     let free: bigint;
     let held: bigint;
     if (!chain.freeBond) {
-      free = s?.kind === 'Delivered' ? pooled : 0n;
+      free = pooled;
       held = chain.reservations?.().find((r) => r.commitmentId === c.id && lc(r.adjudicator) === lc(a))?.amount ?? 0n;
     } else {
       free = await chain.freeBond(a);
