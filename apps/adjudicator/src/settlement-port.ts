@@ -24,7 +24,11 @@ export interface DecisionTask {
   commitment: Commitment;
   role: AdjudicatorRole;
   attempt: number;
-  /** The public delivery record. A fallback or appeal adjudicator never reads its envelopes (ADR-0020). */
+  /**
+   * The seller-signed delivery as posted: the adjudicator verifies the seller's signature and names its hash in the
+   * decision and the record (ADR-0029). A fallback or appeal adjudicator never opens its envelopes; it uses
+   * `releasedKey` (ADR-0020).
+   */
   delivery: Delivery;
   /**
    * The envelope this adjudicator may open. Primary: absent (it opens its own envelope in the delivery).

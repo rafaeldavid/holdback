@@ -8,7 +8,8 @@ import {TypesHarness} from "./Base.sol";
 
 /// Cross-language vectors: the values `packages/core` (eip712.ts, viem) computes for spec/examples, with every
 /// token identifier set to the address 0x…beef (ADR-0025). The contract must rebuild the same commitment ID,
-/// delivery hash and message digests from the settlement view.
+/// delivery hash and message digests from the settlement view. The generator is
+/// `packages/core/src/eip712.vectors.test.ts`, which pins the same values (domain 0.7, ADR-0029).
 contract VectorsTest is Test {
     TypesHarness internal hx = new TypesHarness();
     address internal constant TOKEN = 0x000000000000000000000000000000000000bEEF;
@@ -16,7 +17,7 @@ contract VectorsTest is Test {
 
     function _terms() internal pure returns (H.Terms memory t) {
         t = H.Terms({
-            schemaVersionHash: 0x4565db11e283975ed5f3164d3554fd70cacdb58fccdc41006529011220bb1199,
+            schemaVersionHash: 0x039eb7c1a17686c95dc5e5f7bb8ad8976b26a2ed19913115218a992047cfcee5,
             clubIdHash: 0x7b600434c72773d2aacdfc4846c576db4f5f847cab94ead38a22a3c4e01c7003,
             rulebookHash: 0xb70959b8b5a5a9d365df7471120396553ed1bc0bff83059e4862e6d11b36a556,
             buyer: 0x04D6c65223896Ba94e731bc9eB765C19Bd289b0d,
@@ -53,14 +54,16 @@ contract VectorsTest is Test {
         });
     }
 
-    bytes32 internal constant ID = 0x709302183efbd0f112185aec5118adbb45a2752da9ac803721725f0c8068b8e5;
+    bytes32 internal constant ID = 0x529405ab41df1b56773108432572110d616c6c7c57af5b3ebd00154eec003627;
+    /// The delivery example's struct hash under ID: what a Decision and an EarlyAccept name (ADR-0029).
+    bytes32 internal constant DELIVERY = 0x1d70f2ee1a2f03f0438c730ea47aec3989152b32927a3f6a37fc46f3b3a7772e;
 
     function _digest(bytes32 structHash) internal pure returns (bytes32) {
         bytes32 domain = keccak256(
             abi.encode(
                 keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
                 keccak256("Holdback"),
-                keccak256("0.6"),
+                keccak256("0.7"),
                 uint256(31337),
                 VERIFYING
             )
@@ -78,7 +81,7 @@ contract VectorsTest is Test {
         vm.chainId(31337);
         bytes memory args = abi.encode(address(0), address(0), address(0), uint64(0), address(0));
         deployCodeTo("HoldbackRules.sol:HoldbackRules", args, VERIFYING);
-        bytes32 core = 0xf393ca6e59126ddd4141513250445bcfcf3c358f52f9a5a4f8b0cab9460a4ee8;
+        bytes32 core = 0x78f007af036c3eba017d3090790b8c71b02e7b6a09f93edab14f6b72c992e1a9;
         assertEq(HoldbackRules(VERIFYING).typedDataHash(ID), core);
         assertEq(_digest(ID), core);
     }
@@ -98,7 +101,7 @@ contract VectorsTest is Test {
             ),
             submittedAt: 1_793_463_600
         });
-        assertEq(hx.delivery(ID, d), 0x57f992adbec1002f5229e61a7ef1c5180da07d03fc53ced74f6e631015aeff15);
+        assertEq(hx.delivery(ID, d), DELIVERY);
     }
 
     function test_encryptedKey_matchesCore() public view {
@@ -121,6 +124,7 @@ contract VectorsTest is Test {
     function test_decision_matchesCore() public view {
         H.Decision memory m;
         m.attempt = 1;
+        m.deliveryHash = DELIVERY;
         m.role = H.ROLE_PRIMARY;
         m.outcome = H.OUTCOME_ACCEPT;
         m.seed = 0x40a7da5565ae8c475972696a25d415b73a73e9451aa19d897e227ec6e7ff827a;
@@ -135,7 +139,7 @@ contract VectorsTest is Test {
         H.Terms memory t = _terms();
         assertEq(
             _digest(hx.decision(ID, t.adjudicator, t, m)),
-            0xdcaf02e0d6a86d98fad3373d34e808e4832b3012f25cbde46d07e6b1dce58a8f
+            0x77ce852f1204ab202d7ce466066b6aae816c612c1840a69217816c219abb40fd
         );
     }
 
@@ -148,7 +152,7 @@ contract VectorsTest is Test {
             signature: ""
         });
         assertEq(
-            _digest(hx.acceptance(ID, _terms(), a)), 0x0fd6449f787cea65465e8016cc7c4d7f13701ff039dea5eac41d3009d239a4d1
+            _digest(hx.acceptance(ID, _terms(), a)), 0x197971ce7307f9f2d8c61bbb914e3eef49e04fe747a90f9191b7d81687b2edb4
         );
     }
 
@@ -159,14 +163,15 @@ contract VectorsTest is Test {
             expiresAt: 1_793_355_300,
             signature: ""
         });
-        assertEq(_digest(hx.agree(ID, b, g)), 0xf441a84fe062951351481db68a645b1f798b79fe9d339558370763cfa1591a56);
+        assertEq(_digest(hx.agree(ID, b, g)), 0x75acef94809bbb682cd4059318096010276885586e6d89df16871caafb741b86);
         H.EarlyAccept memory e = H.EarlyAccept({
             attempt: 1,
+            deliveryHash: DELIVERY,
             nonce: bytes32(uint256(0x22) * (type(uint256).max / 0xff)),
             expiresAt: 1_793_527_200,
             signature: ""
         });
-        assertEq(_digest(hx.early(ID, b, e)), 0x35945fdc731b619d2fa2f43e8416fac7f67dacb33541c01c5d5204319f044637);
+        assertEq(_digest(hx.early(ID, b, e)), 0x8b3b3acb5f186c9f065ea40a5fc4c314e9e54f01490b932ef18a4654fd89cb88);
     }
 
     function test_mutual_matchesCore() public view {
@@ -179,7 +184,7 @@ contract VectorsTest is Test {
         m.releaseKey = true;
         m.nonce = 0x5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d;
         m.expiresAt = 1_793_527_320;
-        assertEq(_digest(hx.mutual(ID, TOKEN, m)), 0xabd3eaf241413f5938a2731c691655f6d4b522f48c5fa84bea4f7826df4bfb34);
+        assertEq(_digest(hx.mutual(ID, TOKEN, m)), 0x902fedd1cc7ae1ea7efbe1987a3d6b9277744d414aa4d67523a157c5858a724e);
     }
 
     function test_appeal_matchesCore() public view {
@@ -192,14 +197,14 @@ contract VectorsTest is Test {
         });
         assertEq(
             _digest(hx.appeal(ID, 0x9Ff412388F11e58327E71F841705dbC739c8CC46, TOKEN, a)),
-            0xb10d63cc63f71871533fbf8b6189231d4f47570d711de90ddf3856b64898f053
+            0x52e6969b9d47150bcd17190e43ccc3b93a40feb6208f3aea4d4c89a149ccd235
         );
     }
 
     function test_panelSeed_matchesCore() public view {
         assertEq(
             hx.panelSeed(ID, H.ROLE_FALLBACK, 1, bytes32(uint256(0x33) * (type(uint256).max / 0xff))),
-            0xbda3ba5a350f08e704ae373007a32fc5756a17077498e10c8d00b06124ba40eb
+            0x07a9721cfe7c323ec0815715c5a629b8cd46b5a5b0a35feaca57b0f76bd53f3e
         );
     }
 }

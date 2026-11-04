@@ -217,6 +217,7 @@ Status (2026-11-03, measured against `fixtures/scenarios/` and `pnpm snap`): **e
 | `attack.injection-steers-appeal-supermajority` | 6 | 1 | exists |
 | `attack.injection-steers-appeal-two-families` | 6 | 1 | exists |
 | `attack.forced-stride-appeal-default` | — | 1 | exists |
+| `attack.seller-equivocates-delivery` | — | 2 (ADR-0029, on SimChain and the contract) | exists |
 | `attack.format-correct-content-wrong` | — | 3 | planned |
 | `attack.reader-poison` | — | 3 | planned |
 | `attack.exfil-attempt` | — | 3 | planned |

@@ -40,9 +40,11 @@ export interface PlayerOptions {
 export function players(world: DemoWorld, options: PlayerOptions = {}): Players {
   const { cast } = world;
   const directory = new BenchDirectory(world);
+  // The three benches trust each other as fallback and appeal adjudicators, and nobody else (T-212).
+  const trustedAdjudicators = [cast.benchA.address, cast.benchB.address, cast.benchC.address];
   const bench = (keys: typeof cast.benchA, which: 'benchA' | 'benchB' | 'benchC') => {
     const judges = options.benchJudges?.[which] ?? options.judges;
-    return new ServiceBench(keys, directory, judges ? { judges } : {});
+    return new ServiceBench(keys, directory, { trustedAdjudicators, ...(judges ? { judges } : {}) });
   };
   // Clearfield's registration is posted even when a test replaces the seam: the listing is public data, and the
   // agents choose from listings before any seam acts.

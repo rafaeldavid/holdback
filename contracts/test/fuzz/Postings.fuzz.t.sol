@@ -70,8 +70,7 @@ contract PostingsFuzzTest is Base {
     function testFuzz_earlyAcceptance(uint256 price, uint256 fee) public {
         (H.Terms memory t, bytes32 id) = _fundedWith(price, fee);
         (H.Delivery memory d, H.KeyProof memory k) = _delivery();
-        H.EarlyAccept memory m = H.EarlyAccept({attempt: 1, nonce: 0, expiresAt: type(uint64).max, signature: ""});
-        m.signature = _sign(BUYER_PK, hx.early(id, buyer, m));
+        H.EarlyAccept memory m = _early(t, id, BUYER_PK);
         Snap memory s0 = _snap();
         rules.earlyAccept(t, m, d, _deliverySig(id, d, SELLER_PK), k);
         Snap memory s1 = _snap();

@@ -59,7 +59,7 @@ describe('fixtures/terms', () => {
   it('clean-customers-2000 builds terms that parse as a commitment and that core offer accepts under the club rulebook', () => {
     const p = params();
     const terms = termsFromTemplate(loadTermsFile(TERMS), p);
-    expect(terms.schemaVersion).toBe('0.6');
+    expect(terms.schemaVersion).toBe('0.7');
     expect(terms.price).toEqual({ token: 'tUSD', amount: '2000000000' });
     expect(terms.adjudication.fee).toEqual({ token: 'tUSD', amount: '50000000' });
     expect(terms.acceptance.deterministicChecks.map((c) => c.id)).toEqual(['cols', 'rows', 'uniq', 'dates', 'id_nulls', 'name_nulls', 'email_nulls', 'emails', 'hidden']);

@@ -1,0 +1,10 @@
+{
+  "type": "EarlyAccept",
+  "commitmentId": "0x9340180fb352b68aabcf457de90752525d862a9a6dac875100905fac2fc54ed8",
+  "buyer": "0x04d6c65223896ba94e731bc9eb765c19bd289b0d",
+  "attempt": 1,
+  "deliveryHash": "0x4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b",
+  "nonce": "0x2222222222222222222222222222222222222222222222222222222222222222",
+  "expiresAt": "2026-11-01T10:00:00Z",
+  "signature": "0xefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef"
+}

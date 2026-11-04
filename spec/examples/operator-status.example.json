@@ -6,12 +6,12 @@
   },
   "domain": {
     "name": "Holdback",
-    "version": "0.6",
+    "version": "0.7",
     "chainId": "31337",
     "verifyingContract": "0x00000000000000000000000000000000484f4c44"
   },
   "apiVersion": "v1",
-  "schemaVersion": "0.7",
+  "schemaVersion": "0.9",
   "head": {
     "eventSeq": 12,
     "lagSec": 0

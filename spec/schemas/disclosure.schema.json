@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.8/disclosure.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.9/disclosure.schema.json",
   "title": "Disclosure keys (POST /v1/commitments/{id}/disclosure)",
   "description": "Publication of a private deal's bodies (ADR-0024 §3). Publish is unchanged and carries no key; the keys travel here. Posted with the co-signed Publish that raises the level, or later by either party once the level allows the part. The operator decrypts each part with its key and checks it against the hash the terms bind before it serves the plaintext; at judgment it serves the acceptance only, at public both bodies.",
   "type": "object",

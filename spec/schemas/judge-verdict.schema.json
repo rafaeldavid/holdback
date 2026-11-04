@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.8/judge-verdict.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.9/judge-verdict.schema.json",
   "title": "Judge verdict (enforced on model output)",
   "type": "object",
   "required": [

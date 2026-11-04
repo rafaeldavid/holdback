@@ -89,6 +89,7 @@ library HoldbackTypes {
     /// @notice A Decision. The adjudicator field is the one whose turn it is, so it is not carried.
     struct Decision {
         uint8 attempt;
+        bytes32 deliveryHash; // the delivery judged: deliveryHash(id, dv) of the posted delivery (ADR-0029)
         uint8 role; // ROLE_*
         uint8 outcome; // OUTCOME_*
         bytes32 seed;
@@ -108,6 +109,7 @@ library HoldbackTypes {
 
     struct EarlyAccept {
         uint8 attempt;
+        bytes32 deliveryHash; // the delivery the buyer opened (ADR-0029)
         bytes32 nonce;
         uint64 expiresAt;
         bytes signature;
@@ -192,13 +194,15 @@ library HoldbackTypes {
     bytes32 internal constant AGREE_TYPEHASH =
         keccak256("Agree(bytes32 commitmentId,address buyer,bytes32 nonce,uint64 expiresAt)");
     bytes32 internal constant EARLY_ACCEPT_TYPEHASH =
-        keccak256("EarlyAccept(bytes32 commitmentId,address buyer,uint8 attempt,bytes32 nonce,uint64 expiresAt)");
+        keccak256(
+            "EarlyAccept(bytes32 commitmentId,address buyer,uint8 attempt,bytes32 deliveryHash,bytes32 nonce,uint64 expiresAt)"
+        );
     bytes32 internal constant SEALED_KEY_TYPEHASH = keccak256("SealedKey(string scheme,string ciphertext)");
     bytes32 internal constant BEACON_TYPEHASH =
         keccak256("Beacon(string source,uint64 round,bytes32 value,bytes signature)");
     bytes32 internal constant DECISION_TYPEHASH = keccak256(
         abi.encodePacked(
-            "Decision(bytes32 commitmentId,uint8 attempt,address adjudicator,string role,string outcome,bytes32 seed,bytes32 policyHash,bytes32 registryHash,bytes32 judgmentRecordHash,SealedKey keyForBuyer,string appealGround,Beacon beacon,EncryptedKey[] encryptedKeys,bytes32 nonce,uint64 expiresAt)",
+            "Decision(bytes32 commitmentId,uint8 attempt,bytes32 deliveryHash,address adjudicator,string role,string outcome,bytes32 seed,bytes32 policyHash,bytes32 registryHash,bytes32 judgmentRecordHash,SealedKey keyForBuyer,string appealGround,Beacon beacon,EncryptedKey[] encryptedKeys,bytes32 nonce,uint64 expiresAt)",
             "Beacon(string source,uint64 round,bytes32 value,bytes signature)",
             ENCRYPTED_KEY_T,
             KEY_UNLOCK_T,
@@ -312,7 +316,7 @@ library HoldbackTypes {
     }
 
     function earlyAcceptHash(bytes32 id, address buyer, EarlyAccept calldata m) internal pure returns (bytes32) {
-        return keccak256(abi.encode(EARLY_ACCEPT_TYPEHASH, id, buyer, m.attempt, m.nonce, m.expiresAt));
+        return keccak256(abi.encode(EARLY_ACCEPT_TYPEHASH, id, buyer, m.attempt, m.deliveryHash, m.nonce, m.expiresAt));
     }
 
     function deliveryHash(bytes32 id, Delivery calldata d) internal pure returns (bytes32) {
@@ -368,6 +372,7 @@ library HoldbackTypes {
             DECISION_TYPEHASH,
             id,
             m.attempt,
+            m.deliveryHash,
             adjudicator,
             roleHash(m.role),
             outcomeHash(m.outcome),

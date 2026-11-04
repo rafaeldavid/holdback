@@ -70,7 +70,7 @@ contract NoAdminFuzzTest is Base {
 
     function _allowlist(uint256 i) internal pure returns (string[] memory s) {
         if (i == 0) {
-            s = new string[](25);
+            s = new string[](26);
             s[0] = "BEACON()";
             s[1] = "BONDS()";
             s[2] = "ERC3009_COLLECTOR()";
@@ -96,6 +96,7 @@ contract NoAdminFuzzTest is Base {
             s[22] = "triggerDefault(";
             s[23] = "triggerFallback(";
             s[24] = "typedDataHash(bytes32)";
+            s[25] = "deliveryHashOf(bytes32)"; // a read: the posted delivery every signature names (ADR-0029)
         } else if (i == 1) {
             s = new string[](12);
             s[0] = "RULES()";

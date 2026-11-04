@@ -1,0 +1,36 @@
+# @settlement sim @judges recorded @mode guaranteed_on_decision @seed 211
+name: attack.seller-equivocates-delivery
+description: >-
+  T-212 item 3, ADR-0029 (T-206 L-1). Tidewater signs two deliveries for attempt 1: it posts the row-drop CSV
+  to the settlement layer and hands Atlas the clean CSV off chain. Atlas opens the clean one and signs an early
+  accept naming its delivery hash. Relayed against the posted delivery, the early accept is refused
+  (invalid_terms): every paying or judging signature names the delivery it settles, and settlement holds only
+  the posted one. The deal stays Delivered, Bench A judges the posted row-drop CSV, its required row-count
+  check fails, and Atlas is refunded. Both of Tidewater's signatures are its own evidence (D26).
+club: fixtures/clubs/data-services-v1.yaml
+terms: fixtures/terms/clean-customers-2000.yaml
+parties:
+  buyer: atlas-buyer
+  seller: tidewater-seller
+adjudicators:
+  primary: bench-a
+  fallback: bench-b
+  appeal: bench-c
+operators: [op-1, op-2]
+faucet:
+  atlas-buyer: "10000000000"
+  bench-a: "25000000000"
+  bench-b: "25000000000"
+  bench-c: "25000000000"
+steps:
+  - offer:              { by: seller, via: op-1 }
+  - adjudicator_accept: { via: op-1 }
+  - agree_and_fund:     { by: buyer, via: op-1 }
+  - deliver:            { by: seller, via: op-1, file: data/dataset-cleaning/customers.clean.row-drop.csv }
+  - early_accept:       { by: buyer, via: op-1, opened: data/dataset-cleaning/customers.clean.csv }
+  - advance_clock:      { seconds: 5 }
+  - judge:              { adjudicator: bench-a }
+  - settle:             { trigger: anyone }
+expect:
+  problem: { type: invalid_terms, step: 5 }
+  terminal: Refunded

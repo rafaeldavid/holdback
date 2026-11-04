@@ -15,7 +15,7 @@ op-1 relays the offer and Bench A's acceptance, then goes offline. Atlas's agree
 | Club | fixtures/clubs/data-services-v1.yaml (loaded) · rulebook 0x140e…971e |
 | Buyer | atlas-buyer 0xdd8c…78Fd |
 | Seller | tidewater-seller 0x53F1…6359 |
-| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0xf82b…015a · price 2,000.000000 tUSD · fee 50.000000 tUSD |
+| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0x0224…22e3 · price 2,000.000000 tUSD · fee 50.000000 tUSD |
 | Adjudicators | primary bench-a 0x9599…8AdC · fallback bench-b 0x3023…6361 · appeal bench-c 0x6E07…1Ce8 |
 | Operators | op-1 · op-2 |
 
@@ -52,15 +52,15 @@ Outages:
 - **Deterministic checks:** cols ✓ · rows ✓ · uniq ✓ · dates ✓ · id_nulls ✓ · name_nulls ✓ · email_nulls ✓ · emails (optional) ✓ · hidden ✓
 - **Screen:** clean
 - **Panel:** 3 judges from 2 families (policy: 3 seats, at least 2 families) · first-instance template 0xabb5…4dd2 · rubric 0x4201…7925 · seed source: commit-reveal (commitment 0x5944…0414, seed 0xe550…f424, recomputed: match)
-  - claude-b · anthropic/claude · placeholder-claude-b-20260601 · recorded (captured from fake judges) · pass · scores 4/4/4 · input 0x83a4…71a1
-  - gpt-b · openai-compatible/gpt · placeholder-gpt-b-20260601 · recorded (captured from fake judges) · pass · scores 4/4/4 · input 0xa28f…48d7
-  - claude-a · anthropic/claude · placeholder-claude-a-20260601 · recorded (captured from fake judges) · pass · scores 4/4/4 · input 0x0329…5073
-- **Aggregate:** accept (weighted score 4.00; 3 pass, 0 fail of 3 valid; pass families claude, gpt). Reasons: 3 of 3 valid verdicts pass, from 2 families, score at or above 3.
+  - gpt-a · openai-compatible/gpt · placeholder-gpt-a-20260601 · recorded (captured from fake judges) · pass · scores 4/4/4 · input 0x1eaf…4b1a
+  - qwen-a · openai-compatible/qwen · placeholder-qwen-a-20260601 · recorded (captured from fake judges) · pass · scores 4/4/4 · input 0xa049…3afe
+  - gpt-b · openai-compatible/gpt · placeholder-gpt-b-20260601 · recorded (captured from fake judges) · pass · scores 4/4/4 · input 0xb1a2…64ef
+- **Aggregate:** accept (weighted score 4.00; 3 pass, 0 fail of 3 valid; pass families gpt, qwen). Reasons: 3 of 3 valid verdicts pass, from 2 families, score at or above 3.
 - **Signed:** accept.
 
 ## Receipts and log
 
-- Events 0–8. Chain head 0x83be…73b4. Replay of 6 SimChain submissions from genesis matches the settlement state.
+- Events 0–8. Chain head 0x5f0a…3433. Replay of 6 SimChain submissions from genesis matches the settlement state.
 - Receipts from op-1: 2 (rcpt-0001–rcpt-0002). The runner labels them without signing; the operator API signs real receipts.
 - Receipts from op-2: 2 (rcpt-0003–rcpt-0004). The runner labels them without signing; the operator API signs real receipts.
 

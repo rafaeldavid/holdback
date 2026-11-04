@@ -7,12 +7,12 @@ The JSON Schemas in `schemas/` (draft 2020-12) are the API contract. Change them
 
 The examples are illustrative. Their hashes and signatures are placeholders and will not verify cryptographically. The model IDs in the judgment example are placeholders, to be replaced with pinned IDs from `config/judges.yaml`.
 
-Validation as of November 1, 2026 (measured, `pnpm validate:spec`): all 32 examples pass under Ajv 8 (2020-12, strict mode). The schemas also reject three bad inputs:
+Validation as of November 3, 2026 (measured, `pnpm validate:spec`): all 33 examples pass under Ajv 8 (2020-12, strict mode). The schemas also reject three bad inputs:
 - a fractional amount;
 - a model ID containing "latest";
 - an extra field in a judge verdict.
 
-The `$id` URLs (`https://holdback.dev/schemas/v0.8/…`) are namespaces for resolving `$ref` between files. They are not hosted. Replace the domain if the project gets one.
+The `$id` URLs (`https://holdback.dev/schemas/v0.9/…`) are namespaces for resolving `$ref` between files. They are not hosted. Replace the domain if the project gets one.
 
 ## Annotations
 
@@ -20,6 +20,14 @@ The `$id` URLs (`https://holdback.dev/schemas/v0.8/…`) are namespaces for reso
 - **Every free-text string is marked or constrained.** A string with no `date-time` format, pattern, enum or const must carry the marker. URIs count as free text: they are marked and capped at 2048 characters. Identifiers instead get a pattern: club IDs, token IDs, and `Ident` for judge, provider, family, model and version labels. `tests/spec.test.ts` lints this, with an empty allowlist.
 
 ## Changelog
+
+- **v0.9 (2026-11-03, D44, ADR-0029), changes a signed struct:** every `$id`, the `Holdback-Schema-Version` header and the OpenAPI `x-holdback-schema-version` move to 0.9, and so do the EIP-712 domain version and `commitment.schemaVersion`, to 0.7. A 0.6 signature never verifies under 0.7, and a 0.7 deal names the deployment that settles it.
+  - **Messages:** `EarlyAccept` and `Decision` gain `deliveryHash` (required, after `attempt`): the EIP-712 struct hash of the seller's delivery without its signature, as `MutualSettlement.deliveryHash` and `delivery.submitted` carry it. Settlement refuses a signature that names any delivery but the posted one, at every role, and a mutual settlement after a delivery likewise.
+  - **Judgment record:** `deliveryHash` (required); `recordHash` covers it.
+  - **Read model:** `commitment-state` gains an optional `deliveryHash`: present while the state holds the delivery (`Delivered`, `FallbackJudging`, `Escalated`) and after a decision, early accept or mutual settlement that named it; absent before a delivery, in `Defaulted` and after a default or a reclaim.
+  - **Events:** `ChainTx` (`tx`, `block`, `sender`, `gasUsed`, all optional) is admitted on the closed `BondMovement`, `SettledSplit` and `OperatorFeePaid` payloads, which an EVM settlement fills from the block (review of PR 160).
+  - **Examples:** a new `messages.early-accept` example; 33 examples.
+  - **To come in v0.9:** T-033's additive items (ADR-0025's funding schemes and token addresses, optional `allowedTokens`, `chainId` as a number, the MIME allowlist moving to adjudicator capability), before the Sepolia redeploy.
 
 - **v0.8 (2026-11-01, D34, ADR-0024), additive:** every `$id`, the `Holdback-Schema-Version` header and the OpenAPI `x-holdback-schema-version` move to 0.8. No existing typed-data struct changes, so the EIP-712 domain version and `commitment.schemaVersion` stay 0.6. A sealed commitment and its plaintext form have the same ID, because the struct binds only the bodies' hashes.
   - **Private terms:** `privateTerms` is now `{deliverable, acceptance}`, each a `PrivatePart {hash, ciphertext, envelopes}` (common.schema.json `PrivatePart`, `PrivateTerms`). Each part is AES-256-GCM of the body's RFC 8785 JSON under its own key, with AAD = commitment ID ‖ part name. The commitment schema requires the bodies in the clear at `public` and only `privateTerms` at `private` and `judgment`. Body keys that unlock at a beacon round are still refused.

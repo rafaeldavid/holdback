@@ -490,6 +490,9 @@ export class PublicWorld {
         registration: async (address) => registration(address),
         domain,
         fee,
+        // The demo's three adjudicators trust each other as fallback and appeal adjudicators, and nobody else (T-212):
+        // an appeal adjudicator a party controls could overturn an honest decision and take the price from the bond.
+        trustedAdjudicators: adjKeys.map((k) => k.keys.address),
       });
       registrations.set(adj.address, { ...adj.registration(), poolTermsHash: canonicalKeccak(POOL_TERMS), status: 'active' });
       const parsed = parseAdjudicator(registration(adj.address));

@@ -58,7 +58,7 @@ import type { Registry } from './registry.js';
 
 export { statusOf } from './problems.js';
 export const API_VERSION = 'v1';
-export const SCHEMA_VERSION = '0.8';
+export const SCHEMA_VERSION = '0.9';
 const MAX_BODY_BYTES = 1_048_576;
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;

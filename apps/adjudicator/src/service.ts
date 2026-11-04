@@ -9,11 +9,13 @@
 //   asked again for the same (commitment, role, attempt).
 import {
   canonicalKeccak,
+  deliveryHash,
   err,
   isSealed,
   ok,
   problem,
   signMessage,
+  verifyMessage,
   type AdjudicatorAcceptance,
   type AdjudicatorPolicy,
   type AdjudicatorRegistration,
@@ -61,6 +63,13 @@ export interface AdjudicatorConfig {
    * (`pnpm sim`) turns it on.
    */
   acceptSealedUnread?: boolean;
+  /**
+   * The fallback and appeal adjudicators this service accepts an offer with (T-212). Since an overturn pays the price
+   * from the first decider's bond (I-8), one actor as buyer, seller and appeal adjudicator could name this service as
+   * primary, take its honest accept, file a zero-bond appeal and overturn it through its own appeal adjudicator. So an
+   * offer naming any other fallback or appeal adjudicator is declined. Unset: this service trusts only itself.
+   */
+  trustedAdjudicators?: readonly Address[];
 }
 
 export interface RunReport {
@@ -180,6 +189,14 @@ export class Adjudicator {
     if (isSealed(c) && !this.#cfg.acceptSealedUnread) {
       return err(problem('adjudicator_unavailable', `${this.#cfg.name} cannot open sealed terms yet (ADR-0024, T-207): it declines private and judgment offers rather than accept a deal it could not judge; offer at disclosure public`));
     }
+    // T-212: an untrusted appeal adjudicator could overturn this service's honest decision and take the price from its
+    // bond; an untrusted fallback is declined on the same footing. D29: an adjudicator declines terms it will not run.
+    const trusted = new Set([this.address, ...(this.#cfg.trustedAdjudicators ?? []).map((a) => a.toLowerCase())]);
+    for (const [role, who] of [['fallback', adjudication.fallbackAdjudicator], ['appeal', adjudication.appealAdjudicator]] as const) {
+      if (!trusted.has(who.toLowerCase())) {
+        return err(problem('invalid_terms', `${this.#cfg.name} does not trust ${who} as the ${role} adjudicator: an appeal decided by an untrusted adjudicator could pay the price from this adjudicator's bond (T-212); offer with a ${role} adjudicator it trusts`));
+      }
+    }
     if (adjudication.policyHash !== policyHashOf(this.policy)) return err(problem('policy_mismatch', 'policy-hash-mismatch: the offer binds another policy'));
     if (adjudication.registryHash !== this.#cfg.registry.hash) return err(problem('registry_mismatch', 'the offer binds another registry'));
     const min = this.quote();
@@ -229,6 +246,11 @@ export class Adjudicator {
       if (!r.ok) return r;
       judged = r.value;
       this.#judged.set(key, judged);
+    } else if (judged.record.deliveryHash !== deliveryHash(task.delivery)) {
+      // ADR-0029: the record, the key and the decision name the delivery judged. A retry handed another seller-signed
+      // delivery for the same attempt (seller equivocation) is refused: no re-judging, and no decision naming a body
+      // the record does not cover.
+      return err(problem('invalid_state', `this adjudicator judged delivery ${judged.record.deliveryHash} for this commitment, role and attempt; the task now carries ${deliveryHash(task.delivery)}, and it never judges an attempt twice`));
     }
     if (!judged.published) {
       try {
@@ -251,6 +273,15 @@ export class Adjudicator {
     if (!policyR.ok) return policyR;
     if (this.#cfg.registry.hash !== commitment.adjudication.registryHash) {
       return err(problem('registry_mismatch', `this adjudicator's registry hashes to ${this.#cfg.registry.hash}; the commitment binds ${commitment.adjudication.registryHash}`));
+    }
+    // ADR-0029: judge only this commitment's delivery, signed by its seller. The decision names this delivery's hash, so a
+    // body the seller never signed (an operator's mistake or forgery) is refused here, not judged and then refused by
+    // settlement.
+    if (task.delivery.commitmentId !== id) {
+      return err(problem('invalid_terms', `the delivery handed to this adjudicator is for commitment ${task.delivery.commitmentId}, not ${id}; refusing before judging`));
+    }
+    if (!(await verifyMessage(this.#cfg.domain, { ...task.delivery, type: 'Delivery' }, commitment.seller))) {
+      return err(problem('invalid_signature', `the delivery handed to this adjudicator is not signed by the seller ${commitment.seller}; refusing before judging`));
     }
     // Key-wrapping prerequisites: the buyer's key (accept) and, for roles that may escalate, the appeal adjudicator's.
     let buyerKey: Uint8Array;
@@ -377,6 +408,8 @@ export class Adjudicator {
       type: 'Decision',
       commitmentId: id,
       attempt,
+      // The delivery the record judged (decideTask refuses a task that carries another).
+      deliveryHash: judged.record.deliveryHash,
       adjudicator: this.address,
       role,
       outcome,
@@ -401,6 +434,7 @@ export class Adjudicator {
     const body = {
       commitmentId: task.commitment.id,
       attempt: task.attempt,
+      deliveryHash: deliveryHash(task.delivery),
       adjudicator: this.address,
       role: task.role,
       intake: draft.intake,

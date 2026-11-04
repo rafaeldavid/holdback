@@ -91,6 +91,11 @@ export interface TestAdjudicatorOptions {
   provider?: JudgeProvider;
   /** Accept sealed offers without reading them (AdjudicatorConfig.acceptSealedUnread). Default false: decline. */
   acceptSealedUnread?: boolean;
+  /**
+   * The fallback and appeal adjudicators it accepts offers with (AdjudicatorConfig.trustedAdjudicators). A world's
+   * adjudicators trust each other; unset, it trusts only itself and declines every offer naming another.
+   */
+  trustedAdjudicators?: readonly Address[];
 }
 
 export interface TestAdjudicator {
@@ -119,6 +124,7 @@ export function testAdjudicator(o: TestAdjudicatorOptions): TestAdjudicator {
     provider: o.provider ?? markedFake(markerFake(o.judges ?? {})),
     settlement: new SettlementAdapter({ chain: o.chain, store: o.store, registration: o.registration }),
     ...(o.acceptSealedUnread ? { acceptSealedUnread: true } : {}),
+    ...(o.trustedAdjudicators ? { trustedAdjudicators: o.trustedAdjudicators } : {}),
   });
   return { address, service, registration: () => service.registration(), runOnce: () => service.runOnce() };
 }

@@ -479,7 +479,9 @@ async function earlyAccept(ctx: PrepareContext, input: Record<string, unknown>):
   const nonce = nonceIn(input['nonce'], 'nonce');
   const givenExpiry = timestamp(input['expiresAt'], 'expiresAt');
   const expiresAt = givenExpiry ?? plusSeconds(ctx.now(), 3600);
-  const body = { type: 'EarlyAccept', commitmentId: c.id, buyer: c.buyer, attempt: await ctx.attempt(c.id), expiresAt } as const;
+  // ADR-0029: the accept names the posted delivery; the settlement layer refuses it relayed with any other.
+  const posted = (await ctx.delivery(c.id)) ?? bad(`no delivery is posted for ${c.id}; an early accept names the delivery it accepts`);
+  const body = { type: 'EarlyAccept', commitmentId: c.id, buyer: c.buyer, attempt: posted.attempt, deliveryHash: posted.deliveryHash, expiresAt } as const;
   const m = { ...body, nonce };
   return {
     kind: 'early-accept',
@@ -489,6 +491,7 @@ async function earlyAccept(ctx: PrepareContext, input: Record<string, unknown>):
     check: [
       `you are the buyer ${c.buyer}`,
       `you accept the delivery and release ${amountText(c.price)} to the seller ${c.seller} now`,
+      `deliveryHash ${posted.deliveryHash} is the hash of the delivery you opened, computed yourself from the seller-signed delivery (EIP-712 struct hash without its signature); the settlement layer refuses an accept for any other delivery`,
       'open your envelope first: get the signed delivery from the seller, check it is the one the settlement layer holds (its deliveryHash in delivery.submitted, as at least two operators serve it), open your envelope with your own key, decrypt the ciphertext and check the plaintext hash; the envelope the seller supplied is what an early accept releases, and nothing else checks it',
       'no appeal follows an early accept (D32): if your envelope does not open, do not accept early; an adjudicator\'s decision re-seals the key to your terms key',
     ],

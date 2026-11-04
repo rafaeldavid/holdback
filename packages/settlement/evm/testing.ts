@@ -5,6 +5,7 @@ import {
   canonicalKeccak,
   commitmentId,
   deliveryHash,
+  holdbackDomain,
   panelSeed,
   plusSeconds,
   rulebookHash,
@@ -81,7 +82,7 @@ export function evmRulebook(token: string): Rulebook {
 export async function evmGenesis(o: { cast: EvmCast; token: string; chainId: number; rules: Address; start: Timestamp; buyer: bigint; bond: bigint }): Promise<{ genesis: Genesis; club: Club }> {
   const rulebook = evmRulebook(o.token);
   const club: Club = { id: 'evm-club', name: 'EVM test club', operator: o.cast.operator.address, rulebook, rulebookHash: rulebookHash(rulebook) };
-  const domain = { name: 'Holdback' as const, version: '0.6' as const, chainId: BigInt(o.chainId), verifyingContract: o.rules };
+  const domain = holdbackDomain(o.chainId, o.rules);
   const big = { token: o.token, amount: '1000000000000000' } as TokenAmount;
   const mandates: Mandate[] = [];
   for (const who of [o.cast.buyer, o.cast.seller]) {
@@ -124,7 +125,7 @@ export class EvmDeal {
     const now = chain.now();
     const amt = (v: bigint) => ({ token: chain.token, amount: v.toString() }) as TokenAmount;
     this.terms = {
-      schemaVersion: '0.6',
+      schemaVersion: '0.7',
       clubId: club.id,
       rulebookHash: club.rulebookHash,
       buyer: cast.buyer.address,
@@ -229,11 +230,16 @@ export class EvmDeal {
     return { kind: 'deliver', delivery: this.delivery };
   }
 
-  async earlyAccept(): Promise<Submission> {
-    return { kind: 'early_accept', message: await this.sign(this.cast.buyer, { type: 'EarlyAccept', commitmentId: this.id, buyer: this.cast.buyer.address, attempt: 1, nonce: this.nonce(), expiresAt: plusSeconds(this.chain.now(), 86400) } as const) };
+  /** The delivery a signature names (ADR-0029): the one this deal built, or `over` to name another. */
+  named(over?: Hex32): Hex32 {
+    return over ?? (this.delivery ? deliveryHash(this.delivery) : `0x${'00'.repeat(32)}`);
   }
 
-  async decide(role: 'primary' | 'fallback' | 'appeal', outcome: Decision['outcome'], round?: number): Promise<Submission> {
+  async earlyAccept(over: { deliveryHash?: Hex32 } = {}): Promise<Submission> {
+    return { kind: 'early_accept', message: await this.sign(this.cast.buyer, { type: 'EarlyAccept', commitmentId: this.id, buyer: this.cast.buyer.address, attempt: 1, deliveryHash: this.named(over.deliveryHash), nonce: this.nonce(), expiresAt: plusSeconds(this.chain.now(), 86400) } as const) };
+  }
+
+  async decide(role: 'primary' | 'fallback' | 'appeal', outcome: Decision['outcome'], round?: number, over: { deliveryHash?: Hex32 } = {}): Promise<Submission> {
     const actor = role === 'primary' ? this.cast.primary : role === 'fallback' ? this.cast.fallback : this.cast.appeal;
     const value = round === undefined ? null : this.chain.beacon(round);
     const seed = role === 'primary' ? this.seed : panelSeed(this.id, role, 1, value!);
@@ -241,6 +247,7 @@ export class EvmDeal {
       type: 'Decision',
       commitmentId: this.id,
       attempt: 1,
+      deliveryHash: this.named(over.deliveryHash),
       adjudicator: actor.address,
       role,
       outcome,

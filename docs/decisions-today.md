@@ -1,4 +1,4 @@
-# Decisions D1–D42
+# Decisions D1–D44
 
 Status: D1–D9 decided October 30, 2026, after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`); the options are kept as the record. D10 to D24 decided October 30 and 31, 2026, each after an independent research pass. D25 to D36 decided October 31 and November 1, 2026, D37 to D40 on November 1 and 2, D41 and D42 on November 3 (Rafa's principles and research-backed choices; D4 was updated on November 1 to target Ethereum mainnet via Sepolia). Newer entries are appended at the end. Owner: Rafa. Each decision has options, a recommendation and the ADR it settles.
 
@@ -581,6 +581,9 @@ Also: the funding signature on EVM is CPP's collector signature and token identi
   - Before, a sham deal could lock any named adjudicator's bond.
 - **Research pass:** the T-206 adversarial review (Fable, max effort) and the public-audit cross-check; the review passes agree. See `docs/reviews/2026-11-03-contract-review.md`.
 
+**Amended 2026-11-03 (D44, ADR-0029; Rafa may overrule).**
+- **Point 3:** the contract now stores one delivery hash per deal, beside the deal word (`deliveryHashOf`), written by whichever call lands the delivery. Every decision, early accept and mutual settlement after it must name that hash. Envelopes are still not stored.
+
 ## D38. Funding paths: any ERC-20, WETH or ETH; ramps as a deferred separate service (ADR-0026)
 
 *Note (2026-11-03): first wave narrowed to USDC by D42; other assets later.*
@@ -667,3 +670,20 @@ Also: the funding signature on EVM is CPP's collector signature and token identi
 | Keep the payout in Phase 4 | Appeals move no money on chain; litmus test 3's "appeals are backed by the bond" stays unmet and blocks mainnet |
 | Pay from the first decider's bond now, only the losing party appeals (chosen) | Matches SimChain and the formal model; +258 bytes, 332 under EIP-170 |
 | Pay now, one appeal slot per party | Same payout, more state and code; a favoured party's appeal has nothing to win |
+
+## D44. Decisions, early accepts and judgment records name the delivery they settle (ADR-0029)
+
+**Decided 2026-11-03 under "autonomy inside the repo", after a Fable max-effort research pass (ADR-0029's draft); Rafa may overrule any line.** This is the second high finding of the contract review (§8) that D43 left to its own entry, and T-212 item 3. A seller who signed two deliveries for one attempt could settle a decision or an early accept about one body with the other, so the chain named a delivery nobody judged or opened. Rafa asked for the fix in the contracts.
+
+- **Option A of ADR-0029.** `EarlyAccept` and `Decision` gain `deliveryHash` (the delivery's EIP-712 struct hash) after `attempt`; the contract stores the posted delivery's hash in `deliveryHashOf` and refuses, at every role and stage, a signature that names another; `mutualSettle` after a delivery must name the posted one, as core already required. The judgment record carries the hash too, and `recordHash` covers it.
+- **Versions.** Schema v0.9, EIP-712 domain 0.7 and `commitment.schemaVersion` "0.7" now, without waiting for T-033; T-033's additive items join v0.9 before the Sepolia redeploy, so there is one redeploy.
+- **The reference adjudicator checks what it is handed.** It verifies the seller's signature on the delivery before any judge is called (`invalid_signature`) and names the delivery in its decision and record. Tasks now carry the seller-signed delivery; a party appeal reads it from the first decision's state.
+- **The reference adjudicator trusts its fallback and appeal adjudicators** (`trustedAdjudicators`). Since D43, an overturn pays the price from the first decider's bond, so one actor as buyer, seller and appeal adjudicator could name Crow's adjudicator as primary, take its honest accept, file a zero-bond appeal and overturn it through its own appeal adjudicator. The service declines such an offer (`invalid_terms`, D29). Unset, it trusts only itself; each demo and test world's three adjudicators trust each other.
+- **Cost (measured):** `HoldbackRules` 24,313 bytes, 263 under EIP-170 (+69), no cut needed; one storage slot per deal, about +22,000 gas on the call that lands the delivery (forge figures in T-212).
+- **Still gated on Rafa:** the Sepolia redeploy and the Worker switch (ADR-0029 §8).
+
+| Option | Effect |
+| --- | --- |
+| A. Message field, stored hash, record field (chosen) | The signature, the chain, the key and the record name one delivery; the appeal judges the same body; domain bump, one slot per deal, a redeploy |
+| B. Message field, no storage | Self-consistent decisions, but the judged delivery is never tied to the posted one; more gas on every later decision |
+| C. Record only, contract unchanged | No redeploy; the early-accept record, the chain-only buyer and the appeal path stay unprotected |

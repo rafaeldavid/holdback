@@ -111,8 +111,7 @@ contract AfterCppReclaimTest is Base {
         (H.Delivery memory dv, H.KeyProof memory k) = _deliver(t, id);
         vm.warp(_expiry(t));
         _cppReclaim(t);
-        H.EarlyAccept memory m = H.EarlyAccept({attempt: 1, nonce: 0, expiresAt: type(uint64).max, signature: ""});
-        m.signature = _sign(BUYER_PK, hx.early(id, buyer, m));
+        H.EarlyAccept memory m = _early(t, id, BUYER_PK);
         bytes memory dsig = _deliverySig(id, dv, SELLER_PK);
         vm.expectRevert(
             abi.encodeWithSelector(

@@ -38,7 +38,7 @@ const CANARY_A = 'CANARY-ACCEPTANCE-9b2c';
 
 function terms(): CommitmentTerms {
   return {
-    schemaVersion: '0.6',
+    schemaVersion: '0.7',
     clubId: 'sim-club',
     rulebookHash: `0x${'ab'.repeat(32)}`,
     buyer,

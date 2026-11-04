@@ -58,6 +58,8 @@ export interface FirstInstance {
   kind: 'first_instance';
   role: 'primary' | 'fallback';
   decision: Decision;
+  /** The seller-signed delivery the decision judged: a party appeal judges the same body (ADR-0029). */
+  delivery: Delivery;
   appeal: AppealState;
 }
 
@@ -316,6 +318,30 @@ function beaconSeed(s: EscrowState, m: Decision, beacon: BeaconFact | null | und
   return ok(true);
 }
 
+/**
+ * ADR-0029: a decision or early accept names the posted delivery by its hash. A seller that signed two deliveries
+ * for one attempt cannot settle a signature about one with the other.
+ */
+function namesTheDelivery(m: { deliveryHash: Hex32 }, d: Delivery | Hex32): R<true> {
+  const posted = typeof d === 'string' ? d : deliveryHash(d);
+  return m.deliveryHash === posted ? ok(true) : fail('invalid_terms', `the message names delivery ${m.deliveryHash}, not the posted delivery ${posted}`);
+}
+
+/**
+ * The posted delivery's hash, from Delivered on (the read model's `deliveryHash`, ADR-0029): from the delivery while
+ * the state holds it, then from the signature that settled the deal, which named it. Undefined before a delivery,
+ * after a reclaim, after a default (no signature named it) and after a mutual settlement before delivery.
+ */
+export function postedDeliveryHash(s: EscrowState): Hex32 | undefined {
+  if ('delivery' in s) return deliveryHash(s.delivery);
+  if (s.kind === 'Settled') return s.settlement.deliveryHash ?? undefined;
+  if (s.kind !== 'Released' && s.kind !== 'Refunded') return undefined;
+  const via = s.via;
+  if (via.kind === 'first_instance' || via.kind === 'escalation') return via.decision.deliveryHash;
+  if (via.kind === 'early_accept') return via.earlyAccept.deliveryHash;
+  return undefined;
+}
+
 /** Checks shared by every decision (ADR-0016 §4), apart from the seed. */
 function decisionBindings(s: Base, m: Decision, at: Timestamp, adjudicator: string, deadline: Timestamp): R<true> {
   if (!sameAddress(m.adjudicator, adjudicator)) return fail('not_your_turn', `${m.adjudicator} is not the ${m.role} adjudicator`);
@@ -341,6 +367,8 @@ function firstInstance(s: Extract<EscrowState, { kind: 'Delivered' | 'FallbackJu
   );
   if (!bound.ok) return bound;
   if (m.attempt !== s.delivery.attempt) return fail('invalid_terms', `decision is for attempt ${m.attempt}, delivery is attempt ${s.delivery.attempt}`);
+  const named = namesTheDelivery(m, s.delivery);
+  if (!named.ok) return named;
   if (m.appealGround !== undefined) return fail('invalid_terms', 'appealGround belongs to appeal decisions only');
   // ADR-0018: the primary reveals its committed seed; the fallback takes the beacon seed for judgeBy.
   if (role === 'primary' && keccak256(m.seed) !== s.acceptance.seedCommitment) return fail('seed_mismatch', 'seed does not hash to the acceptance seedCommitment');
@@ -356,6 +384,7 @@ function firstInstance(s: Extract<EscrowState, { kind: 'Delivered' | 'FallbackJu
     kind: 'first_instance',
     role,
     decision: m,
+    delivery: s.delivery,
     appeal: { kind: 'none', appealBy, appealDecideBy: addSeconds(appealBy, timing.appealDecideSec) },
   };
   return ok(m.outcome === 'accept' ? { ...base, kind: 'Released', via } : { ...base, kind: 'Refunded', via });
@@ -365,6 +394,8 @@ function escalationDecision(s: Extract<EscrowState, { kind: 'Escalated' }>, m: D
   if (m.role !== 'appeal') return fail('not_your_turn', "it is the appeal adjudicator's turn");
   const bound = decisionBindings(s, m, at, s.terms.adjudication.appealAdjudicator, s.escalation.appealDecideBy);
   if (!bound.ok) return bound;
+  const named = namesTheDelivery(m, s.delivery);
+  if (!named.ok) return named;
   const seeded = beaconSeed(s, m, beacon);
   if (!seeded.ok) return seeded;
   if (m.outcome === 'escalate') return fail('invalid_terms', 'the appeal adjudicator decides accept or reject; it cannot escalate');
@@ -377,6 +408,8 @@ export interface AppealContext {
   id: Hex32;
   terms: AnyCommitmentTerms;
   firstOutcome: 'accept' | 'reject';
+  /** The delivery the first decision named: the appeal judges the same body (ADR-0029). */
+  deliveryHash: Hex32;
 }
 
 export type AppealEvent = Extract<EscrowEvent, { type: 'file_appeal' | 'decide' | 'expire_appeal' }>;
@@ -413,6 +446,8 @@ export function stepAppeal(a: AppealState, e: AppealEvent, ctx: AppealContext): 
       if (m.role !== 'appeal') return fail('not_your_turn', "it is the appeal adjudicator's turn");
       const bound = decisionBindings(ctx, m, e.at, terms.adjudication.appealAdjudicator, a.appealDecideBy);
       if (!bound.ok) return bound;
+      const named = namesTheDelivery(m, ctx.deliveryHash);
+      if (!named.ok) return named;
       if (m.outcome === 'escalate') return fail('invalid_terms', 'an appeal decision is accept or reject');
       return ok({ kind: m.outcome === ctx.firstOutcome ? 'upheld' : 'overturned', appeal: a.appeal, decision: m });
     }
@@ -429,7 +464,7 @@ function settled(s: Extract<EscrowState, { kind: 'Released' | 'Refunded' }>, e: 
   if (s.via.kind !== 'first_instance') {
     return fail('invalid_state', s.via.kind === 'escalation' ? 'a decision reached through escalation is not appealable' : `nothing to appeal after ${s.via.kind}`);
   }
-  const ctx = { id: s.id, terms: s.terms, firstOutcome: s.kind === 'Released' ? ('accept' as const) : ('reject' as const) };
+  const ctx = { id: s.id, terms: s.terms, firstOutcome: s.kind === 'Released' ? ('accept' as const) : ('reject' as const), deliveryHash: s.via.decision.deliveryHash };
   const next = stepAppeal(s.via.appeal, e as AppealEvent, ctx);
   if (next.ok && e.type === 'decide') {
     const seeded = beaconSeed(s, e.message, e.beacon);
@@ -503,6 +538,8 @@ export function step(s: EscrowState, e: EscrowEvent): R {
         const m = e.message;
         if (!sameAddress(m.buyer, s.terms.buyer)) return fail('invalid_signature', 'early acceptance is not from the buyer');
         if (m.commitmentId !== s.id || m.attempt !== s.delivery.attempt) return fail('invalid_terms', 'early acceptance is for another commitment or attempt');
+        const named = namesTheDelivery(m, s.delivery);
+        if (!named.ok) return named;
         const live = messageLive(m, e.at);
         if (!live.ok) return live;
         return ok({ kind: 'Released', id: s.id, terms: s.terms, settledAt: e.at, via: { kind: 'early_accept', earlyAccept: m } });

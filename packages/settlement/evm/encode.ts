@@ -129,12 +129,13 @@ export const NO_KEY = { scheme: '', ciphertext: '', unlockKindHash: str(''), unl
 
 export const acceptanceView = (a: AdjudicatorAcceptance) => ({ seedCommitment: a.seedCommitment, bondReserved: BigInt(a.bondReserved.amount), nonce: a.nonce, expiresAt: enc<{ expiresAt: bigint }>(a).expiresAt, signature: a.signature });
 export const agreeView = (a: Agree) => ({ nonce: a.nonce, expiresAt: enc<{ expiresAt: bigint }>(a).expiresAt, signature: a.signature });
-export const earlyAcceptView = (m: EarlyAccept) => ({ attempt: m.attempt, nonce: m.nonce, expiresAt: enc<{ expiresAt: bigint }>(m).expiresAt, signature: m.signature });
+export const earlyAcceptView = (m: EarlyAccept) => ({ attempt: m.attempt, deliveryHash: m.deliveryHash, nonce: m.nonce, expiresAt: enc<{ expiresAt: bigint }>(m).expiresAt, signature: m.signature });
 
 export function decisionView(m: Decision) {
   const e = enc<{ beacon: { source: string; round: bigint; value: Hex32; signature: Hex }; expiresAt: bigint }>(m);
   return {
     attempt: m.attempt,
+    deliveryHash: m.deliveryHash,
     role: ROLE[m.role],
     outcome: OUTCOME[m.outcome],
     seed: m.seed,

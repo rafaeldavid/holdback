@@ -8,11 +8,6 @@ import {Base} from "./Base.sol";
 contract EarlyAcceptTest is Base {
     event KeyReleased(bytes32 indexed id, address indexed recipient, uint8 path, string scheme, string ciphertext);
 
-    function _early(H.Terms memory t, bytes32 id, uint256 pk) internal view returns (H.EarlyAccept memory m) {
-        m = H.EarlyAccept({attempt: 1, nonce: keccak256("early"), expiresAt: type(uint64).max, signature: ""});
-        m.signature = _sign(pk, hx.early(id, t.buyer, m));
-    }
-
     function test_pricetoSeller_feeBack_keyReleased_deliveryCarried() public {
         (H.Terms memory t, bytes32 id) = _funded();
         (H.Delivery memory d, H.KeyProof memory k) = _delivery();

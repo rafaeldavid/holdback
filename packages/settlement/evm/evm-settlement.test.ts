@@ -3,6 +3,7 @@
 // which `pnpm verify` would show (it runs forge build first; see scripts/verify.ts).
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { deliveryHash, parseEvent, type SettlementEvent } from '@holdback/core';
 import { encodeFunctionData, getAddress, hashTypedData } from 'viem';
 import { sign } from 'viem/accounts';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -14,6 +15,13 @@ import { anvilAvailable, EvmWorld, EXPIRY_MARGIN } from './world.js';
 
 const root = join(import.meta.dirname, '..', '..', '..');
 const ready = anvilAvailable() && existsSync(join(root, 'contracts', 'out', 'HoldbackRules.sol', 'HoldbackRules.json'));
+
+/** Every event the adapter emitted that event.schema.json refuses (core's parser, Ajv strict), with the reason. */
+const eventSchemaErrors = (log: readonly SettlementEvent[]): string[] =>
+  log.flatMap((e) => {
+    const r = parseEvent(e);
+    return r.ok ? [] : [`#${e.seq} ${e.type}: ${r.error.detail}`];
+  });
 
 describe.skipIf(!ready)(`EvmSettlement on anvil${ready ? '' : ' (SKIPPED: needs anvil on PATH and forge build output in contracts/out)'}`, () => {
   let world: EvmWorld;
@@ -93,6 +101,28 @@ describe.skipIf(!ready)(`EvmSettlement on anvil${ready ? '' : ' (SKIPPED: needs 
     await must(chain, cast, d.decide('primary', 'accept'));
     const again = await chain.submit(await d.decide('primary', 'reject'), { sender: cast.primary.key });
     expect(again.ok ? 'ok' : again.problem.type).toBe('invalid_state');
+    expect(chain.transactions().map((t) => t.call)).toEqual(['agreeAndFund', 'deliver', 'decide']);
+  }, 60_000);
+
+  // ADR-0029: a signature that names a delivery other than the posted one is refused as SimChain refuses it, and the
+  // contract's deliveryHashOf, the mirror and the read model name the same delivery.
+  it('an early accept or a decision naming another delivery is refused; the read model names the posted delivery', async () => {
+    const { chain, cast, club } = await newSettlement(world);
+    const d = new EvmDeal(chain, cast, club, 'binding');
+    await must(chain, cast, d.offer());
+    await must(chain, cast, d.accept());
+    await must(chain, cast, d.agreeAndFund());
+    await must(chain, cast, d.deliver());
+    const posted = deliveryHash(d.delivery!);
+    const other = `0x${'4b'.repeat(32)}` as const;
+    const early = await chain.submit(await d.earlyAccept({ deliveryHash: other }), { sender: cast.buyer.key });
+    expect(early.ok ? 'ok' : early.problem.type).toBe('invalid_terms');
+    const decided = await chain.submit(await d.decide('primary', 'accept', undefined, { deliveryHash: other }), { sender: cast.primary.key });
+    expect(decided.ok ? 'ok' : decided.problem.type).toBe('invalid_terms');
+    expect(await world.publicClient.readContract({ address: world.deployment.rules, abi: world.abis.rules, functionName: 'deliveryHashOf', args: [d.id] })).toBe(posted);
+    expect((await chain.state(d.id))?.deliveryHash).toBe(posted);
+    await must(chain, cast, d.decide('primary', 'accept'));
+    expect((await chain.state(d.id))?.deliveryHash).toBe(posted);
     expect(chain.transactions().map((t) => t.call)).toEqual(['agreeAndFund', 'deliver', 'decide']);
   }, 60_000);
 
@@ -214,8 +244,12 @@ describe.skipIf(!ready)(`EvmSettlement on anvil${ready ? '' : ' (SKIPPED: needs 
     expect(log.slice(decided).map((e) => e.type)).toEqual(['appeal.decided', 'bond.slashed']);
     const slashed = log[decided + 1]!;
     expect(slashed.actor).toBe('anyone');
-    // Exactly SimChain's payload: event.schema.json's BondMovement is closed, so no chain fields ride on it.
-    expect(slashed.payload).toEqual({ adjudicator: cast.primary.address, junior: { token: expect.any(String), amount: '2000000000' }, senior: { token: expect.any(String), amount: '0' }, reason: 'overturn' });
+    // SimChain's payload plus the transaction, which event.schema.json admits since v0.9 (ChainTx): the same one as
+    // the appeal.decided event before it.
+    const { tx, block, sender, gasUsed } = log[decided]!.payload as Record<string, unknown>;
+    expect(slashed.payload).toEqual({ adjudicator: cast.primary.address, junior: { token: expect.any(String), amount: '2000000000' }, senior: { token: expect.any(String), amount: '0' }, reason: 'overturn', tx, block, sender, gasUsed });
+    expect(tx).toMatch(/^0x[0-9a-f]{64}$/);
+    expect(eventSchemaErrors(log)).toEqual([]);
     expect(await chain.replayCheck()).toMatchObject({ ok: true });
   }, 120_000);
 
@@ -238,6 +272,15 @@ describe.skipIf(!ready)(`EvmSettlement on anvil${ready ? '' : ' (SKIPPED: needs 
   it('gas per deal covers every path (D4)', () => {
     expect(Object.keys(SETTLES)).toEqual(Object.keys(PATHS));
   });
+
+  // Schema v0.9 (review of PR 160): every event the adapter emits, chain fields included, is a valid event.
+  it('every event on every path validates against event.schema.json', async () => {
+    const { chain, cast, club } = await newSettlement(world);
+    for (const run of Object.values(PATHS)) await run(chain, cast, club);
+    const types = new Set(chain.log().map((e) => e.type));
+    for (const t of ['fee.operator', 'commitment.settled', 'bond.slashed', 'delivery.submitted', 'judgment.decided']) expect(types, t).toContain(t);
+    expect(eventSchemaErrors(chain.log())).toEqual([]);
+  }, 300_000);
 
   for (const [path, want] of Object.entries(SETTLES)) {
     it(`gas per deal: ${path} settles ${want.finalState} in ${want.calls.length} transactions (D4)`, async () => {

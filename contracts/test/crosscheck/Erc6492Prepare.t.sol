@@ -122,8 +122,13 @@ contract Erc6492PrepareTest is Base {
         bytes memory dSig = _deliverySig(id, dv, SELLER_PK);
 
         // (1) early accept, carrying the delivery
-        H.EarlyAccept memory ea =
-            H.EarlyAccept({attempt: 1, nonce: keccak256("ea"), expiresAt: type(uint64).max, signature: ""});
+        H.EarlyAccept memory ea = H.EarlyAccept({
+            attempt: 1,
+            deliveryHash: hx.delivery(id, dv),
+            nonce: keccak256("ea"),
+            expiresAt: type(uint64).max,
+            signature: ""
+        });
         ea.signature = _sign(BUYER_PK, hx.early(id, buyer, ea));
         probe.add(address(rules), abi.encodeCall(HoldbackRules.earlyAccept, (t, ea, dv, dSig, k)));
         // (2) a primary accept carrying the delivery

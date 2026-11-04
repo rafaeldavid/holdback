@@ -19,6 +19,7 @@ import {
   holdbackDomain,
   mulBps,
   offer,
+  postedDeliveryHash,
   problem,
   splitBps,
   step,
@@ -1024,6 +1025,7 @@ export class SimChain implements Settlement {
     if (s.kind === 'Escalated') deadlines['appealDecideBy'] = s.escalation.appealDecideBy;
     const hold = 'hold' in s ? { hold: { amount: s.hold.amount, railRef: `sim:${account.escrow(id)}` } } : {};
     const attempt = 'delivery' in s ? s.delivery.attempt : s.kind === 'Released' || s.kind === 'Refunded' || s.kind === 'Settled' ? 1 : 0;
+    const posted = postedDeliveryHash(s);
     const token = this.genesis.token;
     const amount = (a: Address): TokenAmount => ({ token, amount: bal(account.party(a)).toString() as TokenAmount['amount'] });
     const view: CommitmentStateView = {
@@ -1031,6 +1033,7 @@ export class SimChain implements Settlement {
       escrowState: s.kind,
       appealState,
       attempt: s.kind === 'Released' || s.kind === 'Refunded' ? (s.via.kind === 'reclaim' ? 0 : 1) : attempt,
+      ...(posted ? { deliveryHash: posted } : {}),
       ...hold,
       deadlines,
       balances: { [s.terms.buyer]: amount(s.terms.buyer), [s.terms.seller]: amount(s.terms.seller) },

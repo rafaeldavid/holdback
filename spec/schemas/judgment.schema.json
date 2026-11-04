@@ -1,11 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.8/judgment.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.9/judgment.schema.json",
   "title": "Judgment record",
   "type": "object",
   "required": [
     "commitmentId",
     "attempt",
+    "deliveryHash",
     "adjudicator",
     "role",
     "intake",
@@ -26,6 +27,10 @@
       "type": "integer",
       "minimum": 1,
       "maximum": 3
+    },
+    "deliveryHash": {
+      "$ref": "common.schema.json#/$defs/Hex32",
+      "description": "EIP-712 struct hash of the seller-signed delivery judged. recordHash covers it, so the decision's judgmentRecordHash binds it; it equals the decision's deliveryHash (ADR-0029)"
     },
     "adjudicator": {
       "$ref": "common.schema.json#/$defs/Address"

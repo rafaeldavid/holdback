@@ -260,6 +260,8 @@ export async function startSimWorld(options: SimWorldOptions = {}): Promise<SimW
       // A local world exercises private flows by early accept or mutual settlement (T-207), so its primary accepts
       // sealed offers it cannot read. The public demo's adjudicators decline them instead.
       acceptSealedUnread: true,
+      // The world's three adjudicators trust each other as fallback and appeal adjudicators, and nobody else (T-212).
+      trustedAdjudicators: adjKeys.map((k) => k.keys.address),
     });
     registrations.set(adj.address, { ...adj.registration(), poolTermsHash: canonicalKeccak(POOL_TERMS), status: 'active' });
     const parsed = parseAdjudicator(registration(adj.address));

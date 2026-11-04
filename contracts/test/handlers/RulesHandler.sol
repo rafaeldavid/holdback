@@ -392,6 +392,8 @@ contract RulesHandler is Base {
         // Rare corruptions use the value 15, not 0: the fuzzer favours small values.
         if ((outcomeSeed >> 8) % 16 == 15) m.role = uint8((outcomeSeed >> 12) % 3);
         if ((outcomeSeed >> 16) % 16 == 15) m.expiresAt = uint64(block.timestamp);
+        // Rarely a decision about another seller-signed body (ADR-0029); otherwise the posted or carried delivery.
+        if ((outcomeSeed >> 24) % 16 == 15) m.deliveryHash = keccak256("another body");
         // An appeal over a refund carries no key (T-206 H-2), except rarely, so the refusal stays exercised.
         if (d.stage == HoldbackRules.Stage.Refunded && (outcomeSeed >> 20) % 16 != 15) {
             (m.keyScheme, m.keyCiphertext) = ("", "");
@@ -413,7 +415,7 @@ contract RulesHandler is Base {
         vm.prank(_caller(callerSeed));
         try rules.decide(t, m, dv, dsig) {
             ok = true;
-            _authorised("decide", k == good && sk == SELLER_PK);
+            _authorised("decide", k == good && sk == SELLER_PK && m.deliveryHash == rules.deliveryHashOf(id));
         } catch {}
         _keyOnlyWithPayment();
         _track(id, d.stage);
@@ -529,7 +531,11 @@ contract RulesHandler is Base {
         H.Terms memory t = _terms_[i];
         bytes32 id = _ids[i];
         (H.Delivery memory dv, H.KeyProof memory kp) = _delivery();
-        H.EarlyAccept memory m = H.EarlyAccept({attempt: 1, nonce: 0, expiresAt: type(uint64).max, signature: ""});
+        // The buyer names the delivery it opened: the one carried in Held, the posted one after (ADR-0029). Rarely
+        // another body, so the refusal stays exercised.
+        bytes32 named = (signerSeed >> 16) % 16 == 15 ? keccak256("another body") : hx.delivery(id, dv);
+        H.EarlyAccept memory m =
+            H.EarlyAccept({attempt: 1, deliveryHash: named, nonce: 0, expiresAt: type(uint64).max, signature: ""});
         uint256 bk = _signer(signerSeed, BUYER_PK);
         uint256 sk = _signer(signerSeed >> 8, SELLER_PK);
         m.signature = _sign(bk, hx.early(id, buyer, m));
@@ -540,7 +546,9 @@ contract RulesHandler is Base {
         vm.prank(_caller(callerSeed));
         try rules.earlyAccept(t, m, dv, dsig, kp) {
             ok = true;
-            _authorised("earlyAccept", bk == BUYER_PK && sk == SELLER_PK);
+            // After `deliver` the carried signature is not read: the posted delivery was verified when it landed.
+            bool sellerSigned = sk == SELLER_PK || before == HoldbackRules.Stage.Delivered;
+            _authorised("earlyAccept", bk == BUYER_PK && sellerSigned && named == rules.deliveryHashOf(id));
         } catch {}
         _keyOnlyWithPayment();
         _track(id, before);

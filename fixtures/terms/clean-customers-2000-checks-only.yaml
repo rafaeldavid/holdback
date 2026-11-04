@@ -3,7 +3,7 @@
 # sits. customers.clean.hidden-tags.csv passes these checks and is accepted; the buyer's SDK then strips
 # the tag characters before its agent reads the file and reports them from the screen.
 # Field rules are as in clean-customers-2000.yaml.
-schemaVersion: "0.6"
+schemaVersion: "0.7"
 clubId: data-services-v1
 deliverable:
   kind: dataset

@@ -105,7 +105,7 @@ const SEPOLIA = {
 /** SimChain's domain, as `pnpm sim` prints it. Configure yours; never take it from an operator. */
 const SIMCHAIN_DOMAIN = {
 	name: "Holdback",
-	version: "0.6",
+	version: "0.7",
 	chainId: 31337,
 	verifyingContract: "0x00000000000000000000000000000000484f4c44"
 };
@@ -120,7 +120,7 @@ function pinOf(d, explorer) {
 	return {
 		domain: {
 			name: "Holdback",
-			version: "0.6",
+			version: "0.7",
 			chainId: d.chainId,
 			verifyingContract: lc(d.rules)
 		},
@@ -223,7 +223,7 @@ const f = (name, type) => ({
 	type
 });
 const exp = [f("nonce", "bytes32"), f("expiresAt", "uint64")];
-/** The EIP-712 types of schema 0.8, domain version 0.6 (packages/core/src/eip712.ts), pinned here. */
+/** The EIP-712 types of schema 0.9, domain version 0.7 (packages/core/src/eip712.ts), pinned here. */
 const TYPES = {
 	TokenAmount: [f("token", "string"), f("amount", "uint256")],
 	Adjudication: [
@@ -304,6 +304,7 @@ const TYPES = {
 		f("commitmentId", "bytes32"),
 		f("buyer", "address"),
 		f("attempt", "uint8"),
+		f("deliveryHash", "bytes32"),
 		...exp
 	],
 	Ciphertext: [
@@ -557,7 +558,7 @@ function expected(intent, op, now) {
 		}, createdAt = near(op.createdAt, 600, 60, "createdAt");
 		const deliverBy = plus(createdAt, timing["deliverWithinSec"]), judgeBy = plus(deliverBy, timing["judgeWithinSec"]);
 		const terms = {
-			schemaVersion: "0.6",
+			schemaVersion: "0.7",
 			clubId: r.clubId,
 			rulebookHash: intent.rulebookHash,
 			buyer: r.buyer.address.toLowerCase(),
@@ -763,6 +764,7 @@ function expected(intent, op, now) {
 			commitmentId: id,
 			buyer: t.buyer,
 			attempt: 1,
+			deliveryHash: String(intent.deliveryHash).toLowerCase(),
 			nonce: own(intent.nonce, op.nonce, "nonce"),
 			expiresAt: near(op.expiresAt, 0, 86400, "expiresAt")
 		};
@@ -988,7 +990,7 @@ function privateOfferTerms(x) {
 	const createdAt = iso(Date.parse(x.createdAt));
 	const deliverBy = plus(createdAt, timing["deliverWithinSec"]), judgeBy = plus(deliverBy, timing["judgeWithinSec"]);
 	return {
-		schemaVersion: "0.6",
+		schemaVersion: "0.7",
 		clubId: x.clubId,
 		rulebookHash: x.rulebookHash,
 		buyer: x.buyer.address.toLowerCase(),
@@ -1447,7 +1449,7 @@ var Agent = class Agent {
 	* then signs: an early accept releases the seller-supplied envelope with the payment, and no appeal follows it (D32).
 	*/
 	async earlyAccept(terms, delivery) {
-		await openOwnEnvelope(await this.envelopeMaterial(terms, delivery));
+		const opened = await openOwnEnvelope(await this.envelopeMaterial(terms, delivery));
 		const nonce = freshNonce();
 		const prepared = await this.call("POST", "/v1/prepare/early-accept", {
 			commitmentId: commitmentIdOf(terms),
@@ -1456,7 +1458,8 @@ var Agent = class Agent {
 		return this.signAndSubmit(prepared, {
 			kind: "early-accept",
 			terms,
-			nonce
+			nonce,
+			deliveryHash: opened.deliveryHash
 		});
 	}
 	/** Buyer: fetch this agent's released envelope and the ciphertext, decrypt, check the signed hashes. */
