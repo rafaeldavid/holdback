@@ -50,7 +50,7 @@ Every step is **human**. About 40 minutes (guessed).
    - `sepolia`: `eth_getBalance` on a public RPC for the funding lane, which discovery names, and the demo adjudicators, which discovery lists, and for the deal lanes and the deployer, whose public addresses come from `sepolia.addresses` in `budgets.json`. No address is hard-coded; if discovery stops naming the funding lane, the source says so in its note. A deal lane that reads under 0.01 Sepolia ETH is read again two minutes later, and both reads are recorded, because the world tops lanes up at most once a minute (T-054's relayer rule needs both).
    - `claude-code`: the local transcripts under `~/.claude/projects/`, including each session's `subagents/` folder, kept when the entry's own `cwd` or its transcript's first `cwd` is in a checkout of this repository (a removed folder judged by its nearest existing parent). Per day, session, git branch and model: input and output tokens, cache writes split by lifetime, cache reads, `speed`, `service_tier` and server tool use counts, from each response's `usage`. Read only those fields, never message content. Count each response once, at the highest value of each field: entries that share a `requestId` repeat its usage, and an early repeat can carry fewer output tokens (measured). Label the source "laptop sessions only", and count unreadable transcripts in its note.
    - `telemetry`: T-031's `telemetry: "day"` lines, written to `CROW_TELEMETRY_DIR` with only the day line's own fields, the export T-042 reads. Decide and record how to read them without a new secret: the Workers Observability query API with the Cloudflare token (to check: endpoint and permission), or a Workers Logs export Rafa saves.
-6. **`collect.mjs`**, the launcher, then **`run.mjs`**, which runs every source whose credential is set, with a timeout each. A failing source writes `{source, ok: false, error}` with the error's type and status, never the response body or a header, and the others still run. It writes only in the two directories.
+6. **`collect.mjs`**, the launcher, then **`run.mjs`**, which runs every source whose credential is set, with a timeout each. A failing source writes `{source, ok: false, error}` with the error's type, status and at most a code from a fixed list (added after the first run), never the response body or a header, and the others still run. It writes only in the two directories.
 7. **`config/costs.template.json`**: the accounts list (no values), the budget and threshold keys T-053 and T-054 read, with empty values. Rafa's copy is `budgets.json` in the cost directory.
 8. **`config/keys-costs.template`**: the variable names, one comment line each, pointing to `docs/costs.md`, and the instruction to create `.env.costs` only in the dedicated clone.
 
@@ -112,24 +112,28 @@ Every step is **human**. About 40 minutes (guessed).
   2. **After adding Account · Account Analytics · Read to the Cloudflare token: the same two failures.** The edit had probably not taken effect yet (inferred).
   3. **After replacing the Anthropic key, which got the 403, with an Admin key: 8 of 8 read.** No re-approval was needed.
 
-  So both failures were credentials, not code. Cloudflare had answered with GraphQL errors instead of data while the token lacked Account Analytics Read. Anthropic's 403 came from a key without admin rights.
-- **Richer error codes, added after the runs (measured, 2026-11-04):** `pnpm vitest run tests/costs/collect.test.ts`, 24 of 24 pass; `eslint scripts/costs tests/costs` is clean.
-  - Five GraphQL error responses shaped like Cloudflare's documented ones each give only a short word: `permission`, `query:storage`, `time-range:durableObjects`, `budget` and `other:workers`. None gives the message, the account tag or the body.
-  - An HTTP 403 whose body is shaped like Anthropic's gives `permission_error`. A body type that holds a key, capitals or spaces gives no code.
+  So both failures were credentials, not code: the same approved code read all eight (measured). Which credential caused which failure is inferred from the fixes, since no error code was captured: Cloudflare's GraphQL errors came while the token lacked Account Analytics Read, and Anthropic's 403 came from a key that was not an Admin key.
+- **Error codes, added after the runs (measured, 2026-11-04):** `pnpm vitest run tests/costs/collect.test.ts`, 24 of 24 pass; `eslint scripts/costs tests/costs` is clean. The tests show:
+  - Five GraphQL error responses shaped like Cloudflare's documented ones each give only a listed word: `permission`, `query:storage`, `time-range:durableObjects`, `rate-limit` (from the `budget` code) and `other:workers`. None gives the message, the account tag or the body.
+  - The same body on a 403 gives `http 403 permission`.
+  - Each of 16 more of Cloudflare's documented messages maps to its kind. So do two standard GraphQL validation messages and two of Cloudflare's REST authentication messages.
+  - Malformed error lists stay within the listed words.
+  - An HTTP 403 shaped like Anthropic's gives `permission_error`. A body type that is not listed gives no code: a key, an e-mail-like word, `constructor`.
+  - The end-to-end run prints `deepseek: failed (http 401 authentication_error)` and leaks nothing.
   - Neither path has run against a real error yet.
 - **`pnpm verify` on branch `t-052-first-run` (measured, 2026-11-04, `reports/verify-t-052-first-run.md`):** PASS, with no snapshot diffs against HEAD. `pnpm test` ran 2,262 tests in 103 files, all passing (3 skipped).
 
   | Step | Command | Status | Time |
   | --- | --- | --- | --- |
-  | typecheck | `pnpm typecheck` | pass | 251 ms |
-  | lint | `pnpm lint` | pass | 3744 ms |
-  | forge build | `forge build --root contracts` | pass | 924 ms |
-  | forge | `forge test --root contracts` | pass | 18951 ms |
-  | test | `pnpm test` | pass | 47671 ms |
-  | spec | `pnpm validate:spec` | pass | 564 ms |
-  | snap | `pnpm snap` | pass | 8460 ms |
-  | snap:local | `pnpm snap --settlement=local` | pass | 12868 ms |
-  | demo | `pnpm demo` | pass | 3890 ms |
+  | typecheck | `pnpm typecheck` | pass | 249 ms |
+  | lint | `pnpm lint` | pass | 3685 ms |
+  | forge build | `forge build --root contracts` | pass | 769 ms |
+  | forge | `forge test --root contracts` | pass | 15773 ms |
+  | test | `pnpm test` | pass | 35091 ms |
+  | spec | `pnpm validate:spec` | pass | 550 ms |
+  | snap | `pnpm snap` | pass | 8490 ms |
+  | snap:local | `pnpm snap --settlement=local` | pass | 14033 ms |
+  | demo | `pnpm demo` | pass | 4146 ms |
 
 ## Decisions
 
@@ -148,10 +152,10 @@ Every step is **human**. About 40 minutes (guessed).
 - **Usage lines carry no amount yet.** Tokens and requests have `basis: "estimated"` and `amount: null` until T-053's price table prices them.
 - **Anthropic** uses the legacy `cost_report` and `usage_report/messages` endpoints, which Anthropic still supports; the newer analytics endpoints were not read.
 - **An error carries one short word, `code`** (first run, 2026-11-04). After the first run, `graphql` alone could not tell a token without Account Analytics Read from a query Cloudflare's schema rejects, and `http 403` could not tell a permission error from other refusals. A failed source's `error` now has an optional `code` (`docs/costs.md`):
-  - for `graphql`, the first error's kind, taken from the messages on Cloudflare's errors page, plus the dataset its path names; Cloudflare's own `extensions.code` is used when no message matches;
-  - for `http`, the body's `error.type`.
+  - for Cloudflare's GraphQL errors, on any status: the first error's kind, taken from the messages on Cloudflare's errors page, plus the dataset its path names;
+  - for `http`: the body's `error.type`.
 
-  A provider's word is kept only when it is a lowercase word of at most 40 letters and underscores (`safeWord`), which no key matches. The message and the body never reach the output, since they can name the account or echo a request.
+  Every code is a word from a fixed list in the code: Anthropic's documented error types, and the GraphQL kinds and datasets. A provider's word that is not listed is dropped (review, 2026-11-04: a pattern such as "any short lowercase word" let an e-mail-like word through). The message and the body never reach the output, since they can name the account or echo a request.
 - **The query stays as it was.** Its `string` variables follow Cloudflare's Workers tutorial, and the third run read with them (measured).
 - **The approval check has a limit.** Code in the repository cannot check a change to itself (the launcher or `approved.mjs`), so the defense is the update procedure in `docs/costs.md` ("Running the collector"): fetch, read the diff with git, fast-forward, approve. T-055's routine compares before it fast-forwards. A reviewer from another model family is recommended for this design (review, 2026-11-03) and has not been run.
 
@@ -180,7 +184,7 @@ Every step is **human**. About 40 minutes (guessed).
 6. Run `node scripts/costs/collect.mjs`: with `node`, never `pnpm`, and without `--env-file`. Tell the agent which sources read and which failed, with no figure. Then the agent records it in Evidence and flips Status to done.
 
 **If a source fails again** (Rafa, human): update the clone as `docs/costs.md` describes ("Updating the clone"), so the status line names the error, for example `failed (http 403 permission_error)` or `failed (graphql permission)`. Report that line; it holds no figure. From the first run:
-- An Anthropic 403 means the key is not an Admin key (`sk-ant-admin01-…`, created at `platform.claude.com/settings/admin-keys`).
-- A Cloudflare `graphql` failure with billing still reading means the token lacks Account Analytics Read, or the edit has not taken effect yet.
+- An Anthropic 403 most likely means the key is not an Admin key (`sk-ant-admin01-…`, created at `platform.claude.com/settings/admin-keys`; inferred from the third run).
+- A Cloudflare failure while billing still reads: the code says which kind it is. `permission` points to the token's Account Analytics Read, or to an edit that has not taken effect yet.
 
 **Open:** T-053 prices the token lines; T-054 adds `--cpu-report`; T-055 schedules the run and sends alerts.

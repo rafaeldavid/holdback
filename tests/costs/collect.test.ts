@@ -136,21 +136,54 @@ describe('sources, on synthetic fixtures', () => {
 
   it('cloudflare-analytics names a GraphQL error by a fixed word and its dataset, never by its message', async () => {
     const errors = json('cloudflare-graphql-errors.json');
-    const expected: Record<string, string> = { permission: 'permission', query: 'query:storage', timeRange: 'time-range:durableObjects', budget: 'budget', unknown: 'other:workers' };
+    const expected: Record<string, string> = { permission: 'permission', query: 'query:storage', timeRange: 'time-range:durableObjects', budget: 'rate-limit', unknown: 'other:workers' };
     for (const [name, code] of Object.entries(expected)) {
       const fetch = fakeFetch((u) => (u.endsWith('/graphql') ? { body: JSON.stringify(errors[name]) } : undefined));
       const r = await runSource(cloudflareAnalytics, baseCtx({ env: cfEnv, fetch }));
       expect(r.status).toEqual({ source: 'cloudflare-analytics', ok: false, error: { type: 'graphql', status: null, code } });
       expect(JSON.stringify(r.status)).not.toMatch(/RESPONSE-BODY-TEXT|authorized|storedBytes|2678400|0123456789abcdef/);
     }
+    // Cloudflare documents the same bodies on 4xx and 5xx answers too.
+    const fetch = fakeFetch(() => ({ status: 403, body: JSON.stringify(errors.permission) }));
+    const r = await runSource(cloudflareAnalytics, baseCtx({ env: cfEnv, fetch }));
+    expect(r.status.error).toEqual({ type: 'http', status: 403, code: 'permission' });
+
+    const kinds = Object.entries({
+      'Unauthorized': 'permission',
+      'zones [x] are not authorized': 'permission',
+      'does not have access to the path viewer.accounts': 'permission',
+      'Authentication error': 'permission',
+      'Invalid access token': 'permission',
+      'error parsing args for "x"': 'query',
+      'scalar fields must have no selections': 'query',
+      'object field must have selections': 'query',
+      'query contains error, please review it and retry': 'query',
+      'Cannot query field "x" on type "Y"': 'query',
+      'Variable "$x" of type "string" used in position expecting type "Date"': 'query',
+      'query time range is too large': 'time-range',
+      "number of fields can't be more than 30": 'limits',
+      'limit must be positive number and not greater than 10000': 'limits',
+      'rate limiter budget depleted, try again after 5 minutes': 'rate-limit',
+      'in combination, your request queries too many nodes, zones and accounts': 'rate-limit',
+      'query consumed excessive resources, please try running smaller queries': 'rate-limit',
+      'unable to execute query, please try again later': 'unavailable',
+      'too many queries in progress, please try again later': 'unavailable',
+      'Internal server error': 'unavailable',
+    });
+    for (const [message, kind] of kinds) expect(cloudflareAnalytics.graphqlCode([{ message }])).toBe(kind);
+    const allowed = /^(permission|query|time-range|limits|rate-limit|unavailable|other)(:(workers|durableObjects|storage))?$/;
+    const odd = [[null], ['text'], [7], [{ message: 7, path: 'storage' }], [{ path: [{ storage: 1 }], extensions: { code: 'rafael_at_example_com' } }], [{ ['__proto__']: { message: 'x' } }], [{ message: 'x'.repeat(1_000_000) }]];
+    for (const errs of odd) expect(cloudflareAnalytics.graphqlCode(errs)).toMatch(allowed);
+    expect(cloudflareAnalytics.graphqlCode(null)).toBeNull();
+    expect(cloudflareAnalytics.graphqlCode([])).toBeNull();
   });
 
-  it('an HTTP error keeps only the body error type, and only when it is a short lowercase word', async () => {
+  it('an HTTP error keeps only the body error type, and only when it is a listed one', async () => {
     const env = { CROW_COSTS_ANTHROPIC_ADMIN_KEY: 'sk-ant-admin01-FAKE-SECRET' };
     const failWith = async (body: string) => runSource(anthropic, baseCtx({ env, fetch: fakeFetch(() => ({ status: 403, body })) }));
     const typed = await failWith('{"type":"error","error":{"type":"permission_error","message":"RESPONSE-BODY-TEXT sk-ant-admin01-FAKE-SECRET"},"request_id":"req_x"}');
     expect(typed.status).toEqual({ source: 'anthropic', ok: false, error: { type: 'http', status: 403, code: 'permission_error' } });
-    for (const body of ['{"error":{"type":"sk-ant-admin01-FAKE-SECRET"}}', '{"error":{"type":"Permission Error RESPONSE-BODY-TEXT"}}', '{"error":"RESPONSE-BODY-TEXT"}', 'RESPONSE-BODY-TEXT']) {
+    for (const body of ['{"error":{"type":"sk-ant-admin01-FAKE-SECRET"}}', '{"error":{"type":"rafael_at_example_com"}}', '{"error":{"type":"constructor"}}', '{"error":"RESPONSE-BODY-TEXT"}', 'RESPONSE-BODY-TEXT']) {
       const r = await failWith(body);
       expect(r.status).toEqual({ source: 'anthropic', ok: false, error: { type: 'http', status: 403 } });
     }
@@ -412,7 +445,7 @@ describe('the collector end to end', () => {
     const env = { ...dirsFor(), CROW_COSTS_DEEPSEEK_KEY: 'sk-FAKE-SECRET-VALUE-123', CROW_COSTS_GITHUB_TOKEN: 'ghp-FAKE-SECRET-VALUE-456', CROW_COSTS_CLOUDFLARE_TOKEN: 'cf-FAKE-SECRET-VALUE-789', CLOUDFLARE_ACCOUNT_ID: ACCOUNT, CROW_COSTS_ANTHROPIC_ADMIN_KEY: 'sk-ant-admin01-FAKE-SECRET' };
     const echo = (u: string, init: RequestInit) => `${JSON.stringify(init.headers)} ${u} RESPONSE-BODY-TEXT`;
     const fetch = async (u: string, init: RequestInit = {}) => {
-      if (u.includes('deepseek')) return new Response(`{"error":"${echo(u, init)}"}`, { status: 401 });
+      if (u.includes('deepseek')) return new Response(JSON.stringify({ error: { type: 'authentication_error', message: echo(u, init) } }), { status: 401 });
       if (u.includes('github')) return new Response(`not json ${echo(u, init)}`, { status: 200 });
       if (u.includes('billable-usage')) return new Response(JSON.stringify({ success: false, note: echo(u, init) }), { status: 200 });
       if (u.includes('graphql')) throw new Error(`socket closed ${echo(u, init)}`);
@@ -430,7 +463,8 @@ describe('the collector end to end', () => {
       ['anthropic', 'timeout'],
       ['telemetry', 'ok'],
     ]);
-    expect(printed.slice(0, 2)).toEqual(['deepseek: failed (http 401)', 'github: failed (parse)']);
+    expect(printed.slice(0, 2)).toEqual(['deepseek: failed (http 401 authentication_error)', 'github: failed (parse)']);
+    expect(doc.sources[0].error).toEqual({ type: 'http', status: 401, code: 'authentication_error' });
     const latest = readFileSync(join(env.CROW_COSTS_DIR, 'latest.json'), 'utf8');
     expect(JSON.parse(latest)).toEqual(doc);
     expect(listTree(env.CROW_COSTS_DIR)).toEqual(['2026-11-03.json', 'latest.json']);

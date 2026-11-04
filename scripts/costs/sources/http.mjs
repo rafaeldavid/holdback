@@ -1,12 +1,12 @@
-// Read-only HTTP for the cost sources. An error carries a type, a status and at most one short lowercase word (a
-// source's fixed word or the provider's own error code), never a response body, a message or a header, so no
-// credential or provider text can reach the output or the terminal.
+// Read-only HTTP for the cost sources. An error carries a type, a status and at most a code from a fixed list in
+// this code, never a response body, a message or a header, so no credential or provider text can reach the output
+// or the terminal.
 import { parseJsonExact } from '../money.mjs';
 
 export class SourceError extends Error {
   /**
    * @param {'network'|'timeout'|'http'|'parse'|'shape'|'graphql'|'chain'} type
-   * @param {string|null} code a fixed word or a `safeWord`, never a message or a body
+   * @param {string|null} code a word from a fixed list in this code, never a message or a body
    */
   constructor(type, status = null, code = null) {
     super([type, status, code].filter((p) => p !== null).join(' '));
@@ -17,15 +17,47 @@ export class SourceError extends Error {
   }
 }
 
-/** Fetches JSON and parses it with every number kept as its source text. */
-export async function getJson(ctx, url, init = {}) {
+// Anthropic's documented `error.type` values (platform.claude.com/docs/en/api/errors, read 2026-11-04).
+const ERROR_TYPES = new Set([
+  'invalid_request_error',
+  'authentication_error',
+  'billing_error',
+  'permission_error',
+  'not_found_error',
+  'conflict_error',
+  'request_too_large',
+  'rate_limit_error',
+  'api_error',
+  'timeout_error',
+  'overloaded_error',
+]);
+
+/** The body's `error.type` when it is one of the listed values, or null. */
+export function errorType(body) {
+  const type = body?.error?.type;
+  return typeof type === 'string' && ERROR_TYPES.has(type) ? type : null;
+}
+
+/**
+ * Fetches JSON and parses it with every number kept as its source text. A failed response's body is parsed only
+ * to give `errorCode` a chance to name it with a listed word; the rest of the body is never kept.
+ */
+export async function getJson(ctx, url, init = {}, errorCode = errorType) {
   let res;
   try {
     res = await ctx.fetch(url, { ...init, signal: ctx.signal });
   } catch (e) {
     throw new SourceError(e?.name === 'AbortError' || e?.name === 'TimeoutError' ? 'timeout' : 'network');
   }
-  if (!res.ok) throw new SourceError('http', res.status, await errorWord(res));
+  if (!res.ok) {
+    let code = null;
+    try {
+      code = errorCode(parseJsonExact(await res.text()));
+    } catch {
+      // An unreadable body leaves the status alone.
+    }
+    throw new SourceError('http', res.status, code);
+  }
   let text;
   try {
     text = await res.text();
@@ -36,21 +68,6 @@ export async function getJson(ctx, url, init = {}) {
     return parseJsonExact(text);
   } catch {
     throw new SourceError('parse');
-  }
-}
-
-/** A provider's own error code, kept only when it is a short lowercase word, so it cannot carry a key or a message. */
-export function safeWord(value) {
-  return typeof value === 'string' && /^[a-z][a-z_]{0,39}$/.test(value) ? value : null;
-}
-
-// The error type in a failed response's JSON body, as Anthropic and DeepSeek send it (`error.type`, such as
-// `permission_error`), or null. The rest of the body is never kept.
-async function errorWord(res) {
-  try {
-    return safeWord(parseJsonExact(await res.text())?.error?.type);
-  } catch {
-    return null;
   }
 }
 

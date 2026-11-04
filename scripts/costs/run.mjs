@@ -1,8 +1,8 @@
 // The cost collector itself (T-052), loaded by collect.mjs only after the approval check passes and the keys are
 // loaded. It checks the two directories, reads every source whose credentials are set, each with a timeout, and
 // writes `<CROW_COSTS_DIR>/<date>.json` and `latest.json`. A source that fails records its error type, status and
-// at most one short word (`sources/http.mjs`), never a response body or a header; the others still run. It prints only which sources it read and which it
-// could not.
+// at most a code from a fixed list (`sources/http.mjs`), never a response body or a header; the others still run.
+// It prints only which sources it read and which it could not.
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { ApprovalRefused, checkApproved } from './approved.mjs';
