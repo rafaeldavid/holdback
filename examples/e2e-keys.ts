@@ -95,7 +95,7 @@ async function topUp(seed: string, dryRun: boolean): Promise<void> {
   const addresses = roundAddresses(seed);
   // A transfer still in flight leaves its key looking empty at `latest`, and a rerun would send it again.
   const [pending, mined] = await Promise.all(['pending', 'latest'].map((blockTag) => client.getTransactionCount({ address: addresses.master, blockTag: blockTag as 'pending' | 'latest' })));
-  if (pending !== mined) throw new Error(`refusing: ${pending! - mined!} transfer(s) from the master are still pending; run again once they are mined`);
+  if (pending !== mined) throw new Error('refusing: a transfer from the master is still pending (its pending and latest nonces differ); run again once it is mined');
   const fees = await client.estimateFeesPerGas();
   if (fees.maxFeePerGas > MAX_FEE_PER_GAS) throw new Error(`refusing: Sepolia fees are ${formatGwei(fees.maxFeePerGas)} gwei, above the ${formatGwei(MAX_FEE_PER_GAS)} gwei cap; run again later`);
   const balances = Object.fromEntries(await Promise.all(ROLES.map(async (r) => [r, await client.getBalance({ address: addresses[r] })]))) as Record<Role, bigint>;

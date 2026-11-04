@@ -146,7 +146,7 @@ Fill this in before review. Label each item measured, inferred or guessed.
   - `examples/e2e-keys.ts topup [--dry-run]` brings each of the five keys up to 0.04 Sepolia ETH from the master. It sends one transfer at a time, prints each link as soon as it is sent, and waits for each receipt.
   - It refuses, sending nothing:
     - any chain but Sepolia, checked before any other call;
-    - while a transfer from the master is still pending (its `pending` and `latest` nonces differ), so a rerun never sends twice;
+    - while a transfer from the master is still pending (its `pending` and `latest` nonces differ), so a rerun does not resend a transfer the RPC sees as pending. A load-balanced RPC could miss one; the loss is then at most 0.04 Sepolia ETH a key [inferred];
     - fees above 20 gwei, the operators' funding-lane cap;
     - when the master cannot cover every transfer plus a 0.01 Sepolia ETH reserve for its own gas.
   - It prints addresses, amounts in Sepolia ETH and Etherscan links. It never prints a key or the RPC URL, which may carry a provider key (`SEPOLIA_RPC_URL`; without it, the public publicnode endpoint). On a failure it says how many transfers were mined.
