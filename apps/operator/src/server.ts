@@ -49,7 +49,8 @@ import { MAX_CIPHERTEXT_BYTES, type CiphertextStore } from '@holdback/core/store
 import { ENVELOPE_SPEC } from './envelope-spec.js';
 import { FeedbackDesk, FeedbackError, MAX_REPORT_BYTES, parseReport, type FeedbackOptions, type Report } from './feedback.js';
 import { startupGuards } from './guards.js';
-import { amountText, operatorFeeText, prepare, PrepareError, type Erc3009Signing, type PrepareContext } from './prepare.js';
+import { amountText, bondNotices, fallbackBondRefusal, operatorFeeText, prepare, PrepareError, type Erc3009Signing, type PrepareContext } from './prepare.js';
+import { hasBond, register, RegistrationError, type Bond, type StoredRegistration } from './registrations.js';
 import { IdempotencyStore, fingerprint, type StoredResponse } from './idempotency.js';
 import { readerOf, type Reader } from './read-auth.js';
 import { llmsTxt, openApiDocument, plannedRoute, routeOf } from './openapi/index.js';
@@ -58,7 +59,7 @@ import type { Registry } from './registry.js';
 
 export { statusOf } from './problems.js';
 export const API_VERSION = 'v1';
-export const SCHEMA_VERSION = '0.9';
+export const SCHEMA_VERSION = '0.10';
 const MAX_BODY_BYTES = 1_048_576;
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
@@ -403,6 +404,10 @@ function deepFreeze<T>(v: T): T {
   return v;
 }
 const isAddress = (s: string | undefined): s is Address => s !== undefined && /^0x[0-9a-fA-F]{40}$/.test(s);
+/** The events that count as an adjudicator's use (ADR-0030 `observed.lastUsedAt`): an acceptance or a decision. */
+const USES = new Set<string>(['adjudicator.accepted', 'judgment.decided', 'appeal.decided']);
+/** A cursor below every listing seq, so the adjudicator list pages oldest first through the newest-first paginate. */
+const LIST_TOP = 999_999_999_999_999;
 const isHex32 = (s: string | undefined): s is Hex32 => s !== undefined && /^0x[0-9a-f]{64}$/.test(s);
 
 export class Operator {
@@ -414,6 +419,8 @@ export class Operator {
   private readonly receipts = new Map<Hex32, Map<number, Receipt>>();
   private readonly windows = new Map<string, { start: number; count: number }>();
   private readonly streams = new Set<ServerResponse>();
+  /** ADR-0030: when each adjudicator last accepted or decided, from the events this node indexed. */
+  private readonly lastUsed = new Map<string, Timestamp>();
   private head = -1;
   private syncing: Promise<void> = Promise.resolve();
   private readonly now: () => number;
@@ -469,6 +476,7 @@ export class Operator {
     this.syncing = this.syncing.then(async () => {
       for await (const e of this.o.settlement.events(this.head + 1)) {
         this.head = e.seq;
+        if (USES.has(e.type) && e.actor && e.actor !== 'anyone') this.lastUsed.set(lc(e.actor), e.at);
         if (!e.commitmentId) continue;
         let entry = this.index.get(e.commitmentId);
         if (e.type === 'commitment.offered') {
@@ -555,8 +563,10 @@ export class Operator {
 
   /** This node's notices about a subject, when it has any (`notices` in the body; never changes the answer). */
   private async noticesFor(about: NoticeSubject): Promise<{ notices?: string[] }> {
-    const n = this.o.notices ? await this.o.notices(about) : [];
-    return n.length ? { notices: [...n] } : {};
+    // ADR-0030 §5: a relayed offer or hold names each adjudicator without a bond for the price.
+    const own = about.kind === 'write' && (about.op.kind === 'offer' || about.op.kind === 'hold') ? await bondNotices(this.prepareContext(), about.op.commitment) : [];
+    const n = [...own, ...(this.o.notices ? await this.o.notices(about) : [])];
+    return n.length ? { notices: n } : {};
   }
 
   /** The fixed window a bucket is in now (ADR-0017 §3). */
@@ -658,6 +668,7 @@ export class Operator {
     const dryRun = validateOnly(ctx.url.searchParams);
     const s = ctx.segments;
     if (s.join('/') === 'v1/faucet') return this.idempotent(ctx, raw, () => this.faucet(ctx, raw));
+    if (s.join('/') === 'v1/adjudicators') return this.registerAdjudicator(ctx, raw, dryRun, client, budget);
     if (s.length === 4 && s[1] === 'commitments' && s[3] === 'disclosure') {
       if (dryRun) fail('invalid_terms', 'disclosure has no dry run', { field: 'validateOnly' });
       return this.idempotent(ctx, raw, () => this.disclose(s[2]!, raw));
@@ -673,6 +684,7 @@ export class Operator {
     // The policy sees a frozen copy: it can decline, never alter what this node relays.
     const refused = this.o.policy?.(deepFreeze(structuredClone(op)), await this.policyContext(op));
     if (refused) fail(refused.type, refused.detail);
+    await this.refuseUnpayableFallback(op);
     if (dryRun) return this.send(ctx, await this.dryRun(op));
     await this.chargeFee(op);
     return this.idempotent(ctx, raw, async () => {
@@ -703,6 +715,97 @@ export class Operator {
         'Prepare it again with POST /v1/prepare/agree-and-fund and sign the operatorFee slot, or send the same signed agreement to another operator or directly to the settlement layer, where no fee of this operator applies',
       { fee: { to: schedule.to, token: due.token, amount: due.amount } },
     );
+  }
+
+  /**
+   * ADR-0030 §5: this node relays no offer, hold or agreement whose fallback has less free bond than the price, since an
+   * overturned fallback decision pays the price from that bond (D43). A relay refusal: the settlement layer, other
+   * operators and direct submission take the same signed messages.
+   */
+  private async refuseUnpayableFallback(op: Operation): Promise<void> {
+    const terms = op.kind === 'offer' || op.kind === 'hold' ? op.commitment : op.kind === 'agree' ? await this.prepareContext().commitment(op.message.commitmentId) : undefined;
+    if (!terms) return;
+    const why = await fallbackBondRefusal(this.prepareContext(), terms);
+    if (why) fail('invalid_terms', why, op.kind === 'agree' ? {} : { field: `${op.kind === 'hold' ? 'commitment.' : ''}adjudication.fallbackAdjudicator` });
+  }
+
+  /**
+   * POST /v1/adjudicators (ADR-0030): verifies and stores an adjudicator's self-signed registration, and answers the
+   * served record. A write: counted against the client at entry, then against the adjudicator once stored.
+   */
+  private async registerAdjudicator(ctx: Ctx, raw: unknown, dryRun: boolean, client: string, budget: number): Promise<void> {
+    const store = this.o.registry.registrations ?? fail('not_found', 'this operator stores no adjudicator registrations; post yours to another operator');
+    const address = raw && typeof raw === 'object' ? (raw as { address?: string }).address : undefined;
+    const signerBucket = isAddress(address) ? `w:${lc(address)}` : undefined;
+    if (signerBucket) this.admit(signerBucket, budget);
+    const run = async () => {
+      try {
+        return await register(store!, raw, { domain: this.domain, now: this.settlementNow(), dryRun });
+      } catch (e) {
+        if (e instanceof RegistrationError) throw new HttpProblem(e.problem);
+        throw e;
+      }
+    };
+    if (dryRun) return this.send(ctx, this.ok(await this.listingOf(await run()), { 'holdback-dry-run': 'true' }));
+    return this.idempotent(ctx, raw, async () => {
+      const stored = await run();
+      if (signerBucket) this.transfer(client, signerBucket);
+      return this.ok(await this.listingOf(stored));
+    });
+  }
+
+  /** Any address's bond, when this node can read it: live from the settlement layer, else this world's list. */
+  private async bondOf(a: Address): Promise<Bond | undefined> {
+    const reg = this.o.registry;
+    if (reg.pool) return reg.pool(a);
+    return reg.adjudicators().find((x) => lc(x.address) === lc(a))?.bond;
+  }
+
+  /**
+   * ADR-0030 §3: a stored registration as this node serves it: the signed record, the bond the settlement layer holds
+   * (in `pool` and as `bond`), and `observed`, what this node saw. Only `observed` and the balances are unsigned.
+   */
+  private async listingOf(stored: StoredRegistration): Promise<Record<string, unknown>> {
+    const r = stored.record;
+    const zero = { token: r.fee.min.token, amount: '0' } as TokenAmount;
+    const bond = (await this.bondOf(r.address)) ?? { junior: zero, senior: zero, reserved: zero };
+    const defaults: Partial<Record<string, Address>> = this.o.registry.defaultAdjudicators ?? {};
+    const defaultFor = (['primary', 'fallback', 'appeal'] as const).filter((role) => defaults[role] && lc(defaults[role]) === lc(r.address));
+    return {
+      ...r,
+      pool: { ...bond, terms: r.pool.terms },
+      bond,
+      observed: {
+        registeredAt: stored.registeredAt,
+        lastUsedAt: this.lastUsed.get(lc(r.address)) ?? null,
+        expired: !(Date.parse(this.settlementNow()) < Date.parse(r.registration.expiresAt)),
+        bond: hasBond(bond) ? 'bonded' : 'none',
+        ...(defaultFor.length ? { defaultFor } : {}),
+      },
+    };
+  }
+
+  /**
+   * Every adjudicator this node serves, oldest first: bonded adjudicators that never registered (from genesis), then
+   * registrations in the order this node first stored them.
+   */
+  private async adjudicatorList(): Promise<Array<Record<string, unknown>>> {
+    const reg = this.o.registry;
+    const stored = ((await reg.registrations?.list()) ?? []).sort((a, b) => Date.parse(a.registeredAt) - Date.parse(b.registeredAt));
+    const registered = new Set(stored.map((r) => lc(r.record.address)));
+    const unregistered = reg.adjudicators().filter((a) => !registered.has(lc(a.address))).map((a) => this.unregisteredListing(a));
+    return [...unregistered, ...(await Promise.all(stored.map((r) => this.listingOf(r))))];
+  }
+
+  /** A bonded adjudicator with no stored registration: a world's own record when it has one, else the bond alone. */
+  private unregisteredListing(a: ReturnType<Registry['adjudicators']>[number]): Record<string, unknown> {
+    const r = this.o.registry.registration?.(a.address);
+    return r ? { ...r, ...a } : { ...a };
+  }
+
+  /** The registration this node holds for an address: a stored one, else a world's own record. */
+  private async registrationOf(a: Address) {
+    return (await this.o.registry.registrations?.get(a))?.record ?? this.o.registry.registration?.(a) ?? null;
   }
 
   /** A settlement-layer refusal as this node answers it: an invalid_state says the state now and what the call needs. */
@@ -892,7 +995,8 @@ export class Operator {
       if (e instanceof PrepareError) throw new HttpProblem(e.problem);
       throw e;
     }
-    return this.send(ctx, this.ok({ ...prepared, ...(await this.noticesFor({ kind: 'prepare', prepareKind: kind, input })) }));
+    const notices = [...(prepared.notices ?? []), ...((await this.noticesFor({ kind: 'prepare', prepareKind: kind, input })).notices ?? [])];
+    return this.send(ctx, this.ok({ ...prepared, ...(notices.length ? { notices } : {}) }));
   }
 
   private prepareContext(): PrepareContext {
@@ -905,7 +1009,9 @@ export class Operator {
       domain: this.domain,
       now: () => reg.now?.() ?? (new Date(Math.floor(Date.now() / 1000) * 1000).toISOString().replace('.000Z', 'Z') as Timestamp),
       club: (id) => reg.clubs.find((c) => c.id === id),
-      registration: (a) => reg.registration?.(a) ?? null,
+      registration: (a) => this.registrationOf(a),
+      bond: (a) => this.bondOf(a),
+      ...(reg.defaultAdjudicators ? { defaultAdjudicators: reg.defaultAdjudicators } : {}),
       commitment: async (id) => {
         const offered = (await eventsOf(id)).find((e) => e.type === 'commitment.offered');
         if (!offered) return undefined;
@@ -1005,19 +1111,20 @@ export class Operator {
       if (mandates.length === 0) fail('not_found', `no agent ${s[2]}`);
       return { address: mandates[0]!.agent, status: 'active', mandates: mandates.map((m) => ({ ...m, mandateHash: canonicalKeccak(m) })) };
     }
-    // A published registration, when there is one, is served with the bond the settlement layer holds.
-    const listing = (a: ReturnType<Registry['adjudicators']>[number]) => {
-      const r = reg.registration?.(a.address);
-      return r ? { ...r, ...a } : a;
-    };
+    // ADR-0030: a registration is served with its signature, the bond the settlement layer holds and what this node saw.
     if (s[1] === 'adjudicators' && s.length === 2) {
-      const all = reg.adjudicators().map(listing);
-      const order = new Map(all.map((a, i) => [a, i]));
+      await this.sync();
+      const all = await this.adjudicatorList();
+      const order = new Map(all.map((a, i) => [a, LIST_TOP - i]));
       return paginate(all, (a) => order.get(a)!, q);
     }
     if (s[1] === 'adjudicators' && s.length === 3) {
+      if (!isAddress(s[2])) fail('not_found', `no adjudicator ${s[2]}`);
+      await this.sync();
+      const stored = await reg.registrations?.get(s[2] as Address);
+      if (stored) return this.listingOf(stored);
       const a = reg.adjudicators().find((x) => lc(x.address) === lc(s[2]!));
-      return a ? listing(a) : fail('not_found', `no adjudicator ${s[2]}`);
+      return a ? this.unregisteredListing(a) : fail('not_found', `no adjudicator ${s[2]}`);
     }
     if (s[1] === 'balances' && s.length === 3) {
       if (!isAddress(s[2])) fail('invalid_terms', 'balances takes an address');
@@ -1067,14 +1174,19 @@ export class Operator {
   private async recipients(id: Hex32): Promise<unknown> {
     const c = (await this.prepareContext().commitment(id)) ?? fail('not_found', `no commitment ${id}`);
     const a = c!.adjudication;
-    const reg = (role: string, address: Address) => {
-      const r = this.o.registry.registration?.(address);
+    const reg = async (role: string, address: Address) => {
+      const r = await this.registrationOf(address);
       if (!r) fail('not_found', `the ${role} adjudicator ${address} has no published registration`);
       return { role, address, encryptionPublicKey: r!.encryptionPublicKey };
     };
     return {
       commitmentId: id,
-      recipients: [reg('primary', a.adjudicator), reg('fallback', a.fallbackAdjudicator), reg('appeal', a.appealAdjudicator), { role: 'buyer', address: c!.buyer, encryptionPublicKey: c!.buyerEncryptionPublicKey }],
+      recipients: [
+        await reg('primary', a.adjudicator),
+        await reg('fallback', a.fallbackAdjudicator),
+        await reg('appeal', a.appealAdjudicator),
+        { role: 'buyer', address: c!.buyer, encryptionPublicKey: c!.buyerEncryptionPublicKey },
+      ],
       envelope: ENVELOPE_SPEC,
     };
   }
@@ -1125,6 +1237,8 @@ export class Operator {
       settlementTime: this.settlementNow(),
       limits,
       ...(this.desk ? { feedback: this.desk.discovery() } : {}),
+      // ADR-0030 §4: who this node names for a role an offer leaves out. Naming others is the parties' choice.
+      ...(this.o.registry.defaultAdjudicators ? { defaultAdjudicators: { ...this.o.registry.defaultAdjudicators } } : {}),
       ...(this.o.demo ? { demo: await this.o.demo() } : {}),
       ...(this.o.notes ? { notes: [...this.o.notes] } : {}),
     };

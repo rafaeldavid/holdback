@@ -92,7 +92,7 @@ const erc3009Typed = (primaryType: string, c: ChainPin, m: J): J => ({
 
 const f = (name: string, type: string) => ({ name, type });
 const exp = [f('nonce', 'bytes32'), f('expiresAt', 'uint64')];
-/** The EIP-712 types of schema 0.9, domain version 0.7 (packages/core/src/eip712.ts), pinned here. */
+/** The EIP-712 types of schema 0.10, domain version 0.7 (packages/core/src/eip712.ts), pinned here. */
 export const TYPES = {
   TokenAmount: [f('token', 'string'), f('amount', 'uint256')],
   Adjudication: [f('adjudicator', 'address'), f('fallbackAdjudicator', 'address'), f('appealAdjudicator', 'address'), f('policyId', 'string'), f('fee', 'TokenAmount'), f('registryHash', 'bytes32'), f('policyHash', 'bytes32')],
@@ -119,6 +119,16 @@ export const TYPES = {
   ReadToken: [f('viewer', 'address'), f('commitmentId', 'bytes32'), f('hasAudience', 'bool'), f('audience', 'address'), ...exp],
   Delegation: [f('principal', 'address'), f('agent', 'address'), f('dealKey', 'address'), f('dealEncryptionKey', 'string'), f('clubId', 'string'), f('scope', 'Scope'), ...exp],
   Publish: [f('commitmentId', 'bytes32'), f('level', 'string'), ...exp],
+  // An adjudicator agent signs these itself: no prepare call builds an acceptance or a decision (ADR-0030).
+  AdjudicatorAcceptance: [f('commitmentId', 'bytes32'), f('adjudicator', 'address'), f('seedCommitment', 'bytes32'), f('policyHash', 'bytes32'), f('registryHash', 'bytes32'), f('fee', 'TokenAmount'), f('bondReserved', 'TokenAmount'), ...exp],
+  SealedKey: [f('scheme', 'string'), f('ciphertext', 'string')],
+  Beacon: [f('source', 'string'), f('round', 'uint64'), f('value', 'bytes32'), f('signature', 'bytes')],
+  Decision: [
+    f('commitmentId', 'bytes32'), f('attempt', 'uint8'), f('deliveryHash', 'bytes32'), f('adjudicator', 'address'), f('role', 'string'), f('outcome', 'string'), f('seed', 'bytes32'), f('policyHash', 'bytes32'), f('registryHash', 'bytes32'),
+    f('judgmentRecordHash', 'bytes32'), f('keyForBuyer', 'SealedKey'), f('appealGround', 'string'), f('beacon', 'Beacon'), f('encryptedKeys', 'EncryptedKey[]'), ...exp,
+  ],
+  // Schema 0.10 (ADR-0030), same domain version 0.7: an adjudicator's self-signed registration.
+  AdjudicatorRegistration: [f('adjudicator', 'address'), f('encryptionPublicKey', 'string'), f('keyId', 'string'), f('policyHash', 'bytes32'), f('registryHash', 'bytes32'), f('fee', 'TokenAmount'), f('poolTermsHash', 'bytes32'), f('bodyHash', 'bytes32'), f('issuedAt', 'uint64'), ...exp],
 };
 const DEFAULT_TIMING: Record<string, number> = { offerExpiresInSec: 900, fundWithinSec: 1800, deliverWithinSec: 86_400, judgeWithinSec: 300, fallbackWithinSec: 300, appealWindowSec: 300, appealDecideSec: 300 };
 

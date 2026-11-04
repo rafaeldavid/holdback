@@ -16,8 +16,8 @@
   - settlement: one new test file under `packages/settlement/evm/` for the anvil end to end, with no edits to `evm-settlement.ts` (T-218's);
   - docs: `docs/decisions/ADR-0030-adjudicator-registration.md` (new), `docs/api.md`, `docs/neutrality.md`, `docs/backlog.md`, `docs/plan.md` (this row, and the named test's row in the scenario index), this file.
 - **Human gate:** no. The live deploy is T-220's.
-- **Status:** todo
-- **Agent/session:** —
+- **Status:** in progress (slice 1 in review)
+- **Agent/session:** Claude Code session on branch `t-221-registration-slice-1` (slice 1); slice 2 to come. The planning branch `t-221-adjudicator-registration` (PR 176) is a different branch.
 
 ## Intent
 
@@ -42,6 +42,8 @@ The design is in `docs/research/2026-11-04-adjudicator-registration.md`, a Fable
 3. A documented recipe binds the demo's registry when a demo adjudicator is to serve an outside primary.
 
 Its confidence is high on the direction, medium on the message shape (the ADR settles it), and high on deferring the gasless bond.
+
+**Slice 1, restated by its session (2026-11-04).** Make `POST /v1/adjudicators` real on any operator that has a registration store: verify a self-signed record, keep one per address, serve it with its signature, its live bond and what the node observed, default the roles an offer leaves out to the node's own adjudicators, warn about unbonded ones, and refuse to prepare or relay terms whose fallback cannot pay the overturn clause. Non-goals for slice 1: the demo's Durable Object store and live Sepolia bond reads (`world.ts`, after T-219), the reference adjudicator's fallback trust rule (`service.ts`, after T-217), a `parse.ts` parser for the posted record (after T-217), the anvil end to end and the fork smoke, the deploy (T-220), and anything in `evm-settlement.ts` (T-218's).
 
 ## Context
 
@@ -136,6 +138,66 @@ Its confidence is high on the direction, medium on the message shape (the ADR se
 
 Fill this in before review. Label each item measured, inferred or guessed.
 
+**Slice 1, `pnpm verify` on 2026-11-04 at 15:55 UTC** (`reports/verify-t-221-registration-slice-1.md`, base `3a2ffc0` with the slice's changes uncommitted), measured:
+
+| Step | Command | Status | Time |
+| --- | --- | --- | --- |
+| typecheck | `pnpm typecheck` | pass | 243 ms |
+| lint | `pnpm lint` | pass | 4273 ms |
+| forge build | `forge build --root contracts` | pass | 780 ms |
+| forge | `forge test --root contracts` | pass | 20850 ms |
+| test | `pnpm test` | pass | 90847 ms |
+| spec | `pnpm validate:spec` | pass | 1226 ms |
+| snap | `pnpm snap` | pass | 16842 ms |
+| snap:local | `pnpm snap --settlement=local` | pass | 53781 ms |
+| demo | `pnpm demo` | pass | 10043 ms |
+
+- No snapshot diffs against HEAD, and no placeholder steps [measured]. The first run of the same day failed `forge build` after 99,538 ms while it cloned `contracts/lib/commerce-payments`' nested submodules into this fresh worktree; `forge build --root contracts` alone then passed, and so did the rerun above [measured]. The branch changes no contract.
+- `pnpm test`: 2,424 passed, 38 skipped, 0 failed, in 106 files [measured]. One earlier full run timed out `packages/judgment/src/screen.test.ts` ("letters (9 MB)", 27,250 ms) under load; it passed alone and in this run [measured]. It is unrelated to this change [inferred].
+- Test first: `packages/core/src/eip712.registration.test.ts` and the binding test's new fixture failed before the core code existed (20 failed, measured); the hand-written EIP-712 implementation in `eip712.binding.test.ts` agrees with viem on the new digest, which is pinned as `0xab599c0b…3e98a38` [measured]. `apps/operator/src/registrations.test.ts` was written before `registrations.ts`, but could not compile until it existed, so its first measured run is the passing one: 23 of 23 [measured].
+- The D31 named test, "accepts a well-formed registration with a fee of 0, a bond of 0 and an unknown registry hash", passes, and a reader recovers the served signature on the second node [measured].
+- `neutrality.operator-refuses-unbonded-fallback`: the relay refuses the offer and the agreement with 400 `invalid_terms`, and the settlement layer takes both directly, ending `Held` [measured].
+- `pnpm validate:spec`: 34 of 34 examples valid; `spec/openapi.json` strict and fresh, 43 operations [measured]. `node site/check.mjs` passes, with `site/try.mjs` rebuilt [measured].
+
 ## Decisions
 
+Slice 1, adopted under "autonomy inside the repo" and recorded in ADR-0030 (Proposed); Rafa may overrule any line.
+
+- **The message is flat, and the record carries an envelope.** `AdjudicatorRegistration` in `messages.schema.json` is the signed struct; the served record carries `registration {keyId, bodyHash, issuedAt, nonce, expiresAt, signature}`, so a reader rebuilds the message from the record alone (`registrationMessageOf` in core). `bodyHash` covers the record without `registration`, with `pool` holding only `terms`, so any field a later version adds is signed too.
+- **The TypeScript record keeps its name.** `AdjudicatorRegistration` stays the record's type, because `apps/adjudicator` and `apps/demo-cloud` use it and other tasks are changing those files; the message type is `AdjudicatorRegistrationMessage`. A rename can follow once those lanes are free.
+- **`KeyRegistration` is deprecated, not removed,** so schema 0.10 stays additive; its planned `/keys` route is withdrawn (rotation is a new registration).
+- **The posted record is checked with existing parsers.** `parse.ts` waits for T-217, so `registrations.ts` validates the posted record as the served one with zero balances (`parseAdjudicator`) and the rebuilt message with `parseMessage`. Slice 2 may add a dedicated parser.
+- **The same registration posted again answers 200,** unchanged: same signature means same record. Only a different registration with an older or equal `issuedAt` is 409. This keeps re-registration at world open idempotent across restarts.
+- **Per-role defaults.** `prepare/offer` fills each role the agent leaves out, not only when it names none, and states the filled roles in `defaults` and `check`.
+- **The bond refusal and the warning read the bond only when the node can.** A node with a live `pool` reader (SimChain today; Sepolia in slice 2) or the address in its own list checks; otherwise it neither refuses nor warns. So the live demo's behaviour does not change until slice 2 wires the Sepolia reads.
+- **Listing order.** Bonded adjudicators that never registered (genesis) come first, then registrations by first storage; the page runs oldest first through the newest-first paginator with a fixed top sequence.
+- **`observed` lives in the OpenAPI listing, not in `adjudicator.schema.json`.** It is the node's view, unsigned, beside `bond`; the schema keeps the adjudicator's own record and its envelope.
+
 ## Handoff
+
+**Slice 1 (this branch):** the ADR, schema 0.10, core's type and helpers, `examples/verify.ts` `TYPES`, the operator route, reads, defaults, warning and fallback refusal, the sim world, and the docs rows. Outside the listed paths, the bump and the new route also needed: `tests/spec.test.ts` (the version and the example), `tests/contract/openapi.contract.test.ts` (one registration in the HTTP contract flow, which requires every documented operation), `spec/README.md` (the changelog), `apps/operator/src/agent-ready.test.ts`, `fee.test.ts` and `operator.test.ts` (the planned count and the version), `apps/operator/src/index.ts` (the export), and `site/try.mjs`, rebuilt by `node site/build.mjs` because it bundles `examples/verify.ts`. `site/llms.txt` is unchanged. The live demo is unchanged until T-220 deploys: it has no registration store yet, so its `POST /v1/adjudicators` would answer 404 after a deploy of slice 1 alone.
+
+**To resume (slice 2), in this order:**
+
+1. **After T-217 merges** (`packages/core/src/parse.ts`, `apps/adjudicator/src/service.ts`):
+   - Optional: a `parseAdjudicatorRegistration` in `parse.ts` for the posted form, replacing the zero-balance trick in `apps/operator/src/registrations.ts` (`checkRegistration`).
+   - The fallback trust rule in `service.ts`: take a fallback task only when the deal's appeal adjudicator is in `trustedAdjudicators`; otherwise decline with `invalid_terms` and a reason in `notices`. As appeal adjudicator it serves any deal. The named test `attack.untrusted-appeal-adjudicator-via-fallback` in `service.test.ts` (the demo fallback declines, the deal defaults, no bond moves), and its row in the plan's scenario index.
+2. **After T-219 merges** (`apps/demo-cloud/src/world.ts`):
+   - A `RegistrationStore` over `WorldStorage`, rows `ar:<address>` (`StoredRegistration` as JSON), loaded at open or on first read; pass it as `registry.registrations`.
+   - `registry.pool`: live `bondOf` and `freeBond` reads through the EVM adapter's existing reads (cached per block), for any address, not the `pools` cache of the demo's three. No edit to `evm-settlement.ts`.
+   - `registry.defaultAdjudicators`: the three demo adjudicators by role.
+   - The demo's three register at world open through `register()` with `signRegistration()` from their own keys, as `apps/operator/src/sim-world.ts` does; drop the in-memory `registrations` map and the `registration` closure; the adjudicator service's `registration()` port reads the store with the live pool.
+   - `telemetry.ts`: count the `ar:` rows.
+   - `world.test.ts`, `live.test.ts`: the store, the reload, and the live bond read.
+3. **The anvil end to end** (a new test file under `packages/settlement/evm/`): an outside adjudicator registers through the operator, bonds from its own key, is named primary with demo fallback and appeal, accepts with its own acceptance, decides by script, Released; a second deal it decides wrongly and the demo appeal adjudicator overturns, with `bond.slashed` from the outside bond; the same registration under another registry hash refused by the demo appeal adjudicator with `registry_mismatch`.
+4. **The fork smoke** (opt-in, as T-213's).
+5. **Reviews:** `reviewer` and `red-teamer` on slice 2; the cross-family review (DeepSeek, run by Rafa) on the message, the fallback trust rule and the relay-path bond refusal.
+6. Set Status to done and tick the plan row once slice 2 merges.
+
+**For T-220 (the deploy), `site/llms.txt` text**, from research §5, in the house style:
+
+> **Run your own adjudicator (advanced).** Crow's three adjudicators are the defaults: discovery names them as `defaultAdjudicators`, and `prepare/offer` fills any role you leave out with them. Naming another adjudicator is advanced use of the protocol, which Crow neither recommends nor vouches for. Any address can be an adjudicator. Register it with `POST /v1/adjudicators`: your record as `GET /v1/adjudicators/{address}` serves it, with `pool` holding only `terms`, plus a `registration` envelope your adjudicator key signs as `AdjudicatorRegistration` (types below). `bodyHash` is keccak256 of the RFC 8785 JSON of the record without `registration`. Then deposit your bond in `HoldbackBonds` from the same key (`approve`, then `deposit(token, amount)`; this needs your own Sepolia ETH). A primary is funded only while its free bond covers the price, and an operator refuses to relay terms whose fallback has less free bond than the price. A registration without a bond is listed with `observed.bond: "none"`. Registrations are never removed: a later `issuedAt` replaces yours, and storage grows by one row per address, bounded by the write limit. From then on, watch `GET /v1/commitments?party=<you>&role=adjudicator`, post your `AdjudicatorAcceptance`, read your envelope at `/key` when the delivery lands, and post your `Decision`; you build both typed messages yourself (types below). The operators check your signatures, hashes, deadlines and bond. They do not check how you judge: your policy and registry are promises the parties bind by hash, the appeal adjudicator they chose checks your decision against the terms, and an overturn pays the price from your bond. Crow's adjudicators judge for any primary as fallback or appeal adjudicator if your registration binds their registry (`demo.judges.registry`) and a policy with their template hashes; as primary they decline terms naming any other fallback or appeal adjudicator, and as fallback any other appeal adjudicator, because an overturn would pay from their bond.
+
+Under the honest limits: "An appeal adjudicator's decision is final, and its bond is not yet at stake on chain; choose it as carefully as you choose the primary." Publish the `AdjudicatorAcceptance`, `Decision` (with `SealedKey`, `Beacon`, `EncryptedKey`, `KeyUnlock`) and `AdjudicatorRegistration` types from `examples/verify.ts` in the EIP-712 types block, and update "The nodes run schema 0.9" in `docs/api.md` (demo section) to 0.10 with the deploy.
+
+**For T-216:** an outside primary used with a demo fallback or appeal adjudicator must bind the demo's registry hash (`demo.judges.registry`) and a policy with this build's template hashes under its own `id` (copy a demo adjudicator's `policy`), or the demo adjudicator refuses with `registry_mismatch` or `policy_mismatch`; and scenario 4 (demo fallback) needs a demo appeal adjudicator under slice 2's trust rule. On SimChain an outside adjudicator cannot bond at run time, so it can be appeal adjudicator but not a relayed fallback.

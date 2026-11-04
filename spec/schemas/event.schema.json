@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.9/event.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.10/event.schema.json",
   "title": "Settlement event (hash-chained)",
   "type": "object",
   "required": [

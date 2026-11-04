@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.9/adjudicator.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.10/adjudicator.schema.json",
   "title": "Adjudicator registration",
   "type": "object",
   "required": [
@@ -265,6 +265,40 @@
     "poolTermsHash": {
       "$ref": "common.schema.json#/$defs/Hex32",
       "description": "keccak256 of the RFC 8785 canonical JSON of pool.terms; a backer's deposit binds it"
+    },
+    "registration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "keyId",
+        "bodyHash",
+        "issuedAt",
+        "nonce",
+        "expiresAt",
+        "signature"
+      ],
+      "description": "The adjudicator's signature over this record (ADR-0030): with the record's address, encryptionPublicKey, policyHash, registry.hash, fee.min and poolTermsHash, these fields are the AdjudicatorRegistration message (messages.schema.json) it signed. Absent on an unsigned record, such as a SimChain genesis record.",
+      "properties": {
+        "keyId": {
+          "$ref": "common.schema.json#/$defs/Ident"
+        },
+        "bodyHash": {
+          "$ref": "common.schema.json#/$defs/Hex32",
+          "description": "keccak256 of the RFC 8785 JSON of this record without `registration`, with `pool` holding only `terms`"
+        },
+        "issuedAt": {
+          "$ref": "common.schema.json#/$defs/Timestamp"
+        },
+        "nonce": {
+          "$ref": "common.schema.json#/$defs/Hex32"
+        },
+        "expiresAt": {
+          "$ref": "common.schema.json#/$defs/Timestamp"
+        },
+        "signature": {
+          "$ref": "common.schema.json#/$defs/Signature"
+        }
+      }
     }
   }
 }

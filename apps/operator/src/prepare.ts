@@ -3,7 +3,8 @@
 // with the signature slot(s) named. The operator never signs and never holds a party key: the agent checks the
 // typed data (the response says which fields matter), signs it with any EIP-712 library, puts the signature in
 // the named slot and POSTs the body to the write route the response names. The typed data is a pure function of
-// the inputs and of the defaults the response states (times only), so an agent can recompute it. Prepare hides
+// the inputs and of the defaults the response states (times, and the default adjudicators of ADR-0030), so an
+// agent can recompute it. Prepare hides
 // nothing (D39): the caller sends every nonce and chooses the disclosure level; the operator derives neither.
 import {
   parseCommitment,
@@ -21,6 +22,7 @@ import {
   typedDataOf,
   typedTermsOf,
   type AdjudicatorRegistration,
+  type AdjudicatorRole,
   type Address,
   type Club,
   type AnyCommitment,
@@ -35,12 +37,14 @@ import {
   type MimeType,
   type OperatorFeeSchedule,
   type Payout,
+  type RegisteredAdjudicator,
   type Sha256,
   type Timestamp,
   type TokenAmount,
   type UnsignedMessage,
 } from '@holdback/core';
 import type { ApiProblem } from './problems.js';
+import { freeBond, hasBond, type Bond } from './registrations.js';
 import { checksOnlyTerms, completeTerms, defaultTerms, type AdjudicatorSlate, type RelativeTiming, type TermsDraft } from './terms.js';
 import { formatTusd } from './units.js';
 
@@ -67,7 +71,7 @@ export interface Prepared {
   submit: { method: 'POST'; path: string; body: Record<string, unknown> };
   /** Verify before you sign: the facts in this message, in words. */
   check: string[];
-  /** What the operator filled in because the caller left it out (times, releaseKey; never a nonce), to pass back for the same bytes. */
+  /** What the operator filled in because the caller left it out (times, releaseKey, adjudicators; never a nonce), to pass back for the same bytes. */
   defaults: Record<string, unknown>;
   /** Advisory notices from this node (untrusted text): what to know before signing. Absent when there are none. */
   notices?: string[];
@@ -78,7 +82,12 @@ export interface PrepareContext {
   domain: HoldbackDomain;
   now(): Timestamp;
   club(id: string): Club | undefined;
-  registration(address: Address): AdjudicatorRegistration | null;
+  /** A stored registration (ADR-0030), or a world's own record; null when this node has none. */
+  registration(address: Address): Promise<AdjudicatorRegistration | RegisteredAdjudicator | null>;
+  /** Any address's bond pool, when this node can read it. */
+  bond?(address: Address): Promise<Bond | undefined>;
+  /** ADR-0030 §4: this node's adjudicator for each role an offer leaves out. */
+  defaultAdjudicators?: Record<AdjudicatorRole, Address>;
   /** Either wire form: at private and judgment the bodies are ciphertext this operator cannot read (ADR-0024). */
   commitment(id: Hex32): Promise<AnyCommitment | undefined>;
   /** The last delivery event's payload, if any. */
@@ -273,7 +282,8 @@ async function hashOnlyOffer(ctx: PrepareContext, input: Record<string, unknown>
       `disclosure.level ${level}: add privateTerms {deliverable, acceptance} to submit.body, each {hash, ciphertext, envelopes} with the hashes you sent (${String(input['deliverableHash'])}, ${String(input['acceptanceHash'])}); the operator never saw the bodies`,
       'compare digest with your own: the client-side recipe needs no operator, this answer is a cross-check',
     ],
-    defaults: {},
+    defaults: plain.defaults,
+    ...(plain.notices ? { notices: plain.notices } : {}),
   };
 }
 
@@ -293,15 +303,13 @@ async function offer(ctx: PrepareContext, input: Record<string, unknown>): Promi
   if (!isAddress(input['seller'])) bad('seller (your address) is required', 'seller');
   const buyer = input['buyer'];
   if (!isObj(buyer) || !isAddress(buyer['address']) || typeof buyer['encryptionPublicKey'] !== 'string') bad('buyer is {"address", "encryptionPublicKey"}, as the buyer gave them to you', 'buyer');
-  const adj = input['adjudicators'];
-  if (!isObj(adj) || !isAddress(adj['primary']) || !isAddress(adj['fallback']) || !isAddress(adj['appeal'])) bad('adjudicators is {"primary", "fallback", "appeal"} addresses (GET /v1/adjudicators)', 'adjudicators');
+  const { slate, filled } = slateIn(ctx, input['adjudicators']);
   if (typeof input['clubId'] !== 'string') bad('clubId is required (GET /v1/clubs/{id})', 'clubId');
   const club = ctx.club(input['clubId'] as string) ?? bad(`no club ${String(input['clubId'])}`, 'clubId');
   if (!isObj(input['deliverable'])) bad('deliverable is {"kind", "description", "format"}', 'deliverable');
   const nonce = nonceIn(input['nonce'], 'nonce');
-  const slate = adj as unknown as AdjudicatorSlate;
-  const primary = ctx.registration(slate.primary) ?? notFound(`the primary adjudicator ${slate.primary} has no published registration`);
-  for (const role of ['fallback', 'appeal'] as const) if (!ctx.registration(slate[role])) notFound(`the ${role} adjudicator ${slate[role]} has no published registration`);
+  const primary = (await ctx.registration(slate.primary)) ?? notFound(`the primary adjudicator ${slate.primary} has no published registration`);
+  for (const role of ['fallback', 'appeal'] as const) if (!(await ctx.registration(slate[role]))) notFound(`the ${role} adjudicator ${slate[role]} has no published registration`);
   const base = {
     clubId: club.id,
     buyer: { address: lc(buyer!['address'] as string) as Address, encryptionPublicKey: buyer!['encryptionPublicKey'] as string },
@@ -332,8 +340,12 @@ async function offer(ctx: PrepareContext, input: Record<string, unknown>): Promi
     createdAt,
   };
   const terms: CommitmentTerms = representable(() => completeTerms(draft, { ...resolved, nonce }));
+  const shortfall = await fallbackBondRefusal(ctx, terms);
+  if (shortfall) bad(shortfall, 'adjudicators.fallback');
+  const notices = await bondNotices(ctx, terms);
   const id = commitmentId(terms);
   const total = BigInt(terms.price.amount) + BigInt(terms.adjudication.fee.amount);
+  const named = (role: AdjudicatorRole) => (filled[role] ? `${role} ${filled[role]} (this operator's default)` : `${role} ${slate[role]}`);
   return {
     kind: 'offer',
     commitmentId: id,
@@ -342,14 +354,71 @@ async function offer(ctx: PrepareContext, input: Record<string, unknown>): Promi
     check: [
       `you are the seller ${terms.seller}; the buyer is ${terms.buyer}`,
       `price ${amountText(terms.price)}; adjudication fee ${amountText(terms.adjudication.fee)} (the buyer holds ${amountText({ token: terms.price.token, amount: total.toString() } as TokenAmount)}; the fee is kept on a refund)`,
-      `adjudicators: primary ${terms.adjudication.adjudicator}, fallback ${terms.adjudication.fallbackAdjudicator}, appeal ${terms.adjudication.appealAdjudicator}`,
+      `adjudicators: ${(['primary', 'fallback', 'appeal'] as const).map(named).join(', ')}`,
       `policy ${terms.adjudication.policyId}, policyHash ${terms.adjudication.policyHash} = keccak256(JCS(policy)) of the primary's registration; registryHash ${terms.adjudication.registryHash}`,
       `deliverableHash and acceptanceHash in the typed data are keccak256 of the RFC 8785 JSON of submit.body.deliverable and submit.body.acceptance`,
       `deliver by ${terms.timing.deliverBy}; offer expires ${terms.timing.offerExpiresAt}`,
       'disclosure.level public: the terms bodies (deliverable, checks, rubric) are public reads at every operator; the work itself stays encrypted',
     ],
-    defaults: givenCreatedAt ? {} : { createdAt },
+    defaults: { ...(givenCreatedAt ? {} : { createdAt }), ...(Object.keys(filled).length ? { adjudicators: filled } : {}) },
+    ...(notices.length ? { notices } : {}),
   };
+}
+
+/**
+ * ADR-0030 §4: the adjudicators the agent named, and this node's default for each role it left out. Naming others
+ * is the parties' choice; a node with no defaults needs all three.
+ */
+function slateIn(ctx: PrepareContext, adj: unknown): { slate: AdjudicatorSlate; filled: Partial<Record<AdjudicatorRole, Address>> } {
+  if (adj !== undefined && !isObj(adj)) bad('adjudicators is {"primary", "fallback", "appeal"} addresses (GET /v1/adjudicators)', 'adjudicators');
+  const given = (adj ?? {}) as Record<string, unknown>;
+  const slate = {} as AdjudicatorSlate;
+  const filled: Partial<Record<AdjudicatorRole, Address>> = {};
+  for (const role of ['primary', 'fallback', 'appeal'] as const) {
+    const v = given[role];
+    if (v !== undefined && !isAddress(v)) bad(`adjudicators.${role} is an address (GET /v1/adjudicators)`, `adjudicators.${role}`);
+    const d = ctx.defaultAdjudicators?.[role];
+    if (v === undefined && !d) bad('adjudicators is {"primary", "fallback", "appeal"} addresses (GET /v1/adjudicators); this operator has no default adjudicators', 'adjudicators');
+    slate[role] = ((v as Address | undefined) ?? d)!;
+    if (v === undefined) filled[role] = slate[role];
+  }
+  return { slate, filled };
+}
+
+/**
+ * ADR-0030 §5: in guaranteed mode an overturned decision pays the price from the decider's bond (D43), and a fallback
+ * reserves its bond only when it decides. So this node prepares and relays no terms whose fallback has less free bond
+ * than the price. The settlement layer and other operators still take them. Undefined when the terms can pay, or when
+ * this node cannot read the bond.
+ */
+export async function fallbackBondRefusal(ctx: Pick<PrepareContext, 'bond'>, t: Pick<AnyCommitmentTerms, 'price' | 'adjudication' | 'settlement'>): Promise<string | undefined> {
+  if (t.settlement.mode !== 'guaranteed_on_decision') return undefined;
+  const fallback = t.adjudication.fallbackAdjudicator;
+  const bond = await ctx.bond?.(fallback);
+  if (!bond) return undefined;
+  const free = freeBond(bond, t.price.token);
+  if (free >= BigInt(t.price.amount)) return undefined;
+  return (
+    `the fallback adjudicator ${fallback} has ${amountText({ token: t.price.token, amount: free.toString() } as TokenAmount)} of free bond, less than the price of ${amountText(t.price)}. ` +
+    'An overturned fallback decision pays the price from its bond (D43), so this operator relays no terms that name it. ' +
+    'Name a fallback with free bond for the price, or send the same signed message to another operator or directly to the settlement layer'
+  );
+}
+
+/** ADR-0030 §5: an advisory notice for each named adjudicator with no bond, or less free bond than the price (D31). */
+export async function bondNotices(ctx: Pick<PrepareContext, 'bond'>, t: Pick<AnyCommitmentTerms, 'price' | 'adjudication'>): Promise<string[]> {
+  if (!ctx.bond) return [];
+  const a = t.adjudication;
+  const out: string[] = [];
+  for (const [role, address] of [['primary', a.adjudicator], ['fallback', a.fallbackAdjudicator], ['appeal', a.appealAdjudicator]] as const) {
+    const bond = await ctx.bond(address);
+    if (!bond) continue;
+    const free = freeBond(bond, t.price.token);
+    const why = role === 'appeal' ? 'its decision is final, and no appeal adjudicator has a bond at stake on chain yet' : 'nothing it holds pays the wronged party if its decision is overturned';
+    if (!hasBond(bond)) out.push(`the ${role} adjudicator ${address} has no bond: ${why}. You may still choose it`);
+    else if (free < BigInt(t.price.amount)) out.push(`the ${role} adjudicator ${address} has ${amountText({ token: t.price.token, amount: free.toString() } as TokenAmount)} of free bond, less than the price of ${amountText(t.price)}. You may still choose it`);
+  }
+  return out;
 }
 
 async function agreeAndFund(ctx: PrepareContext, input: Record<string, unknown>): Promise<Prepared> {

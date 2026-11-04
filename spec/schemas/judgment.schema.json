@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.9/judgment.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.10/judgment.schema.json",
   "title": "Judgment record",
   "type": "object",
   "required": [

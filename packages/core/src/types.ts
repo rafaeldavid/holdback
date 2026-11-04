@@ -363,8 +363,26 @@ export interface KeyRegistration extends MessageBase {
   keyId: string;
 }
 
-/** Messages that authenticate or certify and change no settlement state (ADR-0024). */
-export type CredentialMessage = ReadToken | Delegation | KeyRegistration;
+/**
+ * ADR-0030: an adjudicator's self-signed registration, rebuilt from its record (registrationMessageOf). Named for its
+ * type like every message; the TypeScript name differs only because AdjudicatorRegistration is the record's.
+ */
+export interface AdjudicatorRegistrationMessage extends MessageBase {
+  type: 'AdjudicatorRegistration';
+  adjudicator: Address;
+  encryptionPublicKey: Base64Url;
+  keyId: string;
+  policyHash: Hex32;
+  registryHash: Hex32;
+  fee: TokenAmount;
+  poolTermsHash: Hex32;
+  /** keccak256 of the RFC 8785 JSON of the registered record (registeredBody). */
+  bodyHash: Hex32;
+  issuedAt: Timestamp;
+}
+
+/** Messages that authenticate or certify and change no settlement state (ADR-0024, ADR-0030). */
+export type CredentialMessage = ReadToken | Delegation | KeyRegistration | AdjudicatorRegistrationMessage;
 
 /** disclosure.schema.json: keys posted to publish a private deal's bodies (ADR-0024 §3). */
 export interface DisclosureBody {
@@ -564,7 +582,25 @@ export interface AdjudicatorRegistration {
   poolTermsHash: Hex32;
   metrics?: { falseAcceptRateBps: Bps; falseRejectRateBps: Bps; escalationRateBps: Bps; sampleSize: number; measuredAt: Timestamp };
   status: 'active' | 'suspended';
+  /** ADR-0030: the adjudicator's signature over this record. Absent on an unsigned record (SimChain genesis). */
+  registration?: RegistrationEnvelope;
 }
+
+/** ADR-0030: with the record's own fields, the AdjudicatorRegistration message the adjudicator signed. */
+export interface RegistrationEnvelope {
+  keyId: string;
+  bodyHash: Hex32;
+  issuedAt: Timestamp;
+  nonce: Hex32;
+  expiresAt: Timestamp;
+  signature: Signature;
+}
+
+/** ADR-0030: the record an adjudicator posts: signed, and without the balances the chain holds (pool keeps its terms). */
+export type RegisteredAdjudicator = Omit<AdjudicatorRegistration, 'pool' | 'registration'> & {
+  pool: { terms: AdjudicatorPool['terms'] };
+  registration: RegistrationEnvelope;
+};
 
 /** ADR-0014 §2a. terms is what poolTermsHash binds; balances are not part of it. */
 export interface AdjudicatorPool {

@@ -33,8 +33,6 @@
     { "method": "POST", "path": "/v1/clubs/{clubId}/members/{principal}/revoke", "note": "MemberRevocation, signed by the club operator.", "source": "https://github.com/rafaeldavid/holdback/blob/main/docs/api.md#registry-and-test-funding" },
     { "method": "POST", "path": "/v1/agents", "note": "Mandates come from genesis in Phase 1.", "source": "https://github.com/rafaeldavid/holdback/blob/main/docs/api.md#registry-and-test-funding" },
     { "method": "POST", "path": "/v1/agents/{address}/revoke", "note": "Principal-signed revocation.", "source": "https://github.com/rafaeldavid/holdback/blob/main/docs/api.md#registry-and-test-funding" },
-    { "method": "POST", "path": "/v1/adjudicators", "note": "Adjudicator registration plus bond deposit.", "source": "https://github.com/rafaeldavid/holdback/blob/main/docs/decisions/ADR-0007-bonded-adjudicators-liveness.md" },
-    { "method": "POST", "path": "/v1/adjudicators/{address}/keys", "note": "Self-signed KeyRegistration for an adjudicator encryption key (ADR-0024 §6).", "source": "https://github.com/rafaeldavid/holdback/blob/main/docs/decisions/ADR-0024-private-deals.md" },
     { "method": "POST", "path": "/v1/adjudicators/{address}/quote", "note": "Fee quote for draft terms.", "source": "https://github.com/rafaeldavid/holdback/blob/main/docs/decisions/ADR-0014-incentives.md" },
     { "method": "POST", "path": "/v1/commitments/{commitmentId}/publish", "note": "Publish (ADR-0020): raise the disclosure level.", "source": "https://github.com/rafaeldavid/holdback/blob/main/docs/decisions/ADR-0020-privacy-model.md" },
     { "method": "POST", "path": "/v1/commitments/{commitmentId}/disputes", "note": "Dispute, optimistic mode (Phase 4).", "source": "https://github.com/rafaeldavid/holdback/blob/main/docs/decisions/ADR-0015-optimistic-release.md" },
@@ -570,11 +568,23 @@
         "operationId": "listAdjudicators",
         "tags": ["adjudication"],
         "summary": "List adjudicators",
-        "description": "A page of registered adjudicators with their published registrations (policy and policy hash, registry hash and URI, minimum fee, pool terms) and the bond the settlement layer holds.",
+        "description": "Every adjudicator this node serves, oldest first, each with its signed registration, the bond the settlement layer holds (`bond`; zero and `observed.bond: \"none\"` when unbonded) and `observed`, what this node saw. Registrations are never removed.",
         "x-holdback-errors": [400, 429],
         "parameters": [{ "$ref": "#/components/parameters/Cursor" }, { "$ref": "#/components/parameters/Limit" }],
         "responses": {
           "200": { "description": "Page of adjudicators", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AdjudicatorPage" } } } }
+        }
+      },
+      "post": {
+        "operationId": "registerAdjudicator",
+        "tags": ["adjudication"],
+        "summary": "Register your adjudicator",
+        "description": "ADR-0030. Your record as `getAdjudicator` serves it, `pool` with `terms` only, plus the `registration` envelope your adjudicator key signed as `AdjudicatorRegistration`. A later `issuedAt` replaces the served one. Never refused for a fee, registry or bond; deposit the bond on chain yourself.",
+        "x-holdback-errors": [400, 401, 404, 409, 413, 429],
+        "parameters": [{ "$ref": "#/components/parameters/IdempotencyKey" }, { "$ref": "#/components/parameters/ValidateOnly" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AdjudicatorRegistrationPost" } } } },
+        "responses": {
+          "200": { "description": "The registration as this node now serves it", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AdjudicatorListing" } } } }
         }
       }
     },
@@ -583,7 +593,7 @@
         "operationId": "getAdjudicator",
         "tags": ["adjudication", "core"],
         "summary": "Read an adjudicator's registration",
-        "description": "The published registration with `bond` as the settlement layer holds it. Check `policyHash` = keccak256(RFC 8785 JSON of `policy`) before binding it, and compare with at least one other operator.",
+        "description": "The signed registration with `bond` and `observed`. Before naming it: recover the `registration` signature to `address`, recompute `policyHash` = keccak256(RFC 8785 JSON of `policy`), `poolTermsHash` and `bodyHash`, read the bond on chain, and compare with another operator.",
         "x-holdback-errors": [404, 429],
         "parameters": [{ "$ref": "#/components/parameters/Address" }],
         "responses": {
@@ -676,6 +686,13 @@
         "properties": {
           "domain": { "properties": { "chainId": { "type": "integer", "minimum": 1, "pattern": null } } },
           "apiBaseUrl": { "type": "string", "format": "uri", "maxLength": 2048, "description": "Base URL without /v1; a request goes to apiBaseUrl + path" },
+          "defaultAdjudicators": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["primary", "fallback", "appeal"],
+            "description": "ADR-0030: the adjudicator this node names for each role an offer leaves out (Crow's, on the demo). Naming others is advanced use of the protocol",
+            "properties": { "primary": { "$ref": "#/components/schemas/Address" }, "fallback": { "$ref": "#/components/schemas/Address" }, "appeal": { "$ref": "#/components/schemas/Address" } }
+          },
           "settlementTime": { "$ref": "#/components/schemas/Timestamp", "description": "The settlement layer's clock" },
           "limits": {
             "type": "object",
@@ -785,7 +802,35 @@
         "x-holdback-extends": "Adjudicator",
         "title": "A published adjudicator registration with its bond",
         "required": ["bond"],
-        "properties": { "bond": { "$ref": "#/components/schemas/Bond" } }
+        "properties": {
+          "bond": { "$ref": "#/components/schemas/Bond" },
+          "observed": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["registeredAt", "lastUsedAt", "expired", "bond"],
+            "description": "What this node observed, unsigned (ADR-0030 §3). Present on a stored registration",
+            "properties": {
+              "registeredAt": { "$ref": "#/components/schemas/Timestamp", "description": "When this node first stored a registration for this address" },
+              "lastUsedAt": { "oneOf": [{ "$ref": "#/components/schemas/Timestamp" }, { "type": "null" }], "description": "The last acceptance or decision this node relayed or indexed from this adjudicator; null before any" },
+              "expired": { "type": "boolean", "description": "The registration's expiresAt has passed. An expired registration stays listed" },
+              "bond": { "enum": ["none", "bonded"], "description": "`none` when the pool holds nothing: nothing it holds pays a wronged party" },
+              "defaultFor": { "type": "array", "items": { "enum": ["primary", "fallback", "appeal"] }, "description": "The roles this node fills with this adjudicator when an offer names none" }
+            }
+          }
+        }
+      },
+      "AdjudicatorRegistrationPost": {
+        "x-holdback-extends": "Adjudicator",
+        "title": "An adjudicator record to register: signed, with pool terms only",
+        "required": ["registration"],
+        "properties": {
+          "pool": {
+            "required": null,
+            "minProperties": 1,
+            "description": "`terms` only: the settlement layer holds the balances, and the node serves them beside your record",
+            "properties": { "junior": null, "senior": null, "reserved": null }
+          }
+        }
       },
       "AdjudicatorPage": {
         "x-holdback-extends": "Page",
@@ -1061,7 +1106,7 @@
       },
       "PrepareOfferInput": {
         "type": "object",
-        "required": ["seller", "buyer", "adjudicators", "clubId", "price", "nonce", "disclosure"],
+        "required": ["seller", "buyer", "clubId", "price", "nonce", "disclosure"],
         "description": "Plaintext mode needs `deliverable` and signs `public`. Hash-only mode (ADR-0024 §4, `hashOnly: true`) takes `deliverableHash`, `acceptanceHash` and `createdAt` instead of any body, template, checks or rubric, and signs `private` or `judgment`.",
         "properties": {
           "hashOnly": { "type": "boolean", "description": "ADR-0024 §4: the operator never sees the bodies. You built the terms with the client-side recipe (docs/api.md); this answer is a cross-check of your own typed data. The body comes back without privateTerms, which you add" },
@@ -1079,7 +1124,7 @@
           },
           "adjudicators": {
             "type": "object",
-            "required": ["primary", "fallback", "appeal"],
+            "description": "ADR-0030: each role you leave out gets this node's default adjudicator (discovery `defaultAdjudicators`), named in `defaults`. A node with no defaults needs all three. Naming others is advanced use of the protocol; a fallback with less free bond than the price is refused here",
             "properties": { "primary": { "$ref": "#/components/schemas/Address" }, "fallback": { "$ref": "#/components/schemas/Address" }, "appeal": { "$ref": "#/components/schemas/Address" } }
           },
           "price": { "$ref": "#/components/schemas/TokenAmount" },

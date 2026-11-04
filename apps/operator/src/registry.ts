@@ -1,7 +1,8 @@
-// What an operator serves about clubs, agents, members and adjudicators. Phase 1 has no run-time registration:
-// SimChain reads them from genesis, so these reads serve genesis (docs/backlog.md).
-import type { AdjudicatorRegistration, Address, Club, Hex32, Judgment, Mandate, Problem, Timestamp, TokenAmount } from '@holdback/core';
+// What an operator serves about clubs, agents, members and adjudicators. Clubs, members and mandates come from
+// genesis (docs/backlog.md); adjudicators register themselves through the API (ADR-0030).
+import type { AdjudicatorRegistration, AdjudicatorRole, Address, Club, Hex32, Judgment, Mandate, Problem, Timestamp, TokenAmount } from '@holdback/core';
 import type { SimChain } from '@holdback/settlement/sim';
+import { MemoryRegistrationStore, type Bond, type RegistrationStore } from './registrations.js';
 
 /** What POST /v1/faucet grants on a test network: tokens, and on the public demo a mandate in its club. */
 export interface FaucetGrant {
@@ -22,7 +23,7 @@ export const DEFAULT_FAUCET_GRANT = 1_000_000_000n;
 export interface AdjudicatorView {
   address: Address;
   /** Bond pool (ADR-0014 §2a): junior is the adjudicator's own stake, reserved the open exposure. */
-  bond: { junior: TokenAmount; senior: TokenAmount; reserved: TokenAmount };
+  bond: Bond;
 }
 
 /**
@@ -80,27 +81,37 @@ export interface Registry {
   /**
    * An adjudicator's published registration (adjudicator.schema.json), served beside its bond by
    * GET /v1/adjudicators/{address}. Off the settlement layer in Phase 1; readers check it before binding it.
+   * A registration in `registrations` wins; this is for a world that has not moved to the store yet.
    */
   registration?(address: Address): AdjudicatorRegistration | null;
+  /** ADR-0030: the registrations POST /v1/adjudicators stores and the reads serve. Absent: the route answers not_found. */
+  registrations?: RegistrationStore;
+  /** Any address's bond pool, read live from the settlement layer (on a chain, HoldbackBonds' bondOf and freeOf). */
+  pool?(address: Address): Promise<Bond>;
+  /** ADR-0030 §4: the adjudicator this node names for each role an offer leaves out (Crow's, on the demo). */
+  defaultAdjudicators?: Record<AdjudicatorRole, Address>;
   /** Settlement-layer time, whole seconds; prepared messages default their times from it. Default: the system clock. */
   now?(): Timestamp;
   /** The latest judgment record an adjudicator published for a commitment (GET /v1/commitments/{id}/judgment). */
   judgment?(commitmentId: Hex32): Judgment | null;
 }
 
+/** A SimChain registry. Each call has its own registration store: one node's, unless a world shares one. */
 export function simRegistry(chain: SimChain): Registry {
   const g = chain.genesis;
   const amount = (v: bigint): TokenAmount => ({ token: g.token, amount: v.toString() as TokenAmount['amount'] });
+  const bond = (a: Address): Bond => {
+    const p = chain.pool(a);
+    return { junior: amount(p.junior), senior: amount(p.senior), reserved: amount(p.reserved) };
+  };
   return {
     chainId: g.chainId,
     clubs: g.clubs,
     mandates: g.mandates,
     members: g.members,
-    adjudicators: () =>
-      Object.keys(g.bonds).map((a) => {
-        const p = chain.pool(a as Address);
-        return { address: a as Address, bond: { junior: amount(p.junior), senior: amount(p.senior), reserved: amount(p.reserved) } };
-      }),
+    adjudicators: () => Object.keys(g.bonds).map((a) => ({ address: a as Address, bond: bond(a as Address) })),
+    registrations: new MemoryRegistrationStore(),
+    pool: async (a) => bond(a),
     now: () => chain.now(),
     faucet: async (address, { amount = DEFAULT_FAUCET_GRANT }) => {
       chain.faucet(address, amount);

@@ -3,12 +3,12 @@
 // checks). The snap runner drives SimChain directly and has no prepare step, so this is a test, not a fixture.
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { startSimWorld, type SimWorld } from '@holdback/operator';
+import { startSimWorld, typesFor, type SimWorld } from '@holdback/operator';
 import nacl from 'tweetnacl';
 import { hashTypedData, hexToBytes, keccak256, toBytes, type Hex } from 'viem';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Agent } from './agent.ts';
-import { appealBondOf, commitmentIdOf, freshNonce, openOwnEnvelope, Refusal, SIMCHAIN_DOMAIN, verifyPrepared, type Intent } from './verify.ts';
+import { appealBondOf, commitmentIdOf, freshNonce, openOwnEnvelope, Refusal, SIMCHAIN_DOMAIN, TYPES, verifyPrepared, type Intent } from './verify.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 /** A lying operator's own x25519 public key, derived at test time from a public label (no key literal in source). */
@@ -339,5 +339,15 @@ describe('operator fee: the agent checks the fee slot against the published sche
     expect((await b.agreeAndFund(offer.terms, 27_000_000n)).escrowState).toBe('Held');
     expect(before - BigInt((await b.call('GET', `/v1/balances/${b.address}`)).amount)).toBe(26_010_000n);
     expect(feeWorld.chain.log().filter((e) => e.type === 'fee.operator')).toHaveLength(1);
+  });
+});
+
+// ADR-0030: an adjudicator agent signs its acceptance, decision and registration from these types, and llms.txt
+// publishes them from TYPES, so they must be core's, struct for struct.
+describe('TYPES match the operator and core', () => {
+  it.each(['AdjudicatorAcceptance', 'Decision', 'AdjudicatorRegistration', 'CommitmentTerms', 'Delivery', 'Appeal', 'MutualSettlement', 'Delegation'])('%s and every struct it uses', (primary) => {
+    const { EIP712Domain: _domain, ...core } = typesFor(primary);
+    void _domain;
+    expect(Object.fromEntries(Object.keys(core).map((k) => [k, (TYPES as J)[k]]))).toEqual(core);
   });
 });
