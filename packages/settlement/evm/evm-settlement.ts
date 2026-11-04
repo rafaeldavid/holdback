@@ -315,7 +315,7 @@ export class EvmSettlement implements Settlement {
       await world.rpc('anvil_impersonateAccount', [from]);
       await world.rpc('evm_setNextBlockTimestamp', [secs(this.genesis.start)]);
       const hash = await world.rpc<Hex>('eth_sendTransaction', [{ from, to, data, gas: toHex(3_000_000n) }]);
-      const r = await world.publicClient.waitForTransactionReceipt({ hash });
+      const r = await world.receipt(hash);
       await world.rpc('anvil_stopImpersonatingAccount', [from]);
       if (r.status !== 'success') throw new Error(`setup transaction ${hash} reverted`);
     };
