@@ -1,11 +1,11 @@
-# Terms for the $2,000 dataset-cleaning job (docs/demo.md, beats 1-5). Schema v0.6 commitment fields
+# Terms for the $2,000 dataset-cleaning job (docs/demo.md, beats 1-5). Schema v0.9 commitment fields (schemaVersion 0.7)
 # without parties, addresses, keys or absolute times: the loader (packages/testkit/src/fixture-files.ts)
 # fills those in when an agent offers, then validates the result against spec/schemas/commitment.schema.json.
 #
 # timing: offerExpiresInSec, fundWithinSec and deliverWithinSec count from createdAt; judgeWithinSec counts
 # from deliverBy and fallbackWithinSec from judgeBy. policyHash and registryHash come from the adjudicator
 # (T-009's registry); until then the caller supplies them.
-schemaVersion: "0.6"
+schemaVersion: "0.7"
 clubId: data-services-v1
 deliverable:
   kind: dataset

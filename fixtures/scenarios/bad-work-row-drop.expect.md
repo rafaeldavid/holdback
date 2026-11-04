@@ -15,7 +15,7 @@ Demo beat 5. Tidewater delivers a cleaned CSV that drops 8% of rows. The require
 | Club | fixtures/clubs/data-services-v1.yaml (loaded) · rulebook 0x140e…971e |
 | Buyer | atlas-buyer 0x2787…0946 |
 | Seller | tidewater-seller 0x8933…25d0 |
-| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0x518a…4f33 · price 2,000.000000 tUSD · fee 50.000000 tUSD |
+| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0x4452…236c · price 2,000.000000 tUSD · fee 50.000000 tUSD |
 | Adjudicators | primary bench-a 0xb77D…5C9E · fallback bench-b 0x05a1…6E68 · appeal bench-c 0x363a…471F |
 | Operators | op-1 · op-2 |
 
@@ -52,7 +52,7 @@ Demo beat 5. Tidewater delivers a cleaned CSV that drops 8% of rows. The require
 
 ## Receipts and log
 
-- Events 0–7. Chain head 0x8e14…3010. Replay of 6 SimChain submissions from genesis matches the settlement state.
+- Events 0–7. Chain head 0xdde4…aa10. Replay of 6 SimChain submissions from genesis matches the settlement state.
 - Receipts from op-1: 5 (rcpt-0001–rcpt-0005). The runner labels them without signing; the operator API signs real receipts.
 
 ## Invariants

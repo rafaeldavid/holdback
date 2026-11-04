@@ -15,7 +15,7 @@ Bench A and Bench B both go offline after the delivery. After judgeBy anyone tri
 | Club | fixtures/clubs/data-services-v1.yaml (loaded) · rulebook 0x140e…971e |
 | Buyer | atlas-buyer 0xC9b5…f3fD |
 | Seller | tidewater-seller 0xA1E4…2C95 |
-| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0x2d9f…6df0 · price 2,000.000000 tUSD · fee 50.000000 tUSD |
+| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0x178a…61cb · price 2,000.000000 tUSD · fee 50.000000 tUSD |
 | Adjudicators | primary bench-a 0xe0B9…c7D4 · fallback bench-b 0x6138…665A · appeal bench-c 0xd68B…A21f |
 | Operators | op-1 · op-2 |
 
@@ -57,7 +57,7 @@ Outages:
 
 ## Receipts and log
 
-- Events 0–11. Chain head 0x5829…08e1. Replay of 8 SimChain submissions from genesis matches the settlement state.
+- Events 0–11. Chain head 0x049c…7c14. Replay of 8 SimChain submissions from genesis matches the settlement state.
 - Receipts from op-1: 5 (rcpt-0001–rcpt-0005). The runner labels them without signing; the operator API signs real receipts.
 - Receipts from op-2: 3 (rcpt-0006–rcpt-0008). The runner labels them without signing; the operator API signs real receipts.
 

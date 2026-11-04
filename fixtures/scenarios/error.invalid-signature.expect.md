@@ -15,7 +15,7 @@ Tidewater tries to agree and fund on Atlas's behalf: the Agree message names Atl
 | Club | fixtures/clubs/data-services-v1.yaml (loaded) · rulebook 0x140e…971e |
 | Buyer | atlas-buyer 0x83be…e604 |
 | Seller | tidewater-seller 0xCf79…d3Fd |
-| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0x3f32…c2d1 · price 2,000.000000 tUSD · fee 50.000000 tUSD |
+| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0xccac…a4e2 · price 2,000.000000 tUSD · fee 50.000000 tUSD |
 | Adjudicators | primary bench-a 0xEb87…ad36 · fallback bench-b 0xb7fc…4cB2 · appeal bench-c 0xc459…4EDE |
 | Operators | op-1 · op-2 |
 
@@ -43,7 +43,7 @@ Refusals:
 
 ## Receipts and log
 
-- Events 0–1. Chain head 0xbf8d…e3ca. Replay of 2 SimChain submissions from genesis matches the settlement state.
+- Events 0–1. Chain head 0xe6d9…3045. Replay of 2 SimChain submissions from genesis matches the settlement state.
 - Receipts from op-1: 2 (rcpt-0001–rcpt-0002). The runner labels them without signing; the operator API signs real receipts.
 
 ## Invariants

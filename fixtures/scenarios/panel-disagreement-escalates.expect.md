@@ -15,7 +15,7 @@ Bench A's panel splits: one judge passes, the GPT judge fails and the Qwen judge
 | Club | fixtures/clubs/data-services-v1.yaml (loaded) · rulebook 0x140e…971e |
 | Buyer | atlas-buyer 0xBe44…76f3 |
 | Seller | tidewater-seller 0x1864…5683 |
-| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0xdd62…41a5 · price 2,000.000000 tUSD · fee 50.000000 tUSD |
+| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0x6824…c417 · price 2,000.000000 tUSD · fee 50.000000 tUSD |
 | Adjudicators | primary bench-a 0x1B45…71eb · fallback bench-b 0x6eCc…8776 · appeal bench-c 0x6A66…3c4A |
 | Operators | op-1 · op-2 |
 
@@ -46,11 +46,11 @@ Bench A's panel splits: one judge passes, the GPT judge fails and the Qwen judge
 - **Intake:** plaintext 0x1939…87e5 · text/csv · 511912 bytes (fixtures/data/dataset-cleaning/customers.clean.csv) · hash verified ✓ · normalized
 - **Deterministic checks:** cols ✓ · rows ✓ · uniq ✓ · dates ✓ · id_nulls ✓ · name_nulls ✓ · email_nulls ✓ · emails (optional) ✓ · hidden ✓
 - **Screen:** clean
-- **Panel:** 3 judges from 3 families (policy: 3 seats, at least 2 families) · first-instance template 0xabb5…4dd2 · rubric 0x4201…7925 · seed source: commit-reveal (commitment 0x32a8…d7a7, seed 0x821b…2db8, recomputed: match)
-  - claude-b · anthropic/claude · placeholder-claude-b-20260601 · recorded (captured from fake judges) · pass · scores 4/4/4 · input 0x912c…3d71
-  - qwen-a · openai-compatible/qwen · placeholder-qwen-a-20260601 · recorded (authored) · abstain · input 0xb8d9…4c5d
-  - gpt-a · openai-compatible/gpt · placeholder-gpt-a-20260601 · recorded (authored) · fail · scores 2/1/2 · input 0x4002…5619
-- **Aggregate:** escalate (weighted score 2.80; 1 pass, 1 fail of 2 valid; pass families claude). Reasons: 1 pass, 1 fail of 2 valid: no supermajority.
+- **Panel:** 3 judges from 2 families (policy: 3 seats, at least 2 families) · first-instance template 0xabb5…4dd2 · rubric 0x4201…7925 · seed source: commit-reveal (commitment 0x32a8…d7a7, seed 0x821b…2db8, recomputed: match)
+  - qwen-a · openai-compatible/qwen · placeholder-qwen-a-20260601 · recorded (authored) · abstain · input 0x40fe…d8ab
+  - gpt-a · openai-compatible/gpt · placeholder-gpt-a-20260601 · recorded (authored) · fail · scores 2/1/2 · input 0x166f…75f0
+  - gpt-b · openai-compatible/gpt · placeholder-gpt-b-20260601 · recorded (captured from fake judges) · pass · scores 4/4/4 · input 0x2fca…5a0f
+- **Aggregate:** escalate (weighted score 2.80; 1 pass, 1 fail of 2 valid; pass families gpt). Reasons: 1 pass, 1 fail of 2 valid: no supermajority.
 - **Signed:** escalate.
 
 ### bench-c (appeal), attempt 1
@@ -58,18 +58,18 @@ Bench A's panel splits: one judge passes, the GPT judge fails and the Qwen judge
 - **Intake:** plaintext 0x1939…87e5 · text/csv · 511912 bytes (fixtures/data/dataset-cleaning/customers.clean.csv) · hash verified ✓ · normalized
 - **Deterministic checks:** cols ✓ · rows ✓ · uniq ✓ · dates ✓ · id_nulls ✓ · name_nulls ✓ · email_nulls ✓ · emails (optional) ✓ · hidden ✓
 - **Screen:** clean
-- **Panel:** 5 judges from 3 families (policy: 5 seats, at least 3 families) · appeal template 0xa0bb…8659 · rubric 0x4201…7925 · seed source: beacon round 1767225611 (seed 0xc2ca…328f)
-  - claude-b · anthropic/claude · placeholder-claude-b-20260601 · recorded (captured from fake judges) · pass · scores 4/4/4 · input 0xf83c…5db5
-  - qwen-a · openai-compatible/qwen · placeholder-qwen-a-20260601 · recorded (captured from fake judges) · pass · scores 4/4/4 · input 0xd707…2de8
-  - claude-a · anthropic/claude · placeholder-claude-a-20260601 · recorded (captured from fake judges) · pass · scores 4/4/4 · input 0x73f8…005a
-  - gpt-a · openai-compatible/gpt · placeholder-gpt-a-20260601 · recorded (captured from fake judges) · pass · scores 4/4/4 · input 0x20cd…e525
-  - gpt-b · openai-compatible/gpt · placeholder-gpt-b-20260601 · recorded (captured from fake judges) · pass · scores 4/4/4 · input 0xc066…f7c3
+- **Panel:** 5 judges from 3 families (policy: 5 seats, at least 3 families) · appeal template 0xa0bb…8659 · rubric 0x4201…7925 · seed source: beacon round 1767225611 (seed 0x78be…46e0)
+  - gpt-b · openai-compatible/gpt · placeholder-gpt-b-20260601 · recorded (captured from fake judges) · pass · scores 4/4/4 · input 0xa825…a11b
+  - claude-a · anthropic/claude · placeholder-claude-a-20260601 · recorded (captured from fake judges) · pass · scores 4/4/4 · input 0x81b8…2daa
+  - qwen-a · openai-compatible/qwen · placeholder-qwen-a-20260601 · recorded (captured from fake judges) · pass · scores 4/4/4 · input 0x82ca…94d4
+  - gpt-a · openai-compatible/gpt · placeholder-gpt-a-20260601 · recorded (captured from fake judges) · pass · scores 4/4/4 · input 0x16c2…703f
+  - claude-b · anthropic/claude · placeholder-claude-b-20260601 · recorded (captured from fake judges) · pass · scores 4/4/4 · input 0x8f2e…b937
 - **Aggregate:** accept (weighted score 4.00; 5 pass, 0 fail of 5 valid; pass families claude, gpt, qwen). Reasons: 5 of 5 valid verdicts pass, from 3 families, score at or above 3.
 - **Signed:** accept.
 
 ## Receipts and log
 
-- Events 0–10. Chain head 0x81cf…ca0c. Replay of 7 SimChain submissions from genesis matches the settlement state.
+- Events 0–10. Chain head 0x576f…f9ca. Replay of 7 SimChain submissions from genesis matches the settlement state.
 - Receipts from op-1: 5 (rcpt-0001–rcpt-0005). The runner labels them without signing; the operator API signs real receipts.
 
 ## Invariants
