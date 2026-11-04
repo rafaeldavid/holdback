@@ -5,8 +5,8 @@
 - **Depends on:** T-209 (the drand verifier in `HoldbackRules`); T-210 merged first (this task edits `packages/core/src/state.ts`, which T-210 changes, though not `beaconRoundFor` itself; PR 173); T-211 merged first (this task edits the beacon lines of `apps/adjudicator/src/service.ts`, which T-211 changes)
 - **Paths this task may touch:** `apps/adjudicator/src/drand.ts` (new) and its test; `apps/adjudicator/src/randomness.ts`, `simchain-adapter.ts`, `settlement-port.ts` (the `randomness` port), `test-adjudicator.ts` (how the demo's adjudicators get their source), `_sim.ts` (only if the sim settlement needs the per-source round), `index.ts` (the export), and their tests; `apps/adjudicator/src/service.ts` and `service.test.ts` (only the beacon round and value in `#preflight`); `apps/adjudicator/scripts/mutants.mjs` (mutants for the new source); `apps/adjudicator/package.json` and `pnpm-lock.yaml` (a pinned BLS library, if none is a dependency yet); `packages/core/src/beacon.ts`, `parse.ts` and `state.ts` (only `beaconRoundFor`, its round helper, and keeping the commitment's randomness source in the state), and their tests; `fixtures/beacon/` (more recorded rounds and relay answers); one new test file under `packages/settlement/evm/` (the fork test, below; no edits to existing files there, which T-218 owns); `docs/decisions/ADR-0018-panel-seed-beacon.md` (a dated note); `docs/backlog.md` (its two drand rows); `docs/plan.md` (this row, and the `neutrality.beacon-relay-refuses` row of the scenario index); this file
 - **Human gate:** no. Switching the live demo's rulebook to drand is T-220's deploy.
-- **Status:** todo
-- **Agent/session:** —
+- **Status:** review
+- **Agent/session:** Claude Code session on branch `t-217-drand-proofs` (2026-11-04)
 
 ## Intent
 
@@ -15,6 +15,16 @@ On Sepolia no fallback or appeal adjudicator can decide today. The rules contrac
 Restated: give the adjudicator service a `drand-quicknet` randomness source that fetches the round settlement fixes, checks it locally, and never signs with anything else. Make core count rounds on the clock of the source the commitment's rulebook names, and admit `drand-quicknet` wherever the settlement is a chain that verifies it. SimChain and every existing fixture stay on `sim`, unchanged.
 
 The design is in the research pass, `docs/research/2026-11-03-sepolia-demo-settlement.md` §7: relays, their order, the endpoint, the local check, what "not yet" looks like, and the rule that nothing substitutes.
+
+**In the implementer's words (2026-11-04).** A fallback or appeal panel's seed comes from one beacon round that settlement state fixes. On Sepolia that round is a drand quicknet round, proven by a 48-byte BLS signature that the rules contract checks. This task makes the off-chain side agree with the contract:
+1. **Core counts the right clock.** The offer keeps the rulebook's `randomness.source` in the escrow state, and `beaconRoundFor` reads the round on that source's clock: quicknet (genesis 1692803367, 3 s) or the sim beacon (round = unix second). Every existing state, fixture and snapshot stays on `sim` and does not change. A state saved before this change has no source and reads as `sim`.
+2. **The adjudicator fetches and proves the round.** A new `drand-quicknet` source asks the relays in order for that exact round, never for `latest` (round 0 answers `latest`, measured), and checks each answer against the quicknet public key before it returns it. The value is sha256 of the signature, never the relay's `randomness`. The service checks the proof again before it signs, and puts the round, value and signature in the Decision.
+3. **Nothing substitutes.** No relay answers, or none proves the round: the service does not decide this pass and tries again at the next, until the deadline; then the default path applies. It never falls back to the sim beacon, another round or a supplied value.
+4. **The parse rule admits `drand-quicknet`.** A rulebook may name it (with quicknet's chain hash if it gives one), and a Decision may carry it with a well-formed proof. SimChain cannot produce sha256(signature) values, so it never accepts a drand-labelled decision.
+
+Non-goals: the Sepolia world's rulebook switch and its fresh world (T-220), the anvil harness's sim beacon, mixing the beacon into the primary's seed, tlock envelopes, schema changes (none are needed: the Decision's `beacon` already has `signature`), and any edit to `packages/settlement/` or `apps/demo-cloud/` (T-218's lanes).
+
+One path change, recorded in Decisions: the Sepolia fork test lives in `apps/adjudicator/src/`, not `packages/settlement/evm/`. It runs the adjudicator service, and `@holdback/settlement` cannot import `@holdback/adjudicator` (that package already depends on it, and `tsc -b` typechecks test files).
 
 ## Context
 
@@ -58,8 +68,90 @@ The design is in the research pass, `docs/research/2026-11-03-sepolia-demo-settl
 
 ## Evidence
 
-Fill this in before review. Label each item measured, inferred or guessed.
+Branch `t-217-drand-proofs`, 2026-11-04. Each claim is labelled measured, inferred or guessed.
+
+**Tests (no network).**
+- Core: 18 files, 928 tests pass (`pnpm vitest run packages/core`). [measured] New: the quicknet constants pinned to `DrandQuicknetBeacon.sol`'s source; `beaconSource` kept through 19 paths, from the offer to every terminal state; the drand rounds at judgeBy, after an escalation and after a filing, against the contract's `roundAt` at the epoch, a second before genesis, genesis, and exactly on and a second before a round; a fallback seeded from the quicknet round settles and one seeded from the sim round is refused; the parse rule's admissions and refusals.
+- Adjudicator: 7 files, 196 tests pass (`pnpm vitest run apps/adjudicator`). [measured] New:
+  - `drand.test.ts`: the local check on T-209's seven real rounds, on 16 mutated copies (flipped bits and flags, another round, another chain, infinity, x = p, bad lengths, case and rounds) and on a real signature re-encoded with x + p; the source on recorded relay answers (`fixtures/beacon/drand-relays.json`, fetched 2026-11-04 from the four relays).
+  - `service.test.ts`: the fallback, a party appeal and an escalation on quicknet rounds; the escalation's appeal waits from 10:00:32Z to 10:00:33Z, when its round is published, asking no relay early; four lying sources, each refused with no decision and no judge called; a drand commitment with no drand source is never decided.
+  - `simchain-adapter.test.ts`: SimChain refuses the drand-proven decision ("the signed beacon differs from the settlement layer beacon") and the deal defaults.
+- `neutrality.beacon-relay-refuses` is a named test in `drand.test.ts` (seven ways the first relay fails; all four refuse; all four lie) and `service.test.ts` (one refuses and the next lies: the third relay's proof settles; all fail: no decision, no judge, `FallbackJudging`, and the next pass decides once a relay answers). [measured]
+- Typecheck `pnpm tsc -b` clean; ESLint clean on every changed file. [measured]
+
+**On a Sepolia fork** (`apps/adjudicator/src/drand-fork.test.ts`, `SEPOLIA_FORK_RPC=https://ethereum-sepolia-rpc.publicnode.com`, anvil 1.0.0, Prague; 1 test passes in 119 s, run 7). [measured]
+- The deployed 0.7 `HoldbackRules` (`0xF382…7cFA`) over the deployed `DrandQuicknetBeacon` (`0xBe80…Cc10`) accepted a fallback `decide` seeded from live quicknet round 33668067 and a party-appeal `decide` from round 33668070, the first round after the filing.
+- One relay request per decision: `api2.drand.sh/…/public/33668067` and `…/33668070`, nothing else. [measured in Node; one external subrequest per decision inside a Worker is inferred from the same code path]
+- A service whose source returns a tampered proof refused it (`seed_mismatch`), and no transaction was mined in the blocks from before it ran until two blocks after it refused.
+- Gas on the fork, Prague pricing: `agreeAndFund` 251,142; `deliver` 83,523; `triggerFallback` 52,468; the fallback's `decide` 346,683; `fileAppeal` 102,878; the appeal's `decide` 238,576. Sepolia charges new state more (about 3.5 times, T-213), so these are lower bounds there. [measured on the fork; the Sepolia factor is T-213's]
+
+**Cost of the local check:** about 18 ms of CPU per round (each `drand.test.ts` round test checks twice in 35 to 46 ms, Node 22 on this Mac). The service checks a drand proof twice per decision (the source, then before signing), about 36 ms. [measured]
+
+**Mutation sweep** (`node apps/adjudicator/scripts/mutants.mjs drand`): 17 mutants, 17 killed. The `seed for the role` group (one row's search text updated for `got.value`) killed all 3, and the first 6 rows of the full sweep killed all 6. The full 84-mutant sweep takes about 105 minutes (75 s a mutant, measured on 8), so this task ran the groups it touches. [measured]
+
+| Mutant (drand group) | Result |
+| --- | --- |
+| rounds counted on the sim clock whatever the source | killed (11 tests failed) |
+| the service rounds on the sim clock for a drand commitment | killed (10) |
+| the service signs a proof it did not check | killed (4) |
+| the Decision drops the proof | killed (5) |
+| the BLS pairing not checked | killed (8) |
+| a non-canonical x (x ≥ p) accepted | killed (1) |
+| the value taken from the relay, not sha256 of the signature | killed (1) |
+| the answer's round not checked | killed (1) |
+| round 0 asked, which answers the latest round | killed (1) |
+| a round the clock has not reached is asked | killed (2) |
+| no next relay after a refusal | killed (12) |
+| a proven round asked again | killed (1) |
+| no timeout per relay | killed (3) |
+| another drand chain hash accepted | killed (1) |
+| a missing drand source falls back to the sim beacon | killed (2) |
+| the adapter reads the sim beacon for every commitment | killed (3) |
+| testAdjudicator drops its drand source | killed (1) |
+
+**`pnpm verify`** (`reports/verify-t-217-drand-proofs.md`, 2026-11-04, before the commit): PASS, no snapshot diff against HEAD, so `pnpm snap` and `pnpm snap --settlement=local` are unchanged. [measured]
+
+| Step | Command | Status | Time |
+| --- | --- | --- | --- |
+| typecheck | `pnpm typecheck` | pass | 1587 ms |
+| lint | `pnpm lint` | pass | 3910 ms |
+| forge build | `forge build --root contracts` | pass | 389 ms |
+| forge | `forge test --root contracts` | pass | 15539 ms |
+| test | `pnpm test` | pass | 73458 ms |
+| spec | `pnpm validate:spec` | pass | 611 ms |
+| snap | `pnpm snap` | pass | 10935 ms |
+| snap:local | `pnpm snap --settlement=local` | pass | 17273 ms |
+| demo | `pnpm demo` | pass | 4172 ms |
 
 ## Decisions
 
+1. **Core keeps the rulebook's source in the escrow state.** `Base.beaconSource` is required in the type, so every state constructor carries it (the compiler found each), and a test runs 19 paths from a drand offer and checks it survives. At run time a state saved before T-217 (the EVM settlement's stored books) has none, and `beaconClockOf(undefined)` reads it as `sim`, which every earlier rulebook named. Callers of `beaconRoundFor` keep their signature, as the task suggested.
+2. **The offer refuses a rulebook whose source has no clock** (`prevrandao`). Its rounds could never be counted or proven, so its fallback and appeal could never decide (ADR-0018 §5). This is a malformed-for-settlement refusal, not a restriction on a negotiable value (D31).
+3. **Core does not compare the Decision's `beacon.source` label with the state.** The rules contract hashes the label into the signature but does not check it; a core-only check would make the EVM mirror refuse a direct call the contract accepted (T-218's divergence check). The round and value bind the seed, and both are checked.
+4. **The parse rule is context-free.** Operators parse messages without knowing the settlement, so parse admits `drand-quicknet` and refuses what no settlement could accept: another verifier (`prevrandao`), another chain hash, a signature that is not 48 bytes, a value that is not its sha256, round 0. SimChain keeps `sim` only in effect: its beacon fact is a sim value, which no sha256(signature) matches, so it refuses every drand-proven decision (tested). Refusing a drand club at SimChain's genesis is a backlog row (outside this task's paths).
+5. **The port hands out a source per commitment.** `AdjudicatorSettlement.randomness(commitment)` returns the source the rulebook names, or null; never another in its place. A source carries its `clock`, and `value(round)` returns `{ value, signature? }`, so the Decision carries the proof (`encode.ts` already passes it to `decide`).
+6. **The service checks the proof again before signing,** whatever its source returned. A custom or faulty source cannot make it sign a proof that burns gas on chain. The cost is one more check, about 18 ms of CPU.
+7. **Relay order and "not yet".** A 425 or 404 makes the source ask the next relay, since a lagging relay may say "not yet" for a published round. A round after its clock's latest is never asked for, so waiting for the appeal round costs no subrequest; a due round normally costs one. Proven rounds are kept (up to 256 per source), so retries ask no relay again.
+8. **Canonical encodings only.** noble 1.9.1 reduces a compressed x modulo p; the contract refuses x ≥ p. The local check refuses it first, and a test re-encodes a real signature with x + p to prove it.
+9. **`@noble/curves` pinned at 1.9.1,** the version already in the lockfile through viem, so nothing new is downloaded. T-209 checked its vectors with the same version.
+10. **The fork test lives in `apps/adjudicator/src/`,** not `packages/settlement/evm/`: it runs the adjudicator service, and `@holdback/settlement` cannot import `@holdback/adjudicator` (a dependency cycle; `tsc -b` typechecks test files). It touches no T-218 file.
+11. **The fork test shims one anvil bug.** anvil 1.0.0 cannot estimate a call whose calldata floor (EIP-7623) exceeds its execution gas; it answers "gas floor exceeds the gas limit", even for a plain 1,500-byte call (measured). `triggerFallback` is such a call. The test's JSON-RPC shim answers only that error, from `eth_call`: a revert stays a revert. Sepolia's own nodes estimate these calls.
+12. **`testAdjudicator` exposes its `settlement`,** so a test can see which source it hands a commitment, and takes `drand` as an option.
+13. **No schema change.** The Decision's `beacon` already has `signature`, and the rulebook already has `randomness.chainHash`.
+
 ## Handoff
+
+**State:** review (see the PR). Merging after CI and review is pre-approved. T-220 deploys.
+
+**For T-220, the Sepolia world (`apps/demo-cloud/src/world.ts`, after T-218 and T-219):**
+- The one-line change: pass the drand source to each demo adjudicator in the live world, `testAdjudicator({ …, ...(o.live ? { drand: drandQuicknet() } : {}) })`, with `drandQuicknet` from `@holdback/adjudicator`. In a Worker it uses the global `fetch`, one external subrequest per decision.
+- The rulebook switch, which makes a fresh world (a new rulebook hash): `randomness: { source: 'drand-quicknet', chainHash: DRAND_QUICKNET_CHAIN_HASH }` from `@holdback/core`, for the live world only. SimChain worlds keep `sim`.
+- `appealDecideSec` must leave at least 3 s for the first quicknet round after an escalation or filing; the demo's 60 s windows do.
+
+**For T-220, `site/llms.txt` once it is live** (it replaces the two lines at `site/llms.txt:401` and `:485`):
+- In "On Sepolia, an appeal needs your own test ETH": "The bond moves from you through HoldbackBonds, so the appellant first approves tUSDC to HoldbackBonds from its own address, a transaction it pays for. The appeal adjudicator decides once the first drand quicknet round after your appeal is published, within 3 s."
+- In place of "Fallback and appeal wait for drand proofs": "**Fallback and appeal decide on Sepolia.** Their panels are seeded from a drand quicknet round that settlement fixes: the round at `judgeBy` for the fallback, the first round after the escalation or the appeal for the appeal adjudicator. The decision carries the round's BLS signature, and the rules contract verifies it. If no drand relay answers before the deadline, nothing stands in and the default outcome applies. Appeals and direct calls need your own Sepolia ETH."
+
+**Follow-ups, outside this task's paths:**
+- `packages/settlement/evm` (T-218's lane): a simulate error that is not a revert (anvil's gas-floor estimate) throws out of `EvmSettlement.submit`, and so out of the adjudicator's whole pass (`runOnce` catches around appeal expiries only). On Sepolia's nodes the estimate works, so this is inferred to matter only on anvil.
+- `packages/settlement/sim`: refuse a club whose rulebook names `drand-quicknet` at genesis (backlog row).
