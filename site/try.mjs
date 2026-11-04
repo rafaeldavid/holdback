@@ -8,10 +8,14 @@ import { encodeAbiParameters, hashStruct, hashTypedData, keccak256, parseAbiPara
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 
 // examples/deployments.ts
-/** Ethereum Sepolia (chain id 11155111), deployed by T-206 from the reviewed contracts. */
+/**
+* Ethereum Sepolia (chain id 11155111): the EIP-712 domain 0.7 contracts (ADR-0029), deployed 2026-11-04 from the
+* reviewed contracts at 64be1f1. The domain 0.6 deployment that deals opened before then still settle on is in
+* contracts/deployments/sepolia-2026-11-03-domain-0.6.json.
+*/
 const SEPOLIA = {
 	chainId: 11155111,
-	commit: "23427569353845ab0c41b28830cb8a9c43e13031",
+	commit: "64be1f176ab45cca94a2cd398981c2a6664bc98a",
 	compiler: {
 		solc: "0.8.28",
 		viaIR: true,
@@ -20,25 +24,25 @@ const SEPOLIA = {
 		evmVersion: "prague"
 	},
 	deployer: "0x1A4435488eaF1A37d2327d44Fe67e97d83203B64",
-	fromBlock: 12055938,
-	escrow: "0xa49454161ef41abC15090392a7A0fA085e3d2B42",
-	erc3009Collector: "0xeBd6dD0d55B567DB7F7154aFE99770f2d1b9F990",
-	permit2Collector: "0xF2Ee0DcB6a10C40fcA8903De361f32E4986441d8",
+	fromBlock: 12061237,
+	escrow: "0x2d9ad608DE707aC470111B73c693020D9c9342cC",
+	erc3009Collector: "0xA7c26BA572DCe83AB4466379fC8AEE84345888E7",
+	permit2Collector: "0x8d68172322D04c9aE1C42Da4DC859699E06E6C48",
 	permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
 	multicall: "0xcA11bde05977b3631167028862bE2a173976CA11",
-	rules: "0x88fC5504dB03f0c4b927aFc2ceC8a19ec8C68C18",
-	bonds: "0x53acE822948a8f657c90EF5D1840d0e77Ba17673",
-	beacon: "0xB80524563eCef49EBef289D5899661338787fc6a",
+	rules: "0xF38287e5C5C1F20c6D03be500EDBF8A244f27cFA",
+	bonds: "0x83F3a2615A2BE9a7DadcA924ed9952ec85749aD1",
+	beacon: "0xBe80ad8Ba4E49bc985ef43caD71740351EE4Cc10",
 	expiryMarginSec: 86400,
 	token: {
-		address: "0x337f1463b59B4520EB12150476d68BF2A2AdB6E8",
+		address: "0x5029787d7E141F2D51788035cc23903652d196B6",
 		name: "Crow Test USDC",
 		version: "1",
 		symbol: "tUSDC",
 		decimals: 6,
-		domainSeparator: "0x1d6addca84fb235924387cdc50b1f421939c60b273a01fe1e56135d284516151",
-		tx: "0xbe58fdf77a285a0225333f4660cf755c3f3c370d4bd97236e0cea239083f7aa0",
-		block: 12055943
+		domainSeparator: "0x6a0916d68ac92d43cb06305c2c91406949ec695185c34fd06cb0e37f04d731c5",
+		tx: "0xdad17f3fb7e7a99c28ddc9ba4a2353347b00cfef0646a61f73a99a9d6f22ce9c",
+		block: 12061243
 	},
 	checks: {
 		creationCodeMatchesBuild: true,
@@ -51,50 +55,50 @@ const SEPOLIA = {
 	},
 	contracts: {
 		AuthCaptureEscrow: {
-			address: "0xa49454161ef41abC15090392a7A0fA085e3d2B42",
-			tx: "0xf160b9aed84b604a55b6e7f46aaffb70c84b00161da87c8fdfcd44eda7dbd609",
-			block: 12055938,
+			address: "0x2d9ad608DE707aC470111B73c693020D9c9342cC",
+			tx: "0xe3229fd3d0e51007472de48ff6dad226706c4465442125a3737239210946d06e",
+			block: 12061237,
 			args: [],
-			tokenStoreImplementation: "0xE1E541a3153d974b678eE131eCfb3e54113e78d6"
+			tokenStoreImplementation: "0x93362F3D46981c13A0f7fFeF44Aad335cd228c34"
 		},
 		ERC3009PaymentCollector: {
-			address: "0xeBd6dD0d55B567DB7F7154aFE99770f2d1b9F990",
-			tx: "0xb53e8da1055bfdf18954fba6f1ae7e031821aef7e88114a1a0162a7fb31c720f",
-			block: 12055939,
-			args: ["0xa49454161ef41abC15090392a7A0fA085e3d2B42", "0xcA11bde05977b3631167028862bE2a173976CA11"]
+			address: "0xA7c26BA572DCe83AB4466379fC8AEE84345888E7",
+			tx: "0x58b2175f4534fa14a896dfc545b819cc12c41968246039d4a328668dd6c8d7e4",
+			block: 12061238,
+			args: ["0x2d9ad608DE707aC470111B73c693020D9c9342cC", "0xcA11bde05977b3631167028862bE2a173976CA11"]
 		},
 		Permit2PaymentCollector: {
-			address: "0xF2Ee0DcB6a10C40fcA8903De361f32E4986441d8",
-			tx: "0xe1bc06ee3101a57000f998bbdb8b45ab1eca04e8de60de3cdc7c04eafa754ee8",
-			block: 12055940,
+			address: "0x8d68172322D04c9aE1C42Da4DC859699E06E6C48",
+			tx: "0xe5412ebab850a18db8cd513375935bde50281341f6d5092a50b2869af0ae78d4",
+			block: 12061239,
 			args: [
-				"0xa49454161ef41abC15090392a7A0fA085e3d2B42",
+				"0x2d9ad608DE707aC470111B73c693020D9c9342cC",
 				"0x000000000022D473030F116dDEE9F6B43aC78BA3",
 				"0xcA11bde05977b3631167028862bE2a173976CA11"
 			]
 		},
 		DrandQuicknetBeacon: {
-			address: "0xB80524563eCef49EBef289D5899661338787fc6a",
-			tx: "0x8db21aa7181ee22b8537f07d31c28bf13321986a10b42c6c401e2d6be3f0971e",
-			block: 12055941,
+			address: "0xBe80ad8Ba4E49bc985ef43caD71740351EE4Cc10",
+			tx: "0x95cc19a85daac20bab87819917cac4f7fcdf880dca8c31d5b771c137d62555c9",
+			block: 12061240,
 			args: []
 		},
 		HoldbackRules: {
-			address: "0x88fC5504dB03f0c4b927aFc2ceC8a19ec8C68C18",
-			tx: "0x3df77f813d0492d8146f4e5280e78e10424fad2e5ed9cae2fb994e8cb2ced46a",
-			block: 12055942,
+			address: "0xF38287e5C5C1F20c6D03be500EDBF8A244f27cFA",
+			tx: "0xacebb2ffe8418c50acdddcb223d6211a0cca647e67a3757f1afbe9e7c8927929",
+			block: 12061242,
 			args: [
-				"0xa49454161ef41abC15090392a7A0fA085e3d2B42",
-				"0xeBd6dD0d55B567DB7F7154aFE99770f2d1b9F990",
-				"0xF2Ee0DcB6a10C40fcA8903De361f32E4986441d8",
+				"0x2d9ad608DE707aC470111B73c693020D9c9342cC",
+				"0xA7c26BA572DCe83AB4466379fC8AEE84345888E7",
+				"0x8d68172322D04c9aE1C42Da4DC859699E06E6C48",
 				"86400",
-				"0xB80524563eCef49EBef289D5899661338787fc6a"
+				"0xBe80ad8Ba4E49bc985ef43caD71740351EE4Cc10"
 			]
 		},
 		HoldbackBonds: {
-			address: "0x53acE822948a8f657c90EF5D1840d0e77Ba17673",
-			tx: "0x3df77f813d0492d8146f4e5280e78e10424fad2e5ed9cae2fb994e8cb2ced46a",
-			block: 12055942,
+			address: "0x83F3a2615A2BE9a7DadcA924ed9952ec85749aD1",
+			tx: "0xacebb2ffe8418c50acdddcb223d6211a0cca647e67a3757f1afbe9e7c8927929",
+			block: 12061242,
 			args: [],
 			createdBy: "HoldbackRules constructor"
 		}

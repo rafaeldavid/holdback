@@ -67,13 +67,13 @@ OP2={{OP2}}
 Pin this EIP-712 domain in your own configuration and sign under nothing else. Never take it from an operator: one that served another domain could collect a signature valid somewhere else. `verifyingContract` is the HoldbackRules contract on Sepolia.
 
 ```json
-{"name": "Holdback", "version": "0.7", "chainId": 11155111, "verifyingContract": "0x88fc5504db03f0c4b927afc2cec8a19ec8c68c18"}
+{"name": "Holdback", "version": "0.7", "chainId": 11155111, "verifyingContract": "0xf38287e5c5c1f20c6d03be500edbf8a244f27cfa"}
 ```
 
 Pin this deployment too: you fund through it. `tokenDomain` is tUSDC's own EIP-712 domain, under which you sign the funding and the operator fee; `escrow` is Coinbase Commerce Payments' AuthCaptureEscrow, which holds the money; `collector` is its ERC-3009 collector, the `to` of your funding; `rules` is HoldbackRules; `expiryMarginSec` enters the funding nonce (Encodings). Each address is on https://sepolia.etherscan.io.
 
 ```json
-{"tokenDomain": {"name": "Crow Test USDC", "version": "1", "chainId": 11155111, "verifyingContract": "0x337f1463b59b4520eb12150476d68bf2a2adb6e8"}, "escrow": "0xa49454161ef41abc15090392a7a0fa085e3d2b42", "collector": "0xebd6dd0d55b567db7f7154afe99770f2d1b9f990", "rules": "0x88fc5504db03f0c4b927afc2cec8a19ec8c68c18", "expiryMarginSec": 86400}
+{"tokenDomain": {"name": "Crow Test USDC", "version": "1", "chainId": 11155111, "verifyingContract": "0x5029787d7e141f2d51788035cc23903652d196b6"}, "escrow": "0x2d9ad608de707ac470111b73c693020d9c9342cc", "collector": "0xa7c26ba572dce83ab4466379fc8aee84345888e7", "rules": "0xf38287e5c5c1f20c6d03be500edbf8a244f27cfa", "expiryMarginSec": 86400}
 ```
 
 ## How a deal works
@@ -87,7 +87,7 @@ The operator prepares messages and relays them, paying the gas. It never signs f
 ## Conventions
 
 - JSON over HTTPS. Every path starts with `/v1`, except discovery (`/.well-known/holdback.json`, also served at `/`) and `/llms.txt`.
-- Money is `{"token": "<demo.token.id>", "amount": "<base units as a decimal string>"}`. The token is named by its contract address in lowercase: on these nodes tUSDC, `0x337f1463b59b4520eb12150476d68bf2a2adb6e8`. tUSDC has 6 decimals: 25 tUSDC is `"25000000"`. Never a float.
+- Money is `{"token": "<demo.token.id>", "amount": "<base units as a decimal string>"}`. The token is named by its contract address in lowercase: on these nodes tUSDC, `0x5029787d7e141f2d51788035cc23903652d196b6`. tUSDC has 6 decimals: 25 tUSDC is `"25000000"`. Never a float.
 - Times are RFC 3339 in whole seconds with `Z`, such as `2026-11-02T09:00:00Z`. Inside typed data they are Unix seconds.
 - Every write (`POST` to anything but `/v1/prepare/*`) takes an `Idempotency-Key` header: a fresh UUID per intended call. The same key with the same body replays the stored success; with another body it returns 409 `idempotency_conflict`. Refusals are not stored, so after fixing a refused call you may reuse its key. A node keeps keys in memory until it restarts (`limits.idempotency` in discovery); after a restart, resending the same call with the same key gets the first answer back from the settlement layer, which keeps it with the deal.
 - Prepare calls (`POST /v1/prepare/<kind>`) change nothing and need no key.
@@ -136,7 +136,7 @@ One document has everything you need to start (`GET $OP1/` returns the same one)
 - `domain`, `receiptSigner` and `settlementTime` (the settlement layer's clock). If `domain` is not the one you pinned, stop.
 - `fees.operator`: the operator fee (section 6).
 - `limits`: the rate limits and how long idempotency keys are kept.
-- `demo`: this demo's `clubId`, `token` (`{"id": "0x337f1463b59b4520eb12150476d68bf2a2adb6e8", "decimals": 6}`, tUSDC), `adjudicators` (an array of `{"role", "address", "name"}`, one each for `primary`, `fallback` and `appeal`), `faucet` and `minWindowSec`.
+- `demo`: this demo's `clubId`, `token` (`{"id": "0x5029787d7e141f2d51788035cc23903652d196b6", "decimals": 6}`, tUSDC), `adjudicators` (an array of `{"role", "address", "name"}`, one each for `primary`, `fallback` and `appeal`), `faucet` and `minWindowSec`.
 - `notes`: what the operator says about this demo.
 
 Fund and admit each address from the faucet. It mints 1,000 test tUSDC to the address on Sepolia and grants a mandate in club `demo-club` (buyer and seller roles, 30 days), so the address may offer and agree. It answers once the mint is in a block, about 12 seconds; an address that already holds the grant gets the mandate without a mint. You never need Sepolia ETH: the operators pay the gas. Once per address per hour, and up to 10 addresses per client per hour; more answers 429 with `Retry-After`.
@@ -150,15 +150,15 @@ curl -s -X POST $OP1/v1/faucet -H 'content-type: application/json' -H "Idempoten
 {
   "address": "0x…",
   "clubId": "demo-club",
-  "granted": { "token": "0x337f1463b59b4520eb12150476d68bf2a2adb6e8", "amount": "1000000000" },
-  "balance": { "token": "0x337f1463b59b4520eb12150476d68bf2a2adb6e8", "amount": "1000000000" },
+  "granted": { "token": "0x5029787d7e141f2d51788035cc23903652d196b6", "amount": "1000000000" },
+  "balance": { "token": "0x5029787d7e141f2d51788035cc23903652d196b6", "amount": "1000000000" },
   "mandate": { "…": "…", "mandateHash": "0x…" },
   "nextGrantAfter": "…",
   "notice": "TEST TOKENS ONLY …"
 }
 ```
 
-Keep `clubId`: it is the club you deal in. The mandate is signed by the demo club's own test principal, which the demo holds. Check a balance at any time with `GET /v1/balances/<address>`, which returns `{"token": "0x337f1463b59b4520eb12150476d68bf2a2adb6e8", "amount": "…"}`, or read `balanceOf` on the token contract.
+Keep `clubId`: it is the club you deal in. The mandate is signed by the demo club's own test principal, which the demo holds. Check a balance at any time with `GET /v1/balances/<address>`, which returns `{"token": "0x5029787d7e141f2d51788035cc23903652d196b6", "amount": "…"}`, or read `balanceOf` on the token contract.
 
 Find the adjudicators in `demo.adjudicators` and name each in its role. `GET /v1/adjudicators` lists their registrations too. Name these three only: a demo adjudicator declines an offer whose fallback or appeal adjudicator is any other address (`notices` say why, and the offer stays `Offered`), because an appeal that overturns its decision pays the price from its bond.
 
