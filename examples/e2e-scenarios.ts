@@ -201,7 +201,12 @@ async function homepage(r: Run): Promise<void> {
     const res = await fetch(round.o.tryBundleUrl);
     const published = res.ok ? Buffer.from(await res.arrayBuffer()) : null;
     const sha = (b: Buffer) => createHash('sha256').update(b).digest('hex');
-    r.check('the published try.mjs is the repository bundle', published !== null && sha(published) === sha(bundle), `${round.o.tryBundleUrl}: ${published ? sha(published).slice(0, 12) : `HTTP ${res.status}`}, site/try.mjs: ${sha(bundle).slice(0, 12)}`);
+    const same = published !== null && sha(published) === sha(bundle);
+    const detail = `${round.o.tryBundleUrl}: ${published ? sha(published).slice(0, 12) : `HTTP ${res.status}`}, site/try.mjs: ${sha(bundle).slice(0, 12)}`;
+    // Until T-220 deploys main, the site stays matched to the live operators (publishing main's bundle would advertise
+    // routes that answer 501 live), so a difference is expected and counts only with --t220.
+    if (round.t220) r.check('the published try.mjs is the repository bundle', same, detail);
+    else r.note(`the published try.mjs ${same ? 'is' : 'is not'} the repository bundle (${detail}); a difference is expected before T-220's deploy`);
   }
   for (const relay of [0, 1]) {
     const ops = [...round.operators.slice(relay), ...round.operators.slice(0, relay)];
