@@ -41,7 +41,7 @@ Restated: on the live Sepolia deployment of the fixed contracts (PRs 160 and 161
 
     Everything relayed through the API costs the agents no ETH: the operators' relayer pays it and recovers it in the operator fee.
   - The driver prints addresses only, never a key.
-  - It refuses any chain but 11155111 through `assertSafeChain` (`packages/settlement/evm/guard.ts`), with a unit test of that refusal: the check `docs/team.md` pairs with the no-real-money rule.
+  - It refuses any chain but 11155111 through `assertSepolia` (`examples/e2e-keys.ts`), before any other call, with tests of that refusal and of its order. It is stricter than `assertSafeChain` (`packages/settlement/evm/guard.ts`), the check `docs/team.md` pairs with the no-real-money rule, which refuses only the mainnet list.
   - The driver's own tests run offline. Test tokens come from the faucet or tUSDC's open mint.
 - **Short windows.** The rulebook minimum (`MIN_WINDOW_SEC`, 60 s on the demo today) for the judge, fallback, appeal and appeal-decision windows, and a short delivery window where a timeout is the point. A scenario then takes minutes.
 - **A silent adjudicator** (scenarios 3, 4, 8, 9 and 10). Several scenarios test what happens when an adjudicator does not decide by its deadline: the fallback takes over, or the default outcome applies. The demo's own adjudicators always decide within seconds and have no off switch. So the silent adjudicator is the round's own, registered through the API (T-221): it accepts the deal and then never decides, which is a real offline adjudicator. Which roles it may fill (research `docs/research/2026-11-04-adjudicator-registration.md` §3, §6):
@@ -141,9 +141,52 @@ Fill this in before review. Label each item measured, inferred or guessed.
   - `pnpm exec vitest run examples`: 46 passed. `eslint` and `tsc -b examples` are clean. `node site/check.mjs` passes [measured].
   - **The secret exists (2026-11-04).** Rafa ran `init` on his `.env`, and the round's master is `0x6D4cEa33dAf09Ba803238d46392162d41BDB029f` (https://sepolia.etherscan.io/address/0x6D4cEa33dAf09Ba803238d46392162d41BDB029f). Rafa funds it from faucets (the estimate was about 0.2 Sepolia ETH); the other five addresses are topped up from it [measured: his terminal's output].
   - **The master is funded:** 2.5 Sepolia ETH at block 12,061,679 on 2026-11-04 [measured: `eth_getBalance` through publicnode]. That is well above the 0.2 the round needs [guessed], so the round can run more than once without another top-up.
+- **The top-up (2026-11-04, Rafa: "The round-1 master tops these up" for buyer, seller and adjudicators).**
+  - Before it: buyer, seller and the three adjudicators each held 0 Sepolia ETH [measured: `eth_getBalance` through publicnode].
+  - `examples/e2e-keys.ts topup [--dry-run]` brings each of the five keys up to 0.04 Sepolia ETH from the master. It sends one transfer at a time, prints each link as soon as it is sent, and waits for each receipt.
+  - It refuses, sending nothing:
+    - any chain but Sepolia, checked before any other call;
+    - while a transfer from the master is still pending (its `pending` and `latest` nonces differ), so a rerun does not resend a transfer the RPC sees as pending. A load-balanced RPC could miss one; the loss is then at most 0.04 Sepolia ETH a key [inferred];
+    - fees above 20 gwei, the operators' funding-lane cap;
+    - when the master cannot cover every transfer plus a 0.01 Sepolia ETH reserve for its own gas.
+  - It prints addresses, amounts in Sepolia ETH and Etherscan links. It never prints a key or the RPC URL, which may carry a provider key (`SEPOLIA_RPC_URL`; without it, the public publicnode endpoint). On a failure it says how many transfers were mined.
+  - **Review (the `reviewer` role, PR 183): ISSUES, all five fixed.**
+    - a keyed RPC URL could reach stderr through viem's error text;
+    - a rerun while a transfer was pending would send it again;
+    - no fee cap;
+    - no test that the chain check comes first;
+    - numbers without units.
+  - **The live top-up (2026-11-04, Rafa ran the first version):** five transfers of 0.04 Sepolia ETH, all mined [measured: `eth_getBalance` and the master's nonce, 5 at `latest` and `pending`]. The master holds about 2.30 Sepolia ETH after them.
+    - buyer: https://sepolia.etherscan.io/tx/0x96be5b69da9a26966640241aa7346338bbc12114b8c603d05cb4a57ec71ce069
+    - seller: https://sepolia.etherscan.io/tx/0xe0395e9caf2990c2cdaab5981adb9ccc4b93bcae52e13202bb08c8239567ce4d
+    - adjudicator-1: https://sepolia.etherscan.io/tx/0x4428af4a509541cda11367ca36487626d0b6d618af64593b1a0c0dcdb5f3504e
+    - adjudicator-2: https://sepolia.etherscan.io/tx/0xebd8fbc5bd5fa60a61e04fe0a9bb0f8eba454634376ede841b8aa2a6e5ae3e8b
+    - adjudicator-3: https://sepolia.etherscan.io/tx/0x501a71fa75d463be58d6715aa85a61684c42db7cdc230f7abfd883a176cbc8c5
+  - `examples/e2e-keys.test.ts`: 15 passed [measured]. The new tests cover:
+    - the plan: empty keys, the shortfall only, nothing to a key at or above the target, and the refusal when the master is short;
+    - the Sepolia-only guard and the CLI's refusals before any network call;
+    - error text with no URL but an Etherscan link;
+    - three runs against a local JSON-RPC stand-in. On chain 1 it stops after `eth_chainId` alone. With a pending transfer it refuses before reading any balance or sending. When every call answers 429, neither the stand-in's address nor the planted key in its path is printed.
+    `eslint` is clean on both files [measured].
+  - A live dry run of the fixed version with a throwaway seed reached Sepolia, passed the chain, pending and fee checks, and refused: "the master holds 0 Sepolia ETH; the top-ups need 0.2 Sepolia ETH plus 0.01 Sepolia ETH for gas" [measured].
+  - `pnpm verify` on branch `t-216-topup` after the review fixes: PASS, no snapshot diffs against HEAD [measured]. The first run on this branch failed `forge build` while the fresh worktree cloned the contract submodules; every run since passes:
+
+    | Step | Status | Time |
+    | --- | --- | --- |
+    | typecheck | pass | 3,314 ms |
+    | lint | pass | 8,633 ms |
+    | forge build | pass | 949 ms |
+    | forge | pass | 34,723 ms |
+    | test | pass | 77,053 ms |
+    | spec | pass | 653 ms |
+    | snap | pass | 10,522 ms |
+    | snap:local | pass | 17,555 ms |
+    | demo | pass | 4,395 ms |
 
 ## Decisions
 
 ## Handoff
+
+- **The top-up is done:** all five keys hold 0.04 Sepolia ETH (Evidence). To top up again, Rafa runs it from the holdback checkout, with full paths so it works from any folder: `node --env-file=/Users/rafa/Documents/escrow/.env /Users/rafa/Documents/escrow/examples/e2e-keys.ts topup --dry-run`, then the same without `--dry-run`. The driver can call it before each scenario that needs a key's own gas. It sends nothing while every key holds at least 0.04 Sepolia ETH, and it refuses while a transfer is pending.
 
 - When round 1 completes: unbench PR 151 and T-206's read (`docs/backlog.md`, Benched; `docs/log/2026-11-04.md`, Next steps item 3), and tell Rafa.
