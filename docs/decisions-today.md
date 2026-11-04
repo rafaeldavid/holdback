@@ -711,6 +711,11 @@ Also: the funding signature on EVM is CPP's collector signature and token identi
 | Access, with an hourly job on Rafa's Mac only | About 45 minutes of setup; the console goes stale whenever the Mac sleeps |
 | A passkey login written into the Worker | No third party at sign-in; about three days of work plus review, and recovery we build ourselves |
 
+**Later the same day (Rafa, 2026-11-04).**
+- **Its own host.** The console moves to `control.escrow.stream`, after a red-team review found that sharing `escrow.stream` with the public site lets any script there read a signed-in founder's console ("Yes, own address").
+- **One application.** That host joins the existing Access application rather than a new one, so one audience covers both hosts until the old destinations are removed.
+- **Phase 11.** The rest of the switch moves to Phase 11, security hardening, as T-059 ("let's move this to security hardening phase"). Until then, the passcode console keeps serving `escrow.stream/control` behind Access, with the recheck's fixes: the console alone, and no key kept in the browser.
+
 ## D46. Agents register their own adjudicators through the API; round 1 includes mutual settlement and overturns through the API
 
 **Decided 2026-11-04 by Rafa**, answering round 1's scope questions (T-216): "mutual settlement is important in the basic build, API should facilitate overturned appeals". Asked whether to plan adjudicator registration through the API, he answered "Yes, plan it". On funding the round's keys: "feels like we need a master address that funds all the rest". The design below follows a Fable max-effort research pass the same day (`docs/research/2026-11-04-adjudicator-registration.md`); Rafa may overrule any line.
