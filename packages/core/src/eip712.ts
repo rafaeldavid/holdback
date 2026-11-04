@@ -17,6 +17,8 @@ import { canonicalKeccak } from './canonical.js';
 import { instant } from './timing.js';
 import type {
   Address,
+  AdjudicatorRegistration,
+  AdjudicatorRegistrationMessage,
   AnyCommitment,
   AnyCommitmentTerms,
   Appeal,
@@ -31,6 +33,7 @@ import type {
   CoSignedMessage,
   MutualSettlement,
   Receipt,
+  RegisteredAdjudicator,
   Scope,
   Signature,
   SignedMessage,
@@ -229,6 +232,19 @@ export const messageTypes = {
     ...expiring,
   ],
   KeyRegistration: [field('adjudicator', 'address'), field('encryptionPublicKey', 'string'), field('keyId', 'string'), ...expiring],
+  // ADR-0030: a new type in schema 0.10, so the domain stays 0.7. bodyHash binds the rest of the record.
+  AdjudicatorRegistration: [
+    field('adjudicator', 'address'),
+    field('encryptionPublicKey', 'string'),
+    field('keyId', 'string'),
+    field('policyHash', 'bytes32'),
+    field('registryHash', 'bytes32'),
+    field('fee', 'TokenAmount'),
+    field('poolTermsHash', 'bytes32'),
+    field('bodyHash', 'bytes32'),
+    stamp('issuedAt'),
+    ...expiring,
+  ],
   Receipt: [field('operator', 'address'), field('eventSeq', 'uint64'), field('eventHash', 'bytes32'), field('hasCommitment', 'bool'), field('commitmentId', 'bytes32')],
   Mandate: [field('principal', 'address'), field('agent', 'address'), field('clubId', 'string'), field('scope', 'Scope'), field('nonce', 'bytes32'), stamp('issuedAt')],
 };
@@ -452,6 +468,19 @@ function encodeMessage(m: UnsignedMessage): Encoded {
       };
     case 'KeyRegistration':
       return { adjudicator: m.adjudicator, encryptionPublicKey: m.encryptionPublicKey, keyId: m.keyId, ...expiry(m) };
+    case 'AdjudicatorRegistration':
+      return {
+        adjudicator: m.adjudicator,
+        encryptionPublicKey: m.encryptionPublicKey,
+        keyId: m.keyId,
+        policyHash: m.policyHash,
+        registryHash: m.registryHash,
+        fee: amount(m.fee),
+        poolTermsHash: m.poolTermsHash,
+        bodyHash: m.bodyHash,
+        issuedAt: seconds(m.issuedAt),
+        ...expiry(m),
+      };
     case 'MutualSettlement':
       // A null deliveryHash (settled before delivery) is flagged, so it never collides with a zero hash.
       return {
@@ -510,6 +539,56 @@ export function deliveryHash(d: Delivery): Hex32 {
   const unsigned: Omit<Delivery, 'signature'> & { signature?: unknown } = { ...d };
   delete unsigned.signature;
   return hashStruct({ primaryType: 'Delivery', types: eip712Types, data: encodeMessage({ ...unsigned, type: 'Delivery' }) });
+}
+
+/**
+ * ADR-0030: the registered record as bodyHash binds it: without the `registration` envelope, with `pool` holding only
+ * `terms`. A served listing's chain-held balances and its operator-written `bond` and `observed` are dropped too.
+ */
+export function registeredBody(record: AdjudicatorRegistration | Omit<RegisteredAdjudicator, 'registration'>): Record<string, unknown> {
+  const body: Record<string, unknown> = { ...record, pool: { terms: record.pool.terms } };
+  for (const k of ['registration', 'bond', 'observed']) delete body[k];
+  return body;
+}
+
+/** ADR-0030: bodyHash, for a record signed or not yet signed. */
+export const registrationBodyHash = (record: AdjudicatorRegistration | Omit<RegisteredAdjudicator, 'registration'>): Hex32 => canonicalKeccak(registeredBody(record));
+
+/** ADR-0030: the AdjudicatorRegistration message a record's envelope signs, rebuilt from the record alone. */
+export function registrationMessageOf(record: AdjudicatorRegistration | RegisteredAdjudicator): AdjudicatorRegistrationMessage {
+  const e = record.registration;
+  if (!e) throw new RangeError(`the record for ${record.address} carries no registration envelope`);
+  return {
+    type: 'AdjudicatorRegistration',
+    adjudicator: record.address,
+    encryptionPublicKey: record.encryptionPublicKey,
+    keyId: e.keyId,
+    policyHash: record.policyHash,
+    registryHash: record.registry.hash,
+    fee: record.fee.min,
+    poolTermsHash: record.poolTermsHash,
+    bodyHash: e.bodyHash,
+    issuedAt: e.issuedAt,
+    nonce: e.nonce,
+    expiresAt: e.expiresAt,
+    signature: e.signature,
+  };
+}
+
+/**
+ * ADR-0030 §7: what a reader checks before naming an adjudicator: policyHash, poolTermsHash and bodyHash recompute
+ * from the record, and its adjudicator signed it under `domain`. The signature alone does not bind the body. Never throws.
+ */
+export async function verifyRegistration(domain: HoldbackDomain, record: AdjudicatorRegistration | RegisteredAdjudicator): Promise<boolean> {
+  try {
+    if (!record.registration) return false;
+    const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+    if (!same(canonicalKeccak(record.policy), record.policyHash) || !same(canonicalKeccak(record.pool.terms), record.poolTermsHash)) return false;
+    if (!same(registrationBodyHash(record), record.registration.bodyHash)) return false;
+    return await verifyMessage(domain, registrationMessageOf(record), record.address);
+  } catch {
+    return false;
+  }
 }
 
 /** The EIP-712 digest an agent signs for a message, e.g. for a contract or relayer to compare. */

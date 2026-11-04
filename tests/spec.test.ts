@@ -10,7 +10,7 @@ let exampleResults: ReturnType<typeof validateExamplesFresh> | undefined;
 const loadSpec = () => (spec ??= loadSpecFresh());
 const validateExamples = () => (exampleResults ??= validateExamplesFresh(loadSpec()));
 
-const V = 'https://holdback.dev/schemas/v0.9';
+const V = 'https://holdback.dev/schemas/v0.10';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const example = (name: string): any => structuredClone(loadSpec().examples.find((e: { name: string }) => e.name === name).data);
 
@@ -21,6 +21,7 @@ describe('spec/', () => {
     const names = [
       'page', 'operator-status', 'receipt', 'messages.dispute', 'messages.transfer', 'event.fee-operator', 'messages.mutual-settlement', 'event.offered',
       'commitment-state.final', 'commitment.private', 'messages.read-token', 'messages.delegation', 'messages.key-registration', 'disclosure', 'projection',
+      'messages.adjudicator-registration',
     ];
     expect(results.map((r: { file: string }) => r.file)).toEqual(expect.arrayContaining(names.map((n) => `${n}.example.json`)));
   });
@@ -72,10 +73,11 @@ describe('spec/', () => {
   });
 
   // ADR-0023 and ADR-0024: v0.7 and v0.8 were additive and kept the signed encoding at 0.6. ADR-0029: v0.9 changes
-  // EarlyAccept and Decision, so the EIP-712 domain version and commitment.schemaVersion move to 0.7.
-  it('moves every schema $id to v0.9 and the commitment schemaVersion to 0.7', () => {
+  // EarlyAccept and Decision, so the EIP-712 domain version and commitment.schemaVersion move to 0.7. ADR-0030: v0.10
+  // adds AdjudicatorRegistration, a new type, and keeps both at 0.7.
+  it('moves every schema $id to v0.10 and keeps the commitment schemaVersion at 0.7', () => {
     const { schemas, ajv } = loadSpec();
-    for (const id of schemas.values()) expect(id).toMatch(/\/schemas\/v0\.9\//);
+    for (const id of schemas.values()) expect(id).toMatch(/\/schemas\/v0\.10\//);
     const validate = ajv.getSchema(`${V}/commitment.schema.json`);
     const c = example('commitment');
     expect(c.schemaVersion).toBe('0.7');

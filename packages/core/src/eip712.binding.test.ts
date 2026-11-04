@@ -151,6 +151,21 @@ export const fixtures: Record<string, UnsignedMessage> = {
     expiresAt: at,
   },
   KeyRegistration: { type: 'KeyRegistration', adjudicator: C, encryptionPublicKey: 'a2V5Ng', keyId: 'bench-a/2026-11', nonce: h('1c'), expiresAt: at },
+  // ADR-0030: a new type in schema 0.10, so the domain stays 0.7.
+  AdjudicatorRegistration: {
+    type: 'AdjudicatorRegistration',
+    adjudicator: C,
+    encryptionPublicKey: 'a2V5Nw',
+    keyId: 'bench-a/2026-11',
+    policyHash: h('05'),
+    registryHash: h('06'),
+    fee: tusd('25000000'),
+    poolTermsHash: h('1d'),
+    bodyHash: h('1e'),
+    issuedAt: '2026-10-30T10:00:00Z',
+    nonce: h('1f'),
+    expiresAt: at,
+  },
 };
 
 export const terms: CommitmentTerms = {
@@ -208,6 +223,7 @@ const encodeTypePins: Record<string, string> = {
   ReadToken: 'ReadToken(address viewer,bytes32 commitmentId,bool hasAudience,address audience,bytes32 nonce,uint64 expiresAt)',
   Delegation: `Delegation(address principal,address agent,address dealKey,string dealEncryptionKey,string clubId,Scope scope,bytes32 nonce,uint64 expiresAt)Scope(string[] roles,TokenAmount maxPerCommitment,TokenAmount maxDaily,bool hasCategories,string[] categories,uint64 expiresAt)${TOKEN}`,
   KeyRegistration: 'KeyRegistration(address adjudicator,string encryptionPublicKey,string keyId,bytes32 nonce,uint64 expiresAt)',
+  AdjudicatorRegistration: `AdjudicatorRegistration(address adjudicator,string encryptionPublicKey,string keyId,bytes32 policyHash,bytes32 registryHash,TokenAmount fee,bytes32 poolTermsHash,bytes32 bodyHash,uint64 issuedAt,bytes32 nonce,uint64 expiresAt)${TOKEN}`,
   CommitmentTerms:
     'CommitmentTerms(string schemaVersion,string clubId,bytes32 rulebookHash,address buyer,address seller,bytes32 deliverableHash,bytes32 acceptanceHash,TokenAmount price,Adjudication adjudication,Timing timing,Settlement settlement,Remedy remedy,Disclosure disclosure,string buyerEncryptionPublicKey,bytes32 nonce,uint64 createdAt)' +
     'Adjudication(address adjudicator,address fallbackAdjudicator,address appealAdjudicator,string policyId,TokenAmount fee,bytes32 registryHash,bytes32 policyHash)' +
@@ -239,6 +255,7 @@ const digestPins: Record<string, Hex> = {
   ReadToken: '0x8d7e74363e4f5f5adc3a66faaf441f26fe4fe0d8abe21cedf2f8307f27986bf2',
   Delegation: '0xe54275c69e54db3999f5fb1db14340ccb942b507cf50e2b48aa8858dd8232525',
   KeyRegistration: '0x05549f3b21a613695d0e150061bd5e67eb8f433bf59a2eac1738c888eae46e0e',
+  AdjudicatorRegistration: '0xab599c0bcba50a87775692f12518353aeb459cc698db479b713456c5b3e98a38',
   CommitmentTerms: '0x0efe5c62867daa76f58889d43b424ab16d2a4a48fa03aa4511288f9bf9d45d75',
 };
 

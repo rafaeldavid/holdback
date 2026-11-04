@@ -9,7 +9,10 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PROBLEM_TYPES } from '../../packages/core/src/problem.ts';
+import { canonicalKeccak } from '../../packages/core/src/canonical.ts';
+import { holdbackDomain } from '../../packages/core/src/eip712.ts';
 import { testAccount } from '../../apps/operator/src/accounts.ts';
+import { signRegistration } from '../../apps/operator/src/registrations.ts';
 import { simRegistry } from '../../apps/operator/src/registry.ts';
 import { startOperator, statusOf, SCHEMA_VERSION, type RunningOperator } from '../../apps/operator/src/server.ts';
 import { API_PROBLEM_TYPES } from '../../apps/operator/src/problems.ts';
@@ -361,6 +364,20 @@ describe('HTTP contract: every operator response matches spec/openapi.json', () 
     const owed = await http('POST', `${feeNode.url}${paid.path}`, unpaid, key('unpaid'));
     expect([owed.status, owed.body.type, owed.body.fee.amount]).toEqual([402, 'payment_required', '10000']);
     expect((await http('POST', `${feeNode.url}${paid.path}`, paid.body, key('paid'))).body.escrowState).toBe('Held');
+
+    // 7c. An outside adjudicator registers itself (ADR-0030): a demo adjudicator's policy under its own id, signed by
+    // its own key; the node answers the record it now serves.
+    const outside = testAccount('contract/outside-adjudicator');
+    const demoAdj = (await http('GET', `${api}/v1/adjudicators/${primary}`)).body;
+    const outsidePolicy = { ...demoAdj.policy, id: 'outside/p1' };
+    const issuedAt = world.chain.now();
+    const outsideReg = await signRegistration(
+      outside.privateKey,
+      holdbackDomain(31337),
+      { address: outside.address, name: 'Outside adjudicator', encryptionPublicKey: outside.encryptionPublicKey, affiliations: [], policy: outsidePolicy, registry: demoAdj.registry, policyHash: canonicalKeccak(outsidePolicy), fee: demoAdj.fee, status: 'active', pool: { terms: demoAdj.pool.terms }, poolTermsHash: demoAdj.poolTermsHash },
+      { keyId: 'outside/k1', issuedAt, nonce: `0x${'5c'.repeat(32)}`, expiresAt: new Date(Date.parse(issuedAt) + 365 * 86_400_000).toISOString().replace('.000Z', 'Z') as typeof issuedAt },
+    );
+    expect((await http('POST', `${api}/v1/adjudicators`, outsideReg, key('register'))).body.observed.bond).toBe('none');
 
     // 8. Triggers once deadlines pass: an offer nobody agreed to expires; a hold with no delivery is reclaimed.
     const lapsed = await e1.offer(request(e1, e2));

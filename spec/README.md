@@ -12,7 +12,7 @@ Validation as of November 3, 2026 (measured, `pnpm validate:spec`): all 33 examp
 - a model ID containing "latest";
 - an extra field in a judge verdict.
 
-The `$id` URLs (`https://holdback.dev/schemas/v0.9/…`) are namespaces for resolving `$ref` between files. They are not hosted. Replace the domain if the project gets one.
+The `$id` URLs (`https://holdback.dev/schemas/v0.10/…`) are namespaces for resolving `$ref` between files. They are not hosted. Replace the domain if the project gets one.
 
 ## Annotations
 
@@ -20,6 +20,11 @@ The `$id` URLs (`https://holdback.dev/schemas/v0.9/…`) are namespaces for reso
 - **Every free-text string is marked or constrained.** A string with no `date-time` format, pattern, enum or const must carry the marker. URIs count as free text: they are marked and capped at 2048 characters. Identifiers instead get a pattern: club IDs, token IDs, and `Ident` for judge, provider, family, model and version labels. `tests/spec.test.ts` lints this, with an empty allowlist.
 
 ## Changelog
+
+- **v0.10 (2026-11-04, D46, ADR-0030), additive plus one cap:** every `$id`, the `Holdback-Schema-Version` header and the OpenAPI `x-holdback-schema-version` move to 0.10. No existing typed-data struct changes, so the EIP-712 domain version and `commitment.schemaVersion` stay 0.7.
+  - **Messages:** a new `AdjudicatorRegistration`, an adjudicator's self-signed registration: its address, encryption key and `keyId`, `policyHash`, `registryHash`, minimum fee, `poolTermsHash`, `bodyHash` over the rest of its record, and `issuedAt`, which orders one address's registrations. `KeyRegistration` is deprecated: operators take `AdjudicatorRegistration` instead, and the next breaking version removes it.
+  - **Adjudicator record:** an optional `registration` envelope (`keyId`, `bodyHash`, `issuedAt`, `nonce`, `expiresAt`, `signature`), from which a reader rebuilds the signed message. `affiliations` is capped at 100 entries of 120 characters; no registration existed before 0.10, so no stored record breaks.
+  - **Examples:** a new `messages.adjudicator-registration` example; the adjudicator example carries an envelope; 34 examples.
 
 - **v0.9 (2026-11-03, D44, ADR-0029), changes a signed struct:** every `$id`, the `Holdback-Schema-Version` header and the OpenAPI `x-holdback-schema-version` move to 0.9, and so do the EIP-712 domain version and `commitment.schemaVersion`, to 0.7. A 0.6 signature never verifies under 0.7, and a 0.7 deal names the deployment that settles it.
   - **Messages:** `EarlyAccept` and `Decision` gain `deliveryHash` (required, after `attempt`): the EIP-712 struct hash of the seller's delivery without its signature, as `MutualSettlement.deliveryHash` and `delivery.submitted` carry it. Settlement refuses a signature that names any delivery but the posted one, at every role, and a mutual settlement after a delivery likewise.
