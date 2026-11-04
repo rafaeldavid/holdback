@@ -1,5 +1,5 @@
 // SimChain demo paths and guards, end to end through signed submissions (docs/architecture.md postings table).
-import { parseCommitmentState, parseEvent, type Hex32, type ProblemType, type Timestamp } from '@holdback/core';
+import { parseCommitmentState, parseEvent, type Hex32, type ProblemType, type SealedKey, type Timestamp } from '@holdback/core';
 import { encodePacked, keccak256 } from 'viem';
 import { describe, expect, it } from 'vitest';
 import type { Submission, SubmitResult } from '../src/interface.js';
@@ -125,6 +125,17 @@ describe('happy path (demo beats 1-4)', () => {
     expect(await w.refused(w.deal.decide('primary', 'reject', { withKey: true }))).toBe('invalid_terms');
     expect((await w.chain.state(w.deal.id))?.escrowState).toBe('Delivered');
     expect(await w.chain.keysFor(w.deal.id, w.cast.buyer.address)).toEqual([]);
+  });
+
+  it('reads an empty key ciphertext as no key, as the contract does', async () => {
+    // EIP-712 hashes an absent key and an empty one alike, so a relayer can add the empty one to a signed decision.
+    const withEmptyKey = (s: Submission): Submission => (s.kind === 'decide' ? { ...s, message: { ...s.message, keyForBuyer: { scheme: '', ciphertext: '' } as unknown as SealedKey } } : s);
+    const w = await world();
+    await delivered(w);
+    expect(await w.refused(withEmptyKey(await w.deal.decide('primary', 'accept', { withoutKey: true })))).toBe('invalid_terms');
+    const r = await w.ok(withEmptyKey(await w.deal.decide('primary', 'reject')));
+    expect(r.state.escrowState).toBe('Refunded');
+    expect(types(r)).not.toContain('key.released');
   });
 
   it('delivers the key to the buyer, not to a relayer that adds an unsigned recipient to the signed key', async () => {
