@@ -73,7 +73,7 @@ Each rule is paired with the check that enforces it in `docs/team.md` (Rules and
 
 ## How to verify your work
 
-Make results observable before claiming them. Label each claim in reports and PRs as measured, inferred or guessed.
+Make results observable before claiming them. Label each claim in reports and PRs as measured, inferred or guessed. Write every doc, task file, PR, report and console or status message to `docs/writing.md`: active voice, the state first, then the facts and the action, plain words, and units on every number (Rafa, 2026-11-04).
 
 ```
 pnpm install                    # Node 22, pnpm 12 (via corepack)
