@@ -26,9 +26,9 @@ const P = '1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabf
 const flip = (sig: string, at: number, mask = 1): string => sig.slice(0, at) + (parseInt(sig[at]!, 16) ^ mask).toString(16) + sig.slice(at + 1);
 
 describe('the local check: quicknet BLS on G1, RFC 9380 hash to curve (T-217)', () => {
-  it.each(vectors.rounds)('accepts round $round and returns sha256 of its signature, which is the relay randomness', ({ round, signature, randomness }) => {
-    expect(quicknetValue(round, hex(signature))).toBe(hex(randomness));
-    expect(quicknetValue(round, hex(signature))).toBe(sha256(hex(signature)));
+  it.each(vectors.rounds)('accepts round $round and returns sha256 of its signature, which is the relay randomness', async ({ round, signature, randomness }) => {
+    expect(await quicknetValue(round, hex(signature))).toBe(hex(randomness));
+    expect(await quicknetValue(round, hex(signature))).toBe(sha256(hex(signature)));
   });
 
   it.each<[string, number, string]>([
@@ -48,20 +48,27 @@ describe('the local check: quicknet BLS on G1, RFC 9380 hash to curve (T-217)', 
     ['round 0, which drand never signs', 0, round1000.signature],
     ['a negative round', -1000, round1000.signature],
     ['a fractional round', 1000.5, round1000.signature],
-  ])('refuses %s', (_name, round, signature) => {
-    expect(quicknetValue(round, hex(signature))).toBeNull();
+  ])('refuses %s', async (_name, round, signature) => {
+    expect(await quicknetValue(round, hex(signature))).toBeNull();
   });
 
   // noble reduces a compressed x modulo p, so x + p decodes to the real point; DrandQuicknetBeacon refuses x >= p.
-  it('refuses a real signature re-encoded with x + p, which decodes to the same point', () => {
+  it('refuses a real signature re-encoded with x + p, which decodes to the same point', async () => {
     const { signature } = serviceRounds.find((r) => r.round === 33_574_633)!;
-    expect(quicknetValue(33_574_633, hex(signature))).not.toBeNull();
+    expect(await quicknetValue(33_574_633, hex(signature))).not.toBeNull();
     const top = parseInt(signature.slice(0, 2), 16);
     const x = BigInt(`0x${(top & 0x1f).toString(16).padStart(2, '0')}${signature.slice(2)}`) + BigInt(`0x${P}`);
     const wide = x.toString(16).padStart(96, '0');
     expect(BigInt(`0x${wide}`) < 2n ** 381n).toBe(true);
     const reencoded = (parseInt(wide.slice(0, 2), 16) | (top & 0xe0)).toString(16) + wide.slice(2);
-    expect(quicknetValue(33_574_633, hex(reencoded))).toBeNull();
+    expect(await quicknetValue(33_574_633, hex(reencoded))).toBeNull();
+  });
+
+  // The PR 186 review measured about 48 ms of CPU to load the curve module: a Worker's startup must not pay it.
+  it('loads the BLS library on first use, not when the package is imported', () => {
+    const source = readFileSync(new URL('./drand.ts', import.meta.url), 'utf8');
+    expect(source).not.toMatch(/^import [^;]*'@noble\/curves/m);
+    expect(source).toContain("import('@noble/curves/bls12-381')");
   });
 });
 
@@ -124,7 +131,7 @@ describe('neutrality.beacon-relay-refuses (source)', () => {
   it.each([
     ['answers 500', 'refuse', 'HTTP 500'],
     ['stalls past the timeout', 'stall', 'no answer within 50 ms'],
-    ['fails to connect', 'throw', 'no answer within 50 ms'],
+    ['fails to connect', 'throw', 'no connection'],
     ['answers a tampered signature', 'tamper', 'does not prove round 33666095'],
     ['answers another round (as /public/0 answers the latest)', 'other-round', 'round 33666202 in place of round 33666095'],
     ["answers another chain's round", 'other-chain', 'does not prove round 33666095'],

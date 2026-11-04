@@ -172,8 +172,8 @@ function clubRules(c: Club): string | undefined {
 
 /**
  * ADR-0018, T-217: the SimChain beacon is a settlement-layer fact, not a proof. A drand quicknet round carries its
- * 48-byte G1 signature, whose sha256 is the value; the rules contract checks the signature itself. Refused here: what
- * no settlement could accept, so an operator never relays a proof that would burn its relayer's gas.
+ * 48-byte G1 signature, whose sha256 is the value. Refused here: what no settlement could accept. The pairing itself is
+ * checked by the adjudicator before it signs and by the rules contract, not by this parser.
  */
 function beaconRule(b: NonNullable<Decision['beacon']>): string | undefined {
   if (b.source === 'sim') return undefined;

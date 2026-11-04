@@ -401,7 +401,7 @@ export class TestSettlement implements AdjudicatorSettlement {
     const round = beaconRoundFor(c.state, m.role);
     if (round === null) return null;
     if (c.state.beaconSource === 'drand-quicknet') {
-      const value = m.beacon?.signature && m.beacon.round === round ? quicknetValue(round, m.beacon.signature) : null;
+      const value = m.beacon?.signature && m.beacon.round === round ? await quicknetValue(round, m.beacon.signature) : null;
       return value ? { round, value } : null;
     }
     const got = await this.sim.value(round);

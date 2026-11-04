@@ -423,7 +423,7 @@ export class Adjudicator {
     const got = await source.value(round);
     if (!got) return err(problem('seed_mismatch', `beacon round ${round} is not published or not proven yet; waiting (no substitute source)`));
     // A bad proof burns up to 250,000 gas in the contract's pairing check: this service signs only a proof it checked.
-    const proven = source.kind === 'sim' || (source.kind === 'drand-quicknet' && got.signature !== undefined && quicknetValue(round, got.signature) === got.value);
+    const proven = source.kind === 'sim' || (source.kind === 'drand-quicknet' && got.signature !== undefined && (await quicknetValue(round, got.signature)) === got.value);
     if (!proven) return err(problem('seed_mismatch', `the beacon answer does not prove drand quicknet round ${round}; refusing to sign a proof the rules contract would refuse, and waiting (no substitute source)`));
     const beacon = { source: source.kind, round, value: got.value, ...(got.signature ? { signature: got.signature } : {}) };
     return ok({ policy: policyR.value, envelope, seed: panelSeed(id, role, attempt, got.value), beacon, buyerKey, ...(appealKey ? { appealKey } : {}) });

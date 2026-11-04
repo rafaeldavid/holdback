@@ -43,7 +43,7 @@ import { SIM_RULEBOOK, type Genesis } from '@holdback/settlement/sim';
 import { createPublicClient, decodeFunctionData, http, keccak256, sha256, stringToBytes, type Hex } from 'viem';
 import { privateKeyToAccount, sign } from 'viem/accounts';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { drandQuicknet } from './drand.js';
+import { DRAND_RELAYS, drandQuicknet } from './drand.js';
 import { policyHashOf } from './policy.js';
 import type { RandomnessSource } from './randomness.js';
 import { placeholderRegistry, testAdjudicator, type TestAdjudicator } from './test-adjudicator.js';
@@ -113,13 +113,16 @@ describe.skipIf(!forkReady)(`drand quicknet decisions on a Sepolia fork (T-217)$
       });
     });
     // Prague, as Sepolia runs: the drand verifier needs EIP-2537's BLS precompiles.
-    anvil = spawn('anvil', ['--fork-url', forkRpc!, '--hardfork', 'prague', '--host', '127.0.0.1', '--port', String(port), '--block-time', '1', '--silent'], { stdio: 'ignore' });
+    anvil = spawn('anvil', ['--fork-url', forkRpc!, '--hardfork', 'prague', '--host', '127.0.0.1', '--port', String(port), '--block-time', '1', '--silent'], { stdio: ['ignore', 'ignore', 'pipe'] });
+    // A load-balanced public RPC can answer "block not found" for its own head, and anvil then exits: say so.
+    let anvilError = '';
+    anvil.stderr?.on('data', (d) => (anvilError += String(d)));
     rpc = `http://127.0.0.1:${port}`;
     const call = (method: string, params: unknown[]) => fetch(rpc, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) }).then((r) => r.json() as Promise<{ result?: unknown }>);
     // anvil forks over the public RPC, which can take a while to answer.
     let up = false;
     for (let i = 0; i < 400 && !up; i++) up = !!(await call('eth_chainId', []).catch(() => ({ result: undefined }))).result || (await sleep(200), false);
-    if (!up) throw new Error(`anvil did not fork ${forkRpc} within 80 s`);
+    if (!up) throw new Error(`anvil did not fork ${forkRpc} within 80 s${anvilError ? `: ${anvilError.trim().slice(-300)}` : ''}`);
     forkBlock = BigInt((await call('eth_blockNumber', [])).result as string);
     await call('anvil_setBalance', [privateKeyToAccount(RELAYER).address, '0x8ac7230489e80000']);
     shim = await estimateShim(rpc);
@@ -188,6 +191,13 @@ describe.skipIf(!forkReady)(`drand quicknet decisions on a Sepolia fork (T-217)$
     const p = service(primary, counted('primary'));
     const f = service(fallback, counted('fallback'));
     const a = service(appeal, counted('appeal'));
+    /** Passes until the service decides in `role`; a timeout names what the last pass refused. */
+    const decided = async (adj: TestAdjudicator, role: 'fallback' | 'appeal') => {
+      let last: Awaited<ReturnType<TestAdjudicator['runOnce']>> | undefined;
+      await until(`the ${role} decision`, async () => ((last = await adj.runOnce()).decided.some((d) => d.role === role) ? true : undefined)).catch((e: Error) => {
+        throw new Error(`${e.message}; the last pass refused: ${JSON.stringify(last?.refused.map((r) => r.problem.detail.slice(0, 300)))}`);
+      });
+    };
 
     // Offer, acceptance, agreement and funding, and the sealed delivery; then the primary stays silent.
     const now = wholeSecond(Date.now());
@@ -231,14 +241,22 @@ describe.skipIf(!forkReady)(`drand quicknet decisions on a Sepolia fork (T-217)$
 
     // The fallback takes over at judgeBy and decides from the quicknet round at judgeBy, which the contract verifies.
     const judgeByRound = beaconRoundAt(DRAND_QUICKNET, Date.parse(terms.timing.judgeBy) / 1000);
-    await until('the fallback decision', async () => ((await f.runOnce()).decided.some((d) => d.role === 'fallback') ? true : undefined));
+    await decided(f, 'fallback');
     const released = evm.escrowState(id);
     expect(released?.kind).toBe('Released');
     const first = released?.kind === 'Released' && released.via.kind === 'first_instance' ? released.via.decision : (undefined as never as Decision);
     expect(first.role).toBe('fallback');
     expect(first.beacon).toMatchObject({ source: 'drand-quicknet', round: judgeByRound });
     expect(first.beacon!.value).toBe(sha256(first.beacon!.signature!));
-    console.log(`fallback decision: round ${judgeByRound}, ${relayRequests.get('fallback')!.length} relay request(s): ${relayRequests.get('fallback')!.join(', ')}`);
+    // Every request asks for the fixed round, never `latest` or another; one when the first relay answers (logged).
+    const asked = (who: string, round: number) => {
+      const urls = relayRequests.get(who)!;
+      expect(urls.length).toBeGreaterThanOrEqual(1);
+      expect(urls.length).toBeLessThanOrEqual(DRAND_RELAYS.length);
+      for (const u of urls) expect(u).toMatch(new RegExp(`/${DRAND_QUICKNET_CHAIN_HASH.slice(2)}/public/${round}$`));
+      console.log(`${who} decision: round ${round}, ${urls.length} relay request(s): ${urls.join(', ')}`);
+    };
+    asked('fallback', judgeByRound);
 
     // The buyer appeals. A service whose source returns a tampered proof refuses before any transaction.
     const appealBody = { commitmentId: id, appellant: 'buyer' as const, appellantAddress: buyer.address, grounds: 'wrong-outcome', bond: amount(0n), filedAt: evm.now() };
@@ -275,12 +293,12 @@ describe.skipIf(!forkReady)(`drand quicknet decisions on a Sepolia fork (T-217)$
     registrations.set(a.address, { ...a.registration(), pool: {} as never, poolTermsHash: `0x${'00'.repeat(32)}`, status: 'active' });
 
     // The honest appeal adjudicator decides from the first quicknet round after the filing.
-    await until('the appeal decision', async () => ((await a.runOnce()).decided.some((d) => d.role === 'appeal') ? true : undefined));
+    await decided(a, 'appeal');
     const after = evm.escrowState(id);
     const upheld = after?.kind === 'Released' && after.via.kind === 'first_instance' && after.via.appeal.kind === 'upheld' ? after.via.appeal.decision : (undefined as never as Decision);
     expect(upheld.role).toBe('appeal');
     expect(upheld.beacon).toMatchObject({ source: 'drand-quicknet', round: appealRound });
-    console.log(`appeal decision: round ${appealRound}, ${relayRequests.get('appeal')!.length} relay request(s): ${relayRequests.get('appeal')!.join(', ')}`);
+    asked('appeal', appealRound);
 
     // Every call to the rules contract since the fork, with its gas on the fork (anvil prices by Prague).
     const calls: string[] = [];

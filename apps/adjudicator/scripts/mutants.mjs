@@ -23,7 +23,7 @@ const MUTANTS = [
   ['drand', 'the service rounds on the sim clock for a drand commitment (T-217)', A('service.ts'), 'roundFor(role, fixedAt, source.clock)', 'roundFor(role, fixedAt, { genesis: 1, period: 1 })'],
   ['drand', 'the service signs a proof it did not check (T-217)', A('service.ts'), "const proven = source.kind === 'sim' || (source.kind === 'drand-quicknet' && got.signature !== undefined && quicknetValue(round, got.signature) === got.value);", 'const proven = true;'],
   ['drand', 'the Decision drops the proof (T-217)', A('service.ts'), ', ...(got.signature ? { signature: got.signature } : {}) };', ' };'],
-  ['drand', 'the BLS pairing not checked (T-217)', A('drand.ts'), '    if (!bls12_381.verifyShortSignature(point, message, groupKey(), { DST: QUICKNET_DST })) return null;\n', ''],
+  ['drand', 'the BLS pairing not checked (T-217)', A('drand.ts'), '    if (!bls.verifyShortSignature(point, message, groupKey, { DST: QUICKNET_DST })) return null;\n', ''],
   ['drand', 'a non-canonical x (x >= p) accepted (T-217)', A('drand.ts'), " >= P) return null;", ' >= P * 2n) return null;'],
   ['drand', 'the value taken from the relay, not sha256 of the signature (T-217)', A('drand.ts'), 'return value ? { value, signature } :', 'return value ? { value: `0x${String((body as { randomness?: unknown }).randomness)}` as Hex32, signature } :'],
   ["drand", "the answer's round not checked (T-217)", A('drand.ts'), 'if (body.round !== round) return', 'if (false) return'],

@@ -241,7 +241,7 @@ Status (2026-11-03, measured against `fixtures/scenarios/` and `pnpm snap`): **e
 | `neutrality.buyer-silent` | 7 | 1 | exists |
 | `neutrality.seller-withholds-delivery` | 2 | 1 | exists (the planned `reclaim-no-delivery`) |
 | `todo.provider-outage` | 7 | 1 | todo (becomes `neutrality.provider-outage`) |
-| `neutrality.beacon-relay-refuses` | — | 2 | exists as a named test, not a fixture (T-217): `apps/adjudicator/src/drand.test.ts` and `service.test.ts`. One relay refuses or lies and the next is used; when all refuse, no decision is signed and the next pass retries |
+| `neutrality.beacon-relay-refuses` | — | 2 | exists as a named test, not a fixture (T-217): `apps/adjudicator/src/drand.test.ts` and `service.test.ts`. When one relay refuses or lies, the source asks the next; when all refuse, the service signs nothing and tries again at a later pass |
 | `todo.beacon-unavailable-whole-window` | — | records residual 10 | planned |
 | `neutrality.onramp-refuses` | — | 5 | planned (with the funding service, ADR-0026) |
 | `panel-disagreement-escalates` | 3 | 1 | exists |

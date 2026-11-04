@@ -11,8 +11,8 @@
 //   `randomness` field is never read.
 // - A relay that refuses, stalls, lies or lags is skipped for the next. When none proves the round the value is null and
 //   the service waits for its next pass: nothing stands in, not another round, not a supplied value (ADR-0018 §5).
+// Bounding what a relay outage or a lying relay costs a pass is security hardening, Phase 11 (T-223).
 import { beaconRoundAt, DRAND_QUICKNET, DRAND_QUICKNET_CHAIN_HASH, type Hex32, type Timestamp } from '@holdback/core';
-import { bls12_381 } from '@noble/curves/bls12-381';
 import { numberToBytes, sha256, type Hex } from 'viem';
 import type { BeaconRound, RandomnessSource } from './randomness.js';
 
@@ -27,32 +27,35 @@ export const QUICKNET_PUBLIC_KEY =
 export const QUICKNET_DST = 'BLS_SIG_BLS12381G1_XMD:SHA-256_SSWU_RO_NUL_';
 
 /** p, the BLS12-381 base field modulus: a compressed x at or above it is not canonical, and the contract refuses it. */
-const P = bls12_381.fields.Fp.ORDER;
+const P = 0x1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaabn;
 const SIGNATURE = /^0x[0-9a-f]{96}$/;
 /** Proven rounds kept per source: rounds never change, so a retry of the same decision asks no relay again. */
 const KEEP = 256;
 
-// Decoded on first use, not at import: a Worker's startup has a CPU budget.
-let publicKey: InstanceType<typeof bls12_381.G2.ProjectivePoint> | undefined;
-const groupKey = () => (publicKey ??= bls12_381.G2.ProjectivePoint.fromHex(QUICKNET_PUBLIC_KEY));
+type Bls = typeof import('@noble/curves/bls12-381').bls12_381;
+// Loaded on first use, not at import: the module costs about 48 ms of CPU to load (measured, PR 186 review), and
+// every Worker that imports this package, the operators' included, has a startup CPU budget.
+let curve: Promise<{ bls: Bls; groupKey: InstanceType<Bls['G2']['ProjectivePoint']> }> | undefined;
+const loaded = () => (curve ??= import('@noble/curves/bls12-381').then(({ bls12_381 }) => ({ bls: bls12_381, groupKey: bls12_381.G2.ProjectivePoint.fromHex(QUICKNET_PUBLIC_KEY) })));
 
 /**
  * The value of drand quicknet round `round`, sha256(signature), when `signature` is that round's BLS signature under
  * quicknet's group key; null for anything else. The same checks as DrandQuicknetBeacon.beaconValue.
  */
-export function quicknetValue(round: number, signature: string): Hex32 | null {
+export async function quicknetValue(round: number, signature: string): Promise<Hex32 | null> {
   if (!Number.isSafeInteger(round) || round < 1 || !SIGNATURE.test(signature)) return null;
   const top = parseInt(signature.slice(2, 4), 16);
   // ZCash flags: compressed set, infinity clear; x is the remaining 381 bits and must be below p.
   if ((top & 0x80) === 0 || (top & 0x40) !== 0) return null;
   if (BigInt(`0x${(top & 0x1f).toString(16).padStart(2, '0')}${signature.slice(4)}`) >= P) return null;
+  const { bls, groupKey } = await loaded();
   try {
-    const point = bls12_381.G1.ProjectivePoint.fromHex(signature.slice(2));
+    const point = bls.G1.ProjectivePoint.fromHex(signature.slice(2));
     // On the curve and in the prime-order subgroup G1.
     point.assertValidity();
-    if (point.equals(bls12_381.G1.ProjectivePoint.ZERO)) return null;
+    if (point.equals(bls.G1.ProjectivePoint.ZERO)) return null;
     const message = sha256(numberToBytes(BigInt(round), { size: 8 }), 'bytes');
-    if (!bls12_381.verifyShortSignature(point, message, groupKey(), { DST: QUICKNET_DST })) return null;
+    if (!bls.verifyShortSignature(point, message, groupKey, { DST: QUICKNET_DST })) return null;
   } catch {
     return null;
   }
@@ -94,7 +97,8 @@ export function drandQuicknet(o: DrandOptions = {}): RandomnessSource {
     try {
       res = await get(`${relay}/${chainHash.slice(2)}/public/${round}`, { signal: AbortSignal.timeout(timeoutMs), headers: { accept: 'application/json' } });
     } catch (e) {
-      return `no answer within ${timeoutMs} ms (${String((e as Error)?.message ?? e).slice(0, 80)})`;
+      const why = (e as Error)?.name === 'TimeoutError' ? `no answer within ${timeoutMs} ms` : 'no connection';
+      return `${why} (${String((e as Error)?.message ?? e).slice(0, 80)})`;
     }
     if (res.status === 425 || res.status === 404) return `round ${round} not published there yet (HTTP ${res.status})`;
     if (!res.ok) return `HTTP ${res.status}`;
@@ -104,10 +108,10 @@ export function drandQuicknet(o: DrandOptions = {}): RandomnessSource {
     } catch {
       return 'a body that is not JSON';
     }
-    if (body.round !== round) return `round ${String(body.round)} in place of round ${round}`;
+    if (body.round !== round) return `round ${String(body.round).slice(0, 24)} in place of round ${round}`;
     if (typeof body.signature !== 'string') return 'no signature';
     const signature = `0x${body.signature.toLowerCase()}` as Hex;
-    const value = quicknetValue(round, signature);
+    const value = await quicknetValue(round, signature);
     return value ? { value, signature } : `a signature that does not prove round ${round} under the quicknet key`;
   }
 
@@ -123,7 +127,7 @@ export function drandQuicknet(o: DrandOptions = {}): RandomnessSource {
       for (const relay of relays) {
         const answer = await ask(relay, round);
         if (typeof answer === 'string') {
-          log(`drand ${new URL(relay).host}: ${answer}; trying the next relay`);
+          log(`drand ${relay}: ${answer}; trying the next relay`);
           continue;
         }
         if (proven.size >= KEEP) proven.delete(proven.keys().next().value!);
