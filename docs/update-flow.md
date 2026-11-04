@@ -77,5 +77,5 @@ A change to one part of Crow often means another part must change too. This page
 
 ## Not modeled yet
 
-- Judgment (`packages/judgment/`, `apps/adjudicator/`, `config/judges*.yaml`), the core types and SDK (`packages/core/`, `packages/sdk/`), the agent rules and gates (`CLAUDE.md`, `AGENTS.md`, `.claude/`, `agent-ops/`), fixtures and snapshots, and the formal model.
+- Judgment (`packages/judgment/`, `apps/adjudicator/`, `config/judges*.yaml`), the core types and the internal SDK (`packages/core/`, `packages/sdk/`), the agent rules and gates (`CLAUDE.md`, `AGENTS.md`, `.claude/`, `agent-ops/`), fixtures and snapshots, and the formal model.
 - The console's radar and stream read every area's git history. Only flows that carry content are listed here.

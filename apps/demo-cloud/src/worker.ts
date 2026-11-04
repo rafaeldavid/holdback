@@ -56,7 +56,7 @@ export interface Env {
  * stored journal unreplayable (v0.8's rulebook hash refused v0.7's offers), a new deployment needs a new chain world,
  * and the old world's storage stays for a rollback.
  */
-const WORLD_NAMES = { sim: 'holdback-public-demo-2026-11-02', sepolia: 'holdback-public-demo-sepolia-2026-11-03' } as const;
+const WORLD_NAMES = { sim: 'holdback-public-demo-2026-11-04', sepolia: 'holdback-public-demo-sepolia-2026-11-04' } as const;
 type Settlement = keyof typeof WORLD_NAMES;
 const NODE = 'x-holdback-node';
 const ORIGIN = 'x-holdback-origin';

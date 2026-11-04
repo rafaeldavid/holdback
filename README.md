@@ -103,7 +103,7 @@ As of 2026-11-04:
 | `packages/core/` | Types, the state machine, EIP-712 types, money and timing rules, envelope encryption |
 | `packages/settlement/` | The `Settlement` interface, SimChain (`sim/`) and the EVM implementation (`evm/`) |
 | `packages/judgment/` | Intake, declarative checks, the screen, providers, panel selection, aggregation |
-| `packages/sdk/` | An internal client for the demo and tests (failover, direct submit); not published |
+| `packages/sdk/` | The internal SDK: used by the operator, the demo and the tests (failover, direct submit); not published |
 | `packages/testkit/` | The `pnpm snap` scenario runner |
 | `contracts/` | Foundry: `HoldbackRules`, `HoldbackBonds`, the drand beacon verifier, and their tests |
 | `formal/` | The TLA+ model of the commitment state machine |
