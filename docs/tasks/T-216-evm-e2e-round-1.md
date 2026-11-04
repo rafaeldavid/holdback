@@ -242,21 +242,7 @@ Fill this in before review. Label each item measured, inferred or guessed.
 
     T-212's smoke deal on this deployment measured fund 938,593, deliver 173,119 and decide 524,530 (its Handoff). The same calls on anvil cost far less (funding 283,271, deliver about 83,500, decide about 136,000); the gap is not explained yet.
   - **Found on Sepolia** (backlog row, Settlement layer): a relayed `deliver` landed on chain without either operator logging it. In deal `0xf0453986…`, the operators' relayer lane `0x5e7f1a8c…3243` sent `deliver` in [`0x64c5c757…caf1`](https://sepolia.etherscan.io/tx/0x64c5c757d4af4fd9b40850435eefffacdabe184835bad79b36282f7addd0caf1) (block 12,064,917), between its own `agreeAndFund` (block 12,064,916) and `decide` (block 12,064,918). Neither operator's log has the deal's `delivery.submitted` or the key release to the primary, yet the primary decided [measured: both operators' events and the chain logs, read with `RoundChain`]. Likely cause [inferred from `packages/settlement/evm/evm-settlement.ts`, `send`]: after the receipt, the adapter sets the book's state, then reads `dealOf` at the latest block through one of several RPCs (`worker.ts`, keyed and public). A node one block behind answers the old stage, the divergence check throws, and the step's events are never emitted, while the book already holds the delivery the primary then judges.
-  - **Fixed on main, 2026-11-04** ([PR 200](https://github.com/rafaeldavid/holdback/pull/200)): `send` now reads `dealOf` and `deliveryHashOf` at the receipt's block, and tries a failed read again, five tries over 7.5 s. The deployed operators (`dd0a55a`) set the book's state before the latest-block read, as inferred above [measured: the code at `dd0a55a`]. A new anvil test lags the node that answers each read by one block. On main it fails with "EVM/core divergence after deliver: the contract is Held, core is Delivered"; with the fix it passes [measured]. The fix is live only after T-220's deploy.
-
-    `pnpm verify` on PR 200's branch at `110c984`, 2026-11-04 21:37 UTC: PASS, no snapshot diffs against HEAD [measured: `reports/verify-t-216-receipt-block-reads.md`]. `pnpm test` ran 117 files and 2,657 tests; 1 file and 4 tests were skipped, the suites that need `SEPOLIA_FORK_RPC` [inferred from their skip conditions].
-
-    | Step | Command | Status | Time |
-    | --- | --- | --- | --- |
-    | typecheck | `pnpm typecheck` | pass | 7,764 ms |
-    | lint | `pnpm lint` | pass | 4,958 ms |
-    | forge build | `forge build --root contracts` | pass | 1,367 ms |
-    | forge | `forge test --root contracts` | pass | 18,425 ms |
-    | test | `pnpm test` | pass | 172,121 ms |
-    | spec | `pnpm validate:spec` | pass | 604 ms |
-    | snap | `pnpm snap` | pass | 9,514 ms |
-    | snap:local | `pnpm snap --settlement=local` | pass | 17,248 ms |
-    | demo | `pnpm demo` | pass | 4,197 ms |
+  - **Fixed on main, 2026-11-04** (T-226, [PR 200](https://github.com/rafaeldavid/holdback/pull/200)): after a relayed call's receipt, the adapter checks `dealOf` and `deliveryHashOf` at the receipt's block and tries a lagging read again; `LiveChain` asks again for a block's time that a node does not serve yet. The deployed operators (`dd0a55a`) set the book's state before a latest-block read, as inferred above [measured: the code at `dd0a55a`]. On anvil, a node that lags the receipt by a block makes main's code throw the divergence this cause predicts; with the fix the delivery's events are served [measured, T-226 Evidence]. The fix is live only after T-220's deploy.
   - **Not reproduced on Sepolia:** the anvil-only 500 on `appeal-expiry` (both deals' expiries went through the API). The demo primary did not close either window itself before the round did.
   - **Finality:** not yet re-read; Rafa runs `finality` on the folder above about 20 minutes after the run.
   - Scenario 1 does not pass under the pass rule yet, and this run predates T-220's deploy; both scenarios run again on T-220's Worker versions.
