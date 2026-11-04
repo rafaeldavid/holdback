@@ -6,10 +6,11 @@ import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 /// @title HoldbackBonds
 /// @notice Phase 2 bond custody primitives: an adjudicator deposits its own bond, the rules contract
 ///         encumbers and releases it per commitment, and the adjudicator withdraws only what is unencumbered.
-///         Appeal bonds are held per commitment until the appeal closes.
+///         Appeal bonds are held per commitment until the appeal closes. An overturned decision is paid from the
+///         decider's encumbered bond.
 /// @dev No owner, pause or upgrade path. The only privileged caller is RULES, the HoldbackRules contract that
-///      deployed this one: a fixed code address, not a key. Coverage ratios, backers, overturn payouts and default
-///      compensation are Phase 4 (docs/plan.md).
+///      deployed this one: a fixed code address, not a key. Coverage ratios, backers and default compensation are
+///      Phase 4 (docs/plan.md).
 contract HoldbackBonds {
     using SafeTransferLib for address;
 
@@ -32,6 +33,9 @@ contract HoldbackBonds {
     event BondReleased(address indexed adjudicator, address indexed token, uint256 amount);
     event AppealBondHeld(bytes32 indexed commitmentId, address indexed appellant, uint256 amount);
     event AppealBondPaid(bytes32 indexed commitmentId, address indexed to, bool toBond, uint256 amount);
+    event BondSlashed(
+        bytes32 indexed commitmentId, address indexed adjudicator, address indexed to, address token, uint256 amount
+    );
 
     error NotRules();
     error InsufficientFreeBond(uint256 free, uint256 needed);
@@ -77,6 +81,15 @@ contract HoldbackBonds {
     function release(address adjudicator, address token, uint256 amount) external onlyRules {
         encumberedOf[adjudicator][token] -= amount;
         emit BondReleased(adjudicator, token, amount);
+    }
+
+    /// @notice Pays `amount` of `adjudicator`'s bond, encumbered for commitment `id`, to `to`: the overturn payout in
+    ///         guaranteed mode (ADR-0007). The bond and its encumbrance both shrink by the amount.
+    function slash(bytes32 id, address adjudicator, address token, uint256 amount, address to) external onlyRules {
+        encumberedOf[adjudicator][token] -= amount;
+        bondOf[adjudicator][token] -= amount;
+        emit BondSlashed(id, adjudicator, to, token, amount);
+        token.safeTransfer(to, amount);
     }
 
     /// @notice Pulls an appellant's bond (ERC-20 allowance to this vault) and holds it for the commitment.

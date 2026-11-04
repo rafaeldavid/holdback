@@ -175,7 +175,7 @@ Recorded as D37 in `docs/decisions-today.md`.
 6. **Early accept is allowed from `Held`** (delivery carried).
 7. **Seeds and the beacon.** The fallback and appeal beacon value is not verified (BLS deferred). The round arithmetic is `(t - genesis) / period`, set at deployment; SimChain uses `floor(ms / 1000)`.
 8. **Reservations at takeover are all or nothing** (SimChain reserves up to what is free). *Since T-206 M-3 (PR #135), the contract reserves nothing at takeover. The fallback's decision encumbers its bond, and an uncovered fallback cannot decide.*
-9. **Default** is one call with no bond compensation. There are no overturn payouts. The appeal fee is not collected, and the appeal bond amount is not checked against the rulebook rate.
+9. **Default** is one call with no bond compensation. There are no overturn payouts. The appeal fee is not collected, and the appeal bond amount is not checked against the rulebook rate. *Update 2026-11-03 (D43, T-212):* overturn payouts are built and match SimChain; the rest of this difference stands.
 10. **Mutual settlement.**
     - The rulebook's `allowed` and `payoutsTo` are not checked, and the fee share is fixed at 0 bps (the Phase 1 default).
     - `deliveryHash` is not compared with a stored delivery, because none is stored; the co-signature binds it.

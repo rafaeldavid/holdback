@@ -151,6 +151,15 @@ contract RulesInvariants is Test {
         assertEq(h.strangerSuccess(), 0, h.lastViolation());
     }
 
+    /// Appeals are backed by the bond (formal model DecideAppeal, T-206 I-8): an overturn pays the wronged party the
+    /// price from the first decider's bond; an upheld appeal moves only the forfeited appeal bond into that bond. Only
+    /// the party the decision went against files an appeal (T-206 L-7).
+    /// forge-config: default.invariant.runs = 256
+    /// forge-config: default.invariant.depth = 100
+    function invariant_overturnPaysFromTheBond() public view {
+        assertEq(h.overturnMispaid(), 0, h.lastViolation());
+    }
+
     /// The buyer's key only with payment (formal model KeyOnlyWithPayment, ADR-0012): no decision releases it on a
     /// deal that does not stand Released (T-206 H-2).
     /// forge-config: default.invariant.runs = 256

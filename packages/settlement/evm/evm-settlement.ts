@@ -179,7 +179,10 @@ export interface DecodedLog {
   args: Record<string, unknown>;
 }
 
-/** The settlement event types one call's logs produce, in log order. A party appeal's decision is appeal.decided. */
+/**
+ * The settlement event types one call's logs produce, in log order. A party appeal's decision is appeal.decided,
+ * then bond.slashed when it overturns (the first decider's bond pays the wronged party, T-206 I-8).
+ */
 export function eventTypesFor(call: string, logs: readonly DecodedLog[]): Array<{ type: SettlementEventType; log: DecodedLog | null }> {
   const appealClosed = call === 'decide' && logs.some((l) => l.eventName === 'AppealClosed');
   const table = LOG_TYPES[call] ?? {};
@@ -187,6 +190,7 @@ export function eventTypesFor(call: string, logs: readonly DecodedLog[]): Array<
   for (const l of logs) {
     if (appealClosed) {
       if (l.eventName === 'AppealClosed') out.push({ type: 'appeal.decided', log: l });
+      else if (l.eventName === 'BondSlashed') out.push({ type: 'bond.slashed', log: l });
       else if (l.eventName === 'KeyReleased') out.push({ type: 'key.released', log: l });
       continue;
     }
@@ -1072,6 +1076,12 @@ export class EvmSettlement implements Settlement {
         const envelope = { recipient: getAddress(a.recipient), scheme: a.scheme, ciphertext: a.ciphertext } as EncryptedKey;
         book.released.push(envelope);
         this.emit(type, id, actor, via, { recipient: envelope.recipient, envelope, path: KEY_PATHS[a.path] ?? String(a.path), ...tx }, true, blockAt);
+      } else if (type === 'bond.slashed' && log) {
+        // SimChain's payFromBond: the adjudicator's own bond is the junior tranche; backers (senior) are Phase 4.
+        // event.schema.json's BondMovement is closed, so this payload carries no chain fields; the appeal.decided
+        // event just before it names the same transaction.
+        const a = log.args as { adjudicator: Address; amount: bigint };
+        this.emit(type, id, 'anyone', via, { adjudicator: getAddress(a.adjudicator), junior: this.amount(a.amount), senior: this.amount(0n), reason: 'overturn' }, true, blockAt);
       } else {
         this.emit(type, id, actor, via, { ...this.payloadOf(type, before, after, ctx), ...tx }, true, blockAt);
       }

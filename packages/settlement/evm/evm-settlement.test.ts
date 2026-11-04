@@ -200,6 +200,25 @@ describe.skipIf(!ready)(`EvmSettlement on anvil${ready ? '' : ' (SKIPPED: needs 
     expect(await at.chain.tokenBalance(at.cast.buyer.address)).toBe(100_000_000_000n);
   }, 60_000);
 
+  it('an overturned accept pays the buyer the price from the primary’s bond, as SimChain reports it (T-206 I-8)', async () => {
+    const { chain, cast, club } = await newSettlement(world);
+    const [b0, s0, p0] = [await chain.tokenBalance(cast.buyer.address), await chain.tokenBalance(cast.seller.address), await chain.bondOf(cast.primary.address)];
+    const id = await PATHS['party appeal (accept, buyer appeals, overturned)']!(chain, cast, club);
+    expect((await chain.stage(id)).appeal).toBe(3); // HoldbackRules.AppealState.Overturned
+    // The buyer paid price + fee, got its appeal bond back and the price from the bond: it is down only the fee.
+    expect(b0 - (await chain.tokenBalance(cast.buyer.address))).toBe(50_000_000n);
+    expect((await chain.tokenBalance(cast.seller.address)) - s0).toBe(2_000_000_000n);
+    expect(p0 - (await chain.bondOf(cast.primary.address))).toBe(2_000_000_000n);
+    const log = chain.log();
+    const decided = log.findIndex((e) => e.type === 'appeal.decided');
+    expect(log.slice(decided).map((e) => e.type)).toEqual(['appeal.decided', 'bond.slashed']);
+    const slashed = log[decided + 1]!;
+    expect(slashed.actor).toBe('anyone');
+    // Exactly SimChain's payload: event.schema.json's BondMovement is closed, so no chain fields ride on it.
+    expect(slashed.payload).toEqual({ adjudicator: cast.primary.address, junior: { token: expect.any(String), amount: '2000000000' }, senior: { token: expect.any(String), amount: '0' }, reason: 'overturn' });
+    expect(await chain.replayCheck()).toMatchObject({ ok: true });
+  }, 120_000);
+
   // Gas per deal (D4), one test per path so a slow path names itself. Each runs a warm-up deal and then the path.
   const SETTLES: Record<string, { calls: string[]; finalState: string }> = {
     'happy path (decision carries the delivery)': { calls: ['agreeAndFund', 'decide'], finalState: 'Released' },
@@ -208,7 +227,8 @@ describe.skipIf(!ready)(`EvmSettlement on anvil${ready ? '' : ' (SKIPPED: needs 
     'reclaim (nothing delivered)': { calls: ['agreeAndFund', 'reclaim'], finalState: 'Refunded' },
     'early accept (delivery carried)': { calls: ['agreeAndFund', 'earlyAccept'], finalState: 'Released' },
     'mutual settlement (70/30, before delivery)': { calls: ['agreeAndFund', 'mutualSettle'], finalState: 'Settled' },
-    'party appeal (reject, buyer appeals, upheld)': { calls: ['agreeAndFund', 'decide', 'fileAppeal', 'decide'], finalState: 'Refunded' },
+    'party appeal (reject, seller appeals, upheld)': { calls: ['agreeAndFund', 'decide', 'fileAppeal', 'decide'], finalState: 'Refunded' },
+    'party appeal (accept, buyer appeals, overturned)': { calls: ['agreeAndFund', 'decide', 'fileAppeal', 'decide'], finalState: 'Released' },
     'escalation, then the appeal adjudicator decides': { calls: ['agreeAndFund', 'decide', 'decide'], finalState: 'Released' },
     'fallback (primary silent, fallback accepts)': { calls: ['agreeAndFund', 'deliver', 'triggerFallback', 'decide'], finalState: 'Released' },
     'default (primary and fallback silent)': { calls: ['agreeAndFund', 'deliver', 'triggerFallback', 'triggerDefault'], finalState: 'Refunded' },

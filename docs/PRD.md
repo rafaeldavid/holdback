@@ -114,7 +114,7 @@ Agreed terms bind; the buyer carries the burden of acceptance. The buyer accepts
 
 ### Appeals and adjudicators
 
-- **FR-16** Either party may appeal within the appeal window by posting a bond. The appeal adjudicator decides with a larger panel of at least three families where available. A missing or wrong content key is an appeal ground. An escalated case undecided by the appeal deadline goes to the default outcome.
+- **FR-16** The party a first-instance decision went against may appeal it within the appeal window by posting a bond (D43); an overturn pays the wronged party from the first adjudicator's bond. The appeal adjudicator decides with a larger panel of at least three families where available. A missing or wrong content key is an appeal ground. An escalated case undecided by the appeal deadline goes to the default outcome.
 - **FR-17** Adjudicators post bonds. An overturned decision pays the wronged party from the bond. A bond below the coverage ratio blocks new assignments. In guaranteed mode the ratio is 100% per commitment still open to appeal.
 - **FR-18** Settlement modes, chosen per commitment: `guaranteed_on_decision` (Phase 1), `settle_after_window` (Phase 4) and, if ADR-0015 is accepted, `optimistic` (release at `disputeBy` unless the buyer disputes).
 

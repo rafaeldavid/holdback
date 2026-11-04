@@ -84,10 +84,22 @@ export const PATHS: Record<string, (chain: EvmSettlement, cast: EvmCast, club: A
     await must(chain, cast, d.mutual(1_400_000_000n, false));
     return d.id;
   },
-  'party appeal (reject, buyer appeals, upheld)': async (chain, cast, club) => {
+  // Only the party the decision went against appeals (T-206 L-7): after a reject, the seller.
+  'party appeal (reject, seller appeals, upheld)': async (chain, cast, club) => {
     const d = await funded(chain, cast, club, 'appeal');
     await carried(chain, d);
     await must(chain, cast, d.decide('primary', 'reject'));
+    await must(chain, cast, d.appealBy('seller', 100_000_000n));
+    const openedAt = Math.floor(Date.parse(chain.now()) / 1000) - 1;
+    chain.advance(2);
+    await must(chain, cast, d.decide('appeal', 'reject', openedAt + 1));
+    return d.id;
+  },
+  // The first decider's bond pays the buyer the price (T-206 I-8).
+  'party appeal (accept, buyer appeals, overturned)': async (chain, cast, club) => {
+    const d = await funded(chain, cast, club, 'overturn');
+    await carried(chain, d);
+    await must(chain, cast, d.decide('primary', 'accept'));
     await must(chain, cast, d.appealBy('buyer', 100_000_000n));
     const openedAt = Math.floor(Date.parse(chain.now()) / 1000) - 1;
     chain.advance(2);

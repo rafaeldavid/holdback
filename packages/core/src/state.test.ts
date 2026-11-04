@@ -456,6 +456,9 @@ const illegal: Illegal[] = [
   ['appealing at appealBy', toReleased, ev.fileAppeal(T.appealBy), 'deadline_passed'],
   ['appealing twice', toAppealOpen, ev.fileAppeal(), 'invalid_state'],
   ['appealing as the buyer from the seller address', toReleased, ev.fileAppeal(T.appealFiled, { appellantAddress: seller }), 'invalid_signature'],
+  // T-206 L-7: only the party the decision went against appeals.
+  ['appealing an accept as the seller it favoured', toReleased, ev.fileAppeal(T.appealFiled, { appellant: 'seller', appellantAddress: seller }), 'invalid_terms'],
+  ['appealing a reject as the buyer it refunded', toRefunded, ev.fileAppeal(T.appealFiled, { appellant: 'buyer', appellantAddress: buyer }), 'invalid_terms'],
   ['an appeal decision with no appeal open', toReleased, ev.decide('appeal', 'reject', T.appealFiled), 'invalid_state'],
   ['an appeal decision by the primary', toAppealOpen, ev.decide('primary', 'reject', T.appealDecided), 'not_your_turn'],
   ['an appeal decision at appealDecideBy', toAppealOpen, ev.decide('appeal', 'reject', T.appealDecideBy), 'deadline_passed'],
