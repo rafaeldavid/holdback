@@ -131,6 +131,7 @@ Fill this in before review. Label each item measured, inferred or guessed.
   - `examples/e2e-keys.test.ts`: 4 passed [measured]. One distinct key per role, derived the same every time. A malformed secret is refused. `init` on a temporary file writes one secret, shows neither the secret nor a key, creates the file readable by its owner only (0600), prints the master derived from what it wrote, and refuses a second run without writing again. `address` prints every role's address from the environment and refuses without the secret. The tests never touch `.env`.
   - `pnpm exec vitest run examples`: 44 passed. `eslint` and `tsc -b examples` are clean. `node site/check.mjs` passes [measured].
   - **The secret exists (2026-11-04).** Rafa ran `init` on his `.env`, and the round's master is `0x6D4cEa33dAf09Ba803238d46392162d41BDB029f` (https://sepolia.etherscan.io/address/0x6D4cEa33dAf09Ba803238d46392162d41BDB029f). Rafa funds it from faucets, about 0.2 Sepolia ETH; the other five addresses are topped up from it [measured: his terminal's output].
+  - **The master is funded:** 2.5 Sepolia ETH at block 12,061,679 on 2026-11-04 [measured: `eth_getBalance` through publicnode]. That is well above the 0.2 the round needs [guessed], so the round can run more than once without another top-up.
 
 ## Decisions
 
