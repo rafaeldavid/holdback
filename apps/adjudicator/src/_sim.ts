@@ -231,7 +231,7 @@ export class TestSettlement implements AdjudicatorSettlement {
       if (s.kind === 'Escalated' && appealAdjudicator.toLowerCase() === me) {
         const decision = [...this.submitted].reverse().find((m): m is Decision => m.type === 'Decision' && m.commitmentId === c.commitment.id && m.outcome === 'escalate');
         const env = decision?.encryptedKeys?.find((k) => k.recipient.toLowerCase() === me);
-        out.push({ ...base, role: 'appeal', delivery: this.signedDelivery(c), ...(env ? { releasedKey: env } : {}), roundFixedAt: s.escalation.at, deadline: s.escalation.appealDecideBy });
+        out.push({ ...base, role: 'appeal', delivery: this.signedDelivery(c), ...(env ? { releasedKey: env } : {}), roundFixedAt: s.escalation.at, ...(decision ? { firstDecider: decision.adjudicator } : {}), deadline: s.escalation.appealDecideBy });
       }
       if (c.appealOpen && (s.kind === 'Released' || s.kind === 'Refunded') && s.via.kind === 'first_instance' && s.via.appeal.kind === 'open' && appealAdjudicator.toLowerCase() === me) {
         const env = c.held.get(me);
@@ -242,6 +242,7 @@ export class TestSettlement implements AdjudicatorSettlement {
           ...(env ? { releasedKey: env } : {}),
           roundFixedAt: c.appealOpen.at,
           firstOutcome: c.appealOpen.firstOutcome,
+          firstDecider: s.via.decision.adjudicator,
           ...(c.appealOpen.ground ? { appealGround: c.appealOpen.ground } : {}),
           deadline: s.via.appeal.appealDecideBy,
         });

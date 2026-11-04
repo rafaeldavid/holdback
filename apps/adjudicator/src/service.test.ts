@@ -1013,6 +1013,52 @@ describe('declines fallback turns outside its terms or its free bond, and appeal
     expect((await raised.adj.runOnce()).decided).toEqual([{ commitmentId: c.id, role: 'appeal', outcome: 'accept' }]);
   });
 
+  // Review of PR #175, round 3: being named fallback is not consent; only its own first decision is.
+  it.each(['escalation', 'party appeal'] as const)('a named fallback that never acted gets no exemption at the appeal turn after %s', async (kind) => {
+    const s = new TestSettlement();
+    const a = bench(A, 'bench-a', s, kind === 'escalation' ? SPLIT : {}, undefined, reg, undefined, SHAM);
+    const b = bench(B, 'bench-b', s);
+    const c = makeCommitment({ primary: A.address, fallback: B.address, appeal: B.address, policyHash: policyHashOf(a.adj.policy), registryHash: reg.hash, buyer: BUYER, seller: SELLER, fee: tusd('0') });
+    s.offer(c);
+    await a.adj.runOnce();
+    s.fund(c.id);
+    s.at('2026-11-01T09:59:00Z');
+    await s.deliver(c.id, demoCsv(), [A, B, BUYER].map((p) => ({ recipient: p.address, publicKey: p.enc.publicKey })));
+    s.at('2026-11-01T10:00:30Z');
+    expect((await a.adj.runOnce()).decided.map((d) => d.outcome)).toEqual([kind === 'escalation' ? 'escalate' : 'accept']);
+    if (kind === 'party appeal') {
+      s.at('2026-11-01T10:01:00Z');
+      s.fileAppeal(c.id, 'wrong-outcome');
+    }
+    s.at('2026-11-01T10:01:05Z');
+    const report = await b.adj.runOnce();
+    expect(report.refused).toEqual([{ commitmentId: c.id, problem: { type: 'invalid_terms', detail: expect.stringMatching(/fee/) } }]);
+    expect(b.calls).toHaveLength(0);
+  });
+
+  // Review round 3, nit 2: a retry finds the cached escalation, which reserves no bond, before it reads the cover.
+  it('a retry of a judged escalation signs it with its bond gone', async () => {
+    const splitB: FakeScript = { 'gpt-a': 'timeout', 'gpt-b': 'timeout', 'qwen-a': 'timeout', 'qwen-b': 'timeout' };
+    const { s, b, id } = await setup({ scriptB: splitB });
+    s.at('2026-11-01T10:02:00Z');
+    s.failNextDecisions = 1;
+    await b.adj.runOnce(); // triggered and judged escalate; the submission failed
+    expect(b.calls).toHaveLength(3);
+    s.bonds.set(B.address, 0n);
+    expect((await b.adj.runOnce()).decided).toEqual([{ commitmentId: id, role: 'fallback', outcome: 'escalate' }]);
+    expect(b.calls).toHaveLength(3);
+  });
+
+  // Review round 3, nit 3: the panel reads the rubric and checks from the task's terms in every role.
+  it("refuses a primary task whose terms do not hash to its commitment ID", async () => {
+    const { s, a } = await setup();
+    s.at('2026-11-01T10:00:30Z');
+    const [task] = await s.tasks(A.address);
+    const r = await a.adj.decideTask({ ...task!, commitment: { ...task!.commitment, timing: { ...task!.commitment.timing, appealWindowSec: 60 } } });
+    expect(!r.ok && r.error.detail).toMatch(/do not hash/);
+    expect(a.calls).toHaveLength(0);
+  });
+
   // Review nit 4: the expiries run first, so one that throws must not skip the rest of the pass.
   it('a throwing appeal expiry is reported, and the rest of the pass still runs', async () => {
     const { s, a, id } = await setup();

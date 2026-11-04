@@ -195,7 +195,7 @@ export class Adjudicator {
     }
     for (const c of await port.takeoversDue(this.address)) {
       // T-211: it does not trigger a takeover it would decline. Anyone still may; the deal then defaults at fallbackBy.
-      const declined = await this.#turnProblem(c, 'fallback');
+      const declined = this.#termsMismatch(c) ?? (await this.#turnProblem(c, 'fallback', { consented: c.adjudication.adjudicator.toLowerCase() === this.address, cover: true }));
       if (declined) report.refused.push({ commitmentId: c.id, problem: declined });
       else if ((await port.triggerFallback(c.id)).ok) report.triggered.push(c.id);
     }
@@ -234,8 +234,7 @@ export class Adjudicator {
     }
     if (adjudication.policyHash !== policyHashOf(this.policy)) return err(problem('policy_mismatch', 'policy-hash-mismatch: the offer binds another policy'));
     if (adjudication.registryHash !== this.#cfg.registry.hash) return err(problem('registry_mismatch', 'the offer binds another registry'));
-    if (commitmentId(termsOf(c)) !== c.id) return err(problem('invalid_terms', `the offer's terms do not hash to commitment ${c.id}`));
-    const terms = this.#windowsProblem(c) ?? this.#feeProblem(c);
+    const terms = this.#termsMismatch(c) ?? this.#windowsProblem(c) ?? this.#feeProblem(c);
     if (terms) return err(terms);
     const unsigned: Omit<AdjudicatorAcceptance, 'signature'> = {
       type: 'AdjudicatorAcceptance',
@@ -280,25 +279,26 @@ export class Adjudicator {
     return problem('coverage_exceeded', `${this.#cfg.name} has ${cover} free bond for this deal and the price is ${c.price.amount} ${c.price.token}: a fallback's decision is backed by its bond, so it declines rather than sign one it cannot cover`);
   }
 
+  /** The checks read the terms the settlement port hands over, so they must be the deal's own: the ID hashes them. */
+  #termsMismatch(c: DecisionTask['commitment']): Problem | null {
+    return commitmentId(termsOf(c)) === c.id ? null : problem('invalid_terms', `the terms handed to ${this.#cfg.name} do not hash to commitment ${c.id}; refusing`);
+  }
+
   /**
    * T-211 (T-206 M-3): a fallback or appeal adjudicator signed nothing at agreement, so it consents when it decides.
    * - Fallback: its decision holds its bond until the appeal closes, so the windows, the fee and its cover.
    * - Appeal: its decision is final, so no window follows it, and nothing on chain reserves its bond yet (L-5); only
    *   the fee. Gating it on free bond would let the party that won drain that bond and so block the appeal.
-   * A deal that names it in an earlier role was checked when it consented there (its acceptance as primary, its
-   * decision as fallback), so a later quote or limit does not renege on it; nor does the fee stop `feeExempt`, the
-   * missing-or-wrong-key ground after an accept, which runs no panel. null: it takes the turn.
+   * `consented`: a turn on a deal it already consented to, as primary by its acceptance or by its own first decision,
+   * so a later quote or limit does not renege on it (and the wrong-key re-release, which runs no panel). `cover`: false
+   * when the turn's cached outcome is an escalation, which reserves no bond. null: it takes the turn.
    */
-  async #turnProblem(c: DecisionTask['commitment'], role: 'fallback' | 'appeal', feeExempt = false): Promise<Problem | null> {
-    // The checks read the terms the settlement port hands over, so they must be the deal's own: the ID hashes them.
-    if (commitmentId(termsOf(c)) !== c.id) return problem('invalid_terms', `the terms handed to ${this.#cfg.name} do not hash to commitment ${c.id}; refusing the turn`);
-    const { adjudicator: primary, fallbackAdjudicator } = c.adjudication;
-    const earlier = role === 'fallback' ? [primary] : [primary, fallbackAdjudicator];
-    if (!feeExempt && !earlier.some((a) => a.toLowerCase() === this.address)) {
+  async #turnProblem(c: DecisionTask['commitment'], role: 'fallback' | 'appeal', o: { consented: boolean; cover: boolean }): Promise<Problem | null> {
+    if (!o.consented) {
       const terms = (role === 'fallback' ? this.#windowsProblem(c) : null) ?? this.#feeProblem(c);
       if (terms) return terms;
     }
-    return role === 'fallback' ? this.#coverProblem(c) : null;
+    return o.cover ? this.#coverProblem(c) : null;
   }
 
   /** The policy the commitment binds: this adjudicator's own, or the primary's published one. */
@@ -358,10 +358,15 @@ export class Adjudicator {
   async #preflight(task: DecisionTask): Promise<Result<Preflight, Problem>> {
     const { commitment, role, attempt } = task;
     const id = commitment.id;
+    const mismatch = this.#termsMismatch(commitment);
+    if (mismatch) return err(mismatch);
     // Before any judge is called (T-211); the fallback's cover is read again before it signs.
     if (role !== 'primary') {
+      const mine = (a: string | undefined) => a?.toLowerCase() === this.address;
       const rerelease = role === 'appeal' && task.appealGround === 'missing-or-wrong-key' && task.firstOutcome === 'accept';
-      const declined = await this.#turnProblem(commitment, role, rerelease);
+      const consented = mine(commitment.adjudication.adjudicator) || (role === 'appeal' && mine(task.firstDecider)) || rerelease;
+      const cached = this.#judged.get(`${id}|${role}|${attempt}`)?.outcome;
+      const declined = await this.#turnProblem(commitment, role, { consented, cover: role === 'fallback' && cached !== 'escalate' });
       if (declined) return err(declined);
     }
     const policyR = await this.#boundPolicy(task);

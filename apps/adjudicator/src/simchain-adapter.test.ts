@@ -269,6 +269,7 @@ describe('the adjudicator service on the real SimChain (T-006)', () => {
     must(await chain.submit({ kind: 'appeal', appeal: { ...body, signature } }));
     w.judges.script = {};
     chain.advance(5);
+    expect((await w.settlement.tasks(cast.appeal.address)).map((t) => [t.firstOutcome, t.firstDecider?.toLowerCase()])).toEqual([['reject', cast.primary.address.toLowerCase()]]);
     const sellerBefore = await sellerBalance(w);
     expect((await w.appeal.adj.runOnce()).decided).toEqual([{ commitmentId: id, role: 'appeal', outcome: 'accept' }]);
     const s = chain.escrowState(id)!;
@@ -287,6 +288,7 @@ describe('the adjudicator service on the real SimChain (T-006)', () => {
     expect((await w.primary.adj.runOnce()).decided).toEqual([{ commitmentId: id, role: 'primary', outcome: 'escalate' }]);
     w.judges.script = {};
     chain.advance(5);
+    expect((await w.settlement.tasks(w.cast.appeal.address)).map((t) => [t.firstOutcome, t.firstDecider])).toEqual([[undefined, w.cast.primary.address]]);
     const sellerBefore = await sellerBalance(w);
     expect((await w.appeal.adj.runOnce()).decided).toEqual([{ commitmentId: id, role: 'appeal', outcome: 'accept' }]);
     expect(chain.escrowState(id)?.kind).toBe('Released');

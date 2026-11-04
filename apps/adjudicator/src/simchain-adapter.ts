@@ -126,13 +126,14 @@ export class SettlementAdapter implements AdjudicatorSettlement {
       let task: Omit<DecisionTask, 'commitment' | 'attempt' | 'delivery'> | null = null;
       if (s.kind === 'Delivered' && lc(primary) === me) task = { role: 'primary', deadline: c.timing.judgeBy };
       else if (s.kind === 'FallbackJudging' && lc(fallbackAdjudicator) === me) task = { role: 'fallback', roundFixedAt: c.timing.judgeBy, deadline: c.timing.fallbackBy };
-      else if (s.kind === 'Escalated' && lc(appealAdjudicator) === me) task = { role: 'appeal', roundFixedAt: s.escalation.at, deadline: s.escalation.appealDecideBy };
+      else if (s.kind === 'Escalated' && lc(appealAdjudicator) === me) task = { role: 'appeal', roundFixedAt: s.escalation.at, firstDecider: s.escalation.by === 'fallback' ? fallbackAdjudicator : primary, deadline: s.escalation.appealDecideBy };
       else if ((s.kind === 'Released' || s.kind === 'Refunded') && s.via.kind === 'first_instance' && s.via.appeal.kind === 'open' && lc(appealAdjudicator) === me) {
         const grounds = s.via.appeal.appeal.grounds as AppealGround;
         task = {
           role: 'appeal',
           roundFixedAt: s.via.appeal.openedAt,
           firstOutcome: s.kind === 'Released' ? 'accept' : 'reject',
+          firstDecider: s.via.decision.adjudicator,
           ...(APPEAL_GROUNDS.includes(grounds) ? { appealGround: grounds } : {}),
           deadline: s.via.appeal.appealDecideBy,
         };

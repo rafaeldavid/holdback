@@ -4,6 +4,7 @@
 import type {
   AdjudicatorAcceptance,
   AdjudicatorRegistration,
+  Address,
   AdjudicatorRole,
   AppealGround,
   Commitment,
@@ -40,6 +41,11 @@ export interface DecisionTask {
   roundFixedAt?: Timestamp;
   /** Appeal after a first-instance decision: that decision's outcome. Absent after an escalation. */
   firstOutcome?: 'accept' | 'reject';
+  /**
+   * Appeal: the adjudicator whose decision brought the case here (the first-instance decider, or the one that
+   * escalated). A service that made that decision already consented to the deal (T-211); absent, it has not.
+   */
+  firstDecider?: Address;
   /** Appeal ground the appellant named, if the settlement layer could classify it. */
   appealGround?: AppealGround;
   deadline: Timestamp;
