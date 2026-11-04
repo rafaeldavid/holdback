@@ -101,6 +101,33 @@ describe('public mode', () => {
     expect(((await (await fetch(`${urls[0]}/v1/balances/${a.address}`)).json()) as J).amount).toBe('1000000000');
   });
 
+  it('renews the mandate on every grant: past its 30 days or close to them, the address gets a fresh one in place of the old', async () => {
+    let t = Math.ceil(Date.now() / 1000) * 1000;
+    const storage = new MemoryStorage();
+    const { urls } = await serve({ now: () => t }, storage, undefined, { passes: false });
+    const d = await discovery(urls);
+    const [seller, buyer] = [freshAgent(urls), freshAgent(urls)];
+    const grant = async (a: Agent): Promise<J> => (await a.call('POST', '/v1/faucet', { address: a.address })).mandate;
+    const first = await grant(seller);
+    await grant(buyer);
+    // At its expiry the address cannot offer; the next grant admits a fresh mandate, and the address offers again.
+    t = Date.parse(first.scope.expiresAt);
+    await expect(seller.offer(offerRequest(d, seller, buyer))).rejects.toThrow(/mandate_expired/);
+    const renewed = await grant(seller);
+    expect(Date.parse(renewed.scope.expiresAt)).toBe(t + 30 * 86_400_000);
+    await grant(buyer);
+    expect((await seller.offer(offerRequest(d, seller, buyer))).state.escrowState).toBe('Offered');
+    // A live mandate is renewed too: the test seller asks two hours before its mandate expires (D47).
+    t = Date.parse(renewed.scope.expiresAt) - 2 * 3_600_000;
+    const early = await grant(seller);
+    expect(Date.parse(early.scope.expiresAt)).toBe(t + 30 * 86_400_000);
+    // Every node, and a world rebuilt from the same storage, serves only the latest mandate.
+    const latest = async (u: string) => ((await (await fetch(`${u}/v1/agents/${seller.address}`)).json()) as J).mandates.map((m: J) => m.mandateHash);
+    for (const u of urls) expect(await latest(u)).toEqual([early.mandateHash]);
+    const rebuilt = await PublicWorld.open({ storage, env: {}, minWindowSec: 2, now: () => t });
+    expect(rebuilt.chain.agentMandates().filter((m) => m.agent.toLowerCase() === seller.address).map((m) => m.scope.expiresAt)).toEqual([early.scope.expiresAt]);
+  });
+
   it('has no clock or adjudicator controls and no arbitrary-amount faucet', async () => {
     const { urls } = await serve();
     for (const path of ['/advance', '/accounts', '/adjudicators/primary', '/v1/test/faucet']) {
