@@ -215,6 +215,7 @@ Goal: the systems that run Crow, beyond the protocol, hold up against an attacke
 Appended after Phase 10, so no phase number moves (Rafa, 2026-11-04: "let's move this to security hardening phase"). Contract hardening stays in Phase 2 (T-212), judgment hardening in Phase 3, and the agent-ops security gates in Phase 10 (T-044). Tasks are listed in dependency order.
 
 - T-059 The founder console on its own host behind Access (D45): finish the move from the passcode console at `escrow.stream/control` to `control.escrow.stream` behind Cloudflare Access, with the hourly and daily pushes. The code, its tests and two red-team rounds are done; Rafa's setup steps and the deploys remain (infra; human gate).
+- [ ] T-223 Harden the drand quicknet path: the security findings of T-217's review and red team (PR 186), moved here so T-217 ships the functional path first (Rafa, 2026-11-04). The fallback's round published before the primary's deadline (core and contract together, with a redeploy; human gate), the cost of a relay outage to a pass, a relay answer's size, SimChain with a drand club, and smaller checks. The tests that prove them wait in the session notes.
 
 **Exit:**
 - Both founders open the console at `control.escrow.stream` through Access and see Costs and Keys, and the shared passcode is retired (T-059, confirmed by Rafa).
