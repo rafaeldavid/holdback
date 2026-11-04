@@ -1370,8 +1370,12 @@ export class EvmSettlement implements Settlement {
         if (ap.kind === 'none' || ap.kind === 'open') deadlines.push(Date.parse(ap.appealDecideBy));
       }
       if (now >= Math.max(...deadlines) + OPEN_GRACE_MS) continue;
-      const near = deadlines.some((d) => Math.abs(now - d) < OPEN_GRACE_MS);
-      if (near || now - Date.parse(b.updatedAt) < RECENT_MS) out.recent++;
+      // An accepted offer is recent only for an hour after it last moved: offers whose deadlines chain one after
+      // another must not keep a world on the minute cadence (red-team round 3, H3). A funded deal is recent near any
+      // of its deadlines, or for a day after it last moved.
+      const quiet = now - Date.parse(b.updatedAt);
+      const recent = PRE_FUNDING.includes(s.kind) ? quiet < OPEN_GRACE_MS : deadlines.some((d) => Math.abs(now - d) < OPEN_GRACE_MS) || quiet < RECENT_MS;
+      if (recent) out.recent++;
       else out.idle++;
     }
     return out;
@@ -1515,7 +1519,12 @@ export class EvmSettlement implements Settlement {
     let why = readable ? '' : `transaction ${tx.hash} called contract ${tx.to}, and its calldata shows no call for this deal that its logs and signatures confirm.`;
     for (const c of candidates) {
       const r = this.rebuild(id, book, c, tx, known);
-      if ('wait' in r) waits.push(r.wait);
+      if ('wait' in r) {
+        // A call that carries a delivery this node never held waits for it, but only once the logs and (for a call read
+        // out of another contract) its signature say it ran: a planted call must not cancel the join (red-team round 3).
+        if (this.waitUnconfirmed(c, logs, book.state.terms) || (!readable && !(await this.waitSigned(id, book, c)))) continue;
+        waits.push(r.wait);
+      }
       else if ('fail' in r) why = r.fail;
       else {
         const off = this.unconfirmed(r, logs, book.state.terms);
@@ -1535,6 +1544,36 @@ export class EvmSettlement implements Settlement {
     // Candidates the logs or signatures rejected do not count: a planted call cannot stop a delivery from joining.
     if (accepted.length === 0 && waits.length === 1) return this.fallBehind(id, book, tx, stage, waits[0]!, [tx]);
     return this.fallBehind(id, book, tx, stage, accepted.length > 1 ? `transaction ${tx.hash} carries ${accepted.length} calls for this deal that its logs confirm; this node cannot tell which ran.` : why);
+  }
+
+  /** Why a call that carries a delivery (a decision or an early accept in Held) does not match the logs, or null. */
+  private waitUnconfirmed(c: RulesCall, logs: readonly DecodedLog[], terms: AnyCommitmentTerms): string | null {
+    const has = (name: string) => logs.find((l) => l.eventName === name && lc(l.address) === lc(this.world.deployment.rules));
+    const v = c.args[1] as Record<string, unknown>;
+    if (c.fn === 'decide') {
+      const d = has('Decided');
+      return d && Number(d.args['role']) === Number(v['role']) && Number(d.args['outcome']) === Number(v['outcome']) && lc(String(d.args['judgmentRecordHash'])) === lc(String(v['judgmentRecordHash'])) && lc(String(d.args['seed'])) === lc(String(v['seed'])) ? null : 'no matching Decided';
+    }
+    if (c.fn === 'earlyAccept') {
+      const done = has('JobCompleted');
+      return done && !has('Decided') && lc(String(done.args['evaluator'])) === lc(terms.buyer) ? null : 'no early acceptance by the buyer';
+    }
+    return `${c.fn} carries no delivery`;
+  }
+
+  /** Whether a waiting call's own signed message verifies (the delivery it carries is checked when posted). */
+  private async waitSigned(id: Hex32, book: Book, c: RulesCall): Promise<boolean> {
+    const v = c.args[1] as Record<string, unknown>;
+    if (c.fn === 'decide') {
+      const m = this.decisionFrom(id, book, v);
+      return typeof m !== 'string' && verifyMessage(this.domain, m, m.adjudicator);
+    }
+    if (c.fn === 'earlyAccept') {
+      const buyer = book.state.terms.buyer;
+      const m: EarlyAccept = { type: 'EarlyAccept', commitmentId: id, buyer, attempt: Number(v['attempt']), deliveryHash: v['deliveryHash'] as Hex32, nonce: v['nonce'] as Hex32, expiresAt: chainTime(v['expiresAt']), signature: v['signature'] as Hex };
+      return verifyMessage(this.domain, m, buyer);
+    }
+    return false;
   }
 
   /** The operator fee a readable bundle paid for this deal: the buyer's own ERC-3009 transfer, shown by the token's Transfer log. */

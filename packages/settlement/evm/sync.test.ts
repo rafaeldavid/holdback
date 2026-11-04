@@ -897,6 +897,33 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     expect(c.log().find((e) => e.commitmentId === d.id && e.type === 'fee.operator')!.payload).toMatchObject({ from: lc(cast.buyer.address), to: lc(cast.operator.address), amount: { amount: '4710000' } });
   }, 60_000);
 
+  it('sixteen filler timeouts ahead of a copied decision in an unreadable bundle do not hide it (red-team round 3, H1)', async () => {
+    const { s, sync } = await node();
+    const d = await funded('filler', s, { deliver: true });
+    const { rules, multicall } = chain.deployment;
+    // A call to an address with no code succeeds and makes the bundle unreadable; the real decision runs after the filler.
+    const nobody = `0x${'de'.repeat(20)}` as Address;
+    const filler = Array.from({ length: 16 }, () => ({ target: nobody, allowFailure: false, callData: rulesCall('triggerFallback', [termsView(d.terms)]) }));
+    await raw(watcher, multicall, bundle([...filler, { target: rules, allowFailure: false, callData: rulesCall('decide', decideArgs(d, await decision(d, 'primary', 'accept'))) }]));
+    expect(await sync.pass()).toMatchObject({ applied: 1, behind: 0 });
+    expect((await s.state(d.id))!.escrowState).toBe('Released');
+  }, 60_000);
+
+  it('a decision carrying a delivery this node never held, with a planted junk call, waits for the delivery and joins (red-team round 3, H2)', async () => {
+    const { s, sync } = await node();
+    const d = await funded('carried-junk', s);
+    const sub = await d.deliver();
+    const del = d.delivery!;
+    const m = await decision(d, 'primary', 'accept');
+    const junk = { ...((await d.earlyAccept()) as { message: Parameters<typeof earlyAcceptView>[0] }).message, signature: JUNK };
+    await plantedAfter(watcher, rulesCall('decide', [termsView(d.terms), decisionView(m), deliveryView(del), del.signature]), rulesCall('earlyAccept', [termsView(d.terms), earlyAcceptView(junk), deliveryView(del), del.signature, keyProof(del, d.terms.buyer) ?? NO_KEY]));
+    expect(await sync.pass()).toMatchObject({ behind: 1 });
+    expect(s.lag(d.id)).toContain('/deliveries');
+    const joined = await ok(s, sub);
+    expect(joined.state.escrowState).toBe('Released');
+    expect(joined.events.map((e) => e.type)).toEqual(['delivery.submitted', 'key.released', 'judgment.decided', 'settlement.released', 'key.released']);
+  }, 60_000);
+
   it('a forwarded call padded with 120 KB of selectors keeps a pass short (review N1)', async () => {
     const { s, sync } = await node();
     const d = await funded('padded', s, { deliver: true });

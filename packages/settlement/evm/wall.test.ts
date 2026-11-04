@@ -98,7 +98,9 @@ describe('EvmSettlement on a wall-clock chain', () => {
     const accepted = { kind: 'AcceptedByAdjudicator' as const, id: d.id, terms, sellerSignature: '0x' as const, acceptance: {} as AdjudicatorAcceptance };
     const book = { state: accepted, club, sellerSignature: '0x' as const, held: [], released: [], nonces: [], lastEventSeq: 0, updatedAt: start };
     const at = async (hours: number, b: object = book) => (await EvmSettlement.restore(chain, genesis, { books: [[d.id, b as typeof book]], events: [], mandates: [] }, () => WALL + hours * 3_600_000)).openDeals();
-    expect(await at(2)).toEqual({ recent: 1, idle: 0 });
+    // An accepted offer is recent for an hour after it last moved, then idle while it can still be funded (red-team round 3).
+    expect(await at(0.5)).toEqual({ recent: 1, idle: 0 });
+    expect(await at(2)).toEqual({ recent: 0, idle: 1 });
     expect(await at(25)).toEqual({ recent: 0, idle: 1 });
     // An offer nobody accepted cannot be funded: posting offers alone keeps no cadence (red-team round 2, E).
     expect(await at(2, { ...book, state: { kind: 'Offered', id: d.id, terms, sellerSignature: '0x' } })).toEqual({ recent: 0, idle: 0 });

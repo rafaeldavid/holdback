@@ -145,13 +145,13 @@ function decodeRules(chain: Pick<EvmChain, 'abis'>, data: Hex): RulesCall | null
   }
 }
 
-/** The state-changing rules functions a forwarded call may be: their selectors are what `embeddedCalls` looks for. */
-const STEPS = ['agreeAndFund', 'deliver', 'decide', 'earlyAccept', 'mutualSettle', 'fileAppeal', 'expireOffer', 'reclaim', 'triggerFallback', 'triggerDefault', 'expireAppeal'];
+/** The signed steps a forwarded call may be: timeouts are read from logs alone, so the scan never counts one (red-team round 3). */
+const STEPS = ['agreeAndFund', 'deliver', 'decide', 'earlyAccept', 'mutualSettle', 'fileAppeal'];
 
 /** The most bytes one embedded call is decoded from: a decision with a drand proof is about 2.5 KB. */
 const EMBEDDED_WINDOW_HEX = 2 * 16_384;
-/** The most embedded candidates read from one transaction. */
-const EMBEDDED_MAX = 16;
+/** A bound on hits, far above what a transaction holds (the needle is about 1 KB, a transaction at most 128 KB); no count of filler can hide the real call. */
+const EMBEDDED_MAX = 1_024;
 
 /**
  * Rules calls for one deal written verbatim somewhere in a transaction's calldata: what a simple forwarder, a Safe's
