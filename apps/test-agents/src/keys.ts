@@ -1,8 +1,8 @@
 // The test agents' keys (T-222). One Sepolia-only secret, the Worker secret TEST_AGENTS_SEED, derives every key
 // they use, as examples/e2e-keys.ts derives the round's: a label's signing key is keccak256(seed ‖
 // "holdback/test-agents/<label>"), and its x25519 key keccak256(seed ‖ "holdback/test-agents/<label>/x25519").
-// The labels are the seller's intake key ("seller/intake") and one per deal ("seller/deal/<n>"). Only public keys
-// and addresses ever leave this module: never the secret, never a key.
+// The labels are the seller's intake key ("seller/intake") and its one standing address ("seller/standing", D47).
+// Only public keys and addresses ever leave this module: never the secret, never a key.
 import nacl from 'tweetnacl';
 import { concat, hexToBytes, keccak256, stringToHex, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';

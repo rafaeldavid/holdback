@@ -30,7 +30,7 @@ export interface Env {
   TEST_AGENTS_SEED?: string;
 }
 
-/** Bump to start fresh storage. Deal numbers restart with it, so deal keys repeat: see seller.ts on reused keys. */
+/** Bump to start fresh storage. The seller's keys stay: they derive from TEST_AGENTS_SEED alone. */
 const OBJECT_NAME = 'crow-test-agents-sepolia-2026-11-04';
 const CLIENT = 'x-crow-test-agents-client';
 const SEPOLIA_CHAIN_ID = 11155111;
@@ -54,6 +54,7 @@ export class Agents {
     return this.seller;
   }
 
+  /** Sets the alarm for `next` when none is set, a later one is, or the set one is overdue (its handler failed). */
   private async schedule(next: number | null): Promise<void> {
     if (next === null) return;
     const at = await this.state.storage.getAlarm();
@@ -63,8 +64,9 @@ export class Agents {
   async fetch(request: Request): Promise<Response> {
     const seller = this.open();
     const response = await seller.fetch(request, request.headers.get(CLIENT) ?? 'unknown');
-    // A new request starts the alarm; an idle seller sets none.
-    if (request.method === 'POST' && response.status === 201) await this.schedule(Date.now() + 500);
+    // Any request re-arms a missing or overdue alarm while a deal is open, as the World does (docs/operations.md):
+    // a lost alarm chain would otherwise leave open deals, and the open cap, stuck. An idle seller sets none.
+    if (await seller.hasOpen()) await this.schedule(Date.now() + 500);
     return response;
   }
 

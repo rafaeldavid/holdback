@@ -70,6 +70,20 @@ const refuse = (why: string): never => {
 };
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const sha256hex = async (b: Uint8Array) => Buffer.from(await crypto.subtle.digest('SHA-256', new Uint8Array(b))).toString('hex');
+/**
+ * Text from the test seller, a party, as one plain line of at most 300 characters: line breaks become spaces, and
+ * controls, bidi and tag characters go (as apps/demo/src/transcript/untrusted.ts), so it cannot fake a step line.
+ */
+const chars = (...ranges: Array<[number, number]>) => ranges.map(([a, b]) => `${String.fromCodePoint(a)}-${String.fromCodePoint(b)}`).join('');
+const LINE_BREAKS = new RegExp(`[${chars([0x0a, 0x0a], [0x0d, 0x0d], [0x2028, 0x2029])}]+`, 'g');
+const CONTROLS = new RegExp(`[${chars([0x00, 0x1f], [0x7f, 0x9f])}]`, 'g');
+const INVISIBLE = new RegExp(`[${chars([0x061c, 0x061c], [0x200b, 0x200f], [0x202a, 0x202e], [0x2060, 0x2069], [0xfeff, 0xfeff], [0xe0000, 0xe007f])}]`, 'gu');
+const plain = (s: unknown) => String(s ?? '').replace(LINE_BREAKS, ' ').replace(CONTROLS, '').replace(INVISIBLE, '').slice(0, 300);
+/**
+ * The windows this buyer accepts from the test seller, in seconds: the seller's published ones. Longer windows would
+ * lock the buyer's hold longer if the seller stalled, since the buyer can reclaim only at deliverBy.
+ */
+const SELLER_WINDOWS = { deliverBy: 3600, judge: 60, fallback: 60, appealWindow: 60, appealDecide: 60 };
 
 let step = 'start';
 const say = (text: string) => console.log(`${step.padEnd(9)} ${text}`);
@@ -94,11 +108,11 @@ async function fromSeller(url: string, init: RequestInit = {}): Promise<{ status
   try {
     res = await fetch(url, { ...init, signal: AbortSignal.timeout(15_000) });
   } catch (e) {
-    throw new Unavailable(`${url} did not answer (${(e as Error).message})`);
+    throw new Unavailable(`${plain(url)} did not answer (${plain((e as Error).message)})`);
   }
   const body = (await res.json().catch(() => null)) as J;
-  if (res.status === 429 || res.status === 503) throw new Unavailable(`it is busy: ${body?.error ?? res.status}${body?.retryAfterSec ? `; retry in ${body.retryAfterSec} s` : ''}`);
-  if (!res.ok || body === null) throw new Unavailable(`${url} answered ${res.status}${body?.error ? `: ${body.error}` : ''}`);
+  if (res.status === 429 || res.status === 503) throw new Unavailable(`it is busy: ${plain(body?.error ?? res.status)}${Number.isSafeInteger(body?.retryAfterSec) ? `; retry in ${body.retryAfterSec} s` : ''}`);
+  if (!res.ok || body === null) throw new Unavailable(`${plain(url)} answered ${res.status}${body?.error ? `: ${plain(body.error)}` : ''}`);
   return { status: res.status, body };
 }
 
@@ -116,7 +130,8 @@ async function askTestSeller(buyer: Agent, price: J): Promise<{ id: Hex; seller:
   if (new URL(card.intake?.api ?? '').origin !== origin || new URL(card.intake?.status ?? '').origin !== origin) throw new Unavailable(`the card's intake is not on ${origin}`);
   if (!/^[A-Za-z0-9_-]{43}$/.test(card.intake?.encryptionPublicKey ?? '')) throw new Unavailable("the card's intake has no x25519 encryptionPublicKey");
   const seller = String(card.seller).toLowerCase();
-  say(`Crow's test seller at ${SELLER}: it offers from ${short(seller)}${card.offers?.[0]?.fees?.total ? `, ${tusd(card.offers[0].fees.total.amount)} in all for this deal` : ''}`);
+  const total = card.offers?.[0]?.fees?.total?.amount;
+  say(`Crow's test seller at ${SELLER}: it offers from ${short(seller)}${typeof total === 'string' && /^[0-9]{1,30}$/.test(total) ? `, ${tusd(total)} in all for this deal` : ''}`);
 
   step = 'propose';
   const proposal = {
@@ -141,14 +156,14 @@ async function askTestSeller(buyer: Agent, price: J): Promise<{ id: Hex; seller:
   let s: J;
   for (const end = Date.now() + 120_000; Date.now() < end; await sleep(1000)) {
     s = (await fromSeller(`${card.intake.status}?token=${token}`)).body;
-    if (s.status === 'failed') throw new Unavailable(`it failed the request: ${s.detail}`);
+    if (s.status === 'failed') throw new Unavailable(`it failed the request: ${plain(s.detail)}`);
     if (s.status === 'offered' && /^0x[0-9a-f]{64}$/.test(s.commitmentId ?? '')) {
-      if (String(s.seller).toLowerCase() !== seller) refuse(`the status names seller ${s.seller}, not the published ${seller}`);
+      if (String(s.seller).toLowerCase() !== seller) refuse(`the status names seller ${plain(s.seller)}, not the published ${seller}`);
       say(`${short(s.commitmentId)} offered by the test seller${s.countered ? ' as a counter-offer' : ''}`);
       return { id: s.commitmentId as Hex, seller };
     }
   }
-  throw new Unavailable(`no offer within 120 s (status ${s?.status ?? 'unknown'}${s?.detail ? `: ${s.detail}` : ''})`);
+  throw new Unavailable(`no offer within 120 s (status ${plain(s?.status ?? 'unknown')}${s?.detail ? `: ${plain(s.detail)}` : ''})`);
 }
 
 async function main() {
@@ -197,6 +212,7 @@ async function main() {
   }
 
   let terms: J;
+  let reclaimAt: string | undefined;
   if (deal) {
     step = 'accepted';
     await until(buyer, deal.id, ['AcceptedByAdjudicator'], 60_000);
@@ -208,6 +224,12 @@ async function main() {
     if (String(terms.seller).toLowerCase() !== deal.seller) refuse(`the seller in the terms is ${terms.seller}, not the test seller's published ${deal.seller}`);
     const signer = await recoverTypedDataAddress({ ...typedOf('CommitmentTerms', terms, buyer.domain), signature: signatures?.seller });
     if (signer.toLowerCase() !== deal.seller) refuse("the seller's signature does not recover to the seller");
+    // The windows are the seller's choice: refuse longer ones than it publishes, which would lock the hold longer.
+    const t = terms.timing, secs = (x: string) => Date.parse(x) / 1000;
+    const windows: Record<string, number> = { deliverBy: secs(t.deliverBy) - secs(terms.createdAt), judge: secs(t.judgeBy) - secs(t.deliverBy), fallback: secs(t.fallbackBy) - secs(t.judgeBy), appealWindow: Number(t.appealWindowSec), appealDecide: Number(t.appealDecideSec) };
+    for (const [name, max] of Object.entries(SELLER_WINDOWS)) if (!(windows[name]! <= max)) refuse(`the offer's ${name} window is ${windows[name]} s, longer than the ${max} s this buyer accepts from the test seller`);
+    if (Number(t.maxSubmissions) !== 1) refuse(`the offer allows ${t.maxSubmissions} deliveries, not 1`);
+    reclaimAt = t.deliverBy;
   } else {
     seller = fresh();
     if (SELLER) say(`seller ${short(seller.address)}: fresh keys, played by this script`);
@@ -249,7 +271,7 @@ async function main() {
   ];
   for (const [field, got, expected] of want) if (!same(got, expected)) refuse(`${field} is ${jcs(got)}, not the agreed ${jcs(expected)}`);
   const fee = BigInt(terms.adjudication.fee.amount);
-  say(`the buyer: same terms on every operator, ID recomputed, seller's signature recovers; price, checks and adjudicators as agreed`);
+  say(`the buyer: same terms on every operator, ID recomputed, seller's signature recovers; price, checks and adjudicators as agreed${reclaimAt ? `; if the seller never delivers, the buyer can reclaim its hold at ${reclaimAt}` : ''}`);
 
   step = 'fund'; // the buyer: price plus adjudication fee into the hold, and the operator fee it computes itself
   const schedule = await buyer.operatorFeeSchedule();

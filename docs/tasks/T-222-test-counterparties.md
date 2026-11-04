@@ -74,7 +74,20 @@ Fill this in before review. Label each item measured, inferred or guessed.
 
   `pnpm test`: 2,356 passed and 3 skipped, in 109 files. Forge: 241 passed. The first run failed `forge build` because this fresh worktree had no contract submodules and the step spent 106 s cloning them; `forge test` passed in that same run, and the rerun built in 743 ms. It also failed lint on one `prefer-const` in `apps/test-agents/src/try.test.ts`, since fixed.
 - **Snapshot diffs:** none against HEAD (measured).
-- **The seller's tests** (measured): `apps/test-agents/src/seller.test.ts`, 10 tests:
+- **`pnpm verify` after the review round** (measured, 2026-11-04): PASS on every step. Typecheck 278 ms, lint 4,245 ms, forge build 955 ms, forge 20,590 ms, test 47,380 ms (2,366 passed, 3 skipped), spec 587 ms, snap 9,528 ms, snap:local 15,126 ms, demo 5,494 ms. No snapshot diffs. `site/try.mjs` sha256 is now `26ccaa80409ea753da3b177583344a8ad3d511c65522929801a646a2797de7d4`.
+- **The review** (reviewer agent, PR 179): ISSUES, 10 findings, all fixed in the second round. The litmus tests held.
+  1. Deals the seller could no longer act on stayed open. Now deadlines close them: a reclaimed or settled deal closes, a Held deal past `deliverBy` fails, and a deal waiting on Crow is closed by its deadline rather than the 15-minute retry budget.
+  2. `try.mjs --seller` checked no windows. Now it refuses windows longer than the seller publishes (exit 3) and prints when the buyer can reclaim.
+  3. The seller's text reached `try.mjs` output unfiltered. Now it is collapsed to one plain line of at most 300 characters.
+  4. Only a new request started the alarm. Now any request re-arms it while a deal is open.
+  5. `countered` ignored the adjudicators and windows a buyer proposed. Now it counts them.
+  6. The replay tests did not prove key and body reuse. Now they assert both.
+  7. Junk requests could use up the hourly cap. Now only requests whose proposal opens count, and IPv6 clients count per /64.
+  8. A retried offer could fail although the offer existed. Now an offer the operators already hold counts as made.
+  9. Missing tests. Added: the busy and failed-before-offer fallbacks, self-play `--outcome refund`, the domain refusal, and the Worker's seed and Sepolia checks.
+  10. Stale comments and docs. Fixed.
+- **The seller's tests after the review** (measured): `seller.test.ts` 12, `try.test.ts` 7, `worker.test.ts` 3, and one more in `examples/try.test.ts`. With `examples/try.test.ts`, the 29 tests passed 5 runs in a row in about 12 s each.
+- **The seller's tests before the review** (measured): `apps/test-agents/src/seller.test.ts`, 10 tests:
   - the card, the page and the health line;
   - two releases from one standing address;
   - a refund on request (`rows` fails, decision `reject`);
@@ -104,6 +117,9 @@ Choices made inside this task. Escalate anything that changes architecture, a co
 - **No changes to `examples/agent.ts`.** The seller uses `Agent.sign` and `Agent.prepareDelivery`, and posts the signed bodies itself, so the shared agent stays as it is.
 - **The tests for `try.ts --seller` live in `apps/test-agents/src/try.test.ts`**, not `examples/try.test.ts`: the examples project typechecks its tests, and importing the seller from there would make the two projects reference each other.
 - **The route is narrow**: `escrow.stream/agents/test-seller*`, so other pages under `/agents/` stay the site's.
+- **Deadlines close deals, not the retry budget**, once an offer is on Crow (review finding 1). The buyer may still fund a waiting offer, so a transient outage keeps it open until `deliverBy` plus 10 minutes. A request that was never offered still fails after 15 minutes of retries.
+- **The shared caps count offers**, not requests (review finding 7). A request is counted once its proposal opens and reads. New requests run one at a time, so two cannot both take the last slot.
+- **Party text in `try.mjs` output** is one plain line (review finding 3). The character classes are built from code points: the edit tooling turned ` ` escapes into raw line separators, which break the regex.
 
 ## Handoff
 
@@ -116,4 +132,4 @@ What is done, what is not, how to resume, and the open questions that remain.
   1. The faucet's mandate renewal fix in `apps/demo-cloud/src/world.ts`, before the standing address is 30 days old (backlog).
   2. When to plan the test buyer (backlog).
   3. Whether `try.mjs` should stop instead of falling back when the seller is unavailable.
-- **To resume:** read D47 and the research note, then `apps/test-agents/src/seller.ts`; `npx vitest run apps/test-agents` runs its 13 tests in about 10 s.
+- **To resume:** read D47 and the research note, then `apps/test-agents/src/seller.ts`; `npx vitest run apps/test-agents` runs its 22 tests in about 12 s.

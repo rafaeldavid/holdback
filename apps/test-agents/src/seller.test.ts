@@ -6,9 +6,9 @@ import type { Hex } from 'viem';
 import { generatePrivateKey } from 'viem/accounts';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Agent } from '../../../examples/agent.ts';
-import { commitmentIdOf, jcs, knownPins, operatorFeeOf, sealKeyTo } from '../../../examples/verify.ts';
+import { commitmentIdOf, jcs, knownPins, operatorFeeOf, sealKeyTo, type Pin } from '../../../examples/verify.ts';
 import { CHECKS, DELIVERABLE, GOOD_CSV, PRICE_UNITS } from './catalog.ts';
-import { TestSeller, type Limits } from './seller.ts';
+import { clientKey, TestSeller, type Limits } from './seller.ts';
 import { serveWorld, type TestWorld } from './test-world.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -28,9 +28,9 @@ afterEach(() => {
 
 type Started = ReturnType<typeof startSeller>;
 /** A seller with its own storage and secret, worked in the background the way the Durable Object's alarm works it. */
-function startSeller(o: { limits?: Limits; timing?: Record<string, number>; world?: TestWorld } = {}) {
+function startSeller(o: { limits?: Limits; timing?: Record<string, number>; world?: TestWorld; storage?: MemoryStorage; seed?: string; pin?: Pin } = {}) {
   const world = o.world ?? demo;
-  const seller = new TestSeller({ storage: new MemoryStorage(), operators: world.urls, seed: generatePrivateKey(), pin, base: BASE, log: () => {}, ...(o.limits ? { limits: o.limits } : {}), ...(o.timing ? { timing: o.timing } : {}) });
+  const seller = new TestSeller({ storage: o.storage ?? new MemoryStorage(), operators: world.urls, seed: o.seed ?? generatePrivateKey(), pin: o.pin ?? pin, base: BASE, log: () => {}, ...(o.limits ? { limits: o.limits } : {}), ...(o.timing ? { timing: o.timing } : {}) });
   let running = true;
   const loop = (async () => {
     while (running) {
@@ -100,19 +100,22 @@ async function checkAndFund(buyer: Agent, id: Hex, seller: string): Promise<J> {
   return buyer.agreeAndFund(terms, BigInt(PRICE_UNITS) + fee + (schedule ? operatorFeeOf(terms.price, schedule) : 0n));
 }
 
-/** Makes the next fetch that `match` picks act as `act` once; every other fetch goes through. */
-function onceFetch(match: (url: string, init?: RequestInit) => boolean, act: (real: typeof fetch, url: string, init?: RequestInit) => Promise<Response>) {
+/**
+ * Records every fetch that `match` picks, with its idempotency key and body, and makes the first one act as `act`;
+ * every other fetch goes through.
+ */
+function spyFetch(match: (url: string, init?: RequestInit) => boolean, act: (real: typeof fetch, url: string, init?: RequestInit) => Promise<Response>) {
   const real = globalThis.fetch;
-  let used = false;
+  const calls: Array<{ key: string | null; body: string }> = [];
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input instanceof Request ? input.url : input);
-    if (!used && match(url, init)) {
-      used = true;
-      return act(real, url, init);
+    if (match(url, init)) {
+      calls.push({ key: new Headers(init?.headers).get('idempotency-key'), body: String(init?.body ?? '') });
+      if (calls.length === 1) return act(real, url, init);
     }
     return real(input, init);
   });
-  return () => used;
+  return calls;
 }
 
 describe("Crow's test seller", () => {
@@ -173,7 +176,7 @@ describe("Crow's test seller", () => {
   });
 
   it('counters another price with its catalog terms, and refuses other work with a reason', async () => {
-    const s = startSeller();
+    const s = startSeller({ limits: { open: 10, perHour: 20, perDay: 100, perClientPerHour: 10, perClientPerDay: 10 } });
     const buyer = await freshBuyer();
     const cheaper = await propose(s, buyer, proposalFor(buyer, { terms: { price: { token: pin.token.id, amount: '1000000' }, deliverable: DELIVERABLE, template: 'checks-only', disclosure: 'public', checks: CHECKS } }));
     const offered = await statusUntil(s, cheaper.token, (x) => x.status === 'offered');
@@ -183,7 +186,48 @@ describe("Crow's test seller", () => {
     const refused = await statusUntil(s, other.token, (x) => x.status === 'failed');
     expect(refused.detail).toMatch(/sells only customers\.csv/);
     expect(refused.commitmentId).toBeUndefined();
+    // Other windows (or adjudicators) are other terms too: the catalog's windows come back as a counter-offer.
+    const card = await (await s.call('/agent.json')).json();
+    const slower = await propose(s, buyer, proposalFor(buyer, { terms: { ...card.offers[0].terms, timing: { ...card.offers[0].terms.timing, deliverWithinSec: 86_400 } } }));
+    expect((await statusUntil(s, slower.token, (x) => x.status === 'offered')).countered).toBe(true);
+    const same = await propose(s, buyer, proposalFor(buyer, { terms: card.offers[0].terms }));
+    expect((await statusUntil(s, same.token, (x) => x.status === 'offered')).countered).toBe(false);
     await s.stop();
+  });
+
+  it('refuses to offer through operators on another settlement layer than the one it pinned', async () => {
+    const sepolia = knownPins().find((p) => p.domain.chainId === 11155111)!;
+    const s = startSeller({ pin: sepolia });
+    const buyer = await freshBuyer();
+    const { token } = await propose(s, buyer, proposalFor(buyer));
+    const failed = await statusUntil(s, token, (x) => x.status === 'failed');
+    expect(failed.detail).toMatch(/serve EIP-712 domain .*"chainId":31337.*, not the pinned .*"chainId":11155111/);
+    await s.stop();
+  });
+
+  it('counts only requests whose proposal opens against the shared caps, and per-client caps by IPv6 /64', async () => {
+    const s = startSeller({ limits: { open: 10, perHour: 1, perDay: 10, perClientPerHour: 5, perClientPerDay: 10 } });
+    const buyer = await freshBuyer();
+    // A junk request is taken, fails, and leaves the one offer this hour to a real buyer.
+    const junk = `${crypto.randomUUID()}${crypto.randomUUID()}`;
+    const card = await (await s.call('/agent.json')).json();
+    expect((await post(s.call, { type: 'crow-request', proposal: { uri: `${demo.urls[0]}/v1/ciphertext/sha256:${'0'.repeat(64)}`, sha256: `sha256:${'0'.repeat(64)}` }, sealedKey: sealKeyTo(new Uint8Array(32), 'intake', card.intake.encryptionPublicKey).ciphertext, statusTokenHash: await sha256hex(junk) })).status).toBe(201);
+    await statusUntil(s, junk, (x) => x.status === 'failed');
+    const real = await propose(s, buyer, proposalFor(buyer));
+    await statusUntil(s, real.token, (x) => x.status === 'offered');
+    const full = await propose(s, buyer, proposalFor(buyer));
+    expect(full.res.status).toBe(429);
+    expect((await full.res.json()).error).toMatch(/1 offers in the last hour/);
+    await s.stop();
+    expect(clientKey('2001:db8:1:2::5')).toBe(clientKey('2001:0db8:0001:0002:ffff::9'));
+    expect(clientKey('2001:db8:1:2::5')).not.toBe(clientKey('2001:db8:1:3::5'));
+    expect(clientKey('::1')).toBe('0000:0000:0000:0000::/64');
+    expect(clientKey('203.0.113.7')).toBe('203.0.113.7');
+    const v6 = startSeller({ limits: { open: 10, perHour: 10, perDay: 10, perClientPerHour: 1, perClientPerDay: 10 } });
+    expect((await propose(v6, buyer, proposalFor(buyer), '2001:db8:1:2::5')).res.status).toBe(201);
+    expect((await propose(v6, buyer, proposalFor(buyer), '2001:db8:1:2:ffff::9')).res.status).toBe(429);
+    expect((await propose(v6, buyer, proposalFor(buyer), '2001:db8:1:3::1')).res.status).toBe(201);
+    await v6.stop();
   });
 
   it('refuses a malformed request, and fails one whose key does not open, or that points off the operators, with a reason', async () => {
@@ -234,11 +278,14 @@ describe("Crow's test seller", () => {
   it('retries a transient failure instead of failing the deal', async () => {
     const s = startSeller();
     const buyer = await freshBuyer();
-    const failed = onceFetch((url, init) => init?.method === 'POST' && new URL(url).pathname === '/v1/commitments', async () => new Response(JSON.stringify({ type: 'internal', detail: 'injected 503' }), { status: 503, headers: { 'content-type': 'application/problem+json' } }));
+    const offers = spyFetch((url, init) => init?.method === 'POST' && new URL(url).pathname === '/v1/commitments', async () => new Response(JSON.stringify({ type: 'internal', detail: 'injected 503' }), { status: 503, headers: { 'content-type': 'application/problem+json' } }));
     const { token } = await propose(s, buyer, proposalFor(buyer));
     const offered = await statusUntil(s, token, (x) => x.status === 'offered' && x.deal === 'offered');
-    expect(failed()).toBe(true);
     expect(offered.commitmentId).toMatch(/^0x[0-9a-f]{64}$/);
+    // The retry sent the offer it had signed, under the same key: no second offer was signed.
+    expect(offers).toHaveLength(2);
+    expect(offers[1]!.key).toBe(offers[0]!.key);
+    expect(offers[1]!.body).toBe(offers[0]!.body);
     await s.stop();
   });
 
@@ -247,13 +294,16 @@ describe("Crow's test seller", () => {
     const buyer = await freshBuyer();
     const { token } = await propose(s, buyer, proposalFor(buyer));
     const offered = await statusUntil(s, token, (x) => x.status === 'offered');
-    const lost = onceFetch((url, init) => init?.method === 'POST' && url.endsWith('/deliveries'), async (real, url, init) => {
+    const deliveries = spyFetch((url, init) => init?.method === 'POST' && url.endsWith('/deliveries'), async (real, url, init) => {
       await real(url, init); // the operator takes it; the answer never arrives
       throw new TypeError('fetch failed: injected after the operator answered');
     });
     await checkAndFund(buyer, offered.commitmentId, offered.seller);
     await statusUntil(s, token, (x) => x.deal === 'released', 30_000);
-    expect(lost()).toBe(true);
+    // The retry replayed the delivery it had signed, under the same key, and the operator answered it as the first.
+    expect(deliveries).toHaveLength(2);
+    expect(deliveries[1]!.key).toBe(deliveries[0]!.key);
+    expect(deliveries[1]!.body).toBe(deliveries[0]!.body);
     const events = (await buyer.call('GET', `/v1/commitments/${offered.commitmentId}/events?limit=200`)).items;
     expect(events.filter((e: J) => e.type === 'delivery.submitted')).toHaveLength(1);
     await s.stop();
@@ -283,7 +333,9 @@ describe("Crow's test seller", () => {
     const world = await serveWorld({ now: () => Date.now() + skew });
     try {
       const timing = { offerExpiresInSec: 600, fundWithinSec: 900, deliverWithinSec: 1200, judgeWithinSec: 60, fallbackWithinSec: 60, appealWindowSec: 60, appealDecideSec: 60 };
-      const s = startSeller({ world, timing });
+      const storage = new MemoryStorage();
+      const seed = generatePrivateKey();
+      const s = startSeller({ world, timing, storage, seed });
       const buyer = await freshBuyer(world);
       const { token } = await propose(s, buyer, proposalFor(buyer));
       const offered = await statusUntil(s, token, (x) => x.status === 'offered');
@@ -298,6 +350,12 @@ describe("Crow's test seller", () => {
       const schedule = await buyer.operatorFeeSchedule();
       // Down only the operator fee: the price and the adjudication fee came back.
       expect(before - after).toBe(schedule ? operatorFeeOf({ token: pin.token.id, amount: PRICE_UNITS }, schedule) : 0n);
+      // The seller comes back and closes the deal it can no longer act on, freeing its slot.
+      const back = startSeller({ world, timing, storage, seed });
+      const closed = await statusUntil(back, token, (x) => x.deal === 'refunded');
+      expect(closed.detail).toMatch(/reclaimed its hold/);
+      expect(await (await back.call('/health')).json()).toEqual({ status: 'operational', open: 0 });
+      await back.stop();
     } finally {
       await world.close();
     }

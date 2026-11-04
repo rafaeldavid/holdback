@@ -102,6 +102,15 @@ describe('try.ts', () => {
     expect(state.escrowState).toBe('Released');
   }, 60_000);
 
+  it('with --outcome refund, delivers work that fails the rows check and ends Refunded', async () => {
+    const r = await node([here('./try.ts'), '--outcome', 'refund'], demo.urls);
+    expect(r.code, r.out).toBe(0);
+    expect(r.out).toMatch(/^outcome +Refunded: checks cols pass, rows FAIL, uniq pass; decision reject$/m);
+    expect(r.out).toMatch(/^refund +the price came back to the buyer; no key was released/m);
+    expect(r.out).toMatch(/^balances +buyer 998\.99 tUSD, seller 1000 tUSD$/m);
+    expect(r.out).toMatch(/\ndone +commitment 0x[0-9a-f]{64} Refunded\n$/);
+  }, 60_000);
+
   it('refuses to sign an offer an operator altered, and exits 3 naming the field', async () => {
     // Node 0 raises the price in the offer it prepares; node 1 is honest.
     const lying = await serve((path, body) => {

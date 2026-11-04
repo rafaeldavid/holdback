@@ -104,6 +104,16 @@ const units = (base: bigint) => {
   return `${base / 1_000_000n}${frac ? `.${frac}` : ''}`;
 };
 
+/** What a per-client cap counts: an IPv4 address, or an IPv6 address's /64, which one host usually holds whole. */
+export function clientKey(ip: string): string {
+  if (!ip.includes(':')) return ip;
+  const [head = '', tail] = ip.toLowerCase().split('::');
+  const h = head ? head.split(':') : [];
+  const t = tail ? tail.split(':') : [];
+  const groups = tail === undefined ? h : [...h, ...Array<string>(Math.max(0, 8 - h.length - t.length)).fill('0'), ...t];
+  return `${groups.slice(0, 4).map((g) => g.padStart(4, '0')).join(':')}::/64`;
+}
+
 /** The request: everything in it is a pointer or sealed; nothing about the deal is readable here. */
 export function checkRequest(r: J): string | null {
   if (!r || r.type !== 'crow-request') return 'type must be "crow-request"';
@@ -216,7 +226,7 @@ export class TestSeller {
 <p>It sells 3 rows of <code>customer_id,email</code> for 25 tUSDC on a checks-only deal: the columns, the row count (3) and unique IDs decide. ${fees} To see a refund, put <code>"test": {"outcome": "refund"}</code> in your proposal: it then delivers 2 rows, the rows check fails, and the price comes back; the two fees do not, and no key is released.</p>
 <p>To buy, follow "Try it" in <a href="https://escrow.stream/llms.txt">https://escrow.stream/llms.txt</a>, or send a request as its "Two agents, two people" describes. Every offer comes from <code>${card.seller}</code>: check the seller in the terms against it. Unlike a person's intake, this page lists its address, because a public test seller has nothing to hide between deals.</p>
 <p>Crow's maintainers run both the operators and this seller. It holds its own keys and uses only the operators' public API, but it is not an independent business.</p>
-<p>Limits: ${l.perClientPerHour} requests per address an hour and ${l.perClientPerDay} a day; ${l.perHour} an hour and ${l.perDay} a day in all; ${l.open} in progress at once. When it is busy, it answers 429 with when to retry.</p>
+<p>Limits: ${l.perClientPerHour} requests per IP address an hour and ${l.perClientPerDay} a day; ${l.perHour} offers an hour and ${l.perDay} a day in all; ${l.open} in progress at once. When it is busy, it answers 429 with when to retry.</p>
 </body></html>
 `;
   }
@@ -263,21 +273,35 @@ export class TestSeller {
     const busy = (why: string, until: number) => problem(429, `the test seller is busy: ${why}`, { retryAfterSec: Math.max(1, Math.ceil((until - now) / 1000)) });
     const midnight = Date.parse(`${day(now)}T00:00:00Z`) + DAY;
     if ((await this.s.list({ prefix: 'o:' })).size >= this.limits.open) return busy(`${this.limits.open} deals are in progress`, now + MIN);
-    const recent = ((await this.s.get<number[]>('recent')) ?? []).filter((t) => now - t < DAY);
-    const lastHour = recent.filter((t) => now - t < HOUR);
-    if (lastHour.length >= this.limits.perHour) return busy(`${this.limits.perHour} requests in the last hour`, Math.min(...lastHour) + HOUR);
-    if (recent.filter((t) => day(t) === day(now)).length >= this.limits.perDay) return busy(`${this.limits.perDay} requests today (UTC)`, midnight);
-    const mine = (this.clients.get(client) ?? []).filter((t) => now - t < DAY);
+    // The shared hour and day caps count offers made, so requests that never open cannot use them up (offer() counts).
+    const full = await this.capped(now);
+    if (full) return busy(full.why, full.until);
+    const who = clientKey(client);
+    const mine = (this.clients.get(who) ?? []).filter((t) => now - t < DAY);
     const mineLastHour = mine.filter((t) => now - t < HOUR);
-    if (mineLastHour.length >= this.limits.perClientPerHour) return busy(`${this.limits.perClientPerHour} requests from your address in the last hour`, Math.min(...mineLastHour) + HOUR);
-    if (mine.filter((t) => day(t) === day(now)).length >= this.limits.perClientPerDay) return busy(`${this.limits.perClientPerDay} requests from your address today (UTC)`, midnight);
-    this.clients.set(client, [...mine, now]);
+    if (mineLastHour.length >= this.limits.perClientPerHour) return busy(`${this.limits.perClientPerHour} requests from your IP address in the last hour`, Math.min(...mineLastHour) + HOUR);
+    if (mine.filter((t) => day(t) === day(now)).length >= this.limits.perClientPerDay) return busy(`${this.limits.perClientPerDay} requests from your IP address today (UTC)`, midnight);
+    this.clients.set(who, [...mine, now]);
     for (const [c, times] of this.clients) if (times.every((t) => now - t >= DAY)) this.clients.delete(c);
     const n = ((await this.s.get<number>('n')) ?? 0) + 1;
     const deal: Deal = { n, status: 'received', tokenHash: r.statusTokenHash, proposal: { uri: r.proposal.uri, sha256: r.proposal.sha256 }, sealedKey: r.sealedKey, receivedAt: now, updatedAt: now };
-    await this.s.put({ n, recent: [...recent, now], [`d:${pad(n)}`]: deal, [`o:${pad(n)}`]: n, [`t:${r.statusTokenHash}`]: n });
+    await this.s.put({ n, [`d:${pad(n)}`]: deal, [`o:${pad(n)}`]: n, [`t:${r.statusTokenHash}`]: n });
     this.log(`test-seller: deal ${n} received`);
     return json({ id: n, status: `${this.o.base}/status?token=<your token>` }, 201);
+  }
+
+  /** Whether the shared hour or day cap on offers is full, and until when. */
+  private async capped(now: number): Promise<{ why: string; until: number } | null> {
+    const recent = ((await this.s.get<number[]>('recent')) ?? []).filter((t) => now - t < DAY);
+    const lastHour = recent.filter((t) => now - t < HOUR);
+    if (lastHour.length >= this.limits.perHour) return { why: `${this.limits.perHour} offers in the last hour`, until: Math.min(...lastHour) + HOUR };
+    if (recent.filter((t) => day(t) === day(now)).length >= this.limits.perDay) return { why: `${this.limits.perDay} offers today (UTC)`, until: Date.parse(`${day(now)}T00:00:00Z`) + DAY };
+    return null;
+  }
+
+  /** Whether any deal is open: the Worker keeps the alarm set while one is. */
+  async hasOpen(): Promise<boolean> {
+    return (await this.s.list({ prefix: 'o:' })).size > 0;
   }
 
   private async status(token: string): Promise<Response> {
@@ -289,7 +313,8 @@ export class TestSeller {
     return json({
       id: d.n,
       // The convention's three states, received, offered and failed; after the offer, the deal is followed on Crow.
-      status: d.status === 'received' || (d.status === 'failed' && !d.commitmentId) ? d.status : 'offered',
+      // A seller that gave up before delivering reports failed, so nobody funds an offer it will not serve.
+      status: d.status === 'received' || (d.status === 'failed' && !d.deliveredAt) ? d.status : 'offered',
       deal: d.status,
       ...(d.commitmentId ? { commitmentId: d.commitmentId, seller: this.agent.address } : {}),
       ...(d.countered !== undefined ? { countered: d.countered } : {}),
@@ -332,8 +357,11 @@ export class TestSeller {
     }
   }
 
-  /** The buyer, the outcome it asked for, and whether its terms are the catalog's. Refuses a malformed proposal or other work. */
-  private read(p: J): { buyer: string; encryptionPublicKey: string; outcome: Outcome; countered: boolean } {
+  /**
+   * The buyer, the outcome it asked for, and whether its terms are the catalog's with the demo's adjudicators and the
+   * seller's windows (a proposal may leave those two out). Refuses a malformed proposal or other work.
+   */
+  private read(p: J, adjudicators: { primary: string; fallback: string; appeal: string }): { buyer: string; encryptionPublicKey: string; outcome: Outcome; countered: boolean } {
     if (p?.type !== 'crow-proposal') throw new Refused('the proposal must be {"type": "crow-proposal", …}');
     if (typeof p.buyer !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(p.buyer)) throw new Refused('proposal.buyer must be your 0x address');
     if (typeof p.buyerEncryptionPublicKey !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(p.buyerEncryptionPublicKey) || Buffer.from(p.buyerEncryptionPublicKey, 'base64url').length !== 32) throw new Refused('proposal.buyerEncryptionPublicKey must be your x25519 public key, 43 characters of base64url');
@@ -342,8 +370,8 @@ export class TestSeller {
     const t = p.terms ?? {};
     // Other work is refused rather than countered: an offer on Crow should not name a buyer for work it never asked about.
     if (t.deliverable !== undefined && (t.deliverable?.kind !== DELIVERABLE.kind || t.deliverable?.format !== DELIVERABLE.format)) throw new Refused(`this seller sells only ${DELIVERABLE.description} (kind ${DELIVERABLE.kind}, format ${DELIVERABLE.format})`);
-    const want = { price: this.price, deliverable: DELIVERABLE, template: 'checks-only', disclosure: 'public', checks: CHECKS };
-    const asked = { price: t.price, deliverable: t.deliverable, template: t.template, disclosure: t.disclosure, checks: t.checks };
+    const want = { price: this.price, deliverable: DELIVERABLE, template: 'checks-only', disclosure: 'public', checks: CHECKS, adjudicators, timing: this.timing };
+    const asked = { price: t.price, deliverable: t.deliverable, template: t.template, disclosure: t.disclosure, checks: t.checks, adjudicators: t.adjudicators ?? adjudicators, timing: t.timing ?? this.timing };
     return { buyer: p.buyer.toLowerCase(), encryptionPublicKey: p.buyerEncryptionPublicKey, outcome, countered: jcs(lower(asked)) !== jcs(lower(want)) };
   }
 
@@ -391,7 +419,9 @@ export class TestSeller {
         this.log(`test-seller: the operators' settlement time is unavailable: ${message(e)}`);
       }
     }
-    await Promise.all(due.map((d) => this.advance(d, settlement)));
+    // New requests one at a time, so the shared caps they count cannot be raced; the rest at once.
+    for (const d of due.filter((x) => x.status === 'received')) await this.advance(d, settlement);
+    await Promise.all(due.filter((x) => x.status !== 'received').map((d) => this.advance(d, settlement)));
     const after = (await Promise.all(open.map((n) => this.s.get<Deal>(`d:${pad(n)}`)))).filter((d): d is Deal => d !== undefined && ['received', 'offered', 'delivered'].includes(d.status));
     if (after.length === 0) return null;
     // Fast while a step is due or the buyer is about to fund; slower for an offer left waiting.
@@ -414,7 +444,12 @@ export class TestSeller {
       }
       const now = this.now();
       const since = latest.retry?.since ?? now;
-      if (now - since >= this.retryForMs) {
+      // The retry budget closes a request not yet offered; deadlines close a deal on Crow, which the buyer may still fund.
+      const giveUpAt =
+        latest.status === 'received' ? since + this.retryForMs
+        : latest.status === 'offered' ? Date.parse(latest.terms.timing.deliverBy) + 10 * MIN
+        : (latest.deliveredAt ?? since) + 2 * HOUR;
+      if (now >= giveUpAt) {
         this.log(`test-seller: deal ${d.n} failed at ${latest.status} after ${Math.round((now - since) / MIN)} min of retries: ${message(e)}`);
         await this.save(latest, { status: 'failed', detail: `gave up after ${Math.round((now - since) / 1000)} s of retries: ${message(e)}`, retry: undefined });
         return;
@@ -447,7 +482,6 @@ export class TestSeller {
 
   private async offer(d: Deal, settlement: number): Promise<void> {
     if (!d.pending) {
-      const want = this.read(await this.open(d));
       const a = this.agent;
       const found = await a.trusted('/.well-known/holdback.json', (x) => ({ domain: x.domain, clubId: x.demo?.clubId, token: x.demo?.token?.id, adjudicators: x.demo?.adjudicators }));
       // No real money: the seller deals only with operators on the settlement layer it pinned.
@@ -455,6 +489,12 @@ export class TestSeller {
       if (found.token !== this.o.pin.token.id || !found.clubId) throw new Refused(`the operators run no demo in ${this.o.pin.token.symbol}`);
       const role = (r: string): string => found.adjudicators?.find((x: J) => x.role === r)?.address ?? (() => { throw new Refused(`discovery names no ${r} adjudicator`); })();
       const adjudicators = { primary: role('primary'), fallback: role('fallback'), appeal: role('appeal') };
+      const want = this.read(await this.open(d), adjudicators);
+      // Only a request whose proposal opened counts against the shared caps: junk cannot use them up.
+      const now = this.now();
+      const full = await this.capped(now);
+      if (full) throw new Refused(`the test seller is busy: ${full.why}; try again in ${Math.max(1, Math.ceil((full.until - now) / 1000))} s`);
+      await this.s.put({ recent: [...((await this.s.get<number[]>('recent')) ?? []).filter((t) => now - t < DAY), now] });
       await this.ensureMandate(found.clubId, settlement);
       const request = {
         nonce: freshNonce(), disclosure: 'public', template: 'checks-only', clubId: found.clubId, seller: a.address,
@@ -467,7 +507,14 @@ export class TestSeller {
       d = await this.save(d, { buyer: want.buyer, outcome: want.outcome, countered: want.countered, pending: { step: 'offer', path, body, key: crypto.randomUUID() } });
     }
     const p = d.pending!;
-    await this.submit(p);
+    try {
+      await this.submit(p);
+    } catch (e) {
+      // An offer the operators already hold (an earlier try whose answer was lost) is made, not refused.
+      if (!(e instanceof Refused)) throw e;
+      const held = await this.agent.call('GET', `/v1/commitments/${p.body.id}/terms`).catch(() => null);
+      if (String(held?.seller).toLowerCase() !== this.agent.address) throw e;
+    }
     const { id, signatures: _s, ...terms } = p.body; // eslint-disable-line @typescript-eslint/no-unused-vars
     await this.save(d, { status: 'offered', commitmentId: id, terms, offeredAt: settlement, pending: undefined, retry: undefined });
     this.log(`test-seller: deal ${d.n} offered ${id}${d.countered ? ' (counter-offer)' : ''}`);
@@ -478,17 +525,34 @@ export class TestSeller {
     if (!d.pending) {
       const state = await a.call('GET', `/v1/commitments/${d.commitmentId}`);
       const s = state.escrowState as string;
-      if (s === 'Offered' && settlement - (d.offeredAt ?? settlement) > 2 * MIN) {
-        const notices = (state.notices ?? []).join(' | ');
-        throw new Refused(`the adjudicator did not accept the offer within 2 minutes${notices ? `: ${notices}` : ''}`);
-      }
       if (s === 'Expired' || (['Offered', 'AcceptedByAdjudicator', 'Agreed'].includes(s) && settlement > Date.parse(d.terms.timing.fundBy))) {
         await this.save(d, { status: 'expired', detail: 'the buyer did not agree and fund before the funding window closed', retry: undefined });
         this.log(`test-seller: deal ${d.n} expired unfunded`);
         return;
       }
+      if (s === 'Offered' && settlement - (d.offeredAt ?? settlement) > 2 * MIN) {
+        const notices = (state.notices ?? []).join(' | ');
+        throw new Refused(`the adjudicator did not accept the offer within 2 minutes${notices ? `: ${notices}` : ''}`);
+      }
+      if (s === 'Released' || s === 'Refunded' || s === 'Settled') {
+        // Settled on Crow before this seller delivered: the buyer reclaimed after deliverBy, or the parties agreed.
+        await this.save(d, { status: s === 'Released' ? 'released' : s === 'Refunded' ? 'refunded' : 'failed', detail: s === 'Refunded' ? 'the buyer reclaimed its hold: the seller did not deliver before deliverBy' : `the deal is ${s} on Crow without a delivery from this seller`, retry: undefined });
+        this.log(`test-seller: deal ${d.n} ${s} before any delivery`);
+        return;
+      }
+      if (['Delivered', 'FallbackJudging', 'Escalated', 'Defaulted'].includes(s)) {
+        // A delivery is on record whose answer this seller never saw: follow the outcome.
+        await this.save(d, { status: 'delivered', deliveredAt: settlement, retry: undefined });
+        return;
+      }
       if (s !== 'Held') {
         if (d.retry) await this.save(d, { retry: undefined });
+        return;
+      }
+      if (settlement >= Date.parse(d.terms.timing.deliverBy)) {
+        // Too late to deliver: the contract refuses it, and the buyer can reclaim its hold.
+        await this.save(d, { status: 'failed', detail: `the seller did not deliver before deliverBy; the buyer can reclaim its hold (POST /v1/commitments/${d.commitmentId}/triggers/reclaim)`, retry: undefined });
+        this.log(`test-seller: deal ${d.n} missed deliverBy`);
         return;
       }
       // Every operator must show Held before the work leaves the seller.
@@ -514,6 +578,7 @@ export class TestSeller {
   private async settleWhenDecided(d: Deal, settlement: number): Promise<void> {
     const a = this.agent;
     const state = (await a.call('GET', `/v1/commitments/${d.commitmentId}`)).escrowState as string;
+    if (state === 'Settled') throw new Refused('the deal was settled by agreement on Crow');
     if (state !== 'Released' && state !== 'Refunded') {
       if (settlement - (d.deliveredAt ?? settlement) > 2 * HOUR) throw new Refused(`no decision within 2 hours of the delivery; the deal is ${state} on Crow`);
       if (d.retry) await this.save(d, { retry: undefined });

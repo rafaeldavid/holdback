@@ -28,10 +28,10 @@ export type Outcome = 'release' | 'refund';
 export interface Limits {
   /** Requests in progress at once (received, offered and not yet expired, or delivered). */
   open: number;
-  /** New requests from everyone per rolling hour, and per UTC day. */
+  /** Offers to everyone per rolling hour, and per UTC day: only requests whose proposal opened count. */
   perHour: number;
   perDay: number;
-  /** New requests per client (IP address) per rolling hour, and per UTC day. Kept in memory only. */
+  /** New requests per client (an IPv4 address, or an IPv6 /64) per rolling hour, and per UTC day. Kept in memory only. */
   perClientPerHour: number;
   perClientPerDay: number;
 }
