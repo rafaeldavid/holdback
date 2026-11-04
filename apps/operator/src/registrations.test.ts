@@ -1,9 +1,11 @@
 // ADR-0030: adjudicators register themselves through the API. Any address may: the operator verifies the signature
 // and the hashes, refuses only what is malformed, unsigned, out of order or self-contradictory (D31), and serves the
 // record with its signature, the bond the settlement layer holds and what it observed.
-import { canonicalKeccak, holdbackDomain, registrationMessageOf, verifyMessage, type Address, type AdjudicatorRegistration, type Hex32, type RegisteredAdjudicator } from '@holdback/core';
+import { canonicalKeccak, holdbackDomain, registrationMessageOf, verifyMessage, verifyRegistration, type Address, type AdjudicatorRegistration, type Hex32, type RegisteredAdjudicator } from '@holdback/core';
+import { requestOf } from '@holdback/sdk';
 import { Deal, SimChain, simActor, simCast, simClub, simGenesis } from '@holdback/settlement/sim';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { holdOf } from './_world.js';
 import { testAccount } from './accounts.js';
 import type { Prepared } from './prepare.js';
 import { signRegistration } from './registrations.js';
@@ -19,6 +21,9 @@ let api: string;
 const domain = holdbackDomain(31337);
 const outsider = testAccount('t-221/outsider');
 const h = (byte: string): Hex32 => `0x${byte.repeat(32)}`;
+/** The high-s twin of a signature: it recovers to the same address over the same digest (EIP-2 refuses it). */
+const N = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n;
+const highS = (sig: string) => `0x${sig.slice(2, 66)}${(N - BigInt(`0x${sig.slice(66, 130)}`)).toString(16).padStart(64, '0')}${sig.slice(130) === '1b' ? '1c' : '1b'}`;
 
 beforeAll(async () => {
   world = await startSimWorld({ env: {}, onError: () => {} });
@@ -73,9 +78,13 @@ describe('POST /v1/adjudicators', () => {
     expect(posted.body).toMatchObject({ address: outsider.address, fee: { min: { amount: '0' } }, registry: { hash: h('ee') }, registration: r.registration });
     expect(posted.body.pool).toMatchObject({ junior: { amount: '0' }, senior: { amount: '0' }, reserved: { amount: '0' } });
     expect(posted.body.observed).toMatchObject({ bond: 'none', lastUsedAt: null, expired: false });
-    // Any reader verifies the served record against the adjudicator's own address, without trusting the operator.
+    // Any reader verifies the served record (signature and hashes) without trusting the operator.
     const served = (await call('GET', `/v1/adjudicators/${outsider.address}`, undefined, { base: info.operators[1]! })).body;
-    expect(await verifyMessage(domain, registrationMessageOf(served), outsider.address)).toBe(true);
+    expect(await verifyRegistration(domain, served)).toBe(true);
+    // The signature alone does not bind the body: a reader recomputes bodyHash too.
+    const renamed = { ...served, name: 'Crow (official)' };
+    expect(await verifyMessage(domain, registrationMessageOf(renamed), outsider.address)).toBe(true);
+    expect(await verifyRegistration(domain, renamed)).toBe(false);
   });
 
   it('lists the demo adjudicators first, each signed, then registrations oldest first', async () => {
@@ -98,7 +107,13 @@ describe('POST /v1/adjudicators', () => {
     ['a policyHash that does not recompute', (r) => ({ ...r, policyHash: h('01') }), 400, 'invalid_terms', 'policyHash'],
     ['a poolTermsHash that does not recompute', (r) => ({ ...r, poolTermsHash: h('02') }), 400, 'invalid_terms', 'poolTermsHash'],
     ['a bodyHash that does not recompute', (r) => ({ ...r, registration: { ...r.registration, bodyHash: h('03') } }), 400, 'invalid_terms', 'registration.bodyHash'],
-    ['a signature that does not recover to the address', (r) => ({ ...r, registration: { ...r.registration, signature: `0x${'00'.repeat(65)}` } }), 401, 'invalid_signature'],
+    ['a well-formed signature that does not recover to the address', (r) => ({ ...r, registration: { ...r.registration, signature: `0x${'7'.repeat(4)}${r.registration.signature.slice(6)}` } }), 401, 'invalid_signature'],
+    ['a malformed signature', (r) => ({ ...r, registration: { ...r.registration, signature: `0x${'00'.repeat(65)}` } }), 400, 'invalid_terms', 'registration.signature'],
+    // One spelling per registration: a twin signature or another spelling of the same instant would sign the same digest.
+    ['the high-s twin of a valid signature', (r) => ({ ...r, registration: { ...r.registration, signature: highS(r.registration.signature) } }), 400, 'invalid_terms', 'registration.signature'],
+    ['a time not in whole seconds with Z', (r) => ({ ...r, registration: { ...r.registration, issuedAt: r.registration.issuedAt.replace('Z', '.000Z') } }), 400, 'invalid_terms', 'registration.issuedAt'],
+    ['a low-order encryption key', (r) => ({ ...r, encryptionPublicKey: Buffer.alloc(32).toString('base64url') }), 400, 'invalid_terms', 'encryptionPublicKey'],
+    ['more than 100 affiliations', (r) => ({ ...r, affiliations: Array.from({ length: 101 }, (_, i) => `m-${i}`) }), 400, 'invalid_terms', 'affiliations'],
   ])('refuses %s', async (_label, edit, status, type, field) => {
     const r = await register(edit(structuredClone(await registration())));
     expect([r.status, r.body.type]).toEqual([status, type]);
@@ -145,9 +160,24 @@ describe('POST /v1/adjudicators', () => {
     expect([missing.status, missing.body.field]).toEqual([400, 'Idempotency-Key']);
   });
 
-  it('refuses a body over 1 MiB', async () => {
-    const r = await register(undefined, { raw: JSON.stringify({ name: 'x'.repeat(1_048_577) }) });
+  it('refuses a registration body over 32 KiB', async () => {
+    const r = await register(undefined, { raw: JSON.stringify({ name: 'x'.repeat(32_769) }) });
     expect([r.status, r.body.type]).toEqual([413, 'payload_too_large']);
+  });
+
+  it('does not serve an expired registration as current: prepare/offer refuses to name it', async () => {
+    const lapsing = testAccount('t-221/lapsing');
+    const r = await signRegistration(lapsing.privateKey, domain, { ...(await body()), address: lapsing.address, encryptionPublicKey: lapsing.encryptionPublicKey }, { keyId: 'lapsing/k1', issuedAt: at(-10), nonce: h('2b'), expiresAt: at(30) });
+    expect((await register(r)).status).toBe(200);
+    world.advance(60);
+    const p = await call('POST', '/v1/prepare/offer', {
+      nonce: h('2c'), disclosure: 'public', template: 'checks-only', clubId: info.clubId, seller: info.accounts[1]!.address,
+      buyer: { address: info.accounts[0]!.address, encryptionPublicKey: info.accounts[0]!.encryptionPublicKey },
+      adjudicators: { appeal: lapsing.address }, price: { token: 'tUSD', amount: '1000000' },
+      deliverable: { kind: 'dataset', description: 'One row.', format: 'text/csv' }, checks: [{ id: 'rows', type: 'row_count_range', required: true, min: 1, max: 1 }],
+    });
+    expect([p.status, p.body.type]).toEqual([404, 'not_found']);
+    expect(p.body.detail).toMatch(/expired/);
   });
 
   it('keeps an expired registration listed, marked as expired', async () => {
@@ -252,15 +282,38 @@ describe('the route is a write under the throttle, and lastUsedAt follows the ad
   const cast = simCast('t-221-b');
   const club = simClub(simActor('club-operator', 't-221-b').address);
 
-  it('spends the signer\'s write budget, so a second registration in the window is 429', async () => {
+  const sim = holdbackDomain(31337);
+  const regOf = (who: ReturnType<typeof testAccount>, issuedAt: string) =>
+    signRegistration(who.privateKey, sim, { ...offline(), address: who.address, encryptionPublicKey: who.encryptionPublicKey }, { keyId: 'k', issuedAt, nonce: h('3a'), expiresAt: '2027-11-04T09:00:00Z' });
+  const send = async (url: string, r: unknown, key: string) => (await fetch(`${url}/v1/adjudicators`, { method: 'POST', headers: { 'idempotency-key': key }, body: JSON.stringify(r) })).status;
+  const limited = async (writes: number, id: string) => {
     const chain = new SimChain(await simGenesis({ cast, club, start: '2026-11-04T09:00:00Z' }));
-    const op = await startOperator({ settlement: chain, registry: simRegistry(chain), signerKey: simActor('op3', 'operator').key, operatorId: 'op-t221-c', env: {}, rateLimit: { writes: 1, reads: 100, windowMs: 60_000 } });
+    return startOperator({ settlement: chain, registry: simRegistry(chain), signerKey: simActor(id, 'operator').key, operatorId: id, env: {}, rateLimit: { writes, reads: 100, windowMs: 60_000 } });
+  };
+  /** A write bucket's count this window: the throttle's own state, since every test request comes from one client. */
+  const spent = (op: RunningOperator, bucket: string) => (op.operator as unknown as { windows: Map<string, { count: number }> }).windows.get(bucket)?.count ?? 0;
+
+  it('keeps a new address\'s registration on the client, so fresh keys are bounded by the client\'s write budget', async () => {
+    const op = await limited(2, 'op-t221-c');
     try {
-      const sim = holdbackDomain(31337);
-      const reg = (issuedAt: string) => signRegistration(outsider.privateKey, sim, { ...offline(), address: outsider.address }, { keyId: 'k', issuedAt, nonce: h('3a'), expiresAt: '2027-11-04T09:00:00Z' });
-      const send = async (r: unknown, key: string) => (await fetch(`${op.url}/v1/adjudicators`, { method: 'POST', headers: { 'idempotency-key': key }, body: JSON.stringify(r) })).status;
-      expect(await send(await reg('2026-11-04T08:00:00Z'), 'a')).toBe(200);
-      expect(await send(await reg('2026-11-04T08:30:00Z'), 'b')).toBe(429);
+      expect(await send(op.url, await regOf(testAccount('t-221/sybil-1'), '2026-11-04T08:00:00Z'), 'a')).toBe(200);
+      expect(await send(op.url, await regOf(testAccount('t-221/sybil-2'), '2026-11-04T08:00:00Z'), 'b')).toBe(200);
+      expect(await send(op.url, await regOf(testAccount('t-221/sybil-3'), '2026-11-04T08:00:00Z'), 'c')).toBe(429);
+    } finally {
+      await op.close();
+    }
+  });
+
+  // attack.registration-replay-spends-adjudicator-write-budget (review of PR 184): anyone can copy a served registration.
+  it('spends nothing of the adjudicator\'s budget when anyone posts its served registration again; a replacement moves to it', async () => {
+    const op = await limited(10, 'op-t221-e');
+    try {
+      const reg = await regOf(outsider, '2026-11-04T08:00:00Z');
+      expect(await send(op.url, reg, 'first')).toBe(200);
+      for (const k of ['copy-1', 'copy-2', 'copy-3']) expect(await send(op.url, reg, k)).toBe(200);
+      expect(spent(op, `w:${outsider.address}`)).toBe(0);
+      expect(await send(op.url, await regOf(outsider, '2026-11-04T08:30:00Z'), 'rotation')).toBe(200);
+      expect(spent(op, `w:${outsider.address}`)).toBe(1);
     } finally {
       await op.close();
     }
@@ -280,6 +333,88 @@ describe('the route is a write under the throttle, and lastUsedAt follows the ad
       const accepted = await chain.submit(await deal.accept());
       if (!accepted.ok) throw new Error('acceptance refused');
       expect((await read()).observed.lastUsedAt).toBe(accepted.events.at(-1)!.at);
+    } finally {
+      await op.close();
+    }
+  });
+});
+
+// Review of PR 184: the relay checks read the bond at the moment that matters, and never override an idempotent replay.
+describe('bond reads in the relay: replays, the buyer\'s notice, a hold\'s own reservation, stable pages', () => {
+  const cast = simCast('t-221-c');
+  const club = simClub(simActor('club-operator', 't-221-c').address);
+  const PRICE = 2_000_000_000n; // Deal's default price, 2,000 tUSD
+  const funded = { buyer: 10_000_000_000n, seller: 1_000_000_000n };
+  const ids = { n: 0 };
+  async function node(bonds: Partial<Record<'primary' | 'fallback' | 'appeal', bigint>>, drained?: () => boolean) {
+    const chain = new SimChain(await simGenesis({ cast, club, start: '2026-11-04T09:00:00Z', balances: funded, bonds }));
+    const base = simRegistry(chain);
+    const zero = { token: 'tUSD', amount: '0' } as AdjudicatorRegistration['fee']['min'];
+    const pool = async (a: Address) => (drained?.() && a.toLowerCase() === cast.fallback.address.toLowerCase() ? { junior: zero, senior: zero, reserved: zero } : base.pool!(a));
+    const op = await startOperator({ settlement: chain, registry: { ...base, pool }, signerKey: simActor(`op-c${++ids.n}`, 'operator').key, operatorId: `op-c${ids.n}`, env: {} });
+    const post = async (path: string, b: unknown, key: string) => {
+      const res = await fetch(`${op.url}${path}`, { method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': key }, body: JSON.stringify(b) });
+      return { status: res.status, body: (await res.json()) as J };
+    };
+    return { chain, op, post };
+  }
+  const all = { primary: 25_000_000_000n, fallback: 25_000_000_000n, appeal: 25_000_000_000n };
+
+  it('replays a relayed offer under its key after the fallback\'s bond is gone; a new key is refused', async () => {
+    let drained = false;
+    const { chain, op, post } = await node(all, () => drained);
+    try {
+      const offer = await new Deal(chain, cast, { club }).offer();
+      if (offer.kind !== 'offer') throw new Error('expected an offer');
+      const first = await post('/v1/commitments', offer.commitment, 'offer-K');
+      expect(first.status).toBe(200);
+      drained = true;
+      const retry = await post('/v1/commitments', offer.commitment, 'offer-K');
+      expect([retry.status, retry.body]).toEqual([200, first.body]);
+      expect((await post('/v1/commitments', offer.commitment, 'offer-L')).status).toBe(400);
+    } finally {
+      await op.close();
+    }
+  });
+
+  it('warns the buyer at agree about an unbonded adjudicator, without counting the primary\'s reservation for this deal', async () => {
+    const { chain, op, post } = await node({ primary: PRICE, fallback: 25_000_000_000n });
+    try {
+      const deal = new Deal(chain, cast, { club });
+      expect((await chain.submit(await deal.offer())).ok).toBe(true);
+      expect((await chain.submit(await deal.accept())).ok).toBe(true);
+      const n = (s: string) => `0x${s.repeat(32)}`;
+      const p = await post('/v1/prepare/agree-and-fund', { commitmentId: deal.id, agreeNonce: n('6a'), fundingNonce: n('6b') }, 'p');
+      expect(p.status).toBe(200);
+      expect(p.body.notices.join(' ')).toMatch(new RegExp(`appeal adjudicator ${cast.appeal.address} has no bond`, 'i'));
+      expect(p.body.notices.join(' ')).not.toMatch(/primary adjudicator/);
+    } finally {
+      await op.close();
+    }
+  });
+
+  it('gives a relayed hold no notice from its own reservation of the primary\'s bond', async () => {
+    const { chain, op, post } = await node({ primary: PRICE, fallback: 25_000_000_000n, appeal: 25_000_000_000n });
+    try {
+      const { path, body: hold } = requestOf(await holdOf(new Deal(chain, cast, { club })));
+      const r = await post(path, hold, 'hold');
+      expect([r.status, r.body.escrowState]).toEqual([200, 'Held']);
+      expect(r.body.notices).toBeUndefined();
+    } finally {
+      await op.close();
+    }
+  });
+
+  it('pages the adjudicator list without a skip when a genesis adjudicator registers between pages', async () => {
+    const { op } = await node(all);
+    try {
+      const page = async (cursor?: string) => (await (await fetch(`${op.url}/v1/adjudicators?limit=2${cursor ? `&cursor=${cursor}` : ''}`)).json()) as J;
+      const one = await page();
+      const primary = cast.primary.address.toLowerCase() as Address;
+      const r = await signRegistration(cast.primary.key, holdbackDomain(31337), { ...offline(), address: primary }, { keyId: 'k', issuedAt: '2026-11-04T08:00:00Z', nonce: h('5a'), expiresAt: '2027-11-04T09:00:00Z' });
+      expect((await fetch(`${op.url}/v1/adjudicators`, { method: 'POST', headers: { 'idempotency-key': 'r' }, body: JSON.stringify(r) })).status).toBe(200);
+      const two = await page(one.nextCursor);
+      expect([...one.items, ...two.items].map((a: J) => a.address.toLowerCase())).toEqual([cast.primary, cast.fallback, cast.appeal].map((a) => a.address.toLowerCase()));
     } finally {
       await op.close();
     }

@@ -4,7 +4,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { describe, expect, it } from 'vitest';
 import { canonicalKeccak } from './canonical.js';
 import { encodePublicKey, generateEncryptionKeyPair } from './crypto/index.js';
-import { holdbackDomain, registeredBody, registrationBodyHash, registrationMessageOf, signMessage, verifyMessage } from './eip712.js';
+import { holdbackDomain, registeredBody, registrationBodyHash, registrationMessageOf, signMessage, verifyMessage, verifyRegistration } from './eip712.js';
 import { parseAdjudicator, parseMessage } from './parse.js';
 import type { AdjudicatorRegistration, Hex32, RegisteredAdjudicator } from './types.js';
 
@@ -101,6 +101,17 @@ describe('AdjudicatorRegistration (ADR-0030)', () => {
       expect(registrationBodyHash({ ...base, ...change })).not.toBe(hash);
     }
     expect(registeredBody({ ...base, registration: { keyId: 'k' } } as never)).toEqual(base);
+  });
+
+  it('verifyRegistration checks the signature and every hash, so an altered body fails though the signature recovers', async () => {
+    const r = await signed();
+    expect(await verifyRegistration(domain, r)).toBe(true);
+    const served = { ...r, pool: { junior: tusd('5'), senior: tusd('0'), reserved: tusd('0'), terms: POOL_TERMS }, observed: { bond: 'bonded' } };
+    expect(await verifyRegistration(domain, served)).toBe(true);
+    for (const altered of [{ ...r, name: 'Crow (official)' }, { ...r, policy: { ...r.policy, panelSize: 9 } }, { ...r, pool: { terms: { ...POOL_TERMS, noticePeriodSec: 1 } } }]) {
+      expect(await verifyRegistration(domain, altered)).toBe(false);
+    }
+    expect(await verifyRegistration(domain, unsigned() as never)).toBe(false);
   });
 
   it('does not verify under another domain or with an altered record', async () => {

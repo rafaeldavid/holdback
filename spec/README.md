@@ -23,7 +23,7 @@ The `$id` URLs (`https://holdback.dev/schemas/v0.10/…`) are namespaces for res
 
 - **v0.10 (2026-11-04, D46, ADR-0030), additive:** every `$id`, the `Holdback-Schema-Version` header and the OpenAPI `x-holdback-schema-version` move to 0.10. No existing typed-data struct changes, so the EIP-712 domain version and `commitment.schemaVersion` stay 0.7.
   - **Messages:** a new `AdjudicatorRegistration`, an adjudicator's self-signed registration: its address, encryption key and `keyId`, `policyHash`, `registryHash`, minimum fee, `poolTermsHash`, `bodyHash` over the rest of its record, and `issuedAt`, which orders one address's registrations. `KeyRegistration` is deprecated: operators take `AdjudicatorRegistration` instead, and the next breaking version removes it.
-  - **Adjudicator record:** an optional `registration` envelope (`keyId`, `bodyHash`, `issuedAt`, `nonce`, `expiresAt`, `signature`), from which a reader rebuilds the signed message.
+  - **Adjudicator record:** an optional `registration` envelope (`keyId`, `bodyHash`, `issuedAt`, `nonce`, `expiresAt`, `signature`), from which a reader rebuilds the signed message. `affiliations` is capped at 100 entries of 120 characters; no registration existed before 0.10, so no stored record breaks.
   - **Examples:** a new `messages.adjudicator-registration` example; the adjudicator example carries an envelope; 34 examples.
 
 - **v0.9 (2026-11-03, D44, ADR-0029), changes a signed struct:** every `$id`, the `Holdback-Schema-Version` header and the OpenAPI `x-holdback-schema-version` move to 0.9, and so do the EIP-712 domain version and `commitment.schemaVersion`, to 0.7. A 0.6 signature never verifies under 0.7, and a 0.7 deal names the deployment that settles it.

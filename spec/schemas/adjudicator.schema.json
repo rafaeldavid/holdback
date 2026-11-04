@@ -31,8 +31,10 @@
     },
     "affiliations": {
       "type": "array",
+      "maxItems": 100,
       "items": {
         "type": "string",
+        "maxLength": 120,
         "x-holdback-untrusted": true
       },
       "description": "Member IDs the adjudicator is affiliated with; it may not judge their commitments"

@@ -575,6 +575,22 @@ export function registrationMessageOf(record: AdjudicatorRegistration | Register
   };
 }
 
+/**
+ * ADR-0030 §7: what a reader checks before naming an adjudicator: policyHash, poolTermsHash and bodyHash recompute
+ * from the record, and its adjudicator signed it under `domain`. The signature alone does not bind the body. Never throws.
+ */
+export async function verifyRegistration(domain: HoldbackDomain, record: AdjudicatorRegistration | RegisteredAdjudicator): Promise<boolean> {
+  try {
+    if (!record.registration) return false;
+    const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+    if (!same(canonicalKeccak(record.policy), record.policyHash) || !same(canonicalKeccak(record.pool.terms), record.poolTermsHash)) return false;
+    if (!same(registrationBodyHash(record), record.registration.bodyHash)) return false;
+    return await verifyMessage(domain, registrationMessageOf(record), record.address);
+  } catch {
+    return false;
+  }
+}
+
 /** The EIP-712 digest an agent signs for a message, e.g. for a contract or relayer to compare. */
 export const messageDigest = (domain: HoldbackDomain, message: UnsignedMessage): Hex32 =>
   hashTypedData(typed(domain, message.type, encodeMessage(message)) as Parameters<typeof hashTypedData>[0]);

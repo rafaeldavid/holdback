@@ -2959,8 +2959,10 @@
           },
           "affiliations": {
             "type": "array",
+            "maxItems": 100,
             "items": {
               "type": "string",
+              "maxLength": 120,
               "x-holdback-untrusted": true
             },
             "description": "Member IDs the adjudicator is affiliated with; it may not judge their commitments"
@@ -8252,8 +8254,10 @@
           },
           "affiliations": {
             "type": "array",
+            "maxItems": 100,
             "items": {
               "type": "string",
+              "maxLength": 120,
               "x-holdback-untrusted": true
             },
             "description": "Member IDs the adjudicator is affiliated with; it may not judge their commitments"
@@ -8557,9 +8561,10 @@
               "bond": {
                 "enum": [
                   "none",
-                  "bonded"
+                  "bonded",
+                  "unknown"
                 ],
-                "description": "`none` when the pool holds nothing: nothing it holds pays a wronged party"
+                "description": "`none` when the pool holds nothing: nothing it holds pays a wronged party; `unknown` when this node could not read the bond"
               },
               "defaultFor": {
                 "type": "array",
@@ -8609,8 +8614,10 @@
           },
           "affiliations": {
             "type": "array",
+            "maxItems": 100,
             "items": {
               "type": "string",
+              "maxLength": 120,
               "x-holdback-untrusted": true
             },
             "description": "Member IDs the adjudicator is affiliated with; it may not judge their commitments"
@@ -9711,7 +9718,7 @@
           },
           "defaults": {
             "type": "object",
-            "description": "What the operator filled in because you left it out (times, `releaseKey`; never a nonce); pass it back to reproduce the same typed data"
+            "description": "What the operator filled in because you left it out (times, `releaseKey`, the default `adjudicators`; never a nonce); pass it back to reproduce the same typed data"
           },
           "notices": {
             "$ref": "#/components/schemas/Notices"

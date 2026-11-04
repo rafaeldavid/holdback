@@ -50,7 +50,7 @@ import { ENVELOPE_SPEC } from './envelope-spec.js';
 import { FeedbackDesk, FeedbackError, MAX_REPORT_BYTES, parseReport, type FeedbackOptions, type Report } from './feedback.js';
 import { startupGuards } from './guards.js';
 import { amountText, bondNotices, fallbackBondRefusal, operatorFeeText, prepare, PrepareError, type Erc3009Signing, type PrepareContext } from './prepare.js';
-import { hasBond, register, RegistrationError, type Bond, type StoredRegistration } from './registrations.js';
+import { hasBond, MAX_REGISTRATION_BYTES, register, RegistrationError, type Bond, type StoredRegistration } from './registrations.js';
 import { IdempotencyStore, fingerprint, type StoredResponse } from './idempotency.js';
 import { readerOf, type Reader } from './read-auth.js';
 import { llmsTxt, openApiDocument, plannedRoute, routeOf } from './openapi/index.js';
@@ -563,10 +563,8 @@ export class Operator {
 
   /** This node's notices about a subject, when it has any (`notices` in the body; never changes the answer). */
   private async noticesFor(about: NoticeSubject): Promise<{ notices?: string[] }> {
-    // ADR-0030 §5: a relayed offer or hold names each adjudicator without a bond for the price.
-    const own = about.kind === 'write' && (about.op.kind === 'offer' || about.op.kind === 'hold') ? await bondNotices(this.prepareContext(), about.op.commitment) : [];
-    const n = [...own, ...(this.o.notices ? await this.o.notices(about) : [])];
-    return n.length ? { notices: n } : {};
+    const n = this.o.notices ? await this.o.notices(about) : [];
+    return n.length ? { notices: [...n] } : {};
   }
 
   /** The fixed window a bucket is in now (ADR-0017 §3). */
@@ -664,9 +662,9 @@ export class Operator {
     const budget = this.o.rateLimit?.writes ?? 0;
     const client = `w:${this.client(ctx)}`;
     this.throttle(client, budget);
-    const raw = await this.body(ctx);
-    const dryRun = validateOnly(ctx.url.searchParams);
     const s = ctx.segments;
+    const raw = await this.body(ctx, s.join('/') === 'v1/adjudicators' ? MAX_REGISTRATION_BYTES : MAX_BODY_BYTES);
+    const dryRun = validateOnly(ctx.url.searchParams);
     if (s.join('/') === 'v1/faucet') return this.idempotent(ctx, raw, () => this.faucet(ctx, raw));
     if (s.join('/') === 'v1/adjudicators') return this.registerAdjudicator(ctx, raw, dryRun, client, budget);
     if (s.length === 4 && s[1] === 'commitments' && s[3] === 'disclosure') {
@@ -684,14 +682,30 @@ export class Operator {
     // The policy sees a frozen copy: it can decline, never alter what this node relays.
     const refused = this.o.policy?.(deepFreeze(structuredClone(op)), await this.policyContext(op));
     if (refused) fail(refused.type, refused.detail);
-    await this.refuseUnpayableFallback(op);
-    if (dryRun) return this.send(ctx, await this.dryRun(op));
+    if (dryRun) {
+      await this.refuseUnpayableFallback(op);
+      return this.send(ctx, await this.dryRun(op));
+    }
     await this.chargeFee(op);
     return this.idempotent(ctx, raw, async () => {
-      const r = await this.relay(ctx, op);
+      // Inside the handler, so a retry of a relayed write replays its answer even if a bond changed since (ADR-0030 §5).
+      await this.refuseUnpayableFallback(op);
+      const r = await this.relay(ctx, op, await this.bondNoticesFor(op));
       if (r.status < 300 && signerBucket) this.transfer(client, signerBucket);
       return r;
     });
+  }
+
+  /**
+   * ADR-0030 §5: advisory notices on a relayed offer, hold or agreement for each named adjudicator without a bond for
+   * the price, read before the relay. At agree the primary's free bond already excludes this deal's reservation.
+   */
+  private async bondNoticesFor(op: Operation): Promise<string[]> {
+    if (op.kind === 'offer' || op.kind === 'hold') return bondNotices(this.prepareContext(), op.commitment);
+    if (op.kind !== 'agree') return [];
+    const terms = await this.prepareContext().commitment(op.message.commitmentId);
+    const state = terms ? await this.o.settlement.state(terms.id) : null;
+    return terms ? bondNotices(this.prepareContext(), terms, { primaryReserved: state !== null && state.escrowState !== 'Offered' }) : [];
   }
 
   /**
@@ -731,7 +745,9 @@ export class Operator {
 
   /**
    * POST /v1/adjudicators (ADR-0030): verifies and stores an adjudicator's self-signed registration, and answers the
-   * served record. A write: counted against the client at entry, then against the adjudicator once stored.
+   * served record. A write, counted against the client at entry. A registration for a new address stays on the client,
+   * so fresh keys cannot multiply a client's budget; a replacement moves to the adjudicator, as a relayed message does;
+   * the served one posted again changes nothing and stays on the client.
    */
   private async registerAdjudicator(ctx: Ctx, raw: unknown, dryRun: boolean, client: string, budget: number): Promise<void> {
     const store = this.o.registry.registrations ?? fail('not_found', 'this operator stores no adjudicator registrations; post yours to another operator');
@@ -746,19 +762,30 @@ export class Operator {
         throw e;
       }
     };
-    if (dryRun) return this.send(ctx, this.ok(await this.listingOf(await run()), { 'holdback-dry-run': 'true' }));
+    if (dryRun) return this.send(ctx, this.ok(await this.listingOf((await run()).stored), { 'holdback-dry-run': 'true' }));
     return this.idempotent(ctx, raw, async () => {
-      const stored = await run();
-      if (signerBucket) this.transfer(client, signerBucket);
+      const { stored, change } = await run();
+      if (change === 'replaced' && signerBucket) this.transfer(client, signerBucket);
+      await this.sync();
       return this.ok(await this.listingOf(stored));
     });
   }
 
-  /** Any address's bond, when this node can read it: live from the settlement layer, else this world's list. */
+  /**
+   * Any address's bond as the settlement layer holds it, read live, or undefined when this node cannot read it. The
+   * bond refusal and the notices act only on this read, never on a cache that may be cold (review of PR 184).
+   */
+  private async liveBond(a: Address): Promise<Bond | undefined> {
+    try {
+      return await this.o.registry.pool?.(a);
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** A bond to list beside a registration: the live read, else this world's own list. */
   private async bondOf(a: Address): Promise<Bond | undefined> {
-    const reg = this.o.registry;
-    if (reg.pool) return reg.pool(a);
-    return reg.adjudicators().find((x) => lc(x.address) === lc(a))?.bond;
+    return (await this.liveBond(a)) ?? this.o.registry.adjudicators().find((x) => lc(x.address) === lc(a))?.bond;
   }
 
   /**
@@ -768,7 +795,8 @@ export class Operator {
   private async listingOf(stored: StoredRegistration): Promise<Record<string, unknown>> {
     const r = stored.record;
     const zero = { token: r.fee.min.token, amount: '0' } as TokenAmount;
-    const bond = (await this.bondOf(r.address)) ?? { junior: zero, senior: zero, reserved: zero };
+    const read = await this.bondOf(r.address);
+    const bond = read ?? { junior: zero, senior: zero, reserved: zero };
     const defaults: Partial<Record<string, Address>> = this.o.registry.defaultAdjudicators ?? {};
     const defaultFor = (['primary', 'fallback', 'appeal'] as const).filter((role) => defaults[role] && lc(defaults[role]) === lc(r.address));
     return {
@@ -779,22 +807,29 @@ export class Operator {
         registeredAt: stored.registeredAt,
         lastUsedAt: this.lastUsed.get(lc(r.address)) ?? null,
         expired: !(Date.parse(this.settlementNow()) < Date.parse(r.registration.expiresAt)),
-        bond: hasBond(bond) ? 'bonded' : 'none',
+        bond: !read ? 'unknown' : hasBond(bond) ? 'bonded' : 'none',
         ...(defaultFor.length ? { defaultFor } : {}),
       },
     };
   }
 
   /**
-   * Every adjudicator this node serves, oldest first: bonded adjudicators that never registered (from genesis), then
-   * registrations in the order this node first stored them.
+   * GET /v1/adjudicators: every adjudicator this node serves, oldest first. The world's own bonded adjudicators keep
+   * their place whether or not they registered, then registrations follow in the order this node first stored them, so
+   * a cursor never skips one. Bonds are read for the page only.
    */
-  private async adjudicatorList(): Promise<Array<Record<string, unknown>>> {
+  private async adjudicatorPage(q: URLSearchParams): Promise<Page<Record<string, unknown>>> {
     const reg = this.o.registry;
-    const stored = ((await reg.registrations?.list()) ?? []).sort((a, b) => Date.parse(a.registeredAt) - Date.parse(b.registeredAt));
-    const registered = new Set(stored.map((r) => lc(r.record.address)));
-    const unregistered = reg.adjudicators().filter((a) => !registered.has(lc(a.address))).map((a) => this.unregisteredListing(a));
-    return [...unregistered, ...(await Promise.all(stored.map((r) => this.listingOf(r))))];
+    const stored = new Map(((await reg.registrations?.list()) ?? []).map((r) => [lc(r.record.address), r]));
+    const own = reg.adjudicators();
+    const ownSet = new Set(own.map((a) => lc(a.address)));
+    const later = [...stored.values()].filter((r) => !ownSet.has(lc(r.record.address))).sort((a, b) => Date.parse(a.registeredAt) - Date.parse(b.registeredAt));
+    const rows: Array<{ seq: number; stored?: StoredRegistration; view?: (typeof own)[number] }> = [
+      ...own.map((view, i) => ({ seq: LIST_TOP - i, view, ...(stored.has(lc(view.address)) ? { stored: stored.get(lc(view.address))! } : {}) })),
+      ...later.map((r, i) => ({ seq: LIST_TOP - own.length - i, stored: r })),
+    ];
+    const page = paginate(rows, (r) => r.seq, q);
+    return { items: await Promise.all(page.items.map((r) => (r.stored ? this.listingOf(r.stored) : this.unregisteredListing(r.view!)))), nextCursor: page.nextCursor };
   }
 
   /** A bonded adjudicator with no stored registration: a world's own record when it has one, else the bond alone. */
@@ -850,7 +885,7 @@ export class Operator {
   }
 
   /** The operation's submissions in order, under the keys the SDK's direct path would use. */
-  private async relay(ctx: Ctx, op: Operation): Promise<StoredResponse> {
+  private async relay(ctx: Ctx, op: Operation, before: readonly string[] = []): Promise<StoredResponse> {
     const key = ctx.req.headers['idempotency-key'] as string;
     const subs = submissionsOf(op);
     const keys = submissionKeys(key, subs.length);
@@ -862,7 +897,8 @@ export class Operator {
     }
     const event = last!.events.at(-1);
     const receipt = event ? await this.receiptFor(event) : undefined;
-    return this.ok({ ...wholeSeconds(last!.state), ...(receipt ? { receipt } : {}), ...(await this.noticesFor({ kind: 'write', op })) });
+    const notices = [...before, ...((await this.noticesFor({ kind: 'write', op })).notices ?? [])];
+    return this.ok({ ...wholeSeconds(last!.state), ...(receipt ? { receipt } : {}), ...(notices.length ? { notices } : {}) });
   }
 
   /** ADR-0017 §7: Settlement.validate, no idempotency record, no receipt, Holdback-Dry-Run: true. */
@@ -1010,7 +1046,7 @@ export class Operator {
       now: () => reg.now?.() ?? (new Date(Math.floor(Date.now() / 1000) * 1000).toISOString().replace('.000Z', 'Z') as Timestamp),
       club: (id) => reg.clubs.find((c) => c.id === id),
       registration: (a) => this.registrationOf(a),
-      bond: (a) => this.bondOf(a),
+      bond: (a) => this.liveBond(a),
       ...(reg.defaultAdjudicators ? { defaultAdjudicators: reg.defaultAdjudicators } : {}),
       commitment: async (id) => {
         const offered = (await eventsOf(id)).find((e) => e.type === 'commitment.offered');
@@ -1114,9 +1150,7 @@ export class Operator {
     // ADR-0030: a registration is served with its signature, the bond the settlement layer holds and what this node saw.
     if (s[1] === 'adjudicators' && s.length === 2) {
       await this.sync();
-      const all = await this.adjudicatorList();
-      const order = new Map(all.map((a, i) => [a, LIST_TOP - i]));
-      return paginate(all, (a) => order.get(a)!, q);
+      return this.adjudicatorPage(q);
     }
     if (s[1] === 'adjudicators' && s.length === 3) {
       if (!isAddress(s[2])) fail('not_found', `no adjudicator ${s[2]}`);

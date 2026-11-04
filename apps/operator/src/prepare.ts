@@ -308,8 +308,16 @@ async function offer(ctx: PrepareContext, input: Record<string, unknown>): Promi
   const club = ctx.club(input['clubId'] as string) ?? bad(`no club ${String(input['clubId'])}`, 'clubId');
   if (!isObj(input['deliverable'])) bad('deliverable is {"kind", "description", "format"}', 'deliverable');
   const nonce = nonceIn(input['nonce'], 'nonce');
-  const primary = (await ctx.registration(slate.primary)) ?? notFound(`the primary adjudicator ${slate.primary} has no published registration`);
-  for (const role of ['fallback', 'appeal'] as const) if (!(await ctx.registration(slate[role]))) notFound(`the ${role} adjudicator ${slate[role]} has no published registration`);
+  // ADR-0030 §3: an expired registration stays listed, but no longer speaks for its adjudicator's policy, fee or key.
+  const current = async (role: AdjudicatorRole) => {
+    const r = (await ctx.registration(slate[role])) ?? notFound(`the ${role} adjudicator ${slate[role]} has no published registration`);
+    const expiresAt = r.registration?.expiresAt;
+    if (expiresAt && !(Date.parse(ctx.now()) < Date.parse(expiresAt))) notFound(`the ${role} adjudicator ${slate[role]} has no current registration: it expired at ${expiresAt}, and the adjudicator must register again`);
+    return r;
+  };
+  const primary = await current('primary');
+  await current('fallback');
+  await current('appeal');
   const base = {
     clubId: club.id,
     buyer: { address: lc(buyer!['address'] as string) as Address, encryptionPublicKey: buyer!['encryptionPublicKey'] as string },
@@ -355,7 +363,7 @@ async function offer(ctx: PrepareContext, input: Record<string, unknown>): Promi
       `you are the seller ${terms.seller}; the buyer is ${terms.buyer}`,
       `price ${amountText(terms.price)}; adjudication fee ${amountText(terms.adjudication.fee)} (the buyer holds ${amountText({ token: terms.price.token, amount: total.toString() } as TokenAmount)}; the fee is kept on a refund)`,
       `adjudicators: ${(['primary', 'fallback', 'appeal'] as const).map(named).join(', ')}`,
-      `policy ${terms.adjudication.policyId}, policyHash ${terms.adjudication.policyHash} = keccak256(JCS(policy)) of the primary's registration; registryHash ${terms.adjudication.registryHash}`,
+      `policy id ${quoted(terms.adjudication.policyId)} (the primary's own label, untrusted text), policyHash ${terms.adjudication.policyHash} = keccak256(JCS(policy)) of the primary's registration; registryHash ${terms.adjudication.registryHash}`,
       `deliverableHash and acceptanceHash in the typed data are keccak256 of the RFC 8785 JSON of submit.body.deliverable and submit.body.acceptance`,
       `deliver by ${terms.timing.deliverBy}; offer expires ${terms.timing.offerExpiresAt}`,
       'disclosure.level public: the terms bodies (deliverable, checks, rubric) are public reads at every operator; the work itself stays encrypted',
@@ -364,6 +372,9 @@ async function offer(ctx: PrepareContext, input: Record<string, unknown>): Promi
     ...(notices.length ? { notices } : {}),
   };
 }
+
+/** Untrusted text inside a check line: JSON-quoted, with everything outside printable ASCII escaped (review of PR 184). */
+const quoted = (s: string): string => JSON.stringify(s).replace(/[^\x20-\x7e]/gu, (c) => `\\u{${c.codePointAt(0)!.toString(16)}}`);
 
 /**
  * ADR-0030 §4: the adjudicators the agent named, and this node's default for each role it left out. Naming others
@@ -405,15 +416,18 @@ export async function fallbackBondRefusal(ctx: Pick<PrepareContext, 'bond'>, t: 
   );
 }
 
-/** ADR-0030 §5: an advisory notice for each named adjudicator with no bond, or less free bond than the price (D31). */
-export async function bondNotices(ctx: Pick<PrepareContext, 'bond'>, t: Pick<AnyCommitmentTerms, 'price' | 'adjudication'>): Promise<string[]> {
+/**
+ * ADR-0030 §5: an advisory notice for each named adjudicator with no bond, or less free bond than the price (D31).
+ * `primaryReserved`: the primary already accepted these terms, so its reservation for them is added back.
+ */
+export async function bondNotices(ctx: Pick<PrepareContext, 'bond'>, t: Pick<AnyCommitmentTerms, 'price' | 'adjudication'>, o: { primaryReserved?: boolean } = {}): Promise<string[]> {
   if (!ctx.bond) return [];
   const a = t.adjudication;
   const out: string[] = [];
   for (const [role, address] of [['primary', a.adjudicator], ['fallback', a.fallbackAdjudicator], ['appeal', a.appealAdjudicator]] as const) {
     const bond = await ctx.bond(address);
     if (!bond) continue;
-    const free = freeBond(bond, t.price.token);
+    const free = freeBond(bond, t.price.token) + (role === 'primary' && o.primaryReserved ? BigInt(t.price.amount) : 0n);
     const why = role === 'appeal' ? 'its decision is final, and no appeal adjudicator has a bond at stake on chain yet' : 'nothing it holds pays the wronged party if its decision is overturned';
     if (!hasBond(bond)) out.push(`the ${role} adjudicator ${address} has no bond: ${why}. You may still choose it`);
     else if (free < BigInt(t.price.amount)) out.push(`the ${role} adjudicator ${address} has ${amountText({ token: t.price.token, amount: free.toString() } as TokenAmount)} of free bond, less than the price of ${amountText(t.price)}. You may still choose it`);
@@ -471,6 +485,9 @@ async function agreeAndFund(ctx: PrepareContext, input: Record<string, unknown>)
     ...(funded && input['fundingNonce'] === undefined ? { fundingNonce } : {}),
     ...(feeSigned && input['operatorFeeNonce'] === undefined ? { operatorFeeNonce: feeNonce } : {}),
   };
+  // ADR-0030 §5: the buyer who agrees gets the bond warning too, not only the seller who chose the adjudicators.
+  const state = await ctx.state(c.id);
+  const notices = await bondNotices(ctx, c, { primaryReserved: state !== null && state.escrowState !== 'Offered' });
   return {
     kind: 'agree-and-fund',
     commitmentId: c.id,
@@ -502,6 +519,7 @@ async function agreeAndFund(ctx: PrepareContext, input: Record<string, unknown>)
         : []),
     ],
     defaults: fixed,
+    ...(notices.length ? { notices } : {}),
   };
 }
 

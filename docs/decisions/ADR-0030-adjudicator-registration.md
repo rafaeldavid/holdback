@@ -44,34 +44,36 @@ The TypeScript record type keeps its name `AdjudicatorRegistration` for now, bec
 `POST /v1/adjudicators` with an `Idempotency-Key` takes the registered record with its envelope: the record as `GET /v1/adjudicators/{address}` serves it, without the pool balances (`pool` holds `terms` only). The operator:
 
 1. validates the record against `adjudicator.schema.json` and the rebuilt message against `messages.schema.json` (its signed timestamps, nonce and signature shape);
-2. checks that `encryptionPublicKey` decodes to a 32-byte x25519 key;
+2. checks that `encryptionPublicKey` decodes to a 32-byte x25519 key that is not a low-order point (no seller could seal to one), and that the envelope has one spelling: `issuedAt` and `expiresAt` in whole seconds with `Z`, and a low-s signature with v of 27 or 28 (EIP-2), so nobody can store a second spelling of what the adjudicator signed;
 3. recomputes `policyHash` from `policy`, `poolTermsHash` from `pool.terms` and `bodyHash` from the record;
 4. recovers the signature to `address` under its own domain (chain and rules contract);
 5. checks `expiresAt` is later than settlement-layer time and `issuedAt` is earlier than `expiresAt`;
-6. checks `issuedAt` is later than the registration it serves for that address, unless the post is that same registration again (same signature), which it answers with the served record unchanged;
+6. checks `issuedAt` is later than the registration it serves for that address, unless the post is that same registration again (the same signed digest), which it answers with the served record unchanged;
 7. stores it as the one registration for that address and answers the served record.
 
 It refuses only what is malformed, unsigned, out of order or self-contradictory:
 
 | Refusal | Answer |
 | --- | --- |
-| A body that fails a schema, a key that is not 32 bytes, a pool with balances, a hash that does not recompute, an `issuedAt` not before `expiresAt` | 400 `invalid_terms`, naming the field |
+| A body that fails a schema, a key that is not a usable 32-byte x25519 key, a pool with balances, a hash that does not recompute, a second spelling of a time or a signature, an `issuedAt` not before `expiresAt` | 400 `invalid_terms`, naming the field |
 | A signature that does not recover to `address` under this node's domain | 401 `invalid_signature` |
 | An expired registration | 409 `deadline_passed` |
 | An `issuedAt` not later than the served one | 409 `invalid_state`, naming the served `issuedAt` |
-| A body over 1 MiB; no `Idempotency-Key` | 413 `payload_too_large`; 400 `invalid_terms` |
+| A body over 32 KiB (a record with every field at its schema maximum fits); no `Idempotency-Key` | 413 `payload_too_large`; 400 `invalid_terms` |
 
 **It never refuses** a fee level (a fee of `0` is fine), a policy value the schema admits, a registry hash it has never seen, a `registry.uri` it cannot fetch, an address with no bond, a `status` of `suspended`, or untrusted text it doubts (D31). The schema's minimums (`panelSize` at least 3, `minFamilies` at least 2, supermajorities above one half) are litmus test 3's mandatory rules, so they stay schema refusals.
 
-The route is a write: it is counted against the client's write budget at entry, and a stored registration moves that count to the adjudicator's own bucket, as a relayed message does.
+The route is a write, counted against the client's write budget at entry. A registration for a new address stays on the client, so a client with fresh keys gets no more than its budget of new rows per window. A replacement moves the count to the adjudicator's own bucket, as a relayed message does. The served registration posted again changes nothing and stays on the client, so copying a public registration spends nothing of its adjudicator's budget (review of PR 184).
+
+`adjudicator.schema.json` caps `affiliations` at 100 entries of 120 characters each in 0.10. No registration existed before 0.10, so the cap breaks no stored record.
 
 ### 3. Where registrations live, and the reads
 
 **Operators hold them** and serve them with the signature; nothing is on chain in this ADR. Each operator stores what is posted to it and verifies it for itself; an adjudicator posts to every operator it wants to be found at. The served signature means a reader never trusts the operator that served it (research §1). An on-chain anchor (an ERC-6538-style registry or Holdback's own, ownerless) stays in the backlog.
 
-**One registration per address**, replaced by a later one. **A registration is never removed** (Rafa's answer 3: "don't remove but be transparent alongside other metrics"). An expired registration stays listed, marked expired. Storage then grows by one row per distinct address, bounded by the write throttle; the demo counts the rows in telemetry (slice 2), and a backlog row covers what to do when the count matters.
+**One registration per address**, replaced by a later one. **A registration is never removed** (Rafa's answer 3: "don't remove but be transparent alongside other metrics"). An expired registration stays listed, marked expired, but no longer speaks for its adjudicator: `prepare/offer` refuses to name it until it registers again. `/recipients` still serves its key for deals that already bound it. Storage grows by one row per distinct address, bounded by each client's write budget for new addresses; the demo counts the rows in telemetry (slice 2), and a backlog row covers what to do when the count matters.
 
-**`GET /v1/adjudicators`** lists every adjudicator this node knows, oldest registration first, then any bonded adjudicator that never registered. `GET /v1/adjudicators/{address}` serves one. Each served registration has:
+**`GET /v1/adjudicators`** lists every adjudicator this node knows, oldest first: the world's own bonded adjudicators in their place whether or not they registered, then registrations in the order the node first stored them, so a cursor never skips one. Bonds are read for the page only. `GET /v1/adjudicators/{address}` serves one. Each served registration has:
 
 - the record with its `registration` envelope (the adjudicator's, signed);
 - `pool`'s `junior`, `senior` and `reserved`, and the same numbers as `bond`, read from the settlement layer at read time (on Sepolia, `HoldbackBonds.bondOf` and `freeOf`, cached per block);
@@ -90,9 +92,10 @@ Rafa: "crow's adjudicators are default and custom selection is advanced usage of
 ### 5. Bonds, shown plainly, with a warning and one refusal
 
 - **No bond is listed like any other registration**, with `pool` at zero and `observed.bond: "none"` (Rafa's answer 6).
-- **A warning, advisory only.** `prepare/offer`, and an offer or hold this node relays, carry a notice for each named adjudicator whose free bond (`junior + senior - reserved` in the price token) is zero or less than the price. The parties may still choose it (D31).
+- **A warning, advisory only.** `prepare/offer` and `prepare/agree-and-fund`, and an offer, hold or agreement this node relays, carry a notice for each named adjudicator whose free bond (`junior + senior - reserved` in the price token) is zero or less than the price. The buyer gets it at agree as well as the seller at offer. At agree the primary's reservation for this very deal is added back, and a relayed write's notices are read before the relay. The parties may still choose it (D31).
+- **Only a live read counts.** The warning and the refusal below act only on a bond the node reads live from the settlement layer (`HoldbackBonds` on a chain). A node that cannot read it, or whose read fails, neither warns nor refuses; a cached pool list is never used for either.
 - **One refusal at the operator.** In `guaranteed_on_decision`, an overturned decision pays the price from the decider's bond (D43). The fallback decides with a bond it reserves only then (M-3), so terms that name a fallback whose free bond is below the price cannot pay that clause. This node's `prepare/offer`, and its relay of an offer, a hold or an agreement, refuse such terms with 400 `invalid_terms`, saying why. The primary is already refused at acceptance and at funding; the appeal adjudicator's bond pays no clause today (L-5), so no rule reaches it.
-- **The direct path stays open.** The settlement layer, other operators and direct submission take the same signed terms. So the refusal is a service rule of this node, never a neutrality break: an operator may refuse anything, provided a refusal cannot stop a valid commitment.
+- **The direct path stays open.** The settlement layer, other operators and direct submission take the same signed terms. The check runs inside the idempotent handler, so a retry of a relayed write replays its answer even if the bond changed since. So the refusal is a service rule of this node, never a neutrality break: an operator may refuse anything, provided a refusal cannot stop a valid commitment.
 - **This is an exception to D31 and D32**, recorded as Rafa's rule: a bondless fallback is neither malformed nor unprocessable.
 - **It is a read with no lock.** It cannot promise the fallback still has its bond at takeover; an unbonded fallback simply cannot decide on chain, and the deal goes to its default outcome.
 - **The protocol-level half comes later,** in core and the contract in one change, with the next contract redeploy (T-212 item 5, the backlog row "The protocol refuses a selection the terms cannot pay"), after its own research pass. Core cannot go first: the EVM adapter throws when core refuses a step the contract accepted.
@@ -106,7 +109,7 @@ Once outsiders can be primaries, a Crow adjudicator named as fallback would deci
 Before naming an adjudicator, a party reads its registration from at least two operators and:
 
 1. rebuilds the `AdjudicatorRegistration` message from the record and recovers the signature to `address` under its own pinned domain;
-2. recomputes `policyHash`, `poolTermsHash` and `bodyHash`;
+2. recomputes `policyHash`, `poolTermsHash` and `bodyHash`; for `bodyHash`, it drops the listing's `bond` and `observed`, the `registration` envelope and the pool's balances first. The signature alone does not bind the body. Core's `verifyRegistration` runs steps 1 and 2;
 3. reads the bond from `HoldbackBonds` itself (`bondOf`, `freeOf`); `pool` in the answer is the operator's copy of the same reads.
 
 What the API cannot check is how an outside adjudicator judges: the policy and registry are promises the terms bind by hash, the appeal adjudicator the parties chose checks the decision against the terms, and an overturn pays the price from the first decider's bond (research §5). An appeal adjudicator's decision is final and its bond is not yet at stake on chain (L-5).
