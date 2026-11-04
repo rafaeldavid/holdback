@@ -7,8 +7,8 @@
   - the `control/` folder in the founders' private repository: `console.mjs`, `console.html`, `build-public.mjs`, the tests and the README. The console's code lives there, never here.
   - here: `docs/tasks/T-060-dependency-status.md`, `docs/plan.md` (this row) and `docs/update-flow.md` (only if a flow changes).
 - **Human gate:** yes, for the deploy only. The Worker bundles `console.html`, so a page change goes live with a crow-console deploy, on Rafa's go-ahead. The data part arrives with the next hourly push.
-- **Status:** todo
-- **Agent/session:** —
+- **Status:** in progress (the code is in the private repository's `control/` folder; the deploy waits for Rafa)
+- **Agent/session:** the T-060 session, 2026-11-04
 
 ## Intent
 
