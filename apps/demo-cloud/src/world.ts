@@ -800,7 +800,6 @@ interface LiveWorld {
 
 /** What the faucet needs from the settlement layer: mandates, and a grant of test tokens in process or on chain. */
 interface FaucetLedger {
-  agentMandates(): Mandate[];
   admit(m: Mandate): Promise<Problem | null>;
   grant(address: Address, amount: bigint): Promise<{ tx?: string }>;
   balances(addresses: readonly Address[]): Promise<Record<Address, TokenAmount>>;
@@ -808,7 +807,6 @@ interface FaucetLedger {
 
 function ledgerOf(chain: SimChain | EvmSettlement, live: LiveChain | undefined): FaucetLedger {
   return {
-    agentMandates: () => chain.agentMandates(),
     admit: (m) => chain.admit(m),
     balances: (a) => chain.balances(a),
     grant: async (address, amount) => {
@@ -824,7 +822,7 @@ function ledgerOf(chain: SimChain | EvmSettlement, live: LiveChain | undefined):
 }
 
 /**
- * The demo faucet's grant: a fixed amount of tUSD and a mandate in the demo club, signed by the club's own
+ * The demo faucet's grant: a fixed amount of tUSD and a fresh 30-day mandate in the demo club, signed by the club's own
  * test principal, once per address per window (persisted) and a few addresses per client per window (in memory).
  * On a chain (ADR-0028 §6) the grant is a mint the funding lane sends, answered after its receipt, skipped when the
  * address already holds the grant, and capped per day. One Durable Object serves the world, so the grants in
@@ -868,15 +866,12 @@ function grantFrom(w: {
   };
 
   async function grant(address: Address, now: number, windowMs: number, retryAfterSec: (at: number) => number): Promise<FaucetOutcome> {
-    let mandate: Mandate | undefined = w.ledger.agentMandates().find((x) => lc(x.agent) === address && x.clubId === w.club.id);
-    if (!mandate) {
-      const issuedAt = wholeSecond(now);
-      const expires = wholeSecond(now + 30 * 86_400_000);
-      const scope = rebindToken(wideScope(['buyer', 'seller'], expires), TOKEN, w.token);
-      mandate = await mandateFor({ name: `${w.principal.label}`, key: w.principal.privateKey, address: w.principal.address }, address, w.club.id, scope, issuedAt, w.domain);
-      const p = await w.ledger.admit(mandate);
-      if (p) return { ok: false, problem: p };
-    }
+    // Every grant signs a fresh 30-day mandate, which replaces the address's earlier one: an expired mandate is
+    // refused at offer and agree (mandate_expired), and an agent may ask before its own deal outlasts the old one.
+    const scope = rebindToken(wideScope(['buyer', 'seller'], wholeSecond(now + 30 * 86_400_000)), TOKEN, w.token);
+    const mandate = await mandateFor({ name: `${w.principal.label}`, key: w.principal.privateKey, address: w.principal.address }, address, w.club.id, scope, wholeSecond(now), w.domain);
+    const p = await w.ledger.admit(mandate);
+    if (p) return { ok: false, problem: p };
     let tx: string | undefined;
     const held = BigInt((await w.ledger.balances([address]))[address]?.amount ?? '0');
     if (!w.live || held < w.amount) {

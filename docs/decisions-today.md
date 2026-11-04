@@ -768,6 +768,7 @@ Also: the funding signature on EVM is CPP's collector signature and token identi
 - **Gas.** The test agents hold no Sepolia ETH and send no transaction. The operators' relayer pays for each deal as it does for `try.mjs`: 1,636,242 gas per deal plus the buyer's faucet mint (measured), one mint fewer than a `try.mjs` deal. At the day cap that is about 0.19 Sepolia ETH a day at 1 gwei (arithmetic).
 - **Litmus tests.** A party only: no protocol step, schema field or contract line changes. The hold and judgment are untouched; the refund is a real failed check. A stalled seller is the existing `neutrality.seller-withholds-delivery` case.
 - **Open for Rafa.** The faucet does not renew an expired mandate, so a standing address stops offering after 30 days unless the world resets first. The one-line fix is in `apps/demo-cloud/src/world.ts`, the operator lane; until it ships, rotating the secret (`seed.mjs --replace`) is the stopgap.
+  - *2026-11-04, T-223:* T-223 (PR 191) changed the faucet to sign a fresh 30-day mandate at every grant, which replaces the address's earlier one, whether or not it has expired. Renewing only an expired one would leave the seller degraded for about 2 hours every 30 days, because it asks 2 hours early (inferred). The fix reaches the live demo when Rafa deploys the operators; until then the stopgap stands.
 
 | Option | Effect |
 | --- | --- |
