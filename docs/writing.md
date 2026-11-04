@@ -21,11 +21,11 @@ Lead with the state, then the facts, then the action, in that order.
    - **Severity** for findings and alerts: Critical, High, Medium, Low, Info.
    - **Component status:** Operational, Degraded, Down, Unknown.
    - **Task status:** the words in `docs/plan.md` (todo, in progress, review, done, blocked).
-2. **What happened, where, and since when.** Name the component, file or PR, and the time: "API node 2 answers 503 since 09:14 UTC."
+2. **What happened, where, and since when.** Name the component, file or PR, and the time: "API node 2 has answered 503 since 09:14 UTC."
 3. **Impact,** in one sentence: who or what it affects.
-4. **Next action and owner:** "Rafa merges PR 159." "The T-211 session fixes it in its PR."
+4. **Next action and owner:** "Rafa merges PR 159." "The session on T-211, the reference adjudicator's checks, fixes it in its PR."
 
-A complete alert reads: "High · PR 151 touches `.github/CODEOWNERS` (tier 3). Rafa merges tier 3 changes. Open 15 hours."
+A complete alert reads: "High · PR 151 touches `.github/CODEOWNERS`, a tier 3 control file (CI and agent rules). Rafa merges those. Open 15 hours."
 
 ## Numbers, times and evidence
 
@@ -38,7 +38,7 @@ A complete alert reads: "High · PR 151 touches `.github/CODEOWNERS` (tier 3). R
 
 A review, audit or incident report has these parts, in this order:
 1. **Summary:** the verdict and the two or three findings that matter, in plain words.
-2. **Scope:** what was examined, at which commit, and what was not.
+2. **Scope:** what the reviewer examined, at which commit, and what they left out.
 3. **Findings by severity,** each with: what is wrong, where, the impact, the evidence, and the fix.
 4. **Recommendations and open questions,** each with an owner.
 
