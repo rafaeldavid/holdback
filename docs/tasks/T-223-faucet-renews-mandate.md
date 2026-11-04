@@ -2,7 +2,7 @@
 
 - **Lane:** demo (the operators' faucet in `apps/demo-cloud`)
 - **Phase:** 5
-- **Depends on:** T-222 (merged in PR 179), whose standing test seller keeps one address for more than 30 days.
+- **Depends on:** T-222 (merged in PR 179, deployed on 2026-11-04 per PR 188), whose standing test seller keeps one address for more than 30 days.
 - **Paths this task may touch:** `apps/demo-cloud/src/world.ts` (`grantFrom` and its `FaucetLedger`), `apps/demo-cloud/src/world.test.ts`; docs: `docs/backlog.md` (its row), `docs/decisions-today.md` (D47's open item), `docs/operations.md` (the test seller's mandate paragraph), `docs/api.md` and `site/llms.txt` (the faucet sentence; `node site/build.mjs` leaves `site/index.html` and `site/try.mjs` unchanged), `docs/plan.md` (this row), `docs/tasks/T-222-test-counterparties.md` (its Handoff item 1), this file.
 - **Human gate:** yes for the deploy: the two operator Workers run the fix only after Rafa deploys them. Everything else is in the repository.
 - **Status:** review (the deploy waits for Rafa)
@@ -38,8 +38,10 @@ The goal: a faucet grant always leaves the address with a live 30-day mandate in
 
 - Commands run and results:
   - Red first (measured): with only the test added, `pnpm vitest run apps/demo-cloud/src/world.test.ts -t "renews"` failed: the offer at expiry was refused `mandate_expired`, and the second grant returned the same `mandateHash`.
-  - Green (measured): `pnpm vitest run apps/demo-cloud/src/world.test.ts`: 22 of 22 tests pass. `pnpm vitest run apps/demo-cloud apps/test-agents examples/try.test.ts`: 64 pass, 3 skipped without anvil and contract build output.
-  - `pnpm verify`: see the PR and `reports/verify-t-223-faucet-renews-mandate.md`.
+  - Green (measured): `pnpm vitest run apps/demo-cloud/src/world.test.ts`: 22 of 22 tests pass.
+  - The chain world (measured): `pnpm vitest run apps/demo-cloud/src/live.test.ts` on anvil passes 2 of 3 tests in 24 s, the faucet's mint included: the deal reaches Released and the world reopens from storage. The Sepolia-fork test skips: it needs `SEPOLIA_FORK_RPC`.
+  - `pnpm verify` on 2026-11-04 at commit `67cd035`, rebased on main `ae2f75e` (measured): PASS. Typecheck, lint, forge build, forge (241 of 241 tests), test (2,504 passed, 3 skipped), spec, snap, snap:local and demo all pass. Report: `reports/verify-t-223-faucet-renews-mandate.md` (not committed).
+  - `node site/build.mjs && node site/check.mjs` (measured): PASS.
 - Snapshot diffs: none.
 - Metrics: none.
 
@@ -52,6 +54,9 @@ The goal: a faucet grant always leaves the address with a live 30-day mandate in
 ## Handoff
 
 - **Done in the repository:** the fix, its test and the docs listed above.
-- **Not done: the deploy, Rafa's gate.** Until both operator Workers run this commit, the live faucet still returns an expired mandate, and `seed.mjs --replace` stays the stopgap for the test seller (`docs/operations.md`). Deploy the operators before or with the next site publish, since `llms.txt` now says a grant renews the mandate.
-- **Overlap checked on 2026-11-04:** no open PR edits `world.ts`. T-219 (todo) will touch `world.ts` only to hand a store to `LiveChain`, and T-221's branches did not touch it.
+- **Not done: the deploy, Rafa's gate.** Until both operator Workers run this commit, the live faucet still returns an expired mandate, and `seed.mjs --replace` stays the stopgap for the test seller (`docs/operations.md`).
+  - The test seller went live on 2026-11-04, so its first mandate expires about 2026-12-04, and the seller asks the faucet 2 hours before that (inferred from the deploy date and `seller.ts:471`). Deploy the operators before then.
+  - Deploy the operators before or with the next site publish, since `llms.txt` now says each grant renews the mandate.
+  - The deploy needs no new world: the fix changes no schema and no journal entry, so `WORLD_NAME` stays (D49, pending).
+- **Overlap checked on 2026-11-04:** no open PR edits `world.ts`. T-221 merged in PR 184 without touching it. T-219 (todo) will touch `world.ts` only to hand a store to `LiveChain`.
 - **To resume:** `pnpm vitest run apps/demo-cloud/src/world.test.ts -t "renews"`.
