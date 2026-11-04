@@ -40,6 +40,7 @@ import { ContentKey, decodePublicKey, encodePublicKey, encryptionKeyPairFromSecr
 import { intake, panelPlan, runPipeline, signedOutcome, type IntakeError, type JudgeProvider, type JudgmentDraft, type LoadedRegistry } from '@holdback/judgment';
 import { concat, keccak256, stringToBytes, toBytes, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
+import { quicknetValue } from './drand.js';
 import { checkPolicyBinding, policyHashOf } from './policy.js';
 import { panelSeed, roundFor } from './randomness.js';
 import type { AdjudicatorSettlement, DecisionTask } from './settlement-port.js';
@@ -413,11 +414,19 @@ export class Adjudicator {
     if (role === 'primary') return ok({ policy: policyR.value, envelope, seed: this.seedFor(id), buyerKey, ...(appealKey ? { appealKey } : {}) });
     const fixedAt = task.roundFixedAt ?? (role === 'fallback' ? commitment.timing.judgeBy : undefined);
     if (!fixedAt) return err(problem('seed_mismatch', 'no settlement time fixes the beacon round for this appeal'));
-    const round = roundFor(role, fixedAt);
-    const value = await this.#cfg.settlement.randomness.value(round);
-    if (!value) return err(problem('seed_mismatch', `beacon round ${round} is not published yet; waiting (no substitute source)`));
-    const beacon = { source: this.#cfg.settlement.randomness.kind, round, value };
-    return ok({ policy: policyR.value, envelope, seed: panelSeed(id, role, attempt, value), beacon, buyerKey, ...(appealKey ? { appealKey } : {}) });
+    // T-217: the source the commitment's rulebook names, on its clock; never another in its place (ADR-0018 §5).
+    const source = this.#cfg.settlement.randomness(commitment);
+    if (!source) {
+      return err(problem('adjudicator_unavailable', `${this.#cfg.name} has no source for the randomness this commitment's rulebook names (a drand-quicknet rulebook needs a drand source); it does not decide rather than seed the panel from another (ADR-0018 §5)`));
+    }
+    const round = roundFor(role, fixedAt, source.clock);
+    const got = await source.value(round);
+    if (!got) return err(problem('seed_mismatch', `beacon round ${round} is not published or not proven yet; waiting (no substitute source)`));
+    // A bad proof burns up to 250,000 gas in the contract's pairing check: this service signs only a proof it checked.
+    const proven = source.kind === 'sim' || (source.kind === 'drand-quicknet' && got.signature !== undefined && quicknetValue(round, got.signature) === got.value);
+    if (!proven) return err(problem('seed_mismatch', `the beacon answer does not prove drand quicknet round ${round}; refusing to sign a proof the rules contract would refuse, and waiting (no substitute source)`));
+    const beacon = { source: source.kind, round, value: got.value, ...(got.signature ? { signature: got.signature } : {}) };
+    return ok({ policy: policyR.value, envelope, seed: panelSeed(id, role, attempt, got.value), beacon, buyerKey, ...(appealKey ? { appealKey } : {}) });
   }
 
   /** Intake and the panel. The only step that calls judges; its result is cached by the caller. */

@@ -1,5 +1,6 @@
 // The adjudicator service end to end over an in-memory settlement on core's step (T-009).
-import { canonicalKeccak, commitmentId, deliveryHash, signMessage, termsOf, type AdjudicatorPolicy, type Address, type AppealGround, type Commitment, type Decision, type Hex32, type Timing, type TokenAmount } from '@holdback/core';
+import { readFileSync } from 'node:fs';
+import { canonicalKeccak, commitmentId, deliveryHash, DRAND_QUICKNET, signMessage, termsOf, type AdjudicatorPolicy, type Address, type AppealGround, type Commitment, type Decision, type Hex32, type Timing, type TokenAmount } from '@holdback/core';
 import { open, unwrapKey, unwrapKeyFor, encodePublicKey } from '@holdback/core/crypto';
 import {
   APPEAL_PROMPT_TEMPLATE_HASH,
@@ -21,9 +22,10 @@ import {
 } from '@holdback/judgment';
 import { keccak256, recoverMessageAddress } from 'viem';
 import { describe, expect, it } from 'vitest';
-import { demoCsv, DOMAIN, makeCommitment, party, TestSettlement, tusd, type Party } from './_sim.js';
+import { demoCsv, DOMAIN, fakeRelays, makeCommitment, party, TestSettlement, tusd, type Party } from './_sim.js';
+import { drandQuicknet } from './drand.js';
 import { defaultPolicy, policyHashOf } from './policy.js';
-import { panelSeed, simRoundAt } from './randomness.js';
+import { panelSeed, simRoundAt, type RandomnessSource } from './randomness.js';
 import { Adjudicator, DEFAULT_APPEAL_LIMITS, recordHashOf, type AdjudicatorConfig } from './service.js';
 
 const entry = (id: string, family: string, provider: 'anthropic' | 'openai-compatible') => ({ id, provider, family, model: `${id}-20260601`, status: 'active' as const });
@@ -91,10 +93,13 @@ interface SetupOpts {
   fee?: TokenAmount;
   /** Config overrides for the primary only (a sham deal's primary, which accepts any terms). */
   overA?: Partial<AdjudicatorConfig>;
+  /** T-217: the club rulebook names drand-quicknet, and the port reads its rounds from this source (null: none). */
+  drand?: (s: TestSettlement) => RandomnessSource | null;
 }
 
 async function setup(opts: SetupOpts = {}) {
   const s = new TestSettlement();
+  if (opts.drand) s.drand = opts.drand(s);
   const r = opts.registry ?? reg;
   const a = bench(A, 'bench-a', s, opts.scriptA, undefined, r, undefined, opts.overA);
   const b = bench(B, 'bench-b', s, opts.scriptB, undefined, r);
@@ -110,7 +115,7 @@ async function setup(opts: SetupOpts = {}) {
     ...(opts.timing ? { timing: opts.timing } : {}),
     ...(opts.fee ? { fee: opts.fee } : {}),
   });
-  s.offer(commitment);
+  s.offer(commitment, opts.drand ? 'drand-quicknet' : 'sim');
   await a.adj.runOnce();
   s.fund(commitment.id);
   s.at('2026-11-01T09:59:00Z');
@@ -449,7 +454,7 @@ describe('fallback takes over at judgeBy', () => {
     const [d] = s.decisions(id) as [Decision];
     expect(d.role).toBe('fallback');
     const round = simRoundAt(commitment.timing.judgeBy);
-    expect(d.beacon).toEqual({ source: 'sim', round, value: await s.randomness.value(round) });
+    expect(d.beacon).toEqual({ source: 'sim', round, value: (await s.sim.value(round))?.value });
     expect(d.seed).toBe(panelSeed(id, 'fallback', 1, d.beacon!.value));
     const record = [...s.records.values()][0]!;
     expect(record.panel.seedSource).toBe('beacon');
@@ -611,6 +616,130 @@ describe('escalation and appeal', () => {
     const appeal = s.decisions(id)[1]!;
     expect(appeal.outcome).toBe('accept');
     expect([...s.records.values()][1]!.aggregate.decision).toBe('escalate');
+  });
+});
+
+// ---------------------------------------------------------------- T-217: drand quicknet rounds
+describe('drand quicknet rounds for the fallback and appeal panels (T-217, ADR-0018 §4)', () => {
+  const recorded = (JSON.parse(readFileSync(new URL('../../../fixtures/beacon/drand-relays.json', import.meta.url), 'utf8')) as { serviceRounds: { rounds: Array<{ round: number; signature: string; randomness: string }> } }).serviceRounds.rounds;
+  const proof = (round: number) => {
+    const r = recorded.find((x) => x.round === round)!;
+    return { round, value: `0x${r.randomness}` as Hex32, signature: `0x${r.signature}` as `0x${string}` };
+  };
+  // The quicknet rounds the harness clock fixes: judgeBy 10:02:00Z; the first round after 10:01:00Z and after 10:00:30Z.
+  const AT_JUDGE_BY = 33_574_652;
+  const AFTER_FILING = 33_574_633;
+  const AFTER_ESCALATION = 33_574_623;
+  const relays = (modes: Parameters<typeof fakeRelays>[0] = {}) => {
+    const net = fakeRelays(modes);
+    return { net, drand: (s: TestSettlement) => drandQuicknet({ fetch: net.fetch, now: s.now, timeoutMs: 50 }) };
+  };
+  const split: FakeScript = { 'gpt-a': 'timeout', 'gpt-b': 'timeout', 'qwen-a': 'timeout', 'qwen-b': 'timeout' };
+
+  it('the fallback seeds from the quicknet round at judgeBy, signs the round, its value and its proof, and settles: one relay request', async () => {
+    const { net, drand } = relays();
+    const { s, b, id } = await setup({ drand });
+    s.at('2026-11-01T10:02:00Z');
+    await b.adj.runOnce();
+    expect(s.state(id).kind).toBe('Released');
+    const [d] = s.decisions(id) as [Decision];
+    expect(d.beacon).toEqual({ source: 'drand-quicknet', ...proof(AT_JUDGE_BY) });
+    expect(d.seed).toBe(panelSeed(id, 'fallback', 1, proof(AT_JUDGE_BY).value));
+    expect([...s.records.values()][0]!.panel.beaconRound).toBe(AT_JUDGE_BY);
+    expect(net.requests).toEqual([`https://api2.drand.sh/52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971/public/${AT_JUDGE_BY}`]);
+  });
+
+  it('a party appeal seeds from the first quicknet round after the filing', async () => {
+    const { drand } = relays();
+    const { s, a, c, id } = await setup({ drand });
+    s.at('2026-11-01T10:00:30Z');
+    await a.adj.runOnce();
+    s.at('2026-11-01T10:01:00Z');
+    s.fileAppeal(id, 'wrong-outcome');
+    s.at('2026-11-01T10:01:05Z');
+    await c.adj.runOnce();
+    const appeal = s.decisions(id)[1]!;
+    expect(appeal).toMatchObject({ role: 'appeal', beacon: { source: 'drand-quicknet', ...proof(AFTER_FILING) } });
+    expect(s.state(id).kind).toBe('Released');
+  });
+
+  it('after an escalation the appeal adjudicator waits for the next quicknet round, at most 3 s, asking no relay early', async () => {
+    const { net, drand } = relays();
+    const { s, a, c, id } = await setup({ drand, scriptA: split });
+    s.at('2026-11-01T10:00:30Z');
+    await a.adj.runOnce();
+    expect(s.state(id).kind).toBe('Escalated');
+    // Round 33574623 is published at 10:00:33Z: a sim round would be due at 10:00:31Z.
+    s.at('2026-11-01T10:00:32Z');
+    const early = await c.adj.runOnce();
+    expect(early.refused[0]?.problem.detail).toMatch(/beacon round 33574623 is not published or not proven yet/);
+    expect(net.requests).toEqual([]);
+    expect(c.calls).toHaveLength(0);
+    s.at('2026-11-01T10:00:33Z');
+    await c.adj.runOnce();
+    expect(s.decisions(id)[1]).toMatchObject({ role: 'appeal', beacon: { source: 'drand-quicknet', ...proof(AFTER_ESCALATION) } });
+  });
+
+  // The plan's scenario neutrality.beacon-relay-refuses (ADR-0018 §5, residual 10).
+  describe('neutrality.beacon-relay-refuses', () => {
+    it('one relay refuses and the next lies: the third relay’s proof is used and the decision settles', async () => {
+      const { net, drand } = relays({ 'https://api2.drand.sh': 'refuse', 'https://drand.cloudflare.com': 'tamper' });
+      const { s, b, id } = await setup({ drand });
+      s.at('2026-11-01T10:02:00Z');
+      await b.adj.runOnce();
+      expect(s.state(id).kind).toBe('Released');
+      expect(s.decisions(id)[0]!.beacon).toEqual({ source: 'drand-quicknet', ...proof(AT_JUDGE_BY) });
+      expect(net.requests.map((u) => new URL(u).origin)).toEqual(['https://api2.drand.sh', 'https://drand.cloudflare.com', 'https://api.drand.sh']);
+    });
+
+    it('all relays refuse or lie: no decision is signed and no judge is called; the next pass decides once one answers', async () => {
+      const { net, drand } = relays({ 'https://api2.drand.sh': 'refuse', 'https://drand.cloudflare.com': 'stall', 'https://api.drand.sh': 'tamper', 'https://api3.drand.sh': 'other-chain' });
+      const { s, b, id } = await setup({ drand });
+      s.at('2026-11-01T10:02:00Z');
+      const report = await b.adj.runOnce();
+      expect(report.triggered).toEqual([id]);
+      expect(report.decided).toEqual([]);
+      expect(report.refused).toEqual([{ commitmentId: id, problem: expect.objectContaining({ type: 'seed_mismatch', detail: expect.stringMatching(/beacon round 33574652 is not published or not proven yet; waiting \(no substitute source\)/) }) }]);
+      expect(s.decisions(id)).toEqual([]);
+      expect(s.state(id).kind).toBe('FallbackJudging');
+      expect(b.calls).toHaveLength(0);
+      // A relay recovers before fallbackBy: the next pass proves the same round and decides.
+      net.modes['https://api3.drand.sh'] = 'answer';
+      s.at('2026-11-01T10:02:30Z');
+      await b.adj.runOnce();
+      expect(s.state(id).kind).toBe('Released');
+      expect(s.decisions(id)[0]!.beacon).toEqual({ source: 'drand-quicknet', ...proof(AT_JUDGE_BY) });
+    });
+  });
+
+  // A bad proof would make the pairing check burn up to 250,000 gas on chain (research §7); the service never signs one,
+  // whatever its source returns.
+  it.each<[string, () => { value: Hex32; signature?: `0x${string}` }]>([
+    ['a tampered signature hashed into its value', () => {
+      const p = proof(AT_JUDGE_BY);
+      const signature = `${p.signature.slice(0, 40)}${p.signature[40] === '0' ? '1' : '0'}${p.signature.slice(41)}` as `0x${string}`;
+      return { value: keccak256(signature), signature };
+    }],
+    ['a value that is not sha256 of the signature', () => ({ value: proof(AFTER_FILING).value, signature: proof(AT_JUDGE_BY).signature })],
+    ["another round's proof", () => ({ value: proof(AT_JUDGE_BY + 1).value, signature: proof(AT_JUDGE_BY + 1).signature })],
+    ['no signature at all', () => ({ value: proof(AT_JUDGE_BY).value })],
+  ])('never signs %s, whatever its source returns', async (_name, answer) => {
+    const lying = (): RandomnessSource => ({ kind: 'drand-quicknet', clock: DRAND_QUICKNET, value: async () => answer() });
+    const { s, b, id } = await setup({ drand: lying });
+    s.at('2026-11-01T10:02:00Z');
+    const report = await b.adj.runOnce();
+    expect(report.refused[0]?.problem).toMatchObject({ type: 'seed_mismatch', detail: expect.stringMatching(/does not prove drand quicknet round 33574652; refusing to sign/) });
+    expect(s.decisions(id)).toEqual([]);
+    expect(b.calls).toHaveLength(0);
+  });
+
+  it('a commitment whose rulebook names drand-quicknet, with no drand source configured, is never decided from the sim beacon', async () => {
+    const { s, b, id } = await setup({ drand: () => null });
+    s.at('2026-11-01T10:02:00Z');
+    const report = await b.adj.runOnce();
+    expect(report.refused[0]?.problem).toMatchObject({ type: 'adjudicator_unavailable', detail: expect.stringMatching(/drand-quicknet/) });
+    expect(s.decisions(id)).toEqual([]);
+    expect(b.calls).toHaveLength(0);
   });
 });
 

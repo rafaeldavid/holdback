@@ -205,6 +205,9 @@ importers:
       '@holdback/settlement':
         specifier: workspace:*
         version: link:../../packages/settlement
+      '@noble/curves':
+        specifier: 1.9.1
+        version: 1.9.1
       viem:
         specifier: ^2.57.13
         version: 2.57.13(typescript@6.0.3)
