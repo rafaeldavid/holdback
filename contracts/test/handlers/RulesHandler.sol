@@ -54,7 +54,7 @@ contract RulesHandler is Base {
     uint256 public timeoutMismatch; // a timeout succeeded before its deadline, or was refused when due
     uint256 public withdrawMismatch; // a bond withdrawal of free funds refused, or of encumbered funds allowed
     uint256 public keyWithoutPayment; // a KeyReleased on a deal that does not stand Released or Settled
-    uint256 public overturnMispaid; // an appeal decision paid from a bond other than as its verdict requires (T-206 I-8)
+    uint256 public overturnMispaid; // an appeal paid other than its verdict requires, or filed by the favoured party (T-206 I-8, L-7)
     string public lastViolation;
 
     constructor() {
@@ -468,9 +468,10 @@ contract RulesHandler is Base {
         bool overturned = rules.dealOf(id).appeal == HoldbackRules.AppealState.Overturned;
         uint256 bond = bonds.bondOf(first, t.token);
         uint256 bal = IERC20(t.token).balanceOf(wronged);
+        // Sums, not differences: a movement the wrong way must count as a violation, not underflow and discard the call.
         bool paid = overturned
-            ? bond0 - bond == t.price && bal - bal0 == t.price + appealBond
-            : bond - bond0 == appealBond && bal == bal0;
+            ? bond + t.price == bond0 && bal == bal0 + t.price + appealBond
+            : bond == bond0 + appealBond && bal == bal0;
         if (!paid) {
             overturnMispaid++;
             lastViolation = "an appeal decision did not pay the wronged party from the first decider's bond";
@@ -631,6 +632,11 @@ contract RulesHandler is Base {
         try rules.fileAppeal(t, a) {
             ok = true;
             _authorised("fileAppeal", k == good);
+            // T-206 L-7: only the party the decision went against may appeal (the buyer after Released).
+            if ((before == HoldbackRules.Stage.Released) != (who == 0)) {
+                overturnMispaid++;
+                lastViolation = "the party the decision favoured filed an appeal";
+            }
         } catch {}
         _noMove("fileAppeal", i, c0);
         _track(id, before);

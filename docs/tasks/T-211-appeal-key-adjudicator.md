@@ -14,7 +14,7 @@ Review finding H-2 (`docs/reviews/2026-11-03-contract-review.md`): `apps/adjudic
 
 Never attach `keyForBuyer` to an appeal whose first outcome was reject. Write it as `task.firstOutcome !== 'reject'`: after an escalation `firstOutcome` is undefined, and the escalation accept must keep its key, because settlement refuses an accept without one. First-instance accepts keep the key as today.
 
-Prerequisite for appeals on the Sepolia demo (the contract refuses the key-carrying overturn, PR #125) and for Phase 4's overturn payout.
+Prerequisite for appeals on the Sepolia demo (the contract refuses the key-carrying overturn, PR #125) and for the overturn payout, which the contract makes since D43 (T-212 item 9).
 
 **Second item, from T-206 M-3 (PR #135).** In the contract, a fallback reserves its bond by deciding, and a decider's bond stays reserved until its appeal window closes. The service triggers every takeover that is due and decides every task (`service.ts:155-170`), and `#preflight` never reads the deal's windows or fee. So a sham deal that names Crow's fallback, with an `appealWindowSec` a century long, would still lock Crow's bond once the service decided it.
 - Decline fallback and appeal tasks whose `appealWindowSec`, `appealDecideSec` or fee fall outside the adjudicator's own published policy (D29: adjudicators may decline clauses they won't run).

@@ -262,11 +262,12 @@ MutualSettle(c, s, releaseKey) ==
   /\ Act("mutual_settle", Parties, c)
   /\ UNCHANGED <<ap, appellant, clk, escClk, apClk, up, fees, bond, apBond, apFee>>
 
-\* file_appeal: a party appeals a first-instance decision before appealBy, paying bond and fee
-\* (appellant -> appealbond:{id}, appellant -> appealfee:{id}).
+\* file_appeal: the party a first-instance decision went against appeals it before appealBy, paying bond
+\* and fee (appellant -> appealbond:{id}, appellant -> appealfee:{id}). Only that party (T-206 L-7, D43).
 FileAppeal(c, p) ==
   /\ Can(p) /\ \E r \in Relays : TRUE
   /\ esc[c] \in {"Released", "Refunded"} /\ via[c] \in {"primary", "fallback"}
+  /\ p = IF esc[c] = "Released" THEN "buyer" ELSE "seller"
   /\ ap[c] = "none" /\ apClk[c] < 1
   /\ ap' = [ap EXCEPT ![c] = "open"]
   /\ appellant' = [appellant EXCEPT ![c] = p]

@@ -8,7 +8,7 @@ import { sign } from 'viem/accounts';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { authorizationExpiry } from '../sim/simchain.js';
 import { RelayRefused } from './chain.js';
-import { measure, must, newSettlement, PATHS } from './gas.js';
+import { measurePath, must, newSettlement, PATHS } from './gas.js';
 import { EvmDeal } from './testing.js';
 import { anvilAvailable, EvmWorld, EXPIRY_MARGIN } from './world.js';
 
@@ -214,28 +214,39 @@ describe.skipIf(!ready)(`EvmSettlement on anvil${ready ? '' : ' (SKIPPED: needs 
     expect(log.slice(decided).map((e) => e.type)).toEqual(['appeal.decided', 'bond.slashed']);
     const slashed = log[decided + 1]!;
     expect(slashed.actor).toBe('anyone');
-    expect(slashed.payload).toMatchObject({ adjudicator: cast.primary.address, junior: { amount: '2000000000' }, senior: { amount: '0' }, reason: 'overturn', tx: log[decided]!.payload['tx'] });
+    // Exactly SimChain's payload: event.schema.json's BondMovement is closed, so no chain fields ride on it.
+    expect(slashed.payload).toEqual({ adjudicator: cast.primary.address, junior: { token: expect.any(String), amount: '2000000000' }, senior: { token: expect.any(String), amount: '0' }, reason: 'overturn' });
     expect(await chain.replayCheck()).toMatchObject({ ok: true });
   }, 120_000);
 
-  it('gas per deal: every path settles, with its transaction count (D4)', async () => {
-    const rows = await measure(world);
-    const by = Object.fromEntries(rows.map((r) => [r.path, r]));
-    expect(by['happy path (decision carries the delivery)']!.txs.map((t) => t.call)).toEqual(['agreeAndFund', 'decide']);
-    expect(by['happy path (decision carries the delivery)']!.finalState).toBe('Released');
-    expect(by['reject (fee-only capture + void)']!.finalState).toBe('Refunded');
-    expect(by['reclaim (nothing delivered)']!.finalState).toBe('Refunded');
-    expect(by['early accept (delivery carried)']!.finalState).toBe('Released');
-    expect(by['mutual settlement (70/30, before delivery)']!.finalState).toBe('Settled');
-    expect(by['party appeal (reject, seller appeals, upheld)']!.finalState).toBe('Refunded');
-    expect(by['party appeal (accept, buyer appeals, overturned)']!.finalState).toBe('Released');
-    expect(by['escalation, then the appeal adjudicator decides']!.finalState).toBe('Released');
-    expect(by['fallback (primary silent, fallback accepts)']!.finalState).toBe('Released');
-    expect(by['default (primary and fallback silent)']!.finalState).toBe('Refunded');
-    expect(by['operator fee bundled with funding, then accept']!.txs).toHaveLength(2);
-    for (const r of rows) expect(r.total).toBeGreaterThan(0n);
-    // Ten deals on anvil, each with clock warps; CI runners hit 180 s twice (PRs 77 and 83) while it passes locally.
-  }, 420_000);
+  // Gas per deal (D4), one test per path so a slow path names itself. Each runs a warm-up deal and then the path.
+  const SETTLES: Record<string, { calls: string[]; finalState: string }> = {
+    'happy path (decision carries the delivery)': { calls: ['agreeAndFund', 'decide'], finalState: 'Released' },
+    'happy path with an on-chain deliver': { calls: ['agreeAndFund', 'deliver', 'decide'], finalState: 'Released' },
+    'reject (fee-only capture + void)': { calls: ['agreeAndFund', 'decide'], finalState: 'Refunded' },
+    'reclaim (nothing delivered)': { calls: ['agreeAndFund', 'reclaim'], finalState: 'Refunded' },
+    'early accept (delivery carried)': { calls: ['agreeAndFund', 'earlyAccept'], finalState: 'Released' },
+    'mutual settlement (70/30, before delivery)': { calls: ['agreeAndFund', 'mutualSettle'], finalState: 'Settled' },
+    'party appeal (reject, seller appeals, upheld)': { calls: ['agreeAndFund', 'decide', 'fileAppeal', 'decide'], finalState: 'Refunded' },
+    'party appeal (accept, buyer appeals, overturned)': { calls: ['agreeAndFund', 'decide', 'fileAppeal', 'decide'], finalState: 'Released' },
+    'escalation, then the appeal adjudicator decides': { calls: ['agreeAndFund', 'decide', 'decide'], finalState: 'Released' },
+    'fallback (primary silent, fallback accepts)': { calls: ['agreeAndFund', 'deliver', 'triggerFallback', 'decide'], finalState: 'Released' },
+    'default (primary and fallback silent)': { calls: ['agreeAndFund', 'deliver', 'triggerFallback', 'triggerDefault'], finalState: 'Refunded' },
+    'operator fee bundled with funding, then accept': { calls: ['agreeAndFund', 'decide'], finalState: 'Released' },
+  };
+
+  it('gas per deal covers every path (D4)', () => {
+    expect(Object.keys(SETTLES)).toEqual(Object.keys(PATHS));
+  });
+
+  for (const [path, want] of Object.entries(SETTLES)) {
+    it(`gas per deal: ${path} settles ${want.finalState} in ${want.calls.length} transactions (D4)`, async () => {
+      const row = await measurePath(world, path);
+      expect(row.txs.map((t) => t.call)).toEqual(want.calls);
+      expect(row.finalState).toBe(want.finalState);
+      for (const t of row.txs) expect(t.gasUsed).toBeGreaterThan(0n);
+    });
+  }
 });
 
 /** A mempool watcher sends the buyer's signed fee transfer by itself (transferWithAuthorization is permissionless). */

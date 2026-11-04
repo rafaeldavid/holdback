@@ -125,7 +125,7 @@ HOLDBACK_KEY=$SELLER_KEY node examples/seal.ts offer.body.json customers.csv   #
 
 ## 4. Read the result
 
-The adjudicator decrypts, runs the checks and decides. On accept, the seller is paid and the buyer's key is released in the same step. `Released` means paid, **not final**: either party may still appeal until `deadlines.appealBy`, and the commitment is final at `finalAt` (`null` until then; `POST /advance` in the sim moves past it). The sim's adjudicators decide moments after delivery, so a poller may never see `Delivered`: it can read `Held`, then `Released`. Read the events instead of waiting for a state.
+The adjudicator decrypts, runs the checks and decides. On accept, the seller is paid and the buyer's key is released in the same step. `Released` means paid, **not final**: the party the decision went against (here the buyer) may still appeal until `deadlines.appealBy`, and the commitment is final at `finalAt` (`null` until then; `POST /advance` in the sim moves past it). The sim's adjudicators decide moments after delivery, so a poller may never see `Delivered`: it can read `Held`, then `Released`. Read the events instead of waiting for a state.
 
 ```sh
 curl -s $API/v1/commitments/$ID | jq '{escrowState, finalAt, deadlines}'   # "Released"

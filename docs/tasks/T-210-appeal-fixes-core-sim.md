@@ -25,7 +25,7 @@ The contract now refuses two appeal decisions that the reference state machine s
 
 ## Out of scope
 
-- The reference adjudicator's key attachment (T-211). Overturn payouts from the bond on chain (Phase 4).
+- The reference adjudicator's key attachment (T-211). Overturn payouts from the bond on chain (built in T-212 item 9, D43; core and SimChain already paid them). The appeal-slot rule (L-7) is mirrored in core by the same change.
 
 ## Evidence
 

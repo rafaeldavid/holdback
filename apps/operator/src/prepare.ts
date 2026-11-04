@@ -504,6 +504,10 @@ async function appeal(ctx: PrepareContext, input: Record<string, unknown>): Prom
   if (!isAddress(input['appellant'])) bad('appellant (your address) is required', 'appellant');
   const who = lc(input['appellant'] as string);
   const appellant: 'buyer' | 'seller' = who === lc(c.buyer) ? 'buyer' : who === lc(c.seller) ? 'seller' : bad(`${who} is neither party to ${c.id}`, 'appellant');
+  // T-206 L-7: only the party the decision went against appeals, so do not prepare a message settlement refuses.
+  const s = await ctx.state(c.id);
+  const against = s?.escrowState === 'Released' ? 'buyer' : s?.escrowState === 'Refunded' ? 'seller' : undefined;
+  if (against && appellant !== against) bad(`the decision went against the ${against}, so only the ${against} may appeal`, 'appellant');
   const rulebook = ctx.club(c.clubId)?.rulebook ?? bad(`no club ${c.clubId}`);
   const bond = mulBps(c.price, BigInt(rulebook.appealBondRateBps), 'ceil');
   if (!bond.ok) return bad('cannot compute the appeal bond');
