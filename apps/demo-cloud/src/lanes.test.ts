@@ -58,9 +58,22 @@ describe('the lanes store (T-219)', () => {
     expect((await lanes.load()).map((r) => r.lane)).toEqual([3]);
   });
 
-  it('lists rows in nonce order within a lane', () => {
+  it('lists rows in nonce order within a lane and sender', () => {
     expect([laneRowKey(row(2, 10)), laneRowKey(row(2, 9))].sort()).toEqual([laneRowKey(row(2, 9)), laneRowKey(row(2, 10))]);
-    expect(laneRowKey(row(2, 9))).toBe('lane:2:000000000009');
+    expect(laneRowKey(row(2, 9))).toBe(`lane:2:0x${'0a'.repeat(20)}:000000000009`);
+  });
+
+  it('keeps a rotated relayer key’s row apart from the old key’s at the same lane and nonce (red-team, 2026-11-04)', async () => {
+    const lanes = new StorageLanes(new MemoryStorage());
+    const old = row(3, 5);
+    // A new SEPOLIA_RELAYER_KEY deployed while the old key's row is open: its lane 3 sends at the same nonce.
+    const rotated: LaneRow = { ...row(3, 5), from: `0x${'0B'.repeat(20)}`, hashes: [`0x${'2'.repeat(64)}`] };
+    await lanes.write(old);
+    await lanes.write(rotated);
+    expect((await lanes.load()).map((r) => r.from)).toEqual([old.from, rotated.from]);
+    // Releasing the old row leaves the new one for a restart to land.
+    await lanes.remove([old]);
+    expect(await lanes.load()).toEqual([rotated]);
   });
 });
 
