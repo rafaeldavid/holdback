@@ -732,7 +732,7 @@ Also: the funding signature on EVM is CPP's collector signature and token identi
   - The gasless bond: "build later".
   - Registrations without a bond are listed: "just be clear that they don't".
 - **A bond rule, added by Rafa.** "crow should warn users if choosing an adjudicator without bond and should reject adjudicator selection at protocol level if contract specifies bond payout but adjudicator has no bond". The warning is advisory, from the operator. For the primary, the refusal already holds: its acceptance needs unencumbered bond for the price. For the fallback it is new: ADR-0030 designs it after a research pass, as a check at selection with no lock (M-3), in core and the contract together. The contract half ships with the next contract redeploy, with T-212 item 5; until then operators refuse to relay such terms.
-- **Still open:** whether operators serve the posted signed delivery to involved adjudicators now (recommended: later).
+- **Punted to the backlog:** serving the posted seller-signed delivery to a deal's own adjudicators. Rafa: "let's punt on the read thing, since I don't understand it and pick it up later from the backlog". The row is under API in `docs/backlog.md`.
 
 | Option | Effect |
 | --- | --- |

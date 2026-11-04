@@ -110,7 +110,7 @@ Its confidence is high on the direction, medium on the message shape (the ADR se
 4. **Which deals Crow's adjudicators serve:** "crow's adjudicators are default and custom selection is advanced usage of protocol (outside of recommendation by crow etc.)". So Crow's three are the defaults, and the trust rules stay as recommended: as fallback only under a trusted appeal adjudicator, and as appeal adjudicator for any deal, within the daily judge budget.
 5. **The gasless bond:** "build later", with T-212's mainnet redeploy.
 6. **Unbonded registrations:** "show registrations that don't have a bond just be clear that they don't". He added the warning and the protocol-level refusal above.
-7. **The posted delivery for involved adjudicators:** open. Rafa asked for more context (in the session's report). Recommended: not for round 1, whose adjudicators decide by script.
+7. **The posted delivery for involved adjudicators:** punted to the backlog (Rafa: "let's punt on the read thing, since I don't understand it and pick it up later from the backlog"). The row is under API in `docs/backlog.md`. Round 1 does not need it: its adjudicators decide by script.
 
 ## Out of scope (Phase 4, or the mainnet redeploy)
 
