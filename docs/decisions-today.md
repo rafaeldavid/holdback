@@ -1,6 +1,6 @@
 # Decisions D1–D44
 
-Status: D1–D9 decided October 30, 2026, after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`); the options are kept as the record. D10 to D24 decided October 30 and 31, 2026, each after an independent research pass. D25 to D36 decided October 31 and November 1, 2026, D37 to D40 on November 1 and 2, D41 and D42 on November 3 (Rafa's principles and research-backed choices; D4 was updated on November 1 to target Ethereum mainnet via Sepolia). Newer entries are appended at the end. Owner: Rafa. Each decision has options, a recommendation and the ADR it settles.
+Status: D1–D9 decided October 30, 2026, after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`); the options are kept as the record. D10 to D24 decided October 30 and 31, 2026, each after an independent research pass. D25 to D36 decided October 31 and November 1, 2026, D37 to D40 on November 1 and 2, D41 and D42 on November 3 (Rafa's principles and research-backed choices; D4 was updated on November 1 to target Ethereum mainnet via Sepolia, and marked decided by D41 on November 4). Newer entries are appended at the end. Owner: Rafa. Each decision has options, a recommendation and the ADR it settles.
 
 Still open (2026-11-03): ADR-0025, Proposed, to be decided with schema v0.9 (T-033); ADR-0027, Proposed (T-308: judgment report, verifiable inference, tuning releases; four open questions, none needed before Phase 3); the ADR-0023 amendment on fee bundling, Proposed (D37); and dispute clauses as selectable terms, deferred until after the demo (D29).
 
@@ -42,6 +42,10 @@ Still open (2026-11-03): ADR-0025, Proposed, to be decided with schema v0.9 (T-0
 **Recommendation:** A, subject to two spikes: desk research in T-002 (Phase 0) and hands-on work on a local chain in T-201 (Phase 2). Fall back to B if CPP's operator model cannot run as a rules contract. Expose ERC-8183-compatible events either way.
 
 ## D4. Public testnet (ADR-0004)
+
+**Decided 2026-11-03 by D41:** Ethereum Sepolia, where the public demo settles (ADR-0028).
+
+**Note 2026-11-04 (T-216 planning):** this entry still read "deferred" after the 2026-11-01 update below had named the target: Ethereum mainnet, built and tested on a local chain, then on Sepolia. D41 settled the testnet on 2026-11-03: the reviewed contracts are deployed on Sepolia (T-206, PR 150) and the public demo settles there (T-213). The fixed 0.7 contracts replaced them on 2026-11-04 (PR 169). The question the recommendation left open, account abstraction and paymasters, is answered for the demo without either: the operators' relayer lanes pay the gas and recover it in the operator fee (ADR-0028 §3, D33 as amended). A paymaster for agents stays in Phase 5. Base Sepolia and ZKsync Sepolia were not taken.
 
 **Decided 2026-10-30:** deferred to the start of Phase 2 (ADR-0004).
 
