@@ -1,5 +1,5 @@
 // The adjudicator service end to end over an in-memory settlement on core's step (T-009).
-import { canonicalKeccak, deliveryHash, signMessage, type AdjudicatorPolicy, type Address, type Decision, type Hex32 } from '@holdback/core';
+import { canonicalKeccak, deliveryHash, signMessage, type AdjudicatorPolicy, type Address, type AppealGround, type Commitment, type Decision, type Hex32, type Timing, type TokenAmount } from '@holdback/core';
 import { open, unwrapKey, unwrapKeyFor, encodePublicKey } from '@holdback/core/crypto';
 import {
   APPEAL_PROMPT_TEMPLATE_HASH,
@@ -24,7 +24,7 @@ import { describe, expect, it } from 'vitest';
 import { demoCsv, DOMAIN, makeCommitment, party, TestSettlement, tusd, type Party } from './_sim.js';
 import { defaultPolicy, policyHashOf } from './policy.js';
 import { panelSeed, simRoundAt } from './randomness.js';
-import { Adjudicator, recordHashOf } from './service.js';
+import { Adjudicator, DEFAULT_APPEAL_LIMITS, recordHashOf, type AdjudicatorConfig } from './service.js';
 
 const entry = (id: string, family: string, provider: 'anthropic' | 'openai-compatible') => ({ id, provider, family, model: `${id}-20260601`, status: 'active' as const });
 const REGISTRY: RegistryDoc = {
@@ -48,7 +48,16 @@ function counting(inner: JudgeProvider) {
   return { calls, provider: { complete: (r: JudgeRequest) => (calls.push(r), inner.complete(r)) } satisfies JudgeProvider };
 }
 
-function bench(p: Party, name: string, settlement: TestSettlement, script: FakeScript = {}, policy: AdjudicatorPolicy = defaultPolicy(`${name}/p1`), registry: LoadedRegistry = reg, trustedAdjudicators: Address[] = [A.address, B.address, C.address]) {
+function bench(
+  p: Party,
+  name: string,
+  settlement: TestSettlement,
+  script: FakeScript = {},
+  policy: AdjudicatorPolicy = defaultPolicy(`${name}/p1`),
+  registry: LoadedRegistry = reg,
+  trustedAdjudicators: Address[] = [A.address, B.address, C.address],
+  over: Partial<AdjudicatorConfig> = {},
+) {
   const judges = counting(fakeProvider(script));
   const adj = new Adjudicator({
     address: p.address,
@@ -64,15 +73,30 @@ function bench(p: Party, name: string, settlement: TestSettlement, script: FakeS
     provider: judges.provider,
     settlement,
     trustedAdjudicators,
+    ...over,
   });
   settlement.registrations.set(p.address, { ...adj.registration(), pool: {} as never, poolTermsHash: `0x${'00'.repeat(32)}`, status: 'active' });
   return { adj, calls: judges.calls };
 }
 
-async function setup(opts: { scriptA?: FakeScript; scriptB?: FakeScript; scriptC?: FakeScript; policyHash?: Hex32; registryHash?: Hex32; csv?: string; registry?: LoadedRegistry } = {}) {
+interface SetupOpts {
+  scriptA?: FakeScript;
+  scriptB?: FakeScript;
+  scriptC?: FakeScript;
+  policyHash?: Hex32;
+  registryHash?: Hex32;
+  csv?: string;
+  registry?: LoadedRegistry;
+  timing?: Partial<Timing>;
+  fee?: TokenAmount;
+  /** Config overrides for the primary only (a sham deal's primary, which accepts any terms). */
+  overA?: Partial<AdjudicatorConfig>;
+}
+
+async function setup(opts: SetupOpts = {}) {
   const s = new TestSettlement();
   const r = opts.registry ?? reg;
-  const a = bench(A, 'bench-a', s, opts.scriptA, undefined, r);
+  const a = bench(A, 'bench-a', s, opts.scriptA, undefined, r, undefined, opts.overA);
   const b = bench(B, 'bench-b', s, opts.scriptB, undefined, r);
   const c = bench(C, 'bench-c', s, opts.scriptC, undefined, r);
   const commitment = makeCommitment({
@@ -83,6 +107,8 @@ async function setup(opts: { scriptA?: FakeScript; scriptB?: FakeScript; scriptC
     registryHash: opts.registryHash ?? r.hash,
     buyer: BUYER,
     seller: SELLER,
+    ...(opts.timing ? { timing: opts.timing } : {}),
+    ...(opts.fee ? { fee: opts.fee } : {}),
   });
   s.offer(commitment);
   await a.adj.runOnce();
@@ -131,6 +157,24 @@ describe('acceptance (commit)', () => {
       expect(s.state(c.id).kind).toBe('Offered');
       expect(report.declined).toHaveLength(1);
     }
+  });
+
+  // T-211: its bond stays reserved after it decides until the appeal closes, so the windows bound how long a deal holds it.
+  it.each([
+    ['appealWindowSec', { appealWindowSec: DEFAULT_APPEAL_LIMITS.maxAppealWindowSec + 1 }],
+    ['appealDecideSec', { appealDecideSec: DEFAULT_APPEAL_LIMITS.maxAppealDecideSec + 1 }],
+  ] as const)('declines an offer whose %s exceeds its limit, and accepts one at the limit (T-211, D29)', async (field, timing) => {
+    const s = new TestSettlement();
+    const a = bench(A, 'bench-a', s);
+    const terms = { primary: A.address, fallback: B.address, appeal: C.address, policyHash: policyHashOf(a.adj.policy), registryHash: reg.hash, buyer: BUYER, seller: SELLER };
+    const over = makeCommitment({ ...terms, timing });
+    const at = makeCommitment({ ...terms, timing: { appealWindowSec: DEFAULT_APPEAL_LIMITS.maxAppealWindowSec, appealDecideSec: DEFAULT_APPEAL_LIMITS.maxAppealDecideSec } });
+    s.offer(over);
+    s.offer(at);
+    const report = await a.adj.runOnce();
+    expect(report.declined).toEqual([{ commitmentId: over.id, reason: expect.stringContaining(field) }]);
+    expect(report.accepted).toEqual([at.id]);
+    expect(s.state(over.id).kind).toBe('Offered');
   });
 
   // One actor as buyer, seller and appeal adjudicator could name this service as primary, take its honest accept,
@@ -676,7 +720,7 @@ describe('review item 4: rules the mutation sweep found untested', () => {
     expect(s.state(id).kind).toBe('Escalated');
   });
 
-  it('a "missing or wrong key" appeal against a reject is judged by the panel, not waved through', async () => {
+  it('a "missing or wrong key" appeal against a reject is judged by the panel, not waved through, and its overturn carries no key (T-211)', async () => {
     const allFail: FakeScript = Object.fromEntries(REGISTRY.judges.map((j) => [j.id, 'fail' as const]));
     const { s, a, c, id } = await setup({ scriptA: allFail });
     s.at('2026-11-01T10:00:30Z');
@@ -687,7 +731,9 @@ describe('review item 4: rules the mutation sweep found untested', () => {
     s.at('2026-11-01T10:01:05Z');
     await c.adj.runOnce();
     expect(c.calls.length).toBeGreaterThan(0);
-    expect(s.decisions(id)[1]!.keyForBuyer).toBeDefined();
+    expect(s.decisions(id)[1]).toMatchObject({ role: 'appeal', outcome: 'accept' });
+    // The buyer was refunded: the overturn pays the seller from the first decider's bond, never the work to the buyer.
+    expect(s.decisions(id)[1]!.keyForBuyer).toBeUndefined();
   });
 
   it('a released envelope addressed to someone else is refused as not released to this adjudicator', async () => {
@@ -720,5 +766,166 @@ describe('review item 4: rules the mutation sweep found untested', () => {
     const fallback = await b.adj.decideTask({ commitment, role: 'fallback', attempt: 1, delivery: s.cases.get(id)!.delivery!, releasedKey: s.cases.get(id)!.held.get(B.address)!, roundFixedAt: commitment.timing.judgeBy, deadline: commitment.timing.fallbackBy });
     if (!primary.ok || !fallback.ok) throw new Error('decide');
     expect(primary.value.decision!.nonce).not.toBe(fallback.value.decision!.nonce);
+  });
+});
+
+// ---------------------------------------------------------------- T-211
+const FAIL_ALL: FakeScript = Object.fromEntries(REGISTRY.judges.map((j) => [j.id, 'fail' as const]));
+/** Only one family answers at the primary, so it escalates. */
+const SPLIT: FakeScript = { 'gpt-a': 'timeout', 'gpt-b': 'timeout', 'qwen-a': 'timeout', 'qwen-b': 'timeout' };
+
+describe("the buyer's key travels only with an accept that pays the seller (T-211, T-206 H-2)", () => {
+  // ADR-0012: on rejection the key is never released to the buyer. A party appeal that overturns a reject pays the seller
+  // from the first decider's bond; the refunded buyer gets no key, since a key in a signed decision reaches it through
+  // the calldata and the operators even when settlement refuses the decision.
+  it.each([
+    ['a first-instance accept', 'accept', true, {}],
+    ['the accept after an escalation', 'accept', true, { scriptA: SPLIT }],
+    ['a party appeal that upholds an accept', 'accept', true, { appeal: 'wrong-outcome' }],
+    ['a party appeal over an accept on the missing-or-wrong-key ground', 'accept', true, { appeal: 'missing-or-wrong-key' }],
+    ['a party appeal that overturns a reject', 'accept', false, { scriptA: FAIL_ALL, appeal: 'wrong-outcome' }],
+    ['a party appeal over a reject on the missing-or-wrong-key ground, overturned', 'accept', false, { scriptA: FAIL_ALL, appeal: 'missing-or-wrong-key' }],
+    ['a first-instance reject', 'reject', false, { scriptA: FAIL_ALL }],
+    ['the reject after an escalation', 'reject', false, { scriptA: SPLIT, scriptC: FAIL_ALL }],
+    ['a party appeal that upholds a reject', 'reject', false, { scriptA: FAIL_ALL, scriptC: FAIL_ALL, appeal: 'wrong-outcome' }],
+    ['a party appeal that overturns an accept', 'reject', false, { scriptC: FAIL_ALL, appeal: 'wrong-outcome' }],
+  ] as Array<[string, 'accept' | 'reject', boolean, { scriptA?: FakeScript; scriptC?: FakeScript; appeal?: AppealGround }]>)(
+    '%s signs %s; key for the buyer: %s',
+    async (_name, outcome, carriesKey, o) => {
+      const { s, a, c, id, key } = await setup({ ...(o.scriptA ? { scriptA: o.scriptA } : {}), ...(o.scriptC ? { scriptC: o.scriptC } : {}) });
+      s.at('2026-11-01T10:00:30Z');
+      await a.adj.runOnce();
+      if (o.appeal) {
+        s.at('2026-11-01T10:01:00Z');
+        s.fileAppeal(id, o.appeal);
+      }
+      s.at('2026-11-01T10:01:05Z');
+      await c.adj.runOnce();
+      const last = s.decisions(id).at(-1)!;
+      expect(last.role).toBe(o.appeal || o.scriptA === SPLIT ? 'appeal' : 'primary');
+      expect(last.outcome).toBe(outcome);
+      if (carriesKey) expect(unwrapKey(last.keyForBuyer!, BUYER.enc.secretKey).exportBytes()).toEqual(key.exportBytes());
+      else expect(last.keyForBuyer).toBeUndefined();
+    },
+  );
+});
+
+describe('declines fallback and appeal tasks outside its terms or its free bond (T-211, T-206 M-3, D29)', () => {
+  const CENTURY = 100 * 365 * 86_400;
+  /** A sham deal's primary, held by the attacker: it accepts any windows and any fee. */
+  const SHAM: Partial<AdjudicatorConfig> = { appealLimits: { maxAppealWindowSec: Number.MAX_SAFE_INTEGER, maxAppealDecideSec: Number.MAX_SAFE_INTEGER }, fee: { min: tusd('0') } };
+
+  it('a sham deal with a century-long appeal window: the fallback neither triggers the takeover nor decides it', async () => {
+    const { s, b, id } = await setup({ timing: { appealWindowSec: CENTURY }, overA: SHAM });
+    s.at('2026-11-01T10:02:00Z'); // judgeBy; the primary is silent
+    const report = await b.adj.runOnce();
+    expect(report.triggered).toEqual([]);
+    expect(report.refused).toEqual([{ commitmentId: id, problem: { type: 'invalid_terms', detail: expect.stringMatching(/appealWindowSec/) } }]);
+    expect(s.state(id).kind).toBe('Delivered');
+    // Anyone may trigger the takeover; the fallback still declines it, so the deal reaches its default at fallbackBy.
+    await s.triggerFallback(id);
+    const again = await b.adj.runOnce();
+    expect(again.refused.map((r) => r.problem.type)).toEqual(['invalid_terms']);
+    expect(b.calls).toHaveLength(0);
+    expect(s.records.size).toBe(0);
+    expect(s.decisions(id)).toEqual([]);
+  });
+
+  it('the appeal adjudicator declines an escalation whose appealDecideSec exceeds its limit', async () => {
+    const { s, a, c, id } = await setup({ scriptA: SPLIT, timing: { appealDecideSec: CENTURY }, overA: SHAM });
+    s.at('2026-11-01T10:00:30Z');
+    await a.adj.runOnce();
+    expect(s.state(id).kind).toBe('Escalated');
+    s.at('2026-11-01T10:00:32Z');
+    const report = await c.adj.runOnce();
+    expect(report.refused).toEqual([{ commitmentId: id, problem: { type: 'invalid_terms', detail: expect.stringMatching(/appealDecideSec/) } }]);
+    expect(c.calls).toHaveLength(0);
+    expect(s.state(id).kind).toBe('Escalated');
+  });
+
+  it('a fallback with less free bond than the price neither triggers nor decides; with the price free it does both', async () => {
+    const { s, b, id, commitment } = await setup();
+    const price = BigInt(commitment.price.amount);
+    s.bonds.set(B.address, price - 1n);
+    s.at('2026-11-01T10:02:00Z');
+    const report = await b.adj.runOnce();
+    expect(report.triggered).toEqual([]);
+    expect(report.refused).toEqual([{ commitmentId: id, problem: { type: 'coverage_exceeded', detail: expect.stringMatching(/free bond/) } }]);
+    await s.triggerFallback(id);
+    expect((await b.adj.runOnce()).refused.map((r) => r.problem.type)).toEqual(['coverage_exceeded']);
+    expect(b.calls).toHaveLength(0);
+    s.bonds.set(B.address, price);
+    expect((await b.adj.runOnce()).decided).toEqual([{ commitmentId: id, role: 'fallback', outcome: 'accept' }]);
+  });
+
+  it('reads its free bond again before signing a retry: judged, then the bond is taken, so it does not sign until it is back', async () => {
+    const { s, b, id } = await setup();
+    s.at('2026-11-01T10:02:00Z');
+    s.failNextDecisions = 1;
+    await b.adj.runOnce(); // triggered and judged; the submission failed
+    expect(b.calls).toHaveLength(3);
+    s.bonds.set(B.address, 0n);
+    expect((await b.adj.runOnce()).refused.map((r) => r.problem.type)).toEqual(['coverage_exceeded']);
+    expect(s.state(id).kind).toBe('FallbackJudging');
+    s.bonds.delete(B.address);
+    await b.adj.runOnce();
+    expect(s.state(id).kind).toBe('Released');
+    expect(b.calls).toHaveLength(3); // never re-judged
+  });
+
+  describe.each(['fallback', 'appeal'] as const)('as the %s adjudicator', (role) => {
+    /** A deal at the role's turn, with windows `timing`; the primary accepts any terms and escalates. */
+    async function turn(timing?: Partial<Timing>) {
+      const w = await setup({ scriptA: SPLIT, overA: SHAM, ...(timing ? { timing } : {}) });
+      if (role === 'fallback') {
+        w.s.at('2026-11-01T10:02:00Z');
+        await w.s.triggerFallback(w.id);
+      } else {
+        w.s.at('2026-11-01T10:00:30Z');
+        await w.a.adj.runOnce();
+        w.s.at('2026-11-01T10:00:32Z');
+      }
+      const who = role === 'fallback' ? w.b : w.c;
+      const [task] = await w.s.tasks(who.adj.address);
+      return { ...w, who, task: task! };
+    }
+
+    it.each([
+      ['appealWindowSec above its limit', (c: Commitment) => ({ ...c, timing: { ...c.timing, appealWindowSec: DEFAULT_APPEAL_LIMITS.maxAppealWindowSec + 1 } }), /appealWindowSec/],
+      ['appealDecideSec above its limit', (c: Commitment) => ({ ...c, timing: { ...c.timing, appealDecideSec: DEFAULT_APPEAL_LIMITS.maxAppealDecideSec + 1 } }), /appealDecideSec/],
+      ['a fee below its quote', (c: Commitment) => ({ ...c, adjudication: { ...c.adjudication, fee: tusd('24999999') } }), /fee/],
+      ['a fee in another token', (c: Commitment) => ({ ...c, adjudication: { ...c.adjudication, fee: { token: 'XYZ', amount: '50000000' } as TokenAmount } }), /fee/],
+    ])('declines a task with %s before any judge is called', async (_name, mutate, detail) => {
+      const { who, task } = await turn();
+      const r = await who.adj.decideTask({ ...task, commitment: mutate(task.commitment) });
+      expect(!r.ok && r.error.type).toBe('invalid_terms');
+      expect(!r.ok && r.error.detail).toMatch(detail);
+      expect(who.calls).toHaveLength(0);
+    });
+
+    it('declines a task it lacks free bond for', async () => {
+      const { s, who, task } = await turn();
+      s.bonds.set(who.adj.address, BigInt(task.commitment.price.amount) - 1n);
+      const r = await who.adj.decideTask(task);
+      expect(!r.ok && r.error.type).toBe('coverage_exceeded');
+      expect(who.calls).toHaveLength(0);
+    });
+
+    // T-206 §8 (L-1) routed this to T-211; PR #161 built it into #preflight for every role (ADR-0029).
+    it("refuses a delivery the seller did not sign before any judge is called, as the primary does", async () => {
+      const { who, task } = await turn();
+      const { signature: _s, ...unsigned } = task.delivery; // eslint-disable-line @typescript-eslint/no-unused-vars
+      const forged = { ...unsigned, signature: await signMessage(BUYER.key, DOMAIN, { ...unsigned, type: 'Delivery' }) };
+      const r = await who.adj.decideTask({ ...task, delivery: forged });
+      expect(!r.ok && r.error.type).toBe('invalid_signature');
+      expect(who.calls).toHaveLength(0);
+    });
+
+    it('decides a task at exactly its limits, its quote and the price in free bond', async () => {
+      const { s, who, task, id } = await turn({ appealWindowSec: DEFAULT_APPEAL_LIMITS.maxAppealWindowSec, appealDecideSec: DEFAULT_APPEAL_LIMITS.maxAppealDecideSec });
+      s.bonds.set(who.adj.address, BigInt(task.commitment.price.amount));
+      const r = await who.adj.decideTask({ ...task, commitment: { ...task.commitment, adjudication: { ...task.commitment.adjudication, fee: who.adj.quote() } } });
+      expect(r.ok && r.value.decision).toMatchObject({ commitmentId: id, role, outcome: 'accept' });
+    });
   });
 });

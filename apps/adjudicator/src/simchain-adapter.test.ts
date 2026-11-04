@@ -10,7 +10,7 @@ import { keccak256, stringToBytes } from 'viem';
 import { describe, expect, it } from 'vitest';
 import { defaultPolicy, policyHashOf } from './policy.js';
 import { Adjudicator } from './service.js';
-import { SettlementAdapter } from './simchain-adapter.js';
+import { SettlementAdapter, type SettlementReads } from './simchain-adapter.js';
 
 const DOMAIN = holdbackDomain(SIM_CHAIN_ID);
 const START = '2026-11-01T09:00:00Z';
@@ -29,7 +29,7 @@ const DEMO_CSV = readFileSync(new URL('../../../fixtures/data/dataset-cleaning/c
 const plus = (ts: string, s: number) => new Date(Date.parse(ts) + s * 1000).toISOString().replace('.000Z', 'Z');
 const encKeys = (n: number): EncryptionKeyPair => encryptionKeyPairFromSecretKey(new Uint8Array(32).fill(n));
 
-async function world() {
+async function world(bonds = { primary: 10_000_000_000n, fallback: 10_000_000_000n, appeal: 10_000_000_000n }) {
   const cast = simCast('t009-e2e');
   const club = simClub(cast.appeal.address);
   const chain = new SimChain(
@@ -38,7 +38,7 @@ async function world() {
       club,
       start: START,
       balances: { buyer: 10_000_000_000n },
-      bonds: { primary: 10_000_000_000n, fallback: 10_000_000_000n, appeal: 10_000_000_000n },
+      bonds,
     }),
   );
   const blobs = new Map<string, Uint8Array>();
@@ -114,7 +114,7 @@ async function world() {
     createdAt: now,
   };
   const id = commitmentId(terms);
-  return { cast, chain, blobs, records, calls, primary, fallback, appeal, buyerEnc, terms, id };
+  return { cast, chain, settlement, blobs, records, calls, primary, fallback, appeal, buyerEnc, terms, id };
 }
 
 const must = (r: { ok: boolean; problem?: { detail: string } }) => {
@@ -122,8 +122,8 @@ const must = (r: { ok: boolean; problem?: { detail: string } }) => {
 };
 
 /** Offer, acceptance by the primary service, agreement and funding, and the sealed delivery of the demo CSV. */
-async function delivered() {
-  const w = await world();
+async function delivered(bonds?: Parameters<typeof world>[0]) {
+  const w = await world(bonds);
   const { cast, chain, terms, id } = w;
     must(await chain.submit({ kind: 'offer', commitment: { ...terms, id, signatures: { seller: await signTerms(cast.seller.key, DOMAIN, terms) } } }));
 
@@ -236,5 +236,46 @@ describe('the adjudicator service on the real SimChain (T-006)', () => {
     expect(decision.beacon?.round).toBe(Date.parse(terms.timing.judgeBy) / 1000);
     // The primary, back too late, finds nothing to decide.
     expect((await w.primary.adj.runOnce()).decided).toEqual([]);
+  });
+
+  // T-211: SimChain reserves the fallback's bond at takeover (T-210 item 3); the contract only when it decides (T-206 M-3).
+  it("a fallback bonded at exactly the price: the bond SimChain reserved at takeover counts once toward the fallback's cover", async () => {
+    const price = 2_000_000_000n;
+    const w = await delivered({ primary: 10_000_000_000n, fallback: price, appeal: 10_000_000_000n });
+    const { chain, cast, terms, id } = w;
+    const c = { ...terms, id, signatures: { seller: '0x' } } as Commitment;
+    chain.advanceTo(terms.timing.judgeBy);
+    expect(await w.settlement.bondCover(cast.fallback.address, c)).toBe(price);
+    must(await chain.trigger(id, 'fallback'));
+    expect(chain.pool(cast.fallback.address as Address).reserved).toBe(price);
+    expect(await w.settlement.bondCover(cast.fallback.address, c)).toBe(price);
+    expect(await w.settlement.bondCover(cast.fallback.address, { ...c, id: `0x${'12'.repeat(32)}` })).toBe(0n);
+    const report = await w.fallback.adj.runOnce();
+    expect(report.refused).toEqual([]);
+    expect(report.decided).toEqual([{ commitmentId: id, role: 'fallback', outcome: 'accept' }]);
+  });
+
+  // The contract (ADR-0016 §1): freeOf, read fresh, plus the price while the deal still holds this adjudicator's bond. A
+  // fallback's decision releases the primary's reservation before it encumbers its own, so a service that is its own
+  // fallback needs the price once, not twice.
+  describe("on the contract: freeOf plus the deal's own reservation (the EVM adapter)", () => {
+    const P = `0x${'a1'.repeat(20)}` as Address;
+    const F = `0x${'f1'.repeat(20)}` as Address;
+    const appealOpenDecidedBy = (who: Address) => ({ kind: 'Released', via: { kind: 'first_instance', decision: { adjudicator: who }, appeal: { kind: 'open' } } });
+    it.each([
+      ['a fallback that is also the primary, at its turn', 'FallbackJudging', P, P, 7n + 2_000_000_000n],
+      ['a fallback that is also the primary, before the takeover', 'Delivered', P, P, 7n + 2_000_000_000n],
+      ['a fallback that is not the primary', 'FallbackJudging', P, F, 7n],
+      ['the appeal adjudicator that decided first, its appeal open', appealOpenDecidedBy(P), P, P, 7n + 2_000_000_000n],
+      ['an appeal adjudicator after another decided first', appealOpenDecidedBy(F), P, P, 7n],
+      ['the appeal adjudicator after an escalation (the escalation released every bond)', 'Escalated', P, P, 7n],
+    ] as const)('%s', async (_name, state, primary, me, cover) => {
+      const { terms, id } = await world();
+      const c = { ...terms, id, signatures: { seller: '0x' }, adjudication: { ...terms.adjudication, adjudicator: primary } } as Commitment;
+      const s = typeof state === 'string' ? { kind: state } : state;
+      const evmShaped = { pool: () => ({ junior: 9n, senior: 0n, reserved: 0n }), freeBond: async () => 7n, escrowState: () => s } as unknown as SettlementReads;
+      const adapter = new SettlementAdapter({ chain: evmShaped, store: { ciphertext: async () => new Uint8Array(), publishRecord: async () => '' }, registration: async () => null });
+      expect(await adapter.bondCover(me, c)).toBe(cover);
+    });
   });
 });

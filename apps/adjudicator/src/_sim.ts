@@ -29,6 +29,8 @@ import {
   type Problem,
   type Result,
   type Timestamp,
+  type Timing,
+  type TokenAmount,
 } from '@holdback/core';
 import { encodePublicKey, encryptionKeyPairFromSecretKey, seal, wrapKeyForRecipients, type ContentKey, type EncryptionKeyPair } from '@holdback/core/crypto';
 import { tusd } from '@holdback/settlement/sim';
@@ -67,6 +69,9 @@ export interface CommitmentOver {
   registryHash: Hex32;
   buyer: Party;
   seller: Party;
+  /** Overrides of the default windows (a sham deal's, T-211). */
+  timing?: Partial<Timing>;
+  fee?: TokenAmount;
 }
 export function makeCommitment(o: CommitmentOver): Commitment {
   const rest: Omit<Commitment, 'id' | 'signatures' | 'adjudicatorAcceptance'> & Partial<Commitment> = { ...EXAMPLE };
@@ -77,7 +82,7 @@ export function makeCommitment(o: CommitmentOver): Commitment {
     ...rest,
     buyer: o.buyer.address,
     seller: o.seller.address,
-    adjudication: { ...rest.adjudication, adjudicator: o.primary, fallbackAdjudicator: o.fallback, appealAdjudicator: o.appeal, policyHash: o.policyHash, registryHash: o.registryHash },
+    adjudication: { ...rest.adjudication, adjudicator: o.primary, fallbackAdjudicator: o.fallback, appealAdjudicator: o.appeal, policyHash: o.policyHash, registryHash: o.registryHash, ...(o.fee ? { fee: o.fee } : {}) },
     timing: {
       offerExpiresAt: '2026-11-01T09:30:00Z',
       fundBy: '2026-11-01T09:45:00Z',
@@ -87,6 +92,7 @@ export function makeCommitment(o: CommitmentOver): Commitment {
       appealWindowSec: 300,
       appealDecideSec: 300,
       maxSubmissions: 1 as const,
+      ...o.timing,
     },
     buyerEncryptionPublicKey: encodePublicKey(o.buyer.enc.publicKey),
     createdAt: T0,
@@ -119,6 +125,8 @@ export class TestSettlement implements AdjudicatorSettlement {
   failNextDecisions = 0;
   /** Throw on the next N record publications (a transient store failure). */
   failNextPublishes = 0;
+  /** Free bond per adjudicator (lowercase address), as the contract's `freeOf` reads it. Unset: ample. */
+  readonly bonds = new Map<string, bigint>();
   readonly randomness: RandomnessSource = simBeacon(SIM_SEED, () => this.now());
 
   now = (): Timestamp => new Date(this.clock).toISOString();
@@ -240,14 +248,19 @@ export class TestSettlement implements AdjudicatorSettlement {
     return out;
   }
 
-  async takeoversDue(adj: Hex32): Promise<Hex32[]> {
+  async takeoversDue(adj: Hex32): Promise<Commitment[]> {
     return [...this.cases.values()]
       .filter((c) => c.state.kind === 'Delivered' && c.commitment.adjudication.fallbackAdjudicator.toLowerCase() === adj.toLowerCase() && this.clock >= Date.parse(c.commitment.timing.judgeBy))
-      .map((c) => c.commitment.id);
+      .map((c) => c.commitment);
   }
 
   async triggerFallback(id: Hex32) {
     return this.apply(this.get(id), { type: 'trigger_fallback', at: this.now() });
+  }
+
+  /** Like the contract, the harness reserves nothing for a fallback or appeal adjudicator before it decides. */
+  async bondCover(adj: Hex32) {
+    return this.bonds.get(adj.toLowerCase()) ?? 100_000_000_000n;
   }
 
   async ciphertext(uri: string) {

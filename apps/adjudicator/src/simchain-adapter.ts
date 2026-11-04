@@ -36,6 +36,10 @@ export interface SettlementReads extends Settlement {
   beacon(round: number): Hex32 | null;
   escrowState(id: Hex32): EscrowState | null;
   pool(adjudicator: Address): { junior: bigint; senior: bigint; reserved: bigint };
+  /** The contract's `freeOf`, read fresh (the EVM adapter). Without it, the free bond comes from `pool`. */
+  freeBond?(adjudicator: Address): Promise<bigint>;
+  /** Bond each commitment holds reserved, per adjudicator (SimChain). */
+  reservations?(): Array<{ commitmentId: Hex32; adjudicator: string; amount: bigint }>;
 }
 
 /** Content-addressed blobs and records, off the settlement layer. */
@@ -143,15 +147,45 @@ export class SettlementAdapter implements AdjudicatorSettlement {
     return out;
   }
 
-  async takeoversDue(adjudicator: Hex32): Promise<Hex32[]> {
+  async takeoversDue(adjudicator: Hex32): Promise<Commitment[]> {
     const now = Date.parse(this.now());
     return (await this.#cases())
       .filter(({ c, s }) => s.kind === 'Delivered' && lc(c.adjudication.fallbackAdjudicator) === lc(adjudicator) && now >= Date.parse(c.timing.judgeBy))
-      .map(({ c }) => c.id);
+      .map(({ c }) => c);
   }
 
   async triggerFallback(commitmentId: Hex32): Promise<Result<unknown, Problem>> {
     return fromSubmit(await this.#o.chain.trigger(commitmentId, 'fallback'));
+  }
+
+  /**
+   * SimChain: the pool's free bond plus the commitment's own reservations on this adjudicator (at acceptance, takeover
+   * and escalation). The contract: `freeOf`, plus the price while the commitment still holds this adjudicator's bond
+   * (ADR-0016 §1): as primary in Delivered and FallbackJudging, since a fallback's decision releases the primary's
+   * reservation before it encumbers its own, and as the first decider while its appeal is open.
+   */
+  async bondCover(adjudicator: Hex32, c: Commitment): Promise<bigint> {
+    const { chain } = this.#o;
+    const a = adjudicator as Address;
+    const pool = chain.pool(a);
+    const pooled = pool.junior + pool.senior - pool.reserved;
+    let free: bigint;
+    let held: bigint;
+    if (chain.reservations) {
+      free = pooled;
+      held = chain.reservations().find((r) => r.commitmentId === c.id && lc(r.adjudicator) === lc(a))?.amount ?? 0n;
+    } else {
+      free = chain.freeBond ? await chain.freeBond(a) : pooled;
+      const s = chain.escrowState(c.id);
+      const holder =
+        s?.kind === 'Delivered' || s?.kind === 'FallbackJudging'
+          ? c.adjudication.adjudicator
+          : (s?.kind === 'Released' || s?.kind === 'Refunded') && s.via.kind === 'first_instance' && s.via.appeal.kind === 'open'
+            ? s.via.decision.adjudicator
+            : null;
+      held = holder && lc(holder) === lc(a) ? BigInt(c.price.amount) : 0n;
+    }
+    return (free > 0n ? free : 0n) + held;
   }
 
   ciphertext(uri: string): Promise<Uint8Array> {

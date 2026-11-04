@@ -57,9 +57,15 @@ export interface AdjudicatorSettlement {
   offers(adjudicator: Hex32): Promise<OfferTask[]>;
   tasks(adjudicator: Hex32): Promise<DecisionTask[]>;
   /** Delivered cases past judgeBy where this adjudicator is the fallback and no trigger has fired. */
-  takeoversDue(adjudicator: Hex32): Promise<Hex32[]>;
+  takeoversDue(adjudicator: Hex32): Promise<Commitment[]>;
   /** The permissionless `trigger_fallback`. */
   triggerFallback(commitmentId: Hex32): Promise<Result<unknown, Problem>>;
+  /**
+   * The bond this adjudicator can put behind the commitment now, in base units of the price token: its free bond (the
+   * contract's `freeOf`) plus what the commitment already holds reserved on it. The contract reserves a fallback's bond
+   * only when it decides (T-206 M-3); SimChain reserves it at takeover, and the appeal adjudicator's at escalation.
+   */
+  bondCover(adjudicator: Hex32, commitment: Commitment): Promise<bigint>;
   ciphertext(uri: string): Promise<Uint8Array>;
   /** Content-addressed publication of the judgment record; returns its URI. */
   publishRecord(record: Judgment): Promise<string>;
