@@ -205,6 +205,15 @@ const APPEAL_STATES = ['none', 'open', 'upheld', 'overturned', 'expired', 'none'
 const PRE_FUNDING: readonly EscrowStateKind[] = ['Offered', 'AcceptedByAdjudicator', 'Agreed'];
 /** How long a live chain's balance reads are reused: a block is about 12 s on Sepolia. */
 const BALANCE_TTL_MS = 4000;
+/**
+ * The waits before each retry of a read pinned to a receipt's block (7.5 s in all, five tries): an RPC node that has
+ * not seen the block yet fails the read, and each try walks the chain's RPC list again. No try starts after a wait that
+ * would end past the budget, so the retries add at most 10 s to the reads themselves (each up to 8 s per RPC when an
+ * RPC hangs, live.ts).
+ */
+const RECEIPT_READ_RETRY_MS = [500, 1_000, 2_000, 4_000];
+const RECEIPT_READ_BUDGET_MS = 10_000;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Contract event names as settlement event types, per call. Unlisted logs (CPP, bonds, token) map to nothing. */
 const LOG_TYPES: Record<string, Record<string, SettlementEventType>> = {
@@ -472,8 +481,28 @@ export class EvmSettlement implements Settlement {
     return { stage: STAGES[d.stage]!, appeal: d.appeal };
   }
 
-  private async read<T>(address: Address, abi: Abi, functionName: string, args: unknown[]): Promise<T> {
-    return (await this.world.publicClient.readContract({ address, abi, functionName, args })) as T;
+  private async read<T>(address: Address, abi: Abi, functionName: string, args: unknown[], blockNumber?: bigint): Promise<T> {
+    return (await this.world.publicClient.readContract({ address, abi, functionName, args, ...(blockNumber !== undefined ? { blockNumber } : {}) })) as T;
+  }
+
+  /**
+   * A read pinned to a mined block, until `settled` accepts its answer. On the chain that holds the receipt the answer
+   * is fixed, so a failure or another answer means the node lags or follows another fork: the read is tried again,
+   * after RECEIPT_READ_RETRY_MS on a live chain, within RECEIPT_READ_BUDGET_MS. Then the last answer or failure stands,
+   * with no read after the budget.
+   */
+  private async atReceipt<T>(read: () => Promise<T>, settled: (answer: T) => boolean): Promise<T> {
+    const deadline = Date.now() + RECEIPT_READ_BUDGET_MS;
+    for (let tries = 0; ; tries++) {
+      const last = await read().then((value) => ({ value }), (error: unknown) => ({ error }));
+      if ('value' in last && settled(last.value)) return last.value;
+      const ms = RECEIPT_READ_RETRY_MS[tries];
+      if (ms === undefined || Date.now() + ms > deadline) {
+        if ('error' in last) throw last.error;
+        return last.value;
+      }
+      if (this.wall) await sleep(ms);
+    }
   }
 
   /** A token balance. On a live chain reads are reused for a few seconds unless `fresh`; a check that gates a step is fresh. */
@@ -1161,14 +1190,17 @@ export class EvmSettlement implements Settlement {
     const after = blockAt === at ? next : this.mirrored(before, mirror(blockAt), fn);
     const logs = this.decode(mined.logs);
     // The book moves in record, after these reads: a read that fails leaves it untouched, so the next pass applies the
-    // mined call as a missed receipt (review M2).
-    const onChain = await this.stage(id);
+    // mined call as a missed receipt (review M2). Both read at the receipt's block: at the latest block, an RPC node a
+    // block behind can answer the state before this call, and the call's events are lost (the inferred cause of T-216
+    // round 1's lost delivery, 2026-11-04).
     const expect = PRE_FUNDING.includes(after.kind) ? 'None' : after.kind;
+    const onChain = await this.atReceipt(() => this.stage(id, mined.blockNumber), (s) => s.stage === expect);
     if (onChain.stage !== expect) throw new Error(`EVM/core divergence after ${fn}: the contract is ${onChain.stage}, core is ${after.kind}`);
     // ADR-0029: the delivery the contract stored is the one the mirror holds, since every later signature names it.
     if (ctx.delivery) {
-      const stored = await this.read<Hex32>(this.world.deployment.rules, this.world.abis.rules, 'deliveryHashOf', [id]);
-      if (stored !== deliveryHash(ctx.delivery)) throw new Error(`EVM/core divergence after ${fn}: the contract stores delivery ${stored}, core holds ${deliveryHash(ctx.delivery)}`);
+      const want = deliveryHash(ctx.delivery);
+      const stored = await this.atReceipt(() => this.read<Hex32>(this.world.deployment.rules, this.world.abis.rules, 'deliveryHashOf', [id], mined.blockNumber), (h) => h === want);
+      if (stored !== want) throw new Error(`EVM/core divergence after ${fn}: the contract stores delivery ${stored}, core holds ${want}`);
     }
     this.record(id, book, fn, before, after, logs, mined, blockAt, options.via ?? 'direct', actor, ctx);
     this.relayedAt.set(id, this.log_.length);

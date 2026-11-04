@@ -11,6 +11,7 @@
 // lane; each lane sends one transaction at a time and waits for its receipt, so its nonce is always the last mined
 // plus one, and one stuck transaction delays one lane. The funding lane mints, sets up and tops up the deal lanes.
 import {
+  BlockNotFoundError,
   concat,
   createPublicClient,
   encodeFunctionData,
@@ -382,10 +383,22 @@ export class LiveChain implements EvmChain {
     return { max: want > this.maxFee ? this.maxFee : want, tip };
   }
 
+  /**
+   * A mined block's time. A node behind that block answers null, which viem throws as BlockNotFoundError without trying
+   * the next RPC: ask again at the receipt poll's pace, five tries in all (T-216 round 1).
+   */
   private async blockTime(n: bigint): Promise<number> {
     const hit = this.blockTimes.get(n);
     if (hit !== undefined) return hit;
-    const t = Number((await this.publicClient.getBlock({ blockNumber: n })).timestamp);
+    let block: { timestamp: bigint } | undefined;
+    for (let tries = 1; !block; tries++) {
+      block = await this.publicClient.getBlock({ blockNumber: n }).catch(async (e: unknown) => {
+        if (!(e instanceof BlockNotFoundError) || tries >= 5) throw e;
+        await sleep(this.pollMs);
+        return undefined;
+      });
+    }
+    const t = Number(block.timestamp);
     if (this.blockTimes.size > 256) this.blockTimes.clear();
     this.blockTimes.set(n, t);
     return t;

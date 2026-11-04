@@ -6,7 +6,7 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseEvent, wholeSecond, type AdjudicatorAcceptance, type Address, type Club, type Decision, type SettlementEvent } from '@holdback/core';
-import { concat, encodeFunctionData, keccak256, maxUint256, parseGwei, stringToBytes, type Hex } from 'viem';
+import { BlockNotFoundError, concat, encodeFunctionData, keccak256, maxUint256, parseGwei, stringToBytes, type Hex } from 'viem';
 import { privateKeyToAccount, sign } from 'viem/accounts';
 import { foundry } from 'viem/chains';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -756,15 +756,16 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     expect(await s.keysFor(d.id, cast.primary.address)).toHaveLength(1);
   }, 60_000);
 
-  it('a read that fails after a relay mined leaves the book untouched, and the next pass applies the call (review M2)', async () => {
+  it('a read that keeps failing after a relay mined leaves the book untouched, and the next pass applies the call (review M2)', async () => {
     let failDealOf = false;
+    let failed = 0;
     const pc = chain.publicClient;
     const flakyClient = new Proxy(pc, {
       get(target, prop) {
         if (prop === 'readContract') {
           return async (args: { functionName: string }) => {
             if (failDealOf && args.functionName === 'dealOf') {
-              failDealOf = false;
+              failed++;
               throw new Error('RPC down');
             }
             return (target.readContract as (a: unknown) => Promise<unknown>)(args);
@@ -780,10 +781,40 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     const d = await funded('flaky-read', s, { deliver: true });
     failDealOf = true;
     await expect(s.submit(await d.decide('primary', 'accept'), { via: 'op-1' })).rejects.toThrow(/RPC down/);
+    // The read at the receipt's block is tried five times (T-216 round 1) before the relay gives up on it.
+    expect(failed).toBe(5);
+    failDealOf = false;
     expect(s.escrowState(d.id)!.kind).toBe('Delivered');
     expect(await sync.pass()).toMatchObject({ applied: 1, behind: 0 });
     expect((await s.state(d.id))!.escrowState).toBe('Released');
     expect(s.log().filter((e) => e.commitmentId === d.id).map((e) => e.type).slice(-3)).toEqual(['judgment.decided', 'settlement.released', 'key.released']);
+  }, 60_000);
+
+  it("a relayed delivery is logged when the node asked for its block's time is a block behind (T-216 round 1)", async () => {
+    let after: bigint | null = null;
+    let missed = 0;
+    const behindClient = new Proxy(chain.publicClient, {
+      get(target, prop) {
+        if (prop === 'getBlock') {
+          return async (args: { blockNumber?: bigint }) => {
+            // A node behind the receipt's block answers null; viem throws that as BlockNotFoundError.
+            if (after !== null && args.blockNumber !== undefined && args.blockNumber > after && missed++ === 0) throw new BlockNotFoundError({ blockNumber: args.blockNumber });
+            return (target.getBlock as (a: unknown) => Promise<unknown>)(args);
+          };
+        }
+        const v = Reflect.get(target, prop);
+        return typeof v === 'function' ? v.bind(target) : v;
+      },
+    });
+    const behind = Object.create(chain) as LiveChain;
+    Object.defineProperty(behind, 'publicClient', { value: behindClient });
+    const { s } = await node(behind);
+    const d = await funded('block-time-behind', s);
+    after = await chain.publicClient.getBlockNumber({ cacheTime: 0 });
+    const r = await s.submit(await d.deliver(), { via: 'op-1' });
+    expect(r.ok ? r.events.map((e) => e.type) : r.problem.type).toEqual(['delivery.submitted', 'key.released']);
+    expect(missed).toBe(2);
+    expect(await s.keysFor(d.id, cast.primary.address)).toHaveLength(1);
   }, 60_000);
 
   // Round 2 (2026-11-04): calls planted beside a copied signed step in a forwarder's calldata.
