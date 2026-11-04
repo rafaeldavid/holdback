@@ -216,7 +216,10 @@ async function homepage(r: Run): Promise<void> {
       child.stdin.end(bundle);
     });
     const done = /^done +commitment (0x[0-9a-f]{64}) (\w+)$/m.exec(out.out);
-    r.check(`the homepage command passes relayed by ${new URL(ops[0]!).origin}`, out.code === 0 && done?.[2] === 'Released', done ? `${short(done[1]!)} ${done[2]}, exit ${out.code}` : `exit ${out.code}: ${reason(out.out.trim().split('\n').at(-1))}`);
+    // try.mjs says why it stopped on its "stopped at" or "refused at" line; the line after it is a general footer.
+    const stop = out.out.split('\n').find((l) => /^(stopped|refused) at /.test(l)) ?? out.out.trim().split('\n').at(-1);
+    r.attachments[`homepage relayed by ${new URL(ops[0]!).origin}`] = reason(out.out);
+    r.check(`the homepage command passes relayed by ${new URL(ops[0]!).origin}`, out.code === 0 && done?.[2] === 'Released', done ? `${short(done[1]!)} ${done[2]}, exit ${out.code}` : `exit ${out.code}: ${reason(stop)}`);
     if (done) r.notes.push(`homepage command relayed by ${new URL(ops[0]!).origin}: ${done[1]} ${done[2]}`);
   }
 }
