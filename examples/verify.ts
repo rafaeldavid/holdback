@@ -10,7 +10,7 @@ import { SEPOLIA, type DeploymentFile } from './deployments.ts';
 
 export type Domain = { name: 'Holdback'; version: string; chainId: number; verifyingContract: Hex };
 /** SimChain's domain, as `pnpm sim` prints it. Configure yours; never take it from an operator. */
-export const SIMCHAIN_DOMAIN: Domain = { name: 'Holdback', version: '0.6', chainId: 31337, verifyingContract: '0x00000000000000000000000000000000484f4c44' };
+export const SIMCHAIN_DOMAIN: Domain = { name: 'Holdback', version: '0.7', chainId: 31337, verifyingContract: '0x00000000000000000000000000000000484f4c44' };
 export const configuredDomain = (): Domain => ({
   ...SIMCHAIN_DOMAIN,
   ...(process.env['HOLDBACK_CHAIN_ID'] ? { chainId: Number(process.env['HOLDBACK_CHAIN_ID']) } : {}),
@@ -37,7 +37,7 @@ export type Pin = { domain: Domain; token: { id: string; symbol: string; decimal
 export function pinOf(d: DeploymentFile, explorer?: string): Pin {
   const lc = (a: string) => a.toLowerCase() as Hex;
   return {
-    domain: { name: 'Holdback', version: '0.6', chainId: d.chainId, verifyingContract: lc(d.rules) },
+    domain: { name: 'Holdback', version: '0.7', chainId: d.chainId, verifyingContract: lc(d.rules) },
     token: { id: lc(d.token.address), symbol: d.token.symbol, decimals: d.token.decimals },
     chain: {
       tokenDomain: { name: d.token.name, version: d.token.version, chainId: d.chainId, verifyingContract: lc(d.token.address) },
@@ -92,7 +92,7 @@ const erc3009Typed = (primaryType: string, c: ChainPin, m: J): J => ({
 
 const f = (name: string, type: string) => ({ name, type });
 const exp = [f('nonce', 'bytes32'), f('expiresAt', 'uint64')];
-/** The EIP-712 types of schema 0.8, domain version 0.6 (packages/core/src/eip712.ts), pinned here. */
+/** The EIP-712 types of schema 0.9, domain version 0.7 (packages/core/src/eip712.ts), pinned here. */
 export const TYPES = {
   TokenAmount: [f('token', 'string'), f('amount', 'uint256')],
   Adjudication: [f('adjudicator', 'address'), f('fallbackAdjudicator', 'address'), f('appealAdjudicator', 'address'), f('policyId', 'string'), f('fee', 'TokenAmount'), f('registryHash', 'bytes32'), f('policyHash', 'bytes32')],
@@ -105,7 +105,8 @@ export const TYPES = {
   FundingAuthorization: [f('scheme', 'string'), f('commitmentId', 'bytes32'), f('from', 'address'), f('value', 'uint256'), f('token', 'string'), f('validAfter', 'uint64'), f('validBefore', 'uint64'), ...exp],
   // Schema 0.7 (ADR-0023), same domain version 0.6: the buyer's operator fee.
   TransferAuthorization: [f('scheme', 'string'), f('purpose', 'string'), f('commitmentId', 'bytes32'), f('from', 'address'), f('to', 'address'), f('value', 'uint256'), f('token', 'string'), f('validAfter', 'uint64'), f('validBefore', 'uint64'), ...exp],
-  EarlyAccept: [f('commitmentId', 'bytes32'), f('buyer', 'address'), f('attempt', 'uint8'), ...exp],
+  // Schema 0.9 (ADR-0029), domain version 0.7: the accept names the delivery the buyer opened.
+  EarlyAccept: [f('commitmentId', 'bytes32'), f('buyer', 'address'), f('attempt', 'uint8'), f('deliveryHash', 'bytes32'), ...exp],
   Ciphertext: [f('uri', 'string'), f('sha256', 'string'), f('bytes', 'uint64'), f('cipher', 'string')],
   KeyUnlock: [f('kind', 'string'), f('round', 'uint64')],
   EncryptedKey: [f('recipient', 'address'), f('scheme', 'string'), f('ciphertext', 'string'), f('unlock', 'KeyUnlock')],
@@ -205,8 +206,11 @@ export type Intent =
    */
   | { kind: 'agree-and-fund'; terms: J; me: string; encryptionPublicKey: string; maxTotal: bigint; agreeNonce: Hex; fundingNonce: Hex; expectedPrice?: { token: string; amount: string }; expectedCommitmentId?: Hex; operatorFee?: { schedule: J; nonce: Hex } | undefined; chain?: ChainPin }
   | { kind: 'delivery'; terms: J; ciphertext: { uri: string; sha256: string; bytes: number }; plaintextSha256: string; encryptedKeys: J[] }
-  /** Run openOwnEnvelope on the seller's signed delivery first: an early accept pays for the envelope the seller filed. */
-  | { kind: 'early-accept'; terms: J; nonce: Hex }
+  /**
+   * Run openOwnEnvelope on the seller's signed delivery first: an early accept pays for the envelope the seller filed.
+   * deliveryHash: what openOwnEnvelope returned for the delivery you opened; the accept names it (ADR-0029).
+   */
+  | { kind: 'early-accept'; terms: J; nonce: Hex; deliveryHash: Hex }
   /** appealBondRateBps: from the club rulebook as at least two operators serve it. */
   | { kind: 'appeal'; terms: J; me: string; grounds?: string; appealBondRateBps: number }
   | { kind: 'settlement'; terms: J; payouts: J[]; releaseKey: boolean; deliveryHash: Hex | null; nonce: Hex };
@@ -223,7 +227,7 @@ function expected(intent: Intent, op: J, now: number): Plan {
     const timing = { ...DEFAULT_TIMING, ...r.timing }, createdAt = near(op.createdAt, 600, 60, 'createdAt');
     const deliverBy = plus(createdAt, timing['deliverWithinSec']!), judgeBy = plus(deliverBy, timing['judgeWithinSec']!);
     const terms = {
-      schemaVersion: '0.6', clubId: r.clubId, rulebookHash: intent.rulebookHash, buyer: r.buyer.address.toLowerCase(), seller: r.seller.toLowerCase(), deliverable: r.deliverable,
+      schemaVersion: '0.7', clubId: r.clubId, rulebookHash: intent.rulebookHash, buyer: r.buyer.address.toLowerCase(), seller: r.seller.toLowerCase(), deliverable: r.deliverable,
       acceptance: { deterministicChecks: r.checks ?? [], rubric: r.template === 'checks-only' ? { criteria: [], passThreshold: 0 } : r.rubric }, price: r.price,
       adjudication: { adjudicator: r.adjudicators.primary, fallbackAdjudicator: r.adjudicators.fallback, appealAdjudicator: r.adjudicators.appeal, policyId: reg.policy.id, fee: r.fee ?? reg.fee.min, registryHash: reg.registry.hash, policyHash: reg.policyHash },
       timing: { offerExpiresAt: plus(createdAt, timing['offerExpiresInSec']!), fundBy: plus(createdAt, timing['fundWithinSec']!), deliverBy, judgeBy, fallbackBy: plus(judgeBy, timing['fallbackWithinSec']!), appealWindowSec: timing['appealWindowSec'], appealDecideSec: timing['appealDecideSec'], maxSubmissions: 1 },
@@ -275,7 +279,8 @@ function expected(intent: Intent, op: J, now: number): Plan {
     return { path: `/v1/commitments/${id}/deliveries`, body: { ...m, signature: null }, slots: [{ slot: 'signature', primaryType: 'Delivery', signer: t.seller, message: m }] };
   }
   if (intent.kind === 'early-accept') {
-    const m = { type: 'EarlyAccept', commitmentId: id, buyer: t.buyer, attempt: 1, nonce: own(intent.nonce, op.nonce, 'nonce'), expiresAt: near(op.expiresAt, 0, 86_400, 'expiresAt') };
+    // The accept names the delivery you opened; a prepared accept for any other delivery differs here and is refused.
+    const m = { type: 'EarlyAccept', commitmentId: id, buyer: t.buyer, attempt: 1, deliveryHash: String(intent.deliveryHash).toLowerCase(), nonce: own(intent.nonce, op.nonce, 'nonce'), expiresAt: near(op.expiresAt, 0, 86_400, 'expiresAt') };
     return { path: `/v1/commitments/${id}/accept`, body: { ...m, signature: null }, slots: [{ slot: 'signature', primaryType: 'EarlyAccept', signer: t.buyer, message: m }] };
   }
   if (intent.kind === 'appeal') {
@@ -455,7 +460,7 @@ export function privateOfferTerms(x: PrivateOfferInput): J {
   const createdAt = iso(Date.parse(x.createdAt));
   const deliverBy = plus(createdAt, timing['deliverWithinSec']!), judgeBy = plus(deliverBy, timing['judgeWithinSec']!);
   return {
-    schemaVersion: '0.6', clubId: x.clubId, rulebookHash: x.rulebookHash, buyer: x.buyer.address.toLowerCase(), seller: x.seller.toLowerCase(),
+    schemaVersion: '0.7', clubId: x.clubId, rulebookHash: x.rulebookHash, buyer: x.buyer.address.toLowerCase(), seller: x.seller.toLowerCase(),
     deliverable: { ...x.deliverable, salt: x.salts.deliverable, sellerEncryptionPublicKey: x.sellerEncryptionPublicKey },
     acceptance: { ...x.acceptance, salt: x.salts.acceptance },
     price: x.price,

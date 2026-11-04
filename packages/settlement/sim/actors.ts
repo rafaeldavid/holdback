@@ -170,7 +170,7 @@ export class Deal {
     const now = chain.now();
     const tag = options.tag ?? '0';
     this.terms = {
-      schemaVersion: '0.6',
+      schemaVersion: '0.7',
       clubId: options.club.id,
       rulebookHash: options.club.rulebookHash,
       buyer: cast.buyer.address,
@@ -313,8 +313,13 @@ export class Deal {
     return { kind: 'deliver', delivery: this.delivery };
   }
 
-  async earlyAccept(): Promise<Submission> {
-    const message = await sign(this.cast.buyer, { type: 'EarlyAccept', commitmentId: this.id, buyer: this.cast.buyer.address, attempt: 1, nonce: this.nonce(), expiresAt: this.far() } as const);
+  /** The delivery a signature names (ADR-0029): the one this deal delivered, or `over` to name another. */
+  named(over?: Hex32): Hex32 {
+    return over ?? (this.delivery ? deliveryHash(this.delivery) : `0x${'00'.repeat(32)}`);
+  }
+
+  async earlyAccept(over: { deliveryHash?: Hex32 } = {}): Promise<Submission> {
+    const message = await sign(this.cast.buyer, { type: 'EarlyAccept', commitmentId: this.id, buyer: this.cast.buyer.address, attempt: 1, deliveryHash: this.named(over.deliveryHash), nonce: this.nonce(), expiresAt: this.far() } as const);
     return { kind: 'early_accept', message };
   }
 
@@ -327,7 +332,7 @@ export class Deal {
     return value === null ? keccak256(stringToBytes(`no beacon yet/${role}`)) : panelSeed(this.id, role, 1, value);
   }
 
-  async decide(role: Role, outcome: Decision['outcome'], over: { seed?: Hex32; withoutKey?: boolean; withKey?: boolean; withoutAppealEnvelope?: boolean; signer?: SimActor } = {}): Promise<Submission> {
+  async decide(role: Role, outcome: Decision['outcome'], over: { seed?: Hex32; withoutKey?: boolean; withKey?: boolean; withoutAppealEnvelope?: boolean; signer?: SimActor; deliveryHash?: Hex32 } = {}): Promise<Submission> {
     const actor = role === 'primary' ? this.cast.primary : role === 'fallback' ? this.cast.fallback : this.cast.appeal;
     const key = (outcome === 'accept' && !over.withoutKey) || over.withKey ? { keyForBuyer: { scheme: 'x25519-xsalsa20poly1305' as const, ciphertext: this.envelope(this.terms.buyer).ciphertext } } : {};
     const appealEnvelope = outcome === 'escalate' && !over.withoutAppealEnvelope ? { encryptedKeys: [this.envelope(this.terms.adjudication.appealAdjudicator)] } : {};
@@ -335,6 +340,7 @@ export class Deal {
       type: 'Decision',
       commitmentId: this.id,
       attempt: 1,
+      deliveryHash: this.named(over.deliveryHash),
       adjudicator: actor.address,
       role,
       outcome,

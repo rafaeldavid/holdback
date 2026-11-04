@@ -27,6 +27,7 @@ import {
   holdbackDomain,
   mulBps,
   offer,
+  postedDeliveryHash,
   problem,
   step,
   termsOf,
@@ -1065,6 +1066,11 @@ export class EvmSettlement implements Settlement {
     const onChain = await this.stage(id);
     const expect = PRE_FUNDING.includes(after.kind) ? 'None' : after.kind;
     if (onChain.stage !== expect) throw new Error(`EVM/core divergence after ${fn}: the contract is ${onChain.stage}, core is ${after.kind}`);
+    // ADR-0029: the delivery the contract stored is the one the mirror holds, since every later signature names it.
+    if (ctx.delivery) {
+      const stored = await this.read<Hex32>(this.world.deployment.rules, this.world.abis.rules, 'deliveryHashOf', [id]);
+      if (stored !== deliveryHash(ctx.delivery)) throw new Error(`EVM/core divergence after ${fn}: the contract stores delivery ${stored}, core holds ${deliveryHash(ctx.delivery)}`);
+    }
     const via = options.via ?? 'direct';
     this.txs.push({ commitmentId: id, call: fn, hash: mined.hash, from: mined.from, via, gasUsed: mined.gasUsed, at: blockAt });
     const tx = { tx: mined.hash, block: mined.blockNumber, sender: lc(mined.from), gasUsed: mined.gasUsed };
@@ -1219,11 +1225,13 @@ export class EvmSettlement implements Settlement {
     const hold = 'hold' in s ? { hold: { amount: s.hold.amount, railRef: `evm:${this.world.chainId}:${lc(this.world.deployment.rules)}:${id}` } } : {};
     const attempt = 'delivery' in s ? s.delivery.attempt : s.kind === 'Released' || s.kind === 'Refunded' || s.kind === 'Settled' ? 1 : 0;
     const amount = async (a: Address): Promise<TokenAmount> => ({ token: this.token, amount: (await this.tokenBalance(a)).toString() as TokenAmount['amount'] });
+    const posted = postedDeliveryHash(s);
     const view: CommitmentStateView = {
       commitmentId: id,
       escrowState: s.kind,
       appealState,
       attempt: s.kind === 'Released' || s.kind === 'Refunded' ? (s.via.kind === 'reclaim' ? 0 : 1) : attempt,
+      ...(posted ? { deliveryHash: posted } : {}),
       ...hold,
       deadlines,
       balances: { [s.terms.buyer]: await amount(s.terms.buyer), [s.terms.seller]: await amount(s.terms.seller) },

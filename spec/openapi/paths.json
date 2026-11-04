@@ -139,7 +139,7 @@
         "operationId": "prepareEarlyAccept",
         "tags": ["prepare"],
         "summary": "Prepare an early accept (buyer)",
-        "description": "Returns `EarlyAccept` for the buyer (slot `signature`): the price goes to the seller now with your key, the fee back to you, and no appeal follows, so open your envelope first. `deliveryHash` names the posted delivery: check it is the hash of the delivery you opened, or the settlement layer refuses the accept (ADR-0029). Send your own `nonce`. 409 unless `Delivered`. **Verify before you sign.** Checklist: `externalDocs`.",
+        "description": "Returns `EarlyAccept` for the buyer (slot `signature`): the seller is paid now, you get your key and the fee, and no appeal follows. Open your envelope first; `deliveryHash` is the one you opened. Your own `nonce`. 409 unless `Delivered`. **Verify before you sign.** Checklist: `externalDocs`.",
         "x-holdback-errors": [400, 404, 409, 413, 429],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PrepareEarlyAcceptInput" } } } },
         "responses": {

@@ -138,6 +138,8 @@ interface Slot {
   decision: Decision | null;
 }
 const GENESIS: Hex32 = `0x${'00'.repeat(32)}`;
+/** What an early accept names before any delivery: no delivery, which settlement refuses (ADR-0029). */
+const ZERO32: Hex32 = `0x${'00'.repeat(32)}`;
 
 /** What the invariant checks read: the ledger after a run, independent of how it was produced. */
 export interface LedgerView {
@@ -608,7 +610,7 @@ export class StubSettlement {
       case 'deliver':
         return this.deliver(parties.seller, s.via, s.file, s.stubBytes === true, s.attempt ?? 1, s.buyerEnvelope === 'wrong_key');
       case 'early_accept':
-        return this.earlyAccept(parties.buyer, s.via);
+        return this.earlyAccept(parties.buyer, s.via, s.opened);
       case 'appeal':
         return this.appeal(s.by, s.grounds, s.bond, s.via);
       case 'mutual_settle':
@@ -673,7 +675,7 @@ export class StubSettlement {
   private stubTerms(seller: string, now: Timestamp): CommitmentTerms {
     const { adjudicators } = this.scenario;
     return {
-      schemaVersion: '0.6',
+      schemaVersion: '0.7',
       clubId: STUB_CLUB_ID,
       rulebookHash: rulebookHash(STUB_RULEBOOK),
       buyer: this.address(this.scenario.parties.buyer),
@@ -801,6 +803,16 @@ export class StubSettlement {
   private async deliver(seller: string, via: string, file: string, stubBytes: boolean, attempt: number, buyerWrongKey = false): Promise<void> {
     const c = this.needCommitment(seller, 'deliver', via);
     if (!c) return;
+    const built = await this.signedDelivery(seller, c, file, stubBytes, attempt, buyerWrongKey);
+    const call = `deliver (attempt ${attempt})${buyerWrongKey ? ", buyer's envelope sealed to another key" : ''}`;
+    if (!(await this.submit(seller, call, via, { kind: 'deliver', delivery: built.message }))) return;
+    this.delivery = built;
+    this.receipt(via, 'deliver');
+    this.row(seller, call, via, 'ok');
+  }
+
+  /** A seller-signed delivery of a fixture file, built and signed but not submitted. */
+  private async signedDelivery(seller: string, c: { terms: CommitmentTerms; id: Hex32 }, file: string, stubBytes: boolean, attempt: number, buyerWrongKey = false) {
     const path = join(this.root, 'fixtures', file);
     const present = existsSync(path);
     if (!present && !stubBytes) {
@@ -828,11 +840,7 @@ export class StubSettlement {
     };
     const signed = await this.sign(seller, { ...body, type: 'Delivery' as const });
     const message: Delivery = { ...body, signature: signed.signature };
-    const call = `deliver (attempt ${attempt})${buyerWrongKey ? ", buyer's envelope sealed to another key" : ''}`;
-    if (!(await this.submit(seller, call, via, { kind: 'deliver', delivery: message }))) return;
-    this.delivery = { message, plaintext, source, contentKey };
-    this.receipt(via, 'deliver');
-    this.row(seller, call, via, 'ok');
+    return { message, plaintext, source, contentKey };
   }
 
   private async judge(name: string): Promise<void> {
@@ -906,6 +914,7 @@ export class StubSettlement {
       type: 'Decision',
       commitmentId: c.id,
       attempt: d.message.attempt,
+      deliveryHash: deliveryHash(d.message),
       adjudicator: actor.address,
       role,
       outcome,
@@ -982,24 +991,36 @@ export class StubSettlement {
     this.balanceRows.push({ after: 'reclaim', balances: await this.snapshotBalances() });
   }
 
-  /** The buyer accepts the delivery before any decision: price to the seller, fee back, key to the buyer. */
-  private async earlyAccept(buyer: string, via: string): Promise<void> {
-    const call = 'early_accept';
-    const c = this.needCommitment(buyer, call, via);
+  /**
+   * The buyer accepts the delivery before any decision: price to the seller, fee back, key to the buyer. It names the
+   * posted delivery (ADR-0029), or with `opened` a second delivery of that file the seller signed and handed it.
+   */
+  private async earlyAccept(buyer: string, via: string, opened?: string): Promise<void> {
+    const c = this.needCommitment(buyer, 'early_accept', via);
     if (!c) return;
     const attempt = this.delivery?.message.attempt ?? 1;
+    let named = this.delivery ? deliveryHash(this.delivery.message) : ZERO32;
+    if (opened !== undefined) {
+      // The seller's own, honest signature on its second body: no impersonation in this step's seller signature.
+      const override = this.signerOverride;
+      this.signerOverride = undefined;
+      named = deliveryHash((await this.signedDelivery(this.scenario.parties.seller, c, opened, false, attempt)).message);
+      this.signerOverride = override;
+    }
+    const call = opened === undefined ? 'early_accept' : `early_accept (names a second signed delivery, fixtures/${opened}, not the posted one)`;
     const message = await this.sign(buyer, {
       type: 'EarlyAccept',
       commitmentId: c.id,
       buyer: this.address(buyer),
       attempt,
+      deliveryHash: named,
       nonce: this.nonceFor(buyer, 'msg'),
       expiresAt: c.terms.timing.judgeBy,
     } as const);
     if (!(await this.submit(buyer, call, via, { kind: 'early_accept', message }))) return;
-    this.receipt(via, call);
+    this.receipt(via, 'early_accept');
     this.row(buyer, call, via, 'ok');
-    this.balanceRows.push({ after: this.label(call), balances: await this.snapshotBalances() });
+    this.balanceRows.push({ after: this.label('early_accept'), balances: await this.snapshotBalances() });
   }
 
   /** A party appeals a first-instance decision with the rulebook's bond (or the step's) and the appeal fee. */

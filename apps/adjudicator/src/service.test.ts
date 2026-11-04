@@ -1,5 +1,5 @@
 // The adjudicator service end to end over an in-memory settlement on core's step (T-009).
-import { canonicalKeccak, type AdjudicatorPolicy, type Decision, type Hex32 } from '@holdback/core';
+import { canonicalKeccak, deliveryHash, signMessage, type AdjudicatorPolicy, type Address, type Decision, type Hex32 } from '@holdback/core';
 import { open, unwrapKey, unwrapKeyFor, encodePublicKey } from '@holdback/core/crypto';
 import {
   APPEAL_PROMPT_TEMPLATE_HASH,
@@ -48,7 +48,7 @@ function counting(inner: JudgeProvider) {
   return { calls, provider: { complete: (r: JudgeRequest) => (calls.push(r), inner.complete(r)) } satisfies JudgeProvider };
 }
 
-function bench(p: Party, name: string, settlement: TestSettlement, script: FakeScript = {}, policy: AdjudicatorPolicy = defaultPolicy(`${name}/p1`), registry: LoadedRegistry = reg) {
+function bench(p: Party, name: string, settlement: TestSettlement, script: FakeScript = {}, policy: AdjudicatorPolicy = defaultPolicy(`${name}/p1`), registry: LoadedRegistry = reg, trustedAdjudicators: Address[] = [A.address, B.address, C.address]) {
   const judges = counting(fakeProvider(script));
   const adj = new Adjudicator({
     address: p.address,
@@ -63,6 +63,7 @@ function bench(p: Party, name: string, settlement: TestSettlement, script: FakeS
     domain: DOMAIN,
     provider: judges.provider,
     settlement,
+    trustedAdjudicators,
   });
   settlement.registrations.set(p.address, { ...adj.registration(), pool: {} as never, poolTermsHash: `0x${'00'.repeat(32)}`, status: 'active' });
   return { adj, calls: judges.calls };
@@ -132,6 +133,38 @@ describe('acceptance (commit)', () => {
     }
   });
 
+  // One actor as buyer, seller and appeal adjudicator could name this service as primary, take its honest accept,
+  // file a zero-bond appeal and overturn it through its own appeal adjudicator: the overturn pays the price from this
+  // service's bond (T-212, I-8). So it accepts only fallback and appeal adjudicators it trusts.
+  it.each([
+    ['appeal', { appeal: party(9).address }],
+    ['fallback', { fallback: party(9).address }],
+  ] as const)('declines an offer whose %s adjudicator it does not trust (T-212)', async (_role, over) => {
+    const s = new TestSettlement();
+    const a = bench(A, 'bench-a', s);
+    const c = makeCommitment({ primary: A.address, fallback: B.address, appeal: C.address, policyHash: policyHashOf(a.adj.policy), registryHash: reg.hash, buyer: BUYER, seller: SELLER, ...over });
+    s.offer(c);
+    const report = await a.adj.runOnce();
+    expect(s.state(c.id).kind).toBe('Offered');
+    expect(s.submitted).toEqual([]);
+    expect(report.declined).toEqual([{ commitmentId: c.id, reason: expect.stringMatching(/does not trust/) }]);
+  });
+
+  it('with no trusted set configured, trusts only itself as fallback and appeal adjudicator', async () => {
+    const s = new TestSettlement();
+    const lone = new Adjudicator({
+      address: A.address, name: 'lone', signingKey: A.key, encryptionSecretKey: A.enc.secretKey, seedSecret: keccak256(A.key), policy: defaultPolicy('lone/p1'),
+      registry: reg, registryUri: 'file:///config/judges.yaml', fee: { min: tusd('25000000') }, domain: DOMAIN, provider: fakeProvider({}), settlement: s,
+    });
+    const others = makeCommitment({ primary: A.address, fallback: B.address, appeal: C.address, policyHash: policyHashOf(lone.policy), registryHash: reg.hash, buyer: BUYER, seller: SELLER });
+    const self = makeCommitment({ primary: A.address, fallback: A.address, appeal: A.address, policyHash: policyHashOf(lone.policy), registryHash: reg.hash, buyer: BUYER, seller: SELLER });
+    s.offer(others);
+    s.offer(self);
+    const report = await lone.runOnce();
+    expect(report.declined.map((d) => d.commitmentId)).toEqual([others.id]);
+    expect(report.accepted).toEqual([self.id]);
+  });
+
   it('declines a private or judgment offer whose sealed terms it cannot open, and says why (T-030, F1, D29)', async () => {
     const s = new TestSettlement();
     const a = bench(A, 'bench-a', s);
@@ -198,6 +231,43 @@ describe('primary decision on the demo CSV (about 0.5 MB)', () => {
       });
       expect(p.ok && p.value.inputHash).toBe(m.inputHash);
     }
+  });
+
+  // ADR-0029: the decision and the record name the delivery judged; settlement refuses either with another delivery.
+  it('names the delivery it judged in the decision and the record', async () => {
+    const { s, a, id } = await setup();
+    s.at('2026-11-01T10:00:30Z');
+    await a.adj.runOnce();
+    const [d] = s.decisions(id) as [Decision];
+    const record = [...s.records.values()][0]!;
+    const judged = deliveryHash(s.cases.get(id)!.delivery!);
+    expect(d.deliveryHash).toBe(judged);
+    expect(record.deliveryHash).toBe(judged);
+    expect(recordHashOf(record)).toBe(d.judgmentRecordHash); // the record hash covers it
+  });
+
+  it('refuses a delivery the seller did not sign before any judge is called, and publishes nothing (ADR-0029)', async () => {
+    const s = new TestSettlement();
+    const a = bench(A, 'bench-a', s);
+    bench(C, 'bench-c', s);
+    const c = makeCommitment({ primary: A.address, fallback: B.address, appeal: C.address, policyHash: policyHashOf(a.adj.policy), registryHash: reg.hash, buyer: BUYER, seller: SELLER });
+    s.offer(c);
+    await a.adj.runOnce();
+    s.fund(c.id);
+    s.at('2026-11-01T09:59:00Z');
+    // An operator hands the adjudicator a body signed by someone other than the seller.
+    await s.deliver(c.id, demoCsv(100), [A, B, C, BUYER].map((p) => ({ recipient: p.address, publicKey: p.enc.publicKey })), undefined, BUYER.key);
+    s.at('2026-11-01T10:00:30Z');
+    const report = await a.adj.runOnce();
+    expect(report.refused.map((r) => r.problem.type)).toEqual(['invalid_signature']);
+    expect(a.calls).toHaveLength(0);
+    expect(s.records.size).toBe(0);
+    expect(s.decisions(c.id)).toEqual([]);
+    // An unsigned delivery too.
+    const [task] = await s.tasks(A.address);
+    const r = await a.adj.decideTask({ ...task!, delivery: { ...task!.delivery, signature: `0x${'bb'.repeat(65)}` } });
+    expect(!r.ok && r.error.type).toBe('invalid_signature');
+    expect(a.calls).toHaveLength(0);
   });
 
   it('never re-rolls: a failed submission is retried with the same decision, without calling the judges again', async () => {
@@ -519,7 +589,10 @@ describe('intake refusals publish nothing (review item 3)', () => {
     const { s, a, b, id } = await setup();
     const c = s.cases.get(id)!;
     const bad = { ...c.delivery!.encryptedKeys.find((k) => k.recipient === A.address)!, ciphertext: c.delivery!.encryptedKeys.find((k) => k.recipient === BUYER.address)!.ciphertext };
-    c.state = { ...(c.state as object), delivery: { ...c.delivery!, encryptedKeys: c.delivery!.encryptedKeys.map((k) => (k.recipient === A.address ? bad : k)) } } as typeof c.state;
+    // The seller signed this delivery with the bad envelope in it (ADR-0029: the adjudicator judges only what the seller signed).
+    const { signature: _s, ...unsigned } = { ...c.delivery!, encryptedKeys: c.delivery!.encryptedKeys.map((k) => (k.recipient === A.address ? bad : k)) }; // eslint-disable-line @typescript-eslint/no-unused-vars
+    c.delivery = { ...unsigned, signature: await signMessage(SELLER.key, DOMAIN, { ...unsigned, type: 'Delivery' }) };
+    c.state = { ...(c.state as object), delivery: c.delivery } as typeof c.state;
     s.at('2026-11-01T10:00:30Z');
     const report = await a.adj.runOnce();
     expect(report.refused[0]!.problem.detail).toMatch(/key_unwrap_failed/);

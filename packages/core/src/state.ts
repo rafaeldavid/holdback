@@ -58,6 +58,8 @@ export interface FirstInstance {
   kind: 'first_instance';
   role: 'primary' | 'fallback';
   decision: Decision;
+  /** The seller-signed delivery the decision judged: a party appeal judges the same body (ADR-0029). */
+  delivery: Delivery;
   appeal: AppealState;
 }
 
@@ -382,6 +384,7 @@ function firstInstance(s: Extract<EscrowState, { kind: 'Delivered' | 'FallbackJu
     kind: 'first_instance',
     role,
     decision: m,
+    delivery: s.delivery,
     appeal: { kind: 'none', appealBy, appealDecideBy: addSeconds(appealBy, timing.appealDecideSec) },
   };
   return ok(m.outcome === 'accept' ? { ...base, kind: 'Released', via } : { ...base, kind: 'Refunded', via });

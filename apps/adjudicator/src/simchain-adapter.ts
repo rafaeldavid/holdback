@@ -14,7 +14,6 @@ import {
   type CommitmentTerms,
   type Decision,
   type Delivery,
-  type EncryptedKey,
   type EscrowState,
   type Hex32,
   type Judgment,
@@ -58,9 +57,8 @@ const fromSubmit = (r: SubmitResult): Result<unknown, Problem> => (r.ok ? ok(r.s
 export class SettlementAdapter implements AdjudicatorSettlement {
   readonly randomness: RandomnessSource;
   readonly #o: AdapterOptions;
-  /** Commitments seen in the event log, with the delivery records needed after the state drops them. */
+  /** Commitments seen in the event log. */
   readonly #commitments = new Map<Hex32, Commitment>();
-  readonly #deliveries = new Map<Hex32, { attempt: number; ciphertext: Delivery['ciphertext']; plaintextSha256: Delivery['plaintextSha256']; at: Timestamp }>();
   #seq = 0;
 
   constructor(o: AdapterOptions) {
@@ -72,7 +70,7 @@ export class SettlementAdapter implements AdjudicatorSettlement {
     return this.#o.chain.now();
   }
 
-  /** Reads new events: offers give the signed commitment, deliveries the public delivery record. */
+  /** Reads new events: offers give the signed commitment; the delivery comes from the escrow state. */
   async #sync(): Promise<void> {
     for await (const e of this.#o.chain.events(this.#seq)) {
       this.#seq = e.seq + 1;
@@ -80,9 +78,6 @@ export class SettlementAdapter implements AdjudicatorSettlement {
       if (e.type === 'commitment.offered') {
         const p = e.payload as { terms: CommitmentTerms; sellerSignature: Signature };
         this.#commitments.set(e.commitmentId, { ...p.terms, id: e.commitmentId, signatures: { seller: p.sellerSignature } });
-      } else if (e.type === 'delivery.submitted') {
-        const p = e.payload as { attempt: number; ciphertext: Delivery['ciphertext']; plaintextSha256: Delivery['plaintextSha256'] };
-        this.#deliveries.set(e.commitmentId, { attempt: p.attempt, ciphertext: p.ciphertext, plaintextSha256: p.plaintextSha256, at: e.at });
       }
     }
   }
@@ -98,14 +93,15 @@ export class SettlementAdapter implements AdjudicatorSettlement {
   }
 
   /**
-   * The delivery as this adjudicator sees it: its envelopes are only those released to it (ADR-0020). The
-   * state drops the delivery once the case settles, so a party appeal rebuilds it from the delivery event.
+   * The seller-signed delivery the task is about, as posted: the adjudicator checks the seller's signature on it and
+   * names its hash (ADR-0029). It opens only the envelope it is entitled to: the primary its own, the fallback and
+   * appeal adjudicators the one released to them (`releasedKey`, ADR-0020), and a task exists only at their turn. A
+   * settled case keeps the delivery its first decision judged, for a party appeal.
    */
-  #delivery(c: Commitment, s: EscrowState, released: EncryptedKey[]): Delivery | null {
-    if ('delivery' in s) return { ...s.delivery, encryptedKeys: released };
-    const d = this.#deliveries.get(c.id);
-    if (!d || !c.deliverable.format) return null;
-    return { commitmentId: c.id, attempt: d.attempt, ciphertext: d.ciphertext, plaintextSha256: d.plaintextSha256, plaintextMime: c.deliverable.format, encryptedKeys: released, submittedAt: d.at, signature: '0x' };
+  #delivery(s: EscrowState): Delivery | null {
+    if ('delivery' in s) return s.delivery;
+    if ((s.kind === 'Released' || s.kind === 'Refunded') && s.via.kind === 'first_instance') return s.via.delivery;
+    return null;
   }
 
   async offers(adjudicator: Hex32): Promise<OfferTask[]> {
@@ -139,7 +135,7 @@ export class SettlementAdapter implements AdjudicatorSettlement {
       }
       if (!task) continue;
       const released = await this.#o.chain.keysFor(c.id, adjudicator as Address);
-      const delivery = this.#delivery(c, s, task.role === 'primary' ? released : []);
+      const delivery = this.#delivery(s);
       if (!delivery) continue;
       const releasedKey = task.role === 'primary' ? undefined : released.at(-1);
       out.push({ ...task, commitment: c, attempt: delivery.attempt, delivery, ...(releasedKey ? { releasedKey } : {}) });

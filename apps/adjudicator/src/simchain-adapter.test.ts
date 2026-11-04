@@ -75,6 +75,7 @@ async function world() {
       domain: DOMAIN,
       provider,
       settlement,
+      trustedAdjudicators: [cast.primary.address, cast.fallback.address, cast.appeal.address],
     });
     registrations.set(adj.address, { ...adj.registration(), pool: {} as never, poolTermsHash: `0x${'00'.repeat(32)}`, status: 'active' });
     return { adj, enc };
@@ -87,7 +88,7 @@ async function world() {
   // The example commitment's deliverable and checks, on the sim club's rules and this bench.
   const now = chain.now();
   const terms: CommitmentTerms = {
-    schemaVersion: '0.6',
+    schemaVersion: '0.7',
     clubId: club.id,
     rulebookHash: club.rulebookHash,
     buyer: cast.buyer.address,

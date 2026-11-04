@@ -10,6 +10,7 @@ import {
   holdbackDomain,
   parseJudgment,
   problem,
+  signMessage,
   step,
   termsOf,
   verifyMessage,
@@ -47,9 +48,13 @@ export interface Party {
   address: Address;
   enc: EncryptionKeyPair;
 }
+/** Every party's signing key by address, so the harness can sign a delivery as its seller. */
+const KEYS = new Map<string, `0x${string}`>();
 export function party(n: number): Party {
   const key = `0x${n.toString(16).padStart(2, '0').repeat(32)}` as `0x${string}`;
-  return { key, address: privateKeyToAccount(key).address.toLowerCase() as Address, enc: encryptionKeyPairFromSecretKey(new Uint8Array(32).fill(n + 100)) };
+  const address = privateKeyToAccount(key).address.toLowerCase() as Address;
+  KEYS.set(address, key);
+  return { key, address, enc: encryptionKeyPairFromSecretKey(new Uint8Array(32).fill(n + 100)) };
 }
 
 const EXAMPLE = JSON.parse(readFileSync(new URL('../../../spec/examples/commitment.example.json', import.meta.url), 'utf8')) as Commitment;
@@ -143,8 +148,11 @@ export class TestSettlement implements AdjudicatorSettlement {
     c.state = { kind: 'Held', id, terms: c.state.terms, acceptance: c.state.acceptance, hold: { amount, funding: {} as FundingAuthorization, heldAt: this.now() } };
   }
 
-  /** The seller seals the work to the three adjudicators and the buyer. */
-  async deliver(id: Hex32, plaintext: string, recipients: Array<{ recipient: Address; publicKey: Uint8Array }>, mutate?: (d: Delivery) => Delivery): Promise<ContentKey> {
+  /**
+   * The seller seals the work to the three adjudicators and the buyer, and signs the delivery after `mutate`, as the
+   * seller of the commitment. `signer` signs it instead (another key: a delivery the seller never signed).
+   */
+  async deliver(id: Hex32, plaintext: string, recipients: Array<{ recipient: Address; publicKey: Uint8Array }>, mutate?: (d: Delivery) => Delivery, signer?: `0x${string}`): Promise<ContentKey> {
     const c = this.get(id);
     const bytes = new TextEncoder().encode(plaintext);
     const sealed = await seal(bytes);
@@ -161,6 +169,11 @@ export class TestSettlement implements AdjudicatorSettlement {
       signature: `0x${'bb'.repeat(65)}`,
     };
     if (mutate) delivery = mutate(delivery);
+    const key = signer ?? KEYS.get(c.commitment.seller.toLowerCase());
+    if (key) {
+      const { signature: _s, ...unsigned } = delivery; // eslint-disable-line @typescript-eslint/no-unused-vars
+      delivery = { ...unsigned, signature: await signMessage(key, DOMAIN, { ...unsigned, type: 'Delivery' }) };
+    }
     const r = this.apply(c, { type: 'deliver', at: this.now(), delivery });
     if (!r.ok) throw new Error(r.error.detail);
     c.delivery = delivery;
@@ -172,10 +185,12 @@ export class TestSettlement implements AdjudicatorSettlement {
     return sealed.key;
   }
 
-  /** What the public sees of a delivery: the fallback and appeal envelopes are held back (ADR-0020). */
-  private publicDelivery(c: Case): Delivery {
-    const held = new Set(c.held.keys());
-    return { ...c.delivery!, encryptedKeys: c.delivery!.encryptedKeys.filter((k) => !held.has(k.recipient.toLowerCase())) };
+  /**
+   * The seller-signed delivery as posted, which a task carries so the adjudicator can check the signature and name
+   * its hash (ADR-0029). The fallback and appeal adjudicators still open only the envelope released to them.
+   */
+  private signedDelivery(c: Case): Delivery {
+    return c.delivery!;
   }
 
   fileAppeal(id: Hex32, ground?: DecisionTask['appealGround']) {
@@ -201,19 +216,19 @@ export class TestSettlement implements AdjudicatorSettlement {
       if (s.kind === 'Delivered' && adjudicator.toLowerCase() === me) out.push({ ...base, role: 'primary', delivery: s.delivery, deadline: s.terms.timing.judgeBy });
       if (s.kind === 'FallbackJudging' && fallbackAdjudicator.toLowerCase() === me) {
         const env = c.held.get(me);
-        out.push({ ...base, role: 'fallback', delivery: this.publicDelivery(c), ...(env ? { releasedKey: env } : {}), roundFixedAt: s.terms.timing.judgeBy, deadline: s.terms.timing.fallbackBy });
+        out.push({ ...base, role: 'fallback', delivery: this.signedDelivery(c), ...(env ? { releasedKey: env } : {}), roundFixedAt: s.terms.timing.judgeBy, deadline: s.terms.timing.fallbackBy });
       }
       if (s.kind === 'Escalated' && appealAdjudicator.toLowerCase() === me) {
         const decision = [...this.submitted].reverse().find((m): m is Decision => m.type === 'Decision' && m.commitmentId === c.commitment.id && m.outcome === 'escalate');
         const env = decision?.encryptedKeys?.find((k) => k.recipient.toLowerCase() === me);
-        out.push({ ...base, role: 'appeal', delivery: this.publicDelivery(c), ...(env ? { releasedKey: env } : {}), roundFixedAt: s.escalation.at, deadline: s.escalation.appealDecideBy });
+        out.push({ ...base, role: 'appeal', delivery: this.signedDelivery(c), ...(env ? { releasedKey: env } : {}), roundFixedAt: s.escalation.at, deadline: s.escalation.appealDecideBy });
       }
       if (c.appealOpen && (s.kind === 'Released' || s.kind === 'Refunded') && s.via.kind === 'first_instance' && s.via.appeal.kind === 'open' && appealAdjudicator.toLowerCase() === me) {
         const env = c.held.get(me);
         out.push({
           ...base,
           role: 'appeal',
-          delivery: this.publicDelivery(c),
+          delivery: this.signedDelivery(c),
           ...(env ? { releasedKey: env } : {}),
           roundFixedAt: c.appealOpen.at,
           firstOutcome: c.appealOpen.firstOutcome,

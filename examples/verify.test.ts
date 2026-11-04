@@ -204,19 +204,21 @@ describe('neutrality.operator-lies-in-prepare', () => {
     expect((await seller.signAndSubmit(prepared, intent)).escrowState).toBe('Delivered');
   });
 
-  it('early accept: refuses another buyer, attempt, nonce or a far expiry', async () => {
+  it('early accept: refuses another buyer, attempt, delivery, nonce or a far expiry', async () => {
     const { id, terms } = await held();
     await silence('primary', true); // keep the deal in Delivered so the buyer can accept early
     try {
       const { delivery } = await seller.deliverAndShare(terms, new TextEncoder().encode('a\n1\n'));
       const nonce = freshNonce();
       const prepared = await buyer.call('POST', '/v1/prepare/early-accept', { commitmentId: id, nonce });
-      await openOwnEnvelope(await buyer.envelopeMaterial(terms, delivery)); // T-024, D32: open before accepting
-      const intent: Intent = { kind: 'early-accept', terms, nonce };
+      const opened = await openOwnEnvelope(await buyer.envelopeMaterial(terms, delivery)); // T-024, D32: open before accepting
+      const intent: Intent = { kind: 'early-accept', terms, nonce, deliveryHash: opened.deliveryHash };
       expect(verify(prepared, intent, buyer.address).toSign).toHaveLength(1);
       refusesEach(prepared, intent, buyer.address, [
         ['buyer', both(0, 'buyer', seller.address)],
         ['attempt', both(0, 'attempt', 2)],
+        // ADR-0029: an accept prepared for a delivery the buyer did not open.
+        ['deliveryHash', both(0, 'deliveryHash', `0x${'4b'.repeat(32)}`)],
         ['nonce', both(0, 'nonce', freshNonce())],
         ['expiry two days out', (p) => { p.submit.body.expiresAt = new Date(now() + 2 * 86_400_000).toISOString(); }],
       ]);

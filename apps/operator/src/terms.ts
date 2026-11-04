@@ -107,7 +107,7 @@ export function completeTerms(d: TermsDraft, r: ResolvedTerms): CommitmentTerms 
   const deliverBy = plusSeconds(createdAt, d.timing.deliverWithinSec);
   const judgeBy = plusSeconds(deliverBy, d.timing.judgeWithinSec);
   return {
-    schemaVersion: '0.6',
+    schemaVersion: '0.7',
     clubId: d.clubId,
     rulebookHash: r.rulebookHash,
     buyer: d.buyer.address,

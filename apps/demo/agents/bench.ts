@@ -233,7 +233,7 @@ export class ServiceBench implements AdjudicatorSeam {
   constructor(
     readonly agent: AgentKeys,
     private readonly directory: BenchDirectory,
-    options: { judges?: FakeScript; provider?: JudgeProvider } = {},
+    options: { judges?: FakeScript; provider?: JudgeProvider; trustedAdjudicators?: readonly Address[] } = {},
   ) {
     const registry = demoRegistry();
     this.policy = defaultPolicy(`${agent.name}/p1`);
@@ -266,6 +266,7 @@ export class ServiceBench implements AdjudicatorSeam {
         },
       },
       settlement: directory.adapter,
+      ...(options.trustedAdjudicators ? { trustedAdjudicators: options.trustedAdjudicators } : {}),
     });
     directory.register({
       ...this.service.registration(),

@@ -183,7 +183,7 @@ try {
   let now = await settlementNow();
   const m = offer.sign[0].typedData.message, createdAt = Number(m.createdAt), reg = regs[0];
   const termsMsg = {
-    schemaVersion: '0.6', clubId, rulebookHash: club.rulebookHash, buyer: buyer.address, seller: seller.address,
+    schemaVersion: '0.7', clubId, rulebookHash: club.rulebookHash, buyer: buyer.address, seller: seller.address,
     deliverableHash: jcsHash(deliverable), acceptanceHash: jcsHash({ deterministicChecks: checks, rubric: { criteria: [], passThreshold: 0 } }), price,
     adjudication: { adjudicator: adjAddresses[0], fallbackAdjudicator: adjAddresses[1], appealAdjudicator: adjAddresses[2], policyId: reg.policy.id, fee: reg.fee.min, registryHash: reg.registry.hash, policyHash: reg.policyHash },
     timing: { offerExpiresAt: createdAt + 900, fundBy: createdAt + 1800, deliverBy: createdAt + 86400, judgeBy: createdAt + 86400 + w, fallbackBy: createdAt + 86400 + 2 * w, appealWindowSec: w, appealDecideSec: w, maxSubmissions: 1, disputeBy: 0, disputeJudgeSec: 0, disputeFallbackSec: 0 },

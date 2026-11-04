@@ -25,7 +25,9 @@ export type StepBody =
   | { kind: 'reclaim'; by: 'buyer'; via: Via }
   | { kind: 'verify_key_release'; by: 'buyer'; via: Via }
   // The buyer accepts the delivery before any decision (releases price and key; the fee returns to the buyer).
-  | { kind: 'early_accept'; by: 'buyer'; via: Via; signer?: string }
+  // `opened`: the buyer names a second delivery of that file, which the seller signed and handed it off chain, not
+  // the posted one (seller equivocation, ADR-0029); settlement refuses it.
+  | { kind: 'early_accept'; by: 'buyer'; via: Via; signer?: string; opened?: string }
   // A party appeals a first-instance decision, posting the rulebook's appeal bond (or `bond`) and fee.
   | { kind: 'appeal'; by: 'buyer' | 'seller'; via: Via; grounds: string; bond?: string; signer?: string }
   // ADR-0019, D23: both parties sign payouts (actor name to amount) that sum to the price.
@@ -231,8 +233,13 @@ function parseStepBody(kind: string, body: unknown, path: string, operators: rea
       };
     }
     case 'early_accept': {
-      const o = object(body, p, ['by', 'via', 'signer'], ['by']);
-      return { kind, by: literal(o.by, `${p}.by`, ['buyer'] as const), via: via(o), ...signer(o) };
+      const o = object(body, p, ['by', 'via', 'signer', 'opened'], ['by']);
+      let opened: string | undefined;
+      if (o.opened !== undefined) {
+        opened = str(o.opened, `${p}.opened`);
+        if (opened.startsWith('/') || opened.split('/').includes('..')) fail(`${p}.opened`, 'must be a path relative to fixtures/ without ".."');
+      }
+      return { kind, by: literal(o.by, `${p}.by`, ['buyer'] as const), via: via(o), ...signer(o), ...(opened !== undefined ? { opened } : {}) };
     }
     case 'appeal': {
       const o = object(body, p, ['by', 'via', 'grounds', 'bond', 'signer'], ['by']);
