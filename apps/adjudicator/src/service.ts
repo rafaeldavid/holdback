@@ -246,6 +246,11 @@ export class Adjudicator {
       if (!r.ok) return r;
       judged = r.value;
       this.#judged.set(key, judged);
+    } else if (judged.record.deliveryHash !== deliveryHash(task.delivery)) {
+      // ADR-0029: the record, the key and the decision name the delivery judged. A retry handed another seller-signed
+      // delivery for the same attempt (seller equivocation) is refused: no re-judging, and no decision naming a body
+      // the record does not cover.
+      return err(problem('invalid_state', `this adjudicator judged delivery ${judged.record.deliveryHash} for this commitment, role and attempt; the task now carries ${deliveryHash(task.delivery)}, and it never judges an attempt twice`));
     }
     if (!judged.published) {
       try {
@@ -269,8 +274,12 @@ export class Adjudicator {
     if (this.#cfg.registry.hash !== commitment.adjudication.registryHash) {
       return err(problem('registry_mismatch', `this adjudicator's registry hashes to ${this.#cfg.registry.hash}; the commitment binds ${commitment.adjudication.registryHash}`));
     }
-    // ADR-0029: judge only a delivery the seller signed. The decision names this delivery's hash, so a body the seller
-    // never signed (an operator's mistake or forgery) is refused here, not judged and then refused by settlement.
+    // ADR-0029: judge only this commitment's delivery, signed by its seller. The decision names this delivery's hash, so a
+    // body the seller never signed (an operator's mistake or forgery) is refused here, not judged and then refused by
+    // settlement.
+    if (task.delivery.commitmentId !== id) {
+      return err(problem('invalid_terms', `the delivery handed to this adjudicator is for commitment ${task.delivery.commitmentId}, not ${id}; refusing before judging`));
+    }
     if (!(await verifyMessage(this.#cfg.domain, { ...task.delivery, type: 'Delivery' }, commitment.seller))) {
       return err(problem('invalid_signature', `the delivery handed to this adjudicator is not signed by the seller ${commitment.seller}; refusing before judging`));
     }
@@ -399,7 +408,8 @@ export class Adjudicator {
       type: 'Decision',
       commitmentId: id,
       attempt,
-      deliveryHash: deliveryHash(task.delivery),
+      // The delivery the record judged (decideTask refuses a task that carries another).
+      deliveryHash: judged.record.deliveryHash,
       adjudicator: this.address,
       role,
       outcome,

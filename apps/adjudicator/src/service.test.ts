@@ -270,6 +270,38 @@ describe('primary decision on the demo CSV (about 0.5 MB)', () => {
     expect(a.calls).toHaveLength(0);
   });
 
+  it('refuses a delivery for another commitment before checking its signature (ADR-0029)', async () => {
+    const { s, a, id } = await setup();
+    s.at('2026-11-01T10:00:30Z');
+    const [task] = await s.tasks(A.address);
+    const r = await a.adj.decideTask({ ...task!, delivery: { ...task!.delivery, commitmentId: `0x${'12'.repeat(32)}` } });
+    expect(!r.ok && r.error.type).toBe('invalid_terms');
+    expect(!r.ok && r.error.detail).toMatch(/for commitment 0x1212.*not 0x/);
+    expect(a.calls).toHaveLength(0);
+    expect(s.decisions(id)).toEqual([]);
+  });
+
+  it('a retry handed another seller-signed delivery for the judged attempt is refused, never signed with the old record (ADR-0029)', async () => {
+    const { s, a, id } = await setup();
+    s.at('2026-11-01T10:00:30Z');
+    s.failNextDecisions = 1;
+    await a.adj.runOnce(); // judged and recorded; the submission failed
+    expect(a.calls).toHaveLength(3);
+    const [task] = await s.tasks(A.address);
+    // The seller signs a second delivery for attempt 1 (equivocation) and an operator hands it over on the retry.
+    const { signature: _s, ...other } = { ...task!.delivery, submittedAt: '2026-11-01T09:59:30Z' }; // eslint-disable-line @typescript-eslint/no-unused-vars
+    const second = { ...other, signature: await signMessage(SELLER.key, DOMAIN, { ...other, type: 'Delivery' }) };
+    const r = await a.adj.decideTask({ ...task!, delivery: second });
+    expect(!r.ok && r.error.type).toBe('invalid_state');
+    expect(a.calls).toHaveLength(3); // never re-judged
+    // The retry with the delivery it judged signs a decision naming that delivery, as the record does.
+    const again = await a.adj.decideTask(task!);
+    expect(again.ok && again.value.decision?.deliveryHash).toBe(deliveryHash(task!.delivery));
+    expect(again.ok && again.value.record.deliveryHash).toBe(deliveryHash(task!.delivery));
+    expect(a.calls).toHaveLength(3);
+    expect(s.state(id).kind).toBe('Delivered');
+  });
+
   it('never re-rolls: a failed submission is retried with the same decision, without calling the judges again', async () => {
     const { s, a, id } = await setup();
     s.at('2026-11-01T10:00:30Z');
