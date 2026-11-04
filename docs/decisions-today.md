@@ -45,7 +45,7 @@ Still open (2026-11-03): ADR-0025, Proposed, to be decided with schema v0.9 (T-0
 
 **Decided 2026-11-03 by D41:** Ethereum Sepolia, where the public demo settles (ADR-0028).
 
-**Note 2026-11-04 (T-216 planning):** this entry still read "deferred" after the 2026-11-01 update below had named the target: Ethereum mainnet, built and tested on a local chain, then on Sepolia. D41 settled the testnet on 2026-11-03: the reviewed contracts are deployed on Sepolia (T-206, PR 150) and the public demo settles there (T-213). The question the recommendation left open, account abstraction and paymasters, is answered for the demo without either: the operators' relayer lanes pay the gas and recover it in the operator fee (ADR-0028 §3, D33 as amended). A paymaster for agents stays in Phase 5. Base Sepolia and ZKsync Sepolia were not taken.
+**Note 2026-11-04 (T-216 planning):** this entry still read "deferred" after the 2026-11-01 update below had named the target: Ethereum mainnet, built and tested on a local chain, then on Sepolia. D41 settled the testnet on 2026-11-03: the reviewed contracts are deployed on Sepolia (T-206, PR 150) and the public demo settles there (T-213). The fixed 0.7 contracts replaced them on 2026-11-04 (PR 169). The question the recommendation left open, account abstraction and paymasters, is answered for the demo without either: the operators' relayer lanes pay the gas and recover it in the operator fee (ADR-0028 §3, D33 as amended). A paymaster for agents stays in Phase 5. Base Sepolia and ZKsync Sepolia were not taken.
 
 **Decided 2026-10-30:** deferred to the start of Phase 2 (ADR-0004).
 

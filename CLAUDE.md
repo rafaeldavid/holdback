@@ -112,7 +112,7 @@ node site/build.mjs && node site/check.mjs   # the site and its agent docs (site
 
 ## Map
 
-`docs/decisions-today.md` records decisions D1 to D40 (decided October 30, 2026; D4 deferred to Phase 2, then decided by D41), and `docs/reviews/` the reviews behind them. Read both first. `docs/backlog.md` holds work deferred until after the basic demo.
+`docs/decisions-today.md` records decisions D1 to D40 (decided October 30, 2026; D4 deferred to Phase 2), and `docs/reviews/` the reviews behind them. Read both first. `docs/backlog.md` holds work deferred until after the basic demo.
 
 The other docs: `PRD.md`, `neutrality.md`, `architecture.md`, `judgment-and-defenses.md`, `api.md`, `demo.md`, `testing.md`, `team.md`, `plan.md`, `decisions/`, `tasks/`. Research is in `docs/research/`; open it only when a decision needs it. `docs/operations.md` covers the live demo and deploys. Brand work is in `brand/`: write Crow in docs; ’crow ("escrow" with the "es" unsaid) is the website's logomark (Rafa, 2026-11-03). Tagline "Programmatic Escrow and Arbitration" (Rafa, 2026-11-02; D40: privacy is each deal's choice), at escrow.stream; its mark is Archibald Thorburn's 1919 hooded crow (public domain); Holdback stays the protocol's working name and EIP-712 domain.
 
