@@ -1,24 +1,32 @@
-// One test deal on the ’crow demo, both sides played here with fresh keys. Test tokens only (tUSD on SimChain,
-// tUSDC on Sepolia): nothing here is real money. The faucet funds a buyer and a seller; the seller offers 3 rows of
-// customer_id,email for 25 test dollars
-// under three declarative checks; the buyer checks the offer on both operators, then agrees and funds; the seller
-// encrypts and delivers; the adjudicator's checks decide; the buyer opens its copy. Every message an operator
-// prepares is rebuilt from this script's own intent and checked before it is signed (verify.ts).
+// One test deal on the ’crow demo. Test tokens only (tUSD on SimChain, tUSDC on Sepolia): nothing here is real money.
 //
-// It calls only the two operators below, keeps its keys in memory and writes no files. It prints one line per
-// step, then the commitment ID and the final state. It exits 0 when the deal is Released, 3 when it refuses to
-// sign something, and 1 when anything else stops it.
+// With --seller <intake URL>, this script is the buyer and Crow's test seller (apps/test-agents, D47) is the other
+// party: the buyer seals a proposal to the seller's intake, as site/llms.txt "Two agents, two people" describes,
+// reads the commitment ID back with its status token, checks the offer on both operators against its own intent and
+// the seller's published address, then agrees and funds; the seller delivers; the adjudicator's checks decide; the
+// buyer opens its copy. With --outcome refund the buyer asks for work that fails a check, to see a refund. When the
+// test seller is unreachable, busy or fails before it offers, the script says so and plays both sides itself.
 //
-//   node try.mjs                     the bundle served at https://escrow.stream/try.mjs (node site/build.mjs)
-//   node examples/try.ts             from the repository
-//   HOLDBACK_OPERATORS=<url>,<url>   other operators (two distinct origins)
+// Without --seller it plays both sides with fresh keys: the faucet funds a buyer and a seller; the seller offers 3
+// rows of customer_id,email for 25 test dollars under three declarative checks; the buyer checks the offer on both
+// operators, then agrees and funds; the seller encrypts and delivers; the checks decide; the buyer opens its copy.
+// Either way, every message an operator prepares is rebuilt from this script's own intent and checked before it is
+// signed (verify.ts).
+//
+// It calls only the two operators below and the test seller you name, keeps its keys in memory and writes no files.
+// It prints one line per step, then the commitment ID and the final state. It exits 0 when the deal ends as asked
+// (Released, or Refunded with --outcome refund), 3 when it refuses to sign something, and 1 when anything else stops it.
+//
+//   node try.mjs [--seller <url>] [--outcome refund]   the bundle served at https://escrow.stream/try.mjs (node site/build.mjs)
+//   node examples/try.ts [--seller <url>]              from the repository
+//   HOLDBACK_OPERATORS=<url>,<url>                     other operators (two distinct origins)
 //
 // Source: https://github.com/rafaeldavid/holdback/blob/main/examples/try.ts, with agent.ts and verify.ts.
 import nacl from 'tweetnacl';
 import { recoverTypedDataAddress, type Hex } from 'viem';
 import { generatePrivateKey } from 'viem/accounts';
 import { Agent } from './agent.ts';
-import { commitmentIdOf, jcs, knownPins, operatorFeeOf, Refusal, typedOf } from './verify.ts';
+import { commitmentIdOf, jcs, knownPins, operatorFeeOf, Refusal, sealKeyTo, typedOf } from './verify.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -33,6 +41,16 @@ const CHECKS = [
 // The demo club's shortest judge, fallback and appeal windows: the deal is final a minute after the decision.
 const TIMING = { judgeWithinSec: 60, fallbackWithinSec: 60, appealWindowSec: 60, appealDecideSec: 60 };
 const CSV = 'customer_id,email\n1,ada@example.com\n2,alan@example.com\n3,grace@example.com\n';
+/** What this script's own seller delivers when asked for a refund: 2 rows, which fail the rows check. */
+const BAD_CSV = 'customer_id,email\n1,ada@example.com\n2,alan@example.com\n';
+
+const args = process.argv.slice(2);
+const option = (name: string): string | undefined => {
+  const i = args.indexOf(name);
+  return i >= 0 ? args[i + 1] : undefined;
+};
+const SELLER = option('--seller')?.replace(/\/+$/, '');
+const OUTCOME = option('--outcome') ?? 'release';
 
 const short = (h: string) => `${h.slice(0, 8)}…${h.slice(-4)}`;
 /** Base units of a 6-decimal token as a decimal string, in integer arithmetic. */
@@ -51,6 +69,7 @@ const refuse = (why: string): never => {
   throw new Refusal(`refusing to agree: ${why}`);
 };
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const sha256hex = async (b: Uint8Array) => Buffer.from(await crypto.subtle.digest('SHA-256', new Uint8Array(b))).toString('hex');
 
 let step = 'start';
 const say = (text: string) => console.log(`${step.padEnd(9)} ${text}`);
@@ -66,10 +85,78 @@ async function until(agent: Agent, id: Hex, states: string[], timeoutMs: number)
   throw new Error(`still ${seen.map((s) => s.escrowState).join(' / ')} after ${timeoutMs / 1000} s, waiting for ${states.join(' or ')}${notices.length ? `; the operators say: ${notices.join(' | ')}` : ''}`);
 }
 
+/** The test seller could not take the deal before offering it: the script plays both sides instead. */
+class Unavailable extends Error {}
+
+/** A JSON answer from the test seller, or Unavailable with why. */
+async function fromSeller(url: string, init: RequestInit = {}): Promise<{ status: number; body: J }> {
+  let res: Response;
+  try {
+    res = await fetch(url, { ...init, signal: AbortSignal.timeout(15_000) });
+  } catch (e) {
+    throw new Unavailable(`${url} did not answer (${(e as Error).message})`);
+  }
+  const body = (await res.json().catch(() => null)) as J;
+  if (res.status === 429 || res.status === 503) throw new Unavailable(`it is busy: ${body?.error ?? res.status}${body?.retryAfterSec ? `; retry in ${body.retryAfterSec} s` : ''}`);
+  if (!res.ok || body === null) throw new Unavailable(`${url} answered ${res.status}${body?.error ? `: ${body.error}` : ''}`);
+  return { status: res.status, body };
+}
+
+/**
+ * The buyer's side of the intake convention: read the seller's card, seal the proposal (exactly this script's terms,
+ * plus the outcome it asks for) to the intake's key, store it on Crow, send the pointer, and poll the status until the
+ * seller has offered. Returns the commitment ID and the seller's published address.
+ */
+async function askTestSeller(buyer: Agent, price: J): Promise<{ id: Hex; seller: string }> {
+  step = 'seller';
+  const card = (await fromSeller(`${SELLER}/agent.json`)).body;
+  const origin = new URL(SELLER!).origin;
+  if (card?.type !== 'crow-agent' || typeof card.seller !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(card.seller)) throw new Unavailable(`${SELLER}/agent.json is not a crow-agent card with a seller address`);
+  // The intake and the status are on the seller's own domain: that is what makes the offer the seller's.
+  if (new URL(card.intake?.api ?? '').origin !== origin || new URL(card.intake?.status ?? '').origin !== origin) throw new Unavailable(`the card's intake is not on ${origin}`);
+  if (!/^[A-Za-z0-9_-]{43}$/.test(card.intake?.encryptionPublicKey ?? '')) throw new Unavailable("the card's intake has no x25519 encryptionPublicKey");
+  const seller = String(card.seller).toLowerCase();
+  say(`Crow's test seller at ${SELLER}: it offers from ${short(seller)}${card.offers?.[0]?.fees?.total ? `, ${tusd(card.offers[0].fees.total.amount)} in all for this deal` : ''}`);
+
+  step = 'propose';
+  const proposal = {
+    type: 'crow-proposal', buyer: buyer.address, buyerEncryptionPublicKey: buyer.encryptionPublicKey, want: '3 rows of customer_id,email',
+    budget: { token: price.token, amount: price.amount, covers: 'price' },
+    terms: { price, deliverable: DELIVERABLE, template: 'checks-only', disclosure: 'public', checks: CHECKS },
+    ...(OUTCOME === 'refund' ? { test: { outcome: 'refund' } } : {}),
+  };
+  const key = crypto.getRandomValues(new Uint8Array(32));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const aes = await crypto.subtle.importKey('raw', key, 'AES-GCM', false, ['encrypt']);
+  const ct = new Uint8Array([...iv, ...new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, aes, new TextEncoder().encode(JSON.stringify(proposal))))]);
+  const stored = await buyer.call('POST', '/v1/ciphertext', ct);
+  if (stored.id !== `sha256:${await sha256hex(ct)}`) throw new Error('the ciphertext store answered another hash');
+  // The status token stays here; the seller sees only its SHA-256.
+  const token = Buffer.from(crypto.getRandomValues(new Uint8Array(24))).toString('base64url');
+  const request = { type: 'crow-request', proposal: { uri: stored.uri, sha256: stored.id }, sealedKey: sealKeyTo(key, 'intake', card.intake.encryptionPublicKey).ciphertext, statusTokenHash: await sha256hex(new TextEncoder().encode(token)), from: 'try.mjs' };
+  await fromSeller(card.intake.api, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(request) });
+  say(`sealed proposal stored on Crow (${stored.bytes} bytes) and sent to the intake: ${OUTCOME === 'refund' ? 'asking for work that fails a check, to see a refund' : 'the seller\'s own terms'}`);
+
+  step = 'offered';
+  let s: J;
+  for (const end = Date.now() + 120_000; Date.now() < end; await sleep(1000)) {
+    s = (await fromSeller(`${card.intake.status}?token=${token}`)).body;
+    if (s.status === 'failed') throw new Unavailable(`it failed the request: ${s.detail}`);
+    if (s.status === 'offered' && /^0x[0-9a-f]{64}$/.test(s.commitmentId ?? '')) {
+      if (String(s.seller).toLowerCase() !== seller) refuse(`the status names seller ${s.seller}, not the published ${seller}`);
+      say(`${short(s.commitmentId)} offered by the test seller${s.countered ? ' as a counter-offer' : ''}`);
+      return { id: s.commitmentId as Hex, seller };
+    }
+  }
+  throw new Unavailable(`no offer within 120 s (status ${s?.status ?? 'unknown'}${s?.detail ? `: ${s.detail}` : ''})`);
+}
+
 async function main() {
   const started = Date.now();
   console.log(`’crow test deal on ${OPERATORS.join(' and ')}: test tokens only, nothing here is real money`);
   if (!globalThis.crypto?.subtle || typeof fetch !== 'function') throw new Error(`this needs Node 20 or later (Web Crypto and fetch); this is Node ${process.versions.node}`);
+  if (OUTCOME !== 'release' && OUTCOME !== 'refund') throw new Error(`--outcome is release or refund, not ${OUTCOME}`);
+  if (args.includes('--seller') && !/^https?:\/\/\S+$/.test(SELLER ?? '')) throw new Error('--seller takes the intake URL, such as https://escrow.stream/agents/test-seller');
 
   step = 'keys';
   // Discovery as every operator serves it, and the settlement layers this script pins (never the operator's):
@@ -84,7 +171,6 @@ async function main() {
   if (found.token !== PRICE.token || !found.clubId) throw new Error(`these operators run no ${symbol} demo (discovery has no demo.clubId or demo.token ${PRICE.token})`);
   const fresh = () => new Agent(OPERATORS, generatePrivateKey(), nacl.randomBytes(32), pin.domain, pin.chain);
   const buyer = fresh();
-  const seller = fresh();
   if (pin.chain) say(`settling on chain ${pin.domain.chainId} through HoldbackRules ${pin.domain.verifyingContract}: each money step waits for a block`);
   const role = (r: string): string => {
     const a = found.adjudicators?.find((x: J) => x.role === r)?.address;
@@ -92,33 +178,68 @@ async function main() {
     return a;
   };
   const [primary, fallback, appeal] = [role('primary'), role('fallback'), role('appeal')];
-  say(`buyer ${short(buyer.address)}, seller ${short(seller.address)}: fresh keys, held in memory only`);
 
-  step = 'faucet';
-  const grants = await Promise.all([buyer, seller].map((a) => a.call('POST', '/v1/faucet', { address: a.address })));
-  if (grants.some((g) => g.clubId !== found.clubId)) throw new Error(`the faucet admitted to ${grants.map((g) => g.clubId).join(', ')}, not ${found.clubId}`);
-  say(`${tusd(grants[0].granted.amount)} each, both admitted to ${found.clubId}`);
+  // With --seller, Crow's test seller is the other party; this script plays it only when the seller cannot.
+  let deal: { id: Hex; seller: string } | undefined;
+  let seller: Agent | undefined;
+  if (SELLER) {
+    say(`buyer ${short(buyer.address)}: fresh keys, held in memory only`);
+    step = 'faucet';
+    const grant = await buyer.call('POST', '/v1/faucet', { address: buyer.address });
+    if (grant.clubId !== found.clubId) throw new Error(`the faucet admitted to ${grant.clubId}, not ${found.clubId}`);
+    say(`${tusd(grant.granted.amount)}, admitted to ${found.clubId}`);
+    try {
+      deal = await askTestSeller(buyer, PRICE);
+    } catch (e) {
+      if (!(e instanceof Unavailable)) throw e;
+      say(`the test seller is unavailable: ${e.message}. Playing both sides instead`);
+    }
+  }
 
-  step = 'offer'; // the seller: the operator fills the terms; the seller rebuilds them from its request before signing
-  const offer = await seller.offer({
-    template: 'checks-only', clubId: found.clubId, seller: seller.address,
-    buyer: { address: buyer.address, encryptionPublicKey: buyer.encryptionPublicKey }, // what the buyer sent the seller
-    adjudicators: { primary, fallback, appeal }, price: PRICE, deliverable: DELIVERABLE, checks: CHECKS, timing: TIMING,
-  });
-  say(`${short(offer.id)} ${offer.state.escrowState}: 3 rows of customer_id,email for ${tusd(PRICE.amount)}, checks ${CHECKS.map((c) => c.id).join(', ')}`);
+  let terms: J;
+  if (deal) {
+    step = 'accepted';
+    await until(buyer, deal.id, ['AcceptedByAdjudicator'], 60_000);
+    say(`AcceptedByAdjudicator on every operator: the primary adjudicator ${short(primary)} takes the deal`);
+    step = 'check'; // the buyer: the seller sent only the ID, so the terms are read from every operator and compared
+    const { id: servedId, signatures, ...served } = await buyer.trusted(`/v1/commitments/${deal.id}/terms`);
+    terms = served;
+    if (commitmentIdOf(terms) !== deal.id || String(servedId).toLowerCase() !== deal.id) refuse(`the commitment ID does not match the terms (recomputed ${commitmentIdOf(terms)})`);
+    if (String(terms.seller).toLowerCase() !== deal.seller) refuse(`the seller in the terms is ${terms.seller}, not the test seller's published ${deal.seller}`);
+    const signer = await recoverTypedDataAddress({ ...typedOf('CommitmentTerms', terms, buyer.domain), signature: signatures?.seller });
+    if (signer.toLowerCase() !== deal.seller) refuse("the seller's signature does not recover to the seller");
+  } else {
+    seller = fresh();
+    if (SELLER) say(`seller ${short(seller.address)}: fresh keys, played by this script`);
+    else say(`buyer ${short(buyer.address)}, seller ${short(seller.address)}: fresh keys, held in memory only`);
 
-  step = 'accepted';
-  await until(buyer, offer.id, ['AcceptedByAdjudicator'], 60_000);
-  say(`AcceptedByAdjudicator on every operator: the primary adjudicator ${short(primary)} takes the deal`);
+    step = 'faucet';
+    const grants = await Promise.all((SELLER ? [seller] : [buyer, seller]).map((a) => a.call('POST', '/v1/faucet', { address: a.address })));
+    if (grants.some((g) => g.clubId !== found.clubId)) throw new Error(`the faucet admitted to ${grants.map((g) => g.clubId).join(', ')}, not ${found.clubId}`);
+    say(`${tusd(grants[0].granted.amount)} ${SELLER ? 'to the seller' : 'each'}, ${SELLER ? '' : 'both '}admitted to ${found.clubId}`);
 
-  step = 'check'; // the buyer: the offer is a claim until checked against what every operator serves
-  const terms = offer.terms; // as the seller sent it to the buyer
-  const { id: servedId, signatures, ...served } = await buyer.trusted(`/v1/commitments/${offer.id}/terms`);
-  if (!same(served, terms)) refuse('the terms the operators serve are not the ones the seller sent');
+    step = 'offer'; // the seller: the operator fills the terms; the seller rebuilds them from its request before signing
+    const offer = await seller.offer({
+      template: 'checks-only', clubId: found.clubId, seller: seller.address,
+      buyer: { address: buyer.address, encryptionPublicKey: buyer.encryptionPublicKey }, // what the buyer sent the seller
+      adjudicators: { primary, fallback, appeal }, price: PRICE, deliverable: DELIVERABLE, checks: CHECKS, timing: TIMING,
+    });
+    say(`${short(offer.id)} ${offer.state.escrowState}: 3 rows of customer_id,email for ${tusd(PRICE.amount)}, checks ${CHECKS.map((c) => c.id).join(', ')}`);
+
+    step = 'accepted';
+    await until(buyer, offer.id, ['AcceptedByAdjudicator'], 60_000);
+    say(`AcceptedByAdjudicator on every operator: the primary adjudicator ${short(primary)} takes the deal`);
+
+    step = 'check'; // the buyer: the offer is a claim until checked against what every operator serves
+    terms = offer.terms; // as the seller sent it to the buyer
+    const { id: servedId, signatures, ...served } = await buyer.trusted(`/v1/commitments/${offer.id}/terms`);
+    if (!same(served, terms)) refuse('the terms the operators serve are not the ones the seller sent');
+    const id = commitmentIdOf(terms);
+    if (id !== offer.id || String(servedId).toLowerCase() !== id) refuse(`the commitment ID does not match the terms (recomputed ${id})`);
+    const signer = await recoverTypedDataAddress({ ...typedOf('CommitmentTerms', terms, buyer.domain), signature: signatures?.seller });
+    if (signer.toLowerCase() !== String(terms.seller).toLowerCase()) refuse("the seller's signature does not recover to the seller");
+  }
   const id = commitmentIdOf(terms);
-  if (id !== offer.id || String(servedId).toLowerCase() !== id) refuse(`the commitment ID does not match the terms (recomputed ${id})`);
-  const signer = await recoverTypedDataAddress({ ...typedOf('CommitmentTerms', terms, buyer.domain), signature: signatures?.seller });
-  if (signer.toLowerCase() !== String(terms.seller).toLowerCase()) refuse("the seller's signature does not recover to the seller");
   const want: Array<[string, J, J]> = [
     ['buyer', terms.buyer, buyer.address], ['buyerEncryptionPublicKey', terms.buyerEncryptionPublicKey, buyer.encryptionPublicKey],
     ['price', terms.price, PRICE], ['clubId', terms.clubId, found.clubId], ['deliverable', terms.deliverable, DELIVERABLE],
@@ -139,13 +260,20 @@ async function main() {
   say(`Held: ${tusd(hold)} held (${units(PRICE.amount)} price + ${units(fee)} adjudication fee), operator fee ${operatorFee ? tusd(operatorFee) : 'none'}`);
 
   step = 'deliver'; // the seller: once every operator shows Held, encrypt, upload, seal the key, sign the delivery
-  await until(seller, id, ['Held'], 60_000);
-  const { state: delivered, delivery } = await seller.deliverAndShare(terms, new TextEncoder().encode(CSV));
-  if (!OPERATORS.some((op) => new URL(op).origin === new URL(delivery.ciphertext.uri).origin)) throw new Error(`the store answered a ciphertext URI on another host (${delivery.ciphertext.uri})`);
-  say(`${delivered.escrowState}: ${delivery.ciphertext.bytes} encrypted bytes, the key sealed to ${delivery.encryptedKeys.length - 1} adjudicators and the buyer`);
+  let storedAt: string | undefined;
+  if (seller) {
+    await until(seller, id, ['Held'], 60_000);
+    const { state: delivered, delivery } = await seller.deliverAndShare(terms, new TextEncoder().encode(OUTCOME === 'refund' ? BAD_CSV : CSV));
+    if (!OPERATORS.some((op) => new URL(op).origin === new URL(delivery.ciphertext.uri).origin)) throw new Error(`the store answered a ciphertext URI on another host (${delivery.ciphertext.uri})`);
+    storedAt = delivery.ciphertext.uri;
+    say(`${delivered.escrowState}: ${delivery.ciphertext.bytes} encrypted bytes, the key sealed to ${delivery.encryptedKeys.length - 1} adjudicators and the buyer`);
+  } else {
+    say('the test seller delivers once every operator shows Held; waiting for the decision');
+  }
 
   step = 'outcome';
-  const done = await until(buyer, id, ['Released', 'Refunded'], 120_000);
+  const expected = OUTCOME === 'refund' ? 'Refunded' : 'Released';
+  const done = await until(buyer, id, ['Released', 'Refunded'], 180_000);
   let decided = 'no judgment record served';
   try {
     const j = await buyer.call('GET', `/v1/commitments/${id}/judgment`);
@@ -154,23 +282,29 @@ async function main() {
     // the record is informative only; the state above is what settled
   }
   say(`${done.escrowState}: ${decided}`);
-  if (done.escrowState !== 'Released') throw new Error(`the deal ended ${done.escrowState}, not Released`);
+  if (done.escrowState !== expected) throw new Error(`the deal ended ${done.escrowState}, not ${expected}`);
 
-  step = 'open'; // the buyer: its released envelope opens the content key; the hashes the seller signed are checked
-  // The ciphertext is fetched from the URI the delivery event records: every operator must record the seller's.
-  const recorded = await buyer.trusted(`/v1/commitments/${id}/events?limit=200`, (x) => x.items.find((e: J) => e.type === 'delivery.submitted')?.payload?.ciphertext?.uri ?? null);
-  if (recorded !== delivery.ciphertext.uri) throw new Error(`the operators record the delivery at ${recorded}, not at ${delivery.ciphertext.uri} where the seller stored it`);
-  const opened = await buyer.openDelivery(id);
-  if (opened !== CSV) throw new Error('the buyer opened something other than what the seller delivered');
-  const rows = opened.trimEnd().split('\n').slice(1);
-  say(`the buyer decrypted its copy, sha256 checked: ${rows.length} rows, ${rows.join(' | ')}`);
+  if (done.escrowState === 'Released') {
+    step = 'open'; // the buyer: its released envelope opens the content key; the hashes the seller signed are checked
+    // The ciphertext is fetched from the URI the delivery event records: every operator must record the same one, on
+    // an operator's own store, and when this script delivered, the one where it stored the work.
+    const recorded = await buyer.trusted(`/v1/commitments/${id}/events?limit=200`, (x) => x.items.find((e: J) => e.type === 'delivery.submitted')?.payload?.ciphertext?.uri ?? null);
+    if (!recorded || !OPERATORS.some((op) => new URL(op).origin === new URL(recorded).origin) || (storedAt && recorded !== storedAt)) throw new Error(`the operators record the delivery at ${recorded}, not ${storedAt ?? 'on an operator'}`);
+    const opened = await buyer.openDelivery(id);
+    if (seller && opened !== CSV) throw new Error('the buyer opened something other than what the seller delivered');
+    const rows = opened.trimEnd().split('\n').slice(1);
+    say(`the buyer decrypted its copy, sha256 checked: ${rows.length} rows, ${rows.join(' | ')}`);
+  } else {
+    step = 'refund';
+    say(`the price came back to the buyer; no key was released, so the seller keeps the work. The buyer is down the ${units(fee)} adjudication fee and the ${operatorFee ? tusd(operatorFee) : 'zero'} operator fee`);
+  }
 
   step = 'balances';
   const balance = async (a: Agent) => tusd(await a.trusted(`/v1/balances/${a.address}`, (x) => x.amount));
-  say(`buyer ${await balance(buyer)}, seller ${await balance(seller)}`);
+  say(seller ? `buyer ${await balance(buyer)}, seller ${await balance(seller)}` : `buyer ${await balance(buyer)}`);
 
   if (pin.chain) {
-    // Every money step is a transaction anyone can check: the hold, the delivery, the release with the buyer's key.
+    // Every money step is a transaction anyone can check: the hold, the delivery, the release or refund.
     step = 'chain';
     const events: J[] = await buyer.trusted(`/v1/commitments/${id}/events?limit=200`, (x) => x.items.filter((e: J) => typeof e.payload?.tx === 'string').map((e: J) => ({ seq: e.seq, type: e.type, tx: e.payload.tx })));
     const what: Record<string, string> = { 'fee.operator': 'funded', 'hold.funded': 'funded', 'delivery.submitted': 'delivered', 'judgment.decided': 'decided' };
@@ -183,7 +317,8 @@ async function main() {
   }
 
   step = 'final';
-  say(`${done.escrowState} in ${Math.round((Date.now() - started) / 1000)} s; final at ${done.deadlines?.appealBy ?? 'the end of the appeal window'}, when the 60 s appeal window closes, with nobody needing to act`);
+  const party = deal ? "with Crow's test seller as the other party" : SELLER ? 'with both sides played here, since the test seller was unavailable' : 'with both sides played here';
+  say(`${done.escrowState} in ${Math.round((Date.now() - started) / 1000)} s ${party}; final at ${done.deadlines?.appealBy ?? 'the end of the appeal window'}, when the 60 s appeal window closes, with nobody needing to act`);
   step = 'done';
   say(`commitment ${id} ${done.escrowState}`);
 }

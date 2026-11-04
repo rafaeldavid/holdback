@@ -10,6 +10,7 @@ The public demo of Crow (the Holdback protocol). Test tokens only; nothing here 
 | https://api.escrow.stream | Operator node 1, home of the World Durable Object (the faucet, the adjudicators and the operators' view), which settles on Ethereum Sepolia since 2026-11-03 (D41; SimChain on a rollback) | `apps/demo-cloud/` (wraps `apps/operator`, `packages/settlement/sim`, `apps/adjudicator`) | Worker `holdback-op1` (`apps/demo-cloud/wrangler.op1.jsonc`) |
 | https://api2.escrow.stream | Operator node 2, same world, own receipt key | same | Worker `holdback-op2` (`wrangler.op2.jsonc`) |
 | https://join.escrow.stream | Early-access email sign-ups (KV `EMAILS`: address, time, page; nothing else) | `apps/early-access/` | Worker `crow-early-access` |
+| https://escrow.stream/agents/test-seller | Crow's test seller (D47, T-222): a standing party that sells one test dataset over the operators' public API. Not deployed yet: the first deploy waits for Rafa (below) | `apps/test-agents/` (reuses `examples/agent.ts` and `verify.ts`) | Worker `crow-test-agents` on the route `escrow.stream/agents/test-seller*` (`apps/test-agents/wrangler.jsonc`) |
 | Ethereum Sepolia (chain 11155111) | The reviewed settlement contracts under EIP-712 domain 0.7 and their tUSDC test token, which the live demo settles on since 2026-11-04 (ADR-0029). The domain 0.6 deployment of 2026-11-03 still settles the deals opened on it | `contracts/src/` at `64be1f1`; addresses in `contracts/deployments/sepolia.json` (the 0.6 deployment, from `2342756`: `sepolia-2026-11-03-domain-0.6.json`) | `contracts/script/deploy-sepolia.sh` (T-206), with a throwaway deployer key |
 | npc.here.now/escrow | Old address; a redirect to escrow.stream | `reports/redirect/` (not in git) | here.now; no further publishing needed |
 
@@ -26,6 +27,7 @@ All on Rafa's Cloudflare account (its ID goes in `CLOUDFLARE_ACCOUNT_ID` in the 
 - Local secrets live in the git-ignored `.env` at the repo root (templates: `config/keys.template`, `config/keys-dev-env.template`). **Never read, print or copy `.env`** (hard rule; a permission rule also blocks it). Commands that need keys load it with Node's `--env-file`.
 - Model keys reach Cloudflare only through `pnpm demo-cloud:secrets` (builds the JSON in memory, pipes it to `wrangler secret bulk`; nothing printed or written).
 - **The Sepolia relayer key** (D41, ADR-0028) is the Worker secret `SEPOLIA_RELAYER_KEY` on holdback-op1, made by `node apps/demo-cloud/scripts/relayer.mjs`: it generates a fresh key in memory, pipes it to `wrangler secret bulk` and prints only the public addresses. It is a Sepolia-only gas payer with no role in any contract, and it refuses to replace an existing key (`--replace` overrides; the old lanes' Sepolia ETH would be stranded). Set 2026-11-03; its funding lane is `0x601137a8DE7E195E1426f57C053aFa49B20Ef555` (Rafa funds this one), and the world tops up its three deal lanes from it: `0x5e7F1a8C06f357e8E321Ba33A3fFb0b4a0fd3243`, `0xDB940F8613aceE33465f62400395262126791879`, `0xbDd9f277360A6243446A57Ab59ACf8c488a95a1B`. Optional secret `SEPOLIA_RPC_URLS` (comma-separated keyed URLs, tried before the public ones); optional variable `SEPOLIA_MAX_FEE_GWEI` (default 20).
+- **The test seller's secret** (D47, T-222) is the Worker secret `TEST_AGENTS_SEED` on crow-test-agents, made by `node apps/test-agents/scripts/seed.mjs`: it generates 32 random bytes in memory, pipes them to `wrangler secret bulk` and prints only the intake's public encryption key. Every key the seller uses derives from it (`apps/test-agents/src/keys.ts`). It is Sepolia-only, holds no ETH (the operators pay the gas) and guards worthless test tokens; it refuses to replace an existing secret (`--replace` overrides, which gives the seller a new address and a new intake key).
 - `wrangler` uses Rafa's OAuth login on his Mac, or `CLOUDFLARE_API_TOKEN` (scoped to Workers and KV) in an isolated environment.
 
 ## Deploy
@@ -47,7 +49,21 @@ node apps/demo-cloud/scripts/deal.ts https://api.escrow.stream https://api2.escr
 # early-access sign-ups
 npx wrangler@4 deploy --config apps/early-access/wrangler.jsonc
 npx wrangler@4 kv key list --binding EMAILS --config apps/early-access/wrangler.jsonc --remote
+
+# Crow's test seller (T-222)
+node apps/test-agents/scripts/deploy.mjs
 ```
+
+**Crow's test seller, the first deploy** (D47; Rafa's go-ahead first). The site's one command buys from the test seller, so the seller goes live before the site that names it:
+
+1. `node apps/test-agents/scripts/deploy.mjs`: the Worker, its Durable Object and its route `escrow.stream/agents/test-seller*`. The route takes that path before crow-site's Custom Domain, as Cloudflare documents. If it does not, switch the route to the Custom Domain `agents.escrow.stream`, and change `SELLER_URL` and `TEST_SELLER_URL` in `site/build.mjs` to match.
+2. `node apps/test-agents/scripts/seed.mjs`: sets `TEST_AGENTS_SEED`.
+3. Check that `https://escrow.stream/agents/test-seller/health` reads `operational`, and that `https://escrow.stream/` is still the site.
+4. Measure which client IP the operators see for the seller's calls: the seller and the operators share the zone, so `cf-connecting-ip` follows `x-real-ip`, which the seller never sets (research note, section 5). It needs the faucet about once a month, so a shared bucket does not bind.
+5. Run one deal: `node site/try.mjs --seller https://escrow.stream/agents/test-seller`, then once with `--outcome refund`. Record the transactions in T-222's Evidence.
+6. Publish the site (above).
+
+If the seller is down or busy, `try.mjs` plays both sides and says so, so a site published first still completes a deal. **The mandate runs out after 30 days.** The faucet does not renew an expired mandate (D47). Until that fix ships in `apps/demo-cloud/src/world.ts`, the health line then reads `degraded`. Then rotate the secret with `seed.mjs --replace`; a world reset also clears it.
 
 **A schema bump resets the public world.** The World replays its journal on start, and a journal written under an older schema may not replay (2026-11-02: v0.8 refused v0.7's offers with `rulebook_unknown`, and the nodes kept serving the old version). Before deploying a schema bump, change `WORLD_NAME` in `apps/demo-cloud/src/worker.ts`; the old world's storage stays, so a `wrangler rollback` of both Workers brings it back. Check `schemaVersion` in `/v1/status` after the deploy, and `npx wrangler@4 tail holdback-op1 --format json` if it is wrong.
 
