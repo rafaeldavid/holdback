@@ -39,3 +39,7 @@ c33af95c0d04d3ed1aad42ccd9bc578569d917e7:site/try.mjs:generic-api-key:57
 cf536f839477a83bc9f9f98a2aa4700033cb6a60:site/llms.txt:generic-api-key:153
 cf536f839477a83bc9f9f98a2aa4700033cb6a60:site/llms.txt:generic-api-key:154
 cf536f839477a83bc9f9f98a2aa4700033cb6a60:site/llms.txt:generic-api-key:161
+# False positives: public EIP-712 digests pinned for the ReadToken and KeyRegistration fixtures under domain 0.7, in
+# the binding test (ADR-0029, T-212 item 3).
+86baa2ef42228f936655056d40adfa2cb3d3f000:packages/core/src/eip712.binding.test.ts:generic-api-key:239
+86baa2ef42228f936655056d40adfa2cb3d3f000:packages/core/src/eip712.binding.test.ts:generic-api-key:241
