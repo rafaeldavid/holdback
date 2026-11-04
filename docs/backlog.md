@@ -4,12 +4,12 @@ Deferred until after the basic demo. The demo assumes honest parties (Rafa, Octo
 
 ## Benched
 
-Built or open work that Rafa has held back. Each row names the event that brings the item back.
+Rafa has held back the built or open work below. Each row names the event that brings it back.
 
 | Item | Source | Comes back |
 | --- | --- | --- |
 | The contribution rails for collaborators and their agents: `CONTRIBUTING.md`, the issue templates and `CODEOWNERS`, the file that names who reviews each path (PR 151, labelled `benched`) | Rafa, 2026-11-04 | After the first full EVM end-to-end test round on Sepolia |
-| The human gate (the step only Rafa can take) of T-206, the contract review: Rafa's read of the review, and his confirmations on PR 150 (the Sepolia approval, the keystore exception to the secrets rule, the two open "before Sepolia" checks) | Rafa, 2026-11-04 | After the first full EVM end-to-end test round on Sepolia |
+| T-206's human gate, the step only Rafa can take in the contract review: his read of the review, and his confirmations on PR 150 (the Sepolia approval, the keystore exception to the secrets rule, the two open "before Sepolia" checks) | Rafa, 2026-11-04 | After the first full EVM end-to-end test round on Sepolia |
 
 ## Settlement layer
 

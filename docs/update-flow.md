@@ -6,9 +6,9 @@ A change to one part of Crow often means another part must change too. This page
 
 - **Kinds.** Each flow has one kind:
   - **generated:** a script rebuilds the downstream area from the upstream one, and nobody edits the output by hand. The How column names the command.
-  - **checked:** someone updates the downstream area, and a test or check fails while it is stale. The How column names the check. On every pull request, CI (GitHub's automated checks) runs `pnpm test`, `pnpm validate:spec` and its contracts job. Someone runs `node site/check.mjs` by hand, and only before a site publish (`docs/operations.md`). So its flows hold only when someone runs it.
+  - **checked:** someone updates the downstream area, and a test or check fails while it is stale. The How column names the check. On every pull request, CI (GitHub's automated checks) runs `pnpm test`, `pnpm validate:spec` and its contracts job. `node site/check.mjs` runs only by hand, before a site publish (`docs/operations.md`), so its flows hold only when someone runs it.
   - **manual:** someone has to remember. Drift, where one area falls out of step with another, happens in these flows.
-- **One area per file.** A file belongs to the area whose path matches it most specifically. For example, `site/llms.txt` belongs to Agent docs, because its own path is more specific than Homepage and site's `site/`.
+- **One area per file.** A file belongs to the area whose path matches it most specifically. For example, `site/llms.txt` belongs to Agent docs, whose path is that exact file, rather than to Homepage and site, whose path is all of `site/`.
 - **Before you finish a change,** find each area it touches and follow that area's manual flows. Make those updates in the same pull request, or write them into the task's Handoff section.
 - **Preconditions are not flows.** A change to `spec/schemas/` first needs an ADR (an architecture decision record) and a version bump (`CLAUDE.md`, "The contract").
 - **Sources.** A generated or checked flow names the script or test that implements it; the author of this page read each one from the code. A manual flow names the convention it comes from. "(inferred)" marks a flow that no doc states.
@@ -53,7 +53,7 @@ A change to one part of Crow often means another part must change too. This page
 | api | workers | checked | `tests/contract/openapi.contract.test.ts` (`pnpm test`) checks every operator answer against `spec/openapi.json`. `pnpm validate:spec` fails while `spec/openapi.json` is stale; rebuild it with `pnpm openapi`. | `docs/team.md`, Rules and checks: "Operator answers match the contract". |
 | api | examples | checked | The same contract test drives `examples/agent.ts` against the operators. | |
 | api | agentdocs | manual | Write the change into `site/llms.txt`. `node site/check.mjs` then checks its routes, envelope test vectors and worked checks example against `docs/api.md`, but not new endpoints or prose. | `site/llms.txt` is the agent guide (`site/check.mjs`, group 4). |
-| api | quickstart | manual | Update the curl walkthrough in `docs/quickstart.md`. | Tasks that change the API list `docs/quickstart.md` beside `docs/api.md` (T-020, T-024, T-025). |
+| api | quickstart | manual | Update the curl walkthrough in `docs/quickstart.md`. | Tasks that change the API list `docs/quickstart.md` beside `docs/api.md` (T-020, the developer surface; T-024, the early-accept fix; T-025, API and docs friction). |
 | api | ghdocs | manual | Update `README.md` where it describes the API and the operator nodes. | Rafa, 2026-11-04: "if the API is updated", the GitHub docs follow. |
 | api | map | generated | `pnpm map` reads the endpoint table and examples in `docs/api.md`, and the schema version in `spec/schemas/`. | `tests/design-map.test.ts` checks the extraction. |
 | workers | agentdocs | checked | `node site/check.mjs`, group 5: every problem type in `apps/operator/src/problems.ts` needs its page, and `site/llms.txt` must say where they live. | D39, the API conventions for agents. |
@@ -67,7 +67,7 @@ A change to one part of Crow often means another part must change too. This page
 | decisions | roadmap | manual | Write a decision that changes scope, order or a phase into `docs/plan.md`, `docs/backlog.md` or the task files (inferred). | Rafa, 2026-11-04: a roadmap decision lives "only in the roadmap and crow-control". |
 | decisions | map | generated | `pnpm map` reads `docs/decisions-today.md` and each ADR's status. | `tests/design-map.test.ts` checks every decision has a known status. |
 | log | map | generated | `pnpm map` reads the newest log's "Waiting on Rafa". | |
-| map | console | generated | The console's build calls the map's `collect()` and renders the map page beside it; it also reads the task files and the newest log directly. Someone republishes the claude.ai copy of the map by hand with `/map`. | `docs/team.md`, Cadence: run `/map` at each milestone. |
+| map | console | generated | The console's build calls the map's `collect()` and renders the map page beside it; it also reads the task files and the newest log directly. At each milestone, a session republishes the claude.ai copy of the map by hand with `/map`. | `docs/team.md`, Cadence: run `/map` at each milestone. |
 | costs | console | generated | The console renders the cost collector's latest output (T-052, the cost collector). Without that output, it lists what each source needs. | |
 
 ## Two examples
