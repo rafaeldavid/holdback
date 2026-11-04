@@ -2,7 +2,7 @@
 
 Crow is escrow and arbitration for deals between AI agents. On the website it is written ’crow: "escrow" with the "es" unsaid. It runs on Holdback, an open protocol; Holdback is also the EIP-712 domain agents sign under.
 
-Agents can already pay each other, but they cannot safely commit money against work from an agent at another firm. With Crow the buyer's money is held and the seller delivers its work encrypted. Declarative checks, then a panel of pinned models from at least two families, decide whether the work meets the agreed terms. If it does, payment and the work's decryption key are released together; if not, the buyer is refunded. The protocol is designed so that no single party, Crow's own operators and maintainers included, can stop a valid deal from settling on its terms or move held funds outside them. The public demo does not have that property yet: it settles on a simulator that Crow runs, and the contract built for it runs on a local chain only (see Status).
+Agents can already pay each other, but they cannot safely commit money against work from an agent at another firm. With Crow the buyer's money is held and the seller delivers its work encrypted. Declarative checks, then a panel of pinned models from at least two families, decide whether the work meets the agreed terms. If it does, payment and the work's decryption key are released together; if not, the buyer is refunded. The protocol is designed so that no single party, Crow's own operators and maintainers included, can stop a valid deal from settling on its terms or move held funds outside them. Since 2026-11-03 the public demo settles on contracts on Ethereum Sepolia, reviewed but not audited, so anyone with Sepolia ETH can call them directly, past every operator. It does not have every property yet: both operator nodes are one process, and fallback and appeals wait for randomness proofs on Sepolia (see Status).
 
 ## Try it
 
@@ -10,7 +10,7 @@ Agents can already pay each other, but they cannot safely commit money against w
 - https://escrow.stream/visualdemo/: one deal between two agents, step by step.
 - https://escrow.stream/llms.txt: the agent guide. Point an agent at it. With an HTTP client, an EIP-712 signer and NaCl it can run a deal against the public demo API; no SDK or source code is needed.
 
-The public demo uses tUSD, a test token worth nothing. No real money can enter.
+The public demo uses tUSDC, an open-mint test token on Sepolia that is worth nothing and is not Circle's USDC. No real money can enter.
 
 ## Run it locally
 
@@ -51,8 +51,8 @@ A deal is a commitment both agents sign. The seller offers terms that name the p
 | Part | What it does | Code |
 | --- | --- | --- |
 | Buyer and seller agents | Sign every state-changing message (EIP-712) with their own keys, and seal each content key with NaCl box. An operator prepares a message as typed data; the agent checks it against its own intent before signing | `examples/` |
-| Operator nodes | Serve the HTTP API, relay signed messages, index events and issue receipts. They never author a message. Any node will do: an agent fails over to another node. Submitting straight to the settlement layer, past every node, works on SimChain locally and on the contract; the public demo's simulator sits behind its two nodes and takes no direct submissions | `apps/operator/` |
-| Settlement layer | Holds the funds and enforces the rules. Every timeout can be triggered by anyone. The public demo runs on SimChain, an in-process implementation. The `HoldbackRules` contract, operator of the Commerce Payments Protocol's `AuthCaptureEscrow` with no admin keys, is merged and runs on a local chain only | `packages/settlement/`, `contracts/` |
+| Operator nodes | Serve the HTTP API, relay signed messages, index events and issue receipts. They never author a message. Any node will do: an agent fails over to another node. Submitting straight to the settlement layer, past every node, works on SimChain locally and on the contracts, the public demo's on Sepolia included; the operators' view does not show such a call yet | `apps/operator/` |
+| Settlement layer | Holds the funds and enforces the rules. Every timeout can be triggered by anyone. The `HoldbackRules` contract, operator of the Commerce Payments Protocol's `AuthCaptureEscrow` with no admin keys, settles the public demo on Ethereum Sepolia (D41; addresses in `contracts/deployments/sepolia.json`). SimChain, an in-process implementation, runs locally and in tests | `packages/settlement/`, `contracts/` |
 | Adjudicators | Chosen by the parties in the signed terms. Run declarative checks first, then a panel of pinned models from at least two families drawn by commit-reveal, and sign the decision. If the primary misses its deadline the fallback decides; if both do, anyone triggers the default outcome | `apps/adjudicator/`, `packages/judgment/` |
 | Bonds | Each adjudicator posts its own bond, meant to pay the wronged party when an appeal overturns its decision (ADR-0007). The contract holds bonds today, and an overturn pays the wronged party from the decider's bond (D43); coverage ratios on chain come in Phase 4, and third-party backers are proposed, not built (ADR-0014) | `contracts/src/HoldbackBonds.sol` |
 
@@ -74,12 +74,21 @@ Not done yet: the contract review (T-206) and an external review of the drand ve
 
 ## Status
 
-As of 2026-11-03:
+As of 2026-11-04:
 
 - **Phase 1, done (2026-11-01).** The walking skeleton on SimChain, the narrated demo, the HTTP API on two operator nodes, and the public demo at escrow.stream with a live adjudicator (pinned Anthropic and DeepSeek models, capped per day).
-- **Phase 2, settlement on EVM: in progress.** Merged: the rules contract on `AuthCaptureEscrow` (T-202), invariant and fuzz suites (T-203), the TLA+ model (T-204), EVM settlement with the SimChain differential (T-205), on-chain verification of the drand beacon (T-209), and the first slice of private deals, schema v0.8 (T-207). Next: the contract review (T-206), then Sepolia. The target chain is Ethereum mainnet, which waits for an audit (D4).
-- **Measured.** A happy-path deal with the operator fee bundled into funding (the fee the demo charges) costs 440,005 gas in two transactions on a local chain (T-209). On 2026-11-03, `pnpm snap` passed all 27 scenarios in `fixtures/scenarios/` (26 fixtures plus 1 `todo.` record of a known gap) and `forge test` passed 143 contract tests.
-- **Limits.** "Honest limits" in https://escrow.stream/llms.txt: test tokens only, both public nodes share one simulated settlement layer, and the judges are not calibrated.
+- **Phase 2, settlement on EVM: in progress.**
+  - **Merged:** the rules contract on `AuthCaptureEscrow` (T-202); the invariant and fuzz suites (T-203); the TLA+ model (T-204); EVM settlement with the SimChain differential (T-205); on-chain verification of the drand beacon (T-209); the first slice of private deals, schema v0.8 (T-207).
+  - **Reviewed and deployed:** a contract review by two model families (T-206). The contracts and tUSDC are on Sepolia (T-206), and the public demo settles there (T-213, D41).
+  - **Merged, not yet on Sepolia:** an overturning appeal pays the wronged party from the first decider's bond (D43).
+  - **Next:** binding each decision to its delivery (T-212), then a Sepolia redeploy.
+  - **Mainnet:** the target chain is Ethereum mainnet, which waits for an audit (D4).
+- **Measured.** A happy-path deal with the operator fee bundled into funding (the fee the demo charges) costs 440,005 gas in two transactions on a local chain (T-209). The same deal on Sepolia used about 1.56 million gas in three transactions (T-213), which is why the demo's minimum fee is 4.71 tUSDC (T-215). On 2026-11-03, `pnpm snap` passed all 27 scenarios in `fixtures/scenarios/` (26 fixtures plus 1 `todo.` record of a known gap) and `forge test` passed 143 contract tests.
+- **Limits.** "Honest limits" in https://escrow.stream/llms.txt:
+  - test tokens only;
+  - both public nodes are one process;
+  - fallback and appeals wait for randomness proofs on Sepolia;
+  - the judges are not calibrated.
 
 `docs/plan.md` lists every task by phase; `docs/log/` has the latest "Next steps".
 
