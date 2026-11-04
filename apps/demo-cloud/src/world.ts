@@ -27,17 +27,20 @@
 // reads one row per commitment and one per 64 events, and replays nothing. The relayer key pays gas for what the
 // operators relay; the faucet mints test tUSDC on chain (D42); the three adjudicators keep their own bonds in HoldbackBonds.
 // Each pass reads the rules contract's logs from a stored cursor (ChainSync, T-218), so a call a party sent straight
-// to the contract shows in the view too; a pass runs at least once a minute while any deal is open.
+// to the contract shows in the view too; a pass runs at least once a minute while any deal is open. Each relayer
+// lane's in-flight row (T-219, lanes.ts) survives a restart between a broadcast and its receipt: the next pass lands
+// that transaction as the relay it was, before the sync and the adjudicators.
 import { canonicalKeccak, holdbackDomain, parseAdjudicator, problem, wholeSecond, type AdjudicatorRegistration, type Address, type EscrowState, type HoldbackDomain, type Hex32, type Judgment, type Mandate, type OperatorFeeSchedule, type Problem, type SettlementEvent, type Sha256, type Timestamp, type TokenAmount } from '@holdback/core';
 import { sha256 } from '@holdback/core/crypto';
 import { StoreError, type CiphertextStore } from '@holdback/core/store';
 import { testAdjudicator, type TestAdjudicator } from '@holdback/adjudicator';
 import { fetchHandler, nameToken, Operator, ReportLimiter, testAccount, type DemoFacts, type FaucetOutcome, type FeedbackOptions, type FeedbackStore, type NoticeSubject, type Registry, type TestAccount } from '@holdback/operator';
 import { decodePublicKey } from '@holdback/core/crypto';
-import { ChainSync, ensureBond, EvmSettlement, rebindToken, RelayRefused, type Book, type Cursor, type LiveChain, type SyncReport } from '@holdback/settlement/live';
+import { ChainSync, ensureBond, EvmSettlement, rebindToken, RelayRefused, type Book, type Cursor, type LiveChain, type RecoverReport, type SyncReport } from '@holdback/settlement/live';
 import { privateKeyToAccount } from 'viem/accounts';
 import { mandateFor, SIM_CHAIN_ID, SIM_RULEBOOK, simClub, SimChain, TOKEN, wideScope, type Genesis, type JournalEntry } from '@holdback/settlement/sim';
 import { panelConfig, type JudgeProvider, type PanelConfig } from './judges.js';
+import { StorageLanes } from './lanes.js';
 import type { WorldStorage } from './storage.js';
 import { dealFacts, Telemetry, type DayFacts, type TelemetryOptions } from './telemetry.js';
 
@@ -351,7 +354,9 @@ export class PublicWorld {
       const events = await PagedLog.load<SettlementEvent>(storage, 'e:');
       const mandates = await PagedLog.load<Mandate>(storage, 'mp:');
       // No chain call here: opening runs inside blockConcurrencyWhile (30 s), so the first pass reads the bonds and the
-      // logs since the stored cursor; it comes within a pass's wait when a deal is open (`nextPass`).
+      // logs since the stored cursor; it comes within a pass's wait when a deal is open (`nextPass`). The lanes' rows
+      // are read here (one list), and the first pass lands them (T-219).
+      await o.live.chain.attach(new StorageLanes(storage));
       const evm = await EvmSettlement.restore(o.live.chain, genesis, { books, events: events.all(), mandates: mandates.all() }, now);
       chain = evm;
       const cursor = (await storage.get<Cursor>('cursor')) ?? null;
@@ -627,10 +632,12 @@ export class PublicWorld {
   private persist(): Promise<void> {
     this.persisting = this.persisting.then(async () => {
       if (this.live) {
-        const { books, events, mandates } = this.live.evm.drain();
+        const { books, events, mandates, relayed } = this.live.evm.drain();
         for (let i = 0; i < books.length; i += 100) await this.telemetry.storage.put(Object.fromEntries(books.slice(i, i + 100).map(([id, b]) => [`b:${id}`, b])));
         await this.live.events.append(events);
         await this.live.mandates.append(mandates);
+        // Last: a lane's row goes only once the books and events its receipt changed are written (T-219).
+        await this.live.settlement.chain.release(relayed);
         return;
       }
       const chain = this.chain as SimChain;
@@ -695,9 +702,27 @@ export class PublicWorld {
     }
   }
 
+  /**
+   * Lands the relayer rows a restart left open (T-219), then writes what they changed and deletes them. A row an RPC
+   * error leaves open waits for the next pass, and its lane sends nothing else meanwhile.
+   */
+  private async recoverLanes(): Promise<void> {
+    const l = this.live!;
+    if (l.settlement.chain.inFlight().length === 0) return;
+    const r = await l.evm.recover();
+    l.lastRecovery = r;
+    for (const e of r.errors) this.o.onError?.(new Error(`an in-flight relayer row could not be resolved: ${e}`));
+    await this.persist();
+  }
+
   /** What the last chain read found (T-218), for the tests and the counters; null before the first. */
   lastSync(): SyncReport | null {
     return this.live?.lastSync ?? null;
+  }
+
+  /** What the last pass did with the relayer rows a restart left open (T-219); null when none were open. */
+  lastRecovery(): RecoverReport | null {
+    return this.live?.lastRecovery ?? null;
   }
 
   /** True once a chain world's setup is done (every adjudicator bonded); a SimChain world always is. */
@@ -720,6 +745,8 @@ export class PublicWorld {
         if (setupLeft) this.idlePasses++;
         this.o.onError?.(e as Error);
       }
+      // Before the sync and the adjudicators: what this node broadcast before a restart lands as its relay (T-219).
+      if (this.live.verified) await this.recoverLanes();
       // Before the adjudicators, so they act on what was sent straight to the contract too (T-218).
       if (this.live.verified) await this.syncChain();
       // The adjudicators wait for a verified chain and their own bonds: an acceptance without one is refused on chain.
@@ -796,6 +823,7 @@ interface LiveWorld {
   sync: ChainSync;
   cursor: Cursor | null;
   lastSync?: SyncReport;
+  lastRecovery?: RecoverReport;
 }
 
 /** What the faucet needs from the settlement layer: mandates, and a grant of test tokens in process or on chain. */
