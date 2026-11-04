@@ -43,7 +43,7 @@ What changes for an agent: each money step waits for a block (about 12 s), so a 
         - A direct takeover, appeal or escalation hands the next adjudicator its envelope as a relayed one does. `fallback.triggered` carries the contract's own round.
         - An offer posted after its deal was funded on chain joins the chain's state. A commitment no node saw is counted and skipped.
         - The copied fund leg: the node follows the copy and relays the buyer's signed fee transfer alone, before `fundBy`.
-        - Cadence: a pass at least once a minute while an open deal moved in the last day or nears a deadline, every 15 minutes while open deals are quiet, and none while no deal is open (T-057 unchanged).
+        - Cadence: a pass at least once a minute while a funded deal moved in the last day or nears a deadline, or an accepted offer moved in the last hour; every 15 minutes while open deals are quiet; none while no deal is open (T-057 unchanged).
         - A relayed transaction whose receipt the node missed applies on the next pass, labelled `direct` until T-219.
     - **An in-flight row per lane**, so a Durable Object restarted between broadcast and receipt picks up its own transaction.
     - **Schema v0.9 items** (T-033): the `cpp-erc3009` scheme name, a `chain` object on the state read, settlement contracts in discovery, `relayer_unavailable`.

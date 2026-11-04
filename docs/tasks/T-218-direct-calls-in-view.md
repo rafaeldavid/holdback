@@ -124,7 +124,7 @@ Made by the T-218 session on 2026-11-04; Rafa can overrule any of them.
    - Every rebuilt call must also match the logs: `Decided` (role, outcome, record hash, seed), `JobCompleted`'s evaluator for an early accept, `AppealFiled`, and the mutual settlement's payouts as `PaymentReleased` and `Paid` show them. Candidates the logs or signatures reject do not count, so a planted call cannot stop a delivery from joining.
    - An operator fee in a bundle is recorded only when the buyer's own transfer moved it, as the token's `Transfer` log shows.
    - A contract expiry past what a timestamp holds (the contract takes any uint64) reads as 9999-12-31T23:59:59Z, never expiring. Any other rebuild failure puts the deal behind instead of stopping the pass.
-3. **Behind the chain.** What remains puts the deal behind: a signed step another contract transforms, a contract signer's step (ERC-1271), two signed steps for one deal in one transaction, or a divergence from core (`docs/neutrality.md` residual 13).
+3. **Behind the chain.** What remains puts the deal behind: a signed step another contract transforms, a contract signer's step (ERC-1271), two signed steps for one deal in one transaction, a divergence from core, or a forwarded signed step whose expiry lies past 9999 (`docs/neutrality.md` residual 13).
    - The state read serves `dealOf`'s stage and appeal state, with the notice from `EvmSettlement.lag`.
    - Relays for that deal answer `invalid_state` with the notice. The one exception is the posted delivery that joins.
    - Envelopes still follow the chain: a key the transaction released on chain is served, and the adjudicator whose turn `dealOf` shows gets its envelope.
@@ -134,7 +134,7 @@ Made by the T-218 session on 2026-11-04; Rafa can overrule any of them.
 6. **The copied fund leg.** When the deal is already funded by the same signed funding, or the node's bundle is refused or reverts while `dealOf` shows Held, the node follows the copy. It then relays the buyer's signed fee transfer alone, unless its nonce is spent, and answers the agreement as funded.
 7. **Open deals, the cadence and the cursor row.**
    - An accepted offer is open until the earlier of `offerExpiresAt` and `fundBy` (an offer nobody accepted cannot be funded); a funded deal until an hour after its last deadline ahead.
-   - An open deal whose book moved in the last day, or with a deadline within an hour of now, keeps a pass at least once a minute. An open deal quiet for a day keeps one every 15 minutes, so far-off deadlines (D31 allows any) do not keep a world polling every minute. A timeout sent after a deal's window shows at the next pass anything else starts.
+   - A funded deal whose book moved in the last day, or with a deadline within an hour of now, keeps a pass at least once a minute; an accepted offer does for an hour after it last moved. Any other open deal keeps one every 15 minutes, so far-off or chained deadlines (D31 allows any) do not keep a world polling every minute. This is a deliberate deviation from the criterion's "within one pass (60 s)" for quiet deals. A timeout sent after a deal's window, or a direct funding of an offer nobody accepted through this node, shows at the next pass anything else starts.
    - Each pass reads the last three blocks again, since a load-balanced RPC can answer from a node a block behind. A range the provider caps is halved, at most 16 times; a rate limit (429) or a server error fails the pass instead.
    - The cursor row is written when a pass read a rules-contract log past the old cursor, or when the stored row is 300 blocks (about an hour on Sepolia) behind.
 8. **"When the world opens."** Opening stays free of chain calls: it runs inside `blockConcurrencyWhile` (30 s), and a reopened world with its RPC down must still open. The first pass after opening reads the chain. When any deal is open, that pass comes within the pass wait (2 s after opening).
@@ -144,7 +144,11 @@ Made by the T-218 session on 2026-11-04; Rafa can overrule any of them.
 
 ## Handoff
 
-**State:** review, [PR 185](https://github.com/rafaeldavid/holdback/pull/185). The `reviewer` and `red-teamer` passes (2026-11-04) found 2 High issues each, plus Medium and Low ones, all in the view and relay layer; no funds moved outside the terms. All are fixed in this PR, each with a regression test in `sync.test.ts` or `wall.test.ts`, except the two rows added to the backlog below.
+**State:** review, [PR 185](https://github.com/rafaeldavid/holdback/pull/185). Three rounds of `reviewer` and `red-teamer` passes ran on 2026-11-04. All findings sat in the view and relay layer; no funds moved outside the terms.
+- The reviewer's third check: PASS.
+- The red-teamer's third pass: the round-two fixes hold; its three new items (filler calls, a planted junk call beside a carried delivery, chained offer deadlines) are fixed with tests.
+- Every finding has a regression test in `sync.test.ts` or `wall.test.ts`, except what residual 13 and the two backlog rows below record.
+- **For Rafa:** both reviewers say residual 13 need not block this merge. The red-teamer recommends fixing it before T-220's deploy: once live, any mempool watcher can leave a demo deal behind, so the operators' adjudicators do not act on it and it ends by its timeouts. The backlog row is where Rafa places it.
 
 **For T-219 (the in-flight row per relayer lane).** It edits `live.ts` and `evm-settlement.ts` after this merge. It builds on these pieces:
 - `EvmSettlement.observe` → `follow` → `step` → `record`. `record` is now the one place a mined call lands on its book, relayed or synced. `step` passes the via `'direct'`. T-219 looks its own lane's in-flight row up by transaction hash there and passes the operator's via, so a missed receipt stops being labelled `direct`.
