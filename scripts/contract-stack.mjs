@@ -1,8 +1,10 @@
 // Builds the contract-stack page (reports/contract-stack.html) from the repository's sources of truth: the Sepolia
 // deployment records, contracts/src, the contract review's findings with T-212's items, and the gas the local-chain
 // differential and the Sepolia smoke deal recorded. Node and git only: no network, forge or secrets, so the founder
-// console's job can import build() as it imports the design map's. The page lives at escrow.stream/control/contracts;
-// the console rebuilds it only when stackVersion() changes, so it follows the contracts, not the clock.
+// console's job can import build() as it imports the design map's. The page lives at
+// https://control.escrow.stream/contracts; the console rebuilds it only when stackVersion() changes, so it follows the
+// contracts, not the clock. The page uses no storage, cookies or fetch, so it works in a sandboxed, opaque origin: one
+// inline script renders the embedded data, and the Google Fonts stylesheet is optional (system serif otherwise).
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';

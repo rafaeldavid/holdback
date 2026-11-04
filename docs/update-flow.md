@@ -33,7 +33,7 @@ A change to one part of Crow often means another part must change too. This page
 | log | Daily log | `docs/log/` | |
 | map | Design map | `scripts/design-map.mjs`, `tools/design-map/`, `tests/design-map.test.ts` | The page `pnpm map` writes (git-ignored), and the claude.ai design map page, which `/map` republishes |
 | console | Founder console | | A private page built from the design map, the newest log, the task files, the radar's inputs and GitHub |
-| stack | Contract-stack page | `scripts/contract-stack.mjs`, `tools/contract-stack/`, `tests/contract-stack.test.ts` | escrow.stream/control/contracts (the founder console) |
+| stack | Contract-stack page | `scripts/contract-stack.mjs`, `tools/contract-stack/`, `tests/contract-stack.test.ts` | https://control.escrow.stream/contracts (the founder console) |
 | costs | Costs and telemetry | `scripts/costs/`, `tests/costs/`, `docs/costs.md`, `config/costs.template.json`, `config/keys-costs.template`, `apps/demo-cloud/src/telemetry.ts`, `apps/demo-cloud/src/feedback-store.ts`, `apps/demo-cloud/scripts/feedback.ts` | The cost collector's daily output, kept outside the repository |
 
 ## Flows
