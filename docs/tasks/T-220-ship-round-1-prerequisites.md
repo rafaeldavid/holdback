@@ -2,8 +2,8 @@
 
 - **Lane:** demo, infra
 - **Phase:** 2
-- **Depends on:** T-217, T-218 and T-219, merged first (this task edits `apps/demo-cloud/src/world.ts` and `worker.ts` after them). The T-206 session's record of the 0.7 redeploy (branch `t-212-sepolia-redeploy`) also merges first.
-- **Paths this task may touch:** `apps/demo-cloud/src/worker.ts` (a new Sepolia world name); `apps/demo-cloud/src/world.ts` (the chain world's rulebook names `drand-quicknet`; the drand notice); `apps/demo-cloud/wrangler.op1.jsonc` and `wrangler.op2.jsonc` (only `OPERATOR_FEE_GAS`); `site/llms.txt` (the honest limits) and the site's build outputs; `docs/operations.md` (live versions, rollback targets); `README.md` (Status, only where it states these limits); `docs/backlog.md`; `docs/plan.md` (this row); this file
+- **Depends on:** T-217, T-218 and T-219, merged first (this task edits `apps/demo-cloud/src/world.ts` and `worker.ts` after them). The record of the 0.7 redeploy is on main (PR 169).
+- **Paths this task may touch:** `apps/demo-cloud/src/worker.ts` (a new Sepolia world name); `apps/demo-cloud/src/world.ts` (the chain world's rulebook names `drand-quicknet`; the drand notice); `site/llms.txt` (the honest limits) and the site's build outputs; `docs/operations.md` (live versions, rollback targets); `README.md` (Status, only where it states these limits); `docs/backlog.md`; `docs/plan.md` (this row); this file
 - **Human gate:** yes. The Worker and site deploys wait for Rafa's go-ahead; the PR itself is in-repo.
 - **Status:** todo
 - **Agent/session:** —
@@ -20,7 +20,7 @@ Restated: one deploy brings all three live before round 1 (T-216). It starts a f
 
 - `docs/operations.md`: "Settlement: SimChain or Sepolia", the deploy order, rollback.
 - T-213 (the first cutover: its order and measurements, and the one deploy refused at start-up).
-- T-212 Handoff, item 3 (the redeploy runbook the T-206 session followed; step 6 re-measures gas for the operator's quote).
+- T-212 Handoff: the redeploy runbook the T-206 session followed, and its entry "Redeployed and cut over, 2026-11-04", with the gas measured on the 0.7 contracts.
 - `docs/update-flow.md` (the manual flows from `workers` and `agentdocs`).
 
 ## Acceptance criteria
@@ -33,7 +33,7 @@ Restated: one deploy brings all three live before round 1 (T-216). It starts a f
   - shows a direct `deliver` in the view;
   - applies, when it reopens, a transaction it broadcast before being stopped.
 - [ ] **The new world.** A new Sepolia world name. Its rulebook names `drand-quicknet` with quicknet's chain hash, and the "drand not yet" notice is gone.
-- [ ] **The gas quote.** `OPERATOR_FEE_GAS` matches the gas measured on the 0.7 deployment. If T-212 Handoff's step 6 is still open, measure the gas here with `eth_simulateV1` or `eth_estimateGas`, nothing sent, and record it for T-215.
+- [ ] **The gas quote stays as it is.** The redeploy measured 1,636,242 gas for a three-transaction deal on the 0.7 contracts, about 4.9 % above the 0.6 figure (T-212 Handoff). The quote was deliberately left at 4.70 tUSDC (`OPERATOR_FEE_GAS` 4700000, a 4.71 tUSDC minimum), for T-215 to replace with live gas and prices. This deploy does not change it unless T-215 has landed.
 - [ ] **The deploy order** of `docs/operations.md`:
   1. op2, then a smoke test (Released, three Etherscan links);
   2. the site;

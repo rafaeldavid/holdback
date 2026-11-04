@@ -23,7 +23,7 @@ Restated: on the live Sepolia deployment of the fixed contracts (PRs 160 and 161
 - The draft scope: `docs/log/2026-11-04.md`, Next steps item 2 (inferred; Rafa confirms it here).
 - ADR-0028 (§11, the staged items), D41, D43 (the overturn payout), D44 and ADR-0029 (decisions name the delivery), ADR-0005 (direct submission), ADR-0018 (the beacon).
 - T-213 (the first cutover and its live evidence), T-212 (the fixes; the redeploy steps in its Handoff), `docs/reviews/2026-11-03-contract-review.md`.
-- **The 0.7 deployment.** The T-206 session redeployed the fixed contracts on Sepolia and cut the demo over on 2026-11-04, about 08:30 UTC, with Rafa's go-ahead. Its record comes from branch `t-212-sepolia-redeploy`, and the 0.6 record is kept as `contracts/deployments/sepolia-2026-11-03-domain-0.6.json` (reported by that session). Measured the same day: `/v1/status` serves schema 0.9 and domain "Holdback" 0.7, with `verifyingContract` `0xf38287e5c5c1f20c6d03be500edbf8a244f27cfa`.
+- **The 0.7 deployment.** The T-206 session redeployed the fixed contracts on Sepolia and cut the demo over on 2026-11-04, about 08:30 UTC, with Rafa's go-ahead. Its record is `contracts/deployments/sepolia.json` (PR 169; rules `0xF38287e5…`, from block 12061237), with the 0.6 record kept as `contracts/deployments/sepolia-2026-11-03-domain-0.6.json`. The gas it measured is in T-212's Handoff. Measured the same day: `/v1/status` serves schema 0.9 and domain "Holdback" 0.7, with `verifyingContract` `0xf38287e5c5c1f20c6d03be500edbf8a244f27cfa`.
 - The local counterparts: the scenario fixtures on the contract on anvil (`pnpm snap --settlement=local`, `reports/differential-local.md`). This round is their live equivalent on Sepolia.
 
 ## How the round runs
@@ -56,7 +56,7 @@ The fixed contracts are live (Context), so they block no scenario. "Blocked toda
   - the buyer opens the work with the key released on chain;
   - CPP holds nothing for the deal, and the primary's bond is free once the appeal window closes.
 
-  The homepage command (`try.mjs`) also passes against both nodes. *Blocked today by:* nothing but the scope (question 1). The same flow passed on the 0.6 deployment (T-213 Evidence, measured), and the T-206 session is running a smoke deal on 0.7 (reported).
+  The homepage command (`try.mjs`) also passes against both nodes. *Blocked today by:* nothing but the scope (question 1). The same flow passed on the 0.6 deployment (T-213 Evidence, measured). On 0.7, the redeploy's smoke deal reached Released in 42 s (T-212 Handoff, measured by the T-206 session).
 - [ ] **2. Refund on reject (API).** A checks-only deal whose delivery fails a required check (the `bad-work-row-drop` shape) ends Refunded. The buyer gets the price back (the operator fee is never refunded, ADR-0023); no key reaches the buyer; the decision names the posted delivery (D44). *Blocked today by:* nothing but the scope.
 - [ ] **3. Timeouts and the default outcome.**
   - **3a, reclaim (API and direct).** Nothing is delivered by `deliverBy`. The `reclaim` trigger, once through the API and once sent directly from the buyer's key, refunds the price, closes the deal and frees the bonds.
