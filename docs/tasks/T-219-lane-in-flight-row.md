@@ -54,7 +54,7 @@ As the implementing session understood it (2026-11-04): a deploy must not cost a
 
 ## Evidence
 
-**`pnpm verify`** (measured, on `e065c3c` plus this change, 2026-11-04, `reports/verify-t-219-lane-in-flight-row.md`): PASS. typecheck, lint, forge build, forge test, `pnpm test` (112 files, 2,480 tests passed, 3 skipped), spec, snap, snap:local and demo all pass. Snapshot diffs against HEAD: none, and `reports/differential-local.md` is unchanged. The first run failed lint on two lines in the new tests (an unused import, a `let` that could be `const`); both were fixed before the second run.
+**`pnpm verify`** (measured, commit `113976a`, after merging origin/main with T-218 as merged in PR 185, 2026-11-04, `reports/verify-t-219-lane-in-flight-row.md`): PASS. typecheck, lint, forge build, forge test, `pnpm test` (118 files passed and 1 skipped; 2,665 tests passed, 4 skipped), spec, snap, snap:local and demo all pass. Snapshot diffs against HEAD: none, and `reports/differential-local.md` is unchanged. Before the merge, on T-218's branch, verify also passed (112 files, 2,480 tests); its first run had failed lint on two lines in the new tests (an unused import, a `let` that could be `const`), both fixed.
 
 **Each acceptance criterion** (measured unless labelled; anvil stands in for Sepolia):
 
@@ -71,7 +71,7 @@ As the implementing session understood it (2026-11-04): a deploy must not cost a
 | Cost | `lanes.test.ts`, "keeps one row per lane and nonce…" (T-031's counters) and the cutover case | Opening with no row: 1 row read. A row written: 1 row written. A row deleted: 1 row written. Opening with two rows: 2 rows read. In the uninterrupted world: 3 lane rows written and 3 deleted for the deal's three transactions. Each restarted world read 1 lane row when it opened |
 
 - Run three times in a row, the cutover case passed each time (measured). The path that lands the row varies with timing: the new world's first pass, or a retried request for the same deal first. Each world landed its row once: the recoveries reported `applied: 1` or `seen: 1`, and none failed.
-- `pnpm vitest run packages/settlement/evm`: 8 files, 91 tests passed, including T-218's `sync.test.ts` and `wall.test.ts` unchanged (measured).
+- `pnpm vitest run packages/settlement/evm`, before the merge: 8 files, 91 tests passed, including T-218's `sync.test.ts` and `wall.test.ts` unchanged (measured). After the merge, the three T-219 test files passed (41 tests), and so did the whole suite in `pnpm verify` (measured).
 - On Sepolia, a restart mid-step behaves the same (inferred). T-216's scenario 11 checks it live after T-220's deploy.
 
 ## Decisions
@@ -89,7 +89,7 @@ Made by the T-219 session on 2026-11-04; Rafa can overrule any of them.
 
 ## Handoff
 
-**State:** review, draft PR (stacked on PR 185, T-218). The `reviewer` and `red-teamer` passes are still to run; the workflow's review stage runs them.
+**State:** review, draft PR. It started on T-218's branch; T-218 merged as PR 185 meanwhile, and the branch has origin/main merged in (`113976a`). In that merge, `evm-settlement.ts` keeps T-218's review rounds 2 and 3, and the row's note also reaches round 2's new path that reads a lone delivery from its `JobSubmitted` log. The `reviewer` and `red-teamer` passes are still to run; the workflow's review stage runs them.
 
 **What changed:**
 - `packages/settlement/evm/chain.ts`: `LaneRow`, `RelayNote`, and four optional `EvmChain` methods (`inFlight`, `rowOf`, `resume`, `release`). The anvil world (`world.ts`) implements none of them, so nothing changes there.
