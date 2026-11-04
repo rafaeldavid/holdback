@@ -687,3 +687,22 @@ Also: the funding signature on EVM is CPP's collector signature and token identi
 | A. Message field, stored hash, record field (chosen) | The signature, the chain, the key and the record name one delivery; the appeal judges the same body; domain bump, one slot per deal, a redeploy |
 | B. Message field, no storage | Self-consistent decisions, but the judged delivery is never tied to the posted one; more gas on every later decision |
 | C. Record only, contract unchanged | No redeploy; the early-accept record, the chain-only buyer and the appeal path stay unprotected |
+
+## D45. The founder console signs in with passkeys and refreshes every hour
+
+**Decided 2026-11-04 by Rafa** ("Looks good"), after a Fable max-effort research pass on sign-in and refresh. Rafa asked for passkeys, read access for his co-founder Michael, and an hourly refresh of the founder console at `escrow.stream/control`. Rafa may overrule any line.
+
+- **Sign-in through Cloudflare Access.** Access sits in front of `/control` and `/control/*`, with GitHub as the only login. Each founder signs in with their GitHub passkey, and Access can require its own passkey check on top. An Allow policy names the two founders' emails. The shared passcode retires after the switch.
+- **One view for both founders.** Rafa: "don't differentiate between Michael and me in the display, he's co-founder so has access to everything". Everyone the policy admits sees the full console, costs and keys included.
+- **Private data stays encrypted at rest.** Rafa's Mac encrypts the Costs, Keys and status-history fragment under a key held as a Worker secret, and the Worker decrypts it only for a signed-in reader. No figure sits in clear in storage or in a repository.
+- **Two pushers, one hourly.**
+  - A scheduled job in a private repository rebuilds the public part of the console every hour from this repository and pushes it to the Worker's storage. It uses a service token that can only push, and a GitHub token that reads public repositories only.
+  - Rafa's Mac pushes the private fragment after the daily cost collection.
+  - Neither push deploys code. They are Rafa's standing instruction; Worker code deploys and Access settings still wait for him.
+- **Trade-offs Rafa accepted.** The console goes down with Cloudflare Access, with no passcode fallback. Cloudflare can see the figures while it serves them. Hourly builds use about 70% of the free GitHub Actions minutes (guessed).
+
+| Option | Effect |
+| --- | --- |
+| Cloudflare Access with GitHub passkeys, split hourly refresh (chosen) | Passkeys through each founder's GitHub account; no server of our own; fresh hourly whether or not Rafa's Mac is awake; about 90 minutes of setup by Rafa |
+| Access, with an hourly job on Rafa's Mac only | About 45 minutes of setup; the console goes stale whenever the Mac sleeps |
+| A passkey login written into the Worker | No third party at sign-in; about three days of work plus review, and recovery we build ourselves |
