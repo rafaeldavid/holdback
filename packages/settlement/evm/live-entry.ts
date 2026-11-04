@@ -6,3 +6,4 @@ export * from './errors.js';
 export * from './evm-settlement.js';
 export * from './guard.js';
 export * from './live.js';
+export * from './sync.js';
