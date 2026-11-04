@@ -22,7 +22,7 @@ The design is in the research pass, `docs/research/2026-11-03-sepolia-demo-settl
 3. **Nothing substitutes.** No relay answers, or none proves the round: the service does not decide this pass and tries again at the next, until the deadline; then the default path applies. It never falls back to the sim beacon, another round or a supplied value.
 4. **The parse rule admits `drand-quicknet`.** A rulebook may name it (with quicknet's chain hash if it gives one), and a Decision may carry it with a well-formed proof. SimChain cannot produce sha256(signature) values, so it never accepts a drand-labelled decision.
 
-Non-goals: the Sepolia world's rulebook switch and its fresh world (T-220), the anvil harness's sim beacon, mixing the beacon into the primary's seed, tlock envelopes, schema changes (none are needed: the Decision's `beacon` already has `signature`), and any edit to `packages/settlement/` or `apps/demo-cloud/` (T-218's lanes).
+Non-goals: the Sepolia world's rulebook switch (T-220, without a fresh world if D49's research finds a way), the anvil harness's sim beacon, mixing the beacon into the primary's seed, tlock envelopes, schema changes (none are needed: the Decision's `beacon` already has `signature`), and any edit to `packages/settlement/` or `apps/demo-cloud/` (T-218's lanes).
 
 One path change, recorded in Decisions: the Sepolia fork test lives in `apps/adjudicator/src/`, not `packages/settlement/evm/`. It runs the adjudicator service, and `@holdback/settlement` cannot import `@holdback/adjudicator` (that package already depends on it, and `tsc -b` typechecks test files).
 
@@ -61,7 +61,7 @@ One path change, recorded in Decisions: the Sepolia fork test lives in `apps/adj
 
 ## Out of scope
 
-- The Sepolia world's rulebook and the new world it needs: a rulebook change makes a fresh world, so it goes with T-220's deploy.
+- The Sepolia world's rulebook switch, which goes with T-220's deploy. Rafa, 2026-11-04: keep today's world; T-220 switches the rulebook without a fresh world if D49's research finds a way.
 - Mixing the beacon into the primary's seed (ADR-0018, not adopted).
 - Time-locked envelopes with tlock (Phase 8).
 - The anvil harness (`packages/settlement/evm/world.ts`), which keeps its sim beacon.
@@ -158,7 +158,7 @@ Branch `t-217-drand-proofs`, 2026-11-04. Each claim is labelled measured, inferr
 
 **For T-220, the Sepolia world (`apps/demo-cloud/src/world.ts`, after T-218 and T-219):**
 - The one-line change: pass the drand source to each demo adjudicator in the live world, `testAdjudicator({ …, ...(o.live ? { drand: drandQuicknet() } : {}) })`, with `drandQuicknet` from `@holdback/adjudicator`. In a Worker it uses the global `fetch`, one external subrequest per decision.
-- The rulebook switch, which makes a fresh world (a new rulebook hash): `randomness: { source: 'drand-quicknet', chainHash: DRAND_QUICKNET_CHAIN_HASH }` from `@holdback/core`, for the live world only. SimChain worlds keep `sim`.
+- The rulebook switch: `randomness: { source: 'drand-quicknet', chainHash: DRAND_QUICKNET_CHAIN_HASH }` from `@holdback/core`, for the live world only; SimChain worlds keep `sim`. It changes the rulebook hash. T-220 switches it without a fresh world if D49's research finds a way, for example several rulebook versions in one world (Rafa, 2026-11-04: "Yes, keep the world"). Do not change `WORLD_NAME` for it. A commitment already offered keeps the source its own rulebook named, since core reads it from the escrow state.
 - `appealDecideSec` must leave at least 3 s for the first quicknet round after an escalation or filing; the demo's 60 s windows do.
 - Until the M1 fix (T-223), have `prepare/offer` suggest a `judgeBy` on a quicknet round boundary, `(judgeBy − 1692803367) mod 3 = 0`, as an advisory default (D31), so the primary never sees the fallback's seed before its deadline.
 - Measure `holdback-op1`'s startup CPU on the deploy: the curve library now loads on first use, so it should not move (inferred).
