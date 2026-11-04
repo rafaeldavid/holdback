@@ -12,6 +12,7 @@
     { "path": "apps/demo/agents" },
     { "path": "apps/demo-cloud" },
     { "path": "examples" },
+    { "path": "apps/test-agents" },
     { "path": "tools/sim" }
   ]
 }

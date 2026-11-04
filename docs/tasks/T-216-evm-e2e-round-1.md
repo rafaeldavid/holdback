@@ -2,9 +2,9 @@
 
 - **Lane:** test
 - **Phase:** 2
-- **Depends on:** T-217 (drand proofs for fallback and appeal), T-218 (direct calls in the operators' view), T-219 (the in-flight row per relayer lane), T-221 (adjudicator registration through the API), and T-220, which ships those four to the live demo; Rafa's answers to the open scope questions below. The fixed contracts are already live (see Context).
+- **Depends on:** T-217 (drand proofs for fallback and appeal), T-218 (direct calls in the operators' view), T-219 (the in-flight row per relayer lane), T-221 (adjudicator registration through the API), and T-220, which ships those four to the live demo in one deploy. Rafa answered all six scope questions on 2026-11-04 (below). The fixed contracts are already live (see Context).
 - **Paths this task may touch:** `examples/e2e-*.ts` (new: the round's keys, its driver, and their tests; the `examples` workspace already holds the agent-side code and viem), `docs/reviews/` (one new file, the round's report), `docs/backlog.md` (rows for what the round finds; the Benched rows once it completes), `docs/plan.md` (this row), this file. No product code: a scenario that fails gets its fix in its own task, and the round re-runs it.
-- **Human gate:** yes. Rafa confirms the scope (the questions below) before the first run, and funds the round's master address with Sepolia ETH (done: 2.5, Evidence); the driver tops up the other keys from it. The runs use the public API as any agent may, and send test transactions on Sepolia from test keys; they deploy nothing.
+- **Human gate:** yes. Rafa confirms the scope (done: the questions below, 2026-11-04) and funds the round's master address with Sepolia ETH (done: 2.5, Evidence); the driver tops up the other keys from it. The runs use the public API as any agent may, and send test transactions on Sepolia from test keys. They deploy nothing, except scenario 11's one holdback-op1 redeploy, which waits for Rafa's go-ahead at that moment.
 - **Status:** in progress (first slice: the round's keys, `examples/e2e-keys.ts`, so Rafa can fund the master today; the driver waits for the prerequisites)
 - **Agent/session:** the T-216 planning session (the keys)
 
@@ -41,7 +41,7 @@ Restated: on the live Sepolia deployment of the fixed contracts (PRs 160 and 161
 
     Everything relayed through the API costs the agents no ETH: the operators' relayer pays it and recovers it in the operator fee.
   - The driver prints addresses only, never a key.
-  - It refuses any chain but 11155111 through `assertSafeChain` (`packages/settlement/evm/guard.ts`), with a unit test of that refusal: the check `docs/team.md` pairs with the no-real-money rule.
+  - It refuses any chain but 11155111 through `assertSepolia` (`examples/e2e-keys.ts`), before any other call, with tests of that refusal and of its order. It is stricter than `assertSafeChain` (`packages/settlement/evm/guard.ts`), the check `docs/team.md` pairs with the no-real-money rule, which refuses only the mainnet list.
   - The driver's own tests run offline. Test tokens come from the faucet or tUSDC's open mint.
 - **Short windows.** The rulebook minimum (`MIN_WINDOW_SEC`, 60 s on the demo today) for the judge, fallback, appeal and appeal-decision windows, and a short delivery window where a timeout is the point. A scenario then takes minutes.
 - **A silent adjudicator** (scenarios 3, 4, 8, 9 and 10). Several scenarios test what happens when an adjudicator does not decide by its deadline: the fallback takes over, or the default outcome applies. The demo's own adjudicators always decide within seconds and have no off switch. So the silent adjudicator is the round's own, registered through the API (T-221): it accepts the deal and then never decides, which is a real offline adjudicator. Which roles it may fill (research `docs/research/2026-11-04-adjudicator-registration.md` §3, §6):
@@ -100,7 +100,7 @@ The fixed contracts are live (Context), so they block no scenario. "Blocked toda
   All settle on chain, and within one sync pass both origins show each direct step as an event with `submittedVia: 'direct'` and its transaction. *Blocked today by:* T-218, live through T-220 (the operators' view does not follow direct calls: the money settles, the view lags); T-217 and T-221 for the third deal; the master address's Sepolia ETH.
 - [ ] **9. Early accept (API).** The buyer accepts before the primary decides. The deal ends Released, the key is released, the early accept names the posted delivery (D44), and a later decision by the primary, if any, is refused. A demo primary decides within seconds of a delivery, so the primary here is the round's own silent adjudicator, which leaves room for the accept. An early accept that carries the delivery in one transaction has no API route (`carryDelivery` has no caller in `apps/`), so it belongs to the direct track only. *Blocked today by:* T-221, live through T-220.
 - [ ] **10. Mutual settlement (API; in round 1, Rafa, 2026-11-04).** After delivery, both parties sign a `MutualSettlement` with a split (for example 60 % to the seller) and `releaseKey`. The payouts sum to the price, the key goes as signed, and the bonds are freed. It must land before the primary decides, so the primary is the round's own silent adjudicator, as in scenario 9. A second deal settles mutually before delivery, with no primary in the way. *Blocked today by:* T-221, live through T-220, for the deal after delivery; nothing for the one before.
-- [ ] **11. A restart between broadcast and receipt.** Recorded, not forced. Across the round, the lane telemetry shows no in-flight row left unapplied. If the world restarted mid-step (a deploy, an eviction), that step's events and the buyer's key were served on the next pass. The forced case is T-219's own test, unless Rafa approves a live deploy during a deal (question 6). *Blocked today by:* T-219, live through T-220.
+- [ ] **11. A restart between broadcast and receipt.** Forced once, live (question 6). During one round-1 deal, the driver pauses after a relayed broadcast and before its receipt, and holdback-op1 is redeployed with the same code, on Rafa's go-ahead at that moment. A redeploy restarts the Durable Object (inferred). On the next pass, that step's events and the buyer's key are served, and the lane telemetry shows no in-flight row left unapplied. T-219's own test covers the same case offline. Across the rest of the round, restarts (an eviction, say) are recorded, not forced. *Blocked today by:* T-219, live through T-220.
 - [ ] **The report,** a new file in `docs/reviews/` named for the round's date:
   - one row per scenario: pass or fail, commitment IDs, Etherscan links, balances, gas;
   - the gas per path compared with `reports/differential-local.md` and T-215's quote;
@@ -117,8 +117,8 @@ The fixed contracts are live (Context), so they block no scenario. "Blocked toda
    - The round has one master address, the `master` key (How the round runs). `examples/e2e-keys.ts address` prints it, and the driver funds every other key from it.
    - The round needs about 0.2 Sepolia ETH (guessed): roughly 8 million gas for the steps that need its own gas, 0.008 ETH at today's 1 gwei, with room for spikes up to 20 gwei (the relayer's fee cap, used as a yardstick).
    - The master holds 2.5 (Evidence).
-5. Shipping the prerequisites (T-220). Proposed: one deploy once T-217, T-218, T-219 and T-221 have merged, with a fresh world for the drand rulebook. The alternative is a deploy as each one merges: the others need no new world, but T-217's rulebook does.
-6. The restart case (11): T-219's test only (proposed), or one live holdback-op1 deploy during a round-1 deal?
+5. ~~Shipping the prerequisites (T-220): one deploy, or a deploy as each one merges?~~ **Answered (Rafa, 2026-11-04, "Yes, use them", on the coordinator's recommendation):** one deploy once T-217, T-218, T-219 and T-221 have merged, with a fresh world for the drand rulebook. T-217's rulebook needs a fresh world anyway, so a deploy per task would add deploys and save no work.
+6. ~~The restart case (11): T-219's test only, or one live holdback-op1 deploy during a round-1 deal?~~ **Answered (Rafa, 2026-11-04, "Yes, use them", on the coordinator's recommendation):** both. T-219's test covers it offline, and one live holdback-op1 redeploy during a round-1 deal shows it on Sepolia, since live evidence is the round's point and a restart on testnet costs little. That redeploy still waits for Rafa's go-ahead when the driver reaches it.
 
 ## Out of scope
 
@@ -141,9 +141,52 @@ Fill this in before review. Label each item measured, inferred or guessed.
   - `pnpm exec vitest run examples`: 46 passed. `eslint` and `tsc -b examples` are clean. `node site/check.mjs` passes [measured].
   - **The secret exists (2026-11-04).** Rafa ran `init` on his `.env`, and the round's master is `0x6D4cEa33dAf09Ba803238d46392162d41BDB029f` (https://sepolia.etherscan.io/address/0x6D4cEa33dAf09Ba803238d46392162d41BDB029f). Rafa funds it from faucets (the estimate was about 0.2 Sepolia ETH); the other five addresses are topped up from it [measured: his terminal's output].
   - **The master is funded:** 2.5 Sepolia ETH at block 12,061,679 on 2026-11-04 [measured: `eth_getBalance` through publicnode]. That is well above the 0.2 the round needs [guessed], so the round can run more than once without another top-up.
+- **The top-up (2026-11-04, Rafa: "The round-1 master tops these up" for buyer, seller and adjudicators).**
+  - Before it: buyer, seller and the three adjudicators each held 0 Sepolia ETH [measured: `eth_getBalance` through publicnode].
+  - `examples/e2e-keys.ts topup [--dry-run]` brings each of the five keys up to 0.04 Sepolia ETH from the master. It sends one transfer at a time, prints each link as soon as it is sent, and waits for each receipt.
+  - It refuses, sending nothing:
+    - any chain but Sepolia, checked before any other call;
+    - while a transfer from the master is still pending (its `pending` and `latest` nonces differ), so a rerun does not resend a transfer the RPC sees as pending. A load-balanced RPC could miss one; the loss is then at most 0.04 Sepolia ETH a key [inferred];
+    - fees above 20 gwei, the operators' funding-lane cap;
+    - when the master cannot cover every transfer plus a 0.01 Sepolia ETH reserve for its own gas.
+  - It prints addresses, amounts in Sepolia ETH and Etherscan links. It never prints a key or the RPC URL, which may carry a provider key (`SEPOLIA_RPC_URL`; without it, the public publicnode endpoint). On a failure it says how many transfers were mined.
+  - **Review (the `reviewer` role, PR 183): ISSUES, all five fixed.**
+    - a keyed RPC URL could reach stderr through viem's error text;
+    - a rerun while a transfer was pending would send it again;
+    - no fee cap;
+    - no test that the chain check comes first;
+    - numbers without units.
+  - **The live top-up (2026-11-04, Rafa ran the first version):** five transfers of 0.04 Sepolia ETH, all mined [measured: `eth_getBalance` and the master's nonce, 5 at `latest` and `pending`]. The master holds about 2.30 Sepolia ETH after them.
+    - buyer: https://sepolia.etherscan.io/tx/0x96be5b69da9a26966640241aa7346338bbc12114b8c603d05cb4a57ec71ce069
+    - seller: https://sepolia.etherscan.io/tx/0xe0395e9caf2990c2cdaab5981adb9ccc4b93bcae52e13202bb08c8239567ce4d
+    - adjudicator-1: https://sepolia.etherscan.io/tx/0x4428af4a509541cda11367ca36487626d0b6d618af64593b1a0c0dcdb5f3504e
+    - adjudicator-2: https://sepolia.etherscan.io/tx/0xebd8fbc5bd5fa60a61e04fe0a9bb0f8eba454634376ede841b8aa2a6e5ae3e8b
+    - adjudicator-3: https://sepolia.etherscan.io/tx/0x501a71fa75d463be58d6715aa85a61684c42db7cdc230f7abfd883a176cbc8c5
+  - `examples/e2e-keys.test.ts`: 15 passed [measured]. The new tests cover:
+    - the plan: empty keys, the shortfall only, nothing to a key at or above the target, and the refusal when the master is short;
+    - the Sepolia-only guard and the CLI's refusals before any network call;
+    - error text with no URL but an Etherscan link;
+    - three runs against a local JSON-RPC stand-in. On chain 1 it stops after `eth_chainId` alone. With a pending transfer it refuses before reading any balance or sending. When every call answers 429, neither the stand-in's address nor the planted key in its path is printed.
+    `eslint` is clean on both files [measured].
+  - A live dry run of the fixed version with a throwaway seed reached Sepolia, passed the chain, pending and fee checks, and refused: "the master holds 0 Sepolia ETH; the top-ups need 0.2 Sepolia ETH plus 0.01 Sepolia ETH for gas" [measured].
+  - `pnpm verify` on branch `t-216-topup` after the review fixes: PASS, no snapshot diffs against HEAD [measured]. The first run on this branch failed `forge build` while the fresh worktree cloned the contract submodules; every run since passes:
+
+    | Step | Status | Time |
+    | --- | --- | --- |
+    | typecheck | pass | 3,314 ms |
+    | lint | pass | 8,633 ms |
+    | forge build | pass | 949 ms |
+    | forge | pass | 34,723 ms |
+    | test | pass | 77,053 ms |
+    | spec | pass | 653 ms |
+    | snap | pass | 10,522 ms |
+    | snap:local | pass | 17,555 ms |
+    | demo | pass | 4,395 ms |
 
 ## Decisions
 
 ## Handoff
+
+- **The top-up is done:** all five keys hold 0.04 Sepolia ETH (Evidence). To top up again, Rafa runs it from the holdback checkout, with full paths so it works from any folder: `node --env-file=/Users/rafa/Documents/escrow/.env /Users/rafa/Documents/escrow/examples/e2e-keys.ts topup --dry-run`, then the same without `--dry-run`. The driver can call it before each scenario that needs a key's own gas. It sends nothing while every key holds at least 0.04 Sepolia ETH, and it refuses while a transfer is pending.
 
 - When round 1 completes: unbench PR 151 and T-206's read (`docs/backlog.md`, Benched; `docs/log/2026-11-04.md`, Next steps item 3), and tell Rafa.

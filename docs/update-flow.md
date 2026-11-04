@@ -26,6 +26,7 @@ A change to one part of Crow often means another part must change too. This page
 | examples | Examples and the try bundle | `examples/`, `site/try.mjs` | escrow.stream/try.mjs |
 | agentdocs | Agent docs | `site/llms.txt` | escrow.stream/llms.txt |
 | homepage | Homepage and site | `site/`, `apps/site/`, `apps/early-access/` | escrow.stream, its problem pages and /visualdemo |
+| testagents | Crow's test seller | `apps/test-agents/` | escrow.stream/agents/test-seller, once deployed (D47) |
 | quickstart | Quickstart | `docs/quickstart.md`, `tools/sim/README.md` | |
 | ghdocs | GitHub docs | `README.md`, `SECURITY.md`, `CONTRIBUTING.md`, `LICENSE`, `.github/ISSUE_TEMPLATE/`, `.github/pull_request_template.md` | The repository's front page on GitHub |
 | roadmap | Roadmap | `docs/plan.md`, `docs/backlog.md`, `docs/tasks/` | |
@@ -62,6 +63,11 @@ A change to one part of Crow often means another part must change too. This page
 | workers | console | generated | The console's build reads each `wrangler*.jsonc`: Worker names and routes. | |
 | examples | agentdocs | checked | `node site/check.mjs`, group 4: the EIP-712 types, the pinned domain and deployment, and the ERC-3009 types in `site/llms.txt` must equal `examples/verify.ts`. | |
 | examples | homepage | checked | `node site/build.mjs` bundles `examples/try.ts` into `site/try.mjs`, and a published `llms.txt` carries its sha256 hash in the one command; the homepage itself leaves the command out. `examples/try.test.ts` (`pnpm test`) and `node site/check.mjs` fail while the bundle or the command is stale; rebuild with `node site/build.mjs`. | `docs/team.md`, Rules and checks: "A published script is the code CI ran". |
+| examples | testagents | checked | `pnpm typecheck` (the project references `examples/`) and `pnpm test`: `apps/test-agents/src/*.test.ts` run the seller, built on `examples/agent.ts` and `verify.ts`, and `examples/try.ts --seller` against it. | The test seller is an agent like any other (D47). |
+| workers | testagents | checked | `pnpm test`: the seller's tests run against `apps/demo-cloud`'s world, the code the live nodes run. | |
+| testagents | agentdocs | checked | `node site/check.mjs`, group 8: "Try it" in `site/llms.txt` must state the seller's catalog, limits and windows as `apps/test-agents/src/catalog.ts` runs them. Prose beyond those facts is manual. | D47. |
+| testagents | homepage | manual | If the seller moves, change `TEST_SELLER_URL` in `site/build.mjs` (the one command) and `SELLER_URL` and the route in `apps/test-agents/wrangler.jsonc` together, then rebuild the site. | The command names the seller's URL (D47). |
+| testagents | ghdocs | manual | Update `SECURITY.md` ("Scope"), which names `apps/test-agents` and its URL. | |
 | agentdocs | homepage | checked | `node site/build.mjs` renders `site/index.html` from `site/llms.txt`. `examples/try.test.ts` (`pnpm test`) and `node site/check.mjs` fail while it is stale. | One source for the page and the agent guide (`site/check.mjs`, group 1). |
 | roadmap | map | generated | `pnpm map` reads the phases in `docs/plan.md` and each task file's status. | |
 | roadmap | stack | generated | `pnpm stack` reads `docs/tasks/T-212-contract-hardening.md`: an item marked "**Done**" shows its finding as fixed, and its "Gas on Sepolia" line gives the smoke deal's gas. | The hardening task is where a contract fix is recorded once it merges. |

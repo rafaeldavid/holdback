@@ -1,0 +1,2 @@
+# wrangler dev's local state (Durable Object storage, cache)
+.wrangler/

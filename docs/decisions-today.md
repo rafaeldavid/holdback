@@ -1,4 +1,4 @@
-# Decisions D1–D44
+# Decisions D1–D47
 
 Status: D1–D9 decided October 30, 2026, after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`); the options are kept as the record. D10 to D24 decided October 30 and 31, 2026, each after an independent research pass. D25 to D36 decided October 31 and November 1, 2026, D37 to D40 on November 1 and 2, D41 and D42 on November 3 (Rafa's principles and research-backed choices; D4 was updated on November 1 to target Ethereum mainnet via Sepolia, and marked decided by D41 on November 4). Newer entries are appended at the end. Owner: Rafa. Each decision has options, a recommendation and the ADR it settles.
 
@@ -711,6 +711,14 @@ Also: the funding signature on EVM is CPP's collector signature and token identi
 | Access, with an hourly job on Rafa's Mac only | About 45 minutes of setup; the console goes stale whenever the Mac sleeps |
 | A passkey login written into the Worker | No third party at sign-in; about three days of work plus review, and recovery we build ourselves |
 
+**Later the same day (Rafa, 2026-11-04).**
+- **Its own host.** The console moves to `control.escrow.stream`, after a red-team review found that sharing `escrow.stream` with the public site lets any script there read a signed-in founder's console ("Yes, own address").
+- **One application.** That host joins the existing Access application rather than a new one, so one audience covers both hosts until the old destinations are removed.
+- **Phase 11.** The rest of the switch moves to Phase 11, security hardening, as T-059 ("let's move this to security hardening phase"). Until then, the passcode console keeps serving `escrow.stream/control` behind Access, with the recheck's fixes: the console alone, and no key kept in the browser.
+- **Live the same evening.** Rafa went ahead with the switch on 2026-11-04, and the console now runs at `control.escrow.stream`.
+  - **GitHub sign-in only.** Access's own MFA check is off ("let's just leave with Github sign in"). The second factor is each founder's GitHub two-factor or passkey; the passkey line above becomes each founder's GitHub setting.
+  - **The old address removed.** `escrow.stream/control` answers `404` ("we can remove /control as we won't use it anymore"), not a redirect. The shared passcode retires with it.
+
 ## D46. Agents register their own adjudicators through the API; round 1 includes mutual settlement and overturns through the API
 
 **Decided 2026-11-04 by Rafa**, answering round 1's scope questions (T-216): "mutual settlement is important in the basic build, API should facilitate overturned appeals". Asked whether to plan adjudicator registration through the API, he answered "Yes, plan it". On funding the round's keys: "feels like we need a master address that funds all the rest". The design below follows a Fable max-effort research pass the same day (`docs/research/2026-11-04-adjudicator-registration.md`); Rafa may overrule any line.
@@ -745,3 +753,24 @@ Also: the funding signature on EVM is CPP's collector signature and token identi
 | Registration through the API, smallest honest form plus three additions (chosen) | The protocol's first property becomes true on the demo; overturns and silent adjudicators are real; an ADR and an additive schema bump; about one task |
 | A labelled test adjudicator inside the demo | About a day less; tests no outside adjudicator, so the API path Rafa asked for stays untested |
 | An on-chain registry now | A deploy and gas per registration, for no round-1 gain; Phase 4 |
+
+## D47. Crow runs a standing test seller on the Sepolia test environment (T-222)
+
+**Decided 2026-11-04 under "autonomy inside the repo", after a Fable max-effort research pass (`docs/research/2026-11-04-test-counterparties.md`); Rafa may overrule any line.** Rafa asked: "For the test environment, feels like we should have a standing buyer / seller test identity that people can do test escrow with no?" Today `try.mjs` plays both sides of a deal with fresh keys, so a visitor never deals with another party.
+
+- **Seller first.** Crow's test seller is a party, not a feature of the operators. It runs as its own Worker, `crow-test-agents`, uses the operators' public API like any agent, and signs only what it prepared and checked itself (`examples/agent.ts`, `examples/verify.ts`). The operators grant it nothing they would not grant any agent. The test buyer is a later slice (backlog).
+- **What it sells.** One item: `try.mjs`'s dataset, 3 rows of `customer_id,email` for 25 tUSDC under the checks `cols`, `rows` and `uniq`, checks-only, public terms. D31 binds the protocol, not a party, so a fixed catalog is the seller's choice. A proposal for the same dataset at another price or with other checks gets the catalog terms as a counter-offer; a proposal for other work is refused with a reason.
+- **A refund on request.** A buyer whose proposal carries `"test": {"outcome": "refund"}` gets 2 rows, which fail the `rows` check, so the decision refunds the price. The buyer loses the adjudication fee and the operator fee (5.71 tUSDC of test tokens today) and gets no key. The intake page, its card and the status say so.
+- **Where it lives.** An intake page at `https://escrow.stream/agents/test-seller` on a Worker route beside the site, following the "Agent intake" convention in `site/llms.txt`: the sealed proposal on Crow, the pointer and the sealed key to the intake, the commitment ID back through the status token. `agents.escrow.stream` is the fallback host if the route misbehaves.
+- **One standing address.** The seller keeps one address and one intake key, both derived from one Sepolia-only secret, `TEST_AGENTS_SEED`. The page lists the address, a deliberate departure from the convention's "lists no Crow address": a public test seller needs no unlinkability, and the buyer can check `terms.seller` against it. The seller calls the faucet only when it holds no live mandate.
+- **The visitor's path.** The pinned command in `llms.txt` runs `node try.mjs --seller https://escrow.stream/agents/test-seller`: the same bundle, now playing only the buyer. `--outcome refund` asks for the refund. When the test seller is down or busy, `try.mjs` says so and plays both sides itself. That differs from the research note, which proposed stopping by default: one approved command should always finish a deal, and the printed line keeps the switch visible.
+- **Bounded loss (D26).** At most 3 requests per visitor IP address (an IPv6 /64) an hour and 10 a day, 20 offers an hour and 100 a day in all, and 10 in progress at once. Unfunded offers count; requests whose proposal does not open do not, so junk cannot use up the shared caps. A deal closes at its deadlines whatever happens on Crow, so a stalled one cannot hold a slot. Windows: the offer expires after 1,800 s, funding closes at 2,400 s and delivery at 3,600 s, all counted from the offer; judging windows are 60 s. If the seller stalls after funding, the buyer reclaims its hold at `deliverBy`, at most an hour after the offer.
+- **Gas.** The test agents hold no Sepolia ETH and send no transaction. The operators' relayer pays for each deal as it does for `try.mjs`: 1,636,242 gas per deal plus the buyer's faucet mint (measured), one mint fewer than a `try.mjs` deal. At the day cap that is about 0.19 Sepolia ETH a day at 1 gwei (arithmetic).
+- **Litmus tests.** A party only: no protocol step, schema field or contract line changes. The hold and judgment are untouched; the refund is a real failed check. A stalled seller is the existing `neutrality.seller-withholds-delivery` case.
+- **Open for Rafa.** The faucet does not renew an expired mandate, so a standing address stops offering after 30 days unless the world resets first. The one-line fix is in `apps/demo-cloud/src/world.ts`, the operator lane; until it ships, rotating the secret (`seed.mjs --replace`) is the stopgap.
+
+| Option | Effect |
+| --- | --- |
+| Standing test seller, sealed intake, `try.mjs --seller` (chosen) | A visitor's agent deals with another party in one approved command; no protocol change; one Worker to deploy |
+| A seller and a buyer at once | The visitor can also sell; about twice the work before anything ships |
+| Keep self-play only | Nothing to run; a visitor never sees two parties |

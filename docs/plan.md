@@ -1,6 +1,6 @@
 # Plan
 
-Iterative. Demo first, then harden one layer per phase. Each phase ends with evidence, a plan update and ADRs closed or deferred. Phases 0 to 2, 9 and 10 have task files in `docs/tasks/` (T-016b does not yet), and Phases 3 and 5 have one each (T-309, T-214). The architect writes later phases' task files at the start of each phase.
+Iterative. Demo first, then harden one layer per phase. Each phase ends with evidence, a plan update and ADRs closed or deferred. Phases 0 to 2, 9, 10 and 11 have task files in `docs/tasks/` (T-016b does not yet), and Phases 3 and 5 have one each (T-309, T-214). The architect writes later phases' task files at the start of each phase.
 
 **Releases:** v0.1 = Phases 0–3 · v0.2 = Phases 4–5 · v0.3 = Phase 6.
 
@@ -125,6 +125,7 @@ Goal: fiat enters and leaves through ramps; the demo runs on a public testnet wi
 - Stripe test-mode on-ramp: a card payment mints test tokens to the buyer (D7). A simulated off-ramp.
 - Testnet deployment (D4) and gas sponsorship or paymaster for agents.
 - [ ] T-215 Gas share on small deals. *2026-11-04, on the 0.7 contracts (T-212's redeploy, measured from receipts):* a deal's three transactions take 1,636,242 gas (fund 938,593, deliver 173,119, decide 524,530), 4.9% more than below, for the delivery-hash slot; the 4.70 tUSDC quote was left as it is (it would round to 4.91 at the same fictional rate) for this task to replace. Measured on Sepolia (T-213, 2026-11-03, `eth_simulateV1` on the deployed contracts): a deal's three transactions take about 1.56 million gas (anvil had about 500k; Sepolia prices new state about 3.5 times higher), so the demo's minimum fee is 4.71 tUSDC (a 4.70 gas quote at the measured 1 gwei tip and a fictional 3,000 tUSDC/ETH, plus 0.01 relay), about 19% of a 25 tUSDC deal (D33, ADR-0023). Before mainnet: quote gas from live gas and token prices; credit or refund the unused part of the quote (an ADR-0023 amendment and a schema bump); set a published target share for small deals (proposed: under 1% at $25; Rafa decides); take the cheapest wins (the decision carrying the delivery by default, with the seller still free to post `deliver` (D37); relayer batching) and weigh Phase 7's "Minimise gas" and Phase 8's L2 or fragment options.
+- [x] T-222 (deployed 2026-11-04) Crow's standing test seller on the Sepolia test environment (D47): its own Worker at `escrow.stream/agents/test-seller`, a party that uses the public API like any agent, sells `try.mjs`'s dataset from one standing address, and refunds on request; `node try.mjs --seller <url>` plays only the buyer. The test buyer follows (backlog).
 - Operator node packaging (container), so a second party can run op-2.
 - Neutrality beat 7 on testnet.
 
@@ -205,6 +206,18 @@ Goal: agent teams develop Crow continuously from tickets, agent feedback, the ro
 - `agent-ops/STATUS` reads `active` and the repository variable `AGENT_OPS` is `on`, both set by Rafa (T-050).
 - One lane merged 10 PRs without a revert, then three lanes ran with the cross-family gates (measured in the daily log).
 - No agent session can read a credential for Rafa's personal accounts (T-039 smoke test, measured).
+
+## Phase 11: Security hardening
+
+Goal: the systems that run Crow, beyond the protocol, hold up against an attacker: the founders' console, the accounts and keys behind the demo, and the paths by which code reaches them.
+
+Appended after Phase 10, so no phase number moves (Rafa, 2026-11-04: "let's move this to security hardening phase"). Contract hardening stays in Phase 2 (T-212), judgment hardening in Phase 3, and the agent-ops security gates in Phase 10 (T-044). Tasks are listed in dependency order.
+
+- T-059 The founder console on its own host behind Access (D45): finish the move from the passcode console at `escrow.stream/control` to `control.escrow.stream` behind Cloudflare Access, with the hourly and daily pushes. The code, its tests and two red-team rounds are done; Rafa's setup steps and the deploys remain (infra; human gate).
+
+**Exit:**
+- Both founders open the console at `control.escrow.stream` through Access and see Costs and Keys, and the shared passcode is retired (T-059, confirmed by Rafa).
+- A red-team pass against the deployed console finds no High or Critical finding (measured).
 
 ## Scenario index
 

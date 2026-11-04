@@ -15,8 +15,10 @@
 // 7. try.mjs: site/try.mjs is the current bundle of examples/try.ts, importing only viem and tweetnacl;
 //    the one command (pinned versions, its sha256) heads "Try it" in a filled llms.txt. The page leaves it out:
 //    its Try line's prompt sends the visitor's assistant to llms.txt.
+// 8. Crow's test seller (D47): the one command buys from it, and "Try it" states its catalog, limits and windows as
+//    apps/test-agents/src/catalog.ts runs them.
 import { existsSync, readFileSync } from 'node:fs';
-import { BASE, filled, page, pins, problemPages, SITE_URL, strip, tryBundle, tryCommand, trySha256, TRY_URL } from './build.mjs';
+import { BASE, filled, page, pins, problemPages, SITE_URL, strip, TEST_SELLER_URL, tryBundle, tryCommand, trySha256, TRY_URL } from './build.mjs';
 
 const here = (p) => new URL(p, import.meta.url);
 const read = (p) => readFileSync(here(p), 'utf8');
@@ -142,8 +144,19 @@ expect(!html.includes('mkdir -p crow-try') && !html.includes(trySha256()), 'inde
 const prompt = /<span id="prompt" hidden>([^<]*)<\/span>/.exec(html)?.[1] ?? '';
 expect(prompt.endsWith(`${SITE_URL}llms.txt`), "the Try line's prompt does not send the assistant to llms.txt");
 
+// 8. Crow's test seller.
+const { LIMITS, TIMING, CHECKS, PRICE_UNITS } = await import(here('../apps/test-agents/src/catalog.ts'));
+expect(command.endsWith(`&& node try.mjs --seller ${TEST_SELLER_URL}`), "the try command does not buy from Crow's test seller");
+const testSeller = tryIt.slice(tryIt.indexOf("### Crow's test seller"));
+expect(tryIt.includes("### Crow's test seller") && testSeller.includes(TEST_SELLER_URL) && testSeller.includes(`${TEST_SELLER_URL}/agent.json`), `"Try it" does not describe Crow's test seller at ${TEST_SELLER_URL} and its card`);
+const l = LIMITS;
+expect(testSeller.includes(`${l.perClientPerHour} requests per IP address an hour and ${l.perClientPerDay} a day (a fresh key does not reset them); ${l.perHour} offers an hour and ${l.perDay} a day in all; ${l.open} in progress at once`), 'llms.txt states other limits for the test seller than apps/test-agents/src/catalog.ts');
+expect(testSeller.includes(`expires ${TIMING.offerExpiresInSec / 60} minutes after it is made, and funding closes at ${TIMING.fundWithinSec / 60} minutes`) && TIMING.deliverWithinSec === 3600 && testSeller.includes('an hour after the offer'), 'llms.txt states other windows for the test seller than apps/test-agents/src/catalog.ts');
+expect(PRICE_UNITS === '25000000' && testSeller.includes('for 25 tUSDC') && CHECKS.map((c) => c.id).join() === 'cols,rows,uniq' && testSeller.includes('`cols`, `rows` (exactly 3) and `uniq`'), "llms.txt states another catalog for the test seller than apps/test-agents/src/catalog.ts");
+expect(tryIt.includes('`--outcome refund`') && testSeller.includes('"test": {"outcome": "refund"}'), 'llms.txt does not say how to ask the test seller for a refund');
+
 if (failures.length) {
   for (const f of failures) console.error(`FAIL ${f}`);
   process.exit(1);
 }
-console.log(`site check PASS: one source, placeholders in place, links resolve under ${BASE}, content agrees with docs/api.md and examples/verify.ts, try.mjs current and its command in llms.txt`);
+console.log(`site check PASS: one source, placeholders in place, links resolve under ${BASE}, content agrees with docs/api.md and examples/verify.ts, try.mjs current and its command in llms.txt, the test seller as apps/test-agents runs it`);
