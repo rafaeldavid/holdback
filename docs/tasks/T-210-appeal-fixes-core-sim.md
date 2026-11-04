@@ -3,7 +3,7 @@
 - **Lane:** core (with `packages/settlement/sim/` for the one SimChain line)
 - **Phase:** 2
 - **Depends on:** T-206 fix PRs #120, #125 and #135 merged
-- **Paths this task may touch:** `packages/core/src/state.ts`, `packages/core/src/state.test.ts`, `packages/settlement/sim/simchain.ts`, `packages/settlement/sim/simchain.test.ts`, `fixtures/scenarios/` (new `error.` rows only), `docs/tasks/T-210-appeal-fixes-core-sim.md`
+- **Paths this task may touch:** `packages/core/src/state.ts`, `packages/core/src/state.test.ts`, `packages/settlement/sim/simchain.ts`, `packages/settlement/sim/simchain.test.ts`, `fixtures/scenarios/` (new `error.` rows only), `docs/tasks/T-210-appeal-fixes-core-sim.md`. Extended during the task (Decisions 3): `packages/settlement/sim/actors.ts`; `packages/testkit/src/scenario.ts`, `stub-settlement.ts` and `runner.test.ts` (coordinator approved, 2026-11-04); and `reports/differential-local.md`, which the differential rewrites
 - **Human gate:** no
 - **Status:** review
 - **Agent/session:** implementer session for T-210 (branch `t-210-appeal-fixes-core-sim`)
@@ -45,7 +45,7 @@ All measured on branch `t-210-appeal-fixes-core-sim`, 2026-11-04.
 2. **Same check order as the contract for H-1.** Core compares the attempt before the delivery hash and the seed (`sameAttempt`, shared by all three paths). A decision whose only fault is its attempt is refused with `invalid_terms` on both layers: on chain it is `InvalidMessage` before `BadSeed`.
 3. **Three files outside the listed paths, each needed by the acceptance criteria.**
    - `packages/settlement/sim/actors.ts`: the `Deal` test helper's honest default no longer seals the buyer's key for an appeal of a refunded deal. Without this change, `properties.test.ts` and `tools/sim/check.test.ts` would sign decisions SimChain now refuses. `withKey` still forces the key.
-   - `packages/testkit`: two `judge` tampers, `wrong_attempt` and `buyer_key`, plus their `runner.test.ts` cases. The runner's set of tampers is closed, and no existing step could sign an off-attempt decision or a keyed reject. `buyer_key` counts as applied only where an honest decision carries no key.
+   - `packages/testkit`: two `judge` tampers, `wrong_attempt` and `buyer_key`, plus their `runner.test.ts` cases. The testkit tampers were added with the coordinator's approval on 2026-11-04, because the runner's tamper set is closed: no existing step could sign an off-attempt decision or a keyed reject. The approval named the second tamper `key_on_reject`. It ships as `buyer_key` because it also covers an escalate and an accept on a refunded deal. It counts as applied only where an honest decision carries no key. Additions only: no existing tamper or fixture changes behaviour, and `pnpm snap` shows no diff outside the two new fixtures.
    - `packages/testkit`: the runner's honest judge also stops sealing the key for an appeal of a refunded deal, mirroring T-211. No current fixture takes that path.
 4. **The fixtures take the escalation and first-instance paths, not a party appeal.** Party-appeal fixtures are SimChain-only until Phase 4 (the appeal fee is not collected on chain; `LOCAL_EXCLUSIONS` in `packages/testkit/src/runner.ts`), so they could not pass "on the contract". The party-appeal cases of both findings are covered by the unit tests above.
 
@@ -54,6 +54,7 @@ All measured on branch `t-210-appeal-fixes-core-sim`, 2026-11-04.
 - **Status:** review. PR to follow; set to done on merge.
 - **Docs to update (outside this task's paths):**
   - T-202 difference 16: H-1 and H-2 now match the contract; only M-3 remains.
-  - `docs/reviews/2026-11-03-contract-review.md`: H-1's "Follow-up (T-210)" and H-2's "SimChain should refuse the same messages (T-210)" can be marked done. PR #166 is editing that file, so this waits for it.
+  - `docs/reviews/2026-11-03-contract-review.md`: H-1's "Follow-up (T-210)" and H-2's "SimChain should refuse the same messages (T-210)" can be marked done (PR #166, which edited that file, has merged).
+- **`packages/testkit` hold:** the coordinator gave this task testkit until this PR merges, and told T-211 not to edit it in the meantime. Tell the coordinator when this PR merges.
 - **T-211:** until the reference adjudicator stops sealing the key for an appeal of a refunded deal, SimChain refuses its honest overturn-to-accept, as the contract already does. The same verdict re-signed without the key settles it. The only caller in this repo that files a seller appeal is `tools/sim/check.test.ts`, which uses the honest `Deal` helper.
 - **M-3:** unchanged, as the Intent says. The two neutrality snapshots that depend on SimChain's reservations still pass.
