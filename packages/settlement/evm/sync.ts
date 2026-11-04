@@ -8,7 +8,7 @@
 // - Fail closed: every read of a pass happens before anything is applied, so an RPC error applies nothing and moves no
 //   cursor. One transaction the adapter cannot rebuild puts its deal behind and moves the cursor on.
 // - The cursor keeps the block's hash beside its number, for the reorg check (backlog, "Sepolia: reorg check").
-import { decodeFunctionData, getAddress, parseAbi, toFunctionSelector, type AbiFunction, type Address, type Hex, type RpcLog } from 'viem';
+import { decodeFunctionData, encodeAbiParameters, getAddress, parseAbi, toFunctionSelector, type AbiFunction, type Address, type Hex, type RpcLog } from 'viem';
 import type { Hex32 } from '@holdback/core';
 import type { EvmChain } from './chain.js';
 import type { EvmSettlement, ObserveReport } from './evm-settlement.js';
@@ -69,7 +69,11 @@ const MULTICALL3 = parseAbi([
 
 const lc = (a: string) => a.toLowerCase();
 /** How providers word a capped eth_getLogs ("query returned more than 10000 results", "block range is too wide"). */
-const LIMITED = /range|limit|too many|too large|too wide|exceed|more than|results|size/i;
+const CAPPED = /more than \d+ (results|logs)|query returned more than|block range|range (is )?too (large|wide|big)|too many (blocks|results|logs)|response size|limit exceeded|exceeds? (the )?(max|limit)/i;
+/** A rate limit or a server error is no cap: halving would only multiply the requests (review N2, red-team F). */
+const RATED = /too many requests|rate.?limit|status:?\s*(429|5\d\d)\b/i;
+/** At most this many halvings: 50,000 blocks down to one. */
+const MAX_HALVINGS = 16;
 
 /**
  * The HoldbackRules calls a transaction ran, read from its calldata: the call itself when it targets the rules
@@ -144,22 +148,27 @@ function decodeRules(chain: Pick<EvmChain, 'abis'>, data: Hex): RulesCall | null
 /** The state-changing rules functions a forwarded call may be: their selectors are what `embeddedCalls` looks for. */
 const STEPS = ['agreeAndFund', 'deliver', 'decide', 'earlyAccept', 'mutualSettle', 'fileAppeal', 'expireOffer', 'reclaim', 'triggerFallback', 'triggerDefault', 'expireAppeal'];
 
+/** The most bytes one embedded call is decoded from: a decision with a drand proof is about 2.5 KB. */
+const EMBEDDED_WINDOW_HEX = 2 * 16_384;
+/** The most embedded candidates read from one transaction. */
+const EMBEDDED_MAX = 16;
+
 /**
- * Rules calls written verbatim somewhere in a transaction's calldata: what a simple forwarder, a Safe's
- * `execTransaction` or an ERC-4337 account passes on. A candidate only: it may never have run. The adapter accepts one
- * only when its terms match a book, its signatures verify and the receipt's logs show its effect.
+ * Rules calls for one deal written verbatim somewhere in a transaction's calldata: what a simple forwarder, a Safe's
+ * `execTransaction` or an ERC-4337 account passes on. Every step takes the terms first, as a static tuple, so each call
+ * is a step selector followed by the deal's encoded terms: the scan looks for those bytes (linear in the calldata) and
+ * decodes each hit from a bounded window (review 2026-11-04, N1). A candidate only: it may never have run. The adapter
+ * accepts one only when its signatures verify and the receipt's logs show its effect.
  */
-export function embeddedCalls(chain: Pick<EvmChain, 'abis'>, input: Hex): RulesCall[] {
-  const selectors = new Set(
-    chain.abis.rules
-      .filter((x): x is AbiFunction => x.type === 'function' && STEPS.includes(x.name))
-      .map((f) => toFunctionSelector(f).slice(2)),
-  );
+export function embeddedCalls(chain: Pick<EvmChain, 'abis'>, input: Hex, terms: unknown): RulesCall[] {
+  const steps = chain.abis.rules.filter((x): x is AbiFunction => x.type === 'function' && STEPS.includes(x.name));
+  const selectors = new Set(steps.map((f) => toFunctionSelector(f).slice(2)));
+  const needle = encodeAbiParameters([steps[0]!.inputs[0]!], [terms]).slice(2).toLowerCase();
   const hex = input.slice(2).toLowerCase();
   const out: RulesCall[] = [];
-  for (let i = 0; i + 8 <= hex.length; i += 2) {
-    if (!selectors.has(hex.slice(i, i + 8))) continue;
-    const call = decodeRules(chain, `0x${hex.slice(i)}`);
+  for (let at = hex.indexOf(needle); at !== -1 && out.length < EMBEDDED_MAX; at = hex.indexOf(needle, at + 2)) {
+    if (at < 8 || at % 2 !== 0 || !selectors.has(hex.slice(at - 8, at))) continue;
+    const call = decodeRules(chain, `0x${hex.slice(at - 8, at - 8 + EMBEDDED_WINDOW_HEX)}`);
     if (call) out.push(call);
   }
   return out;
@@ -204,15 +213,16 @@ class Reader {
   async logs(from: bigint, to: bigint, id?: Hex32, after = from - 1n): Promise<{ count: number; txs: Array<{ hash: Hex; block: bigint; ids: Hex32[] }> }> {
     const byTx = new Map<Hex, { order: [bigint, number]; logs: Array<{ address: Address; topics: Hex[] }> }>();
     let count = 0;
-    const read = async (start: bigint, end: bigint): Promise<RpcLog[]> => {
+    const read = async (start: bigint, end: bigint, depth = 0): Promise<RpcLog[]> => {
       try {
         return await this.range(start, end, id);
       } catch (e) {
         // A provider that caps a response's logs or blocks: halve the range. Anyone can make many logs cheaply (an
         // expireOffer with made-up terms), so a busy range must not stop the view (red-team 2026-11-04, finding 4).
-        if (end <= start || !LIMITED.test(`${(e as Error).message} ${String((e as { details?: unknown }).details ?? '')}`)) throw e;
+        const text = `${(e as Error).message} ${String((e as { details?: unknown }).details ?? '')}`;
+        if (end <= start || depth >= MAX_HALVINGS || !CAPPED.test(text) || RATED.test(text)) throw e;
         const mid = start + (end - start) / 2n;
-        return [...(await read(start, mid)), ...(await read(mid + 1n, end))];
+        return [...(await read(start, mid, depth + 1)), ...(await read(mid + 1n, end, depth + 1))];
       }
     };
     for (let start = from; start <= to; start += LOG_RANGE) {
