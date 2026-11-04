@@ -16,6 +16,7 @@ import {
   type HoldbackDomain,
   type RegisteredAdjudicator,
   type RegistrationEnvelope,
+  type Signature,
   type Timestamp,
   type TokenAmount,
 } from '@holdback/core';
@@ -71,12 +72,30 @@ const refuse = (type: ApiProblemType, detail: string, field?: string): never => 
   throw new RegistrationError({ type, detail, ...(field ? { field } : {}) });
 };
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
-const WHOLE_SECOND_Z = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
-/** Half the secp256k1 group order: EIP-2's bound on a signature's s. */
-const HALF_N = 0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0n;
+/** The secp256k1 group order; EIP-2 bounds a signature's s by half of it. */
+const N = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n;
 
-/** The largest registration body a node reads (ADR-0030 §2): a record with every field at its schema maximum fits. */
-export const MAX_REGISTRATION_BYTES = 32_768;
+/** A signed time in whole seconds with Z: the one spelling of its uint64 seconds. */
+const zulu = (t: Timestamp): Timestamp => new Date(Date.parse(t)).toISOString().replace('.000Z', 'Z') as Timestamp;
+
+/** The low-s form with v 27 or 28 of a 65-byte signature; it recovers to the same signer over the same digest. */
+function canonicalSignature(sig: Signature): Signature {
+  const s = BigInt(`0x${sig.slice(66, 130)}`);
+  const v = Number.parseInt(sig.slice(130), 16);
+  const parity = v === 0 || v === 27 ? 0 : v === 1 || v === 28 ? 1 : undefined;
+  if (parity === undefined) return sig; // recovery refuses it
+  const high = s > N / 2n;
+  const s2 = high ? N - s : s;
+  const v2 = 27 + (high ? 1 - parity : parity);
+  return `0x${sig.slice(2, 66)}${s2.toString(16).padStart(64, '0')}${v2.toString(16)}` as Signature;
+}
+
+/**
+ * The largest registration body a node reads (ADR-0030 §2). A record with every field at its schema maximum fits even
+ * as escaped JSON: 100 affiliations of 120 characters outside the Basic Multilingual Plane, each written as a
+ * 12-byte surrogate pair, are about 144,000 bytes.
+ */
+export const MAX_REGISTRATION_BYTES = 196_608;
 
 const SHAPE =
   'the body is your adjudicator record (adjudicator.schema.json) as GET /v1/adjudicators/{address} serves it, with `pool` holding only `terms` and the `registration` envelope {keyId, bodyHash, issuedAt, nonce, expiresAt, signature} you signed as AdjudicatorRegistration';
@@ -97,10 +116,15 @@ export async function checkRegistration(raw: unknown, o: { domain: HoldbackDomai
   const zero = { token: typeof fee === 'string' ? fee : 'tUSD', amount: '0' };
   const served = parseAdjudicator({ ...raw, pool: { ...(isObj(pool) ? pool : {}), junior: zero, senior: zero, reserved: zero } });
   if (!served.ok) return refuse('invalid_terms', served.error.detail, fieldOf(served.error.detail));
-  const record = { ...served.value, pool: { terms: served.value.pool.terms } } as RegisteredAdjudicator;
-  const message = registrationMessageOf(record);
-  const m = parseMessage(message);
+  const parsed = { ...served.value, pool: { terms: served.value.pool.terms } } as RegisteredAdjudicator;
+  const m = parseMessage(registrationMessageOf(parsed));
   if (!m.ok) return refuse('invalid_terms', `the AdjudicatorRegistration rebuilt from your record: ${m.error.detail}`);
+  // One spelling per registration (review of PR 184). Every spelling of a time, and the high-s twin of a signature,
+  // signs the same digest, so the node stores the canonical one instead of refusing: whole-second Z times, and a low-s
+  // signature with v 27 or 28 (EIP-2). Nobody can then store a second spelling of what the adjudicator signed.
+  const e = parsed.registration;
+  const record: RegisteredAdjudicator = { ...parsed, registration: { ...e, issuedAt: zulu(e.issuedAt), expiresAt: zulu(e.expiresAt), signature: canonicalSignature(e.signature) } };
+  const message = registrationMessageOf(record);
   // A key no seller can seal to (a low-order point gives an all-zero shared secret) is one settlement cannot process.
   let key: Uint8Array | undefined;
   try {
@@ -110,15 +134,6 @@ export async function checkRegistration(raw: unknown, o: { domain: HoldbackDomai
   }
   if (nacl.scalarMult(nacl.box.keyPair().secretKey, key!).every((b) => b === 0)) {
     refuse('invalid_terms', 'encryptionPublicKey is a low-order x25519 point: no seller can seal a content key to it', 'encryptionPublicKey');
-  }
-  // One spelling per registration: whole-second Z times and a low-s signature with v of 27 or 28 (EIP-2), so nobody
-  // can store a second spelling of what the adjudicator signed.
-  for (const name of ['issuedAt', 'expiresAt'] as const) {
-    if (!WHOLE_SECOND_Z.test(record.registration[name])) refuse('invalid_terms', `registration.${name} must be RFC 3339 in whole seconds with Z, such as 2026-11-04T09:00:00Z`, `registration.${name}`);
-  }
-  const sig = record.registration.signature;
-  if (BigInt(`0x${sig.slice(66, 130)}`) > HALF_N || !['1b', '1c'].includes(sig.slice(130).toLowerCase())) {
-    refuse('invalid_terms', 'registration.signature must be the canonical form: s at most n/2 and v 27 or 28 (EIP-2), as standard signers produce', 'registration.signature');
   }
   const recompute = (name: string, got: string, want: string, of: string) => {
     if (got !== want) refuse('invalid_terms', `${name} ${got} is not keccak256 of the RFC 8785 JSON of ${of} (${want})`, name);

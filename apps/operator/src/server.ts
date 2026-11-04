@@ -666,7 +666,7 @@ export class Operator {
     const raw = await this.body(ctx, s.join('/') === 'v1/adjudicators' ? MAX_REGISTRATION_BYTES : MAX_BODY_BYTES);
     const dryRun = validateOnly(ctx.url.searchParams);
     if (s.join('/') === 'v1/faucet') return this.idempotent(ctx, raw, () => this.faucet(ctx, raw));
-    if (s.join('/') === 'v1/adjudicators') return this.registerAdjudicator(ctx, raw, dryRun, client, budget);
+    if (s.join('/') === 'v1/adjudicators') return this.registerAdjudicator(ctx, raw, dryRun);
     if (s.length === 4 && s[1] === 'commitments' && s[3] === 'disclosure') {
       if (dryRun) fail('invalid_terms', 'disclosure has no dry run', { field: 'validateOnly' });
       return this.idempotent(ctx, raw, () => this.disclose(s[2]!, raw));
@@ -686,10 +686,11 @@ export class Operator {
       await this.refuseUnpayableFallback(op);
       return this.send(ctx, await this.dryRun(op));
     }
-    await this.chargeFee(op);
     return this.idempotent(ctx, raw, async () => {
-      // Inside the handler, so a retry of a relayed write replays its answer even if a bond changed since (ADR-0030 §5).
+      // Inside the handler, so a retry of a relayed write replays its answer even if a bond or the fee changed since
+      // (ADR-0030 §5). The fallback refusal comes before the fee, so a buyer is never asked to pay for terms refused here.
       await this.refuseUnpayableFallback(op);
+      await this.chargeFee(op);
       const r = await this.relay(ctx, op, await this.bondNoticesFor(op));
       if (r.status < 300 && signerBucket) this.transfer(client, signerBucket);
       return r;
@@ -698,14 +699,14 @@ export class Operator {
 
   /**
    * ADR-0030 §5: advisory notices on a relayed offer, hold or agreement for each named adjudicator without a bond for
-   * the price, read before the relay. At agree the primary's free bond already excludes this deal's reservation.
+   * the price, read before the relay. At agree the primary is warned about only when it has no bond (bondNotices).
    */
   private async bondNoticesFor(op: Operation): Promise<string[]> {
     if (op.kind === 'offer' || op.kind === 'hold') return bondNotices(this.prepareContext(), op.commitment);
     if (op.kind !== 'agree') return [];
     const terms = await this.prepareContext().commitment(op.message.commitmentId);
     const state = terms ? await this.o.settlement.state(terms.id) : null;
-    return terms ? bondNotices(this.prepareContext(), terms, { primaryReserved: state !== null && state.escrowState !== 'Offered' }) : [];
+    return terms ? bondNotices(this.prepareContext(), terms, { primaryAccepted: state !== null && state.escrowState !== 'Offered' }) : [];
   }
 
   /**
@@ -745,15 +746,12 @@ export class Operator {
 
   /**
    * POST /v1/adjudicators (ADR-0030): verifies and stores an adjudicator's self-signed registration, and answers the
-   * served record. A write, counted against the client at entry. A registration for a new address stays on the client,
-   * so fresh keys cannot multiply a client's budget; a replacement moves to the adjudicator, as a relayed message does;
-   * the served one posted again changes nothing and stays on the client.
+   * served record. A write, counted against the client at entry, and it stays there: anyone can post a registration
+   * the adjudicator once signed, so none moves to the adjudicator's own budget, and fresh keys cannot multiply a
+   * client's budget (review of PR 184).
    */
-  private async registerAdjudicator(ctx: Ctx, raw: unknown, dryRun: boolean, client: string, budget: number): Promise<void> {
+  private async registerAdjudicator(ctx: Ctx, raw: unknown, dryRun: boolean): Promise<void> {
     const store = this.o.registry.registrations ?? fail('not_found', 'this operator stores no adjudicator registrations; post yours to another operator');
-    const address = raw && typeof raw === 'object' ? (raw as { address?: string }).address : undefined;
-    const signerBucket = isAddress(address) ? `w:${lc(address)}` : undefined;
-    if (signerBucket) this.admit(signerBucket, budget);
     const run = async () => {
       try {
         return await register(store!, raw, { domain: this.domain, now: this.settlementNow(), dryRun });
@@ -764,28 +762,30 @@ export class Operator {
     };
     if (dryRun) return this.send(ctx, this.ok(await this.listingOf((await run()).stored), { 'holdback-dry-run': 'true' }));
     return this.idempotent(ctx, raw, async () => {
-      const { stored, change } = await run();
-      if (change === 'replaced' && signerBucket) this.transfer(client, signerBucket);
+      const { stored } = await run();
       await this.sync();
       return this.ok(await this.listingOf(stored));
     });
   }
 
   /**
-   * Any address's bond as the settlement layer holds it, read live, or undefined when this node cannot read it. The
-   * bond refusal and the notices act only on this read, never on a cache that may be cold (review of PR 184).
+   * Any address's bond as the settlement layer holds it, read live: undefined when this node has no bond reader, and
+   * `unreadable` when the read failed. The bond refusal and the notices act only on this read, never on a cache that
+   * may be cold (review of PR 184).
    */
-  private async liveBond(a: Address): Promise<Bond | undefined> {
+  private async liveBond(a: Address): Promise<Bond | 'unreadable' | undefined> {
+    if (!this.o.registry.pool) return undefined;
     try {
-      return await this.o.registry.pool?.(a);
+      return await this.o.registry.pool(a);
     } catch {
-      return undefined;
+      return 'unreadable';
     }
   }
 
   /** A bond to list beside a registration: the live read, else this world's own list. */
   private async bondOf(a: Address): Promise<Bond | undefined> {
-    return (await this.liveBond(a)) ?? this.o.registry.adjudicators().find((x) => lc(x.address) === lc(a))?.bond;
+    const live = await this.liveBond(a);
+    return (live === 'unreadable' ? undefined : live) ?? this.o.registry.adjudicators().find((x) => lc(x.address) === lc(a))?.bond;
   }
 
   /**

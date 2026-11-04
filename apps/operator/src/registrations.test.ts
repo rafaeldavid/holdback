@@ -108,16 +108,26 @@ describe('POST /v1/adjudicators', () => {
     ['a poolTermsHash that does not recompute', (r) => ({ ...r, poolTermsHash: h('02') }), 400, 'invalid_terms', 'poolTermsHash'],
     ['a bodyHash that does not recompute', (r) => ({ ...r, registration: { ...r.registration, bodyHash: h('03') } }), 400, 'invalid_terms', 'registration.bodyHash'],
     ['a well-formed signature that does not recover to the address', (r) => ({ ...r, registration: { ...r.registration, signature: `0x${'7'.repeat(4)}${r.registration.signature.slice(6)}` } }), 401, 'invalid_signature'],
-    ['a malformed signature', (r) => ({ ...r, registration: { ...r.registration, signature: `0x${'00'.repeat(65)}` } }), 400, 'invalid_terms', 'registration.signature'],
-    // One spelling per registration: a twin signature or another spelling of the same instant would sign the same digest.
-    ['the high-s twin of a valid signature', (r) => ({ ...r, registration: { ...r.registration, signature: highS(r.registration.signature) } }), 400, 'invalid_terms', 'registration.signature'],
-    ['a time not in whole seconds with Z', (r) => ({ ...r, registration: { ...r.registration, issuedAt: r.registration.issuedAt.replace('Z', '.000Z') } }), 400, 'invalid_terms', 'registration.issuedAt'],
+    ['a zero signature', (r) => ({ ...r, registration: { ...r.registration, signature: `0x${'00'.repeat(65)}` } }), 401, 'invalid_signature'],
     ['a low-order encryption key', (r) => ({ ...r, encryptionPublicKey: Buffer.alloc(32).toString('base64url') }), 400, 'invalid_terms', 'encryptionPublicKey'],
     ['more than 100 affiliations', (r) => ({ ...r, affiliations: Array.from({ length: 101 }, (_, i) => `m-${i}`) }), 400, 'invalid_terms', 'affiliations'],
   ])('refuses %s', async (_label, edit, status, type, field) => {
     const r = await register(edit(structuredClone(await registration())));
     expect([r.status, r.body.type]).toEqual([status, type]);
     if (field) expect(r.body.field).toBe(field);
+  });
+
+  // One spelling per registration (review of PR 184): another spelling of a time, the high-s twin of the signature or
+  // a v of 0 or 1 signs the same digest, so the node stores the canonical form and refuses nothing well signed.
+  it('stores the canonical spelling: whole-second Z times, a low-s signature with v 27 or 28', async () => {
+    const r = await registration();
+    const { issuedAt, expiresAt, signature } = r.registration;
+    const v01 = `${signature.slice(0, 130)}${signature.slice(130) === '1b' ? '00' : '01'}`;
+    for (const sig of [highS(signature), v01]) {
+      const posted = await register({ ...r, registration: { ...r.registration, signature: sig, issuedAt: issuedAt.replace('Z', '.000Z'), expiresAt: expiresAt.replace('Z', '+00:00') } });
+      expect(posted.status).toBe(200);
+      expect(posted.body.registration).toMatchObject({ signature, issuedAt, expiresAt });
+    }
   });
 
   it('refuses a registration signed under another domain or by another key', async () => {
@@ -160,9 +170,16 @@ describe('POST /v1/adjudicators', () => {
     expect([missing.status, missing.body.field]).toEqual([400, 'Idempotency-Key']);
   });
 
-  it('refuses a registration body over 32 KiB', async () => {
-    const r = await register(undefined, { raw: JSON.stringify({ name: 'x'.repeat(32_769) }) });
+  it('refuses a registration body over 192 KiB, and takes one at its schema maximum even as escaped JSON', async () => {
+    const r = await register(undefined, { raw: JSON.stringify({ name: 'x'.repeat(196_609) }) });
     expect([r.status, r.body.type]).toEqual([413, 'payload_too_large']);
+    const wide = testAccount('t-221/wide');
+    const astral = '\u{1f600}'.repeat(120);
+    const big = await signRegistration(wide.privateKey, domain, { ...(await body()), address: wide.address, encryptionPublicKey: wide.encryptionPublicKey, name: astral, affiliations: Array.from({ length: 100 }, () => astral) }, { keyId: 'wide/k1', issuedAt: at(-5), nonce: h('2d'), expiresAt: at(86_400) });
+    // Each astral character as its escaped surrogate pair, 12 bytes.
+    const escaped = JSON.stringify(big).replace(/[\u{10000}-\u{10ffff}]/gu, (c) => c.split('').map((u) => `\\u${u.charCodeAt(0).toString(16)}`).join(''));
+    expect(Buffer.byteLength(escaped)).toBeGreaterThan(140_000);
+    expect((await register(undefined, { raw: escaped })).status).toBe(200);
   });
 
   it('does not serve an expired registration as current: prepare/offer refuses to name it', async () => {
@@ -304,16 +321,16 @@ describe('the route is a write under the throttle, and lastUsedAt follows the ad
     }
   });
 
-  // attack.registration-replay-spends-adjudicator-write-budget (review of PR 184): anyone can copy a served registration.
-  it('spends nothing of the adjudicator\'s budget when anyone posts its served registration again; a replacement moves to it', async () => {
+  // attack.registration-replay-spends-adjudicator-write-budget and attack.registration-history-replacements-fill-budget
+  // (review of PR 184): anyone can copy a served registration, or post an adjudicator's older ones in order at a node
+  // that lacks the latest. Every registration write stays on the client that sent it.
+  it('spends nothing of the adjudicator\'s budget when anyone posts its registrations, served, again or in order', async () => {
     const op = await limited(10, 'op-t221-e');
     try {
-      const reg = await regOf(outsider, '2026-11-04T08:00:00Z');
-      expect(await send(op.url, reg, 'first')).toBe(200);
-      for (const k of ['copy-1', 'copy-2', 'copy-3']) expect(await send(op.url, reg, k)).toBe(200);
+      const history = [await regOf(outsider, '2026-11-04T08:00:00Z'), await regOf(outsider, '2026-11-04T08:10:00Z'), await regOf(outsider, '2026-11-04T08:20:00Z')];
+      for (const [i, reg] of history.entries()) expect(await send(op.url, reg, `step-${i}`)).toBe(200);
+      for (const k of ['copy-1', 'copy-2']) expect(await send(op.url, history[2], k)).toBe(200);
       expect(spent(op, `w:${outsider.address}`)).toBe(0);
-      expect(await send(op.url, await regOf(outsider, '2026-11-04T08:30:00Z'), 'rotation')).toBe(200);
-      expect(spent(op, `w:${outsider.address}`)).toBe(1);
     } finally {
       await op.close();
     }
@@ -388,6 +405,23 @@ describe('bond reads in the relay: replays, the buyer\'s notice, a hold\'s own r
       expect(p.status).toBe(200);
       expect(p.body.notices.join(' ')).toMatch(new RegExp(`appeal adjudicator ${cast.appeal.address} has no bond`, 'i'));
       expect(p.body.notices.join(' ')).not.toMatch(/primary adjudicator/);
+    } finally {
+      await op.close();
+    }
+  });
+
+  // attack.bond-read-failure-silent (review of PR 184): a failed read neither refuses nor stays silent.
+  it('relays when a bond read fails, and says that no bond check was made', async () => {
+    const chain = new SimChain(await simGenesis({ cast, club, start: '2026-11-04T09:00:00Z', balances: funded, bonds: { primary: 25_000_000_000n } }));
+    const failing = { ...simRegistry(chain), pool: async (): Promise<never> => Promise.reject(new Error('rpc limit')) };
+    const op = await startOperator({ settlement: chain, registry: failing, signerKey: simActor('op-fail', 'operator').key, operatorId: 'op-fail', env: {} });
+    try {
+      const offer = await new Deal(chain, cast, { club }).offer();
+      if (offer.kind !== 'offer') throw new Error('expected an offer');
+      const res = await fetch(`${op.url}/v1/commitments`, { method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': 'k' }, body: JSON.stringify(offer.commitment) });
+      const b = (await res.json()) as J;
+      expect([res.status, b.escrowState]).toEqual([200, 'Offered']);
+      expect(b.notices.join(' ')).toMatch(new RegExp(`could not read the bond of the fallback adjudicator ${cast.fallback.address}; no bond check was made`, 'i'));
     } finally {
       await op.close();
     }

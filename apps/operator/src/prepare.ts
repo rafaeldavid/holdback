@@ -84,8 +84,8 @@ export interface PrepareContext {
   club(id: string): Club | undefined;
   /** A stored registration (ADR-0030), or a world's own record; null when this node has none. */
   registration(address: Address): Promise<AdjudicatorRegistration | RegisteredAdjudicator | null>;
-  /** Any address's bond pool, when this node can read it. */
-  bond?(address: Address): Promise<Bond | undefined>;
+  /** Any address's bond pool read live: undefined when this node has no reader, `unreadable` when the read failed. */
+  bond?(address: Address): Promise<Bond | 'unreadable' | undefined>;
   /** ADR-0030 §4: this node's adjudicator for each role an offer leaves out. */
   defaultAdjudicators?: Record<AdjudicatorRole, Address>;
   /** Either wire form: at private and judgment the bodies are ciphertext this operator cannot read (ADR-0024). */
@@ -406,7 +406,7 @@ export async function fallbackBondRefusal(ctx: Pick<PrepareContext, 'bond'>, t: 
   if (t.settlement.mode !== 'guaranteed_on_decision') return undefined;
   const fallback = t.adjudication.fallbackAdjudicator;
   const bond = await ctx.bond?.(fallback);
-  if (!bond) return undefined;
+  if (!bond || bond === 'unreadable') return undefined;
   const free = freeBond(bond, t.price.token);
   if (free >= BigInt(t.price.amount)) return undefined;
   return (
@@ -418,16 +418,22 @@ export async function fallbackBondRefusal(ctx: Pick<PrepareContext, 'bond'>, t: 
 
 /**
  * ADR-0030 §5: an advisory notice for each named adjudicator with no bond, or less free bond than the price (D31).
- * `primaryReserved`: the primary already accepted these terms, so its reservation for them is added back.
+ * `primaryAccepted`: the primary already accepted these terms. Whether its free bond still counts this deal's price
+ * depends on the settlement layer (SimChain reserves at acceptance, the contract at funding), so the primary is then
+ * warned about only when it has no bond at all; the settlement layer refuses the funding if it cannot cover the price.
  */
-export async function bondNotices(ctx: Pick<PrepareContext, 'bond'>, t: Pick<AnyCommitmentTerms, 'price' | 'adjudication'>, o: { primaryReserved?: boolean } = {}): Promise<string[]> {
+export async function bondNotices(ctx: Pick<PrepareContext, 'bond'>, t: Pick<AnyCommitmentTerms, 'price' | 'adjudication'>, o: { primaryAccepted?: boolean } = {}): Promise<string[]> {
   if (!ctx.bond) return [];
   const a = t.adjudication;
   const out: string[] = [];
   for (const [role, address] of [['primary', a.adjudicator], ['fallback', a.fallbackAdjudicator], ['appeal', a.appealAdjudicator]] as const) {
     const bond = await ctx.bond(address);
     if (!bond) continue;
-    const free = freeBond(bond, t.price.token) + (role === 'primary' && o.primaryReserved ? BigInt(t.price.amount) : 0n);
+    if (bond === 'unreadable') {
+      out.push(`this operator could not read the bond of the ${role} adjudicator ${address}; no bond check was made. Read it from HoldbackBonds yourself`);
+      continue;
+    }
+    const free = role === 'primary' && o.primaryAccepted ? BigInt(t.price.amount) : freeBond(bond, t.price.token);
     const why = role === 'appeal' ? 'its decision is final, and no appeal adjudicator has a bond at stake on chain yet' : 'nothing it holds pays the wronged party if its decision is overturned';
     if (!hasBond(bond)) out.push(`the ${role} adjudicator ${address} has no bond: ${why}. You may still choose it`);
     else if (free < BigInt(t.price.amount)) out.push(`the ${role} adjudicator ${address} has ${amountText({ token: t.price.token, amount: free.toString() } as TokenAmount)} of free bond, less than the price of ${amountText(t.price)}. You may still choose it`);
@@ -487,7 +493,7 @@ async function agreeAndFund(ctx: PrepareContext, input: Record<string, unknown>)
   };
   // ADR-0030 §5: the buyer who agrees gets the bond warning too, not only the seller who chose the adjudicators.
   const state = await ctx.state(c.id);
-  const notices = await bondNotices(ctx, c, { primaryReserved: state !== null && state.escrowState !== 'Offered' });
+  const notices = await bondNotices(ctx, c, { primaryAccepted: state !== null && state.escrowState !== 'Offered' });
   return {
     kind: 'agree-and-fund',
     commitmentId: c.id,
