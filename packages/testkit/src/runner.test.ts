@@ -395,6 +395,9 @@ describe('pnpm snap', () => {
       ['seed', flow('x', '  - judge: { adjudicator: bench-a, tamper: wrong_seed }\n'), 4, 'seed_mismatch'],
       ['preimage', flow('x', '  - judge: { adjudicator: bench-a }\n').replace('  - agree_and_fund: { by: buyer, via: op-1 }', '  - adjudicator_accept: { tamper: wrong_seed_commitment }\n  - agree_and_fund: { by: buyer, via: op-1 }'), 5, 'seed_mismatch'],
       ['decision-nonce', flow('x', '  - judge: { adjudicator: bench-a, tamper: reuse_nonce }\n'), 4, 'nonce_reused'],
+      ['attempt', flow('x', '  - judge: { adjudicator: bench-a, tamper: wrong_attempt }\n'), 4, 'invalid_terms'],
+      // The terms' row-count check fails on the row-drop file, so Bench A rejects, and a key on the reject is refused.
+      ['buyer-key', flow('x', '  - judge: { adjudicator: bench-a, tamper: buyer_key }\n', 'terms: fixtures/terms/clean-customers-2000.yaml\n').replace('customers.clean.csv', 'customers.clean.row-drop.csv'), 4, 'invalid_terms'],
       ['terms-nonce', flow('x', '  - offer: { by: seller, commitment: 2, tamper: reuse_nonce }\n'), 4, 'nonce_reused'],
     ];
     for (const [label, src, step, type] of cases) {
@@ -413,6 +416,9 @@ describe('pnpm snap', () => {
     // The seller has no earlier terms nonce to reuse on its first offer.
     const r = await fixture(root, 'error.no-prior-nonce', `${flow('error.no-prior-nonce', '').replace('  - offer: { by: seller, via: op-1 }', '  - offer: { by: seller, via: op-1, tamper: reuse_nonce }')}expect: { problem: { step: 1, type: nonce_reused } }\n`);
     expect(r.out[0]).toMatch(/fail {2}error\.no-prior-nonce: ScenarioError: steps\[1\]\.offer: tamper reuse_nonce was never applied/);
+    // An honest accept already carries the buyer's key, so buyer_key changes nothing there.
+    const k = await fixture(root, 'error.key-on-accept', `${flow('error.key-on-accept', '  - judge: { adjudicator: bench-a, tamper: buyer_key }\n')}expect: { problem: { step: 4, type: invalid_terms } }\n`);
+    expect(k.out[0]).toMatch(/fail {2}error\.key-on-accept: ScenarioError: steps\[4\]\.judge: tamper buyer_key was never applied/);
   });
 
   it('attack: placeholder bytes fail the fixture, since no defense is exercised', async () => {
