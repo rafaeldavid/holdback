@@ -6,7 +6,7 @@ through `EvmSettlement` on anvil (chain id 31337). Lines are the normalised tran
 `-` is SimChain only, `+` is the contract only. Explanations and the decision on each difference: T-205 Decisions
 (docs/tasks/T-205-evm-settlement.md). All values measured.
 
-Fixtures: 29; run on the contract: 26; passing on the contract: 26; identical transcripts: 26; excluded until Phase 4: 3; errors: 0.
+Fixtures: 31; run on the contract: 28; passing on the contract: 28; identical transcripts: 28; excluded until Phase 4: 3; errors: 0.
 
 | Fixture | On the contract | Transactions | Gas | Differing lines |
 | --- | --- | --- | --- | --- |
@@ -21,10 +21,12 @@ Fixtures: 29; run on the contract: 26; passing on the contract: 26; identical tr
 | `attack.injection-steers-appeal-two-families` | pass | 4 | 613,096 | 0 |
 | `attack.seller-equivocates-delivery` | pass | 3 | 525,369 | 0 |
 | `bad-work-row-drop` | pass | 3 | 525,333 | 0 |
+| `error.appeal-decision-other-attempt` | pass | 4 | 613,072 | 0 |
 | `error.concurrent-overdraft` | pass | 1 | 246,198 | 0 |
 | `error.coverage-exceeded` | pass | 0 | 0 | 0 |
 | `error.early-accept-wrong-key-envelope` | pass | 3 | 533,501 | 0 |
 | `error.invalid-signature` | pass | 0 | 0 | 0 |
+| `error.reject-carries-buyer-key` | pass | 3 | 525,345 | 0 |
 | `error.submission-limit` | pass | 1 | 250,986 | 0 |
 | `happy-path` | pass | 3 | 542,803 | 0 |
 | `honest-seller-survives-judge-noise-on-appeal` | excluded until Phase 4 | | | |
@@ -154,6 +156,17 @@ Identical.
 
 Identical.
 
+## `error.appeal-decision-other-attempt`
+
+| Transaction | Relayed via | Sent by (pays gas) | Gas |
+| --- | --- | --- | --- |
+| agreeAndFund | op-1 | op-1 | 251,022 |
+| deliver | op-1 | op-1 | 83,487 |
+| decide | direct | bench-a | 82,061 |
+| decide | direct | bench-c | 196,502 |
+
+Identical.
+
 ## `error.concurrent-overdraft`
 
 | Transaction | Relayed via | Sent by (pays gas) | Gas |
@@ -177,6 +190,16 @@ Identical.
 Identical.
 
 ## `error.invalid-signature`
+
+Identical.
+
+## `error.reject-carries-buyer-key`
+
+| Transaction | Relayed via | Sent by (pays gas) | Gas |
+| --- | --- | --- | --- |
+| agreeAndFund | op-1 | op-1 | 251,034 |
+| deliver | op-1 | op-1 | 83,499 |
+| decide | direct | bench-a | 190,812 |
 
 Identical.
 

@@ -910,30 +910,37 @@ export class StubSettlement {
       return this.row(name, `${call}: none`, 'direct', 'no decision: the appeal panel was inconclusive, so the default outcome applies');
     }
     const envelope = (recipient: Address) => ({ scheme: 'x25519-xsalsa20poly1305' as const, ciphertext: b64url(canonicalKeccak({ contentKey: d.contentKey, recipient })) });
+    // T-206 H-1: with wrong_attempt the adjudicator signs another attempt and, for a beacon role, that attempt's seed.
+    const attempt = this.tampering('wrong_attempt') ? d.message.attempt + 1 : d.message.attempt;
+    const signedSeed = role === 'primary' || attempt === d.message.attempt ? seed : panelSeed(c.id, role, attempt, beaconValue!);
+    // An honest adjudicator seals the buyer's key with an accept, but not for an appeal of a refunded deal (ADR-0012).
+    const honestKey = outcome === 'accept' && c.state.kind !== 'Refunded';
+    const keyed = honestKey || this.tampering('buyer_key');
+    const decided = `${call}: ${outcome}${attempt !== d.message.attempt ? ` for attempt ${attempt}` : ''}${keyed && !honestKey ? " with the buyer's key" : ''}`;
     const unsigned = {
       type: 'Decision',
       commitmentId: c.id,
-      attempt: d.message.attempt,
+      attempt,
       deliveryHash: deliveryHash(d.message),
       adjudicator: actor.address,
       role,
       outcome,
-      seed: this.tamperable('wrong_seed', seed),
+      seed: this.tamperable('wrong_seed', signedSeed),
       policyHash: this.tamperable('wrong_policy_hash', c.terms.adjudication.policyHash),
       registryHash: this.tamperable('wrong_registry_hash', c.terms.adjudication.registryHash),
       judgmentRecordHash: canonicalKeccak(view),
       nonce: this.nonceFor(name, 'msg'),
       expiresAt: this.decisionDeadline(c.state, role),
       ...(round !== null && beaconValue ? { beacon: { source: 'sim' as const, round, value: beaconValue } } : {}),
-      ...(outcome === 'accept' ? { keyForBuyer: envelope(c.terms.buyer) } : {}),
+      ...(keyed ? { keyForBuyer: envelope(c.terms.buyer) } : {}),
       // ADR-0020: an escalation carries the appeal adjudicator's content key.
       ...(outcome === 'escalate' ? { encryptedKeys: [{ recipient: c.terms.adjudication.appealAdjudicator, ...envelope(c.terms.adjudication.appealAdjudicator) }] } : {}),
     } as const;
     const decision = (await this.sign(name, unsigned as UnsignedMessage & { type: 'Decision' })) as Decision;
-    if (!(await this.submit(name, `${call}: ${outcome}`, 'direct', { kind: 'decide', message: decision }))) return;
+    if (!(await this.submit(name, decided, 'direct', { kind: 'decide', message: decision }))) return;
     this.decision = decision;
     const next = this.state!;
-    this.row(name, `${call}: ${outcome}`, 'direct', 'ok');
+    this.row(name, decided, 'direct', 'ok');
     if (next.kind === 'Released' || next.kind === 'Refunded') this.balanceRows.push({ after: `decide: ${outcome}`, balances: await this.snapshotBalances() });
   }
 
@@ -1091,11 +1098,16 @@ export class StubSettlement {
     return n;
   }
 
+  /** Whether the step tampers with `t`; a yes marks it applied. */
+  private tampering(t: Tamper): boolean {
+    if (!this.tampers.has(t)) return false;
+    this.applied.add(t);
+    return true;
+  }
+
   /** The honest value, or a random one when the step tampers with it. */
   private tamperable(t: Tamper, honest: Hex32): Hex32 {
-    if (!this.tampers.has(t)) return honest;
-    this.applied.add(t);
-    return this.ctx.rng.hex32();
+    return this.tampering(t) ? this.ctx.rng.hex32() : honest;
   }
 
   /** "call" for commitment 1, "call #n" for the others. */
