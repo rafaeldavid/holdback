@@ -11,7 +11,7 @@
   - docs: `docs/decisions-today.md` (D47), `docs/research/2026-11-04-test-counterparties.md`, `docs/plan.md`, `docs/backlog.md`, `docs/update-flow.md`, `docs/operations.md`, `SECURITY.md` (its scope), this file.
   - Not T-216's paths (`examples/e2e-*.ts`, its task file).
 - **Human gate:** yes for the deploy: the Worker, its route on `escrow.stream`, its secret and the site publish wait for Rafa. Everything else is in the repository.
-- **Status:** review (the deploy waits for Rafa)
+- **Status:** done (deployed 2026-11-04 as crow-test-agents `9d171ddc`; live deals each way in Evidence; the open items in Handoff are follow-ups)
 - **Agent/session:** test counterparties session, 2026-11-04
 
 ## Intent
@@ -105,7 +105,12 @@ Fill this in before review. Label each item measured, inferred or guessed.
   - `wrangler deploy --dry-run` bundles it to 440.04 KiB, 95.81 KiB gzipped.
   - Under `wrangler dev --local`, with a throwaway seed, it read live discovery and the primary's registration from both public operators. It served the card with fees of 1 tUSDC (adjudication) and 4.71 tUSDC (operator), 30.71 tUSDC in all, the same as `llms.txt`. It also served health `operational` and the HTML page.
   - No request was sent: a live deal spends the operators' Sepolia ETH and waits for Rafa.
-- **Not measured yet:** a live deal on Sepolia with the deployed seller. That waits for the deploy (Handoff).
+- **The first deploy (2026-11-04, about 16:40 UTC, on Rafa's go-ahead: "You can deploy what's ready btw? like the test seller?")** [measured]:
+  - crow-test-agents `9d171ddc`, route `escrow.stream/agents/test-seller*`. The route takes its path ahead of crow-site's Custom Domain, so no fallback to `agents.escrow.stream` was needed. `seed.mjs` set `TEST_AGENTS_SEED` without printing it. Health: `operational`, 0 open.
+  - **Release:** `node examples/try.ts --seller https://escrow.stream/agents/test-seller` ended Released in 55 s, and the buyer decrypted 3 rows. Commitment `0x3ecdd264d2b1e8f9fce52990befa61f15119fc57e35e210cd6fb001e96371028`. Transactions: funded https://sepolia.etherscan.io/tx/0xfe09c5916047ffcc6d349271efb638ece64884ccbd952888d4e12986098d811b, delivered https://sepolia.etherscan.io/tx/0xf20ce6a8c7f1bddf0cd9bf109328e847d34d1bf99bef533dccbad10f8d070fb7, decided https://sepolia.etherscan.io/tx/0xe6bda05355b714f7bf40cfafe9b8b174c55df8df48d44bb8535c25034455e174.
+  - **Refund:** the same with `--outcome refund` ended Refunded in 48 s. The rows check failed, the price came back to the buyer, and no key was released. Commitment `0x7be625cd4050b7bc75fe9572416a5dcc19c77ff0c0ec895e4eefd4173679e2ac`. Transactions: funded https://sepolia.etherscan.io/tx/0x064be1f82aa4d711a5b02ae2b0b68ed5c20440f06f65f03d9f4b0745264088d1, delivered https://sepolia.etherscan.io/tx/0x4da73b265810267760413f5005f07de4f76d56e0b6dc69ef6d4a10009b6d47b0, decided https://sepolia.etherscan.io/tx/0xbeede08ce63378cddc4c7c04e0f07fe17b06b3e082fd780ec79d7ff7c844cbac.
+  - **The site** followed as crow-site `5582b10e`. `try.mjs` sha256 `26ccaa80409ea753da3b177583344a8ad3d511c65522929801a646a2797de7d4` matched the build, and the live `llms.txt` names the test seller.
+  - **Not measured:** which client IP the operators see for the seller's calls (operations step 4). It needs the operators' logs, and the seller needs the faucet only about once a month.
 
 ## Decisions
 
