@@ -228,7 +228,7 @@ const f = (name, type) => ({
 	type
 });
 const exp = [f("nonce", "bytes32"), f("expiresAt", "uint64")];
-/** The EIP-712 types of schema 0.9, domain version 0.7 (packages/core/src/eip712.ts), pinned here. */
+/** The EIP-712 types of schema 0.10, domain version 0.7 (packages/core/src/eip712.ts), pinned here. */
 const TYPES = {
 	TokenAmount: [f("token", "string"), f("amount", "uint256")],
 	Adjudication: [
@@ -378,6 +378,52 @@ const TYPES = {
 	Publish: [
 		f("commitmentId", "bytes32"),
 		f("level", "string"),
+		...exp
+	],
+	AdjudicatorAcceptance: [
+		f("commitmentId", "bytes32"),
+		f("adjudicator", "address"),
+		f("seedCommitment", "bytes32"),
+		f("policyHash", "bytes32"),
+		f("registryHash", "bytes32"),
+		f("fee", "TokenAmount"),
+		f("bondReserved", "TokenAmount"),
+		...exp
+	],
+	SealedKey: [f("scheme", "string"), f("ciphertext", "string")],
+	Beacon: [
+		f("source", "string"),
+		f("round", "uint64"),
+		f("value", "bytes32"),
+		f("signature", "bytes")
+	],
+	Decision: [
+		f("commitmentId", "bytes32"),
+		f("attempt", "uint8"),
+		f("deliveryHash", "bytes32"),
+		f("adjudicator", "address"),
+		f("role", "string"),
+		f("outcome", "string"),
+		f("seed", "bytes32"),
+		f("policyHash", "bytes32"),
+		f("registryHash", "bytes32"),
+		f("judgmentRecordHash", "bytes32"),
+		f("keyForBuyer", "SealedKey"),
+		f("appealGround", "string"),
+		f("beacon", "Beacon"),
+		f("encryptedKeys", "EncryptedKey[]"),
+		...exp
+	],
+	AdjudicatorRegistration: [
+		f("adjudicator", "address"),
+		f("encryptionPublicKey", "string"),
+		f("keyId", "string"),
+		f("policyHash", "bytes32"),
+		f("registryHash", "bytes32"),
+		f("fee", "TokenAmount"),
+		f("poolTermsHash", "bytes32"),
+		f("bodyHash", "bytes32"),
+		f("issuedAt", "uint64"),
 		...exp
 	]
 };

@@ -37,13 +37,13 @@ What changes for an agent: each money step waits for a block (about 12 s), so a 
       - *As built, 2026-11-04 (T-218, PR 185; T-220 deploys it):*
         - Each pass reads the rules contract's logs from a cursor stored with its block hash, in chunks of at most 50,000 blocks. It applies every transaction this node did not relay as the same mirror step and events, with `submittedVia: 'direct'` (`packages/settlement/evm/sync.ts`, `EvmSettlement.observe`).
         - A pass reads everything before it applies anything, and the world writes the cursor after the books, so an RPC error moves nothing.
-        - The logs are what ran. Timeouts follow from the logs alone, whatever sent them. A signed step is rebuilt from the calldata (at the top level, in a Multicall3 bundle whose calls all ran, or written in a forwarder's calldata with its signatures checked), and it must match the logs.
+        - The logs are what ran. Timeouts and deliveries follow from the logs alone, whatever sent them. A signed step is rebuilt from the calldata (at the top level, in a Multicall3 bundle whose calls all ran, or written in a forwarder's calldata with its plain-key signatures checked), and it must match the logs.
         - The seller's delivery is the one thing the calldata cannot give (the contract keeps its hash, T-205). The deal waits behind the chain until the seller posts the same signed delivery, which then joins with no second transaction.
         - A step the node cannot rebuild puts the deal behind: the state read serves `dealOf`'s stage with a notice, and no step is invented (`docs/neutrality.md` residual 13).
         - A direct takeover, appeal or escalation hands the next adjudicator its envelope as a relayed one does. `fallback.triggered` carries the contract's own round.
         - An offer posted after its deal was funded on chain joins the chain's state. A commitment no node saw is counted and skipped.
         - The copied fund leg: the node follows the copy and relays the buyer's signed fee transfer alone, before `fundBy`.
-        - Cadence: a pass at least once a minute while an open deal moved in the last day or nears a deadline, every 15 minutes while open deals are quiet, and none while no deal is open (T-057 unchanged).
+        - Cadence: a pass at least once a minute while a funded deal moved in the last day or nears a deadline, or an accepted offer moved in the last hour; every 15 minutes while open deals are quiet; none while no deal is open (T-057 unchanged).
         - A relayed transaction whose receipt the node missed applies on the next pass, labelled `direct` until T-219.
     - **An in-flight row per lane**, so a Durable Object restarted between broadcast and receipt picks up its own transaction.
       - *As built, 2026-11-04 (T-219; T-220 deploys it):*

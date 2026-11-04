@@ -7,7 +7,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseEvent, wholeSecond, type AdjudicatorAcceptance, type Address, type Club, type Decision, type SettlementEvent } from '@holdback/core';
 import { concat, encodeFunctionData, keccak256, maxUint256, parseGwei, stringToBytes, type Hex } from 'viem';
-import { privateKeyToAccount } from 'viem/accounts';
+import { privateKeyToAccount, sign } from 'viem/accounts';
 import { foundry } from 'viem/chains';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Genesis } from '../sim/simchain.js';
@@ -173,7 +173,7 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     genesis = { ...genesis, simSeed: `0x${'00'.repeat(32)}` };
     await chain.mint(cast.buyer.address, 10n ** 12n);
     await chain.mint(cast.seller.address, 10n ** 10n);
-    for (const a of [cast.primary, cast.fallback, cast.appeal]) await ensureBond(chain, a.key, 50_000_000_000n, 10n ** 18n);
+    for (const a of [cast.primary, cast.fallback, cast.appeal]) await ensureBond(chain, a.key, 500_000_000_000n, 10n ** 18n);
     // The parties' one-time allowance to HoldbackBonds for appeal bonds.
     for (const p of [cast.buyer, cast.seller]) await chain.send({ key: p.key, to: d.token, data: encodeFunctionData({ abi: chain.abis.token, functionName: 'approve', args: [d.bonds, maxUint256] }) });
   }, 180_000);
@@ -250,7 +250,7 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
   /** Sends raw calldata from `who`'s wallet. */
   async function raw(who: TestActor, to: Address, data: Hex): Promise<{ hash: Hex }> {
     const wallet = anvil.wallet(who.key);
-    const hash = await wallet.sendTransaction({ account: wallet.account!, chain: foundry, to, data, gas: 5_000_000n });
+    const hash = await wallet.sendTransaction({ account: wallet.account!, chain: foundry, to, data, gas: 8_000_000n });
     expect((await anvil.receipt(hash)).status).toBe('success');
     return { hash };
   }
@@ -724,7 +724,7 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     expect((await ok(s, await d.decide('fallback', 'reject', judgeBy))).state.escrowState).toBe('Refunded');
   }, 60_000);
 
-  it('an agreement with an expiry core cannot represent puts its deal behind with a notice, and the pass goes on (review H2)', async () => {
+  it('an agreement that expires past what a timestamp holds reads as never expiring: the deal follows, and a direct delivery joins (review H2)', async () => {
     const { s, sync } = await node();
     const d = new EvmDeal(s, cast, club, 'huge-expiry');
     const beside = await funded('beside-huge-expiry', s, { deliver: true });
@@ -745,10 +745,15 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     });
     await raw(cast.buyer, chain.deployment.rules, rulesCall('agreeAndFund', [termsView(d.terms), sellerSignature, acceptanceView(accept.message), { nonce, expiresAt, signature }, { method: 0, signature: af.funding.signature }]));
     await direct(cast.stranger, 'decide', decideArgs(beside, await decision(beside, 'primary', 'accept')));
-    expect(await sync.pass()).toMatchObject({ applied: 1, behind: 1 });
-    expect((await s.state(d.id))!.escrowState).toBe('Held');
-    expect(s.lag(d.id)).toMatch(/could not rebuild/);
+    expect(await sync.pass()).toMatchObject({ applied: 2, behind: 0 });
+    expect(s.escrowState(d.id)!.kind).toBe('Held');
     expect((await s.state(beside.id))!.escrowState).toBe('Released');
+    // The seller delivers on the contract and posts the same delivery: it joins, and the primary gets its envelope (A2).
+    const sub = await d.deliver();
+    await direct(cast.seller, 'deliver', [termsView(d.terms), deliveryView(d.delivery!), d.delivery!.signature]);
+    await sync.pass();
+    expect((await ok(s, sub)).state.escrowState).toBe('Delivered');
+    expect(await s.keysFor(d.id, cast.primary.address)).toHaveLength(1);
   }, 60_000);
 
   it('a read that fails after a relay mined leaves the book untouched, and the next pass applies the call (review M2)', async () => {
@@ -781,7 +786,158 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     expect(s.log().filter((e) => e.commitmentId === d.id).map((e) => e.type).slice(-3)).toEqual(['judgment.decided', 'settlement.released', 'key.released']);
   }, 60_000);
 
-  it('neutrality.operator-refuses-on-chain:the operator refuses to relay after funding; the parties submit directly, the deal settles, and the view shows every step', async () => {
+  // Round 2 (2026-11-04): calls planted beside a copied signed step in a forwarder's calldata.
+
+  /** A copied call through the plain forwarder with more calldata after it, which the rules contract ignores. */
+  const plantedAfter = async (who: TestActor, real: Hex, planted: Hex) => raw(who, await forwarderAddress(), concat([chain.deployment.rules, real, planted]));
+
+  it('a copied decision with a planted takeover after it: the view records the decision, and no takeover (red-team round 2, A)', async () => {
+    const { s, sync } = await node();
+    const d = await funded('planted-takeover', s, { deliver: true });
+    const real = await decision(d, 'primary', 'accept');
+    await plantedAfter(watcher, rulesCall('decide', decideArgs(d, real)), rulesCall('triggerFallback', [termsView(d.terms)]));
+    expect(await sync.pass()).toMatchObject({ applied: 1, behind: 0 });
+    expect(await s.state(d.id)).toMatchObject({ escrowState: 'Released', appealState: 'none' });
+    expect(await s.keysFor(d.id, cast.fallback.address)).toEqual([]);
+    // The buyer's appeal goes through the operator as usual.
+    expect((await ok(s, await d.appealBy('buyer', 100_000_000n))).state.appealState).toBe('open');
+  }, 60_000);
+
+  it('a copied fund leg with a planted offer expiry after it: the view records the funding (red-team round 2, A)', async () => {
+    const { s, sync } = await node();
+    const d = new EvmDeal(s, cast, club, 'planted-expiry');
+    await ok(s, await d.offer());
+    const accept = await d.accept();
+    await ok(s, accept);
+    const sub = await d.agreeAndFund();
+    if (sub.kind !== 'agree_and_fund' || accept.kind !== 'adjudicator_accept') throw new Error('unreachable');
+    const sellerSignature = s.log().find((e) => e.commitmentId === d.id && e.type === 'commitment.offered')!.payload['sellerSignature'] as Hex;
+    const fundLeg = rulesCall('agreeAndFund', [termsView(d.terms), sellerSignature, acceptanceView(accept.message), agreeView(sub.agree), { method: 0, signature: sub.funding.signature }]);
+    await plantedAfter(watcher, fundLeg, rulesCall('expireOffer', [termsView(d.terms)]));
+    expect(await sync.pass()).toMatchObject({ applied: 1, behind: 0 });
+    expect(s.escrowState(d.id)!.kind).toBe('Held');
+    expect((await ok(s, await d.deliver())).state.escrowState).toBe('Delivered');
+  }, 60_000);
+
+  it('a copied delivery with a planted junk call after it still waits for the post, and joins (red-team round 2, G3)', async () => {
+    const { s, sync } = await node();
+    const d = await funded('planted-junk', s);
+    const sub = await d.deliver();
+    const del = d.delivery!;
+    const junk = { ...((await d.earlyAccept()) as { message: Parameters<typeof earlyAcceptView>[0] }).message, signature: JUNK };
+    await plantedAfter(watcher, rulesCall('deliver', [termsView(d.terms), deliveryView(del), del.signature]), rulesCall('earlyAccept', [termsView(d.terms), earlyAcceptView(junk), deliveryView(del), del.signature, keyProof(del, d.terms.buyer) ?? NO_KEY]));
+    expect(await sync.pass()).toMatchObject({ behind: 1 });
+    expect(s.lag(d.id)).toContain('/deliveries');
+    expect((await ok(s, sub)).state.escrowState).toBe('Delivered');
+    expect(await s.keysFor(d.id, cast.primary.address)).toHaveLength(1);
+  }, 60_000);
+
+  it('an early accept hidden by a transforming contract, with a planted takeover: no takeover and no fallback envelope (red-team round 2, B)', async () => {
+    const { s, sync } = await node();
+    const d = await funded('hidden-early', s, { deliver: true });
+    const del = d.delivery!;
+    const ea = ((await d.earlyAccept()) as { message: Parameters<typeof earlyAcceptView>[0] }).message;
+    const call = rulesCall('earlyAccept', [termsView(d.terms), earlyAcceptView(ea), deliveryView(del), del.signature, keyProof(del, d.terms.buyer) ?? NO_KEY]);
+    const hidden = `0x${(parseInt(call.slice(2, 4), 16) + 1).toString(16).padStart(2, '0')}${call.slice(4)}` as Hex;
+    await raw(watcher, await forwarderAddress('opaque'), concat([chain.deployment.rules, hidden, rulesCall('triggerFallback', [termsView(d.terms)])]));
+    expect(await sync.pass()).toMatchObject({ applied: 0, behind: 1 });
+    expect((await s.state(d.id))!.escrowState).toBe('Released');
+    expect(s.escrowState(d.id)!.kind).toBe('Delivered');
+    expect(await s.keysFor(d.id, cast.fallback.address)).toEqual([]);
+    // The buyer's key, released on chain, is served.
+    expect(await s.keysFor(d.id, cast.buyer.address)).toHaveLength(1);
+  }, 60_000);
+
+  it("another account's transfer with the deal's fee nonce is not recorded as the operator fee (red-team round 2, D)", async () => {
+    const { s, sync } = await node();
+    const d = new EvmDeal(s, cast, club, 'fake-fee');
+    await ok(s, await d.offer());
+    const accept = await d.accept();
+    await ok(s, accept);
+    const sub = await d.agreeAndFund({ operatorFee: { to: cast.operator.address, value: 4_710_000n } });
+    if (sub.kind !== 'agree_and_fund' || accept.kind !== 'adjudicator_accept') throw new Error('unreachable');
+    const sellerSignature = s.log().find((e) => e.commitmentId === d.id && e.type === 'commitment.offered')!.payload['sellerSignature'] as Hex;
+    const fundLeg = rulesCall('agreeAndFund', [termsView(d.terms), sellerSignature, acceptanceView(accept.message), agreeView(sub.agree), { method: 0, signature: sub.funding.signature }]);
+    // The watcher signs its own transfer of 1 base unit, with the nonce bound to this commitment.
+    await chain.mint(watcher.address, 10n);
+    const validBefore = d.terms.timing.fundBy;
+    const auth = await s.operatorFeeAuthorization(d.id, watcher.address, cast.operator.address, 1n, '1970-01-01T00:00:00Z', validBefore);
+    const feeCall = encodeFunctionData({ abi: chain.abis.token, functionName: 'transferWithAuthorization', args: [watcher.address, cast.operator.address, 1n, 0n, BigInt(Math.floor(Date.parse(validBefore) / 1000)), auth.nonce, await sign({ hash: auth.digest, privateKey: watcher.key, to: 'hex' })] });
+    const { token, rules, multicall } = chain.deployment;
+    await raw(watcher, multicall, bundle([
+      { target: token, allowFailure: false, callData: feeCall },
+      { target: rules, allowFailure: false, callData: fundLeg },
+    ]));
+    expect(await sync.pass()).toMatchObject({ applied: 1, behind: 0 });
+    expect(s.log().some((e) => e.commitmentId === d.id && e.type === 'fee.operator')).toBe(false);
+    // The buyer's own submission: the node follows the copy and relays the buyer's fee alone, once.
+    await ok(s, sub);
+    expect(s.log().filter((e) => e.commitmentId === d.id && e.type === 'fee.operator').map((e) => [String(e.payload['from']), (e.payload['amount'] as { amount: string }).amount])).toEqual([[lc(cast.buyer.address), '4710000']]);
+  }, 60_000);
+
+  it('a relayed fee bundle whose receipt the node missed applies with its operator fee (review L4)', async () => {
+    const a = await EvmSettlement.restore(chain, genesis, undefined, wall);
+    const d = new EvmDeal(a, cast, club, 'missed-fee-bundle');
+    await ok(a, await d.offer());
+    await ok(a, await d.accept());
+    const saved = a.drain();
+    const start = await head();
+    const hasty = new LiveChain({ deployment, rpcUrls: [anvil.rpcUrl], relayerKey: HASTY_RELAYER, pollMs: 10, receiptTimeoutMs: 1 });
+    const b = await EvmSettlement.restore(hasty, genesis, saved, wall);
+    await expect(b.submit(await d.agreeAndFund({ operatorFee: { to: cast.operator.address, value: 4_710_000n } }), { via: 'op-1' })).rejects.toThrow(/not mined within/);
+    const c = await EvmSettlement.restore(chain, genesis, saved, wall);
+    const sync = new ChainSync(c, start);
+    let applied = 0;
+    for (let i = 0; i < 20 && applied === 0; i++) {
+      applied = (await sync.pass())?.applied ?? 0;
+      if (applied === 0) await sleep(250);
+    }
+    expect(c.escrowState(d.id)!.kind).toBe('Held');
+    expect(c.log().filter((e) => e.commitmentId === d.id).map((e) => e.type).slice(-3)).toEqual(['commitment.agreed', 'fee.operator', 'hold.funded']);
+    expect(c.log().find((e) => e.commitmentId === d.id && e.type === 'fee.operator')!.payload).toMatchObject({ from: lc(cast.buyer.address), to: lc(cast.operator.address), amount: { amount: '4710000' } });
+  }, 60_000);
+
+  it('sixteen filler timeouts ahead of a copied decision in an unreadable bundle do not hide it (red-team round 3, H1)', async () => {
+    const { s, sync } = await node();
+    const d = await funded('filler', s, { deliver: true });
+    const { rules, multicall } = chain.deployment;
+    // A call to an address with no code succeeds and makes the bundle unreadable; the real decision runs after the filler.
+    const nobody = `0x${'de'.repeat(20)}` as Address;
+    const filler = Array.from({ length: 16 }, () => ({ target: nobody, allowFailure: false, callData: rulesCall('triggerFallback', [termsView(d.terms)]) }));
+    await raw(watcher, multicall, bundle([...filler, { target: rules, allowFailure: false, callData: rulesCall('decide', decideArgs(d, await decision(d, 'primary', 'accept'))) }]));
+    expect(await sync.pass()).toMatchObject({ applied: 1, behind: 0 });
+    expect((await s.state(d.id))!.escrowState).toBe('Released');
+  }, 60_000);
+
+  it('a decision carrying a delivery this node never held, with a planted junk call, waits for the delivery and joins (red-team round 3, H2)', async () => {
+    const { s, sync } = await node();
+    const d = await funded('carried-junk', s);
+    const sub = await d.deliver();
+    const del = d.delivery!;
+    const m = await decision(d, 'primary', 'accept');
+    const junk = { ...((await d.earlyAccept()) as { message: Parameters<typeof earlyAcceptView>[0] }).message, signature: JUNK };
+    await plantedAfter(watcher, rulesCall('decide', [termsView(d.terms), decisionView(m), deliveryView(del), del.signature]), rulesCall('earlyAccept', [termsView(d.terms), earlyAcceptView(junk), deliveryView(del), del.signature, keyProof(del, d.terms.buyer) ?? NO_KEY]));
+    expect(await sync.pass()).toMatchObject({ behind: 1 });
+    expect(s.lag(d.id)).toContain('/deliveries');
+    const joined = await ok(s, sub);
+    expect(joined.state.escrowState).toBe('Released');
+    expect(joined.events.map((e) => e.type)).toEqual(['delivery.submitted', 'key.released', 'judgment.decided', 'settlement.released', 'key.released']);
+  }, 60_000);
+
+  it('a forwarded call padded with 120 KB of selectors keeps a pass short (review N1)', async () => {
+    const { s, sync } = await node();
+    const d = await funded('padded', s, { deliver: true });
+    const call = rulesCall('decide', decideArgs(d, await decision(d, 'primary', 'accept')));
+    const padding = `0x${call.slice(2, 10).repeat(30_000)}` as Hex;
+    await plantedAfter(watcher, call, padding);
+    const t0 = Date.now();
+    expect(await sync.pass()).toMatchObject({ applied: 1, behind: 0 });
+    // The pass includes its RPC reads (about 6 on anvil); the scan itself is linear in the calldata.
+    expect(Date.now() - t0).toBeLessThan(3_000);
+    expect((await s.state(d.id))!.escrowState).toBe('Released');
+  }, 60_000);
+
+  it('neutrality.operator-refuses-on-chain: the operator refuses to relay after funding; the parties submit directly, the deal settles, and the view shows every step', async () => {
     let refusing = false;
     // The same relayer lanes, but a chain that refuses every send once the deal is funded (D27).
     const operator = Object.assign(Object.create(chain) as LiveChain, {

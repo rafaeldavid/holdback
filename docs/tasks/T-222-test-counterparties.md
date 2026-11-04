@@ -134,7 +134,7 @@ What is done, what is not, how to resume, and the open questions that remain.
 - **Not done: the deploy, Rafa's gate.** The order is in `docs/operations.md`, "Crow's test seller, the first deploy": the Worker and its route, then `seed.mjs`, then the health check and one live deal each way, then the site. The site may go first without harm: `try.mjs` plays both sides while the seller is missing, and says so.
 - **To measure at the first deploy:** which client IP the operators see for the seller's calls (same zone, so `cf-connecting-ip` follows `x-real-ip`; research note §5), and the live deal's transactions for the Evidence above.
 - **Open for Rafa (D47):**
-  1. The faucet's mandate renewal fix in `apps/demo-cloud/src/world.ts`, before the standing address is 30 days old (backlog).
+  1. The faucet's mandate renewal fix in `apps/demo-cloud/src/world.ts`, before the standing address is 30 days old: done in the repository by T-223; it reaches the live demo with the next operator deploy.
   2. When to plan the test buyer (backlog).
   3. Whether `try.mjs` should stop instead of falling back when the seller is unavailable.
 - **To resume:** read D47 and the research note, then `apps/test-agents/src/seller.ts`; `npx vitest run apps/test-agents` runs its 22 tests in about 12 s.

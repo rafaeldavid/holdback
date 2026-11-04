@@ -261,6 +261,12 @@ const OUTCOMES = ['accept', 'reject', 'escalate'] as const;
 const OPEN_GRACE_MS = 3_600_000;
 /** A deal whose book moved this recently counts as recent for the sync's cadence. */
 const RECENT_MS = 86_400_000;
+/** Permissionless timeouts: the sync reads them from the logs alone, never from calldata (T-218). */
+const TIMEOUTS: ReadonlySet<string> = new Set(['expireOffer', 'reclaim', 'triggerFallback', 'triggerDefault', 'expireAppeal']);
+/** 9999-12-31T23:59:59Z: a later chain time (the contract takes any uint64) reads as never expiring (review H2). */
+const LATEST_SECONDS = 253_402_300_799;
+/** A contract time in seconds as a timestamp, clamped to what a timestamp holds; the contract already enforced it. */
+const chainTime = (v: unknown): Timestamp => toTimestamp(Math.min(Number(v), LATEST_SECONDS) * 1000);
 
 export interface DecodedLog {
   address: Address;
@@ -1391,7 +1397,7 @@ export class EvmSettlement implements Settlement {
 
   /**
    * Deals whose stage a direct call may still change within their terms, for the world's cadence (T-218):
-   * - an offer until the earlier of offerExpiresAt and fundBy (after that nothing can fund it), and a funded deal until
+   * - an accepted offer until the earlier of offerExpiresAt and fundBy (after that nothing can fund it), and a funded deal until
    *   an hour after the last deadline ahead of it (deliverBy, judgeBy, fallbackBy, the appeal windows);
    * - `recent`: its book moved in the last day, or one of its deadlines is within an hour of now; the world reads the
    *   chain at least once a minute while any is. `idle`: open but quiet, read every 15 minutes, so far-off deadlines
@@ -1403,7 +1409,8 @@ export class EvmSettlement implements Settlement {
     const out = { recent: 0, idle: 0 };
     for (const b of this.books.values()) {
       const s = b.state;
-      if (s.kind === 'Expired' || s.kind === 'Settled' || this.finalAt(b) !== null) continue;
+      // An offer the primary has not accepted cannot be funded: posting offers alone keeps no cadence (red-team round 2, E).
+      if (s.kind === 'Offered' || s.kind === 'Expired' || s.kind === 'Settled' || this.finalAt(b) !== null) continue;
       const t = s.terms.timing;
       const deadlines = PRE_FUNDING.includes(s.kind) ? [Math.min(Date.parse(t.offerExpiresAt), Date.parse(t.fundBy))] : [t.deliverBy, t.judgeBy, t.fallbackBy].map(Date.parse);
       if (s.kind === 'Escalated') deadlines.push(Date.parse(s.escalation.appealDecideBy));
@@ -1412,8 +1419,12 @@ export class EvmSettlement implements Settlement {
         if (ap.kind === 'none' || ap.kind === 'open') deadlines.push(Date.parse(ap.appealDecideBy));
       }
       if (now >= Math.max(...deadlines) + OPEN_GRACE_MS) continue;
-      const near = deadlines.some((d) => Math.abs(now - d) < OPEN_GRACE_MS);
-      if (near || now - Date.parse(b.updatedAt) < RECENT_MS) out.recent++;
+      // An accepted offer is recent only for an hour after it last moved: offers whose deadlines chain one after
+      // another must not keep a world on the minute cadence (red-team round 3, H3). A funded deal is recent near any
+      // of its deadlines, or for a day after it last moved.
+      const quiet = now - Date.parse(b.updatedAt);
+      const recent = PRE_FUNDING.includes(s.kind) ? quiet < OPEN_GRACE_MS : deadlines.some((d) => Math.abs(now - d) < OPEN_GRACE_MS) || quiet < RECENT_MS;
+      if (recent) out.recent++;
       else out.idle++;
     }
     return out;
@@ -1640,39 +1651,96 @@ export class EvmSettlement implements Settlement {
       }
       return 'applied';
     }
+    // A delivery alone is read from its JobSubmitted log too, whatever sent it: the seller's posted copy can then always
+    // join (red-team round 2, G3).
+    const rulesLogs = logs.filter((l) => lc(l.address) === lc(this.world.deployment.rules));
+    if (rulesLogs.length === 1 && rulesLogs[0]!.eventName === 'JobSubmitted' && book.state.kind === 'Held') {
+      const landed = rulesLogs[0]!.args['deliverable'] as Hex32;
+      const d = [known, book.carried, book.delivery].find((x): x is Delivery => !!x && deliveryHash(x) === landed);
+      if (!d) return this.fallBehind(id, book, tx, stage, `the seller's delivery landed in transaction ${tx.hash} without passing through this node, and the contract keeps only its hash (${landed}), so this node holds no envelopes for the adjudicators.`, [tx]);
+      return this.applyRebuilt(id, book, tx, stage, { fn: 'deliver', steps: (at) => [{ type: 'deliver', at, delivery: d }], actor: book.state.terms.seller, ctx: { delivery: d }, signed: async () => true }, logs, note);
+    }
     const view = termsView(book.state.terms);
     const readable = rulesCalls(this.world, tx);
     const seenCall = new Set<string>();
-    const candidates = (readable ?? embeddedCalls(this.world, tx.input)).filter((c) => {
+    // Timeouts come from the logs alone (above): one read from calldata may never have run (red-team round 2, A and B).
+    const candidates = (readable ?? embeddedCalls(this.world, tx.input, view)).filter((c) => {
       const k = JSON.stringify(toJson(c));
-      if (!sameView(c.args[0], view) || seenCall.has(k)) return false;
+      if (TIMEOUTS.has(c.fn) || !sameView(c.args[0], view) || seenCall.has(k)) return false;
       seenCall.add(k);
       return true;
     });
-    if (readable && candidates.length !== 1) return this.fallBehind(id, book, tx, stage, `transaction ${tx.hash} made ${candidates.length} calls for this deal; this node rebuilds one signed call per transaction.`);
+    if (readable && candidates.length !== 1) return this.fallBehind(id, book, tx, stage, `transaction ${tx.hash} made ${candidates.length} signed calls for this deal; this node rebuilds one signed call per transaction.`);
     const accepted: Array<Exclude<Rebuilt, { wait: string } | { fail: string }>> = [];
-    let wait: string | null = null;
+    const waits: string[] = [];
     let why = readable ? '' : `transaction ${tx.hash} called contract ${tx.to}, and its calldata shows no call for this deal that its logs and signatures confirm.`;
     for (const c of candidates) {
       const r = this.rebuild(id, book, c, tx, known, note);
-      if ('wait' in r) wait ??= r.wait;
+      if ('wait' in r) {
+        // A call that carries a delivery this node never held waits for it, but only once the logs and (for a call read
+        // out of another contract) its signature say it ran: a planted call must not cancel the join (red-team round 3).
+        if (this.waitUnconfirmed(c, logs, book.state.terms) || (!readable && !(await this.waitSigned(id, book, c)))) continue;
+        waits.push(r.wait);
+      }
       else if ('fail' in r) why = r.fail;
       else {
         const off = this.unconfirmed(r, logs, book.state.terms);
         if (off) why = `transaction ${tx.hash}'s logs do not show the ${r.fn} this node read from its calldata: ${off}.`;
-        else if (!readable && !(await r.signed())) why = `the ${r.fn} written in transaction ${tx.hash}'s calldata does not carry valid signatures.`;
+        else if (!readable && !(await r.signed())) why = `the ${r.fn} written in transaction ${tx.hash}'s calldata does not carry valid signatures this node can check (contract signers, ERC-1271, are not read).`;
         else accepted.push(r);
       }
     }
     if (accepted.length === 1) {
       const r = accepted[0]!;
-      // The operators' own fee leg rides in the same bundle (ADR-0023): a missed receipt still records it (review L4).
-      const fee = feeLegs(this.world, tx).find((f) => f.nonce === operatorFeeNonce(id));
-      if (fee) r.ctx = { ...r.ctx, operatorFee: { from: lc(fee.from), to: lc(fee.to), amount: this.amount(fee.value) } };
+      // The operators' own fee leg rides in the same bundle (ADR-0023): a missed receipt still records it (review L4),
+      // when the buyer's own transfer moved it (red-team round 2, D: anyone can spend a nonce of their own).
+      const fee = this.feeLeg(id, book.state.terms.buyer, tx);
+      if (fee) r.ctx = { ...r.ctx, operatorFee: fee };
       return this.applyRebuilt(id, book, tx, stage, r, logs, note);
     }
-    if (accepted.length === 0 && wait && candidates.length === 1) return this.fallBehind(id, book, tx, stage, wait, [tx]);
+    // Candidates the logs or signatures rejected do not count: a planted call cannot stop a delivery from joining.
+    if (accepted.length === 0 && waits.length === 1) return this.fallBehind(id, book, tx, stage, waits[0]!, [tx]);
     return this.fallBehind(id, book, tx, stage, accepted.length > 1 ? `transaction ${tx.hash} carries ${accepted.length} calls for this deal that its logs confirm; this node cannot tell which ran.` : why);
+  }
+
+  /** Why a call that carries a delivery (a decision or an early accept in Held) does not match the logs, or null. */
+  private waitUnconfirmed(c: RulesCall, logs: readonly DecodedLog[], terms: AnyCommitmentTerms): string | null {
+    const has = (name: string) => logs.find((l) => l.eventName === name && lc(l.address) === lc(this.world.deployment.rules));
+    const v = c.args[1] as Record<string, unknown>;
+    if (c.fn === 'decide') {
+      const d = has('Decided');
+      return d && Number(d.args['role']) === Number(v['role']) && Number(d.args['outcome']) === Number(v['outcome']) && lc(String(d.args['judgmentRecordHash'])) === lc(String(v['judgmentRecordHash'])) && lc(String(d.args['seed'])) === lc(String(v['seed'])) ? null : 'no matching Decided';
+    }
+    if (c.fn === 'earlyAccept') {
+      const done = has('JobCompleted');
+      return done && !has('Decided') && lc(String(done.args['evaluator'])) === lc(terms.buyer) ? null : 'no early acceptance by the buyer';
+    }
+    return `${c.fn} carries no delivery`;
+  }
+
+  /** Whether a waiting call's own signed message verifies (the delivery it carries is checked when posted). */
+  private async waitSigned(id: Hex32, book: Book, c: RulesCall): Promise<boolean> {
+    const v = c.args[1] as Record<string, unknown>;
+    if (c.fn === 'decide') {
+      const m = this.decisionFrom(id, book, v);
+      return typeof m !== 'string' && verifyMessage(this.domain, m, m.adjudicator);
+    }
+    if (c.fn === 'earlyAccept') {
+      const buyer = book.state.terms.buyer;
+      const m: EarlyAccept = { type: 'EarlyAccept', commitmentId: id, buyer, attempt: Number(v['attempt']), deliveryHash: v['deliveryHash'] as Hex32, nonce: v['nonce'] as Hex32, expiresAt: chainTime(v['expiresAt']), signature: v['signature'] as Hex };
+      return verifyMessage(this.domain, m, buyer);
+    }
+    return false;
+  }
+
+  /** The operator fee a readable bundle paid for this deal: the buyer's own ERC-3009 transfer, shown by the token's Transfer log. */
+  private feeLeg(id: Hex32, buyer: Address, tx: ChainTx): { from: string; to: string; amount: TokenAmount } | null {
+    const leg = feeLegs(this.world, tx).find((f) => f.nonce === operatorFeeNonce(id) && lc(f.from) === lc(buyer));
+    if (!leg) return null;
+    const moved = this.decode(tx.logs.filter((l) => lc(l.address) === lc(this.world.deployment.token)) as unknown as Log[]).some(
+      (l) => l.eventName === 'Transfer' && lc(String(l.args['from'])) === lc(buyer) && lc(String(l.args['to'])) === lc(leg.to) && BigInt(String(l.args['amount'] ?? l.args['value'] ?? 0)) === leg.value,
+    );
+    return moved ? { from: lc(leg.from), to: lc(leg.to), amount: this.amount(leg.value) } : null;
   }
 
   /**
@@ -1775,8 +1843,18 @@ export class EvmSettlement implements Settlement {
         const others = m.payouts.filter((p) => !same(p.to, terms.seller) && !same(p.to, terms.buyer)).map((p) => `${lc(p.to)}:${p.amount.amount}`).sort();
         return JSON.stringify(paid) === JSON.stringify(others) ? null : 'its other payouts differ';
       }
+      // Timeouts are read from the logs alone; one read from calldata is checked against its own log all the same.
+      case 'expireOffer':
+      case 'reclaim':
+        return has('JobExpired') ? null : 'no JobExpired';
+      case 'triggerFallback':
+        return has('FallbackTriggered') ? null : 'no FallbackTriggered';
+      case 'triggerDefault':
+        return has('Defaulted') ? null : 'no Defaulted';
+      case 'expireAppeal':
+        return has('AppealClosed') ? null : 'no AppealClosed';
       default:
-        return null;
+        return `this node does not check ${r.fn} against logs`;
     }
   }
 
@@ -1799,7 +1877,7 @@ export class EvmSettlement implements Settlement {
     const terms = s.terms;
     const a = terms.adjudication;
     const args = call.args as readonly Record<string, unknown>[];
-    const ts = (v: unknown) => toTimestamp(Number(v) * 1000);
+    const ts = chainTime;
     const hex = (v: unknown) => v as Hex32;
     const sub = note?.submission;
     const signedAs = (m: { signature: string } | undefined, v: unknown) => !!m && lc(m.signature) === lc(String(v));
@@ -1968,7 +2046,7 @@ export class EvmSettlement implements Settlement {
       registryHash: terms.adjudication.registryHash,
       judgmentRecordHash: v['judgmentRecordHash'] as Hex32,
       nonce: v['nonce'] as Hex32,
-      expiresAt: toTimestamp(Number(v['expiresAt']) * 1000),
+      expiresAt: chainTime(v['expiresAt']),
       signature: v['signature'] as Hex,
       ...(v['keyScheme'] ? { keyForBuyer: { scheme: v['keyScheme'] as 'x25519-xsalsa20poly1305', ciphertext: String(v['keyCiphertext']) } } : {}),
       ...(ground ? { appealGround: ground } : {}),

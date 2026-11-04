@@ -10,6 +10,7 @@ import { fakeProvider, type FakeScript, type JudgeProvider, type LoadedRegistry 
 import { keccak256, stringToBytes, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { defaultPolicy } from './policy.js';
+import type { RandomnessSource } from './randomness.js';
 import { loadRegistryFile } from './registry-file.js';
 import { Adjudicator, type RunReport } from './service.js';
 import { SettlementAdapter, type ContentStore, type SettlementReads } from './simchain-adapter.js';
@@ -96,11 +97,18 @@ export interface TestAdjudicatorOptions {
    * adjudicators trust each other; unset, it trusts only itself and declines every offer naming another.
    */
   trustedAdjudicators?: readonly Address[];
+  /**
+   * Where it reads drand quicknet rounds for a commitment whose rulebook names drand-quicknet (`drandQuicknet()`,
+   * T-217). Unset: it decides no such commitment's fallback or appeal turn, and the deal takes its default path.
+   */
+  drand?: RandomnessSource;
 }
 
 export interface TestAdjudicator {
   readonly address: Address;
   readonly service: Adjudicator;
+  /** The settlement port it decides through. */
+  readonly settlement: SettlementAdapter;
   /** The registration fields this adjudicator publishes (pool and status come from the settlement layer). */
   registration(): ReturnType<Adjudicator['registration']>;
   /** One pass: accept offers naming it, trigger due fallbacks, decide what is its turn. */
@@ -110,6 +118,7 @@ export interface TestAdjudicator {
 export function testAdjudicator(o: TestAdjudicatorOptions): TestAdjudicator {
   const address = privateKeyToAccount(o.signingKey).address.toLowerCase() as Address;
   const registry = o.registry ?? placeholderRegistry();
+  const settlement = new SettlementAdapter({ chain: o.chain, store: o.store, registration: o.registration, ...(o.drand ? { drand: o.drand } : {}) });
   const service = new Adjudicator({
     address,
     name: o.name,
@@ -122,9 +131,9 @@ export function testAdjudicator(o: TestAdjudicatorOptions): TestAdjudicator {
     fee: { min: o.fee },
     domain: o.domain,
     provider: o.provider ?? markedFake(markerFake(o.judges ?? {})),
-    settlement: new SettlementAdapter({ chain: o.chain, store: o.store, registration: o.registration }),
+    settlement,
     ...(o.acceptSealedUnread ? { acceptSealedUnread: true } : {}),
     ...(o.trustedAdjudicators ? { trustedAdjudicators: o.trustedAdjudicators } : {}),
   });
-  return { address, service, registration: () => service.registration(), runOnce: () => service.runOnce() };
+  return { address, service, settlement, registration: () => service.registration(), runOnce: () => service.runOnce() };
 }

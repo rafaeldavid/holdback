@@ -768,9 +768,50 @@ Also: the funding signature on EVM is CPP's collector signature and token identi
 - **Gas.** The test agents hold no Sepolia ETH and send no transaction. The operators' relayer pays for each deal as it does for `try.mjs`: 1,636,242 gas per deal plus the buyer's faucet mint (measured), one mint fewer than a `try.mjs` deal. At the day cap that is about 0.19 Sepolia ETH a day at 1 gwei (arithmetic).
 - **Litmus tests.** A party only: no protocol step, schema field or contract line changes. The hold and judgment are untouched; the refund is a real failed check. A stalled seller is the existing `neutrality.seller-withholds-delivery` case.
 - **Open for Rafa.** The faucet does not renew an expired mandate, so a standing address stops offering after 30 days unless the world resets first. The one-line fix is in `apps/demo-cloud/src/world.ts`, the operator lane; until it ships, rotating the secret (`seed.mjs --replace`) is the stopgap.
+  - *2026-11-04, T-223:* T-223 (PR 191) changed the faucet to sign a fresh 30-day mandate at every grant, which replaces the address's earlier one, whether or not it has expired. Renewing only an expired one would leave the seller degraded for about 2 hours every 30 days, because it asks 2 hours early (inferred). The fix reaches the live demo when Rafa deploys the operators; until then the stopgap stands.
 
 | Option | Effect |
 | --- | --- |
 | Standing test seller, sealed intake, `try.mjs --seller` (chosen) | A visitor's agent deals with another party in one approved command; no protocol change; one Worker to deploy |
 | A seller and a buyer at once | The visitor can also sell; about twice the work before anything ships |
 | Keep self-play only | Nothing to run; a visitor never sees two parties |
+
+## D48. Appeal bonds move by a relayed token permit; agents never need Sepolia ETH to appeal (T-224)
+
+**Decided 2026-11-04 under "autonomy inside the repo", after a Fable max-effort research pass (`docs/research/2026-11-04-visitor-gas.md`); Rafa may overrule any line.** Rafa asked for the plan: "Yes, plan it", to my proposal of a way for new visitors to appeal without their own Sepolia ETH. Today `llms.txt` says an appeal on Sepolia needs the appellant's own test ETH. The reason: `HoldbackBonds.takeAppealBond` pulls the bond with `transferFrom`, so the appellant must first send its own `approve` transaction. Every other step a visitor takes is relayed and free (measured).
+
+- **The permit.** On a chain world, `POST /v1/prepare/appeal` returns a second slot, `bondPermit.signature`. It is an EIP-2612 `Permit` with owner the appellant, spender HoldbackBonds, value the appeal bond, nonce the token's nonce for the appellant and deadline `appealBy`. It is signed under the token's own EIP-712 domain, the one the funding and the operator fee already use. The appellant signs it beside the `Appeal` and sends both in one body. tUSDC (Solady's ERC20) and Circle's USDC (FiatToken v2 and later) both implement `permit`, so the path is the same on mainnet (measured for tUSDC; inferred for USDC from its published source).
+- **The relay.** The operator relays `permit` and `fileAppeal` together in one Multicall3 call, as it relays the operator fee with the funding (ADR-0023's EVM amendment).
+  - It reads the appellant's allowance to the vault first. When that already covers the bond, it files the appeal alone.
+  - A permit by itself can only set an allowance to the vault. Only `fileAppeal` can spend it, and only on the appellant's own signed appeal, so the operator relays and never authors.
+  - A refused relay leaves both signed messages valid for another operator or a direct call.
+- **Gas and the fee.**
+  - The deal's lane pays about 0.4 to 0.6 million gas per appeal on Sepolia. That is inferred from anvil's 73,884 gas for the permit and 108,396 for `fileAppeal`, times Sepolia's measured 2.1 to 3.2 factor, and is a quarter to a third of a deal's 1,636,242.
+  - Appeals stay free of the operator fee on the demo (ADR-0023 §5). The fixed per-deal quote absorbs the cost (D33 as amended). T-215's live quote may add an appeal part, as an operator parameter, before mainnet.
+- **No contract change.** HoldbackRules keeps its 263 bytes of headroom under the contract size limit (measured).
+  - The gasless adjudicator bond (`depositWithAuthorization` and a signed `withdraw`, in HoldbackBonds only) stays with T-212's mainnet redeploy, as D46 decided. This entry closes the appeal half of that backlog row.
+  - Until the redeploy, an outside adjudicator bonds from its own key, and `llms.txt` says so.
+- **Not chosen: a gas drip.**
+  - Sepolia ETH is scarce and traded, so a faucet drip without a CAPTCHA is farmable: about 0.6 Sepolia ETH a day at the faucet's 600 grants, enough to empty the funding lane in about three days (inferred).
+  - A drip puts a chain transaction back in front of the agent, and none of it carries to mainnet.
+  - The backlog row for an escape-hatch drip stays as it is, Rafa's call.
+- **Schema.** The change is additive: an `AllowancePermit` definition and an `AppealRequest`, which is an `Appeal` plus an optional `bondPermit`. It rides T-221's 0.10 if both reach the same deploy, else ships as 0.11. The EIP-712 domain stays 0.7, because `Permit` is the token's type, not Holdback's.
+- **The defaults for the research's open questions** (Rafa may overrule each):
+  1. one version bump, as above;
+  2. appeals stay free on the demo;
+  3. the drip row stays as it is;
+  4. the zero-bond appeal is recorded below and its fix stays with T-212;
+  5. `llms.txt` pins the `bonds` address with T-220.
+- **Residual, recorded.** The contract accepts a zero appeal bond, so an agent that writes `bond: 0` into its own `Appeal` already appeals with no allowance (measured from the contract). The deterrent exists only for the rulebook's bond, and this entry makes that bond postable by anyone. The fix is a minimum appeal bond in the signed terms (T-212, before mainnet, D43). On the demo the tokens are worthless and the appeal adjudicators are Crow's.
+- **Litmus tests.**
+  - Neutrality holds: a refusing operator leaves both signatures valid, and `neutrality.operator-refuses-appeal-relay` will show a direct filing.
+  - The hold is untouched.
+  - Judgment is untouched: appeals stay backed by the adjudicator's bond.
+
+| Option | Effect |
+| --- | --- |
+| A gas drip from the funding lane | Demo only; farmable; the agent still sends its own transaction; nothing carries to mainnet |
+| A relayed EIP-2612 permit (chosen) | One more typed-data slot; no contract change; the same on USDC; about a third of a deal's gas per appeal |
+| ERC-3009 authorization into HoldbackBonds | Right for the adjudicator's bond, at T-212's redeploy; for appeals it costs a redeploy and HoldbackRules bytes for nothing the permit doesn't give |
+| EIP-7702 or an ERC-4337 paymaster | Wallet machinery in the agent's path and a third party in the write path; Phase 5 |
+| A zero appeal bond on the demo | Free appeals, a fresh world, and a protocol that misrepresents itself; mainnet needs a minimum bond anyway |
