@@ -104,7 +104,7 @@ describe('public mode', () => {
   it('renews the mandate on every grant: past its 30 days or close to them, the address gets a fresh one in place of the old', async () => {
     let t = Math.ceil(Date.now() / 1000) * 1000;
     const storage = new MemoryStorage();
-    const { urls } = await serve({ now: () => t }, storage, undefined, { passes: false });
+    const { world, urls } = await serve({ now: () => t }, storage, undefined, { passes: false });
     const d = await discovery(urls);
     const [seller, buyer] = [freshAgent(urls), freshAgent(urls)];
     const grant = async (a: Agent): Promise<J> => (await a.call('POST', '/v1/faucet', { address: a.address })).mandate;
@@ -121,11 +121,20 @@ describe('public mode', () => {
     t = Date.parse(renewed.scope.expiresAt) - 2 * 3_600_000;
     const early = await grant(seller);
     expect(Date.parse(early.scope.expiresAt)).toBe(t + 30 * 86_400_000);
+    // A deal in flight continues across a renewal: both parties renew between the offer and the agreement.
+    const timing = { offerExpiresInSec: 7200, fundWithinSec: 7300, deliverWithinSec: 7400, judgeWithinSec: 600, fallbackWithinSec: 600, appealWindowSec: 60, appealDecideSec: 60 };
+    const offer = await seller.offer(offerRequest(d, seller, buyer, { timing }));
+    await world.work();
+    t += 3_600_000;
+    const latest = await grant(seller);
+    await grant(buyer);
+    await buyer.agreeAndFund(offer.terms, 30_000_000n);
+    expect((await world.chain.state(offer.id))?.escrowState).toBe('Held');
     // Every node, and a world rebuilt from the same storage, serves only the latest mandate.
-    const latest = async (u: string) => ((await (await fetch(`${u}/v1/agents/${seller.address}`)).json()) as J).mandates.map((m: J) => m.mandateHash);
-    for (const u of urls) expect(await latest(u)).toEqual([early.mandateHash]);
+    const served = async (u: string) => ((await (await fetch(`${u}/v1/agents/${seller.address}`)).json()) as J).mandates.map((m: J) => m.mandateHash);
+    for (const u of urls) expect(await served(u)).toEqual([latest.mandateHash]);
     const rebuilt = await PublicWorld.open({ storage, env: {}, minWindowSec: 2, now: () => t });
-    expect(rebuilt.chain.agentMandates().filter((m) => m.agent.toLowerCase() === seller.address).map((m) => m.scope.expiresAt)).toEqual([early.scope.expiresAt]);
+    expect(rebuilt.chain.agentMandates().filter((m) => m.agent.toLowerCase() === seller.address).map((m) => m.scope.expiresAt)).toEqual([latest.scope.expiresAt]);
   });
 
   it('has no clock or adjudicator controls and no arbitrary-amount faucet', async () => {
