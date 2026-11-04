@@ -29,6 +29,8 @@ import {
   type Problem,
   type Result,
   type Timestamp,
+  type Timing,
+  type TokenAmount,
 } from '@holdback/core';
 import { encodePublicKey, encryptionKeyPairFromSecretKey, seal, wrapKeyForRecipients, type ContentKey, type EncryptionKeyPair } from '@holdback/core/crypto';
 import { tusd } from '@holdback/settlement/sim';
@@ -67,6 +69,9 @@ export interface CommitmentOver {
   registryHash: Hex32;
   buyer: Party;
   seller: Party;
+  /** Overrides of the default windows (a sham deal's, T-211). */
+  timing?: Partial<Timing>;
+  fee?: TokenAmount;
 }
 export function makeCommitment(o: CommitmentOver): Commitment {
   const rest: Omit<Commitment, 'id' | 'signatures' | 'adjudicatorAcceptance'> & Partial<Commitment> = { ...EXAMPLE };
@@ -77,7 +82,7 @@ export function makeCommitment(o: CommitmentOver): Commitment {
     ...rest,
     buyer: o.buyer.address,
     seller: o.seller.address,
-    adjudication: { ...rest.adjudication, adjudicator: o.primary, fallbackAdjudicator: o.fallback, appealAdjudicator: o.appeal, policyHash: o.policyHash, registryHash: o.registryHash },
+    adjudication: { ...rest.adjudication, adjudicator: o.primary, fallbackAdjudicator: o.fallback, appealAdjudicator: o.appeal, policyHash: o.policyHash, registryHash: o.registryHash, ...(o.fee ? { fee: o.fee } : {}) },
     timing: {
       offerExpiresAt: '2026-11-01T09:30:00Z',
       fundBy: '2026-11-01T09:45:00Z',
@@ -87,6 +92,7 @@ export function makeCommitment(o: CommitmentOver): Commitment {
       appealWindowSec: 300,
       appealDecideSec: 300,
       maxSubmissions: 1 as const,
+      ...o.timing,
     },
     buyerEncryptionPublicKey: encodePublicKey(o.buyer.enc.publicKey),
     createdAt: T0,
@@ -119,6 +125,10 @@ export class TestSettlement implements AdjudicatorSettlement {
   failNextDecisions = 0;
   /** Throw on the next N record publications (a transient store failure). */
   failNextPublishes = 0;
+  /** Throw on the next N appeal expiries (an unreachable settlement layer). */
+  failNextExpiries = 0;
+  /** Free bond per adjudicator (lowercase address), as the contract's `freeOf` reads it. Unset: ample. */
+  readonly bonds = new Map<string, bigint>();
   readonly randomness: RandomnessSource = simBeacon(SIM_SEED, () => this.now());
 
   now = (): Timestamp => new Date(this.clock).toISOString();
@@ -221,7 +231,7 @@ export class TestSettlement implements AdjudicatorSettlement {
       if (s.kind === 'Escalated' && appealAdjudicator.toLowerCase() === me) {
         const decision = [...this.submitted].reverse().find((m): m is Decision => m.type === 'Decision' && m.commitmentId === c.commitment.id && m.outcome === 'escalate');
         const env = decision?.encryptedKeys?.find((k) => k.recipient.toLowerCase() === me);
-        out.push({ ...base, role: 'appeal', delivery: this.signedDelivery(c), ...(env ? { releasedKey: env } : {}), roundFixedAt: s.escalation.at, deadline: s.escalation.appealDecideBy });
+        out.push({ ...base, role: 'appeal', delivery: this.signedDelivery(c), ...(env ? { releasedKey: env } : {}), roundFixedAt: s.escalation.at, ...(decision ? { firstDecider: decision.adjudicator } : {}), deadline: s.escalation.appealDecideBy });
       }
       if (c.appealOpen && (s.kind === 'Released' || s.kind === 'Refunded') && s.via.kind === 'first_instance' && s.via.appeal.kind === 'open' && appealAdjudicator.toLowerCase() === me) {
         const env = c.held.get(me);
@@ -232,6 +242,7 @@ export class TestSettlement implements AdjudicatorSettlement {
           ...(env ? { releasedKey: env } : {}),
           roundFixedAt: c.appealOpen.at,
           firstOutcome: c.appealOpen.firstOutcome,
+          firstDecider: s.via.decision.adjudicator,
           ...(c.appealOpen.ground ? { appealGround: c.appealOpen.ground } : {}),
           deadline: s.via.appeal.appealDecideBy,
         });
@@ -240,14 +251,40 @@ export class TestSettlement implements AdjudicatorSettlement {
     return out;
   }
 
-  async takeoversDue(adj: Hex32): Promise<Hex32[]> {
+  async takeoversDue(adj: Hex32): Promise<Commitment[]> {
     return [...this.cases.values()]
-      .filter((c) => c.state.kind === 'Delivered' && c.commitment.adjudication.fallbackAdjudicator.toLowerCase() === adj.toLowerCase() && this.clock >= Date.parse(c.commitment.timing.judgeBy))
-      .map((c) => c.commitment.id);
+      .filter((c) => c.state.kind === 'Delivered' && c.commitment.adjudication.fallbackAdjudicator.toLowerCase() === adj.toLowerCase() && this.clock >= Date.parse(c.commitment.timing.judgeBy) && this.clock < Date.parse(c.commitment.timing.fallbackBy))
+      .map((c) => c.commitment);
   }
 
   async triggerFallback(id: Hex32) {
     return this.apply(this.get(id), { type: 'trigger_fallback', at: this.now() });
+  }
+
+  /** Like the contract, the harness reserves nothing for a fallback or appeal adjudicator before it decides. */
+  async bondCover(adj: Hex32) {
+    return this.bonds.get(adj.toLowerCase()) ?? 100_000_000_000n;
+  }
+
+  async appealExpiriesDue(adj: Hex32): Promise<Hex32[]> {
+    return [...this.cases.values()]
+      .filter(({ state: s }) => {
+        if ((s.kind !== 'Released' && s.kind !== 'Refunded') || s.via.kind !== 'first_instance' || s.via.decision.adjudicator.toLowerCase() !== adj.toLowerCase()) return false;
+        const a = s.via.appeal;
+        return (a.kind === 'none' && this.clock >= Date.parse(a.appealBy)) || (a.kind === 'open' && this.clock >= Date.parse(a.appealDecideBy));
+      })
+      .map((c) => c.commitment.id);
+  }
+
+  async expireAppeal(id: Hex32) {
+    if (this.failNextExpiries > 0) {
+      this.failNextExpiries--;
+      throw new Error('settlement unreachable');
+    }
+    const c = this.get(id);
+    const r = this.apply(c, { type: 'expire_appeal', at: this.now() });
+    if (r.ok) delete c.appealOpen;
+    return r;
   }
 
   async ciphertext(uri: string) {

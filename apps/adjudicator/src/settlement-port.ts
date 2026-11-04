@@ -4,6 +4,7 @@
 import type {
   AdjudicatorAcceptance,
   AdjudicatorRegistration,
+  Address,
   AdjudicatorRole,
   AppealGround,
   Commitment,
@@ -40,6 +41,11 @@ export interface DecisionTask {
   roundFixedAt?: Timestamp;
   /** Appeal after a first-instance decision: that decision's outcome. Absent after an escalation. */
   firstOutcome?: 'accept' | 'reject';
+  /**
+   * Appeal: the adjudicator whose decision brought the case here (the first-instance decider, or the one that
+   * escalated). A service that made that decision already consented to the deal (T-211); absent, it has not.
+   */
+  firstDecider?: Address;
   /** Appeal ground the appellant named, if the settlement layer could classify it. */
   appealGround?: AppealGround;
   deadline: Timestamp;
@@ -57,9 +63,22 @@ export interface AdjudicatorSettlement {
   offers(adjudicator: Hex32): Promise<OfferTask[]>;
   tasks(adjudicator: Hex32): Promise<DecisionTask[]>;
   /** Delivered cases past judgeBy where this adjudicator is the fallback and no trigger has fired. */
-  takeoversDue(adjudicator: Hex32): Promise<Hex32[]>;
+  takeoversDue(adjudicator: Hex32): Promise<Commitment[]>;
   /** The permissionless `trigger_fallback`. */
   triggerFallback(commitmentId: Hex32): Promise<Result<unknown, Problem>>;
+  /**
+   * Cases this adjudicator decided first whose appeal can now be expired, which releases its bond: no appeal by
+   * appealBy, or an open appeal past appealDecideBy.
+   */
+  appealExpiriesDue(adjudicator: Hex32): Promise<Hex32[]>;
+  /** The permissionless appeal expiry. */
+  expireAppeal(commitmentId: Hex32): Promise<Result<unknown, Problem>>;
+  /**
+   * The bond this adjudicator could put behind its decision on the commitment now, in base units of the price token:
+   * its free bond (the contract's `freeOf`) plus what the commitment already holds on it. The contract reserves a
+   * fallback's bond when it decides and refuses an uncovered one (T-206 M-3); SimChain reserves it at takeover.
+   */
+  bondCover(adjudicator: Hex32, commitment: Commitment): Promise<bigint>;
   ciphertext(uri: string): Promise<Uint8Array>;
   /** Content-addressed publication of the judgment record; returns its URI. */
   publishRecord(record: Judgment): Promise<string>;

@@ -36,6 +36,10 @@ export interface SettlementReads extends Settlement {
   beacon(round: number): Hex32 | null;
   escrowState(id: Hex32): EscrowState | null;
   pool(adjudicator: Address): { junior: bigint; senior: bigint; reserved: bigint };
+  /** The contract's `freeOf`, read fresh (the EVM adapter); it also marks the contract's bond rules (`bondCover`). */
+  freeBond?(adjudicator: Address): Promise<bigint>;
+  /** Bond each commitment holds reserved, per adjudicator (SimChain). */
+  reservations?(): Array<{ commitmentId: Hex32; adjudicator: string; amount: bigint }>;
 }
 
 /** Content-addressed blobs and records, off the settlement layer. */
@@ -122,13 +126,14 @@ export class SettlementAdapter implements AdjudicatorSettlement {
       let task: Omit<DecisionTask, 'commitment' | 'attempt' | 'delivery'> | null = null;
       if (s.kind === 'Delivered' && lc(primary) === me) task = { role: 'primary', deadline: c.timing.judgeBy };
       else if (s.kind === 'FallbackJudging' && lc(fallbackAdjudicator) === me) task = { role: 'fallback', roundFixedAt: c.timing.judgeBy, deadline: c.timing.fallbackBy };
-      else if (s.kind === 'Escalated' && lc(appealAdjudicator) === me) task = { role: 'appeal', roundFixedAt: s.escalation.at, deadline: s.escalation.appealDecideBy };
+      else if (s.kind === 'Escalated' && lc(appealAdjudicator) === me) task = { role: 'appeal', roundFixedAt: s.escalation.at, firstDecider: s.escalation.by === 'fallback' ? fallbackAdjudicator : primary, deadline: s.escalation.appealDecideBy };
       else if ((s.kind === 'Released' || s.kind === 'Refunded') && s.via.kind === 'first_instance' && s.via.appeal.kind === 'open' && lc(appealAdjudicator) === me) {
         const grounds = s.via.appeal.appeal.grounds as AppealGround;
         task = {
           role: 'appeal',
           roundFixedAt: s.via.appeal.openedAt,
           firstOutcome: s.kind === 'Released' ? 'accept' : 'reject',
+          firstDecider: s.via.decision.adjudicator,
           ...(APPEAL_GROUNDS.includes(grounds) ? { appealGround: grounds } : {}),
           deadline: s.via.appeal.appealDecideBy,
         };
@@ -143,15 +148,64 @@ export class SettlementAdapter implements AdjudicatorSettlement {
     return out;
   }
 
-  async takeoversDue(adjudicator: Hex32): Promise<Hex32[]> {
+  async takeoversDue(adjudicator: Hex32): Promise<Commitment[]> {
     const now = Date.parse(this.now());
     return (await this.#cases())
-      .filter(({ c, s }) => s.kind === 'Delivered' && lc(c.adjudication.fallbackAdjudicator) === lc(adjudicator) && now >= Date.parse(c.timing.judgeBy))
-      .map(({ c }) => c.id);
+      .filter(({ c, s }) => s.kind === 'Delivered' && lc(c.adjudication.fallbackAdjudicator) === lc(adjudicator) && now >= Date.parse(c.timing.judgeBy) && now < Date.parse(c.timing.fallbackBy))
+      .map(({ c }) => c);
   }
 
   async triggerFallback(commitmentId: Hex32): Promise<Result<unknown, Problem>> {
     return fromSubmit(await this.#o.chain.trigger(commitmentId, 'fallback'));
+  }
+
+  /**
+   * The contract's test at the decision, on both chains: the free bond plus what the commitment already holds on this
+   * adjudicator.
+   * - The contract, which `freeBond` (its `freeOf`) marks: plus the price while the commitment still holds this
+   *   adjudicator's bond (ADR-0016 §1), as primary in Delivered and FallbackJudging, since a fallback's decision releases
+   *   the primary's reservation before it encumbers its own, and as the first decider while its appeal is open.
+   * - SimChain: plus the commitment's own reservations on it (at acceptance and takeover). SimChain adds nothing when the
+   *   fallback decides, so a decision covered by free bond can be under-reserved there (T-210 item 3). Counting only the
+   *   reservation would be worse: a party could drain the bond at the takeover and so force the default (red team K5).
+   */
+  async bondCover(adjudicator: Hex32, c: Commitment): Promise<bigint> {
+    const { chain } = this.#o;
+    const a = adjudicator as Address;
+    const s = chain.escrowState(c.id);
+    const pool = chain.pool(a);
+    const pooled = pool.junior + pool.senior - pool.reserved;
+    let free: bigint;
+    let held: bigint;
+    if (!chain.freeBond) {
+      free = pooled;
+      held = chain.reservations?.().find((r) => r.commitmentId === c.id && lc(r.adjudicator) === lc(a))?.amount ?? 0n;
+    } else {
+      free = await chain.freeBond(a);
+      const holder =
+        s?.kind === 'Delivered' || s?.kind === 'FallbackJudging'
+          ? c.adjudication.adjudicator
+          : (s?.kind === 'Released' || s?.kind === 'Refunded') && s.via.kind === 'first_instance' && s.via.appeal.kind === 'open'
+            ? s.via.decision.adjudicator
+            : null;
+      held = holder && lc(holder) === lc(a) ? BigInt(c.price.amount) : 0n;
+    }
+    return (free > 0n ? free : 0n) + held;
+  }
+
+  async appealExpiriesDue(adjudicator: Hex32): Promise<Hex32[]> {
+    const now = Date.parse(this.now());
+    return (await this.#cases())
+      .filter(({ s }) => {
+        if ((s.kind !== 'Released' && s.kind !== 'Refunded') || s.via.kind !== 'first_instance' || lc(s.via.decision.adjudicator) !== lc(adjudicator)) return false;
+        const a = s.via.appeal;
+        return (a.kind === 'none' && now >= Date.parse(a.appealBy)) || (a.kind === 'open' && now >= Date.parse(a.appealDecideBy));
+      })
+      .map(({ c }) => c.id);
+  }
+
+  async expireAppeal(commitmentId: Hex32): Promise<Result<unknown, Problem>> {
+    return fromSubmit(await this.#o.chain.trigger(commitmentId, 'appeal_expiry'));
   }
 
   ciphertext(uri: string): Promise<Uint8Array> {
