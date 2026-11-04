@@ -13,9 +13,10 @@
 // 5. Problem pages (D39): one page per problem type the operator answers, with its status and title.
 // 6. The agent guide spells out every encoding an agent computes (D39): no knowledge hides in examples/.
 // 7. try.mjs: site/try.mjs is the current bundle of examples/try.ts, importing only viem and tweetnacl;
-//    the one command (pinned versions, its sha256) heads "Try it" in a filled llms.txt and sits in the page.
+//    the one command (pinned versions, its sha256) heads "Try it" in a filled llms.txt. The page leaves it out:
+//    its Try line's prompt sends the visitor's assistant to llms.txt.
 import { existsSync, readFileSync } from 'node:fs';
-import { BASE, filled, page, pins, problemPages, SITE_URL, strip, tryBundle, tryCommand, TRY_URL } from './build.mjs';
+import { BASE, filled, page, pins, problemPages, SITE_URL, strip, tryBundle, tryCommand, trySha256, TRY_URL } from './build.mjs';
 
 const here = (p) => new URL(p, import.meta.url);
 const read = (p) => readFileSync(here(p), 'utf8');
@@ -43,7 +44,7 @@ const tryIt = md.slice(md.indexOf('## Try it'), md.indexOf('\n## ', md.indexOf('
 expect(count(md, '{{TRY_COMMAND}}') === 1 && tryIt.includes('```sh\n{{TRY_COMMAND}}\n```') && tryIt.indexOf('{{TRY_COMMAND}}') < tryIt.indexOf('\n1. '), '{{TRY_COMMAND}} must appear once in llms.txt, in an sh block at the top of "Try it", before the step-by-step list');
 expect((md.match(/\{\{[^}]*\}\}/g) ?? []).every((p) => ['{{OP1}}', '{{OP2}}', '{{TRY_COMMAND}}'].includes(p)), 'llms.txt has an unknown {{placeholder}}');
 expect(md.includes('https://github.com/rafaeldavid/holdback'), 'llms.txt links the public repo (optional reading)');
-expect(!/\{\{/.test(html) && /<img class="mark"[^>]*>\s*<h1>[^<]+<\/h1>\s*<p class="sub">[^<]+<\/p>\s*<form class="join"[\s\S]*?<\/form>\s*<p class="intro">[^<]+<\/p>\s*<section class="try"[\s\S]*<\/section>\s*<figure[^>]*>[\s\S]*<\/script>\s*<\/main>/.test(html), 'index.html must be the title, the subtitle, early access, the intro, Try ’crow and the drawing');
+expect(!/\{\{/.test(html) && /<img class="mark"[^>]*>\s*<h1>[^<]+<\/h1>\s*<p class="sub">[^<]+<\/p>\s*<form class="join"[\s\S]*?<\/form>\s*<p class="intro">[^<]+<\/p>\s*<section class="try"[\s\S]*<\/section>\s*<figure[^>]*>[\s\S]*<\/script>\s*<\/main>/.test(html), 'index.html must be the title, the subtitle, early access, the intro, Try Crow and the drawing');
 expect(!/%%|CONFIRM/.test(html) && !/^%% /m.test(strip(md)), 'an editor note reached index.html');
 expect(!/127\.0\.0\.1|localhost/.test(md + html), 'a local address is in the site');
 const sample = { op1: 'https://op1.example.workers.dev', op2: 'https://op2.example.workers.dev' };
@@ -137,11 +138,12 @@ expect(command.includes(` viem@${viem} tweetnacl@${tweetnacl} `) && command.incl
 expect(bundle.includes(`npm install viem@${viem} tweetnacl@${tweetnacl}`), 'the try.mjs banner names other versions than the command');
 const filledTry = sampleTxt.slice(sampleTxt.indexOf('## Try it'));
 expect(filledTry.split('\n').find((l) => l.startsWith('mkdir ')) === command, 'a filled llms.txt does not carry the current try command at the top of "Try it"');
-const escaped = command.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
-expect(html.includes(`<div class="cmd-box"><code>${escaped}</code>`) && /<p class="sr-only">For AI agents[^<]*<\/p>\s*<div class="cmd-box"><code>/.test(html), "index.html does not show the current try command under the agent line");
+expect(!html.includes('mkdir -p crow-try') && !html.includes(trySha256()), 'index.html carries the try command: it belongs in llms.txt only');
+const prompt = /<span id="prompt" hidden>([^<]*)<\/span>/.exec(html)?.[1] ?? '';
+expect(prompt.endsWith(`${SITE_URL}llms.txt`), "the Try line's prompt does not send the assistant to llms.txt");
 
 if (failures.length) {
   for (const f of failures) console.error(`FAIL ${f}`);
   process.exit(1);
 }
-console.log(`site check PASS: one source, placeholders in place, links resolve under ${BASE}, content agrees with docs/api.md and examples/verify.ts, try.mjs current and its command in place`);
+console.log(`site check PASS: one source, placeholders in place, links resolve under ${BASE}, content agrees with docs/api.md and examples/verify.ts, try.mjs current and its command in llms.txt`);

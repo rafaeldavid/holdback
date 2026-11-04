@@ -64,9 +64,9 @@ Each operator Worker has a variable `SETTLEMENT`, `sim` or `sepolia`, in its wra
 **Cutover** (Rafa approved it on 2026-11-03):
 
 1. Deploy holdback-op1's code with `SETTLEMENT` still `sim`: `pnpm -C apps/demo-cloud build`, then `npx wrangler@4 deploy -c apps/demo-cloud/wrangler.op1.jsonc --var SETTLEMENT:sim`. The SimChain demo keeps running.
-2. Deploy holdback-op2 with `SETTLEMENT` `sepolia`. Smoke test against op2's two origins: `HOLDBACK_OPERATORS=https://api2.escrow.stream,https://holdback-op2.<account>.workers.dev node examples/try.ts`; it must end Released with three Sepolia transaction links. From here until step 4 the homepage command fails: try.mjs requires both operators to serve one discovery document, and op1 still serves SimChain's.
+2. Deploy holdback-op2 with `SETTLEMENT` `sepolia`. Smoke test against op2's two origins: `HOLDBACK_OPERATORS=https://api2.escrow.stream,https://holdback-op2.<account>.workers.dev node examples/try.ts`; it must end Released with three Sepolia transaction links. From here until step 4 the try command in `llms.txt` fails: try.mjs requires both operators to serve one discovery document, and op1 still serves SimChain's.
 3. Deploy the site at once (the Sepolia `llms.txt`, and a `try.mjs` that knows both the SimChain and the Sepolia pins).
-4. Deploy holdback-op1 with `SETTLEMENT` `sepolia`, and run the one command from the homepage. Steps 2 to 4 take a few minutes; that is the window in which the homepage command fails.
+4. Deploy holdback-op1 with `SETTLEMENT` `sepolia`, and run the one command from `llms.txt` ("Try it"). Steps 2 to 4 take a few minutes; that is the window in which the try command fails.
 
 **Rollback:** set `SETTLEMENT` back to `sim` on both wrangler files and run `pnpm demo-cloud:deploy`, then deploy the previous site build (`npx wrangler@4 rollback` on `crow-site`). The SimChain world resumes where it stopped; the Sepolia world's storage and its deals on chain stay, and a later flip back serves them again.
 

@@ -157,7 +157,7 @@ describe('try.ts', () => {
     expectDeal(await node(['--input-type=module', '-'], demo.urls, { stdin: committed, cwd: here('.') }));
   }, 60_000);
 
-  it('the homepage and llms.txt carry the one command, with the sha256 of site/try.mjs and the lockfile versions', async () => {
+  it('llms.txt carries the one command, with the sha256 of site/try.mjs and the lockfile versions, and the homepage leaves it out', async () => {
     const { tryCommand, page, filled, pins } = await import(here('../site/build.mjs'));
     const sha = createHash('sha256').update(readFileSync(here('../site/try.mjs'))).digest('hex');
     // The pins are the versions this test ran the deal with: what pnpm installed for examples/.
@@ -168,7 +168,10 @@ describe('try.ts', () => {
     const md = readFileSync(here('../site/llms.txt'), 'utf8');
     const html = readFileSync(here('../site/index.html'), 'utf8');
     expect(html === page(md), 'site/index.html is stale: run node site/build.mjs').toBe(true);
-    expect(html).toContain(command.replaceAll('&', '&amp;').replaceAll('>', '&gt;').replaceAll('"', '&quot;'));
+    // The homepage's prompt sends the visitor's assistant to llms.txt, which carries the command (Rafa, 2026-11-04).
+    expect(html).not.toContain('mkdir -p crow-try');
+    expect(html).not.toContain(sha);
+    expect(html).toMatch(/<span id="prompt" hidden>[^<]*https:\/\/escrow\.stream\/llms\.txt<\/span>/);
     const txt: string = filled(md.split('\n').filter((l) => !l.startsWith('%% CONFIRM')).join('\n'), { op1: 'https://op1.example', op2: 'https://op2.example' });
     const tryIt = txt.slice(txt.indexOf('## Try it'), txt.indexOf('\n## ', txt.indexOf('## Try it') + 3));
     expect(tryIt.split('\n').find((l) => l.startsWith('mkdir '))).toBe(command);
