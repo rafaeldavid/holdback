@@ -207,8 +207,9 @@ const PRE_FUNDING: readonly EscrowStateKind[] = ['Offered', 'AcceptedByAdjudicat
 const BALANCE_TTL_MS = 4000;
 /**
  * The waits before each retry of a read pinned to a receipt's block (7.5 s in all, five tries): an RPC node that has
- * not seen the block yet fails the read, and each try walks the chain's RPC list again. No wait starts past the budget,
- * so RPCs that hang (8 s each, live.ts) do not hold the deal's lane for minutes.
+ * not seen the block yet fails the read, and each try walks the chain's RPC list again. No try starts after a wait that
+ * would end past the budget, so the retries add at most 10 s to the reads themselves (each up to 8 s per RPC when an
+ * RPC hangs, live.ts).
  */
 const RECEIPT_READ_RETRY_MS = [500, 1_000, 2_000, 4_000];
 const RECEIPT_READ_BUDGET_MS = 10_000;
@@ -487,17 +488,21 @@ export class EvmSettlement implements Settlement {
   /**
    * A read pinned to a mined block, until `settled` accepts its answer. On the chain that holds the receipt the answer
    * is fixed, so a failure or another answer means the node lags or follows another fork: the read is tried again,
-   * after RECEIPT_READ_RETRY_MS on a live chain, within RECEIPT_READ_BUDGET_MS. Then the last answer or failure stands.
+   * after RECEIPT_READ_RETRY_MS on a live chain, within RECEIPT_READ_BUDGET_MS. Then the last answer or failure stands,
+   * with no read after the budget.
    */
   private async atReceipt<T>(read: () => Promise<T>, settled: (answer: T) => boolean): Promise<T> {
     const deadline = Date.now() + RECEIPT_READ_BUDGET_MS;
-    for (const ms of RECEIPT_READ_RETRY_MS) {
-      const answer = await read().then((value) => ({ value }), () => null);
-      if (answer && settled(answer.value)) return answer.value;
-      if (Date.now() + ms > deadline) break;
+    for (let tries = 0; ; tries++) {
+      const last = await read().then((value) => ({ value }), (error: unknown) => ({ error }));
+      if ('value' in last && settled(last.value)) return last.value;
+      const ms = RECEIPT_READ_RETRY_MS[tries];
+      if (ms === undefined || Date.now() + ms > deadline) {
+        if ('error' in last) throw last.error;
+        return last.value;
+      }
       if (this.wall) await sleep(ms);
     }
-    return read();
   }
 
   /** A token balance. On a live chain reads are reused for a few seconds unless `fresh`; a check that gates a step is fresh. */
