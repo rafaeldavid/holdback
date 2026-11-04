@@ -61,6 +61,16 @@ Item 3 (branch `t-212-delivery-binding`, 2026-11-03; ADR-0029, D44):
 - **Site:** `node site/build.mjs && node site/check.mjs` pass [measured].
 - **`pnpm verify`: PASS**, every step (`reports/verify-t-212-delivery-binding.md`) [measured]: typecheck, lint, forge build, forge (241 passed), test (2,295 passed, 3 skipped), spec (33 of 33), snap (29 passed), snap:local (26 passed with identical transcripts, 3 excluded until Phase 4 as before; the new fixture is the 26th), demo.
 
+Item 3, review of PR #161 (2026-11-04; the Claude reviewer's six findings and DeepSeek's two, all addressed; `origin/main` with #160 merged in as a merge commit):
+- **gitleaks:** the ReadToken and KeyRegistration digest pins in `eip712.binding.test.ts` (public test vectors) are in `.gitleaksignore`, pinned to commit 86baa2e.
+- **Deploy guard (medium):** `LiveChain.verify` reads the rules contract's `eip712Domain()` and refuses to start when its name or version is not core's (`domainMismatch`), naming the redeploy. `packages/settlement/evm/live.test.ts` runs it against a local JSON-RPC stub: it refuses a 0.6 contract (this test fails with the check disabled) and starts against 0.7 [measured]. `docs/operations.md` warns, in the schema line, the deploy steps and both Sepolia sections, not to deploy the Workers or the site from main before the 0.7 contracts are on Sepolia.
+- **Gas budgets (medium-low):** `GasPerDeal.t.sol` under `--isolate`: 9 passed, with `deliver` at 83,535 (budget 105,000), a carried decision 163,783, an early accept 171,429, a decision after `deliver` 130,631; every budget about 25 % above its `--isolate` cost and every "measured" comment refreshed [measured].
+- **The adjudicator's cache (low):** a retry whose task carries another delivery than the judged record is refused `invalid_state`, and the decision takes `deliveryHash` from the record; a delivery for another commitment is refused `invalid_terms` before the signature check (DeepSeek). Both `service.test.ts` cases fail with the checks disabled and pass with them [measured].
+- **The read model (low):** made exact rather than carried through: `deliveryHash` is absent in `Defaulted` and after a default or reclaim, as the schema now says; `state.test.ts` pins `postedDeliveryHash` in twelve states [measured].
+- **Re-seat (low):** `scripts/reseat-recordings.mjs` is the script that re-seated the recordings (it never changes a verdict); run on today's recordings it changes nothing [measured]. `panel-disagreement-escalates` names its judges (gpt-b passes, gpt-a fails, qwen-a abstains).
+- **llms.txt (low):** the demo adjudicators decline an offer naming any other fallback or appeal adjudicator; the site check passes [measured].
+- **`pnpm verify` after the review: PASS**, every step [measured]: forge 241 passed; vitest 2,312 passed, 3 skipped; spec 33/33; snap 29 passed; snap:local 26 passed with identical transcripts, 3 excluded until Phase 4; demo. gitleaks is not installed locally, so the ignore entries are checked by CI only [inferred].
+
 ## Decisions
 
 Item 3 (D44, ADR-0029, Rafa may overrule):
@@ -80,7 +90,7 @@ Items 7 and 9 (PR #160):
 
 Item 3 (branch `t-212-delivery-binding`; stacks on PR #160 and merges after it):
 - **Still open in T-212:** items 1, 2, 4, 5, 6 and 8. Item 6 (the dead `MUTUAL_FEE_SHARE_BPS` branch) was not needed for size: 263 bytes are left.
-- **The Sepolia redeploy (gated on Rafa; nothing here touched Sepolia).** The deployed contract is domain 0.6 and cannot settle 0.7 messages, so the Workers must not be deployed from a commit with this change before the new contracts are on Sepolia. In order:
+- **The Sepolia redeploy (gated on Rafa; nothing here touched Sepolia).** The deployed contract is domain 0.6 and cannot settle 0.7 messages, so the Workers and the site must not be deployed from a commit with this change before the new contracts are on Sepolia (`docs/operations.md` says so; a Sepolia world built from main refuses to start against the 0.6 contract, `LiveChain.verify`, but a SimChain world and the site have no such check). In order:
   1. Merge T-033's additive v0.9 items first, so there is one redeploy.
   2. Deploy a new `HoldbackRules` (it deploys its own `HoldbackBonds`) with the same CPP escrow, collectors, `EXPIRY_MARGIN` (86,400), drand beacon and tUSDC; add the new entry to `contracts/deployments/sepolia.json` beside the old one.
   3. Copy the new addresses into `examples/deployments.ts` (its test compares the two), the pinned domain and deployment in `site/llms.txt` (domain version is already 0.7; `verifyingContract` and `rules` still name the old contract), and rebuild the site (`node site/build.mjs && node site/check.mjs`).
