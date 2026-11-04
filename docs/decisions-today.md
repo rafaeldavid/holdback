@@ -710,3 +710,32 @@ Also: the funding signature on EVM is CPP's collector signature and token identi
 | Cloudflare Access with GitHub passkeys, split hourly refresh (chosen) | Passkeys through each founder's GitHub account; no server of our own; fresh hourly whether or not Rafa's Mac is awake; about 90 minutes of setup by Rafa |
 | Access, with an hourly job on Rafa's Mac only | About 45 minutes of setup; the console goes stale whenever the Mac sleeps |
 | A passkey login written into the Worker | No third party at sign-in; about three days of work plus review, and recovery we build ourselves |
+
+## D46. Agents register their own adjudicators through the API; round 1 includes mutual settlement and overturns through the API
+
+**Decided 2026-11-04 by Rafa**, answering round 1's scope questions (T-216): "mutual settlement is important in the basic build, API should facilitate overturned appeals". Asked whether to plan adjudicator registration through the API, he answered "Yes, plan it". On funding the round's keys: "feels like we need a master address that funds all the rest". The design below follows a Fable max-effort research pass the same day (`docs/research/2026-11-04-adjudicator-registration.md`); Rafa may overrule any line.
+
+- **Round 1 (T-216).**
+  - A mutual settlement is one of its scenarios.
+  - Overturned appeals run through the public API. The round registers its own adjudicator, names it primary, and has it decide wrongly by script; a demo appeal adjudicator then overturns, and the first decider's bond pays the wronged party (D43).
+  - The same self-registered adjudicator is the round's silent adjudicator: it accepts and never decides, so the fallback and default paths run on a real offline adjudicator.
+  - The round's keys derive from one secret, and only its master address is funded by Rafa (`examples/e2e-keys.ts`).
+- **Registration (T-221, ADR-0030 to come).** `POST /v1/adjudicators` takes a self-signed EIP-712 `AdjudicatorRegistration`. Operators verify it, store one per address, and serve it with its signature and with the bond read from `HoldbackBonds`. The adjudicator deposits its bond on chain from its own key.
+  - Schema 0.10, additive; the EIP-712 domain stays 0.7.
+  - The reference adjudicator's trust rule (D44) extends to the fallback role: it serves as fallback only under a trusted appeal adjudicator. Without that, registration opens a second path to D44's attack.
+- **Later, with T-212's mainnet redeploy:** a gasless bond deposit and appeal bond, by ERC-3009 authorization. Until then a bond and an appellant's approval need the agent's own Sepolia ETH.
+- **Rafa's answers on T-221 (2026-11-04).**
+  - One message carries the key.
+  - The demo's adjudicators register the same way.
+  - Registrations are never removed: "show status of last used for each registration (don't remove but be transparent alongside other metrics)".
+  - "crow's adjudicators are default and custom selection is advanced usage of protocol (outside of recommendation by crow etc.)".
+  - The gasless bond: "build later".
+  - Registrations without a bond are listed: "just be clear that they don't".
+- **A bond rule, added by Rafa.** "crow should warn users if choosing an adjudicator without bond and should reject adjudicator selection at protocol level if contract specifies bond payout but adjudicator has no bond". The warning is advisory, from the operator. For the primary, the refusal already holds: its acceptance needs unencumbered bond for the price. For the fallback it is new: ADR-0030 designs it after a research pass, as a check at selection with no lock (M-3), in core and the contract together. The contract half ships with the next contract redeploy, with T-212 item 5; until then operators refuse to relay such terms.
+- **Still open:** whether operators serve the posted signed delivery to involved adjudicators now (recommended: later).
+
+| Option | Effect |
+| --- | --- |
+| Registration through the API, smallest honest form plus three additions (chosen) | The protocol's first property becomes true on the demo; overturns and silent adjudicators are real; an ADR and an additive schema bump; about one task |
+| A labelled test adjudicator inside the demo | About a day less; tests no outside adjudicator, so the API path Rafa asked for stays untested |
+| An on-chain registry now | A deploy and gas per registration, for no round-1 gain; Phase 4 |
