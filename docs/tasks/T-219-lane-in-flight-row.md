@@ -89,7 +89,7 @@ Made by the T-219 session on 2026-11-04; Rafa can overrule any of them.
 
 ## Handoff
 
-**State:** review, draft PR. It started on T-218's branch; T-218 merged as PR 185 meanwhile, and the branch has origin/main merged in (`113976a`). In that merge, `evm-settlement.ts` keeps T-218's review rounds 2 and 3, and the row's note also reaches round 2's new path that reads a lone delivery from its `JobSubmitted` log. The `reviewer` and `red-teamer` passes are still to run; the workflow's review stage runs them.
+**State:** review, draft [PR 195](https://github.com/rafaeldavid/holdback/pull/195). It started on T-218's branch; T-218 merged as PR 185 meanwhile, and the branch has origin/main merged in (`113976a`). In that merge, `evm-settlement.ts` keeps T-218's review rounds 2 and 3, and the row's note also reaches round 2's new path that reads a lone delivery from its `JobSubmitted` log. The `reviewer` and `red-teamer` passes are still to run; the workflow's review stage runs them.
 
 **What changed:**
 - `packages/settlement/evm/chain.ts`: `LaneRow`, `RelayNote`, and four optional `EvmChain` methods (`inFlight`, `rowOf`, `resume`, `release`). The anvil world (`world.ts`) implements none of them, so nothing changes there.
