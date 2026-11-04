@@ -5,7 +5,7 @@
 - **Depends on:** T-206 fix PRs #120, #125 and #135 merged
 - **Paths this task may touch:** `packages/core/src/state.ts`, `packages/core/src/state.test.ts`, `packages/settlement/sim/simchain.ts`, `packages/settlement/sim/simchain.test.ts`, `fixtures/scenarios/` (new `error.` rows only), `docs/tasks/T-210-appeal-fixes-core-sim.md`. Extended during the task (Decisions 3): `packages/settlement/sim/actors.ts`; `packages/testkit/src/scenario.ts`, `stub-settlement.ts` and `runner.test.ts` (coordinator approved, 2026-11-04); and `reports/differential-local.md`, which the differential rewrites
 - **Human gate:** no
-- **Status:** review (PR #173)
+- **Status:** done (PR #173)
 - **Agent/session:** implementer session for T-210 (branch `t-210-appeal-fixes-core-sim`)
 
 ## Intent
@@ -53,12 +53,12 @@ All measured on branch `t-210-appeal-fixes-core-sim`, 2026-11-04.
    - `packages/settlement/sim/actors.ts`: the `Deal` test helper's honest default no longer seals the buyer's key for an appeal of a refunded deal. Without this change, `properties.test.ts` and `tools/sim/check.test.ts` would sign decisions SimChain now refuses. `withKey` still forces the key.
    - `packages/testkit`: two `judge` tampers, `wrong_attempt` and `buyer_key`, plus their `runner.test.ts` cases. The testkit tampers were added with the coordinator's approval on 2026-11-04, because the runner's tamper set is closed: no existing step could sign an off-attempt decision or a keyed reject. The approval named the second tamper `key_on_reject`. It ships as `buyer_key` because it also covers an escalate and an accept on a refunded deal. It counts as applied only where an honest decision carries no key. Additions only: no existing tamper or fixture changes behaviour, and `pnpm snap` shows no diff outside the two new fixtures.
    - `packages/testkit`: the runner's honest judge also stops sealing the key for an appeal of a refunded deal, mirroring T-211. No fixture or test takes that path: the judges are deterministic, so none can overturn a reject.
-5. **`error.reject-carries-buyer-key` has no `verify_key_release` step.** The step refuses on any non-`Released` state before it looks at the keys, so it proved nothing. `simchain.test.ts` checks the buyer's keys directly.
 4. **The fixtures take the escalation and first-instance paths, not a party appeal.** Party-appeal fixtures are SimChain-only until Phase 4 (the appeal fee is not collected on chain; `LOCAL_EXCLUSIONS` in `packages/testkit/src/runner.ts`), so they could not pass "on the contract". The party-appeal cases of both findings are covered by the unit tests above.
+5. **`error.reject-carries-buyer-key` has no `verify_key_release` step.** The step refuses on any non-`Released` state before it looks at the keys, so it proved nothing. `simchain.test.ts` checks the buyer's keys directly.
 
 ## Handoff
 
-- **Status:** set to done on merge (PR #173).
+- **Status:** done with PR #173 (reviewer PASS at `9571047`, red team with no blocking finding, CI green).
 - **Docs to update (outside this task's paths):**
   - T-202 difference 16: H-1 and H-2 now match the contract for a single fault; only M-3 remains.
   - T-202, a new difference: with two faults, the problem types differ (Decisions 2). Each row was measured by the red-teamer, SimChain first, then the contract:
