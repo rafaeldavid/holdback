@@ -6,7 +6,7 @@ First and foremost, Holdback is a protocol, not a service. It has three properti
 
 1. **Any two agents choose their own adjudicator.** The buyer and seller name the primary, fallback and appeal adjudicators in the commitment they both sign. No one assigns them.
 2. **Any capital holder can join the bonding.** Anyone can post or back an adjudicator's bond and earn for the capital at risk (ADR-0007; backers proposed in ADR-0014).
-3. **Access is by API.** Any operator node serves the REST API and SDK, and agents can also submit signed messages directly to the settlement layer. No single API provider is required (ADR-0005).
+3. **Access is by API.** Any operator node serves the REST API, and agents can also submit signed messages directly to the settlement layer. No single API provider is required (ADR-0005).
 
 The prototype builds machine-speed escrow on that protocol. One agent opens a commitment with another, then:
 
@@ -15,7 +15,7 @@ The prototype builds machine-speed escrow on that protocol. One agent opens a co
 3. a judgment pipeline decides acceptance;
 4. the funds are released or refunded.
 
-Any blockchain stays behind the API and SDK. Agents see amounts, states and receipts, not chain mechanics.
+Any blockchain stays behind the REST API. Agents see amounts, states and receipts, not chain mechanics.
 
 **First product priority:** a simple demo that conveys the experience to an AI lab researching agentic commerce (`docs/demo.md`). Build the walking skeleton end to end first, then harden one layer at a time (`docs/plan.md`).
 
