@@ -17,7 +17,9 @@ All on Rafa's Cloudflare account (its ID goes in `CLOUDFLARE_ACCOUNT_ID` in the 
 
 **Demo settings** (in `apps/demo-cloud/wrangler.op1.jsonc` vars): minimum window 60 s; operator fee 1 bp, minimum 0.01 tUSD (D33, ADR-0023). Live judges: Anthropic and DeepSeek, pinned in `config/judges-live.yaml`, capped at 30 calls a day (`LIVE_JUDGE_CALLS_PER_DAY`); past the cap, or without keys, panels are scripted and every verdict says so.
 
-**Schema:** the code on main and the live demo both run schema v0.8 (private deals, ADR-0024); `/v1/status` reports `schemaVersion` (redeployed in PRs 76 and 90).
+**Schema:** the code on main runs schema v0.9 and signs under EIP-712 domain 0.7 (ADR-0029: decisions and early accepts name the delivery); the live demo still runs schema v0.8 under domain 0.6 against the 0.6 contracts on Sepolia. `/v1/status` reports `schemaVersion` and the domain.
+
+> **Do not deploy the Workers or the site from main until the 0.7 contracts are on Sepolia** and `contracts/deployments/sepolia.json` (and its copy in `examples/deployments.ts`, and the pins in `site/llms.txt`) name them. The deployed `HoldbackRules` signs under domain 0.6, so a Worker built from main would see every `agreeAndFund` revert `BadSignature`, and the site would teach agents a domain the contract refuses. The Sepolia world refuses to start against a contract under another domain (`LiveChain.verify`, `domainMismatch`), but the SimChain world and the site have no such check. The redeploy steps are in `docs/tasks/T-212-contract-hardening.md` (Handoff, item 3) and ADR-0029 §8; the redeploy is gated on Rafa.
 
 ## Secrets
 
@@ -27,6 +29,8 @@ All on Rafa's Cloudflare account (its ID goes in `CLOUDFLARE_ACCOUNT_ID` in the 
 - `wrangler` uses Rafa's OAuth login on his Mac, or `CLOUDFLARE_API_TOKEN` (scoped to Workers and KV) in an isolated environment.
 
 ## Deploy
+
+**Until the 0.7 contracts are on Sepolia, deploy nothing from main** (see Schema above): main signs under domain 0.7 and the deployed contract under 0.6.
 
 Always build and check before deploying; deploy only what changed. Deploys run as whoever runs them: an agent with Rafa's go-ahead (or within an approved task), using wrangler's OAuth login on Rafa's Mac or `CLOUDFLARE_API_TOKEN` in an isolated environment. Wrangler is pinned to major version 4 (`npx wrangler@4`).
 
@@ -54,6 +58,8 @@ Workers rules learned the hard way (T-029): compile schemas at startup, not lazi
 ## Settlement: SimChain or Sepolia (D41, ADR-0028)
 
 Each operator Worker has a variable `SETTLEMENT`, `sim` or `sepolia`, in its wrangler file. It picks the world the Worker forwards to: `holdback-public-demo-2026-11-02` (SimChain) or `holdback-public-demo-sepolia-2026-11-03` (Sepolia), in `apps/demo-cloud/src/worker.ts`. The two worlds never share storage. A world records its settlement when it is created and keeps it; the Durable Object always runs holdback-op1's code and environment, so the Sepolia secrets live on holdback-op1 whichever Worker a request came through.
+
+**Domain 0.7 (ADR-0029):** a build from main needs the 0.7 contracts. Before any Worker or site deploy from main, the new `HoldbackRules` must be on Sepolia and `sepolia.json`, `examples/deployments.ts` and `site/llms.txt` must name it; a Sepolia world started against the 0.6 contract refuses to start ("the rules contract signs under EIP-712 domain "Holdback" 0.6, this build under "Holdback" 0.7").
 
 **What the Sepolia world needs before any Worker flips:** `contracts/deployments/sepolia.json` on main (T-206; the build embeds it), its copy in `examples/deployments.ts`, the relayer secret on holdback-op1 (above), and Sepolia ETH on the funding lane. On its first passes the world tops up the deal lanes, then bonds each demo adjudicator (25,000 tUSDC, minted, approved and deposited from its own key); `notices` on a state read say so until the bonds are in place.
 
@@ -161,6 +167,7 @@ The reviewed settlement contracts are deployed on Ethereum Sepolia (chain ID 111
 - **The deployer.** A throwaway key, whose address is in the JSON. It sits in an encrypted Foundry keystore at `~/.foundry/keystores/`, outside the repository, with its password in a 0600 file next to it. It only pays gas. Never print the key or the password, and never put either in `.env*`.
 - **Not verified on Etherscan.** No Etherscan API key is in the environment. The JSON records the commit and compiler settings, so anyone can rebuild and compare the bytecode.
 - **Redeploying.** A contract fix ships as a new deployment that new deals opt into. Deals already open keep the contracts they started with. Deploying again, to Sepolia or anywhere else, is a gate (below).
+- **The 0.7 redeploy (ADR-0029, pending Rafa).** The deployed contracts sign under EIP-712 domain 0.6; main signs under 0.7. Until the 0.7 contracts are deployed and `sepolia.json` names them, do not deploy the Workers or the site from main (Schema, above).
 
 ## Costs
 

@@ -27,6 +27,7 @@ import {
   type PublicClient,
 } from 'viem';
 import { privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts';
+import { holdbackDomain, type HoldbackDomain } from '@holdback/core';
 import abisJson from './abis.json' with { type: 'json' };
 import { RelayRefused, type Abis, type Deployment, type EvmChain, type Mined } from './chain.js';
 import { assertSafeChain } from './guard.js';
@@ -46,6 +47,16 @@ export interface DeploymentFile {
   bonds: string;
   beacon: string;
   expiryMarginSec?: number;
+}
+
+/**
+ * Why a rules contract's EIP-712 domain cannot settle this build's messages, or null when it can. The name and the
+ * version must be core's (`holdbackDomain`): a contract under another version refuses every signature this build makes,
+ * so every agreeAndFund would revert BadSignature (ADR-0029 §8).
+ */
+export function domainMismatch(onChain: { name: string; version: string }, want: Pick<HoldbackDomain, 'name' | 'version'>): string | null {
+  if (onChain.name === want.name && onChain.version === want.version) return null;
+  return `the rules contract signs under EIP-712 domain "${onChain.name}" ${onChain.version}, this build under "${want.name}" ${want.version}: every message would revert BadSignature. Deploy the ${want.version} contracts and update the deployment file (contracts/deployments/<network>.json, ADR-0029 §8) before starting this build`;
 }
 
 /** The six ABIs from contracts/out (scripts/evm-abis.mjs), for a runtime with no file system. */
@@ -204,6 +215,11 @@ export class LiveChain implements EvmChain {
     if (id !== this.chainId) throw new RangeError(`the RPC serves chain id ${id}, not the deployment's ${this.chainId}`);
     const code = await this.publicClient.getCode({ address: this.deployment.rules });
     if (!code || code === '0x') throw new RangeError(`no contract at the rules address ${this.deployment.rules} on chain ${id}`);
+    // ADR-0029: every message is signed under core's domain. A contract under another version (the 0.6 deployment, for a
+    // 0.7 build) refuses every signature, so a build must not start against it.
+    const [, name, version] = (await this.publicClient.readContract({ address: this.deployment.rules, abi: this.abis.rules, functionName: 'eip712Domain' })) as readonly [Hex, string, string, bigint, Address, Hex, readonly bigint[]];
+    const mismatch = domainMismatch({ name, version }, holdbackDomain(id, this.deployment.rules));
+    if (mismatch) throw new RangeError(`${mismatch} (rules contract ${this.deployment.rules} on chain ${id})`);
     // Every funding nonce hashes the margin: a deployment file that disagrees with the contract signs for nothing.
     const margin = (await this.publicClient.readContract({ address: this.deployment.rules, abi: this.abis.rules, functionName: 'EXPIRY_MARGIN' })) as bigint;
     if (BigInt(margin) !== this.expiryMargin) throw new RangeError(`the rules contract's EXPIRY_MARGIN is ${margin}, the deployment file says ${this.expiryMargin}`);
