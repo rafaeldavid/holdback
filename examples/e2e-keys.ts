@@ -13,7 +13,7 @@
 //                                                                   (SEPOLIA_RPC_URL, else a public node)
 import { appendFileSync, existsSync, readFileSync, statSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { BaseError, concat, createPublicClient, createWalletClient, formatEther, formatGwei, http, keccak256, parseEther, parseGwei, stringToHex, type Address, type Hex } from 'viem';
+import { BaseError, concat, createPublicClient, createWalletClient, formatEther, formatGwei, http, keccak256, parseEther, parseGwei, stringToHex, toBytes, type Address, type Hex } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { sepolia } from 'viem/chains';
 
@@ -30,6 +30,12 @@ const SETS_SEED = new RegExp(`^\\s*(export\\s+)?${SEED_VAR}\\s*=`, 'm');
 export function roundKey(seed: string, role: Role): Hex {
   if (!SEED.test(seed)) throw new RangeError(`${SEED_VAR} must be 32 bytes of 0x-prefixed hex`);
   return keccak256(concat([seed as Hex, stringToHex(`holdback/e2e/${role}`)]));
+}
+
+/** A role's x25519 secret key, for the envelopes it seals and opens: keccak256(seed ‖ "holdback/e2e/<role>/x25519"). */
+export function roundEncryptionKey(seed: string, role: Role): Uint8Array {
+  roundKey(seed, role); // refuses a malformed seed, as every key here does
+  return toBytes(keccak256(concat([seed as Hex, stringToHex(`holdback/e2e/${role}/x25519`)])));
 }
 
 export function roundAddresses(seed: string): Record<Role, Address> {

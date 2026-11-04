@@ -1,14 +1,17 @@
 // The adjudicator service on T-006's real SimChain, through the settlement adapter: the demo's cleaned
 // customer CSV is offered, accepted by the service, funded, delivered sealed, judged and released; the
 // seller is paid and the buyer opens the key the decision released.
-import { commitmentId, holdbackDomain, parseJudgment, signTerms, type Address, type AdjudicatorRegistration, type Commitment, type CommitmentTerms, type Delivery, type Judgment } from '@holdback/core';
+import { commitmentId, DRAND_QUICKNET_CHAIN_HASH, holdbackDomain, parseJudgment, SIM_BEACON, signTerms, type Address, type AdjudicatorRegistration, type Commitment, type CommitmentTerms, type Delivery, type Judgment, type Rulebook } from '@holdback/core';
 import { encodePublicKey, encryptionKeyPairFromSecretKey, open, seal, unwrapKey, wrapKeyForRecipients, type EncryptionKeyPair } from '@holdback/core/crypto';
 import { fakeProvider, loadRegistry, type FakeScript, type JudgeProvider, type JudgeRequest, type RegistryDoc } from '@holdback/judgment';
-import { SIM_CHAIN_ID, SimChain, sign, simCast, simClub, simGenesis, tusd, type SimActor } from '@holdback/settlement/sim';
+import { SIM_CHAIN_ID, SIM_RULEBOOK, SimChain, sign, simCast, simClub, simGenesis, tusd, type SimActor } from '@holdback/settlement/sim';
 import { readFileSync } from 'node:fs';
 import { keccak256, stringToBytes } from 'viem';
 import { describe, expect, it } from 'vitest';
+import { fakeRelays, RELAYS_AT } from './_sim.js';
+import { drandQuicknet } from './drand.js';
 import { defaultPolicy, policyHashOf } from './policy.js';
+import type { RandomnessSource } from './randomness.js';
 import { Adjudicator } from './service.js';
 import { SettlementAdapter, type SettlementReads } from './simchain-adapter.js';
 
@@ -29,9 +32,15 @@ const DEMO_CSV = readFileSync(new URL('../../../fixtures/data/dataset-cleaning/c
 const plus = (ts: string, s: number) => new Date(Date.parse(ts) + s * 1000).toISOString().replace('.000Z', 'Z');
 const encKeys = (n: number): EncryptionKeyPair => encryptionKeyPairFromSecretKey(new Uint8Array(32).fill(n));
 
-async function world(bonds = { primary: 10_000_000_000n, fallback: 10_000_000_000n, appeal: 10_000_000_000n }) {
+/** T-217: a club whose rulebook names another randomness source, and the drand source the adapter reads it from. */
+interface WorldOptions {
+  rulebook?: Rulebook;
+  drand?: RandomnessSource;
+}
+
+async function world(bonds = { primary: 10_000_000_000n, fallback: 10_000_000_000n, appeal: 10_000_000_000n }, o: WorldOptions = {}) {
   const cast = simCast('t009-e2e');
-  const club = simClub(cast.appeal.address);
+  const club = simClub(cast.appeal.address, o.rulebook);
   const chain = new SimChain(
     await simGenesis({
       cast,
@@ -56,6 +65,7 @@ async function world(bonds = { primary: 10_000_000_000n, fallback: 10_000_000_00
       },
     },
     registration: async (a) => registrations.get(a.toLowerCase()) ?? null,
+    ...(o.drand ? { drand: o.drand } : {}),
   });
   const calls: JudgeRequest[] = [];
   /** What every judge answers from now on (default: pass). */
@@ -123,8 +133,8 @@ const must = (r: { ok: boolean; problem?: { detail: string } }) => {
 };
 
 /** Offer, acceptance by the primary service, agreement and funding, and the sealed delivery of the demo CSV. */
-async function delivered(bonds?: Parameters<typeof world>[0]) {
-  const w = await world(bonds);
+async function delivered(bonds?: Parameters<typeof world>[0], o: WorldOptions = {}) {
+  const w = await world(bonds, o);
   const { cast, chain, terms, id } = w;
     must(await chain.submit({ kind: 'offer', commitment: { ...terms, id, signatures: { seller: await signTerms(cast.seller.key, DOMAIN, terms) } } }));
 
@@ -373,6 +383,57 @@ describe('the adjudicator service on the real SimChain (T-006)', () => {
     chain.advanceTo(decideBy);
     expect(await w.settlement.appealExpiriesDue(cast.primary.address)).toEqual([id]);
     expect((await w.primary.adj.runOnce()).expired).toEqual([id]);
+  });
+
+  // T-217, T-209 decision 9: SimChain has no BLS verifier, so it keeps sim only. A SimChain club that names drand-quicknet
+  // gets drand rounds from the adapter, never SimChain's sim beacon, and SimChain refuses the proven decision, since its
+  // beacon fact is a sim value; the deal then takes its default path.
+  it('SimChain keeps sim only: a club naming drand-quicknet reads drand rounds, and SimChain refuses the decision it cannot verify', async () => {
+    const net = fakeRelays();
+    const rulebook: Rulebook = { ...SIM_RULEBOOK, randomness: { source: 'drand-quicknet', chainHash: DRAND_QUICKNET_CHAIN_HASH } };
+    const w = await delivered(undefined, { rulebook, drand: drandQuicknet({ fetch: net.fetch, now: () => RELAYS_AT }) });
+    const { chain, terms, id } = w;
+    expect(chain.escrowState(id)?.beaconSource).toBe('drand-quicknet');
+    chain.advanceTo(terms.timing.judgeBy);
+    const report = await w.fallback.adj.runOnce();
+    expect(report.triggered).toEqual([id]);
+    expect(report.decided).toEqual([]);
+    expect(report.refused).toEqual([{ commitmentId: id, problem: expect.objectContaining({ type: 'seed_mismatch', detail: expect.stringContaining('the signed beacon differs from the settlement layer beacon') }) }]);
+    // The quicknet round at judgeBy 10:10:00Z, asked once.
+    expect(net.requests).toEqual(['https://api2.drand.sh/52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971/public/33574812']);
+    chain.advanceTo(terms.timing.fallbackBy);
+    must(await chain.trigger(id, 'default'));
+    expect(chain.escrowState(id)?.kind).toBe('Defaulted');
+  });
+
+  describe("the beacon the commitment's rulebook names (T-217)", () => {
+    const c = { id: `0x${'12'.repeat(32)}` } as Commitment;
+    const published = `0x${'0b'.repeat(32)}` as const;
+    const reads = (state: unknown) => ({ escrowState: () => state, beacon: (round: number) => (round <= 5 ? published : null) }) as unknown as SettlementReads;
+    const over = (chain: SettlementReads, drand?: RandomnessSource) => new SettlementAdapter({ chain, store: { ciphertext: async () => new Uint8Array(), publishRecord: async () => '' }, registration: async () => null, ...(drand ? { drand } : {}) });
+    const drand = drandQuicknet({ fetch: fakeRelays().fetch });
+
+    it.each([
+      ['a sim commitment', { kind: 'FallbackJudging', beaconSource: 'sim' }],
+      ['a commitment saved before the source was kept', { kind: 'FallbackJudging' }],
+    ])("reads the settlement's sim beacon for %s", async (_name, state) => {
+      const r = over(reads(state), drand).randomness(c);
+      expect(r?.kind).toBe('sim');
+      expect(r?.clock).toBe(SIM_BEACON);
+      expect(await r?.value(5)).toEqual({ value: published });
+      expect(await r?.value(6)).toBeNull();
+    });
+
+    it('hands a drand-quicknet commitment the drand source, and nothing in its place when none is configured', () => {
+      expect(over(reads({ kind: 'FallbackJudging', beaconSource: 'drand-quicknet' }), drand).randomness(c)).toBe(drand);
+      expect(over(reads({ kind: 'FallbackJudging', beaconSource: 'drand-quicknet' })).randomness(c)).toBeNull();
+      expect(over(reads({ kind: 'FallbackJudging', beaconSource: 'prevrandao' }), drand).randomness(c)).toBeNull();
+      expect(over(reads(null), drand).randomness(c)).toBeNull();
+    });
+
+    it('refuses a drand option that is another source', () => {
+      expect(() => over(reads(null), { kind: 'sim', clock: SIM_BEACON, value: async () => null })).toThrow(/drand-quicknet/);
+    });
   });
 
   // The contract's test at the decision (free bond plus the deal's own hold), with SimChain's reservations as the hold.

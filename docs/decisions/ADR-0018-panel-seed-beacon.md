@@ -121,4 +121,35 @@ The fallback and appeal panels take their seed from a public randomness beacon, 
 
 **Liveness note.** An appeal adjudicator can decide only once the first round after the escalation or appeal is published: up to 3 s on quicknet, 1 s on the sim. If `appealDecideSec` is shorter than that, the default path applies (§5). This is a backlog row, not a refusal (D31).
 
-**Still open.** The verifier is unaudited and needs review before Sepolia (backlog). The parse rule still admits only `sim` beacons until the adjudicator service fetches drand rounds (T-206).
+**Still open.** The verifier is unaudited and needs review before Sepolia (backlog). The parse rule still admits only `sim` beacons until the adjudicator service fetches drand rounds (T-206). T-217 closed the second point: see "As built", below.
+
+## As built: the adjudicator's drand source (T-217, 2026-11-04)
+
+T-217 built the off-chain half of §4 and §5, so a fallback or appeal adjudicator can decide on a chain whose rules contract runs `DrandQuicknetBeacon`.
+
+**Rounds on the rulebook's clock.**
+- Core's offer keeps the club rulebook's `randomness.source` in the escrow state (`beaconSource`). `beaconRoundFor` counts the fallback and appeal rounds on that source's clock: quicknet (genesis 1692803367 s, period 3 s) or the sim beacon (round = unix second). [measured: tests pin it against `DrandQuicknetBeacon.roundAt`'s constants, read from its source, at genesis and a second before it]
+- A state saved before T-217 has no source and reads as `sim`, which every earlier rulebook named. [measured]
+- An offer whose rulebook names `prevrandao` is refused: nothing here counts or verifies it. [measured]
+
+**The source** (`apps/adjudicator/src/drand.ts`).
+- It asks `{relay}/52db9ba7…c84e971/public/{round}` for the round settlement fixes, in the research's order: api2.drand.sh, drand.cloudflare.com, api.drand.sh, api3.drand.sh, with 2 s each. [measured on recorded answers]
+- It never asks for round 0 or a negative round: `/public/0` answers the latest round (measured 2026-11-04). It never asks for a round after the latest on its clock.
+- HTTP 425 (drand.sh) and 404 (Cloudflare) mean "not published there yet": it asks the next relay.
+- It takes only quicknet's chain hash; building it for another refuses.
+
+**The local check before signing.**
+- Each relay answer is checked as `DrandQuicknetBeacon.beaconValue` checks it:
+  - a canonical 48-byte compressed G1 point, refusing x ≥ p (noble alone would reduce it), the point at infinity and any point outside G1;
+  - the pairing against quicknet's group key, over sha256(round as 8 big-endian bytes) hashed to G1 per RFC 9380 with this ADR's DST.
+- The value is sha256(signature); the relay's `randomness` field is never read.
+- The service checks the proof once more before it signs, whatever its source returned, and puts the round, value and signature in the Decision. The check costs about 18 ms of CPU per round in Node 22 on a laptop, and the curve library (about 48 ms to load) loads on first use, not at a Worker's startup. [measured]
+- A differential test runs about 150 signatures through both the local check and the deployed `DrandQuicknetBeacon` bytecode on anvil, plus the hash to G1 for 50 rounds: they agree on every one (red team, PR 186). [measured]
+
+**No substitute (§5).** A relay that refuses, stalls, lies or lags is skipped for the next. When none proves the round, the service signs nothing, calls no judge, and tries again at its next pass until the deadline; the default path then applies. It never reads the sim beacon, another round or a supplied value in its place, and a commitment whose rulebook names drand while no drand source is configured is never decided. [measured: `neutrality.beacon-relay-refuses` in `drand.test.ts` and `service.test.ts`]
+
+**The parse rule.** A rulebook may name `drand-quicknet` with quicknet's chain hash. A Decision may carry a quicknet beacon whose signature is 48 bytes, whose value is its sha256, and whose round is not 0. SimChain has no BLS verifier: its beacon fact is its own sim value at the quicknet-numbered round, which no sha256(signature) matches, so it refuses every drand-proven decision (measured, `simchain-adapter.test.ts`). A decision labelled `sim` and seeded from that sim value would settle there instead, and those values are public in advance. No world loads a drand club into SimChain; making SimChain give no beacon value for a non-`sim` source is security hardening (Phase 11, T-225).
+
+**Known gap: the fallback's quicknet round is public before the primary's deadline** (red team, PR 186). The fallback's round is the latest round published at or before `judgeBy`. On the sim beacon that round publishes exactly at `judgeBy`. On quicknet it publishes 1 or 2 s before `judgeBy` unless `judgeBy` falls on a round boundary, which happens for 1 in 3 seconds. In that window the primary can compute the fallback's panel and then choose between deciding itself and staying silent. Core and `HoldbackRules` agree on today's rule, so the fix, the first round published at or after `judgeBy` (`roundAt(judgeBy − 1 s) + 1`, which leaves every sim round unchanged), changes both together with a contract redeploy (Phase 11, T-225). Until then a deal whose `judgeBy` is on a quicknet round boundary, `(judgeBy − 1692803367) mod 3 = 0`, has no window; agents and operators can choose such a `judgeBy` (D31: advisory, not a refusal). The appeal rounds hold: they publish strictly after the step that fixes them.
+
+**Security hardening left for Phase 11 (T-225).** The PR 186 review and red team found no Critical or High issue. Their Medium and Low findings (the gap above, the cost of a relay outage to a whole pass, an answer of any size, SimChain with a drand club, the chain hash checked by the parser only, a malformed relay URL) go to T-225 so this change ships the functional path first (Rafa, 2026-11-04).

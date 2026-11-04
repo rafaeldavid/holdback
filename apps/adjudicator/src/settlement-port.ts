@@ -59,7 +59,11 @@ export interface OfferTask {
 
 export interface AdjudicatorSettlement {
   now(): Timestamp;
-  readonly randomness: RandomnessSource;
+  /**
+   * The beacon the commitment's club rulebook names (ADR-0018 §6, T-217): its clock and its rounds. null when this port
+   * cannot read that source; never another source in its place.
+   */
+  randomness(commitment: Commitment): RandomnessSource | null;
   offers(adjudicator: Hex32): Promise<OfferTask[]>;
   tasks(adjudicator: Hex32): Promise<DecisionTask[]>;
   /** Delivered cases past judgeBy where this adjudicator is the fallback and no trigger has fired. */

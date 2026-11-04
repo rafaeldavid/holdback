@@ -4,7 +4,8 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import Ajv2020 from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
-import { isAddress } from 'viem';
+import { isAddress, sha256 } from 'viem';
+import { DRAND_QUICKNET_CHAIN_HASH } from './beacon.js';
 import { tokenAmount } from './money/index.js';
 import { problem, type Problem } from './problem.js';
 import { err, ok, type Result } from './result.js';
@@ -16,6 +17,7 @@ import type {
   Club,
   Commitment,
   CommitmentStateView,
+  Decision,
   Delivery,
   DisclosureBody,
   SealedCommitment,
@@ -156,8 +158,11 @@ function unlockRule(keys: readonly EncryptedKey[] | undefined): string | undefin
 }
 
 function clubRules(c: Club): string | undefined {
-  const source: string = c.rulebook.randomness.source;
-  if (source !== 'sim') return `rulebook.randomness.source ${source} is not supported in Phase 1 (sim only)`;
+  // ADR-0018 §6, T-217: sim for SimChain and local chains, drand-quicknet where the rules contract's DrandQuicknetBeacon
+  // verifies it. A rulebook names a network by its chain hash, and the verifier holds quicknet's key only.
+  const { source, chainHash } = c.rulebook.randomness;
+  if (source !== 'sim' && source !== 'drand-quicknet') return `rulebook.randomness.source ${source} has no beacon verifier (sim or drand-quicknet)`;
+  if (source === 'drand-quicknet' && chainHash !== DRAND_QUICKNET_CHAIN_HASH) return `rulebook.randomness.chainHash ${chainHash} is not the drand quicknet chain hash ${DRAND_QUICKNET_CHAIN_HASH}`;
   // ADR-0024 §7: pseudonymous (per-deal keys with a Delegation certificate) is admitted from schema v0.8.
   // ADR-0019: the kill fee to the sitting adjudicator is a later option; Phase 1 pays none.
   const share = c.rulebook.mutualSettlement.adjudicatorFeeShareAfterDeliveryBps;
@@ -165,11 +170,28 @@ function clubRules(c: Club): string | undefined {
   return undefined;
 }
 
+/**
+ * ADR-0018, T-217: the SimChain beacon is a settlement-layer fact, not a proof. A drand quicknet round carries its
+ * 48-byte G1 signature, whose sha256 is the value. Refused here: what no settlement could accept. The pairing itself is
+ * checked by the adjudicator before it signs and by the rules contract, not by this parser.
+ */
+function beaconRule(b: NonNullable<Decision['beacon']>): string | undefined {
+  if (b.source === 'sim') return undefined;
+  if (b.source !== 'drand-quicknet') return `beacon source ${b.source} has no beacon verifier (sim or drand-quicknet)`;
+  if (b.round === 0) return 'beacon round 0 does not exist on drand quicknet (round 1 is its genesis)';
+  const bytes = b.signature ? (b.signature.length - 2) / 2 : 0;
+  if (bytes !== 48) return `a drand quicknet beacon carries a 48-byte signature, not ${bytes} bytes`;
+  if (sha256(b.signature as `0x${string}`) !== b.value) return 'beacon value is not sha256 of the signature';
+  return undefined;
+}
+
 function messageRules(m: Message): string | undefined {
   if ((m.type === 'EarlyAccept' || m.type === 'Decision' || m.type === 'Dispute') && m.attempt > 255) return `attempt ${m.attempt} exceeds uint8`;
   // value is signed as uint256; one canonical decimal form per amount.
-  // ADR-0018: Phase 1 admits only the SimChain beacon, which is a settlement-layer fact, not a proof.
-  if (m.type === 'Decision' && m.beacon && m.beacon.source !== 'sim') return `beacon source ${m.beacon.source} is not supported in Phase 1 (sim only)`;
+  if (m.type === 'Decision' && m.beacon) {
+    const beacon = beaconRule(m.beacon);
+    if (beacon) return beacon;
+  }
   // ADR-0024: a Publish may name judgment or public; raising only is checked against the current level by its reader.
   if (m.type === 'Publish' && m.level === 'private') return 'a Publish raises the level, so it names judgment or public';
   if (m.type === 'Decision' || m.type === 'Dispute') {
