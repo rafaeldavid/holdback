@@ -5,7 +5,7 @@
 - **Depends on:** the T-206 fix PRs merged
 - **Paths this task may touch:** `contracts/src/`, `contracts/test/`, `packages/settlement/evm/encode.ts` and `packages/settlement/sim/simchain.ts` (only for item 4), `docs/decisions/ADR-0016-phase1-contract.md` (item 5, through an amendment), `docs/tasks/T-212-contract-hardening.md`. Added for items 7 and 9 (2026-11-03, D43, so every layer agrees on who may appeal and what an overturn reports): `packages/core/src/state.ts` and its test, `packages/settlement/evm/` (`evm-settlement.ts`, `gas.ts`, `abis.json`, tests), `apps/operator/src/prepare.ts` and `sim-world.test.ts`, `formal/Holdback.tla` (`FileAppeal`), and the docs that state who may appeal (`docs/api.md`, `docs/quickstart.md`, `docs/PRD.md`, `site/llms.txt`, `README.md`, ADR-0015 and ADR-0019 by amendment). Item 3's paths are in its own PR (ADR-0029).
 - **Human gate:** no
-- **Status:** in progress (items 7 and 9 in PR #160; item 3 in its own PR)
+- **Status:** in progress (items 7 and 9 in PR #160; item 3 in review, PR #161, which merges after #160)
 - **Agent/session:** T-206's session (items 7 and 9); an implementer agent (item 3)
 
 ## Intent
