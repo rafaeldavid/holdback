@@ -172,6 +172,10 @@ class GaveUp extends Error {}
 
 const rowId = (r: Pick<LaneRow, 'from' | 'nonce'>) => `${r.from.toLowerCase()}:${r.nonce}`;
 
+/** The node's own answers that it did not take a transaction. Any other broadcast error may have sent it (T-219). */
+const REFUSED = /nonce too low|nonce has already been used|underpriced|intrinsic gas too low|invalid sender|exceeds block gas limit|fee cap less than block base fee|max fee per gas less than block base fee/i;
+const refused = (e: unknown): boolean => e instanceof RelayRefused || REFUSED.test(String((e as Error | undefined)?.message ?? e));
+
 export class LiveChain implements EvmChain {
   readonly clock = 'wall' as const;
   readonly chainId: number;
@@ -479,8 +483,11 @@ export class LiveChain implements EvmChain {
     try {
       f.hashes.push(await this.broadcast(f.raw, from));
     } catch (e) {
-      // The node refused it, so nothing went out at this nonce: the row goes, and the lane reads its nonce again.
-      if (f.row) await this.drop(f.row);
+      // The node refused it, so nothing went out at this nonce: the row goes, and the lane reads its nonce again. Any
+      // other error (a timeout, a fallback RPC that took it) may have sent it: the row stays, and the lane's next send
+      // resolves it first, rebroadcast and then the give-up rule (red-team, 2026-11-04).
+      if (f.row && refused(e)) await this.drop(f.row);
+      else if (f.row) this.orphans.set(rowId(f.row), f.row);
       throw e;
     }
     f.start = f.checkpoint = Date.now();

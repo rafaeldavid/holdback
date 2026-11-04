@@ -117,7 +117,7 @@ class Rows implements LaneStore {
   ) {
     for (const r of rows) this.rows.set(Rows.key(r), structuredClone(r));
   }
-  static key = (r: LaneRow) => `lane:${r.lane}:${r.nonce}`;
+  static key = (r: LaneRow) => `lane:${r.lane}:${r.from.toLowerCase()}:${r.nonce}`;
   async load(): Promise<LaneRow[]> {
     return [...this.rows.values()].map((r) => structuredClone(r));
   }
@@ -243,6 +243,30 @@ describe.skipIf(!ready)(`LiveChain's in-flight rows on anvil (T-219)${ready ? ''
     } finally {
       await anvil.rpc('anvil_setBalance', [lane, '0x56bc75e2d63100000']);
     }
+  });
+
+  it('a broadcast that errors after the node took it keeps its row: the lane waits for that transaction (red-team, 2026-11-04)', async () => {
+    const store = new Rows();
+    const chain = await chainOf(store);
+    // The RPC accepts the transaction, then the call times out, as a slow or fallback RPC can.
+    const real = chain.publicClient.sendRawTransaction;
+    vi.spyOn(chain.publicClient, 'sendRawTransaction').mockImplementationOnce(async (a) => {
+      await real(a);
+      throw new Error('The request took too long to respond.');
+    });
+    await expect(chain.send({ lane: DEAL, to: TO, data: '0x', value: 9n, note: note(DEAL, 'k-9') })).rejects.toThrow(/too long/);
+    // The transaction went out and mined (automine), and its row stays for the settlement adapter to land.
+    const [row] = chain.inFlight();
+    expect(row).toMatchObject({ lane: 1 + laneOf(DEAL), note: note(DEAL, 'k-9') });
+    expect(store.rows.size).toBe(1);
+    expect(store.log.map((l) => l.op)).toEqual(['write']);
+    expect((await anvil.publicClient.getTransactionReceipt({ hash: row!.hashes[0]! })).status).toBe('success');
+    // The lane's next send resolves that row first and takes the next nonce; pending is never read.
+    const pendingReads = vi.spyOn(chain.publicClient, 'getTransactionCount');
+    const next = await chain.send({ lane: SAME_LANE, to: TO, data: '0x', value: 10n });
+    expect(await nonceOf(next.hash)).toBe(row!.nonce + 1);
+    expect(pendingReads).not.toHaveBeenCalled();
+    expect(await chain.resume(row!)).toMatchObject({ hash: row!.hashes[0], status: 'success' });
   });
 
   it('after a restart, a mined row sets the lane nonce to its own plus one; pending is never read while it is open', async () => {
