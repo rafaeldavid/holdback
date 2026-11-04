@@ -27,17 +27,25 @@ const REVIEW = 'docs/reviews/2026-11-03-contract-review.md';
 const HARDENING = 'docs/tasks/T-212-contract-hardening.md';
 const DIFFERENTIAL = 'reports/differential-local.md';
 
+/** What the deploy script builds from (contracts/script/deploy-sepolia.sh, BUILD_INPUTS): a change here changes deployed code. */
+export const BUILD_INPUTS = ['contracts/src/', 'contracts/lib', 'contracts/foundry.toml', 'contracts/remappings.txt', 'contracts/script/TestUSDC.sol'];
+
 /** Every path the page reads: a commit that touches none of them cannot change the page. */
-export const INPUTS = ['contracts/src/', 'contracts/deployments/', REVIEW, HARDENING, DIFFERENTIAL, 'tools/contract-stack/', 'scripts/contract-stack.mjs'];
+export const INPUTS = [...BUILD_INPUTS, 'contracts/deployments/', REVIEW, HARDENING, DIFFERENTIAL, 'tools/contract-stack/', 'scripts/contract-stack.mjs'];
+
+/** True in a checkout without the history (actions/checkout's default depth of one commit). */
+export function shallow() {
+  return git(['rev-parse', '--is-shallow-repository']) !== 'false';
+}
 
 /**
- * The page's version: the latest commit that touched any of its inputs. The founder console rebuilds and pushes the
- * page only when this changes. null when git is unavailable, so the caller rebuilds. It needs the history: in a
- * one-commit checkout (actions/checkout's default depth) every input looks new, so the version is always HEAD and
- * the job would rebuild every run; check out with fetch-depth 0.
+ * The page's version: the latest commit on main's first-parent line that touched any of its inputs. The founder
+ * console rebuilds and pushes the page only when this changes. It needs the history, so it is null in a shallow
+ * checkout (where every input looks new) or without git: the caller then rebuilds. Check out with fetch-depth 0.
  */
 export function stackVersion() {
-  const out = git(['log', '-1', '--format=%H%x1f%cs', '--', ...INPUTS]);
+  if (shallow()) return null;
+  const out = git(['log', '-1', '--first-parent', '--format=%H%x1f%cs', '--', ...INPUTS]);
   if (!out) return null;
   const [commit, date] = out.split('\x1f');
   return { commit, short: commit.slice(0, 7), date };
@@ -60,38 +68,49 @@ export function plain() {
   return JSON.parse(read('tools/contract-stack/plain.json'));
 }
 
-// The EIP-712 domain HoldbackRules signs under, at the deployed commit when the history has it, else in this checkout.
+// The EIP-712 domain HoldbackRules signs under at the deployed commit, with where it was read: from that commit when
+// the history has it, else from this checkout (true only while contracts/src has not changed since the deploy).
 function domainOf(commit) {
-  const source = (commit && git(['show', `${commit}:contracts/src/HoldbackRules.sol`])) || read('contracts/src/HoldbackRules.sol');
-  const m = source.match(/_domainNameAndVersion\(\)[\s\S]*?return \("([^"]+)", "([^"]+)"\)/);
-  return m ? { name: m[1], version: m[2] } : null;
+  const atCommit = commit ? git(['show', `${commit}:contracts/src/HoldbackRules.sol`]) : null;
+  const m = (atCommit || read('contracts/src/HoldbackRules.sol')).match(/_domainNameAndVersion\(\)[\s\S]*?return \("([^"]+)", "([^"]+)"\)/);
+  return m ? { name: m[1], version: m[2], readFrom: atCommit ? 'deployed commit' : 'this checkout' } : null;
 }
+
+const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 
 function record(file) {
   const r = JSON.parse(read(`contracts/deployments/${file}`));
+  const addresses = ADDRESSES.map(([key, name]) => ({ key, name, address: key === 'token' ? r.token.address : r[key] })).filter((a) => a.address);
+  for (const a of addresses) if (!ADDRESS.test(a.address)) throw new Error(`${file}: ${a.key} is not an address: ${a.address}`);
   return {
     file: `contracts/deployments/${file}`,
     chainId: r.chainId,
     commit: r.commit ?? null,
     fromBlock: r.fromBlock,
+    rulesBlock: r.contracts?.HoldbackRules?.block ?? null,
     deployer: r.deployer ?? null,
     token: { symbol: r.token.symbol, name: r.token.name, decimals: r.token.decimals },
-    addresses: ADDRESSES.map(([key, name]) => ({ key, name, address: key === 'token' ? r.token.address : r[key] })).filter((a) => a.address),
+    addresses,
     contracts: Object.keys(r.contracts ?? {}),
     checks: r.checks ?? {},
-    domain: domainOf(r.commit),
   };
 }
 
 export function deployments() {
-  const live = record('sepolia.json');
+  const history = !shallow();
+  const live = { ...record('sepolia.json'), domain: null };
+  live.domain = domainOf(history ? live.commit : null);
   // The deploy writes the record on the day it runs, so the commit that last changed it dates the deployment.
-  live.recordedOn = git(['log', '-1', '--format=%cs', '--', 'contracts/deployments/sepolia.json']);
+  live.recordedOn = history ? git(['log', '-1', '--format=%cs', '--', 'contracts/deployments/sepolia.json']) : null;
+  // An earlier record's name carries its date and its EIP-712 domain version (sepolia-2026-11-03-domain-0.6.json).
   const earlier = list('contracts/deployments', /^sepolia-\d{4}-\d{2}-\d{2}-domain-[\d.]+\.json$/)
     .reverse()
-    .map((file) => ({ ...record(file), deployedOn: file.match(/^sepolia-(\d{4}-\d{2}-\d{2})/)[1] }));
-  // Whether contracts/src here is the code the live record was deployed from: 0 same, 1 changed, else unknown.
-  const diff = live.commit ? spawnSync('git', ['diff', '--quiet', live.commit, '--', 'contracts/src'], { cwd: root }).status : null;
+    .map((file) => {
+      const [, deployedOn, version] = file.match(/^sepolia-(\d{4}-\d{2}-\d{2})-domain-([\d.]+)\.json$/);
+      return { ...record(file), deployedOn, domain: { version, readFrom: 'file name' } };
+    });
+  // Whether this checkout builds the code the live record was deployed from: 0 same, 1 changed, else unknown.
+  const diff = history && live.commit ? spawnSync('git', ['diff', '--quiet', live.commit, '--', ...BUILD_INPUTS], { cwd: root }).status : null;
   const srcMatchesLive = diff === 0 ? true : diff === 1 ? false : null;
   return { live, earlier, srcMatchesLive };
 }
@@ -128,9 +147,11 @@ function hardeningItems() {
 export function findings() {
   const words = plain().findings;
   const items = hardeningItems();
+  // A re-rated finding keeps its history in the cell ("low, medium since D43"): the rating after "since" applies now.
+  const current = (cell) => (cell.match(/(high|medium|low|info) since\b/i)?.[1] ?? cell.split(/[\s,]/)[0]).toLowerCase();
   const rows = [...read(REVIEW).matchAll(/^\| ([HMLI]-\d+) \| ([^|]+) \| ([^|]+) \| ([^|]*) \| ([^|]*) \| ([^|]*) \|$/gm)].map((m) => ({
     id: m[1],
-    severity: m[2].trim().split(/[\s,]/)[0].toLowerCase(),
+    severity: current(m[2].trim()),
     severityNote: m[2].trim(),
     reviewTitle: m[3].replace(/`/g, '').trim(),
     litmus: m[4].trim(),
@@ -145,8 +166,15 @@ export function findings() {
     const item = items[r.id];
     const state = /^fixed\b/i.test(r.status) || item?.done ? 'fixed' : /^accepted\b/i.test(r.status) ? 'accepted' : 'open';
     const w = words[r.id] ?? {};
-    return { ...r, item: item?.item ?? null, state, title: w.title ?? r.reviewTitle, text: w[state] ?? `${r.reviewTitle}. Review status: ${r.status}.` };
+    // Without wording for its current state, say only what the sources say, so the text never contradicts the state.
+    const fallback = state === 'fixed' && item?.done && !/^fixed\b/i.test(r.status) ? `${r.reviewTitle}. Fixed in T-212 item ${item.item}.` : `${r.reviewTitle}. Review status: ${r.status}.`;
+    return { ...r, item: item?.item ?? null, state, title: w.title ?? r.reviewTitle, text: w[state] ?? fallback };
   });
+}
+
+/** The review's informational items that the summary table folds into one row ("I-1 to I-13"). */
+export function infoCount() {
+  return Number(read(REVIEW).match(/^\| I-1 to I-(\d+) \|/m)?.[1] ?? 0);
 }
 
 export function gas() {
@@ -158,13 +186,13 @@ export function gas() {
     gas: m[4] ? num(m[4]) : null,
   }));
   const paths = plain().gas.map((p) => ({ ...p, ...(rows.find((r) => r.fixture === p.fixture) ?? {}) }));
-  const recorded = git(['log', '-1', '--format=%h%x1f%cs', '--', DIFFERENTIAL])?.split('\x1f');
+  const recorded = shallow() ? null : git(['log', '-1', '--format=%h%x1f%cs', '--', DIFFERENTIAL])?.split('\x1f');
   return { paths, fixtures: rows.length, recordedAt: recorded ? { commit: recorded[0], date: recorded[1] } : null, source: DIFFERENTIAL };
 }
 
-// The smoke deal's gas on Sepolia, as T-212 records it from the transaction receipts.
+// The Sepolia smoke deal's gas, as T-212 records it from the transaction receipts; the last such line is the newest.
 export function sepoliaGas() {
-  const m = read(HARDENING).match(/Gas on Sepolia: fund ([\d,]+), deliver ([\d,]+), decide ([\d,]+), total ([\d,]+)/);
+  const m = [...read(HARDENING).matchAll(/Gas on Sepolia: fund ([\d,]+), deliver ([\d,]+), decide ([\d,]+), total ([\d,]+)/g)].at(-1);
   return m ? { fund: num(m[1]), deliver: num(m[2]), decide: num(m[3]), total: num(m[4]), source: HARDENING } : null;
 }
 
@@ -181,6 +209,8 @@ export function collect() {
     deployment,
     contracts: contracts(deployment.live),
     findings: findings(),
+    infoCount: infoCount(),
+    history: !shallow(),
     gas: gas(),
     sepoliaGas: sepoliaGas(),
     review: review(),

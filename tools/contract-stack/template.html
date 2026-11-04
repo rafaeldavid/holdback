@@ -246,7 +246,7 @@ footer{font-size:13px;color:var(--faint);border-top:1px solid var(--rule);paddin
       <p class="analogy">A public dice roll nobody can load.</p>
       <p>When a fallback or appeal adjudicator takes a case, the beacon supplies a random number that picks which AI models judge it, so no one can steer the panel. The number comes from drand, a public randomness network, and the contract checks drand's signature itself.</p>
       <details><summary>Technical details</summary><div class="detail">
-        <p><code>IHoldbackBeacon</code> is the interface. <code>DrandQuicknetBeacon</code> verifies a drand quicknet round on chain (a BLS signature check through Ethereum's EIP-2537 precompiles, about 136,500 gas). <code>SimBeacon</code> stands in on local test chains. The primary adjudicator uses commit-reveal instead (ADR-0018, T-209).</p>
+        <p><code>IHoldbackBeacon</code> is the interface. <code>DrandQuicknetBeacon</code> verifies a drand quicknet round on chain (a BLS signature check through Ethereum's EIP-2537 precompiles: about 136,500 gas on a local chain and about 213,000 on Sepolia, review I-13). <code>SimBeacon</code> stands in on local test chains. The primary adjudicator uses commit-reveal instead (ADR-0018, T-209).</p>
       </div></details>
     </article>
 
@@ -416,22 +416,24 @@ footer{font-size:13px;color:var(--faint);border-top:1px solid var(--rule);paddin
   const order = { fixed: 0, open: 1, accepted: 2 };
   const sorted = [...findings].sort((a, b) => order[a.state] - order[b.state] || RANK[a.severity] - RANK[b.severity] || a.id.localeCompare(b.id));
   const stateText = { fixed: ['done', 'Fixed'], open: ['later', 'Before mainnet'], accepted: ['later', 'Accepted'] };
+  // Each finding leads with its severity, then what it is and its state (docs/writing.md, "Findings").
   const findingRows = sorted.map((f) => {
     const [cls, word] = stateText[f.state];
+    const rerated = f.severityNote.toLowerCase() !== f.severity ? ` (rated ${f.severityNote} in the review)` : '';
     const where = f.item ? ` · T-212 item ${f.item}` : '';
-    const meta = `<p class="small">${esc(f.id)} · ${esc(SEVERITY[f.severity] ?? f.severity)}${esc(where)}</p>`;
-    return row(f.state === 'fixed' ? `Fixed: ${f.title.charAt(0).toLowerCase()}${f.title.slice(1)}` : f.title, esc(f.text), pill(cls, word), meta);
+    const title = f.state === 'fixed' ? `Fixed: ${f.title.charAt(0).toLowerCase()}${f.title.slice(1)}` : f.title;
+    return `<div class="status-row"><div><p class="small"><b>${esc(SEVERITY[f.severity] ?? f.severity)}</b>${esc(rerated)} · ${esc(f.id)}${esc(where)}</p><b>${esc(title)}</b><p>${esc(f.text)}</p></div>${pill(cls, word)}</div>`;
   });
   const deployed = srcMatchesLive === false
     ? row('Public testnet deployment', `The contracts on main have changed since the live deployment (${esc(short(live.commit))}). The live demo runs the older code until a redeploy.`, pill('now', 'Redeploy pending'))
     : row('Public testnet deployment', `The live demo settles on the contracts deployed from ${code(short(live.commit))}, recorded on ${esc(live.recordedOn ?? 'an unknown date')}. Addresses are below.`, pill('done', 'Done'));
   $('safety').innerHTML = [
-    row('Independent contract review', `Three separate passes (T-206): a line-by-line checklist, an adversarial attacker, and a cross-check against public audits of the code Crow reuses. They found ${serious.length} issues serious enough to break a safety rule (High or Medium); ${seriousFixed} are fixed, each with tests that fail without the fix.`, pill('done', 'Done')),
+    row('Independent contract review', `Three separate passes (T-206): a line-by-line checklist, an adversarial attacker, and a cross-check against public audits of the code Crow reuses. The review rates ${serious.length} findings High or Medium today; ${seriousFixed} of them are fixed, each with tests that fail without the fix.`, pill('done', 'Done')),
     S.review.crossFamily ? row("A review by another AI company's model", "DeepSeek's model reviewed the contracts in focused parts, then each fix since. Its findings are triaged in the review.", pill('done', 'Done')) : '',
     ...findingRows,
     deployed,
   ].join('');
-  $('findings-note').innerHTML = `Findings come from the contract review (${code(S.review.file)}, ${esc(S.review.date)}) and the hardening task (${code('docs/tasks/T-212-contract-hardening.md')}). A finding counts as fixed when the review says so or T-212 marks its item done.`;
+  $('findings-note').innerHTML = `Findings come from the contract review (${code(S.review.file)}, ${esc(S.review.date)}) and the hardening task (${code('docs/tasks/T-212-contract-hardening.md')}). A finding counts as fixed when the review says so or T-212 marks its item done. The review's ${esc(S.infoCount)} informational items (I-1 to I-${esc(S.infoCount)}) are listed there; this page shows only those with a hardening item.`;
 
   // Crow's source files, read from contracts/src.
   const where = (c) => (c.deployed ? 'Sepolia' : c.kind === 'library' ? 'Inside HoldbackRules' : c.kind === 'interface' ? 'Interface only' : 'Local tests only');
@@ -449,20 +451,22 @@ footer{font-size:13px;color:var(--faint);border-top:1px solid var(--rule);paddin
     Multicall3: 'The standard copy already on every chain.',
     Permit2: 'The standard token-approval contract already on every chain.',
   });
-  const domain = live.domain ? `"${esc(live.domain.name)}" ${esc(live.domain.version)}` : 'unknown';
-  $('deploy-intro').innerHTML = `On Ethereum's public test network (Sepolia, chain ${esc(live.chainId)}). These contracts were deployed from commit ${code(short(live.commit))} at block ${fmt(live.fromBlock)}, recorded on ${esc(live.recordedOn ?? 'an unknown date')}, and check signed messages under EIP-712 domain ${domain}. The coins are worthless test coins. The full record, with every transaction, is in ${code(live.file)}.`;
+  const domain = live.domain ? `"${esc(live.domain.name)}" ${esc(live.domain.version)}${live.domain.readFrom === 'this checkout' ? ' (read from this checkout, which has no history)' : ''}` : 'unknown';
+  const rulesAt = live.rulesBlock ? ` (HoldbackRules at block ${fmt(live.rulesBlock)})` : '';
+  $('deploy-intro').innerHTML = `On Ethereum's public test network (Sepolia, chain ${esc(live.chainId)}). The deploy script deployed these contracts from commit ${code(short(live.commit))}, starting at block ${fmt(live.fromBlock)}${rulesAt}. The record changed on ${esc(live.recordedOn ?? 'an unknown date (this checkout has no history)')}. They check signed messages under EIP-712 domain ${domain}. The coins are worthless test coins. The full record, with every transaction, is in ${code(live.file)}.`;
+  const link = (a) => `<a href="${esc(etherscan(a))}" target="_blank" rel="noopener">Etherscan ↗</a>`;
   $('addresses').innerHTML = live.addresses.map((a) =>
-    row(a.name, esc(what[a.name] ?? ''), `<a href="${etherscan(a.address)}" target="_blank" rel="noopener">Etherscan ↗</a>`, `<p><code style="word-break:break-all">${esc(a.address)}</code></p>`)).join('');
+    row(a.name, esc(what[a.name] ?? ''), link(a.address), `<p><code style="word-break:break-all">${esc(a.address)}</code></p>`)).join('');
   const checked = live.checks.creationCodeMatchesBuild && live.checks.beaconRefusesOutsideG1 && live.checks.beaconRefusesAnotherRound;
-  const sameCode = srcMatchesLive === true ? 'The contracts on main are the code deployed here.'
-    : srcMatchesLive === false ? `The contracts on main have changed since ${short(live.commit)}; the live demo runs the deployed code until a redeploy.`
-    : 'This build could not compare main with the deployed commit.';
+  const sameCode = srcMatchesLive === true ? "This checkout builds the code deployed here (contracts/src, its libraries and the build settings)."
+    : srcMatchesLive === false ? `The contracts, their libraries or the build settings have changed since ${short(live.commit)}; the live demo runs the deployed code until a redeploy.`
+    : 'This build could not compare its code with the deployed commit (no history).';
   $('deploy-notes').innerHTML = `${checked ? "After deploying, the script checked that each contract's code matches the build, the wiring between them, that the beacon accepts a real drand round and refuses forged ones, and the token's signing domain (measured; the record's checks). " : ''}The deploy key has no power over any of these contracts. ${esc(sameCode)}`;
   if (earlier.length) {
     $('earlier').innerHTML = earlier.map((e) => {
       const rules = e.addresses.find((a) => a.key === 'rules');
       return row(`Earlier deployment, ${e.deployedOn}`, `EIP-712 domain ${esc(e.domain?.version ?? '')}, deployed from ${code(short(e.commit))}. It still settles the deals opened on it, and anyone can trigger their deadlines there. Record: ${code(e.file)}.`,
-        rules ? `<a href="${etherscan(rules.address)}" target="_blank" rel="noopener">Etherscan ↗</a>` : '', rules ? `<p><code style="word-break:break-all">HoldbackRules ${esc(rules.address)}</code></p>` : '');
+        rules ? link(rules.address) : '', rules ? `<p><code style="word-break:break-all">HoldbackRules ${esc(rules.address)}</code></p>` : '');
     }).join('');
   } else {
     $('earlier').remove();
@@ -472,14 +476,15 @@ footer{font-size:13px;color:var(--faint);border-top:1px solid var(--rule);paddin
   const paths = S.gas.paths.filter((p) => p.gas);
   const max = Math.max(...paths.map((p) => p.gas));
   $('gas').innerHTML = paths.map((p) =>
-    `<div class="bar-row"><span>${esc(p.label)}</span><div class="track"><div class="fill" style="width:${((p.gas / max) * 100).toFixed(1)}%"></div></div><span class="num">${fmt(p.gas)}</span></div>`).join('');
+    `<div class="bar-row"><span>${esc(p.label)}</span><div class="track"><div class="fill" style="width:${((p.gas / max) * 100).toFixed(1)}%"></div></div><span class="num">${fmt(p.gas)} gas</span></div>`).join('');
+  const usd = (g) => ((g * 1e-9) * 3000).toFixed(2);
   const normal = paths[0];
-  if (normal) {
-    const usd = ((normal.gas * 1e-9) * 3000).toFixed(2);
-    $('gas-intro').innerHTML = `Ethereum charges “gas” for each transaction. On a local chain a normal deal takes ${normal.transactions} transactions and ${fmt(normal.gas)} gas: roughly <b>$${usd}</b> at 1 gwei and $3,000 per ETH (illustrative; real prices move).`;
-  }
   const rec = S.gas.recordedAt;
   const sep = S.sepoliaGas;
+  if (normal) {
+    const onSepolia = sep ? ` On Sepolia the demo's last recorded deal used ${fmt(sep.total)} gas, about <b>$${usd(sep.total)}</b> at the same prices.` : '';
+    $('gas-intro').innerHTML = `Ethereum charges “gas” for each transaction. On a local chain a normal deal takes ${normal.transactions} transactions and ${fmt(normal.gas)} gas: roughly <b>$${usd(normal.gas)}</b> at 1 gwei and $3,000 per ETH (illustrative; real prices move).${onSepolia}`;
+  }
   $('gas-notes').innerHTML = `Measured on a local chain by ${code('pnpm snap --settlement local')}, which runs ${S.gas.fixtures} scenarios on the contracts (${code(S.gas.source)}${rec ? `, recorded at ${code(rec.commit)} on ${esc(rec.date)}` : ''}).`
     + (sep ? ` On Sepolia, the demo's last recorded test deal used ${fmt(sep.total)} gas in three transactions: fund ${fmt(sep.fund)}, deliver ${fmt(sep.deliver)}, decide ${fmt(sep.decide)} (measured from the receipts; ${code(sep.source)}).` : '');
 

@@ -1,5 +1,5 @@
 {
-  "_about": "Plain-language text for the contract-stack page (scripts/contract-stack.mjs). The facts come from the repository: states, addresses, line counts and gas. This file only words them for a reader new to the project. A finding's text has one variant per state (open, fixed, accepted); when the variant for its current state is missing, the page shows the review's own title and status instead, so a state change never leaves stale wording.",
+  "_about": "Plain-language text for the contract-stack page (scripts/contract-stack.mjs). The facts come from the repository: states, addresses, line counts and gas. This file only words them for a reader new to the project. A finding's text has one variant per state (open, fixed, accepted); when the variant for its current state is missing, the page shows the review's own words and what the sources say about the state (for example 'Fixed in T-212 item 1'). A title names the problem, and the page prefixes 'Fixed:' when it is fixed, so write titles that read either way.",
   "contracts": {
     "HoldbackRules": "The referee. It checks every signed message and deadline, and is the only thing that tells the vault to pay, refund or hold.",
     "HoldbackBonds": "The adjudicators' security deposits. Each deal locks part of a deposit until its appeal window closes, and an overturned decision is paid from it.",
@@ -19,15 +19,15 @@
     },
     "M-1": {
       "title": "A buyer's direct reclaim could freeze bonds",
-      "fixed": "If the buyer took the money straight back from the vault, the adjudicators' deposits for that deal stayed locked. They are now freed."
+      "fixed": "If the buyer took the money straight back from the vault, the adjudicators' deposits for that deal stayed locked. The contract now frees them."
     },
     "M-2": {
       "title": "A late delivery could block a refund",
-      "fixed": "A delivery arriving after its deadline could still count and beat the buyer's refund. The deadline is now checked on every path."
+      "fixed": "A delivery arriving after its deadline could still count and beat the buyer's refund. The contract now checks the deadline on every path."
     },
     "M-3": {
       "title": "A fake deal could lock a backup judge's deposit",
-      "fixed": "Anyone could name a backup or appeal adjudicator in a sham deal and tie up its bond. A backup's bond is now locked only when it actually takes the case."
+      "fixed": "Anyone could name a backup or appeal adjudicator in a sham deal and tie up its bond. The contract now locks a backup's bond only when the backup actually takes the case."
     },
     "L-1": {
       "title": "A decision could be paired with another delivery",
@@ -39,13 +39,13 @@
       "open": "With a token that charges a fee on each transfer, the vault would record more than it received. The fix checks the balance actually received, as the escrow vault already does."
     },
     "L-3": {
-      "title": "An appeal can be filed with no deposit",
-      "open": "Now that winning an appeal pays out, a free appeal is a free shot at the price. A minimum appeal deposit, set in the deal's terms, must be in place before any real money.",
-      "accepted": "An appeal can be filed with no deposit. Accepted until the appeal rules move on chain."
+      "title": "A party can appeal with no deposit",
+      "open": "Now that winning an appeal pays out, a free appeal is a free shot at the price. The contract needs a minimum appeal deposit, set in the deal's terms, before any real money.",
+      "accepted": "A party can appeal with no deposit. Crow accepts this until the appeal rules move on chain."
     },
     "L-4": {
       "title": "The primary judge's seed check is shorter than it could be",
-      "open": "The primary judge's commitment to its random seed is checked on 144 bits and is not tied to the deal. The fix ties it to the deal."
+      "open": "The contract checks the primary judge's commitment to its random seed on 144 bits and does not tie it to the deal. The fix ties it to the deal."
     },
     "L-5": {
       "title": "The appeal judge stakes no deposit of its own",
@@ -53,7 +53,7 @@
     },
     "L-6": {
       "title": "The vault's expiry ignores the judging deadline",
-      "open": "If the judging deadline falls after the vault's expiry, an on-time decision could not be paid. The fix derives the expiry from every deadline, or refuses such terms at funding."
+      "open": "If the judging deadline falls after the vault's expiry, the vault could not pay an on-time decision. The fix derives the expiry from every deadline, or refuses such terms at funding."
     },
     "L-7": {
       "title": "The winner could block the loser's appeal",
@@ -70,8 +70,8 @@
     },
     "I-8": {
       "title": "Winning an appeal paid nothing",
-      "open": "When an appeal overturns a decision, nobody is paid from the judge's deposit, so the wronged party wins the record but not the money.",
-      "fixed": "When an appeal overturned a decision, nobody was paid from the judge's deposit. Now the first judge's deposit pays the wronged party the full price."
+      "open": "When an appeal overturns a decision, the contract pays nobody from the judge's deposit, so the wronged party wins the record but not the money.",
+      "fixed": "When an appeal overturned a decision, the contract paid nobody from the judge's deposit. Now the first judge's deposit pays the wronged party the full price."
     }
   },
   "gas": [

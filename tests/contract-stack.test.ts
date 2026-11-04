@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 // @ts-expect-error -- plain ESM helper without type declarations
-import { build, collect, INPUTS, plain, stackVersion } from '../scripts/contract-stack.mjs';
+import { build, collect, INPUTS, plain, shallow, stackVersion } from '../scripts/contract-stack.mjs';
 import { execFileSync } from 'node:child_process';
 
 const root = new URL('../', import.meta.url);
@@ -43,7 +43,25 @@ describe('contract-stack page', () => {
     for (const e of data.deployment.earlier) {
       expect(e.deployedOn).toMatch(/^\d{4}-\d{2}-\d{2}$/);
       expect(e.addresses.length).toBeGreaterThan(0);
+      // The domain comes from the file name, so a one-commit checkout cannot replace it with today's.
+      expect(e.file).toContain(`-domain-${e.domain.version}.json`);
+      if (!shallow() && e.commit) {
+        const source = execFileSync('git', ['show', `${e.commit}:contracts/src/HoldbackRules.sol`], { cwd: new URL('.', root), encoding: 'utf8' });
+        expect(source).toContain(`"${e.domain.version}"`);
+      }
     }
+  });
+
+  it('rates a re-rated finding by its current severity, so an open Medium is not shown as Low', () => {
+    const l5 = data.findings.find((f: { id: string }) => f.id === 'L-5');
+    expect(l5.severityNote).toMatch(/since/);
+    expect(l5.severity).toBe('medium');
+    const serious = data.findings.filter((f: { severity: string }) => f.severity === 'high' || f.severity === 'medium');
+    expect(serious.some((f: { state: string }) => f.state !== 'fixed')).toBe(true);
+  });
+
+  it('never words a fixed finding with an open status', () => {
+    for (const f of data.findings.filter((x: { state: string }) => x.state === 'fixed')) expect(f.text, f.id).not.toMatch(/Review status: T-212 item/);
   });
 
   it('reads every finding in the review summary with a severity and a state', () => {
@@ -80,15 +98,26 @@ describe('contract-stack page', () => {
     expect(data.sepoliaGas?.total).toBe(data.sepoliaGas.fund + data.sepoliaGas.deliver + data.sepoliaGas.decide);
   });
 
-  it('versions the page by the latest commit that touched its inputs, so the console rebuilds only on a change', () => {
+  it('versions the page by the latest first-parent commit that touched its inputs, or null without the history', () => {
+    for (const path of ['contracts/src/', 'contracts/lib', 'contracts/deployments/']) expect(INPUTS).toContain(path);
     const v = stackVersion();
+    expect(data.version).toEqual(v);
+    if (shallow()) {
+      expect(v).toBeNull(); // CI's one-commit checkout: the console's job must fetch the history
+      return;
+    }
     expect(v?.commit).toMatch(/^[0-9a-f]{40}$/);
     expect(v?.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    expect(data.version).toEqual(v);
-    for (const path of ['contracts/src/', 'contracts/deployments/']) expect(INPUTS).toContain(path);
-    // That commit touched at least one input.
-    const touched = execFileSync('git', ['show', '--name-only', '--format=', v.commit], { cwd: new URL('.', root), encoding: 'utf8' }).split('\n').filter(Boolean);
-    expect(touched.some((f) => INPUTS.some((i: string) => (i.endsWith('/') ? f.startsWith(i) : f === i)))).toBe(true);
+    // That commit's change against its first parent touches at least one input (a merge on main included).
+    const cwd = new URL('.', root);
+    const parents = execFileSync('git', ['rev-list', '--parents', '-n', '1', v.commit], { cwd, encoding: 'utf8' }).trim().split(' ');
+    const args = parents.length > 1 ? ['diff', '--name-only', `${v.commit}^1`, v.commit] : ['show', '--name-only', '--format=', v.commit];
+    const touched = execFileSync('git', args, { cwd, encoding: 'utf8' }).split('\n').filter(Boolean);
+    expect(touched.some((f) => INPUTS.some((i: string) => (i.endsWith('/') ? f.startsWith(i) : f === i || f.startsWith(`${i}/`))))).toBe(true);
+  });
+
+  it('refuses a deployment record whose address is not an address', () => {
+    for (const a of data.deployment.live.addresses) expect(a.address).toMatch(/^0x[0-9a-fA-F]{40}$/);
   });
 
   it('embeds the data in the template with no raw closing tags and no placeholder left', () => {
