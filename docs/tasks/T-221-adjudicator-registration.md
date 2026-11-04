@@ -1,12 +1,13 @@
 # T-221: Adjudicator registration through the API
 
-- **Lane:** operator (with core for the message and its schema, demo for the store, judgment for one rule)
+- **Lane:** api (with core for the message and its schema, demo for the store, judgment for one rule)
 - **Phase:** 2
-- **Depends on:** nothing, for the ADR, the schema, `eip712.ts`, `types.ts` and the operator work. Some files are changed by other tasks first:
-  - `packages/core/src/parse.ts` and `apps/adjudicator/src/service.ts`: after T-217 merges, which changes both (T-211 changed `service.ts` before it);
+- **Depends on:** T-211 and T-217 for `parse.ts` and `service.ts`, and T-218 and T-219 for `world.ts`: those edits wait for them to merge. The ADR, the schema, `eip712.ts`, `types.ts` and the operator work can start now.
+  - `packages/core/src/parse.ts` and `apps/adjudicator/src/service.ts`: after T-217 merges, which changes both; T-211 (PR 175, open) changes `service.ts` before it.
   - `apps/demo-cloud/src/world.ts`: after T-219 merges, which follows T-218 there; the deploy that ships round 1's prerequisites edits it after this task.
 - **Paths this task may touch** (the operator's prepare too, for the defaults and the warning):
   - `apps/operator/src/prepare.ts` and its tests;
+  - `examples/verify.ts` (its `TYPES` only: `AdjudicatorAcceptance`, `Decision` and `AdjudicatorRegistration`, so `llms.txt` can publish them and `site/check.mjs` still matches them) and `examples/verify.test.ts`;
   - spec: `spec/schemas/messages.schema.json`, `spec/schemas/adjudicator.schema.json`, `spec/examples/`, `spec/openapi/paths.json`, `spec/openapi.json`;
   - core: `packages/core/src/eip712.ts`, `types.ts` and `parse.ts`, and their tests;
   - operator: `apps/operator/src/server.ts`, `registry.ts`, `registrations.ts` (new), `sim-world.ts`, and their tests;
@@ -25,9 +26,11 @@ Rafa, 2026-11-04: "API should facilitate overturned appeals", then "Yes, plan it
 Restated: let any agent register its own adjudicator through the public API, so that buyers and sellers can name it as primary, fallback or appeal adjudicator. That is the protocol's first property: any two agents choose their own adjudicator.
 
 - **Registration.** A self-signed EIP-712 `AdjudicatorRegistration`. The operator verifies it, stores one per address, and serves it with its signature and with the bond read live from `HoldbackBonds`.
-- **The bond.** The adjudicator deposits it on chain from its own key, as the demo's three do today. A registration without a bond is shown plainly, Crow warns anyone who names one, and the protocol refuses a selection whose terms would pay from a bond the adjudicator does not have.
+- **The bond.** The adjudicator deposits it on chain from its own key, as the demo's three do today. A registration without a bond is shown plainly, and Crow warns anyone who names one. A selection whose terms would pay from a bond the adjudicator does not have is refused: by the operators now, and by the protocol with the next contract change.
 - **Crow's three adjudicators stay the defaults.** Naming others is advanced use of the protocol, outside Crow's recommendation.
-- **Everything after registration already works** for any address the terms name: the acceptance and decision routes, the envelope read and the timeout triggers (research §3, measured).
+- **Everything after registration already works** for any address the terms name: the acceptance and decision routes, the envelope read and the timeout triggers (research §3, measured). There are two exceptions:
+  - no prepare helper builds an acceptance or a decision, so the adjudicator signs the typed data itself (`llms.txt` gets a worked example);
+  - fallback and appeal decisions wait for T-217's drand proofs.
 
 Round 1 (T-216) then uses the round's own registered adjudicators for:
 - the wrong first decision that a demo appeal adjudicator overturns, through the API (scenario 7);
@@ -44,7 +47,7 @@ Its confidence is high on the direction, medium on the message shape (the ADR se
 
 - The research pass above, §1 to §8; ADR-0005, ADR-0007, ADR-0014, ADR-0020, ADR-0023 (the version rule), ADR-0024 §6 (`KeyRegistration`), ADR-0028, ADR-0029.
 - D29 (adjudicators may decline clauses), D31 (parametrize, don't restrict), D43 (the overturn payout), D44 (`trustedAdjudicators`).
-- `docs/reviews/2026-11-03-contract-review.md` L-5: the appeal adjudicator is never bonded on chain, so a self-registered appeal adjudicator risks nothing when it decides. `llms.txt` says so plainly.
+- `docs/reviews/2026-11-03-contract-review.md` L-5: the appeal adjudicator is never bonded on chain, so a self-registered appeal adjudicator risks nothing when it decides. `llms.txt` must say so plainly: the text goes in this task's Handoff, and T-220 publishes it.
 
 ## Acceptance criteria
 
@@ -72,11 +75,11 @@ Its confidence is high on the direction, medium on the message shape (the ADR se
   - The demo's three register through the same path when the world opens, so every served registration is signed.
 - [ ] **The store.** Durable Object rows `ar:<address>`, loaded when the world opens or on first read.
   - **A registration is never removed** (Rafa, 2026-11-04: "don't remove but be transparent alongside other metrics"). Each served registration shows when it was last used: `lastUsedAt`, the last acceptance or decision this operator relayed or saw from that adjudicator, beside the other public metrics `GET /v1/adjudicators` serves (bond pool, fee). An expired registration stays listed, marked as expired.
-  - The rows are counted in telemetry, so storage growth is visible.
+  - The rows are counted in telemetry, so storage growth is visible. Keeping every registration has a cost: the research bounded storage by dropping registrations at expiry (§6), so growth is now bounded only by the write throttle and one row per address. State that limit in `llms.txt`, and add a backlog row for when the count matters.
   - The local sim world keeps an in-memory store, so `pnpm sim` and the operator tests exercise the route.
 - [ ] **Bonds, shown plainly.** A registration without a bond is listed like any other, with `pool` at zero and a plain "no bond" label in the API and in `llms.txt` (Rafa: "just be clear that they don't").
 - [ ] **Crow's adjudicators are the default** (Rafa: "crow's adjudicators are default and custom selection is advanced usage of protocol (outside of recommendation by crow etc.)").
-  - `prepare/offer` fills Crow's three when an agent names no adjudicators, and discovery marks them as Crow's defaults.
+  - This plan's reading of his answer, which is new behaviour: today `prepare/offer` requires all three adjudicators. It will fill in Crow's three when an agent names none, and discovery will mark them as Crow's defaults.
   - `llms.txt` presents naming other adjudicators as advanced use of the protocol, which Crow neither recommends nor vouches for.
 - [ ] **A warning for an adjudicator without a bond.** `prepare/offer`, and the offer it relays, carry an advisory notice when a named adjudicator has no bond, or less free bond than the price. Advisory only, like the other sanity checks (D31): the parties may still choose it.
 - [ ] **The protocol refuses a selection the terms cannot pay** (Rafa: "reject adjudicator selection at protocol level if contract specifies bond payout but adjudicator has no bond").
@@ -84,8 +87,12 @@ Its confidence is high on the direction, medium on the message shape (the ADR se
   - **The primary: already enforced** [inferred from the research, §premises]. Core refuses its acceptance without unencumbered bond for the price (`packages/core/src/state.ts`), and `agreeAndFund` encumbers it on chain.
   - **The fallback: new.** Today its bond is reserved only when it decides (M-3), so a bondless fallback cannot decide and the deal defaults, but nothing refuses it at selection.
   - **The appeal adjudicator:** no clause pays from its bond on chain today (L-5), so the rule does not reach it until T-212 item 5 decides its coverage.
-  - **The design** goes in ADR-0030, after its own research pass (Fable, max effort). It settles what "has a bond" means (free bond at least what the clause pays) and when it is checked. The check is at selection, a read with no lock, because locking a named fallback's bond without its consent is M-3's attack. The rule lives in core and the contract together, so a direct call and a relayed one never disagree.
-  - **The contract half is a contract change.** It ships with the next contract redeploy, with T-212 item 5 and the gasless bond, unless Rafa wants it before round 1. Until then, operators refuse to relay such an offer or agreement (`invalid_terms`, saying why), and the direct path stays open, as for any operator refusal.
+  - **What it buys, and what it cannot do.** Unpaid payouts are already impossible: funding reverts for an unbonded primary (`HoldbackBonds.sol:76`), and an unbonded fallback cannot decide (`HoldbackRules.sol:327`). So the new check changes "the deal goes to the default outcome" into "refused before funding". It is a read with no lock, so it cannot promise the fallback still has its bond at takeover.
+  - **An exception to D31 and D32,** recorded as Rafa's rule: a bondless fallback is neither malformed nor something settlement cannot process.
+  - **Neutrality.** Once it is on chain, funding depends on a free bond the named fallback controls: the fallback can withdraw, though it signed nothing. The design needs a `neutrality.*` fixture for that case: nothing is locked, the funding is refused, and the parties can offer again with another fallback.
+  - **Not built here: the protocol-level half.** It lands in core and the contract in one change, with the next contract redeploy (T-212 item 5, the gasless bond; the backlog row "The protocol refuses a selection the terms cannot pay"). Its design goes in an ADR after its own research pass (Fable, max effort): what "has a bond" means (free bond at least what the clause pays), and that the check is at selection, a read with no lock, because locking a named fallback's bond without its consent is M-3's attack.
+  - **Core cannot go first.** The EVM adapter steps core alongside the chain, and it throws when core refuses a step the contract accepted (`packages/settlement/evm/evm-settlement.ts`, "EVM/core divergence"). So a core-only refusal would break the view of a deal funded directly with an unbonded fallback, once T-218 syncs direct calls.
+  - **What T-221 builds now: the operator's relay path only.** `prepare/offer`, and the offer and agreement relays in `server.ts`, refuse such terms with `invalid_terms`, saying why. The direct path stays open, as for any operator refusal. Tests cover the refusal and the open direct path.
 - [ ] **The fallback trust rule.** Today `trustedAdjudicators` is checked only when the reference adjudicator accepts as primary. Once outsiders can be primaries, a demo adjudicator named as fallback would decide, encumbering its own bond, under an outsider's appeal adjudicator, who could then slash that bond. D44's attack has a second path.
   - The reference adjudicator takes a fallback task only when the deal's appeal adjudicator is in its trusted set. Otherwise it declines with `invalid_terms` and a reason in `notices`.
   - As appeal adjudicator it serves any deal.
@@ -100,20 +107,21 @@ Its confidence is high on the direction, medium on the message shape (the ADR se
   - `docs/neutrality.md`, the operator row: "store and serve adjudicator registrations" under Can, "author or alter one" under Cannot.
   - The backlog rows the research names, narrowed or closed.
   - The `llms.txt` text from research §5 ("Run your own adjudicator", with the L-5 limit stated), in the Handoff for T-220.
-- [ ] **Review.** `reviewer` and `red-teamer`, each with project context: this changes who may be named, and a defense in the reference adjudicator. Also a reviewer from a non-Claude model family on the message and the trust rule, if one can be reached. `pnpm verify` green, and `pnpm snap` with no snapshot diff.
+- [ ] **Review.** `reviewer` and `red-teamer`, each with project context: this changes who may be named, and a defense in the reference adjudicator. Also a reviewer from another model family (DeepSeek, as in the contract review's §8), on the message, the fallback trust rule (does it close D44's second path without opening a third?) and the relay-path bond refusal. Rafa runs it, since its key is outside agent sessions. `pnpm verify` green, and `pnpm snap` with no snapshot diff.
 
 ## Rafa's answers (2026-11-04)
 
 1. **One message:** `AdjudicatorRegistration` carries the key and subsumes `KeyRegistration`, as recommended.
 2. **The demo's own adjudicators register the same way,** as recommended.
 3. **Retention:** never removed; "show status of last used for each registration (don't remove but be transparent alongside other metrics)". See The store.
-4. **Which deals Crow's adjudicators serve:** "crow's adjudicators are default and custom selection is advanced usage of protocol (outside of recommendation by crow etc.)". So Crow's three are the defaults, and the trust rules stay as recommended: as fallback only under a trusted appeal adjudicator, and as appeal adjudicator for any deal, within the daily judge budget.
+4. **Which deals Crow's adjudicators serve:** "crow's adjudicators are default and custom selection is advanced usage of protocol (outside of recommendation by crow etc.)". So Crow's three are the defaults. This plan's reading, which goes beyond his words: the trust rules stay as the research recommended. Crow's adjudicators serve as fallback only under a trusted appeal adjudicator, and as appeal adjudicator for any deal, within the daily judge budget.
 5. **The gasless bond:** "build later", with T-212's mainnet redeploy.
 6. **Unbonded registrations:** "show registrations that don't have a bond just be clear that they don't". He added the warning and the protocol-level refusal above.
 7. **The posted delivery for involved adjudicators:** punted to the backlog (Rafa: "let's punt on the read thing, since I don't understand it and pick it up later from the backlog"). The row is under API in `docs/backlog.md`. Round 1 does not need it: its adjudicators decide by script.
 
 ## Out of scope (Phase 4, or the mainnet redeploy)
 
+- The protocol-level bond rule in core and the contract: one change, with the next contract redeploy (backlog).
 - An on-chain registry or anchor, and the coverage-ratio gate on chain.
 - A gasless bond deposit and withdrawal, and the appellant's bond by ERC-3009 authorization: one contract change, with T-212's items, in one redeploy.
 - The appeal adjudicator's coverage (L-5), and a minimum appeal bond in the signed terms (D43).

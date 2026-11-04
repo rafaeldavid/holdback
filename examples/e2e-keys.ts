@@ -7,7 +7,7 @@
 //   node --env-file-if-exists=.env examples/e2e-keys.ts init .env   makes the secret if the environment has none,
 //                                                                   appends it to .env, prints the addresses
 //   node --env-file-if-exists=.env examples/e2e-keys.ts address     prints the addresses
-import { appendFileSync, existsSync, readFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync, statSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { concat, keccak256, stringToHex, type Address, type Hex } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
@@ -18,6 +18,8 @@ export const ROLES = ['master', 'buyer', 'seller', 'adjudicator-1', 'adjudicator
 export type Role = (typeof ROLES)[number];
 
 const SEED = /^0x[0-9a-fA-F]{64}$/;
+/** A line that sets the secret, in any form a dotenv reader accepts: leading spaces, `export`, spaces around `=`. */
+const SETS_SEED = new RegExp(`^\\s*(export\\s+)?${SEED_VAR}\\s*=`, 'm');
 
 /** A role's key: keccak256(seed ‖ "holdback/e2e/<role>"), as the relayer derives its deal lanes from its secret. */
 export function roundKey(seed: string, role: Role): Hex {
@@ -50,11 +52,13 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     if (seed) {
       console.log(`${SEED_VAR} is already set; nothing written.`);
       print(seed);
-    } else if (existsSync(file) && readFileSync(file, 'utf8').split('\n').some((l) => l.startsWith(`${SEED_VAR}=`))) {
+    } else if (existsSync(file) && SETS_SEED.test(readFileSync(file, 'utf8'))) {
+      // Only whether the variable is set leaves this read; nothing in the file is printed.
       console.error(`refusing: ${file} already has ${SEED_VAR}; load it with --env-file-if-exists=${file} and run address`);
       process.exit(2);
     } else {
-      // A file this creates is readable by its owner only.
+      // A file this creates is readable by its owner only; an existing one keeps its mode, so say when others can read it.
+      if (existsSync(file) && statSync(file).mode & 0o077) console.error(`warning: ${file} is readable by other users; chmod 600 ${file}`);
       const fresh = generatePrivateKey();
       appendFileSync(file, `\n# T-216: the first EVM end-to-end round's Sepolia-only secret (examples/e2e-keys.ts)\n${SEED_VAR}=${fresh}\n`, { mode: 0o600 });
       console.log(`Wrote ${SEED_VAR} to ${file} (not shown).`);

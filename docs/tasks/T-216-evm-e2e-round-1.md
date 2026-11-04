@@ -4,7 +4,7 @@
 - **Phase:** 2
 - **Depends on:** T-217 (drand proofs for fallback and appeal), T-218 (direct calls in the operators' view), T-219 (the in-flight row per relayer lane), T-221 (adjudicator registration through the API), and T-220, which ships those four to the live demo; Rafa's answers to the open scope questions below. The fixed contracts are already live (see Context).
 - **Paths this task may touch:** `examples/e2e-*.ts` (new: the round's keys, its driver, and their tests; the `examples` workspace already holds the agent-side code and viem), `docs/reviews/` (one new file, the round's report), `docs/backlog.md` (rows for what the round finds; the Benched rows once it completes), `docs/plan.md` (this row), this file. No product code: a scenario that fails gets its fix in its own task, and the round re-runs it.
-- **Human gate:** yes. Rafa confirms the scope (the questions below) before the first run, and funds the round's own addresses with Sepolia ETH (or turns on the faucet's test ETH, a backlog row that is his call). The runs use the public API as any agent may, and send test transactions on Sepolia from test keys; they deploy nothing.
+- **Human gate:** yes. Rafa confirms the scope (the questions below) before the first run, and funds the round's master address with Sepolia ETH (done: 2.5, Evidence); the driver tops up the other keys from it. The runs use the public API as any agent may, and send test transactions on Sepolia from test keys; they deploy nothing.
 - **Status:** in progress (first slice: the round's keys, `examples/e2e-keys.ts`, so Rafa can fund the master today; the driver waits for the prerequisites)
 - **Agent/session:** the T-216 planning session (the keys)
 
@@ -113,7 +113,10 @@ The fixed contracts are live (Context), so they block no scenario. "Blocked toda
 1. ~~Confirm the scenario list; is the mutual settlement in round 1?~~ **Answered (Rafa, 2026-11-04):** "mutual settlement is important in the basic build". It is scenario 10.
 2. ~~The overturned appeals: direct contract calls, or the API?~~ **Answered (Rafa, 2026-11-04):** "API should facilitate overturned appeals". Then "Yes, plan it" for adjudicator registration through the API over a labelled test adjudicator inside the demo: T-221.
 3. ~~A silent adjudicator: an envelope it cannot unwrap, or a test adjudicator in the demo?~~ **Answered by 2:** the round's own adjudicator, registered through T-221, accepts and then never decides.
-4. **Sepolia ETH (partly answered).** Rafa, 2026-11-04: "feels like we need a master address that funds all the rest", and he will get it through a faucet. So the round has one master address, key 0 (How the round runs); the driver prints it, and the driver funds every other key from it. Still open: how much. About 0.2 Sepolia ETH (guessed). The steps that need the round's own gas take roughly 8 million gas: 0.008 ETH at today's 1 gwei, with room for spikes up to 20 gwei, the relayer's fee cap used here as a yardstick. Faucets limit each address per day, so it can be gathered in Rafa's own Sepolia wallet first and sent to the master once the driver prints it.
+4. ~~Sepolia ETH for the round's own keys?~~ **Answered (Rafa, 2026-11-04):** "I'll get through faucet,,, feels like we need a master address that funds all the rest".
+   - The round has one master address, the `master` key (How the round runs). `examples/e2e-keys.ts address` prints it, and the driver funds every other key from it.
+   - The round needs about 0.2 Sepolia ETH (guessed): roughly 8 million gas for the steps that need its own gas, 0.008 ETH at today's 1 gwei, with room for spikes up to 20 gwei (the relayer's fee cap, used as a yardstick).
+   - The master holds 2.5 (Evidence).
 5. Shipping the prerequisites (T-220). Proposed: one deploy once T-217, T-218, T-219 and T-221 have merged, with a fresh world for the drand rulebook. The alternative is a deploy as each one merges: the others need no new world, but T-217's rulebook does.
 6. The restart case (11): T-219's test only (proposed), or one live holdback-op1 deploy during a round-1 deal?
 
@@ -128,8 +131,14 @@ The fixed contracts are live (Context), so they block no scenario. "Blocked toda
 Fill this in before review. Label each item measured, inferred or guessed.
 
 - **The keys (first slice, 2026-11-04).**
-  - `examples/e2e-keys.test.ts`: 4 passed [measured]. One distinct key per role, derived the same every time. A malformed secret is refused. `init` on a temporary file writes one secret, shows neither the secret nor a key, creates the file readable by its owner only (0600), prints the master derived from what it wrote, and refuses a second run without writing again. `address` prints every role's address from the environment and refuses without the secret. The tests never touch `.env`.
-  - `pnpm exec vitest run examples`: 44 passed. `eslint` and `tsc -b examples` are clean. `node site/check.mjs` passes [measured].
+  - `examples/e2e-keys.test.ts`: 6 passed [measured]. The tests never touch `.env`. They show:
+    - one distinct key per role, derived the same every time, and a malformed secret refused;
+    - `init` on a temporary file: it writes one secret, creates the file readable by its owner only (0600), prints the master derived from what it wrote, and refuses a second run without writing again;
+    - on an existing file: it keeps the file's lines, adds one secret line, and warns when others can read the file;
+    - it refuses a file that already sets the secret in another form (`export`, leading spaces, spaces around `=`);
+    - `address` prints every role's address from the environment, and refuses without the secret;
+    - neither `init` nor `address` prints the secret or any key derived from it, on stdout or stderr.
+  - `pnpm exec vitest run examples`: 46 passed. `eslint` and `tsc -b examples` are clean. `node site/check.mjs` passes [measured].
   - **The secret exists (2026-11-04).** Rafa ran `init` on his `.env`, and the round's master is `0x6D4cEa33dAf09Ba803238d46392162d41BDB029f` (https://sepolia.etherscan.io/address/0x6D4cEa33dAf09Ba803238d46392162d41BDB029f). Rafa funds it from faucets, about 0.2 Sepolia ETH; the other five addresses are topped up from it [measured: his terminal's output].
   - **The master is funded:** 2.5 Sepolia ETH at block 12,061,679 on 2026-11-04 [measured: `eth_getBalance` through publicnode]. That is well above the 0.2 the round needs [guessed], so the round can run more than once without another top-up.
 
