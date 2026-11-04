@@ -6,7 +6,7 @@ A change to one part of Crow often means another part must change too. This page
 
 - **Kinds.** Each flow has one kind:
   - **generated:** a script rebuilds the downstream area from the upstream one, and nobody edits the output by hand. The How column names the command.
-  - **checked:** someone updates the downstream area, and a test or check fails while it is stale. The How column names the check.
+  - **checked:** someone updates the downstream area, and a test or check fails while it is stale. The How column names the check. `pnpm test`, `pnpm validate:spec` and CI's contracts job run on every pull request; `node site/check.mjs` runs only by hand, before a site publish (`docs/operations.md`), so its flows hold only when someone runs it.
   - **manual:** someone has to remember. These are the flows where drift happens.
 - **One area per file.** A file belongs to the area whose path matches it most specifically: `site/llms.txt` is Agent docs, not Homepage and site.
 - **Before you finish a change,** find each area it touches and follow that area's manual flows. Make those updates in the same pull request, or write them into the task's Handoff.
