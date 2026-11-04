@@ -119,12 +119,11 @@ describe('happy path (demo beats 1-4)', () => {
     expect(await w.chain.keysFor(w.deal.id, w.cast.buyer.address)).toEqual([]);
   });
 
-  it('withholds the key on a refund even when the reject carries one for the buyer', async () => {
+  it('refuses a reject that carries a key for the buyer, as the contract does (T-206 H-2)', async () => {
     const w = await world();
     await delivered(w);
-    const r = await w.ok(w.deal.decide('primary', 'reject', { withKey: true }));
-    expect(r.state.escrowState).toBe('Refunded');
-    expect(types(r)).not.toContain('key.released');
+    expect(await w.refused(w.deal.decide('primary', 'reject', { withKey: true }))).toBe('invalid_terms');
+    expect((await w.chain.state(w.deal.id))?.escrowState).toBe('Delivered');
     expect(await w.chain.keysFor(w.deal.id, w.cast.buyer.address)).toEqual([]);
   });
 
@@ -245,6 +244,16 @@ describe('escalation', () => {
     expect(w.chain.pool(w.cast.appeal.address).reserved).toBe(0n);
   });
 
+  it('refuses an escalated reject that carries a key for the buyer (T-206 H-2)', async () => {
+    const w = await world();
+    await delivered(w);
+    await w.ok(w.deal.decide('primary', 'escalate'));
+    w.chain.advance(1);
+    expect(await w.refused(w.deal.decide('appeal', 'reject', { withKey: true }))).toBe('invalid_terms');
+    expect(await w.chain.keysFor(w.deal.id, w.cast.buyer.address)).toEqual([]);
+    expect((await w.ok(w.deal.decide('appeal', 'reject'))).state.escrowState).toBe('Refunded');
+  });
+
   it('defaults after the escalation times out and the appeal adjudicator bond pays the compensation', async () => {
     const w = await world();
     await delivered(w);
@@ -264,6 +273,11 @@ describe('party appeal (D21: the appeal fee is held until decided)', () => {
     await w.ok(w.deal.decide('primary', 'reject'));
     w.chain.advance(10);
   }
+  async function accepted(w: World) {
+    await delivered(w);
+    await w.ok(w.deal.decide('primary', 'accept'));
+    w.chain.advance(10);
+  }
   const appealBond = 100_000_000n; // ceil(2000 tUSD x 500 bps)
   const appealFee = 25_000_000n;
 
@@ -275,12 +289,47 @@ describe('party appeal (D21: the appeal fee is held until decided)', () => {
     expect(types(filed)).toEqual(['appeal.filed', 'key.released']);
     expect(w.chain.ledger()[`appealfee:${w.deal.id}`]).toBe(appealFee);
     w.chain.advance(1);
-    const r = await w.ok(w.deal.decide('appeal', 'accept'));
-    expect(types(r)).toEqual(['appeal.decided', 'bond.slashed', 'key.released']);
+    const r = await w.ok(w.deal.decide('appeal', 'accept', { withoutKey: true }));
+    expect(types(r)).toEqual(['appeal.decided', 'bond.slashed']);
     expect(r.state).toMatchObject({ escrowState: 'Refunded', appealState: 'overturned', finalAt: w.chain.now() });
     expect(await w.bal(w.cast.seller)).toBe(1_000_000_000n - appealFee + PRICE);
     expect(await w.bal(w.cast.appeal)).toBe(appealFee);
     expect(w.chain.pool(w.cast.primary.address)).toEqual({ junior: BOND - PRICE, senior: 0n, reserved: 0n });
+    expect(await w.chain.keysFor(w.deal.id, w.cast.buyer.address)).toEqual([]);
+  });
+
+  // T-206 H-2 (ADR-0012, the formal model's KeyOnlyWithPayment): a decision carries the buyer's key only with an
+  // accept, and never on a deal that stands Refunded. The refused appeal stays open; the same verdict without the key
+  // settles it.
+  it.each([
+    ['an overturned rejection', rejected, 'seller', 'accept', 'overturned'],
+    ['an upheld rejection', rejected, 'seller', 'reject', 'upheld'],
+    ['an overturned accept', accepted, 'buyer', 'reject', 'overturned'],
+  ] as const)('refuses %s that carries the buyer key, with no effects', async (_name, first, appellant, outcome, verdict) => {
+    const w = await world();
+    await first(w);
+    await w.ok(w.deal.appealBy(appellant));
+    w.chain.advance(1);
+    const ledger = w.chain.ledger();
+    const keys = await w.chain.keysFor(w.deal.id, w.cast.buyer.address);
+    expect(await w.refused(w.deal.decide('appeal', outcome, { withKey: true }))).toBe('invalid_terms');
+    expect(w.chain.ledger()).toEqual(ledger);
+    expect(await w.chain.keysFor(w.deal.id, w.cast.buyer.address)).toEqual(keys);
+    expect((await w.chain.state(w.deal.id))?.appealState).toBe('open');
+    const r = await w.ok(w.deal.decide('appeal', outcome, { withoutKey: true }));
+    expect(r.state.appealState).toBe(verdict);
+    expect(types(r)).not.toContain('key.released');
+  });
+
+  it('after an accept, an upheld appeal may carry the buyer key (ADR-0012 wrong-key ground)', async () => {
+    const w = await world();
+    await accepted(w);
+    await w.ok(w.deal.appealBy('buyer'));
+    w.chain.advance(1);
+    const r = await w.ok(w.deal.decide('appeal', 'accept'));
+    expect(r.state.appealState).toBe('upheld');
+    expect(types(r)).toEqual(['appeal.decided', 'key.released']);
+    expect(await w.chain.keysFor(w.deal.id, w.cast.buyer.address)).toHaveLength(2);
   });
 
   it('upheld: the appellant bond goes to the primary junior tranche', async () => {

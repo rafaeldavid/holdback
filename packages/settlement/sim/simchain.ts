@@ -842,6 +842,11 @@ export class SimChain implements Settlement {
     tx.useNonce(`${lc(m.adjudicator)}:${m.nonce}`);
     const beacon = this.beaconFact(prev, m.role);
     const next = this.stepped(prev, { type: 'decide', at: tx.at, message: m, beacon });
+    // ADR-0012 (formal model KeyOnlyWithPayment), as HoldbackRules.decide: the buyer's key travels only with an
+    // accept, and never on a deal that stands Refunded.
+    if (m.keyForBuyer && (m.outcome !== 'accept' || prev.kind === 'Refunded')) {
+      refuse('invalid_terms', prev.kind === 'Refunded' ? 'a decision on a refunded deal carries no key for the buyer' : `a ${m.outcome} decision carries no key for the buyer`);
+    }
     const { terms } = next;
     const { price, adjudication, buyer, seller } = terms;
     const seedSource = m.role === 'primary' ? { seedSource: 'commit-reveal' } : { seedSource: 'beacon', beaconRound: beacon?.round };
