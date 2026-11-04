@@ -1,6 +1,6 @@
 # Plan
 
-Iterative. Demo first, then harden one layer per phase. Each phase ends with evidence, a plan update and ADRs closed or deferred. Phases 0 to 2, 9 and 10 have task files in `docs/tasks/` (T-016b does not yet), and Phases 3 and 5 have one each (T-309, T-214). The architect writes later phases' task files at the start of each phase.
+Iterative. Demo first, then harden one layer per phase. Each phase ends with evidence, a plan update and ADRs closed or deferred. Phases 0 to 2, 9, 10 and 11 have task files in `docs/tasks/` (T-016b does not yet), and Phases 3 and 5 have one each (T-309, T-214). The architect writes later phases' task files at the start of each phase.
 
 **Releases:** v0.1 = Phases 0–3 · v0.2 = Phases 4–5 · v0.3 = Phase 6.
 
@@ -205,6 +205,18 @@ Goal: agent teams develop Crow continuously from tickets, agent feedback, the ro
 - `agent-ops/STATUS` reads `active` and the repository variable `AGENT_OPS` is `on`, both set by Rafa (T-050).
 - One lane merged 10 PRs without a revert, then three lanes ran with the cross-family gates (measured in the daily log).
 - No agent session can read a credential for Rafa's personal accounts (T-039 smoke test, measured).
+
+## Phase 11: Security hardening
+
+Goal: the systems that run Crow, beyond the protocol, hold up against an attacker: the founders' console, the accounts and keys behind the demo, and the paths by which code reaches them.
+
+Appended after Phase 10, so no phase number moves (Rafa, 2026-11-04: "let's move this to security hardening phase"). Contract hardening stays in Phase 2 (T-212), judgment hardening in Phase 3, and the agent-ops security gates in Phase 10 (T-044). Tasks are listed in dependency order.
+
+- T-059 The founder console on its own host behind Access (D45): finish the move from the passcode console at `escrow.stream/control` to `control.escrow.stream` behind Cloudflare Access, with the hourly and daily pushes. The code, its tests and two red-team rounds are done; Rafa's setup steps and the deploys remain (infra; human gate).
+
+**Exit:**
+- Both founders open the console at `control.escrow.stream` through Access and see Costs and Keys, and the shared passcode is retired (T-059, confirmed by Rafa).
+- A red-team pass against the deployed console finds no High or Critical finding (measured).
 
 ## Scenario index
 
