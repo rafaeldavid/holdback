@@ -2,7 +2,9 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, write
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { panelSeed, type Decision } from '@holdback/core';
 import { anvilAvailable } from '@holdback/settlement/evm';
+import { SimChain } from '@holdback/settlement/sim';
 import { diffLines, LOCAL_EXCLUSIONS, main, runScenario } from './runner.js';
 
 const repo = new URL('../../../', import.meta.url).pathname;
@@ -409,6 +411,28 @@ describe('pnpm snap', () => {
     expect(bad.out[0]).toMatch(/reclaim signs nothing that can be tampered with/);
     const wrong = await fixture(root, 'x-tamper2', flow('x-tamper2', '  - judge: { adjudicator: bench-a, tamper: wrong_commitment_id }\n'));
     expect(wrong.out[0]).toMatch(/must be one of reuse_nonce, wrong_seed/);
+  });
+
+  it('tamper: wrong_attempt signs a beacon role the seed of the attempt it names (T-206 H-1)', async () => {
+    // Settlement refuses the attempt before the seed, so only the signed message shows the seed is the right one.
+    const submitted: Decision[] = [];
+    const submit = SimChain.prototype.submit;
+    vi.spyOn(SimChain.prototype, 'submit').mockImplementation(function (this: SimChain, s, o) {
+      if (s.kind === 'decide' && s.message.role === 'appeal') submitted.push(s.message);
+      return submit.call(this, s, o);
+    });
+    const root = sandbox();
+    const name = 'error.tamper-appeal-attempt';
+    const steps = '  - advance_clock: { seconds: 5 }\n  - judge: { adjudicator: bench-a }\n  - judge: { adjudicator: bench-c, tamper: wrong_attempt }\n  - judge: { adjudicator: bench-c }\n';
+    // The long record leaves the judges a stride sample: Bench A escalates and Bench C decides.
+    const src = flow(name, steps, 'club: fixtures/clubs/data-services-v1.yaml\nterms: fixtures/terms/clean-customers-2000.yaml\n').replace('customers.clean.csv', 'customers.clean.long-record.csv');
+    const r = await fixture(root, name, `${src}expect: { problem: { step: 6, type: invalid_terms } }\n`);
+    expect(r.out[0]).toBe(`pass  ${name} (snapshot updated)`);
+    const [tampered, honest] = submitted;
+    expect(tampered && honest && tampered.beacon).toEqual(honest?.beacon);
+    expect([tampered?.attempt, honest?.attempt]).toEqual([2, 1]);
+    expect(tampered?.seed).toBe(panelSeed(honest!.commitmentId, 'appeal', 2, honest!.beacon!.value));
+    expect(honest?.seed).toBe(panelSeed(honest!.commitmentId, 'appeal', 1, honest!.beacon!.value));
   });
 
   it('tamper: a fault the step never applied is a run error, not a pass', async () => {
