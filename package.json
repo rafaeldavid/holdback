@@ -30,7 +30,8 @@
     "demo-cloud:deal": "node apps/demo-cloud/scripts/deal.ts",
     "demo-cloud:secrets": "node --env-file-if-exists=.env apps/demo-cloud/scripts/secrets.mjs",
     "verify": "node scripts/verify.ts",
-    "map": "node scripts/design-map.mjs"
+    "map": "node scripts/design-map.mjs",
+    "stack": "node scripts/contract-stack.mjs"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
