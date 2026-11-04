@@ -116,24 +116,33 @@ Made by the T-218 session on 2026-11-04; Rafa can overrule any of them.
 1. **Rebuild rule.** A direct step is rebuilt from the calldata. Fields in the clear are copied. Fields carried only as a hash are read back from what the node holds (the delivery, its envelopes) or from a fixed list (the four appeal grounds, the three beacon sources), and checked against the hash.
    - An appeal whose grounds match no listed ground gets the stand-in text "unread: filed directly; the contract keeps only the grounds' hash 0x…".
    - A direct escalation whose envelope list does not hash to the delivery's envelope for the appeal adjudicator still hands over that envelope: it opens the same content.
-2. **Behind the chain.** A step the node cannot rebuild puts the deal behind: a direct delivery it holds no copy of, a call forwarded by a contract other than the rules contract or Multicall3, more than one call for the deal in one transaction, or a divergence from core.
+2. **What the sync trusts** (revised after the review and the red-team pass, 2026-11-04). The receipt's logs are what ran; calldata only says what a call carried. A step is rebuilt in one of three ways, tried in order:
+   - **Timeouts, from the logs alone.** `FallbackTriggered`, `Defaulted`, `JobExpired` (with `Refunded` for a reclaim) and `AppealClosed` with the verdict Expired carry no signed message. So a takeover, default, reclaim or expiry follows whatever wrapper or bundle sent it.
+   - **A readable transaction:** a call to the rules contract, or a bundle to the deployment's Multicall3 in which every call must succeed and which calls only the rules contract and the token. A bundle with `allowFailure`, `requireSuccess = false`, a nested bundle or any other target is unreadable, since the calldata no longer says what ran.
+   - **A call written in another contract's calldata** (a simple forwarder, a Safe's `execTransaction`, an ERC-4337 account): accepted only when its terms match the book and its rebuilt messages' signatures verify.
+   - Every rebuilt call must also match the logs: `Decided` (role, outcome, record hash, seed), `JobCompleted`'s evaluator for an early accept, `AppealFiled`, and the mutual settlement's payouts as `PaymentReleased` and `Paid` show them.
+   - A rebuild that fails, for example on an expiry past what a timestamp holds (2^64 − 1 s), puts the deal behind instead of stopping the pass.
+3. **Behind the chain.** What remains puts the deal behind: a direct delivery the node holds no copy of (it waits for the post), a call another contract transforms, two signed calls for one deal in one transaction, or a divergence from core.
    - The state read serves `dealOf`'s stage and appeal state, with the notice from `EvmSettlement.lag`.
    - Relays for that deal answer `invalid_state` with the notice. The one exception is the posted delivery that joins.
-   - Envelopes still follow the chain: a key the transaction released on chain is served, and the adjudicator whose turn `dealOf` shows gets its envelope. A takeover forwarded by a Safe therefore does not strand the fallback adjudicator (litmus test 1).
-3. **A commitment no node here saw** is counted (`unknown` in the pass report) and skipped. When a party posts its offer, the node reads `dealOf` (one read per offer; a failed read offers as before). If the deal is on chain, the node checks the offer as of the terms' `createdAt`, with an open seller scope, since the contract already checked the signatures and this node's mandate checks are its own policy. It then applies the commitment's transactions in order.
-4. **The posted delivery joins.** It joins whether the pass has read the direct delivery or not: a relay refused with `WrongStage` reads that commitment's transactions first.
-5. **The copied fund leg.** When the deal is already funded by the same signed funding, or the node's bundle is refused or reverts while `dealOf` shows Held, the node follows the copy. It then relays the buyer's signed fee transfer alone, unless its nonce is spent, and answers the agreement as funded.
-6. **Open deals and the cursor row.**
-   - A deal is open from the offer until `fundBy`, and once funded until an hour after its last deadline ahead.
-   - The cursor row is written when a pass read a rules-contract log, or when the stored row is 300 blocks (about an hour on Sepolia) behind.
-7. **"When the world opens."** Opening stays free of chain calls: it runs inside `blockConcurrencyWhile` (30 s), and a reopened world with its RPC down must still open. The first pass after opening reads the chain. When any deal is open, that pass comes within the pass wait (2 s after opening).
-8. **Applied once.** Each book keeps the hashes of the transactions applied to it (`chainTxs`). Books saved before T-218 are seeded from their events' `tx`. A pass applies a commitment's transaction inside that commitment's lane, so a relay in flight records its own transaction first.
-9. **The export is in `live-entry.ts`, not `index.ts`.** The world imports `@holdback/settlement/live`, which is `live-entry.ts`, and `index.ts` re-exports it. This is one line outside the listed paths.
-10. **Direct sends in the tests use a fixed gas limit.** anvil 1.0.0's `eth_estimateGas` fails with "gas floor exceeds the gas limit" for a cheap call whose calldata floor (EIP-7623, Prague) is above its execution gas, while `eth_call` passes (measured on `triggerFallback` and `expireAppeal`).
+   - Envelopes still follow the chain: a key the transaction released on chain is served, and the adjudicator whose turn `dealOf` shows gets its envelope.
+   - The operators' own adjudicators read the book, not `dealOf`, so they do not act on a deal behind the chain. The parties and the adjudicators can still submit to the contract directly. This is now a residual in `docs/neutrality.md` and a backlog row.
+4. **A commitment no node here saw** is counted (`unknown` in the pass report) and skipped. When a party posts its offer, the node reads `dealOf` (one read per offer; a failed read offers as before). If the deal is on chain, the node checks the offer as of the terms' `createdAt`, with an open seller scope, since the contract already checked the signatures and this node's mandate checks are its own policy. It then applies the commitment's transactions in order.
+5. **The posted delivery joins.** It joins whether the pass has read the direct delivery or not: a relay refused with `WrongStage` reads that commitment's transactions first.
+6. **The copied fund leg.** When the deal is already funded by the same signed funding, or the node's bundle is refused or reverts while `dealOf` shows Held, the node follows the copy. It then relays the buyer's signed fee transfer alone, unless its nonce is spent, and answers the agreement as funded.
+7. **Open deals, the cadence and the cursor row.**
+   - An offer is open until the earlier of `offerExpiresAt` and `fundBy`; a funded deal until an hour after its last deadline ahead.
+   - An open deal whose book moved in the last day, or with a deadline within an hour of now, keeps a pass at least once a minute. An open deal quiet for a day keeps one every 15 minutes, so far-off deadlines (D31 allows any) do not keep a world polling every minute. A timeout sent after a deal's window shows at the next pass anything else starts.
+   - Each pass reads the last three blocks again, since a load-balanced RPC can answer from a node a block behind. A range the provider caps is halved; an error that is not a cap fails the pass.
+   - The cursor row is written when a pass read a rules-contract log past the old cursor, or when the stored row is 300 blocks (about an hour on Sepolia) behind.
+8. **"When the world opens."** Opening stays free of chain calls: it runs inside `blockConcurrencyWhile` (30 s), and a reopened world with its RPC down must still open. The first pass after opening reads the chain. When any deal is open, that pass comes within the pass wait (2 s after opening).
+9. **Applied once.** Each book keeps the hashes of the transactions applied to it (`chainTxs`). Books saved before T-218 are seeded from their events' `tx`. A pass applies a commitment's transaction inside that commitment's lane, so a relay in flight records its own transaction first.
+10. **The export is in `live-entry.ts`, not `index.ts`.** The world imports `@holdback/settlement/live`, which is `live-entry.ts`, and `index.ts` re-exports it. This is one line outside the listed paths.
+11. **Direct sends in the tests use a fixed gas limit.** anvil 1.0.0's `eth_estimateGas` fails with "gas floor exceeds the gas limit" for a cheap call whose calldata floor (EIP-7623, Prague) is above its execution gas, while `eth_call` passes (measured on `triggerFallback` and `expireAppeal`).
 
 ## Handoff
 
-**State:** review. PR to come; merging needs CI and the reviewer's pass.
+**State:** review, [PR 185](https://github.com/rafaeldavid/holdback/pull/185). The `reviewer` and `red-teamer` passes (2026-11-04) found 2 High issues each, plus Medium and Low ones, all in the view and relay layer; no funds moved outside the terms. All are fixed in this PR, each with a regression test in `sync.test.ts` or `wall.test.ts`, except the two rows added to the backlog below.
 
 **For T-219 (the in-flight row per relayer lane).** It edits `live.ts` and `evm-settlement.ts` after this merge. It builds on these pieces:
 - `EvmSettlement.observe` → `follow` → `step` → `record`. `record` is now the one place a mined call lands on its book, relayed or synced. `step` passes the via `'direct'`. T-219 looks its own lane's in-flight row up by transaction hash there and passes the operator's via, so a missed receipt stops being labelled `direct`.
@@ -146,6 +155,8 @@ Made by the T-218 session on 2026-11-04; Rafa can overrule any of them.
 
 **For T-216 (round 1).** anvil's estimate failure above may also hit relayed timeouts on anvil: `LiveChain.simulate` is `eth_estimateGas`. Confirm on Sepolia that publicnode and Tenderly estimate a relayed `triggerFallback` and `expireAppeal` (inferred: geth adds the floor to its estimate).
 
-**Left as is.**
-- `docs/neutrality.md`: the operator row's test column could name `neutrality.operator-refuses-on-chain`. No residual changed, and the task allows edits there only for a residual.
-- Follow-up: the per-commitment catch-up (a late offer, a delivery posted before a pass) reads from the deployment block. Its cost grows with the chain's age: one `eth_getLogs` per 50,000 blocks.
+**Left as is, in the backlog.**
+- The operators' adjudicators act on a deal behind the chain (residual 13 in `docs/neutrality.md`).
+- `drain` clears the changed books before the storage writes succeed. A failed write is then not retried, and a restart can lose a step whose events were written. The pattern predates T-218 (red-team 6).
+- The per-commitment catch-up (a late offer, a delivery posted before a pass) reads from the deployment block. Its cost grows with the chain's age: one `eth_getLogs` per 50,000 blocks.
+- A joined offer's `commitment.offered` carries the time it was posted, while the steps after it carry earlier block times (review, Info).
