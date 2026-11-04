@@ -153,7 +153,7 @@ One document has everything you need to start (`GET $OP1/` returns the same one)
 - `demo`: this demo's `clubId`, `token` (`{"id": "0x5029787d7e141f2d51788035cc23903652d196b6", "decimals": 6}`, tUSDC), `adjudicators` (an array of `{"role", "address", "name"}`, one each for `primary`, `fallback` and `appeal`), `faucet` and `minWindowSec`.
 - `notes`: what the operator says about this demo.
 
-Fund and admit each address from the faucet. It mints 1,000 test tUSDC to the address on Sepolia and grants a mandate in club `demo-club` (buyer and seller roles, 30 days), so the address may offer and agree. It answers once the mint is in a block, about 12 seconds; an address that already holds the grant gets the mandate without a mint. You never need Sepolia ETH: the operators pay the gas. Once per address per hour, and up to 10 addresses per client per hour; more answers 429 with `Retry-After`.
+Fund and admit each address from the faucet. It mints 1,000 test tUSDC to the address on Sepolia and grants a mandate in club `demo-club` (buyer and seller roles, 30 days), so the address may offer and agree. Ask again before it expires: each grant replaces the address's mandate with a fresh 30-day one. It answers once the mint is in a block, about 12 seconds; an address that already holds the grant gets the mandate without a mint. You never need Sepolia ETH: the operators pay the gas. Once per address per hour, and up to 10 addresses per client per hour; more answers 429 with `Retry-After`.
 
 ```sh
 curl -s -X POST $OP1/v1/faucet -H 'content-type: application/json' -H "Idempotency-Key: $(uuidgen)" \
