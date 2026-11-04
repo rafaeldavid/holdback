@@ -5,10 +5,22 @@
 - **Depends on:** T-213 (the Sepolia world)
 - **Paths this task may touch:** `packages/settlement/evm/evm-settlement.ts`, `sync.ts` (new), `chain.ts`, `live.ts` (only the log read), `world.ts` (the anvil harness's log read), `index.ts` (the export), and their tests (`evm-settlement.test.ts`, `wall.test.ts`, a new `sync.test.ts`); `apps/demo-cloud/src/world.ts`, `storage.ts`, and their tests (`world.test.ts`, `live.test.ts`); `docs/decisions/ADR-0028-demo-settles-on-sepolia.md` (a dated note in §11); `docs/neutrality.md` (only if a residual changes); `docs/backlog.md` (its row); `docs/plan.md` (this row, and the named test's line under the scenario index); this file
 - **Human gate:** no. The live deploy is T-220's.
-- **Status:** todo
-- **Agent/session:** —
+- **Status:** review
+- **Agent/session:** T-218 session, branch `t-218-direct-calls` (2026-11-04)
 
 ## Intent
+
+Restated by the T-218 session (2026-11-04). The operators' view follows the chain, whoever sent the transaction. A new reader, `ChainSync` (`sync.ts`), reads HoldbackRules' logs from a stored cursor in chunks of at most 50,000 blocks. For each transaction this node has not applied, it decodes the calldata (top level, or inside Multicall3) and hands it to the settlement adapter. The adapter rebuilds the signed messages from the calldata and the book, steps the core mirror at the block's time, and appends SimChain's events with `submittedVia: 'direct'` and the transaction.
+
+- Fields the calldata carries in the clear are copied exactly. Fields it carries only as a hash are resolved from what the world holds (the posted delivery, its envelopes) or from a fixed list (appeal grounds, beacon sources), and checked against the hash.
+- A step the adapter cannot rebuild yet (a direct delivery it never saw, an undecodable wrapper) puts the deal behind: the view serves `dealOf`'s stage with a notice, and nothing is invented. A posted delivery that matches the chain's joins the book without a second relay.
+- The adapter releases each adjudicator's envelope at its turn, as for a relayed call, so a direct takeover, appeal or escalation does not strand the next adjudicator.
+- The cursor moves only after the books are written. An RPC error moves nothing; one transaction the adapter cannot decode moves the cursor on.
+- The world runs the sync on each pass and keeps a pass at least once a minute while any deal is open.
+
+Non-goals: the reorg rollback, the in-flight row per lane (T-219), CPP's own logs, and the SimChain world.
+
+### Original intent
 
 Any party with Sepolia ETH can call HoldbackRules directly, past the operators (ADR-0005, the escape hatch). The money then settles on chain, but the operators' view lags: the state read, `/events`, the adjudicators' tasks and the buyer's key read all miss the step. Since T-057 a world's books change only through what its own nodes relay (ADR-0028 §5, as amended), and nothing reads the contract's logs.
 
@@ -56,8 +68,84 @@ The design is in the research pass, `docs/research/2026-11-03-sepolia-demo-settl
 
 ## Evidence
 
-Fill this in before review. Label each item measured, inferred or guessed.
+**`pnpm verify`** (measured, commit `5714fab` plus the docs in this PR, 2026-11-04, `reports/verify-t-218-direct-calls.md`): PASS.
+
+| Step | Command | Status | Time |
+| --- | --- | --- | --- |
+| typecheck | `pnpm typecheck` | pass | 606 ms |
+| lint | `pnpm lint` | pass | 16759 ms |
+| forge build | `forge build --root contracts` | pass | 5195 ms |
+| forge | `forge test --root contracts` | pass | 45991 ms |
+| test | `pnpm test` | pass | 98810 ms |
+| spec | `pnpm validate:spec` | pass | 824 ms |
+| snap | `pnpm snap` | pass | 11879 ms |
+| snap:local | `pnpm snap --settlement=local` | pass | 31442 ms |
+| demo | `pnpm demo` | pass | 6426 ms |
+
+- Snapshot diffs against HEAD: none (measured). `snap:local` ran 28 fixtures on the contract, each with a transcript identical to SimChain's, and excluded 3 until Phase 4 (measured). `reports/differential-local.md` is unchanged.
+- `pnpm test`: 108 files, 2,428 tests passed, 3 skipped (measured).
+- The worktree's `contracts/lib/commerce-payments` was copied from a sibling worktree at the same commit (6b0a5ef). `forge build` warned that it could not clone the submodule, then compiled (measured). CI checks the submodule out itself.
+
+**Each acceptance criterion, on anvil standing in for Sepolia** (a block every second; `packages/settlement/evm/sync.test.ts`, 20 tests, 20 passed in 96.4 s, measured):
+
+| Criterion | Test | Result |
+| --- | --- | --- |
+| Chunks of at most 50,000 blocks; an RPC error applies nothing and moves no cursor | "reads the logs in chunks…", "fails closed…" | ranges 100–50,099, 50,100–100,099, 100,100–120,100; cursor unchanged on error |
+| `agreeAndFund` by the buyer with the served acceptance | "agreeAndFund sent by the buyer…" | Held, `commitment.agreed` and `hold.funded` with `submittedVia: 'direct'` and the transaction; the book equals `dealOf` |
+| `deliver`, `decide` by a stranger, `earlyAccept`, `fileAppeal`, `mutualSettle` | one test each | each applied in one pass; the buyer's key is served after a decision or an early accept |
+| `expireOffer`, `reclaim`, `triggerFallback`, `triggerDefault`, `expireAppeal`, each by a stranger or a party | "timeouts…", "a takeover…" | each applied; `fallback.triggered` carries the contract's round; the appeal expiry is final at `appealBy` (D20) |
+| Applied once, before and after a restart | "a transaction this node relayed…" | `applied: 0` over 3 transactions; the log is unchanged |
+| Multicall3; a contract this node cannot read | "a call inside a Multicall3 bundle…", "a call forwarded…" | the bundle is applied; the forwarded deal is behind: `dealOf`'s stage, a notice, only the buyer's on-chain key, and the cursor and the deal beside it still move |
+| The next adjudicator gets its key | "an escalation…", "an appeal filed…", "a takeover…" | the appeal adjudicator's envelope at a direct escalation and a direct appeal, then its decision; the fallback's at a direct takeover and at one forwarded by a contract |
+| A commitment the operators never saw | "a commitment this node never saw…" | `unknown: 1`, no book; the posted offer joins: Held, with the direct steps' events |
+| A direct delivery's envelopes | "a delivery sent by the seller…", "a delivery posted before any pass…" | behind with the notice; the post joins with no second transaction; the primary gets its envelope and decides |
+| A missed receipt | "a relayed transaction whose receipt…" | applied on the next pass, labelled `direct`; Released, and the buyer's key is served |
+| The copied fund leg | "the fund leg copied alone…", "…out of the mempool…" | Held with no `fee.operator`, then the fee relayed alone; in the race, the copy mined first and the node's bundle reverted in the same block, then the node followed the copy and relayed the fee |
+| `neutrality.operator-refuses-on-chain` | the named test | the relays answer `relay_refused`; the deal settles by direct calls; the log shows every step, with only the funding through the operator |
+
+**Cadence and cost** (`apps/demo-cloud/src/live.test.ts`; 2 tests passed, 1 skipped, which needs `SEPOLIA_FORK_RPC`; measured):
+- After try.ts reached Released, the reopened world scheduled its next pass within 60 s while the deal was open.
+- A stranger's direct `expireAppeal` showed after one pass of 298 ms: `appealState: 'expired'`, the event with `submittedVia: 'direct'`, 6 RPC requests. That pass read 0 rows and wrote 3: the book, the event page and the cursor row.
+- The idle pass after it read 0 rows and wrote 0. With the deal final, `nextPass()` is null: no deal open, no pass (T-057 unchanged).
+- On Sepolia a pass reads within one block of the call; the 60 s target holds while the RPC answers (inferred).
 
 ## Decisions
 
+Made by the T-218 session on 2026-11-04; Rafa can overrule any of them.
+
+1. **Rebuild rule.** A direct step is rebuilt from the calldata. Fields in the clear are copied. Fields carried only as a hash are read back from what the node holds (the delivery, its envelopes) or from a fixed list (the four appeal grounds, the three beacon sources), and checked against the hash.
+   - An appeal whose grounds match no listed ground gets the stand-in text "unread: filed directly; the contract keeps only the grounds' hash 0x…".
+   - A direct escalation whose envelope list does not hash to the delivery's envelope for the appeal adjudicator still hands over that envelope: it opens the same content.
+2. **Behind the chain.** A step the node cannot rebuild puts the deal behind: a direct delivery it holds no copy of, a call forwarded by a contract other than the rules contract or Multicall3, more than one call for the deal in one transaction, or a divergence from core.
+   - The state read serves `dealOf`'s stage and appeal state, with the notice from `EvmSettlement.lag`.
+   - Relays for that deal answer `invalid_state` with the notice. The one exception is the posted delivery that joins.
+   - Envelopes still follow the chain: a key the transaction released on chain is served, and the adjudicator whose turn `dealOf` shows gets its envelope. A takeover forwarded by a Safe therefore does not strand the fallback adjudicator (litmus test 1).
+3. **A commitment no node here saw** is counted (`unknown` in the pass report) and skipped. When a party posts its offer, the node reads `dealOf` (one read per offer; a failed read offers as before). If the deal is on chain, the node checks the offer as of the terms' `createdAt`, with an open seller scope, since the contract already checked the signatures and this node's mandate checks are its own policy. It then applies the commitment's transactions in order.
+4. **The posted delivery joins.** It joins whether the pass has read the direct delivery or not: a relay refused with `WrongStage` reads that commitment's transactions first.
+5. **The copied fund leg.** When the deal is already funded by the same signed funding, or the node's bundle is refused or reverts while `dealOf` shows Held, the node follows the copy. It then relays the buyer's signed fee transfer alone, unless its nonce is spent, and answers the agreement as funded.
+6. **Open deals and the cursor row.**
+   - A deal is open from the offer until `fundBy`, and once funded until an hour after its last deadline ahead.
+   - The cursor row is written when a pass read a rules-contract log, or when the stored row is 300 blocks (about an hour on Sepolia) behind.
+7. **"When the world opens."** Opening stays free of chain calls: it runs inside `blockConcurrencyWhile` (30 s), and a reopened world with its RPC down must still open. The first pass after opening reads the chain. When any deal is open, that pass comes within the pass wait (2 s after opening).
+8. **Applied once.** Each book keeps the hashes of the transactions applied to it (`chainTxs`). Books saved before T-218 are seeded from their events' `tx`. A pass applies a commitment's transaction inside that commitment's lane, so a relay in flight records its own transaction first.
+9. **The export is in `live-entry.ts`, not `index.ts`.** The world imports `@holdback/settlement/live`, which is `live-entry.ts`, and `index.ts` re-exports it. This is one line outside the listed paths.
+10. **Direct sends in the tests use a fixed gas limit.** anvil 1.0.0's `eth_estimateGas` fails with "gas floor exceeds the gas limit" for a cheap call whose calldata floor (EIP-7623, Prague) is above its execution gas, while `eth_call` passes (measured on `triggerFallback` and `expireAppeal`).
+
 ## Handoff
+
+**State:** review. PR to come; merging needs CI and the reviewer's pass.
+
+**For T-219 (the in-flight row per relayer lane).** It edits `live.ts` and `evm-settlement.ts` after this merge. It builds on these pieces:
+- `EvmSettlement.observe` → `follow` → `step` → `record`. `record` is now the one place a mined call lands on its book, relayed or synced. `step` passes the via `'direct'`. T-219 looks its own lane's in-flight row up by transaction hash there and passes the operator's via, so a missed receipt stops being labelled `direct`.
+- `applied(id, hash)` and `Book.chainTxs`. Before re-broadcasting an in-flight transaction after a restart, T-219 checks `applied`: a pass may already have applied it.
+- `live.ts` is unchanged by T-218: the sync reads through `publicClient` in `sync.ts`. The demo world's `syncChain` runs before the adjudicators in `work()`.
+
+**For T-220 (the deploy).**
+- The live Sepolia world has no `cursor` row yet. Its first pass reads every rules-contract log from block 12061237 in one call (inferred: fewer than 50,000 blocks). It fetches only the transactions of deals it holds books for and has not applied, so it should apply nothing (inferred). The report shows in `world.lastSync()`.
+- The sentence for `llms.txt`: "Submitting directly to the contract: these operators read the contract's logs and show your step within a minute, with `submittedVia: \"direct\"`. The contract keeps only a delivery's hash, so after a direct `deliver` also POST the same signed delivery to `/v1/commitments/{id}/deliveries`. The operator joins it without a second transaction and hands the adjudicators their keys; without that post they cannot open the work."
+
+**For T-216 (round 1).** anvil's estimate failure above may also hit relayed timeouts on anvil: `LiveChain.simulate` is `eth_estimateGas`. Confirm on Sepolia that publicnode and Tenderly estimate a relayed `triggerFallback` and `expireAppeal` (inferred: geth adds the floor to its estimate).
+
+**Left as is.**
+- `docs/neutrality.md`: the operator row's test column could name `neutrality.operator-refuses-on-chain`. No residual changed, and the task allows edits there only for a residual.
+- Follow-up: the per-commitment catch-up (a late offer, a delivery posted before a pass) reads from the deployment block. Its cost grows with the chain's age: one `eth_getLogs` per 50,000 blocks.

@@ -269,6 +269,6 @@ Status (2026-11-03, measured against `fixtures/scenarios/` and `pnpm snap`): **e
 | `todo.milestone-delivery` | — | records gap | planned |
 | `work-for-work` | 9 | 6, if T-003 is positive | planned |
 
-Some neutrality and error cases are named tests rather than scenario files: `neutrality.operator-fee-direct-submission-free` (`apps/operator/src/fee.test.ts`), `neutrality.operator-rate-limits` (`apps/operator/src/neutrality.test.ts`) and `neutrality.operator-lies-in-prepare` (`examples/verify.test.ts`).
+Some neutrality and error cases are named tests rather than scenario files: `neutrality.operator-fee-direct-submission-free` (`apps/operator/src/fee.test.ts`), `neutrality.operator-rate-limits` (`apps/operator/src/neutrality.test.ts`), `neutrality.operator-lies-in-prepare` (`examples/verify.test.ts`) and `neutrality.operator-refuses-on-chain` (`packages/settlement/evm/sync.test.ts`: the operator refuses to relay after funding, the parties submit to the contract directly, and the view shows every step, T-218).
 
 Phase on contract (T-205): every existing fixture without an "on contract" note also runs on the contract from Phase 2 (`pnpm snap --settlement=local`). The three marked 4 are the printed exclusion list in `packages/testkit/src/runner.ts` (`LOCAL_EXCLUSIONS`). The per-fixture differences are in `reports/differential-local.md` (tracked, though `reports/` is otherwise git-ignored).
