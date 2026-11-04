@@ -14,7 +14,7 @@ The fixed contracts (PRs 160 and 161) are on Sepolia, and the public demo has ru
 
 T-217, T-218, T-219 and T-221 (adjudicator registration through the API) change the Workers' code, so they reach the live demo only with a deploy. T-217 also changes the demo club's rulebook, and that takes a fresh world. The world rebuilds its rulebook from code each time it opens (`apps/demo-cloud/src/world.ts`), and every open deal is bound to the old rulebook's hash, so a rulebook changed in place would no longer match them (inferred). A fresh world also derives new demo-club and adjudicator keys from a new secret, so its three adjudicators need three new bonds of 25,000 tUSDC.
 
-Restated: one deploy brings all four live before round 1 (T-216). It starts a fresh Sepolia world whose rulebook names drand, and the agent docs say what changed. No contract changes.
+Restated: one deploy brings all four live before round 1 (T-216). It starts a fresh Sepolia world whose rulebook names drand, and the agent docs say what changed. No contract changes. Rafa chose one deploy over a deploy per task on 2026-11-04 (T-216, scope question 5).
 
 ## Context
 
