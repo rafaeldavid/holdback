@@ -1,0 +1,113 @@
+# T-216: Full EVM end-to-end test round 1 on Sepolia
+
+- **Lane:** test
+- **Phase:** 2
+- **Depends on:** T-220 (the fixed contracts on Sepolia and the demo cut over to them), T-217 (drand proofs for fallback and appeal), T-218 (direct calls in the operators' view), T-219 (the in-flight row per relayer lane); Rafa's answers to the scope questions below
+- **Paths this task may touch:** `scripts/e2e/` (new: the round's driver, its tests and a README), `docs/reviews/` (one new file, the round's report), `docs/backlog.md` (rows for what the round finds; the Benched rows once it completes), `docs/plan.md` (this row), this file. No product code: a scenario that fails gets its fix in its own task, and the round re-runs it.
+- **Human gate:** yes. Rafa confirms the scope (the questions below) before the first run, and funds the round's own addresses with Sepolia ETH (or turns on the faucet's test ETH, a backlog row that is his call). The runs use the public API as any agent may, and send test transactions on Sepolia from test keys; they deploy nothing.
+- **Status:** todo
+- **Agent/session:** —
+
+## Intent
+
+Rafa's milestone (2026-11-04): "full EVM test end-to-end round 1 complete". It is the event that brings back the benched work: PR 151, the contribution rails, and T-206's human gate, his read of the contract review (`docs/backlog.md`, Benched).
+
+Restated: on the live Sepolia deployment of the fixed contracts (PRs 160 and 161), show that every settlement path an agent can reach ends where the signed terms say, with each money step checkable on Etherscan. The paths run through the public API, and by direct contract calls where the API has no route or the point is to go past the operators. Each scenario is one or more real deals. Its evidence is the transactions, the chain's state and the operators' view, side by side.
+
+- **Inputs:** the public API at api.escrow.stream and api2.escrow.stream; the deployment in `contracts/deployments/sepolia.json`; `site/llms.txt` as the API track's only guide (as T-213's `site/walkthrough.mjs` did); test keys derived from one environment variable.
+- **Outputs:** a driver that runs each scenario and prints its evidence; the report; backlog rows or tasks for what fails.
+- **Non-goals:** mainnet; the judgment's accuracy (Phase 3's calibration); Phase 4 economics (default compensation from bonds, the appeal fee, a minimum appeal bond), whose absence on chain is recorded, not passed; attacks (the red-team fixtures cover them on anvil); load.
+
+## Context
+
+- The draft scope: `docs/log/2026-11-04.md`, Next steps item 2 (inferred; Rafa confirms it here).
+- ADR-0028 (§11, the staged items), D41, D43 (the overturn payout), D44 and ADR-0029 (decisions name the delivery), ADR-0005 (direct submission), ADR-0018 (the beacon).
+- T-213 (the cutover and its live evidence), T-212 (the fixes; the redeploy steps in its Handoff), `docs/reviews/2026-11-03-contract-review.md`.
+- The local counterparts: the scenario fixtures on the contract on anvil (`pnpm snap --settlement=local`, `reports/differential-local.md`). This round is their live equivalent on Sepolia.
+
+## How the round runs
+
+- **Two tracks.**
+  - **API track:** the demo's three adjudicators. Deals are offered, agreed, delivered and judged through the public API, with every message signed by the driver's own keys from `llms.txt` alone, so nothing here is beyond an outside agent.
+  - **Direct track:** the driver calls HoldbackRules, HoldbackBonds and the token from its own keys, past the operators. Where a scenario needs a decision the demo's honest adjudicators would not make, it uses its own test adjudicator keys.
+- **Keys.** Party and test-adjudicator keys derive from one Sepolia-only secret in an environment variable (`E2E_SEPOLIA_SEED`). The driver prints addresses only, never a key. It refuses any chain but 11155111 (hard rule: no real money). Test tokens come from the faucet or tUSDC's open mint.
+- **Short windows.** The rulebook minimum (`MIN_WINDOW_SEC`, 60 s on the demo today) for the judge, fallback, appeal and appeal-decision windows, and a short delivery window where a timeout is the point. A scenario then takes minutes.
+- **A silent adjudicator** (scenarios 3, 4, 8 and 9). The API has no adjudicator control. Proposed: the seller's delivery omits that adjudicator's envelope, so it cannot open the work and does not decide (`apps/adjudicator/src/service.ts` refuses with "no envelope for this adjudicator in the delivery"; inferred, try it on a Sepolia fork first). From the chain's side this is the same as an offline adjudicator: no decision by its deadline. Rafa confirms the method (question 3).
+- **Templates.** Checks-only where the point is settlement, not the panel, so outcomes are deterministic and the live judges' daily budget is spared. One rubric deal runs the live panel (scenario 1).
+- **Evidence per scenario.**
+  - The commitment ID.
+  - Each transaction as an Etherscan link, with its gas.
+  - `dealOf`'s stage and CPP's payment state at the end.
+  - The tUSDC and bond balances of the buyer, the seller and each bonded adjudicator, before and after.
+  - The state and the event count from both origins, and whether they agree.
+  - Whether the buyer could open the work.
+
+  Label each claim measured, inferred or guessed.
+- **Finality.** About 20 minutes after the last run, re-read every transaction's block hash. A change is a reorg; it fires the backlog's reorg row.
+- **Pass rule.** Round 1 is complete when every in-scope scenario has passed against one deployment (one rules address) and one set of Worker versions. A fix in between means re-running every scenario it can touch.
+
+## Acceptance criteria
+
+Every scenario is blocked today at least by T-220: the fixed contracts are not on Sepolia, and main cannot be deployed to the Workers until they are (`docs/operations.md`, Schema). "Blocked today by" names every blocker.
+
+- [ ] **1. Happy-path release (API).** A rubric deal (default template, live panel) ends Released:
+  - the seller is paid the price, and the operator fee is paid once;
+  - the buyer opens the work with the key released on chain;
+  - CPP holds nothing for the deal, and the primary's bond is free once the appeal window closes.
+
+  The homepage command (`try.mjs`) also passes against both nodes. *Blocked today by:* T-220 only. The same flow passed on the 0.6 deployment (T-213 Evidence, measured).
+- [ ] **2. Refund on reject (API).** A checks-only deal whose delivery fails a required check (the `bad-work-row-drop` shape) ends Refunded. The buyer gets the price back (the operator fee is never refunded, ADR-0023); no key reaches the buyer; the decision names the posted delivery (D44). *Blocked today by:* T-220.
+- [ ] **3. Timeouts and the default outcome.**
+  - **3a, reclaim (API and direct).** Nothing is delivered by `deliverBy`. The `reclaim` trigger, once through the API and once sent directly from the buyer's key, refunds the price, closes the deal and frees the bonds.
+  - **3b, default (API).** Primary and fallback both stay silent. After `fallbackBy`, the `default` and `apply-default` triggers (anyone may call them) end the deal Defaulted, then refunded. Record what the contract pays the seller: compensation from bonds is Phase 4 on the contract (`LOCAL_EXCLUSIONS`), so the expected payout is zero.
+  - **3c, appeal expiry (API).** An appeal is filed and its adjudicator stays silent. After the appeal deadline, `appeal-expiry` leaves the first decision standing and frees the bonds.
+
+  *Blocked today by:* T-220; the silent-adjudicator method (question 3); for 3c, the appellant's own Sepolia ETH (question 4). Until T-217, a silent primary alone already ends in the default outcome; after it, the fallback must be silenced too.
+- [ ] **4. Fallback when the primary is silent (API).** The primary never decides. At `judgeBy` the world's takeover sends `fallback`, and the fallback adjudicator decides with a drand quicknet proof that HoldbackRules verifies: the decision's `beacon.source` is `drand-quicknet` and its round is the round at `judgeBy`. The deal settles according to the work. *Blocked today by:* T-217 (no adjudicator can prove its seed on Sepolia, so the default outcome applies, ADR-0028 §11), T-220, the silent-adjudicator method.
+- [ ] **5. Appeal upheld (API).** The losing party appeals (D43, L-7): the seller after a correct reject (scenario 2's shape), and the buyer after a correct accept. The demo's appeal adjudicator decides with a drand proof from the first round after the filing, and upholds. The first outcome stands and no bond pays out; record what happens to the appellant's bond. The favoured party's appeal is refused (`invalid_terms`). *Blocked today by:* T-217, T-220, and the appellant's own Sepolia ETH for the bond allowance (`llms.txt`: appeals need your own Sepolia ETH; question 4).
+- [ ] **6. Appeal overturned, both ways, paid from the first decider's bond (D43; direct track).** The driver's own primary and appeal adjudicators, each bonded from its own key in the new HoldbackBonds, decide by script:
+  - **An overturned accept.** The buyer appeals and wins: it is paid the price from the primary's bond (`BondSlashed`), and the seller keeps the price it was paid.
+  - **An overturned reject.** The seller appeals and wins: it is paid the price from the primary's bond, and no key reaches the refunded buyer. An overturn that carries the key reverts `InvalidMessage` (H-2), and the same verdict without it settles.
+
+  The appeal adjudicator's seed comes from a real quicknet round the driver fetches and checks. *Blocked today by:* T-220 (the 0.6 contracts on Sepolia have no overturn payout), and Sepolia ETH for the test keys (question 4). It cannot run through the API: the demo's adjudicators are honest, so no first decision is wrong on purpose, and adjudicator registration answers 501 (question 2).
+- [ ] **7. The escape hatch (direct calls on API deals).**
+  - **A deal that goes direct after the offer.** It is offered and accepted through the API. The buyer then funds with `agreeAndFund` from its own key, using the primary's acceptance the operators serve, and pays no operator fee. The seller delivers with `deliver` from its own key, and posts the same signed delivery to an operator so the adjudicators get their envelopes. The demo primary decides.
+  - **A deal that ends by a direct `reclaim`.**
+
+  Both settle on chain, and within one sync pass both origins show each direct step as an event with `submittedVia: 'direct'` and its transaction. *Blocked today by:* T-218 (the operators' view does not follow direct calls: the money settles, the view lags), T-220, the parties' Sepolia ETH.
+- [ ] **8. Early accept (API).** The buyer accepts before the primary decides. The deal ends Released, the key is released, the early accept names the posted delivery (D44), and a later decision by the primary, if any, is refused. The demo primary decides within seconds of a delivery, so the race needs a method: silence the primary as in scenario 4, or send an early accept that carries the delivery in one transaction. *Blocked today by:* T-220.
+- [ ] **9. Mutual settlement (API; only if Rafa keeps it in scope, question 1).** After delivery, both parties sign a `MutualSettlement` with a split (for example 60 % to the seller) and `releaseKey`. The payouts sum to the price, the key goes as signed, and the bonds are freed. It must land before the primary decides: the same race as scenario 8. *Blocked today by:* T-220.
+- [ ] **10. A restart between broadcast and receipt.** Recorded, not forced. Across the round, the lane telemetry shows no in-flight row left unapplied. If the world restarted mid-step (a deploy, an eviction), that step's events and the buyer's key were served on the next pass. The forced case is T-219's own test, unless Rafa approves a live deploy during a deal (question 6). *Blocked today by:* T-219.
+- [ ] **The report,** a new file in `docs/reviews/` named for the round's date:
+  - one row per scenario: pass or fail, commitment IDs, Etherscan links, balances, gas;
+  - the gas per path compared with `reports/differential-local.md` and T-215's quote;
+  - the finality re-read;
+  - each failure with its new backlog row or task.
+- [ ] The PR that adds the driver and the report: reviewed by the `reviewer` role with project context; CI green.
+
+## Scope questions for Rafa
+
+1. Confirm the scenario list, inferred from the log's draft. Is the mutual settlement (9) in round 1?
+2. The overturned appeals (6): are direct contract calls with the round's own adjudicator keys, with scripted decisions and no judgment pipeline, enough for round 1? The API path would need a controllable test adjudicator on the demo: a new task, since adjudicator registration answers 501 today.
+3. A silent adjudicator (3, 4, 8, 9): a delivery that omits that adjudicator's envelope (no demo change; proposed), or a labelled test adjudicator in the demo that accepts offers and never decides (a new task)?
+4. Sepolia ETH for the round's own keys: about 0.2 in all (guessed: direct funding takes about 940,000 gas and each decision about 520,000, so the round needs roughly 8 million gas, 0.008 ETH at today's 1 gwei, with room for fee spikes up to the 20 gwei cap). Will you send it to the addresses the driver prints, or turn on the faucet's test ETH?
+5. The cutover order (T-220). Proposed: one Worker cutover after T-217, T-218 and T-219 merge. That gives one new world with the drand rulebook, and the in-flight row protects the cutover itself. The alternative is a cutover right after the contracts are redeployed: main is deployable sooner, but a second new world is needed when drand lands.
+6. The restart case (10): T-219's test only (proposed), or one live holdback-op1 deploy during a round-1 deal?
+
+## Out of scope
+
+- An escalation after a panel disagreement. The demo's live judges cannot honestly be steered into a split; it runs on anvil (`panel-disagreement-escalates`). Rafa may add it with a controllable adjudicator (question 2).
+- An offer that expires before funding: on EVM the pre-funding stages are signatures, not chain steps (T-202 rule 1).
+- A CPP reclaim after `authorizationExpiry`, a day past the last deadline (`EXPIRY_MARGIN`); covered on anvil (M-1).
+- The reorg rollback (backlog row), mainnet, Phase 4 economics, the judgment's accuracy, attacks.
+- T-212's open items (1, 2, 4, 5, 6 and 8). They block mainnet, not Sepolia. Each later contract change is a new deployment, and a later round re-runs the scenarios it touches.
+
+## Evidence
+
+Fill this in before review. Label each item measured, inferred or guessed.
+
+## Decisions
+
+## Handoff
+
+- When round 1 completes: unbench PR 151 and T-206's read (`docs/backlog.md`, Benched; `docs/log/2026-11-04.md`, Next steps item 3), and tell Rafa.
