@@ -24,6 +24,10 @@
 //   `submittedVia: 'direct'`; ChainSync (sync.ts) finds them in the rules contract's logs. A step it cannot rebuild
 //   (a direct delivery it holds no copy of, a call forwarded by another contract) puts the deal behind: the view
 //   serves dealOf's stage with a notice, and nothing is invented.
+// - Restarts mid-flight (T-219): each relayed call's submission rides in its relayer lane's in-flight row (live.ts). A
+//   transaction this node broadcast before a restart is applied through the same path as a direct call, but labelled
+//   as the relay was, with the messages the row holds (the delivery's envelopes, the decision's keys, the appeal's
+//   grounds), and its Idempotency-Key answers a retry with the mined result (`recover`).
 import {
   beaconRoundFor,
   canonicalKeccak,
@@ -69,12 +73,12 @@ import {
   type TokenAmount,
   type TransferAuthorization,
 } from '@holdback/core';
-import { decodeEventLog, decodeFunctionData, encodeFunctionData, encodePacked, getAddress, hashTypedData, keccak256, stringToBytes, toHex, type Abi, type AbiEvent, type Hex, type Log } from 'viem';
+import { decodeEventLog, decodeFunctionData, encodeFunctionData, encodePacked, getAddress, hashTypedData, keccak256, parseTransaction, stringToBytes, toHex, type Abi, type AbiEvent, type Hex, type Log } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import type { Genesis } from '../sim/simchain.js';
 import type { DryRunSubmission, Settlement, Submission, SubmitOptions, SubmitResult, TimeoutKind } from '../src/interface.js';
 import { Refusal, refuse, toJson } from '../src/util.js';
-import { RelayRefused, type EvmChain, type Mined } from './chain.js';
+import { RelayRefused, type EvmChain, type LaneRow, type Mined, type RelayNote } from './chain.js';
 import {
   acceptanceView,
   agreeView,
@@ -102,6 +106,32 @@ import type { EvmWorld } from './world.js';
 /** Submit options on EVM: who pays gas. A private key: the agent's own for 'direct'. Absent: the chain's relayer lane for the commitment. */
 export interface EvmSubmitOptions extends SubmitOptions {
   sender?: Hex;
+}
+
+/**
+ * Inside the adapter: the options and what the relayer lane's row keeps for the submission (T-219). `landed` collects
+ * the hashes of the relayed transactions whose receipts this submission applied: `process` releases their rows only
+ * once the submission's answer is stored with its book (review, 2026-11-04).
+ */
+type Relay = EvmSubmitOptions & { note?: RelayNote; landed?: string[] };
+
+/** What `recover` did with the rows a restart left open, one count per row. */
+export interface RecoverReport {
+  /** Applied as this node's relay. */
+  applied: number;
+  /** Already applied (an earlier pass, or the books were written before the restart). */
+  seen: number;
+  /** Put its deal behind the chain. */
+  behind: number;
+  /** Mined and reverted: only gas was spent. */
+  reverted: number;
+  /** Never mined: given up, and the lane reads its nonce again. */
+  dropped: number;
+  /** Mined for a commitment this node holds no book for. */
+  unknown: number;
+  /** An RPC error: the row stays open for the next pass. */
+  failed: number;
+  errors: string[];
 }
 
 /** One mined transaction, for gas per deal (D4) and the escape-hatch evidence (who sent it). */
@@ -183,8 +213,11 @@ export interface EvmSaved {
   mandates: readonly Mandate[];
 }
 
-/** What changed since the last `drain`: the books to overwrite, the events to append, the mandates admitted. */
-export type EvmChanges = { books: Array<[Hex32, Book]>; events: SettlementEvent[]; mandates: Mandate[] };
+/**
+ * What changed since the last `drain`: the books to overwrite, the events to append, the mandates admitted, and the
+ * relayed transactions whose receipts these changes apply (T-219): their lane rows go once the rest is written.
+ */
+export type EvmChanges = { books: Array<[Hex32, Book]>; events: SettlementEvent[]; mandates: Mandate[]; relayed: string[] };
 
 const GENESIS_HASH: Hex32 = `0x${'00'.repeat(32)}`;
 const UINT256_MAX = (2n ** 256n - 1n).toString();
@@ -273,8 +306,8 @@ interface CallContext {
   decision?: Decision;
   appeal?: Appeal;
   operatorFee?: { from: string; to: string; amount: TokenAmount };
-  /** Runs once the call is in a block, before its events. */
-  mined?: () => void;
+  /** Runs once the call is in a block, before its events, with the block's time. */
+  mined?: (at: Timestamp) => void;
   /** Read from the chain, not relayed (T-218): an escalation whose decision envelopes are only a hash hands over the delivery's. */
   synced?: boolean;
 }
@@ -314,6 +347,8 @@ export class EvmSettlement implements Settlement {
   private readonly appliedTxs = new Map<Hex32, Set<string>>();
   /** Per commitment, the log length after this node last recorded a relayed call: a sync pass that read dealOf before it does not check that deal. */
   private readonly relayedAt = new Map<Hex32, number>();
+  /** Relayed transactions whose receipts are applied since the last `drain` (T-219): their lane rows may go once written. */
+  private relayed: string[] = [];
 
   private constructor(
     readonly world: EvmChain,
@@ -589,11 +624,22 @@ export class EvmSettlement implements Settlement {
   /** The books, events and mandates that changed since the last call, for a store to write. */
   drain(): EvmChanges {
     const books = [...this.dirty].map((id) => [id, structuredClone(this.books.get(id)!)] as [Hex32, Book]);
-    const out = { books, events: this.log_.slice(this.drained), mandates: this.admitted };
+    const out = { books, events: this.log_.slice(this.drained), mandates: this.admitted, relayed: this.relayed };
     this.dirty = new Set();
     this.drained = this.log_.length;
     this.admitted = [];
+    this.relayed = [];
     return out;
+  }
+
+  /**
+   * A relayed transaction's receipt is applied, and the answer a retry replays is stored: its lane row may go with the
+   * next drain's writes (T-219). With `options.landed` (a submission in `process`), the hash waits there until
+   * `process` has stored the answer.
+   */
+  private done(hash: string, options?: Relay): void {
+    if (options?.landed) options.landed.push(lc(hash));
+    else if (this.world.release) this.relayed.push(lc(hash));
   }
 
   // Funding digests (ADR-0025)
@@ -685,16 +731,35 @@ export class EvmSettlement implements Settlement {
   private async process(s: Submission, options: EvmSubmitOptions, dryRun: boolean): Promise<SubmitResult> {
     const key = dryRun ? undefined : options.idempotencyKey;
     const body = canonicalKeccak(toJson(s));
+    const lane = laneOf(s) as Hex32;
+    // T-219: this commitment's transaction that a restart left in flight lands first, so a retry of it replays the
+    // mined result instead of meeting the state that transaction moved.
+    if (!dryRun) for (const row of this.world.inFlight?.() ?? []) if (row.note && lc(row.note.commitmentId) === lc(lane)) await this.land(row);
     if (key !== undefined) {
+      const conflict = { ok: false, problem: problem('idempotency_conflict', `idempotency key ${key} was used with another body`) } as const;
+      // An open row's key is taken, for any commitment, until its pass lands it and records the answer (red-team,
+      // 2026-11-04). The same key and body name the same commitment, whose rows landed just above.
+      if ((this.world.inFlight?.() ?? []).some((r) => r.note?.idempotencyKey === key && r.note.body !== body)) return conflict;
       const seen = this.idempotency.get(key);
-      if (seen) return seen.body === body ? { ...structuredClone(seen.result), replayed: true } : { ok: false, problem: problem('idempotency_conflict', `idempotency key ${key} was used with another body`) };
+      if (seen) return seen.body === body ? { ...structuredClone(seen.result), replayed: true } : conflict;
     }
     const before = this.log_.length;
+    // The rows of the transactions this submission lands go once its answer is stored with the book, below.
+    const landed: string[] = [];
+    const release = () => {
+      for (const h of landed) this.done(h);
+    };
     let id: Hex32;
     try {
-      id = await this.apply(s, options, dryRun);
+      const note: RelayNote = { commitmentId: lane, call: '', via: options.via ?? 'direct', submission: s, ...(key !== undefined ? { idempotencyKey: key, body } : {}) };
+      id = await this.apply(s, { ...options, note, landed }, dryRun);
     } catch (e) {
-      if (e instanceof Refusal) return { ok: false, problem: e.problem };
+      // A refusal after a receipt (a revert on chain) has no answer to replay. Any other error keeps the row: the sync
+      // or a restart lands that receipt with its answer.
+      if (e instanceof Refusal) {
+        release();
+        return { ok: false, problem: e.problem };
+      }
       throw e;
     }
     const book = this.books.get(id)!;
@@ -715,6 +780,7 @@ export class EvmSettlement implements Settlement {
       book.replays = { ...book.replays, [key]: { body, result: structuredClone(result) } };
       this.dirty.add(id);
     }
+    release();
     return result;
   }
 
@@ -766,7 +832,7 @@ export class EvmSettlement implements Settlement {
     book?.nonces.push(key);
   }
 
-  private async apply(s: Submission, options: EvmSubmitOptions, dryRun: boolean): Promise<Hex32> {
+  private async apply(s: Submission, options: Relay, dryRun: boolean): Promise<Hex32> {
     const at = this.now();
     const via = options.via ?? 'direct';
     switch (s.kind) {
@@ -941,7 +1007,7 @@ export class EvmSettlement implements Settlement {
    * block (`announce`) and `undo` takes back only this commitment's own changes: other commitments emit events and
    * spend while this one waits on a live chain, so nothing shared is rolled back to a snapshot.
    */
-  private agree(m: Agree, via: string, dryRun: boolean, deferred = false): { id: Hex32; announce: () => void; undo: () => void } {
+  private agree(m: Agree, via: string, dryRun: boolean, deferred = false): { id: Hex32; announce: (at?: Timestamp) => void; undo: () => void } {
     const book = this.bookOf(m.commitmentId);
     const { terms } = book.state;
     const nonce = `${lc(m.buyer)}:${m.nonce}`;
@@ -959,7 +1025,8 @@ export class EvmSettlement implements Settlement {
     book.agree = m;
     book.spent = { day, amount: terms.price.amount };
     this.spent.set(day, spent + price);
-    const announce = () => this.emit('commitment.agreed', m.commitmentId, m.buyer, via, { source: 'adapter', termsHash: m.commitmentId }, false);
+    // Deferred, at the funding's block: a restart before the receipt rebuilds the same event (T-219).
+    const announce = (at?: Timestamp) => this.emit('commitment.agreed', m.commitmentId, m.buyer, via, { source: 'adapter', termsHash: m.commitmentId }, false, at);
     if (!deferred) announce();
     return {
       id: m.commitmentId,
@@ -979,7 +1046,7 @@ export class EvmSettlement implements Settlement {
    * Transaction 1 (D4): agreeAndFund, or the operator-fee bundle (ADR-0023): fee transfer + agreeAndFund, atomic.
    * `mined` runs once the funding is in a block, before its events (the agreement's own event, when deferred).
    */
-  private async fund(m: Extract<Submission, { kind: 'fund' }>['message'], fee: TransferAuthorization | null, options: EvmSubmitOptions, mined?: () => void): Promise<Hex32> {
+  private async fund(m: Extract<Submission, { kind: 'fund' }>['message'], fee: TransferAuthorization | null, options: Relay, mined?: (at: Timestamp) => void): Promise<Hex32> {
     const book = this.bookOf(m.commitmentId);
     if (book.state.kind !== 'Agreed' || !book.acceptance || !book.agree) return refuse(book.state.kind === 'Offered' ? 'acceptance_missing' : 'invalid_state', `funding needs an agreed commitment; it is ${book.state.kind}`);
     const terms = book.state.terms;
@@ -1013,8 +1080,10 @@ export class EvmSettlement implements Settlement {
     if (await this.nonceUsed(m.commitmentId, token, feeCall)) {
       const paid = await this.feePaidEarlier(fee, terms.createdAt);
       if (paid === false) refuse('payment_required', 'the operator fee authorization for this commitment was used, and this node sees no payment to this operator from it (a public RPC can lag a few seconds behind; retry); or relay the agreement through another operator or submit it directly to the settlement layer');
-      await this.call(m.commitmentId, 'agreeAndFund', args, mirror, options, false, m.from, ctx);
-      this.emit('fee.operator', m.commitmentId, m.from, options.via ?? 'direct', { source: 'adapter', from: lc(fee.from), to: lc(fee.to), amount: this.amount(BigInt(fee.value)), paid: paid ? 'by an earlier transaction' : 'unverified' }, false);
+      const feePaid = paid ? 'by an earlier transaction' : 'unverified';
+      // The row keeps how this node saw the earlier payment, so a restart records the same fee line (T-219).
+      await this.call(m.commitmentId, 'agreeAndFund', args, mirror, options.note ? { ...options, note: { ...options.note, feePaid } } : options, false, m.from, ctx);
+      this.emit('fee.operator', m.commitmentId, m.from, options.via ?? 'direct', { source: 'adapter', from: lc(fee.from), to: lc(fee.to), amount: this.amount(BigInt(fee.value)), paid: feePaid }, false);
       return m.commitmentId;
     }
     const fundCall = encodeFunctionData({ abi: this.world.abis.rules, functionName: 'agreeAndFund', args });
@@ -1069,7 +1138,7 @@ export class EvmSettlement implements Settlement {
     }
   }
 
-  private async timeout(id: Hex32, timeout: TimeoutKind, options: EvmSubmitOptions, dryRun: boolean, at: Timestamp): Promise<Hex32> {
+  private async timeout(id: Hex32, timeout: TimeoutKind, options: Relay, dryRun: boolean, at: Timestamp): Promise<Hex32> {
     const book = this.bookOf(id);
     const t = termsView(book.state.terms);
     switch (timeout) {
@@ -1103,7 +1172,7 @@ export class EvmSettlement implements Settlement {
     }
   }
 
-  private async call(id: Hex32, fn: string, args: unknown[], mirror: (at: Timestamp) => EscrowEvent[], options: EvmSubmitOptions, dryRun: boolean, actor: Address | 'anyone', ctx: CallContext = {}): Promise<void> {
+  private async call(id: Hex32, fn: string, args: unknown[], mirror: (at: Timestamp) => EscrowEvent[], options: Relay, dryRun: boolean, actor: Address | 'anyone', ctx: CallContext = {}): Promise<void> {
     const data = encodeFunctionData({ abi: this.world.abis.rules, functionName: fn, args });
     await this.send(id, fn, this.world.deployment.rules, data, mirror, options, dryRun, actor, ctx);
   }
@@ -1124,7 +1193,7 @@ export class EvmSettlement implements Settlement {
    * scenario clock's second; on a live chain, whenever its block comes), steps the core mirror at the block's time,
    * checks it against the stage, and records the call's events and the envelopes it releases.
    */
-  private async send(id: Hex32, fn: string, to: Address, data: Hex, mirror: (at: Timestamp) => EscrowEvent[], options: EvmSubmitOptions, dryRun: boolean, actor: Address | 'anyone', ctx: CallContext = {}): Promise<void> {
+  private async send(id: Hex32, fn: string, to: Address, data: Hex, mirror: (at: Timestamp) => EscrowEvent[], options: Relay, dryRun: boolean, actor: Address | 'anyone', ctx: CallContext = {}): Promise<void> {
     const book = this.bookOf(id);
     // The chain moved this deal past the book (T-218): the mirror cannot check a relay against it.
     if (book.behind) refuse('invalid_state', this.lag(id)!);
@@ -1144,8 +1213,10 @@ export class EvmSettlement implements Settlement {
     const next = this.mirrored(before, mirror(at), fn);
     if (dryRun) return;
     let mined: Mined;
+    // T-219: what the relayer lane's row keeps, so a restart before the receipt applies this call as this relay.
+    const note: RelayNote | undefined = key || !options.note ? undefined : { ...options.note, call: fn, ...(ctx.delivery && options.note.submission.kind !== 'deliver' ? { delivery: ctx.delivery } : {}) };
     try {
-      mined = await this.world.send({ ...(key ? { key } : { lane: id }), to, data }, this.wall ? undefined : time);
+      mined = await this.world.send({ ...(key ? { key } : { lane: id }), to, data, ...(note ? { note } : {}) }, this.wall ? undefined : time);
     } catch (e) {
       // The relayer declines (out of test ETH, gas above its cap): the signed message stays valid elsewhere (D27).
       if (e instanceof RelayRefused) refuse('relay_refused', `this operator cannot relay it now: ${e.message}; submit the same signed message through another operator or directly to the settlement layer`);
@@ -1153,6 +1224,7 @@ export class EvmSettlement implements Settlement {
     }
     if (mined.status !== 'success') {
       if (!this.wall) throw new Error(`${fn} reverted on chain after a passing simulation: ${mined.hash}`);
+      this.done(mined.hash, options);
       // On a live chain the state or a deadline can move between the simulation and the block; only gas was spent.
       refuse('invalid_state', `${fn} reverted on chain in ${mined.hash} after a passing simulation (the state or a deadline moved in between); nothing changed`);
     }
@@ -1172,6 +1244,7 @@ export class EvmSettlement implements Settlement {
     }
     this.record(id, book, fn, before, after, logs, mined, blockAt, options.via ?? 'direct', actor, ctx);
     this.relayedAt.set(id, this.log_.length);
+    this.done(mined.hash, options);
   }
 
   /**
@@ -1183,7 +1256,7 @@ export class EvmSettlement implements Settlement {
     this.seen(id, mined.hash, book);
     this.txs.push({ commitmentId: id, call: fn, hash: mined.hash, from: mined.from, via, gasUsed: mined.gasUsed, at: blockAt });
     const tx = { tx: mined.hash, block: mined.blockNumber, sender: lc(mined.from), gasUsed: mined.gasUsed };
-    ctx.mined?.();
+    ctx.mined?.(blockAt);
     if (ctx.operatorFee) this.emit('fee.operator', id, actor, via, { ...ctx.operatorFee, ...tx }, true, blockAt);
     for (const { type, log } of eventTypesFor(fn, logs)) {
       if (type === 'key.released' && log) {
@@ -1428,24 +1501,141 @@ export class EvmSettlement implements Settlement {
     return report;
   }
 
-  /** One transaction for one commitment, inside its lane. Never throws for what the transaction holds: the deal falls behind. */
+  /**
+   * One transaction for one commitment, inside its lane. Never throws for what the transaction holds: the deal falls
+   * behind. A transaction this node relayed before a restart (its lane row is still open, T-219) is applied as that
+   * relay, with the row's messages, and the row's Idempotency-Key then answers a retry with the mined result.
+   */
   private async follow(id: Hex32, tx: ChainTx, stage: { stage: string; appeal: number } | undefined, known?: Delivery): Promise<keyof Omit<ObserveReport, 'unknown'>> {
     const book = this.books.get(id)!;
-    if (this.applied(id, tx.hash)) return 'seen';
+    const note = this.noteOf(tx.hash, id);
+    if (this.applied(id, tx.hash)) {
+      if (note) {
+        await this.answer(id, book, note, this.log_.filter((e) => e.commitmentId === id && lc(String(e.payload['tx'])) === lc(tx.hash)));
+        this.done(tx.hash);
+      }
+      return 'seen';
+    }
     this.seen(id, tx.hash, book);
     if (book.behind) {
       if (stage) Object.assign(book.behind, stage);
       book.behind.waiting?.push(tx);
       this.dirty.add(id);
       this.custodyBehind(id, book, tx);
+      if (note) this.done(tx.hash);
       return 'behind';
     }
+    const from = this.log_.length;
+    let r: 'applied' | 'behind';
     try {
-      return await this.step(id, book, tx, stage, known);
+      r = await this.step(id, book, tx, stage, known ?? (note ? deliveryOf(note) : undefined), note);
     } catch (e) {
       // A value core cannot represent (an expiry past year 275760, review H2) or any other rebuild failure.
-      return this.fallBehind(id, book, tx, stage, `this node could not rebuild transaction ${tx.hash}: ${(e as Error).message}.`);
+      r = this.fallBehind(id, book, tx, stage, `this node could not rebuild transaction ${tx.hash}: ${(e as Error).message}.`);
     }
+    if (note) {
+      if (r === 'applied') {
+        this.feeNote(id, note);
+        await this.answer(id, book, note, this.log_.slice(from).filter((e) => e.commitmentId === id));
+      }
+      this.done(tx.hash);
+    }
+    return r;
+  }
+
+  /** The note of this node's own open lane row that sent `hash` for this commitment (T-219), if any. */
+  private noteOf(hash: string, id: Hex32): RelayNote | undefined {
+    const note = this.world.rowOf?.(hash)?.note;
+    return note && lc(note.commitmentId) === lc(id) ? note : undefined;
+  }
+
+  /** The funding went alone after an earlier fee payment: the fee line `fund` writes after it (T-219). */
+  private feeNote(id: Hex32, note: RelayNote): void {
+    const s = note.submission;
+    if (note.feePaid === undefined || s.kind !== 'agree_and_fund' || !s.operatorFee) return;
+    const fee = s.operatorFee;
+    this.emit('fee.operator', id, s.funding.from, note.via, { source: 'adapter', from: lc(fee.from), to: lc(fee.to), amount: this.amount(BigInt(fee.value)), paid: note.feePaid }, false);
+  }
+
+  /**
+   * The answer `process` would have kept for the relayed submission (hard rule: idempotency): a retry with the same
+   * Idempotency-Key and body replays it, and another body under that key is idempotency_conflict.
+   */
+  private async answer(id: Hex32, book: Book, note: RelayNote, events: SettlementEvent[]): Promise<void> {
+    const key = note.idempotencyKey;
+    if (key === undefined || note.body === undefined || this.idempotency.has(key)) return;
+    const result: Extract<SubmitResult, { ok: true }> = { ok: true, commitmentId: id, state: await this.view(id, book), events, replayed: false, dryRun: false, signatureCheck: note.submission.kind === 'trigger' ? 'none' : 'verified' };
+    this.idempotency.set(key, { body: note.body, result: structuredClone(result) });
+    book.replays = { ...book.replays, [key]: { body: note.body, result: structuredClone(result) } };
+    this.dirty.add(id);
+  }
+
+  /**
+   * Lands the transactions this node broadcast before a restart (T-219), each inside its commitment's lane: the row's
+   * receipt (rebroadcast while it is not mined), then T-218's path with the relay's label and messages. The world calls
+   * it on its first pass after opening, before the sync and the adjudicators. The relayer lanes resolve side by side,
+   * each in nonce order, so a pass waits for its slowest lane, not for the sum of their receipt waits (review,
+   * 2026-11-04). Never throws: a row an RPC error left open counts as failed and waits for the next pass.
+   */
+  async recover(): Promise<RecoverReport> {
+    const report: RecoverReport = { applied: 0, seen: 0, behind: 0, reverted: 0, dropped: 0, unknown: 0, failed: 0, errors: [] };
+    const bySender = new Map<string, LaneRow[]>();
+    for (const row of this.world.inFlight?.() ?? []) bySender.set(lc(row.from), [...(bySender.get(lc(row.from)) ?? []), row]);
+    await Promise.all(
+      [...bySender.values()].map(async (rows) => {
+        for (const row of rows) {
+          try {
+            report[await this.enqueue(row.note?.commitmentId ?? '', () => this.land(row))]++;
+          } catch (e) {
+            report.failed++;
+            report.errors.push((e as Error).message);
+          }
+        }
+      }),
+    );
+    return report;
+  }
+
+  /** One open row, inside its commitment's lane. Throws on an RPC error, having applied nothing. */
+  private async land(row: LaneRow): Promise<Exclude<keyof RecoverReport, 'failed' | 'errors'>> {
+    const mined = await this.world.resume!(row);
+    if (!mined) return 'dropped';
+    const note = row.note;
+    const id = note?.commitmentId;
+    const book = id ? this.books.get(id) : undefined;
+    if (mined.status !== 'success' || !note || !id || !book) {
+      this.done(mined.hash);
+      return mined.status !== 'success' ? 'reverted' : 'unknown';
+    }
+    if (note.call === 'transferWithAuthorization') {
+      // The operator fee alone leaves no rules-contract log for the sync to find: the row is its only record.
+      const s = note.submission;
+      if (this.applied(id, mined.hash) || s.kind !== 'agree_and_fund' || !s.operatorFee) {
+        this.done(mined.hash);
+        return 'seen';
+      }
+      const from = this.log_.length;
+      this.landFee(id, s.operatorFee, mined, note.via);
+      await this.answer(id, book, note, this.log_.slice(from).filter((e) => e.commitmentId === id));
+      // After the answer, as `follow` does: the row goes only with the book that holds it.
+      this.done(mined.hash);
+      return 'applied';
+    }
+    const t = parseTransaction(row.raw);
+    const tx: ChainTx = {
+      hash: mined.hash,
+      from: getAddress(mined.from),
+      to: t.to ? getAddress(t.to) : null,
+      input: t.data ?? '0x',
+      block: mined.blockNumber.toString(),
+      timestamp: mined.timestamp,
+      gasUsed: mined.gasUsed.toString(),
+      logs: mined.logs.map((l) => ({ address: getAddress(l.address), topics: [...l.topics] as Hex[], data: l.data, logIndex: Number(l.logIndex) })),
+    };
+    const r = await this.follow(id, tx, await this.stage(id).catch(() => undefined));
+    // Outside a pass: a pass that read dealOf before this does not check the deal (as catchUp).
+    this.relayedAt.set(id, this.log_.length);
+    return r;
   }
 
   /**
@@ -1484,12 +1674,12 @@ export class EvmSettlement implements Settlement {
    * - the one rules call written in another contract's calldata (`embeddedCalls`) whose signatures verify.
    * Each rebuilt call must match the receipt's logs. Anything else puts the deal behind.
    */
-  private async step(id: Hex32, book: Book, tx: ChainTx, stage: { stage: string; appeal: number } | undefined, known?: Delivery): Promise<'applied' | 'behind'> {
+  private async step(id: Hex32, book: Book, tx: ChainTx, stage: { stage: string; appeal: number } | undefined, known?: Delivery, note?: RelayNote): Promise<'applied' | 'behind'> {
     const logs = this.decode(tx.logs.filter((l) => l.topics[1] === id && [lc(this.world.deployment.rules), lc(this.world.deployment.bonds)].includes(lc(l.address))) as unknown as Log[]);
     const timeouts = this.timeoutsFromLogs(book.state, logs);
     if (timeouts) {
       for (const t of timeouts) {
-        const r = this.applyRebuilt(id, book, tx, stage, { fn: t.fn, steps: t.steps, actor: 'anyone', ctx: {}, signed: async () => true }, t.logs);
+        const r = this.applyRebuilt(id, book, tx, stage, { fn: t.fn, steps: t.steps, actor: 'anyone', ctx: {}, signed: async () => true }, t.logs, note);
         if (r === 'behind') return r;
       }
       return 'applied';
@@ -1501,7 +1691,7 @@ export class EvmSettlement implements Settlement {
       const landed = rulesLogs[0]!.args['deliverable'] as Hex32;
       const d = [known, book.carried, book.delivery].find((x): x is Delivery => !!x && deliveryHash(x) === landed);
       if (!d) return this.fallBehind(id, book, tx, stage, `the seller's delivery landed in transaction ${tx.hash} without passing through this node, and the contract keeps only its hash (${landed}), so this node holds no envelopes for the adjudicators.`, [tx]);
-      return this.applyRebuilt(id, book, tx, stage, { fn: 'deliver', steps: (at) => [{ type: 'deliver', at, delivery: d }], actor: book.state.terms.seller, ctx: { delivery: d }, signed: async () => true }, logs);
+      return this.applyRebuilt(id, book, tx, stage, { fn: 'deliver', steps: (at) => [{ type: 'deliver', at, delivery: d }], actor: book.state.terms.seller, ctx: { delivery: d }, signed: async () => true }, logs, note);
     }
     const view = termsView(book.state.terms);
     const readable = rulesCalls(this.world, tx);
@@ -1518,7 +1708,7 @@ export class EvmSettlement implements Settlement {
     const waits: string[] = [];
     let why = readable ? '' : `transaction ${tx.hash} called contract ${tx.to}, and its calldata shows no call for this deal that its logs and signatures confirm.`;
     for (const c of candidates) {
-      const r = this.rebuild(id, book, c, tx, known);
+      const r = this.rebuild(id, book, c, tx, known, note);
       if ('wait' in r) {
         // A call that carries a delivery this node never held waits for it, but only once the logs and (for a call read
         // out of another contract) its signature say it ran: a planted call must not cancel the join (red-team round 3).
@@ -1539,7 +1729,7 @@ export class EvmSettlement implements Settlement {
       // when the buyer's own transfer moved it (red-team round 2, D: anyone can spend a nonce of their own).
       const fee = this.feeLeg(id, book.state.terms.buyer, tx);
       if (fee) r.ctx = { ...r.ctx, operatorFee: fee };
-      return this.applyRebuilt(id, book, tx, stage, r, logs);
+      return this.applyRebuilt(id, book, tx, stage, r, logs, note);
     }
     // Candidates the logs or signatures rejected do not count: a planted call cannot stop a delivery from joining.
     if (accepted.length === 0 && waits.length === 1) return this.fallBehind(id, book, tx, stage, waits[0]!, [tx]);
@@ -1586,8 +1776,11 @@ export class EvmSettlement implements Settlement {
     return moved ? { from: lc(leg.from), to: lc(leg.to), amount: this.amount(leg.value) } : null;
   }
 
-  /** Steps the mirror through one rebuilt call at the block's time and records it with its own logs. */
-  private applyRebuilt(id: Hex32, book: Book, tx: ChainTx, stage: { stage: string; appeal: number } | undefined, r: Exclude<Rebuilt, { wait: string } | { fail: string }>, logs: readonly DecodedLog[]): 'applied' | 'behind' {
+  /**
+   * Steps the mirror through one rebuilt call at the block's time and records it with its own logs: labelled
+   * `direct`, or as this node's relay when its lane row holds the note (T-219).
+   */
+  private applyRebuilt(id: Hex32, book: Book, tx: ChainTx, stage: { stage: string; appeal: number } | undefined, r: Exclude<Rebuilt, { wait: string } | { fail: string }>, logs: readonly DecodedLog[], note?: RelayNote): 'applied' | 'behind' {
     const before = book.state;
     const blockAt = toTimestamp(tx.timestamp * 1000);
     let after: EscrowState;
@@ -1596,7 +1789,7 @@ export class EvmSettlement implements Settlement {
     } catch (e) {
       return this.fallBehind(id, book, tx, stage, `${(e as Error).message}.`);
     }
-    this.record(id, book, r.fn, before, after, logs, { hash: tx.hash, from: tx.from, blockNumber: BigInt(tx.block), gasUsed: BigInt(tx.gasUsed) }, blockAt, 'direct', r.actor, { ...r.ctx, synced: true });
+    this.record(id, book, r.fn, before, after, logs, { hash: tx.hash, from: tx.from, blockNumber: BigInt(tx.block), gasUsed: BigInt(tx.gasUsed) }, blockAt, note?.via ?? 'direct', r.actor, { ...r.ctx, synced: !note });
     if (r.fn === 'expireAppeal') book.appealClosedAt = appealClosedAt(before, blockAt);
     const events = this.log_.filter((e) => e.commitmentId === id);
     book.lastEventSeq = events.at(-1)?.seq ?? book.lastEventSeq;
@@ -1709,15 +1902,19 @@ export class EvmSettlement implements Settlement {
    * A rules-contract call as the core mirror's steps. Fields the calldata carries in the clear are copied; fields it
    * carries only as a hash are read back from what this node holds (the delivery, its envelopes) or from a fixed list
    * (appeal grounds, beacon sources), checked against the hash. The seller's delivery is the one field only a party can
-   * supply: without it the call waits.
+   * supply: without it the call waits. With `note` (this node relayed it, T-219), the relayed messages stand in for the
+   * rebuilt ones when their signatures are the calldata's, so the step is the relay's own.
    */
-  private rebuild(id: Hex32, book: Book, call: RulesCall, tx: ChainTx, known?: Delivery): Rebuilt {
+  private rebuild(id: Hex32, book: Book, call: RulesCall, tx: ChainTx, known?: Delivery, note?: RelayNote): Rebuilt {
     const s = book.state;
     const terms = s.terms;
     const a = terms.adjudication;
     const args = call.args as readonly Record<string, unknown>[];
     const ts = chainTime;
     const hex = (v: unknown) => v as Hex32;
+    const sub = note?.submission;
+    const signedAs = (m: { signature: string } | undefined, v: unknown) => !!m && lc(m.signature) === lc(String(v));
+    const via = note?.via ?? 'direct';
     // The delivery that landed with this call: the contract's JobSubmitted names its hash.
     const landed = this.decode(tx.logs.filter((l) => l.topics[1] === id && lc(l.address) === lc(this.world.deployment.rules)) as unknown as Log[]).find((l) => l.eventName === 'JobSubmitted')?.args['deliverable'] as Hex32 | undefined;
     const delivery = (): Delivery | null => [known, book.carried, book.delivery].find((d): d is Delivery => !!d && deliveryHash(d) === landed) ?? null;
@@ -1732,21 +1929,30 @@ export class EvmSettlement implements Settlement {
           book.acceptance && lc(book.acceptance.signature) === lc(String(acc['signature']))
             ? book.acceptance
             : { type: 'AdjudicatorAcceptance', commitmentId: id, adjudicator: a.adjudicator, seedCommitment: hex(acc['seedCommitment']), policyHash: a.policyHash, registryHash: a.registryHash, fee: a.fee, bondReserved: this.amount(BigInt(acc['bondReserved'] as bigint)), nonce: hex(acc['nonce']), expiresAt: ts(acc['expiresAt']), signature: acc['signature'] as Hex };
-        const agree: Agree = book.agree && lc(book.agree.signature) === lc(String(ag['signature'])) ? book.agree : { type: 'Agree', commitmentId: id, buyer: terms.buyer, nonce: hex(ag['nonce']), expiresAt: ts(ag['expiresAt']), signature: ag['signature'] as Hex };
+        // This node's relay (T-219): the agreement and funding it collected, as the relay stepped them.
+        const relayed = sub?.kind === 'agree_and_fund' ? { agree: sub.agree, funding: sub.funding } : sub?.kind === 'fund' ? { funding: sub.message } : undefined;
+        const agree: Agree =
+          relayed?.agree && signedAs(relayed.agree, ag['signature'])
+            ? relayed.agree
+            : book.agree && lc(book.agree.signature) === lc(String(ag['signature']))
+              ? book.agree
+              : { type: 'Agree', commitmentId: id, buyer: terms.buyer, nonce: hex(ag['nonce']), expiresAt: ts(ag['expiresAt']), signature: ag['signature'] as Hex };
         const typed = this.fundingTypedData(terms);
-        const funding: FundingAuthorization = {
-          type: 'FundingAuthorization',
-          scheme: Number(f['method']) === 1 ? 'permit2' : 'erc3009',
-          commitmentId: id,
-          from: terms.buyer,
-          value: typed.typedData.message['value']!,
-          token: this.token,
-          validAfter: typed.validAfter,
-          validBefore: terms.timing.fundBy,
-          nonce: typed.nonce,
-          expiresAt: terms.timing.fundBy,
-          signature: f['signature'] as Hex,
-        };
+        const funding: FundingAuthorization = signedAs(relayed?.funding, f['signature'])
+          ? relayed!.funding
+          : {
+              type: 'FundingAuthorization',
+              scheme: Number(f['method']) === 1 ? 'permit2' : 'erc3009',
+              commitmentId: id,
+              from: terms.buyer,
+              value: typed.typedData.message['value']!,
+              token: this.token,
+              validAfter: typed.validAfter,
+              validBefore: terms.timing.fundBy,
+              nonce: typed.nonce,
+              expiresAt: terms.timing.fundBy,
+              signature: f['signature'] as Hex,
+            };
         // The contract checked the three signatures; the mandate checks are this node's own policy for what it relays.
         const wide: Scope = { roles: ['buyer', 'seller'], maxPerCommitment: terms.price, maxDaily: { token: terms.price.token, amount: UINT256_MAX } as TokenAmount, expiresAt: '9999-12-31T23:59:59Z' };
         const zero = this.amount(0n);
@@ -1763,11 +1969,17 @@ export class EvmSettlement implements Settlement {
           }
           book.acceptance = acceptance;
           book.agree = agree;
-          if (s.kind === 'Offered') this.emit('adjudicator.accepted', id, a.adjudicator, 'direct', { source: 'chain', seedCommitment: acceptance.seedCommitment, bondRequired: acceptance.bondReserved, acceptance }, false, ts(tx.timestamp));
-          if (s.kind !== 'Agreed') this.emit('commitment.agreed', id, terms.buyer, 'direct', { source: 'chain', termsHash: id }, false, ts(tx.timestamp));
+          if (s.kind === 'Offered') this.emit('adjudicator.accepted', id, a.adjudicator, via, { source: 'chain', seedCommitment: acceptance.seedCommitment, bondRequired: acceptance.bondReserved, acceptance }, false, ts(tx.timestamp));
+          if (s.kind !== 'Agreed') this.emit('commitment.agreed', id, agree.buyer, via, { source: relayed?.agree ? 'adapter' : 'chain', termsHash: agree.commitmentId }, false, ts(tx.timestamp));
+          // The buyer's daily spend, as the relay's agreement counted it.
+          if (relayed?.agree && !book.spent) {
+            const day = `${lc(terms.buyer)}|${ts(tx.timestamp).slice(0, 10)}`;
+            book.spent = { day, amount: terms.price.amount };
+            this.spent.set(day, (this.spent.get(day) ?? 0n) + BigInt(terms.price.amount));
+          }
         };
         const signed = async () => (await verifyMessage(this.domain, acceptance, a.adjudicator)) && (await verifyMessage(this.domain, agree, terms.buyer));
-        return { fn: call.fn, steps, actor: terms.buyer, ctx: { mined }, signed };
+        return { fn: call.fn, steps, actor: relayed ? funding.from : terms.buyer, ctx: { mined }, signed };
       }
       case 'deliver': {
         if (s.kind !== 'Held') return { fail: `a delivery in transaction ${tx.hash} found this node's book ${s.kind}.` };
@@ -1779,7 +1991,8 @@ export class EvmSettlement implements Settlement {
       case 'decide': {
         const carry = carrying();
         if (carry === null) return { wait: unread };
-        const m = this.decisionFrom(id, book, args[1]!);
+        // The relayed decision carries what the calldata holds only as hashes (its envelopes, its appeal ground).
+        const m = sub?.kind === 'decide' && signedAs(sub.message, args[1]!['signature']) ? sub.message : this.decisionFrom(id, book, args[1]!);
         if (typeof m === 'string') return { fail: m };
         const beacon = m.role === 'primary' || !m.beacon ? null : { round: m.beacon.round, value: m.beacon.value };
         const steps = (at: Timestamp): EscrowEvent[] => [...(carry ? [{ type: 'deliver' as const, at, delivery: carry }] : []), { type: 'decide', at, message: m, beacon }];
@@ -1789,22 +2002,28 @@ export class EvmSettlement implements Settlement {
         const carry = carrying();
         if (carry === null) return { wait: unread };
         const v = args[1]!;
-        const m: EarlyAccept = { type: 'EarlyAccept', commitmentId: id, buyer: terms.buyer, attempt: Number(v['attempt']), deliveryHash: hex(v['deliveryHash']), nonce: hex(v['nonce']), expiresAt: ts(v['expiresAt']), signature: v['signature'] as Hex };
+        const m: EarlyAccept =
+          sub?.kind === 'early_accept' && signedAs(sub.message, v['signature'])
+            ? sub.message
+            : { type: 'EarlyAccept', commitmentId: id, buyer: terms.buyer, attempt: Number(v['attempt']), deliveryHash: hex(v['deliveryHash']), nonce: hex(v['nonce']), expiresAt: ts(v['expiresAt']), signature: v['signature'] as Hex };
         const steps = (at: Timestamp): EscrowEvent[] => [...(carry ? [{ type: 'deliver' as const, at, delivery: carry }] : []), { type: 'early_accept', at, message: m }];
-        return { fn: call.fn, steps, actor: terms.buyer, ctx: carry ? { delivery: carry } : {}, signed: () => verifyMessage(this.domain, m, terms.buyer) };
+        return { fn: call.fn, steps, actor: m.buyer, ctx: carry ? { delivery: carry } : {}, signed: () => verifyMessage(this.domain, m, terms.buyer) };
       }
       case 'fileAppeal': {
         const v = args[1]!;
         const appellant = Number(v['appellant']) === 0 ? 'buyer' : 'seller';
         // Grounds are free text in the schema; this node's adjudicators read one of the four grounds (AppealGround).
         const grounds = APPEAL_GROUNDS.find((g) => str(g) === v['groundsHash']) ?? `unread: filed directly; the contract keeps only the grounds' hash ${String(v['groundsHash'])}`;
-        const p: Appeal = { commitmentId: id, appellant, appellantAddress: appellant === 'buyer' ? terms.buyer : terms.seller, grounds, bond: this.amount(BigInt(v['bond'] as bigint)), filedAt: ts(v['filedAt']), signature: v['signature'] as Hex };
+        const p: Appeal =
+          sub?.kind === 'appeal' && signedAs(sub.appeal, v['signature'])
+            ? sub.appeal
+            : { commitmentId: id, appellant, appellantAddress: appellant === 'buyer' ? terms.buyer : terms.seller, grounds, bond: this.amount(BigInt(v['bond'] as bigint)), filedAt: ts(v['filedAt']), signature: v['signature'] as Hex };
         const zero = this.amount(0n);
         return { fn: call.fn, steps: (at) => [{ type: 'file_appeal', at, appeal: p, requiredBond: p.bond, requiredFee: zero, feePaid: zero }], actor: p.appellantAddress, ctx: { appeal: p }, signed: () => verifyMessage(this.domain, { ...p, type: 'Appeal' } as SignableMessage, p.appellantAddress) };
       }
       case 'mutualSettle': {
         const v = args[1]!;
-        const m: MutualSettlement = {
+        const m: MutualSettlement = sub?.kind === 'mutual_settle' && lc(sub.message.buyerSignature) === lc(String(v['buyerSignature'])) ? sub.message : {
           type: 'MutualSettlement',
           commitmentId: id,
           deliveryHash: v['hasDelivery'] ? hex(v['deliveryHash']) : null,
@@ -1922,7 +2141,7 @@ export class EvmSettlement implements Settlement {
    * ADR-0028 §11): the buyer signed this fee for this commitment, valid until fundBy. Sends nothing when the submission
    * carries no fee or its nonce is already spent.
    */
-  private async feeAlone(id: Hex32, s: Extract<Submission, { kind: 'agree_and_fund' }>, options: EvmSubmitOptions, dryRun: boolean): Promise<Hex32> {
+  private async feeAlone(id: Hex32, s: Extract<Submission, { kind: 'agree_and_fund' }>, options: Relay, dryRun: boolean): Promise<Hex32> {
     const fee = s.operatorFee;
     if (!fee || dryRun) return id;
     const book = this.bookOf(id);
@@ -1932,19 +2151,30 @@ export class EvmSettlement implements Settlement {
     if (await this.nonceUsed(id, token, data)) return id;
     let mined: Mined;
     try {
-      mined = await this.world.send({ ...(options.sender ? { key: options.sender } : { lane: id }), to: token, data }, this.wall ? undefined : secs(this.now()));
+      const note = options.sender || !options.note ? undefined : { ...options.note, call: 'transferWithAuthorization' };
+      mined = await this.world.send({ ...(options.sender ? { key: options.sender } : { lane: id }), to: token, data, ...(note ? { note } : {}) }, this.wall ? undefined : secs(this.now()));
     } catch (e) {
       if (e instanceof RelayRefused) refuse('relay_refused', `this operator cannot relay the operator fee now: ${e.message}`);
       throw e;
     }
+    // The row goes with process's answer (`landed`), after the books.
+    this.done(mined.hash, options);
     if (mined.status !== 'success') refuse('invalid_state', `the operator fee transfer reverted on chain in ${mined.hash}; the deal is funded`);
+    this.landFee(id, fee, mined, options.via ?? 'direct');
+    return id;
+  }
+
+  /**
+   * The operator fee sent alone is mined: its record and its event, relayed or recovered after a restart (T-219). Its
+   * row stays: the caller marks it done once the answer is stored.
+   */
+  private landFee(id: Hex32, fee: TransferAuthorization, mined: Pick<Mined, 'hash' | 'from' | 'blockNumber' | 'gasUsed' | 'timestamp'>, via: string): void {
     this.balanceCache.clear();
     const blockAt = toTimestamp(mined.timestamp * 1000);
-    const via = options.via ?? 'direct';
+    this.seen(id, mined.hash, this.books.get(id));
     this.txs.push({ commitmentId: id, call: 'transferWithAuthorization', hash: mined.hash, from: mined.from, via, gasUsed: mined.gasUsed, at: blockAt });
     this.emit('fee.operator', id, getAddress(fee.from), via, { from: lc(fee.from), to: lc(fee.to), amount: this.amount(BigInt(fee.value)), tx: mined.hash, block: mined.blockNumber, sender: lc(mined.from), gasUsed: mined.gasUsed }, true, blockAt);
     this.relayedAt.set(id, this.log_.length);
-    return id;
   }
 
   // Read model (as SimChain's view)
@@ -2067,6 +2297,11 @@ function sameView(a: unknown, b: unknown): boolean {
     return x;
   };
   return JSON.stringify(norm(a)) === JSON.stringify(norm(b));
+}
+
+/** The seller-signed delivery a relayed call carried (T-219): the submission's own, or the one carried beside it. */
+function deliveryOf(note: RelayNote): Delivery | undefined {
+  return note.delivery ?? (note.submission.kind === 'deliver' ? note.submission.delivery : undefined);
 }
 
 /** The commitment a submission touches, for its lane. */

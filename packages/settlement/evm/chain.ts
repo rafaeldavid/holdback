@@ -3,7 +3,9 @@
 // - LiveChain (live.ts): a public testnet. Blocks come at their own pace, and a relayer key, with its own nonces,
 //   pays gas for the transactions an operator relays. It authors nothing: every call carries the parties' or an
 //   adjudicator's signatures, which the contract checks, or is a permissionless timeout (ADR-0005).
+import type { Delivery, Hex32 } from '@holdback/core';
 import type { Abi, Address, Hex, Log, PublicClient } from 'viem';
+import type { Submission } from '../src/interface.js';
 
 export interface Deployment {
   token: Address;
@@ -43,6 +45,46 @@ export interface Mined {
 /** The operator declines to relay (D27, ADR-0005): the signed message stays valid for another operator or a direct call. */
 export class RelayRefused extends Error {}
 
+/**
+ * What the settlement adapter relayed in one transaction (T-219), kept in its lane's in-flight row. After a restart
+ * the node applies the mined transaction as this relay: the operator's label, the messages the calldata holds only as
+ * hashes (a delivery's envelopes, appeal grounds), and the answer a retry with the same Idempotency-Key replays.
+ */
+export interface RelayNote {
+  commitmentId: Hex32;
+  /** The contract call: a HoldbackRules function, or 'transferWithAuthorization' for the operator fee sent alone. */
+  call: string;
+  /** The operator that relayed it, or 'direct'. */
+  via: string;
+  submission: Submission;
+  /** The submission's Idempotency-Key and its body hash (canonical keccak of the submission). */
+  idempotencyKey?: string;
+  body?: Hex32;
+  /** A seller-signed delivery the call carries beside the submission (a decision or early accept carrying it, D4). */
+  delivery?: Delivery;
+  /** Set when the funding went alone because an earlier transaction paid the operator fee: how this node saw that payment. */
+  feePaid?: string;
+}
+
+/**
+ * One deal-lane transaction from just before its first broadcast until its receipt is applied (T-219, ADR-0028 §3).
+ * Plain JSON: a store keeps it. A lane sends one transaction at a time, so a lane has one open row at a time, except
+ * for the moment between one receipt and the write of the books it changed.
+ */
+export interface LaneRow {
+  /** The deal lane, 1 to DEAL_LANES, and its sender. */
+  lane: number;
+  from: Address;
+  nonce: number;
+  /** Every hash sent at this nonce: the first broadcast, then each fee bump. */
+  hashes: Hex[];
+  /** The latest signed transaction at this nonce, rebroadcast as it is after a restart. */
+  raw: Hex;
+  /** When the first broadcast went out, ms since the epoch. */
+  sentAt: number;
+  note?: RelayNote;
+}
+
 export interface EvmChain {
   readonly chainId: number;
   readonly deployment: Deployment;
@@ -58,6 +100,17 @@ export interface EvmChain {
   readonly tokenDomain: { name: string; version: string };
   /** eth_call from `from`; throws the RPC error on a revert. `at` (scenario clock): the pending block's second. */
   simulate(tx: { from: Address; to: Address; data: Hex }, at?: number): Promise<void>;
-  /** Sends and waits for the receipt. `key` absent: `senderFor(lane)`. `at` (scenario clock): the block's second. */
-  send(tx: { key?: Hex; lane?: string; to: Address; data: Hex; value?: bigint }, at?: number): Promise<Mined>;
+  /**
+   * Sends and waits for the receipt. `key` absent: `senderFor(lane)`. `at` (scenario clock): the block's second.
+   * `note` (a live chain with a lane store): kept in the lane's in-flight row until the receipt is applied (T-219).
+   */
+  send(tx: { key?: Hex; lane?: string; to: Address; data: Hex; value?: bigint; note?: RelayNote }, at?: number): Promise<Mined>;
+  /** T-219, a live chain only. The rows no caller waits on: left open by a restart, or by an RPC error after the broadcast. */
+  inFlight?(): readonly LaneRow[];
+  /** The open row that sent `hash`, if any. */
+  rowOf?(hash: string): LaneRow | undefined;
+  /** The row's receipt: the same raw transaction rebroadcast while it is not mined; null once given up. Throws on an RPC error. */
+  resume?(row: LaneRow): Promise<Mined | null>;
+  /** Deletes the rows that sent these hashes: their receipts are applied, and the books they changed are written. */
+  release?(hashes: readonly string[]): Promise<void>;
 }
