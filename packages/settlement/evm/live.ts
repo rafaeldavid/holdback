@@ -10,6 +10,13 @@
 // Lanes (ADR-0028 §3): the secret is the funding lane, and derives DEAL_LANES deal lanes. A commitment keeps one deal
 // lane; each lane sends one transaction at a time and waits for its receipt, so its nonce is always the last mined
 // plus one, and one stuck transaction delays one lane. The funding lane mints, sets up and tops up the deal lanes.
+//
+// In-flight rows (T-219): with a lane store attached, a deal lane writes one row before each broadcast (the nonce,
+// every hash sent at it, the raw transaction and what the settlement adapter relayed) and rewrites it before a fee
+// bump. The row stays until the adapter has applied the receipt and the world has written the books it changed
+// (`release`). After a restart the rows a previous run left are read once (`attach`); until a row is resolved, its
+// lane sends nothing else, and its nonce is never read from `pending`. `resume` resolves one: a mined row sets the
+// lane's nonce to its own plus one; one not mined is rebroadcast as it was, then the usual give-up rule applies.
 import {
   concat,
   createPublicClient,
@@ -20,6 +27,7 @@ import {
   http,
   keccak256,
   parseGwei,
+  parseTransaction,
   stringToHex,
   TransactionReceiptNotFoundError,
   type Address,
@@ -29,7 +37,7 @@ import {
 import { privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts';
 import { holdbackDomain, type HoldbackDomain } from '@holdback/core';
 import abisJson from './abis.json' with { type: 'json' };
-import { RelayRefused, type Abis, type Deployment, type EvmChain, type Mined } from './chain.js';
+import { RelayRefused, type Abis, type Deployment, type EvmChain, type LaneRow, type Mined, type RelayNote } from './chain.js';
 import { assertSafeChain } from './guard.js';
 
 /** contracts/deployments/<network>.json, as the testnet deployment writes it (T-206). */
@@ -128,6 +136,42 @@ export function laneOf(commitmentId: string, lanes = DEAL_LANES): number {
   return /^0x[0-9a-fA-F]{64}$/.test(commitmentId) ? Number(hexToBigInt(commitmentId as Hex) % BigInt(lanes)) : 0;
 }
 
+/** Where a live world keeps its deal lanes' in-flight rows (T-219): the demo's Durable Object storage. */
+export interface LaneStore {
+  /** The rows a previous run left open, read once when the world opens. */
+  load(): Promise<LaneRow[]>;
+  /** Writes a row before its broadcast, and again before a fee bump. */
+  write(row: LaneRow): Promise<void>;
+  /** Deletes rows whose receipts are applied, or that were given up. */
+  remove(rows: readonly LaneRow[]): Promise<void>;
+}
+
+/** A transaction between its first broadcast and its receipt: what the receipt loop needs to rebroadcast or bump it. */
+interface Flight {
+  from: Address;
+  nonce: number;
+  to: Address;
+  data: Hex;
+  value: bigint;
+  gas: bigint;
+  fee: { max: bigint; tip: bigint };
+  raw: Hex;
+  /** The hashes the RPC accepted at this nonce. */
+  hashes: Hex[];
+  /** The fee bump waits two rebroadcast windows from here (ms). */
+  start: number;
+  /** The last rebroadcast (ms); 0 rebroadcasts at the first look. */
+  checkpoint: number;
+  /** Past this the loop gives up (ms). */
+  deadline: number;
+  row: LaneRow | null;
+}
+
+/** The receipt did not come before the deadline: the existing give-up rule (the lane reads its nonce again). */
+class GaveUp extends Error {}
+
+const rowId = (r: Pick<LaneRow, 'from' | 'nonce'>) => `${r.from.toLowerCase()}:${r.nonce}`;
+
 export class LiveChain implements EvmChain {
   readonly clock = 'wall' as const;
   readonly chainId: number;
@@ -153,6 +197,14 @@ export class LiveChain implements EvmChain {
   private fees: { at: number; base: bigint; tip: bigint } | null = null;
   private readonly blockTimes = new Map<bigint, number>();
   private mints: Array<{ to: Address; amount: bigint; resolve: (m: Mined) => void; reject: (e: unknown) => void }> = [];
+  /** T-219: where the deal lanes' in-flight rows are kept (none: no rows, as before). */
+  private store: LaneStore | null = null;
+  /** Rows written and not yet released, by sender and nonce. */
+  private readonly rows = new Map<string, LaneRow>();
+  /** Rows no caller waits on: read at `attach`, or left by an RPC error after the broadcast. */
+  private readonly orphans = new Map<string, LaneRow>();
+  /** Orphans whose receipts were found, kept for the adapter's `resume`. */
+  private readonly resolved = new Map<string, Mined>();
 
   constructor(o: LiveChainOptions) {
     const id = o.deployment.chainId;
@@ -233,10 +285,114 @@ export class LiveChain implements EvmChain {
     this.estimates.set(`${lc(tx.from)}|${lc(tx.to)}|${tx.data}`, gas);
   }
 
-  /** Sends on the key's own lane, or the named lane, after the lane's previous transaction is mined. */
-  send(tx: { key?: Hex; lane?: string; to: Address; data: Hex; value?: bigint }): Promise<Mined> {
+  /**
+   * Sends on the key's own lane, or the named lane, after the lane's previous transaction is mined and any row a restart
+   * left on that lane is resolved. A deal lane with a store writes the transaction's row, with `note`, before the broadcast.
+   */
+  send(tx: { key?: Hex; lane?: string; to: Address; data: Hex; value?: bigint; note?: RelayNote }): Promise<Mined> {
     const account = tx.key ? privateKeyToAccount(tx.key) : this.account(tx.lane);
-    return this.serialized(account.address, () => this.sendNow(account, tx.to, tx.data, tx.value ?? 0n));
+    const lane = tx.key || tx.lane === undefined || tx.lane === FUNDING_LANE ? null : 1 + laneOf(tx.lane);
+    return this.serialized(account.address, async () => {
+      for (const r of this.inFlight()) if (lc(r.from) === lc(account.address)) await this.resolve(r);
+      return this.sendNow(account, tx.to, tx.data, tx.value ?? 0n, lane, tx.note);
+    });
+  }
+
+  /**
+   * Attaches the store a world keeps its in-flight rows in, and reads the rows a previous run left open: one list,
+   * no chain call, since a world opens inside blockConcurrencyWhile. Until each is resolved, its lane sends nothing else.
+   */
+  async attach(store: LaneStore): Promise<void> {
+    this.store = store;
+    for (const r of await store.load()) {
+      this.rows.set(rowId(r), r);
+      this.orphans.set(rowId(r), r);
+    }
+  }
+
+  /** The rows no caller waits on, oldest nonce first: the settlement adapter resolves and applies them (T-219). */
+  inFlight(): readonly LaneRow[] {
+    return [...this.orphans.values()].sort((a, b) => a.nonce - b.nonce);
+  }
+
+  /** The open row that sent `hash`, if any: the sync tells this node's own relays from direct calls by it. */
+  rowOf(hash: string): LaneRow | undefined {
+    const h = lc(hash);
+    for (const r of this.rows.values()) if (r.hashes.some((x) => lc(x) === h)) return r;
+    return undefined;
+  }
+
+  /**
+   * A row's receipt, in its lane's turn. Mined: the lane's nonce is the row's plus one. Not mined: the same raw
+   * transaction is rebroadcast and awaited until the receipt timeout after its first broadcast, or one rebroadcast
+   * window after now if that is later; then the row is given up (null) and the lane reads its nonce again. Throws on
+   * an RPC error, and the row stays open.
+   */
+  resume(row: LaneRow): Promise<Mined | null> {
+    return this.serialized(row.from, () => this.resolve(row));
+  }
+
+  /**
+   * Deletes the rows that sent these hashes, once the books their receipts changed are written. A failed delete leaves
+   * the row in storage: the next restart reads it, finds its receipt applied and deletes it then. It never throws, so a
+   * world's persist goes on.
+   */
+  async release(hashes: readonly string[]): Promise<void> {
+    if (!this.store || hashes.length === 0) return;
+    const set = new Set(hashes.map(lc));
+    const done = [...this.rows.values()].filter((r) => r.hashes.some((h) => set.has(lc(h))));
+    if (done.length === 0) return;
+    await this.store.remove(done).catch(() => undefined);
+    for (const r of done) this.forget(r);
+  }
+
+  private forget(r: LaneRow): void {
+    const id = rowId(r);
+    this.rows.delete(id);
+    this.orphans.delete(id);
+    this.resolved.delete(id);
+  }
+
+  /** Removes a row nothing will apply: never sent, or given up. A failed delete leaves it for the next restart to give up. */
+  private async drop(r: LaneRow): Promise<void> {
+    await this.store?.remove([r]).catch(() => undefined);
+    this.forget(r);
+  }
+
+  /** `resume`, inside the lane's turn. */
+  private async resolve(row: LaneRow): Promise<Mined | null> {
+    const id = rowId(row);
+    const hit = this.resolved.get(id);
+    if (hit) return hit;
+    if (!this.rows.has(id)) return null;
+    await this.verify();
+    const t = parseTransaction(row.raw);
+    const now = Date.now();
+    const f: Flight = {
+      from: getAddress(row.from),
+      nonce: row.nonce,
+      to: getAddress(t.to!),
+      data: t.data ?? '0x',
+      value: t.value ?? 0n,
+      gas: t.gas!,
+      fee: { max: t.maxFeePerGas!, tip: t.maxPriorityFeePerGas! },
+      raw: row.raw,
+      hashes: [...row.hashes],
+      start: now,
+      checkpoint: 0,
+      deadline: Math.max(row.sentAt + this.timeoutMs, now + this.rebroadcastMs),
+      row,
+    };
+    try {
+      const mined = await this.fly(f, this.lanes.find((a) => lc(a.address) === lc(row.from)));
+      this.resolved.set(id, mined);
+      return mined;
+    } catch (e) {
+      if (!(e instanceof GaveUp)) throw e;
+      this.nonces.delete(lc(row.from));
+      await this.drop(row);
+      return null;
+    }
   }
 
   /**
@@ -300,7 +456,7 @@ export class LiveChain implements EvmChain {
     return next;
   }
 
-  private async sendNow(account: PrivateKeyAccount, to: Address, data: Hex, value: bigint): Promise<Mined> {
+  private async sendNow(account: PrivateKeyAccount, to: Address, data: Hex, value: bigint, lane: number | null, note?: RelayNote): Promise<Mined> {
     await this.verify();
     const from = account.address;
     const k = `${lc(from)}|${lc(to)}|${data}`;
@@ -310,48 +466,84 @@ export class LiveChain implements EvmChain {
     if ((estimate * 5n) / 4n > GAS_CAP) throw new RelayRefused(`the call needs about ${estimate} gas, above this node's cap of ${GAS_CAP}`);
     const gas = (estimate * 5n) / 4n;
     const nonce = this.nonces.get(lc(from)) ?? (await this.publicClient.getTransactionCount({ address: from, blockTag: 'pending' }));
-    let fee = await this.feesNow();
-    const sign = (f: { max: bigint; tip: bigint }) => account.signTransaction({ chainId: this.chainId, type: 'eip1559', to, data, value, gas, nonce, maxFeePerGas: f.max, maxPriorityFeePerGas: f.tip });
-    let raw = await sign(fee);
-    const hashes: Hex[] = [await this.broadcast(raw, from)];
-    const start = Date.now();
-    let checkpoint = start;
+    const fee = await this.feesNow();
+    const f: Flight = { from, nonce, to, data, value, gas, fee, raw: '0x', hashes: [], start: 0, checkpoint: 0, deadline: 0, row: null };
+    f.raw = await this.sign(account, f, fee);
+    // T-219: the row before the broadcast. A failed write throws here, with nothing sent.
+    if (lane !== null && this.store) {
+      const row: LaneRow = { lane, from, nonce, hashes: [keccak256(f.raw)], raw: f.raw, sentAt: Date.now(), ...(note ? { note } : {}) };
+      await this.store.write(row);
+      this.rows.set(rowId(row), row);
+      f.row = row;
+    }
     try {
-      for (;;) {
-        for (const hash of hashes) {
-          const r = await this.publicClient.getTransactionReceipt({ hash }).catch((e: unknown) => {
-            if (e instanceof TransactionReceiptNotFoundError) return null;
-            throw e;
-          });
-          if (r) {
-            this.nonces.set(lc(from), nonce + 1);
-            return { hash, from, status: r.status, gasUsed: r.gasUsed, blockNumber: r.blockNumber, timestamp: await this.blockTime(r.blockNumber), logs: r.logs };
-          }
-        }
-        const now = Date.now();
-        if (now - start > this.timeoutMs) throw new Error(`a transaction from ${from} (nonce ${nonce}) was not mined within ${Math.round(this.timeoutMs / 1000)} s: ${hashes.join(', ')}`);
-        if (now - checkpoint > this.rebroadcastMs) {
-          checkpoint = now;
-          if (hashes.length < 2 && now - start > 2 * this.rebroadcastMs && fee.max < this.maxFee) {
-            // Replace at the same nonce with fees up by a quarter (nodes require at least a tenth), within the cap.
-            // If the first one was mined meanwhile, the node refuses the replacement; the loop then finds its receipt.
-            const max = (fee.max * 5n) / 4n > this.maxFee ? this.maxFee : (fee.max * 5n) / 4n;
-            fee = { max, tip: (fee.tip * 5n) / 4n > max ? max : (fee.tip * 5n) / 4n };
-            const replacement = await sign(fee);
-            const hash = await this.broadcast(replacement, from).catch(() => null);
-            if (hash) {
-              raw = replacement;
-              hashes.push(hash);
-            }
-          } else {
-            await this.broadcast(raw, from).catch(() => undefined);
-          }
-        }
-        await sleep(this.pollMs);
-      }
+      f.hashes.push(await this.broadcast(f.raw, from));
+    } catch (e) {
+      // The node refused it, so nothing went out at this nonce: the row goes, and the lane reads its nonce again.
+      if (f.row) await this.drop(f.row);
+      throw e;
+    }
+    f.start = f.checkpoint = Date.now();
+    f.deadline = f.start + this.timeoutMs;
+    try {
+      return await this.fly(f, account);
     } catch (e) {
       this.nonces.delete(lc(from));
+      // Given up: the row goes with it. An RPC error: the transaction is out, so its lane waits for it (`resume`).
+      if (f.row && e instanceof GaveUp) await this.drop(f.row);
+      else if (f.row) this.orphans.set(rowId(f.row), f.row);
       throw e;
+    }
+  }
+
+  private sign(account: PrivateKeyAccount, f: Pick<Flight, 'to' | 'data' | 'value' | 'gas' | 'nonce'>, fee: { max: bigint; tip: bigint }): Promise<Hex> {
+    return account.signTransaction({ chainId: this.chainId, type: 'eip1559', to: f.to, data: f.data, value: f.value, gas: f.gas, nonce: f.nonce, maxFeePerGas: fee.max, maxPriorityFeePerGas: fee.tip });
+  }
+
+  /**
+   * Waits for the receipt of any hash sent at the flight's nonce. Every rebroadcast window it sends the same raw
+   * transaction again; after two windows it replaces it once at the same nonce with fees up by a quarter (nodes require
+   * at least a tenth), within the cap, when it holds the lane's key. Past the deadline it gives up.
+   */
+  private async fly(f: Flight, account: PrivateKeyAccount | undefined): Promise<Mined> {
+    for (;;) {
+      for (const hash of f.hashes) {
+        const r = await this.publicClient.getTransactionReceipt({ hash }).catch((e: unknown) => {
+          if (e instanceof TransactionReceiptNotFoundError) return null;
+          throw e;
+        });
+        if (r) {
+          this.nonces.set(lc(f.from), f.nonce + 1);
+          return { hash, from: f.from, status: r.status, gasUsed: r.gasUsed, blockNumber: r.blockNumber, timestamp: await this.blockTime(r.blockNumber), logs: r.logs };
+        }
+      }
+      const now = Date.now();
+      if (now > f.deadline) throw new GaveUp(`a transaction from ${f.from} (nonce ${f.nonce}) was not mined within ${Math.round(this.timeoutMs / 1000)} s: ${f.hashes.join(', ')}`);
+      if (now - f.checkpoint > this.rebroadcastMs) {
+        f.checkpoint = now;
+        if (account && f.hashes.length < 2 && now - f.start > 2 * this.rebroadcastMs && f.fee.max < this.maxFee) await this.bump(account, f);
+        else await this.broadcast(f.raw, f.from).catch(() => undefined);
+      }
+      await sleep(this.pollMs);
+    }
+  }
+
+  /** The one fee bump. If the first transaction was mined meanwhile, the node refuses the replacement; the loop then finds its receipt. */
+  private async bump(account: PrivateKeyAccount, f: Flight): Promise<void> {
+    const max = (f.fee.max * 5n) / 4n > this.maxFee ? this.maxFee : (f.fee.max * 5n) / 4n;
+    f.fee = { max, tip: (f.fee.tip * 5n) / 4n > max ? max : (f.fee.tip * 5n) / 4n };
+    const replacement = await this.sign(account, f, f.fee);
+    if (f.row && this.store) {
+      // The row names the replacement before it goes out, so a restart right after still finds its receipt. Without
+      // that write, no replacement: the first transaction keeps its chance.
+      const next: LaneRow = { ...f.row, hashes: [...f.row.hashes, keccak256(replacement)], raw: replacement };
+      if (!(await this.store.write(next).then(() => true, () => false))) return;
+      Object.assign(f.row, next);
+    }
+    const hash = await this.broadcast(replacement, f.from).catch(() => null);
+    if (hash) {
+      f.raw = replacement;
+      f.hashes.push(hash);
     }
   }
 
