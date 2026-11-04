@@ -297,6 +297,17 @@ describe('the adjudicator service on the real SimChain (T-006)', () => {
     expect((await sellerBalance(w)) - sellerBefore).toBe(BigInt(w.terms.price.amount));
   });
 
+  // Review of PR #175, round 4 nit: the appeal task names whoever escalated as the first decider (T-211, Decision 10).
+  it('after the fallback escalates, the appeal task names the fallback as its first decider', async () => {
+    const w = await delivered();
+    const { chain, cast, terms, id } = w;
+    w.judges.script = { 'gpt-a': 'timeout', 'gpt-b': 'timeout', 'qwen-a': 'timeout', 'qwen-b': 'timeout' };
+    chain.advanceTo(terms.timing.judgeBy); // the primary is silent
+    expect((await w.fallback.adj.runOnce()).decided).toEqual([{ commitmentId: id, role: 'fallback', outcome: 'escalate' }]);
+    chain.advance(5);
+    expect((await w.settlement.tasks(cast.appeal.address)).map((t) => [t.role, t.firstDecider?.toLowerCase()])).toEqual([['appeal', cast.fallback.address.toLowerCase()]]);
+  });
+
   it('does not trigger a takeover once fallbackBy has passed', async () => {
     const w = await delivered();
     w.chain.advanceTo(w.terms.timing.fallbackBy);

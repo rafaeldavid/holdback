@@ -136,6 +136,9 @@ export function recordHashOf(record: Omit<Judgment, 'recordHash' | 'signature'> 
 
 const ZERO_SCORE_REASON = (code: string) => `intake refused the delivery: ${code}`;
 
+/** The judged-record cache key: one panel per (commitment, role, attempt), never re-rolled. */
+const judgedKey = (t: Pick<DecisionTask, 'commitment' | 'role' | 'attempt'>) => `${t.commitment.id}|${t.role}|${t.attempt}`;
+
 export class Adjudicator {
   readonly policy: AdjudicatorPolicy;
   readonly address: Address;
@@ -320,7 +323,7 @@ export class Adjudicator {
    * publication, submission) only publishes, wraps and signs again. It never calls the judges twice.
    */
   async decideTask(task: DecisionTask): Promise<Result<Outcome, Problem>> {
-    const key = `${task.commitment.id}|${task.role}|${task.attempt}`;
+    const key = judgedKey(task);
     const pre = await this.#preflight(task);
     if (!pre.ok) return pre;
     let judged = this.#judged.get(key);
@@ -365,7 +368,7 @@ export class Adjudicator {
       const mine = (a: string | undefined) => a?.toLowerCase() === this.address;
       const rerelease = role === 'appeal' && task.appealGround === 'missing-or-wrong-key' && task.firstOutcome === 'accept';
       const consented = mine(commitment.adjudication.adjudicator) || (role === 'appeal' && mine(task.firstDecider)) || rerelease;
-      const cached = this.#judged.get(`${id}|${role}|${attempt}`)?.outcome;
+      const cached = this.#judged.get(judgedKey(task))?.outcome;
       const declined = await this.#turnProblem(commitment, role, { consented, cover: role === 'fallback' && cached !== 'escalate' });
       if (declined) return err(declined);
     }

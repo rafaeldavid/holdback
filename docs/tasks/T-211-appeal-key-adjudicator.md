@@ -5,7 +5,7 @@
 - **Depends on:** —
 - **Paths this task may touch:** `apps/adjudicator/src/service.ts`, `apps/adjudicator/src/service.test.ts`, `docs/tasks/T-211-appeal-key-adjudicator.md`. Added at pickup, all in `apps/adjudicator/`: `src/settlement-port.ts`, `src/simchain-adapter.ts`, `src/simchain-adapter.test.ts` and `src/_sim.ts` (the free-bond read, the appeal expiry and the takeover's commitment), and `scripts/mutants.mjs` (its key mutant matched the changed line).
 - **Human gate:** no
-- **Status:** review
+- **Status:** done (PR #175)
 - **Agent/session:** Claude Opus 5.5, a session the T-206 coordinating session started on 2026-11-04 (PR #175)
 
 ## Intent
@@ -95,6 +95,11 @@ It applies the same window and fee limits when it accepts an offer as primary. I
 - One should-fix: the nit-2 fix exempted any service *named* as fallback, so a zero-fee sham got a free appeal panel. The reviewer reproduced it with a scratch test.
 - Two nits: a retry of a judged escalation, and the hash check for the primary's task.
 - All three are fixed with tests in `1118b0d` (Decisions 10, 11 and 12).
+
+**Fourth review, of `fd1b264..1118b0d`** (2026-11-04), by the `reviewer` role: **PASS.**
+- All three round-3 findings are fixed. The reviewer measured this with in-memory mutants and with its own scratch test, which no longer reproduces the bypass.
+- Its two nits, both applied in the last commit: an adapter test for the fallback's escalation naming the fallback as `firstDecider`, and one helper for the judged-record cache key.
+- After them, `apps/adjudicator` passes 138 of 138 tests [measured].
 
 ## Decisions
 
