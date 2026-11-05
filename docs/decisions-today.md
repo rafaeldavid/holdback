@@ -882,3 +882,25 @@ Also: the funding signature on EVM is CPP's collector signature and token identi
 | Copy the command with the prompt; trim "Try it" (chosen) | 1 approval measured per deal after the deploy; the visible page still shows no command |
 | Show the command on the page again (T-037's first design) | One approval too, but Rafa chose a page with only the short line on 2026-11-04 |
 | Keep the link-only prompt | 4 approvals measured per deal |
+
+## D52. Crow Control builds twice a day in Berlin time and skips a run with nothing new
+
+**Decided 2026-11-05 by Rafa.** He first asked for a rebuild on every merge to main ("Yes, add it", then "It should refresh everything"). The same day, after the minutes estimate, he decided: "Lets to the build only twice per day, 7am and 4pm CET Berlin time". He also asked that a scheduled run with nothing new end in seconds, and that the build fit comfortably inside crow-private's free Actions allowance. This replaces D45's hourly refresh. Rafa may overrule any line.
+
+- **Why the hourly schedule went.** GitHub ran it at 06:51 and 15:30 UTC only on 2026-11-05 [measured]. Each run billed 3 minutes on the 2-core runner: three jobs, each rounded up to a whole minute [measured, run 42055586699]. Run every hour, that is about 2,190 minutes a month, more than the 2,000 included (inferred).
+- **Why not every merge.** Holdback merged 90 PRs on 2026-11-03 and 2026-11-04 [measured]. One build per merge would bill about 135 2-core minutes a day (inferred), and holdback would hold a token for crow-private. holdback#214, which built that, is closed.
+- **The schedule.** crow-private's `control-hourly` workflow runs at 07:07 and 16:07 `Europe/Berlin`, set with GitHub's `timezone` key, so summer time needs nothing. The runs start a few minutes past the hour, since GitHub delays or drops more runs on the hour.
+- **GitHub can skip a scheduled run.** It may start one late or not at all. Then "Run workflow" (crow-private → Actions → control-hourly) is the fallback, and it always builds.
+- **Skip when nothing changed.** The first job digests the console's inputs: holdback main's commit, crow-private's commit, the dependencies' states, both API nodes' `/v1/status`, the relayer lane's balance and holdback's latest CI run on main. It compares the digest with the one the Worker stored with the last complete push, as `map.html`'s version. Only the push token can write that version. A match ends the run in about 17 s, for 1 billed minute [measured].
+- **Three jobs on ubuntu-slim.** One job would bill 1 minute instead of 3. But every step of a job shares the runner that holds all of the job's secrets, so holdback's code would run beside the push token (red-team M2). All three jobs run on `ubuntu-slim`, the 1-core runner, at USD 0.002 a minute against USD 0.006 for 2 cores. No job installs anything.
+- **Measured minutes, 2026-11-05, on ubuntu-slim.** Each build billed 3 or 4 minutes (4 runs), and the unchanged run billed 1 (crow-private#1 lists the runs).
+- **Monthly estimate (inferred).** Two scheduled runs a day is about 61 runs a month: 61 billed minutes if every run skips, 244 if every run builds at 4 minutes. 244 minutes is 12% of the 2,000-minute allowance counted minute for minute. At USD 0.002 a minute it is about USD 0.49, 4% of the allowance's value of about USD 12.
+- **Earlier choices, kept for a per-merge trigger.** The first version used the workflow dispatch API, not `repository_dispatch`, because it needs Actions write on crow-private, not Contents write on the whole private repository. It also kept the token in a holdback environment limited to `main`, so no workflow on another branch could read it. Both closed with holdback#214, and both apply if a per-merge trigger comes back.
+- **Open.** The console's "Hourly refresh" row still assumes hourly runs. It reads Degraded 1.5 h after a build and Down after 6.5 h, until `console.html` follows the new schedule, which needs a Worker deploy on Rafa's go-ahead. T-059's remaining "24 hours of hourly runs" now means two scheduled builds.
+- **Litmus tests.** Untouched: the console is a founders' tool outside the protocol.
+
+| Option | Effect |
+| --- | --- |
+| Twice a day in Berlin time, skipping a run with nothing new (chosen) | 61 to 244 billed 1-core minutes a month (inferred); between 16:07 and 07:07 the console can be 15 h old, and "Run workflow" refreshes it on demand |
+| Every hour (D45) | About 2,190 billed 2-core minutes a month, over the 2,000 included (inferred); GitHub ran 2 of them on 2026-11-05 |
+| Every merge to holdback main (holdback#214, closed) | Fresh within minutes of a merge; about 135 billed 2-core minutes a day (inferred); holdback holds a token for crow-private |
