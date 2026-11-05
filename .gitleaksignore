@@ -56,3 +56,6 @@ e444e0864c3aabafdb544052abc5d54261abe373:site/llms.txt:generic-api-key:161
 # False positive: anvil's published default key for dev account 1 (guards no value), written as a literal in the T-216
 # driver's anvil test; the test derives it from anvil's public mnemonic since the next commit (PR 189).
 90c69b993ef5a6e1a7ccd0042c6531c47723aad6:examples/e2e-round.test.ts:generic-api-key:147
+# False positive: a made-up address keyed `token` in the T-216 adjudicator's EIP-712 digest test (PR 210); it names no
+# contract and guards nothing.
+7a516d5e72d2f8a4e05d881469b9ab9d3ecf18c7:examples/e2e-adjudicator.test.ts:generic-api-key:50
