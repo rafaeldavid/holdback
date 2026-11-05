@@ -71,14 +71,28 @@ describe.skipIf(!forkReady)(`T-220's fork run: today's world, then this build, o
         s.close(() => resolve(p));
       });
     });
+    // A load-balanced public RPC can answer "block not found" for the head another of its nodes just served, and anvil
+    // then exits while it builds its genesis (T-217 twice, this run once, measured). Fork 8 blocks (about 96 s) behind
+    // the head the RPC reports, which every node behind it holds.
+    const remote = (await (await fetch(forkRpc!, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_blockNumber', params: [] }) })).json()) as { result: string };
+    const at = BigInt(remote.result) - 8n;
     // Prague, as Sepolia runs: the drand verifier needs EIP-2537's BLS precompiles.
-    anvil = spawn('anvil', ['--fork-url', forkRpc!, '--hardfork', 'prague', '--host', '127.0.0.1', '--port', String(port), '--block-time', '2', '--silent'], { stdio: ['ignore', 'ignore', 'pipe'] });
+    anvil = spawn('anvil', ['--fork-url', forkRpc!, '--fork-block-number', at.toString(), '--hardfork', 'prague', '--host', '127.0.0.1', '--port', String(port), '--block-time', '2', '--silent'], { stdio: ['ignore', 'ignore', 'pipe'] });
     let anvilError = '';
     anvil.stderr?.on('data', (d) => (anvilError += String(d)));
     rpc = `http://127.0.0.1:${port}`;
     let up = false;
     for (let i = 0; i < 400 && !up; i++) up = !!(await call('eth_chainId', []).catch(() => ({ result: undefined }))).result || (await sleep(200), false);
     if (!up) throw new Error(`anvil did not fork ${forkRpc} within 80 s${anvilError ? `: ${anvilError.trim().slice(-300)}` : ''}`);
+    // The deadlines are wall-clock times: new blocks must carry the wall clock, not the older fork block's time.
+    await call('evm_mine', []);
+    const latest = (await call('eth_getBlockByNumber', ['latest', false])).result as { timestamp: string };
+    const skew = Math.floor(Date.now() / 1000) - Number(BigInt(latest.timestamp));
+    if (skew > 2) {
+      await call('evm_setNextBlockTimestamp', [Math.floor(Date.now() / 1000) + 1]);
+      await call('evm_mine', []);
+    }
+    console.log(`T-220 fork run: forked at block ${at}, block time ${skew} s behind the wall clock after the fork${skew > 2 ? ', set to the wall clock' : ''}`);
     forkBlock = BigInt((await call('eth_blockNumber', [])).result as string);
     await call('anvil_setBalance', [privateKeyToAccount(RELAYER).address, '0x8ac7230489e80000']);
     shim = await estimateShim(rpc);
