@@ -33,10 +33,10 @@
 // to the contract shows in the view too; a pass runs at least once a minute while any deal is open. Each relayer
 // lane's in-flight row (T-219, lanes.ts) survives a restart between a broadcast and its receipt: the next pass lands
 // that transaction as the relay it was, before the sync and the adjudicators.
-import { canonicalKeccak, holdbackDomain, problem, registrationBodyHash, wholeSecond, type AdjudicatorRegistration, type Address, type EscrowState, type HoldbackDomain, type Hex32, type Judgment, type Mandate, type OperatorFeeSchedule, type Problem, type RegisteredAdjudicator, type SettlementEvent, type Sha256, type Timestamp, type TokenAmount } from '@holdback/core';
+import { canonicalKeccak, holdbackDomain, problem, registrationBodyHash, wholeSecond, type AdjudicatorPolicy, type AdjudicatorRegistration, type Address, type EscrowState, type HoldbackDomain, type Hex32, type Judgment, type Mandate, type OperatorFeeSchedule, type Problem, type RegisteredAdjudicator, type SettlementEvent, type Sha256, type Timestamp, type TokenAmount } from '@holdback/core';
 import { sha256 } from '@holdback/core/crypto';
 import { StoreError, type CiphertextStore } from '@holdback/core/store';
-import { testAdjudicator, type TestAdjudicator } from '@holdback/adjudicator';
+import { declinesOf, testAdjudicator, type TestAdjudicator } from '@holdback/adjudicator';
 import {
   fetchHandler,
   nameToken,
@@ -190,8 +190,13 @@ const REGISTRATION_TTL_MS = 365 * 86_400_000;
 const REGISTRATION_RENEW_MS = 30 * 86_400_000;
 /** A bond read from HoldbackBonds is reused this long, about one Sepolia block (12 s), so a page of listings reads each once. */
 const BOND_TTL_MS = 12_000;
-/** Bond reads kept at once; past it the cache starts again, so addresses named in many offers cannot grow it without end. */
+/** Bond reads kept at once, the least recently read dropped first, so addresses named in many offers cannot grow it without end. */
 const BOND_CACHE_MAX = 1024;
+/**
+ * Uncached bond reads a minute, world-wide, for GET /v1/adjudicators only: 60 addresses, 120 eth_calls, about 2 a second
+ * on the RPC endpoints the relays and the chain sync share. Past it the listing shows `observed.bond: "unknown"`.
+ */
+const LISTING_BOND_READS_PER_MIN = 60;
 
 /**
  * An append-only log kept in storage pages of PAGE entries, one row each (prefix + page number): a restart reads
@@ -249,24 +254,35 @@ class StorageCiphertextStore implements CiphertextStore {
  * The adjudicator registrations POST /v1/adjudicators stores (ADR-0030 §3, T-221): one row `ar:<address>` each, read
  * with one list when the world opens and served from memory after. A row is never deleted (Rafa, 2026-11-04). Storage
  * lists rows by key, so each row keeps the order its address was first stored in (`seq`), and the listing pages by it.
+ *
+ * The policies too (T-221 review): terms bind only the primary's policy hash, and a primary can register a new policy
+ * after agreement. So a replacement that changes the policy first keeps the old one in a row `ph:<policyHash>`, never
+ * deleted, and `policy(hash)` reads any policy a registration here ever carried. The current ones need no row.
  */
 class StorageRegistrations implements RegistrationStore {
   private constructor(
     private readonly storage: WorldStorage,
     private readonly rows: Map<string, StoredRegistration>,
+    private readonly replaced: Map<string, AdjudicatorPolicy>,
     private next: number,
-    /** Told the row count when it grows, for telemetry. */
-    private readonly counted: (rows: number) => void,
+    /** Told a prefix's row count when it grows, for telemetry. */
+    private readonly counted: (prefix: 'ar' | 'ph', rows: number) => void,
   ) {}
 
-  static async load(storage: WorldStorage, counted: (rows: number) => void): Promise<StorageRegistrations> {
+  static async load(storage: WorldStorage, counted: (prefix: 'ar' | 'ph', rows: number) => void): Promise<StorageRegistrations> {
     const rows = new Map([...(await storage.list<StoredRegistration>({ prefix: 'ar:' }))].map(([k, r]) => [k.slice(3), r] as const));
+    const replaced = new Map([...(await storage.list<AdjudicatorPolicy>({ prefix: 'ph:' }))].map(([k, p]) => [k.slice(3), p] as const));
     const next = [...rows.values()].reduce((n, r) => Math.max(n, (r.seq ?? -1) + 1), 0);
-    return new StorageRegistrations(storage, rows, next, counted);
+    return new StorageRegistrations(storage, rows, replaced, next, counted);
   }
 
   count(): number {
     return this.rows.size;
+  }
+
+  /** Rows `ph:` held: policies a later registration replaced. */
+  policiesKept(): number {
+    return this.replaced.size;
   }
 
   async get(address: Address): Promise<StoredRegistration | undefined> {
@@ -276,17 +292,101 @@ class StorageRegistrations implements RegistrationStore {
 
   async put(r: StoredRegistration): Promise<void> {
     const key = lc(r.record.address);
-    const seq = this.rows.get(key)?.seq ?? this.next;
+    const was = this.rows.get(key);
+    const seq = was?.seq ?? this.next;
     const row: StoredRegistration = { ...structuredClone(r), seq };
-    await this.storage.put({ [`ar:${key}`]: row });
-    if (!this.rows.has(key)) this.next = seq + 1;
+    // The policy this one replaces, kept in the same write, before the row that replaces it.
+    const keep = was && was.record.policyHash !== r.record.policyHash && !this.replaced.has(was.record.policyHash) ? was.record : undefined;
+    await this.storage.put({ ...(keep ? { [`ph:${keep.policyHash}`]: keep.policy } : {}), [`ar:${key}`]: row });
+    if (keep) {
+      this.replaced.set(keep.policyHash, structuredClone(keep.policy));
+      this.counted('ph', this.replaced.size);
+    }
+    if (!was) this.next = seq + 1;
     this.rows.set(key, row);
-    this.counted(this.rows.size);
+    this.counted('ar', this.rows.size);
   }
 
   async list(): Promise<StoredRegistration[]> {
     return [...this.rows.values()].map((r) => structuredClone(r));
   }
+
+  async policy(hash: Hex32): Promise<AdjudicatorPolicy | undefined> {
+    const p = this.replaced.get(hash) ?? [...this.rows.values()].find((r) => r.record.policyHash === hash)?.record.policy;
+    return p && structuredClone(p);
+  }
+}
+
+/** A bond as HoldbackBonds holds it: everything deposited, and what open deals do not reserve. */
+export interface BondRead {
+  held: bigint;
+  free: bigint;
+}
+
+/**
+ * Bond reads from HoldbackBonds for any address (ADR-0030 §5), each reused for about a block. It keeps the `max` most
+ * recently read addresses, dropping the least recently read first. A read made only to show a bond in GET
+ * /v1/adjudicators spends a world-wide budget of `listingPerMin` uncached addresses a minute, so paging the listing
+ * cannot turn one unauthenticated request into hundreds of RPC calls on the endpoint the relays and the chain sync
+ * share (T-221 review). Past the budget such a read throws, and the listing says `observed.bond: "unknown"`. Prepare
+ * and the relays read without the budget: their reads are bounded by the write limit.
+ */
+export class BondReads {
+  private readonly cache = new Map<string, { at: number; bond: BondRead }>();
+  private window = { start: Number.NEGATIVE_INFINITY, spent: 0 };
+
+  constructor(
+    private readonly read: (address: Address) => Promise<BondRead>,
+    private readonly now: () => number,
+    private readonly o: { ttlMs: number; max: number; listingPerMin: number } = { ttlMs: BOND_TTL_MS, max: BOND_CACHE_MAX, listingPerMin: LISTING_BOND_READS_PER_MIN },
+  ) {}
+
+  async get(address: Address, o: { listing?: boolean } = {}): Promise<BondRead> {
+    const key = lc(address);
+    const hit = this.cache.get(key);
+    if (hit && this.now() - hit.at < this.o.ttlMs) {
+      // Most recently read last, so the first key is the one to drop.
+      this.cache.delete(key);
+      this.cache.set(key, hit);
+      return hit.bond;
+    }
+    if (o.listing) {
+      if (this.now() - this.window.start >= 60_000) this.window = { start: this.now(), spent: 0 };
+      if (this.window.spent >= this.o.listingPerMin) throw new Error(`this node read ${this.o.listingPerMin} bonds for listings in the last minute; read HoldbackBonds yourself`);
+      this.window.spent++;
+    }
+    const bond = await this.read(address);
+    this.cache.delete(key);
+    while (this.cache.size >= this.o.max) this.cache.delete(this.cache.keys().next().value!);
+    this.cache.set(key, { at: this.now(), bond });
+    return bond;
+  }
+}
+
+/** A fallback or appeal turn one of this world's adjudicators declined on the deal's terms (T-221). */
+interface DeclinedTurn {
+  role: 'fallback' | 'appeal';
+  detail: string;
+}
+
+/** Refusals that come from the terms themselves, so every later pass refuses the same way. */
+const DECLINED_ON_TERMS = new Set(['invalid_terms', 'registry_mismatch', 'policy_mismatch']);
+
+/** The turn `address` has on this deal now: the fallback's before fallbackBy, the appeal adjudicator's while an appeal or escalation is open. */
+function pendingTurnOf(s: EscrowState, address: string): DeclinedTurn['role'] | null {
+  const { fallbackAdjudicator, appealAdjudicator } = s.terms.adjudication;
+  if ((s.kind === 'Delivered' || s.kind === 'FallbackJudging') && lc(fallbackAdjudicator) === lc(address)) return 'fallback';
+  const appealing = s.kind === 'Escalated' || ((s.kind === 'Released' || s.kind === 'Refunded') && s.via.kind === 'first_instance' && s.via.appeal.kind === 'open');
+  return appealing && lc(appealAdjudicator) === lc(address) ? 'appeal' : null;
+}
+
+/** What the state read says while a declined turn is still the deal's next step, and what happens instead (T-221 review). */
+function declinedTurnNotice(s: EscrowState | null, t: DeclinedTurn): string | null {
+  if (!s || pendingTurnOf(s, t.role === 'fallback' ? s.terms.adjudication.fallbackAdjudicator : s.terms.adjudication.appealAdjudicator) !== t.role) return null;
+  if (t.role === 'fallback') return `The fallback adjudicator declined this deal's fallback turn: ${t.detail}.`;
+  if (s.kind === 'Escalated') return `The appeal adjudicator declined this deal's escalation: ${t.detail}. The default outcome applies at ${s.escalation.appealDecideBy} unless the parties settle by mutual agreement first.`;
+  const appealDecideBy = (s.kind === 'Released' || s.kind === 'Refunded') && s.via.kind === 'first_instance' && s.via.appeal.kind === 'open' ? s.via.appeal.appealDecideBy : undefined;
+  return `The appeal adjudicator declined this deal's appeal: ${t.detail}. The appeal expires at ${appealDecideBy}, and the first decision stands.`;
 }
 
 /**
@@ -358,8 +458,8 @@ export class PublicWorld {
     private readonly panel: PanelConfig,
     /** Offers an adjudicator declined, with its reason, for the state read's notices. In memory: every pass declines again. */
     private readonly declined: Map<Hex32, string>,
-    /** Fallback turns the demo fallback declined on the deal's terms, with its reason, for the same notices; in memory too. */
-    private readonly turnsDeclined: Map<Hex32, string>,
+    /** Fallback and appeal turns this world's adjudicators declined on the deal's terms, with the reason, for the same notices; in memory too. */
+    private readonly turnsDeclined: Map<Hex32, DeclinedTurn>,
     persisted: number,
     /** Each node's public address (OPERATOR_URLS), when configured. */
     private readonly publicUrls: readonly string[] = [],
@@ -444,8 +544,9 @@ export class PublicWorld {
 
     const store = new StorageCiphertextStore(storage);
     const records = new Map<Hex32, Judgment>(Array.from(await storage.list<Judgment>({ prefix: 'jr:' }), ([k, v]) => [k.slice(3) as Hex32, v]));
-    // ADR-0030 (T-221): every adjudicator's registration, the demo's three included, in rows `ar:<address>`.
-    const registrations = await StorageRegistrations.load(storage, (rows) => telemetry.rows('ar', rows));
+    // ADR-0030 (T-221): every adjudicator's registration, the demo's three included, in rows `ar:<address>`, and every
+    // policy a later registration replaced, in rows `ph:<policyHash>`.
+    const registrations = await StorageRegistrations.load(storage, (prefix, rows) => telemetry.rows(prefix, rows));
     replayed();
     // Live or scripted judges, fixed for this instance: the registry it binds depends on which.
     const panel = panelConfig({ env: o.env, storage, now, ...(o.judgeProvider ? { judgeProvider: o.judgeProvider } : {}), ...(o.liveCallsPerDay !== undefined ? { liveCallsPerDay: o.liveCallsPerDay } : {}) });
@@ -455,25 +556,22 @@ export class PublicWorld {
     const tokenAmount = (v: bigint): TokenAmount => ({ token, amount: v.toString() }) as TokenAmount;
     const bondOf = (p: { junior: bigint; senior: bigint; reserved: bigint }): Bond => ({ junior: tokenAmount(p.junior), senior: tokenAmount(p.senior), reserved: tokenAmount(p.reserved) });
     // Any address's bond, read live (ADR-0030 §3 and §5): SimChain's ledger, or HoldbackBonds' bondOf and freeOf on a
-    // chain, each read reused for about a block. A read that throws reaches the caller; the operator treats it as unknown.
-    const bonds = new Map<string, { at: number; bond: Bond }>();
-    const pool = async (address: Address): Promise<Bond> => {
-      if (chain instanceof SimChain) return bondOf(chain.pool(address));
-      const hit = bonds.get(lc(address));
-      if (hit && now() - hit.at < BOND_TTL_MS) return hit.bond;
-      const held = await chain.bondOf(address);
-      const free = await chain.freeBond(address);
-      const bond = bondOf({ junior: held, senior: 0n, reserved: held > free ? held - free : 0n });
-      if (bonds.size >= BOND_CACHE_MAX) bonds.clear();
-      bonds.set(lc(address), { at: now(), bond });
-      return bond;
+    // chain through BondReads (reused for about a block; listings within a budget). A read that throws reaches the
+    // caller; the operator treats it as unknown.
+    const evmChain = chain instanceof EvmSettlement ? chain : undefined;
+    const bondReads = evmChain ? new BondReads(async (a) => ({ held: await evmChain.bondOf(a), free: await evmChain.freeBond(a) }), now) : undefined;
+    const pool = async (address: Address, o: { listing?: boolean } = {}): Promise<Bond> => {
+      if (!bondReads) return bondOf(chain.pool(address));
+      const { held, free } = await bondReads.get(address, o);
+      return bondOf({ junior: held, senior: 0n, reserved: held > free ? held - free : 0n });
     };
-    /** A stored registration as the adjudicators read it: the signed record with its live bond, else the last one cached. */
+    /**
+     * A stored registration as the adjudicators read it: for its policy and its key, never its bond (the service reads
+     * its own cover through `bondCover`), so `pool` holds the settlement view's cached balances and no chain call is made.
+     */
     const registration = async (address: Address): Promise<AdjudicatorRegistration | null> => {
       const r = await registrations.get(address);
-      if (!r) return null;
-      const bond = await pool(address).catch(() => bondOf(chain.pool(address)));
-      return { ...r.record, pool: { ...bond, terms: r.record.pool.terms } } as AdjudicatorRegistration;
+      return r ? ({ ...r.record, pool: { ...bondOf(chain.pool(address)), terms: r.record.pool.terms } } as AdjudicatorRegistration) : null;
     };
     const registry: Registry = {
       chainId,
@@ -491,8 +589,10 @@ export class PublicWorld {
       now: () => chain.now(),
       registrations,
       pool,
-      // ADR-0030 §4: the roles an offer leaves out are filled with the demo's three, which discovery names as defaults.
+      // ADR-0030 §4: the roles an offer leaves out are filled with the demo's three, which discovery names as defaults,
+      // but only with one that would take its role on the terms (T-221 review); one the parties name gets a notice.
       defaultAdjudicators: Object.fromEntries(adjKeys.map((a) => [a.role, lc(a.keys.address)])) as Record<Role, Address>,
+      declines: declinesOf(() => Object.values(adjudicators)),
       judgment: (id) => records.get(id) ?? null,
       // POST /v1/faucet: a fixed grant and a mandate in the demo club; `amount` is not honoured here.
       faucet: grantFrom({ storage, ledger, club, principal, domain, token, symbol, amount: faucetAmount, windowSec: faucetWindowSec, perClient: faucetPerClient, now, ...(live ? { live } : {}) }),
@@ -504,7 +604,7 @@ export class PublicWorld {
     const feedback = feedbackFrom(o, (id) => telemetry.lookup(id));
     const adjudicators = {} as Record<Role, TestAdjudicator>;
     const declined = new Map<Hex32, string>();
-    const turnsDeclined = new Map<Hex32, string>();
+    const turnsDeclined = new Map<Hex32, DeclinedTurn>();
     const operators: Operator[] = [];
     const publicUrls = String(o.env?.OPERATOR_URLS ?? '').split(',').map((u) => u.trim().replace(/\/+$/, '')).filter((u) => /^https:\/\//.test(u));
     // D39: the one discovery document carries what GET / used to list.
@@ -543,10 +643,11 @@ export class PublicWorld {
       if (about.kind === 'state') {
         const why = declined.get(about.commitmentId);
         if (why) return [`The primary adjudicator declined this offer: ${why}. It stays Offered until offerExpiresAt, and nobody can fund it.`];
-        // T-211 and T-221: the demo fallback declined its turn on this deal's terms (an appeal adjudicator it does not trust).
+        // T-211 and T-221: a demo fallback or appeal adjudicator declined its turn on this deal's terms (an appeal
+        // adjudicator it does not trust, another registry, a bound policy or a panel it cannot run).
         const turn = turnsDeclined.get(about.commitmentId);
-        const s = turn ? chain.escrowState(about.commitmentId) : null;
-        if (turn && (s?.kind === 'Delivered' || s?.kind === 'FallbackJudging')) return [`The fallback adjudicator declined this deal's fallback turn: ${turn}.`];
+        const said = turn ? declinedTurnNotice(chain.escrowState(about.commitmentId), turn) : null;
+        if (said) return [said];
         // T-218: a deal the chain moved past this node's book (a direct delivery not yet posted, a forwarded call).
         const behind = live?.evm.lag(about.commitmentId);
         if (behind) return [behind];
@@ -606,6 +707,8 @@ export class PublicWorld {
         },
         // The store, so a primary registered through the API is read for its policy, and its appeal adjudicator for its key.
         registration,
+        // The policy the terms bound, by its hash, after the primary registered another (T-221 review).
+        policy: async (hash) => (await registrations.policy(hash)) ?? null,
         domain,
         fee,
         // The demo's three adjudicators trust each other as fallback and appeal adjudicators, and nobody else (T-212):
@@ -617,6 +720,7 @@ export class PublicWorld {
       adjudicators[a.role] = adj;
     }
     telemetry.rows('ar', registrations.count());
+    if (registrations.policiesKept() > 0) telemetry.rows('ph', registrations.policiesKept());
     const keys = [principal, key('demo-club-operator'), ...adjKeys.map((a) => a.keys), key('demo-operator-1'), key('demo-operator-2')];
     const world = new PublicWorld(o, telemetry, secret, chain, keys, operators, adjudicators, panel, declined, turnsDeclined, journalLength, publicUrls, live);
     // A wake, from a plain read too, makes the world active only when its adjudicators have a step to take or a chain
@@ -867,10 +971,11 @@ export class PublicWorld {
         }
         const r = await a.runOnce();
         for (const d of r.declined) this.declined.set(d.commitmentId, d.reason);
-        // A fallback turn declined on the deal's own terms stays declined; the state read says why (T-221).
+        // A fallback or appeal turn declined on the deal's own terms stays declined; the state read says why (T-221).
         for (const x of r.refused) {
-          const s = x.problem.type === 'invalid_terms' ? this.chain.escrowState(x.commitmentId) : null;
-          if (s && lc(s.terms.adjudication.fallbackAdjudicator) === lc(a.address)) this.turnsDeclined.set(x.commitmentId, x.problem.detail);
+          const s = DECLINED_ON_TERMS.has(x.problem.type) ? this.chain.escrowState(x.commitmentId) : null;
+          const role = s ? pendingTurnOf(s, a.address) : null;
+          if (role) this.turnsDeclined.set(x.commitmentId, { role, detail: x.problem.detail });
         }
       } catch (e) {
         this.o.onError?.(e as Error);

@@ -51,8 +51,9 @@ interface Usage extends Record<Quota, number> {
   /** The hour whose bucket is still open (its summary line not yet written). */
   openHour: string;
   /**
-   * Rows the world keeps for good under a prefix, as last counted: `ar` for adjudicator registrations, which are never
-   * removed (T-221, ADR-0030 §3). Carried into each new day, so every day line shows the storage growth.
+   * Rows the world keeps for good under a prefix, as last counted: `ar` for adjudicator registrations and `ph` for the
+   * policies later registrations replaced, neither ever removed (T-221, ADR-0030 §3). Carried into each new day, so
+   * every day line shows the storage growth.
    */
   rows?: Record<string, number>;
 }
@@ -186,7 +187,7 @@ export class Telemetry {
     this.count('rowsWritten', 1);
   }
 
-  /** How many rows the world keeps under `prefix` (`ar`: adjudicator registrations, T-221); the usage view shows it. */
+  /** How many rows the world keeps under `prefix` (`ar`: adjudicator registrations; `ph`: replaced policies, T-221); the usage view shows it. */
   rows(prefix: string, count: number): void {
     const u = this.day();
     if (u.rows?.[prefix] === count) return;
