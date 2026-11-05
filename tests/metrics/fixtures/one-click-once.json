@@ -1,0 +1,235 @@
+{
+  "note": "Cut from the harness run \"once\" of 2026-11-05 (T-066 Context): the SDK's init and result messages, without the assistant's text or the session id, and the harness's bookkeeping in ms.",
+  "init": {
+    "type": "system",
+    "subtype": "init",
+    "model": "claude-opus-5-5",
+    "claude_code_version": "2.1.318",
+    "permissionMode": "default"
+  },
+  "result": {
+    "duration_api_ms": 36001,
+    "stop_reason": "end_turn",
+    "total_cost_usd": 0.17751109999999998,
+    "usage": {
+      "input_tokens": 12,
+      "cache_creation_input_tokens": 13201,
+      "cache_read_input_tokens": 125536,
+      "output_tokens": 2331,
+      "output_tokens_details": {
+        "thinking_tokens": 387
+      },
+      "server_tool_use": {
+        "web_search_requests": 0,
+        "web_fetch_requests": 0
+      },
+      "service_tier": "standard",
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 13201,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "inference_geo": "global",
+      "iterations": [
+        {
+          "input_tokens": 2,
+          "output_tokens": 977,
+          "cache_read_input_tokens": 24686,
+          "cache_creation_input_tokens": 1447,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 0,
+            "ephemeral_1h_input_tokens": 1447
+          },
+          "type": "message"
+        }
+      ],
+      "speed": "standard",
+      "fallback_credit": null
+    },
+    "modelUsage": {
+      "claude-haiku-5-5": {
+        "inputTokens": 1194,
+        "outputTokens": 17,
+        "cacheReadInputTokens": 0,
+        "cacheCreationInputTokens": 0,
+        "webSearchRequests": 0,
+        "costUSD": 0.0001279,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 128000,
+        "thinkingTokens": 0,
+        "cacheCreationEphemeral5mInputTokens": 0,
+        "cacheCreationEphemeral1hInputTokens": 0,
+        "canonicalModel": "claude-haiku-5-5",
+        "provider": "firstParty",
+        "costBasis": "list"
+      },
+      "claude-opus-5-5": {
+        "inputTokens": 12,
+        "outputTokens": 2331,
+        "cacheReadInputTokens": 125536,
+        "cacheCreationInputTokens": 13201,
+        "webSearchRequests": 0,
+        "costUSD": 0.17738319999999996,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 128000,
+        "thinkingTokens": 387,
+        "cacheCreationEphemeral5mInputTokens": 0,
+        "cacheCreationEphemeral1hInputTokens": 13201,
+        "canonicalModel": "claude-opus-5-5",
+        "provider": "firstParty",
+        "costBasis": "list"
+      }
+    },
+    "permission_denials": [],
+    "terminal_reason": "completed",
+    "fast_mode_state": "off",
+    "fast_mode_disabled_reason": "sdk_opt_in_required",
+    "origin": {
+      "kind": "human"
+    },
+    "subagent_stats": {
+      "spawned": 0,
+      "requested": {
+        "background": 0,
+        "foreground": 0,
+        "unset": 0
+      },
+      "started_in_background": 0,
+      "max_depth": 0,
+      "spawned_by_subagents": 0,
+      "completed": 0,
+      "failed": 0,
+      "killed": {
+        "parent": 0,
+        "user": 0,
+        "system": 0
+      },
+      "refused": {
+        "depth_limit": 0,
+        "concurrency_limit": 0,
+        "budget": 0
+      },
+      "by_type": {}
+    },
+    "safety_stops": 0,
+    "is_error": false,
+    "num_turns": 6,
+    "subtype": "success",
+    "api_error_status": null,
+    "ttft_ms": 4704,
+    "type": "result",
+    "duration_ms": 104755,
+    "uuid": "946aaf13-992a-4574-9ee0-4fa0b603435a",
+    "ttft_stream_ms": 3475,
+    "time_to_request_ms": 88,
+    "first_content_frame_ms": 3475,
+    "queued_turn_count": 0,
+    "result_index": 0,
+    "model_usage_since_last_result": {
+      "claude-haiku-5-5": {
+        "inputTokens": 1194,
+        "outputTokens": 17,
+        "cacheReadInputTokens": 0,
+        "cacheCreationInputTokens": 0,
+        "webSearchRequests": 0,
+        "costUSD": 0.0001279,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 128000,
+        "thinkingTokens": 0,
+        "cacheCreationEphemeral5mInputTokens": 0,
+        "cacheCreationEphemeral1hInputTokens": 0,
+        "canonicalModel": "claude-haiku-5-5",
+        "provider": "firstParty",
+        "costBasis": "list"
+      },
+      "claude-opus-5-5": {
+        "inputTokens": 12,
+        "outputTokens": 2331,
+        "cacheReadInputTokens": 125536,
+        "cacheCreationInputTokens": 13201,
+        "webSearchRequests": 0,
+        "costUSD": 0.17738319999999996,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 128000,
+        "thinkingTokens": 387,
+        "cacheCreationEphemeral5mInputTokens": 0,
+        "cacheCreationEphemeral1hInputTokens": 13201,
+        "canonicalModel": "claude-opus-5-5",
+        "provider": "firstParty",
+        "costBasis": "list"
+      }
+    },
+    "credential_expires_at": "2026-11-14T19:02:17.218Z"
+  },
+  "book": {
+    "wallMs": 106000,
+    "prompt": {
+      "text": "Run a test deal with Crow's test environment, following https://escrow.stream/llms.txt",
+      "source": "https://escrow.stream/ #prompt",
+      "matchesExpected": true
+    },
+    "permissionRequests": [
+      {
+        "atMs": 5500,
+        "tool": "Bash",
+        "summary": "curl -sS https://escrow.stream/llms.txt",
+        "waitMs": 0
+      },
+      {
+        "atMs": 16000,
+        "tool": "Bash",
+        "summary": "mkdir -p <local path> && cd <local path> && curl -fsSLO https://escrow.stream/try.mjs && shasum -a 256 try.mjs && wc -l try.mjs && grep -nE \"https?://[^\\\"' ]+\" -o try.mjs | sort -u -t: -k2 | head -40; grep -nE \"writeFile|fs\\.|child_process|exec\\(|spawn|process\\.env|eval\\(|new Function\" try.mjs | hea",
+        "waitMs": 0
+      },
+      {
+        "atMs": 19800,
+        "tool": "Bash",
+        "summary": "grep -nE \"^import|require\\(|await import\" <local path>; node --version",
+        "waitMs": 0
+      },
+      {
+        "atMs": 24500,
+        "tool": "Bash",
+        "summary": "mkdir -p crow-try && cd crow-try && npm init -y >/dev/null && npm install --silent --ignore-scripts viem@2.57.13 tweetnacl@1.0.3 && curl -fsSLO https://escrow.stream/try.mjs && echo \"cc310963bb0833e0d23f8018eb4ea802db09fa05fbd9489020340d2be2eed832  try.mjs\" | shasum -a 256 -c && node try.mjs --selle",
+        "waitMs": 0
+      }
+    ],
+    "conversational": [],
+    "toolCalls": [
+      {
+        "tool": "Bash",
+        "startMs": 5400,
+        "endMs": 6400
+      },
+      {
+        "tool": "Bash",
+        "startMs": 10400,
+        "endMs": 10400
+      },
+      {
+        "tool": "Bash",
+        "startMs": 15900,
+        "endMs": 16200
+      },
+      {
+        "tool": "Bash",
+        "startMs": 19800,
+        "endMs": 19900
+      },
+      {
+        "tool": "Bash",
+        "startMs": 24500,
+        "endMs": 92800
+      }
+    ],
+    "releasedAtMs": 92800,
+    "commitmentId": "0xa93a4a1d24e0cf57c846d17cdaa65094f8df73d5707ed142c35c532916d88f93",
+    "finalState": "Released",
+    "txs": [
+      "0x3654fd4aae3b48e019ec4ce4f22293f7539684f17073073378d450a9018045fe",
+      "0xe487d6db48c511fbdc529d8b9447abadb8c33cb7660cafcbf719db5ee9e97ab9",
+      "0xa89b44f319c6ae52faf614f07be6f5ded41adf6fae8fcbd132cae588d6d76653"
+    ],
+    "timedOut": false,
+    "errors": []
+  }
+}
