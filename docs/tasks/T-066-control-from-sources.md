@@ -5,7 +5,7 @@
 - **Depends on:** T-031, T-052, T-219 and T-222, all done. The live console needs no further work before this starts (Context).
 - **Paths this task may touch:** holdback: `tools/one-click/` (new), `scripts/metrics/` (new), `config/model-prices.json` (new, in the shape T-053 planned), `config/ops-cost-prices.json` (new), `tests/metrics/` (new), `package.json` (scripts only), `apps/demo-cloud/src/world.ts`, `apps/demo-cloud/src/judges.ts`, `apps/demo-cloud/src/world.test.ts`, `apps/demo-cloud/scripts/deploy.mjs`, `site/build.mjs`, `docs/api.md` (the discovery fields), `docs/costs.md` (unit costs), `docs/operations.md` (the metrics jobs), `docs/tasks/T-066-control-from-sources.md`, `docs/plan.md` (this row). (In the founders' private repository `rafaeldavid/crow-private`: `control/console.mjs`, `control/console.html`, `control/build-public.mjs`, `control/worker-access.js`, `control/metrics.mjs` (new), `control/metrics/` (new), `control/test/`, `control/README.md`, and `.github/workflows/control-hourly.yml` for the optional Cloudflare job only.) Not `spec/`, `pnpm-workspace.yaml` or `pnpm-lock.yaml`.
 - **Human gate:** yes, for actions outside the repositories only: where the harness runs and on what schedule, any new secret, the harness job's push to the private repository, and the deploys (crow-console; holdback-op1, holdback-op2 and crow-site for the discovery fields). "Gates for Rafa" lists each one.
-- **Status:** review (scope A: slice 2 on branch `t-066-metrics-scripts`, slice 1 on `t-066-one-click` stacked on it, slice 3 on `t-066-discovery-fields`; scope B, the private repository, not started)
+- **Status:** review (scope A: slice 2 in PR 215, slice 1 in PR 217 stacked on it, slice 3 in PR 216; scope B, the private repository, not started)
 - **Agent/session:** builder 1 (scope A), a Claude Code workflow session, 2026-11-05, worktrees `.worktrees/t066-metrics`, `.worktrees/t066-one-click` and `.worktrees/t066-discovery`. Scope B has no builder yet.
 
 ## Intent
@@ -472,7 +472,8 @@ The median deal's gas equals Rafa's measured 1,261,428 exactly. Runway at the me
 **Commands run and results** (measured):
 - `pnpm vitest run tests/metrics`: 51 tests pass on slice 2, 67 with slice 1.
 - `pnpm vitest run apps/demo-cloud/src/world.test.ts` on slice 3: 37 of 37 pass, the 5 new ones included. `node site/check.mjs` passes; `node site/build.mjs --out` writes `version.json` (`commit` null on a tree with uncommitted changes, as designed).
-- `pnpm verify` on each branch: see each PR.
+- `pnpm verify` on each branch: typecheck, lint, forge build, forge, test, spec, snap, snap:local and demo pass, with no snapshot diff, on `t-066-discovery-fields` and `t-066-one-click`. On `t-066-metrics-scripts`, `forge build` failed while the fresh worktree cloned the contract submodules and passed on a rerun; every other step passed.
+- CodeQL on PR 215 flagged a test's `startsWith('https://one.test')` as incomplete URL sanitization; the fake fetch now matches the host.
 - Tests were written beside the scripts rather than strictly before them; each checks a value computed by hand in its comment.
 
 ## Decisions
@@ -504,7 +505,7 @@ Builder 1, 2026-11-05 (confirmed 1 to 7; added these):
 
 ## Handoff
 
-- **State:** scope A is built in three PRs, not merged: slice 2 (`t-066-metrics-scripts`, this file), slice 1 (`t-066-one-click`, stacked on slice 2) and slice 3 (`t-066-discovery-fields`). Merge slice 2 first, then slice 1 (it retargets to main), then slice 3 in any order. Scope B is not started.
+- **State:** scope A is built in three PRs, not merged: slice 2 in PR 215 (`t-066-metrics-scripts`, this file), slice 1 in PR 217 (`t-066-one-click`, based on slice 2's branch) and slice 3 in PR 216 (`t-066-discovery-fields`). Merge PR 215 first, then retarget PR 217 to main and merge it; PR 216 merges in any order. `pnpm verify` passed on all three branches (on slice 2, `forge build` passed on a rerun after the fresh worktree's first submodule clone). Scope B is not started.
 - **To resume scope A:**
   - Rafa answers Gates item 1; then `npm ci --ignore-scripts --prefix tools/one-click` and `node tools/one-click/run.mjs --scenario buyer --effort medium --tail --out reports/scratch/one-click` give the medium-effort run and the first Cloudflare counts. Record them in Evidence, and copy the run file to the private repository's `control/metrics/one-click/` (Gates item 3).
   - After slice 3 is deployed (Gates item 6): `curl -s https://api.escrow.stream/ | jq .demo.build` on both nodes, then delete `scripts/metrics/crow-accounts.json`'s use once `demo.relayer` is live, and re-run the three scripts.
