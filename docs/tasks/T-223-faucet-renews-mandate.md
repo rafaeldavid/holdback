@@ -5,7 +5,7 @@
 - **Depends on:** T-222 (merged in PR 179, deployed on 2026-11-04 per PR 188), whose standing test seller keeps one address for more than 30 days.
 - **Paths this task may touch:** `apps/demo-cloud/src/world.ts` (`grantFrom` and its `FaucetLedger`), `apps/demo-cloud/src/world.test.ts`; docs: `docs/backlog.md` (its row), `docs/decisions-today.md` (D47's open item), `docs/operations.md` (the test seller's mandate paragraph), `docs/api.md` and `site/llms.txt` (the faucet sentence; `node site/build.mjs` leaves `site/index.html` and `site/try.mjs` unchanged), `docs/plan.md` (this row), `docs/tasks/T-222-test-counterparties.md` (its Handoff item 1), this file.
 - **Human gate:** yes for the deploy: the two operator Workers run the fix only after Rafa deploys them. Everything else is in the repository.
-- **Status:** done (merged in PR 191; live since T-220's operator deploy on 2026-11-05, 11:04 UTC)
+- **Status:** done (merged in PR 191; deployed with T-220 to both operators on 2026-11-05, 11:03 to 11:04 UTC, and in T-228's deploy since)
 - **Agent/session:** faucet renewal session, 2026-11-04, started from the T-222 session
 
 ## Intent
@@ -58,10 +58,8 @@ The goal: a faucet grant always leaves the address with a live 30-day mandate in
 ## Handoff
 
 - **Done in the repository:** the fix, its test and the docs listed above.
-- **Not done: the deploy, Rafa's gate.** Until both operator Workers run this commit, the live faucet returns the address's existing mandate, expired or not, and `seed.mjs --replace` stays the stopgap for the test seller (`docs/operations.md`).
-  - The test seller went live on 2026-11-04, so its first mandate expires about 2026-12-04, and the seller asks the faucet 2 hours before that (inferred from the deploy date and `seller.ts:471`). Deploy the operators before then.
-  - Deploy the operators before or with the next site publish, since `llms.txt` now says each grant renews the mandate.
-  - The deploy needs no new world: the fix changes no schema and no journal entry, so `WORLD_NAME` stays (D49, pending).
+- **Deployed with T-220 on 2026-11-05** (measured). PR 191's merge commit `2bbb7bd` is an ancestor of `69021a6`, which T-220 deployed to both operators between 11:03 and 11:04 UTC. It is also in T-228's deploy (`236786a`, 15:29 UTC). No new world was needed (D49).
+  - The test seller went live on 2026-11-04, so its first mandate expires about 2026-12-04, and the seller asks the faucet 2 hours before that (inferred from the deploy date and `seller.ts:471`). The live faucet now renews it (inferred from the deployed code; no live renewal has been seen yet).
 - **Overlap checked on 2026-11-04:** no open PR edits `world.ts`. T-221 merged in PR 184 without touching it. T-219 (todo) will touch `world.ts` only to hand a store to `LiveChain`.
 - **Follow-ups outside this task's paths:**
   - A chain-world test that restores two mandates for one address (`packages/settlement/evm/wall.test.ts`). It is correct by reading `evm-settlement.ts:293` and the page order in `storage.ts` (review of PR 191).
