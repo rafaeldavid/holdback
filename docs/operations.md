@@ -43,8 +43,8 @@ npx wrangler@4 deploy --config apps/site/wrangler.jsonc
 # the operators (op1 first: it defines the Durable Object); keeps the custom domains in the wrangler files
 pnpm demo-cloud:deploy
 
-# a live end-to-end deal against the deployed nodes
-node apps/demo-cloud/scripts/deal.ts https://api.escrow.stream https://api2.escrow.stream
+# a live end-to-end deal against the deployed nodes (deal.ts runs on SimChain only)
+HOLDBACK_OPERATORS=https://api.escrow.stream,https://api2.escrow.stream node examples/try.ts
 
 # early-access sign-ups
 npx wrangler@4 deploy --config apps/early-access/wrangler.jsonc
@@ -97,9 +97,26 @@ Each operator Worker has a variable `SETTLEMENT`, `sim` or `sepolia`, in its wra
 
 After the deploy, a smoke deal ended Released in 44 s, and the test seller sold once each way (T-222 Evidence) [measured]. To roll back: holdback-op1 `5d369b0e`, holdback-op2 `1f169857` and crow-site `cb0adcb5` (`npx wrangler@4 rollback <version> --name <worker>`); `npx wrangler@4 delete --name crow-test-agents` removes the seller.
 
+### T-228: the operators close a deal behind the chain by its timeout (deployed 2026-11-05)
+
+T-228 deployed 2026-11-05: holdback-op1 ba7a2ad9-0172-458a-92a0-5d51d18afd0a, holdback-op2 7826e3ce-b8ce-422f-a2ea-9e88bd982ba9
+
+**State:** live since 2026-11-05, 15:29 UTC. Rafa gave the go-ahead on 2026-11-05 ("Yes, deploy it"). A deploy session shipped PR 207's merge commit `236786a` from main with `pnpm demo-cloud:deploy`, in the same world, `holdback-public-demo-sepolia-2026-11-04` (D49). It deployed the operators only; the site, with T-228's line in `llms.txt`, ships in its own deploy.
+
+| Worker | Live version | Deployed (UTC) | Rollback target (T-220's build) |
+| --- | --- | --- | --- |
+| holdback-op1 | `ba7a2ad9-0172-458a-92a0-5d51d18afd0a` | 15:28:56 | `1d8a029c-44eb-4276-b5c0-c2c8894b25d5` |
+| holdback-op2 | `7826e3ce-b8ce-422f-a2ea-9e88bd982ba9` | 15:29:13 | `a042aae3-821a-4efd-856a-42070205c45e` |
+
+Every check passed, and nothing was rolled back (measured; T-228 Evidence, "The deploy"). `/v1/status` carries no build marker and the schema stayed 0.10, so the session read the switch from `wrangler tail`: the first Durable Object event it saw, at 15:29:33 UTC, ran `ba7a2ad9`.
+
+**What it carries,** since T-220's build (`69021a6`): T-228 only. The operators relay a due timeout for a deal behind the chain (residual 13 in `docs/neutrality.md`) through `POST /v1/commitments/<id>/triggers/<kind>`, at their own gas; a timeout that is not due reverts in the simulation and is not sent. Signed steps for such a deal still answer `invalid_state` until T-227. No contract change, no schema change, no new secret or variable. Main reached `2e6f3c6` during the deploy; its four later commits change none of the Worker's inputs (`apps/`, `packages/`, `spec/`, `config/`, `contracts/deployments/`), only CI, docs, the site and `examples/try.test.ts` (measured: `git diff --stat 236786a 2e6f3c6`).
+
+**To roll back** (`npx wrangler@4 rollback <version> --name <worker>`, both Workers): the targets above. T-228 adds no storage prefix, so T-220's code reads the world as it is (inferred from PR 207's diff); a timeout for a deal behind the chain then answers `invalid_state` again.
+
 ### T-220: round 1's prerequisites in one deploy (deployed 2026-11-05)
 
-**State:** live since 2026-11-05, 11:04 UTC. Rafa gave the go-ahead on 2026-11-05 ("When ready, deploy"). A deploy session shipped PR 204's merge commit `69021a6` from main, in the same world, `holdback-public-demo-sepolia-2026-11-04` (D49): `WORLD_NAMES` did not change.
+**State:** replaced by T-228's deploy (above) on 2026-11-05 at 15:29 UTC; live from 11:04 UTC. Rafa gave the go-ahead on 2026-11-05 ("When ready, deploy"). A deploy session shipped PR 204's merge commit `69021a6` from main, in the same world, `holdback-public-demo-sepolia-2026-11-04` (D49): `WORLD_NAMES` did not change.
 
 - holdback-op1 `1d8a029c` and holdback-op2 `a042aae3`, deployed together by `pnpm demo-cloud:deploy` between 11:03:40 and 11:04:11 UTC, on the first try;
 - crow-site `704bd295`, deployed at 11:10 UTC; `https://escrow.stream/try.mjs` serves sha256 `cc310963…d832`.
@@ -240,6 +257,21 @@ The reviewed settlement contracts are deployed on Ethereum Sepolia (chain ID 111
 ## Costs
 
 What each account costs, what caps or alerts it, and where to read its usage read-only: `docs/costs.md` (Phase 9, T-051 to T-056). Billing figures, budgets and the account register stay in a cost directory outside every checkout where agents work (`CROW_COSTS_DIR`); billing credentials stay in `.env.costs` in a dedicated clone on a machine Rafa controls, never in an agent session, a Worker or GitHub Actions.
+
+## Headline metrics (T-066)
+
+Crow Control's headline metrics come from scripts, not from model-written files. Each script reads public sources only, needs no secret, and writes one JSON file that `node scripts/metrics/check.mjs <name> <file>` checks against its schema in `scripts/metrics/schemas/`:
+
+```
+pnpm metrics:deal-timing --out out/deal-timing.json        # stage times per deal: the event log and Sepolia blocks
+pnpm metrics:throughput --deal-timing out/deal-timing.json --out out/throughput.json
+pnpm metrics:ops-cost --deal-timing out/deal-timing.json --out out/ops-cost.json [--runs <one-click run files>]
+pnpm metrics:prices --dry-run                               # new gas and ETH prices for config/ops-cost-prices.json
+```
+
+- **Where they run:** the console's hourly `build` job in the private repository, which holds no secret (T-060's rule), or any laptop. Each takes about 1 to 2 s today (measured, 2026-11-05).
+- **What they read:** both operators' `/v1/status` and `/v1/events` (the event stream does not end on its own, so the reader stops at the head `/v1/status` gave), discovery, the test seller's `agent.json`, and keyless public Sepolia RPCs. Each request has a 5 s timeout and a 1 MiB cap and follows no redirect. A source that fails reads "unknown", never 0.
+- **The harness** (`tools/one-click/`, T-066 slice 1) measures approvals and token cost per deal from the homepage prompt. Where it runs and on what schedule are Rafa's gates (T-066, Gates for Rafa).
 
 ## Gates (ask Rafa first)
 
