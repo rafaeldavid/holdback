@@ -169,6 +169,31 @@ describe('summaries', () => {
     expect(lines).toHaveLength(2);
   });
 
+  // T-221 review: the rows kept for good (adjudicator registrations) are counted once, when they change, so every new
+  // UTC day must carry the count, or its day line would lose the storage growth until the next registration.
+  it('carries the rows kept for good into each new UTC day: its usage view and its day line, also across a cold start', async () => {
+    const storage = new MemoryStorage();
+    const c = clock(Date.parse('2026-11-03T23:59:00Z'));
+    const { lines, log } = logged();
+    const t = await Telemetry.open({ storage, now: c.now, log });
+    t.rows('ar', 3);
+    t.rows('ph', 1);
+    c.advance(120_000);
+    expect(t.usage()).toMatchObject({ day: '2026-11-04', rows: { ar: 3, ph: 1 } });
+    await t.flush();
+    const yesterday = lines.find((l) => l.line['day'] === '2026-11-03')!.line;
+    expect(yesterday['usage']).toMatchObject({ rows: { ar: 3, ph: 1 } });
+
+    // A cold start on the new day, then the next midnight: the day line of 2026-11-04 carries the count too.
+    const again = await Telemetry.open({ storage, now: c.now, log });
+    c.advance(86_400_000);
+    again.invoked();
+    await again.flush();
+    const today = lines.find((l) => l.line['day'] === '2026-11-04')!.line;
+    expect(today['usage']).toMatchObject({ rows: { ar: 3, ph: 1 } });
+    expect(again.usage()).toMatchObject({ day: '2026-11-05', rows: { ar: 3, ph: 1 } });
+  });
+
   it('still writes the day line when the settlement-side facts fail', async () => {
     const storage = new MemoryStorage();
     const c = clock(Date.parse('2026-11-03T23:59:00Z'));

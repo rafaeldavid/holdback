@@ -8,10 +8,11 @@ import { generatePrivateKey } from 'viem/accounts';
 import { afterEach, describe, expect, it } from 'vitest';
 import { Agent } from '../../../examples/agent.ts';
 import { LIVE_REGISTRY_URI, liveRegistry, markerFake, placeholderRegistry } from '@holdback/adjudicator';
-import { canonicalKeccak, holdbackDomain, verifyRegistration, type AdjudicatorRegistration, type RegisteredAdjudicator } from '@holdback/core';
+import { canonicalKeccak, holdbackDomain, verifyRegistration, type Address, type AdjudicatorRegistration, type RegisteredAdjudicator } from '@holdback/core';
 import { encodePublicKey, generateEncryptionKeyPair } from '@holdback/core/crypto';
 import { MemoryFeedbackStore, signRegistration, testAccount, type StoredRegistration, type TestAccount } from '@holdback/operator';
 import { MemoryStorage, PublicWorld, type PublicWorldOptions } from './index.js';
+import { BondReads } from './world.js';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -297,10 +298,10 @@ class RecordingStorage extends MemoryStorage {
 }
 
 /** An outside adjudicator's registration, as the `llms.txt` recipe writes it: the demo primary's policy under its own id. */
-async function outsideRegistration(urls: string[], who: TestAccount, issuedAt: string): Promise<RegisteredAdjudicator> {
+async function outsideRegistration(urls: string[], who: TestAccount, issuedAt: string, over: Partial<AdjudicatorRegistration['policy']> = {}): Promise<RegisteredAdjudicator> {
   const d = await discovery(urls);
   const demo = (await (await fetch(`${urls[0]}/v1/adjudicators/${d.demo.adjudicators[0].address}`)).json()) as AdjudicatorRegistration;
-  const policy = { ...demo.policy, id: `outsider-${who.address.slice(2, 8)}/p1` };
+  const policy = { ...demo.policy, id: `outsider-${who.address.slice(2, 8)}/p1`, ...over };
   const terms = { capitalChargeRateBps: 0, capitalChargeToPoolRateBps: 0, firstLossShareBps: 10000, noticePeriodSec: 0 };
   const body = {
     address: who.address.toLowerCase() as RegisteredAdjudicator['address'],
@@ -424,6 +425,83 @@ describe('adjudicator registrations in the world store (T-221 slice 2, ADR-0030)
       expect(r.record.registry.hash).toBe(liveRegistry().hash);
     }
     for (const x of (await page(third.urls[0])).items) expect(await verifyRegistration(holdbackDomain(31337), x)).toBe(true);
+  });
+
+  // T-221 review (high): terms bind only the primary's policy hash. A primary that registers again with another policy
+  // after agreement must not leave the demo's fallback and appeal adjudicators without the bound one.
+  it('keeps a replaced policy by its hash in a `ph:` row, so the demo adjudicators still read the bound policy, also after a reopen', async () => {
+    const storage = new MemoryStorage();
+    const first = await serve({}, storage, undefined, { passes: false });
+    const who = testAccount('t-221/world-rotating');
+    const iso = (ms: number) => new Date(Math.floor(ms / 1000) * 1000).toISOString().replace('.000Z', 'Z');
+    const one = await outsideRegistration(first.urls, who, iso(Date.now() - 120_000));
+    expect((await post(`${first.urls[0]}/v1/adjudicators`, one, 'rotate-1')).status).toBe(200);
+    const two = await outsideRegistration(first.urls, who, iso(Date.now() - 60_000), { rationaleMaxChars: one.policy.rationaleMaxChars - 1 });
+    expect((await post(`${first.urls[1]}/v1/adjudicators`, two, 'rotate-2')).status).toBe(200);
+    expect(two.policyHash).not.toBe(one.policyHash);
+    for (const role of ['fallback', 'appeal'] as const) {
+      expect(await first.world.adjudicators[role].settlement.policy(one.policyHash)).toEqual(one.policy);
+      expect(await first.world.adjudicators[role].settlement.policy(two.policyHash)).toEqual(two.policy);
+    }
+    expect([...(await storage.list({ prefix: 'ph:' })).keys()]).toEqual([`ph:${one.policyHash}`]);
+    expect(first.world.telemetry.usage().rows).toEqual({ ar: 4, ph: 1 });
+    await first.close();
+    running.splice(running.indexOf(first), 1);
+
+    const second = await serve({}, storage, undefined, { passes: false });
+    expect(await second.world.adjudicators.appeal.settlement.policy(one.policyHash)).toEqual(one.policy);
+    expect(second.world.telemetry.usage().rows).toEqual({ ar: 4, ph: 1 });
+  });
+
+  // T-221 review: an outside primary whose fee is below the demo adjudicators' quote: they would decline their turns.
+  it('fills in no demo adjudicator that would decline the terms, and notes the ones the parties named', async () => {
+    const { urls } = await serve({}, new MemoryStorage(), undefined, { passes: false });
+    const d = await discovery(urls);
+    const [, fallback, appeal] = d.demo.adjudicators.map((a: J) => a.address);
+    const outsider = testAccount('t-221/world-below-quote');
+    expect((await post(`${urls[0]}/v1/adjudicators`, await outsideRegistration(urls, outsider, new Date(Date.now() - 60_000).toISOString().replace(/\.\d{3}Z$/, 'Z')), 'reg-cheap')).status).toBe(200);
+    const [seller, buyer] = [freshAgent(urls), freshAgent(urls)];
+    const filled = await post(`${urls[0]}/v1/prepare/offer`, offerRequest(d, seller, buyer, { adjudicators: { primary: outsider.address } }));
+    const refused = (await filled.json()) as J;
+    expect([filled.status, refused.type, refused.field]).toEqual([400, 'invalid_terms', 'adjudicators.fallback']);
+    expect(refused.detail).toMatch(/default fallback adjudicator .* would decline these terms: the fee 0 tUSD is below the quote/);
+    // Named by the seller: prepared and relayed, each with a notice for both demo adjudicators.
+    await seller.call('POST', '/v1/faucet', { address: seller.address });
+    const offered = await seller.offer(offerRequest(d, seller, buyer, { adjudicators: { primary: outsider.address, fallback, appeal } }));
+    const notices = (offered.state.notices ?? []).join(' ');
+    expect(notices).toMatch(new RegExp(`fallback adjudicator ${fallback} will decline its fallback turn on these terms`));
+    expect(notices).toMatch(new RegExp(`appeal adjudicator ${appeal} will decline its appeal turn on these terms`));
+  });
+});
+
+// T-221 review: one unauthenticated listing page could cost up to 400 RPC calls once the cache was cold, and the cache
+// started again from empty past 1,024 addresses.
+describe('bond reads from HoldbackBonds (T-221 review)', () => {
+  it('reuses a read for a block, drops the least recently read past its size, and spends the listing budget only on uncached reads', async () => {
+    let t = 0;
+    const reads: string[] = [];
+    const r = new BondReads(async (a) => (reads.push(a), { held: 5n, free: 3n }), () => t, { ttlMs: 12_000, max: 3, listingPerMin: 2 });
+    const [a, b, c, d] = ['0xa', '0xb', '0xc', '0xd'].map((x) => x.padEnd(42, '0') as Address);
+    for (const x of [a, b, c, a]) await r.get(x);
+    expect(reads).toEqual([a, b, c]);
+    // d pushes out b, the least recently read; a and c are still cached.
+    for (const x of [d, a, c]) await r.get(x);
+    expect(reads).toEqual([a, b, c, d]);
+    await r.get(b);
+    expect(reads).toEqual([a, b, c, d, b]);
+
+    // A block later every read is stale. Listings may read 2 uncached addresses a minute; a cached one costs nothing.
+    t = 20_000;
+    await r.get(a, { listing: true });
+    await r.get(b, { listing: true });
+    await expect(r.get(c, { listing: true })).rejects.toThrow(/read 2 bonds for listings in the last minute/);
+    expect(await r.get(a, { listing: true })).toEqual({ held: 5n, free: 3n });
+    // Prepare and the relays read without the budget.
+    await r.get(c);
+    expect(reads.slice(5)).toEqual([a, b, c]);
+    t = 80_000;
+    await r.get(d, { listing: true });
+    expect(reads.at(-1)).toBe(d);
   });
 });
 

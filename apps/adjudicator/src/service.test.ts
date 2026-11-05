@@ -77,7 +77,7 @@ function bench(
     trustedAdjudicators,
     ...over,
   });
-  settlement.registrations.set(p.address, { ...adj.registration(), pool: {} as never, poolTermsHash: `0x${'00'.repeat(32)}`, status: 'active' });
+  settlement.register({ ...adj.registration(), pool: {} as never, poolTermsHash: `0x${'00'.repeat(32)}`, status: 'active' });
   return { adj, calls: judges.calls };
 }
 
@@ -399,8 +399,9 @@ describe('primary decision on the demo CSV (about 0.5 MB)', () => {
 describe('policy and registry binding', () => {
   it('refuses to judge under a policy whose hash does not match the commitment (error.policy-hash-mismatch)', async () => {
     const { s, a, b, id } = await setup();
-    // The primary judges under its own policy; give the fallback a bound policy it cannot find.
+    // The primary judges under its own policy; give the fallback a bound policy it cannot find, by address or by hash.
     s.registrations.delete(A.address);
+    s.policies.delete(policyHashOf(a.adj.policy));
     s.at('2026-11-01T10:02:00Z');
     await b.adj.runOnce();
     const report = await b.adj.runOnce();
@@ -408,6 +409,12 @@ describe('policy and registry binding', () => {
     expect(report.refused[0]!.problem.detail).toMatch(/policy-hash-mismatch/);
     expect(b.calls).toHaveLength(0);
     expect(a.calls).toHaveLength(0);
+    // T-221 review: it triggers no takeover it would decline, so the deal stays Delivered until anyone triggers it.
+    expect(s.state(id).kind).toBe('Delivered');
+    expect((await s.triggerFallback(id)).ok).toBe(true);
+    const turn = await b.adj.runOnce();
+    expect(turn.refused.map((r) => r.problem.type)).toEqual(['policy_mismatch']);
+    expect(b.calls).toHaveLength(0);
     expect(s.state(id).kind).toBe('FallbackJudging');
   });
 
@@ -1380,5 +1387,149 @@ describe('attack.untrusted-appeal-adjudicator-via-fallback', () => {
     s.fileAppeal(terms.id, 'wrong-outcome');
     s.at('2026-11-01T10:01:05Z');
     expect((await c.adj.runOnce()).decided).toEqual([{ commitmentId: terms.id, role: 'appeal', outcome: 'accept' }]);
+  });
+
+  it('says what can still happen when it declines: no first-instance decision comes, and the default applies at fallbackBy unless the parties settle', async () => {
+    const { s, b, id } = await deal(ATTACKERS_APPEAL);
+    s.at('2026-11-01T10:02:00Z');
+    const [refused] = (await b.adj.runOnce()).refused;
+    expect(refused!.problem.detail).toMatch(/no adjudicator will decide this deal's first instance; the default outcome applies at fallbackBy unless the parties settle by mutual agreement first/);
+    expect(refused!.problem.detail).not.toMatch(/Unless the primary decides/);
+    expect(refused!.commitmentId).toBe(id);
+  });
+});
+
+// T-221 review (high): the terms bind only the primary's policy hash, and an outside primary can register a new policy
+// after the deal is agreed. Read by the address's latest registration, the bound policy would no longer hash to the
+// terms, so Crow's appeal adjudicator and Crow's fallback would refuse every pass: the appeal expires, the first
+// decision stands and the primary's bond is never reached. They read the policy by the hash the terms bound instead.
+describe('attack.outside-primary-rotates-policy', () => {
+  const OUTSIDER = party(7);
+
+  async function deal(script: FakeScript) {
+    const s = new TestSettlement();
+    const o = bench(OUTSIDER, 'outsider', s, script, undefined, reg, [OUTSIDER.address, B.address, C.address]);
+    const b = bench(B, 'bench-b', s);
+    const c = bench(C, 'bench-c', s);
+    const terms = makeCommitment({ primary: OUTSIDER.address, fallback: B.address, appeal: C.address, policyHash: policyHashOf(o.adj.policy), registryHash: reg.hash, buyer: BUYER, seller: SELLER });
+    s.offer(terms);
+    expect((await o.adj.runOnce()).accepted).toEqual([terms.id]);
+    s.fund(terms.id);
+    s.at('2026-11-01T09:59:00Z');
+    await s.deliver(terms.id, demoCsv(), [OUTSIDER, B, C, BUYER].map((p) => ({ recipient: p.address, publicKey: p.enc.publicKey })));
+    return { s, o, b, c, terms };
+  }
+
+  /** The outsider posts a later registration with one policy field changed: the terms still bind the old hash. */
+  function rotate(s: TestSettlement, terms: Commitment) {
+    const r = s.registrations.get(OUTSIDER.address.toLowerCase())!;
+    const policy = { ...r.policy, rationaleMaxChars: r.policy.rationaleMaxChars - 1 };
+    s.register({ ...r, policy, policyHash: policyHashOf(policy) });
+    expect(policyHashOf(policy)).not.toBe(terms.adjudication.policyHash);
+  }
+
+  it('the appeal adjudicator overturns a wrong first decision by the policy the terms bound, after the primary rotated its own', async () => {
+    const { s, o, c, terms } = await deal(FAIL_ALL);
+    s.at('2026-11-01T10:00:30Z');
+    expect((await o.adj.runOnce()).decided).toEqual([{ commitmentId: terms.id, role: 'primary', outcome: 'reject' }]);
+    rotate(s, terms);
+    s.at('2026-11-01T10:01:00Z');
+    s.fileAppeal(terms.id, 'wrong-outcome');
+    s.at('2026-11-01T10:01:05Z');
+    const report = await c.adj.runOnce();
+    expect(report.refused).toEqual([]);
+    expect(report.decided).toEqual([{ commitmentId: terms.id, role: 'appeal', outcome: 'accept' }]);
+  });
+
+  it('the fallback triggers and decides by the bound policy when a silent primary rotated its own', async () => {
+    const { s, b, terms } = await deal({});
+    rotate(s, terms);
+    s.at('2026-11-01T10:02:00Z');
+    const report = await b.adj.runOnce();
+    expect(report.refused).toEqual([]);
+    expect(report.triggered).toEqual([terms.id]);
+    expect(report.decided).toEqual([{ commitmentId: terms.id, role: 'fallback', outcome: 'accept' }]);
+  });
+
+  it('a policy the store never kept is still refused: the bound hash, never a substitute', async () => {
+    const { s, o, c, terms } = await deal(FAIL_ALL);
+    s.at('2026-11-01T10:00:30Z');
+    await o.adj.runOnce();
+    rotate(s, terms);
+    s.policies.delete(terms.adjudication.policyHash);
+    s.at('2026-11-01T10:01:00Z');
+    s.fileAppeal(terms.id, 'wrong-outcome');
+    s.at('2026-11-01T10:01:05Z');
+    const report = await c.adj.runOnce();
+    expect(report.decided).toEqual([]);
+    expect(report.refused.map((r) => r.problem.type)).toEqual(['policy_mismatch']);
+  });
+});
+
+// T-221 review: a fallback or appeal turn this service would decline is known from the terms alone (the registry, the
+// bound policy, whether its panel can be seated, the trust rule, windows and fee). It does not trigger a takeover it
+// would decline, and an operator asks the same question before it fills this service in as a default.
+describe('turns declined from the terms alone (T-221 review)', () => {
+  const OUTSIDER = party(7);
+  const wider = (() => {
+    const r = loadRegistry({ version: 1, judges: [...REGISTRY.judges, entry('claude-c', 'claude', 'anthropic')] });
+    if (!r.ok) throw new Error(r.error.detail);
+    return r.value;
+  })();
+
+  /** A delivered deal with a silent outside primary under `registry` and `policy`, Crow's B as fallback and C as appeal. */
+  async function deal(policy: AdjudicatorPolicy, registry: LoadedRegistry = reg) {
+    const s = new TestSettlement();
+    const o = bench(OUTSIDER, 'outsider', s, {}, policy, registry, [OUTSIDER.address, B.address, C.address]);
+    const b = bench(B, 'bench-b', s);
+    const c = bench(C, 'bench-c', s);
+    const terms = makeCommitment({ primary: OUTSIDER.address, fallback: B.address, appeal: C.address, policyHash: policyHashOf(policy), registryHash: registry.hash, buyer: BUYER, seller: SELLER });
+    return { s, o, b, c, terms };
+  }
+
+  it.each<[string, AdjudicatorPolicy, LoadedRegistry, string]>([
+    ['another registry', defaultPolicy('outsider/p1'), wider, 'registry_mismatch'],
+    ['a policy with another screen version', defaultPolicy('outsider/p1', { screenVersion: 'screen-9' }), reg, 'policy_mismatch'],
+    ['a first-instance panel larger than the registry', defaultPolicy('outsider/p1', { panelSize: 7 }), reg, 'invalid_terms'],
+  ])('the fallback neither triggers nor decides under %s', async (_label, policy, registry, type) => {
+    const { s, o, b, terms } = await deal(policy, registry);
+    s.offer(terms);
+    expect((await o.adj.runOnce()).accepted).toEqual([terms.id]);
+    s.fund(terms.id);
+    s.at('2026-11-01T09:59:00Z');
+    await s.deliver(terms.id, demoCsv(), [OUTSIDER, B, C, BUYER].map((p) => ({ recipient: p.address, publicKey: p.enc.publicKey })));
+    s.at('2026-11-01T10:02:00Z');
+    const report = await b.adj.runOnce();
+    expect(report.triggered).toEqual([]);
+    expect(report.refused.map((r) => [r.commitmentId, r.problem.type])).toEqual([[terms.id, type]]);
+    expect(b.calls).toHaveLength(0);
+  });
+
+  it('declines() answers what each role would refuse, before any deal exists', async () => {
+    const ok = await deal(defaultPolicy('outsider/p1'));
+    for (const role of ['fallback', 'appeal'] as const) expect(await (role === 'fallback' ? ok.b : ok.c).adj.declines(ok.terms, role)).toBeNull();
+
+    const foreign = await deal(defaultPolicy('outsider/p1'), wider);
+    expect((await foreign.b.adj.declines(foreign.terms, 'fallback'))?.type).toBe('registry_mismatch');
+    expect((await foreign.c.adj.declines(foreign.terms, 'appeal'))?.type).toBe('registry_mismatch');
+
+    // minValidAppeal 6 of an appeal panel of 5 can never be reached; a panel of 7 cannot be seated from 6 judges.
+    for (const over of [{ minValidAppeal: 6 }, { appealPanelSize: 7 }]) {
+      const d = await deal(defaultPolicy('outsider/p1', over));
+      expect(await d.b.adj.declines(d.terms, 'fallback')).toBeNull();
+      expect((await d.c.adj.declines(d.terms, 'appeal'))?.detail).toMatch(/panel/);
+    }
+
+    // The fallback names its trusted appeal adjudicators when it declines under another, so the parties can check.
+    const s = new TestSettlement();
+    const b = bench(B, 'bench-b', s);
+    const terms = makeCommitment({ primary: OUTSIDER.address, fallback: B.address, appeal: OUTSIDER.address, policyHash: policyHashOf(b.adj.policy), registryHash: reg.hash, buyer: BUYER, seller: SELLER });
+    const untrusted = await b.adj.declines(terms, 'fallback');
+    expect(untrusted?.type).toBe('invalid_terms');
+    for (const a of [A, B, C]) expect(untrusted?.detail).toContain(a.address);
+
+    // As primary: the offer checks, so an untrusted appeal adjudicator is declined there too.
+    const asPrimary = makeCommitment({ primary: B.address, fallback: C.address, appeal: OUTSIDER.address, policyHash: policyHashOf(b.adj.policy), registryHash: reg.hash, buyer: BUYER, seller: SELLER });
+    expect((await b.adj.declines(asPrimary, 'primary'))?.detail).toMatch(/does not trust/);
   });
 });
