@@ -111,6 +111,10 @@ describe('POST /v1/adjudicators', () => {
     ['a zero signature', (r) => ({ ...r, registration: { ...r.registration, signature: `0x${'00'.repeat(65)}` } }), 401, 'invalid_signature'],
     ['a low-order encryption key', (r) => ({ ...r, encryptionPublicKey: Buffer.alloc(32).toString('base64url') }), 400, 'invalid_terms', 'encryptionPublicKey'],
     ['more than 100 affiliations', (r) => ({ ...r, affiliations: Array.from({ length: 101 }, (_, i) => `m-${i}`) }), 400, 'invalid_terms', 'affiliations'],
+    // T-221 review: self-contradictory in a way no panel can process (D31 allows the refusal).
+    ['a minValid above panelSize', (r) => ({ ...r, policy: { ...r.policy, minValid: r.policy.panelSize + 1 } }), 400, 'invalid_terms', 'policy.minValid'],
+    ['a minValidAppeal above appealPanelSize', (r) => ({ ...r, policy: { ...r.policy, minValidAppeal: r.policy.appealPanelSize + 1 } }), 400, 'invalid_terms', 'policy.minValidAppeal'],
+    ['a minFamilies above panelSize', (r) => ({ ...r, policy: { ...r.policy, minFamilies: r.policy.panelSize + 1 } }), 400, 'invalid_terms', 'policy.minFamilies'],
   ])('refuses %s', async (_label, edit, status, type, field) => {
     const r = await register(edit(structuredClone(await registration())));
     expect([r.status, r.body.type]).toEqual([status, type]);
@@ -244,6 +248,51 @@ describe('Crow\'s adjudicators are the defaults; others get a warning or, as an 
     const r = await call('POST', '/v1/prepare/offer', offerInput({ ...slate(), fallback: outsider.address }));
     expect([r.status, r.body.type, r.body.field]).toEqual([400, 'invalid_terms', 'adjudicators.fallback']);
     expect(r.body.detail).toMatch(/free bond/);
+  });
+
+  // T-221 review: a default filled in under an outside primary's registry, policy or fee, or under an appeal adjudicator
+  // it does not trust, would decline its turn, and the buyer would think Crow stood behind the deal.
+  it('fills in no default that would decline the terms: the parties may still name it, with a notice', async () => {
+    // The outsider binds another registry (0xee…) and a fee of 0: Crow's fallback and appeal adjudicators would decline.
+    const asPrimary = await call('POST', '/v1/prepare/offer', offerInput({ primary: outsider.address }));
+    expect([asPrimary.status, asPrimary.body.type, asPrimary.body.field]).toEqual([400, 'invalid_terms', 'adjudicators.fallback']);
+    expect(asPrimary.body.detail).toMatch(new RegExp(`this operator's default fallback adjudicator ${slate().fallback} would decline these terms: .*name a fallback adjudicator yourself`, 'i'));
+    // Crow's primary does not trust an outside appeal adjudicator, so it is not filled in either.
+    const asAppeal = await call('POST', '/v1/prepare/offer', offerInput({ appeal: outsider.address }));
+    expect([asAppeal.status, asAppeal.body.field]).toEqual([400, 'adjudicators.primary']);
+    expect(asAppeal.body.detail).toMatch(/does not trust/);
+    // Named by the parties themselves: prepared, with a notice for each of this node's adjudicators that would decline.
+    const named = await call('POST', '/v1/prepare/offer', offerInput({ ...slate(), primary: outsider.address }));
+    expect(named.status).toBe(200);
+    const notices = named.body.notices.join(' ');
+    for (const role of ['fallback', 'appeal']) expect(notices).toMatch(new RegExp(`this operator's ${role} adjudicator ${slate()[role as 'fallback']} will decline its ${role} turn on these terms`));
+    // Its own three under one another decline nothing.
+    expect(((await call('POST', '/v1/prepare/offer', offerInput(undefined))).body.notices ?? []).join(' ')).not.toMatch(/will decline/);
+  });
+
+  // attack.default-fallback-declines-silently (T-221 review): an outside primary and an outside appeal adjudicator, with
+  // the fallback left to the default. Crow's fallback would decline every turn under an appeal adjudicator it does not
+  // trust, so it is not filled in, and the refusal names the appeal adjudicators it trusts, for the parties to check.
+  it('attack.default-fallback-declines-silently: fills in no default fallback under an appeal adjudicator it does not trust', async () => {
+    const r = await call('POST', '/v1/prepare/offer', offerInput({ primary: outsider.address, appeal: outsider.address }));
+    expect([r.status, r.body.type, r.body.field]).toEqual([400, 'invalid_terms', 'adjudicators.fallback']);
+    expect(r.body.detail).toMatch(/takes a fallback turn only under an appeal adjudicator it trusts \(.*\), and 0x[0-9a-f]{40} is not one/);
+    for (const a of Object.values(slate())) expect(r.body.detail).toContain(a);
+  });
+
+  it('keeps every policy a registration carried, by hash, after a later registration replaces it', async () => {
+    const keeper = testAccount('t-221/policy-keeper');
+    const signed = async (id: string, issuedAt: string) => {
+      const b = await body();
+      const policy = { ...b.policy, id };
+      return signRegistration(keeper.privateKey, domain, { ...b, address: keeper.address, encryptionPublicKey: keeper.encryptionPublicKey, policy, policyHash: canonicalKeccak(policy) }, { keyId: 'keeper/k1', issuedAt, nonce: h('3a'), expiresAt: at(86_400) });
+    };
+    const first = await signed('keeper/p1', at(-20));
+    expect((await register(first)).status).toBe(200);
+    expect((await register(await signed('keeper/p2', at(-10)))).status).toBe(200);
+    expect((await call('GET', `/v1/adjudicators/${keeper.address}`)).body.policy.id).toBe('keeper/p2');
+    // The world's adjudicators read the bound policy by its hash through their settlement port.
+    expect(await world.adjudicators.appeal.settlement.policy(first.policyHash)).toEqual(first.policy);
   });
 });
 

@@ -12,7 +12,9 @@ import {
   registrationMessageOf,
   signMessage,
   verifyMessage,
+  type AdjudicatorPolicy,
   type Address,
+  type Hex32,
   type HoldbackDomain,
   type RegisteredAdjudicator,
   type RegistrationEnvelope,
@@ -35,31 +37,53 @@ export interface StoredRegistration {
   record: RegisteredAdjudicator;
   /** When this node first stored a registration for the address; a replacement keeps it. */
   registeredAt: Timestamp;
+  /**
+   * The order in which this node first stored the address, set by a store that lists rows in another order (the demo's
+   * Durable Object lists them by key); a replacement keeps it. Readers page by it, so a registration stored in the same
+   * second as the last one on a page never lands before the cursor (red-team re-check of PR 184, finding C).
+   */
+  seq?: number;
 }
 
 /** Where a node keeps registrations: one per address. The demo keeps Durable Object rows `ar:<address>` (T-221). */
 export interface RegistrationStore {
   get(address: Address): Promise<StoredRegistration | undefined>;
-  /** Stores the registration for its address, replacing the one there. */
+  /** Stores the registration for its address, replacing the one there; the policy it replaces stays readable by hash. */
   put(r: StoredRegistration): Promise<void>;
-  /** Every stored registration, in any order; readers sort by registeredAt. */
+  /** Every stored registration, in any order; readers sort with `firstStored`. */
   list(): Promise<StoredRegistration[]>;
+  /**
+   * Every policy a stored registration ever carried, by its hash, never removed (T-221 review). Terms bind only the
+   * primary's policy hash, and the primary can register again after agreement, so a fallback or appeal adjudicator reads
+   * the bound policy here, not from the latest registration.
+   */
+  policy?(hash: Hex32): Promise<AdjudicatorPolicy | undefined>;
 }
+
+/** Oldest first: by `seq` when the store sets it, else by `registeredAt` (a stable sort keeps the store's order within a second). */
+export const firstStored = (a: StoredRegistration, b: StoredRegistration): number =>
+  a.seq !== undefined && b.seq !== undefined ? a.seq - b.seq : Date.parse(a.registeredAt) - Date.parse(b.registeredAt);
 
 const lc = (a: string) => a.toLowerCase();
 
 /** One process's store: `pnpm sim`, the operator tests, and each node of a test world. */
 export class MemoryRegistrationStore implements RegistrationStore {
   private readonly rows = new Map<string, StoredRegistration>();
+  private readonly policies = new Map<string, AdjudicatorPolicy>();
   async get(address: Address): Promise<StoredRegistration | undefined> {
     const r = this.rows.get(lc(address));
     return r && structuredClone(r);
   }
   async put(r: StoredRegistration): Promise<void> {
     this.rows.set(lc(r.record.address), structuredClone(r));
+    this.policies.set(r.record.policyHash, structuredClone(r.record.policy));
   }
   async list(): Promise<StoredRegistration[]> {
     return [...this.rows.values()].map((r) => structuredClone(r));
+  }
+  async policy(hash: Hex32): Promise<AdjudicatorPolicy | undefined> {
+    const p = this.policies.get(hash);
+    return p && structuredClone(p);
   }
 }
 
@@ -117,6 +141,17 @@ export async function checkRegistration(raw: unknown, o: { domain: HoldbackDomai
   const served = parseAdjudicator({ ...raw, pool: { ...(isObj(pool) ? pool : {}), junior: zero, senior: zero, reserved: zero } });
   if (!served.ok) return refuse('invalid_terms', served.error.detail, fieldOf(served.error.detail));
   const parsed = { ...served.value, pool: { terms: served.value.pool.terms } } as RegisteredAdjudicator;
+  // T-221 review: a policy whose panel can never reach a result is self-contradictory in a way no panel can process
+  // (D31 allows the refusal). Whether a registry can seat it is the parties' check, and an adjudicator's (D29).
+  const p = parsed.policy;
+  for (const [field, need, of, size] of [
+    ['minValid', p.minValid, 'panelSize', p.panelSize],
+    ['minValidAppeal', p.minValidAppeal, 'appealPanelSize', p.appealPanelSize],
+    ['minFamilies', p.minFamilies, 'panelSize', p.panelSize],
+    ['minFamilies', p.minFamilies, 'appealPanelSize', p.appealPanelSize],
+  ] as const) {
+    if (need > size) refuse('invalid_terms', `policy.${field} ${need} is more than policy.${of} ${size}: no panel of ${size} judges can meet it`, `policy.${field}`);
+  }
   const m = parseMessage(registrationMessageOf(parsed));
   if (!m.ok) return refuse('invalid_terms', `the AdjudicatorRegistration rebuilt from your record: ${m.error.detail}`);
   // One spelling per registration (review of PR 184). Every spelling of a time, and the high-s twin of a signature,

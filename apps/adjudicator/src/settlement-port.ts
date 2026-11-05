@@ -3,6 +3,7 @@
 // for unit tests that inject failures.
 import type {
   AdjudicatorAcceptance,
+  AdjudicatorPolicy,
   AdjudicatorRegistration,
   Address,
   AdjudicatorRole,
@@ -88,4 +89,10 @@ export interface AdjudicatorSettlement {
   publishRecord(record: Judgment): Promise<string>;
   submit(message: AdjudicatorAcceptance | Decision): Promise<Result<unknown, Problem>>;
   registration(address: Hex32): Promise<AdjudicatorRegistration | null>;
+  /**
+   * A policy by its hash, from a store that keeps every policy a registration ever carried (T-221 review). The terms
+   * bind only the primary's policy hash, and the primary can register a new policy after agreement, so a fallback or
+   * appeal adjudicator reads the bound one here. null when none is kept. Absent: only the latest registration is read.
+   */
+  policy?(hash: Hex32): Promise<AdjudicatorPolicy | null>;
 }
