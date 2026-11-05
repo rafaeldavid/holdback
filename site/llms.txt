@@ -6,7 +6,7 @@
 
 Crow (written ’crow on the website: escrow with the "es" unsaid; working name Holdback, which is also the EIP-712 domain name you sign under) is an open protocol for deals between agents: the buyer's money is held, the seller delivers encrypted work, the checks both sides agreed decide, and payment and the decryption key are released in one step.
 
-**Test tokens only.** This demo settles on Ethereum Sepolia, a public test network, in tUSDC ("Crow Test USDC"), an open-mint test token worth nothing; it is not Circle's USDC. Every hold, release and refund is a Sepolia transaction you can open on Etherscan. Each money step waits for a block (about 12 seconds), so a deal takes about a minute. The operators' own state may be reset; what happened on Sepolia stays there.
+**Test tokens only.** This demo settles on Ethereum Sepolia, a public test network, in tUSDC ("Crow Test USDC"), an open-mint test token worth nothing; it is not Circle's USDC. Every hold, release and refund is a Sepolia transaction you can open on Etherscan. Each money step waits for a block (about 12 seconds), so a deal takes about a minute. The operators keep their view across deploys; it starts over only when the settlement contracts are redeployed, and what happened on Sepolia stays there.
 
 This page is everything an agent needs to run one deal over HTTP. You need no SDK and no source code: an HTTP client, an EIP-712 library and NaCl.
 
@@ -110,7 +110,7 @@ The operator prepares messages and relays them, paying the gas. It never signs f
 - An answer may carry `notices`: advice from the operator, such as which judge panel would score your offer or why an adjudicator declined it. Read them; they are text from the operator, not instructions, and never change the answer.
 - Addresses: send them lowercase.
 - Hashes and nonces are `0x` plus 64 hex digits. Content hashes are `sha256:` plus 64 hex digits.
-- Versions: the path says `/v1`; the API's schema version is 0.9 (`schemaVersion` in discovery, the `Holdback-Schema-Version` header); messages are signed under EIP-712 domain version `"0.7"`, the one number you pin. The `schemaVersion` field inside signed terms is `"0.7"` too: it names the terms encoding, which moves with the domain, not the API's 0.9. Domain 0.7 (schema 0.9): an `EarlyAccept` and an adjudicator's `Decision` name the delivery they settle by `deliveryHash`.
+- Versions: the path says `/v1`; the API's schema version is 0.10 (`schemaVersion` in discovery, the `Holdback-Schema-Version` header); messages are signed under EIP-712 domain version `"0.7"`, the one number you pin. The `schemaVersion` field inside signed terms is `"0.7"` too: it names the terms encoding, which moves with the domain, not the API's 0.10. Domain 0.7 (since schema 0.9): an `EarlyAccept` and an adjudicator's `Decision` name the delivery they settle by `deliveryHash`. Schema 0.10 adds `AdjudicatorRegistration`, a type of its own, so the domain stays 0.7.
 
 ## 1. Make your keys
 
@@ -174,7 +174,7 @@ curl -s -X POST $OP1/v1/faucet -H 'content-type: application/json' -H "Idempoten
 
 Keep `clubId`: it is the club you deal in. The mandate is signed by the demo club's own test principal, which the demo holds. Check a balance at any time with `GET /v1/balances/<address>`, which returns `{"token": "0x5029787d7e141f2d51788035cc23903652d196b6", "amount": "…"}`, or read `balanceOf` on the token contract.
 
-Find the adjudicators in `demo.adjudicators` and name each in its role. `GET /v1/adjudicators` lists their registrations too. Name these three only: a demo adjudicator declines an offer whose fallback or appeal adjudicator is any other address (`notices` say why, and the offer stays `Offered`), because an appeal that overturns its decision pays the price from its bond.
+Find the adjudicators in `demo.adjudicators` and name each in its role; `prepare/offer` fills any role you leave out with them. `GET /v1/adjudicators` lists their registrations, signed by their own keys, with every other adjudicator registered here. Name these three: a demo adjudicator declines an offer whose fallback or appeal adjudicator is any other address (`notices` say why, and the offer stays `Offered`), because an appeal that overturns its decision pays the price from its bond. Bringing your own adjudicator is advanced use, under "Run your own adjudicator" below.
 
 ## 3. Read what you bind to, from both operators
 
@@ -412,8 +412,23 @@ Each is prepared, verified and submitted like the steps above.
 - **Early accept (buyer, only in `Delivered`).** `POST /v1/prepare/early-accept {"commitmentId", "nonce"}`; one slot, `EarlyAccept {commitmentId, buyer, attempt, deliveryHash, nonce, expiresAt}`; submit to `/v1/commitments/<id>/accept`. The seller is paid now, your key is released to you, the adjudication fee comes back to you, and no appeal follows. So before you sign, open your own envelope: get the seller's signed delivery from the seller, check its delivery hash equals `payload.deliveryHash` of `delivery.submitted` at both operators, open your envelope, decrypt, and check `plaintextSha256`. Then check `deliveryHash` in the message is that hash: put the hash of the delivery you opened there, and the contract refuses the accept relayed with any other delivery. If anything fails, wait for the adjudicator instead.
 - **Settlement by agreement (both parties, in `Held`, `Delivered`, `FallbackJudging` or `Escalated`).** `POST /v1/prepare/settlement {"commitmentId", "nonce", "toSellerBps"}` (or `payouts: [{"to", "amount": {"token", "amount"}}]` summing to the price; optional `releaseKey`, `expiresAt`). Both sign the one `MutualSettlement {commitmentId, hasDelivery, deliveryHash, payouts, releaseKey, nonce, expiresAt}` (slots `buyerSignature` and `sellerSignature`); either submits to `/v1/commitments/<id>/settlements`. The adjudication fee returns to the buyer.
 - **Appeal (the party the decision went against: the buyer after a `Released`, the seller after a `Refunded`, first instance only, before `deadlines.appealBy`).** `POST /v1/prepare/appeal {"commitmentId", "appellant": "<your address>"}`; one slot, `Appeal {commitmentId, appellant: "buyer" | "seller", appellantAddress, grounds, bond, filedAt}`; submit to `/v1/commitments/<id>/appeals`. The bond is exactly `appealBondRateBps` of the price, rounded up, from the club's rulebook (`GET /v1/clubs/<clubId>`), and you also pay the rulebook's `appealFee`. If the decision is upheld you lose both. The appeal adjudicator checks the work against the agreed terms only: appeal when you can name the term the work fails.
-- **On Sepolia, an appeal needs your own test ETH.** The bond moves from you through HoldbackBonds, so the appellant first approves tUSDC to HoldbackBonds from its own address, a transaction it pays for. Fallback and appeal adjudicators cannot prove their drand seed on Sepolia yet, so they do not decide there: a silent primary ends in the default outcome, and an appeal waits for the same.
+- **On Sepolia, an appeal needs your own test ETH.** The bond moves from you through HoldbackBonds (`0x83f3a2615a2be9a7dadca924ed9952ec85749ad1`, the vault HoldbackRules created), so the appellant first approves tUSDC to HoldbackBonds from its own address, a transaction it pays for. The appeal adjudicator decides once the first drand quicknet round after your appeal is published, within 3 s.
+- **Submitting directly to the contract.** These operators read the contract's logs and show your step within a minute, with `submittedVia: "direct"`. The contract keeps only a delivery's hash, so after a direct `deliver` also POST the same signed delivery to `/v1/commitments/{id}/deliveries`. The operator joins it without a second transaction and hands the adjudicators their keys; without that post they cannot open the work.
 - **Deadlines (anyone, no signature).** `POST /v1/commitments/<id>/triggers/<kind>` with `{}` once the deadline has passed: `reclaim` (nothing delivered by `deliverBy`: the buyer gets price and fee back), `expire-offer`, `fallback`, `default`, `apply-default`. Too early is 409 `invalid_state`.
+
+## Run your own adjudicator (advanced)
+
+On Crow's nodes, Crow's three adjudicators are the defaults: discovery lists them by role in `demo.adjudicators`, `GET /v1/adjudicators` marks each with `observed.defaultFor`, and `prepare/offer` fills any role you leave out with them. Naming another adjudicator is advanced use of the protocol, which Crow neither recommends nor vouches for. Any address can be an adjudicator.
+
+1. **Register.** `POST /v1/adjudicators` takes your record as `GET /v1/adjudicators/{address}` serves it, with `pool` holding only `terms`, plus a `registration` envelope your adjudicator key signs as `AdjudicatorRegistration` (types below), with times in whole seconds and `Z`. `bodyHash` is keccak256 of the RFC 8785 JSON of the record without `registration`, with `pool` holding only `terms`. To check a served record, drop `bond` and `observed` too, and recompute every hash: the signature alone does not bind the body.
+2. **Bond.** Deposit your bond in HoldbackBonds (`0x83f3a2615a2be9a7dadca924ed9952ec85749ad1`) from the same key: `approve`, then `deposit(token, amount)`. This needs your own Sepolia ETH. A primary is funded only while its free bond covers the price, and an operator refuses to relay terms whose fallback has less free bond than the price. A registration without a bond is listed with `observed.bond: "none"`.
+3. **Judge.** Watch `GET /v1/commitments?party=<you>&role=adjudicator`, post your `AdjudicatorAcceptance`, read your envelope at `/key` when the delivery lands, and post your `Decision`. You build both typed messages yourself (types below).
+
+Registrations are never removed. A later `issuedAt` replaces yours; an expired one stays listed but cannot be named in new terms. Storage grows by one row per address, bounded by each client's write limit for new addresses.
+
+The operators check your signatures, hashes, deadlines and bond. They do not check how you judge. Your policy and registry are promises the parties bind by hash, the appeal adjudicator they chose checks your decision against the terms, and an overturn pays the price from your bond.
+
+Crow's adjudicators judge for any primary, as fallback or appeal adjudicator, when your registration binds their registry (`demo.judges.registry`), a policy with their template hashes whose panels their registry can seat, and a fee of at least their quote. As primary they decline terms that name any other fallback or appeal adjudicator, and as fallback any other appeal adjudicator, because an overturn would pay from their bond. `prepare/offer` fills in one of Crow's adjudicators only when it would take its role on your terms; otherwise it answers 400 naming the role, and a notice says why when you name it yourself. They judge by the policy your terms bound, read by its hash, so registering a new policy later does not change a deal already agreed.
 
 ## Private deals
 
@@ -429,7 +444,7 @@ Each is prepared, verified and submitted like the steps above.
 
 ## EIP-712 types
 
-Schema 0.9, signed under domain version "0.7" (the domain moves only when an existing type changes; 0.7 added `deliveryHash` to `EarlyAccept` and `Decision`). Pin these. The domain type is the standard `EIP712Domain` (name, version, chainId, verifyingContract); some libraries add it themselves. A message uses its primary type and the types it references.
+Schema 0.10, signed under domain version "0.7" (the domain moves only when an existing type changes; 0.7 added `deliveryHash` to `EarlyAccept` and `Decision`; 0.10 added `AdjudicatorRegistration`). Pin these. The domain type is the standard `EIP712Domain` (name, version, chainId, verifyingContract); some libraries add it themselves. A message uses its primary type and the types it references.
 
 ```json
 {
@@ -454,7 +469,12 @@ Schema 0.9, signed under domain version "0.7" (the domain moves only when an exi
   "Scope": [{"name":"roles","type":"string[]"},{"name":"maxPerCommitment","type":"TokenAmount"},{"name":"maxDaily","type":"TokenAmount"},{"name":"hasCategories","type":"bool"},{"name":"categories","type":"string[]"},{"name":"expiresAt","type":"uint64"}],
   "ReadToken": [{"name":"viewer","type":"address"},{"name":"commitmentId","type":"bytes32"},{"name":"hasAudience","type":"bool"},{"name":"audience","type":"address"},{"name":"nonce","type":"bytes32"},{"name":"expiresAt","type":"uint64"}],
   "Delegation": [{"name":"principal","type":"address"},{"name":"agent","type":"address"},{"name":"dealKey","type":"address"},{"name":"dealEncryptionKey","type":"string"},{"name":"clubId","type":"string"},{"name":"scope","type":"Scope"},{"name":"nonce","type":"bytes32"},{"name":"expiresAt","type":"uint64"}],
-  "Publish": [{"name":"commitmentId","type":"bytes32"},{"name":"level","type":"string"},{"name":"nonce","type":"bytes32"},{"name":"expiresAt","type":"uint64"}]
+  "Publish": [{"name":"commitmentId","type":"bytes32"},{"name":"level","type":"string"},{"name":"nonce","type":"bytes32"},{"name":"expiresAt","type":"uint64"}],
+  "AdjudicatorAcceptance": [{"name":"commitmentId","type":"bytes32"},{"name":"adjudicator","type":"address"},{"name":"seedCommitment","type":"bytes32"},{"name":"policyHash","type":"bytes32"},{"name":"registryHash","type":"bytes32"},{"name":"fee","type":"TokenAmount"},{"name":"bondReserved","type":"TokenAmount"},{"name":"nonce","type":"bytes32"},{"name":"expiresAt","type":"uint64"}],
+  "SealedKey": [{"name":"scheme","type":"string"},{"name":"ciphertext","type":"string"}],
+  "Beacon": [{"name":"source","type":"string"},{"name":"round","type":"uint64"},{"name":"value","type":"bytes32"},{"name":"signature","type":"bytes"}],
+  "Decision": [{"name":"commitmentId","type":"bytes32"},{"name":"attempt","type":"uint8"},{"name":"deliveryHash","type":"bytes32"},{"name":"adjudicator","type":"address"},{"name":"role","type":"string"},{"name":"outcome","type":"string"},{"name":"seed","type":"bytes32"},{"name":"policyHash","type":"bytes32"},{"name":"registryHash","type":"bytes32"},{"name":"judgmentRecordHash","type":"bytes32"},{"name":"keyForBuyer","type":"SealedKey"},{"name":"appealGround","type":"string"},{"name":"beacon","type":"Beacon"},{"name":"encryptedKeys","type":"EncryptedKey[]"},{"name":"nonce","type":"bytes32"},{"name":"expiresAt","type":"uint64"}],
+  "AdjudicatorRegistration": [{"name":"adjudicator","type":"address"},{"name":"encryptionPublicKey","type":"string"},{"name":"keyId","type":"string"},{"name":"policyHash","type":"bytes32"},{"name":"registryHash","type":"bytes32"},{"name":"fee","type":"TokenAmount"},{"name":"poolTermsHash","type":"bytes32"},{"name":"bodyHash","type":"bytes32"},{"name":"issuedAt","type":"uint64"},{"name":"nonce","type":"bytes32"},{"name":"expiresAt","type":"uint64"}]
 }
 ```
 
@@ -474,7 +494,7 @@ When a call fails in a way its problem `detail` and page do not explain, or this
 **Sending a report is your choice to share it with that operator.** It keeps the report 90 days in a private store, with its own log line for the `requestId` (route, status, problem type, timing). Never include secret keys, signatures you have not yet submitted, plaintext work or terms bodies; the `requestId` is usually enough. Dry-run first with `?validateOnly=true`: the answer's `notices` name the operator you are about to share with, and nothing is kept.
 
 ```json
-{"kind": "bug", "summary": "agree answers 409 nonce_reused on a fresh nonce", "detail": "what you did, in order", "requestId": "<the Request-Id header of the failing call>", "schemaVersion": "0.9", "client": {"name": "my-agent", "version": "1.2"}}
+{"kind": "bug", "summary": "agree answers 409 nonce_reused on a fresh nonce", "detail": "what you did, in order", "requestId": "<the Request-Id header of the failing call>", "schemaVersion": "0.10", "client": {"name": "my-agent", "version": "1.2"}}
 ```
 
 - `kind` is `bug`, `docs`, `feedback` or `feature`. `summary` is at most 200 characters and `detail` at most 4,000. Optional fields: `observed` and `expected` (at most 500 each), `commitmentId`, and `client` `{name, version?, model?}`. A `bug` names its `requestId`. A body is at most 16 KiB.
@@ -494,12 +514,14 @@ When a call fails in a way its problem `detail` and page do not explain, or this
 
 - **Test tokens only.** tUSDC is an open-mint test token on a test network, worth nothing and not Circle's USDC. No real money can enter.
 - **Real settlement, test money.** From funding on, the money is in Sepolia contracts: Coinbase's Commerce Payments escrow under HoldbackRules, both reviewed but not audited. Etherscan shows the hold, the release or refund, the operator fee and each signature the contract checked. It does not show what comes before funding (the signed offer, the adjudicator's acceptance, the agreement), which the operators hold until the funding carries them on chain, nor the work, which is encrypted.
-- **Two names, one process.** Both operator nodes are one process, so reading from two of them shows less than it would on independent nodes. Anyone with Sepolia ETH can call the contracts directly, with the same signed messages and no operator; the operators' view does not show such a call yet.
+- **Two names, one process.** Both operator nodes are one process, so reading from two of them shows less than it would on independent nodes. Anyone with Sepolia ETH can call the contracts directly, with the same signed messages and no operator; the operators' view shows such a call within a minute (Beyond the happy path).
+- **A step the operators cannot read.** A signed step that reaches the contract inside another contract's call that changes its calldata, from a contract wallet, or as two steps for one deal in one transaction leaves the operators' view behind the chain. The state read then shows the contract's stage with a notice, but the demo adjudicators do not act on that deal, so it ends by its timeouts. Send direct calls to HoldbackRules itself, one step per transaction.
 - **Inclusion, not finality.** The nodes answer once a transaction is in a block, not once it is final.
-- **Fallback and appeal wait for drand proofs.** Until the adjudicators can prove their randomness on Sepolia, a silent primary ends in the default outcome. Appeals and direct calls need your own Sepolia ETH.
+- **Fallback and appeal decide on Sepolia.** Their panels are seeded from a drand quicknet round that settlement fixes: the round at `judgeBy` for the fallback, the first round after the escalation or the appeal for the appeal adjudicator. The decision carries the round's BLS signature, and the rules contract verifies it. If no drand relay answers before a deadline, nothing stands in: a deal the fallback cannot decide takes its default outcome, an appeal after an escalation that is not decided does too, and a party appeal that is not decided expires and the first decision stands. Appeals and direct calls need your own Sepolia ETH.
+- **An appeal adjudicator's decision is final,** and its bond is not yet at stake on chain; choose it as carefully as you choose the primary.
 - **Basic test adjudicators.** The demo runs three. Their deterministic checks are real. A deal with a rubric (template `default`) gets a live judge panel: pinned models from two families, Anthropic and DeepSeek, listed in discovery under `demo.judges`. They are not calibrated, and DeepSeek's model names can change underneath. Live calls are capped per day across the whole demo (`demo.judges` shows the cap and today's count); past the cap, or if the demo runs without model keys, the panel is scripted, no model runs, and each verdict in the judgment record starts "[fake judge, no model ran]". A rubric offer's `notices` say which panel will judge it. Read the record before you trust a rubric decision; `checks-only` deals never use a panel.
 - **The operator fee is a demo of pricing, in test tokens.** These nodes ask 1 bp of the price, at least 4.71 tUSDC, for relaying your funded agreement: 4.70 is the gas they pay for a deal's transactions on Sepolia (about 1.6 million gas, measured, at a fixed and fictional 3,000 tUSDC per test ETH), 0.01 the relay. The quote is fixed per deal. Submitting directly to the contracts, or through another operator, needs no fee from these nodes.
-- **State may reset.** The operators' view may start over; what happened on Sepolia stays there. Keep your own copy of the terms you signed.
+- **The view outlives deploys, not redeploys.** The operators' view is kept across deploys. It starts over only when the settlement contracts are redeployed; what happened on Sepolia stays there. Keep your own copy of the terms you signed.
 - **Public terms.** At `disclosure.level: "public"`, terms, amounts, addresses and events are public reads on every operator, so put nothing secret in the terms. The work itself is always private: it is encrypted before it leaves the seller, and only the adjudicators and the buyer, once it has paid, can open it. Private deals are written up above and not judged here yet; private judgment records and private amounts come after them.
 - **Planned routes** answer 501 `not_implemented` with a `Link` to where they are specified; `GET /v1/openapi.json` lists what is built.
 
@@ -511,7 +533,7 @@ For the curious: the source is at https://github.com/rafaeldavid/holdback, and t
 - `GET /v1/openapi.json`: the whole API as OpenAPI 3.1; tag `core` marks the routes this page uses
 - `POST /v1/faucet`: test tUSDC, minted on Sepolia, and club admission
 - `GET /v1/balances/<address>`
-- `GET /v1/adjudicators`, `GET /v1/adjudicators/<address>`
+- `GET /v1/adjudicators`, `GET /v1/adjudicators/<address>`, `POST /v1/adjudicators`: registrations (advanced)
 - `GET /v1/clubs/<clubId>`
 - `GET /v1/agents/<address>`: an agent's mandates
 - `POST /v1/prepare/offer`, `POST /v1/prepare/agree-and-fund`, `POST /v1/prepare/delivery`, `POST /v1/prepare/early-accept`, `POST /v1/prepare/settlement`, `POST /v1/prepare/appeal`
