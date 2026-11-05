@@ -322,6 +322,16 @@ export async function holdings(run: Run, addresses: readonly string[], at?: bigi
   return out;
 }
 
+/**
+ * Holdings now: on a chain, at the latest block, and never before the round's own last transaction (`RoundChain.fresh`).
+ * A deal's starting balances read right after the round mints or bonds from its own key then include that step, as the
+ * closing balances, read at the deal's last block, do.
+ */
+export async function holdingsNow(run: Run, addresses: readonly string[]): Promise<Record<string, Holding>> {
+  const { chain } = run.round;
+  return holdings(run, addresses, chain ? await chain.fresh() : undefined);
+}
+
 /** The deal's state and event log from each operator, and whether they agree on both. */
 export async function operatorView(run: Run, agent: Agent, id: Hex): Promise<NonNullable<DealRecord['operators']>> {
   const views = await Promise.all(
@@ -342,7 +352,7 @@ export async function ensureFunds(run: Run, role: Role, need: bigint): Promise<v
   const { round } = run;
   const agent = round.agent(role);
   const member = async () => ((await agent.trusted(`/v1/agents/${agent.address}`, (x) => x.mandates ?? []).catch(() => [])) as J[]).some((m) => m.clubId === round.demo.clubId);
-  const balance = async () => BigInt((await holdings(run, [agent.address]))[agent.address]!.token);
+  const balance = async () => BigInt((await holdingsNow(run, [agent.address]))[agent.address]!.token);
   if (!(await member()) || (await balance()) < need) {
     try {
       const grant = await agent.call('POST', '/v1/faucet', { address: agent.address });
@@ -387,7 +397,7 @@ export async function offer(run: Run, spec: OfferSpec, parties: readonly string[
   // Both parties need a mandate in the club before the offer; the buyer's tokens come at funding.
   await ensureFunds(run, 'seller', 0n);
   await ensureFunds(run, 'buyer', 0n);
-  const before = await holdings(run, parties);
+  const before = await holdingsNow(run, parties);
   run.step = 'offer';
   const offered = await seller.offer({
     template: spec.template, clubId: round.demo.clubId, seller: seller.address,
@@ -427,11 +437,12 @@ export async function openDeal(run: Run, spec: OfferSpec, parties: readonly stri
 
 /**
  * Re-reads one party's holdings as the deal's starting point, after a faucet grant or a mint and before any of the
- * deal's money moves, so the deltas show the deal alone.
+ * deal's money moves, so the deltas show the deal alone. On a chain it reads no earlier than the mint's block
+ * (`holdingsNow`): a node one block behind would otherwise answer the balance from before the mint.
  */
 export async function refreshBefore(run: Run, deal: Deal, address: string): Promise<void> {
   const a = address.toLowerCase();
-  if (a in deal.record.balances.before) deal.record.balances.before[a] = (await holdings(run, [a]))[a]!;
+  if (a in deal.record.balances.before) deal.record.balances.before[a] = (await holdingsNow(run, [a]))[a]!;
 }
 
 /** The buyer agrees and funds: price and adjudication fee into the hold, and the operator fee it computes itself. */
