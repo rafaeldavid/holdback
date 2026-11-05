@@ -9,6 +9,7 @@
 //                                                         note remains or while site/try.mjs is stale
 //
 // Lines starting with "%% " in llms.txt are editor notes: they never reach a published file.
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -577,6 +578,14 @@ export function filled(md, { op1, op2, command = tryCommand() }) {
   return out;
 }
 
+/** The checkout's commit, or null when the tree has uncommitted changes or git cannot answer (T-066). */
+export function buildCommit() {
+  const git = (args) => spawnSync('git', ['-C', fileURLToPath(here('..')), ...args], { encoding: 'utf8' });
+  const head = git(['rev-parse', 'HEAD']).stdout?.trim() ?? '';
+  const clean = git(['status', '--porcelain', '--untracked-files=no']).stdout?.trim() === '';
+  return /^[0-9a-f]{40}$/.test(head) && clean ? head : null;
+}
+
 if (import.meta.url === `file://${process.argv[1]}`) {
   const arg = (n) => {
     const i = process.argv.indexOf(`--${n}`);
@@ -598,6 +607,9 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     writeFileSync(join(out, 'llms.txt'), txt);
     writeFileSync(join(out, 'index.html'), page(txt));
     writeFileSync(join(out, 'try.mjs'), readFileSync(here('try.mjs')));
+    // T-066: the commit this site was built from, so Crow Control can tell what is merged but not live. null when the
+    // tree has uncommitted changes or git cannot answer.
+    writeFileSync(join(out, 'version.json'), `${JSON.stringify({ commit: buildCommit() }, null, 2)}\n`);
     for (const f of ['crow.png', 'favicon.png', 'agent.png', 'escrow.png', 'bond.png', 'og.png']) writeFileSync(join(out, f), readFileSync(here(f)));
     // The visual walkthrough of a real two-agent deal, served at /visualdemo.
     mkdirSync(join(out, 'visualdemo'), { recursive: true });
