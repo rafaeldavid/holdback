@@ -1,6 +1,7 @@
 // T-026, the public demo world: what the two Workers and the Durable Object serve, run in Node over HTTP.
 // Two origins (127.0.0.1 and localhost on one port) stand in for the two operator Workers; a timer stands in
 // for the Durable Object's alarm. The deal is the examples' agent (examples/agent.ts) with keys it made itself.
+import { readFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import nacl from 'tweetnacl';
@@ -8,7 +9,8 @@ import { generatePrivateKey } from 'viem/accounts';
 import { afterEach, describe, expect, it } from 'vitest';
 import { Agent } from '../../../examples/agent.ts';
 import { LIVE_REGISTRY_URI, liveRegistry, markerFake, placeholderRegistry } from '@holdback/adjudicator';
-import { canonicalKeccak, holdbackDomain, verifyRegistration, type Address, type AdjudicatorRegistration, type RegisteredAdjudicator } from '@holdback/core';
+import { canonicalKeccak, DRAND_QUICKNET_CHAIN_HASH, holdbackDomain, verifyRegistration, type Address, type AdjudicatorRegistration, type RegisteredAdjudicator } from '@holdback/core';
+import { LiveChain, type DeploymentFile } from '@holdback/settlement/live';
 import { encodePublicKey, generateEncryptionKeyPair } from '@holdback/core/crypto';
 import { MemoryFeedbackStore, signRegistration, testAccount, type StoredRegistration, type TestAccount } from '@holdback/operator';
 import { MemoryStorage, PublicWorld, type PublicWorldOptions } from './index.js';
@@ -349,6 +351,16 @@ describe('adjudicator registrations in the world store (T-221 slice 2, ADR-0030)
     const second = await serve({}, storage, undefined, { passes: false });
     expect(storage.written.filter((k) => k.startsWith('ar:'))).toEqual([]);
     expect((await page(second.urls[1])).items).toEqual(before);
+  });
+
+  it('the agent guide names the defaults where discovery serves them: `defaultAdjudicators`, and `observed.defaultFor` (T-220 review)', async () => {
+    const { urls } = await serve({}, new MemoryStorage(), undefined, { passes: false });
+    const d = await discovery(urls);
+    expect(Object.keys(d.defaultAdjudicators).sort()).toEqual(['appeal', 'fallback', 'primary']);
+    const guide = readFileSync(new URL('../../../site/llms.txt', import.meta.url), 'utf8');
+    const start = guide.indexOf('## Run your own adjudicator');
+    const section = guide.slice(start, guide.indexOf('\n## ', start + 3));
+    for (const field of ['`defaultAdjudicators`', '`observed.defaultFor`']) expect(section).toContain(field);
   });
 
   it('an outside adjudicator registers at either node, both serve it after the demo three, and a reopened world serves it in the same place', async () => {
@@ -844,5 +856,52 @@ describe('operator fee from Worker variables (ADR-0023, T-029)', () => {
   it('refuses a malformed schedule at start', async () => {
     await expect(PublicWorld.open({ storage: new MemoryStorage(), env: { OPERATOR_FEE_BPS: '0.5', OPERATOR_FEE_MIN: '10000' } })).rejects.toThrow(/OPERATOR_FEE_BPS/);
     await expect(PublicWorld.open({ storage: new MemoryStorage(), env: { OPERATOR_FEE_BPS: '1', OPERATOR_FEE_MIN: '0.01' } })).rejects.toThrow(/OPERATOR_FEE_MIN/);
+  });
+});
+
+describe('the Sepolia world names drand quicknet, changed in place (T-220, D49)', () => {
+  const deployment = JSON.parse(readFileSync(new URL('../../../contracts/deployments/sepolia.json', import.meta.url), 'utf8')) as DeploymentFile;
+  /** anvil's second well-known dev key (public; guards no value). Opening reads no chain, so no RPC answers here. */
+  const chain = () => new LiveChain({ deployment, rpcUrls: ['http://127.0.0.1:9'], relayerKey: '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d' });
+  const get = async (world: PublicWorld, path: string): Promise<J> => (await (await world.fetch(new Request(`http://127.0.0.1${path}`), { node: 0, origin: 'http://127.0.0.1', client: '127.0.0.1' })).json()) as J;
+
+  it("today's world reopens under this build with the drand rulebook: a new hash, the same keys, registrations and meta", async () => {
+    const storage = new RecordingStorage();
+    // The rulebook the live demo serves today (the deployed build names the sim beacon), on the world's own storage.
+    const today = await PublicWorld.open({ storage, env: {}, live: { chain: chain(), beacon: 'sim' }, onError: () => {} });
+    const before = await get(today, '/v1/clubs/demo-club');
+    expect(before.rulebook.randomness).toEqual({ source: 'sim' });
+    const adjudicators = (await get(today, '/.well-known/holdback.json')).demo.adjudicators;
+    const meta = await storage.get('meta');
+    storage.written.length = 0;
+
+    // This build, on the same storage: the default for a chain world is the deployment's drand quicknet beacon.
+    const next = await PublicWorld.open({ storage, env: {}, live: { chain: chain() }, onError: () => {} });
+    const after = await get(next, '/v1/clubs/demo-club');
+    expect(after.rulebook.randomness).toEqual({ source: 'drand-quicknet', chainHash: DRAND_QUICKNET_CHAIN_HASH });
+    expect(after.rulebookHash).toBe(canonicalKeccak(after.rulebook));
+    expect(after.rulebookHash).not.toBe(before.rulebookHash);
+    // Only the randomness source changed.
+    expect({ ...after.rulebook, randomness: null }).toEqual({ ...before.rulebook, randomness: null });
+    const d = await get(next, '/.well-known/holdback.json');
+    expect(d.demo.adjudicators).toEqual(adjudicators);
+    // No new world: the same meta (secret, start, rules address, bonds), no registration signed again, no book touched.
+    expect(await storage.get('meta')).toEqual(meta);
+    expect(storage.written.filter((k) => k === 'meta' || k.startsWith('ar:') || k.startsWith('ph:') || k.startsWith('b:'))).toEqual([]);
+
+    // The notes say what changed: no "drand not yet" line, and the view is kept across deploys.
+    const notes = d.notes.join('\n');
+    expect(notes).not.toMatch(/do not fetch yet|may be reset/);
+    expect(notes).toMatch(/Fallback and appeal adjudicators decide on Sepolia: their panels are seeded from a drand quicknet round/);
+    expect(notes).toMatch(/The operators' view is kept across deploys\. It starts over only when the settlement contracts are redeployed; what happened on Sepolia stays there\. Keep your own copy of the terms you signed\./);
+  });
+
+  it('keeps the sim beacon on a SimChain world and, by default, on a local anvil chain, whose harness deploys SimBeacon', async () => {
+    const world = await PublicWorld.open({ storage: new MemoryStorage(), env: {} });
+    expect((await get(world, '/v1/clubs/demo-club')).rulebook.randomness).toEqual({ source: 'sim' });
+    expect((await get(world, '/.well-known/holdback.json')).notes.join('\n')).not.toMatch(/drand/);
+    const local = new LiveChain({ deployment: { ...deployment, chainId: 31337 }, rpcUrls: ['http://127.0.0.1:9'], relayerKey: '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d' });
+    const anvil = await PublicWorld.open({ storage: new MemoryStorage(), env: {}, live: { chain: local }, onError: () => {} });
+    expect((await get(anvil, '/v1/clubs/demo-club')).rulebook.randomness).toEqual({ source: 'sim' });
   });
 });

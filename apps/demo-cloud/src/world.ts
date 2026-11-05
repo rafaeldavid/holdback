@@ -32,11 +32,13 @@
 // Each pass reads the rules contract's logs from a stored cursor (ChainSync, T-218), so a call a party sent straight
 // to the contract shows in the view too; a pass runs at least once a minute while any deal is open. Each relayer
 // lane's in-flight row (T-219, lanes.ts) survives a restart between a broadcast and its receipt: the next pass lands
-// that transaction as the relay it was, before the sync and the adjudicators.
-import { canonicalKeccak, holdbackDomain, problem, registrationBodyHash, wholeSecond, type AdjudicatorPolicy, type AdjudicatorRegistration, type Address, type EscrowState, type HoldbackDomain, type Hex32, type Judgment, type Mandate, type OperatorFeeSchedule, type Problem, type RegisteredAdjudicator, type SettlementEvent, type Sha256, type Timestamp, type TokenAmount } from '@holdback/core';
+// that transaction as the relay it was, before the sync and the adjudicators. The demo club's rulebook names drand
+// quicknet, which the rules contract verifies, and the demo adjudicators read its rounds from the public relays (T-217,
+// T-220). One world lives through rulebook, schema and code changes; only a new rules contract needs a new one (D49).
+import { canonicalKeccak, DRAND_QUICKNET_CHAIN_HASH, holdbackDomain, problem, registrationBodyHash, wholeSecond, type AdjudicatorPolicy, type AdjudicatorRegistration, type Address, type EscrowState, type HoldbackDomain, type Hex32, type Judgment, type Mandate, type OperatorFeeSchedule, type Problem, type RegisteredAdjudicator, type SettlementEvent, type Sha256, type Timestamp, type TokenAmount } from '@holdback/core';
 import { sha256 } from '@holdback/core/crypto';
 import { StoreError, type CiphertextStore } from '@holdback/core/store';
-import { declinesOf, testAdjudicator, type TestAdjudicator } from '@holdback/adjudicator';
+import { declinesOf, drandQuicknet, testAdjudicator, type RandomnessSource, type TestAdjudicator } from '@holdback/adjudicator';
 import {
   fetchHandler,
   nameToken,
@@ -111,6 +113,15 @@ export interface LiveSettlement {
   adjudicatorGas?: bigint;
   /** The block explorer for transaction links in the notes. Default Sepolia Etherscan. */
   explorer?: string;
+  /**
+   * The randomness the deployment's beacon verifies, which the demo club's rulebook names (T-220, D49). Default: the
+   * beacon each deployment script deploys. On Sepolia that is DrandQuicknetBeacon (contracts/script/deploy-sepolia.sh),
+   * so `drand-quicknet`; on a local anvil chain (31337) the harness deploys SimBeacon (packages/settlement/evm/world.ts),
+   * so `sim`, which the build before T-220 named on every chain.
+   */
+  beacon?: 'drand-quicknet' | 'sim';
+  /** Where the demo adjudicators read drand quicknet rounds (T-217). Default the public relays, through the global fetch. */
+  drand?: RandomnessSource;
 }
 
 /** Fixed when the world is created: a different configuration names a fresh world (WORLD_NAME). */
@@ -504,7 +515,14 @@ export class PublicWorld {
     // Addresses are served lowercase, as llms.txt pins them; the EIP-712 hash is the same either way.
     const rules = o.live ? (lc(o.live.chain.deployment.rules) as Address) : undefined;
     const domain: HoldbackDomain = rules ? holdbackDomain(chainId, rules) : holdbackDomain(SIM_CHAIN_ID);
-    const rulebook = rebindToken({ ...SIM_RULEBOOK, minWindowsSec: { judge: m, fallback: m, appealWindow: m, appealDecide: m } }, TOKEN, token);
+    // T-220, D49: a chain world's rulebook names the randomness its rules contract verifies, drand quicknet on Sepolia.
+    // The club is rebuilt from code on every open, so the rulebook changes in place: each stored deal keeps the club it
+    // was offered under (Book.club), and only a new offer binds the new hash. SimChain keeps the sim beacon (T-217).
+    const drand = o.live && (o.live.beacon ?? (o.live.chain.chainId === SIM_CHAIN_ID ? 'sim' : 'drand-quicknet')) === 'drand-quicknet';
+    const rulebook = rebindToken({ ...SIM_RULEBOOK, minWindowsSec: { judge: m, fallback: m, appealWindow: m, appealDecide: m }, ...(drand ? { randomness: { source: 'drand-quicknet' as const, chainHash: DRAND_QUICKNET_CHAIN_HASH } } : {}) }, TOKEN, token);
+    // One source for the three: a proven round is kept, so the fallback and appeal adjudicators never ask for it twice.
+    // In a Worker it uses the global fetch, one relay request per decision when the first relay answers (T-217).
+    const rounds = drand ? (o.live!.drand ?? drandQuicknet({ now: () => wholeSecond(now()) })) : undefined;
     const club = simClub(key('demo-club-operator').address, rulebook, DEMO_CLUB_ID);
     const principal = key('demo-club-principal');
     const adjKeys = ADJUDICATORS.map((a) => ({ ...a, keys: key(a.label) }));
@@ -709,6 +727,8 @@ export class PublicWorld {
         registration,
         // The policy the terms bound, by its hash, after the primary registered another (T-221 review).
         policy: async (hash) => (await registrations.policy(hash)) ?? null,
+        // Rounds for a deal whose rulebook names drand quicknet (T-217); a deal offered under the sim rulebook keeps it.
+        ...(rounds ? { drand: rounds } : {}),
         domain,
         fee,
         // The demo's three adjudicators trust each other as fallback and appeal adjudicators, and nobody else (T-212):
@@ -1263,7 +1283,11 @@ export function notesFor(
     `Settlement time is the wall clock. Club ${clubId} allows windows from ${minWindowSec} seconds: timing {"judgeWithinSec": ${minWindowSec}, "fallbackWithinSec": ${minWindowSec}, "appealWindowSec": ${minWindowSec}, "appealDecideSec": ${minWindowSec}} completes a deal in a few minutes.`,
     ...(feeNote ? [feeNote] : []),
     'Request log: these nodes keep one line per request for seven days (Request-Id, time, node, method, route template, status, problem type, timing), never a body, a header value, an IP address, or the addresses and IDs in the path. Quote the Request-Id of a failed request when you report it.',
-    ...(chain ? ['Fallback and appeal adjudicators need drand proofs on Sepolia, which these demo adjudicators do not fetch yet: if the primary stays silent, the default outcome (a refund) applies after fallbackBy.'] : []),
-    chain ? 'State survives a restart, but this is a demo: it may be reset at any time. Keep your own copy of the terms you signed.' : 'State is journaled and replayed after a restart, but this is a demo: it may be reset at any time.',
+    ...(chain
+      ? [
+          "Fallback and appeal adjudicators decide on Sepolia: their panels are seeded from a drand quicknet round that settlement fixes (the round at judgeBy for the fallback, the first round after an escalation or appeal for the appeal adjudicator), and the rules contract verifies the round's BLS signature. If no drand relay answers before a deadline, nothing stands in: the deal takes its default outcome, or a party appeal expires and the first decision stands.",
+          "The operators' view is kept across deploys. It starts over only when the settlement contracts are redeployed; what happened on Sepolia stays there. Keep your own copy of the terms you signed.",
+        ]
+      : ['State is journaled and replayed after a restart, but this is a demo: it may be reset at any time.']),
   ];
 }
