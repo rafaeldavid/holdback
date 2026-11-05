@@ -3,7 +3,8 @@
 // - a request log kept seven days, one line per request: Request-Id, time, node, method, route template, status,
 //   problem type and timing. Never a body, a header value, an IP, or the path itself (it carries addresses and IDs);
 // - this Durable Object's use of the Workers Free tier (requests, SQLite rows read and written), estimated from its
-//   own calls, with a warning at 80% and 95% of a daily limit;
+//   own calls, with a warning at 80% and 95% of a daily limit, and the rows it keeps for good (adjudicator
+//   registrations, T-221);
 // - a summary line per hour and per UTC day: per-route requests, errors and latency, problems, 429s, prepare against
 //   submit and, from settlement events only, the deal funnel, time per stage and signers as counts.
 // Summaries and warnings go to the account's Workers Logs as console lines. Nothing here is served or published.
@@ -49,6 +50,12 @@ interface Usage extends Record<Quota, number> {
   warned: string[];
   /** The hour whose bucket is still open (its summary line not yet written). */
   openHour: string;
+  /**
+   * Rows the world keeps for good under a prefix, as last counted: `ar` for adjudicator registrations and `ph` for the
+   * policies later registrations replaced, neither ever removed (T-221, ADR-0030 §3). Carried into each new day, so
+   * every day line shows the storage growth.
+   */
+  rows?: Record<string, number>;
 }
 
 interface Hour {
@@ -146,7 +153,7 @@ export class Telemetry {
     const day = dayOf(this.o.now());
     if (this.today.day !== day) {
       this.closedDays.push(this.today);
-      this.today = freshUsage(this.o.now());
+      this.today = { ...freshUsage(this.o.now()), ...(this.today.rows ? { rows: { ...this.today.rows } } : {}) };
     }
     return this.today;
   }
@@ -178,6 +185,14 @@ export class Telemetry {
   /** One setAlarm, billed as a row written. */
   alarmSet(): void {
     this.count('rowsWritten', 1);
+  }
+
+  /** How many rows the world keeps under `prefix` (`ar`: adjudicator registrations; `ph`: replaced policies, T-221); the usage view shows it. */
+  rows(prefix: string, count: number): void {
+    const u = this.day();
+    if (u.rows?.[prefix] === count) return;
+    u.rows = { ...(u.rows ?? {}), [prefix]: count };
+    this.changed = true;
   }
 
   /** Marks a cold start; call the returned function when storage has been replayed. */
@@ -276,7 +291,7 @@ export class Telemetry {
 
   private usageView(u: Usage): Record<string, unknown> {
     const quotas = Object.fromEntries(QUOTAS.map((q) => [q, { used: u[q], limit: this.limits[q], percent: Math.floor((u[q] * 100) / this.limits[q]) }]));
-    return { ...quotas, wakes: u.wakes, replayRowsRead: u.replayRowsRead, replayMs: u.replayMs };
+    return { ...quotas, wakes: u.wakes, replayRowsRead: u.replayRowsRead, replayMs: u.replayMs, ...(u.rows ? { rows: { ...u.rows } } : {}) };
   }
 }
 

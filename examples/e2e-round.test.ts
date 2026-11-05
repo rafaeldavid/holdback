@@ -183,7 +183,9 @@ describe('e2e-round.ts', () => {
       // Scenario 2 relays through the second node; no key reaches the buyer.
       expect(byId['2'].deals[0].relay).toBe(new URL(demo.urls[1]).origin);
       expect(byId['2'].checks.find((c: J) => c.name === 'no key reaches the buyer').ok).toBe(true);
-      expect(byId['3b']).toMatchObject({ status: 'waits', waitsFor: ['T-221'] });
+      // T-221's registration store is live in this world (the demo primary's registration is signed), so 3b waits only
+      // for the driver's own work.
+      expect(byId['3b']).toMatchObject({ status: 'waits', waitsFor: ['T-216'] });
       expect(readFileSync(join(folder, 'summary.md'), 'utf8')).toMatch(/^\| 2\. Refund on reject \(API\) \| pass \| \d+ of \d+ \|/m);
       expectNoSecrets(seed, r.out, folder);
     }, 300_000);

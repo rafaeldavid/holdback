@@ -112,12 +112,19 @@ describe('the adjudicator alarm (T-057)', () => {
     await dep.fire(Date.now() + 1000);
     expect(await fresh.state()).toBe('AcceptedByAdjudicator');
 
-    // The stuck case's fallback takes over at judgeBy, not at the slow cadence's next pass.
+    // The stuck case's fallback takes its turn at judgeBy, not at the slow cadence's next pass. Redeployed with live
+    // judges, it binds another registry too, so it declines the takeover at once instead of triggering one it would
+    // refuse (T-221 review), and the state read says why.
     const { deadlines } = await buyer.call('GET', `/v1/commitments/${offer.id}`);
-    await dep.fire(Date.parse(deadlines.judgeBy) + 5000);
+    const judgeBy = Date.parse(deadlines.judgeBy);
+    const declined = async () => (((await buyer.call('GET', `/v1/commitments/${offer.id}`)).notices ?? []) as string[]).some((n) => /fallback adjudicator declined this deal's fallback turn: .*registry/.test(n));
+    await dep.fire(judgeBy - 1);
+    expect(await declined()).toBe(false);
+    expect(dep.alarm.at).toBe(judgeBy);
+    await dep.fire(judgeBy + 1000);
+    expect(await declined()).toBe(true);
     const events = (await buyer.call('GET', `/v1/commitments/${offer.id}/events?limit=200`)).items as J[];
-    const takeover = events.find((e) => e.type === 'fallback.triggered');
-    expect(Date.parse(takeover.at) - Date.parse(deadlines.judgeBy)).toBeLessThanOrEqual(1000);
+    expect(events.some((e) => e.type === 'fallback.triggered')).toBe(false);
   });
 
   it('an overdue alarm (its handler threw) is retried within a second, not moved to a later takeover', async () => {

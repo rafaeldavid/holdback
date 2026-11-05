@@ -1,6 +1,6 @@
 // What an operator serves about clubs, agents, members and adjudicators. Clubs, members and mandates come from
 // genesis (docs/backlog.md); adjudicators register themselves through the API (ADR-0030).
-import type { AdjudicatorRegistration, AdjudicatorRole, Address, Club, Hex32, Judgment, Mandate, Problem, Timestamp, TokenAmount } from '@holdback/core';
+import type { AdjudicatorRegistration, AdjudicatorRole, Address, AnyCommitment, Club, Hex32, Judgment, Mandate, Problem, Timestamp, TokenAmount } from '@holdback/core';
 import type { SimChain } from '@holdback/settlement/sim';
 import { MemoryRegistrationStore, type Bond, type RegistrationStore } from './registrations.js';
 
@@ -86,10 +86,20 @@ export interface Registry {
   registration?(address: Address): AdjudicatorRegistration | null;
   /** ADR-0030: the registrations POST /v1/adjudicators stores and the reads serve. Absent: the route answers not_found. */
   registrations?: RegistrationStore;
-  /** Any address's bond pool, read live from the settlement layer (on a chain, HoldbackBonds' bondOf and freeOf). */
-  pool?(address: Address): Promise<Bond>;
+  /**
+   * Any address's bond pool, read live from the settlement layer (on a chain, HoldbackBonds' bondOf and freeOf).
+   * `listing`: the read only shows a bond in GET /v1/adjudicators, so a node may refuse it (throw) past a read budget,
+   * and the listing says `observed.bond: "unknown"`; prepare and the relays read without it (T-221 review).
+   */
+  pool?(address: Address, o?: { listing?: boolean }): Promise<Bond>;
   /** ADR-0030 §4: the adjudicator this node names for each role an offer leaves out (Crow's, on the demo). */
   defaultAdjudicators?: Record<AdjudicatorRole, Address>;
+  /**
+   * Why this node's own adjudicator at `address` would decline `role` on these terms, from the terms alone: null when it
+   * would take the role, undefined for an address this node does not run. Prepare fills in no default that would
+   * decline, and notes one the parties named (T-221 review).
+   */
+  declines?(address: Address, role: AdjudicatorRole, commitment: AnyCommitment): Promise<string | null | undefined>;
   /** Settlement-layer time, whole seconds; prepared messages default their times from it. Default: the system clock. */
   now?(): Timestamp;
   /** The latest judgment record an adjudicator published for a commitment (GET /v1/commitments/{id}/judgment). */

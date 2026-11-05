@@ -2,58 +2,19 @@
 // second at wall-clock time, the T-202 contracts deployed from contracts/out, LiveChain sending from relayer lanes
 // derived from one key. examples/try.ts runs a deal against it over HTTP in its own process, as against Sepolia,
 // with the deployment pinned through HOLDBACK_DEPLOYMENT. Needs `anvil` on PATH and `forge build` output.
+// T-221's anvil end to end is in registration.anvil.test.ts, which needs no network, so CI can require it.
 import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
-import { createServer, type Server } from 'node:http';
 import { createServer as createNetServer, type AddressInfo } from 'node:net';
-import { fileURLToPath } from 'node:url';
 import { privateKeyToAccount } from 'viem/accounts';
 import { createPublicClient, encodeFunctionData, http, keccak256, stringToBytes, toHex, type Hex } from 'viem';
 import { foundry } from 'viem/chains';
-import type { AnyCommitmentTerms } from '@holdback/core';
-import { EvmSettlement, GAS_CAP, LiveChain, termsView, type Cursor, type DeploymentFile } from '@holdback/settlement/live';
+import { wholeSecond, type AnyCommitmentTerms } from '@holdback/core';
+import { ensureBond, EvmSettlement, GAS_CAP, LiveChain, termsView, type Cursor, type DeploymentFile } from '@holdback/settlement/live';
 import { anvilAvailable, EvmWorld } from '@holdback/settlement/evm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { CSV, deploymentOf, ENV, Outsider, outsideDeal, ready, RELAYER, root, serve, sleep, untilBoth, type J } from '../test/anvil.ts';
 import { MemoryStorage, PublicWorld } from './index.js';
-
-const root = fileURLToPath(new URL('../../../', import.meta.url));
-const ready = anvilAvailable() && existsSync(`${root}contracts/out/HoldbackRules.sol/HoldbackRules.json`);
-/** anvil's second well-known dev key (public; guards no value): the relayer's funding lane here. */
-const RELAYER = '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d';
-/** The demo's fee: 1 bp, minimum 0.01 tUSDC plus the 4.70 tUSDC gas quote a chain world adds (D33 as amended). */
-const ENV = { OPERATOR_FEE_BPS: '1', OPERATOR_FEE_MIN: '10000', OPERATOR_FEE_GAS: '4700000' };
-
-async function serve(world: PublicWorld): Promise<{ urls: [string, string]; close(): Promise<void> }> {
-  const server: Server = createServer(async (req, res) => {
-    const host = req.headers.host ?? '';
-    const node = host.startsWith('localhost') ? 1 : 0;
-    const chunks: Buffer[] = [];
-    for await (const c of req) chunks.push(c as Buffer);
-    const body = ['GET', 'HEAD'].includes(req.method ?? 'GET') ? undefined : Buffer.concat(chunks);
-    const headers = Object.fromEntries(Object.entries(req.headers).filter(([, v]) => typeof v === 'string')) as Record<string, string>;
-    const r = await world.fetch(new Request(`http://${host}${req.url}`, { method: req.method ?? 'GET', headers, ...(body ? { body } : {}) }), { node, origin: `http://${host}`, client: req.socket.remoteAddress ?? 'unknown' });
-    res.writeHead(r.status, Object.fromEntries([...r.headers].filter(([k]) => k !== 'content-length')));
-    res.end(Buffer.from(await r.arrayBuffer()));
-  });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const port = (server.address() as AddressInfo).port;
-  let ticking = true;
-  const loop = (async () => {
-    while (ticking) {
-      await world.work();
-      await new Promise((r) => setTimeout(r, 200));
-    }
-  })();
-  return {
-    urls: [`http://127.0.0.1:${port}`, `http://localhost:${port}`],
-    close: async () => {
-      ticking = false;
-      await loop;
-      await new Promise<void>((resolve) => server.close(() => resolve()));
-      server.closeAllConnections();
-    },
-  };
-}
 
 function runTry(env: Record<string, string>, script = 'examples/try.ts'): Promise<{ code: number | null; out: string }> {
   return new Promise((resolve) => {
@@ -72,20 +33,7 @@ describe.skipIf(!ready)(`the public world on a live chain (anvil for Sepolia)${r
   const chainOf = (rpcUrl = anvil.rpcUrl) => new LiveChain({ deployment, rpcUrls: [rpcUrl], relayerKey: RELAYER, pollMs: 200, rebroadcastMs: 10_000, mintBatchMs: 200 });
   beforeAll(async () => {
     anvil = await EvmWorld.start(root, { blockTimeSec: 1, token: 'test-usdc' });
-    const d = anvil.deployment;
-    deployment = {
-      chainId: anvil.chainId,
-      fromBlock: Number(d.fromBlock),
-      token: { address: d.token, name: anvil.tokenDomain.name, version: anvil.tokenDomain.version, symbol: 'tUSDC', decimals: 6 },
-      escrow: d.escrow,
-      erc3009Collector: d.erc3009Collector,
-      permit2Collector: d.permit2Collector,
-      multicall: d.multicall,
-      rules: d.rules,
-      bonds: d.bonds,
-      beacon: d.beacon,
-      expiryMarginSec: Number(anvil.expiryMargin),
-    };
+    deployment = deploymentOf(anvil);
   }, 120_000);
   afterAll(async () => {
     await anvil?.stop();
@@ -276,5 +224,29 @@ describe.skipIf(!forkReady)(`the public world on a Sepolia fork${forkReady ? '' 
     expect(gas.map((c) => c.status)).toEqual(txs.map(() => '0x1'));
     for (const c of gas) expect((BigInt(c.gasUsed) * 5n) / 4n).toBeLessThanOrEqual(GAS_CAP);
     console.log(`Sepolia gas per transaction (eth_simulateV1): ${gas.map((c) => BigInt(c.gasUsed)).join(', ')}`);
+  }, 600_000);
+
+  // T-221's fork smoke: an outside adjudicator registers through the API, bonds in the deployed HoldbackBonds from its
+  // own key, then accepts and decides one deal as primary under the demo's fallback and appeal adjudicators.
+  it('an outside adjudicator registers, bonds, accepts and decides one deal as primary on the deployed contracts (T-221)', async () => {
+    const chain = new LiveChain({ deployment, rpcUrls: [rpc], relayerKey: RELAYER, pollMs: 300, rebroadcastMs: 20_000, mintBatchMs: 300 });
+    await chain.verify();
+    const world = await PublicWorld.open({ storage: new MemoryStorage(), env: ENV, live: { chain }, faucetPerClient: 100 });
+    const demo = await serve(world);
+    try {
+      for (const end = Date.now() + 120_000; !world.ready() && Date.now() < end; ) await sleep(500);
+      expect(world.ready()).toBe(true);
+      const d = (await (await fetch(`${demo.urls[0]}/.well-known/holdback.json`)).json()) as J;
+      const [, fallback, appeal] = d.demo.adjudicators.map((a: J) => a.address as string);
+      const outsider = new Outsider(world, demo.urls, 't-221/fork-outsider', { trusted: [fallback, appeal] });
+      expect((await outsider.register(wholeSecond(Date.now() - 60_000))).status).toBe(200);
+      await ensureBond(chain, outsider.account.privateKey, 100_000_000n, 100_000_000_000_000_000n);
+      const deal = await outsideDeal(demo.urls, deployment, outsider, { work: CSV, timing: { judgeWithinSec: 120, fallbackWithinSec: 120, appealWindowSec: 60, appealDecideSec: 120 } });
+      expect((await outsider.runOnce()).decided).toEqual([{ commitmentId: deal.id, role: 'primary', outcome: 'accept' }]);
+      await untilBoth(deal.buyer, deal.id, ['Released'], 120_000);
+      expect(await deal.buyer.openDelivery(deal.id)).toBe(CSV);
+    } finally {
+      await demo.close();
+    }
   }, 600_000);
 });
