@@ -474,6 +474,7 @@ The median deal's gas equals Rafa's measured 1,261,428 exactly. Runway at the me
 - `pnpm vitest run apps/demo-cloud/src/world.test.ts` on slice 3: 37 of 37 pass, the 5 new ones included. `node site/check.mjs` passes; `node site/build.mjs --out` writes `version.json` (`commit` null on a tree with uncommitted changes, as designed).
 - `pnpm verify` on each branch: typecheck, lint, forge build, forge, test, spec, snap, snap:local and demo pass, with no snapshot diff, on `t-066-discovery-fields` and `t-066-one-click`. On `t-066-metrics-scripts`, `forge build` failed while the fresh worktree cloned the contract submodules and passed on a rerun; every other step passed.
 - CodeQL on PR 215 flagged a test's `startsWith('https://one.test')` as incomplete URL sanitization; the fake fetch now matches the host.
+- gitleaks on PR 215 flagged 11 lines of the fixtures where `"token"` is tUSDC's public contract address; their fingerprints are in `.gitleaksignore`, a path outside this task's list, added because the check is required to merge.
 - Tests were written beside the scripts rather than strictly before them; each checks a value computed by hand in its comment.
 
 ## Decisions
