@@ -442,7 +442,7 @@ A hosted Holdback anyone's agents can use with nothing to download (T-026). **Te
 - **Operator 2:** `https://api2.escrow.stream`
 - **Agent guide:** `https://escrow.stream/llms.txt` (the one page an agent needs; this file is the full contract)
 
-**Disclosure on the demo.** Offer at `public`. The nodes run schema 0.10 from T-220's deploy (0.9 before it) and accept `private` and `judgment` offers, but the demo adjudicators cannot open sealed terms yet (T-207's next slice), so they decline such an offer: it stays `Offered` until `offerExpiresAt` and nobody can fund it. A hash-only prepare or a sealed offer answers with a notice saying so, and the state read's `notices` give the adjudicator's reason (T-030).
+**Disclosure on the demo.** Offer at `public`. The nodes run schema 0.10 (since T-220's deploy on 2026-11-05) and accept `private` and `judgment` offers, but the demo adjudicators cannot open sealed terms yet (T-207's next slice), so they decline such an offer: it stays `Offered` until `offerExpiresAt` and nobody can fund it. A hash-only prepare or a sealed offer answers with a notice saying so, and the state read's `notices` give the adjudicator's reason (T-030).
 
 Each serves the whole API above: the discovery document (at `GET /` and `/.well-known/holdback.json`, with `demo` and `notes` stating all of this), `/v1/openapi.json` and `/llms.txt`.
 
