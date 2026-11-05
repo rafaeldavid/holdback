@@ -60,7 +60,7 @@ Non-goals:
   - **Always allow:** commitment `0xe480d0205d8a6b1aa3381ef315aa97d15bad3b50cb5fef045c153f30971a9ea0`, Released with Crow's test seller, decision accept. On Sepolia Etherscan: [funded](https://sepolia.etherscan.io/tx/0xb4170cd80491925cf1bb15827a1015a7786110c8debcc496cb6c02a01840f2d0), [delivered](https://sepolia.etherscan.io/tx/0x84bfae322742334234ff0e1663b62153cec99a63c0953d34c66777b270a5bdb4), [decided](https://sepolia.etherscan.io/tx/0xc221eb796773247fce9c065b45e8d34da8b9d43c63d3e777df4fe8972474fde4).
   - **Time to Released** moved both ways: 79.2 s and 106.2 s against about 93 s before. The deal alone took 52 s to 63 s in all four runs, so the spread sits in `npm install`, the download and the assistant's turns, not in the approvals [inferred].
   - **The harness's label:** `run.mjs` keeps this morning's link-only prompt in `EXPECTED_PROMPT`, so its log says the live prompt "DIFFERS from expected". The constant only labels the log; the harness sends whatever the live `#prompt` holds, and that text matched the build [measured].
-  - **Files:** `docs/research/2026-11-05-one-click/` holds `run.mjs` and the four summaries (`before-*` and `after-*`). The raw `.jsonl` logs stay in the session scratchpad.
+  - **Files:** `docs/research/2026-11-05-one-click/` holds `run.mjs` and the four summaries (`before-*` and `after-*`). The raw `.jsonl` logs stay in the session scratchpad. The committed `run.mjs` differs from the one that ran in one console line: it no longer prints the SDK's `apiKeySource` label ("none" in every run), which CodeQL flagged as a logged secret.
 
 The prompt the button copies (the sha256 changes whenever `site/try.mjs` does):
 

@@ -172,7 +172,7 @@ try {
         mcp_servers: msg.mcp_servers, plugins: msg.plugins, skills: msg.skills, apiKeySource: msg.apiKeySource,
         claude_code_version: msg.claude_code_version, output_style: msg.output_style,
       };
-      note(`init: model=${msg.model} mode=${msg.permissionMode} cc=${msg.claude_code_version} apiKeySource=${msg.apiKeySource} tools=${msg.tools.length} mcp=${msg.mcp_servers.length} plugins=${(msg.plugins || []).length} skills=${(msg.skills || []).length}`);
+      note(`init: model=${msg.model} mode=${msg.permissionMode} cc=${msg.claude_code_version} tools=${msg.tools.length} mcp=${msg.mcp_servers.length} plugins=${(msg.plugins || []).length} skills=${(msg.skills || []).length}`);
     } else if (msg.type === 'assistant') {
       for (const block of msg.message.content || []) {
         if (block.type === 'tool_use') {
