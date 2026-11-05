@@ -16,7 +16,7 @@
   - settlement: one new test file under `packages/settlement/evm/` for the anvil end to end, with no edits to `evm-settlement.ts` (T-218's);
   - docs: `docs/decisions/ADR-0030-adjudicator-registration.md` (new), `docs/api.md`, `docs/neutrality.md`, `docs/backlog.md`, `docs/plan.md` (this row, and the named test's row in the scenario index), this file.
 - **Human gate:** no. The live deploy is T-220's.
-- **Status:** review (slice 1 merged in PR 184; slice 2 in review in draft PR 202, with its review's findings fixed)
+- **Status:** review (slice 1 merged in PR 184; slice 2 merged in PR 202 on 2026-11-05 and live since T-220's deploy; left: a `red-teamer` pass on the review's fixes, the DeepSeek cross-family review, and the CI line for `apps/demo-cloud/src/registration.anvil.test.ts`, a `.github/` change for Rafa)
 - **Agent/session:** Claude Code sessions on branch `t-221-registration-slice-1` (slice 1, PR 184) and `t-221-registration-slice-2` (slice 2, worktree `.worktrees/t-221-s2`). The planning branch `t-221-adjudicator-registration` (PR 176) is a different branch.
 
 ## Intent

@@ -101,7 +101,7 @@ After the deploy, a smoke deal ended Released in 44 s, and the test seller sold 
 
 T-228 deployed 2026-11-05: holdback-op1 ba7a2ad9-0172-458a-92a0-5d51d18afd0a, holdback-op2 7826e3ce-b8ce-422f-a2ea-9e88bd982ba9
 
-**State:** live since 2026-11-05, 15:29 UTC. Rafa gave the go-ahead on 2026-11-05 ("Yes, deploy it"). A deploy session shipped PR 207's merge commit `236786a` from main with `pnpm demo-cloud:deploy`, in the same world, `holdback-public-demo-sepolia-2026-11-04` (D49). It deployed the operators only; the site, with T-228's line in `llms.txt`, ships in its own deploy.
+**Live since 2026-11-05, about 15:29 UTC** (T-228 Evidence): holdback-op1 `ba7a2ad9` and holdback-op2 `7826e3ce`. Rafa gave the go-ahead on 2026-11-05 ("Yes, deploy it"). A deploy session shipped PR 207's merge commit `236786a` from main with `pnpm demo-cloud:deploy`, in the same world, `holdback-public-demo-sepolia-2026-11-04` (D49). It deployed the operators only; the site, with T-228's line in `llms.txt`, ships in its own deploy.
 
 | Worker | Live version | Deployed (UTC) | Rollback target (T-220's build) |
 | --- | --- | --- | --- |
@@ -116,7 +116,7 @@ Every check passed, and nothing was rolled back (measured; T-228 Evidence, "The 
 
 ### T-220: round 1's prerequisites in one deploy (deployed 2026-11-05)
 
-**State:** replaced by T-228's deploy (above) on 2026-11-05 at 15:29 UTC; live from 11:04 UTC. Rafa gave the go-ahead on 2026-11-05 ("When ready, deploy"). A deploy session shipped PR 204's merge commit `69021a6` from main, in the same world, `holdback-public-demo-sepolia-2026-11-04` (D49): `WORLD_NAMES` did not change.
+**Live since 2026-11-05, about 11:04 UTC** (T-220 Evidence): holdback-op1 `1d8a029c`, holdback-op2 `a042aae3`, and crow-site `704bd295` from 11:10 UTC. T-228's deploy (above) replaced the two operators at 15:29 UTC; crow-site `704bd295` still serves. Rafa gave the go-ahead on 2026-11-05 ("When ready, deploy"). A deploy session shipped PR 204's merge commit `69021a6` from main, in the same world, `holdback-public-demo-sepolia-2026-11-04` (D49): `WORLD_NAMES` did not change.
 
 - holdback-op1 `1d8a029c` and holdback-op2 `a042aae3`, deployed together by `pnpm demo-cloud:deploy` between 11:03:40 and 11:04:11 UTC, on the first try;
 - crow-site `704bd295`, deployed at 11:10 UTC; `https://escrow.stream/try.mjs` serves sha256 `cc310963…d832`.
