@@ -18,7 +18,7 @@ Restated: one deploy brings all four live before round 1 (T-216). It keeps the S
 
 **In the implementer's words (2026-11-05).** Everything for the one deploy is ready in the repository, and only the deploy is left for Rafa:
 1. **The code.** The Sepolia world's demo club names `drand-quicknet` with quicknet's chain hash, and its three adjudicators read rounds through T-217's source. Opening today's storage under this build changes the club in place. Deals already offered keep the club they were offered under; new offers bind the new hash. The "drand not yet" note goes, and the notes say the view is kept across deploys.
-2. **The proof.** A fork run on Sepolia rehearses the deploy: a world opened as the deployed build opens it, then this build on the same storage, then one deal of each kind the four tasks bring.
+2. **The proof.** A fork run on Sepolia rehearses the rulebook switch: a world opened with the deployed build's rulebook (this build's code), then this build's rulebook on the same storage, then one deal of each kind the four tasks bring. It does not rehearse the upgrade from the deployed build's code (`dd0a55a`); `docs/operations.md` says what that first sync pass does to the live storage.
 3. **The words.** `llms.txt` carries the four Handoffs' texts and keeps the limits that remain; `docs/operations.md` has the deploy steps and the rollback.
 
 Non-goals: the deploy itself (Rafa's gate); a new world name or new bonds (D49); contract changes; the advisory `judgeBy` on a quicknet round boundary (an operator change, backlog); the world key seed (D49, a later task); CI's must-not-skip list (a `.github/` change, Rafa's).
@@ -86,26 +86,34 @@ Branch `t-220-ship-round-1`, 2026-11-05. Each claim is labelled measured, inferr
 - Runs 1 and 2 failed and changed the test, not the code. Run 1 passed items 1 to 5, then expected the direct deliver's event before the seller posted the delivery, which T-218 does not do (Decision 8). Run 2: publicnode answered "block not found: 0xb82718" for its own head and anvil exited while building its genesis, the flake T-217 saw twice; the test now forks 8 blocks behind the head and sets the next block's time to the wall clock (it was 100 s behind), and `docs/team.md` proposes the check.
 
 **Offline and on anvil.** [measured]
-- `apps/demo-cloud/src/world.test.ts`: 32 tests pass, 2 of them new. Today's Sepolia storage reopened under this build, with an RPC nobody answers (opening reads no chain): the rulebook names drand quicknet, its hash is new, the adjudicators, `meta` and registrations are unchanged, no `meta`, `ar:`, `ph:` or `b:` row is written, and the notes say what changed. A SimChain world and an anvil chain (31337) keep `sim`.
+- `apps/demo-cloud/src/world.test.ts`: 31 tests passed, 2 of them new (this line said 32; the review counted 31, and a rerun before the review's fix measured 31 passed). With the review's test (below), 32 pass. Today's Sepolia storage reopened under this build, with an RPC nobody answers (opening reads no chain): the rulebook names drand quicknet, its hash is new, the adjudicators, `meta` and registrations are unchanged, no `meta`, `ar:`, `ph:` or `b:` row is written, and the notes say what changed. A SimChain world and an anvil chain (31337) keep `sim`.
 - `apps/demo-cloud/src/one-world.anvil.test.ts`: 1 test passes; with `world.test.ts` the run took 33 s, anvil's start included. A deal funded under the sim rulebook settles after the switch; the held-back offer gets 422; 0 transactions at setup; the fallback and appeal adjudicators hand the new deal the drand source and the old deal the sim beacon; no round was asked for.
 - Both failed before the change to `world.ts` (the rulebook still named `sim`) and pass after it.
 - `node site/build.mjs && node site/check.mjs`: PASS. `site/try.mjs` keeps sha256 `cc310963bb0833e0d23f8018eb4ea802db09fa05fbd9489020340d2be2eed832`; `site/index.html` is unchanged.
 
-**`pnpm verify`** (`reports/verify-t-220-ship-round-1.md`, 2026-11-05T09:49Z, on `330d6c8` plus the change to `world.ts` before it was committed): PASS on all nine steps, no snapshot diff against HEAD. `pnpm test`: 120 files passed and 2 skipped; 2,705 tests passed and 6 skipped (the opt-in fork tests), 181 s. `forge test`: 241 tests passed. [measured]
+**`pnpm verify`** (`reports/verify-t-220-ship-round-1.md`, 2026-11-05T10:13Z, on `28aa61e` plus the review's fixes before they were committed: the tree of `24f10ca`, with only this file's text changed since): PASS on all nine steps, no snapshot diff against HEAD. `pnpm test`: 120 files passed and 2 skipped; 2,706 tests passed and 6 skipped (the opt-in fork tests), 159 s. `forge test`: 241 tests passed. [measured]
 
 | Step | Status | Time |
 | --- | --- | --- |
-| typecheck | pass | 274 ms |
-| lint | pass | 4,550 ms |
-| forge build | pass | 1,205 ms |
-| forge | pass | 15,781 ms |
-| test | pass | 180,913 ms |
-| spec | pass | 615 ms |
-| snap | pass | 9,311 ms |
-| snap:local | pass | 14,905 ms |
-| demo | pass | 4,018 ms |
+| typecheck | pass | 279 ms |
+| lint | pass | 7,046 ms |
+| forge build | pass | 2,040 ms |
+| forge | pass | 31,941 ms |
+| test | pass | 158,925 ms |
+| spec | pass | 619 ms |
+| snap | pass | 9,558 ms |
+| snap:local | pass | 15,066 ms |
+| demo | pass | 4,332 ms |
+
+The first run (2026-11-05T09:49Z) was on `330d6c8` plus the uncommitted change to `world.ts`: PASS, 2,705 tests passed and 6 skipped. The review reran it on the committed `28aa61e`: PASS on all nine steps, 2,705 passed and 6 skipped, forge 241 passed, no snapshot diff [measured by the reviewer].
 
 **Inferred, not run:** the rollback reading (the old code ignores the new rows; drand deals default on fallback and appeal under it); op1's startup CPU (T-217 Decision 15: the curve library loads on first use).
+
+**The review of PR 204** (2026-11-05). Four findings, all four fixed in `d26f650`, `1b8e255`, `24f10ca` and this file:
+1. **Medium: the honest limit understated residual 13.** `llms.txt` listed three of residual 13's cases and closed with "send direct calls to HoldbackRules itself", as if only a party that makes unusual direct calls were exposed. Fixed: the limit now says a party cannot rule it out on its own, because the operators relay through the public mempool and anyone who copies a signed step from it can cause it, even for a deal that uses only the API; it also says how the deal ends (the default refund, or the first decision standing). `docs/operations.md` Before step 7 makes Rafa's decision on residual 13 a gate on the deploy. Text only, so no test applies.
+2. **Low: Decision 5's correction was false** [measured: `apps/operator/src/server.ts` `discovery` serves a top-level `defaultAdjudicators`; ADR-0030, `spec/openapi.json` and `docs/api.md` name it]. Test first: `world.test.ts` "the agent guide names the defaults where discovery serves them" failed against the old text (1 failed, 31 passed) and passes once `llms.txt` names `defaultAdjudicators` (32 passed) [measured]. Decision 5 now matches the code. `node site/build.mjs && node site/check.mjs`: PASS; `site/index.html` unchanged, `site/try.mjs` sha256 still `cc310963…d832` [measured].
+3. **Low: the fork run rehearses the rulebook switch, not the upgrade from `dd0a55a`'s code.** Fixed in words: the fork test's header, Intent item 2 and Decision 7 say so. `docs/operations.md` Deploy step 5 (new) says what the first sync pass does to the live storage, which has no `cursor` row and no `chainTxs`: it reads from block 12,061,237, and deal `0xf0453986…5e5b` falls behind with a "Behind the chain" notice naming its lost `deliver` `0x64c5c757…caf1`, keeping `escrowState` `Released` [inferred from `EvmSettlement.follow` and `rebuild`: the book stands `Released`, so the rebuilt `deliver` fails and the deal falls behind]. The deal's live state read is `Released`, appeal `expired`, with no `delivery.submitted` among its 12 events [measured on api.escrow.stream, 2026-11-05]. Before step 4 keeps that read. No test measures this first pass (Handoff, follow-ups).
+4. **Low: a test count did not reproduce.** `world.test.ts` had 31 tests, not 32 [measured: 31 passed before the review's test]. Corrected above, and the verify paragraph names the tree it ran on.
 
 ## Decisions
 
@@ -115,35 +123,36 @@ Made by the T-220 session on 2026-11-05; Rafa can overrule any of them.
 2. **The rulebook names the randomness the deployment's beacon verifies,** through a `LiveSettlement.beacon` option. Its default comes from the chain: `drand-quicknet` on Sepolia, whose deploy script deploys DrandQuicknetBeacon, and `sim` on a local anvil chain (31337), whose harness deploys SimBeacon. So `worker.ts` needs no change, and the anvil tests of T-216, T-219 and T-221 (`live.test.ts`, `lanes.test.ts`, `registration.anvil.test.ts`, `examples/e2e-round.test.ts`) keep the sim beacon their contracts verify. A drand rulebook over SimBeacon would make every fallback and appeal there unprovable.
 3. **One drand source for the three demo adjudicators,** on the world's clock, so a proven round is fetched once (`LiveSettlement.drand` stands in for tests). No relay log: a relay that fails shows in the service's refusals; logging and bounding outages are T-225.
 4. **The notes say what changed.** The "drand not yet" line becomes a line that says fallback and appeal decide with drand proofs and what happens when no relay answers. The chain world's "may be reset" line becomes the one this task names for `llms.txt`.
-5. **`llms.txt` takes the four Handoffs' texts,** with two corrections against the code:
-   - T-221's draft said discovery names the defaults as `defaultAdjudicators`. Discovery lists them in `demo.adjudicators`, and `GET /v1/adjudicators` marks each with `observed.defaultFor` (`apps/operator/src/server.ts`, `listingOf`). The text says that.
+5. **`llms.txt` takes the four Handoffs' texts,** with one addition and one correction against the code:
+   - T-221's draft was right: discovery names the defaults by role in a top-level `defaultAdjudicators` (`apps/operator/src/server.ts`, `discovery`; ADR-0030; `spec/openapi.json`; `docs/api.md`). The text names that field, adds that the demo also lists them in `demo.adjudicators`, and that `GET /v1/adjudicators` marks each with `observed.defaultFor`. The first draft of this decision said discovery had no such field; the review of PR 204 found that false, and `world.test.ts` now holds `llms.txt` to the field discovery serves.
    - The HoldbackBonds address (`0x83f3…9ad1`, from `contracts/deployments/sepolia.json`) is in the prose of the appeal and registration steps, not in the pinned deployment JSON: `site/check.mjs` holds that block equal to `examples/deployments.ts`, which does not carry `bonds`. D48 default 5 asked for the pin with T-220; a pin in `examples/` is outside this task's paths (Handoff).
-6. **Two honest limits added:** a step the operators cannot read (residual 13 in `docs/neutrality.md`, which Rafa has not yet placed before or after this deploy), and T-221's line that an appeal adjudicator's decision is final.
-7. **The fork run starts from the deployed build's rulebook,** by opening the world with `beacon: 'sim'` on a Sepolia fork, then reopening the same storage with this build's default. The live club's served hash, `0xd25b…0c25`, equals keccak256 of that sim rulebook (computed from the live `GET /v1/clubs/demo-club`), so the run starts where the live world stands.
+6. **Two honest limits added:** a step the operators cannot read (residual 13 in `docs/neutrality.md`), and T-221's line that an appeal adjudicator's decision is final. The first says a party cannot rule residual 13 out on its own: anyone who copies a signed step from the public mempool can cause it, even for a deal that uses only the API. Rafa's decision on residual 13 is step 7 of the Before list in `docs/operations.md`, a gate on the deploy.
+7. **The fork run starts from the deployed build's rulebook,** by opening the world with `beacon: 'sim'` on a Sepolia fork, then reopening the same storage with this build's default. The live club's served hash, `0xd25b…0c25`, equals keccak256 of that sim rulebook (computed from the live `GET /v1/clubs/demo-club`), so the run starts where the live world's rulebook stands. Its storage is this build's, though: it already has a `cursor` row and books with `chainTxs`. The live storage, written by `dd0a55a`, has neither, so the first sync pass after the deploy reads from the deployment's `fromBlock` (Deploy step 5 in `docs/operations.md`).
 8. **"Shows a direct deliver in the view" means what T-218 built:** within a pass the state read shows the contract's stage (`Delivered`) with a "Behind the chain" notice naming the seller's transaction; once the seller posts the signed delivery, the operator joins it with no second transaction and the `delivery.submitted` event carries `submittedVia: "direct"`. The contract keeps only the delivery's hash, so no event can carry the delivery before the post. The first fork run expected the event before the post and failed there; the test now checks T-218's behaviour.
 9. **Paths beyond the list:** the tests of `world.ts` and the shared anvil harness (`apps/demo-cloud/test/anvil.ts`: `host`, which serves one world after another on fixed origins as a deploy does, and the estimate shim from T-217's fork test); `docs/api.md` (two schema lines, given to this deploy by T-221's Handoff); `docs/neutrality.md` (the beacon row, given to this docs pass by T-217's Handoff). The Paths line above lists them. One row in `docs/team.md`'s Rules and checks, as the team's process asks for a repeated failure mode: fork tests start a few blocks behind the RPC's head.
 10. **The README and `docs/api.md` say "until T-220's deploy"** where the live demo and main differ, so they are true whether the PR merges before or after the deploy. The deploy session removes those clauses (Handoff).
 
 ## Handoff
 
-**State:** review (code ready; the deploy waits for Rafa). Draft [PR 204](https://github.com/rafaeldavid/holdback/pull/204) to main, stacked on PR 202 (T-221 slice 2) and PR 195 (T-219) under it; the Land step merges main in first. Nothing is deployed.
+**State:** review (code ready; the review's four findings fixed, 2026-11-05; the deploy waits for Rafa). Draft [PR 204](https://github.com/rafaeldavid/holdback/pull/204) to main, stacked on PR 202 (T-221 slice 2) and PR 195 (T-219) under it; the Land step merges main in first. Nothing is deployed.
 
 **What changed:**
 - `apps/demo-cloud/src/world.ts`: the chain world's rulebook names `drand-quicknet` with quicknet's chain hash; one `drandQuicknet()` source for the demo adjudicators; `LiveSettlement.beacon` and `.drand`; the notes.
-- Tests: `world.test.ts` (offline: the same storage reopened under this build; the anvil default), `one-world.anvil.test.ts` (an open deal across the switch on anvil; no network), `predeploy-fork.test.ts` (the fork run; opt-in with `SEPOLIA_FORK_RPC`); `apps/demo-cloud/test/anvil.ts` (`host`, `estimateShim`).
+- Tests: `world.test.ts` (offline: the same storage reopened under this build; the anvil default; `llms.txt` names discovery's `defaultAdjudicators`), `one-world.anvil.test.ts` (an open deal across the switch on anvil; no network), `predeploy-fork.test.ts` (the fork run; opt-in with `SEPOLIA_FORK_RPC`); `apps/demo-cloud/test/anvil.ts` (`host`, `estimateShim`).
 - `site/llms.txt` (rebuilt; `site/index.html` and `site/try.mjs` did not change), `docs/operations.md` (the deploy steps and rollback), `README.md`, `docs/api.md`, `docs/neutrality.md`, `docs/backlog.md`, `docs/plan.md`.
 
-**For the deploy (Rafa's go-ahead first):** follow "T-220: round 1's prerequisites in one deploy" in `docs/operations.md`: the reads before, `pnpm demo-cloud:deploy`, the checks, the smoke deal, the site, and the record. Then:
+**For the deploy (Rafa's go-ahead first):** follow "T-220: round 1's prerequisites in one deploy" in `docs/operations.md`: the reads before, Rafa's decision on residual 13 (Before step 7), `pnpm demo-cloud:deploy`, the first sync pass (Deploy step 5: expect deal `0xf0453986…5e5b` to fall behind, and read any other deal that does), the checks, the smoke deal, the site, and the record. Then:
 - fill in this file's Evidence with the deploy's measurements and tick the live criteria;
 - record the versions in `docs/operations.md` and move its T-220 section from "ready" to "live";
 - drop "until T-220's deploy" from `README.md` (line 7 and the Limits list, and move the "Ready to deploy" Status line to "Deployed") and from `docs/api.md`'s demo section, and set `docs/operations.md`'s Schema line to 0.10 live;
 - tell T-216 to rerun round 1 with `--t220`; its driver checks the published bundle against `cc310963…`.
 
 **Open for Rafa:**
-- Residual 13 (`docs/backlog.md`, "the operators' adjudicators act on a deal behind the chain"): the T-218 red team recommends a fix before this deploy. `llms.txt` now states it as an honest limit.
+- Residual 13 (`docs/backlog.md`, "the operators' adjudicators act on a deal behind the chain"): the T-218 red team recommends a fix before this deploy, and `docs/operations.md` makes Rafa's choice a gate (Before step 7). `llms.txt` states it as an honest limit that a party cannot rule out on its own.
 - CI's must-not-skip anvil step: add `apps/demo-cloud/src/one-world.anvil.test.ts` beside `registration.anvil.test.ts` (backlog row; a `.github/` change).
 - D48 default 5, the `bonds` pin in `llms.txt`'s deployment block: it needs `bonds` in `examples/deployments.ts` and `examples/verify.ts`'s pin type, then in `site/check.mjs`'s comparison. Until then the address is in the prose.
 
 **Follow-ups, not built here:**
 - The advisory `judgeBy` on a quicknet round boundary (T-217 Handoff) is a backlog row: an operator change, with T-225.
 - `worker.ts`'s comment on `WORLD_NAMES` still says to bump a name for a schema change; D49 retired that for the Sepolia world. One comment line, outside this task's paths.
+- No test measures the first sync pass on the deployed build's storage shape (no `cursor` row, books without `chainTxs`, a relayed step whose events were lost). An anvil test that strips those from a world's storage before reopening it would; Deploy step 5's expectation is inferred from the code until then.
