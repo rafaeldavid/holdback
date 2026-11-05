@@ -7,7 +7,7 @@
   - the `control/` folder and its hourly workflow in the founders' private repository (the console's code, tests and runbook live there, never here);
   - here: `docs/operations.md` and `docs/costs.md` (once the passcode retires), `docs/decisions-today.md` (D45 notes only), `docs/tasks/T-059-control-access-switch.md`.
 - **Human gate:** **yes.** The Access settings, the service tokens, the GitHub secrets, the storage namespace, the encryption key and every Worker deploy are outside this repository. Rafa does the dashboard steps himself; agents deploy only on his go-ahead, given in chat and recorded in Handoff with the date.
-- **Status:** in progress (live at `control.escrow.stream` since 2026-11-04; a day of hourly runs, the passcode's last traces and a red-team pass on the live console remain)
+- **Status:** paused (since 2026-11-05: nobody is building it). The console is live at `control.escrow.stream` since 2026-11-04. Left: Rafa's step (the passcode out of `.env`, `keys.json` from the template, criteria 1 and 5), the agents' check of the hourly runs and the private push (criterion 4), and a red-team pass on the live console (criterion 6). Set it back to "in progress" when work resumes.
 - **Agent/session:** coordinator side session, 2026-11-04
 
 ## Intent

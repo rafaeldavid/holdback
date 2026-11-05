@@ -5,7 +5,7 @@
 - **Depends on:** T-222 (merged in PR 179, deployed on 2026-11-04 per PR 188), whose standing test seller keeps one address for more than 30 days.
 - **Paths this task may touch:** `apps/demo-cloud/src/world.ts` (`grantFrom` and its `FaucetLedger`), `apps/demo-cloud/src/world.test.ts`; docs: `docs/backlog.md` (its row), `docs/decisions-today.md` (D47's open item), `docs/operations.md` (the test seller's mandate paragraph), `docs/api.md` and `site/llms.txt` (the faucet sentence; `node site/build.mjs` leaves `site/index.html` and `site/try.mjs` unchanged), `docs/plan.md` (this row), `docs/tasks/T-222-test-counterparties.md` (its Handoff item 1), this file.
 - **Human gate:** yes for the deploy: the two operator Workers run the fix only after Rafa deploys them. Everything else is in the repository.
-- **Status:** done (merged in PR 191; it goes live with the next operator deploy, on Rafa's go-ahead, listed in the daily log's "Waiting on Rafa")
+- **Status:** done (merged in PR 191; live since T-220's operator deploy on 2026-11-05, 11:04 UTC)
 - **Agent/session:** faucet renewal session, 2026-11-04, started from the T-222 session
 
 ## Intent
