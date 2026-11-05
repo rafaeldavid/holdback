@@ -5,7 +5,7 @@
 - **Depends on:** T-217 (drand proofs for fallback and appeal), T-218 (direct calls in the operators' view), T-219 (the in-flight row per relayer lane), T-221 (adjudicator registration through the API), and T-220, which ships those four to the live demo in one deploy. Rafa answered all six scope questions on 2026-11-04 (below). The fixed contracts are already live (see Context).
 - **Paths this task may touch:** `examples/e2e-*.ts` (new: the round's keys, its driver, and their tests; the `examples` workspace already holds the agent-side code and viem), `docs/reviews/` (one new file, the round's report), `docs/backlog.md` (rows for what the round finds; the Benched rows once it completes), `docs/plan.md` (this row), this file. No product code: a scenario that fails gets its fix in its own task, and the round re-runs it.
 - **Human gate:** yes. Rafa confirms the scope (done: the questions below, 2026-11-04) and funds the round's master address with Sepolia ETH (done: 2.5, Evidence); the driver tops up the other keys from it. The runs use the public API as any agent may, and send test transactions on Sepolia from test keys. They deploy nothing, except scenario 11's one holdback-op1 redeploy, which waits for Rafa's go-ahead at that moment.
-- **Status:** in progress (the keys, the top-up and the driver landed; the live run of 2026-11-05, after T-220's deploy, passed 1, 2, 3a and 6, and 3d and 10a each failed one check, being diagnosed separately (as the coordinating session reported it; its record is not in this file yet); the foundation for the ten scenarios still waiting, the round's own adjudicator and one file per scenario group, is in draft PR on branch `t-216-remaining-scenarios`; the four groups are built next, in parallel)
+- **Status:** in progress (the keys, the top-up and the driver landed; the live run of 2026-11-05, after T-220's deploy, passed 1, 2, 3a and 6, and 3d and 10a each failed one check, being diagnosed separately (as the coordinating session reported it; its record is not in this file yet); the foundation for the ten scenarios still waiting, the round's own adjudicator and one file per scenario group, is in draft PR 210 on branch `t-216-remaining-scenarios`; the four groups are built next, in parallel)
 - **Agent/session:** the T-216 planning session (the keys); the T-216 driver session (the driver); the T-216 remaining-scenarios session (the round's own adjudicator and the group files, worktree `.worktrees/t-216-rest`)
 
 ## Intent
@@ -314,7 +314,7 @@ Made by the remaining-scenarios session on 2026-11-05, inside the task's paths.
 
 ## Handoff
 
-- **The remaining scenarios (2026-11-05): the foundation is built; the four groups are next,** one session each, in parallel (branch `t-216-remaining-scenarios`, draft PR to main). Each group owns two files and touches no other:
+- **The remaining scenarios (2026-11-05): the foundation is built; the four groups are next,** one session each, in parallel (branch `t-216-remaining-scenarios`, [draft PR 210](https://github.com/rafaeldavid/holdback/pull/210) to main). Each group owns two files and touches no other:
 
   | Group | Scenarios | Scenarios file | Tests file |
   | --- | --- | --- | --- |
