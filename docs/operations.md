@@ -241,6 +241,21 @@ The reviewed settlement contracts are deployed on Ethereum Sepolia (chain ID 111
 
 What each account costs, what caps or alerts it, and where to read its usage read-only: `docs/costs.md` (Phase 9, T-051 to T-056). Billing figures, budgets and the account register stay in a cost directory outside every checkout where agents work (`CROW_COSTS_DIR`); billing credentials stay in `.env.costs` in a dedicated clone on a machine Rafa controls, never in an agent session, a Worker or GitHub Actions.
 
+## Headline metrics (T-066)
+
+Crow Control's headline metrics come from scripts, not from model-written files. Each script reads public sources only, needs no secret, and writes one JSON file that `node scripts/metrics/check.mjs <name> <file>` checks against its schema in `scripts/metrics/schemas/`:
+
+```
+pnpm metrics:deal-timing --out out/deal-timing.json        # stage times per deal: the event log and Sepolia blocks
+pnpm metrics:throughput --deal-timing out/deal-timing.json --out out/throughput.json
+pnpm metrics:ops-cost --deal-timing out/deal-timing.json --out out/ops-cost.json [--runs <one-click run files>]
+pnpm metrics:prices --dry-run                               # new gas and ETH prices for config/ops-cost-prices.json
+```
+
+- **Where they run:** the console's hourly `build` job in the private repository, which holds no secret (T-060's rule), or any laptop. Each takes about 1 to 2 s today (measured, 2026-11-05).
+- **What they read:** both operators' `/v1/status` and `/v1/events` (the event stream does not end on its own, so the reader stops at the head `/v1/status` gave), discovery, the test seller's `agent.json`, and keyless public Sepolia RPCs. Each request has a 5 s timeout and a 1 MiB cap and follows no redirect. A source that fails reads "unknown", never 0.
+- **The harness** (`tools/one-click/`, T-066 slice 1) measures approvals and token cost per deal from the homepage prompt. Where it runs and on what schedule are Rafa's gates (T-066, Gates for Rafa).
+
 ## Gates (ask Rafa first)
 
 Anything outside the repository: a new public deployment target, Sepolia or any public chain, mainnet (never without an audit and his written approval), real keys or money, force pushes or history rewrites (also blocked by the permission deny list), repository settings, publishing or sending anything to other people.
