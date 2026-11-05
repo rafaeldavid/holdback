@@ -1,7 +1,8 @@
 // T-220's fork run before the deploy: the one deploy of T-217, T-218, T-219 and T-221 rehearsed on a Sepolia fork, in
-// today's world changed in place (D49). A world opens as the deployed build opens it (its rulebook names the sim beacon),
-// bonds its adjudicators and funds a deal; then this build opens the same storage, as holdback-op1's deploy restarts the
-// Durable Object, and the run checks every item of T-220's "fork run" criterion:
+// today's world changed in place (D49). A world opens with the deployed build's rulebook (this build's code, with
+// `beacon: 'sim'`), bonds its adjudicators and funds a deal; then this build opens the same storage with its default
+// rulebook, as holdback-op1's deploy restarts the Durable Object, and the run checks every item of T-220's "fork run"
+// criterion:
 //   1. the setup pass finds the three bonds and sends nothing;
 //   2. the rulebook changes in place: the old deal keeps its rulebookHash and moves on, and an offer bound to the old
 //      hash gets 422 rulebook_unknown;
@@ -10,6 +11,10 @@
 //   5. a deal whose primary stays silent is decided by the demo fallback with a drand quicknet proof (T-217);
 //   6. a direct `deliver` shows in the view as `submittedVia: "direct"` (T-218);
 //   7. a world reopened after a broadcast and before its receipt applies that transaction as its relay (T-219).
+//
+// It rehearses the rulebook switch, not the upgrade from the deployed build's code (dd0a55a). The live storage has no
+// `cursor` row and books without `chainTxs`, so its first sync pass reads from the deployment's fromBlock; T-220's
+// Deploy steps in docs/operations.md say what to expect there.
 //
 // Opt-in, like live.test.ts's fork tests: it needs SEPOLIA_FORK_RPC (any Sepolia JSON-RPC), anvil on PATH,
 // contracts/deployments/sepolia.json, and the network for the drand relays. Nothing reaches the real chain: anvil forks
