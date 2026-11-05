@@ -1287,12 +1287,15 @@ export class EvmSettlement implements Settlement {
   /**
    * A timeout this node relayed for a deal behind the chain is mined (T-228). It moves the deal as a transaction read
    * from the chain does (`stillBehind`): dealOf's stage at the receipt's block, the keys its logs release, and no rebuilt
-   * step. A read that fails leaves the book and the lane row as they were, and the next pass applies the receipt.
+   * step. A read that fails, or still shows the stage before the timeout, leaves the book and the lane row as they were,
+   * and the next pass applies the receipt with its own dealOf read (as `send`, review M2).
    */
   private async landBehind(id: Hex32, book: Book, fn: string, to: Address, data: Hex, mined: Mined, options: Relay): Promise<void> {
     const was = book.behind!;
-    // Every timeout moves the stage or the appeal state.
+    // Every timeout moves the stage or the appeal state: an answer that moved neither comes from a node that lags or
+    // follows another fork (red-team on PR 207, attack.t228-stale-receipt-read).
     const stage = await this.atReceipt(() => this.stage(id, mined.blockNumber), (s) => s.stage !== was.stage || s.appeal !== was.appeal);
+    if (stage.stage === was.stage && stage.appeal === was.appeal) throw new Error(`dealOf at ${fn}'s block (${mined.hash}) still shows ${was.stage}; the next sync pass applies the receipt`);
     const tx = chainTx(mined, to, data);
     this.seen(id, mined.hash, book);
     // A deal waiting for its posted delivery records the transaction when it joins.
@@ -1573,8 +1576,13 @@ export class EvmSettlement implements Settlement {
     }
     this.seen(id, tx.hash, book);
     if (book.behind) {
+      const mark = this.log_.length;
       this.stillBehind(id, book, tx, stage);
-      if (note) this.done(tx.hash);
+      if (note) {
+        // The contract took the relayed call: a retry with its Idempotency-Key replays this answer (red-team on PR 207).
+        await this.answer(id, book, note, this.log_.slice(mark).filter((e) => e.commitmentId === id));
+        this.done(tx.hash);
+      }
       return 'behind';
     }
     const from = this.log_.length;
@@ -2174,7 +2182,10 @@ export class EvmSettlement implements Settlement {
     delete book.behind;
     this.dirty.add(id);
     const stage = { stage: behind.stage, appeal: behind.appeal };
-    for (const tx of waiting) {
+    // In chain order: a timeout this node relayed joins the queue when mined, ahead of an earlier direct call no pass has
+    // read yet (red-team on PR 207, attack.t228-waiting-order).
+    const chainOrder = (x: ChainTx, y: ChainTx) => Number(BigInt(x.block) - BigInt(y.block)) || (x.logs[0]?.logIndex ?? 0) - (y.logs[0]?.logIndex ?? 0);
+    for (const tx of [...waiting].sort(chainOrder)) {
       // A later transaction may put the deal behind again; the rest then wait behind it.
       const again = book.behind as Behind | undefined;
       if (again) again.waiting?.push(tx);

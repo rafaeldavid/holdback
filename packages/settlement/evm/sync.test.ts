@@ -12,10 +12,10 @@ import { foundry } from 'viem/chains';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Genesis } from '../sim/simchain.js';
 import type { Submission } from '../src/interface.js';
-import { RelayRefused, type EvmChain } from './chain.js';
+import { RelayRefused, type EvmChain, type LaneRow } from './chain.js';
 import { acceptanceView, agreeView, appealView, decisionView, deliveryView, earlyAcceptView, keyProof, mutualView, NO_DELIVERY, NO_KEY, termsView } from './encode.js';
 import { EvmSettlement } from './evm-settlement.js';
-import { ensureBond, LIVE_ABIS, LiveChain, type DeploymentFile } from './live.js';
+import { ensureBond, LIVE_ABIS, LiveChain, type DeploymentFile, type LaneStore } from './live.js';
 import { ChainSync, LOG_RANGE, type Cursor } from './sync.js';
 import { evmCast, evmGenesis, EvmDeal, testActor, type TestActor } from './testing.js';
 import { anvilAvailable, EvmWorld } from './world.js';
@@ -663,7 +663,15 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
    * Sepolia's own nodes estimate these calls (round 1 relayed appeal expiries at 80,792 gas each, T-216).
    */
   function estimating(): LiveChain {
-    const client = new Proxy(chain.publicClient, {
+    return shimmed(chain);
+  }
+
+  /**
+   * `base` behind the estimateGas shim, and with `lagging`, a dealOf read pinned to a block that answers from the block
+   * before while `lagging()` holds: an RPC node on another fork, or one a block behind (red-team on PR 207).
+   */
+  function shimmed(base: LiveChain, lagging?: () => boolean): LiveChain {
+    const client = new Proxy(base.publicClient, {
       get(target, prop) {
         if (prop === 'estimateGas') {
           return async (args: { account: Address; to: Address; data: Hex; value?: bigint }) => {
@@ -676,11 +684,17 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
             }
           };
         }
+        if (prop === 'readContract' && lagging) {
+          return async (args: { functionName: string; blockNumber?: bigint }) => {
+            const lag = lagging() && args.functionName === 'dealOf' && args.blockNumber !== undefined;
+            return (target.readContract as (a: unknown) => Promise<unknown>)(lag ? { ...args, blockNumber: args.blockNumber! - 1n } : args);
+          };
+        }
         const v = Reflect.get(target, prop);
         return typeof v === 'function' ? v.bind(target) : v;
       },
     });
-    const c = Object.create(chain) as LiveChain;
+    const c = Object.create(base) as LiveChain;
     Object.defineProperty(c, 'publicClient', { value: client });
     return c;
   }
@@ -768,6 +782,114 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     // A restart serves the same stage.
     const again = await EvmSettlement.restore(chain, genesis, s.drain(), wall);
     expect((await again.state(d.id))!.escrowState).toBe('Refunded');
+  }, 120_000);
+
+  // Regressions from the review and the red-team pass on PR 207 (T-228, 2026-11-05).
+
+  const answer = (r: Awaited<ReturnType<EvmSettlement['submit']>>) => (r.ok ? `ok: ${r.state.escrowState}${r.replayed ? ' (replayed)' : ''}` : `${r.problem.type}: ${r.problem.detail}`);
+
+  /** Residual 13, case 3, as the T-228 test builds it: the funding and the delivery in one Multicall3 transaction. */
+  async function behindDeal(s: EvmSettlement, sync: ChainSync, tag: string): Promise<EvmDeal> {
+    const { rules, multicall } = chain.deployment;
+    const d = new EvmDeal(s, cast, club, tag);
+    await ok(s, await d.offer());
+    const accept = await d.accept();
+    await ok(s, accept);
+    const af = await d.agreeAndFund();
+    const delivery = await d.deliver();
+    if (accept.kind !== 'adjudicator_accept' || af.kind !== 'agree_and_fund' || delivery.kind !== 'deliver') throw new Error('unreachable');
+    const sellerSignature = s.log().find((e) => e.commitmentId === d.id && e.type === 'commitment.offered')!.payload['sellerSignature'] as Hex;
+    await raw(watcher, multicall, bundle([
+      { target: rules, allowFailure: false, callData: rulesCall('agreeAndFund', [termsView(d.terms), sellerSignature, acceptanceView(accept.message), agreeView(af.agree), { method: 0, signature: af.funding.signature }]) },
+      { target: rules, allowFailure: false, callData: rulesCall('deliver', [termsView(d.terms), deliveryView(delivery.delivery), delivery.delivery.signature]) },
+    ]));
+    expect(await sync.pass()).toMatchObject({ behind: 1 });
+    expect((await s.state(d.id))!.escrowState).toBe('Delivered');
+    return d;
+  }
+
+  it('a dealOf read at a relayed timeout\'s block that still shows the stage before it does not stick: the next pass shows the contract\'s stage (attack.t228-stale-receipt-read)', async () => {
+    let lag = false;
+    const { s, sync } = await node(shimmed(chain, () => lag));
+    const d = await behindDeal(s, sync, 'attack-stale-read');
+    await jump(4_201);
+    expect(answer(await s.trigger(d.id, 'fallback', { via: 'op-1' }))).toBe('ok: FallbackJudging');
+    await jump(600);
+    // An RPC node on another fork, or one a block behind, answers dealOf at the receipt's block from the block before,
+    // for the whole read budget. The relay takes no stage from it: the receipt stays unapplied for the next pass.
+    lag = true;
+    await expect(s.trigger(d.id, 'default', { via: 'op-1' })).rejects.toThrow(/still shows FallbackJudging/);
+    lag = false;
+    // The contract closed the deal and paid the buyer back.
+    expect((await s.stage(d.id)).stage).toBe('Refunded');
+    expect(await s.heldFor(d.id)).toBe(0n);
+    // The next pass reads dealOf itself and applies the receipt; a restart serves the same stage.
+    expect(await sync.pass()).toMatchObject({ applied: 0, behind: 1 });
+    expect((await s.state(d.id))!.escrowState).toBe('Refunded');
+    expect(s.lag(d.id)).toContain('dealOf: Refunded');
+    const again = await EvmSettlement.restore(chain, genesis, s.drain(), wall);
+    expect((await again.state(d.id))!.escrowState).toBe('Refunded');
+  }, 120_000);
+
+  it('a relayed timeout queued ahead of an earlier direct takeover joins in chain order once the seller posts its delivery (attack.t228-waiting-order)', async () => {
+    const { s, sync } = await node(estimating());
+    const d = await funded('attack-waiting-order', s);
+    const sub = await d.deliver();
+    const del = d.delivery!;
+    await direct(cast.seller, 'deliver', [termsView(d.terms), deliveryView(del), del.signature]);
+    expect(await sync.pass()).toMatchObject({ behind: 1 });
+    expect(s.lag(d.id)).toContain(`POST /v1/commitments/${d.id}/deliveries`);
+    await jump(4_201);
+    // A stranger sends the takeover straight to the contract; no pass reads it before the operator relays the default.
+    await direct(watcher, 'triggerFallback', [termsView(d.terms)]);
+    await jump(600);
+    expect(answer(await s.trigger(d.id, 'default', { via: 'op-1' }))).toBe('ok: Refunded');
+    // The pass queues the earlier takeover after the relayed default.
+    await sync.pass();
+    const joined = await s.submit(sub, { via: 'op-1' });
+    expect({ joined: answer(joined), lag: s.lag(d.id), book: s.escrowState(d.id)!.kind }).toEqual({ joined: 'ok: Refunded', lag: null, book: 'Refunded' });
+    chained(s);
+  }, 120_000);
+
+  it('a takeover broadcast before a restart is sent once, and a retry with its Idempotency-Key replays its answer (attack.t228-restart-double-send)', async () => {
+    const rowKey = (r: LaneRow) => `${r.lane}:${r.from.toLowerCase()}:${r.nonce}`;
+    const storeOf = (m: Map<string, LaneRow>): LaneStore => ({
+      load: async () => [...m.values()].map((r) => structuredClone(r)),
+      write: async (r) => void m.set(rowKey(r), structuredClone(r)),
+      remove: async (rs) => {
+        for (const r of rs) m.delete(rowKey(r));
+      },
+    });
+    const opened = async (rows: Map<string, LaneRow>) => {
+      const base = new LiveChain({ deployment, rpcUrls: [anvil.rpcUrl], relayerKey: HASTY_RELAYER, pollMs: 100 });
+      await base.attach(storeOf(rows));
+      return { base, c: shimmed(base) };
+    };
+    const rowsA = new Map<string, LaneRow>();
+    const a = await opened(rowsA);
+    const s = await EvmSettlement.restore(a.c, genesis, undefined, wall);
+    const sync = new ChainSync(s, await head());
+    const d = await behindDeal(s, sync, 'attack-restart');
+    const before = s.drain();
+    await jump(4_201);
+    const nonce = (x: Address) => chain.publicClient.getTransactionCount({ address: x, blockTag: 'pending' });
+    const sent = async () => (await Promise.all(a.base.lanes.map((l) => nonce(l.address)))).reduce((n, x) => n + x, 0);
+    const start = await sent();
+    // Mining held back: the row is written and the takeover sits in the pool when the node "restarts".
+    await anvil.rpc('evm_setIntervalMining', [0]);
+    const first = s.trigger(d.id, 'fallback', { via: 'op-1', idempotencyKey: 'k-takeover' });
+    for (let i = 0; i < 300 && rowsA.size === 0; i++) await sleep(20);
+    for (let i = 0; i < 300 && (await anvil.rpc<{ pending: Hex }>('txpool_status', [])).pending === '0x0'; i++) await sleep(20);
+    const copy = new Map([...rowsA].map(([k, v]) => [k, structuredClone(v)]));
+    expect(copy.size).toBe(1);
+    await anvil.rpc('evm_setIntervalMining', [1]);
+    expect(answer(await first)).toBe('ok: FallbackJudging');
+    // The restarted node holds the books from before the call and the open row.
+    const b = await opened(copy);
+    const restarted = await EvmSettlement.restore(b.c, genesis, before, wall);
+    expect(answer(await restarted.trigger(d.id, 'fallback', { via: 'op-1', idempotencyKey: 'k-takeover' }))).toBe('ok: FallbackJudging (replayed)');
+    expect((await sent()) - start).toBe(1);
+    expect((await restarted.state(d.id))!.escrowState).toBe('FallbackJudging');
   }, 120_000);
 
   // Regressions from the review and the red-team pass on PR 185 (2026-11-04).
