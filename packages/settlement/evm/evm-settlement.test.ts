@@ -3,14 +3,17 @@
 // which `pnpm verify` would show (it runs forge build first; see scripts/verify.ts).
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { deliveryHash, parseEvent, type SettlementEvent } from '@holdback/core';
-import { encodeFunctionData, getAddress, hashTypedData } from 'viem';
+import { deliveryHash, parseEvent, wholeSecond, type Club, type Hex32, type Mandate, type SettlementEvent } from '@holdback/core';
+import { encodeFunctionData, getAddress, hashTypedData, keccak256, stringToBytes, type Hex } from 'viem';
 import { sign } from 'viem/accounts';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { authorizationExpiry } from '../sim/simchain.js';
-import { RelayRefused } from './chain.js';
+import { authorizationExpiry, type Genesis } from '../sim/simchain.js';
+import type { Submission } from '../src/interface.js';
+import { RelayRefused, type LaneRow } from './chain.js';
+import { EvmSettlement, type Book } from './evm-settlement.js';
 import { measurePath, must, newSettlement, PATHS } from './gas.js';
-import { EvmDeal } from './testing.js';
+import { ensureBond, LiveChain, type DeploymentFile, type LaneStore } from './live.js';
+import { evmCast, evmGenesis, EvmDeal } from './testing.js';
 import { anvilAvailable, EvmWorld, EXPIRY_MARGIN } from './world.js';
 
 const root = join(import.meta.dirname, '..', '..', '..');
@@ -445,4 +448,258 @@ describe.skipIf(!ready)(`EvmSettlement on anvil with tUSDC${ready ? '' : ' (SKIP
     expect(r.ok ? 'ok' : r.problem.type).toBe('payment_required');
     expect(chain.escrowState(d.id)?.kind).toBe('AcceptedByAdjudicator');
   }, 60_000);
+});
+
+/** What a world keeps in storage for its settlement and its lanes (T-219), and what a restart would read from it. */
+class Saved implements LaneStore {
+  books = new Map<Hex32, Book>();
+  events: SettlementEvent[] = [];
+  mandates: Mandate[] = [];
+  rows = new Map<string, LaneRow>();
+  writes = 0;
+  removes = 0;
+  async load(): Promise<LaneRow[]> {
+    return [...this.rows.values()].map((r) => structuredClone(r));
+  }
+  async write(row: LaneRow): Promise<void> {
+    this.writes++;
+    this.rows.set(`${row.lane}:${row.from.toLowerCase()}:${row.nonce}`, structuredClone(row));
+  }
+  async remove(rows: readonly LaneRow[]): Promise<void> {
+    for (const r of rows) if (this.rows.delete(`${r.lane}:${r.from.toLowerCase()}:${r.nonce}`)) this.removes++;
+  }
+  /** The world's persist: the books and events, then the rows their receipts applied. */
+  async persist(s: EvmSettlement): Promise<void> {
+    const c = s.drain();
+    for (const [id, b] of c.books) this.books.set(id, b);
+    this.events.push(...c.events);
+    this.mandates.push(...c.mandates);
+    await (s.world as LiveChain).release(c.relayed);
+  }
+  /** What a Durable Object restarted at this moment reads. */
+  copy(): Saved {
+    const out = new Saved();
+    out.books = structuredClone(this.books);
+    out.events = structuredClone(this.events);
+    out.mandates = structuredClone(this.mandates);
+    out.rows = structuredClone(this.rows);
+    return out;
+  }
+}
+
+describe.skipIf(!ready)(`relayed transactions a restart left in flight (T-219; anvil standing in for Sepolia)${ready ? '' : ' (SKIPPED: needs anvil on PATH and forge build output in contracts/out)'}`, () => {
+  let anvil: EvmWorld;
+  let deployment: DeploymentFile;
+  let genesis: Genesis;
+  let club: Club;
+  const cast = evmCast();
+  /** A relayer secret for this suite only (anvil; guards no value). */
+  const relayer = keccak256(stringToBytes('t-219/settlement-relayer'));
+  const chainOf = () => new LiveChain({ deployment, rpcUrls: [anvil.rpcUrl], relayerKey: relayer, pollMs: 100, mintBatchMs: 50 });
+  /** A settlement opened on what `saved` holds, its chain attached to the rows there. */
+  const open = async (saved: Saved) => {
+    const chain = chainOf();
+    await chain.attach(saved);
+    return EvmSettlement.restore(chain, genesis, { books: [...saved.books], events: saved.events, mandates: saved.mandates });
+  };
+  const mining = (on: boolean) => anvil.rpc('evm_setIntervalMining', [on ? 1 : 0]);
+  /**
+   * Submits on `s` with mining held back, and copies the storage once the lane's row is written and the transaction is
+   * in anvil's pool: what a Durable Object restarted between the broadcast and the receipt reads. Then mining goes on.
+   */
+  const interrupted = async (s: EvmSettlement, saved: Saved, sub: Submission, key: string, via?: string) => {
+    await mining(false);
+    const before = saved.writes;
+    const relayed = s.submit(sub, { idempotencyKey: key, ...(via ? { via } : {}) });
+    for (let i = 0; i < 300 && saved.writes === before; i++) await new Promise((r) => setTimeout(r, 20));
+    for (let i = 0; i < 300 && (await anvil.rpc<{ pending: Hex }>('txpool_status', [])).pending === '0x0'; i++) await new Promise((r) => setTimeout(r, 20));
+    const copy = saved.copy();
+    expect(copy.rows.size).toBe(1);
+    await mining(true);
+    const r = await relayed;
+    if (!r.ok) throw new Error(`${sub.kind}: ${r.problem.type}: ${r.problem.detail}`);
+    return { copy, uninterrupted: r };
+  };
+  /** The events of one commitment, as the log holds them. */
+  const of = (s: EvmSettlement, id: Hex32) => s.log().filter((e) => e.commitmentId === id);
+
+  beforeAll(async () => {
+    anvil = await EvmWorld.start(root, { blockTimeSec: 1, token: 'test-usdc' });
+    const d = anvil.deployment;
+    deployment = {
+      chainId: anvil.chainId,
+      fromBlock: Number(d.fromBlock),
+      token: { address: d.token, name: anvil.tokenDomain.name, version: anvil.tokenDomain.version, symbol: 'tUSDC', decimals: 6 },
+      escrow: d.escrow,
+      erc3009Collector: d.erc3009Collector,
+      permit2Collector: d.permit2Collector,
+      multicall: d.multicall,
+      rules: d.rules,
+      bonds: d.bonds,
+      beacon: d.beacon,
+      expiryMarginSec: Number(anvil.expiryMargin),
+    };
+    const setup = chainOf();
+    for (const a of [...setup.lanes.map((l) => l.address), ...Object.values(cast).map((a) => a.address)]) await anvil.rpc('anvil_setBalance', [a, '0x56bc75e2d63100000']);
+    ({ genesis, club } = await evmGenesis({ cast, token: d.token.toLowerCase(), chainId: anvil.chainId, rules: d.rules, start: wholeSecond(Date.now()), buyer: 0n, bond: 0n }));
+    // The world's sim beacon is the contract's SimBeacon, deployed with the zero seed (world.ts).
+    genesis = { ...genesis, simSeed: `0x${'00'.repeat(32)}` };
+    await setup.mint(cast.buyer.address, 10n ** 12n);
+    for (const a of [cast.primary, cast.fallback, cast.appeal]) await ensureBond(setup, a.key, 50_000_000_000n, 10n ** 18n);
+  }, 180_000);
+  afterAll(async () => {
+    await anvil?.rpc('evm_setIntervalMining', [1]).catch(() => undefined);
+    await anvil?.stop();
+  });
+
+  it('a funding, a delivery and a decision each land as the relay after a restart; a retry replays the mined result', async () => {
+    const saved = new Saved();
+    const a = await open(saved);
+    const d = new EvmDeal(a, cast, club, 'restart-mid-step');
+    for (const sub of [await d.offer(), await d.accept()]) expect((await a.submit(sub, { via: 'op-1' })).ok).toBe(true);
+    await saved.persist(a);
+
+    // The funding (the operator fee rides in the same bundle). The client's retry lands it first, then replays it.
+    const fund = await d.agreeAndFund({ operatorFee: { to: cast.operator.address, value: 4_710_000n } });
+    const f = await interrupted(a, saved, fund, 'k-fund', 'op-1');
+    const b = await open(f.copy);
+    const retry = await b.submit(fund, { idempotencyKey: 'k-fund', via: 'op-1' });
+    expect(retry).toMatchObject({ ok: true, replayed: true, state: { escrowState: 'Held' } });
+    // The same events the uninterrupted relay wrote: the operator's label, the adapter's agreement, the fee line.
+    expect(of(b, d.id)).toEqual(of(a, d.id));
+    expect(of(b, d.id).slice(-3).map((e) => [e.type, e.submittedVia, e.payload['source'] ?? null])).toEqual([
+      ['commitment.agreed', 'op-1', 'adapter'],
+      ['fee.operator', 'op-1', null],
+      ['hold.funded', 'op-1', null],
+    ]);
+    expect(retry.ok && retry.events.map((e) => e.type)).toEqual(f.uninterrupted.events.map((e) => e.type));
+    // The same key with another body is a conflict (hard rule: idempotency).
+    const other = await b.submit(await d.agreeAndFund(), { idempotencyKey: 'k-fund', via: 'op-1' });
+    expect(other.ok ? 'ok' : other.problem.type).toBe('idempotency_conflict');
+    await f.copy.persist(b);
+    expect(f.copy.rows.size).toBe(0);
+
+    // The delivery: the next pass's recovery holds the seller-signed delivery, so the primary gets its envelope.
+    const deliver = await d.deliver();
+    const g = await interrupted(b, f.copy, deliver, 'k-deliver', 'op-1');
+    const c = await open(g.copy);
+    expect(await c.recover()).toMatchObject({ applied: 1, failed: 0 });
+    expect(of(c, d.id)).toEqual(of(b, d.id));
+    expect(of(c, d.id).slice(-2).map((e) => [e.type, e.submittedVia])).toEqual([
+      ['delivery.submitted', 'op-1'],
+      ['key.released', 'op-1'],
+    ]);
+    expect(await c.keysFor(d.id, cast.primary.address)).toHaveLength(1);
+    expect(await c.submit(deliver, { idempotencyKey: 'k-deliver', via: 'op-1' })).toMatchObject({ ok: true, replayed: true, state: { escrowState: 'Delivered' } });
+    await g.copy.persist(c);
+
+    // The decision, as the demo's adjudicators submit it (no operator label): Released, and the buyer's key is served.
+    const decide = await d.decide('primary', 'accept');
+    const h = await interrupted(c, g.copy, decide, 'k-decide');
+    const e = await open(h.copy);
+    expect(await e.recover()).toMatchObject({ applied: 1 });
+    expect((await e.state(d.id))!.escrowState).toBe('Released');
+    expect(await e.keysFor(d.id, cast.buyer.address)).toHaveLength(1);
+    expect(of(e, d.id)).toEqual(of(c, d.id));
+    expect(e.log().some((x) => x.commitmentId === d.id && x.type === 'judgment.decided' && x.submittedVia === 'direct')).toBe(true);
+    await h.copy.persist(e);
+    // A later pass has nothing left: the rows are gone once the books are written.
+    expect(h.copy.rows.size).toBe(0);
+    expect(await e.recover()).toMatchObject({ applied: 0, seen: 0 });
+    // One row written and one removed per transaction, across the three restarts (each copy counts its own writes).
+    expect([saved.writes, f.copy.writes, g.copy.writes, h.copy.writes]).toEqual([1, 1, 1, 0]);
+    expect(f.copy.removes + g.copy.removes + h.copy.removes).toBe(3);
+  }, 120_000);
+
+  it("a persist while the answer is being read keeps the row, so a restart still replays the client's retry (review, 2026-11-04)", async () => {
+    const saved = new Saved();
+    const a = await open(saved);
+    const d = new EvmDeal(a, cast, club, 'release-before-replay');
+    for (const sub of [await d.offer(), await d.accept(), await d.agreeAndFund()]) expect((await a.submit(sub, { via: 'op-1' })).ok).toBe(true);
+    await saved.persist(a);
+    expect(saved.rows.size).toBe(0);
+    // The delivery's answer waits on the view's balance reads, after its receipt is applied. Meanwhile another request
+    // (or the pass) persists, and the Durable Object restarts before this request's own persist.
+    const deliver = await d.deliver();
+    const before = saved.writes;
+    let reached = () => {};
+    const atView = new Promise<void>((r) => (reached = r));
+    let proceed = () => {};
+    const gate = new Promise<void>((r) => (proceed = r));
+    const real = a.tokenBalance.bind(a);
+    vi.spyOn(a, 'tokenBalance').mockImplementation(async (who, fresh) => {
+      if (saved.writes > before) {
+        reached();
+        await gate;
+      }
+      return real(who, fresh);
+    });
+    const sending = a.submit(deliver, { idempotencyKey: 'k-view', via: 'op-1' });
+    await atView;
+    await saved.persist(a);
+    const restarted = saved.copy();
+    proceed();
+    expect(await sending).toMatchObject({ ok: true, replayed: false, state: { escrowState: 'Delivered' } });
+    // The row outlives that persist: its receipt's answer was not yet stored.
+    expect(restarted.rows.size).toBe(1);
+    const b = await open(restarted);
+    expect(await b.submit(deliver, { idempotencyKey: 'k-view', via: 'op-1' })).toMatchObject({ ok: true, replayed: true, state: { escrowState: 'Delivered' } });
+    // Without the restart, this request's own persist writes the answer, then deletes the row.
+    await saved.persist(a);
+    expect(saved.rows.size).toBe(0);
+    expect(Object.keys(saved.books.get(d.id)?.replays ?? {})).toContain('k-view');
+  }, 60_000);
+
+  it("after a restart, another body under an open row's Idempotency-Key is a conflict, whatever its commitment (red-team, 2026-11-04)", async () => {
+    const saved = new Saved();
+    const a = await open(saved);
+    const d = new EvmDeal(a, cast, club, 'key-inversion');
+    for (const sub of [await d.offer(), await d.accept()]) expect((await a.submit(sub, { via: 'op-1' })).ok).toBe(true);
+    await saved.persist(a);
+    const fund = await d.agreeAndFund();
+    const f = await interrupted(a, saved, fund, 'k-reused', 'op-1');
+    const b = await open(f.copy);
+    // Before the next pass lands the funding's row, the same key arrives with an offer for another deal.
+    const e = new EvmDeal(b, cast, club, 'key-inversion-other');
+    const other = await b.submit(await e.offer(), { idempotencyKey: 'k-reused', via: 'op-1' });
+    expect(other.ok ? 'ok' : other.problem.type).toBe('idempotency_conflict');
+    expect(b.escrowState(e.id)).toBeNull();
+    // The funding that mined keeps its key: the pass lands it, and the retry replays it.
+    expect(await b.recover()).toMatchObject({ applied: 1, failed: 0 });
+    expect(await b.submit(fund, { idempotencyKey: 'k-reused', via: 'op-1' })).toMatchObject({ ok: true, replayed: true, state: { escrowState: 'Held' } });
+  }, 60_000);
+
+  it('recovers the rows of different relayer lanes side by side: one slow lane does not hold up the others (review, 2026-11-04)', async () => {
+    const saved = new Saved();
+    const probe = chainOf();
+    const ids = [`0x${'00'.repeat(31)}01`, `0x${'00'.repeat(31)}02`] as Hex32[];
+    const [slow, quick] = ids.map((id, i): LaneRow => ({
+      lane: i + 2,
+      from: probe.senderFor(id),
+      nonce: 1_000,
+      hashes: [keccak256(stringToBytes(`t-219/side-by-side/${i}`))],
+      raw: '0x02',
+      sentAt: Date.now(),
+      note: { commitmentId: id, call: 'reclaim', via: 'op-1', submission: { kind: 'trigger', commitmentId: id, timeout: 'reclaim' } },
+    }));
+    expect(slow!.from).not.toBe(quick!.from);
+    await saved.write(slow!);
+    await saved.write(quick!);
+    const s = await open(saved);
+    const chain = s.world as LiveChain;
+    const started: number[] = [];
+    let proceed = () => {};
+    const gate = new Promise<void>((r) => (proceed = r));
+    // Neither transaction exists: the slow lane's receipt wait is held open by the test, the quick one gives up at once.
+    vi.spyOn(chain, 'resume').mockImplementation(async (row) => {
+      started.push(row.lane);
+      if (row.lane === slow!.lane) await gate;
+      return null;
+    });
+    const recovering = s.recover();
+    for (let i = 0; i < 100 && started.length < 2; i++) await new Promise((r) => setTimeout(r, 10));
+    expect(started.sort()).toEqual([slow!.lane, quick!.lane].sort());
+    proceed();
+    expect(await recovering).toMatchObject({ dropped: 2, failed: 0 });
+  });
 });
