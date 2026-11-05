@@ -26,7 +26,9 @@ import { DEFAULTS, ROOT, Sources, fetchCapped, gitCommit, iso, readEvents } from
 import { EFFORTS, buildRunFile, runIdOf } from './metrics.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const EXPECTED_PROMPT = "Run a test deal with Crow's test environment, following https://escrow.stream/llms.txt";
+// The homepage prompt changes with the site (T-229 added the one command to it), so the harness records the prompt
+// as served and checks only that it is the homepage's deal prompt.
+const EXPECTED_PREFIX = 'Run a test deal with Crow';
 const REPLY = 'Yes, go ahead.';
 const WORKERS = ['holdback-op1', 'holdback-op2', 'crow-test-agents'];
 
@@ -82,8 +84,8 @@ if (!args.probe) {
   sources.record('homepage', 'https://escrow.stream/', t0, page.ok, page.ms, page.ok ? null : page.error);
   const m = page.ok ? /<span[^>]*id="prompt"[^>]*>([^<]{1,2000})<\/span>/.exec(page.text) : null;
   if (!m) fail('no #prompt span on https://escrow.stream/');
-  prompt = decode(m[1]);
-  note(`prompt (${prompt === EXPECTED_PROMPT ? 'as expected' : 'CHANGED'}): ${prompt}`);
+  prompt = decode(m[1]).trim();
+  note(`prompt (${prompt.startsWith(EXPECTED_PREFIX) ? 'the deal prompt' : 'NOT the deal prompt'}, ${prompt.length} characters)`);
 }
 
 // --- A clean environment: a fresh visitor has none of this machine's Claude or Anthropic variables. Filtered by name
@@ -190,7 +192,7 @@ function inputQueue() {
 
 // --- Bookkeeping, in integer ms from the start.
 const toolUses = new Map(); // tool_use id -> { tool, startMs, endMs, input }
-const book = { prompt: { text: prompt, matchesExpected: prompt === EXPECTED_PROMPT }, permissionRequests: [], conversational: [], toolCalls: [], errors: [], timedOut: false };
+const book = { prompt: { text: prompt, matchesExpected: prompt.startsWith(EXPECTED_PREFIX) }, permissionRequests: [], conversational: [], toolCalls: [], errors: [], timedOut: false };
 const effortSeen = [];
 let init = null;
 let result = null;
