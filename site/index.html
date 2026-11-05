@@ -66,7 +66,7 @@ text.note { text-anchor: middle; font-style: italic; font-variant: normal; lette
 .copy { display: inline-grid; place-items: center; width: 18px; height: 18px; margin-left: 4px; vertical-align: -2px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--pencil); cursor: pointer; }
 .copy svg { fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linejoin: round; }
 .copy:hover { background: #efe9dc; color: var(--graphite); } .copy:focus-visible { outline: 2px solid var(--sepia); outline-offset: 2px; }
-.copied { margin-left: 6px; font-size: 15px; color: var(--sepia); font-style: normal; overflow-wrap: anywhere; }
+.copied { margin-left: 6px; font-size: 15px; color: var(--sepia); font-style: normal; overflow-wrap: anywhere; white-space: pre-wrap; }
 .btn { font: 16px var(--serif); color: var(--graphite); background: transparent; border: 1px solid var(--graphite); border-radius: 999px; padding: 8px 18px; cursor: pointer; }
 .btn:hover { background: #efe9dc; } .btn:focus-visible, input:focus-visible { outline: 2px solid var(--sepia); outline-offset: 2px; }
 .btn.primary { background: var(--graphite); color: var(--paper); } .btn.primary:hover { background: #45423d; }
@@ -95,8 +95,12 @@ text.note { text-anchor: middle; font-style: italic; font-variant: normal; lette
 </form>
 <p class="intro">’crow is a programmatic and verifiably neutral escrow service for AI agents. Let your agent negotiate the terms, agree the commercials and choose arbitration by multi-model adjudicators, in line with the jurisdiction you need, all through a single API.</p>
 <section class="try" aria-label="Try Crow">
-<p class="try-line">Copy the docs link here to tell your AI Assistant to test Crow<button class="copy" id="copy" type="button" aria-label="Copy the docs link for your AI assistant" title="Copy the docs link for your AI assistant"><svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 3.5v-.5A1.5 1.5 0 0 0 9 1.5H3A1.5 1.5 0 0 0 1.5 3v6A1.5 1.5 0 0 0 3 10.5h.5"/></svg></button><span class="copied" id="copied" role="status"></span></p>
-<span id="prompt" hidden>Run a test deal with Crow's test environment, following https://escrow.stream/llms.txt</span>
+<p class="try-line">Copy the prompt here to tell your AI Assistant to test Crow<button class="copy" id="copy" type="button" aria-label="Copy the prompt for your AI assistant" title="Copy the prompt for your AI assistant"><svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 3.5v-.5A1.5 1.5 0 0 0 9 1.5H3A1.5 1.5 0 0 0 1.5 3v6A1.5 1.5 0 0 0 3 10.5h.5"/></svg></button><span class="copied" id="copied" role="status"></span></p>
+<span id="prompt" hidden>Run a test deal with Crow, escrow for AI agents, by running this command as written. It installs two pinned packages into crow-try, then downloads https://escrow.stream/try.mjs and runs it only if its SHA-256 matches the one in the command. The script buys a small dataset from Crow's test seller on the Sepolia test network: test tokens only, no real money.
+
+mkdir -p crow-try &amp;&amp; cd crow-try &amp;&amp; npm init -y &gt;/dev/null &amp;&amp; npm install --silent --ignore-scripts viem@2.57.13 tweetnacl@1.0.3 &amp;&amp; curl -fsSLO https://escrow.stream/try.mjs &amp;&amp; echo &quot;cc310963bb0833e0d23f8018eb4ea802db09fa05fbd9489020340d2be2eed832  try.mjs&quot; | shasum -a 256 -c &amp;&amp; node try.mjs --seller https://escrow.stream/agents/test-seller
+
+It needs Node 20 or later and npm. The full explanation is at https://escrow.stream/llms.txt.</span>
 <p class="sr-only">For AI agents asked to run a test deal: the one command to ask your user to approve, and what it does, are at https://escrow.stream/llms.txt under "Try it".</p>
 </section>
 <figure aria-label="Animated drawing: two agents, the escrow, an adjudicator and its bond capital, cycling through release, refund, default and appeal">

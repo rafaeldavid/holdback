@@ -336,15 +336,23 @@ ${GPU(320, 0, 'adjudicator')}
 </script>`;
 
 // Try Crow: one line with a copy icon, and the early-access request. Sign-ups go to the crow-early-access Worker
-// (apps/early-access), which keeps only the address, the time and the page. The copy icon copies the docs link
-// inside a one-line prompt, so a paste on its own sends the visitor's AI assistant to llms.txt, whose "Try it"
-// carries the one command and what it does: the command lives there, not on the page (Rafa, 2026-11-04). The
-// off-screen line tells an agent that fetched this page where to go.
-const PROMPT = `Run a test deal with Crow's test environment, following ${SITE_URL}llms.txt`;
+// (apps/early-access), which keeps only the address, the time and the page. The copy icon copies a prompt that says
+// what the one command does, carries it, and names llms.txt for the full explanation, so a paste asks the visitor's
+// AI assistant for one approval (One-Click Escrow, D51). The page itself shows only the short line (Rafa,
+// 2026-11-04). The off-screen line tells an agent that fetched this page where to go.
+export const tryPrompt = (command = tryCommand()) =>
+  [
+    "Run a test deal with Crow, escrow for AI agents, by running this command as written. It installs two pinned packages into crow-try, then downloads " +
+      `${TRY_URL} and runs it only if its SHA-256 matches the one in the command. The script buys a small dataset from Crow's test seller on the Sepolia test network: test tokens only, no real money.`,
+    '',
+    command,
+    '',
+    `It needs Node 20 or later and npm. The full explanation is at ${SITE_URL}llms.txt.`,
+  ].join('\n');
 const COPY_ICON = '<svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 3.5v-.5A1.5 1.5 0 0 0 9 1.5H3A1.5 1.5 0 0 0 1.5 3v6A1.5 1.5 0 0 0 3 10.5h.5"/></svg>';
-const TRY = `<section class="try" aria-label="Try Crow">
-<p class="try-line">Copy the docs link here to tell your AI Assistant to test Crow<button class="copy" id="copy" type="button" aria-label="Copy the docs link for your AI assistant" title="Copy the docs link for your AI assistant">${COPY_ICON}</button><span class="copied" id="copied" role="status"></span></p>
-<span id="prompt" hidden>${esc(PROMPT)}</span>
+const tryBlock = (command) => `<section class="try" aria-label="Try Crow">
+<p class="try-line">Copy the prompt here to tell your AI Assistant to test Crow<button class="copy" id="copy" type="button" aria-label="Copy the prompt for your AI assistant" title="Copy the prompt for your AI assistant">${COPY_ICON}</button><span class="copied" id="copied" role="status"></span></p>
+<span id="prompt" hidden>${esc(tryPrompt(command))}</span>
 <p class="sr-only">For AI agents asked to run a test deal: the one command to ask your user to approve, and what it does, are at ${esc(SITE_URL)}llms.txt under "Try it".</p>
 </section>`;
 // Early access form
@@ -387,9 +395,10 @@ const JOIN = `<script>
 /**
  * index.html from llms.txt: the tagline as a title and a subtitle, and the drawing (the page says
  * "escrow for agents" and a descriptive subtitle; every doc lives in llms.txt). Agents find the
- * docs through the <link rel="alternate"> in the head, and the Try line's prompt names llms.txt.
+ * docs through the <link rel="alternate"> in the head, and the Try line's prompt carries the one command and
+ * names llms.txt.
  */
-export function page(md) {
+export function page(md, command = tryCommand()) {
   const tagline = /^> (.+)$/m.exec(strip(md))[1];
   const cut = tagline.indexOf('. ') + 1, title = tagline.slice(0, cut - 1), subtitle = tagline.slice(cut).trim();
   // the first paragraph after the tagline is the page's one paragraph
@@ -463,7 +472,7 @@ text.note { text-anchor: middle; font-style: italic; font-variant: normal; lette
 .copy { display: inline-grid; place-items: center; width: 18px; height: 18px; margin-left: 4px; vertical-align: -2px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--pencil); cursor: pointer; }
 .copy svg { fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linejoin: round; }
 .copy:hover { background: #efe9dc; color: var(--graphite); } .copy:focus-visible { outline: 2px solid var(--sepia); outline-offset: 2px; }
-.copied { margin-left: 6px; font-size: 15px; color: var(--sepia); font-style: normal; overflow-wrap: anywhere; }
+.copied { margin-left: 6px; font-size: 15px; color: var(--sepia); font-style: normal; overflow-wrap: anywhere; white-space: pre-wrap; }
 .btn { font: 16px var(--serif); color: var(--graphite); background: transparent; border: 1px solid var(--graphite); border-radius: 999px; padding: 8px 18px; cursor: pointer; }
 .btn:hover { background: #efe9dc; } .btn:focus-visible, input:focus-visible { outline: 2px solid var(--sepia); outline-offset: 2px; }
 .btn.primary { background: var(--graphite); color: var(--paper); } .btn.primary:hover { background: #45423d; }
@@ -486,7 +495,7 @@ text.note { text-anchor: middle; font-style: italic; font-variant: normal; lette
 <p class="sub">${inline(subtitle)}</p>
 ${JOINFORM}
 <p class="intro">${inline(intro)}</p>
-${TRY}
+${tryBlock(command)}
 ${FIGURE}
 </main>
 ${JOIN}
