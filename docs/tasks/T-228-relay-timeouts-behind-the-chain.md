@@ -5,7 +5,7 @@
 - **Depends on:** T-218 (PR 185, the chain sync; done) and T-219 (PR 195, the in-flight row per relayer lane; done), whose relay code in `evm-settlement.ts` this changes. Split out of T-227 on 2026-11-05.
 - **Paths this task may touch:** `packages/settlement/evm/evm-settlement.ts` (`send` and the timeout relay for a deal behind the chain, `follow`'s branch for a deal already behind) and `packages/settlement/evm/sync.test.ts`; `docs/neutrality.md` (residual 13); `site/llms.txt` and its build, only once PR 204 (T-220) has merged; `docs/plan.md` (this row); `docs/tasks/T-227-deal-behind-the-chain.md` (the moved timeout part); this file
 - **Human gate:** the deploy waits for Rafa, as every deploy does. No contract change.
-- **Status:** done (the deploy waits for Rafa)
+- **Status:** done
 - **Agent/session:** T-228 workflow session, 2026-11-05, worktree `.worktrees/t-228`, branch `t-228-relay-timeouts`
 
 ## Intent
@@ -42,6 +42,46 @@ The operators' pass sends no party timeout today (`workAt` in `apps/demo-cloud/s
 - The operators' pass sending due timeouts on its own for a deal behind (it sends none for any deal today).
 
 ## Evidence
+
+### The deploy (2026-11-05)
+
+**Deployed and checked; no rollback.** Rafa gave the go-ahead on 2026-11-05: "Yes, deploy it". A deploy session shipped PR 207's merge commit `236786a` to the two operators by the runbook in `docs/operations.md`, in the shape of T-220's deploy. It did not deploy the site, so T-228's line in `llms.txt` goes live with the site's next deploy. The session saved each answer under `reports/t228/` in its worktree (git-ignored). Every line below is measured unless it says otherwise.
+
+| Worker | New version | Rollback target |
+| --- | --- | --- |
+| holdback-op1 | `ba7a2ad9-0172-458a-92a0-5d51d18afd0a` | `1d8a029c-44eb-4276-b5c0-c2c8894b25d5` |
+| holdback-op2 | `7826e3ce-b8ce-422f-a2ea-9e88bd982ba9` | `a042aae3-821a-4efd-856a-42070205c45e` |
+
+**Before** (15:17 to 15:28 UTC):
+1. Auto-merge merged PR 207 at 15:17:46 UTC as `236786a`, after all 12 checks passed on its head `b38f4e0`. A fresh detached worktree on `236786a` passed `pnpm install --frozen-lockfile` and `pnpm build`.
+2. The fork run on `236786a` passed: 1 test in 290 s, forked at Sepolia block 12,070,323, world errors none, all 16 rules-contract calls succeeded. It rehearses T-220's upgrade, not T-228's relay (inferred from the test's header); `sync.test.ts` covers T-228 on anvil.
+3. Both nodes at 15:21:24 UTC: `schemaVersion` 0.10, domain Holdback 0.7, `verifyingContract` `0xf38287e5c5c1f20c6d03be500edbf8a244f27cfa`. The club's `rulebookHash` was `0x3fecb058…d108`, with `randomness` drand quicknet. `GET /v1/adjudicators` listed the three demo adjudicators, each with a `registration` and `observed.bond` `bonded`: `0x71f8…7c9e` primary, `0x594a…68a2` fallback, `0xdee0…f286` appeal.
+4. The world held 23 deals, all final: 15 Released, 6 Refunded, 1 Settled and 1 Expired. 14 were bound to `0x3fecb058…d108` and 9 to `0xd25b8f97…0c25`. One deal was behind the chain: `0xf0453986…5e5b`, `Released` on chain and in the state read, with the notice naming its lost delivery `0x64c5c757…caf1` (T-220's known case). No deal had a timeout due, since every deal was final (inferred), so T-228 had no deal to close.
+5. At Sepolia block 12,070,335: the funding lane `0x6011…f555` held 1.8109 Sepolia ETH (1,810,877,128,750,136,128 wei) at nonce 35. The three deal lanes were at nonces 51, 21 and 24, and the three adjudicators at nonce 2. Every pending nonce equalled its nonce. `cast balance` and `cast nonce` gave the same numbers as the snapshot's RPC reads.
+6. `head.eventSeq` stayed 228 on both nodes from 15:25:47 to 15:26:17 UTC.
+7. `wrangler deployments status` showed holdback-op1 `1d8a029c` and holdback-op2 `a042aae3` live, the rollback targets above.
+
+**Deploy** (15:28:43 to 15:29:20 UTC):
+1. `pnpm demo-cloud:deploy` deployed both Workers on the first try: holdback-op1 at 15:28:56 UTC (startup 502 ms), then holdback-op2 at 15:29:13 UTC (startup 504 ms).
+2. `/v1/status` carries no build marker, and the schema stayed 0.10. So the session read the switch from `npx wrangler@4 tail holdback-op1 --format json`. The first Durable Object event it saw ran `ba7a2ad9`, at 15:29:33 UTC, 36.5 s after holdback-op1's deploy, and so did every later one. The tail saw no event before 15:29:31 UTC, so 36.5 s is an upper bound on the switch.
+
+**After** (15:29 to 15:41 UTC):
+1. At 15:31:13 UTC both nodes served the same JSON as before for `/v1/status` (except `lagSec`), the club, the adjudicators and the commitments listing.
+2. All 23 deals read the same `escrowState`, `appealState`, `rulebookHash`, deadlines, notices, `finalAt` and `lastEventSeq` on both nodes: 46 of 46 reads unchanged. On holdback-op1 each deal's full state read and terms read returned the same JSON as before. T-228 closed no deal.
+3. The tail from 15:29:31 to 15:40:46 UTC: 142 events, all from `ba7a2ad9`. It held 14 alarm passes, 0 exceptions, 0 responses of 500 or more and 0 log lines. Three events ended `canceled` without an exception: both halves of one `GET /v1/events?from=0` that ran 15 s in the Durable Object, and a second run of the 15:34:49 alarm, cancelled after 9 ms, whose first run ended `ok`. Their cause is not established (guessed: a client that closed its connection, and a duplicate alarm delivery).
+4. At Sepolia block 12,070,384 (15:31:13 UTC) the funding lane, the three deal lanes and the three adjudicators had the same balances, nonces and pending nonces as in Before step 5. The first sync passes sent nothing.
+5. **The smoke deal.** `HOLDBACK_OPERATORS=https://api.escrow.stream,https://api2.escrow.stream node examples/try.ts` played both sides, so it used none of the test seller's quota. Commitment `0xb9d3940c…1d37` ended Released in 49 s, final at 15:34:48 UTC, bound to `0x3fecb058…d108`, with an operator fee of 4.71 tUSDC. Deal lane 2 sent all three, and each receipt has status 1:
+   - funded [`0x336c049f…f203`](https://sepolia.etherscan.io/tx/0x336c049f27fa6bb473f216406afb164e679ec1d7fa5dbbf80778a106e2adf203), 840,709 gas;
+   - delivered [`0xf0f4115a…f721`](https://sepolia.etherscan.io/tx/0xf0f4115ac80b970be3ebdf538fde0af144577273f08122f3c4cad43f39f9f721), 173,119 gas;
+   - decided [`0x23fc4860…ddec`](https://sepolia.etherscan.io/tx/0x23fc4860ed65e3dad22a588c99efa179f716161fd9a57633c6e573ee8ea9ddec), 166,808 gas.
+6. **Lane nonces.** At block 12,070,411 (15:36:40 UTC) the funding lane stood at nonce 36 and deal lane 2 at nonce 25; the other five addresses had not moved. A scan of blocks 12,070,335 to 12,070,411 found five transactions from the seven addresses, and each has a cause:
+   - funding lane, nonce 35: the faucet's grant to the smoke deal's two keys, [`0x152aa853…c5e5`](https://sepolia.etherscan.io/tx/0x152aa853c5ceff5be4bd1abd82a7385aaa9a83c0efada88959ac77b0fb5ac5e5), 262,195 gas, at 15:33:12 UTC (inferred from its timing and its Multicall3 target);
+   - deal lane 2, nonces 21 to 23: the smoke deal's three transactions above;
+   - deal lane 2, nonce 24: the smoke deal's appeal expiry, [`0x1800ad28…72d8`](https://sepolia.etherscan.io/tx/0x1800ad284b329f5dfd60ed0f78c55b7094ff0ad2f4cb6c4ff253c857dd7b72d8), 80,792 gas, at 15:36:36 UTC. The deal's `appeal.expired` event names it. The primary adjudicator expires the appeals on its own decisions to free its bond (T-211, `apps/adjudicator/src/service.ts`).
+
+**Not measured on Sepolia:** a relayed timeout for a deal behind the chain. No live deal had one due, and the session sent no transaction beyond the smoke deal.
+
+### The build (before the deploy)
 
 - **The gap, from the code** [measured: `send` in `evm-settlement.ts` at `cfbd509`]: `if (book.behind) refuse('invalid_state', this.lag(id)!)` refused every relay for a deal behind, the five timeouts included.
 - **The pass sends no party timeout** [measured: `workAt` in `apps/demo-cloud/src/world.ts`]: the operators' pass acts only for their adjudicators. Reclaim, default and appeal expiry are a party's trigger, and the fallback takeover is the fallback adjudicator's own step from the book (T-227's scope). So the fix relays the API's timeout call instead of extending the pass.
@@ -92,8 +132,8 @@ The operators' pass sends no party timeout today (`workAt` in `apps/demo-cloud/s
 
 ## Handoff
 
-- **State:** done, merged in PR 207 once CI passed. The review and red-team findings on PR 207 are fixed (see Evidence). The code, the tests, residual 13 and `site/llms.txt` are done. `pnpm verify` passes at `9a88110`, 2026-11-05 15:04 UTC [measured: `reports/verify-t-228-relay-timeouts.md`]. Not deployed: the deploy waits for Rafa, and the `llms.txt` change goes live with it.
-- **Next:** deploy when Rafa says so.
+- **State:** done, and live on both operators since 2026-11-05, 15:29 UTC: holdback-op1 `ba7a2ad9`, holdback-op2 `7826e3ce` (Evidence, "The deploy"). Rafa gave the go-ahead on 2026-11-05: "Yes, deploy it". PR 207 merged once CI passed, with the review and red-team findings fixed. `pnpm verify` passed at `9a88110`, 2026-11-05 15:04 UTC [measured: `reports/verify-t-228-relay-timeouts.md`]. The site is not deployed yet, so T-228's line in `llms.txt` is not live.
+- **Next:** the site's own deploy publishes the `llms.txt` change. To roll back the operators: holdback-op1 `1d8a029c-44eb-4276-b5c0-c2c8894b25d5`, holdback-op2 `a042aae3-821a-4efd-856a-42070205c45e` (`docs/operations.md`, T-228).
 - **Left over, small (all deals, not only those behind):** a retry with the same `Idempotency-Key` that arrives after a failed or stale read at the receipt but before the next sync pass (about 1 min while the deal is recent) runs again and answers `invalid_state`, as on `send`'s path since review M2; after the pass or a restart it replays `ok`.
 - **Left over, view only:** for a deal waiting for its posted delivery, `transactions()` lists the operator's relayed timeout only once the delivery joins (`landBehind` skips `txs.push` there, and `join` records it, labelled `direct`), so the operator's gas spend for such a deal shows late or, if the seller never posts, never.
 - **Not done, by choice:** the operators' pass does not send due timeouts on its own for a deal behind, so someone still calls `POST /v1/commitments/<id>/triggers/<kind>` (anyone may, at no gas). If stuck deals show up in the demo, the pass could send them; that belongs in the backlog, not here.
