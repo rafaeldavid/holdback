@@ -13,8 +13,9 @@
 // 5. Problem pages (D39): one page per problem type the operator answers, with its status and title.
 // 6. The agent guide spells out every encoding an agent computes (D39): no knowledge hides in examples/.
 // 7. try.mjs: site/try.mjs is the current bundle of examples/try.ts, importing only viem and tweetnacl;
-//    the one command (pinned versions, its sha256) heads "Try it" in a filled llms.txt. The page leaves it out:
-//    its Try line's prompt sends the visitor's assistant to llms.txt.
+//    the one command (pinned versions, its sha256) heads "Try it" in a filled llms.txt, which asks for no fetch
+//    before it. The Try line's copied prompt carries the same command and names llms.txt; the visible page does not
+//    show the command (One-Click Escrow, D51).
 // 8. Crow's test seller (D47): the one command buys from it, and "Try it" states its catalog, limits and windows as
 //    apps/test-agents/src/catalog.ts runs them.
 import { existsSync, readFileSync } from 'node:fs';
@@ -140,9 +141,16 @@ expect(command.includes(` viem@${viem} tweetnacl@${tweetnacl} `) && command.incl
 expect(bundle.includes(`npm install viem@${viem} tweetnacl@${tweetnacl}`), 'the try.mjs banner names other versions than the command');
 const filledTry = sampleTxt.slice(sampleTxt.indexOf('## Try it'));
 expect(filledTry.split('\n').find((l) => l.startsWith('mkdir ')) === command, 'a filled llms.txt does not carry the current try command at the top of "Try it"');
-expect(!html.includes('mkdir -p crow-try') && !html.includes(trySha256()), 'index.html carries the try command: it belongs in llms.txt only');
-const prompt = /<span id="prompt" hidden>([^<]*)<\/span>/.exec(html)?.[1] ?? '';
-expect(prompt.endsWith(`${SITE_URL}llms.txt`), "the Try line's prompt does not send the assistant to llms.txt");
+// One-Click Escrow (D51, T-229): the copied prompt carries the exact command, so a fresh assistant asks for one
+// approval; the visible page shows only the Try line.
+const span = /<span id="prompt" hidden>([^<]*)<\/span>/.exec(html);
+const prompt = (span?.[1] ?? '').replaceAll('&quot;', '"').replaceAll('&lt;', '<').replaceAll('&gt;', '>').replaceAll('&amp;', '&');
+expect(prompt.split('\n').includes(command) && prompt.includes(trySha256()), "the Try line's prompt does not carry the current try command on a line of its own");
+expect(prompt.includes(`${SITE_URL}llms.txt`), "the Try line's prompt does not name llms.txt");
+const visible = html.replace(span?.[0] ?? '', '');
+expect(!visible.includes('mkdir -p crow-try') && !visible.includes(trySha256()), 'index.html shows the try command outside the hidden prompt: the page shows only the Try line');
+expect(!/before you ask|fetch https:\/\/escrow\.stream\/try\.mjs/.test(tryIt), '"Try it" asks the agent to fetch try.mjs before the command: each fetch is one more approval');
+expect(tryIt.includes('runs it only if its SHA-256 matches the one in the command') && tryIt.includes('`examples/try.ts`, `agent.ts` and `verify.ts` in https://github.com/rafaeldavid/holdback'), '"Try it" lost a trust anchor: the SHA-256 pin or the source on GitHub');
 
 // 8. Crow's test seller.
 const { LIMITS, TIMING, CHECKS, PRICE_UNITS } = await import(here('../apps/test-agents/src/catalog.ts'));
