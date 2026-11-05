@@ -1,0 +1,119 @@
+{
+  "operatorId": "demo-op-1",
+  "receiptSigner": "0xa00FcA367f1da3d1FE4cbf89fD0ee6162cB9E921",
+  "settlement": {
+    "kind": "chain",
+    "chainId": "11155111"
+  },
+  "domain": {
+    "name": "Holdback",
+    "version": "0.7",
+    "chainId": 11155111,
+    "verifyingContract": "0xf38287e5c5c1f20c6d03be500edbf8a244f27cfa"
+  },
+  "apiVersion": "v1",
+  "schemaVersion": "0.10",
+  "head": {
+    "eventSeq": 239,
+    "lagSec": 0
+  },
+  "settlementModes": [
+    "guaranteed_on_decision"
+  ],
+  "fees": {
+    "operator": {
+      "to": "0x966216a0e06a6d78197714e221a1958e3c7b1ae2",
+      "token": "0x5029787d7e141f2d51788035cc23903652d196b6",
+      "bps": 1,
+      "min": "4710000",
+      "max": null,
+      "appliesAt": "agree-and-fund",
+      "refundable": false
+    }
+  },
+  "apiBaseUrl": "https://api.escrow.stream",
+  "settlementTime": "2026-11-05T16:00:22Z",
+  "limits": {
+    "reads": {
+      "limit": 1200,
+      "windowSec": 60,
+      "per": "client"
+    },
+    "writes": {
+      "limit": 120,
+      "windowSec": 60,
+      "per": "signer"
+    },
+    "idempotency": {
+      "replays": "success-only",
+      "retention": "process"
+    }
+  },
+  "defaultAdjudicators": {
+    "primary": "0x71f8a3e163528c773fb358a718294a0b32697c9e",
+    "fallback": "0x594a2253389936fc7b75d8857f5489cd83de68a2",
+    "appeal": "0xdee00363a7209239d704b4552f0c5965b6afd286"
+  },
+  "demo": {
+    "clubId": "demo-club",
+    "token": {
+      "id": "0x5029787d7e141f2d51788035cc23903652d196b6",
+      "decimals": 6
+    },
+    "adjudicators": [
+      {
+        "role": "primary",
+        "address": "0x71f8a3e163528c773fb358a718294a0b32697c9e",
+        "name": "Demo Adjudicator A (test; real checks, live panel within a daily budget)"
+      },
+      {
+        "role": "fallback",
+        "address": "0x594a2253389936fc7b75d8857f5489cd83de68a2",
+        "name": "Demo Adjudicator B (test; real checks, live panel within a daily budget)"
+      },
+      {
+        "role": "appeal",
+        "address": "0xdee00363a7209239d704b4552f0c5965b6afd286",
+        "name": "Demo Adjudicator C (test; real checks, live panel within a daily budget)"
+      }
+    ],
+    "faucet": {
+      "path": "/v1/faucet",
+      "grant": {
+        "token": "0x5029787d7e141f2d51788035cc23903652d196b6",
+        "amount": "1000000000"
+      },
+      "perAddressEverySec": 3600,
+      "perClientPerWindow": 10
+    },
+    "operators": [
+      "https://api.escrow.stream",
+      "https://api2.escrow.stream"
+    ],
+    "minWindowSec": 60,
+    "judges": {
+      "panel": "live",
+      "registry": {
+        "uri": "file:///config/judges-live.yaml",
+        "hash": "0x6dc7342b9458a837ec3df4b86b4cbca6e5ac9629aa11be17fbb24d4248e001fd"
+      },
+      "models": [
+        "claude-opus-5-5@2026-09-21",
+        "claude-sonnet-5@2026-06-29",
+        "claude-sonnet-5-5@2026-09-28",
+        "deepseek-flash@2026-11-01",
+        "deepseek-v4-pro@2026-11-01"
+      ],
+      "liveCallsPerDay": 30,
+      "liveCallsToday": 3,
+      "tokensToday": {
+        "input": 2787,
+        "output": 561
+      },
+      "day": "2026-11-05"
+    }
+  },
+  "notes": [
+    "Each money step waits for a Sepolia block (about 12 s), so a test deal takes about a minute. A write answers once its transaction is in a block, before the block is final (about 15 minutes). These nodes pay the gas from their own relayer keys (funded from 0x601137a8DE7E195E1426f57C053aFa49B20Ef555); they relay the messages you sign and never sign for you."
+  ]
+}
