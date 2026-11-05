@@ -708,7 +708,8 @@ export class Operator {
     if (op.kind !== 'agree') return [];
     const terms = await ctx.commitment(op.message.commitmentId);
     const state = terms ? await this.o.settlement.state(terms.id) : null;
-    return terms ? [...(await bondNotices(ctx, terms, { primaryAccepted: state !== null && state.escrowState !== 'Offered' })), ...(await turnNotices(ctx, terms))] : [];
+    const primaryAccepted = state !== null && state.escrowState !== 'Offered';
+    return terms ? [...(await bondNotices(ctx, terms, { primaryAccepted })), ...(await turnNotices(ctx, terms, { primaryAccepted }))] : [];
   }
 
   /**

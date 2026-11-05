@@ -451,10 +451,13 @@ const declineNotices = (turns: Partial<Record<AdjudicatorRole, string>>, c: Pick
 
 /**
  * T-221 review: an advisory notice on relayed terms for each of this node's own adjudicators that would decline its
- * role on them, so the parties do not rely on it (D31: the parties chose it; nothing is refused).
+ * role on them, so the parties do not rely on it (D31: the parties chose it; nothing is refused). `primaryAccepted`:
+ * the primary has already taken its turn, so only the fallback and the appeal adjudicator are asked.
  */
-export async function turnNotices(ctx: Pick<PrepareContext, 'declines'>, c: AnyCommitment): Promise<string[]> {
-  return declineNotices(await turnProblems(ctx, c), c);
+export async function turnNotices(ctx: Pick<PrepareContext, 'declines'>, c: AnyCommitment, o: { primaryAccepted?: boolean } = {}): Promise<string[]> {
+  const turns = await turnProblems(ctx, c);
+  if (o.primaryAccepted) delete turns.primary;
+  return declineNotices(turns, c);
 }
 
 /**

@@ -270,6 +270,16 @@ describe('Crow\'s adjudicators are the defaults; others get a warning or, as an 
     expect(((await call('POST', '/v1/prepare/offer', offerInput(undefined))).body.notices ?? []).join(' ')).not.toMatch(/will decline/);
   });
 
+  // attack.default-fallback-declines-silently (T-221 review): an outside primary and an outside appeal adjudicator, with
+  // the fallback left to the default. Crow's fallback would decline every turn under an appeal adjudicator it does not
+  // trust, so it is not filled in, and the refusal names the appeal adjudicators it trusts, for the parties to check.
+  it('attack.default-fallback-declines-silently: fills in no default fallback under an appeal adjudicator it does not trust', async () => {
+    const r = await call('POST', '/v1/prepare/offer', offerInput({ primary: outsider.address, appeal: outsider.address }));
+    expect([r.status, r.body.type, r.body.field]).toEqual([400, 'invalid_terms', 'adjudicators.fallback']);
+    expect(r.body.detail).toMatch(/takes a fallback turn only under an appeal adjudicator it trusts \(.*\), and 0x[0-9a-f]{40} is not one/);
+    for (const a of Object.values(slate())) expect(r.body.detail).toContain(a);
+  });
+
   it('keeps every policy a registration carried, by hash, after a later registration replaces it', async () => {
     const keeper = testAccount('t-221/policy-keeper');
     const signed = async (id: string, issuedAt: string) => {
