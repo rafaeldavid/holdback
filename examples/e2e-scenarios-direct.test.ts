@@ -5,6 +5,7 @@
 // the world reopened from what it had stored when the broadcast went out, as a Durable Object restarted then reads it.
 import { spawn } from 'node:child_process';
 import { mkdtempSync } from 'node:fs';
+import { PassThrough } from 'node:stream';
 import { createServer, type Server } from 'node:http';
 import { createRequire } from 'node:module';
 import type { AddressInfo } from 'node:net';
@@ -16,6 +17,7 @@ import { toHex } from 'viem';
 import { generatePrivateKey, mnemonicToAccount, privateKeyToAccount } from 'viem/accounts';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { roundKey, type Role } from './e2e-keys.ts';
+import { typed } from './e2e-scenarios-direct.ts';
 import { ANVIL_SKIP, anvilReady, driver, ENV, expectNoSecrets, results, root, simWorld, WORLD, type DriverRun, type Served } from './e2e-world.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -168,7 +170,8 @@ async function restartableAnvil(): Promise<Restartable> {
 
 /**
  * The driver as a separate process with its stdin open (e2e-world.ts's `driver` closes it): `onLine` sees each line it
- * prints, and may answer on its stdin, as Rafa presses Enter at scenario 11's pause.
+ * prints, and may answer on its stdin, as Rafa types `deployed` at scenario 11's pause. The answer starts with a stray
+ * Enter, as one typed earlier in a long run would still be buffered: the driver must ignore it.
  */
 function interactive(args: string[], env: Record<string, string>, onLine: (line: string, answer: () => void) => void): Promise<DriverRun> {
   return new Promise((resolve) => {
@@ -182,13 +185,40 @@ function interactive(args: string[], env: Record<string, string>, onLine: (line:
       for (let i = partial.indexOf('\n'); i >= 0; i = partial.indexOf('\n')) {
         const line = partial.slice(0, i);
         partial = partial.slice(i + 1);
-        onLine(line, () => child.stdin.end('\n'));
+        onLine(line, () => {
+          child.stdin.write('\n');
+          child.stdin.end('deployed\n');
+        });
       }
     });
     child.stderr.on('data', (d: Buffer) => (out += d.toString()));
     child.on('exit', (code) => resolve({ code, out }));
   });
 }
+
+describe("typed: scenario 11's pause", () => {
+  it('ignores an Enter typed earlier and any other line, and ends on the word', async () => {
+    const input = new PassThrough();
+    // An Enter typed earlier in the run, still buffered when the pause starts reading.
+    input.write('\n');
+    const other: string[] = [];
+    let done = false;
+    const ended = typed('deployed', input, (line) => other.push(line)).then(() => (done = true));
+    input.write('yes\n');
+    await sleep(50);
+    expect(done).toBe(false);
+    input.write(' Deployed \n');
+    await ended;
+    expect(other).toEqual(['', 'yes']);
+  });
+
+  it('stops with an error when its input closes before the word', async () => {
+    const input = new PassThrough();
+    const ended = typed('deployed', input);
+    input.end('\n');
+    await expect(ended).rejects.toThrow(/stdin closed before "deployed" was typed: scenario 11 waits for Rafa at a terminal/);
+  });
+});
 
 describe('e2e-scenarios-direct.ts', () => {
   it('lists 8 and 11 as built, with what they wait for and no "needs" line', async () => {
@@ -263,14 +293,14 @@ describe('e2e-scenarios-direct.ts', () => {
       expectNoSecrets(seed, r.out, folder);
     }, 600_000);
 
-    it('11 without a restart: pauses after the broadcast, waits for Enter, and fails only the restart checks', async () => {
+    it('11 without a restart: pauses after the broadcast, waits for "deployed", and fails only the restart checks', async () => {
       const out = mkdtempSync(join(tmpdir(), 'e2e-direct-11-plain-'));
-      // A Sepolia block keeps the relayed request open for seconds; here the response waits until Enter.
+      // A Sepolia block keeps the relayed request open for seconds; here the response waits until the answer.
       const held = demo.holdNextDelivery();
       let pausedLines: string[] = [];
       const r = await interactive(['run', '11', '--t220', '--no-homepage'], { ...env, E2E_OUT: out }, (line, answer) => {
         if (/\[11\] PAUSED/.test(line)) pausedLines.push(line);
-        if (/Then press Enter here/.test(line)) {
+        if (/Then type deployed and press Enter here/.test(line)) {
           answer();
           held.release();
         }
@@ -280,6 +310,8 @@ describe('e2e-scenarios-direct.ts', () => {
       pausedLines = pausedLines.map((l) => l.replace(/^\[11\] PAUSED +/, ''));
       expect(pausedLines.join('\n')).toMatch(/broadcast the delivery from lane 0x[0-9a-f]{40} at nonce \d+ and has not answered yet/);
       expect(pausedLines.join('\n')).toContain(`npx -y wrangler@4 deploy -c ${root.replace(/\/+$/, '')}/apps/demo-cloud/wrangler.op1.jsonc`);
+      // The stray Enter before the word does not end the pause.
+      expect(pausedLines.join('\n')).toMatch(/ignored a line that is not "deployed"/);
       expect(failed(byId['11']), r.out).toEqual(['holdback-op1 restarted during the pause', 'the restart cut the relayed delivery before holdback-op1 answered it']);
       expect(r.out).toMatch(/^results: 11 fail$/m);
       expectNoSecrets(seed, r.out, folder);
@@ -289,8 +321,8 @@ describe('e2e-scenarios-direct.ts', () => {
       const out = mkdtempSync(join(tmpdir(), 'e2e-direct-11-restart-'));
       const reopen = demo.stopAtNextDelivery();
       const r = await interactive(['run', '11', '--t220', '--no-homepage'], { ...env, E2E_OUT: out }, (line, answer) => {
-        // At the pause, the redeploy: the world restarts on what it stored when the lane row was written, then Enter.
-        if (/Then press Enter here/.test(line)) void reopen.then((again) => again()).then(answer);
+        // At the pause, the redeploy: the world restarts on what it stored when the lane row was written, then the answer.
+        if (/Then type deployed and press Enter here/.test(line)) void reopen.then((again) => again()).then(answer);
       });
       const { folder, byId } = results(out);
       expect(failed(byId['11']), r.out).toEqual([]);

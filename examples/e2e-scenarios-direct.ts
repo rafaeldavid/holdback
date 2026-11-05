@@ -13,7 +13,7 @@ import { ERC3009_TYPES, freshNonce, fundingNonceOf, TYPES, typedOf } from './ver
 
 /** T-218's target: a direct call shows in the operators' view within one sync pass, 60 s or less. */
 const SYNC_PASS_SEC = 60;
-/** After Rafa presses Enter, how long the driver looks for holdback-op1's restart: the Durable Object took up to 44 s to restart after T-220's deploy (docs/operations.md). */
+/** After Rafa types `deployed`, how long the driver looks for holdback-op1's restart: the Durable Object took up to 44 s to restart after T-220's deploy (docs/operations.md). */
 const RESTART_WAIT_MS = 90_000;
 const PROBE_EVERY_MS = 5000;
 
@@ -161,19 +161,25 @@ async function post(api: string, path: string, key: string, body: J | Uint8Array
 }
 const said = (a: Answer) => ('error' in a ? `no answer (${a.error})` : `HTTP ${a.status}${a.body?.escrowState ? ` ${a.body.escrowState}` : a.body?.type ? ` ${a.body.type}` : ''}`);
 
-/** Resolves when a line arrives on stdin (Rafa presses Enter); rejects when stdin closes first. */
-function pressEnter(): Promise<void> {
+/**
+ * Resolves when `word` arrives as a line on `input` (Rafa types it at scenario 11's pause), ignoring case and spaces
+ * around it. Any other line goes to `other` and is ignored: nothing reads stdin before the pause, so an Enter typed
+ * earlier in a 1.5 to 2 hour run is still buffered and must not end it. Rejects when `input` closes first.
+ */
+export function typed(word: string, input: NodeJS.ReadableStream = process.stdin, other: (line: string) => void = () => undefined): Promise<void> {
   return new Promise((resolve, reject) => {
-    const rl = createInterface({ input: process.stdin });
+    const rl = createInterface({ input });
     let got = false;
-    rl.once('line', () => {
+    rl.on('line', (line) => {
+      if (got) return;
+      if (line.trim().toLowerCase() !== word) return other(line);
       got = true;
       rl.close();
       resolve();
     });
     rl.once('close', () => {
-      (process.stdin as NodeJS.ReadStream & { unref?: () => void }).unref?.();
-      if (!got) reject(new Error('stdin closed before Enter: scenario 11 waits for Rafa at a terminal'));
+      (input as NodeJS.ReadStream & { unref?: () => void }).unref?.();
+      if (!got) reject(new Error(`stdin closed before "${word}" was typed: scenario 11 waits for Rafa at a terminal`));
     });
   });
 }
@@ -338,11 +344,11 @@ export const DIRECT: Scenario[] = [
         r.say(`holdback-op1 broadcast the delivery from lane ${lane} at nonce ${nonce} and has not answered yet.`);
         r.say('Now redeploy holdback-op1 with the same code, from the holdback checkout at the commit it runs (docs/operations.md, the latest deploy):');
         r.say(`  npx -y wrangler@4 deploy -c ${CHECKOUT}/apps/demo-cloud/wrangler.op1.jsonc`);
-        r.say('Then press Enter here. The driver then checks that holdback-op1 restarted, and that the delivery\'s events and the buyer\'s key are served.');
+        r.say('Then type deployed and press Enter here; any other line is ignored, so an Enter typed earlier cannot end the pause. The driver then checks that holdback-op1 restarted, and that the delivery\'s events and the buyer\'s key are served.');
         const pausedAt = Date.now();
-        await pressEnter();
+        await typed('deployed', process.stdin, () => r.say('ignored a line that is not "deployed"; type deployed and press Enter once holdback-op1 is redeployed'));
         r.step = 'restart';
-        r.say(`Enter pressed ${Math.round((Date.now() - pausedAt) / 1000)} s after the pause; looking for holdback-op1's restart for up to ${RESTART_WAIT_MS / 1000} s`);
+        r.say(`"deployed" typed ${Math.round((Date.now() - pausedAt) / 1000)} s after the pause; looking for holdback-op1's restart for up to ${RESTART_WAIT_MS / 1000} s`);
         for (const end = Date.now() + RESTART_WAIT_MS; ; await sleep(PROBE_EVERY_MS)) {
           const p = await post(op1, '/v1/ciphertext', probeKey, randomBytes(32));
           probes++;
@@ -350,7 +356,7 @@ export const DIRECT: Scenario[] = [
           if (restarted || Date.now() > end) break;
         }
         r.check('holdback-op1 restarted during the pause', restarted, restarted ? `its Idempotency-Key from before the pause is gone: other bytes under the same key answered 200 (probe ${probes})` : `other bytes under the key from before the pause still answer 409 idempotency_conflict after ${probes} probes over ${RESTART_WAIT_MS / 1000} s: no restart seen`);
-        const first = await Promise.race([answer, sleep(120_000).then((): Answer => ({ error: 'no answer 120 s after Enter', at: Date.now() }))]);
+        const first = await Promise.race([answer, sleep(120_000).then((): Answer => ({ error: 'no answer 120 s after "deployed"', at: Date.now() }))]);
         r.check('the restart cut the relayed delivery before holdback-op1 answered it', !('status' in first && first.status === 200), `the delivery's own request: ${said(first)}${'status' in first && first.status === 200 ? ', so holdback-op1 applied the receipt before it restarted' : ''}`, 'inferred');
       }
       // The client's retry (T-219): the same Idempotency-Key and body get the mined result, not invalid_state.
