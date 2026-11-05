@@ -126,7 +126,7 @@ Made by the T-220 session on 2026-11-05; Rafa can overrule any of them.
 
 ## Handoff
 
-**State:** review (code ready; the deploy waits for Rafa). Draft PR to main, stacked on PR 202 (T-221 slice 2) and PR 195 (T-219) under it; the Land step merges main in first. Nothing is deployed.
+**State:** review (code ready; the deploy waits for Rafa). Draft [PR 204](https://github.com/rafaeldavid/holdback/pull/204) to main, stacked on PR 202 (T-221 slice 2) and PR 195 (T-219) under it; the Land step merges main in first. Nothing is deployed.
 
 **What changed:**
 - `apps/demo-cloud/src/world.ts`: the chain world's rulebook names `drand-quicknet` with quicknet's chain hash; one `drandQuicknet()` source for the demo adjudicators; `LiveSettlement.beacon` and `.drand`; the notes.

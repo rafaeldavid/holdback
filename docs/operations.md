@@ -99,7 +99,7 @@ After the deploy, a smoke deal ended Released in 44 s, and the test seller sold 
 
 ### T-220: round 1's prerequisites in one deploy (ready; waits for Rafa's go-ahead)
 
-**State:** the code is ready on PR "feat(t-220)" (stacked on PR 202 and PR 195); nothing is deployed. Rafa approves the deploy, and quotes his go-ahead with its date in T-220's Evidence. The world stays `holdback-public-demo-sepolia-2026-11-04` (D49): `WORLD_NAMES` does not change.
+**State:** the code is ready in draft PR 204 (stacked on PR 202 and PR 195); nothing is deployed. Rafa approves the deploy, and quotes his go-ahead with its date in T-220's Evidence. The world stays `holdback-public-demo-sepolia-2026-11-04` (D49): `WORLD_NAMES` does not change.
 
 **What it carries,** since the deployed build (`dd0a55a`): the drand quicknet source for fallback and appeal decisions and the rulebook that names it (T-217, T-220), direct contract calls in the operators' view (T-218), an in-flight row per relayer lane (T-219), adjudicator registration through the API with schema 0.10 (T-221), a fresh 30-day mandate at every faucet grant (T-223), and post-receipt reads at the receipt's block (T-226). No contract changes, no new secret, no new variable. The gas quote stays at `OPERATOR_FEE_GAS` 4700000 (4.70 tUSDC) until T-215 lands.
 
