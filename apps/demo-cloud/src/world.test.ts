@@ -353,6 +353,16 @@ describe('adjudicator registrations in the world store (T-221 slice 2, ADR-0030)
     expect((await page(second.urls[1])).items).toEqual(before);
   });
 
+  it('the agent guide names the defaults where discovery serves them: `defaultAdjudicators`, and `observed.defaultFor` (T-220 review)', async () => {
+    const { urls } = await serve({}, new MemoryStorage(), undefined, { passes: false });
+    const d = await discovery(urls);
+    expect(Object.keys(d.defaultAdjudicators).sort()).toEqual(['appeal', 'fallback', 'primary']);
+    const guide = readFileSync(new URL('../../../site/llms.txt', import.meta.url), 'utf8');
+    const start = guide.indexOf('## Run your own adjudicator');
+    const section = guide.slice(start, guide.indexOf('\n## ', start + 3));
+    for (const field of ['`defaultAdjudicators`', '`observed.defaultFor`']) expect(section).toContain(field);
+  });
+
   it('an outside adjudicator registers at either node, both serve it after the demo three, and a reopened world serves it in the same place', async () => {
     const storage = new MemoryStorage();
     // Settlement time stands still, so every registration below is stored in the same second.
