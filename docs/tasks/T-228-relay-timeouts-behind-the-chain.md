@@ -5,7 +5,7 @@
 - **Depends on:** T-218 (PR 185, the chain sync; done) and T-219 (PR 195, the in-flight row per relayer lane; done), whose relay code in `evm-settlement.ts` this changes. Split out of T-227 on 2026-11-05.
 - **Paths this task may touch:** `packages/settlement/evm/evm-settlement.ts` (`send` and the timeout relay for a deal behind the chain, `follow`'s branch for a deal already behind) and `packages/settlement/evm/sync.test.ts`; `docs/neutrality.md` (residual 13); `site/llms.txt` and its build, only once PR 204 (T-220) has merged; `docs/plan.md` (this row); `docs/tasks/T-227-deal-behind-the-chain.md` (the moved timeout part); this file
 - **Human gate:** the deploy waits for Rafa, as every deploy does. No contract change.
-- **Status:** review
+- **Status:** done (the deploy waits for Rafa)
 - **Agent/session:** T-228 workflow session, 2026-11-05, worktree `.worktrees/t-228`, branch `t-228-relay-timeouts`
 
 ## Intent
@@ -92,8 +92,8 @@ The operators' pass sends no party timeout today (`workAt` in `apps/demo-cloud/s
 
 ## Handoff
 
-- **State:** in review as a draft PR. The review and red-team findings on PR 207 are fixed (see Evidence). The code, the tests, residual 13 and `site/llms.txt` are done. `pnpm verify` passes. Not deployed: the deploy waits for Rafa, and the `llms.txt` change goes live with it.
-- **Next:** merge once CI passes, mark this task done, and deploy when Rafa says so.
+- **State:** done, merged in PR 207 once CI passed. The review and red-team findings on PR 207 are fixed (see Evidence). The code, the tests, residual 13 and `site/llms.txt` are done. `pnpm verify` passes at `9a88110`, 2026-11-05 15:04 UTC [measured: `reports/verify-t-228-relay-timeouts.md`]. Not deployed: the deploy waits for Rafa, and the `llms.txt` change goes live with it.
+- **Next:** deploy when Rafa says so.
 - **Left over, small (all deals, not only those behind):** a retry with the same `Idempotency-Key` that arrives after a failed or stale read at the receipt but before the next sync pass (about 1 min while the deal is recent) runs again and answers `invalid_state`, as on `send`'s path since review M2; after the pass or a restart it replays `ok`.
 - **Left over, view only:** for a deal waiting for its posted delivery, `transactions()` lists the operator's relayed timeout only once the delivery joins (`landBehind` skips `txs.push` there, and `join` records it, labelled `direct`), so the operator's gas spend for such a deal shows late or, if the seller never posts, never.
 - **Not done, by choice:** the operators' pass does not send due timeouts on its own for a deal behind, so someone still calls `POST /v1/commitments/<id>/triggers/<kind>` (anyone may, at no gas). If stuck deals show up in the demo, the pass could send them; that belongs in the backlog, not here.
