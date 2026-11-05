@@ -16,8 +16,8 @@
   - settlement: one new test file under `packages/settlement/evm/` for the anvil end to end, with no edits to `evm-settlement.ts` (T-218's);
   - docs: `docs/decisions/ADR-0030-adjudicator-registration.md` (new), `docs/api.md`, `docs/neutrality.md`, `docs/backlog.md`, `docs/plan.md` (this row, and the named test's row in the scenario index), this file.
 - **Human gate:** no. The live deploy is T-220's.
-- **Status:** in progress (slice 1 merged)
-- **Agent/session:** Claude Code session on branch `t-221-registration-slice-1` (slice 1); slice 2 to come. The planning branch `t-221-adjudicator-registration` (PR 176) is a different branch.
+- **Status:** review (slice 1 merged in PR 184; slice 2 in review)
+- **Agent/session:** Claude Code sessions on branch `t-221-registration-slice-1` (slice 1, PR 184) and `t-221-registration-slice-2` (slice 2, worktree `.worktrees/t-221-s2`). The planning branch `t-221-adjudicator-registration` (PR 176) is a different branch.
 
 ## Intent
 
@@ -45,6 +45,8 @@ Its confidence is high on the direction, medium on the message shape (the ADR se
 
 **Slice 1, restated by its session (2026-11-04).** Make `POST /v1/adjudicators` real on any operator that has a registration store: verify a self-signed record, keep one per address, serve it with its signature, its live bond and what the node observed, default the roles an offer leaves out to the node's own adjudicators, warn about unbonded ones, and refuse to prepare or relay terms whose fallback cannot pay the overturn clause. Non-goals for slice 1: the demo's Durable Object store and live Sepolia bond reads (`world.ts`, after T-219), the reference adjudicator's fallback trust rule (`service.ts`, after T-217), a `parse.ts` parser for the posted record (after T-217), the anvil end to end and the fork smoke, the deploy (T-220), and anything in `evm-settlement.ts` (T-218's).
 
+**Slice 2, restated by its session (2026-11-05).** Close D44's second path first: Crow's reference adjudicator takes a fallback turn only under an appeal adjudicator it trusts. With that in place, give the demo world a real registration store: one Durable Object row per address, never removed, read once at open and paged in first-storage order. The demo's three adjudicators register through it, signed by their own keys and idempotent across restarts on today's Sepolia world. Read any named adjudicator's bond live from `HoldbackBonds`, and count the rows in telemetry. Then show the whole path on the contracts deployed to anvil: an outside adjudicator registers through the API, bonds from its own key, accepts and decides as primary, is overturned from its bond when it decides wrongly, and is refused under another registry. Non-goals: the deploy and the `llms.txt` text (T-220), the optional `parse.ts` parser, the reference adjudicator's lifetime bond limit (a backlog row), anything in `evm-settlement.ts`, and running the fork smoke (it needs a Sepolia RPC).
+
 ## Context
 
 - The research pass above, §1 to §8; ADR-0005, ADR-0007, ADR-0014, ADR-0020, ADR-0023 (the version rule), ADR-0024 §6 (`KeyRegistration`), ADR-0028, ADR-0029.
@@ -71,11 +73,11 @@ Its confidence is high on the direction, medium on the message shape (the ADR se
   - It refuses only what is malformed, unsigned or out of order: hashes that do not recompute; an `issuedAt` not later than the one it serves (409); an expired message; a body over the size limit.
   - It is counted as a write under the throttle.
   - Tests cover each refusal and the replay. A named test shows that a well-formed registration with a fee of `0`, a bond of `0` and an unknown registry hash is accepted (D31).
-- [ ] **Reads.**
+- [x] **Reads.**
   - `GET /v1/adjudicators` lists the registered adjudicators with the demo's three, oldest first, each with its signature and its `pool`, read live from `bondOf` and `freeOf` (cached per block). `GET /v1/adjudicators/{address}` serves the same for one.
   - `prepare/offer`, `/recipients` and the adjudicator service's `registration()` port read the store.
   - The demo's three register through the same path when the world opens, so every served registration is signed.
-- [ ] **The store.** Durable Object rows `ar:<address>`, loaded when the world opens or on first read.
+- [x] **The store.** Durable Object rows `ar:<address>`, loaded when the world opens or on first read.
   - **A registration is never removed** (Rafa, 2026-11-04: "don't remove but be transparent alongside other metrics"). Each served registration shows when it was last used: `lastUsedAt`, the last acceptance or decision this operator relayed or saw from that adjudicator, beside the other public metrics `GET /v1/adjudicators` serves (bond pool, fee). An expired registration stays listed, marked as expired.
   - The rows are counted in telemetry, so storage growth is visible. Keeping every registration has a cost: the research bounded storage by dropping registrations at expiry (§6), so growth is now bounded only by the write throttle and one row per address. State that limit in `llms.txt`, and add a backlog row for when the count matters.
   - The local sim world keeps an in-memory store, so `pnpm sim` and the operator tests exercise the route.
@@ -95,11 +97,11 @@ Its confidence is high on the direction, medium on the message shape (the ADR se
   - **Not built here: the protocol-level half.** It lands in core and the contract in one change, with the next contract redeploy (T-212 item 5, the gasless bond; the backlog row "The protocol refuses a selection the terms cannot pay"). Its design goes in an ADR after its own research pass (Fable, max effort): what "has a bond" means (free bond at least what the clause pays), and that the check is at selection, a read with no lock, because locking a named fallback's bond without its consent is M-3's attack.
   - **Core cannot go first.** The EVM adapter steps core alongside the chain, and it throws when core refuses a step the contract accepted (`packages/settlement/evm/evm-settlement.ts`, "EVM/core divergence"). So a core-only refusal would break the view of a deal funded directly with an unbonded fallback, once T-218 syncs direct calls.
   - **What T-221 builds now: the operator's relay path only.** `prepare/offer`, and the offer and agreement relays in `server.ts`, refuse such terms with `invalid_terms`, saying why. The direct path stays open, as for any operator refusal. Tests cover the refusal and the open direct path.
-- [ ] **The fallback trust rule.** Today `trustedAdjudicators` is checked only when the reference adjudicator accepts as primary. Once outsiders can be primaries, a demo adjudicator named as fallback would decide, encumbering its own bond, under an outsider's appeal adjudicator, who could then slash that bond. D44's attack has a second path.
+- [x] **The fallback trust rule.** Today `trustedAdjudicators` is checked only when the reference adjudicator accepts as primary. Once outsiders can be primaries, a demo adjudicator named as fallback would decide, encumbering its own bond, under an outsider's appeal adjudicator, who could then slash that bond. D44's attack has a second path.
   - The reference adjudicator takes a fallback task only when the deal's appeal adjudicator is in its trusted set. Otherwise it declines with `invalid_terms` and a reason in `notices`.
   - As appeal adjudicator it serves any deal.
   - A named test, `attack.untrusted-appeal-adjudicator-via-fallback`: the demo fallback declines, the deal defaults, and no bond moves. It is listed under the plan's scenario index.
-- [ ] **End to end on anvil** (the EVM adapter's harness, sim beacon).
+- [x] **End to end on anvil** (the EVM adapter's harness, sim beacon). Built in `apps/demo-cloud/src/live.test.ts` (Decisions, slice 2).
   - An outside adjudicator registers through the operator, bonds itself from its own key, and is named primary, with demo fallback and appeal adjudicators. It accepts with an acceptance it builds itself. The deal funds and delivers, the outside adjudicator decides by script, and the deal is Released.
   - In a second deal the outside adjudicator decides wrongly, and the demo appeal adjudicator overturns. `bond.slashed` pays the wronged party from the outside bond.
   - The same registration binding another registry hash is refused by the demo appeal adjudicator with `registry_mismatch`. That tests the `llms.txt` recipe.
@@ -180,6 +182,35 @@ Fill this in before review. Label each item measured, inferred or guessed.
 - **After merging main** (PRs 179, 182 and 183, at `bb79a64`): `site/try.mjs` rebuilt to the same bytes git merged, and `node site/check.mjs` passes [measured]. The first `pnpm verify` failed one test, `apps/demo-cloud/src/world.test.ts:361` (a reopened world's digest); it passed alone three times out of three, and the rerun at 16:49 UTC passed all 9 steps with `pnpm test` at 2,503 passed and 3 skipped, in 112 files, and no snapshot diffs [measured]. This branch changes nothing in `apps/demo-cloud`, so the first failure is load timing [inferred].
 - Not fixed here, by design: draining a default adjudicator's bond with long deals (a backlog row; the reference adjudicator's own limit, `service.ts`); D44's second path waits for slice 2's trust rule, which must land before or with the demo's store (Handoff).
 
+**Slice 2, `pnpm verify` on 2026-11-05 at 06:33 UTC** (`reports/verify-t-221-registration-slice-2.md`, commit `c82c037`, with only this file, ADR-0030 and the plan row uncommitted), measured:
+
+| Step | Command | Status | Time |
+| --- | --- | --- | --- |
+| typecheck | `pnpm typecheck` | pass | 1826 ms |
+| lint | `pnpm lint` | pass | 3819 ms |
+| forge build | `forge build --root contracts` | pass | 1075 ms |
+| forge | `forge test --root contracts` | pass | 15902 ms |
+| test | `pnpm test` | pass | 152687 ms |
+| spec | `pnpm validate:spec` | pass | 561 ms |
+| snap | `pnpm snap` | pass | 8791 ms |
+| snap:local | `pnpm snap --settlement=local` | pass | 14602 ms |
+| demo | `pnpm demo` | pass | 3931 ms |
+
+- No snapshot diffs against HEAD, and no placeholder steps. `pnpm test`: 2,678 passed and 5 skipped, in 118 files plus 1 skipped [measured].
+- The first `pnpm verify` on this branch, on commit `ee4849e`, failed one test: `examples/e2e-round.test.ts:186` expected scenario 3b to wait for T-221. With the demo's registrations now signed, the driver's T-221 check passes and 3b waits for T-216, as the driver intends. Commit `c82c037` changes that one expectation, outside T-221's paths; the file then passed 6 of 6 tests in 150 s, its anvil block included [measured].
+- Test first, the trust rule: with `service.ts` checked out from before `341a606`, `attack.untrusted-appeal-adjudicator-via-fallback` failed its attack case and passed its two control cases; with the rule, all 3 pass [measured, `vitest run apps/adjudicator/src/service.test.ts -t attack.untrusted-appeal-adjudicator-via-fallback`].
+- Test first, the store: with the slice-1 `world.ts`, `telemetry.ts`, `registrations.ts` and `server.ts`, the 4 new store tests and the telemetry storage-prefix test failed (5 of 5); with slice 2 they pass. The four files' suites (`service`, `world`, `registrations`, `telemetry`) passed 172 of 172 in 26.6 s [measured].
+- Reopen cost: a reopened world writes no `ar:` row, and a world created before registrations writes 3 rows on its next open (`world.test.ts`, on a copy of the storage) [measured].
+- The anvil end to end, `apps/demo-cloud/src/live.test.ts` "an outside adjudicator on a live chain", passed in 121.65 s alone; the whole file passed 3 tests, with the 2 fork tests skipped, in 152 s [measured]. It shows each of these on the contracts deployed to anvil:
+  - the registration listed with `observed.bond: "none"` before the deposit, then both nodes serving the 100 tUSDC bond from `HoldbackBonds`, with a signature a reader recovers;
+  - deal 1 Released on the outsider's own acceptance and decision, both relayed by `demo-op-1`, and the buyer opening its copy;
+  - deal 2: a wrong accept, the buyer's appeal, the demo appeal adjudicator's overturn, `bond.slashed` naming the outsider for 25 tUSDC, the outsider's bond 25 tUSDC lower, and the buyer 25 tUSDC up. The escrow state stays Released, since the release paid the seller and the bond pays the buyer;
+  - deal 3: after a re-registration under the live registry, the demo appeal adjudicator refusing with `registry_mismatch`, and the appeal still open after the world's passes;
+  - deal 4: the demo fallback's notice naming the untrusted appeal adjudicator, the deal still Delivered, and the fallback's free bond unchanged.
+- The end to end's first four runs failed on the test's own expectations, never on product code: the decided event's shape, the relaying node's label, the escrow state after an overturn, and deal 4's `deliverBy` (judgeBy counts from it) [measured].
+- The fork smoke is written but has not run: it needs `SEPOLIA_FORK_RPC`, and this session ran nothing that needs a secret or a live network [measured: skipped].
+- Not run: the `reviewer` and `red-teamer` passes, and the cross-family review (Handoff).
+
 ## Decisions
 
 Slice 1, adopted under "autonomy inside the repo" and recorded in ADR-0030 (Proposed); Rafa may overrule any line.
@@ -203,9 +234,29 @@ Slice 1, adopted under "autonomy inside the repo" and recorded in ADR-0030 (Prop
   - The policy id in a check line is JSON-quoted with non-ASCII escaped.
 - **`observed` lives in the OpenAPI listing, not in `adjudicator.schema.json`.** It is the node's view, unsigned, beside `bond`; the schema keeps the adjudicator's own record and its envelope.
 
+Slice 2, adopted the same way; Rafa may overrule any line.
+
+- **The trust rule lands first, in its own commits** (`341a606`), before the store (`c682d98`), as the Handoff required. It applies to every fallback turn, also when the same adjudicator accepted the deal as primary, and it runs before the takeover trigger and again before any judge is called.
+- **The anvil end to end lives in `apps/demo-cloud/src/live.test.ts`,** not in a new file under `packages/settlement/evm/` as the Handoff said. The scenario needs the operator's registration route and Crow's reference adjudicator as appeal adjudicator. `packages/settlement` cannot import `apps/operator` or `apps/adjudicator`, since both depend on it. `live.test.ts` is in this task's paths and already runs the demo world on anvil.
+- **The outside adjudicator in that test runs the reference adjudicator's code under its own key.** It reads deals from the world's settlement view and sends its acceptances, decisions and triggers through the operators' HTTP routes. Its bond comes from its own key by `ensureBond`, with the relayer paying its gas and minting its tUSDC, as the world bonds its own three.
+- **The test reseeds anvil's sim beacon to the world's seed** (`EvmWorld.fresh`) before the world's first pass. `EvmWorld.start` deploys the beacon with a boot seed, while the world derives its seed from its start, so without it the demo appeal adjudicator's beacon value would not match on chain [inferred from `packages/settlement/evm/world.ts` and `apps/demo-cloud/src/world.ts`]. Sepolia is not affected: its rulebook moves to drand in T-220.
+- **The demo's own registrations** use the world's start as `issuedAt`, expire after 365 days, and are signed again only when the record changes or within 30 days of expiry. A restart therefore writes no row.
+- **The bond read on a chain is cached 12 s per address,** at most 1,024 addresses, then the cache starts again. A deposit can show as unbonded for up to 12 s.
+- **A declined fallback turn shows in the state read's `notices`** while the deal is Delivered or FallbackJudging, so the parties see why their deal is heading to the default outcome. It is held in memory, like the declined offers.
+- **Not built here:** the optional `parseAdjudicatorRegistration` in `parse.ts` (the posted record is still checked by `checkRegistration` with the existing parsers), and the reference adjudicator's lifetime limit on its own bond (its backlog row stays open).
+
 ## Handoff
 
 **Slice 1 (this branch):** the ADR, schema 0.10, core's type and helpers, `examples/verify.ts` `TYPES`, the operator route, reads, defaults, warning and fallback refusal, the sim world, and the docs rows. Outside the listed paths, the bump and the new route also needed: the `$id` of every other file in `spec/schemas/` (ADR-0023's rule), `tests/spec.test.ts` (the version and the example), `tests/contract/openapi.contract.test.ts` (one registration in the HTTP contract flow, which requires every documented operation), `spec/README.md` (the changelog), `apps/operator/src/agent-ready.test.ts`, `fee.test.ts` and `operator.test.ts` (the planned count and the version), `apps/operator/src/index.ts` (the export), and `site/try.mjs`, rebuilt by `node site/build.mjs` because it bundles `examples/verify.ts`. `site/llms.txt` is unchanged. The live demo is unchanged until T-220 deploys: it has no registration store yet, so its `POST /v1/adjudicators` would answer 404 after a deploy of slice 1 alone.
+
+**Slice 2 (branch `t-221-registration-slice-2`, worktree `.worktrees/t-221-s2`), status as of 2026-11-05:**
+
+- Done: steps 1 to 3 below, and step 4's test, which skips without `SEPOLIA_FORK_RPC` and has not run. The branch is cut from `main` after PR 184 and PR 186 merged, with T-219's branch (`origin/t-219-lane-in-flight-row` at `58d61c1`, draft PR 195) merged in. It does not yet have `main`'s PR 200 (T-226); the Land step merges `main` first.
+- Left, step 5: the `reviewer` and `red-teamer` passes on slice 2 did not run, because this session had no subagent tool. The cross-family review (DeepSeek, run by Rafa) is still open too.
+- Left, optional: `parseAdjudicatorRegistration` in `parse.ts`, and the reference adjudicator's lifetime bond limit (backlog).
+- Left, step 6: on merge, set Status to done and tick the plan row.
+- For T-220: the first open after the deploy writes 3 `ar:` rows on today's Sepolia world, and each later open writes none (measured on a storage copy in `world.test.ts`). No `WORLD_NAME` change is needed. On this branch `world.ts` passes no `drand` source to the demo adjudicators [measured: `grep drand apps/demo-cloud/src/world.ts` finds only the notes line], so on Sepolia they decide fallback and appeal turns only once T-220 wires one in and the rulebook names drand (D49).
+- For T-216: the driver's `requires(['T-221'])` check passes once the deploy serves a signed demo registration. On an anvil world, an appeal decision needs the sim beacon reseeded to the world's seed, as `live.test.ts` does.
 
 **To resume (slice 2), in this order.** Step 1's trust rule must land before or with step 2's store. Once a world on a chain serves registrations and outsiders can bond, an outside primary with an outside appeal adjudicator can name Crow's fallback and have its bond slashed (D44's second path), whichever of T-217 or T-219 merges first. SimChain worlds are safe meanwhile: an outsider cannot bond there, so it can never be funded as primary (red-team of PR 184, inferred).
 

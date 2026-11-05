@@ -1,6 +1,6 @@
 # ADR-0030: Adjudicators register themselves through the API
 
-- **Status:** Proposed, 2026-11-04. Adopted under "autonomy inside the repo" after a Fable max-effort research pass (`docs/research/2026-11-04-adjudicator-registration.md`) and Rafa's answers on T-221 (D46); Rafa may overrule any line. Built in T-221: slice 1 (this ADR, the schema, core's types and EIP-712, the operator route and reads) on branch `t-221-registration-slice-1`; slice 2 (the demo's Durable Object store, the reference adjudicator's fallback trust rule, the anvil end to end) after T-217 and T-219 merge.
+- **Status:** Proposed, 2026-11-04. Adopted under "autonomy inside the repo" after a Fable max-effort research pass (`docs/research/2026-11-04-adjudicator-registration.md`) and Rafa's answers on T-221 (D46); Rafa may overrule any line. Built in T-221: slice 1 (this ADR, the schema, core's types and EIP-712, the operator route and reads) on branch `t-221-registration-slice-1`; slice 2 (the demo's Durable Object store, the reference adjudicator's fallback trust rule, the anvil end to end) on branch `t-221-registration-slice-2`, after T-217 merged and on T-219's branch.
 - **Date:** 2026-11-04
 - **Raised by:** T-221, from T-216 (the first full EVM end-to-end round needs a wrong first decision and a silent adjudicator) and Rafa (2026-11-04): "API should facilitate overturned appeals", then "Yes, plan it".
 - **Builds on:** ADR-0005 (operators relay, never author), ADR-0007 (bonded adjudicators), ADR-0014 (the bond pool and `poolTermsHash`), ADR-0020 (privacy), ADR-0023 (the version rule), ADR-0024 §6 (`KeyRegistration`), ADR-0028 (the demo settles on Sepolia), ADR-0029 (domain 0.7); D29, D31, D32, D43, D44, D46.
@@ -81,6 +81,13 @@ The route is a write, counted against the client's write budget at entry, and th
 
 `prepare/offer`, `/recipients` and the reference adjudicator's `registration()` port read the store. The demo's three adjudicators register through the same path when the world opens, so every served registration is signed (Rafa's answer 2).
 
+**As built in the demo (slice 2).**
+- The world keeps one Durable Object row `ar:<address>` per registration and reads them all with one list when it opens.
+- Each row keeps a sequence number from its address's first storage, and the listing pages by it, because storage lists rows by key.
+- A demo adjudicator signs its registration with the world's start as `issuedAt` and a nonce derived from it. A restart then posts the same digest, the store answers it as unchanged, and the open writes no row.
+- A demo adjudicator signs again, with a later `issuedAt`, only when its record changes (another build's template hashes, live judges turned on or off) or when it is within 30 days of its one-year expiry.
+- On a chain the world reads any address's bond from `HoldbackBonds.bondOf` and `freeOf` and reuses each read for 12 s, about one Sepolia block. A bond deposited just now can show as `"none"` for up to 12 s.
+
 ### 4. Crow's adjudicators are the defaults; others are advanced use
 
 Rafa: "crow's adjudicators are default and custom selection is advanced usage of protocol (outside of recommendation by crow etc.)".
@@ -102,7 +109,9 @@ Rafa: "crow's adjudicators are default and custom selection is advanced usage of
 
 ### 6. The fallback trust rule (slice 2)
 
-Once outsiders can be primaries, a Crow adjudicator named as fallback would decide under an outsider's appeal adjudicator, encumbering its own bond, and that appeal adjudicator could slash it: a second path to D44's attack. The reference adjudicator takes a fallback task only when the deal's appeal adjudicator is in its trusted set, and otherwise declines with `invalid_terms` and a reason in `notices`. As appeal adjudicator it serves any deal. The named test is `attack.untrusted-appeal-adjudicator-via-fallback`. It lands in `apps/adjudicator/src/service.ts` after T-217 merges.
+Once outsiders can be primaries, a Crow adjudicator named as fallback would decide under an outsider's appeal adjudicator, encumbering its own bond, and that appeal adjudicator could slash it: a second path to D44's attack. The reference adjudicator takes a fallback task only when the deal's appeal adjudicator is in its trusted set, and otherwise declines with `invalid_terms` and a reason in `notices`. As appeal adjudicator it serves any deal. The named test is `attack.untrusted-appeal-adjudicator-via-fallback`.
+
+As built (slice 2, `apps/adjudicator/src/service.ts`): the reference adjudicator checks the rule before it triggers a takeover and again before it judges, also when it accepted the same deal as primary. A declined turn calls no judge and reserves no bond, and the deal takes its default outcome at `fallbackBy` unless the primary decides. The demo world shows the reason in the state read's `notices` while the deal is Delivered or FallbackJudging. The anvil end to end in `apps/demo-cloud/src/live.test.ts` shows the same on the contracts: the demo fallback's free bond stays the same.
 
 ### 7. What a reader checks
 
