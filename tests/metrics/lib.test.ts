@@ -108,7 +108,7 @@ describe('the event log reader', () => {
 
   it('falls back to node 2 when node 1 does not answer', async () => {
     const fetchImpl = async (url: string, init: RequestInit) => {
-      if (url.startsWith('https://one.test')) return new Response('down', { status: 503 });
+      if (new URL(url).host === 'one.test') return new Response('down', { status: 503 });
       if (url.endsWith('/v1/status')) return new Response(JSON.stringify({ head: { eventSeq: head } }));
       return endless(sse(events), init.signal);
     };
