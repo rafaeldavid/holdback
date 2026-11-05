@@ -12,12 +12,14 @@ import {
   decodeEventLog,
   decodeFunctionData,
   encodeAbiParameters,
+  formatGwei,
   getAddress,
   hashStruct,
   http,
   keccak256,
   parseAbiParameters,
   toBytes,
+  TransactionNotFoundError,
   TransactionReceiptNotFoundError,
   type Abi,
   type Address,
@@ -27,6 +29,7 @@ import {
 import { privateKeyToAccount } from 'viem/accounts';
 import { foundry, sepolia } from 'viem/chains';
 import type { DeploymentFile } from './deployments.ts';
+import { MAX_FEE_PER_GAS } from './e2e-keys.ts';
 import { jcsHash, Refusal, TYPES } from './verify.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -157,21 +160,62 @@ export class RoundChain {
   }
 
   link = (tx: string) => (this.explorer ? `${this.explorer}/tx/${tx}` : tx);
-  private read = <T>(contract: keyof typeof ABIS, address: string, functionName: string, args: unknown[]): Promise<T> =>
-    this.client.readContract({ address: getAddress(address), abi: ABIS[contract], functionName, args }) as Promise<T>;
+
+  /**
+   * How a read pinned to a block is retried. A load-balanced RPC (publicnode) can route it to a node that does not have
+   * the block yet, which answers an error ("header not found") instead of a state. Sepolia makes a block every 12 s, so
+   * 8 tries 2 s apart, 14 s of waiting, outlast a node one block behind [inferred].
+   */
+  pinnedRetry = { tries: 8, gapMs: 2000 };
+
+  /** The newest block this round has read a receipt from: its own sends, and the deals' transactions it read back. */
+  private seen = 0n;
+
+  /** `call`, tried again `pinnedRetry.gapMs` apart while `again` says its error is a node behind, up to `pinnedRetry.tries` times. */
+  private async behind<T>(call: () => Promise<T>, again: (e: unknown) => boolean = () => true): Promise<T> {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await call();
+      } catch (e) {
+        if (attempt >= this.pinnedRetry.tries || !again(e)) throw e;
+        await new Promise((r) => setTimeout(r, this.pinnedRetry.gapMs));
+      }
+    }
+  }
+
+  /**
+   * A view call at the latest block, or at block `at`: the state after that block. Evidence read at the deal's last
+   * block is never the state from before its last transaction, as a node one block behind served it in round 1's
+   * 2026-11-05 run (3d and 10a). A pinned read that fails is tried again, and after its tries it throws: it never falls
+   * back to the latest block.
+   */
+  private read = async <T>(contract: keyof typeof ABIS, address: string, functionName: string, args: unknown[], at?: bigint): Promise<T> => {
+    const call = () => this.client.readContract({ address: getAddress(address), abi: ABIS[contract], functionName, args, ...(at === undefined ? {} : { blockNumber: at }) }) as Promise<T>;
+    return at === undefined ? call() : this.behind(call);
+  };
+
+  /**
+   * The block a read of the state now is pinned to: the latest block the RPC reports, or, when the node that answers is
+   * behind it, the block of the newest transaction this round has read a receipt from. A deal's starting balances read
+   * right after the round's own mint then include the mint, as its closing balances will [inferred from 3d and 10a].
+   */
+  async fresh(): Promise<bigint> {
+    const latest = await this.client.getBlockNumber({ cacheTime: 0 });
+    return latest > this.seen ? latest : this.seen;
+  }
   private get token() {
     return getAddress(this.deployment.token.address);
   }
 
-  /** `dealOf(id)`: the stage, the appeal state and the attempt. */
-  async deal(id: Hex): Promise<{ stage: string; appeal: string; attempt: number }> {
-    const d = await this.read<{ stage: number; appeal: number; attempt: number }>('rules', this.deployment.rules, 'dealOf', [id]);
+  /** `dealOf(id)`: the stage, the appeal state and the attempt, at the latest block or after block `at`. */
+  async deal(id: Hex, at?: bigint): Promise<{ stage: string; appeal: string; attempt: number }> {
+    const d = await this.read<{ stage: number; appeal: number; attempt: number }>('rules', this.deployment.rules, 'dealOf', [id], at);
     return { stage: STAGES[d.stage] ?? `stage ${d.stage}`, appeal: APPEAL_STATES[d.appeal] ?? `appeal ${d.appeal}`, attempt: d.attempt };
   }
 
-  /** CPP's payment state for the deal: what the escrow can still capture or refund, in base units. */
-  async payment(terms: J, id: Hex): Promise<{ collected: boolean; capturable: string; refundable: string }> {
-    const [collected, capturable, refundable] = await this.read<readonly [boolean, bigint, bigint]>('escrow', this.deployment.escrow, 'paymentState', [paymentHashOf(terms, id, this.deployment)]);
+  /** CPP's payment state for the deal: what the escrow can still capture or refund, in base units, at the latest block or after block `at`. */
+  async payment(terms: J, id: Hex, at?: bigint): Promise<{ collected: boolean; capturable: string; refundable: string }> {
+    const [collected, capturable, refundable] = await this.read<readonly [boolean, bigint, bigint]>('escrow', this.deployment.escrow, 'paymentState', [paymentHashOf(terms, id, this.deployment)], at);
     return { collected, capturable: capturable.toString(), refundable: refundable.toString() };
   }
 
@@ -179,14 +223,14 @@ export class RoundChain {
     return this.read<Hex>('rules', this.deployment.rules, 'deliveryHashOf', [id]);
   }
 
-  /** Each address's test-token balance, bond and free bond in HoldbackBonds, in base units. */
-  async holdings(addresses: readonly string[]): Promise<Record<string, { token: string; bond: string; free: string }>> {
+  /** Each address's test-token balance, bond and free bond in HoldbackBonds, in base units, at the latest block or after block `at`. */
+  async holdings(addresses: readonly string[], at?: bigint): Promise<Record<string, { token: string; bond: string; free: string }>> {
     const out: Record<string, { token: string; bond: string; free: string }> = {};
     for (const a of addresses) {
       const [token, bond, free] = await Promise.all([
-        this.read<bigint>('token', this.token, 'balanceOf', [getAddress(a)]),
-        this.read<bigint>('bonds', this.deployment.bonds, 'bondOf', [getAddress(a), this.token]),
-        this.read<bigint>('bonds', this.deployment.bonds, 'freeOf', [getAddress(a), this.token]),
+        this.read<bigint>('token', this.token, 'balanceOf', [getAddress(a)], at),
+        this.read<bigint>('bonds', this.deployment.bonds, 'bondOf', [getAddress(a), this.token], at),
+        this.read<bigint>('bonds', this.deployment.bonds, 'freeOf', [getAddress(a), this.token], at),
       ]);
       out[a.toLowerCase()] = { token: token.toString(), bond: bond.toString(), free: free.toString() };
     }
@@ -197,9 +241,15 @@ export class RoundChain {
     return this.client.getBalance({ address: getAddress(a) });
   }
 
-  /** A mined transaction with its gas, block, the HoldbackRules calls it carried and its decoded logs. */
+  /**
+   * A mined transaction with its gas, block, the HoldbackRules calls it carried and its decoded logs. A node behind the
+   * transaction's block has no receipt for it yet, even right after waitForTransactionReceipt saw one on another node:
+   * a read that finds none is tried again (`pinnedRetry`), then throws.
+   */
   async transaction(tx: Hex): Promise<TxRecord> {
-    const [receipt, sent] = await Promise.all([this.client.getTransactionReceipt({ hash: tx }), this.client.getTransaction({ hash: tx })]);
+    const notYet = (e: unknown) => e instanceof TransactionReceiptNotFoundError || e instanceof TransactionNotFoundError;
+    const [receipt, sent] = await this.behind(() => Promise.all([this.client.getTransactionReceipt({ hash: tx }), this.client.getTransaction({ hash: tx })]), notYet);
+    if (receipt.blockNumber > this.seen) this.seen = receipt.blockNumber;
     const logs: TxRecord['logs'] = [];
     for (const log of receipt.logs) {
       const contract = this.contracts[log.address.toLowerCase()];
@@ -254,22 +304,28 @@ export class RoundChain {
 
   /**
    * Sends one call from a round key, past the operators, after simulating it so a refusal reads as the contract's
-   * revert, and waits for its receipt. The key pays the gas from its own Sepolia ETH.
+   * revert, and waits for its receipt. The key pays the gas from its own Sepolia ETH, at most MAX_FEE_PER_GAS a unit
+   * (20 gwei, the cap `e2e-keys.ts topup` and the operators' funding lane use): above it the send is refused before it
+   * is signed, so a fee spike stops a scenario instead of draining the key's 0.04 Sepolia ETH.
    */
   async send(key: Hex, contract: keyof typeof ABIS, functionName: string, args: unknown[]): Promise<TxRecord> {
     const account = privateKeyToAccount(key);
     const chain = this.deployment.chainId === SEPOLIA_CHAIN_ID ? sepolia : foundry;
     const address = getAddress(contract === 'token' ? this.deployment.token.address : (this.deployment as J)[contract]);
     const { request } = await this.client.simulateContract({ account, address, abi: ABIS[contract], functionName, args, chain });
+    const fees = await this.client.estimateFeesPerGas({ chain });
+    if (fees.maxFeePerGas > MAX_FEE_PER_GAS) throw new Refusal(`refusing to send ${functionName}: the network asks ${formatGwei(fees.maxFeePerGas)} gwei per gas, above the ${formatGwei(MAX_FEE_PER_GAS)} gwei cap; run the scenario again once fees fall`);
+    // The fees go on the send, not the simulation: a node checks an eth_call's fee fields against the key's balance.
+    const capped = { ...request, maxFeePerGas: fees.maxFeePerGas, maxPriorityFeePerGas: fees.maxPriorityFeePerGas } as typeof request;
     const wallet = createWalletClient({ account, chain, transport: http(this.rpcUrl) });
     let hash: Hex;
     try {
-      hash = await wallet.writeContract(request);
+      hash = await wallet.writeContract(capped);
     } catch (e) {
       // anvil 1.0.0's eth_estimateGas refuses a call that costs less to run than its calldata floor (EIP-7623), such as
       // expireAppeal with the terms as input; the simulation above passed, so send it with a fixed limit instead.
       if (!/gas floor exceeds the gas limit/.test(String((e as Error).message))) throw e;
-      hash = await wallet.writeContract({ ...request, gas: DIRECT_GAS_LIMIT });
+      hash = await wallet.writeContract({ ...capped, gas: DIRECT_GAS_LIMIT });
     }
     await this.client.waitForTransactionReceipt({ hash });
     return this.transaction(hash);
