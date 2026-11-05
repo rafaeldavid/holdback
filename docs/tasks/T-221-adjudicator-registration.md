@@ -16,7 +16,7 @@
   - settlement: one new test file under `packages/settlement/evm/` for the anvil end to end, with no edits to `evm-settlement.ts` (T-218's);
   - docs: `docs/decisions/ADR-0030-adjudicator-registration.md` (new), `docs/api.md`, `docs/neutrality.md`, `docs/backlog.md`, `docs/plan.md` (this row, and the named test's row in the scenario index), this file.
 - **Human gate:** no. The live deploy is T-220's.
-- **Status:** review (slice 1 merged in PR 184; slice 2 in review)
+- **Status:** review (slice 1 merged in PR 184; slice 2 in review in draft PR 202)
 - **Agent/session:** Claude Code sessions on branch `t-221-registration-slice-1` (slice 1, PR 184) and `t-221-registration-slice-2` (slice 2, worktree `.worktrees/t-221-s2`). The planning branch `t-221-adjudicator-registration` (PR 176) is a different branch.
 
 ## Intent
@@ -249,7 +249,7 @@ Slice 2, adopted the same way; Rafa may overrule any line.
 
 **Slice 1 (this branch):** the ADR, schema 0.10, core's type and helpers, `examples/verify.ts` `TYPES`, the operator route, reads, defaults, warning and fallback refusal, the sim world, and the docs rows. Outside the listed paths, the bump and the new route also needed: the `$id` of every other file in `spec/schemas/` (ADR-0023's rule), `tests/spec.test.ts` (the version and the example), `tests/contract/openapi.contract.test.ts` (one registration in the HTTP contract flow, which requires every documented operation), `spec/README.md` (the changelog), `apps/operator/src/agent-ready.test.ts`, `fee.test.ts` and `operator.test.ts` (the planned count and the version), `apps/operator/src/index.ts` (the export), and `site/try.mjs`, rebuilt by `node site/build.mjs` because it bundles `examples/verify.ts`. `site/llms.txt` is unchanged. The live demo is unchanged until T-220 deploys: it has no registration store yet, so its `POST /v1/adjudicators` would answer 404 after a deploy of slice 1 alone.
 
-**Slice 2 (branch `t-221-registration-slice-2`, worktree `.worktrees/t-221-s2`), status as of 2026-11-05:**
+**Slice 2 (draft PR 202, branch `t-221-registration-slice-2`, worktree `.worktrees/t-221-s2`), status as of 2026-11-05:**
 
 - Done: steps 1 to 3 below, and step 4's test, which skips without `SEPOLIA_FORK_RPC` and has not run. The branch is cut from `main` after PR 184 and PR 186 merged, with T-219's branch (`origin/t-219-lane-in-flight-row` at `58d61c1`, draft PR 195) merged in. It does not yet have `main`'s PR 200 (T-226); the Land step merges `main` first.
 - Left, step 5: the `reviewer` and `red-teamer` passes on slice 2 did not run, because this session had no subagent tool. The cross-family review (DeepSeek, run by Rafa) is still open too.
