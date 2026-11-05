@@ -30,11 +30,11 @@ Non-goals:
 - [x] The copy button copies the prompt below; `node site/build.mjs` and `node site/check.mjs` pass.
 - [x] `llms.txt` "Try it" asks for no fetch before the command.
 - [ ] After the deploy: a fresh assistant reaches Released from the copied prompt with 1 approval, in both "allow once" and "always allow" modes (measured with the same harness).
-- [x] `pnpm verify` runs; its report is read (Evidence: every step passed in one of two runs, and each failure passed on its rerun).
+- [x] `pnpm verify` runs; its report is read (Evidence: every step passed in one of two runs, and each failure passed on its rerun; after the review fix, a third run passed every step).
 
 ## Evidence
 
-- **Before: 4 approvals per deal** [measured, 2026-11-05, by the coordinator session]. A fresh Claude Code 2.1.318, default permissions, no allowlist, given the homepage prompt verbatim, asked for 4 approvals in each of 2 runs ("allow once" and "always allow"). The 4: a `curl` of `llms.txt` (that build has no WebFetch tool); a second download of `try.mjs` into `/tmp` to read it; a `grep` of that copy for imports and network calls; the one command. Both runs reached Released, 92.8 s and 92.6 s after the start. Harness and logs: `/private/tmp/claude-501/-Users-rafa-Documents-escrow/5d96f464-3e9f-488a-8cd3-964dda80e0bc/scratchpad/one-click/` (`harness/run.mjs`, `logs/run-once.summary.json`, `logs/run-always.summary.json`).
+- **Before: 4 approvals per deal** [measured, 2026-11-05, by the coordinator session]. A fresh Claude Code 2.1.318, default permissions, no allowlist, given the homepage prompt verbatim, asked for 4 approvals in each of 2 runs ("allow once" and "always allow"). The 4: a `curl` of `llms.txt` (that build has no WebFetch tool); a second download of `try.mjs` into `/tmp` to read it; a `grep` of that copy for imports and network calls; the one command. Both runs reached Released, 92.8 s and 92.6 s after the start. Harness and logs: `/private/tmp/claude-501/-Users-rafa-Documents-escrow/5d96f464-3e9f-488a-8cd3-964dda80e0bc/scratchpad/one-click/` (`harness/run.mjs`, `logs/run-once.summary.json`, `logs/run-always.summary.json`). That folder belongs to one session and will be cleaned; the PR 209 reviewer read the files and found they match these numbers [measured by the reviewer]. The after-deploy run keeps its harness and summaries in the repository (Handoff, step 3).
 - **Causes** [inferred from those logs]: approvals 2 and 3 followed "Try it"'s line "To read it before you ask, fetch https://escrow.stream/try.mjs". Approval 1 followed from the homepage copying only a link. `llms.txt` is 74,633 bytes, so the assistant took extra steps to read it.
 - **Test first** [measured, 2026-11-05, before the change]: `node site/check.mjs` exited 1 with "the Try line's prompt does not carry the current try command on a line of its own" and "\"Try it\" asks the agent to fetch try.mjs before the command". `vitest run examples/try.test.ts -t "homepage copies"` failed on `expect(prompt.split('\n')).toContain(command)`.
 - **After** [measured]: `node site/build.mjs` rewrote `site/index.html` only; `site/try.mjs` is unchanged (sha256 `cc310963bb0833e0d23f8018eb4ea802db09fa05fbd9489020340d2be2eed832`). `node site/check.mjs` passes. The changed test passes. `site/llms.txt` went from 74,633 to 74,332 bytes.
@@ -43,6 +43,8 @@ Non-goals:
   - Run 1 (14:55 UTC): typecheck, lint, forge (241 tests), test (120 files, 2,706 tests passed, 6 skipped), spec, snap (31), snap:local (28, 3 excluded until Phase 4) and demo passed. `forge build` failed while it cloned the contracts' nested submodules for the first time in this fresh worktree; `forge build --root contracts` then exited 0.
   - Run 2 (about 16:00 UTC): every step passed except `test`. One T-221 anvil test, `apps/demo-cloud/src/registration.anvil.test.ts`, threw "the rules redeployment moved". Alone, `vitest run` on that file passed (1 test, 119.9 s).
   - Snapshot diffs: none against HEAD.
+- **`pnpm verify` after the review fix, at `9448316`** [measured, 2026-11-05 15:29 UTC; same report; load average 48 to 60 on 8 cores]. Every step passed in one run: typecheck, lint, forge build, forge (241 tests), test (120 files, 2,706 tests passed, 6 skipped; 164 s), spec, snap (31), snap:local (28, 3 excluded until Phase 4) and demo. Snapshot diffs: none against HEAD. The uncommitted change at that run was this file only, plus a nested submodule (`contracts/lib/commerce-payments/lib/spend-permissions`) that `forge build` checked out; this task does not touch it.
+- **The clipboard fallback, after the PR 209 review** [measured, 2026-11-05]. Test first: `node site/check.mjs` exited 1 with "the .copied fallback must use white-space: pre-wrap, or a hand copy breaks the command's hash check". After the change to `pre-wrap` and `node site/build.mjs`, it exits 0; `site/try.mjs` is unchanged (same sha256). In the Claude desktop browser pane, on the built `site/index.html` (loaded as a static snapshot, so the fallback's two steps, set the text and select it, ran from the console), the selection keeps 4 line breaks (the source has 4), its command line equals the source's, and it keeps both spaces before `try.mjs`.
 - **After the deploy** [not yet measured]: approvals per deal and time to Released, with the same harness.
 
 The prompt the button copies (the sha256 changes whenever `site/try.mjs` does):
@@ -59,7 +61,7 @@ It needs Node 20 or later and npm. The full explanation is at https://escrow.str
 
 - **One source for the command.** `page(md, command = tryCommand())` builds the prompt from the same `tryCommand()` that fills `{{TRY_COMMAND}}` in `llms.txt`, so the page and the guide cannot carry different commands. `site/index.html` now changes whenever `site/try.mjs` does; `node site/build.mjs` already writes both.
 - **The command sits on a line of its own** in the prompt, so an assistant can lift it whole. The checks look for that exact line.
-- **The clipboard fallback keeps the line breaks.** Where the browser refuses the clipboard, the page shows the prompt selected for a hand copy; `.copied` now sets `white-space: pre-line`, so the command stays on its own line.
+- **The clipboard fallback keeps the command byte for byte.** Where the browser refuses the clipboard, the page shows the prompt selected for a hand copy. `.copied` sets `white-space: pre-wrap`, which keeps the line breaks and the two spaces in `echo "<sha256>  try.mjs" | shasum -a 256 -c`. The first version used `pre-line`, which collapsed those spaces to one, and `shasum` then refused the line (PR 209 review). `site/check.mjs` now fails if the rule is anything but `pre-wrap`.
 - **The off-screen line for agents stays.** It still says where the command and its explanation live, and it is accurate.
 
 ## Handoff
@@ -68,7 +70,7 @@ For the coordinator, on Rafa's approval of 2026-11-05:
 
 1. Merge this PR, then deploy `crow-site` as `docs/operations.md` says (`node site/build.mjs --op1 https://api.escrow.stream --op2 https://api2.escrow.stream --out reports/site-out`, `node site/check.mjs`, then the deploy).
 2. Check that `curl -s https://escrow.stream/try.mjs | shasum -a 256` equals the sha256 in the homepage's copied prompt and in https://escrow.stream/llms.txt.
-3. Rerun the harness in both modes with the new copied prompt. Record approvals per deal and the time to Released in Evidence and under D51. Then set this task to done.
+3. Rerun the harness in both modes with the new copied prompt. Record approvals per deal and the time to Released in Evidence and under D51. Commit `run.mjs` and both summary JSONs to `docs/research/` (or a folder beside this task), not a session scratchpad, so the evidence outlives the session. Then set this task to done.
 
 Next gap: a seller-first path. A visitor's agent that sells needs Crow's standing test buyer (T-222's second slice, `docs/backlog.md`).
 
