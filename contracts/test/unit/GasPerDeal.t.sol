@@ -15,7 +15,7 @@ import {Base} from "./Base.sol";
 /// measures warm calls without the intrinsic cost, about half as much, so there the budgets only catch a gross
 /// regression.
 abstract contract GasBase is Base {
-    uint256 internal constant FUND_BUDGET = 300_000; // measured 234,024 (--isolate)
+    uint256 internal constant FUND_BUDGET = 300_000; // measured 233,994 (--isolate, 2026-11-04)
 
     /// The drand quicknet round for the Base terms' judgeBy (fixtures/beacon/drand-quicknet.json).
     uint64 internal constant FALLBACK_ROUND = 32_456_478;
@@ -92,7 +92,7 @@ contract GasPerDealTest is GasBase {
         bytes memory ds = _deliverySig(id, d, SELLER_PK);
         H.Decision memory m = _primary(t, id, H.OUTCOME_ACCEPT);
         rules.decide(t, m, d, ds);
-        _within("decide(accept), delivery carried", 180_000); // measured 140,315
+        _within("decide(accept), delivery carried", 205_000); // measured 163,783
     }
 
     function test_gas_deliverOnChain() public {
@@ -100,10 +100,10 @@ contract GasPerDealTest is GasBase {
         (H.Delivery memory d,) = _delivery();
         bytes memory ds = _deliverySig(id, d, SELLER_PK);
         rules.deliver(t, d, ds);
-        _within("optional deliver (seller stops a reclaim)", 80_000); // measured 61,302
+        _within("optional deliver (seller stops a reclaim)", 105_000); // measured 83,535 (the delivery slot, ADR-0029)
         H.Decision memory m = _primary(t, id, H.OUTCOME_ACCEPT);
         rules.decide(t, m, _noDelivery(), "");
-        _within("decide(accept) after an on-chain delivery", 160_000); // measured 127,413
+        _within("decide(accept) after an on-chain delivery", 165_000); // measured 130,631
     }
 
     function test_gas_reject() public {
@@ -112,24 +112,23 @@ contract GasPerDealTest is GasBase {
         bytes memory ds = _deliverySig(id, d, SELLER_PK);
         H.Decision memory m = _primary(t, id, H.OUTCOME_REJECT);
         rules.decide(t, m, d, ds);
-        _within("decide(reject): fee-only capture + void", 180_000); // measured 140,644
+        _within("decide(reject): fee-only capture + void", 205_000); // measured 163,936
     }
 
     function test_gas_earlyAccept() public {
         (H.Terms memory t, bytes32 id) = _fundMeasured();
         (H.Delivery memory d, H.KeyProof memory k) = _delivery();
         bytes memory ds = _deliverySig(id, d, SELLER_PK);
-        H.EarlyAccept memory m = H.EarlyAccept({attempt: 1, nonce: 0, expiresAt: type(uint64).max, signature: ""});
-        m.signature = _sign(BUYER_PK, hx.early(id, buyer, m));
+        H.EarlyAccept memory m = _early(t, id, BUYER_PK);
         rules.earlyAccept(t, m, d, ds, k);
-        _within("early accept (delivery carried, key released)", 190_000); // measured 148,052
+        _within("early accept (delivery carried, key released)", 215_000); // measured 171,429
     }
 
     function test_gas_reclaim() public {
         (H.Terms memory t,) = _fundMeasured();
         vm.warp(t.timing.deliverBy);
         rules.reclaim(t);
-        _within("reclaim (permissionless, nothing delivered)", 120_000); // measured 92,557
+        _within("reclaim (permissionless, nothing delivered)", 120_000); // measured 92,477
     }
 
     function test_gas_mutualSettlement() public {
@@ -144,11 +143,11 @@ contract GasPerDealTest is GasBase {
         m.sellerSignature = _sign(SELLER_PK, h);
         H.KeyProof memory none;
         rules.mutualSettle(t, m, _noDelivery(), none);
-        _within("mutual settlement (half each, before delivery)", 180_000); // measured 143,683
+        _within("mutual settlement (half each, before delivery)", 180_000); // measured 143,628
     }
 
     function test_gas_fallbackDecision() public {
-        _fallbackDecision(210_000); // measured 161,076
+        _fallbackDecision(240_000); // measured 192,126
     }
 
     function test_gas_default() public {
@@ -157,10 +156,10 @@ contract GasPerDealTest is GasBase {
         rules.deliver(t, d, _deliverySig(id, d, SELLER_PK));
         vm.warp(t.timing.judgeBy);
         rules.triggerFallback(t);
-        _within("triggerFallback", 110_000); // measured 82,993
+        _within("triggerFallback", 110_000); // measured 52,345
         vm.warp(t.timing.fallbackBy);
         rules.triggerDefault(t);
-        _within("triggerDefault (default + apply in one call)", 130_000); // measured 96,716
+        _within("triggerDefault (default + apply in one call)", 130_000); // measured 93,211
     }
 }
 
@@ -172,6 +171,6 @@ contract GasPerDealDrandTest is GasBase {
     }
 
     function test_gas_fallbackDecision() public {
-        _fallbackDecision(380_000); // measured 297,591
+        _fallbackDecision(410_000); // measured 328,630
     }
 }

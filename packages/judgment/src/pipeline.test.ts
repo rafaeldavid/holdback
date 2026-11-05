@@ -82,6 +82,7 @@ describe('pipeline: happy path and record shape', () => {
     const record = {
       commitmentId: `0x${'11'.repeat(32)}`,
       attempt: 1,
+      deliveryHash: `0x${'22'.repeat(32)}`, // ADR-0029: the delivery judged
       adjudicator: ADJUDICATOR,
       role: 'primary',
       ...result.value,

@@ -20,7 +20,8 @@ In scope:
 - the settlement contracts in `contracts/src/` and their testnet deployments listed in `contracts/deployments/`;
 - the operator API (`apps/operator`, `apps/demo-cloud`), served at api.escrow.stream and api2.escrow.stream;
 - the judgment pipeline (`packages/judgment`), including prompt-injection defenses;
-- the site at escrow.stream and the `try.mjs` script it serves.
+- the site at escrow.stream and the `try.mjs` script it serves;
+- Crow's test seller (`apps/test-agents`), served at escrow.stream/agents/test-seller.
 
 Out of scope:
 

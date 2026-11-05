@@ -1,0 +1,18 @@
+{
+  "$comment": "Synthetic, shaped like Cloudflare's documented GraphQL Analytics response. No real figure.",
+  "data": {
+    "viewer": {
+      "accounts": [
+        {
+          "workers": [
+            { "sum": { "requests": 1200, "errors": 3, "subrequests": 40 }, "quantiles": { "cpuTimeP99": 1834.5 }, "dimensions": { "scriptName": "example-op1" } },
+            { "sum": { "requests": 50, "errors": 0, "subrequests": 0 }, "quantiles": { "cpuTimeP99": 210 }, "dimensions": { "scriptName": "example-site" } }
+          ],
+          "durableObjects": [{ "sum": { "requests": 700 } }, { "sum": { "requests": 300 } }],
+          "storage": [{ "max": { "storedBytes": 4096 } }, { "max": { "storedBytes": 8192 } }]
+        }
+      ]
+    }
+  },
+  "errors": null
+}

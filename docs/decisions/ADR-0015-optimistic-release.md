@@ -50,7 +50,7 @@ Add a third settlement mode, `optimistic`, which parties select per commitment a
 ### Who may dispute (D19)
 
 - Only the buyer disputes at first instance. Silence pays the seller, so the buyer is the party the default disfavors, and that party holds the call.
-- The seller's instruments are the release at `disputeBy`, which anyone can trigger, and mutual settlement (ADR-0019). Appeals already let either party call the appeal adjudicator.
+- The seller's instruments are the release at `disputeBy`, which anyone can trigger, and mutual settlement (ADR-0019). Appeals already let either party call the appeal adjudicator (*amended 2026-11-03, D43:* the party a decision went against).
 - A seller call at first instance was considered and rejected (D19). It would let one party shorten the inspection window the other signed for, and the seller gains little from it. It can be reopened if pilots show buyers using informal rejection threats while `disputeBy` sits far beyond `minInspectionWindowSec`. Even then, a seller call would be allowed only after `deliveredAt + minInspectionWindowSec`, for the fee only, with a response window for the buyer.
 
 ## Alternatives considered

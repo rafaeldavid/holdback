@@ -10,7 +10,7 @@ let exampleResults: ReturnType<typeof validateExamplesFresh> | undefined;
 const loadSpec = () => (spec ??= loadSpecFresh());
 const validateExamples = () => (exampleResults ??= validateExamplesFresh(loadSpec()));
 
-const V = 'https://holdback.dev/schemas/v0.8';
+const V = 'https://holdback.dev/schemas/v0.10';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const example = (name: string): any => structuredClone(loadSpec().examples.find((e: { name: string }) => e.name === name).data);
 
@@ -21,6 +21,7 @@ describe('spec/', () => {
     const names = [
       'page', 'operator-status', 'receipt', 'messages.dispute', 'messages.transfer', 'event.fee-operator', 'messages.mutual-settlement', 'event.offered',
       'commitment-state.final', 'commitment.private', 'messages.read-token', 'messages.delegation', 'messages.key-registration', 'disclosure', 'projection',
+      'messages.adjudicator-registration',
     ];
     expect(results.map((r: { file: string }) => r.file)).toEqual(expect.arrayContaining(names.map((n) => `${n}.example.json`)));
   });
@@ -71,16 +72,43 @@ describe('spec/', () => {
     expect(validate(message)).toBe(false);
   });
 
-  // ADR-0023 and ADR-0024: v0.7 and v0.8 are additive, so the signed encoding (EIP-712 domain version and
-  // commitment.schemaVersion) stays 0.6.
-  it('moves every schema $id to v0.8 and keeps the commitment schemaVersion at 0.6', () => {
+  // ADR-0023 and ADR-0024: v0.7 and v0.8 were additive and kept the signed encoding at 0.6. ADR-0029: v0.9 changes
+  // EarlyAccept and Decision, so the EIP-712 domain version and commitment.schemaVersion move to 0.7. ADR-0030: v0.10
+  // adds AdjudicatorRegistration, a new type, and keeps both at 0.7.
+  it('moves every schema $id to v0.10 and keeps the commitment schemaVersion at 0.7', () => {
     const { schemas, ajv } = loadSpec();
-    for (const id of schemas.values()) expect(id).toMatch(/\/schemas\/v0\.8\//);
+    for (const id of schemas.values()) expect(id).toMatch(/\/schemas\/v0\.10\//);
     const validate = ajv.getSchema(`${V}/commitment.schema.json`);
     const c = example('commitment');
-    expect(c.schemaVersion).toBe('0.6');
-    c.schemaVersion = '0.5';
+    expect(c.schemaVersion).toBe('0.7');
+    c.schemaVersion = '0.6';
     expect(validate(c)).toBe(false);
+  });
+
+  // ADR-0029: every message that pays or judges, and the judgment record, names the delivery it settles.
+  it.each([
+    ['messages.decision', 'messages'],
+    ['messages.early-accept', 'messages'],
+    ['judgment', 'judgment'],
+  ])('refuses %s without a deliveryHash', (name, schemaName) => {
+    const validate = loadSpec().ajv.getSchema(`${V}/${schemaName}.schema.json`)!;
+    const m = example(name);
+    expect(validate(m)).toBe(true);
+    delete m.deliveryHash;
+    expect(validate(m)).toBe(false);
+  });
+
+  // The EVM adapter adds its transaction to every chain event's payload (v0.9); the closed payloads admit it.
+  it.each(['event.bond-slashed', 'event.fee-operator'])('admits the chain transaction fields in %s', (name) => {
+    const validate = loadSpec().ajv.getSchema(`${V}/event.schema.json`)!;
+    const e = example(name);
+    e.payload = { ...e.payload, tx: `0x${'ab'.repeat(32)}`, block: '123', sender: '0x1111111111111111111111111111111111111111', gasUsed: '21000' };
+    expect(validate(e)).toBe(true);
+    e.payload.block = 123;
+    expect(validate(e)).toBe(false);
+    e.payload.block = '123';
+    e.payload.extra = 1;
+    expect(validate(e)).toBe(false);
   });
 
   describe('operator fee (ADR-0023, D33)', () => {
@@ -477,8 +505,8 @@ describe('spec/', () => {
 
   describe('review of PR 23: items 4, 5, 7 and 8', () => {
     const schema = (name: string) => loadSpec().ajv.getSchema(`${V}/${name}.schema.json`);
-    it('describes messages under domain version 0.6', () => {
-      expect(schema('messages').schema.description).toContain('version 0.6');
+    it('describes messages under domain version 0.7', () => {
+      expect(schema('messages').schema.description).toContain('version 0.7');
       expect(schema('messages').schema.description).not.toContain('0.5');
     });
     it.each([

@@ -4,6 +4,7 @@ export * from './guards.js';
 export * from './idempotency.js';
 export * from './policy.js';
 export * from './registry.js';
+export * from './registrations.js';
 export * from './server.js';
 export * from './sim-world.js';
 export * from './prepare.js';

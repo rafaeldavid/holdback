@@ -2,12 +2,13 @@ import { readFileSync } from 'node:fs';
 import { keccak256, type Hex } from 'viem';
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
+import { DRAND_QUICKNET_CHAIN_HASH } from './beacon.js';
 import { rulebookHash } from './canonical.js';
 import { commitmentId, deliveryHash, termsOf } from './eip712.js';
 import type { TokenAmount } from './money/index.js';
 import { parseAppeal, parseClub, parseCommitment, parseDelivery, parseMessage } from './parse.js';
 import { PROBLEM_TYPES, type ProblemType } from './problem.js';
-import { beaconRoundFor, offer, panelSeed, step, type EscrowEvent, type EscrowState, type OfferInput } from './state.js';
+import { beaconRoundFor, offer, panelSeed, postedDeliveryHash, step, type EscrowEvent, type EscrowState, type OfferInput } from './state.js';
 import type { AdjudicatorAcceptance, Agree, Appeal, Commitment, CommitmentTerms, Decision, Delivery, EarlyAccept, FundingAuthorization, MutualSettlement, Rulebook, Scope } from './types.js';
 
 function load(file: string): unknown {
@@ -101,10 +102,16 @@ const delivery = (over: Partial<Delivery> = {}): Delivery => ({
   ...over,
 });
 
+/** The posted delivery's hash, which every decision and early accept names (ADR-0029). */
+const DH = deliveryHash(delivery());
+/** The hash of another seller-signed attempt-1 delivery: a seller that equivocates. */
+const OTHER_DH = deliveryHash(delivery({ ciphertext: { uri: 'file:///store/y', sha256: `sha256:${'c'.repeat(64)}`, bytes: 100, cipher: 'aes-256-gcm' } }));
+
 const decision = (role: Decision['role'], outcome: Decision['outcome'], over: Partial<Decision> = {}): Decision => ({
   type: 'Decision',
   commitmentId: id,
   attempt: 1,
+  deliveryHash: DH,
   adjudicator: role === 'primary' ? primary : role === 'fallback' ? fallback : appealAdj,
   role,
   outcome,
@@ -177,7 +184,7 @@ const ev = {
   earlyAccept: (at = T.decide, by: Hex = buyer, over: Partial<EarlyAccept> = {}): EscrowEvent => ({
     type: 'early_accept',
     at,
-    message: { type: 'EarlyAccept', commitmentId: id, buyer: by, attempt: 1, nonce: ZERO32, expiresAt: far, signature: SIG, ...over },
+    message: { type: 'EarlyAccept', commitmentId: id, buyer: by, attempt: 1, deliveryHash: DH, nonce: ZERO32, expiresAt: far, signature: SIG, ...over },
   }),
   decide: (role: Decision['role'], outcome: Decision['outcome'], at: string, over: Partial<Decision> = {}): EscrowEvent => ({
     type: 'decide',
@@ -231,10 +238,14 @@ function fill(s: EscrowState, e: EscrowEvent): EscrowEvent {
 }
 const stepF = (s: EscrowState, e: EscrowEvent) => step(s, fill(s, e));
 
-function run(events: EscrowEvent[]): EscrowState {
+function offered(): EscrowState {
   const start = offer(offerInput());
   if (!start.ok) throw new Error(`offer failed: ${start.error.detail}`);
-  let s: EscrowState = start.value;
+  return start.value;
+}
+
+function run(events: EscrowEvent[], from: EscrowState = offered()): EscrowState {
+  let s = from;
   for (const e of events) {
     const r = stepF(s, e);
     if (!r.ok) throw new Error(`setup step ${e.type} failed in ${s.kind}: ${r.error.type} ${r.error.detail}`);
@@ -456,6 +467,9 @@ const illegal: Illegal[] = [
   ['appealing at appealBy', toReleased, ev.fileAppeal(T.appealBy), 'deadline_passed'],
   ['appealing twice', toAppealOpen, ev.fileAppeal(), 'invalid_state'],
   ['appealing as the buyer from the seller address', toReleased, ev.fileAppeal(T.appealFiled, { appellantAddress: seller }), 'invalid_signature'],
+  // T-206 L-7: only the party the decision went against appeals.
+  ['appealing an accept as the seller it favoured', toReleased, ev.fileAppeal(T.appealFiled, { appellant: 'seller', appellantAddress: seller }), 'invalid_terms'],
+  ['appealing a reject as the buyer it refunded', toRefunded, ev.fileAppeal(T.appealFiled, { appellant: 'buyer', appellantAddress: buyer }), 'invalid_terms'],
   ['an appeal decision with no appeal open', toReleased, ev.decide('appeal', 'reject', T.appealFiled), 'invalid_state'],
   ['an appeal decision by the primary', toAppealOpen, ev.decide('primary', 'reject', T.appealDecided), 'not_your_turn'],
   ['an appeal decision at appealDecideBy', toAppealOpen, ev.decide('appeal', 'reject', T.appealDecideBy), 'deadline_passed'],
@@ -474,6 +488,12 @@ const illegal: Illegal[] = [
   ['early acceptance for another commitment', toDelivered, ev.earlyAccept(T.decide, buyer, { commitmentId: ZERO32 }), 'invalid_terms'],
   ['early acceptance of another attempt', toDelivered, ev.earlyAccept(T.decide, buyer, { attempt: 2 }), 'invalid_terms'],
   ['an expired early acceptance', toDelivered, ev.earlyAccept(T.decide, buyer, { expiresAt: T.deliver }), 'deadline_passed'],
+  // ADR-0029: every paying or judging signature names the posted delivery; a seller's second signed body never settles
+  ['early acceptance of another signed delivery', toDelivered, ev.earlyAccept(T.decide, buyer, { deliveryHash: OTHER_DH }), 'invalid_terms'],
+  ['a primary decision about another signed delivery', toDelivered, ev.decide('primary', 'accept', T.decide, { deliveryHash: OTHER_DH }), 'invalid_terms'],
+  ['a fallback decision about another signed delivery', toFallback, ev.decide('fallback', 'reject', T.fallbackDecide, { deliveryHash: OTHER_DH }), 'invalid_terms'],
+  ['an escalation decision about another signed delivery', toEscalated, ev.decide('appeal', 'accept', T.fallbackDecide, { deliveryHash: OTHER_DH }), 'invalid_terms'],
+  ['an appeal decision about another body than the first instance judged', toAppealOpen, ev.decide('appeal', 'reject', T.appealDecided, { deliveryHash: OTHER_DH }), 'invalid_terms'],
   ['a decision for another commitment', toDelivered, ev.decide('primary', 'accept', T.decide, { commitmentId: ZERO32 }), 'invalid_terms'],
   ['an appeal ground on a first-instance decision', toDelivered, ev.decide('primary', 'reject', T.decide, { appealGround: 'wrong-outcome' }), 'invalid_terms'],
   ['the appeal adjudicator signing as primary on an escalation', toEscalated, ev.decide('primary', 'accept', T.fallbackDecide, { adjudicator: appealAdj }), 'not_your_turn'],
@@ -608,6 +628,25 @@ describe('panel seed per role (ADR-0018)', () => {
     expect(r.ok ? r.value.kind : r.error.type).toBe(expected);
   });
 
+  // T-206 H-1: panelSeed hashes the attempt, so a free attempt would give every beacon role 256 valid seeds to pick from.
+  it.each<[string, EscrowEvent[], 'fallback' | 'appeal', string, number]>([
+    ['the fallback', toFallback, 'fallback', T.fallbackDecide, judgeByRound],
+    ['the appeal adjudicator after escalation', toEscalated, 'appeal', T.fallbackDecide, secondsOf(escalatedAt) + 1],
+    ['the appeal adjudicator on a party appeal', toAppealOpen, 'appeal', T.appealDecided, secondsOf(T.appealFiled) + 1],
+  ])('binds %s to the delivered attempt, even with the matching seed for another', (_name, path, role, at, round) => {
+    const s = run(path);
+    const value = testBeacon(round);
+    const onAttempt = (attempt: number) => step(s, { type: 'decide', at, message: decision(role, 'reject', { attempt, seed: panelSeed(id, role, attempt, value) }), beacon: { round, value } });
+    expect(onAttempt(1).ok).toBe(true);
+    const refused = new Set<string>();
+    for (let attempt = 0; attempt <= 255; attempt++) {
+      if (attempt === 1) continue;
+      const r = onAttempt(attempt);
+      refused.add(r.ok ? `ok: ${r.value.kind}` : r.error.type);
+    }
+    expect([...refused]).toEqual(['invalid_terms']);
+  });
+
   it('derives the seed from the commitment, role, attempt and beacon only, never from what the decider controls', () => {
     const s = run(toFallback);
     const value = testBeacon(judgeByRound);
@@ -627,8 +666,119 @@ describe('panel seed per role (ADR-0018)', () => {
   });
 });
 
+// T-217: a commitment counts its beacon rounds on the clock of the source its club rulebook names, so core agrees with
+// the rules contract's beacon (DrandQuicknetBeacon on Sepolia) on every round.
+describe('beacon rounds on the clock the rulebook names (ADR-0018 §6, T-217)', () => {
+  const drandRulebook: Rulebook = { ...rulebook, randomness: { source: 'drand-quicknet', chainHash: DRAND_QUICKNET_CHAIN_HASH } };
+  // DrandQuicknetBeacon.roundAt as the contract computes it, with the constants read from its source.
+  const sol = readFileSync(new URL('../../../contracts/src/DrandQuicknetBeacon.sol', import.meta.url), 'utf8');
+  const constant = (name: string) => BigInt(new RegExp(`uint256 public constant ${name} = (\\d+);`).exec(sol)![1]!);
+  const GENESIS = constant('GENESIS');
+  const PERIOD = constant('PERIOD');
+  const roundAt = (t: number): number => Number(BigInt(t) < GENESIS ? 0n : (BigInt(t) - GENESIS) / PERIOD + 1n);
+  const atSecond = (t: number): string => new Date(t * 1000).toISOString().replace('.000Z', 'Z');
+  const drandOffered = (): EscrowState => ({ ...offered(), beaconSource: 'drand-quicknet' });
+  const g = Number(GENESIS);
+
+  it('keeps the rulebook source from the offer, and refuses a source with no beacon clock', () => {
+    expect(offered().beaconSource).toBe('sim');
+    const drand = offer(offerInput(withRulebook(drandRulebook)));
+    expect(drand.ok && drand.value.beaconSource).toBe('drand-quicknet');
+    const r = offer(offerInput(withRulebook({ ...rulebook, randomness: { source: 'prevrandao' } })));
+    expect(r.ok ? 'ok' : r.error.type).toBe('invalid_terms');
+    if (!r.ok) expect(r.error.detail).toContain('prevrandao');
+  });
+
+  it.each<[string, EscrowEvent[]]>([
+    ['AcceptedByAdjudicator', toAccepted],
+    ['Agreed', toAgreed],
+    ['Held', toHeld],
+    ['Delivered', toDelivered],
+    ['FallbackJudging', toFallback],
+    ['Escalated', toEscalated],
+    ['Released by the primary', toReleased],
+    ['Refunded by the primary', toRefunded],
+    ['an open appeal', toAppealOpen],
+    ['an overturning appeal', [...toAppealOpen, ev.decide('appeal', 'reject', T.appealDecided)]],
+    ['an expired appeal', [...toReleased, ev.at('expire_appeal', far)]],
+    ['Released by the fallback', [...toFallback, ev.decide('fallback', 'accept', T.fallbackDecide)]],
+    ['Refunded after an escalation', [...toEscalated, ev.decide('appeal', 'reject', T.fallbackDecide)]],
+    ['Defaulted', toDefaulted],
+    ['Refunded by the default outcome', [...toDefaulted, ev.at('apply_default_outcome', T.fallbackBy)]],
+    ['Expired', [ev.at('expire', T.offerExpiry)]],
+    ['Settled', [...toHeld, ev.mutual(T.deliver)]],
+    ['Released by an early accept', [...toDelivered, ev.earlyAccept()]],
+    ['Refunded by a reclaim', [...toHeld, ev.at('reclaim', T.deliverBy)]],
+  ])('keeps the source through %s', (_name, path) => {
+    expect(run(path, drandOffered()).beaconSource).toBe('drand-quicknet');
+  });
+
+  it('counts the fallback and appeal rounds on the quicknet clock, and the sim rounds as before', () => {
+    expect(beaconRoundFor(run(toFallback, drandOffered()), 'fallback')).toBe(roundAt(secondsOf(T.judgeBy)));
+    expect(beaconRoundFor(run(toEscalated, drandOffered()), 'appeal')).toBe(roundAt(secondsOf(escalatedAt)) + 1);
+    expect(beaconRoundFor(run(toAppealOpen, drandOffered()), 'appeal')).toBe(roundAt(secondsOf(T.appealFiled)) + 1);
+    expect(beaconRoundFor(run(toFallback), 'fallback')).toBe(secondsOf(T.judgeBy));
+    // A state saved before T-217 has no source: it counts on the sim clock, as it did.
+    const { beaconSource: _, ...saved } = run(toFallback); // eslint-disable-line @typescript-eslint/no-unused-vars
+    expect(beaconRoundFor(saved as EscrowState, 'fallback')).toBe(secondsOf(T.judgeBy));
+  });
+
+  it.each([
+    ['the epoch', 0],
+    ['a second before genesis', g - 1],
+    ['genesis, round 1', g],
+    ['a second into round 1', g + 1],
+    ['the last second of round 1', g + 2],
+    ['exactly on round 2', g + 3],
+    ['exactly on round 33666095', g + (33_666_095 - 1) * 3],
+    ['a second before round 33666095', g + (33_666_095 - 1) * 3 - 1],
+  ])('agrees with DrandQuicknetBeacon.roundAt at %s', (_name, t) => {
+    const fallback = run(toFallback, drandOffered());
+    if (fallback.kind !== 'FallbackJudging') throw new Error('setup');
+    expect(beaconRoundFor({ ...fallback, terms: { ...fallback.terms, timing: { ...fallback.terms.timing, judgeBy: atSecond(t) } } }, 'fallback')).toBe(roundAt(t));
+    const escalated = run(toEscalated, drandOffered());
+    if (escalated.kind !== 'Escalated') throw new Error('setup');
+    expect(beaconRoundFor({ ...escalated, escalation: { ...escalated.escalation, at: atSecond(t) } }, 'appeal')).toBe(roundAt(t) + 1);
+    const filed = run(toAppealOpen, drandOffered());
+    if (filed.kind !== 'Released' || filed.via.kind !== 'first_instance' || filed.via.appeal.kind !== 'open') throw new Error('setup');
+    expect(beaconRoundFor({ ...filed, via: { ...filed.via, appeal: { ...filed.via.appeal, openedAt: atSecond(t) } } }, 'appeal')).toBe(roundAt(t) + 1);
+  });
+
+  it('settles a fallback decision seeded from the quicknet round, and refuses one seeded from the sim round', () => {
+    const s = run(toFallback, drandOffered());
+    const withRound = (round: number): EscrowEvent => {
+      const value = testBeacon(round);
+      return { type: 'decide', at: T.fallbackDecide, message: decision('fallback', 'accept', { seed: panelSeed(id, 'fallback', 1, value), beacon: { source: 'drand-quicknet', round, value, signature: `0x${'8f'.repeat(48)}` } }), beacon: { round, value } };
+    };
+    const ok = step(s, withRound(roundAt(secondsOf(T.judgeBy))));
+    expect(ok.ok ? ok.value.kind : ok.error.type).toBe('Released');
+    const sim = step(s, withRound(secondsOf(T.judgeBy)));
+    expect(sim.ok ? sim.value.kind : sim.error.type).toBe('seed_mismatch');
+  });
+});
+
+// ADR-0029: the read model's deliveryHash, exactly as commitment-state.schema.json describes it.
+describe('postedDeliveryHash', () => {
+  it.each<[string, EscrowEvent[], Hex | undefined]>([
+    ['Held, before a delivery', toHeld, undefined],
+    ['Delivered', toDelivered, DH],
+    ['FallbackJudging', toFallback, DH],
+    ['Escalated', toEscalated, DH],
+    ['Released by the primary', toReleased, DH],
+    ['an open appeal', toAppealOpen, DH],
+    ['Released by an early accept', [...toDelivered, ev.earlyAccept()], DH],
+    ['Settled after a delivery', [...toDelivered, ev.mutual(T.decide, { deliveryHash: DH })], DH],
+    ['Settled before a delivery', [...toHeld, ev.mutual(T.deliver)], undefined],
+    ['Defaulted', toDefaulted, undefined],
+    ['Refunded by the default outcome', [...toDefaulted, ev.at('apply_default_outcome', T.fallbackBy)], undefined],
+    ['Refunded by a reclaim', [...toHeld, ev.at('reclaim', T.deliverBy)], undefined],
+  ])('%s', (_name, path, expected) => {
+    expect(postedDeliveryHash(run(path))).toBe(expected);
+  });
+});
+
 describe('mutual settlement (ADR-0019, D23 payouts)', () => {
-  const dh = deliveryHash(delivery());
+  const dh = DH;
   const settledView = (s: EscrowState) => (s.kind === 'Settled' ? { payouts: s.payouts, keyReleased: s.keyReleased, settledAt: s.settledAt } : s.kind);
 
   it.each<[string, EscrowEvent[], EscrowEvent, { payouts: ReturnType<typeof split>; keyReleased: boolean }]>([
@@ -690,7 +840,7 @@ const SEED = 20261030;
 // Every message a parser accepts, in every reachable state, gives a state or a problem: never a throw.
 describe('step never throws on parsed input', () => {
   const states: EscrowEvent[][] = [[], toAccepted, toAgreed, toHeld, toDelivered, toFallback, toEscalated, toReleased, toAppealOpen, toDefaulted];
-  const built = states.map(run);
+  const built = states.map((path) => run(path));
   const anyValue = fc.oneof(
     fc.constant(NUDGE),
     fc.constant(NUDGE),

@@ -25,7 +25,9 @@ export type StepBody =
   | { kind: 'reclaim'; by: 'buyer'; via: Via }
   | { kind: 'verify_key_release'; by: 'buyer'; via: Via }
   // The buyer accepts the delivery before any decision (releases price and key; the fee returns to the buyer).
-  | { kind: 'early_accept'; by: 'buyer'; via: Via; signer?: string }
+  // `opened`: the buyer names a second delivery of that file, which the seller signed and handed it off chain, not
+  // the posted one (seller equivocation, ADR-0029); settlement refuses it.
+  | { kind: 'early_accept'; by: 'buyer'; via: Via; signer?: string; opened?: string }
   // A party appeals a first-instance decision, posting the rulebook's appeal bond (or `bond`) and fee.
   | { kind: 'appeal'; by: 'buyer' | 'seller'; via: Via; grounds: string; bond?: string; signer?: string }
   // ADR-0019, D23: both parties sign payouts (actor name to amount) that sum to the price.
@@ -45,9 +47,13 @@ export type StepBody =
  * - wrong_seed: a Decision reveals a seed that is not the committed or beacon seed -> seed_mismatch;
  * - wrong_seed_commitment: the acceptance commits to another seed, so the honest reveal fails -> seed_mismatch;
  * - wrong_policy_hash / wrong_registry_hash: the message names another policy or registry -> *_mismatch;
- * - wrong_commitment_id: the acceptance names another commitment -> acceptance_mismatch.
+ * - wrong_commitment_id: the acceptance names another commitment -> acceptance_mismatch;
+ * - wrong_attempt: a Decision names the next attempt, with that attempt's panel seed for a beacon role (T-206 H-1)
+ *   -> invalid_terms;
+ * - buyer_key: a Decision carries the buyer's key where an honest one carries none: with a reject or an escalate, or
+ *   on a refunded deal (T-206 H-2) -> invalid_terms.
  */
-export const TAMPERS = ['reuse_nonce', 'wrong_seed', 'wrong_seed_commitment', 'wrong_policy_hash', 'wrong_registry_hash', 'wrong_commitment_id'] as const;
+export const TAMPERS = ['reuse_nonce', 'wrong_seed', 'wrong_seed_commitment', 'wrong_policy_hash', 'wrong_registry_hash', 'wrong_commitment_id', 'wrong_attempt', 'buyer_key'] as const;
 export type Tamper = (typeof TAMPERS)[number];
 
 /** Which tampers each step's messages can carry. */
@@ -56,7 +62,7 @@ const TAMPERABLE: Record<string, readonly Tamper[]> = {
   adjudicator_accept: ['reuse_nonce', 'wrong_seed_commitment', 'wrong_policy_hash', 'wrong_registry_hash', 'wrong_commitment_id'],
   agree_and_fund: ['reuse_nonce'],
   early_accept: ['reuse_nonce'],
-  judge: ['reuse_nonce', 'wrong_seed', 'wrong_policy_hash', 'wrong_registry_hash'],
+  judge: ['reuse_nonce', 'wrong_seed', 'wrong_policy_hash', 'wrong_registry_hash', 'wrong_attempt', 'buyer_key'],
 };
 
 /** A step, which of the scenario's commitments it acts on (1 when absent), and any deliberate message faults. */
@@ -231,8 +237,13 @@ function parseStepBody(kind: string, body: unknown, path: string, operators: rea
       };
     }
     case 'early_accept': {
-      const o = object(body, p, ['by', 'via', 'signer'], ['by']);
-      return { kind, by: literal(o.by, `${p}.by`, ['buyer'] as const), via: via(o), ...signer(o) };
+      const o = object(body, p, ['by', 'via', 'signer', 'opened'], ['by']);
+      let opened: string | undefined;
+      if (o.opened !== undefined) {
+        opened = str(o.opened, `${p}.opened`);
+        if (opened.startsWith('/') || opened.split('/').includes('..')) fail(`${p}.opened`, 'must be a path relative to fixtures/ without ".."');
+      }
+      return { kind, by: literal(o.by, `${p}.by`, ['buyer'] as const), via: via(o), ...signer(o), ...(opened !== undefined ? { opened } : {}) };
     }
     case 'appeal': {
       const o = object(body, p, ['by', 'via', 'grounds', 'bond', 'signer'], ['by']);

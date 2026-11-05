@@ -138,6 +138,8 @@ interface Slot {
   decision: Decision | null;
 }
 const GENESIS: Hex32 = `0x${'00'.repeat(32)}`;
+/** What an early accept names before any delivery: no delivery, which settlement refuses (ADR-0029). */
+const ZERO32: Hex32 = `0x${'00'.repeat(32)}`;
 
 /** What the invariant checks read: the ledger after a run, independent of how it was produced. */
 export interface LedgerView {
@@ -608,7 +610,7 @@ export class StubSettlement {
       case 'deliver':
         return this.deliver(parties.seller, s.via, s.file, s.stubBytes === true, s.attempt ?? 1, s.buyerEnvelope === 'wrong_key');
       case 'early_accept':
-        return this.earlyAccept(parties.buyer, s.via);
+        return this.earlyAccept(parties.buyer, s.via, s.opened);
       case 'appeal':
         return this.appeal(s.by, s.grounds, s.bond, s.via);
       case 'mutual_settle':
@@ -673,7 +675,7 @@ export class StubSettlement {
   private stubTerms(seller: string, now: Timestamp): CommitmentTerms {
     const { adjudicators } = this.scenario;
     return {
-      schemaVersion: '0.6',
+      schemaVersion: '0.7',
       clubId: STUB_CLUB_ID,
       rulebookHash: rulebookHash(STUB_RULEBOOK),
       buyer: this.address(this.scenario.parties.buyer),
@@ -801,6 +803,16 @@ export class StubSettlement {
   private async deliver(seller: string, via: string, file: string, stubBytes: boolean, attempt: number, buyerWrongKey = false): Promise<void> {
     const c = this.needCommitment(seller, 'deliver', via);
     if (!c) return;
+    const built = await this.signedDelivery(seller, c, file, stubBytes, attempt, buyerWrongKey);
+    const call = `deliver (attempt ${attempt})${buyerWrongKey ? ", buyer's envelope sealed to another key" : ''}`;
+    if (!(await this.submit(seller, call, via, { kind: 'deliver', delivery: built.message }))) return;
+    this.delivery = built;
+    this.receipt(via, 'deliver');
+    this.row(seller, call, via, 'ok');
+  }
+
+  /** A seller-signed delivery of a fixture file, built and signed but not submitted. */
+  private async signedDelivery(seller: string, c: { terms: CommitmentTerms; id: Hex32 }, file: string, stubBytes: boolean, attempt: number, buyerWrongKey = false) {
     const path = join(this.root, 'fixtures', file);
     const present = existsSync(path);
     if (!present && !stubBytes) {
@@ -828,11 +840,7 @@ export class StubSettlement {
     };
     const signed = await this.sign(seller, { ...body, type: 'Delivery' as const });
     const message: Delivery = { ...body, signature: signed.signature };
-    const call = `deliver (attempt ${attempt})${buyerWrongKey ? ", buyer's envelope sealed to another key" : ''}`;
-    if (!(await this.submit(seller, call, via, { kind: 'deliver', delivery: message }))) return;
-    this.delivery = { message, plaintext, source, contentKey };
-    this.receipt(via, 'deliver');
-    this.row(seller, call, via, 'ok');
+    return { message, plaintext, source, contentKey };
   }
 
   private async judge(name: string): Promise<void> {
@@ -902,29 +910,37 @@ export class StubSettlement {
       return this.row(name, `${call}: none`, 'direct', 'no decision: the appeal panel was inconclusive, so the default outcome applies');
     }
     const envelope = (recipient: Address) => ({ scheme: 'x25519-xsalsa20poly1305' as const, ciphertext: b64url(canonicalKeccak({ contentKey: d.contentKey, recipient })) });
+    // T-206 H-1: with wrong_attempt the adjudicator signs another attempt and, for a beacon role, that attempt's seed.
+    const attempt = this.tampering('wrong_attempt') ? d.message.attempt + 1 : d.message.attempt;
+    const signedSeed = role === 'primary' || attempt === d.message.attempt ? seed : panelSeed(c.id, role, attempt, beaconValue!);
+    // An honest adjudicator seals the buyer's key with an accept, but not for an appeal of a refunded deal (ADR-0012).
+    const honestKey = outcome === 'accept' && c.state.kind !== 'Refunded';
+    const keyed = honestKey || this.tampering('buyer_key');
+    const decided = `${call}: ${outcome}${attempt !== d.message.attempt ? ` for attempt ${attempt}` : ''}${keyed && !honestKey ? " with the buyer's key" : ''}`;
     const unsigned = {
       type: 'Decision',
       commitmentId: c.id,
-      attempt: d.message.attempt,
+      attempt,
+      deliveryHash: deliveryHash(d.message),
       adjudicator: actor.address,
       role,
       outcome,
-      seed: this.tamperable('wrong_seed', seed),
+      seed: this.tamperable('wrong_seed', signedSeed),
       policyHash: this.tamperable('wrong_policy_hash', c.terms.adjudication.policyHash),
       registryHash: this.tamperable('wrong_registry_hash', c.terms.adjudication.registryHash),
       judgmentRecordHash: canonicalKeccak(view),
       nonce: this.nonceFor(name, 'msg'),
       expiresAt: this.decisionDeadline(c.state, role),
       ...(round !== null && beaconValue ? { beacon: { source: 'sim' as const, round, value: beaconValue } } : {}),
-      ...(outcome === 'accept' ? { keyForBuyer: envelope(c.terms.buyer) } : {}),
+      ...(keyed ? { keyForBuyer: envelope(c.terms.buyer) } : {}),
       // ADR-0020: an escalation carries the appeal adjudicator's content key.
       ...(outcome === 'escalate' ? { encryptedKeys: [{ recipient: c.terms.adjudication.appealAdjudicator, ...envelope(c.terms.adjudication.appealAdjudicator) }] } : {}),
     } as const;
     const decision = (await this.sign(name, unsigned as UnsignedMessage & { type: 'Decision' })) as Decision;
-    if (!(await this.submit(name, `${call}: ${outcome}`, 'direct', { kind: 'decide', message: decision }))) return;
+    if (!(await this.submit(name, decided, 'direct', { kind: 'decide', message: decision }))) return;
     this.decision = decision;
     const next = this.state!;
-    this.row(name, `${call}: ${outcome}`, 'direct', 'ok');
+    this.row(name, decided, 'direct', 'ok');
     if (next.kind === 'Released' || next.kind === 'Refunded') this.balanceRows.push({ after: `decide: ${outcome}`, balances: await this.snapshotBalances() });
   }
 
@@ -982,24 +998,36 @@ export class StubSettlement {
     this.balanceRows.push({ after: 'reclaim', balances: await this.snapshotBalances() });
   }
 
-  /** The buyer accepts the delivery before any decision: price to the seller, fee back, key to the buyer. */
-  private async earlyAccept(buyer: string, via: string): Promise<void> {
-    const call = 'early_accept';
-    const c = this.needCommitment(buyer, call, via);
+  /**
+   * The buyer accepts the delivery before any decision: price to the seller, fee back, key to the buyer. It names the
+   * posted delivery (ADR-0029), or with `opened` a second delivery of that file the seller signed and handed it.
+   */
+  private async earlyAccept(buyer: string, via: string, opened?: string): Promise<void> {
+    const c = this.needCommitment(buyer, 'early_accept', via);
     if (!c) return;
     const attempt = this.delivery?.message.attempt ?? 1;
+    let named = this.delivery ? deliveryHash(this.delivery.message) : ZERO32;
+    if (opened !== undefined) {
+      // The seller's own, honest signature on its second body: no impersonation in this step's seller signature.
+      const override = this.signerOverride;
+      this.signerOverride = undefined;
+      named = deliveryHash((await this.signedDelivery(this.scenario.parties.seller, c, opened, false, attempt)).message);
+      this.signerOverride = override;
+    }
+    const call = opened === undefined ? 'early_accept' : `early_accept (names a second signed delivery, fixtures/${opened}, not the posted one)`;
     const message = await this.sign(buyer, {
       type: 'EarlyAccept',
       commitmentId: c.id,
       buyer: this.address(buyer),
       attempt,
+      deliveryHash: named,
       nonce: this.nonceFor(buyer, 'msg'),
       expiresAt: c.terms.timing.judgeBy,
     } as const);
     if (!(await this.submit(buyer, call, via, { kind: 'early_accept', message }))) return;
-    this.receipt(via, call);
+    this.receipt(via, 'early_accept');
     this.row(buyer, call, via, 'ok');
-    this.balanceRows.push({ after: this.label(call), balances: await this.snapshotBalances() });
+    this.balanceRows.push({ after: this.label('early_accept'), balances: await this.snapshotBalances() });
   }
 
   /** A party appeals a first-instance decision with the rulebook's bond (or the step's) and the appeal fee. */
@@ -1070,11 +1098,16 @@ export class StubSettlement {
     return n;
   }
 
+  /** Whether the step tampers with `t`; a yes marks it applied. */
+  private tampering(t: Tamper): boolean {
+    if (!this.tampers.has(t)) return false;
+    this.applied.add(t);
+    return true;
+  }
+
   /** The honest value, or a random one when the step tampers with it. */
   private tamperable(t: Tamper, honest: Hex32): Hex32 {
-    if (!this.tampers.has(t)) return honest;
-    this.applied.add(t);
-    return this.ctx.rng.hex32();
+    return this.tampering(t) ? this.ctx.rng.hex32() : honest;
   }
 
   /** "call" for commitment 1, "call #n" for the others. */

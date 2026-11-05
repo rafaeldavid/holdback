@@ -17,6 +17,7 @@ With a money-only hold, the buyer sees the deliverable before paying. It could t
 - On a co-signed mutual settlement with `releaseKey: true`, the rules contract releases that same buyer key with the payment. With `releaseKey: false` the seller keeps the work (ADR-0019, D15).
 - The settlement layer cannot check that the released key decrypts the committed plaintext. "Missing or wrong key" is an appeal ground backed by the adjudicator's bond, and an appeal decision may carry the key to the buyer.
   - *Amended 2026-11-01 by D32:* the appeal ground covers judged outcomes only. An early accept is the buyer's own acceptance, settlement allows no appeal after it, and checking that its envelope opens before signing is the buyer's responsibility (the reference verifier does it). A seller who sealed a wrong key is answerable outside the protocol, with the signed record as evidence (D26).
+- *Amended 2026-11-03 by ADR-0029 (D44):* the envelope a paying transaction releases is the buyer's envelope in the delivery the paying signature names. A decision and an early accept name the delivery by `deliveryHash`, and settlement refuses one that names any delivery but the posted one, so a seller who signed two deliveries for one attempt cannot have the buyer's accept release an envelope from the body the buyer never opened.
 - On rejection or reclaim, the key is never released to the buyer.
 
 ## Rationale

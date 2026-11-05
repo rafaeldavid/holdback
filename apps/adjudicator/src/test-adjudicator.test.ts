@@ -1,6 +1,10 @@
+import { holdbackDomain, type Commitment, type TokenAmount } from '@holdback/core';
 import { fakeProvider, type JudgeRequest } from '@holdback/judgment';
 import { describe, expect, it } from 'vitest';
-import { FAIL_MARKER, FAKE_JUDGE_MARK, markedFake, markerFake, placeholderRegistry } from './test-adjudicator.js';
+import { fakeRelays } from './_sim.js';
+import { drandQuicknet } from './drand.js';
+import type { SettlementReads } from './simchain-adapter.js';
+import { FAIL_MARKER, FAKE_JUDGE_MARK, markedFake, markerFake, placeholderRegistry, testAdjudicator } from './test-adjudicator.js';
 
 const req = {
   judgeId: 'claude-a',
@@ -38,5 +42,18 @@ describe('test adjudicator fake judges', () => {
 
   it('uses the placeholder registry, whose model IDs say they are placeholders', () => {
     expect(placeholderRegistry().active.every((j) => j.model.startsWith('placeholder-'))).toBe(true);
+  });
+});
+
+// T-217: the Sepolia world passes its drand source here (T-220); a world without one decides drand deals never.
+describe("the test adjudicator's randomness source", () => {
+  const options = { name: 'bench-a', label: 'bench-a', signingKey: `0x${'01'.repeat(32)}` as const, encryptionSecretKey: new Uint8Array(32).fill(7), store: { ciphertext: async () => new Uint8Array(), publishRecord: async () => '' }, registration: async () => null, domain: holdbackDomain(31337), fee: { token: 'tUSD', amount: '1' } as TokenAmount };
+  const chain = { escrowState: () => ({ kind: 'FallbackJudging', beaconSource: 'drand-quicknet' }) } as unknown as SettlementReads;
+  const c = { id: `0x${'12'.repeat(32)}` } as Commitment;
+
+  it('reads drand-quicknet rounds from the source it is given, and from none without one', () => {
+    const drand = drandQuicknet({ fetch: fakeRelays().fetch });
+    expect(testAdjudicator({ ...options, chain, drand }).settlement.randomness(c)).toBe(drand);
+    expect(testAdjudicator({ ...options, chain }).settlement.randomness(c)).toBeNull();
   });
 });

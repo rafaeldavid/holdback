@@ -3,6 +3,7 @@
   "escrowState": "Released",
   "appealState": "none",
   "attempt": 1,
+  "deliveryHash": "0x4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b",
   "hold": {
     "amount": {
       "token": "tUSD",

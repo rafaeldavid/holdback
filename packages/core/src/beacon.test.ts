@@ -1,10 +1,29 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { beaconRoundAt, DRAND_QUICKNET, SIM_BEACON } from './beacon.js';
+import { beaconClockOf, beaconRoundAt, DRAND_QUICKNET, DRAND_QUICKNET_CHAIN_HASH, SIM_BEACON } from './beacon.js';
 
 const vectors = JSON.parse(readFileSync(new URL('../../../fixtures/beacon/drand-quicknet.json', import.meta.url), 'utf8')) as {
+  chainHash: string;
   info: { genesisTime: number; period: number };
 };
+
+/** The verifier's own constants, read from its Solidity source. */
+const sol = readFileSync(new URL('../../../contracts/src/DrandQuicknetBeacon.sol', import.meta.url), 'utf8');
+const solConstant = (name: string): number => Number(new RegExp(`uint256 public constant ${name} = (\\d+);`).exec(sol)![1]);
+
+describe('beacon clocks per randomness source (ADR-0018 §6, T-217)', () => {
+  it('pins quicknet to the on-chain verifier and the fixture', () => {
+    expect(DRAND_QUICKNET).toEqual({ genesis: solConstant('GENESIS'), period: solConstant('PERIOD') });
+    expect(DRAND_QUICKNET_CHAIN_HASH).toBe(`0x${vectors.chainHash}`);
+  });
+
+  it('gives the sim beacon to sim and to a state saved before the source was kept, quicknet to drand-quicknet, and none to prevrandao', () => {
+    expect(beaconClockOf('sim')).toBe(SIM_BEACON);
+    expect(beaconClockOf(undefined)).toBe(SIM_BEACON);
+    expect(beaconClockOf('drand-quicknet')).toBe(DRAND_QUICKNET);
+    expect(beaconClockOf('prevrandao')).toBeNull();
+  });
+});
 
 describe('beacon round arithmetic (ADR-0018, T-209)', () => {
   it('pins drand quicknet: round 1 at genesis, one round per period', () => {

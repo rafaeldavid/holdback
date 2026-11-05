@@ -1,3 +1,4 @@
+export * from './drand.js';
 export * from './policy.js';
 export * from './providers/live.js';
 export * from './providers/timeout.js';

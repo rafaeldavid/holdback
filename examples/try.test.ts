@@ -102,6 +102,15 @@ describe('try.ts', () => {
     expect(state.escrowState).toBe('Released');
   }, 60_000);
 
+  it('with --outcome refund, delivers work that fails the rows check and ends Refunded', async () => {
+    const r = await node([here('./try.ts'), '--outcome', 'refund'], demo.urls);
+    expect(r.code, r.out).toBe(0);
+    expect(r.out).toMatch(/^outcome +Refunded: checks cols pass, rows FAIL, uniq pass; decision reject$/m);
+    expect(r.out).toMatch(/^refund +the price came back to the buyer; no key was released/m);
+    expect(r.out).toMatch(/^balances +buyer 998\.99 tUSD, seller 1000 tUSD$/m);
+    expect(r.out).toMatch(/\ndone +commitment 0x[0-9a-f]{64} Refunded\n$/);
+  }, 60_000);
+
   it('refuses to sign an offer an operator altered, and exits 3 naming the field', async () => {
     // Node 0 raises the price in the offer it prepares; node 1 is honest.
     const lying = await serve((path, body) => {
@@ -157,18 +166,21 @@ describe('try.ts', () => {
     expectDeal(await node(['--input-type=module', '-'], demo.urls, { stdin: committed, cwd: here('.') }));
   }, 60_000);
 
-  it('the homepage and llms.txt carry the one command, with the sha256 of site/try.mjs and the lockfile versions', async () => {
+  it('llms.txt carries the one command, with the sha256 of site/try.mjs and the lockfile versions, and the homepage leaves it out', async () => {
     const { tryCommand, page, filled, pins } = await import(here('../site/build.mjs'));
     const sha = createHash('sha256').update(readFileSync(here('../site/try.mjs'))).digest('hex');
     // The pins are the versions this test ran the deal with: what pnpm installed for examples/.
     const v = (name: string) => (JSON.parse(readFileSync(here(`./node_modules/${name}/package.json`), 'utf8')) as { version: string }).version;
     expect(pins()).toEqual({ viem: v('viem'), tweetnacl: v('tweetnacl') });
     const command = tryCommand();
-    expect(command).toBe(`mkdir -p crow-try && cd crow-try && npm init -y >/dev/null && npm install --silent --ignore-scripts viem@${v('viem')} tweetnacl@${v('tweetnacl')} && curl -fsSLO https://escrow.stream/try.mjs && echo "${sha}  try.mjs" | shasum -a 256 -c && node try.mjs`);
+    expect(command).toBe(`mkdir -p crow-try && cd crow-try && npm init -y >/dev/null && npm install --silent --ignore-scripts viem@${v('viem')} tweetnacl@${v('tweetnacl')} && curl -fsSLO https://escrow.stream/try.mjs && echo "${sha}  try.mjs" | shasum -a 256 -c && node try.mjs --seller https://escrow.stream/agents/test-seller`);
     const md = readFileSync(here('../site/llms.txt'), 'utf8');
     const html = readFileSync(here('../site/index.html'), 'utf8');
     expect(html === page(md), 'site/index.html is stale: run node site/build.mjs').toBe(true);
-    expect(html).toContain(command.replaceAll('&', '&amp;').replaceAll('>', '&gt;').replaceAll('"', '&quot;'));
+    // The homepage's prompt sends the visitor's assistant to llms.txt, which carries the command (Rafa, 2026-11-04).
+    expect(html).not.toContain('mkdir -p crow-try');
+    expect(html).not.toContain(sha);
+    expect(html).toMatch(/<span id="prompt" hidden>[^<]*https:\/\/escrow\.stream\/llms\.txt<\/span>/);
     const txt: string = filled(md.split('\n').filter((l) => !l.startsWith('%% CONFIRM')).join('\n'), { op1: 'https://op1.example', op2: 'https://op2.example' });
     const tryIt = txt.slice(txt.indexOf('## Try it'), txt.indexOf('\n## ', txt.indexOf('## Try it') + 3));
     expect(tryIt.split('\n').find((l) => l.startsWith('mkdir '))).toBe(command);

@@ -2,7 +2,9 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, write
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { panelSeed, type Decision } from '@holdback/core';
 import { anvilAvailable } from '@holdback/settlement/evm';
+import { SimChain } from '@holdback/settlement/sim';
 import { diffLines, LOCAL_EXCLUSIONS, main, runScenario } from './runner.js';
 
 const repo = new URL('../../../', import.meta.url).pathname;
@@ -395,6 +397,9 @@ describe('pnpm snap', () => {
       ['seed', flow('x', '  - judge: { adjudicator: bench-a, tamper: wrong_seed }\n'), 4, 'seed_mismatch'],
       ['preimage', flow('x', '  - judge: { adjudicator: bench-a }\n').replace('  - agree_and_fund: { by: buyer, via: op-1 }', '  - adjudicator_accept: { tamper: wrong_seed_commitment }\n  - agree_and_fund: { by: buyer, via: op-1 }'), 5, 'seed_mismatch'],
       ['decision-nonce', flow('x', '  - judge: { adjudicator: bench-a, tamper: reuse_nonce }\n'), 4, 'nonce_reused'],
+      ['attempt', flow('x', '  - judge: { adjudicator: bench-a, tamper: wrong_attempt }\n'), 4, 'invalid_terms'],
+      // The terms' row-count check fails on the row-drop file, so Bench A rejects, and a key on the reject is refused.
+      ['buyer-key', flow('x', '  - judge: { adjudicator: bench-a, tamper: buyer_key }\n', 'terms: fixtures/terms/clean-customers-2000.yaml\n').replace('customers.clean.csv', 'customers.clean.row-drop.csv'), 4, 'invalid_terms'],
       ['terms-nonce', flow('x', '  - offer: { by: seller, commitment: 2, tamper: reuse_nonce }\n'), 4, 'nonce_reused'],
     ];
     for (const [label, src, step, type] of cases) {
@@ -408,11 +413,36 @@ describe('pnpm snap', () => {
     expect(wrong.out[0]).toMatch(/must be one of reuse_nonce, wrong_seed/);
   });
 
+  it('tamper: wrong_attempt signs a beacon role the seed of the attempt it names (T-206 H-1)', async () => {
+    // Settlement refuses the attempt before the seed, so only the signed message shows the seed is the right one.
+    const submitted: Decision[] = [];
+    const submit = SimChain.prototype.submit;
+    vi.spyOn(SimChain.prototype, 'submit').mockImplementation(function (this: SimChain, s, o) {
+      if (s.kind === 'decide' && s.message.role === 'appeal') submitted.push(s.message);
+      return submit.call(this, s, o);
+    });
+    const root = sandbox();
+    const name = 'error.tamper-appeal-attempt';
+    const steps = '  - advance_clock: { seconds: 5 }\n  - judge: { adjudicator: bench-a }\n  - judge: { adjudicator: bench-c, tamper: wrong_attempt }\n  - judge: { adjudicator: bench-c }\n';
+    // The long record leaves the judges a stride sample: Bench A escalates and Bench C decides.
+    const src = flow(name, steps, 'club: fixtures/clubs/data-services-v1.yaml\nterms: fixtures/terms/clean-customers-2000.yaml\n').replace('customers.clean.csv', 'customers.clean.long-record.csv');
+    const r = await fixture(root, name, `${src}expect: { problem: { step: 6, type: invalid_terms } }\n`);
+    expect(r.out[0]).toBe(`pass  ${name} (snapshot updated)`);
+    const [tampered, honest] = submitted;
+    expect(tampered && honest && tampered.beacon).toEqual(honest?.beacon);
+    expect([tampered?.attempt, honest?.attempt]).toEqual([2, 1]);
+    expect(tampered?.seed).toBe(panelSeed(honest!.commitmentId, 'appeal', 2, honest!.beacon!.value));
+    expect(honest?.seed).toBe(panelSeed(honest!.commitmentId, 'appeal', 1, honest!.beacon!.value));
+  });
+
   it('tamper: a fault the step never applied is a run error, not a pass', async () => {
     const root = sandbox();
     // The seller has no earlier terms nonce to reuse on its first offer.
     const r = await fixture(root, 'error.no-prior-nonce', `${flow('error.no-prior-nonce', '').replace('  - offer: { by: seller, via: op-1 }', '  - offer: { by: seller, via: op-1, tamper: reuse_nonce }')}expect: { problem: { step: 1, type: nonce_reused } }\n`);
     expect(r.out[0]).toMatch(/fail {2}error\.no-prior-nonce: ScenarioError: steps\[1\]\.offer: tamper reuse_nonce was never applied/);
+    // An honest accept already carries the buyer's key, so buyer_key changes nothing there.
+    const k = await fixture(root, 'error.key-on-accept', `${flow('error.key-on-accept', '  - judge: { adjudicator: bench-a, tamper: buyer_key }\n')}expect: { problem: { step: 4, type: invalid_terms } }\n`);
+    expect(k.out[0]).toMatch(/fail {2}error\.key-on-accept: ScenarioError: steps\[4\]\.judge: tamper buyer_key was never applied/);
   });
 
   it('attack: placeholder bytes fail the fixture, since no defense is exercised', async () => {

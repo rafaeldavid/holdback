@@ -56,7 +56,7 @@ export interface Env {
  * stored journal unreplayable (v0.8's rulebook hash refused v0.7's offers), a new deployment needs a new chain world,
  * and the old world's storage stays for a rollback.
  */
-const WORLD_NAMES = { sim: 'holdback-public-demo-2026-11-02', sepolia: 'holdback-public-demo-sepolia-2026-11-03' } as const;
+const WORLD_NAMES = { sim: 'holdback-public-demo-2026-11-04', sepolia: 'holdback-public-demo-sepolia-2026-11-04' } as const;
 type Settlement = keyof typeof WORLD_NAMES;
 const NODE = 'x-holdback-node';
 const ORIGIN = 'x-holdback-origin';
@@ -122,27 +122,34 @@ export class World {
     return opening;
   }
 
-  private async schedule(world: PublicWorld, delayMs: number): Promise<void> {
-    if (!world.active()) return this.flushLater(world);
+  /** Sets the alarm for the next adjudicator pass, if one is due (each setAlarm is billed as a row written). */
+  private async schedule(world: PublicWorld): Promise<void> {
+    this.flushLater(world);
+    const next = world.nextPass();
+    if (next === null) return;
     // An alarm whose handler threw stays set, overdue, while the runtime backs off its retries; a request then
-    // re-arms it rather than wait (measured: adjudicators idle for minutes after one failed version).
+    // re-arms it a second out rather than wait (measured: adjudicators idle for minutes after one failed version),
+    // never later, even when the next pass due is a takeover hours away. An alarm set after the next pass (a slow
+    // cadence, then a write brings new work) is brought forward.
     const at = await this.state.storage.getAlarm();
-    if (at === null || at < Date.now() - 5000) {
-      await this.state.storage.setAlarm(Date.now() + delayMs);
+    const overdue = at !== null && at < Date.now() - 5000;
+    if (at === null || at > next || overdue) {
+      await this.state.storage.setAlarm(overdue ? Math.min(next, Date.now() + 1000) : next);
       world.telemetry.alarmSet();
     }
   }
 
   /**
-   * An idle world flushes its waiting log lines on a timer, not an alarm: a pending timer keeps this instance in
-   * memory until the flush and costs no row, where an alarm could wake a fresh instance with the lines already gone.
+   * Waiting log lines flush on a timer, not an alarm: a pending timer keeps this instance in memory until the flush and
+   * costs no row, where an alarm could wake a fresh instance with the lines already gone. Passes can be a minute or
+   * more apart, so the timer runs whether or not one is due; it skips when a pass has flushed the lines meanwhile.
    */
   private flushLater(world: PublicWorld): void {
     const due = world.telemetry.flushDueInMs();
     if (due === null || this.flushTimer) return;
     this.flushTimer = setTimeout(() => {
       this.flushTimer = undefined;
-      void world.flushTelemetry();
+      if (world.telemetry.flushDueInMs() !== null) void world.flushTelemetry();
     }, due);
   }
 
@@ -152,18 +159,18 @@ export class World {
     const headers = new Headers(request.headers);
     for (const h of [NODE, ORIGIN, CLIENT, SETTLEMENT]) headers.delete(h);
     const response = await world.fetch(new Request(request, { headers }), via);
-    await this.schedule(world, 500);
+    await this.schedule(world);
     return response;
   }
 
   /**
-   * Adjudicators look for work while the world is active, every second on SimChain and every 2 or 12 s on a chain;
-   * telemetry flushes on the same pass.
+   * One adjudicator pass (or a chain world's setup step), then the next alarm if a case still awaits the adjudicators
+   * or setup is left; telemetry flushes on the same pass.
    */
   async alarm(): Promise<void> {
     const world = await this.open();
     await world.work();
-    await this.schedule(world, world.nextPassMs());
+    await this.schedule(world);
   }
 }
 

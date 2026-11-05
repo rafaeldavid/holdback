@@ -11,11 +11,12 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from 'node:net';
 import { canonicalKeccak, holdbackDomain, parseAdjudicator, wholeSecond, type AdjudicatorRegistration, type Address, type Hex32, type Judgment, type Timestamp } from '@holdback/core';
 import { MemoryCiphertextStore } from '@holdback/core/store';
-import { FAIL_MARKER, testAdjudicator, type TestAdjudicator } from '@holdback/adjudicator';
+import { declinesOf, FAIL_MARKER, testAdjudicator, type TestAdjudicator } from '@holdback/adjudicator';
 import type { FakeScript } from '@holdback/judgment';
 import { mandateFor, SIM_CHAIN_ID, SIM_RULEBOOK, simClub, SimChain, TOKEN, wideScope, type Genesis } from '@holdback/settlement/sim';
 import { testAccount, type TestAccount } from './accounts.js';
 import { MemoryFeedbackStore, ReportLimiter } from './feedback.js';
+import { register, signRegistration } from './registrations.js';
 import { DEFAULT_FAUCET_GRANT, simRegistry } from './registry.js';
 import { startOperator, type DemoFacts, type RunningOperator } from './server.js';
 import { TUSD } from './units.js';
@@ -130,8 +131,6 @@ const ADJUDICATORS: ReadonlyArray<{ role: SimRole; label: string; name: string }
 /** Bond pool terms the test adjudicators publish (adjudicator.schema.json). */
 const POOL_TERMS = { capitalChargeRateBps: 0, capitalChargeToPoolRateBps: 0, firstLossShareBps: 10000, noticePeriodSec: 691200 } as const;
 
-const lc = (a: string) => a.toLowerCase();
-
 async function listen(server: Server, port: number, host: string): Promise<string> {
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
@@ -186,19 +185,22 @@ export async function startSimWorld(options: SimWorldOptions = {}): Promise<SimW
   const tick = () => chain.advanceTo(wholeSecond(Date.now() + offsetMs));
   const ticker = setInterval(tick, 250);
 
-  // Off the settlement layer: one ciphertext store the operators share, judgment records, registrations.
+  // Off the settlement layer: one ciphertext store the operators share, judgment records, and one registration store
+  // (ADR-0030): the nodes are one operator, so a registration posted to either is served by both.
   const store = new MemoryCiphertextStore();
   const latest = new Map<Hex32, Judgment>();
-  const registrations = new Map<string, Omit<AdjudicatorRegistration, 'pool'>>();
-  const registration = (address: Address): AdjudicatorRegistration | null => {
-    const r = registrations.get(lc(address));
-    if (!r) return null;
-    const p = chain.pool(address);
-    const amount = (v: bigint) => ({ token: TOKEN, amount: v.toString() }) as AdjudicatorRegistration['fee']['min'];
-    return { ...r, pool: { junior: amount(p.junior), senior: amount(p.senior), reserved: amount(p.reserved), terms: { ...POOL_TERMS } } } as AdjudicatorRegistration;
+  const base = simRegistry(chain);
+  const registrations = base.registrations!;
+  const domain = holdbackDomain(SIM_CHAIN_ID);
+  /** A stored registration with the bond the chain holds, as the operators serve it and the adjudicators read it. */
+  const registration = async (address: Address): Promise<AdjudicatorRegistration | null> => {
+    const r = await registrations.get(address);
+    return r ? ({ ...r.record, pool: { ...(await base.pool!(address)), terms: r.record.pool.terms } } as AdjudicatorRegistration) : null;
   };
 
   const operators: RunningOperator[] = [];
+  // ADR-0030 §4: the world's three adjudicators are its nodes' defaults, by role.
+  const defaultAdjudicators = Object.fromEntries(adjKeys.map((a) => [a.role, a.keys.address])) as Record<SimRole, Address>;
   const of = options.operatorFee;
   const operatorFee = of
     ? { fee: { to: of.to ?? worldAccount('sim-operator-fees').address, token: TOKEN, bps: of.bps, min: of.min, max: of.max, appliesAt: 'agree-and-fund' as const, refundable: false as const } }
@@ -219,7 +221,8 @@ export async function startSimWorld(options: SimWorldOptions = {}): Promise<SimW
     operators.push(
       await startOperator({
         settlement: chain,
-        registry: { ...simRegistry(chain), registration, judgment: (id) => latest.get(id) ?? null },
+        // T-221 review: prepare fills in no default that would decline the terms, and notes one the parties named.
+        registry: { ...base, defaultAdjudicators, declines: declinesOf(() => Object.values(adjudicators)), judgment: (id) => latest.get(id) ?? null },
         store,
         ...operatorFee,
         demo,
@@ -253,16 +256,24 @@ export async function startSimWorld(options: SimWorldOptions = {}): Promise<SimW
           return `${operators[0]!.url}/v1/commitments/${record.commitmentId}/judgment`;
         },
       },
-      registration: async (address) => registration(address),
-      domain: holdbackDomain(SIM_CHAIN_ID),
+      registration,
+      // A primary's bound policy by its hash, kept after the primary registers again (T-221 review).
+      policy: async (hash) => (await registrations.policy?.(hash)) ?? null,
+      domain,
       fee,
       ...(options.judges?.[a.role] ? { judges: options.judges[a.role]! } : {}),
       // A local world exercises private flows by early accept or mutual settlement (T-207), so its primary accepts
       // sealed offers it cannot read. The public demo's adjudicators decline them instead.
       acceptSealedUnread: true,
+      // The world's three adjudicators trust each other as fallback and appeal adjudicators, and nobody else (T-212).
+      trustedAdjudicators: adjKeys.map((k) => k.keys.address),
     });
-    registrations.set(adj.address, { ...adj.registration(), poolTermsHash: canonicalKeccak(POOL_TERMS), status: 'active' });
-    const parsed = parseAdjudicator(registration(adj.address));
+    // Each signs its registration with its own key and registers through the route's own checks (ADR-0030 §3), so
+    // every registration the world serves is signed.
+    const record = { ...adj.registration(), pool: { terms: { ...POOL_TERMS } }, poolTermsHash: canonicalKeccak(POOL_TERMS), status: 'active' as const };
+    const signed = await signRegistration(a.keys.privateKey, domain, record, { keyId: `${a.label}/${start}`, issuedAt: start, nonce: canonicalKeccak({ registration: a.label, start }), expiresAt: expires });
+    await register(registrations, signed, { domain, now: start });
+    const parsed = parseAdjudicator(await registration(adj.address));
     if (!parsed.ok) throw new Error(`${a.name}'s registration does not validate: ${parsed.error.detail}`);
     adjudicators[a.role] = adj;
   }
@@ -289,7 +300,6 @@ export async function startSimWorld(options: SimWorldOptions = {}): Promise<SimW
 
   const rb = club.rulebook;
   const b64 = (bytes: Uint8Array) => Buffer.from(bytes).toString('base64url');
-  const domain = holdbackDomain(SIM_CHAIN_ID);
   const accountView = (a: (typeof accounts)[number]): SimAccount => ({
     label: a.label,
     address: a.address,

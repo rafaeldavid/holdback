@@ -6,6 +6,7 @@ import {HoldbackTypes as H} from "../../src/HoldbackTypes.sol";
 import {LocalMulticall3} from "../../script/LocalMulticall3.sol";
 import {LocalUSDC} from "../../script/LocalUSDC.sol";
 import {Base} from "../unit/Base.sol";
+import {MockERC3009Token} from "commerce-payments-test/mocks/MockERC3009Token.sol";
 
 /// Public-audit cross-check, class "ERC-3009 transferWithAuthorization front-running" (EIP-3009 security
 /// considerations: a contract that calls transferWithAuthorization can be front-run with the same authorization;
@@ -25,7 +26,7 @@ contract OperatorFeeFrontRunTest is Base {
 
     function setUp() public override {
         super.setUp();
-        usdc = new LocalUSDC();
+        usdc = MockERC3009Token(address(new LocalUSDC())); // Base's handle; LocalUSDC has the mock's interface
         usdc.mint(buyer, 1_000_000_000);
         _bond(adjudicator, BOND);
         mc = new LocalMulticall3();

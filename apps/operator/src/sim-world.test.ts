@@ -315,6 +315,9 @@ describe('operator API: sim batch 1 friction', () => {
     expect(late.body.detail).toMatch(/is Released; a settlement needs Held, Delivered, FallbackJudging or Escalated/);
     expect((await call('POST', '/v1/prepare/early-accept', { commitmentId: id, nonce: nonce() })).status).toBe(409);
     expect((await call('POST', '/v1/prepare/appeal', { commitmentId: id, appellant: acct('buyer-1').address })).status).toBe(200); // window open
+    // T-206 L-7: the accept went for the seller, so only the buyer may appeal it.
+    const favoured = await call('POST', '/v1/prepare/appeal', { commitmentId: id, appellant: acct('seller-1').address });
+    expect([favoured.status, favoured.body.type, favoured.body.field]).toEqual([400, 'invalid_terms', 'appellant']);
     // Past appealBy (default window 300 s) the decision is final and an appeal is refused at prepare.
     await fetch(`${world.url}/advance`, { method: 'POST', body: JSON.stringify({ seconds: 400 }) });
     const closed = await call('POST', '/v1/prepare/appeal', { commitmentId: id, appellant: acct('buyer-1').address });
