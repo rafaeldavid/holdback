@@ -38,7 +38,7 @@ export interface RelativeTiming {
 }
 
 export interface TermsTemplate {
-  schemaVersion: '0.6';
+  schemaVersion: '0.7';
   clubId: string;
   deliverable: Deliverable;
   acceptance: AcceptanceSpec;

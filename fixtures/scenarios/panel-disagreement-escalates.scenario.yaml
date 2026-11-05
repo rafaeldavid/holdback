@@ -1,8 +1,9 @@
 # @settlement sim @judges recorded @mode guaranteed_on_decision @seed 61
 name: panel-disagreement-escalates
 description: >-
-  Bench A's panel splits: one judge passes, the GPT judge fails and the Qwen judge abstains (authored
-  recordings, re-seated under agg-3), so there is no supermajority and Bench A escalates to Bench C. Bench C draws its own panel of five judges
+  Bench A's panel splits: gpt-b passes, gpt-a fails and qwen-a abstains (authored recordings for gpt-a and
+  qwen-a, re-seated under agg-3 and again for schemaVersion 0.7, when the panel moved to two GPT seats), so there
+  is no supermajority and Bench A escalates to Bench C. Bench C draws its own panel of five judges
   from three families under the appeal template, seeded from the beacon round after the escalation, and
   its judges, recorded under appeal/, all pass: Bench C accepts and Tidewater is paid. Promoted from
   todo. by T-016 (role-specific panels and role-keyed recordings).

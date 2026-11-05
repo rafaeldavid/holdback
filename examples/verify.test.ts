@@ -3,12 +3,12 @@
 // checks). The snap runner drives SimChain directly and has no prepare step, so this is a test, not a fixture.
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { startSimWorld, type SimWorld } from '@holdback/operator';
+import { startSimWorld, typesFor, type SimWorld } from '@holdback/operator';
 import nacl from 'tweetnacl';
 import { hashTypedData, hexToBytes, keccak256, toBytes, type Hex } from 'viem';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Agent } from './agent.ts';
-import { appealBondOf, commitmentIdOf, freshNonce, openOwnEnvelope, Refusal, SIMCHAIN_DOMAIN, verifyPrepared, type Intent } from './verify.ts';
+import { appealBondOf, commitmentIdOf, freshNonce, openOwnEnvelope, Refusal, SIMCHAIN_DOMAIN, TYPES, verifyPrepared, type Intent } from './verify.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 /** A lying operator's own x25519 public key, derived at test time from a public label (no key literal in source). */
@@ -204,19 +204,21 @@ describe('neutrality.operator-lies-in-prepare', () => {
     expect((await seller.signAndSubmit(prepared, intent)).escrowState).toBe('Delivered');
   });
 
-  it('early accept: refuses another buyer, attempt, nonce or a far expiry', async () => {
+  it('early accept: refuses another buyer, attempt, delivery, nonce or a far expiry', async () => {
     const { id, terms } = await held();
     await silence('primary', true); // keep the deal in Delivered so the buyer can accept early
     try {
       const { delivery } = await seller.deliverAndShare(terms, new TextEncoder().encode('a\n1\n'));
       const nonce = freshNonce();
       const prepared = await buyer.call('POST', '/v1/prepare/early-accept', { commitmentId: id, nonce });
-      await openOwnEnvelope(await buyer.envelopeMaterial(terms, delivery)); // T-024, D32: open before accepting
-      const intent: Intent = { kind: 'early-accept', terms, nonce };
+      const opened = await openOwnEnvelope(await buyer.envelopeMaterial(terms, delivery)); // T-024, D32: open before accepting
+      const intent: Intent = { kind: 'early-accept', terms, nonce, deliveryHash: opened.deliveryHash };
       expect(verify(prepared, intent, buyer.address).toSign).toHaveLength(1);
       refusesEach(prepared, intent, buyer.address, [
         ['buyer', both(0, 'buyer', seller.address)],
         ['attempt', both(0, 'attempt', 2)],
+        // ADR-0029: an accept prepared for a delivery the buyer did not open.
+        ['deliveryHash', both(0, 'deliveryHash', `0x${'4b'.repeat(32)}`)],
         ['nonce', both(0, 'nonce', freshNonce())],
         ['expiry two days out', (p) => { p.submit.body.expiresAt = new Date(now() + 2 * 86_400_000).toISOString(); }],
       ]);
@@ -337,5 +339,15 @@ describe('operator fee: the agent checks the fee slot against the published sche
     expect((await b.agreeAndFund(offer.terms, 27_000_000n)).escrowState).toBe('Held');
     expect(before - BigInt((await b.call('GET', `/v1/balances/${b.address}`)).amount)).toBe(26_010_000n);
     expect(feeWorld.chain.log().filter((e) => e.type === 'fee.operator')).toHaveLength(1);
+  });
+});
+
+// ADR-0030: an adjudicator agent signs its acceptance, decision and registration from these types, and llms.txt
+// publishes them from TYPES, so they must be core's, struct for struct.
+describe('TYPES match the operator and core', () => {
+  it.each(['AdjudicatorAcceptance', 'Decision', 'AdjudicatorRegistration', 'CommitmentTerms', 'Delivery', 'Appeal', 'MutualSettlement', 'Delegation'])('%s and every struct it uses', (primary) => {
+    const { EIP712Domain: _domain, ...core } = typesFor(primary);
+    void _domain;
+    expect(Object.fromEntries(Object.keys(core).map((k) => [k, (TYPES as J)[k]]))).toEqual(core);
   });
 });

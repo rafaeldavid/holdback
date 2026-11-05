@@ -68,14 +68,13 @@ contract LateCarriedDeliveryTest is Base {
         assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Released));
     }
 
-    /// An early accept carries the delivery under the same deadline: an early accept names only the attempt (review
-    /// L-1), so a late delivery the buyer never opened could otherwise beat its reclaim.
+    /// An early accept carries the delivery under the same deadline, so a late delivery cannot beat the buyer's
+    /// reclaim, even one the buyer opened and named (ADR-0029).
     function test_earlyAcceptCarryingADelivery_refusedFromDeliverBy() public {
         (H.Terms memory t, bytes32 id) = _funded();
         (H.Delivery memory dv, H.KeyProof memory k) = _delivery();
         bytes memory sig = _deliverySig(id, dv, SELLER_PK);
-        H.EarlyAccept memory m = H.EarlyAccept({attempt: 1, nonce: 0, expiresAt: type(uint64).max, signature: ""});
-        m.signature = _sign(BUYER_PK, hx.early(id, buyer, m));
+        H.EarlyAccept memory m = _early(t, id, BUYER_PK);
         vm.warp(t.timing.deliverBy);
         vm.expectRevert(HoldbackRules.DeadlinePassed.selector);
         rules.earlyAccept(t, m, dv, sig, k);

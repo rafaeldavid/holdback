@@ -259,7 +259,7 @@ interface Settlement {
 }
 ```
 
-The operator API and the internal client call only this interface. Chain details stay in the `local` and `testnet` implementations.
+The operator API and the internal SDK call only this interface. Chain details stay in the `local` and `testnet` implementations.
 
 ## Identity and signing
 
@@ -294,7 +294,7 @@ packages/
   core/            types from schemas, state machine, EIP-712 types, money
   settlement/      Settlement interface; sim/ (SimChain); evm/ (contract client, Phase 2)
   judgment/        intake, checks, screen, providers, panel, aggregation
-  sdk/             internal client for the demo and tests: operator failover + direct submit (not published; D30)
+  sdk/             internal SDK for the operator, the demo and tests: operator failover + direct submit (not published; D30)
   testkit/         snap runner, deterministic clock/RNG, recorded providers, fixture helpers
 contracts/         Foundry project (Phase 2)
 spec/              JSON Schemas (contract) + examples

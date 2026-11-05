@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.8/messages.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.10/messages.schema.json",
   "title": "Signed protocol messages (EIP-712)",
-  "description": "Every state-changing message other than Delivery and Appeal. Each carries its EIP-712 domain implicitly: name Holdback, version 0.6, chainId, verifyingContract (ADR-0016).",
+  "description": "Every state-changing message other than Delivery and Appeal. Each carries its EIP-712 domain implicitly: name Holdback, version 0.7, chainId, verifyingContract (ADR-0016, ADR-0029).",
   "oneOf": [
     {
       "$ref": "#/$defs/Offer"
@@ -51,6 +51,9 @@
     },
     {
       "$ref": "#/$defs/KeyRegistration"
+    },
+    {
+      "$ref": "#/$defs/AdjudicatorRegistration"
     }
   ],
   "$defs": {
@@ -306,6 +309,7 @@
         "commitmentId",
         "buyer",
         "attempt",
+        "deliveryHash",
         "nonce",
         "expiresAt",
         "signature"
@@ -323,6 +327,10 @@
         "attempt": {
           "type": "integer",
           "minimum": 1
+        },
+        "deliveryHash": {
+          "$ref": "common.schema.json#/$defs/Hex32",
+          "description": "EIP-712 struct hash of the delivery the buyer opened, without its signature. Settlement refuses an early accept relayed with any other delivery (ADR-0029)"
         },
         "nonce": {
           "$ref": "common.schema.json#/$defs/Hex32"
@@ -343,6 +351,7 @@
         "type",
         "commitmentId",
         "attempt",
+        "deliveryHash",
         "adjudicator",
         "role",
         "outcome",
@@ -364,6 +373,10 @@
         "attempt": {
           "type": "integer",
           "minimum": 1
+        },
+        "deliveryHash": {
+          "$ref": "common.schema.json#/$defs/Hex32",
+          "description": "EIP-712 struct hash of the delivery judged, without its signature: the posted delivery. Settlement refuses a decision that names any other, at every role (ADR-0029)"
         },
         "adjudicator": {
           "$ref": "common.schema.json#/$defs/Address"
@@ -911,7 +924,8 @@
     "KeyRegistration": {
       "type": "object",
       "additionalProperties": false,
-      "description": "An adjudicator's self-signed encryption key (ADR-0024 §6), served by at least two operators and later anchored on chain. Rotation is a new registration with a new keyId; old secrets are kept until open deals are final. Changes no state.",
+      "deprecated": true,
+      "description": "Deprecated in v0.10: AdjudicatorRegistration carries the key (ADR-0030); operators take only that, and the next breaking version removes this message. An adjudicator's self-signed encryption key (ADR-0024 §6). Changes no state.",
       "required": [
         "type",
         "adjudicator",
@@ -933,6 +947,76 @@
         },
         "keyId": {
           "$ref": "common.schema.json#/$defs/Ident"
+        },
+        "nonce": {
+          "$ref": "common.schema.json#/$defs/Hex32"
+        },
+        "expiresAt": {
+          "$ref": "common.schema.json#/$defs/Timestamp"
+        },
+        "signature": {
+          "$ref": "common.schema.json#/$defs/Signature"
+        }
+      }
+    },
+    "AdjudicatorRegistration": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "An adjudicator's self-signed registration (ADR-0030): its key, the hashes a commitment binds, its minimum fee and its pool terms, and bodyHash over the rest of its record. Served with the record as its `registration` envelope (adjudicator.schema.json); a reader rebuilds this message from the record. A later issuedAt replaces the served one. Changes no settlement state.",
+      "required": [
+        "type",
+        "adjudicator",
+        "encryptionPublicKey",
+        "keyId",
+        "policyHash",
+        "registryHash",
+        "fee",
+        "poolTermsHash",
+        "bodyHash",
+        "issuedAt",
+        "nonce",
+        "expiresAt",
+        "signature"
+      ],
+      "properties": {
+        "type": {
+          "const": "AdjudicatorRegistration"
+        },
+        "adjudicator": {
+          "$ref": "common.schema.json#/$defs/Address",
+          "description": "The record's address: the key every acceptance and decision of this adjudicator is checked against"
+        },
+        "encryptionPublicKey": {
+          "$ref": "common.schema.json#/$defs/Base64Url",
+          "description": "The x25519 key sellers seal content keys to"
+        },
+        "keyId": {
+          "$ref": "common.schema.json#/$defs/Ident",
+          "description": "Names the encryption key; a rotation is a new registration with a new keyId"
+        },
+        "policyHash": {
+          "$ref": "common.schema.json#/$defs/Hex32",
+          "description": "The record's policyHash"
+        },
+        "registryHash": {
+          "$ref": "common.schema.json#/$defs/Hex32",
+          "description": "The record's registry.hash"
+        },
+        "fee": {
+          "$ref": "common.schema.json#/$defs/TokenAmount",
+          "description": "The record's fee.min"
+        },
+        "poolTermsHash": {
+          "$ref": "common.schema.json#/$defs/Hex32",
+          "description": "The record's poolTermsHash"
+        },
+        "bodyHash": {
+          "$ref": "common.schema.json#/$defs/Hex32",
+          "description": "keccak256 of the RFC 8785 JSON of the registered record: the record without `registration`, with `pool` holding only `terms`"
+        },
+        "issuedAt": {
+          "$ref": "common.schema.json#/$defs/Timestamp",
+          "description": "Orders this address's registrations: operators serve the latest and refuse an older one"
         },
         "nonce": {
           "$ref": "common.schema.json#/$defs/Hex32"

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.8/commitment.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.10/commitment.schema.json",
   "title": "Commitment (terms + EIP-712 signatures)",
   "type": "object",
   "required": [
@@ -75,7 +75,8 @@
   },
   "properties": {
     "schemaVersion": {
-      "const": "0.6"
+      "const": "0.7",
+      "description": "The signed encoding and EIP-712 domain version these terms are settled under (0.7 since schema v0.9, ADR-0029)"
     },
     "id": {
       "$ref": "common.schema.json#/$defs/Hex32",

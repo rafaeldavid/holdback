@@ -205,10 +205,11 @@ export class Agent {
    * then signs: an early accept releases the seller-supplied envelope with the payment, and no appeal follows it (D32).
    */
   async earlyAccept(terms: J, delivery: J): Promise<J> {
-    await openOwnEnvelope(await this.envelopeMaterial(terms, delivery)); // throws Refusal if it does not open
+    const opened = await openOwnEnvelope(await this.envelopeMaterial(terms, delivery)); // throws Refusal if it does not open
     const nonce = freshNonce();
     const prepared = await this.call('POST', '/v1/prepare/early-accept', { commitmentId: commitmentIdOf(terms), nonce });
-    return this.signAndSubmit(prepared, { kind: 'early-accept', terms, nonce });
+    // The accept names the delivery this agent opened (ADR-0029): the contract refuses it with any other.
+    return this.signAndSubmit(prepared, { kind: 'early-accept', terms, nonce, deliveryHash: opened.deliveryHash });
   }
   /** Buyer: fetch this agent's released envelope and the ciphertext, decrypt, check the signed hashes. */
   async openDelivery(id: Hex): Promise<string> {

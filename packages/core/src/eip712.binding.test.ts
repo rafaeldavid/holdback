@@ -51,11 +51,12 @@ export const fixtures: Record<string, UnsignedMessage> = {
     nonce: h('08'),
     expiresAt: at,
   },
-  EarlyAccept: { type: 'EarlyAccept', commitmentId: h('01'), buyer: B, attempt: 1, nonce: h('09'), expiresAt: at },
+  EarlyAccept: { type: 'EarlyAccept', commitmentId: h('01'), buyer: B, attempt: 1, deliveryHash: h('1d'), nonce: h('09'), expiresAt: at },
   Decision: {
     type: 'Decision',
     commitmentId: h('01'),
     attempt: 1,
+    deliveryHash: h('1d'),
     adjudicator: C,
     role: 'appeal',
     outcome: 'accept',
@@ -150,10 +151,25 @@ export const fixtures: Record<string, UnsignedMessage> = {
     expiresAt: at,
   },
   KeyRegistration: { type: 'KeyRegistration', adjudicator: C, encryptionPublicKey: 'a2V5Ng', keyId: 'bench-a/2026-11', nonce: h('1c'), expiresAt: at },
+  // ADR-0030: a new type in schema 0.10, so the domain stays 0.7.
+  AdjudicatorRegistration: {
+    type: 'AdjudicatorRegistration',
+    adjudicator: C,
+    encryptionPublicKey: 'a2V5Nw',
+    keyId: 'bench-a/2026-11',
+    policyHash: h('05'),
+    registryHash: h('06'),
+    fee: tusd('25000000'),
+    poolTermsHash: h('1d'),
+    bodyHash: h('1e'),
+    issuedAt: '2026-10-30T10:00:00Z',
+    nonce: h('1f'),
+    expiresAt: at,
+  },
 };
 
 export const terms: CommitmentTerms = {
-  schemaVersion: '0.6',
+  schemaVersion: '0.7',
   clubId: 'data-services-v1',
   rulebookHash: h('11'),
   buyer: B,
@@ -187,9 +203,9 @@ const encodeTypePins: Record<string, string> = {
   AdjudicatorAcceptance: `AdjudicatorAcceptance(bytes32 commitmentId,address adjudicator,bytes32 seedCommitment,bytes32 policyHash,bytes32 registryHash,TokenAmount fee,TokenAmount bondReserved,bytes32 nonce,uint64 expiresAt)${TOKEN}`,
   FundingAuthorization:
     'FundingAuthorization(string scheme,bytes32 commitmentId,address from,uint256 value,string token,uint64 validAfter,uint64 validBefore,bytes32 nonce,uint64 expiresAt)',
-  EarlyAccept: 'EarlyAccept(bytes32 commitmentId,address buyer,uint8 attempt,bytes32 nonce,uint64 expiresAt)',
+  EarlyAccept: 'EarlyAccept(bytes32 commitmentId,address buyer,uint8 attempt,bytes32 deliveryHash,bytes32 nonce,uint64 expiresAt)',
   Decision:
-    'Decision(bytes32 commitmentId,uint8 attempt,address adjudicator,string role,string outcome,bytes32 seed,bytes32 policyHash,bytes32 registryHash,bytes32 judgmentRecordHash,SealedKey keyForBuyer,string appealGround,Beacon beacon,EncryptedKey[] encryptedKeys,bytes32 nonce,uint64 expiresAt)' +
+    'Decision(bytes32 commitmentId,uint8 attempt,bytes32 deliveryHash,address adjudicator,string role,string outcome,bytes32 seed,bytes32 policyHash,bytes32 registryHash,bytes32 judgmentRecordHash,SealedKey keyForBuyer,string appealGround,Beacon beacon,EncryptedKey[] encryptedKeys,bytes32 nonce,uint64 expiresAt)' +
     'Beacon(string source,uint64 round,bytes32 value,bytes signature)EncryptedKey(address recipient,string scheme,string ciphertext,KeyUnlock unlock)KeyUnlock(string kind,uint64 round)SealedKey(string scheme,string ciphertext)',
   AgentRevocation: 'AgentRevocation(address agent,address principal,bytes32 nonce,uint64 expiresAt)',
   MemberAdmission: 'MemberAdmission(string clubId,address member,address operator,uint64 validUntil,bytes32 nonce,uint64 expiresAt)',
@@ -207,6 +223,7 @@ const encodeTypePins: Record<string, string> = {
   ReadToken: 'ReadToken(address viewer,bytes32 commitmentId,bool hasAudience,address audience,bytes32 nonce,uint64 expiresAt)',
   Delegation: `Delegation(address principal,address agent,address dealKey,string dealEncryptionKey,string clubId,Scope scope,bytes32 nonce,uint64 expiresAt)Scope(string[] roles,TokenAmount maxPerCommitment,TokenAmount maxDaily,bool hasCategories,string[] categories,uint64 expiresAt)${TOKEN}`,
   KeyRegistration: 'KeyRegistration(address adjudicator,string encryptionPublicKey,string keyId,bytes32 nonce,uint64 expiresAt)',
+  AdjudicatorRegistration: `AdjudicatorRegistration(address adjudicator,string encryptionPublicKey,string keyId,bytes32 policyHash,bytes32 registryHash,TokenAmount fee,bytes32 poolTermsHash,bytes32 bodyHash,uint64 issuedAt,bytes32 nonce,uint64 expiresAt)${TOKEN}`,
   CommitmentTerms:
     'CommitmentTerms(string schemaVersion,string clubId,bytes32 rulebookHash,address buyer,address seller,bytes32 deliverableHash,bytes32 acceptanceHash,TokenAmount price,Adjudication adjudication,Timing timing,Settlement settlement,Remedy remedy,Disclosure disclosure,string buyerEncryptionPublicKey,bytes32 nonce,uint64 createdAt)' +
     'Adjudication(address adjudicator,address fallbackAdjudicator,address appealAdjudicator,string policyId,TokenAmount fee,bytes32 registryHash,bytes32 policyHash)' +
@@ -218,27 +235,28 @@ const encodeTypePins: Record<string, string> = {
 
 // Digests of the fixtures above under holdbackDomain(31337).
 const digestPins: Record<string, Hex> = {
-  Offer: '0x6556874e4fe09c1d5380bb80b52cdfb2e3f934c96c0bc576ebb0399e9918258b',
-  Agree: '0x224c5b608bbceb2eceeee04860c0ec00f4283922a4a4a908389f7ffe00ab6660',
-  AdjudicatorAcceptance: '0x78999d9306e0e4cd6c1f45b815e10b660c97698c13c6fc7ed9b5337f21c006f6',
-  FundingAuthorization: '0x23cdeb00d6a7d7992aec2961658f11ee0cc7d456370888c2f201ce47c631b69b',
-  EarlyAccept: '0xa24f6800602f25651af58f39b3045324c97c42d26dbdda9d03c66a90286bee8d',
-  Decision: '0x4bbe91e10f92eae5d5182acc01d1394ae1c5cc1d52a90ca5cd491d030c0b1277',
-  AgentRevocation: '0x96c8844e514d2a4119eba1bce1fa14f1e70c08895fca499a68253c30e380abf6',
-  MemberAdmission: '0xa0907ae2902f15ff24c453ab5a6733f138efffa7d316e977c924e042b2547300',
-  MemberRevocation: '0x4056b4f6b26a349f0d91bf8763b70b079cb1a94fb36146407e9e5a5a339de4a4',
-  Dispute: '0xd66ded91568fee5014b754a94cd40f612c552f62b0e7df19c7179c360ccf9d62',
-  Receipt: '0x8ebafd23f09e5aee09946caf098f1558126926ac2f08472d66535014883d96e4',
-  Publish: '0xe41ef334d238e97abb356097ad5954609c78abea0e9bfd271906afda156bd394',
-  MutualSettlement: '0x86fc0a151e2fe6492a8f4c6fc5322e6305002fc3cc35d805e82b8b673bb33073',
-  Delivery: '0x1e78504be610bba1912938d2702966c9017940080ef99151c153953eaa85415d',
-  Appeal: '0x53756af3b2e9a4652147aca18d8bc38ed160582557b369b88abbb1b6b028fab2',
-  Mandate: '0xa5a6a54ee851f75067ccc68bda24d7c0bfb2a07d7d59e9c2f547f26c47485810',
-  TransferAuthorization: '0xb2e8984c0ce76dbd7fea8509adc39ef2e768ad76d0c2c131ebbea2aab8552e30',
-  ReadToken: '0x3814babd5a49153ba050993c0594bd639b2489601462786db8020e491589f2ca',
-  Delegation: '0xe840edc31600e705579a98925d4a09959e74c8bbd798b75ee8e246f9997a63ec',
-  KeyRegistration: '0xd2bf594edb8e7f6ae5b2e1a9082e4cd90d109fa136a8024da4a28ebfbf6a276a',
-  CommitmentTerms: '0xd98b1700753aec82b1ecc322fbd3f07bb83c6abe4f0bb1a94022b22732662092',
+  Offer: '0x22c26504d40fe5e8c720ebf44c657e53225aece83935f83e6f30716dcf336e64',
+  Agree: '0xc01dd708daf9b7dca1073587e01cc580938eabe07a80ae3bf43a9ae50651f851',
+  AdjudicatorAcceptance: '0x36ad2ebe15c7421dd89d244b60bdd61e9cba5a08f958f29bbfdcf121378fc01d',
+  FundingAuthorization: '0x691f1ec03351d75ef7ef4c2514ff9be1cc43d640272817ad4bb9a3316d6f935d',
+  EarlyAccept: '0x903934dbb678e3103924d708bdc1c0013a6a28df8fa02c25da1281291373cec5',
+  Decision: '0x29f39a52154bd2cbf477392ce424b8b6e741e70960164aebe647708573d35b20',
+  AgentRevocation: '0x69bdde5116fed175411e60bc11aa4203f7c0fc19b26f0da71f31c5feec23bf3e',
+  MemberAdmission: '0xd50b50791f99207a1bacbd051265bdf87a2c154b8d7d31a945de60bdbee3b31f',
+  MemberRevocation: '0x8fdff2f935c3e39862878ae3445fb674ae1f637ffc3334ee76295a8f4f57e05c',
+  Dispute: '0xfb0d307fed62abc138682698fc23c98880f06966f3cf1264a011b25c06a7242f',
+  Receipt: '0xdf30b8716ef19c659b2b69354134635c26d91ed75666ef867e98da92627308c3',
+  Publish: '0x9dfa9972dbd187eb7cf5d21e31ecb769c5c5e9d08f8f904c1a99aaa2ca77221a',
+  MutualSettlement: '0xbde7a6e5536eb429ee21215afd08fe08c794d4afccab2abea3606c0181f087ad',
+  Delivery: '0xbf4c97a3297c3b441097739acfd6616400dcd1eea8c3dbac076766e8a97dca97',
+  Appeal: '0x54080ee0cc8c92a61588df9c49495294aa58be046c1fc15cd616352f69a05fa8',
+  Mandate: '0x10bb5c72e481809cedb23b4d52fd6b16f6dd816116396b1905890d949f06a63c',
+  TransferAuthorization: '0x3d5a2f5281bce38ffe49ba1643fb34bb8f5a80eb4e72fef0c3973035f8cdaf42',
+  ReadToken: '0x8d7e74363e4f5f5adc3a66faaf441f26fe4fe0d8abe21cedf2f8307f27986bf2',
+  Delegation: '0xe54275c69e54db3999f5fb1db14340ccb942b507cf50e2b48aa8858dd8232525',
+  KeyRegistration: '0x05549f3b21a613695d0e150061bd5e67eb8f433bf59a2eac1738c888eae46e0e',
+  AdjudicatorRegistration: '0xab599c0bcba50a87775692f12518353aeb459cc698db479b713456c5b3e98a38',
+  CommitmentTerms: '0x0efe5c62867daa76f58889d43b424ab16d2a4a48fa03aa4511288f9bf9d45d75',
 };
 
 // A second, hand-written EIP-712 implementation (encodeType, encodeData, hashStruct, domain separator)
@@ -282,7 +300,7 @@ function hashStruct(type: string, data: Record<string, unknown>): Hex {
 const domainSeparator = keccak256(
   encodeAbiParameters(
     [{ type: 'bytes32' }, { type: 'bytes32' }, { type: 'bytes32' }, { type: 'uint256' }, { type: 'address' }],
-    [keccak256(stringToHex('EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)')), keccak256(stringToHex('Holdback')), keccak256(stringToHex('0.6')), 31337n, SIMCHAIN_VERIFYING_CONTRACT],
+    [keccak256(stringToHex('EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)')), keccak256(stringToHex('Holdback')), keccak256(stringToHex('0.7')), 31337n, SIMCHAIN_VERIFYING_CONTRACT],
   ),
 );
 const handDigest = (primaryType: string, message: Record<string, unknown>): Hex => keccak256(concat(['0x1901', domainSeparator, hashStruct(primaryType, message)]));

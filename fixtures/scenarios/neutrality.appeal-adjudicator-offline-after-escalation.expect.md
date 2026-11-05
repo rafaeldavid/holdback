@@ -15,7 +15,7 @@ Bench A's panel splits (one judge passes, one fails, one abstains: no supermajor
 | Club | fixtures/clubs/data-services-v1.yaml (loaded) · rulebook 0x140e…971e |
 | Buyer | atlas-buyer 0xBA96…bcA3 |
 | Seller | tidewater-seller 0xb25F…D818 |
-| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0x3ce4…c06d · price 2,000.000000 tUSD · fee 50.000000 tUSD |
+| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0x6efe…c5ad · price 2,000.000000 tUSD · fee 50.000000 tUSD |
 | Adjudicators | primary bench-a 0xb9A5…9664 · fallback bench-b 0x46A5…E16C · appeal bench-c 0x7228…645f |
 | Operators | op-1 · op-2 |
 
@@ -55,15 +55,15 @@ Outages:
 - **Deterministic checks:** cols ✓ · rows ✓ · uniq ✓ · dates ✓ · id_nulls ✓ · name_nulls ✓ · email_nulls ✓ · emails (optional) ✓ · hidden ✓
 - **Screen:** clean
 - **Panel:** 3 judges from 3 families (policy: 3 seats, at least 2 families) · first-instance template 0xabb5…4dd2 · rubric 0x4201…7925 · seed source: commit-reveal (commitment 0x7f3c…10a5, seed 0x06fd…fa18, recomputed: match)
-  - gpt-b · openai-compatible/gpt · placeholder-gpt-b-20260601 · recorded (authored) · fail · scores 2/1/2 · input 0xf33f…9e0e
-  - claude-a · anthropic/claude · placeholder-claude-a-20260601 · recorded (captured from fake judges) · pass · scores 4/4/4 · input 0xadb6…3424
-  - qwen-a · openai-compatible/qwen · placeholder-qwen-a-20260601 · recorded (authored) · abstain · input 0xa05b…ad94
+  - qwen-a · openai-compatible/qwen · placeholder-qwen-a-20260601 · recorded (authored) · abstain · input 0xfbae…d79f
+  - claude-b · anthropic/claude · placeholder-claude-b-20260601 · recorded (captured from fake judges) · pass · scores 4/4/4 · input 0x4631…1ad0
+  - gpt-b · openai-compatible/gpt · placeholder-gpt-b-20260601 · recorded (authored) · fail · scores 2/1/2 · input 0x3002…594e
 - **Aggregate:** escalate (weighted score 2.80; 1 pass, 1 fail of 2 valid; pass families claude). Reasons: 1 pass, 1 fail of 2 valid: no supermajority.
 - **Signed:** escalate.
 
 ## Receipts and log
 
-- Events 0–10. Chain head 0xb2fd…cfd1. Replay of 8 SimChain submissions from genesis matches the settlement state.
+- Events 0–10. Chain head 0x555e…e5c7. Replay of 8 SimChain submissions from genesis matches the settlement state.
 - Receipts from op-1: 5 (rcpt-0001–rcpt-0005). The runner labels them without signing; the operator API signs real receipts.
 - Receipts from op-2: 2 (rcpt-0006–rcpt-0007). The runner labels them without signing; the operator API signs real receipts.
 

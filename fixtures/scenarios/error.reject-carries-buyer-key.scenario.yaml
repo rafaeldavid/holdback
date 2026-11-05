@@ -1,0 +1,38 @@
+# @settlement sim @judges recorded @mode guaranteed_on_decision @seed 47
+name: error.reject-carries-buyer-key
+description: >-
+  T-206 H-2 (ADR-0012, the formal model's KeyOnlyWithPayment). Tidewater delivers a cleaned CSV that drops 8% of
+  rows, the row-count check fails, and Bench A rejects with no panel. Its first signed reject also carries Atlas's
+  content key. A refunded buyer must never get the key, so settlement refuses the decision (invalid_terms) as
+  HoldbackRules does, instead of settling the refund and dropping the key. Bench A signs the same reject without
+  the key: Atlas is refunded and Bench A earns the fee. (That no key reaches Atlas is pinned by simchain.test.ts.)
+club: fixtures/clubs/data-services-v1.yaml
+terms: fixtures/terms/clean-customers-2000.yaml
+parties:
+  buyer: atlas-buyer
+  seller: tidewater-seller
+adjudicators:
+  primary: bench-a
+  fallback: bench-b
+  appeal: bench-c
+operators: [op-1, op-2]
+faucet:
+  atlas-buyer: "10000000000"
+  bench-a: "25000000000"
+  bench-b: "25000000000"
+  bench-c: "25000000000"
+steps:
+  - offer:              { by: seller, via: op-1 }
+  - adjudicator_accept: { via: op-1 }
+  - agree_and_fund:     { by: buyer, via: op-1 }
+  - deliver:            { by: seller, via: op-1, file: data/dataset-cleaning/customers.clean.row-drop.csv }
+  - advance_clock:      { seconds: 5 }
+  - judge:              { adjudicator: bench-a, tamper: buyer_key }   # reject with the buyer's key: refused
+  - judge:              { adjudicator: bench-a }                      # the same reject without it
+expect:
+  problem: { type: invalid_terms, step: 6 }
+  terminal: Refunded
+  balances:
+    atlas-buyer: "9950000000"
+    tidewater-seller: "0"
+    bench-a: "25050000000"

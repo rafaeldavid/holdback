@@ -7,7 +7,7 @@
   "family": "claude",
   "model": "placeholder-claude-a-20260601",
   "promptTemplateHash": "0xabb5ec9b33cf9a936e140bf8530c217f6629fdf1e08a46fbdf6bd7363ce84dd2",
-  "inputHash": "0xb364459a183334e608b7d28b01e4c4a9a6f480c46e9ab75ca699ab35a36db569",
+  "inputHash": "0x9b0b8cf03362c8a9b17fa3b8c0f5378ddb9ac86be2e0e92891f93d5fce77582e",
   "rubricHash": "0x4201c2a950347823c494fcfc89f88fab1ca670b2086f66ed726aa9c7b0ec7925",
   "capturedFrom": "fake",
   "verdict": {

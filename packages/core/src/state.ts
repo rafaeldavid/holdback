@@ -10,7 +10,7 @@
 //   are false for an unparseable time, so a bad clock refuses instead of firing a timeout, and step
 //   refuses an unparseable event time outright.
 import { encodePacked, keccak256 } from 'viem';
-import { beaconRoundAt, SIM_BEACON } from './beacon.js';
+import { beaconClockOf, beaconRoundAt, type BeaconClock } from './beacon.js';
 import { rulebookHash } from './canonical.js';
 import { commitmentId, deliveryHash, isSealed, termsOf } from './eip712.js';
 import { add, gte, tokenAmount, type MoneyError } from './money/index.js';
@@ -32,6 +32,7 @@ import type {
   Hex32,
   MutualSettlement,
   Payout,
+  RandomnessSource,
   Rulebook,
   Scope,
   Signature,
@@ -58,6 +59,8 @@ export interface FirstInstance {
   kind: 'first_instance';
   role: 'primary' | 'fallback';
   decision: Decision;
+  /** The seller-signed delivery the decision judged: a party appeal judges the same body (ADR-0029). */
+  delivery: Delivery;
   appeal: AppealState;
 }
 
@@ -73,6 +76,11 @@ interface Base {
   id: Hex32;
   /** At private and judgment the sealed form: settlement reads money, deadlines and hashes only (ADR-0024). */
   terms: AnyCommitmentTerms;
+  /**
+   * The club rulebook's randomness.source, kept from the offer: its clock counts the fallback and appeal rounds
+   * (ADR-0018 §6, T-217). A state saved before T-217 has none, and reads as sim.
+   */
+  beaconSource: RandomnessSource;
 }
 
 interface Funded extends Base {
@@ -195,7 +203,10 @@ export function offer(input: OfferInput): R<Extract<EscrowState, { kind: 'Offere
   if (terms.adjudication.fee.token !== terms.price.token || terms.settlement.token !== terms.price.token) {
     return fail('invalid_terms', 'price, fee and settlement must use one token');
   }
-  return ok({ kind: 'Offered', id: commitment.id, terms, sellerSignature: commitment.signatures.seller });
+  // ADR-0018 §5: a fallback or appeal round on a clock nothing here counts could never be proven.
+  const beaconSource = rulebook.randomness.source;
+  if (!beaconClockOf(beaconSource)) return fail('invalid_terms', `the rulebook's randomness source ${beaconSource} has no beacon verifier (sim or drand-quicknet)`);
+  return ok({ kind: 'Offered', id: commitment.id, terms, beaconSource, sellerSignature: commitment.signatures.seller });
 }
 
 function adjudicatorAccept(s: Extract<EscrowState, { kind: 'Offered' }>, e: Extract<EscrowEvent, { type: 'adjudicator_accept' }>): R {
@@ -218,7 +229,7 @@ function adjudicatorAccept(s: Extract<EscrowState, { kind: 'Offered' }>, e: Extr
     if (!covered.ok) return covered;
     if (!covered.value) return fail('coverage_exceeded', `${what} ${amount.amount} is below the price ${price.amount}`);
   }
-  return ok({ kind: 'AcceptedByAdjudicator', id: s.id, terms: s.terms, sellerSignature: s.sellerSignature, acceptance: m });
+  return ok({ kind: 'AcceptedByAdjudicator', id: s.id, terms: s.terms, beaconSource: s.beaconSource, sellerSignature: s.sellerSignature, acceptance: m });
 }
 
 function agree(s: Extract<EscrowState, { kind: 'AcceptedByAdjudicator' }>, e: Extract<EscrowEvent, { type: 'agree' }>): R {
@@ -237,7 +248,7 @@ function agree(s: Extract<EscrowState, { kind: 'AcceptedByAdjudicator' }>, e: Ex
   if (!withinDaily.ok) return withinDaily;
   if (!withinDaily.value) return fail('scope_exceeded', `daily spend ${today.value.amount} would exceed the cap ${e.buyerScope.maxDaily.amount}`);
   if (!e.memberAdmitted) return fail('member_not_admitted', 'the buyer principal is not an admitted member of the club');
-  return ok({ kind: 'Agreed', id: s.id, terms, acceptance: s.acceptance, agree: m });
+  return ok({ kind: 'Agreed', id: s.id, terms, beaconSource: s.beaconSource, acceptance: s.acceptance, agree: m });
 }
 
 function fund(s: Extract<EscrowState, { kind: 'Agreed' }>, e: Extract<EscrowEvent, { type: 'fund' }>): R {
@@ -265,7 +276,7 @@ function fund(s: Extract<EscrowState, { kind: 'Agreed' }>, e: Extract<EscrowEven
   if (!funded.ok) return funded;
   if (!funded.value) return fail('insufficient_funds', `balance ${e.balance.amount} is below ${needed.value.amount}`);
 
-  return ok({ kind: 'Held', id: s.id, terms, acceptance: s.acceptance, hold: { amount: total.value, funding: m, heldAt: e.at } });
+  return ok({ kind: 'Held', id: s.id, terms, beaconSource: s.beaconSource, acceptance: s.acceptance, hold: { amount: total.value, funding: m, heldAt: e.at } });
 }
 
 function deliver(s: Extract<EscrowState, { kind: 'Held' }>, e: Extract<EscrowEvent, { type: 'deliver' }>): R {
@@ -284,18 +295,21 @@ function deliver(s: Extract<EscrowState, { kind: 'Held' }>, e: Extract<EscrowEve
   return ok({ ...s, kind: 'Delivered', delivery: d });
 }
 
-// The SimChain beacon's round at a timestamp, in drand's arithmetic (genesis 1 s, period 1 s: round(t) = t).
-const roundAt = (ts: Timestamp): number => beaconRoundAt(SIM_BEACON, Math.max(0, Math.floor(ms(ts) / 1000)));
+// A beacon's round at a timestamp, in drand's arithmetic (the sim beacon: genesis 1 s, period 1 s, round(t) = t).
+const roundAt = (clock: BeaconClock, ts: Timestamp): number => beaconRoundAt(clock, Math.max(0, Math.floor(ms(ts) / 1000)));
 
 /**
  * The beacon round that fixes a fallback or appeal panel's seed (ADR-0018), or null when that role has no
  * turn in this state. Fallback: the round at judgeBy. Appeal: the first round strictly after the settlement
- * layer applied the escalation or the appeal. Message and trigger times never set it.
+ * layer applied the escalation or the appeal. Message and trigger times never set it. Rounds count on the clock
+ * of the source the commitment's rulebook names, as the rules contract's beacon counts them (T-217).
  */
 export function beaconRoundFor(s: EscrowState, role: 'fallback' | 'appeal'): number | null {
-  if (role === 'fallback') return s.kind === 'Delivered' || s.kind === 'FallbackJudging' ? roundAt(s.terms.timing.judgeBy) : null;
-  if (s.kind === 'Escalated') return roundAt(s.escalation.at) + 1;
-  if ((s.kind === 'Released' || s.kind === 'Refunded') && s.via.kind === 'first_instance' && s.via.appeal.kind === 'open') return roundAt(s.via.appeal.openedAt) + 1;
+  const clock = beaconClockOf(s.beaconSource);
+  if (!clock) return null;
+  if (role === 'fallback') return s.kind === 'Delivered' || s.kind === 'FallbackJudging' ? roundAt(clock, s.terms.timing.judgeBy) : null;
+  if (s.kind === 'Escalated') return roundAt(clock, s.escalation.at) + 1;
+  if ((s.kind === 'Released' || s.kind === 'Refunded') && s.via.kind === 'first_instance' && s.via.appeal.kind === 'open') return roundAt(clock, s.via.appeal.openedAt) + 1;
   return null;
 }
 
@@ -316,8 +330,37 @@ function beaconSeed(s: EscrowState, m: Decision, beacon: BeaconFact | null | und
   return ok(true);
 }
 
+/**
+ * ADR-0029: a decision or early accept names the posted delivery by its hash. A seller that signed two deliveries
+ * for one attempt cannot settle a signature about one with the other.
+ */
+function namesTheDelivery(m: { deliveryHash: Hex32 }, d: Delivery | Hex32): R<true> {
+  const posted = typeof d === 'string' ? d : deliveryHash(d);
+  return m.deliveryHash === posted ? ok(true) : fail('invalid_terms', `the message names delivery ${m.deliveryHash}, not the posted delivery ${posted}`);
+}
+
+/**
+ * The posted delivery's hash, from Delivered on (the read model's `deliveryHash`, ADR-0029): from the delivery while
+ * the state holds it, then from the signature that settled the deal, which named it. Undefined before a delivery,
+ * after a reclaim, after a default (no signature named it) and after a mutual settlement before delivery.
+ */
+export function postedDeliveryHash(s: EscrowState): Hex32 | undefined {
+  if ('delivery' in s) return deliveryHash(s.delivery);
+  if (s.kind === 'Settled') return s.settlement.deliveryHash ?? undefined;
+  if (s.kind !== 'Released' && s.kind !== 'Refunded') return undefined;
+  const via = s.via;
+  if (via.kind === 'first_instance' || via.kind === 'escalation') return via.decision.deliveryHash;
+  if (via.kind === 'early_accept') return via.earlyAccept.deliveryHash;
+  return undefined;
+}
+
+/** Every role judges the delivered attempt. panelSeed hashes it, so a free attempt would be a free seed (T-206 H-1). */
+function sameAttempt(m: Decision, delivered: number): R<true> {
+  return m.attempt === delivered ? ok(true) : fail('invalid_terms', `decision is for attempt ${m.attempt}, delivery is attempt ${delivered}`);
+}
+
 /** Checks shared by every decision (ADR-0016 §4), apart from the seed. */
-function decisionBindings(s: Base, m: Decision, at: Timestamp, adjudicator: string, deadline: Timestamp): R<true> {
+function decisionBindings(s: Pick<Base, 'id' | 'terms'>, m: Decision, at: Timestamp, adjudicator: string, deadline: Timestamp): R<true> {
   if (!sameAddress(m.adjudicator, adjudicator)) return fail('not_your_turn', `${m.adjudicator} is not the ${m.role} adjudicator`);
   if (!before(at, deadline)) return fail('deadline_passed', `the ${m.role} deadline passed at ${deadline}`);
   const live = messageLive(m, at);
@@ -340,14 +383,17 @@ function firstInstance(s: Extract<EscrowState, { kind: 'Delivered' | 'FallbackJu
     role === 'primary' ? timing.judgeBy : timing.fallbackBy,
   );
   if (!bound.ok) return bound;
-  if (m.attempt !== s.delivery.attempt) return fail('invalid_terms', `decision is for attempt ${m.attempt}, delivery is attempt ${s.delivery.attempt}`);
+  const attempt = sameAttempt(m, s.delivery.attempt);
+  if (!attempt.ok) return attempt;
+  const named = namesTheDelivery(m, s.delivery);
+  if (!named.ok) return named;
   if (m.appealGround !== undefined) return fail('invalid_terms', 'appealGround belongs to appeal decisions only');
   // ADR-0018: the primary reveals its committed seed; the fallback takes the beacon seed for judgeBy.
   if (role === 'primary' && keccak256(m.seed) !== s.acceptance.seedCommitment) return fail('seed_mismatch', 'seed does not hash to the acceptance seedCommitment');
   const seeded = beaconSeed(s, m, beacon);
   if (!seeded.ok) return seeded;
 
-  const base = { id: s.id, terms: s.terms, settledAt: at };
+  const base = { id: s.id, terms: s.terms, beaconSource: s.beaconSource, settledAt: at };
   if (m.outcome === 'escalate') {
     return ok({ ...s, kind: 'Escalated', escalation: { by: role, at, appealDecideBy: addSeconds(at, timing.appealDecideSec) } });
   }
@@ -356,6 +402,7 @@ function firstInstance(s: Extract<EscrowState, { kind: 'Delivered' | 'FallbackJu
     kind: 'first_instance',
     role,
     decision: m,
+    delivery: s.delivery,
     appeal: { kind: 'none', appealBy, appealDecideBy: addSeconds(appealBy, timing.appealDecideSec) },
   };
   return ok(m.outcome === 'accept' ? { ...base, kind: 'Released', via } : { ...base, kind: 'Refunded', via });
@@ -365,10 +412,14 @@ function escalationDecision(s: Extract<EscrowState, { kind: 'Escalated' }>, m: D
   if (m.role !== 'appeal') return fail('not_your_turn', "it is the appeal adjudicator's turn");
   const bound = decisionBindings(s, m, at, s.terms.adjudication.appealAdjudicator, s.escalation.appealDecideBy);
   if (!bound.ok) return bound;
+  const attempt = sameAttempt(m, s.delivery.attempt);
+  if (!attempt.ok) return attempt;
+  const named = namesTheDelivery(m, s.delivery);
+  if (!named.ok) return named;
   const seeded = beaconSeed(s, m, beacon);
   if (!seeded.ok) return seeded;
   if (m.outcome === 'escalate') return fail('invalid_terms', 'the appeal adjudicator decides accept or reject; it cannot escalate');
-  const base = { id: s.id, terms: s.terms, settledAt: at };
+  const base = { id: s.id, terms: s.terms, beaconSource: s.beaconSource, settledAt: at };
   const via = { kind: 'escalation' as const, decision: m };
   return ok(m.outcome === 'accept' ? { ...base, kind: 'Released', via } : { ...base, kind: 'Refunded', via });
 }
@@ -377,6 +428,10 @@ export interface AppealContext {
   id: Hex32;
   terms: AnyCommitmentTerms;
   firstOutcome: 'accept' | 'reject';
+  /** The delivery the first decision named: the appeal judges the same body (ADR-0029). */
+  deliveryHash: Hex32;
+  /** That delivery's attempt, which the appeal decision names too. */
+  attempt: number;
 }
 
 export type AppealEvent = Extract<EscrowEvent, { type: 'file_appeal' | 'decide' | 'expire_appeal' }>;
@@ -393,6 +448,10 @@ export function stepAppeal(a: AppealState, e: AppealEvent, ctx: AppealContext): 
       if (!sameAddress(p.appellantAddress, p.appellant === 'buyer' ? terms.buyer : terms.seller)) {
         return fail('invalid_signature', `appellant address is not the ${p.appellant}`);
       }
+      // T-206 L-7: only the party the decision went against appeals. Outcomes are binary, and the one slot taken by
+      // the favoured party would shut out the party with something to win.
+      const against = ctx.firstOutcome === 'accept' ? 'buyer' : 'seller';
+      if (p.appellant !== against) return fail('invalid_terms', `the decision went against the ${against}, so only the ${against} may appeal`);
       for (const [what, paid, required] of [
         ['appeal bond', p.bond, e.requiredBond],
         ['appeal fee', e.feePaid, e.requiredFee],
@@ -409,6 +468,10 @@ export function stepAppeal(a: AppealState, e: AppealEvent, ctx: AppealContext): 
       if (m.role !== 'appeal') return fail('not_your_turn', "it is the appeal adjudicator's turn");
       const bound = decisionBindings(ctx, m, e.at, terms.adjudication.appealAdjudicator, a.appealDecideBy);
       if (!bound.ok) return bound;
+      const attempt = sameAttempt(m, ctx.attempt);
+      if (!attempt.ok) return attempt;
+      const named = namesTheDelivery(m, ctx.deliveryHash);
+      if (!named.ok) return named;
       if (m.outcome === 'escalate') return fail('invalid_terms', 'an appeal decision is accept or reject');
       return ok({ kind: m.outcome === ctx.firstOutcome ? 'upheld' : 'overturned', appeal: a.appeal, decision: m });
     }
@@ -425,7 +488,13 @@ function settled(s: Extract<EscrowState, { kind: 'Released' | 'Refunded' }>, e: 
   if (s.via.kind !== 'first_instance') {
     return fail('invalid_state', s.via.kind === 'escalation' ? 'a decision reached through escalation is not appealable' : `nothing to appeal after ${s.via.kind}`);
   }
-  const ctx = { id: s.id, terms: s.terms, firstOutcome: s.kind === 'Released' ? ('accept' as const) : ('reject' as const) };
+  const ctx = {
+    id: s.id,
+    terms: s.terms,
+    firstOutcome: s.kind === 'Released' ? ('accept' as const) : ('reject' as const),
+    deliveryHash: s.via.decision.deliveryHash,
+    attempt: s.via.delivery.attempt,
+  };
   const next = stepAppeal(s.via.appeal, e as AppealEvent, ctx);
   if (next.ok && e.type === 'decide') {
     const seeded = beaconSeed(s, e.message, e.beacon);
@@ -457,6 +526,7 @@ function mutualSettle(s: Settleable, e: Extract<EscrowEvent, { type: 'mutual_set
     kind: 'Settled',
     id: s.id,
     terms: s.terms,
+    beaconSource: s.beaconSource,
     settledAt: e.at,
     from: s.kind,
     settlement: m,
@@ -483,14 +553,14 @@ export function step(s: EscrowState, e: EscrowEvent): R {
       if (e.type === 'fund') return fund(s, e);
       if (e.type === 'expire') {
         if (!reached(e.at, s.terms.timing.fundBy)) return tooEarly(s.terms.timing.fundBy);
-        return ok({ kind: 'Expired', id: s.id, terms: s.terms, from: s.kind, expiredAt: e.at });
+        return ok({ kind: 'Expired', id: s.id, terms: s.terms, beaconSource: s.beaconSource, from: s.kind, expiredAt: e.at });
       }
       break;
     case 'Held':
       if (e.type === 'deliver') return deliver(s, e);
       if (e.type === 'reclaim') {
         if (!reached(e.at, s.terms.timing.deliverBy)) return tooEarly(s.terms.timing.deliverBy);
-        return ok({ kind: 'Refunded', id: s.id, terms: s.terms, settledAt: e.at, via: { kind: 'reclaim' } });
+        return ok({ kind: 'Refunded', id: s.id, terms: s.terms, beaconSource: s.beaconSource, settledAt: e.at, via: { kind: 'reclaim' } });
       }
       break;
     case 'Delivered':
@@ -499,9 +569,11 @@ export function step(s: EscrowState, e: EscrowEvent): R {
         const m = e.message;
         if (!sameAddress(m.buyer, s.terms.buyer)) return fail('invalid_signature', 'early acceptance is not from the buyer');
         if (m.commitmentId !== s.id || m.attempt !== s.delivery.attempt) return fail('invalid_terms', 'early acceptance is for another commitment or attempt');
+        const named = namesTheDelivery(m, s.delivery);
+        if (!named.ok) return named;
         const live = messageLive(m, e.at);
         if (!live.ok) return live;
-        return ok({ kind: 'Released', id: s.id, terms: s.terms, settledAt: e.at, via: { kind: 'early_accept', earlyAccept: m } });
+        return ok({ kind: 'Released', id: s.id, terms: s.terms, beaconSource: s.beaconSource, settledAt: e.at, via: { kind: 'early_accept', earlyAccept: m } });
       }
       if (e.type === 'trigger_fallback') {
         if (!reached(e.at, s.terms.timing.judgeBy)) return tooEarly(s.terms.timing.judgeBy);
@@ -512,20 +584,20 @@ export function step(s: EscrowState, e: EscrowEvent): R {
       if (e.type === 'decide') return firstInstance(s, e.message, e.at, e.beacon);
       if (e.type === 'trigger_default') {
         if (!reached(e.at, s.terms.timing.fallbackBy)) return tooEarly(s.terms.timing.fallbackBy);
-        return ok({ kind: 'Defaulted', id: s.id, terms: s.terms, acceptance: s.acceptance, hold: s.hold, from: s.kind, defaultedAt: e.at });
+        return ok({ kind: 'Defaulted', id: s.id, terms: s.terms, beaconSource: s.beaconSource, acceptance: s.acceptance, hold: s.hold, from: s.kind, defaultedAt: e.at });
       }
       break;
     case 'Escalated':
       if (e.type === 'decide') return escalationDecision(s, e.message, e.at, e.beacon);
       if (e.type === 'trigger_default') {
         if (!reached(e.at, s.escalation.appealDecideBy)) return tooEarly(s.escalation.appealDecideBy);
-        return ok({ kind: 'Defaulted', id: s.id, terms: s.terms, acceptance: s.acceptance, hold: s.hold, from: s.kind, defaultedAt: e.at });
+        return ok({ kind: 'Defaulted', id: s.id, terms: s.terms, beaconSource: s.beaconSource, acceptance: s.acceptance, hold: s.hold, from: s.kind, defaultedAt: e.at });
       }
       break;
     case 'Defaulted':
       // The default outcome refunds the buyer; seller compensation from bonds is a settlement posting.
       if (e.type === 'apply_default_outcome') {
-        return ok({ kind: 'Refunded', id: s.id, terms: s.terms, settledAt: e.at, via: { kind: 'default_outcome', from: s.from } });
+        return ok({ kind: 'Refunded', id: s.id, terms: s.terms, beaconSource: s.beaconSource, settledAt: e.at, via: { kind: 'default_outcome', from: s.from } });
       }
       break;
     case 'Released':
@@ -537,7 +609,7 @@ export function step(s: EscrowState, e: EscrowEvent): R {
   }
   if ((s.kind === 'Offered' || s.kind === 'AcceptedByAdjudicator') && e.type === 'expire') {
     if (!reached(e.at, s.terms.timing.offerExpiresAt)) return tooEarly(s.terms.timing.offerExpiresAt);
-    return ok({ kind: 'Expired', id: s.id, terms: s.terms, from: s.kind, expiredAt: e.at });
+    return ok({ kind: 'Expired', id: s.id, terms: s.terms, beaconSource: s.beaconSource, from: s.kind, expiredAt: e.at });
   }
   return wrongState(s, e);
 }

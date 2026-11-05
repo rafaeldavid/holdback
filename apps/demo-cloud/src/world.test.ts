@@ -1,6 +1,7 @@
 // T-026, the public demo world: what the two Workers and the Durable Object serve, run in Node over HTTP.
 // Two origins (127.0.0.1 and localhost on one port) stand in for the two operator Workers; a timer stands in
 // for the Durable Object's alarm. The deal is the examples' agent (examples/agent.ts) with keys it made itself.
+import { readFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import nacl from 'tweetnacl';
@@ -8,9 +9,12 @@ import { generatePrivateKey } from 'viem/accounts';
 import { afterEach, describe, expect, it } from 'vitest';
 import { Agent } from '../../../examples/agent.ts';
 import { LIVE_REGISTRY_URI, liveRegistry, markerFake, placeholderRegistry } from '@holdback/adjudicator';
+import { canonicalKeccak, DRAND_QUICKNET_CHAIN_HASH, holdbackDomain, verifyRegistration, type Address, type AdjudicatorRegistration, type RegisteredAdjudicator } from '@holdback/core';
+import { LiveChain, type DeploymentFile } from '@holdback/settlement/live';
 import { encodePublicKey, generateEncryptionKeyPair } from '@holdback/core/crypto';
-import { MemoryFeedbackStore } from '@holdback/operator';
+import { MemoryFeedbackStore, signRegistration, testAccount, type StoredRegistration, type TestAccount } from '@holdback/operator';
 import { MemoryStorage, PublicWorld, type PublicWorldOptions } from './index.js';
+import { BondReads } from './world.js';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -99,6 +103,42 @@ describe('public mode', () => {
     const both = await Promise.all([post(`${urls[0]}/v1/faucet`, { address: a.address }, 'k-race-1'), post(`${urls[1]}/v1/faucet`, { address: a.address }, 'k-race-2')]);
     expect(both.map((r) => r.status).sort()).toEqual([200, 429]);
     expect(((await (await fetch(`${urls[0]}/v1/balances/${a.address}`)).json()) as J).amount).toBe('1000000000');
+  });
+
+  it('renews the mandate on every grant: past its 30 days or close to them, the address gets a fresh one in place of the old', async () => {
+    let t = Math.ceil(Date.now() / 1000) * 1000;
+    const storage = new MemoryStorage();
+    const { world, urls } = await serve({ now: () => t }, storage, undefined, { passes: false });
+    const d = await discovery(urls);
+    const [seller, buyer] = [freshAgent(urls), freshAgent(urls)];
+    const grant = async (a: Agent): Promise<J> => (await a.call('POST', '/v1/faucet', { address: a.address })).mandate;
+    const first = await grant(seller);
+    await grant(buyer);
+    // At its expiry the address cannot offer; the next grant admits a fresh mandate, and the address offers again.
+    t = Date.parse(first.scope.expiresAt);
+    await expect(seller.offer(offerRequest(d, seller, buyer))).rejects.toThrow(/mandate_expired/);
+    const renewed = await grant(seller);
+    expect(Date.parse(renewed.scope.expiresAt)).toBe(t + 30 * 86_400_000);
+    await grant(buyer);
+    expect((await seller.offer(offerRequest(d, seller, buyer))).state.escrowState).toBe('Offered');
+    // A live mandate is renewed too: the test seller asks two hours before its mandate expires (D47).
+    t = Date.parse(renewed.scope.expiresAt) - 2 * 3_600_000;
+    const early = await grant(seller);
+    expect(Date.parse(early.scope.expiresAt)).toBe(t + 30 * 86_400_000);
+    // A deal in flight continues across a renewal: both parties renew between the offer and the agreement.
+    const timing = { offerExpiresInSec: 7200, fundWithinSec: 7300, deliverWithinSec: 7400, judgeWithinSec: 600, fallbackWithinSec: 600, appealWindowSec: 60, appealDecideSec: 60 };
+    const offer = await seller.offer(offerRequest(d, seller, buyer, { timing }));
+    await world.work();
+    t += 3_600_000;
+    const latest = await grant(seller);
+    await grant(buyer);
+    await buyer.agreeAndFund(offer.terms, 30_000_000n);
+    expect((await world.chain.state(offer.id))?.escrowState).toBe('Held');
+    // Every node, and a world rebuilt from the same storage, serves only the latest mandate.
+    const served = async (u: string) => ((await (await fetch(`${u}/v1/agents/${seller.address}`)).json()) as J).mandates.map((m: J) => m.mandateHash);
+    for (const u of urls) expect(await served(u)).toEqual([latest.mandateHash]);
+    const rebuilt = await PublicWorld.open({ storage, env: {}, minWindowSec: 2, now: () => t });
+    expect(rebuilt.chain.agentMandates().filter((m) => m.agent.toLowerCase() === seller.address).map((m) => m.scope.expiresAt)).toEqual([latest.scope.expiresAt]);
   });
 
   it('has no clock or adjudicator controls and no arbitrary-amount faucet', async () => {
@@ -249,6 +289,233 @@ async function rubricDeal(urls: string[], diff: string): Promise<{ id: string; s
 }
 
 const DIFF = '--- a/page.js\n+++ b/page.js\n@@ -1 +1 @@\n-function page(items, n, size) { return items.slice(n * size, n * size + size - 1); }\n+function page(items, n, size) { return items.slice(n * size, n * size + size); }\n';
+
+/** World storage that remembers every key written, to show what an open writes. */
+class RecordingStorage extends MemoryStorage {
+  readonly written: string[] = [];
+  override async put(entries: Record<string, unknown>): Promise<void> {
+    this.written.push(...Object.keys(entries));
+    return super.put(entries);
+  }
+}
+
+/** An outside adjudicator's registration, as the `llms.txt` recipe writes it: the demo primary's policy under its own id. */
+async function outsideRegistration(urls: string[], who: TestAccount, issuedAt: string, over: Partial<AdjudicatorRegistration['policy']> = {}): Promise<RegisteredAdjudicator> {
+  const d = await discovery(urls);
+  const demo = (await (await fetch(`${urls[0]}/v1/adjudicators/${d.demo.adjudicators[0].address}`)).json()) as AdjudicatorRegistration;
+  const policy = { ...demo.policy, id: `outsider-${who.address.slice(2, 8)}/p1`, ...over };
+  const terms = { capitalChargeRateBps: 0, capitalChargeToPoolRateBps: 0, firstLossShareBps: 10000, noticePeriodSec: 0 };
+  const body = {
+    address: who.address.toLowerCase() as RegisteredAdjudicator['address'],
+    name: 'Outside adjudicator (test)',
+    encryptionPublicKey: who.encryptionPublicKey,
+    affiliations: [],
+    policy,
+    registry: demo.registry,
+    policyHash: canonicalKeccak(policy),
+    fee: { min: { token: 'tUSD', amount: '0' } as AdjudicatorRegistration['fee']['min'] },
+    status: 'active' as const,
+    pool: { terms },
+    poolTermsHash: canonicalKeccak(terms),
+  };
+  const expiresAt = new Date(Date.parse(issuedAt) + 365 * 86_400_000).toISOString().replace('.000Z', 'Z');
+  return signRegistration(who.privateKey, holdbackDomain(31337), body, { keyId: `${body.policy.id}/k1`, issuedAt, nonce: canonicalKeccak({ who: who.address, issuedAt }), expiresAt });
+}
+
+describe('adjudicator registrations in the world store (T-221 slice 2, ADR-0030)', () => {
+  const page = async (url: string, q = ''): Promise<J> => (await (await fetch(`${url}/v1/adjudicators${q}`)).json()) as J;
+  const rows = async (storage: MemoryStorage) => [...(await storage.list<StoredRegistration>({ prefix: 'ar:' })).values()];
+
+  it('the demo adjudicators register through the store when the world opens: signed, the defaults, and no row written on a reopen', async () => {
+    const storage = new RecordingStorage();
+    const first = await serve({}, storage, undefined, { passes: false });
+    const d = await discovery(first.urls);
+    const slate = d.demo.adjudicators.map((a: J) => a.address);
+    expect(d.defaultAdjudicators).toEqual({ primary: slate[0], fallback: slate[1], appeal: slate[2] });
+    for (const url of first.urls) {
+      const listed = (await page(url)).items;
+      expect(listed.map((x: J) => x.address)).toEqual(slate);
+      for (const [i, x] of listed.entries()) {
+        expect(await verifyRegistration(holdbackDomain(31337), x)).toBe(true);
+        expect(x.observed).toMatchObject({ bond: 'bonded', expired: false, defaultFor: [['primary', 'fallback', 'appeal'][i]] });
+      }
+    }
+    expect((await rows(storage)).map((r) => [r.record.address, r.seq])).toEqual(slate.map((a: string, i: number) => [a, i]).sort());
+    expect(first.world.telemetry.usage().rows).toEqual({ ar: 3 });
+    const before = (await page(first.urls[0])).items;
+    await first.close();
+    running.splice(running.indexOf(first), 1);
+
+    // A restart signs the same messages again: the store answers unchanged, and the open writes no `ar:` row.
+    storage.written.length = 0;
+    const second = await serve({}, storage, undefined, { passes: false });
+    expect(storage.written.filter((k) => k.startsWith('ar:'))).toEqual([]);
+    expect((await page(second.urls[1])).items).toEqual(before);
+  });
+
+  it('the agent guide names the defaults where discovery serves them: `defaultAdjudicators`, and `observed.defaultFor` (T-220 review)', async () => {
+    const { urls } = await serve({}, new MemoryStorage(), undefined, { passes: false });
+    const d = await discovery(urls);
+    expect(Object.keys(d.defaultAdjudicators).sort()).toEqual(['appeal', 'fallback', 'primary']);
+    const guide = readFileSync(new URL('../../../site/llms.txt', import.meta.url), 'utf8');
+    const start = guide.indexOf('## Run your own adjudicator');
+    const section = guide.slice(start, guide.indexOf('\n## ', start + 3));
+    for (const field of ['`defaultAdjudicators`', '`observed.defaultFor`']) expect(section).toContain(field);
+  });
+
+  it('an outside adjudicator registers at either node, both serve it after the demo three, and a reopened world serves it in the same place', async () => {
+    const storage = new MemoryStorage();
+    // Settlement time stands still, so every registration below is stored in the same second.
+    const t = Math.floor(Date.now() / 1000) * 1000;
+    const first = await serve({ now: () => t }, storage, undefined, { passes: false });
+    const issuedAt = new Date(t - 60_000).toISOString().replace('.000Z', 'Z');
+    // The second registrant's row key sorts before the first's: storage alone would list it first.
+    const accounts = Array.from({ length: 40 }, (_, i) => testAccount(`t-221/world-outsider-${i}`));
+    const one = accounts[0]!;
+    const two = accounts.find((a) => a.address.toLowerCase() < one.address.toLowerCase())!;
+    const posted = await post(`${first.urls[0]}/v1/adjudicators`, await outsideRegistration(first.urls, one, issuedAt), 'reg-one');
+    expect(posted.status).toBe(200);
+    expect(((await posted.json()) as J).observed).toMatchObject({ bond: 'none', registeredAt: new Date(t).toISOString().replace('.000Z', 'Z'), expired: false });
+    expect((await post(`${first.urls[1]}/v1/adjudicators`, await outsideRegistration(first.urls, two, issuedAt), 'reg-two')).status).toBe(200);
+    expect(first.world.telemetry.usage().rows).toEqual({ ar: 5 });
+
+    const slate = (await discovery(first.urls)).demo.adjudicators.map((a: J) => a.address);
+    const order = [...slate, one.address.toLowerCase(), two.address.toLowerCase()];
+    const paged = async (url: string) => {
+      const a = await page(url, '?limit=4');
+      const b = await page(url, `?limit=4&cursor=${a.nextCursor}`);
+      return [...a.items, ...b.items].map((x: J) => x.address);
+    };
+    for (const url of first.urls) expect(await paged(url)).toEqual(order);
+    const served = (await (await fetch(`${first.urls[1]}/v1/adjudicators/${one.address}`)).json()) as J;
+    expect(await verifyRegistration(holdbackDomain(31337), served)).toBe(true);
+    await first.close();
+    running.splice(running.indexOf(first), 1);
+
+    const second = await serve({ now: () => t + 5000 }, storage, undefined, { passes: false });
+    expect(await paged(second.urls[0])).toEqual(order);
+    expect(((await (await fetch(`${second.urls[0]}/v1/adjudicators/${one.address}`)).json()) as J).registration).toEqual(served.registration);
+    expect(second.world.telemetry.usage().rows).toEqual({ ar: 5 });
+  });
+
+  it('reads any named adjudicator\'s bond live: one without a bond gets a notice as primary and is refused as fallback (ADR-0030 §5)', async () => {
+    const { urls } = await serve({}, new MemoryStorage(), undefined, { passes: false });
+    const d = await discovery(urls);
+    const outsider = testAccount('t-221/world-unbonded');
+    expect((await post(`${urls[0]}/v1/adjudicators`, await outsideRegistration(urls, outsider, new Date(Date.now() - 60_000).toISOString().replace(/\.\d{3}Z$/, 'Z')), 'reg-unbonded')).status).toBe(200);
+    const [seller, buyer] = [freshAgent(urls), freshAgent(urls)];
+    const [primary, fallback, appeal] = d.demo.adjudicators.map((a: J) => a.address);
+    const asPrimary = (await (await post(`${urls[0]}/v1/prepare/offer`, offerRequest(d, seller, buyer, { adjudicators: { primary: outsider.address, fallback, appeal } }))).json()) as J;
+    expect(asPrimary.notices.join(' ')).toMatch(new RegExp(`primary adjudicator ${outsider.address.toLowerCase()} has no bond`, 'i'));
+    const asFallback = await post(`${urls[0]}/v1/prepare/offer`, offerRequest(d, seller, buyer, { adjudicators: { primary, fallback: outsider.address, appeal } }));
+    expect(asFallback.status).toBe(400);
+    expect(((await asFallback.json()) as J).detail).toMatch(/fallback adjudicator .* free bond, less than the price/);
+  });
+
+  it('a world created before registrations gets its rows on its next open; a changed record is signed again with a later issuedAt', async () => {
+    const storage = new MemoryStorage();
+    const first = await serve({}, storage, undefined, { passes: false });
+    const start = ((await storage.get<{ start: string }>('meta'))!).start;
+    await first.close();
+    running.splice(running.indexOf(first), 1);
+    // As before slice 2: no `ar:` row.
+    await storage.delete([...(await storage.list({ prefix: 'ar:' })).keys()]);
+    const second = await serve({}, storage, undefined, { passes: false });
+    const made = await rows(storage);
+    expect(made).toHaveLength(3);
+    for (const r of made) expect(r.record.registration.issuedAt).toBe(start);
+    await second.close();
+    running.splice(running.indexOf(second), 1);
+
+    // Live judges change each demo adjudicator's name and registry: the record changes, so the open signs it again.
+    const third = await serve({ judgeProvider: markerFake() }, storage, undefined, { passes: false });
+    const changed = await rows(storage);
+    for (const r of changed) {
+      const was = made.find((m) => m.record.address === r.record.address)!;
+      expect(Date.parse(r.record.registration.issuedAt)).toBeGreaterThan(Date.parse(start));
+      expect([r.registeredAt, r.seq]).toEqual([was.registeredAt, was.seq]);
+      expect(r.record.registry.hash).toBe(liveRegistry().hash);
+    }
+    for (const x of (await page(third.urls[0])).items) expect(await verifyRegistration(holdbackDomain(31337), x)).toBe(true);
+  });
+
+  // T-221 review (high): terms bind only the primary's policy hash. A primary that registers again with another policy
+  // after agreement must not leave the demo's fallback and appeal adjudicators without the bound one.
+  it('keeps a replaced policy by its hash in a `ph:` row, so the demo adjudicators still read the bound policy, also after a reopen', async () => {
+    const storage = new MemoryStorage();
+    const first = await serve({}, storage, undefined, { passes: false });
+    const who = testAccount('t-221/world-rotating');
+    const iso = (ms: number) => new Date(Math.floor(ms / 1000) * 1000).toISOString().replace('.000Z', 'Z');
+    const one = await outsideRegistration(first.urls, who, iso(Date.now() - 120_000));
+    expect((await post(`${first.urls[0]}/v1/adjudicators`, one, 'rotate-1')).status).toBe(200);
+    const two = await outsideRegistration(first.urls, who, iso(Date.now() - 60_000), { rationaleMaxChars: one.policy.rationaleMaxChars - 1 });
+    expect((await post(`${first.urls[1]}/v1/adjudicators`, two, 'rotate-2')).status).toBe(200);
+    expect(two.policyHash).not.toBe(one.policyHash);
+    for (const role of ['fallback', 'appeal'] as const) {
+      expect(await first.world.adjudicators[role].settlement.policy(one.policyHash)).toEqual(one.policy);
+      expect(await first.world.adjudicators[role].settlement.policy(two.policyHash)).toEqual(two.policy);
+    }
+    expect([...(await storage.list({ prefix: 'ph:' })).keys()]).toEqual([`ph:${one.policyHash}`]);
+    expect(first.world.telemetry.usage().rows).toEqual({ ar: 4, ph: 1 });
+    await first.close();
+    running.splice(running.indexOf(first), 1);
+
+    const second = await serve({}, storage, undefined, { passes: false });
+    expect(await second.world.adjudicators.appeal.settlement.policy(one.policyHash)).toEqual(one.policy);
+    expect(second.world.telemetry.usage().rows).toEqual({ ar: 4, ph: 1 });
+  });
+
+  // T-221 review: an outside primary whose fee is below the demo adjudicators' quote: they would decline their turns.
+  it('fills in no demo adjudicator that would decline the terms, and notes the ones the parties named', async () => {
+    const { urls } = await serve({}, new MemoryStorage(), undefined, { passes: false });
+    const d = await discovery(urls);
+    const [, fallback, appeal] = d.demo.adjudicators.map((a: J) => a.address);
+    const outsider = testAccount('t-221/world-below-quote');
+    expect((await post(`${urls[0]}/v1/adjudicators`, await outsideRegistration(urls, outsider, new Date(Date.now() - 60_000).toISOString().replace(/\.\d{3}Z$/, 'Z')), 'reg-cheap')).status).toBe(200);
+    const [seller, buyer] = [freshAgent(urls), freshAgent(urls)];
+    const filled = await post(`${urls[0]}/v1/prepare/offer`, offerRequest(d, seller, buyer, { adjudicators: { primary: outsider.address } }));
+    const refused = (await filled.json()) as J;
+    expect([filled.status, refused.type, refused.field]).toEqual([400, 'invalid_terms', 'adjudicators.fallback']);
+    expect(refused.detail).toMatch(/default fallback adjudicator .* would decline these terms: the fee 0 tUSD is below the quote/);
+    // Named by the seller: prepared and relayed, each with a notice for both demo adjudicators.
+    await seller.call('POST', '/v1/faucet', { address: seller.address });
+    const offered = await seller.offer(offerRequest(d, seller, buyer, { adjudicators: { primary: outsider.address, fallback, appeal } }));
+    const notices = (offered.state.notices ?? []).join(' ');
+    expect(notices).toMatch(new RegExp(`fallback adjudicator ${fallback} will decline its fallback turn on these terms`));
+    expect(notices).toMatch(new RegExp(`appeal adjudicator ${appeal} will decline its appeal turn on these terms`));
+  });
+});
+
+// T-221 review: one unauthenticated listing page could cost up to 400 RPC calls once the cache was cold, and the cache
+// started again from empty past 1,024 addresses.
+describe('bond reads from HoldbackBonds (T-221 review)', () => {
+  it('reuses a read for a block, drops the least recently read past its size, and spends the listing budget only on uncached reads', async () => {
+    let t = 0;
+    const reads: string[] = [];
+    const r = new BondReads(async (a) => (reads.push(a), { held: 5n, free: 3n }), () => t, { ttlMs: 12_000, max: 3, listingPerMin: 2 });
+    const [a, b, c, d] = ['0xa', '0xb', '0xc', '0xd'].map((x) => x.padEnd(42, '0') as Address);
+    for (const x of [a, b, c, a]) await r.get(x);
+    expect(reads).toEqual([a, b, c]);
+    // d pushes out b, the least recently read; a and c are still cached.
+    for (const x of [d, a, c]) await r.get(x);
+    expect(reads).toEqual([a, b, c, d]);
+    await r.get(b);
+    expect(reads).toEqual([a, b, c, d, b]);
+
+    // A block later every read is stale. Listings may read 2 uncached addresses a minute; a cached one costs nothing.
+    t = 20_000;
+    await r.get(a, { listing: true });
+    await r.get(b, { listing: true });
+    await expect(r.get(c, { listing: true })).rejects.toThrow(/read 2 bonds for listings in the last minute/);
+    expect(await r.get(a, { listing: true })).toEqual({ held: 5n, free: 3n });
+    // Prepare and the relays read without the budget.
+    await r.get(c);
+    expect(reads.slice(5)).toEqual([a, b, c]);
+    t = 80_000;
+    await r.get(d, { listing: true });
+    expect(reads.at(-1)).toBe(d);
+  });
+});
 
 describe('live judges (T-028), with a stand-in for the models', () => {
   /** markerFake stands in for the live provider: unmarked verdicts, as a model's would be. Counts calls. */
@@ -518,7 +785,8 @@ describe('telemetry (T-031)', () => {
     expect(kept).not.toMatch(/0x[0-9a-f]{40}/);
     // And no header, query or body value, nor the IP, lands anywhere in the world's storage.
     const everything = await storage.list({ prefix: '' });
-    expect(new Set([...everything.keys()].map((k) => k.split(':')[0]))).toEqual(new Set(['meta', 'j', 'fa', 'ct', 'jr', 'rl', 'tm']));
+    // `ar`: the demo adjudicators' own registrations (T-221), which hold no request data.
+    expect(new Set([...everything.keys()].map((k) => k.split(':')[0]))).toEqual(new Set(['meta', 'j', 'fa', 'ct', 'jr', 'rl', 'tm', 'ar']));
     const stored = JSON.stringify([...everything.values()], (_k, v) => (v instanceof Uint8Array ? undefined : v)).toLowerCase();
     for (const secret of [...Object.values(canaries), 'c0ffeec0ffee', 'canary-query', 'canary-body', ip]) expect(stored).not.toContain(secret.toLowerCase());
   }, 60_000);
@@ -588,5 +856,52 @@ describe('operator fee from Worker variables (ADR-0023, T-029)', () => {
   it('refuses a malformed schedule at start', async () => {
     await expect(PublicWorld.open({ storage: new MemoryStorage(), env: { OPERATOR_FEE_BPS: '0.5', OPERATOR_FEE_MIN: '10000' } })).rejects.toThrow(/OPERATOR_FEE_BPS/);
     await expect(PublicWorld.open({ storage: new MemoryStorage(), env: { OPERATOR_FEE_BPS: '1', OPERATOR_FEE_MIN: '0.01' } })).rejects.toThrow(/OPERATOR_FEE_MIN/);
+  });
+});
+
+describe('the Sepolia world names drand quicknet, changed in place (T-220, D49)', () => {
+  const deployment = JSON.parse(readFileSync(new URL('../../../contracts/deployments/sepolia.json', import.meta.url), 'utf8')) as DeploymentFile;
+  /** anvil's second well-known dev key (public; guards no value). Opening reads no chain, so no RPC answers here. */
+  const chain = () => new LiveChain({ deployment, rpcUrls: ['http://127.0.0.1:9'], relayerKey: '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d' });
+  const get = async (world: PublicWorld, path: string): Promise<J> => (await (await world.fetch(new Request(`http://127.0.0.1${path}`), { node: 0, origin: 'http://127.0.0.1', client: '127.0.0.1' })).json()) as J;
+
+  it("today's world reopens under this build with the drand rulebook: a new hash, the same keys, registrations and meta", async () => {
+    const storage = new RecordingStorage();
+    // The rulebook the live demo serves today (the deployed build names the sim beacon), on the world's own storage.
+    const today = await PublicWorld.open({ storage, env: {}, live: { chain: chain(), beacon: 'sim' }, onError: () => {} });
+    const before = await get(today, '/v1/clubs/demo-club');
+    expect(before.rulebook.randomness).toEqual({ source: 'sim' });
+    const adjudicators = (await get(today, '/.well-known/holdback.json')).demo.adjudicators;
+    const meta = await storage.get('meta');
+    storage.written.length = 0;
+
+    // This build, on the same storage: the default for a chain world is the deployment's drand quicknet beacon.
+    const next = await PublicWorld.open({ storage, env: {}, live: { chain: chain() }, onError: () => {} });
+    const after = await get(next, '/v1/clubs/demo-club');
+    expect(after.rulebook.randomness).toEqual({ source: 'drand-quicknet', chainHash: DRAND_QUICKNET_CHAIN_HASH });
+    expect(after.rulebookHash).toBe(canonicalKeccak(after.rulebook));
+    expect(after.rulebookHash).not.toBe(before.rulebookHash);
+    // Only the randomness source changed.
+    expect({ ...after.rulebook, randomness: null }).toEqual({ ...before.rulebook, randomness: null });
+    const d = await get(next, '/.well-known/holdback.json');
+    expect(d.demo.adjudicators).toEqual(adjudicators);
+    // No new world: the same meta (secret, start, rules address, bonds), no registration signed again, no book touched.
+    expect(await storage.get('meta')).toEqual(meta);
+    expect(storage.written.filter((k) => k === 'meta' || k.startsWith('ar:') || k.startsWith('ph:') || k.startsWith('b:'))).toEqual([]);
+
+    // The notes say what changed: no "drand not yet" line, and the view is kept across deploys.
+    const notes = d.notes.join('\n');
+    expect(notes).not.toMatch(/do not fetch yet|may be reset/);
+    expect(notes).toMatch(/Fallback and appeal adjudicators decide on Sepolia: their panels are seeded from a drand quicknet round/);
+    expect(notes).toMatch(/The operators' view is kept across deploys\. It starts over only when the settlement contracts are redeployed; what happened on Sepolia stays there\. Keep your own copy of the terms you signed\./);
+  });
+
+  it('keeps the sim beacon on a SimChain world and, by default, on a local anvil chain, whose harness deploys SimBeacon', async () => {
+    const world = await PublicWorld.open({ storage: new MemoryStorage(), env: {} });
+    expect((await get(world, '/v1/clubs/demo-club')).rulebook.randomness).toEqual({ source: 'sim' });
+    expect((await get(world, '/.well-known/holdback.json')).notes.join('\n')).not.toMatch(/drand/);
+    const local = new LiveChain({ deployment: { ...deployment, chainId: 31337 }, rpcUrls: ['http://127.0.0.1:9'], relayerKey: '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d' });
+    const anvil = await PublicWorld.open({ storage: new MemoryStorage(), env: {}, live: { chain: local }, onError: () => {} });
+    expect((await get(anvil, '/v1/clubs/demo-club')).rulebook.randomness).toEqual({ source: 'sim' });
   });
 });

@@ -1,6 +1,6 @@
-# Decisions D1–D42
+# Decisions D1–D47
 
-Status: D1–D9 decided October 30, 2026, after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`); the options are kept as the record. D10 to D24 decided October 30 and 31, 2026, each after an independent research pass. D25 to D36 decided October 31 and November 1, 2026, D37 to D40 on November 1 and 2, D41 and D42 on November 3 (Rafa's principles and research-backed choices; D4 was updated on November 1 to target Ethereum mainnet via Sepolia). Newer entries are appended at the end. Owner: Rafa. Each decision has options, a recommendation and the ADR it settles.
+Status: D1–D9 decided October 30, 2026, after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`); the options are kept as the record. D10 to D24 decided October 30 and 31, 2026, each after an independent research pass. D25 to D36 decided October 31 and November 1, 2026, D37 to D40 on November 1 and 2, D41 and D42 on November 3 (Rafa's principles and research-backed choices; D4 was updated on November 1 to target Ethereum mainnet via Sepolia, and marked decided by D41 on November 4). Newer entries are appended at the end. Owner: Rafa. Each decision has options, a recommendation and the ADR it settles.
 
 Still open (2026-11-03): ADR-0025, Proposed, to be decided with schema v0.9 (T-033); ADR-0027, Proposed (T-308: judgment report, verifiable inference, tuning releases; four open questions, none needed before Phase 3); the ADR-0023 amendment on fee bundling, Proposed (D37); and dispute clauses as selectable terms, deferred until after the demo (D29).
 
@@ -42,6 +42,10 @@ Still open (2026-11-03): ADR-0025, Proposed, to be decided with schema v0.9 (T-0
 **Recommendation:** A, subject to two spikes: desk research in T-002 (Phase 0) and hands-on work on a local chain in T-201 (Phase 2). Fall back to B if CPP's operator model cannot run as a rules contract. Expose ERC-8183-compatible events either way.
 
 ## D4. Public testnet (ADR-0004)
+
+**Decided 2026-11-03 by D41:** Ethereum Sepolia, where the public demo settles (ADR-0028).
+
+**Note 2026-11-04 (T-216 planning):** this entry still read "deferred" after the 2026-11-01 update below had named the target: Ethereum mainnet, built and tested on a local chain, then on Sepolia. D41 settled the testnet on 2026-11-03: the reviewed contracts are deployed on Sepolia (T-206, PR 150) and the public demo settles there (T-213). The fixed 0.7 contracts replaced them on 2026-11-04 (PR 169). The question the recommendation left open, account abstraction and paymasters, is answered for the demo without either: the operators' relayer lanes pay the gas and recover it in the operator fee (ADR-0028 §3, D33 as amended). A paymaster for agents stays in Phase 5. Base Sepolia and ZKsync Sepolia were not taken.
 
 **Decided 2026-10-30:** deferred to the start of Phase 2 (ADR-0004).
 
@@ -581,6 +585,9 @@ Also: the funding signature on EVM is CPP's collector signature and token identi
   - Before, a sham deal could lock any named adjudicator's bond.
 - **Research pass:** the T-206 adversarial review (Fable, max effort) and the public-audit cross-check; the review passes agree. See `docs/reviews/2026-11-03-contract-review.md`.
 
+**Amended 2026-11-03 (D44, ADR-0029; Rafa may overrule).**
+- **Point 3:** the contract now stores one delivery hash per deal, beside the deal word (`deliveryHashOf`), written by whichever call lands the delivery. Every decision, early accept and mutual settlement after it must name that hash. Envelopes are still not stored.
+
 ## D38. Funding paths: any ERC-20, WETH or ETH; ramps as a deferred separate service (ADR-0026)
 
 *Note (2026-11-03): first wave narrowed to USDC by D42; other assets later.*
@@ -651,3 +658,209 @@ Also: the funding signature on EVM is CPP's collector signature and token identi
 | USDC only, USD to USDC on-ramp (chosen) | One unit end to end; other assets later in an Assets module |
 | Sepolia demo on Circle's USDC | The real token, but a hand-filled treasury and an issuer that can freeze a hold |
 | Sepolia demo on tUSDC (chosen) | Unlimited faucet, no admin, same interface; not the real token, stated plainly |
+
+## D43. An overturn pays from the bond on chain now, and only the losing party appeals
+
+**Decided 2026-11-03 by Rafa,** who asked to "fix the contracts to address" the contract review's two high findings (`docs/reviews/2026-11-03-contract-review.md` §8). This entry covers the first: I-8, no overturn payout. It moves from Phase 4 into T-212 (item 9), together with the appeal-slot fix it depends on (L-7, item 7). The second high, binding decisions to the delivery, is T-212 item 3 and gets its own entry. Rafa may overrule any line.
+
+- **The overturn payout.** When a party appeal overturns the first decision, the first-instance decider's bond pays the wronged party the price: the buyer after an overturned accept, the seller after an overturned reject. That bond has been encumbered for exactly the price since its decision (guaranteed mode, ADR-0007), so the payout always has cover. The appeal bond goes back to the appellant. SimChain (`payFromBond`) and the formal model's `DecideAppeal` already did this; the contract now matches them. The rules-only `HoldbackBonds.slash` makes the payment, and the adapter reports its `BondSlashed` event as SimChain's `bond.slashed`, with exactly SimChain's payload (`event.schema.json`'s `BondMovement` is closed, so it carries no chain fields; schema v0.9 may add them to every closed payload, T-212 item 3's PR).
+- **Only the losing party appeals (L-7).** That is the buyer after an accept and the seller after a reject; the other party's appeal is refused (`InvalidMessage` on chain, `invalid_terms` in core and at prepare). An overturn of a decision in a party's favour would pay the other party from the bond and, since H-2, releases no key to a refunded buyer, so the favoured party has nothing left to win. With one slot per deal, its free appeal would shut the losing party out and so block the payout. The formal model's `FileAppeal` is narrowed the same way.
+- **Free appeals now have a price at stake.** The contract checks no minimum appeal bond and collects no appeal fee, so the losing party risks nothing and can win the price from the decider's bond. The bound is the appeal adjudicator itself: honest judges uphold a correct decision, and the primary consents to the appeal adjudicator the terms name (the reference adjudicator will decline untrusted ones, T-212 item 3's PR). A minimum appeal bond (a rate in the terms, which needs an ADR and a version bump) is Phase 4 and **blocks mainnet**, and so does the appeal adjudicator's own coverage (T-212 item 5; L-5 re-rated medium, review §8 follow-up). On the Sepolia demo the tokens are worthless and the appeal adjudicators are the demo's own.
+- **Still Phase 4:** the appeal fee, a minimum appeal bond, default compensation from bonds, backers and coverage ratios. A zero-bond appeal by the losing party still extends the decider's bond lock by `appealDecideSec` (L-3).
+- **The live demo** keeps the deployed contracts until a redeploy, which is gated on Rafa. On Sepolia, fallback and appeal adjudicators also cannot prove their drand seed yet, so no appeal decides there.
+
+| Option | Effect |
+| --- | --- |
+| Keep the payout in Phase 4 | Appeals move no money on chain; litmus test 3's "appeals are backed by the bond" stays unmet and blocks mainnet |
+| Pay from the first decider's bond now, only the losing party appeals (chosen) | Matches SimChain and the formal model; +258 bytes, 332 under EIP-170 |
+| Pay now, one appeal slot per party | Same payout, more state and code; a favoured party's appeal has nothing to win |
+
+## D44. Decisions, early accepts and judgment records name the delivery they settle (ADR-0029)
+
+**Decided 2026-11-03 under "autonomy inside the repo", after a Fable max-effort research pass (ADR-0029's draft); Rafa may overrule any line.** This is the second high finding of the contract review (§8) that D43 left to its own entry, and T-212 item 3. A seller who signed two deliveries for one attempt could settle a decision or an early accept about one body with the other, so the chain named a delivery nobody judged or opened. Rafa asked for the fix in the contracts.
+
+- **Option A of ADR-0029.** `EarlyAccept` and `Decision` gain `deliveryHash` (the delivery's EIP-712 struct hash) after `attempt`; the contract stores the posted delivery's hash in `deliveryHashOf` and refuses, at every role and stage, a signature that names another; `mutualSettle` after a delivery must name the posted one, as core already required. The judgment record carries the hash too, and `recordHash` covers it.
+- **Versions.** Schema v0.9, EIP-712 domain 0.7 and `commitment.schemaVersion` "0.7" now, without waiting for T-033; T-033's additive items join v0.9 before the Sepolia redeploy, so there is one redeploy.
+- **The reference adjudicator checks what it is handed.** It verifies the seller's signature on the delivery before any judge is called (`invalid_signature`) and names the delivery in its decision and record. Tasks now carry the seller-signed delivery; a party appeal reads it from the first decision's state.
+- **The reference adjudicator trusts its fallback and appeal adjudicators** (`trustedAdjudicators`). Since D43, an overturn pays the price from the first decider's bond, so one actor as buyer, seller and appeal adjudicator could name Crow's adjudicator as primary, take its honest accept, file a zero-bond appeal and overturn it through its own appeal adjudicator. The service declines such an offer (`invalid_terms`, D29). Unset, it trusts only itself; each demo and test world's three adjudicators trust each other.
+- **Cost (measured):** `HoldbackRules` 24,313 bytes, 263 under EIP-170 (+69), no cut needed; one storage slot per deal, about +22,000 gas on the call that lands the delivery (forge figures in T-212).
+- **Still gated on Rafa:** the Sepolia redeploy and the Worker switch (ADR-0029 §8).
+
+| Option | Effect |
+| --- | --- |
+| A. Message field, stored hash, record field (chosen) | The signature, the chain, the key and the record name one delivery; the appeal judges the same body; domain bump, one slot per deal, a redeploy |
+| B. Message field, no storage | Self-consistent decisions, but the judged delivery is never tied to the posted one; more gas on every later decision |
+| C. Record only, contract unchanged | No redeploy; the early-accept record, the chain-only buyer and the appeal path stay unprotected |
+
+## D45. The founder console signs in with passkeys and refreshes every hour
+
+**Decided 2026-11-04 by Rafa** ("Looks good"), after a Fable max-effort research pass on sign-in and refresh. Rafa asked for passkeys, read access for his co-founder Michael, and an hourly refresh of the founder console at `escrow.stream/control`. Rafa may overrule any line.
+
+- **Sign-in through Cloudflare Access.** Access sits in front of `/control` and `/control/*`, with GitHub as the only login. Each founder signs in with their GitHub passkey, and Access can require its own passkey check on top. An Allow policy names the two founders' emails. The shared passcode retires after the switch.
+- **One view for both founders.** Rafa: "don't differentiate between Michael and me in the display, he's co-founder so has access to everything". Everyone the policy admits sees the full console, costs and keys included.
+- **Private data stays encrypted at rest.** Rafa's Mac encrypts the Costs, Keys and status-history fragment under a key held as a Worker secret, and the Worker decrypts it only for a signed-in reader. No figure sits in clear in storage or in a repository.
+- **Two pushers, one hourly.**
+  - A scheduled job in a private repository rebuilds the public part of the console every hour from this repository and pushes it to the Worker's storage. It uses a service token that can only push, and a GitHub token that reads public repositories only.
+  - Rafa's Mac pushes the private fragment after the daily cost collection.
+  - Neither push deploys code. They are Rafa's standing instruction; Worker code deploys and Access settings still wait for him.
+- **Trade-offs Rafa accepted.** The console goes down with Cloudflare Access, with no passcode fallback. Cloudflare can see the figures while it serves them. Hourly builds use about 70% of the free GitHub Actions minutes (guessed).
+
+| Option | Effect |
+| --- | --- |
+| Cloudflare Access with GitHub passkeys, split hourly refresh (chosen) | Passkeys through each founder's GitHub account; no server of our own; fresh hourly whether or not Rafa's Mac is awake; about 90 minutes of setup by Rafa |
+| Access, with an hourly job on Rafa's Mac only | About 45 minutes of setup; the console goes stale whenever the Mac sleeps |
+| A passkey login written into the Worker | No third party at sign-in; about three days of work plus review, and recovery we build ourselves |
+
+**Later the same day (Rafa, 2026-11-04).**
+- **Its own host.** The console moves to `control.escrow.stream`, after a red-team review found that sharing `escrow.stream` with the public site lets any script there read a signed-in founder's console ("Yes, own address").
+- **One application.** That host joins the existing Access application rather than a new one, so one audience covers both hosts until the old destinations are removed.
+- **Phase 11.** The rest of the switch moves to Phase 11, security hardening, as T-059 ("let's move this to security hardening phase"). Until then, the passcode console keeps serving `escrow.stream/control` behind Access, with the recheck's fixes: the console alone, and no key kept in the browser.
+- **Live the same evening.** Rafa went ahead with the switch on 2026-11-04, and the console now runs at `control.escrow.stream`.
+  - **GitHub sign-in only.** Access's own MFA check is off ("let's just leave with Github sign in"). The second factor is each founder's GitHub two-factor or passkey; the passkey line above becomes each founder's GitHub setting.
+  - **The old address removed.** `escrow.stream/control` answers `404` ("we can remove /control as we won't use it anymore"), not a redirect. The shared passcode retires with it.
+
+## D46. Agents register their own adjudicators through the API; round 1 includes mutual settlement and overturns through the API
+
+**Decided 2026-11-04 by Rafa**, answering round 1's scope questions (T-216): "mutual settlement is important in the basic build, API should facilitate overturned appeals". Asked whether to plan adjudicator registration through the API, he answered "Yes, plan it". On funding the round's keys: "feels like we need a master address that funds all the rest". The design below follows a Fable max-effort research pass the same day (`docs/research/2026-11-04-adjudicator-registration.md`); Rafa may overrule any line.
+
+- **Round 1 (T-216).**
+  - A mutual settlement is one of its scenarios.
+  - Overturned appeals run through the public API. The round registers its own adjudicator, names it primary, and has it decide wrongly by script; a demo appeal adjudicator then overturns, and the first decider's bond pays the wronged party (D43).
+  - The same self-registered adjudicator is the round's silent adjudicator: it accepts and never decides, so the fallback and default paths run on a real offline adjudicator.
+  - The round's keys derive from one secret, and only its master address is funded by Rafa (`examples/e2e-keys.ts`).
+- **Registration (T-221, ADR-0030 to come).** Crow's three adjudicators stay the defaults; naming others is advanced use of the protocol, outside Crow's recommendation. `POST /v1/adjudicators` takes a self-signed EIP-712 `AdjudicatorRegistration`. Operators verify it, store one per address, and serve it with its signature and with the bond read from `HoldbackBonds`. The adjudicator deposits its bond on chain from its own key.
+  - Schema 0.10, additive; the EIP-712 domain stays 0.7.
+  - The reference adjudicator's trust rule (D44) extends to the fallback role: it serves as fallback only under a trusted appeal adjudicator. Without that, registration opens a second path to D44's attack.
+- **Later, with T-212's mainnet redeploy:** a gasless bond deposit and appeal bond, by ERC-3009 authorization. Until then a bond and an appellant's approval need the agent's own Sepolia ETH.
+- **Rafa's answers on T-221 (2026-11-04).**
+  - One message carries the key.
+  - The demo's adjudicators register the same way.
+  - Registrations are never removed: "show status of last used for each registration (don't remove but be transparent alongside other metrics)".
+  - "crow's adjudicators are default and custom selection is advanced usage of protocol (outside of recommendation by crow etc.)".
+  - The gasless bond: "build later".
+  - Registrations without a bond are listed: "just be clear that they don't".
+- **A bond rule, added by Rafa.** "crow should warn users if choosing an adjudicator without bond and should reject adjudicator selection at protocol level if contract specifies bond payout but adjudicator has no bond".
+  - **The warning** is advisory, from the operator (T-221).
+  - **For the primary, the refusal already holds:** its acceptance needs unencumbered bond for the price, and funding encumbers it.
+  - **For the fallback it is new.** It is a check at selection, a read with no lock (M-3), in core and the contract in one change, with the next contract redeploy. Core cannot go first: the EVM adapter throws when core refuses what the contract accepts. Until then, operators refuse to relay such terms (T-221), and the direct path stays open. Its design is an ADR after a research pass (backlog).
+  - **What it buys:** unpaid payouts are already impossible (funding reverts for an unbonded primary, and an unbonded fallback cannot decide), so it turns "the deal goes to the default outcome" into "refused before funding".
+  - **What it cannot do:** with no lock, it cannot promise the fallback still has its bond at takeover.
+  - **What it costs:** it is an exception to D31 and D32, since a bondless fallback is neither malformed nor unprocessable. On chain, funding depends on a bond the named fallback controls, which it can withdraw without having signed anything. A `neutrality.*` fixture must show that nothing is locked and the parties can offer again.
+- **Punted to the backlog:** serving the posted seller-signed delivery to a deal's own adjudicators. Rafa: "let's punt on the read thing, since I don't understand it and pick it up later from the backlog". The row is under API in `docs/backlog.md`.
+
+| Option | Effect |
+| --- | --- |
+| Registration through the API, smallest honest form plus three additions (chosen) | The protocol's first property becomes true on the demo; overturns and silent adjudicators are real; an ADR and an additive schema bump; about one task |
+| A labelled test adjudicator inside the demo | About a day less; tests no outside adjudicator, so the API path Rafa asked for stays untested |
+| An on-chain registry now | A deploy and gas per registration, for no round-1 gain; Phase 4 |
+
+## D47. Crow runs a standing test seller on the Sepolia test environment (T-222)
+
+**Decided 2026-11-04 under "autonomy inside the repo", after a Fable max-effort research pass (`docs/research/2026-11-04-test-counterparties.md`); Rafa may overrule any line.** Rafa asked: "For the test environment, feels like we should have a standing buyer / seller test identity that people can do test escrow with no?" Today `try.mjs` plays both sides of a deal with fresh keys, so a visitor never deals with another party.
+
+- **Seller first.** Crow's test seller is a party, not a feature of the operators. It runs as its own Worker, `crow-test-agents`, uses the operators' public API like any agent, and signs only what it prepared and checked itself (`examples/agent.ts`, `examples/verify.ts`). The operators grant it nothing they would not grant any agent. The test buyer is a later slice (backlog).
+- **What it sells.** One item: `try.mjs`'s dataset, 3 rows of `customer_id,email` for 25 tUSDC under the checks `cols`, `rows` and `uniq`, checks-only, public terms. D31 binds the protocol, not a party, so a fixed catalog is the seller's choice. A proposal for the same dataset at another price or with other checks gets the catalog terms as a counter-offer; a proposal for other work is refused with a reason.
+- **A refund on request.** A buyer whose proposal carries `"test": {"outcome": "refund"}` gets 2 rows, which fail the `rows` check, so the decision refunds the price. The buyer loses the adjudication fee and the operator fee (5.71 tUSDC of test tokens today) and gets no key. The intake page, its card and the status say so.
+- **Where it lives.** An intake page at `https://escrow.stream/agents/test-seller` on a Worker route beside the site, following the "Agent intake" convention in `site/llms.txt`: the sealed proposal on Crow, the pointer and the sealed key to the intake, the commitment ID back through the status token. `agents.escrow.stream` is the fallback host if the route misbehaves.
+- **One standing address.** The seller keeps one address and one intake key, both derived from one Sepolia-only secret, `TEST_AGENTS_SEED`. The page lists the address, a deliberate departure from the convention's "lists no Crow address": a public test seller needs no unlinkability, and the buyer can check `terms.seller` against it. The seller calls the faucet only when it holds no live mandate.
+- **The visitor's path.** The pinned command in `llms.txt` runs `node try.mjs --seller https://escrow.stream/agents/test-seller`: the same bundle, now playing only the buyer. `--outcome refund` asks for the refund. When the test seller is down or busy, `try.mjs` says so and plays both sides itself. That differs from the research note, which proposed stopping by default: one approved command should always finish a deal, and the printed line keeps the switch visible.
+- **Bounded loss (D26).** At most 3 requests per visitor IP address (an IPv6 /64) an hour and 10 a day, 20 offers an hour and 100 a day in all, and 10 in progress at once. Unfunded offers count; requests whose proposal does not open do not, so junk cannot use up the shared caps. A deal closes at its deadlines whatever happens on Crow, so a stalled one cannot hold a slot. Windows: the offer expires after 1,800 s, funding closes at 2,400 s and delivery at 3,600 s, all counted from the offer; judging windows are 60 s. If the seller stalls after funding, the buyer reclaims its hold at `deliverBy`, at most an hour after the offer.
+- **Gas.** The test agents hold no Sepolia ETH and send no transaction. The operators' relayer pays for each deal as it does for `try.mjs`: 1,636,242 gas per deal plus the buyer's faucet mint (measured), one mint fewer than a `try.mjs` deal. At the day cap that is about 0.19 Sepolia ETH a day at 1 gwei (arithmetic).
+- **Litmus tests.** A party only: no protocol step, schema field or contract line changes. The hold and judgment are untouched; the refund is a real failed check. A stalled seller is the existing `neutrality.seller-withholds-delivery` case.
+- **Open for Rafa.** The faucet does not renew an expired mandate, so a standing address stops offering after 30 days unless the world resets first. The one-line fix is in `apps/demo-cloud/src/world.ts`, the operator lane; until it ships, rotating the secret (`seed.mjs --replace`) is the stopgap.
+  - *2026-11-04, T-223:* T-223 (PR 191) changed the faucet to sign a fresh 30-day mandate at every grant, which replaces the address's earlier one, whether or not it has expired. Renewing only an expired one would leave the seller degraded for about 2 hours every 30 days, because it asks 2 hours early (inferred). The fix reaches the live demo when Rafa deploys the operators; until then the stopgap stands.
+
+| Option | Effect |
+| --- | --- |
+| Standing test seller, sealed intake, `try.mjs --seller` (chosen) | A visitor's agent deals with another party in one approved command; no protocol change; one Worker to deploy |
+| A seller and a buyer at once | The visitor can also sell; about twice the work before anything ships |
+| Keep self-play only | Nothing to run; a visitor never sees two parties |
+
+## D48. Appeal bonds move by a relayed token permit; agents never need Sepolia ETH to appeal (T-224)
+
+**Decided 2026-11-04 under "autonomy inside the repo", after a Fable max-effort research pass (`docs/research/2026-11-04-visitor-gas.md`); Rafa may overrule any line.** Rafa asked for the plan: "Yes, plan it", to my proposal of a way for new visitors to appeal without their own Sepolia ETH. Today `llms.txt` says an appeal on Sepolia needs the appellant's own test ETH. The reason: `HoldbackBonds.takeAppealBond` pulls the bond with `transferFrom`, so the appellant must first send its own `approve` transaction. Every other step a visitor takes is relayed and free (measured).
+
+- **The permit.** On a chain world, `POST /v1/prepare/appeal` returns a second slot, `bondPermit.signature`. It is an EIP-2612 `Permit` with owner the appellant, spender HoldbackBonds, value the appeal bond, nonce the token's nonce for the appellant and deadline `appealBy`. It is signed under the token's own EIP-712 domain, the one the funding and the operator fee already use. The appellant signs it beside the `Appeal` and sends both in one body. tUSDC (Solady's ERC20) and Circle's USDC (FiatToken v2 and later) both implement `permit`, so the path is the same on mainnet (measured for tUSDC; inferred for USDC from its published source).
+- **The relay.** The operator relays `permit` and `fileAppeal` together in one Multicall3 call, as it relays the operator fee with the funding (ADR-0023's EVM amendment).
+  - It reads the appellant's allowance to the vault first. When that already covers the bond, it files the appeal alone.
+  - A permit by itself can only set an allowance to the vault. Only `fileAppeal` can spend it, and only on the appellant's own signed appeal, so the operator relays and never authors.
+  - A refused relay leaves both signed messages valid for another operator or a direct call.
+- **Gas and the fee.**
+  - The deal's lane pays about 0.4 to 0.6 million gas per appeal on Sepolia. That is inferred from anvil's 73,884 gas for the permit and 108,396 for `fileAppeal`, times Sepolia's measured 2.1 to 3.2 factor, and is a quarter to a third of a deal's 1,636,242.
+  - Appeals stay free of the operator fee on the demo (ADR-0023 §5). The fixed per-deal quote absorbs the cost (D33 as amended). T-215's live quote may add an appeal part, as an operator parameter, before mainnet.
+- **No contract change.** HoldbackRules keeps its 263 bytes of headroom under the contract size limit (measured).
+  - The gasless adjudicator bond (`depositWithAuthorization` and a signed `withdraw`, in HoldbackBonds only) stays with T-212's mainnet redeploy, as D46 decided. This entry closes the appeal half of that backlog row.
+  - Until the redeploy, an outside adjudicator bonds from its own key, and `llms.txt` says so.
+- **Not chosen: a gas drip.**
+  - Sepolia ETH is scarce and traded, so a faucet drip without a CAPTCHA is farmable: about 0.6 Sepolia ETH a day at the faucet's 600 grants, enough to empty the funding lane in about three days (inferred).
+  - A drip puts a chain transaction back in front of the agent, and none of it carries to mainnet.
+  - The backlog row for an escape-hatch drip stays as it is, Rafa's call.
+- **Schema.** The change is additive: an `AllowancePermit` definition and an `AppealRequest`, which is an `Appeal` plus an optional `bondPermit`. It rides T-221's 0.10 if both reach the same deploy, else ships as 0.11. The EIP-712 domain stays 0.7, because `Permit` is the token's type, not Holdback's.
+- **The defaults for the research's open questions** (Rafa may overrule each):
+  1. one version bump, as above;
+  2. appeals stay free on the demo;
+  3. the drip row stays as it is;
+  4. the zero-bond appeal is recorded below and its fix stays with T-212;
+  5. `llms.txt` pins the `bonds` address with T-220.
+- **Residual, recorded.** The contract accepts a zero appeal bond, so an agent that writes `bond: 0` into its own `Appeal` already appeals with no allowance (measured from the contract). The deterrent exists only for the rulebook's bond, and this entry makes that bond postable by anyone. The fix is a minimum appeal bond in the signed terms (T-212, before mainnet, D43). On the demo the tokens are worthless and the appeal adjudicators are Crow's.
+- **Litmus tests.**
+  - Neutrality holds: a refusing operator leaves both signatures valid, and `neutrality.operator-refuses-appeal-relay` will show a direct filing.
+  - The hold is untouched.
+  - Judgment is untouched: appeals stay backed by the adjudicator's bond.
+
+| Option | Effect |
+| --- | --- |
+| A gas drip from the funding lane | Demo only; farmable; the agent still sends its own transaction; nothing carries to mainnet |
+| A relayed EIP-2612 permit (chosen) | One more typed-data slot; no contract change; the same on USDC; about a third of a deal's gas per appeal |
+| ERC-3009 authorization into HoldbackBonds | Right for the adjudicator's bond, at T-212's redeploy; for appeals it costs a redeploy and HoldbackRules bytes for nothing the permit doesn't give |
+| EIP-7702 or an ERC-4337 paymaster | Wallet machinery in the agent's path and a third party in the write path; Phase 5 |
+| A zero appeal bond on the demo | Free appeals, a fresh world, and a protocol that misrepresents itself; mainnet needs a minimum bond anyway |
+
+## D49. One long-lived demo world; a new world only for a new rules contract
+
+**Decided 2026-11-04 by Rafa** ("Yes, keep the world"), when asked whether T-220 should keep today's Sepolia world or start a fresh one. His reason: "ideally we build the way to monitor the API so doubtful we want fresh worlds consistently". The findings come from a Fable max-effort research pass the same day (`docs/research/2026-11-04-one-world.md`); Rafa may overrule any line.
+
+- **T-220 keeps `holdback-public-demo-sepolia-2026-11-04`.** The demo club's rulebook changes in place to name drand quicknet, and the demo adjudicators keep their keys and their 25,000 tUSDC bonds.
+  - A stored deal keeps the rulebook it was offered under (`Book.club`) and moves on from its book (measured).
+  - An offer still bound to the old hash is refused with `rulebook_unknown`, which tells the agent to read the club again (measured).
+- **What changes in place:** rulebooks, additive schema versions (0.10 is one), Worker code, judge registries and fees. The Sepolia world replays nothing on open, so the rule "a schema bump resets the public world" in `docs/operations.md` was SimChain's, and it retires (measured).
+- **A new world only for a new rules contract,** or another chain. A redeploy changes the EIP-712 domain that every signature is checked under, and creates a new bond vault; the world refuses to open against another rules address (measured). One world over two contracts would put a settlement facade in the money path: days of work (inferred), not before mainnet.
+- **History when a world does change:**
+  - the chain holds every funded step;
+  - the old world's storage is never deleted, and a rollback serves it;
+  - `docs/operations.md` records the names, addresses, versions and the open deals' timeouts.
+  A read-only archive route for old worlds goes to the backlog until a redeploy is planned.
+- **The defaults for the research's open questions** (Rafa may overrule each):
+  1. a world key seed (`WORLD_SECRET`), so a new world keeps the demo adjudicators' addresses, becomes a small task before the next redeploy, not part of T-220;
+  2. the archive route stays in the backlog;
+  3. there is no grace window for offers bound to the old rulebook hash;
+  4. T-220 waits for T-219 and ships all four in one deploy, as Rafa chose for question 5 of T-216;
+  5. the 0.6 vault's 75,000 test tUSDC and the old addresses' Sepolia ETH (about 0.015) stay where they are.
+- **Litmus tests.** Unchanged. The world is the operators' view, and settlement is on chain. Keeping the world keeps the API's history of each deal, which is what monitoring needs.
+
+| Option | Effect |
+| --- | --- |
+| Keep the world; change the rulebook in place (chosen) | No new keys or bonds, and no break in history; old deals keep their rulebook; a stale offer gets 422 with the fix in the problem |
+| A fresh world per rulebook or schema change (T-220's draft) | Three new bonds (about 1.12 million gas and 0.015 Sepolia ETH); the API forgets every deal, its ciphertexts and its records; monitoring restarts |
+| One world over several rules contracts | Days of adapter and operator work in the money path, for a testnet demo |
+
+## D50. A deal left behind the chain is security hardening; it does not block T-220's deploy (T-227)
+
+**Decided 2026-11-05 by Rafa**, when asked whether residual 13 in `docs/neutrality.md` (a direct step the operators cannot read) must be fixed before T-220's deploy, as T-218's red-teamer recommended. He asked: "is this only a demo and not a mainnet problem? Or is this a mainnet security issue? If so, let's add to security hardening, since we're assuming honest actors at the moment." The findings come from T-218's review and red team (PR 185, 2026-11-04); no new research pass ran. Rafa may overrule any line.
+
+- **It is a mainnet issue (inferred).** The gap is in the operator node's code, the chain sync and the adjudicators' schedule, not in the Sepolia setup. Mainnet operators would run the same code.
+- **The attack.** A stranger, or a party to the deal, resends a copied signed step through a contract that transforms its calldata. The contract takes it, but the operators' view cannot rebuild it, so their book falls behind `dealOf`. The operators' adjudicators read the book, so they do not act on that deal, and it ends by its timeouts (its default outcome). It costs the griefer only gas.
+- **What still holds.** The funds stay under the contract's terms. The parties and other adjudicators can still submit to the contract directly (ADR-0005), and the state read shows the contract's stage with a notice.
+- **Two of the five cases are gaps for real use:** a step from a contract signer (ERC-1271, a Safe or a smart account), and two signed steps for one deal in one transaction. Honest agents with contract wallets or batched calls will hit them. The other three are attacks (T-227 lists all five).
+- **Placement.** T-227 in Phase 11, Security hardening, after T-225. It must land before mainnet. It touches relays and adjudication, so it needs `reviewer` and `red-teamer` passes. T-220 deploys without it, because the demo assumes honest parties until the basic demo works (`docs/backlog.md`, Rafa, 2026-10-30).
+- **The proposed fix** (T-218's reviewers): the adjudicators read `dealOf`'s stage, and a relay path records the receipt without stepping the core mirror. No contract change is expected (inferred).
+- **Litmus tests.**
+  - Neutrality holds in the protocol's sense: the deal settles by its terms, and nobody moves funds outside them. In practice it weakens until T-227 lands: anyone can silence the operators' adjudicators on one deal for the cost of gas.
+  - The hold is untouched.
+  - Judgment is untouched; the operators' adjudicators skip the deal, as an offline adjudicator would.
+
+| Option | Effect |
+| --- | --- |
+| Fix before T-220's deploy (T-218's red-teamer) | No demo deal can be griefed into its default outcome; round 1 waits for a task with a red team |
+| Phase 11, before mainnet (chosen) | T-220 deploys now; until T-227 lands, anyone can push a demo deal to its timeouts for the cost of gas |
+| Keep it in the backlog | Nothing scheduled; mainnet could ship with the gap |

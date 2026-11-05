@@ -80,6 +80,10 @@ contract HoldbackRules is EIP712 {
     IHoldbackBeacon public immutable BEACON;
 
     mapping(bytes32 commitmentId => Deal) internal _deals;
+    /// @notice The posted delivery's hash (the EIP-712 struct hash of the seller's Delivery, as `JobSubmitted` emits
+    ///         it), written by whichever call lands the delivery. Every decision, early accept and mutual settlement
+    ///         after it must name this hash (ADR-0029).
+    mapping(bytes32 commitmentId => bytes32) public deliveryHashOf;
 
     // Events
 
@@ -149,7 +153,7 @@ contract HoldbackRules is EIP712 {
     }
 
     /// @notice The EIP-712 digest a party signs for a struct hash under this contract's domain
-    ///         ("Holdback", "0.6", chain ID, this address).
+    ///         ("Holdback", "0.7", chain ID, this address).
     function typedDataHash(bytes32 structHash) external view returns (bytes32) {
         return _hashTypedData(structHash);
     }
@@ -266,9 +270,10 @@ contract HoldbackRules is EIP712 {
         } else {
             revert WrongStage(s);
         }
-        // Every role judges the delivered attempt; panelSeed hashes it, so a free attempt would be a free seed.
+        // Every role judges the delivered attempt; panelSeed hashes it, so a free attempt would be a free seed. Every
+        // role also names the posted delivery, so a decision about another seller-signed body never settles (ADR-0029).
         if (
-            m.role != role || m.attempt != d.attempt
+            m.role != role || m.attempt != d.attempt || m.deliveryHash != deliveryHashOf[id]
                 || m.outcome > (role == H.ROLE_APPEAL ? H.OUTCOME_REJECT : H.OUTCOME_ESCALATE)
         ) {
             revert InvalidMessage();
@@ -361,22 +366,25 @@ contract HoldbackRules is EIP712 {
         bool firstAccepted = d.stage == Stage.Released;
         bool upheld = (m.outcome == H.OUTCOME_ACCEPT) == firstAccepted;
         address first = d.flags & F_BY_FALLBACK != 0 ? t.fallbackAdjudicator : t.adjudicator;
-        _releaseBonds(t, d.flags);
+        // Only the first decider's bond is still encumbered: released if upheld, paid out below if overturned.
+        if (upheld) _releaseBonds(t, d.flags);
         d.flags &= F_BY_FALLBACK;
         d.appeal = upheld ? AppealState.Upheld : AppealState.Overturned;
         _deals[id] = d;
         // Upheld: the forfeited appeal bond goes to the first adjudicator's bond (ADR-0014 §2a). Overturned: back to
-        // the appellant; the overturn payout from the adjudicator's bond is Phase 4.
+        // the appellant, and the first adjudicator's bond pays the wronged party the price (guaranteed mode, ADR-0007).
         BONDS.payAppealBond(id, t.token, upheld ? first : address(0));
         emit AppealClosed(id, d.appeal);
+        if (!upheld) BONDS.slash(id, first, t.token, t.price, firstAccepted ? t.buyer : t.seller);
         if (bytes(m.keyCiphertext).length > 0) _releaseKey(id, t.buyer, KEY_APPEAL, m.keyScheme, m.keyCiphertext);
     }
 
     // Early accept
 
     /// @notice Anyone relays the buyer's signed early accept: the price to the seller, the fee back to the buyer
-    ///         (no adjudicator judged), and the buyer's envelope from the seller-signed delivery in the same
-    ///         transaction (ADR-0012).
+    ///         (no adjudicator judged), and the buyer's envelope from the delivery the buyer named, in the same
+    ///         transaction (ADR-0012, ADR-0029). In `Held` the call carries that delivery, seller-signed; after
+    ///         `deliver` it carries the posted one, whose signature was checked when it landed.
     function earlyAccept(
         H.Terms calldata t,
         H.EarlyAccept calldata m,
@@ -389,11 +397,10 @@ contract HoldbackRules is EIP712 {
         Stage s = d.stage;
         if (s != Stage.Held && s != Stage.Delivered) revert WrongStage(s);
         if (block.timestamp >= m.expiresAt) revert MessageExpired();
-        if (s == Stage.Delivered && dv.attempt != d.attempt) revert InvalidMessage();
-        if (m.attempt != dv.attempt) revert InvalidMessage();
         _requireSigned(t.buyer, H.earlyAcceptHash(id, t.buyer, m), m.signature);
-        if (s == Stage.Held) _acceptDelivery(id, t, d, dv, sellerSignature);
-        else _requireSigned(t.seller, H.deliveryHash(id, dv), sellerSignature);
+        bytes32 dh = s == Stage.Held ? _acceptDelivery(id, t, d, dv, sellerSignature) : H.deliveryHash(id, dv);
+        // The buyer names the delivery it opened; the carried delivery must be it and the posted one (ADR-0029).
+        if (m.attempt != dv.attempt || m.deliveryHash != dh || dh != deliveryHashOf[id]) revert InvalidMessage();
         _requireKeyProof(t.buyer, dv.encryptedKeysHash, k);
 
         uint8 flags = d.flags;
@@ -428,6 +435,8 @@ contract HoldbackRules is EIP712 {
         if (!m.hasDelivery && (m.releaseKey || m.deliveryHash != bytes32(0) || s != Stage.Held)) {
             revert InvalidMessage();
         }
+        // After a delivery, the settlement names the posted one, as core requires (ADR-0029).
+        if (s != Stage.Held && m.deliveryHash != deliveryHashOf[id]) revert InvalidMessage();
         bytes32 tokenHash = H.tokenIdHash(t.token);
         bytes32 structHash = H.mutualHash(id, tokenHash, m);
         _requireSigned(t.buyer, structHash, m.buyerSignature);
@@ -497,7 +506,9 @@ contract HoldbackRules is EIP712 {
         if (d.stage != Stage.Released && d.stage != Stage.Refunded) revert WrongStage(d.stage);
         if (d.appeal != AppealState.None) revert WrongAppealState(d.appeal);
         if (block.timestamp >= uint256(d.t1) + t.timing.appealWindowSec) revert DeadlinePassed();
-        if (a.appellant > 1) revert InvalidMessage();
+        // Only the party the decision went against appeals (T-206 L-7): outcomes are binary, and one slot taken by
+        // the favoured party would shut out the party with something to win.
+        if (a.appellant != (d.stage == Stage.Released ? 0 : 1)) revert InvalidMessage();
         address appellant = a.appellant == 0 ? t.buyer : t.seller;
         _requireSigned(appellant, H.appealHash(id, appellant, H.tokenIdHash(t.token), a), a.signature);
         d.appeal = AppealState.Open;
@@ -601,19 +612,20 @@ contract HoldbackRules is EIP712 {
 
     /// @dev Verifies the seller-signed delivery for attempt 1 (core: maxSubmissions is 1 in Phases 1 and 2). Whichever
     ///      call lands it (deliver, or a decision or early accept that carries it), it must land before deliverBy, as
-    ///      in SimChain; otherwise it races the reclaim.
+    ///      in SimChain; otherwise it races the reclaim. Stores and returns its hash (ADR-0029).
     function _acceptDelivery(
         bytes32 id,
         H.Terms calldata t,
         Deal storage d,
         H.Delivery calldata dv,
         bytes calldata sellerSignature
-    ) internal {
+    ) internal returns (bytes32 dh) {
         if (block.timestamp >= t.timing.deliverBy) revert DeadlinePassed();
         if (dv.attempt != 1) revert InvalidMessage();
-        bytes32 dh = H.deliveryHash(id, dv);
+        dh = H.deliveryHash(id, dv);
         _requireSigned(t.seller, dh, sellerSignature);
         d.attempt = dv.attempt;
+        deliveryHashOf[id] = dh;
         emit JobSubmitted(id, t.seller, dh);
     }
 
@@ -652,6 +664,6 @@ contract HoldbackRules is EIP712 {
     }
 
     function _domainNameAndVersion() internal pure override returns (string memory, string memory) {
-        return ("Holdback", "0.6");
+        return ("Holdback", "0.7");
     }
 }

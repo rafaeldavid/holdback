@@ -205,6 +205,9 @@ importers:
       '@holdback/settlement':
         specifier: workspace:*
         version: link:../../packages/settlement
+      '@noble/curves':
+        specifier: 1.9.1
+        version: 1.9.1
       viem:
         specifier: ^2.57.13
         version: 2.57.13(typescript@6.0.3)
@@ -287,6 +290,19 @@ importers:
       tweetnacl:
         specifier: ^1.0.3
         version: 1.0.3
+
+  apps/test-agents:
+    dependencies:
+      tweetnacl:
+        specifier: ^1.0.3
+        version: 1.0.3
+      viem:
+        specifier: ^2.57.13
+        version: 2.57.13(typescript@6.0.3)
+    devDependencies:
+      '@holdback/demo-cloud':
+        specifier: workspace:*
+        version: link:../demo-cloud
 
   examples:
     dependencies:

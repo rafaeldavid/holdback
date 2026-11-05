@@ -17,6 +17,8 @@ Ship the protocol-level changes the recent decisions queued, as one additive ver
 - D39: `chainId` as a number in `operator-status`; the `not_implemented` problem type; the operator fee on receipts (review C3).
 - D31 (review C8): the MIME allowlist and `deliverable.kind` enum move from the schema to adjudicator capability (an adjudicator declines what it cannot judge).
 
+*2026-11-03 (D44, ADR-0029):* v0.9 has shipped with T-212 item 3 (the delivery binding: EIP-712 domain 0.7, `commitment.schemaVersion` "0.7", and `ChainTx` on the closed event payloads). The additive items above join v0.9 (no further `$id` move) and land before the Sepolia redeploy, so there is still one redeploy and one `llms.txt` rewrite.
+
 ## Acceptance criteria
 
 - [ ] Every change above in `spec/schemas/` with examples, `pnpm validate:spec` strict and fresh, `spec/README.md` notes the version.

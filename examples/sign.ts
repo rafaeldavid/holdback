@@ -30,10 +30,12 @@ const agent = new Agent(operators, process.env['HOLDBACK_KEY'] as Hex, enc.lengt
 const me = agent.address;
 const kind = prepared.kind as Intent['kind'];
 try {
+  let opened: Hex | undefined;
   if (kind === 'early-accept') {
-    // D32: an early accept is your own acceptance and no appeal follows it, so open your envelope first.
+    // D32: an early accept is your own acceptance and no appeal follows it, so open your envelope first. The accept
+    // then names the delivery you opened (ADR-0029).
     if (!given.delivery) throw new Refusal('refusing to sign: the early-accept intent needs "delivery", the signed delivery body the seller handed you, so you can open your envelope first');
-    await openOwnEnvelope(await agent.envelopeMaterial(given.terms, given.delivery));
+    opened = (await openOwnEnvelope(await agent.envelopeMaterial(given.terms, given.delivery))).deliveryHash;
   }
   const intent: Intent =
     kind === 'offer'
@@ -50,7 +52,7 @@ try {
           : kind === 'settlement'
             ? { kind, terms: given.terms, payouts: given.payouts, releaseKey: given.releaseKey, deliveryHash: given.deliveryHash ?? null, nonce: given.nonce }
             : kind === 'early-accept'
-              ? { kind, terms: given.terms, nonce: given.nonce }
+              ? { kind, terms: given.terms, nonce: given.nonce, deliveryHash: opened! }
               : (() => { throw new Refusal(`sign.ts does not sign ${kind}; deliveries are sealed and signed by seal.ts`); })();
   const { body, toSign } = verifyPrepared(prepared, intent, me, agent.domain, await agent.settlementNow());
   for (const s of toSign) {

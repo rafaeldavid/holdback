@@ -84,10 +84,22 @@ export const PATHS: Record<string, (chain: EvmSettlement, cast: EvmCast, club: A
     await must(chain, cast, d.mutual(1_400_000_000n, false));
     return d.id;
   },
-  'party appeal (reject, buyer appeals, upheld)': async (chain, cast, club) => {
+  // Only the party the decision went against appeals (T-206 L-7): after a reject, the seller.
+  'party appeal (reject, seller appeals, upheld)': async (chain, cast, club) => {
     const d = await funded(chain, cast, club, 'appeal');
     await carried(chain, d);
     await must(chain, cast, d.decide('primary', 'reject'));
+    await must(chain, cast, d.appealBy('seller', 100_000_000n));
+    const openedAt = Math.floor(Date.parse(chain.now()) / 1000) - 1;
+    chain.advance(2);
+    await must(chain, cast, d.decide('appeal', 'reject', openedAt + 1));
+    return d.id;
+  },
+  // The first decider's bond pays the buyer the price (T-206 I-8).
+  'party appeal (accept, buyer appeals, overturned)': async (chain, cast, club) => {
+    const d = await funded(chain, cast, club, 'overturn');
+    await carried(chain, d);
+    await must(chain, cast, d.decide('primary', 'accept'));
     await must(chain, cast, d.appealBy('buyer', 100_000_000n));
     const openedAt = Math.floor(Date.parse(chain.now()) / 1000) - 1;
     chain.advance(2);
@@ -128,17 +140,22 @@ export const PATHS: Record<string, (chain: EvmSettlement, cast: EvmCast, club: A
   },
 };
 
+/** One path's row: a fresh settlement, a warm-up deal, then the path. */
+export async function measurePath(world: EvmWorld, path: string): Promise<PathGas> {
+  const run = PATHS[path];
+  if (!run) throw new RangeError(`no gas path named ${path}`);
+  const { chain, cast, club } = await newSettlement(world);
+  // Warm-up: the TokenStore clone and first-touch storage are paid once per operator, not per deal.
+  await PATHS['happy path (decision carries the delivery)']!(chain, cast, club);
+  const before = chain.transactions().length;
+  const id = await run(chain, cast, club);
+  const txs: TxRecord[] = chain.transactions().slice(before).filter((t) => t.commitmentId === id);
+  return { path, txs: txs.map((t) => ({ call: t.call, gasUsed: t.gasUsed })), total: txs.reduce((a, t) => a + t.gasUsed, 0n), finalState: chain.escrowState(id)!.kind };
+}
+
 export async function measure(world: EvmWorld): Promise<PathGas[]> {
   const out: PathGas[] = [];
-  for (const [path, run] of Object.entries(PATHS)) {
-    const { chain, cast, club } = await newSettlement(world);
-    // Warm-up: the TokenStore clone and first-touch storage are paid once per operator, not per deal.
-    await PATHS['happy path (decision carries the delivery)']!(chain, cast, club);
-    const before = chain.transactions().length;
-    const id = await run(chain, cast, club);
-    const txs: TxRecord[] = chain.transactions().slice(before).filter((t) => t.commitmentId === id);
-    out.push({ path, txs: txs.map((t) => ({ call: t.call, gasUsed: t.gasUsed })), total: txs.reduce((a, t) => a + t.gasUsed, 0n), finalState: chain.escrowState(id)!.kind });
-  }
+  for (const path of Object.keys(PATHS)) out.push(await measurePath(world, path));
   return out;
 }
 

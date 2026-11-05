@@ -5,11 +5,12 @@
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { AdjudicatorRegistration, Address, Hex32, HoldbackDomain, TokenAmount } from '@holdback/core';
+import type { AdjudicatorPolicy, AdjudicatorRegistration, AdjudicatorRole, Address, AnyCommitment, Commitment, Hex32, HoldbackDomain, TokenAmount } from '@holdback/core';
 import { fakeProvider, type FakeScript, type JudgeProvider, type LoadedRegistry } from '@holdback/judgment';
 import { keccak256, stringToBytes, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { defaultPolicy } from './policy.js';
+import type { RandomnessSource } from './randomness.js';
 import { loadRegistryFile } from './registry-file.js';
 import { Adjudicator, type RunReport } from './service.js';
 import { SettlementAdapter, type ContentStore, type SettlementReads } from './simchain-adapter.js';
@@ -77,6 +78,8 @@ export interface TestAdjudicatorOptions {
   store: ContentStore;
   /** Registrations of every adjudicator, for the service's own checks. */
   registration(address: Address): Promise<AdjudicatorRegistration | null>;
+  /** Every policy a registration carried, by hash, so a bound policy survives the primary's next registration (T-221 review). */
+  policy?(hash: Hex32): Promise<AdjudicatorPolicy | null>;
   domain: HoldbackDomain;
   fee: TokenAmount;
   /** Per judge: 'pass', 'fail', 'timeout' or a function. Default: every judge passes. */
@@ -91,20 +94,50 @@ export interface TestAdjudicatorOptions {
   provider?: JudgeProvider;
   /** Accept sealed offers without reading them (AdjudicatorConfig.acceptSealedUnread). Default false: decline. */
   acceptSealedUnread?: boolean;
+  /**
+   * The fallback and appeal adjudicators it accepts offers with (AdjudicatorConfig.trustedAdjudicators). A world's
+   * adjudicators trust each other; unset, it trusts only itself and declines every offer naming another.
+   */
+  trustedAdjudicators?: readonly Address[];
+  /**
+   * Where it reads drand quicknet rounds for a commitment whose rulebook names drand-quicknet (`drandQuicknet()`,
+   * T-217). Unset: it decides no such commitment's fallback or appeal turn, and the deal takes its default path.
+   */
+  drand?: RandomnessSource;
 }
 
 export interface TestAdjudicator {
   readonly address: Address;
   readonly service: Adjudicator;
+  /** The settlement port it decides through. */
+  readonly settlement: SettlementAdapter;
   /** The registration fields this adjudicator publishes (pool and status come from the settlement layer). */
   registration(): ReturnType<Adjudicator['registration']>;
   /** One pass: accept offers naming it, trigger due fallbacks, decide what is its turn. */
   runOnce(): Promise<RunReport>;
 }
 
+/**
+ * An operator's `declines` read over a world's own adjudicators (T-221 review): why the one at `address` would decline
+ * `role` on these terms, from the terms alone; null when it would take it; undefined when the world does not run it.
+ * Terms it cannot read (a sealed wire form) give null, so they add no notice and refuse nothing.
+ */
+export function declinesOf(adjudicators: () => readonly TestAdjudicator[]) {
+  return async (address: Address, role: AdjudicatorRole, commitment: AnyCommitment): Promise<string | null | undefined> => {
+    const a = adjudicators().find((x) => x.address === address.toLowerCase());
+    if (!a) return undefined;
+    try {
+      return (await a.service.declines(commitment as Commitment, role))?.detail ?? null;
+    } catch {
+      return null;
+    }
+  };
+}
+
 export function testAdjudicator(o: TestAdjudicatorOptions): TestAdjudicator {
   const address = privateKeyToAccount(o.signingKey).address.toLowerCase() as Address;
   const registry = o.registry ?? placeholderRegistry();
+  const settlement = new SettlementAdapter({ chain: o.chain, store: o.store, registration: o.registration, ...(o.policy ? { policy: o.policy } : {}), ...(o.drand ? { drand: o.drand } : {}) });
   const service = new Adjudicator({
     address,
     name: o.name,
@@ -117,8 +150,9 @@ export function testAdjudicator(o: TestAdjudicatorOptions): TestAdjudicator {
     fee: { min: o.fee },
     domain: o.domain,
     provider: o.provider ?? markedFake(markerFake(o.judges ?? {})),
-    settlement: new SettlementAdapter({ chain: o.chain, store: o.store, registration: o.registration }),
+    settlement,
     ...(o.acceptSealedUnread ? { acceptSealedUnread: true } : {}),
+    ...(o.trustedAdjudicators ? { trustedAdjudicators: o.trustedAdjudicators } : {}),
   });
-  return { address, service, registration: () => service.registration(), runOnce: () => service.runOnce() };
+  return { address, service, settlement, registration: () => service.registration(), runOnce: () => service.runOnce() };
 }

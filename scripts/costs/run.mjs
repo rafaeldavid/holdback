@@ -1,8 +1,8 @@
 // The cost collector itself (T-052), loaded by collect.mjs only after the approval check passes and the keys are
 // loaded. It checks the two directories, reads every source whose credentials are set, each with a timeout, and
-// writes `<CROW_COSTS_DIR>/<date>.json` and `latest.json`. A source that fails records its error type and status,
-// never a response body or a header; the others still run. It prints only which sources it read and which it
-// could not.
+// writes `<CROW_COSTS_DIR>/<date>.json` and `latest.json`. A source that fails records its error type, status and
+// at most a code from a fixed list (`sources/http.mjs`), never a response body or a header; the others still run.
+// It prints only which sources it read and which it could not.
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { ApprovalRefused, checkApproved } from './approved.mjs';
@@ -59,7 +59,7 @@ function writeJson(path, data) {
   renameSync(tmp, path);
 }
 
-/** Runs one source: not configured, read, or failed with a type and status. */
+/** Runs one source: not configured, read, or failed with a type, a status and maybe a code. */
 export async function runSource(source, ctx) {
   const missing = source.credentials.filter((k) => !ctx.env[k]);
   if (missing.length) return { status: { source: source.id, ok: false, error: { type: 'not_configured', status: null } }, lines: [], files: [] };
@@ -77,7 +77,11 @@ export async function runSource(source, ctx) {
     return { status: { source: source.id, ok: true, ...(note ? { note } : {}) }, lines, files };
   } catch (e) {
     const error =
-      e instanceof SourceError ? { type: e.type, status: e.status } : e instanceof DecimalError ? { type: 'parse', status: null } : { type: 'unexpected', status: null };
+      e instanceof SourceError
+        ? { type: e.type, status: e.status, ...(e.code ? { code: e.code } : {}) }
+        : e instanceof DecimalError
+          ? { type: 'parse', status: null }
+          : { type: 'unexpected', status: null };
     return { status: { source: source.id, ok: false, error }, lines: [], files: [] };
   } finally {
     clearTimeout(timer);
@@ -87,7 +91,7 @@ export async function runSource(source, ctx) {
 function describe(s) {
   if (s.ok) return `${s.source}: read`;
   if (s.error.type === 'not_configured') return `${s.source}: not configured`;
-  return `${s.source}: failed (${s.error.type}${s.error.status ? ` ${s.error.status}` : ''})`;
+  return `${s.source}: failed (${[s.error.type, s.error.status, s.error.code].filter(Boolean).join(' ')})`;
 }
 
 /**

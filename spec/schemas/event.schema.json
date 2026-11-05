@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://holdback.dev/schemas/v0.8/event.schema.json",
+  "$id": "https://holdback.dev/schemas/v0.10/event.schema.json",
   "title": "Settlement event (hash-chained)",
   "type": "object",
   "required": [
@@ -84,9 +84,34 @@
     }
   },
   "$defs": {
+    "ChainTx": {
+      "type": "object",
+      "description": "The chain transaction a settlement event came from. An EVM settlement adds these to the payload of every event it reads from a block; SimChain has no transactions and omits them (v0.9)",
+      "properties": {
+        "tx": {
+          "$ref": "common.schema.json#/$defs/Hex32",
+          "description": "Transaction hash"
+        },
+        "block": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)$",
+          "description": "Block number, decimal"
+        },
+        "sender": {
+          "$ref": "common.schema.json#/$defs/Address",
+          "description": "The account that sent the transaction (a relayer or a party); never the authority for what the event records"
+        },
+        "gasUsed": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)$",
+          "description": "Gas the transaction used, decimal"
+        }
+      }
+    },
     "BondMovement": {
       "type": "object",
-      "additionalProperties": false,
+      "$ref": "#/$defs/ChainTx",
+      "unevaluatedProperties": false,
       "required": [
         "adjudicator",
         "junior",
@@ -119,7 +144,8 @@
     },
     "SettledSplit": {
       "type": "object",
-      "additionalProperties": false,
+      "$ref": "#/$defs/ChainTx",
+      "unevaluatedProperties": false,
       "required": [
         "payouts",
         "keyReleased"
@@ -136,7 +162,8 @@
     },
     "OperatorFeePaid": {
       "type": "object",
-      "additionalProperties": false,
+      "$ref": "#/$defs/ChainTx",
+      "unevaluatedProperties": false,
       "required": [
         "from",
         "to",

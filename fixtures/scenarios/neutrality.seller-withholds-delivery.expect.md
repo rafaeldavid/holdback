@@ -15,7 +15,7 @@ The scenario index's reclaim-no-delivery row (neutrality.md: seller, "S8 reclaim
 | Club | fixtures/clubs/data-services-v1.yaml (loaded) · rulebook 0x140e…971e |
 | Buyer | atlas-buyer 0x36f8…B956 |
 | Seller | tidewater-seller 0x4Fe3…8139 |
-| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0x2d7e…a205 · price 2,000.000000 tUSD · fee 50.000000 tUSD |
+| Terms | fixtures/terms/clean-customers-2000.yaml (loaded) · commitment 0x9482…223d · price 2,000.000000 tUSD · fee 50.000000 tUSD |
 | Adjudicators | primary bench-a 0xaf59…3Ad2 · fallback bench-b 0xA7b4…Cb62 · appeal bench-c 0x2650…307A |
 | Operators | op-1 · op-2 |
 
@@ -50,7 +50,7 @@ Outages:
 
 ## Receipts and log
 
-- Events 0–4. Chain head 0xe902…92a2. Replay of 5 SimChain submissions from genesis matches the settlement state.
+- Events 0–4. Chain head 0xe1de…833f. Replay of 5 SimChain submissions from genesis matches the settlement state.
 - Receipts from op-1: 4 (rcpt-0001–rcpt-0004). The runner labels them without signing; the operator API signs real receipts.
 - Receipts from op-2: 1 (rcpt-0005–rcpt-0005). The runner labels them without signing; the operator API signs real receipts.
 

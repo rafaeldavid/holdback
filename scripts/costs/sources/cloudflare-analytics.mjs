@@ -26,6 +26,36 @@ const QUERY = `query CrowCosts($account: string, $from: string, $to: string, $da
   }
 }`;
 
+// Cloudflare's documented error messages (analytics/graphql-api/errors, read 2026-11-04), plus GraphQL's standard
+// validation messages, each mapped to a fixed word. Only the word reaches the output; the message never does, since
+// it can name the account. An unmatched message is `rate-limit` when its `extensions.code` is Cloudflare's
+// documented `budget`, and `other` otherwise.
+const ERROR_KINDS = [
+  ['permission', /not authorized|unauthorized|does not have access|authentication error|invalid access token/i],
+  ['query', /error parsing args|unknown field|must have (no )?selections|query contains error|cannot query field|expecting type/i],
+  ['time-range', /older than|time range is too large/i],
+  ['limits', /number of fields|limit must be/i],
+  ['rate-limit', /rate limit|too many nodes|excessive resources/i],
+  ['unavailable', /unable to execute|in progress|internal server error/i],
+];
+// An error's path names a dataset by its alias here, or by its own name.
+const DATASETS = {
+  workers: ['workers', 'workersInvocationsAdaptive'],
+  durableObjects: ['durableObjects', 'durableObjectsInvocationsAdaptiveGroups'],
+  storage: ['storage', 'durableObjectsStorageGroups'],
+};
+
+/** The first error's kind, then `:` and the dataset when its path names one of the query's. */
+export function graphqlCode(errors) {
+  if (!Array.isArray(errors) || !errors.length) return null;
+  const e = errors[0];
+  const message = typeof e?.message === 'string' ? e.message.slice(0, 500) : '';
+  const kind = ERROR_KINDS.find(([, re]) => re.test(message))?.[0] ?? (e?.extensions?.code === 'budget' ? 'rate-limit' : 'other');
+  const path = Array.isArray(e?.path) ? e.path : [];
+  const dataset = Object.keys(DATASETS).find((d) => DATASETS[d].some((name) => path.includes(name)));
+  return dataset ? `${kind}:${dataset}` : kind;
+}
+
 export async function collect(ctx) {
   const account = ctx.env.CLOUDFLARE_ACCOUNT_ID;
   expectShape(/^[0-9a-f]{32}$/.test(account));
@@ -34,8 +64,9 @@ export async function collect(ctx) {
     method: 'POST',
     headers: { Authorization: `Bearer ${ctx.env.CROW_COSTS_CLOUDFLARE_TOKEN}`, 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify({ query: QUERY, variables: { account, from: `${ctx.period.from}T00:00:00Z`, to: ctx.now.toISOString(), dayBefore } }),
-  });
-  if (body && Array.isArray(body.errors) && body.errors.length) throw new SourceError('graphql');
+  }, (failed) => graphqlCode(failed?.errors)); // Cloudflare documents 400, 403, 429 and 5xx answers with GraphQL errors
+  const code = graphqlCode(body?.errors);
+  if (code) throw new SourceError('graphql', null, code);
   const acct = body?.data?.viewer?.accounts?.[0];
   expectShape(acct && Array.isArray(acct.workers));
   const line = (product, unit, quantity) =>

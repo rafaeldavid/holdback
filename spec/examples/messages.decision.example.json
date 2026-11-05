@@ -2,6 +2,7 @@
   "type": "Decision",
   "commitmentId": "0x9340180fb352b68aabcf457de90752525d862a9a6dac875100905fac2fc54ed8",
   "attempt": 1,
+  "deliveryHash": "0x4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b",
   "adjudicator": "0x5d10fecab9242e66cb134b77309a3566ed75e3dd",
   "role": "primary",
   "outcome": "accept",

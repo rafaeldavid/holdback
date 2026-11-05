@@ -159,7 +159,7 @@ export interface Timing {
 
 /** Everything the commitment ID hashes: the commitment minus id, signatures and adjudicatorAcceptance (ADR-0016). */
 export interface CommitmentTerms {
-  schemaVersion: '0.6';
+  schemaVersion: '0.7';
   clubId: string;
   rulebookHash: Hex32;
   buyer: Address;
@@ -261,6 +261,8 @@ export interface EarlyAccept extends MessageBase {
   commitmentId: Hex32;
   buyer: Address;
   attempt: number;
+  /** ADR-0029: deliveryHash() of the delivery the buyer opened; settlement refuses any other. */
+  deliveryHash: Hex32;
 }
 
 export type AdjudicatorRole = 'primary' | 'fallback' | 'appeal';
@@ -276,6 +278,8 @@ export interface Decision extends MessageBase {
   type: 'Decision';
   commitmentId: Hex32;
   attempt: number;
+  /** ADR-0029: deliveryHash() of the delivery judged, the posted one; settlement refuses any other. */
+  deliveryHash: Hex32;
   adjudicator: Address;
   role: AdjudicatorRole;
   outcome: DecisionOutcome;
@@ -359,8 +363,26 @@ export interface KeyRegistration extends MessageBase {
   keyId: string;
 }
 
-/** Messages that authenticate or certify and change no settlement state (ADR-0024). */
-export type CredentialMessage = ReadToken | Delegation | KeyRegistration;
+/**
+ * ADR-0030: an adjudicator's self-signed registration, rebuilt from its record (registrationMessageOf). Named for its
+ * type like every message; the TypeScript name differs only because AdjudicatorRegistration is the record's.
+ */
+export interface AdjudicatorRegistrationMessage extends MessageBase {
+  type: 'AdjudicatorRegistration';
+  adjudicator: Address;
+  encryptionPublicKey: Base64Url;
+  keyId: string;
+  policyHash: Hex32;
+  registryHash: Hex32;
+  fee: TokenAmount;
+  poolTermsHash: Hex32;
+  /** keccak256 of the RFC 8785 JSON of the registered record (registeredBody). */
+  bodyHash: Hex32;
+  issuedAt: Timestamp;
+}
+
+/** Messages that authenticate or certify and change no settlement state (ADR-0024, ADR-0030). */
+export type CredentialMessage = ReadToken | Delegation | KeyRegistration | AdjudicatorRegistrationMessage;
 
 /** disclosure.schema.json: keys posted to publish a private deal's bodies (ADR-0024 §3). */
 export interface DisclosureBody {
@@ -560,7 +582,25 @@ export interface AdjudicatorRegistration {
   poolTermsHash: Hex32;
   metrics?: { falseAcceptRateBps: Bps; falseRejectRateBps: Bps; escalationRateBps: Bps; sampleSize: number; measuredAt: Timestamp };
   status: 'active' | 'suspended';
+  /** ADR-0030: the adjudicator's signature over this record. Absent on an unsigned record (SimChain genesis). */
+  registration?: RegistrationEnvelope;
 }
+
+/** ADR-0030: with the record's own fields, the AdjudicatorRegistration message the adjudicator signed. */
+export interface RegistrationEnvelope {
+  keyId: string;
+  bodyHash: Hex32;
+  issuedAt: Timestamp;
+  nonce: Hex32;
+  expiresAt: Timestamp;
+  signature: Signature;
+}
+
+/** ADR-0030: the record an adjudicator posts: signed, and without the balances the chain holds (pool keeps its terms). */
+export type RegisteredAdjudicator = Omit<AdjudicatorRegistration, 'pool' | 'registration'> & {
+  pool: { terms: AdjudicatorPool['terms'] };
+  registration: RegistrationEnvelope;
+};
 
 /** ADR-0014 §2a. terms is what poolTermsHash binds; balances are not part of it. */
 export interface AdjudicatorPool {
@@ -592,6 +632,11 @@ export interface CommitmentStateView {
   escrowState: EscrowStateKind;
   appealState: AppealStateKind;
   attempt: number;
+  /**
+   * ADR-0029: the posted delivery's hash, so a buyer can cross-check two operators. Present while the state holds the
+   * delivery and after a signature that named it; absent before a delivery, in Defaulted and after a default or reclaim.
+   */
+  deliveryHash?: Hex32;
   hold?: { amount: TokenAmount; railRef: string };
   deadlines: Record<string, Timestamp>;
   balances?: Record<Address, TokenAmount>;
@@ -690,6 +735,8 @@ export interface PanelMember {
 export interface Judgment {
   commitmentId: Hex32;
   attempt: number;
+  /** ADR-0029: deliveryHash() of the delivery judged; recordHash covers it. */
+  deliveryHash: Hex32;
   adjudicator: Address;
   role: AdjudicatorRole;
   intake: { plaintextHashVerified: boolean; mime: string; bytes: number; normalized: boolean };
