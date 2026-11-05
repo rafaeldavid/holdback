@@ -30,7 +30,7 @@ Non-goals:
 - [x] The copy button copies the prompt below; `node site/build.mjs` and `node site/check.mjs` pass.
 - [x] `llms.txt` "Try it" asks for no fetch before the command.
 - [ ] After the deploy: a fresh assistant reaches Released from the copied prompt with 1 approval, in both "allow once" and "always allow" modes (measured with the same harness).
-- [x] `pnpm verify` runs; its report is read (Evidence).
+- [x] `pnpm verify` runs; its report is read (Evidence: every step passed in one of two runs, and each failure passed on its rerun).
 
 ## Evidence
 
@@ -39,7 +39,10 @@ Non-goals:
 - **Test first** [measured, 2026-11-05, before the change]: `node site/check.mjs` exited 1 with "the Try line's prompt does not carry the current try command on a line of its own" and "\"Try it\" asks the agent to fetch try.mjs before the command". `vitest run examples/try.test.ts -t "homepage copies"` failed on `expect(prompt.split('\n')).toContain(command)`.
 - **After** [measured]: `node site/build.mjs` rewrote `site/index.html` only; `site/try.mjs` is unchanged (sha256 `cc310963bb0833e0d23f8018eb4ea802db09fa05fbd9489020340d2be2eed832`). `node site/check.mjs` passes. The changed test passes. `site/llms.txt` went from 74,633 to 74,332 bytes.
 - **The deal tests under load** [measured]: two full runs of `examples/try.test.ts` each had one deal test time out at 60 s (a different one each run), with the load average at 111 on 8 cores from other sessions. This task does not touch the deal path (`examples/try.ts`, `site/try.mjs`) [inferred]. The prompt test passed in both runs.
-- **`pnpm verify`**: see the PR body for the run and its report.
+- **`pnpm verify`, two runs at `d776794`** [measured, 2026-11-05; report `reports/verify-t-229-one-click-homepage.md`; load average 70 to 111 on 8 cores]. Every step passed in at least one full run, and each failure passed on its own rerun. Neither failure touches a file this task changed [inferred].
+  - Run 1 (14:55 UTC): typecheck, lint, forge (241 tests), test (120 files, 2,706 tests passed, 6 skipped), spec, snap (31), snap:local (28, 3 excluded until Phase 4) and demo passed. `forge build` failed while it cloned the contracts' nested submodules for the first time in this fresh worktree; `forge build --root contracts` then exited 0.
+  - Run 2 (about 16:00 UTC): every step passed except `test`. One T-221 anvil test, `apps/demo-cloud/src/registration.anvil.test.ts`, threw "the rules redeployment moved". Alone, `vitest run` on that file passed (1 test, 119.9 s).
+  - Snapshot diffs: none against HEAD.
 - **After the deploy** [not yet measured]: approvals per deal and time to Released, with the same harness.
 
 The prompt the button copies (the sha256 changes whenever `site/try.mjs` does):
@@ -68,3 +71,5 @@ For the coordinator, on Rafa's approval of 2026-11-05:
 3. Rerun the harness in both modes with the new copied prompt. Record approvals per deal and the time to Released in Evidence and under D51. Then set this task to done.
 
 Next gap: a seller-first path. A visitor's agent that sells needs Crow's standing test buyer (T-222's second slice, `docs/backlog.md`).
+
+Observed, not fixed (outside this task's paths): under a load average near 100 on 8 cores, `apps/demo-cloud/src/registration.anvil.test.ts` failed once with "the rules redeployment moved", and the deal tests in `examples/try.test.ts` timed out at 60 s twice. Each passed when run alone or in another full run. If they recur in CI, they belong on T-049's Known flakes list.
