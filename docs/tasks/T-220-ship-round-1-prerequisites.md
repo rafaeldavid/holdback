@@ -4,9 +4,9 @@
 - **Phase:** 2
 - **Depends on:** T-217, T-218, T-219 and T-221, merged first (this task edits `apps/demo-cloud/src/world.ts` and `worker.ts` after them). The record of the 0.7 redeploy is on main (PR 169).
 - **Paths this task may touch:** `apps/demo-cloud/src/world.ts` (the chain world's rulebook names `drand-quicknet`; the demo adjudicators get T-217's drand source; the drand notice); its tests (`world.test.ts`, the new `one-world.anvil.test.ts` and `predeploy-fork.test.ts`) and the anvil harness they share (`apps/demo-cloud/test/anvil.ts`); `site/llms.txt` (the honest limits) and the site's build outputs; `docs/operations.md` (live versions, rollback targets); `README.md` (Status, only where it states these limits); `docs/api.md` (the two schema 0.9 lines, which T-221's Handoff gives to this deploy); `docs/neutrality.md` (the beacon row, which T-217's Handoff gives to this docs pass); `docs/backlog.md`; `docs/plan.md` (this row); this file
-- **Human gate:** yes. The Worker and site deploys wait for Rafa's go-ahead; the PR itself is in-repo.
-- **Status:** review (code ready; the deploy waits for Rafa)
-- **Agent/session:** Claude Code session on branch `t-220-ship-round-1`, worktree `.worktrees/t-220-prep` (2026-11-05)
+- **Human gate:** yes. The Worker and site deploys waited for Rafa's go-ahead, which he gave on 2026-11-05; the PR itself is in-repo.
+- **Status:** done (merged in PR 204; deployed 2026-11-05, 11:04 UTC)
+- **Agent/session:** Claude Code session on branch `t-220-ship-round-1`, worktree `.worktrees/t-220-prep` (2026-11-05); the deploy session from PR 204's merge commit, worktree `.worktrees/t220-deploy` (2026-11-05)
 
 ## Intent
 
@@ -32,8 +32,8 @@ Non-goals: the deploy itself (Rafa's gate); a new world name or new bonds (D49);
 
 ## Acceptance criteria
 
-- [ ] Rafa's go-ahead, quoted with its date.
-- [x] **A fork run before the deploy** (measured, 2026-11-05; Evidence). On a Sepolia fork, the world built from this commit:
+- [x] Rafa's go-ahead, quoted with its date: "When ready, deploy", then "You need to ship this so you stop iterating" (Rafa, 2026-11-05). His choice on residual 13 is D50 (2026-11-05): deploy now, fix in T-227 before mainnet.
+- [x] **A fork run before the deploy** (measured, 2026-11-05; Evidence; rerun on PR 204's final head `4a7b954`: 1 test passed in 284 s). On a Sepolia fork, the world built from this commit:
   - finds its three adjudicators bonded and sends nothing;
   - applies the rulebook change to a world opened before it: the old deal keeps its `rulebookHash` and moves on, and an offer bound to the old hash gets 422 `rulebook_unknown`;
   - runs `examples/try.ts` to Released;
@@ -41,24 +41,24 @@ Non-goals: the deploy itself (Rafa's gate); a new world name or new bonds (D49);
   - shows a direct `deliver` in the view: the contract's stage with a "Behind the chain" notice within a pass, then, once the seller posts the signed delivery, the event labelled `direct` with no second transaction (T-218's design; Decision 8);
   - registers an outside adjudicator through the API and settles a deal in which it is the primary;
   - applies, when it reopens, a transaction it broadcast before being stopped.
-- [ ] **The rulebook, in place.** The world name stays `holdback-public-demo-sepolia-2026-11-04`.
+- [x] **The rulebook, in place.** The world name stays `holdback-public-demo-sepolia-2026-11-04`.
   - [x] In code: its rulebook names `drand-quicknet` with quicknet's chain hash, and `GET /v1/clubs/demo-club` serves the new `rulebookHash`, `0x3fecb058…d108` on the fork. Each demo adjudicator reads rounds through T-217's drand source, and the "drand not yet" notice is gone (`world.ts`).
-  - [ ] Live: the same reads after the deploy; deals opened before it keep their old `rulebookHash` and state (list them before, read them after).
-- [ ] **No deal left behind.** Open deals continue in the same world. The one effect is on an offer prepared before the deploy and posted after it: 422 `rulebook_unknown`, whose text says to read the club again. Check that every deal open at the deploy reads the same state afterwards.
-- [ ] **The gas quote stays as it is.** The redeploy measured 1,636,242 gas for a three-transaction deal on the 0.7 contracts, about 4.9 % above the 0.6 figure (T-212 Handoff). The quote was deliberately left at 4.70 tUSDC (`OPERATOR_FEE_GAS` 4700000, a 4.71 tUSDC minimum), for T-215 to replace with live gas and prices. This deploy does not change it unless T-215 has landed.
-- [ ] **Deploy both Workers together, then the site,** as the 0.7 cutover did (`pnpm demo-cloud:deploy`; `docs/operations.md`).
+  - [x] Live: the same reads after the deploy; deals opened before it keep their old `rulebookHash` and state (list them before, read them after). Measured on both nodes at 11:05:19 UTC: `rulebookHash` `0x3fecb058…d108` with `drand-quicknet`; the 9 earlier deals keep `0xd25b8f97…0c25`.
+- [x] **No deal left behind.** Open deals continue in the same world. The one effect is on an offer prepared before the deploy and posted after it: 422 `rulebook_unknown`, whose text says to read the club again. Check that every deal open at the deploy reads the same state afterwards. Measured: no deal was open at the deploy; all 9 deals the world held read the same `escrowState` and `appealState` on both nodes before and after.
+- [x] **The gas quote stays as it is.** The redeploy measured 1,636,242 gas for a three-transaction deal on the 0.7 contracts, about 4.9 % above the 0.6 figure (T-212 Handoff). The quote was deliberately left at 4.70 tUSDC (`OPERATOR_FEE_GAS` 4700000, a 4.71 tUSDC minimum), for T-215 to replace with live gas and prices. This deploy does not change it unless T-215 has landed. Measured: holdback-op1's bindings show `OPERATOR_FEE_GAS` "4700000", and the smoke deal paid an operator fee of 4.71 tUSDC.
+- [x] **Deploy both Workers together, then the site,** as the 0.7 cutover did (`pnpm demo-cloud:deploy`; `docs/operations.md`). Measured: both Workers between 11:03:40 and 11:04:11 UTC, the smoke deal Released at 11:09 UTC, the site at 11:10 UTC; the setup pass sent no transaction and all three adjudicators read `bonded`.
   - The world names live in the shared `worker.ts`, and the Durable Object always runs holdback-op1's code (op2's `WORLD` binding is op1's `World` class).
   - The code being replaced has no in-flight row, so deploy while no deal is mid-step.
   - Then run the smoke test (Released, three Etherscan links), then deploy the site.
   - The setup pass finds the bonds in place and sends nothing: `bonded` stays 3, and the funding lane's balance is unchanged (read it before and after).
-- [ ] **Live checks.**
-  - The homepage command runs end to end against both nodes.
+- [x] **Live checks.**
+  - [x] The homepage command runs end to end against both nodes. Measured: Released in 60 s with Crow's test seller, three Etherscan links (Evidence, "The deploy").
   - [x] `llms.txt` states what changed: fallback and appeal adjudicators decide with drand proofs, direct calls show in the view, and an agent can register its own adjudicator. It also keeps the honest limits that remain. The text comes from T-217's, T-218's, T-219's and T-221's Handoffs.
   - [x] Its "State may reset" line becomes: "The operators' view is kept across deploys. It starts over only when the settlement contracts are redeployed; what happened on Sepolia stays there. Keep your own copy of the terms you signed."
   - [x] `node site/build.mjs && node site/check.mjs` pass (measured on this branch).
 - [x] **Rollback, written down** in `docs/operations.md`: holdback-op1 `50fd05c4`, holdback-op2 `1a95b960`, crow-site `5582b10e`. The world is the same under the old code. Deals offered under the drand rulebook keep their book, their fallback and appeal panels fall back to the default outcome under the old adjudicator code, and money is unaffected (inferred, `docs/research/2026-11-04-one-world.md`).
-- [ ] **Docs:** `docs/operations.md` (the deploy steps and rollback are in; the live versions wait for the deploy), and `README.md` where it states these limits (in, worded "until T-220's deploy").
-- [ ] **Review.** The `reviewer` role with project context; CI green.
+- [x] **Docs:** `docs/operations.md` (the deploy steps, the rollback and, since the deploy, the live versions), and `README.md` where it states these limits (the "until T-220's deploy" clauses are gone since the deploy's record PR).
+- [x] **Review.** The `reviewer` role with project context reviewed PR 204 (four findings, all fixed; Evidence); CI passed all 12 checks on its final head `4a7b954` (measured).
 
 ## Out of scope
 
@@ -68,6 +68,43 @@ Non-goals: the deploy itself (Rafa's gate); a new world name or new bonds (D49);
 - A new world name. D49 allows one only for a new rules contract or another chain.
 
 ## Evidence
+
+### The deploy (2026-11-05)
+
+**Deployed and checked; no rollback.** Rafa gave the go-ahead on 2026-11-05: "When ready, deploy", then "You need to ship this so you stop iterating." He decided residual 13 the same day (D50): deploy now, with the honest limit in `llms.txt`, and fix it in T-227 before mainnet. A deploy session shipped PR 204's merge commit `69021a6` by the runbook in `docs/operations.md`. It saved each answer under `reports/t220/` in its worktree (git-ignored). Every line below is measured unless it says otherwise.
+
+| Worker | New version | Rollback target |
+| --- | --- | --- |
+| holdback-op1 | `1d8a029c-44eb-4276-b5c0-c2c8894b25d5` | `50fd05c4` |
+| holdback-op2 | `a042aae3-821a-4efd-856a-42070205c45e` | `1a95b960` |
+| crow-site | `704bd295-21ed-4dc1-ab54-b181496448b8` | `5582b10e` |
+
+**Before** (10:45 to 11:03 UTC):
+1. PR 204's final head `4a7b954` contains origin/main `eeeb5f0`. CI passed all 12 checks on it. The fork run on it passed: 1 test in 284 s, forked at Sepolia block 12,068,986, world errors none. The merge commit `69021a6` has the same tree (`git diff --stat` empty), so the run stands for it. The first attempt stopped at import because the fresh worktree had no `dist/`; it passed after `pnpm build`.
+2. Both nodes: `schemaVersion` 0.9, domain Holdback 0.7, `verifyingContract` `0xf38287e5c5c1f20c6d03be500edbf8a244f27cfa`.
+3. Both nodes: `rulebookHash` `0xd25b8f97…0c25`, `randomness` `{"source": "sim"}`.
+4. The world held 9 deals, all final (7 Released, 2 Refunded, appeal `expired`), each bound to `0xd25b8f97…0c25`. Deal `0xf0453986…5e5b` read `Released`, appeal `expired`, with no `delivery.submitted` event.
+5. At Sepolia block 12,068,976: the funding lane held 1.8118 Sepolia ETH (1811805135999733762 wei) at nonce 29; the three deal lanes were at nonces 29, 16 and 3, the three adjudicators at nonce 2. The old build reported the adjudicators' bonds as 0 and no `observed` field.
+6. `head.eventSeq` stayed 94 on both nodes from 11:00:11 to 11:00:43 UTC, and read 94 again at 11:03:40 UTC.
+
+**Deploy** (11:03:40 to 11:13 UTC):
+1. `pnpm demo-cloud:deploy` deployed both Workers on the first try by 11:04:11 UTC; startup took 416 ms (op1) and 434 ms (op2). The new code served requests at once, but the Durable Object answered schema 0.9 until 11:04:55 UTC, about 44 s after the deploy (the window is measured; the restart as its cause is inferred).
+2. Both nodes at 11:05:19 UTC: `schemaVersion` 0.10, the same domain and `verifyingContract`.
+3. Both nodes: `rulebookHash` `0x3fecb058383da073d562995df281fbd28dc895c3f7c93e7114266f607218d108`, `randomness` `drand-quicknet` with chain hash `0x52db…e971`.
+4. Both nodes list the three demo adjudicators, each with a `registration` and `observed.bond` `bonded`: `0x71f8…7c9e` primary, `0x594a…68a2` fallback, `0xdee0…f286` appeal.
+5. `wrangler tail holdback-op1` from 11:04:21 to 11:13:06 UTC: 247 events from the new version, all `ok`, 16 of them alarms, 0 exceptions, 0 responses of 500 or more. Only deal `0xf0453986…5e5b` fell behind, as Deploy step 5 expected: it reads `Released` with the notice "Behind the chain: a delivery in transaction 0x64c5c757…caf1 found this node's book Released".
+6. At Sepolia block 12,069,078 (11:07:54 UTC), the funding lane, the three deal lanes and the three adjudicators had the same balances, nonces and pending nonces as in Before step 5: the setup pass sent nothing.
+7. All 9 earlier deals read the same `escrowState`, `appealState` and `rulebookHash` on both nodes at 11:12:10 UTC; only `0xf0453986…5e5b` carries a notice.
+8. **The smoke deal.** The runbook's `node apps/demo-cloud/scripts/deal.ts https://api.escrow.stream https://api2.escrow.stream` refused before it sent anything: "refusing: https://api.escrow.stream is not on SimChain (chain id 31337)". `deal.ts` is SimChain-only, so the runbook's smoke step should name `examples/try.ts`; this record's change to `docs/operations.md` Deploy step 8 does. The deal ran as the 0.7 cutover's did: `HOLDBACK_OPERATORS=https://api.escrow.stream,https://api2.escrow.stream node examples/try.ts`. Commitment `0x8d10b25a…f84b` ended Released in 42 s, final at 11:10:12 UTC, bound to the new `rulebookHash`, operator fee 4.71 tUSDC. Each receipt has status 1:
+   - funded [`0x451a22c0…8524`](https://sepolia.etherscan.io/tx/0x451a22c07d379d41e3e4990619b45dfdc919283fb0b578840b0dbc0a775b8524), 840,697 gas;
+   - delivered [`0xfcb25893…c407`](https://sepolia.etherscan.io/tx/0xfcb258937e9f206b823766406f60b6172f7feeebbbe5719473a5d2f2de4ec407), 173,131 gas;
+   - decided [`0x866ad888…a8d6`](https://sepolia.etherscan.io/tx/0x866ad8882861bd3a1eae25febee702ad372208011d14bfa59d5e31e2850ba8d6), 166,808 gas.
+9. **The site.** `node site/build.mjs --op1 https://api.escrow.stream --op2 https://api2.escrow.stream --out <worktree>/reports/site-out` (the directory `apps/site/wrangler.jsonc` serves) and `node site/check.mjs` passed; `npx wrangler@4 deploy --config <worktree>/apps/site/wrangler.jsonc` uploaded 2 changed files, `llms.txt` and `try.mjs`. At 11:10:22 UTC `https://escrow.stream/try.mjs` had sha256 `cc310963bb0833e0d23f8018eb4ea802db09fa05fbd9489020340d2be2eed832`. The "Try it" command, run as its parts (the same pinned packages, the sha256 check, then `node try.mjs --seller https://escrow.stream/agents/test-seller`), ended Released in 60 s with Crow's test seller, final at 11:12:48 UTC (commitment `0xd55c6667…08be`):
+   - funded [`0xe18bde01…40ae`](https://sepolia.etherscan.io/tx/0xe18bde0120b599ee37eae0d5b27bd45122cc4646e6525d3bbe3a31c326cf40ae);
+   - delivered [`0x4ff4590e…1d75`](https://sepolia.etherscan.io/tx/0x4ff4590ec2755b70e224bd9f114e53a6603c789a8c5273e6fd97848152471d75);
+   - decided [`0xec5061eb…5d5f`](https://sepolia.etherscan.io/tx/0xec5061eb63a40132f015ff759b02cf40a20c4451c425c67d88895f49d27c5d5f).
+
+### Before the deploy
 
 Branch `t-220-ship-round-1`, 2026-11-05. Each claim is labelled measured, inferred or guessed. Nothing was deployed and nothing was sent to Sepolia.
 
@@ -134,18 +171,20 @@ Made by the T-220 session on 2026-11-05; Rafa can overrule any of them.
 
 ## Handoff
 
-**State:** review (code ready; the review's four findings fixed, 2026-11-05; the deploy waits for Rafa). Draft [PR 204](https://github.com/rafaeldavid/holdback/pull/204) to main, stacked on PR 202 (T-221 slice 2) and PR 195 (T-219) under it; the Land step merges main in first. Nothing is deployed.
+**State:** done. [PR 204](https://github.com/rafaeldavid/holdback/pull/204) merged into main as `69021a6` on 2026-11-05, and a deploy session shipped that commit the same day at 11:04 UTC, on Rafa's go-ahead: holdback-op1 `1d8a029c`, holdback-op2 `a042aae3`, crow-site `704bd295`. Every check passed; nothing was rolled back (Evidence, "The deploy").
+
+**Next:** T-216 reruns round 1 with `--t220`; its driver checks the published bundle against `cc310963…`, which `https://escrow.stream/try.mjs` serves since 11:10 UTC.
 
 **What changed:**
 - `apps/demo-cloud/src/world.ts`: the chain world's rulebook names `drand-quicknet` with quicknet's chain hash; one `drandQuicknet()` source for the demo adjudicators; `LiveSettlement.beacon` and `.drand`; the notes.
 - Tests: `world.test.ts` (offline: the same storage reopened under this build; the anvil default; `llms.txt` names discovery's `defaultAdjudicators`), `one-world.anvil.test.ts` (an open deal across the switch on anvil; no network), `predeploy-fork.test.ts` (the fork run; opt-in with `SEPOLIA_FORK_RPC`); `apps/demo-cloud/test/anvil.ts` (`host`, `estimateShim`).
 - `site/llms.txt` (rebuilt; `site/index.html` and `site/try.mjs` did not change), `docs/operations.md` (the deploy steps and rollback), `README.md`, `docs/api.md`, `docs/neutrality.md`, `docs/backlog.md`, `docs/plan.md`.
 
-**For the deploy (Rafa's go-ahead first):** follow "T-220: round 1's prerequisites in one deploy" in `docs/operations.md`: the reads before, residual 13 as D50 decided it (Before step 7), `pnpm demo-cloud:deploy`, the first sync pass (Deploy step 5: expect deal `0xf0453986…5e5b` to fall behind, and read any other deal that does), the checks, the smoke deal, the site, and the record. Then:
-- fill in this file's Evidence with the deploy's measurements and tick the live criteria;
-- record the versions in `docs/operations.md` and move its T-220 section from "ready" to "live";
-- drop "until T-220's deploy" from `README.md` (line 7 and the Limits list, and move the "Ready to deploy" Status line to "Deployed") and from `docs/api.md`'s demo section, and set `docs/operations.md`'s Schema line to 0.10 live;
-- tell T-216 to rerun round 1 with `--t220`; its driver checks the published bundle against `cc310963…`.
+**The deploy, done 2026-11-05:** the deploy session followed "T-220: round 1's prerequisites in one deploy" in `docs/operations.md`, then its record PR:
+- filled in this file's Evidence and ticked the live criteria;
+- recorded the versions in `docs/operations.md` and marked its T-220 section deployed;
+- dropped "until T-220's deploy" from `README.md` and `docs/api.md`, and set `docs/operations.md`'s Schema line to 0.10 live;
+- changed Deploy step 8 to name `examples/try.ts`, since `apps/demo-cloud/scripts/deal.ts` refuses any chain but SimChain.
 
 **Open for Rafa:**
 - Residual 13 (`docs/backlog.md`, "the operators' adjudicators act on a deal behind the chain"): decided 2026-11-05 (D50). The deploy goes ahead with the honest limit `llms.txt` states, that a party cannot rule it out on its own, and T-227 fixes it in Phase 11, before mainnet.
@@ -155,4 +194,5 @@ Made by the T-220 session on 2026-11-05; Rafa can overrule any of them.
 **Follow-ups, not built here:**
 - The advisory `judgeBy` on a quicknet round boundary (T-217 Handoff) is a backlog row: an operator change, with T-225.
 - `worker.ts`'s comment on `WORLD_NAMES` still says to bump a name for a schema change; D49 retired that for the Sepolia world. One comment line, outside this task's paths.
-- No test measures the first sync pass on the deployed build's storage shape (no `cursor` row, books without `chainTxs`, a relayed step whose events were lost). An anvil test that strips those from a world's storage before reopening it would; Deploy step 5's expectation is inferred from the code until then.
+- No test measures the first sync pass on the deployed build's storage shape (no `cursor` row, books without `chainTxs`, a relayed step whose events were lost). An anvil test that strips those from a world's storage before reopening it would. The live deploy measured the expected result once: only `0xf0453986…5e5b` fell behind.
+- The general Deploy block in `docs/operations.md` still names `apps/demo-cloud/scripts/deal.ts` for "a live end-to-end deal", which refuses the Sepolia nodes. One line; this record left it for the next docs pass.
