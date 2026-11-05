@@ -5,7 +5,7 @@
 - **Depends on:** T-218 merged first. This task edits `packages/settlement/evm/live.ts` and `evm-settlement.ts` after T-218's changes, and a recovered transaction is applied through T-218's log sync.
 - **Paths this task may touch:** `packages/settlement/evm/live.ts`, `chain.ts`, `evm-settlement.ts` (only telling this node's recovered relays from direct calls), and their tests (`live.test.ts`, `receipt.test.ts`, `evm-settlement.test.ts`); `apps/demo-cloud/src/lanes.ts` (new: the row store over the Durable Object's storage) and its test; `apps/demo-cloud/src/worker.ts` and `world.ts` (only to hand the store to `LiveChain`); `docs/decisions/ADR-0028-demo-settles-on-sepolia.md` (a dated note in §11); `docs/operations.md` (the "deploy while no deal is mid-step" warning); `docs/backlog.md` (its row); `docs/plan.md` (this row); this file
 - **Human gate:** no. The live deploy is T-220's.
-- **Status:** review
+- **Status:** done (merged in PR 195; live with T-220's deploy)
 - **Agent/session:** T-219 workflow session, 2026-11-04 (branch `t-219-lane-in-flight-row`, worktree `.worktrees/t-219`)
 
 ## Intent

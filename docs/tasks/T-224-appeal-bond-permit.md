@@ -18,7 +18,7 @@
   - docs: `docs/api.md`, `docs/neutrality.md`, `docs/decisions/ADR-0023-operator-fee.md` (one line), `docs/backlog.md`, `docs/plan.md`, `docs/tasks/T-216-*.md`, `docs/tasks/T-221-*.md`, this file.
   - **Not** `contracts/`.
 - **Human gate:** no for the PR. The live deploy that carries it is T-220's, or a later one, on Rafa's go-ahead.
-- **Status:** todo
+- **Status:** paused (parked by Rafa, 2026-11-05: "let's park 224 to much later, that's not a priority now"; D48 stands; resume when visitor appeals matter, for example before mainnet or when a customer needs them)
 - **Agent/session:** —
 
 ## Intent
