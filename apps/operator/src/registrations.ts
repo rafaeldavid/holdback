@@ -35,6 +35,12 @@ export interface StoredRegistration {
   record: RegisteredAdjudicator;
   /** When this node first stored a registration for the address; a replacement keeps it. */
   registeredAt: Timestamp;
+  /**
+   * The order in which this node first stored the address, set by a store that lists rows in another order (the demo's
+   * Durable Object lists them by key); a replacement keeps it. Readers page by it, so a registration stored in the same
+   * second as the last one on a page never lands before the cursor (red-team re-check of PR 184, finding C).
+   */
+  seq?: number;
 }
 
 /** Where a node keeps registrations: one per address. The demo keeps Durable Object rows `ar:<address>` (T-221). */
@@ -42,9 +48,13 @@ export interface RegistrationStore {
   get(address: Address): Promise<StoredRegistration | undefined>;
   /** Stores the registration for its address, replacing the one there. */
   put(r: StoredRegistration): Promise<void>;
-  /** Every stored registration, in any order; readers sort by registeredAt. */
+  /** Every stored registration, in any order; readers sort with `firstStored`. */
   list(): Promise<StoredRegistration[]>;
 }
+
+/** Oldest first: by `seq` when the store sets it, else by `registeredAt` (a stable sort keeps the store's order within a second). */
+export const firstStored = (a: StoredRegistration, b: StoredRegistration): number =>
+  a.seq !== undefined && b.seq !== undefined ? a.seq - b.seq : Date.parse(a.registeredAt) - Date.parse(b.registeredAt);
 
 const lc = (a: string) => a.toLowerCase();
 

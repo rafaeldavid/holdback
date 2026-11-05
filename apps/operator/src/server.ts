@@ -50,7 +50,7 @@ import { ENVELOPE_SPEC } from './envelope-spec.js';
 import { FeedbackDesk, FeedbackError, MAX_REPORT_BYTES, parseReport, type FeedbackOptions, type Report } from './feedback.js';
 import { startupGuards } from './guards.js';
 import { amountText, bondNotices, fallbackBondRefusal, operatorFeeText, prepare, PrepareError, type Erc3009Signing, type PrepareContext } from './prepare.js';
-import { hasBond, MAX_REGISTRATION_BYTES, register, RegistrationError, type Bond, type StoredRegistration } from './registrations.js';
+import { firstStored, hasBond, MAX_REGISTRATION_BYTES, register, RegistrationError, type Bond, type StoredRegistration } from './registrations.js';
 import { IdempotencyStore, fingerprint, type StoredResponse } from './idempotency.js';
 import { readerOf, type Reader } from './read-auth.js';
 import { llmsTxt, openApiDocument, plannedRoute, routeOf } from './openapi/index.js';
@@ -823,7 +823,7 @@ export class Operator {
     const stored = new Map(((await reg.registrations?.list()) ?? []).map((r) => [lc(r.record.address), r]));
     const own = reg.adjudicators();
     const ownSet = new Set(own.map((a) => lc(a.address)));
-    const later = [...stored.values()].filter((r) => !ownSet.has(lc(r.record.address))).sort((a, b) => Date.parse(a.registeredAt) - Date.parse(b.registeredAt));
+    const later = [...stored.values()].filter((r) => !ownSet.has(lc(r.record.address))).sort(firstStored);
     const rows: Array<{ seq: number; stored?: StoredRegistration; view?: (typeof own)[number] }> = [
       ...own.map((view, i) => ({ seq: LIST_TOP - i, view, ...(stored.has(lc(view.address)) ? { stored: stored.get(lc(view.address))! } : {}) })),
       ...later.map((r, i) => ({ seq: LIST_TOP - own.length - i, stored: r })),
