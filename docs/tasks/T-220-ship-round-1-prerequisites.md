@@ -141,14 +141,14 @@ Made by the T-220 session on 2026-11-05; Rafa can overrule any of them.
 - Tests: `world.test.ts` (offline: the same storage reopened under this build; the anvil default; `llms.txt` names discovery's `defaultAdjudicators`), `one-world.anvil.test.ts` (an open deal across the switch on anvil; no network), `predeploy-fork.test.ts` (the fork run; opt-in with `SEPOLIA_FORK_RPC`); `apps/demo-cloud/test/anvil.ts` (`host`, `estimateShim`).
 - `site/llms.txt` (rebuilt; `site/index.html` and `site/try.mjs` did not change), `docs/operations.md` (the deploy steps and rollback), `README.md`, `docs/api.md`, `docs/neutrality.md`, `docs/backlog.md`, `docs/plan.md`.
 
-**For the deploy (Rafa's go-ahead first):** follow "T-220: round 1's prerequisites in one deploy" in `docs/operations.md`: the reads before, Rafa's decision on residual 13 (Before step 7), `pnpm demo-cloud:deploy`, the first sync pass (Deploy step 5: expect deal `0xf0453986…5e5b` to fall behind, and read any other deal that does), the checks, the smoke deal, the site, and the record. Then:
+**For the deploy (Rafa's go-ahead first):** follow "T-220: round 1's prerequisites in one deploy" in `docs/operations.md`: the reads before, residual 13 as D50 decided it (Before step 7), `pnpm demo-cloud:deploy`, the first sync pass (Deploy step 5: expect deal `0xf0453986…5e5b` to fall behind, and read any other deal that does), the checks, the smoke deal, the site, and the record. Then:
 - fill in this file's Evidence with the deploy's measurements and tick the live criteria;
 - record the versions in `docs/operations.md` and move its T-220 section from "ready" to "live";
 - drop "until T-220's deploy" from `README.md` (line 7 and the Limits list, and move the "Ready to deploy" Status line to "Deployed") and from `docs/api.md`'s demo section, and set `docs/operations.md`'s Schema line to 0.10 live;
 - tell T-216 to rerun round 1 with `--t220`; its driver checks the published bundle against `cc310963…`.
 
 **Open for Rafa:**
-- Residual 13 (`docs/backlog.md`, "the operators' adjudicators act on a deal behind the chain"): the T-218 red team recommends a fix before this deploy, and `docs/operations.md` makes Rafa's choice a gate (Before step 7). `llms.txt` states it as an honest limit that a party cannot rule out on its own.
+- Residual 13 (`docs/backlog.md`, "the operators' adjudicators act on a deal behind the chain"): decided 2026-11-05 (D50). The deploy goes ahead with the honest limit `llms.txt` states, that a party cannot rule it out on its own, and T-227 fixes it in Phase 11, before mainnet.
 - CI's must-not-skip anvil step: add `apps/demo-cloud/src/one-world.anvil.test.ts` beside `registration.anvil.test.ts` (backlog row; a `.github/` change).
 - D48 default 5, the `bonds` pin in `llms.txt`'s deployment block: it needs `bonds` in `examples/deployments.ts` and `examples/verify.ts`'s pin type, then in `site/check.mjs`'s comparison. Until then the address is in the prose.
 

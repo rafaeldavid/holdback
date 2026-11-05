@@ -57,7 +57,7 @@ Accepted for the prototype and tracked here:
     - a step core refuses although the contract took it (a divergence);
     - a signed step sent through a forwarder whose expiry lies past the year 9999, which this node cannot check the signature of.
 
-    The deal's state read then shows the contract's stage with a notice. The envelopes this node holds still follow the chain's stage (none, when the delivery never reached it), and the buyer's key is served from the contract's log. But the operators' own adjudicators read their book and do not act on that deal, so it ends by its timeouts: the default refund, or the first decision standing when an appeal goes unheard. The funds stay under the contract's terms, and the parties and other adjudicators can still submit to the contract directly. Tracked in `docs/backlog.md`.
+    The deal's state read then shows the contract's stage with a notice. The envelopes this node holds still follow the chain's stage (none, when the delivery never reached it), and the buyer's key is served from the contract's log. But the operators' own adjudicators read their book and do not act on that deal, so it ends by its timeouts: the default refund, or the first decision standing when an appeal goes unheard. The funds stay under the contract's terms, and the parties and other adjudicators can still submit to the contract directly. Tracked as T-227 in Phase 11, Security hardening (`docs/plan.md`): it lands before mainnet, not before T-220's deploy (Rafa, 2026-11-05, D50).
 
 ## Escape hatch requirements
 
