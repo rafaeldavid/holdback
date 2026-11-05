@@ -10,6 +10,7 @@ Rafa has held back the built or open work below. Each row names the event that b
 | --- | --- | --- |
 | The contribution rails for collaborators and their agents: `CONTRIBUTING.md`, the issue templates and `CODEOWNERS`, the file that names who reviews each path (PR 151, labelled `benched`) | Rafa, 2026-11-04 | After the first full EVM end-to-end test round on Sepolia (T-216) |
 | T-206's human gate, the step only Rafa can take in the contract review: his read of the review, and his confirmations on PR 150 (the Sepolia approval, the keystore exception to the secrets rule, the two open "before Sepolia" checks) | Rafa, 2026-11-04 | After the first full EVM end-to-end test round on Sepolia (T-216) |
+| T-224, appeals by a relayed permit (D48): `prepare/appeal` returns an EIP-2612 permit slot and the operator relays `permit` and `fileAppeal` in one call, so a visitor's agent appeals with no Sepolia ETH. Parked, not cancelled: D48 stands and only the build waits | Rafa, 2026-11-05 ("let's park 224 to much later, that's not a priority now") | When visitor appeals matter: before mainnet, or when a customer needs them |
 
 ## Settlement layer
 
