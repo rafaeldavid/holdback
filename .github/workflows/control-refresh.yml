@@ -1,0 +1,56 @@
+# Crow Control (control.escrow.stream) rebuilds after every merge to main (Rafa, 2026-11-05: "It should refresh
+# everything"), instead of waiting for crow-private's hourly schedule: GitHub ran that schedule at 06:51 and 15:30 UTC
+# only on 2026-11-05, so merged work took hours to show.
+#
+# The job asks crow-private to run its control-hourly workflow on main (the workflow dispatch API). That run rebuilds
+# every section from this repository's main as it stands when its build job starts, so it takes no input from here.
+# This job checks out no code and runs nothing from this repository.
+#
+# A burst of merges sends one request: each run waits 5 minutes, then leaves the request to a newer merge's run if main
+# has moved on. Each crow-private build bills about 3 Actions minutes (three jobs, each rounded up to a minute). The
+# merges of 2026-11-03 and 2026-11-04 (90) would have sent 61 requests with this wait, against 90 without it.
+#
+# Secret, set by Rafa: CROW_PRIVATE_DISPATCH in the environment crow-control, whose deployment branches are main only,
+# so a workflow on another branch cannot read it. It is a fine-grained token for rafaeldavid/crow-private only, with
+# Actions read and write and nothing else: the minimum for the workflow dispatch API. repository_dispatch would need
+# Contents write, which reads and writes the whole private repository.
+# Without the secret the job prints a notice and succeeds. A refused request fails this job only: the required checks
+# (ci's check, gitleaks) and the console's "CI on main" row read the ci workflow, not this one.
+name: control-refresh
+
+on:
+  push:
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  dispatch:
+    if: github.repository == 'rafaeldavid/holdback'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: crow-control
+    steps:
+      - name: Ask crow-private to rebuild the console
+        env:
+          GH_TOKEN: ${{ secrets.CROW_PRIVATE_DISPATCH }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::notice title=Console not refreshed::CROW_PRIVATE_DISPATCH is not set in the crow-control environment, so no rebuild was requested. The console still rebuilds on crow-private's hourly schedule."
+            exit 0
+          fi
+          sleep 300
+          head=$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main | cut -f1)
+          if [ -n "$head" ] && [ "$head" != "$GITHUB_SHA" ]; then
+            echo "main moved on to ${head} within 5 minutes, so that commit's run requests the rebuild."
+            exit 0
+          fi
+          for attempt in 1 2; do
+            if gh api --method POST --silent repos/rafaeldavid/crow-private/actions/workflows/control-hourly.yml/dispatches -f ref=main; then
+              echo "Requested a console rebuild for ${GITHUB_SHA} (attempt ${attempt})."
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error title=Console not refreshed::crow-private refused the rebuild request twice (the reason is above). Check that CROW_PRIVATE_DISPATCH has not expired and has Actions read and write on rafaeldavid/crow-private. The hourly schedule still runs."
+          exit 1
