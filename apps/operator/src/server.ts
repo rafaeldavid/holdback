@@ -49,7 +49,7 @@ import { MAX_CIPHERTEXT_BYTES, type CiphertextStore } from '@holdback/core/store
 import { ENVELOPE_SPEC } from './envelope-spec.js';
 import { FeedbackDesk, FeedbackError, MAX_REPORT_BYTES, parseReport, type FeedbackOptions, type Report } from './feedback.js';
 import { startupGuards } from './guards.js';
-import { amountText, bondNotices, fallbackBondRefusal, operatorFeeText, prepare, PrepareError, type Erc3009Signing, type PrepareContext } from './prepare.js';
+import { amountText, bondNotices, fallbackBondRefusal, operatorFeeText, prepare, PrepareError, turnNotices, type Erc3009Signing, type PrepareContext } from './prepare.js';
 import { firstStored, hasBond, MAX_REGISTRATION_BYTES, register, RegistrationError, type Bond, type StoredRegistration } from './registrations.js';
 import { IdempotencyStore, fingerprint, type StoredResponse } from './idempotency.js';
 import { readerOf, type Reader } from './read-auth.js';
@@ -700,13 +700,15 @@ export class Operator {
   /**
    * ADR-0030 §5: advisory notices on a relayed offer, hold or agreement for each named adjudicator without a bond for
    * the price, read before the relay. At agree the primary is warned about only when it has no bond (bondNotices).
+   * T-221 review: and for each of this node's own adjudicators that would decline its role on these terms.
    */
   private async bondNoticesFor(op: Operation): Promise<string[]> {
-    if (op.kind === 'offer' || op.kind === 'hold') return bondNotices(this.prepareContext(), op.commitment);
+    const ctx = this.prepareContext();
+    if (op.kind === 'offer' || op.kind === 'hold') return [...(await bondNotices(ctx, op.commitment)), ...(await turnNotices(ctx, op.commitment))];
     if (op.kind !== 'agree') return [];
-    const terms = await this.prepareContext().commitment(op.message.commitmentId);
+    const terms = await ctx.commitment(op.message.commitmentId);
     const state = terms ? await this.o.settlement.state(terms.id) : null;
-    return terms ? bondNotices(this.prepareContext(), terms, { primaryAccepted: state !== null && state.escrowState !== 'Offered' }) : [];
+    return terms ? [...(await bondNotices(ctx, terms, { primaryAccepted: state !== null && state.escrowState !== 'Offered' })), ...(await turnNotices(ctx, terms))] : [];
   }
 
   /**
@@ -773,18 +775,21 @@ export class Operator {
    * `unreadable` when the read failed. The bond refusal and the notices act only on this read, never on a cache that
    * may be cold (review of PR 184).
    */
-  private async liveBond(a: Address): Promise<Bond | 'unreadable' | undefined> {
+  private async liveBond(a: Address, o: { listing?: boolean } = {}): Promise<Bond | 'unreadable' | undefined> {
     if (!this.o.registry.pool) return undefined;
     try {
-      return await this.o.registry.pool(a);
+      return await this.o.registry.pool(a, o);
     } catch {
       return 'unreadable';
     }
   }
 
-  /** A bond to list beside a registration: the live read, else this world's own list. */
+  /**
+   * A bond to list beside a registration: the live read, else this world's own list. A listing read may be refused
+   * past the node's read budget (T-221 review), so an unauthenticated page cannot fan out into unbounded chain reads.
+   */
   private async bondOf(a: Address): Promise<Bond | undefined> {
-    const live = await this.liveBond(a);
+    const live = await this.liveBond(a, { listing: true });
     return (live === 'unreadable' ? undefined : live) ?? this.o.registry.adjudicators().find((x) => lc(x.address) === lc(a))?.bond;
   }
 
@@ -1048,6 +1053,7 @@ export class Operator {
       registration: (a) => this.registrationOf(a),
       bond: (a) => this.liveBond(a),
       ...(reg.defaultAdjudicators ? { defaultAdjudicators: reg.defaultAdjudicators } : {}),
+      ...(reg.declines ? { declines: reg.declines } : {}),
       commitment: async (id) => {
         const offered = (await eventsOf(id)).find((e) => e.type === 'commitment.offered');
         if (!offered) return undefined;

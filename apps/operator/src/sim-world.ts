@@ -11,7 +11,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from 'node:net';
 import { canonicalKeccak, holdbackDomain, parseAdjudicator, wholeSecond, type AdjudicatorRegistration, type Address, type Hex32, type Judgment, type Timestamp } from '@holdback/core';
 import { MemoryCiphertextStore } from '@holdback/core/store';
-import { FAIL_MARKER, testAdjudicator, type TestAdjudicator } from '@holdback/adjudicator';
+import { declinesOf, FAIL_MARKER, testAdjudicator, type TestAdjudicator } from '@holdback/adjudicator';
 import type { FakeScript } from '@holdback/judgment';
 import { mandateFor, SIM_CHAIN_ID, SIM_RULEBOOK, simClub, SimChain, TOKEN, wideScope, type Genesis } from '@holdback/settlement/sim';
 import { testAccount, type TestAccount } from './accounts.js';
@@ -221,7 +221,8 @@ export async function startSimWorld(options: SimWorldOptions = {}): Promise<SimW
     operators.push(
       await startOperator({
         settlement: chain,
-        registry: { ...base, defaultAdjudicators, judgment: (id) => latest.get(id) ?? null },
+        // T-221 review: prepare fills in no default that would decline the terms, and notes one the parties named.
+        registry: { ...base, defaultAdjudicators, declines: declinesOf(() => Object.values(adjudicators)), judgment: (id) => latest.get(id) ?? null },
         store,
         ...operatorFee,
         demo,
@@ -256,6 +257,8 @@ export async function startSimWorld(options: SimWorldOptions = {}): Promise<SimW
         },
       },
       registration,
+      // A primary's bound policy by its hash, kept after the primary registers again (T-221 review).
+      policy: async (hash) => (await registrations.policy?.(hash)) ?? null,
       domain,
       fee,
       ...(options.judges?.[a.role] ? { judges: options.judges[a.role]! } : {}),

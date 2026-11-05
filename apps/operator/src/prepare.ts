@@ -88,6 +88,11 @@ export interface PrepareContext {
   bond?(address: Address): Promise<Bond | 'unreadable' | undefined>;
   /** ADR-0030 §4: this node's adjudicator for each role an offer leaves out. */
   defaultAdjudicators?: Record<AdjudicatorRole, Address>;
+  /**
+   * Why this node's own adjudicator at `address` would decline `role` on these terms, from the terms alone (T-221
+   * review): null when it would take the role, undefined when `address` is not one of this node's adjudicators.
+   */
+  declines?(address: Address, role: AdjudicatorRole, commitment: AnyCommitment): Promise<string | null | undefined>;
   /** Either wire form: at private and judgment the bodies are ciphertext this operator cannot read (ADR-0024). */
   commitment(id: Hex32): Promise<AnyCommitment | undefined>;
   /** The last delivery event's payload, if any. */
@@ -348,10 +353,18 @@ async function offer(ctx: PrepareContext, input: Record<string, unknown>): Promi
     createdAt,
   };
   const terms: CommitmentTerms = representable(() => completeTerms(draft, { ...resolved, nonce }));
+  const id = commitmentId(terms);
+  // T-221 review: a default this node fills in must be able to run the terms (the outside primary's registry, policy
+  // and fee, and the trust rule), or the parties would rely on an adjudicator that will decline its turn.
+  const turns = await turnProblems(ctx, { ...terms, id, signatures: { seller: `0x${'0'.repeat(130)}` } } as AnyCommitment);
+  for (const role of ['primary', 'fallback', 'appeal'] as const) {
+    if (filled[role] && turns[role]) {
+      bad(`this operator's default ${role} adjudicator ${slate[role]} would decline these terms: ${turns[role]}. Name a ${role} adjudicator yourself in adjudicators.${role}; you may still name this one`, `adjudicators.${role}`);
+    }
+  }
   const shortfall = await fallbackBondRefusal(ctx, terms);
   if (shortfall) bad(shortfall, 'adjudicators.fallback');
-  const notices = await bondNotices(ctx, terms);
-  const id = commitmentId(terms);
+  const notices = [...(await bondNotices(ctx, terms)), ...declineNotices(turns, terms)];
   const total = BigInt(terms.price.amount) + BigInt(terms.adjudication.fee.amount);
   const named = (role: AdjudicatorRole) => (filled[role] ? `${role} ${filled[role]} (this operator's default)` : `${role} ${slate[role]}`);
   return {
@@ -414,6 +427,34 @@ export async function fallbackBondRefusal(ctx: Pick<PrepareContext, 'bond'>, t: 
     'An overturned fallback decision pays the price from its bond (D43), so this operator relays no terms that name it. ' +
     'Name a fallback with free bond for the price, or send the same signed message to another operator or directly to the settlement layer'
   );
+}
+
+const ROLE_OF: ReadonlyArray<[AdjudicatorRole, 'adjudicator' | 'fallbackAdjudicator' | 'appealAdjudicator']> = [
+  ['primary', 'adjudicator'],
+  ['fallback', 'fallbackAdjudicator'],
+  ['appeal', 'appealAdjudicator'],
+];
+
+/** Per role, why this node's own adjudicator named there would decline it (T-221 review); absent when it would not or is not this node's. */
+async function turnProblems(ctx: Pick<PrepareContext, 'declines'>, c: AnyCommitment): Promise<Partial<Record<AdjudicatorRole, string>>> {
+  const out: Partial<Record<AdjudicatorRole, string>> = {};
+  if (!ctx.declines) return out;
+  for (const [role, field] of ROLE_OF) {
+    const why = await ctx.declines(c.adjudication[field], role, c);
+    if (why) out[role] = why;
+  }
+  return out;
+}
+
+const declineNotices = (turns: Partial<Record<AdjudicatorRole, string>>, c: Pick<AnyCommitmentTerms, 'adjudication'>): string[] =>
+  ROLE_OF.filter(([role]) => turns[role]).map(([role, field]) => `this operator's ${role} adjudicator ${c.adjudication[field]} will decline its ${role} turn on these terms: ${turns[role]}. You may still choose it`);
+
+/**
+ * T-221 review: an advisory notice on relayed terms for each of this node's own adjudicators that would decline its
+ * role on them, so the parties do not rely on it (D31: the parties chose it; nothing is refused).
+ */
+export async function turnNotices(ctx: Pick<PrepareContext, 'declines'>, c: AnyCommitment): Promise<string[]> {
+  return declineNotices(await turnProblems(ctx, c), c);
 }
 
 /**
