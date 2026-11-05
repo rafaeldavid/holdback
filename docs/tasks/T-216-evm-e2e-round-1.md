@@ -5,8 +5,8 @@
 - **Depends on:** T-217 (drand proofs for fallback and appeal), T-218 (direct calls in the operators' view), T-219 (the in-flight row per relayer lane), T-221 (adjudicator registration through the API), and T-220, which ships those four to the live demo in one deploy. Rafa answered all six scope questions on 2026-11-04 (below). The fixed contracts are already live (see Context).
 - **Paths this task may touch:** `examples/e2e-*.ts` (new: the round's keys, its driver, and their tests; the `examples` workspace already holds the agent-side code and viem), `docs/reviews/` (one new file, the round's report), `docs/backlog.md` (rows for what the round finds; the Benched rows once it completes), `docs/plan.md` (this row), this file. No product code: a scenario that fails gets its fix in its own task, and the round re-runs it.
 - **Human gate:** yes. Rafa confirms the scope (done: the questions below, 2026-11-04) and funds the round's master address with Sepolia ETH (done: 2.5, Evidence); the driver tops up the other keys from it. The runs use the public API as any agent may, and send test transactions on Sepolia from test keys. They deploy nothing, except scenario 11's one holdback-op1 redeploy, which waits for Rafa's go-ahead at that moment.
-- **Status:** in progress (the keys and the top-up landed; the driver, `examples/e2e-round.ts`, runs scenarios 1, 2, 3a, 3d and 10a now, and 6 once T-217 is live; it waits for Rafa's live run of 1 and 2; the rest wait for T-220's deploy)
-- **Agent/session:** the T-216 planning session (the keys); the T-216 driver session (the driver)
+- **Status:** in progress (the keys, the top-up and the driver landed; the live run of 2026-11-05, after T-220's deploy, passed 1, 2, 3a and 6, and 3d and 10a each failed one check, being diagnosed separately (as the coordinating session reported it; its record is not in this file yet); the foundation for the ten scenarios still waiting, the round's own adjudicator and one file per scenario group, is in draft PR on branch `t-216-remaining-scenarios`; the four groups are built next, in parallel)
+- **Agent/session:** the T-216 planning session (the keys); the T-216 driver session (the driver); the T-216 remaining-scenarios session (the round's own adjudicator and the group files, worktree `.worktrees/t-216-rest`)
 
 ## Intent
 
@@ -17,6 +17,12 @@ Restated: on the live Sepolia deployment of the fixed contracts (PRs 160 and 161
 - **Inputs:** the public API at api.escrow.stream and api2.escrow.stream; the deployment in `contracts/deployments/sepolia.json`; `site/llms.txt` as the API track's only guide (as T-213's `site/walkthrough.mjs` did); test keys derived from one environment variable.
 - **Outputs:** a driver that runs each scenario and prints its evidence; the report; backlog rows or tasks for what fails.
 - **Non-goals:** mainnet; the judgment's accuracy (Phase 3's calibration); Phase 4 economics (default compensation from bonds, the appeal fee, a minimum appeal bond), whose absence on chain is recorded, not passed; attacks (the red-team fixtures cover them on anvil); load.
+
+**The remaining scenarios' foundation, restated by its session (2026-11-05).** Rafa, on the ten scenarios the driver cannot build yet: "Yes, build them". This slice builds what their four groups share, so four sessions can then build the groups in parallel without editing the same file:
+- **The round's own adjudicator** (`examples/e2e-adjudicator.ts`), the one the needs lines name: an adjudicator any agent could run, from `agent.ts` and `verify.ts` alone. It registers through the operators' API, deposits its bond in HoldbackBonds from its own key only when a scenario asks for one, and reuses a registration or a bond already in place. It runs in the driver's process during a scenario, silent (it accepts and never decides) or scripted (it accepts, then decides the outcome the scenario gives it, a wrong one included, once the deal is delivered).
+- **One file per scenario group,** each exporting its scenarios, registered once: silent (3b, 4, 9, 10b), scripted (3c, 7), escalation (5a, 5b) and direct (8, 11), each with its own test file. The waiting definitions move unchanged, and `list` and `run` behave as before.
+
+Non-goals of this slice: building any of the ten scenarios; a scripted fallback or appeal decision (those need a drand proof) or a scripted escalation (no needs line asks for one); a live run; product code.
 
 ## Context
 
@@ -247,6 +253,35 @@ Fill this in before review. Label each item measured, inferred or guessed.
   - **Finality: no reorg.** At 21:30 UTC, 172 blocks (about 34 minutes) after the run's last transaction, `finality` on the folder above re-read all 8 transactions at head block 12,065,104: 8 in the same block, 0 changed, 0 unreadable [measured: the T-216 coordinating session ran it, needing no secret, and `finality.json` in the folder records it].
   - Scenario 1 does not pass under the pass rule yet, and this run predates T-220's deploy; both scenarios run again on T-220's Worker versions.
 
+- **The remaining scenarios' foundation (2026-11-05, branch `t-216-remaining-scenarios`).** Offline only: no live run and no Sepolia transaction.
+  - **`list` is unchanged:** after the split it prints the same 27 lines as before it, in the same order [measured: both outputs, line by line].
+  - **The driver's own tests after the split,** before any other change: `examples/e2e-round.test.ts` 6 of 6, its anvil block included, in 148.8 s [measured]. So `run` behaves as before on SimChain (1, 2, 3a, 3b waiting for T-216, 3d, 6, 10a) and on anvil.
+  - **The round's own adjudicator,** `examples/e2e-adjudicator.test.ts`, 5 of 5 [measured]:
+    - its acceptance, four decisions (reject, accept with a key, appeal with a beacon and a ground, escalate with a key) and its registration hash to the same EIP-712 digests as core's `messageDigest`;
+    - on SimChain: the first `ready` posts one registration, which binds the demo's registry, fee and policy under `t-216/adjudicator-1`, with a signature; a later run (a new `Round`) posts nothing and says "reused"; `bond` refuses on SimChain;
+    - on SimChain, deals priced at 0: scripted reject on passing work ends Refunded; scripted accept on work missing a row ends Released and the buyer opens it with the key the adjudicator sealed; silent accepts and the deal is still Delivered on both operators 10 s later; no pass recorded an error, and no key appears in the run's lines;
+    - on anvil (25 tUSDC deals): `ready` with a 75 tUSDC bond mints, approves and deposits from the adjudicator's own key, and its free bond reads 75 tUSDC; a later run sends no transaction (the key's nonce is unchanged) and writes no note; the scripted reject ends `dealOf` Refunded and the scripted accept Released, each `Decided` log naming the adjudicator; the accept's `KeyReleased` names the buyer, who opens the work; the silent deal reads Delivered on chain 10 s after delivery.
+    - Times: the digest and SimChain tests 27.4 s; the anvil tests 65.7 s [measured].
+  - **Not test-first:** the module came before its tests, and every test passed on its first run. To show the digest test can fail, encoding the acceptance's `bondReserved` from its fee made it fail with a digest mismatch; it passes again with the encoder restored [measured].
+  - **After the harness moved to `e2e-world.ts`:** `e2e-round.test.ts` and `e2e-adjudicator.test.ts` together, 11 of 11 in 161.9 s, both anvil blocks included [measured]. The four group test files: 4 skipped, 10 todo [measured].
+  - `tsc -b examples` and `eslint examples` are clean [measured].
+  - `pnpm verify` on `7a516d5` with only this file and `docs/plan.md` uncommitted, 2026-11-05 15:09 UTC: **PASS**, no snapshot diffs against HEAD; `pnpm test` 2,711 passed, 6 skipped and 10 todo, in 121 files plus 6 skipped (`reports/verify-t-216-remaining-scenarios.md`) [measured]:
+
+    | Step | Status | Time |
+    | --- | --- | --- |
+    | typecheck | pass | 7,954 ms |
+    | lint | pass | 12,288 ms |
+    | forge build | pass | 3,190 ms |
+    | forge | pass | 53,991 ms |
+    | test | pass | 279,709 ms |
+    | spec | pass | 944 ms |
+    | snap | pass | 11,040 ms |
+    | snap:local | pass | 20,010 ms |
+    | demo | pass | 5,492 ms |
+
+  - The first `forge build` in this fresh worktree took about 206 s of compiling after cloning the contract submodules, and passed [measured].
+  - Not run: a `reviewer` pass on this PR, and any live use of the adjudicator on Sepolia (the group sessions and Rafa's runs).
+
 ## Decisions
 
 Made by the driver session on 2026-11-04, inside the task's paths.
@@ -266,8 +301,53 @@ Made by the driver session on 2026-11-04, inside the task's paths.
 13. **An upheld appellant loses its bond plus the rulebook's appeal fee where the settlement layer charges one.** SimChain charges the fee (25 tUSD in the demo rulebook, measured); the contract does not (Phase 4), which the record notes instead of passing.
 14. **The published-bundle check counts only after T-220.** Before T-220's deploy the site deliberately serves the bundle that matches the live operators, not main's, so without `--t220` the driver records the comparison as a note (the T-216 coordinating session, 2026-11-04). The homepage command still runs relayed by each operator, as the task asks ("passes against both nodes"); each run takes one or two faucet grants of the ten per client an hour.
 
+Made by the remaining-scenarios session on 2026-11-05, inside the task's paths.
+
+15. **One file per scenario group, and the shared helpers in a kit.** The ten waiting scenarios moved, unchanged, into `e2e-scenarios-silent.ts`, `-scripted.ts`, `-escalation.ts` and `-direct.ts`. The helpers more than one scenario uses (`requires`, `waiting`, the appeal steps, the settlement checks, the deals' terms and work) moved to `e2e-scenario-kit.ts`. Every scenario file imports from the kit and never from `e2e-scenarios.ts`, so the registry there imports the four groups without an import cycle: with a cycle, a group file that used a kit constant at load time would fail before the driver started.
+16. **The registry sorts by scenario number and refuses an ID listed twice.** `SCENARIOS` is the built scenarios plus the four groups, sorted by number then letter, so `list` prints the same order as before, and two group files that both define a scenario stop the driver at load with a message naming it.
+17. **The round's adjudicator copies the demo primary's served record.** It registers the demo's `policy` under its own `id` (`t-216/<role>`), the demo's `registry` and `fee`, and the demo's pool terms, with its own address, encryption key and name. So the demo's fallback and appeal adjudicators judge for it (T-221's recipe), and a demo appeal adjudicator can overturn its wrong decisions (scenario 7).
+18. **A registration in place is reused; otherwise it registers again.** It is reused when both operators serve the same body, its hashes recompute, its signature recovers to the key, and more than 7 days remain of its 30. Otherwise the adjudicator signs a new one with a later `issuedAt`, for example after a deploy changes the demo's policy.
+19. **A bond in place is reused; otherwise it deposits the shortfall.** `bond` asks for a free bond: when the free bond in HoldbackBonds already covers it, nothing is sent. Otherwise the key mints the missing test tokens, approves and deposits the shortfall from its own Sepolia ETH, then waits until both operators serve the bond, since a relay refuses terms whose fallback shows less free bond than the price (T-221, through a cache of about 12 s). On SimChain it refuses: no outsider can bond there at run time.
+20. **It serves in the driver's process and acts only on its own deals.** `serve` reads the deals that name it every 3 s and acts only on those that name it primary and were offered after it started serving (with 15 s of margin for the two operators' clocks), so a deal left from an earlier run is never decided by a later one. As fallback or appeal adjudicator it is always silent: those turns need a drand proof (T-217). The script is `silent`, `{ decide: 'accept' }` or `{ decide: 'reject' }`; no needs line asks for a scripted escalation. Its timers never hold the process open, so a scenario that forgets `stop` still lets the driver exit.
+21. **A scripted decision is signed like a real one.** It reveals a seed derived from its key and the commitment ID (whose hash it committed at acceptance), names the delivery both operators serve, and carries the hash of a note that says no judge ran as its `judgmentRecordHash`; no record is published. An accept seals the content key from its own envelope to the buyer, since the contract refuses an accept without one (`HoldbackRules._settleDecision`); a reject carries none.
+22. **The round's tests share one harness,** `examples/e2e-world.ts`: the demo's world served on two origins, on SimChain or on anvil, the driver as a separate process, and the no-secrets check. It moved out of `e2e-round.test.ts` unchanged, so the groups' tests can use it too. The adjudicator's SimChain tests price their deals at 0, which needs no bond, so CI's test shards, which have no anvil, still run its silent and scripted paths end to end.
+
 ## Handoff
 
+- **The remaining scenarios (2026-11-05): the foundation is built; the four groups are next,** one session each, in parallel (branch `t-216-remaining-scenarios`, draft PR to main). Each group owns two files and touches no other:
+
+  | Group | Scenarios | Scenarios file | Tests file |
+  | --- | --- | --- | --- |
+  | silent | 3b, 4, 9, 10b | `examples/e2e-scenarios-silent.ts` (`SILENT`) | `examples/e2e-scenarios-silent.test.ts` |
+  | scripted | 3c, 7 | `examples/e2e-scenarios-scripted.ts` (`SCRIPTED`) | `examples/e2e-scenarios-scripted.test.ts` |
+  | escalation | 5a, 5b | `examples/e2e-scenarios-escalation.ts` (`ESCALATION`) | `examples/e2e-scenarios-escalation.test.ts` |
+  | direct | 8, 11 | `examples/e2e-scenarios-direct.ts` (`DIRECT`) | `examples/e2e-scenarios-direct.test.ts` |
+
+  - Replace a `waiting(...)` entry with the built scenario under the same ID; `e2e-scenarios.ts` already registers each list, in scenario order. Import helpers from `e2e-scenario-kit.ts` (the terms and work, `requires`, `expireAppeal`, `appeal`, `appealBond`, `untilAppeal`, `settledChecks`, `cppCheck`, `paidCheck`, `bondFreedCheck`) and the deal steps from `e2e-run.ts`; never import `e2e-scenarios.ts`. A helper that two groups need goes into the kit in its own small commit, to keep merges easy.
+  - Test through `examples/e2e-world.ts`: `simWorld()` and `anvilWorld()` (skips without anvil and `forge build` output), `driver(args, env)`, `results(out)` and `expectNoSecrets`, as `e2e-round.test.ts` uses them. Each group's test file holds an `it.todo` per scenario now.
+- **The round's own adjudicator, for the group builders** (`examples/e2e-adjudicator.ts`; Decisions 17 to 21):
+
+  ```ts
+  import { RoundAdjudicator } from './e2e-adjudicator.ts';
+  // Registered through the API, reused when in place; `bond` (base units) is the free bond it must hold, deposited
+  // from its own key only when short. Omit `bond` for an appeal adjudicator: nothing pays from it on chain (L-5).
+  const primary = await RoundAdjudicator.ready(r, 'adjudicator-1', { bond: BigInt(PRICE) });
+  const serving = await primary.serve(r, 'silent'); // or { decide: 'accept' }, { decide: 'reject' }, or (deal) => script
+  try {
+    const deal = await openDeal(r, { ...spec, adjudicators: { primary: primary.address, fallback, appeal } }, [buyer, seller, primary.address]);
+    // silent: it accepted, and never decides. scripted: it decides as told once the deal is Delivered.
+  } finally {
+    await serving.stop();
+  }
+  serving.acted; // [{ id, did: 'accepted' }, { id, did: 'decided', outcome }]
+  serving.errors; // each failed step, retried on its next pass
+  ```
+
+  - **Silent** accepts every deal that names it primary and was offered after `serve` started, then never decides. **Scripted** accepts, then decides the given outcome as primary as soon as the deal is Delivered, whatever the work: a wrong accept seals the key to the buyer; a wrong reject does not. As fallback or appeal adjudicator it is always silent (those turns need a drand proof), so it needs no `serve` there; it only needs to be registered.
+  - The lower-level steps are public too: `accept(r, id, terms)`, `decide(r, id, terms, outcome)`, `terms(id)`, `register(r)`, `bond(r, amount)`.
+  - **Bonds.** A primary's bond stays encumbered by the price from funding until its appeal window closes; this adjudicator does not expire its own appeals, so close them (`expireAppeal`) or bond enough for the deals a scenario keeps open. An overturn slashes the price from the primary's bond (scenario 7); the next `ready` deposits the shortfall. A fallback needs free bond of at least the price before the offer, or the relay refuses the terms (T-221). Each adjudicator key holds 0.04 Sepolia ETH from the top-up: a mint, an approval and a deposit cost about 0.0004 Sepolia ETH at 1 gwei [inferred from the 372,709-gas estimate in `e2e-keys.ts`].
+  - **On SimChain** no outsider can bond at run time, so `bond` refuses: a scenario that names the round's adjudicator as a bonded primary or fallback runs on anvil and Sepolia only, or prices its SimChain deal at 0, which needs no bond (the adjudicator's own SimChain tests do this).
+  - It prints addresses, links and gas, never a key; its bond transactions go into the run's notes.
 - **The top-up is done:** all five keys hold 0.04 Sepolia ETH (Evidence). To top up again, Rafa runs it from the holdback checkout, with full paths so it works from any folder: `node --env-file=/Users/rafa/Documents/escrow/.env /Users/rafa/Documents/escrow/examples/e2e-keys.ts topup --dry-run`, then the same without `--dry-run`. The driver can call it before each scenario that needs a key's own gas. It sends nothing while every key holds at least 0.04 Sepolia ETH, and it refuses while a transfer is pending.
 - **Live run of scenarios 1 and 2 (Rafa).** In the holdback checkout after the driver's PR merges and `git pull`, with full paths so it works from any folder. The commands print addresses and links, never the secret or a key.
   1. Scenarios 1 and 2 (about 5 minutes and 3 minutes, inferred from the 60 s windows and 12 s blocks):
@@ -290,7 +370,7 @@ Made by the driver session on 2026-11-04, inside the task's paths.
 
   Each run writes `reports/e2e-round-1/<UTC time>/summary.md` in the checkout and one JSON record per scenario: public data only. Paste the terminal output or `summary.md` to the T-216 session, which records the run as measured in the report (`docs/reviews/2026-11-04-evm-e2e-round-1.md`).
 - **What each remaining scenario needs.** `node examples/e2e-round.ts list` prints the same.
-  - **3b, the default outcome:** the round's own primary and fallback, registered through the API (T-221), accepting and never deciding. Build `examples/e2e-adjudicator.ts`: register per ADR-0030 (copy a demo adjudicator's served record, change the address, key and `policy.id`; bind the demo's registry hash), bond with `RoundChain.depositBond`, accept with a self-built `AdjudicatorAcceptance` (`seedCommitment` = keccak256 of a seed derived from its key and the commitment ID), and decide with a self-built `Decision`. `verify.ts` gains the types with T-221 (its slice 1 adds `TYPES` only, no encoders, so the module encodes timestamps and amounts itself, as core's `typedDataOf` does).
+  - **3b, the default outcome:** the round's own primary and fallback, registered through the API (T-221), accepting and never deciding: `examples/e2e-adjudicator.ts` (built, above), the primary serving silent, the fallback bonded and never serving. If nothing sends the takeover at `judgeBy` for a fallback that is not the demo's, send the `fallback` trigger through the API.
   - **3c, appeal expiry:** that module; the round's primary decides by script, its own appeal adjudicator stays silent, and the appellant approves its bond (`RoundChain.approveBonds`, as scenario 6 does).
   - **4, fallback with a drand proof:** the round's silent primary with demo fallback and appeal adjudicators (T-221's fallback trust rule); check the fallback decision's `beaconRound` in `decide`'s calldata equals the round at `judgeBy` (T-217's `roundAt`).
   - **5a, escalation then default:** a checks-only delivery that exhausts the check work budget on purpose. Not found yet; try candidates on a fork first.
