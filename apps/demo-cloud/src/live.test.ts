@@ -7,13 +7,18 @@ import { existsSync, readFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { createServer as createNetServer, type AddressInfo } from 'node:net';
 import { fileURLToPath } from 'node:url';
-import { privateKeyToAccount } from 'viem/accounts';
-import { createPublicClient, encodeFunctionData, http, keccak256, stringToBytes, toHex, type Hex } from 'viem';
+import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
+import { createPublicClient, encodeFunctionData, getAddress, http, keccak256, stringToBytes, toHex, type Hex } from 'viem';
 import { foundry } from 'viem/chains';
-import type { AnyCommitmentTerms } from '@holdback/core';
-import { EvmSettlement, GAS_CAP, LiveChain, termsView, type Cursor, type DeploymentFile } from '@holdback/settlement/live';
+import { canonicalKeccak, holdbackDomain, verifyRegistration, wholeSecond, type Address, type AnyCommitmentTerms, type Hex32, type RegisteredAdjudicator } from '@holdback/core';
+import { FAIL_MARKER, LIVE_REGISTRY_URI, liveRegistry, markedFake, markerFake, placeholderRegistry, testAdjudicator, type SettlementReads, type TestAdjudicator, type TestAdjudicatorOptions } from '@holdback/adjudicator';
+import { signRegistration, testAccount, type TestAccount } from '@holdback/operator';
+import type { Submission } from '@holdback/settlement';
+import { ensureBond, EvmSettlement, GAS_CAP, LiveChain, termsView, type Cursor, type DeploymentFile } from '@holdback/settlement/live';
 import { anvilAvailable, EvmWorld } from '@holdback/settlement/evm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { Agent } from '../../../examples/agent.ts';
+import { pinOf } from '../../../examples/verify.ts';
 import { MemoryStorage, PublicWorld } from './index.js';
 
 const root = fileURLToPath(new URL('../../../', import.meta.url));
@@ -53,6 +58,184 @@ async function serve(world: PublicWorld): Promise<{ urls: [string, string]; clos
       server.closeAllConnections();
     },
   };
+}
+
+type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
+const lc = (a: string) => a.toLowerCase();
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/** The terms a registration binds for its own bond pool: the adjudicator alone, no backers (ADR-0014 is Phase 4). */
+const OWN_POOL = { capitalChargeRateBps: 0, capitalChargeToPoolRateBps: 0, firstLossShareBps: 10000, noticePeriodSec: 0 };
+const PRICE = '25000000'; // 25 tUSDC
+const CSV = 'customer_id,email\n1,ada@example.com\n2,alan@example.com\n3,grace@example.com\n';
+const DATASET = { kind: 'dataset', description: 'customers.csv, one row per customer', format: 'text/csv' };
+const CHECKS = [
+  { id: 'cols', type: 'csv_columns_exact', required: true, columns: ['customer_id', 'email'] },
+  { id: 'rows', type: 'row_count_range', required: true, min: 3, max: 3 },
+];
+
+/**
+ * An outside adjudicator (T-221, ADR-0030), as an agent runs one: the reference adjudicator's code under its own key,
+ * registered through POST /v1/adjudicators, bonded in HoldbackBonds from that key, and sending its acceptances,
+ * decisions and triggers through the operators' HTTP API. It reads the deals from the world's settlement view, as it
+ * would from an operator's reads, and its own bond live from the contract.
+ */
+class Outsider {
+  readonly account: TestAccount;
+  adj: TestAdjudicator;
+  private readonly bonds = new Map<string, { junior: bigint; senior: bigint; reserved: bigint }>();
+
+  constructor(
+    private readonly world: PublicWorld,
+    private readonly urls: readonly string[],
+    label: string,
+    private readonly o: { trusted: readonly string[]; provider?: TestAdjudicatorOptions['provider'] },
+  ) {
+    this.account = testAccount(label);
+    this.adj = this.build(placeholderRegistry(), 'file:///config/judges.yaml');
+  }
+
+  get address(): Address {
+    return this.account.address;
+  }
+
+  /** Runs the same adjudicator with another registry (the registry_mismatch case): a new registration must bind it. */
+  rebind(registry: NonNullable<TestAdjudicatorOptions['registry']>, uri: string): void {
+    this.adj = this.build(registry, uri);
+  }
+
+  private build(registry: NonNullable<TestAdjudicatorOptions['registry']>, registryUri: string): TestAdjudicator {
+    const evm = this.world.chain as EvmSettlement;
+    const api = this.urls[0]!;
+    const post = async (path: string, body: unknown, key: string): Promise<J> => {
+      const res = await fetch(`${api}${path}`, { method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': key }, body: JSON.stringify(body) });
+      const out = (await res.json()) as J;
+      return res.ok ? { ok: true, state: out } : { ok: false, problem: out };
+    };
+    const bonds = this.bonds;
+    // The world's settlement view for reads; every write goes through the operator, as an outside agent's would.
+    const reads = new Proxy(evm, {
+      get(target, prop) {
+        if (prop === 'pool') return (a: Address) => bonds.get(lc(a)) ?? target.pool(a);
+        if (prop === 'submit') {
+          return (s: Submission, opts?: { idempotencyKey?: string }) => {
+            const key = opts?.idempotencyKey ?? crypto.randomUUID();
+            if (s.kind === 'adjudicator_accept') return post(`/v1/commitments/${s.message.commitmentId}/acceptance`, s.message, key);
+            if (s.kind === 'decide') return post(`/v1/commitments/${s.message.commitmentId}/decisions`, s.message, key);
+            throw new Error(`an outside adjudicator sends no ${s.kind}`);
+          };
+        }
+        if (prop === 'trigger') return (id: Hex32, timeout: string) => post(`/v1/commitments/${id}/triggers/${timeout.replace(/_/g, '-')}`, {}, crypto.randomUUID());
+        const v = Reflect.get(target, prop, target) as unknown;
+        return typeof v === 'function' ? (v as (...a: unknown[]) => unknown).bind(target) : v;
+      },
+    }) as unknown as SettlementReads;
+    const token = lc((this.world.chain as EvmSettlement).world.deployment.token);
+    return testAdjudicator({
+      name: 'Outside adjudicator (test)',
+      label: this.account.label,
+      signingKey: this.account.privateKey,
+      encryptionSecretKey: this.account.encryptionSecretKey,
+      chain: reads,
+      store: {
+        ciphertext: async (uri) => new Uint8Array(await (await fetch(uri)).arrayBuffer()),
+        publishRecord: async (record) => `https://outsider.test/judgments/${record.commitmentId}`,
+      },
+      registration: async (address) => {
+        const res = await fetch(`${api}/v1/adjudicators/${address}`);
+        return res.ok ? ((await res.json()) as J) : null;
+      },
+      domain: holdbackDomain(evm.world.chainId, lc(evm.world.deployment.rules) as Address),
+      // The demo adjudicators' quote: as fallback or appeal adjudicator they decline a deal whose fee is below theirs.
+      fee: { token, amount: '1000000' } as TestAdjudicatorOptions['fee'],
+      registry,
+      registryUri,
+      trustedAdjudicators: this.o.trusted as Address[],
+      ...(this.o.provider ? { provider: this.o.provider } : {}),
+    });
+  }
+
+  /** Its signed registration, as the llms.txt recipe builds it: the record with `pool` holding only `terms`. */
+  async registration(issuedAt: string): Promise<RegisteredAdjudicator> {
+    const body = { ...this.adj.registration(), pool: { terms: { ...OWN_POOL } }, poolTermsHash: canonicalKeccak(OWN_POOL), status: 'active' as const };
+    const evm = this.world.chain as EvmSettlement;
+    const envelope = { keyId: `${this.account.label}/${issuedAt}`, issuedAt: issuedAt as RegisteredAdjudicator['registration']['issuedAt'], nonce: canonicalKeccak({ outsider: this.address, issuedAt }), expiresAt: wholeSecond(Date.parse(issuedAt) + 30 * 86_400_000) };
+    return signRegistration(this.account.privateKey, holdbackDomain(evm.world.chainId, lc(evm.world.deployment.rules) as Address), body, envelope);
+  }
+
+  async register(issuedAt: string): Promise<{ status: number; body: J }> {
+    const res = await fetch(`${this.urls[0]}/v1/adjudicators`, { method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': crypto.randomUUID() }, body: JSON.stringify(await this.registration(issuedAt)) });
+    return { status: res.status, body: await res.json() };
+  }
+
+  /** One pass, after reading its own bond from the contract (the reference service reads `pool` for offers). */
+  async runOnce() {
+    const evm = this.world.chain as EvmSettlement;
+    const held = await evm.bondOf(this.address);
+    const free = await evm.freeBond(this.address);
+    this.bonds.set(lc(this.address), { junior: held, senior: 0n, reserved: held - free });
+    return this.adj.runOnce();
+  }
+}
+
+/** A buyer or a seller with fresh keys, pinned to the world's deployment as try.ts pins Sepolia's. */
+function party(urls: readonly string[], deployment: DeploymentFile): { agent: Agent; key: Hex } {
+  const key = generatePrivateKey();
+  const pin = pinOf(deployment);
+  return { key, agent: new Agent([...urls], key, crypto.getRandomValues(new Uint8Array(32)), pin.domain, pin.chain) };
+}
+
+/** Polls both nodes until each reports one of `states` under `field` (escrowState by default). */
+async function untilBoth(agent: Agent, id: string, states: string[], timeoutMs: number, field = 'escrowState'): Promise<J> {
+  let seen: J[] = [];
+  for (const end = Date.now() + timeoutMs; Date.now() < end; await sleep(250)) {
+    seen = await Promise.all(agent.sources().map((api) => agent.call('GET', `/v1/commitments/${id}`, undefined, api)));
+    if (seen.every((s) => states.includes(s[field]))) return seen[0];
+  }
+  throw new Error(`${id} is ${seen.map((s) => `${s.escrowState}/${s.appealState}`).join(' and ')} after ${timeoutMs / 1000} s, not ${states.join(' or ')} (${field}); notices: ${seen.flatMap((s) => s.notices ?? []).join(' | ')}`);
+}
+
+/**
+ * One deal with `outsider` as primary and the demo's fallback and appeal adjudicators (unless `adjudicators` names
+ * others): the seller offers, the outsider accepts with an acceptance it builds itself, the buyer funds, the seller
+ * delivers. Returns once Delivered on both nodes; the outsider has not decided.
+ */
+async function outsideDeal(
+  world: PublicWorld,
+  urls: readonly string[],
+  deployment: DeploymentFile,
+  outsider: Outsider,
+  o: { work: string; rubric?: boolean; timing: Record<string, number>; adjudicators?: { fallback: string; appeal: string } },
+): Promise<{ id: Hex32; terms: J; buyer: Agent; buyerKey: Hex; seller: Agent }> {
+  const d = (await (await fetch(`${urls[0]}/.well-known/holdback.json`)).json()) as J;
+  const [, fallback, appeal] = d.demo.adjudicators.map((a: J) => a.address as string);
+  const [b, s] = [party(urls, deployment), party(urls, deployment)];
+  for (const a of [b.agent, s.agent]) await a.call('POST', '/v1/faucet', { address: a.address });
+  const token = lc(deployment.token.address);
+  const offer = await s.agent.offer({
+    template: o.rubric ? 'default' : 'checks-only',
+    clubId: d.demo.clubId,
+    seller: s.agent.address,
+    buyer: { address: b.agent.address, encryptionPublicKey: b.agent.encryptionPublicKey },
+    adjudicators: { primary: outsider.address, fallback: o.adjudicators?.fallback ?? fallback, appeal: o.adjudicators?.appeal ?? appeal },
+    price: { token, amount: PRICE },
+    ...(o.rubric
+      ? {
+          deliverable: { kind: 'document', description: 'A one-paragraph product summary', format: 'text/plain' },
+          checks: [{ id: 'hidden', type: 'hidden_characters_max', required: true, max: { tag: 0, bidi: 0, total: 0 } }],
+          rubric: { passThreshold: 300, criteria: [{ id: 'clear', description: 'The summary is clear and accurate.', weight: 100, anchors: { '0': 'Unclear', '2': 'Partly', '4': 'Clear' } }] },
+        }
+      : { deliverable: DATASET, checks: CHECKS }),
+    timing: o.timing,
+  });
+  const accepted = await outsider.runOnce();
+  expect(accepted.accepted).toContain(offer.id);
+  await untilBoth(b.agent, offer.id, ['AcceptedByAdjudicator'], 30_000);
+  const held = await b.agent.agreeAndFund(offer.terms, 40_000_000n);
+  expect(held.escrowState).toBe('Held');
+  await untilBoth(s.agent, offer.id, ['Held'], 60_000);
+  await s.agent.deliver(offer.terms, new TextEncoder().encode(o.work));
+  await untilBoth(b.agent, offer.id, ['Delivered'], 60_000);
+  return { id: offer.id as Hex32, terms: offer.terms, buyer: b.agent, buyerKey: b.key, seller: s.agent };
 }
 
 function runTry(env: Record<string, string>, script = 'examples/try.ts'): Promise<{ code: number | null; out: string }> {
@@ -208,6 +391,165 @@ describe.skipIf(!ready)(`the public world on a live chain (anvil for Sepolia)${r
   });
 });
 
+// T-221 end to end (ADR-0030): an adjudicator no one at Crow runs registers through the API, bonds from its own key,
+// and is named primary under the demo's fallback and appeal adjudicators. The contracts are the ones deployed to anvil,
+// with the sim beacon reseeded to the world's own seed so the demo appeal adjudicator's beacon proofs verify.
+describe.skipIf(!ready)(`an outside adjudicator on a live chain (anvil; T-221)${ready ? '' : ' (SKIPPED: needs anvil on PATH and forge build output in contracts/out)'}`, () => {
+  let anvil: EvmWorld;
+  let deployment: DeploymentFile;
+  beforeAll(async () => {
+    anvil = await EvmWorld.start(root, { blockTimeSec: 1, token: 'test-usdc' });
+    const d = anvil.deployment;
+    deployment = {
+      chainId: anvil.chainId,
+      fromBlock: Number(d.fromBlock),
+      token: { address: d.token, name: anvil.tokenDomain.name, version: anvil.tokenDomain.version, symbol: 'tUSDC', decimals: 6 },
+      escrow: d.escrow,
+      erc3009Collector: d.erc3009Collector,
+      permit2Collector: d.permit2Collector,
+      multicall: d.multicall,
+      rules: d.rules,
+      bonds: d.bonds,
+      beacon: d.beacon,
+      expiryMarginSec: Number(anvil.expiryMargin),
+    };
+  }, 120_000);
+  afterAll(async () => {
+    await anvil?.stop();
+  });
+
+  it('registers, bonds, accepts and decides as primary; a wrong accept is overturned from its bond; another registry is refused; the demo fallback declines under its appeal adjudicator', async () => {
+    const storage = new MemoryStorage();
+    const chain = new LiveChain({ deployment, rpcUrls: [anvil.rpcUrl], relayerKey: RELAYER, pollMs: 200, rebroadcastMs: 10_000, mintBatchMs: 200 });
+    const errors: string[] = [];
+    const world = await PublicWorld.open({ storage, env: ENV, live: { chain }, minWindowSec: 5, faucetPerClient: 100, onError: (e) => errors.push(e.message) });
+    // Opening reads no chain: reseed the sim beacon now, before the world's first pass sends anything.
+    const { start } = (await storage.get<{ start: string }>('meta'))!;
+    await anvil.fresh(canonicalKeccak({ sim: 'holdback/demo-cloud/v1', start }));
+    const demo = await serve(world);
+    const t0 = Date.now();
+    const took: Record<string, number> = {};
+    const lap = (name: string) => (took[name] = Math.round((Date.now() - t0) / 1000));
+    try {
+      for (const end = Date.now() + 90_000; !world.ready() && Date.now() < end; ) await sleep(250);
+      expect(world.ready()).toBe(true);
+      const d = (await (await fetch(`${demo.urls[0]}/.well-known/holdback.json`)).json()) as J;
+      const [, fallback, appeal] = d.demo.adjudicators.map((a: J) => a.address as string);
+      const evm = world.chain as EvmSettlement;
+      // The outside appeal adjudicator a party controls (D44): registered, never bonded (L-5: no clause pays from it).
+      const attackers = new Outsider(world, demo.urls, 't-221/live-attackers-appeal', { trusted: [] });
+      // The outsider judges blind to the scripted fail marker, so it accepts work the demo's panel rejects: a wrong accept.
+      const outsider = new Outsider(world, demo.urls, 't-221/live-outsider', { trusted: [fallback, appeal], provider: markedFake(markerFake({}, 'NO-DELIVERY-CARRIES-THIS')) });
+      const silent = new Outsider(world, demo.urls, 't-221/live-silent', { trusted: [fallback, attackers.address] });
+      const issuedAt = wholeSecond(Date.now() - 60_000);
+
+      // Registration through the API, before any bond: listed, signed, and plainly unbonded (Rafa: "be clear").
+      const posted = await outsider.register(issuedAt);
+      expect(posted.status).toBe(200);
+      expect(posted.body.observed).toMatchObject({ bond: 'none', expired: false });
+      for (const o of [silent, attackers]) expect((await o.register(issuedAt)).status).toBe(200);
+      lap('registered');
+
+      // The bond, from the outsider's own key (approve, then deposit); the relayer only pays its gas and mints its tUSDC.
+      const BOND = 100_000_000n;
+      for (const o of [outsider, silent]) await ensureBond(chain, o.account.privateKey, BOND, 100_000_000_000_000_000n);
+      expect(await evm.bondOf(outsider.address)).toBe(BOND);
+      // Both nodes serve the live bond once the per-block cache turns over (about 12 s): the read is HoldbackBonds'.
+      let served: J = null;
+      for (const end = Date.now() + 30_000; Date.now() < end; await sleep(500)) {
+        const views = await Promise.all(demo.urls.map(async (u) => (await (await fetch(`${u}/v1/adjudicators/${outsider.address}`)).json()) as J));
+        if (views.every((v) => v.observed?.bond === 'bonded')) {
+          served = views[0];
+          break;
+        }
+      }
+      expect(served?.pool).toMatchObject({ junior: { amount: BOND.toString() }, reserved: { amount: '0' } });
+      expect(await verifyRegistration(holdbackDomain(anvil.chainId, lc(deployment.rules) as Address), served)).toBe(true);
+      lap('bonded');
+
+      // Deal 1: the outsider accepts and decides by script; the deal is Released and the buyer opens its copy.
+      const timing = { judgeWithinSec: 60, fallbackWithinSec: 60, appealWindowSec: 60, appealDecideSec: 120 };
+      const one = await outsideDeal(world, demo.urls, deployment, outsider, { work: CSV, timing });
+      expect((await outsider.runOnce()).decided).toEqual([{ commitmentId: one.id, role: 'primary', outcome: 'accept' }]);
+      await untilBoth(one.buyer, one.id, ['Released'], 60_000);
+      expect(await one.buyer.openDelivery(one.id)).toBe(CSV);
+      const decided = evm.log().find((e) => e.commitmentId === one.id && e.type === 'judgment.decided')!;
+      expect({ actor: lc(String(decided.actor)), via: decided.submittedVia }).toEqual({ actor: outsider.address, via: 'demo-op-1' });
+      lap('deal 1 released');
+
+      // Deal 4 (D44's second path): the silent outsider is primary, the demo fallback is named under an appeal
+      // adjudicator it does not trust. Past judgeBy it neither triggers nor decides, and the state read says why.
+      // judgeBy is deliverBy plus the judge window, so this deal's deliverBy is near too: about a minute from now.
+      const four = await outsideDeal(world, demo.urls, deployment, silent, { work: CSV, timing: { ...timing, offerExpiresInSec: 30, fundWithinSec: 45, deliverWithinSec: 60, judgeWithinSec: 5 }, adjudicators: { fallback, appeal: attackers.address } });
+      const fallbackBond = await evm.freeBond(fallback as Address);
+
+      // Deal 2: the outsider accepts work that fails the rubric (the scripted panel's fail marker); the buyer appeals.
+      const two = await outsideDeal(world, demo.urls, deployment, outsider, { work: `${FAIL_MARKER}: a summary that says nothing about the product.`, rubric: true, timing });
+      expect((await outsider.runOnce()).decided).toEqual([{ commitmentId: two.id, role: 'primary', outcome: 'accept' }]);
+      await untilBoth(two.buyer, two.id, ['Released'], 60_000);
+      const outsiderBond = await evm.bondOf(outsider.address);
+      const buyerBefore = await evm.tokenBalance(two.buyer.address, true);
+      const { rulebook } = await two.buyer.club(d.demo.clubId);
+      const appealBond = (BigInt(PRICE) * BigInt(rulebook.appealBondRateBps) + 9_999n) / 10_000n;
+      await anvil.rpc('anvil_setBalance', [two.buyer.address, '0x56bc75e2d63100000']);
+      const approved = await anvil.send({ key: two.buyerKey, to: deployment.token.address as Hex, data: encodeFunctionData({ abi: anvil.abis.token, functionName: 'approve', args: [deployment.bonds, appealBond] }) });
+      expect(approved.status).toBe('success');
+      const prepared = await two.buyer.call('POST', '/v1/prepare/appeal', { commitmentId: two.id, appellant: two.buyer.address });
+      await two.buyer.signAndSubmit(prepared, { kind: 'appeal', terms: two.terms, me: two.buyer.address, appealBondRateBps: rulebook.appealBondRateBps });
+      const overturned = await untilBoth(two.buyer, two.id, ['overturned', 'upheld'], 180_000, 'appealState');
+      // The release paid the seller at the first decision and stands; the overturn pays the buyer the price from the
+      // outsider's bond instead (D43, T-206 I-8): bond.slashed names the outsider.
+      expect(overturned).toMatchObject({ appealState: 'overturned', escrowState: 'Released' });
+      const slashed = evm.log().filter((e) => e.commitmentId === two.id && e.type === 'bond.slashed');
+      expect(slashed.map((e) => e.payload)).toMatchObject([{ adjudicator: getAddress(outsider.address), junior: { amount: PRICE }, reason: 'overturn' }]);
+      expect(outsiderBond - (await evm.bondOf(outsider.address))).toBe(BigInt(PRICE));
+      // The buyer gets the price from the bond and its appeal bond back.
+      expect((await evm.tokenBalance(two.buyer.address, true)) - buyerBefore).toBe(BigInt(PRICE));
+      lap('deal 2 overturned');
+
+      // Deal 4, continued: judgeBy has passed; the demo fallback declined its turn, and nothing reserved its bond.
+      let notices: string[] = [];
+      for (const end = Date.parse(four.terms.timing.judgeBy) + 30_000; Date.now() < end; await sleep(500)) {
+        notices = ((await four.buyer.call('GET', `/v1/commitments/${four.id}`)) as J).notices ?? [];
+        if (notices.some((n) => /fallback adjudicator declined/.test(n))) break;
+      }
+      expect(notices.join(' ')).toMatch(new RegExp(`fallback adjudicator declined this deal's fallback turn: .*does not trust ${attackers.address} as the appeal adjudicator`, 'i'));
+      expect(((await four.buyer.call('GET', `/v1/commitments/${four.id}`)) as J).escrowState).toBe('Delivered');
+      expect(await evm.freeBond(fallback as Address)).toBe(fallbackBond);
+      lap('deal 4 declined');
+
+      // Deal 3: the same outsider re-registers binding another registry (a later issuedAt replaces the record). The
+      // demo appeal adjudicator judges only under its own registry, so it refuses the appeal with registry_mismatch.
+      outsider.rebind(liveRegistry(), LIVE_REGISTRY_URI);
+      const again = await outsider.register(wholeSecond(Date.now()));
+      expect(again.status).toBe(200);
+      expect(again.body.registry.hash).toBe(liveRegistry().hash);
+      const three = await outsideDeal(world, demo.urls, deployment, outsider, { work: CSV, timing });
+      expect(((await three.buyer.call('GET', `/v1/commitments/${three.id}/terms`)) as J).adjudication.registryHash).toBe(liveRegistry().hash);
+      expect((await outsider.runOnce()).decided).toEqual([{ commitmentId: three.id, role: 'primary', outcome: 'accept' }]);
+      await untilBoth(three.buyer, three.id, ['Released'], 60_000);
+      await anvil.rpc('anvil_setBalance', [three.buyer.address, '0x56bc75e2d63100000']);
+      expect((await anvil.send({ key: three.buyerKey, to: deployment.token.address as Hex, data: encodeFunctionData({ abi: anvil.abis.token, functionName: 'approve', args: [deployment.bonds, appealBond] }) })).status).toBe('success');
+      const appealing = await three.buyer.call('POST', '/v1/prepare/appeal', { commitmentId: three.id, appellant: three.buyer.address });
+      await three.buyer.signAndSubmit(appealing, { kind: 'appeal', terms: three.terms, me: three.buyer.address, appealBondRateBps: rulebook.appealBondRateBps });
+      await untilBoth(three.buyer, three.id, ['open'], 60_000, 'appealState');
+      const judge = world.adjudicators.appeal;
+      const task = (await judge.settlement.tasks(judge.address)).find((t) => t.commitment.id === three.id);
+      expect(task?.role).toBe('appeal');
+      const refused = await judge.service.decideTask(task!);
+      expect(refused.ok ? 'decided' : refused.error.type).toBe('registry_mismatch');
+      // The world's own passes refuse it too: the appeal stays open.
+      await sleep(3000);
+      expect(((await three.buyer.call('GET', `/v1/commitments/${three.id}`)) as J).appealState).toBe('open');
+      lap('deal 3 refused');
+      expect(errors).toEqual([]);
+      console.log(`T-221 anvil end to end, seconds from the world's start: ${JSON.stringify(took)}`);
+    } finally {
+      await demo.close();
+    }
+  }, 600_000);
+});
+
 // The same deal against the deployed Sepolia contracts, forked locally by anvil (chain id 11155111, the real
 // HoldbackRules, CPP, tUSDC and drand verifier), with a test relayer funded on the fork only. Needs network: it runs
 // when SEPOLIA_FORK_RPC names a Sepolia RPC and contracts/deployments/sepolia.json exists. anvil prices gas by Prague,
@@ -276,5 +618,29 @@ describe.skipIf(!forkReady)(`the public world on a Sepolia fork${forkReady ? '' 
     expect(gas.map((c) => c.status)).toEqual(txs.map(() => '0x1'));
     for (const c of gas) expect((BigInt(c.gasUsed) * 5n) / 4n).toBeLessThanOrEqual(GAS_CAP);
     console.log(`Sepolia gas per transaction (eth_simulateV1): ${gas.map((c) => BigInt(c.gasUsed)).join(', ')}`);
+  }, 600_000);
+
+  // T-221's fork smoke: an outside adjudicator registers through the API, bonds in the deployed HoldbackBonds from its
+  // own key, then accepts and decides one deal as primary under the demo's fallback and appeal adjudicators.
+  it('an outside adjudicator registers, bonds, accepts and decides one deal as primary on the deployed contracts (T-221)', async () => {
+    const chain = new LiveChain({ deployment, rpcUrls: [rpc], relayerKey: RELAYER, pollMs: 300, rebroadcastMs: 20_000, mintBatchMs: 300 });
+    await chain.verify();
+    const world = await PublicWorld.open({ storage: new MemoryStorage(), env: ENV, live: { chain }, faucetPerClient: 100 });
+    const demo = await serve(world);
+    try {
+      for (const end = Date.now() + 120_000; !world.ready() && Date.now() < end; ) await sleep(500);
+      expect(world.ready()).toBe(true);
+      const d = (await (await fetch(`${demo.urls[0]}/.well-known/holdback.json`)).json()) as J;
+      const [, fallback, appeal] = d.demo.adjudicators.map((a: J) => a.address as string);
+      const outsider = new Outsider(world, demo.urls, 't-221/fork-outsider', { trusted: [fallback, appeal] });
+      expect((await outsider.register(wholeSecond(Date.now() - 60_000))).status).toBe(200);
+      await ensureBond(chain, outsider.account.privateKey, 100_000_000n, 100_000_000_000_000_000n);
+      const deal = await outsideDeal(world, demo.urls, deployment, outsider, { work: CSV, timing: { judgeWithinSec: 120, fallbackWithinSec: 120, appealWindowSec: 60, appealDecideSec: 120 } });
+      expect((await outsider.runOnce()).decided).toEqual([{ commitmentId: deal.id, role: 'primary', outcome: 'accept' }]);
+      await untilBoth(deal.buyer, deal.id, ['Released'], 120_000);
+      expect(await deal.buyer.openDelivery(deal.id)).toBe(CSV);
+    } finally {
+      await demo.close();
+    }
   }, 600_000);
 });
