@@ -14,13 +14,14 @@
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["node", "from", "head", "events", "complete"],
+          "required": ["node", "from", "head", "events", "complete", "fundedDeals"],
           "properties": {
             "node": { "type": "string", "pattern": "^https://", "maxLength": 200 },
             "from": { "$ref": "common.schema.json#/$defs/Count" },
             "head": { "$ref": "common.schema.json#/$defs/Count" },
             "events": { "$ref": "common.schema.json#/$defs/Count" },
-            "complete": { "type": "boolean" }
+            "complete": { "type": "boolean" },
+            "fundedDeals": { "$ref": "common.schema.json#/$defs/Count", "description": "Distinct deals with a hold.funded event in the events read, of any age" }
           }
         }
       ]
@@ -32,9 +33,9 @@
       "properties": {
         "from": { "$ref": "common.schema.json#/$defs/Iso" },
         "to": { "$ref": "common.schema.json#/$defs/Iso" },
-        "deals": { "$ref": "common.schema.json#/$defs/Count" },
+        "deals": { "$ref": "common.schema.json#/$defs/CountOrNull" },
         "cappedAt": { "const": 500 },
-        "inProgress": { "$ref": "common.schema.json#/$defs/Count" }
+        "inProgress": { "$ref": "common.schema.json#/$defs/CountOrNull" }
       }
     },
     "stages": {
@@ -51,10 +52,10 @@
           "to": { "type": "string", "maxLength": 80 },
           "actor": { "type": "string", "maxLength": 80 },
           "crow": { "type": "boolean" },
-          "deals": { "$ref": "common.schema.json#/$defs/Count" },
+          "deals": { "$ref": "common.schema.json#/$defs/CountOrNull" },
           "medianMs": { "$ref": "common.schema.json#/$defs/MsOrNull" },
           "p90Ms": { "$ref": "common.schema.json#/$defs/MsOrNull" },
-          "clamped": { "$ref": "common.schema.json#/$defs/Count" }
+          "clamped": { "$ref": "common.schema.json#/$defs/CountOrNull" }
         }
       }
     },
@@ -75,7 +76,7 @@
       "properties": {
         "medianMs": { "type": ["integer", "null"] },
         "p90Ms": { "type": ["integer", "null"] },
-        "events": { "$ref": "common.schema.json#/$defs/Count" }
+        "events": { "$ref": "common.schema.json#/$defs/CountOrNull" }
       }
     },
     "outcomes": {
@@ -83,9 +84,9 @@
       "additionalProperties": false,
       "required": ["Released", "Refunded", "other"],
       "properties": {
-        "Released": { "$ref": "common.schema.json#/$defs/Count" },
-        "Refunded": { "$ref": "common.schema.json#/$defs/Count" },
-        "other": { "$ref": "common.schema.json#/$defs/Count" }
+        "Released": { "$ref": "common.schema.json#/$defs/CountOrNull" },
+        "Refunded": { "$ref": "common.schema.json#/$defs/CountOrNull" },
+        "other": { "$ref": "common.schema.json#/$defs/CountOrNull" }
       }
     },
     "deals": { "type": "array", "maxItems": 500, "items": { "$ref": "#/$defs/Deal" } }

@@ -42,7 +42,7 @@
       "additionalProperties": false,
       "required": ["deals", "gas", "cloudflare", "judges", "rpc", "total", "operatorFee", "feeCoversCost"],
       "properties": {
-        "deals": { "$ref": "common.schema.json#/$defs/Count" },
+        "deals": { "$ref": "common.schema.json#/$defs/CountOrNull", "description": "Released deals in deal-timing.json's window; null when deal-timing.json or its event log could not be read" },
         "gas": {
           "type": "object",
           "additionalProperties": false,
@@ -91,7 +91,7 @@
             "durableObjectRequests": { "$ref": "common.schema.json#/$defs/UIntOrNull" },
             "durationGbS": { "type": ["string", "null"], "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{1,6})?$" },
             "usdMicrosAtList": { "$ref": "common.schema.json#/$defs/UsdMicrosOrNull" },
-            "usdMicrosAtMargin": { "const": "0" },
+            "usdMicrosAtMargin": { "enum": ["0", null], "description": "\"0\" beside tail counts, inside Workers Paid's included usage; null when the cost is unknown" },
             "pricesReadOn": { "oneOf": [{ "type": "null" }, { "$ref": "common.schema.json#/$defs/Day" }] }
           }
         },
@@ -217,7 +217,7 @@
       "required": ["basis", "excludes", "sepolia", "ethereum", "base"],
       "properties": {
         "basis": { "$ref": "common.schema.json#/$defs/Basis" },
-        "excludes": { "type": "array", "maxItems": 5, "uniqueItems": true, "items": { "enum": ["cloudflare", "judges", "faucet mint"] } },
+        "excludes": { "type": "array", "maxItems": 5, "uniqueItems": true, "items": { "enum": ["cloudflare", "judges", "faucet mint", "adjudicator setup"] } },
         "sepolia": { "$ref": "common.schema.json#/$defs/UsdMicrosOrNull" },
         "ethereum": { "$ref": "common.schema.json#/$defs/UsdMicrosOrNull" },
         "base": { "$ref": "common.schema.json#/$defs/UsdMicrosOrNull" }

@@ -69,15 +69,31 @@ export function templateOf(terms) {
   return criteria.length ? 'rubric' : 'checks-only';
 }
 
+/** How many distinct deals in `events` have a hold.funded event, whatever their age. */
+export function fundedDealsIn(events) {
+  const ids = new Set();
+  for (const e of events) if (e.type === 'hold.funded' && typeof e.commitmentId === 'string' && HEX32.test(e.commitmentId)) ids.add(e.commitmentId.toLowerCase());
+  return ids.size;
+}
+
 /**
  * Builds deal-timing.json's body from events, block times and Crow's accounts. Pure.
- * @param {{ events: object[], blockTimes: Map<string, number>, crow: Set<string>, nowMs: number, readFrom?: number,
+ * `events` is null when no operator served its event log: then every count reads null ("unknown"), never 0.
+ * @param {{ events: object[]|null, blockTimes: Map<string, number>, crow: Set<string>, nowMs: number, readFrom?: number,
  *           complete?: boolean, windowDays?: number, cap?: number }} input
  */
 export function buildDealTiming({ events, blockTimes, crow, nowMs, readFrom = 0, complete = true, windowDays = WINDOW_DAYS, cap = CAP }) {
   const gaps = [];
+  const known = Array.isArray(events);
+  if (!known) gaps.push('No operator node served its event log, so every figure reads unknown.');
+  /** A count, or null when the log could not be read. */
+  const count = (n) => (known ? n : null);
+  const stats = (values) => {
+    const m = msStats(values);
+    return { ...m, deals: count(m.deals) };
+  };
   const byDeal = new Map();
-  for (const e of events) {
+  for (const e of events ?? []) {
     if (typeof e.commitmentId !== 'string' || !HEX32.test(e.commitmentId)) continue;
     const id = e.commitmentId.toLowerCase();
     if (!byDeal.has(id)) byDeal.set(id, []);
@@ -107,8 +123,8 @@ export function buildDealTiming({ events, blockTimes, crow, nowMs, readFrom = 0,
   all.sort((a, b) => b.offeredMs - a.offeredMs || (a.commitmentId < b.commitmentId ? -1 : 1));
   const kept = all.slice(0, cap);
   if (all.length > cap) gaps.push(`The window holds ${all.length} deals; the newest ${cap} are kept, from ${iso(kept[kept.length - 1].offeredMs)}.`);
-  if (readFrom > 0) gaps.push(`The event log was read from seq ${readFrom}, so a deal offered before that event is left out.`);
-  if (!complete) gaps.push('The event log read stopped before the head, so the newest events may be missing.');
+  if (known && readFrom > 0) gaps.push(`The event log was read from seq ${readFrom}, so a deal offered before that event is left out.`);
+  if (known && !complete) gaps.push('The event log read stopped before the head, so the newest events may be missing.');
 
   const clamped = Object.fromEntries(STAGES.map((s) => [s.id, 0]));
   const stageMs = Object.fromEntries(STAGES.map((s) => [s.id, []]));
@@ -204,19 +220,19 @@ export function buildDealTiming({ events, blockTimes, crow, nowMs, readFrom = 0,
 
   const oldest = kept.length ? kept[kept.length - 1].offeredMs : windowFrom;
   return {
-    window: { from: iso(all.length > cap ? oldest : windowFrom), to: iso(nowMs), deals: kept.length, cappedAt: cap, inProgress },
+    window: { from: iso(all.length > cap ? oldest : windowFrom), to: iso(nowMs), deals: count(kept.length), cappedAt: cap, inProgress: count(inProgress) },
     stages: STAGES.map((s) => ({
       id: s.id,
       from: MOMENTS[s.from].join(' or '),
       to: MOMENTS[s.to].join(' or '),
       actor: s.actor,
       crow: s.crow,
-      ...msStats(stageMs[s.id]),
-      clamped: clamped[s.id],
+      ...stats(stageMs[s.id]),
+      clamped: count(clamped[s.id]),
     })),
-    totals: { crowProcessingMs: msStats(crowMs), partyMs: msStats(partyMs), offeredToSettledMs: msStats(lifeMs) },
-    indexLagMs: (({ medianMs, p90Ms }) => ({ medianMs, p90Ms, events: lagMs.length }))(msStats(lagMs)),
-    outcomes,
+    totals: { crowProcessingMs: stats(crowMs), partyMs: stats(partyMs), offeredToSettledMs: stats(lifeMs) },
+    indexLagMs: (({ medianMs, p90Ms }) => ({ medianMs, p90Ms, events: count(lagMs.length) }))(msStats(lagMs)),
+    outcomes: known ? outcomes : { Released: null, Refunded: null, other: null },
     deals,
     gaps,
   };
@@ -262,15 +278,16 @@ export async function run({ op1 = DEFAULTS.op1, op2 = DEFAULTS.op2, rpcs = [DEFA
   const discovery = (await sources.json('discovery', `${op1}/`)) ?? (await sources.json('discovery', `${op2}/`));
   const accounts = crowAccounts(discovery, loadFallbackAccounts());
   const log = await readEvents(sources, [op1, op2], { back });
-  const events = log?.events ?? [];
-  const blockTimes = await readBlockTimes(sources, rpcs, blocksToRead(events, nowMs));
-  const body = buildDealTiming({ events, blockTimes, crow: accounts.all, nowMs, readFrom: log?.from ?? 0, complete: log?.complete ?? false });
-  if (!log) body.gaps.unshift('No operator node served its event log, so every figure reads unknown.');
+  const events = log ? log.events : null;
+  const blockTimes = await readBlockTimes(sources, rpcs, blocksToRead(events ?? [], nowMs));
+  const body = buildDealTiming({ events, blockTimes, crow: accounts.all, nowMs, readFrom: log?.from ?? 0, complete: log?.complete ?? true });
   if (!discovery) body.gaps.push("Discovery could not be read, so Crow's accounts come from scripts/metrics/crow-accounts.json only.");
   if (accounts.dealLanesSource !== 'discovery demo.relayer.dealLanes') body.gaps.push(`The deal lanes come from ${accounts.dealLanesSource}.`);
   return {
     ...envelope('deal-timing', { script: 'scripts/metrics/deal-timing.mjs', commit: gitCommit(ROOT), generatedAt: nowMs, sources: sources.list, gaps: body.gaps }),
-    eventLog: log ? { node: log.node, from: log.from, head: log.head, events: events.length, complete: log.complete } : null,
+    // fundedDeals counts every funded deal the read holds, not only the window's: ops-cost spreads one-time setup gas
+    // over it.
+    eventLog: log ? { node: log.node, from: log.from, head: log.head, events: log.events.length, complete: log.complete, fundedDeals: fundedDealsIn(log.events) } : null,
     ...Object.fromEntries(Object.entries(body).filter(([k]) => k !== 'gaps')),
   };
 }
@@ -287,5 +304,5 @@ if (isMain(import.meta.url)) {
   if (args.out) writeJson(args.out, out);
   else process.stdout.write(`${JSON.stringify(out, null, 2)}\n`);
   const failed = out.sources.filter((s) => !s.ok).map((s) => s.id);
-  console.error(`deal-timing: ${out.window.deals} deals, ${out.outcomes.Released} Released, in ${Date.now() - t0} ms${failed.length ? `; failed sources: ${failed.join(', ')}` : ''}`);
+  console.error(`deal-timing: ${out.window.deals ?? 'unknown'} deals, ${out.outcomes.Released ?? 'unknown'} Released, in ${Date.now() - t0} ms${failed.length ? `; failed sources: ${failed.join(', ')}` : ''}`);
 }

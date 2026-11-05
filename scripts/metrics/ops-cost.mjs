@@ -61,7 +61,10 @@ export function dealGas(deal) {
 export function buildOpsCost({ dealTiming, prices, modelPrices, discovery, oneClick = null, faucetMintGas = [], effectiveGasPrices = [], balances = [] }) {
   const gaps = [];
   const released = (dealTiming?.deals ?? []).filter((d) => d.outcome === 'Released');
+  // deal-timing.json with no event log behind it writes null counts: its deals are unknown, not none.
+  const timingKnown = !!dealTiming && dealTiming.window?.deals !== null;
   if (!dealTiming) gaps.push('deal-timing.json could not be read, so the gas per deal reads unknown.');
+  else if (!timingKnown) gaps.push('deal-timing.json has no event log, so the gas per deal reads unknown.');
   else if (!released.length) gaps.push('No Released deal is in the window, so the gas per deal reads unknown.');
 
   // Gas, by step: the median over Released deals of each step's gas, and the median of each deal's total.
@@ -81,10 +84,19 @@ export function buildOpsCost({ dealTiming, prices, modelPrices, discovery, oneCl
   const faucet = big(bigQuantile(faucetMintGas, 50));
   if (faucet === null) gaps.push("No faucet mint was found for the window's buyers, so a new visitor's mint is left out of the gas.");
 
-  const adjudicators = BigInt(Array.isArray(discovery?.demo?.adjudicators) ? discovery.demo.adjudicators.length : 0);
-  const funded = BigInt((dealTiming?.deals ?? []).filter((d) => d.times?.funded).length);
-  const setup = adjudicators > 0n && funded > 0n ? (ADJUDICATOR_SETUP_GAS * adjudicators + funded - 1n) / funded : null;
-  if (setup !== null && (dealTiming?.eventLog?.from ?? 0) > 0) gaps.push("The adjudicators' setup gas is spread over the window's funded deals only; the world has more, so it reads high.");
+  // The adjudicators' one-time setup, spread over every funded deal the event log holds (eventLog.fundedDeals), not
+  // only the window's; the window's count is a floor, and the only count a bare deal-timing body has. Discovery that
+  // lists no adjudicator means no setup (0); discovery that cannot be read means an unknown setup (null).
+  const adjudicators = Array.isArray(discovery?.demo?.adjudicators) ? BigInt(discovery.demo.adjudicators.length) : null;
+  const windowFunded = BigInt((dealTiming?.deals ?? []).filter((d) => d.times?.funded).length);
+  const logFunded = Number.isSafeInteger(dealTiming?.eventLog?.fundedDeals) ? BigInt(dealTiming.eventLog.fundedDeals) : 0n;
+  const funded = logFunded > windowFunded ? logFunded : windowFunded;
+  let setup = null;
+  if (adjudicators === 0n) setup = 0n;
+  else if (adjudicators !== null && funded > 0n) setup = (ADJUDICATOR_SETUP_GAS * adjudicators + funded - 1n) / funded;
+  const readFrom = dealTiming?.eventLog?.from ?? 0;
+  if (adjudicators === null) gaps.push("Discovery could not be read, so the adjudicators' setup gas is left out of the gas.");
+  else if (setup !== null && setup > 0n && readFrom > 0) gaps.push(`The adjudicators' setup gas is spread over the funded deals in the event log read from seq ${readFrom}; the world has more, so it reads high.`);
 
   const totalGas = dealTotal === null ? null : dealTotal + (faucet ?? 0n) + (setup ?? 0n);
   const txsPriced = txPerDeal === null ? null : txPerDeal + (faucet === null ? 0n : 1n);
@@ -105,7 +117,8 @@ export function buildOpsCost({ dealTiming, prices, modelPrices, discovery, oneCl
   // Cloudflare, from the newest harness run with tail counts.
   const cf = prices?.cloudflare ?? {};
   const unit = (k) => big(cf[k]?.usdMicrosPerMillion);
-  let cloudflare = { basis: 'unknown', runId: null, requests: null, cpuMs: null, durableObjectRequests: null, durationGbS: null, usdMicrosAtList: null, usdMicrosAtMargin: '0', pricesReadOn: cf.workersRequests?.readOn ?? null };
+  // An unknown cost has no margin either, so usdMicrosAtMargin is null here and "0" only beside tail counts.
+  let cloudflare = { basis: 'unknown', runId: null, requests: null, cpuMs: null, durableObjectRequests: null, durationGbS: null, usdMicrosAtList: null, usdMicrosAtMargin: null, pricesReadOn: cf.workersRequests?.readOn ?? null };
   const workers = oneClick?.cloudflare?.workers;
   if (workers && typeof workers === 'object') {
     let requests = 0n;
@@ -113,6 +126,7 @@ export function buildOpsCost({ dealTiming, prices, modelPrices, discovery, oneCl
     let cpuKnown = false;
     let doRequests = 0n;
     let doWallMs = 0n;
+    let doWallSeen = false;
     for (const w of Object.values(workers)) {
       requests += big(w?.requests) ?? 0n;
       if (big(w?.cpuMs) !== null) {
@@ -120,15 +134,20 @@ export function buildOpsCost({ dealTiming, prices, modelPrices, discovery, oneCl
         cpuKnown = true;
       }
       doRequests += big(w?.durableObjectRequests) ?? 0n;
-      doWallMs += big(w?.durableObjectWallMs) ?? 0n;
+      if (big(w?.durableObjectWallMs) !== null) {
+        doWallMs += big(w.durableObjectWallMs);
+        doWallSeen = true;
+      }
     }
+    // With no Durable Object request, the duration is 0; with requests but no wall time on any worker, it is unknown.
+    const doWallKnown = doWallSeen || doRequests === 0n;
     // A Durable Object is billed at 128 MB while it runs: GB-s = wall ms × 0.125 ÷ 1,000 = micro-GB-s × 10^-6, where
     // micro-GB-s = wall ms × 125.
-    const microGbS = doWallMs * 125n;
+    const microGbS = doWallKnown ? doWallMs * 125n : null;
     const list = [[requests, unit('workersRequests')], [cpuKnown ? cpu : 0n, unit('workersCpuMs')], [doRequests, unit('durableObjectRequests')]];
     let atList = null;
     if (list.every(([, p]) => p !== null) && unit('durableObjectGbS') !== null) {
-      atList = divRound(list.reduce((n, [q, p]) => n + q * p, 0n) * MILLION + microGbS * unit('durableObjectGbS'), MILLION * MILLION);
+      atList = divRound(list.reduce((n, [q, p]) => n + q * p, 0n) * MILLION + (microGbS ?? 0n) * unit('durableObjectGbS'), MILLION * MILLION);
     }
     cloudflare = {
       basis: 'tail',
@@ -136,12 +155,13 @@ export function buildOpsCost({ dealTiming, prices, modelPrices, discovery, oneCl
       requests: s(requests),
       cpuMs: cpuKnown ? s(cpu) : null,
       durableObjectRequests: s(doRequests),
-      durationGbS: `${microGbS / MILLION}.${(microGbS % MILLION).toString().padStart(6, '0')}`.replace(/\.?0+$/, '') || '0',
+      durationGbS: microGbS === null ? null : `${microGbS / MILLION}.${(microGbS % MILLION).toString().padStart(6, '0')}`.replace(/\.?0+$/, '') || '0',
       usdMicrosAtList: s(atList),
       usdMicrosAtMargin: '0',
       pricesReadOn: cf.workersRequests?.readOn ?? null,
     };
     if (!cpuKnown) gaps.push('The tail carried no CPU time, so Cloudflare CPU is left out of its list price.');
+    if (!doWallKnown) gaps.push("The tail carried no Durable Object wall time, so Durable Object duration is left out of Cloudflare's list price.");
   } else {
     gaps.push('No harness run with wrangler tail counts was found, so Cloudflare reads unknown.');
   }
@@ -193,6 +213,7 @@ export function buildOpsCost({ dealTiming, prices, modelPrices, discovery, oneCl
     if (cfUsd === null) excludes.push('cloudflare');
     if (template === 'rubric' && judgeUsd === null) excludes.push('judges');
     if (faucet === null) excludes.push('faucet mint');
+    if (setup === null) excludes.push('adjudicator setup');
     total[template] = { basis: 'inferred', excludes };
     covers[template] = {};
     for (const net of NETWORKS) {
@@ -226,7 +247,7 @@ export function buildOpsCost({ dealTiming, prices, modelPrices, discovery, oneCl
       modelPrices: { file: 'config/model-prices.json', readOn: modelPrices?.readOn ?? null },
     },
     perDeal: {
-      deals: released.length,
+      deals: timingKnown ? released.length : null,
       gas: {
         bySteps,
         dealTxs: { median: s(txPerDeal) },
@@ -305,20 +326,44 @@ function readJsonFile(path) {
   }
 }
 
-/** The newest one-click run file in `dir` that carries Cloudflare counts, or null. */
-export function newestTailRun(dir) {
-  if (!dir) return null;
+/**
+ * The newest one-click run file in `dir` that passes `isValid` (its schema check) and carries Cloudflare counts.
+ * Returns { run, skipped }: `run` is the file or null, and `skipped` counts the run files that failed the check.
+ */
+export function newestTailRun(dir, isValid) {
+  const none = { run: null, skipped: 0 };
+  if (!dir) return none;
   let names = [];
   try {
     names = readdirSync(dir).filter((n) => /^[\w.-]+\.json$/.test(n)).sort().reverse();
   } catch {
-    return null;
+    return none;
   }
+  let skipped = 0;
   for (const n of names) {
     const f = readJsonFile(join(dir, n));
-    if (f?.schema === 'crow.metrics.one-click/1' && f.cloudflare && typeof f.cloudflare === 'object') return f;
+    if (f?.schema !== 'crow.metrics.one-click/1') continue;
+    if (!isValid(f)) {
+      skipped += 1;
+      continue;
+    }
+    if (f.cloudflare && typeof f.cloudflare === 'object') return { run: f, skipped };
   }
-  return null;
+  return { run: null, skipped };
+}
+
+/**
+ * The one-click schema check from check.mjs, or null when Ajv cannot be loaded. The import is lazy: the console's
+ * build job checks out holdback without installing its packages, and the rest of ops-cost needs none.
+ */
+export async function loadRunCheck() {
+  try {
+    const { check, loadSchemas } = await import('./check.mjs');
+    const schemas = loadSchemas();
+    return (f) => check('one-click', f, schemas).ok;
+  } catch {
+    return null;
+  }
 }
 
 export async function run({ dealTimingFile, runsDir, op1 = DEFAULTS.op1, op2 = DEFAULTS.op2, rpc = DEFAULTS.sepoliaRpc, sources = new Sources(), nowMs = Date.now() } = {}) {
@@ -340,9 +385,14 @@ export async function run({ dealTimingFile, runsDir, op1 = DEFAULTS.op1, op2 = D
     readEffectiveGasPrices(sources, rpc, deals),
     readBalances(sources, rpc, accounts),
   ]);
-  const oneClick = newestTailRun(runsDir);
-  const body = buildOpsCost({ dealTiming, prices, modelPrices, discovery, oneClick, faucetMintGas, effectiveGasPrices, balances });
+  // Only a run file that passes the one-click schema is priced: one with a worker missing its request count would
+  // otherwise read as 0 requests and USD 0.
+  const isValid = runsDir ? await loadRunCheck() : null;
+  const tail = isValid ? newestTailRun(runsDir, isValid) : { run: null, skipped: 0 };
+  const body = buildOpsCost({ dealTiming, prices, modelPrices, discovery, oneClick: tail.run, faucetMintGas, effectiveGasPrices, balances });
   const { gaps, ...rest } = body;
+  if (runsDir && !isValid) gaps.push('Ajv could not be loaded, so no run file can be checked against its schema and Cloudflare reads unknown.');
+  if (tail.skipped) gaps.push(`${tail.skipped} run files failed the one-click schema check and are left out.`);
   if (accounts.dealLanesSource !== 'discovery demo.relayer.dealLanes') gaps.push(`The deal lanes come from ${accounts.dealLanesSource}.`);
   const commit = gitCommit(ROOT);
   return { ...envelope('ops-cost', { script: 'scripts/metrics/ops-cost.mjs', commit, generatedAt: nowMs, sources: sources.list, gaps }), ...rest };
