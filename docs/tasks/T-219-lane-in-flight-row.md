@@ -91,6 +91,11 @@ The workflow's `reviewer` and `red-teamer` passes on PR 195 returned six finding
 - **`pnpm verify`** on the fixes (measured, 2026-11-04, on `f07b4b9` plus the fixes before they were committed, `reports/verify-t-219-lane-in-flight-row.md`): PASS. typecheck, lint, forge build, forge test, `pnpm test` (118 files passed and 1 skipped; 2,670 tests passed, 4 skipped, the 2,665 before plus the 5 new ones), spec, snap, snap:local and demo all pass. Snapshot diffs against HEAD: none.
 - A submission that throws after its receipt for another reason than a refusal keeps its row until the next restart (Decision 10). No test covers that path (inferred from the code).
 
+### Merge with T-226, 2026-11-05
+
+- **`pnpm verify`** (measured, commit `2ecdd1e`, after merging origin/main at `cdb55a4` with T-226 as merged in PR 200, `reports/verify-t-219-lane-in-flight-row.md`): PASS. typecheck, lint, forge build, forge test, `pnpm test` (118 files passed and 1 skipped; 2,676 tests passed, 4 skipped), spec, snap, snap:local and demo all pass. Snapshot diffs against HEAD: none.
+- The code merged with no conflict (measured): T-226's reads at the receipt's block sit in `send` before `record`, and this task's `done` stays after `record`. When those reads fail for all 10 s, `send` throws before `done`, so the row stays open and the next sync pass applies the call as this node's relay through `follow` and `noteOf` (inferred from the code; no test covers that path). The backlog row T-226 left for this task says so.
+
 ## Decisions
 
 Made by the T-219 session on 2026-11-04; Rafa can overrule any of them.
@@ -108,7 +113,7 @@ Made by the T-219 session on 2026-11-04; Rafa can overrule any of them.
 
 ## Handoff
 
-**State:** review, draft [PR 195](https://github.com/rafaeldavid/holdback/pull/195). It started on T-218's branch; T-218 merged as PR 185 meanwhile, and the branch has origin/main merged in (`113976a`). In that merge, `evm-settlement.ts` keeps T-218's review rounds 2 and 3, and the row's note also reaches round 2's new path that reads a lone delivery from its `JobSubmitted` log. The workflow's `reviewer` and `red-teamer` passes returned six findings on 2026-11-04; all six are fixed on this branch, each with a test that failed first (Evidence, "Review and red-team"). The Land phase merges the PR.
+**State:** done, merged in [PR 195](https://github.com/rafaeldavid/holdback/pull/195); it goes live with T-220's deploy. It started on T-218's branch; T-218 merged as PR 185 meanwhile, and the branch has origin/main merged in (`113976a`, then `2ecdd1e` with T-226). In that merge, `evm-settlement.ts` keeps T-218's review rounds 2 and 3, and the row's note also reaches round 2's new path that reads a lone delivery from its `JobSubmitted` log. The workflow's `reviewer` and `red-teamer` passes returned six findings on 2026-11-04; all six are fixed on this branch, each with a test that failed first (Evidence, "Review and red-team"). The Land phase merges the PR.
 
 **What changed:**
 - `packages/settlement/evm/chain.ts`: `LaneRow`, `RelayNote`, and four optional `EvmChain` methods (`inFlight`, `rowOf`, `resume`, `release`). The anvil world (`world.ts`) implements none of them, so nothing changes there.
