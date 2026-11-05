@@ -15,11 +15,18 @@ The files a change touches set its tier. A pull request takes the highest tier a
 | --- | --- | --- | --- |
 | 0, docs | `docs/**` except `docs/decisions/`, `brand/**`, and root `*.md` except `CLAUDE.md` and `AGENTS.md`. Snapshot files (`*.expect.md`) count as code. | CI and one reviewer | GitHub, automatically |
 | 1, code | Every other path, for example `apps/demo*/`, `apps/site/`, `apps/early-access/`, `packages/sdk/`, `packages/testkit/`, `site/`, `fixtures/`, `scripts/`, `tests/` and `examples/` | CI, the verifier and one reviewer | GitHub, automatically |
-| 2, critical | `contracts/**`, `packages/settlement/**`, `packages/judgment/**`, `packages/core/**`, `spec/**`, `apps/adjudicator/**`, `apps/operator/src/**`, `config/judges*.yaml`, `formal/**`, `docs/decisions/**` and `pnpm-lock.yaml` | Tests written first by the fixture-author, the tier 1 checks, and a blind second-family review. Fable 5.1 reviews code that Opus wrote. The red team reviews changes to judgment, settlement, contracts and the operator. | GitHub, after both families approve |
+| 2, critical | `contracts/**`, `packages/settlement/**`, `packages/judgment/**`, `packages/core/**`, `spec/**`, `apps/adjudicator/**`, `apps/operator/src/**`, `config/judges*.yaml`, `formal/**`, `docs/decisions/**` and `pnpm-lock.yaml`. The usage simulation's harness, which defines its gate, joins with T-061: `tools/sim/check.ts`, `scripted.ts`, `stage.ts`, `stage.mjs`, `gate.mjs` and `sample.mjs`. | Tests written first by the fixture-author, the tier 1 checks, and a blind second-family review. Fable 5.1 reviews code that Opus wrote. The red team reviews changes to judgment, settlement, contracts and the operator. | GitHub, after both families approve |
 | 3, control | `.github/**`, `.claude/**`, `agent-ops/**`, `CLAUDE.md`, `AGENTS.md`, `.gitleaksignore`, and any change that `guardrails.mjs` flags | The tier 2 reviews | Rafa |
 | Outside the repository | Deploys, keys, money, repository settings, publications and force pushes | Not a pull request | Rafa |
 
 Tier 3 covers the agent instructions and this directory because they govern every agent. It also covers `.gitleaksignore`, because one line in that file can hide a leaked secret.
+
+The usage simulation adds two tier rules (T-061):
+
+- `guardrails.mjs` raises a pull request that changes a pairing's `expect` in `tools/sim/catalogue.json` to tier 2. An expectation works like a snapshot, so a second family reads every change to one. The rest of the catalogue stays tier 1.
+- The `simulation`, `crawler` and `security_watch` blocks in `ops.yaml` hold the pass rules, thresholds and budgets. They are tier 3 already, as part of this directory.
+
+T-044 puts gate-defining files in tier 3. The simulation harness sits in tier 2 instead, so it stays quick to change while a second family still reads every change. Rafa may move it to tier 3.
 
 Today the tier 3 rule is a convention. Agents act through Rafa's account, and the ruleset requires no approvals (measured, velocity review). Two changes would enforce it: a separate GitHub App identity for the agents, without the `statuses`, `variables` or administration permissions, and a required code-owner review on tier 3 paths only.
 
@@ -33,12 +40,19 @@ Today the tier 3 rule is a convention. Agents act through Rafa's account, and th
 | P4 | A secret leaks. | `gitleaks` is a required check. A pre-commit `gitleaks` scan follows in T-036. Settings deny reads of `.env*`. Build agents hold no model, Cloudflare or chain keys. | `gitleaks` and the deny rule exist. The rest is proposed. |
 | P5 | An agent weakens a check. | `guardrails.mjs` raises a pull request to tier 3 if it deletes or edits an `attack.*` or `neutrality.*` fixture, raises a timeout or adds an admin selector. `/snap` requires a justification for each snapshot change. | `/snap` exists. The rest is proposed. |
 | P6 | An agent escalates through its tools. | Settings deny force pushes, `forge script` and `cast send` today. Activation adds `wrangler`, `gh api --method`, `gh repo edit`, `gh secret`, `gh ruleset`, `gh pr merge --admin` and pushes to `main`. The deny list and `bash-guard.sh` enforce the additions. | Partly exists |
-| P7 | A dependency is compromised. | Installs use `--frozen-lockfile`. `pnpm-lock.yaml` is tier 2. Each dependency bump is its own task. | The lockfile flag exists. |
+| P7 | A dependency is compromised. | Installs use `--frozen-lockfile`. `pnpm-lock.yaml` is tier 2. Each dependency bump is its own task. The security watch matches advisories to the lockfile daily, and `integrity.mjs` checks for drift weekly (T-064). | The lockfile flag exists. The rest is proposed. |
 | P8 | Costs or loops run away. | The tick enforces budgets, the daily cap and the work-in-progress limits. A hook blocks polling loops (T-036). | Proposed |
 | P9 | Work is unattributable, or an agent merges a control change. | A GitHub App identity for the agents and a required code-owner review on tier 3 | Proposed |
 | P10 | Claude models share a blind spot. | Cross-family reviews at milestones (below) | Proposed |
 | P11 | Telemetry or feedback requests leak deal data or identities. | Telemetry stores aggregates in a private store, keeps figures out of the repository, and sends nothing to non-Anthropic providers. Feedback requests reach only agents that opt in, carry no deal content, and need no stored state. | Proposed |
 | P12 | A change exceeds its scope, or two tasks collide. | `guardrails.mjs` fails a pull request that touches paths outside its task, or that changes `spec/schemas` without an ADR and a version bump. Task lint checks that task paths do not overlap. | Proposed |
+| P13 | A planted advisory, write-up or paper steers the red team, the architect or a fix. | Feeds come from an allowlist in a tier 3 file. Items pass the quarantine. A script matches packages, components, paths and threat IDs from the lockfile and the threat map, and the triager returns enums only. `brief.mjs` builds the audit brief from record fields. Rafa receives every security record, and a second family checks each "does not apply". | Proposed, T-064 |
+| P14 | A security finding leaks through a public pull request, fixture, log line or task title before the fix ships. | A `breaks` result pushes nothing. AuditRecords carry no reproduction text. Fixes travel in GitHub's private security-advisory fork, and the fixture lands with the fix. The daily log counts security records only. A fix task names the component, never the exploit. | Proposed, T-064 |
+| P15 | A crawler or a staging customer reaches production in a way visitors do not: load, abuse, a drained relayer, filed feedback or a sign-up. | Budgets and rates in `ops.yaml` (tier 3). Probes run one at a time and honour `Retry-After`. The crawler reads the funding lane before each deal probe and sends feedback only as a dry run. Staging customers have no network route to production (the stager's egress rule). | Proposed, T-062, T-063 |
+| P16 | Synthetic traffic pollutes product telemetry, and the pipeline optimizes for its own crawler. | The `X-Holdback-Synthetic` header and a `synthetic` bucket in the day line, if Rafa adds them. Records from `source: crawler` and `source: sim` are weighted separately. Catalogue weights derive from real traffic only. | Proposed, T-062, T-063 |
+| P17 | A pull request games the simulation gate: it edits the catalogue, the briefs, the harness, the fake judges or the baseline so its customers pass. | The model tier reads the catalogue, briefs and harness from `main`. Only the stager writes the baseline. `guardrails.mjs` raises an `expect` change to tier 2. The harness is tier 2 and the pass rules tier 3. `simulate` is pinned to the GitHub Actions app. The reviewer reads the SimRecord from a store that builders cannot write. | Proposed, T-061, T-062 |
+| P18 | A simulated customer, a model with a shell, escapes its world: it reaches another party's key, the audit endpoint, the repository or production. | Parties run as the stager user with loopback and model-API egress only, each in its own folder. The world's files and the audit endpoint belong to the stager's runner user. `sim:check` trusts no party. The workspace cap bounds a leaked `crow-agents` key. | Proposed, T-062 |
+| P19 | The staging world, the crawler or the catalogue leaks visitor-like data or private aggregates. | The crawler records status codes, problem types, booleans and counts, never bodies. Simulation reports are schema-checked and quarantined. Only coarse weights derive from telemetry, and Rafa decides whether they may be public. | Proposed, T-062, T-063 |
 | None | A change breaks a hard rule or a litmus test. | The Rules and checks table in `docs/team.md`, plus `pnpm snap`, `forge test` and TLC in CI | Exists |
 
 ### Cross-family review in CI
@@ -48,6 +62,14 @@ Every agent acts through the same account, so any agent could post an approval c
 - It runs on `pull_request_target`. The script comes from `main`, the diff comes from the API, and no code from the pull request runs.
 - It runs only for branches in this repository.
 - It passes immediately for tiers 0 and 1. It must always report, because a required check that never reports blocks every pull request (velocity review §2.2).
+
+### The `simulate` check
+
+`simulate` is the fourth required status, the scripted tier of the usage simulation ([pipeline.md](pipeline.md#usage-simulation), T-061). Activation pins it to the GitHub Actions app, like `check`, `gitleaks` and `xreview`.
+
+- The harness (`tools/sim/scripted.ts`, `stage.ts`, `gate.mjs`, `sample.mjs`) comes from a checkout of `main`. The world comes from the pull request's build.
+- It passes at once for a pull request that touches no customer path, and it always reports.
+- The model tier posts no status. Its `SimRecord` sits on the VM in a store that builders cannot write, and the reviewer reads it there, so no comment can forge it.
 
 ## Cross-family adversarial reviews
 
@@ -60,6 +82,8 @@ Every agent acts through the same account, so any agent could post an approval c
 | ADR | An ADR goes to Rafa for acceptance. | DeepSeek, whose critique the ADR attaches | Advisory, because Rafa accepts ADRs |
 | End of a phase | Someone marks a phase in `docs/plan.md` as done. | Red teams from Fable 5.1, DeepSeek and a GPT-family model. They run every `attack.*` and `neutrality.*` fixture and add new attacks. | Blocks the phase from closing |
 | Before a deploy | Rafa approves a deploy. | DeepSeek, on all changes since the last deploy | Advisory, because Rafa already controls the deploy |
+| Before a deploy: staging | Rafa approves a deploy. | No reviewer. The deploy wrapper's `stage <tag> <sha>` deploys the tag to the Sepolia staging world, then runs the crawler's probes and three must-run pairings (T-062). | Blocks the deploy: the wrapper refuses without a PASS staging record for the same tag and SHA |
+| Security event | The security watch maps a public event to Crow and routes the record to `audit` (T-064). | A Fable 5.1 red-team session at max effort. DeepSeek checks every "does not apply" or "unsure" verdict and every event the source rates High or Critical. | A public fixture when the defense holds; a private fix task when it breaks. A disagreement goes to Rafa. |
 | Mainnet | None | An external audit (`docs/operations.md`) | Rafa decides. |
 
 The family counts follow the product's appeal panel, which uses three families where available and two otherwise (`docs/judgment-and-defenses.md`). T-206 already requires two blind reviews from different families (measured).
@@ -101,3 +125,5 @@ The velocity review measured this baseline:
 | Rerun a failed test once, and only if it is on the known flakes list in `docs/testing.md`. The list does not exist yet (measured). | T-036 | A second failure counts as real. CI never reruns an unlisted failure. |
 | Give each flake entry a fix task and a 14-day expiry. A listed flake that fails more than twice in a day pauses dispatch in its lane and opens a P1 task. | This design | The list shrinks over time. |
 | Require T-034, T-035 and T-036 before activation. | This design | Without them, three lanes wait behind a 6-minute contracts job that their changes do not touch. |
+| Apply the flake rules to simulation pairings: a `flaky` mark in the catalogue with a fix task and a 14-day expiry, one rerun, and a lane pause after more than two failures in a day. | T-061 | A flaky pairing cannot hide a regression for long. |
+| Run anvil and workerd worlds only for the paths that need them. | T-061 | The scripted tier stays near 2 minutes on SimChain and 5 minutes with anvil or workerd (guessed). |
