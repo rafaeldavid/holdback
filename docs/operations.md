@@ -99,7 +99,7 @@ After the deploy, a smoke deal ended Released in 44 s, and the test seller sold 
 
 ### T-220: round 1's prerequisites in one deploy (deployed 2026-11-05)
 
-**State:** live since 2026-11-05, 11:04 UTC. Rafa gave the go-ahead on 2026-11-05 ("When ready, deploy"). A deploy session shipped PR 204's merge commit `69021a6` from main, in the same world, `holdback-public-demo-sepolia-2026-11-04` (D49): `WORLD_NAMES` did not change.
+**Live since 2026-11-05, about 11:04 UTC** (T-220 Evidence): holdback-op1 `1d8a029c`, holdback-op2 `a042aae3`, and crow-site `704bd295` from 11:10 UTC. Rafa gave the go-ahead on 2026-11-05 ("When ready, deploy"). A deploy session shipped PR 204's merge commit `69021a6` from main, in the same world, `holdback-public-demo-sepolia-2026-11-04` (D49): `WORLD_NAMES` did not change.
 
 - holdback-op1 `1d8a029c` and holdback-op2 `a042aae3`, deployed together by `pnpm demo-cloud:deploy` between 11:03:40 and 11:04:11 UTC, on the first try;
 - crow-site `704bd295`, deployed at 11:10 UTC; `https://escrow.stream/try.mjs` serves sha256 `cc310963…d832`.
