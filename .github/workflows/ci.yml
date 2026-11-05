@@ -59,11 +59,20 @@ jobs:
   contracts:
     name: contracts (forge test, anvil tests)
     runs-on: ubuntu-latest
+    # A healthy run takes about 8 minutes; a hang fails here instead of at GitHub's 6-hour default (T-035).
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          submodules: recursive
           persist-credentials: false
+      # Only the six repositories contracts/remappings.txt maps, at depth 1. `submodules: recursive` cloned about
+      # 100 nested test dependencies of commerce-payments: 2 to 6 minutes on 2026-11-03, then hangs past 40 (T-035).
+      - name: submodules
+        timeout-minutes: 5
+        run: |
+          git submodule update --init --depth 1 contracts/lib/commerce-payments
+          git -C contracts/lib/commerce-payments submodule update --init --depth 1 lib/forge-std lib/permit2 lib/solady lib/spend-permissions
+          git -C contracts/lib/commerce-payments/lib/spend-permissions submodule update --init --depth 1 lib/openzeppelin-contracts
       - uses: foundry-rs/foundry-toolchain@dba66c27052e63476d886f22216e119ba7e615bf # v1
         with:
           version: v1.0.0

@@ -1193,7 +1193,8 @@ export class EvmSettlement implements Settlement {
       case 'appeal_expiry': {
         const closedAt = appealClosedAt(book.state, at);
         await this.call(id, 'expireAppeal', [t], (at) => [{ type: 'expire_appeal', at }], options, dryRun, 'anyone');
-        if (!dryRun) book.appealClosedAt = closedAt;
+        // A deal behind the chain has no appeal in its book to close (T-228).
+        if (!dryRun && !book.behind) book.appealClosedAt = closedAt;
         return id;
       }
       case 'settle':
@@ -1224,8 +1225,10 @@ export class EvmSettlement implements Settlement {
    */
   private async send(id: Hex32, fn: string, to: Address, data: Hex, mirror: (at: Timestamp) => EscrowEvent[], options: Relay, dryRun: boolean, actor: Address | 'anyone', ctx: CallContext = {}): Promise<void> {
     const book = this.bookOf(id);
-    // The chain moved this deal past the book (T-218): the mirror cannot check a relay against it.
-    if (book.behind) refuse('invalid_state', this.lag(id)!);
+    // The chain moved this deal past the book (T-218): the mirror cannot check a relay against it. A timeout carries no
+    // signed message, and the contract checks it against dealOf and the terms' deadlines in the simulation below, so it
+    // is still relayed and a party with no gas can close the deal (T-228). Signed steps wait for T-227.
+    if (book.behind && !TIMEOUTS.has(fn)) refuse('invalid_state', this.lag(id)!);
     const key = options.sender;
     const from = key ? privateKeyToAccount(key).address : this.world.senderFor(id);
     const at = this.now();
@@ -1237,9 +1240,10 @@ export class EvmSettlement implements Settlement {
       if (raw === undefined && !/revert/i.test(String((e as Error).message))) throw e;
       throw new Refusal(problemFromRevert(this.abi, raw), revertName(this.abi, raw));
     }
-    // The mirror must accept what the contract accepted; run it before sending so a divergence changes nothing.
+    // The mirror must accept what the contract accepted; run it before sending so a divergence changes nothing. A deal
+    // behind has no mirror step: its receipt moves it as a transaction read from the chain does (`landBehind`).
     const before = book.state;
-    const next = this.mirrored(before, mirror(at), fn);
+    const next = book.behind ? before : this.mirrored(before, mirror(at), fn);
     if (dryRun) return;
     let mined: Mined;
     // T-219: what the relayer lane's row keeps, so a restart before the receipt applies this call as this relay.
@@ -1258,6 +1262,7 @@ export class EvmSettlement implements Settlement {
       refuse('invalid_state', `${fn} reverted on chain in ${mined.hash} after a passing simulation (the state or a deadline moved in between); nothing changed`);
     }
     this.balanceCache.clear();
+    if (book.behind) return this.landBehind(id, book, fn, to, data, mined, options);
     const blockAt = toTimestamp(mined.timestamp * 1000);
     const after = blockAt === at ? next : this.mirrored(before, mirror(blockAt), fn);
     const logs = this.decode(mined.logs);
@@ -1275,6 +1280,27 @@ export class EvmSettlement implements Settlement {
       if (stored !== want) throw new Error(`EVM/core divergence after ${fn}: the contract stores delivery ${stored}, core holds ${want}`);
     }
     this.record(id, book, fn, before, after, logs, mined, blockAt, options.via ?? 'direct', actor, ctx);
+    this.relayedAt.set(id, this.log_.length);
+    this.done(mined.hash, options);
+  }
+
+  /**
+   * A timeout this node relayed for a deal behind the chain is mined (T-228). It moves the deal as a transaction read
+   * from the chain does (`stillBehind`): dealOf's stage at the receipt's block, the keys its logs release, and no rebuilt
+   * step. A read that fails, or still shows the stage before the timeout, leaves the book and the lane row as they were,
+   * and the next pass applies the receipt with its own dealOf read (as `send`, review M2).
+   */
+  private async landBehind(id: Hex32, book: Book, fn: string, to: Address, data: Hex, mined: Mined, options: Relay): Promise<void> {
+    const was = book.behind!;
+    // Every timeout moves the stage or the appeal state: an answer that moved neither comes from a node that lags or
+    // follows another fork (red-team on PR 207, attack.t228-stale-receipt-read).
+    const stage = await this.atReceipt(() => this.stage(id, mined.blockNumber), (s) => s.stage !== was.stage || s.appeal !== was.appeal);
+    if (stage.stage === was.stage && stage.appeal === was.appeal) throw new Error(`dealOf at ${fn}'s block (${mined.hash}) still shows ${was.stage}; the next sync pass applies the receipt`);
+    const tx = chainTx(mined, to, data);
+    this.seen(id, mined.hash, book);
+    // A deal waiting for its posted delivery records the transaction when it joins.
+    if (!was.waiting) this.txs.push({ commitmentId: id, call: fn, hash: mined.hash, from: mined.from, via: options.via ?? 'direct', gasUsed: mined.gasUsed, at: toTimestamp(mined.timestamp * 1000) });
+    this.stillBehind(id, book, tx, stage);
     this.relayedAt.set(id, this.log_.length);
     this.done(mined.hash, options);
   }
@@ -1550,11 +1576,13 @@ export class EvmSettlement implements Settlement {
     }
     this.seen(id, tx.hash, book);
     if (book.behind) {
-      if (stage) Object.assign(book.behind, stage);
-      book.behind.waiting?.push(tx);
-      this.dirty.add(id);
-      this.custodyBehind(id, book, tx);
-      if (note) this.done(tx.hash);
+      const mark = this.log_.length;
+      this.stillBehind(id, book, tx, stage);
+      if (note) {
+        // The contract took the relayed call: a retry with its Idempotency-Key replays this answer (red-team on PR 207).
+        await this.answer(id, book, note, this.log_.slice(mark).filter((e) => e.commitmentId === id));
+        this.done(tx.hash);
+      }
       return 'behind';
     }
     const from = this.log_.length;
@@ -1573,6 +1601,17 @@ export class EvmSettlement implements Settlement {
       this.done(tx.hash);
     }
     return r;
+  }
+
+  /**
+   * A mined transaction for a deal already behind the chain (T-218): dealOf's stage, the transaction queued when only
+   * the posted delivery is missing, and the keys it releases.
+   */
+  private stillBehind(id: Hex32, book: Book, tx: ChainTx, stage: { stage: string; appeal: number } | undefined): void {
+    if (stage) Object.assign(book.behind!, stage);
+    book.behind!.waiting?.push(tx);
+    this.dirty.add(id);
+    this.custodyBehind(id, book, tx);
   }
 
   /** The note of this node's own open lane row that sent `hash` for this commitment (T-219), if any. */
@@ -1654,16 +1693,7 @@ export class EvmSettlement implements Settlement {
       return 'applied';
     }
     const t = parseTransaction(row.raw);
-    const tx: ChainTx = {
-      hash: mined.hash,
-      from: getAddress(mined.from),
-      to: t.to ? getAddress(t.to) : null,
-      input: t.data ?? '0x',
-      block: mined.blockNumber.toString(),
-      timestamp: mined.timestamp,
-      gasUsed: mined.gasUsed.toString(),
-      logs: mined.logs.map((l) => ({ address: getAddress(l.address), topics: [...l.topics] as Hex[], data: l.data, logIndex: Number(l.logIndex) })),
-    };
+    const tx = chainTx(mined, t.to ? getAddress(t.to) : null, t.data ?? '0x');
     const r = await this.follow(id, tx, await this.stage(id).catch(() => undefined));
     // Outside a pass: a pass that read dealOf before this does not check the deal (as catchUp).
     this.relayedAt.set(id, this.log_.length);
@@ -2152,7 +2182,10 @@ export class EvmSettlement implements Settlement {
     delete book.behind;
     this.dirty.add(id);
     const stage = { stage: behind.stage, appeal: behind.appeal };
-    for (const tx of waiting) {
+    // In chain order: a timeout this node relayed joins the queue when mined, ahead of an earlier direct call no pass has
+    // read yet (red-team on PR 207, attack.t228-waiting-order).
+    const chainOrder = (x: ChainTx, y: ChainTx) => Number(BigInt(x.block) - BigInt(y.block)) || (x.logs[0]?.logIndex ?? 0) - (y.logs[0]?.logIndex ?? 0);
+    for (const tx of [...waiting].sort(chainOrder)) {
       // A later transaction may put the deal behind again; the rest then wait behind it.
       const again = book.behind as Behind | undefined;
       if (again) again.waiting?.push(tx);
@@ -2307,6 +2340,12 @@ function erc3009Typed(primaryType: 'ReceiveWithAuthorization' | 'TransferWithAut
   const m = { ...message, value: BigInt(message['value']!), validAfter: BigInt(message['validAfter']!), validBefore: BigInt(message['validBefore']!) };
   const digest = hashTypedData({ domain, types: { [primaryType]: ERC3009_FIELDS }, primaryType, message: m } as Parameters<typeof hashTypedData>[0]);
   return { typedData, digest };
+}
+
+/** A mined transaction as the sync reads one (sync.ts). */
+function chainTx(mined: Mined, to: Address | null, input: Hex): ChainTx {
+  const logs = mined.logs.map((l) => ({ address: getAddress(l.address), topics: [...l.topics] as Hex[], data: l.data, logIndex: Number(l.logIndex) }));
+  return { hash: mined.hash, from: getAddress(mined.from), to, input, block: mined.blockNumber.toString(), timestamp: mined.timestamp, gasUsed: mined.gasUsed.toString(), logs };
 }
 
 /** D20: an appeal expiry is final at the deadline that closed the window, not when someone triggered it. */
