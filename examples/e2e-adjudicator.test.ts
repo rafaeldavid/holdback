@@ -11,7 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { adjudicatorTyped, RoundAdjudicator, type Script } from './e2e-adjudicator.ts';
 import { roundEncryptionKey, roundKey } from './e2e-keys.ts';
 import { BAD_CSV, CHECKS, CSV, DATASET, PRICE } from './e2e-scenario-kit.ts';
-import { buyerOpens, deliver, finish, fund, logsOf, openDeal, Round, Run, sleep, until, type Deal } from './e2e-run.ts';
+import { buyerOpens, deliver, finish, fund, logsOf, offer, openDeal, Round, Run, sleep, until, type Deal } from './e2e-run.ts';
 import { ANVIL_SKIP, anvilReady, anvilWorld, root, simWorld, type AnvilWorld, type Served } from './e2e-world.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -123,6 +123,23 @@ describe('against the demo world on SimChain', () => {
     expect(silent.acted).toEqual([{ id: silent.value.deal.id, did: 'accepted' }]);
     expect([...rejected.errors, ...accepted.errors, ...silent.errors]).toEqual([]);
     for (const k of [roundKey(seed, 'adjudicator-2'), `0x${Buffer.from(roundEncryptionKey(seed, 'adjudicator-2')).toString('hex')}`]) expect(lines.join('\n')).not.toContain(k.slice(2));
+  }, 120_000);
+
+  it("acts only on its round's deals: a stranger's deal that names it primary stays Offered", async () => {
+    const lines: string[] = [];
+    const r = await runOn(demo.urls, generatePrivateKey(), 'http://127.0.0.1:9', lines);
+    const a = await RoundAdjudicator.ready(r, 'adjudicator-3');
+    // Another round's parties: its address is public through its registration, so anyone can name it.
+    const stranger = await runOn(demo.urls, generatePrivateKey(), 'http://127.0.0.1:9', lines);
+    const theirs = await served(r, a, 'silent', async () => {
+      const deal = await offer(stranger, { label: "a stranger's deal", template: 'checks-only', deliverable: DATASET, checks: CHECKS, price: '0', adjudicators: { primary: a.address, fallback: r.round.demo.adjudicators.fallback, appeal: r.round.demo.adjudicators.appeal } }, []);
+      // Several of its passes (3 s apart) go by.
+      await sleep(10_000);
+      return { deal, now: await Promise.all(deal.buyer.sources().map((api) => deal.buyer.call('GET', `/v1/commitments/${deal.id}`, undefined, api))) };
+    });
+    expect(theirs.value.now.map((v: J) => v.escrowState), lines.join('\n')).toEqual(['Offered', 'Offered']);
+    expect(theirs.acted).toEqual([]);
+    expect(theirs.errors).toEqual([]);
   }, 120_000);
 });
 

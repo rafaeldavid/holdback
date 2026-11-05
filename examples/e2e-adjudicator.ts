@@ -193,7 +193,8 @@ export class RoundAdjudicator {
     const { round } = r;
     const chain = round.chain;
     if (!chain) throw new Error(`SimChain: the round's ${this.role} cannot bond at run time (T-221 left a run-time deposit out), so it can be an appeal adjudicator here but not a bonded primary or fallback; run this on anvil or Sepolia`);
-    const held = (await chain.holdings([this.address]))[this.address]!;
+    // Never before the round's own last transaction: a node behind it would show the bond from before an earlier deposit.
+    const held = (await chain.holdings([this.address], await chain.fresh()))[this.address]!;
     if (BigInt(held.free) >= amount) {
       r.say(`${this.role} ${short(this.address)}: free bond ${round.amount(held.free)} covers ${round.amount(amount)}; reused`);
       return 'reused';
@@ -268,9 +269,10 @@ export class RoundAdjudicator {
 
   /**
    * Serves in the driver's process until `stop`: every few seconds it reads the deals that name it, and for each one
-   * offered since `serve` started that names it primary, it accepts while the offer is open, then follows `script`
-   * once the deal is delivered (a function picks a script per deal). Deals from earlier runs are left alone. Stop it in
-   * a `finally`, so a stopped scenario leaves nothing deciding.
+   * between the round's buyer and seller, offered since `serve` started, that names it primary, it accepts while the
+   * offer is open, then follows `script` once the deal is delivered (a function picks a script per deal). Deals from
+   * earlier runs and anyone else's deals are left alone. Stop it in a `finally`, so a stopped scenario leaves nothing
+   * deciding.
    */
   async serve(r: Run, script: Script | ((deal: { id: Hex; terms: J }) => Script)): Promise<Serving> {
     const since = (await retry(() => this.agent.settlementNow())) - SINCE_MARGIN_MS;
@@ -294,8 +296,10 @@ export class RoundAdjudicator {
         try {
           if (!terms.has(id)) {
             const t = await this.terms(id);
-            // Only its own deals of this scenario: primary here, offered since serve started.
-            terms.set(id, lc(t.adjudication.adjudicator) === this.address && Date.parse(t.createdAt) >= since ? t : null);
+            // Only its own deals of this scenario: primary here, between the round's buyer and seller, offered since serve
+            // started. Its address is public through its registration, so a stranger's deal may name it too.
+            const ours = lc(t.buyer) === lc(r.round.address('buyer')) && lc(t.seller) === lc(r.round.address('seller'));
+            terms.set(id, lc(t.adjudication.adjudicator) === this.address && ours && Date.parse(t.createdAt) >= since ? t : null);
           }
           const t = terms.get(id);
           if (!t) continue;
