@@ -1,6 +1,6 @@
 # ADR-0030: Adjudicators register themselves through the API
 
-- **Status:** Proposed, 2026-11-04. Adopted under "autonomy inside the repo" after a Fable max-effort research pass (`docs/research/2026-11-04-adjudicator-registration.md`) and Rafa's answers on T-221 (D46); Rafa may overrule any line. Built in T-221: slice 1 (this ADR, the schema, core's types and EIP-712, the operator route and reads) on branch `t-221-registration-slice-1`; slice 2 (the demo's Durable Object store, the reference adjudicator's fallback trust rule, the anvil end to end) after T-217 and T-219 merge.
+- **Status:** Proposed, 2026-11-04. Adopted under "autonomy inside the repo" after a Fable max-effort research pass (`docs/research/2026-11-04-adjudicator-registration.md`) and Rafa's answers on T-221 (D46); Rafa may overrule any line. Built in T-221: slice 1 (this ADR, the schema, core's types and EIP-712, the operator route and reads) on branch `t-221-registration-slice-1`; slice 2 (the demo's Durable Object store, the reference adjudicator's fallback trust rule, the anvil end to end) on branch `t-221-registration-slice-2`, after T-217 merged and on T-219's branch.
 - **Date:** 2026-11-04
 - **Raised by:** T-221, from T-216 (the first full EVM end-to-end round needs a wrong first decision and a silent adjudicator) and Rafa (2026-11-04): "API should facilitate overturned appeals", then "Yes, plan it".
 - **Builds on:** ADR-0005 (operators relay, never author), ADR-0007 (bonded adjudicators), ADR-0014 (the bond pool and `poolTermsHash`), ADR-0020 (privacy), ADR-0023 (the version rule), ADR-0024 §6 (`KeyRegistration`), ADR-0028 (the demo settles on Sepolia), ADR-0029 (domain 0.7); D29, D31, D32, D43, D44, D46.
@@ -81,6 +81,15 @@ The route is a write, counted against the client's write budget at entry, and th
 
 `prepare/offer`, `/recipients` and the reference adjudicator's `registration()` port read the store. The demo's three adjudicators register through the same path when the world opens, so every served registration is signed (Rafa's answer 2).
 
+**As built in the demo (slice 2).**
+- The world keeps one Durable Object row `ar:<address>` per registration and reads them all with one list when it opens.
+- Each row keeps a sequence number from its address's first storage, and the listing pages by it, because storage lists rows by key.
+- A demo adjudicator signs its registration with the world's start as `issuedAt` and a nonce derived from it. A restart then posts the same digest, the store answers it as unchanged, and the open writes no row.
+- A demo adjudicator signs again, with a later `issuedAt`, only when its record changes (another build's template hashes, live judges turned on or off) or when it is within 30 days of its one-year expiry.
+- On a chain the world reads any address's bond from `HoldbackBonds.bondOf` and `freeOf` and reuses each read for 12 s, about one Sepolia block. A bond deposited just now can show as `"none"` for up to 12 s.
+- It keeps the 1,024 most recently read addresses, dropping the least recently read first. `GET /v1/adjudicators` reads at most 60 uncached addresses a minute, world-wide, about 2 RPC calls a second; past that a row shows `observed.bond: "unknown"` (review of PR 202: one listing page could otherwise cost up to 400 RPC calls on the endpoints the relays and the chain sync share). Prepare and the relays read without that budget; the write limit bounds them.
+- A replacement that changes an adjudicator's policy keeps the old policy in a row `ph:<policyHash>`, never deleted (§6), and telemetry counts those rows beside the `ar:` rows.
+
 ### 4. Crow's adjudicators are the defaults; others are advanced use
 
 Rafa: "crow's adjudicators are default and custom selection is advanced usage of protocol (outside of recommendation by crow etc.)".
@@ -102,7 +111,17 @@ Rafa: "crow's adjudicators are default and custom selection is advanced usage of
 
 ### 6. The fallback trust rule (slice 2)
 
-Once outsiders can be primaries, a Crow adjudicator named as fallback would decide under an outsider's appeal adjudicator, encumbering its own bond, and that appeal adjudicator could slash it: a second path to D44's attack. The reference adjudicator takes a fallback task only when the deal's appeal adjudicator is in its trusted set, and otherwise declines with `invalid_terms` and a reason in `notices`. As appeal adjudicator it serves any deal. The named test is `attack.untrusted-appeal-adjudicator-via-fallback`. It lands in `apps/adjudicator/src/service.ts` after T-217 merges.
+Once outsiders can be primaries, a Crow adjudicator named as fallback would decide under an outsider's appeal adjudicator, encumbering its own bond, and that appeal adjudicator could slash it: a second path to D44's attack. The reference adjudicator takes a fallback task only when the deal's appeal adjudicator is in its trusted set, and otherwise declines with `invalid_terms` and a reason in `notices`. As appeal adjudicator it serves any deal. The named test is `attack.untrusted-appeal-adjudicator-via-fallback`.
+
+As built (slice 2, `apps/adjudicator/src/service.ts`): the reference adjudicator checks the rule before it triggers a takeover and again before it judges, also when it accepted the same deal as primary. A declined turn calls no judge and reserves no bond. A fallback turn comes only after `judgeBy`, when core refuses the primary's decision, so no adjudicator decides the deal's first instance: the default outcome applies at `fallbackBy` unless the parties settle by mutual agreement first. The demo world shows the reason in the state read's `notices` while the deal is Delivered or FallbackJudging. The anvil end to end in `apps/demo-cloud/src/registration.anvil.test.ts` shows the same on the contracts: the demo fallback's free bond stays the same.
+
+After the review of slice 2 (PR 202):
+
+- **The bound policy is read by its hash.** The terms bind only the primary's `policyHash`, and the primary can register again after agreement. A fallback or appeal adjudicator that read the primary's latest registration would then refuse every pass with `policy_mismatch`: the appeal would expire, the first decision would stand and the primary's bond would never be reached (`attack.outside-primary-rotates-policy`). So a store keeps every policy a registration ever carried, by hash, never removed (the demo: rows `ph:<policyHash>` for replaced policies), and the reference adjudicator reads the bound one through its settlement port's `policy(hash)`. A later, protocol-level defence (a party attaches the policy body to its appeal) is a backlog row.
+- **The reference adjudicator answers from the terms alone whether it would take a role** (`declines`): as primary the offer checks; as fallback or appeal the trust rule, windows, fee, registry, bound policy, and whether its panel can be seated and reach a result. It triggers no takeover it would decline.
+- **A default is filled in only when it would take its role.** `prepare/offer` refuses to fill in one of the node's own adjudicators that would decline the terms (another registry, a policy it cannot run, a fee below its quote, an untrusted appeal adjudicator), naming the role to fill. The parties may still name it; prepare and the offer, hold and agreement relays then carry a notice, and the fallback's notice names the appeal adjudicators it trusts.
+- **A registration whose `minValid`, `minValidAppeal` or `minFamilies` exceeds its panel size is refused** as self-contradictory: no panel can reach it (D31 allows the refusal).
+- **The state read explains a declined appeal turn too,** and says what follows: the appeal expires at `appealDecideBy` and the first decision stands, or after an escalation the default outcome applies unless the parties settle.
 
 ### 7. What a reader checks
 

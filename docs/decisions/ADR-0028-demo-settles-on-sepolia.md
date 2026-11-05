@@ -46,6 +46,15 @@ What changes for an agent: each money step waits for a block (about 12 s), so a 
         - Cadence: a pass at least once a minute while a funded deal moved in the last day or nears a deadline, or an accepted offer moved in the last hour; every 15 minutes while open deals are quiet; none while no deal is open (T-057 unchanged).
         - A relayed transaction whose receipt the node missed applies on the next pass, labelled `direct` until T-219.
     - **An in-flight row per lane**, so a Durable Object restarted between broadcast and receipt picks up its own transaction.
+      - *As built, 2026-11-04 (T-219; T-220 deploys it):*
+        - Before each broadcast, a deal lane writes one row, `lane:<lane>:<sender>:<nonce>`, with every hash sent at that nonce, the raw transaction, and the submission: its message, Idempotency-Key, body hash and the delivery the call carries. A fee bump rewrites the row before the replacement goes out (`packages/settlement/evm/live.ts`, `apps/demo-cloud/src/lanes.ts`). The sender in the key keeps a rotated relayer key's row apart from the old key's at the same lane and nonce.
+        - The world deletes a row only after it has written the books and events the receipt changed, and the answer a retry replays. A first broadcast the node refused (nonce too low, underpriced, too little test ETH) and a given-up transaction delete it at once. Any other broadcast error, such as a timeout, keeps the row: the transaction may be out, so the lane resolves it before its next send.
+        - Opening reads the rows with one list and calls no chain. Until a row is resolved, its lane sends nothing else and never reads its nonce from `pending`.
+        - The next pass resolves each row, the relayer lanes side by side, and so does any submission for the same deal. Mined: the lane's nonce is the row's plus one, and the transaction applies once through T-218's path, labelled as the relay was, with the row's messages. Not mined: the same raw transaction is rebroadcast, and the give-up rule applies at the receipt timeout, or one rebroadcast window after the restart if that is later.
+        - A retry with the same Idempotency-Key and body gets the mined result. Another body under that key is `idempotency_conflict` (409), for any commitment, while the row is open and after.
+        - The deferred `commitment.agreed` now carries the funding block's time, so a recovered relay writes the same event as an uninterrupted one. On anvil the two times were already equal.
+        - Limit: the funding lane keeps no rows (faucet grants, lane top-ups, bond setup).
+        - *Review fixes, 2026-11-04:* the release after the answer, the key check across open rows, the kept row on an unclear broadcast error, the sender in the key and the lanes side by side came from the T-219 review and red-team (task Evidence).
     - **Schema v0.9 items** (T-033): the `cpp-erc3009` scheme name, a `chain` object on the state read, settlement contracts in discovery, `relayer_unavailable`.
 
 ## Alternatives considered

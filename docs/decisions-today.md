@@ -843,3 +843,24 @@ Also: the funding signature on EVM is CPP's collector signature and token identi
 | Keep the world; change the rulebook in place (chosen) | No new keys or bonds, and no break in history; old deals keep their rulebook; a stale offer gets 422 with the fix in the problem |
 | A fresh world per rulebook or schema change (T-220's draft) | Three new bonds (about 1.12 million gas and 0.015 Sepolia ETH); the API forgets every deal, its ciphertexts and its records; monitoring restarts |
 | One world over several rules contracts | Days of adapter and operator work in the money path, for a testnet demo |
+
+## D50. A deal left behind the chain is security hardening; it does not block T-220's deploy (T-227)
+
+**Decided 2026-11-05 by Rafa**, when asked whether residual 13 in `docs/neutrality.md` (a direct step the operators cannot read) must be fixed before T-220's deploy, as T-218's red-teamer recommended. He asked: "is this only a demo and not a mainnet problem? Or is this a mainnet security issue? If so, let's add to security hardening, since we're assuming honest actors at the moment." The findings come from T-218's review and red team (PR 185, 2026-11-04); no new research pass ran. Rafa may overrule any line.
+
+- **It is a mainnet issue (inferred).** The gap is in the operator node's code, the chain sync and the adjudicators' schedule, not in the Sepolia setup. Mainnet operators would run the same code.
+- **The attack.** A stranger, or a party to the deal, resends a copied signed step through a contract that transforms its calldata. The contract takes it, but the operators' view cannot rebuild it, so their book falls behind `dealOf`. The operators' adjudicators read the book, so they do not act on that deal, and it ends by its timeouts (its default outcome). It costs the griefer only gas.
+- **What still holds.** The funds stay under the contract's terms. The parties and other adjudicators can still submit to the contract directly (ADR-0005), and the state read shows the contract's stage with a notice.
+- **Two of the five cases are gaps for real use:** a step from a contract signer (ERC-1271, a Safe or a smart account), and two signed steps for one deal in one transaction. Honest agents with contract wallets or batched calls will hit them. The other three are attacks (T-227 lists all five).
+- **Placement.** T-227 in Phase 11, Security hardening, after T-225. It must land before mainnet. It touches relays and adjudication, so it needs `reviewer` and `red-teamer` passes. T-220 deploys without it, because the demo assumes honest parties until the basic demo works (`docs/backlog.md`, Rafa, 2026-10-30).
+- **The proposed fix** (T-218's reviewers): the adjudicators read `dealOf`'s stage, and a relay path records the receipt without stepping the core mirror. No contract change is expected (inferred).
+- **Litmus tests.**
+  - Neutrality holds in the protocol's sense: the deal settles by its terms, and nobody moves funds outside them. In practice it weakens until T-227 lands: anyone can silence the operators' adjudicators on one deal for the cost of gas.
+  - The hold is untouched.
+  - Judgment is untouched; the operators' adjudicators skip the deal, as an offline adjudicator would.
+
+| Option | Effect |
+| --- | --- |
+| Fix before T-220's deploy (T-218's red-teamer) | No demo deal can be griefed into its default outcome; round 1 waits for a task with a red team |
+| Phase 11, before mainnet (chosen) | T-220 deploys now; until T-227 lands, anyone can push a demo deal to its timeouts for the cost of gas |
+| Keep it in the backlog | Nothing scheduled; mainnet could ship with the gap |

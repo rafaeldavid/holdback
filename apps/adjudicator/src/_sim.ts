@@ -16,6 +16,7 @@ import {
   verifyMessage,
   err,
   type AdjudicatorAcceptance,
+  type AdjudicatorPolicy,
   type AdjudicatorRegistration,
   type Address,
   type Commitment,
@@ -194,6 +195,8 @@ export class TestSettlement implements AdjudicatorSettlement {
   readonly blobs = new Map<string, Uint8Array>();
   readonly records = new Map<string, Judgment>();
   readonly registrations = new Map<string, AdjudicatorRegistration>();
+  /** Every policy a registration ever carried, by hash, as an operator's store keeps them (T-221 review). */
+  readonly policies = new Map<string, AdjudicatorPolicy>();
   readonly submitted: Array<AdjudicatorAcceptance | Decision> = [];
   /** Refuse the next N decision submissions (a transient failure). */
   failNextDecisions = 0;
@@ -389,6 +392,16 @@ export class TestSettlement implements AdjudicatorSettlement {
 
   async registration(address: Hex32) {
     return this.registrations.get(address.toLowerCase()) ?? null;
+  }
+
+  /** Stores a registration as the one for its address, and keeps its policy by hash for good. */
+  register(r: AdjudicatorRegistration): void {
+    this.registrations.set(r.address.toLowerCase(), r);
+    this.policies.set(r.policyHash, r.policy);
+  }
+
+  async policy(hash: Hex32): Promise<AdjudicatorPolicy | null> {
+    return this.policies.get(hash) ?? null;
   }
 
   /**
