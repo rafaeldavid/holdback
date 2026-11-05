@@ -166,7 +166,7 @@ describe('try.ts', () => {
     expectDeal(await node(['--input-type=module', '-'], demo.urls, { stdin: committed, cwd: here('.') }));
   }, 60_000);
 
-  it('llms.txt carries the one command, with the sha256 of site/try.mjs and the lockfile versions, and the homepage leaves it out', async () => {
+  it('llms.txt carries the one command, with the sha256 of site/try.mjs and the lockfile versions, and the homepage copies it without showing it', async () => {
     const { tryCommand, page, filled, pins } = await import(here('../site/build.mjs'));
     const sha = createHash('sha256').update(readFileSync(here('../site/try.mjs'))).digest('hex');
     // The pins are the versions this test ran the deal with: what pnpm installed for examples/.
@@ -177,12 +177,21 @@ describe('try.ts', () => {
     const md = readFileSync(here('../site/llms.txt'), 'utf8');
     const html = readFileSync(here('../site/index.html'), 'utf8');
     expect(html === page(md), 'site/index.html is stale: run node site/build.mjs').toBe(true);
-    // The homepage's prompt sends the visitor's assistant to llms.txt, which carries the command (Rafa, 2026-11-04).
-    expect(html).not.toContain('mkdir -p crow-try');
-    expect(html).not.toContain(sha);
-    expect(html).toMatch(/<span id="prompt" hidden>[^<]*https:\/\/escrow\.stream\/llms\.txt<\/span>/);
+    // One-Click Escrow (D51, T-229): the copy button copies a prompt that carries the exact command on its own line,
+    // so a fresh assistant asks for one approval. The visible page shows only the Try line (Rafa, 2026-11-04).
+    const span = /<span id="prompt" hidden>([^<]*)<\/span>/.exec(html);
+    const prompt = (span?.[1] ?? '').replaceAll('&quot;', '"').replaceAll('&lt;', '<').replaceAll('&gt;', '>').replaceAll('&amp;', '&');
+    expect(prompt.split('\n')).toContain(command);
+    expect(prompt).toContain('https://escrow.stream/llms.txt');
+    const visible = html.replace(span?.[0] ?? '', '');
+    expect(visible).not.toContain('mkdir -p crow-try');
+    expect(visible).not.toContain(sha);
     const txt: string = filled(md.split('\n').filter((l) => !l.startsWith('%% CONFIRM')).join('\n'), { op1: 'https://op1.example', op2: 'https://op2.example' });
     const tryIt = txt.slice(txt.indexOf('## Try it'), txt.indexOf('\n## ', txt.indexOf('## Try it') + 3));
     expect(tryIt.split('\n').find((l) => l.startsWith('mkdir '))).toBe(command);
+    // Each fetch before the command is one more approval: "Try it" asks for none, and keeps the sha256 pin and the source.
+    expect(tryIt).not.toMatch(/before you ask|fetch https:\/\/escrow\.stream\/try\.mjs/);
+    expect(tryIt).toContain('runs it only if its SHA-256 matches the one in the command');
+    expect(tryIt).toContain('`examples/try.ts`, `agent.ts` and `verify.ts` in https://github.com/rafaeldavid/holdback');
   });
 });
