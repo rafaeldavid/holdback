@@ -58,6 +58,19 @@ Where the drafts agreed, the design keeps the shared choice. Where they differed
 - Usage telemetry became the fourth input lane at Rafa's request, relayed by the coordinating session. It covers the website, social posts, the API and the chain. Each source has an owner, a cadence, a rule that opens a record and a retention limit. Telemetry holds aggregates only, keeps them private, and sends nothing to non-Anthropic providers ([pipeline.md](pipeline.md)).
 - At Rafa's request, the operator adds feedback requests at key deal milestones for agents whose owners opt in. It asks before signing, after a stage completes, or on a sample of milestones and errors. Ratings become telemetry, and free text enters the quarantine ([pipeline.md](pipeline.md)).
 - The guard hook now also blocks command substitution, `xargs`, `eval` and `find -exec`, at Rafa's request, relayed by the coordinating session.
+- On 2026-11-05 Rafa asked for "agent / customer usage simulation, with set of diverse needs informed by continous market feedback in staging environment pre-merge". The design adds a scripted tier as a fourth required check, a model tier on the VM, per-PR worlds and a shared Sepolia staging world, and a catalogue that market feedback keeps current ([pipeline.md](pipeline.md#usage-simulation), T-061, T-062).
+- The same day Rafa asked that "tickets" also come from "agent crawlers looking for bugs in production environment, as well as continuous security audits informed by market security events". The design adds production crawlers and a security watch with targeted red-team audits to the Tickets lane (T-063, T-064).
+
+A Fable 5.1 design pass at max effort wrote both amendments: `docs/research/2026-11-05-simulation-and-watch.md`, with ten open questions for Rafa. It chose between these options:
+
+| Question | Options | Decision and reason |
+| --- | --- | --- |
+| Where the simulation gates | A CI status; a reviewer's precondition | Both. The scripted tier is deterministic and free, so it runs in CI as `simulate`. Live models are stochastic and cost money, so the model tier blocks only on deterministic facts (an invariant violation or a measured regression), and the reviewer reads its record. |
+| What staging is | Per-PR worlds; one shared Sepolia world | Both. Per-PR worlds on SimChain, anvil and workerd give the gate. One Sepolia staging world, separate from D49's demo world, catches real block timing, RPC providers and Cloudflare limits before each deploy. |
+| Where the crawler runs | GitHub Actions; the agents' VM | The VM. Actions schedules skipped two hourly runs during a GitHub incident on 2026-11-04 (measured, T-060), when the crawler matters most. |
+| The harness's tier | Tier 3, as T-044 puts gate-defining files; tier 2 | Tier 2, with the pass rules in tier 3 (`ops.yaml`). A second family still reads every harness change. Rafa may move it to tier 3. |
+| Catalogue entries from untrusted sources | Rafa's approval line; the normal tier 1 review | Tier 1 review. The architect writes entries from schema-bounded records, never from raw text, and a simulated party holds only a test key. Rafa can require his line. |
+| A security audit that breaks a defense | A public fixture; a private fix | A private fix. Nothing is pushed until the fix ships in GitHub's security-advisory fork, as `SECURITY.md` promises, and the fixture lands with the fix. |
 
 ## Corrections
 

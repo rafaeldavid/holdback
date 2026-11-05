@@ -20,7 +20,10 @@ models:                       # The IDs are pinned. A model change requires a ti
 
 intake:
   lanes:
-    tickets:   { sources: [github_issue, pr_comment], trust: untrusted, path: quarantine }   # The repository is public and has no issues (measured).
+    tickets:
+      issues:   { sources: [github_issue, pr_comment], trust: untrusted, path: quarantine }   # The repository is public and has no issues (measured).
+      crawlers: { sources: [crawler], trust: measured, path: script_record, model: none, task: T-063 }   # Status codes, problem types, booleans and counts; never a body. See crawler below.
+      security: { sources: [advisory, cve, writeup, research], trust: untrusted, path: { matched: deterministic_map, free_text: quarantine }, to: rafa, task: T-064 }   # See security_watch below.
     feedback:  { sources: [feedback], where: "POST /v1/feedback (T-032)", trust: untrusted, path: quarantine, repo_copy: fingerprint_only }
     roadmap:   { sources: [docs/plan.md, docs/backlog.md, docs/decisions-today.md, docs/decisions/, "docs/reviews/*#Next steps"], trust: trusted, path: architect }
     telemetry: { sources: [web, social, api, onchain], trust: { aggregates: measured, social_text: untrusted }, path: signal_rules }
@@ -31,6 +34,8 @@ intake:
     out: schemas/triage-record.schema.json
     on_invalid: drop_and_count
     raw_text: { never_in: [task file, brief, PR body, handoff], reader: one_shot, cap_kb: 4 }
+    also_reads: [sim friction reports, crawler vanilla-visitor friction, security write-ups and research, unmatched CVE text]   # T-062, T-063, T-064
+    security_items: { triager_returns: [threatIds, component, summary, needsRaw], paths_from: agent-ops/threat-map.yaml, model_names_paths: never }
   untrusted_to_tier_2_or_3: rafa   # Rafa approves these tasks, because they form the longest injection path.
 
 telemetry:                    # Telemetry holds aggregates only (D35, D39, D40). The thresholds are guesses that the shadow week calibrates.
@@ -78,11 +83,129 @@ feedback_requests:            # The operator asks opted-in agents for feedback a
   answer: { route: "POST /v1/feedback", rules: D39, ratings: telemetry aggregates, free_text: quarantine }
   opens_record: ["a milestone's average ease rating falls below 3 over a week", "more than 30% of a milestone's answers say the docs did not answer"]   # The thresholds are guesses.
 
+simulation:                   # Usage simulation before merge (T-061, T-062; Rafa, 2026-11-05). Every number is a D31 parameter and a guess that the shadow period measures.
+  catalogue: { file: tools/sim/catalogue.json, version: 2, schema: tools/sim/catalogue.schema.json, tier: 1, expect_change_tier: 2 }
+  customer_paths:             # scripts/ci/affected.mjs (T-034) serves this list. A pull request that touches none of these passes simulate at once.
+    agent_docs: [site/llms.txt, docs/api.md, docs/quickstart.md, "site/build.mjs (problem-page text)"]
+    tier_1: ["examples/**", "site/**", "apps/test-agents/**", "apps/demo/**", tools/sim/catalogue.json, fixtures/clubs, fixtures/terms, fixtures/data]
+    tier_2: ["apps/operator/src/**", "apps/adjudicator/**", "apps/demo-cloud/**", "packages/**", "spec/**", "contracts/**", "config/judges*.yaml", pnpm-lock.yaml]
+  worlds:
+    sim:     { start: "tools/sim/stage.ts --world sim", when: every customer path }
+    anvil:   { start: "tools/sim/stage.ts --world anvil", when: tier_2 paths }
+    workerd: { start: "tools/sim/stage.ts --world workerd", when: ["apps/demo-cloud/**", "apps/site/**", "apps/test-agents/**", "site/**"] }
+    staging:
+      workers: [holdback-staging-op1, holdback-staging-op2, crow-test-agents-staging]
+      hosts: [staging-api.escrow.stream, staging-api2.escrow.stream, staging.escrow.stream]
+      settlement: sepolia
+      world: holdback-staging-sepolia-<date>
+      deploy: "/opt/crow/deploy stage <tag> <sha>"
+      when: [before every production deploy, nightly from main's tag]
+      funding_lane_wei: "300000000000000000"   # About 0.3 Sepolia ETH, guessed.
+    never: holdback-public-demo-sepolia-2026-11-04   # The D49 demo world. No staging code path can address it.
+    chains: [simchain, anvil, sepolia]                # assertRoundChain refuses any other chain before any write.
+  frameworks:
+    claude-code:     [haiku, sonnet, opus, fable]
+    tool-loop:       { transport: apps/adjudicator/src/providers/live.ts, models: [deepseek-v4-pro, gpt pinned by T-040], tools: [http to the world's operators, sign] }
+    scripted:        { code: [examples/agent.ts, examples/verify.ts] }
+    vanilla-visitor: { model: claude, prompt: the homepage prompt only }
+  must_run: [homepage-visitor, vanilla-visitor, private-honest, refund-failed-check, appeal-upheld, silent-seller-reclaim]   # vanilla-visitor runs in the model tier only.
+  scripted:                   # Stage 5: the fourth required status.
+    status: simulate
+    harness_from: main
+    blocks_on: unmet expect
+    timing_bps: 5000          # A median deal time or p95 latency this far above main's baseline opens a friction record. Advisory.
+    always_reports: true
+  model:                      # Stage 5a, read in stage 6: the reviewer approves a tier 2 pull request only on a PASS record for the head commit.
+    runner: tools/sim/stage.mjs
+    user: stager
+    record: /srv/crow/sim/pr/<pr>/<head-sha>.json
+    reads_from_main: [catalogue, briefs, harness]
+    sample_pairings: { agent_docs: 2, tier_1: 2, tier_2: 6 }
+    blocks: { tier_2: [invariant violation, completion regression beyond the noise band after one rerun], agent_docs: once calibrated, tier_1: never }
+    advisory: [friction, cost, time]
+    noise_band_pairings: 2
+    tokens_bps: 3000          # Spending this much more than the baseline for the same pairings opens a friction record.
+    incomplete: { reruns: 1, then: needs-human }
+    egress: [loopback, model APIs]
+  baseline: { path: /srv/crow/sim/baseline/<main-sha>.json, writer: stager, nightly_pairings: 6, weekly: full catalogue, compare: median of the last 5 nightly runs }
+  flakes: { reruns: 1, expiry_days: 14, needs: fix task, pause_lane_after_failures_per_day: 2 }   # The Known flakes rules (T-049).
+  budgets:                    # Guessed. A run past its budget ends incomplete (T-047's budget stop).
+    scripted_simchain:      { minutes: 2,  usd: 0 }
+    scripted_anvil_workerd: { minutes: 5,  usd: 0 }
+    model_agent_docs:       { minutes: 15, usd: 3 }
+    model_tier_2:           { minutes: 20, usd: 10 }
+    nightly_baseline:       { minutes: 20, usd: 10 }
+    weekly_full:            { minutes: 60, usd: 30 }
+    pre_deploy_staging:     { minutes: 15, usd: 0, sepolia_wei: "10000000000000000" }   # About 0.01 Sepolia ETH.
+    daily_cap_usd: 50         # Inside the pipeline's USD 300.
+  feedback_loop:              # Market feedback keeps the catalogue current. No raw text and no figure enters the catalogue.
+    sources: ["requested feedback (T-043)", "free reports (T-032)", "telemetry (T-031, T-042)", social posts, founder notes, sim and crawler friction]
+    route: catalogue          # The architect writes the entry from record fields and opens a tier 1 pull request.
+    founder_entries: { command: "pnpm sim:entry", fields: shape only, origin: founder }
+    approval: tier 1 review   # Rafa can require his approval line instead.
+    weights: { unit: bps, sum: 10000, round_to_bps: 500, floor_bps: 500, floor_after_days: 90, recompute: monthly, from: aggregates only, public: rafa decides }
+
+crawler:                      # Production bug crawlers (T-063). Tier 3: raising a budget is Rafa's merge. Cadences and caps are guesses; the limits they respect are measured.
+  user: crawler               # On the VM (T-039). No token, no chain key; fresh keys per probe, funded by the faucet.
+  read_pass_min: 30
+  deal_pass_hours: 8
+  deals_per_day: 4
+  requests_per_pass: 60
+  max_request_rate_per_origin: 1        # Requests a second.
+  faucet_grants_per_hour: 2             # A visitor may take 10 a client IP (measured, apps/demo-cloud/src/world.ts).
+  seller_requests_per_day: 3            # The test seller allows 10 a client a day (measured, apps/test-agents/src/catalog.ts).
+  relayer_floor_wei: "50000000000000000"   # 0.05 Sepolia ETH, T-054's floor. Below it the crawler skips the deal probe.
+  skip_after_relay_refused_min: 60
+  probes:
+    read: [R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12]
+    deal: { D1: every deal pass, D2: every third deal pass, D3: daily }
+    after_deploy: "node tools/crawler/crawl.ts --once --deals 1"
+  weekly_probes: { when: "Sunday 03:00 UTC", probes: [upheld appeal, Prefer feedback flow, private deal, vanilla visitor], needs: rafa }
+  synthetic_header: "X-Holdback-Synthetic: crawler"   # Rafa decides whether the operators count it in a synthetic bucket.
+  user_agent: crow-crawler/<commit>
+  records: { source: crawler, model: none, fields: [status codes, problem types, booleans, counts, durations, transaction hashes], bodies: never }
+  severity: { one_command_fails: P1, operators_disagree: P1, docs_disagree: P2, dependency_incident: P3 }
+  dedupe: { fingerprint: "sha256(probe, failure class, normalized status or problem type)", close_after_passes: 3, dependency_incident: duplicateOf the incident }
+  history: /srv/crow/crawler/
+  never: [load test, "feedback other than validateOnly", early-access sign-up, appeal outside the weekly set, direct contract call, adjudicator registration]
+
+security_watch:               # Continuous security audits from market security events (T-064). Costs are guesses.
+  user: watcher               # On the VM (T-039). No key of any kind.
+  allowlist: agent-ops/security-watch.yaml   # Tier 3. The watcher fetches only these URLs, never a link inside an item.
+  threat_map: agent-ops/threat-map.yaml      # Threat IDs (T1 to T22, residuals 1 to 13, P1 to P19) and components to paths, fixtures and controls.
+  fetch: { cadence: daily, utc: "04:00", timeout_s: 10, cap_bytes_per_source: 1048576, item_cap_bytes: 4096, inbox_days: 30, fingerprint_days: 90 }
+  match: { model: none, from: [pnpm-lock.yaml, contracts/lib, contracts/foundry.toml, config/judges-live.yaml, scripts/dev-env/setup.sh] }
+  free_text: quarantine
+  to_rafa: { what: every security record, channel: T-055, public_issue: never }
+  audit:
+    route: audit
+    role: red-teamer
+    model: fable
+    effort: max
+    budget_usd: 40
+    reproduce_on: [simchain, anvil, anvil fork of sepolia]
+    live_demo: rafa each time
+    out: schemas/audit-record.schema.json
+  outcomes:
+    holds: "a public attack.* or neutrality.* fixture, tier 2"
+    breaks: "nothing pushed; AuditRecord to Rafa; fix in the private advisory fork; the fixture lands with the fix"
+    does_not_apply: "the second family checks the verdict"
+  second_family: { when: [applies no, applies unsure, source rates High or Critical], via: scripts/ops/xreview.mjs, sees: [AuditRecord, dependency match, threat-map excerpt], raw_text: never }
+  integrity:
+    script: scripts/ops/integrity.mjs
+    cadence: weekly
+    checks: [pnpm audit, OSV on the lockfile, submodule advisories, moved Actions tags, delisted model IDs, deployed code hashes, drand chain hash, .gitleaksignore changes]
+
 record:
   schema: schemas/triage-record.schema.json
   kinds: [bug, docs, feature, feedback, friction, deprecation, incident, flake, security, spam]
   routes: [task, backlog, decision, close]
   order: [demo path, severity, age]
+  proposed:                   # Additive schema changes that land with their tasks, coordinated with T-041. The schema does not have them yet.
+    sources: [crawler, sim, advisory, writeup, cve, research, founder]
+    routes: { catalogue: T-062, audit: T-064 }
+    fields: [threatIds, component, dependency, probe, likelyCause, seenCount]
+    schemas: [schemas/sim-record.schema.json, schemas/audit-record.schema.json, tools/sim/catalogue.schema.json]
 
 roles:
   triager:        { model: haiku,  tools: [], out: TriageRecord }
@@ -92,10 +215,14 @@ roles:
   verifier:       { model: sonnet, tools: [Read, Bash, Edit Evidence only] }
   reviewer:       { model: not_author, sonnet_work: opus, opus_work: fable, tools: [Read, Bash] }   # The reviewer has no Write or Edit access.
   xreviewer:      { model: second_family, tools: [], out: ReviewVerdict }
-  red-teamer:     { model: fable, effort: max, plus: second_family_at_milestones }
+  red-teamer:     { model: fable, effort: max, plus: second_family_at_milestones, also_on: "security record routed audit (T-064)", out: AuditRecord }
   tick_runner:    { model: haiku, runs: scripts/ops/tick.mjs, decides: nothing }
   lander:         { model: haiku, runs: /merge-pr }
   daily_log:      { model: haiku, writes: [docs/log/] }
+  stager:         { model: none, user: stager, runs: tools/sim/stage.mjs, spawns: simulated_customer, writes: [/srv/crow/sim/, friction records] }   # T-062
+  simulated_customer: { frameworks: simulation.frameworks, egress: [loopback, model APIs], holds: a per-world test key only }       # T-061, T-062
+  crawler:        { model: none, user: crawler, runs: tools/crawler/crawl.ts, writes: [/srv/crow/intake/, /srv/crow/crawler/] }       # T-063
+  watcher:        { model: none, user: watcher, runs: [scripts/ops/watch.mjs, scripts/ops/integrity.mjs], writes: [/srv/crow/watch/, security records] }   # T-064
 
 stages:
   - { id: intake,   actor: [scripts/ops/intake.mjs, scripts/ops/signals.mjs, triager], out: TriageRecord }
@@ -104,8 +231,9 @@ stages:
   - { id: dispatch, actor: scripts/ops/tick.mjs, claim: "push t-<id>-<slug>, Status flip first", claim_ttl_hours: 24 }
   - { id: build,    actor: [fixture-author, implementer], exit: pnpm verify green }
   - { id: verify,   actor: verifier, exit: [no contradicted claim, one number re-measured] }
-  - { id: ci,       required: [check, gitleaks, xreview], rerun: { max: 1, only: known_flakes } }
-  - { id: review,   actor: [reviewer, xreviewer, red-teamer], max_rounds: 3, then: needs-human }
+  - { id: ci,       required: [check, gitleaks, xreview, simulate], rerun: { max: 1, only: known_flakes } }
+  - { id: simulate, actor: stager, when: "PR touches simulation.customer_paths", out: SimRecord, blocks: simulation.model.blocks }
+  - { id: review,   actor: [reviewer, xreviewer, red-teamer], precondition: { tier_2: SimRecord PASS for the head commit }, max_rounds: 3, then: needs-human }
   - { id: merge,    actor: { tier_0_2: lander, tier_3: rafa }, commit: merge, never_auto: [tier_3, fork] }
   - { id: feedback, actor: daily_log, out: [docs/log/, design map, metrics, intake] }
 
@@ -136,7 +264,8 @@ tiers:                        # A pull request takes the highest tier among its 
   0: { paths: ["docs/**", "brand/**", "/*.md"], except: ["docs/decisions/**", CLAUDE.md, AGENTS.md], merge: auto }   # Snapshot files (*.expect.md) count as code.
   1: { paths: ["**"], adds: [verifier], merge: auto }
   2: { paths: ["contracts/**", "packages/settlement/**", "packages/judgment/**", "packages/core/**", "spec/**", "apps/adjudicator/**", "apps/operator/src/**",
-               "config/judges*.yaml", "formal/**", "docs/decisions/**", pnpm-lock.yaml],
+               "config/judges*.yaml", "formal/**", "docs/decisions/**", pnpm-lock.yaml,
+               tools/sim/check.ts, tools/sim/scripted.ts, tools/sim/stage.ts, tools/sim/stage.mjs, tools/sim/gate.mjs, tools/sim/sample.mjs],   # The simulation harness defines a gate (T-061). Rafa may move it to tier 3.
        adds: [fixtures first, xreviewer, "red-teamer on judgment, settlement, contracts and operator"], merge: auto_after_both_families_pass }
   3: { paths: [".github/**", ".claude/**", "agent-ops/**", CLAUDE.md, AGENTS.md, .gitleaksignore], also: flagged by guardrails.mjs,
        adds: [xreviewer], merge: rafa, enforce: [fleet GitHub App identity, code-owner review on tier 3] }
@@ -145,6 +274,7 @@ tiers:                        # A pull request takes the highest tier among its 
 guardrails:                   # scripts/ci/guardrails.mjs runs inside the check job.
   fail: [path outside task paths, "spec/schemas change without ADR and version bump"]
   raise_to_tier_3: ["deleted or edited attack.* or neutrality.* fixture", raised timeout, new admin selector]
+  raise_to_tier_2: ["a changed expect in tools/sim/catalogue.json"]   # T-061. An expectation works like a snapshot.
 deny_additions: [wrangler, gh api --method, gh repo edit, gh secret, gh ruleset, gh pr merge --admin, git push to main]
 
 blocking_finding: [file_line, rule or litmus test or security property, reproduction]
@@ -166,6 +296,8 @@ milestones:
   - { at: ADR,                   reviewers: [deepseek], effect: advisory input to Rafa }
   - { at: phase exit,            reviewers: [fable red team, deepseek red team, gpt red team], effect: blocks the exit claim }
   - { at: before a deploy,       reviewers: [deepseek], over: diff since last deploy, effect: advisory }
+  - { at: before a deploy,       check: "deploy stage <tag> <sha>: crawler probes and 3 must-run pairings on the Sepolia staging world", effect: "blocks: deploy refuses without a PASS staging record for the same tag and SHA" }   # T-062
+  - { at: security event,        reviewers: [fable red team, "deepseek on does not apply, unsure, High or Critical"], effect: "public fixture if it holds; private fix task if it breaks" }   # T-064
   - { at: mainnet,               reviewers: [external audit], effect: rafa }
 
 xreview_ci:
@@ -188,6 +320,7 @@ observability:
   per_pr_footer: [model per role, sessions, reruns, verdict per family, tier, budget used]
   per_tick: reports/agent-ops/metrics.jsonl
   daily: docs/log/        # The log holds pipeline figures only. Product telemetry stays private (D39).
+  daily_figures_add: [simulation pass rate, flaky pairings, incomplete simulation runs, crawler pass rate, security record count]   # The log never names a security record.
   alarms_pause_dispatch: [main red 30 min, cross-family block rate over 50% in a day, spend at daily cap, gitleaks hit on an agent branch]
 
 activation:                   # Rafa approves each step.
@@ -196,10 +329,24 @@ activation:                   # Rafa approves each step.
   - T-034, T-035, T-036 merged; Known flakes list in docs/testing.md
   - reviewer and verifier lose Write and Edit; deny_additions in .claude/settings.json
   - schemas wired into the harness; attack.* payloads fed to triage; tests/agent-ops-inactive.test.ts
+  - "5b simulation harness dry runs: scripted tier in pnpm verify and advisory CI; stager by hand on 3 tier 2 PRs and 5 nights on main; noise band and budgets set (T-061, T-062)"
+  - "5c crawler by hand: crawl.ts --once after the next deploy; its record read (T-063)"
+  - "5d watch dry run: watch.mjs --dry-run daily for 2 weeks; a planted fixed advisory through match, quarantine and one scripted audit (T-064)"
   - telemetry and feedback: deploy T-031 and T-032 (both merged), build T-043 after its ADR, enable Web Analytics and a public-source social reader
+  - "6b staging world: staging Workers, hostnames, relayer key, funding lane (about 0.3 Sepolia ETH), WORLD_SECRET; deploy stage <tag> <sha>; first staging deploy passes the crawler probes (T-062)"
+  - "6c crawler timer: systemd timer, synthetic header deploy if chosen, weekly probes, console push (T-063)"
+  - "6d Dependabot npm and gitsubmodule ecosystems; the channel for security records; where confirmed exploits live (T-064)"
   - "shadow week: tick --dry-run; Rafa dispatches by hand; thresholds calibrated"
+  - "7b simulation shadow: model tier on every tier 2 PR, binding nothing; Rafa decides whether the PASS precondition and the agent-docs probe bind (T-062)"
   - one lane until 10 merged PRs with no revert, then 3   # The threshold is a guess.
+  - "8b first live audit with capped second-family keys, recorded in T-064's Evidence"
   - "STATUS: active; AGENT_OPS: on"
+  - "9b nightly staging deploy and baseline run as standing configuration, approved once (T-062)"
 
 proposed_not_built: [scripts/ops/intake.mjs, scripts/ops/signals.mjs, scripts/ops/task-lint.mjs, scripts/ops/tick.mjs, scripts/ops/xreview.mjs,
-  scripts/ops/stop.mjs, scripts/ci/guardrails.mjs, scripts/hooks/bash-guard.sh, .github/workflows/xreview.yml, tests/agent-ops-inactive.test.ts]
+  scripts/ops/stop.mjs, scripts/ci/guardrails.mjs, scripts/hooks/bash-guard.sh, .github/workflows/xreview.yml, tests/agent-ops-inactive.test.ts,
+  tools/sim/catalogue.schema.json, tools/sim/scripted.ts, tools/sim/stage.ts, tools/sim/sample.mjs, tools/sim/gate.mjs, agent-ops/workflows/simulate.yml,
+  tools/sim/stage.mjs, tools/sim/runner.ts, tools/sim/weights.mjs, tools/sim/entry.mjs, agent-ops/schemas/sim-record.schema.json, agent-ops/commands/stage-pr.md,
+  tools/crawler/crawl.ts, "tools/crawler/probes/*.ts",
+  scripts/ops/watch.mjs, scripts/ops/integrity.mjs, agent-ops/security-watch.yaml, agent-ops/threat-map.yaml, agent-ops/schemas/audit-record.schema.json,
+  agent-ops/commands/security-audit.md]
