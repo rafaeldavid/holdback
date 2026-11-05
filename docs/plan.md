@@ -253,6 +253,7 @@ Status (2026-11-03, measured against `fixtures/scenarios/` and `pnpm snap`): **e
 | `honest-seller-survives-judge-noise-on-appeal` | — | 1 on SimChain; 4 on contract (appeal fee and bond rate) | exists |
 | `neutrality.maintainers-change-registry` | 3 | 1 | planned (T-016b: real registry and policy hashes) |
 | `attack.adjudicator-self-dealing` | 8 | 1 | exists |
+| `attack.untrusted-appeal-adjudicator-via-fallback` | — | 2 | exists as a named test, not a fixture (T-221, ADR-0030 §6): `apps/adjudicator/src/service.test.ts`. An outside primary names Crow's fallback under an appeal adjudicator it controls; the fallback neither triggers nor decides, the deal defaults at fallbackBy, and no bond moves |
 | `appeal-bad-key-release` | 8 | 1 | planned (T-016b) |
 | `neutrality.club-revokes-mid-flight` | 7 | 1 | planned (needs run-time revocation; SimChain reads members from genesis) |
 | `neutrality.buyer-silent` | 7 | 1 | exists |

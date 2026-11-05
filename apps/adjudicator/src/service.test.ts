@@ -1,6 +1,6 @@
 // The adjudicator service end to end over an in-memory settlement on core's step (T-009).
 import { readFileSync } from 'node:fs';
-import { canonicalKeccak, commitmentId, deliveryHash, DRAND_QUICKNET, signMessage, termsOf, type AdjudicatorPolicy, type Address, type AppealGround, type Commitment, type Decision, type Hex32, type Timing, type TokenAmount } from '@holdback/core';
+import { canonicalKeccak, commitmentId, deliveryHash, DRAND_QUICKNET, signMessage, step, termsOf, type AdjudicatorPolicy, type Address, type AppealGround, type Commitment, type Decision, type Hex32, type Timing, type TokenAmount } from '@holdback/core';
 import { open, unwrapKey, unwrapKeyFor, encodePublicKey } from '@holdback/core/crypto';
 import {
   APPEAL_PROMPT_TEMPLATE_HASH,
@@ -1296,5 +1296,89 @@ describe('declines fallback turns outside its terms or its free bond, and appeal
       const r = await who.adj.decideTask(task);
       expect(r.ok && r.value.decision).toMatchObject({ commitmentId: id, role, outcome: 'accept' });
     });
+  });
+});
+
+// T-221, ADR-0030 §6: once outsiders can register and be named primary, a deal can name an outsider as primary, a Crow
+// adjudicator as fallback and an appeal adjudicator the outsider controls. The fallback's decision reserves its bond,
+// and an overturn by that appeal adjudicator pays the price from it (D43): D44's attack by a second path. So the
+// reference adjudicator takes a fallback turn only under an appeal adjudicator it trusts; as appeal adjudicator it
+// serves any deal.
+describe('attack.untrusted-appeal-adjudicator-via-fallback', () => {
+  const OUTSIDER = party(7);
+  const ATTACKERS_APPEAL = party(9);
+
+  /** A funded, delivered deal with an outside primary that stays silent, Crow's B as fallback and `appeal` as appeal adjudicator. */
+  async function deal(appeal: Party) {
+    const s = new TestSettlement();
+    // The outsider's primary trusts the appeal adjudicator it brought along.
+    const o = bench(OUTSIDER, 'outsider', s, {}, undefined, reg, [OUTSIDER.address, B.address, appeal.address]);
+    const b = bench(B, 'bench-b', s);
+    bench(C, 'bench-c', s);
+    bench(ATTACKERS_APPEAL, 'attackers-appeal', s, {}, undefined, reg, [ATTACKERS_APPEAL.address]);
+    const c = makeCommitment({ primary: OUTSIDER.address, fallback: B.address, appeal: appeal.address, policyHash: policyHashOf(o.adj.policy), registryHash: reg.hash, buyer: BUYER, seller: SELLER });
+    s.offer(c);
+    expect((await o.adj.runOnce()).accepted).toEqual([c.id]);
+    s.fund(c.id);
+    s.at('2026-11-01T09:59:00Z');
+    await s.deliver(c.id, demoCsv(), [OUTSIDER, B, appeal, BUYER].map((p) => ({ recipient: p.address, publicKey: p.enc.publicKey })));
+    return { s, b, id: c.id, commitment: c };
+  }
+
+  it('the demo fallback neither triggers nor decides under an appeal adjudicator it does not trust; the deal defaults and no bond moves', async () => {
+    const { s, b, id, commitment } = await deal(ATTACKERS_APPEAL);
+    const freeBefore = await s.bondCover(B.address);
+    s.at('2026-11-01T10:02:00Z'); // judgeBy: the outside primary is silent
+    const report = await b.adj.runOnce();
+    expect(report.triggered).toEqual([]);
+    expect(report.refused).toEqual([{ commitmentId: id, problem: { type: 'invalid_terms', detail: expect.stringMatching(/does not trust .* as the appeal adjudicator/) } }]);
+    // Anyone may trigger the takeover; the fallback still declines the turn, before any judge is called.
+    expect((await s.triggerFallback(id)).ok).toBe(true);
+    const again = await b.adj.runOnce();
+    expect(again.refused.map((r) => r.problem.type)).toEqual(['invalid_terms']);
+    expect(again.decided).toEqual([]);
+    const [task] = await s.tasks(B.address);
+    const direct = await b.adj.decideTask(task!);
+    expect(!direct.ok && direct.error.type).toBe('invalid_terms');
+    expect(b.calls).toHaveLength(0);
+    expect(s.records.size).toBe(0);
+    // fallbackBy passes with no decision: the default outcome refunds the buyer, and nothing reserved B's bond.
+    s.at(commitment.timing.fallbackBy);
+    const c = s.cases.get(id)!;
+    for (const e of [{ type: 'trigger_default' as const, at: s.now() }, { type: 'apply_default_outcome' as const, at: s.now() }]) {
+      const r = step(c.state, e);
+      if (!r.ok) throw new Error(r.error.detail);
+      c.state = r.value;
+    }
+    expect(s.state(id)).toMatchObject({ kind: 'Refunded', via: { kind: 'default_outcome', from: 'FallbackJudging' } });
+    expect(s.decisions(id)).toEqual([]);
+    expect(await s.bondCover(B.address)).toBe(freeBefore);
+  });
+
+  it('under a trusted appeal adjudicator the same fallback triggers and decides', async () => {
+    const { s, b, id } = await deal(C);
+    s.at('2026-11-01T10:02:00Z');
+    const report = await b.adj.runOnce();
+    expect(report.triggered).toEqual([id]);
+    expect(report.decided).toEqual([{ commitmentId: id, role: 'fallback', outcome: 'accept' }]);
+  });
+
+  it('as appeal adjudicator it serves any deal: an outside primary and an outside fallback', async () => {
+    const s = new TestSettlement();
+    const o = bench(OUTSIDER, 'outsider', s, FAIL_ALL, undefined, reg, [OUTSIDER.address, ATTACKERS_APPEAL.address, C.address]);
+    const c = bench(C, 'bench-c', s);
+    bench(ATTACKERS_APPEAL, 'attackers-fallback', s);
+    const terms = makeCommitment({ primary: OUTSIDER.address, fallback: ATTACKERS_APPEAL.address, appeal: C.address, policyHash: policyHashOf(o.adj.policy), registryHash: reg.hash, buyer: BUYER, seller: SELLER });
+    s.offer(terms);
+    await o.adj.runOnce();
+    s.fund(terms.id);
+    s.at('2026-11-01T09:59:00Z');
+    await s.deliver(terms.id, demoCsv(), [OUTSIDER, ATTACKERS_APPEAL, C, BUYER].map((p) => ({ recipient: p.address, publicKey: p.enc.publicKey })));
+    s.at('2026-11-01T10:00:30Z');
+    expect((await o.adj.runOnce()).decided).toEqual([{ commitmentId: terms.id, role: 'primary', outcome: 'reject' }]);
+    s.at('2026-11-01T10:01:00Z');
+    s.fileAppeal(terms.id, 'wrong-outcome');
+    s.at('2026-11-01T10:01:05Z');
+    expect((await c.adj.runOnce()).decided).toEqual([{ commitmentId: terms.id, role: 'appeal', outcome: 'accept' }]);
   });
 });
