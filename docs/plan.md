@@ -254,6 +254,7 @@ Status (2026-11-03, measured against `fixtures/scenarios/` and `pnpm snap`): **e
 | `neutrality.maintainers-change-registry` | 3 | 1 | planned (T-016b: real registry and policy hashes) |
 | `attack.adjudicator-self-dealing` | 8 | 1 | exists |
 | `attack.untrusted-appeal-adjudicator-via-fallback` | — | 2 | exists as a named test, not a fixture (T-221, ADR-0030 §6): `apps/adjudicator/src/service.test.ts`. An outside primary names Crow's fallback under an appeal adjudicator it controls; the fallback neither triggers nor decides, the deal defaults at fallbackBy, and no bond moves |
+| `attack.outside-primary-rotates-policy` | — | 2 | exists as a named test, not a fixture (T-221 review of PR 202, ADR-0030 §6): `apps/adjudicator/src/service.test.ts`, and on anvil in `apps/demo-cloud/src/registration.anvil.test.ts`. An outside primary registers another policy after agreement; Crow's appeal adjudicator and fallback still judge by the policy the terms bound, read by its hash, so the wrong decision is overturned from the primary's bond |
 | `appeal-bad-key-release` | 8 | 1 | planned (T-016b) |
 | `neutrality.club-revokes-mid-flight` | 7 | 1 | planned (needs run-time revocation; SimChain reads members from genesis) |
 | `neutrality.buyer-silent` | 7 | 1 | exists |
