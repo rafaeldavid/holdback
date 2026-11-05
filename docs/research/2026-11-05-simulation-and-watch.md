@@ -288,7 +288,7 @@ Crawlers keep exercising the live demo the way a visitor does and compare what t
 | R2 | `GET /llms.txt` | 200; the pinned domain and deployment JSON blocks parse; the one command parses into `TRY_URL`, the two versions and a sha256 | demo |
 | R3 | `GET <TRY_URL>` | Its sha256 equals the command's; it imports only `viem`, `viem/accounts` and `tweetnacl`; its banner names the same versions | demo |
 | R4 | Both operators: `/.well-known/holdback.json`, `/v1/status` | 200 on both; `schemaVersion` equal; `domain` equals the `llms.txt` pin; chain 11155111; `settlement.kind: chain`; three adjudicators with bonds; the operator fee as `llms.txt` states; `feedback` present once T-032 is deployed | api |
-| R5 | `/v1/clubs/<id>` and `/v1/adjudicators` on both | The same rulebook hash and the same registrations (with signatures once T-221 is live) on both nodes | api |
+| R5 | `/v1/clubs/<id>` and `/v1/adjudicators` on both | The same rulebook hash and the same registrations, with their signatures (T-221, live since T-220's deploy on 2026-11-05), on both nodes | api |
 | R6 | Problem pages | `https://escrow.stream/problems/<type>` answers 200 with `HTTP <status>` for every type in the operator's problem list, and the index exists | demo |
 | R7 | Planned routes | A planned route answers 501 with a `Link`, as D39 says, and a served one does not | api |
 | R8 | `POST /v1/feedback?validateOnly=true` | The dry run answers with the notice naming the operator and stores nothing | api |
