@@ -91,6 +91,20 @@ Branch `t-220-ship-round-1`, 2026-11-05. Each claim is labelled measured, inferr
 - Both failed before the change to `world.ts` (the rulebook still named `sim`) and pass after it.
 - `node site/build.mjs && node site/check.mjs`: PASS. `site/try.mjs` keeps sha256 `cc310963bb0833e0d23f8018eb4ea802db09fa05fbd9489020340d2be2eed832`; `site/index.html` is unchanged.
 
+**`pnpm verify`** (`reports/verify-t-220-ship-round-1.md`, 2026-11-05T09:49Z, on `330d6c8` plus the change to `world.ts` before it was committed): PASS on all nine steps, no snapshot diff against HEAD. `pnpm test`: 120 files passed and 2 skipped; 2,705 tests passed and 6 skipped (the opt-in fork tests), 181 s. `forge test`: 241 tests passed. [measured]
+
+| Step | Status | Time |
+| --- | --- | --- |
+| typecheck | pass | 274 ms |
+| lint | pass | 4,550 ms |
+| forge build | pass | 1,205 ms |
+| forge | pass | 15,781 ms |
+| test | pass | 180,913 ms |
+| spec | pass | 615 ms |
+| snap | pass | 9,311 ms |
+| snap:local | pass | 14,905 ms |
+| demo | pass | 4,018 ms |
+
 **Inferred, not run:** the rollback reading (the old code ignores the new rows; drand deals default on fallback and appeal under it); op1's startup CPU (T-217 Decision 15: the curve library loads on first use).
 
 ## Decisions
