@@ -4,7 +4,7 @@ Crow is built by a small team of people and their agents. Every change, from a p
 
 ## What you may work on
 
-- A task in `docs/tasks/` whose status is `todo` or `ready` and that `docs/plan.md` lists: the approved roadmap.
+- A task in `docs/tasks/` whose status is `todo` and that `docs/plan.md` lists: the approved roadmap.
 - An issue labelled `approved`.
 
 For anything else, open an issue first with the **Proposal** form. A maintainer labels it `approved` or explains why not. Don't start work on an idea that isn't approved.
@@ -14,7 +14,7 @@ For anything else, open an issue first with the **Proposal** form. A maintainer 
 1. Fork the repository and work on a branch: `t-<id>-<slug>` for a task, `issue-<number>-<slug>` for an issue.
 2. Read `CLAUDE.md` first. Its hard rules and the three litmus tests (neutrality, the hold, defended judgment) bind every change.
 3. Keep pull requests small. Write the test first; run `pnpm verify`, or for a docs-only change `node site/build.mjs && node site/check.mjs`.
-4. Open the pull request with the template, link the task or issue, and label each claim as measured, inferred or guessed.
+4. Open the pull request with the template, link the task or issue, and label each claim as measured, inferred or guessed. Write it, like every doc, to `docs/writing.md`.
 5. A maintainer approves the CI run on your fork, reviews the change and merges it. Contributors never merge.
 
 ## Changes that need a maintainer's design approval
