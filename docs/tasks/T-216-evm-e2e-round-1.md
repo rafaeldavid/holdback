@@ -5,8 +5,8 @@
 - **Depends on:** T-217 (drand proofs for fallback and appeal), T-218 (direct calls in the operators' view), T-219 (the in-flight row per relayer lane), T-221 (adjudicator registration through the API), and T-220, which ships those four to the live demo in one deploy. Rafa answered all six scope questions on 2026-11-04 (below). The fixed contracts are already live (see Context).
 - **Paths this task may touch:** `examples/e2e-*.ts` (new: the round's keys, its driver, and their tests; the `examples` workspace already holds the agent-side code and viem), `docs/reviews/` (one new file, the round's report), `docs/backlog.md` (rows for what the round finds; the Benched rows once it completes), `docs/plan.md` (this row), this file. No product code: a scenario that fails gets its fix in its own task, and the round re-runs it.
 - **Human gate:** yes. Rafa confirms the scope (done: the questions below, 2026-11-04) and funds the round's master address with Sepolia ETH (done: 2.5, Evidence); the driver tops up the other keys from it. The runs use the public API as any agent may, and send test transactions on Sepolia from test keys. They deploy nothing, except scenario 11's one holdback-op1 redeploy, which waits for Rafa's go-ahead at that moment.
-- **Status:** in progress (the keys, the top-up and the driver landed; the live run of 2026-11-05, after T-220's deploy, passed 1, 2, 3a and 6, and 3d and 10a each failed one check, being diagnosed separately (as the coordinating session reported it; its record is not in this file yet); the foundation for the ten scenarios still waiting, the round's own adjudicator and one file per scenario group, is in draft PR 210 on branch `t-216-remaining-scenarios`; the four groups are built next, in parallel)
-- **Agent/session:** the T-216 planning session (the keys); the T-216 driver session (the driver); the T-216 remaining-scenarios session (the round's own adjudicator and the group files, worktree `.worktrees/t-216-rest`)
+- **Status:** review (PR 210, branch `t-216-remaining-scenarios`: the driver builds all sixteen scenarios, and 3d's and 10a's failed checks in the 2026-11-05 live run are fixed in the driver; the round completes with Rafa's live run of every scenario and the report, Handoff)
+- **Agent/session:** the T-216 planning session (the keys); the T-216 driver session (the driver); the T-216 remaining-scenarios session (the round's own adjudicator and the group files, worktree `.worktrees/t-216-rest`); four group sessions (silent, scripted, escalation, direct), one branch each; the integrating session (the merge, the 3d and 10a fix, this file)
 
 ## Intent
 
@@ -23,6 +23,8 @@ Restated: on the live Sepolia deployment of the fixed contracts (PRs 160 and 161
 - **One file per scenario group,** each exporting its scenarios, registered once: silent (3b, 4, 9, 10b), scripted (3c, 7), escalation (5a, 5b) and direct (8, 11), each with its own test file. The waiting definitions move unchanged, and `list` and `run` behave as before.
 
 Non-goals of this slice: building any of the ten scenarios; a scripted fallback or appeal decision (those need a drand proof) or a scripted escalation (no needs line asks for one); a live run; product code.
+
+**The integration, restated by its session (2026-11-05).** The four groups built the ten scenarios on their own branches. This slice merges them into PR 210 with main, fixes once what three of them worked around alone (a serving adjudicator's `stop`), fixes the driver's stale chain reads behind 3d's and 10a's failed checks in the 2026-11-05 live run, and hands Rafa one command that runs all sixteen scenarios live. Non-goals: product code (a product defect would be recorded, not fixed); a live run or any Sepolia transaction; anything beyond what each scenario's needs line asked for.
 
 ## Context
 
@@ -282,6 +284,56 @@ Fill this in before review. Label each item measured, inferred or guessed.
   - The first `forge build` in this fresh worktree took about 206 s of compiling after cloning the contract submodules, and passed [measured].
   - Not run: a `reviewer` pass on this PR, and any live use of the adjudicator on Sepolia (the group sessions and Rafa's runs).
 
+- **The live run of 2026-11-05 (Rafa, 13:25 to 13:44 UTC),** after T-220's deploy, driver at `c98c0b7`, against both operators (schema 0.10, domain 0.7) and HoldbackRules `0xF38287e5…7cFA`. Record: `/Users/rafa/Documents/escrow/.worktrees/round1-run/reports/e2e-round-1/2026-11-05T132524Z/` [measured: its `summary.md` and `finality.json`].
+  - **Passed:** 1 (16 of 16, with both homepage runs and the published bundle), 2 (13 of 13), 3a (12 of 12) and 6 (16 of 16, the appeal decisions with drand quicknet proofs).
+  - **Failed one check each:** 3d, 2 of 3 ("dealOf reads Expired" read None); 10a, 7 of 8 ("CPP holds nothing" read 26 tUSDC capturable).
+  - The other ten recorded "waits (T-216)". The finality re-read at 13:45 UTC found 27 of 27 transactions in the same block.
+- **The 3d and 10a diagnosis** (`/Users/rafa/Documents/escrow/reports/scratch/round1-3d-10a.md`, by the coordinating session) [measured by that session]: both are driver defects, with no product defect and no funds at risk. The driver read through publicnode, whose nodes can be a block behind each other, within 2 to 3 s of the deal's last transaction.
+  - 3d: `dealOf(0x15011b…5185)` reads None at block 12,069,838 and Expired at 12,069,839, the expiry block. `expireOffer` writes `Stage.Expired` (`HoldbackRules.sol:528`).
+  - 10a: CPP's payment state reads capturable 26 tUSDC at block 12,069,855, the funding block, and capturable 0 and refundable 15 tUSDC at 12,069,856, the settlement block. The demo primary's after free bond in the record, 24,977.5 tUSDC, is also block 12,069,855's; at 12,069,856 it is 25,002.5 tUSDC.
+- **The remaining scenarios, built and integrated (2026-11-05, PR 210).** Offline only: no live run, and no Sepolia transaction.
+  - Four group sessions built the ten waiting scenarios in parallel on branches `t-216-silent`, `t-216-scripted`, `t-216-escalation` and `t-216-direct`, each from `8a51b9d`. They merged into `t-216-remaining-scenarios` with no conflict, and main merged in at `8ee3ab1` with no conflict [measured].
+  - **`list`** prints all 16 scenarios, none "not built in the driver yet" and no "needs" line [measured].
+  - **Silent group (3b, 4, 9, 10b)** [measured by the group session]:
+    - SimChain, about 110 s: 3b, 4 and 9 pass; 10b stops before any deal (Decision 23).
+    - anvil, about 135 s: 3b 17 of 18, the only failure the anvil-only `fallback` relay refusal, after which the driver sends `triggerFallback` directly; 4 waits for T-217; 9 18 of 18; 10b 15 of 15; the finality re-read finds 0 changes.
+    - On anvil the primary's late decision after an early accept reverts `WrongStage(5)`; on SimChain it is refused with "invalid_state: nothing to appeal after early_accept".
+    - Gas on anvil: `triggerFallback` sent directly 52,285; `triggerDefault` 131,093 (Defaulted and Refunded in one transaction); `earlyAccept` 141,464; `mutualSettle` 158,825; a bond deposit's mint 50,963, approve 45,814 and deposit 56,667.
+  - **Scripted group (3c, 7)** [measured by the group session]:
+    - SimChain: 3c 8 of 8, 7 13 of 13.
+    - anvil, with the sim beacon reseeded: 3c 17 of 17. `appeal-expiry` went through the API, the 1.25 tUSDC appeal bond came back to the seller, and `BondReleased` freed 25 tUSDC. 7 waits for T-217 on the anvil world, whose rulebook names the sim beacon.
+    - 7's deals run in-process past the T-217 gate on anvil: every check held. `BondSlashed` paid 25 tUSDC from the primary to the buyer, then to the seller; the 1.25 tUSDC appeal bond came back each time; the primary's bond fell by 25 tUSDC per deal; the appeal decisions' beacon rounds matched the filing block plus 1.
+    - Each bond top-up costs about 137,000 to 153,000 gas for mint, approve and deposit.
+  - **Escalation group (5a, 5b)** [measured by the group session]:
+    - SimChain: 5a 13 of 13; 5b 12 of 12 (the primary escalated on the screen flag, 5 seats from 3 families accepted, Released, the buyer opened the work, a later appeal refused with `invalid_state`).
+    - anvil: 5a 21 of 21. Gas: fund 317,471; deliver 83,475; decide (escalate) 84,561; `triggerDefault` 125,352. 5b waits for T-217: on the anvil harness the appeal decision reverts `BadSeed`, since the harness's SimBeacon seed is not the world's (a harness limit, not a product defect [inferred]).
+    - The deal showed Escalated 4 s after delivery on SimChain and 5 s on anvil, wall-clock with 1 s polling.
+  - **Direct group (8, 11)** [measured by the group session, on anvil]:
+    - 8, deal 1: every check held. `agreeAndFund` 248,606 gas and `deliver` 80,987 gas, each shown as direct on both operators within 0 s; the buyer paid 26 tUSDC with no operator fee; the seller received 25 tUSDC.
+    - 8, deal 3: `triggerFallback` sent directly, 52,285 gas, shown as direct within 0 s; both operators served the fallback its envelope; the deal ended Refunded by its default, and 8 waits for T-217.
+    - 11 without a restart: 10 of 12, only the two restart checks failing, as they should. 11 with the world reopened from its storage at the lane row write: 12 of 12.
+  - **Test first** [measured by the groups]: the silent and scripted groups committed their tests first, and each failed before the build; the escalation group's list test failed before the build; the direct group wrote its code first, and its new tests fail on `8a51b9d` (2 failed: the list test and the SimChain test).
+  - **Integration fixes** [measured]:
+    - `stop` holds the process (Decision 29).
+    - The pinned evidence reads (Decision 30). Test first: the new stand-in RPC tests in `examples/e2e-chain.test.ts` failed before the fix, 2 of 9, the unpinned read reporting None for an expired deal; after it, 9 of 9 pass. They show a read at the latest block when none is given, a read at the deal's last block that a lagging node misses twice and then answers, with no read at the latest block, and a read that throws after its tries.
+  - **The round's driver tests after integration,** the 7 driver test files (`e2e-round`, `e2e-adjudicator`, `e2e-chain` and the four groups'): 36 of 36 passed in 432.8 s, every anvil block included [measured].
+  - `tsc -b examples` and `eslint` on the changed files are clean [measured].
+  - `pnpm verify` on `5c66937`, with only this file and `docs/plan.md` uncommitted, 2026-11-05 17:31 UTC: **PASS**, no snapshot diffs against HEAD; `pnpm test` 2,734 passed and 6 skipped, in 125 files plus 2 skipped; forge 241 of 241; snap 31 of 31; snap on the contract 28 passed, 3 excluded until Phase 4 (`reports/verify-t-216-remaining-scenarios.md`) [measured]:
+
+    | Step | Status | Time |
+    | --- | --- | --- |
+    | typecheck | pass | 2,392 ms |
+    | lint | pass | 4,935 ms |
+    | forge build | pass | 1,115 ms |
+    | forge | pass | 21,646 ms |
+    | test | pass | 431,115 ms |
+    | spec | pass | 633 ms |
+    | snap | pass | 9,929 ms |
+    | snap:local | pass | 15,367 ms |
+    | demo | pass | 4,176 ms |
+
+  - Not run: a `reviewer` pass on PR 210, and any live run (Rafa's, Handoff).
+
 ## Decisions
 
 Made by the driver session on 2026-11-04, inside the task's paths.
@@ -312,9 +364,78 @@ Made by the remaining-scenarios session on 2026-11-05, inside the task's paths.
 21. **A scripted decision is signed like a real one.** It reveals a seed derived from its key and the commitment ID (whose hash it committed at acceptance), names the delivery both operators serve, and carries the hash of a note that says no judge ran as its `judgmentRecordHash`; no record is published. An accept seals the content key from its own envelope to the buyer, since the contract refuses an accept without one (`HoldbackRules._settleDecision`); a reject carries none.
 22. **The round's tests share one harness,** `examples/e2e-world.ts`: the demo's world served on two origins, on SimChain or on anvil, the driver as a separate process, and the no-secrets check. It moved out of `e2e-round.test.ts` unchanged, so the groups' tests can use it too. The adjudicator's SimChain tests price their deals at 0, which needs no bond, so CI's test shards, which have no anvil, still run its silent and scripted paths end to end.
 
+Made by the four group sessions and the integrating session on 2026-11-05, inside the task's paths.
+
+23. **On SimChain the round's adjudicator's deals are priced at 0.** No outsider can bond there at run time, so the flow runs and the money checks hold at 0; the money is checked on a chain. 10b cannot run on SimChain: a `MutualSettlement` needs 1 to 8 positive payouts that sum to the price (`spec/schemas/common.schema.json`, Payouts), and a price of 0 has none. It runs on anvil and Sepolia.
+24. **The timeout windows (silent group).** Offer 2 windows, fund 3, deliver 4, with floors of 20 s, 30 s and 40 s, so the round's primary has time to accept before the funding; scenario 4's fallback window is at least 180 s. The parties choose them (D31).
+25. **3c's appeal windows (scripted group):** `appealWindowSec` is the larger of 2 windows and 30 s; `appealDecideSec` is 1 window. 3c waits past `appealDecideBy` on purpose, so it polls with its own `untilAppealIs`, which has no deadline guard; the kit's `untilAppeal` keeps its guard for its other callers.
+26. **5a exhausts the check budget with a regex; 5b trips the screen with soft hyphens (escalation group).**
+    - 5a: a `regex_match_rate_min` check with the pattern `(.*){1000}(.*){1000}` over 3 cells of 10,000 characters needs about 60,000,000 work units, and a delivery gets 50,000,000 (`CHECK_BUDGET`). The check is inconclusive and the primary escalates with no panel.
+    - 5b: scenario 1's French with 4 soft hyphens (U+00AD), as a word processor writes them. No attack fixture or red-team test uses U+00AD.
+    - If no appeal decision shows on both operators within 30 s after `appealDecideBy`, 5b records the failed check and closes the deal by its default, so no money stays held (Decision 12).
+27. **Scenario 8 builds only its needs line (direct group).**
+    - It does not repeat the direct reclaim: 3a's second deal sends it, and 8 notes this.
+    - Deal 3 gates the fallback's decision on T-217, not the takeover.
+    - The direct funding builds its own typed data: the prepare route adds a fee slot when the operator charges a fee, and the agent's verifier refuses a fee slot it did not intend.
+    - "One sync pass" is 60 s from the receipt.
+28. **Scenario 11 finds the moment and the restart itself (direct group).** It detects the broadcast from the deal lane's nonce while holdback-op1 has not answered, and the restart with an Idempotency-Key probe: op1 keeps a key in memory until it restarts, so other bytes under the same key get 409 before the restart and 200 after. It prints full-path build and deploy commands and deploys nothing itself.
+29. **A serving adjudicator's `stop` holds the process (integration).** The serving loop's naps never hold the process open. So when `stop` was the driver's last pending work, Node exited with it unsettled and the scenario's record unwritten; three groups found this and each held a timer locally. `stop` now holds one itself while the loop winds down, and the three local copies are gone. Each group's driver test runs the driver as a child process, so a regression shows as a missing record.
+30. **The evidence reads pin to the deal's last block (integration, from the 3d and 10a diagnosis).** `finish` reads `dealOf`, CPP's payment state and the after balances at the block of the deal's last transaction. A pinned read that fails is tried 8 times, 2 s apart, then throws: it never falls back to the latest block, so a lagging node shows as an error, not a wrong state. The after balances at that block also keep a demo adjudicator's later deals out of this deal's deltas. `openDeals` still reads the latest block, since the diagnosis did not assign it (Handoff).
+
 ## Handoff
 
-- **The remaining scenarios (2026-11-05): the foundation is built; the four groups are next,** one session each, in parallel (branch `t-216-remaining-scenarios`, [draft PR 210](https://github.com/rafaeldavid/holdback/pull/210) to main). Each group owns two files and touches no other:
+- **Next: Rafa's live run of every scenario, once [PR 210](https://github.com/rafaeldavid/holdback/pull/210) merges.** In the holdback checkout, with full paths so it works from any folder. The commands print addresses and links, never the secret or a key.
+  1. Bring main up to date: `git -C /Users/rafa/Documents/escrow pull`.
+  2. Top up the round's keys first. The dry run prints what it would send; run it again without `--dry-run` when it plans any transfer. It sends nothing while every key holds at least 0.04 Sepolia ETH.
+
+     ```bash
+     node --env-file=/Users/rafa/Documents/escrow/.env /Users/rafa/Documents/escrow/examples/e2e-keys.ts topup --dry-run
+     ```
+
+     This run spends more of the keys' own gas than the earlier runs [inferred from the anvil gas]. adjudicator-1 mints, approves and deposits its bond (about 153,000 gas each time) wherever its free bond is short of the price, including after each of 7's two slashes; adjudicator-2 bonds for 3b's fallback; the buyer sends 3a's reclaim, 8's `agreeAndFund` and `triggerFallback`, and its appeal-bond approval in 7; the seller sends 8's `deliver` and its approvals in 3c, 6 and 7. At 1 gwei that is well under 0.01 Sepolia ETH a key [inferred].
+  3. The run, in a terminal: scenario 11 waits for Enter on it.
+
+     ```bash
+     node --env-file=/Users/rafa/Documents/escrow/.env /Users/rafa/Documents/escrow/examples/e2e-round.ts run all --t220
+     ```
+
+     It runs the 16 scenarios in order and stops early only when a scenario leaves money held (Decision 12). It takes about 1.5 to 2 hours [guessed: the 2026-11-05 run took 19 minutes for six scenarios; 3b, 3c, 4, 5a, 5b and 7 each wait out windows of minutes].
+  4. **What scenario 11 asks of Rafa.**
+     - At its start it prints `pnpm -C /Users/rafa/Documents/escrow/apps/demo-cloud build`. Run that in another terminal, so the redeploy at the pause is quick.
+     - It relays a delivery through holdback-op1, then pauses once the deal's relayer lane has broadcast it and op1 has not answered. It prints the lane, the nonce and `npx -y wrangler@4 deploy -c /Users/rafa/Documents/escrow/apps/demo-cloud/wrangler.op1.jsonc`. Running that deploy is the scenario's one human gate (scope question 6). Then press Enter.
+     - The driver then looks for op1's restart for up to 90 s, retries the delivery with the same Idempotency-Key, and checks the delivery's events and the buyer's key on both operators.
+     - Deploy the code holdback-op1 runs: T-228's `236786a` (`docs/operations.md`). Main since then changed no worker code [inferred from the diffs: site, docs, CI and examples only].
+     - The time between the broadcast and op1's answer is about 12 to 25 s on Sepolia, and op1's Durable Object took up to 44 s to restart after T-220's deploy [inferred by the direct group]. If the deploy lands after the receipt, the check "the restart cut the relayed delivery" fails honestly; then rerun 11 alone, the same command with `run 11 --t220`.
+     - It uploads at most 2 blobs of 32 bytes to the live ciphertext store per run.
+  5. About 20 minutes after the run's last transaction, the finality re-read (public chain data, no secret):
+
+     ```bash
+     node /Users/rafa/Documents/escrow/examples/e2e-round.ts finality /Users/rafa/Documents/escrow/reports/e2e-round-1/<run folder>
+     ```
+
+  6. Paste `summary.md` or the terminal output to the T-216 session, which writes the report (`docs/reviews/2026-11-04-evm-e2e-round-1.md`).
+- **What to watch in that run** [inferred, from the group sessions].
+  - The drand paths run on a chain for the first time on Sepolia: 4's fallback decision, 5b's and 7's appeal decisions, and 8's third deal. The anvil world names the sim beacon, so those beacon-round and fee checks were written from the contract's code (`HoldbackRules.sol` 287 to 333 and 543 to 551) and the ABI's event names. A wrong field shows as a FAIL, not a false pass.
+  - 8, deal 3: the demo fallback sends its own takeover once `judgeBy` passes. If its transaction lands first, the check "triggerFallback is sent directly from the buyer's key" fails and names that transaction.
+  - 3b: on anvil, the `fallback` trigger through the API is refused by anvil's `eth_estimateGas` (the backlog row of the driver PR), and the driver then sends `triggerFallback` directly. Sepolia shows whether the API relays it.
+  - `openDeals` reads the latest block. A node one block behind could show a deal that has just closed as still holding money, and stop the run early (Decision 12) [inferred; not seen]. If it does, run the remaining scenarios by ID.
+- **Product defects found: none.** The four groups and the 3d and 10a diagnosis found driver defects only, and PR 210 fixes them (Decisions 29 and 30). For Rafa, outside this task's paths:
+  - Optional, from the diagnosis: one `paymentState` assert after a mutual settlement in `contracts/test/Settle.t.sol`. The contract is right [measured on Sepolia by the diagnosis: after 10a's settlement CPP reads capturable 0 and refundable 15 tUSDC, a ceiling on what the operator may refund from its own tokens, and HoldbackRules never calls `refund`].
+  - `vitest.config.ts`'s cost table could list the new driver test files: on SimChain the silent file takes about 110 s and the scripted file about 60 s [measured by the groups].
+  - A row for `docs/team.md` (Rules and checks), since three groups hit the same `stop` defect: "Code that runs in the driver process is tested in the driver process." The check: a helper with unref'd timers gets a test that runs it through `driver()` in a child process, not only inside vitest.
+  - Inside this lane, not built (no needs line asks for it): `anvilWorld` in `examples/e2e-world.ts` could take the scripted group's reseed (`anvil.fresh(canonicalKeccak({ sim: 'holdback/demo-cloud/v1', start }))`), so the demo fallback and appeal adjudicators decide on anvil and 4, 5b, 6 and 7 run their appeal paths offline.
+- **What each scenario built on 2026-11-05 does** (`node /Users/rafa/Documents/escrow/examples/e2e-round.ts list` prints what each waits for):
+  - **3b:** the round's silent primary (adjudicator-1) and silent fallback (adjudicator-2, bonded for the price). At `judgeBy` the driver sends `fallback` through the API, or `triggerFallback` from the buyer's key when the API refuses. After `fallbackBy`, `default` ends the deal Defaulted and refunded; on chain `triggerDefault` does both. The seller gets 0 (Phase 4).
+  - **3c:** adjudicator-1 rejects by script, the seller appeals, and adjudicator-2, the appeal adjudicator, stays silent. After `appealDecideBy`, `appeal-expiry` leaves the refund standing, returns the seller's appeal bond and frees the primary's bond.
+  - **4:** the silent primary with the demo fallback and appeal adjudicators. At `judgeBy` the takeover; the fallback decides with a drand quicknet proof whose round is the round at `judgeBy`.
+  - **5a:** a delivery that exhausts the check work budget. The primary escalates with no panel; the appeal adjudicator escalates again and signs nothing; after `appealDecideBy`, `default` and `apply-default` refund the buyer.
+  - **5b:** a rubric delivery with soft hyphens trips the screen and the primary escalates. The demo appeal adjudicator's five-seat panel decides with a drand proof, final at once; a later appeal is refused with `invalid_state`.
+  - **7:** adjudicator-1 accepts failing work in one deal and rejects passing work in another. The losing party appeals each, and the demo appeal adjudicator overturns: `BondSlashed` pays the appellant the price from the primary's bond, the appeal bond comes back, and no key reaches the refunded buyer.
+  - **8:** a deal offered through the API, then funded with `agreeAndFund` and delivered with `deliver` from the parties' own keys; then a deal whose buyer sends `triggerFallback` directly over the silent primary. Each direct step must show on both operators as `submittedVia: 'direct'` with its transaction within 60 s.
+  - **9:** the silent primary; the buyer accepts the delivery early; Released with the key; the primary's late decision is refused.
+  - **10b:** the silent primary; after delivery both parties sign a `MutualSettlement`, 60 % to the seller with `releaseKey` true; the key reaches the buyer and the bonds are freed.
+  - **11:** a restart of holdback-op1 between a relayed broadcast and its receipt (step 4 above).
+- **The remaining scenarios (2026-11-05): the foundation and the four groups are built and merged** on branch `t-216-remaining-scenarios` ([PR 210](https://github.com/rafaeldavid/holdback/pull/210) to main). Each group owned two files and touched no other, except the silent group's change to `e2e-round.test.ts` (3b left its "waits" expectation):
 
   | Group | Scenarios | Scenarios file | Tests file |
   | --- | --- | --- | --- |
@@ -349,7 +470,7 @@ Made by the remaining-scenarios session on 2026-11-05, inside the task's paths.
   - **On SimChain** no outsider can bond at run time, so `bond` refuses: a scenario that names the round's adjudicator as a bonded primary or fallback runs on anvil and Sepolia only, or prices its SimChain deal at 0, which needs no bond (the adjudicator's own SimChain tests do this).
   - It prints addresses, links and gas, never a key; its bond transactions go into the run's notes.
 - **The top-up is done:** all five keys hold 0.04 Sepolia ETH (Evidence). To top up again, Rafa runs it from the holdback checkout, with full paths so it works from any folder: `node --env-file=/Users/rafa/Documents/escrow/.env /Users/rafa/Documents/escrow/examples/e2e-keys.ts topup --dry-run`, then the same without `--dry-run`. The driver can call it before each scenario that needs a key's own gas. It sends nothing while every key holds at least 0.04 Sepolia ETH, and it refuses while a transfer is pending.
-- **Live run of scenarios 1 and 2 (Rafa).** In the holdback checkout after the driver's PR merges and `git pull`, with full paths so it works from any folder. The commands print addresses and links, never the secret or a key.
+- **Live run of scenarios 1 and 2 (Rafa; done on 2026-11-04 and 2026-11-05, kept for its finality step).** In the holdback checkout after the driver's PR merges and `git pull`, with full paths so it works from any folder. The commands print addresses and links, never the secret or a key.
   1. Scenarios 1 and 2 (about 5 minutes and 3 minutes, inferred from the 60 s windows and 12 s blocks):
 
      ```bash
@@ -369,18 +490,6 @@ Made by the remaining-scenarios session on 2026-11-05, inside the task's paths.
      ```
 
   Each run writes `reports/e2e-round-1/<UTC time>/summary.md` in the checkout and one JSON record per scenario: public data only. Paste the terminal output or `summary.md` to the T-216 session, which records the run as measured in the report (`docs/reviews/2026-11-04-evm-e2e-round-1.md`).
-- **What each remaining scenario needs.** `node examples/e2e-round.ts list` prints the same.
-  - **3b, the default outcome:** the round's own primary and fallback, registered through the API (T-221), accepting and never deciding: `examples/e2e-adjudicator.ts` (built, above), the primary serving silent, the fallback bonded and never serving. If nothing sends the takeover at `judgeBy` for a fallback that is not the demo's, send the `fallback` trigger through the API.
-  - **3c, appeal expiry:** that module; the round's primary decides by script, its own appeal adjudicator stays silent, and the appellant approves its bond (`RoundChain.approveBonds`, as scenario 6 does).
-  - **4, fallback with a drand proof:** the round's silent primary with demo fallback and appeal adjudicators (T-221's fallback trust rule); check the fallback decision's `beaconRound` in `decide`'s calldata equals the round at `judgeBy` (T-217's `roundAt`).
-  - **5a, escalation then default:** a checks-only delivery that exhausts the check work budget on purpose. Not found yet; try candidates on a fork first.
-  - **5b, escalation decided on appeal:** a rubric delivery that trips the screen without being an attack fixture (D27c); then T-217's five-seat appeal panel.
-  - **6, appeal upheld:** built, and passing on SimChain offline; on any chain it waits for T-217's drand proofs. Its first live run checks the appeal decision's `beaconRound` and the `AppealBondPaid` log to the primary's bond.
-  - **7, overturned both ways:** the adjudicator module deciding wrongly by script; check `BondSlashed` pays the appellant the price from the round's primary bond, the appellant's bond comes back, and no key reaches a refunded buyer.
-  - **8, the escape hatch:** direct `agreeAndFund` (the acceptance from `adjudicator.accepted`'s payload, the buyer's `Agree` and ERC-3009 `ReceiveWithAuthorization` signatures, encoded as `HoldbackTypes`) and direct `deliver`, then the same signed delivery posted to an operator; a direct `triggerFallback` over the round's silent primary. `RoundChain.send` and `termsTuple` carry the calls; scenario 3a's direct reclaim already runs. Check each step shows on both operators as `submittedVia: 'direct'` with its transaction, within one sync pass (T-218).
-  - **9, early accept:** the round's silent primary; `agent.earlyAccept` with the seller's signed delivery; then the primary's late decision is refused.
-  - **10b, after delivery:** the round's silent primary, so the settlement lands before a decision; `releaseKey` true, and the key reaches the buyer.
-  - **11, a restart mid-step:** the driver pauses after a relayed broadcast and before its receipt, and asks Rafa for the holdback-op1 redeploy at that moment; then the step's events and the buyer's key are served, and the lane telemetry shows no in-flight row left unapplied (T-219).
 - **Outside this lane:**
   - `vitest.config.ts`'s cost table could list `examples/e2e-round.test.ts` (about 50 s on SimChain, measured locally) for CI's shard balance.
   - No CI job runs the driver's anvil test: the test shards have no anvil, and the contracts job's "anvil tests (must not skip)" step runs only `packages/settlement/evm` and the testkit runner (`.github/workflows/ci.yml`). Adding `examples/e2e-round.test.ts -t anvil` to that step puts the chain checks under CI. Rafa merges `.github/` changes.
