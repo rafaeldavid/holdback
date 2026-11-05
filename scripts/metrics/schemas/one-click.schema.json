@@ -107,9 +107,15 @@
         "atOpus55": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["usdMicros", "priceTable"],
+          "required": ["usdMicros", "byModel", "priceTable"],
           "properties": {
             "usdMicros": { "$ref": "common.schema.json#/$defs/UsdMicrosOrNull" },
+            "byModel": {
+              "type": "object",
+              "maxProperties": 10,
+              "propertyNames": { "pattern": "^[a-z0-9.@\\[\\]-]{1,64}$" },
+              "additionalProperties": { "$ref": "common.schema.json#/$defs/UsdMicros" }
+            },
             "priceTable": {
               "type": "object",
               "additionalProperties": false,

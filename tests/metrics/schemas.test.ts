@@ -33,7 +33,7 @@ const oneClick = {
   outcome: { state: 'Released', commitmentId: '0xa93a4a1d24e0cf57c846d17cdaa65094f8df73d5707ed142c35c532916d88f93', txs: [], releasedAtMs: 63000 },
   approvals: { total: 4, toolPermission: 4, conversational: 0, byTool: { Bash: 4 }, requests: [{ atMs: 5000, tool: 'Bash', summary: 'curl -s https://escrow.stream/llms.txt' }] },
   tokens: { byModel: { 'claude-opus-5-5': { input: 12, cacheWrite5m: 0, cacheWrite1h: 13201, cacheRead: 125536, output: 2331, thinking: 387 } }, sdkUsage: { input_tokens: 12 }, numTurns: 6 },
-  cost: { atOpus55: { usdMicros: '182499', priceTable: { file: 'config/model-prices.json', model: 'claude-opus-5-5', source: 'https://platform.claude.com/docs/en/about-claude/pricing', readOn: '2026-11-05' } }, sdk: { totalCostUsd: '0.1775111', byModel: { 'claude-opus-5-5': '0.1773832' } }, deltaBps: 280 },
+  cost: { atOpus55: { usdMicros: '182499', byModel: { 'claude-opus-5-5': '177383', 'claude-haiku-5-5': '5116' }, priceTable: { file: 'config/model-prices.json', model: 'claude-opus-5-5', source: 'https://platform.claude.com/docs/en/about-claude/pricing', readOn: '2026-11-05' } }, sdk: { totalCostUsd: '0.1775111', byModel: { 'claude-opus-5-5': '0.1773832' } }, deltaBps: 281 },
   time: { wallMs: 104755, modelMs: 36001, toolMs: 64000, approvalWaitMs: 3, otherMs: 4751, sdkDurationMs: 104755 },
   cloudflare: null,
   errors: [],
