@@ -97,6 +97,18 @@ Each operator Worker has a variable `SETTLEMENT`, `sim` or `sepolia`, in its wra
 
 After the deploy, a smoke deal ended Released in 44 s, and the test seller sold once each way (T-222 Evidence) [measured]. To roll back: holdback-op1 `5d369b0e`, holdback-op2 `1f169857` and crow-site `cb0adcb5` (`npx wrangler@4 rollback <version> --name <worker>`); `npx wrangler@4 delete --name crow-test-agents` removes the seller.
 
+### T-229: the One-Click prompt on the site (deployed 2026-11-05)
+
+**State:** live since 2026-11-05, 15:58 UTC. Rafa gave the go-ahead on 2026-11-05 ("ship the two One-Click changes (trim llms.txt, and copy the command with the prompt)"). A deploy session built the site from PR 209's merge commit `43f8067` with the site's three commands under Deploy (above) and deployed only `crow-site`. It waited until T-228's operators were recorded as live (below), because this build's `llms.txt` carries T-228's line on closing a deal behind the chain by its timeout.
+
+| Worker | Live version | Deployed (UTC) | Rollback target (T-220's site) |
+| --- | --- | --- | --- |
+| crow-site | `4f049eb5-34fb-4a59-843a-bd3855aaea19` | 15:58:05 | `704bd295` |
+
+The deploy uploaded 2 files, `index.html` and `llms.txt`; the live copies match the build byte for byte, and `https://escrow.stream/try.mjs` still serves sha256 `cc310963…d832`, the one the command names (measured). After the deploy, a fresh Claude Code needed 1 approval per deal in both permission modes (measured; T-229 Evidence).
+
+**To roll back:** `npx wrangler@4 rollback 704bd295 --name crow-site`. That restores the link-only prompt and the `llms.txt` without T-228's line; the operators keep T-228.
+
 ### T-228: the operators close a deal behind the chain by its timeout (deployed 2026-11-05)
 
 T-228 deployed 2026-11-05: holdback-op1 ba7a2ad9-0172-458a-92a0-5d51d18afd0a, holdback-op2 7826e3ce-b8ce-422f-a2ea-9e88bd982ba9
@@ -119,7 +131,7 @@ Every check passed, and nothing was rolled back (measured; T-228 Evidence, "The 
 **Live since 2026-11-05, about 11:04 UTC** (T-220 Evidence): holdback-op1 `1d8a029c`, holdback-op2 `a042aae3`, and crow-site `704bd295` from 11:10 UTC. T-228's deploy (above) replaced the two operators at 15:29 UTC; crow-site `704bd295` still serves. Rafa gave the go-ahead on 2026-11-05 ("When ready, deploy"). A deploy session shipped PR 204's merge commit `69021a6` from main, in the same world, `holdback-public-demo-sepolia-2026-11-04` (D49): `WORLD_NAMES` did not change.
 
 - holdback-op1 `1d8a029c` and holdback-op2 `a042aae3`, deployed together by `pnpm demo-cloud:deploy` between 11:03:40 and 11:04:11 UTC, on the first try;
-- crow-site `704bd295`, deployed at 11:10 UTC; `https://escrow.stream/try.mjs` serves sha256 `cc310963…d832`.
+- crow-site `704bd295`, deployed at 11:10 UTC and replaced by T-229's site (above) at 15:58 UTC; `https://escrow.stream/try.mjs` serves sha256 `cc310963…d832`.
 
 Every step below passed (measured; T-220 Evidence). The new code answered requests at once, but `/v1/status` read schema 0.9 until 11:04:55 UTC: the Durable Object took up to 44 s to restart under the new code (measured window, inferred cause). To roll back: holdback-op1 `50fd05c4`, holdback-op2 `1a95b960`, crow-site `5582b10e` (Rollback, below).
 
