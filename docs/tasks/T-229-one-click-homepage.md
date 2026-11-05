@@ -5,7 +5,7 @@
 - **Depends on:** T-037 (the one command and `try.mjs`, PR 114), T-222 (Crow's test seller, which the command buys from)
 - **Paths this task may touch:** `site/build.mjs`, `site/check.mjs`, `site/llms.txt` (the "Try it" paragraph only), `site/index.html` (generated), `examples/try.test.ts`; docs: `docs/decisions-today.md` (D51, new lines), `docs/plan.md` (this row, a new line in Phase 2), `docs/team.md` (one Rules and checks row), `docs/update-flow.md` (the examples-to-homepage row), this file
 - **Human gate:** yes for the site deploy. Rafa approved it on 2026-11-05: "ship the two One-Click changes (trim llms.txt, and copy the command with the prompt)". Everything else is in the repository.
-- **Status:** review
+- **Status:** review (PR 209)
 - **Agent/session:** implementer, worktree `.worktrees/one-click`, branch `t-229-one-click-homepage`
 
 ## Intent
