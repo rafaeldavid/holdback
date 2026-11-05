@@ -94,12 +94,13 @@ describe('e2e-round.ts', () => {
     });
     afterAll(() => demo.close());
 
-    it('runs scenarios 1, 2, 3a, 3d, 6 and 10a, records 3b as waiting, fails 1 only on its scripted panel, and prints no key', async () => {
+    it('runs scenarios 1, 2, 3a, 3d, 6 and 10a, fails 1 only on its scripted panel, and prints no key', async () => {
       const seed = generatePrivateKey();
       const out = mkdtempSync(join(tmpdir(), 'e2e-round-'));
-      const r = await driver(['run', '1', '2', '3a', '3b', '3d', '6', '10a'], { E2E_SEPOLIA_SEED: seed, HOLDBACK_OPERATORS: demo.urls.join(','), E2E_OUT: out });
+      // 3b is built in the silent group; e2e-scenarios-silent.test.ts runs it.
+      const r = await driver(['run', '1', '2', '3a', '3d', '6', '10a'], { E2E_SEPOLIA_SEED: seed, HOLDBACK_OPERATORS: demo.urls.join(','), E2E_OUT: out });
       const { folder, byId } = results(out);
-      expect(r.out).toMatch(/^results: 1 fail, 2 pass, 3a pass, 3b waits, 3d pass, 6 pass, 10a pass$/m);
+      expect(r.out).toMatch(/^results: 1 fail, 2 pass, 3a pass, 3d pass, 6 pass, 10a pass$/m);
       expect(r.code, r.out).toBe(1);
       // Scenario 1 asks for a live panel; this world has no model keys, so its judges are scripted and the run says so.
       expect(byId['1'].checks.filter((c: J) => !c.ok).map((c: J) => c.name)).toEqual(['a live panel judged']);
@@ -109,9 +110,6 @@ describe('e2e-round.ts', () => {
       // Scenario 2 relays through the second node; no key reaches the buyer.
       expect(byId['2'].deals[0].relay).toBe(new URL(demo.urls[1]).origin);
       expect(byId['2'].checks.find((c: J) => c.name === 'no key reaches the buyer').ok).toBe(true);
-      // T-221's registration store is live in this world (the demo primary's registration is signed), so 3b waits only
-      // for the driver's own work.
-      expect(byId['3b']).toMatchObject({ status: 'waits', waitsFor: ['T-216'] });
       expect(readFileSync(join(folder, 'summary.md'), 'utf8')).toMatch(/^\| 2\. Refund on reject \(API\) \| pass \| \d+ of \d+ \|/m);
       expectNoSecrets(seed, r.out, folder);
     }, 300_000);
