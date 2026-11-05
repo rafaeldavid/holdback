@@ -1,0 +1,167 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://escrow.stream/metrics/schemas/deal-timing.schema.json",
+  "title": "deal-timing.json: stage times per deal, from the operators' event log and Sepolia blocks (T-066)",
+  "type": "object",
+  "$ref": "common.schema.json#/$defs/Envelope",
+  "unevaluatedProperties": false,
+  "required": ["eventLog", "window", "stages", "totals", "indexLagMs", "outcomes", "deals"],
+  "properties": {
+    "schema": { "const": "crow.metrics.deal-timing/1" },
+    "eventLog": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["node", "from", "head", "events", "complete"],
+          "properties": {
+            "node": { "type": "string", "pattern": "^https://", "maxLength": 200 },
+            "from": { "$ref": "common.schema.json#/$defs/Count" },
+            "head": { "$ref": "common.schema.json#/$defs/Count" },
+            "events": { "$ref": "common.schema.json#/$defs/Count" },
+            "complete": { "type": "boolean" }
+          }
+        }
+      ]
+    },
+    "window": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from", "to", "deals", "cappedAt", "inProgress"],
+      "properties": {
+        "from": { "$ref": "common.schema.json#/$defs/Iso" },
+        "to": { "$ref": "common.schema.json#/$defs/Iso" },
+        "deals": { "$ref": "common.schema.json#/$defs/Count" },
+        "cappedAt": { "const": 500 },
+        "inProgress": { "$ref": "common.schema.json#/$defs/Count" }
+      }
+    },
+    "stages": {
+      "type": "array",
+      "minItems": 7,
+      "maxItems": 7,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "from", "to", "actor", "crow", "deals", "medianMs", "p90Ms", "clamped"],
+        "properties": {
+          "id": { "enum": ["accept", "agree", "fund", "deliver", "decide", "settle", "final"] },
+          "from": { "type": "string", "maxLength": 80 },
+          "to": { "type": "string", "maxLength": 80 },
+          "actor": { "type": "string", "maxLength": 80 },
+          "crow": { "type": "boolean" },
+          "deals": { "$ref": "common.schema.json#/$defs/Count" },
+          "medianMs": { "$ref": "common.schema.json#/$defs/MsOrNull" },
+          "p90Ms": { "$ref": "common.schema.json#/$defs/MsOrNull" },
+          "clamped": { "$ref": "common.schema.json#/$defs/Count" }
+        }
+      }
+    },
+    "totals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["crowProcessingMs", "partyMs", "offeredToSettledMs"],
+      "properties": {
+        "crowProcessingMs": { "$ref": "common.schema.json#/$defs/MsStats" },
+        "partyMs": { "$ref": "common.schema.json#/$defs/MsStats" },
+        "offeredToSettledMs": { "$ref": "common.schema.json#/$defs/MsStats" }
+      }
+    },
+    "indexLagMs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["medianMs", "p90Ms", "events"],
+      "properties": {
+        "medianMs": { "type": ["integer", "null"] },
+        "p90Ms": { "type": ["integer", "null"] },
+        "events": { "$ref": "common.schema.json#/$defs/Count" }
+      }
+    },
+    "outcomes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["Released", "Refunded", "other"],
+      "properties": {
+        "Released": { "$ref": "common.schema.json#/$defs/Count" },
+        "Refunded": { "$ref": "common.schema.json#/$defs/Count" },
+        "other": { "$ref": "common.schema.json#/$defs/Count" }
+      }
+    },
+    "deals": { "type": "array", "maxItems": 500, "items": { "$ref": "#/$defs/Deal" } }
+  },
+  "$defs": {
+    "Deal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commitmentId", "outcome", "template", "buyer", "times", "stagesMs", "fee", "txs"],
+      "properties": {
+        "commitmentId": { "$ref": "common.schema.json#/$defs/Hex32" },
+        "outcome": { "enum": ["Released", "Refunded", "Reclaimed", "Expired", "inProgress"] },
+        "template": { "enum": ["checks-only", "rubric", null] },
+        "buyer": { "$ref": "common.schema.json#/$defs/AddressOrNull" },
+        "times": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["offered", "accepted", "agreed", "funded", "delivered", "decided", "settled", "final"],
+          "properties": {
+            "offered": { "$ref": "common.schema.json#/$defs/IsoOrNull" },
+            "accepted": { "$ref": "common.schema.json#/$defs/IsoOrNull" },
+            "agreed": { "$ref": "common.schema.json#/$defs/IsoOrNull" },
+            "funded": { "$ref": "common.schema.json#/$defs/IsoOrNull" },
+            "delivered": { "$ref": "common.schema.json#/$defs/IsoOrNull" },
+            "decided": { "$ref": "common.schema.json#/$defs/IsoOrNull" },
+            "settled": { "$ref": "common.schema.json#/$defs/IsoOrNull" },
+            "final": { "$ref": "common.schema.json#/$defs/IsoOrNull" }
+          }
+        },
+        "stagesMs": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "accept": { "$ref": "common.schema.json#/$defs/Ms" },
+            "agree": { "$ref": "common.schema.json#/$defs/Ms" },
+            "fund": { "$ref": "common.schema.json#/$defs/Ms" },
+            "deliver": { "$ref": "common.schema.json#/$defs/Ms" },
+            "decide": { "$ref": "common.schema.json#/$defs/Ms" },
+            "settle": { "$ref": "common.schema.json#/$defs/Ms" },
+            "final": { "$ref": "common.schema.json#/$defs/Ms" }
+          }
+        },
+        "fee": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["amount", "token"],
+              "properties": {
+                "amount": { "$ref": "common.schema.json#/$defs/UInt" },
+                "token": { "$ref": "common.schema.json#/$defs/Address" }
+              }
+            }
+          ]
+        },
+        "txs": {
+          "type": "array",
+          "maxItems": 50,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["event", "step", "tx", "block", "blockTime", "sender", "crowSent", "gasUsed"],
+            "properties": {
+              "event": { "type": "string", "pattern": "^[a-z]+\\.[a-z]+$", "maxLength": 40 },
+              "step": { "enum": ["fund", "deliver", "decide", "appeal", "appeal decision", "appeal expiry", "settle", "reclaim", "mutual settlement", "other"] },
+              "tx": { "$ref": "common.schema.json#/$defs/Hex32" },
+              "block": { "$ref": "common.schema.json#/$defs/UIntOrNull" },
+              "blockTime": { "$ref": "common.schema.json#/$defs/IsoOrNull" },
+              "sender": { "$ref": "common.schema.json#/$defs/AddressOrNull" },
+              "crowSent": { "type": "boolean" },
+              "gasUsed": { "$ref": "common.schema.json#/$defs/UIntOrNull" }
+            }
+          }
+        }
+      }
+    }
+  }
+}
