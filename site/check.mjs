@@ -15,7 +15,7 @@
 // 7. try.mjs: site/try.mjs is the current bundle of examples/try.ts, importing only viem and tweetnacl;
 //    the one command (pinned versions, its sha256) heads "Try it" in a filled llms.txt, which asks for no fetch
 //    before it. The Try line's copied prompt carries the same command and names llms.txt; the visible page does not
-//    show the command (One-Click Escrow, D51).
+//    show the command (One-Click Escrow, D51). The clipboard fallback keeps the command's spaces (pre-wrap).
 // 8. Crow's test seller (D47): the one command buys from it, and "Try it" states its catalog, limits and windows as
 //    apps/test-agents/src/catalog.ts runs them.
 import { existsSync, readFileSync } from 'node:fs';
@@ -149,6 +149,9 @@ expect(prompt.split('\n').includes(command) && prompt.includes(trySha256()), "th
 expect(prompt.includes(`${SITE_URL}llms.txt`), "the Try line's prompt does not name llms.txt");
 const visible = html.replace(span?.[0] ?? '', '');
 expect(!visible.includes('mkdir -p crow-try') && !visible.includes(trySha256()), 'index.html shows the try command outside the hidden prompt: the page shows only the Try line');
+// The clipboard fallback shows the prompt for a hand copy. pre-line collapses the two spaces in
+// `echo "<sha256>  try.mjs" | shasum -a 256 -c`, and shasum then refuses the line; pre-wrap keeps them.
+expect(/\.copied \{[^}]*white-space: pre-wrap;/.test(html), "the .copied fallback must use white-space: pre-wrap, or a hand copy breaks the command's hash check");
 expect(!/before you ask|fetch https:\/\/escrow\.stream\/try\.mjs/.test(tryIt), '"Try it" asks the agent to fetch try.mjs before the command: each fetch is one more approval');
 expect(tryIt.includes('runs it only if its SHA-256 matches the one in the command') && tryIt.includes('`examples/try.ts`, `agent.ts` and `verify.ts` in https://github.com/rafaeldavid/holdback'), '"Try it" lost a trust anchor: the SHA-256 pin or the source on GitHub');
 
