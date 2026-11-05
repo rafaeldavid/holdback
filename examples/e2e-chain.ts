@@ -157,21 +157,45 @@ export class RoundChain {
   }
 
   link = (tx: string) => (this.explorer ? `${this.explorer}/tx/${tx}` : tx);
-  private read = <T>(contract: keyof typeof ABIS, address: string, functionName: string, args: unknown[]): Promise<T> =>
-    this.client.readContract({ address: getAddress(address), abi: ABIS[contract], functionName, args }) as Promise<T>;
+
+  /**
+   * How a read pinned to a block is retried. A load-balanced RPC (publicnode) can route it to a node that does not have
+   * the block yet, which answers an error ("header not found") instead of a state. Sepolia makes a block every 12 s, so
+   * 8 tries 2 s apart, 14 s of waiting, outlast a node one block behind [inferred].
+   */
+  pinnedRetry = { tries: 8, gapMs: 2000 };
+
+  /**
+   * A view call at the latest block, or at block `at`: the state after that block. Evidence read at the deal's last
+   * block is never the state from before its last transaction, as a node one block behind served it in round 1's
+   * 2026-11-05 run (3d and 10a). A pinned read that fails is tried again, and after its tries it throws: it never falls
+   * back to the latest block.
+   */
+  private read = async <T>(contract: keyof typeof ABIS, address: string, functionName: string, args: unknown[], at?: bigint): Promise<T> => {
+    const call = () => this.client.readContract({ address: getAddress(address), abi: ABIS[contract], functionName, args, ...(at === undefined ? {} : { blockNumber: at }) }) as Promise<T>;
+    if (at === undefined) return call();
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await call();
+      } catch (e) {
+        if (attempt >= this.pinnedRetry.tries) throw e;
+        await new Promise((r) => setTimeout(r, this.pinnedRetry.gapMs));
+      }
+    }
+  };
   private get token() {
     return getAddress(this.deployment.token.address);
   }
 
-  /** `dealOf(id)`: the stage, the appeal state and the attempt. */
-  async deal(id: Hex): Promise<{ stage: string; appeal: string; attempt: number }> {
-    const d = await this.read<{ stage: number; appeal: number; attempt: number }>('rules', this.deployment.rules, 'dealOf', [id]);
+  /** `dealOf(id)`: the stage, the appeal state and the attempt, at the latest block or after block `at`. */
+  async deal(id: Hex, at?: bigint): Promise<{ stage: string; appeal: string; attempt: number }> {
+    const d = await this.read<{ stage: number; appeal: number; attempt: number }>('rules', this.deployment.rules, 'dealOf', [id], at);
     return { stage: STAGES[d.stage] ?? `stage ${d.stage}`, appeal: APPEAL_STATES[d.appeal] ?? `appeal ${d.appeal}`, attempt: d.attempt };
   }
 
-  /** CPP's payment state for the deal: what the escrow can still capture or refund, in base units. */
-  async payment(terms: J, id: Hex): Promise<{ collected: boolean; capturable: string; refundable: string }> {
-    const [collected, capturable, refundable] = await this.read<readonly [boolean, bigint, bigint]>('escrow', this.deployment.escrow, 'paymentState', [paymentHashOf(terms, id, this.deployment)]);
+  /** CPP's payment state for the deal: what the escrow can still capture or refund, in base units, at the latest block or after block `at`. */
+  async payment(terms: J, id: Hex, at?: bigint): Promise<{ collected: boolean; capturable: string; refundable: string }> {
+    const [collected, capturable, refundable] = await this.read<readonly [boolean, bigint, bigint]>('escrow', this.deployment.escrow, 'paymentState', [paymentHashOf(terms, id, this.deployment)], at);
     return { collected, capturable: capturable.toString(), refundable: refundable.toString() };
   }
 
@@ -179,14 +203,14 @@ export class RoundChain {
     return this.read<Hex>('rules', this.deployment.rules, 'deliveryHashOf', [id]);
   }
 
-  /** Each address's test-token balance, bond and free bond in HoldbackBonds, in base units. */
-  async holdings(addresses: readonly string[]): Promise<Record<string, { token: string; bond: string; free: string }>> {
+  /** Each address's test-token balance, bond and free bond in HoldbackBonds, in base units, at the latest block or after block `at`. */
+  async holdings(addresses: readonly string[], at?: bigint): Promise<Record<string, { token: string; bond: string; free: string }>> {
     const out: Record<string, { token: string; bond: string; free: string }> = {};
     for (const a of addresses) {
       const [token, bond, free] = await Promise.all([
-        this.read<bigint>('token', this.token, 'balanceOf', [getAddress(a)]),
-        this.read<bigint>('bonds', this.deployment.bonds, 'bondOf', [getAddress(a), this.token]),
-        this.read<bigint>('bonds', this.deployment.bonds, 'freeOf', [getAddress(a), this.token]),
+        this.read<bigint>('token', this.token, 'balanceOf', [getAddress(a)], at),
+        this.read<bigint>('bonds', this.deployment.bonds, 'bondOf', [getAddress(a), this.token], at),
+        this.read<bigint>('bonds', this.deployment.bonds, 'freeOf', [getAddress(a), this.token], at),
       ]);
       out[a.toLowerCase()] = { token: token.toString(), bond: bond.toString(), free: free.toString() };
     }

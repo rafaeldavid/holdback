@@ -157,7 +157,8 @@ export interface DealRecord {
   id: Hex;
   relay: string;
   transactions: Array<TxRecord & { steps: string[]; link: string; sentBy: string }>;
-  chain?: { stage: string; appeal: string; attempt: number; payment: { collected: boolean; capturable: string; refundable: string } };
+  /** dealOf and CPP's payment state after `block`, the deal's last transaction's block (the latest block when it has none). */
+  chain?: { stage: string; appeal: string; attempt: number; payment: { collected: boolean; capturable: string; refundable: string }; block?: number };
   operators?: { views: Array<{ origin: string; escrowState: string; appealState?: string; events: number; head: string | null }>; agree: boolean };
   balances: { before: Record<string, Holding>; after?: Record<string, Holding> };
   buyerOpened?: boolean;
@@ -303,10 +304,13 @@ export async function eventsOf(agent: Agent, id: Hex, api: string): Promise<J[]>
   return out.sort((a, b) => a.seq - b.seq);
 }
 
-/** Token balance, bond and free bond of each address: from the chain, or on SimChain from the API's views. */
-export async function holdings(run: Run, addresses: readonly string[]): Promise<Record<string, Holding>> {
+/**
+ * Token balance, bond and free bond of each address: from the chain (after block `at` when given), or on SimChain from
+ * the API's views.
+ */
+export async function holdings(run: Run, addresses: readonly string[], at?: bigint): Promise<Record<string, Holding>> {
   const { chain } = run.round;
-  if (chain) return chain.holdings(addresses);
+  if (chain) return chain.holdings(addresses, at);
   const reader = run.round.agent('master');
   const out: Record<string, Holding> = {};
   for (const a of addresses) {
@@ -476,7 +480,9 @@ export async function buyerKeys(deal: Deal): Promise<number[]> {
 
 /**
  * Closes a deal's record: every transaction its events name (and those the round sent itself) read back from the
- * chain, dealOf and CPP's payment state, both operators' views, and every party's holdings after.
+ * chain, dealOf and CPP's payment state, both operators' views, and every party's holdings after. The chain reads are
+ * pinned to the deal's last transaction's block: a load-balanced RPC can answer the latest block from a node one block
+ * behind, which in round 1's 2026-11-05 run reported 3d's dealOf and 10a's CPP state from before the deal's last step.
  */
 export async function finish(run: Run, deal: Deal): Promise<void> {
   const { round } = run;
@@ -487,6 +493,7 @@ export async function finish(run: Run, deal: Deal): Promise<void> {
   const steps = new Map<string, string[]>();
   for (const e of events) if (typeof e.payload?.tx === 'string') steps.set(e.payload.tx.toLowerCase(), [...(steps.get(e.payload.tx.toLowerCase()) ?? []), e.type]);
   for (const s of deal.sent) steps.set(s.tx.tx.toLowerCase(), [...(steps.get(s.tx.tx.toLowerCase()) ?? []), s.step]);
+  let at: bigint | undefined;
   if (round.chain) {
     const sentBy = new Map(deal.sent.map((s) => [s.tx.tx.toLowerCase(), 'round']));
     r.transactions = [];
@@ -495,15 +502,17 @@ export async function finish(run: Run, deal: Deal): Promise<void> {
       r.transactions.push({ ...rec, steps: kinds, link: round.chain.link(tx), sentBy: sentBy.get(tx) ?? 'operator' });
     }
     r.transactions.sort((a, b) => a.block - b.block);
-    r.chain = { ...(await round.chain.deal(deal.id)), payment: await round.chain.payment(deal.terms, deal.id) };
+    const last = r.transactions.at(-1)?.block;
+    at = last === undefined ? undefined : BigInt(last);
+    r.chain = { ...(await round.chain.deal(deal.id, at)), payment: await round.chain.payment(deal.terms, deal.id, at), ...(last === undefined ? {} : { block: last }) };
     for (const t of r.transactions) run.say(`${t.steps.join(', ').padEnd(28)} ${t.link} ${t.gasUsed} gas, block ${t.block}${t.status === 'success' ? '' : ' REVERTED'}`);
-    run.say(`dealOf: ${r.chain.stage}, appeal ${r.chain.appeal}; CPP capturable ${round.amount(r.chain.payment.capturable)}, refundable ${round.amount(r.chain.payment.refundable)}`);
+    run.say(`dealOf${last === undefined ? '' : ` after block ${last}`}: ${r.chain.stage}, appeal ${r.chain.appeal}; CPP capturable ${round.amount(r.chain.payment.capturable)}, refundable ${round.amount(r.chain.payment.refundable)}`);
   } else {
     r.notes.push('SimChain: no chain to read; the evidence is the operators\' view only');
   }
   r.operators = await operatorView(run, reader, deal.id);
   run.say(`operators: ${r.operators.views.map((v) => `${v.origin} ${v.escrowState}, ${v.events} events`).join('; ')}; ${r.operators.agree ? 'they agree' : 'THEY DISAGREE'}`);
-  r.balances.after = await holdings(run, Object.keys(r.balances.before));
+  r.balances.after = await holdings(run, Object.keys(r.balances.before), at);
 }
 
 /** The states in which a deal still holds the buyer's money. */
