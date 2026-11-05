@@ -91,6 +91,91 @@ export async function serve(world: PublicWorld): Promise<{ urls: [string, string
 }
 
 /**
+ * anvil 1.0.0 cannot estimate a call whose calldata floor (EIP-7623, Prague) exceeds its execution gas: it answers "gas
+ * floor exceeds the gas limit" (T-217 Decision 11, measured). A relayed trigger is such a call; Sepolia's own nodes
+ * estimate it. This JSON-RPC shim in front of anvil answers only that error, from eth_call: a revert stays a revert, a
+ * success gets 1,000,000 gas. The same shim as apps/adjudicator/src/drand-fork.test.ts.
+ */
+export async function estimateShim(upstream: string): Promise<{ url: string; close(): Promise<void> }> {
+  type Rpc = { id: number; method: string; params?: unknown[] };
+  const forward = (body: unknown) => fetch(upstream, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json() as Promise<{ result?: unknown; error?: { message?: string } }>);
+  const one = async (r: Rpc) => {
+    const answer = await forward(r);
+    if (r.method !== 'eth_estimateGas' || !/gas floor exceeds the gas limit/.test(answer.error?.message ?? '')) return answer;
+    const call = await forward({ ...r, method: 'eth_call', params: [r.params?.[0], 'latest'] });
+    return call.error ? { jsonrpc: '2.0', id: r.id, error: call.error } : { jsonrpc: '2.0', id: r.id, result: '0xf4240' };
+  };
+  const server: Server = createServer(async (req, res) => {
+    const chunks: Buffer[] = [];
+    for await (const c of req) chunks.push(c as Buffer);
+    const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as Rpc | Rpc[];
+    const out = Array.isArray(body) ? await Promise.all(body.map(one)) : await one(body);
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(out));
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  return {
+    url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+    close: () =>
+      new Promise((resolve) => {
+        server.closeAllConnections();
+        server.close(() => resolve());
+      }),
+  };
+}
+
+/**
+ * Serves one world at a time as two nodes on fixed origins, as the Workers keep their addresses across a deploy, with
+ * its passes every 200 ms (T-220). `deploy` waits for the running pass to end, then serves the world `next` opens,
+ * usually from the same storage: a Worker deploy restarts the Durable Object, and the new code opens the world again.
+ */
+export async function host(first: PublicWorld): Promise<{ urls: [string, string]; pause(): Promise<void>; deploy(next: () => Promise<PublicWorld>): Promise<PublicWorld>; close(): Promise<void> }> {
+  let current = first;
+  let paused = false;
+  let pass: Promise<void> = Promise.resolve();
+  const server: Server = createServer(async (req, res) => {
+    const at = req.headers.host ?? '';
+    const chunks: Buffer[] = [];
+    for await (const c of req) chunks.push(c as Buffer);
+    const body = ['GET', 'HEAD'].includes(req.method ?? 'GET') ? undefined : Buffer.concat(chunks);
+    const headers = Object.fromEntries(Object.entries(req.headers).filter(([, v]) => typeof v === 'string')) as Record<string, string>;
+    const r = await current.fetch(new Request(`http://${at}${req.url}`, { method: req.method ?? 'GET', headers, ...(body ? { body } : {}) }), { node: at.startsWith('localhost') ? 1 : 0, origin: `http://${at}`, client: req.socket.remoteAddress ?? 'unknown' });
+    res.writeHead(r.status, Object.fromEntries([...r.headers].filter(([k]) => k !== 'content-length')));
+    res.end(Buffer.from(await r.arrayBuffer()));
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const port = (server.address() as AddressInfo).port;
+  let ticking = true;
+  const loop = (async () => {
+    while (ticking) {
+      if (!paused) await (pass = current.work().catch(() => undefined));
+      await sleep(200);
+    }
+  })();
+  return {
+    urls: [`http://127.0.0.1:${port}`, `http://localhost:${port}`],
+    /** Stops the passes (requests are still served) once the running pass ends; `deploy` starts them again. */
+    pause: async () => {
+      paused = true;
+      await pass;
+    },
+    deploy: async (next) => {
+      paused = true;
+      await pass;
+      current = await next();
+      paused = false;
+      return current;
+    },
+    close: async () => {
+      ticking = false;
+      await loop;
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      server.closeAllConnections();
+    },
+  };
+}
+
+/**
  * An outside adjudicator (T-221, ADR-0030), as an agent runs one: the reference adjudicator's code under its own key,
  * registered through POST /v1/adjudicators, bonded in HoldbackBonds from that key, and sending its acceptances,
  * decisions and triggers through the operators' HTTP API. It reads the deals from the world's settlement view, as it
