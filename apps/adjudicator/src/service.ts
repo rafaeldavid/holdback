@@ -8,7 +8,8 @@
 // - No re-roll: a decision, once computed, is kept and resubmitted unchanged; the judges are never
 //   asked again for the same (commitment, role, attempt).
 // - Consent (T-211, D29): it declines an offer or a fallback turn whose appeal windows or fee are outside its terms, an
-//   appeal turn below its fee, and a fallback turn its free bond cannot back; it expires the appeals of its own
+//   appeal turn below its fee, and a fallback turn its free bond cannot back or whose appeal adjudicator it does not
+//   trust (T-221, ADR-0030 §6); it expires the appeals of its own
 //   decisions once due, which frees its bond. The buyer's key travels only with an accept, never on a deal that
 //   stands Refunded.
 import {
@@ -230,11 +231,9 @@ export class Adjudicator {
     }
     // T-212: an untrusted appeal adjudicator could overturn this service's honest decision and take the price from its
     // bond; an untrusted fallback is declined on the same footing. D29: an adjudicator declines terms it will not run.
-    const trusted = new Set([this.address, ...(this.#cfg.trustedAdjudicators ?? []).map((a) => a.toLowerCase())]);
     for (const [role, who] of [['fallback', adjudication.fallbackAdjudicator], ['appeal', adjudication.appealAdjudicator]] as const) {
-      if (!trusted.has(who.toLowerCase())) {
-        return err(problem('invalid_terms', `${this.#cfg.name} does not trust ${who} as the ${role} adjudicator: an appeal decided by an untrusted adjudicator could pay the price from this adjudicator's bond (T-212); offer with a ${role} adjudicator it trusts`));
-      }
+      const untrusted = this.#untrusted(role, who, 'offer');
+      if (untrusted) return err(untrusted);
     }
     if (adjudication.policyHash !== policyHashOf(this.policy)) return err(problem('policy_mismatch', 'policy-hash-mismatch: the offer binds another policy'));
     if (adjudication.registryHash !== this.#cfg.registry.hash) return err(problem('registry_mismatch', 'the offer binds another registry'));
@@ -255,6 +254,18 @@ export class Adjudicator {
     const msg = { ...unsigned, signature: await signMessage(this.#cfg.signingKey, this.#cfg.domain, unsigned) };
     const sent = await this.#cfg.settlement.submit(msg);
     return sent.ok ? ok(msg) : err(sent.error);
+  }
+
+  /**
+   * T-212 and T-221 (ADR-0030 §6): an appeal adjudicator outside its trusted set could overturn this service's decision
+   * and pay the price from its bond (D43). As primary it checks the fallback and the appeal adjudicator at acceptance; as
+   * fallback, the appeal adjudicator at its turn, since an outside primary's terms can name it as fallback.
+   */
+  #untrusted(role: 'fallback' | 'appeal', who: Address, what: 'offer' | 'fallback turn'): Problem | null {
+    const trusted = new Set([this.address, ...(this.#cfg.trustedAdjudicators ?? []).map((a) => a.toLowerCase())]);
+    if (trusted.has(who.toLowerCase())) return null;
+    const why = `an appeal decided by an untrusted adjudicator could pay the price from this adjudicator's bond (${what === 'offer' ? 'T-212' : 'T-221, ADR-0030 §6'})`;
+    return problem('invalid_terms', what === 'offer' ? `${this.#cfg.name} does not trust ${who} as the ${role} adjudicator: ${why}; offer with a ${role} adjudicator it trusts` : `${this.#cfg.name} does not trust ${who} as the appeal adjudicator, so it declines this deal's fallback turn: ${why}. Unless the primary decides, the default outcome applies at fallbackBy`);
   }
 
   /** D29 (T-211): a primary's or fallback's decision holds its bond until the appeal closes, and the deal sets how long. */
@@ -296,8 +307,14 @@ export class Adjudicator {
    * `consented`: a turn on a deal it already consented to, as primary by its acceptance or by its own first decision,
    * so a later quote or limit does not renege on it (and the wrong-key re-release, which runs no panel). `cover`: false
    * when the turn's cached outcome is an escalation, which reserves no bond. null: it takes the turn.
+   * A fallback turn also needs an appeal adjudicator it trusts (T-221), consented or not: its decision reserves its bond
+   * for that appeal adjudicator to slash, and a primary's acceptance already checked the same set.
    */
   async #turnProblem(c: DecisionTask['commitment'], role: 'fallback' | 'appeal', o: { consented: boolean; cover: boolean }): Promise<Problem | null> {
+    if (role === 'fallback') {
+      const untrusted = this.#untrusted('appeal', c.adjudication.appealAdjudicator, 'fallback turn');
+      if (untrusted) return untrusted;
+    }
     if (!o.consented) {
       const terms = (role === 'fallback' ? this.#windowsProblem(c) : null) ?? this.#feeProblem(c);
       if (terms) return terms;
