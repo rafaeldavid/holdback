@@ -39,12 +39,12 @@ Three cases are attacks: whoever can cause one makes the operators' adjudicators
 - **The funding.** The operators' primary never decides and their fallback never takes over, so a delivered deal ends in the default refund at `fallbackBy`, and an undelivered one in the buyer's reclaim.
 - **A decision.** The decision stands on chain, but the operators refuse to relay an appeal for the deal, and their appeal adjudicator does not act on one filed directly. The first decision stands at `appealDecideBy`. A party that won the first decision can use case 1 to shut out the appeal.
 - **The bound.** No funds move outside the contract's terms, and nobody gains the deal's money (D26: bounded loss).
-- **The demo's visitors.** The operators refuse every relay for a deal behind the chain, the timeouts included (`send` in `evm-settlement.ts`). A visitor's agent without Sepolia ETH then cannot submit at all, so its deal's funds wait until someone with Sepolia ETH sends the timeout.
+- **The demo's visitors.** The operators refuse every relay for a deal behind the chain, the timeouts included (`send` in `evm-settlement.ts`). A visitor's agent without Sepolia ETH then cannot submit at all, so its deal's funds wait until someone with Sepolia ETH sends the timeout. Moved to T-228 on 2026-11-05 (`docs/tasks/T-228-relay-timeouts-behind-the-chain.md`): the operators relay a due timeout for a deal behind, so criterion 2 here keeps only the signed steps.
 
 ## Acceptance criteria
 
 1. [ ] **The adjudicators read `dealOf`'s stage for a deal behind the chain.** The adjudicator pass takes the stage and appeal state from `book.behind`, read again each pass, and the deadlines from the signed terms. The primary decides a delivery before `judgeBy`. The fallback takes over at `judgeBy` and decides before `fallbackBy`. The appeal adjudicator decides an escalation or an open appeal before `appealDecideBy`. An adjudicator that lacks what it needs to decide (a direct delivery never posted, T-218) stays silent, as today, and the state read's notice says why.
-2. [ ] **A relay path that records the receipt without the mirror.** For a deal behind the chain, the operator relays each signed step the contract would take: the adjudicators' decisions and takeovers, the parties' appeals, early accepts and mutual settlements, and the timeouts anyone may trigger. The contract is the only check (ADR-0028 §2). The node records the receipt's transaction and logs as events, reads `dealOf` again, and invents no rebuilt message. The operator still relays and never authors. If the events need a new type, it goes through an ADR and a schema version bump (`spec/schemas/` is the API contract).
+2. [ ] **A relay path that records the receipt without the mirror.** For a deal behind the chain, the operator relays each signed step the contract would take: the adjudicators' decisions and takeovers, the parties' appeals, early accepts and mutual settlements (the timeouts anyone may trigger moved to T-228). The contract is the only check (ADR-0028 §2). The node records the receipt's transaction and logs as events, reads `dealOf` again, and invents no rebuilt message. The operator still relays and never authors. If the events need a new type, it goes through an ADR and a schema version bump (`spec/schemas/` is the API contract).
 3. [ ] **Each case, on anvil.** A test per case, each step sent from a stranger's or a party's own key, after which the operators' adjudicators act and the deal ends by their decision, not by its timeouts:
    - case 1 at the funding, at a decision (an appeal is then heard) and at an appeal filing;
    - case 2 through a minimal ERC-1271 wallet or a Safe;
@@ -70,5 +70,6 @@ Three cases are attacks: whoever can cause one makes the operators' adjudicators
 ## Decisions
 
 - 2026-11-05, Rafa (D50): Phase 11, after T-220's deploy and before mainnet.
+- 2026-11-05, Rafa: the timeout relay for a deal behind the chain moved to T-228, so a visitor with no Sepolia ETH can close such a deal before the rest of this task lands.
 
 ## Handoff

@@ -864,3 +864,20 @@ Also: the funding signature on EVM is CPP's collector signature and token identi
 | Fix before T-220's deploy (T-218's red-teamer) | No demo deal can be griefed into its default outcome; round 1 waits for a task with a red team |
 | Phase 11, before mainnet (chosen) | T-220 deploys now; until T-227 lands, anyone can push a demo deal to its timeouts for the cost of gas |
 | Keep it in the backlog | Nothing scheduled; mainnet could ship with the gap |
+
+## D51. One-Click Escrow: one approval per honest deal at published terms (T-229)
+
+**Decided 2026-11-05 by Rafa:** "One-Click Escrow is what we're looking for. Buyer puts up contract or Seller and, assuming an honest good contract with no price negotiation, it should go through seamlessly if agent has access to funds." Then, the same day: "ship the two One-Click changes (trim llms.txt, and copy the command with the prompt)." Rafa may overrule any line.
+
+- **The goal.** An honest deal at published terms, with no price negotiation, goes through with one approval from the user. Either side can start it, the buyer or the seller, as long as the agent has access to funds.
+- **The metric.** User approvals per honest deal at published terms, started by either side, when the agent has funds. The target is 1. The time to Released is tracked beside it.
+- **Measured on 2026-11-05: 4 approvals** [measured]. A fresh Claude Code 2.1.318, default permissions, no allowlist, given the homepage prompt, asked for 4 approvals in each of 2 runs and reached Released in about 93 s. The 4 were a fetch of `llms.txt`, a second download of `try.mjs` to read it, a search of that copy, and the one command (T-229, Evidence).
+- **The first step (T-229).** The homepage's copy button copies a prompt that carries the one command, and `llms.txt`'s "Try it" stops inviting a fetch of `try.mjs` first. The SHA-256 pin and the source on GitHub stay as the trust anchors. Expected after the deploy: 1 approval from the buyer side [inferred; measured after the deploy].
+- **The next gap.** A visitor's agent that starts as the seller needs a standing test buyer, the second slice of Crow's test counterparties (T-222, `docs/backlog.md`).
+- **Litmus tests.** Untouched: the change is the site's text and its copy button. The command still refuses any `try.mjs` whose SHA-256 differs from the one it carries.
+
+| Option | Effect |
+| --- | --- |
+| Copy the command with the prompt; trim "Try it" (chosen) | One approval expected; the visible page still shows no command |
+| Show the command on the page again (T-037's first design) | One approval too, but Rafa chose a page with only the short line on 2026-11-04 |
+| Keep the link-only prompt | 4 approvals measured per deal |
