@@ -40,7 +40,6 @@ The operators' pass sends no party timeout today (`workAt` in `apps/demo-cloud/s
 
 - Everything else in T-227: the adjudicators reading `dealOf`, the relay path for signed steps, each case's test, contract signers, the named attack test.
 - The operators' pass sending due timeouts on its own for a deal behind (it sends none for any deal today).
-- The idempotent answer for a timeout relayed before a restart that lands on a deal behind (see Handoff).
 
 ## Evidence
 
@@ -55,21 +54,30 @@ The operators' pass sends no party timeout today (`workAt` in `apps/demo-cloud/s
   - The operator's relayer lane sent both transactions (`triggerFallback`, `triggerDefault`, via `op-1`). The buyer's and the seller's nonces did not move.
   - The book keeps its last rebuilt step, the next sync pass applies 0 transactions, the event log stays one hash chain and matches the schema, and a restart serves `Refunded`.
 - **The whole sync suite** [measured, the same day, after merging `origin/main` at `c98c0b7`]: `packages/settlement/evm/sync.test.ts`, 40 of 40 tests pass in 162.5 s.
-- **`pnpm verify`** at `e4f5b15` plus this file's edits, 2026-11-05 13:33 UTC: PASS, no snapshot diffs against HEAD [measured: `reports/verify-t-228-relay-timeouts.md`]. `pnpm test` ran 120 files and 2,707 tests. The 2 files and 6 tests skipped are the suites that need `SEPOLIA_FORK_RPC` or other secrets [inferred from their skip conditions]. CI's contracts job runs `packages/settlement/evm` on anvil, so the new test runs in CI [measured: `.github/workflows/ci.yml` line 87].
+- **`pnpm verify`** at `6578cba` plus the review fixes, 2026-11-05 14:56 UTC: PASS, no snapshot diffs against HEAD [measured: `reports/verify-t-228-relay-timeouts.md`]. `pnpm test` ran 120 files and 2,710 tests (2,707 before the review, plus the 3 regression tests). The 2 files and 6 tests skipped are the suites that need `SEPOLIA_FORK_RPC` or other secrets [inferred from their skip conditions]. CI's contracts job runs `packages/settlement/evm` on anvil, so the new tests run in CI [measured: `.github/workflows/ci.yml` line 87].
 
   | Step | Command | Status | Time |
   | --- | --- | --- | --- |
-  | typecheck | `pnpm typecheck` | pass | 5,247 ms |
-  | lint | `pnpm lint` | pass | 5,327 ms |
-  | forge build | `forge build --root contracts` | pass | 1,046 ms |
-  | forge | `forge test --root contracts` | pass | 16,341 ms |
-  | test | `pnpm test` | pass | 180,404 ms |
-  | spec | `pnpm validate:spec` | pass | 624 ms |
-  | snap | `pnpm snap` | pass | 9,285 ms |
-  | snap:local | `pnpm snap --settlement=local` | pass | 14,902 ms |
-  | demo | `pnpm demo` | pass | 4,424 ms |
+  | typecheck | `pnpm typecheck` | pass | 16,207 ms |
+  | lint | `pnpm lint` | pass | 15,698 ms |
+  | forge build | `forge build --root contracts` | pass | 2,849 ms |
+  | forge | `forge test --root contracts` | pass | 36,883 ms |
+  | test | `pnpm test` | pass | 188,584 ms |
+  | spec | `pnpm validate:spec` | pass | 661 ms |
+  | snap | `pnpm snap` | pass | 10,351 ms |
+  | snap:local | `pnpm snap --settlement=local` | pass | 18,417 ms |
+  | demo | `pnpm demo` | pass | 5,052 ms |
 
 - **Site** [measured]: `node site/build.mjs` rewrote nothing beyond `llms.txt`'s own edit, and `node site/check.mjs` passed.
+- **Review and red-team on PR 207** (2026-11-05, at `6578cba`): 1 medium and 4 low findings, all fixed in this PR. The red team's three failing fixtures are now regression tests in `sync.test.ts`.
+  - Medium, `attack.t228-stale-receipt-read`: a `dealOf` read at the receipt's block that still showed the stage before the timeout froze the state read for good. Fixed in `landBehind`: such a read throws before the transaction counts as applied, and the next pass applies the receipt.
+  - Low, `attack.t228-waiting-order`: a relayed timeout queued ahead of an earlier direct takeover broke the delivery's join. Fixed in `join`: the queue replays in chain order.
+  - Low, `attack.t228-restart-double-send`, and the two idempotency findings: a relay whose receipt landed through `follow` on a deal behind stored no answer, after a restart or after a failed read at the receipt. Fixed in `follow`'s branch for a deal behind, so T-227 no longer needs to carry the gap, and its task file needs no clause for it.
+- **Test first** [measured, 2026-11-05, on anvil, `pnpm -C .worktrees/t-228 exec vitest run packages/settlement/evm/sync.test.ts -t attack.t228`, the new tests against the code at `6578cba`]:
+  - `attack.t228-waiting-order` failed: after the join the book stayed `Delivered`, behind with "trigger_default is not allowed in Delivered", while `dealOf` read `Refunded`.
+  - `attack.t228-restart-double-send` failed: the retry with the same `Idempotency-Key` answered `invalid_state: contract revert WrongStage(3)`, not the replayed `ok: FallbackJudging`.
+  - `attack.t228-stale-receipt-read` failed: the relayed default answered `ok` with the state read at `FallbackJudging`, while the contract had refunded the buyer. Its first run timed out at 120,000 ms; run alone, it failed on that assertion (cause of the timeout not found; it did not recur).
+- **With the fixes** [measured, the same day, on anvil]: the T-228 test and the three regression tests pass in 50.1 s. The whole sync suite passes, 43 of 43 tests in 188.3 s; the regression tests take 12,536 ms (stale read, most of it the 10,000 ms read budget), 5,358 ms (waiting order) and 3,280 ms (restart). In the restart test the relayer lanes sent 1 transaction in all.
 - **Sepolia** [guessed]: a timeout on Sepolia costs the operator about 80,792 gas, the cost of round 1's relayed appeal expiries (T-216). Not run on Sepolia here: no live runs in this task.
 
 ## Decisions
@@ -78,10 +86,14 @@ The operators' pass sends no party timeout today (`workAt` in `apps/demo-cloud/s
 - 2026-11-05: the guard lets through only the five timeouts (`TIMEOUTS`: `expireOffer`, `reclaim`, `triggerFallback`, `triggerDefault`, `expireAppeal`). Each carries no signed message, and the contract is the only check: the simulation runs first, so a timeout that is not due reverts there and nothing is sent. Signed steps still answer `invalid_state` until T-227.
 - 2026-11-05: a relayed timeout for a deal behind gets no mirror step. Its receipt moves the deal as a transaction read from the chain does (`landBehind`, which shares `stillBehind` with `follow`): `dealOf` at the receipt's block, the keys its logs release, no rebuilt event. An `expireAppeal` for such a deal leaves `appealClosedAt` unset, since the book holds no appeal to close.
 - 2026-11-05: the test wraps the operator's `estimateGas` for one anvil 1.0.0 bug (T-217 Decision 11): anvil cannot estimate a call whose EIP-7623 calldata floor exceeds its execution gas, and every timeout is one. The shim answers only that error: a revert stays a revert. Sepolia's nodes estimate these calls.
+- 2026-11-05, review: `landBehind` takes no stage from a `dealOf` read at the receipt's block that still shows the stage before the timeout. Every timeout moves the stage or the appeal state, so such an answer comes from a node that lags or follows another fork. The call throws before it marks the transaction applied, and the next sync pass applies the receipt with its own `dealOf` read, as `send` already does for a deal that is not behind (review M2).
+- 2026-11-05, review: `follow`'s branch for a deal behind stores the answer of this node's own relay, so a retry with the same `Idempotency-Key` replays it after the next pass or a restart. This closes the gap the first Handoff left to T-227, in 4 lines, for timeouts and for any lane row whose deal fell behind before its receipt landed (T-219).
+- 2026-11-05, review: `join` replays the waiting transactions in chain order (block, then the first log's index). A relayed timeout joins the queue when mined, so it can sit ahead of an earlier direct call that no pass had read yet.
 
 ## Handoff
 
-- **State:** in review as a draft PR. The code, the test, residual 13 and `site/llms.txt` are done. `pnpm verify` passes. Not deployed: the deploy waits for Rafa, and the `llms.txt` change goes live with it.
-- **Next:** review the settlement change (the guard in `send` and `landBehind`) with the `reviewer` role, and a red-team pass, since it touches settlement. Then merge, mark this task done, and deploy when Rafa says so.
-- **Known gap, for T-227:** a timeout for a deal behind whose receipt lands only after a restart gets no stored answer. `follow`'s branch for a deal behind closes the lane row without `answer`, so a retry with the same `Idempotency-Key` runs again and answers `invalid_state` (`WrongStage`) instead of replaying `ok`. The funds are safe and the deal is closed; only the retry's answer differs. The same gap predates this task for any lane row whose deal falls behind before its receipt lands (T-219). The fix is about 3 lines in that branch (store the answer for a successful row's note) plus a restart test; T-227 owns the relay path for deals behind.
+- **State:** in review as a draft PR. The review and red-team findings on PR 207 are fixed (see Evidence). The code, the tests, residual 13 and `site/llms.txt` are done. `pnpm verify` passes. Not deployed: the deploy waits for Rafa, and the `llms.txt` change goes live with it.
+- **Next:** merge once CI passes, mark this task done, and deploy when Rafa says so.
+- **Left over, small (all deals, not only those behind):** a retry with the same `Idempotency-Key` that arrives after a failed or stale read at the receipt but before the next sync pass (about 1 min while the deal is recent) runs again and answers `invalid_state`, as on `send`'s path since review M2; after the pass or a restart it replays `ok`.
+- **Left over, view only:** for a deal waiting for its posted delivery, `transactions()` lists the operator's relayed timeout only once the delivery joins (`landBehind` skips `txs.push` there, and `join` records it, labelled `direct`), so the operator's gas spend for such a deal shows late or, if the seller never posts, never.
 - **Not done, by choice:** the operators' pass does not send due timeouts on its own for a deal behind, so someone still calls `POST /v1/commitments/<id>/triggers/<kind>` (anyone may, at no gas). If stuck deals show up in the demo, the pass could send them; that belongs in the backlog, not here.
