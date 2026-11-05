@@ -41,22 +41,13 @@ function timeoutWindows(r: Run, extra: Record<string, number> = {}): Record<stri
   return shortWindows(r, { offerExpiresInSec: Math.max(2 * m, 20), fundWithinSec: Math.max(3 * m, 30), deliverWithinSec: Math.max(4 * m, 40), ...extra });
 }
 
-/**
- * Runs `f` with the round's silent primary serving, and stops serving whatever happens. `stop` waits for the serving
- * loop, whose naps never hold the process open, so in the driver's own process nothing else may be left to keep it
- * alive: Node would exit mid-run with the stop unsettled. A timer of its own holds the process until the loop ends.
- */
+/** Runs `f` with the round's silent primary serving, and stops serving whatever happens. */
 async function withSilent<T>(r: Run, primary: RoundAdjudicator, f: (serving: Serving) => Promise<T>): Promise<T> {
   const serving = await primary.serve(r, 'silent');
   try {
     return await f(serving);
   } finally {
-    const hold = setInterval(() => {}, 1000);
-    try {
-      await serving.stop();
-    } finally {
-      clearInterval(hold);
-    }
+    await serving.stop();
   }
 }
 

@@ -5,7 +5,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { createInterface } from 'node:readline';
 import { concat, hashStruct, keccak256, toBytes, type Hex } from 'viem';
-import { RoundAdjudicator, type Serving } from './e2e-adjudicator.ts';
+import { RoundAdjudicator } from './e2e-adjudicator.ts';
 import { termsTuple, type TxRecord } from './e2e-chain.ts';
 import { buyerKeys, buyerOpens, delta, deliver, ensureFunds, eventsOf, finish, fund, get, logsOf, openDeal, reason, refreshBefore, retry, short, shortWindows, sleep, trigger, until, waitPast, Waits, type Deal, type Run } from './e2e-run.ts';
 import { CHECKS, CSV, DATASET, PRICE, bondFreedCheck, expireAppeal, here, lc, paidCheck, requires, settledChecks, type J, type Scenario } from './e2e-scenario-kit.ts';
@@ -134,20 +134,6 @@ async function directTakeover(r: Run, deal: Deal): Promise<{ tx: TxRecord; at: n
     const by = (await eventsOf(deal.buyer, deal.id, deal.buyer.operators[0]!)).find((x) => x.type === 'fallback.triggered');
     r.check("triggerFallback is sent directly from the buyer's key", false, `${reason(e)}; the takeover came from ${by ? `submittedVia ${by.submittedVia} in ${chain.link(String(by.payload?.tx))}` : 'nobody yet'}`);
     return null;
-  }
-}
-
-/**
- * Stops a serving adjudicator. Its loop sleeps on timers that never hold the process open (e2e-adjudicator.ts, `nap`),
- * so when nothing else is pending, awaiting `stop` alone lets Node exit before the run writes its record. A held timer
- * keeps the process up while the loop winds down.
- */
-async function stopServing(s: Serving): Promise<void> {
-  const hold = setInterval(() => undefined, 1000);
-  try {
-    await s.stop();
-  } finally {
-    clearInterval(hold);
   }
 }
 
@@ -297,7 +283,7 @@ export const DIRECT: Scenario[] = [
         settledChecks(r, deal, 'Released');
         paidCheck(r, deal, 'fallback: the price reaches the seller on chain', seller, price);
       } finally {
-        await stopServing(serving);
+        await serving.stop();
       }
     },
   },

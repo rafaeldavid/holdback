@@ -333,9 +333,17 @@ export class RoundAdjudicator {
     return {
       acted,
       errors,
+      // The loop's naps never hold the process open, so when `stop` is the driver's last pending work, Node would exit
+      // with the stop unsettled and the scenario's record unwritten. A timer of its own holds the process until the
+      // loop has ended (measured by three scenario groups, 2026-11-05).
       stop: async () => {
         stopped = true;
-        await loop;
+        const hold = setInterval(() => undefined, 1000);
+        try {
+          await loop;
+        } finally {
+          clearInterval(hold);
+        }
       },
     };
   }

@@ -5,7 +5,7 @@
 // The primary is the round's `adjudicator-1`, registered through the API and, on a chain, bonded with the price from
 // its own key. On SimChain no outsider can bond at run time, so the deals there are priced at zero: every step still
 // runs, and the money checks hold at zero.
-import { RoundAdjudicator, type Serving } from './e2e-adjudicator.ts';
+import { RoundAdjudicator } from './e2e-adjudicator.ts';
 import { APPEAL_STATES } from './e2e-chain.ts';
 import { buyerKeys, delta, deliver, ensureFunds, finish, fund, get, logsOf, openDeal, reason, short, shortWindows, sleep, trigger, until, waitPast, type Deal, type Run } from './e2e-run.ts';
 import { APPELLANT_FLOAT, BAD_CSV, CHECKS, CSV, DATASET, PRICE, appeal, appealBond, bondFreedCheck, lc, requires, settledChecks, untilAppeal, type J, type Scenario } from './e2e-scenario-kit.ts';
@@ -31,20 +31,6 @@ interface Shape {
   appellant: 'buyer' | 'seller';
   appealAdjudicator: string;
   timing: Record<string, number>;
-}
-
-/**
- * Stops a serving adjudicator, holding the process open until its loop has stopped. The loop's naps never hold the
- * process (e2e-adjudicator.ts), so a bare `stop()` with nothing else pending lets the driver exit mid-scenario with an
- * unsettled top-level await (measured on SimChain, 2026-11-05).
- */
-async function stopServing(serving: Serving): Promise<void> {
-  const hold = setInterval(() => undefined, 1000);
-  try {
-    await serving.stop();
-  } finally {
-    clearInterval(hold);
-  }
 }
 
 /**
@@ -77,7 +63,7 @@ async function scriptedDeal(r: Run, prefix: string, s: Shape): Promise<{ deal: D
     r.check(`${prefix}the round's primary decides ${s.decide} by script, and the deal is ${expected}`, decided && first.escrowState === expected, `${PRIMARY} ${short(primary.address)} ${decided ? `decided ${s.decide}` : 'made no decision'}; both operators show ${first.escrowState}`);
     return { deal, bond, primary };
   } finally {
-    await stopServing(serving);
+    await serving.stop();
     for (const e of serving.errors) r.note(`the round's ${PRIMARY} retried a step after: ${e}`);
   }
 }
