@@ -47,16 +47,16 @@ describe('adjudicatorTyped', () => {
     const core = await import(pathToFileURL(createRequire(join(root, 'apps/operator/package.json')).resolve('@holdback/core')).href);
     const domain = { name: 'Holdback' as const, version: '0.7', chainId: 11155111, verifyingContract: '0xf38287e5c5c1f20c6d03be500edbf8a244f27cfa' as Hex };
     const h = (c: string) => `0x${c.repeat(64)}` as Hex;
-    const token = '0x2c6fa6f2ad3b2b44fb4c2e4d2a3e3cfcf96ae3a8';
+    const asset = '0x2c6fa6f2ad3b2b44fb4c2e4d2a3e3cfcf96ae3a8';
     const me = '0x5d10fecab9242e66cb134b77309a3566ed75e3dd';
     const decision = { type: 'Decision', commitmentId: h('1'), attempt: 1, deliveryHash: h('2'), adjudicator: me, role: 'primary', outcome: 'reject', seed: h('3'), policyHash: h('4'), registryHash: h('5'), judgmentRecordHash: h('6'), nonce: h('7'), expiresAt: '2026-11-05T12:00:00Z' };
     const messages = [
-      { type: 'AdjudicatorAcceptance', commitmentId: h('1'), adjudicator: me, seedCommitment: h('2'), policyHash: h('4'), registryHash: h('5'), fee: { token, amount: '1000000' }, bondReserved: { token, amount: PRICE }, nonce: h('8'), expiresAt: '2026-11-05T11:00:00Z' },
+      { type: 'AdjudicatorAcceptance', commitmentId: h('1'), adjudicator: me, seedCommitment: h('2'), policyHash: h('4'), registryHash: h('5'), fee: { token: asset, amount: '1000000' }, bondReserved: { token: asset, amount: PRICE }, nonce: h('8'), expiresAt: '2026-11-05T11:00:00Z' },
       decision,
       { ...decision, outcome: 'accept', keyForBuyer: { scheme: 'x25519-xsalsa20poly1305', ciphertext: 'c2VhbGVkLWtleS1mb3ItYnV5ZXI' } },
       { ...decision, role: 'appeal', appealGround: 'wrong-outcome', beacon: { source: 'drand-quicknet', round: 123, value: h('9'), signature: `0x${'ab'.repeat(48)}` } },
       { ...decision, outcome: 'escalate', encryptedKeys: [{ recipient: me, scheme: 'x25519-xsalsa20poly1305', ciphertext: 'a2V5' }] },
-      { type: 'AdjudicatorRegistration', adjudicator: me, encryptionPublicKey: 'A6d8Adb682dd4Aed883d592c521ccc795599fdf4a1c', keyId: 't-216/adjudicator-1/2026-11-05T12:00:00Z', policyHash: h('4'), registryHash: h('5'), fee: { token, amount: '1000000' }, poolTermsHash: h('a'), bodyHash: h('b'), issuedAt: '2026-11-05T12:00:00Z', nonce: h('c'), expiresAt: '2026-12-05T12:00:00Z' },
+      { type: 'AdjudicatorRegistration', adjudicator: me, encryptionPublicKey: 'A6d8Adb682dd4Aed883d592c521ccc795599fdf4a1c', keyId: 't-216/adjudicator-1/2026-11-05T12:00:00Z', policyHash: h('4'), registryHash: h('5'), fee: { token: asset, amount: '1000000' }, poolTermsHash: h('a'), bodyHash: h('b'), issuedAt: '2026-11-05T12:00:00Z', nonce: h('c'), expiresAt: '2026-12-05T12:00:00Z' },
     ];
     for (const m of messages) expect(hashTypedData(adjudicatorTyped(m, domain)), `${m.type} ${(m as J).outcome ?? ''}`).toBe(core.messageDigest(domain, m));
   });
