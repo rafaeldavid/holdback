@@ -8,6 +8,7 @@ import {
   ok,
   SIM_BEACON,
   type AdjudicatorAcceptance,
+  type AdjudicatorPolicy,
   type AdjudicatorRegistration,
   type Address,
   type AppealGround,
@@ -54,6 +55,8 @@ export interface AdapterOptions {
   chain: SettlementReads;
   store: ContentStore;
   registration(address: Address): Promise<AdjudicatorRegistration | null>;
+  /** Every policy a registration carried, by hash (AdjudicatorSettlement.policy, T-221 review). Absent: none kept. */
+  policy?(hash: Hex32): Promise<AdjudicatorPolicy | null>;
   /**
    * Where rounds come from for a commitment whose rulebook names drand-quicknet (drand.ts, T-217). Absent: such a
    * commitment gets no source, so its fallback and appeal turns wait and the deal takes its default path.
@@ -253,5 +256,9 @@ export class SettlementAdapter implements AdjudicatorSettlement {
 
   registration(address: Hex32): Promise<AdjudicatorRegistration | null> {
     return this.#o.registration(address as Address);
+  }
+
+  async policy(hash: Hex32): Promise<AdjudicatorPolicy | null> {
+    return (await this.#o.policy?.(hash)) ?? null;
   }
 }

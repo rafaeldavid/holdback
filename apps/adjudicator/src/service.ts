@@ -12,6 +12,9 @@
 //   trust (T-221, ADR-0030 §6); it expires the appeals of its own
 //   decisions once due, which frees its bond. The buyer's key travels only with an accept, never on a deal that
 //   stands Refunded.
+// - The bound policy (T-221 review): a fallback or appeal turn judges under the policy whose hash the terms bound, read
+//   by that hash, never the primary's latest registration. `declines` answers from the terms alone whether it would
+//   take a role, so it triggers no takeover it would decline and an operator fills it in as a default only when it would not.
 import {
   canonicalKeccak,
   commitmentId,
@@ -200,7 +203,9 @@ export class Adjudicator {
     }
     for (const c of await port.takeoversDue(this.address)) {
       // T-211: it does not trigger a takeover it would decline. Anyone still may; the deal then defaults at fallbackBy.
-      const declined = this.#termsMismatch(c) ?? (await this.#turnProblem(c, 'fallback', { consented: c.adjudication.adjudicator.toLowerCase() === this.address, cover: true }));
+      // T-221 review: that includes a registry, a bound policy or a panel it cannot run.
+      const declined =
+        this.#termsMismatch(c) ?? (await this.#turnProblem(c, 'fallback', { consented: c.adjudication.adjudicator.toLowerCase() === this.address, cover: true })) ?? (await this.#runnable(c, 'fallback'));
       if (declined) report.refused.push({ commitmentId: c.id, problem: declined });
       else if ((await port.triggerFallback(c.id)).ok) report.triggered.push(c.id);
     }
@@ -224,21 +229,8 @@ export class Adjudicator {
   async #accept(c: DecisionTask['commitment']): Promise<Result<AdjudicatorAcceptance, Problem>> {
     const { adjudication } = c;
     if (adjudication.adjudicator.toLowerCase() !== this.address) return err(problem('not_your_turn', 'not the primary adjudicator'));
-    // D29: an adjudicator declines terms it cannot run. Declining leaves the offer unaccepted, so no buyer funds a
-    // hold that would only reach its default outcome; the offer expires at offerExpiresAt.
-    if (isSealed(c) && !this.#cfg.acceptSealedUnread) {
-      return err(problem('adjudicator_unavailable', `${this.#cfg.name} cannot open sealed terms yet (ADR-0024, T-207): it declines private and judgment offers rather than accept a deal it could not judge; offer at disclosure public`));
-    }
-    // T-212: an untrusted appeal adjudicator could overturn this service's honest decision and take the price from its
-    // bond; an untrusted fallback is declined on the same footing. D29: an adjudicator declines terms it will not run.
-    for (const [role, who] of [['fallback', adjudication.fallbackAdjudicator], ['appeal', adjudication.appealAdjudicator]] as const) {
-      const untrusted = this.#untrusted(role, who, 'offer');
-      if (untrusted) return err(untrusted);
-    }
-    if (adjudication.policyHash !== policyHashOf(this.policy)) return err(problem('policy_mismatch', 'policy-hash-mismatch: the offer binds another policy'));
-    if (adjudication.registryHash !== this.#cfg.registry.hash) return err(problem('registry_mismatch', 'the offer binds another registry'));
-    const terms = this.#termsMismatch(c) ?? this.#windowsProblem(c) ?? this.#feeProblem(c);
-    if (terms) return err(terms);
+    const declined = this.#offerProblem(c);
+    if (declined) return err(declined);
     const unsigned: Omit<AdjudicatorAcceptance, 'signature'> = {
       type: 'AdjudicatorAcceptance',
       commitmentId: c.id,
@@ -256,16 +248,55 @@ export class Adjudicator {
     return sent.ok ? ok(msg) : err(sent.error);
   }
 
+  /** What it declines an offer for as primary, from the terms alone (D29): it does not accept terms it cannot or will not run. */
+  #offerProblem(c: DecisionTask['commitment']): Problem | null {
+    const { adjudication } = c;
+    // Declining leaves the offer unaccepted, so no buyer funds a hold that would only reach its default outcome; the
+    // offer expires at offerExpiresAt.
+    if (isSealed(c) && !this.#cfg.acceptSealedUnread) {
+      return problem('adjudicator_unavailable', `${this.#cfg.name} cannot open sealed terms yet (ADR-0024, T-207): it declines private and judgment offers rather than accept a deal it could not judge; offer at disclosure public`);
+    }
+    // T-212: an untrusted appeal adjudicator could overturn this service's honest decision and take the price from its
+    // bond; an untrusted fallback is declined on the same footing.
+    for (const [role, who] of [['fallback', adjudication.fallbackAdjudicator], ['appeal', adjudication.appealAdjudicator]] as const) {
+      const untrusted = this.#untrusted(role, who, 'offer');
+      if (untrusted) return untrusted;
+    }
+    if (adjudication.policyHash !== policyHashOf(this.policy)) return problem('policy_mismatch', 'policy-hash-mismatch: the offer binds another policy');
+    if (adjudication.registryHash !== this.#cfg.registry.hash) return problem('registry_mismatch', 'the offer binds another registry');
+    return this.#termsMismatch(c) ?? this.#windowsProblem(c) ?? this.#feeProblem(c);
+  }
+
+  /**
+   * Why it would decline `role` on these terms, read from the terms alone: no bond, clock or delivery. An operator asks
+   * before it fills this service in as a default adjudicator, and notes the answer when the parties name it themselves
+   * (T-221 review). The fallback's cover and the appeal's timing are still checked at the turn. null: it would take it.
+   */
+  async declines(c: DecisionTask['commitment'], role: DecisionTask['role']): Promise<Problem | null> {
+    if (role === 'primary') return this.#offerProblem(c);
+    const consented = c.adjudication.adjudicator.toLowerCase() === this.address;
+    return this.#termsMismatch(c) ?? (await this.#turnProblem(c, role, { consented, cover: false, ahead: true })) ?? (await this.#runnable(c, role));
+  }
+
+  /** The appeal adjudicators it takes a fallback turn under, itself included (T-212, T-221). */
+  #trusted(): string[] {
+    return [...new Set([this.address, ...(this.#cfg.trustedAdjudicators ?? []).map((a) => a.toLowerCase())])];
+  }
+
   /**
    * T-212 and T-221 (ADR-0030 §6): an appeal adjudicator outside its trusted set could overturn this service's decision
    * and pay the price from its bond (D43). As primary it checks the fallback and the appeal adjudicator at acceptance; as
-   * fallback, the appeal adjudicator at its turn, since an outside primary's terms can name it as fallback.
+   * fallback, the appeal adjudicator at its turn, since an outside primary's terms can name it as fallback. `terms`: the
+   * same rule asked ahead of any deal, by an operator before it fills this service in.
    */
-  #untrusted(role: 'fallback' | 'appeal', who: Address, what: 'offer' | 'fallback turn'): Problem | null {
-    const trusted = new Set([this.address, ...(this.#cfg.trustedAdjudicators ?? []).map((a) => a.toLowerCase())]);
-    if (trusted.has(who.toLowerCase())) return null;
+  #untrusted(role: 'fallback' | 'appeal', who: Address, what: 'offer' | 'fallback turn' | 'terms'): Problem | null {
+    const trusted = this.#trusted();
+    if (trusted.includes(who.toLowerCase())) return null;
     const why = `an appeal decided by an untrusted adjudicator could pay the price from this adjudicator's bond (${what === 'offer' ? 'T-212' : 'T-221, ADR-0030 §6'})`;
-    return problem('invalid_terms', what === 'offer' ? `${this.#cfg.name} does not trust ${who} as the ${role} adjudicator: ${why}; offer with a ${role} adjudicator it trusts` : `${this.#cfg.name} does not trust ${who} as the appeal adjudicator, so it declines this deal's fallback turn: ${why}. Unless the primary decides, the default outcome applies at fallbackBy`);
+    if (what === 'offer') return problem('invalid_terms', `${this.#cfg.name} does not trust ${who} as the ${role} adjudicator: ${why}; offer with a ${role} adjudicator it trusts`);
+    if (what === 'terms') return problem('invalid_terms', `${this.#cfg.name} takes a fallback turn only under an appeal adjudicator it trusts (${trusted.join(', ')}), and ${who} is not one: ${why}`);
+    // A fallback turn comes only after judgeBy, when core refuses the primary's decision; the parties may still settle.
+    return problem('invalid_terms', `${this.#cfg.name} does not trust ${who} as the appeal adjudicator, so it declines this deal's fallback turn: ${why}. So no adjudicator will decide this deal's first instance; the default outcome applies at fallbackBy unless the parties settle by mutual agreement first`);
   }
 
   /** D29 (T-211): a primary's or fallback's decision holds its bond until the appeal closes, and the deal sets how long. */
@@ -310,9 +341,9 @@ export class Adjudicator {
    * A fallback turn also needs an appeal adjudicator it trusts (T-221), consented or not: its decision reserves its bond
    * for that appeal adjudicator to slash, and a primary's acceptance already checked the same set.
    */
-  async #turnProblem(c: DecisionTask['commitment'], role: 'fallback' | 'appeal', o: { consented: boolean; cover: boolean }): Promise<Problem | null> {
+  async #turnProblem(c: DecisionTask['commitment'], role: 'fallback' | 'appeal', o: { consented: boolean; cover: boolean; ahead?: boolean }): Promise<Problem | null> {
     if (role === 'fallback') {
-      const untrusted = this.#untrusted('appeal', c.adjudication.appealAdjudicator, 'fallback turn');
+      const untrusted = this.#untrusted('appeal', c.adjudication.appealAdjudicator, o.ahead ? 'terms' : 'fallback turn');
       if (untrusted) return untrusted;
     }
     if (!o.consented) {
@@ -322,16 +353,51 @@ export class Adjudicator {
     return o.cover ? this.#coverProblem(c) : null;
   }
 
-  /** The policy the commitment binds: this adjudicator's own, or the primary's published one. */
-  async #boundPolicy(task: DecisionTask): Promise<Result<AdjudicatorPolicy, Problem>> {
-    const bound = task.commitment.adjudication.policyHash;
+  /**
+   * The policy the commitment binds: this adjudicator's own, else the one whose hash the terms bound, read by that hash
+   * (T-221 review: the primary can register a new policy after agreement, so its latest registration is read only when
+   * the port keeps no policy by hash, and then only a policy that still hashes to the terms passes).
+   */
+  async #boundPolicy(c: DecisionTask['commitment']): Promise<Result<AdjudicatorPolicy, Problem>> {
+    const bound = c.adjudication.policyHash;
     let policy = this.policy;
     if (policyHashOf(policy) !== bound) {
-      const primary = await this.#cfg.settlement.registration(task.commitment.adjudication.adjudicator);
-      if (primary) policy = primary.policy;
+      const kept = await this.#cfg.settlement.policy?.(bound);
+      const primary = kept ? null : await this.#cfg.settlement.registration(c.adjudication.adjudicator);
+      policy = kept ?? primary?.policy ?? policy;
     }
     const check = checkPolicyBinding(policy, bound);
     return check.ok ? ok(policy) : err(check.error);
+  }
+
+  #registryProblem(c: DecisionTask['commitment']): Problem | null {
+    if (this.#cfg.registry.hash === c.adjudication.registryHash) return null;
+    return problem('registry_mismatch', `this adjudicator's registry hashes to ${this.#cfg.registry.hash}; the commitment binds ${c.adjudication.registryHash}`);
+  }
+
+  /**
+   * Whether the panel the role convenes can be seated from its registry and reach a result (as `selectPanel` and the
+   * aggregation would find out): enough active judges and families, and a valid-verdict minimum the panel can reach.
+   */
+  #seatProblem(policy: AdjudicatorPolicy, role: DecisionTask['role']): Problem | null {
+    const appeal = role === 'appeal';
+    const size = appeal ? policy.appealPanelSize : policy.panelSize;
+    const minValid = appeal ? policy.minValidAppeal : policy.minValid;
+    const { active } = this.#cfg.registry;
+    const families = new Set(active.map((e) => e.family)).size;
+    const minFamilies = appeal ? Math.max(policy.minFamilies, Math.min(policy.minFamiliesAppeal, families)) : policy.minFamilies;
+    if (size > active.length || minFamilies > families || minFamilies > size) {
+      return problem('invalid_terms', `panel: the registry has ${active.length} active judges in ${families} families; the ${appeal ? 'appeal' : 'first-instance'} panel needs ${size} meeting ${minFamilies} families`);
+    }
+    if (minValid > size) return problem('invalid_terms', `panel: the policy needs ${minValid} valid verdicts from ${appeal ? 'an appeal' : 'a first-instance'} panel of ${size}, which no panel can reach`);
+    return null;
+  }
+
+  /** What the terms ask that this build or registry cannot run: a policy it cannot honour, another registry, a panel it cannot seat. */
+  async #runnable(c: DecisionTask['commitment'], role: DecisionTask['role']): Promise<Problem | null> {
+    const policy = await this.#boundPolicy(c);
+    if (!policy.ok) return policy.error;
+    return this.#registryProblem(c) ?? this.#seatProblem(policy.value, role);
   }
 
   /**
@@ -381,20 +447,21 @@ export class Adjudicator {
     const id = commitment.id;
     const mismatch = this.#termsMismatch(commitment);
     if (mismatch) return err(mismatch);
+    // The wrong-key re-release runs no panel (#judge).
+    const rerelease = role === 'appeal' && task.appealGround === 'missing-or-wrong-key' && task.firstOutcome === 'accept';
     // Before any judge is called (T-211); the fallback's cover is read again before it signs.
     if (role !== 'primary') {
       const mine = (a: string | undefined) => a?.toLowerCase() === this.address;
-      const rerelease = role === 'appeal' && task.appealGround === 'missing-or-wrong-key' && task.firstOutcome === 'accept';
       const consented = mine(commitment.adjudication.adjudicator) || (role === 'appeal' && mine(task.firstDecider)) || rerelease;
       const cached = this.#judged.get(judgedKey(task))?.outcome;
       const declined = await this.#turnProblem(commitment, role, { consented, cover: role === 'fallback' && cached !== 'escalate' });
       if (declined) return err(declined);
     }
-    const policyR = await this.#boundPolicy(task);
+    const policyR = await this.#boundPolicy(commitment);
     if (!policyR.ok) return policyR;
-    if (this.#cfg.registry.hash !== commitment.adjudication.registryHash) {
-      return err(problem('registry_mismatch', `this adjudicator's registry hashes to ${this.#cfg.registry.hash}; the commitment binds ${commitment.adjudication.registryHash}`));
-    }
+    // T-221 review: a panel that cannot be seated or reach a result is refused before any judge is called.
+    const unrunnable = this.#registryProblem(commitment) ?? (rerelease ? null : this.#seatProblem(policyR.value, role));
+    if (unrunnable) return err(unrunnable);
     // ADR-0029: judge only this commitment's delivery, signed by its seller. The decision names this delivery's hash, so a
     // body the seller never signed (an operator's mistake or forgery) is refused here, not judged and then refused by
     // settlement.
