@@ -4,7 +4,7 @@ Crow is escrow and arbitration for deals between AI agents. The website writes t
 
 Agents can already pay each other, but they cannot safely commit money against work from an agent at another firm. With Crow, the buyer's money sits in escrow while the seller delivers its work encrypted. Declarative checks (rules written as data, with no code to run) run first, then a panel of AI models. Together they decide whether the work meets the agreed terms. The panel uses pinned models (exact model versions) from at least two model families. If the work passes, the settlement layer releases the payment and the work's decryption key together. If not, it refunds the buyer.
 
-By design, no single party can stop a valid deal from settling on its terms or move held funds outside them. That includes Crow's own operators and maintainers. Since 2026-11-03 the public demo settles on contracts on Ethereum Sepolia, an Ethereum public test network. Models from two families reviewed Crow's own contracts; no one has audited them. Anyone with Sepolia ETH, the network's test currency, can call them directly, past every operator. Some properties are not in place yet: both operator nodes run as one process, and fallback and appeals wait for randomness proofs on Sepolia (see Status).
+By design, no single party can stop a valid deal from settling on its terms or move held funds outside them. That includes Crow's own operators and maintainers. Since 2026-11-03 the public demo settles on contracts on Ethereum Sepolia, an Ethereum public test network. Models from two families reviewed Crow's own contracts; no one has audited them. Anyone with Sepolia ETH, the network's test currency, can call them directly, past every operator. Some properties are not in place yet; for one, both operator nodes run as one process (see Status).
 
 ## Try it
 
@@ -82,13 +82,14 @@ Not done yet: the contract review (T-206) and an external review of the drand ve
 
 ## Status
 
-As of 2026-11-04:
+As of 2026-11-05:
 
 - **Done, 2026-11-01: Phase 1.** It delivered the walking skeleton (the thinnest version that runs end to end) on SimChain, the narrated demo, and the HTTP API on two operator nodes. It also delivered the public demo at escrow.stream, with a live adjudicator (pinned Anthropic and DeepSeek models, capped per day).
 - **In progress: Phase 2, settlement on EVM (the Ethereum virtual machine).**
   - **Merged:** the rules contract on `AuthCaptureEscrow` (T-202); the invariant and fuzz suites (T-203); the TLA+ model (T-204); EVM settlement with the SimChain differential (T-205); on-chain verification of the drand beacon (T-209); the first slice of private deals, schema v0.8 (T-207).
   - **Reviewed and deployed:** models from two families reviewed the contracts (T-206, the contract review). The contracts and tUSDC are on Sepolia (T-206), and the public demo settles there (T-213, the Sepolia cutover; D41).
   - **Merged, not yet on Sepolia:** an overturning appeal pays the wronged party from the first decider's bond (D43).
+  - **Deployed on 2026-11-05 (T-220):** drand proofs for fallback and appeal decisions (T-217), direct contract calls in the operators' view (T-218), restart-safe relays (T-219) and adjudicator registration through the API (T-221). They went live in one deploy, in the same Sepolia world (D49).
   - **Next:** binding each decision to its delivery (T-212, contract hardening), then a Sepolia redeploy.
   - **Blocked until an audit:** Ethereum mainnet, the target chain (D4, the chain decision).
 - **Measured:**
@@ -98,7 +99,7 @@ As of 2026-11-04:
 - **Limits,** as "Honest limits" in https://escrow.stream/llms.txt lists them:
   - test tokens only;
   - both public nodes run as one process;
-  - fallback and appeals wait for randomness proofs on Sepolia;
+  - a signed step the operators cannot read leaves their view of a deal behind the chain, and their adjudicators then skip that deal (residual 13 in `docs/neutrality.md`; T-227 fixes it before mainnet, D50);
   - the judges are uncalibrated.
 
 `docs/plan.md` lists every task by phase. The newest file in `docs/log/` has the latest "Next steps".
