@@ -274,6 +274,17 @@ export class RoundChain {
   }
 
   /**
+   * How many transactions `address` has mined as of block `atLeast` or later (`fresh`): the nonce it sends with next
+   * once that block is in. A node behind the block still counts the transaction before it (T-232), so the count is
+   * pinned there, asked again while a node has no header for it (`pinnedRetry`), and never read at the latest block.
+   */
+  async nonceAfter(address: string, atLeast: bigint): Promise<number> {
+    const at = await this.fresh();
+    const blockNumber = at > atLeast ? at : atLeast;
+    return this.behind(() => this.client.getTransactionCount({ address: getAddress(address), blockNumber }));
+  }
+
+  /**
    * A mined transaction with its gas, block, the HoldbackRules calls it carried and its decoded logs. A node behind the
    * transaction's block has no receipt for it yet, even right after waitForTransactionReceipt saw one on another node:
    * a read that finds none is tried again (`pinnedRetry`), then throws.
