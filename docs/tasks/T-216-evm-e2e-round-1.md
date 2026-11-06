@@ -5,7 +5,7 @@
 - **Depends on:** T-217 (drand proofs for fallback and appeal), T-218 (direct calls in the operators' view), T-219 (the in-flight row per relayer lane), T-221 (adjudicator registration through the API), and T-220, which ships those four to the live demo in one deploy. Rafa answered all six scope questions on 2026-11-04 (below). The fixed contracts are already live (see Context).
 - **Paths this task may touch:** `examples/e2e-*.ts` (new: the round's keys, its driver, and their tests; the `examples` workspace already holds the agent-side code and viem), `docs/reviews/` (one new file, the round's report), `docs/backlog.md` (rows for what the round finds; the Benched rows once it completes), `docs/plan.md` (this row), this file. No product code: a scenario that fails gets its fix in its own task, and the round re-runs it.
 - **Human gate:** yes. Rafa confirms the scope (done: the questions below, 2026-11-04) and funds the round's master address with Sepolia ETH (done: 2.5, Evidence); the driver tops up the other keys from it. The runs use the public API as any agent may, and send test transactions on Sepolia from test keys. They deploy nothing, except scenario 11's one holdback-op1 redeploy, which waits for Rafa's go-ahead at that moment.
-- **Status:** review (PR 220 fixes the three driver defects of the two 2026-11-05 evening runs; 1, 2, 3a, 3c, 3d, 4 and 5a have passed live; the round completes with Rafa's live run of 3b, 4, 5a, 5b, 6, 7, 8, 9, 10a, 10b and 11, with 4 and 5a again under the new money checks, then the report, Handoff)
+- **Status:** review (PR 223, which replaced PR 220, fixes the three driver defects of the two 2026-11-05 evening runs; 1, 2, 3a, 3c, 3d, 4 and 5a have passed live; the round completes with Rafa's live run of 3b, 4, 5a, 5b, 6, 7, 8, 9, 10a, 10b and 11, with 4 and 5a again under the new money checks, then the report, Handoff)
 - **Agent/session:** the T-216 planning session (the keys); the T-216 driver session (the driver); the T-216 remaining-scenarios session (the round's own adjudicator and the group files, worktree `.worktrees/t-216-rest`); four group sessions (silent, scripted, escalation, direct), one branch each; the integrating session (the merge, the 3d and 10a fix, this file); the live-fixes session (2026-11-06, worktree `.worktrees/t-216-fixes`)
 
 ## Intent
@@ -423,6 +423,21 @@ Fill this in before review. Label each item measured, inferred or guessed.
   - **Low, fixed:** the `docs/team.md` row read as an enforced check. It is now "Partial", and `deliveryHashOf` reads at the deal's last block too.
   - **Info:** the docs' inconsistencies and long sentences are fixed. No test drives the start gate or the gate after a scenario through the driver with an open deal; their parts are tested on their own [inferred: the gap stays].
   - **After the fixes:** `examples/e2e-chain.test.ts` and `examples/e2e-run.test.ts`, 39 of 39 in 24.2 s. The new tests cover the chain's list of a deal's transactions (a node missing a known one is asked again), `deliveryHashOf` at the deal's last block, the refusal after three identical refusals, and one lock folder for a clone's main checkout and its worktrees [measured].
+  - **`pnpm verify` on `9830ee6`** (PR 220's last commit), on a tree left alone, 2026-11-06 06:47 UTC: **PASS**, no snapshot diffs against HEAD; `pnpm test` 2,768 passed and 6 skipped, in 126 files plus 2 skipped, the driver's anvil tests included; forge 241 of 241; snap 31 of 31; snap on the contract 28 passed, 3 excluded until Phase 4 (`reports/verify-t-216-live-fixes.md`) [measured]:
+
+    | Step | Status | Time |
+    | --- | --- | --- |
+    | typecheck | pass | 1,174 ms |
+    | lint | pass | 6,871 ms |
+    | forge build | pass | 1,238 ms |
+    | forge | pass | 16,623 ms |
+    | test | pass | 429,491 ms |
+    | spec | pass | 575 ms |
+    | snap | pass | 9,017 ms |
+    | snap:local | pass | 14,385 ms |
+    | demo | pass | 3,901 ms |
+
+  - **PR 220 became PR 223.** On `9830ee6`, CI's gitleaks job flagged `const TOKEN = '0x5029…6b6'` in `examples/e2e-run.test.ts` line 20, commit `e784c09` (rule `generic-api-key`, CI run 42175872155). The value is tUSDC's public contract address; the rule keys on the name `token` [measured: the job log]. The rule scans every commit of a PR, and `.gitleaksignore` and force pushes are Rafa's. So branch `t-216-live-fixes-2` replays the same six commits with the constant named `ASSET` from the first one, as PR 219 did. Its final tree equals `9830ee6`'s except for that rename [measured: `git diff`]. On it, `tsc -b examples`, `eslint` and `examples/e2e-run.test.ts` (17 of 17) pass [measured]. This session closed PR 220 with a comment that points to PR 223.
 
 ## Decisions
 
@@ -496,8 +511,8 @@ Made by the live-fixes session on 2026-11-06, inside the task's paths.
 
 ## Handoff
 
-- **Next: Rafa's live run of the scenarios still to pass,** from the `round1-run` worktree. The live-fixes session moves it to main after PR 220 merges. One terminal only: a second run of the round's keys from any worktree of this clone refuses to start (Decision 37). The commands print addresses and links, never the secret or a key.
-  1. Check the worktree's commit: `git -C /Users/rafa/Documents/escrow/.worktrees/round1-run log -1 --oneline` shows PR 220's merge commit or a later one. If it shows `1a2cbd3`, move it first: `git -C /Users/rafa/Documents/escrow/.worktrees/round1-run fetch origin`, then `git -C /Users/rafa/Documents/escrow/.worktrees/round1-run checkout --detach origin/main`, then `pnpm -C /Users/rafa/Documents/escrow/.worktrees/round1-run install --frozen-lockfile`.
+- **Next: Rafa's live run of the scenarios still to pass,** from the `round1-run` worktree. The live-fixes session moves it to main after PR 223 merges. One terminal only: a second run of the round's keys from any worktree of this clone refuses to start (Decision 37). The commands print addresses and links, never the secret or a key.
+  1. Check the worktree's commit: `git -C /Users/rafa/Documents/escrow/.worktrees/round1-run log -1 --oneline` shows PR 223's merge commit or a later one. If it shows `1a2cbd3`, move it first: `git -C /Users/rafa/Documents/escrow/.worktrees/round1-run fetch origin`, then `git -C /Users/rafa/Documents/escrow/.worktrees/round1-run checkout --detach origin/main`, then `pnpm -C /Users/rafa/Documents/escrow/.worktrees/round1-run install --frozen-lockfile`.
   2. **No top-up is needed.** Every round key still holds about 0.04 Sepolia ETH: each spent less than 0.00000002 Sepolia ETH across the earlier runs, as Sepolia's gas price was 27 wei per gas on 3c's deposit [measured, 2026-11-06, `eth_getBalance` and the receipt through publicnode]. The run needs well under 2,000,000 gas a key, which 0.04 Sepolia ETH covers even at the 20 gwei cap [inferred from the anvil gas].
   3. The run, in a terminal: scenario 11 waits there for you to type `deployed`.
 
