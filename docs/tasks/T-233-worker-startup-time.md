@@ -89,7 +89,8 @@ All local numbers come from a MacBook on 2026-11-06, Node 22.22.2 and wrangler 4
 - The tests bite (measured): an edited header in `validators.generated.ts` fails the freshness test with "packages/core/src/validators.generated.ts is stale: run node packages/core/scripts/validators.ts". Giving the plain set the signed date-time fails the comparison, for example on `adjudicator.example.json /metrics/measuredAt = "2026-11-06T12:00:00.500Z"`.
 - `node packages/core/scripts/validators.ts` writes the module: 18 schemas, 929 KiB, 29,486 lines (measured).
 - `pnpm lint`: no findings (measured).
-- gitleaks is not installed here. An approximation of its generic-api-key rule (entropy at least 3.5 bits) finds one candidate in the generated module, `key0 === "plaintextSha256"`. gitleaks allows a secret that contains a stop word, and "text" and "sha256" are both on its list, so it should not flag this line (inferred from gitleaks' `stopwords.go`). CI's gitleaks job is the check.
+- gitleaks is not installed here. An approximation of its generic-api-key rule (entropy at least 3.5 bits) finds one candidate in the generated module, `key0 === "plaintextSha256"`. gitleaks allows a secret that contains a stop word, and "text" and "sha256" are both on its list, so it should not flag this line (inferred from gitleaks' `stopwords.go`). CI's gitleaks job passed on PR 240 (measured).
+- CI on PR 240: every check passed, the required `check` and `gitleaks` included (measured).
 
 **`pnpm verify`** on `057778c`, the branch rebased on `782724a`, at 22:20 UTC: PASS (measured, `reports/verify-t-233-worker-startup.md`). The "uncommitted changes" it notes are this file's last edits and the nested submodules `forge build` fetched into `contracts/lib/commerce-payments`.
 
@@ -134,5 +135,5 @@ Two earlier runs on the same code failed one step each, and neither failure invo
 **How to resume:** after any change to `spec/schemas` or to Ajv's version, run `node packages/core/scripts/validators.ts` and commit the regenerated `packages/core/src/validators.generated.ts`. `validators.test.ts` fails until then.
 
 **Open questions:**
-- If CI's gitleaks flags `key0 === "plaintextSha256"` in the generated module, rename Ajv's loop variables (`keyN`) in `validators-codegen.ts`'s post-processing, matching only the names Ajv declares in `for (const keyN in …)`.
+- gitleaks passed on PR 240. If a later schema change makes it flag a line in the generated module, rename Ajv's loop variables (`keyN`) in `validators-codegen.ts`'s post-processing, matching only the names Ajv declares in `for (const keyN in …)`.
 - The start-up guard reads `apps/demo-cloud/dist`, so a local `pnpm test` without a build checks the last build. CI and `pnpm verify` build first.
