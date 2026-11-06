@@ -5,7 +5,7 @@
 - **Depends on:** T-217 (drand proofs for fallback and appeal), T-218 (direct calls in the operators' view), T-219 (the in-flight row per relayer lane), T-221 (adjudicator registration through the API), and T-220, which ships those four to the live demo in one deploy. Rafa answered all six scope questions on 2026-11-04 (below). The fixed contracts are already live (see Context).
 - **Paths this task may touch:** `examples/e2e-*.ts` (new: the round's keys, its driver, and their tests; the `examples` workspace already holds the agent-side code and viem), `docs/reviews/` (one new file, the round's report), `docs/backlog.md` (rows for what the round finds; the Benched rows once it completes), `docs/plan.md` (this row), this file. No product code: a scenario that fails gets its fix in its own task, and the round re-runs it.
 - **Human gate:** yes. Rafa confirms the scope (done: the questions below, 2026-11-04) and funds the round's master address with Sepolia ETH (done: 2.5, Evidence); the driver tops up the other keys from it. The runs use the public API as any agent may, and send test transactions on Sepolia from test keys. They deploy nothing, except scenario 11's one holdback-op1 redeploy, which waits for Rafa's go-ahead at that moment.
-- **Status:** review (PR 223, which replaced PR 220, fixes the three driver defects of the two 2026-11-05 evening runs; 1, 2, 3a, 3c, 3d, 4 and 5a have passed live; the round completes with Rafa's live run of 3b, 4, 5a, 5b, 6, 7, 8, 9, 10a, 10b and 11, with 4 and 5a again under the new money checks, then the report, Handoff)
+- **Status:** review. 15 of 16 scenarios have passed live on Sepolia, and 11 counts by its coverage (D54, item 1); the last was scenario 8, 25 of 25 checks, on 2026-11-06 at 15:35 UTC. The finality re-read of 2026-11-06, 21:03 to 21:05 UTC, found all 153 transactions of the 8 runs in their recorded blocks. So Phase 2's first exit criterion holds as `docs/plan.md` words it (Evidence, "Round 1's tally and finality"). Left before done: the report, which still shows only the first run, and Rafa's call on this task's pass rule, since the passes span three operator builds and T-231's build shipped after all of them (Handoff, "Resume here").
 - **Agent/session:** the T-216 planning session (the keys); the T-216 driver session (the driver); the T-216 remaining-scenarios session (the round's own adjudicator and the group files, worktree `.worktrees/t-216-rest`); four group sessions (silent, scripted, escalation, direct), one branch each; the integrating session (the merge, the 3d and 10a fix, this file); the live-fixes session (2026-11-06, worktree `.worktrees/t-216-fixes`)
 
 ## Intent
@@ -453,6 +453,69 @@ Fill this in before review. Label each item measured, inferred or guessed.
   - `pnpm verify` on `bf68d09`, with the review's fixes, on a clean tree: **PASS**, 9 of 9 steps; `pnpm test` 2,861 passed and 6 skipped; forge 241 of 241; no snapshot diffs against HEAD [measured].
   - PR 224's CI on `bf68d09`: every job passed, gitleaks and `check` included. CodeQL raised one High alert, "Incomplete string escaping", on a regular expression the anvil test built from a host name by escaping its dots only. The test now matches plain strings, and the settle tests pass again, 19 of 19 [measured].
 
+- **Round 1's tally and finality (the Phase 2 close-out session, 2026-11-06, about 21:05 UTC).** Read from the eight run folders in `/Users/rafa/Documents/escrow/.worktrees/round1-run/reports/e2e-round-1/` and the deploy record in `docs/operations.md`. This session used no key and sent no transaction.
+  - **The runs, and the operators' build each ran on.** Each `summary.md` names its driver commit [measured]. The build comes from the run's times against the deploy times in `docs/operations.md` [documented]:
+
+    | Run folder | Time (UTC) | Driver | Operators' build | Scenarios that ran |
+    | --- | --- | --- | --- | --- |
+    | `2026-11-04T204924Z` | 11-04, 20:49 to 20:55 | `eca41f3` | before T-220's deploy | 1, 2 |
+    | `2026-11-05T132524Z` | 11-05, 13:25 to 13:44 | `c98c0b7` | T-220's: holdback-op1 `1d8a029c`, holdback-op2 `a042aae3` | 1, 2, 3a, 3d, 6, 10a |
+    | `2026-11-05T190711Z` (run A) | 11-05, 19:07 to 19:40 | `1a2cbd3` | T-228's: `ba7a2ad9`, `7826e3ce` | 1 to 5a |
+    | `2026-11-05T193705Z` (run B) | 11-05, 19:37 to 20:09 | `1a2cbd3` | T-228's | 1 to 5a |
+    | `2026-11-06T070341Z` | 11-06, 07:03 to 07:27 | `3c54cf0` | T-228's | 3b, 4, 5a, 5b, 6, 7, then 8 stopped |
+    | `2026-11-06T093347Z` | 11-06, 09:33 to 09:39 | `a6c275a` | T-228's code; scenario 11 redeployed holdback-op1 by hand with it | 9, 10a, 10b, 11 |
+    | `2026-11-06T121051Z` | 11-06, 12:10 to 12:11 | `a6c275a` | T-228's | 8, stopped |
+    | `2026-11-06T152621Z` | 11-06, 15:26 to 15:35 | `e5f667a` | T-230's: `8bcda43c`, `7e4d3fa5` | 8 |
+
+  - **Every scenario's live passes** [measured: the runs' `summary.md`]. Gas is the sum over the scenario's own deals in its latest pass, every transaction included, relayed or direct:
+
+    | Scenario | Live passes (run, checks) | Gas, latest pass |
+    | --- | --- | --- |
+    | 1. Release | `132524Z` 16 of 16; run A 16 of 16 | 1,261,440 gas, 1 deal |
+    | 2. Refund on reject | `204924Z`, `132524Z`, run A and run B, 13 of 13 each | 1,155,652 gas, 1 deal |
+    | 3a. Reclaim | `132524Z`, run A and run B, 12 of 12 each | 1,893,856 gas, 2 deals |
+    | 3b. Default | `070341Z` 18 of 18 | 1,201,561 gas, 1 deal |
+    | 3c. Appeal expiry | run A and run B, 17 of 17 each | 1,604,242 gas, 1 deal |
+    | 3d. Offer expiry | run A and run B, 3 of 3 each | 147,569 gas, 1 deal |
+    | 4. Fallback | run B 19 of 19; `070341Z` 18 of 18 | 1,660,599 gas, 1 deal |
+    | 5a. Escalation, then default | run B and `070341Z`, 21 of 21 each | 1,268,640 gas, 1 deal |
+    | 5b. Escalation decided on appeal | `070341Z` 23 of 23 | 1,628,519 gas, 1 deal |
+    | 6. Appeal upheld | `132524Z` and `070341Z`, 16 of 16 each | 3,653,571 gas, 2 deals |
+    | 7. Appeal overturned both ways | `070341Z` 29 of 29 | 3,788,032 gas, 2 deals |
+    | 8. Escape hatch | `152621Z` 25 of 25 | 2,771,570 gas, 2 deals |
+    | 9. Early accept | `093347Z` 18 of 18 | 1,181,648 gas, 1 deal |
+    | 10a. Mutual settlement before delivery | `093347Z` 8 of 8 | 1,007,145 gas, 1 deal |
+    | 10b. Mutual settlement after delivery | `093347Z` 15 of 15 | 1,199,545 gas, 1 deal |
+    | 11. Restart mid-step | none: `093347Z` 12 of 13; counts by its coverage (D54, item 1) | 1,261,416 gas, 1 deal |
+
+  - **The runs that did not pass, and why** [documented: the Evidence above, D54 and `docs/log/2026-11-06.md`]. Each scenario but 11 had a passing rerun. The causes were driver defects, two runs overlapping, T-230's product defect and scenario 11's timing limit; the `internal` answer in `121051Z` has no diagnosis on record:
+    - 1 in `204924Z`: the two homepage checks, before T-220's deploy. 1 in run B, and 4 and 5a in run A: the two runs overlapped on the round's keys.
+    - 3b in runs A and B: the bond deposit read a stale node. 3d and 10a in `132524Z`: stale evidence reads. PR 223 fixed both.
+    - 8 in `070341Z` and `121051Z`, both before T-230's deploy: the seller's posted copy of its direct delivery failed. In `070341Z` the operator's relay reverted and the copy was dropped (T-230's High finding); in `121051Z` the operator answered `internal`. T-230's fix is live since 12:19 UTC, and the rerun passed.
+    - 11 in `093347Z`: the hand redeploy took 67 s, and the gap it must land in is about 12 s.
+  - **Scenario 8 passed on its rerun** (`2026-11-06T152621Z`, 15:26 to 15:35 UTC, 25 of 25 checks, 9 transactions, 2,771,570 gas) on T-230's build [measured: its `summary.md`]:
+    - Deal `0xed02fd…bcef`: offered through the API, then funded and delivered from the parties' own keys. Both operators showed `hold.funded` 4 s and `delivery.submitted` 1 s after each receipt, as `submittedVia: "direct"`. The seller's posted copy joined the delivery with no second deliver transaction. The demo primary decided, the deal ended Released, the buyer opened the work, and the buyer paid 26 tUSDC with no operator fee.
+    - Deal `0x0afd2c…1948`: the round's silent primary. The buyer's key sent `triggerFallback` directly ([`0xe9fc05…711c`](https://sepolia.etherscan.io/tx/0xe9fc0571777f911bd88c90d07f998e1d216ffee6ad1275ab42e97c799f12711c), 80,792 gas). Both operators served the fallback its envelope, and the fallback's decision with its drand proof cost 485,221 gas. The deal ended Released, and the operator fee of 4.71 tUSDC was paid once.
+  - **Both stuck deals of scenario 8 are closed** [measured: the operators' state reads and HoldbackRules' logs through publicnode, about 21:10 UTC]:
+    - `0x71f767…1197` (`070341Z`): Settled by the round's direct `mutualSettle` in [`0x092d…2c58`](https://sepolia.etherscan.io/tx/0x092d7e8ae4a45ac09cec8c6665f7a5e868e0ebe2fdf2f91815f90f80952a9c58) (documented in D54).
+    - `0x137ccb…3049` (`121051Z`): both operators serve `dealOf: Settled`. The round's buyer `0x6c6cf8…79b5` sent the settlement to HoldbackRules in [`0xadd150…d748`](https://sepolia.etherscan.io/tx/0xadd1507f2756a6545ba59f04da81094623a65da5c84685f9dc673a7f0b55d748), block 12,076,486, 5 blocks after the direct delivery. That it was the `settle` command is inferred; no record named this close before.
+  - **Finality: no reorg in any run.** `e2e-round.ts finality` re-read every recorded transaction between 21:03 and 21:05 UTC on 2026-11-06 [measured: its output and each folder's new `finality.json`]:
+
+    | Run folder | Transactions | Same block | Changed | Unreadable | Head block | Depth of the run's last block |
+    | --- | --- | --- | --- | --- | --- | --- |
+    | `2026-11-04T204924Z` | 8 | 8 | 0 | 0 | 12,079,106 | 14,174 blocks |
+    | `2026-11-05T132524Z` | 27 | 27 | 0 | 0 | 12,079,097 | 9,241 blocks |
+    | `2026-11-05T190711Z` | 28 | 28 | 0 | 0 | 12,079,098 | 7,488 blocks |
+    | `2026-11-05T193705Z` | 28 | 28 | 0 | 0 | 12,079,098 | 7,349 blocks |
+    | `2026-11-06T070341Z` | 41 | 41 | 0 | 0 | 12,079,099 | 4,016 blocks |
+    | `2026-11-06T093347Z` | 12 | 12 | 0 | 0 | 12,079,099 | 3,370 blocks |
+    | `2026-11-06T121051Z` | 0 | 0 | 0 | 0 | 12,079,099 | no transaction recorded |
+    | `2026-11-06T152621Z` | 9 | 9 | 0 | 0 | 12,079,099 | 1,616 blocks |
+
+    - 153 transactions in all, every one in its recorded block. The shallowest run is 1,616 blocks deep, about 5.4 hours at 12 s a block, far past the 20 minutes this task asks.
+    - The 2026-11-04 folder needed a second RPC. Through publicnode, the default, `finality` printed "REORG?" for all 8 transactions, with "now no receipt". publicnode still served each transaction in its recorded block, with the recorded block hash, but answered null to 4 receipt requests for each [measured]. Tenderly's public gateway (`https://sepolia.gateway.tenderly.co`, no key) served all 8 receipts in their recorded blocks. The driver's re-read through it found 8 of 8 unchanged, and that is the folder's `finality.json` now. So publicnode serves receipts 9,241 blocks back, not 14,174 [measured bounds].
+    - The earlier re-reads of five folders are copied to `/Users/rafa/Documents/escrow/reports/scratch/finality-before-p2-closeout/` (git-ignored). Each found every transaction unchanged. Three of them ran only minutes after their run's last transaction, not the 20 minutes asked: `132524Z` at 13:45 UTC, run A at 19:53 UTC and `070341Z` at 07:28 UTC.
+
 ## Decisions
 
 Made by the driver session on 2026-11-04, inside the task's paths.
@@ -534,8 +597,18 @@ Made by the settle session on 2026-11-06, inside the task's paths.
 
 ## Handoff
 
+- **Resume here (the Phase 2 close-out session, 2026-11-06, 21:15 UTC).** Every scenario has passed live but 11, which counts by its coverage, and finality is clean on all 8 runs (Evidence, "Round 1's tally and finality"). Three things stand between this task and done:
+  1. **Rafa's call on the pass rule.** This task's rule asks for every scenario to pass on one set of Worker versions, and for a rerun of what a later fix touches (How the round runs). D54's exit criterion asks only that every scenario pass live with finality clean. The two differ here [documented: the run times in Evidence against the deploy times in `docs/operations.md`]:
+     - the passes span three operator builds: T-220's (`132524Z`), T-228's (runs A and B, `070341Z`, `093347Z`) and T-230's (`152621Z`, scenario 8 only);
+     - T-231's build, holdback-op1 `066f1b18` and holdback-op2 `21cbbc0b`, went live at 19:01 UTC, after every run. It changes who sends the timeouts that 3a, 3b, 3c, 3d, 4, 5a and 8's second deal wait for [inferred from T-231's intent];
+     - T-232's fixes will change the relay and read code again.
+
+     If the rule stands, one rerun after T-232's deploy covers T-230, T-231 and T-232 together [inferred]. From a checkout at the deployed commit, skipping 11 (D54): `node --env-file=/Users/rafa/Documents/escrow/.env /Users/rafa/Documents/escrow/.worktrees/round1-run/examples/e2e-round.ts run 1 2 3a 3b 3c 3d 4 5a 5b 6 7 8 9 10a 10b --t220`. Then `finality` on its folder about 20 minutes after its last transaction.
+  2. **The report.** `docs/reviews/2026-11-04-evm-e2e-round-1.md` still reads "in progress" and shows only the 2026-11-04 run. Fill it from Evidence: one row per scenario, the gas per path against `reports/differential-local.md` and T-215's quote, the finality table, and each failure with its row. Then the `reviewer` pass on its PR (acceptance criteria).
+  3. **Low · `finality` reads a missing receipt as a reorg.** `RoundChain.blockHashOf` (`examples/e2e-chain.ts`) returns null when a node has no receipt, and `finality` counts that as changed. publicnode no longer serves receipts 14,174 blocks back, so a re-read of any run older than about 30 to 47 hours through the default RPC prints "REORG?" for every transaction [measured bounds: 9,241 blocks served, 14,174 not]. Impact: a false reorg alarm, never a missed one. A fix inside this lane: when the receipt is missing, compare the recorded block's hash from `eth_getBlockByNumber` and check that the transaction is in it, or count the row as unreadable. Not fixed by the close-out session, which changed docs only.
+- **Done 2026-11-06: scenario 8's stuck deals are closed.** `0x71f767…1197` settled in `0x092d…2c58`, and `0x137ccb…3049` in `0xadd150…d748` (Evidence). The step below is kept for its command.
 - **First, close scenario 8's stuck deal** `0x71f767…1197` (Delivered and behind the chain on both operators; the start check refuses every run until its timeouts at 2026-11-07T07:28:41Z): `node --env-file=/Users/rafa/Documents/escrow/.env /Users/rafa/Documents/escrow/.worktrees/round1-run/examples/e2e-round.ts settle 0x71f767f8022e2d17624aa2bcad1635e7f68c1eea24e0da26c144d8a1305b1197 --dry-run`, then the same command without `--dry-run`: both round keys sign one MutualSettlement that pays the price back to the buyer (Decision 39).
-- **Next: Rafa's live run of the scenarios still to pass,** from the `round1-run` worktree. The live-fixes session moves it to main after PR 223 merges. One terminal only: a second run of the round's keys from any worktree of this clone refuses to start (Decision 37). The commands print addresses and links, never the secret or a key.
+- **Done 2026-11-06, kept for its commands: Rafa's live run of the scenarios still to pass** (runs `070341Z`, `093347Z` and `152621Z`, Evidence), from the `round1-run` worktree. The live-fixes session moves it to main after PR 223 merges. One terminal only: a second run of the round's keys from any worktree of this clone refuses to start (Decision 37). The commands print addresses and links, never the secret or a key.
   1. Check the worktree's commit: `git -C /Users/rafa/Documents/escrow/.worktrees/round1-run log -1 --oneline` shows PR 223's merge commit or a later one. If it shows `1a2cbd3`, move it first: `git -C /Users/rafa/Documents/escrow/.worktrees/round1-run fetch origin`, then `git -C /Users/rafa/Documents/escrow/.worktrees/round1-run checkout --detach origin/main`, then `pnpm -C /Users/rafa/Documents/escrow/.worktrees/round1-run install --frozen-lockfile`.
   2. **No top-up is needed.** Every round key still holds about 0.04 Sepolia ETH: each spent less than 0.00000002 Sepolia ETH across the earlier runs, as Sepolia's gas price was 27 wei per gas on 3c's deposit [measured, 2026-11-06, `eth_getBalance` and the receipt through publicnode]. The run needs well under 2,000,000 gas a key, which 0.04 Sepolia ETH covers even at the 20 gwei cap [inferred from the anvil gas].
   3. The run, in a terminal: scenario 11 waits there for you to type `deployed`.
