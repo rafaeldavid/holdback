@@ -541,6 +541,26 @@ describe('the daily budget for the timeouts the operators send (T-231)', () => {
     expect(await restarted.take('expire_offer')).toBe(true);
     expect(await storage.get('ot:2026-11-07')).toEqual({ sent: 1, offers: 1 });
   });
+
+  it('gives a unit back when nothing went out: the row returns to its count before, an offer expiry lowers the offers too, and a give after midnight UTC changes nothing', async () => {
+    const storage = new MemoryStorage();
+    let t = Date.parse('2026-11-06T23:59:00Z');
+    const budget = new TimeoutBudgetRows(storage, () => t, { perDay: 3, offersPerDay: 1 });
+    expect(await budget.take('reclaim')).toBe(true);
+    expect(await budget.take('expire_offer')).toBe(true);
+    expect(await storage.get('ot:2026-11-06')).toEqual({ sent: 2, offers: 1 });
+    await budget.give('expire_offer');
+    expect(await storage.get('ot:2026-11-06')).toEqual({ sent: 1, offers: 0 });
+    // The offers' cap is open again.
+    expect(await budget.take('expire_offer')).toBe(true);
+    await budget.give('reclaim');
+    expect(await storage.get('ot:2026-11-06')).toEqual({ sent: 1, offers: 1 });
+    // Past midnight UTC the day's row is closed: a late give writes nothing to it or to the new day.
+    t = Date.parse('2026-11-07T00:00:01Z');
+    await budget.give('reclaim');
+    expect(await storage.get('ot:2026-11-06')).toEqual({ sent: 1, offers: 1 });
+    expect(await storage.get('ot:2026-11-07')).toBeUndefined();
+  });
 });
 
 describe('live judges (T-028), with a stand-in for the models', () => {

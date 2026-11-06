@@ -43,7 +43,7 @@ describe.skipIf(!ready)(`the operators send due timeouts on their own in the pub
       const d = (await (await fetch(`${demo.urls[0]}/.well-known/holdback.json`)).json()) as J;
       const [buyer, seller] = [party(demo.urls, deployment), party(demo.urls, deployment)];
       for (const a of [buyer.agent, seller.agent]) await a.call('POST', '/v1/faucet', { address: a.address });
-      const token = lc(deployment.token.address);
+      const usdc = lc(deployment.token.address);
       const role = (r: string) => d.demo.adjudicators.find((a: J) => a.role === r).address as string;
       const terms = (timing: Record<string, number>) => ({
         adjudicators: { primary: role('primary'), fallback: role('fallback'), appeal: role('appeal') },
@@ -51,7 +51,7 @@ describe.skipIf(!ready)(`the operators send due timeouts on their own in the pub
         clubId: d.demo.clubId,
         seller: seller.agent.address,
         buyer: { address: buyer.agent.address, encryptionPublicKey: buyer.agent.encryptionPublicKey },
-        price: { token, amount: PRICE },
+        price: { token: usdc, amount: PRICE },
         deliverable: DATASET,
         checks: CHECKS,
         timing: { judgeWithinSec: 5, fallbackWithinSec: 5, appealWindowSec: 5, appealDecideSec: 5, ...timing },

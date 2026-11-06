@@ -136,11 +136,11 @@ describe.skipIf(!ready)(`red team of the operators' own timeouts, on anvil stand
     const n = await chain.publicClient.getBlockNumber({ cacheTime: 0 });
     return { block: n.toString(), hash: (await chain.publicClient.getBlock({ blockNumber: n })).hash! };
   }
-  const keyFor = (id: string, kind: string) => `t-231-redteam/${id}/${kind}`;
+  const idempotencyOf = (id: string, kind: string) => `t-231-redteam/${id}/${kind}`;
   /** No grace past a deadline unless a test sets one, so each test moves the clock just past its deadline. */
   async function node(o: Partial<OperatorTimeoutsOptions> = {}, c: LiveChain = shimmed(chain)): Promise<{ s: EvmSettlement; sync: ChainSync; pass: OperatorTimeouts }> {
     const s = await EvmSettlement.restore(c, genesis, undefined, wall);
-    return { s, sync: new ChainSync(s, await head()), pass: new OperatorTimeouts(s, { via: 'op-1', key: keyFor, graceMs: 0, ...o }) };
+    return { s, sync: new ChainSync(s, await head()), pass: new OperatorTimeouts(s, { via: 'op-1', key: idempotencyOf, graceMs: 0, ...o }) };
   }
   const ok = async (s: EvmSettlement, sub: Submission) => {
     const r = await s.submit(sub, { via: 'op-1' });
@@ -253,7 +253,7 @@ describe.skipIf(!ready)(`red team of the operators' own timeouts, on anvil stand
     const lag: Lag = { dealOfAt: lagging };
     const b = await opened(copy, lag);
     const restarted = await EvmSettlement.restore(b.c, genesis, books, wall);
-    const again = new OperatorTimeouts(restarted, { via: 'op-1', key: keyFor, graceMs: 0 });
+    const again = new OperatorTimeouts(restarted, { via: 'op-1', key: idempotencyOf, graceMs: 0 });
     expect(await restarted.recover()).toMatchObject({ failed: 0 });
     delete lag.dealOfAt;
     // The world's pass: persist (the landed row goes), then the chain sync from the cursor before the takeover.
@@ -307,7 +307,7 @@ describe.skipIf(!ready)(`red team of the operators' own timeouts, on anvil stand
         spent--;
       },
     };
-    const pass = new OperatorTimeouts(spiked, { via: 'op-1', key: keyFor, budget, graceMs: 0 });
+    const pass = new OperatorTimeouts(spiked, { via: 'op-1', key: idempotencyOf, budget, graceMs: 0 });
     const before = await lanes();
     const refused: string[][] = [];
     for (let i = 0; i < 4; i++) refused.push((await pass.run()).refused.map((x) => x.detail));
