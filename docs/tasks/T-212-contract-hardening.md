@@ -1,11 +1,11 @@
 # T-212: Contract hardening from the T-206 review (low findings)
 
 - **Lane:** settlement
-- **Phase:** 2
+- **Phase:** 11 (Security hardening; moved from Phase 2 on 2026-11-06 by D54, Rafa: "Move it to Phase 11")
 - **Depends on:** the T-206 fix PRs merged
 - **Paths this task may touch:** `contracts/src/`, `contracts/test/`, `packages/settlement/evm/encode.ts` and `packages/settlement/sim/simchain.ts` (only for item 4), `docs/decisions/ADR-0016-phase1-contract.md` (item 5, through an amendment), `docs/tasks/T-212-contract-hardening.md`. Added for items 7 and 9 (2026-11-03, D43, so every layer agrees on who may appeal and what an overturn reports): `packages/core/src/state.ts` and its test, `packages/settlement/evm/` (`evm-settlement.ts`, `gas.ts`, `abis.json`, tests), `apps/operator/src/prepare.ts` and `sim-world.test.ts`, `formal/Holdback.tla` (`FileAppeal`), and the docs that state who may appeal (`docs/api.md`, `docs/quickstart.md`, `docs/PRD.md`, `site/llms.txt`, `README.md`, ADR-0015 and ADR-0019 by amendment). Item 3's paths are in its own PR (ADR-0029).
 - **Human gate:** no
-- **Status:** paused (since 2026-11-04: nobody is building it). Items 3, 7 and 9 are merged (PR #160 at 1653745, PR #161 at 64be1f1), and the Sepolia redeploy and cutover are done (2026-11-04, Rafa approved them; Handoff). Items 1, 2, 4, 5, 6 and 8 are open and go out with the next contract redeploy; item 5 blocks mainnet. Set it back to "in progress" when work resumes.
+- **Status:** paused (since 2026-11-04: nobody is building it; in Phase 11 since 2026-11-06, D54). Items 3, 7 and 9 are merged (PR #160 at 1653745, PR #161 at 64be1f1), and the Sepolia redeploy and cutover are done (2026-11-04, Rafa approved them; Handoff). Items 1, 2, 4, 5, 6 and 8 are open and become the contract redeploy before mainnet, bundled with T-225's drand hardening, T-227's contract part and T-221's contract-side bond refusal; item 5 blocks mainnet. Set it back to "in progress" when work resumes.
 - **Agent/session:** T-206's session (items 7 and 9); an implementer agent (item 3)
 
 ## Intent
@@ -80,6 +80,8 @@ Item 3 (D44, ADR-0029, Rafa may overrule):
 - Schema v0.9 ships now; T-033's additive items join it before the redeploy.
 
 ## Handoff
+
+**Moved to Phase 11 on 2026-11-06 (D54, Rafa: "Move it to Phase 11").** Items 1, 2, 4, 5, 6 and 8 are now the contract redeploy before mainnet. That one redeploy also carries the other contract changes that wait for one: T-225's drand hardening, T-227's contract part and T-221's contract-side bond refusal (the backlog row "The protocol refuses a selection the terms cannot pay"). A contract change means a new demo world under D49, so Phase 2 closes on Sepolia without a redeploy. The redeploy needs Rafa's go-ahead.
 
 Items 7 and 9 (PR #160):
 - **Before mainnet:** item 5, the appeal adjudicator's coverage. Since the payout, an unbonded appeal adjudicator moves the price out of the first decider's bond; L-5 is re-rated medium (the PR #160 reviewer and DeepSeek both flagged it, review §8 follow-up).

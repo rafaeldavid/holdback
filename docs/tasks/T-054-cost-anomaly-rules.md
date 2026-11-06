@@ -20,6 +20,7 @@ Catch in a day what a monthly bill would show in a month: a runaway agent, a spe
 
 - `docs/costs.md`, "Anomaly rules": the eight rules and their starting thresholds (guessed).
 - The Sepolia world (`apps/demo-cloud/src/world.ts`, measured): a deal lane below 0.01 Sepolia ETH gets 0.03 from the funding lane; a lane that cannot pay answers `relay_refused`. So the funding lane is the one to watch.
+- A console warning comes first (Rafa, 2026-11-06: "Yes, warning now"; D54): Crow Control's "Waiting on you" shows the funding lane's runway, red below about 200 deals, built in crow-private on branch `control-runway-warning`. This task keeps the full alarm (agent step 5) and its delivery (T-055).
 - Cloudflare's CPU limit per invocation, set with wrangler's `limits` or in the dashboard, "to prevent accidental runaway bills or denial-of-wallet attacks" (documented, read 2026-11-03). It does not cap Durable Object requests, duration or rows, the demo's main cost drivers (inferred).
 - The World Durable Object runs CSV checks, signing, NaCl and live judge calls, so a limit set from a quiet week can break a heavy deal.
 
