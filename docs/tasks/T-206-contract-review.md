@@ -13,7 +13,7 @@
     - for the deployment, `contracts/script/deploy-sepolia.sh` and a section of `docs/operations.md`;
     - for the cross-family pass, `docs/reviews/2026-11-03-contract-review-deepseek.md` (new, DeepSeek's answers verbatim).
 - **Human gate:** **yes.** (1) Rafa reads the review before Phase 2 is called done. (2) Any Sepolia deployment needs Rafa's explicit approval written in this file first: test ETH and a test token only, a deployer key from an environment variable, never printed. No mainnet, at any point; a mainnet deployment is a separate gate after an external audit and legal advice (D4).
-- **Status:** review, benched (Rafa, 2026-11-04) until the first full EVM end-to-end test round: Rafa's read and his confirmation on PR 150 (Decisions 7) wait until then (`docs/backlog.md`, Benched). The cross-family pass is done (DeepSeek, review §8), and the Sepolia deploy is done (PR 150).
+- **Status:** review. D53 (Rafa, 2026-11-06) took it off the bench, where Rafa had put it on 2026-11-04. Left: Rafa reads the brief, `docs/reviews/2026-11-03-contract-review-brief.md`, and confirms its three items in chat (Handoff). The cross-family pass is done (DeepSeek, review §8), and the Sepolia deploy is done (PR 150).
 - **Agent/session:** a Claude Opus 5.5 session in worktree `t-206-contract-review-d83e9c`, 2026-11-03, with:
   - a Claude Fable 5.1 red-teamer subagent;
   - a separate public-audit cross-check session;
@@ -42,7 +42,7 @@ Review the Phase 2 contracts against the neutrality checklist, the hold invarian
 
 - [x] The checklist in `docs/neutrality.md` is expanded into checkable items, and each item is answered with a file and line or a test name (review §3). The items: no owner, pause, freeze, blacklist, upgrade proxy, `selfdestruct` or mutable `delegatecall`; every timeout callable by anyone; no function moves held funds without a signature, decision or expired timeout; settle-once; key release in the same transaction as capture; expiry margin per ADR-0003.
 - [x] Static analysis run with Slither 0.11.6 and Aderyn 0.6.8. Every high and medium finding is accepted with a reason, since none is a defect (review §4; counts below).
-- [x] Two reviews from two model families, each run without seeing the other's output, recorded in `docs/reviews/2026-11-03-contract-review.md` with the model IDs used; disagreements listed. Anthropic (`claude-opus-5-5`, `claude-fable-5-1`) and DeepSeek (`deepseek-v4-pro`, review §8; its answers verbatim in `2026-11-03-contract-review-deepseek.md`). No review text or finding ID reached DeepSeek. But its question sets were written by the session that held the findings and point at several of them, so its agreement on those is prompted (review §8, Limits). Ticked on that basis; Rafa may want a further open-ended pass (Handoff).
+- [x] Two reviews from two model families, each run without seeing the other's output, recorded in `docs/reviews/2026-11-03-contract-review.md` with the model IDs used; disagreements listed. Anthropic (`claude-opus-5-5`, `claude-fable-5-1`) and DeepSeek (`deepseek-v4-pro`, review §8; its answers verbatim in `2026-11-03-contract-review-deepseek.md`). No review text or finding ID reached DeepSeek. But its question sets were written by the session that held the findings and point at several of them, so its agreement on those is prompted (review §8, Limits). Ticked on that basis; Rafa decided against a further open-ended pass on 2026-11-06 (Decisions 10).
 - [x] Each high, medium and low finding is labelled measured, inferred or guessed, with a severity, and has a fix PR, a follow-up task (T-210, T-211, T-212) or a written acceptance (L-3). Each informational item has a label and a disposition.
 - [x] The model-to-contract correspondence from T-204 checked. Every model action maps to a contract function, and the gaps are findings (review §5).
 - [ ] Rafa has read the review (recorded here with date). Only then, and only if he approves in writing in this file: a Sepolia deployment whose verified bytecode matches the reviewed commit, addresses in `contracts/deployments/sepolia.json`, and one happy-path deal run on Sepolia with its gas recorded (measured). The approval came first, by Rafa's choice (Decisions 7). The deployment is recorded in its own PR; the happy-path deal belongs to the Sepolia demo session.
@@ -169,21 +169,30 @@ Review the Phase 2 contracts against the neutrality checklist, the hold invarian
    - **`EXPIRY_MARGIN`** is 1 day (review §7).
 8. **Adversarial reviews carry the project context** (Rafa: "For adversarial reviews, you should use the project context, not use completely anon agents without context"). The Fable pass was briefed with `CLAUDE.md`, the ADRs, T-202's difference list and the reference state machine. Every per-PR reviewer read the project docs. Independence meant withholding the first pass's findings, not the context.
 9. **USDC issuer freezes are out of scope.** Rafa: "this is not an issue, buyer and seller agree to use USDC in the terms of their own contract … park it for later in a roadmap module about assets". Review I-7 records this.
+10. **No third, open-ended review** (Rafa, 2026-11-06): "No additional open-ended review".
+    - The further open-ended pass by an OpenAI or Google model, which the PR 155 reviewer suggested and the Handoff kept benched, does not run.
+    - The two-family criterion stays ticked on the Anthropic and DeepSeek passes. Its limit stays on record: DeepSeek's questions came from the session that held the findings (review §8, Limits).
+    - The external audit and legal advice before any mainnet deployment remain (D4).
 
 ## Handoff
+
+**The human gate's remaining step (2026-11-06).**
+- The one-page brief is `docs/reviews/2026-11-03-contract-review-brief.md`: the verdict, the fixes, the open items and whether each matters with real money, and the three confirmations.
+- Rafa reads it and confirms its three items in chat: the second-hand Sepolia approval, the deployer keystore exception, and what the two gates open at the deploy now gate (Decisions 7).
+- The coordinator then records his read and his answers here, with the date, and ticks the last acceptance criterion.
 
 **State.**
 - The review is written.
 - All five fix PRs are merged (#120, #122, #125, #127, #135), each after its reviewer returned PASS and CI was green.
 - The cross-family pass is done (DeepSeek, review §8). Rafa's read is open.
-- Deployed on Sepolia after the merges (Evidence; Decisions 7). The addresses are in `contracts/deployments/sepolia.json`, recorded in PR 150. On that PR Rafa confirms the second-hand approval, the keystore exception, and the two gates that were still open (Decisions 7).
+- Deployed on Sepolia after the merges (Evidence; Decisions 7). The addresses are in `contracts/deployments/sepolia.json`, recorded in PR 150. PR 150 merged on 2026-11-03 with no comment or review, so nobody has confirmed there yet [measured]. Rafa confirms the second-hand approval, the keystore exception, and the two gates that were still open (Decisions 7) in chat, from the brief (above).
 - Suggested for Rafa: a deny rule for `~/.foundry/keystores/**` in `.claude/settings.json` and a row in the Rules and checks table. Today nothing enforces the keystore exception the way the `.env*` deny rule enforces the secrets rule. The stakes are low, because the key pays test gas only. Agents do not edit `.claude/settings.json`.
 
-**The cross-family review: done with DeepSeek** (review §8). The briefs are kept in `reports/scratch/deepseek/parts/` (git-ignored): the primer plus five question sets. Both are copied verbatim, with DeepSeek's answers, into `docs/reviews/2026-11-03-contract-review-deepseek.md`. A further open-ended pass by an OpenAI or Google model was suggested by the PR 155 reviewer before Phase 2 is called done (the DeepSeek questions were not blind). **Benched with Rafa's read of the review** (coordinator, 2026-11-04). If it runs, use this brief, now pointed at the deployed code (`64be1f1`, which includes the overturn payout and the delivery binding, PRs #160 and #161):
+**The cross-family review: done with DeepSeek** (review §8). The briefs are kept in `reports/scratch/deepseek/parts/` (git-ignored): the primer plus five question sets. Both are copied verbatim, with DeepSeek's answers, into `docs/reviews/2026-11-03-contract-review-deepseek.md`. A further open-ended pass by an OpenAI or Google model was suggested by the PR 155 reviewer before Phase 2 is called done (the DeepSeek questions were not blind). **Not run: Rafa decided against it on 2026-11-06** (Decisions 10). The brief below stays as the record of what it would have reviewed, pointed at the deployed code (`64be1f1`, which includes the overturn payout and the delivery binding, PRs #160 and #161):
 
 > Review the Solidity settlement contracts in `contracts/src/` of rafaeldavid/holdback at commit `64be1f1` (deployed on Sepolia on 2026-11-04), and the history from `baac930` (the five fix PRs #120, #122, #125, #127 and #135, then #160 and #161). Read `CLAUDE.md` (hard rules and litmus tests), `docs/neutrality.md`, `docs/judgment-and-defenses.md`, and ADR-0003, ADR-0012, ADR-0016, ADR-0018 and ADR-0022. The contracts drive Commerce Payments' `AuthCaptureEscrow` v1.1.0 (vendored, unmodified) as its operator, have no admin keys, and release a sealed content key with the payment. Try to break three properties: (1) no single party can stop a valid commitment from settling, or move or lock held funds or bonds outside its terms; (2) the hold (conservation, settle-once, expiry, reclaim, key with payment); (3) panel seeds the decider cannot choose. For each finding give a severity, file:line, the attack sequence, a measured, inferred or guessed label, and the smallest fix. Run `forge test` from `contracts/`. No deployment and no RPC.
 
-Append its findings to the review as a new section, with a disagreement table against §2.
+If Rafa reverses the decision, append its findings to the review as a new section, with a disagreement table against §2.
 
 **Follow-up tasks.**
 - **T-210** (core, SimChain): mirror H-1 and H-2.
