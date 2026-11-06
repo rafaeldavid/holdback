@@ -308,6 +308,8 @@ export class ChainSync {
     cursor: Cursor | null = null,
   ) {
     this.stored = cursor;
+    // T-232: the books hold the chain up to the cursor, so no read of the state answers from before it.
+    if (cursor) evm.world.saw?.(BigInt(cursor.block));
   }
 
   /** The last block applied and written, or null before the first pass (the deployment's first block comes next). */
@@ -328,6 +330,9 @@ export class ChainSync {
     const head = await read.head();
     const last = this.stored ? BigInt(this.stored.block) : chain.deployment.fromBlock - 1n;
     if (last >= head) return null;
+    // T-232: a head before a block this node already wrote at or applied (the chain's floor) comes from a node that
+    // trails it. Its dealOf reads would show a deal before this node's own relay, so the pass waits for the next one.
+    if (head < (chain.floor?.() ?? 0n)) return null;
     // The last OVERLAP blocks again: a load-balanced RPC can answer from a node a block behind with no error. A
     // transaction applies once, so the overlap costs only the read (review 2026-11-04, L2).
     const from = last + 1n - OVERLAP > chain.deployment.fromBlock ? last + 1n - OVERLAP : chain.deployment.fromBlock;
@@ -342,6 +347,8 @@ export class ChainSync {
     }
     const stages = await read.stages(this.evm, touched, head);
     const { hash } = await read.block(head);
+    // The books now follow the chain up to the head: no later read of the state answers from before it (T-232).
+    chain.saw?.(head);
     const observed = await this.evm.observe(fetched, stages, mark);
     // Logs of commitments this node never saw are counted, not fetched (T-218: no book is invented).
     const unknown = new Set(txs.filter((t) => t.block > last).flatMap((t) => t.ids.filter((id) => !this.evm.follows(id))));

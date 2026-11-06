@@ -270,6 +270,9 @@ export class OperatorTimeouts {
     const chain = this.evm.world;
     const head = await chain.publicClient.getBlockNumber({ cacheTime: 0 });
     const block = [head, floor ?? 0n, this.logBlock].reduce((a, b) => (b > a ? b : a));
+    // The relay's own simulation reads no earlier than this check (T-232): a timeout the contract accepts here is not
+    // refused TooEarly at an older block a node behind still reports as its head.
+    chain.saw?.(block);
     report.block = block.toString();
     const perPass = this.o.perPass ?? PER_PASS;
     const readsPerPass = this.o.readsPerPass ?? READS_PER_PASS;
