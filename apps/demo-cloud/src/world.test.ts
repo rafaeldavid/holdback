@@ -14,7 +14,7 @@ import { LiveChain, type DeploymentFile } from '@holdback/settlement/live';
 import { encodePublicKey, generateEncryptionKeyPair } from '@holdback/core/crypto';
 import { MemoryFeedbackStore, signRegistration, testAccount, type StoredRegistration, type TestAccount } from '@holdback/operator';
 import { MemoryStorage, PublicWorld, type PublicWorldOptions } from './index.js';
-import { BondReads } from './world.js';
+import { BondReads, TimeoutBudgetRows } from './world.js';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -514,6 +514,32 @@ describe('bond reads from HoldbackBonds (T-221 review)', () => {
     t = 80_000;
     await r.get(d, { listing: true });
     expect(reads.at(-1)).toBe(d);
+  });
+});
+
+// T-231: the timeouts the operators send on their own spend the relayer's gas, so a daily budget bounds them. An offer
+// costs nothing to post, so offer expiries have a cap of their own inside it.
+describe('the daily budget for the timeouts the operators send (T-231)', () => {
+  it('counts each send in one row a UTC day before it goes out, caps offer expiries apart, and opens again at midnight UTC', async () => {
+    const storage = new MemoryStorage();
+    let t = Date.parse('2026-11-06T23:00:00Z');
+    const budget = new TimeoutBudgetRows(storage, () => t, { perDay: 3, offersPerDay: 1 });
+    const midnight = Date.parse('2026-11-07T00:00:00Z');
+    expect(await budget.take('expire_offer')).toBe(true);
+    expect(await storage.get('ot:2026-11-06')).toEqual({ sent: 1, offers: 1 });
+    // The offers' cap is spent; the hold's timeouts still go.
+    expect(await budget.take('expire_offer')).toEqual({ opensAt: midnight, offersOnly: true });
+    expect(await budget.take('reclaim')).toBe(true);
+    expect(await budget.take('default')).toBe(true);
+    expect(await budget.take('reclaim')).toEqual({ opensAt: midnight, offersOnly: false });
+    expect(await storage.get('ot:2026-11-06')).toEqual({ sent: 3, offers: 1 });
+    // A restart reads the day's row: what was spent stays spent.
+    const restarted = new TimeoutBudgetRows(storage, () => t, { perDay: 3, offersPerDay: 1 });
+    expect(await restarted.take('appeal_expiry')).toEqual({ opensAt: midnight, offersOnly: false });
+    // A new UTC day starts from zero.
+    t = midnight + 1;
+    expect(await restarted.take('expire_offer')).toBe(true);
+    expect(await storage.get('ot:2026-11-07')).toEqual({ sent: 1, offers: 1 });
   });
 });
 
