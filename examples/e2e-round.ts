@@ -22,7 +22,7 @@ import { formatEther, type Hex } from 'viem';
 import { SEPOLIA, type DeploymentFile } from './deployments.ts';
 import { RoundChain } from './e2e-chain.ts';
 import { roundAddresses, ROLES, SEED_VAR } from './e2e-keys.ts';
-import { heldDeals, otherRunDeals, reason, releaseLock, retry, Round, Run, settleOpen, short, takeLock, Waits } from './e2e-run.ts';
+import { heldDeals, otherRunDeals, reason, refuseActive, releaseLock, retry, Round, Run, settleOpen, short, takeLock, Waits } from './e2e-run.ts';
 import { pick, SCENARIOS } from './e2e-scenarios.ts';
 import { Refusal } from './verify.ts';
 
@@ -139,9 +139,12 @@ async function runLocked(scenarios: ReturnType<typeof pick>, seed: string, keys:
   // A run from another checkout takes no lock here, but its sends show as pending on the round's keys.
   if (round.chain) await round.chain.untilIdle(Object.fromEntries(ROLES.filter((k) => k !== 'master').map((k) => [k, keys[k]])));
   const since = await retry(() => round.agent('master').settlementNow());
-  // An earlier run's deal that still holds money is closed by its timeouts first, within the gate's wait.
+  // An earlier run's deal that still holds money is closed by its timeouts first, within the gate's wait; one that
+  // changed in the last 2 minutes may be another run's, still in progress.
   const start = new Run(round, 'start', 'before the first scenario');
-  const earlier = await settleOpen(start, await heldDeals(start)).catch((e) => {
+  const held = await heldDeals(start);
+  refuseActive(held, since);
+  const earlier = await settleOpen(start, held).catch((e) => {
     throw new Refusal(`refusing to start: ${reason(e).replace(/; run the remaining scenarios (after then|once it settles)$/, '')}; run the round again once it has settled`);
   });
   const driverCommit = commit();
