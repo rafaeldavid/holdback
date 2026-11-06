@@ -432,7 +432,10 @@ describe.skipIf(!anvilReady)(`settle against the demo world on anvil${ANVIL_SKIP
     expect(done.code, done.out).toBe(0);
     expect(settlementPosts(deal.id)).toHaveLength(2);
     // Each operator refused because the deal is behind the chain, not for a fault in the body (PR review).
-    for (const origin of demo.urls.map((u) => new URL(u).host.replace(/\./g, '\\.'))) expect(done.out).toMatch(new RegExp(`http://${origin} refused it: .*invalid_state: Behind the chain`));
+    for (const origin of demo.urls.map((u) => new URL(u).origin)) {
+      const line = done.out.split('\n').find((l) => l.includes(`${origin} refused it: `));
+      expect(line, `${origin} in ${done.out}`).toContain('invalid_state: Behind the chain');
+    }
     expect(done.out).toMatch(/both operators refused it; the buyer sends mutualSettle to HoldbackRules directly/);
     const hold = BigInt(deal.terms.price.amount) + BigInt(deal.terms.adjudication.fee.amount);
     for (const name of ['dealOf reads Settled after block', `the buyer receives ${round.amount(hold)}`, 'the seller receives 0 tUSDC', 'CPP holds nothing to capture for the deal', 'the settlement is this one']) expect(done.out).toContain(`ok   ${name}`);
