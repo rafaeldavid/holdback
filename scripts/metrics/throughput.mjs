@@ -122,8 +122,10 @@ export function buildThroughput({ discovery, agent, dealTiming, blockTimesMs, co
     ? { id: h.id, appliesTo: 'testSeller', assumes: 'a new visitor, who needs one faucet mint', dealsPerHour: h.value, perDay: d ? { id: d.id, dealsPerDay: d.value } : null, basis: 'inferred' }
     : null;
 
-  // Observed: hold.funded per clock hour over the last 168 hours, zeros included.
+  // Observed: hold.funded per clock hour over the last 168 hours, zeros included. With no event log behind
+  // deal-timing.json, an hour with no deal is unknown, not 0, so the whole row reads null.
   const hours = 168;
+  const observedKnown = !!dealTiming?.eventLog;
   const endHour = Math.floor(nowMs / HOUR_MS);
   const counts = new Array(hours).fill(0);
   for (const deal of dealTiming?.deals ?? []) {
@@ -133,13 +135,14 @@ export function buildThroughput({ discovery, agent, dealTiming, blockTimesMs, co
     if (k >= 0 && k < hours) counts[k] += 1;
   }
   const sortedCounts = [...counts].sort((a, b) => a - b);
-  const peakPerHour = sortedCounts[hours - 1];
+  const peakPerHour = observedKnown ? sortedCounts[hours - 1] : null;
   const observed = {
-    dealsPerHour: { medianPerHour: quantile(sortedCounts, 50), peakPerHour, hours },
-    utilizationBps: binding && binding.dealsPerHour > 0 ? Math.floor((peakPerHour * 10_000) / binding.dealsPerHour) : null,
+    dealsPerHour: { medianPerHour: observedKnown ? quantile(sortedCounts, 50) : null, peakPerHour, hours },
+    utilizationBps: peakPerHour !== null && binding && binding.dealsPerHour > 0 ? Math.floor((peakPerHour * 10_000) / binding.dealsPerHour) : null,
     utilizationOf: 'the peak hour, against the binding limit',
   };
   if (!dealTiming) gaps.push('deal-timing.json could not be read, so the observed deals read unknown.');
+  else if (!observedKnown) gaps.push('No operator node served its event log, so the observed deals read unknown.');
   else if (dealTiming.window?.deals >= dealTiming.window?.cappedAt) gaps.push('deal-timing.json hit its cap of deals, so the observed counts are a lower bound.');
 
   return {

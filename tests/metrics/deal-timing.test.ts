@@ -1,7 +1,7 @@
 // T-066: deal-timing.mjs on fixtures. The run-once deal's events and blocks were read live once (2026-11-05); the
 // multi-deal sets are synthetic, timed by `at` alone, so every median and p90 below is computed by hand.
 import { describe, expect, it } from 'vitest';
-import { buildDealTiming, primaryEvent, stepOf, templateOf } from '../../scripts/metrics/deal-timing.mjs';
+import { buildDealTiming, fundedDealsIn, primaryEvent, stepOf, templateOf } from '../../scripts/metrics/deal-timing.mjs';
 import { LANE, NOW, ONCE, onceBlocks, onceEvents } from './helpers';
 
 const iso = (ms: number) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
@@ -123,6 +123,27 @@ describe('deal-timing quantiles, caps and gaps', () => {
   it('falls back to `at` when a block cannot be read, and says so', () => {
     const out = buildDealTiming({ events: onceEvents(), blockTimes: new Map(), crow, nowMs: NOW });
     expect(out.gaps.some((g: string) => /chain events are timed by their `at`/.test(g))).toBe(true);
+  });
+
+  it('reads every count as unknown, not 0, when no operator served its event log', () => {
+    const out = buildDealTiming({ events: null, blockTimes: new Map(), crow, nowMs: NOW, complete: false });
+    expect(out.window).toMatchObject({ deals: null, inProgress: null });
+    expect(out.outcomes).toEqual({ Released: null, Refunded: null, other: null });
+    expect(out.stages.every((s: { deals: number | null; clamped: number | null; medianMs: number | null }) => s.deals === null && s.clamped === null && s.medianMs === null)).toBe(true);
+    expect(out.totals.crowProcessingMs).toEqual({ deals: null, medianMs: null, p90Ms: null });
+    expect(out.indexLagMs).toEqual({ medianMs: null, p90Ms: null, events: null });
+    expect(out.deals).toEqual([]);
+    expect(out.gaps[0]).toBe('No operator node served its event log, so every figure reads unknown.');
+    // No log was read, so no line claims one stopped early.
+    expect(out.gaps.some((g: string) => /stopped before the head/.test(g))).toBe(false);
+  });
+
+  it('counts every funded deal the event log holds, older than the window too', () => {
+    const old = synthDeal(70, NOW - 30 * 86_400_000, { accept: 1000, agree: 1000, fund: 1000, deliver: 1000, decide: 1000, settle: 0, final: 1000 });
+    const unfunded = synthDeal(80, T0, { accept: 1000, agree: 1000, fund: 1000, deliver: 1000, decide: 1000, settle: 0, final: 1000 }).filter((e) => e.type !== 'hold.funded');
+    // Ten funded deals in the window, one funded 30 days ago, one never funded: 11.
+    expect(fundedDealsIn([...events, ...old, ...unfunded])).toBe(11);
+    expect(buildDealTiming({ events: [...events, ...old], blockTimes: new Map(), crow, nowMs: NOW }).window.deals).toBe(10);
   });
 });
 

@@ -26,7 +26,7 @@
       "additionalProperties": false,
       "required": ["deals", "medianMs", "p90Ms"],
       "properties": {
-        "deals": { "$ref": "#/$defs/Count" },
+        "deals": { "$ref": "#/$defs/CountOrNull", "description": "null when the source could not be read" },
         "medianMs": { "$ref": "#/$defs/MsOrNull" },
         "p90Ms": { "$ref": "#/$defs/MsOrNull" }
       }

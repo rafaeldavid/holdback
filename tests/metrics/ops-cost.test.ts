@@ -1,10 +1,14 @@
 // T-066: ops-cost.mjs on fixtures. Gas is the run-once deal with each step set to the measured values of T-066's
 // Context (fund 840,697, deliver 173,131, decide 166,808, appeal expiry 80,792); prices are the operator fee's own
 // fictional rates (1 gwei, USD 3,000 an ETH), so every figure below is computed by hand.
-import { describe, expect, it } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterAll, describe, expect, it } from 'vitest';
+import { check, loadSchemas } from '../../scripts/metrics/check.mjs';
 import { buildDealTiming } from '../../scripts/metrics/deal-timing.mjs';
-import { buildOpsCost, dealGas, tokenToUsdMicros, tokensToUsdMicros } from '../../scripts/metrics/ops-cost.mjs';
-import { LANE, NOW, config, json, measuredStepEvents, onceBlocks } from './helpers';
+import { buildOpsCost, dealGas, loadRunCheck, newestTailRun, tokenToUsdMicros, tokensToUsdMicros } from '../../scripts/metrics/ops-cost.mjs';
+import { EVENT_LOG, LANE, NOW, NO_REQUESTS, TAIL, config, json, measuredStepEvents, onceBlocks, sampleRun } from './helpers';
 
 const dealTiming = buildDealTiming({ events: measuredStepEvents(), blockTimes: onceBlocks(), crow: new Set([LANE]), nowMs: NOW });
 const prices = {
@@ -50,6 +54,34 @@ describe('ops-cost gas', () => {
     expect(out.perDeal.gas.adjudicatorSetupPerDeal).toBe('1118127');
   });
 
+  it('spreads the setup over every funded deal in the event log, not only the 7-day window', () => {
+    const withLive = { ...discovery, demo: { ...discovery.demo, adjudicators: live.demo.adjudicators } };
+    const out = buildOpsCost({ dealTiming: { ...dealTiming, eventLog: { ...EVENT_LOG, fundedDeals: 23 } }, prices, modelPrices, discovery: withLive });
+    // 3 × 372,709 = 1,118,127 gas over 23 funded deals = 48,614.2, rounded up to 48,615 (T-066 Evidence).
+    expect(out.perDeal.gas.adjudicatorSetupPerDeal).toBe('48615');
+    expect(out.gaps.some((g: string) => /reads high/.test(g))).toBe(false);
+    // A log read that starts past seq 0 misses older deals, so the share reads high and says so.
+    const late = buildOpsCost({ dealTiming: { ...dealTiming, eventLog: { ...EVENT_LOG, from: 4000, fundedDeals: 23 } }, prices, modelPrices, discovery: withLive });
+    expect(late.gaps.some((g: string) => /from seq 4000.*reads high/.test(g))).toBe(true);
+  });
+
+  it('leaves the setup out, and names it, when discovery cannot be read', () => {
+    const out = buildOpsCost({ dealTiming, prices, modelPrices, discovery: null, faucetMintGas: ['130000'] });
+    expect(out.perDeal.gas.adjudicatorSetupPerDeal).toBe(null);
+    // 1,261,428 + 130,000: no setup share added as if it were 0.
+    expect(out.perDeal.gas.totalGas.median).toBe('1391428');
+    expect(out.perDeal.total.checksOnly.excludes).toContain('adjudicator setup');
+    expect(out.perDeal.total.rubric.excludes).toContain('adjudicator setup');
+    expect(out.gaps).toContain("Discovery could not be read, so the adjudicators' setup gas is left out of the gas.");
+  });
+
+  it('reads the setup as 0, not unknown, when discovery lists no adjudicator', () => {
+    const out = buildOpsCost({ dealTiming, prices, modelPrices, discovery, faucetMintGas: ['130000'] });
+    expect(out.perDeal.gas.adjudicatorSetupPerDeal).toBe('0');
+    // Cloudflare is still out (no run file); the setup is not.
+    expect(out.perDeal.total.checksOnly.excludes).toEqual(['cloudflare']);
+  });
+
   it('bounds rubric judge inference at the dearest live model', () => {
     const out = buildOpsCost({ dealTiming, prices, modelPrices, discovery });
     // (2,787 × USD 4 + 561 × USD 20 per million) ÷ 3 calls × 3 seats = 22,368 µUSD.
@@ -66,17 +98,7 @@ describe('ops-cost gas', () => {
   });
 
   it('prices Cloudflare from a harness run\'s tail counts', () => {
-    const oneClick = {
-      schema: 'crow.metrics.one-click/1',
-      runId: '2026-11-05T13-35-12Z-buyer',
-      cloudflare: {
-        basis: 'tail',
-        workers: {
-          'holdback-op1': { requests: 40, cpuMs: 120, wallMs: 3000, durableObjectRequests: 30, durableObjectWallMs: 8000 },
-          'crow-test-agents': { requests: 10, cpuMs: 30, wallMs: 500, durableObjectRequests: 0, durableObjectWallMs: null },
-        },
-      },
-    };
+    const oneClick = sampleRun({ cloudflare: TAIL });
     const out = buildOpsCost({ dealTiming, prices, modelPrices, discovery, oneClick });
     // 50 requests × USD 0.30 + 150 CPU ms × USD 0.02 + 30 DO requests × USD 0.15 per million = 22.5 µUSD; 8,000 DO ms at
     // 128 MB = 1 GB-s × USD 12.50 per million = 12.5 µUSD. 35 µUSD in all.
@@ -84,12 +106,21 @@ describe('ops-cost gas', () => {
     expect(out.perDeal.total.checksOnly).toMatchObject({ excludes: ['faucet mint'], ethereum: String(3_784_284 + 35) });
   });
 
+  it('reads Durable Object duration as unknown, not 0 GB-s, when the tail carried no wall time', () => {
+    const workers = Object.fromEntries(Object.entries(TAIL.workers).map(([k, w]) => [k, { ...w, durableObjectWallMs: null }]));
+    const out = buildOpsCost({ dealTiming, prices, modelPrices, discovery, oneClick: sampleRun({ cloudflare: { ...TAIL, workers } }) });
+    // 22.5 µUSD without the duration, rounded half away from zero: 23.
+    expect(out.perDeal.cloudflare).toMatchObject({ basis: 'tail', durationGbS: null, usdMicrosAtList: '23' });
+    expect(out.gaps).toContain("The tail carried no Durable Object wall time, so Durable Object duration is left out of Cloudflare's list price.");
+  });
+
   it('reads unknown, never 0, for a missing source', () => {
     const out = buildOpsCost({ dealTiming, prices: null, modelPrices: null, discovery: null });
     expect(out.perDeal.gas.usdMicros).toEqual({ sepolia: '0', ethereum: null, base: null });
-    expect(out.perDeal.cloudflare).toMatchObject({ basis: 'unknown', usdMicrosAtList: null });
+    // An unknown Cloudflare cost has no margin either: a card must not show USD 0 for it.
+    expect(out.perDeal.cloudflare).toMatchObject({ basis: 'unknown', usdMicrosAtList: null, usdMicrosAtMargin: null });
     expect(out.perDeal.judges.rubric).toMatchObject({ basis: 'unknown', usdMicros: null });
-    expect(out.perDeal.total.checksOnly).toMatchObject({ excludes: ['cloudflare', 'faucet mint'], ethereum: null });
+    expect(out.perDeal.total.checksOnly).toMatchObject({ excludes: ['cloudflare', 'faucet mint', 'adjudicator setup'], ethereum: null });
     expect(out.perDeal.operatorFee.usdMicrosAtPar).toBe(null);
     expect(out.perDeal.feeCoversCost.checksOnly.ethereum).toEqual({ covers: null, marginUsdMicros: null });
     const none = buildOpsCost({ dealTiming: null, prices, modelPrices, discovery });
@@ -109,6 +140,39 @@ describe('ops-cost gas', () => {
     // The funding lane pays the deal and the mint: 1,391,428 gas at 1 gwei a deal; a deal lane pays 1,261,428.
     expect(out.runway.lanes.map((l: { deals: string | null }) => l.deals)).toEqual(['1', '2', null]);
     expect(out.runway.totalDeals).toBe('2');
+  });
+});
+
+describe('the run files ops-cost reads', () => {
+  const dir = mkdtempSync(join(tmpdir(), 't066-runs-'));
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+  const schemas = loadSchemas();
+  const isValid = (f: unknown) => check('one-click', f, schemas).ok;
+  const noRequests = NO_REQUESTS;
+  const put = (name: string, value: unknown) => writeFileSync(join(dir, name), JSON.stringify(value));
+  put('2026-11-05T13-35-12Z-buyer.json', sampleRun({ cloudflare: TAIL }));
+  // Newer, but a worker has no request count: it fails the schema and must not price as 0 requests.
+  put('2026-11-05T14-00-00Z-buyer.json', sampleRun({ runId: '2026-11-05T14-00-00Z-buyer', cloudflare: { ...TAIL, workers: { 'holdback-op1': noRequests } } }));
+  // Newest and valid, but with no tail counts: passed over, not counted as a failure.
+  put('2026-11-05T14-30-00Z-buyer.json', sampleRun({ runId: '2026-11-05T14-30-00Z-buyer' }));
+  put('notes.json', { note: 'not a run file' });
+
+  it('takes the newest run file that passes the one-click schema and carries tail counts', () => {
+    const { run, skipped } = newestTailRun(dir, isValid);
+    expect(run?.runId).toBe('2026-11-05T13-35-12Z-buyer');
+    expect(skipped).toBe(1);
+  });
+
+  it('takes no run file when nothing can check it', () => {
+    expect(newestTailRun(dir, () => false)).toEqual({ run: null, skipped: 3 });
+    expect(newestTailRun(undefined, isValid)).toEqual({ run: null, skipped: 0 });
+  });
+
+  it('loads the schema check when Ajv is installed', async () => {
+    const loaded = await loadRunCheck();
+    expect(loaded).not.toBe(null);
+    expect(loaded?.(sampleRun({ cloudflare: TAIL }))).toBe(true);
+    expect(loaded?.(sampleRun({ cloudflare: { ...TAIL, workers: { 'holdback-op1': noRequests } } }))).toBe(false);
   });
 });
 

@@ -6,10 +6,9 @@ import { buildDealTiming } from '../../scripts/metrics/deal-timing.mjs';
 import { envelope } from '../../scripts/metrics/lib.mjs';
 import { buildOpsCost } from '../../scripts/metrics/ops-cost.mjs';
 import { buildThroughput } from '../../scripts/metrics/throughput.mjs';
-import { LANE, NOW, config, json, onceBlocks, onceEvents } from './helpers';
+import { COMMIT, EVENT_LOG, LANE, NOW, NO_REQUESTS, TAIL, config, json, onceBlocks, onceEvents, sampleRun } from './helpers';
 
 const schemas = loadSchemas();
-const COMMIT = '7639613453bc367ed3ac0122cdb38e4e4553765d';
 const SOURCES = [{ id: 'events', url: 'https://api.escrow.stream/v1/events?from=0', readAt: '2026-11-05T15:00:00Z', ok: true, ms: 68, error: null }];
 const wrap = (name: string, body: { gaps: string[] } & Record<string, unknown>) => {
   const { gaps, ...rest } = body;
@@ -17,28 +16,50 @@ const wrap = (name: string, body: { gaps: string[] } & Record<string, unknown>) 
 };
 const expectValid = (name: string, value: unknown) => expect(check(name, value, schemas)).toEqual({ ok: true, errors: [] });
 
-const dealTiming = { ...wrap('deal-timing', buildDealTiming({ events: onceEvents(), blockTimes: onceBlocks(), crow: new Set([LANE]), nowMs: NOW })), eventLog: { node: 'https://api.escrow.stream', from: 0, head: 181, events: 11, complete: true } };
+const dealTiming = { ...wrap('deal-timing', buildDealTiming({ events: onceEvents(), blockTimes: onceBlocks(), crow: new Set([LANE]), nowMs: NOW })), eventLog: EVENT_LOG };
 const code = { dealLanes: 3, mintsPerDay: 600, commit: COMMIT };
 const throughput = wrap('throughput', buildThroughput({ discovery: json('discovery.json'), agent: json('test-seller-agent.json'), dealTiming, blockTimesMs: [0, 12_000, 24_000], code, nowMs: NOW }));
 const opsCost = wrap('ops-cost', buildOpsCost({ dealTiming, prices: config('ops-cost-prices.json'), modelPrices: config('model-prices.json'), discovery: json('discovery.json'), faucetMintGas: ['140171'], effectiveGasPrices: ['999999999'], balances: [{ address: LANE, role: 'deal lane', wei: '12777644593723979' }] }));
 
-/** A run file in the shape tools/one-click/metrics.mjs writes (slice 1), with run "once"'s numbers. */
-const oneClick = {
-  ...envelope('one-click', { script: 'tools/one-click/run.mjs', commit: COMMIT, generatedAt: NOW, sources: [], gaps: [] }),
-  runId: '2026-11-05T13-35-12Z-buyer',
-  scenario: 'buyer',
-  harness: { sdkVersion: '0.3.318', claudeCodeVersion: '2.1.318', maxReplies: 6, timeoutMs: 600000 },
-  prompt: { text: "Run a test deal with Crow's test environment, following https://escrow.stream/llms.txt", source: 'https://escrow.stream/ #prompt', matchesExpected: true },
-  model: { requested: 'claude-opus-5-5', init: 'claude-opus-5-5', effortRequested: 'medium', effortApplied: 'medium', effortSource: 'hook' },
-  outcome: { state: 'Released', commitmentId: '0xa93a4a1d24e0cf57c846d17cdaa65094f8df73d5707ed142c35c532916d88f93', txs: [], releasedAtMs: 63000 },
-  approvals: { total: 4, toolPermission: 4, conversational: 0, byTool: { Bash: 4 }, requests: [{ atMs: 5000, tool: 'Bash', summary: 'curl -s https://escrow.stream/llms.txt' }] },
-  tokens: { byModel: { 'claude-opus-5-5': { input: 12, cacheWrite5m: 0, cacheWrite1h: 13201, cacheRead: 125536, output: 2331, thinking: 387 } }, sdkUsage: { input_tokens: 12 }, numTurns: 6 },
-  cost: { atOpus55: { usdMicros: '182499', byModel: { 'claude-opus-5-5': '177383', 'claude-haiku-5-5': '5116' }, priceTable: { file: 'config/model-prices.json', model: 'claude-opus-5-5', source: 'https://platform.claude.com/docs/en/about-claude/pricing', readOn: '2026-11-05' } }, sdk: { totalCostUsd: '0.1775111', byModel: { 'claude-opus-5-5': '0.1773832' } }, deltaBps: 281 },
-  time: { wallMs: 104755, modelMs: 36001, toolMs: 64000, approvalWaitMs: 3, otherMs: 4751, sdkDurationMs: 104755 },
-  cloudflare: null,
-  errors: [],
-  timedOut: false,
-};
+const oneClick = sampleRun();
+
+/** The files as they read when no operator served its event log and discovery could not be read. */
+const noLog = { ...wrap('deal-timing', buildDealTiming({ events: null, blockTimes: new Map(), crow: new Set([LANE]), nowMs: NOW })), eventLog: null };
+const noLogThroughput = wrap('throughput', buildThroughput({ discovery: json('discovery.json'), agent: json('test-seller-agent.json'), dealTiming: noLog, blockTimesMs: [0, 12_000, 24_000], code, nowMs: NOW }));
+const noDiscoveryOpsCost = wrap('ops-cost', buildOpsCost({ dealTiming, prices: config('ops-cost-prices.json'), modelPrices: config('model-prices.json'), discovery: null }));
+
+/** The path of every leaf that reads 0 or "0". */
+function zeroPaths(value: unknown, path: string[] = []): string[] {
+  if (value === 0 || value === '0') return [path.join('.')];
+  if (Array.isArray(value)) return value.flatMap((v, i) => zeroPaths(v, [...path, String(i)]));
+  if (value && typeof value === 'object') return Object.entries(value).flatMap(([k, v]) => zeroPaths(v, [...path, k]));
+  return [];
+}
+
+// A missing source reads unknown (null), never 0 (T-066 brief; PR 215's review found five places that broke it). With
+// every source missing, a 0 may appear only where it is a constant or counts the samples behind a null median.
+describe('a missing source never reads 0', () => {
+  it('deal-timing.json with no event log', () => {
+    expect(zeroPaths(buildDealTiming({ events: null, blockTimes: new Map(), crow: new Set(), nowMs: NOW }))).toEqual([]);
+  });
+
+  it('throughput.json with no source at all', () => {
+    const out = buildThroughput({ discovery: null, agent: null, dealTiming: null, blockTimesMs: [], code: { dealLanes: null, mintsPerDay: null, commit: 'unknown' }, nowMs: NOW });
+    // blocks: the block times behind blockTimeMs's null median.
+    expect(zeroPaths(out)).toEqual(['config.blockTimeMs.blocks']);
+  });
+
+  it('ops-cost.json with no source at all', () => {
+    const out = buildOpsCost({ dealTiming: null, prices: null, modelPrices: null, discovery: null });
+    expect(zeroPaths(out)).toEqual([
+      'perDeal.gas.faucetMintNewVisitor.mints', // the mints behind a null median
+      'perDeal.judges.checksOnly.usdMicros', // a constant: a checks-only deal has no panel
+      'perDeal.rpc.usdMicros', // a constant: keyless public endpoints
+      'perDeal.operatorFee.deals', // the fees behind a null amount
+      'runway.effectiveGasPriceWei.txs', // the receipts behind a null median
+    ]);
+  });
+});
 
 describe('metrics schemas', () => {
   it('loads every schema under Ajv strict', () => {
@@ -50,6 +71,20 @@ describe('metrics schemas', () => {
     expectValid('throughput', throughput);
     expectValid('ops-cost', opsCost);
     expectValid('one-click', oneClick);
+    expectValid('one-click', sampleRun({ cloudflare: TAIL }));
+  });
+
+  it('accepts null counts and an unknown Cloudflare margin, which the scripts write when a source is missing', () => {
+    expectValid('deal-timing', noLog);
+    expectValid('throughput', noLogThroughput);
+    expectValid('ops-cost', noDiscoveryOpsCost);
+    expect(noDiscoveryOpsCost.perDeal.cloudflare.usdMicrosAtMargin).toBe(null);
+    expect(noDiscoveryOpsCost.perDeal.total.checksOnly.excludes).toContain('adjudicator setup');
+  });
+
+  it("refuses a run file whose worker has no request count, so it never prices as 0", () => {
+    const bad = sampleRun({ cloudflare: { ...TAIL, workers: { 'holdback-op1': NO_REQUESTS } } });
+    expect(check('one-click', bad, schemas).ok).toBe(false);
   });
 
   it('accepts both price tables as tracked', () => {
