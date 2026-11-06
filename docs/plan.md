@@ -61,7 +61,7 @@ Scope after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-inte
 
 Goal: the same scenario fixtures pass against an EVM contract on a local chain. Differential testing against SimChain.
 
-Focus (Rafa, 2026-11-06; D53, narrowed the same day by D54 after his walkthrough of Phase 2): finish stable EVM operations, which are round 1 (T-216), the join-on-chain-delivery fix, operator-sent timeouts, the read-after-write audit (T-232) and T-206's sign-off. Under D53, six open rows moved to later phases: T-207 to Phase 8, T-034 to Phase 9, T-036 to Phase 10, T-224 to Phase 5, T-016b to Phase 3 and T-033 to Phase 6. Under D54, three more moved: T-212 to Phase 11, T-221 to Phase 4 and the scenario 11 redesign to Phase 3 (T-310).
+Focus (Rafa, 2026-11-06; D53, narrowed the same day by D54 after his walkthrough of Phase 2): finish stable EVM operations, which are round 1 (T-216), the join-on-chain-delivery fix, operator-sent timeouts, the read-after-write audit (T-232) and T-206's sign-off, done the same day (PR 227). Under D53, six open rows moved to later phases: T-207 to Phase 8, T-034 to Phase 9, T-036 to Phase 10, T-224 to Phase 5, T-016b to Phase 3 and T-033 to Phase 6. Under D54, three more moved: T-212 to Phase 11, T-221 to Phase 4 and the scenario 11 redesign to Phase 3 (T-310).
 
 - [x] T-201 (PR 64; option A kept) Hands-on spike, on local anvil: can a rules contract act as operator of `AuthCaptureEscrow` (D3-A)? If not, design an ERC-8183 extension (D3-B). Must confirm the ADR-0003 conditions: capture timing per mode, expiry margin, fee-only capture on the refund path with `maxFeeBps = 10000`, idempotency in the rules contract; compare deployed bytecode with the v1.1.0 tag; read the audits.
 - [x] T-202 (PR 68) Escrow rules contract, Foundry: offer/agree hashes, funding via ERC-3009/Permit2, deliver, decide with adjudicator signature, permissionless triggers, key release events, bonds.
@@ -97,7 +97,7 @@ Out of Phase 2 by D54 (Rafa's walkthrough, 2026-11-06): T-212 moved to Phase 11,
 - The join-on-chain-delivery fix is deployed, and scenario 8 passes on rerun.
 - Operator-sent timeouts are deployed.
 - The read-after-write audit (T-232) is done, with its fixes merged.
-- T-206 is closed: Rafa's read of the brief and his three confirmations are recorded. *2026-11-06: Rafa confirmed all three; PR 227 records them and sets T-206 to done.*
+- T-206 is closed: Rafa's read of the brief and his three confirmations are recorded. *Met: Rafa confirmed all three in chat on 2026-11-06, and PR 227 (`edc8311`) recorded them and set T-206 to done.*
 - Gas per deal is recorded, as D4 requires. *T-066's metrics measure about 1.26 million gas for a deal's own transactions.*
 - No High or Critical finding is open in Phase 2's code.
 
