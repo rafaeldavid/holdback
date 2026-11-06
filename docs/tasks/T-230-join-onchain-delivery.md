@@ -5,7 +5,7 @@
 - **Depends on:** T-218 (the chain sync and the delivery join, PR 185), T-219 (the in-flight row per relayer lane, PR 195) and T-228 (timeouts for a deal behind the chain, PR 207); all done. Found by T-216's round 1, scenario 8.
 - **Paths this task may touch:** `packages/settlement/evm/evm-settlement.ts` (the `deliver` relay, `send`'s revert answer, `process`, `land`, `follow`, `observe`, `openDeals`, `step`, `rebuild`, `fallBehind` and new `Book` fields), `packages/settlement/evm/sync.ts` (`commitmentTxs`, a pinned head), `packages/settlement/evm/sync.test.ts` and the red team's `packages/settlement/evm/attack-t230.test.ts` (new); `docs/neutrality.md` (the escape-hatch requirements), `site/llms.txt` (the line on submitting directly), `docs/api.md` (only if a response changes), `docs/team.md` (a Rules and checks row, if the failure repeats), `docs/plan.md` (this row) and this file
 - **Human gate:** the deploy of holdback-op1 and holdback-op2 waits for Rafa, as every deploy does. No contract change, no schema change.
-- **Status:** in progress
+- **Status:** review
 - **Agent/session:** T-230 session, 2026-11-06, worktree `.worktrees/join-delivery`, branch `t-230-join-onchain-delivery`. Rafa approved the work on 2026-11-06 ("Spin it up").
 
 ## Intent
@@ -102,7 +102,23 @@ All on anvil standing in for Sepolia (a block every second), `packages/settlemen
 
 ### `pnpm verify`
 
-To be filled in.
+**PASS** at `ec35fe3`, 2026-11-06 11:06 UTC, with the review and red-team fixes [measured: `reports/verify-t-230-join-onchain-delivery.md`]. No snapshot diffs against HEAD. `pnpm test` ran 134 files and 2,877 tests; the 2 files and 6 tests skipped are the suites that need `SEPOLIA_FORK_RPC` or other secrets [inferred from their skip conditions, as in T-228]. `snap:local` ran 28 fixtures on the contract, each with a transcript identical to SimChain's, and excluded 3 until Phase 4. CI's contracts job runs `packages/settlement/evm` on anvil and fails on any skip, so the new tests run in CI [documented: `.github/workflows/ci.yml`, the "anvil tests (must not skip)" step].
+
+| Step | Command | Status | Time |
+| --- | --- | --- | --- |
+| typecheck | `pnpm typecheck` | pass | 4,926 ms |
+| lint | `pnpm lint` | pass | 4,530 ms |
+| forge build | `forge build --root contracts` | pass | 1,010 ms |
+| forge | `forge test --root contracts` | pass | 15,283 ms |
+| test | `pnpm test` | pass | 468,675 ms |
+| spec | `pnpm validate:spec` | pass | 711 ms |
+| snap | `pnpm snap` | pass | 10,215 ms |
+| snap:local | `pnpm snap --settlement=local` | pass | 16,339 ms |
+| demo | `pnpm demo` | pass | 4,766 ms |
+
+- The worktree's `contracts/lib/commerce-payments` was copied from the main checkout at the same commit, `6b0a5ef` [measured: `git rev-parse HEAD` in both]. CI checks the submodule out itself.
+- `node site/build.mjs` rewrote nothing beyond `llms.txt`'s own edit, and `node site/check.mjs` passed [measured]. `try.mjs` keeps sha256 `cc310963…d832`.
+- `docs/api.md` needs no change: no response changes shape [inferred from the diff]. The kept-copy answer is the existing 409 `invalid_state`, with `state` as `docs/api.md` documents it.
 
 ## Decisions
 
