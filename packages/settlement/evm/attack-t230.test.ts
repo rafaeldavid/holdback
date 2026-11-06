@@ -249,9 +249,10 @@ describe.skipIf(!ready)(`attack.t230: the relay and join path for a delivery alr
     // deliveryHashOf and dealOf answer from the block before the seller's delivery for the whole read budget (a backend
     // that trails, or one on another fork); estimateGas and eth_getLogs answer from the head.
     f.stale = mined.block - 1n;
-    const forged = await s.submit({ kind: 'deliver', delivery: { ...landed, signature: JUNK } }, { via: 'op-1', idempotencyKey: 'k-t230-forged-stale' });
+    // Short Idempotency-Keys: gitleaks reads a longer, varied one after `Key:` as an API key.
+    const forged = await s.submit({ kind: 'deliver', delivery: { ...landed, signature: JUNK } }, { via: 'op-1', idempotencyKey: 'k-forged' });
     f.stale = null;
-    const genuine = await s.submit(sub, { via: 'op-1', idempotencyKey: 'k-t230-forged-stale-genuine' });
+    const genuine = await s.submit(sub, { via: 'op-1', idempotencyKey: 'k-genuine' });
     const st = s.escrowState(d.id)!;
     const stored = 'delivery' in st ? st.delivery : undefined;
     // What the operator's adjudicators check before judging (apps/adjudicator/src/service.ts, decideTask): the seller's
@@ -469,7 +470,7 @@ describe.skipIf(!ready)(`attack.t230: the relay and join path for a delivery alr
     // Residual 13, case 3: the delivery and the primary's decision in one Multicall3 transaction.
     const mined = await bundled(watcher, [rulesCall('deliver', deliverArgs(d, del)), rulesCall('decide', [termsView(d.terms), decisionView(m), NO_DELIVERY, '0x'])]);
     f.logs = mined.block - 1n;
-    const first = await s.submit(sub, { via: 'op-1', idempotencyKey: 'k-t230-kept-behind' });
+    const first = await s.submit(sub, { via: 'op-1', idempotencyKey: 'k-behind' });
     f.logs = null;
     await sleep(1_100);
     await sync.pass();

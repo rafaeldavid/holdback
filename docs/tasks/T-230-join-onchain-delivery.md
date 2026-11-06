@@ -133,7 +133,7 @@ Made by the T-230 session on 2026-11-06; Rafa can overrule any of them.
 
 ## Handoff
 
-- **State:** review. PR to come; the deploy waits for Rafa.
+- **State:** review, in [PR 231](https://github.com/rafaeldavid/holdback/pull/231). It merges once CI passes and the findings are fixed; the deploy then waits for Rafa.
 - **The deploy, for Rafa,** in the shape of `docs/operations.md`'s T-228 section. No contract change, no schema change, no new secret or variable.
   - **Before** (read-only; save each answer under `reports/t230/`):
     1. The PR is merged and CI passed on its merge commit. A fresh detached worktree on that commit passes `pnpm install --frozen-lockfile` and `pnpm build`.
