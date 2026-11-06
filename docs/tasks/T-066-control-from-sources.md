@@ -5,8 +5,8 @@
 - **Depends on:** T-031, T-052, T-219 and T-222, all done. The live console needs no further work before this starts (Context).
 - **Paths this task may touch:** holdback: `tools/one-click/` (new), `scripts/metrics/` (new), `config/model-prices.json` (new, in the shape T-053 planned), `config/ops-cost-prices.json` (new), `tests/metrics/` (new), `package.json` (scripts only), `apps/demo-cloud/src/world.ts`, `apps/demo-cloud/src/judges.ts`, `apps/demo-cloud/src/world.test.ts`, `apps/demo-cloud/scripts/deploy.mjs`, `site/build.mjs`, `docs/api.md` (the discovery fields), `docs/costs.md` (unit costs), `docs/operations.md` (the metrics jobs), `docs/tasks/T-066-control-from-sources.md`, `docs/plan.md` (this row). (In the founders' private repository `rafaeldavid/crow-private`: `control/console.mjs`, `control/console.html`, `control/build-public.mjs`, `control/worker-access.js`, `control/metrics.mjs` (new), `control/metrics/` (new), `control/test/`, `control/README.md`, and `.github/workflows/control-hourly.yml` for the optional Cloudflare job only.) Not `spec/`, `pnpm-workspace.yaml` or `pnpm-lock.yaml`.
 - **Human gate:** yes, for actions outside the repositories only: where the harness runs and on what schedule, any new secret, the harness job's push to the private repository, and the deploys (crow-console; holdback-op1, holdback-op2 and crow-site for the discovery fields). "Gates for Rafa" lists each one.
-- **Status:** review (scope A: slice 2 in PR 215, slice 1 in PR 217 stacked on it, slice 3 in PR 216; scope B, the private repository, in crow-private PR 2, which waits for Rafa because it changes the Worker)
-- **Agent/session:** builder 1 (scope A), a Claude Code workflow session, 2026-11-05, worktrees `.worktrees/t066-metrics`, `.worktrees/t066-one-click` and `.worktrees/t066-discovery`. Scope B has no builder yet.
+- **Status:** paused (partly done; the rest deferred until after stable EVM operations, Rafa, 2026-11-06). Live: the metrics scripts (PR 215, merged as c85147d) and the console's new sections (crow-private PRs 2 and 3, deployed as crow-console `91ae8a90`). Deferred: the One-Click harness (PR 217, draft) and the discovery fields (PR 216, draft). Set it back to "in progress" when work resumes.
+- **Agent/session:** builder 1 (scope A), a Claude Code workflow session, 2026-11-05, worktrees `.worktrees/t066-metrics`, `.worktrees/t066-one-click` and `.worktrees/t066-discovery`. Scope B: the coordinator session merged and deployed it on 2026-11-06. A landing session on 2026-11-06 reviewed PRs 216 and 217, moved them to draft and removed the three worktrees.
 
 ## Intent
 
@@ -338,7 +338,7 @@ Three PRs: slice 2 on `t-066-metrics-scripts`, slice 1 on `t-066-one-click` (sta
    - `demo.relayer: { fundingLane, dealLanes: [...] }`;
    - `demo.faucet.mintsPerDay`;
    - `demo.judges.tokensToday.byModel: { "<model>": { calls, input, output } }`, from `apps/demo-cloud/src/judges.ts`, counts only.
-   Discovery's `demo` object has no schema in `spec/` (measured: no `judges` or `demo` key in `spec/schemas/`), so this needs no schema change. `docs/api.md` lists the new fields.
+   Discovery's `demo` object has no schema in `spec/schemas/` (measured: no `judges` or `demo` key there). It does have one in `spec/openapi/paths.json`, closed with `additionalProperties: false`, so the new fields need an OpenAPI change (PR 216's review, finding 1, in Handoff). `docs/api.md` lists the new fields.
 2. The site: `site/build.mjs` writes the build commit into a `version.json` beside `llms.txt`.
 3. Tests in `apps/demo-cloud/src/world.test.ts` for the new fields.
 
@@ -375,13 +375,15 @@ Work in a worktree of `rafaeldavid/crow-private` (`/Users/rafa/Documents/escrow/
 8. If Rafa adds the Cloudflare token (Gates, item 5): `control/cf-read.mjs`, and a fourth workflow job that checks out `control/` only and holds only that token. The push job merges its `deploys.json` into `public.json`. This is a `.github/` change in the private repository, so Rafa merges it.
 
 **Scope B acceptance:**
-- [ ] `node --test` on every file in `control/test/` passes, the new ones included (the runbook lists the command).
+- [x] `node --test` on every file in `control/test/` passes, the new ones included (the runbook lists the command). Measured by the coordinator session before it merged crow-private PR 2, 2026-11-06: 125 of 125 tests pass.
 - [ ] `node control/console.mjs --root <holdback> --private-slot --no-gh --metrics-from control/test/fixtures/metrics --out reports/scratch/console.html` renders the Headline metrics. A text dump goes in Evidence (measured).
 - [ ] `node control/build-public.mjs --root <holdback> --out reports/scratch/cp-out` writes `public.json` with `metrics`, and the build takes at most 60 s longer than before (measured).
 - [ ] `worker-access.test.mjs` shows the unchanged Content Security Policy and the new `public.json` accepted.
-- [ ] Deployed on Rafa's go-ahead; one hourly run checked (Gates, item 6).
+- [x] Deployed on Rafa's go-ahead; one hourly run checked (Gates, item 6). Deployed on 2026-11-06 as crow-console `91ae8a90`, and build run 42172692764 pushed its files at 06:11 UTC (Evidence).
 
 ## Gates for Rafa
+
+**State on 2026-11-06:** item 6's crow-console deploy is done (crow-console `91ae8a90`, Evidence). Items 1 to 5, item 7 and item 6's slice 3 deploys are deferred until after stable EVM operations (Rafa, 2026-11-06).
 
 1. **Where the harness runs.** Choose one:
    - On the Mac under your Claude Code login. The harness approves every tool request the fresh assistant makes, inside an empty folder but as your user. A separate macOS user, or T-039's VM, keeps it away from your files (recommended).
@@ -485,6 +487,25 @@ The median deal's gas equals Rafa's measured 1,261,428 exactly. Runway at the me
 - `pnpm verify` on the fixes: typecheck, lint, forge build, forge, spec, snap, snap:local and demo pass. The test step failed with 11 timeouts of 30 s while the laptop's 5-minute load average was 61 on 8 CPUs, from other sessions. A rerun at a load of 69 timed out 10 tests in other packages, none in `tests/metrics/` (measured). An earlier `pnpm test` on the same code passed 2,816 tests with 6 skipped (measured). CI on 8a51676 passed all 12 checks, including the four test shards and gitleaks (measured), so the local failures were load timeouts (inferred).
 - Not run: `refresh-prices.mjs` against the live mainnet RPCs. This session's rules allow testnet only, so the fake-RPC tests cover it: read methods only, `asOf` from the oldest value, and no change when every read fails.
 
+**Landed and live, 2026-11-06.** The coordinator session measured the first four items; the landing session measured the last two with `gh`.
+- **PR 215 merged** as c85147d at 05:59 UTC: the metrics scripts, the price tables and the schemas.
+- **crow-private PR 2 merged** as e1e30bb at 06:09 UTC, on Rafa's go-ahead ("You can merge if ready"). Before the merge, the coordinator session reran its tests: 125 of 125 pass.
+- **The console build** (run 42172692764, 06:11 UTC) pushed `public.json` (513 KB), `status.json` and `map.html`; each push answered HTTP 204. Its metrics line read:
+  - approvals: none, since no run file exists yet;
+  - cost per deal: none, for the same reason;
+  - Crow's processing time: 15.0 s per deal, median;
+  - throughput: 20 deals an hour;
+  - Crow's operating cost: USD 18.38 per checks-only deal at Ethereum prices, without Cloudflare.
+- **The console Worker** deployed on Rafa's go-ahead ("Yes, deploy it") as crow-console `91ae8a90-6fe0-4830-9020-33e06eef111e`, from crow-private e1e30bb. The rollback target is `c8fe44c5-6a6c-41f7-a370-cb073f335bd0`. Without a sign-in, `/` still answers 302 to Access, and so does an unauthenticated PUT to `/_push/public.json`.
+- **crow-private PR 3 merged** as 7911cb3 on 2026-11-05 at 18:16 UTC: the Scheduled refresh row follows the 07:07 and 16:07 Berlin builds (D52).
+- **PRs 216 and 217 merged main** (480ca77 and a5e9c00) and pass all 12 CI checks each, gitleaks and CodeQL included. On PR 217, `pnpm vitest run tests/metrics` passes 90 of 90 tests. PR 215 was squashed, so its files conflicted add/add on PR 217. PR 215's tree equals `t-066-metrics-scripts`' last commit (1cee67e), and PR 217 had changed no slice 2 file after it last merged that branch (0910265). So each conflict took main's side, and PR 217 now differs from main only in its 8 own files.
+
+**Open bug, Medium, fixed outside this task:** the console's build job reads GitHub, Anthropic, npm and the Sepolia RPC as "unknown (HTTP 405)", while its source job reads them as up (measured by the coordinator session, 2026-11-06). Impact: the dependency status in the build's output shows those four as unknown. The coordinator session fixes it separately.
+
+**Reviews of PRs 216 and 217, 2026-11-06.** One `reviewer` pass each, against this file and `docs/team.md`'s Rules and checks; no red team, since both are display and metrics changes. The findings are in Handoff, unfixed, because the PRs are deferred.
+- PR 217 (the harness), at a5e9c00: 5 Medium and 6 Low findings, none High. The reviewer measured the integer pricing against the pinned table (177,383.2 µUSD for Opus 5.5's own tokens of run "once", 182,499 µUSD for all tokens), the schema check on both fixtures, and the SDK's isolation from CI.
+- PR 216 (the discovery fields), at 480ca77: 1 High, 1 Medium and 5 Low findings. The disclosure check passed: each new field shows only what is already public on chain or in the repository, and no key, email, IP address or internal URL (measured with hostile `BUILD_COMMIT` values, and from the code paths).
+
 ## Decisions
 
 Proposed by the architect on 2026-11-05. The builders confirm or change them here, and Rafa can overrule any of them.
@@ -523,17 +544,46 @@ Builder 1, 2026-11-05, after PR 215's review (eight findings, all fixed):
 
 ## Handoff
 
-- **State:** scope A is built in three PRs, not merged: slice 2 in PR 215 (`t-066-metrics-scripts`, this file), slice 1 in PR 217 (`t-066-one-click`, based on slice 2's branch) and slice 3 in PR 216 (`t-066-discovery-fields`). Merge PR 215 first, then retarget PR 217 to main and merge it; PR 216 merges in any order. `pnpm verify` passed on all three branches (on slice 2, `forge build` passed on a rerun after the fresh worktree's first submodule clone). Scope B is in crow-private PR 2 (`t-066-control-from-sources`): its 125 console tests pass (measured, 2026-11-06), and it waits for Rafa's merge and the `crow-console` deploy, since it changes `worker-access.js` and `console.html`.
-- **PR 215's review (eight findings) is fixed** on `t-066-metrics-scripts` (Decisions 20 to 25, Evidence). PR 217 stacks on this branch, so merge `t-066-metrics-scripts` into `t-066-one-click` before it merges. `tests/metrics/helpers.ts` now holds the shared run file (`sampleRun`, `TAIL`), and `schemas.test.ts` uses it.
-- **To resume scope A:**
+- **State (2026-11-06):** paused, partly done. Rafa moved all work that does not finish stable EVM operations to a later phase (2026-11-06).
+  - **Live:** slice 2, the metrics scripts (PR 215, merged as c85147d); scope B, the console's new sections and headline metrics (crow-private PRs 2 and 3, merged as e1e30bb and 7911cb3), deployed as crow-console `91ae8a90` with rollback target `c8fe44c5` (Evidence).
+  - **Deferred until after stable EVM operations:**
+    - PR 217, the One-Click harness (`t-066-one-click`, draft). It merged main at a5e9c00 and passes CI. Fix its 11 review findings (below) before it leaves draft.
+    - PR 216, the discovery fields (`t-066-discovery-fields`, draft). It merged main at 480ca77 and passes CI. Fix its 7 review findings (below), the High one first, before it leaves draft. After it merges, it reaches the live demo only with Rafa's operator deploy (holdback-op1, holdback-op2) and site deploy (crow-site), Gates item 6.
+    - Where the harness runs (Gates item 1): on the Mac, or in CI with a capped Anthropic key. The harness's schedule, the push of its run files and `wrangler tail` (items 2 to 4) follow from that choice.
+    - The optional Cloudflare read token (Gates item 5), and the optional price-refresh schedule (item 7).
+  - **Waiting on Rafa now:** nothing. When the work resumes, Gates items 1 to 5 and 7 and the PR 216 deploys wait for him.
+- **PR 217's review findings** (2026-11-06, at a5e9c00; unfixed). Medium:
+  1. `tools/one-click/run.mjs:93` keeps `SSH_AUTH_SOCK` in the child's environment (`KEEP`). The auto-approved assistant could use Rafa's loaded SSH keys, for example to push to GitHub. Fix: drop it from `KEEP`.
+  2. `run.mjs:105` and `:356`: a `wrangler tail` that never connects (no login, no network, a failed `npx` install) still writes `basis: "tail"` with 0 requests, and `ops-cost.mjs` then prices Cloudflare at USD 0 (the failure Decisions 22 and 25 guard against). Fix: track each tail process's exit; leave a failed Worker out with a gap line, or write `cloudflare: null` when none connected.
+  3. `run.mjs:125-133` counts a Durable Object event in `requests` and `cpuMs` as well as in `durableObjectRequests`, so `ops-cost.mjs` prices it twice. Fix: count it only in the Durable Object fields, and confirm the tail's event shape on the first `--tail` run.
+  4. `run.mjs:67`, `:153-158` and `:324`: `time.wallMs` starts before the homepage fetch and the 10 s tail wait, so with `--tail`, `time.otherMs` gains about 10,000 ms. Fix: start the clock when the prompt is sent.
+  5. `run.mjs:205` and `tools/one-click/metrics.mjs:34-41`: `approvals.requests[].summary` keeps header values and IP addresses (measured: a `curl -H 'x-api-key: …' http://10.0.0.5/` reached the run file), and stores `JSON.stringify(input)`, the assistant's own text, for tools other than Bash, WebFetch and file tools. The data rules forbid all three. Fix: replace `-H` values and IP literals in `scrub`, show URLs as origin and path, and show other tools by name only.
+  Low:
+  6. `--probe` denies only tools that ask for permission (`run.mjs:217`, `:233-249`); Decision 15 says it denies every tool. Fix: pass `tools: []` in probe mode.
+  7. `--model` is not checked against the schema's `MODEL_ID` pattern, and the run file is written before its schema check (`metrics.mjs:168`, `run.mjs:380-386`). Fix: check at startup; write to a temporary name and rename it after the check passes.
+  8. `run.mjs:352`: with no commitment ID, `otherDealsInWindow` counts the run's own deal. Fix: write null.
+  9. The CI option in `tools/one-click/README.md:16` cannot sign in: the environment filter drops `ANTHROPIC_API_KEY`. Fix: say "Mac login only", or add an opt-in flag that passes the key.
+  10. Both fixtures (`tests/metrics/fixtures/one-click-once.json:161` and `one-click-always.json:161`) keep `credential_expires_at`, the expiry time of Rafa's Claude login. No test reads it. Fix: delete it.
+  11. The README writes "T-039's VM" with no plain phrase, and omits the root `pnpm install` that `scripts/metrics/check.mjs` needs for Ajv.
+- **PR 216's review findings** (2026-11-06, at 480ca77; unfixed). The disclosure check passed (Evidence).
+  1. **High:** the published contract refuses the new fields. `spec/openapi/paths.json:729-761` sets `additionalProperties: false` on `Discovery.demo` and on `demo.faucet`. The reviewer checked the PR's discovery with `openApiValidators` from `scripts/openapi.mjs`: the SimChain world fails on `demo`, the chain world fails on `demo` and `demo/faucet`, and today's live discovery passes (measured). After a deploy, both nodes would serve a discovery document that their own `/v1/openapi.json` calls invalid. This file's claim that `demo` has no schema in `spec/` (slice 3, step 1) checked `spec/schemas/` only; `docs/api.md:455` and `world.ts:1231` repeat it. Fix: add `build`, `relayer` and `faucet.mintsPerDay` to `Discovery.demo` in `paths.json`, run `pnpm openapi` and bump `info.version`, as commit 320bd75 did for the faucet fields. Also add a `world.test.ts` test that checks both worlds' discovery against `Discovery`. `spec/` is outside this task's paths: the architect widens them and decides whether the change needs an ADR (`CLAUDE.md`, The contract), or a small `spec(openapi)` PR lands first.
+  2. **Medium:** api2 shows holdback-op1's commit. The World Durable Object runs with holdback-op1's environment (`apps/demo-cloud/src/worker.ts:100-101`, `:110`), and the op2 Worker forwards no build value (`:178-188`), so if op2's deploy fails after op1's, api2 still shows the new commit (inferred from code). Fix: have each Worker pass its own `env.BUILD_COMMIT` in an internal header, as it does for the node and origin headers, or document that the field names holdback-op1's deploy.
+  3. Low: the clean-tree check in `deploy.mjs:16-20` and `site/build.mjs:582-587` counts a failed `git status` as clean, misses untracked files the build reads (`embed.mjs` reads every `spec/schemas/*.schema.json`), and is copied in two files with no test. Fix: one pure function that checks both exit codes, with a unit test.
+  4. Low: `docs/costs.md:145` and `docs/operations.md:196` still say judge tokens have no model split, and `JudgeBudget.on()` (`judges.ts:54-56`) returns a shallow copy that shares `byModel` with the live day. Fix: update both docs and deep-copy in `on()`.
+  5. Low: `docs/api.md:455-464` uses the passive voice, omits that the commit is also null after a manual `wrangler deploy`, and does not say that `calls` counts usage reports (Decision 16): a 200 answer with no text counts as a call with 0 tokens.
+  6. Low: the new block in `world.ts` landed between the operator-fee doc comment (`:1224-1228`) and its function. Fix: move the block above the comment.
+  7. Low: no test checks that `byModel` resets at the UTC day; the reviewer checked it by hand and it does. Fix: add a day-rollover case to the `JudgeBudget` test.
+- **To resume scope A** (after stable EVM operations):
+  - Check out each draft PR's branch in a new worktree (`git -C <repo> worktree add .worktrees/<name> <branch>`), merge `origin/main`, fix the findings above test first, run `pnpm verify`, and mark the PR ready.
   - Rafa answers Gates item 1; then `npm ci --ignore-scripts --prefix tools/one-click` and `node tools/one-click/run.mjs --scenario buyer --effort medium --tail --out reports/scratch/one-click` give the medium-effort run and the first Cloudflare counts. Record them in Evidence, and copy the run file to the private repository's `control/metrics/one-click/` (Gates item 3).
   - After slice 3 is deployed (Gates item 6): `curl -s https://api.escrow.stream/ | jq .demo.build` on both nodes, then delete `scripts/metrics/crow-accounts.json`'s use once `demo.relayer` is live, and re-run the three scripts.
+- **A check to propose for `docs/team.md` (Rules and checks), outside this task's paths:** "Every operator node's discovery matches the published contract." A test in `apps/demo-cloud/` that checks the SimChain world's and the chain world's discovery against `#/components/schemas/Discovery`. The row "Operator answers match the contract" covers only `apps/operator`'s sim world (`tests/contract/openapi.contract.test.ts:19`), so PR 216's closed-object failure passed CI.
 - **T-229 (One-Click homepage, done):** it measured 1 approval per deal after its deploy with its own copy of the scratch harness, kept as evidence in `docs/research/2026-11-05-one-click/`. `tools/one-click/` is the maintained harness, with the run file the console reads; the first medium-effort run should reproduce T-229's 1 approval. The homepage prompt changed with T-229 (it now carries the one command), so the harness checks only that the live prompt starts with "Run a test deal with Crow" (`prompt.matchesExpected`) and records the prompt as served.
 - **D52 (Rafa, 2026-11-05) replaced the hourly console build with two a day, at 07:07 and 16:07 Berlin time,** after this task was drafted. Read "the hourly build" in this file as "each scheduled build". For scope B: the stale mark for the build files should follow the longest gap between builds (15 h) rather than 2 h, and the three scripts read live data, so D52's "a run with nothing new ends in seconds" should skip them on such a run; each takes 0.4 to 1.7 s (measured).
 - **For scope B:** the schemas in `scripts/metrics/schemas/` are the exact shapes; `reports/scratch/` outputs of a live run make realistic fixtures. Additions beyond the plan's sketch: `stages[].clamped`, `deals[].buyer`, `deals[].stagesMs`, `deals[].fee`, `txs[].step`, `eventLog` and `eventLog.fundedDeals`, `capacity.medianLifetimeMs`, `limits[].perClient`, `binding.assumes` and `binding.perDay`, `observed.utilizationOf`, `perDeal.gas.dealTxs` and `dealGas`, `total.*.excludes` (with `adjudicator setup`), `cost.atOpus55.byModel`, and the Durable Object counts in a run file's `cloudflare.workers`. Counts read null when their source is unknown (Decision 20), so the reader must show null as "unknown", never as 0.
 - **For scope B, the run files:** ops-cost prices Cloudflare only from a run file that passes the one-click schema, and that check needs Ajv (Decision 23). The console's `build` job checks out holdback without `pnpm install` (measured: `.github/workflows/control-hourly.yml` in the private repository). There Cloudflare reads "unknown", and a gap line says Ajv could not be loaded. To price it, the job installs holdback's packages (`pnpm install --frozen-lockfile --ignore-scripts`) before the three scripts run.
 - **Open questions:**
-  - Rafa: where the harness runs (Gates, item 1).
+  - Rafa: where the harness runs (Gates, item 1), deferred until after stable EVM operations.
   - Builder 1, answered: the default effort (medium), whether `/v1/events` ends (no), keyless sources for the ETH price and Base's L1 fee (Chainlink and the GasPriceOracle).
   - Still open: whether `wrangler tail` events carry CPU time (needs the first `--tail` run).
 - **A second check to propose for `docs/team.md` (Rules and checks), outside this task's paths:** "A source that cannot be read gives unknown (null), never 0", enforced by a test that builds each output with every source missing and lists every leaf that reads 0 or "0", against a short allowlist of constants. `tests/metrics/schemas.test.ts` ("a missing source never reads 0") is that test for the metrics files. PR 215's review found the failure five times: throughput's observed deals, deal-timing's counts, the Cloudflare margin, the Durable Object duration, and the setup share. The same test fits any script that reports figures from external sources.
