@@ -67,9 +67,13 @@ describe.skipIf(!ready)(`the operators send due timeouts on their own in the pub
       const held = await evm.heldFor(undelivered.id as Hex);
       const before = await evm.tokenBalance(buyer.agent.address, true);
 
-      // From here no party calls anything: the world's own passes close both.
-      await untilBoth(buyer.agent, unfunded.id, ['Expired'], 60_000);
-      await untilBoth(buyer.agent, undelivered.id, ['Refunded'], 60_000);
+      // From here no party calls anything: the world's own passes close both, a minute's grace after each deadline.
+      await untilBoth(buyer.agent, unfunded.id, ['Expired'], 150_000);
+      await untilBoth(buyer.agent, undelivered.id, ['Refunded'], 150_000);
+      // Not before the grace: each closed at least a minute after its deadline (block times, on the chain's clock).
+      const at = (id: string) => Date.parse(evm.log().filter((e) => e.commitmentId === id).at(-1)!.at);
+      expect(at(unfunded.id)).toBeGreaterThanOrEqual(Date.parse(unfunded.terms.timing.offerExpiresAt) + 60_000);
+      expect(at(undelivered.id)).toBeGreaterThanOrEqual(Date.parse(undelivered.terms.timing.deliverBy) + 60_000);
       expect((await evm.stage(unfunded.id as Hex)).stage).toBe('Expired');
       expect((await evm.stage(undelivered.id as Hex)).stage).toBe('Refunded');
       expect(await evm.tokenBalance(buyer.agent.address, true)).toBe(before + held);

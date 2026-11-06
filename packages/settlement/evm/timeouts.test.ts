@@ -130,9 +130,14 @@ describe.skipIf(!ready)(`the operators send due timeouts on their own, on anvil 
    * calldata floor exceeds its execution gas, every timeout among them, and answers "gas floor exceeds the gas limit".
    * The shim answers only that error, from eth_call: a revert stays a revert. Sepolia's own nodes estimate these calls.
    */
-  function shimmed(base: LiveChain): LiveChain {
+  function shimmed(base: LiveChain, lag: { head?: bigint } = {}): LiveChain {
     const client = new Proxy(base.publicClient, {
       get(target, prop) {
+        // With `lag.head`, an RPC node whose latest block trails: it reports that head.
+        if (prop === 'getBlockNumber' && lag.head !== undefined) {
+          const n = lag.head;
+          return async () => n;
+        }
         if (prop === 'estimateGas') {
           return async (args: { account: Address; to: Address; data: Hex; value?: bigint }) => {
             try {
@@ -157,10 +162,13 @@ describe.skipIf(!ready)(`the operators send due timeouts on their own, on anvil 
     const n = await chain.publicClient.getBlockNumber({ cacheTime: 0 });
     return { block: n.toString(), hash: (await chain.publicClient.getBlock({ blockNumber: n })).hash! };
   }
-  /** An operator's settlement and its pass, with a sync whose cursor is the current head. */
+  /**
+   * An operator's settlement and its pass, with a sync whose cursor is the current head. No grace past a deadline here,
+   * so each test moves the clock just past it; the grace has its own test (timeouts.redteam.test.ts, 3a).
+   */
   async function node(o: Partial<OperatorTimeoutsOptions> = {}, c: LiveChain = shimmed(chain)): Promise<{ s: EvmSettlement; sync: ChainSync; pass: OperatorTimeouts }> {
     const s = await EvmSettlement.restore(c, genesis, undefined, wall);
-    return { s, sync: new ChainSync(s, await head()), pass: new OperatorTimeouts(s, { via: 'op-1', key: (id, kind) => `t-231/${id}/${kind}`, ...o }) };
+    return { s, sync: new ChainSync(s, await head()), pass: new OperatorTimeouts(s, { via: 'op-1', key: (id, kind) => `t-231/${id}/${kind}`, graceMs: 0, ...o }) };
   }
   const ok = async (s: EvmSettlement, sub: Submission) => {
     const r = await s.submit(sub, { via: 'op-1' });
@@ -345,6 +353,30 @@ describe.skipIf(!ready)(`the operators send due timeouts on their own, on anvil 
     expect(await lanes()).toBe(before);
   }, 120_000);
 
+  it('the check reads at the latest of the RPC head, the sync cursor and the highest block in the log, never before a block this node applied', async () => {
+    // An RPC node whose latest block trails every write: it reports the deployment's first block as its head.
+    const lag: { head?: bigint } = {};
+    const { s, pass } = await node({}, shimmed(chain, lag));
+    const d = await funded('t-231-pinned', s);
+    const funding = BigInt(String(s.log().find((e) => e.commitmentId === d.id && e.type === 'hold.funded')!.payload['block']));
+    await jump(3_601);
+    lag.head = chain.deployment.fromBlock;
+    // The pass reads at the funding's block, the highest in its log, not at the head the RPC reports. Before deliverBy
+    // there, so the contract answers TooEarly and nothing is sent.
+    const lagged = await pass.run();
+    expect(lagged.block).toBe(funding.toString());
+    expect(lagged.refused.map((x) => x.detail)).toEqual([`contract revert TooEarly at block ${funding}`]);
+    expect(lagged.sent).toEqual([]);
+    // The sync's cursor raises it further: at the chain's real head, the reclaim is due.
+    await jump(13);
+    const real = BigInt((await head()).block);
+    const raised = await pass.run(real);
+    expect(BigInt(raised.block!)).toBeGreaterThanOrEqual(real);
+    expect(sent(raised)).toEqual(['reclaim']);
+    delete lag.head;
+    expect((await s.stage(d.id)).stage).toBe('Refunded');
+  }, 120_000);
+
   it('a restart between the broadcast and the receipt sends the reclaim once', async () => {
     const rowKey = (r: LaneRow) => `${r.lane}:${r.from.toLowerCase()}:${r.nonce}`;
     const storeOf = (m: Map<string, LaneRow>): LaneStore => ({
@@ -389,7 +421,7 @@ describe.skipIf(!ready)(`the operators send due timeouts on their own, on anvil 
     // row's recovery, which lands the reclaim as the relay it was; after it there is nothing to send.
     const b = await opened(copy);
     const restarted = await EvmSettlement.restore(b.c, genesis, books, wall);
-    const again = new OperatorTimeouts(restarted, { via: 'op-1', key: (id, kind) => `t-231/${id}/${kind}` });
+    const again = new OperatorTimeouts(restarted, { via: 'op-1', key: (id, kind) => `t-231/${id}/${kind}`, graceMs: 0 });
     expect(await again.run()).toMatchObject({ sent: [], deferred: 1 });
     expect(await restarted.recover()).toMatchObject({ applied: 1, failed: 0 });
     expect((await restarted.state(d.id))!.escrowState).toBe('Refunded');
