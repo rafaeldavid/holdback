@@ -1,7 +1,7 @@
 # T-033: Schema v0.9
 
 - **Lane:** core
-- **Phase:** 2
+- **Phase:** 6, under Assets (moved from Phase 2 on 2026-11-06, D53: not needed for stable EVM operations on Sepolia)
 - **Depends on:** ADR-0025 (Proposed; accept it in this task), ADR-0026 / D38, D39
 - **Paths this task may touch:** `spec/schemas/`, `spec/examples/`, `spec/openapi/paths.json`, `spec/openapi.json` (generated), `spec/README.md`, `packages/core/src/`, `packages/settlement/`, `apps/operator/src/`, `apps/adjudicator/src/`, `examples/`, `site/llms.txt`, `docs/api.md`, `docs/decisions/ADR-0025-evm-funding-and-token-ids.md`, `fixtures/`, `docs/tasks/T-033-schema-v09.md`, `docs/backlog.md`
 - **Human gate:** no

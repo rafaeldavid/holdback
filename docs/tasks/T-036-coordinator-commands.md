@@ -1,7 +1,7 @@
 # T-036: Coordinator commands for repeat work
 
 - **Lane:** infra
-- **Phase:** 2
+- **Phase:** 10 (moved from Phase 2 on 2026-11-06, D53: not needed for stable EVM operations on Sepolia; it starts when Rafa starts Phase 10)
 - **Depends on:** T-034 for `/merge-pr`'s use of the new CI shape (can start in parallel)
 - **Paths this task may touch:** `.claude/commands/`, `.claude/agents/` (brief templates only), `scripts/` (new helper scripts), `docs/team.md`, `docs/operations.md`, `CLAUDE.md` (the command list only), `docs/tasks/T-036-coordinator-commands.md`
 - **Human gate:** no

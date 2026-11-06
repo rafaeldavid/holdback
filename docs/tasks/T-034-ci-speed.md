@@ -1,7 +1,7 @@
 # T-034: Faster CI and local verify: run only what a diff affects
 
 - **Lane:** infra
-- **Phase:** 2
+- **Phase:** 9 (moved from Phase 2 on 2026-11-06, D53: not needed for stable EVM operations on Sepolia)
 - **Depends on:** —
 - **Paths this task may touch:** `.github/workflows/`, `scripts/ci/`, `scripts/verify.ts`, `scripts/design-map.mjs` (2.9 only), `tests/design-map.test.ts`, `vitest.config.*`, `package.json` (scripts), `docs/team.md` (Rules and checks rows for CI), `docs/operations.md`, `docs/tasks/T-034-ci-speed.md`
 - **Human gate:** no (repository settings such as auto-merge stay Rafa's)
