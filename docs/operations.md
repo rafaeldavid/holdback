@@ -97,9 +97,13 @@ Each operator Worker has a variable `SETTLEMENT`, `sim` or `sepolia`, in its wra
 
 After the deploy, a smoke deal ended Released in 44 s, and the test seller sold once each way (T-222 Evidence) [measured]. To roll back: holdback-op1 `5d369b0e`, holdback-op2 `1f169857` and crow-site `cb0adcb5` (`npx wrangler@4 rollback <version> --name <worker>`); `npx wrangler@4 delete --name crow-test-agents` removes the seller.
 
+### Crow Control, the founders' console (deployed 2026-11-06)
+
+**Live since 2026-11-06, about 06:10 UTC** (T-066 Evidence): crow-console `91ae8a90`, built from crow-private `e1e30bb` (crow-private PR 2). It serves control.escrow.stream behind Cloudflare Access; its runbook is crow-private `control/README.md`. The deploy came between PR 2's merge at 06:09 UTC and the build that pushed its data at 06:11 UTC (inferred from those two times). To roll back: `npx wrangler@4.151.3 rollback c8fe44c5 --name crow-console`.
+
 ### T-229: the One-Click prompt on the site (deployed 2026-11-05)
 
-**State:** live since 2026-11-05, 15:58 UTC. Rafa gave the go-ahead on 2026-11-05 ("ship the two One-Click changes (trim llms.txt, and copy the command with the prompt)"). A deploy session built the site from PR 209's merge commit `43f8067` with the site's three commands under Deploy (above) and deployed only `crow-site`. It waited until T-228's operators were recorded as live (below), because this build's `llms.txt` carries T-228's line on closing a deal behind the chain by its timeout.
+**Live since 2026-11-05, about 15:58 UTC** (T-229 Evidence): crow-site `4f049eb5`. Rafa gave the go-ahead on 2026-11-05 ("ship the two One-Click changes (trim llms.txt, and copy the command with the prompt)"). A deploy session built the site from PR 209's merge commit `43f8067` with the site's three commands under Deploy (above) and deployed only `crow-site`. It waited until T-228's operators were recorded as live (below), because this build's `llms.txt` carries T-228's line on closing a deal behind the chain by its timeout.
 
 | Worker | Live version | Deployed (UTC) | Rollback target (T-220's site) |
 | --- | --- | --- | --- |
