@@ -1,7 +1,7 @@
 # T-221: Adjudicator registration through the API
 
 - **Lane:** api (with core for the message and its schema, demo for the store, judgment for one rule)
-- **Phase:** 2
+- **Phase:** 4 (Adjudicator economics on the settlement layer; moved from Phase 2 on 2026-11-06 by D54)
 - **Depends on:** T-211 and T-217 for `parse.ts` and `service.ts`, and T-218 and T-219 for `world.ts`: those edits wait for them to merge. The ADR, the schema, `eip712.ts`, `types.ts` and the operator work can start now.
   - `packages/core/src/parse.ts` and `apps/adjudicator/src/service.ts`: after T-217 merges, which changes both; T-211 (PR 175, open) changes `service.ts` before it.
   - `apps/demo-cloud/src/world.ts`: after T-219 merges, which follows T-218 there; the deploy that ships round 1's prerequisites edits it after this task.
@@ -16,7 +16,7 @@
   - settlement: one new test file under `packages/settlement/evm/` for the anvil end to end, with no edits to `evm-settlement.ts` (T-218's);
   - docs: `docs/decisions/ADR-0030-adjudicator-registration.md` (new), `docs/api.md`, `docs/neutrality.md`, `docs/backlog.md`, `docs/plan.md` (this row, and the named test's row in the scenario index), this file.
 - **Human gate:** no. The live deploy is T-220's.
-- **Status:** review (slice 1 merged in PR 184; slice 2 merged in PR 202 on 2026-11-05 and live since T-220's deploy; left: a `red-teamer` pass on the review's fixes, the DeepSeek cross-family review, and the CI line for `apps/demo-cloud/src/registration.anvil.test.ts`, a `.github/` change for Rafa)
+- **Status:** paused (deferred until the centralized adjudicator is stable, Rafa 2026-11-06; leftovers: a `red-teamer` pass on the review's fixes, the DeepSeek cross-family review, and the CI line for `apps/demo-cloud/src/registration.anvil.test.ts`, a `.github/` change for Rafa. Slice 1 merged in PR 184 and slice 2 in PR 202 on 2026-11-05; both stay live as they are since T-220's deploy)
 - **Agent/session:** Claude Code sessions on branch `t-221-registration-slice-1` (slice 1, PR 184) and `t-221-registration-slice-2` (slice 2, worktree `.worktrees/t-221-s2`). The planning branch `t-221-adjudicator-registration` (PR 176) is a different branch.
 
 ## Intent
@@ -281,6 +281,8 @@ After the review of PR 202 (10 findings: 1 high, 3 medium, 6 low; all fixed or r
 - **Low, telemetry.** A test carries the `rows` count across 00:00 UTC and a cold start into the next day's usage view and day line; it fails when the carry-over is removed.
 
 ## Handoff
+
+**Paused and moved to Phase 4 on 2026-11-06 (D54).** Rafa: "Defer, external adjudicators is a future service that we can build but only once current and centralized adjudicator is stable". Phase 4, Adjudicator economics, fits because outside adjudicators bring their own bonds, and that phase puts the registry, bonds, coverage and appeals on the contract. Slices 1 and 2 stay live as they are; nothing is rolled back. The three leftovers wait until the phase starts: the `red-teamer` pass on the review's fixes, the DeepSeek cross-family review (Rafa runs it), and the CI line below (Rafa merges `.github/`). The contract-side bond refusal goes with T-212's contract redeploy in Phase 11.
 
 **Slice 1 (this branch):** the ADR, schema 0.10, core's type and helpers, `examples/verify.ts` `TYPES`, the operator route, reads, defaults, warning and fallback refusal, the sim world, and the docs rows. Outside the listed paths, the bump and the new route also needed: the `$id` of every other file in `spec/schemas/` (ADR-0023's rule), `tests/spec.test.ts` (the version and the example), `tests/contract/openapi.contract.test.ts` (one registration in the HTTP contract flow, which requires every documented operation), `spec/README.md` (the changelog), `apps/operator/src/agent-ready.test.ts`, `fee.test.ts` and `operator.test.ts` (the planned count and the version), `apps/operator/src/index.ts` (the export), and `site/try.mjs`, rebuilt by `node site/build.mjs` because it bundles `examples/verify.ts`. `site/llms.txt` is unchanged. The live demo is unchanged until T-220 deploys: it has no registration store yet, so its `POST /v1/adjudicators` would answer 404 after a deploy of slice 1 alone.
 
