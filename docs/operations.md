@@ -103,11 +103,41 @@ After the deploy, a smoke deal ended Released in 44 s, and the test seller sold 
 
 **Before it** (T-066 Evidence): crow-console `91ae8a90`, built from crow-private `e1e30bb` (crow-private PR 2), deployed on 2026-11-06 after PR 2's merge at 06:09 UTC. Wrangler lists that deployment at 06:15:20 UTC (measured: `npx wrangler@4 deployments list --name crow-console`). Its own rollback target was `c8fe44c5`.
 
+### T-231: the operators send due timeouts on their own (deployed 2026-11-06)
+
+T-231 deployed 2026-11-06: holdback-op1 066f1b18-24c6-4f0f-ad45-de2c27a6823f, holdback-op2 21cbbc0b-dd56-4d0c-af4a-c6d4916d8283, crow-site f9806d3c-ac4a-4cd2-81ca-518e9b88d21f
+
+**Live since 2026-11-06, 19:01 UTC** for the two operators and 19:08 UTC for the site (T-231 Evidence, "The deploy"). Rafa gave the go-ahead on 2026-11-06 ("Yes, deploy T-231"). A deploy session shipped PR 230's merge commit `e24204d` from main with `pnpm demo-cloud:deploy`, in the same world, `holdback-public-demo-sepolia-2026-11-04` (D49). It waited until round 1's scenario 8 run had finished (15:35 UTC, pass). It then deployed the site from the same commit, for `llms.txt`'s two new lines on deadlines.
+
+| Worker | Live version | Deployed (UTC) | Rollback target |
+| --- | --- | --- | --- |
+| holdback-op1 | `066f1b18-24c6-4f0f-ad45-de2c27a6823f` | 19:01:40 | `8bcda43c-ba12-4919-9355-54048b98f720` (T-230's build) |
+| holdback-op2 | `21cbbc0b-dd56-4d0c-af4a-c6d4916d8283` | 19:01:56 | `7e4d3fa5-273f-47a2-b6c4-537dbf31b58f` (T-230's build) |
+| crow-site | `f9806d3c-ac4a-4cd2-81ca-518e9b88d21f` | 19:08:14 | `16038434-1066-452c-bfec-25c064547359` (T-230's site) |
+
+Every check passed, and nothing was rolled back (measured; T-231 Evidence). Two points from the deploy:
+- **The first upload was refused.** At about 18:55 UTC Cloudflare refused holdback-op1 with "Script startup exceeded CPU time limit" (code 10021). It created no version, and both nodes kept serving T-230's code. The session retried the same build with no change, and the retry passed at 19:01 UTC. Wrangler then reported startup times of 575 ms for holdback-op1 and 780 ms for holdback-op2; T-230's deploy reported 394 and 397 ms (measured). The same refusal happened on 2026-11-03 (the backlog row on start-up CPU), and T-231's Handoff carries the follow-up.
+- **The switch took at most 75 s.** `/v1/status` carries no build marker, so the session read the switch from `wrangler tail`. The Durable Object's last event on `8bcda43c` was at 19:01:54 UTC, and its first on `066f1b18` at 19:02:55 UTC, 75 s after holdback-op1's deploy (measured).
+
+**What it carries,** since T-230's build (`e5f667a`): T-231 only, in `apps/demo-cloud/src/` and `packages/settlement/evm/` (measured: `git diff --stat e5f667a e24204d`). The operators' pass sends each due timeout of every deal the world holds: the reclaim, the default, the appeal expiry and an accepted offer's expiry. It sends each one a minute after its deadline, at the relayer's gas, once the contract accepts it at a pinned block. A cap of 4 sends a pass and 200 timeouts a UTC day, 50 of them offer expiries, bounds the gas. A party's trigger after the operators' timeout answers 200 with the state it left. No contract change, no schema change, no new secret or variable.
+
+**On Sepolia an offer expiry costs 147,581 gas** (measured: the deploy's check, transaction [`0x0c27b233…504f`](https://sepolia.etherscan.io/tx/0x0c27b23328786937454e5f031c1d1c4b9742962eb0f3614aaa47c9fe1653504f)). That is 2.2 times the 65,597 gas measured on anvil. If every timeout costs that much, the day's 200 cost about 29.5 million gas, 0.03 Sepolia ETH at 1 gwei (inferred).
+
+**To roll back** (`npx wrangler@4 rollback <version> --name <worker>`): both operators together, then the site if its lines must go too.
+
+- `npx wrangler@4 rollback 8bcda43c-ba12-4919-9355-54048b98f720 --name holdback-op1`
+- `npx wrangler@4 rollback 7e4d3fa5-273f-47a2-b6c4-537dbf31b58f --name holdback-op2`
+- `npx wrangler@4 rollback 16038434-1066-452c-bfec-25c064547359 --name crow-site`
+
+T-231 adds one storage prefix, `ot:`, the daily budget row, which T-230's code never reads (inferred from PR 230's diff). After a rollback the operators stop sending timeouts, and a party's trigger after a timeout ran answers 409 again.
+
+**A hand redeploy of holdback-op1** (round 1's scenario 11 pauses it) must use `e24204d` or later, or it takes T-231 back out. The `.worktrees/round1-run` checkout sits at `e24204d` since this deploy.
+
 ### T-230: the operators join a delivery that is already on chain (deployed 2026-11-06)
 
 T-230 deployed 2026-11-06: holdback-op1 8bcda43c-ba12-4919-9355-54048b98f720, holdback-op2 7e4d3fa5-273f-47a2-b6c4-537dbf31b58f, crow-site 16038434-1066-452c-bfec-25c064547359
 
-**Live since 2026-11-06, 12:19 UTC** for the two operators and 15:04 UTC for the site (T-230 Evidence, "The deploy"). Rafa gave the go-ahead on 2026-11-06 ("Yes, deploy T-230"). A deploy session shipped PR 232's merge commit `e5f667a` from main with `pnpm demo-cloud:deploy`, in the same world, `holdback-public-demo-sepolia-2026-11-04` (D49). It then deployed the site from the same commit, for `llms.txt`'s new line on submitting directly.
+**Live since 2026-11-06, 12:19 UTC** for the two operators and 15:04 UTC for the site (T-230 Evidence, "The deploy"), until T-231's deploy (above) replaced all three at 19:01 and 19:08 UTC. Rafa gave the go-ahead on 2026-11-06 ("Yes, deploy T-230"). A deploy session shipped PR 232's merge commit `e5f667a` from main with `pnpm demo-cloud:deploy`, in the same world, `holdback-public-demo-sepolia-2026-11-04` (D49). It then deployed the site from the same commit, for `llms.txt`'s new line on submitting directly.
 
 | Worker | Live version | Deployed (UTC) | Rollback target |
 | --- | --- | --- | --- |
@@ -127,7 +157,7 @@ Every check passed, and nothing was rolled back (measured; T-230 Evidence). `/v1
 
 T-230 adds two book fields, `posted` and `postedKeys`, and no storage prefix, so T-228's code keeps them unread (inferred from PR 232's diff). A copy kept at the rollback then never joins, and its deal waits for the seller to post again, as before T-230.
 
-**A hand redeploy of holdback-op1** (round 1's scenario 11 pauses it) must use `e5f667a` or later, or it takes the fix back out. The `.worktrees/round1-run` checkout sits at `e5f667a` since this deploy.
+**A hand redeploy of holdback-op1** (round 1's scenario 11 pauses it) must now use T-231's `e24204d` or later (above). The `.worktrees/round1-run` checkout sat at `e5f667a` from this deploy until T-231's.
 
 ### T-229: the One-Click prompt on the site (deployed 2026-11-05)
 
