@@ -2,9 +2,9 @@
 
 - **Lane:** site, demo
 - **Phase:** 5 (the demo on a public testnet; D53 keeps it out of Phase 2)
-- **Depends on:** stable EVM operations finishing first (D53: T-216, T-221's leftovers, T-206 and T-212). It builds on T-213, T-217, T-221, T-222, T-228 and T-229, which are live.
+- **Depends on:** stable EVM operations finishing first (D53: T-216, T-221's leftovers, T-206 and T-212). It builds on T-213, T-217, T-221, T-222, T-228 and T-229, which are live. The recording also needs a Crow counterparty that accepts terms a stranger chose. That probably means extending T-222's test counterparties: today they are one test seller with one preset item, and T-222's second slice, a test buyer, is in the backlog (inferred; Decisions, 2026-11-06).
 - **Paths this task may touch:** `site/build.mjs` (the code streams and the plate notes in `FIGURE`), `site/index.html` (generated), `site/check.mjs`, `site/visualdemo/index.html`, `tools/demo-recording/` (new), `fixtures/site/` (new: one recorded event log of a live deal with Crow's test seller), `docs/demo.md`, `docs/team.md` (one Rules and checks row), `docs/update-flow.md` (the row from the API to the homepage), `docs/operations.md` (the site deploy record), `docs/plan.md` (this row), this file. Not `spec/`, `apps/`, `packages/`, `contracts/` or `examples/`.
-- **Human gate:** yes, for the crow-site deploy, for the new recording (Rafa's go-ahead) and for publishing or sharing that recording. The live deals use test tokens only.
+- **Human gate:** yes, for the crow-site deploy, which also takes the 2026-11-02 replay offline, for the new recording (Rafa's go-ahead) and for publishing or sharing that recording. The live deals use test tokens only.
 - **Status:** todo (deferred until after stable EVM operations, Rafa 2026-11-06: "We can do that later but you should add a ticket for it.")
 - **Agent/session:** not started. A docs session wrote this ticket on 2026-11-06 (branch `docs-ticket-homepage-animation-demo`).
 
@@ -74,7 +74,7 @@ Nothing checks the streams today: `site/check.mjs` checks `llms.txt`'s routes ag
 | Token and fees | "tUSD"; a 0.01 tUSD operator fee; "Paid 26.01 tUSD" [measured: the replay page] | tUSDC, named by its address `0x5029…96b6`; a 4.71 tUSDC operator fee; 30.71 tUSDC for a 25 tUSDC price [measured] |
 | One-Click | Not shown | One approval from the homepage prompt since 2026-11-05 (T-229). Rafa's correction keeps it out of this demo, so the recording does not show it |
 | Crow's test seller | Did not exist | Live since 2026-11-04 (T-222). Its preset (3 rows for 25 tUSDC) is not the demo's terms; the stranger writes its own |
-| drand proofs | Not shown: the replay has only the primary adjudicator's path | Fallback and appeal panels are seeded from a drand quicknet round that the rules contract verifies (T-217) [documented, discovery `notes`]. The new demo says where drand enters, and shows it if it includes a fallback or an appeal (Handoff, question 2) |
+| drand proofs | Not shown: the replay has only the primary adjudicator's path | Fallback and appeal panels are seeded from a drand quicknet round that the rules contract verifies (T-217) [documented, discovery `notes`]. The new demo says where drand enters, and shows it in its fallback and appeal scenarios (Decisions, 2026-11-06) |
 | Adjudicators | One arbitrator, `0xc068…e679`, accepted through `/acceptance` | Registrations signed by each adjudicator at `GET /v1/adjudicators`, with the bond read from chain; anyone can register with `POST /v1/adjudicators` (T-221, ADR-0030). Crow's demo adjudicators decline terms that name another fallback or appeal adjudicator [documented] |
 | Closing | "Final" is a quiet 60-second wait | `appeal.expired` is its own Sepolia transaction, and anyone may post a due timeout, which the operators send on chain, also for a deal behind the chain (T-228) [measured; documented] |
 
@@ -96,10 +96,13 @@ Nothing checks the streams today: `site/check.mjs` checks `llms.txt`'s routes ag
 **The demo and its recording:**
 - [ ] The demo (the `/visualdemo` replay) and a recording script in `tools/demo-recording/` run against today's live demo, end to end on Sepolia. Every step goes through the public API, and every chain step links its Etherscan transaction.
 - [ ] The recording uses terms the stranger chose: its deliverable, its checks or rubric, its price, its windows and its adjudicators. None comes from the test seller's preset, and the One-Click flow does not appear.
-- [ ] The script writes the deal's log in the shape the replay page reads, so the next update reruns the script instead of editing `STEPS` by hand.
-- [ ] A new recording is made, on Rafa's go-ahead. Its commitment ID, transactions, length and resolution go in Evidence.
+- [ ] Crow's own agent plays the stranger's counterparty and accepts the terms the stranger chose (Depends on).
+- [ ] The demo cycles through four scenarios, each a live deal on Sepolia: the happy path to Final, a refund, a fallback decided with a drand proof, and an appeal. The fallback and appeal scenarios show the drand quicknet round that seeds each panel and the rules contract's check of it, with their Etherscan transactions (Rafa, 2026-11-06).
+- [ ] The script writes each deal's log in the shape the replay page reads, so the next update reruns the script instead of editing `STEPS` by hand.
+- [ ] On Rafa's go-ahead, the script makes a new recording. Each scenario's commitment ID, transactions, length and resolution go in Evidence.
 - [ ] `pnpm verify` runs, and its report is read.
 - [ ] After Rafa's go-ahead, crow-site is deployed and its record added to `docs/operations.md`.
+- [ ] The same deploy takes the 2026-11-02 replay offline: the new deals replace it at `/visualdemo`, and no page links the old one (Rafa, 2026-11-06).
 
 ## Out of scope
 
@@ -122,11 +125,13 @@ Fill this in before review. Label each item measured, inferred or guessed.
 - **Record after T-212's redeploy** [inferred]. T-212's remaining items go out with the next contract redeploy, and a new rules contract needs a new demo world (D49). A recording made before then would show addresses that go stale.
 - **The recorded demo is `/visualdemo` and the rehearsal it replays,** found from PR 106 ("MP4 re-recorded: 62.0 s, 1920×1080") and the git-ignored files in `reports/`. No video of `pnpm demo` turned up in `reports/` [measured: `find` for `*.mp4`].
 
+Rafa answered the ticket's three open questions on 2026-11-06:
+- **Crow's own agent plays the stranger's counterparty.** Asked who plays the second party, Rafa wrote: "Crow?". The stranger sets its own terms, and Crow's test seller sells only one preset item (T-222). So Crow's counterparty must be able to accept terms a stranger chose [inferred]. That probably means extending the test counterparties, for example with T-222's second slice, the test buyer in the backlog [inferred]. Depends on names it.
+- **The demo cycles through several scenarios.** Asked whether to add a fallback or an appeal that shows the drand proof, Rafa wrote: "Yes, we can cycle through diff scenarios". The demo shows the happy path, a refund, a fallback decided with a drand proof, and an appeal. The acceptance criteria list the four.
+- **The 2026-11-02 replay goes offline.** Asked whether the old replay stays online beside the new one, Rafa wrote: "probably not necessary". When the new demo ships, the new deals replace it at `/visualdemo`, in the same crow-site deploy and under the same gate.
+
 ## Handoff
 
 Not started. To resume: read Context, then confirm the survey still holds (`/v1/status` on both nodes, one deal's `/events`, `git log` on `site/build.mjs`), because T-212's redeploy changes the contract addresses.
 
-Open questions for Rafa:
-1. Who plays the second party in the recording? In the 2026-11-02 rehearsal a second person's agent sold through its own intake. A stranger's single agent could also play both sides (`llms.txt`, "To run the same test deal step by step"). The proposed default is two agents through an intake, because the demo's story is two agents from different firms (`docs/demo.md`).
-2. Should the recording add a second deal that shows a fallback or an appeal with its drand proof, or keep only the happy path to Final?
-3. Should the 2026-11-02 replay stay online as history beside the new one, or should the new deal replace it at `/visualdemo`?
+Open questions for Rafa: none. His answers of 2026-11-06 are in Decisions. The builder lists what each of the four scenarios needs from Crow's counterparty or an adjudicator, for example a delivery that fails the checks for the refund, before it starts the recording script [inferred].
