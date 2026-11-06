@@ -1,7 +1,7 @@
 # T-224: Appeal bonds by a relayed permit
 
 - **Lane:** settlement (the EVM adapter), api (prepare and the route), core (the request type and parser), spec, demo (the wiring), docs
-- **Phase:** 2
+- **Phase:** 5 (moved from Phase 2 on 2026-11-06, D53: round 1's appeals run without it)
 - **Depends on:** nothing in the contracts.
   - The schema bump rides T-221's 0.10 or follows it as 0.11; the merge order decides (D48).
   - A *decided* appeal on Sepolia also needs T-217's drand proofs, shipped through T-220. The filing works before that, and `appeal-expiry` returns the bond.
