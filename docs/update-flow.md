@@ -26,7 +26,7 @@ A change to one part of Crow often means another part must change too. This page
 | examples | Examples and the try bundle | `examples/`, `site/try.mjs` | escrow.stream/try.mjs |
 | agentdocs | Agent docs | `site/llms.txt` | escrow.stream/llms.txt |
 | homepage | Homepage and site | `site/`, `apps/site/`, `apps/early-access/` | escrow.stream, its problem pages and /visualdemo |
-| testagents | Crow's test seller | `apps/test-agents/` | escrow.stream/agents/test-seller, once deployed (D47) |
+| testagents | Crow's test seller | `apps/test-agents/` | escrow.stream/agents/test-seller, live since 2026-11-04 (D47, T-222) |
 | quickstart | Quickstart | `docs/quickstart.md`, `tools/sim/README.md` | |
 | ghdocs | GitHub docs | `README.md`, `SECURITY.md`, `CONTRIBUTING.md`, `LICENSE`, `.github/ISSUE_TEMPLATE/`, `.github/pull_request_template.md` | The repository's front page on GitHub |
 | roadmap | Roadmap | `docs/plan.md`, `docs/backlog.md`, `docs/tasks/` | |

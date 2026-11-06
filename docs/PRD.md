@@ -116,7 +116,7 @@ Agreed terms bind; the buyer carries the burden of acceptance. The buyer accepts
 
 - **FR-16** The party a first-instance decision went against may appeal it within the appeal window by posting a bond (D43); an overturn pays the wronged party from the first adjudicator's bond. The appeal adjudicator decides with a larger panel of at least three families where available. A missing or wrong content key is an appeal ground. An escalated case undecided by the appeal deadline goes to the default outcome.
 - **FR-17** Adjudicators post bonds. An overturned decision pays the wronged party from the bond. A bond below the coverage ratio blocks new assignments. In guaranteed mode the ratio is 100% per commitment still open to appeal.
-- **FR-18** Settlement modes, chosen per commitment: `guaranteed_on_decision` (Phase 1), `settle_after_window` (Phase 4) and, if ADR-0015 is accepted, `optimistic` (release at `disputeBy` unless the buyer disputes).
+- **FR-18** Settlement modes, chosen per commitment: `guaranteed_on_decision` (Phase 1), `settle_after_window` (Phase 4) and `optimistic` (release at `disputeBy` unless the buyer disputes; ADR-0015, accepted 2026-10-30 by D11, built in Phase 4).
 
 ### Interfaces
 
@@ -185,4 +185,4 @@ Agreed terms bind; the buyer carries the burden of acceptance. The buyer accepts
 5. **Settlement mode demand.** Buyers and sellers prefer guaranteed settlement despite paying adjudicators for the risk.
 6. **The escape hatch.** Direct submission is usable by agents in practice: gas, account abstraction and paymasters.
 7. **On-ramp risk.** Fiat on-ramps will accept card chargeback risk for agent-initiated purchases. Untested.
-8. **Prior art.** No current product meets all three litmus tests. The research spike (T-002) should confirm this before Phase 2.
+8. **Prior art.** No current product meets all three litmus tests. The research spike (T-002) found no candidate that passes all three on 2026-10-30 (`docs/research/prior-art.md`, "Gap verdict").
