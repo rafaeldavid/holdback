@@ -452,6 +452,17 @@ Each serves the whole API above: the discovery document (at `GET /` and `/.well-
 
 **Who judges (T-028).** Three test adjudicators (primary, fallback, appeal; `demo.adjudicators` in discovery lists them by role) run the real adjudicator service. Deterministic checks are real. When the Worker `holdback-op1` has the secrets `HOLDBACK_ANTHROPIC_API_KEY`, `HOLDBACK_OPENAI_COMPATIBLE_API_KEY` and `HOLDBACK_OPENAI_COMPATIBLE_BASE_URL` (`pnpm demo-cloud:secrets`, which pipes them from the git-ignored `.env` to `wrangler secret bulk`), all three seat the live registry `config/judges-live.yaml` (Anthropic and DeepSeek; not calibrated) and call the models for rubric (`default`-template) deals. `demo.judges` says which: `panel` (`live` or `scripted`), the registry URI and hash every adjudicator binds, the model IDs, and for a live panel `liveCallsPerDay`, `liveCallsToday` and today's tokens (UTC day). Spending caps: each call is capped at 8,192 output tokens, and the demo makes at most `LIVE_JUDGE_CALLS_PER_DAY` live calls a day (Worker variable; default 30). An adjudicator runs live only while the day's remainder holds a whole panel of its size (3, or 5 for the appeal); otherwise its panel is scripted, and each verdict in the judgment record starts "[fake judge, no model ran]". Without the secrets every panel is scripted and `demo.judges.missing` names the missing variables. A prepared or submitted offer with a rubric carries a notice saying which panel will judge it. `checks-only` deals never seat a panel.
 
+**What Crow Control reads from discovery (T-066).** Four fields let Crow's console read these facts by script instead of from hand-written docs. Discovery's `demo` object has no schema in `spec/`, so they change no contract:
+
+| Field | What it holds | Where it comes from |
+| --- | --- | --- |
+| `demo.build.commit` | The 40-character commit the Worker was deployed from, or `null` | The `BUILD_COMMIT` variable that `pnpm demo-cloud:deploy` sets with `--var`; `null` when the tree had uncommitted changes |
+| `demo.relayer` | `{ fundingLane, dealLanes: [...] }`: the addresses that pay a chain world's gas. Absent on SimChain | The relayer key's lanes (ADR-0028): the funding lane, then the deal lanes |
+| `demo.faucet.mintsPerDay` | The faucet's mints a UTC day on a chain (600). Absent on SimChain | The world's own cap |
+| `demo.judges.tokensToday.byModel` | `{ "<registry model ID>": { calls, input, output } }` for today's live calls: counts only | Each live call's reported usage |
+
+The site publishes its own build commit the same way, at `https://escrow.stream/version.json` (`{ "commit": … }`, written by `node site/build.mjs --out`).
+
 The registry is fixed when the Durable Object starts: adding or removing the secrets changes the registry hash the adjudicators publish, so a commitment offered under the other registry is refused at judgment (`registry_mismatch`) and falls to its default outcome. Change the secrets only when no rubric deal is open, or reset the world.
 
 **Operator fee (T-029).** Both nodes publish one schedule, D33's 1 bp of the price, at least 0.01 tUSD (`fees.operator` in discovery and `/v1/status`), paid to one demo address with the funded agreement and not refunded: a 25 tUSD deal costs the buyer 26.01 tUSD (price, adjudication fee, operator fee). The Worker variables `OPERATOR_FEE_BPS`, `OPERATOR_FEE_MIN` and optional `OPERATOR_FEE_MAX` on `holdback-op1` set it (the Durable Object reads that Worker's environment); without them no fee is published. Direct submission stays free.

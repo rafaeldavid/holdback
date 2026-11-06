@@ -14,7 +14,8 @@ import { LiveChain, type DeploymentFile } from '@holdback/settlement/live';
 import { encodePublicKey, generateEncryptionKeyPair } from '@holdback/core/crypto';
 import { MemoryFeedbackStore, signRegistration, testAccount, type StoredRegistration, type TestAccount } from '@holdback/operator';
 import { MemoryStorage, PublicWorld, type PublicWorldOptions } from './index.js';
-import { BondReads } from './world.js';
+import { JudgeBudget } from './judges.js';
+import { BondReads, buildCommit, relayerFacts } from './world.js';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -903,5 +904,63 @@ describe('the Sepolia world names drand quicknet, changed in place (T-220, D49)'
     const local = new LiveChain({ deployment: { ...deployment, chainId: 31337 }, rpcUrls: ['http://127.0.0.1:9'], relayerKey: '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d' });
     const anvil = await PublicWorld.open({ storage: new MemoryStorage(), env: {}, live: { chain: local }, onError: () => {} });
     expect((await get(anvil, '/v1/clubs/demo-club')).rulebook.randomness).toEqual({ source: 'sim' });
+  });
+});
+
+describe('discovery publishes what Crow Control reads by script (T-066, slice 3)', () => {
+  const deployment = JSON.parse(readFileSync(new URL('../../../contracts/deployments/sepolia.json', import.meta.url), 'utf8')) as DeploymentFile;
+  /** anvil's second well-known dev key (public; guards no value). Opening reads no chain, so no RPC answers here. */
+  const RELAYER = '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d';
+  const chain = () => new LiveChain({ deployment, rpcUrls: ['http://127.0.0.1:9'], relayerKey: RELAYER });
+  const demoOf = async (world: PublicWorld): Promise<J> => ((await (await world.fetch(new Request('http://127.0.0.1/.well-known/holdback.json'), { node: 0, origin: 'http://127.0.0.1', client: '127.0.0.1' })).json()) as J).demo;
+  const COMMIT = '0123456789abcdef0123456789abcdef01234567';
+
+  it('names the deployed commit from BUILD_COMMIT, and null for anything that is not 40 hex characters', async () => {
+    expect((await demoOf(await PublicWorld.open({ storage: new MemoryStorage(), env: { BUILD_COMMIT: COMMIT } }))).build).toEqual({ commit: COMMIT });
+    expect((await demoOf(await PublicWorld.open({ storage: new MemoryStorage(), env: {} }))).build).toEqual({ commit: null });
+    expect(buildCommit({ BUILD_COMMIT: COMMIT.toUpperCase() })).toBe(COMMIT);
+    expect(buildCommit({ BUILD_COMMIT: 'main' })).toBe(null);
+    expect(buildCommit({ BUILD_COMMIT: `${COMMIT}0` })).toBe(null);
+  });
+
+  it('lists the relayer lanes and the faucet mints a day on a chain world only', async () => {
+    const live = chain();
+    const d = await demoOf(await PublicWorld.open({ storage: new MemoryStorage(), env: {}, live: { chain: live }, onError: () => {} }));
+    expect(d.relayer).toEqual({ fundingLane: live.funding.toLowerCase(), dealLanes: live.lanes.slice(1).map((a) => a.address.toLowerCase()) });
+    expect(d.relayer.dealLanes).toHaveLength(3);
+    expect(d.faucet.mintsPerDay).toBe(600);
+    // Addresses only: no lane key reaches the document.
+    for (const key of live.secretsForTest()) expect(JSON.stringify(d).toLowerCase()).not.toContain(key.slice(2).toLowerCase());
+    const sim = await demoOf(await PublicWorld.open({ storage: new MemoryStorage(), env: {} }));
+    expect(sim.relayer).toBeUndefined();
+    expect(sim.faucet.mintsPerDay).toBeUndefined();
+  });
+
+  it('takes the funding lane first and the deal lanes after it', () => {
+    const lanes = [{ address: '0xAA00000000000000000000000000000000000001' }, { address: '0xBB00000000000000000000000000000000000002' }];
+    expect(relayerFacts({ funding: lanes[0]!.address, lanes })).toEqual({ fundingLane: '0xaa00000000000000000000000000000000000001', dealLanes: ['0xbb00000000000000000000000000000000000002'] });
+  });
+
+  it("splits today's live judge tokens by model, counts only, and keeps them across a rebuild", async () => {
+    const storage = new MemoryStorage();
+    const now = () => Date.parse('2026-11-05T12:00:00Z');
+    const budget = new JudgeBudget(storage, 30, now);
+    await budget.take();
+    budget.usage({ provider: 'anthropic', model: 'claude-opus-5-5@2026-09-21', inputTokens: 900, outputTokens: 180 });
+    await budget.take();
+    budget.usage({ provider: 'openai-compatible', model: 'deepseek-flash@2026-11-01', inputTokens: 1000, outputTokens: 200 });
+    budget.usage({ provider: 'anthropic', model: 'claude-opus-5-5@2026-09-21', inputTokens: 887, outputTokens: 181 });
+    const today = await budget.used();
+    expect(today).toMatchObject({ calls: 2, inputTokens: 2787, outputTokens: 561 });
+    expect(today.byModel).toEqual({ 'claude-opus-5-5@2026-09-21': { calls: 2, input: 1787, output: 361 }, 'deepseek-flash@2026-11-01': { calls: 1, input: 1000, output: 200 } });
+    await budget.flush();
+    expect((await new JudgeBudget(storage, 30, now).used()).byModel).toEqual(today.byModel);
+  });
+
+  it('serves tokensToday.byModel with a live panel', async () => {
+    const inner = markerFake();
+    const { urls } = await serve({ judgeProvider: { complete: (r: Parameters<typeof inner.complete>[0]) => inner.complete(r) }, liveCallsPerDay: 7 });
+    const index = ((await (await fetch(`${urls[0]}/`)).json()) as J).demo;
+    expect(index.judges.tokensToday).toEqual({ input: 0, output: 0, byModel: {} });
   });
 });
