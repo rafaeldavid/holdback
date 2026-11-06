@@ -931,3 +931,43 @@ Also: the funding signature on EVM is CPP's collector signature and token identi
 | Finish stable EVM operations first; move the rest (chosen) | Phase 2 keeps 4 open tasks; T-036 waits for Phase 10's start, and T-034's CI gains wait for Phase 9 |
 | Keep Phase 2 as it was | 10 open rows compete with round 1 for sessions and for Rafa's reviews |
 | Pause everything but round 1 | T-206's read and T-221's leftovers wait too, though the next contract redeploy needs them |
+
+## D54. Phase 2 walkthrough (Rafa, 2026-11-06)
+
+**Decided 2026-11-06 by Rafa,** in his walkthrough of Phase 2 with the coordinator session: scenario 11 counts as covered, T-212 moves to Phase 11 and T-221 to Phase 4, the read-after-write audit is queued as T-232, a relayer runway warning comes now, and Phase 2 has seven exit criteria. Each item below quotes his answer. No new research pass ran: the items accept evidence already recorded, order work and set Phase 2's exit, and change no contract, schema, defense or API. Rafa may overrule any line.
+
+1. **Scenario 11, a restart between broadcast and receipt, counts as covered** ("Accept, move redesign"). The evidence:
+   - T-219's offline tests: the world stopped after each money transaction's broadcast, and each restarted world applied it (T-219 Evidence, the cutover case), in 5 runs [the cases documented in T-219; the run count as the coordinator session reported it];
+   - T-220's Sepolia fork rehearsal, in which a restart applied a transaction already broadcast [documented, T-220 Evidence, step 7];
+   - T-228's live deploy on 2026-11-05, which restarted both operators [documented, T-228 Evidence];
+   - the live run of 2026-11-06 (`reports/e2e-round-1/2026-11-06T093347Z/` in the round-1 checkout): 12 of 13 checks passed [measured]. The failed check needs holdback-op1's redeploy to land within about 12 s, one Sepolia block, between the broadcast and the receipt. The redeploy by hand took 67 s [as the coordinator session reported it], so holdback-op1 applied the receipt before it restarted: the delivery's own request answered 200 Delivered [measured, the run's `11.json`]. The other checks held: the restart came during the pause, a retry got the mined result, both operators served the delivery as holdback-op1's relay, and the deal ended Released with the buyer's key served.
+
+   The live redesign moves to Phase 3 as row T-310: for example, hold the relayed transaction out of a block, so the redeploy has minutes.
+2. **T-212, contract hardening, moves to Phase 11** ("Move it to Phase 11"). Its open items 1, 2, 4, 5, 6 and 8 become the contract redeploy before mainnet. That redeploy also carries the other contract changes that wait for one: T-225's drand hardening, T-227's contract part and T-221's contract-side bond refusal. A contract change means a new demo world (D49), so Phase 2 closes on Sepolia without a redeploy.
+3. **T-221's leftovers wait** ("Defer, external adjudicators is a future service that we can build but only once current and centralized adjudicator is stable"). The leftovers are a red-team pass on the review's fixes, the DeepSeek cross-family review, and the CI line for `apps/demo-cloud/src/registration.anvil.test.ts`. T-221 moves to Phase 4, Adjudicator economics, paused: outside adjudicators bring their own bonds, and that phase puts the registry, bonds, coverage and appeals on the contract. Its slices 1 and 2 stay live as they are (PRs 184 and 202, deployed with T-220).
+4. **T-206, the contract review, gets no further open-ended review** ("No additional open-ended review"). Another session wrote the one-page brief for Rafa's read (PR 227) and records this in T-206's file. T-206 closes once Rafa has read the brief and given its three confirmations: by PR 227's record, he read it and confirmed all three the same day [documented, PR 227].
+5. **The relayer runway warning comes now** ("Yes, warning now"). Crow Control's "Waiting on you" shows a warning for the relayer's funding lane, red below about 200 deals of runway (crow-private, branch `control-runway-warning`). The full alarm stays in T-054 (Phase 9, deferred), which now notes the warning.
+6. **The read-after-write audit is queued** ("Yes, queue it"), as T-232 in Phase 2. It finds every chain read right after a write that a lagging publicnode server could answer, across the operators, the adjudicator, the faucet, the test seller, `try.mjs` and the examples, and pins or retries each one, with a lint or test check if one is feasible. It starts once the join-on-chain-delivery and operator-sent timeouts PRs merge, since they edit the same relay code.
+7. **Phase 2's exit criteria,** written into `docs/plan.md` under Phase 2:
+   1. round 1: every scenario passes live on Sepolia, scenario 11 by the coverage in item 1, with finality clean on every run;
+   2. the join-on-chain-delivery fix is deployed, and scenario 8 passes on rerun;
+   3. operator-sent timeouts are deployed;
+   4. the read-after-write audit (T-232) is done, with its fixes merged;
+   5. T-206 is closed, with Rafa's read of the brief and his three confirmations recorded;
+   6. gas per deal is recorded, as D4 requires (T-066's metrics measure about 1.26 million gas for a deal's own transactions);
+   7. no High or Critical finding is open in Phase 2's code.
+
+   Out of Phase 2 by these decisions: T-212 (Phase 11), the scenario 11 redesign (Phase 3, T-310) and T-221 (Phase 4).
+
+- **Where round 1 stands** (2026-11-06, measured from the run records): 14 of 16 scenarios passed live (1, 2, 3a, 3b, 3c, 3d, 4, 5a, 5b, 6, 7, 9, 10a and 10b); 11 counts by coverage; 8 waits for the join fix. The round's buyer and seller closed scenario 8's deal with a direct `mutualSettle`, sent by the driver's new `settle` command (PR 224), in [`0x092d…2c58`](https://sepolia.etherscan.io/tx/0x092d7e8ae4a45ac09cec8c6665f7a5e868e0ebe2fdf2f91815f90f80952a9c58).
+- **Litmus tests.** Untouched. The decisions accept recorded evidence and move work between phases; no contract, schema, defense or API changes.
+
+| Item | Rafa's answer | Effect |
+| --- | --- | --- |
+| 1. Scenario 11 | "Accept, move redesign" | Round 1 counts 11 as covered; the live redesign is T-310 in Phase 3 |
+| 2. T-212 | "Move it to Phase 11" | One contract redeploy before mainnet; Phase 2 closes with no redeploy |
+| 3. T-221's leftovers | "Defer, …" | T-221 paused in Phase 4; slices 1 and 2 stay live |
+| 4. T-206 | "No additional open-ended review" | T-206 closes on Rafa's read and three confirmations |
+| 5. Runway warning | "Yes, warning now" | A console warning now; the alarm stays in T-054 |
+| 6. Read-after-write audit | "Yes, queue it" | T-232 in Phase 2, after the join and timeout PRs |
+| 7. Exit criteria | (set in the walkthrough) | Seven criteria under Phase 2 in `docs/plan.md` |
