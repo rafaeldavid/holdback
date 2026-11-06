@@ -14,7 +14,7 @@
 // of the round's own open deals by a MutualSettlement both round keys sign, the price back to the buyer by default
 // (e2e-settle.ts); `--dry-run` prints the message and signs nothing.
 //
-// Environment: E2E_SEPOLIA_SEED (for run; e2e-keys.ts makes it), HOLDBACK_OPERATORS (default the demo's two nodes),
+// Environment: E2E_SEPOLIA_SEED (for run and settle; e2e-keys.ts makes it), HOLDBACK_OPERATORS (default the demo's two nodes),
 // SEPOLIA_RPC_URL (default a public Sepolia node), HOLDBACK_DEPLOYMENT (a deployment file's JSON: anvil, in the tests).
 // --t220 says T-220 has deployed T-217, T-218, T-219 and T-221; no API read shows T-218 or T-219.
 import { execFileSync } from 'node:child_process';

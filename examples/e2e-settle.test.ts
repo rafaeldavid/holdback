@@ -10,7 +10,7 @@ import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { decodeFunctionData, encodeAbiParameters, encodeEventTopics, encodeFunctionResult, numberToHex, parseGwei, recoverTypedDataAddress, type Abi, type Hex } from 'viem';
+import { decodeFunctionData, encodeAbiParameters, encodeEventTopics, encodeFunctionData, encodeFunctionResult, numberToHex, parseGwei, recoverTypedDataAddress, type Abi, type Hex } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { SEPOLIA } from './deployments.ts';
@@ -19,7 +19,7 @@ import { roundKey } from './e2e-keys.ts';
 import { fund, get, openDeal, Round, Run, shortWindows, sleep, until } from './e2e-run.ts';
 import { CHECKS, CSV, DATASET, PRICE } from './e2e-scenario-kit.ts';
 import { deliveryTuple } from './e2e-scenarios-direct.ts';
-import { parseSettle, planSettlement, settleDeal } from './e2e-settle.ts';
+import { mutualSettleArgs, parseSettle, planSettlement, settleDeal } from './e2e-settle.ts';
 import { ANVIL_SKIP, anvilReady, anvilWorld, driver, expectNoSecrets, type AnvilWorld } from './e2e-world.ts';
 import { commitmentIdOf, pinOf, Refusal, typedOf } from './verify.ts';
 
@@ -120,7 +120,8 @@ const SETTLED_AT = PLANNED_AT + 1n;
 const STORE = '0x9467f22ec7623b17a1f1c34d2575eec90caaa162';
 const BEHIND = "Behind the chain: the seller's delivery landed in transaction 0xc9c0…fa0a without passing through this node, and the contract keeps only its hash, so this node holds no envelopes for the adjudicators. The state shown is the contract's.";
 
-type Answer = 'refuse' | 'relay';
+/** How a stand-in operator answers a posted settlement: refuse it, relay it, or relay it and then answer an error. */
+type Answer = 'refuse' | 'relay' | 'relay-then-fail';
 interface StandIn {
   urls: string[];
   rpcUrl: string;
@@ -144,6 +145,8 @@ async function standIn(o: { terms: J; stage: string; answers?: [Answer, Answer] 
   const calls: StandIn['calls'] = [];
   const asked: string[] = [];
   let settled = false;
+  /** The settlement an operator relayed: the settlement transaction's input carries it. */
+  let relayed: J | undefined;
   const discovery = () => ({ domain: pin.domain, demo: { clubId: 'demo-club', token: { id: pin.token.id }, minWindowSec: 60, adjudicators: ['primary', 'fallback', 'appeal'].map((role, i) => ({ role, address: `0x${String(i + 1).repeat(40)}` })) }, fees: { operator: null }, settlementTime: new Date().toISOString() });
   const operators: Server = createServer(async (req, res) => {
     const chunks: Buffer[] = [];
@@ -156,9 +159,13 @@ async function standIn(o: { terms: J; stage: string; answers?: [Answer, Answer] 
     if (url === `/v1/commitments/${id}/terms`) return send(200, served);
     if (url === `/v1/commitments/${id}`) return send(200, { commitmentId: id, escrowState: settled ? 'Settled' : o.stage, updatedAt: '2026-11-06T07:26:50Z', notices: [BEHIND] });
     if (req.method === 'POST' && url === `/v1/commitments/${id}/settlements`) {
-      posts.push({ node, body: JSON.parse(Buffer.concat(chunks).toString()) });
-      if (o.answers?.[node] !== 'relay') return send(409, { type: 'invalid_state', detail: BEHIND });
+      const body = JSON.parse(Buffer.concat(chunks).toString());
+      posts.push({ node, body });
+      const answer = o.answers?.[node] ?? 'refuse';
+      if (answer === 'refuse') return send(409, { type: 'invalid_state', detail: BEHIND });
       settled = true;
+      relayed = body;
+      if (answer === 'relay-then-fail') return send(500, { type: 'internal', detail: 'the stand-in relayed it, then failed before answering' });
       return send(200, { commitmentId: id, escrowState: 'Settled' });
     }
     send(404, { type: 'not_found', detail: 'stand-in' });
@@ -197,7 +204,7 @@ async function standIn(o: { terms: J; stage: string; answers?: [Answer, Answer] 
         case 'eth_getTransactionReceipt':
           return reply({ result: settled && params[0] === SETTLE_TX ? { ...at, transactionHash: SETTLE_TX, status: '0x1', gasUsed: numberToHex(158_825), cumulativeGasUsed: numberToHex(158_825), effectiveGasPrice: numberToHex(parseGwei('2')), logs: logs(), logsBloom: `0x${'00'.repeat(256)}`, contractAddress: null } : null });
         case 'eth_getTransactionByHash':
-          return reply({ result: settled && params[0] === SETTLE_TX ? { ...at, hash: SETTLE_TX, input: '0x', nonce: '0x0', gas: numberToHex(300_000), value: '0x0', maxFeePerGas: numberToHex(parseGwei('3')), maxPriorityFeePerGas: numberToHex(parseGwei('1')), chainId: numberToHex(SEPOLIA_CHAIN_ID), v: '0x0', yParity: '0x0', r: `0x${'01'.repeat(32)}`, s: `0x${'02'.repeat(32)}` } : null });
+          return reply({ result: settled && params[0] === SETTLE_TX ? { ...at, hash: SETTLE_TX, input: encodeFunctionData({ abi: ABIS.rules, functionName: 'mutualSettle', args: mutualSettleArgs(o.terms, relayed) } as never), nonce: '0x0', gas: numberToHex(300_000), value: '0x0', maxFeePerGas: numberToHex(parseGwei('3')), maxPriorityFeePerGas: numberToHex(parseGwei('1')), chainId: numberToHex(SEPOLIA_CHAIN_ID), v: '0x0', yParity: '0x0', r: `0x${'01'.repeat(32)}`, s: `0x${'02'.repeat(32)}` } : null });
         case 'eth_call': {
           const call = params[0] as { to: string; data: Hex };
           const abi = ABIS[contractAt[call.to.toLowerCase()]!];
@@ -275,8 +282,10 @@ describe('settleDeal against stand-in operators and a stand-in RPC pinned to Sep
     expect(await settleDeal(round, id, { direction: 'to-buyer', dryRun: true })).toBe(0);
     const text = lines.join('\n');
     expect(text).toContain(`commitmentId ${id}`);
+    expect(text).toMatch(/hasDelivery +true/);
     expect(text).toContain(`deliveryHash ${POSTED}`);
-    expect(text).toMatch(new RegExp(`payouts +25 tUSDC to the buyer ${buyer}; the seller ${seller} gets 0 tUSDC of the price`));
+    // The signed values themselves: base units and the token's address, with the amount in tUSDC beside them.
+    expect(text).toMatch(new RegExp(`payouts +25000000 base units of ${ASSET} \\(25 tUSDC\\) to the buyer ${buyer}; the seller ${seller} gets 0 tUSDC of the price`));
     expect(text).toMatch(/releaseKey +false/);
     expect(text).toContain(`dealOf reads Delivered at block ${PLANNED_AT}`);
     expect(text).toContain('the operators show it behind the chain');
@@ -309,6 +318,20 @@ describe('settleDeal against stand-in operators and a stand-in RPC pinned to Sep
     // The evidence reads are pinned to the settlement's block.
     expect(world!.calls.filter((c) => c.fn === 'paymentState').map((c) => c.block)).toEqual([numberToHex(PLANNED_AT), numberToHex(SETTLED_AT)]);
     expect(text).toContain(`https://sepolia.etherscan.io/tx/${SETTLE_TX}`);
+    expect(text).toContain('ok   the settlement is this one, with no key released: mutualSettle with this nonce');
+  });
+
+  it('sends nothing itself when an operator relayed it and then answered an error: the chain already reads Settled (PR review)', async () => {
+    const seed = generatePrivateKey();
+    const { round, lines, id } = await open(seed, { terms: termsOf(addressOf(seed, 'buyer'), addressOf(seed, 'seller')), stage: 'Delivered', answers: ['relay-then-fail', 'refuse'] });
+    expect(await settleDeal(round, id, { direction: 'to-buyer', dryRun: false, waitMs: 5000 }), lines.join('\n')).toBe(0);
+    expect(world!.posts.map((p) => p.node)).toEqual([0, 1]);
+    expect(sends().filter((m) => m !== 'eth_getTransactionCount')).toEqual([]);
+    const text = lines.join('\n');
+    expect(text).toMatch(/127\.0\.0\.1:\d+ refused it: .*internal: the stand-in relayed it, then failed before answering/);
+    expect(text).toContain(`dealOf reads Settled at block ${SETTLED_AT}: the settlement may have landed through an operator`);
+    expect(text).toContain('ok   the settlement is this one, with no key released: mutualSettle with this nonce');
+    expect(text).not.toMatch(/FAIL/);
   });
 
   it('runs as Rafa runs it: a dry run from the command line prints the plan and no key', async () => {
@@ -408,6 +431,8 @@ describe.skipIf(!anvilReady)(`settle against the demo world on anvil${ANVIL_SKIP
     const done = await driver(['settle', deal.id], env);
     expect(done.code, done.out).toBe(0);
     expect(settlementPosts(deal.id)).toHaveLength(2);
+    // Each operator refused because the deal is behind the chain, not for a fault in the body (PR review).
+    for (const origin of demo.urls.map((u) => new URL(u).host.replace(/\./g, '\\.'))) expect(done.out).toMatch(new RegExp(`http://${origin} refused it: .*invalid_state: Behind the chain`));
     expect(done.out).toMatch(/both operators refused it; the buyer sends mutualSettle to HoldbackRules directly/);
     const hold = BigInt(deal.terms.price.amount) + BigInt(deal.terms.adjudication.fee.amount);
     for (const name of ['dealOf reads Settled after block', `the buyer receives ${round.amount(hold)}`, 'the seller receives 0 tUSDC', 'CPP holds nothing to capture for the deal', 'the settlement is this one']) expect(done.out).toContain(`ok   ${name}`);
@@ -418,7 +443,8 @@ describe.skipIf(!anvilReady)(`settle against the demo world on anvil${ANVIL_SKIP
     // Run again, it refuses: the deal is closed.
     const again = await driver(['settle', deal.id], env);
     expect(again.code, again.out).toBe(3);
-    expect(again.out).toMatch(new RegExp(`^refused: refusing: dealOf reads ${deal.id} Settled at block \\d+`, 'm'));    expectNoSecrets(seed, [dry.out, other.out, done.out, again.out].join('\n'), env['E2E_OUT']!);
+    expect(again.out).toMatch(new RegExp(`^refused: refusing: dealOf reads ${deal.id} Settled at block \\d+`, 'm'));
+    expectNoSecrets(seed, [dry.out, other.out, done.out, again.out].join('\n'), env['E2E_OUT']!);
   }, 300_000);
 
   it('settles a Held deal through the first operator, the price to the seller with --to-seller, the fee back to the buyer', async () => {
@@ -427,6 +453,7 @@ describe.skipIf(!anvilReady)(`settle against the demo world on anvil${ANVIL_SKIP
     expect(done.code, done.out).toBe(0);
     expect(settlementPosts(deal.id)).toHaveLength(1);
     expect(done.out).toMatch(/127\.0\.0\.1:\d+ relayed it/);
+    expect(done.out).toMatch(/hasDelivery +false/);
     expect(done.out).toContain('deliveryHash none');
     for (const name of [`the buyer receives ${round.amount(deal.terms.adjudication.fee.amount)}`, `the seller receives ${round.amount(deal.terms.price.amount)}`, 'CPP holds nothing to capture for the deal']) expect(done.out).toContain(`ok   ${name}`);
     expect(done.out).not.toMatch(/FAIL/);

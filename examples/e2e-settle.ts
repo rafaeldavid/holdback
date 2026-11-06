@@ -4,7 +4,7 @@
 // sends the same signed message to HoldbackRules itself (ADR-0005), as any party may. It prints addresses, the message
 // and Etherscan links, never the seed or a key.
 //
-//   node --env-file=<.env> examples/e2e-round.ts settle <commitmentId> [--to-buyer|--to-seller] [--dry-run]
+//   node --env-file-if-exists=.env examples/e2e-round.ts settle <commitmentId> [--to-buyer|--to-seller] [--dry-run]
 //
 // --to-buyer, the default, pays the price back to the buyer; --to-seller pays it to the seller. The adjudication fee
 // returns to the buyer either way (HoldbackRules' MUTUAL_FEE_SHARE_BPS is 0), and the content key stays sealed.
@@ -88,15 +88,24 @@ export function planSettlement(i: { id: Hex; terms: J; buyer: string; seller: st
   };
 }
 
-/** HoldbackTypes.Mutual: the signed message's fields as the contract takes them, as the operators' adapter encodes them (`mutualView`). */
-const mutualTuple = (m: SettlementMessage & { buyerSignature: Hex; sellerSignature: Hex }) => ({
-  hasDelivery: m.deliveryHash !== null, deliveryHash: m.deliveryHash ?? ZERO32,
-  payouts: m.payouts.map((p) => ({ to: getAddress(p.to), amount: BigInt(p.amount.amount) })),
-  releaseKey: m.releaseKey, nonce: m.nonce, expiresAt: secs(m.expiresAt), buyerSignature: m.buyerSignature, sellerSignature: m.sellerSignature,
-});
 /** No delivery and no key proof: the contract reads them only when the settlement releases the key. */
 const NO_DELIVERY = { attempt: 0, ciphertextHash: ZERO32, plaintextSha256Hash: ZERO32, plaintextMimeHash: ZERO32, encryptedKeysHash: ZERO32, submittedAt: 0n };
 const NO_KEY = { scheme: '', ciphertext: '', unlockKindHash: keccak256(toBytes('')), unlockRound: 0n, keyHashes: [] as Hex[], index: 0n };
+
+/**
+ * `HoldbackRules.mutualSettle`'s arguments for a signed settlement that releases no key: the terms, the message as
+ * HoldbackTypes.Mutual (the fields the operators' adapter encodes in `mutualView`), no delivery and no key proof.
+ */
+export const mutualSettleArgs = (terms: J, m: SettlementMessage & { buyerSignature: Hex; sellerSignature: Hex }) => [
+  termsTuple(terms),
+  {
+    hasDelivery: m.deliveryHash !== null, deliveryHash: m.deliveryHash ?? ZERO32,
+    payouts: m.payouts.map((p) => ({ to: getAddress(p.to), amount: BigInt(p.amount.amount) })),
+    releaseKey: m.releaseKey, nonce: m.nonce, expiresAt: secs(m.expiresAt), buyerSignature: m.buyerSignature, sellerSignature: m.sellerSignature,
+  },
+  NO_DELIVERY,
+  NO_KEY,
+];
 
 /** How long settle waits for a relayed settlement to show on chain, at most (ms): a Sepolia block is about 12 s. */
 export const SETTLE_TX_WAIT_MS = 180_000;
@@ -135,8 +144,9 @@ export async function settleDeal(round: Round, id: Hex, o: { direction: Directio
   const [payee, other] = o.direction === 'to-buyer' ? [['buyer', buyer], ['seller', seller]] : [['seller', seller], ['buyer', buyer]];
   r.say("the MutualSettlement the round's buyer and seller sign, exactly:");
   r.say(`  commitmentId ${m.commitmentId}`);
-  r.say(`  deliveryHash ${m.deliveryHash ?? 'none: nothing is delivered'}${m.deliveryHash ? ', the delivery dealOf holds' : ''}`);
-  r.say(`  payouts      ${amount(terms.price.amount)} to the ${payee[0]} ${payee[1]}; the ${other[0]} ${other[1]} gets ${amount(0n)} of the price`);
+  r.say(`  hasDelivery  ${m.deliveryHash !== null}`);
+  r.say(`  deliveryHash ${m.deliveryHash ?? `none (${ZERO32} on chain): nothing is delivered`}${m.deliveryHash ? ', the delivery dealOf holds' : ''}`);
+  for (const p of m.payouts) r.say(`  payouts      ${p.amount.amount} base units of ${p.amount.token} (${amount(p.amount.amount)}) to the ${payee[0]} ${p.to}; the ${other[0]} ${other[1]} gets ${amount(0n)} of the price`);
   r.say('  releaseKey   false: the content key stays sealed');
   r.say(`  nonce        ${m.nonce}`);
   r.say(`  expiresAt    ${m.expiresAt}`);
@@ -182,15 +192,21 @@ export async function settleDeal(round: Round, id: Hex, o: { direction: Directio
     const stage = (await chain.deal(id, at)).stage;
     if (SETTLEABLE.includes(stage)) {
       r.say('both operators refused it; the buyer sends mutualSettle to HoldbackRules directly');
-      tx = await chain.send(round.key('buyer'), 'rules', 'mutualSettle', [termsTuple(terms), mutualTuple(body), NO_DELIVERY, NO_KEY]);
+      tx = await chain.send(round.key('buyer'), 'rules', 'mutualSettle', mutualSettleArgs(terms, body));
       r.say(`sent by the buyer ${short(buyer)}: ${chain.link(tx.tx)}`);
+      // An operator that answered an error may have landed the same message first, on a block the simulation's node had
+      // not seen: the buyer's copy then reverts WrongStage, and the settlement to read is the operator's.
+      if (tx.status !== 'success') {
+        r.say(`the buyer's transaction reverted, ${Number(tx.gasUsed).toLocaleString('en-US')} gas; looking for the settlement that landed first`);
+        tx = undefined;
+      }
     } else {
       r.say(`dealOf reads ${stage} at block ${at}: the settlement may have landed through an operator`);
     }
   }
 
   r.step = 'wait';
-  tx ??= await settlementTx(r, id, block, o.waitMs ?? SETTLE_TX_WAIT_MS);
+  tx ??= await settlementTx(r, id, block, m.nonce, o.waitMs ?? SETTLE_TX_WAIT_MS);
   r.say(`the settlement transaction: ${chain.link(tx.tx)}, ${Number(tx.gasUsed).toLocaleString('en-US')} gas, block ${tx.block}`);
 
   r.step = 'evidence';
@@ -201,9 +217,11 @@ export async function settleDeal(round: Round, id: Hex, o: { direction: Directio
   const received = (a: string) => logs('token', 'Transfer').filter((l) => lc(String(l.args.to)) === lc(a)).reduce((s, l) => s + BigInt(l.args.amount), 0n);
   // A fee share to the sitting adjudicator would come out of the buyer's part; this contract pays none.
   const feeShare = logs('rules', 'FeePaid').reduce((s, l) => s + BigInt(l.args.amount), 0n);
-  const settled = logs('rules', 'MutuallySettled');
+  const settled = logs('rules', 'MutuallySettled').filter((l) => lc(String(l.args.id)) === lc(id));
+  // This message, by its nonce in the call the transaction carries, not an earlier one still within its hour.
+  const call = tx.calls.find((c) => c.fn === 'mutualSettle' && lc(String(c.args?.[1]?.nonce)) === lc(m.nonce));
   r.check('the transaction succeeded', tx.status === 'success', `${chain.link(tx.tx)} ${tx.status}`);
-  r.check('the settlement is this one, with no key released', settled.length === 1 && settled[0]!.args.keyReleased === false && logs('rules', 'KeyReleased').length === 0, `${settled.length} MutuallySettled log(s), keyReleased ${settled[0]?.args.keyReleased ?? 'none'}; ${logs('rules', 'KeyReleased').length} KeyReleased log(s)`);
+  r.check('the settlement is this one, with no key released', call !== undefined && settled.length === 1 && settled[0]!.args.keyReleased === false && logs('rules', 'KeyReleased').length === 0, `${call ? 'mutualSettle with this nonce' : 'no mutualSettle call with this nonce'}; ${settled.length} MutuallySettled log(s) for the deal, keyReleased ${settled[0]?.args.keyReleased ?? 'none'}; ${logs('rules', 'KeyReleased').length} KeyReleased log(s)`);
   r.check(`dealOf reads Settled after block ${at}`, after.stage === 'Settled', `${after.stage}, appeal ${after.appeal}`);
   r.check(`the buyer receives ${amount(plan.toBuyer - feeShare)}`, received(buyer) === plan.toBuyer - feeShare, `${amount(received(buyer))} in ${logs('token', 'Transfer').filter((l) => lc(String(l.args.to)) === lc(buyer)).length} Transfer log(s) to ${short(buyer)}`);
   r.check(`the seller receives ${amount(plan.toSeller)}`, received(seller) === plan.toSeller, `${amount(received(seller))} in ${logs('token', 'Transfer').filter((l) => lc(String(l.args.to)) === lc(seller)).length} Transfer log(s) to ${short(seller)}`);
@@ -218,18 +236,23 @@ export async function settleDeal(round: Round, id: Hex, o: { direction: Directio
 
 /**
  * The settlement an operator relayed, from the chain: once dealOf reads Settled at a pinned block, the deal's
- * transaction with a MutuallySettled log since block `from`. Stops when the deal closes another way or `waitMs` passes.
+ * successful transaction with a MutuallySettled log since block `from`, the one carrying `nonce` first. Stops when the
+ * deal closes another way or `waitMs` passes.
  */
-async function settlementTx(r: Run, id: Hex, from: bigint, waitMs: number): Promise<TxRecord> {
+async function settlementTx(r: Run, id: Hex, from: bigint, nonce: Hex, waitMs: number): Promise<TxRecord> {
   const chain = r.round.chain!;
   for (const end = Date.now() + waitMs; ; await sleep(3000)) {
     const at = await retry(() => chain.fresh());
     const { stage } = await chain.deal(id, at);
     if (stage === 'Settled') {
+      const found: TxRecord[] = [];
       for (const h of await chain.dealTransactions(id, from, at, [])) {
         const rec = await chain.transaction(h);
-        if (rec.logs.some((l) => l.contract === 'rules' && l.event === 'MutuallySettled')) return rec;
+        if (rec.status === 'success' && rec.logs.some((l) => l.contract === 'rules' && l.event === 'MutuallySettled')) found.push(rec);
       }
+      // Another settlement than this one fails the evidence's "this one" check, by name.
+      const pick = found.find((t) => t.calls.some((c) => c.fn === 'mutualSettle' && lc(String(c.args?.[1]?.nonce)) === lc(nonce))) ?? found[0];
+      if (pick) return pick;
     } else if (!SETTLEABLE.includes(stage)) {
       throw new Error(`dealOf reads ${id} ${stage} at block ${at}: it closed another way than this settlement`);
     }
