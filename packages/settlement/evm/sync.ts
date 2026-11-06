@@ -283,11 +283,13 @@ class Reader {
 /**
  * Every transaction this node has not applied for one commitment, from the deployment's first block to the head, read
  * and ready to apply: for a commitment the world joins late (its offer posted after its funding) or a delivery posted
- * after it landed directly. Throws on an RPC error.
+ * after it landed directly. With `atLeast`, a node whose head trails that block is not read past (docs/team.md, a read
+ * after a write): the call throws, and the caller asks again (T-230). Throws on an RPC error.
  */
-export async function commitmentTxs(evm: EvmSettlement, id: Hex32): Promise<{ txs: ChainTx[]; stages: Map<Hex32, { stage: string; appeal: number }> }> {
+export async function commitmentTxs(evm: EvmSettlement, id: Hex32, atLeast?: bigint): Promise<{ txs: ChainTx[]; stages: Map<Hex32, { stage: string; appeal: number }> }> {
   const read = new Reader(evm.world);
   const head = await read.head();
+  if (atLeast !== undefined && head < atLeast) throw new Error(`the RPC node's latest block ${head} trails block ${atLeast}`);
   const { txs } = await read.logs(evm.world.deployment.fromBlock, head, id);
   const out: ChainTx[] = [];
   for (const t of txs) if (!evm.applied(id, t.hash)) out.push(await read.tx(t.hash));

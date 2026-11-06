@@ -336,14 +336,181 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     chained(s);
   }, 60_000);
 
-  it('a delivery posted before any pass read it joins at once: the refused relay reads the chain for that deal', async () => {
-    const { s } = await node();
+  it('a delivery posted before any pass read it joins at once: the node reads the chain before relaying', async () => {
+    const lag: Lag = { block: null, logs: null, estimates: 0 };
+    const { s } = await node(lagging(chain, lag));
     const d = await funded('deliver-then-post', s);
     const sub = await d.deliver();
     const mined = await direct(cast.seller, 'deliver', [termsView(d.terms), deliveryView(d.delivery!), d.delivery!.signature]);
+    const before = await laneNonce(s.world.senderFor(d.id));
+    lag.estimates = 0;
     const joined = await ok(s, sub);
     expect(joined.state.escrowState).toBe('Delivered');
     expect(joined.events[0]).toMatchObject({ type: 'delivery.submitted', submittedVia: 'direct', payload: { tx: mined.hash } });
+    expect(await s.keysFor(d.id, cast.primary.address)).toHaveLength(1);
+    // T-230: the node read deliveryHashOf before relaying, so it neither simulated nor sent anything.
+    expect(lag.estimates).toBe(0);
+    expect(await laneNonce(s.world.senderFor(d.id))).toBe(before);
+  }, 60_000);
+
+  // T-230: round 1's scenario 8 on Sepolia (run 2026-11-06T070341Z, deal 0x71f767f8…1197). The seller delivered
+  // directly, then posted the same signed delivery before any pass had read it. The operator's RPC node trailed the
+  // chain, so its relay's simulation passed and its transaction reverted; the copy was dropped, and the deal sat
+  // Delivered on chain with no envelopes for the adjudicators.
+
+  const laneNonce = (a: Address) => chain.publicClient.getTransactionCount({ address: a, blockTag: 'pending' });
+  /** The transaction `from` sent at `nonce`, in a block from `fromBlock` on. */
+  async function sentAt(from: Address, nonce: number, fromBlock: bigint): Promise<Hex> {
+    const latest = await chain.publicClient.getBlockNumber({ cacheTime: 0 });
+    for (let n = fromBlock; n <= latest; n++) {
+      const block = await chain.publicClient.getBlock({ blockNumber: n, includeTransactions: true });
+      const t = block.transactions.find((x) => typeof x !== 'string' && lc(x.from) === lc(from) && x.nonce === nonce);
+      if (t && typeof t !== 'string') return t.hash;
+    }
+    throw new Error(`no transaction from ${from} at nonce ${nonce} since block ${fromBlock}`);
+  }
+
+  /** What `lagging`'s stand-in node trails by, and how many simulations it ran. */
+  type Lag = { block: bigint | null; logs: bigint | null; estimates?: number };
+  /**
+   * `base` behind a stand-in for a load-balanced RPC node that trails the chain (T-230). While `lag.block` is set, the
+   * latest block reads as that block: estimateGas and unpinned reads answer from it, and a read pinned past it fails as
+   * on a node without the block. The relayer's broadcast clears it, since the node that answers the receipt has the
+   * receipt's block (round 1, scenario 8). While `lag.logs` is set, eth_getLogs answers only up to that block.
+   * `lag.estimates` counts the estimateGas calls (the relay's simulations).
+   */
+  function lagging(base: LiveChain, lag: Lag): LiveChain {
+    const client = new Proxy(base.publicClient, {
+      get(target, prop) {
+        if (prop === 'getBlockNumber') return async (args?: { cacheTime?: number }) => lag.block ?? target.getBlockNumber(args);
+        if (prop === 'estimateGas') {
+          return async (args: Parameters<typeof target.estimateGas>[0]) => {
+            lag.estimates = (lag.estimates ?? 0) + 1;
+            return target.estimateGas(lag.block === null ? args : ({ ...args, blockNumber: lag.block } as typeof args));
+          };
+        }
+        if (prop === 'readContract') {
+          return async (args: { blockNumber?: bigint }) => {
+            const read = target.readContract as (a: unknown) => Promise<unknown>;
+            if (lag.block === null) return read(args);
+            if (args.blockNumber === undefined) return read({ ...args, blockNumber: lag.block });
+            if (args.blockNumber > lag.block) throw new BlockNotFoundError({ blockNumber: args.blockNumber });
+            return read(args);
+          };
+        }
+        if (prop === 'request') {
+          return async (r: { method: string; params?: unknown[] }) => {
+            const p = r.params?.[0] as { toBlock?: Hex } | undefined;
+            const clamp = r.method === 'eth_getLogs' && lag.logs !== null && p?.toBlock !== undefined && BigInt(p.toBlock) > lag.logs;
+            return (target.request as (a: unknown) => Promise<unknown>)(clamp ? { ...r, params: [{ ...p, toBlock: `0x${lag.logs!.toString(16)}` }] } : r);
+          };
+        }
+        if (prop === 'sendRawTransaction') {
+          return async (args: Parameters<typeof target.sendRawTransaction>[0]) => {
+            lag.block = null;
+            return target.sendRawTransaction(args);
+          };
+        }
+        const v = Reflect.get(target, prop);
+        return typeof v === 'function' ? v.bind(target) : v;
+      },
+    });
+    const c = Object.create(base) as LiveChain;
+    Object.defineProperty(c, 'publicClient', { value: client });
+    return c;
+  }
+
+  it("a delivery posted through an RPC node that trails the seller's direct delivery joins: the relay reverts, and the node joins the chain's copy (T-230, round 1 scenario 8)", async () => {
+    const lag: { block: bigint | null; logs: bigint | null } = { block: null, logs: null };
+    const { s, sync } = await node(lagging(chain, lag));
+    const d = await funded('t230-lagging-relay', s);
+    const sub = await d.deliver();
+    const del = d.delivery!;
+    const mined = await direct(cast.seller, 'deliver', [termsView(d.terms), deliveryView(del), del.signature]);
+    const at = (await anvil.receipt(mined.hash)).blockNumber;
+    // The node's latest block is the one before the seller's delivery, until its relay goes out.
+    lag.block = at - 1n;
+    const lane = s.world.senderFor(d.id);
+    const nonce = await laneNonce(lane);
+    const recorded = s.transactions().length;
+    const joined = await s.submit(sub, { via: 'op-1', idempotencyKey: 'k-t230-lagging' });
+    expect(answer(joined)).toBe('ok: Delivered');
+    if (!joined.ok) throw new Error('unreachable');
+    expect(joined.events.map((e) => [e.type, e.submittedVia])).toEqual([
+      ['delivery.submitted', 'direct'],
+      ['key.released', 'direct'],
+    ]);
+    expect(joined.events[0]!.payload).toMatchObject({ tx: mined.hash, attempt: 1 });
+    // The relay went out and reverted, at the operator's gas; the only delivery on chain is the seller's.
+    expect(await laneNonce(lane)).toBe(nonce + 1);
+    expect((await anvil.receipt(await sentAt(lane, nonce, at))).status).toBe('reverted');
+    expect(s.transactions().slice(recorded).map((t) => [t.hash, t.via])).toEqual([[mined.hash, 'direct']]);
+    expect(s.lag(d.id)).toBeNull();
+    expect(await s.keysFor(d.id, cast.primary.address)).toHaveLength(1);
+    expect(await sync.pass()).toMatchObject({ applied: 0, behind: 0 });
+    expect(answer(await s.submit(sub, { via: 'op-1', idempotencyKey: 'k-t230-lagging' }))).toBe('ok: Delivered (replayed)');
+    expect((await ok(s, await d.decide('primary', 'accept'))).state.escrowState).toBe('Released');
+    expect(schemaErrors(s.log())).toEqual([]);
+    chained(s);
+  }, 60_000);
+
+  it('a delivery posted before the node can read the transaction that landed it is kept: a restart keeps it, the next pass joins it, and the Idempotency-Key replays the join (T-230)', async () => {
+    const lag: { block: bigint | null; logs: bigint | null } = { block: null, logs: null };
+    const { s, cursor } = await node(lagging(chain, lag));
+    const d = await funded('t230-kept-copy', s);
+    const sub = await d.deliver();
+    const del = d.delivery!;
+    const mined = await direct(cast.seller, 'deliver', [termsView(d.terms), deliveryView(del), del.signature]);
+    const at = (await anvil.receipt(mined.hash)).blockNumber;
+    // The node trails the chain, and its log reads stop before the seller's block for the whole read budget.
+    lag.block = at - 1n;
+    lag.logs = at - 1n;
+    const first = await s.submit(sub, { via: 'op-1', idempotencyKey: 'k-t230-kept' });
+    expect(answer(first)).toMatch(/^invalid_state: the contract holds this delivery .*keeps this signed copy/);
+    expect(s.escrowState(d.id)!.kind).toBe('Held');
+    expect(await s.keysFor(d.id, cast.primary.address)).toEqual([]);
+    lag.logs = null;
+    // A restart between the post and the pass keeps the copy with the book.
+    const restarted = await EvmSettlement.restore(chain, genesis, s.drain(), wall);
+    const seq = restarted.log().length;
+    expect(await new ChainSync(restarted, cursor).pass()).toMatchObject({ applied: 1, behind: 0 });
+    expect((await restarted.state(d.id))!.escrowState).toBe('Delivered');
+    expect(restarted.lag(d.id)).toBeNull();
+    expect(after(restarted, d.id, seq).map((e) => [e.type, e.submittedVia, e.payload['tx'] ?? null])).toEqual([
+      ['delivery.submitted', 'direct', mined.hash],
+      ['key.released', 'direct', null],
+    ]);
+    expect(await restarted.keysFor(d.id, cast.primary.address)).toHaveLength(1);
+    expect(answer(await restarted.submit(sub, { via: 'op-1', idempotencyKey: 'k-t230-kept' }))).toBe('ok: Delivered (replayed)');
+    expect((await ok(restarted, await d.decide('primary', 'accept'))).state.escrowState).toBe('Released');
+    expect(schemaErrors(restarted.log())).toEqual([]);
+    chained(restarted);
+  }, 90_000);
+
+  it('a delivery other than the one on chain is refused and keeps nothing, and so is a forged copy of the one on chain (T-230)', async () => {
+    const lag: { block: bigint | null; logs: bigint | null } = { block: null, logs: null };
+    const { s, sync } = await node(lagging(chain, lag));
+    const d = await funded('t230-other-delivery', s);
+    const landed = await d.deliver();
+    // The seller signs a second body a second later; the chain gets the first.
+    await sleep(1_100);
+    const other = await d.deliver();
+    if (landed.kind !== 'deliver' || other.kind !== 'deliver') throw new Error('unreachable');
+    const mined = await direct(cast.seller, 'deliver', [termsView(d.terms), deliveryView(landed.delivery), landed.delivery.signature]);
+    const at = (await anvil.receipt(mined.hash)).blockNumber;
+    const refusal = /^invalid_state: the delivery that landed on chain for this deal is 0x[0-9a-f]{64}, not this one/;
+    // A node that sees the chain refuses it before any relay.
+    expect(answer(await s.submit(other, { via: 'op-1' }))).toMatch(refusal);
+    // A node that trails the chain relays it, the relay reverts, and the read at the revert's block refuses it.
+    lag.block = at - 1n;
+    expect(answer(await s.submit(other, { via: 'op-1' }))).toMatch(refusal);
+    // The landed body with a signature the seller never made.
+    expect(answer(await s.submit({ kind: 'deliver', delivery: { ...landed.delivery, signature: JUNK } }, { via: 'op-1' }))).toMatch(/^invalid_signature/);
+    // Nothing was kept: the pass leaves the deal waiting for the seller's own copy, which then joins.
+    expect(await sync.pass()).toMatchObject({ applied: 0, behind: 1 });
+    expect(s.lag(d.id)).toContain(`POST /v1/commitments/${d.id}/deliveries`);
+    expect(await s.keysFor(d.id, cast.primary.address)).toEqual([]);
+    expect(answer(await s.submit(landed, { via: 'op-1' }))).toBe('ok: Delivered');
     expect(await s.keysFor(d.id, cast.primary.address)).toHaveLength(1);
   }, 60_000);
 
@@ -890,6 +1057,62 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     expect(answer(await restarted.trigger(d.id, 'fallback', { via: 'op-1', idempotencyKey: 'k-takeover' }))).toBe('ok: FallbackJudging (replayed)');
     expect((await sent()) - start).toBe(1);
     expect((await restarted.state(d.id))!.escrowState).toBe('FallbackJudging');
+  }, 120_000);
+
+  it("a relayed delivery that reverts behind the seller's own, across a restart, keeps its copy: the next pass joins it, and the Idempotency-Key replays the join (T-230 with T-219)", async () => {
+    const rowKey = (r: LaneRow) => `${r.lane}:${r.from.toLowerCase()}:${r.nonce}`;
+    const storeOf = (m: Map<string, LaneRow>): LaneStore => ({
+      load: async () => [...m.values()].map((r) => structuredClone(r)),
+      write: async (r) => void m.set(rowKey(r), structuredClone(r)),
+      remove: async (rs) => {
+        for (const r of rs) m.delete(rowKey(r));
+      },
+    });
+    const opened = async (rows: Map<string, LaneRow>) => {
+      const base = new LiveChain({ deployment, rpcUrls: [anvil.rpcUrl], relayerKey: HASTY_RELAYER, pollMs: 100 });
+      await base.attach(storeOf(rows));
+      return base;
+    };
+    const rowsA = new Map<string, LaneRow>();
+    const s = await EvmSettlement.restore(await opened(rowsA), genesis, undefined, wall);
+    const d = await funded('t230-restart-revert', s);
+    const sub = await d.deliver();
+    const del = d.delivery!;
+    const before = s.drain();
+    const cursor = await head();
+    // The funding's row stays in this store (no world releases it here); the copy takes only the delivery's.
+    const earlier = new Set(rowsA.keys());
+    // Mining held back: the relay sits in the pool when the seller's own delivery outbids it, and the node "restarts".
+    await anvil.rpc('evm_setIntervalMining', [0]);
+    let first: Promise<Awaited<ReturnType<EvmSettlement['submit']>>> | undefined;
+    let copy: Map<string, LaneRow> | undefined;
+    let mined: Hex | undefined;
+    try {
+      first = s.submit(sub, { via: 'op-1', idempotencyKey: 'k-t230-restart' });
+      for (let i = 0; i < 300 && rowsA.size === earlier.size; i++) await sleep(20);
+      for (let i = 0; i < 300 && (await anvil.rpc<{ pending: Hex }>('txpool_status', [])).pending === '0x0'; i++) await sleep(20);
+      copy = new Map([...rowsA].filter(([k]) => !earlier.has(k)).map(([k, v]) => [k, structuredClone(v)]));
+      const wallet = anvil.wallet(cast.seller.key);
+      mined = await wallet.sendTransaction({ account: wallet.account!, chain: foundry, to: chain.deployment.rules, data: rulesCall('deliver', [termsView(d.terms), deliveryView(del), del.signature]), gas: 3_000_000n, maxFeePerGas: parseGwei('50'), maxPriorityFeePerGas: parseGwei('10') });
+      await anvil.rpc('evm_mine', []);
+    } finally {
+      await anvil.rpc('evm_setIntervalMining', [1]);
+    }
+    expect(copy!.size).toBe(1);
+    expect((await anvil.receipt(mined!)).status).toBe('success');
+    const relayed = [...copy!.values()][0]!.hashes[0]!;
+    expect((await anvil.receipt(relayed)).status).toBe('reverted');
+    // The node that did not restart joins at once.
+    expect(answer(await first!)).toBe('ok: Delivered');
+    // The restarted node holds the books from before the post and the open row.
+    const restarted = await EvmSettlement.restore(await opened(copy!), genesis, before, wall);
+    expect(await restarted.recover()).toMatchObject({ reverted: 1, failed: 0 });
+    expect(await new ChainSync(restarted, cursor).pass()).toMatchObject({ applied: 1, behind: 0 });
+    expect((await restarted.state(d.id))!.escrowState).toBe('Delivered');
+    expect(restarted.log().find((e) => e.commitmentId === d.id && e.type === 'delivery.submitted')).toMatchObject({ submittedVia: 'direct', payload: { tx: mined } });
+    expect(await restarted.keysFor(d.id, cast.primary.address)).toHaveLength(1);
+    expect(answer(await restarted.submit(sub, { via: 'op-1', idempotencyKey: 'k-t230-restart' }))).toBe('ok: Delivered (replayed)');
+    chained(restarted);
   }, 120_000);
 
   // Regressions from the review and the red-team pass on PR 185 (2026-11-04).
