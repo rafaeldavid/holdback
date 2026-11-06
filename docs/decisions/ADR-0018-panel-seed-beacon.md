@@ -121,7 +121,7 @@ The fallback and appeal panels take their seed from a public randomness beacon, 
 
 **Liveness note.** An appeal adjudicator can decide only once the first round after the escalation or appeal is published: up to 3 s on quicknet, 1 s on the sim. If `appealDecideSec` is shorter than that, the default path applies (§5). This is a backlog row, not a refusal (D31).
 
-**Still open.** The verifier is unaudited and needs review before Sepolia (backlog). The parse rule still admits only `sim` beacons until the adjudicator service fetches drand rounds (T-206). T-217 closed the second point: see "As built", below.
+**Still open.** The verifier is unaudited and needs review before Sepolia (backlog). The parse rule still admits only `sim` beacons until the adjudicator service fetches drand rounds (T-206). T-217 closed the second point: see "As built", below. On the first point: DeepSeek's cross-family review of the verifier passed all fifteen checklist items (T-206, review §8), and Rafa confirmed on 2026-11-06 that its remaining client checks gate mainnet only (T-206, Decisions 7). The verifier is still unaudited.
 
 ## As built: the adjudicator's drand source (T-217, 2026-11-04)
 

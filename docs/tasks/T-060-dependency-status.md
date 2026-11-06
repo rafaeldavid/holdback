@@ -6,7 +6,7 @@
 - **Paths this task may touch:**
   - the `control/` folder in the founders' private repository: `console.mjs`, `console.html`, `build-public.mjs`, the tests and the README. The console's code lives there, never here.
   - here: `docs/tasks/T-060-dependency-status.md`, `docs/plan.md` (this row) and `docs/update-flow.md` (only if a flow changes).
-- **Human gate:** yes, for the deploy only. The Worker bundles `console.html`, so a page change goes live with a crow-console deploy, on Rafa's go-ahead. The data part arrives with the next hourly push.
+- **Human gate:** yes, for the deploy only. The Worker bundles `console.html`, so a page change goes live with a crow-console deploy, on Rafa's go-ahead. The data part arrives with the next scheduled push (twice a day since D52).
 - **Status:** done (deployed on Rafa's go-ahead as crow-console c8fe44c5, 2026-11-04 21:25 UTC; every hourly run since passed; Rafa's look at the live page is in the 2026-11-05 log's "Waiting on Rafa")
 - **Agent/session:** the T-060 session, 2026-11-04
 

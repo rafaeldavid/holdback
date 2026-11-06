@@ -5,7 +5,7 @@
 - **Depends on:** T-218 (the chain sync and the delivery join, PR 185), T-219 (the in-flight row per relayer lane, PR 195) and T-228 (timeouts for a deal behind the chain, PR 207); all done. Found by T-216's round 1, scenario 8.
 - **Paths this task may touch:** `packages/settlement/evm/evm-settlement.ts` (the `deliver` relay, `send`'s revert answer, `process`, `land`, `follow`, `observe`, `openDeals`, `step`, `rebuild`, `fallBehind` and new `Book` fields), `packages/settlement/evm/sync.ts` (`commitmentTxs`, a pinned head), `packages/settlement/evm/sync.test.ts` and the red team's `packages/settlement/evm/attack-t230.test.ts` (new); `docs/neutrality.md` (the escape-hatch requirements), `site/llms.txt` (the line on submitting directly), `docs/api.md` (only if a response changes), `docs/team.md` (a Rules and checks row, if the failure repeats), `docs/plan.md` (this row) and this file
 - **Human gate:** the deploy of holdback-op1 and holdback-op2 waits for Rafa, as every deploy does. No contract change, no schema change.
-- **Status:** done (merged in PR 232; deployed on 2026-11-06: holdback-op1 `8bcda43c` and holdback-op2 `7e4d3fa5` at 12:19 UTC, crow-site `16038434` at 15:04 UTC; the scenario 8 rerun is next, Handoff)
+- **Status:** done (merged in PR 232; deployed on 2026-11-06: holdback-op1 `8bcda43c` and holdback-op2 `7e4d3fa5` at 12:19 UTC, crow-site `16038434` at 15:04 UTC; scenario 8 passed on its rerun at 15:35 UTC, 25 of 25 checks; T-231's deploy replaced these builds at 19:01 and 19:08 UTC and keeps the fix)
 - **Agent/session:** T-230 session, 2026-11-06, worktree `.worktrees/join-delivery`, branch `t-230-join-delivery` (PR 232). It replaced branch `t-230-join-onchain-delivery` (PR 231, closed), whose history held three test strings gitleaks flagged. Rafa approved the work on 2026-11-06 ("Spin it up"). A deploy session shipped it on 2026-11-06 from worktree `.worktrees/t230-deploy` and recorded it on branch `t-230-deploy-record`.
 
 ## Intent
@@ -182,6 +182,8 @@ The deploy session lost its network from about 12:25 to 14:58 UTC (its two tails
 
 **Not measured on Sepolia:** a posted delivery joining a direct one. No live deal needed it, and the session sent no transaction beyond the smoke deal. The scenario 8 rerun measures it (Handoff).
 
+**Measured on Sepolia later the same day:** round 1's scenario 8 rerun, run `2026-11-06T152621Z` at 15:35 UTC on this build, passed 25 of 25 checks, among them "the posted copy joins the delivery with no second deliver transaction" (1 deliver call among the deal's transactions) [measured: the run's `summary.md` in the `round1-run` checkout's `reports/e2e-round-1/`].
+
 ## Decisions
 
 Made by the T-230 session on 2026-11-06; Rafa can overrule any of them.
@@ -199,7 +201,7 @@ Made by the T-230 session on 2026-11-06; Rafa can overrule any of them.
 
 ## Handoff
 
-- **State:** done, and live since 2026-11-06: holdback-op1 `8bcda43c-ba12-4919-9355-54048b98f720` and holdback-op2 `7e4d3fa5-273f-47a2-b6c4-537dbf31b58f` from 12:19 UTC, crow-site `16038434-1066-452c-bfec-25c064547359` from 15:04 UTC (Evidence, "The deploy"). Rafa gave the go-ahead on 2026-11-06: "Yes, deploy T-230". [PR 232](https://github.com/rafaeldavid/holdback/pull/232) merged as `e5f667a` with every review and red-team finding fixed. PR 231, the first branch, is closed: gitleaks flagged three test Idempotency-Keys in one of its commits, and a flagged string stays in a PR's history (`docs/team.md`, the proposed gitleaks row).
+- **State:** done, and live since 2026-11-06: holdback-op1 `8bcda43c-ba12-4919-9355-54048b98f720` and holdback-op2 `7e4d3fa5-273f-47a2-b6c4-537dbf31b58f` from 12:19 UTC, crow-site `16038434-1066-452c-bfec-25c064547359` from 15:04 UTC (Evidence, "The deploy"). T-231's deploy replaced all three at 19:01 and 19:08 UTC (holdback-op1 `066f1b18`, holdback-op2 `21cbbc0b`, crow-site `f9806d3c`), built from `e24204d`, which keeps this fix. Rafa gave the go-ahead on 2026-11-06: "Yes, deploy T-230". [PR 232](https://github.com/rafaeldavid/holdback/pull/232) merged as `e5f667a` with every review and red-team finding fixed. PR 231, the first branch, is closed: gitleaks flagged three test Idempotency-Keys in one of its commits, and a flagged string stays in a PR's history (`docs/team.md`, the proposed gitleaks row).
 - **To roll back:** `npx wrangler@4 rollback ba7a2ad9-0172-458a-92a0-5d51d18afd0a --name holdback-op1`, `npx wrangler@4 rollback 7826e3ce-b8ce-422f-a2ea-9e88bd982ba9 --name holdback-op2`, and for the site `npx wrangler@4 rollback 4f049eb5 --name crow-site` (`docs/operations.md`, T-230).
 - **The deploy as planned** (done on 2026-11-06, kept as the record of the steps), in the shape of `docs/operations.md`'s T-228 section. No contract change, no schema change, no new secret or variable.
   - **Before** (read-only; save each answer under `reports/t230/`):
@@ -215,13 +217,13 @@ Made by the T-230 session on 2026-11-06; Rafa can overrule any of them.
     3. The smoke deal: `HOLDBACK_OPERATORS=https://api.escrow.stream,https://api2.escrow.stream node examples/try.ts` ends `Released` with three Etherscan links.
     4. Then the site: `node site/build.mjs --op1 https://api.escrow.stream --op2 https://api2.escrow.stream --out reports/site-out`, `node site/check.mjs`, `npx wrangler@4 deploy --config apps/site/wrangler.jsonc`, for `llms.txt`'s new sentences. `try.mjs` does not change (sha256 `cc310963…d832`).
   - **Rollback** (`npx wrangler@4 rollback <version> --name <worker>`): holdback-op1 `ba7a2ad9-0172-458a-92a0-5d51d18afd0a`, holdback-op2 `7826e3ce-b8ce-422f-a2ea-9e88bd982ba9`. T-230 adds two book fields, `posted` and `postedKeys`, and no storage prefix. The old code keeps them unread [inferred from the diff]; a copy kept at the rollback then never joins, and its deal waits for the seller to post again, as before T-230.
-- **Next: rerun scenario 8,** the one round 1 scenario still to pass (D54: 9, 10a and 10b passed live on 2026-11-06, and 11 counts by its coverage). The `round1-run` worktree sits at the merge commit `e5f667a` since the deploy (T-216 Handoff, step 1):
+- **Done: scenario 8 passed on its rerun** at 15:35 UTC, 25 of 25 checks (run `2026-11-06T152621Z`, Evidence). It was the one round 1 scenario still to pass (D54: 9, 10a and 10b passed live on 2026-11-06, and 11 counts by its coverage). The run's driver sat at `e5f667a` in the `round1-run` worktree (its `summary.md`). The command planned for it (T-216 Handoff, step 1):
 
   ```bash
   node --env-file=/Users/rafa/Documents/escrow/.env /Users/rafa/Documents/escrow/.worktrees/round1-run/examples/e2e-round.ts run 8 --t220
   ```
 
-  Expect the post after the direct delivery to answer `Delivered`, the check "the posted copy joins the delivery with no second deliver transaction" to pass, and the demo primary to decide `Released`. If holdback-op1 is ever redeployed by hand again (scenario 11's pause), **deploy T-230's merge commit or later, not T-228's `236786a`,** or the redeploy takes this fix back out.
+  It expected the post after the direct delivery to answer `Delivered`, the check "the posted copy joins the delivery with no second deliver transaction" to pass, and the demo primary to decide `Released`. The join check passed and the deal ended `Released`; the run record does not keep the post's own answer. If holdback-op1 is ever redeployed by hand again (scenario 11's pause), **deploy T-231's merge commit `e24204d` or later** (`docs/operations.md`), or the redeploy takes this fix or T-231's back out.
 - **Left over:**
   - A relay can still revert at the operator's gas when its RPC node trails the seller's (Decision 1).
   - A deal whose book lags the chain for any reason, with no copy kept, still throws a divergence when the operator relays a timeout for it before the next pass (`kept-copy-then-timeout`'s shape without the copy). This predates T-230 and belongs with T-227.
