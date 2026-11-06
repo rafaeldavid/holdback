@@ -1179,7 +1179,8 @@ export class EvmSettlement implements Settlement {
     const book = this.bookOf(id);
     // T-231: the operators send due timeouts on their own, so a party's trigger can arrive after the timeout ran. It
     // answers the state that timeout left and sends nothing, as `apply_default` does. A deal behind the chain logs no
-    // event for its later steps, so the contract still answers for it.
+    // event for its later steps, so the contract still answers for it. Each timeout runs at most once per deal while the
+    // contract takes one delivery attempt (maxSubmissions 1, ADR-0007); a resubmission would need this check per attempt.
     const ran = RAN[timeout];
     if (ran && !book.behind && this.log_.some((e) => e.commitmentId === id && e.type === ran)) return id;
     const t = termsView(book.state.terms);

@@ -181,12 +181,16 @@ const CURSOR_EVERY_BLOCKS = 300n;
 /** How often a pass reads the chain while every open deal has been quiet for a day (T-218). */
 const IDLE_SYNC_MS = 15 * 60_000;
 /**
- * Timeouts the operators send on their own a UTC day (T-231): about 0.024 test ETH at 1 gwei a gas and 80,792 gas each
- * (round 1's relayed appeal expiry, measured). Past it, a deal waits for the next day or a party's trigger.
+ * Timeouts the operators send on their own a UTC day (T-231): at most about 28 million gas, 0.028 test ETH at 1 gwei a
+ * gas, at 140,019 gas each (a reclaim on anvil, the dearest timeout the red team measured on PR 230). Past it, a deal
+ * waits for the next UTC day or a party's trigger.
  */
-const TIMEOUTS_PER_DAY = 300;
-/** Of those, accepted offers expired: an offer costs nothing to post, so its own cap keeps offers from spending the rest. */
-const OFFER_EXPIRIES_PER_DAY = 100;
+const TIMEOUTS_PER_DAY = 200;
+/**
+ * Of those, accepted offers expired (65,597 gas each on anvil): an offer costs nothing to post, so its own cap keeps
+ * offers from spending the rest.
+ */
+const OFFER_EXPIRIES_PER_DAY = 50;
 const SCRIPTED_PANEL = 'scripted judge panel: no model runs in this demo, every panel verdict is a fake judge marked "[fake judge, no model ran]"; use template checks-only for real acceptance';
 const livePanel = (perDay: number) =>
   `live judge panel: pinned models from two families (Anthropic, DeepSeek; config/judges-live.yaml), at most ${perDay} live judge calls a day across this demo; past that, panels are scripted fake judges whose verdicts are marked "[fake judge, no model ran]"`;
@@ -413,6 +417,15 @@ export class TimeoutBudgetRows implements TimeoutBudget {
     await this.storage.put({ [`ot:${day}`]: next });
     this.today = { day, ...next };
     return true;
+  }
+
+  /** Gives back a send that never went out (refused before its broadcast, or run by someone else first). */
+  async give(kind: TimeoutKind): Promise<void> {
+    const t = this.today;
+    if (!t || t.day !== new Date(this.now()).toISOString().slice(0, 10) || t.sent === 0) return;
+    const next = { sent: t.sent - 1, offers: Math.max(0, t.offers - (kind === 'expire_offer' ? 1 : 0)) };
+    await this.storage.put({ [`ot:${t.day}`]: next });
+    this.today = { day: t.day, ...next };
   }
 }
 

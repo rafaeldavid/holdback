@@ -7,12 +7,15 @@
 // - What it sends: the reclaim, the default (with the takeover it needs when the fallback stayed silent), the appeal
 //   expiry and an accepted offer's expiry. Not the takeover before fallbackBy: that is the fallback adjudicator's own
 //   turn, which it may decline (T-211). Not an offer no adjudicator accepted: nobody can fund it, and posting one is free.
-// - When: the book says when each falls due. A deal behind the chain (T-218) is read from dealOf instead, since its book
-//   stopped. The contract then answers at a pinned block, never before a block this node already applied (docs/team.md,
-//   a chain read after a transaction), with an eth_call: a call it refuses there is not sent.
-// - Guards on the relayer's gas: only books this node holds; only calls the contract accepts at that block; a cap per
-//   pass on sends and on reads; a daily budget the world keeps; a back-off per deal after any refusal or failure,
-//   which ends when the deal moves.
+// - When: the book says when each falls due, and the pass waits a grace period past it (a minute by default), so a
+//   party who is there sends its own first and the two do not race; the loser's send reverts and costs its gas. A deal
+//   behind the chain (T-218) is read from dealOf instead, since its book stopped. The contract then answers at a pinned
+//   block, never before a block this node already applied (docs/team.md, a chain read after a transaction), with an
+//   eth_call: a call it refuses there is not sent.
+// - Guards on the relayer's gas: only books this node holds; only calls the contract accepts at that block; none for a
+//   deal with a lane row still open (in flight, or mined and not applied yet); a cap per pass on sends and on reads; a
+//   daily budget the world keeps, given back when nothing went out; a back-off per deal after any refusal or failure,
+//   which ends when the deal moves; and a pause for every deal when the relay refuses (out of test ETH, gas too high).
 // - Once: each send carries an Idempotency-Key the world derives from its secret, so a retry or a restart replays its
 //   answer (T-219's lane rows carry it), and a trigger that comes after the timeout ran sends nothing (EvmSettlement).
 import type { EscrowState, Hex32, Timing } from '@holdback/core';
@@ -37,6 +40,8 @@ export interface TimeoutBudget {
    * whether only offer expiries are closed.
    */
   take(kind: TimeoutKind): Promise<true | { opensAt: number; offersOnly: boolean }>;
+  /** Gives back a send `take` spent when nothing went out: a refusal before the broadcast, or a timeout someone else ran. */
+  give?(kind: TimeoutKind): Promise<void>;
 }
 
 export interface OperatorTimeoutsOptions {
@@ -44,6 +49,8 @@ export interface OperatorTimeoutsOptions {
   via: string;
   /** The Idempotency-Key of one deal's timeout. The world derives it from its secret, so no client can take it first. */
   key: (id: Hex32, kind: TimeoutKind) => string;
+  /** How long past a deadline the pass waits before it sends the timeout (ms). Default 60,000: a party sends first. */
+  graceMs?: number;
   /** Timeouts a pass sends at most. Default 4: each waits for its block, about 12 s on Sepolia. */
   perPass?: number;
   /** Chain reads a pass makes at most (dealOf for a deal behind the chain, and the contract's check). Default 16. */
@@ -75,6 +82,11 @@ const FN: Partial<Record<TimeoutKind, string>> = { expire_offer: 'expireOffer', 
 const STAGES = ['None', 'Held', 'Delivered', 'FallbackJudging', 'Escalated', 'Released', 'Refunded', 'Settled', 'Expired'] as const;
 const PER_PASS = 4;
 const READS_PER_PASS = 16;
+const GRACE_MS = 60_000;
+/** Every deal waits this long after the relay refused a send, doubling with each refusal in a row, up to 15 minutes. */
+const PAUSE = { first: 60_000, max: 900_000 } as const;
+/** HoldbackRules.Stage's order: every transition on the contract moves a deal to a later stage or a later appeal state. */
+const rankOf = (d: { stage: string; appeal: number }) => STAGES.indexOf(d.stage as (typeof STAGES)[number]) * 8 + d.appeal;
 /**
  * The back-offs, each doubling with every miss in a row for that deal. The first is for a block before a deadline the
  * wall clock already passed (TooEarly), about one Sepolia block. Any other refusal at the pinned block means the book
@@ -166,11 +178,17 @@ export class OperatorTimeouts {
   private logBlock = 0n;
   /** When the budget opens again (ms): for every send, and for offer expiries alone. */
   private readonly closed = { all: 0, offers: 0 };
+  /** After the relay refused a send, no deal is tried before this (ms); `pauses` counts the refusals in a row. */
+  private pausedUntil = 0;
+  private pauses = 0;
+  private readonly grace: number;
 
   constructor(
     private readonly evm: EvmSettlement,
     private readonly o: OperatorTimeoutsOptions,
-  ) {}
+  ) {
+    this.grace = o.graceMs ?? GRACE_MS;
+  }
 
   private now(): number {
     return Date.parse(this.evm.now());
@@ -198,8 +216,9 @@ export class OperatorTimeouts {
     return this.evm.behindStage(id) ? w.onChain : nextTimeout(s);
   }
 
+  /** Before this (ms) nothing of `kind` may go: the budget is closed, or the relay refused a send. */
   private closedFor(kind: TimeoutKind | undefined): number {
-    return Math.max(this.closed.all, kind === 'expire_offer' ? this.closed.offers : 0);
+    return Math.max(this.closed.all, this.pausedUntil, kind === 'expire_offer' ? this.closed.offers : 0);
   }
 
   /** When a pass should next run to send a timeout (ms), or null when none is ahead. */
@@ -213,7 +232,8 @@ export class OperatorTimeouts {
         this.watched.delete(id);
         continue;
       }
-      at = Math.min(at, Math.max(c?.at ?? now, w.notBefore, this.closedFor(c?.kind)));
+      // A deal behind the chain whose dealOf is unread is due now: the pass reads it.
+      at = Math.min(at, Math.max(c ? c.at + this.grace : now, w.notBefore, this.closedFor(c?.kind)));
     }
     return at === Infinity ? null : at;
   }
@@ -234,8 +254,8 @@ export class OperatorTimeouts {
         this.watched.delete(id);
         continue;
       }
-      if (c && c.at > now) {
-        w.notBefore = c.at;
+      if (c && c.at + this.grace > now) {
+        w.notBefore = c.at + this.grace;
         continue;
       }
       if (this.closedFor(c?.kind) > now) {
@@ -260,8 +280,9 @@ export class OperatorTimeouts {
         report.deferred++;
         continue;
       }
-      // A transaction this node broadcast before a restart lands first (T-219): the world's pass recovers it.
-      if ((chain.inFlight?.() ?? []).some((r) => r.note && r.note.commitmentId.toLowerCase() === id.toLowerCase())) {
+      // A transaction of this deal still has its lane row (T-219): in flight, mined with its receipt not applied yet (a
+      // read after it failed), or left by a restart for the world's recovery. The sync or the recovery lands it first.
+      if ((chain.openRows?.() ?? chain.inFlight?.() ?? []).some((r) => r.note && r.note.commitmentId.toLowerCase() === id.toLowerCase())) {
         report.deferred++;
         continue;
       }
@@ -291,17 +312,27 @@ export class OperatorTimeouts {
         const r = await this.evm.trigger(id, c.kind, { idempotencyKey: this.o.key(id, c.kind), via: this.o.via });
         if (r.ok) {
           this.watched.set(id, { notBefore: 0, misses: 0 });
+          this.pauses = 0;
           // A timeout that already ran (another sender got there first) answers with no event and sends nothing; a deal
           // behind the chain logs no event for its timeout.
           if (!r.replayed && (behind || r.events.length > 0)) {
             report.sent.push({ commitmentId: id, kind: c.kind });
             this.o.sent?.(c.kind);
+          } else {
+            await this.o.budget?.give?.(c.kind);
           }
         } else {
           report.refused.push({ commitmentId: id, kind: c.kind, detail: `${r.problem.type}: ${r.problem.detail}` });
-          this.backOff(w, now, /reverted on chain/.test(r.problem.detail) ? BACKOFF.reverted : BACKOFF.refused);
-          // Out of test ETH or above a gas cap: the next send would meet the same answer.
-          if (r.problem.type === 'relay_refused') stop = true;
+          // Only a send that reverted on chain went out: every other refusal comes before the broadcast.
+          const spent = /reverted on chain/.test(r.problem.detail);
+          if (!spent) await this.o.budget?.give?.(c.kind);
+          this.backOff(w, now, spent ? BACKOFF.reverted : BACKOFF.refused);
+          // Out of test ETH or above a gas cap: every send would meet the same answer, so every deal waits.
+          if (r.problem.type === 'relay_refused') {
+            stop = true;
+            this.pausedUntil = now + Math.min(PAUSE.first * 2 ** this.pauses, PAUSE.max);
+            this.pauses++;
+          }
         }
       } catch (e) {
         this.backOff(w, now, BACKOFF.failed);
@@ -313,8 +344,10 @@ export class OperatorTimeouts {
 
   /**
    * The deal's timeout if it is due now, read again (the book may have moved during this pass). For a deal behind the
-   * chain, from dealOf at the pinned block, which must show the stage this node last applied: an earlier stage means
-   * the block lags this node's own relay, and a later one a step the sync has not applied yet.
+   * chain, from dealOf at the pinned block. A stage before the one this node last applied means the block lags this
+   * node's own write: the pass waits. A later one is a step this node has not applied, or applied from a read that
+   * lagged (a restart's recovery reads dealOf at the latest block, red-team on PR 230): the pass takes the contract's,
+   * whose own check comes next.
    */
   private async dueNow(id: Hex32, w: Watch, block: bigint, now: number, report: TimeoutReport): Promise<DueTimeout | null> {
     const s = this.evm.escrowState(id);
@@ -324,7 +357,7 @@ export class OperatorTimeouts {
     if (behind) {
       report.reads++;
       const d = await this.dealAt(id, block);
-      if (d.stage !== behind.stage || d.appeal !== behind.appeal) {
+      if (rankOf(d) < rankOf(behind)) {
         this.backOff(w, now, BACKOFF.early);
         report.deferred++;
         return null;
@@ -337,8 +370,8 @@ export class OperatorTimeouts {
       this.watched.delete(id);
       return null;
     }
-    if (c.at > now) {
-      w.notBefore = c.at;
+    if (c.at + this.grace > now) {
+      w.notBefore = c.at + this.grace;
       return null;
     }
     return c;
