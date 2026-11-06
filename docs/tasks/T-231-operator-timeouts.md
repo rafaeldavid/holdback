@@ -4,9 +4,9 @@
 - **Phase:** 2, settlement on EVM (in focus under D53: stable EVM operations)
 - **Depends on:** T-228 (PR 207, the relayed timeout for a deal behind the chain; done), T-218 (the chain sync; done) and T-219 (the in-flight row per relayer lane; done). T-228's leftover: "the operators' pass does not send due timeouts on its own". Rafa approved it on 2026-11-06: "Spin it up".
 - **Paths this task may touch:** `packages/settlement/evm/timeouts.ts`, `timeouts.test.ts` and `timeouts.redteam.test.ts` (new), `packages/settlement/evm/live-entry.ts` (the export), `packages/settlement/evm/evm-settlement.ts` (only `timeout()`, a constant beside `TIMEOUTS` and the `behindStage` read), `packages/settlement/evm/chain.ts` and `live.ts` (only the `openRows` read, added after the red team); `apps/demo-cloud/src/world.ts` (the pass, the alarm, the daily budget), `telemetry.ts`, `world.test.ts`, `telemetry.test.ts` and `timeouts.anvil.test.ts` (new); `docs/api.md`, `site/llms.txt` and the site build, `docs/neutrality.md`, `docs/plan.md` (this row), `docs/team.md` (one proposed row under Rules and checks), `docs/tasks/T-228-relay-timeouts-behind-the-chain.md` (its leftover); this file
-- **Human gate:** the operator deploy waits for Rafa, as every deploy does. It goes out on its own, after T-230's (the operators join a delivery already on chain), which Rafa approved alone on 2026-11-06. No contract change, no schema change.
-- **Status:** done (merged in PR 230; not deployed yet)
-- **Agent/session:** T-231 implementer session, 2026-11-06, worktree `.worktrees/op-timeouts`, branch `t-231-operator-timeouts`
+- **Human gate:** the operator deploy waits for Rafa, as every deploy does. It goes out on its own, after T-230's (the operators join a delivery already on chain), which Rafa approved alone on 2026-11-06. No contract change, no schema change. Rafa gave the go-ahead on 2026-11-06: "Yes, deploy T-231".
+- **Status:** done (merged in PR 230; deployed on 2026-11-06: holdback-op1 `066f1b18` and holdback-op2 `21cbbc0b` at 19:01 UTC, crow-site `f9806d3c` at 19:08 UTC)
+- **Agent/session:** T-231 implementer session, 2026-11-06, worktree `.worktrees/op-timeouts`, branch `t-231-operator-timeouts`. A deploy session shipped it on 2026-11-06 from worktree `.worktrees/t231-deploy` and recorded it on branch `t-231-deploy-record`.
 
 ## Intent
 
@@ -104,7 +104,7 @@ Every item is measured on this machine (anvil 1.0.0 standing in for Sepolia) unl
     - The fix belongs to T-216's lane: wait a few seconds for the primary's record, or check the chain's `Decided` log instead (Handoff; the proposed row in `docs/team.md`).
 - **After the review fixes** [measured, 2026-11-06]: `timeouts.test.ts` (12 tests, with no grace so each test moves just past its deadline), `timeouts.redteam.test.ts` (6 tests, with the grace in the 3a test), `timeouts.anvil.test.ts` (1 test, 123 s, now with the world's minute of grace: each deal closed at least 60 s after its deadline) and `world.test.ts`: 52 tests, 51 passed and 1 failed, in 131 s. The failure was the red team's restart test, which lacked the world's persist after each pass, so the new open-row guard kept deferring a deal whose row was never released. With that step, its file's 6 tests pass in 60 s, and the second `pnpm verify` above ran them all.
 
-- **Sepolia** [guessed]: each timeout costs the operators between 80,792 gas (round 1's relayed appeal expiry, T-228) and about 140,000 (the red team's anvil reclaim). Not run on Sepolia here.
+- **Sepolia** [guessed]: each timeout costs the operators between 80,792 gas (round 1's relayed appeal expiry, T-228) and about 140,000 (the red team's anvil reclaim). Not run on Sepolia here. The deploy measured one since: an offer expiry sent by the pass cost 147,581 gas on Sepolia, 2.2 times anvil's 65,597 (The deploy, below).
 
 ### Review and red team on PR 230 (2026-11-06, at `e67b8fe`)
 
@@ -127,6 +127,67 @@ Every item is measured on this machine (anvil 1.0.0 standing in for Sepolia) unl
   - Low: the watch list said a reverted send shows in neither count; it counts in the budget row. Fixed (Handoff).
   - Low: `TimeoutBudgetRows.give` had no test. Added in `world.test.ts`: a give returns the row to its count before, an offer expiry lowers the offers too, and a give after midnight UTC changes nothing.
   - Info, kept as they are (Handoff, backlog candidates): one call above the 3,000,000 gas cap would pause every deal, though timeouts take 65,597 to 140,019 gas; an error thrown before the broadcast keeps its budget unit; the hour's back-off after a reverted send has no test; the verify report ran with the fixes uncommitted (CI on `bdf37a5` passed).
+
+### The deploy (2026-11-06)
+
+**Deployed and checked; no rollback.** Rafa gave the go-ahead on 2026-11-06: "Yes, deploy T-231". A deploy session shipped PR 230's merge commit `e24204d` to both operators, then to the site. It followed the runbook in `docs/operations.md` and this file's Handoff, in the shape of T-230's deploy. It saved each answer under `reports/t231/` in its worktree (git-ignored). Every line below is measured unless it says otherwise.
+
+| Worker | New version | Deployed (UTC) | Rollback target |
+| --- | --- | --- | --- |
+| holdback-op1 | `066f1b18-24c6-4f0f-ad45-de2c27a6823f` | 19:01:40 | `8bcda43c-ba12-4919-9355-54048b98f720` |
+| holdback-op2 | `21cbbc0b-dd56-4d0c-af4a-c6d4916d8283` | 19:01:56 | `7e4d3fa5-273f-47a2-b6c4-537dbf31b58f` |
+| crow-site | `f9806d3c-ac4a-4cd2-81ca-518e9b88d21f` | 19:08:14 | `16038434-1066-452c-bfec-25c064547359` |
+
+**Round 1 first.** The deploy waited for round 1's scenario 8 run, so it would not restart the operators mid-step. That run, `2026-11-06T152621Z` in the `round1-run` checkout, had already written its result at 15:35:52 UTC: pass, 25 of 25 checks. At 18:47 UTC no driver process was running.
+
+**Before** (18:47 to 19:01 UTC):
+1. Main stood at `e24204d`, and nothing outside docs changed after it: `git diff --stat e24204d origin/main -- apps packages contracts/src site` was empty. CI's `ci` run on `e24204d` passed all 9 jobs, gitleaks included, at 18:52:43 UTC. A fresh detached worktree on `e24204d` passed `pnpm install --frozen-lockfile` and `pnpm build`.
+2. `npx wrangler@4 deployments status` showed holdback-op1 `8bcda43c`, holdback-op2 `7e4d3fa5` and crow-site `16038434`, each at 100%.
+3. Both nodes at 18:50 UTC: `schemaVersion` 0.10, domain Holdback 0.7, `verifyingContract` `0xf38287e5c5c1f20c6d03be500edbf8a244f27cfa`, `head.eventSeq` 626. The club's `rulebookHash` was `0x3fecb058…d108`. `GET /v1/adjudicators` listed 5 adjudicators, all `active`: the 3 demo ones and round 1's 2 test adjudicators.
+4. **The world held 63 deals, and no timeout was overdue.**
+   - By state: 35 Released, 20 Refunded, 5 Settled and 3 Expired. 61 were final.
+   - The 2 that were not final, `0x137ccb0d…3049` and `0x71f767f8…1197`, read `Settled` behind the chain.
+   - By the book's rules (`nextTimeout`), no deal's next timeout fell due more than a minute before.
+   - The pass reads `dealOf` for the three deals behind the chain. At about 18:51 UTC `0xf0453986…5e5b` read Released with its appeal Expired, and the two others Settled with their appeal Closed. `nextOnChain` gives none of them a timeout (inferred from `timeouts.ts`), so the first passes should send nothing.
+5. At Sepolia block 12,078,447 (18:51:12 UTC), read through publicnode: the funding lane `0x6011…f555` held 1,749,469,724,749,486,861 wei (1.7495 Sepolia ETH) at nonce 45. Deal lanes 1, 2 and 3 stood at nonces 113, 47 and 76, and the three demo adjudicators at nonce 2. Every pending nonce equalled its nonce.
+6. `head.eventSeq` stayed 626 on both nodes from 18:54:50 to 18:55:22 UTC (32 s), and again from 19:00:56 to 19:01:26 UTC before the retry (30 s).
+
+**Deploy** (18:55 to 19:03 UTC):
+1. **The first `pnpm demo-cloud:deploy` was refused at holdback-op1,** at about 18:55:30 UTC: "Script startup exceeded CPU time limit" (code 10021). Cloudflare created no version (`wrangler versions list`), the script never reached holdback-op2, and both nodes kept serving T-230's versions with status 200. The same refusal happened once on 2026-11-03, when a retry passed (`docs/backlog.md`). The session retried the same build with no code change.
+2. **The retry deployed both Workers:** holdback-op1 at 19:01:40 UTC (startup 575 ms), then holdback-op2 at 19:01:56 UTC (startup 780 ms). Earlier deploys reported 394 and 397 ms (T-230's, this morning) and 502 and 504 ms (T-228's).
+3. `npx wrangler@4 tail holdback-op1 --format json`, started before the deploy, saw the Durable Object's last event on `8bcda43c` at 19:01:54 UTC. Its first on `066f1b18` was an alarm at 19:02:55 UTC that ended `ok`. So 75 s after the deploy is an upper bound on the switch.
+
+**After** (19:03 to 19:26 UTC):
+1. **Every read stayed the same.** At 19:03 UTC both nodes served the same JSON as before for `/v1/status` (except `lagSec`), the club, the adjudicators and the commitments listing. Each of the 63 deals' state read and terms read returned the same JSON as before: 126 of 126 reads on each node.
+2. **The first passes sent nothing,** as Before step 4 expected. At block 12,078,506 (19:03:12 UTC), after the new code's first 3 alarm passes, all seven addresses had the balances and nonces of Before step 5. A scan of blocks 12,078,447 to 12,078,506 found no transaction from them.
+3. **The smoke deal.** `env HOLDBACK_OPERATORS=https://api.escrow.stream,https://api2.escrow.stream node examples/try.ts` played both sides. Commitment `0x1ff788b0…3a58` ended `Released` in 45 s, settled at 19:04:36 UTC and final at 19:05:36 UTC, with an operator fee of 4.71 tUSDC. Deal lane 1 sent all three, and each receipt has status 1:
+   - funded [`0xf84f82d4…7022`](https://sepolia.etherscan.io/tx/0xf84f82d43bdcc9c20faf6b99e2c8e477ec15d80522117ceb07df94960f857022), 840,697 gas;
+   - delivered [`0x96e44425…b897`](https://sepolia.etherscan.io/tx/0x96e44425a1cdf9ac53914a39366a1c7d7883e3b11a6370565fc16f123e60b897), 173,131 gas;
+   - decided [`0xd4beba1d…9414`](https://sepolia.etherscan.io/tx/0xd4beba1de0e5e949e20f4e3e2ba4002fa2b0fa5bcfdd4cde70301a5e74fc9414), 166,808 gas.
+4. **A timeout with no caller** (Handoff, After step 4).
+   - A fresh seller offered `0x7cfcc9b435a3af8d15878079c89ca820aae8ec96e546e503848d40a36697723c` to a fresh buyer with `offerExpiresInSec: 60`. The demo primary accepted it within 10 s. Nobody funded it, and nobody sent a trigger.
+   - At 19:07:12 UTC, 69 s after its expiry at 19:06:03 UTC, the operators' pass sent `expireOffer` from deal lane 3: [`0x0c27b233…504f`](https://sepolia.etherscan.io/tx/0x0c27b23328786937454e5f031c1d1c4b9742962eb0f3614aaa47c9fe1653504f), block 12,078,526, 147,581 gas, status 1.
+   - Both nodes logged event 640, `offer.expired`, with `submittedVia: demo-op-1`, and read `Expired` at 19:07:16 UTC.
+   - The gas is 2.2 times the 65,597 gas the anvil tests measured for an offer expiry.
+   - Not read: the hourly telemetry line's `usageToday.operatorTimeouts.expire_offer`. The session stopped its tail at 19:26 UTC, before the new code's first hourly line, due at about 20:00 UTC.
+5. **Lane nonces.** At block 12,078,528 (19:07:36 UTC) the funding lane stood at nonce 47, deal lane 1 at 117 and deal lane 3 at 77. Deal lane 2 and the three adjudicators had not moved. A scan of blocks 12,078,447 to 12,078,528 found seven transactions from the seven addresses, all at 1 gwei, and each has a cause. Gas times 1 gwei equals each balance change exactly:
+   - funding lane, nonces 45 and 46: the faucet's grants to the smoke deal's two keys ([`0xbbd7086b…bf62`](https://sepolia.etherscan.io/tx/0xbbd7086b0ed900476329985fdd26167f4f9f3a7e7d1697db7b82d7ef4f42bf62), 19:04:00 UTC) and to the offer check's two keys ([`0x721f082d…80dc`](https://sepolia.etherscan.io/tx/0x721f082d42d598065b704fa9baacdd4e8db94d0a03b4ac6e58fd2e13cee980dc), 19:05:00 UTC), 262,195 gas each, to Multicall3 (the cause inferred from timing and target);
+   - deal lane 1, nonces 113 to 115: the smoke deal's three transactions above;
+   - deal lane 1, nonce 116: the smoke deal's appeal expiry, [`0x44e136cf…7511`](https://sepolia.etherscan.io/tx/0x44e136cf0469211e811fcce0a35b130567f082fc8b340ab54467b7857cb77511), 80,792 gas, at 19:06:00 UTC. Its event 639 says `submittedVia: direct`, 24 s after `appealBy`. The demo primary expires its own decision's appeal (T-211); the pass would have waited a minute (inferred);
+   - deal lane 3, nonce 76: the offer expiry above.
+6. **The tails.** These counts are a sample: the tail captured fewer requests than the session's own reads sent (inferred).
+   - holdback-op1, 19:01:40 to 19:26:12 UTC: 300 events, 299 of them on `066f1b18`, with 135 alarm passes. There were 0 exceptions, 0 log lines and 0 responses of 500 or more.
+   - 297 events ended `ok` and 3 ended `canceled`: Durable Object alarms at 19:12:44, 19:13:45 and 19:19:47 UTC, each with 0 ms CPU, 21 to 35 ms wall time and no exception. Alarms kept running after each. Their cause is not known (Info). The tail before the deploy, 44 events on `8bcda43c` from 18:54:50 UTC, had none.
+   - holdback-op2, 19:01:56 to 19:26 UTC: 66 events, all on `21cbbc0b`, all `ok`, every response 200.
+
+**The site** (19:08 UTC):
+1. `node site/build.mjs --op1 https://api.escrow.stream --op2 https://api2.escrow.stream --out <worktree>/reports/site-out`, then `node site/check.mjs`: PASS. The build changed no tracked file.
+2. `npx wrangler@4 deploy --config apps/site/wrangler.jsonc` uploaded 1 file, `llms.txt` (41 already uploaded), as crow-site `f9806d3c` at 19:08:14 UTC.
+3. The live `llms.txt` matches the build byte for byte (sha256 `e8297531…67f6`). It differs from the copy before the deploy in T-231's lines only: "Deadlines close deals on their own", "Your own trigger", the test seller's reclaim line and the line on a step the operators cannot read. `https://escrow.stream/try.mjs` still serves sha256 `cc310963…d832`, the one the command names, and the live `index.html` matches the build.
+
+**After the deploy:** the `.worktrees/round1-run` checkout moved from `e5f667a` to `e24204d` and passed `pnpm install --frozen-lockfile`, so a hand redeploy from it carries T-231.
+
+**Not measured on Sepolia:** a reclaim, a default or a takeover sent by the pass, and the daily budget row `ot:<day>`. No live deal needed them, and the session sent no transaction beyond the smoke deal and the offer check.
 
 ## Decisions
 
@@ -152,8 +213,12 @@ Every item is measured on this machine (anvil 1.0.0 standing in for Sepolia) unl
 
 ## Handoff
 
-- **State:** done: PR 230 squash-merges once CI passes, with the review and red-team findings fixed or recorded. Not deployed: the operators run T-230's `8bcda43c` and `7e4d3fa5` until Rafa's go-ahead for the deploy below. The reviewer and the red team found 2 Medium and 3 Low findings each, none Critical or High; each is fixed or recorded with its reason (Decisions, Evidence). The reviewer's second pass, on the fixes at `bdf37a5`, found 2 Low and 4 Info; both Lows are fixed (the watch line below, and a test for the budget's give-back). Not deployed.
-- **The deploy: its own operator deploy, after T-230's, for Rafa.** Rafa approved T-230's deploy on its own ("Yes, deploy T-230"), and it went live on 2026-11-06 at 12:19 UTC (`docs/operations.md`, PR 233), so T-231 goes out in a second deploy. Deploy main at T-231's merge commit or later; it holds T-230 (PR 232, `e5f667a`). The steps follow T-230's (`docs/tasks/T-230-join-onchain-delivery.md`, "The deploy"), in the shape of `docs/operations.md`'s T-228 section. No contract change, no schema change, no new secret or variable. Save each answer under `reports/t231/`.
+- **State:** done, and live since 2026-11-06: holdback-op1 `066f1b18-24c6-4f0f-ad45-de2c27a6823f` and holdback-op2 `21cbbc0b-dd56-4d0c-af4a-c6d4916d8283` from 19:01 UTC, crow-site `f9806d3c-ac4a-4cd2-81ca-518e9b88d21f` from 19:08 UTC (Evidence, "The deploy"). Rafa gave the go-ahead on 2026-11-06: "Yes, deploy T-231". PR 230 merged as `e24204d`, with the review and red-team findings fixed or recorded. The reviewer and the red team found 2 Medium and 3 Low findings each, none Critical or High; each is fixed or recorded with its reason (Decisions, Evidence). The reviewer's second pass, on the fixes at `bdf37a5`, found 2 Low and 4 Info; both Lows are fixed (the watch line below, and a test for the budget's give-back).
+- **To roll back:** `npx wrangler@4 rollback 8bcda43c-ba12-4919-9355-54048b98f720 --name holdback-op1`, `npx wrangler@4 rollback 7e4d3fa5-273f-47a2-b6c4-537dbf31b58f --name holdback-op2`, and for the site `npx wrangler@4 rollback 16038434-1066-452c-bfec-25c064547359 --name crow-site` (`docs/operations.md`, T-231).
+- **Watch the Worker's start-up CPU.** The deploy's first upload was refused for start-up CPU, and the retry of the same build reported 575 and 780 ms (Evidence, "The deploy"). The same refusal happened on 2026-11-03, and the backlog row on start-up CPU asks for its fix "before the next deploy that grows the bundle", which this one did. Its trigger has now passed: compile the schemas ahead of time (Ajv's standalone code), then measure.
+  - A check to propose for `docs/team.md`, Rules and checks: a test imports `apps/demo-cloud/src/worker.ts` with `Function` wrapped, counts the functions built at import, and fails above a pinned count. A count stays steady where a time budget would be flaky.
+- **Watch the alarms' `canceled` outcome.** Three of 135 alarm passes after the deploy ended `canceled` with no CPU and no exception (Evidence, "The deploy"). If the count grows, or a deal stops closing on time, look there first.
+- **The deploy as planned** (done on 2026-11-06, kept as the record of the steps): **its own operator deploy, after T-230's, for Rafa.** Rafa approved T-230's deploy on its own ("Yes, deploy T-230"), and it went live on 2026-11-06 at 12:19 UTC (`docs/operations.md`, PR 233), so T-231 goes out in a second deploy. Deploy main at T-231's merge commit or later; it holds T-230 (PR 232, `e5f667a`). The steps follow T-230's (`docs/tasks/T-230-join-onchain-delivery.md`, "The deploy"), in the shape of `docs/operations.md`'s T-228 section. No contract change, no schema change, no new secret or variable. Save each answer under `reports/t231/`.
   - **Before** (read-only):
     1. PR 230 is merged and CI passed on its merge commit. A fresh detached worktree on that commit passes `pnpm install --frozen-lockfile` and `pnpm build`.
     2. `npx wrangler@4 deployments status` for both Workers shows the T-230 versions that `docs/operations.md`'s T-230 section records: holdback-op1 `8bcda43c-ba12-4919-9355-54048b98f720` and holdback-op2 `7e4d3fa5-273f-47a2-b6c4-537dbf31b58f`, live since 2026-11-06, 12:19 UTC, and crow-site `16038434-1066-452c-bfec-25c064547359` since 15:04 UTC. Those are the rollback targets. If another deploy has replaced them since, use the versions it shows.
