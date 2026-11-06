@@ -5,8 +5,8 @@
 - **Depends on:** T-217 (drand proofs for fallback and appeal), T-218 (direct calls in the operators' view), T-219 (the in-flight row per relayer lane), T-221 (adjudicator registration through the API), and T-220, which ships those four to the live demo in one deploy. Rafa answered all six scope questions on 2026-11-04 (below). The fixed contracts are already live (see Context).
 - **Paths this task may touch:** `examples/e2e-*.ts` (new: the round's keys, its driver, and their tests; the `examples` workspace already holds the agent-side code and viem), `docs/reviews/` (one new file, the round's report), `docs/backlog.md` (rows for what the round finds; the Benched rows once it completes), `docs/plan.md` (this row), this file. No product code: a scenario that fails gets its fix in its own task, and the round re-runs it.
 - **Human gate:** yes. Rafa confirms the scope (done: the questions below, 2026-11-04) and funds the round's master address with Sepolia ETH (done: 2.5, Evidence); the driver tops up the other keys from it. The runs use the public API as any agent may, and send test transactions on Sepolia from test keys. They deploy nothing, except scenario 11's one holdback-op1 redeploy, which waits for Rafa's go-ahead at that moment.
-- **Status:** review (PR 210, branch `t-216-remaining-scenarios`: the driver builds all sixteen scenarios, and 3d's and 10a's failed checks in the 2026-11-05 live run are fixed in the driver; the round completes with Rafa's live run of every scenario and the report, Handoff)
-- **Agent/session:** the T-216 planning session (the keys); the T-216 driver session (the driver); the T-216 remaining-scenarios session (the round's own adjudicator and the group files, worktree `.worktrees/t-216-rest`); four group sessions (silent, scripted, escalation, direct), one branch each; the integrating session (the merge, the 3d and 10a fix, this file)
+- **Status:** review (PR 223, which replaced PR 220, fixes the three driver defects of the two 2026-11-05 evening runs; 1, 2, 3a, 3c, 3d, 4 and 5a have passed live; the round completes with Rafa's live run of 3b, 4, 5a, 5b, 6, 7, 8, 9, 10a, 10b and 11, with 4 and 5a again under the new money checks, then the report, Handoff)
+- **Agent/session:** the T-216 planning session (the keys); the T-216 driver session (the driver); the T-216 remaining-scenarios session (the round's own adjudicator and the group files, worktree `.worktrees/t-216-rest`); four group sessions (silent, scripted, escalation, direct), one branch each; the integrating session (the merge, the 3d and 10a fix, this file); the live-fixes session (2026-11-06, worktree `.worktrees/t-216-fixes`)
 
 ## Intent
 
@@ -25,6 +25,14 @@ Restated: on the live Sepolia deployment of the fixed contracts (PRs 160 and 161
 Non-goals of this slice: building any of the ten scenarios; a scripted fallback or appeal decision (those need a drand proof) or a scripted escalation (no needs line asks for one); a live run; product code.
 
 **The integration, restated by its session (2026-11-05).** The four groups built the ten scenarios on their own branches. This slice merges them into PR 210 with main, fixes once what three of them worked around alone (a serving adjudicator's `stop`), fixes the driver's stale chain reads behind 3d's and 10a's failed checks in the 2026-11-05 live run, and hands Rafa one command that runs all sixteen scenarios live. Non-goals: product code (a product defect would be recorded, not fixed); a live run or any Sepolia transaction; anything beyond what each scenario's needs line asked for.
+
+**The live-run fixes, restated by their session (2026-11-06).** Rafa's two full live runs on the evening of 2026-11-05 stopped or failed in three places, and each is the driver's fault, not the product's. This slice first confirms that from the records and the chain, then fixes the driver so a rerun can pass:
+- **3b's bond deposit** must see the approval the same key sent seconds before it.
+- **The money checks** must count the deal's own transfers only, never another deal of the same buyer or seller, so two deals in one window cannot spoil each other's checks.
+- **The gate after a scenario** must not stop the run on a stale read. A deal a scenario left holding money is closed by its timeouts through the API, within a bounded wait; the gate refuses only when that deal cannot settle in time.
+- **One run of the round's keys at a time:** the driver refuses to start while another run holds the round's lock or has a send pending from the round's keys, and stops the rest when another run's deal appears.
+
+Non-goals: product code; a live run or any Sepolia transaction (reading public chain data to confirm a cause is allowed); changing the scenarios' checks beyond where they read money; reordering the scenarios.
 
 ## Context
 
@@ -355,6 +363,82 @@ Fill this in before review. Label each item measured, inferred or guessed.
     | snap:local | pass | 14,444 ms |
     | demo | pass | 3,969 ms |
 
+- **The two live runs of 2026-11-05 evening (Rafa), driver at `1a2cbd3` (PR 210 merged), on the Worker versions of T-228's deploy** (holdback-op1 `ba7a2ad9`, holdback-op2 `7826e3ce`, live since 15:29 UTC). The two runs overlapped on the same round keys from 19:37 to 19:40 UTC. Records: `/Users/rafa/Documents/escrow/.worktrees/round1-run/reports/e2e-round-1/2026-11-05T190711Z/` (run A) and `…/2026-11-05T193705Z/` (run B) [measured: their records and `summary.md`].
+
+  | Scenario | Run A, 19:07 to 19:40 UTC | Run B, 19:37 to 20:09 UTC |
+  | --- | --- | --- |
+  | 1 | pass, 16 of 16 | fail, 15 of 16: the buyer -61.42 tUSDC (overlap) |
+  | 2 | pass, 13 of 13 | pass, 13 of 13 |
+  | 3a | pass, 12 of 12 | pass, 12 of 12 |
+  | 3b | error at start: the bond deposit reverted 0x7939f424 | error at start: the same revert |
+  | 3c | pass, 17 of 17 | pass, 17 of 17 |
+  | 3d | pass, 3 of 3 | pass, 3 of 3 |
+  | 4 | fail, 17 of 18: the buyer -61.42 tUSDC (overlap) | pass, 19 of 19 |
+  | 5a | fail, 20 of 21: the seller 25 tUSDC (overlap) | pass, 21 of 21 |
+  | 5b to 11 | not run: the gate read 5a's deal as Escalated | not run: the same |
+
+  - The finality re-read of run A at 19:53 UTC found 28 of 28 transactions in the same block, at head 12,071,675 [measured: `finality.json`]. Run B has no re-read yet.
+- **The diagnosis (2026-11-06): three driver defects, no product defect, no funds at risk.** Read from the records and from public Sepolia data (receipts, block times, `dealOf` at given blocks), with no key and no transaction.
+  - **3b's bond deposit reverted `TransferFromFailed()` (0x7939f424) because it was simulated on a node that had not seen the approval sent seconds before.**
+    - Run A: adjudicator-1 `0xc1f7c0…f2bc` minted 25 tUSDC (nonce 0, block 12,071,529, 19:23:36 UTC), then approved HoldbackBonds for 25 tUSDC (nonce 1, block 12,071,531, 19:24:00 UTC, 127,734 gas). 3b stopped at 19:24:03.6 UTC. No deposit was sent: the key's nonce 2 is 3c's approval, in block 12,071,532 [measured].
+    - Run B, with run A ended 13 minutes before: adjudicator-2 `0x147ba5…177b` minted (nonce 0, block 12,071,675, 19:53:12 UTC) and approved (nonce 1, block 12,071,676, 19:53:24 UTC); 3b stopped at 19:53:26.4 UTC; the key's next nonce is still 2 [measured]. So the overlap did not cause it.
+    - The approval was mined for the full amount in both runs, so a missing or short approval is ruled out [measured]. `RoundChain.send` simulated `deposit` at the latest block 2 to 4 s after the approval's block, on a node of the load-balanced RPC that did not have it: no allowance, and the token refused `transferFrom` [inferred from the code and those times]. Run A's 3c deposit passed because the allowance and the balance it needed were 3b's, a block older [measured: block 12,071,533].
+  - **4's buyer at -61.42 tUSDC and 5a's seller at 25 tUSDC counted the other run's deal.** The checks compared wallet balances before and after the deal, and the round's buyer and seller play every deal.
+    - Run A's 4 read its buyer at 808.81 tUSDC before block 12,071,562 and 747.39 tUSDC at 12,071,599. Run B's scenario 1 funded 30.71 tUSDC from the same buyer in block 12,071,597, inside that window: -61.42 is twice -30.71 [measured].
+    - Run A's 5a window ran from 12,071,599 to 12,071,610. Run B's 1 paid the seller 25 tUSDC in block 12,071,600 [measured].
+    - Run B's 1 window (to 12,071,606) took in run A's 5a funding of 30.71 tUSDC in block 12,071,601 [measured].
+    - Each deal's own transfer logs give the expected amounts: -30.71 tUSDC for 4's buyer, 0 for 5a's seller [measured: the records' logs, now `examples/e2e-run.test.ts`'s fixtures]. Without an overlap, run B's 4 and 5a passed [measured].
+  - **The gate after 5a stopped eleven scenarios on a stale read; 5a had closed its deal.**
+    - Run A's 5a deal `0x3a279b…dfb2` reads Escalated in `dealOf` at block 12,071,609 and Refunded from 12,071,610 (19:40:00 UTC), the block of its default [measured]. 5a's own checks read Refunded at that block and on both operators. The gate's latest-block read by 19:40:15 UTC answered Escalated.
+    - Run B's 5a deal `0xab5fdc…70d8` reads Escalated at 12,071,748 and Refunded from 12,071,749 (20:09:00 UTC); the gate at 20:09:12 UTC read Escalated again [measured].
+    - `openDeals` read the latest block, and a node behind the default's block answered the state before it [inferred]. The Handoff of 2026-11-05 named this risk as "inferred; not seen"; it is now seen twice.
+  - Both 5a deals ended Refunded on chain. adjudicator-2's 25 tUSDC stays in its own wallet, with its allowance to HoldbackBonds [measured].
+- **The fixes (2026-11-06, branch `t-216-live-fixes`).** Offline only: no live run and no Sepolia transaction.
+  - **Test first** (commit `e784c09`): before the fix, 5 of the new tests in `examples/e2e-chain.test.ts`, 12 of 13 in the new `examples/e2e-run.test.ts` and the new lock test in `examples/e2e-round.test.ts` failed [measured]:
+    - a bond deposit right after its approval, against a stand-in RPC whose latest block trails the round's own sends by one, reverted with "The contract function "deposit" reverted with the following signature: 0x7939f424", the live error;
+    - `openDeals` returned 5a's refunded deal as Escalated;
+    - `delta` returned -61.42 tUSDC for 4's buyer and 25 tUSDC for 5a's seller, from fixtures built from run A's records;
+    - the gate after a scenario, the other-run check, the idle-keys check and the round's lock did not exist.
+  - **After the fix:** `examples/e2e-chain.test.ts` and `examples/e2e-run.test.ts`, 32 of 32 in 22.7 s [measured]. They show:
+    - the deposit simulated and estimated at the approval's block, never `latest`, and sent with nonce 1 while the lagging node still counts nonce 0 as pending;
+    - a pinned simulation that finds no header tried again, and a revert refused at once with nothing sent;
+    - `openDeals` reading 5a's deal at its last block: not open;
+    - the money of 4 and 5a from the deal's own logs: -30.71 tUSDC and 0, and bonds from HoldbackBonds' events (deposit, encumbrance, slash, an appeal bond paid into the bond);
+    - on SimChain, a deal a stopped scenario left Held closed by `reclaim` through the API at deliverBy, and a deal whose delivery is due in an hour refused at once with nothing sent;
+    - another run's deal found among the round buyer's deals, this run's own and older ones left out;
+    - the lock refusing a second run while its holder runs, and taken over when its holder has ended;
+    - the start refused while a round key has a send pending through the whole wait.
+  - `examples/e2e-round.test.ts` without anvil, 5 of 5 run, 54.9 s [measured]: the lock refusal with exit 3 before any network call, its release when the run stops, and the SimChain run of 1, 2, 3a, 3d, 6 and 10a through the new gates.
+  - **The start's refinement** (commit `0f31c20`): it refuses while a held deal of the round's buyer changed in the last 2 minutes, and the gate sends each trigger once per deal. `examples/e2e-run.test.ts`, 15 of 15 in 22.9 s, with the refusal, its 2-minute bound and the operators' list of held deals [measured].
+  - **Every driver test file, anvil included** (`e2e-round`, `e2e-adjudicator`, `e2e-chain`, `e2e-run`, `e2e-keys` and the four groups'): 78 of 78 in 431.8 s, none skipped [measured, commit `1946904`]. So every direct send on anvil (3a's reclaim, 3b's `triggerFallback`, 3c's and 7's approvals, the bond deposits, 8's funding and delivery) went through the pinned simulation and estimate, and every money check through the deal's own logs.
+  - `tsc -b examples` and `eslint` on the changed files are clean [measured].
+  - **Before the rerun** (2026-11-06, read-only GETs): neither operator lists a deal of the round's buyer that holds money, of the 26 they list for it, so the start gate has nothing to close [measured].
+- **PR 220's review** (the `reviewer` role, 2026-11-06): ISSUES, no High. It agreed with the three diagnoses from the records and the code. Two Medium and six Low findings, all addressed in the PR [measured: the review's report]:
+  - **Medium, fixed:** the Handoff said `round1-run` already held the fixes. It now gives the commands to move it, and the session moves it after the merge.
+  - **Medium, fixed:** neither merge gate was clean. CI's gitleaks job failed before scanning, on a GitHub API error, and `pnpm verify` failed its test step because this session edited `e2e-run.ts` during it, so the run read old and new code. Both run again on the final commit (below).
+  - **Low, fixed:** the lock covered one checkout. It now sits in the clone's shared reports folder (Decision 37).
+  - **Low, fixed:** a check that expects nothing to move could pass if a transaction was missing from the record. The chain's own logs now complete it (Decision 35).
+  - **Low, fixed:** the gate could refuse on one stale read, and retried a refused trigger for 15 minutes. It refuses on two passes in a row, and after three identical refusals (Decision 36). Decision 36 no longer claims that 15 minutes covers a deal stopped before delivery.
+  - **Low, fixed:** a stop during the gate's wait lost the scenario's record. The driver writes it before the wait.
+  - **Low, fixed:** the `docs/team.md` row read as an enforced check. It is now "Partial", and `deliveryHashOf` reads at the deal's last block too.
+  - **Info:** the docs' inconsistencies and long sentences are fixed. No test drives the start gate or the gate after a scenario through the driver with an open deal; their parts are tested on their own [inferred: the gap stays].
+  - **After the fixes:** `examples/e2e-chain.test.ts` and `examples/e2e-run.test.ts`, 39 of 39 in 24.2 s. The new tests cover the chain's list of a deal's transactions (a node missing a known one is asked again), `deliveryHashOf` at the deal's last block, the refusal after three identical refusals, and one lock folder for a clone's main checkout and its worktrees [measured].
+  - **`pnpm verify` on `9830ee6`** (PR 220's last commit), on a tree left alone, 2026-11-06 06:47 UTC: **PASS**, no snapshot diffs against HEAD; `pnpm test` 2,768 passed and 6 skipped, in 126 files plus 2 skipped, the driver's anvil tests included; forge 241 of 241; snap 31 of 31; snap on the contract 28 passed, 3 excluded until Phase 4 (`reports/verify-t-216-live-fixes.md`) [measured]:
+
+    | Step | Status | Time |
+    | --- | --- | --- |
+    | typecheck | pass | 1,174 ms |
+    | lint | pass | 6,871 ms |
+    | forge build | pass | 1,238 ms |
+    | forge | pass | 16,623 ms |
+    | test | pass | 429,491 ms |
+    | spec | pass | 575 ms |
+    | snap | pass | 9,017 ms |
+    | snap:local | pass | 14,385 ms |
+    | demo | pass | 3,901 ms |
+
+  - **PR 220 became PR 223.** On `9830ee6`, CI's gitleaks job flagged `const TOKEN = '0x5029…6b6'` in `examples/e2e-run.test.ts` line 20, commit `e784c09` (rule `generic-api-key`, CI run 42175872155). The value is tUSDC's public contract address; the rule keys on the name `token` [measured: the job log]. The rule scans every commit of a PR, and `.gitleaksignore` and force pushes are Rafa's. So branch `t-216-live-fixes-2` replays the same six commits with the constant named `ASSET` from the first one, as PR 219 did. Its final tree equals `9830ee6`'s except for that rename [measured: `git diff`]. On it, `tsc -b examples`, `eslint` and `examples/e2e-run.test.ts` (17 of 17) pass [measured]. This session closed PR 220 with a comment that points to PR 223.
+
 ## Decisions
 
 Made by the driver session on 2026-11-04, inside the task's paths.
@@ -406,24 +490,40 @@ Made by the four group sessions and the integrating session on 2026-11-05, insid
 32. **Direct sends refuse above 20 gwei (PR 210 review).** `RoundChain.send` estimates fees after the simulation and, above `MAX_FEE_PER_GAS` (20 gwei, the cap `e2e-keys.ts topup` and the operators' funding lane use), refuses before it signs, with a `Refusal` that names the fee. Below it, the estimate goes on the transaction as its `maxFeePerGas`, so a spike between the check and the send cannot raise the price. The fees go on the send, not the simulation, since a node checks an `eth_call`'s fee fields against the key's balance. A refusal stops the scenario like any error; a deal it leaves Held stops the run (Decision 12), and the money stays in the hold until its deadlines, never drained from the key.
 33. **Scenario 11's pause ends on the typed word `deployed` (PR 210 review).** Nothing reads stdin before scenario 11, so an Enter typed earlier in the 1.5 to 2 hour run stays buffered and would end the pause at once. `typed('deployed')` ignores every other line, says so, and still stops with an error when stdin closes.
 
+Made by the live-fixes session on 2026-11-06, inside the task's paths.
+
+34. **A direct send reads the state after the round's own last transaction (3b).** `RoundChain.send` simulates the call and estimates its gas at `fresh()`, the larger of the latest block and the newest block the round has a receipt from. A node with no header for that block is tried again, 8 times 2 s apart; a revert is refused at once. The gas limit is the estimate plus a fifth, since the call runs a block or more later. The nonce is the larger of the pending count and the one after this key's last send in the process, so a node behind the approval cannot hand the deposit the approval's nonce. The fee cap (Decision 32) still comes before any nonce read or signature.
+35. **On a chain, the money checks read the deal's own transactions (4 and 5a).** `delta` sums the test token's `Transfer` logs to and from the address among the deal's transactions, and HoldbackBonds' events for its bond and free bond (`flowOf`). The balances before and after stay in the record as evidence, and `summary.md` shows the address's change beside the deal's own only when they differ. The relayer bundles only a deal's own operator fee with its funding, so a deal's transactions carry no other deal's transfers [inferred from `evm-settlement.ts`, `agreeAndFund`]. On SimChain, which has no logs, `delta` still compares the balances.
+    - **The deal's transactions come from the chain too** (PR 220 review). `finish` asks the chain for every HoldbackRules log that names the deal, from the block of its starting balances to the latest (`dealTransactions`). A transaction that neither the operators' events nor the round's sends name joins the record as "on chain only", with a note. So a check that expects nothing to move cannot pass for lack of a transaction. A node whose logs lack a transaction the round already knows is behind, and the driver asks again.
+36. **The gate after a scenario closes what the scenario left open, within 15 minutes (5a).**
+    - `openDeals` reads each deal at its last transaction's block or later.
+    - A deal that still holds money gets its next timeout through the API once it is due (`POST /v1/commitments/<id>/triggers/<kind>`): `reclaim` at deliverBy, `fallback` at judgeBy, `default` at fallbackBy or appealDecideBy, `apply-default` on SimChain. Anyone may send one, and the operators relay it even for a deal behind the chain (T-228). The gate sends each trigger once per deal.
+    - The gate refuses a deal its timeouts cannot close within the wait, on the second pass in a row that finds it so, since one read can show a state from before the deal's last step. It also refuses when the API gives the same refusal of a due trigger three times in a row. The driver then records the remaining scenarios as not run, with the reason.
+    - 15 minutes covers a deal stopped after its delivery [inferred from the windows of Decisions 24 to 26: 4's fallback window of 180 s or more]. It does not cover a deal stopped between funding and delivery under the default delivery window of 24 hours (`apps/operator/src/terms.ts`): the gate refuses it and names the time it can close, as the driver did before this change (PR 220 review).
+    - The driver writes the scenario's record and `summary.md` before the gate's wait, and again after it with the gate's steps. A stop during the wait keeps the record, and its end time stays the scenario's own.
+37. **One run of the round's keys at a time.** Two runs share the buyer, the seller and the round's adjudicators, so each counts the other's deals, and a serving adjudicator of one acts on the other's deals.
+    - **A lock file per master** (`run-<master>.lock`), taken before any network call and given back when the run ends. It sits in the reports folder of the clone's main checkout (`/Users/rafa/Documents/escrow/reports/e2e-round-1/` here), which every worktree finds through git's common directory (`sharedReports`), so a run from `.worktrees/round1-run` and one from the main checkout meet one lock (PR 220 review). A second run refuses with exit 3 and names the process, its start and its folder. A new run takes over a lock whose process has ended, and says so. A separate clone has its own lock.
+    - **Pending sends:** before the first scenario, the start waits up to 60 s while a round key has a transaction pending, then refuses. This catches a run from a separate clone only while it sends from the round's own keys; most of a run's steps go through the operators.
+    - **The start gate** closes an earlier run's deal of the round's buyer that still holds money, as the gate after a scenario does, or refuses to start. It refuses at once while such a deal changed in the last 2 minutes (`refuseActive`): another run may still be driving it, and the start must not send its timeouts.
+    - **After each scenario,** a deal of the round's buyer offered since this run started, which this run did not offer, stops the remaining scenarios with a message naming it. The buyer's address is public, so a stranger's offer to it would stop the round too; the message names the deal, so Rafa can tell.
+    - **What stays open** [inferred]: a run from a separate clone, in a stretch where it sends nothing from the round's keys and its deal has not changed for 2 minutes (run B's 4 sat 5.4 minutes between delivery and takeover), passes these checks; the start gate could then send that deal's timeout. Both runs then stop at their next gate, and no funds are at risk.
+38. **The run order stays by scenario number.** With the gate and the per-deal money checks, a long scenario no longer blocks or spoils the ones after it, so putting the long ones last would only bring the short ones' results sooner. Scenario 11 stays last, as its pause needs Rafa at the terminal. `run` already runs the IDs in the order given, for a rerun in another order.
+
 ## Handoff
 
-- **Next: Rafa's live run of every scenario, once [PR 210](https://github.com/rafaeldavid/holdback/pull/210) merges.** In the holdback checkout, with full paths so it works from any folder. The commands print addresses and links, never the secret or a key.
-  1. Bring main up to date: `git -C /Users/rafa/Documents/escrow pull`.
-  2. Top up the round's keys first. The dry run prints what it would send; run it again without `--dry-run` when it plans any transfer. It sends nothing while every key holds at least 0.04 Sepolia ETH.
-
-     ```bash
-     node --env-file=/Users/rafa/Documents/escrow/.env /Users/rafa/Documents/escrow/examples/e2e-keys.ts topup --dry-run
-     ```
-
-     This run spends more of the keys' own gas than the earlier runs [inferred from the anvil gas]. adjudicator-1 mints, approves and deposits its bond (about 153,000 gas each time) wherever its free bond is short of the price, including after each of 7's two slashes; adjudicator-2 bonds for 3b's fallback; the buyer sends 3a's reclaim, 8's `agreeAndFund` and `triggerFallback`, and its appeal-bond approval in 7; the seller sends 8's `deliver` and its approvals in 3c, 6 and 7. At 1 gwei that is well under 0.01 Sepolia ETH a key [inferred].
+- **Next: Rafa's live run of the scenarios still to pass,** from the `round1-run` worktree. The live-fixes session moves it to main after PR 223 merges. One terminal only: a second run of the round's keys from any worktree of this clone refuses to start (Decision 37). The commands print addresses and links, never the secret or a key.
+  1. Check the worktree's commit: `git -C /Users/rafa/Documents/escrow/.worktrees/round1-run log -1 --oneline` shows PR 223's merge commit or a later one. If it shows `1a2cbd3`, move it first: `git -C /Users/rafa/Documents/escrow/.worktrees/round1-run fetch origin`, then `git -C /Users/rafa/Documents/escrow/.worktrees/round1-run checkout --detach origin/main`, then `pnpm -C /Users/rafa/Documents/escrow/.worktrees/round1-run install --frozen-lockfile`.
+  2. **No top-up is needed.** Every round key still holds about 0.04 Sepolia ETH: each spent less than 0.00000002 Sepolia ETH across the earlier runs, as Sepolia's gas price was 27 wei per gas on 3c's deposit [measured, 2026-11-06, `eth_getBalance` and the receipt through publicnode]. The run needs well under 2,000,000 gas a key, which 0.04 Sepolia ETH covers even at the 20 gwei cap [inferred from the anvil gas].
   3. The run, in a terminal: scenario 11 waits there for you to type `deployed`.
 
      ```bash
-     node --env-file=/Users/rafa/Documents/escrow/.env /Users/rafa/Documents/escrow/examples/e2e-round.ts run all --t220
+     node --env-file=/Users/rafa/Documents/escrow/.env /Users/rafa/Documents/escrow/.worktrees/round1-run/examples/e2e-round.ts run 3b 4 5a 5b 6 7 8 9 10a 10b 11 --t220
      ```
 
-     It runs the 16 scenarios in order and stops early only when a scenario leaves money held (Decision 12). It takes about 1.5 to 2 hours [guessed: the 2026-11-05 run took 19 minutes for six scenarios; 3b, 3c, 4, 5a, 5b and 7 each wait out windows of minutes]. A direct send while Sepolia's fees are above 20 gwei is refused and stops that scenario (Decision 32); run the scenarios left by ID once fees fall.
+     - Why these eleven: 3b and 5b to 11 have not run on T-228's Worker versions (6 passed at 13:25 UTC, before that deploy); 4 and 5a passed in run B, and run again here to show the per-deal money checks live.
+     - 1, 2, 3a, 3c and 3d passed on the same Worker versions in run A, and every one but 1 in run B too. Adding them to the command (or `run all --t220`) shows every scenario under one driver, at about 25 minutes more [measured: run A took 16 minutes for them].
+     - It runs the scenarios in the order given. After each one, the gate closes a deal the scenario left holding money, within 15 minutes, and stops the run only when a deal cannot settle in that time (Decision 36). A direct send while Sepolia's fees are above 20 gwei is refused and stops that scenario (Decision 32); run the scenarios left by ID once fees fall.
+     - It takes about 1.5 hours [guessed: the waits of 3b, 4, 5b, 7 and 8 are minutes each; 4 and 5a took 10 minutes together in run B].
   4. **What scenario 11 asks of Rafa.**
      - At its start it prints `pnpm -C /Users/rafa/Documents/escrow/apps/demo-cloud build`. Run that in another terminal, so the redeploy at the pause is quick.
      - It relays a delivery through holdback-op1, then pauses once the deal's relayer lane has broadcast it and op1 has not answered. It prints the lane, the nonce and `npx -y wrangler@4 deploy -c /Users/rafa/Documents/escrow/apps/demo-cloud/wrangler.op1.jsonc`. Running that deploy is the scenario's one human gate (scope question 6). Then type `deployed` and press Enter. Any other line is ignored, so an Enter typed earlier in the run cannot end the pause (Decision 33).
@@ -431,23 +531,28 @@ Made by the four group sessions and the integrating session on 2026-11-05, insid
      - Deploy the code holdback-op1 runs: T-228's `236786a` (`docs/operations.md`). Main since then changed no worker code [inferred from the diffs: site, docs, CI and examples only].
      - The time between the broadcast and op1's answer is about 12 to 25 s on Sepolia, and op1's Durable Object took up to 44 s to restart after T-220's deploy [inferred by the direct group]. If the deploy lands after the receipt, the check "the restart cut the relayed delivery" fails honestly; then rerun 11 alone, the same command with `run 11 --t220`.
      - It uploads at most 2 blobs of 32 bytes to the live ciphertext store per run.
-  5. About 20 minutes after the run's last transaction, the finality re-read (public chain data, no secret):
+  5. About 20 minutes after the run's last transaction, the finality re-read (public chain data, no secret), for this run's folder and for run B's, which has none yet:
 
      ```bash
-     node /Users/rafa/Documents/escrow/examples/e2e-round.ts finality /Users/rafa/Documents/escrow/reports/e2e-round-1/<run folder>
+     node /Users/rafa/Documents/escrow/.worktrees/round1-run/examples/e2e-round.ts finality /Users/rafa/Documents/escrow/.worktrees/round1-run/reports/e2e-round-1/<run folder>
+     node /Users/rafa/Documents/escrow/.worktrees/round1-run/examples/e2e-round.ts finality /Users/rafa/Documents/escrow/.worktrees/round1-run/reports/e2e-round-1/2026-11-05T193705Z
      ```
 
   6. Paste `summary.md` or the terminal output to the T-216 session, which writes the report (`docs/reviews/2026-11-04-evm-e2e-round-1.md`).
-- **What to watch in that run** [inferred, from the group sessions].
+- **What to watch in the rerun** [inferred].
+  - 3b's two bond deposits: adjudicator-2 already holds the 25 tUSDC it minted and its allowance, so it approves and deposits only. A revert now names the contract's error at the round's last block; a stale node cannot cause it.
+  - The money lines in `summary.md` now read "this deal moved …". A second "the address changed by …" means another deal of the same party settled in the window: the check still holds.
+  - The lines "after the scenario: …" in a record say what the gate did: how long it waited, and any timeout it sent.
+
+  From the group sessions, still open:
   - The drand paths run on a chain for the first time on Sepolia: 4's fallback decision, 5b's and 7's appeal decisions, and 8's third deal. The anvil world names the sim beacon, so those beacon-round and fee checks were written from the contract's code (`HoldbackRules.sol` 287 to 333 and 543 to 551) and the ABI's event names. A wrong field shows as a FAIL, not a false pass.
   - 8, deal 3: the demo fallback sends its own takeover once `judgeBy` passes. If its transaction lands first, the check "triggerFallback is sent directly from the buyer's key" fails and names that transaction.
   - 3b: on anvil, the `fallback` trigger through the API is refused by anvil's `eth_estimateGas` (the backlog row of the driver PR), and the driver then sends `triggerFallback` directly. Sepolia shows whether the API relays it.
-  - `openDeals` reads the latest block. A node one block behind could show a deal that has just closed as still holding money, and stop the run early (Decision 12) [inferred; not seen]. If it does, run the remaining scenarios by ID.
-- **Product defects found: none.** The four groups and the 3d and 10a diagnosis found driver defects only, and PR 210 fixes them (Decisions 29 and 30). For Rafa, outside this task's paths:
+- **Product defects found: none.** The four groups, the 3d and 10a diagnosis and the 2026-11-06 diagnosis of the evening runs found driver defects only; PR 210 fixes the first ones (Decisions 29 and 30), and branch `t-216-live-fixes` the last three (Decisions 34 to 37). For Rafa, outside this task's paths:
   - Optional, from the diagnosis: one `paymentState` assert after a mutual settlement in `contracts/test/Settle.t.sol`. The contract is right [measured on Sepolia by the diagnosis: after 10a's settlement CPP reads capturable 0 and refundable 15 tUSDC, a ceiling on what the operator may refund from its own tokens, and HoldbackRules never calls `refund`].
   - `vitest.config.ts`'s cost table could list the new driver test files: on SimChain the silent file takes about 110 s and the scripted file about 60 s [measured by the groups].
   - A row for `docs/team.md` (Rules and checks), since three groups hit the same `stop` defect: "Code that runs in the driver process is tested in the driver process." The check: a helper with unref'd timers gets a test that runs it through `driver()` in a child process, not only inside vitest.
-  - A second row, since the stale read after a transaction came back three times (T-226's lost delivery, 3d and 10a, then PR 210's before reads): "A chain read that follows a transaction reads at that transaction's block or later, never at whatever block a node calls latest." The check: a stand-in RPC whose latest block lags the transaction, as in `examples/e2e-chain.test.ts`, for every new read after a write.
+  - The second row, on the stale read after a transaction, is in `docs/team.md` (Rules and checks) since 2026-11-06, added by the live-fixes session as the team process asks once a failure repeats: it came back five times (T-226's lost delivery, 3d and 10a's evidence, PR 210's before reads, then 3b's deposit and the gate after 5a). `docs/team.md` is outside this task's listed paths; Rafa can overrule the row.
   - Inside this lane, not built (no needs line asks for it): `anvilWorld` in `examples/e2e-world.ts` could take the scripted group's reseed (`anvil.fresh(canonicalKeccak({ sim: 'holdback/demo-cloud/v1', start }))`), so the demo fallback and appeal adjudicators decide on anvil and 4, 5b, 6 and 7 run their appeal paths offline.
 - **What each scenario built on 2026-11-05 does** (`node /Users/rafa/Documents/escrow/examples/e2e-round.ts list` prints what each waits for):
   - **3b:** the round's silent primary (adjudicator-1) and silent fallback (adjudicator-2, bonded for the price). At `judgeBy` the driver sends `fallback` through the API, or `triggerFallback` from the buyer's key when the API refuses. After `fallbackBy`, `default` ends the deal Defaulted and refunded; on chain `triggerDefault` does both. The seller gets 0 (Phase 4).

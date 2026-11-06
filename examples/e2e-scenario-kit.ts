@@ -118,6 +118,9 @@ export async function expireAppeal(r: Run, deal: Deal, appealBy: string): Promis
   deal.record.notes.push(`appeal-expiry sent by ${closedBy}`);
 }
 
+/** The deal's last transaction's block, once `finish` has read it, for a chain read after the deal's last step; else the latest block. */
+export const lastBlock = (deal: Deal): bigint | undefined => (deal.record.chain?.block === undefined ? undefined : BigInt(deal.record.chain.block));
+
 /** The chain checks every settled deal shares: dealOf's stage, CPP empty, the operator fee paid once, both views agree. */
 export function settledChecks(r: Run, deal: Deal, stage: string): void {
   const rec = deal.record;
