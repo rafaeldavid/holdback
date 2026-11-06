@@ -1,8 +1,8 @@
-# Decisions D1–D47
+# Decisions D1–D54
 
-Status: D1–D9 decided October 30, 2026, after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`); the options are kept as the record. D10 to D24 decided October 30 and 31, 2026, each after an independent research pass. D25 to D36 decided October 31 and November 1, 2026, D37 to D40 on November 1 and 2, D41 and D42 on November 3 (Rafa's principles and research-backed choices; D4 was updated on November 1 to target Ethereum mainnet via Sepolia, and marked decided by D41 on November 4). Newer entries are appended at the end. Owner: Rafa. Each decision has options, a recommendation and the ADR it settles.
+Status: D1–D9 decided October 30, 2026, after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`); the options are kept as the record. D10 to D24 decided October 30 and 31, 2026, each after an independent research pass. D25 to D36 decided October 31 and November 1, 2026, D37 to D40 on November 1 and 2, D41 to D44 on November 3, D45 to D49 on November 4, D50 to D52 on November 5, and D53 and D54 on November 6 (Rafa's principles and research-backed choices; D4 was updated on November 1 to target Ethereum mainnet via Sepolia, and marked decided by D41 on November 4). Newer entries are appended at the end. Owner: Rafa. Each decision has options, a recommendation and the ADR it settles.
 
-Still open (2026-11-03): ADR-0025, Proposed, to be decided with schema v0.9 (T-033); ADR-0027, Proposed (T-308: judgment report, verifiable inference, tuning releases; four open questions, none needed before Phase 3); the ADR-0023 amendment on fee bundling, Proposed (D37); and dispute clauses as selectable terms, deferred until after the demo (D29).
+Still open (2026-11-06): ADR-0025, Proposed, to be decided with T-033's schema bump, in Phase 6 since D53 (schemas 0.9 and 0.10 shipped without it); ADR-0027, Proposed (T-308: judgment report, verifiable inference, tuning releases; four open questions, none needed before Phase 3); the ADR-0023 amendment on fee bundling, Proposed (D37); and dispute clauses as selectable terms, deferred until after the demo (D29).
 
 ## D1. Adopt the neutrality litmus test as the top constraint (ADR-0001)
 
@@ -924,6 +924,7 @@ Also: the funding signature on EVM is CPP's collector signature and token identi
 - **The daily One-Click measurements** go to Phase 9, as Rafa asked. That task's own session adds its row.
 - **Work already in later phases keeps its phase.** T-066 (Phase 9) pauses with what is live recorded (PR 221), and T-059 (Phase 11) finishes its checks.
 - **Open: three proposed tasks, not created.** The operators send due timeouts on their own, so an abandoned deal settles with no caller (T-228's leftover). A low-balance alarm for the relayer's funding lane, pulled forward from T-054. A sweep of the product's own reads after a write, for the stale read after a transaction that has come back five times (PR 220). Rafa decides.
+  - *Later on 2026-11-06:* all three now exist. The operator-sent timeouts are T-231, live since 19:01 UTC. The runway warning for the funding lane is in Crow Control (D54, item 5), and the full alarm stays in T-054. The read-after-write audit is T-232 (D54, item 6).
 - **Litmus tests.** Untouched: the decision orders work and changes no contract, schema, defense or API.
 
 | Option | Effect |
@@ -960,6 +961,7 @@ Also: the funding signature on EVM is CPP's collector signature and token identi
    Out of Phase 2 by these decisions: T-212 (Phase 11), the scenario 11 redesign (Phase 3, T-310) and T-221 (Phase 4).
 
 - **Where round 1 stands** (2026-11-06, measured from the run records): 14 of 16 scenarios passed live (1, 2, 3a, 3b, 3c, 3d, 4, 5a, 5b, 6, 7, 9, 10a and 10b); 11 counts by coverage; 8 waits for the join fix. The round's buyer and seller closed scenario 8's deal with a direct `mutualSettle`, sent by the driver's new `settle` command (PR 224), in [`0x092d…2c58`](https://sepolia.etherscan.io/tx/0x092d7e8ae4a45ac09cec8c6665f7a5e868e0ebe2fdf2f91815f90f80952a9c58).
+  - *Later on 2026-11-06:* scenario 8 passed live at 15:35 UTC on T-230's operators, 25 of 25 checks (run `2026-11-06T152621Z` in the round-1 checkout), so 15 of 16 scenarios have passed live and 11 counts by coverage [measured, the run's `summary.md`].
 - **Litmus tests.** Untouched. The decisions accept recorded evidence and move work between phases; no contract, schema, defense or API changes.
 
 | Item | Rafa's answer | Effect |

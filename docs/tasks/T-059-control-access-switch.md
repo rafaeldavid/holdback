@@ -7,7 +7,7 @@
   - the `control/` folder and its hourly workflow in the founders' private repository (the console's code, tests and runbook live there, never here);
   - here: `docs/operations.md` and `docs/costs.md` (once the passcode retires), `docs/decisions-today.md` (D45 notes only), `docs/tasks/T-059-control-access-switch.md`.
 - **Human gate:** **yes.** The Access settings, the service tokens, the GitHub secrets, the storage namespace, the encryption key and every Worker deploy are outside this repository. Rafa does the dashboard steps himself; agents deploy only on his go-ahead, given in chat and recorded in Handoff with the date.
-- **Status:** in progress (live at `control.escrow.stream` since 2026-11-04; criterion 5, the passcode's retirement, met on 2026-11-05; left: Michael's confirmation of Strategy, Costs and Keys (criterion 1), 24 hours of hourly runs (criterion 4), a red-team pass on the live console (criterion 6), and the agents' small items in Handoff)
+- **Status:** in progress (live at `control.escrow.stream` since 2026-11-04; criterion 5, the passcode's retirement, met on 2026-11-05; left: Michael's confirmation of Strategy, Costs and Keys (criterion 1), two scheduled builds without a failed run, which replaced the 24 hours of hourly runs under D52 (criterion 4), a red-team pass on the live console (criterion 6), and the agents' small items in Handoff)
 - **Agent/session:** coordinator side session, 2026-11-04
 
 ## Intent
@@ -37,7 +37,7 @@ Move the founders' console from the passcode page at `escrow.stream/control` to 
 1. Both founders open `https://control.escrow.stream` through Access with GitHub as the only login method, and each sees Strategy, Costs and Keys (confirmed by Rafa).
 2. Without a sign-in, `curl -sI https://control.escrow.stream` answers `302` to the sign-in; a push with a wrong or a reader's token answers `401` or `403` (measured).
 3. `escrow.stream/control`, `/control/map` and `/control/contracts` serve nothing: they answer `404` (measured).
-4. The hourly job has pushed for 24 hours without a failed run, and the Mac's daily private push has run once (measured).
+4. The hourly job has pushed for 24 hours without a failed run, and the Mac's daily private push has run once (measured). Since D52 (2026-11-05) the job builds twice a day, so this reads as two scheduled builds without a failed run.
 5. The passcode is gone from Rafa's environment and from the key register; the passcode Worker's files are removed from the private repository (confirmed by Rafa and measured).
 6. A red-team pass against the deployed console finds no High or Critical finding (measured).
 
@@ -73,7 +73,7 @@ All 2026-11-04.
   2. checked it was gone with `grep -c`, which prints a count only;
   3. backed up `keys.json` in the cost directory, then replaced it with `control/keys.template.json`;
   4. ran the private push.
-- **Hourly runs (criterion 4), not yet met.** GitHub's scheduler skipped most scheduled runs: between 2026-11-04 21:25 UTC and 2026-11-05 15:30 UTC the job ran on schedule 3 times, at 23:42, 06:51 and 15:30 UTC, and all passed (measured, `gh run list --repo rafaeldavid/crow-private --workflow control-hourly.yml`). A separate PR makes the console refresh on every merge to main.
+- **Hourly runs (criterion 4), not yet met.** GitHub's scheduler skipped most scheduled runs: between 2026-11-04 21:25 UTC and 2026-11-05 15:30 UTC the job ran on schedule 3 times, at 23:42, 06:51 and 15:30 UTC, and all passed (measured, `gh run list --repo rafaeldavid/crow-private --workflow control-hourly.yml`). A separate PR makes the console refresh on every merge to main. That PR, holdback#214, closed unmerged: D52 replaced the hourly schedule with two builds a day at 07:07 and 16:07 Berlin time.
 
 ## Handoff
 
@@ -85,8 +85,8 @@ The console is live; the runbook in the console's folder describes how it runs. 
    - add the daily private push to the cost routine (T-055);
    - confirm that both founders see Strategy, Costs and Keys (criterion 1): Michael's confirmation is still open.
 2. **Agents:**
-   - after 24 hours of hourly runs, check the runs and the private push (criterion 4); the refresh-on-merge PR should close the gaps GitHub's scheduler leaves;
-   - run a red-team pass against the live console (criterion 6), best once T-066 and the refresh-on-merge change land;
+   - after two scheduled builds under D52, check the runs and the private push (criterion 4); "Run workflow" on `control-hourly` covers a run GitHub's scheduler skips;
+   - run a red-team pass against the live console (criterion 6), best once T-066's remaining slices land (paused under D53);
    - with the next Worker deploy, change the page's "No data" message, which still names the removed `build.mjs`;
    - update `docs/operations.md` and `docs/costs.md` if they describe the console.
 

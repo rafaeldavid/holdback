@@ -1,6 +1,6 @@
 # ADR-0025: EVM funding signature and token identifiers
 
-- **Status:** Proposed, 2026-11-01 (T-202). The schema change waits for a follow-up task after PR 67 (schema v0.8) merged; this ADR does not edit `spec/schemas/`.
+- **Status:** Proposed, 2026-11-01 (T-202). The schema change waits for a follow-up task after PR 67 (schema v0.8) merged; this ADR does not edit `spec/schemas/`. That task is T-033, in Phase 6 since 2026-11-06 (D53); schemas 0.9 and 0.10 shipped without its items.
 - **Date:** 2026-11-01
 - **Raised by:** T-201 finding 3 (the on-chain funding signature is CPP's, not `FundingAuthorization`); T-202, which needs the token in the signed terms to name the ERC-20 the contract moves.
 - **Changes (when accepted):** schema v0.9 (`FundingAuthorization` description and examples, the `TokenAmount.token` rule for EVM settlement), `packages/core` (an EVM funding builder and the derived CPP `PaymentInfo`), T-205's `Settlement` adapter, `examples/verify.ts`.

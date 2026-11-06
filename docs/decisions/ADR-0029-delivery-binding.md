@@ -1,6 +1,6 @@
 # ADR-0029: Decisions, early accepts and judgment records name the delivery they settle
 
-- **Status:** Proposed, 2026-11-03. Option A is adopted under "autonomy inside the repo" (D44) after a Fable max-effort research pass; Rafa may overrule any line. Built in T-212 item 3 (branch `t-212-delivery-binding`); the Sepolia redeploy and the Worker switch wait for Rafa.
+- **Status:** Proposed, 2026-11-03. Option A is adopted under "autonomy inside the repo" (D44) after a Fable max-effort research pass; Rafa may overrule any line. Built in T-212 item 3 and merged in PR 161 (2026-11-04). Rafa approved the Sepolia redeploy and the Worker switch, and both ran on 2026-11-04: the live demo signs under domain 0.7 since then (`docs/operations.md`, the 0.7 cutover).
 - **Date:** 2026-11-03
 - **Raised by:** T-212 item 3, from T-206 L-1 (`docs/reviews/2026-11-03-contract-review.md` §2.3) and the cross-family pass (§8, "A decision is not bound to the delivery"). Rafa asked for the fix in the contracts (2026-11-03). Research: this note (Fable 5.1, maximum effort; code read, nothing run).
 - **Builds on:** ADR-0012 (two-sided hold), ADR-0016 §3–4 (signed messages; settlement checks on every decision), ADR-0018 (panel seed hashes the attempt), ADR-0019 (a `MutualSettlement` already names `deliveryHash`), ADR-0024 §8 (the settlement view, one word per deal), ADR-0028 (the demo settles on Sepolia); D26, D28, D31, D32, D37.

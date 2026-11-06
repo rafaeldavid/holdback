@@ -5,7 +5,7 @@
 - **Depends on:** T-218 (merged in PR 185), which moved the book's state after the post-receipt checks. T-219 (draft PR 195) edits the same files; this task keeps out of its changes.
 - **Paths this task may touch:** `packages/settlement/evm/evm-settlement.ts` (`send` and its read helpers), `packages/settlement/evm/live.ts` (`blockTime`), their tests (`evm-settlement.test.ts`, `sync.test.ts`); docs: `docs/backlog.md` (its row), `docs/tasks/T-216-evm-e2e-round-1.md` (one Evidence line), `docs/plan.md` (this row), this file
 - **Human gate:** yes for the deploy: the operators run the fix only after T-220's deploy, which Rafa does. Everything else is in the repository.
-- **Status:** done (merged in PR 200; it goes live with T-220's deploy)
+- **Status:** done (merged in PR 200; live since T-220's deploy on 2026-11-05, 11:04 UTC)
 - **Agent/session:** the round-1 lost-events session, 2026-11-04, started from the T-216 session
 
 ## Intent
