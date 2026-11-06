@@ -5,8 +5,8 @@
 - **Depends on:** T-218 (the chain sync and the delivery join, PR 185), T-219 (the in-flight row per relayer lane, PR 195) and T-228 (timeouts for a deal behind the chain, PR 207); all done. Found by T-216's round 1, scenario 8.
 - **Paths this task may touch:** `packages/settlement/evm/evm-settlement.ts` (the `deliver` relay, `send`'s revert answer, `process`, `land`, `follow`, `observe`, `openDeals`, `step`, `rebuild`, `fallBehind` and new `Book` fields), `packages/settlement/evm/sync.ts` (`commitmentTxs`, a pinned head), `packages/settlement/evm/sync.test.ts` and the red team's `packages/settlement/evm/attack-t230.test.ts` (new); `docs/neutrality.md` (the escape-hatch requirements), `site/llms.txt` (the line on submitting directly), `docs/api.md` (only if a response changes), `docs/team.md` (a Rules and checks row, if the failure repeats), `docs/plan.md` (this row) and this file
 - **Human gate:** the deploy of holdback-op1 and holdback-op2 waits for Rafa, as every deploy does. No contract change, no schema change.
-- **Status:** review
-- **Agent/session:** T-230 session, 2026-11-06, worktree `.worktrees/join-delivery`, branch `t-230-join-onchain-delivery`. Rafa approved the work on 2026-11-06 ("Spin it up").
+- **Status:** done (merged in PR 232; the deploy and the scenario 8 rerun wait for Rafa, Handoff)
+- **Agent/session:** T-230 session, 2026-11-06, worktree `.worktrees/join-delivery`, branch `t-230-join-delivery` (PR 232). It replaced branch `t-230-join-onchain-delivery` (PR 231, closed), whose history held three test strings gitleaks flagged. Rafa approved the work on 2026-11-06 ("Spin it up").
 
 ## Intent
 
@@ -39,7 +39,7 @@ The operator must still refuse a delivery whose hash differs from the chain's, a
 7. [x] **Refusals stay.** Another delivery's hash, or a copy whose signature does not recover to the seller, is refused and keeps nothing.
 8. [x] **Docs:** `docs/neutrality.md`'s escape-hatch requirements and `site/llms.txt`'s line on submitting directly say that the post joins in either order; `node site/build.mjs` and `node site/check.mjs` pass.
 9. [x] **Review:** a `reviewer` pass, and a `red-teamer` pass on the relay and join path. Findings fixed.
-10. [ ] `pnpm verify` passes and CI is green, gitleaks included.
+10. [x] `pnpm verify` passes and CI is green, gitleaks included.
 11. [x] **The deploy steps** for Rafa are in the Handoff, after `docs/operations.md`'s T-228 section. Nothing is deployed in this task.
 
 ## Out of scope
@@ -111,19 +111,21 @@ All on anvil standing in for Sepolia (a block every second), `packages/settlemen
 
 ### `pnpm verify`
 
-**PASS** at `ec35fe3`, 2026-11-06 11:06 UTC, with the review and red-team fixes [measured: `reports/verify-t-230-join-onchain-delivery.md`]. No snapshot diffs against HEAD. `pnpm test` ran 134 files and 2,877 tests; the 2 files and 6 tests skipped are the suites that need `SEPOLIA_FORK_RPC` or other secrets [inferred from their skip conditions, as in T-228]. `snap:local` ran 28 fixtures on the contract, each with a transcript identical to SimChain's, and excluded 3 until Phase 4. CI's contracts job runs `packages/settlement/evm` on anvil and fails on any skip, so the new tests run in CI [documented: `.github/workflows/ci.yml`, the "anvil tests (must not skip)" step].
+**PASS** at `1a4ffb7`, the final code on branch `t-230-join-delivery`, 2026-11-06 11:59 UTC [measured: `reports/verify-t-230-join-delivery.md`; the uncommitted changes it notes are this file's]. No snapshot diffs against HEAD. `pnpm test` ran 134 files and 2,884 tests; the 2 files and 6 tests skipped are the suites that need `SEPOLIA_FORK_RPC` or other secrets [inferred from their skip conditions, as in T-228]. `snap:local` ran 28 fixtures on the contract, each with a transcript identical to SimChain's, and excluded 3 until Phase 4 [measured at `ec35fe3`, before round 2; it passed again here]. An earlier run at `ec35fe3`, before round 2's fixes, passed too (2,877 tests).
 
 | Step | Command | Status | Time |
 | --- | --- | --- | --- |
-| typecheck | `pnpm typecheck` | pass | 4,926 ms |
-| lint | `pnpm lint` | pass | 4,530 ms |
-| forge build | `forge build --root contracts` | pass | 1,010 ms |
-| forge | `forge test --root contracts` | pass | 15,283 ms |
-| test | `pnpm test` | pass | 468,675 ms |
-| spec | `pnpm validate:spec` | pass | 711 ms |
-| snap | `pnpm snap` | pass | 10,215 ms |
-| snap:local | `pnpm snap --settlement=local` | pass | 16,339 ms |
-| demo | `pnpm demo` | pass | 4,766 ms |
+| typecheck | `pnpm typecheck` | pass | 218 ms |
+| lint | `pnpm lint` | pass | 4,943 ms |
+| forge build | `forge build --root contracts` | pass | 1,038 ms |
+| forge | `forge test --root contracts` | pass | 17,265 ms |
+| test | `pnpm test` | pass | 428,041 ms |
+| spec | `pnpm validate:spec` | pass | 631 ms |
+| snap | `pnpm snap` | pass | 9,808 ms |
+| snap:local | `pnpm snap --settlement=local` | pass | 15,441 ms |
+| demo | `pnpm demo` | pass | 4,225 ms |
+
+**CI on PR 232 at `1a4ffb7`:** all 12 checks pass, gitleaks included; the contracts job, which runs `packages/settlement/evm` on anvil and fails on any skip, took 7 min 20 s [measured: `gh pr checks 232`]. On PR 231 every check but gitleaks had passed on the same code.
 
 - The worktree's `contracts/lib/commerce-payments` was copied from the main checkout at the same commit, `6b0a5ef` [measured: `git rev-parse HEAD` in both]. CI checks the submodule out itself.
 - `node site/build.mjs` rewrote nothing beyond `llms.txt`'s own edit, and `node site/check.mjs` passed [measured]. `try.mjs` keeps sha256 `cc310963…d832`.
@@ -146,7 +148,7 @@ Made by the T-230 session on 2026-11-06; Rafa can overrule any of them.
 
 ## Handoff
 
-- **State:** review, in [PR 231](https://github.com/rafaeldavid/holdback/pull/231). It merges once CI passes and the findings are fixed; the deploy then waits for Rafa.
+- **State:** done: [PR 232](https://github.com/rafaeldavid/holdback/pull/232) merges once CI passes, with every review and red-team finding fixed. Not deployed: holdback-op1 and holdback-op2 still run T-228's `ba7a2ad9` and `7826e3ce` until Rafa's go-ahead. PR 231, the first branch, is closed: gitleaks flagged three test Idempotency-Keys in one of its commits, and a flagged string stays in a PR's history (`docs/team.md`, the proposed gitleaks row).
 - **The deploy, for Rafa,** in the shape of `docs/operations.md`'s T-228 section. No contract change, no schema change, no new secret or variable.
   - **Before** (read-only; save each answer under `reports/t230/`):
     1. The PR is merged and CI passed on its merge commit. A fresh detached worktree on that commit passes `pnpm install --frozen-lockfile` and `pnpm build`.
