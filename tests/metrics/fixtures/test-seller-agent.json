@@ -1,0 +1,12 @@
+{
+  "type": "crow-agent",
+  "name": "Crow's test seller",
+  "limits": {
+    "open": 10,
+    "perHour": 20,
+    "perDay": 100,
+    "perClientPerHour": 3,
+    "perClientPerDay": 10
+  },
+  "testTokensOnly": true
+}

@@ -1,0 +1,72 @@
+{
+  "asOf": "2026-11-05",
+  "usdMicrosPerEth": {
+    "value": "2273205000",
+    "source": "Chainlink ETH/USD (0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419) latestRoundData on https://ethereum-rpc.publicnode.com, updated 2026-11-05T15:25:11Z",
+    "readAt": "2026-11-05T15:47:17Z",
+    "basis": "measured"
+  },
+  "gas": {
+    "ethereum": {
+      "gasPriceWei": "5664912934",
+      "source": "eth_feeHistory over 20 blocks on https://ethereum-rpc.publicnode.com: the next block's base fee plus the median 50th-percentile tip",
+      "readAt": "2026-11-05T15:47:17Z",
+      "basis": "measured"
+    },
+    "base": {
+      "gasPriceWei": "8554784",
+      "l1Fee": {
+        "weiPerTx": "1089173992688",
+        "txBytes": 2400,
+        "txBytesSource": "a deal's transactions carry 1,028 to 2,788 bytes of calldata (measured on Sepolia, 2026-11-05: appeal expiry 1,028, decision 2,372, funding 2,788); 2,400 is about their median",
+        "method": "GasPriceOracle (0x420000000000000000000000000000000000000F) getL1FeeUpperBound(2400): an upper bound for one transaction of that size",
+        "source": "https://base-rpc.publicnode.com",
+        "readAt": "2026-11-05T15:47:17Z",
+        "basis": "inferred"
+      },
+      "source": "eth_feeHistory over 20 blocks on https://base-rpc.publicnode.com: the next block's base fee plus the median 50th-percentile tip",
+      "readAt": "2026-11-05T15:47:17Z",
+      "basis": "measured"
+    }
+  },
+  "cloudflare": {
+    "workersRequests": {
+      "usdMicrosPerMillion": "300000",
+      "included": "10000000",
+      "per": "month",
+      "source": "https://developers.cloudflare.com/workers/platform/pricing/",
+      "readOn": "2026-11-05",
+      "basis": "published list price, Workers Paid"
+    },
+    "workersCpuMs": {
+      "usdMicrosPerMillion": "20000",
+      "included": "30000000",
+      "per": "month",
+      "source": "https://developers.cloudflare.com/workers/platform/pricing/",
+      "readOn": "2026-11-05",
+      "basis": "published list price, Workers Paid"
+    },
+    "durableObjectRequests": {
+      "usdMicrosPerMillion": "150000",
+      "included": "1000000",
+      "per": "month",
+      "source": "https://developers.cloudflare.com/workers/platform/pricing/",
+      "readOn": "2026-11-05",
+      "basis": "published list price, Workers Paid"
+    },
+    "durableObjectGbS": {
+      "usdMicrosPerMillion": "12500000",
+      "included": "400000",
+      "per": "month",
+      "source": "https://developers.cloudflare.com/workers/platform/pricing/",
+      "readOn": "2026-11-05",
+      "basis": "published list price, Workers Paid"
+    }
+  },
+  "tusdcToUsd": {
+    "numerator": 1,
+    "denominator": 1,
+    "basis": "assumption",
+    "note": "tUSDC is Crow's open-mint test token; it stands in for USDC, so the fee is valued at USD 1 a token"
+  }
+}

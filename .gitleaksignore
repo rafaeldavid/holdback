@@ -59,3 +59,16 @@ e444e0864c3aabafdb544052abc5d54261abe373:site/llms.txt:generic-api-key:161
 # False positive: a made-up address keyed `token` in the T-216 adjudicator's EIP-712 digest test (PR 210); it names no
 # contract and guards nothing.
 7a516d5e72d2f8a4e05d881469b9ab9d3ecf18c7:examples/e2e-adjudicator.test.ts:generic-api-key:50
+# False positives: T-066 test fixtures read from the live demo's public discovery and event log, where "token" is the
+# public contract address of the open-mint test token tUSDC (0x5029787d…96b6) on Sepolia, not a credential.
+59b13228fa5131784ae607501b09dae6a964dfb7:tests/metrics/fixtures/discovery.json:generic-api-key:26
+59b13228fa5131784ae607501b09dae6a964dfb7:tests/metrics/fixtures/discovery.json:generic-api-key:83
+59b13228fa5131784ae607501b09dae6a964dfb7:tests/metrics/fixtures/deal-once.events.json:generic-api-key:56
+59b13228fa5131784ae607501b09dae6a964dfb7:tests/metrics/fixtures/deal-once.events.json:generic-api-key:65
+59b13228fa5131784ae607501b09dae6a964dfb7:tests/metrics/fixtures/deal-once.events.json:generic-api-key:83
+59b13228fa5131784ae607501b09dae6a964dfb7:tests/metrics/fixtures/deal-once.events.json:generic-api-key:111
+59b13228fa5131784ae607501b09dae6a964dfb7:tests/metrics/fixtures/deal-once.events.json:generic-api-key:115
+59b13228fa5131784ae607501b09dae6a964dfb7:tests/metrics/fixtures/deal-once.events.json:generic-api-key:126
+59b13228fa5131784ae607501b09dae6a964dfb7:tests/metrics/fixtures/deal-once.events.json:generic-api-key:130
+59b13228fa5131784ae607501b09dae6a964dfb7:tests/metrics/fixtures/deal-once.events.json:generic-api-key:166
+59b13228fa5131784ae607501b09dae6a964dfb7:tests/metrics/fixtures/deal-once.events.json:generic-api-key:186
