@@ -75,6 +75,9 @@ All 2026-11-04.
   4. ran the private push.
 - **Hourly runs (criterion 4), not yet met.** GitHub's scheduler skipped most scheduled runs: between 2026-11-04 21:25 UTC and 2026-11-05 15:30 UTC the job ran on schedule 3 times, at 23:42, 06:51 and 15:30 UTC, and all passed (measured, `gh run list --repo rafaeldavid/crow-private --workflow control-hourly.yml`). A separate PR makes the console refresh on every merge to main. That PR, holdback#214, closed unmerged: D52 replaced the hourly schedule with two builds a day at 07:07 and 16:07 Berlin time.
 
+**2026-11-06**
+- **Two scheduled builds under D52 passed** (measured, `gh run list --repo rafaeldavid/crow-private --workflow control-hourly.yml`, read at about 21:10 UTC): runs started at 14:10 and 20:49 UTC, both `schedule` and `success`. Both started hours after the 06:07 and 15:07 UTC slots, as GitHub may delay a scheduled run (D52). Criterion 4 also needs the private push checked; this entry does not check it.
+
 ## Handoff
 
 The console is live; the runbook in the console's folder describes how it runs. Left:
