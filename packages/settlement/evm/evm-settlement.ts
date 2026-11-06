@@ -319,6 +319,8 @@ const RECENT_MS = 86_400_000;
 const POSTED_KEYS_MAX = 16;
 /** Permissionless timeouts: the sync reads them from the logs alone, never from calldata (T-218). */
 const TIMEOUTS: ReadonlySet<string> = new Set(['expireOffer', 'reclaim', 'triggerFallback', 'triggerDefault', 'expireAppeal']);
+/** The event each timeout leaves in its deal's log: a trigger that comes after it sends nothing (T-231). */
+const RAN: Partial<Record<TimeoutKind, SettlementEventType>> = { expire_offer: 'offer.expired', reclaim: 'settlement.reclaimed', fallback: 'fallback.triggered', default: 'default.triggered', appeal_expiry: 'appeal.expired' };
 /** 9999-12-31T23:59:59Z: a later chain time (the contract takes any uint64) reads as never expiring (review H2). */
 const LATEST_SECONDS = 253_402_300_799;
 /** A contract time in seconds as a timestamp, clamped to what a timestamp holds; the contract already enforced it. */
@@ -525,6 +527,12 @@ export class EvmSettlement implements Settlement {
 
   escrowState(id: Hex32): EscrowState | null {
     return this.books.get(id)?.state ?? null;
+  }
+
+  /** For a deal behind the chain (T-218), dealOf's stage and appeal state as this node last applied them; null otherwise. */
+  behindStage(id: Hex32): { stage: string; appeal: number } | null {
+    const b = this.books.get(id)?.behind;
+    return b ? { stage: b.stage, appeal: b.appeal } : null;
   }
 
   log(): SettlementEvent[] {
@@ -1300,6 +1308,12 @@ export class EvmSettlement implements Settlement {
 
   private async timeout(id: Hex32, timeout: TimeoutKind, options: Relay, dryRun: boolean, at: Timestamp): Promise<Hex32> {
     const book = this.bookOf(id);
+    // T-231: the operators send due timeouts on their own, so a party's trigger can arrive after the timeout ran. It
+    // answers the state that timeout left and sends nothing, as `apply_default` does. A deal behind the chain logs no
+    // event for its later steps, so the contract still answers for it. Each timeout runs at most once per deal while the
+    // contract takes one delivery attempt (maxSubmissions 1, ADR-0007); a resubmission would need this check per attempt.
+    const ran = RAN[timeout];
+    if (ran && !book.behind && this.log_.some((e) => e.commitmentId === id && e.type === ran)) return id;
     const t = termsView(book.state.terms);
     switch (timeout) {
       case 'expire_offer':

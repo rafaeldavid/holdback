@@ -39,7 +39,7 @@ The operators' pass sends no party timeout today (`workAt` in `apps/demo-cloud/s
 ## Out of scope
 
 - Everything else in T-227: the adjudicators reading `dealOf`, the relay path for signed steps, each case's test, contract signers, the named attack test.
-- The operators' pass sending due timeouts on its own for a deal behind (it sends none for any deal today).
+- The operators' pass sending due timeouts on its own for a deal behind (it sent none for any deal then). Done in T-231.
 
 ## Evidence
 
@@ -136,4 +136,4 @@ The operators' pass sends no party timeout today (`workAt` in `apps/demo-cloud/s
 - **Next:** the site's own deploy publishes the `llms.txt` change. To roll back the operators: holdback-op1 `1d8a029c-44eb-4276-b5c0-c2c8894b25d5`, holdback-op2 `a042aae3-821a-4efd-856a-42070205c45e` (`docs/operations.md`, T-228).
 - **Left over, small (all deals, not only those behind):** a retry with the same `Idempotency-Key` that arrives after a failed or stale read at the receipt but before the next sync pass (about 1 min while the deal is recent) runs again and answers `invalid_state`, as on `send`'s path since review M2; after the pass or a restart it replays `ok`.
 - **Left over, view only:** for a deal waiting for its posted delivery, `transactions()` lists the operator's relayed timeout only once the delivery joins (`landBehind` skips `txs.push` there, and `join` records it, labelled `direct`), so the operator's gas spend for such a deal shows late or, if the seller never posts, never.
-- **Not done, by choice:** the operators' pass does not send due timeouts on its own for a deal behind, so someone still calls `POST /v1/commitments/<id>/triggers/<kind>` (anyone may, at no gas). If stuck deals show up in the demo, the pass could send them; that belongs in the backlog, not here.
+- **Not done here, done in T-231:** the operators' pass did not send due timeouts on its own, for a deal behind or any other, so someone still called `POST /v1/commitments/<id>/triggers/<kind>` (anyone may, at no gas). T-231 (`docs/tasks/T-231-operator-timeouts.md`, Rafa's go-ahead on 2026-11-06) makes the pass send each due timeout itself, a deal behind the chain included, and a party's trigger that comes after the operators' then answers the state it left.

@@ -320,6 +320,14 @@ export class LiveChain implements EvmChain {
     return [...this.orphans.values()].sort((a, b) => a.nonce - b.nonce);
   }
 
+  /**
+   * Every row written and not yet released, oldest nonce first (T-231): the operators' own timeouts leave a deal alone
+   * while any of its transactions is in flight or mined but not yet applied, so none is sent twice.
+   */
+  openRows(): readonly LaneRow[] {
+    return [...this.rows.values()].sort((a, b) => a.nonce - b.nonce);
+  }
+
   /** The open row that sent `hash`, if any: the sync tells this node's own relays from direct calls by it. */
   rowOf(hash: string): LaneRow | undefined {
     const h = lc(hash);

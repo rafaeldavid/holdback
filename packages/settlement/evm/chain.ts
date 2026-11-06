@@ -109,6 +109,11 @@ export interface EvmChain {
   inFlight?(): readonly LaneRow[];
   /** The open row that sent `hash`, if any. */
   rowOf?(hash: string): LaneRow | undefined;
+  /**
+   * T-231, a live chain only. Every row written and not yet released: a relay waiting for its receipt, one mined whose
+   * receipt is not applied yet (a read after it failed), and the rows a restart left open.
+   */
+  openRows?(): readonly LaneRow[];
   /** The row's receipt: the same raw transaction rebroadcast while it is not mined; null once given up. Throws on an RPC error. */
   resume?(row: LaneRow): Promise<Mined | null>;
   /** Deletes the rows that sent these hashes: their receipts are applied, and the books they changed are written. */
