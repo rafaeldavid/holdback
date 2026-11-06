@@ -35,6 +35,9 @@
 // that transaction as the relay it was, before the sync and the adjudicators. The demo club's rulebook names drand
 // quicknet, which the rules contract verifies, and the demo adjudicators read its rounds from the public relays (T-217,
 // T-220). One world lives through rulebook, schema and code changes; only a new rules contract needs a new one (D49).
+// After the adjudicators, each pass sends the deals' due timeouts at the relayer's gas (T-231): the reclaim, the
+// default, the appeal expiry and an accepted offer's expiry, so a deal ends when its parties are gone. A cap per pass
+// and a daily budget bound what that spends, and the alarm wakes at the next one due.
 import { canonicalKeccak, DRAND_QUICKNET_CHAIN_HASH, holdbackDomain, problem, registrationBodyHash, wholeSecond, type AdjudicatorPolicy, type AdjudicatorRegistration, type Address, type EscrowState, type HoldbackDomain, type Hex32, type Judgment, type Mandate, type OperatorFeeSchedule, type Problem, type RegisteredAdjudicator, type SettlementEvent, type Sha256, type Timestamp, type TokenAmount } from '@holdback/core';
 import { sha256 } from '@holdback/core/crypto';
 import { StoreError, type CiphertextStore } from '@holdback/core/store';
@@ -59,7 +62,8 @@ import {
   type TestAccount,
 } from '@holdback/operator';
 import { decodePublicKey } from '@holdback/core/crypto';
-import { ChainSync, ensureBond, EvmSettlement, rebindToken, RelayRefused, type Book, type Cursor, type LiveChain, type RecoverReport, type SyncReport } from '@holdback/settlement/live';
+import { ChainSync, ensureBond, EvmSettlement, OperatorTimeouts, rebindToken, RelayRefused, type Book, type Cursor, type LiveChain, type RecoverReport, type SyncReport, type TimeoutBudget, type TimeoutReport } from '@holdback/settlement/live';
+import type { TimeoutKind } from '@holdback/settlement';
 import { privateKeyToAccount } from 'viem/accounts';
 import { mandateFor, SIM_CHAIN_ID, SIM_RULEBOOK, simClub, SimChain, TOKEN, wideScope, type Genesis, type JournalEntry } from '@holdback/settlement/sim';
 import { panelConfig, type JudgeProvider, type PanelConfig } from './judges.js';
@@ -176,6 +180,13 @@ const SLOWEST_PASS_MS = 60_000;
 const CURSOR_EVERY_BLOCKS = 300n;
 /** How often a pass reads the chain while every open deal has been quiet for a day (T-218). */
 const IDLE_SYNC_MS = 15 * 60_000;
+/**
+ * Timeouts the operators send on their own a UTC day (T-231): about 0.024 test ETH at 1 gwei a gas and 80,792 gas each
+ * (round 1's relayed appeal expiry, measured). Past it, a deal waits for the next day or a party's trigger.
+ */
+const TIMEOUTS_PER_DAY = 300;
+/** Of those, accepted offers expired: an offer costs nothing to post, so its own cap keeps offers from spending the rest. */
+const OFFER_EXPIRIES_PER_DAY = 100;
 const SCRIPTED_PANEL = 'scripted judge panel: no model runs in this demo, every panel verdict is a fake judge marked "[fake judge, no model ran]"; use template checks-only for real acceptance';
 const livePanel = (perDay: number) =>
   `live judge panel: pinned models from two families (Anthropic, DeepSeek; config/judges-live.yaml), at most ${perDay} live judge calls a day across this demo; past that, panels are scripted fake judges whose verdicts are marked "[fake judge, no model ran]"`;
@@ -374,6 +385,37 @@ export class BondReads {
   }
 }
 
+/**
+ * The operators' daily budget for the timeouts they send on their own (T-231): one row `ot:<YYYY-MM-DD>` a UTC day,
+ * written before each send, so a restart in the middle of one still counts it. Offer expiries have their own cap
+ * inside it. One Durable Object serves the world, so the day's count is held in memory and read once a day.
+ */
+export class TimeoutBudgetRows implements TimeoutBudget {
+  private today: { day: string; sent: number; offers: number } | null = null;
+
+  constructor(
+    private readonly storage: WorldStorage,
+    private readonly now: () => number,
+    private readonly limits: { perDay: number; offersPerDay: number } = { perDay: TIMEOUTS_PER_DAY, offersPerDay: OFFER_EXPIRIES_PER_DAY },
+  ) {}
+
+  async take(kind: TimeoutKind): Promise<true | { opensAt: number; offersOnly: boolean }> {
+    const day = new Date(this.now()).toISOString().slice(0, 10);
+    if (this.today?.day !== day) {
+      const row = await this.storage.get<{ sent: number; offers: number }>(`ot:${day}`);
+      this.today = { day, sent: row?.sent ?? 0, offers: row?.offers ?? 0 };
+    }
+    const opensAt = Date.parse(`${day}T00:00:00Z`) + 86_400_000;
+    if (this.today.sent >= this.limits.perDay) return { opensAt, offersOnly: false };
+    const offer = kind === 'expire_offer';
+    if (offer && this.today.offers >= this.limits.offersPerDay) return { opensAt, offersOnly: true };
+    const next = { sent: this.today.sent + 1, offers: this.today.offers + (offer ? 1 : 0) };
+    await this.storage.put({ [`ot:${day}`]: next });
+    this.today = { day, ...next };
+    return true;
+  }
+}
+
 /** A fallback or appeal turn one of this world's adjudicators declined on the deal's terms (T-221). */
 interface DeclinedTurn {
   role: 'fallback' | 'appeal';
@@ -405,7 +447,8 @@ function declinedTurnNotice(s: EscrowState | null, t: DeclinedTurn): string | nu
  * takeover, nothing while it is a party's turn; null once no adjudicator can act on it again, so `look` drops it. The
  * primary accepts an offer before offerExpiresAt and decides a delivery before judgeBy; the fallback takes over at
  * judgeBy and decides before fallbackBy; the appeal adjudicator decides an escalation or an open appeal before
- * appealDecideBy. Every other timeout (offer expiry, reclaim, default, appeal expiry) is a party's trigger.
+ * appealDecideBy. On a chain the operators send every other timeout themselves once it is due (offer expiry, reclaim,
+ * default, appeal expiry; OperatorTimeouts, T-231), and any party may trigger one sooner.
  */
 function workAt(s: EscrowState, ours: (address: string) => boolean, now: number): number[] | null {
   const { adjudicator, fallbackAdjudicator, appealAdjudicator } = s.terms.adjudication;
@@ -552,7 +595,16 @@ export class PublicWorld {
       const evm = await EvmSettlement.restore(o.live.chain, genesis, { books, events: events.all(), mandates: mandates.all() }, now);
       chain = evm;
       const cursor = (await storage.get<Cursor>('cursor')) ?? null;
-      live = { settlement: o.live, evm, events, mandates, bonded: new Set(meta.bonded ?? []), adjudicatorKeys: adjKeys.map((a) => a.keys.privateKey), meta, pools: 0, verified: false, sync: new ChainSync(evm, cursor), cursor };
+      // T-231: the operators' own timeouts, labelled as node 1's relay. The key derives from the world's secret, so no
+      // client can use it first with another body and turn the operators' send into an idempotency conflict.
+      const timeouts = new OperatorTimeouts(evm, {
+        via: 'demo-op-1',
+        key: (id, kind) => `operator-timeout:${canonicalKeccak({ operatorTimeout: kind, commitmentId: id, secret })}`,
+        budget: new TimeoutBudgetRows(storage, now),
+        sent: (kind) => telemetry.timeout(kind),
+        ...(o.onError ? { onError: o.onError } : {}),
+      });
+      live = { settlement: o.live, evm, events, mandates, bonded: new Set(meta.bonded ?? []), adjudicatorKeys: adjKeys.map((a) => a.keys.privateKey), meta, pools: 0, verified: false, sync: new ChainSync(evm, cursor), cursor, timeouts };
     } else {
       const journal = [...(await storage.list<JournalEntry>({ prefix: 'j:' })).values()];
       chain = await SimChain.replay(genesis, journal);
@@ -789,7 +841,8 @@ export class PublicWorld {
    * When the next adjudicator pass should run (ms since the epoch), or null when none is due. While `active()`: a
    * second after settlement moved or a chain world's setup step went through (2 s on a chain, ADR-0028 §5), twice as
    * long after each pass in a row that changed nothing or whose setup step failed (up to a minute). And at the next
-   * fallback takeover's judgeBy, whether active or not: one alarm per takeover.
+   * fallback takeover's judgeBy, whether active or not: one alarm per takeover. On a chain, also at the next timeout
+   * the operators send on their own (T-231).
    */
   nextPass(): number | null {
     const wait = Math.min((this.live ? CHAIN_PASS_MS : PASS_MS) * 2 ** this.idlePasses, SLOWEST_PASS_MS);
@@ -800,7 +853,10 @@ export class PublicWorld {
     // pass; an open deal quiet for a day is read every 15 minutes.
     const open = this.live?.evm.openDeals();
     const sync = !open ? null : open.recent > 0 ? this.now() + wait : open.idle > 0 ? this.now() + Math.max(wait, IDLE_SYNC_MS) : null;
-    const at = Math.min(this.active() ? this.now() + wait : Infinity, wake ?? Infinity, sync ?? Infinity);
+    // T-231: at the next timeout the operators send, or after the current wait when one is due now (as for a takeover).
+    const due = this.live?.timeouts.nextAt() ?? null;
+    const timeout = due === null ? null : due > this.now() ? due : this.now() + wait;
+    const at = Math.min(this.active() ? this.now() + wait : Infinity, wake ?? Infinity, sync ?? Infinity, timeout ?? Infinity);
     return at === Infinity ? null : at;
   }
 
@@ -953,7 +1009,7 @@ export class PublicWorld {
     return !this.live || (this.live.verified && this.live.bonded.size === ADJUDICATORS.length);
   }
 
-  /** One adjudicator pass (the Durable Object alarm): accept or decline offers, trigger fallbacks, decide. */
+  /** One adjudicator pass (the Durable Object alarm): accept or decline offers, trigger fallbacks, decide; on a chain, then send due timeouts. */
   async work(): Promise<void> {
     this.telemetry.invoked();
     this.tick();
@@ -974,7 +1030,9 @@ export class PublicWorld {
       if (this.live.verified) await this.syncChain();
       // The adjudicators wait for a verified chain and their own bonds: an acceptance without one is refused on chain.
       // The look still runs, so a takeover whose judgeBy passed meanwhile is due, not a stale wake (T-057 review 4).
+      // The timeouts need no bond, only the verified chain.
       if (!this.ready()) {
+        if (this.live.verified) await this.closeDue();
         await this.persist();
         await this.look();
         return;
@@ -1004,10 +1062,34 @@ export class PublicWorld {
       }
     }
     await panel.budget.flush();
+    // After the adjudicators, so their own steps go first: the demo fallback's takeover, T-211's appeal expiries.
+    const closed = this.live ? await this.closeDue() : false;
     await this.persist();
-    if (await this.look()) this.stir();
+    // A timeout for a deal behind the chain logs no event, so it counts as settlement moving too.
+    if ((await this.look()) || closed) this.stir();
     else this.idlePasses++;
     await this.flushTelemetry(false);
+  }
+
+  /**
+   * Sends the deals' due timeouts at the relayer's gas (T-231), checked at a block no earlier than the chain sync's last.
+   * True when it sent one. A failure is reported and the pass goes on; the next pass tries again after its back-off.
+   */
+  private async closeDue(): Promise<boolean> {
+    const l = this.live!;
+    try {
+      const r = await l.timeouts.run(l.sync.cursor ? BigInt(l.sync.cursor.block) : undefined);
+      l.lastTimeouts = r;
+      return r.sent.length > 0;
+    } catch (e) {
+      this.o.onError?.(e as Error);
+      return false;
+    }
+  }
+
+  /** What the last pass did with the timeouts the operators send on their own (T-231); null before the first. */
+  lastTimeouts(): TimeoutReport | null {
+    return this.live?.lastTimeouts ?? null;
   }
 
   /** Flushes telemetry (when due, unless `force`). A failure is reported, never answered in place of a response. */
@@ -1082,6 +1164,9 @@ interface LiveWorld {
   cursor: Cursor | null;
   lastSync?: SyncReport;
   lastRecovery?: RecoverReport;
+  /** The timeouts the operators send on their own (T-231), and what the last pass did with them. */
+  timeouts: OperatorTimeouts;
+  lastTimeouts?: TimeoutReport;
 }
 
 /** What the faucet needs from the settlement layer: mandates, and a grant of test tokens in process or on chain. */

@@ -4,7 +4,7 @@
 //   problem type and timing. Never a body, a header value, an IP, or the path itself (it carries addresses and IDs);
 // - this Durable Object's use of the Workers Free tier (requests, SQLite rows read and written), estimated from its
 //   own calls, with a warning at 80% and 95% of a daily limit, and the rows it keeps for good (adjudicator
-//   registrations, T-221);
+//   registrations, T-221), and the timeouts the operators sent on their own that day, by kind (T-231);
 // - a summary line per hour and per UTC day: per-route requests, errors and latency, problems, 429s, prepare against
 //   submit and, from settlement events only, the deal funnel, time per stage and signers as counts.
 // Summaries and warnings go to the account's Workers Logs as console lines. Nothing here is served or published.
@@ -56,6 +56,8 @@ interface Usage extends Record<Quota, number> {
    * every day line shows the storage growth.
    */
   rows?: Record<string, number>;
+  /** Timeouts the operators sent on their own today, by kind (T-231). */
+  timeouts?: Record<string, number>;
 }
 
 interface Hour {
@@ -195,6 +197,13 @@ export class Telemetry {
     this.changed = true;
   }
 
+  /** One timeout the operators sent on their own (T-231): the usage view counts them by kind as `operatorTimeouts`. */
+  timeout(kind: string): void {
+    const u = this.day();
+    u.timeouts = { ...(u.timeouts ?? {}), [kind]: (u.timeouts?.[kind] ?? 0) + 1 };
+    this.changed = true;
+  }
+
   /** Marks a cold start; call the returned function when storage has been replayed. */
   wake(): () => void {
     const rows = this.day().rowsRead;
@@ -291,7 +300,7 @@ export class Telemetry {
 
   private usageView(u: Usage): Record<string, unknown> {
     const quotas = Object.fromEntries(QUOTAS.map((q) => [q, { used: u[q], limit: this.limits[q], percent: Math.floor((u[q] * 100) / this.limits[q]) }]));
-    return { ...quotas, wakes: u.wakes, replayRowsRead: u.replayRowsRead, replayMs: u.replayMs, ...(u.rows ? { rows: { ...u.rows } } : {}) };
+    return { ...quotas, wakes: u.wakes, replayRowsRead: u.replayRowsRead, replayMs: u.replayMs, ...(u.rows ? { rows: { ...u.rows } } : {}), ...(u.timeouts ? { operatorTimeouts: { ...u.timeouts } } : {}) };
   }
 }
 
