@@ -3,7 +3,7 @@
 - **Lane:** infra
 - **Phase:** 2, settlement on EVM (in focus under D53: stable EVM operations; the next operator deploy needs it)
 - **Depends on:** T-231 (PR 230, merged; its deploy on 2026-11-06 met the refusal). The backlog row on start-up CPU (T-213) carries the history. Rafa approved this task on 2026-11-06: "Yes, do both" (this task and a scripted deploy check that another session builds).
-- **Paths this task may touch:** `packages/core/src/parse.ts` and `parse.startup.test.ts`; `validators.ts`, `validators.generated.ts`, `validators-codegen.ts` and `validators.test.ts` (new), `packages/core/scripts/validators.ts` (new); `apps/demo-cloud/src/startup.test.ts` (new); `apps/demo-cloud/scripts/embed.mjs` (the embedded files); `eslint.config.js` (one ignore for the generated file); `docs/backlog.md` (the start-up CPU row); this file
+- **Paths this task may touch:** `packages/core/src/parse.ts` and `parse.startup.test.ts`; `validators.ts`, `validators.generated.ts`, `validators-codegen.ts` and `validators.test.ts` (new), `packages/core/scripts/validators.ts` (new); `apps/demo-cloud/src/startup.test.ts` (new); `apps/demo-cloud/scripts/embed.mjs` (the embedded files); `eslint.config.js` (one ignore for the generated file); `docs/backlog.md` (the start-up CPU row); `docs/team.md` (the T-029 row under Rules and checks, and one new row) and `docs/operations.md` (line 72 only), added by the coordinator on 2026-11-06; this file
 - **Human gate:** no for this PR. The deploy that shows Cloudflare's own number waits for Rafa, as every deploy does.
 - **Status:** review (branch `t-233-worker-startup`; Rafa's session reviews and merges)
 - **Agent/session:** T-233 implementer session, 2026-11-06, worktree `.worktrees/t233-startup`, branch `t-233-worker-startup`; the T-230 build for comparison in `.worktrees/t233-old` (detached at `e5f667a`)
@@ -126,9 +126,9 @@ Two earlier runs on the same code failed one step each, and neither failure invo
 
 **Done:** the measurements above; core's validators compiled ahead of time; the code-generation guard and the comparison and freshness tests; the backlog row; `pnpm verify`.
 
-**Not done, outside this task's paths** (proposed text, for the coordinator):
-- `docs/team.md`, Rules and checks, the T-029 row "Schemas compile at import, never in a request" now names the wrong check. Proposed row: "| No code generation in a Worker, at start-up or in a request | `apps/demo-cloud/src/startup.test.ts` imports the built Worker in Node with `--disallow-code-generation-from-strings` and runs every parser; `packages/core/src/validators.test.ts` keeps the precompiled validators current and equal to a runtime compile. Added after T-029's lazy compile took the demo down with error 1101, and Cloudflare refused two uploads on start-up CPU (code 10021, 2026-11-03 and 2026-11-06) | T-029; T-233 |".
-- `docs/operations.md`, line 72, "compile schemas at startup, not lazily inside a request". Proposed: "generate no code: core's validators are compiled ahead of time (T-233); a compile at startup costs start-up CPU (code 10021), and one inside a request fails (error 1101)".
+**Docs that named the old rule, updated** (the coordinator widened the paths for these lines on 2026-11-06):
+- `docs/team.md`, Rules and checks: the T-029 row is now "Schemas never compile in a request", without the start-up workarounds. A new row, "Nothing compiles at a Worker's start-up", names this task's two tests.
+- `docs/operations.md`, line 72: generate no code, at startup or inside a request.
 
 **Waiting on Rafa:** the next operator deploy, which reports Cloudflare's own start-up time. The deploy record should note it against the 400 ms target.
 
