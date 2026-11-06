@@ -62,6 +62,12 @@ Accepted for the prototype and tracked here:
 ## Escape hatch requirements
 
 - Every state-changing message an agent signs must be valid when submitted by anyone, including the agent itself, straight to the settlement layer.
+- A step an agent submits directly must reach the operators' view without a second transaction. On a chain the contract keeps only a delivery's hash, so a seller who delivers directly also posts the same signed delivery to an operator, which joins it to the deal and hands the adjudicators their envelopes. The post joins whether or not the operator's pass over the chain has read the seller's transaction yet (T-218, T-230):
+  - before relaying, the operator reads the delivery hash the contract holds and joins a match with no relay;
+  - an operator whose RPC node trails the chain may still send its own copy, which reverts at the operator's gas only; the operator then reads the contract at the revert's block and joins the match;
+  - a match the operator cannot read the transaction of yet stays with the deal, and its next pass joins it.
+
+  A delivery whose hash differs from the contract's, or whose signature is not the seller's, is refused and kept nowhere.
 - The internal SDK the demo and tests use (`packages/sdk`, not published; D30) has a direct-submit path, and the `neutrality.operator-*` fixtures test it.
 - Operator APIs are conveniences, not gatekeepers: they add indexing, gas sponsorship and machine-speed responses, and nothing else.
 
