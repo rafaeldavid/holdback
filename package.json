@@ -31,7 +31,11 @@
     "demo-cloud:secrets": "node --env-file-if-exists=.env apps/demo-cloud/scripts/secrets.mjs",
     "verify": "node scripts/verify.ts",
     "map": "node scripts/design-map.mjs",
-    "stack": "node scripts/contract-stack.mjs"
+    "stack": "node scripts/contract-stack.mjs",
+    "metrics:deal-timing": "node scripts/metrics/deal-timing.mjs",
+    "metrics:throughput": "node scripts/metrics/throughput.mjs",
+    "metrics:ops-cost": "node scripts/metrics/ops-cost.mjs",
+    "metrics:prices": "node scripts/metrics/refresh-prices.mjs"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",

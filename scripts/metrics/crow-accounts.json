@@ -1,0 +1,11 @@
+{
+  "note": "Crow's Sepolia relayer lanes, used only until discovery publishes demo.relayer (T-066 slice 3). Copied from docs/operations.md (the Sepolia relayer key, set 2026-11-03). Discovery's own values win when it publishes them.",
+  "source": "docs/operations.md, 2026-11-03",
+  "basis": "inferred",
+  "fundingLane": "0x601137a8DE7E195E1426f57C053aFa49B20Ef555",
+  "dealLanes": [
+    "0x5e7F1a8C06f357e8E321Ba33A3fFb0b4a0fd3243",
+    "0xDB940F8613aceE33465f62400395262126791879",
+    "0xbDd9f277360A6243446A57Ab59ACf8c488a95a1B"
+  ]
+}

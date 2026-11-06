@@ -1,0 +1,78 @@
+{
+  "unit": "micro-USD per million tokens",
+  "readOn": "2026-11-05",
+  "note": "Public list prices only, entered by hand from each provider's published page (T-066, shared with T-053). Every price is an integer: 4000000 is USD 4 per million tokens. Thinking tokens are part of output tokens. Standard (global) routing; data residency (inference_geo \"us\") adds 10 percent, and the Batch API halves every price.",
+  "models": {
+    "claude-opus-5-5": {
+      "input": 4000000,
+      "cacheWrite5m": 5000000,
+      "cacheWrite1h": 8000000,
+      "cacheRead": 200000,
+      "output": 20000000,
+      "fast": { "input": 8000000, "output": 40000000 },
+      "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "readOn": "2026-11-05"
+    },
+    "claude-sonnet-5-5": {
+      "input": 2000000,
+      "cacheWrite5m": 2500000,
+      "cacheWrite1h": 4000000,
+      "cacheRead": 100000,
+      "output": 10000000,
+      "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "readOn": "2026-11-05"
+    },
+    "claude-sonnet-5": {
+      "input": 2000000,
+      "cacheWrite5m": 2500000,
+      "cacheWrite1h": 4000000,
+      "cacheRead": 200000,
+      "output": 10000000,
+      "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "readOn": "2026-11-05"
+    },
+    "claude-haiku-5-5": {
+      "input": 100000,
+      "cacheWrite5m": 125000,
+      "cacheWrite1h": 200000,
+      "cacheRead": 10000,
+      "output": 500000,
+      "overPromptTokens": {
+        "threshold": 100000,
+        "input": 500000,
+        "cacheWrite5m": 625000,
+        "cacheWrite1h": 1000000,
+        "cacheRead": 50000,
+        "output": 2500000
+      },
+      "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "readOn": "2026-11-05"
+    },
+    "deepseek-v4-pro": {
+      "input": 1320000,
+      "cacheWrite5m": 1320000,
+      "cacheWrite1h": 1320000,
+      "cacheRead": 44000,
+      "output": 3960000,
+      "offPeak": { "input": 660000, "cacheRead": 22000, "output": 1980000 },
+      "peakHoursUtc": ["01:00-04:00", "06:00-10:00"],
+      "peakDays": "Monday to Friday, except Chinese public holidays",
+      "pricesNote": "The main prices are peak, an upper bound. DeepSeek bills a cache miss as input and has no cache-write price, so both cache writes equal input; cacheRead is its cache-hit input price.",
+      "source": "https://api-docs.deepseek.com/quick_start/pricing/",
+      "readOn": "2026-11-05"
+    },
+    "deepseek-flash": {
+      "input": 300000,
+      "cacheWrite5m": 300000,
+      "cacheWrite1h": 300000,
+      "cacheRead": 6000,
+      "output": 1200000,
+      "offPeak": { "input": 150000, "cacheRead": 3000, "output": 600000 },
+      "peakHoursUtc": ["01:00-04:00", "06:00-10:00"],
+      "peakDays": "Monday to Friday, except Chinese public holidays",
+      "pricesNote": "The main prices are peak, an upper bound. DeepSeek bills a cache miss as input and has no cache-write price, so both cache writes equal input; cacheRead is its cache-hit input price.",
+      "source": "https://api-docs.deepseek.com/quick_start/pricing/",
+      "readOn": "2026-11-05"
+    }
+  }
+}

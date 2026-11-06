@@ -1,0 +1,246 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://escrow.stream/metrics/schemas/ops-cost.schema.json",
+  "title": "ops-cost.json: Crow's own operating cost per deal, an estimate, beside the operator fee (T-066)",
+  "type": "object",
+  "$ref": "common.schema.json#/$defs/Envelope",
+  "unevaluatedProperties": false,
+  "required": ["prices", "perDeal", "runway"],
+  "properties": {
+    "schema": { "const": "crow.metrics.ops-cost/1" },
+    "prices": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file", "asOf", "usdMicrosPerEth", "gasPriceWei", "baseL1FeeIncluded", "modelPrices"],
+      "properties": {
+        "file": { "const": "config/ops-cost-prices.json" },
+        "asOf": { "oneOf": [{ "type": "null" }, { "$ref": "common.schema.json#/$defs/Day" }] },
+        "usdMicrosPerEth": { "$ref": "common.schema.json#/$defs/UIntOrNull" },
+        "gasPriceWei": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["ethereum", "base"],
+          "properties": {
+            "ethereum": { "$ref": "common.schema.json#/$defs/UIntOrNull" },
+            "base": { "$ref": "common.schema.json#/$defs/UIntOrNull" }
+          }
+        },
+        "baseL1FeeIncluded": { "type": "boolean" },
+        "modelPrices": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["file", "readOn"],
+          "properties": {
+            "file": { "const": "config/model-prices.json" },
+            "readOn": { "oneOf": [{ "type": "null" }, { "$ref": "common.schema.json#/$defs/Day" }] }
+          }
+        }
+      }
+    },
+    "perDeal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["deals", "gas", "cloudflare", "judges", "rpc", "total", "operatorFee", "feeCoversCost"],
+      "properties": {
+        "deals": { "$ref": "common.schema.json#/$defs/CountOrNull", "description": "Released deals in deal-timing.json's window; null when deal-timing.json or its event log could not be read" },
+        "gas": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["bySteps", "dealTxs", "faucetMintNewVisitor", "adjudicatorSetupPerDeal", "dealGas", "totalGas", "usdMicros", "usdBasis"],
+          "properties": {
+            "bySteps": {
+              "type": "array",
+              "maxItems": 20,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["step", "deals", "gasUsed"],
+                "properties": {
+                  "step": { "type": "string", "pattern": "^[a-z ]{1,40}$" },
+                  "deals": { "$ref": "common.schema.json#/$defs/Count" },
+                  "gasUsed": { "$ref": "#/$defs/Median" }
+                }
+              }
+            },
+            "dealTxs": { "$ref": "#/$defs/Median" },
+            "faucetMintNewVisitor": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["median", "mints"],
+              "properties": {
+                "median": { "$ref": "common.schema.json#/$defs/UIntOrNull" },
+                "mints": { "$ref": "common.schema.json#/$defs/Count" }
+              }
+            },
+            "adjudicatorSetupPerDeal": { "$ref": "common.schema.json#/$defs/UIntOrNull" },
+            "dealGas": { "$ref": "#/$defs/Median" },
+            "totalGas": { "$ref": "#/$defs/Median" },
+            "usdMicros": { "$ref": "#/$defs/ByNetwork" },
+            "usdBasis": { "$ref": "common.schema.json#/$defs/Basis" }
+          }
+        },
+        "cloudflare": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["basis", "runId", "requests", "cpuMs", "durableObjectRequests", "durationGbS", "usdMicrosAtList", "usdMicrosAtMargin", "pricesReadOn"],
+          "properties": {
+            "basis": { "enum": ["tail", "unknown"] },
+            "runId": { "type": ["string", "null"], "pattern": "^[0-9A-Za-z-]{1,64}$" },
+            "requests": { "$ref": "common.schema.json#/$defs/UIntOrNull" },
+            "cpuMs": { "$ref": "common.schema.json#/$defs/UIntOrNull" },
+            "durableObjectRequests": { "$ref": "common.schema.json#/$defs/UIntOrNull" },
+            "durationGbS": { "type": ["string", "null"], "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{1,6})?$" },
+            "usdMicrosAtList": { "$ref": "common.schema.json#/$defs/UsdMicrosOrNull" },
+            "usdMicrosAtMargin": { "enum": ["0", null], "description": "\"0\" beside tail counts, inside Workers Paid's included usage; null when the cost is unknown" },
+            "pricesReadOn": { "oneOf": [{ "type": "null" }, { "$ref": "common.schema.json#/$defs/Day" }] }
+          }
+        },
+        "judges": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["checksOnly", "rubric"],
+          "properties": {
+            "checksOnly": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["usdMicros"],
+              "properties": { "usdMicros": { "const": "0" } }
+            },
+            "rubric": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["basis", "usdMicros", "calls"],
+              "properties": {
+                "basis": { "enum": ["upper bound", "by model", "unknown"] },
+                "usdMicros": { "$ref": "common.schema.json#/$defs/UsdMicrosOrNull" },
+                "calls": { "$ref": "common.schema.json#/$defs/UIntOrNull" }
+              }
+            }
+          }
+        },
+        "rpc": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["usdMicros", "basis"],
+          "properties": {
+            "usdMicros": { "const": "0" },
+            "basis": { "$ref": "common.schema.json#/$defs/Text" }
+          }
+        },
+        "total": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["checksOnly", "rubric"],
+          "properties": {
+            "checksOnly": { "$ref": "#/$defs/Total" },
+            "rubric": { "$ref": "#/$defs/Total" }
+          }
+        },
+        "operatorFee": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["amount", "token", "decimals", "usdMicrosAtPar", "deals", "source"],
+          "properties": {
+            "amount": { "$ref": "common.schema.json#/$defs/UIntOrNull" },
+            "token": { "const": "tUSDC" },
+            "decimals": { "type": ["integer", "null"], "minimum": 0, "maximum": 36 },
+            "usdMicrosAtPar": { "$ref": "common.schema.json#/$defs/UsdMicrosOrNull" },
+            "deals": { "$ref": "common.schema.json#/$defs/Count" },
+            "source": { "$ref": "common.schema.json#/$defs/Text" }
+          }
+        },
+        "feeCoversCost": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["checksOnly", "rubric"],
+          "properties": {
+            "checksOnly": { "$ref": "#/$defs/Covers" },
+            "rubric": { "$ref": "#/$defs/Covers" }
+          }
+        }
+      }
+    },
+    "runway": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["basis", "lanes", "totalDeals", "effectiveGasPriceWei"],
+      "properties": {
+        "basis": { "$ref": "common.schema.json#/$defs/Basis" },
+        "lanes": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["address", "role", "wei", "deals"],
+            "properties": {
+              "address": { "$ref": "common.schema.json#/$defs/Address" },
+              "role": { "enum": ["funding lane", "deal lane"] },
+              "wei": { "$ref": "common.schema.json#/$defs/UIntOrNull" },
+              "deals": { "$ref": "common.schema.json#/$defs/UIntOrNull" }
+            }
+          }
+        },
+        "totalDeals": { "$ref": "common.schema.json#/$defs/UIntOrNull" },
+        "effectiveGasPriceWei": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["median", "txs"],
+          "properties": {
+            "median": { "$ref": "common.schema.json#/$defs/UIntOrNull" },
+            "txs": { "$ref": "common.schema.json#/$defs/Count" }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "Median": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["median"],
+      "properties": { "median": { "$ref": "common.schema.json#/$defs/UIntOrNull" } }
+    },
+    "ByNetwork": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sepolia", "ethereum", "base"],
+      "properties": {
+        "sepolia": { "$ref": "common.schema.json#/$defs/UsdMicrosOrNull" },
+        "ethereum": { "$ref": "common.schema.json#/$defs/UsdMicrosOrNull" },
+        "base": { "$ref": "common.schema.json#/$defs/UsdMicrosOrNull" }
+      }
+    },
+    "Total": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["basis", "excludes", "sepolia", "ethereum", "base"],
+      "properties": {
+        "basis": { "$ref": "common.schema.json#/$defs/Basis" },
+        "excludes": { "type": "array", "maxItems": 5, "uniqueItems": true, "items": { "enum": ["cloudflare", "judges", "faucet mint", "adjudicator setup"] } },
+        "sepolia": { "$ref": "common.schema.json#/$defs/UsdMicrosOrNull" },
+        "ethereum": { "$ref": "common.schema.json#/$defs/UsdMicrosOrNull" },
+        "base": { "$ref": "common.schema.json#/$defs/UsdMicrosOrNull" }
+      }
+    },
+    "Cover": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["covers", "marginUsdMicros"],
+      "properties": {
+        "covers": { "type": ["boolean", "null"] },
+        "marginUsdMicros": { "$ref": "common.schema.json#/$defs/UsdMicrosOrNull" }
+      }
+    },
+    "Covers": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sepolia", "ethereum", "base"],
+      "properties": {
+        "sepolia": { "$ref": "#/$defs/Cover" },
+        "ethereum": { "$ref": "#/$defs/Cover" },
+        "base": { "$ref": "#/$defs/Cover" }
+      }
+    }
+  }
+}

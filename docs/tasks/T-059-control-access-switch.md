@@ -7,7 +7,7 @@
   - the `control/` folder and its hourly workflow in the founders' private repository (the console's code, tests and runbook live there, never here);
   - here: `docs/operations.md` and `docs/costs.md` (once the passcode retires), `docs/decisions-today.md` (D45 notes only), `docs/tasks/T-059-control-access-switch.md`.
 - **Human gate:** **yes.** The Access settings, the service tokens, the GitHub secrets, the storage namespace, the encryption key and every Worker deploy are outside this repository. Rafa does the dashboard steps himself; agents deploy only on his go-ahead, given in chat and recorded in Handoff with the date.
-- **Status:** in progress (live at `control.escrow.stream` since 2026-11-04; a day of hourly runs, the passcode's last traces and a red-team pass on the live console remain)
+- **Status:** in progress (live at `control.escrow.stream` since 2026-11-04; criterion 5, the passcode's retirement, met on 2026-11-05; left: Michael's confirmation of Strategy, Costs and Keys (criterion 1), 24 hours of hourly runs (criterion 4), a red-team pass on the live console (criterion 6), and the agents' small items in Handoff)
 - **Agent/session:** coordinator side session, 2026-11-04
 
 ## Intent
@@ -67,18 +67,26 @@ All 2026-11-04.
 - **Sign-in.** A sign-in that ended on `/control` came from the old `escrow.stream/control` destination. Rafa removed it from the application, and `/` now opens the console.
 - **The old console removed.** The `crow-control` Worker is deleted (measured). `escrow.stream/control`, `/control/` and `/control/map` answer `404`, and no encrypted page is served (measured). The passcode console's files and the never-deployed redirect Worker are removed from the private repository, and a regression test keeps them removed.
 
+**2026-11-05**
+- **Criterion 5 met, confirmed by Rafa ("done").** Rafa ran four commands the coordinator gave him:
+  1. deleted `CROW_CONTROL_PASSCODE` from holdback `.env`;
+  2. checked it was gone with `grep -c`, which prints a count only;
+  3. backed up `keys.json` in the cost directory, then replaced it with `control/keys.template.json`;
+  4. ran the private push.
+- **Hourly runs (criterion 4), not yet met.** GitHub's scheduler skipped most scheduled runs: between 2026-11-04 21:25 UTC and 2026-11-05 15:30 UTC the job ran on schedule 3 times, at 23:42, 06:51 and 15:30 UTC, and all passed (measured, `gh run list --repo rafaeldavid/crow-private --workflow control-hourly.yml`). A separate PR makes the console refresh on every merge to main.
+
 ## Handoff
 
 The console is live; the runbook in the console's folder describes how it runs. Left:
 
 1. **Rafa:**
-   - delete `CROW_CONTROL_PASSCODE` from holdback `.env`;
-   - update `keys.json` in the cost directory from the template (the passcode row is gone; the two service tokens, the encryption key and `GH_READ` are in, expiring about 2027-02-02);
+   - ~~delete `CROW_CONTROL_PASSCODE` from holdback `.env`~~ (done 2026-11-05, Evidence);
+   - ~~update `keys.json` in the cost directory from the template (the passcode row is gone; the two service tokens, the encryption key and `GH_READ` are in, expiring about 2027-02-02)~~ (done 2026-11-05, Evidence);
    - add the daily private push to the cost routine (T-055);
-   - confirm that both founders see Strategy, Costs and Keys (criterion 1).
+   - confirm that both founders see Strategy, Costs and Keys (criterion 1): Michael's confirmation is still open.
 2. **Agents:**
-   - after 24 hours, check the hourly runs and the private push (criterion 4);
-   - run a red-team pass against the live console (criterion 6);
+   - after 24 hours of hourly runs, check the runs and the private push (criterion 4); the refresh-on-merge PR should close the gaps GitHub's scheduler leaves;
+   - run a red-team pass against the live console (criterion 6), best once T-066 and the refresh-on-merge change land;
    - with the next Worker deploy, change the page's "No data" message, which still names the removed `build.mjs`;
    - update `docs/operations.md` and `docs/costs.md` if they describe the console.
 

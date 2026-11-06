@@ -1,0 +1,196 @@
+{
+  "mode": "once",
+  "runDir": "/private/tmp/claude-501/-Users-rafa-Documents-escrow/5d96f464-3e9f-488a-8cd3-964dda80e0bc/scratchpad/one-click-run2/run2-once",
+  "model": "claude-opus-5-5",
+  "init": {
+    "model": "claude-opus-5-5",
+    "permissionMode": "default",
+    "cwd": "/private/tmp/claude-501/-Users-rafa-Documents-escrow/5d96f464-3e9f-488a-8cd3-964dda80e0bc/scratchpad/one-click-run2/run2-once",
+    "tools": [
+      "Task",
+      "AskUserQuestion",
+      "Bash",
+      "CronCreate",
+      "CronDelete",
+      "CronList",
+      "DesignSync",
+      "Edit",
+      "EnterPlanMode",
+      "EnterWorktree",
+      "ExitPlanMode",
+      "ExitWorktree",
+      "ListAgents",
+      "Monitor",
+      "NotebookEdit",
+      "PushNotification",
+      "Read",
+      "RemoteTrigger",
+      "ReportFindings",
+      "ScheduleWakeup",
+      "SendMessage",
+      "SendToProject",
+      "SendToProjectContext",
+      "Skill",
+      "TaskStop",
+      "ToolSearch",
+      "WebSearch",
+      "Workflow",
+      "Write"
+    ],
+    "mcp_servers": [],
+    "plugins": [
+      {
+        "name": "cc-plugin-agents-md",
+        "path": "builtin",
+        "source": "cc-plugin-agents-md@builtin"
+      },
+      {
+        "name": "cc-plugin-telemetry",
+        "path": "builtin",
+        "source": "cc-plugin-telemetry@builtin"
+      },
+      {
+        "name": "cc-plugin-privacy",
+        "path": "builtin",
+        "source": "cc-plugin-privacy@builtin"
+      },
+      {
+        "name": "cc-plugin-plugin-authoring",
+        "path": "builtin",
+        "source": "cc-plugin-plugin-authoring@builtin"
+      }
+    ],
+    "skills": [
+      "deep-research",
+      "design",
+      "design-sync",
+      "dataviz",
+      "update-config",
+      "verify",
+      "debug",
+      "code-review",
+      "simplify",
+      "batch",
+      "fewer-permission-prompts",
+      "doctor",
+      "loop",
+      "schedule",
+      "send-to-project",
+      "claude-api",
+      "workflow-authoring",
+      "run",
+      "run-skill-generator",
+      "plugin-authoring"
+    ],
+    "apiKeySource": "none",
+    "claude_code_version": "2.1.318",
+    "output_style": "default"
+  },
+  "prompt": "Run a test deal with Crow, escrow for AI agents, by running this command as written. It installs two pinned packages into crow-try, then downloads https://escrow.stream/try.mjs and runs it only if its SHA-256 matches the one in the command. The script buys a small dataset from Crow's test seller on the Sepolia test network: test tokens only, no real money.\n\nmkdir -p crow-try && cd crow-try && npm init -y >/dev/null && npm install --silent --ignore-scripts viem@2.57.13 tweetnacl@1.0.3 && curl -fsSLO https://escrow.stream/try.mjs && echo \"cc310963bb0833e0d23f8018eb4ea802db09fa05fbd9489020340d2be2eed832  try.mjs\" | shasum -a 256 -c && node try.mjs --seller https://escrow.stream/agents/test-seller\n\nIt needs Node 20 or later and npm. The full explanation is at https://escrow.stream/llms.txt.",
+  "counts": {
+    "toolPermissionRequests": 1,
+    "conversationalApprovals": 0,
+    "totalApprovals": 1,
+    "toolCalls": 1,
+    "toolCallsWithoutAsking": 0
+  },
+  "seconds": {
+    "toReleasedLine": 79.2,
+    "tryFinished": 79.2,
+    "total": 88.8
+  },
+  "releasedLine": "outcome   Released: checks cols pass, rows pass, uniq pass; decision accept",
+  "commitmentId": "0xc226f4cf3f1ad83c3677fe348b865086d6b018752393a2213407273b94b19db1",
+  "finalState": "Released",
+  "etherscan": [
+    "https://sepolia.etherscan.io/tx/0x0fe86d6d1d0c931c4dad6bb19bbc31c8c16333cb3789160575dc6363e3832ecc",
+    "https://sepolia.etherscan.io/tx/0xfc45b7a594bae4437221967fc73e368ecffe0b982c61d631e1f5be52caf3dd6a",
+    "https://sepolia.etherscan.io/tx/0xc438bf7e13b1b5cb58c0fb8bdcdec10632dbc5d072354deaa174b5f43816e995"
+  ],
+  "tryOutput": "v22.22.2\ntry.mjs: OK\n’crow test deal on https://api.escrow.stream and https://api2.escrow.stream: test tokens only, nothing here is real money\nkeys      settling on chain 11155111 through HoldbackRules 0xf38287e5c5c1f20c6d03be500edbf8a244f27cfa: each money step waits for a block\nkeys      buyer 0x43c73c…eaed: fresh keys, held in memory only\nfaucet    1000 tUSDC, admitted to demo-club\nseller    Crow's test seller at https://escrow.stream/agents/test-seller: it offers from 0x143688…f4dc, 30.71 tUSDC in all for this deal\npropose   sealed proposal stored on Crow (810 bytes) and sent to the intake: the seller's own terms\noffered   0xc226f4…9db1 offered by the test seller\naccepted  AcceptedByAdjudicator on every operator: the primary adjudicator 0x71f8a3…7c9e takes the deal\ncheck     the buyer: same terms on every operator, ID recomputed, seller's signature recovers; price, checks and adjudicators as agreed; if the seller never delivers, the buyer can reclaim its hold at 2026-11-05T17:00:38Z\nfund      Held: 26 tUSDC held (25 price + 1 adjudication fee), operator fee 4.71 tUSDC\ndeliver   the test seller delivers once every operator shows Held; waiting for the decision\noutcome   Released: checks cols pass, rows pass, uniq pass; decision accept\nopen      the buyer decrypted its copy, sha256 checked: 3 rows, 1,ada@example.com | 2,alan@example.com | 3,grace@example.com\nbalances  buyer 969.29 tUSDC\nchain     funded    https://sepolia.etherscan.io/tx/0x0fe86d6d1d0c931c4dad6bb19bbc31c8c16333cb3789160575dc6363e3832ecc\nchain     delivered https://sepolia.etherscan.io/tx/0xfc45b7a594bae4437221967fc73e368ecffe0b982c61d631e1f5be52caf3dd6a\nchain     decided   https://sepolia.etherscan.io/tx/0xc438bf7e13b1b5cb58c0fb8bdcdec10632dbc5d072354deaa174b5f43816e995\nfinal     Released in 63 s with Crow's test seller as the other party; final at 2026-11-05T16:02:24Z, when the 60 s appeal window closes, with nobody needing to act\ndone      commitment 0xc226f4cf3f1ad83c3677fe348b865086d6b018752393a2213407273b94b19db1 Released",
+  "permissionRequests": [
+    {
+      "t": 7.1,
+      "tool": "Bash",
+      "input": {
+        "command": "node --version && mkdir -p crow-try && cd crow-try && npm init -y >/dev/null && npm install --silent --ignore-scripts viem@2.57.13 tweetnacl@1.0.3 && curl -fsSLO https://escrow.stream/try.mjs && echo \"cc310963bb0833e0d23f8018eb4ea802db09fa05fbd9489020340d2be2eed832  try.mjs\" | shasum -a 256 -c && node try.mjs --seller https://escrow.stream/agents/test-seller",
+        "description": "Install pinned packages, verify and run Crow test deal script"
+      },
+      "toolUseID": "toolu_01MBmvBJVSWjztMMizFSBghz",
+      "suggestions": [
+        {
+          "type": "addRules",
+          "rules": [
+            {
+              "toolName": "Bash",
+              "ruleContent": "mkdir -p crow-try"
+            },
+            {
+              "toolName": "Bash",
+              "ruleContent": "npm init *"
+            },
+            {
+              "toolName": "Bash",
+              "ruleContent": "npm install *"
+            },
+            {
+              "toolName": "Bash",
+              "ruleContent": "curl -fsSLO https://escrow.stream/try.mjs"
+            }
+          ],
+          "behavior": "allow",
+          "destination": "localSettings"
+        },
+        {
+          "type": "addRules",
+          "rules": [
+            {
+              "toolName": "Bash",
+              "ruleContent": "shasum -a 256 -c"
+            },
+            {
+              "toolName": "Bash",
+              "ruleContent": "node try.mjs --seller https://escrow.stream/agents/test-seller"
+            }
+          ],
+          "behavior": "allow",
+          "destination": "localSettings"
+        }
+      ]
+    }
+  ],
+  "conversational": [],
+  "toolCalls": [
+    {
+      "id": "toolu_01MBmvBJVSWjztMMizFSBghz",
+      "t": 7,
+      "tool": "Bash",
+      "input": {
+        "command": "node --version && mkdir -p crow-try && cd crow-try && npm init -y >/dev/null && npm install --silent --ignore-scripts viem@2.57.13 tweetnacl@1.0.3 && curl -fsSLO https://escrow.stream/try.mjs && echo \"cc310963bb0833e0d23f8018eb4ea802db09fa05fbd9489020340d2be2eed832  try.mjs\" | shasum -a 256 -c && node try.mjs --seller https://escrow.stream/agents/test-seller",
+        "description": "Install pinned packages, verify and run Crow test deal script"
+      },
+      "asked": true,
+      "resultAt": 79.2,
+      "isError": false
+    }
+  ],
+  "turns": [
+    {
+      "t": 88.1,
+      "subtype": "success",
+      "is_error": false,
+      "result": "The test deal went through. The script's SHA-256 matched (`try.mjs: OK`), and the deal reached **Released** in 63 seconds on Sepolia, using test tokens only.\n\nWhat happened:\n- **Setup:** The script made a new buyer key that existed only in memory, and a faucet gave it 1000 tUSDC.\n- **Offer and acceptance:** Crow's test seller offered a dataset for 30.71 tUSDC in total. The adjudicator accepted the deal, and the buyer confirmed that every operator showed the same terms and that the seller's signature was valid.\n- **Funding:** 26 tUSDC was held in escrow (a 25 price plus a 1 adjudication fee), and the operator fee was 4.71 tUSDC.\n- **Delivery and decision:** The seller delivered, all three checks passed (`cols`, `rows`, `uniq`), and the adjudicator accepted the delivery.\n- **Result:** The buyer decrypted the data and its SHA-256 matched. It's 3 rows: `ada@example.com`, `alan@example.com`, `grace@example.com`. The buyer ended with 969.29 tUSDC.\n- **On-chain transactions:** [funded](https://sepolia.etherscan.io/tx/0x0fe86d6d1d0c931c4dad6bb19bbc31c8c16333cb3789160575dc6363e3832ecc), [delivered](https://sepolia.etherscan.io/tx/0xfc45b7a594bae4437221967fc73e368ecffe0b982c61d631e1f5be52caf3dd6a), [decided](https://sepolia.etherscan.io/tx/0xc438bf7e13b1b5cb58c0fb8bdcdec10632dbc5d072354deaa174b5f43816e995)\n- **Commitment ID:** `0xc226f4cf3f1ad83c3677fe348b865086d6b018752393a2213407273b94b19db1`. It became final when the 60-second appeal window closed, and nobody had to do anything.\n\nThe files are in `crow-try/`. The buyer key was never saved, so there's nothing to clean up beyond that folder.",
+      "duration_ms": 86071,
+      "num_turns": 2,
+      "total_cost_usd": 0.0967278,
+      "modelUsage": [
+        "claude-haiku-5-5",
+        "claude-opus-5-5"
+      ],
+      "permission_denials": []
+    }
+  ],
+  "finalMessage": "The test deal went through. The script's SHA-256 matched (`try.mjs: OK`), and the deal reached **Released** in 63 seconds on Sepolia, using test tokens only.\n\nWhat happened:\n- **Setup:** The script made a new buyer key that existed only in memory, and a faucet gave it 1000 tUSDC.\n- **Offer and acceptance:** Crow's test seller offered a dataset for 30.71 tUSDC in total. The adjudicator accepted the deal, and the buyer confirmed that every operator showed the same terms and that the seller's signature was valid.\n- **Funding:** 26 tUSDC was held in escrow (a 25 price plus a 1 adjudication fee), and the operator fee was 4.71 tUSDC.\n- **Delivery and decision:** The seller delivered, all three checks passed (`cols`, `rows`, `uniq`), and the adjudicator accepted the delivery.\n- **Result:** The buyer decrypted the data and its SHA-256 matched. It's 3 rows: `ada@example.com`, `alan@example.com`, `grace@example.com`. The buyer ended with 969.29 tUSDC.\n- **On-chain transactions:** [funded](https://sepolia.etherscan.io/tx/0x0fe86d6d1d0c931c4dad6bb19bbc31c8c16333cb3789160575dc6363e3832ecc), [delivered](https://sepolia.etherscan.io/tx/0xfc45b7a594bae4437221967fc73e368ecffe0b982c61d631e1f5be52caf3dd6a), [decided](https://sepolia.etherscan.io/tx/0xc438bf7e13b1b5cb58c0fb8bdcdec10632dbc5d072354deaa174b5f43816e995)\n- **Commitment ID:** `0xc226f4cf3f1ad83c3677fe348b865086d6b018752393a2213407273b94b19db1`. It became final when the 60-second appeal window closed, and nobody had to do anything.\n\nThe files are in `crow-try/`. The buyer key was never saved, so there's nothing to clean up beyond that folder.",
+  "errors": [],
+  "timedOut": false
+}
