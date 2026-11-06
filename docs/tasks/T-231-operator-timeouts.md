@@ -5,7 +5,7 @@
 - **Depends on:** T-228 (PR 207, the relayed timeout for a deal behind the chain; done), T-218 (the chain sync; done) and T-219 (the in-flight row per relayer lane; done). T-228's leftover: "the operators' pass does not send due timeouts on its own". Rafa approved it on 2026-11-06: "Spin it up".
 - **Paths this task may touch:** `packages/settlement/evm/timeouts.ts`, `timeouts.test.ts` and `timeouts.redteam.test.ts` (new), `packages/settlement/evm/live-entry.ts` (the export), `packages/settlement/evm/evm-settlement.ts` (only `timeout()`, a constant beside `TIMEOUTS` and the `behindStage` read), `packages/settlement/evm/chain.ts` and `live.ts` (only the `openRows` read, added after the red team); `apps/demo-cloud/src/world.ts` (the pass, the alarm, the daily budget), `telemetry.ts`, `world.test.ts`, `telemetry.test.ts` and `timeouts.anvil.test.ts` (new); `docs/api.md`, `site/llms.txt` and the site build, `docs/neutrality.md`, `docs/plan.md` (this row), `docs/team.md` (one proposed row under Rules and checks), `docs/tasks/T-228-relay-timeouts-behind-the-chain.md` (its leftover); this file
 - **Human gate:** the operator deploy waits for Rafa, as every deploy does. It goes out on its own, after T-230's (the operators join a delivery already on chain), which Rafa approved alone on 2026-11-06. No contract change, no schema change.
-- **Status:** review
+- **Status:** done (merged in PR 230; not deployed yet)
 - **Agent/session:** T-231 implementer session, 2026-11-06, worktree `.worktrees/op-timeouts`, branch `t-231-operator-timeouts`
 
 ## Intent
@@ -152,7 +152,7 @@ Every item is measured on this machine (anvil 1.0.0 standing in for Sepolia) unl
 
 ## Handoff
 
-- **State:** review. PR 230. The reviewer and the red team found 2 Medium and 3 Low findings each, none Critical or High; each is fixed or recorded with its reason (Decisions, Evidence). The reviewer's second pass, on the fixes at `bdf37a5`, found 2 Low and 4 Info; both Lows are fixed (the watch line below, and a test for the budget's give-back). Not deployed.
+- **State:** done: PR 230 squash-merges once CI passes, with the review and red-team findings fixed or recorded. Not deployed: the operators run T-230's `8bcda43c` and `7e4d3fa5` until Rafa's go-ahead for the deploy below. The reviewer and the red team found 2 Medium and 3 Low findings each, none Critical or High; each is fixed or recorded with its reason (Decisions, Evidence). The reviewer's second pass, on the fixes at `bdf37a5`, found 2 Low and 4 Info; both Lows are fixed (the watch line below, and a test for the budget's give-back). Not deployed.
 - **The deploy: its own operator deploy, after T-230's, for Rafa.** Rafa approved T-230's deploy on its own ("Yes, deploy T-230"), and it went live on 2026-11-06 at 12:19 UTC (`docs/operations.md`, PR 233), so T-231 goes out in a second deploy. Deploy main at T-231's merge commit or later; it holds T-230 (PR 232, `e5f667a`). The steps follow T-230's (`docs/tasks/T-230-join-onchain-delivery.md`, "The deploy"), in the shape of `docs/operations.md`'s T-228 section. No contract change, no schema change, no new secret or variable. Save each answer under `reports/t231/`.
   - **Before** (read-only):
     1. PR 230 is merged and CI passed on its merge commit. A fresh detached worktree on that commit passes `pnpm install --frozen-lockfile` and `pnpm build`.
