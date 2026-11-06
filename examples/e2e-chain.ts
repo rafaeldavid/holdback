@@ -7,6 +7,8 @@
 // and anvil, and any chain other than the pinned one: test tokens only (CLAUDE.md, no real money).
 import { readFileSync } from 'node:fs';
 import {
+  BaseError,
+  ContractFunctionRevertedError,
   createPublicClient,
   createWalletClient,
   decodeEventLog,
@@ -132,6 +134,16 @@ export interface TxRecord {
 
 /** The gas limit of a direct call whose estimate the RPC refused: a limit only, the receipt records what it used. */
 const DIRECT_GAS_LIMIT = 1_000_000n;
+
+/**
+ * Whether a failed simulation or gas estimate is worth trying again: a node with no header for the block, a rate
+ * limit or a network error is; the contract's revert is not, and neither is anvil's calldata-floor refusal, which
+ * `send` answers with a fixed gas limit.
+ */
+const tryAgain = (e: unknown): boolean => {
+  const reverted = e instanceof BaseError && e.walk((x) => x instanceof ContractFunctionRevertedError && x.raw !== undefined) !== null;
+  return !reverted && !/gas floor exceeds the gas limit/.test(String((e as Error)?.message));
+};
 
 /** JSON-safe: bigints become decimal strings. */
 const plain = (v: J): J => JSON.parse(JSON.stringify(v, (_k, x) => (typeof x === 'bigint' ? x.toString() : x)));
@@ -302,33 +314,67 @@ export class RoundChain {
     }
   }
 
+  /** The nonce each round key sends with next, after its last send here: a node behind that send still counts the one before. */
+  private readonly nonces = new Map<string, number>();
+
   /**
-   * Sends one call from a round key, past the operators, after simulating it so a refusal reads as the contract's
-   * revert, and waits for its receipt. The key pays the gas from its own Sepolia ETH, at most MAX_FEE_PER_GAS a unit
-   * (20 gwei, the cap `e2e-keys.ts topup` and the operators' funding lane use): above it the send is refused before it
-   * is signed, so a fee spike stops a scenario instead of draining the key's 0.04 Sepolia ETH.
+   * Sends one call from a round key, past the operators, and waits for its receipt. It simulates the call first, so a
+   * refusal reads as the contract's revert, then estimates its gas. Both read the state after the round's own last
+   * transaction (`fresh`), never a node's older latest block: in round 1's 2026-11-05 runs, 3b's bond deposit was
+   * simulated within 3 s of its approval on a node that had not seen the approval, and reverted TransferFromFailed
+   * (0x7939f424) in both runs. A node with no header for that block is tried again (`pinnedRetry`); a revert is not.
+   * The nonce is the larger of the pending count and the one after this key's last send here, for the same reason.
+   * The key pays the gas from its own Sepolia ETH, at most MAX_FEE_PER_GAS a unit (20 gwei, the cap `e2e-keys.ts
+   * topup` and the operators' funding lane use): above it the send is refused before it is signed, so a fee spike
+   * stops a scenario instead of draining the key's 0.04 Sepolia ETH.
    */
   async send(key: Hex, contract: keyof typeof ABIS, functionName: string, args: unknown[]): Promise<TxRecord> {
     const account = privateKeyToAccount(key);
     const chain = this.deployment.chainId === SEPOLIA_CHAIN_ID ? sepolia : foundry;
     const address = getAddress(contract === 'token' ? this.deployment.token.address : (this.deployment as J)[contract]);
-    const { request } = await this.client.simulateContract({ account, address, abi: ABIS[contract], functionName, args, chain });
+    const abi = ABIS[contract];
+    const at = await this.fresh();
+    // The sender as an address: no nonce or fee is filled in for a simulation or an estimate. A node checks an
+    // eth_call's fee fields against the key's balance, so the fees go on the send alone.
+    const call = { account: account.address, address, abi, functionName, args, blockNumber: at };
+    await this.behind(() => this.client.simulateContract(call), tryAgain);
     const fees = await this.client.estimateFeesPerGas({ chain });
     if (fees.maxFeePerGas > MAX_FEE_PER_GAS) throw new Refusal(`refusing to send ${functionName}: the network asks ${formatGwei(fees.maxFeePerGas)} gwei per gas, above the ${formatGwei(MAX_FEE_PER_GAS)} gwei cap; run the scenario again once fees fall`);
-    // The fees go on the send, not the simulation: a node checks an eth_call's fee fields against the key's balance.
-    const capped = { ...request, maxFeePerGas: fees.maxFeePerGas, maxPriorityFeePerGas: fees.maxPriorityFeePerGas } as typeof request;
-    const wallet = createWalletClient({ account, chain, transport: http(this.rpcUrl) });
-    let hash: Hex;
+    let gas: bigint;
     try {
-      hash = await wallet.writeContract(capped);
+      // A fifth more than the estimate: the call runs a block or more after the state it was estimated on.
+      gas = ((await this.behind(() => this.client.estimateContractGas(call), tryAgain)) * 6n) / 5n;
     } catch (e) {
       // anvil 1.0.0's eth_estimateGas refuses a call that costs less to run than its calldata floor (EIP-7623), such as
       // expireAppeal with the terms as input; the simulation above passed, so send it with a fixed limit instead.
       if (!/gas floor exceeds the gas limit/.test(String((e as Error).message))) throw e;
-      hash = await wallet.writeContract({ ...capped, gas: DIRECT_GAS_LIMIT });
+      gas = DIRECT_GAS_LIMIT;
     }
+    const pending = await this.client.getTransactionCount({ address: account.address, blockTag: 'pending' });
+    const nonce = Math.max(pending, this.nonces.get(account.address) ?? 0);
+    const wallet = createWalletClient({ account, chain, transport: http(this.rpcUrl) });
+    const hash = await wallet.writeContract({ address, abi, functionName, args, chain, gas, nonce, maxFeePerGas: fees.maxFeePerGas, maxPriorityFeePerGas: fees.maxPriorityFeePerGas });
+    this.nonces.set(account.address, nonce + 1);
     await this.client.waitForTransactionReceipt({ hash });
     return this.transaction(hash);
+  }
+
+  /**
+   * Resolves once none of `keys` (role → address) has a transaction pending, and refuses after `waitMs` while one
+   * has: another process may be sending from the round's keys. Round 1's 2026-11-05 runs from 19:07 and 19:35 UTC
+   * overlapped on the same keys, and each counted the other's deals. Two reads a node apart can show a transaction
+   * mined a moment ago as pending, so a pending send must last the whole wait.
+   */
+  async untilIdle(keys: Record<string, string>, o: { waitMs: number; gapMs: number } = { waitMs: 60_000, gapMs: 5000 }): Promise<void> {
+    for (const end = Date.now() + o.waitMs; ; await new Promise((r) => setTimeout(r, o.gapMs))) {
+      const busy: string[] = [];
+      for (const [role, address] of Object.entries(keys)) {
+        const [mined, pending] = await Promise.all([this.client.getTransactionCount({ address: getAddress(address), blockTag: 'latest' }), this.client.getTransactionCount({ address: getAddress(address), blockTag: 'pending' })]);
+        if (pending > mined) busy.push(`the ${role} ${address} has ${pending - mined} transaction(s) pending (nonce ${mined} mined, ${pending} pending)`);
+      }
+      if (!busy.length) return;
+      if (Date.now() >= end) throw new Refusal(`refusing to start: ${busy.join('; ')}, and still after ${Math.round(o.waitMs / 1000)} s; another run may be sending from the round's keys. Run again once it ends`);
+    }
   }
 
   /**

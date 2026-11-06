@@ -21,8 +21,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { formatEther, type Hex } from 'viem';
 import { SEPOLIA, type DeploymentFile } from './deployments.ts';
 import { RoundChain } from './e2e-chain.ts';
-import { SEED_VAR } from './e2e-keys.ts';
-import { openDeals, reason, Round, Run, short, Waits } from './e2e-run.ts';
+import { roundAddresses, ROLES, SEED_VAR } from './e2e-keys.ts';
+import { heldDeals, otherRunDeals, reason, releaseLock, retry, Round, Run, settleOpen, short, takeLock, Waits } from './e2e-run.ts';
 import { pick, SCENARIOS } from './e2e-scenarios.ts';
 import { Refusal } from './verify.ts';
 
@@ -91,9 +91,15 @@ function summary(results: J[], round: Round): string {
       lines.push('', `Deal ${d.label}: \`${d.id}\`, relayed by ${d.relay}.`, '');
       for (const t of d.transactions) lines.push(`- ${t.steps.join(', ')}: ${t.link}, ${Number(t.gasUsed).toLocaleString('en-US')} gas, block ${t.block}, sent by ${t.sentBy === 'round' ? 'the round' : 'an operator'}`);
       const after = d.balances.after ?? {};
+      const line = (x: { token: bigint; bond: bigint; free: bigint }) => `token ${round.amount(x.token)}, bond ${round.amount(x.bond)}, free bond ${round.amount(x.free)}`;
       for (const [a, before] of Object.entries(d.balances.before as Record<string, J>)) {
         const now = after[a];
-        if (now) lines.push(`- \`${short(a)}\`: token ${round.amount(BigInt(now.token) - BigInt(before.token))}, bond ${round.amount(BigInt(now.bond) - BigInt(before.bond))}, free bond ${round.amount(BigInt(now.free) - BigInt(before.free))}`);
+        const wallet = now ? { token: BigInt(now.token) - BigInt(before.token), bond: BigInt(now.bond) - BigInt(before.bond), free: BigInt(now.free) - BigInt(before.free) } : null;
+        const own = d.flows?.[a] ? { token: BigInt(d.flows[a].token), bond: BigInt(d.flows[a].bond), free: BigInt(d.flows[a].free) } : null;
+        // On a chain the deal's own transfers and bond events are the evidence; the wallet's change across the deal
+        // can take in another deal of the same party, and is shown only when it differs.
+        if (own) lines.push(`- \`${short(a)}\`: this deal moved ${line(own)}${wallet && line(wallet) !== line(own) ? `; the address changed by ${line(wallet)} over the deal, other deals included` : ''}`);
+        else if (wallet) lines.push(`- \`${short(a)}\`: ${line(wallet)}`);
       }
       for (const n of d.notes) lines.push(`- ${n}`);
     }
@@ -106,6 +112,19 @@ async function run(ids: string[], flags: { t220: boolean; homepage: boolean; rer
   const scenarios = pick(ids);
   const seed = process.env[SEED_VAR];
   if (!seed) throw new Error(`${SEED_VAR} is not set; run with --env-file-if-exists=<file>, or make one with examples/e2e-keys.ts init <file>`);
+  const keys = roundAddresses(seed);
+  const folder = join(OUT, stamp());
+  // One run of the round's keys at a time, before any network call (round 1's 2026-11-05 runs overlapped).
+  const { lock, tookOver } = takeLock(OUT, keys.master, { folder });
+  if (tookOver) console.log(tookOver);
+  try {
+    return await runLocked(scenarios, seed, keys, folder, flags);
+  } finally {
+    releaseLock(lock);
+  }
+}
+
+async function runLocked(scenarios: ReturnType<typeof pick>, seed: string, keys: ReturnType<typeof roundAddresses>, folder: string, flags: { t220: boolean; homepage: boolean; rerunAfter?: string }): Promise<number> {
   const ops = operators();
   const live = ops.join(',') === LIVE_OPERATORS.join(',');
   const round = await Round.open({ operators: ops, seed, rpcUrl: rpcUrl(), t220: flags.t220, homepage: flags.homepage, ...(live ? { trySeller: 'https://escrow.stream/agents/test-seller', tryBundleUrl: 'https://escrow.stream/try.mjs' } : {}) });
@@ -117,15 +136,24 @@ async function run(ids: string[], flags: { t220: boolean; homepage: boolean; rer
     console.log(`${role} ${a}${round.chain ? `: ${formatEther(await round.chain.ethBalance(a))} Sepolia ETH for its own direct calls and approvals` : ''}`);
   }
   if (scenarios.some((s) => s.id === '1')) rerollGuard(round.chain?.deployment.rules ?? null, flags.rerunAfter);
-  const folder = join(OUT, stamp());
+  // A run from another checkout takes no lock here, but its sends show as pending on the round's keys.
+  if (round.chain) await round.chain.untilIdle(Object.fromEntries(ROLES.filter((k) => k !== 'master').map((k) => [k, keys[k]])));
+  const since = await retry(() => round.agent('master').settlementNow());
+  // An earlier run's deal that still holds money is closed by its timeouts first, within the gate's wait.
+  const start = new Run(round, 'start', 'before the first scenario');
+  const earlier = await settleOpen(start, await heldDeals(start)).catch((e) => {
+    throw new Refusal(`refusing to start: ${reason(e).replace(/; run the remaining scenarios (after then|once it settles)$/, '')}; run the round again once it has settled`);
+  });
   const driverCommit = commit();
   mkdirSync(folder, { recursive: true });
   const results: J[] = [];
+  const ours = new Set<string>();
   let blocked: string | undefined;
   for (const s of scenarios) {
     const r = new Run(round, s.id, s.title);
     console.log(`\n[${s.id}] ${s.title}`);
     if (s.id === '1' && flags.rerunAfter) r.notes.push(`re-run after: ${flags.rerunAfter}`);
+    if (results.length === 0) for (const line of earlier) r.notes.push(`before the first scenario: ${line}`);
     try {
       if (blocked) throw new Error(`not run: ${blocked}`);
       await s.run(r);
@@ -134,12 +162,8 @@ async function run(ids: string[], flags: { t220: boolean; homepage: boolean; rer
       if (e instanceof Waits) r.waitsFor = e.tasks;
       console.log(`[${s.id}] ${e instanceof Waits ? 'waits' : 'stopped'} at ${r.step}: ${r.error}`);
     }
-    // Every deal has the same buyer and seller: one still holding money, after a stop or a failed check (an
-    // escalation, say), would settle inside the next scenario's balance window.
-    if (!blocked && r.deals.length) {
-      const open = await openDeals(r).catch(() => r.deals.map((d) => ({ id: d.id, state: 'unknown' })));
-      if (open.length) blocked = `${open.map((d) => `${d.id} is still ${d.state}`).join('; ')}; let it settle before running more scenarios`;
-    }
+    for (const d of r.deals) ours.add(d.id.toLowerCase());
+    if (!blocked) blocked = await between(r, ours, since);
     const result = { driverCommit, ...r.result() };
     results.push(result);
     writeFileSync(join(folder, `${s.id}.json`), `${JSON.stringify(result, null, 2)}\n`);
@@ -149,6 +173,32 @@ async function run(ids: string[], flags: { t220: boolean; homepage: boolean; rer
   console.log(`\nresults: ${results.map((r) => `${r.scenario} ${r.status}`).join(', ')}`);
   console.log(`evidence: ${join(folder, 'summary.md')} and one JSON record per scenario`);
   return results.some((r) => r.status === 'fail' || r.status === 'error') ? 1 : 0;
+}
+
+/**
+ * The gate after a scenario. A deal it left holding money (it stopped, or failed a check before its end) is closed by
+ * its timeouts through the API, within SETTLE_WAIT_MS; then a deal of the round's buyer that another run offered since
+ * this run started stops the rest, since two runs of the same keys count each other's deals and their adjudicators
+ * act on each other's deals. Returns why the remaining scenarios cannot run, or undefined. Its steps go into the
+ * scenario's record.
+ */
+async function between(r: Run, ours: ReadonlySet<string>, since: number): Promise<string | undefined> {
+  if (r.deals.length) {
+    try {
+      for (const line of await settleOpen(r, r.deals)) r.notes.push(`after the scenario: ${line}`);
+    } catch (e) {
+      r.note(`after the scenario: ${reason(e)}`);
+      return reason(e);
+    }
+  }
+  const others = await otherRunDeals(r, ours, since).catch((e) => {
+    r.note(`after the scenario: the check for another run's deals could not read the operators' list (${reason(e)})`);
+    return [];
+  });
+  if (!others.length) return undefined;
+  const why = `another run is using the round's keys: ${others.map((d) => `${d.id} (${d.state}, offered ${d.createdAt})`).join('; ')} was offered after this run started at ${new Date(since).toISOString().replace(/\.\d+Z$/, 'Z')}, and this run did not offer it. Two runs of the same keys count each other's deals; let the other run end, then run the remaining scenarios`;
+  r.note(`after the scenario: ${why}`);
+  return why;
 }
 
 /** Re-reads the block hash of every transaction a run recorded; a changed or missing one is a reorg. */
