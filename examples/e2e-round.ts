@@ -6,10 +6,13 @@
 //   node --env-file-if-exists=.env examples/e2e-round.ts list
 //   node --env-file-if-exists=.env examples/e2e-round.ts run <scenario ...|all> [--t220] [--no-homepage] [--rerun-after <why>]
 //   node --env-file-if-exists=.env examples/e2e-round.ts finality <run folder>
+//   node --env-file-if-exists=.env examples/e2e-round.ts settle <commitmentId> [--to-buyer|--to-seller] [--dry-run]
 //
 // `run` writes one JSON record per scenario and summary.md to the checkout's reports/e2e-round-1/<UTC time>/ (E2E_OUT
 // names another folder): public data only, the input to the round's report in docs/reviews/. `finality`, about 20
-// minutes after the last run, re-reads every recorded transaction's block hash: a change is a reorg.
+// minutes after the last run, re-reads every recorded transaction's block hash: a change is a reorg. `settle` closes one
+// of the round's own open deals by a MutualSettlement both round keys sign, the price back to the buyer by default
+// (e2e-settle.ts); `--dry-run` prints the message and signs nothing.
 //
 // Environment: E2E_SEPOLIA_SEED (for run; e2e-keys.ts makes it), HOLDBACK_OPERATORS (default the demo's two nodes),
 // SEPOLIA_RPC_URL (default a public Sepolia node), HOLDBACK_DEPLOYMENT (a deployment file's JSON: anvil, in the tests).
@@ -24,6 +27,7 @@ import { RoundChain } from './e2e-chain.ts';
 import { roundAddresses, ROLES, SEED_VAR } from './e2e-keys.ts';
 import { heldDeals, otherRunDeals, reason, refuseActive, releaseLock, retry, Round, Run, settleOpen, sharedReports, short, takeLock, Waits } from './e2e-run.ts';
 import { pick, SCENARIOS } from './e2e-scenarios.ts';
+import { parseSettle, settleDeal } from './e2e-settle.ts';
 import { Refusal } from './verify.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -45,6 +49,20 @@ const commit = (): string => {
 const operators = () => (process.env['HOLDBACK_OPERATORS'] ? process.env['HOLDBACK_OPERATORS'].split(',') : LIVE_OPERATORS).map((s) => s.trim().replace(/\/+$/, '')).filter(Boolean);
 const rpcUrl = () => process.env['SEPOLIA_RPC_URL'] || PUBLIC_RPC;
 const stamp = () => new Date().toISOString().replace(/\.\d+Z$/, 'Z').replace(/:/g, '');
+const USAGE = 'usage: node --env-file-if-exists=.env examples/e2e-round.ts <list | run <scenario ...|all> [--t220] [--no-homepage] [--rerun-after <why>] | finality <run folder> | settle <commitmentId> [--to-buyer|--to-seller] [--dry-run]>';
+
+/** The round's seed, from the environment; never printed. */
+function seedOf(): string {
+  const seed = process.env[SEED_VAR];
+  if (!seed) throw new Error(`${SEED_VAR} is not set; run with --env-file-if-exists=<file>, or make one with examples/e2e-keys.ts init <file>`);
+  return seed;
+}
+
+/**
+ * Where the round's lock lives: the clone's shared reports folder, so every worktree meets it (round 1's 2026-11-05
+ * runs overlapped); E2E_OUT, as the tests set it, keeps it there.
+ */
+const lockDir = () => (process.env['E2E_OUT'] ? OUT : (sharedReports(fileURLToPath(new URL('.', import.meta.url))) ?? OUT));
 
 function list(): void {
   console.log('Round 1 scenarios (T-216). "waits for" names the tasks T-220 must deploy first.');
@@ -111,14 +129,11 @@ function summary(results: J[], round: Round): string {
 
 async function run(ids: string[], flags: { t220: boolean; homepage: boolean; rerunAfter?: string }): Promise<number> {
   const scenarios = pick(ids);
-  const seed = process.env[SEED_VAR];
-  if (!seed) throw new Error(`${SEED_VAR} is not set; run with --env-file-if-exists=<file>, or make one with examples/e2e-keys.ts init <file>`);
+  const seed = seedOf();
   const keys = roundAddresses(seed);
   const folder = join(OUT, stamp());
-  // One run of the round's keys at a time, before any network call (round 1's 2026-11-05 runs overlapped). The lock
-  // sits in the clone's shared reports folder, so every worktree meets it; E2E_OUT, as the tests set it, keeps it there.
-  const lockDir = process.env['E2E_OUT'] ? OUT : (sharedReports(fileURLToPath(new URL('.', import.meta.url))) ?? OUT);
-  const { lock, tookOver } = takeLock(lockDir, keys.master, { folder });
+  // One run of the round's keys at a time, before any network call.
+  const { lock, tookOver } = takeLock(lockDir(), keys.master, { folder });
   if (tookOver) console.log(tookOver);
   try {
     return await runLocked(scenarios, seed, keys, folder, flags);
@@ -218,6 +233,30 @@ async function between(r: Run, ours: ReadonlySet<string>, since: number): Promis
   return why;
 }
 
+/**
+ * Closes one of the round's own open deals by a MutualSettlement both round keys sign (e2e-settle.ts). It holds the
+ * round's lock while it signs and sends, as a run does; a dry run only reads, and takes none.
+ */
+async function settle(args: string[]): Promise<number> {
+  const parsed = parseSettle(args);
+  if ('error' in parsed) {
+    console.error(`usage error: ${parsed.error}`);
+    console.error(USAGE);
+    return 2;
+  }
+  const seed = seedOf();
+  const held = parsed.dryRun ? undefined : takeLock(lockDir(), roundAddresses(seed).master, { folder: `settle ${parsed.id}` });
+  if (held?.tookOver) console.log(held.tookOver);
+  try {
+    const ops = operators();
+    const round = await Round.open({ operators: ops, seed, rpcUrl: rpcUrl() });
+    console.log(`’crow round 1, settle on ${ops.join(' and ')}: test tokens only, nothing here is real money`);
+    return await settleDeal(round, parsed.id, parsed);
+  } finally {
+    if (held) releaseLock(held.lock);
+  }
+}
+
 /** Re-reads the block hash of every transaction a run recorded; a changed or missing one is a reorg. */
 async function finality(folder: string): Promise<number> {
   const records = readdirSync(folder).filter((f) => f.endsWith('.json') && f !== 'finality.json').map((f) => JSON.parse(readFileSync(join(folder, f), 'utf8')) as J);
@@ -255,8 +294,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     if (cmd === 'list') list();
     else if (cmd === 'run' && ids.length) process.exitCode = await run(ids, { t220: rest.includes('--t220'), homepage: !rest.includes('--no-homepage'), ...(rerunAfter ? { rerunAfter } : {}) });
     else if (cmd === 'finality' && ids.length === 1) process.exitCode = await finality(ids[0]!);
+    else if (cmd === 'settle') process.exitCode = await settle(rest);
     else {
-      console.error('usage: node --env-file-if-exists=.env examples/e2e-round.ts <list | run <scenario ...|all> [--t220] [--no-homepage] [--rerun-after <why>] | finality <run folder>>');
+      console.error(USAGE);
       process.exitCode = 2;
     }
   } catch (e) {
