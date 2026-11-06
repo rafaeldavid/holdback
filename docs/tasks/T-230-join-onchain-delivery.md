@@ -5,8 +5,8 @@
 - **Depends on:** T-218 (the chain sync and the delivery join, PR 185), T-219 (the in-flight row per relayer lane, PR 195) and T-228 (timeouts for a deal behind the chain, PR 207); all done. Found by T-216's round 1, scenario 8.
 - **Paths this task may touch:** `packages/settlement/evm/evm-settlement.ts` (the `deliver` relay, `send`'s revert answer, `process`, `land`, `follow`, `observe`, `openDeals`, `step`, `rebuild`, `fallBehind` and new `Book` fields), `packages/settlement/evm/sync.ts` (`commitmentTxs`, a pinned head), `packages/settlement/evm/sync.test.ts` and the red team's `packages/settlement/evm/attack-t230.test.ts` (new); `docs/neutrality.md` (the escape-hatch requirements), `site/llms.txt` (the line on submitting directly), `docs/api.md` (only if a response changes), `docs/team.md` (a Rules and checks row, if the failure repeats), `docs/plan.md` (this row) and this file
 - **Human gate:** the deploy of holdback-op1 and holdback-op2 waits for Rafa, as every deploy does. No contract change, no schema change.
-- **Status:** done (merged in PR 232; the deploy and the scenario 8 rerun wait for Rafa, Handoff)
-- **Agent/session:** T-230 session, 2026-11-06, worktree `.worktrees/join-delivery`, branch `t-230-join-delivery` (PR 232). It replaced branch `t-230-join-onchain-delivery` (PR 231, closed), whose history held three test strings gitleaks flagged. Rafa approved the work on 2026-11-06 ("Spin it up").
+- **Status:** done (merged in PR 232; deployed on 2026-11-06: holdback-op1 `8bcda43c` and holdback-op2 `7e4d3fa5` at 12:19 UTC, crow-site `16038434` at 15:04 UTC; the scenario 8 rerun is next, Handoff)
+- **Agent/session:** T-230 session, 2026-11-06, worktree `.worktrees/join-delivery`, branch `t-230-join-delivery` (PR 232). It replaced branch `t-230-join-onchain-delivery` (PR 231, closed), whose history held three test strings gitleaks flagged. Rafa approved the work on 2026-11-06 ("Spin it up"). A deploy session shipped it on 2026-11-06 from worktree `.worktrees/t230-deploy` and recorded it on branch `t-230-deploy-record`.
 
 ## Intent
 
@@ -131,6 +131,57 @@ All on anvil standing in for Sepolia (a block every second), `packages/settlemen
 - `node site/build.mjs` rewrote nothing beyond `llms.txt`'s own edit, and `node site/check.mjs` passed [measured]. `try.mjs` keeps sha256 `cc310963…d832`.
 - `docs/api.md` needs no change: no response changes shape [inferred from the diff]. The kept-copy answer is the existing 409 `invalid_state`, with `state` as `docs/api.md` documents it.
 
+### The deploy (2026-11-06)
+
+**Deployed and checked; no rollback.** Rafa gave the go-ahead on 2026-11-06: "Yes, deploy T-230". A deploy session shipped PR 232's merge commit `e5f667a` to both operators, then to the site, by the runbook in `docs/operations.md` and this file's Handoff, in the shape of T-228's deploy. It saved each answer under `reports/t230/` in its worktree (git-ignored). Every line below is measured unless it says otherwise.
+
+| Worker | New version | Deployed (UTC) | Rollback target |
+| --- | --- | --- | --- |
+| holdback-op1 | `8bcda43c-ba12-4919-9355-54048b98f720` | 12:19:19 | `ba7a2ad9-0172-458a-92a0-5d51d18afd0a` |
+| holdback-op2 | `7e4d3fa5-273f-47a2-b6c4-537dbf31b58f` | 12:19:36 | `7826e3ce-b8ce-422f-a2ea-9e88bd982ba9` |
+| crow-site | `16038434-1066-452c-bfec-25c064547359` | 15:04:51 | `4f049eb5-34fb-4a59-843a-bd3855aaea19` |
+
+The deploy session lost its network from about 12:25 to 14:58 UTC (its two tails disconnected at 12:27 UTC). The operators kept running on the new code; the session finished the After checks at 15:00 UTC and then deployed the site.
+
+**Before** (12:09 to 12:19 UTC):
+1. Main stood at `e5f667a`, and nothing outside docs changed after it: `git diff --stat e5f667a origin/main -- apps packages contracts/src site` was empty. PR 230 (T-231, operator timeouts) is open and not in this build. CI's `ci` run on `e5f667a` passed all 9 jobs, gitleaks included, at 12:17:56 UTC. A fresh detached worktree on `e5f667a` passed `pnpm install --frozen-lockfile` and `pnpm build`.
+2. **What the build changes for the Worker,** since T-228's `236786a`: only `evm-settlement.ts` and `sync.ts`. The two new files under `config/`, `model-prices.json` and `ops-cost-prices.json`, are read only by `scripts/metrics/` (a search of `apps/`, `packages/`, `scripts/` and `examples/`). The live site's build, `43f8067`, differs from `e5f667a` in `site/llms.txt` only.
+3. Both nodes at 12:13:31 UTC: `schemaVersion` 0.10, domain Holdback 0.7, `verifyingContract` `0xf38287e5c5c1f20c6d03be500edbf8a244f27cfa`, `head.eventSeq` 592. The club's `rulebookHash` was `0x3fecb058…d108`, with `randomness` drand quicknet. `GET /v1/adjudicators` listed 5 adjudicators, all `bonded`: the 3 demo ones (`0x71f8…7c9e` primary, `0x594a…68a2` fallback, `0xdee0…f286` appeal) and 2 registered on 2026-11-05.
+4. **The world held 60 deals, all final on chain:** 32 Released, 20 Refunded, 5 Settled and 3 Expired. No deal was open. Three deals were behind the chain, each with its notice:
+   - `0x137ccb0d…3049`, a round 1 scenario 8 deal on T-228's code: the buyer funded it directly at 12:11:00 UTC and the seller delivered directly at 12:11:12 UTC ([`0x9c3b5b51…87bf`](https://sepolia.etherscan.io/tx/0x9c3b5b51cacc3e1a135c9d262dc2fef4510021537397fa0269fc3b776f0987bf), block 12,076,481), and it stuck behind the chain like the first one. At 12:13:31 UTC it read `Settled` (the contract's stage), with the notice naming that delivery and `lastEventSeq` 592. Rafa closed it by mutual settlement between 12:11:12 and 12:13:31 UTC (the window measured; Rafa as the sender from the coordinator's report).
+   - `0x71f767f8…1197`, round 1's first scenario 8 deal (Context): `Settled`, notice naming `0xc9c0d024…fa0a`.
+   - `0xf0453986…5e5b`, T-220's known case: `Released`, notice naming `0x64c5c757…caf1`.
+5. At Sepolia block 12,076,501 (12:15:22 UTC), read with `cast` through publicnode: the funding lane `0x6011…f555` held 1,749,731,907,749,486,861 wei (1.7497 Sepolia ETH) at nonce 44. Deal lanes 1, 2 and 3 stood at nonces 109, 45 and 72, and the three demo adjudicators at nonce 2. Every pending nonce equalled its nonce.
+6. `wrangler deployments status` showed holdback-op1 `ba7a2ad9`, holdback-op2 `7826e3ce` and crow-site `4f049eb5` live at 100%.
+7. `head.eventSeq` stayed 592 on both nodes from 12:18:27 to 12:18:59 UTC (32 s).
+
+**Deploy** (12:19:06 to 12:19:44 UTC):
+1. `pnpm demo-cloud:deploy` deployed both Workers on the first try: holdback-op1 at 12:19:19 UTC (startup 394 ms), then holdback-op2 at 12:19:36 UTC (startup 397 ms).
+2. `npx wrangler@4 tail holdback-op1 --format json`, started before the deploy, saw its first Durable Object event at 12:20:10 UTC, and it ran `8bcda43c`. So did every later event. The tail saw no Durable Object event between 12:18:59 and 12:20:10 UTC, so 51 s after the deploy is an upper bound on the switch.
+
+**After** (12:20 to 12:25 UTC, then 14:59 to 15:06 UTC):
+1. At 12:20:37 UTC both nodes served the same JSON as before for `/v1/status` (except `lagSec`), the club, the adjudicators and the commitments listing. At 14:59:46 UTC the same held, except two changes the smoke deal made: `head.eventSeq` 603 (its 11 events, 593 to 603) and the primary adjudicator's `lastUsedAt` 12:22:48 UTC (its decision).
+2. **Every deal read the same.** Each of the 60 deals' full state read and terms read returned the same JSON as before on both nodes: 120 of 120 reads at 12:20 UTC and 120 of 120 again at 15:00 UTC. The three deals behind kept their notices; `0x137ccb0d…3049` still reads `Settled`. T-230 joined nothing, since no node kept a copy before the deploy (inferred: the old code kept none).
+3. **The first passes sent nothing.** At block 12,076,531 (12:21:33 UTC), after the first 4 alarm passes, all seven addresses had the balances and nonces of Before step 5.
+4. **The smoke deal.** `env HOLDBACK_OPERATORS=https://api.escrow.stream,https://api2.escrow.stream node examples/try.ts` played both sides. Commitment `0xd15dfdcd…4a84` ended `Released` in 46 s, settled at 12:22:48 UTC and final at 12:23:48 UTC, bound to `0x3fecb058…d108`, with an operator fee of 4.71 tUSDC. Deal lane 3 sent all three, and each receipt has status 1:
+   - funded [`0x1bad5d3b…dddd`](https://sepolia.etherscan.io/tx/0x1bad5d3b81acec671c89398014b20df7069beb566d169972dd37f8285fa0dddd), 840,697 gas;
+   - delivered [`0x9fe0a1ed…b3f1`](https://sepolia.etherscan.io/tx/0x9fe0a1ed14f342c1b9dea65ee3787220bc8634b69aac3892ef19e1bd60f1b3f1), 173,107 gas;
+   - decided [`0xdce16030…0c75`](https://sepolia.etherscan.io/tx/0xdce1603025f465b593787b6aeb734db698f31ef9dff87ca01eeea1d76bdf0c75), 166,808 gas.
+5. **Lane nonces.** At block 12,077,320 (15:03:09 UTC) the funding lane stood at nonce 45 and deal lane 3 at nonce 76; the other five addresses had not moved. A scan of blocks 12,076,501 to 12,076,560 found five transactions from the seven addresses, all at 1 gwei, and each has a cause. Gas times 1 gwei equals each balance change exactly:
+   - funding lane, nonce 44: the faucet's grant to the smoke deal's two keys, [`0xcc062594…351b`](https://sepolia.etherscan.io/tx/0xcc062594d1995ec431a7361e0b99523f78ccce9ccce7a49d2c5bbcdbba41351b), 262,183 gas, at 12:22:12 UTC, to Multicall3 (inferred from its timing and target);
+   - deal lane 3, nonces 72 to 74: the smoke deal's three transactions above;
+   - deal lane 3, nonce 75: the smoke deal's appeal expiry, [`0x0778d0ad…3a05`](https://sepolia.etherscan.io/tx/0x0778d0add1f9781724dba30d595310ff8f3d32139364be9855e2d571b11d3a05), 80,792 gas, at 12:25:00 UTC. The deal's event 603, `appeal.expired`, names it.
+6. **The tails.** holdback-op1 from 12:18:59 to 12:23:19 UTC: 129 events, 128 of them from `8bcda43c`, with 12 alarm passes, 0 exceptions, 0 responses of 500 or more and 0 log lines. holdback-op2 from 12:18:59 to 12:22:47 UTC: 46 events, all `ok`. After the outage, holdback-op1 from 14:59:46 to 15:05:52 UTC: 64 events, all from `8bcda43c`, with 15 alarm passes, 0 exceptions, 0 responses of 500 or more and 0 log lines. Four of them ended `canceled`: both halves of the session's own two reads of the streaming `GET /v1/events`, which its client closed (inferred from their times). holdback-op2 from 14:59:46 to 15:00:52 UTC: 22 events, all `ok`.
+
+**The site** (15:04 UTC):
+1. `node site/build.mjs --op1 https://api.escrow.stream --op2 https://api2.escrow.stream --out <worktree>/reports/site-out`, the directory `apps/site/wrangler.jsonc` serves, then `node site/check.mjs`: PASS.
+2. `npx wrangler@4 deploy --config apps/site/wrangler.jsonc` uploaded 1 file, `llms.txt` (41 already uploaded), as crow-site `16038434` at 15:04:51 UTC.
+3. The live `llms.txt` matches the build byte for byte (sha256 `d69aa913…36b7`). It differs from the copy before the deploy in one line, T-230's line on submitting directly: "at once or later", the 409 `invalid_state` that keeps the copy, and the join within about a minute. `https://escrow.stream/try.mjs` still serves sha256 `cc310963…d832`, the one the command names, and the live `index.html` matches the build.
+
+**After the deploy:** the `.worktrees/round1-run` checkout moved from `a6c275a` to `e5f667a` and passed `pnpm install --frozen-lockfile`, so a hand redeploy from it carries this fix.
+
+**Not measured on Sepolia:** a posted delivery joining a direct one. No live deal needed it, and the session sent no transaction beyond the smoke deal. The scenario 8 rerun measures it (Handoff).
+
 ## Decisions
 
 Made by the T-230 session on 2026-11-06; Rafa can overrule any of them.
@@ -148,8 +199,9 @@ Made by the T-230 session on 2026-11-06; Rafa can overrule any of them.
 
 ## Handoff
 
-- **State:** done: [PR 232](https://github.com/rafaeldavid/holdback/pull/232) merges once CI passes, with every review and red-team finding fixed. Not deployed: holdback-op1 and holdback-op2 still run T-228's `ba7a2ad9` and `7826e3ce` until Rafa's go-ahead. PR 231, the first branch, is closed: gitleaks flagged three test Idempotency-Keys in one of its commits, and a flagged string stays in a PR's history (`docs/team.md`, the proposed gitleaks row).
-- **The deploy, for Rafa,** in the shape of `docs/operations.md`'s T-228 section. No contract change, no schema change, no new secret or variable.
+- **State:** done, and live since 2026-11-06: holdback-op1 `8bcda43c-ba12-4919-9355-54048b98f720` and holdback-op2 `7e4d3fa5-273f-47a2-b6c4-537dbf31b58f` from 12:19 UTC, crow-site `16038434-1066-452c-bfec-25c064547359` from 15:04 UTC (Evidence, "The deploy"). Rafa gave the go-ahead on 2026-11-06: "Yes, deploy T-230". [PR 232](https://github.com/rafaeldavid/holdback/pull/232) merged as `e5f667a` with every review and red-team finding fixed. PR 231, the first branch, is closed: gitleaks flagged three test Idempotency-Keys in one of its commits, and a flagged string stays in a PR's history (`docs/team.md`, the proposed gitleaks row).
+- **To roll back:** `npx wrangler@4 rollback ba7a2ad9-0172-458a-92a0-5d51d18afd0a --name holdback-op1`, `npx wrangler@4 rollback 7826e3ce-b8ce-422f-a2ea-9e88bd982ba9 --name holdback-op2`, and for the site `npx wrangler@4 rollback 4f049eb5 --name crow-site` (`docs/operations.md`, T-230).
+- **The deploy as planned** (done on 2026-11-06, kept as the record of the steps), in the shape of `docs/operations.md`'s T-228 section. No contract change, no schema change, no new secret or variable.
   - **Before** (read-only; save each answer under `reports/t230/`):
     1. The PR is merged and CI passed on its merge commit. A fresh detached worktree on that commit passes `pnpm install --frozen-lockfile` and `pnpm build`.
     2. `curl -s https://api.escrow.stream/v1/status` and the same on api2: `schemaVersion` 0.10, domain Holdback 0.7, `verifyingContract` `0xf38287e5c5c1f20c6d03be500edbf8a244f27cfa`.
@@ -163,7 +215,7 @@ Made by the T-230 session on 2026-11-06; Rafa can overrule any of them.
     3. The smoke deal: `HOLDBACK_OPERATORS=https://api.escrow.stream,https://api2.escrow.stream node examples/try.ts` ends `Released` with three Etherscan links.
     4. Then the site: `node site/build.mjs --op1 https://api.escrow.stream --op2 https://api2.escrow.stream --out reports/site-out`, `node site/check.mjs`, `npx wrangler@4 deploy --config apps/site/wrangler.jsonc`, for `llms.txt`'s new sentences. `try.mjs` does not change (sha256 `cc310963…d832`).
   - **Rollback** (`npx wrangler@4 rollback <version> --name <worker>`): holdback-op1 `ba7a2ad9-0172-458a-92a0-5d51d18afd0a`, holdback-op2 `7826e3ce-b8ce-422f-a2ea-9e88bd982ba9`. T-230 adds two book fields, `posted` and `postedKeys`, and no storage prefix. The old code keeps them unread [inferred from the diff]; a copy kept at the rollback then never joins, and its deal waits for the seller to post again, as before T-230.
-- **Then rerun scenario 8,** the one round 1 scenario still to pass (D54: 9, 10a and 10b passed live on 2026-11-06, and 11 counts by its coverage). From the `round1-run` worktree moved to the merge commit (T-216 Handoff, step 1):
+- **Next: rerun scenario 8,** the one round 1 scenario still to pass (D54: 9, 10a and 10b passed live on 2026-11-06, and 11 counts by its coverage). The `round1-run` worktree sits at the merge commit `e5f667a` since the deploy (T-216 Handoff, step 1):
 
   ```bash
   node --env-file=/Users/rafa/Documents/escrow/.env /Users/rafa/Documents/escrow/.worktrees/round1-run/examples/e2e-round.ts run 8 --t220
