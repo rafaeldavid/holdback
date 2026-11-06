@@ -904,3 +904,30 @@ Also: the funding signature on EVM is CPP's collector signature and token identi
 | Twice a day in Berlin time, skipping a run with nothing new (chosen) | 61 to 244 billed 1-core minutes a month (inferred); between 16:07 and 07:07 the console can be 15 h old, and "Run workflow" refreshes it on demand |
 | Every hour (D45) | About 2,190 billed 2-core minutes a month, over the 2,000 included (inferred); GitHub ran 2 of them on 2026-11-05 |
 | Every merge to holdback main (holdback#214, closed) | Fresh within minutes of a merge; about 135 billed 2-core minutes a day (inferred); holdback holds a token for crow-private |
+
+## D53. Finish stable EVM operations first; other Phase 2 work moves to later phases
+
+**Decided 2026-11-06 by Rafa:** "Basically any work that isn't about finishing stable EVM operations should be pushed to later phase". Earlier the same day: "Move daily one-click measurements to infrastructure management phase". The coordinator sorted Phase 2's open rows against it, read from origin/main at `c85147d`. No research pass ran: the decision orders work and changes no design. Rafa may overrule any line.
+
+- **Finishing stable EVM operations means four things:**
+  - round 1 green on the live Sepolia demo: every in-scope scenario passes against one deployment (T-216);
+  - T-221's leftovers: a red-team pass on the review's fixes, DeepSeek's cross-family review, and Rafa's CI line for the anvil end to end;
+  - Rafa's read of the contract review, and the hardening the next contract redeploy needs (T-206, T-212);
+  - anything else in Phase 2 that a stable demo on Sepolia needs. On 2026-11-06 no other open Phase 2 row qualifies (inferred from each row's scope).
+- **Everything else waits.** Phase 2 had 10 open rows on origin/main and keeps 4: T-206, T-212, T-216 and T-221 (measured from `docs/plan.md`). The other 6 move to the later phase that fits, each row saying why:
+  - T-207, private deals (paused), to Phase 8, Privacy end to end, as its first row;
+  - T-034, faster CI, to Phase 9, Infrastructure management;
+  - T-036, the coordinator commands, to Phase 10, Agent operations, so it waits until Rafa starts that phase;
+  - T-224, appeal bonds by a relayed permit (parked), to Phase 5, beside gas sponsorship for agents. Round 1's appeals run without it, with the appellant's own Sepolia ETH (T-216, scenarios 6 and 7);
+  - T-016b, the testkit follow-ups, to Phase 3, Judgment hardening, beside the calibration harness (T-301). Round 1 tests appeals, early accept and mutual settlement live on Sepolia;
+  - T-033, schema v0.9's additive items, to Phase 6, under Assets. It is not done (measured on origin/main): `FundingAuthorization.scheme` is still `erc3009` or `permit2`, `allowedTokens` is still required, `operator-status.chainId` is still a string, and ADR-0025 is still Proposed. The demo has funded through ERC-3009 on Sepolia since 2026-11-03 without it.
+- **The daily One-Click measurements** go to Phase 9, as Rafa asked. That task's own session adds its row.
+- **Work already in later phases keeps its phase.** T-066 (Phase 9) pauses with what is live recorded (PR 221), and T-059 (Phase 11) finishes its checks.
+- **Open: three proposed tasks, not created.** The operators send due timeouts on their own, so an abandoned deal settles with no caller (T-228's leftover). A low-balance alarm for the relayer's funding lane, pulled forward from T-054. A sweep of the product's own reads after a write, for the stale read after a transaction that has come back five times (PR 220). Rafa decides.
+- **Litmus tests.** Untouched: the decision orders work and changes no contract, schema, defense or API.
+
+| Option | Effect |
+| --- | --- |
+| Finish stable EVM operations first; move the rest (chosen) | Phase 2 keeps 4 open tasks; T-036 waits for Phase 10's start, and T-034's CI gains wait for Phase 9 |
+| Keep Phase 2 as it was | 10 open rows compete with round 1 for sessions and for Rafa's reviews |
+| Pause everything but round 1 | T-206's read and T-221's leftovers wait too, though the next contract redeploy needs them |
