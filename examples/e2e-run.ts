@@ -652,6 +652,8 @@ export async function settleOpen(run: Run, deals: readonly DealRef[], o: { waitM
   const reader = run.round.agent('master');
   const lines: string[] = [];
   const terms = new Map<string, J>();
+  // Each trigger is sent once per deal: the next pass may still read the state from before it.
+  const sent = new Set<string>();
   const started = Date.now();
   const end = started + waitMs;
   let waited: Array<{ id: Hex; state: string }> = [];
@@ -676,9 +678,10 @@ export async function settleOpen(run: Run, deals: readonly DealRef[], o: { waitM
         if (next.settleBy > now + (end - Date.now())) {
           throw new Error(`${d.id} still holds money: it is ${d.state}, and its timeouts can close it only at ${iso(next.settleBy)}, after this run's ${waitMs / 60_000}-minute wait ends; run the remaining scenarios after then`);
         }
-        if (now < next.at) continue;
+        if (now < next.at || sent.has(`${d.id}/${next.kind}`)) continue;
         try {
           await reader.call('POST', `/v1/commitments/${d.id}/triggers/${next.kind}`, {});
+          sent.add(`${d.id}/${next.kind}`);
           lines.push(`${short(d.id)} was ${d.state}${next.deadline ? ` past ${next.deadline} ${iso(next.at)}` : ''}: the driver sent ${next.kind} through the API at ${iso(now)}`);
           run.say(lines.at(-1)!);
         } catch (e) {
@@ -703,10 +706,24 @@ async function listed(agent: Agent, query: string): Promise<J[]> {
   return out;
 }
 
-/** The round buyer's deals that still hold money, as the operators list them: an earlier run's included. */
-export async function heldDeals(run: Run): Promise<DealRef[]> {
+/** The round buyer's deals that still hold money, as the operators list them, with their state and last change: an earlier run's included. */
+export async function heldDeals(run: Run): Promise<Array<DealRef & { state: string; updatedAt: string }>> {
   const states = HOLDING.map((s) => `escrowState=${s}`).join('&');
-  return (await listed(run.round.agent('master'), `party=${run.round.address('buyer')}&role=buyer&${states}`)).map((v) => ({ id: v.commitmentId as Hex }));
+  return (await listed(run.round.agent('master'), `party=${run.round.address('buyer')}&role=buyer&${states}`)).map((v) => ({ id: v.commitmentId as Hex, state: v.escrowState, updatedAt: v.updatedAt }));
+}
+
+/** How recently a held deal must have changed for the start to take it as another run's deal in progress (ms). */
+export const ACTIVE_MS = 2 * 60_000;
+
+/**
+ * Refuses to start while a deal of the round's buyer that holds money changed less than ACTIVE_MS before `nowMs`
+ * (settlement time): another run, from another checkout, may still be driving it, and the start gate must not send
+ * its timeouts. An older one is a stopped run's, and the start gate closes it.
+ */
+export function refuseActive(held: ReadonlyArray<{ id: Hex; state: string; updatedAt: string }>, nowMs: number): void {
+  const active = held.filter((d) => nowMs - Date.parse(d.updatedAt) < ACTIVE_MS);
+  if (!active.length) return;
+  throw new Refusal(`refusing to start: ${active.map((d) => `${d.id} (${d.state}) changed at ${d.updatedAt}`).join('; ')}, less than ${ACTIVE_MS / 60_000} minutes before this run, and still holds money; another run of the round's keys may be driving it. Run again once it ends`);
 }
 
 /**

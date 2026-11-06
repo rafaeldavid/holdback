@@ -11,7 +11,7 @@ import { type Hex } from 'viem';
 import { generatePrivateKey } from 'viem/accounts';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { CHECKS, DATASET, PRICE } from './e2e-scenario-kit.ts';
-import { delta, flowOf, fund, get, lockFile, nextTimeout, offer, openDeal, otherRunDeals, releaseLock, Round, Run, settleOpen, shortWindows, sleep, takeLock, type DealRecord, type Holding } from './e2e-run.ts';
+import { delta, flowOf, fund, get, heldDeals, lockFile, nextTimeout, offer, openDeal, otherRunDeals, refuseActive, releaseLock, Round, Run, settleOpen, shortWindows, sleep, takeLock, type DealRecord, type Holding } from './e2e-run.ts';
 import { simWorld, type Served } from './e2e-world.ts';
 import { Refusal } from './verify.ts';
 
@@ -125,6 +125,19 @@ describe('nextTimeout: which trigger closes a deal that still holds money, when 
   });
 });
 
+describe('refuseActive: the start leaves a deal that may be another run in progress alone', () => {
+  const now = Date.parse('2026-11-05T19:37:05Z');
+  it('refuses while a held deal of the round changed less than 2 minutes before the start, naming it', () => {
+    const held = [{ id: `0x${'a4'.repeat(32)}` as Hex, state: 'Delivered', updatedAt: '2026-11-05T19:36:24Z' }];
+    expect(() => refuseActive(held, now)).toThrow(Refusal);
+    expect(() => refuseActive(held, now)).toThrow(new RegExp(`^refusing to start: ${held[0]!.id} \\(Delivered\\) changed at 2026-11-05T19:36:24Z, less than 2 minutes before this run, and still holds money; another run of the round's keys may be driving it`));
+  });
+  it("lets the start gate close an older one, a stopped run's", () => {
+    expect(() => refuseActive([{ id: `0x${'3a'.repeat(32)}` as Hex, state: 'Escalated', updatedAt: '2026-11-05T19:30:00Z' }], now)).not.toThrow();
+    expect(() => refuseActive([], now)).not.toThrow();
+  });
+});
+
 describe("the round's lock: one run of the round's keys at a time", () => {
   const master = '0x6D4cEa33dAf09Ba803238d46392162d41BDB029f';
   it('takes a free lock, refuses a second run while the first holds it, and is free again once released', () => {
@@ -168,6 +181,8 @@ describe('against the demo world on SimChain', () => {
     const m = r.round.demo.minWindowSec;
     const deal = await openDeal(r, { label: 'funded, then the scenario stops', template: 'checks-only', deliverable: DATASET, checks: CHECKS, price: PRICE, timing: shortWindows(r, { offerExpiresInSec: 2 * m, fundWithinSec: 3 * m, deliverWithinSec: 4 * m }) }, [r.round.address('buyer'), r.round.address('seller')]);
     await fund(r, deal);
+    // The operators list it as the round buyer's held deal, as the start gate reads it.
+    expect(await heldDeals(r)).toEqual([{ id: deal.id, state: 'Held', updatedAt: expect.any(String) }]);
     const done = await settleOpen(r, r.deals, { waitMs: 90_000, gapMs: 500 });
     expect(done.join('\n'), lines.join('\n')).toMatch(new RegExp(`^${deal.id.slice(0, 8)}…${deal.id.slice(-4)} was Held past deliverBy ${deal.terms.timing.deliverBy}: the driver sent reclaim through the API`, 'm'));
     expect(triggers(deal.id)).toEqual([`POST /v1/commitments/${deal.id}/triggers/reclaim`]);
