@@ -1,6 +1,6 @@
 # Plan
 
-Iterative. Demo first, then harden one layer per phase. Each phase ends with evidence, a plan update and ADRs closed or deferred. Phases 0 to 2, 9, 10 and 11 have task files in `docs/tasks/`, and so do T-309 in Phase 3, T-214, T-215, T-222, T-223 and T-224 in Phase 5, T-033 in Phase 6 and T-207 in Phase 8. T-016b, in Phase 3, has none yet. The architect writes later phases' task files at the start of each phase.
+Iterative. Demo first, then harden one layer per phase. Each phase ends with evidence, a plan update and ADRs closed or deferred. Phases 0 to 2, 9, 10 and 11 have task files in `docs/tasks/`, and so do T-309 in Phase 3, T-067, T-214, T-215, T-222, T-223 and T-224 in Phase 5, T-033 in Phase 6 and T-207 in Phase 8. T-016b, in Phase 3, has none yet. The architect writes later phases' task files at the start of each phase.
 
 **Releases:** v0.1 = Phases 0–3 · v0.2 = Phases 4–5 · v0.3 = Phase 6.
 
@@ -130,6 +130,7 @@ Goal: fiat enters and leaves through ramps; the demo runs on a public testnet wi
 - [x] T-223 (merged in PR 191; deployed with T-220 on 2026-11-05) The demo faucet renews an address's mandate: every grant signs a fresh 30-day mandate in place of the old one, so the standing test seller keeps offering past its first 30 days (D47).
 - Operator node packaging (container), so a second party can run op-2.
 - Neutrality beat 7 on testnet.
+- [ ] T-067 (todo; deferred until after stable EVM operations, Rafa, 2026-11-06: "We can do that later but you should add a ticket for it." It sits in this phase because both surfaces it updates still show the demo before it ran on a public testnet, which is this phase's goal, and D53 keeps work outside stable EVM operations out of Phase 2) The homepage's background animation of API calls shows the live API, and the recorded demo runs again on Sepolia (Rafa, 2026-11-06). The animation's two code streams come from the SimChain case study: this task gives them the live paths, fields, states, amounts and order of a deal with Crow's test seller, with a check in `site/check.mjs` that fails when they drift. The recorded demo replays a SimChain deal of 2026-11-02 at `/visualdemo`. Per Rafa ("assuming stranger uses the testnet version with their own contract terms"), a stranger's agent sets its own terms through the public API and settles on Sepolia, with no One-Click flow. A recording script joins the repository, and a new recording follows Rafa's go-ahead. No API change. Task file `docs/tasks/T-067-homepage-animation-and-demo.md`.
 
 ## Phase 6: Interop and native compute
 
