@@ -4,14 +4,14 @@
 // money fixtures are round 1's 2026-11-05T190711Z records of scenarios 4 and 5a, whose balance windows took in a second
 // run's scenario 1 (2026-11-05T193705Z, funded in block 12,071,597 and paid in 12,071,600).
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type Hex } from 'viem';
 import { generatePrivateKey } from 'viem/accounts';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { CHECKS, DATASET, PRICE } from './e2e-scenario-kit.ts';
-import { delta, flowOf, fund, get, heldDeals, lockFile, nextTimeout, offer, openDeal, otherRunDeals, refuseActive, releaseLock, Round, Run, settleOpen, shortWindows, sleep, takeLock, type DealRecord, type Holding } from './e2e-run.ts';
+import { delta, flowOf, fund, get, heldDeals, lockFile, nextTimeout, offer, openDeal, otherRunDeals, refuseActive, releaseLock, Round, Run, settleOpen, sharedReports, shortWindows, sleep, takeLock, type DealRecord, type Holding } from './e2e-run.ts';
 import { simWorld, type Served } from './e2e-world.ts';
 import { Refusal } from './verify.ts';
 
@@ -136,6 +136,43 @@ describe('refuseActive: the start leaves a deal that may be another run in progr
   it("lets the start gate close an older one, a stopped run's", () => {
     expect(() => refuseActive([{ id: `0x${'3a'.repeat(32)}` as Hex, state: 'Escalated', updatedAt: '2026-11-05T19:30:00Z' }], now)).not.toThrow();
     expect(() => refuseActive([], now)).not.toThrow();
+  });
+});
+
+describe('settleOpen against an API that keeps refusing a due trigger (PR 220 review)', () => {
+  it('refuses after the same refusal three times in a row, instead of posting for the rest of its wait', async () => {
+    const id = `0x${'5e'.repeat(32)}` as Hex;
+    const posts: string[] = [];
+    const agent = {
+      operators: ['http://127.0.0.1:9'],
+      settlementNow: async () => Date.parse('2026-11-05T19:30:00Z'),
+      call: async (method: string, path: string) => {
+        if (method === 'POST') {
+          posts.push(path);
+          throw new Error('invalid_state: the stand-in refuses every trigger');
+        }
+        if (path.endsWith('/terms')) return { timing: { deliverBy: '2026-11-05T19:00:00Z', judgeBy: '2026-11-05T19:01:00Z', fallbackBy: '2026-11-05T19:04:00Z', appealDecideSec: 60 } };
+        return { escrowState: 'Held', deadlines: {} };
+      },
+    };
+    const run = { round: { chain: undefined, agent: () => agent }, say: () => undefined } as unknown as Run;
+    await expect(settleOpen(run, [{ id }], { waitMs: 60_000, gapMs: 10 })).rejects.toThrow(new RegExp(`^${id} still holds money: it is Held, and the API refused reclaim 3 times in a row \\(invalid_state: the stand-in refuses every trigger\\); run the remaining scenarios once it settles$`));
+    expect(posts).toEqual(Array(3).fill(`/v1/commitments/${id}/triggers/reclaim`));
+  });
+});
+
+describe('sharedReports: one lock folder for every worktree of a clone (PR 220 review)', () => {
+  it("is the main checkout's reports/e2e-round-1, from the main checkout and from a worktree alike, and null outside git", () => {
+    const main = mkdtempSync(join(tmpdir(), 'e2e-clone-'));
+    const git = (...args: string[]) => spawnSync('git', ['-c', 'user.name=round', '-c', 'user.email=round@example.com', ...args], { cwd: main, encoding: 'utf8' });
+    expect(git('init', '-q').status).toBe(0);
+    expect(git('commit', '-q', '--allow-empty', '-m', 'empty').status).toBe(0);
+    const tree = join(main, '.worktrees', 'round1-run');
+    expect(git('worktree', 'add', '-q', '--detach', tree).status).toBe(0);
+    const expected = join(realpathSync(main), 'reports', 'e2e-round-1');
+    expect(sharedReports(main)).toBe(expected);
+    expect(sharedReports(tree)).toBe(expected);
+    expect(sharedReports(mkdtempSync(join(tmpdir(), 'e2e-no-git-')))).toBeNull();
   });
 });
 

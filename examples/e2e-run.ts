@@ -6,8 +6,9 @@
 // Evidence per deal (T-216, How the round runs): the commitment ID; each transaction with its Etherscan link, gas and
 // block; dealOf's stage and CPP's payment state; the balances and bonds of every party before and after; the state
 // and event log from both operators, and whether they agree; whether the buyer could open the work.
+import { execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { BaseError, ContractFunctionRevertedError, recoverTypedDataAddress, type Hex } from 'viem';
 import { Agent } from './agent.ts';
 import { SEPOLIA, type DeploymentFile } from './deployments.ts';
@@ -163,6 +164,8 @@ export interface DealRecord {
   chain?: { stage: string; appeal: string; attempt: number; payment: { collected: boolean; capturable: string; refundable: string }; block?: number };
   operators?: { views: Array<{ origin: string; escrowState: string; appealState?: string; events: number; head: string | null }>; agree: boolean };
   balances: { before: Record<string, Holding>; after?: Record<string, Holding> };
+  /** On a chain: the block the starting balances were read at, where the chain's own list of the deal's transactions starts. */
+  fromBlock?: number;
   /** On a chain: what the deal itself moved for each party, from its own transactions' logs (`flowOf`). */
   flows?: Record<string, Holding>;
   buyerOpened?: boolean;
@@ -224,11 +227,11 @@ export class Run {
     this.say(`note ${text}`);
   }
 
-  /** The result: pass only when every check held and nothing stopped the run. */
-  result(): J {
+  /** The result: pass only when every check held and nothing stopped the run. `endedAt` is when the scenario ended, before the gate after it. */
+  result(endedAt = new Date().toISOString()): J {
     const status: Status = this.error ? (this.waitsFor.length ? 'waits' : 'error') : this.checks.every((c) => c.ok) ? 'pass' : 'fail';
     return {
-      scenario: this.scenario, title: this.title, status, startedAt: this.startedAt, endedAt: new Date().toISOString(),
+      scenario: this.scenario, title: this.title, status, startedAt: this.startedAt, endedAt,
       ...(this.error ? { stoppedAt: this.step, error: this.error } : {}), waitsFor: this.waitsFor,
       deployment: this.round.chain ? { chainId: this.round.chain.deployment.chainId, rules: this.round.chain.deployment.rules, explorer: this.round.chain.explorer ?? null } : { chainId: this.round.pin.domain.chainId, rules: null, explorer: null },
       domain: this.round.pin.domain, operators: this.round.status, checks: this.checks, deals: this.deals, notes: this.notes, attachments: this.attachments,
@@ -401,7 +404,9 @@ export async function offer(run: Run, spec: OfferSpec, parties: readonly string[
   // Both parties need a mandate in the club before the offer; the buyer's tokens come at funding.
   await ensureFunds(run, 'seller', 0n);
   await ensureFunds(run, 'buyer', 0n);
-  const before = await holdingsNow(run, parties);
+  // As holdingsNow reads them, with the block kept: the chain's list of the deal's transactions starts there.
+  const from = round.chain ? await round.chain.fresh() : undefined;
+  const before = await holdings(run, parties, from);
   run.step = 'offer';
   const offered = await seller.offer({
     template: spec.template, clubId: round.demo.clubId, seller: seller.address,
@@ -409,7 +414,7 @@ export async function offer(run: Run, spec: OfferSpec, parties: readonly string[
     adjudicators: spec.adjudicators ?? round.demo.adjudicators, price: { token: round.demo.token, amount: spec.price },
     deliverable: spec.deliverable, ...(spec.checks ? { checks: spec.checks } : {}), ...(spec.rubric ? { rubric: spec.rubric } : {}), timing: spec.timing ?? shortWindows(run),
   });
-  const record: DealRecord = { label: spec.label, id: offered.id, relay: new URL(seller.operators[0]!).origin, transactions: [], balances: { before }, notes: [] };
+  const record: DealRecord = { label: spec.label, id: offered.id, relay: new URL(seller.operators[0]!).origin, transactions: [], balances: { before }, ...(from === undefined ? {} : { fromBlock: Number(from) }), notes: [] };
   run.deals.push(record);
   run.say(`${short(offered.id)} ${offered.state.escrowState}: ${spec.label}, ${round.amount(spec.price)}, relayed by ${record.relay}`);
   return { label: spec.label, id: offered.id, terms: offered.terms, buyer, seller, record, sent: [] };
@@ -515,6 +520,18 @@ export async function finish(run: Run, deal: Deal): Promise<void> {
     for (const [tx, kinds] of steps) {
       const rec = await round.chain.transaction(tx as Hex);
       r.transactions.push({ ...rec, steps: kinds, link: round.chain.link(tx), sentBy: sentBy.get(tx) ?? 'operator' });
+    }
+    // The chain's own list of the deal's transactions: one that neither the operators' events nor the round's sends
+    // name still counts in the deal's money, so a check that expects nothing to move cannot pass for lack of it.
+    const first = r.fromBlock ?? Math.min(...r.transactions.map((t) => t.block));
+    if (Number.isFinite(first)) {
+      const known = r.transactions.filter((t) => t.logs.some((l) => l.contract === 'rules')).map((t) => t.tx);
+      for (const tx of await round.chain.dealTransactions(deal.id, BigInt(first), await round.chain.fresh(), known)) {
+        if (steps.has(tx.toLowerCase())) continue;
+        const rec = await round.chain.transaction(tx);
+        r.transactions.push({ ...rec, steps: ['on chain only'], link: round.chain.link(tx), sentBy: 'chain' });
+        r.notes.push(`${round.chain.link(tx)} touched the deal on chain, and neither operator's events nor the round's own sends name it`);
+      }
     }
     r.transactions.sort((a, b) => a.block - b.block);
     const last = r.transactions.at(-1)?.block;
@@ -654,6 +671,9 @@ export async function settleOpen(run: Run, deals: readonly DealRef[], o: { waitM
   const terms = new Map<string, J>();
   // Each trigger is sent once per deal: the next pass may still read the state from before it.
   const sent = new Set<string>();
+  // Passes in a row that found a deal its timeouts cannot close in time, and refusals in a row of one trigger.
+  const late = new Map<string, number>();
+  const refused = new Map<string, { why: string; times: number }>();
   const started = Date.now();
   const end = started + waitMs;
   let waited: Array<{ id: Hex; state: string }> = [];
@@ -676,16 +696,28 @@ export async function settleOpen(run: Run, deals: readonly DealRef[], o: { waitM
         const next = nextTimeout(d.state, terms.get(d.id).timing, view.deadlines ?? {});
         if (!next) continue;
         if (next.settleBy > now + (end - Date.now())) {
-          throw new Error(`${d.id} still holds money: it is ${d.state}, and its timeouts can close it only at ${iso(next.settleBy)}, after this run's ${waitMs / 60_000}-minute wait ends; run the remaining scenarios after then`);
+          // A read can still show a state from before the deal's last step: refuse on the second pass in a row only.
+          const passes = (late.get(d.id) ?? 0) + 1;
+          late.set(d.id, passes);
+          if (passes >= 2) throw new Error(`${d.id} still holds money: it is ${d.state}, and its timeouts can close it only at ${iso(next.settleBy)}, after this run's ${waitMs / 60_000}-minute wait ends; run the remaining scenarios after then`);
+          continue;
         }
-        if (now < next.at || sent.has(`${d.id}/${next.kind}`)) continue;
+        late.delete(d.id);
+        const key = `${d.id}/${next.kind}`;
+        if (now < next.at || sent.has(key)) continue;
         try {
           await reader.call('POST', `/v1/commitments/${d.id}/triggers/${next.kind}`, {});
-          sent.add(`${d.id}/${next.kind}`);
+          sent.add(key);
           lines.push(`${short(d.id)} was ${d.state}${next.deadline ? ` past ${next.deadline} ${iso(next.at)}` : ''}: the driver sent ${next.kind} through the API at ${iso(now)}`);
           run.say(lines.at(-1)!);
         } catch (e) {
-          if (!tooEarly(e)) last = `${next.kind} for ${short(d.id)}: ${reason(e)}`;
+          if (tooEarly(e)) continue;
+          const why = reason(e);
+          const times = refused.get(key)?.why === why ? refused.get(key)!.times + 1 : 1;
+          refused.set(key, { why, times });
+          last = `${next.kind} for ${short(d.id)}: ${why}`;
+          // The same refusal three times in a row is the API's answer, not a race: waiting the rest of the 15 minutes changes nothing.
+          if (times >= 3) throw new Error(`${d.id} still holds money: it is ${d.state}, and the API refused ${next.kind} ${times} times in a row (${why}); run the remaining scenarios once it settles`);
         }
       }
     }
@@ -742,7 +774,21 @@ export async function otherRunDeals(run: Run, ours: ReadonlySet<string>, sinceMs
   return out;
 }
 
-/** The round's lock: one file per master in the reports folder, held by the process that runs the round. */
+/**
+ * The reports folder of the clone's main checkout, where the round's lock lives: every worktree of a clone shares git's
+ * common directory, which sits in the main checkout, so a run from `.worktrees/round1-run` and one from the main
+ * checkout meet one lock. Null outside a git checkout.
+ */
+export function sharedReports(cwd: string): string | null {
+  try {
+    const common = execFileSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    return join(dirname(common), 'reports', 'e2e-round-1');
+  } catch {
+    return null;
+  }
+}
+
+/** The round's lock: one file per master in the clone's shared reports folder, held by the process that runs the round. */
 export interface RunLock { path: string; pid: number; startedAt: string; folder: string }
 
 export const lockFile = (dir: string, master: string): string => join(dir, `run-${master.toLowerCase()}.lock`);

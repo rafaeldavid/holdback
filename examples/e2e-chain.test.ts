@@ -138,7 +138,7 @@ async function laggingRpc(last: bigint, misses: number, o: { receiptMisses?: num
       }
       const s = pinned ? AFTER : BEFORE;
       const stage = o.stages ? STAGES.indexOf(pinned ? o.stages.after : o.stages.before) : s.stage;
-      const result = { dealOf: { stage, attempt: 1, appeal: 0, flags: 0, t1: 0, t2: 0, seedTag: 0n }, paymentState: [false, s.capturable, s.refundable], balanceOf: s.token, bondOf: s.bond, freeOf: s.free, approve: true }[functionName];
+      const result = { dealOf: { stage, attempt: 1, appeal: 0, flags: 0, t1: 0, t2: 0, seedTag: 0n }, paymentState: [false, s.capturable, s.refundable], balanceOf: s.token, bondOf: s.bond, freeOf: s.free, approve: true, deliveryHashOf: `0x${'d1'.repeat(32)}` }[functionName];
       reply({ result: encodeFunctionResult({ abi, functionName, result } as never) });
     });
   });
@@ -176,6 +176,12 @@ describe("RoundChain's evidence reads at the deal's last block (round 1's 3d and
     expect((await chain.holdings([terms.buyer], last))[terms.buyer]).toEqual({ token: '12000000', bond: '25000000000', free: '25002500000' });
     expect(reads.filter((r) => r.fn === 'dealOf')).toHaveLength(3);
     expect(reads.filter((r) => r.block !== numberToHex(last))).toEqual([]);
+  });
+
+  it("reads deliveryHashOf at the deal's last block when given it (PR 220 review)", async () => {
+    const { chain, reads } = await open(0);
+    expect(await chain.deliveryHashOf(id, last)).toBe(`0x${'d1'.repeat(32)}`);
+    expect(reads).toEqual([{ fn: 'deliveryHashOf', block: numberToHex(last) }]);
   });
 
   it('throws once no node serves the block within its tries, and never reports the state before it', async () => {
@@ -251,6 +257,52 @@ describe("the round's own transactions and the reads after them (PR 210 review: 
     await expect(chain.send(generatePrivateKey(), 'token', 'approve', [SEPOLIA!.bonds, 1n])).rejects.toThrow(/refusing to send approve: the network asks [\d.]+ gwei per gas, above the 20 gwei cap/);
     expect(asked).not.toContain('eth_sendRawTransaction');
     expect(asked).not.toContain('eth_getTransactionCount');
+  });
+});
+
+describe("the chain's own list of a deal's transactions (PR 220 review)", () => {
+  const id = commitmentIdOf(terms) as Hex;
+  const known = `0x${'aa'.repeat(32)}` as Hex;
+  const unnamed = `0x${'bb'.repeat(32)}` as Hex;
+  let close: (() => Promise<void>) | undefined;
+  afterEach(async () => {
+    await close?.();
+    close = undefined;
+  });
+  /** eth_getLogs answers the deal's logs; the first `misses` answers come from a node behind, without the known transaction. */
+  const logsRpc = async (misses: number) => {
+    const asked: Array<{ address: string; fromBlock: string; toBlock: string; topics: Array<string | null> }> = [];
+    const server = createServer((req, res) => {
+      let body = '';
+      req.on('data', (chunk: Buffer) => (body += chunk.toString()));
+      req.on('end', () => {
+        const { id: rid, method, params } = JSON.parse(body) as { id: number; method: string; params: J[] };
+        const reply = (x: object) => res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ jsonrpc: '2.0', id: rid, ...x }));
+        if (method === 'eth_chainId') return reply({ result: numberToHex(SEPOLIA_CHAIN_ID) });
+        if (method !== 'eth_getLogs') return reply({ error: { code: -32601, message: `${method} is not served here` } });
+        asked.push(params[0]);
+        const log = (tx: Hex) => ({ address: SEPOLIA!.rules.toLowerCase(), topics: [`0x${'01'.repeat(32)}`, id], data: '0x', blockNumber: '0x1', transactionHash: tx, transactionIndex: '0x0', blockHash: `0x${'0b'.repeat(32)}`, logIndex: '0x0', removed: false });
+        reply({ result: asked.length <= misses ? [log(unnamed)] : [log(known), log(unnamed), log(known)] });
+      });
+    });
+    await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
+    close = () => new Promise<void>((done) => { server.closeAllConnections(); server.close(() => done()); });
+    const chain = await RoundChain.open(`http://127.0.0.1:${(server.address() as AddressInfo).port}`, SEPOLIA!);
+    chain.pinnedRetry = { tries: 3, gapMs: 10 };
+    return { chain, asked };
+  };
+
+  it('lists every transaction whose HoldbackRules logs name the deal, once each, asking again while a node lacks a known one', async () => {
+    const { chain, asked } = await logsRpc(1);
+    expect(await chain.dealTransactions(id, 12_071_560n, 12_071_600n, [known])).toEqual([known, unnamed]);
+    expect(asked).toHaveLength(2);
+    expect(asked[0]).toEqual({ address: SEPOLIA!.rules, fromBlock: numberToHex(12_071_560n), toBlock: numberToHex(12_071_600n), topics: [null, id] });
+  });
+
+  it('throws once no node serves a known transaction within its tries', async () => {
+    const { chain, asked } = await logsRpc(Number.POSITIVE_INFINITY);
+    await expect(chain.dealTransactions(id, 12_071_560n, 12_071_600n, [known])).rejects.toThrow(/lack 0xaaaa.*: it is behind/);
+    expect(asked).toHaveLength(3);
   });
 });
 
