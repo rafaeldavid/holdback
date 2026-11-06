@@ -1,18 +1,21 @@
 // The round's chain helpers, offline: the chain guard (the check docs/team.md pairs with the no-real-money rule), the
 // CPP payment key against the buyer's funding nonce, the per-role encryption keys, and, against a stand-in for a
 // load-balanced RPC whose nodes lag each other, the evidence reads pinned to the deal's last block, the reads after the
-// round's own transactions, and the fee cap on its direct sends.
+// round's own transactions, the open-deal read after a scenario, the fee cap on its direct sends, a send right after
+// another one from the same key, and the check that no other run is sending from the round's keys.
 import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { decodeFunctionData, encodeFunctionResult, numberToHex, parseGwei, type Abi, type Hex } from 'viem';
-import { generatePrivateKey } from 'viem/accounts';
+import { decodeFunctionData, encodeFunctionResult, keccak256, numberToHex, parseGwei, parseTransaction, recoverTransactionAddress, type Abi, type Hex } from 'viem';
+import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { afterEach, describe, expect, it } from 'vitest';
 import { SEPOLIA } from './deployments.ts';
 import { ANVIL_CHAIN_ID, assertRoundChain, paymentHashOf, RoundChain, SEPOLIA_CHAIN_ID, STAGES, termsTuple } from './e2e-chain.ts';
 import { roundEncryptionKey, roundKey } from './e2e-keys.ts';
-import { refreshBefore, type Deal, type Run } from './e2e-run.ts';
+import { openDeals, refreshBefore, type Deal, type Run } from './e2e-run.ts';
 import { commitmentIdOf, fundingNonceOf, pinOf } from './verify.ts';
+
+type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
 /** Public terms in the shape the operators serve, on Sepolia's token. */
 const terms = {
@@ -95,9 +98,10 @@ const mined = (last: bigint) => {
  * A JSON-RPC stand-in for a load-balanced endpoint such as publicnode: `latest` comes from a node one block behind the
  * deal's last transaction (block `last`), and a read at `last` finds no header the first `misses` times, as on a node
  * that has not caught up yet. The round's own transaction (MINT_TX) is in block `last`; a node behind it has no receipt
- * for it the first `receiptMisses` times. The latest block's base fee is `baseFeeGwei`. `asked` lists every method.
+ * for it the first `receiptMisses` times. The latest block's base fee is `baseFeeGwei`. `dealOf` reads `stages.before`
+ * before block `last` and `stages.after` from it on (None and Expired, 3d's, unless given). `asked` lists every method.
  */
-async function laggingRpc(last: bigint, misses: number, o: { receiptMisses?: number; baseFeeGwei?: string } = {}) {
+async function laggingRpc(last: bigint, misses: number, o: { receiptMisses?: number; baseFeeGwei?: string; stages?: { before: (typeof STAGES)[number]; after: (typeof STAGES)[number] } } = {}) {
   const reads: Array<{ fn: string; block: string }> = [];
   const asked: string[] = [];
   const d = SEPOLIA!;
@@ -133,7 +137,8 @@ async function laggingRpc(last: bigint, misses: number, o: { receiptMisses?: num
         return reply({ error: { code: -32000, message: 'header not found' } });
       }
       const s = pinned ? AFTER : BEFORE;
-      const result = { dealOf: { stage: s.stage, attempt: 1, appeal: 0, flags: 0, t1: 0, t2: 0, seedTag: 0n }, paymentState: [false, s.capturable, s.refundable], balanceOf: s.token, bondOf: s.bond, freeOf: s.free, approve: true }[functionName];
+      const stage = o.stages ? STAGES.indexOf(pinned ? o.stages.after : o.stages.before) : s.stage;
+      const result = { dealOf: { stage, attempt: 1, appeal: 0, flags: 0, t1: 0, t2: 0, seedTag: 0n }, paymentState: [false, s.capturable, s.refundable], balanceOf: s.token, bondOf: s.bond, freeOf: s.free, approve: true }[functionName];
       reply({ result: encodeFunctionResult({ abi, functionName, result } as never) });
     });
   });
@@ -178,6 +183,18 @@ describe("RoundChain's evidence reads at the deal's last block (round 1's 3d and
     await expect(chain.deal(id, last)).rejects.toThrow(/header not found/);
     expect(reads).toHaveLength(4);
     expect(reads.filter((r) => r.block !== numberToHex(last))).toEqual([]);
+  });
+
+  it("openDeals reads each deal at its last block or later, so a deal that has just closed is not open (round 1's 5a)", async () => {
+    // 5a's deal 0x3a279b…dfb2 read Escalated through block 12,071,609 and Refunded from 12,071,610, its default's block;
+    // the gate after 5a read the latest block from a node behind it and stopped the eleven scenarios after 5a.
+    const rpc = await laggingRpc(last, 1, { stages: { before: 'Escalated', after: 'Refunded' } });
+    close = rpc.close;
+    const chain = await RoundChain.open(rpc.url, SEPOLIA!);
+    chain.pinnedRetry = { tries: 4, gapMs: 10 };
+    const run = { round: { chain }, deals: [{ id, chain: { stage: 'Refunded', block: Number(last) } }] } as unknown as Run;
+    expect(await openDeals(run)).toEqual([]);
+    expect(rpc.reads.filter((r) => r.fn === 'dealOf').map((r) => r.block)).toEqual([numberToHex(last), numberToHex(last)]);
   });
 });
 
@@ -234,5 +251,157 @@ describe("the round's own transactions and the reads after them (PR 210 review: 
     await expect(chain.send(generatePrivateKey(), 'token', 'approve', [SEPOLIA!.bonds, 1n])).rejects.toThrow(/refusing to send approve: the network asks [\d.]+ gwei per gas, above the 20 gwei cap/);
     expect(asked).not.toContain('eth_sendRawTransaction');
     expect(asked).not.toContain('eth_getTransactionCount');
+  });
+});
+
+/** HoldbackBonds' revert when the token refuses `transferFrom` (SafeTransferLib's TransferFromFailed()). */
+const TRANSFER_FROM_FAILED = '0x7939f424';
+
+/**
+ * A JSON-RPC stand-in for a load-balanced endpoint that also takes the round's own sends. Each sent transaction is
+ * mined at once in the next block, but the node that answers `latest` (the block number, nonce counts, and calls and
+ * gas estimates with no block) is one block behind the newest of them, as publicnode was when 3b's bond deposit
+ * followed its approval in round 1's 2026-11-05 runs. A call or estimate at a block that node lacks finds no header the
+ * first `misses` times, then another node answers it. HoldbackBonds' `deposit` passes only on a state that holds the
+ * sender's approval, and otherwise reverts TransferFromFailed. A node takes a transaction only with the sender's next
+ * nonce. `pending` adds transactions in flight to an address's pending count, as another run sending from it would.
+ */
+async function walletRpc(o: { misses?: number; pending?: Record<string, number> } = {}) {
+  const d = SEPOLIA!;
+  const contractAt: Record<string, keyof typeof ABIS> = { [d.bonds.toLowerCase()]: 'bonds', [d.token.address.toLowerCase()]: 'token' };
+  const START = 12_071_530n;
+  let head = START;
+  const mined: Array<{ hash: Hex; from: string; to: string; nonce: number; block: bigint; fn: string; tx: ReturnType<typeof parseTransaction> }> = [];
+  const calls: Array<{ method: string; fn: string; block: string }> = [];
+  const asked: string[] = [];
+  let missed = 0;
+  /** The block the lagging node calls latest: one behind the newest mined transaction. */
+  const latest = () => (head > START ? head - 1n : head);
+  const sent = (from: string, upTo: bigint) => mined.filter((t) => t.from === from && t.block <= upTo).length;
+  const blockOf = (tag: string | undefined) => (tag === undefined || tag === 'latest' || tag === 'pending' ? latest() : BigInt(tag));
+  const txJson = (t: (typeof mined)[number]) => ({
+    hash: t.hash, from: t.from, to: t.to, nonce: numberToHex(t.nonce), blockNumber: numberToHex(t.block), blockHash: keccak256(numberToHex(t.block)), transactionIndex: '0x0', type: '0x2',
+    input: t.tx.data ?? '0x', gas: numberToHex(t.tx.gas ?? 0n), value: '0x0', maxFeePerGas: numberToHex(t.tx.maxFeePerGas ?? 0n), maxPriorityFeePerGas: numberToHex(t.tx.maxPriorityFeePerGas ?? 0n),
+    chainId: numberToHex(SEPOLIA_CHAIN_ID), accessList: [], v: '0x0', yParity: '0x0', r: `0x${'01'.repeat(32)}`, s: `0x${'02'.repeat(32)}`,
+  });
+  const server = createServer((req, res) => {
+    let body = '';
+    req.on('data', (chunk: Buffer) => (body += chunk.toString()));
+    req.on('end', async () => {
+      const { id, method, params } = JSON.parse(body) as { id: number; method: string; params: J[] };
+      asked.push(method);
+      const reply = (x: object) => res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ jsonrpc: '2.0', id, ...x }));
+      const find = (hash: string) => mined.find((t) => t.hash === hash.toLowerCase());
+      switch (method) {
+        case 'eth_chainId':
+          return reply({ result: numberToHex(SEPOLIA_CHAIN_ID) });
+        case 'eth_blockNumber':
+          return reply({ result: numberToHex(latest()) });
+        case 'eth_getBlockByNumber':
+          return reply({ result: { number: numberToHex(latest()), hash: keccak256(numberToHex(latest())), timestamp: numberToHex(1_793_000_000), baseFeePerGas: numberToHex(parseGwei('1')), transactions: [] } });
+        case 'eth_maxPriorityFeePerGas':
+          return reply({ result: numberToHex(parseGwei('1')) });
+        case 'eth_getTransactionCount': {
+          const a = String(params[0]).toLowerCase();
+          return reply({ result: numberToHex(sent(a, blockOf(params[1])) + (params[1] === 'pending' ? (o.pending?.[a] ?? 0) : 0)) });
+        }
+        case 'eth_call':
+        case 'eth_estimateGas': {
+          const call = params[0] as { from?: string; to: string; data: Hex };
+          const { functionName } = decodeFunctionData({ abi: ABIS[contractAt[call.to.toLowerCase()]!], data: call.data });
+          calls.push({ method, fn: functionName, block: params[1] ?? 'latest' });
+          const at = blockOf(params[1]);
+          if (at > head || (at > latest() && missed < (o.misses ?? 0))) {
+            missed++;
+            return reply({ error: { code: -32000, message: 'header not found' } });
+          }
+          const from = String(call.from).toLowerCase();
+          if (functionName === 'deposit' && !mined.some((t) => t.from === from && t.fn === 'approve' && t.block <= at)) return reply({ error: { code: 3, message: 'execution reverted', data: TRANSFER_FROM_FAILED } });
+          if (method === 'eth_estimateGas') return reply({ result: numberToHex(60_000) });
+          return reply({ result: functionName === 'approve' ? encodeFunctionResult({ abi: ABIS.token, functionName: 'approve', result: true } as never) : '0x' });
+        }
+        case 'eth_sendRawTransaction': {
+          const raw = params[0] as Hex;
+          const tx = parseTransaction(raw);
+          const from = (await recoverTransactionAddress({ serializedTransaction: raw as never })).toLowerCase();
+          const next = sent(from, head);
+          const nonce = tx.nonce ?? 0;
+          if (nonce !== next) return reply({ error: { code: -32000, message: `nonce ${nonce < next ? 'too low' : 'too high'}: next nonce ${next}, tx nonce ${nonce}` } });
+          head++;
+          const { functionName } = decodeFunctionData({ abi: ABIS[contractAt[tx.to!.toLowerCase()]!], data: tx.data! });
+          const t = { hash: keccak256(raw), from, to: tx.to!.toLowerCase(), nonce, block: head, fn: functionName, tx };
+          mined.push(t);
+          return reply({ result: t.hash });
+        }
+        case 'eth_getTransactionByHash': {
+          const t = find(params[0]);
+          return reply({ result: t ? txJson(t) : null });
+        }
+        case 'eth_getTransactionReceipt': {
+          const t = find(params[0]);
+          if (!t) return reply({ result: null });
+          return reply({ result: { transactionHash: t.hash, transactionIndex: '0x0', blockHash: keccak256(numberToHex(t.block)), blockNumber: numberToHex(t.block), from: t.from, to: t.to, cumulativeGasUsed: numberToHex(50_000), gasUsed: numberToHex(50_000), effectiveGasPrice: numberToHex(parseGwei('2')), logs: [], logsBloom: `0x${'00'.repeat(256)}`, status: '0x1', type: '0x2', contractAddress: null } });
+        }
+        default:
+          return reply({ error: { code: -32601, message: `${method} is not served here` } });
+      }
+    });
+  });
+  await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
+  const close = () => new Promise<void>((done) => { server.closeAllConnections(); server.close(() => done()); });
+  return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, mined, calls, asked, close };
+}
+
+describe("the round's own sends from one key in a row (round 1's 3b, 2026-11-05)", () => {
+  let close: (() => Promise<void>) | undefined;
+  afterEach(async () => {
+    await close?.();
+    close = undefined;
+  });
+  const open = async (o: Parameters<typeof walletRpc>[0] = {}) => {
+    const rpc = await walletRpc(o);
+    close = rpc.close;
+    const chain = await RoundChain.open(rpc.url, SEPOLIA!);
+    chain.pinnedRetry = { tries: 4, gapMs: 10 };
+    return { chain, rpc };
+  };
+
+  it("deposits a bond right after its approval: the simulation and the gas estimate read the approval's block, and the deposit takes the next nonce", async () => {
+    // Before the fix the deposit was simulated at the latest block of a node that had not seen the approval, and
+    // reverted TransferFromFailed: adjudicator-1 in run 2026-11-05T190711Z, adjudicator-2 in 2026-11-05T193705Z.
+    const { chain, rpc } = await open();
+    const [approved, deposited] = await chain.depositBond(generatePrivateKey(), 25_000_000n);
+    expect(deposited!.block).toBe(approved!.block + 1);
+    expect(rpc.calls.filter((c) => c.fn === 'deposit')).toEqual([
+      { method: 'eth_call', fn: 'deposit', block: numberToHex(approved!.block) },
+      { method: 'eth_estimateGas', fn: 'deposit', block: numberToHex(approved!.block) },
+    ]);
+    // The lagging node still counts the approval's nonce as pending: the deposit takes the one after it anyway.
+    expect(rpc.mined.map((t) => [t.fn, t.nonce])).toEqual([['approve', 0], ['deposit', 1]]);
+  });
+
+  it("tries a simulation at the round's last block again while the node answering has no header for it", async () => {
+    const { chain, rpc } = await open({ misses: 2 });
+    await chain.depositBond(generatePrivateKey(), 25_000_000n);
+    expect(rpc.calls.filter((c) => c.fn === 'deposit' && c.method === 'eth_call')).toHaveLength(3);
+    expect(rpc.mined.map((t) => t.fn)).toEqual(['approve', 'deposit']);
+  });
+
+  it("refuses at the contract's first revert, without trying again and without sending", async () => {
+    const { chain, rpc } = await open();
+    await expect(chain.send(generatePrivateKey(), 'bonds', 'deposit', [SEPOLIA!.token.address, 25_000_000n])).rejects.toThrow(/reverted with the following signature:\s+0x7939f424/);
+    expect(rpc.calls).toEqual([{ method: 'eth_call', fn: 'deposit', block: numberToHex(12_071_530n) }]);
+    expect(rpc.asked).not.toContain('eth_sendRawTransaction');
+  });
+
+  it('starts once no round key has a transaction pending, and refuses after its wait while one has, naming the key', async () => {
+    const seed = generatePrivateKey();
+    const keys = { buyer: privateKeyToAccount(roundKey(seed, 'buyer')).address, seller: privateKeyToAccount(roundKey(seed, 'seller')).address };
+    const idle = await open();
+    await expect(idle.chain.untilIdle(keys, { waitMs: 50, gapMs: 10 })).resolves.toBeUndefined();
+    await close?.();
+    const busy = await open({ pending: { [keys.seller.toLowerCase()]: 1 } });
+    await expect(busy.chain.untilIdle(keys, { waitMs: 50, gapMs: 10 })).rejects.toThrow(new RegExp(`refusing to start: the seller ${keys.seller} has 1 transaction\\(s\\) pending .*another run may be sending from the round's keys`));
+    expect(busy.rpc.asked).not.toContain('eth_sendRawTransaction');
   });
 });
