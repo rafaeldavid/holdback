@@ -1,13 +1,12 @@
-// Writes worker/generated-files.js: the repository files the bundled Worker reads through node:fs (the JSON
-// Schemas core validates against, the OpenAPI document operators serve, the judge registry the test
-// adjudicators bind, and the Sepolia deployment the chain world settles on, once it exists). Workers have no
-// repository on disk, so wrangler aliases node:fs to worker/fs-shim.js, which serves these. Run by
-// `pnpm -C apps/demo-cloud build`; the output is git-ignored.
-import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+// Writes worker/generated-files.js: the repository files the bundled Worker reads through node:fs (the OpenAPI
+// document operators serve, the judge registry the test adjudicators bind, and the Sepolia deployment the chain
+// world settles on, once it exists). Workers have no repository on disk, so wrangler aliases node:fs to
+// worker/fs-shim.js, which serves these. Run by `pnpm -C apps/demo-cloud build`; the output is git-ignored.
+// The JSON Schemas are not embedded: core's validators are compiled from them ahead of time (T-233).
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 
 const root = new URL('../../../', import.meta.url);
 const files = {};
-for (const f of readdirSync(new URL('spec/schemas/', root)).filter((f) => f.endsWith('.schema.json')).sort()) files[`spec/schemas/${f}`] = readFileSync(new URL(`spec/schemas/${f}`, root), 'utf8');
 for (const f of ['spec/openapi.json', 'config/judges.yaml', 'config/judges-live.yaml']) files[f] = readFileSync(new URL(f, root), 'utf8');
 const deployment = 'contracts/deployments/sepolia.json';
 if (existsSync(new URL(deployment, root))) files[deployment] = readFileSync(new URL(deployment, root), 'utf8');
