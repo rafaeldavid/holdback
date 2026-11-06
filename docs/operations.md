@@ -99,11 +99,39 @@ After the deploy, a smoke deal ended Released in 44 s, and the test seller sold 
 
 ### Crow Control, the founders' console (deployed 2026-11-06)
 
-**Live since 2026-11-06, about 06:10 UTC** (T-066 Evidence): crow-console `91ae8a90`, built from crow-private `e1e30bb` (crow-private PR 2). It serves control.escrow.stream behind Cloudflare Access; its runbook is crow-private `control/README.md`. The deploy came between PR 2's merge at 06:09 UTC and the build that pushed its data at 06:11 UTC (inferred from those two times). To roll back: `npx wrangler@4.151.3 rollback c8fe44c5 --name crow-console`.
+**Live since 2026-11-06, 11:15 UTC:** crow-console `e8ddac8b-2b8f-4d39-86b3-9f230c5e537f` (measured: `npx wrangler@4 deployments status --name crow-console` lists it at 100%, deployed 11:15:06 UTC). It serves control.escrow.stream behind Cloudflare Access; its runbook is crow-private `control/README.md`. Its crow-private commit is not recorded here. To roll back: `npx wrangler@4.151.3 rollback 91ae8a90 --name crow-console`.
+
+**Before it** (T-066 Evidence): crow-console `91ae8a90`, built from crow-private `e1e30bb` (crow-private PR 2), deployed on 2026-11-06 after PR 2's merge at 06:09 UTC. Wrangler lists that deployment at 06:15:20 UTC (measured: `npx wrangler@4 deployments list --name crow-console`). Its own rollback target was `c8fe44c5`.
+
+### T-230: the operators join a delivery that is already on chain (deployed 2026-11-06)
+
+T-230 deployed 2026-11-06: holdback-op1 8bcda43c-ba12-4919-9355-54048b98f720, holdback-op2 7e4d3fa5-273f-47a2-b6c4-537dbf31b58f, crow-site 16038434-1066-452c-bfec-25c064547359
+
+**Live since 2026-11-06, 12:19 UTC** for the two operators and 15:04 UTC for the site (T-230 Evidence, "The deploy"). Rafa gave the go-ahead on 2026-11-06 ("Yes, deploy T-230"). A deploy session shipped PR 232's merge commit `e5f667a` from main with `pnpm demo-cloud:deploy`, in the same world, `holdback-public-demo-sepolia-2026-11-04` (D49). It then deployed the site from the same commit, for `llms.txt`'s new line on submitting directly.
+
+| Worker | Live version | Deployed (UTC) | Rollback target |
+| --- | --- | --- | --- |
+| holdback-op1 | `8bcda43c-ba12-4919-9355-54048b98f720` | 12:19:19 | `ba7a2ad9-0172-458a-92a0-5d51d18afd0a` (T-228's build) |
+| holdback-op2 | `7e4d3fa5-273f-47a2-b6c4-537dbf31b58f` | 12:19:36 | `7826e3ce-b8ce-422f-a2ea-9e88bd982ba9` (T-228's build) |
+| crow-site | `16038434-1066-452c-bfec-25c064547359` | 15:04:51 | `4f049eb5-34fb-4a59-843a-bd3855aaea19` (T-229's site) |
+
+Every check passed, and nothing was rolled back (measured; T-230 Evidence). `/v1/status` carries no build marker, so the session read the switch from `wrangler tail`: the Durable Object first ran `8bcda43c` at 12:20:10 UTC, 51 s after holdback-op1's deploy. The tail saw no Durable Object event between 12:18:59 and 12:20:10 UTC, so 51 s is an upper bound. The deploy session lost its network from about 12:25 to 14:58 UTC; it finished the checks at 15:00 UTC and deployed the site at 15:04 UTC.
+
+**What it carries,** since T-228's build (`236786a`): T-230 only, in `packages/settlement/evm/evm-settlement.ts` and `sync.ts`. An operator joins a seller's posted delivery whose hash the chain already holds, whether the post comes before or after its sync pass, and sends no second delivery that lands. When it cannot read the seller's transaction yet, it answers 409 `invalid_state`, keeps the signed copy and joins it within about a minute. No contract change, no schema change, no new secret or variable. The other files that changed since `236786a` are examples, tests, the site, and `config/model-prices.json` and `config/ops-cost-prices.json`, which only `scripts/metrics/` reads (measured: `git diff --stat 236786a e5f667a` and a search for the two file names).
+
+**To roll back** (`npx wrangler@4 rollback <version> --name <worker>`): the targets above, both operators together, then the site if its line must go too.
+
+- `npx wrangler@4 rollback ba7a2ad9-0172-458a-92a0-5d51d18afd0a --name holdback-op1`
+- `npx wrangler@4 rollback 7826e3ce-b8ce-422f-a2ea-9e88bd982ba9 --name holdback-op2`
+- `npx wrangler@4 rollback 4f049eb5 --name crow-site`
+
+T-230 adds two book fields, `posted` and `postedKeys`, and no storage prefix, so T-228's code keeps them unread (inferred from PR 232's diff). A copy kept at the rollback then never joins, and its deal waits for the seller to post again, as before T-230.
+
+**A hand redeploy of holdback-op1** (round 1's scenario 11 pauses it) must use `e5f667a` or later, or it takes the fix back out. The `.worktrees/round1-run` checkout sits at `e5f667a` since this deploy.
 
 ### T-229: the One-Click prompt on the site (deployed 2026-11-05)
 
-**Live since 2026-11-05, about 15:58 UTC** (T-229 Evidence): crow-site `4f049eb5`. Rafa gave the go-ahead on 2026-11-05 ("ship the two One-Click changes (trim llms.txt, and copy the command with the prompt)"). A deploy session built the site from PR 209's merge commit `43f8067` with the site's three commands under Deploy (above) and deployed only `crow-site`. It waited until T-228's operators were recorded as live (below), because this build's `llms.txt` carries T-228's line on closing a deal behind the chain by its timeout.
+**Live since 2026-11-05, about 15:58 UTC** (T-229 Evidence): crow-site `4f049eb5`, until T-230's site (above) replaced it on 2026-11-06 at 15:04 UTC. Rafa gave the go-ahead on 2026-11-05 ("ship the two One-Click changes (trim llms.txt, and copy the command with the prompt)"). A deploy session built the site from PR 209's merge commit `43f8067` with the site's three commands under Deploy (above) and deployed only `crow-site`. It waited until T-228's operators were recorded as live (below), because this build's `llms.txt` carries T-228's line on closing a deal behind the chain by its timeout.
 
 | Worker | Live version | Deployed (UTC) | Rollback target (T-220's site) |
 | --- | --- | --- | --- |
@@ -117,7 +145,7 @@ The deploy uploaded 2 files, `index.html` and `llms.txt`; the live copies match 
 
 T-228 deployed 2026-11-05: holdback-op1 ba7a2ad9-0172-458a-92a0-5d51d18afd0a, holdback-op2 7826e3ce-b8ce-422f-a2ea-9e88bd982ba9
 
-**Live since 2026-11-05, about 15:29 UTC** (T-228 Evidence): holdback-op1 `ba7a2ad9` and holdback-op2 `7826e3ce`. Rafa gave the go-ahead on 2026-11-05 ("Yes, deploy it"). A deploy session shipped PR 207's merge commit `236786a` from main with `pnpm demo-cloud:deploy`, in the same world, `holdback-public-demo-sepolia-2026-11-04` (D49). It deployed the operators only; the site, with T-228's line in `llms.txt`, ships in its own deploy.
+**Live since 2026-11-05, about 15:29 UTC** (T-228 Evidence): holdback-op1 `ba7a2ad9` and holdback-op2 `7826e3ce`, until T-230's deploy (above) replaced both on 2026-11-06 at 12:19 UTC. Rafa gave the go-ahead on 2026-11-05 ("Yes, deploy it"). A deploy session shipped PR 207's merge commit `236786a` from main with `pnpm demo-cloud:deploy`, in the same world, `holdback-public-demo-sepolia-2026-11-04` (D49). It deployed the operators only; the site, with T-228's line in `llms.txt`, ships in its own deploy.
 
 | Worker | Live version | Deployed (UTC) | Rollback target (T-220's build) |
 | --- | --- | --- | --- |
