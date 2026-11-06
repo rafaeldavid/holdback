@@ -24,6 +24,9 @@
 //   `submittedVia: 'direct'`; ChainSync (sync.ts) finds them in the rules contract's logs. A step it cannot rebuild
 //   (a direct delivery it holds no copy of, a call forwarded by another contract) puts the deal behind: the view
 //   serves dealOf's stage with a notice, and nothing is invented.
+// - A delivery already on chain (T-230): the seller's posted copy of a delivery it sent directly joins whether or not a
+//   pass has read that transaction. The relay reads `deliveryHashOf` first, and again at the block of a relay that
+//   reverted; a copy the node cannot join yet stays on the book (`posted`) until the next pass reads the transaction.
 // - Restarts mid-flight (T-219): each relayed call's submission rides in its relayer lane's in-flight row (live.ts). A
 //   transaction this node broadcast before a restart is applied through the same path as a direct call, but labelled
 //   as the relay was, with the messages the row holds (the delivery's envelopes, the decision's keys, the appeal's
@@ -171,6 +174,12 @@ export interface Book {
   chainTxs?: string[];
   /** Set while the chain has moved this deal in a way the book cannot follow yet (T-218). */
   behind?: Behind;
+  /**
+   * The seller's posted delivery, held while the contract already holds its hash and this node has not read the
+   * transaction that landed it (T-230): the next pass that reads it joins this copy with no relay, and stores the answer
+   * under the post's Idempotency-Key. The post as `process` noted it.
+   */
+  posted?: RelayNote;
 }
 
 /** A deal the chain moved past its book (T-218). The view serves dealOf's stage with a notice and invents no step. */
@@ -218,6 +227,19 @@ export interface EvmSaved {
  * relayed transactions whose receipts these changes apply (T-219): their lane rows go once the rest is written.
  */
 export type EvmChanges = { books: Array<[Hex32, Book]>; events: SettlementEvent[]; mandates: Mandate[]; relayed: string[] };
+
+/**
+ * A relayed call whose simulation passed and whose transaction the chain reverted (on a live chain): the state or a
+ * deadline moved in between. `block` is the revert's block, for reads pinned to it (T-230).
+ */
+class Reverted extends Refusal {
+  constructor(
+    problem: Problem,
+    readonly block: bigint,
+  ) {
+    super(problem);
+  }
+}
 
 const GENESIS_HASH: Hex32 = `0x${'00'.repeat(32)}`;
 const UINT256_MAX = (2n ** 256n - 1n).toString();
@@ -948,11 +970,25 @@ export class EvmSettlement implements Settlement {
         const book = this.bookOf(d.commitmentId);
         // T-218: the same delivery landed directly, and this node waits for it to follow the chain.
         if (book.behind?.waiting) return this.join(book, d, dryRun);
+        // T-230: the seller may have sent it straight to the contract, and no pass has read it yet. The node reads the
+        // chain before relaying, and joins a delivery it finds there with no relay at all. A failed read relays as before.
+        const following = book.state.kind === 'Held' && !book.behind;
+        if (following) {
+          const landed = await this.landedDelivery(d.commitmentId);
+          if (landed) return this.joinLanded(book, d, landed, options, dryRun);
+        }
         const t = termsView(book.state.terms);
         try {
           await this.call(d.commitmentId, 'deliver', [t, deliveryView(d), d.signature], (at) => [{ type: 'deliver', at, delivery: d }], options, dryRun, book.state.terms.seller, { delivery: d });
         } catch (e) {
-          // The delivery may have landed directly since this node last read the chain: follow it, with this copy.
+          // The delivery may have landed directly since this node last read the chain. A node a block behind can pass the
+          // simulation and see the transaction revert (round 1, scenario 8): the read pinned to the revert's block says
+          // whether the chain holds this delivery, and the node then joins it with this copy (T-230).
+          if (e instanceof Refusal && !dryRun && following && book.state.kind === 'Held' && !book.behind && (e instanceof Reverted || e.revert === 'WrongStage')) {
+            const landed = await this.landedDelivery(d.commitmentId, e instanceof Reverted ? e.block : undefined, true);
+            if (landed) return this.joinLanded(book, d, landed, options, false);
+          }
+          // A deal that moved some other way (a reclaim): follow it, then refuse.
           if (e instanceof Refusal && e.revert === 'WrongStage' && !dryRun && book.state.kind === 'Held') {
             await this.catchUp(d.commitmentId, d);
             if (book.behind?.waiting) return this.join(book, d, false);
@@ -1259,7 +1295,7 @@ export class EvmSettlement implements Settlement {
       if (!this.wall) throw new Error(`${fn} reverted on chain after a passing simulation: ${mined.hash}`);
       this.done(mined.hash, options);
       // On a live chain the state or a deadline can move between the simulation and the block; only gas was spent.
-      refuse('invalid_state', `${fn} reverted on chain in ${mined.hash} after a passing simulation (the state or a deadline moved in between); nothing changed`);
+      throw new Reverted(problem('invalid_state', `${fn} reverted on chain in ${mined.hash} after a passing simulation (the state or a deadline moved in between); nothing changed`), mined.blockNumber);
     }
     this.balanceCache.clear();
     if (book.behind) return this.landBehind(id, book, fn, to, data, mined, options);
@@ -1340,6 +1376,8 @@ export class EvmSettlement implements Settlement {
   private landDelivery(book: Book, d: Delivery, id: Hex32, actor: Address | 'anyone', via: string, at: Timestamp): void {
     book.delivery = d;
     delete book.carried;
+    // The contract takes one delivery per deal: a posted copy has nothing left to wait for (T-230).
+    delete book.posted;
     book.held = d.encryptedKeys.map(signedEnvelope);
     this.releaseHeld(book, id, book.state.terms.adjudication.adjudicator, actor, via, 'delivery', at);
   }
@@ -1586,6 +1624,7 @@ export class EvmSettlement implements Settlement {
       return 'behind';
     }
     const from = this.log_.length;
+    const posted = book.posted;
     let r: 'applied' | 'behind';
     try {
       r = await this.step(id, book, tx, stage, known ?? (note ? deliveryOf(note) : undefined), note);
@@ -1600,6 +1639,8 @@ export class EvmSettlement implements Settlement {
       }
       this.done(tx.hash);
     }
+    // T-230: the seller's posted copy joined with this transaction; a retry of that post replays this answer.
+    if (posted && r === 'applied' && book.posted === undefined) await this.answer(id, book, posted, this.log_.slice(from).filter((e) => e.commitmentId === id));
     return r;
   }
 
@@ -1675,6 +1716,7 @@ export class EvmSettlement implements Settlement {
     const id = note?.commitmentId;
     const book = id ? this.books.get(id) : undefined;
     if (mined.status !== 'success' || !note || !id || !book) {
+      if (mined.status !== 'success' && note?.call === 'deliver' && id && book) await this.keepLanded(id, book, note, mined.blockNumber).catch(() => undefined);
       this.done(mined.hash);
       return mined.status !== 'success' ? 'reverted' : 'unknown';
     }
@@ -1751,7 +1793,7 @@ export class EvmSettlement implements Settlement {
     const rulesLogs = logs.filter((l) => lc(l.address) === lc(this.world.deployment.rules));
     if (rulesLogs.length === 1 && rulesLogs[0]!.eventName === 'JobSubmitted' && book.state.kind === 'Held') {
       const landed = rulesLogs[0]!.args['deliverable'] as Hex32;
-      const d = [known, book.carried, book.delivery].find((x): x is Delivery => !!x && deliveryHash(x) === landed);
+      const d = [known, book.carried, book.delivery, postedOf(book)].find((x): x is Delivery => !!x && deliveryHash(x) === landed);
       if (!d) return this.fallBehind(id, book, tx, stage, `the seller's delivery landed in transaction ${tx.hash} without passing through this node, and the contract keeps only its hash (${landed}), so this node holds no envelopes for the adjudicators.`, [tx]);
       return this.applyRebuilt(id, book, tx, stage, { fn: 'deliver', steps: (at) => [{ type: 'deliver', at, delivery: d }], actor: book.state.terms.seller, ctx: { delivery: d }, signed: async () => true }, logs, note);
     }
@@ -1979,7 +2021,7 @@ export class EvmSettlement implements Settlement {
     const via = note?.via ?? 'direct';
     // The delivery that landed with this call: the contract's JobSubmitted names its hash.
     const landed = this.decode(tx.logs.filter((l) => l.topics[1] === id && lc(l.address) === lc(this.world.deployment.rules)) as unknown as Log[]).find((l) => l.eventName === 'JobSubmitted')?.args['deliverable'] as Hex32 | undefined;
-    const delivery = (): Delivery | null => [known, book.carried, book.delivery].find((d): d is Delivery => !!d && deliveryHash(d) === landed) ?? null;
+    const delivery = (): Delivery | null => [known, book.carried, book.delivery, postedOf(book)].find((d): d is Delivery => !!d && deliveryHash(d) === landed) ?? null;
     const unread = `the seller's delivery landed in transaction ${tx.hash} without passing through this node, and the contract keeps only its hash (${landed}), so this node holds no envelopes for the adjudicators.`;
     const carrying = (): Delivery | null | undefined => (s.kind === 'Held' ? delivery() : undefined);
     const yes = async () => true;
@@ -2159,11 +2201,89 @@ export class EvmSettlement implements Settlement {
    * offer posted after its deal was funded on chain, or a delivery posted after it landed directly. Inside the
    * commitment's lane. Throws on an RPC error, having applied nothing.
    */
-  private async catchUp(id: Hex32, known?: Delivery): Promise<void> {
-    const { txs, stages } = await commitmentTxs(this, id);
+  private async catchUp(id: Hex32, known?: Delivery, atLeast?: bigint): Promise<void> {
+    const { txs, stages } = await commitmentTxs(this, id, atLeast);
     for (const tx of txs) await this.follow(id, tx, stages.get(id), known);
     // Outside a pass: a pass that read dealOf before this does not check the deal (review L1).
     this.relayedAt.set(id, this.log_.length);
+  }
+
+  /**
+   * The delivery hash the contract holds for a deal (`deliveryHashOf`) and the block it was read at, or null for none or
+   * a failed read (T-230). The read is pinned to the node's latest block, or to `atLeast` when that block trails it, so
+   * a node without the block is asked again and never read past (docs/team.md, a read after a write). With `retry`, a
+   * zero answer from a deal still Held is asked again within the read budget: after a revert or a WrongStage the deal has
+   * moved on chain, and a node that trails the chain still answers Held. A deal that left Held with no delivery (a
+   * reclaim) answers at once.
+   */
+  private async landedDelivery(id: Hex32, atLeast?: bigint, retry = false): Promise<{ hash: Hex32; block: bigint } | null> {
+    const zero = (h: Hex32) => BigInt(h) === 0n;
+    const read = async () => {
+      const latest = await this.world.publicClient.getBlockNumber({ cacheTime: 0 });
+      const block = atLeast !== undefined && latest < atLeast ? atLeast : latest;
+      const hash = await this.read<Hex32>(this.world.deployment.rules, this.world.abis.rules, 'deliveryHashOf', [id], block);
+      const held = retry && zero(hash) ? (await this.stage(id, block)).stage === 'Held' : false;
+      return { hash, block, held };
+    };
+    try {
+      const r = retry ? await this.atReceipt(read, (x) => !zero(x.hash) || !x.held) : await read();
+      return zero(r.hash) ? null : { hash: r.hash, block: r.block };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * The seller posts a delivery that the contract already holds, sent there directly, before any pass has read the
+   * transaction that landed it (T-230). It joins as `join` does, with no relay: checked against the seller's signature
+   * and the hash the contract holds, then the commitment's transactions are read from the chain (pinned to the block of
+   * the read that saw the hash, asked again within the read budget) and applied with this copy. A node that cannot read
+   * the transaction yet keeps the copy on the book and says so: the next pass joins it, and stores the answer under the
+   * post's Idempotency-Key.
+   */
+  private async joinLanded(book: Book, d: Delivery, landed: { hash: Hex32; block: bigint }, options: Relay, dryRun: boolean): Promise<Hex32> {
+    const id = d.commitmentId;
+    await this.check({ ...d, type: 'Delivery' }, book.state.terms.seller, 'Delivery');
+    const want = deliveryHash(d);
+    if (lc(landed.hash) !== lc(want)) refuse('invalid_state', `the delivery that landed on chain for this deal is ${landed.hash}, not this one (${want})`);
+    if (dryRun) return id;
+    if (options.note) {
+      book.posted = { ...options.note, call: 'deliver' };
+      this.dirty.add(id);
+    }
+    const deadline = Date.now() + RECEIPT_READ_BUDGET_MS;
+    for (let tries = 0; ; tries++) {
+      // An RPC error or a node behind the block is asked again; the copy stays either way.
+      await this.catchUp(id, d, landed.block).catch(() => undefined);
+      if (book.behind?.waiting) return this.join(book, d, false);
+      if (book.state.kind !== 'Held' && book.delivery && deliveryHash(book.delivery) === want) return id;
+      if (book.behind) {
+        // Behind for another reason (T-227): this copy cannot join, and the notice says why.
+        delete book.posted;
+        return refuse('invalid_state', this.lag(id)!);
+      }
+      const ms = RECEIPT_READ_RETRY_MS[tries];
+      if (ms === undefined || Date.now() + ms > deadline) break;
+      if (this.wall) await sleep(ms);
+    }
+    return refuse(
+      'invalid_state',
+      `the contract holds this delivery (deliveryHashOf is ${want} at block ${landed.block}), and this node has not read the transaction that landed it yet. It keeps this signed copy and joins it at its next pass over the chain, within about a minute; the adjudicators then get their envelopes. Retry with the same Idempotency-Key for that answer.`,
+    );
+  }
+
+  /**
+   * This node's relayed delivery reverted, found after a restart (T-219): when the contract holds the same delivery's
+   * hash at the revert's block, the seller sent it another way first. The copy stays on the book, so the next pass joins
+   * it and answers the relay's Idempotency-Key (T-230). Best effort: a failed read keeps nothing.
+   */
+  private async keepLanded(id: Hex32, book: Book, note: RelayNote, block: bigint): Promise<void> {
+    const d = deliveryOf(note);
+    if (!d || book.state.kind !== 'Held' || book.behind || book.posted) return;
+    const landed = await this.landedDelivery(id, block, true);
+    if (landed?.hash !== deliveryHash(d) || !(await verifyMessage(this.domain, { ...d, type: 'Delivery' }, book.state.terms.seller))) return;
+    book.posted = { ...note, call: 'deliver' };
+    this.dirty.add(id);
   }
 
   /**
@@ -2373,6 +2493,11 @@ function sameView(a: unknown, b: unknown): boolean {
 /** The seller-signed delivery a relayed call carried (T-219): the submission's own, or the one carried beside it. */
 function deliveryOf(note: RelayNote): Delivery | undefined {
   return note.delivery ?? (note.submission.kind === 'deliver' ? note.submission.delivery : undefined);
+}
+
+/** The seller's posted copy a book holds while it waits to read the transaction that landed it (T-230). */
+function postedOf(book: Book): Delivery | undefined {
+  return book.posted ? deliveryOf(book.posted) : undefined;
 }
 
 /** The commitment a submission touches, for its lane. */
