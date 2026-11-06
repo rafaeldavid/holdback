@@ -127,6 +127,17 @@ async function laggingRpc(last: bigint, misses: number, o: { receiptMisses?: num
       }
       if (method === 'eth_getBlockByNumber') return reply({ result: { number: numberToHex(last - 1n), hash: `0x${'b0'.repeat(32)}`, timestamp: numberToHex(1_793_000_000), baseFeePerGas: numberToHex(parseGwei(o.baseFeeGwei ?? '1')), transactions: [] } });
       if (method === 'eth_maxPriorityFeePerGas') return reply({ result: numberToHex(parseGwei('1')) });
+      // A relayer lane's mined count (T-232, scenario 11): 4 before the deal's last transaction (its funding), 5 from it on.
+      if (method === 'eth_getTransactionCount') {
+        const block = (params as unknown as [string, string])[1];
+        reads.push({ fn: 'getTransactionCount', block });
+        const pinned = block === numberToHex(last);
+        if (pinned && missed < misses) {
+          missed++;
+          return reply({ error: { code: -32000, message: 'header not found' } });
+        }
+        return reply({ result: numberToHex(pinned ? 5 : 4) });
+      }
       if (method !== 'eth_call') return reply({ error: { code: -32601, message: `${method} is not served here` } });
       const abi = ABIS[contractAt[params[0].to.toLowerCase()]!];
       const { functionName } = decodeFunctionData({ abi, data: params[0].data });
@@ -250,6 +261,23 @@ describe("the round's own transactions and the reads after them (PR 210 review: 
     await refreshBefore(run, deal, buyer);
     expect(deal.record.balances.before[buyer]).toEqual({ token: '12000000', bond: '25000000000', free: '25002500000' });
     expect(reads.filter((r) => r.block !== numberToHex(last))).toEqual([]);
+  });
+
+  it("counts a relayer lane's nonce at its funding's block, where the latest block still counts the one before (scenario 11, T-232)", async () => {
+    const rpc = await laggingRpc(last, 1);
+    close = rpc.close;
+    const chain = await RoundChain.open(rpc.url, SEPOLIA!);
+    chain.pinnedRetry = { tries: 4, gapMs: 10 };
+    const lane = '0x00000000000000000000000000000000000000a1';
+    // The latest block trails the funding: a read there counts the nonce before it, which the delivery's broadcast then seems to move.
+    expect(await chain.client.getTransactionCount({ address: lane, blockTag: 'latest' })).toBe(4);
+    rpc.reads.length = 0;
+    expect(await chain.nonceAfter(lane, last)).toBe(5);
+    // Pinned at the funding's block, asked again once while the node had no header for it, never at the latest block.
+    expect(rpc.reads).toEqual([
+      { fn: 'getTransactionCount', block: numberToHex(last) },
+      { fn: 'getTransactionCount', block: numberToHex(last) },
+    ]);
   });
 
   it('send refuses above the 20 gwei fee cap, before it signs anything', async () => {
