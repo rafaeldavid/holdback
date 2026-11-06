@@ -61,17 +61,17 @@ Before any mainnet deployment, whatever the list: an external paid audit and leg
 
 ## 4. What you confirm
 
-Nobody has confirmed these yet. PR 150 merged on 2026-11-03 with no comment or review [measured: `gh pr view 150 --comments`]. Answer in chat.
+**Confirmed, 2026-11-06.** Rafa read this brief and confirmed all three items in chat (his reply is at the end; T-206 Decisions 7). Nobody had answered on PR 150, which merged on 2026-11-03 with no comment or review [measured: `gh pr view 150 --comments`].
 
-- [ ] **1. The Sepolia go-ahead.** On 2026-11-03 the deploying session took your approval second-hand from the coordinating session: "You can deploy on Sepolia, just give me the address you need faucet funds to if you can't get them yourself" (T-206 Decisions 7).
+- [x] **1. The Sepolia go-ahead.** On 2026-11-03 the deploying session took your approval second-hand from the coordinating session: "You can deploy on Sepolia, just give me the address you need faucet funds to if you can't get them yourself" (T-206 Decisions 7).
   - *Confirm* means you gave it. The live contracts at `64be1f1` rest on your direct "Yes, redeploy now" of 2026-11-04 (T-212 Handoff), so this mainly settles the record.
   - *If you don't,* the 2026-11-03 deployment at `2342756`, which the demo left on 2026-11-04, stays recorded as unapproved, and T-206's last criterion stays open. Nothing on chain can be undone: the contracts have no owner.
-- [ ] **2. The deployer keystore.** The throwaway deployer key (`0x1A4435488eaF1A37d2327d44Fe67e97d83203B64`) is an encrypted Foundry keystore. Its password sits in a file only your user can read. Both are in `~/.foundry/keystores/`, outside the repository. This departs from `CLAUDE.md`'s rule that secrets come only from environment variables; the coordinating session chose it.
+- [x] **2. The deployer keystore.** The throwaway deployer key (`0x1A4435488eaF1A37d2327d44Fe67e97d83203B64`) is an encrypted Foundry keystore. Its password sits in a file only your user can read. Both are in `~/.foundry/keystores/`, outside the repository. This departs from `CLAUDE.md`'s rule that secrets come only from environment variables; the coordinating session chose it.
   - Today the folder holds those two files, each mode 0600, and no copy sits in any checkout [measured: `ls -la` and a name search to depth 5; the contents were not read]. The key has no power over the contracts and pays only test gas.
   - *Confirm* means you accept this exception for testnet deploys.
   - *If you don't,* the next deploy reads its key from an environment variable, and you retire the keystore yourself.
   - Optional: a deny rule for `~/.foundry/keystores/**` in `.claude/settings.json`, which agents do not edit. Today it denies only `.env*` [measured].
-- [ ] **3. The two gates still open at the deploy.** Both were written as "before Sepolia" or "before any public chain".
+- [x] **3. The two gates still open at the deploy.** Both were written as "before Sepolia" or "before any public chain".
   - *The beacon verifier's review by a second model family:* closed after the deploy, when DeepSeek passed all 15 checks (review §8). Left for mainnet: client agreement (geth, reth, revm) and the external audit.
   - *The six planned `neutrality.*` fixtures,* scenario tests in which one actor goes offline or refuses: the appeal adjudicator offline after a party appeal, a club revoking a member mid-deal, an on-ramp refusing, the beacon down for a whole window, a model-provider outage, and maintainers changing the judge registry. None exists yet [measured: `fixtures/scenarios/`]. Decisions 7 made them gate the cutover to Sepolia for any fallback or appeal on chain (T-213), and mainnet.
   - The cutover ran on 2026-11-03. Your round 1 run on 2026-11-05 passed appeal decisions with drand proofs on Sepolia (T-216, scenario 6) [measured: T-216 Evidence]. So the testnet half of that gate is already crossed [inferred].
@@ -84,10 +84,10 @@ Rafa, 2026-11-06: "No additional open-ended review". The extra open-ended pass b
 
 ## Your reply
 
-Paste this, or edit it:
+Rafa's reply in chat, 2026-11-06, relayed verbatim by the coordinating session:
 
 > 1. Confirmed: I approved the Sepolia deploy of 2026-11-03.
 > 2. Confirmed: the deployer keystore exception, for testnet deploys only.
 > 3. Confirmed: the six planned neutrality fixtures and the verifier's remaining checks gate mainnet only.
 
-The coordinator then records your read and your answers in T-206, with the date, and ticks its last acceptance criterion.
+T-206 records it in Decisions 7 and ticks its last acceptance criterion; T-206 is done. The external audit before mainnet remains (D4).

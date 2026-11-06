@@ -13,7 +13,7 @@
     - for the deployment, `contracts/script/deploy-sepolia.sh` and a section of `docs/operations.md`;
     - for the cross-family pass, `docs/reviews/2026-11-03-contract-review-deepseek.md` (new, DeepSeek's answers verbatim).
 - **Human gate:** **yes.** (1) Rafa reads the review before Phase 2 is called done. (2) Any Sepolia deployment needs Rafa's explicit approval written in this file first: test ETH and a test token only, a deployer key from an environment variable, never printed. No mainnet, at any point; a mainnet deployment is a separate gate after an external audit and legal advice (D4).
-- **Status:** review. D53 (Rafa, 2026-11-06) took it off the bench, where Rafa had put it on 2026-11-04. Left: Rafa reads the brief, `docs/reviews/2026-11-03-contract-review-brief.md`, and confirms its three items in chat (Handoff). The cross-family pass is done (DeepSeek, review §8), and the Sepolia deploy is done (PR 150).
+- **Status:** done (2026-11-06: Rafa read the review through the brief, `docs/reviews/2026-11-03-contract-review-brief.md`, and confirmed Decisions 7's three items). The cross-family pass is done (DeepSeek, review §8), and the Sepolia deploy is done (PR 150). Before mainnet: T-212's open items, and an external audit and legal advice (D4; Handoff).
 - **Agent/session:** a Claude Opus 5.5 session in worktree `t-206-contract-review-d83e9c`, 2026-11-03, with:
   - a Claude Fable 5.1 red-teamer subagent;
   - a separate public-audit cross-check session;
@@ -45,7 +45,7 @@ Review the Phase 2 contracts against the neutrality checklist, the hold invarian
 - [x] Two reviews from two model families, each run without seeing the other's output, recorded in `docs/reviews/2026-11-03-contract-review.md` with the model IDs used; disagreements listed. Anthropic (`claude-opus-5-5`, `claude-fable-5-1`) and DeepSeek (`deepseek-v4-pro`, review §8; its answers verbatim in `2026-11-03-contract-review-deepseek.md`). No review text or finding ID reached DeepSeek. But its question sets were written by the session that held the findings and point at several of them, so its agreement on those is prompted (review §8, Limits). Ticked on that basis; Rafa decided against a further open-ended pass on 2026-11-06 (Decisions 10).
 - [x] Each high, medium and low finding is labelled measured, inferred or guessed, with a severity, and has a fix PR, a follow-up task (T-210, T-211, T-212) or a written acceptance (L-3). Each informational item has a label and a disposition.
 - [x] The model-to-contract correspondence from T-204 checked. Every model action maps to a contract function, and the gaps are findings (review §5).
-- [ ] Rafa has read the review (recorded here with date). Only then, and only if he approves in writing in this file: a Sepolia deployment whose verified bytecode matches the reviewed commit, addresses in `contracts/deployments/sepolia.json`, and one happy-path deal run on Sepolia with its gas recorded (measured). The approval came first, by Rafa's choice (Decisions 7). The deployment is recorded in its own PR; the happy-path deal belongs to the Sepolia demo session.
+- [x] Rafa has read the review (recorded here with date): read via the brief, confirmed 2026-11-06 (Decisions 7). Only then, and only if he approves in writing in this file: a Sepolia deployment whose verified bytecode matches the reviewed commit, addresses in `contracts/deployments/sepolia.json`, and one happy-path deal run on Sepolia with its gas recorded (measured). The approval came first, by Rafa's choice (Decisions 7). The deployment is recorded in its own PR; the happy-path deal belongs to the Sepolia demo session.
 
 ## Out of scope
 
@@ -149,15 +149,21 @@ Review the Phase 2 contracts against the neutrality checklist, the hold invarian
 5. **Severity disagreements** are in review §6. Where the passes disagreed, the higher severity was kept whenever an honest path reaches the failure (H-2, M-2) or the cost to the attacker is near zero on the deployment that matters (M-3 on Sepolia).
 6. **Low findings block mainnet, not the Sepolia testnet.** Testnet money is worthless. T-212 runs before any mainnet deployment.
 7. **Sepolia approval.** Rafa, relayed by the coordinating session on 2026-11-03: "You can deploy on Sepolia, just give me the address you need faucet funds to if you can't get them yourself."
+   - **Confirmed by Rafa, 2026-11-06,** after he read the brief (`docs/reviews/2026-11-03-contract-review-brief.md`). He answered in chat with the coordinating session, which relayed his words verbatim:
+     > 1. Confirmed: I approved the Sepolia deploy of 2026-11-03.
+     > 2. Confirmed: the deployer keystore exception, for testnet deploys only.
+     > 3. Confirmed: the six planned neutrality fixtures and the verifier's remaining checks gate mainnet only.
+
+     These answers replace the second-hand approval and the three confirmations PR 150 asked for. Nobody had answered on PR 150, which merged on 2026-11-03 with no comment or review [measured]. The bullets below keep the original record; where they say "Rafa confirms", he has now confirmed.
    - **Gates set with it:**
      - the high and medium fixes merged, with `forge test` green on `main`;
      - Sepolia only, with the deploy refusing any other chain ID;
-     - a fresh throwaway deployer key, never printed. The coordinating session asked for an encrypted Foundry keystore with its password in a 0600 file, both in a git-ignored path and never in `.env*`. That departs from this task's human-gate line ("a deployer key from an environment variable") and from `CLAUDE.md`'s environment-variable rule for secrets, and is recorded here as an exception.
+     - a fresh throwaway deployer key, never printed. The coordinating session asked for an encrypted Foundry keystore with its password in a 0600 file, both in a git-ignored path and never in `.env*`. That departs from this task's human-gate line ("a deployer key from an environment variable") and from `CLAUDE.md`'s environment-variable rule for secrets, and is recorded here as an exception. Rafa confirmed it on 2026-11-06, for testnet deploys only.
        - The keystore and its password file are in Foundry's default keystore directory, `~/.foundry/keystores/`, outside the repository and every checkout. They were moved there from the main checkout's ignored `reports/` after review, because agents and `pnpm verify` read that directory.
        - The key has no authority on chain: the contracts have no admin keys, so it pays gas and nothing else.
      - `forge create --broadcast` per contract (no `forge script`, no `cast send`);
      - the core set, with the token chosen by the Sepolia demo session (Rafa: "For the first wave of the service, lets assume USDC only"). That session's TestUSDC is deployed with the core set if its PR (#138) is on `main` when the deploy runs; otherwise that session deploys it.
-   - **Second-hand.** The approval reached this session through the coordinating session; nothing in the repo is from Rafa directly. Rafa confirms it on the deploy PR.
+   - **Second-hand.** The approval reached this session through the coordinating session; nothing in the repo is from Rafa directly. Rafa confirmed it on 2026-11-06 (above).
    - **Added by Rafa:** a cross-check of the custom contracts against public audit work ("You should find public audits of escrow related contracts such that any custom smart-contract we are deploying has been reviewed against public audit work"). It reported two mediums and nothing high. M-3 is in the contract and fixed (#135). PA-M2 is in the EVM adapter, outside `contracts/src`; its mitigation is in PR #138 (merged). It found no high or medium issue in our use of the audited dependencies, or in the beacon.
    - **PA-M2 does not gate the contract deploy.** It lives in the relayer, not in any deployed contract. Its mitigation merged with #138, and the Sepolia demo stays behind its flag until the T-213 cutover.
    - **Gates still open when the testnet deploy ran** (found by the PR 150 reviewer). The deploy went ahead under Rafa's approval with them open:
@@ -166,6 +172,7 @@ Review the Phase 2 contracts against the neutrality checklist, the hold invarian
      - **Why it went ahead:** the coins are worthless, the live demo does not use these contracts yet, and no demo adjudicator draws a drand seed for a fallback or appeal panel on Sepolia until the cutover. The contracts are open to anyone, but a deal on them is a stranger's own testnet deal. A flaw found later costs a new beacon and rules deployment that new deals opt into, and nothing on this deployment is worth stealing.
      - **Now they gate:** the T-213 cutover, for any fallback or appeal on chain, and mainnet. The backlog row's "When" is moved. Rafa confirms or overrules this on PR 150, together with the second-hand approval and the keystore exception above.
      - **Update, after the deploy:** the verifier's cross-family review ran (DeepSeek, review §8), and all fifteen checklist items pass. That gate is closed for the logic. What remains is client equivalence (geth, reth, revm) beyond the round verified on Sepolia, which is still a mainnet item. The six planned `neutrality.*` fixtures still gate as above.
+     - **Confirmed, 2026-11-06:** the six planned fixtures and the verifier's remaining checks gate mainnet only. On the testnet the cutover had already run (T-213, 2026-11-03), and round 1 passed appeal decisions with drand proofs on Sepolia on 2026-11-05 (T-216, scenario 6).
    - **`EXPIRY_MARGIN`** is 1 day (review §7).
 8. **Adversarial reviews carry the project context** (Rafa: "For adversarial reviews, you should use the project context, not use completely anon agents without context"). The Fable pass was briefed with `CLAUDE.md`, the ADRs, T-202's difference list and the reference state machine. Every per-PR reviewer read the project docs. Independence meant withholding the first pass's findings, not the context.
 9. **USDC issuer freezes are out of scope.** Rafa: "this is not an issue, buyer and seller agree to use USDC in the terms of their own contract … park it for later in a roadmap module about assets". Review I-7 records this.
@@ -176,16 +183,16 @@ Review the Phase 2 contracts against the neutrality checklist, the hold invarian
 
 ## Handoff
 
-**The human gate's remaining step (2026-11-06).**
-- The one-page brief is `docs/reviews/2026-11-03-contract-review-brief.md`: the verdict, the fixes, the open items and whether each matters with real money, and the three confirmations.
-- Rafa reads it and confirms its three items in chat: the second-hand Sepolia approval, the deployer keystore exception, and what the two gates open at the deploy now gate (Decisions 7).
-- The coordinator then records his read and his answers here, with the date, and ticks the last acceptance criterion.
+**The human gate: done (2026-11-06).**
+- Rafa read the review through the one-page brief, `docs/reviews/2026-11-03-contract-review-brief.md`: the verdict, the fixes, the open items and whether each matters with real money, and the three confirmations.
+- He confirmed all three in chat: the Sepolia approval, the deployer keystore exception for testnet deploys only, and that the six planned `neutrality.*` fixtures and the verifier's remaining checks gate mainnet only (Decisions 7).
+- **Still required before any mainnet deployment:** T-212's open items (1, 2, 4, 5, 6 and 8, and the minimum appeal bond), the six planned fixtures, the verifier's client checks, and an external audit and legal advice (D4). Rafa decided against a third model review, not against the audit (Decisions 10).
 
 **State.**
 - The review is written.
 - All five fix PRs are merged (#120, #122, #125, #127, #135), each after its reviewer returned PASS and CI was green.
-- The cross-family pass is done (DeepSeek, review §8). Rafa's read is open.
-- Deployed on Sepolia after the merges (Evidence; Decisions 7). The addresses are in `contracts/deployments/sepolia.json`, recorded in PR 150. PR 150 merged on 2026-11-03 with no comment or review, so nobody has confirmed there yet [measured]. Rafa confirms the second-hand approval, the keystore exception, and the two gates that were still open (Decisions 7) in chat, from the brief (above).
+- The cross-family pass is done (DeepSeek, review §8). Rafa read the review through the brief on 2026-11-06.
+- Deployed on Sepolia after the merges (Evidence; Decisions 7). The addresses are in `contracts/deployments/sepolia.json`, recorded in PR 150. PR 150 merged on 2026-11-03 with no comment or review [measured]. Rafa confirmed the approval, the keystore exception, and what the two open gates now gate in chat on 2026-11-06 (Decisions 7).
 - Suggested for Rafa: a deny rule for `~/.foundry/keystores/**` in `.claude/settings.json` and a row in the Rules and checks table. Today nothing enforces the keystore exception the way the `.env*` deny rule enforces the secrets rule. The stakes are low, because the key pays test gas only. Agents do not edit `.claude/settings.json`.
 
 **The cross-family review: done with DeepSeek** (review §8). The briefs are kept in `reports/scratch/deepseek/parts/` (git-ignored): the primer plus five question sets. Both are copied verbatim, with DeepSeek's answers, into `docs/reviews/2026-11-03-contract-review-deepseek.md`. A further open-ended pass by an OpenAI or Google model was suggested by the PR 155 reviewer before Phase 2 is called done (the DeepSeek questions were not blind). **Not run: Rafa decided against it on 2026-11-06** (Decisions 10). The brief below stays as the record of what it would have reviewed, pointed at the deployed code (`64be1f1`, which includes the overturn payout and the delivery binding, PRs #160 and #161):
