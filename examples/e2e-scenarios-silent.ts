@@ -7,7 +7,7 @@
 // trivially. The money is checked on a chain.
 import { RoundAdjudicator, type AdjudicatorRole, type Serving } from './e2e-adjudicator.ts';
 import { buyerKeys, buyerOpens, deliver, delta, eventsOf, finish, fund, get, logsOf, openDeal, reason, short, shortWindows, trigger, until, waitPast, type Deal, type Run } from './e2e-run.ts';
-import { CHECKS, CSV, DATASET, PRICE, expireAppeal, lc, paidCheck, requires, settledChecks, type J, type Scenario } from './e2e-scenario-kit.ts';
+import { CHECKS, CSV, DATASET, PRICE, expireAppeal, lastBlock, lc, paidCheck, requires, settledChecks, type J, type Scenario } from './e2e-scenario-kit.ts';
 import { deliveryHashOf, freshNonce } from './verify.ts';
 
 /** A beacon's clock (ADR-0018): round 1 at genesis, then one round per period. */
@@ -140,7 +140,7 @@ async function namesPosted(r: Run, deal: Deal, what: string, fn: string): Promis
   const same = [...posted, ...served].every((h) => h === lc(signed));
   if (r.round.chain) {
     const named = lc(callsOf(deal, fn).at(-1)?.args?.[1]?.deliveryHash ?? 'none');
-    const onChain = lc(await r.round.chain.deliveryHashOf(deal.id));
+    const onChain = lc(await r.round.chain.deliveryHashOf(deal.id, lastBlock(deal)));
     r.check(`${what} names the posted delivery (D44)`, same && named === onChain && onChain === lc(signed), `${fn} names ${short(named)}; deliveryHashOf ${short(onChain)}; both operators' delivery.submitted ${posted.map(short).join(', ')}; the signed delivery ${short(signed)}`);
   } else {
     r.check(`${what} names the posted delivery (D44)`, same, `both operators' delivery.submitted ${posted.map(short).join(', ')} and the deliveryHash they serve after it ${served.map(short).join(', ')} equal the signed delivery ${short(signed)}`);

@@ -19,6 +19,7 @@ import {
   hashStruct,
   http,
   keccak256,
+  numberToHex,
   parseAbiParameters,
   toBytes,
   TransactionNotFoundError,
@@ -231,8 +232,27 @@ export class RoundChain {
     return { collected, capturable: capturable.toString(), refundable: refundable.toString() };
   }
 
-  async deliveryHashOf(id: Hex): Promise<Hex> {
-    return this.read<Hex>('rules', this.deployment.rules, 'deliveryHashOf', [id]);
+  /** `deliveryHashOf(id)`, at the latest block or after block `at` (the deal's last transaction's, once `finish` has read it). */
+  async deliveryHashOf(id: Hex, at?: bigint): Promise<Hex> {
+    return this.read<Hex>('rules', this.deployment.rules, 'deliveryHashOf', [id], at);
+  }
+
+  /**
+   * The transactions that touched deal `id` from block `from` to block `to`, by the chain's own logs: every
+   * HoldbackRules event carries the deal's ID as its first topic. So a step that neither the operators' events nor the
+   * round's own sends name still reaches the deal's record and its money (`flowOf`). A node behind `to` answers fewer
+   * logs, so the answer must hold every transaction in `known` (the deal's transactions with a HoldbackRules event);
+   * otherwise it is asked again (`pinnedRetry`), then this throws.
+   */
+  async dealTransactions(id: Hex, from: bigint, to: bigint, known: readonly Hex[]): Promise<Hex[]> {
+    const ask = async () => {
+      const logs = (await this.client.request({ method: 'eth_getLogs', params: [{ address: getAddress(this.deployment.rules), fromBlock: numberToHex(from), toBlock: numberToHex(to), topics: [null, id] }] } as never)) as Array<{ transactionHash: Hex }>;
+      const txs = [...new Set(logs.map((l) => l.transactionHash.toLowerCase() as Hex))];
+      const missing = known.filter((k) => !txs.includes(k.toLowerCase() as Hex));
+      if (missing.length) throw new Error(`the node's logs for ${id} from block ${from} to ${to} lack ${missing.join(', ')}: it is behind`);
+      return txs;
+    };
+    return this.behind(ask);
   }
 
   /** Each address's test-token balance, bond and free bond in HoldbackBonds, in base units, at the latest block or after block `at`. */

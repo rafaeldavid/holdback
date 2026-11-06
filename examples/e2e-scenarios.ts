@@ -27,6 +27,7 @@ import {
   expireAppeal,
   here,
   judgment,
+  lastBlock,
   lc,
   paidCheck,
   requires,
@@ -151,7 +152,7 @@ const BUILT: Scenario[] = [
       if (round.chain) {
         const decide = deal.record.transactions.flatMap((t) => t.calls).find((c) => c.fn === 'decide');
         const named = lc(decide?.args?.[1]?.deliveryHash ?? '');
-        const onChain = lc(await round.chain.deliveryHashOf(deal.id));
+        const onChain = lc(await round.chain.deliveryHashOf(deal.id, lastBlock(deal)));
         r.check('the decision names the posted delivery (D44)', named === onChain && posted.every((p) => lc(p ?? '') === onChain), `decide names ${short(named)}; deliveryHashOf ${short(onChain)}; both operators' delivery.submitted ${posted.map((p) => short(p ?? 'none')).join(', ')}`);
         const toBuyer = logsOf(deal.record, 'KeyReleased').filter((l) => lc(l.args.recipient) === buyer);
         r.check('no KeyReleased log names the buyer', toBuyer.length === 0, `${toBuyer.length} log(s)`);

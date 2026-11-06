@@ -22,7 +22,7 @@ import { formatEther, type Hex } from 'viem';
 import { SEPOLIA, type DeploymentFile } from './deployments.ts';
 import { RoundChain } from './e2e-chain.ts';
 import { roundAddresses, ROLES, SEED_VAR } from './e2e-keys.ts';
-import { heldDeals, otherRunDeals, reason, refuseActive, releaseLock, retry, Round, Run, settleOpen, short, takeLock, Waits } from './e2e-run.ts';
+import { heldDeals, otherRunDeals, reason, refuseActive, releaseLock, retry, Round, Run, settleOpen, sharedReports, short, takeLock, Waits } from './e2e-run.ts';
 import { pick, SCENARIOS } from './e2e-scenarios.ts';
 import { Refusal } from './verify.ts';
 
@@ -89,7 +89,8 @@ function summary(results: J[], round: Round): string {
     for (const c of r.checks) lines.push(`- ${c.ok ? 'ok' : 'FAIL'}: ${c.name}. ${c.detail} [${c.label}]`);
     for (const d of r.deals) {
       lines.push('', `Deal ${d.label}: \`${d.id}\`, relayed by ${d.relay}.`, '');
-      for (const t of d.transactions) lines.push(`- ${t.steps.join(', ')}: ${t.link}, ${Number(t.gasUsed).toLocaleString('en-US')} gas, block ${t.block}, sent by ${t.sentBy === 'round' ? 'the round' : 'an operator'}`);
+      const by = (s: string) => (s === 'round' ? 'the round' : s === 'chain' ? "a sender neither operator's events name" : 'an operator');
+      for (const t of d.transactions) lines.push(`- ${t.steps.join(', ')}: ${t.link}, ${Number(t.gasUsed).toLocaleString('en-US')} gas, block ${t.block}, sent by ${by(t.sentBy)}`);
       const after = d.balances.after ?? {};
       const line = (x: { token: bigint; bond: bigint; free: bigint }) => `token ${round.amount(x.token)}, bond ${round.amount(x.bond)}, free bond ${round.amount(x.free)}`;
       for (const [a, before] of Object.entries(d.balances.before as Record<string, J>)) {
@@ -114,8 +115,10 @@ async function run(ids: string[], flags: { t220: boolean; homepage: boolean; rer
   if (!seed) throw new Error(`${SEED_VAR} is not set; run with --env-file-if-exists=<file>, or make one with examples/e2e-keys.ts init <file>`);
   const keys = roundAddresses(seed);
   const folder = join(OUT, stamp());
-  // One run of the round's keys at a time, before any network call (round 1's 2026-11-05 runs overlapped).
-  const { lock, tookOver } = takeLock(OUT, keys.master, { folder });
+  // One run of the round's keys at a time, before any network call (round 1's 2026-11-05 runs overlapped). The lock
+  // sits in the clone's shared reports folder, so every worktree meets it; E2E_OUT, as the tests set it, keeps it there.
+  const lockDir = process.env['E2E_OUT'] ? OUT : (sharedReports(fileURLToPath(new URL('.', import.meta.url))) ?? OUT);
+  const { lock, tookOver } = takeLock(lockDir, keys.master, { folder });
   if (tookOver) console.log(tookOver);
   try {
     return await runLocked(scenarios, seed, keys, folder, flags);
@@ -166,10 +169,21 @@ async function runLocked(scenarios: ReturnType<typeof pick>, seed: string, keys:
       console.log(`[${s.id}] ${e instanceof Waits ? 'waits' : 'stopped'} at ${r.step}: ${r.error}`);
     }
     for (const d of r.deals) ours.add(d.id.toLowerCase());
-    if (!blocked) blocked = await between(r, ours, since);
-    const result = { driverCommit, ...r.result() };
-    results.push(result);
-    writeFileSync(join(folder, `${s.id}.json`), `${JSON.stringify(result, null, 2)}\n`);
+    // The record goes to disk before the gate's wait, so a stop during it keeps the scenario, and again after it with
+    // the gate's notes; its end time stays the scenario's own.
+    const ended = new Date().toISOString();
+    const index = results.length;
+    const save = () => {
+      results[index] = { driverCommit, ...r.result(ended) };
+      writeFileSync(join(folder, `${s.id}.json`), `${JSON.stringify(results[index], null, 2)}\n`);
+      writeFileSync(join(folder, 'summary.md'), summary(results, round));
+    };
+    save();
+    if (!blocked) {
+      blocked = await between(r, ours, since);
+      save();
+    }
+    const result = results[index];
     console.log(`[${s.id}] ${result.status.toUpperCase()}: ${result.checks.filter((c: J) => c.ok).length} of ${result.checks.length} checks held${result.deals.length ? `; ${result.deals.map((d: J) => d.id).join(', ')}` : ''}`);
   }
   writeFileSync(join(folder, 'summary.md'), summary(results, round));
