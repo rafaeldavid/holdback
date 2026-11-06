@@ -336,17 +336,20 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     chained(s);
   }, 60_000);
 
-  it('a delivery posted before any pass read it joins at once: the refused relay reads the chain for that deal', async () => {
-    const { s } = await node();
+  it('a delivery posted before any pass read it joins at once: the node reads the chain before relaying', async () => {
+    const lag: Lag = { block: null, logs: null, estimates: 0 };
+    const { s } = await node(lagging(chain, lag));
     const d = await funded('deliver-then-post', s);
     const sub = await d.deliver();
     const mined = await direct(cast.seller, 'deliver', [termsView(d.terms), deliveryView(d.delivery!), d.delivery!.signature]);
     const before = await laneNonce(s.world.senderFor(d.id));
+    lag.estimates = 0;
     const joined = await ok(s, sub);
     expect(joined.state.escrowState).toBe('Delivered');
     expect(joined.events[0]).toMatchObject({ type: 'delivery.submitted', submittedVia: 'direct', payload: { tx: mined.hash } });
     expect(await s.keysFor(d.id, cast.primary.address)).toHaveLength(1);
-    // T-230: the node read the chain before relaying, so its lane sent nothing.
+    // T-230: the node read deliveryHashOf before relaying, so it neither simulated nor sent anything.
+    expect(lag.estimates).toBe(0);
     expect(await laneNonce(s.world.senderFor(d.id))).toBe(before);
   }, 60_000);
 
@@ -367,17 +370,25 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     throw new Error(`no transaction from ${from} at nonce ${nonce} since block ${fromBlock}`);
   }
 
+  /** What `lagging`'s stand-in node trails by, and how many simulations it ran. */
+  type Lag = { block: bigint | null; logs: bigint | null; estimates?: number };
   /**
    * `base` behind a stand-in for a load-balanced RPC node that trails the chain (T-230). While `lag.block` is set, the
    * latest block reads as that block: estimateGas and unpinned reads answer from it, and a read pinned past it fails as
    * on a node without the block. The relayer's broadcast clears it, since the node that answers the receipt has the
    * receipt's block (round 1, scenario 8). While `lag.logs` is set, eth_getLogs answers only up to that block.
+   * `lag.estimates` counts the estimateGas calls (the relay's simulations).
    */
-  function lagging(base: LiveChain, lag: { block: bigint | null; logs: bigint | null }): LiveChain {
+  function lagging(base: LiveChain, lag: Lag): LiveChain {
     const client = new Proxy(base.publicClient, {
       get(target, prop) {
         if (prop === 'getBlockNumber') return async (args?: { cacheTime?: number }) => lag.block ?? target.getBlockNumber(args);
-        if (prop === 'estimateGas') return async (args: Parameters<typeof target.estimateGas>[0]) => target.estimateGas(lag.block === null ? args : ({ ...args, blockNumber: lag.block } as typeof args));
+        if (prop === 'estimateGas') {
+          return async (args: Parameters<typeof target.estimateGas>[0]) => {
+            lag.estimates = (lag.estimates ?? 0) + 1;
+            return target.estimateGas(lag.block === null ? args : ({ ...args, blockNumber: lag.block } as typeof args));
+          };
+        }
         if (prop === 'readContract') {
           return async (args: { blockNumber?: bigint }) => {
             const read = target.readContract as (a: unknown) => Promise<unknown>;
