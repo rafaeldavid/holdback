@@ -12,7 +12,7 @@ Terms used below:
 
 ## 1. Verdict
 
-The review covered Crow's settlement contracts in `contracts/src/` at `baac930` on 2026-11-03, and follow-up passes covered the fixes now live on Sepolia at `64be1f1` (rules contract `0xF38287e5C5C1F20c6D03be500EDBF8A244f27cFA`). Two model families reviewed them (Anthropic's Claude Opus 5.5 and Fable 5.1, then DeepSeek v4 pro), with two static analysers (Slither 0.11.6 and Aderyn 0.6.8) and a cross-check against published audits of similar contracts. It found 2 high, 3 medium, 8 low and 13 informational findings; all 5 high and medium are fixed, and what stays open blocks mainnet, not Sepolia.
+The review covered Crow's settlement contracts in `contracts/src/` at `baac930` on 2026-11-03, and follow-up passes covered the fixes now live on Sepolia at `64be1f1` (rules contract `0xF38287e5C5C1F20c6D03be500EDBF8A244f27cFA`). Two model families reviewed them (Anthropic's Claude Opus 5.5 and Fable 5.1, then DeepSeek v4 pro), with two static analysers (Slither 0.11.6 and Aderyn 0.6.8) and a cross-check against published audits of similar contracts. It found 2 high, 3 medium, 8 low and 13 informational findings; all 5 high and medium are fixed, and the items still open block only mainnet.
 
 | Severity | Found | Fixed | Open |
 | --- | --- | --- | --- |
