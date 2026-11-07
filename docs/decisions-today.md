@@ -1,6 +1,6 @@
-# Decisions D1–D54
+# Decisions D1–D55
 
-Status: D1–D9 decided October 30, 2026, after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`); the options are kept as the record. D10 to D24 decided October 30 and 31, 2026, each after an independent research pass. D25 to D36 decided October 31 and November 1, 2026, D37 to D40 on November 1 and 2, D41 to D44 on November 3, D45 to D49 on November 4, D50 to D52 on November 5, and D53 and D54 on November 6 (Rafa's principles and research-backed choices; D4 was updated on November 1 to target Ethereum mainnet via Sepolia, and marked decided by D41 on November 4). Newer entries are appended at the end. Owner: Rafa. Each decision has options, a recommendation and the ADR it settles.
+Status: D1–D9 decided October 30, 2026, after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`); the options are kept as the record. D10 to D24 decided October 30 and 31, 2026, each after an independent research pass. D25 to D36 decided October 31 and November 1, 2026, D37 to D40 on November 1 and 2, D41 to D44 on November 3, D45 to D49 on November 4, D50 to D52 on November 5, and D53 to D55 on November 6 (Rafa's principles and research-backed choices; D4 was updated on November 1 to target Ethereum mainnet via Sepolia, and marked decided by D41 on November 4). Newer entries are appended at the end. Owner: Rafa. Each decision has options, a recommendation and the ADR it settles.
 
 Still open (2026-11-06): ADR-0025, Proposed, to be decided with T-033's schema bump, in Phase 6 since D53 (schemas 0.9 and 0.10 shipped without it); ADR-0027, Proposed (T-308: judgment report, verifiable inference, tuning releases; four open questions, none needed before Phase 3); the ADR-0023 amendment on fee bundling, Proposed (D37); and dispute clauses as selectable terms, deferred until after the demo (D29).
 
@@ -973,3 +973,23 @@ Also: the funding signature on EVM is CPP's collector signature and token identi
 | 5. Runway warning | "Yes, warning now" | A console warning now; the alarm stays in T-054 |
 | 6. Read-after-write audit | "Yes, queue it" | T-232 in Phase 2, after the join and timeout PRs |
 | 7. Exit criteria | (set in the walkthrough) | Seven criteria under Phase 2 in `docs/plan.md` |
+
+## D55. Round 1's live passes count across operator builds
+
+**Decided 2026-11-06 by Rafa:** "Accept passes as is". The coordinator session asked whether Phase 2 should close with one full rerun of round 1 on the final operator build. Rafa declined the rerun. Each scenario's live pass counts on whichever build it ran, and Phase 2 needs no rerun. No research pass ran: the decision accepts evidence already recorded and changes no design. Rafa may overrule it.
+
+- **The rule it settles.** T-216's own pass rule asks for every scenario to pass against one deployment and one set of Worker versions, with a rerun of whatever a later fix touches (T-216, How the round runs). Every pass ran on one deployment, HoldbackRules `0xF38287e5…7cFA` [measured: each run's `summary.md`]. The operator builds differed.
+- **The three builds the passes ran on** [documented: each run's times against the deploy times in `docs/operations.md`; no run record names its build]:
+  - T-220's, holdback-op1 `1d8a029c` and holdback-op2 `a042aae3`, live from 2026-11-05 11:04 UTC: run `2026-11-05T132524Z`, which passed 1, 2, 3a and 6;
+  - T-228's, holdback-op1 `ba7a2ad9` and holdback-op2 `7826e3ce`, live from 2026-11-05 15:29 UTC: runs `2026-11-05T190711Z` and `2026-11-05T193705Z`, `2026-11-06T070341Z` and `2026-11-06T093347Z`, which together passed every scenario but 8;
+  - T-230's, holdback-op1 `8bcda43c` and holdback-op2 `7e4d3fa5`, live from 2026-11-06 12:19 UTC: run `2026-11-06T152621Z`, which passed 8 with the join-on-chain-delivery fix.
+- **T-231's build went live after all of them.** holdback-op1 `066f1b18` and holdback-op2 `21cbbc0b` have served since 2026-11-06 19:01 UTC, and the last pass ended at 15:35 UTC. That build sends due timeouts from the operators, which 3a, 3b, 3c, 3d, 4, 5a and 8's second deal wait for [inferred from T-231's intent]. No round 1 run has used it.
+- **T-216's one-build rule gives way to D54's first exit criterion as worded:** every scenario passes live on Sepolia, scenario 11 by its coverage (D54, item 1), with finality clean on every run. Round 1 meets it: 15 of 16 scenarios passed live, and the finality re-read on 2026-11-06 from 21:03 to 21:05 UTC found all 153 transactions of the 8 runs in their recorded blocks [measured: T-216 Evidence, "Round 1's tally and finality"].
+- **What follows.** T-216 is done once its report shows every run, and Phase 2's first exit criterion is met under D55. T-231's timeouts and T-232's read fixes rest on their own tasks' evidence; no round 1 rerun waits for them.
+- **Litmus tests.** Untouched: the decision accepts recorded evidence and changes no contract, schema, defense or API.
+
+| Option | Effect |
+| --- | --- |
+| Accept passes as is (chosen) | T-216 closes now; the report names the build behind each pass; no rerun of round 1 for Phase 2 |
+| One full rerun on the final build | Every scenario on one build, T-231's included; waits for T-232's deploy, then about 1.5 hours of Rafa's terminal [guessed in T-216's Handoff] |
+| Rerun only what later builds touch | 3a, 3b, 3c, 3d, 4, 5a and 8 again; still waits for T-232's deploy |
