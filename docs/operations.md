@@ -108,6 +108,12 @@ Each operator Worker has a variable `SETTLEMENT`, `sim` or `sepolia`, in its wra
 
 After the deploy, a smoke deal ended Released in 44 s, and the test seller sold once each way (T-222 Evidence) [measured]. To roll back: holdback-op1 `5d369b0e`, holdback-op2 `1f169857` and crow-site `cb0adcb5` (`npx wrangler@4 rollback <version> --name <worker>`); `npx wrangler@4 delete --name crow-test-agents` removes the seller.
 
+### T-232 and T-233, through the deploy script (deployed 2026-11-07)
+
+**Deploy 2026-11-07 06:32 UTC, commit `db5c6c3`: pass.** holdback-op1 `d7211270-8310-49ec-be29-ebfc0baf793c` (rollback target `066f1b18-24c6-4f0f-ad45-de2c27a6823f`), holdback-op2 `fe75eceb-7943-4200-b48a-17808d55e64a` (rollback target `21cbbc0b-dd56-4d0c-af4a-c6d4916d8283`). Smoke deal `0xe116a251931aa7c1dbee66d934748095b36080d766c7ba8fde9e3635a0b81f6f` Released in 43 s.
+
+This was `pnpm demo-cloud:deploy`'s first real run (T-234), on Rafa's go-ahead ("Yes, deploy", 2026-11-07). It shipped T-232's read-after-write fixes, T-233's precompiled validators and PR 242's CodeQL fixes. Cloudflare took the first upload of each Worker, with no start-up refusal. Both nodes then answered `/v1/status` at event 650 with 0 s lag (measured). The site didn't change, so crow-site stays `f9806d3c`. A Haiku agent ran the deploy in 6 tool calls, 66,871 tokens and 114 s; T-231's hand-run deploy took 205 calls, 369,453 tokens and 50 min (measured).
+
 ### Crow Control, the founders' console (deployed 2026-11-06)
 
 **Live since 2026-11-06, 11:15 UTC:** crow-console `e8ddac8b-2b8f-4d39-86b3-9f230c5e537f` (measured: `npx wrangler@4 deployments status --name crow-console` lists it at 100%, deployed 11:15:06 UTC). It serves control.escrow.stream behind Cloudflare Access; its runbook is crow-private `control/README.md`. Its crow-private commit is not recorded here. To roll back: `npx wrangler@4.151.3 rollback 91ae8a90 --name crow-console`.
