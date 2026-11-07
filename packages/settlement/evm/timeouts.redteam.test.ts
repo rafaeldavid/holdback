@@ -259,9 +259,10 @@ describe.skipIf(!ready)(`red team of the operators' own timeouts, on anvil stand
     // The world's pass: persist (the landed row goes), then the chain sync from the cursor before the takeover.
     await b.base.release(restarted.drain().relayed);
     await new ChainSync(restarted, cursor).pass();
-    // The recovery's read lagged: the book still shows the stage before the takeover. That read is `land`'s, at the
-    // latest block, which T-232 (the read-after-write audit) pins; the pass must close the deal regardless.
-    expect({ book: restarted.behindStage(d.id), chain: await restarted.stage(d.id) }).toEqual({ book: { stage: 'Delivered', appeal: 0 }, chain: { stage: 'FallbackJudging', appeal: 0 } });
+    // The recovery's read is `land`'s dealOf. Before T-232 it named no block, the lagging node answered it from the block
+    // before the takeover, and the book kept Delivered. T-232 pins it at the takeover's receipt or later, so the book
+    // shows the takeover; the pass must close the deal either way.
+    expect({ book: restarted.behindStage(d.id), chain: await restarted.stage(d.id) }).toEqual({ book: { stage: 'FallbackJudging', appeal: 0 }, chain: { stage: 'FallbackJudging', appeal: 0 } });
 
     // Half an hour of passes, each past any back-off, each followed by the world's persist (the applied rows go).
     const reports: TimeoutReport[] = [];

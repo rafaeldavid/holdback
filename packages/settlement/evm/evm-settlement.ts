@@ -393,7 +393,8 @@ export class EvmSettlement implements Settlement {
   private clockMs: number;
   private domainSeparator: Hex32 | null = null;
   private readonly pools = new Map<string, { bond: bigint; free: bigint }>();
-  private readonly balanceCache = new Map<string, { at: number; value: bigint }>();
+  /** Live balance reads, reused for a few seconds while the chain's floor stays where it was at the read (T-232). */
+  private readonly balanceCache = new Map<string, { at: number; value: bigint; floor: bigint }>();
   private dirty = new Set<Hex32>();
   private drained = 0;
   private admitted: Mandate[] = [];
@@ -458,6 +459,7 @@ export class EvmSettlement implements Settlement {
       if (b.spent) s.spent.set(b.spent.day, (s.spent.get(b.spent.day) ?? 0n) + BigInt(b.spent.amount));
       for (const h of b.chainTxs ?? []) s.seen(id, h);
     }
+    let last = 0n;
     for (const e of saved.events) {
       if (e.seq !== s.log_.length) throw new Error(`saved event ${e.seq} is out of order (expected ${s.log_.length})`);
       s.log_.push(e);
@@ -466,7 +468,11 @@ export class EvmSettlement implements Settlement {
         // Books saved before T-218 have no chainTxs: their events name the transactions applied.
         if (e.commitmentId) s.seen(e.commitmentId, e.payload['tx']);
       }
+      const b = e.payload['block'];
+      if ((typeof b === 'string' && /^[0-9]+$/.test(b)) || (typeof b === 'number' && Number.isSafeInteger(b))) last = BigInt(b) > last ? BigInt(b) : last;
     }
+    // T-232: after a restart, no read of the state answers from before the last transaction the books hold.
+    chain.saw?.(last);
     s.drained = s.log_.length;
     return s;
   }
@@ -561,14 +567,22 @@ export class EvmSettlement implements Settlement {
     return null;
   }
 
-  /** dealOf's stage and appeal state, at the latest block or at `blockNumber`. */
+  /** dealOf's stage and appeal state, at `blockNumber`, or the state now (`read`). */
   async stage(id: Hex32, blockNumber?: bigint): Promise<{ stage: (typeof STAGES)[number]; appeal: number }> {
-    const d = (await this.world.publicClient.readContract({ address: this.world.deployment.rules, abi: this.world.abis.rules, functionName: 'dealOf', args: [id], ...(blockNumber !== undefined ? { blockNumber } : {}) })) as { stage: number; appeal: number };
+    const d = await this.read<{ stage: number; appeal: number }>(this.world.deployment.rules, this.world.abis.rules, 'dealOf', [id], blockNumber);
     return { stage: STAGES[d.stage]!, appeal: d.appeal };
   }
 
+  /**
+   * A contract read at `blockNumber`. Without one, the state now: on a live chain pinned to the chain's newest block,
+   * never before the last block this node wrote at or read (T-232: a node a block behind still shows the state before
+   * this node's own last transaction); asked again within the chain's bound, then thrown. Anvil, one node that mines
+   * each transaction before its receipt returns, reads its latest block.
+   */
   private async read<T>(address: Address, abi: Abi, functionName: string, args: unknown[], blockNumber?: bigint): Promise<T> {
-    return (await this.world.publicClient.readContract({ address, abi, functionName, args, ...(blockNumber !== undefined ? { blockNumber } : {}) })) as T;
+    const at = async (block: bigint | undefined) => (await this.world.publicClient.readContract({ address, abi, functionName, args, ...(block !== undefined ? { blockNumber: block } : {}) })) as T;
+    if (blockNumber !== undefined || !this.world.pinned) return at(blockNumber);
+    return this.world.pinned(at);
   }
 
   /**
@@ -591,14 +605,20 @@ export class EvmSettlement implements Settlement {
     }
   }
 
-  /** A token balance. On a live chain reads are reused for a few seconds unless `fresh`; a check that gates a step is fresh. */
+  /**
+   * A token balance. On a live chain reads are reused for a few seconds unless `fresh`; a check that gates a step is
+   * fresh. A read is reused only while the chain's floor has not moved since (T-232): once this node has a receipt, or a
+   * pass has read the chain, past it, the balance is read again at that block or later. Otherwise a second operator
+   * could serve a balance from before a release its pass already applied (try.mjs's balances step on two operators).
+   */
   async tokenBalance(a: Address, fresh = false): Promise<bigint> {
     if (!this.wall) return this.read<bigint>(this.world.deployment.token, this.world.abis.token, 'balanceOf', [getAddress(a)]);
     const hit = this.balanceCache.get(lc(a));
     const now = this.wall();
-    if (hit && !fresh && now - hit.at < BALANCE_TTL_MS) return hit.value;
+    const floor = this.world.floor?.() ?? 0n;
+    if (hit && !fresh && now - hit.at < BALANCE_TTL_MS && hit.floor >= floor) return hit.value;
     const value = await this.read<bigint>(this.world.deployment.token, this.world.abis.token, 'balanceOf', [getAddress(a)]);
-    this.balanceCache.set(lc(a), { at: now, value });
+    this.balanceCache.set(lc(a), { at: now, value, floor });
     return value;
   }
 

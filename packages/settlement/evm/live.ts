@@ -17,6 +17,12 @@
 // (`release`). After a restart the rows a previous run left are read once (`attach`); until a row is resolved, its
 // lane sends nothing else, and its nonce is never read from `pending`. `resume` resolves one: a mined row sets the
 // lane's nonce to its own plus one; one not mined is rebroadcast as it was, then the usual give-up rule applies.
+//
+// Reads after a write (T-232): a load-balanced RPC can answer from a node a block or more behind, which still shows the
+// state before this node's own last transaction (five times on Sepolia: T-226, round 1's 3d and 10a, 3b's bond deposit,
+// T-228, scenario 8). Every receipt raises the chain's floor, and every read of the state now (a simulation, a gas
+// estimate, a balance, the adapter's contract reads) names a block: the node's latest, or the floor when the node trails
+// it. A node without that block is asked again within a bound, then the read fails; none answers from `latest`.
 import {
   BlockNotFoundError,
   concat,
@@ -39,6 +45,7 @@ import { privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts';
 import { holdbackDomain, type HoldbackDomain } from '@holdback/core';
 import abisJson from './abis.json' with { type: 'json' };
 import { RelayRefused, type Abis, type Deployment, type EvmChain, type LaneRow, type Mined, type RelayNote } from './chain.js';
+import { revertData } from './errors.js';
 import { assertSafeChain } from './guard.js';
 
 /** contracts/deployments/<network>.json, as the testnet deployment writes it (T-206). */
@@ -126,6 +133,8 @@ export const GAS_CAP = 3_000_000n;
  * 262,195, measured) and a lone first mint 238,103, so six stay well inside the cap even at the higher figure.
  */
 const MINT_BATCH_MAX = 6;
+/** The waits before each retry of a pinned read, in quarters of a receipt poll: 0.5, 1, 2 and 4 s at Sepolia's 2 s poll (T-232). */
+const PINNED_WAITS = [1, 2, 4, 8];
 
 /** A deal lane's key: keccak256(secret ‖ "holdback/relayer-lane/<i>"). Rafa funds the funding lane; it tops these up. */
 export function laneKey(relayerKey: Hex, i: number): Hex {
@@ -173,6 +182,27 @@ class GaveUp extends Error {}
 
 const rowId = (r: Pick<LaneRow, 'from' | 'nonce'>) => `${r.from.toLowerCase()}:${r.nonce}`;
 
+/** How nodes word an answer for a block they do not have yet. */
+const MISSING_BLOCK = /header not found|block not found|unknown block/i;
+
+/** True when any message in the error's chain says the node has no such block. */
+const missingBlock = (e: unknown): boolean => {
+  const seen = new Set<unknown>();
+  for (let x: unknown = e; x && typeof x === 'object' && !seen.has(x); x = (x as { cause?: unknown }).cause) {
+    seen.add(x);
+    const o = x as { message?: unknown; details?: unknown; shortMessage?: unknown };
+    if ([o.message, o.details, o.shortMessage].some((m) => typeof m === 'string' && MISSING_BLOCK.test(m))) return true;
+  }
+  return false;
+};
+
+/**
+ * Whether a failed pinned read is worth asking again. A node without the block is, first: viem rewraps a code -32603
+ * "header not found" from eth_call as a contract revert (review of PR 239). Then not a revert (the contract's answer at
+ * that block), and not anvil's EIP-7623 gas-floor refusal of a cheap call's estimate; a timeout or a rate limit is.
+ */
+export const askAgain = (e: unknown): boolean => missingBlock(e) || (revertData(e) === undefined && !/revert|gas floor exceeds/i.test(String((e as Error | undefined)?.message ?? e)));
+
 /** The node's own answers that it did not take a transaction. Any other broadcast error may have sent it (T-219). */
 const REFUSED = /nonce too low|nonce has already been used|underpriced|intrinsic gas too low|invalid sender|exceeds block gas limit|fee cap less than block base fee|max fee per gas less than block base fee/i;
 const refused = (e: unknown): boolean => e instanceof RelayRefused || REFUSED.test(String((e as Error | undefined)?.message ?? e));
@@ -210,6 +240,13 @@ export class LiveChain implements EvmChain {
   private readonly orphans = new Map<string, LaneRow>();
   /** Orphans whose receipts were found, kept for the adapter's `resume`. */
   private readonly resolved = new Map<string, Mined>();
+  /** T-232: the newest block this node has a receipt from or has read the chain up to; reads of the state now pin there or later. */
+  private seenBlock = 0n;
+  /**
+   * T-232: per sender, the nonce after its last mined transaction. Kept when a refusal or a give-up drops the nonce
+   * cache, so a node whose pending count trails that transaction cannot hand out its nonce again.
+   */
+  private readonly minedNonce = new Map<string, number>();
 
   constructor(o: LiveChainOptions) {
     const id = o.deployment.chainId;
@@ -274,17 +311,58 @@ export class LiveChain implements EvmChain {
     if (!code || code === '0x') throw new RangeError(`no contract at the rules address ${this.deployment.rules} on chain ${id}`);
     // ADR-0029: every message is signed under core's domain. A contract under another version (the 0.6 deployment, for a
     // 0.7 build) refuses every signature, so a build must not start against it.
+    // eslint-disable-next-line no-restricted-syntax -- T-232: read before any write, and the domain is fixed at deployment (no admin keys, no upgrade proxy).
     const [, name, version] = (await this.publicClient.readContract({ address: this.deployment.rules, abi: this.abis.rules, functionName: 'eip712Domain' })) as readonly [Hex, string, string, bigint, Address, Hex, readonly bigint[]];
     const mismatch = domainMismatch({ name, version }, holdbackDomain(id, this.deployment.rules));
     if (mismatch) throw new RangeError(`${mismatch} (rules contract ${this.deployment.rules} on chain ${id})`);
     // Every funding nonce hashes the margin: a deployment file that disagrees with the contract signs for nothing.
+    // eslint-disable-next-line no-restricted-syntax -- T-232: read before any write, and EXPIRY_MARGIN is a constant of the deployed contract.
     const margin = (await this.publicClient.readContract({ address: this.deployment.rules, abi: this.abis.rules, functionName: 'EXPIRY_MARGIN' })) as bigint;
     if (BigInt(margin) !== this.expiryMargin) throw new RangeError(`the rules contract's EXPIRY_MARGIN is ${margin}, the deployment file says ${this.expiryMargin}`);
   }
 
+  floor(): bigint {
+    return this.seenBlock;
+  }
+
+  saw(block: bigint): void {
+    if (block > this.seenBlock) this.seenBlock = block;
+  }
+
+  /**
+   * The node's latest block, or the floor when the node trails it (T-232). `head: 'cached'` takes viem's head of up to a
+   * second ago, one eth_blockNumber a second at most, for the reads the world budgets (the bond listing's 2 eth_calls a
+   * second); the floor still covers this node's own writes. `'now'` asks each time, for a simulation or a gas estimate:
+   * with an older head, a timeout sent just past its deadline would run at the block before it and be refused TooEarly.
+   */
+  async newest(head: 'now' | 'cached' = 'now'): Promise<bigint> {
+    const latest = await this.publicClient.getBlockNumber(head === 'now' ? { cacheTime: 0 } : {});
+    return latest > this.seenBlock ? latest : this.seenBlock;
+  }
+
+  /**
+   * `read` at `newest(head)`, asked again while `again` says the error is worth it: after a quarter, a half, one and two
+   * receipt polls (0.5, 1, 2 and 4 s on Sepolia), within five polls (10 s), the same bound as the adapter's reads at a
+   * receipt's block. Then the last error is thrown; nothing is read at `latest` instead (T-232).
+   */
+  async pinned<T>(read: (block: bigint) => Promise<T>, again: (e: unknown) => boolean = askAgain, head: 'now' | 'cached' = 'cached'): Promise<T> {
+    const deadline = Date.now() + 5 * this.pollMs;
+    for (let tries = 0; ; tries++) {
+      try {
+        return await read(await this.newest(head));
+      } catch (e) {
+        const quarters = PINNED_WAITS[tries];
+        const ms = quarters === undefined ? Infinity : (quarters * this.pollMs) / 4;
+        if (!again(e) || Date.now() + ms > deadline) throw e;
+        await sleep(ms);
+      }
+    }
+  }
+
   /** eth_estimateGas: a revert throws with its data, as eth_call would; the estimate is kept for the send. */
   async simulate(tx: { from: Address; to: Address; data: Hex }): Promise<void> {
-    const gas = await this.publicClient.estimateGas({ account: tx.from, to: tx.to, data: tx.data });
+    // At the newest block this node knows of: a node a block behind still shows the deal before this node's last relay.
+    const gas = await this.pinned((blockNumber) => this.publicClient.estimateGas({ account: tx.from, to: tx.to, data: tx.data, blockNumber }), askAgain, 'now');
     // Dry runs never send, so their estimates are dropped wholesale now and then rather than one by one.
     if (this.estimates.size > 256) this.estimates.clear();
     this.estimates.set(`${lc(tx.from)}|${lc(tx.to)}|${tx.data}`, gas);
@@ -419,8 +497,9 @@ export class LiveChain implements EvmChain {
     });
   }
 
+  /** Test ETH, at the block of the funding lane's last top-up or later (T-232): a lane just topped up is not topped up again. */
   async ethBalance(a: Address): Promise<bigint> {
-    return this.publicClient.getBalance({ address: a });
+    return this.pinned((blockNumber) => this.publicClient.getBalance({ address: a, blockNumber }));
   }
 
   /** Each deal lane holds at least `floor` test ETH: the funding lane sends `topUp` to any below it. */
@@ -473,12 +552,19 @@ export class LiveChain implements EvmChain {
     await this.verify();
     const from = account.address;
     const k = `${lc(from)}|${lc(to)}|${data}`;
-    const estimate = this.estimates.get(k) ?? (await this.publicClient.estimateGas({ account: from, to, data, value }));
+    // Estimated at this node's newest block (T-232): a bond deposit estimated on a node without its approval reverts
+    // TransferFromFailed (round 1's 3b, 2026-11-05).
+    const estimate = this.estimates.get(k) ?? (await this.pinned((blockNumber) => this.publicClient.estimateGas({ account: from, to, data, value, blockNumber }), askAgain, 'now'));
     this.estimates.delete(k);
     // Sent with less gas than it needs, a call would run out on chain and spend the gas for nothing.
     if ((estimate * 5n) / 4n > GAS_CAP) throw new RelayRefused(`the call needs about ${estimate} gas, above this node's cap of ${GAS_CAP}`);
     const gas = (estimate * 5n) / 4n;
-    const nonce = this.nonces.get(lc(from)) ?? (await this.publicClient.getTransactionCount({ address: from, blockTag: 'pending' }));
+    // `pending` names no block to pin to: a node that trails the lane's last mined transaction counts the nonce before
+    // it, so the nonce is never below the one after that transaction (T-232).
+    // eslint-disable-next-line no-restricted-syntax -- T-232: the pending count has no block; minedNonce is its floor.
+    const pending = this.nonces.get(lc(from)) ?? (await this.publicClient.getTransactionCount({ address: from, blockTag: 'pending' }));
+    const after = this.minedNonce.get(lc(from)) ?? 0;
+    const nonce = pending > after ? pending : after;
     const fee = await this.feesNow();
     const f: Flight = { from, nonce, to, data, value, gas, fee, raw: '0x', hashes: [], start: 0, checkpoint: 0, deadline: 0, row: null };
     f.raw = await this.sign(account, f, fee);
@@ -530,7 +616,11 @@ export class LiveChain implements EvmChain {
         });
         if (r) {
           this.nonces.set(lc(f.from), f.nonce + 1);
-          return { hash, from: f.from, status: r.status, gasUsed: r.gasUsed, blockNumber: r.blockNumber, timestamp: await this.blockTime(r.blockNumber), logs: r.logs };
+          if (f.nonce + 1 > (this.minedNonce.get(lc(f.from)) ?? 0)) this.minedNonce.set(lc(f.from), f.nonce + 1);
+          const timestamp = await this.blockTime(r.blockNumber);
+          // Every read of the state from now on sees this transaction (T-232), once a read of its block succeeded.
+          this.saw(r.blockNumber);
+          return { hash, from: f.from, status: r.status, gasUsed: r.gasUsed, blockNumber: r.blockNumber, timestamp, logs: r.logs };
         }
       }
       const now = Date.now();
@@ -616,12 +706,15 @@ export class LiveChain implements EvmChain {
  * Gives an adjudicator key this world holds at least `amount` of its own bond in HoldbackBonds (the demo's setup,
  * ADR-0028 §7). The funding lane tops up the adjudicator's test ETH to `gas` and mints the missing test tokens to it
  * (open mint); the adjudicator then approves and deposits with its own key, as HoldbackBonds bonds msg.sender.
- * Idempotent: every step is decided by an on-chain read, and nothing is sent when the bond is already there.
+ * Idempotent: every step is decided by an on-chain read, and nothing is sent when the bond is already there. Each read
+ * and the deposit's estimate are pinned to the block of the step before or later (T-232), so a node that trails the
+ * approval neither refuses the deposit nor sends a second approval.
  */
 export async function ensureBond(chain: LiveChain, adjudicatorKey: Hex, amount: bigint, gas: bigint): Promise<Hex[]> {
   const a = privateKeyToAccount(adjudicatorKey).address;
   const { token, bonds } = chain.deployment;
-  const read = (address: Address, functionName: string, args: unknown[]) => chain.publicClient.readContract({ address, abi: address === bonds ? chain.abis.bonds : chain.abis.token, functionName, args }) as Promise<bigint>;
+  const read = (address: Address, functionName: string, args: unknown[]) =>
+    chain.pinned((blockNumber) => chain.publicClient.readContract({ address, abi: address === bonds ? chain.abis.bonds : chain.abis.token, functionName, args, blockNumber }) as Promise<bigint>);
   const bond = await read(bonds, 'bondOf', [a, token]);
   if (bond >= amount) return [];
   const sent: Hex[] = [];
