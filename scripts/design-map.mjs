@@ -28,8 +28,11 @@ export function workFeed() {
     .filter(Boolean)
     .map((record) => {
       const [sha, date, subject, body] = record.split('\x1f');
-      const pr = subject.match(/^Merge pull request #(\d+)/);
-      const title = pr ? (body ?? '').split('\n')[0].trim() || subject : subject;
+      // a merge commit ("Merge pull request #12 …") or a squash merge ("feat: … (#12)")
+      const merged = subject.match(/^Merge pull request #(\d+)/);
+      const squashed = subject.match(/ \(#(\d+)\)$/);
+      const pr = merged ?? squashed;
+      const title = merged ? (body ?? '').split('\n')[0].trim() || subject : subject.replace(/ \(#\d+\)$/, '');
       const type = title.match(/^(\w+)(?:\(([^)]+)\))?:/);
       return { sha, date, pr: pr ? Number(pr[1]) : null, title, type: type ? type[1] : 'commit', scope: type?.[2] ?? null };
     });
@@ -94,6 +97,26 @@ export function tasks() {
   });
 }
 
+// The public repo holds the current build and its record only (Rafa, 2026-11-07): later phases, proposed rows and
+// the backlog are planned privately, so the map reads none of them.
+
+// docs/team.md, Change recipes: one row per kind of change.
+export function recipes() {
+  const body = section(read('docs/team.md'), '## Change recipes');
+  return [...body.matchAll(/^\| (\d+)\. (.+?) \| (.+?) \| (.+?) \| (.+?) \| (.+?) \| (.+?) \|$/gm)].map((m) => ({
+    kind: Number(m[1]), name: m[2], paths: m[3], checks: m[4], review: m[5], approves: m[6], budget: m[7],
+  }));
+}
+
+// The newest docs/log entry: its date, its lead paragraph and its "## Live" bullets.
+export function live() {
+  const logs = list('docs/log', /^\d{4}-\d{2}-\d{2}\.md$/);
+  if (!logs.length) return { date: '', lead: '', items: [] };
+  const text = read(`docs/log/${logs.at(-1)}`);
+  const lead = text.split('\n').find((l) => /^\*\*/.test(l)) ?? '';
+  return { date: logs.at(-1).slice(0, 10), lead, items: bullets(section(text, '## Live')) };
+}
+
 export function phases(allTasks) {
   const text = read('docs/plan.md');
   const parts = text.split(/^## Phase (\d+): (.+)$/m);
@@ -106,8 +129,8 @@ export function phases(allTasks) {
     const own = allTasks.filter((t) => t.phase === n);
     const done = own.length > 0 && own.every((t) => t.status === 'done');
     const active = own.some((t) => t.status === 'in progress' || t.status === 'review');
-    // every planned line of the phase ("- T-201 …", "- [x] T-013 …", "- D4 decided …"), for the roadmap; a phase with
-    // no task IDs yet (Phase 5 onward) shows all its lines, so later work is visible before it has task files
+    // every planned line of the phase ("- T-201 …", "- [x] T-013 …", "- D4 decided …"); a phase with no task IDs shows
+    // all its lines
     const plan = body.split('**Exit:**')[0];
     const lines = [...plan.matchAll(/^- (?:\[([ x])\] )?(.+)$/gm)]
       .map((m) => ({ checked: m[1] === 'x', id: m[2].match(/^(T-\d+[a-z]?)\b/)?.[1] ?? null, text: m[2].replace(/^T-\d+[a-z]?\b\s*/, '').replace(/\s+/g, ' ').trim() }));
@@ -176,6 +199,8 @@ export function collect() {
     schema: schema(),
     reviews: reviews(),
     waiting: waiting(),
+    recipes: recipes(),
+    live: live(),
   };
 }
 

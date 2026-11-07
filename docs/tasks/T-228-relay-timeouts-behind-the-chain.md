@@ -22,7 +22,7 @@ The operators' pass sends no party timeout today (`workAt` in `apps/demo-cloud/s
 
 ## Context
 
-- **Sources:** T-227 (`docs/tasks/T-227-deal-behind-the-chain.md`), "The impact": "The operators refuse every relay for a deal behind the chain, the timeouts included". Rafa, 2026-11-05: "feels like you should solve in the next piece of work". Rafa, 2026-11-05: "You need to ship this so you stop iterating."
+- **Sources:** T-227 (planned privately), "The impact": "The operators refuse every relay for a deal behind the chain, the timeouts included". Rafa, 2026-11-05: "feels like you should solve in the next piece of work". Rafa, 2026-11-05: "You need to ship this so you stop iterating."
 - **What a timeout is:** `reclaim`, `triggerFallback`, `triggerDefault`, `expireAppeal` and `expireOffer` on `HoldbackRules`. Anyone may send one. Each reverts `WrongStage` or `TooEarly` unless `dealOf` and the terms' deadlines allow it.
 - **How the view follows a deal behind** (T-218): `follow` records `dealOf`'s stage, queues the transaction when only the delivery is missing, and serves the keys the transaction released.
 
