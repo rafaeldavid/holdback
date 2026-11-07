@@ -208,7 +208,39 @@ Counts: 18 fixed here (rows 1 to 5, 10 to 18, 20, 27, 30, 37), 6 pinned already 
 
 ## Handoff
 
-**Status: review.** The fixes, the tests, the lint rule and the `docs/team.md` row are in the PR. The reviewer pass, the red-team pass and the operator deploy remain.
+**Status: review.** The fixes, the tests, the lint rule and the `docs/team.md` row are in the PR. The reviewer and red-team passes ran on 2026-11-07. On Rafa's call ("simplify and stop getting into testing loops"), two findings are fixed here and the rest are in the backlog below. The coordinator merges on green CI; the operator deploy remains.
+
+**The review round, fixed here (2026-11-07):**
+1. **The floor rises only after a read at that block succeeded (red team, Medium; reviewer, Low).**
+   - The timeouts pass raised the floor to the head the RPC reported, before any read at it. One `eth_blockNumber` answer 1,000,000 blocks too high then broke every pinned read until a restart.
+   - Now `OperatorTimeouts.run` raises it only after the contract accepted the timeout at that block (`timeouts.ts`), and the block it checks at includes the floor.
+   - `fly` raises it only after the receipt's block time is read (`live.ts`).
+   - Test: `timeouts.test.ts` "one wrong head from the RPC does not raise the floor…". It failed before the fix (measured: the floor reached block 1,000,022, the head was 22) and passes after.
+2. **`askAgain` asks again on a node's "header not found", "block not found" or "unknown block", before the revert test (reviewer, Medium).**
+   - viem rewraps a code -32603 answer from `eth_call` as a contract revert, so a pinned contract read gave up on its first try.
+   - Test: `read-after-write.test.ts` "a pinned contract read asks again…", a JSON-RPC stand-in over HTTP. Before the fix, -32603 "header not found" and "block not found" got one try (measured: 6 eth_calls, not 12 or more), and pass after. -32000 "unknown block" was asked again before as well. A revert is still asked once.
+   - Run after both fixes (measured): `vitest run` of `read-after-write.test.ts`, `timeouts.test.ts` and `timeouts.redteam.test.ts`, 38 passed; `tsc -b` and `eslint packages/settlement/evm` clean. No full `pnpm verify` this round, on the coordinator's instruction; CI runs it.
+
+**Backlog (from the review of PR 239, not built here):**
+- **The answer read after a mined relay** (red team, Medium; `attack.t232-answer-read-fails-after-relay`). When the answer's balance read fails after the write mined, `process` throws after the book moved. It stores no replay, the lane row stays open, a retry with the same Idempotency-Key is refused invalid_state, and the timeouts pass defers that deal until a restart. Fix: read the answer's balances as a best effort (`balances` is optional in the schema), then always store the replay and release the row. The reviewer expected the sync to repair it through `follow`; the red team's test showed the sync never reads an applied transaction (`sync.ts:343`).
+- **The nonce floor after a reorg** (red team, Low; `attack.t232-mined-nonce-after-rollback`). `minedNonce` survives a give-up, so after a reorg drops the lane's last transaction the lane keeps a nonce too high until a restart. Fix: take the larger of `pending` and the mined count at the pinned block, read each time, as `nonceAfter` does. Correct decision 5, which says the give-up frees the lane.
+- **The 13 lint bypasses** (red team, Low; `lint-bypass.test.ts`):
+  - an alias or destructuring of the client, and an extracted read method;
+  - `viem/actions`, a computed member, and a raw `eth_call` through `request`;
+  - `blockNumber: undefined`, or only nested or inside a spread;
+  - a disable comment with no rule or no reason, and `.mts` and `.cts` files.
+  
+  The fixes that need no dependency: `reportUnusedDisableDirectives: 'error'`, nested relative `:has` selectors, and a local rule for disable reasons. Known limits that stay: a `blockNumber` that may be `undefined` at run time, the client passed to a helper, and a file that starts with `/* eslint-disable */`.
+- **Persist the floor in the world's meta** (red team, Info; `attack.t232-floor-after-restart-mint`). After a restart that follows a write with no event (a faucet mint, a lane top-up, `ensureBond`), the floor restarts below that write. It is in `apps/demo-cloud/src/world.ts`.
+- **A T-231 stale-book variant** (red team, Info): a stranger's direct takeover leaves a behind deal's book stale, so T-231's stale-book path stays covered now that row 13's fix no longer reaches it (`timeouts.redteam.test.ts:262`).
+- **The inventory's gaps** (reviewer, Low):
+  - add two driver reads at `latest`, both safe: `examples/e2e-scenarios-direct.ts:127` waits for a block's time, and `examples/e2e-round.ts:280` prints the head;
+  - reword row 39, since the driver's `send` nonce is a `pending` count raised to at least the key's last send (`e2e-chain.ts:384` to `385`), not pinned;
+  - refresh the `live.ts` and `timeouts.ts` line numbers.
+- **The nits** (reviewer):
+  - drop `newest?` from `EvmChain`, un-export `askAgain`, and make the signature `pinned(read, head)`;
+  - in `docs/team.md`'s row, say the rule matches only calls on objects named `publicClient` or `client`;
+  - rerun `pnpm verify` on the final head and cite the commit: the reviewer's loaded-machine run overwrote `reports/verify-t-232-read-after-write-audit.md` with a FAIL, while a plain `vitest run` passed 2,935 tests with none failing.
 
 Differences between this file and the coordinator's brief, as the brief asked:
 - **Branch:** the brief named `t-232-read-after-write`; this file names `t-232-read-after-write-audit`. The branch uses this file's name.
@@ -218,14 +250,14 @@ Differences between this file and the coordinator's brief, as the brief asked:
 What a reviewer checks:
 - `packages/settlement/evm/live.ts`: `pinned`, `newest`, `floor` and `saw`, the pinned `simulate`, `sendNow` and `ethBalance`, `minedNonce`, and `ensureBond`.
 - `packages/settlement/evm/evm-settlement.ts`: `read` pins by default, `tokenBalance`'s cache, and `restore`'s floor.
-- `packages/settlement/evm/sync.ts`: the floor check and `saw(head)`. `packages/settlement/evm/timeouts.ts`: `saw(block)`.
+- `packages/settlement/evm/sync.ts`: the floor check and `saw(head)`. `packages/settlement/evm/timeouts.ts`: `saw(block)` after the contract accepted the timeout there.
 - The changed expectation in `timeouts.redteam.test.ts:262`: the book now shows the takeover's stage, which is what T-232 was meant to change.
 
 Residual risks (inferred):
 - A pinned read fails where an unpinned one answered stale data. That happens when every node lacks the block for 10 s, which round 1 never showed (its nodes trailed by 2 to 4 s). The failure is loud: a relay's simulation or a GET answers an error, and the client retries.
 - A balance read in `view` that fails after a relay mined throws after the book moved, as an RPC error there already did before T-232. A retry with the same Idempotency-Key then meets the moved state. A backlog row could make the view's balances a best effort; this PR does not.
 
-To resume after review:
-1. Fix the review findings in this branch, then merge once CI passes.
+To resume:
+1. The coordinator merges once CI passes; the backlog above goes to `docs/backlog.md` or a follow-up task.
 2. After Rafa's go-ahead, deploy holdback-op1 and holdback-op2 (T-234's deploy script, when merged). Run one smoke deal through both operators to Released, and record it here (measured).
 3. Extend the lint rule to `examples/e2e-chain.ts` if the driver grows new reads (a follow-up for T-216's lane).
