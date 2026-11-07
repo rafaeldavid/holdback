@@ -102,10 +102,11 @@ node site/build.mjs && node site/check.mjs   # the site and its agent docs (site
 - Pick up work only through a task file in `docs/tasks/`. Restate the task's intent in your own words before writing code.
 - Work in your own git worktree and branch (`t-<id>-<slug>`). Keep PRs small, with ordered commits.
 - Stay inside the paths the task lists. If you need to touch another lane's files, write that in the task's Handoff section and stop.
+- **Follow the change recipe for the change's kind** (`docs/team.md`, Change recipes; Rafa, 2026-11-07). The kind sets the local checks, the review, who approves and the token budget. At 1.5 times the budget, stop and report.
 - Before you hand off:
-  - add or update fixtures;
-  - run `/verify`;
-  - fill in the task's Evidence and Handoff sections;
+  - add or update fixtures the change needs;
+  - run `/verify`, which runs the kind's local checks; CI is the gate;
+  - fill in the task's Evidence and Handoff sections; edit no other shared doc;
   - open a PR.
 - **Autonomy inside the repo, gates outside it** (Rafa, 2026-10-31). Anything confined to this repository is pre-approved: ADRs, schema changes, contract code, defense changes, and merging a PR once CI passes and review findings are fixed. Decisions still get a research pass and are recorded in `docs/decisions-today.md`, where Rafa can overrule them. Actions that reach outside the repository still wait for Rafa: deploys, force pushes or history rewrites on the remote, real keys or real money, anything published or sent to other people, and repository access or settings.
 - Use the role subagents in `.claude/agents/` and the commands in `.claude/commands/`. Process details are in `docs/team.md`.

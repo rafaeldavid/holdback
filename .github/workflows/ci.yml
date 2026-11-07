@@ -11,8 +11,35 @@ permissions:
   contents: read
 
 jobs:
+  # A pull request that changes only docs/ or root Markdown files skips the heavy jobs (Rafa, 2026-11-07: the
+  # change recipes in docs/team.md). Push to main always runs everything, and so does a pull request whose file
+  # list can't be read.
+  changes:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      code: ${{ steps.files.outputs.code }}
+    steps:
+      - id: files
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT: ${{ github.event_name }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          code=true
+          if [ "$EVENT" = pull_request ] && files=$(gh pr diff "$PR" --repo "$REPO" --name-only) && [ -n "$files" ]; then
+            if [ -z "$(printf '%s\n' "$files" | grep -Ev '^(docs/.+|[^/]+\.md)$')" ]; then code=false; fi
+            echo "$(printf '%s\n' "$files" | wc -l) changed files"
+          fi
+          echo "code=$code" | tee -a "$GITHUB_OUTPUT"
+
   static:
     name: typecheck, lint, spec, snap
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -31,6 +58,8 @@ jobs:
 
   test:
     name: test (${{ matrix.shard }}/4)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -58,6 +87,8 @@ jobs:
   # Foundry. Local EVM only (chain id 31337, anvil on 127.0.0.1); no public RPC endpoint is configured.
   contracts:
     name: contracts (forge test, anvil tests)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     # A healthy run takes about 8 minutes; a hang fails here instead of at GitHub's 6-hour default (T-035).
     timeout-minutes: 30
@@ -101,6 +132,8 @@ jobs:
   # variants (each must still bite); push to main also runs the seven liveness configs.
   formal:
     name: formal (TLC)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -127,14 +160,17 @@ jobs:
           fi
 
   # The one status to require: it fails unless the static job, every test shard, the contracts job and the
-  # formal job succeeded.
+  # formal job succeeded, or the changes job found a docs-only pull request and they were skipped.
   check:
-    needs: [static, test, contracts, formal]
+    needs: [changes, static, test, contracts, formal]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: all jobs passed
         run: |
+          echo "changes=${{ needs.changes.result }} code=${{ needs.changes.outputs.code }}"
+          test "${{ needs.changes.result }}" = success
+          if [ "${{ needs.changes.outputs.code }}" = false ]; then echo "docs only: the heavy jobs were skipped"; exit 0; fi
           echo "static=${{ needs.static.result }} test=${{ needs.test.result }} contracts=${{ needs.contracts.result }} formal=${{ needs.formal.result }}"
           test "${{ needs.static.result }}" = success
           test "${{ needs.test.result }}" = success
