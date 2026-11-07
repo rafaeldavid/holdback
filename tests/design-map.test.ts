@@ -6,18 +6,25 @@ import { build, collect } from '../scripts/design-map.mjs';
 describe('design map', () => {
   const data = collect();
 
-  it('reads every phase in docs/plan.md and marks the first unfinished phase next or active', () => {
-    expect(data.phases.map((p: { n: number }) => p.n)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
-    // Phases may overlap (Phase 2 starts while a Phase 1 row is deferred), so more than one can be active;
-    // the first phase that is not done must be the one shown as next or active.
+  it('reads the public plan: Phases 0 to 2, and any phase not done is shown as next or active', () => {
+    expect(data.phases.map((p: { n: number }) => p.n)).toEqual([0, 1, 2]);
+    // Phases may overlap, so more than one can be active; the first phase that is not done, if any, is next or active.
     const first = data.phases.find((p: { status: string }) => p.status !== 'done');
-    expect(['next', 'active']).toContain(first.status);
+    if (first) expect(['next', 'active']).toContain(first.status);
   });
 
-  it('reads a plan line with a lettered task ID as one ID', () => {
-    const items = data.phases.flatMap((p: { items: { id: string | null; text: string }[] }) => p.items);
-    const t016b = items.find((it: { id: string | null }) => it.id === 'T-016b');
-    expect(t016b.text).toMatch(/^Testkit/);
+  it('shows the current build and its record only: no proposed rows and no backlog', () => {
+    expect(data).not.toHaveProperty('backlog');
+    for (const p of data.phases) for (const it of p.items) expect(it).not.toHaveProperty('proposal');
+    const html = build();
+    expect(html).not.toContain('id="backlog"');
+    expect(html).not.toContain('id="proposed"');
+  });
+
+  it('links the engineering roadmap and says it is private', () => {
+    const html = build();
+    expect(html).toContain('https://claude.ai/artifact/8qoP6eBhJ9GTcfc9Doy26i');
+    expect(html).toContain('private: founders only');
   });
 
   it('reads a task status by its leading keyword, so a note after it does not hide "done"', () => {

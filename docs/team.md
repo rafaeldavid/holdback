@@ -33,7 +33,7 @@ Rules for every kind:
 - **Tests follow the code.** A test is part of the change to the code it tests, not a kind of its own.
 - **Run the kind's local checks, not the whole suite.** CI is the gate. Run the full `pnpm verify` only once before a deploy, and only one at a time on the Mac.
 - **A review fixes only what blocks.** Fix the regressions the change introduces and any Critical or High finding, in one round. Everything else goes to the task's Handoff or the backlog. No second-family review unless Rafa asks.
-- **A change edits only its own task file.** The coordinator updates `docs/plan.md` and the day's log once a day, in one docs commit. A deploy prints its record line, which goes into that commit with no record PR of its own. T-065 generates plan status and the log from task fields and merged PRs.
+- **A change edits only its own task file.** The coordinator updates `docs/plan.md` and the day's log once a day, in one docs commit. A deploy prints its record line, which goes into that commit with no record PR of its own. A later ticket, planned privately, generates plan status and the log from task fields and merged PRs.
 - **One agent per change, briefed once.** The brief carries the facts the agent needs, so it doesn't re-read the repository. Mechanical steps, such as a deploy, a refresh or a docs batch, use a small model.
 - **Budgets are targets, not stops** (Rafa, 2026-11-07: "Let's not add any stopping rules"). Rafa reviews tokens per change against them after a few days.
 
@@ -98,7 +98,7 @@ Parallel lanes own disjoint paths, which reduces merge conflicts.
 5. T-010 needs T-005, T-007, T-009 and T-012.
 6. T-013 needs everything.
 
-Deferred work: when a finding or decision is not needed for the honest-party demo, add it to `docs/backlog.md` with its source and when it matters, instead of building it now.
+Deferred work: when a finding or decision is not needed for the honest-party demo, write it with its source and when it matters into the task's Handoff, for the founders' private backlog (`docs/backlog.md`), instead of building it now.
 
 ## Rules and checks
 

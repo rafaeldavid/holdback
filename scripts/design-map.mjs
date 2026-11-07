@@ -97,36 +97,8 @@ export function tasks() {
   });
 }
 
-// A plan row proposed for Rafa's approval reads:
-// "(proposed (Rafa approves); rank 3; kind 4; 150k tokens) **Title.** Why now: …. Done when: …. Waits for the contract/API rearchitecture."
-export function proposal(text) {
-  if (!/^\(proposed \(Rafa approves\)/.test(text)) return null;
-  const head = text.match(/^\((.*?)\)\s*(?=\*\*)/)?.[1] ?? '';
-  const after = (label, stops) => text.match(new RegExp(`${label}: (.+?)(?= (?:${stops}):|$)`))?.[1].trim() ?? '';
-  return {
-    rank: Number(head.match(/rank (\d+)/)?.[1] ?? 0),
-    kind: head.match(/kind ([\d, and]+?)(?:;|$)/)?.[1].trim() ?? '',
-    budget: head.match(/(\d+k) tokens/)?.[1] ?? '',
-    title: text.match(/\*\*(.+?)\.?\*\*/)?.[1] ?? '',
-    why: after('Why now', 'Done when'),
-    done: after('Done when', 'Why now').replace(/\s*Waits for the contract\/API rearchitecture\.?$/, ''),
-    waits: /waits for the contract\/API rearchitecture/i.test(text),
-  };
-}
-
-// docs/backlog.md: each "## " theme with its table rows (item, source, when).
-export function backlog() {
-  const text = read('docs/backlog.md');
-  const parts = text.split(/^## (.+)$/m);
-  const themes = [];
-  for (let i = 1; i < parts.length; i += 2) {
-    const body = parts[i + 1];
-    const rows = [...body.matchAll(/^\| (?!Item \||---)(.+?) \| (.+?) \| (.+?) \|$/gm)].map((m) => ({ item: m[1], source: m[2], when: m[3] }));
-    const intro = body.split('\n').map((l) => l.trim()).find((l) => l && !l.startsWith('|')) ?? '';
-    themes.push({ theme: parts[i], intro, rows });
-  }
-  return themes;
-}
+// The public repo holds the current build and its record only (Rafa, 2026-11-07): later phases, proposed rows and
+// the backlog are planned privately, so the map reads none of them.
 
 // docs/team.md, Change recipes: one row per kind of change.
 export function recipes() {
@@ -157,12 +129,11 @@ export function phases(allTasks) {
     const own = allTasks.filter((t) => t.phase === n);
     const done = own.length > 0 && own.every((t) => t.status === 'done');
     const active = own.some((t) => t.status === 'in progress' || t.status === 'review');
-    // every planned line of the phase ("- T-201 …", "- [x] T-013 …", "- D4 decided …"), for the roadmap; a phase with
-    // no task IDs yet (Phase 5 onward) shows all its lines, so later work is visible before it has task files
+    // every planned line of the phase ("- T-201 …", "- [x] T-013 …", "- D4 decided …"); a phase with no task IDs shows
+    // all its lines
     const plan = body.split('**Exit:**')[0];
     const lines = [...plan.matchAll(/^- (?:\[([ x])\] )?(.+)$/gm)]
-      .map((m) => ({ checked: m[1] === 'x', id: m[2].match(/^(T-\d+[a-z]?)\b/)?.[1] ?? null, text: m[2].replace(/^T-\d+[a-z]?\b\s*/, '').replace(/\s+/g, ' ').trim() }))
-      .map((it) => ({ ...it, proposal: proposal(it.text) }));
+      .map((m) => ({ checked: m[1] === 'x', id: m[2].match(/^(T-\d+[a-z]?)\b/)?.[1] ?? null, text: m[2].replace(/^T-\d+[a-z]?\b\s*/, '').replace(/\s+/g, ' ').trim() }));
     const tasked = lines.some((it) => it.id);
     const items = lines.filter((it) => !tasked || it.id || /^(Decide|D\d+)/.test(it.text));
     result.push({ n, title: parts[i + 1], goal, exit, items, tasks: own.map((t) => t.id), status: done ? 'done' : active ? 'active' : 'later' });
@@ -228,7 +199,6 @@ export function collect() {
     schema: schema(),
     reviews: reviews(),
     waiting: waiting(),
-    backlog: backlog(),
     recipes: recipes(),
     live: live(),
   };

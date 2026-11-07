@@ -169,6 +169,6 @@ Branch `t-217-drand-proofs`, 2026-11-04. Each claim is labelled measured, inferr
 - In place of "Fallback and appeal wait for drand proofs": "**Fallback and appeal decide on Sepolia.** Their panels are seeded from a drand quicknet round that settlement fixes: the round at `judgeBy` for the fallback, the first round after the escalation or the appeal for the appeal adjudicator. The decision carries the round's BLS signature, and the rules contract verifies it. If no drand relay answers before a deadline, nothing stands in: a deal the fallback cannot decide takes its default outcome, an appeal after an escalation that is not decided does too, and a party appeal that is not decided expires and the first decision stands. Appeals and direct calls need your own Sepolia ETH."
 
 **Follow-ups:**
-- T-225 (Phase 11, `docs/tasks/T-225-drand-hardening.md`): every security finding of the review and red team, with their tests.
+- T-225 (planned privately): every security finding of the review and red team, with their tests.
 - `packages/settlement/evm` (T-218's lane, a backlog row): a simulate error that is not a revert (anvil's gas-floor estimate) throws out of `EvmSettlement.submit`, and so out of the adjudicator's whole pass. On Sepolia's nodes the estimate works, so this is inferred to matter only on anvil.
 - `docs/neutrality.md` still lists `neutrality.beacon-relay-refuses` as planned (review): update it with T-220's docs pass.

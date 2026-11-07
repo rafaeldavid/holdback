@@ -1,6 +1,6 @@
 # Costs: what Crow spends on, and how Rafa watches it
 
-Building and running Crow draws on about a dozen paid or rate-limited services. This file lists each one: what drives its cost, how it bills, what can cap or alert on it, and where to read its usage without write access. It also sets out the cost monitoring that Phase 9 in `docs/plan.md` builds (T-051 to T-056).
+Building and running Crow draws on about a dozen paid or rate-limited services. This file lists each one: what drives its cost, how it bills, what can cap or alert on it, and where to read its usage without write access. It also sets out the cost monitoring that later, privately planned work builds.
 
 Every account here is Rafa's. This file holds no figure from his bills, no account ID and no plan he has not published. Those, and every report, budget and threshold, live only in the cost directory, `CROW_COSTS_DIR`: an absolute path outside every checkout where agents work (T-052, the cost collector).
 
