@@ -269,10 +269,7 @@ export class OperatorTimeouts {
     due.sort((x, y) => (x.c?.rank ?? 0) - (y.c?.rank ?? 0) || (x.c?.at ?? 0) - (y.c?.at ?? 0));
     const chain = this.evm.world;
     const head = await chain.publicClient.getBlockNumber({ cacheTime: 0 });
-    const block = [head, floor ?? 0n, this.logBlock].reduce((a, b) => (b > a ? b : a));
-    // The relay's own simulation reads no earlier than this check (T-232): a timeout the contract accepts here is not
-    // refused TooEarly at an older block a node behind still reports as its head.
-    chain.saw?.(block);
+    const block = [head, floor ?? 0n, this.logBlock, chain.floor?.() ?? 0n].reduce((a, b) => (b > a ? b : a));
     report.block = block.toString();
     const perPass = this.o.perPass ?? PER_PASS;
     const readsPerPass = this.o.readsPerPass ?? READS_PER_PASS;
@@ -303,6 +300,10 @@ export class OperatorTimeouts {
           this.backOff(w, now, why === 'TooEarly' ? BACKOFF.early : BACKOFF.refused);
           continue;
         }
+        // The contract accepted the timeout at `block`, so a node has that block: the relay's own simulation now reads no
+        // earlier (T-232), and is not refused TooEarly at an older head. Raised only after this read succeeded, so one
+        // wrong eth_blockNumber answer cannot raise the floor past the chain (red team of PR 239).
+        chain.saw?.(block);
         const open = this.o.budget ? await this.o.budget.take(c.kind) : true;
         if (open !== true) {
           if (open.offersOnly) this.closed.offers = open.opensAt;

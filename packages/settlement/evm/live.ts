@@ -182,12 +182,26 @@ class GaveUp extends Error {}
 
 const rowId = (r: Pick<LaneRow, 'from' | 'nonce'>) => `${r.from.toLowerCase()}:${r.nonce}`;
 
+/** How nodes word an answer for a block they do not have yet. */
+const MISSING_BLOCK = /header not found|block not found|unknown block/i;
+
+/** True when any message in the error's chain says the node has no such block. */
+const missingBlock = (e: unknown): boolean => {
+  const seen = new Set<unknown>();
+  for (let x: unknown = e; x && typeof x === 'object' && !seen.has(x); x = (x as { cause?: unknown }).cause) {
+    seen.add(x);
+    const o = x as { message?: unknown; details?: unknown; shortMessage?: unknown };
+    if ([o.message, o.details, o.shortMessage].some((m) => typeof m === 'string' && MISSING_BLOCK.test(m))) return true;
+  }
+  return false;
+};
+
 /**
- * Whether a failed pinned read is worth asking again: not a revert (the contract's answer at that block), and not
- * anvil's EIP-7623 gas-floor refusal of a cheap call's estimate. A node without the block ("header not found",
- * viem's BlockNotFoundError), a timeout or a rate limit is.
+ * Whether a failed pinned read is worth asking again. A node without the block is, first: viem rewraps a code -32603
+ * "header not found" from eth_call as a contract revert (review of PR 239). Then not a revert (the contract's answer at
+ * that block), and not anvil's EIP-7623 gas-floor refusal of a cheap call's estimate; a timeout or a rate limit is.
  */
-export const askAgain = (e: unknown): boolean => revertData(e) === undefined && !/revert|gas floor exceeds/i.test(String((e as Error | undefined)?.message ?? e));
+export const askAgain = (e: unknown): boolean => missingBlock(e) || (revertData(e) === undefined && !/revert|gas floor exceeds/i.test(String((e as Error | undefined)?.message ?? e)));
 
 /** The node's own answers that it did not take a transaction. Any other broadcast error may have sent it (T-219). */
 const REFUSED = /nonce too low|nonce has already been used|underpriced|intrinsic gas too low|invalid sender|exceeds block gas limit|fee cap less than block base fee|max fee per gas less than block base fee/i;
@@ -603,9 +617,10 @@ export class LiveChain implements EvmChain {
         if (r) {
           this.nonces.set(lc(f.from), f.nonce + 1);
           if (f.nonce + 1 > (this.minedNonce.get(lc(f.from)) ?? 0)) this.minedNonce.set(lc(f.from), f.nonce + 1);
-          // Every read of the state from now on sees this transaction (T-232).
+          const timestamp = await this.blockTime(r.blockNumber);
+          // Every read of the state from now on sees this transaction (T-232), once a read of its block succeeded.
           this.saw(r.blockNumber);
-          return { hash, from: f.from, status: r.status, gasUsed: r.gasUsed, blockNumber: r.blockNumber, timestamp: await this.blockTime(r.blockNumber), logs: r.logs };
+          return { hash, from: f.from, status: r.status, gasUsed: r.gasUsed, blockNumber: r.blockNumber, timestamp, logs: r.logs };
         }
       }
       const now = Date.now();
