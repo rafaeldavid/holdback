@@ -289,6 +289,40 @@ describe.skipIf(!ready)(`red team of the operators' own timeouts, on anvil stand
     });
   }, 240_000);
 
+  // T-232 pins `land`'s read, so the test above no longer leaves the book stale. This variant keeps T-231's stale-book
+  // path covered (red team of PR 239, Info): another party's write, which no pin of this node's covers, leaves it stale.
+  it("attack.t231-behind-stale-book-direct-takeover: a stranger's takeover no pass has read leaves a behind deal's book one stage back; the pass must take the contract's stage and send the default", async () => {
+    const { s, sync, pass } = await node();
+    const { rules, multicall } = chain.deployment;
+    const d = new EvmDeal(s, cast, club, 't-232-rt-stale-book-direct');
+    await ok(s, await d.offer());
+    const accept = await d.accept();
+    await ok(s, accept);
+    const af = await d.agreeAndFund();
+    const delivery = await d.deliver();
+    if (accept.kind !== 'adjudicator_accept' || af.kind !== 'agree_and_fund' || delivery.kind !== 'deliver') throw new Error('unreachable');
+    const sellerSignature = s.log().find((e) => e.commitmentId === d.id && e.type === 'commitment.offered')!.payload['sellerSignature'] as Hex;
+    // Residual 13, case 3, as above: the funding and the delivery in one Multicall3 transaction put the deal behind.
+    const bundle = encodeFunctionData({
+      abi: chain.abis.multicall,
+      functionName: 'aggregate3',
+      args: [
+        [
+          { target: rules, allowFailure: false, callData: rulesCall('agreeAndFund', [termsView(d.terms), sellerSignature, acceptanceView(accept.message), agreeView(af.agree), { method: 0, signature: af.funding.signature }]) },
+          { target: rules, allowFailure: false, callData: rulesCall('deliver', [termsView(d.terms), deliveryView(delivery.delivery), delivery.delivery.signature]) },
+        ],
+      ],
+    });
+    await direct(watcher, multicall, bundle);
+    expect(await sync.pass()).toMatchObject({ behind: 1 });
+    // Past fallbackBy, a stranger sends the takeover straight to the contract, and no pass reads it.
+    await jump(4_830);
+    await direct(watcher, rules, rulesCall('triggerFallback', [termsView(d.terms)]));
+    expect({ book: s.behindStage(d.id), chain: await s.stage(d.id) }).toEqual({ book: { stage: 'Delivered', appeal: 0 }, chain: { stage: 'FallbackJudging', appeal: 0 } });
+    const r = await pass.run();
+    expect({ sent: sent(r), refused: r.refused, stage: (await s.stage(d.id)).stage }).toEqual({ sent: ['default'], refused: [], stage: 'Refunded' });
+  }, 120_000);
+
   it('attack.t231-budget-spent-without-a-send: a relay that refuses every send (the network above its gas cap) must not spend the daily budget', async () => {
     const { s } = await node();
     const deals = [await funded('t-231-rt-burn-1', s), await funded('t-231-rt-burn-2', s), await funded('t-231-rt-burn-3', s)];

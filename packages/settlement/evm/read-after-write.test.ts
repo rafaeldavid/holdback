@@ -6,6 +6,8 @@
 // a read pinned past that block finds no header the first `misses` times. Each test fails on an unpinned read and passes
 // on one pinned to the write's block or later. Needs `anvil` on PATH and `forge build` output in contracts/out.
 import { existsSync } from 'node:fs';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { wholeSecond, type Address, type Club } from '@holdback/core';
 import { BlockNotFoundError, encodeFunctionData, type Hex, type PublicClient } from 'viem';
@@ -92,10 +94,101 @@ function trailing(base: LiveChain, t: Trail): LiveChain {
 }
 
 /**
- * The reads that named no block. A lane's pending nonce count has none to name: the nonce after the lane's last mined
- * transaction is its floor instead (the nonce test below).
+ * The reads that named no block. A lane's pending nonce count has none to name: the lane's mined count at the pinned
+ * block is its floor instead (the nonce test below).
  */
 const unpinned = (t: Trail) => t.reads.filter((r) => r.block === 'latest' && r.method !== 'eth_getTransactionCount');
+
+/**
+ * A JSON-RPC stand-in over HTTP for a node that has no block past its head: every eth_call, eth_estimateGas and
+ * eth_getBalance answers `error`, in the shapes real nodes send (the review of PR 239, 2026-11-07: viem rewraps code
+ * -32603 as a revert). `asked` counts the requests per method, batches included.
+ */
+async function missingBlockRpc(error: { code: number; message: string; data?: Hex }) {
+  const asked: Record<string, number> = {};
+  const server = createServer((req, res) => {
+    let body = '';
+    req.on('data', (chunk: Buffer) => (body += chunk.toString()));
+    req.on('end', () => {
+      const r = JSON.parse(body) as { id: number; method: string } | Array<{ id: number; method: string }>;
+      const one = (q: { id: number; method: string }) => {
+        asked[q.method] = (asked[q.method] ?? 0) + 1;
+        if (q.method === 'eth_chainId') return { jsonrpc: '2.0', id: q.id, result: '0x7a69' };
+        if (q.method === 'eth_blockNumber') return { jsonrpc: '2.0', id: q.id, result: '0x64' };
+        return { jsonrpc: '2.0', id: q.id, error };
+      };
+      res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(Array.isArray(r) ? r.map(one) : one(r)));
+    });
+  });
+  await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
+  const close = () =>
+    new Promise<void>((done) => {
+      server.closeAllConnections();
+      server.close(() => done());
+    });
+  return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, asked, close };
+}
+
+describe('a pinned read asks again for every shape of "no such block" a node answers (review of PR 239, finding 1)', () => {
+  const a = '0x00000000000000000000000000000000000000a1' as Address;
+  const file: DeploymentFile = {
+    chainId: 31337,
+    fromBlock: 1,
+    token: { address: '0x00000000000000000000000000000000000000b1', name: 'Test USDC', version: '2', symbol: 'tUSDC', decimals: 6 },
+    escrow: '0x00000000000000000000000000000000000000b2',
+    erc3009Collector: '0x00000000000000000000000000000000000000b3',
+    permit2Collector: '0x00000000000000000000000000000000000000b4',
+    multicall: '0x00000000000000000000000000000000000000b5',
+    rules: '0x00000000000000000000000000000000000000b6',
+    bonds: '0x00000000000000000000000000000000000000b7',
+    beacon: '0x00000000000000000000000000000000000000b8',
+  };
+  const token = file.token.address as Address;
+  type Read = (c: LiveChain) => Promise<unknown>;
+  // Each read once at a block, as a caller would (`direct`), and through the chain's pinned read (`pinned`).
+  const reads: Array<[string, Read, Read]> = [
+    ['eth_call', (c) => c.publicClient.readContract({ address: token, abi: c.abis.token, functionName: 'balanceOf', args: [a], blockNumber: 100n }), (c) => c.pinned((blockNumber) => c.publicClient.readContract({ address: token, abi: c.abis.token, functionName: 'balanceOf', args: [a], blockNumber }))],
+    ['eth_getBalance', (c) => c.publicClient.getBalance({ address: a, blockNumber: 100n }), (c) => c.ethBalance(a)],
+    ['eth_estimateGas', (c) => c.publicClient.estimateGas({ account: a, to: token, data: '0x', blockNumber: 100n }), (c) => c.simulate({ from: a, to: token, data: '0x' })],
+  ];
+  const shapes = [
+    { code: -32000, message: 'header not found' },
+    { code: -32000, message: 'block not found' },
+    { code: -32001, message: 'block not found: 0xb82718' },
+    { code: -32602, message: 'block not found' },
+    { code: -32603, message: 'block not found: 0xb82718' },
+    { code: -32603, message: 'header not found' },
+  ];
+  const cases = shapes.flatMap((s) => reads.map(([method, direct, pinned]) => [`${s.code} "${s.message}" on ${method}`, s, method, direct, pinned] as const));
+
+  it.each(cases)('%s: asked again, then the node error, never an answer from latest', async (_name, shape, method, direct, pinned) => {
+    const rpc = await missingBlockRpc(shape);
+    try {
+      // viem retries a -32603 inside its transport, about 1 s a try: a 2 s bound (pollMs 400) leaves room for a second.
+      const c = new LiveChain({ deployment: file, rpcUrls: [rpc.url], relayerKey: RELAYER, pollMs: shape.code === -32603 ? 400 : 100 });
+      await expect(direct(c)).rejects.toThrow();
+      const once = rpc.asked[method]!;
+      await expect(pinned(c)).rejects.toThrow(/not found|unknown block/i);
+      // At least a second try at the pinned block; viem's own retries (it retries a -32603 inside the transport) count once.
+      expect(rpc.asked[method]! - once).toBeGreaterThanOrEqual(2 * once);
+    } finally {
+      await rpc.close();
+    }
+  });
+
+  it.each(reads)("a revert is the contract's answer at that block: %s is not asked again", async (method, direct, pinned) => {
+    const rpc = await missingBlockRpc({ code: 3, message: 'execution reverted', data: '0x7939f424' });
+    try {
+      const c = new LiveChain({ deployment: file, rpcUrls: [rpc.url], relayerKey: RELAYER, pollMs: 100 });
+      await expect(direct(c)).rejects.toThrow();
+      const once = rpc.asked[method]!;
+      await expect(pinned(c)).rejects.toThrow();
+      expect(rpc.asked[method]! - once).toBe(once);
+    } finally {
+      await rpc.close();
+    }
+  });
+});
 
 describe.skipIf(!ready)(`T-232: reads after a write on a node that trails it${ready ? '' : ' (SKIPPED: needs anvil on PATH and forge build output in contracts/out)'}`, () => {
   let anvil: EvmWorld;
@@ -279,7 +372,7 @@ describe.skipIf(!ready)(`T-232: reads after a write on a node that trails it${re
     expect(unpinned(t)).toEqual([]);
   }, 30_000);
 
-  it("a pass whose head trails this node's own write reads nothing, and the next one past it applies", async () => {
+  it("a pass whose head trails this node's own write reads nothing and says so, and the next one past it applies", async () => {
     const t = newTrail();
     const chain = trailing(base, t);
     const s = await EvmSettlement.restore(chain, genesis, undefined, wall);
@@ -290,7 +383,8 @@ describe.skipIf(!ready)(`T-232: reads after a write on a node that trails it${re
     // The stand-in's latest block is the one before the mint, and past the cursor.
     expect(t.block).toBe(mined.blockNumber - 1n);
     expect(t.block! > BigInt(start.block)).toBe(true);
-    expect(await sync.read()).toBeNull();
+    // Visible (red team of PR 239, finding 1): the world's pass reports it through onError, as for any RPC failure.
+    await expect(sync.read()).rejects.toThrow(new RegExp(`latest block ${mined.blockNumber - 1n} trails block ${mined.blockNumber}`));
     expect(sync.cursor).toEqual(start);
     t.on = false;
     await sleep(1_100);
