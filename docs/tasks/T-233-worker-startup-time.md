@@ -5,7 +5,7 @@
 - **Depends on:** T-231 (PR 230, merged; its deploy on 2026-11-06 met the refusal). The backlog row on start-up CPU (T-213) carries the history. Rafa approved this task on 2026-11-06: "Yes, do both" (this task and a scripted deploy check that another session builds).
 - **Paths this task may touch:** `packages/core/src/parse.ts` and `parse.startup.test.ts`; `validators.ts`, `validators.generated.ts`, `validators-codegen.ts` and `validators.test.ts` (new), `packages/core/scripts/validators.ts` (new); `apps/demo-cloud/src/startup.test.ts` (new); `apps/demo-cloud/scripts/embed.mjs` (the embedded files); `eslint.config.js` (one ignore for the generated file); `docs/backlog.md` (the start-up CPU row); `docs/team.md` (the T-029 row under Rules and checks, and one new row) and `docs/operations.md` (line 72 only), added by the coordinator on 2026-11-06; this file
 - **Human gate:** no for this PR. The deploy that shows Cloudflare's own number waits for Rafa, as every deploy does.
-- **Status:** review (branch `t-233-worker-startup`; Rafa's session reviews and merges)
+- **Status:** done ([PR 240](https://github.com/rafaeldavid/holdback/pull/240), merged 2026-11-07 at 05:53 UTC; the reviewer's four items are in Handoff as backlog; it goes live with the next operator deploy)
 - **Agent/session:** T-233 implementer session, 2026-11-06, worktree `.worktrees/t233-startup`, branch `t-233-worker-startup`; the T-230 build for comparison in `.worktrees/t233-old` (detached at `e5f667a`)
 
 ## Intent
