@@ -100,6 +100,7 @@ node site/build.mjs && node site/check.mjs   # the site and its agent docs (site
 ## Working as a team of agents
 
 - Pick up work only through a task file in `docs/tasks/`. Restate the task's intent in your own words before writing code.
+- Contributors beyond the founder's own sessions, people and their agents, work from a fork on approved tasks or issues labelled `approved`, open a Proposal issue for anything else, and never merge; see `CONTRIBUTING.md` (Rafa, 2026-11-03).
 - Work in your own git worktree and branch (`t-<id>-<slug>`). Keep PRs small, with ordered commits.
 - Stay inside the paths the task lists. If you need to touch another lane's files, write that in the task's Handoff section and stop.
 - **Follow the change recipe for the change's kind** (`docs/team.md`, Change recipes; Rafa, 2026-11-07). The kind sets the local checks, the review, who approves and the token budget, a target and not a stop.
