@@ -134,7 +134,7 @@ function customers(rng: Rng): Customer[] {
     const first = pick(rng, FIRST);
     const last = pick(rng, LAST);
     const suffix = rng.int(100) < 2 ? `, ${pick(rng, SUFFIX)}` : '';
-    const local = `${first[0]}${last}${rng.int(100)}`.toLowerCase().replace("'", '');
+    const local = `${first[0]}${last}${rng.int(100)}`.toLowerCase().replaceAll("'", '');
     const domain = pick(rng, DOMAINS);
     const email = missingEmail.has(i) ? '' : invalidEmailRow.has(i) ? invalidEmail(rng, local, domain) : `${local}@${domain}`;
     const signupDay = rng.int(SIGNUP_DAYS);

@@ -46,7 +46,10 @@ expect(count(md, '{{OP2}}') === 1 && configure.includes('OP2={{OP2}}'), '{{OP2}}
 const tryIt = md.slice(md.indexOf('## Try it'), md.indexOf('\n## ', md.indexOf('## Try it') + 3));
 expect(count(md, '{{TRY_COMMAND}}') === 1 && tryIt.includes('```sh\n{{TRY_COMMAND}}\n```') && tryIt.indexOf('{{TRY_COMMAND}}') < tryIt.indexOf('\n1. '), '{{TRY_COMMAND}} must appear once in llms.txt, in an sh block at the top of "Try it", before the step-by-step list');
 expect((md.match(/\{\{[^}]*\}\}/g) ?? []).every((p) => ['{{OP1}}', '{{OP2}}', '{{TRY_COMMAND}}'].includes(p)), 'llms.txt has an unknown {{placeholder}}');
-expect(md.includes('https://github.com/rafaeldavid/holdback'), 'llms.txt links the public repo (optional reading)');
+// A link as build.mjs renders one (https, trailing punctuation left out), parsed, so a look-alike host or a longer
+// path does not count (CodeQL js/incomplete-url-substring-sanitization).
+const mdLinks = (md.match(/https:\/\/[^\s<)]+[^\s<).,;:]/g) ?? []).filter((u) => URL.canParse(u)).map((u) => new URL(u));
+expect(mdLinks.some((u) => u.host === 'github.com' && u.pathname === '/rafaeldavid/holdback'), 'llms.txt links the public repo (optional reading)');
 expect(!/\{\{/.test(html) && /<img class="mark"[^>]*>\s*<h1>[^<]+<\/h1>\s*<p class="sub">[^<]+<\/p>\s*<form class="join"[\s\S]*?<\/form>\s*<p class="intro">[^<]+<\/p>\s*<section class="try"[\s\S]*<\/section>\s*<figure[^>]*>[\s\S]*<\/script>\s*<\/main>/.test(html), 'index.html must be the title, the subtitle, early access, the intro, Try Crow and the drawing');
 expect(!/%%|CONFIRM/.test(html) && !/^%% /m.test(strip(md)), 'an editor note reached index.html');
 expect(!/127\.0\.0\.1|localhost/.test(md + html), 'a local address is in the site');
