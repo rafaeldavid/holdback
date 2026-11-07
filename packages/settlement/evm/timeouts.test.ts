@@ -377,6 +377,25 @@ describe.skipIf(!ready)(`the operators send due timeouts on their own, on anvil 
     expect((await s.stage(d.id)).stage).toBe('Refunded');
   }, 120_000);
 
+  // T-232, red team of PR 239 (neutrality.t232-rpc-bogus-head): the floor rises only to a block a read proved.
+  it('one wrong head from the RPC does not raise the floor: that pass fails its check, and the next one sends the reclaim', async () => {
+    const lag: { head?: bigint } = {};
+    const { s, pass } = await node({}, shimmed(chain, lag));
+    const d = await funded('t-232-bogus-head', s);
+    await jump(3_601);
+    const real = BigInt((await head()).block);
+    // An RPC answers eth_blockNumber 1,000,000 blocks past the chain, once: the check at that block finds no such block.
+    lag.head = real + 1_000_000n;
+    const wrong = await pass.run();
+    delete lag.head;
+    expect(wrong.sent).toEqual([]);
+    expect(s.world.floor!()).toBeLessThan(real + 1_000n);
+    // Past the failed check's back-off (30 s), a pass with an honest head reads, checks and sends at the real chain.
+    await jump(31);
+    expect(sent(await pass.run())).toEqual(['reclaim']);
+    expect((await s.stage(d.id)).stage).toBe('Refunded');
+  }, 120_000);
+
   it('a restart between the broadcast and the receipt sends the reclaim once', async () => {
     const rowKey = (r: LaneRow) => `${r.lane}:${r.from.toLowerCase()}:${r.nonce}`;
     const storeOf = (m: Map<string, LaneRow>): LaneStore => ({

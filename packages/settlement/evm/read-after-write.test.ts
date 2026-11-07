@@ -6,6 +6,8 @@
 // a read pinned past that block finds no header the first `misses` times. Each test fails on an unpinned read and passes
 // on one pinned to the write's block or later. Needs `anvil` on PATH and `forge build` output in contracts/out.
 import { existsSync } from 'node:fs';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { wholeSecond, type Address, type Club } from '@holdback/core';
 import { BlockNotFoundError, encodeFunctionData, type Hex, type PublicClient } from 'viem';
@@ -96,6 +98,79 @@ function trailing(base: LiveChain, t: Trail): LiveChain {
  * transaction is its floor instead (the nonce test below).
  */
 const unpinned = (t: Trail) => t.reads.filter((r) => r.block === 'latest' && r.method !== 'eth_getTransactionCount');
+
+/**
+ * A JSON-RPC stand-in over HTTP for a node without the block a read names: every eth_call answers `error`, in the shape
+ * a real node sends (review of PR 239: viem rewraps a code -32603 answer as a contract revert). `calls` counts them.
+ */
+async function missingBlockRpc(error: { code: number; message: string; data?: Hex }) {
+  const seen = { calls: 0 };
+  const server = createServer((req, res) => {
+    let body = '';
+    req.on('data', (chunk: Buffer) => (body += chunk.toString()));
+    req.on('end', () => {
+      const r = JSON.parse(body) as { id: number; method: string } | Array<{ id: number; method: string }>;
+      const one = (q: { id: number; method: string }) => {
+        if (q.method === 'eth_blockNumber') return { jsonrpc: '2.0', id: q.id, result: '0x64' };
+        if (q.method === 'eth_call') seen.calls++;
+        return { jsonrpc: '2.0', id: q.id, error };
+      };
+      res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(Array.isArray(r) ? r.map(one) : one(r)));
+    });
+  });
+  await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
+  const close = () =>
+    new Promise<void>((done) => {
+      server.closeAllConnections();
+      server.close(() => done());
+    });
+  return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, seen, close };
+}
+
+describe('a pinned contract read asks again when a node answers it has no such block (review of PR 239)', () => {
+  const token = '0x00000000000000000000000000000000000000b1' as Address;
+  const file: DeploymentFile = {
+    chainId: 31337,
+    fromBlock: 1,
+    token: { address: token, name: 'Test USDC', version: '2', symbol: 'tUSDC', decimals: 6 },
+    escrow: '0x00000000000000000000000000000000000000b2',
+    erc3009Collector: '0x00000000000000000000000000000000000000b3',
+    permit2Collector: '0x00000000000000000000000000000000000000b4',
+    multicall: '0x00000000000000000000000000000000000000b5',
+    rules: '0x00000000000000000000000000000000000000b6',
+    bonds: '0x00000000000000000000000000000000000000b7',
+    beacon: '0x00000000000000000000000000000000000000b8',
+  };
+  /** eth_calls for one balanceOf read at a block: once as a caller would, then through the chain's pinned read. */
+  async function calls(error: { code: number; message: string; data?: Hex }): Promise<{ once: number; pinned: number }> {
+    const rpc = await missingBlockRpc(error);
+    try {
+      // A 2 s bound (pollMs 400): viem retries a -32603 inside its transport, about 1 s a try.
+      const c = new LiveChain({ deployment: file, rpcUrls: [rpc.url], relayerKey: RELAYER, pollMs: 400 });
+      const read = (blockNumber: bigint) => c.publicClient.readContract({ address: token, abi: c.abis.token, functionName: 'balanceOf', args: [token], blockNumber });
+      await expect(read(100n)).rejects.toThrow();
+      const once = rpc.seen.calls;
+      await expect(c.pinned(read)).rejects.toThrow();
+      return { once, pinned: rpc.seen.calls - once };
+    } finally {
+      await rpc.close();
+    }
+  }
+
+  it.each([
+    { code: -32603, message: 'header not found' },
+    { code: -32603, message: 'block not found: 0xb82718' },
+    { code: -32000, message: 'unknown block' },
+  ])('$code "$message" is asked again at least once', async (error) => {
+    const { once, pinned } = await calls(error);
+    expect(pinned).toBeGreaterThanOrEqual(2 * once);
+  }, 30_000);
+
+  it("a revert is the contract's answer at that block, and is not asked again", async () => {
+    const { once, pinned } = await calls({ code: 3, message: 'execution reverted', data: '0x7939f424' });
+    expect(pinned).toBe(once);
+  }, 30_000);
+});
 
 describe.skipIf(!ready)(`T-232: reads after a write on a node that trails it${ready ? '' : ' (SKIPPED: needs anvil on PATH and forge build output in contracts/out)'}`, () => {
   let anvil: EvmWorld;
