@@ -11,6 +11,32 @@ The project is large enough to need parallel agents. Parallel agents only help w
 5. **Fix the environment, not just the bug.** When an agent repeats a mistake, add a type, lint rule, test or fixture that catches it, and record it in the Rules and checks table below.
 6. **Autonomy inside the repo, gates outside it.** Work confined to this repository (ADRs, schema changes, contract code, defense changes, merges after green CI and fixed review findings) proceeds without waiting. Decisions are researched, then recorded in `docs/decisions-today.md` for Rafa to overrule. Deploys, remote force pushes or history rewrites, real keys or money, anything published or sent to others, and repository access or settings wait for Rafa.
 
+## Change recipes
+
+Rafa adopted these on 2026-11-07 ("Yes, adopt them") after the Change Lifecycles page measured 3,692,544 subagent tokens for one evening of small changes. Every brief names the change's kind, and the kind sets the local checks, the review, who approves and the token budget.
+
+| Kind | Paths | Local checks | Review | Who approves | Budget |
+| --- | --- | --- | --- | --- | --- |
+| 1. Copy and agent docs | `site/`, `site/llms.txt` | `node site/build.mjs && node site/check.mjs` | none | the agent merges; the site deploy waits for Rafa | 40k tokens |
+| 2. Process docs and records | `docs/`, task files | none | none | the agent | 10k tokens |
+| 3. Display and console | Crow Control, claude.ai pages | that surface's render test | none | the agent | 60k tokens |
+| 4. API and operator code | `apps/operator`, `apps/demo-cloud` | that package's tests | none | the agent | 150k tokens |
+| 5. Settlement and judgment code | `packages/settlement/evm`, `packages/judgment` | that package's tests, with anvil | one review or one red team, blocking findings only | the agent, after the review | 250k tokens |
+| 6. Schema and API contract | `spec/schemas/` | `pnpm validate:spec` and the contract test | one review | the agent; the ADR is Rafa's to overrule | 200k tokens |
+| 7. Smart contracts | `contracts/` | `forge test` | one review | the agent; a new world's deploy waits for Rafa | 300k tokens |
+| 8. Deploys and refreshes | the Workers, Crow Control | `pnpm demo-cloud:deploy`: deploy, one test deal, rollback on failure | none | Rafa | 30k tokens |
+| 9. Live tests on testnet | round 1 on Sepolia | one run, then read its log | none | the agent (test ETH only) | 50k tokens a run |
+| 10. Research and decisions | `docs/research/`, D numbers, ADRs | none | none | the agent; Rafa may overrule | 200k tokens |
+| 11. CI and repository settings | `.github/`, rulesets | one CI run showing the gate still fails a bad change | none | Rafa | 60k tokens |
+
+Rules for every kind:
+- **Tests follow the code.** A test is part of the change to the code it tests, not a kind of its own.
+- **Run the kind's local checks, not the whole suite.** CI is the gate. Run the full `pnpm verify` only once before a deploy, and only one at a time on the Mac.
+- **A review fixes only what blocks.** Fix the regressions the change introduces and any Critical or High finding, in one round. Everything else goes to the task's Handoff or the backlog. No second-family review unless Rafa asks.
+- **A change edits only its own task file.** The coordinator updates `docs/plan.md` and the day's log once a day, in one docs commit. A deploy prints its record line, which goes into that commit with no record PR of its own. T-065 generates plan status and the log from task fields and merged PRs.
+- **One agent per change, briefed once.** The brief carries the facts the agent needs, so it doesn't re-read the repository. Mechanical steps, such as a deploy, a refresh or a docs batch, use a small model.
+- **The budget is the stop rule.** At 1.5 times the budget, the agent stops, reports what's done and what's left, and waits.
+
 ## Roles (`.claude/agents/`)
 
 | Role | Does | Does not |
@@ -22,7 +48,7 @@ The project is large enough to need parallel agents. Parallel agents only help w
 | `reviewer` | Reviews PRs against the spec, the litmus tests and the Rules and checks table; returns PASS, ISSUES or BLOCKED with evidence | Edit the PR |
 | `verifier` | Runs `/verify` on a branch, collects evidence, and checks claims against measured output | Fix code |
 
-For contracts, settlement and judgment code, a second review from a different model family is recommended: for example, run the reviewer prompt through another provider's CLI or MCP tool. This mirrors the adjudicator's own cross-family rule.
+For contracts, settlement and judgment code, a second review from a different model family runs only when Rafa asks (Change recipes): for example, the reviewer prompt run through another provider's CLI or MCP tool, mirroring the adjudicator's own cross-family rule.
 
 ## Task lifecycle
 
