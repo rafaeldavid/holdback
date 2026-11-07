@@ -14,7 +14,7 @@
 
   Not `contracts/`, `spec/` or `.github/`.
 - **Human gate:** yes, for the operator deploy (holdback-op1 and holdback-op2) and for a site deploy if `try.mjs` changes. Building, testing and merging need none.
-- **Status:** review ([PR 239](https://github.com/rafaeldavid/holdback/pull/239); the reviewer and red-team passes and the operator deploy remain)
+- **Status:** done ([PR 239](https://github.com/rafaeldavid/holdback/pull/239), merged 2026-11-07 at 06:06 UTC after one red-team pass and one review; it goes live with the next operator deploy)
 - **Agent/session:** an implementer session on 2026-11-06, branch `t-232-read-after-write-audit`, worktree `.worktrees/t232-raw`, from origin/main at 5cb8c25 (both prerequisites, PR 232 and PR 230, merged). A docs session wrote this ticket on 2026-11-06 (branch `docs-phase2-walkthrough`) from Rafa's walkthrough of Phase 2 (D54).
 
 ## Intent

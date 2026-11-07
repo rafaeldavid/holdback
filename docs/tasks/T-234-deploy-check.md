@@ -5,7 +5,7 @@
 - **Depends on:** T-231's deploy record (PR 234), whose hand checklist this replaces. Rafa approved it on 2026-11-06: "Yes, do both". On 2026-11-07 he asked to cut it to the core: "simplify and stop getting into testing loops".
 - **Paths this task may touch:** `apps/demo-cloud/scripts/deploy.mjs`, `docs/operations.md` (the Deploy runbook), this file
 - **Human gate:** yes for any real run. A deploy, a rollback and a smoke deal reach outside the repository and wait for Rafa.
-- **Status:** review
+- **Status:** done ([PR 243](https://github.com/rafaeldavid/holdback/pull/243), merged 2026-11-07 at 06:15 UTC; its first real run is the next operator deploy)
 - **Agent/session:** T-234 implementer session, 2026-11-06 and 2026-11-07, worktree `.worktrees/t234-deploy-check`, branch `t-234-deploy-check`
 
 ## Intent
