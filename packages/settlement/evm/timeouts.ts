@@ -22,7 +22,7 @@ import type { EscrowState, Hex32, Timing } from '@holdback/core';
 import { encodeFunctionData } from 'viem';
 import type { TimeoutKind } from '../src/interface.js';
 import { termsView } from './encode.js';
-import { revertData, revertName } from './errors.js';
+import { missingBlock, revertData, revertName } from './errors.js';
 import type { EvmSettlement } from './evm-settlement.js';
 
 /** One timeout the operators send for a deal: which, when it falls due (ms since the epoch), and what waits on it. */
@@ -269,10 +269,8 @@ export class OperatorTimeouts {
     due.sort((x, y) => (x.c?.rank ?? 0) - (y.c?.rank ?? 0) || (x.c?.at ?? 0) - (y.c?.at ?? 0));
     const chain = this.evm.world;
     const head = await chain.publicClient.getBlockNumber({ cacheTime: 0 });
-    const block = [head, floor ?? 0n, this.logBlock].reduce((a, b) => (b > a ? b : a));
-    // The relay's own simulation reads no earlier than this check (T-232): a timeout the contract accepts here is not
-    // refused TooEarly at an older block a node behind still reports as its head.
-    chain.saw?.(block);
+    // Never before the chain's floor either (T-232): the newest block this node has read the state at.
+    const block = [head, floor ?? 0n, this.logBlock, chain.floor?.() ?? 0n].reduce((a, b) => (b > a ? b : a));
     report.block = block.toString();
     const perPass = this.o.perPass ?? PER_PASS;
     const readsPerPass = this.o.readsPerPass ?? READS_PER_PASS;
@@ -303,6 +301,11 @@ export class OperatorTimeouts {
           this.backOff(w, now, why === 'TooEarly' ? BACKOFF.early : BACKOFF.refused);
           continue;
         }
+        // The contract accepted the timeout at `block`, so a node has that block: the relay's own simulation reads no
+        // earlier (T-232), and is not refused TooEarly at an older block a node behind still reports as its head. Raised
+        // only now, after a read proved the block: one wrong head from the RPC must not raise the floor past the chain
+        // (red team of PR 239, finding 1).
+        chain.saw?.(block);
         const open = this.o.budget ? await this.o.budget.take(c.kind) : true;
         if (open !== true) {
           if (open.offersOnly) this.closed.offers = open.opensAt;
@@ -398,6 +401,8 @@ export class OperatorTimeouts {
       await chain.publicClient.call({ account: chain.senderFor(id), to: chain.deployment.rules, data, blockNumber: block });
       return null;
     } catch (e) {
+      // A node without the block is no answer from the contract, whatever shape viem gives it (T-232).
+      if (missingBlock(e)) throw e;
       const raw = revertData(e);
       if (raw === undefined && !/revert/i.test(String((e as Error).message))) throw e;
       return revertName(chain.abis.rules, raw) ?? 'an unknown error';

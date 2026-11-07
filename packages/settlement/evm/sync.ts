@@ -330,9 +330,11 @@ export class ChainSync {
     const head = await read.head();
     const last = this.stored ? BigInt(this.stored.block) : chain.deployment.fromBlock - 1n;
     if (last >= head) return null;
-    // T-232: a head before a block this node already wrote at or applied (the chain's floor) comes from a node that
-    // trails it. Its dealOf reads would show a deal before this node's own relay, so the pass waits for the next one.
-    if (head < (chain.floor?.() ?? 0n)) return null;
+    // T-232: a head before a block this node already read the state at (the chain's floor) comes from a node that trails
+    // it. Its dealOf reads would show a deal before this node's own relay, so the pass reads nothing, and says so: the
+    // world reports it as any RPC failure (red team of PR 239, finding 1, a skip must not be silent).
+    const floor = chain.floor?.() ?? 0n;
+    if (head < floor) throw new Error(`the RPC node's latest block ${head} trails block ${floor}, which this node has already read the state at; the pass reads nothing until a node has it`);
     // The last OVERLAP blocks again: a load-balanced RPC can answer from a node a block behind with no error. A
     // transaction applies once, so the overlap costs only the read (review 2026-11-04, L2).
     const from = last + 1n - OVERLAP > chain.deployment.fromBlock ? last + 1n - OVERLAP : chain.deployment.fromBlock;

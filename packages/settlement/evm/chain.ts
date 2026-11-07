@@ -119,22 +119,18 @@ export interface EvmChain {
   /** Deletes the rows that sent these hashes: their receipts are applied, and the books they changed are written. */
   release?(hashes: readonly string[]): Promise<void>;
   /**
-   * T-232, a live chain only. The newest block this node has a receipt from, or has read the chain up to (a sync pass's
-   * head, a restored log's last block): no read of the state now answers from an earlier block (docs/team.md, a chain
-   * read after a transaction sees that transaction).
+   * T-232, a live chain only. The newest block this node has read the state at and found (a receipt's block, a sync
+   * pass's head, the block a timeouts check was answered at, a restored log's last block): no read of the state now
+   * answers from an earlier block (docs/team.md, a chain read after a transaction sees that transaction).
    */
   floor?(): bigint;
-  /** Raises the floor to `block`, when it is newer. */
+  /** Raises the floor to `block`, when it is newer. Only a block a read has proved exists. */
   saw?(block: bigint): void;
   /**
-   * The block a read of the state now is pinned to: the node's latest, or the floor when the node trails it. `head`
-   * 'now' asks the node each time; 'cached' takes a head of up to a second ago.
+   * `read` at the node's latest block, or at the floor when the node trails it. `head` 'now' asks the node's head each
+   * time (a simulation, whose deadline checks read the block's time); 'cached', the default, takes viem's head of up to a
+   * second ago. A node without that block is asked again within a bound (five tries in about five receipt polls), then
+   * the error is thrown: it never answers from the latest block instead. A revert is the contract's answer, not retried.
    */
-  newest?(head?: 'now' | 'cached'): Promise<bigint>;
-  /**
-   * `read` at `newest(head)`, a cached head by default. A node without that block answers an error, which is asked again
-   * within a bound (five tries in about five receipt polls), then thrown: it never answers from the latest block
-   * instead. `again` says which errors are worth asking again; a revert is not.
-   */
-  pinned?<T>(read: (block: bigint) => Promise<T>, again?: (e: unknown) => boolean, head?: 'now' | 'cached'): Promise<T>;
+  pinned?<T>(read: (block: bigint) => Promise<T>, head?: 'now' | 'cached'): Promise<T>;
 }

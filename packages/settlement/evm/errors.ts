@@ -68,6 +68,24 @@ export function revertName(abi: Abi, data: Hex | undefined): string | undefined 
   }
 }
 
+/** How nodes word an answer for a block they do not have yet ("header not found", "block not found", viem's BlockNotFoundError). */
+const MISSING_BLOCK = /header not found|block not found|unknown block|block at number .* could not be found/i;
+
+/**
+ * True when a node answered that it has no such block, whatever the shape (T-232). viem rewraps a code -32603 answer
+ * as a contract revert, so this is read from every message in the error's chain before any revert test (review of PR
+ * 239, 2026-11-07: -32000, -32001, -32602 and -32603 all carry it).
+ */
+export function missingBlock(e: unknown): boolean {
+  const seen = new Set<unknown>();
+  for (let x: unknown = e; x && typeof x === 'object' && !seen.has(x); x = (x as { cause?: unknown }).cause) {
+    seen.add(x);
+    const o = x as { message?: unknown; details?: unknown; shortMessage?: unknown };
+    if ([o.message, o.details, o.shortMessage].some((m) => typeof m === 'string' && MISSING_BLOCK.test(m))) return true;
+  }
+  return typeof e === 'string' && MISSING_BLOCK.test(e);
+}
+
 /** The revert data inside a viem or JSON-RPC error, wherever the client put it. */
 export function revertData(e: unknown): Hex | undefined {
   const seen = new Set<unknown>();
