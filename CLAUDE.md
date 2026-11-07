@@ -102,7 +102,7 @@ node site/build.mjs && node site/check.mjs   # the site and its agent docs (site
 - Pick up work only through a task file in `docs/tasks/`. Restate the task's intent in your own words before writing code.
 - Work in your own git worktree and branch (`t-<id>-<slug>`). Keep PRs small, with ordered commits.
 - Stay inside the paths the task lists. If you need to touch another lane's files, write that in the task's Handoff section and stop.
-- **Follow the change recipe for the change's kind** (`docs/team.md`, Change recipes; Rafa, 2026-11-07). The kind sets the local checks, the review, who approves and the token budget. At 1.5 times the budget, stop and report.
+- **Follow the change recipe for the change's kind** (`docs/team.md`, Change recipes; Rafa, 2026-11-07). The kind sets the local checks, the review, who approves and the token budget, a target and not a stop.
 - Before you hand off:
   - add or update fixtures the change needs;
   - run `/verify`, which runs the kind's local checks; CI is the gate;
