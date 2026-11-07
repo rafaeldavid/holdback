@@ -69,7 +69,7 @@ If the seller is down or busy, `try.mjs` plays both sides and says so, so a site
 
 **When a world changes** (D49): Rafa approves the redeploy. Switch while no deal is open on the old world, or send its permissionless timeouts afterwards and record them. Record here the old world's name, rules address and deployment file, the new world's, the Worker versions and the bonds' transactions. Never delete a world's storage: a rollback of both Workers serves it again.
 
-Workers rules learned the hard way (T-029): compile schemas at startup, not lazily inside a request (Cloudflare forbids it and the node returns error 1101); a failed Durable Object alarm must be re-armed. Deploy only from a branch that has merged main, or a deploy can drop the custom domains.
+Workers rules learned the hard way (T-029, T-233): generate no code, at startup or inside a request. Core's validators are compiled ahead of time (T-233): a compile inside a request fails with error 1101, and one at startup spends the 1 s startup CPU limit (code 10021). A failed Durable Object alarm must be re-armed. Deploy only from a branch that has merged main, or a deploy can drop the custom domains.
 
 ## Settlement: SimChain or Sepolia (D41, ADR-0028)
 

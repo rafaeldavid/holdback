@@ -1,14 +1,15 @@
 // Boundary parsers: validate unknown JSON against the real files in spec/schemas, then return typed
 // values. Code past the boundary trusts the types, so anything a parser accepts must be safe for the
 // rest of core: it can be EIP-712 encoded, stays within uint256, and never makes step or offer throw.
-import { readdirSync, readFileSync } from 'node:fs';
-import Ajv2020 from 'ajv/dist/2020.js';
-import addFormats from 'ajv-formats';
+// The validators are compiled from spec/schemas ahead of time (validators.ts, T-233), so importing core
+// generates no code: a Cloudflare Worker may generate none inside a request (T-029), and compiling at
+// import took most of the Worker's start-up, which Cloudflare limits to 1 s of CPU.
 import { isAddress, sha256 } from 'viem';
 import { DRAND_QUICKNET_CHAIN_HASH } from './beacon.js';
 import { tokenAmount } from './money/index.js';
 import { problem, type Problem } from './problem.js';
 import { err, ok, type Result } from './result.js';
+import { plainValidators, signedValidators } from './validators.js';
 import type {
   AdjudicatorRegistration,
   AgentRegistration,
@@ -34,48 +35,8 @@ import type {
 } from './types.js';
 
 /** The schema annotation on party-authored strings: content to read, never instructions (ADR-0017 §9). */
+// ADR-0017 §9: marks party-authored strings for consumers; it changes no validation.
 export const UNTRUSTED = 'x-holdback-untrusted';
-
-// Resolves to <repo>/spec/schemas from both src/ and dist/.
-const schemaDir = new URL('../../../spec/schemas/', import.meta.url);
-const schemas = readdirSync(schemaDir)
-  .filter((f) => f.endsWith('.schema.json'))
-  .map((file) => ({ name: file.replace('.schema.json', ''), schema: JSON.parse(readFileSync(new URL(file, schemaDir), 'utf8')) as { $id: string } }));
-
-// Signed values are encoded as uint64 Unix seconds, so a signed timestamp must be an exact RFC 3339
-// instant in whole seconds, at or after 1970, that Date can represent. The schema's date-time is wider.
-const RFC3339 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
-function signedTimestamp(s: string): boolean {
-  const ms = Date.parse(s);
-  return RFC3339.test(s) && Number.isFinite(ms) && ms >= 0 && ms % 1000 === 0;
-}
-
-// Two Ajv instances: one where date-time means a signable timestamp (for everything an agent signs),
-// one with the schema's ordinary date-time (event log, read model, judgment record, registrations).
-// allErrors stays off: input is untrusted, and the first error is enough to refuse it.
-// Everything compiles at import, on purpose: a Cloudflare Worker may generate code only at startup, never in a
-// request (measured: "Code generation from strings disallowed" when compiling lazily). To keep that startup
-// within the Worker's CPU limit, the schemas are not re-validated against the 2020-12 meta-schema here (which
-// compiled the large meta-schema once per instance); `pnpm validate:spec` checks them, in strict mode, in CI.
-function compile(signed: boolean): Map<string, ReturnType<InstanceType<typeof Ajv2020.default>['compile']>> {
-  // ajv and ajv-formats are CommonJS; under NodeNext their default export arrives as `.default`.
-  const ajv = new Ajv2020.default({ strict: true, allErrors: false, validateSchema: false, code: { optimize: false } });
-  // ADR-0017 §9: marks party-authored strings for consumers; it changes no validation.
-  ajv.addKeyword({ keyword: UNTRUSTED, schemaType: 'boolean' });
-  if (signed) {
-    addFormats.default(ajv, ['uri']);
-    ajv.addFormat('date-time', signedTimestamp);
-  } else {
-    addFormats.default(ajv);
-  }
-  for (const { schema } of schemas) ajv.addSchema(schema);
-  const validators = new Map<string, ReturnType<typeof ajv.compile>>();
-  for (const { name, schema } of schemas) validators.set(name, ajv.getSchema(schema.$id)!);
-  return validators;
-}
-
-const signedValidators = compile(true);
-const plainValidators = compile(false);
 
 const UINT32_MAX = 2 ** 32 - 1;
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
@@ -114,7 +75,8 @@ function walk(value: unknown, signed: boolean, path = ''): string | undefined {
 type Parser<T> = (json: unknown) => Result<T, Problem>;
 
 function parserFor<T>(name: string, signed: boolean, extra?: (value: T) => string | undefined): Parser<T> {
-  const validate = (signed ? signedValidators : plainValidators).get(name);
+  const validators = signed ? signedValidators : plainValidators;
+  const validate = Object.hasOwn(validators, name) ? validators[name] : undefined;
   if (!validate) throw new Error(`spec/schemas/${name}.schema.json not found`);
   return (json) => {
     // Validate and return a private copy, so the caller cannot change the value after it was checked.
