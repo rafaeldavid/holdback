@@ -40,10 +40,11 @@ node site/build.mjs --op1 https://api.escrow.stream --op2 https://api2.escrow.st
 node site/check.mjs
 npx wrangler@4 deploy --config apps/site/wrangler.jsonc
 
-# the operators (op1 first: it defines the Durable Object); keeps the custom domains in the wrangler files
+# the operators (op1 first: it defines the Durable Object); keeps the custom domains in the wrangler files.
+# It checks itself with one test deal and rolls back on its own: "A demo deploy", below
 pnpm demo-cloud:deploy
 
-# a live end-to-end deal against the deployed nodes (deal.ts runs on SimChain only)
+# a live end-to-end deal against the deployed nodes (the deploy runs one; deal.ts runs on SimChain only)
 HOLDBACK_OPERATORS=https://api.escrow.stream,https://api2.escrow.stream node examples/try.ts
 
 # early-access sign-ups
@@ -53,6 +54,16 @@ npx wrangler@4 kv key list --binding EMAILS --config apps/early-access/wrangler.
 # Crow's test seller (T-222)
 node apps/test-agents/scripts/deploy.mjs
 ```
+
+**A demo deploy** (T-234; Rafa's go-ahead first, as for every deploy):
+
+1. From main at the commit to deploy, run `pnpm demo-cloud:deploy`. It builds, reads each Worker's live version (its rollback target), deploys holdback-op1 then holdback-op2, and waits until both nodes answer `/v1/status` 200. It then runs one `examples/try.ts` deal against both operators, which must end Released within 180 s.
+2. It exits 0 on a pass. It exits 1 when an upload is refused or a later step fails, after it rolls back each Worker that changed.
+3. Paste the Markdown line it prints into this file, under a heading for the task. The line gives the date, the commit, each new version and its rollback target, the smoke deal's ID and time, and pass or fail.
+
+**To roll back by hand**, use the rollback targets the line names, both operators together:
+- `npx wrangler@4 rollback <holdback-op1 target> --name holdback-op1`
+- `npx wrangler@4 rollback <holdback-op2 target> --name holdback-op2`
 
 **Crow's test seller, the first deploy** (D47; Rafa's go-ahead first). The site's one command buys from the test seller, so the seller goes live before the site that names it:
 
