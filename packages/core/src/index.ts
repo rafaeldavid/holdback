@@ -10,4 +10,5 @@ export * from './problem.js';
 export * from './result.js';
 export * from './state.js';
 export * from './timing.js';
+export * from './trim.js';
 export type * from './types.js';

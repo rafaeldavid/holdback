@@ -21,6 +21,7 @@ import {
   parseMessage,
   projectionOf,
   signMessage,
+  trimTrailingSlashes,
   verifyCoSigned,
   type AcceptanceSpec,
   type Address,
@@ -431,7 +432,7 @@ export class Operator {
   /** Runs the startup guards: no Operator exists off a test chain or with a live Stripe key. */
   constructor(private readonly o: OperatorOptions) {
     startupGuards({ env: o.env, chainId: o.registry.chainId });
-    this.baseUrl = (o.baseUrl ?? '').replace(/\/+$/, '');
+    this.baseUrl = trimTrailingSlashes(o.baseUrl ?? '');
     this.domain = holdbackDomain(o.registry.chainId, o.registry.verifyingContract);
     this.signer = privateKeyToAccount(o.signerKey).address;
     this.now = o.now ?? Date.now;

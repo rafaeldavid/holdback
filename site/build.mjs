@@ -84,7 +84,17 @@ const inline = (s) =>
     .split(/(`[^`]+`)/)
     .map((part) => (part.startsWith('`') && part.endsWith('`') && part.length > 1 ? `<code>${part.slice(1, -1)}</code>` : part.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/(https:\/\/[^\s<)]+[^\s<).,;:])/g, '<a href="$1">$1</a>')))
     .join('');
-const slug = (s) => s.toLowerCase().replace(/<[^>]+>/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+/** A heading's anchor: its lowercase letters and digits, joined by single hyphens, with any <tag> in it left out. */
+const slug = (s) => {
+  // Tags come out until none is left (CodeQL js/incomplete-multi-character-sanitization). For this pattern one
+  // pass already leaves none, so the loop runs the replace at most twice and changes no slug.
+  let text = s.toLowerCase(), before;
+  do {
+    before = text;
+    text = text.replace(/<[^>]+>/g, '');
+  } while (text !== before);
+  return text.replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+};
 
 /** The small Markdown subset llms.txt uses: headings, paragraphs, lists, tables, fenced code. */
 export function render(md) {

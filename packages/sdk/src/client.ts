@@ -6,7 +6,7 @@
 // /v1/status nor its event against the settlement log (an opt-in verifyReceipts mode is in docs/backlog.md).
 // An agent that must not rely on an operator's word reads the state back from the settlement layer.
 import { randomUUID } from 'node:crypto';
-import type { CommitmentStateView, Hex32, OperatorStatus, Page, Problem, ProblemType, Receipt, SettlementEvent } from '@holdback/core';
+import { trimTrailingSlashes, type CommitmentStateView, type Hex32, type OperatorStatus, type Page, type Problem, type ProblemType, type Receipt, type SettlementEvent } from '@holdback/core';
 import type { Settlement, SubmitResult } from '@holdback/settlement';
 import { asDryRun, commitmentIdOf, previewSubmission, requestOf, submissionKeys, submissionsOf, unsigned, type Operation } from './operations.js';
 
@@ -98,7 +98,7 @@ export class Holdback {
   private readonly fetch: typeof fetch;
 
   constructor(options: HoldbackOptions) {
-    this.operators = options.operators.map((u) => u.replace(/\/+$/, ''));
+    this.operators = options.operators.map((u) => trimTrailingSlashes(u));
     this.settlement = options.settlement;
     this.timeoutMs = options.requestTimeoutMs ?? 5000;
     this.pollMs = options.pollMs ?? 250;
