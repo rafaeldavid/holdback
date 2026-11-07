@@ -28,8 +28,11 @@ export function workFeed() {
     .filter(Boolean)
     .map((record) => {
       const [sha, date, subject, body] = record.split('\x1f');
-      const pr = subject.match(/^Merge pull request #(\d+)/);
-      const title = pr ? (body ?? '').split('\n')[0].trim() || subject : subject;
+      // a merge commit ("Merge pull request #12 …") or a squash merge ("feat: … (#12)")
+      const merged = subject.match(/^Merge pull request #(\d+)/);
+      const squashed = subject.match(/ \(#(\d+)\)$/);
+      const pr = merged ?? squashed;
+      const title = merged ? (body ?? '').split('\n')[0].trim() || subject : subject.replace(/ \(#\d+\)$/, '');
       const type = title.match(/^(\w+)(?:\(([^)]+)\))?:/);
       return { sha, date, pr: pr ? Number(pr[1]) : null, title, type: type ? type[1] : 'commit', scope: type?.[2] ?? null };
     });
@@ -94,6 +97,54 @@ export function tasks() {
   });
 }
 
+// A plan row proposed for Rafa's approval reads:
+// "(proposed (Rafa approves); rank 3; kind 4; 150k tokens) **Title.** Why now: …. Done when: …. Waits for the contract/API rearchitecture."
+export function proposal(text) {
+  if (!/^\(proposed \(Rafa approves\)/.test(text)) return null;
+  const head = text.match(/^\((.*?)\)\s*(?=\*\*)/)?.[1] ?? '';
+  const after = (label, stops) => text.match(new RegExp(`${label}: (.+?)(?= (?:${stops}):|$)`))?.[1].trim() ?? '';
+  return {
+    rank: Number(head.match(/rank (\d+)/)?.[1] ?? 0),
+    kind: head.match(/kind ([\d, and]+?)(?:;|$)/)?.[1].trim() ?? '',
+    budget: head.match(/(\d+k) tokens/)?.[1] ?? '',
+    title: text.match(/\*\*(.+?)\.?\*\*/)?.[1] ?? '',
+    why: after('Why now', 'Done when'),
+    done: after('Done when', 'Why now').replace(/\s*Waits for the contract\/API rearchitecture\.?$/, ''),
+    waits: /waits for the contract\/API rearchitecture/i.test(text),
+  };
+}
+
+// docs/backlog.md: each "## " theme with its table rows (item, source, when).
+export function backlog() {
+  const text = read('docs/backlog.md');
+  const parts = text.split(/^## (.+)$/m);
+  const themes = [];
+  for (let i = 1; i < parts.length; i += 2) {
+    const body = parts[i + 1];
+    const rows = [...body.matchAll(/^\| (?!Item \||---)(.+?) \| (.+?) \| (.+?) \|$/gm)].map((m) => ({ item: m[1], source: m[2], when: m[3] }));
+    const intro = body.split('\n').map((l) => l.trim()).find((l) => l && !l.startsWith('|')) ?? '';
+    themes.push({ theme: parts[i], intro, rows });
+  }
+  return themes;
+}
+
+// docs/team.md, Change recipes: one row per kind of change.
+export function recipes() {
+  const body = section(read('docs/team.md'), '## Change recipes');
+  return [...body.matchAll(/^\| (\d+)\. (.+?) \| (.+?) \| (.+?) \| (.+?) \| (.+?) \| (.+?) \|$/gm)].map((m) => ({
+    kind: Number(m[1]), name: m[2], paths: m[3], checks: m[4], review: m[5], approves: m[6], budget: m[7],
+  }));
+}
+
+// The newest docs/log entry: its date, its lead paragraph and its "## Live" bullets.
+export function live() {
+  const logs = list('docs/log', /^\d{4}-\d{2}-\d{2}\.md$/);
+  if (!logs.length) return { date: '', lead: '', items: [] };
+  const text = read(`docs/log/${logs.at(-1)}`);
+  const lead = text.split('\n').find((l) => /^\*\*/.test(l)) ?? '';
+  return { date: logs.at(-1).slice(0, 10), lead, items: bullets(section(text, '## Live')) };
+}
+
 export function phases(allTasks) {
   const text = read('docs/plan.md');
   const parts = text.split(/^## Phase (\d+): (.+)$/m);
@@ -110,7 +161,8 @@ export function phases(allTasks) {
     // no task IDs yet (Phase 5 onward) shows all its lines, so later work is visible before it has task files
     const plan = body.split('**Exit:**')[0];
     const lines = [...plan.matchAll(/^- (?:\[([ x])\] )?(.+)$/gm)]
-      .map((m) => ({ checked: m[1] === 'x', id: m[2].match(/^(T-\d+[a-z]?)\b/)?.[1] ?? null, text: m[2].replace(/^T-\d+[a-z]?\b\s*/, '').replace(/\s+/g, ' ').trim() }));
+      .map((m) => ({ checked: m[1] === 'x', id: m[2].match(/^(T-\d+[a-z]?)\b/)?.[1] ?? null, text: m[2].replace(/^T-\d+[a-z]?\b\s*/, '').replace(/\s+/g, ' ').trim() }))
+      .map((it) => ({ ...it, proposal: proposal(it.text) }));
     const tasked = lines.some((it) => it.id);
     const items = lines.filter((it) => !tasked || it.id || /^(Decide|D\d+)/.test(it.text));
     result.push({ n, title: parts[i + 1], goal, exit, items, tasks: own.map((t) => t.id), status: done ? 'done' : active ? 'active' : 'later' });
@@ -176,6 +228,9 @@ export function collect() {
     schema: schema(),
     reviews: reviews(),
     waiting: waiting(),
+    backlog: backlog(),
+    recipes: recipes(),
+    live: live(),
   };
 }
 

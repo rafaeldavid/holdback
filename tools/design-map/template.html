@@ -1,777 +1,319 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>’crow design map</title>
-<meta name="claude:viewport-fit-sides" content="cover">
+<title>Crow design map</title>
 <meta name="color-scheme" content="light">
 <meta name="theme-color" content="#faf7f0">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@400;500;600&display=swap">
 <style>
-/* Written for a product manager taking over the project: a plain summary first, then one idea per section,
-   with the technical depth folded into <details>. Light only, in the ’crow palette from escrow.stream:
-   paper, graphite, pencil, faint and sepia; the status tints are derived from them and pass WCAG AA as text. */
+/* Written for a mid-level PM newly promoted to own Crow: a plain summary first, one idea per section,
+   depth folded into <details>, plain tables and lists. Light only, in the ’crow palette. */
 :root{
   color-scheme:light;
-  --paper:#faf7f0; --surface:#fffdf8; --wash:#f3eee3; --wash-2:#efe9dc;
-  --graphite:#2f2d2a; --pencil:#57534c; --faint:#8f897e; --sepia:#8a6237; --sepia-soft:#f5ebdc; --sepia-line:#e3cfb2;
-  --line:#e6dfd1; --rule:#cfc8b8;
-  --done:#4a6a3a; --done-soft:#e8eddc; --done-line:#c3cfb0;
-  --block:#9a3f2c; --block-soft:#f6e3dc;
-  --slate:#51607a; --slate-soft:#e7eaef;
+  --paper:#faf7f0; --graphite:#2f2d2a; --pencil:#57534c; --faint:#8f897e; --sepia:#8a6237;
+  --line:#e3dccd; --wash:#f2ede2;
   --serif:"EB Garamond", Garamond, "Times New Roman", serif;
   --sans:-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   --mono:ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  --gutter:max(16px, env(safe-area-inset-left, 0px));
-  --radius:14px;
 }
 *{box-sizing:border-box}
-html{background:var(--paper);-webkit-text-size-adjust:100%}
-body{margin:0;background:var(--paper);color:var(--graphite);font:16px/1.6 var(--sans);-webkit-font-smoothing:antialiased}
-body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:20;background:var(--paper)}
-h1,h2,h3{margin:0;text-wrap:balance}
-h1,h2{font-family:var(--serif);font-weight:500;letter-spacing:-.01em;line-height:1.08}
-h1{font-size:clamp(46px,8vw,76px)}
-h2{font-size:clamp(30px,4.4vw,42px)}
-h3{font-size:17px;font-weight:600;line-height:1.3}
-p{margin:0;max-width:66ch;text-wrap:pretty}
+html,body{background:var(--paper)}
+body{margin:0;color:var(--graphite);font:16px/1.6 var(--sans);-webkit-font-smoothing:antialiased}
+main{width:min(860px,calc(100% - 32px));margin:0 auto;padding:56px 0 96px}
+h1,h2,h3{font-family:var(--serif);font-weight:500;line-height:1.15;margin:0;text-wrap:balance}
+h1{font-size:clamp(40px,7vw,60px)}
+h2{font-size:clamp(28px,4vw,36px)}
+h3{font-size:22px;margin-top:8px}
+p{margin:0;max-width:68ch}
 a{color:var(--sepia);text-underline-offset:2px}
-code{font-family:var(--mono);font-size:.86em;background:var(--wash);padding:.05em .3em;border-radius:4px;overflow-wrap:anywhere}
-.id,.mono{font-family:var(--mono);font-size:13px;font-variant-numeric:tabular-nums}
+code{font-family:var(--mono);font-size:.86em;background:var(--wash);padding:.05em .3em;border-radius:3px;overflow-wrap:anywhere}
 .muted{color:var(--pencil)}
 .fine{font-size:14px;color:var(--pencil)}
-button{font:inherit;color:inherit}
-:focus-visible{outline:2px solid var(--sepia);outline-offset:3px;border-radius:6px}
-.skip{position:absolute;left:-9999px;top:10px;z-index:30;background:var(--graphite);color:var(--paper);padding:8px 16px;border-radius:999px;text-decoration:none}
-.skip:focus{left:var(--gutter)}
-
-/* top bar */
-.bar{position:sticky;top:env(safe-area-inset-top,0px);z-index:10;background:rgba(250,247,240,.88);-webkit-backdrop-filter:saturate(1.4) blur(14px);backdrop-filter:saturate(1.4) blur(14px);border-bottom:1px solid var(--line)}
-.bar-inner{width:min(980px,calc(100% - 2 * var(--gutter)));margin:0 auto;display:flex;align-items:center;gap:28px;min-height:52px;padding:0 4px;overflow-x:auto;scrollbar-width:none}
-.bar-inner::-webkit-scrollbar{display:none}
-.brand{font-family:var(--serif);font-size:23px;font-weight:500;color:var(--graphite);text-decoration:none;white-space:nowrap;line-height:1}
-.brand span{font-family:var(--sans);font-size:13px;color:var(--pencil);margin-left:6px}
-.bar nav{display:flex;gap:20px;font-size:13px;white-space:nowrap}
-.bar nav a{color:var(--pencil);text-decoration:none;padding:6px 0}
-.bar nav a:hover{color:var(--graphite)}
-.bar a:focus-visible{outline-offset:1px}
-
-/* page */
-.wrap{width:min(980px,calc(100% - 2 * var(--gutter)));margin:0 auto;padding-bottom:80px;display:grid;gap:96px}
-section,.mast{display:grid;gap:24px;scroll-margin-top:72px;min-width:0}
-section > *,details.more > div > *{min-width:0}
-.head{display:grid;gap:10px}
-.eyebrow{font-size:13px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--sepia);margin:0}
-.intro{font-size:17px;line-height:1.6;color:var(--pencil);max-width:62ch}
-.chapter{display:grid;gap:4px;padding-top:28px;border-top:1px solid var(--rule);margin-bottom:-44px;max-width:none}
-.chapter b{font-size:13px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--pencil)}
-.chapter span{font-family:var(--serif);font-size:23px;line-height:1.3}
-@media (max-width:640px){.wrap{gap:72px}.chapter{margin-bottom:-32px}}
-
-/* masthead and summary */
-.mast{gap:14px;padding-top:72px}
-.mast + section{margin-top:-40px}
-@media (max-width:640px){.mast{padding-top:44px}.mast + section{margin-top:-24px}}
-.gen{font-size:13px;color:var(--pencil)}
-.gen a{color:inherit}
-.tagline{font-family:var(--serif);font-style:italic;font-size:clamp(21px,2.6vw,26px);color:var(--pencil)}
-.mast .lede{font-size:clamp(17px,2vw,19px);line-height:1.6;max-width:60ch;margin-top:8px}
-.glance{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin-top:28px}
-@media (max-width:900px){.glance{grid-template-columns:1fr}}
-.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:22px 22px 24px;display:grid;gap:12px;align-content:start;min-width:0;box-shadow:0 1px 2px rgba(47,45,42,.04)}
-.card > h3{font-family:var(--serif);font-weight:500;font-size:25px;line-height:1.15}
-.card.attn{background:var(--sepia-soft);border-color:var(--sepia-line)}
-.stack{display:grid;gap:10px;font-size:15.5px}
-.meter{height:6px;background:var(--wash-2);border-radius:999px;overflow:hidden}
-.meter span{display:block;height:100%;background:var(--sepia);border-radius:999px}
-.mini{margin:0;padding-left:18px;display:grid;gap:6px}
-.ladder{list-style:none;margin:12px 0 0;padding:0;display:grid;grid-template-columns:repeat(9,minmax(0,1fr));gap:6px}
-.ladder li{display:grid;gap:2px;align-content:start;padding:10px 10px 13px;border-radius:10px;background:var(--surface);border:1px solid var(--line);position:relative;overflow:hidden;min-width:0}
-.ladder .n{font-size:12px;color:var(--pencil);font-variant-numeric:tabular-nums}
-.ladder .t{font-size:13px;line-height:1.3;font-weight:500}
-.ladder .s{font-size:12px;color:var(--pencil)}
-.ladder li::after{content:"";position:absolute;left:0;right:0;bottom:0;height:3px;background:var(--wash-2)}
-.ladder li.done::after{background:var(--done)}
-.ladder li.done .s{color:var(--done)}
-.ladder li.active{background:var(--sepia-soft);border-color:var(--sepia-line)}
-.ladder li.active::after{background:linear-gradient(90deg,var(--sepia) var(--pct,0%),var(--sepia-line) var(--pct,0%))}
-.ladder li.active .s{color:var(--sepia);font-weight:600}
-.ladder li.later .t{color:var(--pencil)}
-@media (max-width:900px){.ladder{grid-template-columns:repeat(4,minmax(0,1fr))}}
-@media (max-width:520px){.ladder{grid-template-columns:repeat(2,minmax(0,1fr))}}
-
-/* terms */
-.terms{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 40px;margin:0}
-.terms div{padding:14px 0;border-top:1px solid var(--line)}
-.terms dt{font-weight:600}
-.terms dd{margin:2px 0 0;color:var(--pencil);font-size:15px}
-@media (max-width:700px){.terms{grid-template-columns:1fr}}
-
-/* chips */
-.chip{display:inline-flex;align-items:center;font:500 12px/1.5 var(--sans);padding:2px 9px;border-radius:999px;white-space:nowrap;border:1px solid transparent}
-.chip.done{color:var(--done);background:var(--done-soft)}
-.chip.open{color:var(--sepia);background:var(--sepia-soft)}
-.chip.prop{color:var(--slate);background:var(--slate-soft)}
-.chip.todo{color:var(--graphite);border-color:var(--graphite)}
-.chip.block{color:var(--block);background:var(--block-soft)}
-.chip.defer{color:var(--pencil);background:var(--wash)}
-.legend{display:flex;flex-wrap:wrap;gap:8px 18px;font-size:14px;color:var(--pencil);align-items:center}
-
-/* disclosure rows */
-details.more{border-top:1px solid var(--line)}
-details.more > summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:10px;min-height:48px;font-weight:600;color:var(--sepia)}
-details.more > summary::-webkit-details-marker,.phase > summary::-webkit-details-marker{display:none}
-details.more > summary::after,.phase > summary::after{content:"";width:7px;height:7px;border-right:1.6px solid currentColor;border-bottom:1.6px solid currentColor;transform:translateY(-2px) rotate(45deg);transition:transform .2s;flex:none}
-details.more[open] > summary::after,.phase[open] > summary::after{transform:translateY(2px) rotate(-135deg)}
-details.more > summary .n{font-weight:400;color:var(--pencil)}
-details.more[open] > summary{margin-bottom:12px}
-details.more > div{display:grid;gap:16px}
-@media (max-width:560px){details.more > summary .n{display:none}}
-
-/* now */
-.progress{display:grid;gap:8px;max-width:560px}
-.now{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.5fr);gap:20px;align-items:start}
-.now.noexit{grid-template-columns:1fr}
-@media (max-width:820px){.now{grid-template-columns:1fr}}
-.ruled{list-style:none;margin:0;padding:0;display:grid}
-.ruled li{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 12px;align-items:baseline;padding:10px 0;border-top:1px solid var(--line)}
-.ruled li:first-child{border-top:0}
-.board{display:grid;gap:16px}
-.lane{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:18px 20px 8px;min-width:0}
-.lane header{display:flex;flex-wrap:wrap;gap:2px 12px;align-items:baseline;padding-bottom:8px}
-.lane header .count{font-size:14px;color:var(--pencil);font-weight:400}
-.lane header p{flex-basis:100%;font-size:14px;color:var(--pencil)}
-.tasks{list-style:none;margin:0;padding:0}
-.task{display:grid;grid-template-columns:64px minmax(0,1fr) auto;gap:2px 14px;align-items:baseline;padding:11px 0;border-top:1px solid var(--line)}
-.lane > .tasks:first-child > .task:first-child{border-top:0}
-.task .id{color:var(--pencil)}
-.task .after{font-size:13px;color:var(--pencil);white-space:nowrap;max-width:22ch;overflow:hidden;text-overflow:ellipsis}
-@media (max-width:560px){.task{grid-template-columns:56px minmax(0,1fr)}.task .after{grid-column:2;white-space:normal;max-width:none}}
-.graph{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);overflow-x:auto;padding:4px}
-.graph svg{display:block;height:auto}
-.gn rect{fill:var(--surface);stroke:var(--rule);stroke-width:1.2}
-.gn.done rect{fill:var(--done-soft);stroke:var(--done-line)}
-.gn.review rect,.gn.prog rect{fill:var(--sepia-soft);stroke:var(--sepia)}
-.gn.ready rect{stroke:var(--graphite);stroke-width:1.5}
-.gn.blocked rect{stroke:var(--block);stroke-dasharray:4 3}
-.gn text{fill:var(--graphite);font-family:var(--sans);font-size:12.5px}
-.gn .gid{font-family:var(--mono);font-size:11px;fill:var(--pencil)}
-.ge{fill:none;stroke:var(--rule);stroke-width:1.4}
-
-/* waiting */
-.waiting{list-style:none;margin:0;padding:0;display:grid;gap:12px;counter-reset:w}
-.waiting li{display:grid;grid-template-columns:28px minmax(0,1fr);gap:14px;align-items:start;padding:16px 20px;background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--sepia);border-radius:12px;font-size:16px}
-.waiting li::before{counter-increment:w;content:counter(w);font-family:var(--serif);font-size:24px;line-height:1.1;color:var(--sepia)}
-
-/* roadmap */
-.road{display:grid;border-top:1px solid var(--line)}
-.phase{border-bottom:1px solid var(--line)}
-.phase > summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:72px minmax(0,1fr) auto 12px;gap:4px 16px;align-items:center;padding:16px 0}
-.phase .pn{font-size:13px;color:var(--pencil);font-variant-numeric:tabular-nums}
-.phase .pm{display:grid;gap:2px;min-width:0}
-.phase .pt{font-weight:600;font-size:17px}
-.phase .pg{font-size:14.5px;color:var(--pencil)}
-.phase.current .pn{color:var(--sepia);font-weight:600}
-.items{list-style:none;margin:0 0 20px;padding:0 0 0 88px;display:grid;gap:10px}
-.items li{display:grid;grid-template-columns:64px minmax(0,1fr) auto;gap:4px 12px;align-items:baseline;font-size:14.5px}
-.items .id{color:var(--pencil);font-size:12.5px}
-@media (max-width:640px){
-  .phase > summary{grid-template-columns:minmax(0,1fr) 12px}
-  .phase > summary::after{grid-column:2;grid-row:1 / span 3}
-  .phase .pn,.phase .pm,.phase > summary .chip{grid-column:1;justify-self:start}
-  .items{padding-left:0}
-  .items li{grid-template-columns:56px minmax(0,1fr)}
-  .items li .chip{grid-column:2;justify-self:start}
-}
-
-/* decisions */
-.stats{display:flex;flex-wrap:wrap;gap:12px 40px;margin:0}
-.stats div{display:grid}
-.stats b{font-family:var(--serif);font-weight:500;font-size:36px;line-height:1.1}
-.stats span{font-size:13px;color:var(--pencil)}
-.group{display:grid;gap:4px}
-.group > h3{padding-bottom:6px}
-.docket{display:grid}
-.dk{display:grid;grid-template-columns:52px minmax(0,1fr) auto;gap:4px 16px;padding:16px 0;border-top:1px solid var(--line);align-items:baseline}
-.dk .did{font-family:var(--mono);font-size:13px;color:var(--pencil);grid-column:1;grid-row:1}
-.dk .dt{font-weight:600;grid-column:2;grid-row:1}
-.dk .dc{grid-column:2;font-size:15px}
-.dk .dd{grid-column:2;font-size:14px;color:var(--pencil)}
-.dk .adr{font-family:var(--mono);font-size:12px;color:var(--pencil);font-weight:400;white-space:nowrap}
-.dk .st{grid-column:3;grid-row:1;justify-self:end}
-@media (max-width:560px){.dk{grid-template-columns:44px minmax(0,1fr)}.dk .st{grid-column:2;grid-row:2;justify-self:start}}
-
-/* protocol */
-.seg{display:flex;flex-wrap:wrap;gap:8px}
-.seg button{border:1px solid var(--rule);background:var(--surface);border-radius:999px;padding:8px 16px;min-height:40px;font-size:14px;cursor:pointer;color:var(--graphite)}
-.seg button:hover{background:var(--wash-2)}
-.seg button[aria-pressed="true"]{background:var(--graphite);border-color:var(--graphite);color:var(--paper)}
-.seg button:disabled{opacity:.55;cursor:not-allowed}
-.zones{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}
-@media (max-width:900px){.zones{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media (max-width:560px){.zones{grid-template-columns:1fr}}
-.zone{display:grid;gap:10px;align-content:start;padding:16px;background:var(--wash);border-radius:var(--radius);min-width:0}
-.zone > .zl{display:flex;justify-content:space-between;gap:8px;font-size:13px;font-weight:600;letter-spacing:.05em;text-transform:uppercase}
-.zone > .zl i{font-style:normal;font-weight:500;text-transform:none;letter-spacing:0;color:var(--sepia)}
-.comp{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:grid;gap:4px;transition:opacity .25s,border-color .25s,box-shadow .25s}
-.comp b{font-size:15px;font-weight:600}
-.comp > span{font-size:13.5px;color:var(--pencil);line-height:1.45}
-.comp.prop,.comp.escape{border-style:dashed;border-color:var(--rule)}
-.comp.prop{background:transparent}
-.zones.focus .comp{opacity:.4}
-.zones.focus .comp.hl{opacity:1;border-color:var(--sepia);box-shadow:0 0 0 1px var(--sepia)}
-.note{padding:16px 20px;background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--sepia);border-radius:12px;min-height:4.4em;font-size:15.5px;max-width:none}
-
-/* tables */
-.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
-table{border-collapse:separate;border-spacing:0;width:100%;font-size:14px}
-th{text-align:left;font-weight:600;font-size:12.5px;color:var(--pencil);padding:10px 12px;border-bottom:1px solid var(--line);background:var(--wash);vertical-align:bottom}
-td{padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}
-tbody tr:last-child > *{border-bottom:0}
-.vis tbody th{color:var(--graphite);font-size:14px;min-width:170px;background:var(--surface);vertical-align:top;position:sticky;left:0;z-index:1;border-right:1px solid var(--line)}
-.vis thead th:first-child{position:sticky;left:0;z-index:2;border-right:1px solid var(--line)}
-.vis tbody th span{display:block;font-weight:400;font-size:12.5px;line-height:1.4;color:var(--pencil);margin-top:2px}
-.vis td{min-width:112px}
-@media (max-width:560px){.vis tbody th{min-width:136px}}
-.v{display:inline-block;font-size:12.5px;line-height:1.35;padding:3px 8px;border-radius:6px}
-.v.yes{color:var(--done);background:var(--done-soft)}
-.v.part{color:var(--sepia);background:var(--sepia-soft)}
-.v.no{color:var(--pencil);background:var(--wash)}
-
-/* lifecycle */
-.track{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:6px}
-.track button{text-align:left;border:1px solid var(--line);background:var(--surface);color:var(--pencil);border-radius:10px;padding:8px 10px;cursor:pointer;display:grid;gap:1px;font-size:14px;min-height:44px}
-.track button b{font-size:11.5px;font-weight:600;font-variant-numeric:tabular-nums}
-.track button.past{color:var(--graphite);border-color:var(--done-line)}
-.track button.past b{color:var(--done)}
-.track button.cur{color:var(--paper);background:var(--graphite);border-color:var(--graphite)}
-.life{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:16px}
-@media (max-width:820px){.life{grid-template-columns:1fr}}
-.who{font-size:13px;font-weight:600;color:var(--sepia)}
-.stage h3{font-size:28px}
-.risk{border-left:3px solid var(--block);padding:10px 14px;background:var(--block-soft);border-radius:0 10px 10px 0;font-size:14.5px;display:grid;gap:2px}
-.risk b{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--block);font-weight:600}
-.ctrl{display:flex;flex-wrap:wrap;gap:8px}
-.ctrl button{border:1px solid var(--rule);background:var(--surface);border-radius:999px;padding:8px 18px;min-height:40px;cursor:pointer;font-size:14px}
-.ctrl #b-play{background:var(--graphite);border-color:var(--graphite);color:var(--paper)}
-.ctrl button:disabled{opacity:.45;cursor:not-allowed}
-.ledger{display:grid;gap:12px}
-.acct{display:grid;grid-template-columns:96px minmax(0,1fr) 60px;gap:12px;align-items:center;font-size:14px}
-.acct .track-bar{height:8px;background:var(--wash-2);border-radius:999px;overflow:hidden}
-.acct .fill{height:100%;width:0;border-radius:999px;transition:width .7s ease}
-.acct .amt{font-family:var(--mono);font-size:13px;text-align:right;font-variant-numeric:tabular-nums}
-.keyrow{display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-size:14px;padding-top:12px;border-top:1px solid var(--line)}
-.lock{font-size:12.5px;font-weight:500;padding:2px 10px;border-radius:999px;border:1px solid var(--rule);color:var(--pencil)}
-.lock.held{color:var(--sepia);border-color:var(--sepia);background:var(--sepia-soft)}
-.lock.buyer{color:var(--done);border-color:var(--done);background:var(--done-soft)}
-.readers{display:flex;flex-wrap:wrap;gap:2px 10px;align-items:baseline;font-size:14px}
-.readers b{font-weight:600}
-.unit{font-family:var(--sans);font-size:13px;color:var(--pencil)}
-
-/* api */
-td.m{font-family:var(--mono);font-size:12px;font-weight:600;width:60px}
-td.m.get{color:var(--done)} td.m.post{color:var(--sepia)}
-td.p{font-family:var(--mono);font-size:12.5px;overflow-wrap:anywhere;min-width:200px}
-td.r{color:var(--pencil);min-width:220px}
-.tabs{display:flex;flex-wrap:wrap;gap:6px}
-.tabs button{border:1px solid var(--rule);background:var(--surface);border-radius:999px;padding:6px 14px;min-height:36px;font-size:13.5px;cursor:pointer;color:var(--pencil)}
-.tabs button[aria-selected="true"]{background:var(--graphite);border-color:var(--graphite);color:var(--paper)}
-.excap{font-size:14px;color:var(--pencil)}
-pre.code{margin:0;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px;overflow:auto;max-height:400px;font-family:var(--mono);font-size:12.5px;line-height:1.6;color:var(--graphite)}
-
-/* history */
-.feed{list-style:none;margin:0;padding:0;display:grid}
-.feed li{display:grid;grid-template-columns:84px minmax(0,1fr) auto;gap:2px 16px;padding:12px 0;border-top:1px solid var(--line);align-items:baseline}
-.feed .ty{font-size:12.5px;font-weight:600;color:var(--pencil)}
-.feed .ty small{display:block;font-weight:400;font-size:12px;overflow-wrap:anywhere}
-.feed .ty.feat{color:var(--done)} .feed .ty.docs{color:var(--slate)} .feed .ty.fix{color:var(--block)}
-.feed a{color:var(--graphite);text-decoration:none} .feed a:hover{color:var(--sepia);text-decoration:underline}
-.feed .meta{font-size:13px;color:var(--pencil);white-space:nowrap;font-variant-numeric:tabular-nums}
-@media (max-width:600px){.feed li{grid-template-columns:64px minmax(0,1fr)}.feed .meta{grid-column:2}}
-footer{font-size:13.5px;color:var(--pencil);border-top:1px solid var(--line);padding-top:18px}
-@media (prefers-reduced-motion:reduce){.acct .fill,.comp,details summary::after{transition:none}}
+.id{font-family:var(--mono);font-size:13px;color:var(--pencil);white-space:nowrap}
+section{display:grid;gap:16px;padding-top:44px;margin-top:44px;border-top:1px solid var(--line);scroll-margin-top:16px}
+section > *{min-width:0}
+.lede{font-size:18px;max-width:62ch}
+.tag{font-family:var(--serif);font-style:italic;font-size:22px;color:var(--pencil)}
+nav.toc{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:14px;margin-top:20px}
+nav.toc a{color:var(--pencil)}
+ul.plain,ol.plain{margin:0;padding-left:20px;display:grid;gap:6px;max-width:70ch}
+dl.pairs{margin:0;display:grid;gap:10px}
+dl.pairs dt{font-weight:600}
+dl.pairs dd{margin:0;color:var(--pencil)}
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+table{border-collapse:collapse;width:100%;font-size:14.5px}
+th{text-align:left;font-weight:600;font-size:13px;color:var(--pencil);border-bottom:1px solid var(--graphite);padding:8px 10px 6px 0;vertical-align:bottom}
+td{border-bottom:1px solid var(--line);padding:8px 10px 8px 0;vertical-align:top}
+td.n{font-variant-numeric:tabular-nums;white-space:nowrap}
+.st{font-size:13px;white-space:nowrap}
+.st.done{color:var(--pencil)}
+.st.active,.st.next{color:var(--sepia);font-weight:600}
+.st.later{color:var(--faint)}
+details{border-top:1px solid var(--line)}
+details:last-child{border-bottom:1px solid var(--line)}
+summary{cursor:pointer;padding:10px 0;font-weight:600;color:var(--graphite)}
+summary .muted{font-weight:400}
+details > div{padding:0 0 16px;display:grid;gap:12px}
+.diagram{max-width:100%;overflow-x:auto}
+.diagram svg{display:block;min-width:620px;width:100%;height:auto}
+.diagram text{font-family:var(--sans);font-size:13px;fill:var(--graphite)}
+.diagram .sub{font-size:11.5px;fill:var(--pencil)}
+.diagram .box{fill:#fffdf8;stroke:var(--graphite);stroke-width:1}
+.diagram .alt{fill:none;stroke:var(--faint);stroke-width:1;stroke-dasharray:4 3}
+.diagram .arrow{stroke:var(--graphite);stroke-width:1.2;fill:none}
+.diagram .warn{stroke:var(--sepia);stroke-width:1.2;fill:none;stroke-dasharray:4 3}
+footer{margin-top:56px;padding-top:16px;border-top:1px solid var(--line);font-size:13.5px;color:var(--pencil)}
+@media (max-width:600px){main{padding-top:36px}td,th{padding-right:8px}}
 </style>
 
-<a class="skip" href="#summary">Skip to the summary</a>
-<header class="bar">
-  <div class="bar-inner">
-    <a class="brand" href="#top">’crow<span>design map</span></a>
-    <nav aria-label="Sections"><a href="#summary">Summary</a><a href="#terms">Terms</a><a href="#lifecycle">A deal</a><a href="#protocol">Who does what</a><a href="#privacy">Who sees what</a><a href="#now">Now</a><a href="#waiting">Waiting</a><a href="#roadmap">Roadmap</a><a href="#decisions">Decisions</a><a href="#api">API</a><a href="#feed">History</a></nav>
-  </div>
-</header>
-
-<main class="wrap" id="top">
-  <header class="mast">
-    <p class="gen" id="gen"></p>
-    <h1>’crow design map</h1>
-    <p class="tagline">Programmatic Escrow and Arbitration</p>
-    <p class="lede">A read-only map of the project for whoever takes it over. It is rebuilt from the repository each time someone runs <code>pnpm map</code>, so it is as current as main. Read the summary first; each section after it explains one thing, and the technical detail stays folded until you open it.</p>
+<main>
+  <header>
+    <p class="fine" id="gen"></p>
+    <h1>Crow design map</h1>
+    <p class="tag">Programmatic Escrow and Arbitration</p>
+    <p class="lede" id="summary" style="margin-top:16px"></p>
+    <nav class="toc" aria-label="Sections">
+      <a href="#what">What Crow is</a><a href="#where">Where we are</a><a href="#live">What’s live</a><a href="#next">What’s next</a><a href="#flow">How work flows</a><a href="#backlog">Backlog</a><a href="#decisions">Decisions</a><a href="#deal">How a deal works</a><a href="#ref">Reference</a>
+    </nav>
   </header>
 
-  <section id="summary" aria-labelledby="h-sum">
-    <div class="head"><p class="eyebrow">In one minute</p><h2 id="h-sum">What ’crow is, where it stands, what it needs</h2></div>
-    <div class="glance">
-      <article class="card">
-        <h3>What ’crow is</h3>
-        <div class="stack">
-          <p>Two AI agents from different firms make a deal without trusting each other. The buyer’s payment and the seller’s work are both held, so neither side can take them alone, until an adjudicator (a judging service the two agents chose) decides whether the work meets the agreed terms.</p>
-          <p>Then payment and work change hands in one step, or the buyer is refunded.</p>
-          <p class="fine">Holdback is the working name of the protocol underneath. The public demo at <a href="https://escrow.stream">escrow.stream</a> uses test tokens only; no real money moves.</p>
-        </div>
-      </article>
-      <article class="card">
-        <h3>Where the build stands</h3>
-        <div class="stack" id="sum-build"></div>
-      </article>
-      <article class="card attn">
-        <h3>What waits on Rafa</h3>
-        <div class="stack" id="sum-wait"></div>
-      </article>
-    </div>
-    <ol class="ladder" id="ladder" aria-label="Phases 0 to 8"></ol>
-  </section>
-
-  <section id="terms" aria-labelledby="h-terms">
-    <div class="head"><p class="eyebrow">Terms</p><h2 id="h-terms">Words you will see on this page</h2><p class="intro">The project uses a small, fixed vocabulary. Each word means one thing everywhere: in the docs, the code and this map.</p></div>
-    <dl class="terms">
-      <div><dt>Commitment</dt><dd>The deal itself: terms a buyer agent and a seller agent both sign. It is first offered, then agreed.</dd></div>
-      <div><dt>Hold</dt><dd>The buyer’s payment and the key to the seller’s work, locked together so neither side can take them alone.</dd></div>
-      <div><dt>Adjudicator</dt><dd>A judging service both agents name in the commitment: a primary, a fallback if it goes silent, and one for appeals.</dd></div>
-      <div><dt>Panel and judges</dt><dd>How an adjudicator decides: fixed checks first, then several pinned AI models from at least two model families.</dd></div>
-      <div><dt>Bond</dt><dd>Money an adjudicator puts up. It pays out if an appeal overturns its decision or it misses its deadline.</dd></div>
-      <div><dt>Operator node</dt><dd>A server that offers the API and relays agents’ signed messages. Anyone can run one, and it has no power over a deal.</dd></div>
-      <div><dt>Settlement layer</dt><dd>Where held money sits and the deal rules are enforced. It is a blockchain, kept behind the API so agents never handle it.</dd></div>
-      <div><dt>Rules contract</dt><dd>The program on the settlement layer that releases or refunds a hold. It has no owner and no admin keys.</dd></div>
-      <div><dt>SimChain</dt><dd>An in-process simulation of the settlement layer. The demo runs on it, with test tokens.</dd></div>
-      <div><dt>EVM and local chain</dt><dd>EVM is Ethereum’s virtual machine. Phase 2 runs the rules contract on a private test chain on a developer’s machine.</dd></div>
-      <div><dt>tUSD</dt><dd>The test token. Amounts read like dollars, but none of it is real money.</dd></div>
-      <div><dt>ADR</dt><dd>Architecture decision record: a short document in <code>docs/decisions/</code> that records a design choice, the options and why.</dd></div>
-      <div><dt>D-number</dt><dd>One decision in <code>docs/decisions-today.md</code> (<span id="d-range">D1 onward</span>): the question, the options, what was chosen. Larger ones also get an ADR.</dd></div>
-      <div><dt>Phase and task</dt><dd>The plan runs in phases 0 to 11 (<code>docs/plan.md</code>). Each piece of work is a task file in <code>docs/tasks/</code>, named by a T-number.</dd></div>
+  <section id="what" aria-labelledby="h-what">
+    <h2 id="h-what">What Crow is</h2>
+    <p>Crow is escrow for AI agents. One agent pays another for work. The money is locked until an adjudicator, a judging service both agents chose, checks the work against the terms they signed. Then the seller is paid, or the buyer is refunded. Everything runs on test tokens on a public testnet; no real money moves.</p>
+    <p>Holdback is the protocol underneath. It is a protocol, not a service, and it has three properties:</p>
+    <ol class="plain">
+      <li><b>The two agents choose their own adjudicators.</b> The buyer and seller name the primary, the fallback and the appeal adjudicator in the deal they sign. Nobody assigns them.</li>
+      <li><b>Anyone with capital can back an adjudicator.</b> An adjudicator puts up a bond that pays out if it is wrong or silent, and anyone can post or back that bond for a return.</li>
+      <li><b>Access is by API.</b> Any operator can run a node that serves the API. If every node refuses, an agent sends its signed message straight to the chain.</li>
+    </ol>
+    <p>Every change must pass three tests:</p>
+    <dl class="pairs">
+      <div><dt>1. Neutrality</dt><dd>No single party can stop a valid deal from settling or move the money outside its terms: not an operator, an adjudicator, a model provider, nor Crow’s own team. A test fixture proves it for each of them.</dd></div>
+      <div><dt>2. The hold</dt><dd>Neither party can take the locked money alone. Every hold expires, every operation can be safely retried, and nothing can be spent twice. Card and bank rails only move money in and out.</dd></div>
+      <div><dt>3. Defended judgment</dt><dd>Fixed checks run first. Then a panel of pinned AI models from at least two model families judges, chosen so nobody can pick them. The panel is defended against prompt injection and gaming, and an appeal is backed by the adjudicator’s bond.</dd></div>
     </dl>
   </section>
 
-  <p class="chapter"><b>Part 1 · The product</b><span>How a deal works, who takes part, and who sees what.</span></p>
-
-  <section id="lifecycle" aria-labelledby="h-life">
-    <div class="head"><p class="eyebrow">How a deal works</p><h2 id="h-life">One 2,000 tUSD job, step by step</h2><p class="intro">The demo’s job: Atlas Research’s buyer agent pays Tidewater Data’s seller agent to clean a customer dataset (both firms are invented). The settlement mode is a term the parties choose: in guaranteed mode the adjudicator judges every delivery before money moves; in optimistic mode the buyer sees the work at once and money moves unless the buyer disputes in time.</p></div>
-    <div class="seg" role="group" aria-label="Settlement mode">
-      <button type="button" data-mode="guaranteed" aria-pressed="true">Guaranteed on decision</button>
-      <button type="button" data-mode="optimistic" aria-pressed="false">Optimistic <span class="chip prop">proposed</span></button>
-      <button type="button" data-mode="window" disabled title="Phase 4; key-release design open">Settle after window, Phase 4</button>
-    </div>
-    <div class="track" id="track"></div>
-    <div class="life">
-      <div class="card stage" aria-live="polite">
-        <span class="who" id="s-who"></span>
-        <h3 id="s-title"></h3>
-        <p id="s-body"></p>
-        <div class="risk"><b>If it goes wrong</b><span id="s-risk"></span></div>
-        <div class="ctrl"><button type="button" id="b-back">Back</button><button type="button" id="b-play">Play</button><button type="button" id="b-next">Next</button></div>
-      </div>
-      <div class="card">
-        <h3>Balances <span class="unit">tUSD</span></h3>
-        <div class="ledger" id="ledger"></div>
-        <div class="keyrow"><span>Content key</span><span class="lock none" id="keystate">not created</span></div>
-        <div class="readers"><b>Can read the work</b><span id="readers">nobody yet</span></div>
-      </div>
-    </div>
+  <section id="where" aria-labelledby="h-where">
+    <h2 id="h-where">Where we are</h2>
+    <p id="where-lead"></p>
+    <div class="scroll"><table>
+      <thead><tr><th scope="col">Phase</th><th scope="col">What it delivers</th><th scope="col">Status</th><th scope="col">Rows</th></tr></thead>
+      <tbody id="phases"></tbody>
+    </table></div>
+    <p class="fine">Status reads from the task files: a phase is done when all its task files are done. “Rows” counts the phase’s lines in <code>docs/plan.md</code>: done, open and proposed. Releases: v0.1 is Phases 0 to 3, v0.2 is Phases 4 and 5, v0.3 is Phase 6.</p>
+    <details><summary>Each phase’s goal and planned work</summary><div id="phase-detail"></div></details>
   </section>
 
-  <section id="protocol" aria-labelledby="h-protocol">
-    <div class="head"><p class="eyebrow">Who does what</p><h2 id="h-protocol">Four groups, and none of them can stop a deal alone</h2><p class="intro">Agents sign; operator nodes only relay; the settlement layer holds the money and follows the rules; adjudicators decide, with their bond at stake. Choose a property to see which parts deliver it. Dashed boxes are a fallback path or not yet decided.</p></div>
-    <div class="seg" role="group" aria-label="Protocol properties">
-      <button type="button" data-prop="all" aria-pressed="true">Everything</button>
-      <button type="button" data-prop="choose" aria-pressed="false">Agents choose the adjudicator</button>
-      <button type="button" data-prop="capital" aria-pressed="false">Anyone can bond</button>
-      <button type="button" data-prop="api" aria-pressed="false">Access by API</button>
-      <button type="button" data-prop="neutral" aria-pressed="false">No single control point</button>
-    </div>
-    <div class="zones" id="zones">
-      <div class="zone"><span class="zl">Agents <i>sign</i></span>
-        <div class="comp" data-p="choose api neutral"><b>Buyer agent and SDK</b><span>Signs offers and funding with EIP-712, within a scoped mandate.</span></div>
-        <div class="comp" data-p="choose api neutral"><b>Seller agent and SDK</b><span>Delivers encrypted work and keeps it if rejected.</span></div>
-      </div>
-      <div class="zone"><span class="zl">Access <i>relay</i></span>
-        <div class="comp" data-p="api neutral"><b>Operator nodes</b><span>Anyone can run one. REST API, relay, index, gas sponsorship and receipts. No authority; the SDK fails over between nodes.</span></div>
-        <div class="comp escape" data-p="api neutral"><b>Direct submission</b><span>The escape hatch: if every node refuses, the agent submits its signed message to the settlement layer itself.</span></div>
-        <div class="comp" data-p="choose"><b>Club rulebook</b><span>Windows, bond ratios and allowed modes. Its hash is bound into each commitment.</span></div>
-      </div>
-      <div class="zone"><span class="zl">Settlement <i>no admin keys</i></span>
-        <div class="comp" data-p="neutral api capital"><b>Rules contract</b><span>The only party that captures or voids. Acts on a decision, an early accept, or anyone’s timeout trigger. SimChain plays it in the demo; Phase 2 builds it as an EVM contract.</span></div>
-        <div class="comp" data-p="neutral"><b>Escrow vault</b><span>AuthCaptureEscrow v1.1.0 holds the buyer’s funds; the payer can reclaim after expiry. Bond escrow is ours.</span></div>
-        <div class="comp" data-p="api"><b>Ramps</b><span>SimChain faucet now; Stripe test mode as an on-ramp later.</span></div>
-      </div>
-      <div class="zone"><span class="zl">Judgment and capital <i>decide</i></span>
-        <div class="comp" data-p="choose neutral"><b>Adjudicators</b><span>Primary, fallback and appeal, named by both agents. Checks first, then a panel from 2+ model families chosen by commit-reveal. policyHash binds the prompt.</span></div>
-        <div class="comp" data-p="choose neutral"><b>Judge registry</b><span>Pinned models per adjudicator, bound by registryHash.</span></div>
-        <div class="comp" data-p="capital neutral"><b>Adjudicator bond</b><span>100% of price per guaranteed commitment while it is open to appeal.</span></div>
-        <div class="comp prop" data-p="capital"><b>Bond backers <span class="chip prop">proposed</span></b><span>Third-party capital earning the capital charge. Proposed in ADR-0014.</span></div>
-      </div>
-    </div>
-    <p class="note" id="propnote" aria-live="polite"></p>
+  <section id="live" aria-labelledby="h-live">
+    <h2 id="h-live">What’s live</h2>
+    <p id="live-lead"></p>
+    <ul class="plain" id="live-list"></ul>
+    <h3>Waiting on Rafa</h3>
+    <ul class="plain" id="waiting"></ul>
+    <p class="fine">From the newest daily log in <code>docs/log/</code>. Rafa holds every gate outside the repository: deploys, real keys or money, and anything published or sent.</p>
   </section>
 
-  <section id="privacy" aria-labelledby="h-priv">
-    <div class="head"><p class="eyebrow">Who sees what</p><h2 id="h-priv">What stays private between buyer, seller and adjudicators</h2>
-      <p class="intro">Every commitment has a public skeleton (addresses, amounts, deadlines, adjudicators, hashes, outcomes) and a private body. The parties choose how much of the body to publish, and the key to the work reaches an adjudicator only when it has to judge (ADR-0020). The demo runs at <code>public</code>; the other levels arrive in Phase 2.</p></div>
-    <div class="seg" role="group" aria-label="Disclosure level">
-      <button type="button" data-level="private" aria-pressed="false">Private</button>
-      <button type="button" data-level="judgment" aria-pressed="false">Judgment published</button>
-      <button type="button" data-level="public" aria-pressed="true">Public (the demo)</button>
-    </div>
-    <p class="excap" id="level-note"></p>
-    <div class="legend"><span class="v yes">sees it</span><span class="v part">in part, or only when involved</span><span class="v no">does not see it</span></div>
-    <div class="tablewrap" tabindex="0" role="region" aria-label="Who sees what, by party"><table class="vis"><thead id="vis-head"></thead><tbody id="vis-body"></tbody></table></div>
-    <p class="note">Known limits. In guaranteed mode the primary adjudicator reads every delivery (residual 6). The skeleton, including amounts, stays public at every level (residual 9). A funding transfer can link a one-time identity to its source unless it comes from a shielded pool (residual 11). Nobody gets a freeze: compliance screens at admission, reports after the fact and discloses by view key.</p>
+  <section id="next" aria-labelledby="h-next">
+    <h2 id="h-next">What’s next</h2>
+    <p id="next-lead"></p>
+    <div id="proposed"></div>
+    <p class="fine">Rank orders the tasks by value toward Crow’s objectives and the three tests. “Kind” is the change recipe below, which sets the checks, the review and the token budget. A task marked “waits” needs the next version of the contract or the API first.</p>
   </section>
 
-  <p class="chapter"><b>Part 2 · The build</b><span>The current phase, what waits on Rafa, and the road ahead.</span></p>
-
-  <section id="now" aria-labelledby="h-now">
-    <div class="head"><p class="eyebrow" id="now-eyebrow">Now</p><h2 id="h-now"></h2><p class="intro" id="now-goal"></p></div>
-    <div class="progress" id="now-progress"></div>
-    <div class="now">
-      <div class="lane"><header><h3 id="exit-h">Exit criteria</h3><p>What must be true before this phase is done.</p></header><ul class="ruled" id="exit"></ul></div>
-      <div class="board" id="lanes"></div>
-    </div>
-    <details class="more" id="donemore"><summary id="done-sum"></summary><div class="lane"><ul class="tasks" id="donelist"></ul></div></details>
-    <details class="more"><summary>Task order <span class="n">which task waits on which</span></summary>
-      <div>
-        <div class="legend"><span><span class="chip done">done</span> merged</span><span><span class="chip open">in progress</span> being built</span><span><span class="chip todo">ready</span> can start now</span><span><span class="chip block">blocked</span> waits on another task</span></div>
-        <div class="graph" tabindex="0" role="region" aria-label="Task order graph"><svg id="graph" role="img" aria-labelledby="graph-title"><title id="graph-title">Task dependencies in the current phase</title><g id="gedges"></g><g id="gnodes"></g></svg></div>
-      </div>
-    </details>
+  <section id="flow" aria-labelledby="h-flow">
+    <h2 id="h-flow">How work flows</h2>
+    <p>Every piece of work starts from a task file in <code>docs/tasks/</code>, runs in its own branch and lands as a small pull request. Agents may do anything confined to the repository, including merging once CI passes. Anything that reaches outside it waits for Rafa. Each change has a kind, and the kind sets its checks, its review, who approves it and a token budget, which is a target, not a stop.</p>
+    <div class="scroll"><table>
+      <thead><tr><th scope="col">Kind</th><th scope="col">Review</th><th scope="col">Who approves</th><th scope="col">Budget</th></tr></thead>
+      <tbody id="recipes"></tbody>
+    </table></div>
+    <details><summary>Paths and local checks for each kind</summary><div class="scroll"><table>
+      <thead><tr><th scope="col">Kind</th><th scope="col">Paths</th><th scope="col">Local checks</th></tr></thead>
+      <tbody id="recipes-detail"></tbody>
+    </table></div></details>
+    <p class="fine">From <code>docs/team.md</code>, Change recipes. A review fixes only blocking findings, in one round.</p>
   </section>
 
-  <section id="waiting" aria-labelledby="h-wait">
-    <div class="head"><p class="eyebrow">Waiting on Rafa</p><h2 id="h-wait">Decisions and inputs only Rafa can give</h2><p class="intro">Rafa owns the project. Agents work inside the repository on their own; anything that reaches outside it (deploys, real keys or money, anything published or sent, repository settings) waits for him. From the latest log in <code>docs/log/</code> and any open decision.</p></div>
-    <div id="waitbox"></div>
+  <section id="backlog" aria-labelledby="h-backlog">
+    <h2 id="h-backlog">The backlog by theme</h2>
+    <p id="backlog-lead"></p>
+    <div class="scroll"><table>
+      <thead><tr><th scope="col">Theme</th><th scope="col">Rows</th></tr></thead>
+      <tbody id="themes"></tbody>
+    </table></div>
+    <div id="backlog-detail"></div>
   </section>
-
-  <section id="roadmap" aria-labelledby="h-road">
-    <div class="head"><p class="eyebrow">Roadmap</p><h2 id="h-road">Every phase, from setup to the far future</h2><p class="intro">From <code>docs/plan.md</code>. Open a phase to see its planned work; each line takes its status from its task file when one exists.</p></div>
-    <div class="road" id="road"></div>
-  </section>
-
-  <p class="chapter"><b>Part 3 · Reference</b><span>Decisions, the API, and everything merged so far.</span></p>
 
   <section id="decisions" aria-labelledby="h-dec">
-    <div class="head"><p class="eyebrow">Decisions</p><h2 id="h-dec">What was decided, and what is still open</h2><p class="intro">Every design question gets a D-number in <code>docs/decisions-today.md</code> with its options and the one chosen; Rafa can overrule any of them. A choice that changes the architecture, a contract or the schema is also written up as an ADR in <code>docs/decisions/</code>.</p></div>
-    <div class="stats" id="dec-stats"></div>
-    <div class="group"><h3>Open or deferred</h3><div class="docket" id="dec-open"></div></div>
-    <div class="group"><h3>Latest decisions</h3><div class="docket" id="dec-recent"></div></div>
-    <details class="more"><summary id="docket-sum">All decisions</summary><div class="docket" id="docket"></div></details>
-    <details class="more"><summary id="adr-sum">All ADRs</summary><ul class="ruled" id="adrlist"></ul></details>
+    <h2 id="h-dec">Recent decisions</h2>
+    <p id="dec-lead"></p>
+    <div class="scroll"><table>
+      <thead><tr><th scope="col">ID</th><th scope="col">Decision</th></tr></thead>
+      <tbody id="dec-recent"></tbody>
+    </table></div>
+    <details><summary id="dec-all-sum">All decisions</summary><div class="scroll"><table><tbody id="dec-all"></tbody></table></div></details>
+    <details><summary id="adr-sum">All ADRs</summary><div class="scroll"><table><tbody id="adrs"></tbody></table></div></details>
   </section>
 
-  <section id="api" aria-labelledby="h-api">
-    <div class="head"><p class="eyebrow">API</p><h2 id="h-api">How agents reach ’crow</h2><p class="intro" id="api-sub"></p></div>
-    <div class="stats" id="api-stats"></div>
-    <details class="more"><summary id="eps-sum">All endpoints</summary><div class="tablewrap" tabindex="0" role="region" aria-label="API endpoints"><table><thead><tr><th scope="col">Method</th><th scope="col">Path</th><th scope="col">Returns</th></tr></thead><tbody id="eps"></tbody></table></div></details>
-    <details class="more"><summary>Examples <span class="n">requests and responses from docs/api.md</span></summary><div><div class="tabs" role="tablist" id="extabs"></div><p class="excap" id="excap"></p><pre class="code" id="excode" tabindex="0"></pre></div></details>
+  <section id="deal" aria-labelledby="h-deal">
+    <h2 id="h-deal">How a deal works</h2>
+    <p>A deal moves through seven steps. Each step has a deadline, and when a party or an adjudicator misses one, anyone can trigger the way out, so no one actor can leave the money stuck. On the public demo the operators send those triggers themselves.</p>
+    <div class="diagram" role="img" aria-label="The deal lifecycle: offer, accept, fund, deliver, judge, settle, close; with the way out at each step">
+      <svg viewBox="0 0 860 250" xmlns="http://www.w3.org/2000/svg">
+        <defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#2f2d2a"/></marker></defs>
+        <g id="steps"></g>
+      </svg>
+    </div>
+    <div class="scroll"><table>
+      <thead><tr><th scope="col">Step</th><th scope="col">Who acts</th><th scope="col">What happens</th><th scope="col">If it goes wrong</th></tr></thead>
+      <tbody id="deal-steps"></tbody>
+    </table></div>
+    <h3>Who does what</h3>
+    <div class="scroll"><table>
+      <thead><tr><th scope="col">Group</th><th scope="col">Does</th><th scope="col">Cannot</th></tr></thead>
+      <tbody>
+        <tr><td><b>Agents</b> (buyer and seller)</td><td>Sign every step that changes a deal, within a scoped mandate.</td><td>Take the held money alone.</td></tr>
+        <tr><td><b>Operator nodes</b></td><td>Serve the API, relay signed messages, pay gas, send due timeouts and keep receipts. Anyone can run one.</td><td>Sign for an agent, or stop a deal: an agent switches nodes or submits to the chain itself.</td></tr>
+        <tr><td><b>Rules contract</b> on Sepolia</td><td>Holds the money (through Coinbase’s audited escrow contract), checks signatures and deadlines, releases or refunds.</td><td>Be paused, upgraded or overridden: it has no owner and no admin keys.</td></tr>
+        <tr><td><b>Adjudicators</b></td><td>Run the checks and the model panel, sign the decision, and put up a bond that pays if an appeal overturns them.</td><td>Choose their own judges: a public random beacon (drand) picks the fallback and appeal panels.</td></tr>
+      </tbody>
+    </table></div>
   </section>
 
-  <section id="feed" aria-labelledby="h-feed">
-    <div class="head"><p class="eyebrow">History</p><h2 id="h-feed">What has been merged</h2><p class="intro" id="feed-sub">Every change that reached main, newest first.</p></div>
-    <ol class="feed" id="feedlist"></ol>
-    <details class="more" id="feedmore"><summary id="feedmore-sum"></summary><ol class="feed" id="feedrest"></ol></details>
+  <section id="ref" aria-labelledby="h-ref">
+    <h2 id="h-ref">Reference</h2>
+    <details><summary id="api-sum">The API</summary><div>
+      <p class="muted">Agents call plain HTTPS. Every call that changes something carries the agent’s own EIP-712 signature and an Idempotency-Key, so a retry never acts twice. The contract lives in <code>spec/schemas/</code> and changes only through an ADR and a version bump.</p>
+      <div class="scroll"><table><thead><tr><th scope="col">Method</th><th scope="col">Path</th><th scope="col">Returns</th></tr></thead><tbody id="eps"></tbody></table></div>
+    </div></details>
+    <details><summary id="feed-sum">Recent merges</summary><div class="scroll"><table><tbody id="feed"></tbody></table></div></details>
   </section>
 
-  <footer>Generated by <code>pnpm map</code> from docs/plan.md, docs/tasks, docs/decisions-today.md, docs/decisions, docs/api.md, docs/log, spec/schemas and the merge history. The summary’s first card, the terms, the protocol groups and the deal walk-through are written by hand in tools/design-map/template.html. ’crow is the product; Holdback is the protocol’s working name.</footer>
+  <footer>Generated by <code>pnpm map</code> from <code>docs/plan.md</code>, <code>docs/tasks/</code>, <code>docs/backlog.md</code>, <code>docs/team.md</code>, <code>docs/decisions-today.md</code>, <code>docs/decisions/</code>, <code>docs/api.md</code>, the newest <code>docs/log/</code> and the merge history. “What Crow is” and “How a deal works” are written by hand in <code>tools/design-map/template.html</code>. Crow is the product; Holdback is the protocol’s working name.</footer>
 </main>
 
 <script>window.MAP = /*__MAP_DATA__*/null;</script>
 <script>
 (function(){
   var M = window.MAP;
-  if (!M) { document.querySelector('.wrap').insertAdjacentHTML('afterbegin','<p class="chip open">No data: build this page with pnpm map.</p>'); return; }
+  if (!M) { document.querySelector('main').insertAdjacentHTML('afterbegin','<p>No data: build this page with pnpm map.</p>'); return; }
   var REPO='https://github.com/rafaeldavid/holdback';
   function $(id){return document.getElementById(id)}
   function esc(t){return String(t).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
-  function md(t){return esc(t).replace(/`([^`]+)`/g,'<code>$1</code>')}
-  function day(d){return d.slice(0,10)}
-  function nice(d){var x=new Date(day(d)+'T12:00:00Z');return isNaN(x)?day(d):x.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'})}
-  function plain(t){t=String(t).replace(/^\w+(\([^)]+\))?:\s*/,'').replace(/[.\s]+$/,'');return t.charAt(0).toUpperCase()+t.slice(1)}
-  // first clause of a sentence, for the summary card: cut at " (", "; " or ". ", then at a word boundary
-  function short(t,n){
-    t=String(t).replace(/`/g,'');var cut=-1;
-    [' (','; ','. '].forEach(function(s){var k=t.indexOf(s);if(k>15&&(cut<0||k<cut))cut=k});
-    if(cut>0)t=t.slice(0,cut);
-    if(t.length>n)t=t.slice(0,n).replace(/\s+\S*$/,'')+'…';
-    return t.replace(/[.:;,?]$/,'');
-  }
-  function stats(el,rows){el.innerHTML=rows.map(function(s){return '<div><b>'+s[1]+'</b><span>'+s[0]+'</span></div>'}).join('')}
-  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function md(t){return esc(t).replace(/\*\*([^*]+)\*\*/g,'$1').replace(/`([^`]+)`/g,'<code>$1</code>')}
+  function nice(d){var x=new Date(String(d).slice(0,10)+'T12:00:00Z');return isNaN(x)?d:x.toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric',timeZone:'UTC'})}
+  function cut(t,n){t=String(t);return t.length>n?t.slice(0,n).replace(/\s+\S*$/,'')+'…':t}
+  function plural(n,w){return n+' '+w+(n===1?'':'s')}
 
-  /* masthead */
-  $('gen').innerHTML='Generated from <a href="'+REPO+'/commit/'+esc(M.generatedFrom.commit)+'">main at <span class="mono">'+esc(M.generatedFrom.commit)+'</span></a> on '+nice(M.generatedFrom.date);
-  if(M.decisions.length)$('d-range').textContent=M.decisions[0].id+' to '+M.decisions[M.decisions.length-1].id;
+  $('gen').innerHTML='Generated from <a href="'+REPO+'/commit/'+esc(M.generatedFrom.commit)+'"><span class="id">'+esc(M.generatedFrom.commit)+'</span></a> on '+nice(M.generatedFrom.date);
 
+  /* phases */
   var byId={}; M.tasks.forEach(function(t){byId[t.id]=t});
-  var cur=M.phases.find(function(p){return p.status==='active'||p.status==='next'}) || M.phases[M.phases.length-1];
-  var pct=function(p){var ts=p.tasks.map(function(id){return byId[id]});return ts.length?Math.round(ts.filter(function(t){return t.status==='done'}).length/ts.length*100):0};
-  var TAG={done:'done',active:'in progress',next:'next',later:'later'};
-
-  /* phase ladder */
-  $('ladder').innerHTML=M.phases.map(function(p){
-    var cls=p.status==='next'?'active':p.status;
-    var extra=p===cur&&p.tasks.length?' style="--pct:'+pct(p)+'%"':'';
-    return '<li class="'+cls+'"'+extra+' title="'+esc(p.goal||'Task files are written at the start of the phase')+'"><span class="n">Phase '+p.n+'</span><span class="t">'+esc(p.title)+'</span><span class="s">'+(p===cur&&pct(p)>0?'in progress':TAG[p.status])+(p===cur&&p.tasks.length?' · '+pct(p)+'%':'')+'</span></li>';
-  }).join('');
-
-  /* roadmap: every phase folded, each planned line with its task status */
-  var stOf=function(it){if(it.checked)return['done','done'];var t=it.id&&byId[it.id];if(!t)return['defer','planned'];var s=t.status||'todo';return[s==='done'?'done':(s==='in progress'||s==='review')?'open':'defer',s]};
-  $('road').innerHTML=M.phases.map(function(p){
-    var items=(p.items||[]).map(function(it){var s=stOf(it);var txt=it.text.length>170?it.text.slice(0,167)+'…':it.text;return '<li><span class="id">'+esc(it.id||'')+'</span><span>'+esc(txt)+'</span><span class="chip '+s[0]+'">'+esc(s[1])+'</span></li>'}).join('');
-    var isCur=p===cur, label=isCur&&p.tasks.length&&pct(p)>0?'in progress · '+pct(p)+'%':TAG[p.status];
-    var chip=p.status==='done'?'done':isCur||p.status==='active'?'open':'defer';
-    return '<details class="phase'+(isCur?' current':'')+'"><summary><span class="pn">Phase '+p.n+'</span><span class="pm"><span class="pt">'+esc(p.title)+'</span>'+(p.goal?'<span class="pg">'+md(p.goal)+'</span>':'')+'</span><span class="chip '+chip+'">'+esc(label)+'</span></summary>'
-      +(items?'<ul class="items">'+items+'</ul>':'<p class="fine" style="margin:0 0 20px">Task files are written at the start of the phase.</p>')+'</details>';
-  }).join('');
-
-  /* now: the current phase's tasks, grouped by what can happen next */
-  $('now-eyebrow').textContent='Now · Phase '+cur.n;
-  $('h-now').textContent=cur.title;
-  $('now-goal').innerHTML=md(cur.goal);
-  document.querySelector('.now').classList.toggle('noexit',!cur.exit.length);
-  $('exit').closest('.lane').style.display=cur.exit.length?'':'none';
-  $('exit').innerHTML=cur.exit.map(function(e){return '<li><span class="chip '+(cur.status==='done'?'done">met':'open">open')+'</span><span>'+md(e)+'</span></li>'}).join('');
-  var ids=cur.tasks.slice(), inPhase={}; ids.forEach(function(id){inPhase[id]=1});
-  var deps={}; ids.forEach(function(id){var t=byId[id];deps[id]=t.dependsOnAll?ids.filter(function(o){return o!==id}):t.dependsOn.filter(function(d){return byId[d]})});
-  function stateOf(id){
-    var t=byId[id];
-    if(t.status==='done')return 'done';
-    if(t.status==='review')return 'review';
-    if(t.status==='in progress')return 'prog';
-    var waits=deps[id].filter(function(d){return byId[d].status!=='done'});
-    return waits.length?'blocked':'ready';
+  var props=[]; M.phases.forEach(function(p){p.items.forEach(function(it){if(it.proposal)props.push({phase:p,id:it.id,p:it.proposal})})});
+  props.sort(function(a,b){return a.p.rank-b.p.rank});
+  var LABEL={done:'done',active:'in progress',next:'next',later:'later'};
+  function counts(p){
+    var c={done:0,open:0,prop:0};
+    p.items.forEach(function(it){var t=it.id&&byId[it.id];if(it.proposal)c.prop++;else if(it.checked||(t&&t.status==='done'))c.done++;else c.open++});
+    return c;
   }
-  var count={done:0,prog:0,review:0,ready:0,blocked:0}; ids.forEach(function(id){count[stateOf(id)]++});
-  function taskRow(id,state){
-    var t=byId[id], waits=deps[id].filter(function(d){return byId[d].status!=='done'});
-    var after=state==='blocked'?(t.dependsOnAll?'after all others':'after '+waits.join(', ')):String(t.lane||'').split(/\s*[(;,]/)[0];
-    return '<li class="task"><span class="id">'+id+'</span><span>'+md(t.title)+'</span><span class="after" title="'+esc(after)+'">'+esc(after)+'</span></li>';
-  }
-  var LANES=[['prog','In progress','Someone is building it now.'],['review','In review','Built; its pull request is waiting for review.'],['ready','Ready to start','Everything it depends on is done.'],['blocked','Blocked','Waits for another task to finish first.']];
-  $('lanes').innerHTML=LANES.map(function(l){
-    var rows=ids.filter(function(id){return stateOf(id)===l[0]});
-    if(!rows.length)return '';
-    return '<div class="lane"><header><h3>'+l[1]+'</h3><span class="count">'+rows.length+'</span><p>'+l[2]+'</p></header><ul class="tasks">'+rows.map(function(id){return taskRow(id,l[0])}).join('')+'</ul></div>';
+  $('phases').innerHTML=M.phases.map(function(p){
+    var c=counts(p), bits=[];
+    if(c.done)bits.push(c.done+' done'); if(c.open)bits.push(c.open+' open'); if(c.prop)bits.push(c.prop+' proposed');
+    return '<tr><td class="n">'+p.n+'</td><td><b>'+esc(p.title)+'</b></td><td><span class="st '+p.status+'">'+LABEL[p.status]+'</span></td><td class="fine">'+(bits.join(', ')||'none yet')+'</td></tr>';
   }).join('');
-  var doneIds=ids.filter(function(id){return stateOf(id)==='done'});
-  if(doneIds.length){$('done-sum').innerHTML=doneIds.length+' done <span class="n">in this phase</span>';$('donelist').innerHTML=doneIds.map(function(id){return taskRow(id,'done')}).join('')}else $('donemore').hidden=true;
-  var P=pct(cur), bits=[];
-  if(count.prog)bits.push(count.prog+' in progress'); if(count.review)bits.push(count.review+' in review'); if(count.ready)bits.push(count.ready+' ready to start'); if(count.blocked)bits.push(count.blocked+' blocked');
-  var meter=ids.length?'<div class="meter" role="img" aria-label="'+count.done+' of '+ids.length+' tasks done"><span style="width:'+P+'%"></span></div><p>'+count.done+' of '+ids.length+' tasks done'+(bits.length?'; '+bits.join(', '):'')+'.</p>':'<p>Task files are written at the start of the phase.</p>';
-  $('now-progress').innerHTML=meter;
+  var done=M.phases.filter(function(p){return p.status==='done'});
+  var last=done[done.length-1], cur=M.phases.find(function(p){return p.status==='next'||p.status==='active'});
+  $('where-lead').textContent=(last?'Phases 0 to '+last.n+' are done; the last was '+last.title+'. ':'')+(cur?'Phase '+cur.n+', '+cur.title+', is '+(cur.status==='next'?'next':'under way')+'. ':'')+'Later phases overlap: some open work in them has started already.';
+  $('phase-detail').innerHTML=M.phases.map(function(p){
+    var items=p.items.map(function(it){var t=it.id&&byId[it.id];var s=it.proposal?'proposed':it.checked||(t&&t.status==='done')?'done':(t?t.status:'planned');
+      var text=it.proposal?it.proposal.title:it.text;return '<li>'+(it.id?'<span class="id">'+esc(it.id)+'</span> ':'')+md(cut(text,180))+' <span class="fine">('+esc(s)+')</span></li>'}).join('');
+    return '<div><h3>Phase '+p.n+': '+esc(p.title)+'</h3>'+(p.goal?'<p class="muted">'+md(p.goal)+'</p>':'')+(items?'<ul class="plain" style="margin-top:8px">'+items+'</ul>':'')+'</div>';
+  }).join('');
 
-  /* dependency graph: rows by depth */
-  (function(){
-    var lvl={};
-    function depth(id){if(lvl[id]!=null)return lvl[id];lvl[id]=0;var m=-1;deps[id].forEach(function(d){if(inPhase[d])m=Math.max(m,depth(d))});return lvl[id]=m+1}
-    ids.forEach(depth);
-    var rows={}; ids.forEach(function(id){(rows[lvl[id]]=rows[lvl[id]]||[]).push(id)});
-    var W=196,H=58,CW=216,RH=92,pos={},maxCols=0,nRows=Object.keys(rows).length;
-    if(!nRows)return;
-    Object.keys(rows).forEach(function(r){maxCols=Math.max(maxCols,rows[r].length)});
-    Object.keys(rows).forEach(function(r){rows[r].sort();var off=(maxCols-rows[r].length)*CW/2;rows[r].forEach(function(id,c){pos[id]={x:16+off+c*CW,y:16+r*RH}})});
-    var vw=32+(maxCols-1)*CW+W, vh=32+(nRows-1)*RH+H;
-    var svg=$('graph'); svg.setAttribute('viewBox','0 0 '+vw+' '+vh); svg.style.width=vw+'px'; svg.style.margin='0 auto';
-    var NS='http://www.w3.org/2000/svg';
-    ids.forEach(function(id){
-      var ds=byId[id].dependsOnAll?ids.filter(function(o){return lvl[o]===lvl[id]-1}):deps[id];
-      ds.forEach(function(d){
-        if(!pos[d])return;
-        var a=pos[d],b=pos[id],x1=a.x+W/2,y1=a.y+H,x2=b.x+W/2,y2=b.y,my=(y1+y2)/2;
-        var p=document.createElementNS(NS,'path');p.setAttribute('class','ge');p.setAttribute('d','M'+x1+' '+y1+' C'+x1+' '+my+' '+x2+' '+my+' '+x2+' '+y2);$('gedges').appendChild(p);
-      });
-    });
-    function lines(s,n){var w=s.split(' '),out=[''];w.forEach(function(x){var l=out[out.length-1];if((l+' '+x).trim().length>n&&l){out.push(x)}else out[out.length-1]=(l+' '+x).trim()});if(out.length>2){out=out.slice(0,2);out[1]=out[1].replace(/.{0,2}$/,'…')}return out}
-    ids.forEach(function(id){
-      var t=byId[id],n=pos[id],st=stateOf(id),g=document.createElementNS(NS,'g');
-      g.setAttribute('class','gn '+st);g.setAttribute('transform','translate('+n.x+','+n.y+')');
-      var L=lines(t.title.replace(/`/g,''),29);
-      g.innerHTML='<title>'+esc(id+': '+t.title)+'</title><rect width="'+W+'" height="'+H+'" rx="8"/><text class="gid" x="10" y="17">'+id+' · '+({done:'done',review:'in review',prog:'in progress',ready:'ready',blocked:'blocked'})[st]+'</text>'+L.map(function(l,k){return '<text x="10" y="'+(35+k*15)+'">'+esc(l)+'</text>'}).join('');
-      $('gnodes').appendChild(g);
-    });
-  })();
+  /* live */
+  $('live-lead').innerHTML=M.live.date?'As of '+nice(M.live.date)+'. '+md(M.live.lead):'No daily log yet.';
+  $('live-list').innerHTML=M.live.items.map(function(x){return '<li>'+md(x)+'</li>'}).join('');
+  $('waiting').innerHTML=M.waiting.length?M.waiting.map(function(x){return '<li>'+md(x)+'</li>'}).join(''):'<li>Nothing is waiting on Rafa.</li>';
 
-  /* summary: where the build stands */
-  (function(){
-    var fin=M.phases.filter(function(p){return p.status==='done'});
-    var latest=M.workFeed.filter(function(w){return w.pr})[0]||M.workFeed[0];
-    var h='<p><b>Phase '+cur.n+' '+(cur.status==='next'?'is next':'is under way')+': '+esc(cur.title)+'.</b></p>'+meter;
-    if(fin.length)h+='<p class="fine">Finished: '+fin.map(function(p){return 'Phase '+p.n+', '+esc(p.title)}).join('; ')+'.</p>';
-    if(latest)h+='<p class="fine">Latest merge, '+nice(latest.date)+': '+md(plain(latest.title))+(latest.pr?' (<span class="mono">#'+latest.pr+'</span>)':'')+'.</p>';
-    $('sum-build').innerHTML=h+'<p><a href="#now">The current phase in detail</a></p>';
-  })();
+  /* next: proposed tasks grouped by phase */
+  var waits=props.filter(function(x){return x.p.waits}).length;
+  $('next-lead').textContent=props.length?plural(props.length,'task')+' are proposed and wait for Rafa’s approval; none has a task file yet. '+(waits?waits+' of them wait in part for the next version of the contract or the API.':'None waits for another version of the contract or the API.'):'No tasks are proposed right now.';
+  var groups=[]; props.forEach(function(x){var g=groups.find(function(g){return g.phase===x.phase});if(!g)groups.push(g={phase:x.phase,rows:[]});g.rows.push(x)});
+  groups.sort(function(a,b){return a.phase.n-b.phase.n});
+  $('proposed').innerHTML=groups.map(function(g){
+    return '<h3>Phase '+g.phase.n+': '+esc(g.phase.title)+'</h3><div class="scroll"><table><thead><tr><th scope="col">Rank</th><th scope="col">Task</th><th scope="col">Kind</th><th scope="col">Budget</th></tr></thead><tbody>'
+      +g.rows.map(function(x){return '<tr><td class="n">'+x.p.rank+'</td><td><span class="id">'+esc(x.id)+'</span> '+md(x.p.title)+(x.p.waits?' <span class="fine">(waits in part)</span>':'')
+        +'<details><summary class="fine">Why now, and what done looks like</summary><div><p><b>Why now.</b> '+md(x.p.why)+'</p><p><b>Done when.</b> '+md(x.p.done)+'</p></div></details></td><td class="n">'+esc(x.p.kind)+'</td><td class="n">'+esc(x.p.budget)+'</td></tr>'}).join('')
+      +'</tbody></table></div>';
+  }).join('');
 
-  /* waiting on Rafa, and its summary card */
-  var openD=M.decisions.filter(function(d){return d.status==='open'});
-  var waits=M.waiting.map(function(w){return {full:md(w),short:esc(short(w,84))}});
-  openD.forEach(function(d){if(!M.waiting.some(function(w){return w.indexOf(d.id+' ')===0||w.indexOf(d.id+' (')===0}))waits.push({full:'<b>'+d.id+'</b> '+md(d.title)+'. '+md(d.detail),short:esc(d.id+': '+short(d.title,80))})});
-  $('waitbox').innerHTML=waits.length?'<ol class="waiting">'+waits.map(function(w){return '<li><span>'+w.full+'</span></li>'}).join('')+'</ol>':'<p class="intro">Nothing is waiting on Rafa right now.</p>';
-  $('sum-wait').innerHTML=(waits.length?'<p><b>'+waits.length+(waits.length===1?' item needs':' items need')+' his decision or input:</b></p><ul class="mini">'+waits.map(function(w){return '<li>'+w.short+'</li>'}).join('')+'</ul>':'<p>Nothing is waiting on him right now.</p>')
-    +'<p class="fine">Rafa owns the project and holds every gate outside the repository: deploys, real keys or money, anything published.</p><p><a href="#waiting">Read the items in full</a></p>';
+  /* recipes */
+  $('recipes').innerHTML=M.recipes.map(function(r){return '<tr><td><span class="id">'+r.kind+'</span> '+md(r.name)+'</td><td>'+md(r.review)+'</td><td>'+md(r.approves)+'</td><td class="n">'+md(r.budget)+'</td></tr>'}).join('');
+  $('recipes-detail').innerHTML=M.recipes.map(function(r){return '<tr><td><span class="id">'+r.kind+'</span> '+md(r.name)+'</td><td>'+md(r.paths)+'</td><td>'+md(r.checks)+'</td></tr>'}).join('');
+
+  /* backlog */
+  var total=M.backlog.reduce(function(n,t){return n+t.rows.length},0);
+  $('backlog-lead').textContent=plural(total,'row')+' of deferred work in '+M.backlog.length+' themes, grouped by the phase they belong to. Each row says when it starts to matter; when it does, it becomes a task.';
+  $('themes').innerHTML=M.backlog.map(function(t){return '<tr><td>'+esc(t.theme)+'</td><td class="n">'+t.rows.length+'</td></tr>'}).join('');
+  $('backlog-detail').innerHTML=M.backlog.map(function(t){
+    return '<details><summary>'+esc(t.theme)+' <span class="muted">'+plural(t.rows.length,'row')+'</span></summary><div>'+(t.intro?'<p class="muted">'+md(t.intro)+'</p>':'')
+      +'<div class="scroll"><table><thead><tr><th scope="col">Item</th><th scope="col">When</th></tr></thead><tbody>'
+      +t.rows.map(function(r){return '<tr><td>'+md(r.item)+'<br><span class="fine">'+md(r.source)+'</span></td><td>'+md(r.when)+'</td></tr>'}).join('')+'</tbody></table></div></div></details>';
+  }).join('');
 
   /* decisions */
-  var DCH={decided:'done',deferred:'defer',open:'open'};
-  function dk(d){
-    return '<div class="dk '+d.status+'"><span class="did">'+d.id+'</span><span class="dt">'+md(d.title)+(d.adr.length?' <span class="adr">'+d.adr.join(', ')+'</span>':'')+'</span><span class="st"><span class="chip '+DCH[d.status]+'">'+d.status+'</span></span>'
-      +(d.choice?'<span class="dc">'+md(d.choice)+'</span>':'')+(d.detail?'<span class="dd">'+md(d.detail)+'</span>':'')+'</div>';
-  }
-  var nOf=function(st){return M.decisions.filter(function(d){return d.status===st}).length};
-  var adrCount=function(st){return M.adrs.filter(function(a){return a.status===st}).length};
-  stats($('dec-stats'),[['decided',nOf('decided')],['deferred',nOf('deferred')],['open',nOf('open')],['ADRs accepted',adrCount('Accepted')],['ADRs proposed',adrCount('Proposed')]]);
-  var unsettled=M.decisions.filter(function(d){return d.status!=='decided'});
-  $('dec-open').innerHTML=unsettled.length?unsettled.map(dk).join(''):'<p class="fine">None: every decision so far is made.</p>';
-  $('dec-recent').innerHTML=M.decisions.filter(function(d){return d.status==='decided'}).slice(-4).reverse().map(dk).join('');
-  $('docket-sum').innerHTML='All '+M.decisions.length+' decisions'+(M.decisions.length?' <span class="n">'+M.decisions[0].id+' to '+M.decisions[M.decisions.length-1].id+'</span>':'');
-  $('docket').innerHTML=M.decisions.map(dk).join('');
-  var ACH={Accepted:'done',Proposed:'prop',Deferred:'defer'};
-  $('adr-sum').innerHTML='All '+M.adrs.length+' ADRs <span class="n">architecture decision records</span>';
-  $('adrlist').innerHTML=M.adrs.map(function(a){return '<li><span class="chip '+(ACH[a.status]||'todo')+'">'+esc(a.status.toLowerCase())+'</span><span><span class="mono">'+a.id+'</span> '+md(a.title)+'</span></li>'}).join('');
+  var decided=M.decisions.filter(function(d){return d.status==='decided'});
+  var open=M.decisions.filter(function(d){return d.status!=='decided'});
+  $('dec-lead').innerHTML='Every design question gets a D-number in <code>docs/decisions-today.md</code>, and Rafa may overrule any of them. '+plural(decided.length,'decision')+' are made and '+open.length+' are open or deferred; larger ones also have an ADR in <code>docs/decisions/</code>. The latest six:';
+  function drow(d){return '<tr><td class="id">'+esc(d.id)+'</td><td><b>'+md(d.title)+'</b>'+(d.adr.length?' <span class="fine">'+esc(d.adr.join(', '))+'</span>':'')+(d.status!=='decided'?' <span class="fine">('+esc(d.status)+')</span>':'')+'</td></tr>'}
+  $('dec-recent').innerHTML=decided.slice(-6).reverse().map(drow).join('');
+  $('dec-all-sum').innerHTML='All '+M.decisions.length+' decisions <span class="muted">'+(M.decisions.length?esc(M.decisions[0].id)+' to '+esc(M.decisions[M.decisions.length-1].id):'')+'</span>';
+  $('dec-all').innerHTML=M.decisions.map(drow).join('');
+  $('adr-sum').innerHTML='All '+M.adrs.length+' ADRs <span class="muted">architecture decision records</span>';
+  $('adrs').innerHTML=M.adrs.map(function(a){return '<tr><td class="id">'+esc(a.id)+'</td><td>'+md(a.title)+'</td><td class="fine">'+esc(a.status.toLowerCase())+'</td></tr>'}).join('');
 
-  /* protocol */
-  var notes={
-    all:'Agents sign everything that changes state. Operator nodes only relay. The rules contract is the only part that can move held funds, and it has no admin keys. Adjudicators decide, backed by bonds.',
-    choose:'Both agents sign one commitment that names the primary, fallback and appeal adjudicators, the judge registry (registryHash) and the adjudicator policy (policyHash). The primary signs an acceptance before funding. Nobody assigns adjudicators.',
-    capital:'Today an adjudicator posts its own bond: 100% of price per guaranteed commitment open to appeal. Third-party backers who earn the capital charge, with first loss on the adjudicator, are proposed in ADR-0014 (D10).',
-    api:'Any operator node serves the REST API and SDK, and the SDK fails over between nodes. If every node refuses, the agent submits its signed message straight to the settlement layer. Specified in docs/api.md and ADR-0005; built in T-007.',
-    neutral:'No single party can stop a valid commitment. Anyone can trigger timeouts, the fallback replaces a silent adjudicator, a default outcome pays out if both fail, and the rules contract has no owner, pause or upgrade path. The residual risks are listed in docs/neutrality.md.'
-  };
-  var zones=$('zones'), pbtn=document.querySelectorAll('[data-prop]');
-  function prop(p){
-    pbtn.forEach(function(x){x.setAttribute('aria-pressed',x.getAttribute('data-prop')===p?'true':'false')});
-    zones.querySelectorAll('.comp').forEach(function(el){el.classList.toggle('hl',p!=='all'&&(' '+el.getAttribute('data-p')+' ').indexOf(' '+p+' ')>=0)});
-    zones.classList.toggle('focus',p!=='all');
-    $('propnote').textContent=notes[p];
-  }
-  pbtn.forEach(function(b){b.addEventListener('click',function(){prop(b.getAttribute('data-prop'))})});
-  prop('all');
-
-  /* who sees what */
+  /* deal lifecycle */
+  var STEPS=[
+    ['Offer','Seller','Signs the terms: price, deadlines, checks, and the three adjudicators both agents chose.','The buyer never agrees; the offer expires and nothing was held.'],
+    ['Accept','Primary adjudicator','Signs that it will judge, with its fee and its bond reserved for this deal.','It never accepts; funding is refused and the agents name another.'],
+    ['Fund','Buyer, through any operator','Agrees and funds in one signed call; the money is locked on the chain.','An operator refuses; the agent uses another node or submits directly.'],
+    ['Deliver','Seller','Sends the work encrypted; only the adjudicators can open it for now.','The seller never delivers; the buyer reclaims the money after the deadline.'],
+    ['Judge','Adjudicator','Runs the fixed checks, then a panel of pinned models from two or more families.','It stays silent; the fallback takes over, and if both fail a default outcome applies, paid from their bonds.'],
+    ['Settle','Rules contract','Pays the seller and releases the key to the buyer in the same step, or refunds the buyer.','The losing party appeals; an overturn is paid from the first adjudicator’s bond.'],
+    ['Close','Anyone','The appeal window ends and the adjudicator’s bond is freed.','Nobody triggers it; the operators send the timeout themselves.']
+  ];
+  $('deal-steps').innerHTML=STEPS.map(function(s,i){return '<tr><td class="n">'+(i+1)+'. '+s[0]+'</td><td>'+s[1]+'</td><td>'+s[2]+'</td><td class="muted">'+s[3]+'</td></tr>'}).join('');
   (function(){
-    var COLS=['Buyer','Seller','Primary adjudicator','Fallback and appeal','Model providers','Operator nodes','Bond backers','Club operator','Auditor (view key)','Anyone'];
-    function Y(t){return ['yes',t||'yes']} function P(t){return ['part',t]} function N(){return ['no','no']}
-    var base={
-      identity:{label:'Long-term identity',sub:'who the agent is; one-time keys come in Phase 2',cells:[Y(),Y(),P('on involvement'),P('on takeover'),N(),P('one-time key'),N(),P('at admission'),P('on disclosure'),P('one-time key')]},
-      skeleton:{label:'Skeleton',sub:'addresses, price, deadlines, adjudicators, mode, hashes',cells:[Y(),Y(),Y(),Y(),N(),Y(),Y(),Y(),Y(),Y()]},
-      body:{label:'Terms body',sub:'description, criteria, rubric, sealed checks',cells:[Y(),Y(),P('guaranteed: at delivery; optimistic: on dispute'),P('on takeover'),P('criteria they judge'),P('hash'),N(),N(),P('on disclosure'),P('hash')]},
-      work:{label:'The work',sub:'deliverable plaintext',cells:[P('after release; at delivery in optimistic mode'),Y('yes, made it'),P('as the body'),P('on takeover'),P('samples and typed features'),P('ciphertext'),N(),N(),P('on disclosure'),P('ciphertext')]},
-      key:{label:'Content key',sub:'opens the work',cells:[P('released with payment'),Y(),P('as the body'),P('released on takeover'),N(),P('sealed envelopes'),N(),N(),N(),P('sealed envelopes')]},
-      judgment:{label:'Judgment record',sub:'check results, verdict scores and reasons',cells:[Y(),Y(),Y(),P('if involved'),P('their own verdict'),P('hash'),P('outcome and hash'),P('hash'),P('on disclosure'),P('outcome and hash')]},
-      money:{label:'Money and bonds',sub:'holds, payouts, fees, bond movements',cells:[Y(),Y(),Y(),Y(),N(),Y(),Y(),Y(),Y(),Y()]}
-    };
-    function clone(o){return JSON.parse(JSON.stringify(o))}
-    var L={private:base, judgment:clone(base), public:clone(base)};
-    [5,6,7,9].forEach(function(c){L.judgment.body.cells[c]=P('criteria only');L.judgment.judgment.cells[c]=Y('published record')});
-    L.judgment.judgment.cells[8]=Y('published record');
-    [5,6,7,8,9].forEach(function(c){L.public.body.cells[c]=Y();L.public.judgment.cells[c]=Y('published record')});
-    [2,3,5,7,8,9].forEach(function(c){L.public.identity.cells[c]=Y('long-term address')});
-    var NOTES={
-      private:'Private: the public sees only the skeleton. The body, the judgment record and the work go to the parties and to each adjudicator only when it is involved. Phase 2.',
-      judgment:'Judgment published: as private, but the criteria and the judgment record with its reasons are public, which gives adjudicators precedent. The work stays private. Phase 2.',
-      public:'Public: everything except the work is public, as in the demo. Keys still reach the fallback and appeal adjudicators only on takeover.'
-    };
-    var ORDER=['identity','skeleton','body','work','key','judgment','money'];
-    $('vis-head').innerHTML='<tr><th scope="col">Information</th>'+COLS.map(function(c){return '<th scope="col">'+c+'</th>'}).join('')+'</tr>';
-    function show(level){
-      document.querySelectorAll('[data-level]').forEach(function(b){b.setAttribute('aria-pressed',b.getAttribute('data-level')===level?'true':'false')});
-      $('level-note').textContent=NOTES[level];
-      $('vis-body').innerHTML=ORDER.map(function(k){var r=L[level][k];return '<tr><th scope="row">'+r.label+'<span>'+r.sub+'</span></th>'+r.cells.map(function(c){return '<td><span class="v '+c[0]+'">'+esc(c[1])+'</span></td>'}).join('')+'</tr>'}).join('');
-    }
-    document.querySelectorAll('[data-level]').forEach(function(b){b.addEventListener('click',function(){show(b.getAttribute('data-level'))})});
-    show('public');
+    var NS='http://www.w3.org/2000/svg', g=$('steps'), W=104, H=52, GAP=16, X0=10, Y=40, html='';
+    var outs=['expires','another adjudicator','other node or direct','buyer reclaims','fallback, then default','appeal, bond pays','timeout sent'];
+    STEPS.forEach(function(s,i){
+      var x=X0+i*(W+GAP);
+      html+='<rect class="box" x="'+x+'" y="'+Y+'" width="'+W+'" height="'+H+'" rx="6"/>';
+      html+='<text x="'+(x+W/2)+'" y="'+(Y+22)+'" text-anchor="middle">'+(i+1)+'. '+s[0]+'</text>';
+      html+='<text class="sub" x="'+(x+W/2)+'" y="'+(Y+39)+'" text-anchor="middle">'+esc(s[1].split(',')[0])+'</text>';
+      if(i<STEPS.length-1)html+='<path class="arrow" marker-end="url(#ah)" d="M'+(x+W)+' '+(Y+H/2)+'H'+(x+W+GAP-1)+'"/>';
+      html+='<path class="warn" d="M'+(x+W/2)+' '+(Y+H)+'V'+(Y+H+50)+'"/>';
+      html+='<rect class="alt" x="'+(x+2)+'" y="'+(Y+H+50)+'" width="'+(W-4)+'" height="44" rx="6"/>';
+      var words=outs[i].split(' '), l1='', l2='';
+      words.forEach(function(w){if((l1+' '+w).trim().length<=15&&!l2)l1=(l1+' '+w).trim();else l2=(l2+' '+w).trim()});
+      html+='<text class="sub" x="'+(x+W/2)+'" y="'+(Y+H+68)+'" text-anchor="middle">'+esc(l1)+'</text>';
+      if(l2)html+='<text class="sub" x="'+(x+W/2)+'" y="'+(Y+H+83)+'" text-anchor="middle">'+esc(l2)+'</text>';
+    });
+    html+='<text class="sub" x="'+X0+'" y="22">The happy path runs left to right. The dashed boxes are the way out when a step’s deadline passes.</text>';
+    g.innerHTML=html;
   })();
 
-  /* lifecycle */
-  var ACC=[['buyer','Buyer','var(--graphite)'],['escrow','Escrow','var(--sepia)'],['seller','Seller','var(--done)'],['adj','Bench A fee','var(--slate)'],['bond','Bond locked','var(--block)']];
-  var MAX=2050;
-  var MODES={
-    guaranteed:[
-      {k:'Offer',who:'Seller agent',t:'The seller signs the terms',b:'The seller signs an EIP-712 offer: price 2,000 plus a 50 fee, deadlines, and the adjudicators both agents chose. Bench A is primary, Bench B the fallback and Bench C hears appeals, each with its registry and policy hashes.',r:'The buyer never signs. Anyone triggers expiry after offerExpiresAt, and nothing was held.',bal:[2050,0,0,0,0],key:['none','not created']},
-      {k:'Accept',who:'Bench A',t:'The chosen adjudicator accepts',b:'Bench A signs an acceptance: a commitment to its random seed, its policy and registry hashes, its fee, and 2,000 of bond reserved while this commitment can be appealed.',r:'Bench A never accepts. Funding is refused and nothing is held; the agents can name another adjudicator.',bal:[2050,0,0,0,2000],key:['none','not created']},
-      {k:'Hold',who:'Buyer agent via op-1',t:'One call agrees and funds',b:'The buyer signs the same terms and a funding authorization, and 2,050 moves into escrow. Funding checks that the acceptance matches the terms.',r:'op-1 refuses to relay. The SDK tries op-2, then submits the signed message directly.',bal:[0,2050,0,0,2000],key:['none','not created']},
-      {k:'Deliver',who:'Seller agent',t:'Work delivered, still locked',b:'The seller encrypts the cleaned CSV under a fresh key. The buyer sees only hashes. The key is encrypted to Bench A, B and C, and not yet to the buyer.',r:'The seller never delivers. After deliverBy anyone triggers reclaim, and the buyer gets 2,050 back.',bal:[0,2050,0,0,2000],key:['held','held for adjudicators']},
-      {k:'Checks',who:'Bench A',t:'Deterministic checks first',b:'Row count, unique keys and ISO 8601 dates are checked by built-in evaluators. A required failure refunds at once, without a panel.',r:'A required check fails. The buyer is refunded, Bench A earns the fee and the seller keeps the work.',bal:[0,2050,0,0,2000],key:['held','held for adjudicators']},
-      {k:'Panel',who:'Bench A panel',t:'Three judges, two families',b:'Bench A reveals the seed it committed to, and the panel is drawn from the registry the commitment binds. Each verdict records its pinned model, template hash and input hash. Both families pass, so the outcome is accept.',r:'Bench A goes silent. After judgeBy, Bench B decides. If both miss, anyone triggers the default: refund the buyer, and the bonds pay the seller.',bal:[0,2050,0,0,2000],key:['held','held for adjudicators']},
-      {k:'Settle',who:'Rules contract',t:'Money and key in one step',b:'2,000 goes to the seller and 50 to Bench A. In the same step the key is released to the buyer, who checks the plaintext against the committed hash.',r:'The key does not decrypt the work. The buyer appeals on that ground, backed by Bench A\'s bond.',bal:[0,0,2000,50,2000],key:['buyer','released to buyer']},
-      {k:'Close',who:'Anyone',t:'The appeal window closes',b:'No appeal arrives by the deadline. Bench A\'s 2,000 of bond is unlocked and can back its next commitment.',r:'The buyer appeals and Bench C overturns. Bench A\'s bond pays the buyer 2,000.',bal:[0,0,2000,50,0],key:['buyer','released to buyer']}
-    ],
-    optimistic:[
-      {k:'Offer',who:'Seller agent',t:'The seller offers optimistic terms',b:'Same job, but the parties choose optimistic mode with a disputeBy date. No adjudicator fee is paid up front.',r:'The buyer never signs and the offer expires. Nothing was held.',bal:[2000,0,0,0,0],key:['none','not created']},
-      {k:'Hold',who:'Buyer agent',t:'Only the price is held',b:'2,000 moves into escrow. No bond is locked, because no adjudicator acts unless the buyer disputes.',r:'op-1 refuses. Failover, then direct submission, as in every mode.',bal:[0,2000,0,0,0],key:['none','not created']},
-      {k:'Deliver',who:'Seller agent',t:'Work released at delivery',b:'The delivery carries the key encrypted to the buyer, who can inspect the work at once. The parties waived the two-sided hold.',r:'The seller never delivers. Anyone triggers reclaim after deliverBy.',bal:[0,2000,0,0,0],key:['buyer','released to buyer']},
-      {k:'Window',who:'Buyer agent',t:'The dispute window is open',b:'Until disputeBy the buyer may accept early, or dispute by paying the fee and a dispute bond. A dispute runs the normal checks and panel.',r:'The buyer disputes and loses. The seller is paid and also gets the dispute bond.',bal:[0,2000,0,0,0],key:['buyer','released to buyer']},
-      {k:'Release',who:'Anyone',t:'Silence means accepted',b:'No dispute arrives by disputeBy. Anyone triggers release and 2,000 goes to the seller. No adjudicator call is possible afterwards.',r:'The buyer disputes and wins: a refund, and the buyer keeps the work. That is the risk the seller chose.',bal:[0,0,2000,0,0],key:['buyer','released to buyer']}
-    ]
-  };
-  var mode='guaranteed', i=0, timer=null;
-  ACC.forEach(function(a){
-    var row=document.createElement('div'); row.className='acct';
-    row.innerHTML='<span>'+a[1]+'</span><div class="track-bar"><div class="fill" id="f-'+a[0]+'" style="background:'+a[2]+'"></div></div><span class="amt" id="a-'+a[0]+'">0</span>';
-    $('ledger').appendChild(row);
-  });
-  function fmt(n){return n.toLocaleString('en-US')}
-  function render(){
-    var steps=MODES[mode], s=steps[i], tr=$('track'); tr.innerHTML='';
-    steps.forEach(function(st,j){
-      var b=document.createElement('button'); b.type='button';
-      b.className=j<i?'past':(j===i?'cur':'');
-      if(j===i)b.setAttribute('aria-current','step');
-      b.innerHTML='<b>'+String(j+1).padStart(2,'0')+'</b>'+st.k;
-      b.addEventListener('click',function(){stop();i=j;render()});
-      tr.appendChild(b);
-    });
-    $('s-who').textContent=s.who; $('s-title').textContent=s.t; $('s-body').textContent=s.b; $('s-risk').textContent=s.r;
-    ACC.forEach(function(a,j){$('f-'+a[0]).style.width=(s.bal[j]/MAX*100)+'%';$('a-'+a[0]).textContent=fmt(s.bal[j])});
-    var ks=$('keystate'); ks.className='lock '+s.key[0]; ks.textContent=s.key[1];
-    $('readers').textContent=({none:'nobody yet, nothing delivered',held:'the seller and the three adjudicators',buyer:'the seller, the three adjudicators and the buyer'})[s.key[0]];
-    $('b-back').disabled=i===0; $('b-next').disabled=i===steps.length-1;
-  }
-  function stop(){if(timer){clearInterval(timer);timer=null}$('b-play').textContent='Play'}
-  $('b-next').addEventListener('click',function(){stop();if(i<MODES[mode].length-1){i++;render()}});
-  $('b-back').addEventListener('click',function(){stop();if(i>0){i--;render()}});
-  $('b-play').addEventListener('click',function(){
-    if(timer){stop();return}
-    if(i>=MODES[mode].length-1){i=0;render()}
-    this.textContent='Pause';
-    timer=setInterval(function(){if(i<MODES[mode].length-1){i++;render()}else stop()},reduce?3600:2400);
-  });
-  document.querySelectorAll('[data-mode]').forEach(function(b){b.addEventListener('click',function(){
-    if(b.disabled)return; stop();
-    document.querySelectorAll('[data-mode]').forEach(function(x){x.setAttribute('aria-pressed',x===b?'true':'false')});
-    mode=b.getAttribute('data-mode'); i=0; render();
-  })});
-  render();
+  /* reference */
+  $('api-sum').innerHTML='The API <span class="muted">'+M.api.endpoints.length+' endpoints, schema '+esc(M.schema.version)+'</span>';
+  $('eps').innerHTML=M.api.endpoints.map(function(e){return '<tr><td class="id">'+e.method+'</td><td><code>'+esc(e.path)+'</code></td><td>'+md(e.result)+'</td></tr>'}).join('');
+  var merges=M.workFeed.filter(function(w){return w.pr}).slice(0,15);
+  $('feed-sum').innerHTML='Recent merges <span class="muted">the latest '+merges.length+' pull requests</span>';
+  $('feed').innerHTML=merges.map(function(w){return '<tr><td class="id">#'+w.pr+'</td><td><a href="'+REPO+'/pull/'+w.pr+'">'+md(w.title.replace(/^\w+(\([^)]+\))?:\s*/,''))+'</a></td><td class="fine n">'+nice(w.date)+'</td></tr>'}).join('');
 
-  /* api */
-  $('api-sub').textContent='Agents talk to ’crow over plain HTTPS, from docs/api.md. Any operator node serves the same API, and an agent can switch nodes, or submit straight to the settlement layer, if a node refuses. Every call that changes something carries the agent’s own EIP-712 signature (a standard for signing structured data) and an Idempotency-Key, so a retried call never acts twice. The contract lives in spec/schemas and changes only through an ADR and a version bump.';
-  stats($('api-stats'),[['endpoints',M.api.endpoints.length],['schema version',esc(M.schema.version)],['schema files',M.schema.files.length]]);
-  $('eps-sum').innerHTML='All '+M.api.endpoints.length+' endpoints <span class="n">method, path and what it returns</span>';
-  $('eps').innerHTML=M.api.endpoints.map(function(e){return '<tr><td class="m '+e.method.toLowerCase()+'">'+e.method+'</td><td class="p">'+esc(e.path).replace(/\//g,'/<wbr>')+'</td><td class="r">'+md(e.result)+'</td></tr>'}).join('');
-  var tabs=$('extabs'), seen={};
-  M.api.examples.forEach(function(x,k){
-    var head=x.heading.replace(/^Example: /,''), n=seen[head]=(seen[head]||0)+1;
-    var b=document.createElement('button'); b.type='button'; b.setAttribute('role','tab'); b.id='tab-'+k;
-    b.textContent=head.charAt(0).toUpperCase()+head.slice(1)+' '+n;
-    function show(){tabs.querySelectorAll('button').forEach(function(o){o.setAttribute('aria-selected',o===b?'true':'false')});$('excode').textContent=x.code;$('excap').textContent=head+' · '+x.lang.toUpperCase()}
-    b.addEventListener('click',show); tabs.appendChild(b); if(k===0)show();
-  });
-
-  /* history */
-  var FIRST=5, TY={feat:'feature',fix:'fix',docs:'docs',chore:'chore',test:'test',refactor:'refactor',ci:'ci',commit:'commit'};
-  var prs=M.workFeed.filter(function(w){return w.pr}).length;
-  $('feed-sub').textContent='Every change that reached main, newest first: '+prs+' pull requests merged so far. The latest '+FIRST+' are below.';
-  function feedRow(w){
-    var title=plain(w.title);
-    var link=w.pr?'<a href="'+REPO+'/pull/'+w.pr+'">'+md(title)+'</a>':md(title);
-    return '<li><span class="ty '+esc(w.type)+'">'+esc(TY[w.type]||w.type)+(w.scope?'<small>'+esc(w.scope)+'</small>':'')+'</span><span>'+link+'</span><span class="meta">'+(w.pr?'<span class="mono">#'+w.pr+'</span> · ':'')+nice(w.date)+'</span></li>';
-  }
-  $('feedlist').innerHTML=M.workFeed.slice(0,FIRST).map(feedRow).join('');
-  var rest=M.workFeed.slice(FIRST);
-  if(rest.length){$('feedrest').innerHTML=rest.map(feedRow).join('');$('feedmore-sum').innerHTML='Show '+rest.length+' earlier <span class="n">changes</span>'}else $('feedmore').hidden=true;
+  /* summary */
+  $('summary').textContent='Crow is escrow and arbitration for AI agents. '+(last?'Phase '+last.n+' ('+last.title+') is the latest phase done. ':'')+'The public demo runs on the Sepolia testnet, with test tokens only. '+(props.length?plural(props.length,'task')+' are proposed for what comes next and wait for Rafa’s approval. ':'')+'The backlog holds '+plural(total,'deferred row')+', each with the event that brings it back.';
 })();
 </script>
