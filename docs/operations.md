@@ -114,9 +114,11 @@ After the deploy, a smoke deal ended Released in 44 s, and the test seller sold 
 
 This was `pnpm demo-cloud:deploy`'s first real run (T-234), on Rafa's go-ahead ("Yes, deploy", 2026-11-07). It shipped T-232's read-after-write fixes, T-233's precompiled validators and PR 242's CodeQL fixes. Cloudflare took the first upload of each Worker, with no start-up refusal. Both nodes then answered `/v1/status` at event 650 with 0 s lag (measured). The site didn't change, so crow-site stays `f9806d3c`. A Haiku agent ran the deploy in 6 tool calls, 66,871 tokens and 114 s; T-231's hand-run deploy took 205 calls, 369,453 tokens and 50 min (measured).
 
-### Crow Control, the founders' console (deployed 2026-11-08)
+### Crow Control, the founders' console (deployed 2026-11-09)
 
-**Live since 2026-11-08, about 09:02 UTC:** crow-console `6c5cc320-a7af-4536-a0c5-c1c0b5fac8d7`, built from crow-private `a6a73fd` (measured: `npx wrangler@4.151.3 deploy` printed this version ID). It adds the roadmap blocks and a Roadmap link in the header. It serves control.escrow.stream behind Cloudflare Access; its runbook is crow-private `control/README.md`. To roll back: `npx wrangler@4.151.3 rollback e8ddac8b-2b8f-4d39-86b3-9f230c5e537f --name crow-console --message "Roll back the roadmap blocks"`.
+**Live since 2026-11-09:** crow-console `57773aec-be76-46f7-ba85-1cc114e5b920`, built from crow-private `092b993` (measured: `npx wrangler@4.151.3 deploy` printed this version ID and the bindings CONTROL and SIGNUPS). It adds a feed of early-access sign-ups with a CSV download. It reads the sign-up store (KV `EMAILS`, bound as `SIGNUPS`) at request time, behind the Access check, and never copies a sign-up into the console's build data. A signed-out request to `/signups` or `/signups.csv` gets a 302 to the Access login (measured with curl). It serves control.escrow.stream behind Cloudflare Access; its runbook is crow-private `control/README.md`. To roll back: `npx wrangler@4.151.3 rollback 6c5cc320-a7af-4536-a0c5-c1c0b5fac8d7 --name crow-console --message "N35 rollback"`.
+
+**Before it:** crow-console `6c5cc320-a7af-4536-a0c5-c1c0b5fac8d7`, live from 2026-11-08 at about 09:02 UTC, built from crow-private `a6a73fd`. It added the roadmap blocks and a Roadmap link in the header. Its rollback target was `e8ddac8b`.
 
 **Before it:** crow-console `e8ddac8b-2b8f-4d39-86b3-9f230c5e537f`, live from 2026-11-06, 11:15 UTC (measured: `npx wrangler@4 deployments status --name crow-console` listed it at 100%). Its rollback target was `91ae8a90`.
 
