@@ -6,15 +6,16 @@ The public demo of Crow (the Holdback protocol). Test tokens only; nothing here 
 
 | Address | What | Source | Deployed by |
 | --- | --- | --- | --- |
-| https://escrow.stream (and `www.`) | The site: tagline, early access, Try line, the animated plate; agent docs at `/llms.txt` | `site/` (`site/llms.txt` is the one source; `site/build.mjs` renders the page) | Cloudflare Worker `crow-site`, static assets (`apps/site/wrangler.jsonc`) |
-| https://api.escrow.stream | Operator node 1, home of the World Durable Object (the faucet, the adjudicators and the operators' view), which settles on Ethereum Sepolia since 2026-11-03 (D41; SimChain on a rollback) | `apps/demo-cloud/` (wraps `apps/operator`, `packages/settlement/sim`, `apps/adjudicator`) | Worker `holdback-op1` (`apps/demo-cloud/wrangler.op1.jsonc`) |
-| https://api2.escrow.stream | Operator node 2, same world, own receipt key | same | Worker `holdback-op2` (`wrangler.op2.jsonc`) |
-| https://join.escrow.stream | Early-access email sign-ups (KV `EMAILS`: address, time, page; nothing else) | `apps/early-access/` | Worker `crow-early-access` |
-| https://escrow.stream/agents/test-seller | Crow's test seller (D47, T-222): a standing party that sells one test dataset over the operators' public API. Not deployed yet: the first deploy waits for Rafa (below) | `apps/test-agents/` (reuses `examples/agent.ts` and `verify.ts`) | Worker `crow-test-agents` on the route `escrow.stream/agents/test-seller*` (`apps/test-agents/wrangler.jsonc`) |
+| https://crow.direct (and `www.`) | The site: the landing page from Rafa's mock (D56), early access, the Try line; agent docs at `/llms.txt` | `site/` (`site/llms.txt` is the one source; `site/build.mjs` renders the page) | Cloudflare Worker `crow-site`, static assets behind `apps/site/worker.js` (`apps/site/wrangler.jsonc`) |
+| https://api.crow.direct | Operator node 1, home of the World Durable Object (the faucet, the adjudicators and the operators' view), which settles on Ethereum Sepolia since 2026-11-03 (D41; SimChain on a rollback) | `apps/demo-cloud/` (wraps `apps/operator`, `packages/settlement/sim`, `apps/adjudicator`) | Worker `holdback-op1` (`apps/demo-cloud/wrangler.op1.jsonc`) |
+| https://api2.crow.direct | Operator node 2, same world, own receipt key | same | Worker `holdback-op2` (`wrangler.op2.jsonc`) |
+| https://join.crow.direct | Early-access email sign-ups (KV `EMAILS`: address, time, page; nothing else) | `apps/early-access/` | Worker `crow-early-access`, one KV namespace for both hostnames |
+| https://crow.direct/agents/test-seller | Crow's test seller (D47, T-222): a standing party that sells one test dataset over the operators' public API. Not deployed yet: the first deploy waits for Rafa (below) | `apps/test-agents/` (reuses `examples/agent.ts` and `verify.ts`) | Worker `crow-test-agents` on the route `crow.direct/agents/test-seller*` (`apps/test-agents/wrangler.jsonc`) |
 | Ethereum Sepolia (chain 11155111) | The reviewed settlement contracts under EIP-712 domain 0.7 and their tUSDC test token, which the live demo settles on since 2026-11-04 (ADR-0029). The domain 0.6 deployment of 2026-11-03 still settles the deals opened on it | `contracts/src/` at `64be1f1`; addresses in `contracts/deployments/sepolia.json` (the 0.6 deployment, from `2342756`: `sepolia-2026-11-03-domain-0.6.json`) | `contracts/script/deploy-sepolia.sh` (T-206), with a throwaway deployer key |
-| npc.here.now/escrow | Old address; a redirect to escrow.stream | `reports/redirect/` (not in git) | here.now; no further publishing needed |
+| escrow.stream, www.escrow.stream, join.escrow.stream, escrow.stream/agents/test-seller | The old hostnames, kept while the forwarding runs (T-312): the site answers with a 301 to the same path on crow.direct, sign-ups and the test seller with a 308 (a browser sign-up from an old page is served in place). api.escrow.stream and api2.escrow.stream are not redirected: the operators serve both hostnames | `apps/site/worker.js`, `apps/early-access/worker.js`, `apps/test-agents/src/worker.ts` | the same Workers, with the old hostnames as extra Custom Domains and routes |
+| npc.here.now/escrow | Old address; a redirect to escrow.stream, which forwards to crow.direct | `reports/redirect/` (not in git) | here.now; no further publishing needed |
 
-All on Rafa's Cloudflare account (its ID goes in `CLOUDFLARE_ACCOUNT_ID` in the git-ignored `.env`; template: `config/keys-dev-env.template`). The domain `escrow.stream` was bought on Cloudflare (`brand/domain.md`).
+All on Rafa's Cloudflare account (its ID goes in `CLOUDFLARE_ACCOUNT_ID` in the git-ignored `.env`; template: `config/keys-dev-env.template`). The domains `escrow.stream` (`brand/domain.md`) and `crow.direct` (Rafa, 2026-11-10) were bought on Cloudflare; crow.direct is the canonical home since T-312's deploy, and Crow Control's control.crow.direct waits on the private repository.
 
 **Demo settings** (in `apps/demo-cloud/wrangler.op1.jsonc` vars): minimum window 60 s; operator fee 1 bp, minimum 0.01 tUSD (D33, ADR-0023). Live judges: Anthropic and DeepSeek, pinned in `config/judges-live.yaml`, capped at 30 calls a day (`LIVE_JUDGE_CALLS_PER_DAY`); past the cap, or without keys, panels are scripted and every verdict says so.
 
@@ -36,7 +37,7 @@ Always build and check before deploying; deploy only what changed. Deploys run a
 
 ```sh
 # the site
-node site/build.mjs --op1 https://api.escrow.stream --op2 https://api2.escrow.stream --out reports/site-out
+node site/build.mjs --op1 https://api.crow.direct --op2 https://api2.crow.direct --out reports/site-out
 node site/check.mjs
 npx wrangler@4 deploy --config apps/site/wrangler.jsonc
 
@@ -45,7 +46,7 @@ npx wrangler@4 deploy --config apps/site/wrangler.jsonc
 pnpm demo-cloud:deploy
 
 # a live end-to-end deal against the deployed nodes (the deploy runs one; deal.ts runs on SimChain only)
-HOLDBACK_OPERATORS=https://api.escrow.stream,https://api2.escrow.stream node examples/try.ts
+HOLDBACK_OPERATORS=https://api.crow.direct,https://api2.crow.direct node examples/try.ts
 
 # early-access sign-ups
 npx wrangler@4 deploy --config apps/early-access/wrangler.jsonc
@@ -67,11 +68,11 @@ node apps/test-agents/scripts/deploy.mjs
 
 **Crow's test seller, the first deploy** (D47; Rafa's go-ahead first). The site's one command buys from the test seller, so the seller goes live before the site that names it:
 
-1. `node apps/test-agents/scripts/deploy.mjs`: the Worker, its Durable Object and its route `escrow.stream/agents/test-seller*`. The route takes that path before crow-site's Custom Domain, as Cloudflare documents. If it does not, switch the route to the Custom Domain `agents.escrow.stream`, and change `SELLER_URL` and `TEST_SELLER_URL` in `site/build.mjs` to match.
+1. `node apps/test-agents/scripts/deploy.mjs`: the Worker, its Durable Object and its routes `crow.direct/agents/test-seller*` and `escrow.stream/agents/test-seller*`. The route takes that path before crow-site's Custom Domain, as Cloudflare documents. If it does not, switch the route to the Custom Domain `agents.crow.direct`, and change `SELLER_URL` and `TEST_SELLER_URL` in `site/build.mjs` to match.
 2. `node apps/test-agents/scripts/seed.mjs`: sets `TEST_AGENTS_SEED`.
-3. Check that `https://escrow.stream/agents/test-seller/health` reads `operational`, and that `https://escrow.stream/` is still the site.
+3. Check that `https://crow.direct/agents/test-seller/health` reads `operational`, and that `https://crow.direct/` is still the site.
 4. Measure which client IP the operators see for the seller's calls: the seller and the operators share the zone, so `cf-connecting-ip` follows `x-real-ip`, which the seller never sets (research note, section 5). It needs the faucet about once a month, so a shared bucket does not bind.
-5. Run one deal: `node site/try.mjs --seller https://escrow.stream/agents/test-seller`, then once with `--outcome refund`. Record the transactions in T-222's Evidence.
+5. Run one deal: `node site/try.mjs --seller https://crow.direct/agents/test-seller`, then once with `--outcome refund`. Record the transactions in T-222's Evidence.
 6. Publish the site (above).
 
 If the seller is down or busy, `try.mjs` plays both sides and says so, so a site published first still completes a deal. **The mandate runs out after 30 days.** The seller asks the faucet for a fresh one 2 hours before. With T-223 (PR 191) each grant signs a new 30-day mandate. Operators that do not yet run T-223 return the address's existing mandate (D47), so the seller marks itself degraded and its health line reads `degraded`. In that case Rafa deploys the operators, or rotates the secret with `seed.mjs --replace`; a world reset also clears it.
@@ -93,7 +94,7 @@ Each operator Worker has a variable `SETTLEMENT`, `sim` or `sepolia`, in its wra
 **Cutover** (Rafa approved it on 2026-11-03):
 
 1. Deploy holdback-op1's code with `SETTLEMENT` still `sim`: `pnpm -C apps/demo-cloud build`, then `npx wrangler@4 deploy -c apps/demo-cloud/wrangler.op1.jsonc --var SETTLEMENT:sim`. The SimChain demo keeps running.
-2. Deploy holdback-op2 with `SETTLEMENT` `sepolia`. Smoke test against op2's two origins: `HOLDBACK_OPERATORS=https://api2.escrow.stream,https://holdback-op2.<account>.workers.dev node examples/try.ts`; it must end Released with three Sepolia transaction links. From here until step 4 the try command in `llms.txt` fails: try.mjs requires both operators to serve one discovery document, and op1 still serves SimChain's.
+2. Deploy holdback-op2 with `SETTLEMENT` `sepolia`. Smoke test against op2's two origins: `HOLDBACK_OPERATORS=https://api2.crow.direct,https://holdback-op2.<account>.workers.dev node examples/try.ts`; it must end Released with three Sepolia transaction links. From here until step 4 the try command in `llms.txt` fails: try.mjs requires both operators to serve one discovery document, and op1 still serves SimChain's.
 3. Deploy the site at once (the Sepolia `llms.txt`, and a `try.mjs` that knows both the SimChain and the Sepolia pins).
 4. Deploy holdback-op1 with `SETTLEMENT` `sepolia`, and run the one command from `llms.txt` ("Try it"). Steps 2 to 4 take a few minutes; that is the window in which the try command fails.
 

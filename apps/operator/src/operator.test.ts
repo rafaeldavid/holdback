@@ -149,7 +149,7 @@ describe('headers and problems', () => {
     expect(missing.status).toBe(404);
     const p = await json(missing);
     expect(p).toMatchObject({ type: 'not_found', status: 404, title: 'No such resource or route' });
-    expect(missing.headers.get('link')).toBe('<https://escrow.stream/problems/not_found>; rel="type"');
+    expect(missing.headers.get('link')).toBe('<https://crow.direct/problems/not_found>; rel="type"');
     expect(p['instance']).toBe(`urn:holdback:request:${missing.headers.get('request-id')}`);
     expect(missing.headers.get('holdback-schema-version')).toBe('0.10');
     expect((await get('/v1/nothing')).status).toBe(404);

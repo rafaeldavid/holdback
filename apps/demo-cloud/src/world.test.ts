@@ -184,7 +184,7 @@ describe('public mode', () => {
       expect(root.demo.adjudicators).toEqual(d.demo.adjudicators);
       const llms = await (await fetch(`${u}/llms.txt`)).text();
       expect(llms).toMatch(/POST \/v1\/faucet/);
-      expect(llms).toContain('https://escrow.stream/llms.txt');
+      expect(llms).toContain('https://crow.direct/llms.txt');
     }
     // The two nodes sign receipts with different keys.
     const signers = await Promise.all(urls.map(async (u) => ((await (await fetch(`${u}/v1/status`)).json()) as J).receiptSigner));
@@ -321,6 +321,20 @@ async function outsideRegistration(urls: string[], who: TestAccount, issuedAt: s
   const expiresAt = new Date(Date.parse(issuedAt) + 365 * 86_400_000).toISOString().replace('.000Z', 'Z');
   return signRegistration(who.privateKey, holdbackDomain(31337), body, { keyId: `${body.policy.id}/k1`, issuedAt, nonce: canonicalKeccak({ who: who.address, issuedAt }), expiresAt });
 }
+
+describe('two hostnames per operator node (T-312)', () => {
+  it('answers on api.escrow.stream and api.crow.direct alike, and advertises the crow.direct addresses it is configured with', async () => {
+    const urls = ['https://api.crow.direct', 'https://api2.crow.direct'];
+    const world = await PublicWorld.open({ storage: new MemoryStorage(), env: { OPERATOR_URLS: urls.join(',') }, minWindowSec: 2 });
+    for (const [node, host] of [[0, 'api.escrow.stream'], [0, 'api.crow.direct'], [1, 'api2.escrow.stream'], [1, 'api2.crow.direct']] as const) {
+      const r = await world.fetch(new Request(`https://${host}/.well-known/holdback.json`), { node, origin: `https://${host}`, client: 'test' });
+      expect(r.status).toBe(200);
+      const d = (await r.json()) as J;
+      expect(d.apiBaseUrl).toBe(urls[node]);
+      expect(d.demo.operators).toEqual(urls);
+    }
+  });
+});
 
 describe('adjudicator registrations in the world store (T-221 slice 2, ADR-0030)', () => {
   const page = async (url: string, q = ''): Promise<J> => (await (await fetch(`${url}/v1/adjudicators${q}`)).json()) as J;

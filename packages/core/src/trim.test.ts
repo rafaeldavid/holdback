@@ -5,8 +5,8 @@ describe('trimTrailingSlashes', () => {
   it.each([
     ['', ''],
     ['///', ''],
-    ['https://api.escrow.stream', 'https://api.escrow.stream'],
-    ['https://api.escrow.stream///', 'https://api.escrow.stream'],
+    ['https://api.crow.direct', 'https://api.crow.direct'],
+    ['https://api.crow.direct///', 'https://api.crow.direct'],
     ['a//b//', 'a//b'],
     ['a/\n', 'a/\n'],
   ])('trims %j to %j, as /\\/+$/ did', (input, want) => expect(trimTrailingSlashes(input)).toBe(want));

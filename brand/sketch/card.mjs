@@ -1,4 +1,4 @@
-// The 1200x630 social card for escrow.stream: Thorburn's pencil crow (public domain, 1919) centred on the site's paper.
+// The 1200x630 social card for crow.direct: Thorburn's pencil crow (public domain, 1919) centred on the site's paper.
 // Usage: node brand/sketch/card.mjs <bird.bmp> <out.png>   (the BMP is the same crop lift.mjs reads)
 import { readFileSync, writeFileSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';

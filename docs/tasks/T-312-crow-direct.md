@@ -6,9 +6,9 @@
 - **Depends on:** nothing. Rafa asked for it on 2026-11-10 and bought crow.direct the same day.
 - **Paths this task may touch:**
   - PR A (the landing page): `site/build.mjs`, `site/check.mjs`, `site/llms.txt`, `site/index.html`, `README.md`, `tools/design-map/template.html`, `brand/README.md`, `brand/messaging.md`, `docs/decisions-today.md` (D56), this file;
-  - PR B (the domain): `apps/site/`, `apps/early-access/`, `apps/test-agents/`, `apps/demo-cloud/` (wrangler files, the deploy script, tests), `apps/operator/src/` (the agent guide and problem-type URLs, tests), `site/` (build, check, llms.txt, index.html, try.mjs, visualdemo), `examples/try.ts` and `examples/try.test.ts` (the try command's default operators), `spec/openapi.json` and `spec/openapi/paths.json` (descriptions only, not `spec/schemas/`), `packages/core/src/trim.test.ts`, `tests/` (a new forwarding test), `tools/contract-stack/template.html`, `README.md`, `SECURITY.md`, `docs/api.md`, `docs/quickstart.md`, `docs/operations.md`, `brand/README.md`, `brand/messaging.md`, this file.
+  - PR B (the domain): `apps/site/`, `apps/early-access/`, `apps/test-agents/`, `apps/demo-cloud/` (wrangler files, the deploy script, tests), `apps/operator/src/` (the agent guide and problem-type URLs, tests), `site/` (build, check, llms.txt, index.html, try.mjs, visualdemo), `examples/try.ts` and `examples/try.test.ts` (the try command's default operators), `spec/openapi.json` and `spec/openapi/paths.json` (descriptions only, not `spec/schemas/`), `packages/core/src/trim.test.ts`, `tests/` (a new forwarding test, and the contract test's agent-guide URL), `tools/contract-stack/template.html`, `brand/sketch/card.mjs` (a comment), `README.md`, `SECURITY.md`, `docs/api.md`, `docs/quickstart.md`, `docs/operations.md`, `brand/README.md`, `brand/messaging.md`, this file.
 - **Human gate:** yes for every deploy, and for the Cloudflare account and the Crow Control Access application. Nothing here deploys.
-- **Status:** in progress
+- **Status:** review
 - **Agent/session:** T-312 implementer session, 2026-11-10, worktree `.worktrees/t-312`, branches `t-312-tagline` (PR A) and `t-312-crow-direct` (PR B, stacked on A)
 
 ## Intent
@@ -16,7 +16,7 @@
 Rafa gave the product a new page and a new address on 2026-11-10.
 
 1. **The landing page (PR A).** The site follows Rafa's mock (`crow-landing-mock-v2.html`), in its wording exactly: the bird, the ’crow mark, the tagline "Verifiable settlement for AI commerce", a headline that alternates "Sell to" and "Buy from" before "any agent.", the lede, early access, six features and the footer. It works like the live site: the sign-up reaches the early-access Worker, the bird is the site's own `/crow.png`, every call in the code columns exists in `examples/agent.ts`, and agents still find `/llms.txt` and the One-Click Try prompt. `site/llms.txt` opens with the same tagline, headline and lede. D56 records it and supersedes D40's tagline; D40's privacy part stands. Rafa's first wording the same day ("Verified Settlement for AI Commerce", "Safe to buy. Safe to sell.") is superseded and does not ship.
-2. **The domain (PR B).** crow.direct becomes the canonical home, with the same map of hostnames as escrow.stream today: crow.direct and www.crow.direct for the site, api.crow.direct and api2.crow.direct for the two operators, join.crow.direct for sign-ups, crow.direct/agents/test-seller for the test seller (agents.crow.direct as the fallback, as D47 has it).
+2. **The domain (PR B).** crow.direct becomes the canonical home, with the same map of hostnames as escrow.stream today: crow.direct and www.crow.direct for the site, api.crow.direct and api2.crow.direct for the two operators, join.crow.direct for sign-ups, crow.direct/agents/test-seller for the test seller. D47's fallback Custom Domain is not attached.
 3. **Forwarding (PR B).** People and agents who reach escrow.stream land on crow.direct:
    - the site Worker answers escrow.stream and www.escrow.stream with a 301 to the same path and query on https://crow.direct;
    - the test-agents Worker answers escrow.stream/agents/test-seller* with a 308, which keeps a POST's method and body;
@@ -52,12 +52,12 @@ PR A:
 - [x] `node site/build.mjs && node site/check.mjs` passes, and screenshots at 1440, 768 and 390 px match the mock.
 
 PR B:
-- [ ] The site Worker returns a 301 to https://crow.direct with the path and query kept for an escrow.stream or www.escrow.stream Host, and serves the static assets for crow.direct.
-- [ ] The test-agents Worker returns a 308 for a POST on escrow.stream, and the early-access Worker a 308 for a POST and a 301 for a GET on join.escrow.stream.
-- [ ] The operators answer on both hostnames and advertise crow.direct.
-- [ ] The early-access Worker's CORS list allows both origins.
-- [ ] Every current doc, card and published URL names crow.direct; history is unchanged.
-- [ ] The PR body lists the deploy commands in order, each with its rollback, and the post-deploy checks.
+- [x] The site Worker returns a 301 to https://crow.direct with the path and query kept for an escrow.stream or www.escrow.stream Host, and serves the static assets for crow.direct.
+- [x] The test-agents Worker returns a 308 for a POST on escrow.stream, and the early-access Worker a 308 for a POST and a 301 for a GET on join.escrow.stream.
+- [x] The operators answer on both hostnames and advertise crow.direct.
+- [x] The early-access Worker's CORS list allows both origins.
+- [x] Every current doc, card and published URL names crow.direct; history is unchanged.
+- [x] The PR body lists the deploy commands in order, each with its rollback, and the post-deploy checks.
 
 ## Plan
 
@@ -76,14 +76,31 @@ PR A:
   - 390 px: `reports/scratch/landing-390.png` and `reports/scratch/landing-mock-390.png`, through a 390 px iframe, because headless Chrome will not size a window that narrow. One feature column; the button wraps under the email box, as in the mock.
 - The sign-up's request is unchanged from the live page: the same URL, JSON body (`email`, `company` honeypot, `page`), messages and disabled state (inferred from the code; not posted, since a post would write to the live sign-up store).
 
+PR B (measured, 2026-11-10, worktree `.worktrees/t-312`):
+- Tests written first: `tests/forwarding.test.ts` (site and early-access Workers), two tests in `apps/test-agents/src/worker.test.ts` and one in `apps/demo-cloud/src/world.test.ts`. Before the Workers changed, the site test file could not load (no `apps/site/worker.js`) and both test-seller tests failed (200, not 308). The operator test passed from the start: the operators never check the Host, and the test pins that.
+- `vitest run tests/forwarding.test.ts tests/spec.test.ts tests/contract apps/test-agents/src apps/operator/src/operator.test.ts apps/demo-cloud/src/world.test.ts packages/core/src/trim.test.ts examples/try.test.ts`: 11 files, 306 tests passed, after the contract test's agent-guide URL moved to crow.direct.
+- `pnpm typecheck` passes; eslint on every changed code file is clean.
+- After review: `vitest run apps/test-agents/src tests/forwarding.test.ts`: 4 files, 31 tests passed, with the new `storeUri` tests.
+- `pnpm openapi` rewrote 5 description lines in `spec/openapi.json`; `pnpm validate:spec`: 34/34 examples valid, `spec/openapi.json` fresh. `spec/schemas/` is unchanged.
+- `node site/build.mjs && node site/check.mjs`: site check PASS. `site/try.mjs` changed (its default operators are api.crow.direct and api2.crow.direct), and the try command in llms.txt pins its new SHA-256, `4dab4c08bea061e54f73eb54ec72ce4a43f65690fe41a6029a3aea0d3c31dd21`.
+- Not run: any deploy, the try command against crow.direct, and `pnpm verify` (the kind's local checks are the site check and the touched packages' tests; CI is the gate).
+
 ## Decisions
 
 - 2026-11-10: **the page keeps the Try line.** The mock drops it, but `site/check.mjs` (section 7) and `examples/try.test.ts` require the homepage's copied prompt for One-Click Escrow (D51). It sits with the `/llms.txt` link in one quiet line under the footer, in the footer's italic.
 - 2026-11-10: **the code columns call what `examples/agent.ts` serves.** Fixed from the mock: the arbitration template is `default` with a `rubric` (the operator knows only `default` and `checks-only`; there is no `adjudicated` template and no `panel` field); an offer names `clubId`, `seller`, `buyer` and `adjudicators`, which the operator requires; `deliverable` has `description` and `format`, which the schema requires; the buyer waits for `AcceptedByAdjudicator` before it agrees, as `examples/buy-dataset.ts` does; and "what did the seller sign" reads `/v1/commitments/{id}/terms`, since `/v1/commitments/{id}` is the state only.
 - 2026-11-10: **no Content-Security-Policy.** The live page sends none (no meta tag; `apps/site` has no headers file), so the new page adds none.
 - 2026-11-10: **dropped from the live page, as the mock does:** the animated plate (the two agents, the escrow, the adjudicator and the bond), the typed code streams, and the old intro. `site/agent.png`, `site/bond.png` and `site/escrow.png`, which only the plate used, stay in `site/` for now.
+- 2026-11-10 (PR B): **a browser sign-up on join.escrow.stream is served in place.** The brief asks for a 308 on every POST. A browser that follows a cross-origin redirect sends the next request with `Origin: null`, which the Worker refuses, and a CORS preflight cannot follow a redirect at all, so a page still open on escrow.stream could not sign up. A POST carrying an allowed site origin, and every OPTIONS, is answered in place into the same KV namespace; every other POST gets the 308 and every GET the 301.
+- 2026-11-10 (PR B): **the operators advertise crow.direct** (`OPERATOR_URLS`), so discovery's `apiBaseUrl`, ciphertext URIs and `llms.txt` links name crow.direct on both hostnames. Ciphertext URIs stored before the deploy name api.escrow.stream, which keeps serving.
+- 2026-11-10 (PR B, after review): **the new domains attach before any new code, and the code deploys back to back.** Once the operators' code advertises crow.direct, new ciphertext URIs name api.crow.direct, and the try.mjs still served on escrow.stream accepts only api.escrow.stream URIs. So the plan attaches the site's and operators' crow.direct domains with `wrangler triggers deploy` (or in the dashboard), waits for 200s, deploys early-access, then the operators, the test seller and the site's code back to back: a window of about 4 minutes [guessed]. Rollbacks pair: the operators with the site, and the test seller only with the operators.
+- 2026-11-10 (PR B, after review): **the test seller accepts ciphertext URIs on both api hostnames** (`OPERATOR_ALIASES`, `storeUri` in `seller.ts`), so it works whichever hostname the operators advertise, and survives an operator rollback. The operators build URIs as before.
+- 2026-11-10 (PR B): **left on escrow.stream:** `site/visualdemo/` (a replay of the 2026-11-02 deal, a record), `examples/e2e-*` (round 1's driver), `scripts/metrics/`, `scripts/costs/` and their fixtures (they read the live API, which keeps both hostnames, and Crow Control runs them; switching them before the deploy would point them at hosts that do not answer yet), and history.
 - 2026-11-10: **D40 gets a pointer, not an edit.** Its heading and record stay as history; one line above them names D56.
 
 ## Handoff
 
-- **PR A:** ready for review. `CLAUDE.md`'s Map section still names "Programmatic Escrow and Arbitration" and escrow.stream, for Rafa to change (tier 3).
+- **PR A:** in review. `CLAUDE.md`'s Map section still names "Programmatic Escrow and Arbitration" and escrow.stream, and its Start here section names control.escrow.stream, for Rafa to change (tier 3).
+- **PR B:** in review, stacked on PR A. Its body holds the deploy plan, with each Worker's rollback; every step waits for Rafa.
+- **For Rafa only:** confirm crow.direct is an active zone in the Cloudflare account that holds escrow.stream, before any deploy; after the move, add control.crow.direct to Crow Control's Access application and its Worker (private repository).
+- **Follow-ups, after the deploy:** point `scripts/metrics/`, `scripts/costs/`, `examples/e2e-round.ts` and `config/costs.template.json` at crow.direct; update `docs/demo.md`, `docs/costs.md`, `docs/update-flow.md`, `agent-ops/` and `.claude/` (out of this lane); decide when to drop the escrow.stream hostnames; remove `site/agent.png`, `bond.png` and `escrow.png` if nothing else needs them.

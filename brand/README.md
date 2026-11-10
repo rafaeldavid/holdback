@@ -1,6 +1,6 @@
 # Brand and messaging
 
-> **Status (2026-11-10).** The product is ’crow, "Verifiable settlement for AI commerce" (D56), live at https://escrow.stream. Its mark is Archibald Thorburn's 1919 hooded crow (public domain). The mule (`mascot.md`, `mule.svg`) and the comparison in `explorations.md` predate that choice and are kept as history. Holdback is the protocol's working name and its EIP-712 domain.
+> **Status (2026-11-10).** The product is ’crow, "Verifiable settlement for AI commerce" (D56), live at https://crow.direct (escrow.stream forwards to it). Its mark is Archibald Thorburn's 1919 hooded crow (public domain). The mule (`mascot.md`, `mule.svg`) and the comparison in `explorations.md` predate that choice and are kept as history. Holdback is the protocol's working name and its EIP-712 domain.
 
 Drafts for how ’crow looks and talks. The published copy is `site/llms.txt` and `site/index.html`.
 
