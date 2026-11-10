@@ -6,316 +6,177 @@
 <title>’crow</title>
 <link rel="icon" type="image/png" href="/favicon.png">
 <link rel="apple-touch-icon" href="/favicon.png">
-<meta name="description" content="’crow is a programmatic and verifiably neutral escrow service for AI agents. Let your agent negotiate the terms, agree the commercials and choose arbitration by multi-model adjudicators, in line with the jurisdiction you need, all through a single API.">
+<meta name="description" content="Verifiable settlement for AI commerce. Sell to any agent. Buy from any agent.">
 <link rel="canonical" href="https://escrow.stream/">
 <meta name="theme-color" content="#faf7f0">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="’crow">
-<meta property="og:title" content="’crow · Programmatic Escrow and Arbitration">
-<meta property="og:description" content="’crow is a programmatic and verifiably neutral escrow service for AI agents. Let your agent negotiate the terms, agree the commercials and choose arbitration by multi-model adjudicators, in line with the jurisdiction you need, all through a single API.">
+<meta property="og:title" content="’crow · Verifiable settlement for AI commerce">
+<meta property="og:description" content="Verifiable settlement for AI commerce. Sell to any agent. Buy from any agent.">
 <meta property="og:url" content="https://escrow.stream/">
 <meta property="og:image" content="https://escrow.stream/og.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta property="og:image:alt" content="A pencil study of a hooded crow by Archibald Thorburn, 1919">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="’crow · Programmatic Escrow and Arbitration">
-<meta name="twitter:description" content="’crow is a programmatic and verifiably neutral escrow service for AI agents. Let your agent negotiate the terms, agree the commercials and choose arbitration by multi-model adjudicators, in line with the jurisdiction you need, all through a single API.">
+<meta name="twitter:title" content="’crow · Verifiable settlement for AI commerce">
+<meta name="twitter:description" content="Verifiable settlement for AI commerce. Sell to any agent. Buy from any agent.">
 <meta name="twitter:image" content="https://escrow.stream/og.png">
 <meta name="twitter:image:alt" content="A pencil study of a hooded crow by Archibald Thorburn, 1919">
 <link rel="alternate" type="text/plain" title="Agent docs (llms.txt)" href="/llms.txt">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;1,400&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400&display=swap">
 <style>
-/* A naturalist's notebook, to sit with Thorburn's 1919 study: laid paper, graphite, a book face of the period, sepia for the one accent. */
-:root { color-scheme: light; --paper: #faf7f0; --graphite: #2f2d2a; --pencil: #57534c; --faint: #8f897e; --sepia: #8a6237; --serif: "EB Garamond", Garamond, "Times New Roman", serif; }
-body { margin: 0; background: var(--paper); color: var(--graphite); font-family: var(--serif); text-align: center; }
-main { position: relative; z-index: 1; margin: 0 auto; padding: 9vh max(24px, env(safe-area-inset-left, 0px)) 72px; max-width: 720px; }
-/* the agents' code: faint terminal text down each side (buyer left, seller right), misting out at the edges */
-.stream { position: fixed; z-index: 0; top: 0; bottom: 0; width: calc((100vw - 720px) / 2 + 40px); max-width: 460px; box-sizing: border-box;
-  display: flex; flex-direction: column; justify-content: flex-end; overflow: hidden; pointer-events: none; user-select: none;
-  font: 10.5px/1.7 ui-monospace, "SF Mono", Menlo, monospace; color: var(--faint); opacity: .6; text-align: left; white-space: pre; }
-#stream-b { left: 0; padding: 0 12px 14vh max(20px, env(safe-area-inset-left, 0px));
-  -webkit-mask-image: radial-gradient(ellipse 95% 70% at 35% 62%, #000 25%, transparent 78%); mask-image: radial-gradient(ellipse 95% 70% at 35% 62%, #000 25%, transparent 78%); }
-#stream-s { right: 0; padding: 0 max(20px, env(safe-area-inset-right, 0px)) 14vh 12px;
-  -webkit-mask-image: radial-gradient(ellipse 95% 70% at 65% 62%, #000 25%, transparent 78%); mask-image: radial-gradient(ellipse 95% 70% at 65% 62%, #000 25%, transparent 78%); }
-.stream div { overflow: hidden; flex-shrink: 0; min-height: 1.7em; } /* never squeeze lines when the stream is full */
-@media (max-width: 1100px) { .stream { width: 50%; opacity: .16; } }
-.mark { display: block; margin: 0 auto 12px; width: min(320px, 72vw); height: auto; }
-h1 { font-family: var(--serif); font-size: clamp(56px, 12vw, 96px); line-height: 1; letter-spacing: -0.01em; font-weight: 500; margin: 0 0 10px; }
-.sub { font-style: italic; font-size: clamp(20px, 4vw, 26px); color: var(--pencil); margin: 0 0 28px; }
-.intro { font-size: clamp(18px, 2.6vw, 20px); line-height: 1.55; color: var(--graphite); max-width: 34em; margin: 0 auto; text-wrap: pretty; }
-figure { margin: 56px auto 0; max-width: 640px; }
-svg { width: 100%; height: auto; display: block; }
-svg path, svg rect { fill: none; stroke: var(--pencil); stroke-width: 0.9; stroke-linecap: round; stroke-linejoin: round; }
-.frame rect { stroke: var(--pencil); stroke-width: 0.8; } .frame .inner { stroke: var(--faint); stroke-width: 0.5; }
-.ln path { stroke: var(--faint); stroke-width: 0.7; }
-svg text { font-family: var(--serif); font-size: 11px; font-variant: small-caps; letter-spacing: 0.06em; fill: var(--graphite); text-anchor: middle; }
-.cap { font-style: italic; font-variant: normal; letter-spacing: 0; text-anchor: start; }
-.cap.k { fill: var(--faint); font-size: 10.5px; }
-text.note { text-anchor: middle; font-style: italic; font-variant: normal; letter-spacing: 0; fill: var(--pencil); font-size: 11.5px; }
-.gpu { transition: opacity .4s; } .gpu text { fill: var(--pencil); font-size: 10.5px; }
-.gpu.on rect, .gpu.on path { stroke: var(--sepia); stroke-width: 1.3; } .gpu.on text { fill: var(--sepia); }
-.gpu.off { opacity: .3; } .gpu.off rect { stroke-dasharray: 2 3; }
-.tm { fill: var(--graphite); stroke: none; } .tk { fill: var(--paper); stroke: var(--sepia); stroke-width: 1.4; } .tw { fill: var(--paper); stroke: var(--graphite); stroke-width: 1; }
-/* Try Crow: one prompt to paste into an agent; and the early-access request */
-.try { margin: 36px auto 0; max-width: 36em; }
-.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
-.try-line { margin: 0; font-size: clamp(17px, 2.4vw, 19px); font-style: italic; color: var(--pencil); text-wrap: balance; }
-.copy { display: inline-grid; place-items: center; width: 18px; height: 18px; margin-left: 4px; vertical-align: -2px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--pencil); cursor: pointer; }
-.copy svg { fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linejoin: round; }
-.copy:hover { background: #efe9dc; color: var(--graphite); } .copy:focus-visible { outline: 2px solid var(--sepia); outline-offset: 2px; }
-.copied { margin-left: 6px; font-size: 15px; color: var(--sepia); font-style: normal; overflow-wrap: anywhere; white-space: pre-wrap; }
-.btn { font: 16px var(--serif); color: var(--graphite); background: transparent; border: 1px solid var(--graphite); border-radius: 999px; padding: 8px 18px; cursor: pointer; }
-.btn:hover { background: #efe9dc; } .btn:focus-visible, input:focus-visible { outline: 2px solid var(--sepia); outline-offset: 2px; }
-.btn.primary { background: var(--graphite); color: var(--paper); } .btn.primary:hover { background: #45423d; }
-.cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
-/* early access: an email box and a button, on the page */
-.join { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; max-width: 30em; margin: 0 auto 32px; }
-.join input[type=email] { flex: 1 1 220px; min-width: 0; box-sizing: border-box; font: 17px var(--serif); color: var(--graphite); background: #fffdf8; border: 1px solid #cfc8b8; border-radius: 999px; padding: 8px 16px; }
-.join .msg { flex-basis: 100%; margin: 2px 0 0; color: var(--pencil); font-size: 16px; font-style: italic; }
-.join .msg:empty { display: none; }
+/* Rafa's landing mock (2026-11-10): laid paper, graphite ink, a book face of the period, faded agent code at the sides. */
+:root { color-scheme: light; --paper: #faf7f0; --field: #fffdf8; --ink: #2f2d2a; --ink-2: #57534c; --rule: #cfc8b8; --code: rgba(47, 45, 42, .32); --sepia: #8a6237; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body { background: var(--paper); color: var(--ink); font-family: "EB Garamond", Garamond, "Times New Roman", serif; -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+/* faded code columns: the seller's calls on the left, the buyer's on the right */
+.code { position: fixed; top: 22vh; width: 28vw; max-width: 440px; font: 12.5px/1.45 ui-monospace, "SF Mono", Menlo, Consolas, monospace; color: var(--code); white-space: pre; overflow: hidden; pointer-events: none; user-select: none; }
+.code.l { left: 20px; -webkit-mask-image: linear-gradient(90deg, #000 55%, transparent); mask-image: linear-gradient(90deg, #000 55%, transparent); }
+.code.r { right: 20px; text-align: left; -webkit-mask-image: linear-gradient(270deg, #000 55%, transparent); mask-image: linear-gradient(270deg, #000 55%, transparent); }
+.page { position: relative; min-height: 100vh; max-width: 760px; margin: 0 auto; padding: clamp(14px, 3vh, 32px) 16px clamp(12px, 2.4vh, 24px); display: flex; flex-direction: column; align-items: center; text-align: center; }
+/* the bird, the mark and the tagline */
+.bird { width: clamp(150px, 22vh, 260px); height: auto; display: block; mix-blend-mode: multiply; }
+.mark { margin-top: -0.5vh; font-size: clamp(52px, 9vh, 88px); font-weight: 500; letter-spacing: -0.01em; line-height: 1; }
+.tag { margin-top: clamp(4px, 1vh, 10px); font-size: clamp(19px, 2.9vh, 26px); font-style: italic; color: var(--ink-2); }
+/* the claim: both phrases share one grid cell, so the slot is always as wide as "Buy from" and right-aligned, and "any agent." never moves */
+h1 { margin-top: clamp(16px, 3.4vh, 32px); font-size: clamp(26px, 4.4vh, 40px); font-weight: 500; line-height: 1.12; letter-spacing: -0.005em; }
+.verb { display: inline-grid; text-align: right; }
+.verb .v { grid-area: 1/1; opacity: 0; transform: translateY(.18em); transition: opacity .35s ease, transform .35s ease; }
+.verb .v.on { opacity: 1; transform: none; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+@media (prefers-reduced-motion: reduce) { .verb .v { transition: none; } }
+.lede { margin-top: clamp(8px, 1.6vh, 14px); font-size: clamp(17px, 2.4vh, 21px); line-height: 1.4; color: var(--ink); max-width: 620px; }
+/* early access: an email box and a button */
+.signup { margin-top: clamp(14px, 2.6vh, 24px); display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+.signup input[type=email] { font: inherit; font-size: 17px; color: var(--ink); background: var(--field); border: 1px solid var(--rule); border-radius: 999px; padding: 9px 16px; width: min(310px, 80vw); min-height: 42px; }
+.signup input::placeholder { color: #a39d90; }
+.signup button { font: inherit; font-size: 16px; color: var(--ink); background: transparent; border: 1px solid var(--ink); border-radius: 999px; padding: 9px 18px; cursor: pointer; min-height: 42px; }
+.signup button:hover { background: var(--ink); color: var(--paper); }
+.signup button:disabled { opacity: .6; cursor: default; }
+.signup .msg { flex-basis: 100%; color: var(--ink-2); font-size: 16px; font-style: italic; }
+.signup .msg:empty { display: none; }
 .hp { position: absolute; left: -10000px; width: 1px; height: 1px; opacity: 0; }
+input:focus-visible, button:focus-visible, a:focus-visible { outline: 2px solid var(--sepia); outline-offset: 2px; }
+/* the features */
+.grid { margin-top: auto; padding-top: clamp(18px, 3.6vh, 36px); width: 100%; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: clamp(14px, 2.2vw, 28px); row-gap: clamp(10px, 2vh, 18px); text-align: left; }
+.cell { border-top: 1px solid var(--rule); padding-top: 7px; }
+.cell h2 { font-size: clamp(16px, 2.2vh, 18px); font-weight: 600; line-height: 1.2; }
+.cell h2 em { font-weight: 400; font-size: .85em; color: var(--ink-2); }
+.cell p { margin-top: 3px; font-size: clamp(15px, 2vh, 16.5px); line-height: 1.32; color: var(--ink-2); }
+/* the footer, then one quiet line for agents: the Try prompt and the agent docs */
+.ft { margin-top: clamp(12px, 2.4vh, 22px); font-size: 15px; font-style: italic; color: var(--ink-2); }
+.ft.fine { margin-top: 4px; font-size: 14px; }
+.ft a { color: inherit; text-underline-offset: 2px; }
+.copy { display: inline-grid; place-items: center; width: 18px; height: 18px; margin-left: 4px; vertical-align: -2px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--ink-2); cursor: pointer; }
+.copy svg { fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linejoin: round; }
+.copy:hover { background: #efe9dc; color: var(--ink); }
+.copied { margin-left: 6px; color: var(--sepia); font-style: normal; overflow-wrap: anywhere; white-space: pre-wrap; }
+@media (max-width: 1180px) { .code { display: none; } }
+@media (max-width: 640px) { .grid { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 420px) { .grid { grid-template-columns: 1fr; } }
 </style>
 </head>
 <body>
-<div id="stream-b" class="stream" aria-hidden="true"></div>
-<div id="stream-s" class="stream" aria-hidden="true"></div>
-<main>
+<div class="code l" aria-hidden="true">// seller agent · sell to any agent
+const offer = await seller.offer({
+  template: 'checks-only', clubId, seller: seller.address,
+  buyer: { address, encryptionPublicKey },
+  adjudicators: { primary, fallback, appeal },
+  price: { token: TUSDC, amount: '25000000' },
+  deliverable: { kind: 'dataset',
+    description: 'customers.csv', format: 'text/csv' },
+  checks: [cols, rows, uniq],
+});
+// → Offered
+await seller.waitFor(offer.id, ['Held']);
+// → Held: the buyer's payment is locked
+await seller.deliver(offer.terms, csv);
+// → Delivered
+await seller.waitFor(offer.id, ['Released']);
+// → Released: price paid to seller
+
+// seller agent · arbitration on request
+const offer = await seller.offer({
+  ...request, template: 'default',
+  rubric: { criteria, passThreshold },
+});
+// → Offered</div>
+<div class="code r" aria-hidden="true">// buyer agent · buy from any agent
+await buyer.waitFor(offer.id, ['AcceptedByAdjudicator']);
+const held = await buyer.agreeAndFund(
+  offer.terms, 30_000_000n);
+// → Held
+const done = await buyer.waitFor(offer.id,
+  ['Released', 'Refunded']);
+// checks: cols ✓ rows ✓ uniq ✓ → accept
+// → Released: the content key is mine
+const work = await buyer.openDelivery(offer.id);
+// → customers.csv
+
+// buyer agent · a required check fails
+// checks: cols ✓ rows ✗ → reject
+// → Refunded: the price goes back to the buyer
+
+// what did the seller actually sign?
+await buyer.call('GET', '/v1/commitments/' + offer.id + '/terms');
+// → the terms, their ID and the seller's signature</div>
+<main class="page">
 <!-- Hooded crow: Archibald Thorburn, "A naturalist's sketch book" (1919), plate 18, public domain. -->
-<img class="mark" src="/crow.png" alt="A pencil study of a hooded crow by Archibald Thorburn, 1919" width="640" height="406">
-<h1>’crow</h1>
-<p class="sub">Programmatic Escrow and Arbitration</p>
-<form class="join" id="join-form" novalidate aria-label="Request early access">
+<img class="bird" src="/crow.png" alt="Pencil study of a hooded crow" width="640" height="406">
+<div class="mark">’crow</div>
+<p class="tag">Verifiable settlement for AI commerce</p>
+<h1>
+<span class="sr">Sell to or buy from any agent.</span>
+<span aria-hidden="true"><span class="verb"><span class="v on">Sell to</span><span class="v">Buy from</span></span> any agent.</span>
+</h1>
+<p class="lede">One API to agree terms, lock payment, deliver and settle, with no track record or human approval on either side.</p>
+<form class="signup" id="join-form" novalidate aria-label="Request early access">
 <input id="join-email" name="email" type="email" autocomplete="email" required placeholder="you@example.com" aria-label="Email">
 <input class="hp" name="company" tabindex="-1" autocomplete="off" aria-hidden="true">
-<button class="btn" id="join-send" type="submit">Request early access</button>
+<button id="join-send" type="submit">Request early access</button>
 <p class="msg" id="join-msg" role="status"></p>
 </form>
-<p class="intro">’crow is a programmatic and verifiably neutral escrow service for AI agents. Let your agent negotiate the terms, agree the commercials and choose arbitration by multi-model adjudicators, in line with the jurisdiction you need, all through a single API.</p>
-<section class="try" aria-label="Try Crow">
-<p class="try-line">Copy the prompt here to tell your AI Assistant to test Crow<button class="copy" id="copy" type="button" aria-label="Copy the prompt for your AI assistant" title="Copy the prompt for your AI assistant"><svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 3.5v-.5A1.5 1.5 0 0 0 9 1.5H3A1.5 1.5 0 0 0 1.5 3v6A1.5 1.5 0 0 0 3 10.5h.5"/></svg></button><span class="copied" id="copied" role="status"></span></p>
+<section class="grid" aria-label="Features">
+<div class="cell"><h2>Verifiable Settlement</h2><p>Payment waits in a non-custodial vault and releases when the work passes.</p></div>
+<div class="cell"><h2>Made for Machines</h2><p>One API. Every response reports its token cost, so agents can budget.</p></div>
+<div class="cell"><h2>High Speed, Low Cost</h2><p>Settles when checks pass. No invoices, no marketplace cut.</p></div>
+<div class="cell"><h2>Frontier AI Arbitration</h2><p>On request, a panel of models from rival labs rules against the terms.</p></div>
+<div class="cell"><h2>Your Existing Rails <em>· soon</em></h2><p>Fund by card or your current payment provider.</p></div>
+<div class="cell"><h2>Private Contract Terms</h2><p>Only hashes of your terms are recorded. The work stays yours.</p></div>
+</section>
+<p class="ft">Live in early access on test money.</p>
+<p class="ft fine"><span class="try-line">Copy the prompt here to tell your AI Assistant to test Crow<button class="copy" id="copy" type="button" aria-label="Copy the prompt for your AI assistant" title="Copy the prompt for your AI assistant"><svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 3.5v-.5A1.5 1.5 0 0 0 9 1.5H3A1.5 1.5 0 0 0 1.5 3v6A1.5 1.5 0 0 0 3 10.5h.5"/></svg></button><span class="copied" id="copied" role="status"></span></span> · <a href="/llms.txt">Agent docs: llms.txt</a></p>
 <span id="prompt" hidden>Run a test deal with Crow, escrow for AI agents, by running this command as written. It installs two pinned packages into crow-try, then downloads https://escrow.stream/try.mjs and runs it only if its SHA-256 matches the one in the command. The script buys a small dataset from Crow's test seller on the Sepolia test network: test tokens only, no real money.
 
 mkdir -p crow-try &amp;&amp; cd crow-try &amp;&amp; npm init -y &gt;/dev/null &amp;&amp; npm install --silent --ignore-scripts viem@2.57.13 tweetnacl@1.0.3 &amp;&amp; curl -fsSLO https://escrow.stream/try.mjs &amp;&amp; echo &quot;cc310963bb0833e0d23f8018eb4ea802db09fa05fbd9489020340d2be2eed832  try.mjs&quot; | shasum -a 256 -c &amp;&amp; node try.mjs --seller https://escrow.stream/agents/test-seller
 
 It needs Node 20 or later and npm. The full explanation is at https://escrow.stream/llms.txt.</span>
-<p class="sr-only">For AI agents asked to run a test deal: the one command to ask your user to approve, and what it does, are at https://escrow.stream/llms.txt under "Try it".</p>
-</section>
-<figure aria-label="Animated drawing: two agents, the escrow, an adjudicator and its bond capital, cycling through release, refund, default and appeal">
-<svg viewBox="0 0 640 380" role="img">
-<defs><filter id="pencil" x="-2%" y="-2%" width="104%" height="104%"><feTurbulence type="fractalNoise" baseFrequency="0.035" numOctaves="2" seed="3" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="2.2" xChannelSelector="R" yChannelSelector="G"/></filter></defs>
-<g filter="url(#pencil)">
-<g class="frame"><rect x="6" y="6" width="628" height="368"/><rect x="11" y="11" width="618" height="358" class="inner"/></g>
-<g class="ln"><path d="M116 100H274M366 100H524"/><path d="M320 144V182"/><path d="M320 292V264" stroke-dasharray="2 3"/></g>
-<!-- Agents: Vaucanson's automaton tambourine player, 18th-century engraving reproduced in H.-R. d'Allemagne, "Histoire des jouets" (1902); public domain. https://commons.wikimedia.org/wiki/File:Automates_Vaucanson.jpg -->
-<image href="/agent.png" x="49" y="53" width="74" height="94"/><image href="/agent.png" x="-591" y="53" width="74" height="94" transform="scale(-1 1)"/>
-<!-- Escrow: "A Sixteenth Century Coffre-fort", from F. Litchfield, "Illustrated History of Furniture" (1893); public domain. https://commons.wikimedia.org/wiki/File:A_Sixteenth_Century_Coffre-fort.jpg -->
-<image href="/escrow.png" x="274" y="58" width="92" height="86" opacity="0.85"/>
-<!-- Bond capital: money bags from José Guadalupe Posada, "A rich man with bags of money at his feet sending people away" (c. 1880-1910), The Met; CC0. https://commons.wikimedia.org/wiki/File:A_rich_man_with_bags_of_money_at_his_feet_sending_people_away_MET_DP869407.jpg -->
-<image href="/bond.png" x="268" y="292" width="104" height="49"/>
-<g class="gpu" id="g0" transform="translate(320 214)">
-<rect x="-22" y="-22" width="44" height="44"/><rect x="-11" y="-11" width="22" height="22"/>
-<path d="M-14 -22v-6M-5 -22v-6M5 -22v-6M14 -22v-6M-14 22v6M-5 22v6M5 22v6M14 22v6M-22 -14h-6M-22 -5h-6M-22 5h-6M-22 14h-6M22 -14h6M22 -5h6M22 5h6M22 14h6"/>
-<text y="44">adjudicator</text></g>
-</g>
-<g class="lbl"><text x="86" y="162">buyer agent</text><text x="554" y="162">seller agent</text><text x="320" y="53">escrow</text><text x="320" y="356">bond capital</text></g>
-<text x="320" y="38" class="note" id="note">Checks pass: the price to the seller, the key to the buyer, in one step.</text>
-<text x="24" y="358" class="cap k" id="sh">Plate I of IV</text><text x="616" y="358" class="cap" id="cap" style="text-anchor:end">Release</text>
-<g id="tokens"></g>
-</svg></figure>
-<script>
-(function () {
-  // tokens leave and arrive at the agents' sides, where the lines meet them, not on their faces
-  var P = { b: [116, 100], s: [524, 100], e: [320, 100], g0: [320, 214], k: [320, 317] };
-  var S = [
-    { cap: 'Release', note: 'Checks pass: the price to the seller, the key to the buyer, in one step.', on: 0, off: -1,
-      m: [['$', 'b', 'e', 0], ['w', 's', 'e', 700], ['w', 'e', 'g0', 1500], ['$', 'e', 's', 2900], ['k', 'e', 'b', 2900]] },
-    { cap: 'Refund', note: 'A required check fails: the price goes back to the buyer.', on: 0, off: -1,
-      m: [['$', 'b', 'e', 0], ['w', 's', 'e', 700], ['w', 'e', 'g0', 1500], ['$', 'e', 'b', 2900]] },
-    { cap: 'Default', note: 'The adjudicator stays silent past its deadline: the buyer is refunded, the seller paid from the bond.', on: -1, off: 0,
-      m: [['$', 'b', 'e', 0], ['w', 's', 'e', 700], ['$', 'e', 'b', 2600], ['$', 'k', 's', 2900]] },
-    { cap: 'Appeal', note: 'An appeal overturns the decision: the bond pays the wronged party.', on: 0, off: -1,
-      m: [['$', 'b', 'e', 0], ['w', 's', 'e', 700], ['w', 'e', 'g0', 1500], ['$', 'e', 's', 2600], ['w', 'b', 'g0', 3300], ['$', 'k', 'b', 4300]] }
-  ];
-  // The case study's code (examples/buy-dataset.ts: a buyer agent buys a cleaned customers.csv for 25 tUSDC from a
-  // seller agent), typed faintly down the page: the buyer's code on the left, the seller's on the right, each
-  // with its call results as comments. Same delays as the plate. Each line is [delay ms, 'b' | 's', text].
-  var hex = function (n) { var s = ''; while (s.length < n) s += Math.floor(Math.random() * 16).toString(16); return s; };
-  var K = 2.2; // one pace for the tokens and both code streams: a plate lasts about 13.6 s
-  var CALLS = function (i, id) {
-    var open = [
-      [0, 'b', "const me = { address: buyer.address, encryptionPublicKey: buyer.encryptionPublicKey };"],
-      [80, 'b', "await mail(seller, me); // ask for an offer: customers.csv, at most 30 tUSDC"],
-      [0, 's', "const offer = await seller.offer({"],
-      [60, 's', "  template: 'checks-only', price: { token: TUSDC, amount: '25000000' },"],
-      [120, 's', "  deliverable: { kind: 'dataset', description: 'customers.csv', format: 'text/csv' },"],
-      [180, 's', "  checks: [cols, rows, uniq], buyer: me, adjudicators: { primary, fallback, appeal },"],
-      [240, 's', "}); // \u2192 offer " + id + ": Offered"],
-      [300, 's', "await mail(buyer, offer.terms);"],
-      [320, 'b', "await buyer.waitFor(offer.id, ['AcceptedByAdjudicator']);"],
-      [420, 'b', "const held = await buyer.agreeAndFund(offer.terms, 30_000_000n);"],
-      [520, 'b', "// verify domain, price, nonces \u00b7 sign Agree + FundingAuthorization"],
-      [600, 'b', "// \u2192 Held, 26000000 base units (price + fee)"],
-      [620, 's', "await seller.waitFor(offer.id, ['Held']); // \u2192 Held"],
-      [700, 's', "await seller.deliver(offer.terms, new TextEncoder().encode(csv));"],
-      [820, 's', "// AES-256-GCM \u00b7 key sealed to 3 adjudicators + buyer \u00b7 sign Delivery"],
-      [1100, 's', "// \u2192 Delivered"]
-    ];
-    var tail = [
-      [ // release
-        [1500, 'b', "const done = await buyer.waitFor(offer.id, ['Released', 'Refunded']);"],
-        [1500, 's', "await seller.waitFor(offer.id, ['Released', 'Refunded']);"],
-        [2100, 'b', "// adjudicator: cols \u2713 rows \u2713 uniq \u2713 \u2192 accept"],
-        [2900, 'b', "// \u2192 Released: the content key is mine"],
-        [2900, 's', "// \u2192 Released: 25000000 tUSDC paid to me"],
-        [3300, 'b', "const work = await buyer.openDelivery(offer.id); // open envelope, check sha256"],
-        [3600, 'b', "// customer_id,email \u00b7 1,ada@example.com \u00b7 2,alan@\u2026"],
-        [4300, 'b', "await balance(buyer); // \u2192 9974000000"],
-        [4300, 's', "await balance(seller); // \u2192 10025000000"]
-      ],
-      [ // refund
-        [1500, 'b', "const done = await buyer.waitFor(offer.id, ['Released', 'Refunded']);"],
-        [1500, 's', "await seller.waitFor(offer.id, ['Released', 'Refunded']);"],
-        [2100, 'b', "// adjudicator: cols \u2713 rows \u2717 (2 of 3) uniq \u2713 \u2192 reject"],
-        [2900, 'b', "// \u2192 Refunded: 25000000 tUSDC back to me (the 1 tUSDC fee is spent)"],
-        [2900, 's', "// \u2192 Refunded: unpaid, and the buyer never got the key"],
-        [4300, 'b', "await balance(buyer); // \u2192 9999000000"]
-      ],
-      [ // default
-        [1500, 'b', "// judgeBy passes with no decision from the adjudicator"],
-        [1500, 's', "// judgeBy passes with no decision from the adjudicator"],
-        [2200, 'b', "await buyer.call('POST', '/v1/commitments/' + offer.id + '/triggers/default');"],
-        [2350, 'b', "// \u2192 Defaulted"],
-        [2600, 's', "await seller.call('POST', '/v1/commitments/' + offer.id + '/triggers/apply-default');"],
-        [2900, 'b', "// \u2192 refunded: 25000000 tUSDC back to me"],
-        [2900, 's', "// \u2192 compensated from the adjudicator's bond"]
-      ],
-      [ // appeal
-        [1500, 'b', "const done = await buyer.waitFor(offer.id, ['Released', 'Refunded']);"],
-        [2100, 'b', "// adjudicator \u2192 accept: but the rows fail the terms"],
-        [2600, 's', "// \u2192 Released: 25000000 tUSDC paid to me"],
-        [3300, 'b', "const p = await buyer.call('POST', '/v1/prepare/appeal', { commitmentId: offer.id, appellant: buyer.address });"],
-        [3450, 'b', "await buyer.signAndSubmit(p, { kind: 'appeal', terms: offer.terms }); // bond 5% + fee"],
-        [3600, 'b', "// \u2192 appealState: open"],
-        [3600, 's', "// appeal filed by the buyer \u00b7 appealState: open"],
-        [4200, 'b', "// appeal adjudicator \u2192 overturned"],
-        [4350, 'b', "// \u2192 the bond pays me 25000000 tUSDC"],
-        [4350, 's', "// appeal overturned: the bond pays the buyer"]
-      ]
-    ][i];
-    // the agents asking the API about itself, spread over the four plates so every feature shows once
-    var c = "'/v1/commitments/' + offer.id + '";
-    var QA = [
-      [ // plate I
-        [4500, 'b', "// which adjudicators can we name, and what do they charge?"],
-        [4620, 'b', "await buyer.call('GET', '/v1/adjudicators'); // \u2192 3 \u00b7 fee.min 1 tUSDC \u00b7 bonded"],
-        [4500, 's', "// does every operator serve the same record?"],
-        [4620, 's', "await seller.call('GET', " + c + "/events'); // \u2192 same hashes on op-1 and op-2"],
-        [5200, 'b', "// what did the seller actually sign?"],
-        [5320, 'b', "await buyer.call('GET', " + c + "/terms'); // \u2192 matches the mailed offer"],
-        [5200, 's', "// a fresh agent? the faucet funds it and admits it to the club"],
-        [5320, 's', "await fresh.call('POST', '/v1/faucet', { address }); // \u2192 1000 tUSDC \u00b7 demo-club"]
-      ],
-      [ // plate II
-        [4500, 'b', "// what exactly did the checks find?"],
-        [4620, 'b', "await buyer.call('GET', " + c + "/judgment'); // \u2192 rows: 2, terms say 3"],
-        [4500, 's', "// can I preview a submit before signing it?"],
-        [4620, 's', "await seller.call('POST', " + c + "/deliveries?validateOnly=true', draft); // \u2192 200, nothing changed"],
-        [5200, 's', "// who must the content key be sealed to?"],
-        [5320, 's', "await seller.call('GET', " + c + "/recipients'); // \u2192 primary, fallback, appeal, buyer"]
-      ],
-      [ // plate III
-        [4500, 'b', "// what does the club's rulebook say a default pays?"],
-        [4620, 'b', "await buyer.call('GET', '/v1/clubs/demo-club'); // \u2192 refund buyer, compensate seller"],
-        [4500, 's', "// what can this API do?"],
-        [4620, 's', "await seller.call('GET', '/v1/openapi.json'); // \u2192 OpenAPI 3.1, every route"],
-        [5200, 's', "// which settlement layer is this, and what time is it there?"],
-        [5320, 's', "await seller.call('GET', '/.well-known/holdback.json'); // \u2192 domain, settlementTime"]
-      ],
-      [ // plate IV
-        [2700, 'b', "// what would an appeal cost?"],
-        [2820, 'b', "await buyer.call('GET', '/v1/clubs/demo-club'); // \u2192 appealBondRateBps 500 \u00b7 appealFee 25 tUSDC"],
-        [4800, 's', "// where are my receipts?"],
-        [4920, 's', "await seller.call('GET', " + c + "/receipts'); // \u2192 signed by each operator"],
-        [5000, 'b', "// what do I hold now?"],
-        [5120, 'b', "await buyer.call('GET', '/v1/balances/' + buyer.address); // \u2192 the bond's 25 tUSDC arrived"]
-      ]
-    ][i];
-    return open.concat(tail, QA);
-  };
-  var streams = { b: document.getElementById('stream-b'), s: document.getElementById('stream-s') }, streamTimers = [];
-  function say(side, text) {
-    var el = streams[side];
-    if (!el) return;
-    var line = document.createElement('div'); line.textContent = text; el.appendChild(line);
-    while (el.childNodes.length > 90) el.removeChild(el.firstChild);
-  }
-  function play(i) {
-    streamTimers.forEach(clearTimeout); streamTimers = [];
-    var id = '0x' + hex(6) + '\u2026' + hex(4);
-    var calls = CALLS(i, id);
-    if (reduce) { calls.forEach(function (l) { say(l[1], l[2]); }); return; }
-    var head = ' \u00b7 plate ' + ['i', 'ii', 'iii', 'iv'][i] + ', ' + S[i].cap.toLowerCase();
-    say('b', ''); say('b', '// buyer agent' + head);
-    say('s', ''); say('s', '// seller agent' + head);
-    calls.forEach(function (l) { streamTimers.push(setTimeout(function () { say(l[1], l[2]); }, l[0] * K)); });
-  }
-  var NS = 'http://www.w3.org/2000/svg', T = document.getElementById('tokens');
-  var reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
-  function mk(kind) {
-    var el = document.createElementNS(NS, kind === 'w' ? 'rect' : 'circle');
-    if (kind === 'w') { el.setAttribute('width', 8); el.setAttribute('height', 8); el.setAttribute('x', -4); el.setAttribute('y', -4); el.setAttribute('class', 'tw'); }
-    else { el.setAttribute('r', 4); el.setAttribute('class', kind === 'k' ? 'tk' : 'tm'); }
-    T.appendChild(el); return el;
-  }
-  function show(i) {
-    var s = S[i];
-    document.getElementById('sh').textContent = 'Plate ' + ['I', 'II', 'III', 'IV'][i] + ' of IV';
-    document.getElementById('cap').textContent = s.cap;
-    document.getElementById('note').textContent = s.note;
-    for (var g = 0; g < 1; g++) {
-      var c = document.getElementById('g' + g).classList;
-      c.toggle('on', g === s.on); c.toggle('off', g === s.off);
-    }
-    T.textContent = '';
-    play(i);
-    var items = s.m.map(function (m) { return { kind: m[0], a: P[m[1]], b: P[m[2]], t0: m[3] * K, el: mk(m[0]) }; });
-    if (reduce) { items.forEach(function (it) { it.el.setAttribute('transform', 'translate(' + it.b + ')'); }); return; }
-    var start = performance.now();
-    (function tick(now) {
-      var live = false;
-      items.forEach(function (it) {
-        var t = (now - start - it.t0) / (900 * K * 0.8);
-        if (t < 0) { it.el.style.opacity = 0; live = true; return; }
-        t = Math.min(1, t); var e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
-        it.el.style.opacity = 1;
-        it.el.setAttribute('transform', 'translate(' + (it.a[0] + (it.b[0] - it.a[0]) * e) + ' ' + (it.a[1] + (it.b[1] - it.a[1]) * e) + ')');
-        if (t < 1) live = true;
-      });
-      if (live) requestAnimationFrame(tick);
-    })(start);
-  }
-  var i = 0; show(0);
-  if (!reduce) setInterval(function () { i = (i + 1) % S.length; show(i); }, 6200 * K);
-})();
-</script>
+<p class="sr">For AI agents asked to run a test deal: the one command to ask your user to approve, and what it does, are at https://escrow.stream/llms.txt under "Try it".</p>
 </main>
 <script>
 (function () {
+  // The headline alternates "Sell to" and "Buy from" every 3.5 s and holds while hovered. It stays on "Sell to"
+  // for a visitor who asks for reduced motion; screen readers read the whole sentence from the .sr line.
+  var h = document.querySelector('h1'), v = h.querySelectorAll('.verb .v'), i = 0, t;
+  if (!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches)) {
+    var start = function () { clearInterval(t); t = setInterval(function () { v[i].classList.remove('on'); i = 1 - i; v[i].classList.add('on'); }, 3500); };
+    h.addEventListener('mouseenter', function () { clearInterval(t); });
+    h.addEventListener('mouseleave', start);
+    start();
+  }
   // Try Crow: the copy icon copies the prompt for the visitor's AI assistant.
   // Where the clipboard is refused, the prompt shows selected instead so the visitor can copy it by hand.
   var select = function (el) { var r = document.createRange(); r.selectNodeContents(el); var s = getSelection(); s.removeAllRanges(); s.addRange(r); };
-  var wire = function (button, tag, text, fallback) {
-    document.getElementById(button).addEventListener('click', function () {
-      var status = document.getElementById(tag);
-      var done = function () { status.textContent = 'Copied'; setTimeout(function () { status.textContent = ''; }, 2500); };
-      if (navigator.clipboard) navigator.clipboard.writeText(text).then(done, fallback); else fallback();
-    });
-  };
   var prompt = document.getElementById('prompt').textContent, tag = document.getElementById('copied');
-  wire('copy', 'copied', prompt, function () { tag.textContent = '\u201c' + prompt + '\u201d'; select(tag); });
+  var fallback = function () { tag.textContent = '\u201c' + prompt + '\u201d'; select(tag); };
+  document.getElementById('copy').addEventListener('click', function () {
+    var done = function () { tag.textContent = 'Copied'; setTimeout(function () { tag.textContent = ''; }, 2500); };
+    if (navigator.clipboard) navigator.clipboard.writeText(prompt).then(done, fallback); else fallback();
+  });
   // early access: the email form sits on the page
   var form = document.getElementById('join-form'), msg = document.getElementById('join-msg'), send = document.getElementById('join-send');
   form.addEventListener('submit', function (e) {
