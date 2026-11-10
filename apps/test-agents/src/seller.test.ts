@@ -12,7 +12,7 @@ import { clientKey, TestSeller, type Limits } from './seller.ts';
 import { serveWorld, type TestWorld } from './test-world.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
-const BASE = 'https://escrow.stream/agents/test-seller';
+const BASE = 'https://crow.direct/agents/test-seller';
 const pin = knownPins()[0]!; // SimChain, as the in-process world settles
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const sha256hex = async (s: string) => Buffer.from(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s))).toString('hex');

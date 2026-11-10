@@ -173,7 +173,7 @@ describe('try.ts', () => {
     const v = (name: string) => (JSON.parse(readFileSync(here(`./node_modules/${name}/package.json`), 'utf8')) as { version: string }).version;
     expect(pins()).toEqual({ viem: v('viem'), tweetnacl: v('tweetnacl') });
     const command = tryCommand();
-    expect(command).toBe(`mkdir -p crow-try && cd crow-try && npm init -y >/dev/null && npm install --silent --ignore-scripts viem@${v('viem')} tweetnacl@${v('tweetnacl')} && curl -fsSLO https://escrow.stream/try.mjs && echo "${sha}  try.mjs" | shasum -a 256 -c && node try.mjs --seller https://escrow.stream/agents/test-seller`);
+    expect(command).toBe(`mkdir -p crow-try && cd crow-try && npm init -y >/dev/null && npm install --silent --ignore-scripts viem@${v('viem')} tweetnacl@${v('tweetnacl')} && curl -fsSLO https://crow.direct/try.mjs && echo "${sha}  try.mjs" | shasum -a 256 -c && node try.mjs --seller https://crow.direct/agents/test-seller`);
     const md = readFileSync(here('../site/llms.txt'), 'utf8');
     const html = readFileSync(here('../site/index.html'), 'utf8');
     expect(html === page(md), 'site/index.html is stale: run node site/build.mjs').toBe(true);
@@ -182,7 +182,7 @@ describe('try.ts', () => {
     const span = /<span id="prompt" hidden>([^<]*)<\/span>/.exec(html);
     const prompt = (span?.[1] ?? '').replaceAll('&quot;', '"').replaceAll('&lt;', '<').replaceAll('&gt;', '>').replaceAll('&amp;', '&');
     expect(prompt.split('\n')).toContain(command);
-    expect(prompt).toContain('https://escrow.stream/llms.txt');
+    expect(prompt).toContain('https://crow.direct/llms.txt');
     const visible = html.replace(span?.[0] ?? '', '');
     expect(visible).not.toContain('mkdir -p crow-try');
     expect(visible).not.toContain(sha);
@@ -190,7 +190,7 @@ describe('try.ts', () => {
     const tryIt = txt.slice(txt.indexOf('## Try it'), txt.indexOf('\n## ', txt.indexOf('## Try it') + 3));
     expect(tryIt.split('\n').find((l) => l.startsWith('mkdir '))).toBe(command);
     // Each fetch before the command is one more approval: "Try it" asks for none, and keeps the sha256 pin and the source.
-    expect(tryIt).not.toMatch(/before you ask|fetch https:\/\/escrow\.stream\/try\.mjs/);
+    expect(tryIt).not.toMatch(/before you ask|fetch https:\/\/crow\.direct\/try\.mjs/);
     expect(tryIt).toContain('runs it only if its SHA-256 matches the one in the command');
     expect(tryIt).toContain('`examples/try.ts`, `agent.ts` and `verify.ts` in https://github.com/rafaeldavid/holdback');
   });

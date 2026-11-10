@@ -1,6 +1,6 @@
 // The problem types an operator answers (RFC 9457; docs/api.md, Errors; D39). One table: each type's HTTP status,
 // a short title, and what a caller does next. The OpenAPI document builds its Problem enum from it
-// (scripts/openapi.mjs) and the site renders one page per type at https://escrow.stream/problems/<type>
+// (scripts/openapi.mjs) and the site renders one page per type at https://crow.direct/problems/<type>
 // (site/build.mjs), so the `Link: <…>; rel="type"` on every problem resolves. `type` stays the short token every
 // client already branches on; the page is where it resolves (moving `type` to the absolute URI is T-033's call).
 import type { Address, ProblemType } from '@holdback/core';
@@ -16,7 +16,7 @@ export interface ProblemDoc {
   next: string;
 }
 
-export const PROBLEM_BASE = 'https://escrow.stream/problems/';
+export const PROBLEM_BASE = 'https://crow.direct/problems/';
 
 const ADJUDICATOR = 'An adjudicator-side refusal: the adjudicator corrects its message; a party has nothing to change.';
 

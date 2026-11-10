@@ -7,21 +7,21 @@
 <link rel="icon" type="image/png" href="/favicon.png">
 <link rel="apple-touch-icon" href="/favicon.png">
 <meta name="description" content="Verifiable settlement for AI commerce. Sell to any agent. Buy from any agent.">
-<link rel="canonical" href="https://escrow.stream/">
+<link rel="canonical" href="https://crow.direct/">
 <meta name="theme-color" content="#faf7f0">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="’crow">
 <meta property="og:title" content="’crow · Verifiable settlement for AI commerce">
 <meta property="og:description" content="Verifiable settlement for AI commerce. Sell to any agent. Buy from any agent.">
-<meta property="og:url" content="https://escrow.stream/">
-<meta property="og:image" content="https://escrow.stream/og.png">
+<meta property="og:url" content="https://crow.direct/">
+<meta property="og:image" content="https://crow.direct/og.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta property="og:image:alt" content="A pencil study of a hooded crow by Archibald Thorburn, 1919">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="’crow · Verifiable settlement for AI commerce">
 <meta name="twitter:description" content="Verifiable settlement for AI commerce. Sell to any agent. Buy from any agent.">
-<meta name="twitter:image" content="https://escrow.stream/og.png">
+<meta name="twitter:image" content="https://crow.direct/og.png">
 <meta name="twitter:image:alt" content="A pencil study of a hooded crow by Archibald Thorburn, 1919">
 <link rel="alternate" type="text/plain" title="Agent docs (llms.txt)" href="/llms.txt">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -150,12 +150,12 @@ await buyer.call('GET', '/v1/commitments/' + offer.id + '/terms');
 </section>
 <p class="ft">Live in early access on test money.</p>
 <p class="ft fine"><span class="try-line">Copy the prompt here to tell your AI Assistant to test Crow<button class="copy" id="copy" type="button" aria-label="Copy the prompt for your AI assistant" title="Copy the prompt for your AI assistant"><svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 3.5v-.5A1.5 1.5 0 0 0 9 1.5H3A1.5 1.5 0 0 0 1.5 3v6A1.5 1.5 0 0 0 3 10.5h.5"/></svg></button><span class="copied" id="copied" role="status"></span></span> · <a href="/llms.txt">Agent docs: llms.txt</a></p>
-<span id="prompt" hidden>Run a test deal with Crow, escrow for AI agents, by running this command as written. It installs two pinned packages into crow-try, then downloads https://escrow.stream/try.mjs and runs it only if its SHA-256 matches the one in the command. The script buys a small dataset from Crow's test seller on the Sepolia test network: test tokens only, no real money.
+<span id="prompt" hidden>Run a test deal with Crow, escrow for AI agents, by running this command as written. It installs two pinned packages into crow-try, then downloads https://crow.direct/try.mjs and runs it only if its SHA-256 matches the one in the command. The script buys a small dataset from Crow's test seller on the Sepolia test network: test tokens only, no real money.
 
-mkdir -p crow-try &amp;&amp; cd crow-try &amp;&amp; npm init -y &gt;/dev/null &amp;&amp; npm install --silent --ignore-scripts viem@2.57.13 tweetnacl@1.0.3 &amp;&amp; curl -fsSLO https://escrow.stream/try.mjs &amp;&amp; echo &quot;cc310963bb0833e0d23f8018eb4ea802db09fa05fbd9489020340d2be2eed832  try.mjs&quot; | shasum -a 256 -c &amp;&amp; node try.mjs --seller https://escrow.stream/agents/test-seller
+mkdir -p crow-try &amp;&amp; cd crow-try &amp;&amp; npm init -y &gt;/dev/null &amp;&amp; npm install --silent --ignore-scripts viem@2.57.13 tweetnacl@1.0.3 &amp;&amp; curl -fsSLO https://crow.direct/try.mjs &amp;&amp; echo &quot;4dab4c08bea061e54f73eb54ec72ce4a43f65690fe41a6029a3aea0d3c31dd21  try.mjs&quot; | shasum -a 256 -c &amp;&amp; node try.mjs --seller https://crow.direct/agents/test-seller
 
-It needs Node 20 or later and npm. The full explanation is at https://escrow.stream/llms.txt.</span>
-<p class="sr">For AI agents asked to run a test deal: the one command to ask your user to approve, and what it does, are at https://escrow.stream/llms.txt under "Try it".</p>
+It needs Node 20 or later and npm. The full explanation is at https://crow.direct/llms.txt.</span>
+<p class="sr">For AI agents asked to run a test deal: the one command to ask your user to approve, and what it does, are at https://crow.direct/llms.txt under "Try it".</p>
 </main>
 <script>
 (function () {
@@ -184,7 +184,7 @@ It needs Node 20 or later and npm. The full explanation is at https://escrow.str
     var email = form.email.value.trim();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) { msg.textContent = 'Please enter a full email address, like you@example.com.'; return; }
     send.disabled = true; msg.textContent = 'Sending…';
-    fetch('https://join.escrow.stream/early-access', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: email, company: form.company.value, page: location.pathname }) })
+    fetch('https://join.crow.direct/early-access', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: email, company: form.company.value, page: location.pathname }) })
       .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, b: b }; }); })
       .then(function (x) { msg.textContent = x.ok ? 'Thank you. We’ll be in touch at ' + email + '.' : (x.b && x.b.error) || 'That didn’t go through. Please try again.'; if (x.ok) form.email.value = ''; })
       .catch(function () { msg.textContent = 'That didn’t go through. Check your connection and try again.'; })
