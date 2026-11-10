@@ -109,6 +109,32 @@ Each operator Worker has a variable `SETTLEMENT`, `sim` or `sepolia`, in its wra
 
 After the deploy, a smoke deal ended Released in 44 s, and the test seller sold once each way (T-222 Evidence) [measured]. To roll back: holdback-op1 `5d369b0e`, holdback-op2 `1f169857` and crow-site `cb0adcb5` (`npx wrangler@4 rollback <version> --name <worker>`); `npx wrangler@4 delete --name crow-test-agents` removes the seller.
 
+### T-312: crow.direct, the new landing page and escrow.stream forwarding (deployed 2026-11-10)
+
+**Live since 2026-11-10, 10:33 UTC.** Rafa gave the go-ahead ("deploy when ready"). The coordinator shipped `b6b3980` from main in PR 253's order: the crow.direct domains first (`wrangler triggers deploy`, no new code), then crow-early-access, then the operators, the test seller and the site back to back. Versions and rollback targets (measured):
+
+| Worker | Live | Rollback target |
+| --- | --- | --- |
+| holdback-op1 | `f71bfaef-31ce-4535-bde7-15628384b55a` | `d7211270-8310-49ec-be29-ebfc0baf793c` |
+| holdback-op2 | `60a7253a-a8a0-42c0-a0cc-ae43c8405fce` | `fe75eceb-7943-4200-b48a-17808d55e64a` |
+| crow-test-agents | `545afdd8-1e1c-40ff-aa35-2eea83d9ec0e` | `6122d260-d59b-41a0-8699-3bc6cacaa354` |
+| crow-early-access | `99c500b2-c49e-4fb9-8348-083d0b939233` | `973116d7-2927-4b25-97ff-27db27df1819` |
+| crow-site | `56af2ef3-4614-49ce-a10d-cf1ff407fc6b` | `f9806d3c-ac4a-4cd2-81ca-518e9b88d21f` |
+
+Roll back in pairs, as PR 253 says: the operators with the site; the test seller only with the operators.
+
+- **The first operator deploy failed safely.** Its smoke deal did not end Released within 180 s, and the script rolled both operators back (`07eaa890` and `adaf731a`, 10:25 UTC). The script printed no reason. A test deal against the rolled-back operators then ended Released in 43 s, and the second run passed: smoke deal `0x16429663fb232df430ec7476e7c47dec8a1c6331afffdbad25b611ec8cbb1dcc` Released in 47 s (10:28 UTC). The likeliest cause is the new hostnames' DNS reaching this Mac late: crow.direct did not resolve here for several minutes after Cloudflare served it [inferred]. The deploy script now prints the smoke deal's output when it fails.
+- **Post-deploy checks (measured, 10:33 to 10:34 UTC):**
+  - escrow.stream and www.escrow.stream return a 301 to the same path and query on crow.direct;
+  - a POST to escrow.stream/agents/test-seller gets a 308;
+  - join.escrow.stream returns a 301 to join.crow.direct;
+  - crow.direct serves the new landing page, and its llms.txt reads "> ’crow. Verifiable settlement for AI commerce";
+  - crow.direct/try.mjs hashes to `4dab4c08…1dd21`;
+  - api and api2 answer 200 on both domains;
+  - join.crow.direct allows the crow.direct origin;
+  - a test deal against the crow.direct operators ended Released in 48 s.
+- **Not done here:** control.crow.direct (Rafa adds it to the Crow Control Access application), and the private repo's checks, which still name escrow.stream and follow the forwarding.
+
 ### T-232 and T-233, through the deploy script (deployed 2026-11-07)
 
 **Deploy 2026-11-07 06:32 UTC, commit `db5c6c3`: pass.** holdback-op1 `d7211270-8310-49ec-be29-ebfc0baf793c` (rollback target `066f1b18-24c6-4f0f-ad45-de2c27a6823f`), holdback-op2 `fe75eceb-7943-4200-b48a-17808d55e64a` (rollback target `21cbbc0b-dd56-4d0c-af4a-c6d4916d8283`). Smoke deal `0xe116a251931aa7c1dbee66d934748095b36080d766c7ba8fde9e3635a0b81f6f` Released in 43 s.

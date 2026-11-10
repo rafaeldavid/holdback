@@ -91,7 +91,7 @@ try {
   const r = await sh(process.execPath, ['examples/try.ts'], { env: { HOLDBACK_OPERATORS: NODES.join(',') }, timeoutMs: SMOKE_TIMEOUT_MS });
   const last = /^done\s+commitment (0x[0-9a-f]{64}) (\w+)/m.exec(r.out);
   smoke = { id: last?.[1], state: last?.[2], seconds: Math.round((Date.now() - t0) / 1000) };
-  if (r.code !== 0 || smoke.state !== 'Released') fail(`the smoke deal did not end Released within ${SMOKE_TIMEOUT_MS / 1000} s`);
+  if (r.code !== 0 || smoke.state !== 'Released') { console.error(`\nthe smoke deal's output (exit ${r.code}):\n${String(r.out).slice(-6000)}`); fail(`the smoke deal did not end Released within ${SMOKE_TIMEOUT_MS / 1000} s`); }
 } catch (e) {
   failure = e.message;
   console.error(`\nFAIL: ${failure}`);
