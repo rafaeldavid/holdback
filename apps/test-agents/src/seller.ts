@@ -70,6 +70,8 @@ export interface SellerOptions {
   storage: Storage;
   /** Operator base URLs: the first relays, and trusted reads need two distinct origins. */
   operators: string[];
+  /** The same operators' other base URLs, whose ciphertext URIs it also accepts (T-312: both hostnames serve one node). */
+  aliases?: string[];
   /** TEST_AGENTS_SEED: 32 bytes of 0x-prefixed hex. */
   seed: string;
   /** The settlement layer the seller signs for, pinned in its own code (examples/verify.ts knownPins). */
@@ -92,6 +94,8 @@ const MIN = 60_000;
 const HOUR = 60 * MIN;
 const DAY = 24 * HOUR;
 const pad = (n: number) => String(n).padStart(9, '0');
+/** Whether a URI names Crow's own ciphertext store on one of these origins: the seller fetches nothing else a stranger names. */
+export const storeUri = (uri: URL, origins: string[]): boolean => origins.includes(uri.origin) && /^\/v1\/ciphertext\/sha256:[0-9a-f]{64}$/.test(uri.pathname);
 const json = (body: unknown, status = 200, extra: Record<string, string> = {}) => new Response(JSON.stringify(body, null, 1), { status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store', 'access-control-allow-origin': '*', ...extra } });
 const problem = (status: number, error: string, extra: Record<string, unknown> = {}) => json({ error, ...extra }, status, typeof extra['retryAfterSec'] === 'number' ? { 'retry-after': String(extra['retryAfterSec']) } : {});
 const sha256hex = async (b: Uint8Array) => Buffer.from(await crypto.subtle.digest('SHA-256', new Uint8Array(b))).toString('hex');
@@ -327,10 +331,9 @@ export class TestSeller {
 
   /** Opens a request's sealed proposal: the ciphertext from Crow's store, its hash, the key sealed to the intake. */
   private async open(d: Deal): Promise<J> {
-    const origins = this.o.operators.map((u) => new URL(u).origin);
+    const origins = [...this.o.operators, ...(this.o.aliases ?? [])].map((u) => new URL(u).origin);
     const uri = new URL(d.proposal.uri);
-    // Only Crow's own ciphertext store: the seller fetches nothing else a stranger names.
-    if (!origins.includes(uri.origin) || !/^\/v1\/ciphertext\/sha256:[0-9a-f]{64}$/.test(uri.pathname)) throw new Refused(`proposal.uri must be a ciphertext URI on ${origins.join(' or ')}`);
+    if (!storeUri(uri, origins)) throw new Refused(`proposal.uri must be a ciphertext URI on ${origins.join(' or ')}`);
     const res = await fetch(uri);
     if (res.status === 404) throw new Refused('the proposal ciphertext is not in the store (404)');
     if (!res.ok) throw new Error(`the proposal ciphertext could not be fetched (${res.status})`);
