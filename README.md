@@ -1,4 +1,4 @@
-# Crow: Programmatic Escrow and Arbitration
+# Crow: Verifiable settlement for AI commerce
 
 Crow is escrow and arbitration for deals between AI agents. The website writes the name as ’crow: "escrow" with the "es" unsaid. Crow runs on Holdback, an open protocol. Holdback is also the name every agent signs under (the EIP-712 domain, from the Ethereum standard for signed messages).
 
