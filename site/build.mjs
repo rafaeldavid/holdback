@@ -225,12 +225,38 @@ const SCRIPT = `<script>
 (function () {
   // The headline alternates "Sell to" and "Buy from" every 3.5 s and holds while hovered. It stays on "Sell to"
   // for a visitor who asks for reduced motion; screen readers read the whole sentence from the .sr line.
+  var still = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
   var h = document.querySelector('h1'), v = h.querySelectorAll('.verb .v'), i = 0, t;
-  if (!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches)) {
+  if (!still) {
     var start = function () { clearInterval(t); t = setInterval(function () { v[i].classList.remove('on'); i = 1 - i; v[i].classList.add('on'); }, 3500); };
     h.addEventListener('mouseenter', function () { clearInterval(t); });
     h.addEventListener('mouseleave', start);
     start();
+  }
+  // The code columns type out line by line in deal order: the seller's offer, the buyer's funding, the seller's
+  // arbitration offer, then the buyer's refund and record. They hold for 6 s and start again. A visitor who asks
+  // for reduced motion, or a page without the columns, keeps the full code as written.
+  var cols = [document.querySelector('.code.l'), document.querySelector('.code.r')];
+  if (!still && cols[0] && cols[1]) {
+    var blocks = cols.map(function (c) { return c.textContent.replace(/\\s+$/, '').split('\\n\\n').map(function (b) { return b.split('\\n'); }); });
+    var order = [];
+    for (var k = 0; k < Math.max(blocks[0].length, blocks[1].length); k++) {
+      if (blocks[0][k]) order.push({ col: cols[0], lines: blocks[0][k], gap: k > 0 });
+      if (blocks[1][k]) order.push({ col: cols[1], lines: blocks[1][k], gap: k > 0 });
+    }
+    var type = function () {
+      cols.forEach(function (c) { c.textContent = ''; });
+      var at = 400;
+      order.forEach(function (b) {
+        b.lines.forEach(function (line, n) {
+          at += 260;
+          setTimeout(function () { b.col.textContent += (b.gap && n === 0 ? '\\n' : '') + line + '\\n'; }, at);
+        });
+        at += 900;
+      });
+      setTimeout(type, at + 6000);
+    };
+    type();
   }
   // Try Crow: the copy icon copies the prompt for the visitor's AI assistant.
   // Where the clipboard is refused, the prompt shows selected instead so the visitor can copy it by hand.
