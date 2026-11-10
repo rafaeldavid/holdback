@@ -22,7 +22,7 @@ const nodes = [
 const children = [];
 const ready = [];
 for (const n of nodes) {
-  // --local-upstream: without it wrangler dev hands the Worker the route's host (api.escrow.stream), so each node
+  // --local-upstream: without it wrangler dev hands the Worker the route's host (api.crow.direct), so each node
   // would publish production URLs (apiBaseUrl, ciphertext URIs, llms.txt links) while serving locally.
   const local = ['--local-upstream', `127.0.0.1:${n.port}`, '--local-protocol', 'http'];
   // The deployed nodes name their public addresses; locally the list is the two local nodes (http is allowed only here).

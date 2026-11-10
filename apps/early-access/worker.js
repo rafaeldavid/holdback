@@ -1,7 +1,13 @@
-// crow-early-access: stores early-access email sign-ups from the ’crow site (escrow.stream; served at join.escrow.stream).
+// crow-early-access: stores early-access email sign-ups from the ’crow site (crow.direct; served at join.crow.direct).
 // One KV entry per address: the email (lowercased), when, and which page. No IP addresses, no cookies, no tracking.
 // List sign-ups: npx wrangler@4 kv key list --binding EMAILS --config apps/early-access/wrangler.jsonc --remote
-const ALLOWED = ['https://escrow.stream', 'https://www.escrow.stream', 'https://npc.here.now', 'https://mighty-canvas-c3tc.here.now'];
+// The old hostname join.escrow.stream forwards to join.crow.direct (T-312): a 301 for GET and a 308 for any other
+// method, which keeps a POST's method and body. A browser sign-up from a page still open on escrow.stream is served in
+// place instead, into the same KV namespace: a browser sends a redirected cross-origin POST with Origin null, which
+// this Worker would refuse, and a preflight cannot follow a redirect at all.
+const ALLOWED = ['https://crow.direct', 'https://www.crow.direct', 'https://escrow.stream', 'https://www.escrow.stream', 'https://npc.here.now', 'https://mighty-canvas-c3tc.here.now'];
+const CANONICAL = 'https://join.crow.direct';
+const FORWARDED = 'join.escrow.stream';
 const EMAIL = /^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,63}$/;
 
 const cors = (origin) => ({
@@ -17,6 +23,9 @@ export default {
     const origin = request.headers.get('origin') ?? '';
     const url = new URL(request.url);
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors(origin) });
+    if (url.hostname === FORWARDED && !(request.method === 'POST' && ALLOWED.includes(origin))) {
+      return Response.redirect(`${CANONICAL}${url.pathname}${url.search}`, request.method === 'GET' || request.method === 'HEAD' ? 301 : 308);
+    }
     if (url.pathname !== '/early-access' || request.method !== 'POST') return json(404, { error: 'not found' }, origin);
     if (!ALLOWED.includes(origin)) return json(403, { error: 'sign up from the ’crow site' }, origin);
     let body;

@@ -14,7 +14,7 @@
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-const NODES = ['https://api.escrow.stream', 'https://api2.escrow.stream'];
+const NODES = ['https://api.crow.direct', 'https://api2.crow.direct'];
 const WORKERS = [
   { name: 'holdback-op1', config: 'wrangler.op1.jsonc' },
   { name: 'holdback-op2', config: 'wrangler.op2.jsonc' },
