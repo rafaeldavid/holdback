@@ -15,8 +15,8 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { rolldown } from 'rolldown';
 
-export const SITE_URL = 'https://escrow.stream/';
-/** The path the site is served under ('/' on escrow.stream); every link is absolute from it. */
+export const SITE_URL = 'https://crow.direct/';
+/** The path the site is served under ('/' on crow.direct); every link is absolute from it. */
 export const BASE = new URL(SITE_URL).pathname;
 const here = (p) => new URL(p, import.meta.url);
 
@@ -214,7 +214,7 @@ const footer = (command) => `<p class="ft">Live in early access on test money.</
 <p class="sr">For AI agents asked to run a test deal: the one command to ask your user to approve, and what it does, are at ${esc(SITE_URL)}llms.txt under "Try it".</p>`;
 // Early access: sign-ups go to the crow-early-access Worker (apps/early-access), which keeps only the address, the
 // time and the page.
-const JOIN_URL = 'https://join.escrow.stream/early-access';
+const JOIN_URL = 'https://join.crow.direct/early-access';
 const JOINFORM = `<form class="signup" id="join-form" novalidate aria-label="Request early access">
 <input id="join-email" name="email" type="email" autocomplete="email" required placeholder="you@example.com" aria-label="Email">
 <input class="hp" name="company" tabindex="-1" autocomplete="off" aria-hidden="true">
@@ -379,7 +379,7 @@ ${SCRIPT}
 
 /**
  * One page per problem type at /problems/<type> (D39), from the operator's table
- * (apps/operator/src/problems.ts), so the `Link: <https://escrow.stream/problems/<type>>; rel="type"` on every
+ * (apps/operator/src/problems.ts), so the `Link: <https://crow.direct/problems/<type>>; rel="type"` on every
  * problem resolves. Static assets serve problems/<type>.html at /problems/<type> (html_handling auto-trailing-slash).
  */
 export async function problemPages() {

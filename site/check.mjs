@@ -157,7 +157,7 @@ expect(!visible.includes('mkdir -p crow-try') && !visible.includes(trySha256()),
 // The clipboard fallback shows the prompt for a hand copy. pre-line collapses the two spaces in
 // `echo "<sha256>  try.mjs" | shasum -a 256 -c`, and shasum then refuses the line; pre-wrap keeps them.
 expect(/\.copied \{[^}]*white-space: pre-wrap;/.test(html), "the .copied fallback must use white-space: pre-wrap, or a hand copy breaks the command's hash check");
-expect(!/before you ask|fetch https:\/\/escrow\.stream\/try\.mjs/.test(tryIt), '"Try it" asks the agent to fetch try.mjs before the command: each fetch is one more approval');
+expect(!/before you ask|fetch https:\/\/crow\.direct\/try\.mjs/.test(tryIt), '"Try it" asks the agent to fetch try.mjs before the command: each fetch is one more approval');
 expect(tryIt.includes('runs it only if its SHA-256 matches the one in the command') && tryIt.includes('`examples/try.ts`, `agent.ts` and `verify.ts` in https://github.com/rafaeldavid/holdback'), '"Try it" lost a trust anchor: the SHA-256 pin or the source on GitHub');
 
 // 8. Crow's test seller.

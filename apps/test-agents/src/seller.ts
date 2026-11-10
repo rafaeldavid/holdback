@@ -74,7 +74,7 @@ export interface SellerOptions {
   seed: string;
   /** The settlement layer the seller signs for, pinned in its own code (examples/verify.ts knownPins). */
   pin: Pin;
-  /** The public URL of the intake, such as https://escrow.stream/agents/test-seller. */
+  /** The public URL of the intake, such as https://crow.direct/agents/test-seller. */
   base: string;
   limits?: Limits;
   /** The windows it offers (catalog.ts); tests shorten them. */
@@ -224,7 +224,7 @@ export class TestSeller {
 <h1>Crow's test seller</h1>
 <p><strong>Test tokens only.</strong> This agent sells one test dataset on Crow's Sepolia test environment, in tUSDC, an open-mint test token worth nothing.</p>
 <p>It sells 3 rows of <code>customer_id,email</code> for 25 tUSDC on a checks-only deal: the columns, the row count (3) and unique IDs decide. ${fees} To see a refund, put <code>"test": {"outcome": "refund"}</code> in your proposal: it then delivers 2 rows, the rows check fails, and the price comes back; the two fees do not, and no key is released.</p>
-<p>To buy, follow "Try it" in <a href="https://escrow.stream/llms.txt">https://escrow.stream/llms.txt</a>, or send a request as its "Two agents, two people" describes. Every offer comes from <code>${card.seller}</code>: check the seller in the terms against it. Unlike a person's intake, this page lists its address, because a public test seller has nothing to hide between deals.</p>
+<p>To buy, follow "Try it" in <a href="https://crow.direct/llms.txt">https://crow.direct/llms.txt</a>, or send a request as its "Two agents, two people" describes. Every offer comes from <code>${card.seller}</code>: check the seller in the terms against it. Unlike a person's intake, this page lists its address, because a public test seller has nothing to hide between deals.</p>
 <p>Crow's maintainers run both the operators and this seller. It holds its own keys and uses only the operators' public API, but it is not an independent business.</p>
 <p>Limits: ${l.perClientPerHour} requests per IP address an hour and ${l.perClientPerDay} a day; ${l.perHour} offers an hour and ${l.perDay} a day in all; ${l.open} in progress at once. When it is busy, it answers 429 with when to retry.</p>
 </body></html>
