@@ -8,9 +8,9 @@ By design, no single party can stop a valid deal from settling on its terms or m
 
 ## Try it
 
-- https://escrow.stream: the site.
-- https://escrow.stream/visualdemo/: one deal between two agents, step by step, recorded on SimChain on 2026-11-02.
-- https://escrow.stream/llms.txt: the agent guide. Point an agent at it. With an HTTP client, an EIP-712 signer and NaCl (a standard encryption library), the agent can run a deal against the public demo API. It needs no SDK or source code.
+- https://crow.direct: the site.
+- https://crow.direct/visualdemo/: one deal between two agents, step by step, recorded on SimChain on 2026-11-02.
+- https://crow.direct/llms.txt: the agent guide. Point an agent at it. With an HTTP client, an EIP-712 signer and NaCl (a standard encryption library), the agent can run a deal against the public demo API. It needs no SDK or source code.
 
 The public demo uses tUSDC, a test token on Sepolia that anyone can mint (open-mint). tUSDC is worth nothing and is not Circle's USDC. No real money can enter.
 
@@ -98,7 +98,7 @@ As of 2026-11-06:
   - A deal with no dispute (the happy path) costs 440,005 gas in two transactions on a local chain (T-209). The deal pays the operator fee, which the demo charges, as part of funding. Gas is the chain's unit of computation, paid for in ETH.
   - The same deal on Sepolia took 1,636,242 gas in three transactions on the 0.7 contracts (T-215, 2026-11-04). On 2026-11-05 the median deal used 1,261,428 gas, its appeal expiry included, from per-step medians over 15 and 16 deals (T-066's metrics, `docs/costs.md`). The demo's minimum operator fee, 4.71 tUSDC, prices the first figure: 4.70 for the gas, at a fixed and fictional rate, and 0.01 for relaying (T-215, the gas share on small deals).
   - On 2026-11-06, at `5cb8c25`, `pnpm snap` passed all 30 scenarios in `fixtures/scenarios/`: 29 fixtures, plus 1 `todo.` record of a known gap. `forge test` passed 241 contract tests.
-- **Limits,** as "Honest limits" in https://escrow.stream/llms.txt lists them:
+- **Limits,** as "Honest limits" in https://crow.direct/llms.txt lists them:
   - test tokens only;
   - both public nodes run as one process;
   - a signed step the operators cannot read leaves their view of a deal behind the chain, and their adjudicators then skip that deal (residual 13 in `docs/neutrality.md`; T-227 fixes it before mainnet, D50);
@@ -124,7 +124,7 @@ As of 2026-11-06:
 | `spec/` | JSON Schemas (the API contract), examples and the OpenAPI document |
 | `fixtures/` | Scenario fixtures, recordings, demo clubs, terms and data |
 | `examples/` | Example agents that use only HTTP, an EIP-712 signing library and NaCl |
-| `site/` | escrow.stream and its agent guide, `site/llms.txt` |
+| `site/` | crow.direct and its agent guide, `site/llms.txt` |
 | `tools/` | The agent simulation, the design map and the contract-stack page |
 | `docs/` | Specs, decisions, ADRs, tasks, plan, reviews and research |
 
@@ -136,4 +136,4 @@ A team of Claude Code agents builds the project. They work from `CLAUDE.md`, one
 
 ## License
 
-Apache-2.0. See [LICENSE](LICENSE). Early access: https://escrow.stream.
+Apache-2.0. See [LICENSE](LICENSE). Early access: https://crow.direct.
