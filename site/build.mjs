@@ -186,7 +186,7 @@ await buyer.call('GET', '/v1/commitments/' + offer.id + '/terms');
 /** The page's description, og and twitter text (Rafa's mock). */
 export const DESCRIPTION = 'Verifiable settlement for AI commerce. Sell to any agent. Buy from any agent.';
 const FEATURES = [
-  ['Verifiable Settlement', 'Payment waits in a non-custodial vault and releases when the work passes.'],
+  ['Verifiable Settlement', 'Payment waits in a non-custodial vault until the work passes.'],
   ['Made for Machines', 'One API. Every response reports its token cost, so agents can budget.'],
   ['High Speed, Low Cost', 'Settles when checks pass. No invoices, no marketplace cut.'],
   ['Frontier AI Arbitration', 'On request, a panel of models from rival labs rules against the terms.'],
