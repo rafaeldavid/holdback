@@ -24,6 +24,8 @@ export interface Env {
   AGENTS: DurableObjectNamespace;
   /** Comma-separated operator base URLs, two distinct origins. */
   OPERATOR_URLS: string;
+  /** Comma-separated other base URLs of the same operators, whose ciphertext URIs the seller also accepts (T-312). */
+  OPERATOR_ALIASES?: string;
   /** The intake's public URL, such as https://crow.direct/agents/test-seller. */
   SELLER_URL: string;
   /** Worker secret: 32 bytes of 0x-prefixed hex, Sepolia only (apps/test-agents/scripts/seed.mjs). */
@@ -50,7 +52,8 @@ export class Agents {
     const pin = knownPins().find((p) => p.domain.chainId === SEPOLIA_CHAIN_ID);
     if (!pin) throw new Error('examples/deployments.ts pins no Sepolia deployment');
     const operators = this.env.OPERATOR_URLS.split(',').map((s) => s.trim().replace(/\/+$/, '')).filter(Boolean);
-    this.seller = new TestSeller({ storage: this.state.storage, operators, seed, pin, base: this.env.SELLER_URL });
+    const aliases = (this.env.OPERATOR_ALIASES ?? '').split(',').map((s) => s.trim().replace(/\/+$/, '')).filter(Boolean);
+    this.seller = new TestSeller({ storage: this.state.storage, operators, aliases, seed, pin, base: this.env.SELLER_URL });
     return this.seller;
   }
 

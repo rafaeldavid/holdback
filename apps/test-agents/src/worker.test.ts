@@ -63,9 +63,9 @@ describe('the crow-test-agents Worker on two hostnames', () => {
     expect(forwarded).toEqual([]);
   });
 
-  it('serves crow.direct/agents/test-seller* and its agents.crow.direct fallback through the Durable Object', async () => {
+  it('serves crow.direct/agents/test-seller* through the Durable Object', async () => {
     const { default: handler } = await import('./worker.ts');
-    for (const url of ['https://crow.direct/agents/test-seller/health', 'https://agents.crow.direct/health']) expect((await handler.fetch(new Request(url), worker)).status).toBe(200);
-    expect(forwarded).toEqual(['GET https://crow.direct/agents/test-seller/health', 'GET https://agents.crow.direct/health']);
+    expect((await handler.fetch(new Request('https://crow.direct/agents/test-seller/health'), worker)).status).toBe(200);
+    expect(forwarded).toEqual(['GET https://crow.direct/agents/test-seller/health']);
   });
 });

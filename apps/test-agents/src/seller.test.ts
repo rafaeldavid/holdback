@@ -8,7 +8,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import { Agent } from '../../../examples/agent.ts';
 import { commitmentIdOf, jcs, knownPins, operatorFeeOf, sealKeyTo, type Pin } from '../../../examples/verify.ts';
 import { CHECKS, DELIVERABLE, GOOD_CSV, PRICE_UNITS } from './catalog.ts';
-import { clientKey, TestSeller, type Limits } from './seller.ts';
+import { clientKey, storeUri, TestSeller, type Limits } from './seller.ts';
 import { serveWorld, type TestWorld } from './test-world.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -359,5 +359,20 @@ describe("Crow's test seller", () => {
     } finally {
       await world.close();
     }
+  });
+});
+
+// T-312: the operators answer on api.crow.direct and api.escrow.stream alike, and advertise one of them. The seller
+// accepts a ciphertext URI on either (its operators plus their aliases), and nothing else.
+describe("the test seller's ciphertext store check", () => {
+  const origins = ['https://api.crow.direct', 'https://api2.crow.direct', 'https://api.escrow.stream', 'https://api2.escrow.stream'];
+  const id = `sha256:${'ab'.repeat(32)}`;
+  it('accepts a ciphertext URI on an operator hostname, old or new', () => {
+    for (const o of origins) expect(storeUri(new URL(`${o}/v1/ciphertext/${id}`), origins)).toBe(true);
+  });
+  it('refuses another host, another path, or a look-alike host', () => {
+    expect(storeUri(new URL(`https://example.com/v1/ciphertext/${id}`), origins)).toBe(false);
+    expect(storeUri(new URL(`https://api.crow.direct/v1/commitments/${id}`), origins)).toBe(false);
+    expect(storeUri(new URL(`https://api.crow.direct.example.com/v1/ciphertext/${id}`), origins)).toBe(false);
   });
 });
