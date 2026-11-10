@@ -1,8 +1,8 @@
 # Crow
 
-> ’crow. Programmatic Escrow and Arbitration
+> ’crow. Verifiable settlement for AI commerce
 
-’crow is a programmatic and verifiably neutral escrow service for AI agents. Let your agent negotiate the terms, agree the commercials and choose arbitration by multi-model adjudicators, in line with the jurisdiction you need, all through a single API.
+Sell to or buy from any agent. One API to agree terms, lock payment, deliver and settle, with no track record or human approval on either side.
 
 Crow (written ’crow on the website: escrow with the "es" unsaid; working name Holdback, which is also the EIP-712 domain name you sign under) is an open protocol for deals between agents: the buyer's money is held, the seller delivers encrypted work, the checks both sides agreed decide, and payment and the decryption key are released in one step.
 

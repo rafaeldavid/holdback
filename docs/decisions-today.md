@@ -1,6 +1,6 @@
-# Decisions D1–D55
+# Decisions D1–D56
 
-Status: D1–D9 decided October 30, 2026, after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`); the options are kept as the record. D10 to D24 decided October 30 and 31, 2026, each after an independent research pass. D25 to D36 decided October 31 and November 1, 2026, D37 to D40 on November 1 and 2, D41 to D44 on November 3, D45 to D49 on November 4, D50 to D52 on November 5, and D53 to D55 on November 6 (Rafa's principles and research-backed choices; D4 was updated on November 1 to target Ethereum mainnet via Sepolia, and marked decided by D41 on November 4). Newer entries are appended at the end. Owner: Rafa. Each decision has options, a recommendation and the ADR it settles.
+Status: D1–D9 decided October 30, 2026, after the Phase 0 adversarial review (`docs/reviews/2026-10-30-phase0-interrogate.md`); the options are kept as the record. D10 to D24 decided October 30 and 31, 2026, each after an independent research pass. D25 to D36 decided October 31 and November 1, 2026, D37 to D40 on November 1 and 2, D41 to D44 on November 3, D45 to D49 on November 4, D50 to D52 on November 5, D53 to D55 on November 6, and D56 on November 10 (Rafa's principles and research-backed choices; D4 was updated on November 1 to target Ethereum mainnet via Sepolia, and marked decided by D41 on November 4). Newer entries are appended at the end. Owner: Rafa. Each decision has options, a recommendation and the ADR it settles.
 
 Still open (2026-11-06): ADR-0025, Proposed, to be decided with T-033's schema bump, in Phase 6 since D53 (schemas 0.9 and 0.10 shipped without it); ADR-0027, Proposed (T-308: judgment report, verifiable inference, tuning releases; four open questions, none needed before Phase 3); the ADR-0023 amendment on fee bundling, Proposed (D37); and dispute clauses as selectable terms, deferred until after the demo (D29).
 
@@ -621,6 +621,8 @@ Also: the funding signature on EVM is CPP's collector signature and token identi
 
 ## D40. Privacy is each deal's choice; the tagline is "Programmatic Escrow and Arbitration"
 
+**Superseded in part 2026-11-10 (Rafa, D56):** the tagline is "Verifiable settlement for AI commerce", on the landing page from Rafa's mock. The privacy part of D40 stands.
+
 **Updated 2026-11-03 (Rafa):** "Call it "Crow" for now as it's easier to read in docs, but the webpage uses the logomark ’crow". The README, `docs/` and `site/llms.txt` write Crow; the escrow.stream pages and the brand files keep ’crow. Holdback stays the protocol's name and EIP-712 domain. Trademark clearance with counsel is pending (Rafa, 2026-11-03: "Keep Crow, see attorney").
 
 **Updated 2026-11-02 (Rafa, PR 98):** the tagline is "Programmatic Escrow and Arbitration" ("’crow. Programmatic Escrow and Arbitration"), replacing "Escrow for AI Agents" below. The rest of D40 stands.
@@ -993,3 +995,15 @@ Also: the funding signature on EVM is CPP's collector signature and token identi
 | Accept passes as is (chosen) | T-216 closes now; the report names the build behind each pass; no rerun of round 1 for Phase 2 |
 | One full rerun on the final build | Every scenario on one build, T-231's included; waits for T-232's deploy, then about 1.5 hours of Rafa's terminal [guessed in T-216's Handoff] |
 | Rerun only what later builds touch | 3a, 3b, 3c, 3d, 4, 5a and 8 again; still waits for T-232's deploy |
+
+## D56. The tagline is "Verifiable settlement for AI commerce", on a landing page from Rafa's mock (T-312)
+
+**Decided 2026-11-10 by Rafa:** "ok change of direction, use the attached file for the update" (`crow-landing-mock-v2.html`, his landing page mock). It supersedes his first wording the same day ("Verified Settlement for AI Commerce" and a paragraph starting "Safe to buy. Safe to sell."), which never shipped. No research pass ran: the decision is copy and page design, and it changes no protocol design. Rafa may overrule it.
+
+- **The tagline** is "Verifiable settlement for AI commerce" ("’crow. Verifiable settlement for AI commerce" in `site/llms.txt`). It replaces D40's "Programmatic Escrow and Arbitration" on the site, in its og and twitter titles, the README's first line, the design map and the brand status lines.
+- **The landing page** follows the mock word for word: the bird, the ’crow mark, the tagline, a headline that alternates "Sell to" and "Buy from" before "any agent.", the lede, early access, six features and the footer line "Live in early access on test money." The site's description is the mock's: "Verifiable settlement for AI commerce. Sell to any agent. Buy from any agent."
+- **llms.txt** opens with the mock's headline and lede: "Sell to or buy from any agent. One API to agree terms, lock payment, deliver and settle, with no track record or human approval on either side." The rest of the agent guide is unchanged.
+- **The page keeps what agents need:** the One-Click Escrow Try line (D51) and a link to `/llms.txt`, as one quiet line under the footer.
+- **D40's privacy part stands:** each deal chooses its disclosure level, and the brand promises no more privacy than the build delivers.
+- **Not changed here:** `CLAUDE.md` still names the old tagline in its Map section. It is tier 3, and Rafa merges it.
+- **Litmus tests.** Untouched: the decision changes copy and the landing page only, and no contract, schema, defense or API.
