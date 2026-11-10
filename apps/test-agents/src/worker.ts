@@ -24,7 +24,7 @@ export interface Env {
   AGENTS: DurableObjectNamespace;
   /** Comma-separated operator base URLs, two distinct origins. */
   OPERATOR_URLS: string;
-  /** The intake's public URL, such as https://escrow.stream/agents/test-seller. */
+  /** The intake's public URL, such as https://crow.direct/agents/test-seller. */
   SELLER_URL: string;
   /** Worker secret: 32 bytes of 0x-prefixed hex, Sepolia only (apps/test-agents/scripts/seed.mjs). */
   TEST_AGENTS_SEED?: string;
@@ -75,8 +75,17 @@ export class Agents {
   }
 }
 
+/**
+ * The site's old hostname (T-312). Its route stays while the forwarding runs, and each request on it gets a 308 to the
+ * same path and query on crow.direct: a 308 keeps a POST's method and body, so a buyer on the old URL still arrives.
+ */
+const FORWARDED = 'escrow.stream';
+const CANONICAL = 'https://crow.direct';
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
+    const url = new URL(request.url);
+    if (url.hostname === FORWARDED) return Response.redirect(`${CANONICAL}${url.pathname}${url.search}`, 308);
     const headers = new Headers(request.headers);
     // Set by this Worker only: whatever a caller sent under this name is replaced.
     headers.set(CLIENT, request.headers.get('cf-connecting-ip') ?? 'unknown');

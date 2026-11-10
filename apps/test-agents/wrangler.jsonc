@@ -1,6 +1,7 @@
 // crow-test-agents: Crow's always-on test seller on the Sepolia test environment (T-222, D47), at
-// https://escrow.stream/agents/test-seller. A route on the site's hostname takes that path before crow-site's Custom
-// Domain does; agents.escrow.stream as this Worker's own Custom Domain is the fallback (D47). Test tokens only: the
+// https://crow.direct/agents/test-seller. A route on the site's hostname takes that path before crow-site's Custom
+// Domain does; agents.crow.direct as this Worker's own Custom Domain is the fallback (D47). The old route on
+// escrow.stream stays while the forwarding runs, and the Worker answers it with a 308 to crow.direct (T-312). Test tokens only: the
 // seller signs only for the Sepolia deployment pinned in examples/deployments.ts. Its one secret, TEST_AGENTS_SEED,
 // is set by apps/test-agents/scripts/seed.mjs; it holds no Sepolia ETH, since the operators relay and pay the gas.
 // Workers Logs keeps the seller's transition lines (deal number, commitment ID, state; never a token or an IP) but no
@@ -12,8 +13,11 @@
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": false,
   "preview_urls": false,
-  "routes": [{ "pattern": "escrow.stream/agents/test-seller*", "zone_name": "escrow.stream" }],
-  "vars": { "OPERATOR_URLS": "https://api.escrow.stream,https://api2.escrow.stream", "SELLER_URL": "https://escrow.stream/agents/test-seller" },
+  "routes": [
+    { "pattern": "crow.direct/agents/test-seller*", "zone_name": "crow.direct" },
+    { "pattern": "escrow.stream/agents/test-seller*", "zone_name": "escrow.stream" }
+  ],
+  "vars": { "OPERATOR_URLS": "https://api.crow.direct,https://api2.crow.direct", "SELLER_URL": "https://crow.direct/agents/test-seller" },
   "durable_objects": { "bindings": [{ "name": "AGENTS", "class_name": "Agents" }] },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Agents"] }],
   "observability": { "enabled": true, "logs": { "invocation_logs": false } }
