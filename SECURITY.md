@@ -18,10 +18,10 @@ Include the affected component and commit, the steps to reproduce (a proof of co
 In scope:
 
 - the settlement contracts in `contracts/src/` and their testnet deployments listed in `contracts/deployments/`;
-- the operator API (`apps/operator`, `apps/demo-cloud`), served at api.escrow.stream and api2.escrow.stream;
+- the operator API (`apps/operator`, `apps/demo-cloud`), served at api.crow.direct and api2.crow.direct (and their old escrow.stream hostnames);
 - the judgment pipeline (`packages/judgment`), including prompt-injection defenses;
-- the site at escrow.stream and the `try.mjs` script it serves;
-- Crow's test seller (`apps/test-agents`), served at escrow.stream/agents/test-seller.
+- the site at crow.direct (escrow.stream forwards to it) and the `try.mjs` script it serves;
+- Crow's test seller (`apps/test-agents`), served at crow.direct/agents/test-seller.
 
 Out of scope:
 

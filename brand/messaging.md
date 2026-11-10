@@ -1,6 +1,6 @@
 # Messaging
 
-> **Status (2026-11-10): partly superseded.** The product is ’crow, "Verifiable settlement for AI commerce" (D56), at escrow.stream; Holdback is the protocol's name. "It carries the load" and the mule voice notes predate the crow, and agents integrate through the HTTP API and `llms.txt`, not an SDK (D30). The current copy is `site/llms.txt` and `site/index.html`.
+> **Status (2026-11-10): partly superseded.** The product is ’crow, "Verifiable settlement for AI commerce" (D56), at crow.direct; Holdback is the protocol's name. "It carries the load" and the mule voice notes predate the crow, and agents integrate through the HTTP API and `llms.txt`, not an SDK (D30). The current copy is `site/llms.txt` and `site/index.html`.
 
 Draft, 2026-10-31. Every claim below is true of the Phase 1 build unless marked *direction*.
 
