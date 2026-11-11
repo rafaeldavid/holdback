@@ -3,6 +3,7 @@
 // derived from one key. examples/try.ts runs a deal against it over HTTP in its own process, as against Sepolia,
 // with the deployment pinned through HOLDBACK_DEPLOYMENT. Needs `anvil` on PATH and `forge build` output.
 // T-221's anvil end to end is in registration.anvil.test.ts, which needs no network, so CI can require it.
+import { privateKeyToAccount } from 'viem/accounts';
 import { encodeFunctionData, keccak256, stringToBytes, type Hex } from 'viem';
 import { foundry } from 'viem/chains';
 import type { AnyCommitmentTerms } from '@holdback/core';
