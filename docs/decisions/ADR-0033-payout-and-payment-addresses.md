@@ -9,6 +9,7 @@
   - the operator package: `apps/operator` (the prepare routes), `apps/demo-cloud` (the faucet), `apps/adjudicator` and the test agents (the new fields with their defaults);
   - the client package: `examples/` (the buyer signer, the seller adapter, the audit deal, the deal record, `verify.ts`) and `site/llms.txt`.
   - This ADR itself changes no code.
+- **Order:** the contract package starts after the contract lane has merged ADR-0031's cuts of Permit2 funding, third-party payouts, and appeals and bonds. Section 2 counts its edits on that code and says what else changes if the package starts earlier.
 - **Amends:** ADR-0016 (two fields join the terms and the commitment ID), ADR-0019 (which addresses a settlement's payouts may name), ADR-0023 and ADR-0025 (who signs the operator fee and the funding), ADR-0024 section 7 (a per-deal key no longer has to hold funds), ADR-0031 section 11 (designed here).
 
 Labels: **measured** (read at the cited line by this task), **documented** (stated in the cited doc), **inferred** (from reading, not from a run), **guessed**. Nothing was run.
@@ -123,7 +124,7 @@ The referenced types and their sorted concatenation do not change: `Adjudication
 
 ### 2. What the contract does with them
 
-**Four edits to `HoldbackRules.sol`, and no other.**
+**Four edits to `HoldbackRules.sol` and one new event, on the phase-one code** (after ADR-0031's cuts; the line numbers are those of `5a90dc5`, which still has the cut features).
 
 | # | Where (at `5a90dc5`) | Today | After |
 | --- | --- | --- | --- |
@@ -134,9 +135,16 @@ The referenced types and their sorted concatenation do not change: `Adjudication
 
 One event joins (below). Every signature check stays on `t.buyer` and `t.seller` (`R:206`, `R:208`, `R:400`, `R:442-443`, `R:626`). Every key proof and key release stays on `t.buyer` (`R:354`, `R:404`, `R:417`, `R:446`, `R:456`): the envelope is sealed to the key in the terms and addressed to the party, not to its wallet.
 
+**If the package starts on code that still has a cut feature,** these also change, by the same two rules (deal money uses the payment and payout addresses; a signature's own stake stays with the signer) [measured at `5a90dc5`]:
+
+- the overturn payout from a bond pays the wronged party's payment or payout address, not `t.buyer` or `t.seller` (`R:378`);
+- an appeal bond still comes from, and returns to, the address that signs the appeal (`R:512-516`);
+- a Permit2 funding is signed by the payment address, as the ERC-3009 one is (`R:218`);
+- the contract's size: `5a90dc5` has 263 bytes of headroom (`docs/audit/known-issues.md`, I-2) [documented], and two hashed words, a comparison and an event may not fit there [guessed].
+
 **Why the escrow's payer and receiver, and nothing forwarded.** Every transfer out of the hold is the escrow's own: a capture pays `paymentInfo.receiver` (`E:295`, `E:471`) and a void pays `paymentInfo.payer` (`E:315`). With the two addresses in those two fields, the rules contract adds no transfer of its own and never holds a token. The alternative, in which the rules contract receives and forwards, would put custody in Crow's own code (ADR-0031 section 11).
 
-**The payment record's hash covers both addresses twice.** The escrow keys a payment by the hash of the whole record, payer and receiver included (`E:383-386`), and the record's `salt` is the commitment ID (`R:185`), which now hashes both addresses. A call whose terms name another address rebuilds another ID, finds no deal, and reverts on the stage check.
+**The payment record's hash covers both addresses twice.** The escrow keys a payment by the hash of the whole record, payer and receiver included (`E:383-386`), and the record's `salt` is the commitment ID (`R:185`), which now hashes both addresses. A call whose terms name another address rebuilds another ID. `agreeAndFund` then reverts on the seller's signature, which is over the real ID (`R:206`). Every later entry point finds no deal under that ID and reverts on its stage check.
 
 **Where each amount lands, by entry point** [inferred from the cited lines with edits 1 to 3 applied].
 
@@ -160,7 +168,7 @@ One event joins (below). Every signature check stays on `t.buyer` and `t.seller`
 - **The rules contract never calls the escrow's `charge` or `refund`** (`E:200`, `E:351`) [measured: `R` calls `authorize`, `capture`, `void`, `paymentState` and `getHash` only].
 - **After the payer's own reclaim** `reclaim` and `triggerDefault` still close the deal: they find the hold empty and skip the void (`R:603-608`), as today.
 
-**A settlement's payouts name the two new addresses.** `Payout.to` says where money goes, and money can only go to the escrow's payer and receiver. So the signed settlement names `buyerPaymentAddress` and `sellerPayoutAddress`, and the record then states the address that was paid. A payout to a signing address that differs from them is a payout to a third address, and phase one refuses it. If the two new addresses are equal to each other, every payout counts as the seller's share (the comparison at `R:468` comes first); the money reaches the same address either way.
+**A settlement's payouts name the two new addresses.** `Payout.to` says where money goes, and money can only go to the escrow's payer and receiver. So the signed settlement names `buyerPaymentAddress` and `sellerPayoutAddress`, and the record then states the address that was paid. A payout to a signing address that differs from them is a payout to a third address, and phase one refuses it. If the two new addresses are equal to each other, every payout counts as the seller's share (the comparison at `R:468` comes first, as it does today when the buyer is the seller). The money reaches the same address either way. Two effects follow: `PaymentReleased` reports the whole amount, and such a settlement needs a capture, so it cannot land after the escrow's expiry (`E:277`). By then the payer can reclaim directly.
 
 **Events.**
 
@@ -204,7 +212,7 @@ One event joins (below). Every signature check stays on `t.buyer` and `t.seller`
 
 **The payout address signs nothing.** It only receives.
 
-**The payment address signs nothing under Crow's EIP-712 domain.** Both of its signatures are under the token's domain, and the token checks them.
+**On EVM settlement the payment address signs nothing under Crow's EIP-712 domain.** Both of its signatures are under the token's domain, and the token checks them. On SimChain, which has no token contract, it signs the same two authorizations as Crow messages (section 4).
 
 **The funding authorization is bound to one deal** [measured].
 
@@ -224,11 +232,14 @@ One event joins (below). Every signature check stays on `t.buyer` and `t.seller`
 **The operator fee is bound to one deal too** [measured]. It is a `TransferWithAuthorization` from the payment address to the operator's fee address, for the fee's amount, with the nonce `keccak256(abi.encode(commitmentId, "operator_fee"))` (`packages/settlement/evm/encode.ts:264`). The signature fixes the recipient and the amount. The adapter's rule "the fee comes from the buyer" (`evm-settlement.ts:1247`) becomes "from the payment address".
 
 - **One limit, unchanged in kind.** Anyone may relay the fee's transfer alone, before the funding (ADR-0023's EVM amendment; `contracts/test/crosscheck/OperatorFeeFrontRun.t.sol`). The loss is at most the fee, it goes only to the operator the payment address named, and it now falls on the payment address.
+- **The fee's nonce names the deal and not the deployment.** The commitment ID has no domain in it, so two rules contracts on one chain and one token would share the nonce. The token spends it once and the signature names the recipient and the amount, so the fee is paid once, to the operator named. It is not a replay.
 
 **What the payment address accepts by signing.** Its signature on the funding is its consent to this deal's terms, and those terms name `buyer` as the party that agrees, accepts early and settles. After funding, the signing key alone can pay the price to the payout address (an early accept) or split it with the seller (a settlement).
 
 - **The exposure is `P + F` plus the operator fee, for this one deal.** No signature of the signing key reaches any other money of the payment address.
-- **The payment address protects itself before it signs** (D32). It rebuilds the commitment ID and the nonce from the terms it approves, and checks that the terms name the signing key it expects. The opaque nonce in the wallet's prompt tells it nothing by itself. The client package ships that check (section 10).
+- **The payment address protects itself before it signs** (D32). It rebuilds the commitment ID and the nonce from the terms it approves, and checks that the terms name the signing key it expects. The opaque nonce in the wallet's prompt tells it nothing by itself: the prompt shows the collector, an amount and a hash, and any contract can be an operator of the same escrow and collector (`E:241`). Only the nonce binds Crow's rules contract, the receiver and the signing key. The client package ships that check, with the deployment pinned in the holder's own configuration (section 10).
+- **A signed funding cannot be withdrawn on `TestUSDC`,** which has no `cancelAuthorization` [measured: the whole file]. `LocalUSDC` has one (`contracts/script/LocalUSDC.sol:91`). A holder that signed for the wrong terms on `TestUSDC` empties the address or waits for `fundBy`, when the authorization lapses.
+- **"Only the payment address can fund" assumes its own signature rule.** A plain key answers for itself. A contract wallet answers as its code says: one whose `isValidSignature` accepts the buyer's signing key, as an owner or a session key, lets that key fund this deal and spend the wallet's tokens through ERC-3009 anywhere else. That is the wallet's own rule and no part of Crow.
 
 **What each kind of account does as a payment address.**
 
@@ -255,14 +266,23 @@ The contract package keeps the off-chain mirrors equal to the contract, as every
   - The balance that covers the funding is the payment address's (`state.ts:272-277` takes it as an input).
   - The agreement and the early accept stay on `terms.buyer` (`state.ts:238`, `:570`).
   - A settlement's payouts may name `buyerPaymentAddress` and `sellerPayoutAddress` (`packages/core/src/mutual.ts:13` builds the set from `buyer` and `seller` today). On a phase-one deployment any other address is refused, as on the contract.
-- **SimChain.** One rule: wherever SimChain moves money to or from a party, it uses that party's payment or payout address. That covers the funding, the release, every refund, a settlement's payouts and the operator fee (`packages/settlement/sim/simchain.ts:755-756`, `:817`, `:835`, `:894`, `:932-939`, `:963`, `:977`). It also covers the bond payouts SimChain keeps as the full protocol's reference. On SimChain the payment address signs the `FundingAuthorization` and the fee's `TransferAuthorization` under Crow's domain, as the buyer does today.
+- **SimChain.** Two rules.
+  - **Deal money uses the payment and payout addresses.** That covers the funding, the release, every refund, a settlement's payouts and the operator fee (`packages/settlement/sim/simchain.ts:755-756`, `:817`, `:835`, `:894`, `:932-939`, `:963`, `:977`). It also covers what a bond pays a wronged party on the full protocol: the overturn payout and the default compensation go to that party's payment or payout address.
+  - **A stake a party makes by a later signature stays with the signer.** On the full protocol the appeal bond and the appeal fee come from the address that signs the appeal, and the bond returns there (`simchain.ts:533`, `:775-776`, `:871`, `:1004-1005`; core requires that address to be `buyer` or `seller`, `packages/core/src/state.ts:448`). A payment or payout address signs no appeal, so an appeal never moves its balance.
+  - A payout to `sellerPayoutAddress` is a capture, checked first as on the contract; today SimChain treats a payout to anyone but the buyer as one (`simchain.ts:929`). With the two new addresses equal, SimChain and the contract must agree.
+  - On SimChain the payment address signs the `FundingAuthorization` and the fee's `TransferAuthorization` under Crow's domain, as the buyer does today.
 - **The EVM adapter.**
   - The payment record: `payer: t.buyerPaymentAddress`, `receiver: t.sellerPayoutAddress` (`packages/settlement/evm/encode.ts:217-218`).
   - The funding's typed data and digest: `from` is the payment address (`evm-settlement.ts:754`, `:774`).
   - The pre-funding balance read is the payment address's (`evm-settlement.ts:1239`).
-  - The operator fee must come from the payment address (`evm-settlement.ts:1247`), and the sync matches the fee's transfer by that address (`:2011`).
+  - The operator fee must come from the payment address, in the bundle (`evm-settlement.ts:1247`) and when the fee is relayed alone (`:2535`). The sync matches the fee's transfer by that address (`:2011`).
+  - **The sync of a deal the node did not relay.** It rebuilds a direct funding with `from` set to the payment address (`:2189` sets `terms.buyer` today). It confirms a direct settlement by the payouts to `sellerPayoutAddress` against `PaymentReleased`, and treats payouts to `buyerPaymentAddress` as the void (`:2112-2116` use `terms.seller` and `terms.buyer` today). Built without these, a deal funded or settled by a direct transaction with the addresses apart would fall behind the operators' view, and the direct route is the one neutrality rests on.
   - The mandate, the scope, the daily total and the membership stay on `terms.buyer` (`evm-settlement.ts:1195-1198`, `:1238`).
   - `abis.json` regenerates: the `Terms` tuple of every entry point changes.
+- **API events and the state view, on both settlements.**
+  - An event's actor is the address whose signature caused it. `hold.funded` and `fee.operator` name the payment address, which is `m.from` in the code today (`evm-settlement.ts:1244`, `:1266`, `:2224`; `simchain.ts:818`, `:836`). `commitment.agreed` names `buyer`.
+  - The state view's `balances` names the payment and payout addresses, because they hold the parties' money (`evm-settlement.ts:2598` and `simchain.ts:1047` name `buyer` and `seller` today).
+- **The operator's settlement prepare route** builds its payouts to `sellerPayoutAddress` and `buyerPaymentAddress` (`apps/operator/src/prepare.ts:684-685`, `:705` use `c.seller` and `c.buyer` today). That edit is the operator package's; until it lands, a prepared settlement with the addresses apart is refused by core and by the contract.
 
 ### 5. Per-deal keys
 
@@ -271,13 +291,13 @@ ADR-0024 section 7 gives each party a one-time signing key per deal at the `priv
 **A per-deal signing key with a standing payment address.**
 
 - The terms name the per-deal key as `buyer` and the standing address as `buyerPaymentAddress`.
-- The per-deal key signs `Agree`, an early accept, a settlement and its read tokens. It holds no token and no gas at any step: operators relay its messages.
+- The per-deal key signs `Agree`, an early accept, a settlement and its read tokens. In phase one it holds no token and no gas at any step: operators relay its messages. On the full protocol a party that files an appeal stakes the bond from the key that signs the appeal (section 4); the later ADR that brings appeals back may name another payer for it.
 - The standing address signs the funding and the operator fee, each for this one deal.
 - Every refund returns to the standing address. After a release nothing is left anywhere.
 
 **With a mandate.** The mandate names the signing key as the agent, and the operators check the scope, the per-commitment cap, the daily total and the membership against `terms.buyer`, as today (`evm-settlement.ts:1195-1198`). On the test service the faucet sends the mandate to the signing key and the tokens to the payment address. Nothing checks the payment address against a mandate or a club: its consent is its own signature on one deal's funding, for one amount. A club that wants more (a payer that is a member, or equal addresses) writes it into its rulebook later; phase one has no such rulebook field.
 
-**With a `Delegation`.** The certificate names the per-deal key as `dealKey`, and the counterparty and the adjudicator check its scope and membership from it (ADR-0024 section 7). Its type does not change, and it does not name the payment address. The seller needs to know that the buyer is in scope and that the hold is funded; where the money comes from is the buyer's to disclose (D35). Admission of a per-deal key by its certificate is not built yet (`docs/tasks/T-319-buyer-signer.md:111`); when it is, a buyer needs neither a faucet call nor a mandate of its own, and this design does not change.
+**With a `Delegation`.** The certificate names the per-deal key as `dealKey`, and the counterparty and the adjudicator check its scope and membership from it (ADR-0024 section 7). Its type does not change, and it does not name the payment address. The seller sees the payment address, because it signs terms that contain it. What the seller needs from the certificate is that the buyer is in scope; who stands behind the payment address is the buyer's to disclose (D35). Admission of a per-deal key by its certificate is not built yet (`docs/tasks/T-319-buyer-signer.md:111`); when it is, a buyer needs neither a faucet call nor a mandate of its own, and this design does not change.
 
 **The seller's side is the same.** A per-deal signing key signs the terms and the delivery, and a standing payout address receives the price.
 
@@ -289,9 +309,12 @@ ADR-0024 section 7 gives each party a one-time signing key per deal at the `priv
 
 Operators relay; they never author. A prepare route only saves a client the work of building the terms, and the client checks the result (D32).
 
+- **Each party's own address comes from its own configuration and from nowhere else.** No prepare answer, notice, offer, delivery, work product or counterparty message sets or changes a party's payment or payout address. This is new: today the address that is paid is the address that signs, so no author of the terms can redirect a payment. From this change on, one substituted field would. `site/llms.txt` states the check as a rule an agent must follow, not as advice.
+- **The buyer tells the seller its payment address** in the request for a quote, beside its signing address and its encryption key (the offer's prepare route takes `buyer: {address, encryptionPublicKey}` today, `apps/operator/src/prepare.ts:309-310`). When the request names none, the seller's side fills in the buyer's signing address.
 - **The seller's client** refuses to sign terms whose `sellerPayoutAddress` is not the one in its configuration.
 - **The buyer's client** refuses to agree to terms whose `buyerPaymentAddress` is not its own, or whose `sellerPayoutAddress` differs from the one in the offer it approved.
-- **The holder of the payment address** refuses to sign a funding whose nonce it has not rebuilt from the terms it approves.
+- **Each party compares the other side's new address with the three adjudicators.** A payout address equal to the deciding adjudicator pays that adjudicator the price on an accept; a payment address equal to it returns the price to the decider on a reject. Nothing requires the addresses to differ (the threat model's assumption TA-4); the tooling warns (section 7).
+- **The holder of the payment address** refuses to sign a funding whose nonce it has not rebuilt from the terms it approves, with the rules contract, the escrow, the collector, the chain and the token taken from its own pinned configuration.
 - **An adjudicator** accepts terms that name both addresses; its acceptance covers them through the ID. It checks nothing new. It may decline terms it will not run (D29).
 
 ### 7. Defaults and warnings
@@ -312,8 +335,10 @@ No tool stops for a missing address. `site/llms.txt` and the adapter's recipe sa
 | Condition | The warning says |
 | --- | --- |
 | `sellerPayoutAddress` is the zero address | Payments to the seller would be lost or would revert, depending on the token |
-| `sellerPayoutAddress` is one of this deployment's contracts: the rules contract, the escrow, its token store, the collector, the token, Multicall3 or the beacon | Payments to the seller would be stranded there |
+| `sellerPayoutAddress` is one of this deployment's contracts: the rules contract, the escrow, its token store, the collector, the token or the beacon (and the bond vault or a Permit2 collector on a deployment that has one) | Payments to the seller would be stranded there |
+| `sellerPayoutAddress` is Multicall3 | Anyone could take the seller's payment: Multicall3 makes any call it is asked to [inferred: the standard contract; only its interface is vendored] |
 | `buyerPaymentAddress` is the zero address or one of those contracts | No signature can fund this deal |
+| `sellerPayoutAddress` or `buyerPaymentAddress` is one of the deal's three adjudicators | The adjudicator that decides would receive the price on one of its two outcomes |
 
 The contract enforces none of them (section 2).
 
@@ -358,8 +383,8 @@ Contract, unit (a new file beside `contracts/test/unit/Settle.t.sol`), each with
 6. The fallback's accept and reject pay as tests 1 and 2.
 7. A mutual settlement pays the seller's share to the payout address and the rest, with the fee, to the payment address.
 8. A settlement whose payout names the seller's signing address reverts with `InvalidMessage`. So does one that names the buyer's signing address.
-9. With the payment address equal to the payout address, a settlement settles and that address holds `P + F`.
-10. The buyer's signing key cannot fund: its signature over the right nonce reverts in the token.
+9. With the payment address equal to the payout address, a settlement settles, that address holds `P + F`, and `PaymentReleased` reports every payout.
+10. With a plain key as the payment address, the buyer's signing key cannot fund: its signature over the right nonce reverts in the token.
 11. The payment address's authorization for another deal does not fund this one. The same authorization does not fund the same deal twice.
 12. Changing either address in the terms changes the commitment ID, and the seller's signature over the old ID reverts with `BadSignature`.
 13. With each new address equal to its signing address, every outcome moves the same amounts between the same accounts as before the change.
@@ -372,30 +397,39 @@ Contract, unit (a new file beside `contracts/test/unit/Settle.t.sol`), each with
 20. A price of 0 with the addresses apart: `contracts/test/unit/ZeroPrice.t.sol` asserts the payment and payout addresses.
 21. Events: `JobCreated`, `JobFunded`, `PaymentReleased` and `Refunded` name the signing addresses; `SettlementAddresses` names both new addresses once per deal; the escrow's `PaymentAuthorized` carries them as payer and receiver.
 22. `contracts/test/unit/Vectors.t.sol` pins the new type string and the ID of core's vectors.
+23. Another operator contract on the same escrow and collector cannot redeem a funding signature made for a Crow deal: its `authorize` reverts in the token, because its record has another nonce.
+24. With a token that refuses transfers to the payout address (and one that refuses the zero address), an accept reverts, and a reject, a reclaim and a default still settle.
+25. With the token store as one deal's payout address, a second deal funds and settles in full: the first deal's surplus in the store is not counted as any hold.
 
 Contract, invariants (`contracts/test/invariant/RulesInvariants.t.sol` and its handler):
 
-23. The handler draws distinct payment and payout addresses for a share of its deals.
-24. A signing address that differs from its payment or payout address never changes balance.
-25. Conservation and settle-once hold with the addresses apart.
+26. The handler draws distinct payment and payout addresses for a share of its deals.
+27. A signing address that differs from its payment or payout address never changes balance.
+28. Conservation and settle-once hold with the addresses apart.
 
 Core, SimChain and the adapter:
 
-26. `state.test.ts`: a funding whose `from` is the signing key is refused when the addresses differ; a settlement's payouts to a signing address are refused; the agreement and the early accept stay on `buyer`.
-27. `eip712.binding.test.ts` pins the type string and domain 0.8.
-28. `tests/spec.test.ts`: a commitment without either field fails validation.
-29. One scenario fixture with all four addresses apart runs on SimChain and on the contract with the same transcript: one deal `Released`, one `Refunded`, one `Settled`.
-30. `pnpm snap` and `pnpm snap --settlement=local` pass after the re-seat.
+29. `state.test.ts`: a funding whose `from` is the signing key is refused when the addresses differ; a settlement's payouts to a signing address are refused; the agreement and the early accept stay on `buyer`.
+30. `eip712.binding.test.ts` pins the type string and domain 0.8.
+31. `tests/spec.test.ts`: a commitment without either field fails validation.
+32. One scenario fixture with all four addresses apart runs on SimChain and on the contract with the same transcript: one deal `Released`, one `Refunded`, one `Settled`.
+33. `neutrality.direct-funding-separate-addresses`, on the local chain: a deal with all four addresses apart is funded, fee-paid and settled by direct transactions, and the adapter's sync keeps it in the operators' view through to its close.
+34. On SimChain, an appeal never changes the balance of a payment or payout address that differs from the appellant, and an overturn pays the wronged party's payment or payout address.
+35. With the payment address equal to the payout address, a settlement gives the same transcript on SimChain and on the contract.
+36. `pnpm snap` and `pnpm snap --settlement=local` pass after the re-seat.
 
-No new `neutrality.*` fixture is needed: neither new address signs anything after funding, so neither is an actor that can stop a funded deal (section 11).
+The red team's finding M-2 is why test 33 is a `neutrality.*` fixture. No fixture is needed for a new actor: neither new address signs anything after funding, so neither can stop a funded deal (section 11).
 
 **The operator package: the proof it carries.**
 
 - A prepare route returns the funding slot and the operator-fee slot with the payment address as `signer`, and the agreement slot with the buyer's signing address (`apps/operator/src/prepare.ts`, the `sign` list).
 - With no address in the request, the prepared terms carry the signing addresses and `notices` says so in one line each.
 - Each warning of section 7 appears in `notices`, and the route still answers.
+- The settlement prepare route names the payout and payment addresses in its payouts, and such a settlement lands.
+- The offer's prepare route takes the buyer's payment address in its request.
 - The faucet sends the tokens to the payment address and the mandate to the signing address. A per-deal signing key that holds no token passes every pre-funding check.
-- The operator fee is collected from the payment address, in the same transaction as the funding.
+- The operator fee is collected from the payment address, in the same transaction as the funding, and also when it is relayed alone.
+- **One stated exception: a wallet that is not deployed yet.** The bundle sends the fee before `agreeAndFund` (`evm-settlement.ts:1275-1276`), and the token does not unwrap ERC-6492, so the bundle reverts and no funds move. The package either answers such a funding with a problem that says to deploy the wallet first, or sends `agreeAndFund` first and the fee second, which keeps both legs in one transaction and deploys the wallet in time [inferred]. Reordering changes ADR-0023's bundle, so it takes that package's review. A test covers whichever it chooses.
 - On the local world: one deal `Released` and one `Refunded` in which the buyer's signing key holds no token at any step. The Sepolia run is Rafa's.
 - The reference adjudicator accepts terms with the addresses apart, and its decision pays the payout address.
 
@@ -403,6 +437,9 @@ No new `neutrality.*` fixture is needed: neither new address signs anything afte
 
 - The buyer signer takes a funding signature made elsewhere and refuses it unless it is the payment address's, over this deal's nonce, for `P + F` and no more. The same holds for the operator fee: its recipient, its amount and its nonce.
 - A check the holder of the payment address runs alone, before it signs: from the terms and the pinned deployment it rebuilds the commitment ID and the nonce, and prints the buyer's signing address, both new addresses and the total. It refuses a nonce that does not match.
+  - It takes the rules contract, the escrow, the collector, the chain ID, the token's domain and the expiry margin from the holder's own pinned configuration, never from the request it is checking.
+  - Its tests refuse a nonce built with another operator address, another receiver, another `buyer`, another chain ID and another margin.
+- Three attack fixtures: `attack.prepare-substitutes-payout-address` (the seller's client refuses to sign), `attack.prepare-substitutes-payment-address` (the buyer's client refuses to agree), and `attack.notice-sets-payout-address`, in plain text and in hidden Unicode tag characters inside `notices` (the configured address does not change, and the terms carry it).
 - The buyer signer shows the seller's payout address in the offer and refuses to agree when it changed since the approval. It refuses terms whose payment address is not its own.
 - The seller adapter takes a payout address in its configuration, writes it into every offer, refuses prepared terms that carry another, and prints the lines of section 7.
 - The audit deal has a case with the buyer's two addresses apart. The deal record shows the address that was paid and the address that was refunded.
@@ -431,8 +468,9 @@ No new `neutrality.*` fixture is needed: neither new address signs anything afte
 | Actor | New | Still cannot |
 | --- | --- | --- |
 | The seller | Be paid at any address it names when it signs the offer, a third party's included. Name an address that loses its own payment (section 8) | Change the payout address after signing. Touch the buyer's refund: the payer is in the terms the buyer agreed to and in the nonce the payment address signed. Take the hold without an accept, an early accept or a settlement |
-| The buyer's signing key | Agree, accept early and settle while holding nothing | Fund. Be refunded. Redirect a refund to itself or anywhere else. Reclaim on the escrow. Reach any money of the payment address beyond this deal's hold |
-| The buyer's payment address | Fund a deal that another key runs, and receive every refund | Be made to fund a deal it did not sign for (section 3). Stop a funded deal. Sign anything for the buyer under Crow's domain |
+| The buyer's signing key | Agree, accept early and settle while holding nothing | Fund, unless the payment address is a wallet whose own rule accepts that key. Be refunded. Redirect a refund to itself or anywhere else. Reclaim on the escrow. Reach any money of the payment address beyond this deal's hold |
+| The buyer's payment address | Fund a deal that another key runs, and receive every refund | Be made to fund a deal it did not sign for (section 3). Stop a funded deal. Agree, accept early or settle for the buyer |
+| Whoever supplies the terms or the nonce to a party that does not check them (a prepare route, a compromised host, text an agent treats as an instruction) | Send a seller's payment to a substituted payout address, or have a payment address sign a funding for other terms. Both are new, and both are stopped by the checks of section 6 | Do either to a party that rebuilds the terms from its own configuration |
 | A counterparty that writes the other side's address into the terms | Nothing that survives the other side's check (section 6). Terms with a wrong payment address cannot be funded | Fund from an address that did not sign this deal's nonce |
 | An operator | See both addresses before funding, as it sees the parties' addresses today. Relay the operator fee's transfer alone, as today; the loss is at most the fee and now falls on the payment address | Change either address: the terms fail the seller's signature. Author a funding. Redirect a payout or a refund |
 | An adjudicator | Nothing. Its accept pays the payout address and its reject refunds the payment address, as the terms say | Choose where the price goes (`R:175-176` after the change). Its acceptance and its decision name the ID, so they cover both addresses |
@@ -447,6 +485,33 @@ No new `neutrality.*` fixture is needed: neither new address signs anything afte
 - **Section 3** (the token's behaviour): "the buyer" and "the seller" as recipients become the payment address and the payout address.
 - **Section 6:** a payout address that is one of the deployment's contracts strands the seller's payment; both parties signed the terms that name it.
 - **The events inventory:** the new event, and the sentence that `provider` and `client` name parties and not the receiving addresses.
+
+### 12. The red team's findings, answered
+
+One `red-teamer` pass read the first draft of this ADR, the contracts, the vendored escrow, the test tokens, core, both settlements, the operator's prepare routes and the threat model on 2026-11-11. It had the ADR and no other reasoning of the author. It ran nothing.
+
+**Verdict: the contract design held on all three questions, with no Critical and no High finding** [inferred by the red team from reading]. It could not redirect a payout or a refund, fund from an address that did not sign, or lock a funded deal, beyond what section 8 states. It checked every citation of sections 2, 3 and 8 and found them correct except where a row below says so [measured by the red team]. Its findings were about what the draft left out or misstated; each is answered in the text.
+
+| # | Severity | Finding | Answer |
+| --- | --- | --- | --- |
+| M-1 | Medium, SimChain only | The draft's one rule for SimChain did not say which address posts an appeal bond. Read literally, a payout address that signs nothing would pay a bond for an appeal its seller signed | Fixed in section 4: a stake made by a later signature comes from, and returns to, the signer; deal money and bond payouts to a wronged party use the payment and payout addresses. Section 5 says what that means for a per-deal key. Test 34 |
+| M-2 | Medium | The draft's list of adapter and operator lines missed seven sites. Built to the list, a deal funded or settled by a direct transaction with the addresses apart would fall behind the operators' view | Fixed in section 4: the sync of a direct funding and of a direct settlement, the fee relayed alone, the event actors, the `balances` view, SimChain's capture rule and the settlement prepare route. Test 33 is a `neutrality.*` fixture for the direct route |
+| L-1 | Low | "Four edits and no other" holds only after ADR-0031's cuts; the cited commits still have bonds, appeals and Permit2 | Fixed: the Order line in the header, and the paragraph in section 2 on what else changes on code that still has a cut feature |
+| L-2 | Low | A seller that signs prepared terms unchecked can now lose the price to a substituted payout address; the draft did not say where an address may come from | Fixed in section 6: a party's address comes from its own configuration only, stated in `llms.txt` as a rule. Three attack fixtures join the client package's proof |
+| L-3 | Low | The outside wallet's prompt cannot tell Crow's rules contract from any other operator of the same escrow; only the nonce binds it | Fixed in sections 3, 6 and 10: the holder's check pins the deployment from its own configuration, its tests refuse five kinds of wrong nonce, and test 23 shows another operator cannot redeem the signature |
+| L-4 | Low | A wallet that is not deployed yet cannot pay through an operator that charges a fee, and the operator's proof list said it could | Fixed in section 10: the stated exception, with the two ways the operator package may handle it |
+| L-5 | Low | No warning when a payout or payment address is one of the three adjudicators | Fixed in sections 6 and 7: the parties compare, and the tooling warns. No refusal (D31) |
+| I-1 | Info | Multicall3 does not strand tokens; anyone can take them | Fixed in section 7 |
+| I-2 | Info | Section 3 said the payment address signs nothing under Crow's domain; on SimChain it does | Fixed in sections 3 and 11: the claim is about EVM settlement |
+| I-3 | Info | "The signing key cannot fund" fails for a wallet whose own rule accepts that key | Fixed in sections 3 and 11; test 10 is scoped to a plain key |
+| I-4 | Info | A signed funding cannot be withdrawn on `TestUSDC` | Stated in section 3 |
+| I-5 | Info | Terms with a changed address fail `agreeAndFund` on the seller's signature, not on the stage check | Fixed in section 2 |
+| I-6 | Info | The seller always learns the payment address, and the draft did not say how it gets it | Fixed in sections 5 and 6: the buyer supplies it with its request for a quote |
+| I-7 | Info | The header cited a section 12 that did not exist | This section |
+| I-8 | Info | The operator fee's nonce is not bound to a deployment | Stated in section 3: paid once, to the operator named |
+| I-9 | Info | With the two new addresses equal, every payout is a capture | Stated in section 2; tests 9 and 35 |
+
+**Not changed by the red team:** the two fields, their position, the escrow's payer and receiver, the versions, and the answer to section 9.
 
 ## Alternatives considered
 
