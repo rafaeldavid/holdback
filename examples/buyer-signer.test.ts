@@ -1,0 +1,207 @@
+// The buyer signer a seller ships inside its client (T-319), against the public demo's own world served in this
+// process on two origins (as try.test.ts). The seller here is a few lines in this file: an Agent that answers
+// POST /quote with an offer and delivers once the hold is funded. It stands in for T-318's seller adapter.
+import { spawn } from 'node:child_process';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { createServer, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { MemoryStorage, PublicWorld } from '@holdback/demo-cloud';
+import nacl from 'tweetnacl';
+import { generatePrivateKey } from 'viem/accounts';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { Agent } from './agent.ts';
+import { loadKeys, makeKeys } from './buyer-signer.ts';
+import { serveTwoOrigins, type TwoOrigins } from './two-origins.ts';
+import { operatorFeeOf, Refusal } from './verify.ts';
+
+type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
+const here = (f: string) => fileURLToPath(new URL(f, import.meta.url));
+
+const PRICE = { token: 'tUSD', amount: '25000000' };
+const DELIVERABLE = { kind: 'dataset', description: 'customers.csv, one row per customer', format: 'text/csv' };
+const CHECKS = [
+  { id: 'cols', type: 'csv_columns_exact', required: true, columns: ['customer_id', 'email'] },
+  { id: 'rows', type: 'row_count_range', required: true, min: 3, max: 3 },
+  { id: 'uniq', type: 'unique_key', required: true, columns: ['customer_id'] },
+];
+const TIMING = { judgeWithinSec: 60, fallbackWithinSec: 60, appealWindowSec: 60, appealDecideSec: 60 };
+const CSV = 'customer_id,email\n1,ada@example.com\n2,alan@example.com\n3,grace@example.com\n';
+/** Price 25 tUSD, adjudication fee 1 tUSD, operator fee 0.01 tUSD (1 bp, at least 10,000 base units). */
+const TOTAL = '26010000';
+
+let demo: TwoOrigins;
+let seller: { quoteUrl: string; address: string; swapKey: boolean; close(): Promise<void> };
+const stores: string[] = [];
+const store = () => {
+  const dir = mkdtempSync(join(tmpdir(), 'buyer-signer-'));
+  stores.push(dir);
+  return dir;
+};
+
+/** A seller that answers POST /quote with an offer to the buyer it names, and delivers CSV once the hold is funded. */
+async function serveSeller(operators: string[]): Promise<typeof seller> {
+  const agent = new Agent(operators, generatePrivateKey(), nacl.randomBytes(32));
+  await agent.call('POST', '/v1/faucet', { address: agent.address });
+  const found = await agent.trusted('/.well-known/holdback.json', (x) => ({ clubId: x.demo.clubId, adjudicators: x.demo.adjudicators, schedule: x.fees?.operator ?? null }));
+  const role = (r: string): string => found.adjudicators.find((a: J) => a.role === r).address;
+  const adjudicators = { primary: role('primary'), fallback: role('fallback'), appeal: role('appeal') };
+  let open = true;
+  const state = { swapKey: false };
+  const deliverWhenHeld = async (id: `0x${string}`, terms: J) => {
+    while (open) {
+      const s = await agent.call('GET', `/v1/commitments/${id}`);
+      if (s.escrowState === 'Held') return void (await agent.deliver(terms, new TextEncoder().encode(CSV)));
+      await new Promise((r) => setTimeout(r, 100));
+    }
+  };
+  const server: Server = createServer(async (req, res) => {
+    const chunks: Buffer[] = [];
+    for await (const c of req) chunks.push(c as Buffer);
+    if (req.method !== 'POST' || req.url !== '/quote') return void res.writeHead(404).end('{}');
+    const asked = JSON.parse(Buffer.concat(chunks).toString()) as { buyer: string; buyerEncryptionPublicKey: string };
+    // With swapKey the seller offers to an encryption key of its own in place of the buyer's.
+    const encryptionPublicKey = state.swapKey ? agent.encryptionPublicKey : asked.buyerEncryptionPublicKey;
+    const offer = await agent.offer({ template: 'checks-only', clubId: found.clubId, seller: agent.address, buyer: { address: asked.buyer, encryptionPublicKey }, adjudicators, price: PRICE, deliverable: DELIVERABLE, checks: CHECKS, timing: TIMING });
+    void deliverWhenHeld(offer.id, offer.terms).catch(() => undefined);
+    const adjudication = (await agent.registration(adjudicators.primary)).fee.min;
+    const operator = found.schedule ? operatorFeeOf(PRICE, found.schedule) : 0n;
+    const fees = { adjudication, operator: { token: PRICE.token, amount: operator.toString() }, total: { token: PRICE.token, amount: (BigInt(PRICE.amount) + BigInt(adjudication.amount) + operator).toString() } };
+    res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ commitmentId: offer.id, price: PRICE, fees, expiresAt: offer.terms.timing.offerExpiresAt }));
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  return {
+    quoteUrl: `http://127.0.0.1:${(server.address() as AddressInfo).port}/quote`,
+    address: agent.address,
+    get swapKey() {
+      return state.swapKey;
+    },
+    set swapKey(v: boolean) {
+      state.swapKey = v;
+    },
+    close: async () => {
+      open = false;
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      server.closeAllConnections();
+    },
+  };
+}
+
+beforeAll(async () => {
+  const world = await PublicWorld.open({ storage: new MemoryStorage(), env: { OPERATOR_FEE_BPS: '1', OPERATOR_FEE_MIN: '10000' }, faucetPerClient: 100 });
+  demo = await serveTwoOrigins(world, { tickMs: 100 });
+  seller = await serveSeller(demo.urls);
+});
+afterAll(async () => {
+  await seller.close();
+  await demo.close();
+  for (const dir of stores) rmSync(dir, { recursive: true, force: true });
+});
+
+const balance = async (address: string) => ((await (await fetch(`${demo.urls[1]}/v1/balances/${address}`)).json()) as { amount: string }).amount;
+
+describe('buyer-signer.ts', () => {
+  it('a 20-line script imports the file and buys a deal end to end', async () => {
+    const script = here('./buy-with-signer.ts');
+    expect(readFileSync(script, 'utf8').trimEnd().split('\n').length).toBeLessThanOrEqual(20);
+    const dir = store();
+    const r = await new Promise<{ code: number | null; out: string; err: string }>((resolve) => {
+      const child = spawn(process.execPath, [script, seller.quoteUrl, dir, '3 rows of customer_id,email', TOTAL], { env: { ...process.env, HOLDBACK_OPERATORS: demo.urls.join(',') } });
+      let out = '', err = '';
+      child.stdout.on('data', (d: Buffer) => (out += d.toString()));
+      child.stderr.on('data', (d: Buffer) => (err += d.toString()));
+      child.on('exit', (code) => resolve({ code, out, err }));
+    });
+    expect(r.code, r.err).toBe(0);
+    const done = JSON.parse(r.out) as { commitmentId: string; buyer: string; paid: { token: string; amount: string }; outcome: string; work: string };
+    expect(done.outcome).toBe('Released');
+    expect(done.work).toBe(CSV);
+    expect(done.paid).toEqual({ token: 'tUSD', amount: TOTAL });
+    for (const url of demo.urls) expect(((await (await fetch(`${url}/v1/commitments/${done.commitmentId}`)).json()) as { escrowState: string }).escrowState).toBe('Released');
+    // The faucet gave the deal's total and the deal took all of it; the seller has the price.
+    expect(await balance(done.buyer)).toBe('0');
+    // Neither the script's output nor its errors carry a secret key.
+    const saved = JSON.parse(readFileSync(join(dir, readdirSync(dir)[0]!), 'utf8')) as { privateKey: string; encryptionSecretKey: string };
+    for (const secret of [saved.privateKey, saved.privateKey.slice(2), saved.encryptionSecretKey]) expect(r.out + r.err).not.toContain(secret);
+  }, 60_000);
+
+  it('makeKeys saves fresh keys with file mode 0600 and shows no secret key', async () => {
+    const dir = store();
+    const a = await makeKeys(dir, { operators: demo.urls });
+    const b = await makeKeys(dir, { operators: demo.urls });
+    expect(a.address).toMatch(/^0x[0-9a-f]{40}$/);
+    expect(a.encryptionPublicKey).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(b.address).not.toBe(a.address);
+    const files = readdirSync(dir).sort();
+    expect(files).toEqual([`${a.address}.json`, `${b.address}.json`].sort());
+    for (const f of files) expect(statSync(join(dir, f)).mode & 0o777).toBe(0o600);
+    const saved = JSON.parse(readFileSync(join(dir, `${a.address}.json`), 'utf8')) as { privateKey: string; encryptionSecretKey: string };
+    expect(saved.privateKey).toMatch(/^0x[0-9a-f]{64}$/);
+    for (const secret of [saved.privateKey, saved.encryptionSecretKey]) expect(JSON.stringify(a) + Object.values(a).join(' ')).not.toContain(secret);
+  });
+
+  it('checkOffer refuses an offer whose price, check list or adjudicator differs from the approved one, naming the field', async () => {
+    const signer = await makeKeys(store(), { operators: demo.urls });
+    const quote = await signer.quote(seller.quoteUrl, '3 rows of customer_id,email');
+    const offer = await signer.readOffer(quote.commitmentId);
+    expect(offer).toMatchObject({ commitmentId: quote.commitmentId, seller: seller.address, price: PRICE, deliverable: DELIVERABLE, checks: CHECKS, fees: { adjudication: { token: 'tUSD', amount: '1000000' }, operator: { token: 'tUSD', amount: '10000' }, total: { token: 'tUSD', amount: TOTAL } } });
+    const refused = async (approved: J, field: RegExp) => {
+      const e = await signer.checkOffer(quote.commitmentId, approved).then(() => null, (x: unknown) => x);
+      expect(e).toBeInstanceOf(Refusal);
+      expect((e as Error).message).toMatch(field);
+    };
+    await refused({ ...offer, price: { ...offer.price, amount: '24000000' } }, /^refusing to sign: price is /);
+    await refused({ ...offer, checks: offer.checks.slice(0, 2) }, /^refusing to sign: checks is /);
+    await refused({ ...offer, checks: [...offer.checks, { id: 'extra', type: 'row_count_range', required: true, min: 1, max: 9 }] }, /^refusing to sign: checks is /);
+    await refused({ ...offer, adjudicators: { ...offer.adjudicators, primary: offer.adjudicators.fallback } }, /^refusing to sign: adjudicators is /);
+    await refused({ ...offer, fees: { ...offer.fees, operator: { token: 'tUSD', amount: '0' } } }, /^refusing to sign: fees\.operator is /);
+    await refused({ ...offer, deliverable: { ...offer.deliverable, format: 'application/json' } }, /^refusing to sign: deliverable is /);
+    await refused({ ...offer, deadlines: { ...offer.deadlines, appealWindowSec: 3600 } }, /^refusing to sign: deadlines is /);
+    await refused({ ...offer, seller: offer.adjudicators.primary }, /^refusing to sign: seller is /);
+    // Nothing passed the check, so nothing is signed: the signer holds no approved terms for this deal.
+    await expect(signer.agreeAndFund(quote.commitmentId)).rejects.toThrow(/checkOffer/);
+    expect(((await (await fetch(`${demo.urls[0]}/v1/commitments/${quote.commitmentId}`)).json()) as { escrowState: string }).escrowState).toBe('AcceptedByAdjudicator');
+    // The approved offer itself passes.
+    expect(await signer.checkOffer(quote.commitmentId, offer)).toEqual(offer);
+  }, 60_000);
+
+  it('checkOffer refuses an offer made to another encryption key than the one in the key store', async () => {
+    const signer = await makeKeys(store(), { operators: demo.urls });
+    seller.swapKey = true;
+    try {
+      const quote = await signer.quote(seller.quoteUrl, '3 rows of customer_id,email');
+      const offer = await signer.readOffer(quote.commitmentId);
+      await expect(signer.checkOffer(quote.commitmentId, offer)).rejects.toThrow(/^refusing to sign: buyerEncryptionPublicKey is /);
+    } finally {
+      seller.swapKey = false;
+    }
+  }, 60_000);
+
+  it('the key store survives a restart between funding and opening the delivery', async () => {
+    const dir = store();
+    const first = await makeKeys(dir, { operators: demo.urls });
+    const quote = await first.quote(seller.quoteUrl, '3 rows of customer_id,email');
+    const offer = await first.readOffer(quote.commitmentId);
+    expect(await first.testFunds(offer.fees.total.amount)).toEqual({ token: 'tUSD', amount: TOTAL });
+    await first.checkOffer(quote.commitmentId, offer);
+    const paid = await first.agreeAndFund(quote.commitmentId);
+    expect(paid).toMatchObject({ total: { token: 'tUSD', amount: TOTAL }, hold: { token: 'tUSD', amount: '26000000' }, operatorFee: { token: 'tUSD', amount: '10000' } });
+
+    // A new process has only the directory and the commitment ID.
+    const second = await loadKeys(dir, quote.commitmentId, { operators: demo.urls });
+    expect(second.address).toBe(first.address);
+    const done = await second.openDelivery(quote.commitmentId);
+    expect(done.outcome).toBe('Released');
+    expect(done.work).toBe(CSV);
+    expect(done.plaintextSha256).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(done.receipt).toMatchObject({ commitmentId: quote.commitmentId, outcome: 'Released', paid: { token: 'tUSD', amount: TOTAL } });
+    expect(done.receipt.funded).toMatchObject({ signature: expect.stringMatching(/^0x[0-9a-f]{130}$/) });
+    expect(done.receipt.events.map((e: J) => e.type)).toEqual(expect.arrayContaining(['hold.funded', 'delivery.submitted']));
+    expect(done.transactions).toEqual([]); // SimChain has no transactions; on Sepolia each money step links one
+    // A second agreement on the same key is refused before any signature: one key, one deal.
+    await expect(second.quote(seller.quoteUrl, 'again')).rejects.toThrow(/one deal/);
+    await expect(loadKeys(dir, `0x${'0'.repeat(64)}`, { operators: demo.urls })).rejects.toThrow(/no key/);
+  }, 60_000);
+});
