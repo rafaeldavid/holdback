@@ -4,9 +4,10 @@
 // went away waited for someone to come back. Now the world's pass sends each due timeout itself, at the relayer's
 // gas, through that same relay path (EvmSettlement.trigger).
 //
-// - What it sends: the reclaim, the default (with the takeover it needs when the fallback stayed silent), the appeal
-//   expiry and an accepted offer's expiry. Not the takeover before fallbackBy: that is the fallback adjudicator's own
-//   turn, which it may decline (T-211). Not an offer no adjudicator accepted: nobody can fund it, and posting one is free.
+// - What it sends: the reclaim, the default (with the takeover it needs when the fallback stayed silent) and an
+//   accepted offer's expiry. No appeal expiry: on the phase-one contracts a first decision is final at once (ADR-0031
+//   §8). Not the takeover before fallbackBy: that is the fallback adjudicator's own turn, which it may decline (T-211).
+//   Not an offer no adjudicator accepted: nobody can fund it, and posting one is free.
 // - When: the book says when each falls due, and the pass waits a grace period past it (a minute by default), so a
 //   party who is there sends its own first and the two do not race; the loser's send reverts and costs its gas. A deal
 //   behind the chain (T-218) is read from dealOf instead, since its book stopped. The contract then answers at a pinned
@@ -29,8 +30,8 @@ import type { EvmSettlement } from './evm-settlement.js';
 export interface DueTimeout {
   kind: TimeoutKind;
   at: number;
-  /** 0: the hold or a party's appeal bond waits on it. 1: only the decider's bond. 2: nothing is held (an accepted offer). */
-  rank: 0 | 1 | 2;
+  /** 0: the hold waits on it. 1: nothing is held (an accepted offer). */
+  rank: 0 | 1;
 }
 
 /** A daily budget for the timeouts the operators send on their own. */
@@ -77,7 +78,7 @@ export interface TimeoutReport {
 }
 
 /** The contract function of each timeout this module sends. */
-const FN: Partial<Record<TimeoutKind, string>> = { expire_offer: 'expireOffer', reclaim: 'reclaim', fallback: 'triggerFallback', default: 'triggerDefault', appeal_expiry: 'expireAppeal' };
+const FN: Partial<Record<TimeoutKind, string>> = { expire_offer: 'expireOffer', reclaim: 'reclaim', fallback: 'triggerFallback', default: 'triggerDefault' };
 /** HoldbackRules.Stage, as dealOf returns it. */
 const STAGES = ['None', 'Held', 'Delivered', 'FallbackJudging', 'Escalated', 'Released', 'Refunded', 'Settled', 'Expired'] as const;
 const PER_PASS = 4;
@@ -85,8 +86,8 @@ const READS_PER_PASS = 16;
 const GRACE_MS = 60_000;
 /** Every deal waits this long after the relay refused a send, doubling with each refusal in a row, up to 15 minutes. */
 const PAUSE = { first: 60_000, max: 900_000 } as const;
-/** HoldbackRules.Stage's order: every transition on the contract moves a deal to a later stage or a later appeal state. */
-const rankOf = (d: { stage: string }) => STAGES.indexOf(d.stage as (typeof STAGES)[number]) * 8 + d.appeal;
+/** HoldbackRules.Stage's order: every transition on the contract moves a deal to a later stage. */
+const rankOf = (d: { stage: string }) => STAGES.indexOf(d.stage as (typeof STAGES)[number]);
 /**
  * The back-offs, each doubling with every miss in a row for that deal. The first is for a block before a deadline the
  * wall clock already passed (TooEarly), about one Sepolia block. Any other refusal at the pinned block means the book
@@ -109,7 +110,7 @@ export function nextTimeout(s: EscrowState): DueTimeout | null {
     case 'AcceptedByAdjudicator':
     case 'Agreed':
       // After either deadline nothing can fund it (agreeAndFund reverts DeadlinePassed); the expiry records it.
-      return { kind: 'expire_offer', at: Math.min(Date.parse(t.offerExpiresAt), Date.parse(t.fundBy)), rank: 2 };
+      return { kind: 'expire_offer', at: Math.min(Date.parse(t.offerExpiresAt), Date.parse(t.fundBy)), rank: 1 };
     case 'Held':
       return { kind: 'reclaim', at: Date.parse(t.deliverBy), rank: 0 };
     case 'Delivered':
@@ -119,24 +120,17 @@ export function nextTimeout(s: EscrowState): DueTimeout | null {
       return { kind: 'default', at: Date.parse(t.fallbackBy), rank: 0 };
     case 'Escalated':
       return { kind: 'default', at: Date.parse(s.escalation.appealDecideBy), rank: 0 };
-    case 'Released':
-    case 'Refunded': {
-      if (s.via.kind !== 'first_instance') return null;
-      const a = s.via.appeal;
-      if (a.kind === 'none') return { kind: 'appeal_expiry', at: Date.parse(a.appealBy), rank: 1 };
-      if (a.kind === 'open') return { kind: 'appeal_expiry', at: Date.parse(a.appealDecideBy), rank: 0 };
-      return null;
-    }
     default:
+      // Released, Refunded: final at once on the phase-one contracts (ADR-0031 §8), so nothing is left to send.
       return null;
   }
 }
 
 /**
- * The same for a deal behind the chain, from dealOf: its stage name, its appeal state (HoldbackRules.AppealState: 0
- * none, 1 open) and t1 in seconds (when it was decided or escalated), with the terms' timing.
+ * The same for a deal behind the chain, from dealOf: its stage name and t1 in seconds (when it was decided or
+ * escalated), with the terms' timing.
  */
-export function nextOnChain(d: { stage: string; appeal: number; t1: number }, t: Timing): DueTimeout | null {
+export function nextOnChain(d: { stage: string; t1: number }, t: Timing): DueTimeout | null {
   switch (d.stage) {
     case 'Held':
       return { kind: 'reclaim', at: Date.parse(t.deliverBy), rank: 0 };
@@ -146,11 +140,6 @@ export function nextOnChain(d: { stage: string; appeal: number; t1: number }, t:
       return { kind: 'default', at: Date.parse(t.fallbackBy), rank: 0 };
     case 'Escalated':
       return { kind: 'default', at: (d.t1 + t.appealDecideSec) * 1000, rank: 0 };
-    case 'Released':
-    case 'Refunded':
-      if (d.appeal === 0) return { kind: 'appeal_expiry', at: (d.t1 + t.appealWindowSec) * 1000, rank: 1 };
-      if (d.appeal === 1) return { kind: 'appeal_expiry', at: (d.t1 + t.appealWindowSec + t.appealDecideSec) * 1000, rank: 0 };
-      return null;
     default:
       return null;
   }
@@ -382,11 +371,11 @@ export class OperatorTimeouts {
     return c;
   }
 
-  /** dealOf at `block`: the stage's name, the appeal state and t1 (seconds). */
-  private async dealAt(id: Hex32, block: bigint): Promise<{ stage: string; appeal: number; t1: number }> {
+  /** dealOf at `block`: the stage's name and t1 (seconds). */
+  private async dealAt(id: Hex32, block: bigint): Promise<{ stage: string; t1: number }> {
     const chain = this.evm.world;
-    const d = (await chain.publicClient.readContract({ address: chain.deployment.rules, abi: chain.abis.rules, functionName: 'dealOf', args: [id], blockNumber: block })) as { stage: number; appeal: number; t1: number | bigint };
-    return { stage: STAGES[d.stage] ?? 'None', appeal: Number(d.appeal), t1: Number(d.t1) };
+    const d = (await chain.publicClient.readContract({ address: chain.deployment.rules, abi: chain.abis.rules, functionName: 'dealOf', args: [id], blockNumber: block })) as { stage: number; t1: number | bigint };
+    return { stage: STAGES[d.stage] ?? 'None', t1: Number(d.t1) };
   }
 
   /** The contract's answer to the timeout at `block`: null when it accepts it, else the revert's name. Throws on an RPC error. */

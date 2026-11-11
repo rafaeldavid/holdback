@@ -42,7 +42,6 @@ import {
   commitmentId as commitmentIdOf,
   deliveryHash,
   holdbackDomain,
-  mulBps,
   offer,
   postedDeliveryHash,
   problem,
@@ -56,7 +55,6 @@ import {
   type Agree,
   type Address,
   type AnyCommitmentTerms,
-  type Appeal,
   type AppealGround,
   type Club,
   type CommitmentStateView,
@@ -90,7 +88,6 @@ import { RelayRefused, type EvmChain, type LaneRow, type Mined, type RelayNote }
 import {
   acceptanceView,
   agreeView,
-  appealView,
   decisionView,
   deliveryView,
   earlyAcceptView,
@@ -274,7 +271,6 @@ export type EvmSubmitResult = Extract<SubmitResult, { ok: true }> | (Extract<Sub
 
 const GENESIS_HASH: Hex32 = `0x${'00'.repeat(32)}`;
 const UINT256_MAX = (2n ** 256n - 1n).toString();
-const ALL_BPS = 10000n;
 const lc = (a: string) => a.toLowerCase();
 const secs = (ts: Timestamp) => Math.floor(Date.parse(ts) / 1000);
 /** An envelope as the seller signed it (SimChain's signedEnvelope). */
@@ -950,7 +946,7 @@ export class EvmSettlement implements Settlement {
         if (BigInt(m.bondReserved.amount) !== 0n) {
           refuse('invalid_terms', `the acceptance reserves a bond of ${m.bondReserved.amount}; this settlement runs the phase-one contracts, which hold no bonds, so bondReserved must be 0 (ADR-0031 §8). Ask the adjudicator to sign its acceptance again with bondReserved 0`);
         }
-        const next = this.stepped(book.state, { type: 'adjudicator_accept', at, message: m, unencumberedBond: this.amount(0n) });
+        const next = this.stepped(book.state, { type: 'adjudicator_accept', at, message: m });
         if (dryRun) return m.commitmentId;
         this.useNonce(book, `${lc(m.adjudicator)}:${m.nonce}`, false);
         book.state = next;
@@ -2126,7 +2122,7 @@ export class EvmSettlement implements Settlement {
         const wide: Scope = { roles: ['buyer', 'seller'], maxPerCommitment: terms.price, maxDaily: { token: terms.price.token, amount: UINT256_MAX } as TokenAmount, expiresAt: '9999-12-31T23:59:59Z' };
         const zero = this.amount(0n);
         const steps = (at: Timestamp): EscrowEvent[] => [
-          ...(s.kind === 'Offered' ? [{ type: 'adjudicator_accept' as const, at, message: acceptance, unencumberedBond: acceptance.bondReserved }] : []),
+          ...(s.kind === 'Offered' ? [{ type: 'adjudicator_accept' as const, at, message: acceptance }] : []),
           ...(s.kind !== 'Agreed' ? [{ type: 'agree' as const, at, message: agree, buyerScope: wide, spentToday: zero, memberAdmitted: true }] : []),
           { type: 'fund', at, message: funding, buyerScope: wide, balance: this.amount(BigInt(funding.value)), gasBuffer: zero },
         ];

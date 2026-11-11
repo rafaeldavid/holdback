@@ -60,7 +60,8 @@ export interface DeploymentFile {
   permit2Collector: string;
   multicall: string;
   rules: string;
-  bonds: string;
+  /** The bond vault of a deployment from before phase one (ADR-0031 §8). Read by nothing: phase one has no vault. */
+  bonds?: string;
   beacon: string;
   expiryMarginSec?: number;
 }
@@ -95,7 +96,6 @@ export function deploymentOf(f: DeploymentFile): Deployment {
     permit2Collector: getAddress(f.permit2Collector),
     multicall: getAddress(f.multicall),
     rules: getAddress(f.rules),
-    bonds: getAddress(f.bonds),
     beacon: getAddress(f.beacon),
     fromBlock: BigInt(f.fromBlock),
   };
@@ -700,31 +700,4 @@ export class LiveChain implements EvmChain {
     this.blockTimes.set(n, t);
     return t;
   }
-}
-
-/**
- * Gives an adjudicator key this world holds at least `amount` of its own bond in HoldbackBonds (the demo's setup,
- * ADR-0028 §7). The funding lane tops up the adjudicator's test ETH to `gas` and mints the missing test tokens to it
- * (open mint); the adjudicator then approves and deposits with its own key, as HoldbackBonds bonds msg.sender.
- * Idempotent: every step is decided by an on-chain read, and nothing is sent when the bond is already there. Each read
- * and the deposit's estimate are pinned to the block of the step before or later (T-232), so a node that trails the
- * approval neither refuses the deposit nor sends a second approval.
- */
-export async function ensureBond(chain: LiveChain, adjudicatorKey: Hex, amount: bigint, gas: bigint): Promise<Hex[]> {
-  const a = privateKeyToAccount(adjudicatorKey).address;
-  const { token, bonds } = chain.deployment;
-  const read = (address: Address, functionName: string, args: unknown[]) =>
-    chain.pinned((blockNumber) => chain.publicClient.readContract({ address, abi: address === bonds ? chain.abis.bonds : chain.abis.token, functionName, args, blockNumber }) as Promise<bigint>);
-  const bond = await read(bonds, 'bondOf', [a, token]);
-  if (bond >= amount) return [];
-  const sent: Hex[] = [];
-  const need = amount - bond;
-  if ((await chain.ethBalance(a)) < gas / 2n) sent.push((await chain.send({ lane: FUNDING_LANE, to: a, data: '0x', value: gas })).hash);
-  if ((await read(token, 'balanceOf', [a])) < need) sent.push((await chain.mint(a, need)).hash);
-  if ((await read(token, 'allowance', [a, bonds])) < need) {
-    sent.push((await chain.send({ key: adjudicatorKey, to: token, data: encodeFunctionData({ abi: chain.abis.token, functionName: 'approve', args: [bonds, need] }) })).hash);
-  }
-  const deposit = await chain.send({ key: adjudicatorKey, to: bonds, data: encodeFunctionData({ abi: chain.abis.bonds, functionName: 'deposit', args: [token, need] }) });
-  if (deposit.status !== 'success') throw new Error(`the bond deposit for ${a} reverted: ${deposit.hash}`);
-  return [...sent, deposit.hash];
 }

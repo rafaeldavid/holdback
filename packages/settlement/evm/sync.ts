@@ -35,7 +35,7 @@ export interface ChainTx {
   /** The block's timestamp, unix seconds. */
   timestamp: number;
   gasUsed: string;
-  /** Every log of the receipt (the rules contract's, the bonds', the token's and CPP's). */
+  /** Every log of the receipt (the rules contract's, the token's and CPP's). */
   logs: Array<{ address: Address; topics: Hex[]; data: Hex; logIndex: number }>;
 }
 
@@ -146,7 +146,7 @@ function decodeRules(chain: Pick<EvmChain, 'abis'>, data: Hex): RulesCall | null
 }
 
 /** The signed steps a forwarded call may be: timeouts are read from logs alone, so the scan never counts one (red-team round 3). */
-const STEPS = ['agreeAndFund', 'deliver', 'decide', 'earlyAccept', 'mutualSettle', 'fileAppeal'];
+const STEPS = ['agreeAndFund', 'deliver', 'decide', 'earlyAccept', 'mutualSettle'];
 
 /** The most bytes one embedded call is decoded from: a decision with a drand proof is about 2.5 KB. */
 const EMBEDDED_WINDOW_HEX = 2 * 16_384;

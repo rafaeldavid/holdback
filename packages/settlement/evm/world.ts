@@ -1,10 +1,10 @@
 // The local EVM world for kind 'local': an anvil process on 127.0.0.1 (chain id 31337), the Holdback contracts
 // deployed from `contracts/out` (run `forge build` first), and a snapshot each fresh settlement reverts to.
 // Deployment: LocalUSDC (anvil-only test token with ERC-3009), CPP AuthCaptureEscrow v1.1.0 and both collectors,
-// LocalMulticall3 (aggregate3, for the operator-fee bundle), then SimBeacon and HoldbackRules (which deploys
-// HoldbackBonds). The rules contract's beacon is a constructor immutable and the sim beacon's seed is fixed at
+// LocalMulticall3 (aggregate3, for the operator-fee bundle), then SimBeacon and HoldbackRules (phase one: no bond
+// vault, ADR-0031 §8). The rules contract's beacon is a constructor immutable and the sim beacon's seed is fixed at
 // its deploy, so each fresh settlement reverts to the snapshot taken before those two and redeploys them with its
-// genesis simSeed. The deployer's nonce is the same every time, so the rules and bonds addresses never change.
+// genesis simSeed. The deployer's nonce is the same every time, so the rules address never changes.
 // Permit2 is not deployed: the Permit2 collector points at an address with no code, so only ERC-3009 funding runs.
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
@@ -144,7 +144,7 @@ export class EvmWorld implements EvmChain {
     if (!ok) throw new Error('anvil refused evm_revert');
     this.snapshotId = await this.rpc<Hex>('evm_snapshot', []);
     const d = await this.deployRules(simSeed);
-    if (d.rules !== this.deployment.rules || d.bonds !== this.deployment.bonds || d.beacon !== this.deployment.beacon || d.fromBlock !== this.deployment.fromBlock) {
+    if (d.rules !== this.deployment.rules || d.beacon !== this.deployment.beacon || d.fromBlock !== this.deployment.fromBlock) {
       throw new Error(`the rules redeployment moved: ${JSON.stringify({ ...d, fromBlock: String(d.fromBlock) })}`);
     }
   }
@@ -229,7 +229,7 @@ async function unmined(client: PublicClient, hash: Hex): Promise<string> {
   return `the transaction is ${state}; automine ${automine === true ? 'on' : automine === false ? 'off' : 'unknown'}; txpool ${JSON.stringify((await ask('txpool_status')) ?? 'unknown')}`;
 }
 
-type RulesDeployment = Pick<Deployment, 'rules' | 'bonds' | 'beacon' | 'fromBlock'>;
+type RulesDeployment = Pick<Deployment, 'rules' | 'beacon' | 'fromBlock'>;
 
 async function deploy(
   root: string,
@@ -252,7 +252,6 @@ async function deploy(
   const multicallA = artifact(root, 'LocalMulticall3.sol', 'LocalMulticall3');
   const rulesA = artifact(root, 'HoldbackRules.sol', 'HoldbackRules');
   const beaconA = artifact(root, 'SimBeacon.sol', 'SimBeacon');
-  const bondsA = artifact(root, 'HoldbackBonds.sol', 'HoldbackBonds');
 
   const tokenAddr = await one(token);
   const escrow = await one(escrowA);
@@ -264,13 +263,12 @@ async function deploy(
   const deployRules = async (simSeed: Hex): Promise<RulesDeployment> => {
     const beacon = await one(beaconA, [simSeed]);
     const rules = await one(rulesA, [escrow, erc3009Collector, permit2Collector, EXPIRY_MARGIN, beacon]);
-    const bonds = (await client.readContract({ address: rules, abi: rulesA.abi, functionName: 'BONDS' })) as Address;
     const fromBlock = (await client.getBlockNumber()) + 1n;
-    return { rules, bonds, beacon, fromBlock };
+    return { rules, beacon, fromBlock };
   };
   return {
     base: { token: tokenAddr, escrow, erc3009Collector, permit2Collector, multicall },
-    abis: { rules: rulesA.abi, bonds: bondsA.abi, token: token.abi, escrow: escrowA.abi, multicall: multicallA.abi, collector: c3009.abi },
+    abis: { rules: rulesA.abi, token: token.abi, escrow: escrowA.abi, multicall: multicallA.abi, collector: c3009.abi },
     deployRules,
   };
 }

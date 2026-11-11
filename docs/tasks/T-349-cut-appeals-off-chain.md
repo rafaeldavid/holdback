@@ -3,7 +3,7 @@
 - **Lane:** settlement (off-chain mirrors)
 - **Phase:** 2
 - **Depends on:** T-346 (the contract cut and core's mirror, branch `t-346-cut-appeals-and-bonds`); ADR-0031 section 8; D57
-- **Paths this task may touch:** `packages/settlement/evm/` (with `abis.json`); `apps/operator/`; `apps/adjudicator/` (the appeal role and the acceptance's `bondReserved` only); `apps/demo-cloud/`; `apps/test-agents/`; `examples/e2e-*`; the demo's scenario files; SimChain-only list entries in `packages/testkit/src/runner.ts` that T-346 did not make; this task file. Never `contracts/`, `packages/core/src/` beyond what T-346 hands over, `site/`, `docs/api.md` or other docs, `spec/schemas/`
+- **Paths this task may touch:** `packages/settlement/evm/` (with `abis.json`); `apps/operator/`; `apps/adjudicator/` (the appeal role and the acceptance's `bondReserved` only); `apps/demo-cloud/`; `apps/test-agents/`; `examples/e2e-*`; the demo's scenario files; `scripts/evm-abis.mjs` (the `bonds` entry only, granted by the coordinator on 2026-11-11); SimChain-only list entries in `packages/testkit/src/runner.ts` that T-346 did not make; this task file. Never `contracts/`, `packages/core/src/` beyond what T-346 hands over, `site/`, `docs/api.md` or other docs, `spec/schemas/`
 - **Human gate:** no for the branch. The freeze, the merge to `main` and every deploy are Rafa's
 - **Status:** in progress
 - **Agent/session:** implementer session, change kind 5 (settlement and judgment code): the packages' tests with anvil, one reviewer before it lands, a target of 250k tokens

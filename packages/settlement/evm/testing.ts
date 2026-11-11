@@ -79,7 +79,7 @@ export function evmRulebook(token: string): Rulebook {
   };
 }
 
-export async function evmGenesis(o: { cast: EvmCast; token: string; chainId: number; rules: Address; start: Timestamp; buyer: bigint; bond: bigint }): Promise<{ genesis: Genesis; club: Club }> {
+export async function evmGenesis(o: { cast: EvmCast; token: string; chainId: number; rules: Address; start: Timestamp; buyer: bigint }): Promise<{ genesis: Genesis; club: Club }> {
   const rulebook = evmRulebook(o.token);
   const club: Club = { id: 'evm-club', name: 'EVM test club', operator: o.cast.operator.address, rulebook, rulebookHash: rulebookHash(rulebook) };
   const domain = holdbackDomain(o.chainId, o.rules);
@@ -90,7 +90,8 @@ export async function evmGenesis(o: { cast: EvmCast; token: string; chainId: num
     const body = { principal: principal.address, agent: who.address, clubId: club.id, scope: { roles: ['buyer', 'seller'], maxPerCommitment: big, maxDaily: big, expiresAt: plusSeconds(o.start, 365 * 86400) }, nonce: keccak256(stringToBytes(`mandate/${who.name}`)), issuedAt: o.start } as Omit<Mandate, 'signature'>;
     mandates.push({ ...body, signature: await signMessage(principal.key, domain, { ...body, type: 'Mandate' } as UnsignedMessage) } as Mandate);
   }
-  const bond = { junior: o.bond.toString(), senior: '0' };
+  // The phase-one contracts hold no bond (ADR-0031 §8): the genesis bonds only name the adjudicators.
+  const bond = { junior: '0', senior: '0' };
   return {
     club,
     genesis: {
@@ -168,7 +169,7 @@ export class EvmDeal {
 
   async accept(): Promise<Submission> {
     const { adjudication, price } = this.terms;
-    const message = await this.sign(this.cast.primary, { type: 'AdjudicatorAcceptance', commitmentId: this.id, adjudicator: this.cast.primary.address, seedCommitment: keccak256(this.seed), policyHash: adjudication.policyHash, registryHash: adjudication.registryHash, fee: adjudication.fee, bondReserved: price, nonce: this.nonce(), expiresAt: this.terms.timing.offerExpiresAt } as const);
+    const message = await this.sign(this.cast.primary, { type: 'AdjudicatorAcceptance', commitmentId: this.id, adjudicator: this.cast.primary.address, seedCommitment: keccak256(this.seed), policyHash: adjudication.policyHash, registryHash: adjudication.registryHash, fee: adjudication.fee, bondReserved: { token: price.token, amount: '0' } as TokenAmount, nonce: this.nonce(), expiresAt: this.terms.timing.offerExpiresAt } as const);
     return { kind: 'adjudicator_accept', message };
   }
 
@@ -262,13 +263,6 @@ export class EvmDeal {
       ...(outcome === 'escalate' ? { encryptedKeys: [this.envelope(this.terms.adjudication.appealAdjudicator)] } : {}),
     } as UnsignedMessage);
     return { kind: 'decide', message: message as unknown as Decision };
-  }
-
-  async appealBy(who: 'buyer' | 'seller', bond: bigint): Promise<Submission> {
-    const actor = who === 'buyer' ? this.cast.buyer : this.cast.seller;
-    const body = { commitmentId: this.id, appellant: who, appellantAddress: actor.address, grounds: 'wrong-outcome', bond: { token: this.chain.token, amount: bond.toString() } as TokenAmount, filedAt: this.chain.now() };
-    const { signature } = await this.sign(actor, { ...body, type: 'Appeal' as const });
-    return { kind: 'appeal', appeal: { ...body, signature } };
   }
 
   async mutual(toSeller: bigint, releaseKey: boolean): Promise<Submission> {
