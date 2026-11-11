@@ -167,7 +167,12 @@ const POOL_TERMS = { capitalChargeRateBps: 0, capitalChargeToPoolRateBps: 0, fir
  * service, never a deal's price: on a chain the test token is open-mint, so an agent that needs more mints it itself.
  */
 export const DEMO_FAUCET_MAX_GRANT = 1_000_000n * TUSD;
-/** Largest ciphertext this demo stores (a Durable Object value is at most 2 MiB). */
+/**
+ * Largest ciphertext this demo stores: 1 MiB (T-315). Each ciphertext is one row of Durable Object storage, and a row
+ * (key and value) is at most 2 MiB, so 1 MiB leaves half the row free. Discovery states it as
+ * `limits.maxCiphertextBytes`; docs/api.md and site/llms.txt state the same number (world.test.ts compares them).
+ * A larger cap needs chunked rows or an object store first.
+ */
 export const DEMO_MAX_CIPHERTEXT_BYTES = 1_048_576;
 /**
  * Adjudicator passes stop this long after settlement last moved (a write or an adjudicator's action) or the world woke
@@ -759,6 +764,7 @@ export class PublicWorld {
           settlement: chain,
           registry,
           store,
+          maxCiphertextBytes: DEMO_MAX_CIPHERTEXT_BYTES,
           ...(operatorFee ? { fee: operatorFee } : {}),
           ...(evm ? { erc3009: { funding: (t) => evm.fundingTypedData(t), operatorFee: (x) => evm.operatorFeeTypedData(x) } } : {}),
           signerKey: key(`demo-operator-${i + 1}`).privateKey,

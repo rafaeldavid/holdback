@@ -590,7 +590,7 @@
               "schema": {
                 "type": "string",
                 "contentMediaType": "application/octet-stream",
-                "description": "The ciphertext bytes, at most 10 MiB"
+                "description": "The ciphertext bytes, at most `limits.maxCiphertextBytes` in discovery (1,048,576 bytes on the public demo)"
               }
             }
           }
@@ -2819,7 +2819,7 @@
         }
       },
       "Problem413": {
-        "description": "Too large: payload_too_large (JSON bodies 1 MiB, ciphertext 10 MiB)",
+        "description": "Too large: payload_too_large with `maxBytes` (JSON bodies 1 MiB; ciphertext `limits.maxCiphertextBytes` in discovery)",
         "headers": {
           "Request-Id": {
             "$ref": "#/components/headers/RequestId"
@@ -7444,6 +7444,11 @@
             "minimum": 1,
             "description": "rate_limited: whole seconds to wait, as in Retry-After"
           },
+          "maxBytes": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "payload_too_large: the largest body this route takes, in bytes"
+          },
           "field": {
             "type": "string",
             "maxLength": 200,
@@ -7629,13 +7634,19 @@
             "required": [
               "idempotency"
             ],
-            "description": "This node's limits. `reads` and `writes` are absent when it does not throttle",
+            "description": "This node's limits. `reads` and `writes` are absent when it does not throttle, `maxCiphertextBytes` when it stores no ciphertext",
             "properties": {
               "reads": {
                 "$ref": "#/components/schemas/RateLimit"
               },
               "writes": {
                 "$ref": "#/components/schemas/RateLimit"
+              },
+              "maxCiphertextBytes": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 10485760,
+                "description": "The largest ciphertext POST /v1/ciphertext stores, in bytes; more gets 413 `payload_too_large` with `maxBytes`. The public demo stores 1,048,576 bytes (1 MiB). Absent on a node with no ciphertext store"
               },
               "idempotency": {
                 "type": "object",
