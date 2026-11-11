@@ -327,8 +327,9 @@ export class OperatorTimeouts {
           }
         } else {
           report.refused.push({ commitmentId: id, kind: c.kind, detail: `${r.problem.type}: ${r.problem.detail}` });
-          // Only a send that reverted on chain went out: every other refusal comes before the broadcast.
-          const spent = /reverted on chain/.test(r.problem.detail);
+          // Only a send that reverted on chain went out: every other refusal comes before the broadcast. The relay marks
+          // it on its answer (EvmSubmitResult.reverted), so the words of the detail decide nothing here.
+          const spent = r.reverted === true;
           if (!spent) await this.o.budget?.give?.(c.kind);
           this.backOff(w, now, spent ? BACKOFF.reverted : BACKOFF.refused);
           // Out of test ETH or above a gas cap: every send would meet the same answer, so every deal waits.
