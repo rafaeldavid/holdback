@@ -12,6 +12,39 @@ Labels on this page:
 
 Not run while writing this page: `forge test` and `deploy-sepolia.sh --check`. Each claim that depends on one says so. Two `git` commands ran on 2026-11-11, on main at `016c28e`, and are cited where used.
 
+## The phase-one scope
+
+**The rest of this page describes the contracts deployed today, at `64be1f1`. The next deployment, phase one, is smaller on purpose.** [ADR-0031](../decisions/ADR-0031-phase-one-contract-scope.md) (Proposed, 2026-11-11) records what it cuts and why; Rafa decided the largest cut the same day (D57). Phase one is the deployment an external audit reads. Until the contracts are frozen, this section states the intended scope; the tables below change at the freeze, with the new line counts and addresses.
+
+**What the phase-one contracts do.** One token per deployment. The buyer funds a hold with one ERC-3009 signature. The seller delivers. The primary adjudicator decides, or the fallback does when the primary is late; either may escalate to the appeal adjudicator. The buyer may accept early, both parties may settle between themselves, and anyone may trigger a timeout. The first decision is final.
+
+| In scope for phase one | Purpose |
+| --- | --- |
+| `HoldbackRules.sol` | The rules contract. Eight state-changing entry points: `agreeAndFund`, `deliver`, `decide`, `earlyAccept`, `mutualSettle`, `reclaim`, `triggerFallback`, `triggerDefault` |
+| `HoldbackTypes.sol` | The settlement view, the EIP-712 struct hashes and the rate math |
+| `IHoldbackBeacon.sol`, `DrandQuicknetBeacon.sol`, `SimBeacon.sol` | The beacon that fixes the panel seed of a fallback's decision and of an escalation's. Whether the on-chain proof stays is open (ADR-0031, SC-8); the recommendation is to keep it |
+| Relied on, not in scope | Commerce Payments' `AuthCaptureEscrow` and `ERC3009PaymentCollector`, Multicall3, Solady |
+
+**Cut on purpose** (each with what leaves, what stays and what a party loses in ADR-0031):
+
+1. **Party appeals and bonds** (decided by Rafa, D57). `HoldbackBonds.sol` leaves, with `fileAppeal`, `expireAppeal` and the appeal state. A wrong first decision has no remedy on chain; the loss is bounded by one deal's price and fee.
+2. **Any token per deal.** A deployment serves one token, fixed at deploy.
+3. **Permit2 funding.** ERC-3009 only.
+4. **Payouts to third addresses** in a mutual settlement. It pays the buyer and the seller only.
+5. **Terms that settlement does not process:** a zero price; deadlines that are not strictly ordered `offerExpiresAt < fundBy < deliverBy < judgeBy < fallbackBy`; `maxSubmissions` other than 1; a mutual settlement in `Held` that names a delivery or releases a key.
+6. **The on-chain record of an unfunded offer's expiry:** `expireOffer` and the `Expired` stage.
+
+**Kept on purpose:** signatures from contracts (ERC-1271) in every role, so a multisig can be a party or an adjudicator (Rafa refused the cut, 2026-11-11).
+
+**Assumptions that are new with phase one:**
+
+- **The deployment's token** is a plain ERC-20 with ERC-3009: no fee on transfer, no rebasing, no transfer hook. The contract cannot check this. Whoever deploys names the token and has no authority afterwards; the parties accept it by signing under that deployment's EIP-712 domain.
+- **The first decision by the primary or the fallback adjudicator is final,** and so is the appeal adjudicator's decision after an escalation. No adjudicator posts a bond. The parties' protection is their choice of the three adjudicators, the fallback, the default outcome, and the signed record (ADR-0031, "Litmus tests").
+- **Two signed fields mean less than they say.** The acceptance's `bondReserved` must be 0. The terms' `appealWindowSec` is signed and not read.
+- **No signed type and no file in `spec/schemas/` changes.** The types describe the full protocol, which SimChain runs; a phase-one deployment accepts a subset.
+
+Unchanged: no owner, pause, freeze, blacklist or upgrade proxy, and no real money.
+
 ## In scope
 
 Line counts are a count of lines in this checkout [measured]. `contracts/src`, `foundry.toml`, `remappings.txt` and `script/TestUSDC.sol` equal `64be1f1`: `git diff --quiet 64be1f1 HEAD` over those four paths exits 0 [measured]; `--check` (below) also compares `lib`. Addresses are from [`contracts/deployments/sepolia.json`](../../contracts/deployments/sepolia.json) [measured].
