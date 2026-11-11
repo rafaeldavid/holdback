@@ -41,7 +41,7 @@ Not run while writing this page: `forge test` and `deploy-sepolia.sh --check`. E
 - a price of zero (D58). A deal with price 0 and a fee above 0 funds and settles through every outcome. A deal with price 0 and fee 0 cannot be funded, because the escrow refuses to hold nothing (`AuthCaptureEscrow.sol:179`). That is a stated phase-one limit: a deal must hold at least one base unit, as price or as fee;
 - the settlement for late work: in `Held`, a settlement both parties sign may name a delivery that was never posted and release its key in the same transaction as the payment (ADR-0031, SC-5b). It is the one path where a key leaves with no posted delivery. Core refuses it today and changes to allow it.
 
-**Added on purpose** (Rafa, 2026-11-11; D58): **a payout address for the seller, apart from the address that signs.** Today the escrow pays the address that signs the terms and the delivery (`HoldbackRules.sol:176`, `:206`). In phase one the signed terms name a payout address, and the contract pays it wherever it pays the seller. The two addresses may be equal. This adds a field to the signed terms, so its own ADR and a schema version follow (ADR-0031, section 11). Whether the buyer gets a separate address for refunds is open.
+**Added on purpose** (Rafa, 2026-11-11; D58): **a payout address for the seller and a refund address for the buyer, each apart from the address that signs.** Today the escrow pays the address that signs the terms and the delivery (`HoldbackRules.sol:176`, `:206`), and refunds its payer, the buyer's signing address (`:175`). In phase one the signed terms name both addresses. Each may equal the signing address. This adds fields to the signed terms, so its own ADR and a schema version follow (ADR-0031, section 11). The design is not written yet; the buyer's side is the harder half, because it changes who the escrow refunds.
 
 **Assumptions that are new with phase one:**
 
@@ -49,7 +49,7 @@ Not run while writing this page: `forge test` and `deploy-sepolia.sh --check`. E
 - **The deployer's one-time choices are the trust anchor:** the token, the escrow, the collector, the beacon and the expiry margin. At the freeze this page lists every immutable with its address and code hash.
 - **The first decision by the primary or the fallback adjudicator is final,** and so is the appeal adjudicator's decision after an escalation. No adjudicator posts a bond. A party must trust all three adjudicators it names, because the other party can steer which one decides. The parties' protection is their choice of the three adjudicators, the fallback, the default outcome, and the signed record (ADR-0031, "Litmus tests").
 - **Two signed fields mean less than they say.** The acceptance's `bondReserved` must be 0. The terms' `appealWindowSec` is signed and not read.
-- **No cut changes a signed type or a file in `spec/schemas/`.** The types describe the full protocol, which SimChain runs; a phase-one deployment accepts a subset. The one change to a signed type is the seller's payout address above.
+- **No cut changes a signed type or a file in `spec/schemas/`.** The types describe the full protocol, which SimChain runs; a phase-one deployment accepts a subset. The one change to a signed type is the pair of addresses above.
 
 Unchanged: no owner, pause, freeze, blacklist or upgrade proxy, and no real money.
 

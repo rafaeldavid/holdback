@@ -967,7 +967,7 @@ The full text is kept privately (`docs/private-materials.md`).
 | Cut both for phase one (chosen) | The first decision is final; eight open findings stop applying; one line of litmus test 3 is set aside |
 | Cut appeals, keep bonds | A bond with nothing to pay: on chain a bond moves only when an appeal overturns a decision |
 
-## D58. Rafa's answers to ADR-0031's open points: the offer's expiry off chain, a zero price allowed, the strict rules, third-party payouts cut with a planned return, and a payout address for the seller
+## D58. Rafa's answers to ADR-0031's open points: the offer's expiry off chain, a zero price allowed, the strict rules, third-party payouts cut with a planned return, a payout address for the seller and a refund address for the buyer
 
 **Decided 2026-11-11 by Rafa,** in the coordinating session, after ADR-0031 first merged with its open points. ADR-0031 stays Proposed and now records each answer; Rafa may overrule any line. Items 1 to 4 change no signed type and no file in `spec/schemas/`. Item 5 does, and gets its own ADR and schema version.
 
@@ -984,16 +984,17 @@ The full text is kept privately (`docs/private-materials.md`).
    - A phase-one mutual settlement pays the buyer and the seller only. D23 is deferred, not dropped.
    - The `Paid` event leaves with the feature, under his rule that a cut feature's events go with it (D57).
    - The return is planned work that starts after the phase-one contracts are frozen: funds to a third address by agreement, through a receivable address in the terms that both parties can change. A new field in the terms needs its own ADR and a schema version.
-5. **The seller is paid at a payout address apart from the address that signs, in phase one.** Rafa: "The contract Seller (as in agree-er) should not be the same address as the asset payout address. So that does need to get fixed in the contract architecture if it isn't already the case". It is not the case today: the escrow pays the address that signs the terms and the delivery (`HoldbackRules.sol:176`, `:206`).
+5. **Each party receives its money at an address apart from the address that signs, in phase one.** The seller's side first. Rafa: "The contract Seller (as in agree-er) should not be the same address as the asset payout address. So that does need to get fixed in the contract architecture if it isn't already the case". It is not the case today: the escrow pays the address that signs the terms and the delivery (`HoldbackRules.sol:176`, `:206`).
    - Decided in principle, not designed here. The payout address and the signing address are separate fields in the signed terms, and the address is part of the commit that is frozen and audited.
    - The two may be equal. Asked "Must the seller's two addresses be different, or may they be the same?", Rafa: "They can be different, but can default to the same upon initial set-up if that is easiest for an agent. LIke when you input delivery address and then credit card address". The contract does not refuse equal addresses. When a seller sets no payout address, the reference adapter uses its signing address and says so in one line at start-up; it does not stop.
    - It adds a field to `CommitmentTerms`, so every commitment ID moves. Its own ADR follows, with a schema version, a new EIP-712 domain version and new hash vectors.
    - It softens item 4 at once: a seller that must pay a third party names that party's address as its payout address when it signs. Changing the address after signing, by both parties' agreement, is the part planned for after the freeze.
-   - Open within it: whether the buyer gets a separate address for refunds in phase one.
+   - **The buyer gets a refund address too, against the recommendation.** Put to him as "A separate refund address for the buyer. The suggestion is no, not in the first version.", Rafa: "Yes, this should be part of the initial design." So phase one's signed terms carry a payout address for the seller and a refund address for the buyer, each apart from the address that signs; each may equal it, and the tooling defaults to it when none is set.
+   - The buyer's side is not designed. Today the escrow refunds its payer, the buyer's signing address (`HoldbackRules.sol:175`), so a refund address changes who is named as payer and may touch the vendored escrow. The same ADR settles it.
 6. **A deal must hold at least one base unit, as price or as fee.** A deal with price 0 and fee 0 cannot be funded, because the escrow refuses to hold nothing (`AuthCaptureEscrow.sol:179`), while core funds it today. Told "A deal where nobody pays anything, not even the judge, doesn't need an escrow yet.", Rafa answered: "Agree".
    - It is a stated phase-one limit. The contract is unchanged; core, the prepare routes and the docs are to say the same, so an agent gets a clear answer before funding.
    - Under D31 this refuses only what settlement cannot process. A price of 0 with a fee above 0 stays allowed (item 2).
-7. **Still open for Rafa:** whether the buyer gets a separate address for refunds in phase one (item 5), and the sentence in `CLAUDE.md` for litmus test 3 (D57).
+7. **No scope point is open.** What waits on Rafa is the sentence in `CLAUDE.md` for litmus test 3 (D57), and the design of the two addresses when their ADR is written.
 
 - **Litmus tests.** Neutrality: unchanged by items 1 to 3; item 4 narrows the fifth outcome of `docs/neutrality.md` to a split between the buyer and the seller, as ADR-0031 already recorded; item 5 puts the payout address in the terms every party signs, so no one party can redirect funds. The hold: unchanged; no answer moves funds differently from ADR-0031's record, a zero price keeps the branches the contract has today, and item 5's own ADR tests its design. Defended judgment: untouched.
 - **Research pass:** the planning session's read of the fee-slot path and of the zero-price branches, and T-342's read behind ADR-0031.
