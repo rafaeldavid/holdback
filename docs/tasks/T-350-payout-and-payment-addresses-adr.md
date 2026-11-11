@@ -52,7 +52,7 @@ Non-goals: no code, no schema edit, no change to the audit pages, and no redesig
 - **Nothing was run.** Kind 10 has no local checks (`docs/team.md`, Change recipes). Every claim in the ADR about behaviour is labelled measured (read at the line) or inferred.
 - **The plan's claim about the test token holds** [measured by reading]: `TestUSDC.sol:92` checks every authorization with Solady's `isValidSignatureNow`, which asks a contract through ERC-1271 (`SignatureCheckerLib.sol:62-71`). No test covers it; the contract package adds one.
 - **Red team** [measured: the report is `reports/scratch/t-350-redteam.md` in the main checkout, not committed]: one `red-teamer` pass, reading only. No Critical and no High. 2 Medium, 5 Low and 9 Info findings, each answered in ADR-0033 section 12. Before the answers were written, eight of its cited lines were read again and matched.
-- **Numbers taken** [measured against `origin/main` and the open pull requests]: ADR-0033 and D60. ADR-0032 and D59 belong to T-348 (PR 345, open), ADR-0034 and D61 to T-351.
+- **Numbers taken** [measured against `origin/main` and the open pull requests]: ADR-0033 and D60. ADR-0032 and D59 belong to T-348 (PR 345, merged before this one), ADR-0034 and D61 to T-351.
 - **Tokens** [measured for the subagent, not for the session]: the red team used 326,091 tokens. The session's own use was not read. The task passed its 200k target.
 - Snapshot diffs: none; no code changed.
 
@@ -80,4 +80,4 @@ All are in ADR-0033; Rafa may overrule any of them.
 
 **Open points that are Rafa's** (ADR-0033, the section of that name): the two names, the new event, whether ADR-0031's schema candidate rides in v0.11, the pilot's payment address, and the Sepolia redeploy. None blocks the contract package.
 
-**A merge note.** PR 345 (T-348, D59) and this PR both append to the end of `docs/decisions-today.md`. Whichever merges second resolves that one conflict by keeping both entries.
+**A merge note.** PR 345 (T-348, D59) merged first. This branch merged `origin/main` and kept both entries: D59, then D60.
