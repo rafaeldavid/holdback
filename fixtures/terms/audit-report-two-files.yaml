@@ -1,0 +1,141 @@
+# A seller's own terms for a security-audit report (T-326): fixtures/terms/audit-report.yaml copied and
+# changed as its header says. Another commit, two files in scope, a price of 1,234.56 tUSD and a 2-day
+# delivery window. Checks-only: the rubric is empty, so the five required checks decide.
+#
+#   pnpm audit-deal --report fixtures/data/audit-report/report.two-files.json --terms fixtures/terms/audit-report-two-files.yaml
+#
+# fixtures/data/audit-report/report.two-files.json passes these checks; report.two-files.missing-file.json
+# leaves out one file in scope, so the coverage check refuses it.
+schemaVersion: "0.7"
+clubId: data-services-v1
+deliverable:
+  kind: document
+  description: "Security review of the escrow code at commit 3f0a9c2e8b7d6154a3c2b1e0f9d8c7b6a5948372. Scope: contracts/Escrow.sol and contracts/FeeSplitter.sol. Deliver one JSON report with the commit reviewed, the files reviewed and the findings; it may add a summary and the report's date. Each finding has an id, a severity, a title, one or more locations, the root cause and a recommended fix; it may add its impact and a status (open, fixed or acknowledged). Each location names a file in scope and may add a line range and the code excerpt it is about. A finding rated Medium or higher also carries the proof-of-concept files that show it. Severity scale: Critical, anyone can take or lock funds with no special access; High, funds can be taken or locked only with a precondition such as a privileged role or an unusual market state; Medium, the code breaks a stated rule or loses a bounded amount; Low, a defect that puts no funds at risk; Info, a note on clarity, style or cost. A report with no findings is a complete report."
+  format: application/json
+acceptance:
+  deterministicChecks:
+    - id: report
+      type: json_schema
+      required: true
+      schema:
+        type: object
+        additionalProperties: false
+        required: [commit, filesReviewed, findings]
+        properties:
+          commit: { type: string, pattern: "^[0-9a-f]{40}$" }
+          reportDate: { type: string, pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" }
+          summary: { type: string, minLength: 1, maxLength: 5000 }
+          filesReviewed:
+            type: array
+            items: { type: string, minLength: 1, maxLength: 200 }
+          findings:
+            type: array
+            items:
+              type: object
+              additionalProperties: false
+              required: [id, severity, title, locations, rootCause, recommendedFix]
+              properties:
+                id: { type: string, pattern: "^F-[0-9]{2,4}$" }
+                severity: { enum: [Critical, High, Medium, Low, Info] }
+                status: { enum: [open, fixed, acknowledged] }
+                title: { type: string, minLength: 1, maxLength: 200 }
+                locations:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: object
+                    additionalProperties: false
+                    required: [file]
+                    properties:
+                      file: { type: string, minLength: 1, maxLength: 200 }
+                      lines:
+                        type: object
+                        additionalProperties: false
+                        required: [start, end]
+                        properties:
+                          start: { type: integer, minimum: 1 }
+                          end: { type: integer, minimum: 1 }
+                      excerpt: { type: string, minLength: 1, maxLength: 2000 }
+                rootCause: { type: string, minLength: 1, maxLength: 2000 }
+                impact: { type: string, minLength: 1, maxLength: 2000 }
+                recommendedFix: { type: string, minLength: 1, maxLength: 2000 }
+                pocFiles:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: object
+                    additionalProperties: false
+                    required: [path, content]
+                    properties:
+                      path: { type: string, minLength: 1, maxLength: 200 }
+                      content: { type: string, minLength: 1, maxLength: 20000 }
+    - id: proof
+      type: json_schema
+      required: true
+      schema:
+        type: object
+        required: [findings]
+        properties:
+          findings:
+            type: array
+            items:
+              type: object
+              required: [severity]
+              anyOf:
+                - properties: { severity: { enum: [Low, Info] } }
+                - required: [pocFiles]
+    - id: scope
+      type: json_schema
+      required: true
+      schema:
+        type: object
+        required: [commit, findings]
+        properties:
+          commit: { const: "3f0a9c2e8b7d6154a3c2b1e0f9d8c7b6a5948372" }
+          findings:
+            type: array
+            items:
+              type: object
+              required: [locations]
+              properties:
+                locations:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: object
+                    required: [file]
+                    properties:
+                      file: { enum: [contracts/Escrow.sol, contracts/FeeSplitter.sol] }
+    - id: coverage
+      type: json_schema
+      required: true
+      schema:
+        type: object
+        required: [filesReviewed]
+        properties:
+          filesReviewed:
+            type: array
+            uniqueItems: true
+            minItems: 2
+            maxItems: 2
+            items: { enum: [contracts/Escrow.sol, contracts/FeeSplitter.sol] }
+    - { id: hidden, type: hidden_characters_max, required: true, max: { total: 0 } }
+  rubric:
+    passThreshold: 0
+    criteria: []
+price: { token: tUSD, amount: "1234560000" }
+adjudication:
+  policyId: bench-a/p1
+  fee: { token: tUSD, amount: "50000000" }
+timing:
+  offerExpiresInSec: 900
+  fundWithinSec: 1800
+  deliverWithinSec: 172800
+  judgeWithinSec: 120
+  fallbackWithinSec: 120
+  appealWindowSec: 300
+  appealDecideSec: 300
+  maxSubmissions: 1
+settlement: { mode: guaranteed_on_decision, token: tUSD }
+remedy: { onReject: full_refund }
+disclosure: { level: public }
