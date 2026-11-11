@@ -276,5 +276,15 @@
         "total": 0
       }
     }
-  ]
+  ],
+  "optionalRubric": {
+    "criteria": [
+      { "id": "root_cause", "description": "Each finding's root cause matches the code its locations quote, or names the code at fault where a location quotes none. A report with no findings scores 4.", "weight": 30, "anchors": { "0": "A root cause contradicts an excerpt at its locations, or describes code that is at none of its locations.", "2": "Every root cause is consistent with its locations, but some do not say which statement is at fault.", "4": "Every root cause names the statement at fault at its locations and says why it is wrong." } },
+      { "id": "impact", "description": "Each impact a finding states follows from its root cause. A finding that states no impact is not scored here. A report with no findings, or with no stated impact, scores 4.", "weight": 20, "anchors": { "0": "An impact does not follow from its root cause, or claims more than the root cause allows.", "2": "Every impact is plausible, but some skip a step between the root cause and the result.", "4": "Every impact follows from its root cause step by step and says who loses what." } },
+      { "id": "severity", "description": "Each finding's severity fits the severity scale in the deliverable description. A report with no findings scores 4.", "weight": 20, "anchors": { "0": "A severity is two or more levels away from what the scale gives for what the finding describes.", "2": "Every severity is within one level of what the scale gives for what the finding describes.", "4": "Every severity is the level the scale gives for what the finding describes." } },
+      { "id": "fix", "description": "Each recommended fix addresses the finding's root cause. A report with no findings scores 4.", "weight": 20, "anchors": { "0": "A fix leaves its root cause in place, or changes unrelated code.", "2": "Every fix addresses its root cause, but some are too vague to apply.", "4": "Every fix removes its root cause and is specific enough to apply." } },
+      { "id": "distinct", "description": "No two findings describe the same bug. A report with no findings scores 4.", "weight": 10, "anchors": { "0": "Two findings describe the same root cause in the same code.", "2": "Two findings overlap in part, but each adds something the other lacks.", "4": "Every finding describes a different bug." } }
+    ],
+    "passThreshold": 300
+  }
 }

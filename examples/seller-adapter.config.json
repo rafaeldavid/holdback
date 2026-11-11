@@ -1,0 +1,10 @@
+{
+  "port": 8791,
+  "sellerApi": {
+    "quote": "http://127.0.0.1:8790/quote",
+    "start": "http://127.0.0.1:8790/jobs",
+    "result": "http://127.0.0.1:8790/jobs/{jobId}/result"
+  },
+  "redelivery": { "refetchEverySec": 600 },
+  "quoteRateLimit": { "overall": { "requests": 100, "windowSec": 60 } }
+}
