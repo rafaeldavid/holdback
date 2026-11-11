@@ -5,7 +5,7 @@
 - **Depends on:** T-334 (the clean-up, merged to `contracts-audit-ready` at `b88f9e5`), T-341 (the side-by-side harness and the state oracle, holdback PR 333, merged to `main` at `67fde99`), T-342 (ADR-0031, the phase-one scope), T-340 (`docs/audit/state-model.md`)
 - **Paths this task may touch:** `contracts/src/`; `contracts/test/` (tests of the removed feature, the new contract-signer and late-work tests, the harness's allow-list and handler for this change, the state oracle's phase-one rows); `contracts/script/` only where a removed contract requires it; `packages/core/src/` only for the SC-7 mirror; the simulator's SimChain-only exclusion list (`packages/testkit/src/runner.ts`, `LOCAL_EXCLUSIONS`); this task file. Never `apps/`, `examples/`, `site/`, `spec/schemas/`, `packages/settlement/`, `docs/audit/`
 - **Human gate:** no for the branch. The freeze, the merge to `main` and the redeploy are Rafa's
-- **Status:** in progress
+- **Status:** merged to contracts-audit-ready, waits for the freeze
 - **Agent/session:** implementer session, change kind 7 (smart contracts): `forge test`, one reviewer and one red team before it lands, a target of 300k tokens
 
 ## Intent
@@ -145,7 +145,11 @@ Fill this in before review. Label each item measured, inferred or guessed.
 
 ## Handoff
 
-**State.** The cut is on branch `t-346-cut-appeals-and-bonds`, in draft PR 352 into `contracts-audit-ready`. That PR is stacked on PR 343, which brings main into the lane. It stays a draft until T-349 merges its off-chain mirrors into the branch; then the full CI should be green and one merge carries both.
+**State.** PR 352 merges the cut, the contract-signer tests (PR 357) and T-349's off-chain mirrors (PR 361, merged into this branch at `9cb7f3a`) into `contracts-audit-ready` in one merge. PR 343 had already brought main into the lane. On PR 361's final head, all 12 CI jobs passed, both anvil legs included [measured by T-349]. Nothing is on `main`.
+
+**For the freeze (Rafa's).**
+- **Redeploy before this build runs anywhere.** T-349's off-chain code has no guard against the deployed contracts, which still have appeals and the vault (T-349's review finding 2, `docs/tasks/T-349-cut-appeals-off-chain.md`, Handoff). The reverse holds too: the deployed operators cannot settle a deal on the cut contracts (red team RT-5).
+- **The sentence in `CLAUDE.md`'s litmus test 3** that sets the bonded appeal aside for phase one is Rafa's (ADR-0031, "What waits on Rafa").
 
 **For T-349, the off-chain second part.** The full list is `reports/scratch/t-346-for-part-2.md`: 31 places, each with file and line, what it does today and what it must do after the cut, plus the measured failures. In short:
 - **`packages/settlement/evm`:**
