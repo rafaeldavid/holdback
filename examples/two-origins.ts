@@ -1,7 +1,7 @@
 // One world served as two operator nodes over HTTP, for tests: http://127.0.0.1:<port> is node 0 and
 // http://localhost:<port> is node 1, on one port. A timer stands in for the Durable Object's alarm. The examples'
 // tests, the demo world's tests and the test agents' tests all serve the world through this file, the last two by
-// relative path, as they import agent.ts. Only tests import it.
+// relative path, as they import agent.ts. Tests import it, and so does audit-deal.ts for its local run.
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type { PublicWorld } from '@holdback/demo-cloud';
