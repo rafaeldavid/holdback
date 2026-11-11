@@ -5,7 +5,7 @@
 - **Depends on:** ADR-0004 and D4 (the target chain), ADR-0018 (the beacon), ADR-0031 (the phase-one contract scope), ADR-0032 (the beacon rounds), the drand verifier review of 2026-11-11 (`docs/reviews/2026-11-11-drand-verifier-review.md`, section 8)
 - **Paths this task may touch:** `docs/research/2026-11-11-settlement-chain.md` (new), one new ADR under `docs/decisions/`, new lines at the end of `docs/decisions-today.md`, this file
 - **Human gate:** no for the research and the record. Yes for everything they describe: Rafa decides the chain, and only Rafa changes hard rule 1. This task deploys nothing and sends no transaction.
-- **Status:** review
+- **Status:** done (PR 359, merged 2026-11-11 at `69d9b4d`)
 - **Agent/session:** a Claude Fable 5.2 session, started by the coordinating session on 2026-11-11
 - **Change kind:** 10, research and decisions (`docs/team.md`, Change recipes). Docs only. Target: 200k tokens.
 
@@ -77,7 +77,7 @@ All on 2026-11-11. No transaction was sent and nothing was deployed.
 
 ## Handoff
 
-**Done:** the note, ADR-0034 (Proposed) and D61, reviewed and red-teamed.
+**Done:** the note, ADR-0034 (Proposed) and D61, reviewed and red-teamed. PR 359 merged on 2026-11-11 after CI passed (`check`, `gitleaks`, CodeQL; the code jobs skip a docs-only change) [measured: `gh pr checks 359`].
 
 **Not done, and owed by later work:**
 
