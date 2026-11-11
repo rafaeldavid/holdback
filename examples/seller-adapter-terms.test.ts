@@ -12,7 +12,7 @@ import { startSimWorld, type SimWorld } from '@holdback/operator';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { Agent } from './agent.ts';
 import { differencesOf, makeKeys } from './buyer-signer.ts';
-import { config as shipped, startSellerAdapter, type RunningAdapter, type SellerAdapterConfig } from './seller-adapter.ts';
+import { config as shipped, loadConfig, startSellerAdapter, type RunningAdapter, type SellerAdapterConfig } from './seller-adapter.ts';
 import { startStubSellerApi, type StubOptions, type StubSellerApi } from './seller-adapter-stub.ts';
 import { Refusal } from './verify.ts';
 
@@ -174,13 +174,56 @@ describe('seller adapter: terms set per quote', () => {
     writeFileSync(file, JSON.stringify(own));
     const { running } = await adapter({ template: file });
     const published = await (await fetch(`${running.url}/defaults`)).json();
-    expect(published).toEqual({ version: 1, deliverable: own.deliverable, checks: own.checks, timing: shipped.timing, fee, scope: shipped.scope, options: RULES.options });
+    expect(published).toEqual({ version: 1, deliverable: own.deliverable, checks: own.checks, optionalRubric: own.optionalRubric, timing: shipped.timing, fee, scope: shipped.scope, options: RULES.options });
     const q = await quoteFor(running, reader, SMALL);
     expect(q.status, JSON.stringify(q.body)).toBe(200);
     expect(q.body.fees.adjudication).toEqual(fee);
     const terms = await termsOf(reader, q.body.commitmentId);
     expect(terms.adjudication.fee).toEqual(fee);
     expect(terms.deliverable.description.endsWith(' Write {{commit}} as is.')).toBe(true);
+  });
+
+  it('a buyer\'s option adds the template\'s optional rubric to one offer, and an offer without it carries none (T-331)', async () => {
+    // The shipped configuration: the option `panel` and its rule, with the template's five audit criteria.
+    expect(shipped.options).toMatchObject({ panel: { type: 'boolean' } });
+    expect(shipped.termsRules).toContainEqual({ when: [{ field: 'options.panel', equals: true }], rubric: true });
+    expect(TEMPLATE.optionalRubric.criteria.map((c: J) => c.id)).toEqual(['root_cause', 'impact', 'severity', 'fix', 'distinct']);
+    expect(TEMPLATE.rubric).toBeUndefined(); // no offer carries a rubric unless a rule adds it
+    const { running } = await adapter({ options: shipped.options!, termsRules: shipped.termsRules! }, {});
+    const [b1, b2] = [agent('buyer-1'), agent('buyer-2')];
+    const withPanel = await quoteFor(running, b1, SMALL, { panel: true });
+    const without = await quoteFor(running, b2, SMALL, { panel: false });
+    expect(withPanel.status, JSON.stringify(withPanel.body)).toBe(200);
+    expect(without.status, JSON.stringify(without.body)).toBe(200);
+    const [tp, tn] = [await termsOf(b1, withPanel.body.commitmentId), await termsOf(b2, without.body.commitmentId)];
+    expect(tp.acceptance.rubric).toEqual(TEMPLATE.optionalRubric);
+    expect(tn.acceptance.rubric?.criteria ?? []).toEqual([]);
+    expect(checkIds(tp)).toEqual(checkIds(tn)); // the rule adds the panel and changes nothing else
+    // The primary adjudicator takes the panel offer.
+    expect((await b1.waitFor(withPanel.body.commitmentId, ['AcceptedByAdjudicator'])).escrowState).toBe('AcceptedByAdjudicator');
+    // The buyer reads what the option adds before it asks: the defaults publish the optional rubric.
+    expect(((await (await fetch(`${running.url}/defaults`)).json()) as J).optionalRubric).toEqual(TEMPLATE.optionalRubric);
+  }, 45_000);
+
+  it('refuses a malformed rubric rule, and a rubric rule over a template that holds no optional rubric', async () => {
+    await expect(adapter({ termsRules: [{ when: [], rubric: 'yes' as unknown as boolean }] })).rejects.toThrow(/termsRules\[0\]\.rubric must be true or false/);
+    const dir = tmp('t331-template-');
+    const bare = { ...TEMPLATE };
+    delete bare.optionalRubric;
+    writeFileSync(join(dir, 'template.json'), JSON.stringify(bare));
+    const rule = { when: [{ field: 'options.panel', equals: true }], rubric: true };
+    // A configuration file with that rule does not load, and names the rule.
+    const file = join(dir, 'seller.json');
+    writeFileSync(file, JSON.stringify({ sellerApi: { quote: 'http://127.0.0.1:1/q', start: 'http://127.0.0.1:1/s', result: 'http://127.0.0.1:1/{jobId}' }, template: 'template.json', scope: shipped.scope, options: { panel: { type: 'boolean' } }, termsRules: [rule] }));
+    expect(() => loadConfig(file)).toThrow(/termsRules\[0\]\.rubric: the template has no optionalRubric for the rule to add/);
+    // Set in code, the adapter starts, and a buyer who asks for the panel gets 400 and no offer: never an offer without it.
+    const { running } = await adapter({ template: join(dir, 'template.json'), options: { panel: { type: 'boolean' } }, termsRules: [rule] });
+    const buyer = agent('buyer-1');
+    const asked = await quoteFor(running, buyer, SMALL, { panel: true });
+    expect(asked.status).toBe(400);
+    expect(asked.body).toEqual({ type: 'invalid_request', detail: 'options.panel: this seller\'s template has no optional rubric to add' });
+    expect(running.deals()).toEqual([]);
+    expect((await quoteFor(running, buyer, SMALL)).status).toBe(200);
   });
 });
 
