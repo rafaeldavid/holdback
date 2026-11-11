@@ -32,7 +32,7 @@ import { Refusal } from './verify.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
-const LIVE_OPERATORS = ['https://api.escrow.stream', 'https://api2.escrow.stream'];
+const LIVE_OPERATORS = ['https://api.crow.direct', 'https://api2.crow.direct'];
 const PUBLIC_RPC = 'https://ethereum-sepolia-rpc.publicnode.com';
 /** The checkout's reports/e2e-round-1, from whatever folder the driver runs. */
 const OUT = process.env['E2E_OUT'] || fileURLToPath(new URL('../reports/e2e-round-1', import.meta.url));
@@ -145,7 +145,7 @@ async function run(ids: string[], flags: { t220: boolean; homepage: boolean; rer
 async function runLocked(scenarios: ReturnType<typeof pick>, seed: string, keys: ReturnType<typeof roundAddresses>, folder: string, flags: { t220: boolean; homepage: boolean; rerunAfter?: string }): Promise<number> {
   const ops = operators();
   const live = ops.join(',') === LIVE_OPERATORS.join(',');
-  const round = await Round.open({ operators: ops, seed, rpcUrl: rpcUrl(), t220: flags.t220, homepage: flags.homepage, ...(live ? { trySeller: 'https://escrow.stream/agents/test-seller', tryBundleUrl: 'https://escrow.stream/try.mjs' } : {}) });
+  const round = await Round.open({ operators: ops, seed, rpcUrl: rpcUrl(), t220: flags.t220, homepage: flags.homepage, ...(live ? { trySeller: 'https://crow.direct/agents/test-seller', tryBundleUrl: 'https://crow.direct/try.mjs' } : {}) });
   console.log(`’crow round 1 on ${ops.join(' and ')}: test tokens only, nothing here is real money`);
   console.log(`domain ${round.pin.domain.name} ${round.pin.domain.version} on chain ${round.pin.domain.chainId}, rules ${round.pin.domain.verifyingContract}${round.chain ? ` (read through ${new URL(round.chain.rpcUrl).host})` : ' (SimChain: no chain to read)'}`);
   console.log(`operators serve schema ${round.status.map((s) => s.schemaVersion).join(' and ')}; demo club ${round.demo.clubId}, windows from ${round.demo.minWindowSec} s; adjudicators ${Object.entries(round.demo.adjudicators).map(([k, v]) => `${k} ${short(v)}`).join(', ')}`);

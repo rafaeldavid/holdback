@@ -11,7 +11,7 @@ export const credentials = [];
 
 const SEPOLIA_CHAIN_ID = '11155111';
 const DEFAULTS = {
-  discoveryUrl: 'https://api.escrow.stream/',
+  discoveryUrl: 'https://api.crow.direct/',
   rpcUrl: 'https://ethereum-sepolia-rpc.publicnode.com',
   laneFloorWei: '10000000000000000',
   secondReadAfterMs: 120_000,

@@ -44,7 +44,7 @@ import { SILENT } from './e2e-scenarios-silent.ts';
 export type { Scenario } from './e2e-scenario-kit.ts';
 
 /**
- * The homepage command: the published bundle (site/try.mjs, as https://escrow.stream/try.mjs serves it) run once
+ * The homepage command: the published bundle (site/try.mjs, as https://crow.direct/try.mjs serves it) run once
  * relayed by each operator, as a stranger runs it. With `--try-seller`, Crow's test seller is the other party.
  */
 async function homepage(r: Run): Promise<void> {

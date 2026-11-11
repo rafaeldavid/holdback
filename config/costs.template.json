@@ -20,7 +20,7 @@
   },
   "thresholds": {},
   "sepolia": {
-    "discoveryUrl": "https://api.escrow.stream/",
+    "discoveryUrl": "https://api.crow.direct/",
     "rpcUrl": "https://ethereum-sepolia-rpc.publicnode.com",
     "laneFloorWei": "10000000000000000",
     "secondReadAfterMs": 120000,

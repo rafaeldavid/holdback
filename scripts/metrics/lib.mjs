@@ -24,11 +24,11 @@ export const UINT = /^(0|[1-9][0-9]*)$/;
 export const INT = /^(0|-?[1-9][0-9]*)$/;
 
 export const DEFAULTS = {
-  op1: 'https://api.escrow.stream',
-  op2: 'https://api2.escrow.stream',
+  op1: 'https://api.crow.direct',
+  op2: 'https://api2.crow.direct',
   sepoliaRpc: 'https://ethereum-sepolia-rpc.publicnode.com',
   sepoliaRpcFallback: 'https://sepolia.gateway.tenderly.co',
-  testSeller: 'https://escrow.stream/agents/test-seller/agent.json',
+  testSeller: 'https://crow.direct/agents/test-seller/agent.json',
 };
 
 export const iso = (ms) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
