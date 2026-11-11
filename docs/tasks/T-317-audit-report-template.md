@@ -6,7 +6,7 @@
 - **Depends on:** T-008 (the `json_schema` check), T-016 (the testkit runs `@holdback/judgment`)
 - **Paths this task may touch:** `fixtures/terms/audit-report.yaml`, `fixtures/data/audit-report/`, `fixtures/scenarios/audit-report-*`, `fixtures/README.md` (one table row), `spec/examples/commitment.audit-report.example.json`, `site/llms.txt`, `site/index.html` (only if the build regenerates it), `tests/audit-report-template.test.ts`, this file. Never: `spec/schemas/`, `packages/judgment/`.
 - **Human gate:** no. The site deploy that publishes the new `llms.txt` section waits for Rafa.
-- **Status:** review
+- **Status:** done (PR 273, merged 2026-11-11)
 - **Agent/session:** the T-316 and T-317 session, 2026-11-11, branch `t-317-audit-report-template`
 
 ## Intent
