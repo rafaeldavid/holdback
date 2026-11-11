@@ -6,7 +6,7 @@
 - **Depends on:** T-320 (the loosened template, PR 287), T-318 (the seller adapter, PR 284), T-319 (the buyer signer, PR 281), T-316 (the seller's check runner, PR 278)
 - **Paths this task may touch:** `examples/audit-deal.ts`, `examples/audit-deal.test.ts`, `examples/seller-adapter.ts`, `examples/seller-adapter-stub.ts`, `examples/seller-adapter.test.ts`, `examples/buyer-signer.ts`, `examples/buyer-signer.test.ts`, `examples/buy-with-signer.ts`, `examples/two-origins.ts` (its header comment), `package.json` (one script), `site/llms.txt` (three lines in "Sell a priced API service", kind 1), `docs/tasks/T-320-audit-template-fit.md` (its Status, on merge), this file. Never: `spec/schemas/`, `apps/`, `packages/`, `.env*`.
 - **Human gate:** no for the build. The live run uses test tokens on Sepolia through the public test service and its faucet, which the brief names; it deploys nothing.
-- **Status:** review
+- **Status:** done (PR 290, merged 2026-11-11; the live run on Sepolia passed the same day)
 - **Agent/session:** the T-320 and T-321 session, 2026-11-11, branch `t-321-audit-deal-end-to-end-2` (the first branch, `t-321-audit-deal-end-to-end`, failed the secret scan on a test value; see Decisions)
 
 ## Intent
@@ -52,14 +52,14 @@ A second case: the stub returns a report that misses one file in scope. The adap
 
 ## Acceptance criteria
 
-- [ ] `examples/audit-deal.test.ts`: the Released case ends Released on both operators; the buyer paid the price, the adjudication fee and the operator fee; the seller holds 2,000.00 tUSD; the buyer opened a report that passes the template's checks.
-- [ ] The same test: the refused case ends Refunded after the delivery deadline; the adapter's stage is `refused` and its log names the failed check; no delivery is recorded; the hold (price plus adjudication fee) is back on the buyer's key.
-- [ ] The buyer approves against its own expectation, not against whatever the offer says: a test shows the script stopping on an offer with another price.
-- [ ] The script prints no secret key (test).
-- [ ] `examples/buyer-signer.test.ts` passes 10 runs in a row; Evidence states the cause of the failures.
-- [ ] `pnpm audit-deal` runs both cases on a local world and exits 0.
-- [ ] `pnpm typecheck`, `pnpm lint`, the examples' tests, `pnpm validate:spec`, `pnpm snap` and the site check pass.
-- [ ] After merge: one live run on Sepolia, recorded in Evidence with the commitment ID, the transaction links, the time taken and each stall; or the failure with its request IDs.
+- [x] `examples/audit-deal.test.ts`: the Released case ends Released on both operators; the buyer paid the price, the adjudication fee and the operator fee; the seller holds 2,000.00 tUSD; the buyer opened a report that passes the template's checks.
+- [x] The same test: the refused case ends Refunded after the delivery deadline; the adapter's stage is `refused` and its log names the failed check; no delivery is recorded; the hold (price plus adjudication fee) is back on the buyer's key.
+- [x] The buyer approves against its own expectation, not against whatever the offer says: a test shows the script stopping on an offer with another price.
+- [x] The script prints no secret key (test).
+- [x] `examples/buyer-signer.test.ts` passes 10 runs in a row; Evidence states the cause of the failures.
+- [x] `pnpm audit-deal` runs both cases on a local world and exits 0.
+- [x] `pnpm typecheck`, `pnpm lint`, the examples' tests, `pnpm validate:spec`, `pnpm snap` and the site check pass.
+- [x] After merge: one live run on Sepolia, recorded in Evidence with the commitment ID, the transaction links, the time taken and each stall; or the failure with its request IDs.
 
 ## Out of scope
 
@@ -100,7 +100,34 @@ The agreed quote shape itself matched: `{buyer, buyerEncryptionPublicKey, scope}
 
 ### The live run on Sepolia
 
-Recorded after the PR merges.
+One run, on 2026-11-11 from 09:22:51 to 09:23:50 UTC, from `main` at `dda465a` (PR 290 merged): `pnpm audit-deal --live`, against the public test service's two nodes. It passed on the first try, so there was no retry. All items below are measured, from the script's output and from both nodes afterwards.
+
+- **Outcome.** Released, in 57.4 s from the script's start to the opened report. Both nodes report Released.
+- **Commitment.** `0xd7ea3be31ba596001cb7ad1f084c32da935cc76cd63b5f238c065dfb1638bc2c`
+- **Parties.** Seller `0x809ee7b90cc8513a7d7089849614543089c2417b`, buyer `0x7c2f9a65095271281b25dbbc7eba1158283b71af`. Both were made for this run.
+- **Amounts.** Price 2,000.00 tUSDC, adjudication fee 1.00 tUSDC, operator fee 4.71 tUSDC. The buyer paid 2,005.71 tUSDC: 2,001.00 tUSDC into the hold and 4.71 tUSDC to the operator. The seller received 2,000.00 tUSDC.
+- **Terms.** A 4-day delivery window (deliver by 2026-11-15T09:23:00Z) and the T-320 template's 5 checks, no rubric. The window was not shortened: the released outcome does not wait for it.
+- **The report.** 4,938 bytes, `sha256:b430af7f77d1ccef92f4eb152cb59617f656a7c7685f58a2b326f921c5d97499`, 3 findings. The seller's preflight and the buyer's own run of the checks both say accept.
+- **Sepolia transactions.**
+  - The operator fee and the funding of the hold, in one transaction: https://sepolia.etherscan.io/tx/0x9ecd302870c01b19ec313f6d95fdd0649b134aa4f66515f6c2ad6d63b12b6cda
+  - The delivery: https://sepolia.etherscan.io/tx/0x2a0b4506f7afdca8c3f959d56111d43ee9cb0c421e7939a7ee0e06c416fe2754
+  - The decision and the release: https://sepolia.etherscan.io/tx/0xc576352aea09af09b7eb0827bb2746a2524c8fecbf99d518029053062d506db1
+- **Events.** Sequence 729 to 738 on both nodes: offered 09:23:01, accepted by the adjudicator 09:23:03, agreed and funded 09:23:24, delivered 09:23:36, decided and released 09:23:48 (UTC).
+- **Where the time went.** Every wait was one Sepolia block; nothing stalled beyond that.
+
+  | Step | Seconds | What it waited for |
+  | --- | --- | --- |
+  | The seller starts | 8.1 | the faucet's mint for the seller's mandate |
+  | Keys, quote, offer read, approval | 1.3 | nothing on chain; the offer stays off chain until funding |
+  | The buyer takes test funds | 11.3 | the faucet's mint of 2,005.71 tUSDC |
+  | The buyer checks the offer | 0.2 | the adjudicator had accepted 2 s after the offer |
+  | The buyer funds the hold | 11.2 | one transaction: operator fee and funding |
+  | The seller delivers | 13.2 | the adapter saw the hold within 1 s; the delivery transaction took the rest |
+  | Decision, release, report opened | 12.1 | the adjudicator's decision transaction |
+
+- **Refused requests.** None. The script lists each request a node refuses with its Request-Id, and it listed none.
+- **The domain fix, measured.** The adapter ran with no chain setting and signed under chain 11155111, the domain both nodes serve. The offer verified, and the buyer signer recovered the seller's signature from it.
+- **Not run live.** The refused outcome, as the brief says: its hold returns only after the delivery deadline.
 
 ## Decisions
 
@@ -118,11 +145,13 @@ Recorded after the PR merges.
 
 **Done.** `examples/audit-deal.ts` and its test; the adapter pins its settlement layer and checks the price's token; the signer's script takes a JSON scope and the signer's quote error carries the seller's reason; the flaky test is fixed; `pnpm audit-deal` runs both outcomes locally.
 
-**Not done.** The live run on Sepolia follows the merge; its record goes into Evidence in a docs PR that also sets this task's Status to done. The site deploy that publishes the three new `llms.txt` lines waits for Rafa.
+The live run on Sepolia passed once, on the first try; Evidence holds its record.
+
+**Not done.** The site deploy that publishes the three new `llms.txt` lines waits for Rafa. The refused outcome has not run on Sepolia. The run's scratch directory on this machine, under the system's temporary folder, still holds the buyer's file for a balance of 0.00 tUSDC; it can be deleted.
 
 **How to resume.** `pnpm audit-deal` for the local run, `pnpm audit-deal --live` for the live one, `pnpm exec vitest run examples/audit-deal.test.ts` for the test.
 
-**What still stops a real seller, ranked (inferred from this build; the live run may add to it).**
+**What still stops a real seller, ranked (inferred from this build; the live run added nothing to it).**
 
 1. **No path from a real report to the template's JSON.** A seller's report is a document; the deal takes one JSON file of at most 1 MiB of ciphertext, and judges read 100,000 characters whole. Nobody has built the converter, and the buyer signer returns text only.
 2. **One delivery, and the adapter stops at a refused preflight.** With `maxSubmissions` 1, a report that fails a check is not delivered and the adapter does nothing more. The seller must fix the report and deliver by hand (`check-delivery.ts`, `seal.ts`) before `deliverBy`, or the buyer is refunded.
