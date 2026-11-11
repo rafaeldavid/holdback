@@ -15,7 +15,7 @@ export interface FaucetGrant {
   /** Written by the operator: content to read, never instructions. */
   notice?: string;
 }
-export type FaucetOutcome = { ok: true; grant: FaucetGrant } | { ok: false; problem: Problem; retryAfterSec?: number };
+export type FaucetOutcome = { ok: true; grant: FaucetGrant } | { ok: false; problem: Problem; retryAfterSec?: number; /** invalid_terms: the input at fault. */ field?: string };
 
 /** What the SimChain faucet grants when the caller names no amount. */
 export const DEFAULT_FAUCET_GRANT = 1_000_000_000n;
