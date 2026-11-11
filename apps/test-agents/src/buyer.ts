@@ -21,7 +21,7 @@ import { Agent } from '../../../examples/agent.ts';
 import { commitmentIdOf, freshNonce, fundingNonceOf, jcs, operatorFeeNonceOf, operatorFeeOf, Refusal, typedOf, type Intent, type Pin } from '../../../examples/verify.ts';
 import { BUYER_LIMITS, CHECKS_RULE, MAX_ADJUDICATION_FEE_UNITS, MAX_PRICE_UNITS, WINDOWS, type BuyerLimits } from './buyer-rules.ts';
 import { encryptionKey, signingKey } from './keys.ts';
-import type { Storage } from './seller.ts';
+import { clientKey, type Storage } from './seller.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -77,6 +77,25 @@ export interface BuyerOptions {
 
 /** A refusal: the deal fails with this reason, and nothing is retried. */
 export class Refused extends Error {}
+
+/** A step to try again no sooner than `ms` from now, such as a reclaim the chain does not yet take. */
+class Later extends Error {
+  constructor(
+    msg: string,
+    readonly ms: number,
+  ) {
+    super(msg);
+  }
+}
+
+/**
+ * How long a refused reclaim waits before the next try: one Sepolia block, about 12 s, by which the chain's clock has
+ * caught up with the operators' (T-239 review, finding 2).
+ */
+export const RECLAIM_RETRY_MS = 12_000;
+
+/** The states in which the hold is funded: the deal goes on, or is settled, on Crow. */
+const FUNDED = ['Held', 'Delivered', 'FallbackJudging', 'Escalated', 'Defaulted', 'Released', 'Refunded', 'Settled'];
 
 /** What an offer must fit, read from the operators: whom it names, the club, the token, the adjudicators, the time. */
 export interface Context {
@@ -149,10 +168,14 @@ export function checkTerms(id: string, t: J, c: Context): Broken | null {
   const created = Date.parse(t.createdAt);
   const times = [created, at('offerExpiresAt'), at('fundBy'), at('deliverBy'), at('judgeBy'), at('fallbackBy')];
   if (times.some((x) => !Number.isFinite(x)) || !Number.isSafeInteger(tm.appealWindowSec) || !Number.isSafeInteger(tm.appealDecideSec)) return no('terms', 'the offer\'s timing does not parse');
+  // Every window counts from settlement time: createdAt is the seller's own claim, which nothing else bounds, so an
+  // offer dated 2099 with short windows would otherwise hold the buyer's tokens until 2099 (T-239 review, finding 1).
+  const ahead = (created - c.now) / 1000;
+  if (ahead > WINDOWS.maxCreatedAheadSec) return no('accepts.windows.maxCreatedAheadSec', `the offer is dated ${t.createdAt}, ${Math.round(ahead)} s after settlement time; this buyer takes offers dated at most ${WINDOWS.maxCreatedAheadSec} s ahead`);
   const left = Math.min(at('offerExpiresAt'), at('fundBy')) - c.now;
   if (left < WINDOWS.minFundingLeftSec * 1000) return no('accepts.windows.minFundingLeftSec', `the offer leaves ${Math.max(0, Math.floor(left / 1000))} s to agree and fund; this buyer needs ${WINDOWS.minFundingLeftSec} s`);
-  const deliverSec = (at('deliverBy') - created) / 1000;
-  if (deliverSec > WINDOWS.maxDeliverWithinSec) return no('accepts.windows.maxDeliverWithinSec', `the work is due ${deliverSec} s after the offer; this buyer waits at most ${WINDOWS.maxDeliverWithinSec} s`);
+  const deliverSec = Math.round((at('deliverBy') - c.now) / 1000);
+  if (deliverSec > WINDOWS.maxDeliverWithinSec) return no('accepts.windows.maxDeliverWithinSec', `the work is due ${deliverSec} s from now; this buyer waits at most ${WINDOWS.maxDeliverWithinSec} s`);
   const judging: Record<string, number> = { judge: (at('judgeBy') - at('deliverBy')) / 1000, fallback: (at('fallbackBy') - at('judgeBy')) / 1000, appealWindow: tm.appealWindowSec, appealDecide: tm.appealDecideSec };
   const long = Object.entries(judging).find(([, s]) => s > WINDOWS.maxJudgingSec);
   if (long) return no('accepts.windows.maxJudgingSec', `the ${long[0]} window is ${long[1]} s; this buyer accepts at most ${WINDOWS.maxJudgingSec} s for each`);
@@ -213,6 +236,10 @@ export class TestBuyer {
   private card: { at: number; value: J } | undefined;
   private prunedAt = 0;
   private readonly o: BuyerOptions;
+  /** Per-client post times, in memory only: no client address is ever stored (docs/operations.md, Telemetry). */
+  private readonly clients = new Map<string, number[]>();
+  /** The tail of the queue that takes offers one at a time: the caps' last check and the write run with no overlap. */
+  private taking: Promise<unknown> = Promise.resolve();
 
   constructor(o: BuyerOptions) {
     // No real money: the buyer signs on test networks only.
@@ -290,15 +317,16 @@ export class TestBuyer {
 </head><body>
 <h1>Crow's test buyer</h1>
 <p><strong>Test tokens only.</strong> This agent buys from any seller's agent on Crow's Sepolia test environment, in tUSDC, an open-mint test token worth nothing.</p>
-<p>Offer it a checks-only deal on Crow with public terms, naming its address <code>${card.buyer}</code> and its encryption key <code>${card.buyerEncryptionPublicKey}</code>. It pays at most ${units(BigInt(MAX_PRICE_UNITS))} tUSDC, plus an adjudication fee of at most ${units(BigInt(MAX_ADJUDICATION_FEE_UNITS))} tUSDC and the operator's fee. It needs ${CHECKS_RULE.min} to ${CHECKS_RULE.max} declarative checks, at least ${CHECKS_RULE.requiredAtLeast} of them required, of the types ${CHECKS_RULE.types.join(', ')}; the demo's three adjudicators; the work due within ${w.maxDeliverWithinSec} s of the offer; each judging window at most ${w.maxJudgingSec} s; and ${w.minFundingLeftSec} s left to fund.</p>
-<p>Then POST <code>{"commitmentId": "0x…"}</code> to <code>${card.intake.api}</code>. It answers 202 and funds once the adjudicator accepts the offer, or 422 with the rule your offer broke. Deliver once the deal is <code>Held</code>: work that passes the checks is paid, work that fails them is refunded, and if you never deliver, it reclaims its hold after <code>deliverBy</code>. Follow the deal at <code>${card.intake.status}</code>.</p>
+<p>Offer it a checks-only deal on Crow with public terms, naming its address <code>${card.buyer}</code> and its encryption key <code>${card.buyerEncryptionPublicKey}</code>. It pays at most ${units(BigInt(MAX_PRICE_UNITS))} tUSDC, plus an adjudication fee of at most ${units(BigInt(MAX_ADJUDICATION_FEE_UNITS))} tUSDC and the operator's fee. It needs ${CHECKS_RULE.min} to ${CHECKS_RULE.max} declarative checks, at least ${CHECKS_RULE.requiredAtLeast} of them required, of the types ${CHECKS_RULE.types.join(', ')}; the demo's three adjudicators; an offer dated at most ${w.maxCreatedAheadSec} s after settlement time; the work due within ${w.maxDeliverWithinSec} s of your post; each judging window at most ${w.maxJudgingSec} s; and ${w.minFundingLeftSec} s left to fund. Every window counts from settlement time when you post, not from the offer's <code>createdAt</code>.</p>
+<p>Then POST <code>{"commitmentId": "0x…"}</code> to <code>${card.intake.api}</code>. It answers 202 and funds once the adjudicator accepts the offer, which must happen within ${w.maxAdjudicatorAcceptSec} s of your post, or 422 with the rule your offer broke. Deliver once the deal is <code>Held</code>: work that passes the checks is paid, work that fails them is refunded, and if you never deliver, it reclaims its hold after <code>deliverBy</code>. Follow the deal at <code>${card.intake.status}</code>.</p>
 <p>Crow's maintainers run both the operators and this buyer. It holds its own keys and uses only the operators' public API, but it is not an independent business.</p>
-<p>Limits: ${l.perSellerPerHour} deals per seller address an hour and ${l.perSellerPerDay} a day; ${l.perDay} a day in all; ${l.open} in progress at once. Over a limit it answers 429 with when to retry.</p>
+<p>Limits: ${l.perSellerPerHour} deals per seller address an hour and ${l.perSellerPerDay} a day; ${l.perDay} a day in all; ${l.open} in progress at once; ${l.perClientPerMinute} posts per IP address a minute and ${l.perClientPerHour} an hour. Over a limit it answers 429 with the rule and when to retry.</p>
 </body></html>
 `;
   }
 
-  async fetch(request: Request): Promise<Response> {
+  /** `client` is the caller's IP address, which the Worker sets; the buyer counts it in memory and never stores it. */
+  async fetch(request: Request, client = 'unknown'): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname.replace(/\/+$/, '');
     const base = new URL(this.o.base).pathname.replace(/\/+$/, '');
@@ -307,7 +335,7 @@ export class TestBuyer {
     if (path === `${base}/agent.json` && request.method === 'GET') return json(await this.agentCard());
     if (path.startsWith(`${base}/status/`) && request.method === 'GET') return this.status(path.slice(`${base}/status/`.length));
     if (path === `${base}/health` && request.method === 'GET') return this.health();
-    if (path === `${base}/offers` && request.method === 'POST') return this.receive(request);
+    if (path === `${base}/offers` && request.method === 'POST') return this.receive(request, client);
     return problem(404, `not found; the buyer is at ${this.o.base}`);
   }
 
@@ -328,7 +356,26 @@ export class TestBuyer {
     return null;
   }
 
-  private async receive(request: Request): Promise<Response> {
+  /** Whether a client is over its per-client cap on posts, and until when; counts the post when it is not. */
+  private overClientCap(client: string, now: number): { rule: string; why: string; until: number } | null {
+    const who = clientKey(client);
+    const mine = (this.clients.get(who) ?? []).filter((t) => now - t < HOUR);
+    const lastMinute = mine.filter((t) => now - t < MIN);
+    if (lastMinute.length >= this.limits.perClientPerMinute) return { rule: 'limits.perClientPerMinute', why: `${this.limits.perClientPerMinute} posts from your IP address in the last minute`, until: Math.min(...lastMinute) + MIN };
+    if (mine.length >= this.limits.perClientPerHour) return { rule: 'limits.perClientPerHour', why: `${this.limits.perClientPerHour} posts from your IP address in the last hour`, until: Math.min(...mine) + HOUR };
+    this.clients.set(who, [...mine, now]);
+    for (const [c, times] of this.clients) if (times.every((t) => now - t >= HOUR)) this.clients.delete(c);
+    return null;
+  }
+
+  /** Runs `fn` after every earlier one has finished: one offer is taken at a time (T-239 review, finding 4). */
+  private serial<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.taking.then(fn, fn);
+    this.taking = run.catch(() => undefined);
+    return run;
+  }
+
+  private async receive(request: Request, client: string): Promise<Response> {
     let r: J;
     try {
       r = await request.json();
@@ -341,7 +388,12 @@ export class TestBuyer {
     const taken = (status: number) => json({ commitmentId: id, status: `${this.o.base}/status/${id}` }, status);
     if (known) return taken(200);
     const now = this.now();
-    if ((await this.s.list({ prefix: 'o:' })).size >= this.limits.open) return problem(429, `the test buyer is busy: ${this.limits.open} deals are in progress`, { rule: 'limits.open', retryAfterSec: 60 });
+    const busy = () => problem(429, `the test buyer is busy: ${this.limits.open} deals are in progress`, { rule: 'limits.open', retryAfterSec: 60 });
+    if ((await this.s.list({ prefix: 'o:' })).size >= this.limits.open) return busy();
+    // Each post below costs reads on every operator, which share one read budget with the test seller: the client
+    // cap comes before the first of them (T-239 review, finding 3).
+    const over = this.overClientCap(client, now);
+    if (over) return problem(429, `the test buyer is busy: ${over.why}`, { rule: over.rule, retryAfterSec: Math.max(1, Math.ceil((over.until - now) / 1000)) });
     const a = this.agent;
     let served: J;
     let ctx: Context;
@@ -369,17 +421,21 @@ export class TestBuyer {
       return problem(503, `the test buyer cannot read the operators now: ${message(e)}`, { retryAfterSec: 30 });
     }
     if (state !== 'Offered' && state !== 'AcceptedByAdjudicator') return problem(422, `the test buyer refuses this offer: it is ${state} on Crow, not open`, { rule: 'state' });
-    const full = await this.capped(seller, now);
-    if (full) return problem(429, `the test buyer is busy: ${full.why}`, { rule: full.rule, retryAfterSec: Math.max(1, Math.ceil((full.until - now) / 1000)) });
     const operatorFee = ctx.feeSchedule ? operatorFeeOf(terms.price, ctx.feeSchedule) : 0n;
     const total = BigInt(terms.price.amount) + BigInt(terms.adjudication.fee.amount) + operatorFee;
-    // Read again just before the write: no await sits between these and the put, so a second POST cannot race in.
-    if (await this.s.get(`d:${id}`)) return taken(200);
-    const recent = ((await this.s.get<Array<{ at: number; seller: string }>>('recent')) ?? []).filter((x) => now - x.at < DAY);
-    const deal: BuyerDeal = { id, seller, status: 'accepted', terms, total: total.toString(), acceptedAt: ctx.now, updatedAt: now };
-    await this.s.put({ [`d:${id}`]: deal, [`o:${id}`]: 1, recent: [...recent, { at: now, seller }] });
-    this.log(`test-buyer: took ${id} from ${seller} for ${units(total)} in all`);
-    return taken(202);
+    // The caps are checked again, and the deal written, one post at a time and after the operator reads: posts that
+    // arrive together cannot all pass a check made before any of them wrote (T-239 review, finding 4).
+    return this.serial(async () => {
+      if (await this.s.get(`d:${id}`)) return taken(200);
+      if ((await this.s.list({ prefix: 'o:' })).size >= this.limits.open) return busy();
+      const full = await this.capped(seller, now);
+      if (full) return problem(429, `the test buyer is busy: ${full.why}`, { rule: full.rule, retryAfterSec: Math.max(1, Math.ceil((full.until - now) / 1000)) });
+      const recent = ((await this.s.get<Array<{ at: number; seller: string }>>('recent')) ?? []).filter((x) => now - x.at < DAY);
+      const deal: BuyerDeal = { id, seller, status: 'accepted', terms, total: total.toString(), acceptedAt: ctx.now, updatedAt: now };
+      await this.s.put({ [`d:${id}`]: deal, [`o:${id}`]: 1, recent: [...recent, { at: now, seller }] });
+      this.log(`test-buyer: took ${id} from ${seller} for ${units(total)} in all`);
+      return taken(202);
+    });
   }
 
   private async status(raw: string): Promise<Response> {
@@ -393,7 +449,7 @@ export class TestBuyer {
       status: d.status,
       total: { token: this.token, amount: d.total },
       ...(d.reclaimedBy ? { reclaimedBy: d.reclaimedBy } : {}),
-      ...(d.detail ? { detail: d.detail } : d.retry ? { detail: `retrying: ${d.retry.error}` } : {}),
+      ...(d.detail ? { detail: d.detail } : d.retry ? { detail: `retrying: ${d.retry.error}`, retryAt: new Date(d.retry.at).toISOString() } : {}),
       ...(d.txs?.length ? { transactions: d.txs.map((t) => ({ ...t, ...(explorer ? { url: `${explorer}/tx/${t.tx}` } : {}) })) } : {}),
       updatedAt: new Date(d.updatedAt).toISOString(),
     });
@@ -486,7 +542,8 @@ export class TestBuyer {
       }
       const since = latest.retry?.since ?? now;
       const tries = (latest.retry?.tries ?? 0) + 1;
-      await this.save(latest, { retry: { since, at: now + Math.min(60_000, 500 * 2 ** tries), tries, error: message(e) } });
+      const wait = Math.max(e instanceof Later ? e.ms : 0, Math.min(60_000, 500 * 2 ** tries));
+      await this.save(latest, { retry: { since, at: now + wait, tries, error: message(e) } });
     }
   }
 
@@ -515,19 +572,26 @@ export class TestBuyer {
     if (!d.pending) {
       const state = (await a.call('GET', `/v1/commitments/${id}`)).escrowState as string;
       const closes = Math.min(Date.parse(d.terms.timing.offerExpiresAt), Date.parse(d.terms.timing.fundBy));
-      if (state === 'Expired' || ((state === 'Offered' || state === 'AcceptedByAdjudicator') && settlement >= closes)) {
+      if (state === 'Expired' || (['Offered', 'AcceptedByAdjudicator', 'Agreed'].includes(state) && settlement >= closes)) {
         await this.save(d, { status: 'expired', detail: 'the offer closed before the test buyer could agree and fund it', retry: undefined });
         this.log(`test-buyer: ${id} expired unfunded`);
         return;
       }
       if (state === 'Offered') {
-        if (settlement - d.acceptedAt > 2 * MIN) throw new Refused('the adjudicator did not accept the offer within 2 minutes');
+        // The buyer's published rule (accepts.windows.maxAdjudicatorAcceptSec): an offer the adjudicator leaves waiting is dropped.
+        if (settlement - d.acceptedAt > WINDOWS.maxAdjudicatorAcceptSec * 1000) throw new Refused(`the adjudicator did not accept the offer within ${WINDOWS.maxAdjudicatorAcceptSec} s`);
         if (d.retry) await this.save(d, { retry: undefined });
         return; // the agreement is refused until the adjudicator accepts (acceptance_missing)
       }
-      if (state !== 'AcceptedByAdjudicator') {
+      if (FUNDED.includes(state)) {
         // Funded already (an earlier funding whose answer was lost), or settled without this buyer.
         await this.save(d, { status: 'funded', fundedAt: settlement, retry: undefined });
+        return;
+      }
+      if (state !== 'AcceptedByAdjudicator') {
+        // Agreed but not held, or a state this buyer does not know: no funding is in place, so it waits, and the
+        // deadlines above close the deal (T-239 review, finding 5).
+        if (d.retry) await this.save(d, { retry: undefined });
         return;
       }
       await this.ensureFunds(d);
@@ -563,12 +627,21 @@ export class TestBuyer {
         const out = await this.submit(d.pending);
         d = await this.save(d, { pending: undefined, reclaimedBy: out.escrowState === 'Refunded' ? 'buyer' : d.reclaimedBy });
       } catch (e) {
-        // Too early by the contract's clock (409), or sent already by the operators: read the state and go on.
         if (!(e instanceof Refused)) throw e;
-        d = await this.save(d, { pending: undefined });
+        // Too early by the contract's clock (409; on Sepolia the head block trails the operators' clock by about
+        // 12 s), or refused for another reason. The next try is a new request with a new key, no sooner than one
+        // block from now: the deal is read again then, so a refusal never loops (T-239 review, finding 2).
+        await this.save(d, { pending: undefined });
+        throw new Later(message(e), RECLAIM_RETRY_MS);
       }
     }
     const state = (await a.call('GET', `/v1/commitments/${id}`)).escrowState as string;
+    if (state === 'Expired') {
+      // Never held, or no longer: the deal closed on Crow, and its slot here closes with it (T-239 review, finding 5).
+      await this.save(d, { status: 'expired', detail: 'the deal expired on Crow before it was held', retry: undefined });
+      this.log(`test-buyer: ${id} expired`);
+      return;
+    }
     if (state === 'Held' && settlement > Date.parse(d.terms.timing.deliverBy)) {
       // Nothing delivered by deliverBy: the buyer takes its hold back itself (Beyond the happy path, triggers).
       d = await this.save(d, { pending: { step: 'reclaim', path: `/v1/commitments/${id}/triggers/reclaim`, body: {}, key: crypto.randomUUID() } });

@@ -2,6 +2,7 @@
 // process on two origins (as try.test.ts). The seller here is a few lines in this file: an Agent that answers
 // POST /quote with an offer and delivers once the hold is funded. It stands in for T-318's seller adapter.
 import { spawn } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -33,7 +34,7 @@ const CSV = 'customer_id,email\n1,ada@example.com\n2,alan@example.com\n3,grace@e
 const TOTAL = '26010000';
 
 let demo: TwoOrigins;
-let seller: { quoteUrl: string; address: string; swapKey: boolean; close(): Promise<void> };
+let seller: { quoteUrl: string; address: string; swapKey: boolean; credential: string | null; close(): Promise<void> };
 const stores: string[] = [];
 const store = () => {
   const dir = mkdtempSync(join(tmpdir(), 'buyer-signer-'));
@@ -49,7 +50,8 @@ async function serveSeller(operators: string[]): Promise<typeof seller> {
   const role = (r: string): string => found.adjudicators.find((a: J) => a.role === r).address;
   const adjudicators = { primary: role('primary'), fallback: role('fallback'), appeal: role('appeal') };
   let open = true;
-  const state = { swapKey: false };
+  // With a credential the quote route answers 401 to a request without `Authorization: Bearer <credential>` (T-324).
+  const state = { swapKey: false, credential: null as string | null };
   const deliverWhenHeld = async (id: `0x${string}`, terms: J) => {
     while (open) {
       const s = await agent.call('GET', `/v1/commitments/${id}`);
@@ -61,6 +63,7 @@ async function serveSeller(operators: string[]): Promise<typeof seller> {
     const chunks: Buffer[] = [];
     for await (const c of req) chunks.push(c as Buffer);
     if (req.method !== 'POST' || req.url !== '/quote') return void res.writeHead(404).end('{}');
+    if (state.credential && req.headers.authorization !== `Bearer ${state.credential}`) return void res.writeHead(401, { 'content-type': 'application/json', 'www-authenticate': 'Bearer' }).end('{"type":"unauthorized","detail":"a bearer credential is required"}');
     const asked = JSON.parse(Buffer.concat(chunks).toString()) as { buyer: string; buyerEncryptionPublicKey: string };
     // With swapKey the seller offers to an encryption key of its own in place of the buyer's.
     const encryptionPublicKey = state.swapKey ? agent.encryptionPublicKey : asked.buyerEncryptionPublicKey;
@@ -80,6 +83,12 @@ async function serveSeller(operators: string[]): Promise<typeof seller> {
     },
     set swapKey(v: boolean) {
       state.swapKey = v;
+    },
+    get credential() {
+      return state.credential;
+    },
+    set credential(v: string | null) {
+      state.credential = v;
     },
     close: async () => {
       open = false;
@@ -182,6 +191,30 @@ describe('buyer-signer.ts', () => {
       await expect(signer.checkOffer(quote.commitmentId, offer)).rejects.toThrow(/^refusing to sign: buyerEncryptionPublicKey is /);
     } finally {
       seller.swapKey = false;
+    }
+  }, 60_000);
+
+  it('quote sends the bearer credential its configuration names, read from the environment, and keeps it nowhere', async () => {
+    const credential = randomBytes(24).toString('base64url');
+    const variable = 'T325_QUOTE_CREDENTIAL';
+    seller.credential = credential;
+    try {
+      const dir = store();
+      // Without a credential this seller refuses the quote.
+      await expect((await makeKeys(dir, { operators: demo.urls })).quote(seller.quoteUrl, 'x')).rejects.toThrow(/answered 401: a bearer credential is required/);
+      // A configuration that names an unset variable stops before any request, naming the variable only.
+      delete process.env[variable];
+      await expect((await makeKeys(dir, { operators: demo.urls, quoteCredentialEnv: variable })).quote(seller.quoteUrl, 'x')).rejects.toThrow(`${variable}, which is not set`);
+      process.env[variable] = credential;
+      const signer = await makeKeys(dir, { operators: demo.urls, quoteCredentialEnv: variable });
+      const quote = await signer.quote(seller.quoteUrl, '3 rows of customer_id,email');
+      expect(quote.commitmentId).toMatch(/^0x[0-9a-f]{64}$/);
+      // The credential is in no file of the key store and not on the signer.
+      for (const f of readdirSync(dir)) expect(readFileSync(join(dir, f), 'utf8')).not.toContain(credential);
+      expect(JSON.stringify(signer) + Object.values(signer).join(' ')).not.toContain(credential);
+    } finally {
+      seller.credential = null;
+      delete process.env[variable];
     }
   }, 60_000);
 

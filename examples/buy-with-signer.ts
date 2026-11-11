@@ -1,9 +1,9 @@
 // What a seller's client runs for a buyer, with buyer-signer.ts beside it: one deal, on test tokens only.
 //   node examples/buy-with-signer.ts <the seller's quote URL> <key store directory> <scope, as JSON> <the most you pay, base units>
+// A seller whose quote route takes a bearer credential: put it in CROW_QUOTE_CREDENTIAL. It is sent, never printed.
 import { makeKeys } from './buyer-signer.ts';
-
 const [quoteUrl, store, scope, budget] = process.argv.slice(2);
-const signer = await makeKeys(store!); // fresh keys for this deal, saved on this machine with mode 0600
+const signer = await makeKeys(store!, { quoteCredentialEnv: process.env['CROW_QUOTE_CREDENTIAL'] ? 'CROW_QUOTE_CREDENTIAL' : undefined }); // fresh keys, mode 0600
 const quote = await signer.quote(quoteUrl!, JSON.parse(scope!)); // sends the seller the address, the public key and the scope
 const offer = await signer.readOffer(quote.commitmentId); // the offer as both operators serve it
 

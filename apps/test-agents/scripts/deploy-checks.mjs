@@ -6,7 +6,9 @@ import { checkout, liveVersion, recordLine as line, rollback } from '../../../sc
 
 export const WORKER = 'crow-test-agents';
 export const SELLER = 'https://crow.direct/agents/test-seller';
-/** The seller has this long after the upload to read operational and serve its agent card. */
+/** Crow's test buyer (T-239), in the same Worker on its own route: its health is read after the seller's. */
+export const BUYER = 'https://crow.direct/agents/test-buyer';
+/** The seller has this long after the upload to read operational and serve its agent card, and the buyer to read operational. */
 export const CHECK_TIMEOUT_MS = 120_000;
 export const POLL_MS = 5_000;
 const PROBE_TIMEOUT_MS = 10_000;
@@ -74,7 +76,8 @@ export function recordLine({ startedAt, commit, version, before, failure, rolled
  *   1. pre-flight: refuse a checkout with a tracked change, or one without origin/main's commits;
  *   2. read the live version, the rollback target; refuse when wrangler cannot say;
  *   3. upload with `wrangler deploy`;
- *   4. every 5 s for at most 120 s, read /health until it says operational, then /agent.json until it is JSON;
+ *   4. every 5 s for at most 120 s, read the seller's /health until it says operational, then its /agent.json until it
+ *      is JSON, then the buyer's /health until it says operational;
  *   5. on a refused upload or a failed check, roll back when the live version changed;
  *   6. print the record line.
  * `--dry-run` stays as it was: wrangler bundles without an upload, and steps 1, 2 and 4 to 6 do not run.
@@ -134,13 +137,19 @@ export async function deploy({ args, config, sh, probe, sleep, now, log, error }
       if (health.verdict === 'wait') pending = `${SELLER}/health did not read operational within ${CHECK_TIMEOUT_MS / 1000} s (last answer: ${health.why})`;
       else {
         const card = cardProblem(await probe(`${SELLER}/agent.json`, timeout()));
-        if (!card) break;
-        pending = `${SELLER}/agent.json did not answer 200 with a JSON object within ${CHECK_TIMEOUT_MS / 1000} s (last answer: ${card})`;
+        if (card) pending = `${SELLER}/agent.json did not answer 200 with a JSON object within ${CHECK_TIMEOUT_MS / 1000} s (last answer: ${card})`;
+        else {
+          // The buyer shares the Worker: a deploy that breaks only its route or its startup fails here.
+          const buyer = healthVerdict(await probe(`${BUYER}/health`, timeout()));
+          if (buyer.verdict === 'pass') break;
+          if (buyer.verdict === 'fail') fail(`${BUYER}/health: ${buyer.why}`);
+          pending = `${BUYER}/health did not read operational within ${CHECK_TIMEOUT_MS / 1000} s (last answer: ${buyer.why})`;
+        }
       }
       if (now() + POLL_MS > deadline) fail(pending);
       await sleep(POLL_MS);
     }
-    log(`The seller reads operational and serves its agent card, ${Math.round((now() - (deadline - CHECK_TIMEOUT_MS)) / 1000)} s after the upload.`);
+    log(`The seller reads operational and serves its agent card, and the buyer reads operational, ${Math.round((now() - (deadline - CHECK_TIMEOUT_MS)) / 1000)} s after the upload.`);
   } catch (e) {
     failure = e.message;
     error(`\nFAIL: ${failure}`);
