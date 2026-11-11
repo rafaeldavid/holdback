@@ -225,7 +225,6 @@ describe.skipIf(!ready)(`a restart between broadcast and receipt (T-219; anvil f
       permit2Collector: d.permit2Collector,
       multicall: d.multicall,
       rules: d.rules,
-      bonds: d.bonds,
       beacon: d.beacon,
       expiryMarginSec: Number(anvil.expiryMargin),
     };
