@@ -9,7 +9,7 @@ The maintainers keep planning and business material in a private repository. Thi
 - **The roadmap and the plan for later phases.** `docs/plan.md` covers the current build only.
 - **The backlog:** work deferred until after the current build.
 - **Market and prior-art research,** and the notes behind it. The research that the decisions cite stays here, in `docs/research/`.
-- **The daily build log.** The log is still in this repository today, in `docs/log/`. It is due to move.
+- **The daily build log:** the coordinator's record of each day, with what waits on the maintainer, what is live and the next steps. The maintainers moved it on 2026-11-11. The entries from before the move stay in this repository's git history, under `docs/log/`.
 - **The team's process notes and budgets.** They are still in this repository today, in `docs/team.md`, `docs/update-flow.md` and `agent-ops/`. They are due to move. The table that pairs each hard rule with its check stays here.
 - **The cost model and operating costs.**
 - **Brand and messaging work.**
@@ -18,7 +18,7 @@ The maintainers keep planning and business material in a private repository. Thi
 
 ## What this means for older documents
 
-Task files, decisions, reviews and log entries are dated records. Some of them name a file that has moved, such as `docs/backlog.md` or `docs/costs.md`. The maintainers leave those records as written. A moved file also stays in this repository's git history.
+Task files, decisions and reviews are dated records. Some of them name a file that has moved, such as `docs/backlog.md`, `docs/costs.md` or an entry in `docs/log/`. The maintainers leave those records as written. A moved file also stays in this repository's git history.
 
 ## How to ask for access
 

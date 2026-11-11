@@ -31,7 +31,7 @@ A change to one part of Crow often means another part must change too. This page
 | ghdocs | GitHub docs | `README.md`, `SECURITY.md`, `CONTRIBUTING.md`, `LICENSE`, `.github/ISSUE_TEMPLATE/`, `.github/pull_request_template.md` | The repository's front page on GitHub |
 | roadmap | Roadmap | `docs/plan.md`, `docs/tasks/` | |
 | decisions | Decisions | `docs/decisions-today.md`, `docs/decisions/` | |
-| log | Daily log | `docs/log/` | |
+| log | Daily log | | The maintainers keep it in the private repository, under `control/log/` (`docs/private-materials.md`) |
 | map | Design map | `scripts/design-map.mjs`, `tools/design-map/`, `tests/design-map.test.ts` | The page `pnpm map` writes (git-ignored), and the claude.ai design map page, which `/map` republishes |
 | console | Founder console | | A private page built from the design map, the newest log, the task files, the radar's inputs and GitHub |
 | stack | Contract-stack page | `scripts/contract-stack.mjs`, `tools/contract-stack/`, `tests/contract-stack.test.ts` | https://control.escrow.stream/contracts (the founder console) |
@@ -73,7 +73,7 @@ A change to one part of Crow often means another part must change too. This page
 | roadmap | stack | generated | `pnpm stack` reads `docs/tasks/T-212-contract-hardening.md`: an item marked "**Done**" shows its finding as fixed, and its "Gas on Sepolia" line gives the smoke deal's gas. | The hardening task is where a contract fix is recorded once it merges. |
 | decisions | roadmap | manual | Write a decision that changes scope, order or a phase into `docs/plan.md`, the private backlog or the task files (inferred). | Rafa, 2026-11-04: a roadmap decision lives "only in the roadmap and crow-control". |
 | decisions | map | generated | `pnpm map` reads `docs/decisions-today.md` and each ADR's status. | `tests/design-map.test.ts` checks every decision has a known status. |
-| log | map | generated | `pnpm map` reads the newest log's "Waiting on Rafa". | |
+| log | map | generated | A build that holds the log passes its folder to the map (`collect({ logDir })`, or `--log-dir` on the command line), and the map reads the newest entry's "Live" and "Waiting on Rafa". A build without the log shows a note in their place. | `tests/design-map.test.ts` checks both cases. |
 | map | console | generated | The console's build calls the map's `collect()` and renders the map page beside it; it also reads the task files and the newest log directly. At each milestone, a session republishes the claude.ai copy of the map by hand with `/map`. | `docs/team.md`, Cadence: run `/map` at each milestone. |
 | costs | console | generated | The console renders the cost collector's latest output (T-052, the cost collector). Without that output, it lists what each source needs. | |
 
