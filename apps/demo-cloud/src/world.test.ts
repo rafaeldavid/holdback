@@ -775,7 +775,7 @@ describe('adjudicator passes (T-057)', () => {
     await first.close();
     running.splice(running.indexOf(first), 1);
 
-    // Restarted with live judges, the primary refuses the delivery (registry_mismatch, docs/backlog.md) on every
+    // Restarted with live judges, the primary refuses the delivery (registry_mismatch, backlog) on every
     // pass until judgeBy, two hours away: a case no pass can finish.
     const stuck = await wake(storage, { now, judgeProvider: markerFake() });
     expect(stuck.nextPass()).toBe(t + 1000);

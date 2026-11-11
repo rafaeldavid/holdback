@@ -744,7 +744,7 @@ describe('spec/', () => {
   // Derived hashes in examples must match their bodies, or a reader copying an example gets a club no
   // settlement layer recognizes (found stale in T-012: the club example predated payoutsTo). The commitment
   // example's rulebookHash, id and signature, and the adjudicator example's policyHash and poolTermsHash, are
-  // still stale; core pins EIP-712 vectors over the commitment example, so they move together (docs/backlog.md).
+  // still stale; core pins EIP-712 vectors over the commitment example, so they move together (backlog).
   describe('private deals, v0.8 (ADR-0024, D34)', () => {
     const schema = (name: string) => loadSpec().ajv.getSchema(`${V}/${name}.schema.json`);
 

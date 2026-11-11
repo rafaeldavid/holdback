@@ -155,7 +155,7 @@ describe('e2e-round.ts', () => {
       expect(r.out).toMatch(/^results: 1 fail, 2 (pass|fail), 3a pass, 3d pass, 6 waits, 10a pass$/m);
       const { folder, byId } = results(out);
       // anvil 1.0.0's eth_estimateGas sometimes refuses expireAppeal ("gas floor exceeds the gas limit"), so the
-      // operator's relay answers 500 and the driver closes the window directly (docs/backlog.md); on Sepolia the run shows it.
+      // operator's relay answers 500 and the driver closes the window directly (backlog); on Sepolia the run shows it.
       const known = ['a live panel judged', 'appeal-expiry relayed through the API'];
       for (const id of ['1', '2']) for (const c of byId[id].checks.filter((x: J) => !x.ok)) expect(known, `${id}: ${c.name}: ${c.detail}`).toContain(c.name);
       expect(byId['6']).toMatchObject({ status: 'waits', waitsFor: ['T-217'] });

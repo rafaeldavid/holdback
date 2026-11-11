@@ -1,4 +1,4 @@
-# Read-only billing credentials for the cost collector (T-052; docs/costs.md, "Read-only credentials").
+# Read-only billing credentials for the cost collector (T-052; the cost notes, "Read-only credentials": docs/private-materials.md).
 # Create .env.costs from this file ONLY at the root of the dedicated clone, where no agent works, and keep no other
 # copy:   cp config/keys-costs.template .env.costs
 # .env.* is git-ignored, and agents never read it. Run the collector as `node scripts/costs/collect.mjs`, never with

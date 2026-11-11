@@ -15,7 +15,7 @@ The public demo of Crow (the Holdback protocol). Test tokens only; nothing here 
 | escrow.stream, www.escrow.stream, join.escrow.stream, escrow.stream/agents/test-seller | The old hostnames, kept while the forwarding runs (T-312): the site answers with a 301 to the same path on crow.direct, sign-ups and the test seller with a 308 (a browser sign-up from an old page is served in place). api.escrow.stream and api2.escrow.stream are not redirected: the operators serve both hostnames | `apps/site/worker.js`, `apps/early-access/worker.js`, `apps/test-agents/src/worker.ts` | the same Workers, with the old hostnames as extra Custom Domains and routes |
 | npc.here.now/escrow | Old address; a redirect to escrow.stream, which forwards to crow.direct | `reports/redirect/` (not in git) | here.now; no further publishing needed |
 
-All on Rafa's Cloudflare account (its ID goes in `CLOUDFLARE_ACCOUNT_ID` in the git-ignored `.env`; template: `config/keys-dev-env.template`). The domains `escrow.stream` (`brand/domain.md`) and `crow.direct` (Rafa, 2026-11-10) were bought on Cloudflare; crow.direct is the canonical home since T-312's deploy, and Crow Control lives at control.crow.direct since 2026-11-11 (below).
+All on Rafa's Cloudflare account (its ID goes in `CLOUDFLARE_ACCOUNT_ID` in the git-ignored `.env`; template: `config/keys-dev-env.template`). The domains `escrow.stream` and `crow.direct` (Rafa, 2026-11-10) were bought on Cloudflare; crow.direct is the canonical home since T-312's deploy, and Crow Control lives at control.crow.direct since 2026-11-11 (below).
 
 **Demo settings** (in `apps/demo-cloud/wrangler.op1.jsonc` vars): minimum window 60 s; operator fee 1 bp, minimum 0.01 tUSD (D33, ADR-0023). Live judges: Anthropic and DeepSeek, pinned in `config/judges-live.yaml`, capped at 30 calls a day (`LIVE_JUDGE_CALLS_PER_DAY`); past the cap, or without keys, panels are scripted and every verdict says so.
 
@@ -398,7 +398,7 @@ The reviewed settlement contracts are deployed on Ethereum Sepolia (chain ID 111
 
 ## Costs
 
-What each account costs, what caps or alerts it, and where to read its usage read-only: `docs/costs.md`. Billing figures, budgets and the account register stay in a cost directory outside every checkout where agents work (`CROW_COSTS_DIR`); billing credentials stay in `.env.costs` in a dedicated clone on a machine Rafa controls, never in an agent session, a Worker or GitHub Actions.
+The cost notes say what each account costs, what caps or alerts it, and where to read its usage read-only. The maintainers keep them privately (`docs/private-materials.md`). Billing figures, budgets and the account register stay in a cost directory outside every checkout where agents work (`CROW_COSTS_DIR`); billing credentials stay in `.env.costs` in a dedicated clone on a machine Rafa controls, never in an agent session, a Worker or GitHub Actions.
 
 ## Headline metrics (T-066)
 

@@ -96,7 +96,7 @@ As of 2026-11-06:
   - **Blocked until an audit:** Ethereum mainnet, the target chain (D4, the chain decision).
 - **Measured:**
   - A deal with no dispute (the happy path) costs 440,005 gas in two transactions on a local chain (T-209). The deal pays the operator fee, which the demo charges, as part of funding. Gas is the chain's unit of computation, paid for in ETH.
-  - The same deal on Sepolia took 1,636,242 gas in three transactions on the 0.7 contracts (T-215, 2026-11-04). On 2026-11-05 the median deal used 1,261,428 gas, its appeal expiry included, from per-step medians over 15 and 16 deals (T-066's metrics, `docs/costs.md`). The demo's minimum operator fee, 4.71 tUSDC, prices the first figure: 4.70 for the gas, at a fixed and fictional rate, and 0.01 for relaying (T-215, the gas share on small deals).
+  - The same deal on Sepolia took 1,636,242 gas in three transactions on the 0.7 contracts (T-215, 2026-11-04). On 2026-11-05 the median deal used 1,261,428 gas, its appeal expiry included, from per-step medians over 15 and 16 deals (T-066's metrics). The demo's minimum operator fee, 4.71 tUSDC, prices the first figure: 4.70 for the gas, at a fixed and fictional rate, and 0.01 for relaying (T-215, the gas share on small deals).
   - On 2026-11-06, at `5cb8c25`, `pnpm snap` passed all 30 scenarios in `fixtures/scenarios/`: 29 fixtures, plus 1 `todo.` record of a known gap. `forge test` passed 241 contract tests.
 - **Limits,** as "Honest limits" in https://crow.direct/llms.txt lists them:
   - test tokens only;
@@ -131,7 +131,7 @@ As of 2026-11-06:
 | `config/` | The judge registries and the templates for local settings |
 | `docs/` | Specs, decisions, ADRs, tasks, plan, reviews and research |
 
-Read first: `docs/PRD.md`, `docs/neutrality.md`, `docs/architecture.md`, `docs/judgment-and-defenses.md` and `docs/api.md`.
+Read first: `docs/PRD.md`, `docs/neutrality.md`, `docs/architecture.md`, `docs/judgment-and-defenses.md` and `docs/api.md`. Planning and business documents are kept in a private repository; [docs/private-materials.md](docs/private-materials.md) lists them and says how to ask for access.
 
 ## How it is built
 
