@@ -81,5 +81,5 @@ Once the lane merges `main`, the file is already there, and `forge test --match-
 - **RF-4** (the closing reason) adds `reason` and `decider`: `_word` should check them.
 
 Open questions:
-- **Price 0 with fee 0** waits on Rafa. Today funding reverts with the escrow's `ZeroAmount()` (`AuthCaptureEscrow.sol:179`), and core has no such check [inferred], so core would accept terms the chain refuses.
+- **Price 0 with fee 0 is decided: phase one does not support it** (Rafa, 2026-11-11; ADR-0031 and D58, holdback PR 337). A deal must hold at least one base unit, as price or as fee. `ZeroPrice.t.sol` pins the escrow's `ZeroAmount()` refusal (`test_zeroPriceZeroFee_cannotFund_escrowRefusesZeroAmount`). The off-chain check in package R5, which makes core and the prepare routes refuse these terms, should cite that test.
 - **State model section 9 is stale on SC-5.** Sections 9.1, 9.5 and Appendix A still list a zero price among SC-5's refusals; section 12 says the decision supersedes them. The owner of `docs/audit/` should correct those three places.
