@@ -1,6 +1,6 @@
 # PRD: Holdback v0.1
 
-Status: v0.1 requirements, written October 30, 2026; updated for D30 and D39 on November 3. Owner: Rafa (DRI). Decisions and the few still open: `docs/decisions-today.md`.
+Status: v0.1 requirements, written October 30, 2026; updated for D30 and D39 on November 3. Decisions and the few still open: `docs/decisions-today.md`.
 
 ## Problem
 
@@ -33,7 +33,7 @@ The missing piece is the acceptance desk. Someone has to decide whether work tha
 | Club operator | A rulebook and admission of members and agents, without power over funds |
 | Adjudicator operator | Run the judgment, post a bond, price the fee from its measured error rate |
 | Agent developer | One HTTP API and one agent guide; no chain details; works through any operator |
-| AI lab researching agentic commerce (first demo audience) | See the experience end to end: what agents can commit, how judgment is defended, where control sits |
+| A first reader of the demo | See the experience end to end: what agents can commit, how judgment is defended, where control sits |
 
 **Job story:** when my agent commissions a $2,000 dataset-cleaning job from an agent at another firm, I want the money and the work held, and each released only on acceptance, so neither side can take the other's value and no single party can stop the deal.
 
@@ -46,10 +46,6 @@ First and foremost, a protocol, not a service:
 3. **Access is by API.** Any operator node serves the HTTP API, and agents can also submit signed messages directly to the settlement layer. No single API provider is required (ADR-0005).
 
 On that protocol: machine-speed agent-to-agent escrow via direct API calls, with defended multi-model judgment, on a settlement layer no single party controls.
-
-## Where value accrues
-
-Escrow custody is close to a commodity: an existing contract with no admin keys can hold the buyer's funds (`docs/research/prior-art.md`). The scarce part is the overseer role, meaning the rules contract plus the adjudicators who decide release. Neutrality (ADR-0001) forbids any single party from owning that role, so it is a permissionless market: adjudicators post bonds and compete on fees priced from their measured error. Holdback earns only as one adjudicator among many or through tooling, never through control of the judge registry or the rules contract (ADR-0007).
 
 ## Design principle
 

@@ -85,7 +85,7 @@ The contract review (T-206) is done: models from two families reviewed the contr
 As of 2026-11-06:
 
 - **Done, 2026-11-01: Phase 1.** It delivered the walking skeleton (the thinnest version that runs end to end) on SimChain, the narrated demo, and the HTTP API on two operator nodes. It also delivered the public demo at escrow.stream, with a live adjudicator (pinned Anthropic and DeepSeek models, capped per day).
-- **In progress: Phase 2, settlement on EVM (the Ethereum virtual machine).** The focus is stable operations on Sepolia (D53); Phase 2's seven exit criteria are in `docs/plan.md` (D54).
+- **In progress: Phase 2, settlement on EVM (the Ethereum virtual machine).** The public demo settles on Ethereum Sepolia, and `docs/plan.md` lists Phase 2's seven exit criteria.
   - **Merged:** the rules contract on `AuthCaptureEscrow` (T-202); the invariant and fuzz suites (T-203); the TLA+ model (T-204); EVM settlement with the SimChain differential (T-205); on-chain verification of the drand beacon (T-209); the first slice of private deals, schema v0.8 (T-207).
   - **Reviewed and deployed:** models from two families reviewed the contracts, and Rafa confirmed the review on 2026-11-06 (T-206, the contract review). The contracts and tUSDC are on Sepolia, and the public demo settles there (T-213, the Sepolia cutover; D41).
   - **Redeployed on 2026-11-04 as the 0.7 contracts** (EIP-712 domain 0.7): an overturning appeal pays the wronged party from the first decider's bond (D43), and each decision and early accept names the delivery it settles (ADR-0029).
@@ -104,7 +104,7 @@ As of 2026-11-06:
   - a signed step the operators cannot read leaves their view of a deal behind the chain, and their adjudicators then skip that deal (residual 13 in `docs/neutrality.md`; T-227 fixes it before mainnet, D50);
   - the judges are uncalibrated.
 
-`docs/plan.md` lists every task by phase. The newest file in `docs/log/` has the latest "Next steps".
+`docs/plan.md` lists the current build's tasks by phase.
 
 ## Repository map
 
