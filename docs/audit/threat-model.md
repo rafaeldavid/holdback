@@ -116,6 +116,16 @@ Each is accepted or tracked elsewhere; this list points to it.
 - The public skeleton of every deal: `neutrality.md`, residual 9.
 - A token issuer's controls: out of scope.
 
+## 7. A deal with price 0
+
+**A deal with price 0 and a fee above 0 moves only the fee, and only to the party the terms name** [measured: [`ZeroPrice.t.sol`](../../contracts/test/unit/ZeroPrice.t.sol), 17 tests, T-345; [`state-model.md`](state-model.md) section 12 has the table by outcome]. The maintainer decided on 2026-11-11 that the contract keeps a price of 0. What changes for the actors:
+
+- **The hold is the fee alone.** A decision pays the whole hold to the decider. Every other exit (early accept, reclaim, default, settlement) returns it to the buyer. No path pays the seller anything, and a settlement refuses any payout (`R:466`, `R:477`).
+- **A bond backs nothing.** In guaranteed mode the primary's bond covers 100% of the price, so it reserves 0 (`R:215`), and an adjudicator with no bond can serve and collect the fee. Leaves with SC-7.
+- **Section 3 relaxes.** With `P = 0` an accept and an early accept send the seller nothing (`E:471`, `R:412`), and a reject sends the buyer nothing (`R:357`). A token that refuses transfers to the seller does not stop an accept, and one that refuses the buyer does not stop a reject [inferred from those lines; the tests use a token that lets every transfer through].
+- **Events carry zero amounts.** `PaymentReleased(seller, 0)` and `Refunded(buyer, 0)` are emitted for payments that move nothing (AS-5). A reader takes the amount from the event, not the event's name.
+- **Price 0 with fee 0 cannot be funded.** The escrow refuses a hold of 0 with `ZeroAmount()` (`E:179`), and nothing is stored. Core has no such check [inferred], so an operator that prepares these terms gets a funding call that reverts. Whether they should be supported is the maintainer's question.
+
 ## Where this page did not look
 
 - **Not read in full:** the two payment collectors, `TokenStore.sol`, and Solady's signature library. The claims about them come from [`scope.md`](scope.md) and the reviews it cites.
