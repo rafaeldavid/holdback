@@ -106,7 +106,7 @@ describe('startup guards apply to every operator', () => {
     const registry = simRegistry(w.chain);
     const options = { settlement: w.chain, registry, signerKey: `0x${'22'.repeat(32)}` as const, operatorId: 'direct' };
     expect(() => new Operator({ ...options, env: { STRIPE_SECRET_KEY: 'sk_live_x' } })).toThrow(/sk_test_/);
-    expect(() => new Operator({ ...options, env: {}, registry: { ...registry, chainId: 100 } })).toThrow(/allowlist/);
+    expect(() => new Operator({ ...options, env: {}, registry: { ...registry, chainId: 31_313_313 } })).toThrow(/allowlist/);
     expect(() => new Operator({ ...options, env: {} })).not.toThrow();
   });
 });
