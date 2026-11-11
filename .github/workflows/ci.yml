@@ -21,6 +21,7 @@ jobs:
       pull-requests: read
     outputs:
       code: ${{ steps.files.outputs.code }}
+      chain: ${{ steps.files.outputs.chain }}
     steps:
       - id: files
         env:
@@ -30,11 +31,18 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           code=true
+          chain=true
           if [ "$EVENT" = pull_request ] && files=$(gh pr diff "$PR" --repo "$REPO" --name-only) && [ -n "$files" ]; then
             if [ -z "$(printf '%s\n' "$files" | grep -Ev '^(docs/.+|[^/]+\.md)$')" ]; then code=false; fi
+            # The contracts and anvil jobs test the chain side: the contracts, and every package, app and example
+            # the anvil suites import, with the fixtures, schemas and settings they read. A pull request that
+            # touches none of them (the site, scripts, tools, brand) skips both jobs (T-313). Push to main runs
+            # them always, and so does a pull request whose file list can't be read.
+            if [ -z "$(printf '%s\n' "$files" | grep -E '^(contracts/|packages/|apps/(operator|adjudicator|demo-cloud|test-agents)/|examples/|fixtures/|spec/|config/|\.github/|\.gitmodules$|\.nvmrc$|package\.json$|pnpm-lock\.yaml$|pnpm-workspace\.yaml$|tsconfig[^/]*\.json$|vitest\.config\.ts$)')" ]; then chain=false; fi
             echo "$(printf '%s\n' "$files" | wc -l) changed files"
           fi
           echo "code=$code" | tee -a "$GITHUB_OUTPUT"
+          echo "chain=$chain" | tee -a "$GITHUB_OUTPUT"
 
   static:
     name: typecheck, lint, spec, snap
@@ -82,15 +90,14 @@ jobs:
       - run: pnpm build
       - run: pnpm test --shard=${{ matrix.shard }}/4
 
-  # T-203: the Foundry suites (unit, fuzz, and the handler-based invariants at 256 runs x depth 100), then
-  # the vitest suites that need anvil and contracts/out (T-205), which the test shards skip for lack of
-  # Foundry. Local EVM only (chain id 31337, anvil on 127.0.0.1); no public RPC endpoint is configured.
+  # T-203: the Foundry suites (unit, fuzz, and the handler-based invariants at 256 runs x depth 100). Its own
+  # job since T-313, so it runs beside the anvil suites and not before them. It always compiles from source.
   contracts:
-    name: contracts (forge test, anvil tests)
+    name: contracts (forge test)
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.chain == 'true'
     runs-on: ubuntu-latest
-    # A healthy run takes about 8 minutes; a hang fails here instead of at GitHub's 6-hour default (T-035).
+    # A healthy run takes about 3 minutes; a hang fails here instead of at GitHub's 6-hour default (T-035).
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -110,10 +117,55 @@ jobs:
       - name: forge test
         working-directory: contracts
         run: forge test
-      # forge test does not compile contracts/script/, where the anvil tests' LocalUSDC and LocalMulticall3 live.
+
+  # The vitest suites that need anvil and contracts/out, which the test shards skip for lack of Foundry: the EVM
+  # adapter (T-205) and, since T-313, the public world on anvil, its lanes, registration and timeouts, the drand
+  # verifier's differential test and the round's adjudicator. Local EVM only (chain id 31337, anvil on 127.0.0.1);
+  # no public RPC endpoint is configured.
+  anvil:
+    name: anvil tests (must not skip)
+    needs: changes
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.chain == 'true'
+    runs-on: ubuntu-latest
+    # A healthy run takes about 5 minutes with compiled contracts in the cache, and about 7 without.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: submodules
+        id: submodules
+        timeout-minutes: 5
+        run: |
+          git submodule update --init --depth 1 contracts/lib/commerce-payments
+          git -C contracts/lib/commerce-payments submodule update --init --depth 1 lib/forge-std lib/permit2 lib/solady lib/spend-permissions
+          git -C contracts/lib/commerce-payments/lib/spend-permissions submodule update --init --depth 1 lib/openzeppelin-contracts
+          echo "pin=$(git rev-parse HEAD:contracts/lib/commerce-payments)" >> "$GITHUB_OUTPUT"
+      - uses: foundry-rs/foundry-toolchain@dba66c27052e63476d886f22216e119ba7e615bf # v1
+        with:
+          version: v1.0.0
+      # Compiling takes about 131 s of this job (measured, run 42802205136). A pull request reuses the output when
+      # every input is the same: the Solidity under contracts/, the compiler settings, the remappings and the
+      # submodule's pinned commit. Push to main never restores it, so main always tests what it compiled itself,
+      # and only main's output is offered to pull requests that change no contract. The contracts job never uses it.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: github.event_name == 'pull_request'
+        with:
+          path: |
+            contracts/out
+            contracts/cache
+          key: forge-out-v1.0.0-${{ steps.submodules.outputs.pin }}-${{ hashFiles('contracts/src/**', 'contracts/script/**', 'contracts/test/**', 'contracts/foundry.toml', 'contracts/remappings.txt') }}
+      # Everything, contracts/script/ included: the anvil tests deploy LocalUSDC and LocalMulticall3 from there.
       - name: forge build
         working-directory: contracts
         run: forge build
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: github.event_name == 'push'
+        with:
+          path: |
+            contracts/out
+            contracts/cache
+          key: forge-out-v1.0.0-${{ steps.submodules.outputs.pin }}-${{ hashFiles('contracts/src/**', 'contracts/script/**', 'contracts/test/**', 'contracts/foundry.toml', 'contracts/remappings.txt') }}
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -124,7 +176,11 @@ jobs:
       - name: anvil tests (must not skip)
         run: |
           set -o pipefail
-          pnpm vitest run packages/settlement/evm packages/testkit/src/runner.test.ts --reporter=verbose | tee anvil-tests.log
+          pnpm vitest run packages/settlement/evm packages/testkit/src/runner.test.ts \
+            apps/demo-cloud/src/live.test.ts apps/demo-cloud/src/lanes.test.ts apps/demo-cloud/src/one-world.anvil.test.ts \
+            apps/demo-cloud/src/registration.anvil.test.ts apps/demo-cloud/src/timeouts.anvil.test.ts \
+            apps/adjudicator/src/drand-contract.redteam.test.ts examples/e2e-adjudicator.test.ts \
+            --reporter=verbose | tee anvil-tests.log
           # Any skipped test fails the job, whatever its name: vitest's summary prints "N skipped".
           if grep -Eq "[0-9]+ skipped" anvil-tests.log; then echo "anvil tests skipped: Foundry or contracts/out missing" >&2; exit 1; fi
 
@@ -159,23 +215,26 @@ jobs:
             bash formal/check.sh
           fi
 
-  # The one status to require: it fails unless the static job, every test shard, the contracts job and the
-  # formal job succeeded, or the changes job found a docs-only pull request and they were skipped.
+  # The one status to require: it fails unless the static job, every test shard, the contracts job, the anvil job
+  # and the formal job succeeded, or the changes job found a docs-only pull request and they were skipped. The
+  # contracts and anvil jobs may be skipped only when the changes job said the chain side is untouched.
   check:
-    needs: [changes, static, test, contracts, formal]
+    needs: [changes, static, test, contracts, anvil, formal]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: all jobs passed
         run: |
-          echo "changes=${{ needs.changes.result }} code=${{ needs.changes.outputs.code }}"
+          echo "changes=${{ needs.changes.result }} code=${{ needs.changes.outputs.code }} chain=${{ needs.changes.outputs.chain }}"
           test "${{ needs.changes.result }}" = success
           if [ "${{ needs.changes.outputs.code }}" = false ]; then echo "docs only: the heavy jobs were skipped"; exit 0; fi
-          echo "static=${{ needs.static.result }} test=${{ needs.test.result }} contracts=${{ needs.contracts.result }} formal=${{ needs.formal.result }}"
+          echo "static=${{ needs.static.result }} test=${{ needs.test.result }} contracts=${{ needs.contracts.result }} anvil=${{ needs.anvil.result }} formal=${{ needs.formal.result }}"
           test "${{ needs.static.result }}" = success
           test "${{ needs.test.result }}" = success
-          test "${{ needs.contracts.result }}" = success
           test "${{ needs.formal.result }}" = success
+          if [ "${{ needs.changes.outputs.chain }}" = false ]; then echo "chain side untouched: the contracts and anvil jobs were skipped"; exit 0; fi
+          test "${{ needs.contracts.result }}" = success
+          test "${{ needs.anvil.result }}" = success
 
   gitleaks:
     runs-on: ubuntu-latest
