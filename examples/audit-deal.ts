@@ -219,7 +219,8 @@ export async function runAuditDeal(o: AuditDealOptions): Promise<AuditDealResult
     step('The buyer takes test funds', `the faucet granted ${money(granted)} and a mandate in club ${plain(clubId)}.`);
 
     // Refuses (throws Refusal, naming the field) unless the offer both operators serve equals what the buyer approved.
-    await signer.checkOffer(quote.commitmentId, approved, { timeoutMs });
+    // The adjudicator takes a deal within seconds or declines it: wait at most 5 minutes for that.
+    await signer.checkOffer(quote.commitmentId, approved, { timeoutMs: Math.min(timeoutMs, 300_000) });
     step('The buyer checks the offer', 'both operators serve the approved terms, the seller\'s signature recovers, and the primary adjudicator took the deal.');
 
     const paid = await signer.agreeAndFund(quote.commitmentId);
