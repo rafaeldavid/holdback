@@ -40,8 +40,6 @@ contract HoldbackBonds {
     error NotRules();
     error InsufficientFreeBond(uint256 free, uint256 needed);
     error AppealBondTooLarge();
-    /// @dev No call reverts with it: the rules contract takes one appeal bond per commitment (T-334). It stays
-    ///      declared because it is in the ABI that packages/settlement/evm/abis.json pins.
     error AppealBondExists();
 
     constructor() {
@@ -97,6 +95,7 @@ contract HoldbackBonds {
     /// @notice Pulls an appellant's bond (ERC-20 allowance to this vault) and holds it for the commitment.
     function takeAppealBond(bytes32 id, address appellant, address token, uint256 amount) external onlyRules {
         if (amount > type(uint96).max) revert AppealBondTooLarge();
+        if (appealBondOf[id].appellant != address(0)) revert AppealBondExists();
         appealBondOf[id] = AppealBond(appellant, uint96(amount));
         emit AppealBondHeld(id, appellant, amount);
         token.safeTransferFrom(appellant, address(this), amount);

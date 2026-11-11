@@ -66,6 +66,7 @@ contract HoldbackRules is EIP712 {
 
     /// @notice Mutual settlement fee share to the sitting adjudicator (rulebook `adjudicatorFeeShareAfterDeliveryBps`).
     ///         The rulebook is not on chain, so the default of 0 applies: `_payOut` returns the whole fee to the buyer.
+    ///         No code here reads it; the getter stays in the ABI, and `Postings.fuzz.t.sol` fails if it leaves 0.
     uint256 public constant MUTUAL_FEE_SHARE_BPS = 0;
 
     AuthCaptureEscrow public immutable ESCROW;
@@ -603,7 +604,7 @@ contract HoldbackRules is EIP712 {
         emit Refunded(id, t.buyer, pi.maxAmount);
     }
 
-    /// @dev Verifies the seller-signed delivery for attempt 1 (core: maxSubmissions is 1 in Phases 1 and 2). Whichever
+    /// @dev Verifies the seller-signed delivery for attempt 1 (core allows one submission: maxSubmissions is 1). Whichever
     ///      call lands it (deliver, or a decision or early accept that carries it), it must land before deliverBy, as
     ///      in SimChain; otherwise it races the reclaim. Stores and returns its hash (ADR-0029).
     function _acceptDelivery(
