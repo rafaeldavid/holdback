@@ -109,6 +109,12 @@ Each operator Worker has a variable `SETTLEMENT`, `sim` or `sepolia`, in its wra
 
 After the deploy, a smoke deal ended Released in 44 s, and the test seller sold once each way (T-222 Evidence) [measured]. To roll back: holdback-op1 `5d369b0e`, holdback-op2 `1f169857` and crow-site `cb0adcb5` (`npx wrangler@4 rollback <version> --name <worker>`); `npx wrangler@4 delete --name crow-test-agents` removes the seller.
 
+### T-318 to T-321: the seller adapter, the buyer signer and the audit-deal docs (site deployed 2026-11-11)
+
+**Site deploy 2026-11-11 09:28 UTC, commit `be19adc` on a detached HEAD: pass.** crow-site `6094a438-4ada-4826-861f-10f6d99f4ad4` (rollback target `33f0658b-1a40-4b2e-8f4a-904359d131ff`).
+
+Rafa gave the go-ahead ("deploy when ready", 2026-11-11). This was a site deploy only: T-318 to T-321 changed examples, fixtures and `site/llms.txt`, and no operator code. After it, `https://crow.direct/llms.txt` serves the sections "Sell a priced API service", "A seller's client can carry the buyer's side" and "Writing checks for a report" [measured]. `node site/check.mjs` failed before the deploy, because `reports/site-out` held the earlier build, and passed after the deploy script rebuilt it [measured].
+
 ### T-314 to T-317: the faucet's stated amount, the ciphertext cap, the seller's check runner and the audit-report template (deployed 2026-11-11)
 
 **Deploy 2026-11-11 07:54 UTC, commit `a42dc45` on branch `docs-deploy-2026-11-11`: pass.** holdback-op1 `80b683f0-9023-4506-91e9-97c10f22809f` (rollback target `f71bfaef-31ce-4535-bde7-15628384b55a`), holdback-op2 `2bfc0d0f-f9e6-4363-bdb3-baa90e3ebe54` (rollback target `60a7253a-a8a0-42c0-a0cc-ae43c8405fce`). Smoke deal `0xe47c874564d8c10ff56709629d8254fc832cf1cd6f1d113cddb753cbcc81b0a7` Released in 44 s.
