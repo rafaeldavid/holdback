@@ -5,7 +5,7 @@
 - **Depends on:** T-342 (ADR-0031, the phase-one contract scope, section 11)
 - **Paths this task may touch:** `docs/decisions/` (one new ADR), `docs/decisions-today.md` (new lines only), this file
 - **Human gate:** no
-- **Status:** review
+- **Status:** done
 - **Agent/session:** t-350 session, branch `t-350-payout-and-payment-addresses-adr`
 - **Change kind:** 10, research and decisions (`docs/team.md`, Change recipes): docs only, a target of 200k tokens
 
@@ -70,7 +70,7 @@ All are in ADR-0033; Rafa may overrule any of them.
 
 ## Handoff
 
-**Done.** ADR-0033 and D60 are written, the red team's findings are answered, and the PR is open.
+**Done.** ADR-0033 and D60 are on `main`: PR 353 merged on 2026-11-11 as `387c934`, after `check`, `gitleaks`, `changes` and CodeQL passed [measured: `gh pr checks 353`]. The code jobs were skipped, as for every change that touches only `docs/`.
 
 **Not done, by design.** No code, no schema, no audit page. The three building tasks read ADR-0033: section 2 and section 4 for the contract package, section 10 for each package's tests and proofs.
 
