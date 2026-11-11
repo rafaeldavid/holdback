@@ -6,7 +6,7 @@
 - **Depends on:** T-330 (PR 316, the shown-versus-signed check), T-325 (PR 314, the quorum setting).
 - **Paths this task may touch:** `examples/buyer-signer.ts`, `examples/buyer-signer.test.ts`, `examples/buyer-signer-outcome.test.ts`, `examples/buy-with-signer.ts`, this file. Never: `site/llms.txt` (the doc lines go in Handoff for the later seller's-page package), `examples/seller-adapter.ts` and its files (T-331), `examples/audit-deal.ts`, `examples/agent.ts`, `examples/verify.ts`, `packages/`, `apps/`, `spec/schemas/`, `contracts/`.
 - **Human gate:** no.
-- **Status:** in progress
+- **Status:** done (PR 320, merged 2026-11-11 at 21:23 UTC, merge commit `9466ee5`)
 - **Agent/session:** the T-332 session, 2026-11-11, branch `t-332-buyer-signer-signed-fields`
 - **Pilot plan:** package 1 (crow-private `roadmap/plans/2026-11-11-pilot-refocus.md`, section 5)
 
@@ -100,6 +100,7 @@ Each item is labelled measured or inferred.
 
   Lows 6 and 7 are in Handoff.
 - **Snapshot diffs:** none.
+- **After merging main (measured).** Every examples test passed on head `7d56dc5`: 24 files, 287 tests passed and 13 skipped. All 15 CI checks passed there, including `check`, gitleaks and CodeQL.
 
 ## Decisions
 
@@ -113,7 +114,7 @@ Each item is labelled measured or inferred.
 
 ## Handoff
 
-**Done.** All three files are changed (`examples/buyer-signer.ts`, `examples/buyer-signer.test.ts`, `examples/buy-with-signer.ts`), with the tests above. PR 320.
+**Done.** All three files are changed (`examples/buyer-signer.ts`, `examples/buyer-signer.test.ts`, `examples/buy-with-signer.ts`), with the tests above. PR 320 merged on 2026-11-11. The audit-deal rehearsal (package 3) can now import the signer; its approval may also name the new fields (`offer.settlement`, `offer.clubId` and the rest).
 
 **Doc lines for `site/llms.txt`**, for the seller's-page package (package 5) to place in "A seller's client can carry the buyer's side":
 - In step 3, "Approve once", after "the deadlines and the adjudicators": "and the fields the buyer also signs: `settlement.mode`, `disclosure.level`, `clubId`, `rulebookHash`, the primary adjudicator's `policyId`, `policyHash` and `registryHash`, and `maxSubmissions`. Before it shows them, the signer refuses each one, naming it, unless it equals what you expect (`makeKeys(<directory>, {expect: {settlementMode, clubId, rulebookHash, policyId, policyHash, registryHash}})`) or, where you set nothing, what every operator publishes: a settlement mode discovery lists, discovery's demo club, the club's rulebook hash and the adjudicator's registration. `disclosure.level` must be `public`."
