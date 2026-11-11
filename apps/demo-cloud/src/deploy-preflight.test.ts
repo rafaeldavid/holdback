@@ -1,20 +1,20 @@
-// T-313: the pre-flight of `pnpm demo-cloud:deploy`. The decision is a pure function (scripts/preflight.mjs), tested
-// with plain facts. The script itself then runs in temporary git repositories whose `origin` is a local bare
+// T-313: the pre-flight of `pnpm demo-cloud:deploy`, which every deploy runs. The decision is a pure function
+// (scripts/deploy-lib.mjs at the repository root), tested with plain facts. The script itself then runs in temporary git repositories whose `origin` is a local bare
 // repository, with stand-ins for pnpm and npx first on the PATH: no network, no build, no wrangler, no upload.
 import { spawnSync } from 'node:child_process';
 import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 // @ts-expect-error -- a plain ESM script without type declarations
-import { preflight } from '../scripts/preflight.mjs';
+import { preflight } from '../../../scripts/deploy-lib.mjs';
 
-type Facts = { branch: string; status: { code: number | null; out: string }; fetch: { code: number | null; out: string }; ancestor: { code: number | null; out: string } };
+type Facts = { command: string; branch: string; status: { code: number | null; out: string }; fetch: { code: number | null; out: string }; ancestor: { code: number | null; out: string } };
 const refusal = preflight as (facts: Facts) => string | null;
 
 const ok = { code: 0, out: '' };
-const clean: Facts = { branch: 'main', status: ok, fetch: ok, ancestor: ok };
+const clean: Facts = { command: 'pnpm demo-cloud:deploy', branch: 'main', status: ok, fetch: ok, ancestor: ok };
 
 describe('the deploy pre-flight decision', () => {
   it('lets a clean checkout that holds main deploy', () => {
@@ -27,7 +27,9 @@ describe('the deploy pre-flight decision', () => {
     expect(one).toMatch(/^Refused: 1 tracked file differs from the checked-out commit \(apps\/demo-cloud\/src\/worker\.ts\)/);
     const many = refusal({ ...clean, status: { code: 0, out: ['M  a.ts', ' M b.ts', 'D  c.ts', 'R  old.ts -> d.ts', ' M e.ts', ' M f.ts', ' M g.ts'].join('\n') } });
     expect(many).toMatch(/^Refused: 7 tracked files differ from the checked-out commit \(a\.ts, b\.ts, c\.ts, old\.ts -> d\.ts, e\.ts and 2 more\)/);
-    expect(many).toMatch(/commit or stash/);
+    expect(many).toMatch(/commit or stash the change, then run pnpm demo-cloud:deploy again\.$/);
+    // Each deploy names its own command.
+    expect(refusal({ ...clean, command: 'pnpm site:deploy', status: { code: 0, out: ' M site/llms.txt\n' } })).toMatch(/then run pnpm site:deploy again\.$/);
     expect(many!.split('\n')).toHaveLength(1);
   });
 
@@ -55,8 +57,8 @@ describe('the deploy pre-flight decision', () => {
 
   it('reports the tracked change first, then the fetch, then the missing commits', () => {
     const bad = { code: 1, out: '' };
-    expect(refusal({ branch: 'x', status: { code: 0, out: ' M a.ts' }, fetch: bad, ancestor: bad })).toMatch(/tracked file differs/);
-    expect(refusal({ branch: 'x', status: ok, fetch: bad, ancestor: bad })).toMatch(/git fetch origin main/);
+    expect(refusal({ ...clean, branch: 'x', status: { code: 0, out: ' M a.ts' }, fetch: bad, ancestor: bad })).toMatch(/tracked file differs/);
+    expect(refusal({ ...clean, branch: 'x', fetch: bad, ancestor: bad })).toMatch(/git fetch origin main/);
   });
 });
 
@@ -84,14 +86,16 @@ describe('pnpm demo-cloud:deploy, before the build', () => {
     return r.stdout.trim();
   };
 
-  /** A repository with the two scripts at their real paths, pushed to a local bare `origin`, on branch t-999-deploy. */
+  /** A repository with the deploy and the helper it imports at their real paths, pushed to a local bare `origin`, on branch t-999-deploy. */
   function repo() {
     const origin = temp('crow-deploy-origin-');
     git(origin, 'init', '-q', '--bare', '-b', 'main');
     const root = temp('crow-deploy-repo-');
     git(root, 'init', '-q', '-b', 'main');
-    mkdirSync(join(root, 'apps/demo-cloud/scripts'), { recursive: true });
-    for (const f of ['deploy.mjs', 'preflight.mjs']) copyFileSync(fileURLToPath(new URL(`../scripts/${f}`, import.meta.url)), join(root, 'apps/demo-cloud/scripts', f));
+    for (const f of ['apps/demo-cloud/scripts/deploy.mjs', 'scripts/deploy-lib.mjs']) {
+      mkdirSync(dirname(join(root, f)), { recursive: true });
+      copyFileSync(fileURLToPath(new URL(`../../../${f}`, import.meta.url)), join(root, f));
+    }
     writeFileSync(join(root, 'tracked.txt'), 'one\n');
     git(root, 'add', '.');
     git(root, 'commit', '-q', '-m', 'init');

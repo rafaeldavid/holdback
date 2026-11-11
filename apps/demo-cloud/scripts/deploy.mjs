@@ -1,7 +1,7 @@
 // `pnpm demo-cloud:deploy`: deploys the public demo's two operator Workers and checks them with one test deal
 // (T-234), so a deploy needs no hand checklist:
-//   1. pre-flight (T-313, preflight.mjs): refuse, with exit code 2, a checkout whose tracked files differ from its
-//      commit, or one that lacks origin/main's commits after a fresh fetch (it could drop the custom domains);
+//   1. pre-flight (T-313, scripts/deploy-lib.mjs): refuse, with exit code 2, a checkout whose tracked files differ
+//      from its commit, or one that lacks origin/main's commits after a fresh fetch (it could drop the custom domains);
 //   2. build;
 //   3. read each Worker's live version: its rollback target;
 //   4. deploy holdback-op1 (it defines the World Durable Object), then holdback-op2; a refused upload stops here;
@@ -13,9 +13,8 @@
 // networks only: each wrangler file's SETTLEMENT picks SimChain (chain id 31337) or Ethereum Sepolia (11155111, D41),
 // and the startup guards refuse anything else at run time. A cutover deploys the Workers one at a time instead
 // (docs/operations.md, Settlement).
-import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { preflight } from './preflight.mjs';
+import { checkout, liveVersion, recordLine, rollback, sh } from '../../../scripts/deploy-lib.mjs';
 
 const NODES = ['https://api.crow.direct', 'https://api2.crow.direct'];
 const WORKERS = [
@@ -32,68 +31,21 @@ if (process.argv.length > 2) {
 const here = (p) => fileURLToPath(new URL(p, import.meta.url));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/** Runs a command from the repository root, shows its output, and keeps it. The code is null after a timeout. */
-function sh(cmd, args, { show = true, env = {}, timeoutMs = 600_000 } = {}) {
-  return new Promise((resolve) => {
-    let stdout = '', out = '';
-    const child = spawn(cmd, args, { cwd: here('../../../'), env: { ...process.env, FORCE_COLOR: '0', ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
-    const timer = setTimeout(() => child.kill('SIGTERM'), timeoutMs);
-    const done = (code) => (clearTimeout(timer), resolve({ code, stdout, out }));
-    child.stdout.on('data', (d) => {
-      stdout += d;
-      out += d;
-      if (show) process.stdout.write(d);
-    });
-    child.stderr.on('data', (d) => {
-      out += d;
-      if (show) process.stderr.write(d);
-    });
-    child.on('error', (e) => {
-      out += e.message;
-      done(1);
-    });
-    child.on('close', (code, signal) => done(signal ? null : code));
-  });
-}
-
-/** The version a Worker serves to all traffic, or null when wrangler cannot say. */
-async function live(name) {
-  const r = await sh('npx', ['-y', 'wrangler@4', 'deployments', 'status', '--name', name, '--json'], { show: false });
-  try {
-    const v = JSON.parse(r.stdout).versions;
-    return v.length === 1 && v[0].percentage === 100 ? v[0].version_id : null;
-  } catch {
-    return null;
-  }
-}
-
 const fail = (why) => {
   throw new Error(why);
 };
-/** One git command at the repository root, unshown: its exit code (null after a timeout) and what it printed. */
-const git = async (...args) => {
-  const r = await sh('git', args, { show: false, env: { GIT_TERMINAL_PROMPT: '0' }, timeoutMs: 120_000 });
-  return { code: r.code, out: r.out, stdout: r.stdout.trim() };
-};
-const branch = (await git('branch', '--show-current')).stdout;
-const refused = preflight({
-  branch,
-  status: await git('status', '--porcelain', '--untracked-files=no'),
-  fetch: await git('fetch', 'origin', 'main'),
-  ancestor: await git('merge-base', '--is-ancestor', 'origin/main', 'HEAD'),
-});
+const { refused, branch, commit } = await checkout('pnpm demo-cloud:deploy');
 if (refused) {
   console.error(refused);
   process.exit(2);
 }
 
 const startedAt = new Date();
-const commit = (await git('rev-parse', 'HEAD')).stdout;
 let uploaded = false, failure = null, smoke = null;
 
 try {
   if ((await sh('pnpm', ['-C', here('..'), 'build'])).code !== 0) fail('the build failed');
-  for (const w of WORKERS) w.before = (await live(w.name)) ?? fail(`wrangler cannot read ${w.name}'s live version (is it logged in?)`);
+  for (const w of WORKERS) w.before = (await liveVersion(w.name)) ?? fail(`wrangler cannot read ${w.name}'s live version (is it logged in?)`);
   for (const w of WORKERS) {
     uploaded = true;
     const r = await sh('npx', ['-y', 'wrangler@4', 'deploy', '-c', here(`../${w.config}`)]);
@@ -117,20 +69,14 @@ try {
   console.error(`\nFAIL: ${failure}`);
   // Last deployed first. A Worker that still serves its version from before has nothing to roll back.
   for (const w of uploaded ? [...WORKERS].reverse() : []) {
-    const now = await live(w.name);
+    const now = await liveVersion(w.name);
     if (now === w.before) continue;
     w.version ??= now ?? 'unknown';
-    const r = await sh('npx', ['-y', 'wrangler@4', 'rollback', w.before, '--name', w.name, '--message', 'pnpm demo-cloud:deploy failed a check', '--yes']);
-    w.rolledBack = r.code === 0 && (await live(w.name)) === w.before;
+    w.rolledBack = await rollback(w.name, w.before, 'pnpm demo-cloud:deploy failed a check');
     if (!w.rolledBack) console.error(`ROLLBACK FAILED for ${w.name}. Run: npx wrangler@4 rollback ${w.before} --name ${w.name}`);
   }
 }
 
-const versions = WORKERS.map((w) => {
-  const back = w.rolledBack === true ? ', rolled back' : w.rolledBack === false ? ', ROLLBACK FAILED' : '';
-  return `${w.name} \`${w.version ?? 'not deployed'}\` (rollback target \`${w.before ?? 'unknown'}\`${back})`;
-});
 const deal = smoke?.id ? ` Smoke deal \`${smoke.id}\` ${smoke.state} in ${smoke.seconds} s.` : '';
-const when = `${startedAt.toISOString().slice(0, 16).replace('T', ' ')} UTC`;
-console.log(`\nThe record line for docs/operations.md:\n\n**Deploy ${when}, commit \`${commit.slice(0, 7)}\` on ${branch ? `branch \`${branch}\`` : 'a detached HEAD'}: ${failure ? `FAIL, ${failure}` : 'pass'}.** ${versions.join(', ')}.${deal}\n`);
+console.log(`\nThe record line for docs/operations.md:\n\n${recordLine({ title: 'Deploy', startedAt, commit, branch, failure, workers: WORKERS, note: deal })}\n`);
 process.exit(failure ? 1 : 0);
