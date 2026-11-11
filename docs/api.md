@@ -188,7 +188,7 @@ Patterns are full matches (`^` and `$` are implied by the engine and allowed), i
 - **Upload first.** Upload the reference with `POST /v1/ciphertext`, then name the returned `uri` and `id` as `reference.uri` and `reference.sha256`. Do this before the offer, on the store the adjudicators the terms name read.
 - **Adjudicators check the store first.** An adjudicator reads the reference from its content store by that hash. It accepts an offer as primary, or takes over as fallback, only when its store returns every reference the terms name. Otherwise it declines the deal.
 - **Wrong or late bytes.** A hash that no `uri` ends in is never loaded, so its check fails. If the store loses the bytes after acceptance, the adjudicator does not judge and retries. The fallback and then the default outcome follow if the bytes never come back.
-- **Size.** A reference is at most 10,485,788 bytes, the most any content store keeps; a node may publish a lower `limits.maxCiphertextBytes`. A larger one fails the check.
+- **Size.** A reference is at most 10,485,760 bytes, the most any content store keeps; a node may publish a lower `limits.maxCiphertextBytes`. An adjudicator declines a deal with a larger reference, and the seller's preflight fails its check.
 - **Privacy.** The store is for ciphertext, and a reference is the one plaintext file it keeps. Publishing it is the party's choice (D35). Anyone who has the hash can read it, with no authentication. So never put personal data, or anything you would not publish, in a reference.
 - **What a pass proves.** A seller can copy the reference rows into its delivery. A pass shows the rows are present, not that the seller produced them.
 

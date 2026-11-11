@@ -9,9 +9,8 @@
 // unknown type, hostile shape) fails closed. A check that runs out of the shared work budget is
 // inconclusive: it is recorded as not passed, and the pipeline escalates instead of rejecting.
 import type { MimeType } from '@holdback/core';
-import { sha256 } from '@holdback/core/crypto';
+import { MAX_CIPHERTEXT_BYTES as STORE_MAX_BYTES, sha256 } from '@holdback/core/crypto';
 import { countHidden, type HiddenCounts } from '../hidden.js';
-import { MAX_CIPHERTEXT_BYTES } from '../intake.js';
 import { normalizeText } from '../normalize.js';
 import type { JudgmentCheck } from '../terms.js';
 import type { UntrustedData } from '../untrusted.js';
@@ -210,7 +209,7 @@ function evaluate(check: JudgmentCheck, input: CheckInput, table: () => ReturnTy
       const bytes = input.references?.get(check.reference.sha256);
       if (!bytes) return fail('reference not available');
       // The most any content store keeps (references.ts, REFERENCE_MAX_BYTES): checked before hashing or parsing.
-      if (bytes.length > MAX_CIPHERTEXT_BYTES) return fail(`reference is ${bytes.length} bytes; the cap is ${MAX_CIPHERTEXT_BYTES}`);
+      if (bytes.length > STORE_MAX_BYTES) return fail(`reference is ${bytes.length} bytes; the cap is ${STORE_MAX_BYTES}`);
       if (sha256(bytes) !== check.reference.sha256) return fail('reference bytes do not match the committed hash');
       let text: string;
       try {

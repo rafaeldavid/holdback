@@ -416,7 +416,7 @@ export class Adjudicator {
     if (isSealed(c)) return null;
     const { unavailable } = await loadReferences(c.acceptance?.deterministicChecks ?? [], (uri) => this.#cfg.settlement.ciphertext(uri));
     if (!unavailable.length) return null;
-    return problem('adjudicator_unavailable', `${this.#cfg.name} serves a deal only when its store holds every reference the terms name, and the reference ${describeUnavailable(unavailable)}: upload it with POST /v1/ciphertext to the store this adjudicator reads, then offer again`);
+    return problem('adjudicator_unavailable', `${this.#cfg.name} serves a deal only when its store holds every reference the terms name, and the reference ${describeUnavailable(unavailable)}: upload it with POST /v1/ciphertext to the store this adjudicator reads; it reconsiders the deal on each pass (an offer until it expires, a takeover until fallbackBy)`);
   }
 
   /**

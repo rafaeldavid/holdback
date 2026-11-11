@@ -2,8 +2,8 @@
 import { sha256 } from '@holdback/core/crypto';
 import { describe, expect, it } from 'vitest';
 import { runChecks } from './checks/index.js';
-import { MAX_CIPHERTEXT_BYTES } from './intake.js';
-import { loadReferences, referenceLookups } from './references.js';
+import { MAX_CIPHERTEXT_BYTES as STORE_MAX } from '@holdback/core/crypto';
+import { loadReferences, REFERENCE_MAX_BYTES as MAX_CIPHERTEXT_BYTES, referenceLookups } from './references.js';
 import { UntrustedData } from './untrusted.js';
 import type { JudgmentCheck } from './terms.js';
 
@@ -55,6 +55,11 @@ describe('loadReferences: the size cap and the first unavailable reference', () 
     const { references, unavailable } = await loadReferences([ref('a', `mem://ciphertext/${hash}`, hash)], async () => big);
     expect(references.size).toBe(0);
     expect(unavailable).toEqual([{ sha256: hash, uri: `mem://ciphertext/${hash}`, reason: 'too_large' }]);
+  });
+
+  it('the cap is the store ceiling, 10,485,760 bytes, the limit POST /v1/ciphertext enforces', () => {
+    expect(MAX_CIPHERTEXT_BYTES).toBe(STORE_MAX);
+    expect(MAX_CIPHERTEXT_BYTES).toBe(10_485_760);
   });
 
   it('takes a reference of exactly the store ceiling: it refuses nothing a store would have taken', async () => {

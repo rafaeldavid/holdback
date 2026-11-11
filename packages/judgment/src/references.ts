@@ -12,8 +12,7 @@
 //
 // Nothing here opens a file or a connection: the caller passes the store's reader.
 import type { Sha256 } from '@holdback/core';
-import { sha256 as hash } from '@holdback/core/crypto';
-import { MAX_CIPHERTEXT_BYTES } from './intake.js';
+import { sha256 as hash, MAX_CIPHERTEXT_BYTES as STORE_MAX_BYTES } from '@holdback/core/crypto';
 import type { JudgmentCheck } from './terms.js';
 
 const SHA256 = /^sha256:[0-9a-f]{64}$/;
@@ -42,11 +41,12 @@ export function referenceLookups(checks: readonly JudgmentCheck[]): ReferenceLoo
 }
 
 /**
- * The largest reference, in bytes: the most any content store keeps (`POST /v1/ciphertext` refuses more, and a node
- * may publish a lower `limits.maxCiphertextBytes`). So the cap refuses nothing a store would have taken. The check
- * library fails a larger reference closed with the same number (checks/index.ts), so a seller's preflight agrees.
+ * The largest reference, in bytes: 10,485,760, the most any content store keeps (core's `MAX_CIPHERTEXT_BYTES`;
+ * `POST /v1/ciphertext` refuses more, and a node may publish a lower `limits.maxCiphertextBytes`). So the cap refuses
+ * nothing a store would have taken. The check library fails a larger reference closed with the same number
+ * (checks/index.ts), so a seller's preflight agrees; an adjudicator counts it unavailable and does not serve the deal.
  */
-export const REFERENCE_MAX_BYTES = MAX_CIPHERTEXT_BYTES;
+export const REFERENCE_MAX_BYTES = STORE_MAX_BYTES;
 
 export type UnavailableReason = 'not_returned' | 'hash_mismatch' | 'too_large';
 

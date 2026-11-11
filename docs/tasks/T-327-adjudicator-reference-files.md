@@ -92,7 +92,7 @@ An independent review of PR 306 found 1 High, 3 Medium and 2 Low. Rafa decided o
 - **What changed.**
   1. `#referenceProblem` loads the references through the shared loader. The adjudicator declines an offer as primary (`#accept`, `declines('primary')`) and a fallback or appeal turn (`#runnable`) when its store does not return a reference, returns other bytes, or returns more than the cap.
   2. A service test and `neutrality.store-withholds-reference` cover a reference lost after acceptance: no decision, the fallback declines, and the default outcome applies at fallbackBy.
-  3. `loadReferences` stops at the first unusable reference and caps a reference at `REFERENCE_MAX_BYTES`. The cap equals `MAX_CIPHERTEXT_BYTES` (10,485,788 bytes), the ceiling of `POST /v1/ciphertext`. The check library fails a larger reference closed with the same number, before it hashes or parses it, so the preflight agrees.
+  3. `loadReferences` stops at the first unusable reference and caps a reference at `REFERENCE_MAX_BYTES`. The cap is core's `MAX_CIPHERTEXT_BYTES`, 10,485,760 bytes, the ceiling `POST /v1/ciphertext` enforces. A test pins the number. The check library fails a larger reference closed with the same number, before it hashes or parses it, so the preflight agrees.
   4. `docs/api.md` gains a "Reference files" paragraph:
      - upload before the offer, to the store the adjudicators read;
      - adjudicators decline a deal whose reference their store lacks;
@@ -100,7 +100,20 @@ An independent review of PR 306 found 1 High, 3 Medium and 2 Low. Rafa decided o
      - a reference is the one plaintext file in a ciphertext store, by the party's choice (D35), and is readable without authentication, so no personal data belongs in it;
      - a pass proves the rows are present, not who produced them.
   5. The comments in `preflight.ts` and `reference.test.ts` describe the current rule.
-- **The cap is the store ceiling, not `MAX_PLAINTEXT_BYTES`.** The brief named both "above `MAX_PLAINTEXT_BYTES`" and "refuses nothing the store would have taken". The store takes up to 28 bytes more than `MAX_PLAINTEXT_BYTES`, so the cap follows the store.
+- **The cap is the store ceiling.** The brief named both "above `MAX_PLAINTEXT_BYTES`" and "refuses nothing the store would have taken". The first draft used judgment's `MAX_CIPHERTEXT_BYTES` (10,485,788 bytes), which is 28 bytes above the store's real ceiling. The reviewer caught it (Low), and the cap now reads core's constant.
+- **A regression CI caught (measured).** On the first push, `examples/private.test.ts` failed with "did not reach AcceptedByAdjudicator". A sealed commitment carries no `acceptance`, so the accept-time check threw, and the whole `runOnce` pass aborted. This service cannot open sealed terms yet (T-207), so it sees no reference by design. The check now skips sealed terms, and the file passes 8 of 8. All the examples' tests: 230 passed, 13 skipped. When T-207 opens sealed terms, this skip must become a real check.
+- **Reviewer (measured).** One `reviewer` pass returned ISSUES: no Critical, 1 High, 1 Medium, 5 Low.
+  - **Fixed:**
+    - the High, the sealed-terms throw above;
+    - the cap's number;
+    - the size line in `docs/api.md`, which now says an adjudicator declines the deal;
+    - the decline message, which now says the deal is reconsidered on each pass;
+    - the stale Handoff.
+  - **Left:**
+    - the Medium: a declined offer is re-read on every pass until it expires;
+    - the reviewer's Lows 6 and 7: the fallback and appeal stores are not checked at agreement, and the snap runner does not model the accept-time decline.
+
+  All three are listed in Handoff.
 - **Found, not fixed (inferred, not run).** An unstored delivery ciphertext has the same exposure as finding 1, and the seller alone can use it. Operators do not check that a delivery's ciphertext is stored before relaying it. An adjudicator that cannot read it never decides, so the deal reaches its default outcome, which on SimChain pays the seller from the bonds. `runOnce` also aborts its whole pass on such a task. Both rows are in `reports/scratch/t-327-triage.md`.
 
 ## Decisions
@@ -122,14 +135,17 @@ An independent review of PR 306 found 1 High, 3 Medium and 2 Low. Rafa decided o
 
 **Not done.**
 - The fix reaches the live adjudicators only with a deploy, which waits for Rafa.
-- `site/llms.txt` does not mention `--reference` yet. It is outside this task's paths.
+- `site/llms.txt` mentions neither `--reference` nor the rule to upload the reference before the offer. The coordinator queues it; it is outside this task's paths.
+- `docs/neutrality.md` does not list `neutrality.store-withholds-reference` in the adjudicator row. That file is outside this task's paths.
 
-**Findings that waited.** Six rows are in `reports/scratch/t-327-triage.md` (main checkout):
-- JSON numbers beyond 2^53 match the wrong values (L1);
-- each check parses its reference again (L3);
-- a restart can re-read a changed store (L4);
-- references are stored in the clear (M2);
-- the terms do not say which store a deal's adjudicators read;
-- the reference has no size cap of its own.
+**Findings that waited.** Rows in `reports/scratch/t-327-triage.md` (main checkout):
+- JSON numbers beyond 2^53 match the wrong values (red team L1);
+- each check parses its reference again (red team L3);
+- a restart can re-read a changed store (red team L4);
+- references are stored in the clear (red team M2; `docs/api.md` now warns against personal data);
+- the terms do not say which store each adjudicator reads; the primary checks only its own store at agreement, so a fallback or appeal adjudicator on another store can still fail to decide (N78, a schema question; reviewer Low 6);
+- **High, inferred:** an unstored delivery ciphertext lets the seller alone send a deal to its default outcome, paid from the bonds, and its read aborts `runOnce` for every other deal;
+- a declined offer's references are re-read on every pass until `offerExpiresAt` (reviewer Medium). Fix: cache the verified hashes, since stores are content-addressed;
+- the snap runner does not model the accept-time decline, so only `reference.test.ts` catches a regression of finding 1 (reviewer Low 7).
 
-**How to resume.** Run `pnpm build`, then `pnpm exec vitest run apps/adjudicator/src/reference.test.ts packages/judgment/src/references.test.ts examples/check-delivery.test.ts` and `pnpm snap reference-check-accepted reference-check-rejected`.
+**How to resume.** Run `pnpm build`, then `pnpm exec vitest run apps/adjudicator/src/reference.test.ts packages/judgment/src/references.test.ts examples/check-delivery.test.ts examples/private.test.ts` and `pnpm snap reference-check-accepted reference-check-rejected neutrality.store-withholds-reference`.
