@@ -123,9 +123,12 @@ As of 2026-11-06:
 | `formal/` | The TLA+ model of the commitment state machine |
 | `spec/` | JSON Schemas (the API contract), examples and the OpenAPI document |
 | `fixtures/` | Scenario fixtures, recordings, demo clubs, terms and data |
-| `examples/` | Example agents that use only HTTP, an EIP-712 signing library and NaCl |
+| `examples/` | The reference agent, which uses only HTTP, an EIP-712 signing library and NaCl. Four of its files run in production: the test seller imports `agent.ts` and `verify.ts`, and `site/try.mjs` is the bundle of `try.ts` with them and `deployments.ts`. The `e2e-*` files drive round 1 on Sepolia |
 | `site/` | crow.direct and its agent guide, `site/llms.txt` |
 | `tools/` | The agent simulation, the design map and the contract-stack page |
+| `scripts/` | Build and check scripts: the spec and OpenAPI checks, `pnpm verify`, `pnpm health`, the shared deploy helper, the metrics Crow Control reads |
+| `tests/` | Tests that cross packages: the API contract, the spec, the lint rules, the scripts |
+| `config/` | The judge registries and the templates for local settings |
 | `docs/` | Specs, decisions, ADRs, tasks, plan, reviews and research |
 
 Read first: `docs/PRD.md`, `docs/neutrality.md`, `docs/architecture.md`, `docs/judgment-and-defenses.md` and `docs/api.md`.
