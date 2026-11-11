@@ -6,7 +6,7 @@
 - **Depends on:** T-320 (the loosened template, PR 287), T-318 (the seller adapter, PR 284), T-319 (the buyer signer, PR 281), T-316 (the seller's check runner, PR 278)
 - **Paths this task may touch:** `examples/audit-deal.ts`, `examples/audit-deal.test.ts`, `examples/seller-adapter.ts`, `examples/seller-adapter-stub.ts`, `examples/seller-adapter.test.ts`, `examples/buyer-signer.ts`, `examples/buyer-signer.test.ts`, `examples/buy-with-signer.ts`, `examples/two-origins.ts` (its header comment), `package.json` (one script), `site/llms.txt` (three lines in "Sell a priced API service", kind 1), `docs/tasks/T-320-audit-template-fit.md` (its Status, on merge), this file. Never: `spec/schemas/`, `apps/`, `packages/`, `.env*`.
 - **Human gate:** no for the build. The live run uses test tokens on Sepolia through the public test service and its faucet, which the brief names; it deploys nothing.
-- **Status:** in progress
+- **Status:** review
 - **Agent/session:** the T-320 and T-321 session, 2026-11-11, branch `t-321-audit-deal-end-to-end`
 
 ## Intent
