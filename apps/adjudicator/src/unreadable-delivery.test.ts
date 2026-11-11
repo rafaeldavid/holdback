@@ -130,7 +130,8 @@ describe('a delivery whose ciphertext no store returns (T-347)', () => {
   });
 
   it('never arrives: the fallback does not judge either, and the default outcome applies at fallbackBy', async () => {
-    const { s, a, b, bad } = await twoDeals();
+    // The example's rubric, so a fallback that judged would call judges (red team L4).
+    const { s, a, b, bad } = await twoDeals(EXAMPLE.acceptance);
     await a.adj.runOnce();
     s.at(bad.timing.judgeBy);
     // Anyone may trigger the takeover; the fallback reads the same missing bytes and does not judge them.
@@ -165,12 +166,45 @@ describe('a delivery whose ciphertext no store returns (T-347)', () => {
       return inner(m);
     };
     const first = await a.adj.runOnce();
-    expect(first.refused).toEqual([{ commitmentId: bad.id, problem: { type: 'adjudicator_unavailable', detail: expect.stringMatching(/the primary turn failed \(relay unreachable\); retrying on the next pass/) } }]);
+    expect(first.refused).toEqual([{ commitmentId: bad.id, problem: { type: 'adjudicator_unavailable', detail: 'the primary turn threw (Error); retrying on the next pass' } }]);
     expect(s.state(good.id).kind).toBe('Released');
     const asked = a.calls.length;
     const second = await a.adj.runOnce();
     expect(second.decided).toEqual([{ commitmentId: bad.id, role: 'primary', outcome: 'accept' }]);
     expect(a.calls).toHaveLength(asked);
+  });
+
+  it('names neither the store error nor a malformed hash: the detail is bounded and carries no keyed URL', async () => {
+    const { s, a, bad, delivery } = await twoDeals();
+    s.ciphertext = async () => {
+      throw new Error('HTTP request failed. URL: https://rpc.example/v2/SECRETKEY');
+    };
+    const report = await a.adj.runOnce();
+    const detail = report.refused.find((r) => r.commitmentId === bad.id)?.problem.detail ?? '';
+    expect(detail).toContain(delivery.ciphertext.sha256);
+    expect(detail).not.toContain('SECRETKEY');
+  });
+
+  it('an acceptance that throws is refused and retried, never reported as a decline (red team M1)', async () => {
+    const s = new TestSettlement();
+    const a = bench(A, 'bench-a', s);
+    bench(B, 'bench-b', s);
+    bench(C, 'bench-c', s);
+    const c = makeCommitment({ primary: A.address, fallback: B.address, appeal: C.address, policyHash: policyHashOf(a.adj.policy), registryHash: reg.hash, buyer: BUYER, seller: SELLER, acceptance: CHECKS_ONLY });
+    s.offer(c);
+    const inner = s.submit.bind(s);
+    let down = true;
+    s.submit = async (m) => {
+      if (down && m.type === 'AdjudicatorAcceptance') {
+        down = false;
+        throw new Error('HTTP request failed. URL: https://rpc.example/v2/SECRETKEY');
+      }
+      return inner(m);
+    };
+    const first = await a.adj.runOnce();
+    expect(first.declined).toEqual([]);
+    expect(first.refused).toEqual([{ commitmentId: c.id, problem: { type: 'adjudicator_unavailable', detail: 'the acceptance threw (Error); retrying on the next pass' } }]);
+    expect((await a.adj.runOnce()).accepted).toEqual([c.id]);
   });
 
   it('a store that returns other bytes under the URI is not judged either (the existing rule), and the pass goes on', async () => {

@@ -204,7 +204,8 @@ export class Adjudicator {
         if (r.ok) report.accepted.push(offer.commitment.id);
         else report.declined.push({ commitmentId: offer.commitment.id, reason: r.error.detail });
       } catch (e) {
-        report.declined.push({ commitmentId: offer.commitment.id, reason: passProblem('the acceptance', e).detail });
+        // Refused, not declined: a caller may publish a decline as final (T-347 red team M1), and this is retried.
+        report.refused.push({ commitmentId: offer.commitment.id, problem: passProblem('the acceptance', e) });
       }
     }
     for (const c of await port.takeoversDue(this.address)) {
@@ -565,8 +566,8 @@ export class Adjudicator {
     let ciphertext: Uint8Array;
     try {
       ciphertext = await this.#cfg.settlement.ciphertext(task.delivery.ciphertext.uri);
-    } catch (e) {
-      return err(problem('adjudicator_unavailable', `${unreadableCiphertext(task.delivery.ciphertext, e)}; not judged, retrying on each pass (no record). If no store returns it by ${task.deadline}, this turn passes to the fallback or the default outcome by the terms`));
+    } catch {
+      return err(problem('adjudicator_unavailable', `${unreadableCiphertext(task.delivery.ciphertext)}; not judged, retrying on each pass (no record). If no store returns it by ${task.deadline}, this turn passes to the fallback or the default outcome by the terms`));
     }
     const intaken = await intake({
       delivery: { ...task.delivery, encryptedKeys: [pre.envelope] },
@@ -711,16 +712,21 @@ export class Adjudicator {
 
 /**
  * What names a delivery's ciphertext the store did not return (T-347): the URI and SHA-256 the seller signed, so a party
- * can show which bytes were missing, and the store's own reason. The URI comes from the seller, so it is cut short.
+ * can show which bytes were missing. Both come from the seller, so the URI is cut short and the hash is named only in
+ * its own form; the store's error text stays out, since it can carry a keyed URL (red team L5).
  */
-export function unreadableCiphertext(ct: { uri: string; sha256: string }, e: unknown): string {
-  const reason = String((e as Error)?.message ?? e).slice(0, 120);
-  return `the delivery's ciphertext ${ct.uri.slice(0, 200)} (${ct.sha256}) was not returned by this adjudicator's store (${reason})`;
+export function unreadableCiphertext(ct: { uri: string; sha256: string }): string {
+  const hash = /^sha256:[0-9a-f]{64}$/.test(ct.sha256) ? ct.sha256 : 'a malformed SHA-256';
+  return `the delivery's ciphertext ${ct.uri.slice(0, 200)} (${hash}) was not returned by this adjudicator's store`;
 }
 
-/** One deal's failure in a pass, reported as refused so the pass goes on for the other deals (T-347). */
+/**
+ * One deal's failure in a pass, reported as refused so the pass goes on for the other deals (T-347). Only the error's
+ * class is named: a relay's message can carry a keyed RPC URL, and callers may log or publish the detail (red team M1).
+ */
 function passProblem(what: string, e: unknown): Problem {
-  return problem('adjudicator_unavailable', `${what} failed (${String((e as Error)?.message ?? e).slice(0, 120)}); retrying on the next pass`);
+  const kind = e instanceof Error ? e.name.slice(0, 40) : typeof e;
+  return problem('adjudicator_unavailable', `${what} threw (${kind}); retrying on the next pass`);
 }
 
 /**

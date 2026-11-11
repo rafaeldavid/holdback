@@ -43,14 +43,14 @@
 
 ## Acceptance criteria
 
-- [ ] A test shows what happens today when no store returns a delivery's ciphertext: whether the pass aborts for other deals, where this deal ends, and what record is left (committed before the fix).
-- [ ] Two deals in one pass, one with a missing ciphertext: the other is judged (test).
-- [ ] The unreadable deal is not judged and nothing is signed for it; the fallback and then the default outcome follow if the bytes never come (test).
-- [ ] The adjudicator's report names the missing ciphertext's URI and SHA-256 (test).
-- [ ] A ciphertext that arrives before the decision deadline is judged normally (test).
-- [ ] A `neutrality.*` scenario with its `.expect.md` covers a store that withholds a delivery's ciphertext; the deal closes by expiry.
-- [ ] The tests of `apps/adjudicator` and `packages/judgment`, `pnpm typecheck`, `pnpm lint` and `pnpm snap` pass; no existing snapshot changes except by this fix, each change explained.
-- [ ] One red team on the diff; Critical and High findings fixed.
+- [x] A test shows what happens today when no store returns a delivery's ciphertext: whether the pass aborts for other deals, where this deal ends, and what record is left (committed before the fix).
+- [x] Two deals in one pass, one with a missing ciphertext: the other is judged (test).
+- [x] The unreadable deal is not judged and nothing is signed for it; the fallback and then the default outcome follow if the bytes never come (test).
+- [x] The adjudicator's report names the missing ciphertext's URI and SHA-256 (test).
+- [x] A ciphertext that arrives before the decision deadline is judged normally (test).
+- [x] A `neutrality.*` scenario with its `.expect.md` covers a store that withholds a delivery's ciphertext; the deal closes by expiry.
+- [x] The tests of `apps/adjudicator` and `packages/judgment`, `pnpm typecheck`, `pnpm lint` and `pnpm snap` pass; no existing snapshot changes except by this fix, each change explained.
+- [x] One red team on the diff; Critical and High findings fixed.
 
 ## Out of scope
 
@@ -59,8 +59,59 @@
 
 ## Evidence
 
-Fill this in before review. Label each item measured, inferred or guessed.
+All runs on 2026-11-11, on branch `t-347-unreadable-delivery`, from `origin/main` at `b58bb69`.
+
+- **Step 1, today's behaviour (measured).** `apps/adjudicator/src/unreadable-delivery.test.ts` before the fix: 5 of 6 tests failed. `runOnce` threw `no blob <uri>` on every pass, for the primary and for the fallback. A probe ran two deals in one pass, the unreadable one first (kept as `reports/scratch/t-347-probe.test.ts.txt` in the main checkout). It answered the three questions:
+  1. **The pass aborts for every other deal.** The healthy deal was never judged either. After four passes (two primary, two fallback) it sat in `FallbackJudging` with the bad one.
+  2. **Where the deal ends.** Both deals reached the default outcome at fallbackBy and ended `Refunded`, `via: default_outcome`. So a seller's missing ciphertext also cost the other seller its payment for good work.
+  3. **What record is left.** None: no judgment record and no decision. Only the exception text, which the live worlds log through `onError` and do not keep.
+  The finding reproduced, and was worse than inferred, because the other deals were lost as well as delayed. The test file was committed alone, as `055c272`.
+- **After the fix (measured).** The same file passes 9 of 9. `pnpm exec vitest run apps/adjudicator packages/judgment packages/testkit apps/operator/src/sim-world examples/private.test.ts`: 38 files passed and 2 skipped; 887 tests passed and 6 skipped. The skips are `drand-fork.test.ts` and `runner.test.ts`, which predate this task. After the red-team fixes, `apps/adjudicator` passes 230 tests (3 skipped).
+- **Snapshots (measured).** `pnpm snap`: 39 passed, 0 failed. No existing snapshot changed. The new one, `neutrality.store-withholds-delivery`, shows three refusals that name the ciphertext's URI and SHA-256: Bench A twice, then Bench B after the takeover. Nothing is judged or signed, and the default outcome ends the deal `Refunded` with Atlas's 2,050 tUSD returned.
+- **Types and lint (measured).** `pnpm typecheck` and `pnpm lint` exit 0.
+- **Red team (measured).** One `red-teamer` pass found no Critical or High findings: 1 Medium and 6 Low. Its proof test passed 4 of 4 on the branch, and it is kept as `reports/scratch/t-347-redteam.test.ts.txt` in the main checkout.
+  - **Fixed:**
+    - M1: the new catch on the offers loop reported a thrown acceptance as a decline, which demo-cloud publishes and keeps. It is now refused and retried.
+    - L5: the refusal text named the store's raw error, which can carry a keyed RPC URL, and an unchecked hash. It now names only the error's class, the URI cut to 200 characters, and the hash only in its own form.
+    - L4: the fallback test now uses the example's full rubric.
+    Each fix has a test.
+  - **Left, in `reports/scratch/t-347-triage.md`:**
+    - L1: a store read that never settles still stalls the pass.
+    - L2: a seller that withholds the bytes also escapes a `mime_mismatch` reject.
+    - L3: the fallback triggers a takeover it then refuses.
+    - L6: the snap runner models "unstored" by the fixture's path.
+  - **What held:**
+    - No store and no seller can get a signed reject of good work or a signed accept of bad work.
+    - A failed read produces no record, decision or judge call, as primary or as fallback.
+    - A retry after the panel ran asks no judge again.
+    - No new refusal of terms.
+- **Not run.** The full `pnpm verify` and gitleaks. CI runs both gates.
 
 ## Decisions
 
+1. **A ciphertext no store returns follows the existing rule for a ciphertext that does not match its delivery** (`mapIntakeError`, `ciphertext_hash_mismatch`), the rule T-327 applied to references. It is not judged, nothing is published or signed, and it is retried. The fallback and then the default outcome follow if it never comes. The adjudicator cannot tell a seller that never uploaded from a store that withholds, so a signed reject would let a store's operator, or one fault, refund good work (T-327 red team H1). This is no new rule: the D27 defaults and `docs/judgment-and-defenses.md` give none for a missing ciphertext, and the default outcome is the terms' own path for an adjudicator that does not decide.
+2. **Each offer, takeover and task is its own unit in `runOnce`.** A throw is reported in `refused` and retried, and it never ends the pass. `decideTask` keeps the judged record the moment the panel returns, so a retry never asks the judges again (test).
+3. **The record is the pass's report.** A `Judgment` record needs a decision, so publishing one would mean signing a verdict. The refusal names the ciphertext's URI and SHA-256 instead; together with the store's own 404 for that hash, a party can show why the deal defaulted.
+4. **The snap runner's delivery store is a fixtures directory**, as T-327's reference store is. `packages/testkit/src/judgment.ts` refuses a delivery of a file under `fixtures/data/unstored/` as the service refuses a missing ciphertext. So the scenario parser and the stub settlement stay unchanged, inside this task's paths.
+5. **The fallback still triggers a takeover whose ciphertext it cannot read** (red team L3). Checking first needs the delivery in `takeoversDue`, which is a port change. Anyone may trigger anyway, and late bytes can still arrive before fallbackBy.
+
 ## Handoff
+
+**Done.**
+- An unreadable delivery no longer stops the adjudicator's pass for other deals.
+- That deal is not judged, its refusal names the missing ciphertext, and late bytes are judged as usual.
+- `neutrality.store-withholds-delivery` shows the deal closing by the default outcome.
+
+**Not done.**
+- The fix reaches the live adjudicators only with an operator deploy, which waits for Rafa.
+- `docs/neutrality.md` does not list `neutrality.store-withholds-delivery`; that file is outside this task's paths.
+
+**Findings that waited.** The rows are in `reports/scratch/t-347-triage.md` (main checkout):
+- a store read that hangs (L1);
+- a withheld ciphertext that hides a `mime_mismatch` (L2);
+- the fallback's takeover (L3);
+- demo-cloud does not surface `adjudicator_unavailable` refusals, and does not clear a reversed decline;
+- SimChain's bond payout to a seller that never uploads;
+- the operator relay that does not check the store.
+
+**How to resume.** Run `pnpm build`, then `pnpm exec vitest run apps/adjudicator/src/unreadable-delivery.test.ts apps/adjudicator/src/reference.test.ts` and `pnpm snap neutrality.store-withholds-delivery neutrality.store-withholds-reference`.
