@@ -50,7 +50,7 @@ forge test
 Notes:
 - `NoAdmin.fuzz.t.sol` reads the compiled ABIs from `out/`, and the drand tests read `../fixtures/beacon`. `foundry.toml` grants read access to those two paths only.
 - The last recorded run passed 241 tests at commit `64be1f1` on 2026-11-04 (documented: `docs/tasks/T-212-contract-hardening.md`, Evidence). Run `forge test` for today's count.
-- CI runs `forge test`, then `forge build`. Its comment says `forge test` does not compile `script/`, which the anvil tests need.
+- CI runs `forge test` in its `contracts` job. Its `anvil` job runs `forge build`, because `forge test` does not compile `script/`, which the anvil tests need.
 
 ## TypeScript tests that need anvil
 
@@ -62,7 +62,9 @@ pnpm build
 pnpm vitest run packages/settlement/evm packages/testkit/src/runner.test.ts
 ```
 
-Without Foundry or `contracts/out` they skip. CI fails the job when any of them skips. The differential run against SimChain is `pnpm snap --settlement=local`.
+That is the settlement leg of CI's `anvil` job. Its second leg, the world leg, runs the demo world on anvil, its relayer lanes, registration and timeouts, the drand verifier's differential test and the round's adjudicator; the job's matrix in `.github/workflows/ci.yml` lists the seven files.
+
+Without Foundry or `contracts/out` they skip. CI fails a leg when any of its tests skips. The differential run against SimChain is `pnpm snap --settlement=local`.
 
 ## The ABI pipeline
 

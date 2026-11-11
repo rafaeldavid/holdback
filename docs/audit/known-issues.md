@@ -102,5 +102,5 @@ Source: [T-211](../tasks/T-211-appeal-key-adjudicator.md), Handoff. The source c
 - **L-3.** The review's table says it blocks mainnet since D43. The same review's §2.3 says "accepted until Phase 4". T-212's Handoff and D48 agree with the table.
 - **L-5.** The review rates it "low, medium since D43"; its adversarial pass rated it medium, and DeepSeek rated it high.
 - **Bonds behind appeals and defaults.** `docs/neutrality.md` says the appeal adjudicator is bounded by its own bond (residual 7) and that defaulting adjudicators' bonds compensate the seller (control-point table). The review says the contract takes no bond from the appeal adjudicator (L-5) and pays no default compensation (I-8). The contract follows the review.
-- **O-1.** D48 and its research note cite a backlog row for the faucet's optional test ETH. `docs/backlog.md` in this checkout has no row that names the faucet.
+- **O-1.** D48 and its research note cite a backlog row for the faucet's optional test ETH. The maintainers keep the backlog privately (`docs/private-materials.md`), so this page cannot confirm that row.
 - **O-2.** T-232 cites `lint-bypass.test.ts`. This checkout has no file of that name; `tests/read-after-write.lint.test.ts` exists.
