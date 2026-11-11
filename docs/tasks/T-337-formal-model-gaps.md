@@ -133,3 +133,7 @@ For refinement package R4:
    lines drift when that merges. The mapping was read, not tool-checked.
 6. **The liveness run is longer**: 21 min against about 11 min (Evidence). CI runs it on pushes to `main` only, and
    CLAUDE.md's "~11 min" is now out of date; that file is outside this task's paths.
+7. **A `deliverBy` after the expiry is not modelled** (review, Low). `Holdback.tla:482-490` and the README assume
+   ordered deadlines; the contract does not enforce that order (D31), and `AfterCppReclaim.t.sol:91-104` tests it. An
+   expiry in Held before `deliverBy` blocks every capture; `late_judge_by` covers only `judgeBy`. R4 adds a Held
+   branch or names the case under "Not modelled".
