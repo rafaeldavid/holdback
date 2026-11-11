@@ -39,15 +39,15 @@ Non-goals: no change to `contracts/`, `formal/`, `docs/audit/scope.md` or `docs/
 
 ## Acceptance criteria
 
-- [ ] Every row of the state table cites the line of `contracts/src` that writes it, at a named commit.
-- [ ] Each combination the storage can represent but no entry point should reach is listed as illegal, with why it is unreachable, or that it is reachable (a finding).
-- [ ] A reader can write the invariant "the deal's word is always one of these rows" from the table alone.
-- [ ] The holdings table gives, for each row, what the vault and the escrow hold, in terms of the deal's fields.
-- [ ] Every deadline is a named expression; every opposing pair of entry points is shown to agree on its boundary.
-- [ ] The register covers every field of every signed type, and gives a verdict for each signed field the contract does not enforce.
-- [ ] The threat model states the escrow's second copy of the hold, the block proposer's choice of beacon round, the vault's push payments and the lack of an address-distinctness check as explicit assumptions.
-- [ ] The two documents agree with `formal/`, or list where they differ.
-- [ ] One red-team subagent, given the contracts and not this task's reasoning, tried to find a reachable state the table calls illegal, or a legal one it omits.
+- [x] Every row of the state table cites the line of `contracts/src` that writes it, at a named commit.
+- [x] Each combination the storage can represent but no entry point should reach is listed as illegal, with why it is unreachable, or that it is reachable (a finding).
+- [x] A reader can write the invariant "the deal's word is always one of these rows" from the table alone.
+- [x] The holdings table gives, for each row, what the vault and the escrow hold, in terms of the deal's fields.
+- [x] Every deadline is a named expression; every opposing pair of entry points is shown to agree on its boundary.
+- [x] The register covers every field of every signed type, and gives a verdict for each signed field the contract does not enforce.
+- [x] The threat model states the escrow's second copy of the hold, the block proposer's choice of beacon round, the vault's push payments and the lack of an address-distinctness check as explicit assumptions.
+- [x] The two documents agree with `formal/`, or list where they differ.
+- [x] One red-team subagent, given the contracts and not this task's reasoning, tried to find a reachable state the table calls illegal, or a legal one it omits.
 
 ## Out of scope
 
