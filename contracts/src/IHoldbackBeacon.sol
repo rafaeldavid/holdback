@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity 0.8.28;
 
 /// @title IHoldbackBeacon
 /// @notice The public randomness a fallback or appeal panel seed comes from (ADR-0018). The rules contract

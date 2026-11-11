@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity 0.8.28;
 
 import {AuthCaptureEscrow} from "commerce-payments/AuthCaptureEscrow.sol";
 import {EIP712} from "solady/utils/EIP712.sol";
@@ -65,7 +65,8 @@ contract HoldbackRules is EIP712 {
     uint8 public constant KEY_APPEAL = 3;
 
     /// @notice Mutual settlement fee share to the sitting adjudicator (rulebook `adjudicatorFeeShareAfterDeliveryBps`).
-    ///         The rulebook is not on chain, so the Phase 1 default of 0 applies; the remainder goes to the buyer.
+    ///         The rulebook is not on chain, so the default of 0 applies: `_payOut` returns the whole fee to the buyer.
+    ///         No code here reads it; the getter stays in the ABI, and `Postings.fuzz.t.sol` fails if it leaves 0.
     uint256 public constant MUTUAL_FEE_SHARE_BPS = 0;
 
     AuthCaptureEscrow public immutable ESCROW;
@@ -211,8 +212,9 @@ contract HoldbackRules is EIP712 {
         d.stage = Stage.Held;
         d.flags = F_PRIMARY;
         d.seedTag = uint144(uint256(acc.seedCommitment));
-        // Guaranteed mode: the primary's bond covers 100% of the price, rounded up (ADR-0007, ADR-0022 rule 1).
-        BONDS.encumber(t.adjudicator, t.token, Money.requirement(t.price, Money.ALL_BPS));
+        // Guaranteed mode: the primary's bond covers 100% of the price (ADR-0007). At 100% the requirement is the price
+        // itself, so ADR-0022 rule 1's rounding up has nothing to round.
+        BONDS.encumber(t.adjudicator, t.token, t.price);
         emit JobCreated(id, t.buyer, t.seller, t.adjudicator, pi.authorizationExpiry);
         emit JobFunded(id, t.buyer, pi.maxAmount);
         ESCROW.authorize(pi, pi.maxAmount, f.method == 0 ? ERC3009_COLLECTOR : PERMIT2_COLLECTOR, f.signature);
@@ -451,12 +453,12 @@ contract HoldbackRules is EIP712 {
         d.appeal = AppealState.Closed;
         d.flags = 0;
         _releaseBonds(t, flags);
-        _payOut(id, t, m.payouts, s);
+        _payOut(id, t, m.payouts);
         emit MutuallySettled(id, m.releaseKey);
         if (m.releaseKey) _releaseKey(id, t.buyer, KEY_MUTUAL, k.scheme, k.ciphertext);
     }
 
-    function _payOut(bytes32 id, H.Terms calldata t, H.Payout[] calldata payouts, Stage s) internal {
+    function _payOut(bytes32 id, H.Terms calldata t, H.Payout[] calldata payouts) internal {
         AuthCaptureEscrow.PaymentInfo memory pi = _paymentInfo(id, t);
         uint256 total;
         uint256 toSeller;
@@ -479,17 +481,9 @@ contract HoldbackRules is EIP712 {
             _capture(pi, toSeller, 0, address(0));
             emit PaymentReleased(id, t.seller, toSeller);
         }
-        // ADR-0022 rule 2: the fee share rounds down to the sitting adjudicator, the remainder to the buyer.
-        (uint256 share,) = Money.split(t.fee, MUTUAL_FEE_SHARE_BPS);
-        if (share > 0) {
-            address sitting = s == Stage.FallbackJudging
-                ? t.fallbackAdjudicator
-                : s == Stage.Escalated ? t.appealAdjudicator : t.adjudicator;
-            _capture(pi, share, share, sitting);
-            emit FeePaid(id, sitting, share);
-        }
-        // Everything still held (the buyer's payouts and the fee remainder) goes back to the buyer.
-        uint256 rest = pi.maxAmount - captured - toSeller - share;
+        // Everything still held (the buyer's payouts and the whole fee, MUTUAL_FEE_SHARE_BPS being 0) goes back to
+        // the buyer.
+        uint256 rest = pi.maxAmount - captured - toSeller;
         if (rest > 0) {
             _void(pi);
             emit Refunded(id, t.buyer, rest);
@@ -552,7 +546,7 @@ contract HoldbackRules is EIP712 {
 
     /// @notice default and apply_default in one call: the fallback missed fallbackBy, or the
     ///         appeal adjudicator missed appealDecideBy after an escalation; price + fee back to the buyer. Seller
-    ///         compensation from bonds is Phase 4.
+    ///         compensation from bonds is not built (known issue I-8).
     function triggerDefault(H.Terms calldata t) external {
         bytes32 id = H.commitmentId(t);
         Deal storage d = _deals[id];
@@ -610,7 +604,7 @@ contract HoldbackRules is EIP712 {
         emit Refunded(id, t.buyer, pi.maxAmount);
     }
 
-    /// @dev Verifies the seller-signed delivery for attempt 1 (core: maxSubmissions is 1 in Phases 1 and 2). Whichever
+    /// @dev Verifies the seller-signed delivery for attempt 1 (core allows one submission: maxSubmissions is 1). Whichever
     ///      call lands it (deliver, or a decision or early accept that carries it), it must land before deliverBy, as
     ///      in SimChain; otherwise it races the reclaim. Stores and returns its hash (ADR-0029).
     function _acceptDelivery(
