@@ -943,11 +943,12 @@ describe('phase_one profile', () => {
   it.each([
     ['primary accept', ev.decide('primary', 'accept', T.decide), 'Released'],
     ['primary reject', ev.decide('primary', 'reject', T.decide), 'Refunded'],
-  ])('a %s is final at the decision: the appeal window opens and closes then', (_, decide, kind) => {
+  ])('a %s is final at the decision: its appeal state is closed with no appeal', (_, decide, kind) => {
     const s = phaseOne([...toDeliveredP1, decide]);
     expect(s.kind).toBe(kind);
     if ((s.kind === 'Released' || s.kind === 'Refunded') && s.via.kind === 'first_instance') {
-      expect(s.via.appeal).toEqual({ kind: 'none', appealBy: T.decide, appealDecideBy: T.decide });
+      // Red team RT-3: not `none` with appealBy reached, which readers take for an appeal expiry due now.
+      expect(s.via.appeal).toEqual({ kind: 'expired', appeal: null });
     } else {
       throw new Error('not a first-instance decision');
     }
@@ -957,7 +958,7 @@ describe('phase_one profile', () => {
     const s = phaseOne([...toDeliveredP1, ev.at('trigger_fallback', T.judgeBy), ev.decide('fallback', 'accept', T.fallbackDecide)]);
     expect(s.kind).toBe('Released');
     if (s.kind === 'Released' && s.via.kind === 'first_instance') {
-      expect(s.via.appeal).toEqual({ kind: 'none', appealBy: T.fallbackDecide, appealDecideBy: T.fallbackDecide });
+      expect(s.via.appeal).toEqual({ kind: 'expired', appeal: null });
     }
   });
 
