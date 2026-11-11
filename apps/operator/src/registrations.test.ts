@@ -379,16 +379,19 @@ describe('phase one on a chain settlement: no unbonded-fallback refusal, no appe
     }
   });
 
+  // A party appeal is not in phase one (ADR-0031 §8): a chain settlement refuses it, and SimChain keeps it.
   it('answers POST /v1/prepare/appeal with invalid_state naming phase one, and SimChain prepares it as before', async () => {
     const sim = new SimChain(await unbonded());
     const deal = new Deal(sim, cast, { club });
     const onChain = await startOperator({ settlement: asChain(sim), registry: simRegistry(sim), signerKey: simActor('op', 'operator').key, operatorId: 'op-t349-a', env: {} });
     const onSim = await startOperator({ settlement: sim, registry: simRegistry(sim), signerKey: simActor('op2', 'operator').key, operatorId: 'op-t349-b', env: {} });
     try {
+      // A party appeal is not in phase one (ADR-0031 §8): the chain settlement refuses it, and SimChain keeps it.
       const body = { commitmentId: deal.id, appellant: cast.buyer.address };
       const refused = await post(onChain.url, '/v1/prepare/appeal', body);
       expect([refused.status, String(refused.body.type).split('/').at(-1)]).toEqual([409, 'invalid_state']);
       expect(refused.body.detail).toMatch(/phase-one contracts, which have no party appeals and no bonds \(ADR-0031, D57\)/);
+      // SimChain only: the full protocol still prepares the appeal.
       const sim409 = await post(onSim.url, '/v1/prepare/appeal', body);
       expect(sim409.body.detail ?? '').not.toMatch(/phase-one/);
     } finally {
