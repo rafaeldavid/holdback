@@ -1,6 +1,8 @@
 // The test seller's deploy (T-313), without its effects: deploy.mjs passes in the shell, the network and the clock,
 // so a test runs every path with stand-ins (apps/test-agents/src/deploy.test.ts). The decisions are pure functions:
-// which version is live, what a health answer means, whether to roll back, and the record line.
+// what a health answer means, whether to roll back, and the record line. The pre-flight, the live version and the
+// rollback are the ones every deploy uses (scripts/deploy-lib.mjs).
+import { checkout, liveVersion, recordLine as line, rollback } from '../../../scripts/deploy-lib.mjs';
 
 export const WORKER = 'crow-test-agents';
 export const SELLER = 'https://crow.direct/agents/test-seller';
@@ -8,22 +10,7 @@ export const SELLER = 'https://crow.direct/agents/test-seller';
 export const CHECK_TIMEOUT_MS = 120_000;
 export const POLL_MS = 5_000;
 const PROBE_TIMEOUT_MS = 10_000;
-const WRANGLER = ['-y', 'wrangler@4'];
-
-/**
- * The version that serves all of a Worker's traffic.
- * @param {string} stdout what `wrangler deployments status --json` printed
- * @returns {string | null} null when wrangler does not say: it is logged out, the Worker does not exist, or two
- *   versions split the traffic.
- */
-export function liveVersion(stdout) {
-  try {
-    const v = JSON.parse(stdout).versions;
-    return v.length === 1 && v[0].percentage === 100 && typeof v[0].version_id === 'string' ? v[0].version_id : null;
-  } catch {
-    return null;
-  }
-}
+const COMMAND = 'node apps/test-agents/scripts/deploy.mjs';
 
 /** Text from the network, made safe for one console line and the Markdown record: plain characters, 200 at most. */
 const plain = (text) => String(text).replace(/[^A-Za-z0-9 .,:;'()/-]+/g, ' ').replace(/ +/g, ' ').trim().slice(0, 200);
@@ -79,45 +66,48 @@ export function shouldRollBack({ uploaded, before, now }) {
  * @param {{ startedAt: Date, commit: string, version: string | null, before: string | null, failure: string | null, rolledBack?: boolean }} run
  */
 export function recordLine({ startedAt, commit, version, before, failure, rolledBack }) {
-  const when = `${startedAt.toISOString().slice(0, 16).replace('T', ' ')} UTC`;
-  const back = rolledBack === true ? ', rolled back' : rolledBack === false ? ', ROLLBACK FAILED' : '';
-  const result = failure ? `FAIL, ${failure}` : 'pass';
-  return `**Test seller deploy ${when}, commit \`${commit.slice(0, 7) || 'unknown'}\`: ${result}.** ${WORKER} \`${version ?? 'not deployed'}\` (rollback target \`${before ?? 'unknown'}\`${back}).`;
+  return line({ title: 'Test seller deploy', startedAt, commit, failure, workers: [{ name: WORKER, version, before, rolledBack }] });
 }
 
 /**
  * Deploys the test seller and checks it:
- *   1. read the live version, the rollback target; refuse when wrangler cannot say;
- *   2. upload with `wrangler deploy`;
- *   3. every 5 s for at most 120 s, read /health until it says operational, then /agent.json until it is JSON;
- *   4. on a refused upload or a failed check, roll back when the live version changed;
- *   5. print the record line.
- * `--dry-run` stays as it was: wrangler bundles without an upload, and steps 1 and 3 to 5 do not run.
+ *   1. pre-flight: refuse a checkout with a tracked change, or one without origin/main's commits;
+ *   2. read the live version, the rollback target; refuse when wrangler cannot say;
+ *   3. upload with `wrangler deploy`;
+ *   4. every 5 s for at most 120 s, read /health until it says operational, then /agent.json until it is JSON;
+ *   5. on a refused upload or a failed check, roll back when the live version changed;
+ *   6. print the record line.
+ * `--dry-run` stays as it was: wrangler bundles without an upload, and steps 1, 2 and 4 to 6 do not run.
  *
  * @param {{
  *   args: string[],
  *   config: string,
- *   sh: (cmd: string, args: string[], o?: { show?: boolean }) => Promise<{ code: number | null, stdout: string, out: string }>,
+ *   sh: (cmd: string, args: string[], o?: { show?: boolean, env?: Record<string, string>, timeoutMs?: number }) => Promise<{ code: number | null, stdout: string, out: string }>,
  *   probe: (url: string, timeoutMs: number) => Promise<{ status: number, body: string }>,
  *   sleep: (ms: number) => Promise<void>,
  *   now: () => number,
  *   log: (line: string) => void,
  *   error: (line: string) => void,
  * }} effects `args` go to `wrangler deploy` as they are; `config` is the wrangler file's path.
- * @returns {Promise<number>} the exit code: 0 on a pass, 1 on a failure, wrangler's own for a dry run.
+ * @returns {Promise<number>} the exit code: 0 on a pass, 1 on a failure, 2 on a pre-flight refusal, wrangler's own for
+ *   a dry run.
  */
 export async function deploy({ args, config, sh, probe, sleep, now, log, error }) {
-  const upload = ['npx', [...WRANGLER, 'deploy', '-c', config, ...args]];
+  const upload = ['npx', ['-y', 'wrangler@4', 'deploy', '-c', config, ...args]];
   if (args.includes('--dry-run')) {
     const r = await sh(...upload);
     return r.code === 0 ? 0 : (r.code ?? 1);
   }
-  const live = async () => liveVersion((await sh('npx', [...WRANGLER, 'deployments', 'status', '--name', WORKER, '--json'], { show: false })).stdout);
+  const { refused, commit } = await checkout(COMMAND, sh);
+  if (refused) {
+    error(refused);
+    return 2;
+  }
+  const live = () => liveVersion(WORKER, sh);
   const fail = (why) => {
     throw new Error(why);
   };
   const startedAt = new Date(now());
-  const commit = (await sh('git', ['rev-parse', 'HEAD'], { show: false })).stdout.trim();
   let before = null, version = null, uploaded = false, failure = null, rolledBack;
 
   try {
@@ -151,8 +141,7 @@ export async function deploy({ args, config, sh, probe, sleep, now, log, error }
     const current = uploaded ? await live() : before;
     if (shouldRollBack({ uploaded, before, now: current })) {
       version ??= current ?? 'unknown';
-      const r = await sh('npx', [...WRANGLER, 'rollback', before, '--name', WORKER, '--message', 'apps/test-agents/scripts/deploy.mjs failed a check', '--yes']);
-      rolledBack = r.code === 0 && (await live()) === before;
+      rolledBack = await rollback(WORKER, before, 'apps/test-agents/scripts/deploy.mjs failed a check', sh);
       if (!rolledBack) error(`ROLLBACK FAILED for ${WORKER}. Run: npx wrangler@4 rollback ${before} --name ${WORKER}`);
     }
   }

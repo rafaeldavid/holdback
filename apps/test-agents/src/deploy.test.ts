@@ -1,8 +1,9 @@
-// T-313: the test seller's deploy checks itself. Its decisions are pure functions (scripts/deploy-checks.mjs), tested
-// with plain facts; the run itself is tested with stand-ins for wrangler, git, the network and the clock, so no test
-// uploads, fetches or waits.
+// T-313: the test seller's deploy checks itself. Its decisions are pure functions (scripts/deploy-checks.mjs, and
+// scripts/deploy-lib.mjs for what every deploy shares), tested with plain facts; the run itself is tested with
+// stand-ins for wrangler, git, the network and the clock, so no test uploads, fetches or waits.
 import { describe, expect, it } from 'vitest';
-import { cardProblem, deploy, healthVerdict, liveVersion, recordLine, shouldRollBack } from '../scripts/deploy-checks.mjs';
+import { versionAt100 as liveVersion } from '../../../scripts/deploy-lib.mjs';
+import { cardProblem, deploy, healthVerdict, recordLine, shouldRollBack } from '../scripts/deploy-checks.mjs';
 
 const BEFORE = '545afdd8-1e1c-40ff-aa35-2eea83d9ec0e';
 const AFTER = '6122d260-d59b-41a0-8699-3bc6cacaa354';
@@ -102,6 +103,8 @@ describe('the record line for docs/operations.md', () => {
 type Answer = { status: number; body: string };
 interface Stage {
   args?: string[];
+  /** What `git status --porcelain --untracked-files=no` prints: the tracked files that differ from the commit. */
+  status?: string;
   /** What `wrangler deployments status` answers, call by call; the last answer repeats. null: wrangler cannot say. */
   live?: (string | null)[];
   upload?: { code: number | null; out: string };
@@ -126,6 +129,7 @@ async function run(stage: Stage) {
     sh: async (cmd: string, args: string[]) => {
       const line = [cmd, ...args].join(' ');
       commands.push(line);
+      if (cmd === 'git' && args[0] === 'status') return { code: 0, stdout: stage.status ?? '', out: stage.status ?? '' };
       if (cmd === 'git') return { code: 0, stdout: '016c28e0123456789abcdef0123456789abcdef0\n', out: '' };
       if (/ deployments status /.test(line)) {
         const v = next(live);
@@ -167,6 +171,15 @@ describe("the test seller's deploy", () => {
     ]);
     expect(r.record).toBe(`**Test seller deploy 2026-11-11 09:05 UTC, commit \`016c28e\`: pass.** crow-test-agents \`${AFTER}\` (rollback target \`${BEFORE}\`).`);
     expect(r.err).toBe('');
+  });
+
+  it('refuses a checkout with a tracked change in the pre-flight, with exit code 2 and no wrangler command', async () => {
+    const r = await run({ status: ' M apps/test-agents/src/seller.ts\n' });
+    expect(r.code).toBe(2);
+    expect(r.wrangler).toEqual([]);
+    expect(r.probes).toEqual([]);
+    expect(r.err).toMatch(/^Refused: 1 tracked file differs from the checked-out commit \(apps\/test-agents\/src\/seller\.ts\).* then run node apps\/test-agents\/scripts\/deploy\.mjs again\.$/);
+    expect(r.out).toBe('');
   });
 
   it('refuses before the upload when wrangler cannot say which version is live', async () => {
