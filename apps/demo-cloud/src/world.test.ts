@@ -787,6 +787,54 @@ describe('adjudicator passes (T-057)', () => {
   });
 });
 
+// T-313: a rejected storage write leaves memory ahead of storage. The world stays failed and says so (`broken`); a
+// world opened from the same storage starts from what was written, as after a restart.
+describe('a failed storage write (T-313)', () => {
+  it('fails the call that hit it and every call after, reports it once, and a world reopened from the same storage keeps what clients were told', async () => {
+    const storage = new MemoryStorage();
+    const errors: string[] = [];
+    const first = await serve({ onError: (e) => void errors.push(e.message) }, storage, undefined, { passes: false });
+    const d = await discovery(first.urls);
+    const [seller, buyer] = [freshAgent(first.urls), freshAgent(first.urls)];
+    for (const a of [seller, buyer]) await a.call('POST', '/v1/faucet', { address: a.address });
+    const offer = await seller.offer(offerRequest(d, seller, buyer));
+    const balance = async (a: Agent, urls = first.urls) => (await freshAgent(urls).call('GET', `/v1/balances/${a.address}`)).amount as string;
+    const told = [await balance(seller), await balance(buyer)];
+    expect(first.world.broken).toBe(false);
+
+    // The pass accepts the offer in memory; storage rejects its journal write, once.
+    const put = storage.put.bind(storage);
+    let failures = 1;
+    storage.put = async (entries) => {
+      if (failures > 0 && Object.keys(entries).some((k) => k.startsWith('j:'))) {
+        failures--;
+        throw new Error('storage put failed (test)');
+      }
+      return put(entries);
+    };
+    await expect(first.world.work()).rejects.toThrow('storage put failed (test)');
+    expect(first.world.broken).toBe(true);
+    // Storage works again, and the world still fails: it does not write on from a state storage never held.
+    await expect(first.world.fetch(new Request('http://127.0.0.1/v1/status'), { node: 0, origin: 'http://127.0.0.1', client: 'test' })).rejects.toThrow('storage put failed (test)');
+    expect(first.world.broken).toBe(true);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatch(/storage write failed.*storage put failed \(test\)/);
+    await first.close();
+    running.splice(running.indexOf(first), 1);
+
+    // A world opened from the same storage: the offer and the grants the clients were answered for are there, and the
+    // acceptance no one was told about is not. The next pass accepts again, and this time it is written.
+    const second = await serve({}, storage, undefined, { passes: false });
+    expect(second.world.broken).toBe(false);
+    expect((await second.world.chain.state(offer.id))?.escrowState).toBe('Offered');
+    expect([await balance(seller, second.urls), await balance(buyer, second.urls)]).toEqual(told);
+    await second.world.work();
+    expect((await second.world.chain.state(offer.id))?.escrowState).toBe('AcceptedByAdjudicator');
+    const third = await PublicWorld.open({ storage, env: {}, minWindowSec: 2 });
+    expect((await third.chain.state(offer.id))?.escrowState).toBe('AcceptedByAdjudicator');
+  });
+});
+
 describe('telemetry (T-031)', () => {
   it('never receives a body, a header value, an IP or an address, and summarizes the day from settlement events', async () => {
     const lines: J[] = [];

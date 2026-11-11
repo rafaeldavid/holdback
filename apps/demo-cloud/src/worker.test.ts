@@ -31,6 +31,7 @@ function deploy() {
   vi.stubGlobal('fetch', (input: string, init?: RequestInit) => worker.fetch(new Request(input, init), envs[input.startsWith(URLS[1]!) ? 1 : 0]!));
   return {
     alarm,
+    storage,
     restart,
     /** Fires each alarm due by `until`, as the runtime does: cleared, then the handler, with the clock at its time. */
     async fire(until: number) {
@@ -159,6 +160,55 @@ describe('the adjudicator alarm (T-057)', () => {
     const sets = dep.alarm.sets;
     expect(await state()).toBe('AcceptedByAdjudicator');
     expect([dep.alarm.sets, dep.alarm.at]).toEqual([sets, null]);
+  });
+});
+
+// T-313: a world whose storage write was rejected stays failed (world.ts, `broken`). The Durable Object drops it, so
+// the next request or alarm opens a fresh world from storage, as a restart does.
+describe('a failed storage write (T-313)', () => {
+  it('fails the request or the alarm that hit it; the next one runs on a fresh world with no restart, and the journal has no gap', async () => {
+    const dep = deploy();
+    const { state } = await offered();
+    const put = dep.storage.put.bind(dep.storage);
+    let failures = 0;
+    dep.storage.put = async (entries) => {
+      if (failures > 0 && Object.keys(entries).some((k) => k.startsWith('j:'))) {
+        failures--;
+        throw new Error('storage put failed (test)');
+      }
+      return put(entries);
+    };
+
+    // A request whose journal write is rejected fails with the storage error, as before.
+    const [unlucky, third] = [agent(), agent()];
+    const grant = (a: Agent) => fetch(`${URLS[0]}/v1/faucet`, { method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': `grant-${a.address}` }, body: JSON.stringify({ address: a.address }) });
+    failures = 1;
+    await expect(grant(unlucky)).rejects.toThrow('storage put failed (test)');
+    // The next request, with no restart: a fresh world serves it and writes it. The pending offer is still there, and
+    // the grant no one was answered for is not.
+    expect((await grant(third)).status).toBe(200);
+    expect(await state()).toBe('Offered');
+    const granted = (await third.call('GET', `/v1/balances/${third.address}`)).amount as string;
+    expect(BigInt(granted)).toBeGreaterThan(0n);
+    expect((await third.call('GET', `/v1/balances/${unlucky.address}`)).amount).toBe('0');
+
+    // An alarm whose pass hits a rejected write throws, as before. The runtime keeps a thrown alarm set and retries it:
+    // the retry opens a fresh world, and its pass accepts the offer.
+    const at = dep.alarm.at!;
+    expect(at).not.toBeNull();
+    failures = 1;
+    await expect(dep.fire(at)).rejects.toThrow('storage put failed (test)');
+    dep.alarm.at = at;
+    await dep.fire(at);
+    expect(await state()).toBe('AcceptedByAdjudicator');
+
+    // The stored journal has every entry in order, and a restart replays it to the same state.
+    const keys = [...(await dep.storage.list({ prefix: 'j:' })).keys()];
+    expect(keys.length).toBeGreaterThan(0);
+    expect(keys).toEqual(keys.map((_, i) => `j:${String(i).padStart(12, '0')}`));
+    dep.restart();
+    expect(await state()).toBe('AcceptedByAdjudicator');
+    expect((await third.call('GET', `/v1/balances/${third.address}`)).amount).toBe(granted);
   });
 });
 
