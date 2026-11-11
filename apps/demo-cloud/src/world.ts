@@ -915,9 +915,10 @@ export class PublicWorld {
       await chain.verify();
       l.verified = true;
     }
+    // Once a minute (and first): the deal lanes' gas. A top-up that fails is tried again on the next pass.
     if (this.now() - l.toppedUp > 60_000) {
-      l.toppedUp = this.now();
       await chain.topUpLanes(LANE_FLOOR, LANE_TOP_UP);
+      l.toppedUp = this.now();
     }
   }
 
@@ -966,9 +967,9 @@ export class PublicWorld {
     return this.live?.lastRecovery ?? null;
   }
 
-  /** True once a chain world's setup is done (the chain verified); a SimChain world always is. */
+  /** True once a chain world's setup is done (the chain verified, the deal lanes' gas in place); a SimChain world always is. */
   ready(): boolean {
-    return !this.live || this.live.verified;
+    return !this.live || (this.live.verified && this.live.toppedUp > 0);
   }
 
   /** One adjudicator pass (the Durable Object alarm): accept or decline offers, trigger fallbacks, decide; on a chain, then send due timeouts. */
