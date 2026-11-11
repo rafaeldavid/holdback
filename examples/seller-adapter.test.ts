@@ -428,9 +428,9 @@ describe('seller adapter as a service: a rate limit on the quote route', () => {
 });
 
 describe('seller adapter as a service: HTTPS behind a TLS proxy', () => {
-  const openssl = spawnSync('openssl', ['version']).status === 0;
-  it.skipIf(!openssl)('answers a quote over HTTPS through a TLS proxy, rate-limited by the client the proxy forwards', async () => {
-    // A self-signed certificate for 127.0.0.1, made for this run only. The recipe's proxy is Caddy; this one plays it.
+  it('answers a quote over HTTPS through a TLS proxy, rate-limited by the client the proxy forwards', async () => {
+    // A self-signed certificate for 127.0.0.1, made for this run only, with `openssl` (on the CI runners; the test
+    // fails without it rather than skip). The recipe's proxy is Caddy; this one plays it.
     const dir = mkdtempSync(join(tmpdir(), 't324-tls-'));
     const made = spawnSync('openssl', ['req', '-x509', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:prime256v1', '-nodes', '-days', '1', '-subj', '/CN=127.0.0.1', '-addext', 'subjectAltName=IP:127.0.0.1', '-keyout', join(dir, 'tls.pem'), '-out', join(dir, 'cert.pem')]);
     expect(made.status, String(made.stderr)).toBe(0);
