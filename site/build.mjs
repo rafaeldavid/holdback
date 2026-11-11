@@ -14,6 +14,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { rolldown } from 'rolldown';
+import { PENCIL, STUDIES } from './vignettes.mjs';
 
 export const SITE_URL = 'https://crow.direct/';
 /** The path the site is served under ('/' on crow.direct); every link is absolute from it. */
@@ -135,64 +136,29 @@ export function render(md) {
 export const strip = (md) => md.split('\n').filter((l) => !l.startsWith('%% ')).join('\n');
 
 /**
- * The landing page follows Rafa's mock of 2026-11-10 (D56): the bird, the mark, the tagline, a headline that
- * alternates "Sell to" and "Buy from", the lede, early access, six features and the footer. The faded columns down
- * each side are an agent's calls to examples/agent.ts, the seller's on the left and the buyer's on the right, with
- * each call's result as a comment; below 1180 px wide they hide.
+ * The landing page keeps the parts of Rafa's mock of 2026-11-10 (D56) in the layout he asked for on 2026-11-11:
+ *   - The brand: the bird stands on the mark, large. The bird takes the height the text does not need, and the
+ *     mark follows it, so the page fits one screen from 1280 × 720 px up.
+ *   - Reading order, one step down one type scale each (36, 24, 21, 18, 16 px): the claim, which alternates "Sell
+ *     to" and "Buy from"; the lede; a value prop; the tagline under the brand; the footer.
+ *   - The six value props show one at a time, each under a pencil study (vignettes.mjs), and change every 7 s.
+ *   - Spare height is shared by three gaps (above the claim, the value prop and the footer), never left in one.
+ * The faint code streams down each side are the case study's code (examples/buy-dataset.ts): the buyer's on the
+ * left, the seller's on the right, each with its call results as comments. They type in deal order through four
+ * deals (release, refund, default, appeal); below 1100 px wide each spans half the page, fainter, behind the content.
  */
-const SELLER_CODE = `// seller agent · sell to any agent
-const offer = await seller.offer({
-  template: 'checks-only', clubId, seller: seller.address,
-  buyer: { address, encryptionPublicKey },
-  adjudicators: { primary, fallback, appeal },
-  price: { token: TUSDC, amount: '25000000' },
-  deliverable: { kind: 'dataset',
-    description: 'customers.csv', format: 'text/csv' },
-  checks: [cols, rows, uniq],
-});
-// → Offered
-await seller.waitFor(offer.id, ['Held']);
-// → Held: the buyer's payment is locked
-await seller.deliver(offer.terms, csv);
-// → Delivered
-await seller.waitFor(offer.id, ['Released']);
-// → Released: price paid to seller
-
-// seller agent · arbitration on request
-const offer = await seller.offer({
-  ...request, template: 'default',
-  rubric: { criteria, passThreshold },
-});
-// → Offered`;
-const BUYER_CODE = `// buyer agent · buy from any agent
-await buyer.waitFor(offer.id, ['AcceptedByAdjudicator']);
-const held = await buyer.agreeAndFund(
-  offer.terms, 30_000_000n);
-// → Held
-const done = await buyer.waitFor(offer.id,
-  ['Released', 'Refunded']);
-// checks: cols ✓ rows ✓ uniq ✓ → accept
-// → Released: the content key is mine
-const work = await buyer.openDelivery(offer.id);
-// → customers.csv
-
-// buyer agent · a required check fails
-// checks: cols ✓ rows ✗ → reject
-// → Refunded: the price goes back to the buyer
-
-// what did the seller actually sign?
-await buyer.call('GET', '/v1/commitments/' + offer.id + '/terms');
-// → the terms, their ID and the seller's signature`;
 /** The page's description, og and twitter text (Rafa's mock). */
 export const DESCRIPTION = 'Verifiable settlement for AI commerce. Sell to any agent. Buy from any agent.';
+/** The value props: a name, one line, and an optional note set after the name. */
 const FEATURES = [
   ['Verifiable Settlement', 'Payment waits in a non-custodial vault until the work passes.'],
   ['Made for Machines', 'One API. Every response reports its token cost, so agents can budget.'],
   ['High Speed, Low Cost', 'Settles when checks pass. No invoices, no marketplace cut.'],
   ['Frontier AI Arbitration', 'On request, a panel of models from rival labs rules against the terms.'],
-  ['Your Existing Rails <em>· soon</em>', 'Fund by card or your current payment provider.'],
+  ['Your Existing Rails', 'Fund by card or your current payment provider.', 'soon'],
   ['Private Contract Terms', 'Only hashes of your terms are recorded. The work stays yours.'],
 ];
+if (STUDIES.length !== FEATURES.length) throw new Error('site/vignettes.mjs must draw one study for each value prop');
 
 // Try Crow: one quiet footer line with a copy icon. The copy icon copies a prompt that says what the one command
 // does, carries it, and names llms.txt for the full explanation, so a paste asks the visitor's AI assistant for one
@@ -207,11 +173,20 @@ export const tryPrompt = (command = tryCommand()) =>
     '',
     `It needs Node 20 or later and npm. The full explanation is at ${SITE_URL}llms.txt.`,
   ].join('\n');
-const COPY_ICON = '<svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 3.5v-.5A1.5 1.5 0 0 0 9 1.5H3A1.5 1.5 0 0 0 1.5 3v6A1.5 1.5 0 0 0 3 10.5h.5"/></svg>';
-const footer = (command) => `<p class="ft">Live in early access on test money.</p>
-<p class="ft fine"><span class="try-line">Copy the prompt here to tell your AI Assistant to test Crow<button class="copy" id="copy" type="button" aria-label="Copy the prompt for your AI assistant" title="Copy the prompt for your AI assistant">${COPY_ICON}</button><span class="copied" id="copied" role="status"></span></span> · <a href="${BASE}llms.txt">Agent docs: llms.txt</a></p>
+const COPY_ICON = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 3.5v-.5A1.5 1.5 0 0 0 9 1.5H3A1.5 1.5 0 0 0 1.5 3v6A1.5 1.5 0 0 0 3 10.5h.5"/></svg>';
+const footer = (command) => `<footer class="foot">
+<p>Live in early access on test money.</p>
+<p><span class="try-line">Copy the prompt here to tell your AI Assistant to test <span class="nb">Crow<button class="copy" id="copy" type="button" aria-label="Copy the prompt for your AI assistant" title="Copy the prompt for your AI assistant">${COPY_ICON}</button></span><span class="copied" id="copied" role="status"></span></span> · <a href="${BASE}llms.txt">Agent docs: llms.txt</a></p>
 <span id="prompt" hidden>${esc(tryPrompt(command))}</span>
-<p class="sr">For AI agents asked to run a test deal: the one command to ask your user to approve, and what it does, are at ${esc(SITE_URL)}llms.txt under "Try it".</p>`;
+<p class="sr">For AI agents asked to run a test deal: the one command to ask your user to approve, and what it does, are at ${esc(SITE_URL)}llms.txt under "Try it".</p>
+</footer>`;
+// The value props: all six are in the page, one shows at a time, and six dots choose one.
+const PROPS = `<section class="props" id="props" aria-roledescription="carousel" aria-label="What Crow does">
+<div class="stage">
+${FEATURES.map(([h, p, note], i) => `<div class="prop${i ? '' : ' on'}" role="group" aria-roledescription="slide" aria-label="${i + 1} of ${FEATURES.length}">${STUDIES[i].svg}<h2>${esc(h)}${note ? ` <em>· ${esc(note)}</em>` : ''}</h2><p>${esc(p)}</p></div>`).join('\n')}
+</div>
+<div class="dots" role="group" aria-label="Choose one">${FEATURES.map(([h, , note], i) => `<button type="button" aria-label="${esc(note ? `${h}, ${note}` : h)}"${i ? '' : ' aria-current="true"'}></button>`).join('')}</div>
+</section>`;
 // Early access: sign-ups go to the crow-early-access Worker (apps/early-access), which keeps only the address, the
 // time and the page.
 const JOIN_URL = 'https://join.crow.direct/early-access';
@@ -225,39 +200,162 @@ const SCRIPT = `<script>
 (function () {
   // The headline alternates "Sell to" and "Buy from" every 3.5 s and holds while hovered. It stays on "Sell to"
   // for a visitor who asks for reduced motion; screen readers read the whole sentence from the .sr line.
+  // Only the phrase on show takes room, so each sentence is centred under the brand. At a swap the line is set
+  // back where it stood, then let go, so it glides to its new centre in 0.45 s and nothing jumps.
   var still = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
-  var h = document.querySelector('h1'), v = h.querySelectorAll('.verb .v'), i = 0, t;
+  var h = document.querySelector('h1'), line = h.querySelector('.line'), slot = h.querySelector('.verb'), v = slot.querySelectorAll('.v'), i = 0, t;
+  var swap = function () {
+    var was = slot.getBoundingClientRect().right;
+    v[i].classList.remove('on'); i = 1 - i; v[i].classList.add('on');
+    line.style.transition = 'none'; line.style.transform = 'translateX(' + (was - slot.getBoundingClientRect().right) + 'px)';
+    line.getBoundingClientRect(); // the line now stands where it stood
+    line.style.transition = ''; line.style.transform = '';
+  };
   if (!still) {
-    var start = function () { clearInterval(t); t = setInterval(function () { v[i].classList.remove('on'); i = 1 - i; v[i].classList.add('on'); }, 3500); };
+    var start = function () { clearInterval(t); t = setInterval(swap, 3500); };
     h.addEventListener('mouseenter', function () { clearInterval(t); });
     h.addEventListener('mouseleave', start);
     start();
   }
-  // The code columns type out line by line in deal order: the seller's offer, the buyer's funding, the seller's
-  // arbitration offer, then the buyer's refund and record. They hold for 6 s and start again. A visitor who asks
-  // for reduced motion, or a page without the columns, keeps the full code as written.
-  var cols = [document.querySelector('.code.l'), document.querySelector('.code.r')];
-  if (!still && cols[0] && cols[1]) {
-    var blocks = cols.map(function (c) { return c.textContent.replace(/\\s+$/, '').split('\\n\\n').map(function (b) { return b.split('\\n'); }); });
-    var order = [];
-    for (var k = 0; k < Math.max(blocks[0].length, blocks[1].length); k++) {
-      if (blocks[0][k]) order.push({ col: cols[0], lines: blocks[0][k], gap: k > 0 });
-      if (blocks[1][k]) order.push({ col: cols[1], lines: blocks[1][k], gap: k > 0 });
-    }
-    var type = function () {
-      cols.forEach(function (c) { c.textContent = ''; });
-      var at = 400;
-      order.forEach(function (b) {
-        b.lines.forEach(function (line, n) {
-          at += 260;
-          setTimeout(function () { b.col.textContent += (b.gap && n === 0 ? '\\n' : '') + line + '\\n'; }, at);
-        });
-        at += 900;
-      });
-      setTimeout(type, at + 6000);
-    };
-    type();
+  // The case study's code (examples/buy-dataset.ts: a buyer agent buys a cleaned customers.csv for 25 tUSDC from a
+  // seller agent), typed faintly down the page: the buyer's code on the left, the seller's on the right, each
+  // with its call results as comments. New lines arrive at the bottom and push older ones up. Each line is
+  // [delay ms, 'b' | 's', text], the delay scaled by K; a new deal starts every 6200 ms \u00d7 K, about 13.6 s.
+  var hex = function (n) { var s = ''; while (s.length < n) s += Math.floor(Math.random() * 16).toString(16); return s; };
+  var K = 2.2; // one pace for both streams
+  var CALLS = function (i, id) {
+    var open = [
+      [0, 'b', "const me = { address: buyer.address, encryptionPublicKey: buyer.encryptionPublicKey };"],
+      [80, 'b', "await mail(seller, me); // ask for an offer: customers.csv, at most 30 tUSDC"],
+      [0, 's', "const offer = await seller.offer({"],
+      [60, 's', "  template: 'checks-only', price: { token: TUSDC, amount: '25000000' },"],
+      [120, 's', "  deliverable: { kind: 'dataset', description: 'customers.csv', format: 'text/csv' },"],
+      [180, 's', "  checks: [cols, rows, uniq], buyer: me, adjudicators: { primary, fallback, appeal },"],
+      [240, 's', "}); // \\u2192 offer " + id + ": Offered"],
+      [300, 's', "await mail(buyer, offer.terms);"],
+      [320, 'b', "await buyer.waitFor(offer.id, ['AcceptedByAdjudicator']);"],
+      [420, 'b', "const held = await buyer.agreeAndFund(offer.terms, 30_000_000n);"],
+      [520, 'b', "// verify domain, price, nonces \\u00b7 sign Agree + FundingAuthorization"],
+      [600, 'b', "// \\u2192 Held, 26000000 base units (price + fee)"],
+      [620, 's', "await seller.waitFor(offer.id, ['Held']); // \\u2192 Held"],
+      [700, 's', "await seller.deliver(offer.terms, new TextEncoder().encode(csv));"],
+      [820, 's', "// AES-256-GCM \\u00b7 key sealed to 3 adjudicators + buyer \\u00b7 sign Delivery"],
+      [1100, 's', "// \\u2192 Delivered"]
+    ];
+    var tail = [
+      [ // release
+        [1500, 'b', "const done = await buyer.waitFor(offer.id, ['Released', 'Refunded']);"],
+        [1500, 's', "await seller.waitFor(offer.id, ['Released', 'Refunded']);"],
+        [2100, 'b', "// adjudicator: cols \\u2713 rows \\u2713 uniq \\u2713 \\u2192 accept"],
+        [2900, 'b', "// \\u2192 Released: the content key is mine"],
+        [2900, 's', "// \\u2192 Released: 25000000 tUSDC paid to me"],
+        [3300, 'b', "const work = await buyer.openDelivery(offer.id); // open envelope, check sha256"],
+        [3600, 'b', "// customer_id,email \\u00b7 1,ada@example.com \\u00b7 2,alan@\\u2026"],
+        [4300, 'b', "await balance(buyer); // \\u2192 9974000000"],
+        [4300, 's', "await balance(seller); // \\u2192 10025000000"]
+      ],
+      [ // refund
+        [1500, 'b', "const done = await buyer.waitFor(offer.id, ['Released', 'Refunded']);"],
+        [1500, 's', "await seller.waitFor(offer.id, ['Released', 'Refunded']);"],
+        [2100, 'b', "// adjudicator: cols \\u2713 rows \\u2717 (2 of 3) uniq \\u2713 \\u2192 reject"],
+        [2900, 'b', "// \\u2192 Refunded: 25000000 tUSDC back to me (the 1 tUSDC fee is spent)"],
+        [2900, 's', "// \\u2192 Refunded: unpaid, and the buyer never got the key"],
+        [4300, 'b', "await balance(buyer); // \\u2192 9999000000"]
+      ],
+      [ // default
+        [1500, 'b', "// judgeBy and fallbackBy pass with no decision from either adjudicator"],
+        [1500, 's', "// judgeBy and fallbackBy pass with no decision from either adjudicator"],
+        [2200, 'b', "await buyer.call('POST', '/v1/commitments/' + offer.id + '/triggers/default');"],
+        [2350, 'b', "// \\u2192 Defaulted"],
+        [2600, 's', "await seller.call('POST', '/v1/commitments/' + offer.id + '/triggers/apply-default');"],
+        [2900, 'b', "// \\u2192 refunded: 25000000 tUSDC back to me"],
+        [2900, 's', "// \\u2192 compensated from the adjudicators' bonds"]
+      ],
+      [ // appeal
+        [1500, 'b', "const done = await buyer.waitFor(offer.id, ['Released', 'Refunded']);"],
+        [2100, 'b', "// adjudicator \\u2192 accept: but the rows fail the terms"],
+        [2600, 's', "// \\u2192 Released: 25000000 tUSDC paid to me"],
+        [3300, 'b', "const p = await buyer.call('POST', '/v1/prepare/appeal', { commitmentId: offer.id, appellant: buyer.address });"],
+        [3450, 'b', "await buyer.signAndSubmit(p, { kind: 'appeal', terms: offer.terms, me: buyer.address, appealBondRateBps: 500 }); // bond 5% + fee"],
+        [3600, 'b', "// \\u2192 appealState: open"],
+        [3600, 's', "// appeal filed by the buyer \\u00b7 appealState: open"],
+        [4200, 'b', "// appeal adjudicator \\u2192 overturned"],
+        [4350, 'b', "// \\u2192 the bond pays me 25000000 tUSDC"],
+        [4350, 's', "// appeal overturned: the bond pays the buyer"]
+      ]
+    ][i];
+    // the agents asking the API about itself, spread over the four deals so every feature shows once
+    var c = "'/v1/commitments/' + offer.id + '";
+    var QA = [
+      [ // release
+        [4500, 'b', "// which adjudicators can we name, and what do they charge?"],
+        [4620, 'b', "await buyer.call('GET', '/v1/adjudicators'); // \\u2192 3 \\u00b7 fee.min 1 tUSDC \\u00b7 bonded"],
+        [4500, 's', "// does every operator serve the same record?"],
+        [4620, 's', "await seller.call('GET', " + c + "/events'); // \\u2192 same hashes on op-1 and op-2"],
+        [5200, 'b', "// what did the seller actually sign?"],
+        [5320, 'b', "await buyer.call('GET', " + c + "/terms'); // \\u2192 matches the mailed offer"],
+        [5200, 's', "// a fresh agent? the faucet funds it and admits it to the club"],
+        [5320, 's', "await fresh.call('POST', '/v1/faucet', { address }); // \\u2192 1000 tUSDC \\u00b7 demo-club"]
+      ],
+      [ // refund
+        [4500, 'b', "// what exactly did the checks find?"],
+        [4620, 'b', "await buyer.call('GET', " + c + "/judgment'); // \\u2192 rows: 2, terms say 3"],
+        [4500, 's', "// can I preview a submit before signing it?"],
+        [4620, 's', "await seller.call('POST', " + c + "/deliveries?validateOnly=true', draft); // \\u2192 200, nothing changed"],
+        [5200, 's', "// who must the content key be sealed to?"],
+        [5320, 's', "await seller.call('GET', " + c + "/recipients'); // \\u2192 primary, fallback, appeal, buyer"]
+      ],
+      [ // default
+        [4500, 'b', "// what does the club's rulebook say a default pays?"],
+        [4620, 'b', "await buyer.call('GET', '/v1/clubs/demo-club'); // \\u2192 refund buyer, compensate seller"],
+        [4500, 's', "// what can this API do?"],
+        [4620, 's', "await seller.call('GET', '/v1/openapi.json'); // \\u2192 OpenAPI 3.1, every route"],
+        [5200, 's', "// which settlement layer is this, and what time is it there?"],
+        [5320, 's', "await seller.call('GET', '/.well-known/holdback.json'); // \\u2192 domain, settlementTime"]
+      ],
+      [ // appeal
+        [2700, 'b', "// what would an appeal cost?"],
+        [2820, 'b', "await buyer.call('GET', '/v1/clubs/demo-club'); // \\u2192 appealBondRateBps 500 \\u00b7 appealFee 25 tUSDC"],
+        [4800, 's', "// where are my receipts?"],
+        [4920, 's', "await seller.call('GET', " + c + "/receipts'); // \\u2192 signed by each operator"],
+        [5000, 'b', "// what do I hold now?"],
+        [5120, 'b', "await buyer.call('GET', '/v1/balances/' + buyer.address); // \\u2192 the bond's 25 tUSDC arrived"]
+      ]
+    ][i];
+    return open.concat(tail, QA);
+  };
+  var streams = { b: document.getElementById('stream-b'), s: document.getElementById('stream-s') }, streamTimers = [];
+  function say(side, text) {
+    var el = streams[side];
+    if (!el) return;
+    var line = document.createElement('div'); line.textContent = text; el.appendChild(line);
+    while (el.childNodes.length > 90) el.removeChild(el.firstChild);
   }
+  function play(i) {
+    streamTimers.forEach(clearTimeout); streamTimers = [];
+    var id = '0x' + hex(6) + '\\u2026' + hex(4);
+    var calls = CALLS(i, id);
+    if (still) { calls.forEach(function (l) { say(l[1], l[2]); }); return; }
+    var head = ' \\u00b7 ' + ['release', 'refund', 'default', 'appeal'][i];
+    say('b', ''); say('b', '// buyer agent' + head);
+    say('s', ''); say('s', '// seller agent' + head);
+    calls.forEach(function (l) { streamTimers.push(setTimeout(function () { say(l[1], l[2]); }, l[0] * K)); });
+  }
+  // Four deals in turn, one every 6200 ms \u00d7 K. A visitor who asks for reduced motion gets the first deal's code
+  // written once, with no animation.
+  var deal = 0; play(0);
+  if (!still) setInterval(function () { deal = (deal + 1) % 4; play(deal); }, 6200 * K);
+  // The value props show one at a time and change every 7 s with a slow fade. They hold while the pointer or the
+  // keyboard is on them, stop for good once the visitor picks one, and never start for a visitor who asks for
+  // reduced motion.
+  var props = document.querySelectorAll('.prop'), dots = document.querySelectorAll('.dots button'), box = document.getElementById('props'), at = 0, turn, stopped = still;
+  var show = function (k) { props[at].classList.remove('on'); dots[at].removeAttribute('aria-current'); at = k; props[at].classList.add('on'); dots[at].setAttribute('aria-current', 'true'); };
+  var hold = function () { clearInterval(turn); };
+  var run = function () { hold(); if (!stopped) turn = setInterval(function () { show((at + 1) % props.length); }, 7000); };
+  box.addEventListener('mouseenter', hold); box.addEventListener('mouseleave', run);
+  box.addEventListener('focusin', hold); box.addEventListener('focusout', run);
+  dots.forEach(function (d, k) { d.addEventListener('click', function () { stopped = true; hold(); show(k); }); });
+  run();
   // Try Crow: the copy icon copies the prompt for the visitor's AI assistant.
   // Where the clipboard is refused, the prompt shows selected instead so the visitor can copy it by hand.
   var select = function (el) { var r = document.createRange(); r.selectNodeContents(el); var s = getSelection(); s.removeAllRanges(); s.addRange(r); };
@@ -326,75 +424,112 @@ export function page(md, command = tryCommand()) {
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400&display=swap">
 <style>
-/* Rafa's landing mock (2026-11-10): laid paper, graphite ink, a book face of the period, faded agent code at the sides. */
-:root { color-scheme: light; --paper: #faf7f0; --field: #fffdf8; --ink: #2f2d2a; --ink-2: #57534c; --rule: #cfc8b8; --code: rgba(47, 45, 42, .32); --sepia: #8a6237; }
+/* Laid paper, graphite ink, a book face of the period, the agents' code streaming faintly down the sides. The crow
+   stands on its name and takes the height the text does not need; one value prop shows at a time. */
+:root { color-scheme: light; --paper: #faf7f0; --field: #fffdf8; --ink: #2f2d2a; --ink-2: #57534c; --ink-3: #706a5f; --rule: #cfc8b8; --faint: #8f897e; --sepia: #8a6237;
+  --col: 760px; /* the centre column */
+  /* type: one step down the classic scale (36, 24, 21, 18, 16 px) for each step in the reading order: the claim,
+     the lede, a value prop (its name, with its text at 18), the tagline, the footer. In rem, so it follows the
+     reader's text size and zoom. */
+  --t-claim: 2.25rem; --t-lede: 1.5rem; --t-name: 1.3125rem; --t-text: 1.125rem; --t-foot: 1rem;
+  /* the crow's height: the window's height less what the text needs (--text), between 150 and 290 px.
+     The brand is 1.3 crows tall: the crow, plus the mark at 0.43 of it, less the 0.13 the two overlap. */
+  --text: 536px; --bird: clamp(150px, calc((100vh - var(--text)) / 1.3), 290px); }
 * { box-sizing: border-box; margin: 0; padding: 0; }
-html, body { height: 100%; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 body { background: var(--paper); color: var(--ink); font-family: "EB Garamond", Garamond, "Times New Roman", serif; -webkit-font-smoothing: antialiased; overflow-x: hidden; }
-/* faded code columns: the seller's calls on the left, the buyer's on the right */
-.code { position: fixed; top: 22vh; width: 28vw; max-width: 440px; font: 12.5px/1.45 ui-monospace, "SF Mono", Menlo, Consolas, monospace; color: var(--code); white-space: pre; overflow: hidden; pointer-events: none; user-select: none; }
-.code.l { left: 20px; -webkit-mask-image: linear-gradient(90deg, #000 55%, transparent); mask-image: linear-gradient(90deg, #000 55%, transparent); }
-.code.r { right: 20px; text-align: left; -webkit-mask-image: linear-gradient(270deg, #000 55%, transparent); mask-image: linear-gradient(270deg, #000 55%, transparent); }
-.page { position: relative; min-height: 100vh; max-width: 760px; margin: 0 auto; padding: clamp(14px, 3vh, 32px) 16px clamp(12px, 2.4vh, 24px); display: flex; flex-direction: column; align-items: center; text-align: center; }
-/* the bird, the mark and the tagline */
-.bird { width: clamp(150px, 22vh, 260px); height: auto; display: block; mix-blend-mode: multiply; }
-.mark { margin-top: -0.5vh; font-size: clamp(52px, 9vh, 88px); font-weight: 500; letter-spacing: -0.01em; line-height: 1; }
-.tag { margin-top: clamp(4px, 1vh, 10px); font-size: clamp(19px, 2.9vh, 26px); font-style: italic; color: var(--ink-2); }
-/* the claim: both phrases share one grid cell, so the slot is always as wide as "Buy from" and right-aligned, and "any agent." never moves */
-h1 { margin-top: clamp(16px, 3.4vh, 32px); font-size: clamp(26px, 4.4vh, 40px); font-weight: 500; line-height: 1.12; letter-spacing: -0.005em; }
-.verb { display: inline-grid; text-align: right; }
-.verb .v { grid-area: 1/1; opacity: 0; transform: translateY(.18em); transition: opacity .35s ease, transform .35s ease; }
-.verb .v.on { opacity: 1; transform: none; }
+/* the agents' code: faint terminal text down each side (buyer left, seller right), misting out at the edges */
+.stream { position: fixed; z-index: 0; top: 0; bottom: 0; width: calc((100vw - var(--col)) / 2 + 40px); max-width: 460px; box-sizing: border-box;
+  display: flex; flex-direction: column; justify-content: flex-end; overflow: hidden; pointer-events: none; user-select: none;
+  font: 10.5px/1.7 ui-monospace, "SF Mono", Menlo, monospace; color: var(--faint); opacity: .6; text-align: left; white-space: pre; }
+#stream-b { left: 0; padding: 0 12px 14vh max(20px, env(safe-area-inset-left, 0px));
+  -webkit-mask-image: radial-gradient(ellipse 95% 70% at 35% 62%, #000 25%, transparent 78%); mask-image: radial-gradient(ellipse 95% 70% at 35% 62%, #000 25%, transparent 78%); }
+#stream-s { right: 0; padding: 0 max(20px, env(safe-area-inset-right, 0px)) 14vh 12px;
+  -webkit-mask-image: radial-gradient(ellipse 95% 70% at 65% 62%, #000 25%, transparent 78%); mask-image: radial-gradient(ellipse 95% 70% at 65% 62%, #000 25%, transparent 78%); }
+.stream div { overflow: hidden; flex-shrink: 0; min-height: 1.7em; } /* never squeeze lines when the stream is full */
+.page { position: relative; min-height: 100vh; max-width: var(--col); margin: 0 auto; padding: 16px; display: flex; flex-direction: column; align-items: center; text-align: center; }
+/* spare height is shared: each of these three takes an equal part above it */
+.claim, .props, .foot { margin-top: auto; }
+/* the brand: the bird stands on its name, and the tagline is its caption */
+.brand { display: flex; flex-direction: column; align-items: center; }
+picture { display: contents; }
+.bird { height: var(--bird); width: auto; display: block; mix-blend-mode: multiply; }
+.mark { margin-top: calc(var(--bird) * -0.13); font-size: calc(var(--bird) * 0.43); font-weight: 500; letter-spacing: -0.01em; line-height: 1; }
+.tag { margin-top: 6px; font-size: var(--t-text); line-height: 1.4; font-style: italic; color: var(--ink-2); text-wrap: balance; }
+/* the claim: only the phrase on show takes room, so "Sell to any agent." and "Buy from any agent." are each centred
+   under the brand. The other phrase waits at the slot's right edge, and the line glides when they swap. */
+.claim { padding-top: 24px; display: flex; flex-direction: column; align-items: center; }
+h1 { font-size: var(--t-claim); font-weight: 500; line-height: 1.15; letter-spacing: -0.005em; }
+.line { display: inline-block; white-space: nowrap; transition: transform .45s ease; }
+.verb { position: relative; display: inline-block; }
+.verb .v { position: absolute; right: 0; top: 0; opacity: 0; transform: translateY(.18em); transition: opacity .35s ease, transform .35s ease; }
+.verb .v.on { position: static; display: inline-block; opacity: 1; transform: none; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-@media (prefers-reduced-motion: reduce) { .verb .v { transition: none; } }
-.lede { margin-top: clamp(8px, 1.6vh, 14px); font-size: clamp(17px, 2.4vh, 21px); line-height: 1.4; color: var(--ink); max-width: 620px; }
-/* early access: an email box and a button */
-.signup { margin-top: clamp(14px, 2.6vh, 24px); display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
-.signup input[type=email] { font: inherit; font-size: 17px; color: var(--ink); background: var(--field); border: 1px solid var(--rule); border-radius: 999px; padding: 9px 16px; width: min(310px, 80vw); min-height: 42px; }
-.signup input::placeholder { color: #a39d90; }
-.signup button { font: inherit; font-size: 16px; color: var(--ink); background: transparent; border: 1px solid var(--ink); border-radius: 999px; padding: 9px 18px; cursor: pointer; min-height: 42px; }
+.lede { margin-top: 8px; font-size: var(--t-lede); line-height: 1.4; color: var(--ink); max-width: 34em; text-wrap: balance; } /* no word alone on a last line */
+/* early access: an email box and a button, each 44 px tall */
+.signup { margin-top: 20px; display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+.signup input[type=email] { font: inherit; font-size: var(--t-text); color: var(--ink); background: var(--field); border: 1px solid var(--rule); border-radius: 999px; padding: 8px 18px; width: min(320px, 80vw); min-height: 44px; }
+.signup input::placeholder { color: var(--ink-3); opacity: 1; }
+.signup button { font: inherit; font-size: var(--t-text); color: var(--ink); background: transparent; border: 1px solid var(--ink); border-radius: 999px; padding: 8px 20px; cursor: pointer; min-height: 44px; }
 .signup button:hover { background: var(--ink); color: var(--paper); }
 .signup button:disabled { opacity: .6; cursor: default; }
-.signup .msg { flex-basis: 100%; color: var(--ink-2); font-size: 16px; font-style: italic; }
+.signup .msg { flex-basis: 100%; color: var(--ink-2); font-size: var(--t-text); font-style: italic; }
 .signup .msg:empty { display: none; }
 .hp { position: absolute; left: -10000px; width: 1px; height: 1px; opacity: 0; }
 input:focus-visible, button:focus-visible, a:focus-visible { outline: 2px solid var(--sepia); outline-offset: 2px; }
-/* the features */
-.grid { margin-top: auto; padding-top: clamp(18px, 3.6vh, 36px); width: 100%; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: clamp(14px, 2.2vw, 28px); row-gap: clamp(10px, 2vh, 18px); text-align: left; }
-.cell { border-top: 1px solid var(--rule); padding-top: 7px; }
-.cell h2 { font-size: clamp(16px, 2.2vh, 18px); font-weight: 600; line-height: 1.2; }
-.cell h2 em { font-weight: 400; font-size: .85em; color: var(--ink-2); }
-.cell p { margin-top: 3px; font-size: clamp(15px, 2vh, 16.5px); line-height: 1.32; color: var(--ink-2); }
-/* the footer, then one quiet line for agents: the Try prompt and the agent docs */
-.ft { margin-top: clamp(12px, 2.4vh, 22px); font-size: 15px; font-style: italic; color: var(--ink-2); }
-.ft.fine { margin-top: 4px; font-size: 14px; }
-.ft a { color: inherit; text-underline-offset: 2px; }
-.copy { display: inline-grid; place-items: center; width: 18px; height: 18px; margin-left: 4px; vertical-align: -2px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--ink-2); cursor: pointer; }
+/* the value props: one at a time, a pencil study over its name and one line. All six share one cell, so the
+   page never moves when they change. */
+.props { padding-top: 24px; width: 100%; display: flex; flex-direction: column; align-items: center; }
+.stage { width: 100%; display: grid; justify-items: center; }
+.prop { grid-area: 1/1; display: flex; flex-direction: column; align-items: center; opacity: 0; visibility: hidden; transition: opacity 1.2s ease, visibility 0s linear 1.2s; }
+.prop.on { opacity: 1; visibility: visible; transition: opacity 1.2s ease .5s; }
+.study { width: 96px; height: 96px; display: block; }
+.prop h2 { font-size: var(--t-name); font-weight: 600; line-height: 1.25; }
+.prop h2 em { font-weight: 400; font-size: .8em; color: var(--ink-2); }
+.prop p { margin-top: 2px; font-size: var(--t-text); line-height: 1.4; color: var(--ink-2); max-width: 34em; text-wrap: balance; } /* no word alone on a last line */
+.dots { margin-top: 4px; display: flex; }
+.dots button { width: 28px; height: 28px; padding: 0; border: 0; border-radius: 50%; background: transparent; cursor: pointer; display: grid; place-items: center; }
+.dots button::before { content: ""; width: 7px; height: 7px; border-radius: 50%; border: 1px solid var(--ink-2); transition: background .4s ease; }
+.dots button[aria-current]::before { background: var(--ink-2); }
+@media (prefers-reduced-motion: reduce) { .line, .verb .v, .prop, .prop.on, .dots button::before { transition: none; } }
+/* the footer, read last, then one quiet line for agents: the Try prompt and the agent docs */
+.foot { padding-top: 20px; font-size: var(--t-foot); line-height: 1.5; font-style: italic; color: var(--ink-3); }
+.foot a { color: inherit; text-underline-offset: 2px; }
+.copy { position: relative; display: inline-grid; place-items: center; width: 28px; height: 28px; margin: -4px 0 -4px 2px; vertical-align: middle; padding: 0; border: 0; border-radius: 8px; background: transparent; color: inherit; cursor: pointer; }
+.copy::after { content: ""; position: absolute; inset: -8px; } /* a 44 px target around a 28 px button */
 .copy svg { fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linejoin: round; }
 .copy:hover { background: #efe9dc; color: var(--ink); }
+.nb { white-space: nowrap; } /* the copy icon stays with the word before it */
 .copied { margin-left: 6px; color: var(--sepia); font-style: normal; overflow-wrap: anywhere; white-space: pre-wrap; }
-@media (max-width: 1180px) { .code { display: none; } }
-@media (max-width: 640px) { .grid { grid-template-columns: 1fr 1fr; } }
-@media (max-width: 420px) { .grid { grid-template-columns: 1fr; } }
+@media (max-width: 1100px) { .stream { width: 50%; opacity: .16; } }
+/* phones: the crow follows the screen's width, the claim and the lede step down, and the page may scroll */
+@media (max-width: 499px) { :root { --bird: min(47vw, 190px); --t-claim: clamp(1.75rem, 9vw, 2.25rem); --t-lede: 1.3125rem; } .study { width: 84px; height: 84px; } }
 </style>
 </head>
 <body>
-<div class="code l" aria-hidden="true">${esc(SELLER_CODE)}</div>
-<div class="code r" aria-hidden="true">${esc(BUYER_CODE)}</div>
+${PENCIL}
+<div id="stream-b" class="stream" aria-hidden="true"></div>
+<div id="stream-s" class="stream" aria-hidden="true"></div>
 <main class="page">
-<!-- Hooded crow: Archibald Thorburn, "A naturalist's sketch book" (1919), plate 18, public domain. -->
+<header class="brand">
+<!-- Hooded crow: Archibald Thorburn, "A naturalist's sketch book" (1919), plate 18, public domain. Screens of 1.5× and
+     up get the same frame of the plate at 960 px, sharpened; the plate holds the crow at 741 px. -->
+<picture>
+<source type="image/webp" media="(min-resolution: 1.5dppx), (-webkit-min-device-pixel-ratio: 1.5)" srcset="${BASE}crow-2x.webp">
 <img class="bird" src="${BASE}crow.png" alt="Pencil study of a hooded crow" width="640" height="406">
+</picture>
 <div class="mark">${inline(title)}</div>
 <p class="tag">${inline(subtitle)}</p>
+</header>
+<section class="claim">
 <h1>
 <span class="sr">${inline(headline)}</span>
-<span aria-hidden="true"><span class="verb"><span class="v on">Sell to</span><span class="v">Buy from</span></span> any agent.</span>
+<span class="line" aria-hidden="true"><span class="verb"><span class="v on">Sell to</span><span class="v">Buy from</span></span> any agent.</span>
 </h1>
 <p class="lede">${inline(lede)}</p>
 ${JOINFORM}
-<section class="grid" aria-label="Features">
-${FEATURES.map(([h, p]) => `<div class="cell"><h2>${h}</h2><p>${p}</p></div>`).join('\n')}
 </section>
+${PROPS}
 ${footer(command)}
 </main>
 ${SCRIPT}
@@ -497,7 +632,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     writeFileSync(join(out, 'llms.txt'), txt);
     writeFileSync(join(out, 'index.html'), page(txt));
     writeFileSync(join(out, 'try.mjs'), readFileSync(here('try.mjs')));
-    for (const f of ['crow.png', 'favicon.png', 'agent.png', 'escrow.png', 'bond.png', 'og.png']) writeFileSync(join(out, f), readFileSync(here(f)));
+    for (const f of ['crow.png', 'crow-2x.webp', 'favicon.png', 'og.png']) writeFileSync(join(out, f), readFileSync(here(f)));
     // The visual walkthrough of a real two-agent deal, served at /visualdemo.
     mkdirSync(join(out, 'visualdemo'), { recursive: true });
     writeFileSync(join(out, 'visualdemo', 'index.html'), readFileSync(here('visualdemo/index.html')));

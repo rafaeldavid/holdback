@@ -179,7 +179,7 @@
         "description": "Stores the delivery's ciphertext bytes, content-addressed: `id` is `sha256:<hex>` of the bytes. Send ciphertext only (`iv || AES-256-GCM ciphertext || tag`); an operator never receives plaintext or a content key. Check that `id` equals the hash you computed.",
         "x-holdback-errors": [400, 404, 409, 413, 429],
         "parameters": [{ "$ref": "#/components/parameters/IdempotencyKey" }],
-        "requestBody": { "required": true, "content": { "application/octet-stream": { "schema": { "type": "string", "contentMediaType": "application/octet-stream", "description": "The ciphertext bytes, at most 10 MiB" } } } },
+        "requestBody": { "required": true, "content": { "application/octet-stream": { "schema": { "type": "string", "contentMediaType": "application/octet-stream", "description": "The ciphertext bytes, at most `limits.maxCiphertextBytes` in discovery (1,048,576 bytes on the public demo)" } } } },
         "responses": {
           "200": { "description": "Where the ciphertext is stored", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CiphertextStored" } } } }
         }
@@ -233,7 +233,7 @@
         "operationId": "fundFromFaucet",
         "tags": ["demo", "core"],
         "summary": "Get test tokens from the faucet",
-        "description": "Test networks only: credits test tokens to `address` and, on the public demo, admits it to the demo club with a mandate. `amount` is optional; a node may grant a fixed amount (`granted` says what). Limits: discovery `demo.faucet`; 429 carries `retryAfterSec`.",
+        "description": "Test networks only: credits test tokens to `address` and, on the public demo, admits it to the demo club with a mandate. `amount` is optional, up to `demo.faucet.maxGrant`; `granted` says what you got. Limits: discovery `demo.faucet`; 429 carries `retryAfterSec`.",
         "x-holdback-errors": [400, 404, 409, 413, 422, 429],
         "parameters": [{ "$ref": "#/components/parameters/IdempotencyKey" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/FaucetRequest" } } } },
@@ -648,7 +648,7 @@
       "Problem403": { "description": "Refused: scope_exceeded, mandate_expired, member_not_admitted, adjudicator_affiliated, not_your_turn, or relay_refused (this operator's own relay policy declined; the signed message is still valid at another operator or at the settlement layer)", "headers": { "Link": { "$ref": "#/components/headers/ProblemLink" } }, "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } } } },
       "Problem404": { "description": "Not found: not_found", "headers": { "Link": { "$ref": "#/components/headers/ProblemLink" } }, "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } } } },
       "Problem409": { "description": "Conflicts with the current state: invalid_state (with `state` and, when the state is what refuses, `needs`), nonce_reused, idempotency_conflict, deadline_passed, submission_limit_reached", "headers": { "Link": { "$ref": "#/components/headers/ProblemLink" } }, "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } } } },
-      "Problem413": { "description": "Too large: payload_too_large (JSON bodies 1 MiB, ciphertext 10 MiB)", "headers": { "Link": { "$ref": "#/components/headers/ProblemLink" } }, "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } } } },
+      "Problem413": { "description": "Too large: payload_too_large with `maxBytes` (JSON bodies 1 MiB; ciphertext `limits.maxCiphertextBytes` in discovery)", "headers": { "Link": { "$ref": "#/components/headers/ProblemLink" } }, "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } } } },
       "Problem422": { "description": "Valid shape that settlement refuses: rulebook_unknown, insufficient_funds, adjudicator_unavailable, coverage_exceeded, acceptance_missing, acceptance_mismatch, seed_mismatch, policy_mismatch, registry_mismatch", "headers": { "Link": { "$ref": "#/components/headers/ProblemLink" } }, "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } } } },
       "Problem429": { "description": "Throttled: rate_limited, with `retryAfterSec`. Reads are limited per client; writes per signer once the settlement layer verified the signature, and per client before (discovery `limits`).", "headers": { "Retry-After": { "$ref": "#/components/headers/RetryAfter" }, "Link": { "$ref": "#/components/headers/ProblemLink" } }, "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } } } },
       "Problem500": { "description": "The operator could not process this request: internal. Retry with the same Idempotency-Key, or use another operator; quote the Request-Id.", "headers": { "Link": { "$ref": "#/components/headers/ProblemLink" } }, "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } } } },
@@ -676,6 +676,7 @@
             "properties": { "to": { "$ref": "#/components/schemas/Address" }, "token": { "$ref": "#/components/schemas/TokenId" }, "amount": { "type": "string", "pattern": "^(0|[1-9][0-9]{0,77})$" } }
           },
           "retryAfterSec": { "type": "integer", "minimum": 1, "description": "rate_limited: whole seconds to wait, as in Retry-After" },
+          "maxBytes": { "type": "integer", "minimum": 1, "description": "payload_too_large: the largest body this route takes, in bytes" },
           "field": { "type": "string", "maxLength": 200, "description": "invalid_terms: the input at fault, a dotted path into the JSON body (`price.amount`, `timing.fundWithinSec`) or a query parameter or header name (`limit`, `Idempotency-Key`)" }
         }
       },
@@ -698,10 +699,11 @@
             "type": "object",
             "additionalProperties": false,
             "required": ["idempotency"],
-            "description": "This node's limits. `reads` and `writes` are absent when it does not throttle",
+            "description": "This node's limits. `reads` and `writes` are absent when it does not throttle, `maxCiphertextBytes` when it stores no ciphertext",
             "properties": {
               "reads": { "$ref": "#/components/schemas/RateLimit" },
               "writes": { "$ref": "#/components/schemas/RateLimit" },
+              "maxCiphertextBytes": { "type": "integer", "minimum": 1, "maximum": 10485760, "description": "The largest ciphertext POST /v1/ciphertext stores, in bytes; more gets 413 `payload_too_large` with `maxBytes`. The public demo stores 1,048,576 bytes (1 MiB). Absent on a node with no ciphertext store" },
               "idempotency": {
                 "type": "object",
                 "additionalProperties": false,
@@ -750,7 +752,8 @@
                 "required": ["path", "grant"],
                 "properties": {
                   "path": { "const": "/v1/faucet" },
-                  "grant": { "$ref": "#/components/schemas/TokenAmount" },
+                  "grant": { "$ref": "#/components/schemas/TokenAmount", "description": "What a request that names no `amount` gets" },
+                  "maxGrant": { "$ref": "#/components/schemas/TokenAmount", "description": "The largest `amount` one grant gives; a request above it gets 400 `invalid_terms` with `field: \"amount\"`. Absent when the faucet states no cap" },
                   "perAddressEverySec": { "type": "integer", "minimum": 0, "description": "One grant per address in this many seconds" },
                   "perClientPerWindow": { "type": "integer", "minimum": 0, "description": "Grants per client (IP address) per window" }
                 }
@@ -883,7 +886,7 @@
         "required": ["address"],
         "properties": {
           "address": { "$ref": "#/components/schemas/Address", "description": "Your own address: make your own keys" },
-          "amount": { "type": "string", "pattern": "^[1-9][0-9]{0,30}$", "description": "Optional, base units as a decimal string. A node may grant a fixed amount instead (the public demo does); `granted` says what you got" }
+          "amount": { "type": "string", "pattern": "^[1-9][0-9]{0,30}$", "description": "Optional, base units as a decimal string, up to discovery's `demo.faucet.maxGrant`: for a deal, the price plus the adjudication fee plus the operator fee. Without it the faucet grants `demo.faucet.grant`; `granted` says what you got" }
         }
       },
       "FaucetResult": {

@@ -4,6 +4,8 @@ Status: D1–D9 decided October 30, 2026, after the Phase 0 adversarial review (
 
 Still open (2026-11-06): ADR-0025, Proposed, to be decided with T-033's schema bump, in Phase 6 since D53 (schemas 0.9 and 0.10 shipped without it); ADR-0027, Proposed (T-308: judgment report, verifiable inference, tuning releases; four open questions, none needed before Phase 3); the ADR-0023 amendment on fee bundling, Proposed (D37); and dispute clauses as selectable terms, deferred until after the demo (D29).
 
+Shortened on 2026-11-11: D40, D42, D45, D52, D53, D54 and D56, and one passage under D4, state the decision only. The maintainers keep the full text of each privately (`docs/private-materials.md`).
+
 ## D1. Adopt the neutrality litmus test as the top constraint (ADR-0001)
 
 **Decided 2026-10-30:** adopted (ADR-0001 Accepted). "Held work" means key release; adjudicator plaintext access is residual 6.
@@ -65,13 +67,7 @@ Phase 1 runs on SimChain, an in-process simulation of the escrow rules, so this 
 - **Costs to design around.** Mainnet gas makes every settlement cost real money, which hurts small agent deals. The Phase 2 design should minimise on-chain steps per deal (one funding and one settlement transaction on the happy path), and record the gas per deal in the evidence so the fee (D33) can be checked against it. Rollups stay an option to add later for small deals; the contract stays chain-agnostic.
 - **Revisit on evidence.** If measured gas makes typical deals uneconomic, bring this back with numbers.
 
-**To evaluate later: Prividium.** A private, Ethereum-anchored chain run by a permissioned set of operators. The question is whether Crow's operators could run it as a consortium that cannot themselves see the transactions on their own chain, which would give private deals (T-207) without trusting the operators. To evaluate: what the operators can see, how neutrality holds when the operator set is permissioned (who admits operators, whether a party can force inclusion or exit to Ethereum), and how USDC and settlement finality work there. Backlog row under Privacy.
-
-**Update 2026-10-31 (earlier, as the settlement chain):** Matter Labs Prividium was evaluated and not adopted *as the chain that holds the money*. It is a single-operator permissioned chain whose operator can gate access, stop the sequencer, block forced inclusion and read everything (ADR-0004). A fifth criterion now applies: anyone can read the public skeleton and submit a signed message without an admin. A club-chosen permissioned chain is in the backlog.
-
-**How the two Prividium notes fit (2026-11-01):** the 2026-10-31 finding stands for Prividium as the chain that holds the money. The 2026-11-01 note asks a different question: whether a Prividium-style private instance can run a deal's private content while the assets stay in the Ethereum L1 escrow (the single-use fragment exploration, now in `docs/research/prividium-fragment.md`). That exploration must answer the 2026-10-31 objections directly: the fragment's operator must not be able to block settlement (the L1 timeout path works with the fragment offline) and must not be able to read the deal. Tracked as T-208, after T-206.
-
-**Parked 2026-11-03 (Rafa):** "Agree on parking prividium, you can add that to a diff roadmap phase on privacy end-to-end". T-208 moves, parked, into the roadmap's Privacy end to end phase (`docs/plan.md`).
+**Privacy option, parked 2026-11-03.** A private, permissioned chain was evaluated twice, first as the chain that holds the money (not adopted, ADR-0004) and then as a place to run a deal's private content while the assets stay in the Ethereum escrow (T-208, parked). The full text is kept privately (`docs/private-materials.md`).
 
 ## D5. Liveness default when no adjudicator decides (ADR-0007)
 
@@ -534,7 +530,7 @@ Research pass 2026-11-01: keep the domain at 0.6; bind the seller's per-deal enc
 | --- | --- |
 | A. Access control only (ReadToken over plaintext) | Quick; every operator still reads every deal |
 | B. End-to-end encrypted API, amended (proposed) | Operators hold ciphertext and hashes; per-deal keys hide identity; L1 amounts and funding links are residuals; no on-chain cost, no new actor, domain stays 0.6 |
-| C. Prividium fragment per escrow (T-208) | Content off every operator; private settlement not shipped; about 460k L1 gas per batch proof; new sequencer actor; spike after T-206, can sit on top of B |
+| C. A private-chain fragment per escrow (T-208) | Content off every operator; private settlement not shipped; about 460k L1 gas per batch proof; new sequencer actor; spike after T-206, can sit on top of B |
 | D. Full chain privacy (Aztec, fhEVM) | Deferred, as in D16 |
 | Seller key as a `CommitmentTerms` field | Rejected: moves the domain to 0.8 for no gain over the hashed body |
 
@@ -621,13 +617,13 @@ Also: the funding signature on EVM is CPP's collector signature and token identi
 
 ## D40. Privacy is each deal's choice; the tagline is "Programmatic Escrow and Arbitration"
 
-**Superseded in part 2026-11-10 (Rafa, D56):** the tagline is "Verifiable settlement for AI commerce", on the landing page from Rafa's mock. The privacy part of D40 stands.
+**Decided 2026-11-02 by Rafa.** Each deal chooses private or public through the signed `disclosure.level` (`private`, `judgment` or `public`; ADR-0020, ADR-0024), and no operator imposes a level. This refines D34 and D39.
 
-**Updated 2026-11-03 (Rafa):** "Call it "Crow" for now as it's easier to read in docs, but the webpage uses the logomark ’crow". The README, `docs/` and `site/llms.txt` write Crow; the escrow.stream pages and the brand files keep ’crow. Holdback stays the protocol's name and EIP-712 domain. Trademark clearance with counsel is pending (Rafa, 2026-11-03: "Keep Crow, see attorney").
+- **Privacy is an option the parties choose.** More parts become privacy-capable over time: sealed judgment records, private amounts and private settlement venues. The site promises no more privacy than the current build delivers.
+- **The tagline** was "Programmatic Escrow and Arbitration" from 2026-11-02. D56 replaced it on 2026-11-10 with "Verifiable settlement for AI commerce". The privacy part of D40 stands.
+- **Names (2026-11-03).** The README, `docs/` and `site/llms.txt` write Crow, and the site uses the logomark ’crow. Holdback stays the protocol's name and EIP-712 domain.
 
-**Updated 2026-11-02 (Rafa, PR 98):** the tagline is "Programmatic Escrow and Arbitration" ("’crow. Programmatic Escrow and Arbitration"), replacing "Escrow for AI Agents" below. The rest of D40 stands.
-
-**Decided 2026-11-02 by Rafa.** The site's tagline drops "Private": "’crow. Escrow for AI Agents", and the intro reads "a programmatic and verifiably neutral escrow service for AI agents". The API lets each deal choose private or public according to the agents' preferences and needs (the signed `disclosure.level`: `private`, `judgment` or `public`, ADR-0020, ADR-0024), and more pieces become privacy-capable over time (sealed judgment records, private amounts, private settlement venues). This refines D34 and D39: the protocol offers privacy as an option the parties choose, with no level imposed by the operator, and the brand does not promise more privacy than the current build delivers.
+The full text is kept privately (`docs/private-materials.md`).
 
 ## D41. The public demo settles on Sepolia (ADR-0028)
 
@@ -647,19 +643,13 @@ Also: the funding signature on EVM is CPP's collector signature and token identi
 
 ## D42. The first wave is USDC only, funded through a USD to USDC on-ramp
 
-**Decided 2026-11-03 by Rafa:** "For the first wave of the service, lets assume USDC only, and USD to USDC onboarding rail." Then: "Then push ERC20, ETH and dynamic extension of asset in escrow to later in the roadmap"; "park it for later in a roadmap module about assets". His reason: "This prevents the complexity of asset conversion during onboarding." One asset end to end (USD in, USDC held, USDC paid out) means no swaps, quotes or price risk at onboarding or at settlement, and fees and gas are quoted in the unit the deal uses.
+**Decided 2026-11-03 by Rafa.** The first funding wave accepts USDC only: the operators' token allowlist and the demo club's rulebook narrow to USDC (ADR-0015). The protocol and the contracts stay token-agnostic (D31), because the signed terms already name the token.
 
-- **The service accepts USDC only.** The operators' token allowlist and the demo club's rulebook narrow to USDC; clubs may narrow (ADR-0015). The protocol and the contracts stay token-agnostic (D31): the signed terms already name the token.
-- **Funding is a USD to USDC on-ramp,** the funding service of ADR-0026 narrowed to one path. Test mode only (a Stripe key must be `sk_test_…`; keys from the environment only). It is the next item in Phase 5 (`docs/tasks/T-214-usd-usdc-onramp.md`), not part of the Sepolia cutover.
-- **D38's "any ERC-20, WETH or ETH" is deferred** to an Assets module later in the roadmap (`docs/plan.md`, Phase 6), with dynamically extending which assets an escrow can hold.
-- **The Sepolia demo's token is Crow Test USDC (tUSDC),** our own open-mint test token with USDC's ERC-3009 interface (`contracts/script/TestUSDC.sol`), not Circle's Sepolia USDC. Measured on Sepolia: Circle's USDC (`0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238`) is an upgradeable proxy with an owner, a master minter, a pauser and a blacklister, and has both ERC-3009 entry points; only Circle's faucet can mint it, behind a CAPTCHA and a rate limit, so every demo grant would come from a treasury Rafa refills by hand, and a blacklist could freeze a demo hold. tUSDC has no admin, the faucet mints it, and it keeps USDC's interface, so moving to Circle's USDC (with the on-ramp, or on mainnet) is a token address and domain change. It is named and labelled as a test token everywhere, never as plain "USDC". SimChain keeps tUSD.
+- **One asset end to end** means no swaps, quotes or price risk at funding or at settlement, and fees and gas are quoted in the unit the deal uses. Funding from USD is the funding service of ADR-0026 narrowed to one path, in test mode only.
+- **Other assets wait.** D38's "any ERC-20, WETH or ETH" comes with a later assets module.
+- **The Sepolia demo's token is Crow Test USDC (tUSDC),** our own open-mint test token with USDC's ERC-3009 interface (`contracts/script/TestUSDC.sol`), not Circle's Sepolia USDC. Measured on Sepolia: Circle's USDC (`0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238`) is an upgradeable proxy with an owner, a master minter, a pauser and a blacklister, and has both ERC-3009 entry points; only its issuer's faucet can mint it, and a blacklist could freeze a demo hold. tUSDC has no admin, the faucet mints it, and it keeps USDC's interface, so moving to Circle's USDC is a token address and domain change. It is named and labelled as a test token everywhere, never as plain "USDC". SimChain keeps tUSD.
 
-| Option | Effect |
-| --- | --- |
-| Any ERC-20, WETH or ETH now (D38) | Conversion at onboarding and settlement; fees in several units |
-| USDC only, USD to USDC on-ramp (chosen) | One unit end to end; other assets later in an Assets module |
-| Sepolia demo on Circle's USDC | The real token, but a hand-filled treasury and an issuer that can freeze a hold |
-| Sepolia demo on tUSDC (chosen) | Unlimited faucet, no admin, same interface; not the real token, stated plainly |
+The full text is kept privately (`docs/private-materials.md`).
 
 ## D43. An overturn pays from the bond on chain now, and only the losing party appeals
 
@@ -696,30 +686,9 @@ Also: the funding signature on EVM is CPP's collector signature and token identi
 
 ## D45. The founder console signs in with passkeys and refreshes every hour
 
-**Decided 2026-11-04 by Rafa** ("Looks good"), after a Fable max-effort research pass on sign-in and refresh. Rafa asked for passkeys, read access for his co-founder Michael, and an hourly refresh of the founder console at `escrow.stream/control`. Rafa may overrule any line.
+**Decided 2026-11-04 by Rafa.** The founders' console sits on its own host behind an access proxy, and scheduled pushes reach it with service tokens that can only push.
 
-- **Sign-in through Cloudflare Access.** Access sits in front of `/control` and `/control/*`, with GitHub as the only login. Each founder signs in with their GitHub passkey, and Access can require its own passkey check on top. An Allow policy names the two founders' emails. The shared passcode retires after the switch.
-- **One view for both founders.** Rafa: "don't differentiate between Michael and me in the display, he's co-founder so has access to everything". Everyone the policy admits sees the full console, costs and keys included.
-- **Private data stays encrypted at rest.** Rafa's Mac encrypts the Costs, Keys and status-history fragment under a key held as a Worker secret, and the Worker decrypts it only for a signed-in reader. No figure sits in clear in storage or in a repository.
-- **Two pushers, one hourly.**
-  - A scheduled job in a private repository rebuilds the public part of the console every hour from this repository and pushes it to the Worker's storage. It uses a service token that can only push, and a GitHub token that reads public repositories only.
-  - Rafa's Mac pushes the private fragment after the daily cost collection.
-  - Neither push deploys code. They are Rafa's standing instruction; Worker code deploys and Access settings still wait for him.
-- **Trade-offs Rafa accepted.** The console goes down with Cloudflare Access, with no passcode fallback. Cloudflare can see the figures while it serves them. Hourly builds use about 70% of the free GitHub Actions minutes (guessed).
-
-| Option | Effect |
-| --- | --- |
-| Cloudflare Access with GitHub passkeys, split hourly refresh (chosen) | Passkeys through each founder's GitHub account; no server of our own; fresh hourly whether or not Rafa's Mac is awake; about 90 minutes of setup by Rafa |
-| Access, with an hourly job on Rafa's Mac only | About 45 minutes of setup; the console goes stale whenever the Mac sleeps |
-| A passkey login written into the Worker | No third party at sign-in; about three days of work plus review, and recovery we build ourselves |
-
-**Later the same day (Rafa, 2026-11-04).**
-- **Its own host.** The console moves to `control.escrow.stream`, after a red-team review found that sharing `escrow.stream` with the public site lets any script there read a signed-in founder's console ("Yes, own address").
-- **One application.** That host joins the existing Access application rather than a new one, so one audience covers both hosts until the old destinations are removed.
-- **Phase 11.** The rest of the switch moves to Phase 11, security hardening, as T-059 ("let's move this to security hardening phase"). Until then, the passcode console keeps serving `escrow.stream/control` behind Access, with the recheck's fixes: the console alone, and no key kept in the browser.
-- **Live the same evening.** Rafa went ahead with the switch on 2026-11-04, and the console now runs at `control.escrow.stream`.
-  - **GitHub sign-in only.** Access's own MFA check is off ("let's just leave with Github sign in"). The second factor is each founder's GitHub two-factor or passkey; the passkey line above becomes each founder's GitHub setting.
-  - **The old address removed.** `escrow.stream/control` answers `404` ("we can remove /control as we won't use it anymore"), not a redirect. The shared passcode retires with it.
+The full text is kept privately (`docs/private-materials.md`).
 
 ## D46. Agents register their own adjudicators through the API; round 1 includes mutual settlement and overturns through the API
 
@@ -887,70 +856,50 @@ Also: the funding signature on EVM is CPP's collector signature and token identi
 
 ## D52. Crow Control builds twice a day in Berlin time and skips a run with nothing new
 
-**Decided 2026-11-05 by Rafa.** He first asked for a rebuild on every merge to main ("Yes, add it", then "It should refresh everything"). The same day, after the minutes estimate, he decided: "Lets to the build only twice per day, 7am and 4pm CET Berlin time". He also asked that a scheduled run with nothing new end in seconds, and that the build fit comfortably inside crow-private's free Actions allowance. This replaces D45's hourly refresh. Rafa may overrule any line.
+**Decided 2026-11-05 by Rafa.** The founders' console builds on a schedule, twice a day, and a scheduled run with nothing new ends early. This replaces D45's hourly refresh. The console is a founders' tool outside the protocol, so the litmus tests are untouched.
 
-- **Why the hourly schedule went.** GitHub ran it at 06:51 and 15:30 UTC only on 2026-11-05 [measured]. Each run billed 3 minutes on the 2-core runner: three jobs, each rounded up to a whole minute [measured, run 42055586699]. Run every hour, that is about 2,190 minutes a month, more than the 2,000 included (inferred).
-- **Why not every merge.** Holdback merged 90 PRs on 2026-11-03 and 2026-11-04 [measured]. One build per merge would bill about 135 2-core minutes a day (inferred), and holdback would hold a token for crow-private. holdback#214, which built that, is closed.
-- **The schedule.** crow-private's `control-hourly` workflow runs at 07:07 and 16:07 `Europe/Berlin`, set with GitHub's `timezone` key, so summer time needs nothing. The runs start a few minutes past the hour, since GitHub delays or drops more runs on the hour.
-- **GitHub can skip a scheduled run.** It may start one late or not at all. Then "Run workflow" (crow-private → Actions → control-hourly) is the fallback, and it always builds.
-- **Skip when nothing changed.** The first job digests the console's inputs: holdback main's commit, crow-private's commit, the dependencies' states, both API nodes' `/v1/status`, the relayer lane's balance and holdback's latest CI run on main. It compares the digest with the one the Worker stored with the last complete push, as `map.html`'s version. Only the push token can write that version. A match ends the run in about 17 s, for 1 billed minute [measured].
-- **Three jobs on ubuntu-slim.** One job would bill 1 minute instead of 3. But every step of a job shares the runner that holds all of the job's secrets, so holdback's code would run beside the push token (red-team M2). All three jobs run on `ubuntu-slim`, the 1-core runner, at USD 0.002 a minute against USD 0.006 for 2 cores. No job installs anything.
-- **Measured minutes, 2026-11-05, on ubuntu-slim.** Each build billed 3 or 4 minutes (4 runs), and the unchanged run billed 1 (crow-private#1 lists the runs).
-- **Monthly estimate (inferred).** Two scheduled runs a day is about 61 runs a month: 61 billed minutes if every run skips, 244 if every run builds at 4 minutes. 244 minutes is 12% of the 2,000-minute allowance counted minute for minute. At USD 0.002 a minute it is about USD 0.49, 4% of the allowance's value of about USD 12.
-- **Earlier choices, kept for a per-merge trigger.** The first version used the workflow dispatch API, not `repository_dispatch`, because it needs Actions write on crow-private, not Contents write on the whole private repository. It also kept the token in a holdback environment limited to `main`, so no workflow on another branch could read it. Both closed with holdback#214, and both apply if a per-merge trigger comes back.
-- **Open.** The console's "Hourly refresh" row still assumes hourly runs. It reads Degraded 1.5 h after a build and Down after 6.5 h, until `console.html` follows the new schedule, which needs a Worker deploy on Rafa's go-ahead. T-059's remaining "24 hours of hourly runs" now means two scheduled builds.
-- **Litmus tests.** Untouched: the console is a founders' tool outside the protocol.
-
-| Option | Effect |
-| --- | --- |
-| Twice a day in Berlin time, skipping a run with nothing new (chosen) | 61 to 244 billed 1-core minutes a month (inferred); between 16:07 and 07:07 the console can be 15 h old, and "Run workflow" refreshes it on demand |
-| Every hour (D45) | About 2,190 billed 2-core minutes a month, over the 2,000 included (inferred); GitHub ran 2 of them on 2026-11-05 |
-| Every merge to holdback main (holdback#214, closed) | Fresh within minutes of a merge; about 135 billed 2-core minutes a day (inferred); holdback holds a token for crow-private |
+The full text is kept privately (`docs/private-materials.md`).
 
 ## D53. Finish stable EVM operations first; other Phase 2 work moves to later phases
 
-**Decided 2026-11-06 by Rafa:** "Basically any work that isn't about finishing stable EVM operations should be pushed to later phase". Earlier the same day: "Move daily one-click measurements to infrastructure management phase". The coordinator sorted Phase 2's open rows against it, read from origin/main at `c85147d`. No research pass ran: the decision orders work and changes no design. Rafa may overrule any line.
+**Decided 2026-11-06 by Rafa.** Phase 2 finishes stable EVM operations on Sepolia first, and every other open Phase 2 task moves to a later phase. The decision orders work and changes no contract, schema, defense or API.
 
-- **Finishing stable EVM operations means four things:**
+- **Stable EVM operations means four things:**
   - round 1 green on the live Sepolia demo: every in-scope scenario passes against one deployment (T-216);
-  - T-221's leftovers: a red-team pass on the review's fixes, DeepSeek's cross-family review, and Rafa's CI line for the anvil end to end;
-  - Rafa's read of the contract review, and the hardening the next contract redeploy needs (T-206, T-212);
-  - anything else in Phase 2 that a stable demo on Sepolia needs. On 2026-11-06 no other open Phase 2 row qualifies (inferred from each row's scope).
-- **Everything else waits.** Phase 2 had 10 open rows on origin/main and keeps 4: T-206, T-212, T-216 and T-221 (measured from `docs/plan.md`). The other 6 move to the later phase that fits, each row saying why:
-  - T-207, private deals (paused), to Phase 8, Privacy end to end, as its first row;
-  - T-034, faster CI, to Phase 9, Infrastructure management;
-  - T-036, the coordinator commands, to Phase 10, Agent operations, so it waits until Rafa starts that phase;
-  - T-224, appeal bonds by a relayed permit (parked), to Phase 5, beside gas sponsorship for agents. Round 1's appeals run without it, with the appellant's own Sepolia ETH (T-216, scenarios 6 and 7);
-  - T-016b, the testkit follow-ups, to Phase 3, Judgment hardening, beside the calibration harness (T-301). Round 1 tests appeals, early accept and mutual settlement live on Sepolia;
-  - T-033, schema v0.9's additive items, to Phase 6, under Assets. It is not done (measured on origin/main): `FundingAuthorization.scheme` is still `erc3009` or `permit2`, `allowedTokens` is still required, `operator-status.chainId` is still a string, and ADR-0025 is still Proposed. The demo has funded through ERC-3009 on Sepolia since 2026-11-03 without it.
-- **The daily One-Click measurements** go to Phase 9, as Rafa asked. That task's own session adds its row.
-- **Work already in later phases keeps its phase.** T-066 (Phase 9) pauses with what is live recorded (PR 221), and T-059 (Phase 11) finishes its checks.
-- **Open: three proposed tasks, not created.** The operators send due timeouts on their own, so an abandoned deal settles with no caller (T-228's leftover). A low-balance alarm for the relayer's funding lane, pulled forward from T-054. A sweep of the product's own reads after a write, for the stale read after a transaction that has come back five times (PR 220). Rafa decides.
-  - *Later on 2026-11-06:* all three now exist. The operator-sent timeouts are T-231, live since 19:01 UTC. The runway warning for the funding lane is in Crow Control (D54, item 5), and the full alarm stays in T-054. The read-after-write audit is T-232 (D54, item 6).
-- **Litmus tests.** Untouched: the decision orders work and changes no contract, schema, defense or API.
+  - T-221's leftovers: a red-team pass on the review's fixes, a cross-family review, and the CI line for the anvil end to end;
+  - the maintainer's read of the contract review, and the hardening the next contract redeploy needs (T-206, T-212);
+  - anything else in Phase 2 that a stable demo on Sepolia needs.
+- **Phase 2 keeps four open tasks:** T-206, T-212, T-216 and T-221. D54 moved T-212 and T-221 the same day.
+- **Six tasks moved to later phases:**
+  - T-207, private deals, to Phase 8;
+  - T-034, faster CI, to Phase 9;
+  - T-036, the coordinator commands, to Phase 10;
+  - T-224, appeal bonds by a relayed permit, to Phase 5. Round 1's appeals run without it, with the appellant's own Sepolia ETH (T-216, scenarios 6 and 7);
+  - T-016b, the testkit follow-ups, to Phase 3. Round 1 tests appeals, early accept and mutual settlement live on Sepolia;
+  - T-033, schema v0.9's additive items, to Phase 6. It is not done (measured on origin/main, 2026-11-06): `FundingAuthorization.scheme` is still `erc3009` or `permit2`, `allowedTokens` is still required, `operator-status.chainId` is still a string, and ADR-0025 is still Proposed. The demo has funded through ERC-3009 on Sepolia since 2026-11-03 without it.
+- **Three tasks it proposed exist since 2026-11-06:**
+  - the operators send due timeouts on their own, so an abandoned deal settles with no caller (T-231, live since 19:01 UTC);
+  - a low-balance warning for the relayer's funding lane (D54, item 5); the full alarm stays in T-054;
+  - the read-after-write audit, a sweep of the product's own chain reads after a write (T-232; D54, item 6).
 
-| Option | Effect |
-| --- | --- |
-| Finish stable EVM operations first; move the rest (chosen) | Phase 2 keeps 4 open tasks; T-036 waits for Phase 10's start, and T-034's CI gains wait for Phase 9 |
-| Keep Phase 2 as it was | 10 open rows compete with round 1 for sessions and for Rafa's reviews |
-| Pause everything but round 1 | T-206's read and T-221's leftovers wait too, though the next contract redeploy needs them |
+The full text is kept privately (`docs/private-materials.md`).
 
 ## D54. Phase 2 walkthrough (Rafa, 2026-11-06)
 
-**Decided 2026-11-06 by Rafa,** in his walkthrough of Phase 2 with the coordinator session: scenario 11 counts as covered, T-212 moves to Phase 11 and T-221 to Phase 4, the read-after-write audit is queued as T-232, a relayer runway warning comes now, and Phase 2 has seven exit criteria. Each item below quotes his answer. No new research pass ran: the items accept evidence already recorded, order work and set Phase 2's exit, and change no contract, schema, defense or API. Rafa may overrule any line.
+**Decided 2026-11-06 by Rafa:** scenario 11 counts as covered, T-212 moves to Phase 11 and T-221 to Phase 4, the read-after-write audit is queued as T-232, a low-balance warning for the relayer's funding lane comes now, and Phase 2 has seven exit criteria. The items accept evidence already recorded, order work and set Phase 2's exit. They change no contract, schema, defense or API.
 
-1. **Scenario 11, a restart between broadcast and receipt, counts as covered** ("Accept, move redesign"). The evidence:
+1. **Scenario 11, a restart between broadcast and receipt, counts as covered.** The evidence:
    - T-219's offline tests: the world stopped after each money transaction's broadcast, and each restarted world applied it (T-219 Evidence, the cutover case), in 5 runs [the cases documented in T-219; the run count as the coordinator session reported it];
    - T-220's Sepolia fork rehearsal, in which a restart applied a transaction already broadcast [documented, T-220 Evidence, step 7];
    - T-228's live deploy on 2026-11-05, which restarted both operators [documented, T-228 Evidence];
    - the live run of 2026-11-06 (`reports/e2e-round-1/2026-11-06T093347Z/` in the round-1 checkout): 12 of 13 checks passed [measured]. The failed check needs holdback-op1's redeploy to land within about 12 s, one Sepolia block, between the broadcast and the receipt. The redeploy by hand took 67 s [as the coordinator session reported it], so holdback-op1 applied the receipt before it restarted: the delivery's own request answered 200 Delivered [measured, the run's `11.json`]. The other checks held: the restart came during the pause, a retry got the mined result, both operators served the delivery as holdback-op1's relay, and the deal ended Released with the buyer's key served.
 
    The live redesign moves to Phase 3 as row T-310: for example, hold the relayed transaction out of a block, so the redeploy has minutes.
-2. **T-212, contract hardening, moves to Phase 11** ("Move it to Phase 11"). Its open items 1, 2, 4, 5, 6 and 8 become the contract redeploy before mainnet. That redeploy also carries the other contract changes that wait for one: T-225's drand hardening, T-227's contract part and T-221's contract-side bond refusal. A contract change means a new demo world (D49), so Phase 2 closes on Sepolia without a redeploy.
-3. **T-221's leftovers wait** ("Defer, external adjudicators is a future service that we can build but only once current and centralized adjudicator is stable"). The leftovers are a red-team pass on the review's fixes, the DeepSeek cross-family review, and the CI line for `apps/demo-cloud/src/registration.anvil.test.ts`. T-221 moves to Phase 4, Adjudicator economics, paused: outside adjudicators bring their own bonds, and that phase puts the registry, bonds, coverage and appeals on the contract. Its slices 1 and 2 stay live as they are (PRs 184 and 202, deployed with T-220).
-4. **T-206, the contract review, gets no further open-ended review** ("No additional open-ended review"). Another session wrote the one-page brief for Rafa's read (PR 227) and records this in T-206's file. T-206 closes once Rafa has read the brief and given its three confirmations. He read it and confirmed all three in chat the same day, and PR 227 (`edc8311`) recorded them and set T-206 to done [documented, PR 227].
-5. **The relayer runway warning comes now** ("Yes, warning now"). Crow Control's "Waiting on you" shows a warning for the relayer's funding lane, red below about 200 deals of runway (crow-private PR 6, merged 2026-11-06 at 10:12 UTC). The full alarm stays in T-054 (Phase 9, deferred), which now notes the warning.
-6. **The read-after-write audit is queued** ("Yes, queue it"), as T-232 in Phase 2. It finds every chain read right after a write that a lagging publicnode server could answer, across the operators, the adjudicator, the faucet, the test seller, `try.mjs` and the examples, and pins or retries each one, with a lint or test check if one is feasible. It starts once the join-on-chain-delivery and operator-sent timeouts PRs merge, since they edit the same relay code.
+2. **T-212, contract hardening, moves to Phase 11.** Its open items 1, 2, 4, 5, 6 and 8 become the contract redeploy before mainnet. That redeploy also carries the other contract changes that wait for one: T-225's drand hardening, T-227's contract part and T-221's contract-side bond refusal. A contract change means a new demo world (D49), so Phase 2 closes on Sepolia without a redeploy.
+3. **T-221's leftovers wait** until the reference adjudicator is stable. The leftovers are a red-team pass on the review's fixes, a cross-family review, and the CI line for `apps/demo-cloud/src/registration.anvil.test.ts`. T-221 moves to Phase 4, paused: outside adjudicators bring their own bonds, and that phase puts the registry, bonds, coverage and appeals on the contract. Its slices 1 and 2 stay live as they are (PRs 184 and 202, deployed with T-220).
+4. **T-206, the contract review, gets no further open-ended review.** It closed the same day on the maintainer's read of the one-page brief and his three confirmations, which PR 227 (`edc8311`) recorded.
+5. **A low-balance warning for the relayer's funding lane comes now,** in the founders' console. The full alarm stays in T-054.
+6. **The read-after-write audit is queued** as T-232 in Phase 2. It finds every chain read right after a write that a lagging public RPC server could answer, across the operators, the adjudicator, the faucet, the test seller, `try.mjs` and the examples, and pins or retries each one, with a lint or test check if one is feasible.
 7. **Phase 2's exit criteria,** written into `docs/plan.md` under Phase 2:
    1. round 1: every scenario passes live on Sepolia, scenario 11 by the coverage in item 1, with finality clean on every run;
    2. the join-on-chain-delivery fix is deployed, and scenario 8 passes on rerun;
@@ -962,19 +911,9 @@ Also: the funding signature on EVM is CPP's collector signature and token identi
 
    Out of Phase 2 by these decisions: T-212 (Phase 11), the scenario 11 redesign (Phase 3, T-310) and T-221 (Phase 4).
 
-- **Where round 1 stands** (2026-11-06, measured from the run records): 14 of 16 scenarios passed live (1, 2, 3a, 3b, 3c, 3d, 4, 5a, 5b, 6, 7, 9, 10a and 10b); 11 counts by coverage; 8 waits for the join fix. The round's buyer and seller closed scenario 8's deal with a direct `mutualSettle`, sent by the driver's new `settle` command (PR 224), in [`0x092d…2c58`](https://sepolia.etherscan.io/tx/0x092d7e8ae4a45ac09cec8c6665f7a5e868e0ebe2fdf2f91815f90f80952a9c58).
-  - *Later on 2026-11-06:* scenario 8 passed live at 15:35 UTC on T-230's operators, 25 of 25 checks (run `2026-11-06T152621Z` in the round-1 checkout), so 15 of 16 scenarios have passed live and 11 counts by coverage [measured, the run's `summary.md`].
-- **Litmus tests.** Untouched. The decisions accept recorded evidence and move work between phases; no contract, schema, defense or API changes.
+- **Where round 1 stood** on 2026-11-06 (measured from the run records): 15 of 16 scenarios had passed live, the last scenario 8 at 15:35 UTC with 25 of 25 checks (run `2026-11-06T152621Z`), and 11 counts by coverage. Before that pass, the round's buyer and seller closed the deal of scenario 8's earlier run with a direct `mutualSettle` in [`0x092d…2c58`](https://sepolia.etherscan.io/tx/0x092d7e8ae4a45ac09cec8c6665f7a5e868e0ebe2fdf2f91815f90f80952a9c58).
 
-| Item | Rafa's answer | Effect |
-| --- | --- | --- |
-| 1. Scenario 11 | "Accept, move redesign" | Round 1 counts 11 as covered; the live redesign is T-310 in Phase 3 |
-| 2. T-212 | "Move it to Phase 11" | One contract redeploy before mainnet; Phase 2 closes with no redeploy |
-| 3. T-221's leftovers | "Defer, …" | T-221 paused in Phase 4; slices 1 and 2 stay live |
-| 4. T-206 | "No additional open-ended review" | T-206 closes on Rafa's read and three confirmations |
-| 5. Runway warning | "Yes, warning now" | A console warning now; the alarm stays in T-054 |
-| 6. Read-after-write audit | "Yes, queue it" | T-232 in Phase 2, after the join and timeout PRs |
-| 7. Exit criteria | (set in the walkthrough) | Seven criteria under Phase 2 in `docs/plan.md` |
+The full text is kept privately (`docs/private-materials.md`).
 
 ## D55. Round 1's live passes count across operator builds
 
@@ -998,12 +937,10 @@ Also: the funding signature on EVM is CPP's collector signature and token identi
 
 ## D56. The tagline is "Verifiable settlement for AI commerce", on a landing page from Rafa's mock (T-312)
 
-**Decided 2026-11-10 by Rafa:** "ok change of direction, use the attached file for the update" (`crow-landing-mock-v2.html`, his landing page mock). It supersedes his first wording the same day ("Verified Settlement for AI Commerce" and a paragraph starting "Safe to buy. Safe to sell."), which never shipped. No research pass ran: the decision is copy and page design, and it changes no protocol design. Rafa may overrule it.
+**Decided 2026-11-10 by Rafa.** The tagline is "Verifiable settlement for AI commerce". It replaces D40's "Programmatic Escrow and Arbitration" on the site, in `site/llms.txt` and in the README's first line.
 
-- **The tagline** is "Verifiable settlement for AI commerce" ("’crow. Verifiable settlement for AI commerce" in `site/llms.txt`). It replaces D40's "Programmatic Escrow and Arbitration" on the site, in its og and twitter titles, the README's first line, the design map and the brand status lines.
-- **The landing page** follows the mock word for word: the bird, the ’crow mark, the tagline, a headline that alternates "Sell to" and "Buy from" before "any agent.", the lede, early access, six features and the footer line "Live in early access on test money." The site's description is the mock's: "Verifiable settlement for AI commerce. Sell to any agent. Buy from any agent."
-- **llms.txt** opens with the mock's headline and lede: "Sell to or buy from any agent. One API to agree terms, lock payment, deliver and settle, with no track record or human approval on either side." The rest of the agent guide is unchanged.
-- **The page keeps what agents need:** the One-Click Escrow Try line (D51) and a link to `/llms.txt`, as one quiet line under the footer.
-- **D40's privacy part stands:** each deal chooses its disclosure level, and the brand promises no more privacy than the build delivers.
-- **Not changed here:** `CLAUDE.md` still names the old tagline in its Map section. It is tier 3, and Rafa merges it.
+- **The page keeps what agents need:** the One-Click Escrow Try line (D51) and a link to `/llms.txt`. The rest of the agent guide in `llms.txt` is unchanged.
+- **D40's privacy part stands:** each deal chooses its disclosure level, and the site promises no more privacy than the build delivers.
 - **Litmus tests.** Untouched: the decision changes copy and the landing page only, and no contract, schema, defense or API.
+
+The full text is kept privately (`docs/private-materials.md`).

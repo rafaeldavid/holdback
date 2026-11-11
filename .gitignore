@@ -22,3 +22,5 @@ contracts/cache/
 # Personal Claude Code settings
 .claude/settings.local.json
 .claude/worktrees/
+# The seller adapter's journal (examples/seller-adapter.ts), wherever it runs from
+seller-adapter.journal.json*

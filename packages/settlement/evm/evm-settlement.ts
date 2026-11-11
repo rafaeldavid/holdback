@@ -260,6 +260,15 @@ class Reverted extends Refusal {
   }
 }
 
+/**
+ * `submit`'s answer on this adapter. `reverted` marks a refusal whose relayed transaction went out and reverted on
+ * chain (`Reverted`, thrown in `send`): it cost gas, where every other refusal comes before the broadcast. The
+ * operators' own timeouts read it (timeouts.ts). No API answer and no stored row carries it: both are built from
+ * `problem` alone. A delivery's refusal that `deliver` rewrites with its kept-copy notice answers without the flag;
+ * nothing reads it for a delivery.
+ */
+export type EvmSubmitResult = Extract<SubmitResult, { ok: true }> | (Extract<SubmitResult, { ok: false }> & { reverted?: true });
+
 const GENESIS_HASH: Hex32 = `0x${'00'.repeat(32)}`;
 const UINT256_MAX = (2n ** 256n - 1n).toString();
 const ALL_BPS = 10000n;
@@ -703,24 +712,6 @@ export class EvmSettlement implements Settlement {
     return (this.books.get(id)?.released ?? []).filter((k) => lc(k.recipient) === lc(recipient));
   }
 
-  /**
-   * Commitments an adjudicator still has a turn on, within its window: offers to accept, deliveries to judge,
-   * takeovers and escalations to decide, open appeals. A live world paces its adjudicator passes by it.
-   */
-  awaitingAdjudicator(): number {
-    const now = Date.parse(this.now());
-    const within = (ts: Timestamp) => now < Date.parse(ts) + 60_000;
-    let n = 0;
-    for (const { state: s } of this.books.values()) {
-      const t = s.terms.timing;
-      if (s.kind === 'Offered' && within(t.offerExpiresAt)) n++;
-      else if ((s.kind === 'Delivered' || s.kind === 'FallbackJudging') && within(t.fallbackBy)) n++;
-      else if (s.kind === 'Escalated' && within(s.escalation.appealDecideBy)) n++;
-      else if ((s.kind === 'Released' || s.kind === 'Refunded') && s.via.kind === 'first_instance' && s.via.appeal.kind === 'open' && within(s.via.appeal.appealDecideBy)) n++;
-    }
-    return n;
-  }
-
   /** The books, events and mandates that changed since the last call, for a store to write. */
   drain(): EvmChanges {
     const books = [...this.dirty].map((id) => [id, structuredClone(this.books.get(id)!)] as [Hex32, Book]);
@@ -800,15 +791,15 @@ export class EvmSettlement implements Settlement {
 
   // Submission
 
-  submit(submission: Submission, options: EvmSubmitOptions = {}): Promise<SubmitResult> {
-    return this.enqueue(laneOf(submission), () => this.process(submission, options, false));
+  submit(submission: Submission, options: EvmSubmitOptions = {}): Promise<EvmSubmitResult> {
+    return this.enqueue(submissionCommitmentId(submission), () => this.process(submission, options, false));
   }
 
-  validate(submission: DryRunSubmission): Promise<SubmitResult> {
-    return this.enqueue(laneOf(submission as Submission), () => this.process(submission as Submission, {}, true));
+  validate(submission: DryRunSubmission): Promise<EvmSubmitResult> {
+    return this.enqueue(submissionCommitmentId(submission as Submission), () => this.process(submission as Submission, {}, true));
   }
 
-  trigger(commitmentId: Hex32, timeout: TimeoutKind, options: EvmSubmitOptions = {}): Promise<SubmitResult> {
+  trigger(commitmentId: Hex32, timeout: TimeoutKind, options: EvmSubmitOptions = {}): Promise<EvmSubmitResult> {
     return this.submit({ kind: 'trigger', commitmentId, timeout }, options);
   }
 
@@ -828,10 +819,10 @@ export class EvmSettlement implements Settlement {
     return next;
   }
 
-  private async process(s: Submission, options: EvmSubmitOptions, dryRun: boolean): Promise<SubmitResult> {
+  private async process(s: Submission, options: EvmSubmitOptions, dryRun: boolean): Promise<EvmSubmitResult> {
     const key = dryRun ? undefined : options.idempotencyKey;
     const body = canonicalKeccak(toJson(s));
-    const lane = laneOf(s) as Hex32;
+    const lane = submissionCommitmentId(s) as Hex32;
     // T-219: this commitment's transaction that a restart left in flight lands first, so a retry of it replays the
     // mined result instead of meeting the state that transaction moved.
     if (!dryRun) for (const row of this.world.inFlight?.() ?? []) if (row.note && lc(row.note.commitmentId) === lc(lane)) await this.land(row);
@@ -860,7 +851,8 @@ export class EvmSettlement implements Settlement {
       // or a restart lands that receipt with its answer.
       if (e instanceof Refusal) {
         release();
-        return { ok: false, problem: e.problem };
+        // The revert as a fact, beside the words that describe it: `Reverted` is thrown where that message is written.
+        return e instanceof Reverted ? { ok: false, problem: e.problem, reverted: true } : { ok: false, problem: e.problem };
       }
       throw e;
     }
@@ -2710,8 +2702,8 @@ function postedOf(book: Book): Delivery | undefined {
   return book.posted ? deliveryOf(book.posted.note) : undefined;
 }
 
-/** The commitment a submission touches, for its lane. */
-function laneOf(s: Submission): string {
+/** The ID of the commitment a submission touches. Its queue and its relayer lane (live.ts `laneOf`) are keyed by it. */
+function submissionCommitmentId(s: Submission): string {
   switch (s.kind) {
     case 'offer':
       return s.commitment.id;

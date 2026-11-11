@@ -6,41 +6,69 @@ import { BaseSequencer, type TestSpecification } from 'vitest/node';
 // files sorted by path hash into equal counts, which put most of the heavy files in one shard. This
 // packs them by cost instead, longest first, onto the shard with the least so far. Costs are the
 // per-file times, hooks included, in tenths of a second, that the default reporter printed in a
-// pull-request CI run (T-022, run 41227571431); a file not listed costs 2. A stale table changes
-// only the balance: every file is still assigned to exactly one shard.
+// pull-request CI run (T-313, run 42802205136, 2026-11-10: every file at half a second or more, 57 of
+// 134); a file not listed costs 2. Before this table the four shards ran 63, 161, 106 and 224 s of
+// tests. A stale table changes only the balance: every file is still assigned to exactly one shard.
+// To refresh it, sum the "✓ <file> (<n> tests) <ms>" lines of the four test jobs' logs.
 const COST: Record<string, number> = {
-  'packages/testkit/src/runner.test.ts': 151,
-  'packages/judgment/src/screen.test.ts': 141,
-  'apps/adjudicator/src/service.test.ts': 139,
-  'apps/demo/agents/agents.test.ts': 99,
-  'apps/demo/src/cli.test.ts': 82,
-  'packages/testkit/src/judgment.test.ts': 72,
+  'examples/e2e-scenarios-silent.test.ts': 1189,
+  'examples/e2e-scenarios-scripted.test.ts': 592,
+  'examples/e2e-round.test.ts': 541,
+  'apps/adjudicator/src/service.test.ts': 421,
+  'examples/e2e-adjudicator.test.ts': 367,
+  'examples/e2e-scenarios-escalation.test.ts': 259,
+  'examples/e2e-run.test.ts': 224,
+  'packages/judgment/src/screen.test.ts': 132,
+  'apps/test-agents/src/try.test.ts': 121,
+  'packages/testkit/src/runner.test.ts': 105,
+  'apps/demo-cloud/src/world.test.ts': 92,
+  'examples/e2e-keys.test.ts': 88,
+  'apps/test-agents/src/seller.test.ts': 86,
+  'apps/demo/agents/agents.test.ts': 84,
+  'apps/adjudicator/src/simchain-adapter.test.ts': 80,
+  'packages/settlement/evm/read-after-write.test.ts': 78,
+  'examples/try.test.ts': 77,
+  'apps/demo/src/cli.test.ts': 75,
+  'packages/settlement/sim/properties.test.ts': 69,
   'examples/examples.test.ts': 68,
-  'packages/settlement/sim/properties.test.ts': 64,
-  'apps/demo/src/transcript/render.test.ts': 52,
-  'apps/demo/src/transcript/narrate.test.ts': 51,
+  'packages/judgment/src/pipeline.test.ts': 59,
+  'apps/demo/src/transcript/render.test.ts': 54,
   'apps/demo/src/source/simchain.test.ts': 51,
-  'packages/judgment/src/pipeline.test.ts': 48,
-  'packages/judgment/src/redteam.test.ts': 45,
-  'tools/sim/world.test.ts': 30, // estimated by the PR 55 review, not yet measured in CI
-  'apps/operator/src/sim-world.test.ts': 20,
-  // T-015, from PR 56's CI run 41288716778 (shard 2/4).
-  'tests/contract/openapi.contract.test.ts': 23,
-  'tools/sim/check.test.ts': 10, // estimated by the PR 55 review, not yet measured in CI
-  'examples/verify.test.ts': 20,
-  'examples/early-accept.test.ts': 20, // T-024, measured locally at about 2 s; not yet measured in CI
-  'examples/try.test.ts': 80, // T-037, measured locally at about 8 s (two deals in child processes); not yet measured in CI
-  'apps/test-agents/src/seller.test.ts': 80, // T-222, measured locally at about 8 s; not yet measured in CI
-  'apps/test-agents/src/try.test.ts': 115, // T-222, measured locally at about 11.5 s (seven runs in child processes); not yet measured in CI
-  'tests/gen-demo-data.test.ts': 18,
-  'packages/settlement/sim/simchain.test.ts': 18,
-  'apps/demo/src/transcript/untrusted.test.ts': 13,
+  'packages/testkit/src/judgment.test.ts': 46,
+  'examples/e2e-settle.test.ts': 45,
+  'apps/demo/src/transcript/narrate.test.ts': 43,
+  'apps/operator/src/sim-world.test.ts': 42,
+  'examples/seller-adapter.test.ts': 40, // T-318, measured locally at about 4 s; not yet measured in CI
+  'tests/contract/openapi.contract.test.ts': 36,
+  'examples/verify.test.ts': 29,
+  'packages/settlement/sim/simchain.test.ts': 23,
+  'tools/sim/check.test.ts': 22,
+  'examples/early-accept.test.ts': 21,
+  'examples/private.test.ts': 21,
+  'tools/sim/world.test.ts': 18,
+  'apps/operator/src/agent-ready.test.ts': 15,
+  'apps/operator/src/registrations.test.ts': 15,
+  'packages/core/src/crypto/envelope.test.ts': 15,
+  'apps/demo/src/transcript/untrusted.test.ts': 14,
+  'examples/e2e-scenarios-direct.test.ts': 14,
+  'packages/core/src/validators.test.ts': 14,
+  'tests/gen-demo-data.test.ts': 14,
   'apps/operator/src/operator.test.ts': 13,
-  'packages/core/src/crypto/envelope.test.ts': 12,
-  'apps/adjudicator/src/simchain-adapter.test.ts': 11,
-  'packages/core/src/parse.test.ts': 6,
-  'packages/core/src/money/lint.test.ts': 6,
-  'apps/operator/src/neutrality.test.ts': 6,
+  'apps/demo-cloud/src/worker.test.ts': 12,
+  'packages/core/src/state.test.ts': 12,
+  'tests/costs/collect.test.ts': 11,
+  'apps/adjudicator/src/drand.test.ts': 10,
+  'packages/judgment/src/redteam.test.ts': 10,
+  'apps/operator/src/fee.test.ts': 8,
+  'examples/e2e-chain.test.ts': 7,
+  'apps/demo-cloud/src/startup.test.ts': 5,
+  'apps/operator/src/idempotency.test.ts': 5,
+  'packages/core/src/eip712.test.ts': 5,
+  'packages/core/src/money/lint.test.ts': 5,
+  'packages/core/src/parse.test.ts': 5,
+  'packages/judgment/src/sample.test.ts': 5,
+  'tests/read-after-write.lint.test.ts': 5,
+  'tests/spec.test.ts': 5,
 };
 const DEFAULT_COST = 2;
 

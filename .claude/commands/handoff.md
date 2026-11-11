@@ -10,4 +10,4 @@ Update the active task file's Handoff section with:
 - **Open questions:** anything that needs Rafa or another lane.
 - **Risks noticed:** anything outside this task's scope that looks wrong.
 
-Append a three-line entry to `docs/log/<today>.md`: done, next, blocked.
+Append a three-line entry (done, next, blocked) to the day's log entry. The maintainers keep the daily log in the private repository, as `control/log/<today>.md` (checked out at `reports/crow-private/` inside the main checkout on the maintainer's machine). Without that checkout, skip this step: the Handoff section carries the note.

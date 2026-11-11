@@ -2,5 +2,5 @@
   "extends": "../tsconfig.base.json",
   "compilerOptions": { "rootDir": ".", "outDir": "dist", "types": ["node"], "rewriteRelativeImportExtensions": true, "erasableSyntaxOnly": true },
   "include": ["*.ts"],
-  "references": [{ "path": "../apps/operator" }, { "path": "../apps/demo-cloud" }]
+  "references": [{ "path": "../apps/operator" }, { "path": "../apps/demo-cloud" }, { "path": "../packages/judgment" }, { "path": "../packages/testkit" }]
 }

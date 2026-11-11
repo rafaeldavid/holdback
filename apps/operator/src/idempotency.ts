@@ -1,6 +1,6 @@
 // Idempotency-Key middleware (docs/api.md, Conventions). A key binds to the first request that succeeded with it:
 // the same request again replays the stored response, another request is a conflict. Refusals are not stored,
-// so a corrected call can reuse its key (as SimChain does; docs/backlog.md). Concurrent requests with one key
+// so a corrected call can reuse its key (as SimChain does; backlog). Concurrent requests with one key
 // run one after another, so the handler never runs twice for a key it has already succeeded with.
 import { canonicalKeccak, type Hex32 } from '@holdback/core';
 

@@ -106,7 +106,7 @@ describe('startup guards apply to every operator', () => {
     const registry = simRegistry(w.chain);
     const options = { settlement: w.chain, registry, signerKey: `0x${'22'.repeat(32)}` as const, operatorId: 'direct' };
     expect(() => new Operator({ ...options, env: { STRIPE_SECRET_KEY: 'sk_live_x' } })).toThrow(/sk_test_/);
-    expect(() => new Operator({ ...options, env: {}, registry: { ...registry, chainId: 100 } })).toThrow(/allowlist/);
+    expect(() => new Operator({ ...options, env: {}, registry: { ...registry, chainId: 31_313_313 } })).toThrow(/allowlist/);
     expect(() => new Operator({ ...options, env: {} })).not.toThrow();
   });
 });
@@ -317,5 +317,60 @@ describe('reads', () => {
     const ids = [...text.matchAll(/^id: (\d+)$/gm)].map((m) => Number(m[1]));
     expect(ids.slice(0, 2)).toEqual([1, 2]);
     expect(text).toContain('event: adjudicator.accepted');
+  });
+
+  it('a failed read of the settlement events fails that request only; the next read indexes every event once (T-313)', async () => {
+    await held();
+    // A delivery sent straight to the settlement layer: events this node has not indexed yet.
+    await w.chain.submit(await w.deal.deliver());
+    const events = w.chain.events.bind(w.chain);
+    let failures = 1;
+    // The settlement layer's event read hands over one event, then fails, once.
+    w.chain.events = async function* (fromSeq?: number) {
+      let handed = 0;
+      for await (const e of events(fromSeq)) {
+        if (failures > 0 && handed++ === 1) {
+          failures--;
+          throw new Error('the event read failed (test)');
+        }
+        yield e;
+      }
+    };
+    const mine = w.chain.log().filter((e) => e.commitmentId === w.deal.id).map((e) => e.seq);
+    expect(mine.length).toBeGreaterThan(5);
+    expect((await get(`/v1/commitments/${w.deal.id}/events?limit=200`)).status).toBe(500);
+    expect(failures).toBe(0);
+    const page = await get(`/v1/commitments/${w.deal.id}/events?limit=200`);
+    expect(page.status).toBe(200);
+    expect((await json<{ items: Array<{ seq: number }> }>(page)).items.map((e) => e.seq)).toEqual([...mine].reverse());
+  });
+
+  it('a throw while indexing one event leaves it for the next read, which indexes it once (T-313)', async () => {
+    await held();
+    await w.chain.submit(await w.deal.deliver());
+    const events = w.chain.events.bind(w.chain);
+    let failures = 1;
+    // The first event this node has not indexed cannot be read, once: the index loop throws in its body.
+    w.chain.events = async function* (fromSeq?: number) {
+      for await (const e of events(fromSeq)) {
+        if (failures === 0) yield e;
+        else {
+          yield Object.defineProperty({ ...e }, 'commitmentId', {
+            enumerable: true,
+            get: () => {
+              if (failures === 0) return e.commitmentId;
+              failures--;
+              throw new Error('the event could not be indexed (test)');
+            },
+          });
+        }
+      }
+    };
+    const mine = w.chain.log().filter((e) => e.commitmentId === w.deal.id).map((e) => e.seq);
+    expect((await get(`/v1/commitments/${w.deal.id}/events?limit=200`)).status).toBe(500);
+    expect(failures).toBe(0);
+    const page = await get(`/v1/commitments/${w.deal.id}/events?limit=200`);
+    expect(page.status).toBe(200);
+    expect((await json<{ items: Array<{ seq: number }> }>(page)).items.map((e) => e.seq)).toEqual([...mine].reverse());
   });
 });

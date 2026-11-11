@@ -455,7 +455,7 @@ export async function main(argv: readonly string[], io: SnapIO): Promise<number>
       continue;
     }
     passed++;
-    io.out(`${run.outcome.label === 'todo' ? 'pass' : 'pass'}  ${name}${run.outcome.label === 'todo' ? ' (todo)' : ''}${note}`);
+    io.out(`pass  ${name}${run.outcome.label === 'todo' ? ' (todo)' : ''}${note}`);
   }
   io.out(`snap: ${passed} passed, ${failed} failed`);
   return failed ? 1 : 0;

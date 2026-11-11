@@ -7,6 +7,7 @@ export { compileSafeRegex, type SafeRegex } from './checks/safe-regex.js';
 export * from './intake.js';
 export * from './normalize.js';
 export * from './pipeline.js';
+export * from './preflight.js';
 export * from './prompt.js';
 export * from './panel.js';
 export * from './providers/index.js';

@@ -1,16 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { formatTusd, TUSD, tusd } from './units.js';
+import { formatTusd, TUSD, wholeTusd } from './units.js';
 
 describe('tUSD units', () => {
   it('parses whole and fractional tUSD into base units, as a decimal string', () => {
-    expect(tusd('2000')).toEqual({ token: 'tUSD', amount: '2000000000' });
-    expect(tusd('0.5')).toEqual({ token: 'tUSD', amount: '500000' });
-    expect(tusd('12.000001')).toEqual({ token: 'tUSD', amount: '12000001' });
-    expect(tusd(25n)).toEqual({ token: 'tUSD', amount: '25000000' });
+    expect(wholeTusd('2000')).toEqual({ token: 'tUSD', amount: '2000000000' });
+    expect(wholeTusd('0.5')).toEqual({ token: 'tUSD', amount: '500000' });
+    expect(wholeTusd('12.000001')).toEqual({ token: 'tUSD', amount: '12000001' });
+    expect(wholeTusd(25n)).toEqual({ token: 'tUSD', amount: '25000000' });
   });
 
   it('refuses anything that is not a plain non-negative decimal with at most 6 places', () => {
-    for (const bad of ['1.0000001', '-1', '1e3', '', '.5', '1,000', ' 1', 'NaN']) expect(() => tusd(bad), bad).toThrow(/tUSD/);
+    for (const bad of ['1.0000001', '-1', '1e3', '', '.5', '1,000', ' 1', 'NaN']) expect(() => wholeTusd(bad), bad).toThrow(/tUSD/);
   });
 
   it('formats base units with separators and no trailing zeros', () => {

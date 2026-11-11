@@ -1,8 +1,8 @@
-// Output-surface defenses for snapshot text that can come from a deliverable or a party: check details
-// (csv_columns_exact quotes the seller's header names), screen signal details, aggregate reasons, refusal
-// details and run errors. Hard rule: deliverables are untrusted, and a .expect.md is an output surface too.
-// A copy of apps/demo/src/transcript/untrusted.ts (plain, mdText, fenced): a package must not import an app.
-// Keep the two in step; the hostile-header tests in both places pin the behavior.
+// Output-surface defenses for text that can come from a deliverable or a party: check details (csv_columns_exact
+// quotes the seller's header names), screen signal details, aggregate reasons, refusal details, run errors and
+// the seller-authored terms in the signed message. Hard rule: deliverables are untrusted. Every surface (terminal,
+// Markdown, HTML, JSON, and a .expect.md snapshot) gets text that cannot add escapes, markup, links or invisible
+// reordering. This is the one module: the snapshots use it here and apps/demo imports it from @holdback/testkit.
 
 /** C0 and C1 controls, including ESC (terminal escapes), CR, LF and TAB. */
 const CONTROLS = /[\u0000-\u001f\u007f-\u009f]/g;
@@ -23,6 +23,13 @@ export function mdText(s: string): string {
     .replace(/[\\`*_[\]<>!|~#&]/g, '\\$&')
     .replace(/:\/\//g, '\\://')
     .replace(/\bwww\./gi, (m) => `${m.slice(0, 3)}\\.`);
+}
+
+/** JSON text with every invisible or control character written as a \u escape, so a viewer cannot be tricked. */
+export function safeJson(value: unknown): string {
+  return JSON.stringify(value, null, 2).replace(INVISIBLE, (c) =>
+    [...c].flatMap((ch) => (ch.length === 2 ? [ch.charCodeAt(0), ch.charCodeAt(1)] : [ch.charCodeAt(0)])).map((u) => `\\u${u.toString(16).padStart(4, '0')}`).join(''),
+  );
 }
 
 /** A fenced code block whose fence is longer than any backtick run inside, so content cannot close it. */

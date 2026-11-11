@@ -2,19 +2,18 @@
 // Two origins (127.0.0.1 and localhost on one port) stand in for the two operator Workers; a timer stands in
 // for the Durable Object's alarm. The deal is the examples' agent (examples/agent.ts) with keys it made itself.
 import { readFileSync } from 'node:fs';
-import { createServer, type Server } from 'node:http';
-import type { AddressInfo } from 'node:net';
 import nacl from 'tweetnacl';
 import { generatePrivateKey } from 'viem/accounts';
 import { afterEach, describe, expect, it } from 'vitest';
 import { Agent } from '../../../examples/agent.ts';
+import { serveTwoOrigins } from '../../../examples/two-origins.ts';
 import { LIVE_REGISTRY_URI, liveRegistry, markerFake, placeholderRegistry } from '@holdback/adjudicator';
 import { canonicalKeccak, DRAND_QUICKNET_CHAIN_HASH, holdbackDomain, verifyRegistration, type Address, type AdjudicatorRegistration, type RegisteredAdjudicator } from '@holdback/core';
 import { LiveChain, type DeploymentFile } from '@holdback/settlement/live';
 import { encodePublicKey, generateEncryptionKeyPair } from '@holdback/core/crypto';
 import { MemoryFeedbackStore, signRegistration, testAccount, type StoredRegistration, type TestAccount } from '@holdback/operator';
 import { MemoryStorage, PublicWorld, type PublicWorldOptions } from './index.js';
-import { BondReads, TimeoutBudgetRows } from './world.js';
+import { BondReads, DEMO_FAUCET_MAX_GRANT, DEMO_MAX_CIPHERTEXT_BYTES, TimeoutBudgetRows } from './world.js';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -32,36 +31,8 @@ afterEach(async () => void (await Promise.all(running.splice(0).map((r) => r.clo
  */
 async function serve(options: Partial<PublicWorldOptions> = {}, storage = new MemoryStorage(), client?: string, { passes = true } = {}): Promise<Running> {
   const world = await PublicWorld.open({ storage, env: {}, minWindowSec: 2, ...options });
-  const server: Server = createServer(async (req, res) => {
-    const host = req.headers.host ?? '';
-    const node = host.startsWith('localhost') ? 1 : 0;
-    const chunks: Buffer[] = [];
-    for await (const c of req) chunks.push(c as Buffer);
-    const body = ['GET', 'HEAD'].includes(req.method ?? 'GET') ? undefined : Buffer.concat(chunks);
-    const headers = Object.fromEntries(Object.entries(req.headers).filter(([, v]) => typeof v === 'string')) as Record<string, string>;
-    const r = await world.fetch(new Request(`http://${host}${req.url}`, { method: req.method ?? 'GET', headers, ...(body ? { body } : {}) }), { node, origin: `http://${host}`, client: client ?? req.socket.remoteAddress ?? 'unknown' });
-    res.writeHead(r.status, Object.fromEntries(r.headers));
-    res.end(Buffer.from(await r.arrayBuffer()));
-  });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const port = (server.address() as AddressInfo).port;
-  let ticking = passes;
-  const loop = (async () => {
-    while (ticking) {
-      await world.work();
-      await new Promise((r) => setTimeout(r, 100));
-    }
-  })();
-  const r: Running = {
-    world,
-    urls: [`http://127.0.0.1:${port}`, `http://localhost:${port}`],
-    close: async () => {
-      ticking = false;
-      await loop;
-      await new Promise<void>((resolve) => server.close(() => resolve()));
-      server.closeAllConnections();
-    },
-  };
+  const { urls, close } = await serveTwoOrigins(world, { tickMs: passes ? 100 : undefined, client, keepContentLength: true });
+  const r: Running = { world, urls, close };
   running.push(r);
   return r;
 }
@@ -103,6 +74,44 @@ describe('public mode', () => {
     const both = await Promise.all([post(`${urls[0]}/v1/faucet`, { address: a.address }, 'k-race-1'), post(`${urls[1]}/v1/faucet`, { address: a.address }, 'k-race-2')]);
     expect(both.map((r) => r.status).sort()).toEqual([200, 429]);
     expect(((await (await fetch(`${urls[0]}/v1/balances/${a.address}`)).json()) as J).amount).toBe('1000000000');
+  });
+
+  it('grants the amount a request names, up to the cap discovery states: a fresh buyer funds a 2,000 tUSD deal, fees included (T-314)', async () => {
+    // The live demo's operator fee is 4.71 tUSDC a deal; with the 1.00 tUSD adjudication fee a 2,000 tUSD deal costs 2,005.71 tUSD.
+    const { urls } = await serve({ env: { OPERATOR_FEE_BPS: '1', OPERATOR_FEE_MIN: '4710000' } });
+    const d = await discovery(urls);
+    const cap = DEMO_FAUCET_MAX_GRANT.toString();
+    expect(d.demo.faucet).toEqual({ path: '/v1/faucet', grant: { token: 'tUSD', amount: '1000000000' }, maxGrant: { token: 'tUSD', amount: cap }, perAddressEverySec: 3600, perClientPerWindow: 10 });
+    expect(d.notes.join('\n')).toMatch(/"amount"/);
+    const [buyer, seller] = [freshAgent(urls), freshAgent(urls)];
+    // Above the cap: refused by name, nothing granted, and the address keeps its turn in the window.
+    const over = await post(`${urls[0]}/v1/faucet`, { address: buyer.address, amount: (DEMO_FAUCET_MAX_GRANT + 1n).toString() }, 'k-over');
+    const refusal = (await over.json()) as J;
+    expect([over.status, refusal.type, refusal.field]).toEqual([400, 'invalid_terms', 'amount']);
+    expect(refusal.detail).toContain(cap);
+    expect(((await (await fetch(`${urls[0]}/v1/balances/${buyer.address}`)).json()) as J).amount).toBe('0');
+    const total = 2_005_710_000n;
+    const granted = await buyer.call('POST', '/v1/faucet', { address: buyer.address, amount: total.toString() });
+    expect(granted).toMatchObject({ granted: { token: 'tUSD', amount: total.toString() }, balance: { token: 'tUSD', amount: total.toString() } });
+    // The window holds whatever the amount: a second ask waits.
+    const again = await post(`${urls[1]}/v1/faucet`, { address: buyer.address, amount: '1' }, 'k-again');
+    expect([again.status, ((await again.json()) as J).type]).toEqual([429, 'rate_limited']);
+    // The cap itself is granted.
+    expect((await seller.call('POST', '/v1/faucet', { address: seller.address, amount: cap })).balance.amount).toBe(cap);
+    const offer = await seller.offer(offerRequest(d, seller, buyer, { price: { token: 'tUSD', amount: '2000000000' } }));
+    await buyer.waitFor(offer.id, ['AcceptedByAdjudicator']);
+    expect((await buyer.agreeAndFund(offer.terms, total)).escrowState).toBe('Held');
+    expect((await buyer.call('GET', `/v1/balances/${buyer.address}`)).amount).toBe('0');
+  });
+
+  it('states the faucet cap in the agent docs as the code has it (T-314)', () => {
+    const cap = `${(DEMO_FAUCET_MAX_GRANT / 1_000_000n).toLocaleString('en-US')} tUSDC`;
+    expect(cap).toBe('1,000,000 tUSDC');
+    for (const file of ['site/llms.txt', 'docs/api.md']) {
+      const text = readFileSync(new URL(`../../../${file}`, import.meta.url), 'utf8');
+      const faucet = text.split('\n').filter((line) => /faucet/i.test(line) && line.includes('maxGrant'));
+      expect(faucet.some((line) => line.includes(cap)), `${file} states the faucet cap of ${cap} beside maxGrant`).toBe(true);
+    }
   });
 
   it('renews the mandate on every grant: past its 30 days or close to them, the address gets a fresh one in place of the old', async () => {
@@ -176,7 +185,7 @@ describe('public mode', () => {
       expect(notes).toMatch(/one shared simulated settlement layer/i);
       expect(notes).toMatch(/POST \/v1\/faucet/);
       expect(notes).toMatch(/scripted/i);
-      expect(d.limits).toEqual({ reads: { limit: 1200, windowSec: 60, per: 'client' }, writes: { limit: 120, windowSec: 60, per: 'signer' }, idempotency: { replays: 'success-only', retention: 'process' } });
+      expect(d.limits).toEqual({ reads: { limit: 1200, windowSec: 60, per: 'client' }, writes: { limit: 120, windowSec: 60, per: 'signer' }, maxCiphertextBytes: 1_048_576, idempotency: { replays: 'success-only', retention: 'process' } });
       expect(d.demo).toMatchObject({ clubId: 'demo-club', operators: urls, token: { id: 'tUSD', decimals: 6 }, minWindowSec: 2, faucet: { path: '/v1/faucet', grant: { token: 'tUSD', amount: '1000000000' }, perAddressEverySec: 3600, perClientPerWindow: 10 } });
       expect(d.demo.adjudicators.map((a: J) => a.role)).toEqual(['primary', 'fallback', 'appeal']);
       const root = (await (await fetch(`${u}/`)).json()) as J;
@@ -189,6 +198,31 @@ describe('public mode', () => {
     // The two nodes sign receipts with different keys.
     const signers = await Promise.all(urls.map(async (u) => ((await (await fetch(`${u}/v1/status`)).json()) as J).receiptSigner));
     expect(new Set(signers).size).toBe(2);
+  });
+
+  it('publishes the largest ciphertext it stores, refuses a larger one by that number, and the docs state the same (T-315)', async () => {
+    const { urls } = await serve();
+    const cap = DEMO_MAX_CIPHERTEXT_BYTES;
+    // Discovery, on both nodes.
+    for (const u of urls) expect(((await (await fetch(`${u}/.well-known/holdback.json`)).json()) as J).limits.maxCiphertextBytes).toBe(cap);
+    const upload = (bytes: Uint8Array, key: string) => fetch(`${urls[0]}/v1/ciphertext`, { method: 'POST', headers: { 'content-type': 'application/octet-stream', 'idempotency-key': key }, body: bytes });
+    // The node: exactly the cap is stored and served back; one byte more is refused with the cap in `maxBytes`.
+    const fits = await upload(new Uint8Array(cap).fill(7), 'k-fits');
+    const stored = (await fits.json()) as J;
+    expect([fits.status, stored.bytes]).toEqual([200, cap]);
+    expect((await (await fetch(stored.uri)).arrayBuffer()).byteLength).toBe(cap);
+    const over = await upload(new Uint8Array(cap + 1).fill(7), 'k-over');
+    const refusal = (await over.json()) as J;
+    expect([over.status, refusal.type, refusal.maxBytes]).toEqual([413, 'payload_too_large', cap]);
+    expect(refusal.detail).toContain(String(cap));
+    // The docs: each names the field and the demo's number beside it, and neither says a node stores 10 MiB.
+    const bytes = `${cap.toLocaleString('en-US')} bytes`;
+    expect(bytes).toBe('1,048,576 bytes');
+    for (const file of ['site/llms.txt', 'docs/api.md', 'spec/openapi/paths.json']) {
+      const text = readFileSync(new URL(`../../../${file}`, import.meta.url), 'utf8');
+      expect(text.split('\n').some((line) => line.includes('maxCiphertextBytes') && line.includes(bytes)), `${file} states ${bytes} beside limits.maxCiphertextBytes`).toBe(true);
+      expect(text.split('\n').filter((line) => /ciphertext/i.test(line) && /at most 10 MiB|ciphertext 10 MiB/.test(line)), `${file} no longer says a node stores 10 MiB`).toEqual([]);
+    }
   });
 
   it('notes in the body which panel judges a rubric offer; a checks-only offer gets no notice', async () => {
@@ -741,7 +775,7 @@ describe('adjudicator passes (T-057)', () => {
     await first.close();
     running.splice(running.indexOf(first), 1);
 
-    // Restarted with live judges, the primary refuses the delivery (registry_mismatch, docs/backlog.md) on every
+    // Restarted with live judges, the primary refuses the delivery (registry_mismatch, backlog) on every
     // pass until judgeBy, two hours away: a case no pass can finish.
     const stuck = await wake(storage, { now, judgeProvider: markerFake() });
     expect(stuck.nextPass()).toBe(t + 1000);
@@ -784,6 +818,60 @@ describe('adjudicator passes (T-057)', () => {
     expect((await delivery).ok).toBe(true);
     expect((await world.chain.state(offer.id))?.escrowState).toBe('Delivered');
     expect(world.active()).toBe(true);
+  });
+});
+
+// T-313: a rejected storage write leaves memory ahead of storage. The world stays failed and says so (`broken`); a
+// world opened from the same storage starts from what was written, as after a restart.
+describe('a failed storage write (T-313)', () => {
+  it('fails the call that hit it and every call after, reports it once, and a world reopened from the same storage keeps what clients were told', async () => {
+    const storage = new MemoryStorage();
+    const errors: string[] = [];
+    const first = await serve({ onError: (e) => void errors.push(e.message) }, storage, undefined, { passes: false });
+    const d = await discovery(first.urls);
+    const [seller, buyer] = [freshAgent(first.urls), freshAgent(first.urls)];
+    for (const a of [seller, buyer]) await a.call('POST', '/v1/faucet', { address: a.address });
+    const offer = await seller.offer(offerRequest(d, seller, buyer));
+    const balance = async (a: Agent, urls = first.urls) => (await freshAgent(urls).call('GET', `/v1/balances/${a.address}`)).amount as string;
+    const told = [await balance(seller), await balance(buyer)];
+    expect(first.world.broken).toBe(false);
+
+    // The pass accepts the offer in memory; storage rejects its journal write, once.
+    const put = storage.put.bind(storage);
+    let failures = 1;
+    storage.put = async (entries) => {
+      if (failures > 0 && Object.keys(entries).some((k) => k.startsWith('j:'))) {
+        failures--;
+        throw new Error('storage put failed (test)');
+      }
+      return put(entries);
+    };
+    await expect(first.world.work()).rejects.toThrow('storage put failed (test)');
+    expect(first.world.broken).toBe(true);
+    // Storage works again, and the world still fails: it does not write on from a state storage never held.
+    await expect(first.world.fetch(new Request('http://127.0.0.1/v1/status'), { node: 0, origin: 'http://127.0.0.1', client: 'test' })).rejects.toThrow('storage put failed (test)');
+    expect(first.world.broken).toBe(true);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatch(/storage write failed.*storage put failed \(test\)/);
+    // A broken world takes no new work: a grant fails before the faucet runs, and a pass before the adjudicators do.
+    const digest = first.world.digest();
+    const grant = new Request('http://127.0.0.1/v1/faucet', { method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': 'late' }, body: JSON.stringify({ address: freshAgent(first.urls).address }) });
+    await expect(first.world.fetch(grant, { node: 0, origin: 'http://127.0.0.1', client: 'test' })).rejects.toThrow('storage put failed (test)');
+    await expect(first.world.work()).rejects.toThrow('storage put failed (test)');
+    expect(first.world.digest()).toBe(digest);
+    await first.close();
+    running.splice(running.indexOf(first), 1);
+
+    // A world opened from the same storage: the offer and the grants the clients were answered for are there, and the
+    // acceptance no one was told about is not. The next pass accepts again, and this time it is written.
+    const second = await serve({}, storage, undefined, { passes: false });
+    expect(second.world.broken).toBe(false);
+    expect((await second.world.chain.state(offer.id))?.escrowState).toBe('Offered');
+    expect([await balance(seller, second.urls), await balance(buyer, second.urls)]).toEqual(told);
+    await second.world.work();
+    expect((await second.world.chain.state(offer.id))?.escrowState).toBe('AcceptedByAdjudicator');
+    const third = await PublicWorld.open({ storage, env: {}, minWindowSec: 2 });
+    expect((await third.chain.state(offer.id))?.escrowState).toBe('AcceptedByAdjudicator');
   });
 });
 

@@ -92,7 +92,7 @@ node site/build.mjs && node site/check.mjs   # the site and its agent docs (site
 
 ## Start here (for a new session or agent)
 
-1. Read this file, then the latest `docs/log/` entry (files are named by date, `YYYY-MM-DD.md`; take the newest): its "Next steps (resume here)" list is the current work. Check `gh pr list` for open PRs before starting a task that may already be in flight.
+1. Read this file, then the newest entry of the daily log: its "Next steps (resume here)" list is the current work. The maintainers keep the log in the private repository under `control/log/` (files are named by date, `YYYY-MM-DD.md`; take the newest). On the maintainer's machine that repository is checked out at `reports/crow-private/` inside the main checkout. A session without it starts from `docs/plan.md` and the open pull requests. Check `gh pr list` for open PRs before starting a task that may already be in flight.
 2. `docs/plan.md` lists the current build's tasks by phase (Phases 0 to 2); each task file in `docs/tasks/` has Intent, acceptance criteria, Evidence and a Handoff section that says how to resume. Since 2026-11-06 the focus is stable EVM operations on Sepolia (D53), and Phase 2's exit criteria say when it is done (D54).
 3. `docs/operations.md`: what is live (escrow.stream, the API on Sepolia, the test seller, sign-ups, Crow Control at control.escrow.stream), how to deploy, secrets handling, and the gates.
 4. Open decisions and their history: `docs/decisions-today.md` (D1 to D54) and `docs/decisions/` (ADRs).

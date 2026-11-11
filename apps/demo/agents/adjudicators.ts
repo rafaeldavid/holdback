@@ -3,13 +3,13 @@
 // applies to the published registrations. Ledger (buyer) filters by the club rulebook and proposes a slate;
 // Tide-7 (seller) checks the slate against its own policy and agrees or refuses. The messages between them are
 // agent-to-agent: no protocol message, nothing on chain. Registrations are read as untrusted documents.
-import { parseAdjudicator, type Address, type Hex32, type Rulebook, type SettlementMode, type TokenAmount } from '@holdback/core';
+import { parseAdjudicator, type AdjudicatorRole, type Address, type Hex32, type Rulebook, type SettlementMode, type TokenAmount } from '@holdback/core';
 import { policyHashOf } from '@holdback/adjudicator';
 import type { LoadedRegistry } from '@holdback/judgment';
 import { formatTusd } from '@holdback/operator';
 import type { TermsTemplate } from '@holdback/testkit';
 import { demoRegistry, liveJudgesInUse, type Listing } from './bench.js';
-import { resolveJudges, ROLE_PLAY, type AdjudicatorRole, type BenchProfile } from './cast.js';
+import { resolveJudges, ROLE_PLAY, type BenchProfile } from './cast.js';
 
 export interface Slate {
   primary: Address;

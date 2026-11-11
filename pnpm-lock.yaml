@@ -306,6 +306,12 @@ importers:
 
   examples:
     dependencies:
+      '@holdback/judgment':
+        specifier: workspace:*
+        version: link:../packages/judgment
+      '@holdback/testkit':
+        specifier: workspace:*
+        version: link:../packages/testkit
       tweetnacl:
         specifier: ^1.0.3
         version: 1.0.3

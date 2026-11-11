@@ -590,7 +590,7 @@
               "schema": {
                 "type": "string",
                 "contentMediaType": "application/octet-stream",
-                "description": "The ciphertext bytes, at most 10 MiB"
+                "description": "The ciphertext bytes, at most `limits.maxCiphertextBytes` in discovery (1,048,576 bytes on the public demo)"
               }
             }
           }
@@ -792,7 +792,7 @@
           "core"
         ],
         "summary": "Get test tokens from the faucet",
-        "description": "Test networks only: credits test tokens to `address` and, on the public demo, admits it to the demo club with a mandate. `amount` is optional; a node may grant a fixed amount (`granted` says what). Limits: discovery `demo.faucet`; 429 carries `retryAfterSec`.",
+        "description": "Test networks only: credits test tokens to `address` and, on the public demo, admits it to the demo club with a mandate. `amount` is optional, up to `demo.faucet.maxGrant`; `granted` says what you got. Limits: discovery `demo.faucet`; 429 carries `retryAfterSec`.",
         "parameters": [
           {
             "$ref": "#/components/parameters/IdempotencyKey"
@@ -2819,7 +2819,7 @@
         }
       },
       "Problem413": {
-        "description": "Too large: payload_too_large (JSON bodies 1 MiB, ciphertext 10 MiB)",
+        "description": "Too large: payload_too_large with `maxBytes` (JSON bodies 1 MiB; ciphertext `limits.maxCiphertextBytes` in discovery)",
         "headers": {
           "Request-Id": {
             "$ref": "#/components/headers/RequestId"
@@ -7444,6 +7444,11 @@
             "minimum": 1,
             "description": "rate_limited: whole seconds to wait, as in Retry-After"
           },
+          "maxBytes": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "payload_too_large: the largest body this route takes, in bytes"
+          },
           "field": {
             "type": "string",
             "maxLength": 200,
@@ -7629,13 +7634,19 @@
             "required": [
               "idempotency"
             ],
-            "description": "This node's limits. `reads` and `writes` are absent when it does not throttle",
+            "description": "This node's limits. `reads` and `writes` are absent when it does not throttle, `maxCiphertextBytes` when it stores no ciphertext",
             "properties": {
               "reads": {
                 "$ref": "#/components/schemas/RateLimit"
               },
               "writes": {
                 "$ref": "#/components/schemas/RateLimit"
+              },
+              "maxCiphertextBytes": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 10485760,
+                "description": "The largest ciphertext POST /v1/ciphertext stores, in bytes; more gets 413 `payload_too_large` with `maxBytes`. The public demo stores 1,048,576 bytes (1 MiB). Absent on a node with no ciphertext store"
               },
               "idempotency": {
                 "type": "object",
@@ -7765,7 +7776,12 @@
                     "const": "/v1/faucet"
                   },
                   "grant": {
-                    "$ref": "#/components/schemas/TokenAmount"
+                    "$ref": "#/components/schemas/TokenAmount",
+                    "description": "What a request that names no `amount` gets"
+                  },
+                  "maxGrant": {
+                    "$ref": "#/components/schemas/TokenAmount",
+                    "description": "The largest `amount` one grant gives; a request above it gets 400 `invalid_terms` with `field: \"amount\"`. Absent when the faucet states no cap"
                   },
                   "perAddressEverySec": {
                     "type": "integer",
@@ -9144,7 +9160,7 @@
           "amount": {
             "type": "string",
             "pattern": "^[1-9][0-9]{0,30}$",
-            "description": "Optional, base units as a decimal string. A node may grant a fixed amount instead (the public demo does); `granted` says what you got"
+            "description": "Optional, base units as a decimal string, up to discovery's `demo.faucet.maxGrant`: for a deal, the price plus the adjudication fee plus the operator fee. Without it the faucet grants `demo.faucet.grant`; `granted` says what you got"
           }
         }
       },

@@ -38,7 +38,7 @@
 // After the adjudicators, each pass sends the deals' due timeouts at the relayer's gas (T-231): the reclaim, the
 // default, the appeal expiry and an accepted offer's expiry, so a deal ends when its parties are gone. A cap per pass
 // and a daily budget bound what that spends, and the alarm wakes at the next one due.
-import { canonicalKeccak, DRAND_QUICKNET_CHAIN_HASH, holdbackDomain, problem, registrationBodyHash, trimTrailingSlashes, wholeSecond, type AdjudicatorPolicy, type AdjudicatorRegistration, type Address, type EscrowState, type HoldbackDomain, type Hex32, type Judgment, type Mandate, type OperatorFeeSchedule, type Problem, type RegisteredAdjudicator, type SettlementEvent, type Sha256, type Timestamp, type TokenAmount } from '@holdback/core';
+import { canonicalKeccak, DRAND_QUICKNET_CHAIN_HASH, holdbackDomain, problem, registrationBodyHash, trimTrailingSlashes, wholeSecond, type AdjudicatorPolicy, type AdjudicatorRegistration, type AdjudicatorRole, type Address, type EscrowState, type HoldbackDomain, type Hex32, type Judgment, type Mandate, type OperatorFeeSchedule, type Problem, type RegisteredAdjudicator, type SettlementEvent, type Sha256, type Timestamp, type TokenAmount } from '@holdback/core';
 import { sha256 } from '@holdback/core/crypto';
 import { StoreError, type CiphertextStore } from '@holdback/core/store';
 import { declinesOf, drandQuicknet, testAdjudicator, type RandomnessSource, type TestAdjudicator } from '@holdback/adjudicator';
@@ -46,10 +46,12 @@ import {
   fetchHandler,
   nameToken,
   Operator,
+  POOL_TERMS,
   register,
   ReportLimiter,
   signRegistration,
   testAccount,
+  TUSD,
   type Bond,
   type DemoFacts,
   type FaucetOutcome,
@@ -71,16 +73,16 @@ import { StorageLanes } from './lanes.js';
 import type { WorldStorage } from './storage.js';
 import { dealFacts, Telemetry, type DayFacts, type TelemetryOptions } from './telemetry.js';
 
-export type Role = 'primary' | 'fallback' | 'appeal';
-
 export interface PublicWorldOptions {
   storage: WorldStorage;
   /** Checked by the operators' startup guards (no real money). */
   env: Readonly<Record<string, string | undefined>>;
   /** The demo club's minimum for each judge, fallback and appeal window, in seconds. Default 60. */
   minWindowSec?: number;
-  /** What the faucet grants, in base units. Default 1,000 tUSD. */
+  /** What the faucet grants when a request names no amount, in base units. Default 1,000 tUSD. */
   faucetAmount?: bigint;
+  /** The largest amount one grant gives, in base units. Default DEMO_FAUCET_MAX_GRANT. */
+  faucetMaxAmount?: bigint;
   /** One grant per address per window. Default one hour. */
   faucetWindowSec?: number;
   /** Grants per client (IP address) per window. Default 10. */
@@ -151,15 +153,24 @@ export interface Via {
 }
 
 export const DEMO_CLUB_ID = 'demo-club';
-const TUSD = 1_000_000n;
-const ADJUDICATORS: ReadonlyArray<{ role: Role; label: string; name: string }> = [
+const ADJUDICATORS: ReadonlyArray<{ role: AdjudicatorRole; label: string; name: string }> = [
   { role: 'primary', label: 'demo-adjudicator-a', name: 'Demo Adjudicator A' },
   { role: 'fallback', label: 'demo-adjudicator-b', name: 'Demo Adjudicator B' },
   { role: 'appeal', label: 'demo-adjudicator-c', name: 'Demo Adjudicator C' },
 ];
 const nameOf = (a: { name: string }, live: boolean) => `${a.name} (test; real checks, ${live ? 'live panel within a daily budget' : 'scripted panel'})`;
-const POOL_TERMS = { capitalChargeRateBps: 0, capitalChargeToPoolRateBps: 0, firstLossShareBps: 10000, noticePeriodSec: 691200 } as const;
-/** Largest ciphertext this demo stores (a Durable Object value is at most 2 MiB). */
+/**
+ * The largest amount one faucet grant gives: 1,000,000 test tokens (T-314). A request names its own `amount` up to
+ * this, so a buyer funds a deal priced like a real job, fees included, from one grant. The cap bounds this free
+ * service, never a deal's price: on a chain the test token is open-mint, so an agent that needs more mints it itself.
+ */
+export const DEMO_FAUCET_MAX_GRANT = 1_000_000n * TUSD;
+/**
+ * Largest ciphertext this demo stores: 1 MiB (T-315). Each ciphertext is one row of Durable Object storage, and a row
+ * (key and value) is at most 2 MiB, so 1 MiB leaves half the row free. Discovery states it as
+ * `limits.maxCiphertextBytes`; docs/api.md and site/llms.txt state the same number (world.test.ts compares them).
+ * A larger cap needs chunked rows or an object store first.
+ */
 export const DEMO_MAX_CIPHERTEXT_BYTES = 1_048_576;
 /**
  * Adjudicator passes stop this long after settlement last moved (a write or an adjudicator's action) or the world woke
@@ -501,6 +512,7 @@ function workAt(s: EscrowState, ours: (address: string) => boolean, now: number)
 export class PublicWorld {
   private persisted: number;
   private persisting: Promise<void> = Promise.resolve();
+  private failed = false;
   private lastActive = -Infinity;
   /** Adjudicator passes in a row that changed nothing. */
   private idlePasses = 0;
@@ -521,7 +533,7 @@ export class PublicWorld {
     readonly chain: SimChain | EvmSettlement,
     private readonly keys: TestAccount[],
     readonly operators: readonly Operator[],
-    readonly adjudicators: Record<Role, TestAdjudicator>,
+    readonly adjudicators: Record<AdjudicatorRole, TestAdjudicator>,
     private readonly panel: PanelConfig,
     /** Offers an adjudicator declined, with its reason, for the state read's notices. In memory: every pass declines again. */
     private readonly declined: Map<Hex32, string>,
@@ -634,6 +646,8 @@ export class PublicWorld {
     // Live or scripted judges, fixed for this instance: the registry it binds depends on which.
     const panel = panelConfig({ env: o.env, storage, now, ...(o.judgeProvider ? { judgeProvider: o.judgeProvider } : {}), ...(o.liveCallsPerDay !== undefined ? { liveCallsPerDay: o.liveCallsPerDay } : {}) });
     const faucetAmount = o.faucetAmount ?? 1_000n * TUSD;
+    const faucetMaxAmount = o.faucetMaxAmount ?? DEMO_FAUCET_MAX_GRANT;
+    if (faucetAmount > faucetMaxAmount) throw new Error(`faucetAmount ${faucetAmount} is above faucetMaxAmount ${faucetMaxAmount}`);
     const faucetWindowSec = o.faucetWindowSec ?? 3600;
     const faucetPerClient = o.faucetPerClient ?? 10;
     const tokenAmount = (v: bigint): TokenAmount => ({ token, amount: v.toString() }) as TokenAmount;
@@ -674,18 +688,19 @@ export class PublicWorld {
       pool,
       // ADR-0030 §4: the roles an offer leaves out are filled with the demo's three, which discovery names as defaults,
       // but only with one that would take its role on the terms (T-221 review); one the parties name gets a notice.
-      defaultAdjudicators: Object.fromEntries(adjKeys.map((a) => [a.role, lc(a.keys.address)])) as Record<Role, Address>,
+      defaultAdjudicators: Object.fromEntries(adjKeys.map((a) => [a.role, lc(a.keys.address)])) as Record<AdjudicatorRole, Address>,
       declines: declinesOf(() => Object.values(adjudicators)),
       judgment: (id) => records.get(id) ?? null,
-      // POST /v1/faucet: a fixed grant and a mandate in the demo club; `amount` is not honoured here.
-      faucet: grantFrom({ storage, ledger, club, principal, domain, token, symbol, amount: faucetAmount, windowSec: faucetWindowSec, perClient: faucetPerClient, now, ...(live ? { live } : {}) }),
+      // POST /v1/faucet: the amount the request names, up to the cap (the default grant when it names none), and a
+      // mandate in the demo club.
+      faucet: grantFrom({ storage, ledger, club, principal, domain, token, symbol, amount: faucetAmount, maxAmount: faucetMaxAmount, windowSec: faucetWindowSec, perClient: faucetPerClient, now, ...(live ? { live } : {}) }),
     };
     // ADR-0023: one schedule for both nodes (one operator), paid to one world address; from Worker variables. On a
     // chain the minimum also carries the gas these nodes pay for a deal (D33, amended 2026-11-03).
     const gasQuote = o.live ? (o.env['OPERATOR_FEE_GAS'] ?? '0') : undefined;
     const operatorFee = operatorFeeFromEnv(o.env, lc(key('demo-operator-fees').address) as Address, token, gasQuote);
     const feedback = feedbackFrom(o, (id) => telemetry.lookup(id));
-    const adjudicators = {} as Record<Role, TestAdjudicator>;
+    const adjudicators = {} as Record<AdjudicatorRole, TestAdjudicator>;
     const declined = new Map<Hex32, string>();
     const turnsDeclined = new Map<Hex32, DeclinedTurn>();
     const operators: Operator[] = [];
@@ -697,7 +712,7 @@ export class PublicWorld {
         clubId: club.id,
         token: { id: token, decimals: 6 },
         adjudicators: ADJUDICATORS.map((a) => ({ role: a.role, address: adjudicators[a.role].address, name: nameOf(a, panel.live) })),
-        faucet: { path: '/v1/faucet', grant: tokenAmount(faucetAmount), perAddressEverySec: faucetWindowSec, perClientPerWindow: faucetPerClient },
+        faucet: { path: '/v1/faucet', grant: tokenAmount(faucetAmount), maxGrant: tokenAmount(faucetMaxAmount), perAddressEverySec: faucetWindowSec, perClientPerWindow: faucetPerClient },
         operators: publicUrls.length ? publicUrls : operators.map((op) => op.baseUrl).filter(Boolean),
         minWindowSec: m,
         // Who judges rubric deals: the registry every adjudicator here binds, and today's live budget (UTC).
@@ -747,13 +762,14 @@ export class PublicWorld {
           settlement: chain,
           registry,
           store,
+          maxCiphertextBytes: DEMO_MAX_CIPHERTEXT_BYTES,
           ...(operatorFee ? { fee: operatorFee } : {}),
           ...(evm ? { erc3009: { funding: (t) => evm.fundingTypedData(t), operatorFee: (x) => evm.operatorFeeTypedData(x) } } : {}),
           signerKey: key(`demo-operator-${i + 1}`).privateKey,
           operatorId: `demo-op-${i + 1}`,
           env: o.env,
           rateLimit: o.rateLimit ?? { writes: 120, reads: 1200, windowMs: 60_000 },
-          notes: notesFor(club.id, m, faucetAmount, faucetWindowSec, panel, operatorFee, chainFacts),
+          notes: notesFor(club.id, m, { amount: faucetAmount, maxAmount: faucetMaxAmount, windowSec: faucetWindowSec }, panel, operatorFee, chainFacts),
           demo,
           notices,
           ...(feedback ? { feedback } : {}),
@@ -843,6 +859,16 @@ export class PublicWorld {
   }
 
   /**
+   * True once storage rejected a write (T-313). Memory then holds changes storage does not, and a chain world has
+   * handed over rows it cannot write again: a later write would leave a gap in the stored event log, which no restart
+   * can open (measured on anvil). So every later request and pass fails, and only a world opened anew from storage is
+   * safe to serve; the Durable Object drops a broken world for that (worker.ts).
+   */
+  get broken(): boolean {
+    return this.failed;
+  }
+
+  /**
    * True while adjudicator passes run: these adjudicators have a step to take now (or a chain world's setup is left),
    * and settlement moved, or the world woke with that step to take, in the last 15 minutes.
    */
@@ -919,10 +945,11 @@ export class PublicWorld {
 
   /**
    * Writes what is not yet in storage. SimChain: the journal entries. A chain world: each changed book in its row,
-   * new events and mandates into their pages. Serialized, so entries land once and in order.
+   * new events and mandates into their pages. Serialized, so entries land once and in order. After a rejected write
+   * every later call rejects with the same error and writes nothing: the world is `broken`.
    */
   private persist(): Promise<void> {
-    this.persisting = this.persisting.then(async () => {
+    const attempt = this.persisting.then(async () => {
       if (this.live) {
         const { books, events, mandates, relayed } = this.live.evm.drain();
         for (let i = 0; i < books.length; i += 100) await this.telemetry.storage.put(Object.fromEntries(books.slice(i, i + 100).map(([id, b]) => [`b:${id}`, b])));
@@ -939,6 +966,13 @@ export class PublicWorld {
         await this.telemetry.storage.put(Object.fromEntries(batch.map((e, j) => [jkey(this.persisted + i + j), e])));
       }
       this.persisted += fresh.length;
+    });
+    this.persisting = attempt.catch((e: unknown) => {
+      if (!this.failed) {
+        this.failed = true;
+        this.o.onError?.(new Error(`a storage write failed, so this world answers nothing more until it is reopened from storage: ${(e as Error).message}`));
+      }
+      throw e;
     });
     return this.persisting;
   }
@@ -1024,6 +1058,8 @@ export class PublicWorld {
 
   /** One adjudicator pass (the Durable Object alarm): accept or decline offers, trigger fallbacks, decide; on a chain, then send due timeouts. */
   async work(): Promise<void> {
+    // A broken world takes no new work: the stored write failure, before an adjudicator acts or a transaction goes out.
+    if (this.failed) await this.persisting;
     this.telemetry.invoked();
     this.tick();
     if (this.live) {
@@ -1052,7 +1088,7 @@ export class PublicWorld {
       }
     }
     const { panel } = this;
-    for (const [role, a] of Object.entries(this.adjudicators) as [Role, TestAdjudicator][]) {
+    for (const [role, a] of Object.entries(this.adjudicators) as [AdjudicatorRole, TestAdjudicator][]) {
       try {
         // Live only when today's budget still holds a whole panel of this adjudicator's size, so a panel is
         // live or scripted as a whole (a pass deciding several cases can still cross the line).
@@ -1115,6 +1151,8 @@ export class PublicWorld {
   }
 
   async fetch(request: Request, via: Via): Promise<Response> {
+    // A broken world takes no new work: the stored write failure, before a handler runs or relays.
+    if (this.failed) await this.persisting;
     this.telemetry.invoked();
     this.tick();
     const op = this.operators[via.node]!;
@@ -1206,10 +1244,11 @@ function ledgerOf(chain: SimChain | EvmSettlement, live: LiveChain | undefined):
 }
 
 /**
- * The demo faucet's grant: a fixed amount of tUSD and a fresh 30-day mandate in the demo club, signed by the club's own
- * test principal, once per address per window (persisted) and a few addresses per client per window (in memory).
+ * The demo faucet's grant: test tokens and a fresh 30-day mandate in the demo club, signed by the club's own test
+ * principal, once per address per window (persisted) and a few addresses per client per window (in memory). The
+ * amount is the one the request names, up to `maxAmount` (T-314), or `amount` when it names none.
  * On a chain (ADR-0028 §6) the grant is a mint the funding lane sends, answered after its receipt, skipped when the
- * address already holds the grant, and capped per day. One Durable Object serves the world, so the grants in
+ * address already holds the amount asked, and capped per day. One Durable Object serves the world, so the grants in
  * progress and the day's count are held in memory: two requests that race for one address get one grant, and two
  * mints racing the cap read and raise one number.
  */
@@ -1221,7 +1260,10 @@ function grantFrom(w: {
   domain: HoldbackDomain;
   token: string;
   symbol: string;
+  /** The grant when the request names no amount. */
   amount: bigint;
+  /** The largest amount one grant gives. */
+  maxAmount: bigint;
   windowSec: number;
   perClient: number;
   now: () => number;
@@ -1230,7 +1272,9 @@ function grantFrom(w: {
   const perClient = new Map<string, { start: number; count: number }>();
   const granting = new Set<string>();
   let today = { day: '', minted: 0 };
-  return async (address, { client }): Promise<FaucetOutcome> => {
+  return async (address, { client, amount = w.amount }): Promise<FaucetOutcome> => {
+    // Refused before any limit is counted: a corrected call keeps its turn.
+    if (amount > w.maxAmount) return { ok: false, problem: problem('invalid_terms', `amount ${amount} is above this faucet's cap of ${w.maxAmount} base units a grant (${tokenText(w.maxAmount.toString(), w.symbol)}; demo.faucet.maxGrant in discovery)`), field: 'amount' };
     const now = w.now();
     const windowMs = w.windowSec * 1000;
     const retryAfterSec = (at: number) => Math.max(1, Math.ceil((at - now) / 1000));
@@ -1243,13 +1287,13 @@ function grantFrom(w: {
     c.count++;
     granting.add(address);
     try {
-      return await grant(address, now, windowMs, retryAfterSec);
+      return await grant(address, amount, now, windowMs, retryAfterSec);
     } finally {
       granting.delete(address);
     }
   };
 
-  async function grant(address: Address, now: number, windowMs: number, retryAfterSec: (at: number) => number): Promise<FaucetOutcome> {
+  async function grant(address: Address, amount: bigint, now: number, windowMs: number, retryAfterSec: (at: number) => number): Promise<FaucetOutcome> {
     // Every grant signs a fresh 30-day mandate, which replaces the address's earlier one: an expired mandate is
     // refused at offer and agree (mandate_expired), and an agent may ask before its own deal outlasts the old one.
     const scope = rebindToken(wideScope(['buyer', 'seller'], wholeSecond(now + 30 * 86_400_000)), TOKEN, w.token);
@@ -1258,7 +1302,7 @@ function grantFrom(w: {
     if (p) return { ok: false, problem: p };
     let tx: string | undefined;
     const held = BigInt((await w.ledger.balances([address]))[address]?.amount ?? '0');
-    if (!w.live || held < w.amount) {
+    if (!w.live || held < amount) {
       const day = `fm:${new Date(now).toISOString().slice(0, 10)}`;
       if (w.live) {
         if (today.day !== day) {
@@ -1271,7 +1315,7 @@ function grantFrom(w: {
       // Counted before the mint, so a grant racing it cannot mint twice; a failed mint gives the address its turn back.
       await w.storage.put({ [`fa:${address}`]: now, ...(w.live ? { [day]: today.minted } : {}) });
       try {
-        tx = (await w.ledger.grant(address, w.amount)).tx;
+        tx = (await w.ledger.grant(address, amount)).tx;
       } catch (e) {
         await w.storage.put({ [`fa:${address}`]: 0 });
         if (e instanceof RelayRefused) return { ok: false, problem: problem('relay_refused', `the faucet cannot mint now: ${e.message}`) };
@@ -1284,12 +1328,12 @@ function grantFrom(w: {
       ok: true,
       grant: {
         clubId: w.club.id,
-        granted: { token: w.token, amount: tx || !w.live ? w.amount.toString() : '0' } as TokenAmount,
+        granted: { token: w.token, amount: tx || !w.live ? amount.toString() : '0' } as TokenAmount,
         balance: (await w.ledger.balances([address]))[address]!,
         mandate: { ...mandate, mandateHash: canonicalKeccak(mandate) as Hex32 },
         nextGrantAfter: wholeSecond(now + windowMs),
         notice: w.live
-          ? `TEST TOKENS ONLY: ${w.symbol} on Sepolia is an open-mint test token with no value, not Circle's USDC${tx ? `; minted in ${tx}` : '; this address already held the grant, so nothing was minted'}. The mandate is signed by the demo club's own test principal, held by this demo.`
+          ? `TEST TOKENS ONLY: ${w.symbol} on Sepolia is an open-mint test token with no value, not Circle's USDC${tx ? `; minted in ${tx}` : '; this address already held the amount asked, so nothing was minted'}. The mandate is signed by the demo club's own test principal, held by this demo.`
           : "TEST TOKENS ONLY: tUSD on SimChain has no value. The mandate is signed by the demo club's own test principal, held by this demo.",
       },
     };
@@ -1340,8 +1384,7 @@ const tokenText = (base: string, symbol: string): string => {
 export function notesFor(
   clubId: string,
   minWindowSec: number,
-  faucetAmount: bigint,
-  faucetWindowSec: number,
+  faucet: { amount: bigint; maxAmount: bigint; windowSec: number },
   panel?: Pick<PanelConfig, 'live' | 'registry' | 'budget'>,
   fee?: OperatorFeeSchedule,
   /** A chain world's facts (D41): its chain, contracts and token, the relayer's funding lane, the explorer, the gas quote. */
@@ -1357,7 +1400,6 @@ export function notesFor(
       ? `Operator fee: published at 0 (fees.operator in /v1/status): these nodes relay a funded agreement free for now. When it is switched on, POST /v1/prepare/agree-and-fund adds a third signature (slot operatorFee.signature), paid to ${fee.to}, outside the hold and not refunded.`
       : `Operator fee: these nodes charge an operator fee of ${fee.bps} bp of the price, at least ${amount(fee.min)}${fee.max === null ? '' : `, at most ${amount(fee.max)}`}, rounded up, paid by the buyer to ${fee.to} with the funded agreement: POST /v1/prepare/agree-and-fund returns a third signature (slot operatorFee.signature). It is a separate transfer, never part of the hold, and not refunded. A funded agree without it gets 402 payment_required; reads, prepare, the faucet, deliveries and direct submission to the settlement layer are free (ADR-0023).${gasText}${gas ? ' Submitting directly to the contract, you pay your own gas and no fee to these nodes.' : ''}`
     : undefined;
-  const whole = (faucetAmount / TUSD).toString();
   const judges = panel?.live
     ? `Adjudicators: three test adjudicators run by this demo, listed by role under demo.adjudicators in this discovery document. Deterministic checks are real. Rubric deals get a live judge panel: pinned models from two families, Anthropic and DeepSeek (${panel.registry.active.map((e) => e.model).join(', ')}; registry config/judges-live.yaml, not calibrated). At most ${panel.budget.perDay} live judge calls a day across this demo (UTC; demo.judges shows today's count); past that, panels are scripted fake judges whose verdicts start "[fake judge, no model ran]". DeepSeek's model names are provider aliases that can change underneath.`
     : 'Adjudicators: three test adjudicators run by this demo, listed by role under demo.adjudicators in this discovery document. Deterministic checks are real. Judge panels are scripted fake judges (no model runs; verdicts start "[fake judge, no model ran]"), so use template "checks-only" for real acceptance.';
@@ -1374,7 +1416,7 @@ export function notesFor(
       ];
   return [
     ...settlement,
-    `Get test tokens: POST /v1/faucet {"address": "0x..."} with an Idempotency-Key header grants ${whole} ${symbol} and a mandate in club ${clubId}, once per address per ${faucetWindowSec} seconds. Make your own keys: no route here ever returns a secret key.`,
+    `Get test tokens: POST /v1/faucet {"address": "0x..."} with an Idempotency-Key header grants ${amount(faucet.amount.toString())} and a mandate in club ${clubId}, once per address per ${faucet.windowSec} seconds. To fund a larger test deal, add "amount" in base units, up to ${faucet.maxAmount} (${amount(faucet.maxAmount.toString())}): the price plus the adjudication fee plus the operator fee. Make your own keys: no route here ever returns a secret key.`,
     `The faucet mandate is signed by the demo club's own test principal, which this demo holds; it lets your address act as buyer or seller in ${clubId}.`,
     judges,
     'Disclosure: offer at "public" on these nodes. The demo adjudicators cannot open sealed terms yet, so they decline private and judgment offers, which then expire unaccepted. The work itself is encrypted at every level.',
