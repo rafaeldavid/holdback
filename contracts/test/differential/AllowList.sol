@@ -33,11 +33,13 @@ import {Field, Obs} from "./Observation.sol";
 ///      5. Balances: the old side's vault holds the bond deposits; the same address holds nothing on the new side;
 ///         every other balance is equal.
 ///      6. Calls, `fileAppeal` and `expireAppeal`: the new side has no such function and reverts with empty data.
-///      7. Calls, a decision on a decided deal (`decide`, `decideAppeal`): the new side refuses it with
+///      7. Calls, a decision on a decided deal (`decide`, `decideAppeal`, `decideFallback`): the new side refuses it with
 ///         `WrongStage(Released or Refunded)`, where the old side may take it as an appeal decision or refuse it
 ///         for another reason.
 ///      8. Balances, `decideAppeal`: when the old side's appeal adjudicator overturns, the old side pays the wronged
 ///         party the price from the first decider's bond. The sides' balances then differ by design: diverged.
+///      9. Events, the same decision: the old side's appeal decision emits the appeal adjudicator's `Decided`
+///         (role 2) besides the cut events; the new side refused it and emitted nothing.
 ///      The acceptance's `bondReserved` (0 on the new side, the price on the old) is signed per side by the
 ///      handler's hook, so it never shows; `PhaseOneNoBonds.t.sol` proves the refusal of any other value.
 library AllowList {
@@ -70,6 +72,9 @@ library AllowList {
         }
         if (f == Field.Calls && _removedEntryPoint(o, n)) return Verdict("SC-7: appeal entry points gone", false);
         if (f == Field.Calls && _decisionOnDecided(o, n)) return Verdict("SC-7: no appeal decision", false);
+        if (f == Field.Events && _decisionOnDecided(o, n) && _landed(o.calls) && _appealDecisionEvents(o.events, n.events, rules, vault)) {
+            return Verdict("SC-7: no appeal decision events", false);
+        }
         if (
             f == Field.Balances && o.action == RulesHandler.decideAppeal.selector && _landed(o.calls)
                 && _refusedAsDecided(n.calls)
@@ -136,6 +141,27 @@ library AllowList {
         return true;
     }
 
+    /// Entry 9: the old side took a decision on a decided deal as an appeal decision; the new side refused it and
+    /// emitted nothing. Every old event of the step is a cut one (entry 4) or the appeal adjudicator's `Decided`
+    /// (role 2, `ROLE_APPEAL`) for that decision.
+    function _appealDecisionEvents(bytes[] memory o, bytes[] memory n, address rules, address vault)
+        private
+        pure
+        returns (bool)
+    {
+        if (n.length != 0) return false;
+        uint256 decided;
+        for (uint256 i; i < o.length; i++) {
+            if (_isCut(o[i], rules, vault)) continue;
+            (address emitter, bytes32[] memory topics, bytes memory data) = abi.decode(o[i], (address, bytes32[], bytes));
+            if (emitter != rules || topics.length == 0 || topics[0] != HoldbackRules.Decided.selector) return false;
+            (uint8 role,,,) = abi.decode(data, (uint8, uint8, bytes32, bytes32));
+            if (role != 2) return false;
+            decided++;
+        }
+        return decided == 1;
+    }
+
     function _isCut(bytes memory e, address rules, address vault) private pure returns (bool) {
         (address emitter, bytes32[] memory topics, bytes memory data) = abi.decode(e, (address, bytes32[], bytes));
         if (emitter == vault) return true;
@@ -178,9 +204,11 @@ library AllowList {
     }
 
     /// Entry 7: a decision relayed on a decided deal: the new side refused it with `WrongStage(Released)` or
-    /// `WrongStage(Refunded)`, the old side made one checked call that answered otherwise.
+    /// `WrongStage(Refunded)`, the old side made one checked call that answered otherwise (on a deal with an open
+    /// appeal it takes only the appeal adjudicator's role, so it refuses another role with `InvalidMessage`).
     function _decisionOnDecided(Obs memory o, Obs memory n) private pure returns (bool) {
-        bool decision = o.action == RulesHandler.decide.selector || o.action == RulesHandler.decideAppeal.selector;
+        bool decision = o.action == RulesHandler.decide.selector || o.action == RulesHandler.decideAppeal.selector
+            || o.action == RulesHandler.decideFallback.selector;
         return decision && o.calls.length == 1 && _refusedAsDecided(n.calls);
     }
 
