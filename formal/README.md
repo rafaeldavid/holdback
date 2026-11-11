@@ -39,8 +39,12 @@ The script prints distinct states, search depth and wall time for each config.
 | Fairness | Weak fairness applies only to the "anyone" timeouts, the clock and `Crash`. No named actor is ever required to act, so every config also covers any actor stopping at any time. |
 | Operator | Relays signed messages or is bypassed (ADR-0005). It has no action that authors a message. |
 | Beacon | Fallback and appeal decisions need it (ADR-0018: no beacon fact, no decision). The primary does not. |
+| CPP hold (T-337) | `escrow[c]` is Commerce Payments' hold. `cppExp[c]` says its `authorizationExpiry` has passed. From then on no capture succeeds, a void still does, and the buyer may reclaim the hold on CPP directly (`CppReclaim`, `cppRec[c]`). The rules contract's timeouts then close the deal and move no money. With ordered deadlines the expiry comes after every deadline a capture could meet. |
+| Bonds (T-337) | `bond[a]` is the posted bond, `enc[a]` the encumbered part, and `flags[c]` the adjudicators whose bond is encumbered for commitment c. Funding encumbers the primary's bond for the price, a fallback decision moves the encumbrance to the fallback, and every close releases it or slashes it. Funding and a fallback decision need the free bond to cover the price. The appeal adjudicator is never encumbered (L-5, open). |
 
-Not modelled: the Phase 4 economics (coverage gate, backers, size of the default compensation),
+Not modelled: the Phase 4 economics (backers, size of the default compensation; the contract pays none, I-8),
+an initial bond too small to cover both commitments (each adjudicator starts with 2 × price, so the coverage gate
+never blocks; L-3 and L-5, the zero-bond appeal paths, need it),
 `settle_after_window` and the `settle` timeout, signature cryptography (a signature is "the named actor
 took the step"), message expiry, scopes and mandates, rulebook checks, multi-attempt delivery
 (`maxSubmissions` is 1 in Phase 1), and D27/D28 appeal clauses beyond the default rules in `state.ts`.
@@ -50,6 +54,12 @@ took the step"), message expiry, scopes and mandates, rulebook checks, multi-att
 | Property | Kind | Meaning |
 | --- | --- | --- |
 | `TypeOK` | invariant | Variables stay in their domains. |
+| `ExpiryAfterCaptures` | invariant | CPP's expiry passes only once no decision is on time and, in Held, deliverBy has passed. L-6 breaks it (`broken/late-judge-by.cfg`). |
+| `BondCovered` | invariant | No adjudicator's encumbrance is negative or exceeds its posted bond. |
+| `EncMatchesDeals` | invariant | Each adjudicator's encumbrance is the price times the open deals that flag it. |
+| `BondsReleasedAtClose` | invariant | A deal holds a bond only while funded or while its first-instance decision can still be appealed, and then only the decider's. |
+| `NoCaptureAfterExpiry` | action property | After CPP's expiry, whatever leaves the escrow goes to the buyer in full and no fee is paid. |
+| `BondsFreed` | liveness | `Held ~>` paid out with no bond encumbered, whether or not the buyer reclaimed on CPP. |
 | `Conservation` | invariant | The total over all accounts is constant: no posting creates or destroys a unit. |
 | `NonNegative` | invariant | No account goes negative. The initial bond is sized to cover each commitment's worst case, which stands in for the Phase 4 coverage gate. |
 | `SettleOnce` | invariant | Each escrow is debited in at most one step. |
@@ -65,8 +75,14 @@ took the step"), message expiry, scopes and mandates, rulebook checks, multi-att
 
 | Config | Halted | Checks |
 | --- | --- | --- |
-| `safety.cfg` | none | every invariant and both action properties |
-| `live-<actor>.cfg` | buyer, seller, primary, fallback, appeal, operator, beacon (one each) | the three liveness properties, plus `TypeOK`, `Conservation` and `SettleOnce` |
+| `safety.cfg` | none | every invariant and the three action properties |
+| `live-<actor>.cfg` | buyer, seller, primary, fallback, appeal, operator, beacon (one each) | the four liveness properties, plus `TypeOK`, `Conservation` and `SettleOnce` |
+| `broken/keep-bond-after-cpp.cfg` | none | after a CPP reclaim the timeout closes the deal but keeps its bonds (M-1's shape): `BondsReleasedAtClose` must fail |
+| `broken/double-refund.cfg` | none | after a CPP reclaim the timeout refunds the buyer again: `SettleOnce` must fail |
+| `broken/capture-after-expiry.cfg` | none | an early accept captures after CPP's expiry: `NoCaptureAfterExpiry` must fail |
+| `broken/slash-keeps-enc.cfg` | none | an overturn slashes the bond but keeps the encumbrance: `EncMatchesDeals` must fail |
+| `broken/slash-uncovered.cfg` | none | the same bug: `BondCovered` must fail |
+| `broken/late-judge-by.cfg` | none | **recorded open issue L-6**, not a model bug: a judgeBy after CPP's expiry lets the expiry pass while the primary is on time, so `ExpiryAfterCaptures` fails. Move it out of `broken/` when L-6 is fixed |
 | `broken/mint.cfg` | none | the default outcome pays compensation without debiting bonds: `Conservation` must fail |
 | `broken/second-capture.cfg` | none | the primary may decide again after the escrow has settled: `SettleOnce` must fail |
 | `broken/operator-authors.cfg` | none | the operator submits an early accept the buyer never signed: `AuthorizedMoves` must fail |
@@ -77,30 +93,60 @@ took the step"), message expiry, scopes and mandates, rulebook checks, multi-att
 Each broken config has an `\* expect:` line. `check.sh` requires that TLC fails on that config and that
 its output matches the line.
 
-## Model action to `state.ts` transition to contract function
+## Model to `state.ts` and to the contract
 
-The contract column is filled in once T-202 lands (see the task's Handoff).
+Lines are in `contracts/src/` at `26d4670` (T-337), `HoldbackRules.sol` unless another file is named. CPP is
+`AuthCaptureEscrow` in `contracts/lib/commerce-payments/src/AuthCaptureEscrow.sol`. The mapping was read, not
+checked by a tool [inferred]; the review's §5 (`docs/reviews/2026-11-03-contract-review.md`) gave the
+function-level mapping first.
 
-| Model action | `state.ts` | Contract function (T-202) |
+### Actions
+
+| Model action | `state.ts` | Contract function and line |
 | --- | --- | --- |
-| `Offer` | `offer()` | TBD |
-| `AdjAccept` | `step` `adjudicator_accept` → `adjudicatorAccept` | TBD |
-| `Agree` | `step` `agree` → `agree` | TBD |
-| `Fund` | `step` `fund` → `fund` | TBD |
-| `Deliver` | `step` `deliver` → `deliver` | TBD |
-| `EarlyAccept` | `step` `early_accept` in Delivered | TBD |
-| `DecidePrimary` | `step` `decide` in Delivered → `firstInstance` (role primary) | TBD |
-| `DecideFallback` | `step` `decide` in FallbackJudging → `firstInstance` (role fallback) + `beaconSeed` | TBD |
-| `DecideEscalated` | `step` `decide` in Escalated → `escalationDecision` | TBD |
-| `MutualSettle` | `step` `mutual_settle` → `mutualSettle` | TBD |
-| `FileAppeal` | `step` `file_appeal` → `settled` → `stepAppeal` | TBD |
-| `DecideAppeal` | `step` `decide` in Released/Refunded → `settled` → `stepAppeal` + `beaconSeed` | TBD |
-| `Expire` | `step` `expire` (Offered, AcceptedByAdjudicator, Agreed); TimeoutKind `expire_offer` | TBD |
-| `Reclaim` | `step` `reclaim`; TimeoutKind `reclaim` | TBD |
-| `TriggerFallback` | `step` `trigger_fallback`; TimeoutKind `fallback` | TBD |
-| `TriggerDefault` | `step` `trigger_default`; TimeoutKind `default` | TBD |
-| `ApplyDefault` | `step` `apply_default_outcome`; TimeoutKind `apply_default` | TBD |
-| `ExpireAppeal` | `step` `expire_appeal` → `stepAppeal`; TimeoutKind `appeal_expiry` | TBD |
-| `TickAbs`, `TickEsc`, `TickAppeal` | the event time `at` passing a deadline | block timestamp |
-| `Crash` | (environment) an actor stops | n/a |
-| `OperatorEarlyAccept`, `ReleaseKeyLate` | none: they exist only in the broken variants | must not exist |
+| `Offer` | `offer()` | `agreeAndFund` (193): the seller's signature over the terms ID, checked at funding (206); nothing is stored before funding |
+| `AdjAccept` | `step` `adjudicator_accept` → `adjudicatorAccept` | `agreeAndFund`: the primary's `Acceptance` signature (207) and `bondReserved >= price` (205) |
+| `Agree` | `step` `agree` → `agree` | `agreeAndFund`: the buyer's `Agree` signature (208), before `offerExpiresAt` (203) |
+| `Fund` | `step` `fund` → `fund` | `agreeAndFund`: before `fundBy` (203); `stage = Held` (211); `flags = F_PRIMARY` (212); `BONDS.encumber` of the price (215; `HoldbackBonds.encumber` 74 reverts when `freeOf` is short, 76); `ESCROW.authorize` (218) |
+| `Deliver` | `step` `deliver` → `deliver` | `deliver` (226), or carried by `decide` (244-248) or `earlyAccept` (401) in Held; all land through `_acceptDelivery` (616), before `deliverBy` (623) |
+| `EarlyAccept` | `step` `early_accept` in Delivered | `earlyAccept` (388): `_releaseBonds` (410), price captured (412), fee voided (413), key emitted (417). The capture reverts from `authorizationExpiry` (CPP `capture`, 278) |
+| `DecidePrimary` | `step` `decide` in Delivered → `firstInstance` (role primary) | `decide` (238), role by stage (255-257), before `judgeBy` (286), seed reveal (289); `_firstInstance` (309) keeps `F_PRIMARY` (326-328); `_settleDecision` (347) captures |
+| `DecideFallback` | `step` `decide` in FallbackJudging → `firstInstance` (role fallback) + `beaconSeed` | `decide` (258-261, beacon 290-297); `_firstInstance` releases the primary (326) and encumbers the fallback (327), which reverts if uncovered; `flags = F_FALLBACK \| F_BY_FALLBACK` (328) |
+| `FirstInstance` with `escalate` | `step` `decide` → `escalate` | `_firstInstance` (314-322): `_releaseBonds`, `flags = 0`, `stage = Escalated`, `t1` = now; no money moves |
+| `DecideEscalated` | `step` `decide` in Escalated → `escalationDecision` | `decide` (262-265); `_escalationDecision` (336): `_releaseBonds`, appeal `Closed` (340), `_settleDecision` |
+| `MutualSettle` | `step` `mutual_settle` → `mutualSettle` | `mutualSettle` (425): both signatures (442-443), `_releaseBonds` (453), `_payOut` (459): a seller share is a capture (479), the rest a void (494) |
+| `FileAppeal` | `step` `file_appeal` → `settled` → `stepAppeal` | `fileAppeal` (503): only the losing party (511), before `appealBy` (508), `BONDS.takeAppealBond` (516; `HoldbackBonds` 96) |
+| `DecideAppeal` | `step` `decide` in Released/Refunded → `settled` → `stepAppeal` + `beaconSeed` | `decide` (266-269); `_appealDecision` (365): upheld releases (370) and pays the appeal bond into the decider's bond (376; `HoldbackBonds.payAppealBond` 106); overturned slashes the decider's bond to the wronged party (378; `HoldbackBonds.slash` 88). The contract has no appeal fee (I-8), unlike `apFee` here |
+| `Expire` | `step` `expire`; TimeoutKind `expire_offer` | `expireOffer` (523) |
+| `Reclaim` | `step` `reclaim`; TimeoutKind `reclaim` | `reclaim` (533), from `deliverBy` (537); `_refundAll` (596): `_releaseBonds` (601), and the void skipped when CPP holds nothing after its expiry (605-608) |
+| `TriggerFallback` | `step` `trigger_fallback`; TimeoutKind `fallback` | `triggerFallback` (543), from `judgeBy` (547) |
+| `TriggerDefault` and `ApplyDefault` | `step` `trigger_default` and `apply_default_outcome` | one call, `triggerDefault` (556): from `fallbackBy` (561) or the escalation's `appealDecideBy` (563), then `_refundAll`. The contract pays no default compensation (I-8); the model's `Comp` follows `state.ts` |
+| `ExpireAppeal` | `step` `expire_appeal` → `stepAppeal`; TimeoutKind `appeal_expiry` | `expireAppeal` (573): `_releaseBonds` (589), appeal bond back to the appellant (590) |
+| `TickExpiry` (T-337) | none | `authorizationExpiry = fallbackBy + appealDecideSec + EXPIRY_MARGIN` (`_paymentInfo` 169, 180; `EXPIRY_MARGIN` 77). The contract does not check that it falls after `judgeBy` (L-6) |
+| `CppReclaim` (T-337) | none | CPP `reclaim` (323), the payer only, from `authorizationExpiry` (326); outside the rules contract (`AfterCppReclaim.t.sol`) |
+| `TickAbs`, `TickEsc`, `TickAppeal` | the event time `at` passing a deadline | `block.timestamp` against `Terms.timing` and `Deal.t1`, `Deal.t2` |
+| `Crash` | (environment) an actor stops | none |
+| `OperatorEarlyAccept`, `ReleaseKeyLate` and the other `Bug` branches | none: they exist only in the broken variants | must not exist |
+
+### Variables
+
+| Model variable | Contract storage or event |
+| --- | --- |
+| `esc` | `Deal.stage` (48; `Stage` 24). The model's None, Offered, AcceptedByAdjudicator and Agreed are all `Stage.None`; Defaulted has no stage, because `triggerDefault` refunds in the same call |
+| `via` | `Deal.flags & F_BY_FALLBACK` (59) for primary or fallback; the other values are events only (`JobCompleted`, `Refunded`, `Defaulted`, `MutuallySettled`) |
+| `ap`, `appellant` | `Deal.appeal` (50; `AppealState` 36; the model's `na` is `Closed`); `HoldbackBonds.appealBondOf[id].appellant` (28) |
+| `clk`, `escClk`, `apClk` | `block.timestamp` against `Terms.timing`; `Deal.t1` (52) and `Deal.t2` (53) start the relative deadlines |
+| `key` | the `KeyReleased` event (114, `_releaseKey` 645) |
+| `moves` | none: a count of CPP captures and voids per deal, for `SettleOnce` |
+| `up`, `act` | none: environment and history |
+| `wallet` | the buyer's and seller's token balances |
+| `escrow` | CPP's `paymentState(hash).capturableAmount` for the deal's `PaymentInfo` (`_paymentInfo` 163) |
+| `fees` | the deciding adjudicator's token balance (fee capture, `_settleDecision` 351, 356) |
+| `bond` | `HoldbackBonds.bondOf` (20) |
+| `enc` | `HoldbackBonds.encumberedOf` (21) |
+| `flags` | `Deal.flags` (51): `F_PRIMARY` (57), `F_FALLBACK` (58) |
+| `apBond` | `HoldbackBonds.appealBondOf[id].amount` (28) |
+| `apFee` | none: the contract takes no appeal fee (I-8) |
+| `cppExp` | `block.timestamp >= authorizationExpiry` (`_paymentInfo` 180) |
+| `cppRec` | CPP's `paymentState` after the payer's `reclaim`: nothing capturable, checked in `_refundAll` (605-607) |
+
