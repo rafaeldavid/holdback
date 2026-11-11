@@ -199,6 +199,9 @@ describe.skipIf(!ready)(`T-232: reads after a write on a node that trails it${re
     for (const a of [...base.lanes.map((l) => l.address), ...Object.values(cast).map((a) => a.address)]) await anvil.rpc('anvil_setBalance', [a, '0x56bc75e2d63100000']);
     ({ genesis, club } = await evmGenesis({ cast, token: lc(d.token), chainId: anvil.chainId, rules: d.rules, start: wholeSecond(wall()), buyer: 0n }));
     genesis = { ...genesis, simSeed: `0x${'00'.repeat(32)}` };
+    // The one-time startup check of the RPC and the contract (its reads name no block), on a node that does not trail.
+    // The bond setup ran it here before phase one removed the vault (ADR-0031 §8).
+    await base.verify();
   }, 180_000);
   afterAll(async () => {
     await anvil?.stop();
