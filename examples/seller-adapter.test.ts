@@ -1,9 +1,10 @@
 // The seller adapter (T-318) against the stub seller API, on SimChain: a quote becomes a signed offer, a
 // funded hold starts one job, and a result is delivered only after the seller's own preflight passes.
 import { spawnSync } from 'node:child_process';
+import { createHmac } from 'node:crypto';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer as createHttpsServer, request as httpsRequest } from 'node:https';
-import { request as httpRequest } from 'node:http';
+import { createServer as createHttpServer, request as httpRequest } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -584,4 +585,252 @@ describe('seller adapter as a service: restarts with open deals', () => {
     expect(['Offered', 'AcceptedByAdjudicator']).toContain((await b1.call('GET', `/v1/commitments/${idC}`)).escrowState);
     expect(two.running.deals()).toHaveLength(3);
   }, 45_000);
+});
+
+// ---- T-329: a refused report alerts the seller, and the adapter delivers the fixed one ----
+
+/** The seller's alert receiver: it keeps each POST's raw body and headers, and answers as told. */
+async function alertReceiver(answer: 'ok' | 'fail' | 'hang' = 'ok') {
+  const got: Array<{ raw: string; body: J; headers: Record<string, string | string[] | undefined> }> = [];
+  const server = createHttpServer((req, res) => {
+    let raw = '';
+    req.on('data', (c) => (raw += c));
+    req.on('end', () => {
+      got.push({ raw, body: JSON.parse(raw), headers: req.headers });
+      if (answer === 'ok') res.writeHead(204).end();
+      else if (answer === 'fail') res.writeHead(500).end();
+    });
+  });
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+  return {
+    url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/crow-alerts`,
+    got,
+    of: (type: string) => got.filter((g) => g.body.type === type),
+    close: () => new Promise<void>((r) => { server.closeAllConnections(); server.close(() => r()); }),
+  };
+}
+const ready = (a: RunningAdapter, id: string, credential?: string) =>
+  fetch(`${a.url}/deals/${id}/ready`, { method: 'POST', headers: credential ? { authorization: `Bearer ${credential}` } : {} });
+const hmac = (secret: string, raw: string) => `sha256=${createHmac('sha256', secret).update(raw, 'utf8').digest('hex')}`;
+const GOOD_REPORT = { ...SAMPLE, summary: 'The review covered 3 files at the commit above and reports 3 findings.' };
+
+describe('seller adapter: a refused report waits for the fixed one (T-329)', () => {
+  // A world of its own, as for the restarts above: each test here funds a deal and waits on its adjudicator.
+  let shared: SimWorld;
+  const receivers: Array<{ close(): Promise<void> }> = [];
+  beforeAll(async () => {
+    shared = world;
+    world = await startSimWorld({ env: {}, onError: () => {} });
+  });
+  afterEach(async () => {
+    for (const r of receivers.splice(0)) await r.close();
+  });
+  afterAll(async () => {
+    for (const a of adapters.splice(0)) await a.close();
+    await world.close();
+    world = shared;
+  });
+  const receiver = async (answer?: 'ok' | 'fail' | 'hang') => {
+    const r = await alertReceiver(answer);
+    receivers.push(r);
+    return r;
+  };
+
+  it('alerts the seller with the failed check, holds the delivery, and delivers the fixed report when the seller says it is ready', async () => {
+    const hook = await receiver();
+    const { running, lines } = await service(
+      { alerts: { callback: hook.url, secretEnv: 'ALERT_SECRET' }, redelivery: { readyAuth: { kind: 'bearer', env: 'READY_CREDENTIALS' } } },
+      { ALERT_SECRET: 'alert-secret-1', READY_CREDENTIALS: 'ready-one' },
+      { report: 'missing-file', pollsUntilComplete: 0 },
+    );
+    const buyer = agent('buyer-1');
+    const { body: q } = await quoteFor(running, buyer);
+    const id = q.commitmentId as Hex;
+    await fund(buyer, id);
+    await until('the adapter to refuse the result', () => stageOf(running, id) === 'refused');
+    await until('the refusal alert', () => hook.of('delivery.refused').length === 1);
+
+    // The alert names the check that failed, whether it is required, and why; the seller's secret signs it.
+    const [alert] = hook.of('delivery.refused');
+    const terms = await termsOf(buyer, id);
+    expect(alert!.body).toMatchObject({ commitmentId: id, deliverBy: terms.timing.deliverBy, attempt: 1, result: 'reject' });
+    expect(alert!.body.checks).toContainEqual({ checkId: 'coverage', required: true, outcome: 'fail', detail: 'schema: /filesReviewed: fewer than 3 items' });
+    expect(alert!.headers['x-crow-signature']).toBe(hmac('alert-secret-1', alert!.raw));
+    expect(lines.join('\n')).toContain(`ALERT ${id} delivery.refused (attempt 1): FAIL coverage (required): schema: /filesReviewed: fewer than 3 items`);
+
+    // The delivery waits: nothing reaches the settlement layer, and the deal stays Held.
+    await new Promise((r) => setTimeout(r, 300));
+    expect(await events(buyer, id, 'delivery.submitted')).toEqual([]);
+    expect((await buyer.call('GET', `/v1/commitments/${id}`)).escrowState).toBe('Held');
+    expect(running.deals().find((d) => d.id === id)).toMatchObject({ stage: 'refused', refusals: 1 });
+
+    // The ready route takes the seller's credential only, and only for a deal the adapter holds.
+    expect((await ready(running, id)).status).toBe(401);
+    expect((await ready(running, id, 'ready-two')).status).toBe(401);
+    expect((await ready(running, `0x${'ab'.repeat(32)}`, 'ready-one')).status).toBe(404);
+
+    // The seller fixes its report and says so. The adapter fetches it again, checks it and delivers it.
+    stub!.setReport('ok');
+    const r = await ready(running, id, 'ready-one');
+    expect(r.status).toBe(202);
+    expect((await buyer.waitFor(id, ['Released', 'Refunded', 'Escalated'])).escrowState).toBe('Released');
+    expect(JSON.parse(await buyer.openDelivery(id))).toEqual(GOOD_REPORT);
+    await until('the journal to record the delivery', () => stageOf(running, id) === 'delivered');
+    await until('the fixed-report alert', () => hook.of('delivery.fixed').length === 1);
+    expect(hook.of('delivery.fixed')[0]!.body).toMatchObject({ commitmentId: id, attempt: 2 });
+    expect(await events(buyer, id, 'delivery.submitted')).toHaveLength(1);
+    expect(stub!.calls.start).toBe(1);
+    expect((await ready(running, id, 'ready-one')).status).toBe(409); // delivered: nothing waits any more
+
+    const log = lines.join('\n');
+    for (const secret of ['alert-secret-1', 'ready-one']) expect(log).not.toContain(secret);
+  }, 45_000);
+
+  it('fetches the result again on the seller\'s schedule and delivers the fixed report once it passes', async () => {
+    const { running } = await service({ redelivery: { refetchEverySec: 1 } }, {}, { report: 'missing-file', pollsUntilComplete: 0 });
+    const buyer = agent('buyer-2');
+    const { body: q } = await quoteFor(running, buyer);
+    const id = q.commitmentId as Hex;
+    await fund(buyer, id);
+    await until('the adapter to refuse the result', () => stageOf(running, id) === 'refused');
+    stub!.setReport('ok');
+    expect((await buyer.waitFor(id, ['Released', 'Refunded', 'Escalated'])).escrowState).toBe('Released');
+    expect(JSON.parse(await buyer.openDelivery(id))).toEqual(GOOD_REPORT);
+    expect(await events(buyer, id, 'delivery.submitted')).toHaveLength(1);
+  }, 45_000);
+
+  it('a report never fixed is never delivered: the deal stays Held, and after deliverBy the adapter stops and says so', async () => {
+    const hook = await receiver();
+    // A 10-second delivery window (funded within 6 s), and a refetch at every poll: the seller's settings, any values (D31).
+    const timing = { ...shipped.timing, offerExpiresInSec: 5, fundWithinSec: 6 };
+    const { running, lines } = await service({ timing, alerts: { callback: hook.url }, redelivery: { refetchEverySec: 0 } }, {}, { report: 'missing-file', pollsUntilComplete: 0, quoteOverride: { deliverWithinSec: 10 } });
+    const buyer = agent('buyer-1');
+    const quoted = await quoteFor(running, buyer);
+    expect(quoted.status, lines.join('\n')).toBe(200);
+    const q = quoted.body;
+    const id = q.commitmentId as Hex;
+    await fund(buyer, id);
+    await until('the adapter to refuse the result', () => stageOf(running, id) === 'refused');
+    const fetched = stub!.calls.result;
+    await until('two more fetches of the result', () => stub!.calls.result >= fetched + 2);
+    expect(hook.of('delivery.refused')).toHaveLength(1); // the same bytes again: no second alert
+    expect(await events(buyer, id, 'delivery.submitted')).toEqual([]);
+    expect((await buyer.call('GET', `/v1/commitments/${id}`)).escrowState).toBe('Held');
+
+    await until('the adapter to stop at deliverBy', () => stageOf(running, id) === 'closed', 20_000);
+    const deal = running.deals().find((d) => d.id === id)!;
+    expect(deal.note).toMatch(/deliverBy .* passed with no fixed report delivered/);
+    await until('the deadline alert', () => hook.of('delivery.deadline_passed').length === 1);
+    expect(hook.of('delivery.deadline_passed')[0]!.body).toMatchObject({ commitmentId: id, attempts: 1 });
+    expect(lines.join('\n')).toContain(`ALERT ${id} delivery.deadline_passed`);
+    const after = stub!.calls.result;
+    await new Promise((r) => setTimeout(r, 300));
+    expect(stub!.calls.result).toBe(after); // it stopped fetching
+    expect(await events(buyer, id, 'delivery.submitted')).toEqual([]);
+    expect((await buyer.call('GET', `/v1/commitments/${id}`)).escrowState).toBe('Held'); // the buyer's reclaim is the buyer's
+  }, 45_000);
+
+  it('a restart while waiting keeps the deal waiting, and a crash at the delivery call delivers once', async () => {
+    const journal = join(mkdtempSync(join(tmpdir(), 't329-')), 'journal.json');
+    const hook = await receiver('fail'); // a receiver that answers 500
+    const settings = { journal, alerts: { callback: hook.url }, redelivery: { readyAuth: { kind: 'bearer' as const, env: 'READY_CREDENTIALS' } } };
+    const env = { READY_CREDENTIALS: 'ready-one' };
+    const buyer = agent('buyer-2');
+    // Run 1: the report is refused, and the seller's receiver fails.
+    const one = await service(settings, env, { report: 'missing-file', pollsUntilComplete: 0 });
+    const { body: q } = await quoteFor(one.running, buyer);
+    const id = q.commitmentId as Hex;
+    await fund(buyer, id);
+    await until('run 1 to refuse the result', () => stageOf(one.running, id) === 'refused');
+    await until('run 1 to log the failed alert', () => one.lines.some((l) => l.includes('the alert callback answered 500')));
+    await one.running.close();
+    const saved = JSON.parse(readFileSync(journal, 'utf8')).deals[id];
+    expect(saved).toMatchObject({ stage: 'refused', refusals: 1, refusedSha256: expect.stringMatching(/^[0-9a-f]{64}$/) });
+
+    // Run 2: the deal still waits; it does not alert again for the same refusal, and delivers once the seller is ready.
+    stub!.setReport('ok');
+    const two = await service(settings, env);
+    await new Promise((r) => setTimeout(r, 300));
+    expect(stageOf(two.running, id)).toBe('refused');
+    expect(hook.of('delivery.refused')).toHaveLength(1);
+    expect(await events(buyer, id, 'delivery.submitted')).toEqual([]);
+    expect((await ready(two.running, id, 'ready-one')).status).toBe(202);
+    expect((await buyer.waitFor(id, ['Released', 'Refunded', 'Escalated'])).escrowState).toBe('Released');
+    await until('run 2 to record the delivery', () => stageOf(two.running, id) === 'delivered');
+    await two.running.close();
+
+    // Run 3, with the journal as a crash between the delivery call and its record leaves it: it reads the
+    // settlement layer, finds the delivery there, and delivers nothing again.
+    const crashed = JSON.parse(readFileSync(journal, 'utf8'));
+    crashed.deals[id].stage = 'delivering';
+    writeFileSync(journal, JSON.stringify(crashed));
+    const results = stub!.calls.result;
+    const three = await service(settings, env);
+    await until('run 3 to see the delivery', () => stageOf(three.running, id) === 'delivered');
+    expect(stub!.calls.result).toBe(results);
+    expect(await events(buyer, id, 'delivery.submitted')).toHaveLength(1);
+    expect(stub!.calls.start).toBe(1);
+  }, 45_000);
+
+  it('a crash just before the delivery call delivers once on the next start', async () => {
+    const journal = join(mkdtempSync(join(tmpdir(), 't329-')), 'journal.json');
+    const buyer = agent('buyer-1');
+    const one = await service({ journal }, {}, { report: 'missing-file', pollsUntilComplete: 0 });
+    const { body: q } = await quoteFor(one.running, buyer);
+    const id = q.commitmentId as Hex;
+    await fund(buyer, id);
+    await until('run 1 to refuse the result', () => stageOf(one.running, id) === 'refused');
+    await one.running.close();
+    // The journal as a crash right after recording `delivering`, before any delivery reached the settlement layer.
+    stub!.setReport('ok');
+    const crashed = JSON.parse(readFileSync(journal, 'utf8'));
+    crashed.deals[id].stage = 'delivering';
+    writeFileSync(journal, JSON.stringify(crashed));
+    const two = await service({ journal });
+    expect((await buyer.waitFor(id, ['Released', 'Refunded', 'Escalated'])).escrowState).toBe('Released');
+    await until('run 2 to record the delivery', () => stageOf(two.running, id) === 'delivered');
+    expect(await events(buyer, id, 'delivery.submitted')).toHaveLength(1);
+  }, 45_000);
+
+  it('a callback address that hangs or refuses connections never holds up the deal loop', async () => {
+    const hang = await receiver('hang');
+    const { running, lines } = await service(
+      { alerts: { callback: hang.url, timeoutMs: 60_000 }, redelivery: { refetchEverySec: 1 } },
+      {},
+      { report: 'missing-file', pollsUntilComplete: 0 },
+    );
+    const buyer = agent('buyer-2');
+    const { body: q } = await quoteFor(running, buyer);
+    const id = q.commitmentId as Hex;
+    await fund(buyer, id);
+    await until('the adapter to refuse the result', () => stageOf(running, id) === 'refused');
+    await until('the receiver to get the alert', () => hang.got.length === 1);
+    stub!.setReport('ok'); // the receiver has not answered, and the deal goes on
+    expect((await buyer.waitFor(id, ['Released', 'Refunded', 'Escalated'])).escrowState).toBe('Released');
+    await until('the journal to record the delivery', () => stageOf(running, id) === 'delivered');
+    expect(lines.join('\n')).toContain(`ALERT ${id} delivery.refused`);
+    await running.close(); // close does not wait out the receiver's 60 s
+    stub!.setReport('missing-file');
+
+    // Nothing listens at this address: the alert fails at once, and the log says so.
+    const gone = await receiver();
+    const nowhere = gone.url;
+    await gone.close();
+    const second = await service({ alerts: { callback: nowhere } });
+    const b = agent('buyer-1');
+    const { body: q2 } = await quoteFor(second.running, b);
+    await fund(b, q2.commitmentId);
+    await until('the adapter to refuse the result', () => stageOf(second.running, q2.commitmentId) === 'refused');
+    await until('the log to name the failed alert', () => second.lines.some((l) => /the alert callback failed/.test(l)));
+    expect((await b.call('GET', `/v1/commitments/${q2.commitmentId}`)).escrowState).toBe('Held');
+  }, 45_000);
+
+  it('refuses to start on a malformed alert or redelivery setting, and names it', async () => {
+    await expect(service({ alerts: { callback: 'not an address' } })).rejects.toThrow(/^alerts\.callback must be an http or https address$/);
+    await expect(service({ alerts: { callback: 'file:///etc/passwd' } })).rejects.toThrow(/^alerts\.callback must be an http or https address$/);
+    await expect(service({ alerts: { callback: 'http://127.0.0.1:9/a', secretEnv: 'ALERT_SECRET' } })).rejects.toThrow(/^set ALERT_SECRET to the alert callback's signing secret$/);
+    await expect(service({ alerts: { callback: 'http://127.0.0.1:9/a', timeoutMs: 0 } })).rejects.toThrow(/alerts\.timeoutMs/);
+    for (const refetchEverySec of [-1, 1.5]) await expect(service({ redelivery: { refetchEverySec } })).rejects.toThrow(/redelivery\.refetchEverySec/);
+    await expect(service({ redelivery: { readyAuth: { kind: 'bearer', env: 'READY_CREDENTIALS' } } })).rejects.toThrow(/^set READY_CREDENTIALS to one or more ready credentials, comma-separated$/);
+  });
 });

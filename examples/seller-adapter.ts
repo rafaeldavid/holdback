@@ -11,7 +11,9 @@
 //                        starts the job only when every operator shows the commitment Held.
 //   3. Result to delivery. When your API returns the result, the adapter runs the adjudicator's first stage on
 //                        those exact bytes (preflightDelivery). It encrypts and delivers only when the checks do
-//                        not refuse them. Otherwise it does not deliver, and logs each failed check.
+//                        not refuse them. Otherwise it holds the delivery, alerts you with each failed check
+//                        (`alerts`), and waits for a fixed report until `deliverBy`: it fetches the result again
+//                        on your schedule, or when you POST /deals/<commitmentId>/ready (`redelivery`, T-329).
 //
 // You change the configuration below and nothing else. Your signing key comes from the environment. The adapter
 // signs your offer and your delivery with it; it never holds a buyer's key, and the operators only relay.
@@ -22,6 +24,7 @@
 //   start:  POST <start>   {commitmentId, quoteId, scope, options?} -> {jobId}, with `Idempotency-Key: <commitmentId>`.
 //           The same key must return the same job: after a crash the adapter sends the start again.
 //   result: GET  <result>  ({jobId} in the address)       -> 202 while the job runs; 200 with the result's bytes.
+//           After a refusal, the same address answers with your fixed report once you have one.
 //
 // It keeps a journal file of its deals, so a restart neither starts a job twice nor delivers twice: the journal
 // records each job, and the settlement layer says whether a delivery is already there. Run one adapter per journal.
@@ -37,7 +40,7 @@
 // signs under the settlement layer those operators serve, which must be one pinned in verify.ts: SimChain, Sepolia,
 // or the deployment in HOLDBACK_DEPLOYMENT. Your API prices in that layer's token: `tUSD` on SimChain, the token's
 // address on a chain (discovery, `demo.token.id`). Test tokens only: nothing here is real money.
-import { createHash, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { createServer, type IncomingMessage } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -128,6 +131,22 @@ export interface SellerAdapterConfig {
    * its own report shape. The adapter checks and delivers the converted bytes. Left out: it delivers the result as it comes.
    */
   reportMapping?: string;
+  /**
+   * How the adapter tells you it refused a result (T-329). Each alert is an `ALERT` line in the log and, when
+   * `callback` is set, a POST of a JSON body to that address: the deal, `deliverBy`, and each check that failed or
+   * could not be decided, with why. `secretEnv` names an environment variable that holds a secret; the adapter then
+   * signs each body with HMAC-SHA256 in `X-Crow-Signature: sha256=<hex>`. It sends each alert once and waits at
+   * most `timeoutMs` (default 10,000 ms); a callback that fails or hangs never holds up a deal.
+   */
+  alerts?: { callback?: string; secretEnv?: string; timeoutMs?: number };
+  /**
+   * How the adapter gets your fixed report after it refused one (T-329). It fetches the result again from
+   * `sellerApi.result` every `refetchEverySec` seconds of settlement-layer time (0: at every poll; omitted: only
+   * when you say), and at once when you POST /deals/<commitmentId>/ready with `Authorization: Bearer <credential>`,
+   * one of the credentials in the environment variable `readyAuth.env`, comma-separated. It delivers the first
+   * result its check run does not refuse, before `deliverBy`, and never delivers twice.
+   */
+  redelivery?: { refetchEverySec?: number; readyAuth?: { kind: 'bearer'; env: string } };
   /** The fields a scope must have, and no others. */
   scope: Record<string, ScopeRule>;
   /** The options a buyer may add to a quote, `{"options": {…}}`, and no others. Your API gets them with the scope. */
@@ -183,6 +202,10 @@ export const config: SellerAdapterConfig = {
   timing: { offerExpiresInSec: 900, fundWithinSec: 1800, deliverWithinSec: 604_800, judgeWithinSec: 120, fallbackWithinSec: 120, appealWindowSec: 300, appealDecideSec: 300 },
   journal: 'seller-adapter.journal.json',
   pollMs: 5000,
+  // After a refused result, fetch it again every 10 minutes until deliverBy. To be told, and to say when it is fixed:
+  //   alerts: { callback: 'https://ops.example/crow-alerts', secretEnv: 'HOLDBACK_ALERT_SECRET' },
+  //   redelivery: { refetchEverySec: 600, readyAuth: { kind: 'bearer', env: 'HOLDBACK_READY_CREDENTIALS' } },
+  redelivery: { refetchEverySec: 600 },
   // Behind the HTTPS proxy of seller-adapter-service.md, for example:
   //   trustProxy: true,
   //   quoteAuth: { kind: 'bearer', env: 'HOLDBACK_QUOTE_CREDENTIALS' },
@@ -190,8 +213,12 @@ export const config: SellerAdapterConfig = {
 };
 // ---- End of configuration. ----
 
-export type Stage = 'offered' | 'starting' | 'started' | 'delivered' | 'refused' | 'closed';
-/** One deal in the journal. `refused`: the result failed preflight and was not delivered. */
+export type Stage = 'offered' | 'starting' | 'started' | 'refused' | 'delivering' | 'delivered' | 'closed';
+/**
+ * One deal in the journal. `refused`: the last result failed preflight; the adapter holds the delivery and waits
+ * for a fixed report until `deliverBy`. `delivering`: recorded just before the delivery call, so a restart reads
+ * the settlement layer before it delivers again.
+ */
 export interface Deal {
   id: Hex;
   stage: Stage;
@@ -201,6 +228,14 @@ export interface Deal {
   quoteId?: string;
   jobId?: string;
   note?: string;
+  /** Distinct results refused so far (T-329). */
+  refusals?: number;
+  /** SHA-256 of the last refused result's bytes, hex: the same bytes again raise no second alert. */
+  refusedSha256?: string;
+  /** When to fetch the result again, in settlement-layer time; absent when only the seller's "ready" fetches it. */
+  nextFetchAt?: string | undefined;
+  /** The seller said a fixed report is ready: the next pass fetches it. */
+  ready?: boolean;
 }
 interface Journal {
   deals: Record<string, Deal>;
@@ -475,12 +510,60 @@ function gate(c: SellerAdapterConfig, env: Readonly<Record<string, string | unde
   };
 }
 
+/** Whether a request carries `Authorization: Bearer <credential>` with one of the accepted digests, compared in constant time. */
+function bearerOk(req: IncomingMessage, accepted: Buffer[]): boolean {
+  const given = /^bearer ([\x21-\x7e]+)$/i.exec(req.headers.authorization ?? '')?.[1];
+  const digest = given === undefined ? null : sha256(given);
+  return digest !== null && accepted.some((a) => timingSafeEqual(a, digest));
+}
+
+/**
+ * The alert and redelivery settings (T-329), checked before anything is signed. The values are the seller's own
+ * (D31): any whole number. The callback's address comes from the configuration only, and its secret and the ready
+ * credentials from the environment only; the adapter never logs them.
+ */
+function refusalSettings(c: SellerAdapterConfig, env: Readonly<Record<string, string | undefined>>) {
+  const a = c.alerts ?? {};
+  let callback: string | undefined;
+  if (a.callback !== undefined) {
+    let url: URL | undefined;
+    try {
+      url = new URL(a.callback);
+    } catch {
+      // refused below
+    }
+    if (!url || (url.protocol !== 'http:' && url.protocol !== 'https:')) throw new Error('alerts.callback must be an http or https address');
+    callback = url.href;
+  }
+  if (a.timeoutMs !== undefined && !(Number.isSafeInteger(a.timeoutMs) && a.timeoutMs > 0)) throw new Error('alerts.timeoutMs must be a positive whole number of milliseconds');
+  let secret: string | undefined;
+  if (a.secretEnv !== undefined) {
+    secret = env[a.secretEnv];
+    if (!secret) throw new Error(`set ${a.secretEnv} to the alert callback's signing secret`);
+  }
+  const r = c.redelivery ?? {};
+  if (r.refetchEverySec !== undefined && !(Number.isSafeInteger(r.refetchEverySec) && r.refetchEverySec >= 0)) throw new Error('redelivery.refetchEverySec must be a whole number of seconds, 0 or more');
+  let ready: Buffer[] | null = null;
+  if (r.readyAuth) {
+    if (r.readyAuth.kind !== 'bearer') throw new Error('redelivery.readyAuth.kind must be "bearer"');
+    const list = (env[r.readyAuth.env] ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+    if (list.length === 0) throw new Error(`set ${r.readyAuth.env} to one or more ready credentials, comma-separated`);
+    ready = list.map(sha256);
+  }
+  return { callback, secret, timeoutMs: a.timeoutMs ?? 10_000, refetchEverySec: r.refetchEverySec, ready };
+}
+
+/** A check run's failed and undecided checks, for an alert: the check, whether it is required, and why. */
+type FailedCheck = { checkId: string; required: boolean; outcome: 'fail' | 'open'; detail?: string };
+const checkLine = (f: FailedCheck) => `${f.outcome === 'open' ? 'OPEN' : 'FAIL'} ${plain(f.checkId)} (${f.required ? 'required' : 'optional'})${f.detail === undefined ? '' : `: ${plain(f.detail)}`}`;
+
 /**
  * Starts the adapter: the /quote route, the event stream and the polling loop. The key and the operators come
  * from `env` (HOLDBACK_KEY, HOLDBACK_OPERATORS), never from the configuration.
  */
 export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<Record<string, string | undefined>> = process.env): Promise<RunningAdapter> {
   const admit = gate(c, env); // refuses a malformed limit or a missing credential before anything is signed
+  const refusal = refusalSettings(c, env);
   const key = env['HOLDBACK_KEY'];
   const operators = (env['HOLDBACK_OPERATORS'] ?? '').split(',').filter(Boolean);
   if (!key || !/^0x[0-9a-fA-F]{64}$/.test(key)) throw new Error('set HOLDBACK_KEY to the seller\'s signing key (0x and 64 hex characters)');
@@ -624,44 +707,117 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
       if (typeof started?.jobId !== 'string' || !/^[\x21-\x7e]{1,200}$/.test(started.jobId)) throw new Error('the seller API\'s start answer has no usable jobId');
       record(deal, { stage: 'started', jobId: started.jobId, note: `job ${started.jobId}` });
     }
-    if (deal.stage === 'started') {
-      // The settlement layer, not the journal, says whether a delivery is already there.
+    if (deal.stage === 'started' || deal.stage === 'refused' || deal.stage === 'delivering') {
+      // The settlement layer, not the journal, says whether a delivery is already there. After a crash at the
+      // delivery call (`delivering`) the adapter reads it even while the state says Held: a chain's state may lag.
       const state = await escrowState();
-      if (state !== 'Held') {
+      if (state !== 'Held' || deal.stage === 'delivering') {
         const delivered = await seller.trusted<boolean>(`/v1/commitments/${id}/events?limit=200`, (x) => x.items.some((e: J) => e.type === 'delivery.submitted'));
-        return record(deal, delivered ? { stage: 'delivered', note: `the settlement layer already holds the delivery (${state})` } : { stage: 'closed', note: `the deal ended ${state} with no delivery` });
+        if (delivered) return record(deal, { stage: 'delivered', note: `the settlement layer already holds the delivery (${state})` });
+        if (state !== 'Held') return record(deal, { stage: 'closed', note: `the deal ended ${state} with no delivery` });
       }
-      if (Date.parse(deal.terms.timing.deliverBy) <= (await seller.settlementNow())) return record(deal, { stage: 'closed', note: `the delivery deadline ${deal.terms.timing.deliverBy} passed` });
+      const deliverBy: string = deal.terms.timing.deliverBy;
+      const now = await seller.settlementNow(); // settlement-layer time, as every operator reports it
+      if (Date.parse(deliverBy) <= now) {
+        if (!deal.refusals) return record(deal, { stage: 'closed', note: `the delivery deadline ${deliverBy} passed` });
+        const said = `deliverBy ${deliverBy} passed with no fixed report delivered, after ${deal.refusals} refused ${deal.refusals === 1 ? 'result' : 'results'}; the adapter stopped, and the buyer may reclaim the hold`;
+        record(deal, { stage: 'closed', ready: false, note: said });
+        return alert({ type: 'delivery.deadline_passed', commitmentId: id, deliverBy, attempts: deal.refusals }, said);
+      }
+      if (deal.stage === 'refused') {
+        const due = deal.ready === true || (refusal.refetchEverySec !== undefined && (deal.nextFetchAt === undefined || Date.parse(deal.nextFetchAt) <= now));
+        if (!due) return; // the delivery waits for the seller's fixed report
+      }
+      // The address is the configuration's; only the job's ID, from your API, goes into it.
       const res = await api('the result', c.sellerApi.result.replace('{jobId}', encodeURIComponent(deal.jobId!)));
       if (res.status === 202) return; // the job still runs
-      let bytes = new Uint8Array(await res.arrayBuffer());
+      const result = new Uint8Array(await res.arrayBuffer());
+      const resultSha256 = createHash('sha256').update(result).digest('hex');
+      let bytes = result;
       if (reportMapping) {
         // Your report in the template's shape (T-323). A report the mapping cannot convert is never delivered.
         try {
-          const result = bytes.length;
-          bytes = convertReport(reportMapping, bytes);
-          log(`${id} converted the result with the report mapping: ${result} bytes to ${bytes.length} bytes.`);
+          bytes = convertReport(reportMapping, result);
+          log(`${id} converted the result with the report mapping: ${result.length} bytes to ${bytes.length} bytes.`);
         } catch (e) {
           if (!(e instanceof ReportNotConverted)) throw e;
-          return record(deal, { stage: 'refused', note: `the result is not delivered: the report mapping cannot convert it: ${e.message}. To deliver another file by hand before ${deal.terms.timing.deliverBy}, use check-delivery.ts and seal.ts` });
+          return refuse(deal, now, resultSha256, { result: 'not_converted', conversion: e.message, checks: [] }, `the report mapping cannot convert it: ${e.message}`);
         }
       }
       // The adjudicator's intake rules and stage 1, on the exact bytes that would be delivered (T-316).
       const format = deal.terms.deliverable.format;
       const pre = preflightDelivery({ plaintext: bytes, mime: format, format, acceptance: deal.terms.acceptance });
       const open = new Set(pre.inconclusive);
+      const failed: FailedCheck[] = pre.deterministic
+        .filter((o) => !o.passed || open.has(o.checkId))
+        .map((o) => ({ checkId: o.checkId, required: o.required, outcome: open.has(o.checkId) ? 'open' : 'fail', ...(o.detail === undefined ? {} : { detail: o.detail }) }));
       log(`${id} preflight: ${pre.result}, ${pre.bytes} bytes, ${pre.plaintextSha256}.`);
       if (pre.refused) log(`  REFUSED ${pre.refused.code}: ${plain(pre.refused.detail)}`);
-      for (const o of pre.deterministic) {
-        if (!o.passed || open.has(o.checkId)) log(`  ${open.has(o.checkId) ? 'OPEN' : 'FAIL'} ${plain(o.checkId)} (${o.required ? 'required' : 'optional'})${o.detail === undefined ? '' : `: ${plain(o.detail)}`}`);
-      }
+      for (const f of failed) log(`  ${checkLine(f)}`);
       if (pre.result !== 'accept' && pre.result !== 'panel') {
         const why = pre.result === 'reject' ? 'the adjudicator would reject it and refund the buyer' : 'a check cannot be decided, so the deal would escalate';
-        return record(deal, { stage: 'refused', note: `the result is not delivered: ${why}. To deliver another file by hand before ${deal.terms.timing.deliverBy}, use check-delivery.ts and seal.ts` });
+        const detail = { result: pre.result, plaintextSha256: pre.plaintextSha256, bytes: pre.bytes, ...(pre.refused ? { refused: { code: pre.refused.code, detail: pre.refused.detail } } : {}), checks: failed };
+        return refuse(deal, now, resultSha256, detail, why);
       }
+      // Recorded before the call: a crash between the call and its record makes the next start read the
+      // settlement layer first, so the adapter never delivers twice.
+      const attempt = (deal.refusals ?? 0) + 1;
+      record(deal, { stage: 'delivering', ready: false, note: `delivering ${pre.bytes} bytes, ${pre.plaintextSha256}` });
       await seller.deliver(deal.terms, bytes);
       record(deal, { stage: 'delivered', note: `${pre.bytes} bytes, ${pre.plaintextSha256}` });
+      if (deal.refusals) alert({ type: 'delivery.fixed', commitmentId: id, attempt, plaintextSha256: pre.plaintextSha256, bytes: pre.bytes }, `the fixed report passed the check run and is delivered, ${pre.bytes} bytes, ${pre.plaintextSha256}`);
     }
+  }
+
+  // ---- Refused results: hold the delivery, tell the seller, wait for the fixed report (T-329) ----
+  const alertsAbort = new AbortController();
+  const alertsInFlight = new Set<Promise<void>>();
+  /**
+   * Tells the seller: an `ALERT` log line always, and a POST to the configured callback when there is one. The
+   * POST runs beside the deal loop and is never awaited by it; a failure is logged and the line above stays the record.
+   */
+  function alert(body: { type: string; commitmentId: string; attempt?: number } & Record<string, unknown>, summary: string): void {
+    log(`ALERT ${body.commitmentId} ${body.type}${body.attempt === undefined ? '' : ` (attempt ${body.attempt})`}: ${summary}`);
+    if (!refusal.callback) return;
+    const text = JSON.stringify(body);
+    const headers: Record<string, string> = { 'content-type': 'application/json' };
+    if (refusal.secret) headers['x-crow-signature'] = `sha256=${createHmac('sha256', refusal.secret).update(text, 'utf8').digest('hex')}`;
+    const sent: Promise<void> = fetch(refusal.callback, { method: 'POST', headers, body: text, redirect: 'error', signal: AbortSignal.any([alertsAbort.signal, AbortSignal.timeout(refusal.timeoutMs)]) })
+      .then(async (res) => {
+        await res.body?.cancel();
+        if (!res.ok) log(`${body.commitmentId} the alert callback answered ${res.status} to ${body.type}; the ALERT line is the record.`);
+      })
+      .catch((e: Error & { cause?: { code?: string } }) => {
+        if (alertsAbort.signal.aborted) return;
+        log(`${body.commitmentId} the alert callback failed for ${body.type}: ${plain(e.message)}${e.cause?.code ? ` (${plain(e.cause.code)})` : ''}; the ALERT line is the record.`);
+      })
+      .finally(() => alertsInFlight.delete(sent));
+    alertsInFlight.add(sent);
+  }
+
+  /** Records a refused result and alerts the seller once for each distinct result. The delivery waits. */
+  function refuse(deal: Deal, now: number, resultSha256: string, detail: { result: string; checks: FailedCheck[] } & Record<string, unknown>, why: string): void {
+    const deliverBy: string = deal.terms.timing.deliverBy;
+    const every = refusal.refetchEverySec;
+    const nextFetchAt = every === undefined ? undefined : new Date(now + every * 1000).toISOString();
+    const ways = [every === undefined ? null : `fetches the result again at ${nextFetchAt}`, refusal.ready ? `fetches it when you POST /deals/${deal.id}/ready` : null].filter(Boolean);
+    const waits = ways.length
+      ? `The adapter holds the delivery until ${deliverBy} and ${ways.join(', and ')}`
+      : `The adapter holds the delivery until ${deliverBy}; set redelivery to have it fetch a fixed report, or deliver a fixed file by hand with check-delivery.ts and seal.ts`;
+    if (deal.refusedSha256 === resultSha256) {
+      // The same bytes as last time: the seller has been told. Wait for the next fetch.
+      Object.assign(deal, { stage: 'refused', ready: false, nextFetchAt });
+      save();
+      return;
+    }
+    const attempt = (deal.refusals ?? 0) + 1;
+    record(deal, { stage: 'refused', refusals: attempt, refusedSha256: resultSha256, ready: false, nextFetchAt, note: `the result is not delivered: ${why}. ${waits}` });
+    const reasons = [
+      ...(typeof detail['refused'] === 'object' && detail['refused'] ? [`REFUSED ${plain(String((detail['refused'] as J).code))}: ${plain(String((detail['refused'] as J).detail))}`] : []),
+      ...detail.checks.map(checkLine),
+      ...(typeof detail['conversion'] === 'string' ? [`NOT CONVERTED ${plain(detail['conversion'])}`] : []),
+    ];
+    alert({ type: 'delivery.refused', commitmentId: deal.id, deliverBy, attempt, ...detail, nextFetchAt: nextFetchAt ?? null }, `${reasons.join('; ') || plain(why)}. ${waits}.`);
   }
 
   let closed = false;
@@ -671,7 +827,7 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
   async function pass(): Promise<void> {
     for (const deal of Object.values(journal.deals)) {
       if (closed) return;
-      if (!['offered', 'starting', 'started'].includes(deal.stage)) continue;
+      if (!['offered', 'starting', 'started', 'refused', 'delivering'].includes(deal.stage)) continue;
       try {
         await advance(deal);
         lastError.delete(deal.id);
@@ -725,11 +881,32 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
     }
   }
 
+  /**
+   * POST /deals/<commitmentId>/ready: the seller says its fixed report is ready (T-329). It takes no body: the
+   * adapter fetches the report from the result address in its configuration, never from the request.
+   */
+  function readySignal(req: IncomingMessage, commitmentId: string, send: (status: number, body: unknown, headers?: Record<string, string>) => void): void {
+    req.resume();
+    if (req.method !== 'POST') return send(405, { type: 'method_not_allowed', detail: 'this route takes POST' });
+    if (!bearerOk(req, refusal.ready!)) return send(401, { type: 'unauthorized', detail: 'this route needs Authorization: Bearer <credential>' }, { 'www-authenticate': 'Bearer realm="ready"' });
+    const id = commitmentId.toLowerCase();
+    const deal = Object.hasOwn(journal.deals, id) ? journal.deals[id]! : undefined;
+    if (!deal) return send(404, { type: 'not_found', detail: 'this adapter holds no such deal' });
+    if (deal.stage !== 'refused') return send(409, { type: 'not_waiting', detail: `the deal is ${deal.stage}, not waiting for a fixed report` });
+    deal.ready = true;
+    save();
+    log(`${id} the seller says a fixed report is ready; the adapter fetches the result now.`);
+    wake();
+    return send(202, { commitmentId: id, stage: deal.stage, detail: 'the adapter fetches the result again now' });
+  }
+
   const server = createServer((req, res) => {
     const send = (status: number, body: unknown, headers: Record<string, string> = {}) => res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store', ...headers }).end(JSON.stringify(body));
     const path = new URL(req.url ?? '/', 'http://adapter').pathname;
     // The published defaults are public: no credential, and they make the adapter sign nothing.
     if (path === '/defaults' && req.method === 'GET') return void res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'max-age=300' }).end(defaults);
+    const readyFor = refusal.ready ? /^\/deals\/(0x[0-9a-fA-F]{64})\/ready$/.exec(path)?.[1] : undefined;
+    if (readyFor) return void readySignal(req, readyFor, send);
     if (path !== '/quote') return void send(404, { type: 'not_found', detail: 'this adapter serves POST /quote and GET /defaults' });
     if (req.method !== 'POST') return void send(405, { type: 'method_not_allowed', detail: 'this adapter serves POST /quote' });
     const refused = admit(req); // the rate limit and the credential, before the body is read
@@ -756,6 +933,7 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
   const stream = c.stream === false ? Promise.resolve() : follow();
   wake(); // deals the journal left open
   log(`Seller adapter for ${seller.address} serves POST ${url}/quote; journal ${plain(c.journal)}, ${Object.keys(journal.deals).length} deals.`);
+  log(`A refused result alerts by the log${refusal.callback ? ' and the callback' : ''}${refusal.secret ? ', signed' : ''}; the adapter fetches it again ${refusal.refetchEverySec === undefined ? 'only when you say' : `every ${refusal.refetchEverySec} s`}${refusal.ready ? ', and on POST /deals/<commitmentId>/ready' : ''}, until deliverBy.`);
   const limitText = (l: QuoteLimit | undefined) => (l ? `${l.requests} per ${l.windowSec} s` : 'none');
   log(`The quote route takes ${c.quoteAuth ? `a bearer credential from ${plain(c.quoteAuth.env)}` : 'no credential'}; rate limit per client ${limitText(c.quoteRateLimit?.perClient)}, overall ${limitText(c.quoteRateLimit?.overall)}${c.trustProxy ? '; clients by X-Forwarded-For' : ''}.`);
 
@@ -770,6 +948,8 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
       server.closeAllConnections();
       await new Promise<void>((resolve) => server.close(() => resolve()));
       await Promise.all([running, stream]);
+      alertsAbort.abort(); // an alert still in flight is dropped; its ALERT line is in the log
+      await Promise.all([...alertsInFlight]);
     },
   };
 }

@@ -66,6 +66,7 @@ All runs on 2026-11-11, on branch `t-330-terms-per-quote`, cut from `origin/main
 - **Types and lint (measured).** `pnpm typecheck` and `pnpm lint` exit 0 after the review fixes.
 - **Site (measured).** `node site/build.mjs && node site/check.mjs`: "site check PASS". `site/llms.txt` grew from 97,269 to about 97,800 bytes. `site/index.html` did not change.
 - **Review (measured).** One `reviewer` pass on the signer's diff, given CLAUDE.md, `docs/neutrality.md` and the task file: ISSUES, with no Critical or High finding. Fixed here: the difference list missed a second check under one id and a new order beside another change (Medium), and a change of case in a hex-looking value (Low); an error message carried the defaults URL's query (Low). The rest is in the Handoff.
+- **After merging `origin/main` at `88cb642`, with T-329 (measured).** One conflict, in the adapter's routes: `GET /defaults` sits before T-329's `/deals/<id>/ready`. Then `pnpm typecheck`, `pnpm lint`, the site check, and `examples/seller-adapter.test.ts`, `seller-adapter-terms.test.ts`, `buyer-signer.test.ts`, `buyer-signer-outcome.test.ts` and `audit-deal.test.ts` (68 tests) passed.
 - **Not run.** The full `pnpm verify`, `pnpm snap` (no scenario or judgment code changed) and gitleaks. CI runs them.
 
 ## Decisions

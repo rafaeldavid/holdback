@@ -109,7 +109,7 @@ export interface AuditDealResult {
   /** The offer as both operators served it and the buyer approved it. */
   offer: Offer;
   paid: Paid;
-  /** The seller adapter's last stage for the deal: `delivered` or `refused`. */
+  /** The seller adapter's stage when it decided: `delivered` or `refused` (after `deliverBy` it closes a refused deal, T-329). */
   sellerStage: Stage | undefined;
   /** What the buyer opened when the deal ended; null when the run stopped at `Held`. */
   delivery: Delivery | null;
@@ -380,6 +380,7 @@ export async function runAuditDeal(o: AuditDealOptions): Promise<AuditDealResult
       if (Date.now() > end) throw new Error(`the seller adapter is still at ${stage()} after ${timeoutMs / 1000} s, waiting for ${ends.join(' or ')}`);
       if (stage() === 'closed' || (stage() === 'refused' && !ends.includes('refused'))) throw new Error(`the seller adapter ended at ${stage()}, not ${ends.join(' or ')}`);
     }
+    const sellerStage = stage();
     let failedChecks: string[] = [];
     if (stage() === 'delivered') {
       step('The seller delivers', 'the adapter started the job, the report passed its preflight, and it delivered the encrypted report.');
@@ -404,7 +405,7 @@ export async function runAuditDeal(o: AuditDealOptions): Promise<AuditDealResult
       const sellerReceived = { token: pin.token.id, amount: (BigInt((await balance(seller)).amount) - BigInt(sellerBefore.amount)).toString() };
       say(`    Paid: ${money(paid.total)} (hold ${money(paid.hold)}, operator fee ${money(paid.operatorFee)}).`);
       return {
-        commitmentId: quote.commitmentId, outcome: 'Held', buyer: signer.address, seller, offer, paid, sellerStage: stage(), delivery: null, failedChecks, report: null,
+        commitmentId: quote.commitmentId, outcome: 'Held', buyer: signer.address, seller, offer, paid, sellerStage, delivery: null, failedChecks, report: null,
         sellerReceived, buyerHolds: await balance(signer.address), steps, elapsedMs: Date.now() - started,
       };
     } else {
@@ -453,7 +454,7 @@ export async function runAuditDeal(o: AuditDealOptions): Promise<AuditDealResult
     if (delivery.transactions.length === 0) say('    Transactions: none; SimChain has no transactions.');
     for (const t of delivery.transactions) say(`    Transaction, ${plain(t.step)}: ${t.url ?? t.tx}`);
     return {
-      commitmentId: quote.commitmentId, outcome: delivery.outcome, buyer: signer.address, seller, offer, paid, sellerStage: stage(), delivery, failedChecks, report,
+      commitmentId: quote.commitmentId, outcome: delivery.outcome, buyer: signer.address, seller, offer, paid, sellerStage, delivery, failedChecks, report,
       sellerReceived, buyerHolds, steps, elapsedMs: Date.now() - started,
     };
   } finally {

@@ -48,6 +48,8 @@ export interface StubSellerApi {
   jobs(): Array<{ jobId: string; commitmentId: string }>;
   /** Completes every job now, whatever `pollsUntilComplete` says. */
   completeAll(): void;
+  /** Answers every result from now on with this report: the seller fixed its report (T-329). */
+  setReport(kind: NonNullable<StubOptions['report']>): void;
   close(): Promise<void>;
 }
 
@@ -96,6 +98,7 @@ export async function startStubSellerApi(o: StubOptions = {}): Promise<StubSelle
   const starts: J[] = [];
   const jobs = new Map<string, { jobId: string; commitmentId: string; scope: J; polls: number }>(); // by Idempotency-Key
   let completeAll = false;
+  let report = o.report ?? 'ok';
 
   const server = createServer((req, res) => {
     const send = (status: number, body: unknown) => res.writeHead(status, { 'content-type': 'application/json' }).end(JSON.stringify(body));
@@ -126,7 +129,7 @@ export async function startStubSellerApi(o: StubOptions = {}): Promise<StubSelle
         const job = [...jobs.values()].find((j) => j.jobId === result[1]);
         if (!job) return send(404, { detail: 'no such job' });
         if (!completeAll && job.polls++ < (o.pollsUntilComplete ?? 1)) return send(202, { status: 'running' });
-        return res.writeHead(200, { 'content-type': 'application/json' }).end(reportFor(job.scope, o.report ?? 'ok'));
+        return res.writeHead(200, { 'content-type': 'application/json' }).end(reportFor(job.scope, report));
       }
       return send(404, { detail: 'not found' });
     })().catch((e: Error) => send(400, { detail: e.message }));
@@ -144,6 +147,7 @@ export async function startStubSellerApi(o: StubOptions = {}): Promise<StubSelle
     starts,
     jobs: () => [...jobs.values()].map(({ jobId, commitmentId }) => ({ jobId, commitmentId })),
     completeAll: () => void (completeAll = true),
+    setReport: (kind) => void (report = kind),
     close: () => new Promise<void>((resolve) => { server.closeAllConnections(); server.close(() => resolve()); }),
   };
 }
