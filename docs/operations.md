@@ -159,17 +159,9 @@ This was `pnpm demo-cloud:deploy`'s first real run (T-234), on Rafa's go-ahead (
 
 ### Crow Control, the founders' console (moved to control.crow.direct on 2026-11-11)
 
-**Live since 2026-11-11, about 06:44 UTC** (crow-private PR 41): crow-console `001cb560-b57c-41d6-9902-13d1a3216764` serves control.crow.direct. It was built from crow-private `657b791` and merged as `ecd56ce`. Rafa gave the go-ahead ("Yes, deploy") after he added control.crow.direct to the Crow Control Access application. The console now lives at control.crow.direct; control.escrow.stream stays a route and answers a signed-in request with a 301 to the same path on the new host. Before the deploy, 207 of 207 tests passed. After it, signed out, both hosts answer 302 to the Access login for their own name, on `/`, `/_push/public.json` and `/signups` (measured). This Mac's router answered "no such name" for the new host for about 14 minutes, from an answer it cached before the DNS record existed; public resolvers had it at once (measured). The signed-in page was not checked by the deploying session. To roll back: `npx wrangler@4.151.3 rollback c71928cc-356b-477f-b8d5-396a1d54b57c --name crow-console`, then revert crow-private `ecd56ce`, since main pushes to the new host. Since crow-private `554b6e0` (PR 40) the console's checks read crow.direct, follow no redirect, and report a 3xx answer as "moved".
+Crow Control is the founders' console. Its code lives in a private repository, and it serves control.crow.direct behind an access proxy. The maintainers keep its deploy records privately (`docs/private-materials.md`).
 
-**Before it, live since 2026-11-09:** crow-console `c71928cc-356b-477f-b8d5-396a1d54b57c`, built from crow-private `7534eca` (measured: `npx wrangler@4.151.3 deploy` printed this version ID and the bindings CONTROL and SIGNUPS). It shows the newest 20 early-access sign-ups on the main page, with a full list at `/signups` and a CSV download. To roll back to the version with the list on its own page only: `npx wrangler@4.151.3 rollback 57773aec-be76-46f7-ba85-1cc114e5b920 --name crow-console --message "N35 main-page rollback"`.
-
-**Before it:** crow-console `57773aec-be76-46f7-ba85-1cc114e5b920`, built from crow-private `092b993`. It added the sign-up feed on its own page, with a CSV download. It reads the sign-up store (KV `EMAILS`, bound as `SIGNUPS`) at request time, behind the Access check, and never copies a sign-up into the console's build data. A signed-out request to `/signups` or `/signups.csv` gets a 302 to the Access login (measured with curl). It serves control.escrow.stream behind Cloudflare Access; its runbook is crow-private `control/README.md`. To roll back: `npx wrangler@4.151.3 rollback 6c5cc320-a7af-4536-a0c5-c1c0b5fac8d7 --name crow-console --message "N35 rollback"`.
-
-**Before it:** crow-console `6c5cc320-a7af-4536-a0c5-c1c0b5fac8d7`, live from 2026-11-08 at about 09:02 UTC, built from crow-private `a6a73fd`. It added the roadmap blocks and a Roadmap link in the header. Its rollback target was `e8ddac8b`.
-
-**Before it:** crow-console `e8ddac8b-2b8f-4d39-86b3-9f230c5e537f`, live from 2026-11-06, 11:15 UTC (measured: `npx wrangler@4 deployments status --name crow-console` listed it at 100%). Its rollback target was `91ae8a90`.
-
-**Before that** (T-066 Evidence): crow-console `91ae8a90`, built from crow-private `e1e30bb` (crow-private PR 2), deployed on 2026-11-06 after PR 2's merge at 06:09 UTC. Wrangler lists that deployment at 06:15:20 UTC (measured: `npx wrangler@4 deployments list --name crow-console`). Its own rollback target was `c8fe44c5`.
+**Live since 2026-11-11, about 06:44 UTC**: crow-console `001cb560-b57c-41d6-9902-13d1a3216764` serves control.crow.direct.
 
 ### T-231: the operators send due timeouts on their own (deployed 2026-11-06)
 
@@ -398,28 +390,21 @@ The reviewed settlement contracts are deployed on Ethereum Sepolia (chain ID 111
 
 ## Costs
 
-The cost notes say what each account costs, what caps or alerts it, and where to read its usage read-only. The maintainers keep them privately (`docs/private-materials.md`). Billing figures, budgets and the account register stay in a cost directory outside every checkout where agents work (`CROW_COSTS_DIR`); billing credentials stay in `.env.costs` in a dedicated clone on a machine Rafa controls, never in an agent session, a Worker or GitHub Actions.
+The maintainers keep the cost notes privately (`docs/private-materials.md`).
 
 ## Headline metrics (T-066)
 
-Crow Control's headline metrics come from scripts, not from model-written files. Each script reads public sources only, needs no secret, and writes one JSON file that `node scripts/metrics/check.mjs <name> <file>` checks against its schema in `scripts/metrics/schemas/`:
-
-```
-pnpm metrics:deal-timing --out out/deal-timing.json        # stage times per deal: the event log and Sepolia blocks
-pnpm metrics:throughput --deal-timing out/deal-timing.json --out out/throughput.json
-pnpm metrics:ops-cost --deal-timing out/deal-timing.json --out out/ops-cost.json [--runs <one-click run files>]
-pnpm metrics:prices --dry-run                               # new gas and ETH prices for config/ops-cost-prices.json
-```
-
-- **Where they run:** each scheduled build of the console (twice a day, D52), in the private repository's `build` job, which holds no secret (T-060's rule), or any laptop. Each takes about 1 to 2 s today (measured, 2026-11-05).
-- **The price refresh reads mainnet, and only reads.** `refresh-prices.mjs` sends three JSON-RPC methods to Ethereum and Base mainnet: `eth_chainId`, `eth_feeHistory` and `eth_call`. `tests/metrics/refresh-prices.test.ts` pins that list. It holds no key and sends no transaction. When it reads no price, it writes nothing and exits 1, and `asOf` is the date of its oldest value.
-- **What they read:** both operators' `/v1/status` and `/v1/events` (the event stream does not end on its own, so the reader stops at the head `/v1/status` gave), discovery, the test seller's `agent.json`, and keyless public Sepolia RPCs. Each request has a 5 s timeout and a 1 MiB cap and follows no redirect. A source that fails reads "unknown", never 0.
-- **The harness** (`tools/one-click/`, T-066 slice 1) measures approvals and token cost per deal from the homepage prompt. Where it runs and on what schedule are Rafa's gates (T-066, Gates for Rafa).
+The maintainers keep the notes on the console's headline metrics privately (`docs/private-materials.md`). The scripts that compute them are in `scripts/metrics/`.
 
 ## Gates (ask Rafa first)
 
-Anything outside the repository: a new public deployment target, Sepolia or any public chain, mainnet (never without an audit and his written approval), real keys or money, force pushes or history rewrites (also blocked by the permission deny list), repository settings, publishing or sending anything to other people.
+These wait for the maintainer's go-ahead:
+
+- a deploy to any public target or public chain. A mainnet deploy also needs an audit and his written approval;
+- real keys or real money;
+- anything published or sent to other people;
+- force pushes, history rewrites and repository settings.
 
 ## Working without permission prompts
 
-Rafa's machine blocks reads outside the working directories, which makes some shell patterns prompt even in bypass mode. Keep the session's cwd at the repo root (never `cd` elsewhere; use absolute paths); change files with Edit/Write (not `sed -i`, interpreter one-liners or heredoc writes); keep logs under `reports/` (git-ignored); give build agents `isolation: "worktree"` and tell them the same.
+The maintainers keep the notes on agent sessions and permission prompts privately (`docs/private-materials.md`).
