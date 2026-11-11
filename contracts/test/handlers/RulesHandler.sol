@@ -55,6 +55,12 @@ contract RulesHandler is Base {
     uint256 public withdrawMismatch; // a bond withdrawal of free funds refused, or of encumbered funds allowed
     uint256 public keyWithoutPayment; // a KeyReleased on a deal that does not stand Released or Settled
     uint256 public overturnMispaid; // an appeal paid other than its verdict requires, or filed by the favoured party (T-206 I-8, L-7)
+    // T-336 (known issue G-5): the liveness counter. Every delivery that lands, whichever call carries it, is counted
+    // with the hash of the delivery the handler posted, so an invariant can check the chain stores exactly that hash.
+    uint256 public deliveries; // deliveries that landed on chain (a deal's attempt went from 0 to 1 in Held)
+    mapping(bytes32 => bytes32) public postedHash; // the hash of the delivery the handler posted, once it landed
+    uint256 public deliveryHashLost; // a delivery landed but the chain does not store its hash (ADR-0029)
+    uint256 public deliverRefused; // an authorised `deliver` on a Held deal before deliverBy was refused
     string public lastViolation;
 
     constructor() {
@@ -177,7 +183,7 @@ contract RulesHandler is Base {
 
     function _violations() internal view returns (uint256) {
         return reopened + unauthorisedSuccess + unexpectedMovement + strangerSuccess + timeoutMismatch
-            + withdrawMismatch + keyWithoutPayment + overturnMispaid;
+            + withdrawMismatch + keyWithoutPayment + overturnMispaid + deliveryHashLost + deliverRefused;
     }
 
     /// Re-reverts a refused call so the metrics count it, unless the refusal itself was a violation.
@@ -250,6 +256,17 @@ contract RulesHandler is Base {
         if (before == HoldbackRules.Stage.Held && rules.dealOf(id).attempt != 0 && block.timestamp >= _deliverBy[id]) {
             timeoutMismatch++;
             lastViolation = "a delivery landed at or after deliverBy";
+        }
+        // T-336: a delivery landed (deliver, or a decision or early accept that carried it). Every handler path posts
+        // the fixture's delivery, so its hash is known; the chain must store exactly it (ADR-0029).
+        if (before == HoldbackRules.Stage.Held && rules.dealOf(id).attempt != 0 && postedHash[id] == bytes32(0)) {
+            (H.Delivery memory dv,) = _delivery();
+            postedHash[id] = hx.delivery(id, dv);
+            deliveries++;
+            if (rules.deliveryHashOf(id) != postedHash[id]) {
+                deliveryHashLost++;
+                lastViolation = "a delivery landed but the chain does not store its hash";
+            }
         }
     }
 
@@ -361,6 +378,11 @@ contract RulesHandler is Base {
             ok = true;
             _authorised("deliver", k == SELLER_PK);
         } catch {}
+        // T-336: the seller's own delivery on a Held deal before deliverBy always lands, from any relayer.
+        if (!ok && k == SELLER_PK && before == HoldbackRules.Stage.Held && block.timestamp < _deliverBy[id]) {
+            deliverRefused++;
+            lastViolation = "deliver: the seller's delivery before deliverBy was refused";
+        }
         _noMove("deliver", i, c0);
         _track(id, before);
         _end(ok, v0);

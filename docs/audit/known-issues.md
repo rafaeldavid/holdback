@@ -83,8 +83,8 @@ Source: [T-211](../tasks/T-211-appeal-key-adjudicator.md), Handoff. The source c
 | G-1 | Five `neutrality.*` fixtures and one `todo.*` fixture are planned, not built | `docs/neutrality.md`, control-point table and "How neutrality is tested" | open; they gate mainnet, not the Sepolia demo |
 | G-2 | The calibration and red-team harness is not built, and the live registry was promoted without calibration | `docs/judgment-and-defenses.md`; `config/judges-live.yaml` header | open; T-301, Phase 3 |
 | G-3 | The formal model has no CPP reclaim by the buyer and no bond coverage, and its README's contract column reads TBD | review §5 and I-11; `formal/README.md` | open |
-| G-4 | The adversarial pass's 24 proof-of-concept tests are not in the repository | review §2 | fixed in the T-335 PR: all 24 are in `contracts/test/unit/`, 7 in `Withstood.t.sol` (T-322) and 17 ported by T-335, as regressions for fixed findings and attack-shaped tests for open ones |
-| G-5 | A mutant that stores no delivery hash is caught by unit tests, but no invariant counts it | T-212 Handoff | open |
+| G-4 | The adversarial pass's 24 proof-of-concept tests are not in the repository | review §2 | fixed in the T-335 PR: all 24 are in `contracts/test/unit/`, 7 in `Withstood.t.sol` (T-322) and 17 ported by T-335 (16 attacks and 1 defense): regressions for fixed findings, attack-shaped tests for open ones |
+| G-5 | A mutant that stores no delivery hash is caught by unit tests, but no invariant counts it | T-212 Handoff; `docs/tasks/T-336-invariant-liveness-counter.md` | fixed in T-336: the handler counts every landed delivery, and `invariant_deliveryHashStored` fails on the mutant (measured) |
 | G-6 | No external audit has run | `docs/tasks/T-206-contract-review.md`, Status | open; before mainnet |
 | G-7 | Aderyn has not run since `baac930`; Slither ran at `1430f77` with every result answered | [`docs/reviews/2026-11-11-static-analysis.md`](../reviews/2026-11-11-static-analysis.md) | open; waits on Rafa's OK to install Aderyn |
 

@@ -135,6 +135,54 @@ contract HandlerSmokeTest is Test {
         h.warp(1 << 8);
     }
 
+    // T-336: the delivery counter moves on every path that carries a delivery, so `invariant_deliveryHashStored`
+    // cannot pass vacuously, and the posted delivery's hash is the one stored on chain.
+
+    function _deliveredOnce() internal view {
+        bytes32 id = h.dealId(0);
+        assertEq(h.deliveries(), 1, "the handler did not count the delivery");
+        assertTrue(h.postedHash(id) != bytes32(0), "no posted hash recorded");
+        assertEq(rules.deliveryHashOf(id), h.postedHash(id), "stored hash != the posted delivery's");
+        assertEq(h.deliveryHashLost(), 0);
+        assertEq(h.deliverRefused(), 0);
+    }
+
+    function test_deliveryCounter_deliver() public {
+        _funded();
+        assertEq(h.deliveries(), 0);
+        h.deliver(PICK, 5, 0);
+        _deliveredOnce();
+    }
+
+    function test_deliveryCounter_decisionCarriesTheDelivery() public {
+        _funded();
+        h.decide(PICK, 0, 0, H.OUTCOME_REJECT);
+        _deliveredOnce();
+    }
+
+    function test_deliveryCounter_earlyAcceptCarriesTheDelivery() public {
+        _funded();
+        h.earlyAccept(PICK, 3, 0);
+        _deliveredOnce();
+    }
+
+    function test_deliveryCounter_decideFallbackPostsTheDelivery() public {
+        _funded();
+        h.decideFallback(PICK, 0, H.OUTCOME_ACCEPT);
+        assertEq(uint8(_stage()), uint8(HoldbackRules.Stage.Released));
+        _deliveredOnce();
+    }
+
+    function test_deliveryCounter_staysAtZeroWhenTheDeliveryIsLate() public {
+        _funded();
+        _warpTo(h.termsOf(0).timing.deliverBy);
+        vm.expectRevert(RulesHandler.Refused.selector);
+        h.deliver(PICK, 5, 0);
+        assertEq(h.deliveries(), 0);
+        assertEq(h.postedHash(h.dealId(0)), bytes32(0));
+        assertEq(rules.deliveryHashOf(h.dealId(0)), bytes32(0));
+    }
+
     function test_stranger_isRefused() public {
         _funded();
         for (uint256 w; w < 8; w++) {
