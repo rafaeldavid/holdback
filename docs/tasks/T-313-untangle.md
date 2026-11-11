@@ -6,7 +6,7 @@
 - **Depends on:** T-312 (crow.direct is live since 2026-11-10).
 - **Paths this task may touch:** `apps/` (not the API's shape), `packages/` (not the settlement logic), `examples/`, `scripts/`, `site/`, `tests/`, `tools/`, `config/`, `docs/`, `README.md`, `brand/domain.md`, `vitest.config.ts`, this file. Drafted for Rafa to merge: `.github/workflows/ci.yml`. Never: `spec/schemas/`, contract events, `contracts/src`, `.gitleaksignore`, `agent-ops/`, `CLAUDE.md`, `AGENTS.md`, `.claude/`.
 - **Human gate:** yes for every deploy and for the tier 3 PRs. Nothing here deploys.
-- **Status:** review
+- **Status:** done
 - **Agent/session:** the untangle session, 2026-11-11, worktrees under `.worktrees/t-313-*`
 
 ## Intent
@@ -54,7 +54,8 @@ Each row is one PR. A PR keeps behaviour unless its row says "fix".
 - [x] CI runs seven more anvil suites, beside `forge test`, and only when the chain side changed (PR 263, tier 3; Rafa approved the merge on 2026-11-11).
 - [x] An audit scope, a contracts README and one known-issues list (PR 267; Rafa approved the merge on 2026-11-11).
 - [x] Planning and business material moved to the private repository, with a public pointer page: 29 files (PR 286), the passages inside technical docs (PR 288), the daily log (PR 292), the update-flow table (PR 296) and the agent-pipeline design (PR 297).
-- [ ] Rafa merges, after he switches his cost clone: the cost collector leaves this repository (PR 295).
+- [x] The cost collector leaves this repository (PR 295, merged 2026-11-11 at 10:31 UTC, after Rafa switched his cost clone and approved the collector there).
+- [x] A test that every gated test file is named in CI or exempt with a reason (`tests/ci-gated.test.ts`, this PR).
 - [x] One independent review of the whole change set: no blocking finding; four findings fixed (PR 277 and two commits on PR 263).
 
 Not done, by decision (Rafa, 2026-11-11: "do not over-engineer"): the guard tests for copied facts, the change ledger, and the split of the three large files. They are in the session's triage note.
@@ -96,11 +97,8 @@ All measured on 2026-11-11 unless marked.
 ## Handoff
 
 - **Done:** every row above that is ticked. Main is green at each merge.
-- **Waiting on Rafa:**
-  - merge PR 295 after switching the cost clone to the private repository and approving the collector there (the PR's body has the steps);
-  - `CLAUDE.md` still names `update-flow.md`, `costs.md` and `brand/` in its map of docs, and control.escrow.stream in "Start here" (tier 3);
-  - a test-seller deploy only when its code next changes: this series changed its deploy script, not the Worker;
-  - the private workflow's comment and step name still say control.escrow.stream.
+- **Closed on 2026-11-11.** Nothing in this task waits. Two tier 3 leftovers have their own pull requests for Rafa: `CLAUDE.md`'s stale lines (the old hosts, the decision range, three moved docs, the old tagline), and a comment and a step name in the private console's workflow.
+- **The test seller** needs a deploy only when its code next changes: this series changed its deploy script, not the Worker.
 - **Not verified:** the signed-in console page at control.crow.direct and the 301 from the old host (both need a browser sign-in); the seller's deploy script and every script's rollback path against Cloudflare (tested with stand-ins only; the operators' and the site's deploys passed for real); a chain world's reopen after a failed write (run on SimChain only).
-- **How to resume:** the triage note lists 45 lower-priority items with their locations. The health numbers above are the baseline for the next round: run `pnpm health --gh` before and after.
-- **Not done:** the test `docs/team.md` proposes (every anvil-gated suite is named in CI). `pnpm health` counts 11 gated test files that no CI step names, 6 of them the `examples/e2e-*` files.
+- **Moved to the roadmap,** which the maintainers keep privately (`docs/private-materials.md`): the 52 lower-priority items the series found, as one triage file for Rafa's review; and one row to bring the six `examples/e2e-*` anvil halves into CI, which `tests/ci-gated.test.ts` exempts today.
+- **For the next round:** the health numbers above are the baseline. Run `pnpm health --gh` before and after.
