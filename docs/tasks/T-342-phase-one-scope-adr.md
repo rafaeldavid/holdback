@@ -79,7 +79,7 @@ All are in ADR-0031, Proposed; Rafa may overrule each.
 
 ## Handoff
 
-**Update after D58.** Where the lines below differ from D58, D58 wins: a zero price is not refused, so core gains no zero-price refusal; `Paid` leaves with SC-3; SC-6 is decided. One point is open with Rafa: a deal with price 0 and fee 0 cannot be funded, because the escrow refuses to hold nothing.
+**Update after D58.** Where the lines below differ from D58, D58 wins: a zero price is not refused, so core gains no zero-price refusal; `Paid` leaves with SC-3; SC-6 is decided. A deal must hold at least one base unit, as price or as fee: core, the prepare routes and the docs say so, and the contract is unchanged. One point is open with Rafa: whether the buyer gets a separate address for refunds.
 
 **Done.** ADR-0031 (Proposed), the phase-one section of `docs/audit/scope.md`, D57 and D58.
 
