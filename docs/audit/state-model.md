@@ -543,7 +543,7 @@ Confirmed and unchanged from the plan, with no new severity: IS-1 (reservations 
 
 ## 12. A deal with price 0
 
-**A deal with price 0 and a fee above 0 settles correctly in every outcome, and its word matches section 2's rows.** The maintainer decided on 2026-11-11 that the contract keeps a price of 0 (SC-5 does not refuse it: other terms, or a future oracle state, can carry the deal's value). [`ZeroPrice.t.sol`](../../contracts/test/unit/ZeroPrice.t.sol) (T-345) takes such a deal, `P = 0`, `F = 500,000` base units, through every outcome. Each test checks the escrow's record and token store, every party's balance, the word against its row, and the full ordered list of events from the rules contract, the escrow and the vault. 17 tests pass on `main` and on the lane `contracts-audit-ready` at `b88f9e5` [measured].
+**A deal with price 0 and a fee above 0 settles correctly in every outcome, and its word matches section 2's rows.** The maintainer decided on 2026-11-11 that the contract keeps a price of 0 (SC-5 does not refuse it: other terms, or a future oracle state, can carry the deal's value). [`ZeroPrice.t.sol`](../../contracts/test/unit/ZeroPrice.t.sol) (T-345) takes such a deal, `P = 0`, `F = 500,000` base units, through every outcome. Each test checks the escrow's record and token store, every party's balance, the word against its row, and the full ordered list of events from the rules contract, the escrow and the vault. All 21 tests pass on `main` and on the lane `contracts-audit-ready` at `b88f9e5` [measured].
 
 | Outcome | Row | Fee goes to | Seller gets | Buyer gets back | Test |
 | --- | --- | --- | --- | --- | --- |
@@ -552,13 +552,14 @@ Confirmed and unchanged from the plan, with no new severity: IS-1 (reservations 
 | The primary rejects | L08 | the primary, `F` | 0 | 0 | `test_refund_primaryRejects_feeToPrimary_zeroToBuyer` |
 | The fallback accepts | L09 | the fallback, `F` | 0 | 0 | `test_release_fallbackAccepts_feeToFallback_zeroToSeller` |
 | The fallback rejects | L10 | the fallback, `F` | 0 | 0 | `test_refund_fallbackRejects_feeToFallback_zeroToBuyer` |
-| An escalation accepted | L31 | the appeal adjudicator, `F` | 0 | 0 | `test_escalation_accepted_feeToAppealAdjudicator_zeroToSeller` |
+| An escalation accepted | L31 | the appeal adjudicator, `F` | 0 | 0 | `test_escalation_accepted_feeToAppealAdjudicator_zeroToSeller`; escalated by the fallback: `test_escalation_byTheFallback_thenAccepted_feeToAppealAdjudicator` |
 | An escalation rejected | L32 | the appeal adjudicator, `F` | 0 | 0 | `test_escalation_rejected_feeToAppealAdjudicator_zeroToBuyer` |
 | Default, the fallback silent | L32 | nobody | 0 | `F` | `test_default_fallbackMissesFallbackBy_feeBackToBuyer` |
 | Default, an escalation undecided | L32 | nobody | 0 | `F` | `test_default_escalationUndecided_feeBackToBuyer` |
-| Early accept | L33 | nobody | 0 | `F` | `test_earlyAccept_carryingTheDelivery_feeBackToBuyer_zeroToSeller` |
+| Default after the buyer's own reclaim on the escrow (5.2) | L32 | nobody | 0 | `F`, by the escrow's reclaim; the default moves nothing and emits no `Refunded` | `test_default_afterTheBuyersOwnEscrowReclaim_closesWithoutRefundEvent` |
+| Early accept | L33 | nobody | 0 | `F` | from Held: `test_earlyAccept_carryingTheDelivery_feeBackToBuyer_zeroToSeller`; after `deliver`: `test_earlyAccept_afterDelivery_feeBackToBuyer_zeroToSeller` |
 | Reclaim | L34 | nobody | 0 | `F` | `test_reclaim_afterMissedDeliverBy_feeBackToBuyer` |
-| Mutual settlement | L35, L36, L37 | nobody | 0 | `F` | `test_mutual_beforeDelivery_emptyPayouts_feeBackToBuyer`, `test_mutual_afterDelivery_releasesTheKey_feeBackToBuyer`, `test_mutual_duringEscalation_feeBackToBuyer` |
+| Mutual settlement | L35, L36, L37 | nobody | 0 | `F` | `test_mutual_beforeDelivery_emptyPayouts_feeBackToBuyer`, `test_mutual_afterDelivery_releasesTheKey_feeBackToBuyer`, `test_mutual_duringFallback_feeBackToBuyer`, `test_mutual_duringEscalation_feeBackToBuyer` |
 
 What the tests showed that sections 2 to 11 do not say [measured by the tests]:
 

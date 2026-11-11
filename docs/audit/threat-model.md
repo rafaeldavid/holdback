@@ -118,7 +118,7 @@ Each is accepted or tracked elsewhere; this list points to it.
 
 ## 7. A deal with price 0
 
-**A deal with price 0 and a fee above 0 moves only the fee, and only to the party the terms name** [measured: [`ZeroPrice.t.sol`](../../contracts/test/unit/ZeroPrice.t.sol), 17 tests, T-345; [`state-model.md`](state-model.md) section 12 has the table by outcome]. The maintainer decided on 2026-11-11 that the contract keeps a price of 0. What changes for the actors:
+**A deal with price 0 and a fee above 0 moves only the fee, and only to the party the terms name** [measured: [`ZeroPrice.t.sol`](../../contracts/test/unit/ZeroPrice.t.sol), 21 tests, T-345; [`state-model.md`](state-model.md) section 12 has the table by outcome]. The maintainer decided on 2026-11-11 that the contract keeps a price of 0. What changes for the actors:
 
 - **The hold is the fee alone.** A decision pays the whole hold to the decider. Every other exit (early accept, reclaim, default, settlement) returns it to the buyer. No path pays the seller anything, and a settlement refuses any payout (`R:466`, `R:477`).
 - **A bond backs nothing.** In guaranteed mode the primary's bond covers 100% of the price, so it reserves 0 (`R:215`), and an adjudicator with no bond can serve and collect the fee. Leaves with SC-7.
