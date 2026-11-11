@@ -1,16 +1,37 @@
-# Research pass: the settlement chain for the mainnet test
+# Research pass: Ethereum mainnet for the mainnet test, and the L2 that follows
 
 - **Date:** 2026-11-11
-- **For:** ADR-0034 and D61, which recommend a chain for the first test with real money and write the gate before it. Task T-351.
+- **For:** ADR-0034 and D61, which record what the mainnet test on Ethereum mainnet requires and costs, write the gate before it, and recommend the L2 for the later step. Task T-351.
 - **Scope:** Ethereum mainnet, Base, Arbitrum One, OP Mainnet and Monad in full; eight more EVM chains screened in or out. Non-EVM chains are out of scope.
 - **Method:** published sources fetched on 2026-11-11 by seven `web-fetch` subagents, and read-only calls to public RPC endpoints. No transaction was sent, nothing was signed, nothing was deployed, and no account was created.
 - **Labels:** **measured** (a command in this run produced it; the command or endpoint is named), **documented** (a published page says it; the page is cited, with its date or "undated"), **inferred** (reasoning from measured or documented facts), **unverified** (not checked, with the reason).
 - **Hard rule 1 stands.** This note deploys nothing. Only Rafa changes the rule.
-- **The decision already on record.** On 2026-11-11 Rafa decided the order: "Assume Ethereum Mainnet first, we will deploy on L2 after we figure out it works on the primary industry standard" (recorded in ADR-0032 and D59). This note gives the facts behind that order and behind the choice of the L2 that follows.
+- **The decision already on record.** On 2026-11-11 Rafa decided the order: "Assume Ethereum Mainnet first, we will deploy on L2 after we figure out it works on the primary industry standard" (recorded in ADR-0032 and D59). This note does not reopen it.
+- **How to read it.** The note has two halves in one set of tables. **The first half is Ethereum mainnet:** what the test requires and costs there, in the Ethereum column of sections 4 to 11. **The second half is the L2 step:** which L2 follows once mainnet works, in the other columns, with the conclusion in section 1.2.
 
 ## 1. Summary
 
 **No candidate chain fails on the drand verifier, on USDC or on fees. Speed and neutrality decide, and they pull in opposite directions.** Ethereum mainnet has nothing that blocks the test and no single party that can delay a deal; it cannot settle in seconds. Base settles in seconds and already has the audited escrow; one sequencer orders its transactions.
+
+### 1.1 Ethereum mainnet, the chain of the test
+
+- **Time:** 12 s slots; three money steps take 36 s at least and took 45 s on Sepolia. Settling in seconds is out of reach there (section 4.1).
+- **Fee:** about USD 0.21 a deal at 0.23 gwei on 2026-11-11, about USD 2.40 at the month's sampled peak, and about three times the gas after the next fork (section 4.2).
+- **The verifier:** the precompiles are live since 2025-05-07, and the beacon's code returns a real round's value on mainnet under the Fusaka fork, at 219,232 gas a transaction [measured]. Sepolia runs a later fork, so its gas figure differs (sections 5 and 10).
+- **The escrow:** no deployment was found on mainnet. Crow deploys its own copy of the audited source (section 7).
+- **USDC and contract signers:** native USDC with ERC-3009; EIP-7702 and the ERC-4337 EntryPoints are there (sections 6 and 8).
+- **Neutrality:** no sequencer, five node clients, and a censor's delay counted in slots (section 9).
+
+### 1.2 The L2 step: Base leads, Arbitrum One is the runner-up
+
+- **Base** is as fast as any candidate (a block every 200 ms), is the only chain with the audited escrow already deployed, and has the lowest measured fee with its data fee included. Its testnet runs its mainnet's rules today.
+- **Its costs:** one sequencer that can hold a step for up to 12 hours, two halts in June 2026, upgrades with no delay, one node client, and block times that ran about two hours behind real time after a halt (section 9).
+- **Arbitrum One** is the runner-up: as fast, with the verifier passing since 2026-01-08 and a delay on upgrades that are not emergencies. It has no escrow deployment, a 24-hour forced-inclusion delay, and a sequencer that sets block times within wide bounds.
+- **OP Mainnet** is third: the same shape as Base at 2 s a block, with no escrow deployment.
+- **Monad is not an L2 and is the one to look at again:** no sequencer and finality in 600 ms, with its validator count, client count and incident record unverified.
+- **What a move to Base changes:** the escrow becomes an existing deployment, the beacon's margin is derived anew, the operators' log sync and confirmation stages change, and the sequencer becomes a named control point (sections 7, 9 and 11; ADR-0034 section 9.3).
+
+### 1.3 The five findings behind both halves
 
 1. **The verifier works on every serious candidate** [measured]. The deployed beacon's code, run by read-only call with a state override, returns drand round 1000's value on Ethereum, Base, Base Sepolia, Arbitrum One, OP Mainnet, Unichain, Monad, Linea and Arc. It refuses on Polygon PoS and Avalanche C-Chain (section 5).
 2. **Fees no longer separate Ethereum from the rest at today's prices.** One deal's three transactions cost about USD 0.21 on Ethereum and about USD 0.006 on Base on 2026-11-11 [measured gas and prices; section 4]. The earlier figure of about USD 18.70 a deal on Ethereum does not hold at today's base fee of 0.23 gwei. Ethereum's fee is the volatile one.
@@ -18,11 +39,11 @@
 4. **Base is the one chain where the audited escrow is already deployed** [measured]. The `AuthCaptureEscrow` at `0xf96815976523E00e65Be8f34cA5e64b4f41EB19c` on Base is version 1.1.0, and its verified source equals the vendored file byte for byte. The address in the vendored README, `0xBdEA…0cff`, is version 1.0.0, which has the older fee interface (section 7).
 5. **Every fast chain but Monad has one sequencer.** On Base, Arbitrum One and OP Mainnet a single operator orders transactions. A user can force a transaction through Ethereum, within 12 hours on Base and OP Mainnet and 24 hours on Arbitrum One [documented]. Base halted twice in June 2026, for 116 and 20 minutes [documented]. Monad has no sequencer and finalizes in 600 ms, and too much about it is unverified today (section 9).
 
-What must still be measured before the choice is final is in section 12.
+What must still be measured, for the mainnet test and for the L2 step, is in section 12.
 
 ## 2. Criteria
 
-The screen removes a chain. The ranking criteria compare the chains that remain; ADR-0034 weighs them.
+The screen removes a chain. The ranking criteria compare the chains that remain. For the mainnet test they describe what Ethereum costs; for the L2 step they rank the L2s.
 
 **Screen (all four must hold):**
 
@@ -309,7 +330,7 @@ What an operator can rely on [inferred]:
 - **`block.number` is no clock on Base.** Since Denim it "advances 10x faster in wall-clock time" [documented]. Crow's contracts use timestamps only [measured: `grep` of `contracts/src`], so nothing breaks.
 - **"A write answers at inclusion"** (ADR-0028 item 4) means a 200 ms block from the one sequencer on Base. Base's own stages are that block, the batch on Ethereum after about 2 minutes, and Ethereum finality after about 20 minutes.
 
-## 12. What must be measured before the choice is final
+## 12. What must be measured before each step
 
 None of these was done here. A line marked "transaction" needs a deploy or a transaction on a public testnet and waits for Rafa's go-ahead. A line marked "read-only" does not.
 

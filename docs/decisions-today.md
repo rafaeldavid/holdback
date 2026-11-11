@@ -1020,23 +1020,31 @@ The full text is kept privately (`docs/private-materials.md`).
 - **What it changes when built:** `HoldbackRules.sol` (one immutable, one function, two lines of `decide`, one event value), core's `beaconRoundFor`, the adjudicator service's `roundFor`, the live world's wake-up times, and one advisory warning. No signed type and no file in `spec/schemas/`. It needs the redeploy, which is Rafa's.
 - **Research pass:** drand's chain info, the consensus specifications' timing constants and fork-choice rule for late blocks, measured block headers, and one `red-teamer` pass (ADR-0032, section 12).
 
-## D61. The mainnet test runs on Ethereum mainnet, Base is the L2 that follows, and a gate of 34 conditions comes first (ADR-0034)
+## D61. What the mainnet test on Ethereum mainnet requires and costs, the gate of 34 conditions before it, and Base as the recommended L2 for later (ADR-0034)
 
-**Proposed 2026-11-11 by T-351,** after a research pass (`docs/research/2026-11-11-settlement-chain.md`), a reviewer's check of ten facts and a red-team pass. ADR-0034 is Proposed; Rafa may overrule any line. It revisits D4 with numbers, as D4 asked. **Hard rule 1 stands: nothing here deploys anything, and only Rafa changes the rule.**
+**Proposed 2026-11-11 by T-351,** after a research pass (`docs/research/2026-11-11-settlement-chain.md`), a reviewer's check of ten facts and a red-team pass. ADR-0034 is Proposed; Rafa may overrule any line. It does not decide which chain comes first: Rafa did. It brings D4 back with numbers, as D4 asked. **Hard rule 1 stands: nothing here deploys anything, and only Rafa changes the rule.**
 
-- **The chain of the test is Ethereum mainnet.** Rafa set the order on 2026-11-11: "Assume Ethereum Mainnet first, we will deploy on L2 after we figure out it works on the primary industry standard" (D59). The research finds nothing that blocks it:
-  - no single party can delay a deal there;
-  - one deal's three transactions cost about USD 0.21 at the base fee of 2026-11-11, 0.23 gwei, against the earlier estimate of about USD 18.70 [measured: 448,160 gas on the local EVM, the price by read-only call];
-  - the drand verifier's code returns a real round's value on mainnet [measured by read-only call].
-- **What it costs.** A deal takes 36 s or more of chain time, so the test does not settle in seconds. Crow deploys its own copy of the escrow. Sepolia runs a later fork than mainnet, so its gas and timing do not carry.
-- **The runner-up, and the L2 that follows, is Base.**
+- **The chain of the test is Ethereum mainnet, by Rafa's decision** of 2026-11-11: "Assume Ethereum Mainnet first, we will deploy on L2 after we figure out it works on the primary industry standard" (D59). Nothing there blocks the test:
+  - no single party can delay a deal: any block proposer can include a step;
+  - one deal's three transactions cost about USD 0.21 at the base fee of 2026-11-11, 0.23 gwei, against the earlier estimate of about USD 18.70 [measured: 448,160 gas on the local EVM, the price by read-only call]. At 1% of the price for gas, the smallest deal that makes sense is about USD 20 today and about USD 240 at the month's sampled peak;
+  - the EIP-2537 precompiles are live on mainnet since 2025-05-07, and the drand verifier's code returns a real round's value there under the Fusaka fork, at 219,232 gas a transaction [measured by read-only call];
+  - native USDC has ERC-3009, and contract signers work.
+- **What it costs.**
+  - A deal takes about 45 s: three 12 s slots, and no shipped or scheduled fork shortens the slot. **Settling in seconds waits for the L2 step.**
+  - Crow deploys its own copy of the escrow: no deployment was found on Ethereum mainnet [measured at the two published addresses].
+  - Sepolia has run the next fork since 2026-10-06 and mainnet has no date for it, so Sepolia's gas and slot timing do not carry.
+- **For the later L2 step, Base is recommended and Arbitrum One is the runner-up.** The choice stays Rafa's.
   - It makes a block every 200 ms since 2026-11-05 [measured].
   - Its fee is about USD 0.006 a deal [measured].
   - It alone has the audited escrow deployed: `AuthCaptureEscrow` version 1.1.0 at `0xf96815976523E00e65Be8f34cA5e64b4f41EB19c`, whose verified source equals the vendored file byte for byte [measured]. The address in the vendored README, `0xBdEA…0cff`, is version 1.0.0 and must not be used.
   - Its costs: one sequencer that can delay a step by up to 12 hours, two halts in June 2026, upgrades with no delay, one node client, and block times that lagged real time by about two hours after a halt.
 - **The verifier is not a constraint.** Its code passes on Ethereum, Base, Arbitrum One, OP Mainnet, Unichain, Monad, Linea and Arc, and refuses on Polygon PoS and Avalanche C-Chain [measured]. The on-chain beacon proof stays (ADR-0031 had left it to the choice of chain).
-- **The gate.** 34 conditions in six groups: the rule and the switch, the chain, the contracts, the operators, outside the code, and any chain other than Ethereum. Each names who checks it and how. For a capped test ADR-0034 recommends 25 in full, 6 in a reduced form, 2 as Rafa's call (how independent the roles are, and legal advice) and 1 not applicable. Its inputs are the pilot plan's thirteen conditions, the verifier review's G-1 to G-10 and ADR-0032's BR-1 to BR-10.
+- **The gate, written for Ethereum mainnet.** 34 conditions in six groups: the rule and the switch, the chain, the contracts, the operators, outside the code, and one for the L2 step. Each names who checks it and how. Its inputs are the pilot plan's thirteen conditions, the verifier review's G-1 to G-10 and ADR-0032's BR-1 to BR-10.
 - **What Rafa would change to lift the rule:** the sentence in `CLAUDE.md`, its row in `docs/team.md`, then the guards in code by a reviewed pull request, his written approval per deploy, and the money itself from keys he holds.
-- **Rafa's calls:** the chain, if he weighs seconds above the order he set (ADR-0034 section 2.5 gives the answer for each weighting); the cap; which conditions the capped test needs; and whether to approve a Base Sepolia deployment now, so the measurements for the L2 run beside the audit.
-- **Litmus tests.** Neutrality: Ethereum adds no actor; on Base the sequencer becomes a named control point before Base is used. The hold: unchanged; the gate proves which escrow code holds the money. Defended judgment: unchanged on Ethereum; on an L2 the beacon's margin does not bind the sequencer, which is stated.
+- **Open points for later, each with a recommendation; none waits on Rafa now.** Rafa, 2026-11-11: "We can deal with this later, as we need to first finalize all the testnet work and align the entire product components to the new contract set."
+  - The cap: 100.00 USDC a deal and 500.00 USDC outstanding in total.
+  - The conditions a capped test needs: 25 in full, 6 in a reduced form, 2 as Rafa's call (how independent the roles are, and legal advice), 1 not applicable.
+  - The change to hard rule 1: keep the rule and add one exception that names the chain ID, the token, the cap and what ends it.
+  - The L2, and a Base Sepolia deployment to measure it once the testnet work is aligned.
+- **Litmus tests.** Neutrality: Ethereum adds no actor; on an L2 the sequencer becomes a named control point before the chain is used. The hold: unchanged; the gate proves which escrow code holds the money. Defended judgment: unchanged on Ethereum; on an L2 the beacon's margin does not bind the sequencer, which is stated.
 - **Research pass:** seven `web-fetch` lookups of published sources and read-only calls to public RPC endpoints on 2026-11-11; no transaction was sent.
