@@ -5,7 +5,7 @@
 - **Depends on:** the contract review at `baac930` (`docs/reviews/2026-11-03-contract-review.md` §4); T-241 (its open part: a planted failing contract test fails the run)
 - **Paths this task may touch:** `docs/reviews/2026-11-11-static-analysis.md` (new), this task file. Outside the PR: one throwaway branch `t-339-planted-failure` with `contracts/test/unit/PlantedFailure.t.sol`, opened as a draft PR, then closed and deleted.
 - **Human gate:** no for the report and the planted-failure run. Installing Aderyn is a download, so it waits on Rafa.
-- **Status:** done (PR #323 merged 2026-11-11; known issue G-7 records that Aderyn waits on Rafa's OK to install)
+- **Status:** done (PR #323 merged 2026-11-11. Aderyn ran the same day after Rafa approved the install, in a follow-up PR: no defect, and G-7 is fixed)
 - **Agent/session:** implementer, pilot plan package C1e
 
 ## Intent
@@ -61,6 +61,6 @@ Fill this in before review. Label each item measured, inferred or guessed.
 ## Handoff
 
 - Done: the Slither run, the triage, the diff from `baac930`, and the planted-failure run (report §7).
-- Not done: Aderyn. It waits on Rafa's OK to install; the report's §6 gives the install and run commands. After it runs, add its results to the report's tables and triage its highs.
+- Aderyn, done in a follow-up after Rafa's OK on 2026-11-11 ("go ahead"). Version 0.6.8 from Homebrew's `cyfrin/tap` ran at `8bd8eb1`, `baac930` and `contracts-audit-ready` (`b88f9e5`). Main: 2 high and 9 low detectors, no defect. The one new detector since `baac930`, an unchecked return of `_acceptDelivery`, is dismissed (report §6) [measured: the counts; inferred: the triage].
 - For the coordinator: add row G-7 to `docs/audit/known-issues.md` §6 (text in the report's §6).
 - For T-334's lane: no defect. When `contracts-audit-ready` lands, S-17 should disappear with the dead fee-share branch, and a re-run should show 16 medium [inferred].
