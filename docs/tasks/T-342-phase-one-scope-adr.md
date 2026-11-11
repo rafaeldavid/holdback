@@ -55,8 +55,65 @@ Fill this in before review. Label each item measured, inferred or guessed.
 
 ## Decisions
 
-Choices made inside this task. Escalate anything that changes architecture, a contract or a defense to an ADR.
+All are in ADR-0031, Proposed; Rafa may overrule each.
+
+1. **The ADR records Rafa's newest answers.** This task's brief listed SC-4, SC-8 and the events question as open. Rafa answered all three on 2026-11-11, after the brief was written: contract signers stay, the on-chain beacon proof stays for now, and a cut feature's events leave with it. The ADR records each as decided, with his words. One cut now waits for his yes: SC-5b, a settlement in `Held` that names a delivery or releases a key, which the state model (T-340) found the contract tests on purpose.
+2. **`bondReserved` must be zero on chain.** The plan recommended leaving it unchecked. Its claim that this changes no signed type holds [measured: `HoldbackTypes.sol:188-193,296-312`]. The ADR still requires zero, for two reasons: an unchecked value lets a funded deal carry a signed claim of a reservation that cannot exist, and core refuses an acceptance below the price (`packages/core/src/state.ts:223-231`), so the contract and core would disagree.
+3. **`appealWindowSec` is signed and not read.** The plan does not list it. The schema requires at least 1, so the contract cannot require 0 without a schema version.
+4. **The deadline order is core's:** strict, over five deadlines (`packages/core/src/timing.ts:33,46-49`). The plan names four.
+5. **Refusing a zero price is a new limit.** The plan says core refuses it today; it does not [measured by search]. The ADR says so and names D31.
+6. **SC-6 proceeds although the plan's condition fails.** The EVM adapter depends on `expireOffer`; the ADR recommends expiring an unfunded offer by the operators' clock.
+7. **`Paid` stays declared until Rafa confirms SC-3.** His answer on events covers a feature he has cut.
+8. **On EVM settlement an offer funds until `offerExpiresAt`.** The contract's rule stands; core and SimChain keep their two steps. The fix is in the docs and the prepare routes.
+9. **SC-5b: recommended, cut.** The ADR names what replaces the late-work settlement: post the delivery before `deliverBy`, or reclaim and sign a new commitment, or settle the money and hand the key over directly.
 
 ## Handoff
 
-What is done, what is not, how to resume, and the open questions that remain.
+**Done.** ADR-0031 (Proposed), the phase-one section of `docs/audit/scope.md`, and D57.
+
+**Not done, on purpose.** No code, schema, contract or formal-model change. `CLAUDE.md` is not edited.
+
+**For Rafa.** The list is ADR-0031's "What waits on Rafa". The proposed sentence for litmus test 3 in `CLAUDE.md`:
+
+> Appeals are backed by the adjudicator's bond. Phase one sets this line aside: its contracts have no party appeals and no bonds, and the first decision by the primary or the fallback adjudicator is final on chain (Rafa, 2026-11-11; D57, ADR-0031). SimChain keeps both.
+
+`CLAUDE.md` also says the decisions run "D1 to D56" in two places; they now run to D57.
+
+**For the task that owns `docs/audit/known-issues.md` (T-338).** The eight findings that move to "not in phase one", each with its new Status and wording. They move at the redeploy; until then they describe the deployed contracts.
+
+| ID | New status | New wording for "What bounds the loss today" |
+| --- | --- | --- |
+| H-2 limit | not in phase one (ADR-0031, SC-7) | Phase one takes no decision on a deal that is already `Released` or `Refunded`, so no appeal decision can carry a key to a refunded buyer. The limit returns with party appeals |
+| L-3 | not in phase one (ADR-0031, SC-7) | The contract takes no appeal, so there is no appeal bond to set at 0. A minimum appeal bond in the signed terms returns with party appeals, with an ADR and a schema version |
+| L-5 | not in phase one (ADR-0031, SC-7) | The appeal adjudicator decides escalations only, and no decision moves a bond. Still true: its decision after an escalation is final and unbonded (ADR-0031, "Litmus tests") |
+| I-8 rest | not in phase one (ADR-0031, SC-7) | No bond exists, so there is no default compensation, appeal fee or minimum appeal bond. A default refunds the buyer; nobody compensates the seller |
+| T-221 | not in phase one (ADR-0031, SC-7) | No bond exists for terms to be unable to pay. The operators' refusal of an unbonded fallback leaves the EVM path |
+| A-1 | not in phase one (ADR-0031, SC-7) | A fallback's decision reserves nothing, so a sham deal holds no bond |
+| A-2 | not in phase one (ADR-0031, SC-7) | No free bond exists to drain |
+| A-3 | not in phase one (ADR-0031, SC-7) | No deal is appealed on the EVM path, so the service reads no first outcome of an appealed deal |
+
+Other rows the cuts touch:
+
+- **L-2** (a fee-on-transfer token leaves the vault short): not in phase one. The vault leaves (SC-7), and a deployment's one token must charge no fee on transfer (SC-1).
+- **L-6 and L-8:** closed by the strict deadline order once it is built (SC-5). Until then: deferred to the phase-one redeploy.
+- **I-2** (the dead fee-share branch in `_payOut`): unchanged by this ADR; the clean-up task owns it.
+- **Rows whose bound names a bond or an appeal** need a phase-one bound: R-3, R-6, R-7, R-8 and DS-1. The phase-one bounds are commit-reveal selection, panels across model families, the parties' choice of adjudicators, the signed record and the law.
+- **R-1** says "The parties choose the token": in phase one they choose a deployment, which serves one token.
+- **G-3** (the formal model has no bond coverage): the bond half stops applying.
+- **Section 8, "Bonds behind appeals and defaults":** the disagreement ends; phase one has neither.
+- **New rows to add** (accepted for phase one, ADR-0031):
+  - a wrong first decision has no remedy on chain; the loss is bounded by one deal's price and fee;
+  - an accept whose key does not decrypt the work has no remedy on chain (threat T19);
+  - `timing.appealWindowSec` is signed and not read;
+  - if Rafa says yes to SC-5b: a late-work settlement in `Held` after `deliverBy` cannot release the key in the same transaction.
+
+**For the tasks that build the cuts (packages R5 and R6 of the plan).** ADR-0031 names each function, storage field and event that leaves.
+
+- **Copy the deadline comparisons exactly from `packages/core/src/timing.ts:46-49`,** strict or not, over the same five deadlines, so the contract and core refuse the same terms.
+- **Do not remove the `Held` settlement path (SC-5b) until Rafa answers.**
+- Check before cutting: SC-6's adapter change; the fixtures the ADR lists for the SimChain-only list; how the comparison between SimChain and the contract treats SimChain's bond postings and appeal window.
+- Core gains two refusals with the contract: a zero price, and (on a phase-one deployment) an acceptance whose `bondReserved` is not zero.
+
+**For the docs package.** ADR-0031's appendix lists every doc that promises what phase one cuts, with the sentence to change. The docs change at the redeploy, not before.
+
+**How to resume.** Read ADR-0031, then D57. A hand-over note for the sessions that ran beside this one is in the shared notes folder of the session group.

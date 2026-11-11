@@ -22,7 +22,7 @@ Not run while writing this page: `forge test` and `deploy-sepolia.sh --check`. E
 | --- | --- |
 | `HoldbackRules.sol` | The rules contract. Eight state-changing entry points: `agreeAndFund`, `deliver`, `decide`, `earlyAccept`, `mutualSettle`, `reclaim`, `triggerFallback`, `triggerDefault` |
 | `HoldbackTypes.sol` | The settlement view, the EIP-712 struct hashes and the rate math |
-| `IHoldbackBeacon.sol`, `DrandQuicknetBeacon.sol`, `SimBeacon.sol` | The beacon that fixes the panel seed of a fallback's decision and of an escalation's. Whether the on-chain proof stays is open (ADR-0031, SC-8); the recommendation is to keep it |
+| `IHoldbackBeacon.sol`, `DrandQuicknetBeacon.sol`, `SimBeacon.sol` | The beacon that fixes the panel seed of a fallback's decision and of an escalation's. The on-chain proof of a drand round stays for now (Rafa, 2026-11-11; ADR-0031, SC-8), and the question comes back with the choice of chain |
 | Relied on, not in scope | Commerce Payments' `AuthCaptureEscrow` and `ERC3009PaymentCollector`, Multicall3, Solady |
 
 **Cut on purpose** (each with what leaves, what stays and what a party loses in ADR-0031):
@@ -31,10 +31,15 @@ Not run while writing this page: `forge test` and `deploy-sepolia.sh --check`. E
 2. **Any token per deal.** A deployment serves one token, fixed at deploy.
 3. **Permit2 funding.** ERC-3009 only.
 4. **Payouts to third addresses** in a mutual settlement. It pays the buyer and the seller only.
-5. **Terms that settlement does not process:** a zero price; deadlines that are not strictly ordered `offerExpiresAt < fundBy < deliverBy < judgeBy < fallbackBy`; `maxSubmissions` other than 1; a mutual settlement in `Held` that names a delivery or releases a key.
+5. **Terms that settlement does not process:** a zero price; deadlines that are not strictly ordered `offerExpiresAt < fundBy < deliverBy < judgeBy < fallbackBy`; `maxSubmissions` other than 1; an escalation decision window (`appealDecideSec`) of 0.
 6. **The on-chain record of an unfunded offer's expiry:** `expireOffer` and the `Expired` stage.
 
-**Kept on purpose:** signatures from contracts (ERC-1271) in every role, so a multisig can be a party or an adjudicator (Rafa refused the cut, 2026-11-11).
+**Waiting for Rafa's yes:** a mutual settlement in `Held` that names a delivery or releases a key (ADR-0031, SC-5b). The contract takes it today on purpose, for late work; the recommendation is to cut it.
+
+**Kept on purpose** (Rafa, 2026-11-11):
+
+- signatures from contracts (ERC-1271) in every role, so a multisig can be a party or an adjudicator;
+- the on-chain proof of the randomness beacon.
 
 **Assumptions that are new with phase one:**
 

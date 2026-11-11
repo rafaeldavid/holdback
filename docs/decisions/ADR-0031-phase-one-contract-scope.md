@@ -1,6 +1,6 @@
 # ADR-0031: The phase-one contract scope
 
-- **Status:** Proposed, 2026-11-11. Rafa decided three of its lines the same day: phase one ships without party appeals and bonds (SC-7, D57), contract signers stay (SC-4 is refused), and a cut feature's events leave with it. The other cuts follow his stated direction and proceed unless he stops one. One cut is open (SC-8). Rafa may overrule any line.
+- **Status:** Proposed, 2026-11-11. Rafa decided four of its lines the same day: phase one ships without party appeals and bonds (SC-7, D57), contract signers stay (SC-4 is refused), the on-chain beacon proof stays for now (SC-8 is not cut), and a cut feature's events leave with it. The other cuts follow his stated direction and proceed unless he stops one. One cut waits for his yes, because it removes a feature the contract tests on purpose (SC-5b). Rafa may overrule any line.
 - **Date:** 2026-11-11
 - **Raised by:** T-342, package R1 of the contract refinement plan (kept privately, `docs/private-materials.md`), from Rafa's standard for the contracts on 2026-11-11: "it's better to have a limited scope for an initial phase of the product than perfectly complete and universal design contracts that open up to risks."
 - **Builds on:** ADR-0001 (neutrality), ADR-0002 (the hold), ADR-0003 (the escrow base), ADR-0006 (defended judgment), ADR-0007 (bonded adjudicators), ADR-0016 (the acceptance and the state machine), ADR-0018 (the beacon), ADR-0019 (mutual settlement), ADR-0025 and ADR-0026 (funding), ADR-0029 (delivery binding), ADR-0030 (adjudicator registration); D23, D26, D28, D31, D32, D38, D42, D43, D54.
@@ -22,13 +22,14 @@ Labels: **measured** (read at the cited line by this task, or by the search this
 | SC-3 | A mutual settlement pays the buyer and the seller only | Proceeds; D23 is deferred | same |
 | SC-4 | Signatures from plain keys only | **Refused by Rafa, 2026-11-11.** Contract signers stay | decided |
 | SC-5 | Refuse terms that settlement does not process | Proceeds, with two corrections to the plan (below) | Rafa's stated direction |
+| SC-5b | A settlement in `Held` cannot name a delivery or release a key | **Waits for Rafa's yes.** Recommended: cut. It removes a path the contract tests on purpose | Rafa |
 | SC-6 | No on-chain record of an unfunded offer's expiry | Proceeds; the plan's condition is not met as written (below) | Rafa's stated direction |
 | SC-7 | No party appeals and no bonds | **Decided by Rafa, 2026-11-11** (D57) | decided |
-| SC-8 | No on-chain proof of the randomness beacon | **Open.** Recommended: keep the proof | Rafa |
+| SC-8 | No on-chain proof of the randomness beacon | **Not cut: the proof stays for now** (Rafa, 2026-11-11). Revisit with the choice of chain | decided |
 
 **The price of SC-7, stated plainly.** Litmus test 3 says "Appeals are backed by the adjudicator's bond". Phase one sets that line aside. A wrong first decision has no remedy on chain: the losing party loses at most the deal's price plus the fee, and its recourse is the signed record and the law (D26). The parties' protection moves to what they choose before they sign: the three adjudicators, the fallback and the default outcome.
 
-**Three places where this ADR differs from the plan it records,** each explained below: the deadline order is strict and covers five deadlines, as `packages/core` already requires; the contract requires the acceptance's `bondReserved` to be zero instead of leaving it unchecked; and refusing a zero price is a new limit that D31 does not already cover.
+**Three places where this ADR differs from the plan it records,** each explained below: the deadline order covers five deadlines, as `packages/core` already requires; the contract requires the acceptance's `bondReserved` to be zero instead of leaving it unchecked; and refusing a zero price is a new limit that D31 does not already cover.
 
 ## Context
 
@@ -102,7 +103,7 @@ Rafa refused this cut on 2026-11-11: "Keep multisig compatibility and smart-cont
 
 ### 6. SC-5: refuse terms that settlement does not process
 
-`agreeAndFund` refuses three kinds of terms, and `mutualSettle` refuses one kind of settlement.
+`agreeAndFund` refuses four kinds of terms.
 
 1. **A zero price.**
    - What leaves: the branches that exist only for a zero price (`:357` and `:412` [measured]; the plan counts three). A zero fee stays allowed.
@@ -110,19 +111,37 @@ Rafa refused this cut on 2026-11-11: "Keep multisig compatibility and smart-cont
    - **Correction to the plan.** The plan says this costs nothing because core refuses it today. It does not: the schema allows `"0"` (`spec/schemas/common.schema.json:46`) and no check in `packages/core/src` refuses a zero price [measured by search]. D31 lets the parties choose any amount the encoding can represent, and zero is one. So this refusal is a new limit. It rests on Rafa's direction of 2026-11-11, not on D31, and core must add the same refusal.
 2. **Deadlines out of order.**
    - The rule: `offerExpiresAt < fundBy < deliverBy < judgeBy < fallbackBy`, each strictly before the next.
-   - **Correction to the plan.** The plan writes `fundBy ≤ deliverBy ≤ judgeBy ≤ fallbackBy`. Core already requires the strict order over all five (`packages/core/src/timing.ts:33,46-49`) [measured]. The contract takes core's rule exactly. Otherwise the contract would accept terms that core refuses, and such a deal falls behind the operators' view (residual 13, the divergence case).
+   - **The contract copies core's comparison exactly.** The plan first wrote `fundBy ≤ deliverBy ≤ judgeBy ≤ fallbackBy`, and now says "compared exactly as `packages/core/src/timing.ts:46-49` compares them". That comparison is strict and covers all five deadlines (`timing.ts:33,46-49`) [measured]. If the contract accepted terms that core refuses, such a deal would fall behind the operators' view (residual 13, the divergence case).
    - What a party loses: nothing through the API or on SimChain, which refuse these terms today. A party that submits straight to the contract loses equal deadlines, which give an adjudicator a window of zero length.
    - What it closes: an escrow expiry that falls before the delivery deadline or before an on-time decision (L-6); a fallback's beacon round that is public before funding (L-8); a delivery after `judgeBy`; a fallback and a default in one block.
 3. **`maxSubmissions` other than 1.**
    - What leaves: nothing; the contract already takes one delivery (`:624`). The refusal stops terms that promise a resubmission the contract never honours.
    - What a party loses: nothing. Core's parser refuses it today (`packages/core/src/parse.ts:103`), and `state.ts:287` refuses a second attempt [measured]. The plan cites other lines for this; these are the checks.
-4. **A mutual settlement in `Held` that names a delivery or releases a key.** In `Held`, `hasDelivery` must be false.
-   - What leaves: the path where a settlement releases the buyer's key from a delivery that never landed on chain (`:435-447`). Core refuses it today (`state.ts:517-518`) [measured].
-   - What a party loses: one case. After `deliverBy` with nothing posted, the parties can still settle the money, but the settlement cannot release the key in the same transaction. For late work the key then changes hands off chain, and one party trusts the other. Before `deliverBy` the seller posts `deliver` first, and the settlement then releases the key as today.
+4. **An escalation decision window of zero:** `appealDecideSec` must be at least 1.
+   - Why: with a window of 0 the appeal adjudicator's deadline is the escalation's own second, so no decision can land and every escalated case defaults at once (`:264`, `:286`; the state model's finding F-2, T-340).
+   - What a party loses: nothing. The schema already requires at least 1 (`spec/schemas/commitment.schema.json:311-314`) [measured], so such terms are malformed, and D31 refuses malformed terms.
+   - `appealWindowSec` gets no check: with SC-7 the contract never reads it (section 8, point 3).
 
 - **One funding deadline, settled here.** On the contract, agreeing and funding are one call. That call must land before `offerExpiresAt`, which the order rule puts before `fundBy`. So on EVM settlement an offer funds until `offerExpiresAt`, and `fundBy` only bounds the buyer's ERC-3009 authorization (`:179`). Core and SimChain keep two steps: agree before `offerExpiresAt`, then fund before `fundBy` (`state.ts:240,259`). The contract cannot follow that: it stores nothing before funding, so it cannot tell an agreement made in time from one made after the seller's offer lapsed. The EVM adapter already follows the contract (`packages/settlement/evm/timeouts.ts:111-112`) [measured]. The fix is in the docs and the prepare routes, not in the contract.
 - **Signed types and schemas.** None changes. The schema keeps `maxSubmissions` 1 to 3 and a price of `"0"` for the full protocol; a phase-one deployment refuses them and the operator's prepare routes say so before anyone signs.
-- **Trigger for bringing them back.** Resubmissions return with `settle_after_window` (ADR-0007). A zero price returns when a party asks for it. Equal deadlines do not return.
+- **Trigger for bringing them back.** Resubmissions return with `settle_after_window` (ADR-0007). A zero price returns when a party asks for it. Equal deadlines and a zero decision window do not return.
+
+### 6b. SC-5b: a settlement in `Held` cannot name a delivery or release a key (waits for Rafa's yes)
+
+**This cut removes a feature the contract has on purpose, with a test. No task removes it until Rafa answers.**
+
+- **What the path does today.** In `Held`, before any delivery is posted, `mutualSettle` takes a settlement with `hasDelivery` true. With `releaseKey` it checks that the carried delivery hashes to the hash both parties signed, proves the buyer's envelope against that delivery's key list, pays the split, and emits the buyer's key in the same transaction (`HoldbackRules.sol:435-447`, `:456`). The contract never checks the seller's signature on the delivery itself; the seller's signature on the settlement, which names the delivery's hash, stands in for it.
+- **Why it was built.** For late work. After `deliverBy` no delivery can land (`:623`), so a decision or an early accept cannot settle one. D37's amendment of 2026-11-03 says: "A buyer who wants late work settles for it with the seller." The test `contracts/test/unit/LateCarriedDelivery.t.sol:84` (`test_lateWork_settlesByMutualSettlement`) holds the contract to it: at `deliverBy`, a settlement both signed pays the seller and releases the key [measured].
+- **Why cut it.** The contract is alone in taking it. Core refuses a settlement in `Held` that names a delivery or releases a key (`packages/core/src/state.ts:516-518`), ADR-0019 says the same, and the formal model has it as a rule (the state model's finding F-1, T-340). So the path is closed to an agent that uses the API, and a party that uses it directly leaves its deal behind the operators' view (residual 13). It is also the one path where a key leaves through the contract with no posted delivery.
+- **What leaves.** In `Held`, `hasDelivery` must be false, which already forces `releaseKey` false and an empty `deliveryHash` (`:435`). The delivery and key-proof arguments of `mutualSettle` stay for a settlement after a posted delivery.
+- **What a party loses.** A seller that delivers late and a buyer that still wants the work lose the exchange of key for money in one transaction. Three things replace it:
+  1. **Before `deliverBy`:** the seller posts `deliver`, and the settlement then releases the key as today. A seller that sees it will be judged late still posts in time.
+  2. **After `deliverBy`, with nothing posted, and the exchange must stay atomic:** the buyer reclaims, and the two sign a new commitment for the same work. That costs a second acceptance and a second funding.
+  3. **After `deliverBy`, with trust:** the parties settle the money on chain and the seller hands the key over directly. One of them goes first.
+- **Recommendation: cut.** One rule for the contract, core and the formal model; no key leaves without a posted delivery; and the atomic path that remains (a new commitment) uses only steps an audit already covers. The other way to close the gap is to change core, ADR-0019 and the formal model to the contract's rule; that keeps the convenience and adds a path to all three.
+- **Signed types and schemas.** None changes.
+- **If Rafa says yes,** D37's sentence about late work is amended for the phase-one contracts, and the test at `LateCarriedDelivery.t.sol:84` changes to expect a revert.
+- **Trigger for bringing it back.** Parties that settle late work often enough that a second commitment costs too much.
 
 ### 7. SC-6: no on-chain record of an unfunded offer's expiry
 
@@ -171,7 +190,7 @@ Asked "Should phase one ship without party appeals and bonds (cut SC-7)?", Rafa 
    - **The rule.** `agreeAndFund` reverts unless `bondReserved` is 0. The comparison changes from "below the price" to "not zero", which costs no bytes. Every funded phase-one deal then carries an acceptance that says what is true: nothing is reserved. The schema allows `"0"` (`common.schema.json:46`), so no schema changes.
    - **The mirror.** On a phase-one deployment core requires zero and reads no free bond; the reference adjudicator signs zero (it signs the price today, `apps/adjudicator/src/service.ts:242`); the EVM adapter stops reading the vault (`evm-settlement.ts:974-991`). SimChain keeps the full rule.
    - **Not chosen.** Leave it unchecked (the plan's recommendation): simplest contract, and the two costs above. Keep today's check: an enforced statement that is false. Drop the field from the signed type: a new domain version and new hash vectors, and it would cut the field from the full protocol too.
-3. **`timing.appealWindowSec` joins the fields that are signed and not enforced.** The plan does not list this one. With no party appeal the contract never reads it. The schema requires it to be at least 1 (`spec/schemas/commitment.schema.json:307-314`), so the contract cannot require zero without a schema change. Until a schema version allows zero, the terms of a phase-one deal state an appeal window that the contract does not honour, and the docs and the prepare routes must say so. **Recommended for the next schema version, whenever one comes for another reason:** allow 0, and have the phase-one contract refuse any other value, as it refuses `maxSubmissions` above 1. The signed-field register (T-340) records it until then.
+3. **`timing.appealWindowSec` joins the fields that are signed and not enforced.** The plan does not list this one. With no party appeal the contract never reads it. The schema requires it to be at least 1 (`spec/schemas/commitment.schema.json:307-314`), so the contract cannot require zero without a schema change. Until a schema version allows zero, the terms of a phase-one deal state an appeal window that the contract does not honour, and the docs and the prepare routes must say so. **Recommended for the next schema version, whenever one comes for another reason:** allow 0, and have the phase-one contract refuse any other value, as it refuses `maxSubmissions` above 1. Until then it belongs in the register of signed fields the contract does not enforce. That register is section 8.3 of the state model (`docs/audit/state-model.md`, T-340, on its branch and not yet merged): sixteen fields, each with a verdict. Two of its verdicts follow from this ADR: the acceptance's `bondReserved` becomes an enforced field (zero), and a decision's `appealGround` can be required empty for every role, since no party appeal remains to give it a meaning. Its other "enforce" verdicts are fixes for the building tasks, not scope cuts.
 4. **The docs that promise appeals or bonds** are listed in the appendix, each with the sentence to change, for a later docs package. They say "not in phase one" from the redeploy on, not before: the deployed contracts still have both.
 5. **SimChain keeps appeals and bonds, as the full protocol's reference.**
    - The fixtures that use a cut feature move to the SimChain-only list, `LOCAL_EXCLUSIONS` in `packages/testkit/src/runner.ts:62-70`, each with the reason "not in phase one". The list has three entries today [measured].
@@ -183,22 +202,21 @@ Asked "Should phase one ship without party appeals and bonds (cut SC-7)?", Rafa 
 6. **The operators' refusal of an unbonded fallback leaves the EVM path.** ADR-0030 has an operator refuse to relay terms whose fallback has less free bond than the price. With no vault there is nothing to read. The served `observed.bond` of an adjudicator reads `none` on a phase-one deployment.
 7. **The API reports a first decision as final at once.** On a phase-one deployment `finalAt` is the decision's time and no appeal window follows, as for an escalation's decision today. `spec/schemas/commitment-state.schema.json` needs no change: `appealState` reads `none`.
 
-### 9. SC-8: the on-chain proof of the beacon (open, Rafa's call)
+### 9. SC-8: the on-chain proof of the beacon stays for now (decided by Rafa)
 
-The cut would remove `DrandQuicknetBeacon.sol` (175 lines of pairing code) and the contract's dependency on the BLS precompiles (EIP-2537). Fallback and escalation decisions would carry a beacon value that the contract does not prove; the parties would check the drand proof off chain.
+Rafa, 2026-11-11: **"the on-chain beacon proof stays for now, if that is the industry standard and what uniswap uses."** The cut is not taken. `DrandQuicknetBeacon.sol` stays in the phase-one contracts and in the audit's scope. The question comes back with the choice of chain.
 
-| Option | What the contract checks | Effect |
-| --- | --- | --- |
-| A. Keep the proof (recommended) | The round, fixed by state; the round's value, by BLS; the seed derived from it (`HoldbackRules.sol:290-297`) | A fallback or appeal adjudicator cannot choose its panel. The chain must have EIP-2537. The verifier is 175 lines an auditor must read, with open hardening items (T-225) |
-| B. Keep the round and the seed derivation, drop the proof | The round and the derivation; the value is the decider's word | A false value is provable off chain from the signed decision, and attributable. The decision still settles |
-| C. Remove the beacon from the contract | Nothing about the seed of a fallback or an escalation | The decider picks its seed, and so its panel, after reading the work |
-
-**Recommendation: A for now, decided together with the choice of chain.**
-
-- **SC-7 raises the price of this cut.** Before SC-7, an adjudicator that shopped for a panel still faced an appeal and its bond. In phase one the first decision is final. The on-chain proof is then the only thing on chain that stops a fallback, or the appeal adjudicator after an escalation, from choosing the panel that gives the outcome it wants (threat T21 in `docs/judgment-and-defenses.md`). Options B and C leave that to evidence after the fact.
-- **It is the part of litmus test 3 that the contract enforces.** "Selected by commit-reveal" holds on chain for the primary through its seed commitment and for the others through the beacon. Phase one already sets one line of that test aside; this ADR does not recommend a second.
-- **The cost of keeping it is known:** the hardening items wait for the redeploy (the fallback's round is the first at or after `judgeBy`; a margin of one block for an escalation's round), and each candidate chain must be checked for EIP-2537 (ADR-0018).
-- **What would change the recommendation:** a chosen chain without EIP-2537, or an audit quote in which the verifier is a large share of the cost.
+- **His condition does not hold as worded, and he has been told.** Uniswap's contracts use no randomness beacon, and the most common source of randomness on chain is an oracle service, Chainlink VRF [from memory, not checked today]. Verifying a drand round on chain is sound and newer, and it is not an industry standard. The recommendation to keep it does not rest on the condition.
+- **What the proof is.** drand is a public network that publishes a signed random value every few seconds. `DrandQuicknetBeacon.sol` (175 lines) checks one round's BLS signature against the network's public key, with the chain's BLS precompiles (EIP-2537). For a fallback's decision and for an escalation's, `decide` requires the round that the deal's state fixes, that round's proven value, and the panel seed derived from it (`HoldbackRules.sol:290-297`). No oracle operator and no key stand between the network and the contract: anyone can fetch a round and anyone can relay it.
+- **Why phase one keeps it.**
+  - **SC-7 raises its weight.** Before SC-7, an adjudicator that shopped for a panel still faced an appeal and its bond. In phase one the first decision is final. The proof is then the only thing on chain that stops a fallback, or the appeal adjudicator after an escalation, from picking the seed, and so the panel, that gives the outcome it wants (threat T21 in `docs/judgment-and-defenses.md`).
+  - **It is the part of litmus test 3 that the contract enforces.** "Selected by commit-reveal" holds on chain for the primary through its seed commitment and for the others through the beacon. Phase one already sets one line of that test aside; cutting the proof would strain a second.
+- **What keeping it costs.**
+  - 175 lines of pairing code that an auditor must read, written for this project and not audited (ADR-0018). A separate task reviews its arithmetic before the freeze.
+  - Its open hardening items wait for the redeploy: the fallback's round is the first at or after `judgeBy`, and an escalation's round leaves a margin of one block (T-225).
+  - Each candidate chain must have EIP-2537 (ADR-0018). A chain without it refuses every proof, so no fallback or escalation could decide there.
+- **What the cut would have removed,** kept as the record: `DrandQuicknetBeacon.sol`, and with it either only the BLS check (the decider's beacon value becomes its word, provable false off chain and attributable) or the whole beacon (the decider picks its seed).
+- **Revisit when** the chain is chosen, or if the verifier's review finds a defect that is costly to fix.
 
 ### 10. Events
 
@@ -225,6 +243,7 @@ Each removal goes on the list of allowed differences of the side-by-side run tha
 | `FundingAuthorization.scheme` of `permit2` | Takes ERC-3009 only (SC-2) |
 | A `Payout` to any address; `payoutsTo: any` in a rulebook | Refuses a payout to anyone but the buyer or the seller (SC-3) |
 | A price of `"0"`; `maxSubmissions` 1 to 3 | Refuses both (SC-5) |
+| A `MutualSettlement` with `hasDelivery` before any delivery is posted | Refuses it, if Rafa says yes to SC-5b. Core refuses it today |
 | The `Appeal` message (`appeal.schema.json`); the appeal states and events; `appealGround` | Takes no appeal. The contract has no entry point for one (SC-7) |
 | `AdjudicatorAcceptance.bondReserved`, any amount | Requires 0 (SC-7) |
 | `timing.appealWindowSec`, at least 1 | Signed, not read (SC-7) |
@@ -242,10 +261,11 @@ Each removal goes on the list of allowed differences of the side-by-side run tha
 | SC-2 | Passes. Anyone still relays the buyer's funding signature | Passes. One collector fewer between the buyer and the hold | Unaffected |
 | SC-3 | Passes. A settlement needed both signatures before and needs them now. The fifth outcome narrows to the two parties | Passes. The escrow's fee slot stops carrying payouts it was not designed for | Unaffected |
 | SC-4 refused | Passes, with a duty: tests must show that a contract signer's changing answer blocks only its own step | Passes | Unaffected |
-| SC-5 | Passes. Every refusal comes before funds are held. Strained in one case: a late-work settlement loses its atomic key release | Passes. The escrow's expiry can no longer fall before a deadline it must outlast | Unaffected |
+| SC-5 | Passes. Every refusal comes before funds are held | Passes. The escrow's expiry can no longer fall before a deadline it must outlast | Unaffected |
+| SC-5b, if Rafa says yes | Passes. A settlement needs both signatures either way | Strained in one case: a late-work settlement loses its exchange of key for money in one transaction. A new commitment restores it | Unaffected |
 | SC-6 | Passes. No held funds are involved | Passes | Unaffected |
 | SC-7 | Passes in form: the terms name the decider, and its decision is the outcome the terms define. Weaker in substance: residual 3, collusion, loses two of its four bounds | Passes. No contract holds a bond or an appeal bond, and a deal settles once | **Sets one line aside:** "Appeals are backed by the adjudicator's bond" |
-| SC-8 if taken | Passes | Passes | Strains a second line: "selected by commit-reveal" would hold on chain for the primary only |
+| SC-8 not cut | Passes | Passes | Kept whole: "selected by commit-reveal" holds on chain for every decider |
 
 ### SC-7 and litmus test 3
 
@@ -278,15 +298,14 @@ Nobody is paid from a bond in any row. The deployed contracts pay an overturned 
 
 ## What waits on Rafa
 
-1. **The sentence in `CLAUDE.md`,** a tier-3 file. Proposed wording for the last line of litmus test 3:
+1. **SC-5b: a yes or a no.** May the contract stop taking a settlement in `Held` that names a delivery or releases a key? It removes the tested path for late work. Recommended: yes. Nothing removes it until he answers.
+2. **The sentence in `CLAUDE.md`,** a tier-3 file. Proposed wording for the last line of litmus test 3:
    > Appeals are backed by the adjudicator's bond. Phase one sets this line aside: its contracts have no party appeals and no bonds, and the first decision by the primary or the fallback adjudicator is final on chain (Rafa, 2026-11-11; D57, ADR-0031). SimChain keeps both.
 
    And for protocol property 2, one added sentence: "Phase one has no bonds on chain (D57); the bonding returns with them."
-2. **SC-8:** keep the on-chain beacon proof, as recommended, or cut it.
 3. **`Paid`:** may it leave with SC-3, as recommended?
-4. **Three points where this ADR goes past the plan:** `bondReserved` must be zero; the strict five-deadline order; the zero-price refusal as a new limit under D31. Each proceeds unless he stops it.
+4. **Three points where this ADR goes past the plan:** `bondReserved` must be zero; the five-deadline order; the zero-price refusal as a new limit under D31. Each proceeds unless he stops it.
 5. **SC-6's failed condition:** proceed by moving the offer's expiry off chain, as recommended, or keep `expireOffer`.
-6. **Whether an outside reviewer reads this ADR** before the cuts are built.
 
 ## Red-team findings and answers
 
