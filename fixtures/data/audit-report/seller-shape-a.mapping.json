@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "description": "Shape A: a nested report. The audit's facts sit under audit, the findings under issues, each with a list of affected places and a list of proofs.",
+  "report": {
+    "commit": { "$path": "audit.revision.sha" },
+    "reportDate": { "$path": "audit.completedOn", "$optional": true },
+    "summary": { "$path": "audit.overview", "$optional": true },
+    "filesReviewed": { "$each": "audit.inScope", "$item": { "$path": "path" } },
+    "findings": {
+      "$each": "issues",
+      "$item": {
+        "id": { "$path": "ref" },
+        "severity": {
+          "$path": "risk",
+          "$map": { "critical": "Critical", "high": "High", "medium": "Medium", "low": "Low", "informational": "Info" }
+        },
+        "status": {
+          "$path": "state",
+          "$optional": true,
+          "$map": { "unresolved": "open", "resolved": "fixed", "accepted-risk": "acknowledged" }
+        },
+        "title": { "$path": "name" },
+        "locations": {
+          "$each": "affected",
+          "$item": {
+            "file": { "$path": "path" },
+            "lines": { "$when": "span", "$value": { "start": { "$path": "span.from" }, "end": { "$path": "span.to" } } },
+            "excerpt": { "$path": "snippet", "$optional": true }
+          }
+        },
+        "rootCause": { "$path": "cause" },
+        "impact": { "$path": "consequence", "$optional": true },
+        "recommendedFix": { "$path": "remediation" },
+        "pocFiles": {
+          "$each": "proofs",
+          "$optional": true,
+          "$item": { "path": { "$path": "name" }, "content": { "$path": "body" } }
+        }
+      }
+    }
+  }
+}
