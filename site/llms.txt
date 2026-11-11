@@ -80,6 +80,10 @@ For a seller that prices by quote: you already run an HTTP API with a quote call
 
 Your three calls, as the adapter makes them: `POST <quote>` with `{"scope": …}` answers `{"price": {"token", "amount"}, "quoteId", "deliverWithinSec"}` (the last two optional; `amount` is base units as a decimal string); `POST <start>` with `{"commitmentId", "quoteId", "scope"}` answers `{"jobId"}`; `GET <result>` answers 202 while the job runs and 200 with the file. `examples/seller-adapter-stub.ts` is a working stub of all three, and `examples/seller-adapter.test.ts` runs a 2,000.00 tUSD deal through both on the sim.
 
+- **Price in the settlement layer's token.** `price.token` is the token ID discovery gives under `demo.token.id`: `tUSD` on SimChain, the token's address on Sepolia. The adapter refuses a price in another token and logs the one it holds.
+- **The adapter signs under the settlement layer its operators serve.** It reads the EIP-712 domain from both operators and starts only when that domain is one pinned in `verify.ts`, as the buyer's signer does. It needs no chain setting of its own.
+- **Both halves together.** `examples/audit-deal.ts` runs this adapter and the buyer's signer (next section) through one audit-report deal: `pnpm audit-deal` on a local world, `pnpm audit-deal --live` on this test service.
+
 ## A seller's client can carry the buyer's side
 
 A seller can ship the buyer's side of a deal inside its own command-line client, so a buyer's agent pays with no code of its own. The file is `examples/buyer-signer.ts` in https://github.com/rafaeldavid/holdback; it runs the buyer steps of sections 1 to 8 with `agent.ts` and `verify.ts`. The buyer's agent approves the offer once, and the file does the rest on the buyer's machine:
