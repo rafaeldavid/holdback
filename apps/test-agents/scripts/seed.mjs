@@ -5,12 +5,11 @@
 // gas), so the secret guards test tokens and the intake's mail only. It refuses when the secret already exists, so
 // open deals keep their keys; --replace overrides.
 import { spawn, spawnSync } from 'node:child_process';
-import { concat, keccak256, stringToHex } from 'viem';
 import { generatePrivateKey } from 'viem/accounts';
-import nacl from 'tweetnacl';
+import { publicOf, SEED_VAR } from '../src/keys.ts';
 
 const WORKER = 'crow-test-agents';
-const NAME = 'TEST_AGENTS_SEED';
+const NAME = SEED_VAR;
 
 const list = spawnSync('npx', ['-y', 'wrangler@4', 'secret', 'list', '--name', WORKER, '--format', 'json'], { encoding: 'utf8' });
 if (list.status !== 0) {
@@ -24,9 +23,8 @@ if (names.includes(NAME) && !process.argv.includes('--replace')) {
 }
 
 const seed = generatePrivateKey();
-// keys.ts: the intake's x25519 key is keccak256(seed ‖ "holdback/test-agents/seller/intake/x25519").
-const intake = Buffer.from(keccak256(concat([seed, stringToHex('holdback/test-agents/seller/intake/x25519')])).slice(2), 'hex');
-const publicKey = Buffer.from(nacl.box.keyPair.fromSecretKey(new Uint8Array(intake)).publicKey).toString('base64url');
+// The seller's own derivation (src/keys.ts, loaded by Node as TypeScript): the key its intake page will serve.
+const publicKey = publicOf(seed, 'seller/intake').encryptionPublicKey;
 const child = spawn('npx', ['-y', 'wrangler@4', 'secret', 'bulk', '--name', WORKER], { stdio: ['pipe', 'inherit', 'inherit'] });
 child.stdin.end(JSON.stringify({ [NAME]: seed }));
 child.on('exit', (code) => {
