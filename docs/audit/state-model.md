@@ -7,7 +7,9 @@ This page lists every state a deal can be in on chain, across the rules contract
 - **The deal's stored word has 37 legal combinations** (rows L01 to L37, section 2) [measured: each row cites the line that writes it].
 - **16 classes of combination are illegal** (I01 to I16, section 4). Each is unreachable, with the line that makes it so [inferred from reading every write to the word; no test ran]. One state is reachable that the word does not show: a funded deal whose escrow the buyer has already emptied (section 5.2). The code handles it; the word does not record it.
 - **Three findings,** all Low or Info (section 11). No finding moves money outside the signed terms.
-- **Phase one cuts 21 of the 37 rows.** The maintainers accepted scope cut SC-7 (no party appeals, no bonds) on 2026-11-11; it removes the 20 rows L11 to L30 and the vault columns. Scope cut SC-6 removes L02. 16 rows remain. Section 9 marks every cut as a branch. This page decides none.
+- **Phase one cuts 21 of the 37 rows.** The maintainer accepted scope cut SC-7 (no party appeals, no bonds) on 2026-11-11; it removes the 20 rows L11 to L30 and the vault. Scope cut SC-6 removes L02. Section 9 specifies the phase-one machine that remains: 17 states, because a closing reason splits one deployed row in two. Appendix A lists what phase one cuts. This page decides no cut.
+
+**Which table to use.** Sections 2 to 7 describe the contracts as deployed, and every citation there is to today's source. A test oracle for today's contracts uses section 2. Section 9 is the target the cut contracts must meet; its rows map onto section 2's.
 
 Labels: **measured** (read at the cited line), **inferred** (concluded from reading, not checked by a run), **guessed**.
 
@@ -366,7 +368,7 @@ No message's nonce is stored. Each signed message applies at most once because i
 
 ### 8.3 Verdicts on the signed fields the contract does not enforce
 
-The plan counts nine such fields (IS-13). Its list names ten: rows 1 to 10 below. This read adds six more, rows 11 to 16.
+The plan first counted nine such fields (IS-13). Its list names ten: rows 1 to 10 below. This read adds seven more, rows 11 to 16 and row 18. Row 17 comes from the plan's independent hunt and is confirmed here at the cited lines.
 
 Verdicts: **enforce** (the contract refuses a value it cannot honour), **remove** (take the field out of the signed type, which needs an ADR and a schema version), or **assumption** (the field is signed for the record; the NatSpec and the agent docs say so). The rule applied: where the schema or core refuses a value, the contract refuses it too, because a step the contract takes and core refuses leaves the operators' view of the deal behind ([`neutrality.md`](../neutrality.md), residual 13).
 
@@ -379,8 +381,8 @@ Verdicts: **enforce** (the contract refuses a value it cannot honour), **remove*
 | 5 | `createdAt` | **Assumption** | The seller's claim of when it wrote the terms. No deadline derives from it, and any value settles the same way. Refusing a future value would restrict a parameter the parties manage (D31) |
 | 6 | Delivery `submittedAt` | **Assumption** | The seller's claim. The delivery's time for every deadline is the block time of the call that lands it (`R:623`) |
 | 7 | Appeal `filedAt` | **Assumption;** it leaves with scope cut SC-7 | The filing's time is the block time, stored as `t2` (`R:515`) |
-| 8 | Decision `appealGround`, appeal role | **Enforce empty for every role** once SC-7 lands; **assumption** if party appeals stay | Without party appeals the field has no meaning, and the first-instance check (`R:313`) becomes the rule for every decision. With party appeals it records the appeal adjudicator's reason, which the contract cannot judge |
-| 9 | Decision `beacon.source` | **Assumption;** **enforce by construction** if scope cut SC-8 lands | The contract proves the round against its immutable beacon, so the name is a label. If SC-8 removes the on-chain proof, the name is the only link to a beacon, and the contract hashes its deployment's source name the way it hashes the settlement mode |
+| 8 | Decision `appealGround`, appeal role | **Enforce empty for every role** in phase one (SC-7 is accepted); **assumption** when party appeals return | Without party appeals the field has no meaning, and the first-instance check (`R:313`) becomes the rule for every decision. With party appeals it records the appeal adjudicator's reason, which the contract cannot judge |
+| 9 | Decision `beacon.source` | **Assumption** | The contract proves the round against its immutable beacon, so the name is a label. The on-chain proof stays (SC-8 is not cut). If a later decision removes the proof, the name becomes the only link to a beacon, and the contract should then hash its deployment's source name the way it hashes the settlement mode |
 | 10 | Decision `encryptedKeys` | **Assumption** | The envelopes an escalating adjudicator hands to the next one (ADR-0020). The contract sees a hash and cannot check a ciphertext |
 | 11 | Decision `beacon.round`, `value`, `signature`, primary role | **Enforce empty** | A primary's seed is its own commit-reveal and uses no beacon. Unchecked, a primary can sign beacon data that a reader may take as proven |
 | 12 | Acceptance `bondReserved` above `P` | **Enforce equality** while bonds stay; **assumption** for phase one under SC-7, **remove** at the next schema version | The vault reserves `P` whatever the field says. With no vault the field has nothing to reserve; dropping the check changes no signed type, and removing the field needs a schema version. The scope ADR picks |
@@ -388,23 +390,111 @@ Verdicts: **enforce** (the contract refuses a value it cannot honour), **remove*
 | 14 | MutualSettlement `deliveryHash` in Held | **Enforce** core's rule, or change core, ADR-0019 and the formal model to the contract's | Finding F-1 |
 | 15 | `remedy` | **Assumption** | The schema fixes it to `full_refund`, which is what a reject does. A second remedy would need a schema version and contract code |
 | 16 | Delivery `encryptedKeys` recipients; Decision `keyForBuyer` content | **Assumption** | The contract sees hashes and ciphertext. Core checks the recipients; the buyer checks the key it receives |
+| 17 | The primary's acceptance is named by no other signature | **Assumption;** binding it needs a change to a signed type | The buyer's Agree signs the ID, its own address, a nonce and an expiry (`T:314-316`), and the seller signs the ID (`R:206`). Neither names the acceptance, so whoever funds chooses which acceptance to carry. A primary that signed two fixes its seed commitment only at funding (`R:213`). This extends known issue DS-1: the primary already chooses its own panel seed |
+| 18 | `timing.appealWindowSec`, in phase one | **Assumption** for phase one; **remove** at the next schema version | Enforced today (`R:268`, `R:508`, `R:577`). After SC-7 nothing reads it, while the schema still requires at least 1 second. The scope record must say that phase one ignores it |
 
-The nonces of the five messages that carry one, and the missing expiry on an appeal, are assumptions too: the stage stops a replay, and the appeal window bounds a signed appeal's life.
+The nonces of the five messages that carry one, and the missing expiry on an appeal, are assumptions too: the stage stops a replay, and the appeal window bounds a signed appeal's life. `rulebookHash` is bound only: a club's rules, its settlement rules among them, are not on chain, so a message sent straight to the contract is held to the terms and not to the rulebook.
 
-## 9. Scope-cut branches
+## 9. The phase-one machine
 
-The plan proposes eight cuts. This page specifies the machine as deployed; each cut changes it as follows. SC-7 is accepted; SC-4 and SC-8 wait for the maintainer; the others proceed unless stopped. The scope ADR records the answers.
+Phase one is an escrow with a neutral decider: hold, deliver, decide (the primary, then the fallback, with escalation), early accept, a two-party settlement, and timeouts. This section specifies it as the deployed machine minus the cuts the maintainer decided on 2026-11-11 [documented: the contract refinement plan; the scope record, T-342, states them publicly]. No contract has these changes yet, so each row cites the deployed line that writes it today.
+
+### 9.1 What changes
+
+- **No party appeals and no bond vault** (SC-7, accepted). The fields `appeal`, `flags` and `t2` leave the word. `fileAppeal`, `expireAppeal`, the appeal branch of `decide` and `HoldbackBonds.sol` leave. The first decision by the primary or the fallback is final. The appeal adjudicator stays, for escalations only.
+- **No record of an unfunded offer's expiry** (SC-6). `expireOffer` and `Stage.Expired` leave.
+- **Funding refuses terms that settlement cannot process** (SC-5): a zero price; deadlines out of the order core requires (`packages/core/src/timing.ts:46-49`); `maxSubmissions` other than 1; an `appealDecideSec` of 0.
+- **One token per deployment, funded by ERC-3009 only** (SC-1, SC-2). `t.token` must be the deployment's token.
+- **A settlement pays the buyer and the seller only** (SC-3).
+- **Proposed, for the scope record to decide** (SC-5b): a settlement in Held can neither name a delivery nor release a key. This is finding F-1.
+- **Kept:** contract signers by ERC-1271 (SC-4 is refused), and the on-chain proof of the beacon round (SC-8 is not cut).
+- **Events:** `AppealFiled`, `AppealClosed` and the vault's seven events leave with their features. Every other event stays.
+
+### 9.2 The closing reason
+
+Today a terminal deal's cause is readable only through `appeal`, `flags` and `t1`. Without those fields a release by the primary, by the fallback and on an escalation are one word, and so are an escalation reject and a default, although the fee went to different parties. The phase-one word therefore records two things (the plan's refactor RF-4):
+
+| Field | Values | Rule |
+| --- | --- | --- |
+| `reason` | `open`, `decided`, `accepted_early`, `settled`, `reclaimed`, `defaulted` | `open` exactly in None, Held, Delivered, FallbackJudging and Escalated. Written in the same storage write that leaves those stages, and never changed after |
+| `decider` | `none`, `primary`, `fallback`, `appeal` | Not `none` exactly when `reason = decided`. It names the adjudicator that signed the decision and received the fee |
+
+The reason fixes the stage: `decided` gives Released or Refunded, `accepted_early` gives Released, `settled` gives Settled, `reclaimed` and `defaulted` give Refunded. The encoding is the refactor's choice; these rules are what an oracle checks.
+
+### 9.3 The rows
+
+| Row | stage | attempt | `reason` | `decider` | `t1` | `dh` | Deployed row | Written today at |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| P01 | None | 0 | open | none | 0 | 0 | L01 | none |
+| P02 | Held | 0 | open | none | 0 | 0 | L03 | `R:211-213` |
+| P03 | Delivered | 1 | open | none | 0 | ≠ 0 | L04 | `R:231`, `R:627-628` |
+| P04 | FallbackJudging | 1 | open | none | > 0, `≥ judgeBy` | ≠ 0 | L05 | `R:548-549` |
+| P05 | Escalated | 1 | open | none | > 0, the escalation's time | ≠ 0 | L06 | `R:318-321` |
+| P06, P07 | Released (P06), Refunded (P07) | 1 | decided | primary | > 0, the decision's time, `< judgeBy` | ≠ 0 | L07, L08 | `R:328-332` |
+| P08, P09 | Released (P08), Refunded (P09) | 1 | decided | fallback | > 0, the decision's time, `judgeBy ≤ t1 < fallbackBy` | ≠ 0 | L09, L10 | `R:328-332` |
+| P10, P11 | Released (P10), Refunded (P11) | 1 | decided | appeal | > 0, the escalation's time | ≠ 0 | L31, and L32 after a decision | `R:338-341` |
+| P12 | Refunded | 1 | defaulted | none | > 0 | ≠ 0 | L32 after a default | `R:598-600` |
+| P13 | Released | 1 | accepted_early | none | 0 | ≠ 0 | L33 | `R:407-409` |
+| P14 | Refunded | 0 | reclaimed | none | 0 | 0 | L34 | `R:598-600` |
+| P15 | Settled | 0 | settled | none | 0 | 0 | L35 | `R:450-452` |
+| P16 | Settled | 1 | settled | none | 0 | ≠ 0 | L36 | `R:450-452` |
+| P17 | Settled | 1 | settled | none | > 0 | ≠ 0 | L37 | `R:450-452` |
+
+**17 states.** The 16 deployed rows that survive the cuts map one to one, except L32, which the closing reason splits into P11 and P12. `seedTag` is zero in P01 and unchanged from funding in every other row.
+
+```
+legalPhaseOne(d, dh) :=
+  d.stage = None:            d.attempt = 0 ∧ d.reason = open ∧ d.decider = none ∧ d.t1 = 0 ∧ d.seedTag = 0 ∧ dh = 0
+  d.stage = Held:            d.attempt = 0 ∧ d.reason = open ∧ d.decider = none ∧ d.t1 = 0 ∧ dh = 0
+  d.stage = Delivered:       d.attempt = 1 ∧ d.reason = open ∧ d.decider = none ∧ d.t1 = 0 ∧ dh ≠ 0
+  d.stage = FallbackJudging: d.attempt = 1 ∧ d.reason = open ∧ d.decider = none ∧ d.t1 > 0 ∧ dh ≠ 0
+  d.stage = Escalated:       d.attempt = 1 ∧ d.reason = open ∧ d.decider = none ∧ d.t1 > 0 ∧ dh ≠ 0
+  d.stage = Released:        d.attempt = 1 ∧ dh ≠ 0 ∧
+      ((d.reason = decided ∧ d.decider ≠ none ∧ d.t1 > 0) ∨ (d.reason = accepted_early ∧ d.decider = none ∧ d.t1 = 0))
+  d.stage = Refunded:
+      (d.reason = decided   ∧ d.decider ≠ none ∧ d.attempt = 1 ∧ d.t1 > 0 ∧ dh ≠ 0) ∨
+      (d.reason = defaulted ∧ d.decider = none ∧ d.attempt = 1 ∧ d.t1 > 0 ∧ dh ≠ 0) ∨
+      (d.reason = reclaimed ∧ d.decider = none ∧ d.attempt = 0 ∧ d.t1 = 0 ∧ dh = 0)
+  d.stage = Settled:         d.reason = settled ∧ d.decider = none ∧
+      ((d.attempt = 0 ∧ d.t1 = 0 ∧ dh = 0) ∨ (d.attempt = 1 ∧ dh ≠ 0))
+  otherwise: false
+```
+
+### 9.4 Transitions, holdings, deadlines and outcome
+
+- **Transitions:** section 3 without `expireOffer`, `fileAppeal`, `expireAppeal` and the party-appeal line of `decide`. The bond guards go (`B:75-76` at funding, `R:327` at the fallback's decision). The check of `bondReserved` (`R:205`) goes or stays as the scope record decides (section 8.3, row 12). Funding gains the refusals of 9.1.
+- **Holdings:** the escrow only.
+
+| Rows | Escrow capturable | Escrow refundable | Tokens that have left, and to whom |
+| --- | --- | --- | --- |
+| P01 | 0 (no payment) | 0 | none |
+| P02 to P05 | `H`, or 0 after the buyer's own reclaim from the escrow's expiry (5.2) | 0 | none, or `H` to the buyer |
+| P06, P08, P10 | 0 | `H` | `P` to the seller, `F` to the decider |
+| P07, P09, P11 | 0 | `F` | `P` to the buyer, `F` to the decider |
+| P12, P14 | 0 | 0 | `H` to the buyer |
+| P13 | 0 | `P` | `P` to the seller, `F` back to the buyer |
+| P15, P16, P17 | 0 | `s` | With `s` the seller's share: `s` to the seller, `P − s + F` to the buyer |
+
+- **Deadlines:** section 6 without `appealBy`, `appealDecideBy` and `appealRound`. `escrowExpiry` keeps its expression, `fallbackBy + D + EXPIRY_MARGIN`, and `D` now bounds the escalation decision only. Section 6.3's table empties once SC-5 lands.
+- **Outcome:** the closing reason is the outcome. `decided` reads `released` or `refunded` from the stage; the other four are `accepted_early`, `settled`, `reclaimed` and `defaulted`. Every terminal row is final when it is written.
+- **Illegal classes that remain:** I01 (for None), I02, I03, I04, I13 (for `t1`), I14 and I16, plus one new class: a `reason` or `decider` that breaks the rules of 9.2.
+- **Three facts the code assumes and an oracle should check:** a funded deal's escrow holds `H` until the escrow's expiry (I16); `attempt` is 1 exactly when `dh` is nonzero (I04); each terminal word has one cause (9.2).
+
+### 9.5 The cuts, one by one
+
+The plan proposed eight cuts. The table gives the state of each decision and its effect on the deployed model of sections 2 to 7.
 
 | Cut | State of the decision | Effect on this model |
 | --- | --- | --- |
 | SC-1: one settlement token per deployment | proceeds | `t.token` becomes a constant. Aggregate invariant 3 (section 5.3) holds by the choice of token |
 | SC-2: ERC-3009 funding only | proceeds | `agreeAndFund` loses the method guard (`R:205`) and one collector |
 | SC-3: a settlement pays the buyer and the seller only | proceeds | L35 to L37: every payout goes to the buyer or the seller; the all-fee captures go (`R:470-475`) |
-| SC-4: plain-key signatures only | open | No row changes. The threat model's contract-signer assumption goes |
-| SC-5: refuse a zero price and deadlines out of order | proceeds | Section 6.3's table empties. `H > 0` becomes `P > 0`. Verdicts 1 to 4 of section 8.3 fit the same check |
+| SC-4: plain-key signatures only | **refused:** contract signers stay | No row changes. [`threat-model.md`](threat-model.md) says what a contract signer can do |
+| SC-5: refuse a zero price, deadlines out of order, `maxSubmissions` other than 1, and an `appealDecideSec` of 0 | proceeds | Section 6.3's table empties. `H > 0` becomes `P > 0`. Verdict 1 of section 8.3 and finding F-2 land here; verdicts 2 to 4 fit the same check |
+| SC-5b: a settlement in Held cannot name a delivery or release a key | proposed; the scope record decides | L35 is reached only without a delivery and without a key. Finding F-1 closes |
 | SC-6: no on-chain record of an unfunded offer's expiry | proceeds | L02, `expireOffer` and `Stage.Expired` go: 36 rows |
 | SC-7: no party appeals and no bonds | **accepted** | L11 to L30 go. L07 to L10 become final at the decision. `fileAppeal`, `expireAppeal`, the appeal branch of `decide`, the `appeal` field, the flags, `t2` and every vault column go. Classes I05, I06, I08 to I10, I12 and I15 go with them; I07 and I11 shrink. Six final outcomes remain: `released`, `refunded`, `accepted_early`, `reclaimed`, `defaulted` and `settled`. 17 rows remain (L01 to L10, L31 to L37), and 16 with SC-6. L07 to L10 merge into two rows if the new word does not record which adjudicator decided |
-| SC-8: no on-chain proof of the beacon | open | The beacon guards of the fallback and escalation decisions (`R:290-297`) go; `fallbackRound` and `escalationRound` become values the decision carries. Verdict 9 changes |
+| SC-8: no on-chain proof of the beacon | **not cut:** the proof stays for now | None. Had it been cut, the beacon guards of the fallback and escalation decisions (`R:290-297`) would go, and verdict 9 would change |
 
 ## 10. Where this page differs from the formal model, core and the docs
 
@@ -431,18 +521,34 @@ Other documents:
 - [`docs/neutrality.md`](../neutrality.md), the adjudicator rows, says defaulting adjudicators' bonds compensate the seller. The contract pays none. [`known-issues.md`](known-issues.md) section 8 already records this.
 - The comment at `R:52` calls `t1` "decidedAt, escalatedAt or fallbackSince". After an escalation decision (L31, L32) `t1` is still the escalation's time; the decision's time is in no field.
 - `packages/core/src/state.ts:516-518` refuses a settlement in Held that names a delivery or releases a key; ADR-0019 says the same. The contract accepts it: finding F-1.
+- **The funding deadline.** The contract refuses funding from `offerExpiresAt` or `fundBy`, whichever comes first, because agreeing and funding are one call (`R:203`). Core checks `offerExpiresAt` at the buyer's agreement (`state.ts:240`) and only `fundBy` at funding (`state.ts:259`), so in core an agreed deal can be funded between the two. `fundBy` never binds alone on chain. The scope record picks the rule; this page states the contract's.
 
 ## 11. Findings
 
 No Critical, High or Medium finding. None moves money outside what the parties signed.
 
-**F-1 · Low · The contract takes a settlement that core, ADR-0019 and the formal model refuse.** In Held, `mutualSettle` accepts a settlement with `hasDelivery = true`: it checks the named hash against nothing unless a key is released, and with `releaseKey` it releases the buyer's envelope from a delivery that was never posted (`R:435-447`). Core refuses both (`packages/core/src/state.ts:516-518`), and the formal model has `releaseKey => esc # "Held"`. The contract's behaviour is deliberate: `contracts/test/unit/LateCarriedDelivery.t.sol:84` tests a settlement for late work. Impact: both parties signed, so the money is theirs to move; the deal ends in L35 with a `KeyReleased` event and no posted delivery, and an operator that mirrors the chain through core refuses the step (residual 13, case 4). Next action: the scope ADR's owner decides which side is right, then core, ADR-0019 and the formal model, or the contract, change to match.
+**F-1 · Low · The contract takes a settlement that core, ADR-0019 and the formal model refuse.** In Held, `mutualSettle` accepts a settlement with `hasDelivery = true`: it checks the named hash against nothing unless a key is released, and with `releaseKey` it releases the buyer's envelope from a delivery that was never posted (`R:435-447`). Core refuses both (`packages/core/src/state.ts:516-518`), and the formal model has `releaseKey => esc # "Held"`. The contract's behaviour is deliberate: `contracts/test/unit/LateCarriedDelivery.t.sol:84` tests a settlement for late work. Impact: both parties signed, so the money is theirs to move; the deal ends in L35 with a `KeyReleased` event and no posted delivery, and an operator that mirrors the chain through core refuses the step (residual 13, case 4). Next action: the scope record (T-342) decides. The plan proposes that the contract refuse it (SC-5b); the other choice is to change core, ADR-0019 and the formal model to the contract's rule.
 
-**F-2 · Info · A zero appeal-decision window is accepted and makes an escalation undecidable.** With `appealDecideSec = 0` the escalation decision needs `now < t1`, which never holds (`R:264`, `R:286`), so every escalated case defaults at once. The schema requires at least 1 second; the contract does not check. Impact: none beyond the terms the parties signed. Next action: fold `W ≥ 1` and `D ≥ 1` into scope cut SC-5's order check.
+**F-2 · Info · A zero appeal-decision window is accepted and makes an escalation undecidable.** With `appealDecideSec = 0` the escalation decision needs `now < t1`, which never holds (`R:264`, `R:286`), so every escalated case defaults at once. The schema requires at least 1 second; the contract does not check. Impact: none beyond the terms the parties signed. Next action: the plan has added it to scope cut SC-5; the package that lands SC-5 refuses it at funding.
 
-**F-3 · Info · The plan's count of unenforced signed fields is low.** The plan says nine and lists ten; this read finds sixteen (section 8.3), among them the beacon fields of a primary's decision and the acceptance's `bondReserved` above the price. Impact: the NatSpec and the agent docs would under-state what is signed for the record. Next action: the scope ADR and the NatSpec package use section 8.3.
+**F-3 · Info · The plan's count of unenforced signed fields was low.** The plan said nine and listed ten; section 8.3 lists eighteen, among them the beacon fields of a primary's decision and the acceptance's `bondReserved` above the price. Impact: the NatSpec and the agent docs would under-state what is signed for the record. Next action: the scope record and the NatSpec package use section 8.3; the plan already points to it.
 
 Confirmed and unchanged from the plan, with no new severity: IS-1 (reservations exist only as flag bits; class I08 and invariant 1), IS-3 (L06, L32 and L37 each have more than one cause), IS-4 (section 7), IS-5 (section 6.3), IS-6 (section 5.2), IS-11 (section 5.3).
+
+## Appendix A. What phase one cuts
+
+Each cut is deliberate. The full protocol keeps these features; SimChain stays its reference.
+
+| Cut from phase one | What leaves the model |
+| --- | --- |
+| Party appeals (SC-7) | Rows L11 to L30; `fileAppeal`, `expireAppeal` and the party-appeal branch of `decide`; the `appeal` field and `t2`; the deadlines `appealBy` and `appealDecideBy`; the outcomes `released_appealable`, `refunded_appealable`, `released_overturned` and `refunded_overturned`; the `Appeal` message; the events `AppealFiled` and `AppealClosed` |
+| Bonds (SC-7) | `HoldbackBonds.sol` and its seven events; the `flags` field; every vault column of section 5; aggregate invariants 1 to 3; illegal classes I05, I06, I08 to I10, I12 and I15 |
+| The record of an unfunded offer's expiry (SC-6) | Row L02; `expireOffer`; `Stage.Expired` |
+| Any-token support and Permit2 funding (SC-1, SC-2) | The token as a term the parties choose; funding method 1 |
+| Settlement payouts to third parties (SC-3) | The all-fee captures of `R:470-475` |
+| Terms that settlement cannot process (SC-5) | A zero price; deadlines out of order; `maxSubmissions` other than 1; an `appealDecideSec` of 0 |
+
+What a cut costs: a wrong final decision has no remedy on chain in phase one. The parties choose the adjudicators, and the law is the backstop ([`threat-model.md`](threat-model.md), TA-13).
 
 ## Where this page did not look
 
