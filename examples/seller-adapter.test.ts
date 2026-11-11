@@ -281,6 +281,62 @@ describe('seller adapter: funded hold to delivery', () => {
   }, 30_000);
 });
 
+describe('seller adapter: a report in the seller\'s own shape (T-323)', () => {
+  const MAPPING = here('../fixtures/data/audit-report/seller-shape-a.mapping.json');
+  const STUB_SUMMARY = 'The review covered 3 files at the commit above and reports 3 findings.';
+
+  it('converts the result with the configured mapping, checks the converted bytes and delivers them', async () => {
+    const { running, lines } = await adapter({ reportMapping: MAPPING }, { report: 'own-shape', pollsUntilComplete: 0 });
+    const buyer = agent('buyer-1');
+    const { body: q } = await quoteFor(running, buyer);
+    const id = q.commitmentId as Hex;
+    await fund(buyer, id);
+    expect((await buyer.waitFor(id, ['Released', 'Refunded', 'Escalated'])).escrowState).toBe('Released');
+    expect(JSON.parse(await buyer.openDelivery(id))).toEqual({ ...SAMPLE, summary: STUB_SUMMARY });
+    await until('the journal to record the delivery', () => stageOf(running, id) === 'delivered');
+    expect(lines.join('\n')).toMatch(/converted the result with the report mapping: [0-9]+ bytes to [0-9]+ bytes/);
+    expect(lines.join('\n')).toMatch(/preflight: accept/);
+  }, 30_000);
+
+  it('with no mapping it delivers the result as it comes, so a report in another shape fails preflight', async () => {
+    const { running, lines } = await adapter({}, { report: 'own-shape', pollsUntilComplete: 0 });
+    const buyer = agent('buyer-2');
+    const { body: q } = await quoteFor(running, buyer);
+    const id = q.commitmentId as Hex;
+    await fund(buyer, id);
+    await until('the adapter to refuse the result', () => stageOf(running, id) === 'refused');
+    expect(await events(buyer, id, 'delivery.submitted')).toEqual([]);
+    expect(lines.join('\n')).not.toMatch(/converted the result/);
+    expect(lines.join('\n')).toMatch(/FAIL report \(required\)/);
+  }, 30_000);
+
+  it('does not deliver a result the mapping cannot convert, and names the field', async () => {
+    // The seller's mapping lists no "critical" in its severity map, and the stub's first finding is critical.
+    const mapping = JSON.parse(readFileSync(MAPPING, 'utf8'));
+    delete mapping.report.findings.$item.severity.$map.critical;
+    const file = join(mkdtempSync(join(tmpdir(), 't323-')), 'mapping.json');
+    writeFileSync(file, JSON.stringify(mapping));
+    const { running, lines } = await adapter({ reportMapping: file }, { report: 'own-shape', pollsUntilComplete: 0 });
+    const buyer = agent('buyer-1');
+    const { body: q } = await quoteFor(running, buyer);
+    const id = q.commitmentId as Hex;
+    await fund(buyer, id);
+    await until('the adapter to refuse the result', () => stageOf(running, id) === 'refused');
+    await new Promise((r) => setTimeout(r, 300)); // more polls: the refusal holds
+    expect(await events(buyer, id, 'delivery.submitted')).toEqual([]);
+    expect((await buyer.call('GET', `/v1/commitments/${id}`)).escrowState).toBe('Held');
+    const note = running.deals().find((d) => d.id === id)!.note!;
+    expect(note).toContain('the result is not delivered: the report mapping cannot convert it: findings[0].severity: issues[0].risk is "critical", which the mapping does not list');
+    expect(lines.join('\n')).not.toMatch(/preflight:/); // nothing reached the check run
+  }, 30_000);
+
+  it('refuses to start with a mapping file that is not a mapping, and names the file', async () => {
+    const file = join(mkdtempSync(join(tmpdir(), 't323-')), 'mapping.json');
+    writeFileSync(file, JSON.stringify({ version: 1, report: { commit: { $eval: 'process.exit(1)' } } }));
+    await expect(adapter({ reportMapping: file })).rejects.toThrow(`${file}: mapping report.commit: $eval is not a directive`);
+  });
+});
+
 describe('seller adapter: restarts', () => {
   it('a restart mid-deal starts one job and delivers once', async () => {
     const journal = join(mkdtempSync(join(tmpdir(), 't318-')), 'journal.json');

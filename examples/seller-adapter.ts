@@ -44,6 +44,7 @@ import type { Hex } from 'viem';
 import { preflightDelivery } from '@holdback/judgment';
 import { plain } from '@holdback/testkit';
 import { Agent } from './agent.ts';
+import { convertReport, loadReportMapping, ReportNotConverted } from './report-converter.ts';
 import { jcs, knownPins, operatorFeeOf } from './verify.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -90,6 +91,11 @@ export interface SellerAdapterConfig {
    * offer. `{{field}}` stands for a scope field, and `{{field.length}}` for the size of a list.
    */
   template: string;
+  /**
+   * A mapping file (report-converter.ts) that turns your API's result into your template's JSON, so your API keeps
+   * its own report shape. The adapter checks and delivers the converted bytes. Left out: it delivers the result as it comes.
+   */
+  reportMapping?: string;
   /** The fields a scope must have, and no others. */
   scope: Record<string, ScopeRule>;
   clubId: string;
@@ -335,6 +341,7 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
   const seller = new Agent(operators, key as Hex, new Uint8Array(32), pin.domain, pin.chain);
   const token = pin.token; // the one token this settlement layer holds
   const template = loadTemplate(c);
+  const reportMapping = c.reportMapping === undefined ? undefined : loadReportMapping(c.reportMapping);
   const log = (line: string) => (c.log ?? console.log)(`${new Date().toISOString()} ${line}`);
   const journal: Journal = existsSync(c.journal) ? JSON.parse(readFileSync(c.journal, 'utf8')) : { deals: {}, quotes: {} };
   /** Writes the journal whole, then renames it into place: a crash leaves the old file or the new one. */
@@ -463,7 +470,18 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
       if (Date.parse(deal.terms.timing.deliverBy) <= (await seller.settlementNow())) return record(deal, { stage: 'closed', note: `the delivery deadline ${deal.terms.timing.deliverBy} passed` });
       const res = await api('the result', c.sellerApi.result.replace('{jobId}', encodeURIComponent(deal.jobId!)));
       if (res.status === 202) return; // the job still runs
-      const bytes = new Uint8Array(await res.arrayBuffer());
+      let bytes = new Uint8Array(await res.arrayBuffer());
+      if (reportMapping) {
+        // Your report in the template's shape (T-323). A report the mapping cannot convert is never delivered.
+        try {
+          const result = bytes.length;
+          bytes = convertReport(reportMapping, bytes);
+          log(`${id} converted the result with the report mapping: ${result} bytes to ${bytes.length} bytes.`);
+        } catch (e) {
+          if (!(e instanceof ReportNotConverted)) throw e;
+          return record(deal, { stage: 'refused', note: `the result is not delivered: the report mapping cannot convert it: ${e.message}. To deliver another file by hand before ${deal.terms.timing.deliverBy}, use check-delivery.ts and seal.ts` });
+        }
+      }
       // The adjudicator's intake rules and stage 1, on the exact bytes that would be delivered (T-316).
       const format = deal.terms.deliverable.format;
       const pre = preflightDelivery({ plaintext: bytes, mime: format, format, acceptance: deal.terms.acceptance });
