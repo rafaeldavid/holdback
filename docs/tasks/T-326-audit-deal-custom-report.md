@@ -6,7 +6,7 @@
 - **Depends on:** T-321 (the audit deal end to end, PR 290), T-316 (the seller's check runner, PR 278)
 - **Paths this task may touch:** `examples/audit-deal.ts`, `examples/audit-deal.test.ts`, new files under `fixtures/data/audit-report/` and `fixtures/terms/`, `vitest.config.ts` (a cost line for a new test file only), `site/llms.txt` (only the lines that describe the local audit deal), this file. Never: `packages/`, `apps/`, `spec/schemas/`, `contracts/`, `examples/seller-adapter.ts` and its stub, template and test (T-323, T-324), `examples/buyer-signer.ts` (T-325), `examples/check-delivery.ts` (T-327).
 - **Human gate:** no. The run is local, on SimChain; it deploys nothing and uses no keys.
-- **Status:** in progress
+- **Status:** done (PR 308; this status lands with its merge)
 - **Agent/session:** the T-326 session, 2026-11-11, branch `t-326-audit-deal-custom-report`; roadmap row N64
 
 ## Intent
@@ -90,3 +90,16 @@ All local runs on 2026-11-11, on branch `t-326-audit-deal-custom-report` cut fro
 7. **Local only.** `--live` with `--report` or `--terms` is refused, as the brief keeps this task off Sepolia.
 
 ## Handoff
+
+**Done.** `pnpm audit-deal --report <file> --terms <file>` runs one local deal with a seller's own files; `runAuditDeal` takes `reportFile` and `termsFile`; two report fixtures and one terms fixture; 6 new tests; one `site/llms.txt` line in "Sell a priced API service".
+
+**Not done.** The site deploy that publishes the new `llms.txt` line waits for Rafa. No live run with a seller's own files (out of scope by the brief).
+
+**How to resume.** `pnpm audit-deal --report fixtures/data/audit-report/report.two-files.json --terms fixtures/terms/audit-report-two-files.yaml` for a released run; the same with `report.two-files.missing-file.json` for a refused one; `pnpm exec vitest run examples/audit-deal.test.ts` for the tests.
+
+**For the adapter's sessions (T-323, T-324), unchanged here.**
+- `audit-deal.ts` uses `startSellerAdapter` with a template file it writes from the terms, `fill`, `config`, and the `Deal` fields `id`, `stage` and `jobId`. A change to those names or to the result route's shape (`GET <result>` with `{jobId}`, 202 while running, 200 with the bytes) needs the same change here.
+- The adapter's placeholders apply to a terms file too: `{{name}}` for a scope field is filled, and any other `{{name}}` stops the adapter before it starts. A seller cannot write a literal `{{…}}` in its terms.
+- The adapter does not pass the terms' adjudication fee to the offer route, so the adjudicator's registered fee is offered.
+
+**Lower-priority finds** are in `reports/scratch/t-326-triage.md` for the coordinator: the placeholders, the fee, a live run, a `--scope` option, and the terms format's relative windows.
