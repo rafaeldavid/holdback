@@ -38,7 +38,7 @@ import {
 } from '@holdback/core';
 import { encodePublicKey, encryptionKeyPairFromSecretKey, seal, wrapKeyForRecipients } from '@holdback/core/crypto';
 import { anvilAvailable } from '@holdback/settlement/evm';
-import { ensureBond, EvmSettlement, LIVE_ABIS, LiveChain, rebindToken, type DeploymentFile } from '@holdback/settlement/live';
+import { EvmSettlement, LIVE_ABIS, LiveChain, rebindToken, type DeploymentFile } from '@holdback/settlement/live';
 import { SIM_RULEBOOK, type Genesis } from '@holdback/settlement/sim';
 import { createPublicClient, decodeFunctionData, http, keccak256, sha256, stringToBytes, type Hex } from 'viem';
 import { privateKeyToAccount, sign } from 'viem/accounts';
@@ -157,7 +157,6 @@ describe.skipIf(!forkReady)(`drand quicknet decisions on a Sepolia fork (T-217)$
 
     const price = 5_000_000n; // 5.00 tUSDC
     const fee = 1_000_000n; // 1.00 tUSDC
-    for (const a of [primary, fallback, appeal]) await ensureBond(chain, a.key, price * 2n, 10n ** 17n);
     await chain.mint(buyer.address, 100n * price);
 
     // The three adjudicator services, each reading quicknet rounds from the live relays through its own counted source.

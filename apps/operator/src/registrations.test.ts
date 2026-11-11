@@ -344,6 +344,60 @@ describe('neutrality.operator-refuses-unbonded-fallback: refused at the relay, t
   });
 });
 
+// ADR-0031 §8 points 6 and 7: every chain settlement runs the phase-one contracts, which hold no bond and take no party
+// appeal. A SimChain that reports kind 'local' stands in for one: the operator reads only `kind` to tell them apart.
+describe('phase one on a chain settlement: no unbonded-fallback refusal, no appeal (ADR-0031 §8)', () => {
+  const cast = simCast('t-349');
+  const club = simClub(simActor('club-operator', 't-349').address);
+  const asChain = (chain: SimChain) =>
+    new Proxy(chain, {
+      get(target, prop) {
+        if (prop === 'kind') return 'local';
+        const v = Reflect.get(target, prop, target) as unknown;
+        return typeof v === 'function' ? (v as (...a: unknown[]) => unknown).bind(target) : v;
+      },
+    }) as SimChain;
+  const post = async (url: string, path: string, b: unknown) => {
+    const res = await fetch(`${url}${path}`, { method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': `t-349-${++keys}` }, body: JSON.stringify(b) });
+    return { status: res.status, body: (await res.json()) as J };
+  };
+  const unbonded = () => simGenesis({ cast, club, start: '2026-11-04T09:00:00Z', balances: { buyer: 10_000_000_000n, seller: 1_000_000_000n }, bonds: { primary: 25_000_000_000n, appeal: 25_000_000_000n } });
+
+  it('relays an offer whose fallback holds no bond, and lists every adjudicator with bond none', async () => {
+    const sim = new SimChain(await unbonded());
+    const chain = asChain(sim);
+    const node = await startOperator({ settlement: chain, registry: simRegistry(chain), signerKey: simActor('op', 'operator').key, operatorId: 'op-t349', env: {} });
+    try {
+      const offer = await new Deal(sim, cast, { club }).offer();
+      if (offer.kind !== 'offer') throw new Error('expected an offer');
+      const relayed = await post(node.url, '/v1/commitments', offer.commitment);
+      expect(relayed.status, JSON.stringify(relayed.body)).toBe(200);
+      const primary = await fetch(`${node.url}/v1/adjudicators/${cast.primary.address}`).then((r) => r.json() as Promise<J>);
+      expect(primary.observed?.bond ?? 'none').toBe('none');
+    } finally {
+      await node.close();
+    }
+  });
+
+  it('answers POST /v1/prepare/appeal with invalid_state naming phase one, and SimChain prepares it as before', async () => {
+    const sim = new SimChain(await unbonded());
+    const deal = new Deal(sim, cast, { club });
+    const onChain = await startOperator({ settlement: asChain(sim), registry: simRegistry(sim), signerKey: simActor('op', 'operator').key, operatorId: 'op-t349-a', env: {} });
+    const onSim = await startOperator({ settlement: sim, registry: simRegistry(sim), signerKey: simActor('op2', 'operator').key, operatorId: 'op-t349-b', env: {} });
+    try {
+      const body = { commitmentId: deal.id, appellant: cast.buyer.address };
+      const refused = await post(onChain.url, '/v1/prepare/appeal', body);
+      expect([refused.status, String(refused.body.type).split('/').at(-1)]).toEqual([409, 'invalid_state']);
+      expect(refused.body.detail).toMatch(/phase-one contracts, which have no party appeals and no bonds \(ADR-0031, D57\)/);
+      const sim409 = await post(onSim.url, '/v1/prepare/appeal', body);
+      expect(sim409.body.detail ?? '').not.toMatch(/phase-one/);
+    } finally {
+      await onChain.close();
+      await onSim.close();
+    }
+  });
+});
+
 describe('the route is a write under the throttle, and lastUsedAt follows the adjudicator', () => {
   const cast = simCast('t-221-b');
   const club = simClub(simActor('club-operator', 't-221-b').address);
