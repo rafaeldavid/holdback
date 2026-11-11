@@ -88,12 +88,12 @@ Non-goals: no change to `contracts/`, `formal/`, `docs/audit/scope.md` or `docs/
 
 **For T-341 (the state oracle):** port `legal(d, dh)` from `state-model.md` section 2 for today's contracts. Allow two things the word does not show: rows L03 to L06 may hold 0 in the escrow from the escrow's expiry, and L32 has `refundableAmount` of 0 or the fee. The aggregate invariants of 5.3 hold between transactions only. After the SC-7 cut lands, port `legalPhaseOne` from section 9.3.
 
-**For the scope record (T-342), five open points:**
-1. Finding F-1: whether the contract refuses a settlement in Held that names a delivery or releases a key (the plan's SC-5b), or core, ADR-0019 and the formal model change.
-2. Finding F-2: whether the contract refuses more than `appealDecideSec = 0`. A window of 1 to about 15 seconds is schema-valid and still undecidable on Sepolia.
-3. Register row 12: whether the acceptance's `bondReserved` stays checked, joins the register, or leaves the signed type.
-4. Register row 18: phase one ignores `appealWindowSec` while the schema requires it; the record must say so.
-5. The funding deadline: the contract refuses funding from `offerExpiresAt`; core funds an agreed deal until `fundBy` (`state-model.md` section 10).
+**For the scope record (T-342), two points decided on 2026-11-11 and three open:**
+1. Decided, finding F-1: the maintainer keeps the settlement in Held that names a delivery and releases its key (SC-5b is not cut). Core (`packages/core/src/state.ts:516-518`), ADR-0019 and the formal model change to the contract's rule; the cut package adds a test that the named delivery is the one whose key is released.
+2. Decided, finding F-2: the contract refuses `appealDecideSec = 0` only. The smallest decidable window (13 s on Sepolia, 2 s on the sim beacon [inferred]) is a stated limit in `state-model.md` 6.3; the agent docs repeat it and the prepare route warns below it.
+3. Open, register row 12: whether the acceptance's `bondReserved` stays checked, joins the register, or leaves the signed type.
+4. Open, register row 18: phase one ignores `appealWindowSec` while the schema requires it; the record must say so.
+5. Open, the funding deadline: the contract refuses funding from `offerExpiresAt`; core funds an agreed deal until `fundBy` (`state-model.md` section 10).
 
 **For the formal model's update:** `state-model.md` section 10 lists 12 differences between `formal/Holdback.tla` and the contract.
 
