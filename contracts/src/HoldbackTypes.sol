@@ -141,14 +141,6 @@ library HoldbackTypes {
         bytes sellerSignature;
     }
 
-    struct Appeal {
-        uint8 appellant; // 0 = buyer, 1 = seller
-        bytes32 groundsHash; // keccak256(grounds)
-        uint256 bond;
-        uint64 filedAt;
-        bytes signature;
-    }
-
     uint8 internal constant ROLE_PRIMARY = 0;
     uint8 internal constant ROLE_FALLBACK = 1;
     uint8 internal constant ROLE_APPEAL = 2;
@@ -215,12 +207,6 @@ library HoldbackTypes {
             "Ciphertext(string uri,string sha256,uint64 bytes,string cipher)",
             ENCRYPTED_KEY_T,
             KEY_UNLOCK_T
-        )
-    );
-    bytes32 internal constant APPEAL_TYPEHASH = keccak256(
-        abi.encodePacked(
-            "Appeal(bytes32 commitmentId,string appellant,address appellantAddress,string grounds,TokenAmount bond,uint64 filedAt)",
-            TOKEN_AMOUNT_T
         )
     );
     bytes32 internal constant PAYOUT_TYPEHASH =
@@ -384,19 +370,6 @@ library HoldbackTypes {
             m.judgmentRecordHash, sealedKey, m.appealGroundHash, beacon, m.encryptedKeysHash, m.nonce, m.expiresAt
         );
         return keccak256(bytes.concat(head, tail));
-    }
-
-    function appealHash(bytes32 id, address appellant, bytes32 tokenHash, Appeal calldata a)
-        internal
-        pure
-        returns (bytes32)
-    {
-        bytes32 who = a.appellant == 0 ? keccak256("buyer") : keccak256("seller");
-        return keccak256(
-            abi.encode(
-                APPEAL_TYPEHASH, id, who, appellant, a.groundsHash, tokenAmountHash(tokenHash, a.bond), a.filedAt
-            )
-        );
     }
 
     function mutualHash(bytes32 id, bytes32 tokenHash, Mutual calldata m) internal pure returns (bytes32) {
