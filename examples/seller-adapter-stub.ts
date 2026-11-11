@@ -25,6 +25,8 @@ export interface StubOptions {
   report?: 'ok' | 'missing-file';
   /** How many times the result answers 202 before the job is complete. Default 1. */
   pollsUntilComplete?: number;
+  /** The token the stub prices in: the settlement layer's token ID. Default `tUSD`, SimChain's; on a chain, the token's address. */
+  token?: string;
   /** Fields that replace the quote's own, to test a seller API that answers badly. */
   quoteOverride?: J;
 }
@@ -80,7 +82,7 @@ export async function startStubSellerApi(o: StubOptions = {}): Promise<StubSelle
         calls.quote++;
         const { scope } = await json(req);
         const lines = BigInt(scope.lines);
-        const quote = { quoteId: `q-${calls.quote}`, price: { token: 'tUSD', amount: (BASE + lines * PER_LINE).toString() }, deliverWithinSec: 86_400 * (1 + Math.ceil(Number(lines) / 1000)) };
+        const quote = { quoteId: `q-${calls.quote}`, price: { token: o.token ?? 'tUSD', amount: (BASE + lines * PER_LINE).toString() }, deliverWithinSec: 86_400 * (1 + Math.ceil(Number(lines) / 1000)) };
         return send(200, { ...quote, ...o.quoteOverride });
       }
       if (req.method === 'POST' && path === '/jobs') {
