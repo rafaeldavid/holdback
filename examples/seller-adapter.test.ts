@@ -1,6 +1,10 @@
 // The seller adapter (T-318) against the stub seller API, on SimChain: a quote becomes a signed offer, a
 // funded hold starts one job, and a result is delivered only after the seller's own preflight passes.
+import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { createServer as createHttpsServer, request as httpsRequest } from 'node:https';
+import { request as httpRequest } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -375,5 +379,209 @@ describe('seller adapter: restarts', () => {
     await until('run 4 to see the delivery', () => stageOf(four.running, id) === 'delivered');
     expect(await events(buyer, id, 'delivery.submitted')).toHaveLength(1);
     expect(stub!.jobs()).toHaveLength(1);
+  }, 45_000);
+});
+
+// ---- T-324: the adapter as a service ----
+
+/** An adapter for seller-1 with extra environment values, such as the quote route's credentials. */
+async function service(overrides: Partial<SellerAdapterConfig> = {}, extraEnv: Record<string, string> = {}, stubOptions: StubOptions = {}) {
+  stub ??= await startStubSellerApi({ port: 0, ...stubOptions });
+  const [primary, fallback, appeal] = world.info.adjudicators.map((a) => a.address);
+  const lines: string[] = [];
+  const settings: SellerAdapterConfig = {
+    ...shipped,
+    port: 0,
+    sellerApi: stub.api,
+    clubId: world.info.clubId,
+    adjudicators: { primary: primary!, fallback: fallback!, appeal: appeal! },
+    journal: join(mkdtempSync(join(tmpdir(), 't324-')), 'journal.json'),
+    pollMs: 50,
+    log: (line) => lines.push(line),
+    ...overrides,
+  };
+  const env = { HOLDBACK_KEY: acct('seller-1').privateKey, HOLDBACK_OPERATORS: world.info.operators.join(','), ...extraEnv };
+  const running = await startSellerAdapter(settings, env);
+  adapters.push(running);
+  return { running, lines, settings, env };
+}
+/** A quote with the headers given, answering the status, the headers and the body. */
+async function ask(a: RunningAdapter, buyer: Agent, headers: Record<string, string> = {}, scope: unknown = SCOPE) {
+  const res = await fetch(`${a.url}/quote`, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify({ buyer: buyer.address, buyerEncryptionPublicKey: buyer.encryptionPublicKey, scope }) });
+  return { status: res.status, headers: res.headers, body: (await res.json()) as J };
+}
+
+describe('seller adapter as a service: authentication on the quote route', () => {
+  it('with quoteAuth, answers 401 without a valid bearer credential, makes no offer, and never logs a credential', async () => {
+    // The seller names the environment variable; its value lists the accepted credentials, comma-separated.
+    const { running, lines } = await service({ quoteAuth: { kind: 'bearer', env: 'BUYER_TICKETS' } }, { BUYER_TICKETS: 'ticket-one, ticket-two' });
+    const buyer = agent('buyer-1');
+    const refused = [{}, { authorization: 'Bearer ticket-three' }, { authorization: 'Basic ticket-one' }, { authorization: 'Bearer ' }, { authorization: 'Bearer ticket-one, ticket-two' }];
+    for (const headers of refused) {
+      const r = await ask(running, buyer, headers);
+      expect(r.status, JSON.stringify(headers)).toBe(401);
+      expect(r.body.type).toBe('unauthorized');
+      expect(r.headers.get('www-authenticate')).toMatch(/^Bearer /);
+    }
+    expect(stub!.calls.quote).toBe(0);
+    expect(running.deals()).toEqual([]);
+
+    const ok = await ask(running, buyer, { authorization: 'Bearer ticket-two' });
+    expect(ok.status, JSON.stringify(ok.body)).toBe(200);
+    expect(ok.body.commitmentId).toMatch(/^0x[0-9a-f]{64}$/);
+    expect(running.deals()).toHaveLength(1);
+    // The idempotency rule holds behind the credential: the same key and body replay, another body is a conflict.
+    const keyed = { authorization: 'Bearer ticket-one', 'idempotency-key': 'auth-1' };
+    const first = await ask(running, buyer, keyed);
+    expect((await ask(running, buyer, keyed)).body).toEqual(first.body);
+    expect((await ask(running, buyer, keyed, { ...SCOPE, lines: 4000 })).status).toBe(409);
+
+    const log = lines.join('\n');
+    for (const secret of ['ticket-one', 'ticket-two', 'ticket-three']) expect(log).not.toContain(secret);
+  }, 30_000);
+
+  it('refuses to start when quoteAuth names a variable that holds no credential', async () => {
+    await expect(service({ quoteAuth: { kind: 'bearer', env: 'BUYER_TICKETS' } }, {})).rejects.toThrow(/^set BUYER_TICKETS to one or more quote credentials, comma-separated$/);
+    await expect(service({ quoteAuth: { kind: 'bearer', env: 'BUYER_TICKETS' } }, { BUYER_TICKETS: ' , ' })).rejects.toThrow(/BUYER_TICKETS/);
+  });
+});
+
+describe('seller adapter as a service: a rate limit on the quote route', () => {
+  it('answers 429 with Retry-After past the seller\'s limits, per client and overall, and makes no offer for a refused request', async () => {
+    // Behind a proxy (trustProxy), the client is the last X-Forwarded-For entry.
+    const { running } = await service({ trustProxy: true, quoteRateLimit: { perClient: { requests: 2, windowSec: 3600 }, overall: { requests: 3, windowSec: 3600 } } });
+    const buyer = agent('buyer-1');
+    const from = (ip: string) => ({ 'x-forwarded-for': `203.0.113.250, ${ip}` });
+    expect((await ask(running, buyer, from('10.0.0.1'))).status).toBe(200);
+    expect((await ask(running, buyer, from('10.0.0.1'), 'everything')).status).toBe(400); // a refused scope counts too
+    const perClient = await ask(running, buyer, from('10.0.0.1'));
+    expect(perClient.status).toBe(429);
+    expect(perClient.body.type).toBe('rate_limited');
+    const wait = Number(perClient.headers.get('retry-after'));
+    expect(Number.isSafeInteger(wait) && wait >= 1 && wait <= 3600, String(wait)).toBe(true);
+    expect((await ask(running, buyer, from('10.0.0.2'))).status).toBe(200); // another client, its own count
+    const overall = await ask(running, buyer, from('10.0.0.3')); // a new client, but 3 requests passed overall
+    expect(overall.status).toBe(429);
+    expect(overall.body.type).toBe('rate_limited');
+    expect(stub!.calls.quote).toBe(2);
+    expect(running.deals()).toHaveLength(2);
+  }, 30_000);
+
+  it('opens again when the window passes, and ignores X-Forwarded-For without trustProxy', async () => {
+    const { running } = await service({ quoteRateLimit: { perClient: { requests: 1, windowSec: 1 } } });
+    const buyer = agent('buyer-1');
+    expect((await ask(running, buyer, { 'x-forwarded-for': '10.0.0.1' })).status).toBe(200);
+    expect((await ask(running, buyer, { 'x-forwarded-for': '10.0.0.2' })).status).toBe(429); // the same socket, so the same client
+    await new Promise((r) => setTimeout(r, 1100));
+    expect((await ask(running, buyer)).status).toBe(200);
+  }, 30_000);
+
+  it('refuses to start on a limit that is not a positive whole number', async () => {
+    for (const limit of [{ requests: 0, windowSec: 60 }, { requests: 5, windowSec: 0 }, { requests: 1.5, windowSec: 60 }]) {
+      await expect(service({ quoteRateLimit: { perClient: limit } })).rejects.toThrow(/quoteRateLimit\.perClient/);
+    }
+  });
+});
+
+describe('seller adapter as a service: HTTPS behind a TLS proxy', () => {
+  it('answers a quote over HTTPS through a TLS proxy, rate-limited by the client the proxy forwards', async () => {
+    // A self-signed certificate for 127.0.0.1, made for this run only, with `openssl` (on the CI runners; the test
+    // fails without it rather than skip). The recipe's proxy is Caddy; this one plays it.
+    const dir = mkdtempSync(join(tmpdir(), 't324-tls-'));
+    const made = spawnSync('openssl', ['req', '-x509', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:prime256v1', '-nodes', '-days', '1', '-subj', '/CN=127.0.0.1', '-addext', 'subjectAltName=IP:127.0.0.1', '-keyout', join(dir, 'tls.pem'), '-out', join(dir, 'cert.pem')]);
+    expect(made.status, String(made.stderr)).toBe(0);
+    const cert = readFileSync(join(dir, 'cert.pem'));
+    const { running } = await service({ trustProxy: true, quoteRateLimit: { perClient: { requests: 1, windowSec: 3600 } } });
+    const upstream = new URL(running.url);
+    // Like Caddy's reverse_proxy: it terminates TLS and appends the client's address to X-Forwarded-For.
+    const proxy = createHttpsServer({ cert, key: readFileSync(join(dir, 'tls.pem')) }, (req, res) => {
+      const prior = req.headers['x-forwarded-for'];
+      const headers = { ...req.headers, 'x-forwarded-for': `${prior ? `${prior}, ` : ''}${req.socket.remoteAddress}` };
+      const out = httpRequest({ host: upstream.hostname, port: upstream.port, path: req.url, method: req.method, headers }, (up) => {
+        res.writeHead(up.statusCode ?? 502, up.headers);
+        up.pipe(res);
+      });
+      req.pipe(out);
+    });
+    await new Promise<void>((r) => proxy.listen(0, '127.0.0.1', r));
+    const httpsQuote = (extra: Record<string, string> = {}) =>
+      new Promise<{ status: number; body: J }>((resolve, reject) => {
+        const buyer = agent('buyer-1');
+        const body = JSON.stringify({ buyer: buyer.address, buyerEncryptionPublicKey: buyer.encryptionPublicKey, scope: SCOPE });
+        const req = httpsRequest({ host: '127.0.0.1', port: (proxy.address() as AddressInfo).port, path: '/quote', method: 'POST', ca: cert, headers: { 'content-type': 'application/json', ...extra } }, (res) => {
+          let text = '';
+          res.on('data', (c) => (text += c));
+          res.on('end', () => resolve({ status: res.statusCode ?? 0, body: JSON.parse(text) }));
+        });
+        req.on('error', reject);
+        req.end(body);
+      });
+    try {
+      const first = await httpsQuote();
+      expect(first.status, JSON.stringify(first.body)).toBe(200);
+      expect(first.body.commitmentId).toMatch(/^0x[0-9a-f]{64}$/);
+      // A forged X-Forwarded-For does not make a new client: the proxy appends the real one, and that one counts.
+      expect((await httpsQuote({ 'x-forwarded-for': '10.9.9.9' })).status).toBe(429);
+    } finally {
+      await new Promise<void>((r) => proxy.close(() => r()));
+    }
+  }, 30_000);
+
+  it('the recipe proxies HTTPS to the address the shipped configuration listens on, and restarts the adapter', () => {
+    const caddy = readFileSync(here('./seller-adapter.Caddyfile'), 'utf8');
+    expect(caddy).toContain(`reverse_proxy ${shipped.host ?? '127.0.0.1'}:${shipped.port}`);
+    expect(shipped.host ?? '127.0.0.1').toBe('127.0.0.1'); // only a proxy on this machine reaches the adapter
+    const unit = readFileSync(here('./seller-adapter.service'), 'utf8');
+    expect(unit).toMatch(/^ExecStart=\S*node \S*examples\/seller-adapter\.ts$/m);
+    expect(unit).toMatch(/^Restart=always$/m);
+    expect(unit).toMatch(/^KillSignal=SIGTERM$/m);
+  });
+});
+
+describe('seller adapter as a service: restarts with open deals', () => {
+  // A world of its own: by now the shared one holds many open offers, and in a full run its primary adjudicator
+  // did not accept deal A within 20 s.
+  let shared: SimWorld;
+  beforeAll(async () => {
+    shared = world;
+    world = await startSimWorld({ env: {}, onError: () => {} });
+  });
+  afterAll(async () => {
+    for (const a of adapters.splice(0)) await a.close();
+    await world.close();
+    world = shared;
+  });
+
+  it('after a restart, finishes every open deal with one job and one delivery each, and replays a keyed quote', async () => {
+    const journal = join(mkdtempSync(join(tmpdir(), 't324-')), 'journal.json');
+    const one = await service({ journal }, {}, { pollsUntilComplete: 1_000_000 });
+    const [b1, b2] = [agent('buyer-1'), agent('buyer-2')];
+    // Deal A: quoted with a key, funded while the adapter is down. Deal B: started, its job runs across the restart.
+    // Deal C: quoted, never funded.
+    const a = await ask(one.running, b1, { 'idempotency-key': 'restart-a' });
+    const b = await ask(one.running, b2);
+    const c = await ask(one.running, b1, {}, { ...SCOPE, lines: 4000 });
+    const idA = a.body.commitmentId as Hex;
+    const idB = b.body.commitmentId as Hex;
+    const idC = c.body.commitmentId as Hex;
+    await fund(b2, idB);
+    await until('run 1 to start deal B', () => stageOf(one.running, idB) === 'started');
+    await one.running.close();
+    await fund(b1, idA);
+    expect(stub!.calls.start).toBe(1);
+
+    stub!.completeAll();
+    const two = await service({ journal });
+    expect(await ask(two.running, b1, { 'idempotency-key': 'restart-a' })).toMatchObject({ status: 200, body: a.body }); // the journal kept the answer
+    expect((await b1.waitFor(idA, ['Released', 'Refunded'])).escrowState).toBe('Released');
+    expect((await b2.waitFor(idB, ['Released', 'Refunded'])).escrowState).toBe('Released');
+    await until('run 2 to record both deliveries', () => stageOf(two.running, idA) === 'delivered' && stageOf(two.running, idB) === 'delivered');
+    expect(stub!.calls.start).toBe(2);
+    expect(stub!.jobs()).toHaveLength(2);
+    expect(await events(b1, idA, 'delivery.submitted')).toHaveLength(1);
+    expect(await events(b2, idB, 'delivery.submitted')).toHaveLength(1);
+    expect(stageOf(two.running, idC)).toBe('offered');
+    expect(['Offered', 'AcceptedByAdjudicator']).toContain((await b1.call('GET', `/v1/commitments/${idC}`)).escrowState);
+    expect(two.running.deals()).toHaveLength(3);
   }, 45_000);
 });

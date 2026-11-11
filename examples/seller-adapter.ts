@@ -23,8 +23,8 @@
 //
 // It keeps a journal file of its deals, so a restart neither starts a job twice nor delivers twice: the journal
 // records each job, and the settlement layer says whether a delivery is already there. Run one adapter per journal.
-// It listens on 127.0.0.1 and makes public-level offers. Put your own HTTPS front and rate limit before /quote:
-// every quote makes the adapter sign an offer.
+// It listens on 127.0.0.1 and makes public-level offers. Every quote makes the adapter sign an offer, so in production
+// run it as seller-adapter-service.md says: behind an HTTPS proxy, with `quoteAuth` and `quoteRateLimit` set (T-324).
 // The deliverable is data: the adapter parses it only inside the check library, and runs nothing from it, from
 // the template or from the scope.
 //
@@ -35,7 +35,7 @@
 // signs under the settlement layer those operators serve, which must be one pinned in verify.ts: SimChain, Sepolia,
 // or the deployment in HOLDBACK_DEPLOYMENT. Your API prices in that layer's token: `tUSD` on SimChain, the token's
 // address on a chain (discovery, `demo.token.id`). Test tokens only: nothing here is real money.
-import { createHash } from 'node:crypto';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { createServer, type IncomingMessage } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -55,9 +55,35 @@ export type ScopeRule =
   | { type: 'strings'; pattern: string; min: number; max: number } // distinct strings
   | { type: 'integer'; min: number; max: number };
 
+/** At most `requests` requests in each window of `windowSec` seconds. Any positive whole numbers: your choice. */
+export interface QuoteLimit {
+  requests: number;
+  windowSec: number;
+}
+
 export interface SellerAdapterConfig {
   /** Where this adapter listens for POST /quote. */
   port: number;
+  /** The address it listens on. Default 127.0.0.1: only a proxy on the same machine reaches it. */
+  host?: string;
+  /**
+   * You run a proxy in front (seller-adapter-service.md): take the client's address from the last X-Forwarded-For
+   * entry, which the proxy appends. Set it only when nothing but your proxy can reach the adapter; otherwise a
+   * client could name any address and escape `quoteRateLimit.perClient`. Default false: the socket's address.
+   */
+  trustProxy?: boolean;
+  /**
+   * Who may ask for a quote. Omit it and POST /quote is open to anyone who reaches it. `bearer`: a request must carry
+   * `Authorization: Bearer <credential>` with one of the credentials in the environment variable `env`, comma-separated.
+   * The credentials come from the environment only, and the adapter never logs them.
+   */
+  quoteAuth?: { kind: 'bearer'; env: string };
+  /**
+   * How many quotes the adapter answers. `perClient` counts by client address, before the credential is checked;
+   * `overall` counts every request that passed `perClient` and `quoteAuth`. Past either, it answers 429 with
+   * Retry-After and makes no offer. Omit it for no limit.
+   */
+  quoteRateLimit?: { perClient?: QuoteLimit; overall?: QuoteLimit };
   /** Your API's three addresses. `result` holds `{jobId}` where the job's ID goes. */
   sellerApi: { quote: string; start: string; result: string };
   /**
@@ -110,6 +136,10 @@ export const config: SellerAdapterConfig = {
   timing: { offerExpiresInSec: 900, fundWithinSec: 1800, deliverWithinSec: 604_800, judgeWithinSec: 120, fallbackWithinSec: 120, appealWindowSec: 300, appealDecideSec: 300 },
   journal: 'seller-adapter.journal.json',
   pollMs: 5000,
+  // Behind the HTTPS proxy of seller-adapter-service.md, for example:
+  //   trustProxy: true,
+  //   quoteAuth: { kind: 'bearer', env: 'HOLDBACK_QUOTE_CREDENTIALS' },
+  //   quoteRateLimit: { perClient: { requests: 10, windowSec: 60 }, overall: { requests: 100, windowSec: 60 } },
 };
 // ---- End of configuration. ----
 
@@ -142,10 +172,12 @@ export interface RunningAdapter {
 class Refused extends Error {
   readonly status: number;
   readonly type: string;
-  constructor(status: number, type: string, detail: string) {
+  readonly headers: Record<string, string>;
+  constructor(status: number, type: string, detail: string, headers: Record<string, string> = {}) {
     super(detail);
     this.status = status;
     this.type = type;
+    this.headers = headers;
   }
 }
 
@@ -220,11 +252,80 @@ async function readJson(req: IncomingMessage): Promise<J> {
   }
 }
 
+/** A fixed-window count per client: 0 when a request is admitted, otherwise the whole seconds until the window ends. */
+function counter(limit: QuoteLimit): (who: string, now: number) => number {
+  const windowMs = limit.windowSec * 1000;
+  const windows = new Map<string, { start: number; count: number }>();
+  return (who, now) => {
+    let w = windows.get(who);
+    if (!w || now - w.start >= windowMs) {
+      if (windows.size >= 10_000) for (const [k, v] of windows) if (now - v.start >= windowMs) windows.delete(k); // forget ended windows
+      w = { start: now, count: 0 };
+      windows.set(who, w);
+    }
+    if (w.count >= limit.requests) return Math.max(1, Math.ceil((w.start + windowMs - now) / 1000));
+    w.count++;
+    return 0;
+  };
+}
+
+/** The client's address: the last X-Forwarded-For entry, which your proxy appends, or the socket's. */
+function clientOf(req: IncomingMessage, trustProxy: boolean): string {
+  if (trustProxy) {
+    const header = req.headers['x-forwarded-for'];
+    const last = (Array.isArray(header) ? header.join(',') : (header ?? '')).split(',').map((s) => s.trim()).filter(Boolean).at(-1);
+    if (last) return last;
+  }
+  return req.socket.remoteAddress ?? 'unknown';
+}
+
+const sha256 = (text: string) => createHash('sha256').update(text, 'utf8').digest();
+
+/**
+ * The quote route's rate limit and authentication, from the seller's configuration (T-324). The values are the
+ * seller's own (D31): any positive whole number. Returns, for each request, the refusal or null to go on.
+ */
+function gate(c: SellerAdapterConfig, env: Readonly<Record<string, string | undefined>>): (req: IncomingMessage) => Refused | null {
+  const limits = c.quoteRateLimit ?? {};
+  for (const name of ['perClient', 'overall'] as const) {
+    const l = limits[name];
+    if (l && !(Number.isSafeInteger(l.requests) && l.requests > 0 && Number.isSafeInteger(l.windowSec) && l.windowSec > 0)) {
+      throw new Error(`quoteRateLimit.${name} needs requests and windowSec as positive whole numbers`);
+    }
+  }
+  let accepted: Buffer[] | null = null; // SHA-256 of each credential: compared in constant time, never logged
+  if (c.quoteAuth) {
+    if (c.quoteAuth.kind !== 'bearer') throw new Error('quoteAuth.kind must be "bearer"');
+    const list = (env[c.quoteAuth.env] ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+    if (list.length === 0) throw new Error(`set ${c.quoteAuth.env} to one or more quote credentials, comma-separated`);
+    accepted = list.map(sha256);
+  }
+  const perClient = limits.perClient ? counter(limits.perClient) : null;
+  const overall = limits.overall ? counter(limits.overall) : null;
+  const limited = (wait: number) => new Refused(429, 'rate_limited', `too many quote requests; try again in ${wait} s`, { 'retry-after': String(wait) });
+  return (req) => {
+    const now = Date.now();
+    // Per client first, so guessing credentials counts against the guesser.
+    const waitClient = perClient?.(clientOf(req, c.trustProxy === true), now) ?? 0;
+    if (waitClient) return limited(waitClient);
+    if (accepted) {
+      const given = /^bearer ([\x21-\x7e]+)$/i.exec(req.headers.authorization ?? '')?.[1];
+      const digest = given === undefined ? null : sha256(given);
+      if (!digest || !accepted.some((a) => timingSafeEqual(a, digest))) {
+        return new Refused(401, 'unauthorized', 'this quote route needs Authorization: Bearer <credential>', { 'www-authenticate': 'Bearer realm="quote"' });
+      }
+    }
+    const waitAll = overall?.('all', now) ?? 0;
+    return waitAll ? limited(waitAll) : null;
+  };
+}
+
 /**
  * Starts the adapter: the /quote route, the event stream and the polling loop. The key and the operators come
  * from `env` (HOLDBACK_KEY, HOLDBACK_OPERATORS), never from the configuration.
  */
 export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<Record<string, string | undefined>> = process.env): Promise<RunningAdapter> {
+  const admit = gate(c, env); // refuses a malformed limit or a missing credential before anything is signed
   const key = env['HOLDBACK_KEY'];
   const operators = (env['HOLDBACK_OPERATORS'] ?? '').split(',').filter(Boolean);
   if (!key || !/^0x[0-9a-fA-F]{64}$/.test(key)) throw new Error('set HOLDBACK_KEY to the seller\'s signing key (0x and 64 hex characters)');
@@ -461,14 +562,19 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
   }
 
   const server = createServer((req, res) => {
-    const send = (status: number, body: unknown) => res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' }).end(JSON.stringify(body));
+    const send = (status: number, body: unknown, headers: Record<string, string> = {}) => res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store', ...headers }).end(JSON.stringify(body));
     const path = new URL(req.url ?? '/', 'http://adapter').pathname;
     if (path !== '/quote') return void send(404, { type: 'not_found', detail: 'this adapter serves POST /quote' });
     if (req.method !== 'POST') return void send(405, { type: 'method_not_allowed', detail: 'this adapter serves POST /quote' });
+    const refused = admit(req); // the rate limit and the credential, before the body is read
+    if (refused) {
+      req.resume();
+      return void send(refused.status, { type: refused.type, detail: refused.message }, refused.headers);
+    }
     quote(req).then(
       (answer) => send(200, answer),
       (e: Error) => {
-        if (e instanceof Refused) return send(e.status, { type: e.type, detail: e.message });
+        if (e instanceof Refused) return send(e.status, { type: e.type, detail: e.message }, e.headers);
         log(`Quote failed: ${plain(e.message)}.`);
         return send(500, { type: 'internal', detail: 'the adapter could not answer' });
       },
@@ -476,13 +582,16 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
   });
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
-    server.listen(c.port, '127.0.0.1', resolve);
+    server.listen(c.port, c.host ?? '127.0.0.1', resolve);
   });
-  const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  const bound = server.address() as AddressInfo;
+  const url = `http://${bound.family === 'IPv6' ? `[${bound.address}]` : bound.address}:${bound.port}`;
   const timer = setInterval(wake, c.pollMs);
   const stream = c.stream === false ? Promise.resolve() : follow();
   wake(); // deals the journal left open
   log(`Seller adapter for ${seller.address} serves POST ${url}/quote; journal ${plain(c.journal)}, ${Object.keys(journal.deals).length} deals.`);
+  const limitText = (l: QuoteLimit | undefined) => (l ? `${l.requests} per ${l.windowSec} s` : 'none');
+  log(`The quote route takes ${c.quoteAuth ? `a bearer credential from ${plain(c.quoteAuth.env)}` : 'no credential'}; rate limit per client ${limitText(c.quoteRateLimit?.perClient)}, overall ${limitText(c.quoteRateLimit?.overall)}${c.trustProxy ? '; clients by X-Forwarded-For' : ''}.`);
 
   return {
     url,
@@ -509,12 +618,21 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     const account = (await (await fetch(`${sim}/accounts`, { method: 'POST' })).json()) as { privateKey: string };
     const [primary, fallback, appeal] = info.adjudicators.map((a) => a.address);
     settings = { ...config, clubId: info.clubId, adjudicators: { primary: primary!, fallback: fallback!, appeal: appeal! } };
-    env = { HOLDBACK_KEY: account.privateKey, HOLDBACK_OPERATORS: info.operators.join(',') };
+    env = { ...process.env, HOLDBACK_KEY: account.privateKey, HOLDBACK_OPERATORS: info.operators.join(',') };
   }
+  let adapter: RunningAdapter;
   try {
-    await startSellerAdapter(settings, env);
+    adapter = await startSellerAdapter(settings, env);
   } catch (e) {
     console.error(`seller-adapter: ${plain((e as Error).message)}`);
     process.exit(2);
+  }
+  // A service manager stops the adapter with SIGTERM: it stops taking quotes, lets the step in progress finish and
+  // record itself in the journal, then exits. The next start resumes every open deal from the journal.
+  for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+    process.once(signal, () => {
+      console.log(`${new Date().toISOString()} ${signal}: the adapter stops after the step in progress; the journal keeps every open deal.`);
+      void adapter.close().then(() => process.exit(0));
+    });
   }
 }
