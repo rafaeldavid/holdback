@@ -8,6 +8,7 @@ import { cardProblem, deploy, healthVerdict, recordLine, shouldRollBack } from '
 const BEFORE = '545afdd8-1e1c-40ff-aa35-2eea83d9ec0e';
 const AFTER = '6122d260-d59b-41a0-8699-3bc6cacaa354';
 const SELLER = 'https://crow.direct/agents/test-seller';
+const BUYER = 'https://crow.direct/agents/test-buyer';
 const statusJson = (...versions: [string, number][]) => JSON.stringify({ id: 'd1', versions: versions.map(([version_id, percentage]) => ({ version_id, percentage })) });
 
 describe('the live version, from `wrangler deployments status --json`', () => {
@@ -111,6 +112,8 @@ interface Stage {
   rollback?: { code: number | null };
   health?: Answer[];
   card?: Answer[];
+  /** What the buyer's /health answers, call by call (T-239). */
+  buyerHealth?: Answer[];
 }
 const OPERATIONAL: Answer = { status: 200, body: '{"status":"operational","open":0}' };
 const CARD: Answer = { status: 200, body: '{"type":"crow-agent"}' };
@@ -120,7 +123,7 @@ const UPLOADED = { code: 0, out: `Uploaded crow-test-agents (3.21 sec)\nCurrent 
 async function run(stage: Stage) {
   const commands: string[] = [], probes: { url: string; at: number }[] = [], out: string[] = [], err: string[] = [];
   const next = <T,>(list: T[]) => (list.length > 1 ? list.shift()! : list[0]!);
-  const live = [...(stage.live ?? [BEFORE])], health = [...(stage.health ?? [OPERATIONAL])], card = [...(stage.card ?? [CARD])];
+  const live = [...(stage.live ?? [BEFORE])], health = [...(stage.health ?? [OPERATIONAL])], card = [...(stage.card ?? [CARD])], buyerHealth = [...(stage.buyerHealth ?? [OPERATIONAL])];
   let clock = Date.parse('2026-11-11T09:05:59Z');
   const t0 = clock;
   const code = await deploy({
@@ -141,6 +144,7 @@ async function run(stage: Stage) {
     },
     probe: async (url: string) => {
       probes.push({ url, at: clock - t0 });
+      if (url === `${BUYER}/health`) return next(buyerHealth);
       return url.endsWith('/health') ? next(health) : next(card);
     },
     sleep: async (ms: number) => {
@@ -168,6 +172,7 @@ describe("the test seller's deploy", () => {
       { url: `${SELLER}/health`, at: 5000 },
       { url: `${SELLER}/health`, at: 10_000 },
       { url: `${SELLER}/agent.json`, at: 10_000 },
+      { url: `${BUYER}/health`, at: 10_000 },
     ]);
     expect(r.record).toBe(`**Test seller deploy 2026-11-11 09:05 UTC, commit \`016c28e\`: pass.** crow-test-agents \`${AFTER}\` (rollback target \`${BEFORE}\`).`);
     expect(r.err).toBe('');
@@ -238,8 +243,16 @@ describe("the test seller's deploy", () => {
   it('passes when the agent card answers on a later poll', async () => {
     const r = await run({ card: [{ status: 0, body: '' }, CARD] });
     expect(r.code).toBe(0);
-    expect(r.probes.map((p) => p.at)).toEqual([0, 0, 5000, 5000]);
+    expect(r.probes.map((p) => p.at)).toEqual([0, 0, 5000, 5000, 5000]);
     expect(r.wrangler).toEqual([STATUS, UPLOAD]);
+  });
+
+  it("rolls back when the buyer's health never reads operational, though the seller does (T-239)", async () => {
+    const r = await run({ buyerHealth: [{ status: 200, body: '{"error":"not found; the intake is at https://crow.direct/agents/test-seller"}' }], live: [BEFORE, AFTER, BEFORE] });
+    expect(r.code).toBe(1);
+    expect(r.probes.filter((p) => p.url === `${BUYER}/health`)).toHaveLength(25);
+    expect(r.wrangler).toEqual([STATUS, UPLOAD, STATUS, ROLLBACK, STATUS]);
+    expect(r.record).toContain(`FAIL, ${BUYER}/health did not read operational within 120 s (last answer: HTTP 200, but the body does not read operational).**`);
   });
 
   it('says so, and gives the command, when the rollback fails', async () => {

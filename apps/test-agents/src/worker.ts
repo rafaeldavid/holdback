@@ -94,7 +94,8 @@ export class Agents {
   async fetch(request: Request): Promise<Response> {
     const seller = this.open();
     const buyer = this.openBuyer();
-    const response = buyer && this.forBuyer(request) ? await buyer.fetch(request) : await seller.fetch(request, request.headers.get(CLIENT) ?? 'unknown');
+    const client = request.headers.get(CLIENT) ?? 'unknown';
+    const response = buyer && this.forBuyer(request) ? await buyer.fetch(request, client) : await seller.fetch(request, client);
     // Any request re-arms a missing or overdue alarm while a deal is open, as the World does (docs/operations.md):
     // a lost alarm chain would otherwise leave open deals, and the open cap, stuck. Idle agents set none.
     if ((await seller.hasOpen()) || (buyer && (await buyer.hasOpen()))) await this.schedule(Date.now() + 500);
