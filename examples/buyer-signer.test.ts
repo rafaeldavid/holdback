@@ -142,8 +142,11 @@ describe('buyer-signer.ts', () => {
     expect(done.outcome).toBe('Released');
     expect(done.work).toBe(CSV);
     expect(done.paid).toEqual({ token: 'tUSD', amount: TOTAL });
-    // A third run finds no open deal and prints nothing.
+    // A third run finds no open deal and prints nothing; with the ID it opens that deal's work again.
     expect(await node(['resume', dir])).toMatchObject({ code: 0, out: '' });
+    const again = await node(['resume', dir, funded.funded]);
+    expect(again.code, again.err).toBe(0);
+    expect(JSON.parse(again.out)).toMatchObject({ commitmentId: funded.funded, outcome: 'Released', work: CSV });
     r.err = funding.err + r.err;
     for (const url of demo.urls) expect(((await (await fetch(`${url}/v1/commitments/${done.commitmentId}`)).json()) as { escrowState: string }).escrowState).toBe('Released');
     // The faucet gave the deal's total and the deal took all of it; the seller has the price.
@@ -260,6 +263,16 @@ describe('buyer-signer.ts', () => {
     const text = printable(JSON.stringify(value));
     expect(text).toBe(`{"note":"pay \\u202eevil\\u202c now\\u200b\\u0007\\udb40\\udc41","fine":"caf${hidden(0xe9)}, 25 tUSD"}`);
     expect(JSON.parse(text)).toEqual(value);
+    // Default-ignorable code points too: the combining grapheme joiner, a halfwidth Hangul filler, a variation selector supplement.
+    const more = { s: hidden(0x34f, 0xffa0, 0xe0100) };
+    expect(printable(JSON.stringify(more))).toBe('{"s":"\\u034f\\uffa0\\udb40\\udd00"}');
+    expect(JSON.parse(printable(JSON.stringify(more)))).toEqual(more);
+  });
+
+  it('a buyer expectation that is not a setting stops makeKeys, naming it', async () => {
+    await expect(makeKeys(store(), { operators: demo.urls, expect: { clubID: 'acme' } as J })).rejects.toThrow(/^expect\."clubID" is not a setting: the settings are settlementMode, clubId, /);
+    await expect(makeKeys(store(), { operators: demo.urls, expect: { clubId: 7 } as J })).rejects.toThrow(/^expect\.clubId is not a string/);
+    await expect(makeKeys(store(), { operators: demo.urls, expect: 'acme' as J })).rejects.toThrow(/^expect is not an object/);
   });
 
   // T-332: each of the seven is checked against what the buyer's configuration expects, before the offer is shown.

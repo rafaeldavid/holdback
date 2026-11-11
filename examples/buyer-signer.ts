@@ -266,30 +266,21 @@ const refuse = (why: string): never => {
   throw new Refusal(`refusing to sign: ${why}`);
 };
 /**
- * Code points a terminal hides or uses to reorder text: C0 and C1 controls, the soft hyphen, the Arabic letter mark,
- * the Hangul fillers, the Mongolian vowel separator, zero-width and directional marks, the line and paragraph
- * separators, the bidirectional embeddings, overrides and isolates, the word joiner and invisible operators, the
- * variation selectors, the byte order mark, the interlinear annotation marks and the tag characters. Written as
- * numbers, so this source holds none of them.
+ * Code points a terminal hides or uses to reorder text, by Unicode property: controls (Cc), format characters (Cf:
+ * the bidirectional marks, embeddings, overrides and isolates, the zero-width characters, the tags), the line and
+ * paragraph separators, and every default-ignorable code point (the variation selectors and their supplement, the
+ * Hangul fillers, the combining grapheme joiner).
  */
-const HIDDEN: Array<[number, number]> = [
-  [0x0000, 0x001f], [0x007f, 0x009f], [0x00ad, 0x00ad], [0x061c, 0x061c], [0x115f, 0x1160], [0x180e, 0x180e], [0x200b, 0x200f],
-  [0x2028, 0x202e], [0x2060, 0x206f], [0x3164, 0x3164], [0xfe00, 0xfe0f], [0xfeff, 0xfeff], [0xfff9, 0xfffb], [0xe0000, 0xe007f],
-];
+const HIDDEN = /^[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]$/u;
 /**
  * JSON text with every control, bidirectional and invisible format character escaped as `\uXXXX`: it parses to the
  * same value, and a terminal shows no hidden or reordered seller text. JSON's own syntax is ASCII, so only
  * characters inside strings change.
  */
 export const printable = (json: string): string =>
-  [...json].map((c) => {
-    const n = c.codePointAt(0)!;
-    if (!HIDDEN.some(([a, b]) => n >= a && n <= b)) return c;
-    // Each UTF-16 unit, so a tag character above U+FFFF escapes as its surrogate pair.
-    return [...Array(c.length).keys()].map((i) => `\\u${c.charCodeAt(i).toString(16).padStart(4, '0')}`).join('');
-  }).join('');
-/** A value from the offer in an error message: canonical JSON, printable, at most 200 characters. */
-const shown = (v: J) => printable(jcs(lowerHex(v))).slice(0, 200);
+  [...json].map((c) => (HIDDEN.test(c) ? [...Array(c.length).keys()].map((i) => `\\u${c.charCodeAt(i).toString(16).padStart(4, '0')}`).join('') : c)).join(''); // each UTF-16 unit, so a code point above U+FFFF escapes as its surrogate pair
+/** A value from the offer in an error message: canonical JSON, its first 200 code points, printable. */
+const shown = (v: J) => printable([...jcs(lowerHex(v))].slice(0, 200).join(''));
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const isRecord = (v: J): boolean => v !== null && typeof v === 'object' && !Array.isArray(v);
 
@@ -378,6 +369,18 @@ const SIGNED_FIELDS = OFFER_FIELDS.filter(([f]) => ['settlement.mode', 'disclosu
 const sha256 = async (b: Uint8Array) => `sha256:${Buffer.from(await crypto.subtle.digest('SHA-256', new Uint8Array(b))).toString('hex')}`;
 const defaultOperators = () => (process.env['HOLDBACK_OPERATORS'] || 'https://api.crow.direct,https://api2.crow.direct').split(',').map((s) => s.trim().replace(/\/+$/, '')).filter(Boolean);
 
+const EXPECT_KEYS = ['settlementMode', 'clubId', 'rulebookHash', 'policyId', 'policyHash', 'registryHash'];
+/** The buyer's expectations, or an error naming the setting that is not one: a misspelt key must not fall back unseen. */
+function expectOf(e: unknown): Expect {
+  if (e === undefined) return {};
+  if (!isRecord(e)) throw new Error(`expect is not an object of ${EXPECT_KEYS.join(', ')}`);
+  for (const [k, v] of Object.entries(e as J)) {
+    if (!EXPECT_KEYS.includes(k)) throw new Error(`expect.${printable(JSON.stringify(k.slice(0, 40)))} is not a setting: the settings are ${EXPECT_KEYS.join(', ')}`);
+    if (typeof v !== 'string') throw new Error(`expect.${k} is not a string`);
+  }
+  return { ...(e as Expect) };
+}
+
 /** Writes one key file: a temporary file with mode 0600, then a rename, so a crash leaves the old file or the new one. */
 function save(store: string, s: Saved): void {
   mkdirSync(store, { recursive: true, mode: 0o700 });
@@ -417,7 +420,7 @@ export class BuyerSigner {
     this.#saved = s;
     this.#operators = options.operators ?? defaultOperators();
     this.#quoteCredentialEnv = options.quoteCredentialEnv;
-    this.#expect = { ...(options.expect ?? {}) };
+    this.#expect = expectOf(options.expect);
     this.address = privateKeyToAccount(s.privateKey).address.toLowerCase();
     this.encryptionPublicKey = Buffer.from(nacl.box.keyPair.fromSecretKey(new Uint8Array(Buffer.from(s.encryptionSecretKey, 'base64url'))).publicKey).toString('base64url');
     if (s.version !== 1 || s.address !== this.address) throw new Error(`the key file for ${s.address} in ${store} is not one this file wrote`);

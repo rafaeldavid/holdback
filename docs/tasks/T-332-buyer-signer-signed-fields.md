@@ -80,7 +80,16 @@ Each item is labelled measured or inferred.
   - the difference list, `printable`, and the script's stop and resume as two processes.
 - **Every examples test (measured).** The run on commit `a846f39` passed 23 files: 273 tests passed and 13 were skipped. The 13 skips come from tests that existed before this task.
 - **Types and lint (measured).** `pnpm typecheck` passes, and so does ESLint on the three changed files.
-- **Script length (measured).** `buy-with-signer.ts` has 19 lines.
+- **Script length (measured).** `buy-with-signer.ts` has 19 lines by `wc -l` after the second round of review fixes; it had 20 before them.
+- **Second review pass (measured).** The same reviewer read `a846f39..dd21767`, the plan's additions and the first fixes. It returned ISSUES with 0 Critical and 0 High findings, and 4 Medium and 3 Low (findings 9 to 15 in `reports/scratch/t-332-review.md`). It confirmed three things: `resume` signs and pays nothing, `printable` keeps the parsed value, and the one-process run is unchanged. Fixed:
+  - Medium 9: `resume` follows every deal at once, reports each failure and exits 1 when any failed;
+  - Medium 10: `expect` refuses an unknown key, a value that is not a string, or a value that is not an object, naming it;
+  - Medium 11: `printable` tests Unicode properties (`Cc`, `Cf`, `Zl`, `Zp`, `Default_Ignorable_Code_Point`), so the variation selector supplement and the Hangul fillers are escaped too;
+  - Medium 12: `resume <store> <commitment ID>` opens a deal's work again after its outcome is saved;
+  - Low 14: `shown()` cuts before it escapes;
+  - Low 15: this line.
+
+  Low 13 (one bad watch file stops `openDeals` for the whole store) is in Handoff. 35 signer tests pass.
 - **Review (measured).** One reviewer pass on `a846f39` returned ISSUES with 0 Critical and 0 High findings, and 3 Medium and 5 Low (`reports/scratch/t-332-review.md`). Fixed:
   - Medium 1: this section and Handoff;
   - Medium 2: the later commits went back to the same reviewer;
@@ -120,3 +129,5 @@ Each item is labelled measured or inferred.
 - A key file whose shown offer predates T-332 has none of the new fields, so `checkOffer` refuses with "not the shown null". Running `readOffer` again fixes it (review Low 7).
 - On the public demo both nodes belong to one operator. That operator alone sets every expectation the buyer leaves out, so a buyer that cares sets `expect` (review Low 4).
 - `Options.expect` is not saved: give it again to `loadKeys` or `openDeals` before a `checkOffer` that follows a restart.
+- `openDeals` throws on one watch file that belongs to another deal, so `resume` stops for the whole store; `resume <store> <id>` still reaches each deal (review Low 13). `resume` with no directory throws a raw TypeError.
+- The reviewer recommends a second review by a model from another family. Its focus: whether operator agreement is enough of an expectation source when one operator runs both nodes, and the resume path.
