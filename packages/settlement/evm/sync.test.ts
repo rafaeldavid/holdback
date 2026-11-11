@@ -6,16 +6,16 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseEvent, wholeSecond, type AdjudicatorAcceptance, type Address, type Club, type Decision, type SettlementEvent } from '@holdback/core';
-import { BlockNotFoundError, concat, encodeFunctionData, keccak256, maxUint256, parseGwei, stringToBytes, type Hex } from 'viem';
+import { BlockNotFoundError, concat, encodeFunctionData, keccak256, parseGwei, stringToBytes, type Hex } from 'viem';
 import { privateKeyToAccount, sign } from 'viem/accounts';
 import { foundry } from 'viem/chains';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Genesis } from '../sim/simchain.js';
 import type { Submission } from '../src/interface.js';
 import { RelayRefused, type EvmChain, type LaneRow } from './chain.js';
-import { acceptanceView, agreeView, appealView, decisionView, deliveryView, earlyAcceptView, keyProof, mutualView, NO_DELIVERY, NO_KEY, termsView } from './encode.js';
+import { acceptanceView, agreeView, decisionView, deliveryView, earlyAcceptView, keyProof, mutualView, NO_DELIVERY, NO_KEY, termsView } from './encode.js';
 import { EvmSettlement } from './evm-settlement.js';
-import { ensureBond, LIVE_ABIS, LiveChain, type DeploymentFile, type LaneStore } from './live.js';
+import { LIVE_ABIS, LiveChain, type DeploymentFile, type LaneStore } from './live.js';
 import { ChainSync, LOG_RANGE, type Cursor } from './sync.js';
 import { evmCast, evmGenesis, EvmDeal, testActor, type TestActor } from './testing.js';
 import { anvilAvailable, EvmWorld } from './world.js';
@@ -69,7 +69,7 @@ describe('ChainSync reads', () => {
       eventCount: () => 0,
       follows: () => true,
       applied: () => false,
-      stage: async () => ({ stage: 'Held', appeal: 0 }),
+      stage: async () => ({ stage: 'Held' }),
       observe: async () => {
         observed++;
         return { applied: 0, seen: 0, behind: 0, unknown: 0 };
@@ -159,7 +159,6 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
       permit2Collector: d.permit2Collector,
       multicall: d.multicall,
       rules: d.rules,
-      bonds: d.bonds,
       beacon: d.beacon,
       expiryMarginSec: Number(anvil.expiryMargin),
     };
@@ -168,14 +167,11 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     const everyone = [...chain.lanes, ...hasty.lanes].map((l) => l.address).concat(Object.values(cast).map((a) => a.address), watcher.address, mempoolWatcher.address, deployer.address);
     for (const a of everyone) await anvil.rpc('anvil_setBalance', [a, '0x56bc75e2d63100000']);
     const start = wholeSecond(wall());
-    ({ genesis, club } = await evmGenesis({ cast, token: lc(d.token), chainId: anvil.chainId, rules: d.rules, start, buyer: 0n, bond: 0n }));
+    ({ genesis, club } = await evmGenesis({ cast, token: lc(d.token), chainId: anvil.chainId, rules: d.rules, start, buyer: 0n }));
     // The world's sim beacon is the contract's SimBeacon, deployed with the zero seed (world.ts).
     genesis = { ...genesis, simSeed: `0x${'00'.repeat(32)}` };
     await chain.mint(cast.buyer.address, 10n ** 12n);
     await chain.mint(cast.seller.address, 10n ** 10n);
-    for (const a of [cast.primary, cast.fallback, cast.appeal]) await ensureBond(chain, a.key, 500_000_000_000n, 10n ** 18n);
-    // The parties' one-time allowance to HoldbackBonds for appeal bonds.
-    for (const p of [cast.buyer, cast.seller]) await chain.send({ key: p.key, to: d.token, data: encodeFunctionData({ abi: chain.abis.token, functionName: 'approve', args: [d.bonds, maxUint256] }) });
   }, 180_000);
   afterAll(async () => {
     await anvil?.stop();
@@ -557,26 +553,6 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     expect((await ok(s, await d.decide('appeal', 'accept', round))).state.escrowState).toBe('Released');
   }, 60_000);
 
-  it('an appeal filed directly by the seller hands the appeal adjudicator its envelope, and it decides', async () => {
-    const { s, sync } = await node();
-    const d = await funded('direct-appeal', s, { deliver: true });
-    await ok(s, await d.decide('primary', 'reject'));
-    const p = ((await d.appealBy('seller', 100_000_000n)) as { appeal: Parameters<typeof appealView>[0] }).appeal;
-    const seq = s.log().length;
-    await direct(cast.seller, 'fileAppeal', [termsView(d.terms), appealView(p)]);
-    expect(await sync.pass()).toMatchObject({ applied: 1 });
-    expect(await s.state(d.id)).toMatchObject({ escrowState: 'Refunded', appealState: 'open' });
-    expect(after(s, d.id, seq).map((e) => [e.type, e.submittedVia, e.payload['path'] ?? e.payload['grounds']])).toEqual([
-      ['appeal.filed', 'direct', 'wrong-outcome'],
-      ['key.released', 'direct', 'appeal'],
-    ]);
-    expect(await s.keysFor(d.id, cast.appeal.address)).toHaveLength(1);
-    const state = s.escrowState(d.id)!;
-    const round = state.kind === 'Refunded' && state.via.kind === 'first_instance' && state.via.appeal.kind === 'open' ? Math.floor(Date.parse(state.via.appeal.openedAt) / 1000) + 1 : 0;
-    await roundDue(s, round);
-    expect((await ok(s, await d.decide('appeal', 'reject', round))).state.appealState).toBe('upheld');
-  }, 60_000);
-
   it('a mutual settlement sent by the buyer settles the deal', async () => {
     const { s, sync } = await node();
     const d = await funded('direct-mutual', s);
@@ -778,21 +754,20 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     expect(s.openDeals()).toEqual({ recent: 0, idle: 0 });
   }, 90_000);
 
-  it('a takeover sent by a stranger hands the fallback its envelope with the contract round; a default and an appeal expiry close deals', async () => {
+  it('a takeover sent by a stranger hands the fallback its envelope with the contract round; a default closes a deal, and a decision is final at once', async () => {
     const { s, sync } = await node();
     const takeover = await funded('direct-fallback', s, { deliver: true });
     const defaulted = await funded('direct-default', s, { deliver: true });
-    const appealed = await funded('direct-appeal-expiry', s, { deliver: true });
+    const decided = await funded('direct-decided', s, { deliver: true });
     const forwardedTakeover = await funded('forwarded-fallback', s, { deliver: true });
     const opaqueTakeover = await funded('opaque-fallback', s, { deliver: true });
-    await ok(s, await appealed.decide('primary', 'accept'));
+    await ok(s, await decided.decide('primary', 'accept'));
     await jump(4_201);
     for (const d of [takeover, defaulted]) await direct(cast.stranger, 'triggerFallback', [termsView(d.terms)]);
-    await direct(cast.buyer, 'expireAppeal', [termsView(appealed.terms)]);
     // A takeover through any contract follows from its logs alone: a timeout carries no signed message.
     await forwarded(cast.buyer, 'triggerFallback', [termsView(forwardedTakeover.terms)]);
     await forwarded(cast.buyer, 'triggerFallback', [termsView(opaqueTakeover.terms)], 'opaque');
-    expect(await sync.pass()).toMatchObject({ applied: 5, behind: 0 });
+    expect(await sync.pass()).toMatchObject({ applied: 4, behind: 0 });
     for (const d of [forwardedTakeover, opaqueTakeover]) {
       expect(s.escrowState(d.id)!.kind).toBe('FallbackJudging');
       expect(await s.keysFor(d.id, cast.fallback.address)).toHaveLength(1);
@@ -804,11 +779,11 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
       expect(s.log().find((e) => e.commitmentId === d.id && e.type === 'fallback.triggered')).toMatchObject({ submittedVia: 'direct', payload: { beaconRound: judgeBy(d) } });
       expect(await s.keysFor(d.id, cast.fallback.address)).toHaveLength(1);
     }
-    const appealView_ = (await s.state(appealed.id))!;
-    expect(appealView_).toMatchObject({ escrowState: 'Released', appealState: 'expired' });
-    // D20: final at appealBy, not when the stranger closed it.
-    const decidedAt = s.log().find((e) => e.commitmentId === appealed.id && e.type === 'judgment.decided')!.at;
-    expect(Date.parse(appealView_.finalAt!)).toBe(Date.parse(decidedAt) + 300_000);
+    // D20 on the phase-one contracts (ADR-0031 §8): the first decision is final when it settles, with no appeal window.
+    const decidedView = (await s.state(decided.id))!;
+    expect(decidedView).toMatchObject({ escrowState: 'Released', appealState: 'none' });
+    expect(decidedView.finalAt).toBe(decidedView.settledAt);
+    expect(decidedView.deadlines['appealBy']).toBeUndefined();
     // The fallback decides the first and both forwarded takeovers (review H1); the second runs out its window and anyone
     // defaults it.
     for (const d of [takeover, forwardedTakeover, opaqueTakeover]) expect((await ok(s, await d.decide('fallback', 'accept', judgeBy(d)))).state.escrowState).toBe('Released');
@@ -1134,7 +1109,7 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     expect(await sync.pass()).toMatchObject({ applied: 1, behind: 0 });
     const book = s.escrowState(d.id)!;
     expect(book.kind === 'Released' ? book.via.kind : book.kind).toBe('first_instance');
-    expect((await s.state(d.id))!.deadlines['appealBy']).toBeDefined();
+    expect((await s.state(d.id))!.deadlines['appealBy']).toBeUndefined();
     expect(after(s, d.id, seq).map((e) => e.type)).toEqual(['judgment.decided', 'settlement.released', 'key.released']);
   }, 60_000);
 
@@ -1289,8 +1264,6 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     expect(await sync.pass()).toMatchObject({ applied: 1, behind: 0 });
     expect(await s.state(d.id)).toMatchObject({ escrowState: 'Released', appealState: 'none' });
     expect(await s.keysFor(d.id, cast.fallback.address)).toEqual([]);
-    // The buyer's appeal goes through the operator as usual.
-    expect((await ok(s, await d.appealBy('buyer', 100_000_000n))).state.appealState).toBe('open');
   }, 60_000);
 
   it('a copied fund leg with a planted offer expiry after it: the view records the funding (red-team round 2, A)', async () => {
@@ -1450,11 +1423,8 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
     await direct(cast.primary, 'decide', decideArgs(d, m));
     await sync.pass();
     expect(await s.keysFor(d.id, cast.buyer.address)).toHaveLength(1);
-    // The appeal window closes; the buyer closes it on the contract.
-    await jump(301);
-    await direct(cast.buyer, 'expireAppeal', [termsView(d.terms)]);
-    await sync.pass();
-    expect(await s.state(d.id)).toMatchObject({ escrowState: 'Released', appealState: 'expired' });
+    // The decision is final at once (ADR-0031 §8): no appeal window is left for anyone to close.
+    expect(await s.state(d.id)).toMatchObject({ escrowState: 'Released', appealState: 'none' });
     expect((await s.stage(d.id)).stage).toBe('Released');
     expect(s.log().filter((e) => e.commitmentId === d.id).map((e) => [e.type, e.submittedVia])).toEqual([
       ['commitment.offered', 'op-1'],
@@ -1466,7 +1436,6 @@ describe.skipIf(!ready)(`ChainSync on anvil standing in for Sepolia${ready ? '' 
       ['judgment.decided', 'direct'],
       ['settlement.released', 'direct'],
       ['key.released', 'direct'],
-      ['appeal.expired', 'direct'],
     ]);
     expect(s.transactions().filter((t) => t.via === 'op-1').map((t) => t.call)).toEqual(['agreeAndFund']);
     expect(schemaErrors(s.log())).toEqual([]);

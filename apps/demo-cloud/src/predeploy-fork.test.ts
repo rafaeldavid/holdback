@@ -1,9 +1,9 @@
 // T-220's fork run before the deploy: the one deploy of T-217, T-218, T-219 and T-221 rehearsed on a Sepolia fork, in
 // today's world changed in place (D49). A world opens with the deployed build's rulebook (this build's code, with
-// `beacon: 'sim'`), bonds its adjudicators and funds a deal; then this build opens the same storage with its default
-// rulebook, as holdback-op1's deploy restarts the Durable Object, and the run checks every item of T-220's "fork run"
-// criterion:
-//   1. the setup pass finds the three bonds and sends nothing;
+// `beacon: 'sim'`) and funds a deal; then this build opens the same storage with its default rulebook, as
+// holdback-op1's deploy restarts the Durable Object, and the run checks every item of T-220's "fork run" criterion.
+// Phase one holds no bond (ADR-0031 §8), so the world posts none; this run needs a phase-one deployment on the fork.
+//   1. the setup pass sends nothing;
 //   2. the rulebook changes in place: the old deal keeps its rulebookHash and moves on, and an offer bound to the old
 //      hash gets 422 rulebook_unknown;
 //   3. examples/try.ts reaches Released;
@@ -26,7 +26,7 @@ import { createPublicClient, createWalletClient, decodeFunctionData, encodeFunct
 import { privateKeyToAccount } from 'viem/accounts';
 import { sepolia } from 'viem/chains';
 import { beaconRoundAt, DRAND_QUICKNET, DRAND_QUICKNET_CHAIN_HASH, wholeSecond, type AnyCommitmentTerms, type Decision, type Delivery } from '@holdback/core';
-import { deliveryView, ensureBond, LIVE_ABIS, LiveChain, termsView, type DeploymentFile, type EvmSettlement } from '@holdback/settlement/live';
+import { deliveryView, LIVE_ABIS, LiveChain, termsView, type DeploymentFile, type EvmSettlement } from '@holdback/settlement/live';
 import { anvilAvailable } from '@holdback/settlement/evm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { CSV, ENV, estimateShim, host, Outsider, outsideDeal, party, PRICE, RELAYER, root, sleep, untilBoth, type J } from '../test/anvil.ts';
@@ -119,7 +119,7 @@ describe.skipIf(!forkReady)(`T-220's fork run: today's world, then this build, o
     const lap = (name: string) => (took[name] = Math.round((Date.now() - t0) / 1000));
     const timing = { judgeWithinSec: 60, fallbackWithinSec: 60, appealWindowSec: 60, appealDecideSec: 60 };
 
-    // Today's world, as the deployed build opens it: the rulebook names the sim beacon. It bonds its three adjudicators.
+    // Today's world, as the deployed build opens it: the rulebook names the sim beacon.
     const today = await PublicWorld.open({ storage, env: ENV, live: { chain: chainOf(), beacon: 'sim' }, faucetPerClient: 100, onError });
     const demo = await host(today);
     try {
@@ -153,12 +153,11 @@ describe.skipIf(!forkReady)(`T-220's fork run: today's world, then this build, o
       const stale = await s2.agent.sign(await s2.agent.call('POST', '/v1/prepare/offer', req), { kind: 'offer', request: req, registration: await s2.agent.registration(primary), rulebookHash: before.rulebookHash as Hex });
       lap('old deal held');
 
-      // 1. The deploy: this build opens the same storage. It finds the three bonds in place and sends nothing.
+      // 1. The deploy: this build opens the same storage and sends nothing.
       const chain = chainOf();
       const switched = await head();
       const funding = await chain.ethBalance(chain.funding);
       const lanes = await Promise.all(chain.lanes.map((l) => chain.ethBalance(l.address)));
-      expect((await storage.get<{ bonded: string[] }>('meta'))!.bonded).toHaveLength(3);
       const next = await demo.deploy(() => PublicWorld.open({ storage, env: ENV, live: { chain }, faucetPerClient: 100, onError }));
       for (const end = Date.now() + 60_000; !next.ready() && Date.now() < end; ) await sleep(250);
       expect(next.ready()).toBe(true);
@@ -168,7 +167,6 @@ describe.skipIf(!forkReady)(`T-220's fork run: today's world, then this build, o
       expect(sent).toBe(0);
       expect(await chain.ethBalance(chain.funding)).toBe(funding);
       expect(await Promise.all(chain.lanes.map((l) => chain.ethBalance(l.address)))).toEqual(lanes);
-      expect((await storage.get<{ bonded: string[] }>('meta'))!.bonded).toHaveLength(3);
       lap('deployed, setup sent nothing');
 
       // 2. The rulebook changed in place. The old deal keeps its hash and moves on; the stale offer gets 422.
@@ -225,11 +223,10 @@ describe.skipIf(!forkReady)(`T-220's fork run: today's world, then this build, o
       expect(run.out.split('\n').filter((l) => l.startsWith('chain')).map((l) => l.split(/\s+/)[1])).toEqual(['funded', 'delivered', 'decided']);
       lap('try.ts released');
 
-      // 4. An outside adjudicator registers through the API, bonds from its own key and settles a deal as primary.
+      // 4. An outside adjudicator registers through the API and settles a deal as primary.
       const outsider = new Outsider(next, demo.urls, 't-220/fork-outsider', { trusted: [fallback, appeal] });
       const issuedAt = wholeSecond(Date.now() - 60_000);
       expect((await outsider.register(issuedAt)).status).toBe(200);
-      await ensureBond(chain, outsider.account.privateKey, 100_000_000n, 100_000_000_000_000_000n);
       const one = await outsideDeal(demo.urls, deployment, outsider, { work: CSV, timing });
       expect((await outsider.runOnce()).decided).toEqual([{ commitmentId: one.id, role: 'primary', outcome: 'accept' }]);
       await untilBoth(one.buyer, one.id, ['Released'], 120_000);
@@ -240,7 +237,6 @@ describe.skipIf(!forkReady)(`T-220's fork run: today's world, then this build, o
       // quicknet round at judgeBy, which the deployed HoldbackRules verifies through DrandQuicknetBeacon.
       const silent = new Outsider(next, demo.urls, 't-220/fork-silent', { trusted: [fallback, appeal] });
       expect((await silent.register(issuedAt)).status).toBe(200);
-      await ensureBond(chain, silent.account.privateKey, 100_000_000n, 100_000_000_000_000_000n);
       const two = await outsideDeal(demo.urls, deployment, silent, { work: CSV, timing: { offerExpiresInSec: 60, fundWithinSec: 90, deliverWithinSec: 120, judgeWithinSec: 60, fallbackWithinSec: 180, appealWindowSec: 60, appealDecideSec: 60 } });
       await untilBoth(two.buyer, two.id, ['Released', 'Refunded'], Date.parse(two.terms.timing.judgeBy) - Date.now() + 150_000);
       const settled = evm.escrowState(two.id);

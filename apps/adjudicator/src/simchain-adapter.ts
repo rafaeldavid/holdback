@@ -39,8 +39,6 @@ export interface SettlementReads extends Settlement {
   beacon(round: number): Hex32 | null;
   escrowState(id: Hex32): EscrowState | null;
   pool(adjudicator: Address): { junior: bigint; senior: bigint; reserved: bigint };
-  /** The contract's `freeOf`, read fresh (the EVM adapter); it also marks the contract's bond rules (`bondCover`). */
-  freeBond?(adjudicator: Address): Promise<bigint>;
   /** Bond each commitment holds reserved, per adjudicator (SimChain). */
   reservations?(): Array<{ commitmentId: Hex32; adjudicator: string; amount: bigint }>;
 }
@@ -87,6 +85,11 @@ export class SettlementAdapter implements AdjudicatorSettlement {
         return value ? { value } : null;
       },
     };
+  }
+
+  /** Every chain settlement runs the phase-one contracts, which have no bonds and no party appeals (ADR-0031 §8). */
+  get phaseOne(): boolean {
+    return this.#o.chain.kind !== 'sim';
   }
 
   /** The source the commitment's rulebook names, which core keeps in the escrow state from the offer (T-217). */
@@ -188,40 +191,24 @@ export class SettlementAdapter implements AdjudicatorSettlement {
   }
 
   /**
-   * The contract's test at the decision, on both chains: the free bond plus what the commitment already holds on this
-   * adjudicator.
-   * - The contract, which `freeBond` (its `freeOf`) marks: plus the price while the commitment still holds this
-   *   adjudicator's bond (ADR-0016 §1), as primary in Delivered and FallbackJudging, since a fallback's decision releases
-   *   the primary's reservation before it encumbers its own, and as the first decider while its appeal is open.
-   * - SimChain: plus the commitment's own reservations on it (at acceptance and takeover). SimChain adds nothing when the
-   *   fallback decides, so a decision covered by free bond can be under-reserved there (T-210 item 3). Counting only the
-   *   reservation would be worse: a party could drain the bond at the takeover and so force the default (red team K5).
+   * SimChain's test at the decision: the free bond plus the commitment's own reservations on this adjudicator (at
+   * acceptance and takeover). SimChain adds nothing when the fallback decides, so a decision covered by free bond can be
+   * under-reserved there (T-210 item 3). Counting only the reservation would be worse: a party could drain the bond at
+   * the takeover and so force the default (red team K5). A chain settlement holds no bond (ADR-0031 §8): the service
+   * checks no cover there, and this reads its empty pool.
    */
   async bondCover(adjudicator: Hex32, c: Commitment): Promise<bigint> {
     const { chain } = this.#o;
     const a = adjudicator as Address;
-    const s = chain.escrowState(c.id);
     const pool = chain.pool(a);
-    const pooled = pool.junior + pool.senior - pool.reserved;
-    let free: bigint;
-    let held: bigint;
-    if (!chain.freeBond) {
-      free = pooled;
-      held = chain.reservations?.().find((r) => r.commitmentId === c.id && lc(r.adjudicator) === lc(a))?.amount ?? 0n;
-    } else {
-      free = await chain.freeBond(a);
-      const holder =
-        s?.kind === 'Delivered' || s?.kind === 'FallbackJudging'
-          ? c.adjudication.adjudicator
-          : (s?.kind === 'Released' || s?.kind === 'Refunded') && s.via.kind === 'first_instance' && s.via.appeal.kind === 'open'
-            ? s.via.decision.adjudicator
-            : null;
-      held = holder && lc(holder) === lc(a) ? BigInt(c.price.amount) : 0n;
-    }
+    const free = pool.junior + pool.senior - pool.reserved;
+    const held = chain.reservations?.().find((r) => r.commitmentId === c.id && lc(r.adjudicator) === lc(a))?.amount ?? 0n;
     return (free > 0n ? free : 0n) + held;
   }
 
   async appealExpiriesDue(adjudicator: Hex32): Promise<Hex32[]> {
+    // Phase one: a first decision is final at once, so no appeal window is left to close.
+    if (this.phaseOne) return [];
     const now = Date.parse(this.now());
     return (await this.#cases())
       .filter(({ s }) => {

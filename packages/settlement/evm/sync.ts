@@ -35,7 +35,7 @@ export interface ChainTx {
   /** The block's timestamp, unix seconds. */
   timestamp: number;
   gasUsed: string;
-  /** Every log of the receipt (the rules contract's, the bonds', the token's and CPP's). */
+  /** Every log of the receipt (the rules contract's, the token's and CPP's). */
   logs: Array<{ address: Address; topics: Hex[]; data: Hex; logIndex: number }>;
 }
 
@@ -146,7 +146,7 @@ function decodeRules(chain: Pick<EvmChain, 'abis'>, data: Hex): RulesCall | null
 }
 
 /** The signed steps a forwarded call may be: timeouts are read from logs alone, so the scan never counts one (red-team round 3). */
-const STEPS = ['agreeAndFund', 'deliver', 'decide', 'earlyAccept', 'mutualSettle', 'fileAppeal'];
+const STEPS = ['agreeAndFund', 'deliver', 'decide', 'earlyAccept', 'mutualSettle'];
 
 /** The most bytes one embedded call is decoded from: a decision with a drand proof is about 2.5 KB. */
 const EMBEDDED_WINDOW_HEX = 2 * 16_384;
@@ -269,9 +269,9 @@ class Reader {
     };
   }
 
-  /** dealOf's stage and appeal state for each commitment, at block `at`. */
-  async stages(evm: EvmSettlement, ids: Iterable<Hex32>, at: bigint): Promise<Map<Hex32, { stage: string; appeal: number }>> {
-    const out = new Map<Hex32, { stage: string; appeal: number }>();
+  /** dealOf's stage for each commitment, at block `at`. */
+  async stages(evm: EvmSettlement, ids: Iterable<Hex32>, at: bigint): Promise<Map<Hex32, { stage: string }>> {
+    const out = new Map<Hex32, { stage: string }>();
     for (const id of ids) {
       this.rpc++;
       out.set(id, await evm.stage(id, at));
@@ -286,7 +286,7 @@ class Reader {
  * after it landed directly. With `atLeast`, a node whose head trails that block is not read past (docs/team.md, a read
  * after a write): the call throws, and the caller asks again (T-230). Throws on an RPC error.
  */
-export async function commitmentTxs(evm: EvmSettlement, id: Hex32, atLeast?: bigint): Promise<{ txs: ChainTx[]; stages: Map<Hex32, { stage: string; appeal: number }> }> {
+export async function commitmentTxs(evm: EvmSettlement, id: Hex32, atLeast?: bigint): Promise<{ txs: ChainTx[]; stages: Map<Hex32, { stage: string }> }> {
   const read = new Reader(evm.world);
   const head = await read.head();
   if (atLeast !== undefined && head < atLeast) throw new Error(`the RPC node's latest block ${head} trails block ${atLeast}`);

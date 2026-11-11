@@ -74,6 +74,17 @@ export async function requires(r: Run, tasks: string[]): Promise<void> {
   }
 }
 
+/**
+ * Stops a scenario with a party appeal before its first deal when the round runs on a chain: the phase-one contracts
+ * take no party appeal and hold no bond (ADR-0031 §8), so it runs on SimChain only. The run records it as waiting on
+ * ADR-0031, with the reason.
+ */
+export function simChainOnly(r: Run, what: string): void {
+  if (!r.round.chain) return;
+  r.waitsFor = ['ADR-0031'];
+  throw new Waits(r.waitsFor, `not in phase one (ADR-0031): ${what}; the phase-one contracts take no party appeal, so this scenario runs on SimChain only`);
+}
+
 /** The judgment record each operator serves, from the first (informative: the state is what settled). */
 export async function judgment(deal: Deal): Promise<J | null> {
   try {
@@ -87,12 +98,18 @@ export async function judgment(deal: Deal): Promise<J | null> {
 export const checksLine = (j: J | null) => (j?.deterministic ?? []).map((c: J) => `${c.checkId} ${c.passed ? 'pass' : 'FAIL'}`).join(', ');
 
 /**
- * Sends `appeal-expiry` once the appeal window has closed, so the primary's bond is freed on chain, then waits for both
- * operators to show the appeal expired. Since T-211 the demo's adjudicators expire their own decisions' appeals, so
- * the window may already be closed; the run says which.
+ * Sends `appeal-expiry` once the appeal window has closed, so the primary's bond is freed, then waits for both operators
+ * to show the appeal expired. Since T-211 the demo's adjudicators expire their own decisions' appeals, so the window may
+ * already be closed; the run says which. On a chain there is no window: the phase-one contracts take no party appeal,
+ * and a first decision is final at once (ADR-0031 §8).
  */
 export async function expireAppeal(r: Run, deal: Deal, appealBy: string): Promise<void> {
   r.step = 'appeal';
+  if (r.round.chain) {
+    r.say('no appeal window to close: on the phase-one contracts the first decision is final at once (ADR-0031 §8)');
+    deal.record.notes.push('no appeal expiry: not in phase one (ADR-0031)');
+    return;
+  }
   r.say(`waiting for the appeal window to close at ${appealBy}, then appeal-expiry frees the primary's bond`);
   await waitPast(r, deal.buyer, appealBy);
   let closedBy = 'the round, through the API';
@@ -101,19 +118,13 @@ export async function expireAppeal(r: Run, deal: Deal, appealBy: string): Promis
     r.check('appeal-expiry relayed through the API', true, 'accepted');
   } catch (e) {
     const why = reason(e);
-    if (/appeal state is expired|WrongAppealState\(4\)/.test(why)) {
-      closedBy = 'someone else (the demo adjudicators expire their own appeals since T-211)';
-    } else {
+    if (!/appeal state is expired/.test(why)) {
       r.check('appeal-expiry relayed through the API', false, why);
-      if (!r.round.chain) throw e;
-      // The escape hatch (ADR-0005): anyone may close the window directly, so the bond is still freed.
-      const tx = await r.round.chain.trigger(r.round.key('buyer'), 'expireAppeal', deal.terms);
-      deal.sent.push({ step: 'expireAppeal (direct)', tx });
-      closedBy = `the round, directly from the buyer's key (${r.round.chain.link(tx.tx)}, ${tx.gasUsed} gas)`;
+      throw e;
     }
+    closedBy = 'someone else (the demo adjudicators expire their own appeals since T-211)';
   }
-  // A direct call reaches the operators' view only with T-218.
-  if (!closedBy.includes('directly') || r.round.t220) await untilAppeal(r, deal, ['expired'], 120_000);
+  await untilAppeal(r, deal, ['expired'], 120_000);
   r.say(`the appeal window is closed; appeal-expiry sent by ${closedBy}`);
   deal.record.notes.push(`appeal-expiry sent by ${closedBy}`);
 }
@@ -126,7 +137,7 @@ export function settledChecks(r: Run, deal: Deal, stage: string): void {
   const rec = deal.record;
   r.check('both operators serve the same state and event log', rec.operators?.agree === true, rec.operators?.views.map((v) => `${v.origin}: ${v.escrowState}, ${v.events} events`).join('; ') ?? 'no view');
   if (!r.round.chain || !rec.chain) return;
-  r.check(`dealOf reads ${stage}`, rec.chain.stage === stage, `${rec.chain.stage}, appeal ${rec.chain.appeal}`);
+  r.check(`dealOf reads ${stage}`, rec.chain.stage === stage, rec.chain.stage);
   cppCheck(r, deal);
   const to = lc(r.round.demo.feeSchedule?.to ?? '');
   const fees = logsOf(rec, 'Transfer').filter((l) => lc(l.args.from) === deal.buyer.address && lc(l.args.to) === to);
@@ -153,15 +164,6 @@ export function paidCheck(r: Run, deal: Deal, name: string, to: string, amount: 
   if (!r.round.chain) return;
   const hits = logsOf(deal.record, 'Transfer').filter((l) => lc(l.args.to) === lc(to) && BigInt(l.args.amount) === amount);
   r.check(name, hits.length === 1, `${hits.length} Transfer log(s) of ${r.round.amount(amount)} to ${short(to)}`);
-}
-
-/** The appeal-expiry transaction freed exactly the price from the primary's bond. */
-export function bondFreedCheck(r: Run, deal: Deal): void {
-  if (!r.round.chain) return;
-  const primary = lc(deal.terms.adjudication.adjudicator);
-  const freed = logsOf(deal.record, 'BondReleased').filter((l) => lc(l.args.adjudicator) === primary);
-  const total = freed.reduce((s, l) => s + BigInt(l.args.amount), 0n);
-  r.check("the primary's bond is freed after the appeal window", total === BigInt(deal.terms.price.amount), `BondReleased for ${short(primary)}: ${r.round.amount(total)} in ${freed.length} log(s)`);
 }
 
 /** An appeal through the API: the appellant's own approval for its bond on a chain, then prepare, verify, sign. */

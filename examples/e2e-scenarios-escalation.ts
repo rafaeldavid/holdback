@@ -91,14 +91,12 @@ async function appealRecord(deal: Deal, untilIso: string): Promise<J | null> {
 /** The decide calls of the deal's transactions, with their Decision struct (`args[1]`). */
 const decides = (deal: Deal) => deal.record.transactions.flatMap((t) => t.calls.filter((c) => c.fn === 'decide').map((c) => ({ block: t.block, m: c.args?.[1] ?? {} })));
 
-/** On a chain: the primary decided escalate (a Decided log), and the escalation freed its bond (BondReleased). */
+/** On a chain: the primary decided escalate (a Decided log). The phase-one contracts hold no bond (ADR-0031 §8). */
 function escalationOnChain(r: Run, deal: Deal): void {
   const primary = lc(deal.terms.adjudication.adjudicator);
   const decided = logsOf(deal.record, 'Decided');
   const mine = decided.filter((l) => lc(l.args.adjudicator) === primary);
   r.check("the primary's decision on chain is an escalation", mine.length === 1 && ROLES[Number(mine[0]!.args.role)] === 'primary' && OUTCOMES[Number(mine[0]!.args.outcome)] === 'escalate', mine.map((l) => `Decided by ${short(l.args.adjudicator)}: ${ROLES[Number(l.args.role)]} ${OUTCOMES[Number(l.args.outcome)]}`).join('; ') || 'no Decided log names the primary');
-  const freed = logsOf(deal.record, 'BondReleased').filter((l) => lc(l.args.adjudicator) === primary).reduce((s, l) => s + BigInt(l.args.amount), 0n);
-  r.check("the escalation frees the primary's bond", freed === BigInt(deal.terms.price.amount), `BondReleased for ${short(primary)}: ${r.round.amount(freed)}`);
 }
 
 /**
@@ -246,7 +244,6 @@ async function decidedOnAppeal(r: Run): Promise<void> {
   settledChecks(r, deal, done.escrowState);
   const { chain } = round;
   if (!chain) return;
-  r.check('dealOf shows the appeal closed', deal.record.chain?.appeal === 'closed', `appeal ${deal.record.chain?.appeal}`);
   escalationOnChain(r, deal);
   paidCheck(r, deal, outcome === 'accept' ? 'the price reaches the seller on chain' : 'the price returns to the buyer on chain', outcome === 'accept' ? seller : buyer, price);
   const feePaid = logsOf(deal.record, 'FeePaid');

@@ -95,10 +95,13 @@ interface SetupOpts {
   overA?: Partial<AdjudicatorConfig>;
   /** T-217: the club rulebook names drand-quicknet, and the port reads its rounds from this source (null: none). */
   drand?: (s: TestSettlement) => RandomnessSource | null;
+  /** The port stands in for a chain settlement: the phase-one contracts, with no bonds and no party appeals (ADR-0031 §8). */
+  phaseOne?: boolean;
 }
 
 async function setup(opts: SetupOpts = {}) {
   const s = new TestSettlement();
+  if (opts.phaseOne) s.phaseOne = true;
   if (opts.drand) s.drand = opts.drand(s);
   const r = opts.registry ?? reg;
   const a = bench(A, 'bench-a', s, opts.scriptA, undefined, r, undefined, opts.overA);
@@ -150,6 +153,17 @@ describe('acceptance (commit)', () => {
     expect(acc.registryHash).toBe(reg.hash);
     expect(acc.fee).toEqual(commitment.adjudication.fee);
     expect(acc.bondReserved).toEqual(commitment.price);
+  });
+
+  // ADR-0031 §8 point 2: the phase-one contracts refuse an acceptance that reserves a bond; SimChain keeps the price.
+  it('signs bondReserved 0 in the price token on a chain settlement, and the price on SimChain', async () => {
+    const chain = await setup({ phaseOne: true });
+    const onChain = chain.s.submitted.find((m) => m.type === 'AdjudicatorAcceptance');
+    expect(onChain?.type === 'AdjudicatorAcceptance' ? onChain.bondReserved : null).toEqual({ token: chain.commitment.price.token, amount: '0' });
+    expect(chain.s.cases.get(chain.id)?.state.kind).toBe('Delivered');
+    const sim = await setup();
+    const onSim = sim.s.submitted.find((m) => m.type === 'AdjudicatorAcceptance');
+    expect(onSim?.type === 'AdjudicatorAcceptance' ? onSim.bondReserved : null).toEqual(sim.commitment.price);
   });
 
   it('declines an offer bound to another policy or registry, or with a fee below its minimum', async () => {
@@ -1071,6 +1085,19 @@ describe('declines fallback turns outside its terms or its free bond, and appeal
     expect(b.calls).toHaveLength(0);
     s.bonds.set(B.address, price);
     expect((await b.adj.runOnce()).decided).toEqual([{ commitmentId: id, role: 'fallback', outcome: 'accept' }]);
+  });
+
+  // ADR-0031 §8 (review of T-349, finding 1): no bond backs a decision on a chain, so the fallback neither declines the
+  // takeover nor refuses to sign for want of one. Before the fix it judged and then refused, and the deal defaulted.
+  it('on a chain settlement the fallback triggers, judges and signs with no bond at all, at the takeover and before signing', async () => {
+    const { s, b, id } = await setup({ phaseOne: true });
+    s.bonds.set(B.address, 0n);
+    s.at('2026-11-01T10:02:00Z');
+    const report = await b.adj.runOnce();
+    expect(report.refused).toEqual([]);
+    expect(report.triggered).toEqual([id]);
+    expect(report.decided).toEqual([{ commitmentId: id, role: 'fallback', outcome: 'accept' }]);
+    expect(s.state(id).kind).toBe('Released');
   });
 
   it('reads its free bond again before signing a retry: judged, then the bond is taken, so it does not sign until it is back', async () => {

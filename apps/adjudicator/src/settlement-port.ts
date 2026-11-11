@@ -59,6 +59,12 @@ export interface OfferTask {
 }
 
 export interface AdjudicatorSettlement {
+  /**
+   * True on the phase-one contracts (ADR-0031 §8, D57): no bonds and no party appeals, so an acceptance reserves 0, a
+   * first decision is final at once, and there is no appeal to expire or bond to cover. Absent or false: the full
+   * protocol, as SimChain keeps it.
+   */
+  readonly phaseOne?: boolean;
   now(): Timestamp;
   /**
    * The beacon the commitment's club rulebook names (ADR-0018 §6, T-217): its clock and its rounds. null when this port

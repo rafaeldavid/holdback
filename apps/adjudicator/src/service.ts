@@ -188,8 +188,8 @@ export class Adjudicator {
     const port = this.#cfg.settlement;
     const report: RunReport = { accepted: [], declined: [], expired: [], triggered: [], decided: [], undecided: [], refused: [] };
     // T-211: its own decisions hold its bond until their appeal closes, and a sham deal's parties never close it. So it
-    // expires them itself once due, first, so the bond they free counts for what follows.
-    for (const id of await port.appealExpiriesDue(this.address)) {
+    // expires them itself once due, first, so the bond they free counts for what follows. Phase one has neither.
+    for (const id of port.phaseOne ? [] : await port.appealExpiriesDue(this.address)) {
       try {
         if ((await port.expireAppeal(id)).ok) report.expired.push(id);
       } catch (e) {
@@ -239,7 +239,8 @@ export class Adjudicator {
       policyHash: adjudication.policyHash,
       registryHash: adjudication.registryHash,
       fee: adjudication.fee,
-      bondReserved: c.price,
+      // Phase one has no bonds, and its contract refuses any other value (ADR-0031 §8 point 2); SimChain keeps the price.
+      bondReserved: this.#cfg.settlement.phaseOne ? ({ token: c.price.token, amount: '0' } as TokenAmount) : c.price,
       nonce: keccak256(concat([toBytes(c.id), stringToBytes('holdback.acceptance-nonce.v1')])),
       expiresAt: c.timing.offerExpiresAt,
     };
@@ -318,8 +319,12 @@ export class Adjudicator {
     return null;
   }
 
-  /** The contract reserves a fallback's bond when it decides and refuses an uncovered one (T-206 M-3). */
+  /**
+   * The contract reserves a fallback's bond when it decides and refuses an uncovered one (T-206 M-3). Phase one has no
+   * bond behind any decision (ADR-0031 §8), so there is no cover to check, at the takeover or before signing.
+   */
   async #coverProblem(c: DecisionTask['commitment']): Promise<Problem | null> {
+    if (this.#cfg.settlement.phaseOne) return null;
     const cover = await this.#cfg.settlement.bondCover(this.address, c);
     if (cover >= BigInt(c.price.amount)) return null;
     return problem('coverage_exceeded', `${this.#cfg.name} has ${cover} free bond for this deal and the price is ${c.price.amount} ${c.price.token}: a fallback's decision is backed by its bond, so it declines rather than sign one it cannot cover`);

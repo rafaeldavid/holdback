@@ -8,12 +8,12 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { Agent } from '../../../examples/agent.ts';
 import { serveTwoOrigins } from '../../../examples/two-origins.ts';
 import { LIVE_REGISTRY_URI, liveRegistry, markerFake, placeholderRegistry } from '@holdback/adjudicator';
-import { canonicalKeccak, DRAND_QUICKNET_CHAIN_HASH, holdbackDomain, verifyRegistration, type Address, type AdjudicatorRegistration, type RegisteredAdjudicator } from '@holdback/core';
+import { canonicalKeccak, DRAND_QUICKNET_CHAIN_HASH, holdbackDomain, verifyRegistration, type AdjudicatorRegistration, type RegisteredAdjudicator } from '@holdback/core';
 import { LiveChain, type DeploymentFile } from '@holdback/settlement/live';
 import { encodePublicKey, generateEncryptionKeyPair } from '@holdback/core/crypto';
 import { MemoryFeedbackStore, signRegistration, testAccount, type StoredRegistration, type TestAccount } from '@holdback/operator';
 import { MemoryStorage, PublicWorld, type PublicWorldOptions } from './index.js';
-import { BondReads, DEMO_FAUCET_MAX_GRANT, DEMO_MAX_CIPHERTEXT_BYTES, TimeoutBudgetRows } from './world.js';
+import { DEMO_FAUCET_MAX_GRANT, DEMO_MAX_CIPHERTEXT_BYTES, TimeoutBudgetRows } from './world.js';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -531,37 +531,6 @@ describe('adjudicator registrations in the world store (T-221 slice 2, ADR-0030)
     const notices = (offered.state.notices ?? []).join(' ');
     expect(notices).toMatch(new RegExp(`fallback adjudicator ${fallback} will decline its fallback turn on these terms`));
     expect(notices).toMatch(new RegExp(`appeal adjudicator ${appeal} will decline its appeal turn on these terms`));
-  });
-});
-
-// T-221 review: one unauthenticated listing page could cost up to 400 RPC calls once the cache was cold, and the cache
-// started again from empty past 1,024 addresses.
-describe('bond reads from HoldbackBonds (T-221 review)', () => {
-  it('reuses a read for a block, drops the least recently read past its size, and spends the listing budget only on uncached reads', async () => {
-    let t = 0;
-    const reads: string[] = [];
-    const r = new BondReads(async (a) => (reads.push(a), { held: 5n, free: 3n }), () => t, { ttlMs: 12_000, max: 3, listingPerMin: 2 });
-    const [a, b, c, d] = ['0xa', '0xb', '0xc', '0xd'].map((x) => x.padEnd(42, '0') as Address);
-    for (const x of [a, b, c, a]) await r.get(x);
-    expect(reads).toEqual([a, b, c]);
-    // d pushes out b, the least recently read; a and c are still cached.
-    for (const x of [d, a, c]) await r.get(x);
-    expect(reads).toEqual([a, b, c, d]);
-    await r.get(b);
-    expect(reads).toEqual([a, b, c, d, b]);
-
-    // A block later every read is stale. Listings may read 2 uncached addresses a minute; a cached one costs nothing.
-    t = 20_000;
-    await r.get(a, { listing: true });
-    await r.get(b, { listing: true });
-    await expect(r.get(c, { listing: true })).rejects.toThrow(/read 2 bonds for listings in the last minute/);
-    expect(await r.get(a, { listing: true })).toEqual({ held: 5n, free: 3n });
-    // Prepare and the relays read without the budget.
-    await r.get(c);
-    expect(reads.slice(5)).toEqual([a, b, c]);
-    t = 80_000;
-    await r.get(d, { listing: true });
-    expect(reads.at(-1)).toBe(d);
   });
 });
 

@@ -4,7 +4,9 @@
 // it: e2e-round.test.ts, e2e-adjudicator.test.ts and the scenario groups' tests.
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { createServer, type Server } from 'node:http';
 import { createRequire } from 'node:module';
+import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { MemoryStorage, PublicWorld } from '@holdback/demo-cloud';
@@ -56,11 +58,14 @@ export async function anvilWorld(): Promise<AnvilWorld> {
   const deployment = {
     chainId: anvil.chainId, fromBlock: Number(d.fromBlock),
     token: { address: d.token, name: anvil.tokenDomain.name, version: anvil.tokenDomain.version, symbol: 'tUSDC', decimals: 6 },
-    escrow: d.escrow, erc3009Collector: d.erc3009Collector, permit2Collector: d.permit2Collector, multicall: d.multicall, rules: d.rules, bonds: d.bonds, beacon: d.beacon, expiryMarginSec: Number(anvil.expiryMargin),
+    escrow: d.escrow, erc3009Collector: d.erc3009Collector, permit2Collector: d.permit2Collector, multicall: d.multicall, rules: d.rules, beacon: d.beacon, expiryMarginSec: Number(anvil.expiryMargin),
   };
   // anvil's second dev account (from its public default mnemonic; guards no value): the world's relayer funding lane.
   const relayerKey = toHex(mnemonicToAccount(ANVIL_MNEMONIC, { addressIndex: 1 }).getHdKey().privateKey!);
-  const chain = new live.LiveChain({ deployment, rpcUrls: [anvil.rpcUrl], relayerKey, pollMs: 200, rebroadcastMs: 10_000, mintBatchMs: 200 });
+  // The relays go through the estimate shim: on the phase-one contracts an escalation reserves no bond, so its decide
+  // costs less to run than its calldata floor, and anvil 1.0.0 cannot estimate it (Sepolia's nodes can).
+  const shim = await estimateShim(anvil.rpcUrl);
+  const chain = new live.LiveChain({ deployment, rpcUrls: [shim.url], relayerKey, pollMs: 200, rebroadcastMs: 10_000, mintBatchMs: 200 });
   const world = await PublicWorld.open({ storage: new MemoryStorage(), env: { ...ENV, OPERATOR_FEE_GAS: '4700000' }, ...WORLD, live: { chain } });
   const served = await serve(world, 200);
   for (const end = Date.now() + 90_000; !world.ready() && Date.now() < end; ) await new Promise((r) => setTimeout(r, 250));
@@ -68,14 +73,48 @@ export async function anvilWorld(): Promise<AnvilWorld> {
     ...served,
     rpcUrl: anvil.rpcUrl,
     deployment,
-    // A round key pays its own gas for direct calls, approvals and bond deposits: anvil sets its balance.
+    // A round key pays its own gas for direct calls and approvals: anvil sets its balance.
     setBalance: async (address, wei) => {
       await fetch(anvil.rpcUrl, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'anvil_setBalance', params: [address, toHex(wei)] }) });
     },
     close: async () => {
       await served.close();
+      await shim.close();
       await anvil.stop();
     },
+  };
+}
+
+/**
+ * anvil 1.0.0 cannot estimate a call whose calldata floor (EIP-7623, Prague) exceeds its execution gas: it answers "gas
+ * floor exceeds the gas limit" (T-217 Decision 11). This JSON-RPC stand-in in front of anvil answers only that error,
+ * from eth_call: a revert stays a revert, a success gets 1,000,000 gas (as apps/demo-cloud/test/anvil.ts).
+ */
+async function estimateShim(upstream: string): Promise<{ url: string; close(): Promise<void> }> {
+  type Rpc = { id: number; method: string; params?: unknown[] };
+  const forward = (body: unknown) => fetch(upstream, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json() as Promise<{ result?: unknown; error?: { message?: string } }>);
+  const one = async (r: Rpc) => {
+    const answer = await forward(r);
+    if (r.method !== 'eth_estimateGas' || !/gas floor exceeds the gas limit/.test(answer.error?.message ?? '')) return answer;
+    const call = await forward({ ...r, method: 'eth_call', params: [r.params?.[0], r.params?.[1] ?? 'latest'] });
+    return call.error ? { jsonrpc: '2.0', id: r.id, error: call.error } : { jsonrpc: '2.0', id: r.id, result: '0xf4240' };
+  };
+  const server: Server = createServer(async (req, res) => {
+    const chunks: Buffer[] = [];
+    for await (const c of req) chunks.push(c as Buffer);
+    const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as Rpc | Rpc[];
+    const out = Array.isArray(body) ? await Promise.all(body.map(one)) : await one(body);
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(out));
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  return {
+    url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+    close: () =>
+      new Promise((resolve) => {
+        server.closeAllConnections();
+        server.close(() => resolve());
+      }),
   };
 }
 

@@ -22,7 +22,7 @@ describe('contract-stack page', () => {
 
   it('marks the contracts the live record deployed', () => {
     const deployed = data.contracts.filter((c: { deployed: boolean }) => c.deployed).map((c: { name: string }) => c.name);
-    for (const name of ['HoldbackRules', 'HoldbackBonds', 'DrandQuicknetBeacon']) expect(deployed).toContain(name);
+    for (const name of ['HoldbackRules', 'DrandQuicknetBeacon']) expect(deployed).toContain(name);
   });
 
   it('shows the live addresses, chain and commit from contracts/deployments/sepolia.json', () => {

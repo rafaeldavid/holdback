@@ -10,7 +10,6 @@ const abi = parseAbi([
   'error TooEarly()',
   'error BadSeed()',
   'error InvalidMessage()',
-  'error InsufficientFreeBond(uint256 free, uint256 needed)',
   'error InsufficientBalance()',
   'error Error(string)',
 ]);
@@ -25,7 +24,6 @@ describe('contract reverts as SimChain problem types', () => {
     ['TooEarly', [], 'invalid_state'],
     ['BadSeed', [], 'seed_mismatch'],
     ['InvalidMessage', [], 'invalid_terms'],
-    ['InsufficientFreeBond', [1n, 2n], 'coverage_exceeded'],
     ['InsufficientBalance', [], 'insufficient_funds'],
   ])('%s -> %s', (name, args, type) => {
     expect(problemFromRevert(abi, data(name, args)).type).toBe(type);

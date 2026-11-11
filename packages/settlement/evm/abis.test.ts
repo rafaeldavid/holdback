@@ -8,7 +8,6 @@ import abis from './abis.json' with { type: 'json' };
 const root = join(import.meta.dirname, '..', '..', '..');
 const SOURCES: Record<string, [string, string]> = {
   rules: ['HoldbackRules.sol', 'HoldbackRules'],
-  bonds: ['HoldbackBonds.sol', 'HoldbackBonds'],
   token: ['TestUSDC.sol', 'TestUSDC'],
   escrow: ['AuthCaptureEscrow.sol', 'AuthCaptureEscrow'],
   multicall: ['LocalMulticall3.sol', 'LocalMulticall3'],

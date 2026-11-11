@@ -13,14 +13,14 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { deliveryHash, signMessage, verifyMessage, wholeSecond, type Address, type Club, type Decision, type Delivery, type Hex32, type UnsignedMessage } from '@holdback/core';
-import { BlockNotFoundError, encodeFunctionData, keccak256, maxUint256, stringToBytes, type Hex } from 'viem';
+import { BlockNotFoundError, encodeFunctionData, keccak256, stringToBytes, type Hex } from 'viem';
 import { foundry } from 'viem/chains';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Genesis } from '../sim/simchain.js';
 import type { Submission } from '../src/interface.js';
 import { decisionView, deliveryView, NO_DELIVERY, termsView } from './encode.js';
 import { EvmSettlement, type Book } from './evm-settlement.js';
-import { ensureBond, LiveChain, type DeploymentFile } from './live.js';
+import { LiveChain, type DeploymentFile } from './live.js';
 import { ChainSync, type Cursor } from './sync.js';
 import { evmCast, evmGenesis, EvmDeal, testActor, type TestActor } from './testing.js';
 import { anvilAvailable, EvmWorld } from './world.js';
@@ -133,7 +133,6 @@ describe.skipIf(!ready)(`attack.t230: the relay and join path for a delivery alr
       permit2Collector: d.permit2Collector,
       multicall: d.multicall,
       rules: d.rules,
-      bonds: d.bonds,
       beacon: d.beacon,
       expiryMarginSec: Number(anvil.expiryMargin),
     };
@@ -141,13 +140,11 @@ describe.skipIf(!ready)(`attack.t230: the relay and join path for a delivery alr
     const everyone = chain.lanes.map((l) => l.address).concat(Object.values(cast).map((a) => a.address), watcher.address);
     for (const a of everyone) await anvil.rpc('anvil_setBalance', [a, '0x56bc75e2d63100000']);
     const start = wholeSecond(wall());
-    ({ genesis, club } = await evmGenesis({ cast, token: lc(d.token), chainId: anvil.chainId, rules: d.rules, start, buyer: 0n, bond: 0n }));
+    ({ genesis, club } = await evmGenesis({ cast, token: lc(d.token), chainId: anvil.chainId, rules: d.rules, start, buyer: 0n }));
     // The world's sim beacon is the contract's SimBeacon, deployed with the zero seed (world.ts).
     genesis = { ...genesis, simSeed: `0x${'00'.repeat(32)}` };
     await chain.mint(cast.buyer.address, 10n ** 12n);
     await chain.mint(cast.seller.address, 10n ** 10n);
-    for (const a of [cast.primary, cast.fallback, cast.appeal]) await ensureBond(chain, a.key, 500_000_000_000n, 10n ** 18n);
-    for (const p of [cast.buyer, cast.seller]) await chain.send({ key: p.key, to: d.token, data: encodeFunctionData({ abi: chain.abis.token, functionName: 'approve', args: [d.bonds, maxUint256] }) });
   }, 180_000);
   afterAll(async () => {
     await anvil?.stop();
