@@ -5,7 +5,7 @@
 - **Depends on:** none. T-334 (the contract clean-up), T-338 (the audit docs) and T-340 (the state model and the threat model) run beside it.
 - **Paths this task may touch:** `docs/decisions/ADR-0031-phase-one-contract-scope.md` (new), `docs/audit/scope.md`, `docs/decisions-today.md` (new lines only), this file.
 - **Human gate:** no. The change is confined to this repository. Rafa's own edits wait for him: the sentence in `CLAUDE.md`'s litmus test 3, and the answers this task leaves open.
-- **Status:** in progress
+- **Status:** review
 - **Agent/session:** the T-342 session, change kind 10 (research and decisions), target 200k tokens.
 
 ## Intent
@@ -26,17 +26,17 @@ Write down what the phase-one contracts deliberately do not do, so an auditor or
 
 ## Acceptance criteria
 
-- [ ] The ADR records SC-1, SC-2, SC-3, SC-5 and SC-6 as the stated direction, each with what leaves, what stays and the trigger for bringing it back.
-- [ ] The ADR records SC-7 as decided by Rafa on 2026-11-11, with his words.
-- [ ] The ADR records every other answer Rafa gave on 2026-11-11 with his words, and leaves open what he has not answered, with options and a recommendation.
-- [ ] The ADR settles the open points of the SC-7 cut, each with a reason: the appeal adjudicator's role, the signed `bondReserved` field (tested against the EIP-712 types), the docs that promise appeals, and SimChain as the full reference.
-- [ ] Each cut names the functions, storage and events it removes or keeps.
-- [ ] Each cut is tested against the three litmus tests. The ADR says plainly which line of litmus test 3 phase one sets aside, what protects a party instead, and what a wrong first decision costs.
-- [ ] Nothing in the ADR contradicts the EIP-712 types or `spec/schemas/` without saying that a schema change and a version bump would follow.
-- [ ] The ADR lists every doc that promises appeals or bonds, with the sentence to change, for a later docs package.
-- [ ] A red team attacked the cuts without this session's reasoning, and the ADR answers each finding.
-- [ ] `docs/audit/scope.md` states the phase-one scope and lists what was cut on purpose.
-- [ ] `docs/decisions-today.md` has one new entry, D57, and no other line changes.
+- [x] The ADR records SC-1, SC-2, SC-3, SC-5 and SC-6 as the stated direction, each with what leaves, what stays and the trigger for bringing it back.
+- [x] The ADR records SC-7 as decided by Rafa on 2026-11-11, with his words.
+- [x] The ADR records every other answer Rafa gave on 2026-11-11 with his words (SC-4 refused, SC-8 not cut, the events exception), and leaves open what he has not answered (SC-5b), with both options and a recommendation.
+- [x] The ADR settles the open points of the SC-7 cut, each with a reason: the appeal adjudicator's role, the signed `bondReserved` field (tested against the EIP-712 types), the docs that promise appeals, and SimChain as the full reference.
+- [x] Each cut names the functions, storage and events it removes or keeps.
+- [x] Each cut is tested against the three litmus tests. The ADR says plainly which line of litmus test 3 phase one sets aside, what protects a party instead, and what a wrong first decision costs.
+- [x] Nothing in the ADR contradicts the EIP-712 types or `spec/schemas/` without saying that a schema change and a version bump would follow.
+- [x] The ADR lists every doc that promises appeals or bonds, with the sentence to change, for a later docs package.
+- [x] A red team attacked the cuts without this session's reasoning, and the ADR answers each finding.
+- [x] `docs/audit/scope.md` states the phase-one scope and lists what was cut on purpose.
+- [x] `docs/decisions-today.md` has one new entry, D57, and no other line changes.
 
 ## Out of scope
 
@@ -47,17 +47,23 @@ Write down what the phase-one contracts deliberately do not do, so an auditor or
 
 ## Evidence
 
-Fill this in before review. Label each item measured, inferred or guessed.
+Change kind 10 has no local checks; CI is the gate. Nothing was built or run: the change is four docs.
 
-- Commands run and results:
-- Snapshot diffs:
-- Metrics:
+- **Commands run and results:**
+  - `git diff --quiet 64be1f1 HEAD -- contracts/src` exits 0 at `26d4670`: the contracts this task read are the deployed ones [measured].
+  - `git diff --stat origin/main...HEAD` lists four files, all under `docs/` [measured].
+- **What was read:** `HoldbackRules.sol`, `HoldbackBonds.sol` and `HoldbackTypes.sol` in full; `ERC3009PaymentCollector.sol`; `LateCarriedDelivery.t.sol`; ADR-0001, 0002, 0006, 0007, 0016 and 0025 in full, and ADR-0018, 0019 and 0030 in part; `docs/neutrality.md`, `docs/audit/scope.md` and `docs/audit/known-issues.md` in full; the state model's sections 8.3 to 11 on T-340's branch [measured].
+- **Two read-only searches** produced the schema and core facts and the list of docs in ADR-0031's appendix. This task spot-checked their line numbers against 12 lines in `packages/core`, `spec/schemas`, `packages/testkit` and `apps/adjudicator`, and against its own read of three docs; all matched [measured].
+- **The red team:** one pass, without the ADR or its reasoning. No Critical finding; 2 High, 5 Medium, 5 Low. ADR-0031 answers each one in "Red-team findings and answers" [measured: the pass's report].
+- **Not read:** `DrandQuicknetBeacon.sol`, the formal model, `packages/settlement`, `apps/operator`. Facts about them come from the searches and are labelled.
+- **Snapshot diffs:** none.
+- **Metrics:** subagents used 566,389 tokens [measured: 149,434 and 175,728 for the two searches, 241,227 for the red team]. That is over the kind's 200k target before this session's own tokens. The searches returned more than the ADR needed; one search with a narrower brief would have done.
 
 ## Decisions
 
 All are in ADR-0031, Proposed; Rafa may overrule each.
 
-1. **The ADR records Rafa's newest answers.** This task's brief listed SC-4, SC-8 and the events question as open. Rafa answered all three on 2026-11-11, after the brief was written: contract signers stay, the on-chain beacon proof stays for now, and a cut feature's events leave with it. The ADR records each as decided, with his words. One cut now waits for his yes: SC-5b, a settlement in `Held` that names a delivery or releases a key, which the state model (T-340) found the contract tests on purpose.
+1. **The ADR records Rafa's newest answers.** This task's brief listed SC-4, SC-8 and the events question as open. Rafa answered all three on 2026-11-11, after the brief was written: contract signers stay, the on-chain beacon proof stays for now, and a cut feature's events leave with it. The ADR records each as decided, with his words. One cut is open and waits for him: SC-5b, a settlement in `Held` that names a delivery or releases a key, which the state model (T-340) found the contract tests on purpose.
 2. **`bondReserved` must be zero on chain.** The plan recommended leaving it unchecked. Its claim that this changes no signed type holds [measured: `HoldbackTypes.sol:188-193,296-312`]. The ADR still requires zero, for two reasons: an unchecked value lets a funded deal carry a signed claim of a reservation that cannot exist, and core refuses an acceptance below the price (`packages/core/src/state.ts:223-231`), so the contract and core would disagree.
 3. **`appealWindowSec` is signed and not read.** The plan does not list it. The schema requires at least 1, so the contract cannot require 0 without a schema version.
 4. **The deadline order is core's:** strict, over five deadlines (`packages/core/src/timing.ts:33,46-49`). The plan names four.
@@ -65,7 +71,8 @@ All are in ADR-0031, Proposed; Rafa may overrule each.
 6. **SC-6 proceeds although the plan's condition fails.** The EVM adapter depends on `expireOffer`; the ADR recommends expiring an unfunded offer by the operators' clock.
 7. **`Paid` stays declared until Rafa confirms SC-3.** His answer on events covers a feature he has cut.
 8. **On EVM settlement an offer funds until `offerExpiresAt`.** The contract's rule stands; core and SimChain keep their two steps. The fix is in the docs and the prepare routes.
-9. **SC-5b: recommended, cut.** The ADR names what replaces the late-work settlement: post the delivery before `deliverBy`, or reclaim and sign a new commitment, or settle the money and hand the key over directly.
+9. **SC-5b: open, recommended keep.** This task first recommended the cut. Rafa then said he wants to measure how many deals hold to their time bounds strictly and how many settle anyway. Keeping the path makes a late settlement safe to use and leaves a mark on chain to count, so the recommendation is to keep it and change core, ADR-0019 and the formal model to allow it. He has not confirmed.
+10. **The red team's two High findings are accepted as the price of SC-7,** and the ADR states them: a wrong first decision is final and unpaid, and a party must trust all three adjudicators it names. One Medium finding raises a planned fix to required: the margin of one block before an escalation's beacon round.
 
 ## Handoff
 
@@ -105,12 +112,16 @@ Other rows the cuts touch:
   - a wrong first decision has no remedy on chain; the loss is bounded by one deal's price and fee;
   - an accept whose key does not decrypt the work has no remedy on chain (threat T19);
   - `timing.appealWindowSec` is signed and not read;
-  - if Rafa says yes to SC-5b: a late-work settlement in `Held` after `deliverBy` cannot release the key in the same transaction.
+  - a party must trust all three adjudicators it names, because the other party can steer which one decides;
+  - if Rafa cuts SC-5b: a late-work settlement in `Held` after `deliverBy` cannot release the key in the same transaction.
 
 **For the tasks that build the cuts (packages R5 and R6 of the plan).** ADR-0031 names each function, storage field and event that leaves.
 
 - **Copy the deadline comparisons exactly from `packages/core/src/timing.ts:46-49`,** strict or not, over the same five deadlines, so the contract and core refuse the same terms.
-- **Do not remove the `Held` settlement path (SC-5b) until Rafa answers.**
+- **Leave the `Held` settlement path (SC-5b) as it is until Rafa answers:** do not remove it from the contract, and do not change core to allow it.
+- **The off-chain phase-one profile lands before the redeploy** (red-team finding M-5): core, the EVM adapter, the operator and the reference adjudicator.
+- **The escalation round's margin of one block is required before the freeze** (red-team finding M-1; review I-5).
+- The red team proposed ten fixtures for the phase-one contracts; ADR-0031 names four of them.
 - Check before cutting: SC-6's adapter change; the fixtures the ADR lists for the SimChain-only list; how the comparison between SimChain and the contract treats SimChain's bond postings and appeal window.
 - Core gains two refusals with the contract: a zero price, and (on a phase-one deployment) an acceptance whose `bondReserved` is not zero.
 

@@ -34,7 +34,7 @@ Not run while writing this page: `forge test` and `deploy-sepolia.sh --check`. E
 5. **Terms that settlement does not process:** a zero price; deadlines that are not strictly ordered `offerExpiresAt < fundBy < deliverBy < judgeBy < fallbackBy`; `maxSubmissions` other than 1; an escalation decision window (`appealDecideSec`) of 0.
 6. **The on-chain record of an unfunded offer's expiry:** `expireOffer` and the `Expired` stage.
 
-**Waiting for Rafa's yes:** a mutual settlement in `Held` that names a delivery or releases a key (ADR-0031, SC-5b). The contract takes it today on purpose, for late work; the recommendation is to cut it.
+**Open, waiting for Rafa:** a mutual settlement in `Held` that names a delivery or releases a key (ADR-0031, SC-5b). The contract takes it today on purpose, for late work, and core refuses it. The recommendation is to keep it and change core to match.
 
 **Kept on purpose** (Rafa, 2026-11-11):
 
@@ -44,7 +44,8 @@ Not run while writing this page: `forge test` and `deploy-sepolia.sh --check`. E
 **Assumptions that are new with phase one:**
 
 - **The deployment's token** is a plain ERC-20 with ERC-3009: no fee on transfer, no rebasing, no transfer hook. The contract cannot check this. Whoever deploys names the token and has no authority afterwards; the parties accept it by signing under that deployment's EIP-712 domain.
-- **The first decision by the primary or the fallback adjudicator is final,** and so is the appeal adjudicator's decision after an escalation. No adjudicator posts a bond. The parties' protection is their choice of the three adjudicators, the fallback, the default outcome, and the signed record (ADR-0031, "Litmus tests").
+- **The deployer's one-time choices are the trust anchor:** the token, the escrow, the collector, the beacon and the expiry margin. At the freeze this page lists every immutable with its address and code hash.
+- **The first decision by the primary or the fallback adjudicator is final,** and so is the appeal adjudicator's decision after an escalation. No adjudicator posts a bond. A party must trust all three adjudicators it names, because the other party can steer which one decides. The parties' protection is their choice of the three adjudicators, the fallback, the default outcome, and the signed record (ADR-0031, "Litmus tests").
 - **Two signed fields mean less than they say.** The acceptance's `bondReserved` must be 0. The terms' `appealWindowSec` is signed and not read.
 - **No signed type and no file in `spec/schemas/` changes.** The types describe the full protocol, which SimChain runs; a phase-one deployment accepts a subset.
 
