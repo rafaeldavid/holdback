@@ -63,7 +63,7 @@ Line numbers are those of `contracts-audit-ready` at `b88f9e5` [measured].
 - [x] No signed type changes: the type hashes and the hash vectors (`Vectors.t.sol`, `packages/core`'s vectors) are unchanged, and `spec/schemas/` is untouched.
 - [x] The harness's allow-list names every removed action and event and nothing else; the harness passes.
 - [x] The state oracle checks the phase-one rows after every step of the campaign.
-- [ ] Tests: a contract wallet as the buyer, the seller and each adjudicator through every entry point; a wallet whose answer changes between two steps of one deal; a wallet that burns its gas; an account with delegated code (EIP-7702); a relay from inside another contract's call. These are the second PR on this branch. Done in this PR: the late-work settlement releases the key of the delivery it names, and no other.
+- [x] Tests: a contract wallet as the buyer, the seller and each adjudicator through every entry point; a wallet whose answer changes between two steps of one deal; a wallet that burns its gas; an account with delegated code (EIP-7702); a relay from inside another contract's call (second PR, holdback PR 357, merged into this branch: 39 tests); the late-work settlement releases the key of the delivery it names, and no other.
 - [ ] `forge test`, the anvil suites and `formal/check.sh`'s safety run pass on the branch. `forge test` and the safety run pass; the anvil suites pass only once T-349 lands.
 - [x] `HoldbackRules`' runtime size before and after, in bytes.
 - [x] No test or invariant is weakened; each deleted test is named below with its reason.
@@ -79,6 +79,15 @@ Fill this in before review. Label each item measured, inferred or guessed.
 
 - **Gate before the cut** [measured]: holdback PR 333 merged at `67fde99`. On the lane with main merged in, `forge test` passed 343 of 343, and the side-by-side harness passed with an empty allow-list: 256 runs, every row L01 to L37 reached.
 - **`forge test` after the cut** [measured]: 296 of 296 pass in 44 suites. Before: 343 of 343. The appendix names every test removed, moved or renamed, with its reason.
+- **`forge test` at the branch head** [measured, after `forge clean`]: 353 of 353 pass in 51 suites. That is the cut's 296, the red team's 14, the 4 that main's `DrandSecondRead.t.sol` brings with the second sync, and the 39 contract-signer tests.
+- **Contract signers (PR 357, merged into this branch)** [measured, by the session that wrote them and its reviewer]. 39 tests in 5 files under `contracts/test/crosscheck/`; no defect found.
+  - The buyer, the seller and the appeal adjudicator as wallets, through early accept, settlement and an escalation.
+  - A wallet whose answer changes blocks only its own next step, and the deal ends by its timeouts.
+  - A gas-burning wallet is refused with `BadSignature`; the relayer pays about 98.5% of its gas limit.
+  - Solady checks a delegated EIP-7702 account by ERC-1271 alone (`extcodesize` picks one check), the M-4 behaviour.
+  - Each of the nine entry points relayed from inside another contract lands exactly as a direct relay.
+
+  Reviewer: ISSUES, Low and Info only; the four Lows are fixed. The red team's suggestion to check a plain-key signature before ERC-1271 (ADR-0031, finding M-4) is not adopted. It would change how every signature is checked, and it would make code that answers for a session key unable to override its own key. The tests pin today's behaviour, so a later decision can change it on purpose.
 - **The `bondReserved` rule failed before** [measured]: `test_before_pinnedContractsRefuseZero_andFundWithThePriceAndWithMax` runs the pinned deployed contracts. They refuse `bondReserved` 0 and fund with the price; the cut does the opposite.
 - **Side-by-side harness (VG-1)** [measured]: 258 fuzz runs pass. All 18 phase-one rows are reached over the 48 coverage seeds, and the planted mutant still fails the harness. The allow-list names nine exact differences, all SC-7's:
   1. no vault;
@@ -178,6 +187,17 @@ Measured: the anvil settlement leg fails 10 of 13 files and the world leg 6 of 7
 `Erc1271Roles.t.sol`, `Erc1271Replay.t.sol` and `Erc6492Prepare.t.sol` already cover the seller, the primary, the fallback and the buyer's funding.
 
 **Refinements left alone:** `reports/scratch/t-346-triage.md`.
+
+**The cut-feature known list (T-354), for every later merge into the lane.** `tests/cut-feature-alignment.known.json` lists the files that still name a cut feature.
+- **A sync from main makes it grow,** because main keeps the full machine on purpose. The sync in PR 343 added 6 entries: `docs/audit/events.md`, `invariants.md`, `known-issues.md`, `state-model.md` and `threat-model.md` (owner docs/audit, R12), and `examples/deal-record.ts` (owner examples/, R6c-3, package 3).
+- **A package that fixes files makes it shrink.** When this cut and T-349 land, the entries for the files they fixed leave.
+- **Who merges regenerates it** and checks the diff adds or removes only the files the merge brought in or fixed. On a worktree of the merged tree, with the workspace installed:
+
+  ```
+  pnpm -C <worktree> exec vitest run tests/cut-feature-alignment.test.ts -u
+  ```
+
+  Then `git -C <worktree> diff tests/cut-feature-alignment.known.json`. Stop and ask if anything else is removed or reordered.
 
 **Bisecting:** the cut's commits build again only from `0564fe8`. `fcc4072` deletes `HoldbackBonds.sol` while the tests still import it, until `eec6909` and `2aa8d4a`. The branch is pushed, so it is not squashed: a force push is a gate. Bisect at `0564fe8` or later.
 
