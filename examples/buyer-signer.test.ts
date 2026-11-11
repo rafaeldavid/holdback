@@ -108,7 +108,7 @@ describe('buyer-signer.ts', () => {
     expect(readFileSync(script, 'utf8').trimEnd().split('\n').length).toBeLessThanOrEqual(20);
     const dir = store();
     const r = await new Promise<{ code: number | null; out: string; err: string }>((resolve) => {
-      const child = spawn(process.execPath, [script, seller.quoteUrl, dir, '3 rows of customer_id,email', TOTAL], { env: { ...process.env, HOLDBACK_OPERATORS: demo.urls.join(',') } });
+      const child = spawn(process.execPath, [script, seller.quoteUrl, dir, JSON.stringify('3 rows of customer_id,email'), TOTAL], { env: { ...process.env, HOLDBACK_OPERATORS: demo.urls.join(',') } });
       let out = '', err = '';
       child.stdout.on('data', (d: Buffer) => (out += d.toString()));
       child.stderr.on('data', (d: Buffer) => (err += d.toString()));
@@ -162,9 +162,15 @@ describe('buyer-signer.ts', () => {
     await refused({ ...offer, seller: offer.adjudicators.primary }, /^refusing to sign: seller is /);
     // Nothing passed the check, so nothing is signed: the signer holds no approved terms for this deal.
     await expect(signer.agreeAndFund(quote.commitmentId)).rejects.toThrow(/checkOffer/);
-    expect(((await (await fetch(`${demo.urls[0]}/v1/commitments/${quote.commitmentId}`)).json()) as { escrowState: string }).escrowState).toBe('AcceptedByAdjudicator');
-    // The approved offer itself passes.
+    // The refusals above return before checkOffer waits for the adjudicator, and the adjudicator accepts on the
+    // world's next pass (tickMs). So the deal is Offered or AcceptedByAdjudicator here, whichever the pass made it:
+    // asserting AcceptedByAdjudicator at this point raced that pass and failed about one run in three.
+    const stateNow = async () => ((await (await fetch(`${demo.urls[0]}/v1/commitments/${quote.commitmentId}`)).json()) as { escrowState: string }).escrowState;
+    expect(['Offered', 'AcceptedByAdjudicator']).toContain(await stateNow());
+    // The approved offer itself passes. checkOffer waits for the adjudicator, so the state is now settled, and
+    // the buyer has still signed nothing: the deal is not Agreed.
     expect(await signer.checkOffer(quote.commitmentId, offer)).toEqual(offer);
+    expect(await stateNow()).toBe('AcceptedByAdjudicator');
   }, 60_000);
 
   it('checkOffer refuses an offer made to another encryption key than the one in the key store', async () => {
