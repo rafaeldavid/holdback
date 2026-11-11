@@ -179,6 +179,36 @@ describe('buyer-signer.ts', () => {
     }
   }, 60_000);
 
+  it('agreeAndFund refuses a prepared message an operator altered, and signs nothing', async () => {
+    // Node 0 raises the funding's value in what it prepares; node 1 is honest.
+    const world = await PublicWorld.open({ storage: new MemoryStorage(), env: { OPERATOR_FEE_BPS: '1', OPERATOR_FEE_MIN: '10000' } });
+    const lying = await serveTwoOrigins(world, {
+      tickMs: 100,
+      rewrite: (node, path, body) => {
+        if (node !== 0 || path !== '/v1/prepare/agree-and-fund') return undefined;
+        const prepared = JSON.parse(body);
+        prepared.submit.body.fund.value = '9000000000';
+        return JSON.stringify(prepared);
+      },
+    });
+    const other = await serveSeller(lying.urls);
+    try {
+      const signer = await makeKeys(store(), { operators: lying.urls });
+      const quote = await signer.quote(other.quoteUrl, '3 rows of customer_id,email');
+      const offer = await signer.readOffer(quote.commitmentId);
+      await signer.testFunds(offer.fees.total.amount);
+      await signer.checkOffer(quote.commitmentId, offer);
+      const e = await signer.agreeAndFund(quote.commitmentId).then(() => null, (x: unknown) => x);
+      expect(e).toBeInstanceOf(Refusal);
+      expect((e as Error).message).toMatch(/^refusing to sign: /);
+      expect(((await (await fetch(`${lying.urls[1]}/v1/commitments/${quote.commitmentId}`)).json()) as { escrowState: string }).escrowState).toBe('AcceptedByAdjudicator');
+      expect(((await (await fetch(`${lying.urls[1]}/v1/balances/${signer.address}`)).json()) as { amount: string }).amount).toBe(TOTAL);
+    } finally {
+      await other.close();
+      await lying.close();
+    }
+  }, 60_000);
+
   it('the key store survives a restart between funding and opening the delivery', async () => {
     const dir = store();
     const first = await makeKeys(dir, { operators: demo.urls });
