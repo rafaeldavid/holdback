@@ -71,6 +71,7 @@ const COST: Record<string, number> = {
   'packages/judgment/src/sample.test.ts': 5,
   'tests/read-after-write.lint.test.ts': 5,
   'tests/spec.test.ts': 5,
+  'tests/cut-feature-alignment.test.ts': 10, // T-354, measured locally at about 1 s; not yet measured in CI
 };
 const DEFAULT_COST = 2;
 
