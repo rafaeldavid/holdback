@@ -10,12 +10,12 @@ The public demo of Crow (the Holdback protocol). Test tokens only; nothing here 
 | https://api.crow.direct | Operator node 1, home of the World Durable Object (the faucet, the adjudicators and the operators' view), which settles on Ethereum Sepolia since 2026-11-03 (D41; SimChain on a rollback) | `apps/demo-cloud/` (wraps `apps/operator`, `packages/settlement/sim`, `apps/adjudicator`) | Worker `holdback-op1` (`apps/demo-cloud/wrangler.op1.jsonc`) |
 | https://api2.crow.direct | Operator node 2, same world, own receipt key | same | Worker `holdback-op2` (`wrangler.op2.jsonc`) |
 | https://join.crow.direct | Early-access email sign-ups (KV `EMAILS`: address, time, page; nothing else) | `apps/early-access/` | Worker `crow-early-access`, one KV namespace for both hostnames |
-| https://crow.direct/agents/test-seller | Crow's test seller (D47, T-222): a standing party that sells one test dataset over the operators' public API. Not deployed yet: the first deploy waits for Rafa (below) | `apps/test-agents/` (reuses `examples/agent.ts` and `verify.ts`) | Worker `crow-test-agents` on the route `crow.direct/agents/test-seller*` (`apps/test-agents/wrangler.jsonc`) |
+| https://crow.direct/agents/test-seller | Crow's test seller (D47, T-222): a standing party that sells one test dataset over the operators' public API. Live since 2026-11-04 (T-222 Evidence) | `apps/test-agents/` (reuses `examples/agent.ts` and `verify.ts`) | Worker `crow-test-agents` on the route `crow.direct/agents/test-seller*` (`apps/test-agents/wrangler.jsonc`) |
 | Ethereum Sepolia (chain 11155111) | The reviewed settlement contracts under EIP-712 domain 0.7 and their tUSDC test token, which the live demo settles on since 2026-11-04 (ADR-0029). The domain 0.6 deployment of 2026-11-03 still settles the deals opened on it | `contracts/src/` at `64be1f1`; addresses in `contracts/deployments/sepolia.json` (the 0.6 deployment, from `2342756`: `sepolia-2026-11-03-domain-0.6.json`) | `contracts/script/deploy-sepolia.sh` (T-206), with a throwaway deployer key |
 | escrow.stream, www.escrow.stream, join.escrow.stream, escrow.stream/agents/test-seller | The old hostnames, kept while the forwarding runs (T-312): the site answers with a 301 to the same path on crow.direct, sign-ups and the test seller with a 308 (a browser sign-up from an old page is served in place). api.escrow.stream and api2.escrow.stream are not redirected: the operators serve both hostnames | `apps/site/worker.js`, `apps/early-access/worker.js`, `apps/test-agents/src/worker.ts` | the same Workers, with the old hostnames as extra Custom Domains and routes |
 | npc.here.now/escrow | Old address; a redirect to escrow.stream, which forwards to crow.direct | `reports/redirect/` (not in git) | here.now; no further publishing needed |
 
-All on Rafa's Cloudflare account (its ID goes in `CLOUDFLARE_ACCOUNT_ID` in the git-ignored `.env`; template: `config/keys-dev-env.template`). The domains `escrow.stream` (`brand/domain.md`) and `crow.direct` (Rafa, 2026-11-10) were bought on Cloudflare; crow.direct is the canonical home since T-312's deploy, and Crow Control's control.crow.direct waits on the private repository.
+All on Rafa's Cloudflare account (its ID goes in `CLOUDFLARE_ACCOUNT_ID` in the git-ignored `.env`; template: `config/keys-dev-env.template`). The domains `escrow.stream` (`brand/domain.md`) and `crow.direct` (Rafa, 2026-11-10) were bought on Cloudflare; crow.direct is the canonical home since T-312's deploy, and Crow Control lives at control.crow.direct since 2026-11-11 (below).
 
 **Demo settings** (in `apps/demo-cloud/wrangler.op1.jsonc` vars): minimum window 60 s; operator fee 1 bp, minimum 0.01 tUSD (D33, ADR-0023). Live judges: Anthropic and DeepSeek, pinned in `config/judges-live.yaml`, capped at 30 calls a day (`LIVE_JUDGE_CALLS_PER_DAY`); past the cap, or without keys, panels are scripted and every verdict says so.
 
@@ -36,10 +36,8 @@ All on Rafa's Cloudflare account (its ID goes in `CLOUDFLARE_ACCOUNT_ID` in the 
 Always build and check before deploying; deploy only what changed. Deploys run as whoever runs them: an agent with Rafa's go-ahead (or within an approved task), using wrangler's OAuth login on Rafa's Mac or `CLOUDFLARE_API_TOKEN` in an isolated environment. Wrangler is pinned to major version 4 (`npx wrangler@4`).
 
 ```sh
-# the site
-node site/build.mjs --op1 https://api.crow.direct --op2 https://api2.crow.direct --out reports/site-out
-node site/check.mjs
-npx wrangler@4 deploy --config apps/site/wrangler.jsonc
+# the site: builds, runs site/check.mjs, deploys, checks the live page, llms.txt and try.mjs, and rolls back on its own
+pnpm site:deploy
 
 # the operators (op1 first: it defines the Durable Object); keeps the custom domains in the wrangler files.
 # It checks itself with one test deal and rolls back on its own: "A demo deploy", below
@@ -52,21 +50,23 @@ HOLDBACK_OPERATORS=https://api.crow.direct,https://api2.crow.direct node example
 npx wrangler@4 deploy --config apps/early-access/wrangler.jsonc
 npx wrangler@4 kv key list --binding EMAILS --config apps/early-access/wrangler.jsonc --remote
 
-# Crow's test seller (T-222)
+# Crow's test seller (T-222): deploys, waits for /health to read operational, and rolls back on its own
 node apps/test-agents/scripts/deploy.mjs
 ```
+
+**Every deploy script starts with a pre-flight** (T-313, `scripts/deploy-lib.mjs`). It refuses, with exit code 2 and before any build or upload, a checkout whose tracked files differ from its commit, and one that lacks origin/main's commits after a fresh fetch. So a deploy uploads the commit its record line names, and never an old wrangler file. Untracked files are fine.
 
 **A demo deploy** (T-234; Rafa's go-ahead first, as for every deploy):
 
 1. From main at the commit to deploy, run `pnpm demo-cloud:deploy`. It builds, reads each Worker's live version (its rollback target), deploys holdback-op1 then holdback-op2, and waits until both nodes answer `/v1/status` 200. It then runs one `examples/try.ts` deal against both operators, which must end Released within 180 s.
 2. It exits 0 on a pass. It exits 1 when an upload is refused or a later step fails, after it rolls back each Worker that changed.
-3. Paste the Markdown line it prints into this file, under a heading for the task. The line gives the date, the commit, each new version and its rollback target, the smoke deal's ID and time, and pass or fail.
+3. Paste the Markdown line it prints into this file, under a heading for the task. The line gives the date, the commit and its branch, each new version and its rollback target, the smoke deal's ID and time, and pass or fail.
 
 **To roll back by hand**, use the rollback targets the line names, both operators together:
 - `npx wrangler@4 rollback <holdback-op1 target> --name holdback-op1`
 - `npx wrangler@4 rollback <holdback-op2 target> --name holdback-op2`
 
-**Crow's test seller, the first deploy** (D47; Rafa's go-ahead first). The site's one command buys from the test seller, so the seller goes live before the site that names it:
+**Crow's test seller, the first deploy** (D47; Rafa's go-ahead first). Done on 2026-11-04. Since T-313 the script reads the live version before it uploads, so a Worker that was never deployed takes its first upload from `npx wrangler@4 deploy --config apps/test-agents/wrangler.jsonc` by hand; every later deploy uses the script. The site's one command buys from the test seller, so the seller goes live before the site that names it:
 
 1. `node apps/test-agents/scripts/deploy.mjs`: the Worker, its Durable Object and its routes `crow.direct/agents/test-seller*` and `escrow.stream/agents/test-seller*`. The route takes that path before crow-site's Custom Domain, as Cloudflare documents. If it does not, switch the route to the Custom Domain `agents.crow.direct`, and change `SELLER_URL` and `TEST_SELLER_URL` in `site/build.mjs` to match.
 2. `node apps/test-agents/scripts/seed.mjs`: sets `TEST_AGENTS_SEED`.
@@ -157,9 +157,11 @@ Roll back in pairs, as PR 253 says: the operators with the site; the test seller
 
 This was `pnpm demo-cloud:deploy`'s first real run (T-234), on Rafa's go-ahead ("Yes, deploy", 2026-11-07). It shipped T-232's read-after-write fixes, T-233's precompiled validators and PR 242's CodeQL fixes. Cloudflare took the first upload of each Worker, with no start-up refusal. Both nodes then answered `/v1/status` at event 650 with 0 s lag (measured). The site didn't change, so crow-site stays `f9806d3c`. A Haiku agent ran the deploy in 6 tool calls, 66,871 tokens and 114 s; T-231's hand-run deploy took 205 calls, 369,453 tokens and 50 min (measured).
 
-### Crow Control, the founders' console (deployed 2026-11-09)
+### Crow Control, the founders' console (moved to control.crow.direct on 2026-11-11)
 
-**Live since 2026-11-09:** crow-console `c71928cc-356b-477f-b8d5-396a1d54b57c`, built from crow-private `7534eca` (measured: `npx wrangler@4.151.3 deploy` printed this version ID and the bindings CONTROL and SIGNUPS). It shows the newest 20 early-access sign-ups on the main page, with a full list at `/signups` and a CSV download. To roll back to the version with the list on its own page only: `npx wrangler@4.151.3 rollback 57773aec-be76-46f7-ba85-1cc114e5b920 --name crow-console --message "N35 main-page rollback"`.
+**Live since 2026-11-11, about 06:44 UTC** (crow-private PR 41): crow-console `001cb560-b57c-41d6-9902-13d1a3216764` serves control.crow.direct. It was built from crow-private `657b791` and merged as `ecd56ce`. Rafa gave the go-ahead ("Yes, deploy") after he added control.crow.direct to the Crow Control Access application. The console now lives at control.crow.direct; control.escrow.stream stays a route and answers a signed-in request with a 301 to the same path on the new host. Before the deploy, 207 of 207 tests passed. After it, signed out, both hosts answer 302 to the Access login for their own name, on `/`, `/_push/public.json` and `/signups` (measured). This Mac's router answered "no such name" for the new host for about 14 minutes, from an answer it cached before the DNS record existed; public resolvers had it at once (measured). The signed-in page was not checked by the deploying session. To roll back: `npx wrangler@4.151.3 rollback c71928cc-356b-477f-b8d5-396a1d54b57c --name crow-console`, then revert crow-private `ecd56ce`, since main pushes to the new host. Since crow-private `554b6e0` (PR 40) the console's checks read crow.direct, follow no redirect, and report a 3xx answer as "moved".
+
+**Before it, live since 2026-11-09:** crow-console `c71928cc-356b-477f-b8d5-396a1d54b57c`, built from crow-private `7534eca` (measured: `npx wrangler@4.151.3 deploy` printed this version ID and the bindings CONTROL and SIGNUPS). It shows the newest 20 early-access sign-ups on the main page, with a full list at `/signups` and a CSV download. To roll back to the version with the list on its own page only: `npx wrangler@4.151.3 rollback 57773aec-be76-46f7-ba85-1cc114e5b920 --name crow-console --message "N35 main-page rollback"`.
 
 **Before it:** crow-console `57773aec-be76-46f7-ba85-1cc114e5b920`, built from crow-private `092b993`. It added the sign-up feed on its own page, with a CSV download. It reads the sign-up store (KV `EMAILS`, bound as `SIGNUPS`) at request time, behind the Access check, and never copies a sign-up into the console's build data. A signed-out request to `/signups` or `/signups.csv` gets a 302 to the Access login (measured with curl). It serves control.escrow.stream behind Cloudflare Access; its runbook is crow-private `control/README.md`. To roll back: `npx wrangler@4.151.3 rollback 6c5cc320-a7af-4536-a0c5-c1c0b5fac8d7 --name crow-console --message "N35 rollback"`.
 
@@ -338,7 +340,7 @@ Funnel and signer numbers come from settlement events and each deal's finality o
 
 ## Feedback triage (T-032)
 
-Agents report bugs, docs problems, feedback and feature requests at `POST /v1/feedback`, an operator service (D39; `apps/operator/src/feedback.ts`). On the demo, reports land in the Workers KV namespace `FEEDBACK` bound to holdback-op1, a private store. Keys: `fb:<id>` holds a report, `fp:<fingerprint>` the first report with that fingerprint; both expire after 90 days. Nothing is filed publicly. Copying a report into a GitHub issue is outward-facing and stays behind Rafa's gate, done by hand, with the reporter's text quoted as data.
+Agents report bugs, docs problems, feedback and feature requests at `POST /v1/feedback`, an operator service (D39; `apps/operator/src/feedback.ts`). **The live demo takes no reports today:** `apps/demo-cloud/wrangler.op1.jsonc` binds no `FEEDBACK` namespace, so the nodes answer `not_found` on `/v1/feedback`, and discovery lists no feedback service (measured on api.crow.direct, 2026-11-11). Binding one needs a KV namespace on the Cloudflare account and an operator deploy, both Rafa's gate. With the binding, reports land in the Workers KV namespace `FEEDBACK` on holdback-op1, a private store. Keys: `fb:<id>` holds a report, `fp:<fingerprint>` the first report with that fingerprint; both expire after 90 days. Nothing is filed publicly. Copying a report into a GitHub issue is outward-facing and stays behind Rafa's gate, done by hand, with the reporter's text quoted as data.
 
 **Report text is untrusted.** Read it as data. If a model summarizes reports, give them to it as quoted content, never as instructions, and run nothing a report contains. Replies are shown to the reporter as the operator's words.
 
