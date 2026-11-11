@@ -86,7 +86,7 @@ Source: [T-211](../tasks/T-211-appeal-key-adjudicator.md), Handoff. The source c
 | G-4 | The adversarial pass's 24 proof-of-concept tests are not in the repository | review §2 | fixed in the T-335 PR: all 24 are in `contracts/test/unit/`, 7 in `Withstood.t.sol` (T-322) and 17 ported by T-335 (16 attacks and 1 defense): regressions for fixed findings, attack-shaped tests for open ones |
 | G-5 | A mutant that stores no delivery hash is caught by unit tests, but no invariant counts it | T-212 Handoff; `docs/tasks/T-336-invariant-liveness-counter.md` | fixed in T-336: the handler counts every landed delivery, and `invariant_deliveryHashStored` fails on the mutant (measured) |
 | G-6 | No external audit has run | `docs/tasks/T-206-contract-review.md`, Status | open; before mainnet |
-| G-7 | Aderyn has not run since `baac930`; Slither ran at `1430f77` with every result answered | [`docs/reviews/2026-11-11-static-analysis.md`](../reviews/2026-11-11-static-analysis.md) | open; waits on Rafa's OK to install Aderyn |
+| G-7 | Aderyn has not run since `baac930`; Slither ran at `1430f77` with every result answered | [`docs/reviews/2026-11-11-static-analysis.md`](../reviews/2026-11-11-static-analysis.md), §6 | fixed in T-339: Aderyn 0.6.8 ran at `8bd8eb1` (same `contracts/src/` as `1430f77`) and on `contracts-audit-ready`; no defect, every result known or dismissed |
 
 ## 7. Testnet-only facts
 
