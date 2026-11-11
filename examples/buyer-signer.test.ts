@@ -16,7 +16,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Agent } from './agent.ts';
 import { loadKeys, makeKeys } from './buyer-signer.ts';
 import { serveTwoOrigins, type TwoOrigins } from './two-origins.ts';
-import { operatorFeeOf, Refusal } from './verify.ts';
+import { jcsHash, operatorFeeOf, Refusal } from './verify.ts';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 const here = (f: string) => fileURLToPath(new URL(f, import.meta.url));
@@ -128,6 +128,10 @@ describe('buyer-signer.ts', () => {
     expect(done.outcome).toBe('Released');
     expect(done.work).toBe(CSV);
     expect(done.paid).toEqual({ token: 'tUSD', amount: TOTAL });
+    // At the approval the script shows the seven signed fields of T-332, before it funds anything.
+    const approval = JSON.parse(r.err.split('\n')[0]!) as J;
+    expect(Object.keys(approval)).toEqual(['settlement', 'disclosure', 'clubId', 'rulebookHash', 'policyId', 'policyHash', 'registryHash']);
+    expect(approval).toMatchObject({ settlement: { mode: 'guaranteed_on_decision' }, disclosure: { level: 'public' }, clubId: expect.any(String), policyId: expect.any(String) });
     for (const url of demo.urls) expect(((await (await fetch(`${url}/v1/commitments/${done.commitmentId}`)).json()) as { escrowState: string }).escrowState).toBe('Released');
     // The faucet gave the deal's total and the deal took all of it; the seller has the price.
     expect(await balance(done.buyer)).toBe('0');
@@ -181,6 +185,132 @@ describe('buyer-signer.ts', () => {
     expect(await signer.checkOffer(quote.commitmentId, offer)).toEqual(offer);
     expect(await stateNow()).toBe('AcceptedByAdjudicator');
   }, 60_000);
+
+  // T-332: seven fields the buyer signs that the offer did not show before. An approval that changes one is refused,
+  // naming it: one test per field, on one offer.
+  describe('the seven signed fields the offer shows (T-332)', () => {
+    let signer: Awaited<ReturnType<typeof makeKeys>>;
+    let offer: J;
+    let discovered: { clubId: string; modes: string[] };
+    beforeAll(async () => {
+      signer = await makeKeys(store(), { operators: demo.urls });
+      const quote = await signer.quote(seller.quoteUrl, '3 rows of customer_id,email');
+      offer = await signer.readOffer(quote.commitmentId);
+      const d = (await (await fetch(`${demo.urls[0]}/.well-known/holdback.json`)).json()) as J;
+      discovered = { clubId: d.demo.clubId, modes: d.settlementModes };
+    }, 60_000);
+
+    it('readOffer shows them, as the terms every operator serves carry them', async () => {
+      const terms = (await (await fetch(`${demo.urls[1]}/v1/commitments/${offer.commitmentId}/terms`)).json()) as J;
+      expect(offer).toMatchObject({
+        settlement: { mode: terms.settlement.mode }, disclosure: { level: 'public' }, clubId: discovered.clubId, rulebookHash: terms.rulebookHash,
+        policyId: terms.adjudication.policyId, policyHash: terms.adjudication.policyHash, registryHash: terms.adjudication.registryHash,
+      });
+      expect(discovered.modes).toContain(offer.settlement.mode);
+      for (const h of [offer.rulebookHash, offer.policyHash, offer.registryHash]) expect(h).toMatch(/^0x[0-9a-f]{64}$/);
+    });
+
+    const other = `0x${'7'.repeat(64)}`;
+    it.each([
+      ['settlement.mode', (o: J) => ({ ...o, settlement: { ...o.settlement, mode: 'optimistic' } })],
+      ['disclosure.level', (o: J) => ({ ...o, disclosure: { ...o.disclosure, level: 'private' } })],
+      ['clubId', (o: J) => ({ ...o, clubId: 'another-club' })],
+      ['rulebookHash', (o: J) => ({ ...o, rulebookHash: other })],
+      ['policyId', (o: J) => ({ ...o, policyId: 'another-policy' })],
+      ['policyHash', (o: J) => ({ ...o, policyHash: other })],
+      ['registryHash', (o: J) => ({ ...o, registryHash: other })],
+    ])('checkOffer refuses an approval that changes %s, naming it', async (field, change) => {
+      const e = await signer.checkOffer(offer.commitmentId, change(offer)).then(() => null, (x: unknown) => x);
+      expect(e).toBeInstanceOf(Refusal);
+      expect((e as Error).message).toMatch(new RegExp(`^refusing to sign: ${field.replace('.', '\\.')} is .*, not the approved `));
+    });
+
+    it('the approved offer itself passes', async () => {
+      expect(await signer.checkOffer(offer.commitmentId, offer)).toEqual(offer);
+    }, 60_000);
+  });
+
+  // T-332: each of the seven is checked against what the buyer's configuration expects, before the offer is shown.
+  it.each([
+    ['settlement.mode', { settlementMode: 'optimistic' }, /^refusing to sign: settlement\.mode is "guaranteed_on_decision", not the expected "optimistic" \(expect\.settlementMode\)/],
+    ['disclosure.level', { disclosureLevel: 'private' }, /^refusing to sign: disclosure\.level is "public", not the expected "private" \(expect\.disclosureLevel\)/],
+    ['clubId', { clubId: 'another-club' }, /^refusing to sign: clubId is "[^"]+", not the expected "another-club" \(expect\.clubId\)/],
+    ['rulebookHash', { rulebookHash: `0x${'7'.repeat(64)}` }, /^refusing to sign: rulebookHash is "0x[0-9a-f]{64}", not the expected "0x7{64}" \(expect\.rulebookHash\)/],
+    ['policyId', { policyId: 'another-policy' }, /^refusing to sign: policyId is "[^"]+", not the expected "another-policy" \(expect\.policyId\)/],
+    ['policyHash', { policyHash: `0x${'7'.repeat(64)}` }, /^refusing to sign: policyHash is "0x[0-9a-f]{64}", not the expected "0x7{64}" \(expect\.policyHash\)/],
+    ['registryHash', { registryHash: `0x${'7'.repeat(64)}` }, /^refusing to sign: registryHash is "0x[0-9a-f]{64}", not the expected "0x7{64}" \(expect\.registryHash\)/],
+  ])('readOffer and checkOffer refuse an offer whose %s differs from the buyer\'s expectation', async (_field, expected, message) => {
+    const dir = store();
+    const plain = await makeKeys(dir, { operators: demo.urls });
+    const quote = await plain.quote(seller.quoteUrl, '3 rows of customer_id,email');
+    const offer = await plain.readOffer(quote.commitmentId);
+    // The same key, reopened with the expectation: it shows nothing, and it signs nothing.
+    const expecting = await loadKeys(dir, plain.address, { operators: demo.urls, expect: expected });
+    const shown = await expecting.readOffer(quote.commitmentId).then(() => null, (x: unknown) => x);
+    expect(shown).toBeInstanceOf(Refusal);
+    expect((shown as Error).message).toMatch(message);
+    await expect(expecting.checkOffer(quote.commitmentId, offer)).rejects.toThrow(message);
+    await expect(expecting.agreeAndFund(quote.commitmentId)).rejects.toThrow(/checkOffer/);
+  }, 60_000);
+
+  // T-332: what every operator publishes, changed after the buyer's agent approved. Both nodes serve the change, so
+  // the reads agree; the signer compares the terms with them and refuses, naming the field.
+  describe('what every operator publishes, against the terms (T-332)', () => {
+    let tampered: TwoOrigins;
+    let other: Awaited<ReturnType<typeof serveSeller>>;
+    let tamper: ((path: string, body: J) => J | undefined) | null = null;
+    beforeAll(async () => {
+      const world = await PublicWorld.open({ storage: new MemoryStorage(), env: { OPERATOR_FEE_BPS: '1', OPERATOR_FEE_MIN: '10000' } });
+      tampered = await serveTwoOrigins(world, {
+        tickMs: 100,
+        rewrite: (_node, path, body) => {
+          const out = tamper?.(path, JSON.parse(body));
+          return out === undefined ? undefined : JSON.stringify(out);
+        },
+      });
+      other = await serveSeller(tampered.urls);
+    }, 60_000);
+    afterAll(async () => {
+      await other.close();
+      await tampered.close();
+    });
+
+    const rehash = (policy: J) => jcsHash(policy);
+    it.each([
+      ['settlement.mode', (path: string, b: J) => (path === '/.well-known/holdback.json' ? { ...b, settlementModes: ['optimistic'] } : undefined), /^refusing to sign: settlement\.mode is "guaranteed_on_decision", not a mode every operator lists \(\["optimistic"\]\)/],
+      ['clubId', (path: string, b: J) => (path === '/.well-known/holdback.json' ? { ...b, demo: { ...b.demo, clubId: 'another-club' } } : undefined), /^refusing to sign: clubId is "[^"]+", not the demo club every operator names \("another-club"\)/],
+      ['clubId, with none named', (path: string, b: J) => (path === '/.well-known/holdback.json' ? Object.fromEntries(Object.entries(b).filter(([k]) => k !== 'demo')) : undefined), /^refusing to sign: clubId is "[^"]+", and the operators name no demo club: set expect\.clubId/],
+      ['rulebookHash', (path: string, b: J) => {
+        if (!path.startsWith('/v1/clubs/')) return undefined;
+        const rulebook = { ...b.rulebook, note: 'changed' };
+        return { ...b, rulebook, rulebookHash: jcsHash(rulebook) };
+      }, /^refusing to sign: rulebookHash is "0x[0-9a-f]{64}", not the hash every operator serves for club "[^"]+" \("0x[0-9a-f]{64}"\)/],
+      ['policyId', (path: string, b: J) => {
+        if (!path.startsWith('/v1/adjudicators/')) return undefined;
+        const policy = { ...b.policy, id: 'another-policy' };
+        return { ...b, policy, policyHash: rehash(policy) };
+      }, /^refusing to sign: policyId is "[^"]+", not the primary adjudicator's as every operator serves it \("another-policy"\)/],
+      ['policyHash', (path: string, b: J) => {
+        if (!path.startsWith('/v1/adjudicators/')) return undefined;
+        const policy = { ...b.policy, note: 'changed' };
+        return { ...b, policy, policyHash: rehash(policy) };
+      }, /^refusing to sign: policyHash is "0x[0-9a-f]{64}", not the primary adjudicator's as every operator serves it \("0x[0-9a-f]{64}"\)/],
+      ['registryHash', (path: string, b: J) => (path.startsWith('/v1/adjudicators/') ? { ...b, registry: { ...b.registry, hash: `0x${'7'.repeat(64)}` } } : undefined), /^refusing to sign: registryHash is "0x[0-9a-f]{64}", not the primary adjudicator's as every operator serves it \("0x7{64}"\)/],
+    ])('checkOffer refuses when every operator serves another %s after the approval', async (_field, change, message) => {
+      const signer = await makeKeys(store(), { operators: tampered.urls });
+      const quote = await signer.quote(other.quoteUrl, '3 rows of customer_id,email');
+      const offer = await signer.readOffer(quote.commitmentId);
+      tamper = change;
+      try {
+        const e = await signer.checkOffer(quote.commitmentId, offer).then(() => null, (x: unknown) => x);
+        expect(e).toBeInstanceOf(Refusal);
+        expect((e as Error).message).toMatch(message);
+        await expect(signer.agreeAndFund(quote.commitmentId)).rejects.toThrow(/checkOffer/);
+      } finally {
+        tamper = null;
+      }
+    }, 60_000);
+  });
 
   it('checkOffer refuses an offer made to another encryption key than the one in the key store', async () => {
     const signer = await makeKeys(store(), { operators: demo.urls });
