@@ -87,8 +87,10 @@ const WINDOWS: Window[] = ['offerExpiresInSec', 'fundWithinSec', 'deliverWithinS
 export type Defaults = { deliverable: J; checks: J[]; rubric?: J; timing: Partial<Record<Window, number>>; fee?: Money };
 /**
  * One way an offer differs from the defaults: `field` is `deliverable.<key>`, `checks.<id>` (added, removed or
- * changed), `checks` (the same checks in another order), `rubric`, `fees.adjudication` or `deadlines.<window>`.
- * `old` is the default's value, `new` the offer's; null where there is none.
+ * changed; a list when several checks share the id), `checks` (checks in another order), `rubric`,
+ * `fees.adjudication` or `deadlines.<window>`. `old` is the default's value, `new` the offer's; null where there is
+ * none. Only what the defaults publish is compared: the price, the adjudicators and the rest of the offer are shown
+ * whole, not as differences.
  */
 export type Difference = { field: string; old: J; new: J };
 /** What agreeAndFund took from the buyer: the hold (price plus adjudication fee) and the operator fee. */
@@ -260,15 +262,19 @@ function defaultsOf(d: J): Defaults {
  */
 export function differencesOf(defaults: Defaults, offer: Offer): Difference[] {
   const out: Difference[] = [];
+  // Exact canonical JSON: a change of case in a check's value is a change (no address lowercasing here).
   const add = (field: string, old: J, now: J) => {
-    if (!same(old ?? null, now ?? null)) out.push({ field, old: old ?? null, new: now ?? null });
+    if (jcs(old ?? null) !== jcs(now ?? null)) out.push({ field, old: old ?? null, new: now ?? null });
   };
   for (const k of [...new Set([...Object.keys(defaults.deliverable), ...Object.keys(offer.deliverable ?? {})])]) add(`deliverable.${k}`, defaults.deliverable[k], offer.deliverable?.[k]);
-  const byId = (list: J[], id: string) => list.find((c) => c.id === id);
-  for (const c of defaults.checks) add(`checks.${c.id}`, c, byId(offer.checks, c.id));
-  for (const c of offer.checks) if (!byId(defaults.checks, c.id)) add(`checks.${c.id}`, null, c);
-  const ids = (list: J[]) => list.map((c) => c.id);
-  if (out.every((d) => !d.field.startsWith('checks.')) && !same(ids(defaults.checks), ids(offer.checks))) out.push({ field: 'checks', old: ids(defaults.checks), new: ids(offer.checks) });
+  // By id. Each id once, in order of first appearance; an id held by more than one check compares as the list of them.
+  const ids = (list: J[]) => list.map((c) => String(c.id));
+  const withId = (list: J[], id: string) => list.filter((c) => c.id === id);
+  const one = (list: J[]) => (list.length === 0 ? null : list.length === 1 ? list[0] : list);
+  for (const id of [...new Set([...ids(defaults.checks), ...ids(offer.checks)])]) add(`checks.${id}`, one(withId(defaults.checks, id)), one(withId(offer.checks, id)));
+  // Checks run in order: the ids both lists hold, in another order, are a change of their own.
+  const common = (list: J[], other: J[]) => [...new Set(ids(list))].filter((id) => ids(other).includes(id));
+  if (jcs(common(defaults.checks, offer.checks)) !== jcs(common(offer.checks, defaults.checks))) out.push({ field: 'checks', old: ids(defaults.checks), new: ids(offer.checks) });
   add('rubric', defaults.rubric ?? EMPTY_RUBRIC, offer.rubric);
   if (defaults.fee) add('fees.adjudication', defaults.fee, offer.fees.adjudication);
   for (const w of WINDOWS) if (defaults.timing[w] !== undefined) add(`deadlines.${w}`, defaults.timing[w], offer.windows[w]);
@@ -468,7 +474,7 @@ export class BuyerSigner {
       let given: J = options.defaults;
       if (typeof given === 'string') {
         const res = await fetch(given, { signal: AbortSignal.timeout(15_000) });
-        if (!res.ok) throw new Error(`the seller's defaults at ${given.slice(0, 200)} answered ${res.status}`);
+        if (!res.ok) throw new Error(`the seller's defaults at ${new URL(given).origin}${new URL(given).pathname.slice(0, 120)} answered ${res.status}`); // no query: it may hold a token
         given = await res.json();
       }
       defaults = fillWith(defaultsOf(given), this.#saved.scope) as Defaults;

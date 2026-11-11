@@ -11,7 +11,7 @@ import type { Hex } from 'viem';
 import { startSimWorld, type SimWorld } from '@holdback/operator';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { Agent } from './agent.ts';
-import { makeKeys } from './buyer-signer.ts';
+import { differencesOf, makeKeys } from './buyer-signer.ts';
 import { config as shipped, startSellerAdapter, type RunningAdapter, type SellerAdapterConfig } from './seller-adapter.ts';
 import { startStubSellerApi, type StubOptions, type StubSellerApi } from './seller-adapter-stub.ts';
 import { Refusal } from './verify.ts';
@@ -218,6 +218,28 @@ async function proxies(): Promise<{ urls: string[]; fee: J; close(): Promise<voi
     },
   };
 }
+
+describe('buyer signer: differencesOf', () => {
+  const a = { id: 'a', type: 'contains', required: true, value: '0xDEADBEEF' };
+  const b = { id: 'b', type: 'contains', required: true, value: 'x' };
+  const windows = { offerExpiresInSec: 1, fundWithinSec: 1, deliverWithinSec: 1, judgeWithinSec: 1, fallbackWithinSec: 1, appealWindowSec: 1, appealDecideSec: 1 };
+  const offer = (checks: J[]) => ({ deliverable: { kind: 'document' }, checks, rubric: { criteria: [], passThreshold: 0 }, windows, fees: {} }) as J;
+  const defaults = { deliverable: { kind: 'document' }, checks: [a, b], timing: {} };
+
+  it('lists a second check under an id already used, a new order with another change, and a change of case', () => {
+    const b2 = { ...b, value: 'y' };
+    expect(differencesOf(defaults, offer([a, { ...a, required: false }, b2]))).toEqual([
+      { field: 'checks.a', old: a, new: [a, { ...a, required: false }] },
+      { field: 'checks.b', old: b, new: b2 },
+    ]);
+    expect(differencesOf(defaults, offer([b2, a]))).toEqual([
+      { field: 'checks.b', old: b, new: b2 },
+      { field: 'checks', old: ['a', 'b'], new: ['b', 'a'] },
+    ]);
+    expect(differencesOf(defaults, offer([{ ...a, value: '0xdeadbeef' }, b]))).toEqual([{ field: 'checks.a', old: a, new: { ...a, value: '0xdeadbeef' } }]);
+    expect(differencesOf(defaults, offer([a, b]))).toEqual([]);
+  });
+});
 
 describe('buyer signer: what differs from the seller\'s defaults', () => {
   it('lists each changed check, window and requirement, old value and new, and none for a default offer', async () => {
