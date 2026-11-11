@@ -5,7 +5,7 @@
 - **Depends on:** T-343 (the drand verifier's review, finding X-1), T-342 (ADR-0031, the phase-one scope), T-340 (the state model, finding F-2)
 - **Paths this task may touch:** one new ADR under `docs/decisions/`; new lines in `docs/decisions-today.md`; this file
 - **Human gate:** no
-- **Status:** review
+- **Status:** done
 - **Agent/session:** a Claude Fable 5.2 session started by the coordinator, 2026-11-11
 
 ## Intent
@@ -31,14 +31,14 @@ The output is one ADR with status Proposed and one D-number entry that points at
 
 ## Acceptance criteria
 
-- [ ] The ADR names the rule the contract enforces in package R8, exactly enough that an implementer can write it, and says how each of the three `test_issue_wrongRound_…` tests changes so that it fails before the fix and passes after.
-- [ ] It compares the chosen rule with at least two alternatives, and states for each what an attacker who controls transaction timing, or a block builder, can still do.
-- [ ] It settles the fallback's round.
-- [ ] It states the smallest decidable escalation window as a formula over the margin, the block time and the beacon's period, with the number for Sepolia and for Ethereum mainnet, and adds no refusal.
-- [ ] Every number names its source: drand's published chain info, the consensus specifications, or measured block headers. A claim whose source could not be read is marked unverified.
-- [ ] It says what stays possible for a block builder and why that is accepted or not, lists what a testnet cannot show, and gives the lines the mainnet gate needs.
-- [ ] One `red-teamer` pass attacks the chosen rule without this task's reasoning; the ADR answers each finding.
-- [ ] `docs/decisions-today.md` gains one entry with the next D-number.
+- [x] The ADR names the rule the contract enforces in package R8, exactly enough that an implementer can write it, and says how each of the three `test_issue_wrongRound_…` tests changes so that it fails before the fix and passes after.
+- [x] It compares the chosen rule with at least two alternatives, and states for each what an attacker who controls transaction timing, or a block builder, can still do.
+- [x] It settles the fallback's round.
+- [x] It states the smallest decidable escalation window as a formula over the margin, the block time and the beacon's period, with the number for Sepolia and for Ethereum mainnet, and adds no refusal.
+- [x] Every number names its source: drand's published chain info, the consensus specifications, or measured block headers. A claim whose source could not be read is marked unverified.
+- [x] It says what stays possible for a block builder and why that is accepted or not, lists what a testnet cannot show, and gives the lines the mainnet gate needs.
+- [x] One `red-teamer` pass attacks the chosen rule without this task's reasoning; the ADR answers each finding.
+- [x] `docs/decisions-today.md` gains one entry with the next D-number.
 
 ## Out of scope
 
@@ -48,7 +48,8 @@ The output is one ADR with status Proposed and one D-number entry that points at
 
 ## Evidence
 
-- **The output:** `docs/decisions/ADR-0032-beacon-rounds-escalation-and-fallback.md` (Proposed) and D59 in `docs/decisions-today.md`. Pull request 345.
+- **The output:** `docs/decisions/ADR-0032-beacon-rounds-escalation-and-fallback.md` (Proposed) and D59 in `docs/decisions-today.md`. Pull request 345 merged into `main` on 2026-11-11 at 21:07 UTC as `e1d12ae` [measured: `gh pr view 345`].
+- **CI on pull request 345:** `check`, `gitleaks`, `changes`, CodeQL and both code-analysis jobs passed; the five test jobs were skipped, as CI does for a change that touches docs only [measured: `gh pr checks 345`]. GitHub Actions was down for about 30 minutes before the run started.
 - **drand quicknet's genesis (1,692,803,367 s) and period (3 s)** [measured: `curl` of `/info` on `api.drand.sh` and `drand.cloudflare.com`, 2026-11-11; both returned the same JSON].
 - **Block times against drand's genesis: 2 mod 3 on mainnet, 0 mod 3 on Sepolia** [measured: `eth_getBlockByNumber` on three headers of each chain through `ethereum-rpc.publicnode.com` and `ethereum-sepolia-rpc.publicnode.com`; inferred for every slot from the two genesis times].
 - **Slot time, block timestamps, voting deadlines, the late-block rule, the forks** [documented: `ethereum/consensus-specs` (`configs/mainnet.yaml`, `specs/bellatrix/beacon-chain.md`, `specs/phase0/validator.md`, `specs/phase0/fork-choice.md`), `eth-clients/mainnet` and `eth-clients/sepolia`, EIP-7773 and EIP-7732; read by three `web-fetch` subagents, quotes in the ADR's section 2].
@@ -68,7 +69,7 @@ The output is one ADR with status Proposed and one D-number entry that points at
 
 ## Handoff
 
-- **Done:** the ADR, D59, the red-team pass and its answers.
+- **Done:** the ADR, D59, the red-team pass and its answers, merged in pull request 345. Nothing is left in this task.
 - **For package R8** (the contract lane): the ADR's sections 3.1 to 3.6 are the specification, and section 10 gives its two conditions (after SC-5 and after the cut of party appeals, or with them). The adjudicator service's `roundFor` changes with the contract and core.
 - **For the coordinator:**
   - Add gate lines BR-1 to BR-10 (the ADR's section 9) to the plan's mainnet gate, beside the review's G-1 to G-10. BR-10 needs transactions on Sepolia and waits for Rafa.
