@@ -40,6 +40,7 @@ const COST: Record<string, number> = {
   'apps/operator/src/sim-world.test.ts': 42,
   'examples/seller-adapter.test.ts': 40, // T-318, measured locally at about 4 s; not yet measured in CI
   'tests/contract/openapi.contract.test.ts': 36,
+  'examples/buyer-signer-outcome.test.ts': 50, // T-325, measured locally at about 5 s; not yet measured in CI
   'examples/verify.test.ts': 29,
   'packages/settlement/sim/simchain.test.ts': 23,
   'tools/sim/check.test.ts': 22,
