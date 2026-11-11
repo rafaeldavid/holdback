@@ -7,7 +7,8 @@ const file = (path: string, text: string) => ({ path, text });
 describe('health: which files count', () => {
   it('counts source that runs the demo, and leaves out tests, generated code, bundles and test helpers', () => {
     expect(isSource('apps/operator/src/server.ts')).toBe(true);
-    expect(isSource('scripts/health.mjs')).toBe(true);
+    expect(isSource('scripts/verify.ts')).toBe(true);
+    expect(isSource('scripts/health.mjs')).toBe(false);
     expect(isSource('apps/operator/src/server.test.ts')).toBe(false);
     expect(isSource('packages/core/src/validators.generated.ts')).toBe(false);
     expect(isSource('site/try.mjs')).toBe(false);
