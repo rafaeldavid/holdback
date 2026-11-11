@@ -1,6 +1,7 @@
 // The demo's invented cast (docs/demo.md, Cast), shared by the agents, their tests and the narration.
 // Display names and labels only: the protocol sees addresses, and every name here is fictional. `label` is the
 // key-derivation label in keys.ts, so renaming a display name never changes a key, address or hash.
+import type { AdjudicatorRole } from '@holdback/core';
 import { TUSD } from './units.js';
 
 export interface PartyCast {
@@ -44,8 +45,6 @@ export const BENCH_C: BenchCast = { label: 'bench-c', name: 'Atrium Appeals', ro
  * panel (one judge, one model family) fails the club rulebook. Never named in a commitment.
  */
 export const SWIFTLINE = { label: 'swiftline', name: 'Swiftline Verdicts' } as const;
-
-export type AdjudicatorRole = 'primary' | 'fallback' | 'appeal';
 
 /**
  * What a bench publishes beside its registration: display data the v0.6 registration cannot carry

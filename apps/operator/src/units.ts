@@ -8,8 +8,8 @@ export const TUSD = 1_000_000n;
 
 const DECIMAL = /^(\d{1,24})(?:\.(\d{1,6}))?$/;
 
-/** tUSD as a TokenAmount: `tusd('2000')`, `tusd('0.5')` or `tusd(25n)` (whole tUSD). Never a float. */
-export function tusd(whole: string | bigint): TokenAmount {
+/** Whole tUSD as a TokenAmount in base units: `wholeTusd('2000')`, `wholeTusd('0.5')` or `wholeTusd(25n)`. Never a float. The sim's `tusd` takes base units. */
+export function wholeTusd(whole: string | bigint): TokenAmount {
   if (typeof whole === 'bigint') {
     if (whole < 0n) throw new RangeError(`tUSD amount must not be negative, got ${whole}`);
     return { token: 'tUSD', amount: (whole * TUSD).toString() } as TokenAmount;
