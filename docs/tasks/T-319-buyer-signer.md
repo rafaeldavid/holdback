@@ -76,7 +76,7 @@ All measured on 2026-11-11 on branch `t-319-buyer-signer`, in a fresh clone of `
   3. `checkOffer` refuses, naming the field, an approved price of 24 tUSD against an offer of 25, a check list with one check fewer or one more, another primary adjudicator, another operator fee, another deliverable format, another appeal window and another seller. After the refusals `agreeAndFund` refuses and the deal is still `AcceptedByAdjudicator`. The approved offer itself passes.
   4. `checkOffer` refuses an offer the seller made to an encryption key of its own.
   5. `agreeAndFund` refuses when one operator raises the funding's value in the message it prepares; the deal stays `AcceptedByAdjudicator` and the buyer's balance stays 26.01 tUSD.
-  6. A signer that `loadKeys` builds from the directory and the commitment ID opens the delivery of a deal another signer funded: the work, its SHA-256, the operator's signed funding receipt and the event hashes.
+  6. A signer that `loadKeys` builds from the directory and the commitment ID opens the delivery of a deal another signer funded: the work, its SHA-256, the operator's signed funding receipt and the event hashes. A run whose key file lost the record of the payment finds the funding on both operators and pays nothing more.
 - `pnpm exec vitest run examples`: 18 files pass, 163 tests pass, 13 skip (the anvil and network suites, which CI runs) in 117 s.
 - `pnpm typecheck`: passes. `pnpm lint`: passes with no finding.
 - `node site/build.mjs && node site/check.mjs`: site check PASS. `site/try.mjs` keeps its SHA-256 (`4dab4c08…`), and `site/index.html` does not change.
@@ -113,6 +113,7 @@ All measured on 2026-11-11 on branch `t-319-buyer-signer`, in a fresh clone of `
 5. Binary work: `Agent.openDelivery` would return bytes. That edit moves `try.mjs` and its SHA-256.
 6. Private terms (ADR-0024): `readOffer` reads public terms only. `Agent.openTerms` already opens sealed ones.
 7. A read of the delivery hash from the rules contract on Sepolia, so the opened work is checked against the chain and not only against two operators.
+8. Outcomes other than `Released` and `Refunded`: `openDelivery` waits only for those two, so an appeal, a settlement or a default ends in its timeout, with the state named. The buyer's appeal is not in this file.
 
 **Open questions.**
 

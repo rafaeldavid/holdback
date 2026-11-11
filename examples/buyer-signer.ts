@@ -287,11 +287,13 @@ export class BuyerSigner {
       const held = await agent.agreeAndFund(checked.terms, BigInt(fees.total.amount));
       if (held.escrowState !== 'Held' || held.hold?.amount?.amount !== paid.hold.amount) throw new Error(`expected Held with ${paid.hold.amount} base units, got ${held.escrowState} ${shown(held.hold?.amount ?? null)}`);
       paid.receipt = held.receipt ?? null;
-    } else if (state === 'Offered' || state === 'Expired' || state === 'Cancelled') {
-      throw new Error(`${id} is ${state}: there is nothing to fund`);
+    } else {
+      // Not waiting for the agreement any more. When both operators record the funding, an earlier run funded the hold
+      // and stopped before it saved: only this key could have agreed. What it paid is what the approved terms say; that
+      // run's receipt is gone. Without a recorded funding there is nothing this key paid, and nothing left to fund.
+      const funded = await agent.trusted(`/v1/commitments/${id}/events?limit=200`, (x) => x.items.some((e: J) => e.type === 'hold.funded'));
+      if (!funded) throw new Error(`${id} is ${state} and no funding is recorded: there is nothing to fund`);
     }
-    // In any later state the hold exists, and only this key could have agreed: an earlier run funded it and stopped
-    // before it saved. What was paid is what the approved terms say; that run's receipt is gone.
     this.#saved.paid = paid;
     save(this.store, this.#saved);
     return paid;

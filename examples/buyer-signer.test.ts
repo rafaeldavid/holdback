@@ -2,7 +2,7 @@
 // process on two origins (as try.test.ts). The seller here is a few lines in this file: an Agent that answers
 // POST /quote with an offer and delivers once the hold is funded. It stands in for T-318's seller adapter.
 import { spawn } from 'node:child_process';
-import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -230,6 +230,14 @@ describe('buyer-signer.ts', () => {
     expect(done.receipt.funded).toMatchObject({ signature: expect.stringMatching(/^0x[0-9a-f]{130}$/) });
     expect(done.receipt.events.map((e: J) => e.type)).toEqual(expect.arrayContaining(['hold.funded', 'delivery.submitted']));
     expect(done.transactions).toEqual([]); // SimChain has no transactions; on Sepolia each money step links one
+    // A run that funded the hold and stopped before it saved: the next run finds the funding recorded and pays nothing more.
+    const file = join(dir, `${first.address}.json`);
+    const beforeSave = JSON.parse(readFileSync(file, 'utf8')) as { paid?: unknown };
+    delete beforeSave.paid;
+    writeFileSync(file, JSON.stringify(beforeSave), { mode: 0o600 });
+    const third = await loadKeys(dir, first.address, { operators: demo.urls });
+    expect(await third.agreeAndFund(quote.commitmentId)).toEqual({ ...paid, receipt: null });
+    expect(await balance(first.address)).toBe('0');
     // A second agreement on the same key is refused before any signature: one key, one deal.
     await expect(second.quote(seller.quoteUrl, 'again')).rejects.toThrow(/one deal/);
     await expect(loadKeys(dir, `0x${'0'.repeat(64)}`, { operators: demo.urls })).rejects.toThrow(/no key/);
