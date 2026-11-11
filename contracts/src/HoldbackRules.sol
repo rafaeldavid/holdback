@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity 0.8.28;
 
 import {AuthCaptureEscrow} from "commerce-payments/AuthCaptureEscrow.sol";
 import {EIP712} from "solady/utils/EIP712.sol";

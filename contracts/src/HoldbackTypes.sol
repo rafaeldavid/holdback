@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity 0.8.28;
 
 import {LibString} from "solady/utils/LibString.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
