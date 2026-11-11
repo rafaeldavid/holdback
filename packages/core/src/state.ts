@@ -149,6 +149,17 @@ export type EscrowEvent =
 
 type R<T = EscrowState> = Result<T, Problem>;
 
+/**
+ * Which protocol a step is checked against (ADR-0031). `full` is the whole protocol, which SimChain runs: party
+ * appeals and adjudicator bonds. `phase_one` is what the phase-one contracts settle (SC-7, D57): no party appeal and
+ * no bond. On `phase_one` the primary's acceptance must reserve 0 and no free bond is read; the first decision of the
+ * primary or the fallback is final at once (its appeal window opens and closes at the decision); and a party appeal,
+ * an appeal decision or an appeal expiry is refused. A settlement layer passes the profile its contracts enforce.
+ */
+export type SettlementProfile = 'full' | 'phase_one';
+
+const NO_PARTY_APPEAL = 'phase one has no party appeal: the first decision is final (ADR-0031)';
+
 const ms = (ts: Timestamp): number => Date.parse(ts);
 const before = (at: Timestamp, deadline: Timestamp): boolean => ms(at) < ms(deadline);
 const reached = (at: Timestamp, deadline: Timestamp): boolean => ms(at) >= ms(deadline);
@@ -209,7 +220,7 @@ export function offer(input: OfferInput): R<Extract<EscrowState, { kind: 'Offere
   return ok({ kind: 'Offered', id: commitment.id, terms, beaconSource, sellerSignature: commitment.signatures.seller });
 }
 
-function adjudicatorAccept(s: Extract<EscrowState, { kind: 'Offered' }>, e: Extract<EscrowEvent, { type: 'adjudicator_accept' }>): R {
+function adjudicatorAccept(s: Extract<EscrowState, { kind: 'Offered' }>, e: Extract<EscrowEvent, { type: 'adjudicator_accept' }>, profile: SettlementProfile): R {
   const m = e.message;
   const { adjudication, price, timing } = s.terms;
   if (!sameAddress(m.adjudicator, adjudication.adjudicator)) return fail('not_your_turn', 'only the primary adjudicator accepts');
@@ -220,6 +231,14 @@ function adjudicatorAccept(s: Extract<EscrowState, { kind: 'Offered' }>, e: Extr
   if (m.policyHash !== adjudication.policyHash) return fail('policy_mismatch', 'acceptance policyHash differs from the terms');
   if (m.registryHash !== adjudication.registryHash) return fail('registry_mismatch', 'acceptance registryHash differs from the terms');
   if (m.fee.token !== adjudication.fee.token || m.fee.amount !== adjudication.fee.amount) return fail('acceptance_mismatch', 'acceptance fee differs from the terms');
+  if (profile === 'phase_one') {
+    // ADR-0031 §8, point 2: phase one has no bond, so the acceptance says that nothing is reserved, as the
+    // contract requires. The contract hashes bondReserved in the price token.
+    if (m.bondReserved.token !== price.token || m.bondReserved.amount !== '0') {
+      return fail('acceptance_mismatch', `phase one has no bond: bondReserved must be 0 ${price.token}, not ${m.bondReserved.amount} ${m.bondReserved.token}`);
+    }
+    return ok({ kind: 'AcceptedByAdjudicator', id: s.id, terms: s.terms, beaconSource: s.beaconSource, sellerSignature: s.sellerSignature, acceptance: m });
+  }
   // Guaranteed mode: the bond covers 100% of the price until appealDecideBy (ADR-0007).
   for (const [what, amount] of [
     ['bond reserved', m.bondReserved],
@@ -371,7 +390,13 @@ function decisionBindings(s: Pick<Base, 'id' | 'terms'>, m: Decision, at: Timest
   return ok(true);
 }
 
-function firstInstance(s: Extract<EscrowState, { kind: 'Delivered' | 'FallbackJudging' }>, m: Decision, at: Timestamp, beacon: BeaconFact | null | undefined): R {
+function firstInstance(
+  s: Extract<EscrowState, { kind: 'Delivered' | 'FallbackJudging' }>,
+  m: Decision,
+  at: Timestamp,
+  beacon: BeaconFact | null | undefined,
+  profile: SettlementProfile,
+): R {
   const role = s.kind === 'Delivered' ? 'primary' : 'fallback';
   if (m.role !== role) return fail('not_your_turn', `it is the ${role} adjudicator's turn`);
   const { adjudication, timing } = s.terms;
@@ -397,13 +422,14 @@ function firstInstance(s: Extract<EscrowState, { kind: 'Delivered' | 'FallbackJu
   if (m.outcome === 'escalate') {
     return ok({ ...s, kind: 'Escalated', escalation: { by: role, at, appealDecideBy: addSeconds(at, timing.appealDecideSec) } });
   }
-  const appealBy = addSeconds(at, timing.appealWindowSec);
+  // Phase one: final at the decision. The window is empty, so nothing can be filed (ADR-0031 §8, point 7).
+  const appealBy = profile === 'phase_one' ? at : addSeconds(at, timing.appealWindowSec);
   const via: FirstInstance = {
     kind: 'first_instance',
     role,
     decision: m,
     delivery: s.delivery,
-    appeal: { kind: 'none', appealBy, appealDecideBy: addSeconds(appealBy, timing.appealDecideSec) },
+    appeal: { kind: 'none', appealBy, appealDecideBy: profile === 'phase_one' ? at : addSeconds(appealBy, timing.appealDecideSec) },
   };
   return ok(m.outcome === 'accept' ? { ...base, kind: 'Released', via } : { ...base, kind: 'Refunded', via });
 }
@@ -483,8 +509,9 @@ export function stepAppeal(a: AppealState, e: AppealEvent, ctx: AppealContext): 
   }
 }
 
-function settled(s: Extract<EscrowState, { kind: 'Released' | 'Refunded' }>, e: EscrowEvent): R {
+function settled(s: Extract<EscrowState, { kind: 'Released' | 'Refunded' }>, e: EscrowEvent, profile: SettlementProfile): R {
   if (e.type !== 'file_appeal' && e.type !== 'expire_appeal' && e.type !== 'decide') return fail('invalid_state', `commitment is ${s.kind}`);
+  if (profile === 'phase_one') return fail('invalid_state', NO_PARTY_APPEAL);
   if (s.via.kind !== 'first_instance') {
     return fail('invalid_state', s.via.kind === 'escalation' ? 'a decision reached through escalation is not appealable' : `nothing to appeal after ${s.via.kind}`);
   }
@@ -538,12 +565,13 @@ function mutualSettle(s: Settleable, e: Extract<EscrowEvent, { type: 'mutual_set
 const wrongState = (s: EscrowState, e: EscrowEvent): R => fail('invalid_state', `${e.type} is not allowed in ${s.kind}`);
 const tooEarly = (deadline: Timestamp): R => fail('invalid_state', `deadline ${deadline} has not passed`);
 
-export function step(s: EscrowState, e: EscrowEvent): R {
+/** One transition. `profile` is the protocol the settlement layer enforces (`full` unless it says otherwise). */
+export function step(s: EscrowState, e: EscrowEvent, profile: SettlementProfile = 'full'): R {
   if (!validTime(e.at)) return fail('invalid_terms', `event time ${e.at} is not a timestamp`);
   if (e.type === 'mutual_settle' && (s.kind === 'Held' || s.kind === 'Delivered' || s.kind === 'FallbackJudging' || s.kind === 'Escalated')) return mutualSettle(s, e);
   switch (s.kind) {
     case 'Offered':
-      if (e.type === 'adjudicator_accept') return adjudicatorAccept(s, e);
+      if (e.type === 'adjudicator_accept') return adjudicatorAccept(s, e, profile);
       if (e.type === 'agree') return fail('acceptance_missing', 'the primary adjudicator has not accepted yet');
       break;
     case 'AcceptedByAdjudicator':
@@ -564,7 +592,7 @@ export function step(s: EscrowState, e: EscrowEvent): R {
       }
       break;
     case 'Delivered':
-      if (e.type === 'decide') return firstInstance(s, e.message, e.at, e.beacon);
+      if (e.type === 'decide') return firstInstance(s, e.message, e.at, e.beacon, profile);
       if (e.type === 'early_accept') {
         const m = e.message;
         if (!sameAddress(m.buyer, s.terms.buyer)) return fail('invalid_signature', 'early acceptance is not from the buyer');
@@ -581,7 +609,7 @@ export function step(s: EscrowState, e: EscrowEvent): R {
       }
       break;
     case 'FallbackJudging':
-      if (e.type === 'decide') return firstInstance(s, e.message, e.at, e.beacon);
+      if (e.type === 'decide') return firstInstance(s, e.message, e.at, e.beacon, profile);
       if (e.type === 'trigger_default') {
         if (!reached(e.at, s.terms.timing.fallbackBy)) return tooEarly(s.terms.timing.fallbackBy);
         return ok({ kind: 'Defaulted', id: s.id, terms: s.terms, beaconSource: s.beaconSource, acceptance: s.acceptance, hold: s.hold, from: s.kind, defaultedAt: e.at });
@@ -602,7 +630,7 @@ export function step(s: EscrowState, e: EscrowEvent): R {
       break;
     case 'Released':
     case 'Refunded':
-      return settled(s, e);
+      return settled(s, e, profile);
     case 'Expired':
     case 'Settled':
       break;
