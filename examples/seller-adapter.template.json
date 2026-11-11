@@ -1,7 +1,7 @@
 {
   "deliverable": {
     "kind": "document",
-    "description": "Security review of the code at commit {{commit}}. Scope: {{files}}. Deliver one JSON report with the commit reviewed, the files reviewed and the findings. Each finding has an id, a severity, a title, the file, the line range, the code excerpt it is about, the root cause, the impact and a recommended fix. A finding rated Medium or higher also carries the proof-of-concept files that show it. Severity scale: Critical, anyone can take or lock funds with no special access; High, funds can be taken or locked only with a precondition such as a privileged role or an unusual market state; Medium, the code breaks a stated rule or loses a bounded amount; Low, a defect that puts no funds at risk; Info, a note on clarity, style or cost. A report with no findings is a complete report.",
+    "description": "Security review of the code at commit {{commit}}. Scope: {{files}}. Deliver one JSON report with the commit reviewed, the files reviewed and the findings; it may add a summary and the report's date. Each finding has an id, a severity, a title, one or more locations, the root cause and a recommended fix; it may add its impact and a status (open, fixed or acknowledged). Each location names a file in scope and may add a line range and the code excerpt it is about. A finding rated Medium or higher also carries the proof-of-concept files that show it. Severity scale: Critical, anyone can take or lock funds with no special access; High, funds can be taken or locked only with a precondition such as a privileged role or an unusual market state; Medium, the code breaks a stated rule or loses a bounded amount; Low, a defect that puts no funds at risk; Info, a note on clarity, style or cost. A report with no findings is a complete report.",
     "format": "application/json"
   },
   "checks": [
@@ -22,6 +22,15 @@
             "type": "string",
             "pattern": "^[0-9a-f]{40}$"
           },
+          "reportDate": {
+            "type": "string",
+            "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+          },
+          "summary": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 5000
+          },
           "filesReviewed": {
             "type": "array",
             "items": {
@@ -39,11 +48,8 @@
                 "id",
                 "severity",
                 "title",
-                "file",
-                "lines",
-                "excerpt",
+                "locations",
                 "rootCause",
-                "impact",
                 "recommendedFix"
               ],
               "properties": {
@@ -60,38 +66,58 @@
                     "Info"
                   ]
                 },
+                "status": {
+                  "enum": [
+                    "open",
+                    "fixed",
+                    "acknowledged"
+                  ]
+                },
                 "title": {
                   "type": "string",
                   "minLength": 1,
                   "maxLength": 200
                 },
-                "file": {
-                  "type": "string",
-                  "minLength": 1,
-                  "maxLength": 200
-                },
-                "lines": {
-                  "type": "object",
-                  "additionalProperties": false,
-                  "required": [
-                    "start",
-                    "end"
-                  ],
-                  "properties": {
-                    "start": {
-                      "type": "integer",
-                      "minimum": 1
-                    },
-                    "end": {
-                      "type": "integer",
-                      "minimum": 1
+                "locations": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "file"
+                    ],
+                    "properties": {
+                      "file": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200
+                      },
+                      "lines": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "start",
+                          "end"
+                        ],
+                        "properties": {
+                          "start": {
+                            "type": "integer",
+                            "minimum": 1
+                          },
+                          "end": {
+                            "type": "integer",
+                            "minimum": 1
+                          }
+                        }
+                      },
+                      "excerpt": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 2000
+                      }
                     }
                   }
-                },
-                "excerpt": {
-                  "type": "string",
-                  "minLength": 1,
-                  "maxLength": 2000
                 },
                 "rootCause": {
                   "type": "string",
@@ -132,7 +158,29 @@
                     }
                   }
                 }
-              },
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "proof",
+      "type": "json_schema",
+      "required": true,
+      "schema": {
+        "type": "object",
+        "required": [
+          "findings"
+        ],
+        "properties": {
+          "findings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "severity"
+              ],
               "anyOf": [
                 {
                   "properties": {
@@ -174,11 +222,23 @@
             "items": {
               "type": "object",
               "required": [
-                "file"
+                "locations"
               ],
               "properties": {
-                "file": {
-                  "enum": "{{files}}"
+                "locations": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "file"
+                    ],
+                    "properties": {
+                      "file": {
+                        "enum": "{{files}}"
+                      }
+                    }
+                  }
                 }
               }
             }

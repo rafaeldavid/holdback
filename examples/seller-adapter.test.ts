@@ -201,7 +201,8 @@ describe('seller adapter: funded hold to delivery', () => {
     expect(held.escrowState).toBe('Held');
     const done = await buyer.waitFor(id, ['Released', 'Refunded', 'Escalated']);
     expect(done.escrowState).toBe('Released');
-    expect(JSON.parse(await buyer.openDelivery(id))).toEqual(SAMPLE);
+    // The stub's report is the sample with a summary that counts the job's own files.
+    expect(JSON.parse(await buyer.openDelivery(id))).toEqual({ ...SAMPLE, summary: 'The review covered 3 files at the commit above and reports 3 findings.' });
     await until('the journal to record the delivery', () => stageOf(running, id) === 'delivered');
     expect(stub!.calls.start).toBe(1);
     expect(await events(buyer, id, 'delivery.submitted')).toHaveLength(1);

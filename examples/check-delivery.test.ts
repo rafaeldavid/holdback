@@ -126,8 +126,8 @@ describe('examples/check-delivery.ts on the audit-report sample deal', () => {
     expect(lines[0]).toBe('Result: reject. The required check coverage fails, so the adjudicator rejects this file and the buyer is refunded.');
     expect(lines).toContain('  pass  report (required)');
     expect(lines).toContain('  FAIL  coverage (required): schema: /filesReviewed: fewer than 3 items');
-    expect(lines.filter((l) => /^ {2}(pass|FAIL) {2}/.test(l))).toHaveLength(4);
-    expect(r.out).toMatch(/3,841 bytes/);
+    expect(lines.filter((l) => /^ {2}(pass|FAIL) {2}/.test(l))).toHaveLength(5);
+    expect(r.out).toMatch(/5,063 bytes/);
     expect(r.out).toContain((await adjudicate(CHECKS_ONLY_TERMS, report('report.missing-file.json'))).plaintextSha256);
 
     const ok = await cli([CHECKS_ONLY_TERMS, report('report.json')]);
