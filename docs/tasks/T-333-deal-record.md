@@ -5,7 +5,7 @@
 - **Depends on:** none
 - **Paths this task may touch:** `examples/deal-record.ts`, `examples/deal-record.test.ts` (both new), `vitest.config.ts` (one cost line for the new test file), this task file
 - **Human gate:** no
-- **Status:** in progress
+- **Status:** done
 - **Agent/session:** t-333-deal-record (Opus 5.5), change kind 4 (API and example code): the examples' tests, no review, a target of 100k tokens
 
 ## Intent
@@ -36,12 +36,12 @@ Non-goals: no state-changing request, no route or storage on any operator, no ke
 
 ## Acceptance criteria
 
-- [ ] A Released deal on SimChain gives a buyer's record whose every check passes, the plaintext hash included, and a seller's record that recomputes the delivery hash and recovers the seller's delivery signature from the delivery body.
-- [ ] A Refunded deal gives a record with the failed deterministic check, the panel's decision and the refund postings; the plaintext check is null with a reason.
-- [ ] A reclaimed deal gives a record with `reclaimed: true`, no judgment, and the price and fee back to the buyer.
-- [ ] An operator that serves another state or tampered terms is named in `disagreements`; its section is kept per operator.
-- [ ] The program sends no request other than GET, and only to configured operators; the record holds no secret key and no plaintext.
-- [ ] Every amount in the record is a base-unit decimal string.
+- [x] A Released deal on SimChain gives a buyer's record whose every check passes, the plaintext hash included, and a seller's record that recomputes the delivery hash and recovers the seller's delivery signature from the delivery body.
+- [x] A Refunded deal gives a record with the failed deterministic check, the panel's decision and the refund postings; the plaintext check is null with a reason.
+- [x] A reclaimed deal gives a record with `reclaimed: true`, no judgment, and the price and fee back to the buyer.
+- [x] An operator that serves another state or tampered terms is named in `disagreements`; its section is kept per operator.
+- [x] The program sends no request other than GET, and only to configured operators; the record holds no secret key and no plaintext.
+- [x] Every amount in the record is a base-unit decimal string.
 
 ## Out of scope
 
@@ -51,12 +51,32 @@ Non-goals: no state-changing request, no route or storage on any operator, no ke
 
 ## Evidence
 
-Fill this in before review. Label each item measured, inferred or guessed.
-
 - Commands run and results:
+  - `pnpm exec vitest run examples/deal-record.test.ts`: 9 of 9 tests pass in about 2.6 s [measured]. They cover a Released deal read by the buyer (every check passes, the plaintext included) and by the seller (delivery hash and delivery signature from the body), a Refunded deal, a reclaimed deal, a ciphertext URI rewritten by one operator, a state lie, tampered terms, an offline operator, and the command run with the key in the environment.
+  - `pnpm exec vitest run examples/ tests/ci-gated.test.ts`: 25 of 25 files pass, 261 tests pass, 13 skipped (skips that were already there), 138.5 s [measured].
+  - `pnpm typecheck` and `eslint` on the three changed files: clean [measured].
+  - A record written by the command, read by eye: 17 checks pass and 2 are null with the reason (the delivery body was not passed). It holds no key and no plaintext [measured].
 - Snapshot diffs: none (no scenario fixture changes).
-- Metrics:
+- Metrics: none.
 
 ## Decisions
 
+1. **One view per operator, compared by section.** The record builds each operator's view from that operator's answers alone, then writes a section once when every view agrees. When they differ it writes the section as `{ byOperator }` and lists it in `disagreements`. Checks follow the same rule: a check gives one entry when every view gives the same result, and one entry per operator otherwise. Steps compare type, time and actor only, because on a chain each operator numbers and links its own event index.
+2. **Unverifiable means null with a reason, not absent.** The buyer's agree and funding signatures are not served by any route. The delivery hash needs the signed delivery body. The plaintext needs the buyer's key and a released envelope. Transactions and balances are the operators' report. Each of these is either a null check with its reason or a section labelled as a report.
+3. **Request addresses come from configuration only.** The ciphertext is fetched from `/v1/ciphertext/<sha256>` on a configured operator, with the ID checked against `^sha256:[0-9a-f]{64}$`. Explorer links come from the pinned deployment in `verify.ts`.
+4. **Exit code.** The command exits 0 when every check that ran passed and the operators agree, 1 when it wrote a record with a failed check or a disagreement, and 2 on a usage error or when no operator answered.
+
 ## Handoff
+
+Done: `examples/deal-record.ts` and its 9 tests, the `vitest.config.ts` cost line (30, measured locally at about 2.6 s, not yet measured in CI).
+
+Not done, and not run: a record of a live Sepolia deal. Its transaction links and the comparison of steps across two operators' chain indexes have run only in reasoning [inferred]. Rafa's live rehearsal (critical path item 7) is the first run on a chain. Lower-priority finds are in `reports/scratch/t-333-triage.md`.
+
+Doc lines for package 5 to place in `site/llms.txt` (the record is for both sides, so the seller's page and the buyer's section both fit):
+
+```
+## Keep a record of each deal
+After a deal ends, run `node examples/deal-record.ts <commitmentId> --as buyer|seller --out record.json` with HOLDBACK_OPERATORS set to two or more operators. It reads the deal from each one and writes one JSON record: the signed terms, each step, the delivery's hashes, the checks and the judgment, the settlement, and a flat `row` of IDs, price, fees, outcome and times. Each check says ok, failed, or why it could not run; operators that differ are named, not merged. It only reads.
+Buyer: set HOLDBACK_ENCRYPTION_KEY to check the released work's hash; the key and the work never reach the record. Seller: pass `--delivery <file>`, your signed delivery body, to recompute the delivery hash and recover your signature.
+Public deals only; transactions and balances are the operators' report.
+```
