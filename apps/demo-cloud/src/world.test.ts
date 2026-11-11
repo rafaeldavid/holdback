@@ -2,19 +2,18 @@
 // Two origins (127.0.0.1 and localhost on one port) stand in for the two operator Workers; a timer stands in
 // for the Durable Object's alarm. The deal is the examples' agent (examples/agent.ts) with keys it made itself.
 import { readFileSync } from 'node:fs';
-import { createServer, type Server } from 'node:http';
-import type { AddressInfo } from 'node:net';
 import nacl from 'tweetnacl';
 import { generatePrivateKey } from 'viem/accounts';
 import { afterEach, describe, expect, it } from 'vitest';
 import { Agent } from '../../../examples/agent.ts';
+import { serveTwoOrigins } from '../../../examples/two-origins.ts';
 import { LIVE_REGISTRY_URI, liveRegistry, markerFake, placeholderRegistry } from '@holdback/adjudicator';
 import { canonicalKeccak, DRAND_QUICKNET_CHAIN_HASH, holdbackDomain, verifyRegistration, type Address, type AdjudicatorRegistration, type RegisteredAdjudicator } from '@holdback/core';
 import { LiveChain, type DeploymentFile } from '@holdback/settlement/live';
 import { encodePublicKey, generateEncryptionKeyPair } from '@holdback/core/crypto';
 import { MemoryFeedbackStore, signRegistration, testAccount, type StoredRegistration, type TestAccount } from '@holdback/operator';
 import { MemoryStorage, PublicWorld, type PublicWorldOptions } from './index.js';
-import { BondReads, DEMO_FAUCET_MAX_GRANT, TimeoutBudgetRows } from './world.js';
+import { BondReads, DEMO_FAUCET_MAX_GRANT, DEMO_MAX_CIPHERTEXT_BYTES, TimeoutBudgetRows } from './world.js';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -32,36 +31,8 @@ afterEach(async () => void (await Promise.all(running.splice(0).map((r) => r.clo
  */
 async function serve(options: Partial<PublicWorldOptions> = {}, storage = new MemoryStorage(), client?: string, { passes = true } = {}): Promise<Running> {
   const world = await PublicWorld.open({ storage, env: {}, minWindowSec: 2, ...options });
-  const server: Server = createServer(async (req, res) => {
-    const host = req.headers.host ?? '';
-    const node = host.startsWith('localhost') ? 1 : 0;
-    const chunks: Buffer[] = [];
-    for await (const c of req) chunks.push(c as Buffer);
-    const body = ['GET', 'HEAD'].includes(req.method ?? 'GET') ? undefined : Buffer.concat(chunks);
-    const headers = Object.fromEntries(Object.entries(req.headers).filter(([, v]) => typeof v === 'string')) as Record<string, string>;
-    const r = await world.fetch(new Request(`http://${host}${req.url}`, { method: req.method ?? 'GET', headers, ...(body ? { body } : {}) }), { node, origin: `http://${host}`, client: client ?? req.socket.remoteAddress ?? 'unknown' });
-    res.writeHead(r.status, Object.fromEntries(r.headers));
-    res.end(Buffer.from(await r.arrayBuffer()));
-  });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const port = (server.address() as AddressInfo).port;
-  let ticking = passes;
-  const loop = (async () => {
-    while (ticking) {
-      await world.work();
-      await new Promise((r) => setTimeout(r, 100));
-    }
-  })();
-  const r: Running = {
-    world,
-    urls: [`http://127.0.0.1:${port}`, `http://localhost:${port}`],
-    close: async () => {
-      ticking = false;
-      await loop;
-      await new Promise<void>((resolve) => server.close(() => resolve()));
-      server.closeAllConnections();
-    },
-  };
+  const { urls, close } = await serveTwoOrigins(world, { tickMs: passes ? 100 : undefined, client, keepContentLength: true });
+  const r: Running = { world, urls, close };
   running.push(r);
   return r;
 }
@@ -214,7 +185,7 @@ describe('public mode', () => {
       expect(notes).toMatch(/one shared simulated settlement layer/i);
       expect(notes).toMatch(/POST \/v1\/faucet/);
       expect(notes).toMatch(/scripted/i);
-      expect(d.limits).toEqual({ reads: { limit: 1200, windowSec: 60, per: 'client' }, writes: { limit: 120, windowSec: 60, per: 'signer' }, idempotency: { replays: 'success-only', retention: 'process' } });
+      expect(d.limits).toEqual({ reads: { limit: 1200, windowSec: 60, per: 'client' }, writes: { limit: 120, windowSec: 60, per: 'signer' }, maxCiphertextBytes: 1_048_576, idempotency: { replays: 'success-only', retention: 'process' } });
       expect(d.demo).toMatchObject({ clubId: 'demo-club', operators: urls, token: { id: 'tUSD', decimals: 6 }, minWindowSec: 2, faucet: { path: '/v1/faucet', grant: { token: 'tUSD', amount: '1000000000' }, perAddressEverySec: 3600, perClientPerWindow: 10 } });
       expect(d.demo.adjudicators.map((a: J) => a.role)).toEqual(['primary', 'fallback', 'appeal']);
       const root = (await (await fetch(`${u}/`)).json()) as J;
@@ -227,6 +198,31 @@ describe('public mode', () => {
     // The two nodes sign receipts with different keys.
     const signers = await Promise.all(urls.map(async (u) => ((await (await fetch(`${u}/v1/status`)).json()) as J).receiptSigner));
     expect(new Set(signers).size).toBe(2);
+  });
+
+  it('publishes the largest ciphertext it stores, refuses a larger one by that number, and the docs state the same (T-315)', async () => {
+    const { urls } = await serve();
+    const cap = DEMO_MAX_CIPHERTEXT_BYTES;
+    // Discovery, on both nodes.
+    for (const u of urls) expect(((await (await fetch(`${u}/.well-known/holdback.json`)).json()) as J).limits.maxCiphertextBytes).toBe(cap);
+    const upload = (bytes: Uint8Array, key: string) => fetch(`${urls[0]}/v1/ciphertext`, { method: 'POST', headers: { 'content-type': 'application/octet-stream', 'idempotency-key': key }, body: bytes });
+    // The node: exactly the cap is stored and served back; one byte more is refused with the cap in `maxBytes`.
+    const fits = await upload(new Uint8Array(cap).fill(7), 'k-fits');
+    const stored = (await fits.json()) as J;
+    expect([fits.status, stored.bytes]).toEqual([200, cap]);
+    expect((await (await fetch(stored.uri)).arrayBuffer()).byteLength).toBe(cap);
+    const over = await upload(new Uint8Array(cap + 1).fill(7), 'k-over');
+    const refusal = (await over.json()) as J;
+    expect([over.status, refusal.type, refusal.maxBytes]).toEqual([413, 'payload_too_large', cap]);
+    expect(refusal.detail).toContain(String(cap));
+    // The docs: each names the field and the demo's number beside it, and neither says a node stores 10 MiB.
+    const bytes = `${cap.toLocaleString('en-US')} bytes`;
+    expect(bytes).toBe('1,048,576 bytes');
+    for (const file of ['site/llms.txt', 'docs/api.md', 'spec/openapi/paths.json']) {
+      const text = readFileSync(new URL(`../../../${file}`, import.meta.url), 'utf8');
+      expect(text.split('\n').some((line) => line.includes('maxCiphertextBytes') && line.includes(bytes)), `${file} states ${bytes} beside limits.maxCiphertextBytes`).toBe(true);
+      expect(text.split('\n').filter((line) => /ciphertext/i.test(line) && /at most 10 MiB|ciphertext 10 MiB/.test(line)), `${file} no longer says a node stores 10 MiB`).toEqual([]);
+    }
   });
 
   it('notes in the body which panel judges a rubric offer; a checks-only offer gets no notice', async () => {

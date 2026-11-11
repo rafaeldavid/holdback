@@ -38,7 +38,7 @@
 // After the adjudicators, each pass sends the deals' due timeouts at the relayer's gas (T-231): the reclaim, the
 // default, the appeal expiry and an accepted offer's expiry, so a deal ends when its parties are gone. A cap per pass
 // and a daily budget bound what that spends, and the alarm wakes at the next one due.
-import { canonicalKeccak, DRAND_QUICKNET_CHAIN_HASH, holdbackDomain, problem, registrationBodyHash, trimTrailingSlashes, wholeSecond, type AdjudicatorPolicy, type AdjudicatorRegistration, type Address, type EscrowState, type HoldbackDomain, type Hex32, type Judgment, type Mandate, type OperatorFeeSchedule, type Problem, type RegisteredAdjudicator, type SettlementEvent, type Sha256, type Timestamp, type TokenAmount } from '@holdback/core';
+import { canonicalKeccak, DRAND_QUICKNET_CHAIN_HASH, holdbackDomain, problem, registrationBodyHash, trimTrailingSlashes, wholeSecond, type AdjudicatorPolicy, type AdjudicatorRegistration, type AdjudicatorRole, type Address, type EscrowState, type HoldbackDomain, type Hex32, type Judgment, type Mandate, type OperatorFeeSchedule, type Problem, type RegisteredAdjudicator, type SettlementEvent, type Sha256, type Timestamp, type TokenAmount } from '@holdback/core';
 import { sha256 } from '@holdback/core/crypto';
 import { StoreError, type CiphertextStore } from '@holdback/core/store';
 import { declinesOf, drandQuicknet, testAdjudicator, type RandomnessSource, type TestAdjudicator } from '@holdback/adjudicator';
@@ -46,10 +46,12 @@ import {
   fetchHandler,
   nameToken,
   Operator,
+  POOL_TERMS,
   register,
   ReportLimiter,
   signRegistration,
   testAccount,
+  TUSD,
   type Bond,
   type DemoFacts,
   type FaucetOutcome,
@@ -70,8 +72,6 @@ import { panelConfig, type JudgeProvider, type PanelConfig } from './judges.js';
 import { StorageLanes } from './lanes.js';
 import type { WorldStorage } from './storage.js';
 import { dealFacts, Telemetry, type DayFacts, type TelemetryOptions } from './telemetry.js';
-
-export type Role = 'primary' | 'fallback' | 'appeal';
 
 export interface PublicWorldOptions {
   storage: WorldStorage;
@@ -153,21 +153,24 @@ export interface Via {
 }
 
 export const DEMO_CLUB_ID = 'demo-club';
-const TUSD = 1_000_000n;
-const ADJUDICATORS: ReadonlyArray<{ role: Role; label: string; name: string }> = [
+const ADJUDICATORS: ReadonlyArray<{ role: AdjudicatorRole; label: string; name: string }> = [
   { role: 'primary', label: 'demo-adjudicator-a', name: 'Demo Adjudicator A' },
   { role: 'fallback', label: 'demo-adjudicator-b', name: 'Demo Adjudicator B' },
   { role: 'appeal', label: 'demo-adjudicator-c', name: 'Demo Adjudicator C' },
 ];
 const nameOf = (a: { name: string }, live: boolean) => `${a.name} (test; real checks, ${live ? 'live panel within a daily budget' : 'scripted panel'})`;
-const POOL_TERMS = { capitalChargeRateBps: 0, capitalChargeToPoolRateBps: 0, firstLossShareBps: 10000, noticePeriodSec: 691200 } as const;
 /**
  * The largest amount one faucet grant gives: 1,000,000 test tokens (T-314). A request names its own `amount` up to
  * this, so a buyer funds a deal priced like a real job, fees included, from one grant. The cap bounds this free
  * service, never a deal's price: on a chain the test token is open-mint, so an agent that needs more mints it itself.
  */
 export const DEMO_FAUCET_MAX_GRANT = 1_000_000n * TUSD;
-/** Largest ciphertext this demo stores (a Durable Object value is at most 2 MiB). */
+/**
+ * Largest ciphertext this demo stores: 1 MiB (T-315). Each ciphertext is one row of Durable Object storage, and a row
+ * (key and value) is at most 2 MiB, so 1 MiB leaves half the row free. Discovery states it as
+ * `limits.maxCiphertextBytes`; docs/api.md and site/llms.txt state the same number (world.test.ts compares them).
+ * A larger cap needs chunked rows or an object store first.
+ */
 export const DEMO_MAX_CIPHERTEXT_BYTES = 1_048_576;
 /**
  * Adjudicator passes stop this long after settlement last moved (a write or an adjudicator's action) or the world woke
@@ -530,7 +533,7 @@ export class PublicWorld {
     readonly chain: SimChain | EvmSettlement,
     private readonly keys: TestAccount[],
     readonly operators: readonly Operator[],
-    readonly adjudicators: Record<Role, TestAdjudicator>,
+    readonly adjudicators: Record<AdjudicatorRole, TestAdjudicator>,
     private readonly panel: PanelConfig,
     /** Offers an adjudicator declined, with its reason, for the state read's notices. In memory: every pass declines again. */
     private readonly declined: Map<Hex32, string>,
@@ -685,7 +688,7 @@ export class PublicWorld {
       pool,
       // ADR-0030 §4: the roles an offer leaves out are filled with the demo's three, which discovery names as defaults,
       // but only with one that would take its role on the terms (T-221 review); one the parties name gets a notice.
-      defaultAdjudicators: Object.fromEntries(adjKeys.map((a) => [a.role, lc(a.keys.address)])) as Record<Role, Address>,
+      defaultAdjudicators: Object.fromEntries(adjKeys.map((a) => [a.role, lc(a.keys.address)])) as Record<AdjudicatorRole, Address>,
       declines: declinesOf(() => Object.values(adjudicators)),
       judgment: (id) => records.get(id) ?? null,
       // POST /v1/faucet: the amount the request names, up to the cap (the default grant when it names none), and a
@@ -697,7 +700,7 @@ export class PublicWorld {
     const gasQuote = o.live ? (o.env['OPERATOR_FEE_GAS'] ?? '0') : undefined;
     const operatorFee = operatorFeeFromEnv(o.env, lc(key('demo-operator-fees').address) as Address, token, gasQuote);
     const feedback = feedbackFrom(o, (id) => telemetry.lookup(id));
-    const adjudicators = {} as Record<Role, TestAdjudicator>;
+    const adjudicators = {} as Record<AdjudicatorRole, TestAdjudicator>;
     const declined = new Map<Hex32, string>();
     const turnsDeclined = new Map<Hex32, DeclinedTurn>();
     const operators: Operator[] = [];
@@ -759,6 +762,7 @@ export class PublicWorld {
           settlement: chain,
           registry,
           store,
+          maxCiphertextBytes: DEMO_MAX_CIPHERTEXT_BYTES,
           ...(operatorFee ? { fee: operatorFee } : {}),
           ...(evm ? { erc3009: { funding: (t) => evm.fundingTypedData(t), operatorFee: (x) => evm.operatorFeeTypedData(x) } } : {}),
           signerKey: key(`demo-operator-${i + 1}`).privateKey,
@@ -1084,7 +1088,7 @@ export class PublicWorld {
       }
     }
     const { panel } = this;
-    for (const [role, a] of Object.entries(this.adjudicators) as [Role, TestAdjudicator][]) {
+    for (const [role, a] of Object.entries(this.adjudicators) as [AdjudicatorRole, TestAdjudicator][]) {
       try {
         // Live only when today's budget still holds a whole panel of this adjudicator's size, so a panel is
         // live or scripted as a whole (a pass deciding several cases can still cross the line).

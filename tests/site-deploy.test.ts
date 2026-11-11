@@ -61,6 +61,7 @@ async function run(stage: Stage = {}) {
   const t0 = clock;
   const code = await deploy({
     args: stage.args ?? [],
+    clean: () => void commands.push('empty reports/site-out'),
     sh: async (cmd: string, args: string[]) => {
       const line = [cmd === process.execPath ? 'node' : cmd, ...args].join(' ');
       commands.push(line);
@@ -94,6 +95,8 @@ async function run(stage: Stage = {}) {
 }
 const BUILD = 'node site/build.mjs --op1 https://api.crow.direct --op2 https://api2.crow.direct --out reports/site-out';
 const CHECK = 'node site/check.mjs';
+// The output folder is emptied first: wrangler uploads all of it, and an older build's files must not ride along.
+const CLEAN = 'empty reports/site-out';
 const STATUS = 'deployments status --name crow-site --json';
 const UPLOAD = 'deploy --config apps/site/wrangler.jsonc';
 const ROLLBACK = `rollback ${BEFORE} --name crow-site --message pnpm site:deploy failed a check --yes`;
@@ -103,7 +106,7 @@ describe('pnpm site:deploy', () => {
     // The old try.mjs is still served on the first poll.
     const r = await run({ tryMjs: [ok('// the try.mjs from before\n'), ok(TRY)] });
     expect(r.code).toBe(0);
-    expect(r.ran).toEqual([BUILD, CHECK, STATUS, UPLOAD]);
+    expect(r.ran).toEqual([CLEAN, BUILD, CHECK, STATUS, UPLOAD]);
     expect(r.probes).toEqual([0, 0, 0, 5000, 5000, 5000].map((at, i) => ({ url: [SITE, `${SITE}llms.txt`, `${SITE}try.mjs`][i % 3], at })));
     expect(r.record).toBe(`**Site deploy 2026-11-11 09:05 UTC, commit \`016c28e\` on branch \`t-313-deploy-lib\`: pass.** crow-site \`${AFTER}\` (rollback target \`${BEFORE}\`).`);
     expect(r.err).toBe('');
@@ -124,25 +127,25 @@ describe('pnpm site:deploy', () => {
   it('uploads nothing when the build or site/check.mjs fails, and exits 1', async () => {
     const check = await run({ check: 1 });
     expect(check.code).toBe(1);
-    expect(check.ran).toEqual([BUILD, CHECK]);
+    expect(check.ran).toEqual([CLEAN, BUILD, CHECK]);
     expect(check.probes).toEqual([]);
     expect(check.record).toContain('FAIL, site/check.mjs failed, so nothing was uploaded.** crow-site `not deployed` (rollback target `unknown`).');
     const build = await run({ build: 1 });
     expect(build.code).toBe(1);
-    expect(build.ran).toEqual([BUILD]);
+    expect(build.ran).toEqual([CLEAN, BUILD]);
   });
 
   it('uploads nothing when wrangler cannot say which version is live', async () => {
     const r = await run({ live: [null] });
     expect(r.code).toBe(1);
-    expect(r.ran).toEqual([BUILD, CHECK, STATUS]);
+    expect(r.ran).toEqual([CLEAN, BUILD, CHECK, STATUS]);
     expect(r.record).toContain("FAIL, wrangler cannot read crow-site's live version");
   });
 
   it('exits 1 after a refused upload without a check or a rollback, when the live version did not change', async () => {
     const r = await run({ upload: { code: 1, out: 'Authentication error [code: 10000]' } });
     expect(r.code).toBe(1);
-    expect(r.ran).toEqual([BUILD, CHECK, STATUS, UPLOAD, STATUS]);
+    expect(r.ran).toEqual([CLEAN, BUILD, CHECK, STATUS, UPLOAD, STATUS]);
     expect(r.probes).toEqual([]);
     expect(r.record).toContain(`FAIL, crow-site's upload was refused.** crow-site \`not deployed\` (rollback target \`${BEFORE}\`).`);
   });
@@ -152,7 +155,7 @@ describe('pnpm site:deploy', () => {
     const r = await run({ tryMjs: [ok(stale)], live: [BEFORE, AFTER, BEFORE] });
     expect(r.code).toBe(1);
     expect(r.probes.filter((p) => p.url === SITE).map((p) => p.at)).toEqual(Array.from({ length: 25 }, (_, i) => i * 5000));
-    expect(r.ran).toEqual([BUILD, CHECK, STATUS, UPLOAD, STATUS, ROLLBACK, STATUS]);
+    expect(r.ran).toEqual([CLEAN, BUILD, CHECK, STATUS, UPLOAD, STATUS, ROLLBACK, STATUS]);
     const why = `the live site did not pass its check within 120 s: ${SITE}try.mjs answered 200, but its SHA-256 starts ${sha256(stale).slice(0, 12)}, and the build pinned ${BUILT.trySha256.slice(0, 12)}`;
     expect(r.err).toContain(`FAIL: ${why}`);
     expect(r.record).toBe(`**Site deploy 2026-11-11 09:05 UTC, commit \`016c28e\` on branch \`t-313-deploy-lib\`: FAIL, ${why}.** crow-site \`${AFTER}\` (rollback target \`${BEFORE}\`, rolled back).`);

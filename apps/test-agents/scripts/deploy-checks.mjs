@@ -88,11 +88,17 @@ export function recordLine({ startedAt, commit, version, before, failure, rolled
  *   now: () => number,
  *   log: (line: string) => void,
  *   error: (line: string) => void,
- * }} effects `args` go to `wrangler deploy` as they are; `config` is the wrangler file's path.
+ * }} effects `args` is empty or `--dry-run` alone, and anything else is refused; `config` is the wrangler file's path.
  * @returns {Promise<number>} the exit code: 0 on a pass, 1 on a failure, 2 on a pre-flight refusal, wrangler's own for
  *   a dry run.
  */
 export async function deploy({ args, config, sh, probe, sleep, now, log, error }) {
+  // --dry-run or nothing. Any other argument would reach wrangler unchecked: `--dry-run --no-dry-run` would upload
+  // with no pre-flight, health check or rollback, and `--name` would upload a Worker these checks never read.
+  if (args.length > 1 || (args.length === 1 && args[0] !== '--dry-run')) {
+    error(`Refused: ${COMMAND} takes --dry-run or no argument (got ${args.join(' ')}), and it deploys for real.`);
+    return 2;
+  }
   const upload = ['npx', ['-y', 'wrangler@4', 'deploy', '-c', config, ...args]];
   if (args.includes('--dry-run')) {
     const r = await sh(...upload);
