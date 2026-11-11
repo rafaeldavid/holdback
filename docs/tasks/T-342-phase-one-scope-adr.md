@@ -5,7 +5,7 @@
 - **Depends on:** none. T-334 (the contract clean-up), T-338 (the audit docs) and T-340 (the state model and the threat model) run beside it.
 - **Paths this task may touch:** `docs/decisions/ADR-0031-phase-one-contract-scope.md` (new), `docs/audit/scope.md`, `docs/decisions-today.md` (new lines only), this file.
 - **Human gate:** no. The change is confined to this repository. Rafa's own edits wait for him: the sentence in `CLAUDE.md`'s litmus test 3, and the answers this task leaves open.
-- **Status:** review
+- **Status:** done (PR 329, merged 2026-11-11 at `fd2f41a`)
 - **Agent/session:** the T-342 session, change kind 10 (research and decisions), target 200k tokens.
 
 ## Intent
@@ -57,6 +57,7 @@ Change kind 10 has no local checks; CI is the gate. Nothing was built or run: th
 - **The red team:** one pass, without the ADR or its reasoning. No Critical finding; 2 High, 5 Medium, 5 Low. ADR-0031 answers each one in "Red-team findings and answers" [measured: the pass's report].
 - **Not read:** `DrandQuicknetBeacon.sol`, the formal model, `packages/settlement`, `apps/operator`. Facts about them come from the searches and are labelled.
 - **Snapshot diffs:** none.
+- **CI on PR 329,** at head `ae1b7e2`: 6 checks passed (check, changes, gitleaks, CodeQL and its two analyses) and 5 were skipped, because the change touches docs only [measured: `gh pr checks 329`]. Merged at 19:18 UTC on 2026-11-11.
 - **Metrics:** subagents used 566,389 tokens [measured: 149,434 and 175,728 for the two searches, 241,227 for the red team]. That is over the kind's 200k target before this session's own tokens. The searches returned more than the ADR needed; one search with a narrower brief would have done.
 
 ## Decisions
