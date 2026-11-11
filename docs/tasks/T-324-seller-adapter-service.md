@@ -6,7 +6,7 @@
 - **Depends on:** T-318 (`examples/seller-adapter.ts`, PR 284)
 - **Paths this task may touch:** `examples/seller-adapter.ts` (the HTTP server, the quote route, the journal and startup only), new files beside it for the service recipe, `examples/seller-adapter.test.ts` (new tests only), `vitest.config.ts` (a cost line for a new test file only), `.gitignore` (a line for a new state file only), `site/llms.txt` (the seller section only), this file. Never: `packages/`, `apps/`, `spec/schemas/`, `contracts/`, `examples/buyer-signer.ts` (T-325), `examples/audit-deal.ts` (T-326), or the adapter's result-to-delivery path (T-323).
 - **Human gate:** no. The site deploy that publishes the `llms.txt` change waits for Rafa. The recipe deploys nothing.
-- **Status:** in progress
+- **Status:** done (PR 305, merged 2026-11-11)
 - **Agent/session:** the T-324 session, 2026-11-11, branch `t-324-seller-adapter-service`; roadmap row N61
 
 ## Intent
@@ -64,6 +64,7 @@ All runs on 2026-11-11, on branch `t-324-seller-adapter-service`, cut from `orig
 - **Site (measured).** `node site/build.mjs && node site/check.mjs`: "site check PASS". `site/index.html` and `site/try.mjs` did not change.
 - **CI's first run (measured).** Every job passed except test shard 2/4 and `check`: T-313's `tests/ci-gated.test.ts` counted `examples/seller-adapter.test.ts` as gated, because the HTTPS test skipped without `openssl`. The test no longer skips; it fails without `openssl`, which the CI runners have. `tests/ci-gated.test.ts` and the adapter's test then passed locally, 22 tests.
 - **After merging `origin/main` at `488f30a`, with T-323's report converter (measured).** One conflict, in `site/llms.txt`: both bullets kept. `examples/seller-adapter.ts` merged cleanly, with T-323's `reportMapping` and this task's gate both in place. `pnpm build`, `pnpm lint` and the site check pass. `pnpm exec vitest run examples tests/ci-gated.test.ts tests/site-deploy.test.ts tests/audit-report-template.test.ts`: 24 files passed; 263 tests passed and 13 skipped, in 106 s.
+- **CI after the merge (measured).** Every check on PR 305 passed at `e0b3c49`: four test shards, typecheck, lint, spec, snap, contracts, formal, both anvil jobs, `check`, gitleaks and CodeQL.
 - **Not run.** Caddy and systemd themselves: neither is installed on this machine, and the recipe deploys nothing. A Node TLS proxy in the test plays Caddy's part. The full `pnpm verify`, `pnpm snap` and gitleaks: CI runs them.
 
 ## Decisions
