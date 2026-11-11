@@ -56,8 +56,37 @@
 
 ## Evidence
 
-Fill this in before review. Label each item measured, inferred or guessed.
+All local runs on 2026-11-11, on branch `t-326-audit-deal-custom-report` cut from `origin/main` at `a310279` (PR 301).
+
+### Test first
+
+- **Before the change (measured).** `pnpm build` failed on the new tests: `parseArgs` not exported, `reportFile` and `termsFile` not options, `failedChecks` not a result field.
+
+### The deal with a seller's own files
+
+- **Released (measured).** `examples/audit-deal.test.ts`, the two-files report (`fixtures/data/audit-report/report.two-files.json`, 2 findings) under `fixtures/terms/audit-report-two-files.yaml`: the deal ends Released on both operators. The offer carries the file's deliverable and acceptance, a price of 1,234.56 tUSD, a delivery deadline 172,800 s (2 days) after creation, and the file's offer, funding and appeal windows. The seller receives 1,234.56 tUSD. The buyer opens the file's exact bytes, with the file's sha256, and its own run of the 5 checks says accept. No secret key and no finding title reaches the output.
+- **Refused (measured).** The same terms with `report.two-files.missing-file.json`: the adapter's preflight fails `coverage (required): schema: /filesReviewed: fewer than 2 items` and delivers nothing. Both operators show the commitment Held; its events hold `hold.funded` and no `delivery.submitted`; the seller receives 0.00 tUSD. The run's last two steps are "The seller does not deliver" and "The deal stays Held", and it prints the failed check.
+- **A report file alone (measured).** The built-in sample, named with `--report`, runs under the built-in terms and ends Released with 2,000.00 tUSD to the seller.
+- **Terms refused before any deal opens (measured).** Eight terms files, each refused with a message naming the field and with no "The seller starts" line: a price of `"1234.56"` (`/price/amount`), no `deliverable.format`, an unknown key (`terms.colour`), `maxSubmissions: 2`, optimistic settlement (`/timing` needs `disputeBy`), a `judgment` disclosure level (needs `privateTerms`), a settlement token other than the price's, and a price in `tUSDX` on a layer that holds tUSD. A report file that does not exist is refused as unreadable.
+- **The command (measured).** `node examples/audit-deal.ts --report … --terms …` exits 0 and prints `Result: Released.`; with the missing-file report it exits 1, prints the failed check and `Result: Held.`; `--terms` with no file exits 2 with the usage. By hand, the refused run takes 0.6 s from start to `Held`.
+- **No arguments, as before (measured).** `pnpm audit-deal` runs the released outcome (Released in 0.6 s, 2,000.00 tUSD to the seller) and the refused one (Refunded in 0.9 s after the clock moved 345,601 s), and exits 0.
+
+### Checks
+
+- `pnpm typecheck` exits 0; `pnpm lint` prints nothing (measured).
+- `pnpm exec vitest run examples/audit-deal.test.ts`: 11 tests passed, the 5 from T-321 and 6 new (measured).
+- `pnpm exec vitest run examples/`: 20 files; 186 tests passed and 13 skipped, in 122 s (measured).
+- `node site/build.mjs && node site/check.mjs`: "site check PASS"; the build changed no generated file (measured).
+- Not run: the full `pnpm verify` and gitleaks; CI runs both gates.
 
 ## Decisions
+
+1. **The seller's API is the stub plus a result route.** The stub serves only its built-in report, and its file belongs to another session. `audit-deal.ts` serves the report file's bytes at a result address of its own and asks the stub whether the job exists and is complete. The quote and the start still go to the stub.
+2. **The terms file is the testkit's terms format.** `parseTermsYaml` already checks a terms file as a full commitment and names the field it refuses, so a seller writes the same file it would use elsewhere (`fixtures/terms/audit-report.yaml`). JSON works, being YAML.
+3. **What the terms file sets, and what it does not.** The adapter offers its deliverable, checks, rubric and seven windows, and the quote carries its price and delivery window. The club, the adjudicators, the policy and the adjudication fee come from discovery, as in every deal the adapter makes; the run says so on its second line. The buyer caps the fees at the file's adjudication fee plus the operator fee the operators publish, so a world fee above the file's would stop the buyer before it signs.
+4. **One refusal of our own.** Terms whose settlement token is not the price's token are refused: the offer route settles in the price's token and would offer other terms. The other kinds the route cannot make (another submission count, optimistic settlement, a private level) fail the commitment parser first, so no code here checks them again.
+5. **A refused report stops at Held.** The built-in refused outcome still waits out the deadline and reclaims, as before. With the seller's own files the point is to learn whether the report settles: the run names the failed checks, from the check library run again on the bytes the seller's API returned, and stops with the hold funded.
+6. **Exit codes follow `check-delivery.ts`.** With a seller's own files: 0 Released, 1 the report does not settle (Held, or Refunded after a judgment), 2 the run could not start or stopped on an error. Without them, any failure still exits 1, as before.
+7. **Local only.** `--live` with `--report` or `--terms` is refused, as the brief keeps this task off Sepolia.
 
 ## Handoff
