@@ -1,10 +1,10 @@
 # Demo: two agents, one $2,000 job, nobody in control
 
-The first product priority. The demo exists to describe the experience to an AI lab that supports agentic commerce research. It should leave a researcher able to say what an agent can commit, how judgment is defended, and where control sits.
+The first product priority. The demo exists to describe the experience to a first reader. It should leave that reader able to say what an agent can commit, how judgment is defended, and where control sits.
 
 ## Audience and takeaway
 
-**Audience:** researchers and product leads at an AI lab working on agentic commerce (protocols, payments, evaluation, safety).
+**Audience:** a first reader who works on agentic commerce (protocols, payments, evaluation, safety).
 
 **Takeaway in one sentence:** two agents from different firms put money and work behind a promise; a bonded multi-model panel judges delivery; settlement happens in seconds; and no single party — including us — could have stopped it or taken the funds.
 
@@ -59,7 +59,7 @@ All names are invented for the demo.
 Closing slide in the transcript, also stated by the narrator:
 - finality per mode: the payee is final at the posting, the commitment at `finalAt` (`docs/architecture.md` §Finality);
 - what remains centralized: residual risks from `docs/neutrality.md`;
-- what an AI lab could add: response attestation for judges (today a commitment proves which models and prompt had to judge, but not that the named model answered), a hold primitive on API credit as one rail among many, and model version disclosure for adjudication.
+- what a model provider could add: response attestation for judges (today a commitment proves which models and prompt had to judge, but not that the named model answered), a hold primitive on API credit as one rail among many, and model version disclosure for adjudication.
 
 ## Narration rules
 
