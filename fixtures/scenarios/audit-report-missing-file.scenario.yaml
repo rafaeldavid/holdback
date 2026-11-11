@@ -1,7 +1,7 @@
 # @settlement sim @judges recorded @mode guaranteed_on_decision @seed 318
 name: audit-report-missing-file
 description: >-
-  The audit-report template (T-317), checks-only. Tidewater's report lists two of the three files in
+  The audit-report template (T-317, loosened by T-320), checks-only. Tidewater's report lists two of the three files in
   scope. The required coverage check fails, so Bench A rejects with no panel: Atlas gets the 1,500 tUSD
   back and Bench A earns the fee.
 club: fixtures/clubs/data-services-v1.yaml

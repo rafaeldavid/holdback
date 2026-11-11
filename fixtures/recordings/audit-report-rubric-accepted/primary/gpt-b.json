@@ -1,0 +1,45 @@
+{
+  "format": "holdback.recording/v1",
+  "scenario": "audit-report-rubric-accepted",
+  "role": "primary",
+  "judgeId": "gpt-b",
+  "provider": "openai-compatible",
+  "family": "gpt",
+  "model": "placeholder-gpt-b-20260601",
+  "promptTemplateHash": "0xabb5ec9b33cf9a936e140bf8530c217f6629fdf1e08a46fbdf6bd7363ce84dd2",
+  "inputHash": "0x312b5d3beb2a218a1d2a1dad6f3cac157ce261b676d31df0df5215295a23db6d",
+  "rubricHash": "0x0fdbdfe2b3b351efd10175b9f139df1a92ad06345e6a29b03b72b116d27c5167",
+  "capturedFrom": "fake",
+  "verdict": {
+    "criteria": [
+      {
+        "id": "root_cause",
+        "score": 4,
+        "evidence": "fake judge: fixed score"
+      },
+      {
+        "id": "impact",
+        "score": 4,
+        "evidence": "fake judge: fixed score"
+      },
+      {
+        "id": "severity",
+        "score": 4,
+        "evidence": "fake judge: fixed score"
+      },
+      {
+        "id": "fix",
+        "score": 4,
+        "evidence": "fake judge: fixed score"
+      },
+      {
+        "id": "distinct",
+        "score": 4,
+        "evidence": "fake judge: fixed score"
+      }
+    ],
+    "overall": "pass",
+    "injectionSuspected": false,
+    "rationale": "fake judge: fixed passing verdict, not a model output"
+  }
+}

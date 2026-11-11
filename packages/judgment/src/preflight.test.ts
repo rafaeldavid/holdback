@@ -106,7 +106,7 @@ describe('preflightDelivery: the audit-report sample deal (T-317)', () => {
   it.each(['report.json', 'report.reordered.json', 'report.no-findings.json'])('accepts %s on a checks-only deal, as the adjudicator does', async (name) => {
     const p = await agree(json(report(name)));
     expect(p.result).toBe('accept');
-    expect(p.deterministic.map((o) => [o.checkId, o.passed])).toEqual([['report', true], ['scope', true], ['coverage', true], ['hidden', true]]);
+    expect(p.deterministic.map((o) => [o.checkId, o.passed])).toEqual([['report', true], ['proof', true], ['scope', true], ['coverage', true], ['hidden', true]]);
   });
 
   it('rejects the report that misses one file in scope, with the adjudicator\'s detail', async () => {
@@ -129,7 +129,9 @@ describe('preflightDelivery: the audit-report sample deal (T-317)', () => {
       (r) => (r.commit = 'a'.repeat(40)),
       (r) => delete r.findings[1].pocFiles,
       (r) => (r.findings[2].severity = 'High'),
-      (r) => (r.findings[0].file = 'contracts/Other.sol'),
+      (r) => (r.findings[0].locations[0].file = 'contracts/Other.sol'),
+      (r) => (r.findings[1].locations = []),
+      (r) => delete r.findings[0].impact,
       (r) => (r.findings[2].title += '​'),
       (r) => (r.notes = 'extra'),
       (r) => delete r.findings,

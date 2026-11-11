@@ -1,7 +1,7 @@
 # @settlement sim @judges recorded @mode guaranteed_on_decision @seed 319
 name: audit-report-reordered
 description: >-
-  The audit-report template (T-317), checks-only. Tidewater's report lists the three files in scope in
+  The audit-report template (T-317, loosened by T-320), checks-only. Tidewater's report lists the three files in scope in
   another order than the terms. The coverage check compares the lists as sets, so the report passes and
   Bench A accepts with no panel.
 club: fixtures/clubs/data-services-v1.yaml
