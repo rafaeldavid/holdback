@@ -880,6 +880,8 @@ export class Operator {
     if (p.type !== 'invalid_state') return p.type === 'invalid_terms' ? { ...p, ...(fieldOf(p.detail) ? { field: fieldOf(p.detail)! } : {}) } : p;
     const s = await this.o.settlement.state(commitmentIdOf(op)).catch(() => null);
     if (!s) return p;
+    // ADR-0031 §8: a phase-one appeal is refused in every state, so no state to wait for is named (T-349 review).
+    if (this.phaseOne && (op.kind === 'appeal' || (op.kind === 'trigger' && op.timeout === 'appeal_expiry'))) return { ...p, state: s.escrowState };
     const needs = needsOf(op);
     return { ...p, state: s.escrowState, ...(needs && !needs.includes(s.escrowState) ? { needs } : {}) };
   }

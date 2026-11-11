@@ -319,8 +319,12 @@ export class Adjudicator {
     return null;
   }
 
-  /** The contract reserves a fallback's bond when it decides and refuses an uncovered one (T-206 M-3). */
+  /**
+   * The contract reserves a fallback's bond when it decides and refuses an uncovered one (T-206 M-3). Phase one has no
+   * bond behind any decision (ADR-0031 §8), so there is no cover to check, at the takeover or before signing.
+   */
   async #coverProblem(c: DecisionTask['commitment']): Promise<Problem | null> {
+    if (this.#cfg.settlement.phaseOne) return null;
     const cover = await this.#cfg.settlement.bondCover(this.address, c);
     if (cover >= BigInt(c.price.amount)) return null;
     return problem('coverage_exceeded', `${this.#cfg.name} has ${cover} free bond for this deal and the price is ${c.price.amount} ${c.price.token}: a fallback's decision is backed by its bond, so it declines rather than sign one it cannot cover`);
@@ -351,8 +355,7 @@ export class Adjudicator {
       const terms = (role === 'fallback' ? this.#windowsProblem(c) : null) ?? this.#feeProblem(c);
       if (terms) return terms;
     }
-    // Phase one: no bond backs a decision, so there is no cover to check (ADR-0031 §8).
-    return o.cover && !this.#cfg.settlement.phaseOne ? this.#coverProblem(c) : null;
+    return o.cover ? this.#coverProblem(c) : null;
   }
 
   /**

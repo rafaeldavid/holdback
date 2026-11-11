@@ -1087,6 +1087,19 @@ describe('declines fallback turns outside its terms or its free bond, and appeal
     expect((await b.adj.runOnce()).decided).toEqual([{ commitmentId: id, role: 'fallback', outcome: 'accept' }]);
   });
 
+  // ADR-0031 §8 (review of T-349, finding 1): no bond backs a decision on a chain, so the fallback neither declines the
+  // takeover nor refuses to sign for want of one. Before the fix it judged and then refused, and the deal defaulted.
+  it('on a chain settlement the fallback triggers, judges and signs with no bond at all, at the takeover and before signing', async () => {
+    const { s, b, id } = await setup({ phaseOne: true });
+    s.bonds.set(B.address, 0n);
+    s.at('2026-11-01T10:02:00Z');
+    const report = await b.adj.runOnce();
+    expect(report.refused).toEqual([]);
+    expect(report.triggered).toEqual([id]);
+    expect(report.decided).toEqual([{ commitmentId: id, role: 'fallback', outcome: 'accept' }]);
+    expect(s.state(id).kind).toBe('Released');
+  });
+
   it('reads its free bond again before signing a retry: judged, then the bond is taken, so it does not sign until it is back', async () => {
     const { s, b, id } = await setup();
     s.at('2026-11-01T10:02:00Z');

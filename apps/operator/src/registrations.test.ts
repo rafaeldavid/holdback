@@ -372,31 +372,27 @@ describe('phase one on a chain settlement: no unbonded-fallback refusal, no appe
       if (offer.kind !== 'offer') throw new Error('expected an offer');
       const relayed = await post(node.url, '/v1/commitments', offer.commitment);
       expect(relayed.status, JSON.stringify(relayed.body)).toBe(200);
-      const primary = await fetch(`${node.url}/v1/adjudicators/${cast.primary.address}`).then((r) => r.json() as Promise<J>);
-      expect(primary.observed?.bond ?? 'none').toBe('none');
+      // `observed.bond` reads none on a chain world: registration.anvil.test.ts asserts it on registered adjudicators.
     } finally {
       await node.close();
     }
   });
 
   // A party appeal is not in phase one (ADR-0031 §8): a chain settlement refuses it, and SimChain keeps it.
-  it('answers POST /v1/prepare/appeal with invalid_state naming phase one, and SimChain prepares it as before', async () => {
+  it('answers POST /v1/prepare/appeal with invalid_state naming phase one, and names no state to wait for', async () => {
     const sim = new SimChain(await unbonded());
     const deal = new Deal(sim, cast, { club });
     const onChain = await startOperator({ settlement: asChain(sim), registry: simRegistry(sim), signerKey: simActor('op', 'operator').key, operatorId: 'op-t349-a', env: {} });
-    const onSim = await startOperator({ settlement: sim, registry: simRegistry(sim), signerKey: simActor('op2', 'operator').key, operatorId: 'op-t349-b', env: {} });
     try {
       // A party appeal is not in phase one (ADR-0031 §8): the chain settlement refuses it, and SimChain keeps it.
       const body = { commitmentId: deal.id, appellant: cast.buyer.address };
       const refused = await post(onChain.url, '/v1/prepare/appeal', body);
       expect([refused.status, String(refused.body.type).split('/').at(-1)]).toEqual([409, 'invalid_state']);
       expect(refused.body.detail).toMatch(/phase-one contracts, which have no party appeals and no bonds \(ADR-0031, D57\)/);
-      // SimChain only: the full protocol still prepares the appeal.
-      const sim409 = await post(onSim.url, '/v1/prepare/appeal', body);
-      expect(sim409.body.detail ?? '').not.toMatch(/phase-one/);
+      expect(refused.body.needs).toBeUndefined();
+      // SimChain keeps the full protocol: sim-world.test.ts prepares and files a party appeal end to end.
     } finally {
       await onChain.close();
-      await onSim.close();
     }
   });
 });
