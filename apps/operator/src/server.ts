@@ -46,7 +46,7 @@ import type { DryRunSubmission, Settlement, SubmitResult } from '@holdback/settl
 import { privateKeyToAccount } from 'viem/accounts';
 import type { Sha256, Signature, Timestamp, TokenAmount } from '@holdback/core';
 import { CryptoError, sha256 } from '@holdback/core/crypto';
-import { MAX_CIPHERTEXT_BYTES, type CiphertextStore } from '@holdback/core/store';
+import { MAX_CIPHERTEXT_BYTES, StoreError, type CiphertextStore } from '@holdback/core/store';
 import { ENVELOPE_SPEC } from './envelope-spec.js';
 import { FeedbackDesk, FeedbackError, MAX_REPORT_BYTES, parseReport, type FeedbackOptions, type Report } from './feedback.js';
 import { startupGuards } from './guards.js';
@@ -138,6 +138,12 @@ export interface OperatorOptions {
    * operator never receives plaintext or a content key. Without one, those routes answer not_found.
    */
   store?: CiphertextStore;
+  /**
+   * The largest ciphertext this node stores, in bytes (T-315): what `store` holds. Discovery states it as
+   * `limits.maxCiphertextBytes` and POST /v1/ciphertext refuses more with it. Default and ceiling: the protocol's
+   * MAX_CIPHERTEXT_BYTES (10 MiB), the most an adjudicator reads.
+   */
+  maxCiphertextBytes?: number;
   /** This node's public base URL, for ciphertext URIs and the well-known document. Default: the listening address. */
   baseUrl?: string;
   /**
@@ -431,8 +437,11 @@ export class Operator {
   baseUrl: string;
 
   /** Runs the startup guards: no Operator exists off a test chain or with a live Stripe key. */
+  private readonly maxCiphertextBytes: number;
   constructor(private readonly o: OperatorOptions) {
     startupGuards({ env: o.env, chainId: o.registry.chainId });
+    this.maxCiphertextBytes = o.maxCiphertextBytes ?? MAX_CIPHERTEXT_BYTES;
+    if (!Number.isSafeInteger(this.maxCiphertextBytes) || this.maxCiphertextBytes < 1 || this.maxCiphertextBytes > MAX_CIPHERTEXT_BYTES) throw new Error(`maxCiphertextBytes must be a whole number of bytes from 1 to ${MAX_CIPHERTEXT_BYTES}, got ${String(o.maxCiphertextBytes)}`);
     this.baseUrl = trimTrailingSlashes(o.baseUrl ?? '');
     this.domain = holdbackDomain(o.registry.chainId, o.registry.verifyingContract);
     this.signer = privateKeyToAccount(o.signerKey).address;
@@ -618,7 +627,7 @@ export class Operator {
     let size = 0;
     for await (const chunk of ctx.req as AsyncIterable<Buffer>) {
       size += chunk.length;
-      if (size > limit) fail('payload_too_large', `request bodies are limited to ${limit} bytes here`);
+      if (size > limit) fail('payload_too_large', `request bodies are limited to ${limit} bytes here`, { maxBytes: limit });
       chunks.push(chunk);
     }
     const text = Buffer.concat(chunks).toString('utf8');
@@ -1098,14 +1107,21 @@ export class Operator {
     let size = 0;
     for await (const chunk of ctx.req as AsyncIterable<Buffer>) {
       size += chunk.length;
-      if (size > MAX_CIPHERTEXT_BYTES) fail('payload_too_large', `ciphertext is limited to ${MAX_CIPHERTEXT_BYTES} bytes`);
+      if (size > this.maxCiphertextBytes) fail('payload_too_large', `this node stores a ciphertext of at most ${this.maxCiphertextBytes} bytes (limits.maxCiphertextBytes in discovery)`, { maxBytes: this.maxCiphertextBytes });
       chunks.push(chunk);
     }
     const bytes = new Uint8Array(Buffer.concat(chunks));
     if (bytes.length === 0) fail('invalid_terms', 'POST the ciphertext bytes as the body (application/octet-stream)');
     // Content-addressed, so the fingerprint is the hash: the same key with other bytes is a conflict.
     return this.idempotent(ctx, { sha256: sha256(bytes) }, async () => {
-      const id = await store!.put(bytes);
+      let id: Sha256;
+      try {
+        id = await store!.put(bytes);
+      } catch (e) {
+        // A store smaller than this node states: still a 413, with no number this node cannot vouch for.
+        if (e instanceof StoreError && e.code === 'too_large') return fail('payload_too_large', `this node's store refused a ciphertext of ${bytes.length} bytes as too large`);
+        throw e;
+      }
       return this.ok({ id, uri: `${this.baseUrl}/v1/ciphertext/${id}`, bytes: bytes.length });
     });
   }
@@ -1276,6 +1292,8 @@ export class Operator {
     const windowSec = r ? Math.round(r.windowMs / 1000) : 0;
     const limits = {
       ...(r ? { reads: { limit: r.reads, windowSec, per: 'client' }, writes: { limit: r.writes, windowSec, per: 'signer' } } : {}),
+      // T-315: the largest ciphertext POST /v1/ciphertext stores; absent on a node with no store.
+      ...(this.o.store ? { maxCiphertextBytes: this.maxCiphertextBytes } : {}),
       // Refusals are not stored (a corrected call reuses its key); successes are kept until this node restarts.
       idempotency: { replays: 'success-only', retention: 'process' },
     };

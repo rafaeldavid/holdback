@@ -14,7 +14,7 @@ import { LiveChain, type DeploymentFile } from '@holdback/settlement/live';
 import { encodePublicKey, generateEncryptionKeyPair } from '@holdback/core/crypto';
 import { MemoryFeedbackStore, signRegistration, testAccount, type StoredRegistration, type TestAccount } from '@holdback/operator';
 import { MemoryStorage, PublicWorld, type PublicWorldOptions } from './index.js';
-import { BondReads, DEMO_FAUCET_MAX_GRANT, TimeoutBudgetRows } from './world.js';
+import { BondReads, DEMO_FAUCET_MAX_GRANT, DEMO_MAX_CIPHERTEXT_BYTES, TimeoutBudgetRows } from './world.js';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -214,7 +214,7 @@ describe('public mode', () => {
       expect(notes).toMatch(/one shared simulated settlement layer/i);
       expect(notes).toMatch(/POST \/v1\/faucet/);
       expect(notes).toMatch(/scripted/i);
-      expect(d.limits).toEqual({ reads: { limit: 1200, windowSec: 60, per: 'client' }, writes: { limit: 120, windowSec: 60, per: 'signer' }, idempotency: { replays: 'success-only', retention: 'process' } });
+      expect(d.limits).toEqual({ reads: { limit: 1200, windowSec: 60, per: 'client' }, writes: { limit: 120, windowSec: 60, per: 'signer' }, maxCiphertextBytes: 1_048_576, idempotency: { replays: 'success-only', retention: 'process' } });
       expect(d.demo).toMatchObject({ clubId: 'demo-club', operators: urls, token: { id: 'tUSD', decimals: 6 }, minWindowSec: 2, faucet: { path: '/v1/faucet', grant: { token: 'tUSD', amount: '1000000000' }, perAddressEverySec: 3600, perClientPerWindow: 10 } });
       expect(d.demo.adjudicators.map((a: J) => a.role)).toEqual(['primary', 'fallback', 'appeal']);
       const root = (await (await fetch(`${u}/`)).json()) as J;
@@ -227,6 +227,31 @@ describe('public mode', () => {
     // The two nodes sign receipts with different keys.
     const signers = await Promise.all(urls.map(async (u) => ((await (await fetch(`${u}/v1/status`)).json()) as J).receiptSigner));
     expect(new Set(signers).size).toBe(2);
+  });
+
+  it('publishes the largest ciphertext it stores, refuses a larger one by that number, and the docs state the same (T-315)', async () => {
+    const { urls } = await serve();
+    const cap = DEMO_MAX_CIPHERTEXT_BYTES;
+    // Discovery, on both nodes.
+    for (const u of urls) expect(((await (await fetch(`${u}/.well-known/holdback.json`)).json()) as J).limits.maxCiphertextBytes).toBe(cap);
+    const upload = (bytes: Uint8Array, key: string) => fetch(`${urls[0]}/v1/ciphertext`, { method: 'POST', headers: { 'content-type': 'application/octet-stream', 'idempotency-key': key }, body: bytes });
+    // The node: exactly the cap is stored and served back; one byte more is refused with the cap in `maxBytes`.
+    const fits = await upload(new Uint8Array(cap).fill(7), 'k-fits');
+    const stored = (await fits.json()) as J;
+    expect([fits.status, stored.bytes]).toEqual([200, cap]);
+    expect((await (await fetch(stored.uri)).arrayBuffer()).byteLength).toBe(cap);
+    const over = await upload(new Uint8Array(cap + 1).fill(7), 'k-over');
+    const refusal = (await over.json()) as J;
+    expect([over.status, refusal.type, refusal.maxBytes]).toEqual([413, 'payload_too_large', cap]);
+    expect(refusal.detail).toContain(String(cap));
+    // The docs: each names the field and the demo's number beside it, and neither says a node stores 10 MiB.
+    const bytes = `${cap.toLocaleString('en-US')} bytes`;
+    expect(bytes).toBe('1,048,576 bytes');
+    for (const file of ['site/llms.txt', 'docs/api.md', 'spec/openapi/paths.json']) {
+      const text = readFileSync(new URL(`../../../${file}`, import.meta.url), 'utf8');
+      expect(text.split('\n').some((line) => line.includes('maxCiphertextBytes') && line.includes(bytes)), `${file} states ${bytes} beside limits.maxCiphertextBytes`).toBe(true);
+      expect(text.split('\n').filter((line) => /ciphertext/i.test(line) && /at most 10 MiB|ciphertext 10 MiB/.test(line)), `${file} no longer says a node stores 10 MiB`).toEqual([]);
+    }
   });
 
   it('notes in the body which panel judges a rubric offer; a checks-only offer gets no notice', async () => {
