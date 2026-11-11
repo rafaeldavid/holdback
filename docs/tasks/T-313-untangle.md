@@ -51,8 +51,10 @@ Each row is one PR. A PR keeps behaviour unless its row says "fix".
 - [x] One untrusted-text module (PR 270); one two-origin test harness, one set of demo terms, names that say their unit (PR 275).
 - [x] `pnpm health`, the measure for each round (PR 261).
 - [x] The docs batch: deploy commands, the console's move, three rows in Rules and checks, the README map (this PR).
-- [ ] Rafa merges: CI runs seven more anvil suites, beside `forge test`, and only when the chain side changed (PR 263).
-- [ ] Rafa reads and merges: an audit scope, a contracts README and one known-issues list (PR 267).
+- [x] CI runs seven more anvil suites, beside `forge test`, and only when the chain side changed (PR 263, tier 3; Rafa approved the merge on 2026-11-11).
+- [x] An audit scope, a contracts README and one known-issues list (PR 267; Rafa approved the merge on 2026-11-11).
+- [x] Planning and business material moved to the private repository, with a public pointer page: 29 files (PR 286), the passages inside technical docs (PR 288), the daily log (PR 292), the update-flow table (PR 296) and the agent-pipeline design (PR 297).
+- [ ] Rafa merges, after he switches his cost clone: the cost collector leaves this repository (PR 295).
 - [x] One independent review of the whole change set: no blocking finding; four findings fixed (PR 277 and two commits on PR 263).
 
 Not done, by decision (Rafa, 2026-11-11: "do not over-engineer"): the guard tests for copied facts, the change ledger, and the split of the three large files. They are in the session's triage note.
@@ -61,7 +63,7 @@ Not done, by decision (Rafa, 2026-11-11: "do not over-engineer"): the guard test
 
 - Splitting `evm-settlement.ts`, `world.ts` and `server.ts`. Rafa decides; the recommendation is to wait for the rebuild.
 - The contract tests' duplicated builders and `contracts/.gas-snapshot`.
-- Moving planning and business documents to the private repository. The session classified every tracked non-source file and gave Rafa a move list; nothing moves until he says so.
+- `docs/team.md` and the task files about the console and the cost collector: they stay in this repository. `docs/team.md` names the checks each kind of change runs, and finished task files stay public (Rafa, 2026-11-07).
 - Everything in the session's triage note, which Rafa reviews for the roadmap.
 
 ## Evidence
@@ -75,7 +77,8 @@ All measured on 2026-11-11 unless marked.
 - **The demo, after:** another session deployed main at `a42dc45`, which holds this series, on 2026-11-11 at 07:54 UTC with `pnpm demo-cloud:deploy` and then `pnpm site:deploy`, both on their first real run with the pre-flight (`docs/operations.md`, T-314 to T-317). Its smoke deal ended Released in 44 s. A live deal after it ended Released in 49 s (commitment `0xb8eeab0a…4380`). The pre-flight refused the main checkout for a changed file inside a submodule; PR 282 makes it ignore those.
 - **The local end-to-end run** of the Workers runtime (`pnpm demo-cloud:e2e`) could not start before PR 262 and ends Released in 73 s after it.
 - **The storage failure** (PR 268): on anvil, recovering `persist()` in place stored an event log with a gap, and the world then refused to open ("saved event 2 is out of order"); a restart from main's failed state opened cleanly. So the fix keeps the world failed and reopens it. A write rejected after the book rows still leaves what a restart leaves (triage 36).
-- **CI on a pull request:** 7 min 30 s before (run 42802205136: the contracts job 7 min 18 s, the slowest shard 3 min 10 s). On PR 263's own run, with no compiled output cached: the two anvil legs 4 min 23 s and 4 min 42 s, `forge test` 3 min 38 s, the slowest shard 3 min 2 s. That run also failed once on a missing import in `live.test.ts`, a file CI skipped before.
+- **CI on a pull request:** 7 min 30 s before (run 42802205136: the contracts job 7 min 18 s, the slowest shard 3 min 10 s). After, on a pull request that changes no contract: each anvil leg takes about 4 min 25 s to 5 min, `forge test` 2 min 37 s to 3 min 38 s, the slowest shard about 2 min 45 s to 3 min (runs 42972429956, 42997498785 and 43000885034). In those runs the compiled contracts came from the cache: the restore step reports a hit and `forge build` takes 0 to 1 s, where it took 148 s uncached. The test step itself takes about 230 to 245 s and now bounds the leg. Without the cache a leg takes about 7 min: main's first run, which compiles from source, took 7 min 2 s and 7 min 25 s (run 42999446307). PR 263 also failed once on a missing import in `live.test.ts`, a file CI skipped before.
+- **A correction:** an earlier version of this line, and PR 263's description, called the 4 min 23 s run uncached. It had a cache hit, from an entry the pull request's own first run had saved under the older cache step. So a cache hit does not bring a leg to about 3 min, as that description inferred.
 - **`pnpm health`:** before, at `f03c5fc`: 40 errors dropped with no log, 22 pieces of module-level state, 4 test hooks in demo code, 48 copies of facts beyond one each, 7 source files over 800 lines, 17 gated test files that no CI step names. After, at `8e7fb2a`, not counting the script itself: 41, 22, 4, 51, 7 and 17 (11 once PR 263 merges). So this round did not lower the counts: it fixed failures and deploy paths. The mainnet list fell from 4 files to 2 and the old host from 6 to 4, while the three deploy scripts and the seller's checks each name the operator URLs (2 files to 6).
 - **Crow Control** (private repository): its checks read crow.direct and report a redirect as moved (PR 40); the console moved to control.crow.direct on 2026-11-11 at 06:44 UTC, crow-console `001cb560` (PR 41; `docs/operations.md` has the record). Its tests went from 186 to 207, all passing.
 - **Reviews:** one on PR 268 and one on PR 269 (kind 5), then one over the whole set. None found a blocking issue; each found something worth fixing, and those fixes are in PRs 268, 269, 277 and 263.
@@ -94,12 +97,10 @@ All measured on 2026-11-11 unless marked.
 
 - **Done:** every row above that is ticked. Main is green at each merge.
 - **Waiting on Rafa:**
-  - merge PR 263 (tier 3: `.github/workflows/ci.yml`);
-  - read and merge PR 267 (the audit files);
-  - say which tiers of the move list go to the private repository;
-  - re-approve the cost collector, since PR 260 edited one line under `scripts/costs`;
+  - merge PR 295 after switching the cost clone to the private repository and approving the collector there (the PR's body has the steps);
+  - `CLAUDE.md` still names `update-flow.md`, `costs.md` and `brand/` in its map of docs, and control.escrow.stream in "Start here" (tier 3);
   - a test-seller deploy only when its code next changes: this series changed its deploy script, not the Worker;
   - the private workflow's comment and step name still say control.escrow.stream.
 - **Not verified:** the signed-in console page at control.crow.direct and the 301 from the old host (both need a browser sign-in); the seller's deploy script and every script's rollback path against Cloudflare (tested with stand-ins only; the operators' and the site's deploys passed for real); a chain world's reopen after a failed write (run on SimChain only).
 - **How to resume:** the triage note lists 45 lower-priority items with their locations. The health numbers above are the baseline for the next round: run `pnpm health --gh` before and after.
-- **After PR 263 merges:** add the test `docs/team.md` proposes (every anvil-gated suite is named in CI), and mark that row built.
+- **Not done:** the test `docs/team.md` proposes (every anvil-gated suite is named in CI). `pnpm health` counts 11 gated test files that no CI step names, 6 of them the `examples/e2e-*` files.

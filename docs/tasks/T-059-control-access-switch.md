@@ -7,14 +7,14 @@
   - the `control/` folder and its hourly workflow in the founders' private repository (the console's code, tests and runbook live there, never here);
   - here: `docs/operations.md` and `docs/costs.md` (once the passcode retires), `docs/decisions-today.md` (D45 notes only), `docs/tasks/T-059-control-access-switch.md`.
 - **Human gate:** **yes.** The Access settings, the service tokens, the GitHub secrets, the storage namespace, the encryption key and every Worker deploy are outside this repository. Rafa does the dashboard steps himself; agents deploy only on his go-ahead, given in chat and recorded in Handoff with the date.
-- **Status:** in progress (live at `control.escrow.stream` since 2026-11-04; criterion 5, the passcode's retirement, met on 2026-11-05; left: Michael's confirmation of Strategy, Costs and Keys (criterion 1), two scheduled builds without a failed run, which replaced the 24 hours of hourly runs under D52 (criterion 4), a red-team pass on the live console (criterion 6), and the agents' small items in Handoff)
+- **Status:** in progress (live at `control.escrow.stream` since 2026-11-04; criterion 5, the passcode's retirement, met on 2026-11-05; left: the other founder's confirmation of Strategy, Costs and Keys (criterion 1), two scheduled builds without a failed run, which replaced the 24 hours of hourly runs under D52 (criterion 4), a red-team pass on the live console (criterion 6), and the agents' small items in Handoff)
 - **Agent/session:** coordinator side session, 2026-11-04
 
 ## Intent
 
 Move the founders' console from the passcode page at `escrow.stream/control` to its own host, `control.escrow.stream`, behind Cloudflare Access, as D45 decided: GitHub sign-in, one view for both founders, the private part encrypted at rest, an hourly public refresh and a daily private push. Then retire the shared passcode.
 
-- Inputs: the console code in the founders' private repository, the Access application "Crow Control", Rafa's Cloudflare and GitHub accounts.
+- Inputs: the console code in the founders' private repository, the console's access application, Rafa's Cloudflare and GitHub accounts.
 - Outputs: the console served at `control.escrow.stream` to signed-in founders only; the old address removed; the hourly and daily pushes running; the passcode retired.
 - Non-goals: new console features; moving the console's code to a repository of its own (an open question for Rafa, below).
 
@@ -56,10 +56,10 @@ All 2026-11-04.
   - **Live.** Rafa rebuilt, checked and redeployed as `crow-control` version `bf004e77`. He confirmed: "ok, https://escrow.stream/control is showing the data" (measured by Rafa).
 
 **The switch**
-- **Setup (Rafa):** the Access settings, the two service tokens (`control-push-actions`, `control-push-mac`), the "Pushers" Service Auth policy, the GitHub secrets, `CONTROL_HOURLY` = `on`, and the encryption key (`new-kek.mjs`).
+- **Setup (Rafa):** the Access settings, the two push service tokens (one for the scheduled build, one for the Mac's daily push), the service-auth policy that admits them, the GitHub secrets, `CONTROL_HOURLY` = `on`, and the encryption key (`new-kek.mjs`).
 - **Setup (agents):** created the KV namespace and filled in the push scopes.
 - **Deploy:** `crow-console` version `2398336c`, at 15:44 UTC. The deploy created the DNS record for `control.escrow.stream` with no extra permission. Without a sign-in, `/`, `/map` and `/_push/public.json` answer `302` to the sign-in, and a push with a wrong service token answers `401` (measured).
-- **First pushes.** A push first got `403` from Access because the Pushers policy was not yet attached to the application; once it was, the token passed (measured with a diagnostic).
+- **First pushes.** A push first got `403` from Access because the push service tokens' policy was not yet attached to the console's access application; once it was, the token passed (measured with a diagnostic).
   - **The Mac's private part:** `HTTP 204` (11 keys and the costs, 9 KB sealed).
   - **The hourly job's re-run** (run 41865777731) pushed the public data (465 KB), status (157 bytes), map (202 KB) and contract stack (55 KB), each with `204` (measured).
   - **GitHub's Actions incident** that afternoon left runs queued and their records inconsistent.
@@ -86,7 +86,7 @@ The console is live; the runbook in the console's folder describes how it runs. 
    - ~~delete `CROW_CONTROL_PASSCODE` from holdback `.env`~~ (done 2026-11-05, Evidence);
    - ~~update `keys.json` in the cost directory from the template (the passcode row is gone; the two service tokens, the encryption key and `GH_READ` are in, expiring about 2027-02-02)~~ (done 2026-11-05, Evidence);
    - add the daily private push to the cost routine (T-055);
-   - confirm that both founders see Strategy, Costs and Keys (criterion 1): Michael's confirmation is still open.
+   - confirm that both founders see Strategy, Costs and Keys (criterion 1): the other founder's confirmation is still open.
 2. **Agents:**
    - after two scheduled builds under D52, check the runs and the private push (criterion 4); "Run workflow" on `control-hourly` covers a run GitHub's scheduler skips;
    - run a red-team pass against the live console (criterion 6), best once T-066's remaining slices land (paused under D53);
