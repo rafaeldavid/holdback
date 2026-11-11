@@ -405,8 +405,10 @@ function declinedTurnNotice(s: EscrowState | null, t: DeclinedTurn): string | nu
  * takeover, nothing while it is a party's turn; null once no adjudicator can act on it again, so `look` drops it. The
  * primary accepts an offer before offerExpiresAt and decides a delivery before judgeBy; the fallback takes over at
  * judgeBy and decides before fallbackBy; the appeal adjudicator decides an escalation or an open appeal before
- * appealDecideBy. On a chain the operators send every other timeout themselves once it is due (offer expiry, reclaim,
- * default, appeal expiry; OperatorTimeouts, T-231), and any party may trigger one sooner.
+ * appealDecideBy (SimChain only: a chain takes no party appeal, ADR-0031 §8). On a chain the operators send every other
+ * timeout themselves once it is due (offer expiry, reclaim, default; OperatorTimeouts, T-231), and any party may trigger
+ * one sooner. A decided deal on a chain is final at once, whether core writes its appeal as `none` with appealBy at the
+ * decision or as `expired`: either way no adjudicator acts on it again.
  */
 function workAt(s: EscrowState, ours: (address: string) => boolean, now: number): number[] | null {
   const { adjudicator, fallbackAdjudicator, appealAdjudicator } = s.terms.adjudication;
