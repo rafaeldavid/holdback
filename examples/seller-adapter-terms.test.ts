@@ -212,6 +212,9 @@ describe('seller adapter: terms set per quote', () => {
     delete bare.optionalRubric;
     writeFileSync(join(dir, 'template.json'), JSON.stringify(bare));
     const rule = { when: [{ field: 'options.panel', equals: true }], rubric: true };
+    // An optional rubric with no criteria would make the panel option a silent checks-only offer: refused.
+    writeFileSync(join(dir, 'empty.json'), JSON.stringify({ ...TEMPLATE, optionalRubric: { criteria: [], passThreshold: 0 } }));
+    await expect(adapter({ template: join(dir, 'empty.json') })).rejects.toThrow(/optionalRubric must be a rubric, an object with one or more criteria/);
     // A configuration file with that rule does not load, and names the rule.
     const file = join(dir, 'seller.json');
     writeFileSync(file, JSON.stringify({ sellerApi: { quote: 'http://127.0.0.1:1/q', start: 'http://127.0.0.1:1/s', result: 'http://127.0.0.1:1/{jobId}' }, template: 'template.json', scope: shipped.scope, options: { panel: { type: 'boolean' } }, termsRules: [rule] }));

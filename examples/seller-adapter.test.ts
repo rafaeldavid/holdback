@@ -973,6 +973,10 @@ describe('seller adapter: a refused report waits for the fixed one (T-329)', () 
     await expect(service({ alerts: { callback: 'http://127.0.0.1:9/a', timeoutMs: 0 } })).rejects.toThrow(/alerts\.timeoutMs/);
     for (const refetchEverySec of [-1, 1.5]) await expect(service({ redelivery: { refetchEverySec } })).rejects.toThrow(/redelivery\.refetchEverySec/);
     await expect(service({ redelivery: { readyAuth: { kind: 'bearer', env: 'READY_CREDENTIALS' } } })).rejects.toThrow(/^set READY_CREDENTIALS to one or more ready credentials, comma-separated$/);
+    // A misspelt field inside a block is refused, not dropped for the default (T-331 review).
+    await expect(service({ redelivery: { refetchEverySecs: 600 } as J })).rejects.toThrow(/^redelivery has a field the adapter does not take: refetchEverySecs$/);
+    await expect(service({ mandate: { renewBefore: 60 } as J })).rejects.toThrow(/^mandate has a field the adapter does not take: renewBefore$/);
+    await expect(service({ alerts: { callbak: 'http://127.0.0.1:9/a' } as J })).rejects.toThrow(/^alerts has a field the adapter does not take: callbak$/);
   });
 
   it('a refused deal that is not due reads no state at each poll (T-329 triage row 2)', async () => {

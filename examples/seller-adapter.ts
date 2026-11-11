@@ -437,7 +437,9 @@ function loadTemplate(c: SellerAdapterConfig, token: string): J {
   if (fee !== undefined && !(isRecord(fee) && typeof fee.amount === 'string' && BASE_UNITS.test(fee.amount) && String(fee.token).toLowerCase() === token.toLowerCase())) {
     throw new Error(`${c.template}: fee must be {token, amount} in this settlement layer's token, ${token}, with the amount in base units as a decimal string`);
   }
-  for (const k of ['rubric', 'optionalRubric']) if (template[k] !== undefined && !(isRecord(template[k]) && Array.isArray(template[k].criteria))) throw new Error(`${c.template}: ${k} must be a rubric, an object with criteria`);
+  // `rubric` may be empty (a checks-only deal); `optionalRubric` may not: the panel option would add nothing.
+  if (template.rubric !== undefined && !(isRecord(template.rubric) && Array.isArray(template.rubric.criteria))) throw new Error(`${c.template}: rubric must be a rubric, an object with criteria`);
+  if (template.optionalRubric !== undefined && !(isRecord(template.optionalRubric) && Array.isArray(template.optionalRubric.criteria) && template.optionalRubric.criteria.length > 0)) throw new Error(`${c.template}: optionalRubric must be a rubric, an object with one or more criteria`);
   return template;
 }
 
@@ -690,6 +692,21 @@ export async function pinnedSeller(operators: string[], key: string | undefined)
 export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<Record<string, string | undefined>> = process.env): Promise<RunningAdapter> {
   const removed = removedError('the configuration', c);
   if (removed) throw new Error(removed);
+  // A misspelt field inside a block would load silently and fall back to a default: refuse it, naming the path.
+  const blocks: Array<[string, J, string[]]> = [
+    ['sellerApi', c.sellerApi, ['quote', 'start', 'result']],
+    ['adjudicators', c.adjudicators, ['primary', 'fallback', 'appeal']],
+    ['mandate', c.mandate, ['fromFaucet', 'renewBeforeSec']],
+    ['quoteAuth', c.quoteAuth, ['kind', 'env']],
+    ['alerts', c.alerts, ['callback', 'secretEnv', 'timeoutMs']],
+    ['redelivery', c.redelivery, ['refetchEverySec', 'readyAuth']],
+    ['redelivery.readyAuth', c.redelivery?.readyAuth, ['kind', 'env']],
+  ];
+  for (const [at, block, keys] of blocks) {
+    if (block === undefined) continue;
+    if (!isRecord(block)) throw new Error(`${at} must be an object`);
+    for (const k of Object.keys(block)) if (!keys.includes(k)) throw new Error(`${at} has a field the adapter does not take: ${plain(k).slice(0, 60)}`);
+  }
   const admit = gate(c, env); // refuses a malformed limit or a missing credential before anything is signed
   const refusal = refusalSettings(c, env);
   const m = c.mandate ?? {};
@@ -763,6 +780,7 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
   }
   const at = (ms: number) => new Date(ms).toISOString();
   let warned = 0;
+  let faucetAfter = 0; // local time before which the faucet is not asked again, after it refused
   /** Makes sure a mandate covers the next `renewBeforeSec`: reads it, and on the test service asks the faucet. */
   async function checkMandate(now: number): Promise<void> {
     if (mandateUntil - now > renewBeforeMs) return;
@@ -777,13 +795,19 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
       const offer = discovered.faucet && discovered.clubId === clubId ? ', or leave mandate.fromFaucet unset to take one from the test service\'s faucet' : '';
       throw new Error(mandateUntil ? `the seller ${seller.address}'s mandate in club ${clubId} ended ${at(mandateUntil)}: ask the club's principal for a new one${offer}` : `the seller ${seller.address} holds no mandate in club ${clubId}: ask the club's principal for one${offer}`);
     }
+    // After a refusal the faucet is asked again only a minute later, however many quotes come in between.
+    if (Date.now() < faucetAfter) {
+      if (mandateUntil > now) return;
+      throw new Error(`the seller ${seller.address} holds no mandate in club ${clubId}; the faucet refused at ${at(faucetAfter - 60_000)}, and the adapter asks again after ${at(faucetAfter)}`);
+    }
     const had = mandateUntil > 0;
     let granted: J;
     try {
       granted = await seller.call('POST', '/v1/faucet', { address: seller.address, amount: '1' });
     } catch (e) {
+      faucetAfter = Date.now() + 60_000;
       mandateUntil = await mandateEnd();
-      if (mandateUntil > now) return log(`The faucet did not renew the seller's mandate (${plain((e as Error).message)}); the current one ends ${at(mandateUntil)}.`);
+      if (mandateUntil > now) return log(`The faucet did not renew the seller's mandate (${plain((e as Error).message)}); the current one ends ${at(mandateUntil)}. The adapter asks again in a minute at the earliest.`);
       throw new Error(`the seller ${seller.address} holds no mandate in club ${clubId}, and the faucet refused: ${plain((e as Error).message)}`);
     }
     // On a chain an operator may list the new mandate some seconds after the other: wait up to about a minute for both.
@@ -796,7 +820,7 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
         if (tries >= waitFor) throw e;
       }
       if (mandateUntil - now > renewBeforeMs || tries >= waitFor) break;
-      await new Promise((r) => setTimeout(r, Math.min(c.pollMs, 5000)));
+      await new Promise((r) => setTimeout(r, 5000));
     }
     if (mandateUntil <= now) throw new Error(`the seller ${seller.address} holds no mandate in club ${clubId}, and the faucet granted none`);
     log(`The seller ${had ? 'renewed its mandate' : 'took a mandate'} in club ${plain(clubId!)} from the test service's faucet, until ${at(mandateUntil)}.`);
@@ -1022,7 +1046,7 @@ export async function startSellerAdapter(c: SellerAdapterConfig, env: Readonly<R
     const ways = [every === undefined ? null : `fetches the result again at ${nextFetchAt}`, refusal.ready ? `fetches it when you POST /deals/${deal.id}/ready` : null].filter(Boolean);
     const waits = ways.length
       ? `The adapter holds the delivery until ${deliverBy} and ${ways.join(', and ')}`
-      : `The adapter holds the delivery until ${deliverBy}; set redelivery to have it fetch a fixed report, or deliver a fixed file by hand: node examples/check-delivery.ts <terms.json> <file>, then node examples/seal.ts ${c.journal} <file> ${deal.id}`;
+      : `The adapter holds the delivery until ${deliverBy}; set redelivery to have it fetch a fixed report, or deliver a fixed file by hand: node examples/check-delivery.ts <terms.json> <file>, then node examples/seal.ts ${resolve(c.journal)} <file> ${deal.id}`;
     if (deal.refusedSha256 === resultSha256) {
       // The same bytes as last time: the seller has been told. Wait for the next fetch.
       Object.assign(deal, { stage: 'refused', ready: false, nextFetchAt });
