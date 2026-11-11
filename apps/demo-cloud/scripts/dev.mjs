@@ -2,6 +2,8 @@
 // World Durable Object) on :8787 and holdback-op2 (bound to it through wrangler's dev registry) on :8788.
 // `pnpm demo-cloud:e2e` (--deal) does the same, runs scripts/deal.ts against both, and stops: the end-to-end
 // test of the Workers runtime. MIN_WINDOW_SEC overrides the demo club's minimum window (default 60).
+// Both local nodes run on SimChain (chain id 31337), whatever the wrangler files name for the deployed ones: the
+// Sepolia world needs the relayer secret, and scripts/deal.ts refuses any chain but SimChain (T-313).
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
@@ -15,9 +17,11 @@ if (build.status !== 0) process.exit(build.status ?? 1);
 
 // The e2e run starts from an empty world in its own state directory; plain dev keeps wrangler's default one.
 const persist = runDeal ? ['--persist-to', here(`../.wrangler/e2e-${Date.now()}`)] : [];
+// The deployed nodes name their public addresses (OPERATOR_URLS, read from holdback-op1's environment); locally the
+// list is empty, so each node answers with its own local address (http is allowed only here).
 const nodes = [
-  { config: here('../wrangler.op1.jsonc'), port: 8787, inspector: 9331, vars: ['--var', `MIN_WINDOW_SEC:${window}`, ...persist] },
-  { config: here('../wrangler.op2.jsonc'), port: 8788, inspector: 9332, vars: [] },
+  { config: here('../wrangler.op1.jsonc'), port: 8787, inspector: 9331, vars: ['--var', 'SETTLEMENT:sim', '--var', 'OPERATOR_URLS:', '--var', `MIN_WINDOW_SEC:${window}`, ...persist] },
+  { config: here('../wrangler.op2.jsonc'), port: 8788, inspector: 9332, vars: ['--var', 'SETTLEMENT:sim'] },
 ];
 const children = [];
 const ready = [];
@@ -25,8 +29,6 @@ for (const n of nodes) {
   // --local-upstream: without it wrangler dev hands the Worker the route's host (api.crow.direct), so each node
   // would publish production URLs (apiBaseUrl, ciphertext URIs, llms.txt links) while serving locally.
   const local = ['--local-upstream', `127.0.0.1:${n.port}`, '--local-protocol', 'http'];
-  // The deployed nodes name their public addresses; locally the list is the two local nodes (http is allowed only here).
-  local.push('--var', 'OPERATOR_URLS:');
   const child = spawn('npx', ['-y', 'wrangler@4', 'dev', '-c', n.config, '--ip', '127.0.0.1', '--port', String(n.port), '--inspector-port', String(n.inspector), ...local, '--show-interactive-dev-session=false', ...n.vars], { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] });
   children.push(child);
   ready.push(

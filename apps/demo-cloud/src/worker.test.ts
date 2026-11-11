@@ -25,7 +25,7 @@ function deploy() {
   const state = { storage, blockConcurrencyWhile: <T>(f: () => Promise<T>) => f() };
   let object: World;
   const WORLD = { idFromName: (name: string) => name, get: () => object };
-  const envs: Env[] = ['0', '1'].map((NODE_INDEX) => ({ WORLD, NODE_INDEX, MIN_WINDOW_SEC: '2' }));
+  const envs: Env[] = ['0', '1'].map((NODE_INDEX) => ({ WORLD, NODE_INDEX, SETTLEMENT: 'sim', MIN_WINDOW_SEC: '2' }));
   const restart = (env: Record<string, string> = {}) => void (object = new World(state, { ...envs[0]!, ...env }));
   restart();
   vi.stubGlobal('fetch', (input: string, init?: RequestInit) => worker.fetch(new Request(input, init), envs[input.startsWith(URLS[1]!) ? 1 : 0]!));
@@ -159,5 +159,70 @@ describe('the adjudicator alarm (T-057)', () => {
     const sets = dep.alarm.sets;
     expect(await state()).toBe('AcceptedByAdjudicator');
     expect([dep.alarm.sets, dep.alarm.at]).toEqual([sets, null]);
+  });
+});
+
+// T-313: SETTLEMENT has no default. A typo or a missing variable used to serve the SimChain world on the production
+// hostname; now the Worker answers 500 and forwards nothing.
+describe('the SETTLEMENT variable (T-313)', () => {
+  /** A Worker environment whose Durable Object binding records each world name asked for and each request forwarded. */
+  function binding() {
+    const names: string[] = [];
+    const forwarded: Request[] = [];
+    const WORLD = {
+      idFromName: (name: string) => (names.push(name), name),
+      get: () => ({ fetch: async (r: Request) => (forwarded.push(r), new Response('from the world')) }),
+    };
+    return { names, forwarded, env: (SETTLEMENT?: string): Env => ({ WORLD, NODE_INDEX: '0', ...(SETTLEMENT === undefined ? {} : { SETTLEMENT }) }) };
+  }
+  const refused = async (r: Response) => {
+    expect(r.status).toBe(500);
+    expect(r.headers.get('content-type')).toBe('application/problem+json');
+    const body = (await r.json()) as J;
+    expect(body).toMatchObject({ type: 'internal', status: 500 });
+    expect(body.detail).toMatch(/SETTLEMENT/);
+    expect(body.detail).toMatch(/`sim`/);
+    expect(body.detail).toMatch(/`sepolia`/);
+    return body;
+  };
+
+  it('`sim` and `sepolia` each forward to their own world, and name the settlement to it', async () => {
+    for (const [value, name] of [['sim', 'holdback-public-demo-2026-11-04'], ['sepolia', 'holdback-public-demo-sepolia-2026-11-04']] as const) {
+      const b = binding();
+      const r = await worker.fetch(new Request('https://api.crow.direct/v1/status', { headers: { 'x-holdback-settlement': 'spoofed' } }), b.env(value));
+      expect(await r.text()).toBe('from the world');
+      expect(b.names).toEqual([name]);
+      expect(b.forwarded.map((f) => f.headers.get('x-holdback-settlement'))).toEqual([value]);
+    }
+  });
+
+  it('a missing or unknown value answers 500, names the variable and its two values, and forwards nothing', async () => {
+    for (const value of [undefined, '', 'Sepolia', 'sepolia ', 'sepola', 'simchain', 'testnet', 'mainnet']) {
+      const b = binding();
+      const body = await refused(await worker.fetch(new Request('https://api.crow.direct/v1/status'), b.env(value)));
+      expect(body.detail).toMatch(value === undefined ? /is not set/ : /is neither/);
+      expect([b.names, b.forwarded]).toEqual([[], []]);
+    }
+    // A caller cannot supply the settlement the Worker lacks.
+    const b = binding();
+    await refused(await worker.fetch(new Request('https://api.crow.direct/v1/status', { headers: { 'x-holdback-settlement': 'sim' } }), b.env()));
+    expect([b.names, b.forwarded]).toEqual([[], []]);
+  });
+
+  it('the Durable Object refuses a request without a known settlement, and opens no world for it', async () => {
+    let reads = 0;
+    const storage = Object.assign(new MemoryStorage(), { getAlarm: async () => null, setAlarm: async () => undefined });
+    const get = storage.get.bind(storage);
+    storage.get = ((key: string) => (reads++, get(key))) as typeof storage.get;
+    const state = { storage, blockConcurrencyWhile: <T>(f: () => Promise<T>) => (reads++, f()) };
+    const object = new World(state, { WORLD: undefined as never, NODE_INDEX: '0', SETTLEMENT: 'sim' });
+    for (const headers of [{}, { 'x-holdback-settlement': '' }, { 'x-holdback-settlement': 'Sepolia' }, { 'x-holdback-settlement': 'simchain' }]) {
+      await refused(await object.fetch(new Request('http://127.0.0.1:8787/v1/status', { headers })));
+    }
+    expect(reads).toBe(0);
+    // The same object then serves a request that names its settlement.
+    const r = await object.fetch(new Request('http://127.0.0.1:8787/v1/status', { headers: { 'x-holdback-settlement': 'sim' } }));
+    expect(r.status).toBe(200);
+    expect(reads).toBeGreaterThan(0);
   });
 });
