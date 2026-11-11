@@ -56,17 +56,17 @@ Line numbers are those of `contracts-audit-ready` at `b88f9e5` [measured].
 
 ## Acceptance criteria
 
-- [ ] The task file is the branch's first commit, with the list above.
-- [ ] Before any source change: the harness passes on the branch (main merged in) with an empty allow-list.
-- [ ] Every item in the list above is gone from `contracts/src/`; `HoldbackBonds.sol` is deleted; nothing else in `contracts/src/` changes but the `bondReserved` check, the comments that name the removed items, and the `decide` lines that become dead with the appeal branch.
-- [ ] `agreeAndFund` reverts with `InvalidMessage` on a nonzero `bondReserved`; a test failed before the change.
-- [ ] No signed type changes: the type hashes and the hash vectors (`Vectors.t.sol`, `packages/core`'s vectors) are unchanged, and `spec/schemas/` is untouched.
-- [ ] The harness's allow-list names every removed action and event and nothing else; the harness passes.
-- [ ] The state oracle checks the phase-one rows after every step of the campaign.
-- [ ] Tests: a contract wallet as the buyer, the seller and each adjudicator through every entry point; a wallet whose answer changes between two steps of one deal; a wallet that burns its gas; an account with delegated code (EIP-7702); a relay from inside another contract's call; the late-work settlement releases the key of the delivery it names, and no other.
-- [ ] `forge test`, the anvil suites and `formal/check.sh`'s safety run pass on the branch.
-- [ ] `HoldbackRules`' runtime size before and after, in bytes.
-- [ ] No test or invariant is weakened; each deleted test is named below with its reason.
+- [x] The task file is the branch's first commit, with the list above.
+- [x] Before any source change: the harness passes on the branch (main merged in) with an empty allow-list.
+- [x] Every item in the list above is gone from `contracts/src/`; `HoldbackBonds.sol` is deleted; nothing else in `contracts/src/` changes but the `bondReserved` check, the comments that name the removed items, and the `decide` lines that become dead with the appeal branch.
+- [x] `agreeAndFund` reverts with `InvalidMessage` on a nonzero `bondReserved`; a test failed before the change.
+- [x] No signed type changes: the type hashes and the hash vectors (`Vectors.t.sol`, `packages/core`'s vectors) are unchanged, and `spec/schemas/` is untouched.
+- [x] The harness's allow-list names every removed action and event and nothing else; the harness passes.
+- [x] The state oracle checks the phase-one rows after every step of the campaign.
+- [ ] Tests: a contract wallet as the buyer, the seller and each adjudicator through every entry point; a wallet whose answer changes between two steps of one deal; a wallet that burns its gas; an account with delegated code (EIP-7702); a relay from inside another contract's call. These are the second PR on this branch. Done in this PR: the late-work settlement releases the key of the delivery it names, and no other.
+- [ ] `forge test`, the anvil suites and `formal/check.sh`'s safety run pass on the branch. `forge test` and the safety run pass; the anvil suites pass only once T-349 lands.
+- [x] `HoldbackRules`' runtime size before and after, in bytes.
+- [x] No test or invariant is weakened; each deleted test is named below with its reason.
 
 ## Out of scope
 
@@ -78,9 +78,7 @@ Line numbers are those of `contracts-audit-ready` at `b88f9e5` [measured].
 Fill this in before review. Label each item measured, inferred or guessed.
 
 - **Gate before the cut** [measured]: holdback PR 333 merged at `67fde99`. On the lane with main merged in, `forge test` passed 343 of 343, and the side-by-side harness passed with an empty allow-list: 256 runs, every row L01 to L37 reached.
-- **`forge test` after the cut** [measured]: 295 of 295 pass in 44 suites. Before: 343 of 343.
-  - 59 test functions of the removed feature are deleted; `reports/scratch/t-346-deleted-tests.md` gives each one's file, name and reason. That table has 65 rows: 6 are tests moved to surviving files without their bond and appeal parts.
-  - 13 tests are added: `PhaseOneNoBonds.t.sol` has 8, `LateWorkKey.t.sol` 5.
+- **`forge test` after the cut** [measured]: 296 of 296 pass in 44 suites. Before: 343 of 343. The appendix names every test removed, moved or renamed, with its reason.
 - **The `bondReserved` rule failed before** [measured]: `test_before_pinnedContractsRefuseZero_andFundWithThePriceAndWithMax` runs the pinned deployed contracts. They refuse `bondReserved` 0 and fund with the price; the cut does the opposite.
 - **Side-by-side harness (VG-1)** [measured]: 258 fuzz runs pass. All 18 phase-one rows are reached over the 48 coverage seeds, and the planted mutant still fails the harness. The allow-list names nine exact differences, all SC-7's:
   1. no vault;
@@ -95,11 +93,22 @@ Fill this in before review. Label each item measured, inferred or guessed.
 
   The first full run found entries 7 (for `decideFallback`) and 9 missing; both were added.
 - **State oracle (VG-2)** [measured]: `invariant_legalDealStates` checks the phase-one rows (§9.3: P01 to P17, plus L02 until SC-6) after every step, 256 runs at depth 100. Its planted illegal states fail it.
-- **Size (VG-5)** [measured, `forge build --sizes`]: `HoldbackRules` runtime goes from 24,299 to 19,609 bytes, so 4,690 bytes are freed and 4,967 bytes of headroom remain. Initcode goes from 27,769 to 20,190 bytes.
+- **Size (VG-5)** [measured, `forge build --sizes` on `contracts/src` alone, at `65e734d` and at the head]: `HoldbackRules` runtime goes from 24,232 to 19,609 bytes, so 4,623 bytes are freed. Headroom under EIP-170 goes from 344 to 4,967 bytes. Initcode goes from 27,702 to 20,190 bytes, 7,512 bytes less. (A first reading of 24,299 bytes came from a full build, which also compiles the pinned old copy under `test/differential/old/`; the reviewer caught it.)
 - **Signed types** [measured]: no file under `spec/schemas/` changes. Every type hash but `APPEAL_TYPEHASH` is unchanged, and `Vectors.t.sol`'s other 9 vectors pass unchanged, the acceptance with a nonzero `bondReserved` among them.
 - **Core** [measured]: `vitest run packages/core` passes 978 of 978, 12 of them new (`phase_one profile`); `tsc` on core is clean.
 - **Formal** [measured]: `formal/check.sh safety` passes, 132,339 distinct states at depth 31, in 15 s. The model is core's `full` profile, which is unchanged.
 - **Anvil suites and `abis.test.ts`** [measured, expected red until T-349]: see the Handoff and `reports/scratch/t-346-for-part-2.md`.
+- **The fixtures ADR-0031 §8 point 5 asks to be checked by their steps** [measured, by reading each file]:
+  - `error.appeal-decision-other-attempt`, `attack.forced-stride-appeal-default`, `attack.injection-filter-abstain-appeal-default` and `attack.injection-splits-appeal-to-default` stay in the comparison. Each escalates to the appeal adjudicator and has no party-appeal step; the last three end in a default or a refusal of one, and expect the seller paid 0.
+  - `neutrality.store-withholds-reference` moves to the SimChain-only list: its SimChain default pays the seller 2,000 tUSD from two bonds.
+  - `error.early-accept-wrong-key-envelope` moves too: it has a party-appeal step.
+- **Review** [measured, by the reviewer]: ISSUES. 3 Medium, 2 Low and 4 Info; no defect in `contracts/src/`. Fixed in this PR:
+  - the oracle's escalation bound, now the later of `judgeBy` and `fallbackBy`, with a test;
+  - the missing evidence and test table, now this file;
+  - the allow-list's header, now backed by one gate before every entry;
+  - the size figures.
+
+  Answered in the Handoff: the contract-signer tests are a second PR on this branch, and the bisect boundary is stated. The full report is `reports/scratch/t-346-review.md`.
 
 ## Decisions
 
@@ -153,3 +162,99 @@ Measured: the anvil settlement leg fails 10 of 13 files and the world leg 6 of 7
 `Erc1271Roles.t.sol`, `Erc1271Replay.t.sol` and `Erc6492Prepare.t.sol` already cover the seller, the primary, the fallback and the buyer's funding.
 
 **Refinements left alone:** `reports/scratch/t-346-triage.md`.
+
+**Bisecting:** the cut's commits build again only from `0564fe8`. `fcc4072` deletes `HoldbackBonds.sol` while the tests still import it, until `eec6909` and `2aa8d4a`. The branch is pushed, so it is not squashed: a force push is a gate. Bisect at `0564fe8` or later.
+
+## Appendix: every test removed, moved or renamed
+
+Counted on this branch: `forge test` ran 343 tests at `65e734d` (the lane with main merged in) and 296 at the head [measured]. Phase one has no party appeal and no bond vault (SC-7, ADR-0031 §8). In the unit, crosscheck and fuzz suites, 59 test functions leave and 6 move. In the handler, harness and oracle suites, 3 invariants leave. 15 tests are added: 8 in `PhaseOneNoBonds.t.sol`, 5 in `LateWorkKey.t.sol` and 2 in `StateOracle.t.sol` (the fallback's decision rows and the escalation bound). 343 − 62 + 15 = 296. The other changes are renames, below. Paths are relative to `contracts/test/`.
+
+### Removed or moved
+
+| File | Test function | Reason |
+| --- | --- | --- |
+| invariant/RulesInvariants.t.sol | invariant_bondsNeverNegative | the vault's totals cover its encumbrance and appeal bonds; removed with the vault (SC-7) |
+| invariant/RulesInvariants.t.sol | invariant_encumberedNotDoubleCounted | the vault's encumbrance equals the deals' flags; removed with the vault and the flags (SC-7) |
+| invariant/RulesInvariants.t.sol | invariant_overturnPaysFromTheBond | an overturn pays from the first decider's bond; removed with the appeal decision and the vault (SC-7) |
+| crosscheck/AppealSlot.t.sol | test_defense_winnerCannotTakeTheSlot_loserAppeals | who may take the single appeal slot; removed with fileAppeal (SC-7) |
+| crosscheck/AppealSlot.t.sol | test_defense_afterReject_refundedBuyerCannotBlockTheSeller | who may take the single appeal slot; removed with fileAppeal (SC-7) |
+| crosscheck/AppealSlot.t.sol | test_residual_loserZeroBondAppealExtendsTheDecidersLock | a zero-bond appeal holding the decider's bond; removed with fileAppeal, expireAppeal and the vault (SC-7) |
+| unit/BondConsent.t.sol | test_shamDeal_triggerFallbackReservesNothing | a takeover reserves no fallback bond; removed with the vault (SC-7) |
+| unit/BondConsent.t.sol | test_shamEscalation_reservesNothingForTheAppealAdjudicator | an escalation reserves no appeal bond; removed with the vault (SC-7) |
+| unit/BondConsent.t.sol | test_fallbackDecision_reservesItsBondUntilTheAppealCloses | the fallback's reservation and its release by expireAppeal; removed with the vault and expireAppeal (SC-7) |
+| unit/BondConsent.t.sol | test_uncoveredFallback_cannotDecide_dealDefaults | a fallback without free bond cannot decide; removed with the vault (SC-7). The default refund stays in Timeouts.t.sol `test_default_fromFallbackJudging_inOneCall` |
+| unit/BondConsent.t.sol | test_uncoveredFallback_mayEscalate | moved: now Decide.t.sol `test_fallback_mayEscalate`, without the bond withdrawal and the bond assertion |
+| unit/BondConsent.t.sol | test_samePrimaryAndFallback_fullyBooked_decidesWithOneReservation | moved: now Decide.t.sol `test_fallback_sameAddressAsPrimary_decides`, without the bond netting and the flags assertion |
+| unit/BondsReentrancy.t.sol | test_defense_deposit_reentered_on_pull_credits_each_pull_once | reentrancy into the vault's deposit; removed with the vault (SC-7) |
+| unit/BondsReentrancy.t.sol | test_defense_withdraw_inside_deposit_pull_takes_nothing_extra | reentrancy into the vault's withdraw; removed with the vault (SC-7) |
+| unit/BondsReentrancy.t.sol | test_defense_withdraw_reentered_on_payout_cannot_withdraw_twice | reentrancy into the vault's withdraw; removed with the vault (SC-7) |
+| unit/BondsReentrancy.t.sol | test_defense_withdraw_reentered_on_payout_cannot_reach_encumbered_bond | the vault's encumbered balance under reentrancy; removed with the vault (SC-7) |
+| unit/BondsReentrancy.t.sol | test_defense_reentry_cannot_call_rules_only_functions | the vault's rules-only functions; removed with the vault (SC-7) |
+| unit/BondsReentrancy.t.sol | test_defense_fee_payout_reentry_cannot_free_the_deciders_bond | a vault withdrawal from the fee payout's callback; removed with the vault (SC-7) |
+| unit/BondsReentrancy.t.sol | test_defense_appeal_bond_pull_reentry_cannot_file_twice | reentrancy into fileAppeal through the appeal bond pull; removed with fileAppeal and the vault (SC-7) |
+| unit/BondsReentrancy.t.sol | test_defense_appeal_bond_refund_reentry_cannot_refund_twice | reentrancy into expireAppeal through the appeal bond refund; removed with expireAppeal and the vault (SC-7) |
+| unit/BondsReentrancy.t.sol | test_defense_slash_payee_reentry_slashes_once | reentrancy through the overturn slash; removed with the appeal decision and the vault (SC-7) |
+| unit/CppReclaimStrandsBonds.t.sol | test_regression_cpp_reclaim_in_held_strands_primary_bond | moved: now AfterCppReclaim.t.sol `test_regression_cppReclaimInHeld_rulesReclaimClosesTheDeal`, without the bond assertions and the bond withdrawal |
+| unit/CppReclaimStrandsBonds.t.sol | test_regression_cpp_reclaim_in_fallbackJudging_strands_two_bonds | moved: now AfterCppReclaim.t.sol `test_regression_cppReclaimInFallbackJudging_defaultClosesTheDeal`, without the bond assertions |
+| unit/CppReclaimStrandsBonds.t.sol | test_attack_d31_deadlines_after_expiry_leave_seller_unpaid | moved: now AfterCppReclaim.t.sol, same name, without the bond assertions |
+| unit/OverturnKeyRelease.t.sol | test_regression_overturned_reject_releases_key_without_paying_seller | the key and the payout on an overturning party appeal; removed with fileAppeal and the appeal decision (SC-7) |
+| unit/OverturnKeyRelease.t.sol | test_attack_zero_bond_appeal_accepted_without_allowance | a zero-bond party appeal; removed with fileAppeal and expireAppeal (SC-7) |
+| unit/OverturnKeyRelease.t.sol | test_attack_free_appeal_wins_the_price_from_the_bond | a free party appeal winning the price from the bond (L-3); removed with fileAppeal and the vault (SC-7) |
+| unit/OverturnPayout.t.sol | test_overturnedAccept_paysTheBuyerThePriceFromThePrimarysBond | the overturn payout from the primary's bond; removed with the appeal decision and the vault (SC-7) |
+| unit/OverturnPayout.t.sol | test_overturnedReject_paysTheSellerThePriceFromThePrimarysBond | the overturn payout from the primary's bond; removed with the appeal decision and the vault (SC-7) |
+| unit/OverturnPayout.t.sol | test_overturnedFallbackDecision_paysFromTheFallbacksBond | the overturn payout from the fallback's bond; removed with the appeal decision and the vault (SC-7) |
+| unit/OverturnPayout.t.sol | test_upheldAppeal_paysNothingFromTheBond | an upheld party appeal; removed with the appeal decision and the vault (SC-7) |
+| unit/OverturnPayout.t.sol | test_afterAnOverturn_theAdjudicatorWithdrawsOnlyTheRest | a bond withdrawal after a slash; removed with the vault (SC-7) |
+| unit/OverturnPayout.t.sol | test_undecidedAppeal_expiresWithoutAPayout | expireAppeal on an open appeal; removed with expireAppeal (SC-7) |
+| unit/OverturnPayout.t.sol | test_slash_onlyTheRulesContract | the vault's slash guard; removed with the vault (SC-7) |
+| unit/OverturnPayout.t.sol | test_favouredSeller_cannotAppealAnAccept | fileAppeal's appellant rule; removed with fileAppeal (SC-7) |
+| unit/OverturnPayout.t.sol | test_favouredBuyer_cannotAppealAReject | fileAppeal's appellant rule; removed with fileAppeal (SC-7) |
+| unit/UnbondedDecider.t.sol | test_regression_fallback_decides_with_no_bond_at_stake | an unbonded fallback cannot decide; removed with the vault (SC-7). The default refund stays in Timeouts.t.sol |
+| unit/UnbondedDecider.t.sol | test_attack_appeal_adjudicator_decides_escalation_with_no_bond_at_stake | the appeal adjudicator's missing bond (L-5); removed with the vault (SC-7). The escalation decision and its fee stay in Decide.t.sol `test_escalate_movesNoMoney_thenAppealAdjudicatorDecides` |
+| unit/UnbondedDecider.t.sol | test_attack_party_appeal_adjudicator_has_nothing_at_stake | the appeal adjudicator's missing bond on a party appeal; removed with fileAppeal and the vault (SC-7) |
+| unit/AppealAttempt.t.sol | test_afterPartyAppeal_refusesASeedFromAnotherAttempt | the attempt binding on a party appeal; removed with fileAppeal (SC-7). The escalation case stays |
+| unit/AppealAttempt.t.sol | test_afterPartyAppeal_decidesWithTheDeliveryAttempt | a party-appeal decision; removed with fileAppeal and the appeal decision (SC-7). The escalation case stays |
+| unit/AppealKey.t.sol | test_overturnedReject_refusesAKeyForTheRefundedBuyer | the key rule on a party appeal against a reject; removed with fileAppeal (SC-7). A decision on a Refunded deal now reverts WrongStage (PhaseOneNoBonds.t.sol) |
+| unit/AppealKey.t.sol | test_overturnedReject_withoutTheKey_settles | an overturning party appeal; removed with fileAppeal and the appeal decision (SC-7) |
+| unit/AppealKey.t.sol | test_upheldReject_refusesAKey | the key rule on a party appeal; removed with fileAppeal (SC-7) |
+| unit/AppealKey.t.sol | test_overturnedAccept_refusesAKey | the key rule on a party appeal; removed with fileAppeal (SC-7) |
+| unit/AppealKey.t.sol | test_upheldAccept_releasesTheKey | KEY_APPEAL's release on an upheld party appeal; removed with fileAppeal and KEY_APPEAL (SC-7) |
+| unit/AppealSeedAttempt.t.sol | test_regression_party_appeal_attempt_changes_seed | the attempt binding on a party appeal; removed with fileAppeal (SC-7). The escalation regressions stay |
+| unit/Timeouts.t.sol | test_appealExpiry_releasesTheDecidersBond | expireAppeal after the appeal window; removed with expireAppeal (SC-7) |
+| unit/Timeouts.t.sol | test_appealExpiry_openAppealUndecided_returnsTheBond | expireAppeal on an open appeal; removed with fileAppeal and expireAppeal (SC-7) |
+| unit/Timeouts.t.sol | test_withdraw_onlyWhatIsFree | the vault's withdraw; removed with the vault (SC-7) |
+| unit/Timeouts.t.sol | test_withdraw_afterSettlementReleasesTheBond | the vault's withdraw after a reclaim; removed with the vault (SC-7). The reclaim refund stays in `test_reclaim_refundsPricePlusFee` |
+| unit/Timeouts.t.sol | test_onlyRulesEncumbers | the vault's rules-only guard; removed with the vault (SC-7) |
+| unit/Timeouts.t.sol | test_deposit_creditsTheCaller | the vault's deposit; removed with the vault (SC-7) |
+| unit/Timeouts.t.sol | test_deposit_refusesWithoutTheTokens | the vault's deposit; removed with the vault (SC-7) |
+| unit/Settle.t.sol | test_file_holdsTheBond | fileAppeal's appeal bond; removed with fileAppeal and the vault (SC-7) |
+| unit/Settle.t.sol | test_file_refusesAnotherSigner | fileAppeal's signature check; removed with fileAppeal (SC-7) |
+| unit/Settle.t.sol | test_file_refusesAfterAppealBy | the appeal filing window; removed with fileAppeal (SC-7) |
+| unit/Settle.t.sol | test_file_refusesASecondAppeal | fileAppeal's one-appeal rule; removed with fileAppeal and WrongAppealState (SC-7) |
+| unit/Settle.t.sol | test_upheld_bondGoesToTheFirstAdjudicatorsBond | an upheld party appeal's bond; removed with the appeal decision and the vault (SC-7) |
+| unit/Settle.t.sol | test_overturned_bondBackToAppellant | an overturning party appeal's bonds; removed with the appeal decision and the vault (SC-7) |
+| unit/Settle.t.sol | test_appealDecision_refusesAnotherSigner | moved: the appeal adjudicator's signature check after an escalation is now Decide.t.sol `test_escalated_refusesAnotherSigner` |
+| unit/UntestedReverts.t.sol | test_refuses_appealBondAboveUint96 | the vault's AppealBondTooLarge; removed with fileAppeal and the vault (SC-7) |
+| unit/UntestedReverts.t.sol | test_refuses_secondAppealBondForOneCommitment | the vault's AppealBondExists; removed with the vault (SC-7) |
+| unit/Vectors.t.sol | test_appeal_matchesCore | the contract's appealHash against core's vector; removed with appealHash (SC-7). packages/core and spec/ keep the vector |
+| unit/AgreeAndFund.t.sol | test_refuses_primaryWithoutFreeBond | the primary's bond encumbrance at funding; removed with the vault (SC-7) |
+| unit/DeliveryBinding.t.sol | test_everyRoleNamesThePostedDelivery_partyAppeal | the delivery a party-appeal decision names; removed with fileAppeal and the appeal decision (SC-7). The escalation case stays |
+| crosscheck/TokenAndDomain.t.sol | test_defense_depositInATokenWithNoCode_reverts | a bond deposit in a token with no code; removed with the vault (SC-7) |
+| crosscheck/DrandRedTeam.t.sol | test_issue_wrongRound_appellantFilesOnlyWhenTheAppealSeedSuitsIt | seed grinding through fileAppeal; removed with fileAppeal (SC-7). The escalation variant stays |
+
+### Renamed or split in place
+
+| File | Before | After |
+| --- | --- | --- |
+| unit/AgreeAndFund.t.sol | test_erc3009_holdsPricePlusFee_andEncumbersThePrimary | test_erc3009_holdsPricePlusFee |
+| unit/AgreeAndFund.t.sol | test_refuses_bondReservedBelowPrice | test_refuses_bondReservedNonzero_belowPrice |
+| unit/AfterCppReclaim.t.sol | test_held_reclaimReleasesThePrimaryBond | test_held_reclaimClosesTheDeal |
+| unit/AfterCppReclaim.t.sol | test_delivered_fallbackThenDefaultReleasesBothBonds | test_delivered_fallbackThenDefaultClosesTheDeal |
+| unit/AfterCppReclaim.t.sol | test_deliverByAfterExpiry_reclaimStillReleasesThePrimaryBond | test_deliverByAfterExpiry_reclaimStillClosesTheDeal |
+| crosscheck/Erc1271Roles.t.sol | test_primaryWallet_acceptsAndDecides_bondAndFee | test_primaryWallet_acceptsAndDecides_fee |
+| crosscheck/Erc1271Roles.t.sol | test_fallbackWallet_decidesAfterTakeover_andReservesItsBond | test_fallbackWallet_decidesAfterTakeover |
+| invariant/HandlerSmoke.t.sol | test_offer_fund_deliver_decide_appeal_decide | test_offer_fund_deliver_decide_isFinal: the decision is final; a later decision, an appeal filing and an appeal expiry are refused |
+| invariant/HandlerSmoke.t.sol | test_decide_carriesDelivery_thenAppealExpires | test_decide_carriesDelivery: the appeal expiry left |
+| invariant/HandlerSmoke.t.sol | test_bonds_and_warp | test_warp: the bond actions left with the vault |
+| invariant/StateOracle.t.sol | test_legalPaths_decisionAndAppeal | test_legalPaths_primaryDecision (P01 to P07), with the new test_legalPaths_fallbackDecision (P08, P09) beside it |
+| invariant/StateOracle.t.sol | test_legalPaths_settlementAndExpiries | test_legalPaths_settlementAndExpiry (P15 to P17, L02): the appeal expiry left |
