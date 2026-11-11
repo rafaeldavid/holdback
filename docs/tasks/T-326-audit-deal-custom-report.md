@@ -74,10 +74,17 @@ All local runs on 2026-11-11, on branch `t-326-audit-deal-custom-report` cut fro
 ### Checks
 
 - `pnpm typecheck` exits 0; `pnpm lint` prints nothing (measured).
-- `pnpm exec vitest run examples/audit-deal.test.ts`: 11 tests passed, the 5 from T-321 and 6 new (measured).
+- `pnpm exec vitest run examples/audit-deal.test.ts`: 11 tests passed, the 5 from T-321 and 6 new (measured). After the CodeQL fix below: 13 passed, 8 of them new (measured).
 - `pnpm exec vitest run examples/`: 20 files; 186 tests passed and 13 skipped, in 122 s (measured).
 - `node site/build.mjs && node site/check.mjs`: "site check PASS"; the build changed no generated file (measured).
 - Not run: the full `pnpm verify` and gitleaks; CI runs both gates.
+
+### CodeQL alert 18, fixed
+
+- **The alert (measured, from GitHub through the coordinator).** CodeQL's `js/request-forgery`, critical, at `examples/audit-deal.ts:188`: the report route took the job segment of its own request's path and placed it in the path of a `fetch` to the stub. The host was the stub's fixed address, but a crafted segment such as `..` could steer the path, so it was not a false positive (inferred).
+- **The fix.** The route sends no request now. It compares the whole request path with the paths of the jobs the stub holds in this process, and serves the report file's bytes only on an exact match; any other path answers 404. The refused branch no longer builds a URL from the adapter's journal either: it runs the checks on the report file's bytes, or, with the built-in report, fetches the stub's fixed `job-1` path from the stub's own address.
+- **The test (measured).** Eight hostile job paths (an absolute URL to another host, `..` encoded and plain, `//other.example`, a traversal after a real ID, an empty ID, and a job not yet started) answer 404, and the stub's request counters stay at 0. A started job gets the file's exact bytes, still with 0 requests to the stub. A second new test runs a terms file with the built-in report: it ends Held and names the `scope` and `coverage` checks.
+- **The faucet (measured).** With 13 tests the local world's faucet refused grants: it allows 10 a client per 3,600 s of world time, and a deal takes 2. The new tests move the world's clock 3,601 s forward before each one.
 
 ## Decisions
 

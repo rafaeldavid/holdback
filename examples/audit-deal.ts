@@ -178,21 +178,16 @@ const templateOf = (t: TermsTemplate) => ({ deliverable: t.deliverable, checks: 
 const span = (sec: number) => (sec > 0 && sec % 86_400 === 0 ? `${sec / 86_400} day${sec === 86_400 ? '' : 's'}` : `${sec} s`);
 
 /**
- * The seller's own report as every job's result. The stub still says whether a job exists and is complete; the
- * bytes are the report file's, served unchanged.
+ * The seller's own report as every job's result: the report file's bytes, served unchanged, for a job the stub
+ * started. The route sends no request. It compares the whole path with the paths of the jobs the stub holds in this
+ * process, so nothing from the request is placed in a URL; any other path answers 404.
  */
 async function serveReport(stub: StubSellerApi, bytes: Uint8Array): Promise<{ result: string; close(): Promise<void> }> {
   const server = createServer((req, res) => {
-    const job = /^\/jobs\/([^/]+)\/result$/.exec(new URL(req.url ?? '/', 'http://report').pathname)?.[1];
-    if (req.method !== 'GET' || job === undefined) return void res.writeHead(404, { 'content-type': 'application/json' }).end('{"detail":"not found"}');
-    fetch(stub.api.result.replace('{jobId}', job)).then(
-      async (r) => {
-        await r.arrayBuffer();
-        if (r.status !== 200) return void res.writeHead(r.status, { 'content-type': 'application/json' }).end('{}');
-        res.writeHead(200, { 'content-type': 'application/octet-stream' }).end(bytes);
-      },
-      () => void res.writeHead(502, { 'content-type': 'application/json' }).end('{}'),
-    );
+    const path = new URL(req.url ?? '/', 'http://report').pathname;
+    const job = req.method === 'GET' ? stub.jobs().find((j) => path === `/jobs/${encodeURIComponent(j.jobId)}/result`) : undefined;
+    if (!job) return void res.writeHead(404, { 'content-type': 'application/json' }).end('{"detail":"not found"}');
+    res.writeHead(200, { 'content-type': 'application/octet-stream' }).end(bytes);
   });
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
@@ -390,9 +385,12 @@ export async function runAuditDeal(o: AuditDealOptions): Promise<AuditDealResult
       step('The seller delivers', 'the adapter started the job, the report passed its preflight, and it delivered the encrypted report.');
     } else if (custom) {
       step('The seller does not deliver', 'the report failed the adapter\'s preflight (the lines above name the check), so the adapter delivered nothing.');
-      // The seller's check run again, on the exact bytes the seller's API returned, to name each failed check.
-      const jobId = adapter.deals().find((d) => d.id === quote.commitmentId)!.jobId!;
-      const bytes = new Uint8Array(await (await fetch(selling.resultUrl.replace('{jobId}', encodeURIComponent(jobId)))).arrayBuffer());
+      // The seller's check run again, on the exact bytes the seller's API returned, to name each failed check: the
+      // report file's, or the stub's for the buyer's scope. A fresh stub starts one job a run, `job-1`, so that request
+      // goes to the stub's own address and a fixed path; nothing from a file or a request chooses it.
+      const jobId = adapter.deals().find((d) => d.id === quote.commitmentId)?.jobId;
+      if (!files.report && jobId !== 'job-1') throw new Error(`the seller adapter started job ${plain(String(jobId))}, not the stub's job-1`);
+      const bytes = files.report ? files.report.bytes : new Uint8Array(await (await fetch(`${selling.stub.url}/jobs/job-1/result`)).arrayBuffer());
       const format = approved.deliverable.format;
       const pre = preflightDelivery({ plaintext: bytes, mime: format, format, acceptance: { deterministicChecks: approved.checks, rubric: approved.rubric ?? EMPTY_RUBRIC } });
       const open = new Set(pre.inconclusive);

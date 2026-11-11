@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { preflightDelivery } from '@holdback/judgment';
 import { loadTermsFile } from '@holdback/testkit';
 import { generatePrivateKey } from 'viem/accounts';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { makeKeys } from './buyer-signer.ts';
 import { DELIVERY_WINDOW_SEC, parseArgs, PRICE_UNITS, runAuditDeal, SCOPE, shown, startLocalWorld, startSeller, type AuditDealOptions, type LocalWorld } from './audit-deal.ts';
 import { Refusal } from './verify.ts';
@@ -191,6 +191,9 @@ describe('examples/audit-deal.ts', () => {
 });
 
 describe('examples/audit-deal.ts with a seller\'s own report and terms (T-326)', () => {
+  // The world's faucet grants 10 times per client per hour of world time, and each deal takes 2 grants. This world's
+  // clock is the test's, so each test starts a fresh window.
+  beforeEach(() => world.advanceClock(3601));
   it('released: a two-file report under its own terms, 1,234.56 tUSD and a 2-day window, ends Released and the buyer opens the exact bytes', async () => {
     const { result, lines, secrets } = await run('released', { reportFile: TWO_FILES_REPORT, termsFile: TWO_FILES_TERMS });
     const r = await result;
@@ -284,6 +287,41 @@ describe('examples/audit-deal.ts with a seller\'s own report and terms (T-326)',
       expect(lines.join('\n')).not.toContain('The seller starts');
     }
     await expect((await run('released', { reportFile: join(dir, 'no-such-report.json') })).result).rejects.toThrow(/cannot read .*no-such-report\.json/);
+  }, 60_000);
+
+  it('the report route serves the file only for a job the stub started, and sends no request: hostile paths answer 404', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 't326-'));
+    dirs.push(dir);
+    const bytes = new Uint8Array(readFileSync(TWO_FILES_REPORT));
+    const selling = await startSeller({ operators: world.operators, report: 'ok', journal: join(dir, 'seller-journal.json'), pollMs: 50, log: () => {}, reportBytes: bytes });
+    try {
+      const at = (job: string) => selling.resultUrl.replace('{jobId}', job);
+      const hostile = [
+        'job-1', // no job started yet
+        '..%2F..%2Fquote', '%2E%2E', '..', 'http%3A%2F%2Fother.example%2F', '%2F%2Fother.example', 'job-1%2F..%2F..%2Fquote', '',
+      ];
+      for (const job of hostile) expect((await fetch(at(job))).status, job).toBe(404);
+      expect((await fetch(selling.resultUrl.replace('/jobs/{jobId}/result', '/quote'), { method: 'POST', body: '{}' })).status).toBe(404);
+      expect(selling.stub.calls).toEqual({ quote: 0, start: 0, result: 0 });
+
+      // A job the stub started: the route serves the file's bytes, unchanged, and still sends the stub no request.
+      const started = await fetch(selling.stub.api.start, { method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': 'k1' }, body: JSON.stringify({ commitmentId: '0x01', scope: SCOPE }) });
+      expect(await started.json()).toEqual({ jobId: 'job-1' });
+      const served = await fetch(at('job-1'));
+      expect(served.status).toBe(200);
+      expect(new Uint8Array(await served.arrayBuffer())).toEqual(bytes);
+      expect((await fetch(at('job-2'))).status).toBe(404);
+      expect(selling.stub.calls.result).toBe(0);
+    } finally {
+      await selling.close();
+    }
+  }, 60_000);
+
+  it('a terms file alone runs with the stub\'s built-in report: a report for another commit is refused, Held, and the run names the checks', async () => {
+    const { result } = await run('released', { termsFile: TWO_FILES_TERMS });
+    const r = await result;
+    expect(r.outcome).toBe('Held');
+    expect(r.failedChecks.map((c) => c.split(' ')[0])).toEqual(['scope', 'coverage']);
   }, 60_000);
 
   it('reads its command line: no arguments as before, --report and --terms on the local world only', () => {
