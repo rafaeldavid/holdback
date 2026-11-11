@@ -31,10 +31,6 @@ abstract contract GasBase is Base {
             rules = new HoldbackRules(
                 escrow, address(collector3009), address(collectorPermit2), MARGIN, new DrandQuicknetBeacon()
             );
-            bonds = rules.BONDS();
-            _bond(adjudicator, BOND);
-            _bond(fallbackAdj, BOND);
-            _bond(appealAdj, BOND);
         }
         (H.Terms memory t, bytes32 id) = _funded();
         (H.Delivery memory d,) = _delivery();

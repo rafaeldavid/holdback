@@ -22,8 +22,6 @@ contract EarlyAcceptTest is Base {
         assertEq(usdc.balanceOf(seller), s0 + PRICE);
         assertEq(usdc.balanceOf(buyer), b0 + FEE, "no adjudicator judged: the fee returns");
         assertEq(_held(t), 0);
-        assertEq(bonds.encumberedOf(adjudicator, address(usdc)), 0);
-        assertEq(uint8(rules.dealOf(id).appeal), uint8(HoldbackRules.AppealState.Closed));
     }
 
     function test_afterOnChainDelivery() public {
@@ -102,7 +100,6 @@ contract MutualSettleTest is Base {
         assertEq(usdc.balanceOf(buyer), b0 + 10_000_000 + FEE);
         assertEq(_held(t), 0);
         assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Settled));
-        assertEq(bonds.encumberedOf(adjudicator, address(usdc)), 0);
     }
 
     function test_beforeDelivery_noKey() public {

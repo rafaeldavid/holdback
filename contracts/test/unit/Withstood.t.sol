@@ -58,9 +58,6 @@ contract WithstoodTest is Base {
         H.Decision memory primary = _primary(t, id, H.OUTCOME_ACCEPT); // signed, never submitted
         vm.warp(t.timing.judgeBy);
         rules.triggerFallback(t);
-        // Main nets one address's primary and fallback reservations into one (BondConsent.t.sol,
-        // test_samePrimaryAndFallback_fullyBooked_decidesWithOneReservation), so the address holds PRICE, not 2 * PRICE.
-        assertEq(bonds.encumberedOf(adjudicator, address(usdc)), PRICE, "one netted reservation on one address");
         vm.expectRevert(HoldbackRules.InvalidMessage.selector);
         rules.decide(t, primary, _noDelivery(), "");
         // Re-labelled as a fallback decision with the primary's seed: the seed must be the beacon's.
@@ -68,11 +65,11 @@ contract WithstoodTest is Base {
         relabelled = _signDecision(t, id, relabelled, adjudicator, ADJ_PK);
         vm.expectRevert(HoldbackRules.BadSeed.selector);
         rules.decide(t, relabelled, _noDelivery(), "");
-        // The honest fallback decision releases exactly one reservation and keeps one.
+        // The honest fallback decision settles.
         H.Decision memory m = _beaconDecision(id, H.ROLE_FALLBACK, H.OUTCOME_ACCEPT, t.timing.judgeBy);
         m = _signDecision(t, id, m, adjudicator, ADJ_PK);
         rules.decide(t, m, _noDelivery(), "");
-        assertEq(bonds.encumberedOf(adjudicator, address(usdc)), PRICE);
+        assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Released));
     }
 
     /// A relayer cannot swap the funding method: the collector signature is bound to its own domain.
@@ -124,11 +121,6 @@ contract WithstoodTest is Base {
         Reenterer r = new Reenterer();
         hook.setHook(address(r));
         hook.mint(buyer, 1_000_000_000);
-        hook.mint(adjudicator, BOND);
-        vm.startPrank(adjudicator);
-        hook.approve(address(bonds), BOND);
-        bonds.deposit(address(hook), BOND);
-        vm.stopPrank();
 
         H.Terms memory t = _terms();
         t.token = address(hook);
@@ -173,19 +165,10 @@ contract WithstoodTest is Base {
         H.Funding memory f = _erc3009(t, BUYER_PK);
         HoldbackRules other =
             new HoldbackRules(escrow, address(collector3009), address(collectorPermit2), MARGIN, sim);
-        _bondOn(other, adjudicator, BOND);
         vm.expectRevert(HoldbackRules.BadSignature.selector);
         other.agreeAndFund(t, s, a, g, f);
         // The genuine deployment still accepts the same messages.
         rules.agreeAndFund(t, s, a, g, f);
-    }
-
-    function _bondOn(HoldbackRules r, address a, uint256 amount) internal {
-        usdc.mint(a, amount);
-        vm.startPrank(a);
-        usdc.approve(address(r.BONDS()), amount);
-        r.BONDS().deposit(address(usdc), amount);
-        vm.stopPrank();
     }
 
     /// A zero-address role can never sign: Solady's checker returns false for signer 0, so a deal that names no
@@ -197,7 +180,6 @@ contract WithstoodTest is Base {
         _deliver(t, id);
         vm.warp(t.timing.judgeBy);
         rules.triggerFallback(t);
-        assertEq(rules.dealOf(id).flags & 2, 0, "nothing encumbered on address(0)");
         H.Decision memory m = _beaconDecision(id, H.ROLE_FALLBACK, H.OUTCOME_ACCEPT, t.timing.judgeBy);
         m = _signDecision(t, id, m, address(0), OTHER_PK);
         vm.expectRevert(HoldbackRules.BadSignature.selector);

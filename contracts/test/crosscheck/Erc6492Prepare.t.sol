@@ -55,7 +55,7 @@ contract PrepareProbe {
 /// The ERC-6492 envelope `(prepareTarget, prepareData, innerSignature) ‖ magic` is not signed by anyone: the buyer
 /// signs only the inner ERC-3009 authorization, and `HoldbackRules` passes `f.signature` through untouched. So any
 /// relayer can attach an arbitrary call that runs with Multicall3 as sender, after the rules contract has written
-/// `Held` and encumbered the primary's bond, and after CPP has recorded the hold, but before any token has moved.
+/// `Held`, and after CPP has recorded the hold, but before any token has moved.
 contract Erc6492PrepareTest is Base {
     bytes32 internal constant MAGIC = 0x6492649264926492649264926492649264926492649264926492649264926492;
     bytes32 internal constant MULTICALL3_CODEHASH = 0xd5c15df687b16f2ff992fc8d767b4216323184a2bbc6ee2f9c398c318e770891;
@@ -167,11 +167,10 @@ contract Erc6492PrepareTest is Base {
         assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Held));
         assertEq(_held(t), PRICE + FEE);
         assertEq(usdc.balanceOf(seller), 1_000_000_000, "the seller was not paid");
-        assertEq(bonds.encumberedOf(adjudicator, address(usdc)), PRICE);
     }
 
-    /// Funding a second deal from inside the first's prepare call writes `Held` and encumbers the primary, then hits
-    /// the guard at `authorize`; the inner call reverts as a whole, so nothing of the second deal survives.
+    /// Funding a second deal from inside the first's prepare call writes `Held`, then hits the guard at `authorize`;
+    /// the inner call reverts as a whole, so nothing of the second deal survives.
     function test_defense_prepareCallFundingAnotherDeal_isRolledBackWhole() public {
         H.Terms memory t1 = _terms();
         H.Terms memory t2 = _terms();
@@ -189,7 +188,6 @@ contract Erc6492PrepareTest is Base {
         assertEq(bytes4(probe.ret(0)), REENTRANCY);
         assertEq(uint8(_stage(id1)), uint8(HoldbackRules.Stage.Held));
         assertEq(uint8(_stage(id2)), uint8(HoldbackRules.Stage.None), "deal 2 left no state");
-        assertEq(bonds.encumberedOf(adjudicator, address(usdc)), PRICE, "only deal 1's bond is encumbered");
         assertEq(_held(t1), PRICE + FEE);
     }
 
@@ -225,8 +223,8 @@ contract Erc6492PrepareTest is Base {
 
     /// With D31 timing (judgeBy at or before the funding time, which the contract accepts), the prepare call takes
     /// the deal from None to Escalated in one transaction: deliver, trigger the fallback, and relay the fallback's
-    /// signed escalation. The primary's bond is released before CPP has pulled a single token. The deal still
-    /// closes on its normal paths afterwards (here: default after appealDecideSec).
+    /// signed escalation, before CPP has pulled a single token. The deal still closes on its normal paths afterwards
+    /// (here: default after appealDecideSec).
     function test_attack_prepareCallWithD31Timing_fundsStraightIntoEscalated() public {
         H.Terms memory t = _terms();
         t.timing.judgeBy = uint64(block.timestamp); // triggerFallback is open at once (now >= judgeBy)
@@ -246,16 +244,12 @@ contract Erc6492PrepareTest is Base {
         assertTrue(probe.ok(0) && probe.ok(1) && probe.ok(2), "deliver, triggerFallback and escalate all ran");
         assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Escalated), "Escalated at the end of agreeAndFund");
         assertEq(_held(t), PRICE + FEE, "the hold was still collected");
-        assertEq(bonds.encumberedOf(adjudicator, address(usdc)), 0, "the primary's bond was released mid-funding");
-        assertEq(bonds.encumberedOf(fallbackAdj, address(usdc)), 0);
-        // Whether the escalation reserves the appeal adjudicator's bond is T-206 M-3's change, not this test's point.
 
         // Liveness is intact: the escalation defaults after appealDecideSec and the buyer is refunded.
         vm.warp(block.timestamp + t.timing.appealDecideSec);
         uint256 b0 = usdc.balanceOf(buyer);
         rules.triggerDefault(t);
         assertEq(usdc.balanceOf(buyer), b0 + PRICE + FEE);
-        assertEq(bonds.encumberedOf(appealAdj, address(usdc)), 0);
     }
 
     /// Without the canonical Multicall3 code (the unit fixture's default, and PA-I4's local world), a wrapped

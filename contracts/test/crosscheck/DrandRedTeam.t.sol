@@ -186,10 +186,6 @@ contract DrandRedTeamTest is Base {
         harness = new BeaconHarness();
         filer = new SeedGatedFiler();
         rules = new HoldbackRules(escrow, address(collector3009), address(collectorPermit2), MARGIN, drand);
-        bonds = rules.BONDS();
-        _bond(adjudicator, BOND);
-        _bond(fallbackAdj, BOND);
-        _bond(appealAdj, BOND);
     }
 
     // ------------------------------------------------------------ helpers

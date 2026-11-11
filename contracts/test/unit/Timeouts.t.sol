@@ -33,7 +33,6 @@ contract TimeoutsTest is Base {
         rules.reclaim(t);
         assertEq(usdc.balanceOf(buyer), b0 + PRICE + FEE);
         assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Refunded));
-        assertEq(bonds.encumberedOf(adjudicator, address(usdc)), 0);
         vm.expectRevert(abi.encodeWithSelector(HoldbackRules.WrongStage.selector, HoldbackRules.Stage.Refunded));
         rules.reclaim(t);
     }
@@ -55,7 +54,6 @@ contract TimeoutsTest is Base {
         vm.prank(anyone);
         rules.triggerFallback(t);
         assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.FallbackJudging));
-        assertEq(bonds.encumberedOf(fallbackAdj, address(usdc)), 0, "reserved only when the fallback decides");
     }
 
     function test_default_fromFallbackJudging_inOneCall() public {
@@ -71,8 +69,6 @@ contract TimeoutsTest is Base {
         rules.triggerDefault(t);
         assertEq(usdc.balanceOf(buyer), b0 + PRICE + FEE);
         assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Refunded));
-        assertEq(bonds.encumberedOf(adjudicator, address(usdc)), 0);
-        assertEq(bonds.encumberedOf(fallbackAdj, address(usdc)), 0);
     }
 
     function test_default_afterEscalation() public {
@@ -86,7 +82,6 @@ contract TimeoutsTest is Base {
         rules.triggerDefault(t);
         assertEq(uint8(_stage(id)), uint8(HoldbackRules.Stage.Refunded));
         assertEq(_held(t), 0);
-        assertEq(bonds.encumberedOf(appealAdj, address(usdc)), 0);
     }
 
     function test_default_refusedWhileThePrimaryStillHasItsTurn() public {

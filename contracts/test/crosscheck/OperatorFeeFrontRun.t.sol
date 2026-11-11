@@ -28,7 +28,6 @@ contract OperatorFeeFrontRunTest is Base {
         super.setUp();
         usdc = MockERC3009Token(address(new LocalUSDC())); // Base's handle; LocalUSDC has the mock's interface
         usdc.mint(buyer, 1_000_000_000);
-        _bond(adjudicator, BOND);
         mc = new LocalMulticall3();
         operatorFeeTo = makeAddr("operator fee");
     }
