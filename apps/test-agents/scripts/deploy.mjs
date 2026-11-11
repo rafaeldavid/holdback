@@ -10,7 +10,7 @@
 //      (degraded fails at once), then /agent.json until it answers 200 with JSON;
 //   5. when the upload is refused or a check fails, roll back if the live version changed, and exit 1;
 //   6. print one Markdown record line for docs/operations.md.
-// Arguments go to `wrangler deploy` as they are. With --dry-run wrangler bundles without an upload, and steps 1, 2
+// It takes --dry-run or no argument, and refuses anything else. With --dry-run wrangler bundles without an upload, and steps 1, 2
 // and 4 to 6 do not run. The secret TEST_AGENTS_SEED is set once, by scripts/seed.mjs (docs/operations.md, "Crow's test
 // seller"); a Worker that was never deployed has no live version, so its first upload is `wrangler deploy` by hand.
 import { fileURLToPath } from 'node:url';

@@ -264,10 +264,12 @@ describe("the test seller's deploy", () => {
     expect(r.record).toContain("FAIL, crow-test-agents's upload was refused.**");
   });
 
-  it('passes its other arguments on to wrangler deploy', async () => {
-    const r = await run({ args: ['--minify'] });
-    expect(r.code).toBe(0);
-    expect(r.wrangler).toEqual([STATUS, `${UPLOAD} --minify`]);
+  it('takes --dry-run or nothing: any other argument is refused before wrangler runs, so none can skip the checks', async () => {
+    for (const args of [['--minify'], ['--dry-run', '--no-dry-run'], ['--name', 'other-worker'], ['--dry-run', '--dry-run']]) {
+      const r = await run({ args });
+      expect(r.code).toBe(2);
+      expect(r.wrangler).toEqual([]);
+    }
   });
 
   it('keeps --dry-run as it was: wrangler bundles, and nothing is read, checked or recorded', async () => {
