@@ -56,15 +56,18 @@ body { background: var(--paper); color: var(--ink); font-family: "EB Garamond", 
 .claim, .props, .foot { margin-top: auto; }
 /* the brand: the bird stands on its name, and the tagline is its caption */
 .brand { display: flex; flex-direction: column; align-items: center; }
+picture { display: contents; }
 .bird { height: var(--bird); width: auto; display: block; mix-blend-mode: multiply; }
 .mark { margin-top: calc(var(--bird) * -0.13); font-size: calc(var(--bird) * 0.43); font-weight: 500; letter-spacing: -0.01em; line-height: 1; }
 .tag { margin-top: 6px; font-size: var(--t-text); line-height: 1.4; font-style: italic; color: var(--ink-2); text-wrap: balance; }
-/* the claim: both phrases share one grid cell, so the slot is always as wide as "Buy from" and right-aligned, and "any agent." never moves */
+/* the claim: only the phrase on show takes room, so "Sell to any agent." and "Buy from any agent." are each centred
+   under the brand. The other phrase waits at the slot's right edge, and the line glides when they swap. */
 .claim { padding-top: 24px; display: flex; flex-direction: column; align-items: center; }
 h1 { font-size: var(--t-claim); font-weight: 500; line-height: 1.15; letter-spacing: -0.005em; }
-.verb { display: inline-grid; text-align: right; }
-.verb .v { grid-area: 1/1; opacity: 0; transform: translateY(.18em); transition: opacity .35s ease, transform .35s ease; }
-.verb .v.on { opacity: 1; transform: none; }
+.line { display: inline-block; white-space: nowrap; transition: transform .45s ease; }
+.verb { position: relative; display: inline-block; }
+.verb .v { position: absolute; right: 0; top: 0; opacity: 0; transform: translateY(.18em); transition: opacity .35s ease, transform .35s ease; }
+.verb .v.on { position: static; display: inline-block; opacity: 1; transform: none; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .lede { margin-top: 8px; font-size: var(--t-lede); line-height: 1.4; color: var(--ink); max-width: 34em; text-wrap: balance; } /* no word alone on a last line */
 /* early access: an email box and a button, each 44 px tall */
@@ -92,7 +95,7 @@ input:focus-visible, button:focus-visible, a:focus-visible { outline: 2px solid 
 .dots button { width: 28px; height: 28px; padding: 0; border: 0; border-radius: 50%; background: transparent; cursor: pointer; display: grid; place-items: center; }
 .dots button::before { content: ""; width: 7px; height: 7px; border-radius: 50%; border: 1px solid var(--ink-2); transition: background .4s ease; }
 .dots button[aria-current]::before { background: var(--ink-2); }
-@media (prefers-reduced-motion: reduce) { .verb .v, .prop, .prop.on, .dots button::before { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .line, .verb .v, .prop, .prop.on, .dots button::before { transition: none; } }
 /* the footer, read last, then one quiet line for agents: the Try prompt and the agent docs */
 .foot { padding-top: 20px; font-size: var(--t-foot); line-height: 1.5; font-style: italic; color: var(--ink-3); }
 .foot a { color: inherit; text-underline-offset: 2px; }
@@ -120,15 +123,19 @@ input:focus-visible, button:focus-visible, a:focus-visible { outline: 2px solid 
 <div id="stream-s" class="stream" aria-hidden="true"></div>
 <main class="page">
 <header class="brand">
-<!-- Hooded crow: Archibald Thorburn, "A naturalist's sketch book" (1919), plate 18, public domain. -->
+<!-- Hooded crow: Archibald Thorburn, "A naturalist's sketch book" (1919), plate 18, public domain. Screens of 1.5× and
+     up get the same frame of the plate at 960 px, sharpened; the plate holds the crow at 741 px. -->
+<picture>
+<source type="image/webp" media="(min-resolution: 1.5dppx), (-webkit-min-device-pixel-ratio: 1.5)" srcset="/crow-2x.webp">
 <img class="bird" src="/crow.png" alt="Pencil study of a hooded crow" width="640" height="406">
+</picture>
 <div class="mark">’crow</div>
 <p class="tag">Verifiable settlement for AI commerce</p>
 </header>
 <section class="claim">
 <h1>
 <span class="sr">Sell to or buy from any agent.</span>
-<span aria-hidden="true"><span class="verb"><span class="v on">Sell to</span><span class="v">Buy from</span></span> any agent.</span>
+<span class="line" aria-hidden="true"><span class="verb"><span class="v on">Sell to</span><span class="v">Buy from</span></span> any agent.</span>
 </h1>
 <p class="lede">One API to agree terms, lock payment, deliver and settle. No humans needed.</p>
 <form class="signup" id="join-form" novalidate aria-label="Request early access">
@@ -164,10 +171,19 @@ It needs Node 20 or later and npm. The full explanation is at https://crow.direc
 (function () {
   // The headline alternates "Sell to" and "Buy from" every 3.5 s and holds while hovered. It stays on "Sell to"
   // for a visitor who asks for reduced motion; screen readers read the whole sentence from the .sr line.
+  // Only the phrase on show takes room, so each sentence is centred under the brand. At a swap the line is set
+  // back where it stood, then let go, so it glides to its new centre in 0.45 s and nothing jumps.
   var still = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
-  var h = document.querySelector('h1'), v = h.querySelectorAll('.verb .v'), i = 0, t;
+  var h = document.querySelector('h1'), line = h.querySelector('.line'), slot = h.querySelector('.verb'), v = slot.querySelectorAll('.v'), i = 0, t;
+  var swap = function () {
+    var was = slot.getBoundingClientRect().right;
+    v[i].classList.remove('on'); i = 1 - i; v[i].classList.add('on');
+    line.style.transition = 'none'; line.style.transform = 'translateX(' + (was - slot.getBoundingClientRect().right) + 'px)';
+    line.getBoundingClientRect(); // the line now stands where it stood
+    line.style.transition = ''; line.style.transform = '';
+  };
   if (!still) {
-    var start = function () { clearInterval(t); t = setInterval(function () { v[i].classList.remove('on'); i = 1 - i; v[i].classList.add('on'); }, 3500); };
+    var start = function () { clearInterval(t); t = setInterval(swap, 3500); };
     h.addEventListener('mouseenter', function () { clearInterval(t); });
     h.addEventListener('mouseleave', start);
     start();

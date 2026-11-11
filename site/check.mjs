@@ -53,7 +53,7 @@ expect(mdLinks.some((u) => u.host === 'github.com' && u.pathname === '/rafaeldav
 // The landing page (Rafa's mock, D56, in the layout of 2026-11-11): the brand (the bird, the mark, the tagline), the
 // claim (the headline, the lede, early access), the six value props, each with a study and a dot, then the footer:
 // one quiet line with the Try prompt and the agent docs.
-expect(!/\{\{/.test(html) && /<header class="brand">[\s\S]*?<img class="bird" src="\/crow\.png"[^>]*>\s*<div class="mark">[^<]+<\/div>\s*<p class="tag">[^<]+<\/p>\s*<\/header>\s*<section class="claim">\s*<h1>\s*<span class="sr">[^<]+<\/span>[\s\S]*?<\/h1>\s*<p class="lede">[^<]+<\/p>\s*<form class="signup" id="join-form"[\s\S]*?<\/form>\s*<\/section>\s*<section class="props"[^>]*>\s*<div class="stage">(\s*<div class="prop[^>]*><svg class="study"[\s\S]*?<\/svg><h2>[\s\S]*?<\/h2><p>[^<]+<\/p><\/div>){6}\s*<\/div>\s*<div class="dots"[^>]*>(<button type="button" aria-label="[^"]+"[^>]*><\/button>){6}<\/div>\s*<\/section>\s*<footer class="foot">\s*<p>[^<]+<\/p>\s*<p>[\s\S]*?<a href="\/llms\.txt">[^<]+<\/a><\/p>[\s\S]*<\/footer>\s*<\/main>/.test(html), 'index.html must be the brand, the claim with early access, six value props each with a study and a dot, the footer and the agent docs link');
+expect(!/\{\{/.test(html) && /<header class="brand">[\s\S]*?<img class="bird" src="\/crow\.png"[^>]*>\s*<\/picture>\s*<div class="mark">[^<]+<\/div>\s*<p class="tag">[^<]+<\/p>\s*<\/header>\s*<section class="claim">\s*<h1>\s*<span class="sr">[^<]+<\/span>[\s\S]*?<\/h1>\s*<p class="lede">[^<]+<\/p>\s*<form class="signup" id="join-form"[\s\S]*?<\/form>\s*<\/section>\s*<section class="props"[^>]*>\s*<div class="stage">(\s*<div class="prop[^>]*><svg class="study"[\s\S]*?<\/svg><h2>[\s\S]*?<\/h2><p>[^<]+<\/p><\/div>){6}\s*<\/div>\s*<div class="dots"[^>]*>(<button type="button" aria-label="[^"]+"[^>]*><\/button>){6}<\/div>\s*<\/section>\s*<footer class="foot">\s*<p>[^<]+<\/p>\s*<p>[\s\S]*?<a href="\/llms\.txt">[^<]+<\/a><\/p>[\s\S]*<\/footer>\s*<\/main>/.test(html), 'index.html must be the brand, the claim with early access, six value props each with a study and a dot, the footer and the agent docs link');
 expect(!/%%|CONFIRM/.test(html) && !/^%% /m.test(strip(md)), 'an editor note reached index.html');
 expect(!/127\.0\.0\.1|localhost/.test(md + html), 'a local address is in the site');
 const sample = { op1: 'https://op1.example.workers.dev', op2: 'https://op2.example.workers.dev' };
@@ -79,7 +79,7 @@ expect(refused === /^%% CONFIRM/m.test(md), 'a filled build must refuse exactly 
 
 // 3. Links.
 const ids = new Set([...html.matchAll(/ id="([^"]+)"/g)].map((m) => m[1]));
-for (const [, url] of html.matchAll(/(?:href|src)="([^"]*)"/g)) {
+for (const [, url] of html.matchAll(/(?:href|src|srcset)="([^"]*)"/g)) {
   if (url.startsWith('https://')) continue;
   if (url.startsWith('#')) {
     expect(ids.has(url.slice(1)), `anchor ${url} has no target`);
