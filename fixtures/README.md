@@ -68,6 +68,7 @@ Step kinds: `offer`, `adjudicator_accept`, `agree_and_fund`, `deliver`, `advance
 | `clubs/data-services-v1.yaml` | Data Services Club, open rulebook v1 (guaranteed mode only, one submission, payouts to any address) |
 | `terms/clean-customers-2000.yaml` | The $2,000 dataset-cleaning job: nine deterministic checks and a three-criterion rubric (demo beats 1–5) |
 | `terms/clean-customers-2000-checks-only.yaml` | The same job without the `hidden` check and with an empty rubric, for the ADR-0021 half of beat 6 |
+| `terms/audit-report.yaml` | The audit-report template (T-317): a security review delivered as one JSON findings report, checks-only. The `audit-report-*` scenarios deliver the hand-written reports in `data/audit-report/` |
 
 ## Example
 

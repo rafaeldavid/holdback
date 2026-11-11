@@ -13,7 +13,7 @@ import { LiveChain, type DeploymentFile } from '@holdback/settlement/live';
 import { encodePublicKey, generateEncryptionKeyPair } from '@holdback/core/crypto';
 import { MemoryFeedbackStore, signRegistration, testAccount, type StoredRegistration, type TestAccount } from '@holdback/operator';
 import { MemoryStorage, PublicWorld, type PublicWorldOptions } from './index.js';
-import { BondReads, TimeoutBudgetRows } from './world.js';
+import { BondReads, DEMO_FAUCET_MAX_GRANT, TimeoutBudgetRows } from './world.js';
 
 type J = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -74,6 +74,44 @@ describe('public mode', () => {
     const both = await Promise.all([post(`${urls[0]}/v1/faucet`, { address: a.address }, 'k-race-1'), post(`${urls[1]}/v1/faucet`, { address: a.address }, 'k-race-2')]);
     expect(both.map((r) => r.status).sort()).toEqual([200, 429]);
     expect(((await (await fetch(`${urls[0]}/v1/balances/${a.address}`)).json()) as J).amount).toBe('1000000000');
+  });
+
+  it('grants the amount a request names, up to the cap discovery states: a fresh buyer funds a 2,000 tUSD deal, fees included (T-314)', async () => {
+    // The live demo's operator fee is 4.71 tUSDC a deal; with the 1.00 tUSD adjudication fee a 2,000 tUSD deal costs 2,005.71 tUSD.
+    const { urls } = await serve({ env: { OPERATOR_FEE_BPS: '1', OPERATOR_FEE_MIN: '4710000' } });
+    const d = await discovery(urls);
+    const cap = DEMO_FAUCET_MAX_GRANT.toString();
+    expect(d.demo.faucet).toEqual({ path: '/v1/faucet', grant: { token: 'tUSD', amount: '1000000000' }, maxGrant: { token: 'tUSD', amount: cap }, perAddressEverySec: 3600, perClientPerWindow: 10 });
+    expect(d.notes.join('\n')).toMatch(/"amount"/);
+    const [buyer, seller] = [freshAgent(urls), freshAgent(urls)];
+    // Above the cap: refused by name, nothing granted, and the address keeps its turn in the window.
+    const over = await post(`${urls[0]}/v1/faucet`, { address: buyer.address, amount: (DEMO_FAUCET_MAX_GRANT + 1n).toString() }, 'k-over');
+    const refusal = (await over.json()) as J;
+    expect([over.status, refusal.type, refusal.field]).toEqual([400, 'invalid_terms', 'amount']);
+    expect(refusal.detail).toContain(cap);
+    expect(((await (await fetch(`${urls[0]}/v1/balances/${buyer.address}`)).json()) as J).amount).toBe('0');
+    const total = 2_005_710_000n;
+    const granted = await buyer.call('POST', '/v1/faucet', { address: buyer.address, amount: total.toString() });
+    expect(granted).toMatchObject({ granted: { token: 'tUSD', amount: total.toString() }, balance: { token: 'tUSD', amount: total.toString() } });
+    // The window holds whatever the amount: a second ask waits.
+    const again = await post(`${urls[1]}/v1/faucet`, { address: buyer.address, amount: '1' }, 'k-again');
+    expect([again.status, ((await again.json()) as J).type]).toEqual([429, 'rate_limited']);
+    // The cap itself is granted.
+    expect((await seller.call('POST', '/v1/faucet', { address: seller.address, amount: cap })).balance.amount).toBe(cap);
+    const offer = await seller.offer(offerRequest(d, seller, buyer, { price: { token: 'tUSD', amount: '2000000000' } }));
+    await buyer.waitFor(offer.id, ['AcceptedByAdjudicator']);
+    expect((await buyer.agreeAndFund(offer.terms, total)).escrowState).toBe('Held');
+    expect((await buyer.call('GET', `/v1/balances/${buyer.address}`)).amount).toBe('0');
+  });
+
+  it('states the faucet cap in the agent docs as the code has it (T-314)', () => {
+    const cap = `${(DEMO_FAUCET_MAX_GRANT / 1_000_000n).toLocaleString('en-US')} tUSDC`;
+    expect(cap).toBe('1,000,000 tUSDC');
+    for (const file of ['site/llms.txt', 'docs/api.md']) {
+      const text = readFileSync(new URL(`../../../${file}`, import.meta.url), 'utf8');
+      const faucet = text.split('\n').filter((line) => /faucet/i.test(line) && line.includes('maxGrant'));
+      expect(faucet.some((line) => line.includes(cap)), `${file} states the faucet cap of ${cap} beside maxGrant`).toBe(true);
+    }
   });
 
   it('renews the mandate on every grant: past its 30 days or close to them, the address gets a fresh one in place of the old', async () => {

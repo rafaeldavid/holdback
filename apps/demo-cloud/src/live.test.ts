@@ -62,6 +62,12 @@ describe.skipIf(!ready)(`the public world on a live chain (anvil for Sepolia)${r
 
       id = /commitment (0x[0-9a-f]{64}) Released/.exec(run.out)![1]! as Hex;
       const evm = world.chain as EvmSettlement;
+      // T-314: the faucet mints the amount a request names: a 2,000 tUSDC deal's price and fees, to a fresh address.
+      const fresh = privateKeyToAccount(keccak256(stringToBytes('t-314 fresh buyer'))).address.toLowerCase();
+      const asked = await fetch(`${demo.urls[0]}/v1/faucet`, { method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': 't-314' }, body: JSON.stringify({ address: fresh, amount: '2005710000' }) });
+      const grant = (await asked.json()) as J;
+      expect([asked.status, grant.granted?.amount, grant.balance?.amount]).toEqual([200, '2005710000', '2005710000']);
+      expect(grant.notice).toMatch(/minted in 0x[0-9a-f]{64}/);
       expect((await evm.stage(id as `0x${string}`)).stage).toBe('Released');
       // The money moved on chain: the seller holds the price, the hold is empty.
       expect(await evm.heldFor(id as `0x${string}`)).toBe(0n);
