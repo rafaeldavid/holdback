@@ -501,6 +501,7 @@ function workAt(s: EscrowState, ours: (address: string) => boolean, now: number)
 export class PublicWorld {
   private persisted: number;
   private persisting: Promise<void> = Promise.resolve();
+  private failed = false;
   private lastActive = -Infinity;
   /** Adjudicator passes in a row that changed nothing. */
   private idlePasses = 0;
@@ -843,6 +844,16 @@ export class PublicWorld {
   }
 
   /**
+   * True once storage rejected a write (T-313). Memory then holds changes storage does not, and a chain world has
+   * handed over rows it cannot write again: a later write would leave a gap in the stored event log, which no restart
+   * can open (measured on anvil). So every later request and pass fails, and only a world opened anew from storage is
+   * safe to serve; the Durable Object drops a broken world for that (worker.ts).
+   */
+  get broken(): boolean {
+    return this.failed;
+  }
+
+  /**
    * True while adjudicator passes run: these adjudicators have a step to take now (or a chain world's setup is left),
    * and settlement moved, or the world woke with that step to take, in the last 15 minutes.
    */
@@ -919,10 +930,11 @@ export class PublicWorld {
 
   /**
    * Writes what is not yet in storage. SimChain: the journal entries. A chain world: each changed book in its row,
-   * new events and mandates into their pages. Serialized, so entries land once and in order.
+   * new events and mandates into their pages. Serialized, so entries land once and in order. After a rejected write
+   * every later call rejects with the same error and writes nothing: the world is `broken`.
    */
   private persist(): Promise<void> {
-    this.persisting = this.persisting.then(async () => {
+    const attempt = this.persisting.then(async () => {
       if (this.live) {
         const { books, events, mandates, relayed } = this.live.evm.drain();
         for (let i = 0; i < books.length; i += 100) await this.telemetry.storage.put(Object.fromEntries(books.slice(i, i + 100).map(([id, b]) => [`b:${id}`, b])));
@@ -939,6 +951,13 @@ export class PublicWorld {
         await this.telemetry.storage.put(Object.fromEntries(batch.map((e, j) => [jkey(this.persisted + i + j), e])));
       }
       this.persisted += fresh.length;
+    });
+    this.persisting = attempt.catch((e: unknown) => {
+      if (!this.failed) {
+        this.failed = true;
+        this.o.onError?.(new Error(`a storage write failed, so this world answers nothing more until it is reopened from storage: ${(e as Error).message}`));
+      }
+      throw e;
     });
     return this.persisting;
   }
@@ -1024,6 +1043,8 @@ export class PublicWorld {
 
   /** One adjudicator pass (the Durable Object alarm): accept or decline offers, trigger fallbacks, decide; on a chain, then send due timeouts. */
   async work(): Promise<void> {
+    // A broken world takes no new work: the stored write failure, before an adjudicator acts or a transaction goes out.
+    if (this.failed) await this.persisting;
     this.telemetry.invoked();
     this.tick();
     if (this.live) {
@@ -1115,6 +1136,8 @@ export class PublicWorld {
   }
 
   async fetch(request: Request, via: Via): Promise<Response> {
+    // A broken world takes no new work: the stored write failure, before a handler runs or relays.
+    if (this.failed) await this.persisting;
     this.telemetry.invoked();
     this.tick();
     const op = this.operators[via.node]!;

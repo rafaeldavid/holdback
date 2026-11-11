@@ -171,23 +171,37 @@ export class World {
     // The Worker in front always names its settlement; without one this object opens no world, not the SimChain one.
     const asked = settlementOf(request.headers.get(SETTLEMENT));
     if (!asked) return unconfigured(request.headers.has(SETTLEMENT));
-    const world = await this.open(asked);
+    const opened = this.open(asked);
+    const world = await opened;
     const via: Via = { node: request.headers.get(NODE) === '1' ? 1 : 0, origin: request.headers.get(ORIGIN) ?? new URL(request.url).origin, client: request.headers.get(CLIENT) ?? 'unknown' };
     const headers = new Headers(request.headers);
     for (const h of [NODE, ORIGIN, CLIENT, SETTLEMENT]) headers.delete(h);
-    const response = await world.fetch(new Request(request, { headers }), via);
+    const response = await world.fetch(new Request(request, { headers }), via).finally(() => this.retire(opened, world));
     await this.schedule(world);
     return response;
   }
 
   /**
    * One adjudicator pass (or a chain world's setup step), then the next alarm if a case still awaits the adjudicators
-   * or setup is left; telemetry flushes on the same pass.
+   * or setup is left; telemetry flushes on the same pass. A pass that breaks the world throws, so the runtime retries
+   * the alarm, and the retry opens a fresh world.
    */
   async alarm(): Promise<void> {
-    const world = await this.open();
-    await world.work();
+    const opened = this.open();
+    const world = await opened;
+    await world.work().finally(() => this.retire(opened, world));
     await this.schedule(world);
+  }
+
+  /**
+   * Drops a world whose storage write was rejected (world.ts, `broken`), and its flush timer, so the next request or
+   * alarm opens a fresh world from storage, as after a restart (T-313). The call that hit the failure still fails.
+   */
+  private retire(opened: Promise<PublicWorld>, world: PublicWorld): void {
+    if (!world.broken || this.world !== opened) return;
+    this.world = undefined;
+    clearTimeout(this.flushTimer);
+    this.flushTimer = undefined;
   }
 }
 
