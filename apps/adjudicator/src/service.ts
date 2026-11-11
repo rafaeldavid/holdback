@@ -196,34 +196,54 @@ export class Adjudicator {
         report.refused.push({ commitmentId: id, problem: problem('adjudicator_unavailable', `appeal expiry failed (${String((e as Error).message).slice(0, 120)}); retrying on the next pass`) });
       }
     }
+    // T-347: each offer, takeover and task is its own unit. One that throws (a store read, a relay, a registration) is
+    // reported as refused and retried on the next pass; it never ends the pass for the other deals.
     for (const offer of await port.offers(this.address)) {
-      const r = await this.#accept(offer.commitment);
-      if (r.ok) report.accepted.push(offer.commitment.id);
-      else report.declined.push({ commitmentId: offer.commitment.id, reason: r.error.detail });
+      try {
+        const r = await this.#accept(offer.commitment);
+        if (r.ok) report.accepted.push(offer.commitment.id);
+        else report.declined.push({ commitmentId: offer.commitment.id, reason: r.error.detail });
+      } catch (e) {
+        // Refused, not declined: a caller may publish a decline as final (T-347 red team M1), and this is retried.
+        report.refused.push({ commitmentId: offer.commitment.id, problem: passProblem('the acceptance', e) });
+      }
     }
     for (const c of await port.takeoversDue(this.address)) {
-      // T-211: it does not trigger a takeover it would decline. Anyone still may; the deal then defaults at fallbackBy.
-      // T-221 review: that includes a registry, a bound policy or a panel it cannot run.
-      const declined =
-        this.#termsMismatch(c) ?? (await this.#turnProblem(c, 'fallback', { consented: c.adjudication.adjudicator.toLowerCase() === this.address, cover: true })) ?? (await this.#runnable(c, 'fallback'));
-      if (declined) report.refused.push({ commitmentId: c.id, problem: declined });
-      else if ((await port.triggerFallback(c.id)).ok) report.triggered.push(c.id);
+      try {
+        // T-211: it does not trigger a takeover it would decline. Anyone still may; the deal then defaults at fallbackBy.
+        // T-221 review: that includes a registry, a bound policy or a panel it cannot run.
+        const declined =
+          this.#termsMismatch(c) ?? (await this.#turnProblem(c, 'fallback', { consented: c.adjudication.adjudicator.toLowerCase() === this.address, cover: true })) ?? (await this.#runnable(c, 'fallback'));
+        if (declined) report.refused.push({ commitmentId: c.id, problem: declined });
+        else if ((await port.triggerFallback(c.id)).ok) report.triggered.push(c.id);
+      } catch (e) {
+        report.refused.push({ commitmentId: c.id, problem: passProblem('the takeover', e) });
+      }
     }
     for (const task of await port.tasks(this.address)) {
-      const r = await this.decideTask(task);
-      if (!r.ok) {
-        report.refused.push({ commitmentId: task.commitment.id, problem: r.error });
-        continue;
+      try {
+        await this.#runTask(task, report);
+      } catch (e) {
+        // decideTask keeps a judged record the moment the panel returns, so a retry never asks the judges again.
+        report.refused.push({ commitmentId: task.commitment.id, problem: passProblem(`the ${task.role} turn`, e) });
       }
-      if (!r.value.decision) {
-        report.undecided.push(task.commitment.id);
-        continue;
-      }
-      const sent = await port.submit(r.value.decision);
-      if (sent.ok) report.decided.push({ commitmentId: task.commitment.id, role: task.role, outcome: r.value.decision.outcome });
-      else report.refused.push({ commitmentId: task.commitment.id, problem: sent.error });
     }
     return report;
+  }
+
+  async #runTask(task: DecisionTask, report: RunReport): Promise<void> {
+    const r = await this.decideTask(task);
+    if (!r.ok) {
+      report.refused.push({ commitmentId: task.commitment.id, problem: r.error });
+      return;
+    }
+    if (!r.value.decision) {
+      report.undecided.push(task.commitment.id);
+      return;
+    }
+    const sent = await this.#cfg.settlement.submit(r.value.decision);
+    if (sent.ok) report.decided.push({ commitmentId: task.commitment.id, role: task.role, outcome: r.value.decision.outcome });
+    else report.refused.push({ commitmentId: task.commitment.id, problem: sent.error });
   }
 
   async #accept(c: DecisionTask['commitment']): Promise<Result<AdjudicatorAcceptance, Problem>> {
@@ -538,7 +558,17 @@ export class Adjudicator {
     const id = commitment.id;
     const { policy, seed, beacon } = pre;
     let contentKey: ContentKey | undefined;
-    const ciphertext = await this.#cfg.settlement.ciphertext(task.delivery.ciphertext.uri);
+    // T-347: a ciphertext no store returns follows the rule for one that does not match its delivery (mapIntakeError).
+    // The seller may never have uploaded it, or the store lost or withholds it, and this service cannot tell which.
+    // So it does not judge, publishes and signs nothing, and retries on each pass: bytes that arrive before the deadline
+    // are judged as usual, and if they never come the fallback and then the default outcome follow, as for a withheld
+    // reference (T-327). Read before any judge is called.
+    let ciphertext: Uint8Array;
+    try {
+      ciphertext = await this.#cfg.settlement.ciphertext(task.delivery.ciphertext.uri);
+    } catch {
+      return err(problem('adjudicator_unavailable', `${unreadableCiphertext(task.delivery.ciphertext)}; not judged, retrying on each pass (no record). If no store returns it by ${task.deadline}, this turn passes to the fallback or the default outcome by the terms`));
+    }
     const intaken = await intake({
       delivery: { ...task.delivery, encryptedKeys: [pre.envelope] },
       ciphertext,
@@ -681,10 +711,30 @@ export class Adjudicator {
 }
 
 /**
+ * What names a delivery's ciphertext the store did not return (T-347): the URI and SHA-256 the seller signed, so a party
+ * can show which bytes were missing. Both come from the seller, so the URI is cut short and the hash is named only in
+ * its own form; the store's error text stays out, since it can carry a keyed URL (red team L5).
+ */
+export function unreadableCiphertext(ct: { uri: string; sha256: string }): string {
+  const hash = /^sha256:[0-9a-f]{64}$/.test(ct.sha256) ? ct.sha256 : 'a malformed SHA-256';
+  return `the delivery's ciphertext ${ct.uri.slice(0, 200)} (${hash}) was not returned by this adjudicator's store`;
+}
+
+/**
+ * One deal's failure in a pass, reported as refused so the pass goes on for the other deals (T-347). Only the error's
+ * class is named: a relay's message can carry a keyed RPC URL, and callers may log or publish the detail (red team M1).
+ */
+function passProblem(what: string, e: unknown): Problem {
+  const kind = e instanceof Error ? e.name.slice(0, 40) : typeof e;
+  return problem('adjudicator_unavailable', `${what} threw (${kind}); retrying on the next pass`);
+}
+
+/**
  * Intake failures. The seller's faults reject without a panel. Everything else is
  * refused before any record is published: a key this adjudicator cannot open (the fallback takes over
  * at judgeBy, or the default applies) and a stored ciphertext that does not match the delivery (the
- * store, not the seller, may be at fault; retried).
+ * store, not the seller, may be at fault; retried). A ciphertext the store does not return at all is
+ * refused the same way, before intake (`#judge`, T-347).
  */
 export function mapIntakeError(e: IntakeError): Result<DecisionOutcome, Problem> {
   switch (e.code) {
