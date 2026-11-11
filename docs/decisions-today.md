@@ -998,3 +998,10 @@ The full text is kept privately (`docs/private-materials.md`).
 
 - **Litmus tests.** Neutrality: unchanged by items 1 to 3; item 4 narrows the fifth outcome of `docs/neutrality.md` to a split between the buyer and the seller, as ADR-0031 already recorded; item 5 puts the payout address in the terms every party signs, so no one party can redirect funds. The hold: unchanged; no answer moves funds differently from ADR-0031's record, a zero price keeps the branches the contract has today, and item 5's own ADR tests its design. Defended judgment: untouched.
 - **Research pass:** the planning session's read of the fee-slot path and of the zero-price branches, and T-342's read behind ADR-0031.
+
+**Amended 2026-11-11 (item 5, the buyer's side; Rafa may overrule).** What item 5 calls the buyer's refund address is a payment address.
+- **Why.** The vendored escrow returns held funds only to the address that funded the hold: its void and the buyer's own reclaim both pay the payer, and only the payer can reclaim (`AuthCaptureEscrow.sol:304-316`, `:323-340`). So phase one cannot refund a buyer at an address that did not pay.
+- **Rafa, on that explanation:** "Yes means the buyer gets a signing address and a payment address."
+- **Decided in principle.** The phase-one signed terms carry a payment address for the buyer, apart from the address that signs. It funds the hold and receives every refund. It may equal the signing address, and the tooling leaves the two equal by default.
+- **Not in phase one:** a refund to an address other than the one that paid. His rule: "If it Coinbase's code can't, then skip and make sure it's in the roadmap". It returns with the planned work on sending funds to a third address (item 4).
+- **Still to come:** the design, in the same ADR as the seller's payout address, with a schema version. ADR-0031's section 11 names it and designs nothing.
